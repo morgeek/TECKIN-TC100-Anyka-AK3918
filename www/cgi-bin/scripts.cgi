@@ -169,6 +169,11 @@ else
     done
   fi
   
-  script=$(cat /mnt/www/scripts/scripts.cgi.js)
-  echo "<script>$script</script>"
+  # Prefer external bundled/minified scripts to reduce server CPU and allow client caching
+  if [ -f /mnt/www/scripts/scripts.bundle.min.js ]; then
+    echo "<script src=\"/scripts/scripts.bundle.min.js\"></script>"
+  else
+    script=$(cat /mnt/www/scripts/scripts.cgi.js)
+    echo "<script>$script</script>"
+  fi
 fi
