@@ -1,0 +1,4 @@
+# Service trimming configuration
+# When enabled, only the allowlisted autostart scripts run at boot.
+SERVICE_TRIM=0
+SERVICE_TRIM_ALLOWLIST="00_system-config 02_system-webserver rtsp-h26x onvif"

@@ -266,6 +266,24 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/rtspserver.conf mdenabled 0
     ;;
 
+    service_trim_on)
+      install_config /mnt/config/service_trim.conf
+      rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
+      echo "Service trimming enabled. Non-essential services will stop; reboot for full effect.<br/>"
+
+      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection blue-led night-mode network-monitor; do
+        if [ -x "/mnt/controlscripts/$svc" ]; then
+          /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
+        fi
+      done
+    ;;
+
+    service_trim_off)
+      install_config /mnt/config/service_trim.conf
+      rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
+      echo "Service trimming disabled. Reboot to restore autostart services.<br/>"
+    ;;
+
     set_rtsp_preset)
       preset=$(printf '%b' "${F_preset}")
       case "$preset" in

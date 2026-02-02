@@ -13,6 +13,7 @@ mount -o bind /mnt/bin/busybox /bin/busybox
 
 install_config $CONFIGPATH/rtspserver.conf
 install_config $CONFIGPATH/boot.conf
+install_config $CONFIGPATH/service_trim.conf
 
 DEFAULT_LIGHTWEIGHT_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection blue-led"
 
@@ -48,6 +49,10 @@ load_boot_config()
     # shellcheck disable=SC1090
     if [ -f "$CONFIGPATH/boot.conf" ]; then
         . "$CONFIGPATH/boot.conf"
+    fi
+    # shellcheck disable=SC1090
+    if [ -f "$CONFIGPATH/service_trim.conf" ]; then
+        . "$CONFIGPATH/service_trim.conf"
     fi
 
     LIGHTWEIGHT_MODE="${LIGHTWEIGHT_MODE:-0}"
@@ -103,6 +108,13 @@ load_boot_config()
     : "${RTSP_AUDIO:=1}"
     : "${AUTOSTART_ALLOWLIST:=}"
     : "${AUTOSTART_DENYLIST:=}"
+    : "${SERVICE_TRIM:=0}"
+    : "${SERVICE_TRIM_ALLOWLIST:=00_system-config 02_system-webserver rtsp-h26x onvif}"
+
+    if is_truthy "$SERVICE_TRIM"; then
+        AUTOSTART_ALLOWLIST="$SERVICE_TRIM_ALLOWLIST"
+        AUTOSTART_DENYLIST=""
+    fi
 
     echo "Boot config: lightweight=$LIGHTWEIGHT_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
 }

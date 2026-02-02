@@ -69,6 +69,23 @@ $(document).ready(function() {
     event.preventDefault();
   });
 
+  var serviceTrim = $('#serviceTrim');
+  if (serviceTrim.length) {
+    serviceTrim.on('change', function() {
+      var url = serviceTrim.prop('checked')
+        ? 'cgi-bin/action.cgi?cmd=service_trim_on'
+        : 'cgi-bin/action.cgi?cmd=service_trim_off';
+      $.ajax({
+        type: 'GET',
+        url: url,
+        dataType: 'html',
+      }).done(function(res) {
+        showResult(res);
+        scheduleStatusReload(5000);
+      });
+    });
+  }
+
   $('#formRtspPreset').submit(function(event) {
     var b = $('#presetSubmit');
     b.toggleClass('is-loading');

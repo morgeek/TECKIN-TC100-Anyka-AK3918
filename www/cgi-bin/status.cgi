@@ -8,6 +8,13 @@ echo ""
 # source header.cgi
 . /mnt/scripts/common_functions.sh
 install_config /mnt/config/recording.conf
+install_config /mnt/config/service_trim.conf
+
+# shellcheck disable=SC1090
+if [ -f /mnt/config/service_trim.conf ]; then
+  . /mnt/config/service_trim.conf
+fi
+SERVICE_TRIM="${SERVICE_TRIM:-0}"
 
 IFS=" "
 set -- $(/mnt/bin/rwconf /mnt/config/recording.conf r " " rec_motion_activated " " rec_postrecord_sec " " rec_file_duration_sec " " rec_reserverd_disk_mb)
@@ -116,6 +123,19 @@ cat << EOF
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>System</p></header>
     <div class='card-content'>
+    <div class="field is-horizontal">
+        <div class="field-label is-normal">
+            <label class="label">Service trim</label>
+        </div>
+        <div class="field-body">
+            <div class="field">
+                <div class="control">
+                    <input class="switch" name="serviceTrim" id="serviceTrim" type="checkbox" $(if [ "$SERVICE_TRIM" -eq 1 > /dev/null 2>&1 ]; then echo "checked"; fi)>
+                    <label class="label" for="serviceTrim">RTSP + ONVIF only (reboot for full effect)</label>
+                </div>
+            </div>
+        </div>
+    </div>
     <form id="tzForm" action="cgi-bin/action.cgi?cmd=settz" method="post">
         <div class="field is-horizontal">
             <div class="field-label is-normal">
