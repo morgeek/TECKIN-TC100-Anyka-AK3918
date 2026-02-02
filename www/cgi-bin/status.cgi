@@ -1571,5 +1571,10 @@ cat << EOF
 -->
 
 EOF
-script=$(cat /mnt/www/scripts/status.cgi.js)
-echo "<script>$script</script>"
+# Prefer external bundled/minified script to reduce server CPU and allow client caching
+if [ -f /mnt/www/scripts/status.bundle.min.js ]; then
+  echo "<script src=\"/scripts/status.bundle.min.js\"></script>"
+else
+  script=$(cat /mnt/www/scripts/status.cgi.js)
+  echo "<script>$script</script>"
+fi
