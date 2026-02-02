@@ -59,6 +59,20 @@ $HTTP["url"] !~ "^/.well-known/(.*)" {
 server.errorlog             = "/var/log/lighttpd-error.log"
 server.upload-dirs          = ("/tmp/")
 
+# Security headers applied to all responses to harden the web UI and reduce attack surface
+setenv.add-response-header = (
+  "X-Content-Type-Options" => "nosniff",
+  "X-Frame-Options" => "SAMEORIGIN",
+  "Content-Security-Policy" => "default-src 'self' 'unsafe-inline'"
+)
+
+# Cache static assets (css/js/images) to reduce client/server CPU and I/O
+$HTTP["url"] =~ "\\.(css|js|png|jpg|jpeg|svg|gif)$" {
+  setenv.add-response-header = (
+    "Cache-Control" => "public, max-age=86400"
+  )
+}
+
 ## CGI (etc) stderr log
 server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
 

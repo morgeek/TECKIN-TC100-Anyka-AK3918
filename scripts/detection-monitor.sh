@@ -1,6 +1,7 @@
 #!/bin/sh
-MONITOR_TIMEOUT_SECONDS=1
-MONITOR_TIMEOUT_SECONDS_ON_DETECTION=5
+# Tuneable performance parameters: allow overrides via environment to reduce CPU usage
+MONITOR_TIMEOUT_SECONDS="${MONITOR_TIMEOUT_SECONDS:-3}"
+MONITOR_TIMEOUT_SECONDS_ON_DETECTION="${MONITOR_TIMEOUT_SECONDS_ON_DETECTION:-5}"
 
 monitor_motion_detection()
 {

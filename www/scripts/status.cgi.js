@@ -1,4 +1,16 @@
 $(document).ready(function() {
+  // Debounced status reload to avoid multiple rapid full-page reloads which increase CPU and network usage
+  var statusReloadScheduled = false;
+  function scheduleStatusReload(delay) {
+    delay = delay || 5000;
+    if (!statusReloadScheduled) {
+      statusReloadScheduled = true;
+      setTimeout(function() {
+        $('#content').load('cgi-bin/status.cgi');
+        statusReloadScheduled = false;
+      }, delay);
+    }
+  }
   $('#formResolution').submit(function(event) {
     var b = $('#resSubmit');
     b.toggleClass('is-loading');
@@ -51,10 +63,8 @@ $(document).ready(function() {
       b.prop('disabled', !b.prop('disabled'));
 
       showResult(res);
-      // reload after 2s
-      setTimeout(function() {
-        $('#content').load('cgi-bin/status.cgi');
-      }, 2000);
+      // schedule a debounced reload to reduce CPU and page churn
+      scheduleStatusReload(5000);
     });
     event.preventDefault();
   });
@@ -79,10 +89,8 @@ $(document).ready(function() {
       b.prop('disabled', !b.prop('disabled'));
 
       showResult(res);
-      // reload after 2s
-      setTimeout(function() {
-        $('#content').load('cgi-bin/status.cgi');
-      }, 2000);
+      // schedule a debounced reload to reduce CPU and page churn
+      scheduleStatusReload(5000);
     });
     event.preventDefault();
   });
@@ -105,10 +113,8 @@ $(document).ready(function() {
       b.prop('disabled', !b.prop('disabled'));
 
       showResult(res);
-      // reload after 2s
-      setTimeout(function() {
-        $('#content').load('cgi-bin/status.cgi');
-      }, 2000);
+      // schedule a debounced reload to reduce CPU and page churn
+      scheduleStatusReload(5000);
     });
     event.preventDefault();
   });
@@ -131,10 +137,8 @@ $(document).ready(function() {
       b.prop('disabled', !b.prop('disabled'));
 
       showResult(res);
-      // reload after 2s
-      setTimeout(function() {
-        $('#content').load('cgi-bin/status.cgi');
-      }, 2000);
+      // schedule a debounced reload to reduce CPU and page churn
+      scheduleStatusReload(5000);
     });
     event.preventDefault();
   });
@@ -157,10 +161,8 @@ $(document).ready(function() {
       b.prop('disabled', !b.prop('disabled'));
 
       showResult(res);
-      // reload after 2s
-      setTimeout(function() {
-        $('#content').load('cgi-bin/status.cgi');
-      }, 2000);
+      // schedule a debounced reload to reduce CPU and page churn
+      scheduleStatusReload(5000);
     });
     event.preventDefault();
   });
@@ -183,10 +185,8 @@ $(document).ready(function() {
       b.prop('disabled', !b.prop('disabled'));
 
       showResult(res);
-      // reload after 2s
-      setTimeout(function() {
-        $('#content').load('cgi-bin/status.cgi');
-      }, 2000);
+      // schedule a debounced reload to reduce CPU and page churn
+      scheduleStatusReload(5000);
     });
     event.preventDefault();
   });

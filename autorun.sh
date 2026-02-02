@@ -45,7 +45,21 @@ enable_hardware_watchdog()
 stop_cloud()
 {
     echo "Stopping cloud apps and configs" >> $LOGPATH
-    ps | awk '/[c]md_server/ {print $1}' | xargs kill -9 &>/dev/null
+    # Graceful stop of cloud server processes (avoid SIGKILL unless necessary)
+    pids="$(ps | awk '/[c]md_server/ {print $1}')"
+    if [ -n "$pids" ]; then
+        echo "Stopping cmd_server PIDs: $pids" >> $LOGPATH
+        for pid in $pids; do
+            kill "$pid" 2>/dev/null || true
+        done
+        sleep 3
+        for pid in $pids; do
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "Killing unresponsive PID $pid" >> $LOGPATH
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+        done
+    fi
 
     # Unmonut RAM disk
     /bin/umount /dev/loop0
