@@ -1,0 +1,62 @@
+# Boot-time performance settings
+# Set to 1 to enable lightweight defaults (lower CPU/RAM).
+LIGHTWEIGHT_MODE=0
+
+# Service toggles (1=enable, 0=disable)
+ENABLE_WATCHDOG=1
+ENABLE_NTP=1
+# If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
+NTP_ONE_SHOT=0
+ENABLE_CROND=1
+ENABLE_AUTOSTART=1
+
+# Web server mode: full (https + redirect), http (no TLS), off
+# Note: http mode uses Basic Auth without encryption.
+WEB_MODE=full
+
+# Low CPU profile (recommended for very low usage)
+# When enabled, the startup script applies conservative RTSP settings and
+# can disable substream/audio/OSD/motion/jpeg. These options are only
+# applied when LOW_CPU_PROFILE=1. To keep substream/audio, set the
+# corresponding LOW_CPU_DISABLE_* value to 0.
+LOW_CPU_PROFILE=0
+LOW_CPU_DISABLE_SUBSTREAM=1
+LOW_CPU_DISABLE_AUDIO=1
+LOW_CPU_DISABLE_MOTION=1
+LOW_CPU_DISABLE_OSD=1
+LOW_CPU_DISABLE_JPEG=1
+
+# Optional overrides for low CPU profile
+LOW_CPU_MAIN_WIDTH=640
+LOW_CPU_MAIN_HEIGHT=360
+LOW_CPU_MAIN_FPS=10
+LOW_CPU_MAIN_BPS=600
+LOW_CPU_MAIN_GOPLEN=30
+LOW_CPU_MAIN_MAXKBPS=800
+LOW_CPU_MAIN_TARGETKBPS=500
+
+LOW_CPU_SUB_WIDTH=320
+LOW_CPU_SUB_HEIGHT=180
+LOW_CPU_SUB_FPS=4
+LOW_CPU_SUB_BPS=150
+LOW_CPU_SUB_GOPLEN=16
+LOW_CPU_SUB_MAXKBPS=200
+LOW_CPU_SUB_TARGETKBPS=150
+
+# Autostart filtering:
+# - AUTOSTART_ALLOWLIST: if set, only these scripts will run.
+# - AUTOSTART_DENYLIST: if set, these scripts will be skipped.
+# Script names are files in /mnt/config/autostart (e.g. "rtsp-h26x").
+# In LIGHTWEIGHT_MODE, if both lists are unset, a default denylist is applied.
+AUTOSTART_ALLOWLIST=""
+AUTOSTART_DENYLIST=""
+
+# RTSP stream toggles (1=enable, 0=disable). Low CPU profile may
+# default these to 0 unless you set them explicitly.
+RTSP_SUBSTREAM=1
+RTSP_AUDIO=1
+
+# Example lightweight allowlist:
+# AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
+# Example lightweight denylist:
+# AUTOSTART_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection blue-led"

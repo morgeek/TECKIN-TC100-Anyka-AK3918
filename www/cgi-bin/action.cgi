@@ -266,6 +266,58 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/rtspserver.conf mdenabled 0
     ;;
 
+    set_rtsp_preset)
+      preset=$(printf '%b' "${F_preset}")
+      case "$preset" in
+        full)
+          width0=1280; height0=720; fps0=25; bps0=2000; gop0=50; maxkbps0=2500; targetkbps0=2000; smartq0=100; smartstatic0=550
+          width1=640;  height1=360; fps1=10; bps1=300;  gop1=20; maxkbps1=400;  targetkbps1=300;  smartq1=70;  smartstatic1=150
+          ;;
+        medium)
+          width0=1280; height0=720; fps0=20; bps0=1200; gop0=40; maxkbps0=1500; targetkbps0=1200; smartq0=80; smartstatic0=450
+          width1=320;  height1=180; fps1=8;  bps1=200;  gop1=16; maxkbps1=250;  targetkbps1=200;  smartq1=60; smartstatic1=120
+          ;;
+        low)
+          width0=640;  height0=360; fps0=10; bps0=600;  gop0=20; maxkbps0=800;  targetkbps0=600;  smartq0=60; smartstatic0=350
+          width1=320;  height1=180; fps1=5;  bps1=120;  gop1=10; maxkbps1=160;  targetkbps1=120;  smartq1=50; smartstatic1=100
+          ;;
+        *)
+          echo "Unknown preset '$preset'<br/>"
+          exit 0
+          ;;
+      esac
+
+      echo "RTSP preset applied: $preset (fps max 25)<br/>"
+
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          0 width        "$width0" \
+          0 height       "$height0" \
+          0 fps          "$fps0" \
+          0 bps          "$bps0" \
+          0 goplen       "$gop0" \
+          0 brmode       1 \
+          0 smartmode    1 \
+          0 smartgoplen  "$gop0" \
+          0 smartquality "$smartq0" \
+          0 smartstatic  "$smartstatic0" \
+          0 maxkbps      "$maxkbps0" \
+          0 targetkbps   "$targetkbps0" \
+          1 width        "$width1" \
+          1 height       "$height1" \
+          1 fps          "$fps1" \
+          1 bps          "$bps1" \
+          1 goplen       "$gop1" \
+          1 brmode       1 \
+          1 smartmode    1 \
+          1 smartgoplen  "$gop1" \
+          1 smartquality "$smartq1" \
+          1 smartstatic  "$smartstatic1" \
+          1 maxkbps      "$maxkbps1" \
+          1 targetkbps   "$targetkbps1"
+
+      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+    ;;
+
     set_video_size)
       wh0=${F_video_size0}
       width0="${wh0%x*}"

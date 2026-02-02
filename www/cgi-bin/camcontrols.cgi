@@ -39,8 +39,13 @@ if [ -n "$F_cmd" ]; then
       # Read enabled controls from config
       . "$ENABLED_CONTROLS_CONFIG" 2> /dev/null
 
-      jscript=$(cat /mnt/www/scripts/camcontrols.cgi.js)
-      echo "<script>$jscript</script>"
+      # Prefer external bundled/minified script to reduce server CPU and allow client caching
+      if [ -f /mnt/www/scripts/camcontrols.bundle.min.js ]; then
+        echo "<script src=\"/scripts/camcontrols.bundle.min.js\"></script>"
+      else
+        jscript=$(cat /mnt/www/scripts/camcontrols.cgi.js)
+        echo "<script>$jscript</script>"
+      fi
 
       echo "<div class='card status_card'> \
            <header class='card-header'><p class='card-header-title'>Enabled Camera Controls</p></header> \

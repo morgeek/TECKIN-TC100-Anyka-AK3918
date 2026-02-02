@@ -71,94 +71,43 @@
 </div>
 <a href="#" id="back-to-top" title="Back to top">&uarr;</a>
 <script type="text/javascript">
-    if ($('#back-to-top').length) {
-        var scrollTrigger = 100, // px
-            backToTop = function () {
-                var scrollTop = $(window).scrollTop();
-                if (scrollTop > scrollTrigger) {
-                    $('#back-to-top').addClass('show');
-                } else {
-                    $('#back-to-top').removeClass('show');
-                }
-            };
-        backToTop();
-        $(window).on('scroll', function () {
-            backToTop();
-        });
-        $('#back-to-top').on('click', function (e) {
-            e.preventDefault();
-            $('html,body').animate({
-                scrollTop: 0
-            }, 700);
-        });
-    }
-    $(document).ready(function() {
+(function(){
+  // Back to top handler
+  var back = document.getElementById('back-to-top');
+  if (back) {
+    var scrollTrigger = 100;
+    var backToTop = function(){
+      var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      if (scrollTop > scrollTrigger) back.classList.add('show'); else back.classList.remove('show');
+    };
+    backToTop();
+    window.addEventListener('scroll', backToTop);
+    back.addEventListener('click', function(e){ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); });
+  }
 
-                jQuery.fn.single_double_click = function(single_click_callback, double_click_callback, timeout) {
-                    return this.each(function() {
-                        var clicks = 0,
-                            self = this;
-                        jQuery(this).click(function(event) {
-                            clicks++;
-                            if (clicks == 1) {
-                                setTimeout(function() {
-                                    if (clicks == 1) {
-                                        single_click_callback.call(self, event);
-                                    } else {
-                                        double_click_callback.call(self, event);
-                                    }
-                                    clicks = 0;
-                                }, timeout || 300);
-                            }
-                        });
-                    });
-                }
-                $.ajax({
-                    'url': 'cgi-bin/action.cgi?cmd=showlog',
-                }).done(function(log) {
-                    $('#tab1').html(log);
+  // helper for single vs double click
+  function singleDoubleClick(el, single, dbl, timeout){ timeout = timeout || 300; var clicks=0, timer=null; el.addEventListener('click', function(evt){ clicks++; if (clicks===1){ timer=setTimeout(function(){ if(clicks===1) single.call(el,evt); else dbl.call(el,evt); clicks=0; }, timeout); } }); }
 
-                    $('#tabs li').single_double_click(function() {
-                        var tab = $(this).data('tab');
-                        var str = "logname=" + tab
-                        console.log("Print:"+str);
-                        $.ajax({
-                            'url': 'cgi-bin/action.cgi?cmd=showlog',
-                            'type': 'POST',
-                            'data': str
-                            //logname=$('#tab-content p').id
-                        }).done(function(log) {
-                            $('#tab-content p').html(log);
+  // load initial log content and wire tabs
+  fetch('cgi-bin/action.cgi?cmd=showlog').then(function(r){ return r.text(); }).then(function(log){ var tab1=document.getElementById('tab1'); if(tab1) tab1.innerHTML=log;
 
-                        });
-
-
-                        $('#tabs li').removeClass('is-active');
-                        $(this).addClass('is-active');
-
-                        $('#tab-content p').removeClass('is-active');
-                        $('p[data-content="' + tab + '"]').addClass('is-active');
-                    }, function() {
-                        var tab = $(this).data('tab');
-                        var str = "logname=" + tab
-                        console.log("Clear:"+str);
-                        $.ajax({
-                            'url': 'cgi-bin/action.cgi?cmd=clearlog',
-                            'type': 'POST',
-                            'data': str
-                            //logname=$('#tab-content p').id
-                        }).done(function(log) {
-                            $('#tab-content p').html(log);
-                        });
-
-
-                        $('#tabs li').removeClass('is-active');
-                        $(this).addClass('is-active');
-
-                        $('#tab-content p').removeClass('is-active');
-                        $('p[data-content="' + tab + '"]').addClass('is-active');
-
-                    });
-                });
+    var tabs = document.querySelectorAll('#tabs li'); tabs.forEach(function(li){
+      singleDoubleClick(li, function(){
+        var tab = li.getAttribute('data-tab'); var str = 'logname=' + tab;
+        fetch('cgi-bin/action.cgi?cmd=showlog', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: str}).then(function(r){ return r.text(); }).then(function(log){ document.querySelectorAll('#tab-content p').forEach(function(p){ p.innerHTML = log; }); });
+        document.querySelectorAll('#tabs li').forEach(function(x){ x.classList.remove('is-active'); });
+        li.classList.add('is-active');
+        document.querySelectorAll('#tab-content p').forEach(function(p){ p.classList.remove('is-active'); });
+        var target = document.querySelector('p[data-content="'+tab+'"]'); if(target) target.classList.add('is-active');
+      }, function(){
+        var tab = li.getAttribute('data-tab'); var str = 'logname=' + tab;
+        fetch('cgi-bin/action.cgi?cmd=clearlog', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: str}).then(function(r){ return r.text(); }).then(function(log){ document.querySelectorAll('#tab-content p').forEach(function(p){ p.innerHTML = log; }); });
+        document.querySelectorAll('#tabs li').forEach(function(x){ x.classList.remove('is-active'); });
+        li.classList.add('is-active');
+        document.querySelectorAll('#tab-content p').forEach(function(p){ p.classList.remove('is-active'); });
+        var target = document.querySelector('p[data-content="'+tab+'"]'); if(target) target.classList.add('is-active');
+      });
     });
+  });
+})();
 </script>

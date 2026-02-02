@@ -69,6 +69,29 @@ $(document).ready(function() {
     event.preventDefault();
   });
 
+  $('#formRtspPreset').submit(function(event) {
+    var b = $('#presetSubmit');
+    b.toggleClass('is-loading');
+    b.prop('disabled', !b.prop('disabled'));
+    var formData = {
+      'preset': $('select[name=preset]').val(),
+    };
+    $.ajax({
+      type: 'POST',
+      url: $('#formRtspPreset').attr('action'),
+      data: formData,
+      dataType: 'html',
+      encode: true
+    }).done(function(res) {
+      b.toggleClass('is-loading');
+      b.prop('disabled', !b.prop('disabled'));
+
+      showResult(res);
+      scheduleStatusReload(5000);
+    });
+    event.preventDefault();
+  });
+
   $('#tzForm').submit(function(event) {
     var b = $('#tzSubmit');
     b.toggleClass('is-loading');

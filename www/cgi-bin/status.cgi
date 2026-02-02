@@ -338,6 +338,32 @@ cat << EOF
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>Video Settings</p></header>
     <div class='card-content'>
+        <form id="formRtspPreset" action="cgi-bin/action.cgi?cmd=set_rtsp_preset" method="post">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">RTSP Preset</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select name="preset">
+                                    <option value="full">Full (fps max 25)</option>
+                                    <option value="medium">Medium (fps max 25)</option>
+                                    <option value="low">Low (fps max 25)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="presetSubmit" class="button is-primary" type="submit">Apply preset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+        <div class="is-divider" data-content="Advanced manual settings"></div>
         <form id="formResolution" action="cgi-bin/action.cgi?cmd=set_video_size" method="post">
                 <div class="field is-horizontal">
                     <div class="field-label is-normal">
