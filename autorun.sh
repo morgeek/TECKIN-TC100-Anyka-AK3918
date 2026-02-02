@@ -12,6 +12,9 @@ LOGPATH="$LOGDIR/startup.log"
 mount -o bind /mnt/bin/busybox /bin/busybox
 
 install_config $CONFIGPATH/rtspserver.conf
+install_config $CONFIGPATH/boot.conf
+
+DEFAULT_LIGHTWEIGHT_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection blue-led"
 
 init_log()
 {
@@ -20,8 +23,96 @@ init_log()
     fi
 }
 
+is_truthy()
+{
+    case "$1" in
+        1|true|yes|on|enable|enabled) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+list_contains()
+{
+    needle="$1"
+    shift
+    for item in $*; do
+        if [ "$item" = "$needle" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+load_boot_config()
+{
+    # shellcheck disable=SC1090
+    if [ -f "$CONFIGPATH/boot.conf" ]; then
+        . "$CONFIGPATH/boot.conf"
+    fi
+
+    LIGHTWEIGHT_MODE="${LIGHTWEIGHT_MODE:-0}"
+
+    if [ "$LIGHTWEIGHT_MODE" = "1" ]; then
+        : "${ENABLE_NTP:=0}"
+        : "${NTP_ONE_SHOT:=1}"
+        : "${ENABLE_CROND:=0}"
+        : "${LOW_CPU_PROFILE:=1}"
+        if [ -z "${AUTOSTART_ALLOWLIST+x}" ] && [ -z "${AUTOSTART_DENYLIST+x}" ]; then
+            AUTOSTART_DENYLIST="$DEFAULT_LIGHTWEIGHT_DENYLIST"
+        fi
+    fi
+
+    : "${LOW_CPU_PROFILE:=0}"
+    if is_truthy "$LOW_CPU_PROFILE"; then
+        : "${LOW_CPU_DISABLE_SUBSTREAM:=1}"
+        : "${LOW_CPU_DISABLE_AUDIO:=1}"
+        : "${LOW_CPU_DISABLE_MOTION:=1}"
+        : "${LOW_CPU_DISABLE_OSD:=1}"
+        : "${LOW_CPU_DISABLE_JPEG:=1}"
+
+        : "${LOW_CPU_MAIN_WIDTH:=640}"
+        : "${LOW_CPU_MAIN_HEIGHT:=360}"
+        : "${LOW_CPU_MAIN_FPS:=10}"
+        : "${LOW_CPU_MAIN_BPS:=600}"
+        : "${LOW_CPU_MAIN_GOPLEN:=30}"
+        : "${LOW_CPU_MAIN_MAXKBPS:=800}"
+        : "${LOW_CPU_MAIN_TARGETKBPS:=500}"
+
+        : "${LOW_CPU_SUB_WIDTH:=320}"
+        : "${LOW_CPU_SUB_HEIGHT:=180}"
+        : "${LOW_CPU_SUB_FPS:=4}"
+        : "${LOW_CPU_SUB_BPS:=150}"
+        : "${LOW_CPU_SUB_GOPLEN:=16}"
+        : "${LOW_CPU_SUB_MAXKBPS:=200}"
+        : "${LOW_CPU_SUB_TARGETKBPS:=150}"
+
+        if is_truthy "$LOW_CPU_DISABLE_SUBSTREAM"; then
+            RTSP_SUBSTREAM=0
+        fi
+        if is_truthy "$LOW_CPU_DISABLE_AUDIO"; then
+            RTSP_AUDIO=0
+        fi
+    fi
+
+    : "${ENABLE_WATCHDOG:=1}"
+    : "${ENABLE_NTP:=1}"
+    : "${NTP_ONE_SHOT:=0}"
+    : "${ENABLE_CROND:=1}"
+    : "${ENABLE_AUTOSTART:=1}"
+    : "${RTSP_SUBSTREAM:=1}"
+    : "${RTSP_AUDIO:=1}"
+    : "${AUTOSTART_ALLOWLIST:=}"
+    : "${AUTOSTART_DENYLIST:=}"
+
+    echo "Boot config: lightweight=$LIGHTWEIGHT_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
+}
+
 enable_hardware_watchdog()
 {
+    if ! is_truthy "$ENABLE_WATCHDOG"; then
+        echo "Hardware watchdog disabled by boot config" >> $LOGPATH
+        return 0
+    fi
     # A Watchdog Timer is a hardware circuit that can reset the
     # camera system in case of a software fault.
     # This script will notify the kernel watchdog driver via the
@@ -113,14 +204,26 @@ init_network()
 
 sync_time()
 {
+    if ! is_truthy "$ENABLE_NTP"; then
+        echo "NTP sync disabled by boot config" >> $LOGPATH
+        return 0
+    fi
     install_config $CONFIGPATH/ntp_srv.conf
     ntp_srv="$(cat "$CONFIGPATH/ntp_srv.conf")"
     timeout -t 30 sh -c "until ping -c1 \"$ntp_srv\" &>/dev/null; do sleep 3; done";
-    busybox ntpd -p "$ntp_srv"
+    if is_truthy "$NTP_ONE_SHOT"; then
+        busybox ntpd -q -n -p "$ntp_srv"
+    else
+        busybox ntpd -p "$ntp_srv"
+    fi
 }
 
 init_crond()
 {
+    if ! is_truthy "$ENABLE_CROND"; then
+        echo "Crond disabled by boot config" >> $LOGPATH
+        return 0
+    fi
     # Create crontab dir and start crond.
     if [ ! -d ${CONFIGPATH}/cron ]; then
       mkdir -p ${CONFIGPATH}/cron/crontabs
@@ -160,10 +263,72 @@ init_rtsp_params()
     echo 1 > /proc/sys/vm/overcommit_memory
 }
 
+apply_low_cpu_profile()
+{
+    if ! is_truthy "$LOW_CPU_PROFILE"; then
+        return 0
+    fi
+
+    echo "Applying low CPU RTSP profile" >> $LOGPATH
+
+    install_config $CONFIGPATH/rtspserver.conf
+
+    if is_truthy "$LOW_CPU_DISABLE_MOTION"; then
+        /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " mdenabled 0
+    fi
+
+    if is_truthy "$LOW_CPU_DISABLE_OSD"; then
+        /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " osdenabled 0
+    fi
+
+    if is_truthy "$LOW_CPU_DISABLE_JPEG"; then
+        /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " jpegstream 0
+    fi
+
+    if is_truthy "$LOW_CPU_DISABLE_AUDIO"; then
+        /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w 2 codec 0 3 codec 0
+    fi
+
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w \
+        0 width      "$LOW_CPU_MAIN_WIDTH" \
+        0 height     "$LOW_CPU_MAIN_HEIGHT" \
+        0 fps        "$LOW_CPU_MAIN_FPS" \
+        0 bps        "$LOW_CPU_MAIN_BPS" \
+        0 goplen     "$LOW_CPU_MAIN_GOPLEN" \
+        0 maxkbps    "$LOW_CPU_MAIN_MAXKBPS" \
+        0 targetkbps "$LOW_CPU_MAIN_TARGETKBPS"
+
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w \
+        1 width      "$LOW_CPU_SUB_WIDTH" \
+        1 height     "$LOW_CPU_SUB_HEIGHT" \
+        1 fps        "$LOW_CPU_SUB_FPS" \
+        1 bps        "$LOW_CPU_SUB_BPS" \
+        1 goplen     "$LOW_CPU_SUB_GOPLEN" \
+        1 maxkbps    "$LOW_CPU_SUB_MAXKBPS" \
+        1 targetkbps "$LOW_CPU_SUB_TARGETKBPS"
+}
+
 run_autostart_scripts()
 {
     echo "Autostart..." >> $LOGPATH
+    if ! is_truthy "$ENABLE_AUTOSTART"; then
+        echo "Autostart disabled by boot config" >> $LOGPATH
+        return 0
+    fi
     for i in /mnt/config/autostart/*; do
+        [ -e "$i" ] || continue
+        script_name="$(basename "$i")"
+        if [ -n "$AUTOSTART_ALLOWLIST" ]; then
+            if ! list_contains "$script_name" $AUTOSTART_ALLOWLIST; then
+                echo "Skip $script_name (not in allowlist)" >> $LOGPATH
+                continue
+            fi
+        elif [ -n "$AUTOSTART_DENYLIST" ]; then
+            if list_contains "$script_name" $AUTOSTART_DENYLIST; then
+                echo "Skip $script_name (denylist)" >> $LOGPATH
+                continue
+            fi
+        fi
         echo "Run $i" >> $LOGPATH
         $i
     done
@@ -178,6 +343,7 @@ init_password()
 ##############################################################
 init_password
 init_log
+load_boot_config
 echo "--------Starting Hacks--------" >> $LOGPATH
 stop_cloud
 enable_hardware_watchdog
@@ -186,6 +352,7 @@ sync_time
 init_crond
 initialize_gpio
 init_rtsp_params
+apply_low_cpu_profile
 run_autostart_scripts
 echo "$(date)" >> $LOGPATH
 sleep 3

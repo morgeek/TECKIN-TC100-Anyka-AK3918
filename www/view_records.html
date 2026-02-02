@@ -61,200 +61,25 @@
 </div>
 
 
-<script type="text/javascript">
-
-function getBrowserName() {
-  var browserName = '';
-  var userAgent = navigator.userAgent;
-  (typeof InstallTrigger !== 'undefined') && (browserName = 'Firefox');
-  ( /* @cc_on!@*/ false || !!document.documentMode) && (browserName = 'IE');
-  (!!window.chrome && userAgent.match(/OPR/)) && (browserName = 'Opera');
-  (!!window.chrome && userAgent.match(/Edge/)) && (browserName = 'Edge');
-  (!!window.chrome && !userAgent.match(/(OPR|Edge)/)) && (browserName = 'Chrome');
-
-  /**
-   * Expected returns
-   * Firefox, Opera, Edge, Chrome
-   */
-  return browserName;
-}
-
-if (getBrowserName() != 'Chrome') {
-   document.getElementById('videonote').innerHTML = 'Video playback supported only in Chrome.';
-}
-
-var recordsMap = new  Map();
-var autoPlayEnabled = false;
-
-function autoPlayCheck(checkbox)
-{
-    if (checkbox.checked) {
-        $('#rpl').attr("autoplay", true);
-        autoPlayEnabled = true;
-    }
-    else {
-        $('#rpl').removeAttr("autoplay");
-        autoPlayEnabled = false;
-    }
-}
-
-function downloadRecord()
-{
-    var selectedRecord = $('#recordselect').children("option:selected").val();
-    if (selectedRecord) {
-        var selectedDate = $('#dateselect').children("option:selected").val();
-        if (selectedDate) {
-            var record = "/DCIM/" + selectedDate + "_" + selectedRecord + ".mkv";
-            window.open(record , '_blank');
-        }
-    }
-}
-
-function removeRecord()
-{
-    var selectedRecord = $('#recordselect').children("option:selected").val();
-    if (selectedRecord) {
-        var selectedDate = $('#dateselect').children("option:selected").val();
-        if (selectedDate) {
-            var record = selectedDate + "_" + selectedRecord + ".mkv";
-
-            var result = confirm("Want to delete file '" + record + "'?");
-            if (result) {
-                $('#rmbtn').attr("disabled", true);
-
-                $.get("cgi-bin/viewrecords.cgi", {
-                cmd: "remove_record",
-                record: record
-                }).done(function () {
-                    recordsMap[selectedDate].delete(selectedRecord);
-                    if (recordsMap[selectedDate].size == 0) {
-                        recordsMap.delete(selectedDate);
-                        $('#dateselect option:contains("' + selectedDate + '")').remove();
-                        onDateChanged();
-                    }
-                    else {
-                        $('#recordselect option:contains("' + selectedRecord + '")').remove();
-                        onRecordChanged();
-                    }
-
-                    $('#rmbtn').removeAttr("disabled");
-                });
-            }
-        }
-    }
-}
-
-function onRecordChanged()
-{
-    var selectedRecord = $('#recordselect').children("option:selected").val();
-    if (selectedRecord) {
-        var selectedDate = $('#dateselect').children("option:selected").val();
-        if (selectedDate) {
-            var file = selectedDate + "_" + selectedRecord + ".mkv";
-            var src = "/DCIM/" + file;
-            $("#rpl").html('<source src=\"' + src +'\" type="video/webm"></source>');
-            $("#rpl")[0].load();
-        }
-    }
-}
-
-function setDateRecords(records)
-{
-    if (records) {
-        for(let rec of records) {
-            $('#recordselect').append("<option>" + rec + "</option>");
-        }
-    }
-    $('#recordselectdiv').removeClass("is-loading");
-    $('#dwbtn').removeAttr("disabled");
-    $('#rmbtn').removeAttr("disabled");
-    onRecordChanged();
-}
-
-function onDateChanged()
-{
-    var selectedDate = $('#dateselect').children("option:selected").val();
-    if (selectedDate) {
-        $('#recordselectdiv').addClass("is-loading");
-        $('#dwbtn').attr("disabled", true);
-        $('#rmbtn').attr("disabled", true);
-
-        $('#recordselect').find('option').remove();
-
-        records = recordsMap[selectedDate];
-
-        if (records && records.size > 0) {
-            setDateRecords(records);
-        }
-        else {
-            $.get("cgi-bin/viewrecords.cgi", {
-            cmd: "list_records",
-            date: selectedDate
-            }).done(function (data) {
-                var allRecords = eval(data);
-                var recSet = new Set();
-
-                for (var i = 0; i < allRecords.length; i++) {
-                    recSet.add(allRecords[i].record);
-                }
-
-                recordsMap[selectedDate] = recSet;
-                setDateRecords(recSet);
-            });
-        }
-    }
-}
 
 
-$(document).ready(function ()
-{
 
-$('#rpl').on('ended', function()
-{
-    if (autoPlayEnabled) {
-        var curRec = $('#recordselect option:selected');
+  
+  
+  
+  
+  
 
-        if ($('#recordselect option').last().val() != curRec.val())
-        {
-            var nextRec = curRec.next();
-            curRec.removeAttr('selected');
-            nextRec.attr('selected', 'selected');
-            onRecordChanged();
-        }
-    }
-});
 
-$.get("cgi-bin/viewrecords.cgi", {
-        cmd: "list_dates"
-    }).done(function (data) {
 
-        //debugger;
-        var allDates = eval(data);
 
-         $('#dateselectdiv').removeClass("is-loading");
-         $('#recordselectdiv').removeClass("is-loading");
 
-        for (var i = 0; i < allDates.length; i++) {
-            var date = allDates[i].date;
-            var recSet = new Set();
-            recordsMap[date] = recSet;
 
-            $('#dateselect').append("<option>" + date + "</option>");
-        }
 
-        if (allDates.length > 0) {
-            $('#dateselect option:selected').removeAttr('selected');
-            $('#dateselect option').last().attr('selected', 'selected');
-            onDateChanged();
-        }
-        else
-        {
-            $("#rpl").replaceWith("<div class='notification is-info'>No video records found.<br>Enable <strong>'Recording'</strong> service in  settings to store video on MicroSD-card.</div>");
-            $('#dateselect').attr("disabled", true);
-            $('#recordselect').attr("disabled", true);
-            $('#autoplay').attr("disabled", true);
-        }
-    });
-})
-</script>
+
+
+
+
+
+<script src="scripts/view_records.bundle.min.js" type="text/javascript"></script>
 

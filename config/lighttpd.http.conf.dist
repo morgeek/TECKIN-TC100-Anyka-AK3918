@@ -1,0 +1,46 @@
+server.document-root = "/mnt/www"
+
+server.port = 80
+
+mimetype.assign = (
+  ".html" => "text/html",
+  ".txt" => "text/plain",
+  ".jpg" => "image/jpeg",
+  ".png" => "image/png",
+  ".css" => "text/css",
+  ".js" => "text/javascript"
+)
+index-file.names = ( "index.html" )
+server.modules = ("mod_auth",
+                  "mod_authn_file",
+                  "mod_cgi",
+                  "mod_staticfile",
+                  "mod_alias")
+
+cgi.assign = ( ".cgi" => "/bin/sh" )
+alias.url = ( "/DCIM/" => "/mnt/DCIM/" )
+
+auth.backend                = "htdigest"
+auth.backend.htdigest.userfile = "/mnt/config/lighttpd.user"
+auth.require = ( "/" => ("method" => "basic", "realm" => "all", "require" => "user=root"))
+
+## where to send error-messages to
+server.errorlog             = "/var/log/lighttpd-error.log"
+server.upload-dirs          = ("/tmp/")
+
+# Security headers applied to all responses to harden the web UI and reduce attack surface
+setenv.add-response-header = (
+  "X-Content-Type-Options" => "nosniff",
+  "X-Frame-Options" => "SAMEORIGIN",
+  "Content-Security-Policy" => "default-src 'self' 'unsafe-inline'"
+)
+
+# Cache static assets (css/js/images) to reduce client/server CPU and I/O
+$HTTP["url"] =~ "\\.(css|js|png|jpg|jpeg|svg|gif)$" {
+  setenv.add-response-header = (
+    "Cache-Control" => "public, max-age=86400"
+  )
+}
+
+## CGI (etc) stderr log
+server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"

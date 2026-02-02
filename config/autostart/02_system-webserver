@@ -4,13 +4,33 @@ CONFIGPATH="/mnt/config"
 ## Load some common functions:
 . /mnt/scripts/common_functions.sh
 
+BOOT_CONFIG="$CONFIGPATH/boot.conf"
+WEB_MODE="full"
+if [ -f "$BOOT_CONFIG" ]; then
+    # shellcheck disable=SC1090
+    . "$BOOT_CONFIG"
+    WEB_MODE="${WEB_MODE:-full}"
+fi
+
+if [ "$WEB_MODE" = "off" ]; then
+    exit 0
+fi
+
 ## Create a certificate for the webserver
-if [ ! -f $CONFIGPATH/lighttpd.pem ]; then
-    export OPENSSL_CONF=$CONFIGPATH/openssl.cnf
-    /mnt/bin/openssl req -new -x509 -keyout $CONFIGPATH/lighttpd.pem -out $CONFIGPATH/lighttpd.pem -days 365 -nodes -subj "/C=DE/ST=Mars/L=HellasPlanitia/O=.../OU=.../CN=.../emailAddress=..."
-    chmod 400 $CONFIGPATH/lighttpd.pem
+if [ "$WEB_MODE" = "full" ]; then
+    if [ ! -f $CONFIGPATH/lighttpd.pem ]; then
+        export OPENSSL_CONF=$CONFIGPATH/openssl.cnf
+        /mnt/bin/openssl req -new -x509 -keyout $CONFIGPATH/lighttpd.pem -out $CONFIGPATH/lighttpd.pem -days 365 -nodes -subj "/C=DE/ST=Mars/L=HellasPlanitia/O=.../OU=.../CN=.../emailAddress=..."
+        chmod 400 $CONFIGPATH/lighttpd.pem
+    fi
 fi
 
 ## Start Webserver:
-install_config $CONFIGPATH/lighttpd.conf
-/mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
+WEBCONFIG="$CONFIGPATH/lighttpd.conf"
+if [ "$WEB_MODE" = "http" ]; then
+    install_config $CONFIGPATH/lighttpd.http.conf
+    WEBCONFIG="$CONFIGPATH/lighttpd.http.conf"
+else
+    install_config $CONFIGPATH/lighttpd.conf
+fi
+/mnt/bin/lighttpd -f "$WEBCONFIG"

@@ -10,6 +10,15 @@ export LD_LIBRARY_PATH='/mnt/lib/:/thirdlib:/system/lib/:/usr/lib/'
 . /mnt/scripts/common_functions.sh
 . /mnt/scripts/update_timezone.sh
 
+BOOT_CONFIG="/mnt/config/boot.conf"
+if [ -f "$BOOT_CONFIG" ]; then
+  # shellcheck disable=SC1090
+  . "$BOOT_CONFIG"
+fi
+
+: "${RTSP_SUBSTREAM:=1}"
+: "${RTSP_AUDIO:=1}"
+
 install_config $CONFIGPATH/rtspserver.conf
 
 status()
@@ -60,18 +69,23 @@ start()
     ## Audio
     AUDIO0=",audio0"
     AUDIO1=",audio1"
-    if [ $audioCodec0 -eq 0 ]; then
+    if [ $audioCodec0 -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
         AUDIO0=""
     fi
-    if [ $audioCodec1 -eq 0 ]; then
+    if [ $audioCodec1 -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
         AUDIO1=""
     fi
 
     restart_service_if_need /mnt/controlscripts/onvif
 
+    STREAMS="video0$AUDIO0"
+    if [ "$RTSP_SUBSTREAM" = "1" ]; then
+      STREAMS="$STREAMS video1$AUDIO1"
+    fi
+
     echo "================== START ===============" >> "$LOGPATH"
-    echo "/mnt/bin/v4l2rtspserver  video0$AUDIO0 video1$AUDIO1 $CREDENTIAL $PORT" >> "$LOGPATH"
-    /mnt/bin/v4l2rtspserver -c -Q 20 video0$AUDIO0 video1$AUDIO1 $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+    echo "/mnt/bin/v4l2rtspserver  $STREAMS $CREDENTIAL $PORT" >> "$LOGPATH"
+    /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
     echo "$!" > "$PIDFILE"
 
     ## Watchdog

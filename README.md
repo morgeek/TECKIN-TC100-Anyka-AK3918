@@ -34,4 +34,30 @@ To disable hacks: just remove MicroSD-card and reboot camera.
 * Manual connection to WiFi network (without Teckin cloud app): create file **wpa_supplicant.conf** in MicroSD-card and reboot.
   See file content example in **wpa_supplicant.conf.dist** file: change ssid and psk to your WiFi name and password.
 
+## Lightweight mode
+To reduce CPU/RAM usage on the camera, configure `/mnt/config/boot.conf` (copied from `config/boot.conf.dist` on first boot):
 
+* Set `LIGHTWEIGHT_MODE=1` to apply lightweight defaults (disables NTP daemon, crond, and skips non-essential autostart scripts).
+* Use `AUTOSTART_ALLOWLIST` to run only specific autostart scripts (e.g. `00_system-config rtsp-h26x`).
+* Use `AUTOSTART_DENYLIST` to skip specific scripts (e.g. web UI, ONVIF, LEDs).
+* Set `LOW_CPU_PROFILE=1` for a very low CPU RTSP profile (lower resolution/fps/bitrate, optional substream/audio/OSD/motion/jpeg disable). Set `LOW_CPU_DISABLE_SUBSTREAM=0` or `LOW_CPU_DISABLE_AUDIO=0` to keep them on.
+* Control RTSP streams directly with `RTSP_SUBSTREAM` and `RTSP_AUDIO`.
+
+All settings live in `config/boot.conf.dist` for reference.
+
+Example low-CPU boot config:
+
+```
+LIGHTWEIGHT_MODE=1
+LOW_CPU_PROFILE=1
+AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
+```
+
+## Low-CPU web UI
+If you only need the web UI occasionally, reduce webserver CPU overhead via `WEB_MODE` in `/mnt/config/boot.conf`:
+
+* `WEB_MODE=http` disables TLS and HTTPS redirect (lower CPU, but no encryption).
+* `WEB_MODE=off` disables the webserver entirely.
+
+## RTSP presets
+The web UI includes RTSP presets (Full, Medium, Low) with FPS capped at 25. Use them to quickly tune image quality vs CPU.
