@@ -61,3 +61,6 @@ If you only need the web UI occasionally, reduce webserver CPU overhead via `WEB
 
 ## RTSP presets
 The web UI includes RTSP presets (Full, Medium, Low) with FPS capped at 25. Use them to quickly tune image quality vs CPU.
+
+## Service trim switch
+The Status page includes a "Service trim" switch that keeps only RTSP + ONVIF at boot. It disables non-essential services and reduces CPU usage.
