@@ -5,5 +5,5 @@
 # IP address to ping
 PINGADDRESS=192.168.0.1
 
-# Ping interval in sec
-PINGINTERVAL=10
+# Ping interval in sec (default increased to 60s to reduce CPU/ping load)
+PINGINTERVAL=60

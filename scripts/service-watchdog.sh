@@ -1,10 +1,12 @@
 #!/bin/sh
 
-LOGPATH="/var/log/service-watchdog.log"
+LOGPATH="${LOGPATH:-/var/log/service-watchdog.log}"
 MAX_ERRORS_TO_REBOOT=5
 MAX_ERRORS_TO_ALTERNATIVE_REBOOT=10 # If normal reboot not work
 MIN_SUCCES_TO_RESET_REBOOT=30
-CHECK_TIMEOUT_SECONDS=15
+# Increase default check interval to reduce CPU usage (can be overridden)
+CHECK_TIMEOUT_SECONDS="${CHECK_TIMEOUT_SECONDS:-30}"
+
 
 monitor_service()
 {
