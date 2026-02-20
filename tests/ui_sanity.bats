@@ -19,6 +19,9 @@
 }
 
 @test "information links are present in menu and route to settings sections" {
+  run grep -n 'id="status".*data-target="cgi-bin/status.cgi".*data-force-reload="1"' www/index.html
+  [ "$status" -eq 0 ]
+
   run grep -n 'id="sysusageinfo"' www/index.html
   [ "$status" -eq 0 ]
 

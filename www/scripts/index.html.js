@@ -86,26 +86,51 @@
     if (menu) {
       menu.classList.remove("is-active");
     }
+    closeNavDropdowns();
   }
 
-  function scrollToSelector(selector) {
-    if (!selector) {
-      return;
-    }
-    var node = document.querySelector(selector);
-    if (!node) {
-      return;
-    }
-    node.scrollIntoView({ behavior: "smooth", block: "start" });
+  function closeNavDropdowns(exceptNode) {
+    Array.prototype.slice.call(document.querySelectorAll("#nav_menu .navbar-item.has-dropdown")).forEach(function (node) {
+      if (exceptNode && node === exceptNode) {
+        return;
+      }
+      node.classList.remove("is-active");
+    });
   }
 
-  function loadOnPageTarget(target, onLoaded) {
+  function initNavDropdownToggles() {
+    Array.prototype.slice.call(document.querySelectorAll("#nav_menu .navbar-item.has-dropdown > .navbar-link")).forEach(function (toggle) {
+      if (toggle.dataset.dropdownBound === "1") {
+        return;
+      }
+      toggle.dataset.dropdownBound = "1";
+      toggle.addEventListener("click", function (event) {
+        if (window.innerWidth >= 1024) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        var dropdown = toggle.closest(".navbar-item.has-dropdown");
+        if (!dropdown) {
+          return;
+        }
+        var willOpen = !dropdown.classList.contains("is-active");
+        closeNavDropdowns(dropdown);
+        dropdown.classList.toggle("is-active", willOpen);
+        if (willOpen && dropdown.id === "camcontrol_link") {
+          syncSwitchesTimeout(300);
+        }
+      });
+    });
+  }
+
+  function loadOnPageTarget(target, onLoaded, forceReload) {
     var content = byId("content");
     if (!content || !target) {
       return;
     }
     var normalizedTarget = normalizeTarget(target);
-    if (normalizedTarget && normalizedTarget === currentContentTarget) {
+    if (!forceReload && normalizedTarget && normalizedTarget === currentContentTarget) {
       if (typeof onLoaded === "function") {
         onLoaded();
       }
@@ -470,24 +495,11 @@
       var onPageTarget = event.target.closest(".onpage");
       if (onPageTarget && onPageTarget.dataset.target) {
         event.preventDefault();
-        loadOnPageTarget(onPageTarget.dataset.target);
+        loadOnPageTarget(onPageTarget.dataset.target, null, onPageTarget.dataset.forceReload === "1");
         if (window.innerWidth < 1024) {
           closeNavMenu();
-        }
-        return;
-      }
-
-      var onSettingsTarget = event.target.closest(".onsettings");
-      if (onSettingsTarget && onSettingsTarget.dataset.target) {
-        event.preventDefault();
-        var scrollSelector = onSettingsTarget.dataset.scroll;
-        loadOnPageTarget(onSettingsTarget.dataset.target, function () {
-          setTimeout(function () {
-            scrollToSelector(scrollSelector);
-          }, 80);
-        });
-        if (window.innerWidth < 1024) {
-          closeNavMenu();
+        } else {
+          closeNavDropdowns();
         }
         return;
       }
@@ -526,6 +538,9 @@
         var menu = byId(navbarBurger.dataset.target);
         if (menu) {
           menu.classList.toggle("is-active", willOpen);
+        }
+        if (!willOpen) {
+          closeNavDropdowns();
         }
         if (willOpen) {
           syncSwitchesTimeout(500);
@@ -602,6 +617,7 @@
     });
 
     fixMenuPadding();
+    initNavDropdownToggles();
     refreshSysUsage();
   });
 

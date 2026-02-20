@@ -1,90 +1,119 @@
-# TECKIN TC100 Anyka AK3918 camera hacks based on the great work from https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks
-So kudos to him !
+# TECKIN TC100 Anyka AK3918 camera hacks
+Based on the great work from:
+https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks
 
-The interface needed an upgrade, it was too rough and sometimes the camera was hogging CPU cycles for no reason.
-I asked our friend CODEX to enhance few aspects of this while retaining the main features.
+This project keeps the original non-destructive MicroSD hack approach and adds a lighter, faster web UI plus extra CPU-saving controls.
 
-I have tried it on both of my cameras at home, working beautifully in Home Assistant with Frigate.
-Just like the original, non destructive hack !
+**Important:** this hack does not modify or upgrade firmware. Remove the MicroSD card and reboot to return to factory behavior.
 
-Hacks camera that allow you to use rtsp/web-interface/ftp and other functions WITHOUT the external cloud !
-
-**NOTE: this hack doesn't modify or upgrade firmware - you can restore the original state of the camera at any time (hack work only with MicroSD-card!).**
-
-Supported camera model: **Teckin TC100 / Teckin Click** with Anyka AK3918 v300 CPU
+Supported model: **Teckin TC100 / Teckin Click** (Anyka AK3918 v300)
 ![Teckin TC100](/media/TeckinTC100.jpg)
 
+Reference product page:
 * https://www.teckinhome.com/products/teckin-tc100-wi-fi-smart-home-security-camera
 
-## How to install
-1. Prepare an MicroSD-card with FAT32 filesystem and allocation unit size 32K (16K and smaller unit size may running system into unstable condition)
-2. Copy all data to MicroSD-card
-3. Modify the file **wpa_supplicant.conf.dist** with your wifi information
-4. Place MicroSD-card in camera 
-5. Reboot camera
-6. Open your browser and go to https://CAMERA-IP Default password **login/password: root/pass**
-   
-Now you can connect to the camera via browser (**https://CAMERA-IP**), get RTSP-stream, download/upload files via FTP and many other things.
-**When hack is enabled, default Teckin cloud function will not be available.**
+## Main features
+* Local web UI (default HTTPS) with no cloud dependency
+* RTSP streaming:
+  * Main: `rtsp://CAMERA-IP:554/video0_unicast`
+  * Sub: `rtsp://CAMERA-IP:554/video1_unicast`
+* ONVIF discovery + stream profile policy controls
+* H.264 / H.265 support
+* Audio support
+* FTP / telnet / motion detection / recording / timelapse controls
+* CPU-aware controls:
+  * Stream topology selector
+  * RTSP presets (Full / Medium / Low, FPS capped at 25)
+  * Service trim mode
+  * Boot-time lightweight and low-CPU profiles
 
-## How to uninstall
-To disable hacks: just remove MicroSD-card and reboot camera to restore it to its factory state.
+## Installation
+1. Prepare a MicroSD card as FAT32 with 32K allocation unit size.
+2. Copy repository contents to the MicroSD card.
+3. Create `wpa_supplicant.conf` from `wpa_supplicant.conf.dist` and set your Wi-Fi SSID/PSK.
+4. Insert MicroSD card into the camera.
+5. Reboot the camera.
+6. Open:
+  * `https://CAMERA-IP` (default, `WEB_MODE=full`)
+  * default credentials: `root/pass`
 
-## Misc
-* Default camera **login/password: root/pass**
-* Change password for http/rtsp/ftp/telnet in web interface settings
-* Main stream rtsp url: **rtsp://CAMERA-IP:554/video0_unicast**
-* Sub stream rtsp url:  **rtsp://CAMERA-IP:554/video1_unicast**
-* Support ONVIF-discovery
-* Support loop video recording to MicroSD
-* Support H264/H265
-* Support audio
-* Manual connection to WiFi network (without Teckin cloud app): edit file **wpa_supplicant.conf** in MicroSD-card and reboot.
-  See file content example in **wpa_supplicant.conf.dist** file: change ssid and psk to your WiFi name and password.
+When this hack is active, Teckin cloud features are not used !
 
-## Lightweight mode
-To reduce CPU/RAM usage on the camera, configure `/mnt/config/boot.conf` (copied from `config/boot.conf.dist` on first boot):
+## Uninstall
+Remove the MicroSD card and reboot.
 
-* Set `LIGHTWEIGHT_MODE=1` to apply lightweight defaults (disables NTP daemon, crond, and skips non-essential autostart scripts).
-* Use `AUTOSTART_ALLOWLIST` to run only specific autostart scripts (e.g. `00_system-config rtsp-h26x`).
-* Use `AUTOSTART_DENYLIST` to skip specific scripts (e.g. web UI, ONVIF, LEDs).
-* Set `LOW_CPU_PROFILE=1` for a very low CPU RTSP profile (lower resolution/fps/bitrate, optional substream/audio/OSD/motion/jpeg disable). Set `LOW_CPU_DISABLE_SUBSTREAM=0` or `LOW_CPU_DISABLE_AUDIO=0` to keep them on.
-* Control RTSP streams directly with `RTSP_SUBSTREAM` and `RTSP_AUDIO`.
+## Access and credentials
+* Default login/password: `root/pass`
+* Password changes for HTTP/RTSP/FTP/Telnet are available in the web UI settings.
 
-All settings live in `config/boot.conf.dist` for reference.
+## Current web UI behavior
+* Live view includes pause/resume and snapshot.
+* CPU/RAM usage badge is always visible in the top bar.
+* Theme selector is in **Settings -> System**.
+* Information pages are available from the **Information** menu:
+  * System Usage
+  * Device Info
+  * Network & DNS
+  * Disk & Mounts
+  * Logs
+* Settings page supports **Basic/All** density mode and collapsible cards.
 
-Example low-CPU boot config:
+## Performance and CPU tuning
+Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/boot.conf.dist` on first boot).
 
-```
-LIGHTWEIGHT_MODE=1
-LOW_CPU_PROFILE=1
-AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
-```
+### Lightweight mode
+* `LIGHTWEIGHT_MODE=1`:
+  * disables NTP daemon and crond by default
+  * enables one-shot NTP by default
+  * enables low-CPU profile defaults
+  * can apply autostart denylist defaults
 
-## Low-CPU web UI
-If you only need the web UI occasionally, reduce webserver CPU overhead via `WEB_MODE` in `/mnt/config/boot.conf`:
+### Low CPU profile
+* `LOW_CPU_PROFILE=1` applies conservative RTSP defaults.
+* Optional disables:
+  * `LOW_CPU_DISABLE_SUBSTREAM`
+  * `LOW_CPU_DISABLE_AUDIO`
+  * `LOW_CPU_DISABLE_MOTION`
+  * `LOW_CPU_DISABLE_OSD`
+  * `LOW_CPU_DISABLE_JPEG`
+* Resolution/FPS/bitrate overrides are available via `LOW_CPU_MAIN_*` and `LOW_CPU_SUB_*` variables in `config/boot.conf.dist`.
 
-* `WEB_MODE=http` disables TLS and HTTPS redirect (lower CPU, but no encryption).
-* `WEB_MODE=off` disables the webserver entirely.
+### Stream topology (web UI)
+In **Settings -> System -> Stream topology**:
+* `Dual stream + audio` (`RTSP_SUBSTREAM=1`, `RTSP_AUDIO=1`)
+* `Dual stream, audio off` (`RTSP_SUBSTREAM=1`, `RTSP_AUDIO=0`)
+* `Main stream + audio` (`RTSP_SUBSTREAM=0`, `RTSP_AUDIO=1`)
+* `Main stream only` (`RTSP_SUBSTREAM=0`, `RTSP_AUDIO=0`)
 
-Additional low-CPU defaults:
-* Motion detection monitor polls every 6s by default (`MONITOR_TIMEOUT_SECONDS`).
-* RTSP watchdog checks every 60s by default (`CHECK_TIMEOUT_SECONDS`).
-* Network monitor pings every 120s by default (`PINGINTERVAL`).
-* Telegram bot daemon uses long polling and supports `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS`, `TELEGRAM_IDLE_SLEEP_SECONDS`, and `TELEGRAM_ERROR_BACKOFF_SECONDS`.
+Applying topology restarts RTSP and ONVIF services.
 
-## RTSP presets
-The web UI includes RTSP presets (Full, Medium, Low) with FPS capped at 25. Use them to quickly tune image quality vs CPU.
+### ONVIF stream policy (web UI)
+In **Settings -> System -> ONVIF stream policy**:
+* `main-primary` (default)
+* `sub-primary`
+* `sub-only`
+* `main-only`
 
-## Stream topology (CPU saver)
-In **Settings -> System**, use **Stream topology** to switch RTSP workload live and persist it in `/mnt/config/boot.conf`:
+### Service trim (web UI)
+The **Service trim** switch sets `/mnt/config/service_trim.conf` and keeps only a small autostart allowlist (RTSP/ONVIF/web essentials), reducing CPU load.
 
-* `Dual stream + audio` (`RTSP_SUBSTREAM=1`, `RTSP_AUDIO=1`) highest compatibility, highest CPU.
-* `Dual stream, audio off` (`RTSP_SUBSTREAM=1`, `RTSP_AUDIO=0`) keeps dual video, saves CPU.
-* `Main stream + audio` (`RTSP_SUBSTREAM=0`, `RTSP_AUDIO=1`) single video path.
-* `Main stream only` (`RTSP_SUBSTREAM=0`, `RTSP_AUDIO=0`) lowest RTSP CPU load.
+### Web server mode
+Set in `/mnt/config/boot.conf`:
+* `WEB_MODE=full` (default HTTPS + redirect)
+* `WEB_MODE=http` (HTTP only, lower CPU, no TLS)
+* `WEB_MODE=off` (web server disabled)
 
-The change restarts RTSP + ONVIF services automatically.
+### Other low-load defaults
+* Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`
+* RTSP/ONVIF watchdog check interval default: `CHECK_TIMEOUT_SECONDS=60`
+* Network monitor default ping interval: `PINGINTERVAL=120`
+* Telegram bot supports long-poll tuning:
+  * `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS`
+  * `TELEGRAM_IDLE_SLEEP_SECONDS`
+  * `TELEGRAM_ERROR_BACKOFF_SECONDS`
 
-## Service trim switch
-The Status page includes a "Service trim" switch that keeps only RTSP + ONVIF at boot. It disables non-essential services and reduces CPU usage.
+## OSD note
+Preferred OSD time format uses `%` placeholders, e.g.:
+* `%H:%M:%S .%m.%Y`
+
+Legacy `\\x`-style patterns are sanitized automatically at RTSP service start.

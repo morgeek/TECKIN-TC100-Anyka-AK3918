@@ -52,6 +52,15 @@ body {
   font-weight: 700;
 }
 
+.navbar-start > .navbar-item.onpage {
+  border-radius: 10px;
+  margin: 0 0.1rem;
+}
+
+.navbar-item.has-dropdown > .navbar-link {
+  cursor: pointer;
+}
+
 .navbar-link:hover,
 .navbar-item:hover,
 .dropdown-item:hover {
@@ -104,12 +113,6 @@ body {
 
 .app-shell {
   max-width: 1180px;
-}
-
-.sysusage-wrap {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 0.75rem;
 }
 
 .nav-sysusage-wrap {
@@ -327,6 +330,10 @@ a.button[disabled]:hover {
 }
 
 @media screen and (max-width: 768px) {
+  #nav_menu .navbar-item.has-dropdown.is-active > .navbar-link {
+    background: rgba(11, 106, 203, 0.12);
+  }
+
   .nav-sysusage-wrap {
     margin-left: auto;
   }
