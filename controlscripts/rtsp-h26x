@@ -18,6 +18,14 @@ fi
 
 : "${RTSP_SUBSTREAM:=1}"
 : "${RTSP_AUDIO:=1}"
+: "${ONVIF_STREAM_POLICY:=main-primary}"
+: "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
+
+case "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*) RTSP_HEALTHCHECK_TIMEOUT_SECONDS=4 ;;
+esac
+[ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] && RTSP_HEALTHCHECK_TIMEOUT_SECONDS=2
+[ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ] && RTSP_HEALTHCHECK_TIMEOUT_SECONDS=30
 
 install_config $CONFIGPATH/rtspserver.conf
 
@@ -90,10 +98,63 @@ start()
 
     ## Watchdog
     if ! checkpid "$WATCHDOG_PIDFILE"; then
-      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/rtsp-h26x 1 &
+      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/rtsp-h26x 0 health &
       echo "$!" > "$WATCHDOG_PIDFILE"
     fi
   fi
+}
+
+health()
+{
+  if [ "$(status)" = "" ]; then
+    return 1
+  fi
+
+  # Fallback to process-level health when curl is unavailable.
+  if [ ! -x /mnt/bin/curl ]; then
+    echo "HEALTHY"
+    return 0
+  fi
+
+  PORT=$(read_config rtspserver.conf PORT)
+  USERNAME=$(read_config rtspserver.conf USERNAME)
+  USERPASSWORD=$(read_config rtspserver.conf USERPASSWORD)
+
+  HEALTH_STREAM="video0_unicast"
+  case "$ONVIF_STREAM_POLICY" in
+    sub-primary|sub-only)
+      if [ "$RTSP_SUBSTREAM" = "1" ]; then
+        HEALTH_STREAM="video1_unicast"
+      fi
+      ;;
+  esac
+  if [ -n "$RTSP_HEALTHCHECK_PATH" ]; then
+    HEALTH_STREAM="$RTSP_HEALTHCHECK_PATH"
+  fi
+
+  if [ "$USERNAME" != "" ]; then
+    sdp=$(/mnt/bin/curl -s -S -m "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -X DESCRIBE -u "${USERNAME}:${USERPASSWORD}" "rtsp://127.0.0.1:${PORT}/${HEALTH_STREAM}" 2>/dev/null) || return 1
+  else
+    sdp=$(/mnt/bin/curl -s -S -m "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -X DESCRIBE "rtsp://127.0.0.1:${PORT}/${HEALTH_STREAM}" 2>/dev/null) || return 1
+  fi
+
+  echo "$sdp" | grep -q "m=video" || return 1
+  echo "HEALTHY"
+}
+
+restart()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -9 "$pid" 2>/dev/null || true
+      sleep 1
+    fi
+    rm -f "$PIDFILE"
+  fi
+  start
 }
 
 stop()
@@ -105,8 +166,13 @@ stop()
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status)
-    $1
-    ;;
+  case "$1" in
+    start|stop|status|restart|health)
+      "$1"
+      ;;
+    *)
+      echo "Usage: $0 {start|stop|status|restart|health}" >&2
+      exit 1
+      ;;
   esac
 fi

@@ -53,8 +53,24 @@ AUTOSTART_DENYLIST=""
 
 # RTSP stream toggles (1=enable, 0=disable). Low CPU profile may
 # default these to 0 unless you set them explicitly.
+# Common topology presets:
+# - Dual stream + audio: RTSP_SUBSTREAM=1, RTSP_AUDIO=1
+# - Dual stream, audio off: RTSP_SUBSTREAM=1, RTSP_AUDIO=0
+# - Main stream + audio: RTSP_SUBSTREAM=0, RTSP_AUDIO=1
+# - Main stream only: RTSP_SUBSTREAM=0, RTSP_AUDIO=0
 RTSP_SUBSTREAM=1
 RTSP_AUDIO=1
+
+# ONVIF advertised stream policy:
+# - main-primary: ONVIF profile 1 = main stream (default)
+# - sub-primary: ONVIF profile 1 = sub stream, profile 2 = main stream
+# - sub-only: ONVIF exposes only sub stream (keeps main RTSP for recorder/direct clients)
+# - main-only: ONVIF exposes only main stream
+ONVIF_STREAM_POLICY=main-primary
+
+# Health-probe timeout (seconds) for service watchdog checks.
+RTSP_HEALTHCHECK_TIMEOUT_SECONDS=4
+ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4
 
 # Example lightweight allowlist:
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"

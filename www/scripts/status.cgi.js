@@ -1,482 +1,384 @@
-$(document).ready(function() {
-  // Debounced status reload to avoid multiple rapid full-page reloads which increase CPU and network usage
-  var statusReloadScheduled = false;
-  function scheduleStatusReload(delay) {
-    delay = delay || 5000;
-    if (!statusReloadScheduled) {
-      statusReloadScheduled = true;
-      setTimeout(function() {
-        $('#content').load('cgi-bin/status.cgi');
-        statusReloadScheduled = false;
-      }, delay);
+(function () {
+  function qs(selector) {
+    return document.querySelector(selector);
+  }
+
+  function qsa(selector) {
+    return Array.prototype.slice.call(document.querySelectorAll(selector));
+  }
+
+  function executeEmbeddedScripts(root) {
+    if (!root) {
+      return;
     }
-  }
-  $('#formResolution').submit(function(event) {
-    var b = $('#resSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'videouser': $('input[name=videouser]').val(),
-      'videopassword': $('input[name=videopassword]').val(),
-      'videoport': $('input[name=videoport]').val(),
-
-      'video_codec0': $('select[name=video_codec0]').val(),
-      'codec_profile0': $('select[name=codec_profile0]').val(),
-      'video_size0': $('select[name=video_size0]').val(),
-      'video_format0': $('select[name=video_format0]').val(),
-      'fps0': $('input[name=fps0]').val(),
-      'brbitrate0': $('input[name=brbitrate0]').val(),
-      'goplen0': $('input[name=goplen0]').val(),
-      'minqp0': $('input[name=minqp0]').val(),
-      'maxqp0': $('input[name=maxqp0]').val(),
-      'smartmode0': $('select[name=smartmode0]').val(),
-      'smartgoplen0': $('input[name=smartgoplen0]').val(),
-      'smartquality0': $('input[name=smartquality0]').val(),
-      'smartstatic0': $('input[name=smartstatic0]').val(),
-      'maxkbps0': $('input[name=maxkbps0]').val(),
-      'targetkbps0': $('input[name=targetkbps0]').val(),
-
-      'video_codec1': $('select[name=video_codec1]').val(),
-      'codec_profile1': $('select[name=codec_profile1]').val(),
-      'video_size1': $('select[name=video_size1]').val(),
-      'video_format1': $('select[name=video_format1]').val(),
-      'fps1': $('input[name=fps1]').val(),
-      'brbitrate1': $('input[name=brbitrate1]').val(),
-      'goplen1': $('input[name=goplen1]').val(),
-      'minqp1': $('input[name=minqp1]').val(),
-      'maxqp1': $('input[name=maxqp1]').val(),
-      'smartmode1': $('select[name=smartmode1]').val(),
-      'smartgoplen1': $('input[name=smartgoplen1]').val(),
-      'smartquality1': $('input[name=smartquality1]').val(),
-      'smartstatic1': $('input[name=smartstatic1]').val(),
-      'maxkbps1': $('input[name=maxkbps1]').val(),
-      'targetkbps1': $('input[name=targetkbps1]').val(),
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#formResolution').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-
-      showResult(res);
-      // schedule a debounced reload to reduce CPU and page churn
-      scheduleStatusReload(5000);
-    });
-    event.preventDefault();
-  });
-
-  var serviceTrim = $('#serviceTrim');
-  if (serviceTrim.length) {
-    serviceTrim.on('change', function() {
-      var url = serviceTrim.prop('checked')
-        ? 'cgi-bin/action.cgi?cmd=service_trim_on'
-        : 'cgi-bin/action.cgi?cmd=service_trim_off';
-      $.ajax({
-        type: 'GET',
-        url: url,
-        dataType: 'html',
-      }).done(function(res) {
-        showResult(res);
-        scheduleStatusReload(5000);
+    var scripts = Array.prototype.slice.call(root.querySelectorAll("script"));
+    scripts.forEach(function (oldScript) {
+      var newScript = document.createElement("script");
+      Array.prototype.slice.call(oldScript.attributes).forEach(function (attr) {
+        newScript.setAttribute(attr.name, attr.value);
       });
+      if (oldScript.src) {
+        newScript.async = false;
+        newScript.src = oldScript.src;
+      } else {
+        newScript.text = oldScript.textContent;
+      }
+      oldScript.parentNode.replaceChild(newScript, oldScript);
     });
   }
 
-  $('#formRtspPreset').submit(function(event) {
-    var b = $('#presetSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'preset': $('select[name=preset]').val(),
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#formRtspPreset').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
+  function toFormBody(form) {
+    return new URLSearchParams(new FormData(form)).toString();
+  }
 
-      showResult(res);
-      scheduleStatusReload(5000);
-    });
-    event.preventDefault();
-  });
+  function ensureSubmitControl(form) {
+    var button = form.querySelector("input[type=submit],button[type=submit],.is-primary");
+    if (!button) {
+      button = document.createElement("input");
+      button.type = "submit";
+      button.style.display = "none";
+      form.appendChild(button);
+    }
+    return button;
+  }
 
-  $('#tzForm').submit(function(event) {
-    var b = $('#tzSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'tz': $('input[name=tz]').val(),
-      'hostname': $('input[name=hostname]').val(),
-      'ntp_srv': $('input[name=ntp_srv]').val()
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#tzForm').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
+  function setLoading(button, loading) {
+    if (!button) {
+      return;
+    }
+    button.classList.toggle("is-loading", !!loading);
+    button.disabled = !!loading;
+  }
 
-      showResult(res);
-      // schedule a debounced reload to reduce CPU and page churn
-      scheduleStatusReload(5000);
-    });
-    event.preventDefault();
-  });
-
-  $('#passwordForm').submit(function(event) {
-    var b = $('#pwSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'password': $('input[name=httppassword]').val(),
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#passwordForm').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-
-      showResult(res);
-      // schedule a debounced reload to reduce CPU and page churn
-      scheduleStatusReload(5000);
-    });
-    event.preventDefault();
-  });
-
-  $('#allPasswordForm').submit(function(event) {
-    var b = $('#allpwSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'password': $('input[name=allpassword]').val(),
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#allPasswordForm').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-
-      showResult(res);
-      // schedule a debounced reload to reduce CPU and page churn
-      scheduleStatusReload(5000);
-    });
-    event.preventDefault();
-  });
-
-  $('#telnetForm').submit(function(event) {
-    var b = $('#telnetSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'telnetport': $('input[name=telnetport]').val(),
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#telnetForm').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-
-      showResult(res);
-      // schedule a debounced reload to reduce CPU and page churn
-      scheduleStatusReload(5000);
-    });
-    event.preventDefault();
-  });
-
-  $('#ftpForm').submit(function(event) {
-    var b = $('#ftpSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'ftpport': $('input[name=ftpport]').val(),
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#ftpForm').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-
-      showResult(res);
-      // schedule a debounced reload to reduce CPU and page churn
-      scheduleStatusReload(5000);
-    });
-    event.preventDefault();
-  });
-
-  $('#formOSD').submit(function(event) {
-    var b = $('#osdSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    if ($('input[name=OSDenable]').prop('checked')) {
-      osdenable = '1';
+  function showResult(text) {
+    if (window.showResult) {
+      try {
+        window.showResult(text);
+      } catch (e) {
+        console.log(e);
+      }
     } else {
-      osdenable = '0';
+      console.log(text);
     }
-    var formData = {
-      'OSDenable': osdenable,
-      'osdtext': $('input[name=osdtext]').val(),
-      'frontcolor': $('select[name=frontcolor]').val(),
-      'backcolor': $('select[name=backcolor]').val(),
-      'edgecolor': $('select[name=edgecolor]').val(),
-      'alpha': $('input[name=OSDAlpha]').val(),
-      'OSDSize0': $('select[name=OSDSize0]').val(),
-      'posx0': $('input[name=posx0]').val(),
-      'posy0': $('input[name=posy0]').val(),
-      'OSDSize1': $('select[name=OSDSize1]').val(),
-      'posx1': $('input[name=posx1]').val(),
-      'posy1': $('input[name=posy1]').val(),
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#formOSD').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-      showResult(res);
-    });
-    event.preventDefault();
-  });
+  }
 
-  $('#formRecording').submit(function(event) {
-    var b = $('#recSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    if ($('input[name=motion_act]').prop('checked')) {
-          motion_act = '1';
-      } else {
-          motion_act = '0';
+  function scheduleStatusReload(delay) {
+    var reloadDelay = delay || 5000;
+    if (window._srScheduled) {
+      return;
+    }
+    window._srScheduled = true;
+    setTimeout(function () {
+      var content = document.getElementById("content");
+      if (!content) {
+        window._srScheduled = false;
+        return;
       }
-    var formData = {
-      'motion_act': motion_act,
-      'postrec': $('input[name=postrec]').val(),
-      'maxduration': $('input[name=maxduration]').val(),
-      'diskspace': $('input[name=diskspace]').val()
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#formRecording').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-      showResult(res);
-    });
-    event.preventDefault();
-  });
+      fetch("cgi-bin/status.cgi", { cache: "no-store" })
+        .then(function (r) {
+          return r.text();
+        })
+        .then(function (html) {
+          content.innerHTML = html;
+          executeEmbeddedScripts(content);
+        })
+        .catch(function (e) {
+          console.error(e);
+        })
+        .finally(function () {
+          window._srScheduled = false;
+        });
+    }, reloadDelay);
+  }
 
-
-  $('#formMotionDetection').submit(function(event) {
-    var b = $('#mdsensSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    if ($('input[name=motionBlink]').prop('checked')) {
-        motionBlink = 'true';
-      } else {
-        motionBlink = 'false';
-      }
-    var formData = {
-      'motionBlink': motionBlink,
-      'mdsens': $('input[name=mdsens]').val()
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#formMotionDetection').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-      showResult(res);
-    });
-    event.preventDefault();
-  });
-
-  $('#formTimelapse').submit(function(event) {
-    var b = $('#tlSubmit');
-    b.toggleClass('is-loading');
-    b.prop('disabled', !b.prop('disabled'));
-    var formData = {
-      'tlinterval': $('input[name=tlinterval]').val(),
-      'tlduration': $('input[name=tlduration]').val()
-    };
-    $.ajax({
-      type: 'POST',
-      url: $('#formTimelapse').attr('action'),
-      data: formData,
-      dataType: 'html',
-      encode: true
-    }).done(function(res) {
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-      showResult(res);
-    });
-    event.preventDefault();
-  });
-
-  $('#formaudioin').submit(function(event) {
-      var b = $('#audioinSubmit');
-
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-
-      var formData = {
-        'samplerate': $('select[name=samplerate]').val(),
-        'audioinVol': $('input[name=audioinVol]').val(),
-
-        'audioCodec0': $('select[name=audioCodec0]').val(),
-        'samplerate0': $('select[name=samplerate0]').val(),
-
-        'audioCodec1': $('select[name=audioCodec1]').val(),
-        'samplerate1': $('select[name=samplerate1]').val(),
-      };
-      $.ajax({
-        type: 'POST',
-        url: $('#formaudioin').attr('action'),
-        data: formData,
-        dataType: 'html',
-        encode: true
-      }).done(function(res) {
-
-        b.toggleClass('is-loading');
-        b.prop('disabled', !b.prop('disabled'));
-        showResult(res);
-      });
+  function bindAjaxForm(form, triggerReload) {
+    form.addEventListener("submit", function (event) {
       event.preventDefault();
-    });
-
-  $('#formAudio').submit(function(event) {
-      var b = $('#AudioTestSubmit');
-
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-
-      var formData = {
-        'audioSource': $('select[name=audioSource]').val(),
-        'audiotestVol': $('input[name=audiotestVol]').val(),
-
-      };
-      $.ajax({
-        type: 'POST',
-        url: $('#formAudio').attr('action'),
-        data: formData,
-        dataType: 'html',
-        encode: true
-      }).done(function(res) {
-
-        b.toggleClass('is-loading');
-        b.prop('disabled', !b.prop('disabled'));
-        showResult(res);
-      });
-      event.preventDefault();
-    });
-
-    $('#imageFlip').change(function() {
-      var formData = {
-        'flipValue': $('select[name=imageFlip]').val(),
-      };
-
-      $.ajax({
-        type: 'POST',
-        url: 'cgi-bin/action.cgi?cmd=image-flip',
-        data: formData,
-        dataType: 'html',
-        encode: true
+      var submitControl = ensureSubmitControl(form);
+      setLoading(submitControl, true);
+      fetch(form.action, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: toFormBody(form),
       })
+        .then(function (r) {
+          return r.text();
+        })
+        .then(function (text) {
+          showResult(text);
+          if (triggerReload !== false) {
+            scheduleStatusReload(5000);
+          }
+        })
+        .catch(function (e) {
+          console.error(e);
+        })
+        .finally(function () {
+          setLoading(submitControl, false);
+        });
     });
-    
-    $('#enable_rtsp_log').change(function() {
-        if($(this).is(":checked")) {
-           // if checked
-           $.ajax({
-            'url': 'cgi-bin/action.cgi?cmd=rtsp-log-on',
-           })
-        }  else {
-            $.ajax({
-                'url': 'cgi-bin/action.cgi?cmd=rtsp-log-off',
-            })
+  }
+
+  function initServiceTrimToggle() {
+    var serviceTrim = qs("#serviceTrim");
+    if (!serviceTrim) {
+      return;
+    }
+
+    serviceTrim.addEventListener("change", function () {
+      var url = serviceTrim.checked ? "cgi-bin/action.cgi?cmd=service_trim_on" : "cgi-bin/action.cgi?cmd=service_trim_off";
+      fetch(url, { cache: "no-store" })
+        .then(function (r) {
+          return r.text();
+        })
+        .then(function (text) {
+          showResult(text);
+          scheduleStatusReload(5000);
+        })
+        .catch(function (e) {
+          console.error(e);
+        });
+    });
+  }
+
+  function initImageFlipToggle() {
+    var imageFlip = qs("#imageFlip");
+    if (!imageFlip) {
+      return;
+    }
+
+    imageFlip.addEventListener("change", function () {
+      fetch("cgi-bin/action.cgi?cmd=image-flip", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "flipValue=" + encodeURIComponent(imageFlip.value),
+      }).catch(function (e) {
+        console.error(e);
+      });
+    });
+  }
+
+  function initRtspLogToggle() {
+    var rtspLog = qs("#enable_rtsp_log");
+    if (!rtspLog) {
+      return;
+    }
+
+    rtspLog.addEventListener("change", function () {
+      var url = rtspLog.checked ? "cgi-bin/action.cgi?cmd=rtsp-log-on" : "cgi-bin/action.cgi?cmd=rtsp-log-off";
+      fetch(url, { cache: "no-store" }).catch(function (e) {
+        console.error(e);
+      });
+    });
+  }
+
+  function initThemePicker() {
+    var themeChoices = qsa(".theme_choice[data-theme]");
+    if (!themeChoices.length) {
+      return;
+    }
+
+    themeChoices.forEach(function (choice) {
+      if (choice.dataset.themeBound === "1") {
+        return;
+      }
+      choice.dataset.themeBound = "1";
+      choice.addEventListener("click", function (event) {
+        event.preventDefault();
+        if (window.setTheme) {
+          window.setTheme(choice.dataset.theme);
         }
-    });
-
-    $('#formDayNight').submit(function(event) {
-      var b = $('#autodaynightSubmit');
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
-      
-      var formData = {
-        'ndawb': $('input[name=ndawb]').val(),
-        'ndlum': $('input[name=ndlum]').val(),
-        'dnawb': $('input[name=dnawb]').val(),
-        'dnlum': $('input[name=dnlum]').val(),
-      };
-      $.ajax({
-        type: 'POST',
-        url: $('#formDayNight').attr('action'),
-        data: formData,
-        dataType: 'html',
-        encode: true
-      }).done(function(res) {
-        b.toggleClass('is-loading');
-        b.prop('disabled', !b.prop('disabled'));
-        showResult(res);
       });
-      event.preventDefault();
     });
-    
-    $('#formPtt').submit(function(event) {
-      var b = $('#pttSubmit');
 
-      b.toggleClass('is-loading');
-      b.prop('disabled', !b.prop('disabled'));
+    if (window.getThemeChoice && window.setTheme) {
+      window.setTheme(window.getThemeChoice() || "0");
+    }
+  }
 
-      var formData = {
-        'audiooutVol': $('input[name=audiooutVol]').val(),
-      };
-      $.ajax({
-        type: 'POST',
-        url: $('#formPtt').attr('action'),
-        data: formData,
-        dataType: 'html',
-        encode: true
-      }).done(function(res) {
-
-        b.toggleClass('is-loading');
-        b.prop('disabled', !b.prop('disabled'));
-        showResult(res);
+  function loadEmbeddedPanel(hostSelector, url) {
+    var host = qs(hostSelector);
+    if (!host) {
+      return Promise.resolve();
+    }
+    return fetch(url, { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (html) {
+        host.innerHTML = html;
+        executeEmbeddedScripts(host);
+        setupStatusDensityControls();
+      })
+      .catch(function (e) {
+        console.error(e);
+        host.innerHTML = "<p>Failed to load panel.</p>";
       });
-      event.preventDefault();
+  }
+
+  function initEmbeddedSettingsPanels() {
+    loadEmbeddedPanel("#embeddedServices", "cgi-bin/scripts.cgi");
+    loadEmbeddedPanel("#embeddedCamControls", "cgi-bin/camcontrols.cgi?cmd=getsettings");
+    loadEmbeddedPanel("#embeddedSysUsageInfo", "cgi-bin/sysusageinfo.cgi");
+    loadEmbeddedPanel("#embeddedDeviceInfo", "cgi-bin/devinfo.cgi");
+    loadEmbeddedPanel("#embeddedNetworkInfo", "cgi-bin/network.cgi");
+    loadEmbeddedPanel("#embeddedDiskInfo", "cgi-bin/disk.cgi");
+    loadEmbeddedPanel("#embeddedLogs", "logs.html");
+  }
+
+  function statusCardTitle(card) {
+    var titleNode = card.querySelector(".card-header-title");
+    return titleNode ? titleNode.textContent.trim() : "";
+  }
+
+  function setCardCollapsed(card, collapsed) {
+    card.classList.toggle("status-collapsed", !!collapsed);
+    var header = card.querySelector(".card-header");
+    if (header) {
+      header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    }
+  }
+
+  function setupStatusDensityControls() {
+    var cards = qsa(".status_card");
+    if (!cards.length) {
+      return;
+    }
+
+    var basicTitles = {
+      System: true,
+      "HTTP/RTSP/Telnet Password": true,
+      "Video Settings": true,
+      "RTSP stream address": true,
+    };
+
+    cards.forEach(function (card) {
+      var title = statusCardTitle(card);
+      var isBasic = !!basicTitles[title];
+      var header = card.querySelector(".card-header");
+      card.dataset.statusGroup = isBasic ? "basic" : "advanced";
+      card.classList.add("status-collapsible");
+      if (!isBasic) {
+        setCardCollapsed(card, true);
+      } else {
+        setCardCollapsed(card, false);
+      }
+
+      if (!header || header.dataset.toggleBound === "1") {
+        return;
+      }
+      header.dataset.toggleBound = "1";
+      header.classList.add("status-card-header-toggle");
+      header.setAttribute("role", "button");
+      header.setAttribute("tabindex", "0");
+
+      function toggleCard() {
+        setCardCollapsed(card, !card.classList.contains("status-collapsed"));
+      }
+
+      header.addEventListener("click", function (event) {
+        if (event.target.closest("a,button,input,select,textarea,label")) {
+          return;
+        }
+        toggleCard();
+      });
+
+      header.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggleCard();
+        }
+      });
     });
-});
+
+    var firstCard = cards[0];
+    if (!firstCard || qs("#statusViewMode")) {
+      return;
+    }
+
+    var controls = document.createElement("div");
+    controls.id = "statusViewMode";
+    controls.className = "status-view-mode";
+    controls.innerHTML =
+      "<span class='status-view-mode-label'>Settings view</span>" +
+      "<button id='statusViewBasic' class='button is-small is-link is-outlined' type='button'>Basic</button>" +
+      "<button id='statusViewAll' class='button is-small is-link is-outlined' type='button'>All</button>";
+    firstCard.parentNode.insertBefore(controls, firstCard);
+
+    function setMode(mode) {
+      var showAll = mode === "all";
+      cards.forEach(function (card) {
+        var advanced = card.dataset.statusGroup === "advanced";
+        setCardCollapsed(card, !showAll && advanced);
+      });
+
+      var basicBtn = qs("#statusViewBasic");
+      var allBtn = qs("#statusViewAll");
+      if (basicBtn) {
+        basicBtn.classList.toggle("is-active", !showAll);
+      }
+      if (allBtn) {
+        allBtn.classList.toggle("is-active", showAll);
+      }
+    }
+
+    var basicButton = qs("#statusViewBasic");
+    var allButton = qs("#statusViewAll");
+    if (basicButton) {
+      basicButton.addEventListener("click", function () {
+        setMode("basic");
+      });
+    }
+    if (allButton) {
+      allButton.addEventListener("click", function () {
+        setMode("all");
+      });
+    }
+
+    setMode("basic");
+  }
+
+  function initStatusPage() {
+    var forms = [
+      "formResolution",
+      "formRtspPreset",
+      "formStreamTopology",
+      "formOnvifPolicy",
+      "tzForm",
+      "passwordForm",
+      "allPasswordForm",
+      "telnetForm",
+      "ftpForm",
+      "formOSD",
+      "formRecording",
+      "formMotionDetection",
+      "formTimelapse",
+      "formaudioin",
+      "formAudio",
+      "formDayNight",
+      "formPtt",
+    ];
+
+    forms.forEach(function (id) {
+      var form = qs("#" + id);
+      if (form) {
+        bindAjaxForm(form, true);
+      }
+    });
+
+    initServiceTrimToggle();
+    initImageFlipToggle();
+    initRtspLogToggle();
+    initThemePicker();
+    initEmbeddedSettingsPanels();
+    setupStatusDensityControls();
+
+    window.scheduleStatusReload = scheduleStatusReload;
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initStatusPage);
+  } else {
+    initStatusPage();
+  }
+})();

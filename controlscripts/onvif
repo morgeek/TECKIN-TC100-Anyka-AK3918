@@ -12,6 +12,29 @@ install_config $CONFIGPATH/onvif.conf
 
 install_config $CONFIGPATH/rtspserver.conf
 
+BOOT_CONFIG="$CONFIGPATH/boot.conf"
+WEB_MODE="full"
+RTSP_SUBSTREAM="1"
+if [ -f "$BOOT_CONFIG" ]; then
+  # shellcheck disable=SC1090
+  . "$BOOT_CONFIG"
+fi
+: "${ONVIF_STREAM_POLICY:=main-primary}"
+: "${ONVIF_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
+
+case "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*) ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4 ;;
+esac
+[ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] && ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=2
+[ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ] && ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=30
+
+WEB_PROTO="https"
+WEB_PORT="443"
+if [ "$WEB_MODE" = "http" ]; then
+  WEB_PROTO="http"
+  WEB_PORT="80"
+fi
+
 status()
 {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
@@ -28,7 +51,7 @@ start()
   else
     echo "Starting ONVIF Discovery service"
     
-    LOGPATH="/dev/null"
+    LOGPATH="${ONVIF_LOGPATH:-/dev/null}"
 
     WIDTH0=$(read_config  rtspserver.conf width   0)
     HEIGHT0=$(read_config rtspserver.conf height  0)
@@ -37,7 +60,7 @@ start()
     BPS0=$(read_config    rtspserver.conf bps     0)
 
     CODECSTR0="H264"
-    if [ "$CODEC0" == "2" ]; then
+    if [ "$CODEC0" = "2" ]; then
       CODECSTR0="H265"
     fi
 
@@ -48,23 +71,122 @@ start()
     BPS1=$(read_config    rtspserver.conf bps     1)
 
     CODECSTR1="H264"
-    if [ "$CODEC1" == "2" ]; then
+    if [ "$CODEC1" = "2" ]; then
       CODECSTR1="H265"
     fi
 
     PORT=$(read_config rtspserver.conf PORT)
 
-    /mnt/bin/monvifd -p $ONVIF_PORT -w 443 -wp https -r $PORT -en2 1 -hwn $HW_NAME -vnn $VENDOR_NAME -dn $DEVICE_NAME -mod $DEVICE_MODEL \
-        -rp1 video0_unicast -vw1 $WIDTH0 -vh1 $HEIGHT0 -vc1 $CODECSTR0 -vcb1 $BPS0 -fps1 $FPS0 \
-        -rp2 video1_unicast -vw2 $WIDTH1 -vh2 $HEIGHT1 -vc2 $CODECSTR1 -vcb1 $BPS1 -fps1 $FPS1 2>> "$LOGPATH" >> "$LOGPATH" &
+    PRIMARY_RP="video0_unicast"
+    PRIMARY_WIDTH="$WIDTH0"
+    PRIMARY_HEIGHT="$HEIGHT0"
+    PRIMARY_CODEC="$CODECSTR0"
+    PRIMARY_BPS="$BPS0"
+    PRIMARY_FPS="$FPS0"
+
+    SECONDARY_ENABLED=0
+    SECONDARY_RP=""
+    SECONDARY_WIDTH=""
+    SECONDARY_HEIGHT=""
+    SECONDARY_CODEC=""
+    SECONDARY_BPS=""
+    SECONDARY_FPS=""
+
+    if [ "$RTSP_SUBSTREAM" = "1" ]; then
+      SECONDARY_ENABLED=1
+      SECONDARY_RP="video1_unicast"
+      SECONDARY_WIDTH="$WIDTH1"
+      SECONDARY_HEIGHT="$HEIGHT1"
+      SECONDARY_CODEC="$CODECSTR1"
+      SECONDARY_BPS="$BPS1"
+      SECONDARY_FPS="$FPS1"
+    fi
+
+    case "$ONVIF_STREAM_POLICY" in
+      sub-primary)
+        if [ "$RTSP_SUBSTREAM" = "1" ]; then
+          PRIMARY_RP="video1_unicast"
+          PRIMARY_WIDTH="$WIDTH1"
+          PRIMARY_HEIGHT="$HEIGHT1"
+          PRIMARY_CODEC="$CODECSTR1"
+          PRIMARY_BPS="$BPS1"
+          PRIMARY_FPS="$FPS1"
+
+          SECONDARY_ENABLED=1
+          SECONDARY_RP="video0_unicast"
+          SECONDARY_WIDTH="$WIDTH0"
+          SECONDARY_HEIGHT="$HEIGHT0"
+          SECONDARY_CODEC="$CODECSTR0"
+          SECONDARY_BPS="$BPS0"
+          SECONDARY_FPS="$FPS0"
+        fi
+        ;;
+      sub-only)
+        if [ "$RTSP_SUBSTREAM" = "1" ]; then
+          PRIMARY_RP="video1_unicast"
+          PRIMARY_WIDTH="$WIDTH1"
+          PRIMARY_HEIGHT="$HEIGHT1"
+          PRIMARY_CODEC="$CODECSTR1"
+          PRIMARY_BPS="$BPS1"
+          PRIMARY_FPS="$FPS1"
+        fi
+        SECONDARY_ENABLED=0
+        ;;
+      main-only)
+        SECONDARY_ENABLED=0
+        ;;
+      main-primary|*)
+        # Default behavior.
+        ;;
+    esac
+
+    if [ "$SECONDARY_ENABLED" = "1" ]; then
+      ONVIF_STREAM2_ARGS="-en2 1 -rp2 $SECONDARY_RP -vw2 $SECONDARY_WIDTH -vh2 $SECONDARY_HEIGHT -vc2 $SECONDARY_CODEC -vcb2 $SECONDARY_BPS -fps2 $SECONDARY_FPS"
+    else
+      ONVIF_STREAM2_ARGS="-en2 0"
+    fi
+
+    /mnt/bin/monvifd -p "$ONVIF_PORT" -w "$WEB_PORT" -wp "$WEB_PROTO" -r "$PORT" -hwn "$HW_NAME" -vnn "$VENDOR_NAME" -dn "$DEVICE_NAME" -mod "$DEVICE_MODEL" \
+        -rp1 "$PRIMARY_RP" -vw1 "$PRIMARY_WIDTH" -vh1 "$PRIMARY_HEIGHT" -vc1 "$PRIMARY_CODEC" -vcb1 "$PRIMARY_BPS" -fps1 "$PRIMARY_FPS" \
+        $ONVIF_STREAM2_ARGS 2>> "$LOGPATH" >> "$LOGPATH" &
     echo "$!" > "$PIDFILE"
 
     ## Watchdog
     if ! checkpid "$WATCHDOG_PIDFILE"; then
-      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/onvif 0 &
+      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/onvif 0 health &
       echo "$!" > "$WATCHDOG_PIDFILE"
     fi
   fi
+}
+
+health()
+{
+  if [ "$(status)" = "" ]; then
+    return 1
+  fi
+
+  /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1 || return 1
+
+  if [ -x /mnt/bin/curl ]; then
+    /mnt/bin/curl -s -S -m "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -o /dev/null "http://127.0.0.1:${ONVIF_PORT}/" >/dev/null 2>&1 || return 1
+  fi
+
+  echo "HEALTHY"
+}
+
+restart()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -9 "$pid" 2>/dev/null || true
+      sleep 1
+    fi
+    rm -f "$PIDFILE"
+  fi
+  start
 }
 
 stop()
@@ -76,8 +198,13 @@ stop()
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status)
-    $1
-    ;;
+  case "$1" in
+    start|stop|status|restart|health)
+      "$1"
+      ;;
+    *)
+      echo "Usage: $0 {start|stop|status|restart|health}" >&2
+      exit 1
+      ;;
   esac
 fi

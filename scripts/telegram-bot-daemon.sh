@@ -6,8 +6,15 @@ TELEGRAM="/mnt/bin/telegram"
 JQ="/mnt/bin/jq"
 
 . /mnt/config/telegram.conf
-[ -z $apiToken ] && echo "api token not configured yet" && exit 1
-[ -z $userChatId ] && echo "chat id not configured yet" && exit 1
+[ -z "$apiToken" ] && echo "api token not configured yet" && exit 1
+[ -z "$userChatId" ] && echo "chat id not configured yet" && exit 1
+
+# Performance tuning:
+# - Use Telegram long polling to avoid tight request loops.
+# - Add configurable sleep/backoff to keep CPU usage predictable.
+TELEGRAM_LONG_POLL_TIMEOUT_SECONDS="${TELEGRAM_LONG_POLL_TIMEOUT_SECONDS:-25}"
+TELEGRAM_IDLE_SLEEP_SECONDS="${TELEGRAM_IDLE_SLEEP_SECONDS:-1}"
+TELEGRAM_ERROR_BACKOFF_SECONDS="${TELEGRAM_ERROR_BACKOFF_SECONDS:-5}"
 
 sendShot() {
   /mnt/bin/getimage > "/tmp/telegram_image.jpg" &&\
@@ -40,18 +47,19 @@ respond() {
 }
 
 readNext() {
-  lastUpdateId=$(cat $LASTUPDATEFILE || echo "0")
-  json=$($CURL -s -X GET "https://api.telegram.org/bot$apiToken/getUpdates?offset=$lastUpdateId&limit=1&allowed_updates=message")
-  echo $json
+  lastUpdateId="$(cat "$LASTUPDATEFILE" 2>/dev/null || echo "0")"
+  maxTime=$((TELEGRAM_LONG_POLL_TIMEOUT_SECONDS + 10))
+  $CURL -s --connect-timeout 5 --max-time "$maxTime" -X GET \
+    "https://api.telegram.org/bot$apiToken/getUpdates?offset=$lastUpdateId&limit=1&timeout=$TELEGRAM_LONG_POLL_TIMEOUT_SECONDS&allowed_updates=message"
 }
 
 markAsRead() {
   nextId=$(($1 + 1))
-  echo "$nextId" > $LASTUPDATEFILE
+  echo "$nextId" > "$LASTUPDATEFILE"
 }
 
 main() {
-  json=$(readNext)
+  json="$(readNext)" || return 2
 
   [ "$(echo "$json" | $JQ -r '.ok')" != "true" ] && return 1
 
@@ -74,5 +82,10 @@ main() {
 
 while true; do
   main >/dev/null 2>&1
-  [ $? -gt 0 ] && exit 1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    sleep "$TELEGRAM_IDLE_SLEEP_SECONDS"
+  else
+    sleep "$TELEGRAM_ERROR_BACKOFF_SECONDS"
+  fi
 done;

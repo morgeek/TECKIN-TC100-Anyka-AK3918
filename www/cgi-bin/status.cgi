@@ -8,13 +8,36 @@ echo ""
 # source header.cgi
 . /mnt/scripts/common_functions.sh
 install_config /mnt/config/recording.conf
+install_config /mnt/config/boot.conf
 install_config /mnt/config/service_trim.conf
 
+# shellcheck disable=SC1090
+if [ -f /mnt/config/boot.conf ]; then
+  . /mnt/config/boot.conf
+fi
 # shellcheck disable=SC1090
 if [ -f /mnt/config/service_trim.conf ]; then
   . /mnt/config/service_trim.conf
 fi
 SERVICE_TRIM="${SERVICE_TRIM:-0}"
+RTSP_SUBSTREAM="${RTSP_SUBSTREAM:-1}"
+RTSP_AUDIO="${RTSP_AUDIO:-1}"
+ONVIF_STREAM_POLICY="${ONVIF_STREAM_POLICY:-main-primary}"
+
+case "$ONVIF_STREAM_POLICY" in
+  main-primary|sub-primary|sub-only|main-only) ;;
+  *) ONVIF_STREAM_POLICY="main-primary" ;;
+esac
+
+if [ "$RTSP_SUBSTREAM" = "1" ] && [ "$RTSP_AUDIO" = "1" ]; then
+  STREAM_TOPOLOGY="dual-audio"
+elif [ "$RTSP_SUBSTREAM" = "1" ] && [ "$RTSP_AUDIO" = "0" ]; then
+  STREAM_TOPOLOGY="dual-no-audio"
+elif [ "$RTSP_SUBSTREAM" = "0" ] && [ "$RTSP_AUDIO" = "1" ]; then
+  STREAM_TOPOLOGY="main-audio"
+else
+  STREAM_TOPOLOGY="main-only"
+fi
 
 IFS=" "
 set -- $(/mnt/bin/rwconf /mnt/config/recording.conf r " " rec_motion_activated " " rec_postrecord_sec " " rec_file_duration_sec " " rec_reserverd_disk_mb)
@@ -133,6 +156,75 @@ cat << EOF
                     <input class="switch" name="serviceTrim" id="serviceTrim" type="checkbox" $(if [ "$SERVICE_TRIM" -eq 1 > /dev/null 2>&1 ]; then echo "checked"; fi)>
                     <label class="label" for="serviceTrim">RTSP + ONVIF only (reboot for full effect)</label>
                 </div>
+            </div>
+        </div>
+    </div>
+    <form id="formStreamTopology" action="cgi-bin/action.cgi?cmd=set_stream_topology" method="post">
+        <div class="field is-horizontal">
+            <div class="field-label is-normal">
+                <label class="label" for="stream_topology">Stream topology</label>
+            </div>
+            <div class="field-body">
+                <div class="field">
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select id="stream_topology" name="stream_topology">
+                                <option value="dual-audio" $(if [ "$STREAM_TOPOLOGY" = "dual-audio" ]; then echo selected; fi)>Dual stream + audio</option>
+                                <option value="dual-no-audio" $(if [ "$STREAM_TOPOLOGY" = "dual-no-audio" ]; then echo selected; fi)>Dual stream, audio off</option>
+                                <option value="main-audio" $(if [ "$STREAM_TOPOLOGY" = "main-audio" ]; then echo selected; fi)>Main stream + audio</option>
+                                <option value="main-only" $(if [ "$STREAM_TOPOLOGY" = "main-only" ]; then echo selected; fi)>Main stream only</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="field">
+                    <div class="control">
+                        <button id="streamTopologySubmit" class="button is-primary" type="submit">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+    <form id="formOnvifPolicy" action="cgi-bin/action.cgi?cmd=set_onvif_stream_policy" method="post">
+        <div class="field is-horizontal">
+            <div class="field-label is-normal">
+                <label class="label" for="onvif_stream_policy">ONVIF stream policy</label>
+            </div>
+            <div class="field-body">
+                <div class="field">
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select id="onvif_stream_policy" name="onvif_stream_policy">
+                                <option value="main-primary" $(if [ "$ONVIF_STREAM_POLICY" = "main-primary" ]; then echo selected; fi)>Main primary (default)</option>
+                                <option value="sub-primary" $(if [ "$ONVIF_STREAM_POLICY" = "sub-primary" ]; then echo selected; fi)>Substream primary</option>
+                                <option value="sub-only" $(if [ "$ONVIF_STREAM_POLICY" = "sub-only" ]; then echo selected; fi)>Substream only (lowest ONVIF load)</option>
+                                <option value="main-only" $(if [ "$ONVIF_STREAM_POLICY" = "main-only" ]; then echo selected; fi)>Main only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="help">Use substream policy to keep ONVIF clients off the main stream.</p>
+                </div>
+                <div class="field">
+                    <div class="control">
+                        <button id="onvifPolicySubmit" class="button is-primary" type="submit">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+    <div class="field is-horizontal">
+        <div class="field-label is-normal">
+            <label class="label">Theme</label>
+        </div>
+        <div class="field-body">
+            <div class="field">
+                <div class="control">
+                    <div class="theme-switcher">
+                        <button id="theme_choice_0" class="button theme_choice" type="button" data-css="css/bulma.0.6.2.min.css" data-theme="0">Light</button>
+                        <button id="theme_choice_1" class="button theme_choice" type="button" data-css="css/bulmaswatch.min.css" data-theme="1">Dark</button>
+                    </div>
+                </div>
+                <p class="help">Theme moved here to keep the live screen focused.</p>
             </div>
         </div>
     </div>
@@ -1605,6 +1697,40 @@ cat << EOF
         </div>
 
         </div>
+    </div>
+</div>
+
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Services</p></header>
+    <div class='card-content'>
+        <div id="embeddedServices"><p>Loading services...</p></div>
+    </div>
+</div>
+
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Camera Controls</p></header>
+    <div class='card-content'>
+        <div id="embeddedCamControls"><p>Loading camera controls...</p></div>
+    </div>
+</div>
+
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Information</p></header>
+    <div class='card-content'>
+        <div class="is-divider" data-content="System Usage"></div>
+        <div id="embeddedSysUsageInfo"><p>Loading system usage information...</p></div>
+
+        <div class="is-divider" data-content="Device"></div>
+        <div id="embeddedDeviceInfo"><p>Loading device information...</p></div>
+
+        <div class="is-divider" data-content="Network"></div>
+        <div id="embeddedNetworkInfo"><p>Loading network information...</p></div>
+
+        <div class="is-divider" data-content="Disk"></div>
+        <div id="embeddedDiskInfo"><p>Loading disk information...</p></div>
+
+        <div class="is-divider" data-content="Logs"></div>
+        <div id="embeddedLogs"><p>Loading logs...</p></div>
     </div>
 </div>
 

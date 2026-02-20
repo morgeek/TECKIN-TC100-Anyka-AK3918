@@ -178,7 +178,8 @@ rtsp_h26x_server(){
     /mnt/controlscripts/rtsp-h26x stop
     ;;
   status)
-    if /mnt/controlscripts/rtsp-h26x status | grep -q "PID"
+    status=$(/mnt/controlscripts/rtsp-h26x status 2>/dev/null)
+    if [ -n "$status" ]
       then
         echo "ON"
     else
@@ -281,7 +282,8 @@ night_mode(){
       /mnt/controlscripts/night-mode stop
       ;;
     status)
-      if /mnt/controlscripts/night-mode status | grep -q "PID"
+      status=$(/mnt/controlscripts/night-mode status 2>/dev/null)
+      if [ -n "$status" ]
       then
           echo "ON"
       else
@@ -301,7 +303,8 @@ auto_night_mode(){
       /mnt/controlscripts/auto-night-detection stop
       ;;
     status)
-      if /mnt/controlscripts/auto-night-detection status | grep -q "PID"
+      status=$(/mnt/controlscripts/auto-night-detection status 2>/dev/null)
+      if [ -n "$status" ]
       then
           echo "ON"
       else
@@ -357,7 +360,8 @@ get_all_memory()
 restart_service_if_need()
 {
     service_path="$1"
-    if $service_path status | grep -q "PID"; then
+    service_status="$("$service_path" status 2>/dev/null)"
+    if [ -n "$service_status" ]; then
         $service_path stop > /dev/null 2>&1
         $service_path start > /dev/null 2>&1
     fi

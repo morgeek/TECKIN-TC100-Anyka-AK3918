@@ -71,7 +71,7 @@ if [ -n "$F_cmd" ]; then
 
       echo "<div class='field is-horizontal'> \
             <div class='field'> \
-            <a onclick='saveCamControls()' class='button is-primary'>Save</a> \
+            <button id='saveCamControlsBtn' onclick='saveCamControls()' class='button is-primary' type='button'>Save</button> \
             </div> \
             </div> \
             </div> \
@@ -90,13 +90,15 @@ if [ -n "$F_cmd" ]; then
       # Read enabled controls from config
       . "$ENABLED_CONTROLS_CONFIG" 2> /dev/null
       echo "["
+      sep=""
       for controlId in $ENABLED_CAM_CONTROL_SWITCHES
       do
         controlName="$(grep SERVICE_NAME= $SCRIPT_HOME/$controlId|sed 's/SERVICE_NAME=\|;//g'|sed 's/"//g')"
         if [ -z "$controlName" ]; then
           controlName="$controlId"
         fi
-        echo "{\"id\":\"$controlId\", \"name\":\"$controlName\"},"
+        printf '%s{"id":"%s","name":"%s"}\n' "$sep" "$controlId" "$controlName"
+        sep=","
       done
       echo "]"
     ;;
@@ -115,20 +117,24 @@ if [ -n "$F_cmd" ]; then
       # Read enabled controls from config
       . "$ENABLED_CONTROLS_CONFIG" 2> /dev/null
       echo "["
+      sep=""
       for controlId in $ENABLED_CAM_CONTROL_SWITCHES
       do
         state="OFF"
-        if "$SCRIPT_HOME/$controlId" status | grep -q "PID"; then
+        status="$("$SCRIPT_HOME/$controlId" status 2>/dev/null)"
+        if [ -n "$status" ]; then
           state="ON"
         fi
-        echo "{\"id\":\"$controlId\", \"status\":\"$state\"},"
+        printf '%s{"id":"%s","status":"%s"}\n' "$sep" "$controlId" "$state"
+        sep=","
       done
       echo "]"
     ;;
 
     getstate)
       script="${F_control##*/}"
-      if "$SCRIPT_HOME/$script" status | grep -q "PID"; then
+      status="$("$SCRIPT_HOME/$script" status 2>/dev/null)"
+      if [ -n "$status" ]; then
         echo "ON"
       else
         echo "OFF"

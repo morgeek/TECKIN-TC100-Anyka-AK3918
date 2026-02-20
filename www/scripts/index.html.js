@@ -1,306 +1,627 @@
+(function () {
+  var timeoutJobs = {};
+  var contentLoadController = null;
+  var liveFeedEnabled = true;
+  var currentContentTarget = "";
 
-var timeoutJobs = {};
+  var LIVEVIEW_INTERVAL_VISIBLE_MS = 2000;
+  var LIVEVIEW_INTERVAL_HIDDEN_MS = 10000;
+  var SYSUSAGE_INTERVAL_VISIBLE_MS = 15000;
+  var SYSUSAGE_INTERVAL_HIDDEN_MS = 60000;
+  var AUTONIGHT_INTERVAL_VISIBLE_MS = 8000;
+  var AUTONIGHT_INTERVAL_HIDDEN_MS = 20000;
 
-function refreshLiveImage() {
-    var ts = new Date().getTime();
-    $("#liveview").attr("src", "cgi-bin/currentpic.cgi?" + ts);
-}
+  function byId(id) {
+    return document.getElementById(id);
+  }
 
-function scheduleRefreshLiveImage(interval) {
-    if (timeoutJobs['refreshLiveImage'] != undefined) {
-        clearTimeout(timeoutJobs['refreshLiveImage']);
+  function byClass(cls) {
+    return Array.prototype.slice.call(document.getElementsByClassName(cls));
+  }
+
+  function parseJsonArray(data) {
+    try {
+      var parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
     }
-    timeoutJobs['refreshLiveImage'] = setTimeout(refreshLiveImage, interval);
-}
+  }
 
-function refreshSysUsage() {
-    var ts = new Date().getTime();
-    $.get("cgi-bin/state.cgi", {cmd: "sysusage", uid: ts}, function(sysusage){document.getElementById("sysusage").innerHTML = sysusage; scheduleRefreshSysUsage(5000);});
-}
-
-function scheduleRefreshSysUsage(interval) {
-    if (timeoutJobs['refreshSysUsage'] != undefined) {
-        clearTimeout(timeoutJobs['refreshSysUsage']);
+  function clearJob(name) {
+    if (timeoutJobs[name] !== undefined) {
+      clearTimeout(timeoutJobs[name]);
+      delete timeoutJobs[name];
     }
-    timeoutJobs['refreshSysUsage'] = setTimeout(refreshSysUsage, interval);
-}
+  }
 
-function refreshAutoNightLumAwb() {
-    var ts = new Date().getTime();
-    $.get("cgi-bin/state.cgi", {cmd: "lumawb", uid: ts}, function(data){
-        lumAwb = data.split("\n");
+  function executeEmbeddedScripts(root) {
+    var scripts = Array.prototype.slice.call(root.querySelectorAll("script"));
+    scripts.forEach(function (oldScript) {
+      var newScript = document.createElement("script");
+      Array.prototype.slice.call(oldScript.attributes).forEach(function (attr) {
+        newScript.setAttribute(attr.name, attr.value);
+      });
+      if (oldScript.src) {
+        newScript.async = false;
+        newScript.src = oldScript.src;
+      } else {
+        newScript.text = oldScript.textContent;
+      }
+      oldScript.parentNode.replaceChild(newScript, oldScript);
+    });
+  }
 
-        $(".labelLum").each(function() {
-            $(this).text("Current: " + lumAwb[0]);
+  function setContentLoading(isLoading) {
+    var content = byId("content");
+    if (!content) {
+      return;
+    }
+    content.classList.toggle("content-loading", !!isLoading);
+  }
+
+  function cacheBustedUrl(target) {
+    var cachebuster = "_=" + Date.now();
+    return target.indexOf("?") >= 0 ? target + "&" + cachebuster : target + "?" + cachebuster;
+  }
+
+  function normalizeTarget(target) {
+    return (target || "").replace(/[?#].*$/, "");
+  }
+
+  function setActiveOnPageTarget(target) {
+    var normalized = normalizeTarget(target);
+    Array.prototype.slice.call(document.querySelectorAll(".onpage[data-target]")).forEach(function (node) {
+      node.classList.toggle("is-active", normalizeTarget(node.dataset.target) === normalized);
+    });
+  }
+
+  function closeNavMenu() {
+    var burger = byId("navbar_burger");
+    var menu = byId("nav_menu");
+    if (burger) {
+      burger.classList.remove("is-active");
+      burger.setAttribute("aria-expanded", "false");
+    }
+    if (menu) {
+      menu.classList.remove("is-active");
+    }
+  }
+
+  function scrollToSelector(selector) {
+    if (!selector) {
+      return;
+    }
+    var node = document.querySelector(selector);
+    if (!node) {
+      return;
+    }
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function loadOnPageTarget(target, onLoaded) {
+    var content = byId("content");
+    if (!content || !target) {
+      return;
+    }
+    var normalizedTarget = normalizeTarget(target);
+    if (normalizedTarget && normalizedTarget === currentContentTarget) {
+      if (typeof onLoaded === "function") {
+        onLoaded();
+      }
+      closeNavMenu();
+      return;
+    }
+
+    if (contentLoadController) {
+      contentLoadController.abort();
+    }
+
+    contentLoadController = new AbortController();
+    setContentLoading(true);
+
+    fetch(cacheBustedUrl(target), {
+      cache: "no-store",
+      signal: contentLoadController.signal,
+    })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (html) {
+        content.innerHTML = html;
+        executeEmbeddedScripts(content);
+        currentContentTarget = normalizedTarget;
+        setActiveOnPageTarget(target);
+        if (typeof onLoaded === "function") {
+          onLoaded();
+        }
+      })
+      .catch(function (e) {
+        if (e && e.name === "AbortError") {
+          return;
+        }
+        console.log(e);
+      })
+      .finally(function () {
+        setContentLoading(false);
+      });
+  }
+
+  function setLiveToggleButtonState() {
+    var toggle = byId("live_toggle");
+    if (!toggle) {
+      return;
+    }
+    toggle.textContent = liveFeedEnabled ? "Pause Live" : "Resume Live";
+  }
+
+  function refreshLiveImage() {
+    var liveview = byId("liveview");
+    if (!liveview || !liveFeedEnabled) {
+      clearJob("refreshLiveImage");
+      return;
+    }
+    if (document.hidden) {
+      scheduleRefreshLiveImage(LIVEVIEW_INTERVAL_HIDDEN_MS);
+      return;
+    }
+    liveview.src = "cgi-bin/currentpic.cgi?" + Date.now();
+  }
+
+  function scheduleRefreshLiveImage(interval) {
+    clearJob("refreshLiveImage");
+    timeoutJobs.refreshLiveImage = setTimeout(refreshLiveImage, interval);
+  }
+
+  function refreshSysUsage() {
+    var nextInterval = document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS;
+    fetch("cgi-bin/state.cgi?cmd=sysusage&uid=" + Date.now(), { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (sysusage) {
+        var usage = byId("sysusage");
+        if (usage) {
+          usage.textContent = sysusage;
+          usage.classList.remove("usage-low", "usage-mid", "usage-high");
+          var match = /CPU:\s*([0-9]{1,3})%/i.exec(sysusage);
+          if (match) {
+            var cpu = parseInt(match[1], 10);
+            if (cpu > 80) {
+              usage.classList.add("usage-high");
+            } else if (cpu >= 50) {
+              usage.classList.add("usage-mid");
+            } else {
+              usage.classList.add("usage-low");
+            }
+          }
+        }
+        scheduleRefreshSysUsage(nextInterval);
+      })
+      .catch(function () {
+        scheduleRefreshSysUsage(nextInterval);
+      });
+  }
+
+  function scheduleRefreshSysUsage(interval) {
+    clearJob("refreshSysUsage");
+    timeoutJobs.refreshSysUsage = setTimeout(refreshSysUsage, interval);
+  }
+
+  function refreshAutoNightLumAwb() {
+    var nextInterval = document.hidden ? AUTONIGHT_INTERVAL_HIDDEN_MS : AUTONIGHT_INTERVAL_VISIBLE_MS;
+    fetch("cgi-bin/state.cgi?cmd=lumawb&uid=" + Date.now(), { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (data) {
+        var lumAwb = data.split("\n");
+        byClass("labelLum").forEach(function (node) {
+          node.textContent = "Current: " + (lumAwb[0] || "");
         });
-
-        $(".labelAWB").each(function() {
-            $(this).text("Current: " + lumAwb[1]);
+        byClass("labelAWB").forEach(function (node) {
+          node.textContent = "Current: " + (lumAwb[1] || "");
         });
+        scheduleRefreshAutoNightLumAwb(nextInterval);
+      })
+      .catch(function () {
+        scheduleRefreshAutoNightLumAwb(nextInterval);
+      });
+  }
 
-      scheduleRefreshAutoNightLumAwb(4000);
-    });
-}
-
-function scheduleRefreshAutoNightLumAwb(interval) {
-    if (timeoutJobs['refreshAutoNightLumAwb'] != undefined) {
-        clearTimeout(timeoutJobs['refreshAutoNightLumAwb']);
+  function scheduleRefreshAutoNightLumAwb(interval) {
+    clearJob("refreshAutoNightLumAwb");
+    if (interval > 0) {
+      timeoutJobs.refreshAutoNightLumAwb = setTimeout(refreshAutoNightLumAwb, interval);
     }
-    if (interval > 0)
-    {
-        timeoutJobs['refreshAutoNightLumAwb'] = setTimeout(refreshAutoNightLumAwb, interval);
+  }
+
+  function syncSwitchesTimeout(millis) {
+    clearJob("syncSwitches");
+    timeoutJobs.syncSwitches = setTimeout(syncSwitches, millis);
+  }
+
+  function syncSwitches() {
+    fetch("cgi-bin/camcontrols.cgi?cmd=getallstate", { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (data) {
+        var switchesStateArray = parseJsonArray(data);
+        switchesStateArray.forEach(function (switchState) {
+          var e = byId(switchState.id);
+          if (e) {
+            e.checked = switchState.status && switchState.status.trim().toLowerCase() === "on";
+          }
+        });
+      });
+  }
+
+  function showResult(txt) {
+    var qv = byId("quickviewDefault");
+    var v = byId("quicViewContent");
+    if (!qv || !v) {
+      return;
     }
-}
-
-function syncSwitchesTimeout(millis) {
-    if (timeoutJobs['syncSwitches'] != undefined) {
-        clearTimeout(timeoutJobs['syncSwitches']);
+    if (qv.classList.contains("is-active")) {
+      qv.classList.remove("is-active");
     }
-    timeoutJobs['syncSwitches'] = setTimeout(syncSwitches, millis);
-}
+    v.innerHTML = txt;
+    qv.classList.add("is-active");
+    setTimeout(function () {
+      var close = byId("quickViewClose");
+      if (close) {
+        close.click();
+      }
+    }, 2500);
+  }
 
-function syncSwitches() {
-    $.get("cgi-bin/camcontrols.cgi", {
-        cmd: "getallstate",
-    }).done(function (data) {
-        var switchesStateArray = eval(data);
-        for (var i = 0; i < switchesStateArray.length; i++) {
-            var switchState = switchesStateArray[i];
-            var e = $('#' + switchState.id);
-            
-            e.prop('checked', (switchState.status.trim().toLowerCase() == "on"));
-        }
-    });
-}
-
-function showResult(txt) {
-    var qv = $("#quickviewDefault");
-    var v = $("#quicViewContent");
-    if (qv.hasClass("is-active")) {
-        // hide first if it's already active
-        qv.toggleClass("is-active");
+  function fixMenuPadding() {
+    var navMenu = byId("nav_menu");
+    if (!navMenu) {
+      return;
     }
-    v.html(txt);
-    qv.toggleClass("is-active");
-    // auto close after 2.5 seconds
-    setTimeout(function () { $("#quickViewClose").click(); }, 2500);
-}
-
-$(document).ready(function () {
-
-    setTheme(getThemeChoice());
-    
-    // Set title page and menu with hostname
-    $.get("cgi-bin/state.cgi", {cmd: "hostname"}, function(title){document.title = title;document.getElementById("title").title = title;});
-    
-    // Set initial fast camera controls.
-    updateCameraControls();
-    
-    // Load link into #content
-    $('.onpage').click(function () {
-        var e = $(this);
-        var target = e.data('target');
-        var cachebuster = "_=" + new Date().getTime();
-        if (target.indexOf("?") >= 0) {
-            // append as additional param
-            cachebuster = "&" + cachebuster;
-        } else {
-            // new param
-            cachebuster = "?" + cachebuster;
-        }
-        $('#content').load(target + cachebuster);
-    });
-    // Load link into window
-    $('.direct').click(function () {
-        window.location.href = $(this).data('target');
-    });
-    // Ask before proceeding
-    $('.prompt').click(function () {
-        var e = $(this);
-        if (confirm(e.data('message'))) {
-            window.location.href = e.data('target');
-        }
-    });
-
-    $('#camcontrol_link').hover(function () {
-        // for desktop
-        var e = $(this);
-        e.toggleClass('is-active');
-        if (!e.hasClass('is-active')) {
-            return;
-        }
-        // refresh switches on hover over Camera Controls menu
-        syncSwitchesTimeout(500);
-    }, function () { $(this).toggleClass('is-active'); });
-
-    // Hookup navbar burger for mobile
-    $('#navbar_burger').click(function () {
-        // for mobile
-        var e = $(this);
-        e.toggleClass('is-active');
-        $('#' + e.data('target')).toggleClass('is-active');
-
-        if (!e.hasClass('is-active')) {
-            return;
-        }
-        // refresh switches on burger is tapped
-        syncSwitchesTimeout(500);
-    });
-    
-    // Autohide navbar for mobile
-    $('#nav_menu').click(function () {
-        // for mobile
-        var e = $('#navbar_burger');
-        e.toggleClass('is-active');
-        $('#' + e.data('target')).toggleClass('is-active');
-    });
-
-    // Close action for quickview
-    $("#quickViewClose").click(function () {
-        $("#quickviewDefault").removeClass("is-active");
-    });
-
-    // Use the hash for direct linking
-    if (document.location.hash != "") {
-        $(document.location.hash).click();
+    if (window.innerWidth < 1023) {
+      navMenu.style.paddingBottom = "6rem";
+    } else {
+      navMenu.style.paddingBottom = "";
     }
+  }
 
-    $('.navbar-item').click(function () {
-        var id = $(this).attr("id");
-        if (id && !$(this).hasClass('has-dropdown'))
-        {
-            scheduleRefreshAutoNightLumAwb(id == "status" ? 2000 : 0);
-        }
-    });
-
-    // Make liveview self refresh
-    $("#liveview").attr("onload", "scheduleRefreshLiveImage(1000);");
-
-    
-    fixMenuPadding();
-    refreshSysUsage();
-});
-
-$(window).on('resize', function() {
-    fixMenuPadding();
-});
-
-function fixMenuPadding()
-{
-    if ($(window).width() < 1023) {
-        $("#nav_menu").css({ "padding-bottom": "6rem" });
-    }
-    else {
-        $("#nav_menu").css({ "padding-bottom": "" });
-    }
-}
-
-// set theme cookie
-function setCookie(name, value) {
+  function setCookie(name, value) {
     document.cookie = encodeURIComponent(name) + "=" + encodeURIComponent(value) + "; path=/";
-}
-// get theme cookie
-function getCookie(name) {
+  }
+
+  function getCookie(name) {
     var nameEQ = encodeURIComponent(name) + "=";
-    var ca = document.cookie.split(';');
+    var ca = document.cookie.split(";");
     for (var i = 0; i < ca.length; i++) {
-        var c = ca[i];
-        while (c.charAt(0) === ' ')
-            c = c.substring(1, c.length);
-        if (c.indexOf(nameEQ) === 0)
-            return decodeURIComponent(c.substring(nameEQ.length, c.length));
+      var c = ca[i];
+      while (c.charAt(0) === " ") {
+        c = c.substring(1, c.length);
+      }
+      if (c.indexOf(nameEQ) === 0) {
+        return decodeURIComponent(c.substring(nameEQ.length, c.length));
+      }
     }
     return null;
-}
+  }
 
-function setTheme(c) {
+  function setTheme(c) {
     if (!c) {
-        return;
+      return;
     }
-    // clear any existing choice
-    $('.theme_choice').removeClass('is-active');
 
-    var theme = $('#theme_choice_' + c);
-    theme.addClass('is-active');    // set active
-    if (theme.data('css')) {
-        // Purge any current custom theme
-        $('link.custom_theme').remove();
+    Array.prototype.slice.call(document.querySelectorAll(".theme_choice")).forEach(function (choice) {
+      choice.classList.remove("is-active");
+    });
 
-        // Append css to head
-        var css = $('<link>', {
-            'class': 'custom_theme',
-            'rel': 'stylesheet',
-            'href': theme.data('css'),
+    var theme = byId("theme_choice_" + c);
+    var cssHref = "";
+    if (theme) {
+      theme.classList.add("is-active");
+      cssHref = theme.dataset.css || "";
+    } else if (c === "0") {
+      cssHref = "css/bulma.0.6.2.min.css";
+    } else if (c === "1") {
+      cssHref = "css/bulmaswatch.min.css";
+    }
+
+    if (!cssHref) {
+      return;
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll("link.custom_theme")).forEach(function (node) {
+      node.parentNode.removeChild(node);
+    });
+
+    var css = document.createElement("link");
+    css.className = "custom_theme";
+    css.rel = "stylesheet";
+    css.href = cssHref;
+    document.head.appendChild(css);
+
+    var customCss = byId("custom_css");
+    if (customCss) {
+      var clone = customCss.cloneNode(true);
+      customCss.remove();
+      document.head.appendChild(clone);
+    }
+
+    setCookie("theme", c);
+  }
+
+  function getThemeChoice() {
+    return getCookie("theme");
+  }
+
+  function cameraControlClick(control) {
+    var e = control;
+    if (!e) {
+      return;
+    }
+    e.disabled = true;
+    var id = e.getAttribute("id");
+
+    fetch("cgi-bin/camcontrols.cgi?cmd=getstate&control=" + encodeURIComponent(id), { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (status) {
+        var url = status.trim().toLowerCase() === "on" ? e.dataset.unchecked : e.dataset.checked;
+        return fetch(url, { cache: "no-store" }).then(function () {
+          e.checked = status.trim().toLowerCase() !== "on";
         });
-        $('head').append(css);
-
-        // reapply the custom css
-        var customCss = $('#custom_css').clone();
-        $('#custom_css').remove()
-        $('head').append(customCss);
-        setCookie('theme', c);
-    }
-}
-
-function getThemeChoice() {
-    var c = getCookie('theme');
-    return c;
-}
-
-function cameraControlClick(control)
-{   
-    var e = $(control);
-    e.prop('disabled', true);
-    $.get("cgi-bin/camcontrols.cgi", {
-        cmd: "getstate",
-        control: e.attr('id')
-    }).done(function (status) {
-        if (status.trim().toLowerCase() == "on") {
-            $.get(e.data('unchecked')).done(function (data) {
-                e.prop('checked', false);
-            });
-        } else {
-            $.get(e.data('checked')).done(function (data) {
-                e.prop('checked', true);
-            });
-        }
-        e.prop('disabled', false);
-
+      })
+      .finally(function () {
+        e.disabled = false;
         syncSwitchesTimeout(5000);
-    });
-}
+      });
+  }
 
-
-function updateCameraControls() {
-    $.get("cgi-bin/camcontrols.cgi?cmd=getcontrols").done(function(data) {
-        $("#camcontrol_items").empty();
-        var camControlsArray = eval(data);
-        for (var i = 0; i < camControlsArray.length; i++) {
-            var camControl = camControlsArray[i];
-            $("#camcontrol_items").append("<span class=\"navbar-item\"><input id=\"" + camControl.id + "\" \
-                onclick='cameraControlClick(this)' \
-                type=\"checkbox\" name=\"" + camControl.id + "\" class=\"switch\" \
-                data-checked=\"cgi-bin/camcontrols.cgi?cmd=on&control=" + camControl.id + "\" \
-                data-unchecked=\"cgi-bin/camcontrols.cgi?cmd=off&control=" + camControl.id + "\"> \
-                <label for=\"" + camControl.id + "\">" + camControl.name + "</label></span>");
+  function updateCameraControls() {
+    fetch("cgi-bin/camcontrols.cgi?cmd=getcontrols", { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (data) {
+        var camControlsArray = parseJsonArray(data);
+        var container = byId("camcontrol_items");
+        if (!container) {
+          return;
         }
-        
+
+        container.innerHTML = "";
+        camControlsArray.forEach(function (camControl) {
+          var item = document.createElement("span");
+          item.className = "navbar-item";
+
+          var input = document.createElement("input");
+          input.id = camControl.id;
+          input.type = "checkbox";
+          input.name = camControl.id;
+          input.className = "switch";
+          input.dataset.checked = "cgi-bin/camcontrols.cgi?cmd=on&control=" + encodeURIComponent(camControl.id);
+          input.dataset.unchecked = "cgi-bin/camcontrols.cgi?cmd=off&control=" + encodeURIComponent(camControl.id);
+          input.onclick = function () {
+            cameraControlClick(this);
+          };
+
+          var label = document.createElement("label");
+          label.setAttribute("for", camControl.id);
+          label.textContent = camControl.name;
+
+          item.appendChild(input);
+          item.appendChild(document.createTextNode(" "));
+          item.appendChild(label);
+          container.appendChild(item);
+        });
+
         syncSwitches();
+      });
+  }
+
+  function pushToTalk(action) {
+    var btn = byId("btn-ptt");
+    if (!btn) {
+      return;
+    }
+
+    var span = btn.querySelector("span");
+    if (action === "on") {
+      if (span) {
+        span.style.color = "red";
+        span.removeAttribute("onpointerdown");
+      }
+      btn.setAttribute("onpointerup", "pushToTalk('off')");
+      if (window.startRecording) {
+        window.startRecording();
+      }
+    } else {
+      if (window.stopRecording) {
+        window.stopRecording();
+      }
+      if (span) {
+        span.style.color = "";
+        span.removeAttribute("onpointerup");
+      }
+      btn.setAttribute("onpointerdown", "pushToTalk('on')");
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    setTheme(getThemeChoice());
+
+    fetch("cgi-bin/state.cgi?cmd=hostname", { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (title) {
+        document.title = title;
+        var titleNode = byId("title");
+        if (titleNode) {
+          titleNode.title = title;
+        }
+      });
+
+    updateCameraControls();
+
+    document.addEventListener("click", function (event) {
+      var onPageTarget = event.target.closest(".onpage");
+      if (onPageTarget && onPageTarget.dataset.target) {
+        event.preventDefault();
+        loadOnPageTarget(onPageTarget.dataset.target);
+        if (window.innerWidth < 1024) {
+          closeNavMenu();
+        }
+        return;
+      }
+
+      var onSettingsTarget = event.target.closest(".onsettings");
+      if (onSettingsTarget && onSettingsTarget.dataset.target) {
+        event.preventDefault();
+        var scrollSelector = onSettingsTarget.dataset.scroll;
+        loadOnPageTarget(onSettingsTarget.dataset.target, function () {
+          setTimeout(function () {
+            scrollToSelector(scrollSelector);
+          }, 80);
+        });
+        if (window.innerWidth < 1024) {
+          closeNavMenu();
+        }
+        return;
+      }
+
+      var directTarget = event.target.closest(".direct");
+      if (directTarget && directTarget.dataset.target) {
+        window.location.href = directTarget.dataset.target;
+        return;
+      }
+
+      var promptTarget = event.target.closest(".prompt");
+      if (promptTarget && promptTarget.dataset.target) {
+        if (confirm(promptTarget.dataset.message)) {
+          window.location.href = promptTarget.dataset.target;
+        }
+      }
     });
-}
 
+    var camControlLink = byId("camcontrol_link");
+    if (camControlLink) {
+      camControlLink.addEventListener("mouseenter", function () {
+        camControlLink.classList.add("is-active");
+        syncSwitchesTimeout(500);
+      });
+      camControlLink.addEventListener("mouseleave", function () {
+        camControlLink.classList.remove("is-active");
+      });
+    }
 
-function pushToTalk(action) {
-    if (action == "on") {
-        $("#btn-ptt span").attr("style","color:red");
-        $("#btn-ptt span").attr("onpointerdown","");
-        $("#btn-ptt").attr("onpointerup","pushToTalk('off')");
-        startRecording();
+    var navbarBurger = byId("navbar_burger");
+    if (navbarBurger) {
+      navbarBurger.addEventListener("click", function () {
+        var willOpen = !navbarBurger.classList.contains("is-active");
+        navbarBurger.classList.toggle("is-active", willOpen);
+        navbarBurger.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        var menu = byId(navbarBurger.dataset.target);
+        if (menu) {
+          menu.classList.toggle("is-active", willOpen);
+        }
+        if (willOpen) {
+          syncSwitchesTimeout(500);
+        }
+      });
     }
-    else {
-        stopRecording();
-        $("#btn-ptt span").attr("style","");
-        $("#btn-ptt span").attr("onpointerup","");
-        $("#btn-ptt").attr("onpointerdown","pushToTalk('on')");
+
+    var navMenu = byId("nav_menu");
+    if (navMenu) {
+      navMenu.addEventListener("click", function (event) {
+        if (window.innerWidth >= 1024) {
+          return;
+        }
+        var clickedItem = event.target.closest(".navbar-item");
+        if (!clickedItem || clickedItem.classList.contains("has-dropdown")) {
+          return;
+        }
+        closeNavMenu();
+      });
     }
-}
+
+    var quickViewClose = byId("quickViewClose");
+    if (quickViewClose) {
+      quickViewClose.addEventListener("click", function () {
+        var quickView = byId("quickviewDefault");
+        if (quickView) {
+          quickView.classList.remove("is-active");
+        }
+      });
+    }
+
+    if (document.location.hash !== "") {
+      var hashTarget = document.querySelector(document.location.hash);
+      if (hashTarget) {
+        hashTarget.click();
+      }
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll(".navbar-item")).forEach(function (node) {
+      node.addEventListener("click", function () {
+        var id = node.getAttribute("id");
+        if (id && !node.classList.contains("has-dropdown")) {
+          scheduleRefreshAutoNightLumAwb(id === "status" ? AUTONIGHT_INTERVAL_VISIBLE_MS : 0);
+        }
+      });
+    });
+
+    var liveview = byId("liveview");
+    if (liveview) {
+      liveview.onload = function () {
+        if (liveFeedEnabled) {
+          scheduleRefreshLiveImage(LIVEVIEW_INTERVAL_VISIBLE_MS);
+        }
+      };
+    }
+
+    var liveToggle = byId("live_toggle");
+    if (liveToggle) {
+      liveToggle.addEventListener("click", function () {
+        liveFeedEnabled = !liveFeedEnabled;
+        setLiveToggleButtonState();
+        if (liveFeedEnabled) {
+          scheduleRefreshLiveImage(100);
+        } else {
+          clearJob("refreshLiveImage");
+        }
+      });
+    }
+    setLiveToggleButtonState();
+
+    document.addEventListener("visibilitychange", function () {
+      scheduleRefreshLiveImage(document.hidden ? LIVEVIEW_INTERVAL_HIDDEN_MS : LIVEVIEW_INTERVAL_VISIBLE_MS);
+      scheduleRefreshSysUsage(document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS);
+    });
+
+    fixMenuPadding();
+    refreshSysUsage();
+  });
+
+  window.addEventListener("resize", fixMenuPadding);
+
+  window.refreshLiveImage = refreshLiveImage;
+  window.scheduleRefreshLiveImage = scheduleRefreshLiveImage;
+  window.refreshSysUsage = refreshSysUsage;
+  window.scheduleRefreshSysUsage = scheduleRefreshSysUsage;
+  window.refreshAutoNightLumAwb = refreshAutoNightLumAwb;
+  window.scheduleRefreshAutoNightLumAwb = scheduleRefreshAutoNightLumAwb;
+  window.syncSwitchesTimeout = syncSwitchesTimeout;
+  window.syncSwitches = syncSwitches;
+  window.showResult = showResult;
+  window.fixMenuPadding = fixMenuPadding;
+  window.setCookie = setCookie;
+  window.getCookie = getCookie;
+  window.setTheme = setTheme;
+  window.getThemeChoice = getThemeChoice;
+  window.cameraControlClick = cameraControlClick;
+  window.updateCameraControls = updateCameraControls;
+  window.pushToTalk = pushToTalk;
+})();
