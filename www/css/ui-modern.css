@@ -112,6 +112,13 @@ body {
   margin-bottom: 0.75rem;
 }
 
+.nav-sysusage-wrap {
+  margin-left: 0.1rem;
+  margin-right: 0.1rem;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
 .liveview-wrap {
   border: 1px solid var(--ui-border);
   border-radius: 18px;
@@ -171,6 +178,8 @@ body {
   border-radius: 999px;
   padding: 0.28rem 0.9rem;
   transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 #sysusage.usage-low {
@@ -318,6 +327,15 @@ a.button[disabled]:hover {
 }
 
 @media screen and (max-width: 768px) {
+  .nav-sysusage-wrap {
+    margin-left: auto;
+  }
+
+  #sysusage {
+    font-size: 0.74rem;
+    padding: 0.22rem 0.5rem;
+  }
+
   .app-toolbar {
     justify-content: stretch;
   }

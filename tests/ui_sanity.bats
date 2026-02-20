@@ -5,8 +5,8 @@
   [ "$status" -ne 0 ]
 }
 
-@test "sysusage widget is rendered in main live view shell" {
-  run grep -n '<div class="sysusage-wrap">' www/index.html
+@test "sysusage widget is rendered in fixed navbar shell" {
+  run grep -n 'class="navbar-item nav-sysusage-wrap"' www/index.html
   [ "$status" -eq 0 ]
 
   run grep -n '<em id="sysusage">' www/index.html
@@ -34,7 +34,19 @@
   run grep -n 'id="logs"' www/index.html
   [ "$status" -eq 0 ]
 
-  run grep -n 'class="navbar-item onsettings"' www/index.html
+  run grep -n 'id="sysusageinfo".*data-target="cgi-bin/sysusageinfo.cgi"' www/index.html
+  [ "$status" -eq 0 ]
+
+  run grep -n 'id="network".*data-target="cgi-bin/network.cgi"' www/index.html
+  [ "$status" -eq 0 ]
+
+  run grep -n 'id="disk".*data-target="cgi-bin/disk.cgi"' www/index.html
+  [ "$status" -eq 0 ]
+
+  run grep -n 'id="devinfo".*data-target="cgi-bin/devinfo.cgi"' www/index.html
+  [ "$status" -eq 0 ]
+
+  run grep -n 'id="logs".*data-target="logs.html"' www/index.html
   [ "$status" -eq 0 ]
 }
 
