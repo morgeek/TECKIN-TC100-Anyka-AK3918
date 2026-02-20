@@ -193,6 +193,11 @@ if [ -n "$F_cmd" ]; then
 
       # F_osdtext is already URL-decoded in func.cgi; do not decode '%' again.
       osdtext="$F_osdtext"
+      if [ -z "$osdtext" ]; then
+        osdtext="%H:%M:%S %d.%m.%Y"
+      fi
+      # Recover from legacy invalid escaped values like '\xH' -> '%H'.
+      osdtext=$(printf '%s' "$osdtext" | sed 's/\\x/%/g')
 
       /mnt/bin/setconf -k o -v "$osdtext"
       /mnt/bin/setconf -k c -v ${F_frontcolor}
@@ -220,6 +225,8 @@ if [ -n "$F_cmd" ]; then
           1  osdfontsize ${F_OSDSize1} \
           1  osdx ${F_posx1} \
           1  osdy ${F_posy1} 
+
+      restart_service_if_need /mnt/controlscripts/rtsp-h26x
 
       echo "OSD set to \"$osdtext\" and enabled: $osd_enabled<br/>"
     ;;

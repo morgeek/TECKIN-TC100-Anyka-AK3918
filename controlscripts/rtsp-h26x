@@ -58,6 +58,14 @@ start()
     audioCodec1=$4
     USERNAME=$(read_config rtspserver.conf USERNAME)
     USERPASSWORD=$(read_config rtspserver.conf USERPASSWORD)
+    OSDTEXT=$(read_config rtspserver.conf osdtext)
+
+    if echo "$OSDTEXT" | grep -q '\\x'; then
+        CLEAN_OSDTEXT=$(printf '%s' "$OSDTEXT" | sed 's/\\x/%/g')
+        /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " osdtext "$CLEAN_OSDTEXT"
+        /mnt/bin/setconf -k o -v "$CLEAN_OSDTEXT" >/dev/null 2>&1 || true
+        echo "Sanitized invalid OSD format string: $OSDTEXT -> $CLEAN_OSDTEXT" >> "$LOGPATH"
+    fi
 
     ## UserName and password
     if [ "$USERNAME" != "" ]; then

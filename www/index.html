@@ -59,6 +59,9 @@
                 </a>
                 <a class="navbar-item icnbtn" href="." id="title" title="Anyka"><i class="icon-eye"></i></a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html" id="viewrecordspage" title="Records"><i class="icon-play-circle-o"></i></a>
+                <span class="navbar-item nav-sysusage-wrap" title="Current CPU and RAM usage">
+                    <em id="sysusage">...</em>
+                </span>
                 <!-- TODO: uncomment when implemented
                 <a class="navbar-item icnbtn" id="btn-ptt" onpointerdown="pushToTalk('on')" title="Push To Talk"><span><i class="icon-microphone"></i></span></a>
                 -->
@@ -102,11 +105,11 @@
                             </span>
                         </span>
                         <div class="navbar-dropdown is-boxed">
-                            <a id="sysusageinfo" class="navbar-item onsettings" href="javascript: void(0)" data-target="cgi-bin/status.cgi" data-scroll="#embeddedSysUsageInfo">System Usage</a>
-                            <a id="devinfo" class="navbar-item onsettings" href="javascript: void(0)" data-target="cgi-bin/status.cgi" data-scroll="#embeddedDeviceInfo">Device Info</a>
-                            <a id="network" class="navbar-item onsettings" href="javascript: void(0)" data-target="cgi-bin/status.cgi" data-scroll="#embeddedNetworkInfo">Network & DNS</a>
-                            <a id="disk" class="navbar-item onsettings" href="javascript: void(0)" data-target="cgi-bin/status.cgi" data-scroll="#embeddedDiskInfo">Disk & Mounts</a>
-                            <a id="logs" class="navbar-item onsettings" href="javascript: void(0)" data-target="cgi-bin/status.cgi" data-scroll="#embeddedLogs">Logs</a>
+                            <a id="sysusageinfo" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/sysusageinfo.cgi">System Usage</a>
+                            <a id="devinfo" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/devinfo.cgi">Device Info</a>
+                            <a id="network" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/network.cgi">Network & DNS</a>
+                            <a id="disk" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/disk.cgi">Disk & Mounts</a>
+                            <a id="logs" class="navbar-item onpage" href="javascript: void(0)" data-target="logs.html">Logs</a>
                         </div>
                     </div>
                 </div>
@@ -125,9 +128,6 @@
 
     <section id="main" class="section">
         <div id="content" class="container app-shell">
-            <div class="sysusage-wrap">
-                <em id="sysusage">...</em>
-            </div>
             <div class="app-toolbar">
                 <button class="button" id="live_toggle" type="button">Pause Live</button>
                 <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
