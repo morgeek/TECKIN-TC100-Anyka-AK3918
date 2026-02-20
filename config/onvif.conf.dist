@@ -9,3 +9,6 @@ VENDOR_NAME=Anyka
 HW_NAME=AK3918
 DEVICE_NAME=Teckin
 DEVICE_MODEL=TC100
+
+# Optional ONVIF log file (default: /dev/null)
+# ONVIF_LOGPATH=/mnt/log/onvif.log

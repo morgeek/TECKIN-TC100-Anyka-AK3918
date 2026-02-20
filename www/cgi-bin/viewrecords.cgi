@@ -19,11 +19,12 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     list_dates)
-      lastDateVal=''
       echo "["
+      sep=""
       files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER)"
       for file in $files; do
-        echo "{\"date\":\"$file\"},"
+        printf '%s{"date":"%s"}\n' "$sep" "$file"
+        sep=","
       done
       echo "]"
     ;;
@@ -31,9 +32,11 @@ if [ -n "$F_cmd" ]; then
     list_records)
       dateVal="${F_date##*/}"
       echo "["
+      sep=""
       files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER f $dateVal)"
       for file in $files; do
-        echo "{\"record\":\"$file\"},"
+        printf '%s{"record":"%s"}\n' "$sep" "$file"
+        sep=","
       done
       echo "]"
     ;;

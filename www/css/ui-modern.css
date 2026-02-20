@@ -1,0 +1,336 @@
+:root {
+  --ui-bg: #eef4fb;
+  --ui-bg-accent: #d7e7ff;
+  --ui-surface: rgba(255, 255, 255, 0.88);
+  --ui-surface-strong: #ffffff;
+  --ui-border: rgba(22, 62, 112, 0.16);
+  --ui-shadow: 0 10px 30px rgba(10, 42, 82, 0.14);
+  --ui-text: #1f2a39;
+  --ui-muted: #5d6b7a;
+  --ui-primary: #0b6acb;
+  --ui-primary-dark: #084f99;
+  --ui-danger: #c93d3d;
+  --ui-success: #1f8556;
+}
+
+html {
+  background:
+    radial-gradient(circle at 100% 0%, var(--ui-bg-accent) 0%, transparent 45%),
+    linear-gradient(160deg, #f9fbff 0%, var(--ui-bg) 100%);
+}
+
+body {
+  color: var(--ui-text);
+  font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+.navbar {
+  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.84);
+  border-bottom: 1px solid var(--ui-border);
+  box-shadow: 0 4px 18px rgba(10, 42, 82, 0.08);
+}
+
+.icnbtn {
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 0.35rem 0.6rem;
+}
+
+.navbar-item .icon-eye,
+.navbar-item .icon-play-circle-o {
+  color: var(--ui-primary);
+}
+
+.navbar-item.onpage.is-active,
+.navbar-dropdown .navbar-item.onpage.is-active {
+  background: rgba(11, 106, 203, 0.12);
+  color: var(--ui-primary-dark);
+  font-weight: 700;
+}
+
+.navbar-link:hover,
+.navbar-item:hover,
+.dropdown-item:hover {
+  background: rgba(11, 106, 203, 0.08) !important;
+}
+
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.nav-icon svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.92;
+  flex-shrink: 0;
+}
+
+#main {
+  position: relative;
+}
+
+.app-toolbar {
+  margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.app-toolbar .button {
+  border-radius: 999px;
+  border-color: rgba(11, 106, 203, 0.2);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--ui-primary-dark);
+  font-weight: 600;
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+
+.app-toolbar .button:hover {
+  transform: translateY(-1px);
+  background: rgba(11, 106, 203, 0.1);
+}
+
+.app-shell {
+  max-width: 1180px;
+}
+
+.sysusage-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.liveview-wrap {
+  border: 1px solid var(--ui-border);
+  border-radius: 18px;
+  box-shadow: var(--ui-shadow);
+  background: linear-gradient(180deg, rgba(248, 252, 255, 0.95), rgba(233, 242, 253, 0.7));
+  padding: 0.5rem;
+}
+
+#content.content-loading {
+  opacity: 0.72;
+  transition: opacity 120ms ease;
+}
+
+.script_card,
+.status_card,
+.card {
+  border: 1px solid var(--ui-border);
+  border-radius: 16px;
+  box-shadow: var(--ui-shadow);
+  background: var(--ui-surface);
+}
+
+.card-header {
+  border-bottom: 1px solid var(--ui-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(246, 250, 255, 0.85));
+}
+
+.card-header-title {
+  color: var(--ui-text);
+  letter-spacing: 0.2px;
+}
+
+.card-content pre {
+  background: rgba(12, 34, 59, 0.04);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+#liveview {
+  width: min(100%, 1140px);
+  border: 1px solid rgba(22, 62, 112, 0.12);
+  border-radius: 12px;
+  background: var(--ui-surface-strong);
+  display: block;
+  margin: 0 auto;
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+#sysusage {
+  display: inline-block;
+  font-style: normal;
+  font-weight: 700;
+  color: #1f8556;
+  background: rgba(31, 133, 86, 0.14);
+  border: 1px solid rgba(31, 133, 86, 0.3);
+  border-radius: 999px;
+  padding: 0.28rem 0.9rem;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+#sysusage.usage-low {
+  color: #1f8556;
+  background: rgba(31, 133, 86, 0.14);
+  border-color: rgba(31, 133, 86, 0.3);
+}
+
+#sysusage.usage-mid {
+  color: #b65c00;
+  background: rgba(250, 191, 103, 0.22);
+  border-color: rgba(182, 92, 0, 0.35);
+}
+
+#sysusage.usage-high {
+  color: #b42033;
+  background: rgba(228, 92, 113, 0.2);
+  border-color: rgba(180, 32, 51, 0.38);
+}
+
+.theme-switcher {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.theme-switcher .theme_choice {
+  border-color: rgba(11, 106, 203, 0.2);
+}
+
+.theme-switcher .theme_choice.is-active {
+  background: var(--ui-primary);
+  border-color: var(--ui-primary);
+  color: #fff;
+}
+
+#embeddedServices .script_card,
+#embeddedCamControls .status_card,
+#embeddedSysUsageInfo .status_card,
+#embeddedDeviceInfo .status_card,
+#embeddedNetworkInfo .status_card,
+#embeddedDiskInfo .status_card,
+#embeddedLogs .status_card {
+  max-width: 100%;
+}
+
+.button.is-primary {
+  background-color: var(--ui-primary);
+}
+
+.button.is-primary:hover {
+  background-color: var(--ui-primary-dark);
+}
+
+.button.is-danger {
+  background-color: var(--ui-danger);
+}
+
+.button[disabled],
+.button[disabled]:hover,
+a.button[disabled],
+a.button[disabled]:hover {
+  opacity: 0.45;
+  pointer-events: none;
+  transform: none;
+}
+
+.records-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.records-actions .button {
+  margin-bottom: 0;
+}
+
+.status-view-mode {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.status-view-mode-label {
+  font-weight: 600;
+  color: var(--ui-muted);
+  margin-right: 0.2rem;
+}
+
+.status-view-mode .button.is-active {
+  background: var(--ui-primary);
+  border-color: var(--ui-primary);
+  color: #fff;
+}
+
+.status_card.status-collapsible .card-header {
+  cursor: pointer;
+}
+
+.status_card.status-collapsible .card-header::after {
+  content: "▾";
+  margin-left: auto;
+  padding-right: 0.9rem;
+  color: var(--ui-muted);
+  font-size: 0.95rem;
+}
+
+.status_card.status-collapsible.status-collapsed .card-header::after {
+  content: "▸";
+}
+
+.status_card.status-collapsible.status-collapsed > :not(.card-header) {
+  display: none;
+}
+
+.quickview {
+  border-left: 1px solid var(--ui-border);
+  backdrop-filter: blur(6px);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card,
+  #liveview,
+  .navbar {
+    animation: ui-fade-in 180ms ease both;
+  }
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .app-toolbar {
+    justify-content: stretch;
+  }
+
+  .app-toolbar .button {
+    flex: 1 1 0;
+  }
+
+  .records-actions {
+    grid-template-columns: 1fr;
+  }
+
+  #liveview {
+    max-height: 68vh;
+  }
+}

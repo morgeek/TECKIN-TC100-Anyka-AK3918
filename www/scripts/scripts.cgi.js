@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function () {
+function initScriptsPage() {
   function loadInto(selector, url) {
     var el = document.querySelector(selector);
     if (!el) return;
@@ -16,25 +16,33 @@ document.addEventListener('DOMContentLoaded', function () {
       fetch(target).then(function (r) { return r.text(); }).then(function (res) {
         var show = document.getElementById('show_' + e.dataset.script);
         if (show) show.innerHTML = res;
-        loadInto('#content', 'cgi-bin/scripts.cgi');
+        var refreshHost = document.getElementById('embeddedServices') ? '#embeddedServices' : '#content';
+        loadInto(refreshHost, 'cgi-bin/scripts.cgi');
       }).catch(function (err) { console.error(err); }).finally(function () { e.disabled = false; e.classList.remove('is-loading'); });
       return false;
     });
   });
 
   Array.prototype.slice.call(document.querySelectorAll('input.autostart')).forEach(function (inp) {
-    inp.addEventListener('click', function (ev) {
-      ev.preventDefault();
+    inp.addEventListener('change', function (ev) {
       var e = ev.currentTarget;
+      var desiredState = e.checked;
+      var url = desiredState ? e.dataset.checked : e.dataset.unchecked;
       e.disabled = true;
-      var url = e.checked ? e.dataset.checked : e.dataset.unchecked;
-      fetch(url).then(function (r) { try { return r.json(); } catch (ex) { return r.text(); } }).then(function (res) {
-        e.disabled = false;
-        if (res && res.status == 'ok') {
-          e.checked = !e.checked;
-        }
-      }).catch(function (err) { e.disabled = false; console.error(err); });
-      return false;
+      fetch(url)
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (!res || res.status !== 'ok') {
+            e.checked = !desiredState;
+          }
+        })
+        .catch(function (err) {
+          e.checked = !desiredState;
+          console.error(err);
+        })
+        .finally(function () {
+          e.disabled = false;
+        });
     });
   });
 
@@ -53,4 +61,10 @@ document.addEventListener('DOMContentLoaded', function () {
       return false;
     });
   });
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initScriptsPage);
+} else {
+  initScriptsPage();
+}

@@ -5,3 +5,8 @@
 # Add your Telegram credentials here (these are just examples)
 apiToken="23132160:AAFrSEwzJ-X-64tLnD8JJ$JoAxWIMg$$w"
 userChatId="30985132"
+
+# Optional low-CPU polling tuning
+# TELEGRAM_LONG_POLL_TIMEOUT_SECONDS=25
+# TELEGRAM_IDLE_SLEEP_SECONDS=1
+# TELEGRAM_ERROR_BACKOFF_SECONDS=5

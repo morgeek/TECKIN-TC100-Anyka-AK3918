@@ -5,5 +5,15 @@
 # IP address to ping
 PINGADDRESS=192.168.0.1
 
-# Ping interval in sec (default increased to 60s to reduce CPU/ping load)
-PINGINTERVAL=60
+# Ping interval in sec (increased to 120s to reduce CPU/ping load)
+PINGINTERVAL=120
+
+# Ping checks use conservative defaults to avoid busy network polling.
+PING_ATTEMPTS=1
+PING_TIMEOUT_SECONDS=1
+
+# Recovery timing (seconds)
+RECONNECT_WAIT_SECONDS=10
+RECHECK_WAIT_SECONDS=20
+RECHECK_ATTEMPTS=1
+REBOOT_DELAY_SECONDS=3

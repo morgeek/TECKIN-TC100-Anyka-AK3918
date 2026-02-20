@@ -181,15 +181,25 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     osd)
-      osdtext=$(printf '%b' "${F_osdtext//%/\\x}")
-      osdtext=$(echo "$osdtext" | sed -e "s/\\+/ /g")
+      osd_enabled="${F_OSDenable}"
+      case "$osd_enabled" in
+        1|enabled|true|on|yes)
+          osd_enabled=1
+          ;;
+        *)
+          osd_enabled=0
+          ;;
+      esac
+
+      # F_osdtext is already URL-decoded in func.cgi; do not decode '%' again.
+      osdtext="$F_osdtext"
 
       /mnt/bin/setconf -k o -v "$osdtext"
       /mnt/bin/setconf -k c -v ${F_frontcolor}
       /mnt/bin/setconf -k i -v ${F_backcolor}
       /mnt/bin/setconf -k j -v ${F_edgecolor}
       /mnt/bin/setconf -k h -v ${F_alpha}
-      /mnt/bin/setconf -k l -v ${F_OSDenable}
+      /mnt/bin/setconf -k l -v "$osd_enabled"
       /mnt/bin/setconf -k s -v ${F_OSDSize0}
       /mnt/bin/setconf -k x -v ${F_posx0}
       /mnt/bin/setconf -k y -v ${F_posy0}
@@ -203,7 +213,7 @@ if [ -n "$F_cmd" ]; then
           " " osdbackcolor ${F_backcolor} \
           " " osdalpha ${F_alpha} \
           " " osdedgecolor ${F_edgecolor} \
-          " " osdenabled ${F_OSDenable} \
+          " " osdenabled "$osd_enabled" \
           0  osdfontsize ${F_OSDSize0} \
           0  osdx ${F_posx0} \
           0  osdy ${F_posy0} \
@@ -211,7 +221,7 @@ if [ -n "$F_cmd" ]; then
           1  osdx ${F_posx1} \
           1  osdy ${F_posy1} 
 
-      echo "OSD set to "$osdtext" and enabled: ${F_OSDenable}<br/>"
+      echo "OSD set to \"$osdtext\" and enabled: $osd_enabled<br/>"
     ;;
 
     auto_night_mode_start)
@@ -282,6 +292,79 @@ if [ -n "$F_cmd" ]; then
       install_config /mnt/config/service_trim.conf
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
       echo "Service trimming disabled. Reboot to restore autostart services.<br/>"
+    ;;
+
+    set_stream_topology)
+      install_config /mnt/config/boot.conf
+      topology=$(printf '%b' "${F_stream_topology}")
+      case "$topology" in
+        dual-audio)
+          rtsp_substream=1
+          rtsp_audio=1
+          topology_label="Dual stream + audio"
+          ;;
+        dual-no-audio)
+          rtsp_substream=1
+          rtsp_audio=0
+          topology_label="Dual stream, audio disabled"
+          ;;
+        main-audio)
+          rtsp_substream=0
+          rtsp_audio=1
+          topology_label="Main stream + audio"
+          ;;
+        main-only)
+          rtsp_substream=0
+          rtsp_audio=0
+          topology_label="Main stream only (lowest CPU)"
+          ;;
+        *)
+          echo "Unknown stream topology '$topology'<br/>"
+          exit 0
+          ;;
+      esac
+
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
+      rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
+      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+      restart_service_if_need /mnt/controlscripts/onvif
+      echo "Stream topology set to: $topology_label<br/>"
+    ;;
+
+    set_onvif_stream_policy)
+      install_config /mnt/config/boot.conf
+      # shellcheck disable=SC1090
+      if [ -f /mnt/config/boot.conf ]; then
+        . /mnt/config/boot.conf
+      fi
+
+      policy=$(printf '%b' "${F_onvif_stream_policy}")
+      case "$policy" in
+        main-primary)
+          policy_label="Main primary (default)"
+          ;;
+        sub-primary)
+          policy_label="Substream primary"
+          ;;
+        sub-only)
+          policy_label="Substream only"
+          ;;
+        main-only)
+          policy_label="Main only"
+          ;;
+        *)
+          echo "Unknown ONVIF stream policy '$policy'<br/>"
+          exit 0
+          ;;
+      esac
+
+      rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$policy"
+      restart_service_if_need /mnt/controlscripts/onvif
+
+      echo "ONVIF stream policy set to: $policy_label<br/>"
+      if [ "$RTSP_SUBSTREAM" != "1" ] && [ "$policy" != "main-primary" ] && [ "$policy" != "main-only" ]; then
+        echo "Note: RTSP substream is disabled, ONVIF will fall back to main stream.<br/>"
+      fi
     ;;
 
     set_rtsp_preset)
