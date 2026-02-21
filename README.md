@@ -161,6 +161,9 @@ The UI also applies dynamic throttling from live CPU/RAM pressure (high usage in
 * Watchdog log rotation defaults:
   * `WATCHDOG_LOG_MAX_BYTES=262144`
   * `WATCHDOG_LOG_BACKUPS=2`
+* Chip temperature (if kernel exposes a readable sensor):
+  * `CHIP_TEMP_SOURCE_PATH=auto` (or explicit path like `/sys/class/thermal/thermal_zone0/temp`)
+  * `CHIP_TEMP_RAW_DIVISOR=auto` (set `1000` for millidegree sources, `1` for direct Celsius)
 * Network monitor default ping interval: `PINGINTERVAL=120`
 * Telegram bot supports long-poll tuning:
   * `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS`

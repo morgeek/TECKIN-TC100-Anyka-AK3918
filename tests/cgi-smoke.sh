@@ -40,16 +40,20 @@ echo "[2/5] state.cgi unsupported command path"
 out="$(run_cgi_get state.cgi 'cmd=doesnotexist' 2>/dev/null)"
 require_contains "$out" "Unsupported command" "state.cgi unsupported command response"
 
-echo "[3/5] state.cgi perfprofile and healthsnapshot"
+echo "[3/5] state.cgi perfprofile and statusline/healthsnapshot"
 perf_out="$(run_cgi_get state.cgi 'cmd=perfprofile' 2>/dev/null)"
 case "$perf_out" in
   *balanced*|*low-cpu*|*rtsp-only*) ;;
   *) fail "state.cgi perfprofile response not recognized" ;;
 esac
+statusline_out="$(run_cgi_get state.cgi 'cmd=statusline' 2>/dev/null)"
+require_contains "$statusline_out" "\"chip_temp_text\"" "statusline missing chip_temp_text"
+require_contains "$statusline_out" "\"chip_temp_c\"" "statusline missing chip_temp_c"
 health_out="$(run_cgi_get state.cgi 'cmd=healthsnapshot' 2>/dev/null)"
 require_contains "$health_out" "\"rtsp\"" "healthsnapshot missing rtsp key"
 require_contains "$health_out" "\"onvif\"" "healthsnapshot missing onvif key"
 require_contains "$health_out" "\"uptime_seconds\"" "healthsnapshot missing uptime"
+require_contains "$health_out" "\"chip_temp_text\"" "healthsnapshot missing chip_temp_text"
 
 echo "[4/5] configbackup.cgi usage response"
 usage_out="$(run_cgi_get configbackup.cgi '' 2>/dev/null)"
