@@ -10,6 +10,51 @@ echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 
+# Debounce expensive service restarts to avoid restart storms when multiple
+# settings are applied in quick succession from the web UI.
+schedule_service_restart() {
+  service_script="$1"
+  delay_seconds="${2:-2}"
+  lock_dir="/tmp/$(basename "$service_script").restart.pending"
+
+  if [ ! -x "$service_script" ]; then
+    return 0
+  fi
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    return 0
+  fi
+
+  (
+    sleep "$delay_seconds"
+    rmdir "$lock_dir" >/dev/null 2>&1 || true
+    restart_service_if_need "$service_script"
+  ) >/dev/null 2>&1 &
+}
+
+schedule_rtsp_restart() {
+  schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
+}
+
+schedule_onvif_restart() {
+  schedule_service_restart /mnt/controlscripts/onvif 2
+}
+
+apply_web_mode_async() {
+  mode="$1"
+  (
+    sleep 1
+    killall lighttpd >/dev/null 2>&1 || true
+    killall httpd >/dev/null 2>&1 || true
+    if [ "$mode" != "off" ]; then
+      if [ -x /mnt/config/autostart/02_system-webserver ]; then
+        /mnt/config/autostart/02_system-webserver >/dev/null 2>&1 || true
+      else
+        http_server on >/dev/null 2>&1 || true
+      fi
+    fi
+  ) >/dev/null 2>&1 &
+}
+
 if [ -n "$F_cmd" ]; then
   if [ -z "$F_val" ]; then
     F_val=100
@@ -152,7 +197,7 @@ if [ -n "$F_cmd" ]; then
           echo "<p>Success</p>"
         else echo "<p>Failed</p>"
         fi
-        restart_service_if_need /mnt/controlscripts/rtsp-h26x
+        schedule_rtsp_restart
       fi
       hst=$(printf '%b' "${F_hostname}")
       if [ "$(cat /mnt/config/hostname.conf)" != "$hst" ]; then
@@ -177,7 +222,7 @@ if [ -n "$F_cmd" ]; then
       all_password "$password"
       restart_service_if_need /mnt/controlscripts/ftp-server
       restart_service_if_need /mnt/controlscripts/telnet-server
-      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+      schedule_rtsp_restart
     ;;
 
     osd)
@@ -193,40 +238,53 @@ if [ -n "$F_cmd" ]; then
 
       # F_osdtext is already URL-decoded in func.cgi; do not decode '%' again.
       osdtext="$F_osdtext"
+      # Recover from legacy invalid escaped values like '\xH' -> '%H'.
+      osdtext=$(printf '%s' "$osdtext" | sed 's/\\x/%/g')
       if [ -z "$osdtext" ]; then
         osdtext="%H:%M:%S %d.%m.%Y"
       fi
-      # Recover from legacy invalid escaped values like '\xH' -> '%H'.
-      osdtext=$(printf '%s' "$osdtext" | sed 's/\\x/%/g')
 
-      /mnt/bin/setconf -k o -v "$osdtext"
-      /mnt/bin/setconf -k c -v ${F_frontcolor}
-      /mnt/bin/setconf -k i -v ${F_backcolor}
-      /mnt/bin/setconf -k j -v ${F_edgecolor}
-      /mnt/bin/setconf -k h -v ${F_alpha}
+      frontcolor="${F_frontcolor:-1}"
+      backcolor="${F_backcolor:-0}"
+      edgecolor="${F_edgecolor:-2}"
+      alpha="${F_alpha:-0}"
+      osdsize0="${F_OSDSize0:-16}"
+      posx0="${F_posx0:-0}"
+      posy0="${F_posy0:-0}"
+      osdsize1="${F_OSDSize1:-16}"
+      posx1="${F_posx1:-0}"
+      posy1="${F_posy1:-0}"
+
+      if [ "$osd_enabled" = "1" ]; then
+        /mnt/bin/setconf -k o -v "$osdtext"
+      fi
+      /mnt/bin/setconf -k c -v "$frontcolor"
+      /mnt/bin/setconf -k i -v "$backcolor"
+      /mnt/bin/setconf -k j -v "$edgecolor"
+      /mnt/bin/setconf -k h -v "$alpha"
       /mnt/bin/setconf -k l -v "$osd_enabled"
-      /mnt/bin/setconf -k s -v ${F_OSDSize0}
-      /mnt/bin/setconf -k x -v ${F_posx0}
-      /mnt/bin/setconf -k y -v ${F_posy0}
-      /mnt/bin/setconf -k z -v ${F_OSDSize1}
-      /mnt/bin/setconf -k w -v ${F_posx1}
-      /mnt/bin/setconf -k t -v ${F_posy1}
+      /mnt/bin/setconf -k s -v "$osdsize0"
+      /mnt/bin/setconf -k x -v "$posx0"
+      /mnt/bin/setconf -k y -v "$posy0"
+      /mnt/bin/setconf -k z -v "$osdsize1"
+      /mnt/bin/setconf -k w -v "$posx1"
+      /mnt/bin/setconf -k t -v "$posy1"
 
       /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
           " " osdtext "$osdtext" \
-          " " osdfrontcolor ${F_frontcolor} \
-          " " osdbackcolor ${F_backcolor} \
-          " " osdalpha ${F_alpha} \
-          " " osdedgecolor ${F_edgecolor} \
+          " " osdfrontcolor "$frontcolor" \
+          " " osdbackcolor "$backcolor" \
+          " " osdalpha "$alpha" \
+          " " osdedgecolor "$edgecolor" \
           " " osdenabled "$osd_enabled" \
-          0  osdfontsize ${F_OSDSize0} \
-          0  osdx ${F_posx0} \
-          0  osdy ${F_posy0} \
-          1  osdfontsize ${F_OSDSize1} \
-          1  osdx ${F_posx1} \
-          1  osdy ${F_posy1} 
+          0  osdfontsize "$osdsize0" \
+          0  osdx "$posx0" \
+          0  osdy "$posy0" \
+          1  osdfontsize "$osdsize1" \
+          1  osdx "$posx1" \
+          1  osdy "$posy1"
 
-      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+      schedule_rtsp_restart
 
       echo "OSD set to \"$osdtext\" and enabled: $osd_enabled<br/>"
     ;;
@@ -262,12 +320,12 @@ if [ -n "$F_cmd" ]; then
 
     rtsp-log-on)
       rewrite_config /mnt/config/rtspserver.conf RTSPLOGENABLED 1
-      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+      schedule_rtsp_restart
     ;;
 
     rtsp-log-off)
       rewrite_config /mnt/config/rtspserver.conf RTSPLOGENABLED 0
-      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+      schedule_rtsp_restart
     ;;
 
     motion_detection_on)
@@ -299,6 +357,115 @@ if [ -n "$F_cmd" ]; then
       install_config /mnt/config/service_trim.conf
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
       echo "Service trimming disabled. Reboot to restore autostart services.<br/>"
+    ;;
+
+    set_performance_profile)
+      install_config /mnt/config/boot.conf
+      install_config /mnt/config/service_trim.conf
+      profile=$(printf '%b' "${F_performance_profile}")
+
+      case "$profile" in
+        balanced)
+          rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 0
+          rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 1
+          rewrite_config /mnt/config/boot.conf RTSP_AUDIO 1
+          rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-primary
+          rewrite_config /mnt/config/boot.conf SERVICE_TRIM 0
+          rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
+
+          echo "Performance profile set to Balanced.<br/>"
+          echo "Dual stream + audio defaults enabled; reboot to restore all background services if they were trimmed.<br/>"
+          ;;
+        low-cpu)
+          rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_OSD 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG 1
+          rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 0
+          rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
+          rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
+          rewrite_config /mnt/config/boot.conf SERVICE_TRIM 0
+          rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
+
+          # Apply conservative stream settings immediately.
+          /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+              0 width 640 0 height 360 0 fps 10 0 bps 600 0 goplen 20 0 brmode 1 \
+              0 smartmode 1 0 smartgoplen 20 0 smartquality 60 0 smartstatic 350 0 maxkbps 800 0 targetkbps 600 \
+              1 width 320 1 height 180 1 fps 5 1 bps 120 1 goplen 10 1 brmode 1 \
+              1 smartmode 1 1 smartgoplen 10 1 smartquality 50 1 smartstatic 100 1 maxkbps 160 1 targetkbps 120
+
+          echo "Performance profile set to Low CPU.<br/>"
+          echo "Applied conservative RTSP settings now; reboot recommended for full low-CPU service profile.<br/>"
+          ;;
+        rtsp-only)
+          rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_OSD 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG 1
+          rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 0
+          rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
+          rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
+          rewrite_config /mnt/config/boot.conf SERVICE_TRIM 1
+          rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
+
+          for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection blue-led night-mode network-monitor; do
+            if [ -x "/mnt/controlscripts/$svc" ]; then
+              /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
+            fi
+          done
+
+          echo "Performance profile set to RTSP + ONVIF only.<br/>"
+          echo "Stopped non-essential services now; reboot to enforce trimmed autostart persistently.<br/>"
+          ;;
+        *)
+          echo "Unknown performance profile '$profile'<br/>"
+          exit 0
+          ;;
+      esac
+
+      schedule_rtsp_restart
+      schedule_onvif_restart
+    ;;
+
+    set_web_mode)
+      install_config /mnt/config/boot.conf
+      web_mode=$(printf '%b' "${F_web_mode}")
+      ultralite_http_port=$(printf '%b' "${F_ultralite_http_port}")
+
+      case "$web_mode" in
+        full|http|ultra-lite|ultralite|off) ;;
+        *)
+          echo "Unknown web mode '$web_mode'<br/>"
+          exit 0
+          ;;
+      esac
+
+      if [ "$web_mode" = "ultralite" ]; then
+        web_mode="ultra-lite"
+      fi
+
+      case "$ultralite_http_port" in
+        ''|*[!0-9]*) ultralite_http_port=80 ;;
+      esac
+      if [ "$ultralite_http_port" -lt 1 ] || [ "$ultralite_http_port" -gt 65535 ]; then
+        ultralite_http_port=80
+      fi
+
+      rewrite_config /mnt/config/boot.conf WEB_MODE "$web_mode"
+      rewrite_config /mnt/config/boot.conf ULTRALITE_HTTP_PORT "$ultralite_http_port"
+
+      apply_web_mode_async "$web_mode"
+      schedule_onvif_restart
+
+      echo "Web mode set to: $web_mode<br/>"
+      if [ "$web_mode" = "ultra-lite" ]; then
+        echo "Ultra-lite HTTP port set to: $ultralite_http_port<br/>"
+      fi
+      echo "If the web UI disconnects, reconnect using the updated protocol/port.<br/>"
     ;;
 
     set_stream_topology)
@@ -333,8 +500,8 @@ if [ -n "$F_cmd" ]; then
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
-      restart_service_if_need /mnt/controlscripts/rtsp-h26x
-      restart_service_if_need /mnt/controlscripts/onvif
+      schedule_rtsp_restart
+      schedule_onvif_restart
       echo "Stream topology set to: $topology_label<br/>"
     ;;
 
@@ -366,7 +533,7 @@ if [ -n "$F_cmd" ]; then
       esac
 
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$policy"
-      restart_service_if_need /mnt/controlscripts/onvif
+      schedule_onvif_restart
 
       echo "ONVIF stream policy set to: $policy_label<br/>"
       if [ "$RTSP_SUBSTREAM" != "1" ] && [ "$policy" != "main-primary" ] && [ "$policy" != "main-only" ]; then
@@ -423,7 +590,7 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+      schedule_rtsp_restart
     ;;
 
     set_video_size)
@@ -477,7 +644,7 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "${F_maxkbps1}" \
           1 targetkbps   "${F_targetkbps1}" \
 
-      restart_service_if_need /mnt/controlscripts/rtsp-h26x
+      schedule_rtsp_restart
     ;;
 
 
@@ -540,7 +707,7 @@ if [ -n "$F_cmd" ]; then
        echo "In audio bitrate ${F_samplerate} <BR>"
        echo "Volume $F_audioinVol <BR>"
 
-       restart_service_if_need /mnt/controlscripts/rtsp-h26x
+       schedule_rtsp_restart
      ;;
 
 

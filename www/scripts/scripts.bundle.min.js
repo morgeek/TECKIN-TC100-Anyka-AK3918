@@ -2,10 +2,23 @@ function initScriptsPage() {
   function loadInto(selector, url) {
     var el = document.querySelector(selector);
     if (!el) return;
-    fetch(url).then(function (r) { return r.text(); }).then(function (html) { el.innerHTML = html; }).catch(function (e) { console.error(e); });
+    fetch(url, { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (html) {
+      el.innerHTML = html;
+      initScriptsPage();
+    }).catch(function (e) { console.error(e); });
   }
 
-  Array.prototype.slice.call(document.querySelectorAll('button.script_action_stop,button.script_action_start')).forEach(function (btn) {
+  function openQuickview(content) {
+    var qv = document.getElementById('quickviewDefault');
+    var v = document.getElementById('quicViewContent');
+    if (!qv || !v) return;
+    v.innerHTML = content;
+    if (!qv.classList.contains('is-active')) {
+      qv.classList.add('is-active');
+    }
+  }
+
+  Array.prototype.slice.call(document.querySelectorAll('button.script_action_toggle,button.script_action_stop,button.script_action_start')).forEach(function (btn) {
     btn.addEventListener('click', function (ev) {
       ev.preventDefault();
       var e = ev.currentTarget;
@@ -13,9 +26,8 @@ function initScriptsPage() {
       e.disabled = true;
       e.classList.add('is-loading');
       var target = e.dataset.target;
-      fetch(target).then(function (r) { return r.text(); }).then(function (res) {
-        var show = document.getElementById('show_' + e.dataset.script);
-        if (show) show.innerHTML = res;
+      fetch(target, { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (res) {
+        openQuickview(res);
         var refreshHost = document.getElementById('embeddedServices') ? '#embeddedServices' : '#content';
         loadInto(refreshHost, 'cgi-bin/scripts.cgi');
       }).catch(function (err) { console.error(err); }).finally(function () { e.disabled = false; e.classList.remove('is-loading'); });
@@ -57,7 +69,7 @@ function initScriptsPage() {
       }
       if (v) v.innerHTML = 'Loading...';
       var href = e.getAttribute('href');
-      if (href && v) fetch(href).then(function (r) { return r.text(); }).then(function (html) { v.innerHTML = html; if (qv) qv.classList.toggle('is-active'); }).catch(function (err) { console.error(err); });
+      if (href && v) fetch(href, { cache: 'no-store' }).then(function (r) { return r.text(); }).then(function (html) { v.innerHTML = html; if (qv) qv.classList.toggle('is-active'); }).catch(function (err) { console.error(err); });
       return false;
     });
   });

@@ -12,7 +12,10 @@
   run grep -n 'WEB_PROTO="https"' controlscripts/onvif
   [ "$status" -eq 0 ]
 
-  run grep -n 'if \[ "\$WEB_MODE" = "http" \]' controlscripts/onvif
+  run grep -n 'http|ultra-lite|ultralite' controlscripts/onvif
+  [ "$status" -eq 0 ]
+
+  run grep -n 'ULTRALITE_HTTP_PORT' controlscripts/onvif
   [ "$status" -eq 0 ]
 }
 
@@ -32,6 +35,14 @@
   [ "$status" -eq 0 ]
 
   run grep -n 'sub-only' controlscripts/onvif
+  [ "$status" -eq 0 ]
+}
+
+@test "onvif script exposes and forwards location metadata" {
+  run grep -n 'DEVICE_LOCATION=' config/onvif.conf.dist
+  [ "$status" -eq 0 ]
+
+  run grep -n '\-loc \"\$DEVICE_LOCATION\"' controlscripts/onvif
   [ "$status" -eq 0 ]
 }
 

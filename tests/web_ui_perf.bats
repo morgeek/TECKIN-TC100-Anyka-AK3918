@@ -21,3 +21,19 @@
   run grep -n "Cache-Control" config/lighttpd.conf.dist
   [ "$status" -eq 0 ]
 }
+
+@test "webserver autostart supports ultra-lite busybox mode" {
+  run grep -n "ultra-lite|ultralite" config/autostart/02_system-webserver
+  [ "$status" -eq 0 ]
+
+  run grep -n "busybox httpd" config/autostart/02_system-webserver
+  [ "$status" -eq 0 ]
+}
+
+@test "http_server helper handles ultra-lite mode" {
+  run grep -n 'WEB_MODE" = "ultra-lite"' scripts/common_functions.sh
+  [ "$status" -eq 0 ]
+
+  run grep -n "killall httpd" scripts/common_functions.sh
+  [ "$status" -eq 0 ]
+}

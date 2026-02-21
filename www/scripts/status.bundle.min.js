@@ -106,6 +106,11 @@
         })
         .then(function (text) {
           showResult(text);
+          if (form.id === "formPerformanceProfile" && window.refreshPerformanceProfile) {
+            setTimeout(function () {
+              window.refreshPerformanceProfile();
+            }, 700);
+          }
           if (triggerReload !== false) {
             scheduleStatusReload(5000);
           }
@@ -133,6 +138,11 @@
         })
         .then(function (text) {
           showResult(text);
+          if (window.refreshPerformanceProfile) {
+            setTimeout(function () {
+              window.refreshPerformanceProfile();
+            }, 700);
+          }
           scheduleStatusReload(5000);
         })
         .catch(function (e) {
@@ -196,11 +206,44 @@
     }
   }
 
-  function loadEmbeddedPanel(hostSelector, url) {
-    var host = qs(hostSelector);
+  function initWebModeForm() {
+    var mode = qs("#web_mode");
+    var port = qs("#ultralite_http_port");
+    var portField = port ? port.closest(".web-port-field") : null;
+
+    if (!mode || !port || !portField) {
+      return;
+    }
+
+    function syncPortVisibility() {
+      var show = mode.value === "ultra-lite";
+      portField.classList.toggle("is-hidden", !show);
+      port.disabled = !show;
+    }
+
+    if (mode.dataset.bound !== "1") {
+      mode.dataset.bound = "1";
+      mode.addEventListener("change", syncPortVisibility);
+    }
+    syncPortVisibility();
+  }
+
+  var embeddedPanelConfig = [];
+
+  function loadEmbeddedPanelHost(host) {
     if (!host) {
       return Promise.resolve();
     }
+    if (host.dataset.panelLoaded === "1" || host.dataset.panelLoading === "1") {
+      return Promise.resolve();
+    }
+
+    var url = host.dataset.panelUrl;
+    if (!url) {
+      return Promise.resolve();
+    }
+
+    host.dataset.panelLoading = "1";
     return fetch(url, { cache: "no-store" })
       .then(function (r) {
         return r.text();
@@ -208,27 +251,100 @@
       .then(function (html) {
         host.innerHTML = html;
         executeEmbeddedScripts(host);
-        setupStatusDensityControls();
+        host.dataset.panelLoaded = "1";
       })
       .catch(function (e) {
         console.error(e);
         host.innerHTML = "<p>Failed to load panel.</p>";
+      })
+      .finally(function () {
+        host.dataset.panelLoading = "0";
       });
   }
 
+  function loadVisibleEmbeddedPanels() {
+    qsa("[data-panel-url]").forEach(function (host) {
+      var parentCard = host.closest(".status_card");
+      if (parentCard && (parentCard.classList.contains("status-collapsed") || parentCard.classList.contains("is-hidden"))) {
+        return;
+      }
+      loadEmbeddedPanelHost(host);
+    });
+  }
+
   function initEmbeddedSettingsPanels() {
-    loadEmbeddedPanel("#embeddedServices", "cgi-bin/scripts.cgi");
-    loadEmbeddedPanel("#embeddedCamControls", "cgi-bin/camcontrols.cgi?cmd=getsettings");
-    loadEmbeddedPanel("#embeddedSysUsageInfo", "cgi-bin/sysusageinfo.cgi");
-    loadEmbeddedPanel("#embeddedDeviceInfo", "cgi-bin/devinfo.cgi");
-    loadEmbeddedPanel("#embeddedNetworkInfo", "cgi-bin/network.cgi");
-    loadEmbeddedPanel("#embeddedDiskInfo", "cgi-bin/disk.cgi");
-    loadEmbeddedPanel("#embeddedLogs", "logs.html");
+    embeddedPanelConfig.forEach(function (entry) {
+      var host = qs(entry[0]);
+      if (!host) {
+        return;
+      }
+      host.dataset.panelUrl = entry[1];
+      host.dataset.panelLoaded = "0";
+      host.dataset.panelLoading = "0";
+    });
+    loadVisibleEmbeddedPanels();
   }
 
   function statusCardTitle(card) {
     var titleNode = card.querySelector(".card-header-title");
     return titleNode ? titleNode.textContent.trim() : "";
+  }
+
+  function slugifyStatusTitle(title) {
+    return String(title || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function categorizeStatusCard(title) {
+    switch (title) {
+      case "System":
+        return "system";
+      case "HTTP/RTSP/Telnet Password":
+      case "HTTP Password":
+      case "Telnet Server":
+      case "FTP Server":
+        return "access";
+      case "Video Settings":
+      case "RTSP/Misc":
+      case "RTSP stream address":
+        return "video";
+      case "Audio Settings":
+        return "audio";
+      case "Recording":
+      case "Timelapse":
+        return "recording";
+      case "Day/Night auto detection":
+      case "OSD Display":
+      case "Motion Detection":
+        return "imaging";
+      case "Tests":
+        return "tools";
+      default:
+        return "other";
+    }
+  }
+
+  function statusCategoryLabel(category) {
+    switch (category) {
+      case "system":
+        return "System";
+      case "access":
+        return "Access";
+      case "video":
+        return "Video";
+      case "audio":
+        return "Audio";
+      case "recording":
+        return "Recording";
+      case "imaging":
+        return "Image/OSD";
+      case "tools":
+        return "Tools";
+      default:
+        return "Other";
+    }
   }
 
   function setCardCollapsed(card, collapsed) {
@@ -252,11 +368,20 @@
       "RTSP stream address": true,
     };
 
+    var assignedIds = {};
     cards.forEach(function (card) {
       var title = statusCardTitle(card);
       var isBasic = !!basicTitles[title];
       var header = card.querySelector(".card-header");
+      var category = categorizeStatusCard(title);
+      var slugBase = slugifyStatusTitle(title) || "section";
+      var slugIndex = assignedIds[slugBase] || 0;
+      assignedIds[slugBase] = slugIndex + 1;
+      var cardId = slugIndex === 0 ? "status-card-" + slugBase : "status-card-" + slugBase + "-" + slugIndex;
+      card.id = card.id || cardId;
       card.dataset.statusGroup = isBasic ? "basic" : "advanced";
+      card.dataset.statusCategory = category;
+      card.dataset.statusTitle = title;
       card.classList.add("status-collapsible");
       if (!isBasic) {
         setCardCollapsed(card, true);
@@ -274,6 +399,7 @@
 
       function toggleCard() {
         setCardCollapsed(card, !card.classList.contains("status-collapsed"));
+        loadVisibleEmbeddedPanels();
       }
 
       header.addEventListener("click", function (event) {
@@ -292,21 +418,32 @@
     });
 
     var firstCard = cards[0];
-    if (!firstCard || qs("#statusViewMode")) {
+    if (!firstCard) {
       return;
     }
+    var organizer = qs("#statusOrganizer");
+    if (!organizer) {
+      organizer = document.createElement("div");
+      organizer.id = "statusOrganizer";
+      organizer.className = "status-organizer";
+      organizer.innerHTML =
+        "<div id='statusViewMode' class='status-view-mode'>" +
+          "<span class='status-view-mode-label'>Settings view</span>" +
+          "<button id='statusViewBasic' class='button is-small is-link is-outlined' type='button'>Basic</button>" +
+          "<button id='statusViewAll' class='button is-small is-link is-outlined' type='button'>All</button>" +
+        "</div>" +
+        "<div class='status-filter-wrap'>" +
+          "<input id='statusFilterInput' class='input is-small status-filter-input' type='search' placeholder='Filter settings...'>" +
+        "</div>" +
+        "<div id='statusQuickNav' class='status-quicknav'></div>" +
+        "<p id='statusFilterInfo' class='status-filter-info'></p>";
+      firstCard.parentNode.insertBefore(organizer, firstCard);
+    }
 
-    var controls = document.createElement("div");
-    controls.id = "statusViewMode";
-    controls.className = "status-view-mode";
-    controls.innerHTML =
-      "<span class='status-view-mode-label'>Settings view</span>" +
-      "<button id='statusViewBasic' class='button is-small is-link is-outlined' type='button'>Basic</button>" +
-      "<button id='statusViewAll' class='button is-small is-link is-outlined' type='button'>All</button>";
-    firstCard.parentNode.insertBefore(controls, firstCard);
-
+    var currentMode = "basic";
     function setMode(mode) {
       var showAll = mode === "all";
+      currentMode = showAll ? "all" : "basic";
       cards.forEach(function (card) {
         var advanced = card.dataset.statusGroup === "advanced";
         setCardCollapsed(card, !showAll && advanced);
@@ -320,6 +457,75 @@
       if (allBtn) {
         allBtn.classList.toggle("is-active", showAll);
       }
+      applyFilter();
+    }
+
+    function focusCard(card) {
+      if (!card) {
+        return;
+      }
+      if (card.dataset.statusGroup === "advanced" && currentMode !== "all") {
+        setMode("all");
+      }
+      setCardCollapsed(card, false);
+      card.classList.remove("is-hidden");
+      loadVisibleEmbeddedPanels();
+      card.scrollIntoView({ block: "start" });
+    }
+
+    function applyFilter() {
+      var input = qs("#statusFilterInput");
+      var info = qs("#statusFilterInfo");
+      var term = input ? String(input.value || "").toLowerCase().trim() : "";
+      var visibleCount = 0;
+
+      cards.forEach(function (card) {
+        var byMode = currentMode === "all" || card.dataset.statusGroup !== "advanced";
+        var byTerm = true;
+        if (term) {
+          var haystack = (card.dataset.statusTitle + " " + statusCategoryLabel(card.dataset.statusCategory)).toLowerCase();
+          byTerm = haystack.indexOf(term) !== -1;
+        }
+        var visible = byMode && byTerm;
+        card.classList.toggle("is-hidden", !visible);
+        if (!visible) {
+          setCardCollapsed(card, true);
+        }
+        if (visible) {
+          visibleCount += 1;
+        }
+      });
+
+      if (info) {
+        info.textContent = term ? visibleCount + " section(s) match" : "";
+      }
+      loadVisibleEmbeddedPanels();
+    }
+
+    function buildQuickNav() {
+      var quickNav = qs("#statusQuickNav");
+      if (!quickNav) {
+        return;
+      }
+      quickNav.innerHTML = "";
+      var firstCardByCategory = {};
+      cards.forEach(function (card) {
+        var category = card.dataset.statusCategory || "other";
+        if (!firstCardByCategory[category]) {
+          firstCardByCategory[category] = card;
+        }
+      });
+
+      Object.keys(firstCardByCategory).forEach(function (category) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "button is-small is-light status-quicknav-btn";
+        button.textContent = statusCategoryLabel(category);
+        button.addEventListener("click", function () {
+          focusCard(firstCardByCategory[category]);
+        });
+        quickNav.appendChild(button);
+      });
     }
 
     var basicButton = qs("#statusViewBasic");
@@ -335,11 +541,26 @@
       });
     }
 
+    var filterInput = qs("#statusFilterInput");
+    if (filterInput && filterInput.dataset.bound !== "1") {
+      filterInput.dataset.bound = "1";
+      filterInput.addEventListener("input", applyFilter);
+      filterInput.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          filterInput.value = "";
+          applyFilter();
+        }
+      });
+    }
+
+    buildQuickNav();
     setMode("basic");
   }
 
   function initStatusPage() {
     var forms = [
+      "formPerformanceProfile",
+      "formWebMode",
       "formResolution",
       "formRtspPreset",
       "formStreamTopology",
@@ -354,9 +575,7 @@
       "formMotionDetection",
       "formTimelapse",
       "formaudioin",
-      "formAudio",
       "formDayNight",
-      "formPtt",
     ];
 
     forms.forEach(function (id) {
@@ -370,6 +589,7 @@
     initImageFlipToggle();
     initRtspLogToggle();
     initThemePicker();
+    initWebModeForm();
     initEmbeddedSettingsPanels();
     setupStatusDensityControls();
 

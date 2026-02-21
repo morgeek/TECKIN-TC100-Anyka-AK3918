@@ -12,6 +12,14 @@ install_config $CONFIGPATH/onvif.conf
 
 install_config $CONFIGPATH/rtspserver.conf
 
+# monvifd supports explicit ONVIF location metadata via -loc.
+# Keep backward compatibility with older custom configs that used LOCATION.
+: "${DEVICE_LOCATION:=}"
+if [ -z "$DEVICE_LOCATION" ] && [ -n "$LOCATION" ]; then
+  DEVICE_LOCATION="$LOCATION"
+fi
+: "${DEVICE_LOCATION:=Earth}"
+
 BOOT_CONFIG="$CONFIGPATH/boot.conf"
 WEB_MODE="full"
 RTSP_SUBSTREAM="1"
@@ -30,10 +38,19 @@ esac
 
 WEB_PROTO="https"
 WEB_PORT="443"
-if [ "$WEB_MODE" = "http" ]; then
-  WEB_PROTO="http"
-  WEB_PORT="80"
-fi
+case "$WEB_MODE" in
+  http)
+    WEB_PROTO="http"
+    WEB_PORT="80"
+    ;;
+  ultra-lite|ultralite)
+    WEB_PROTO="http"
+    case "${ULTRALITE_HTTP_PORT}" in
+      ''|*[!0-9]*) WEB_PORT="80" ;;
+      *) WEB_PORT="${ULTRALITE_HTTP_PORT}" ;;
+    esac
+    ;;
+esac
 
 status()
 {
@@ -146,7 +163,7 @@ start()
       ONVIF_STREAM2_ARGS="-en2 0"
     fi
 
-    /mnt/bin/monvifd -p "$ONVIF_PORT" -w "$WEB_PORT" -wp "$WEB_PROTO" -r "$PORT" -hwn "$HW_NAME" -vnn "$VENDOR_NAME" -dn "$DEVICE_NAME" -mod "$DEVICE_MODEL" \
+    /mnt/bin/monvifd -p "$ONVIF_PORT" -w "$WEB_PORT" -wp "$WEB_PROTO" -r "$PORT" -hwn "$HW_NAME" -vnn "$VENDOR_NAME" -loc "$DEVICE_LOCATION" -dn "$DEVICE_NAME" -mod "$DEVICE_MODEL" \
         -rp1 "$PRIMARY_RP" -vw1 "$PRIMARY_WIDTH" -vh1 "$PRIMARY_HEIGHT" -vc1 "$PRIMARY_CODEC" -vcb1 "$PRIMARY_BPS" -fps1 "$PRIMARY_FPS" \
         $ONVIF_STREAM2_ARGS 2>> "$LOGPATH" >> "$LOGPATH" &
     echo "$!" > "$PIDFILE"

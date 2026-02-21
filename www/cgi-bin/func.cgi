@@ -23,7 +23,28 @@ fi
 #  - escape dangerous characters before assignment to avoid command substitution
 urldecode() {
     url_encoded="${1//+/ }"
-    printf '%b' "${url_encoded//%/\\x}"
+    decoded=""
+    while [ -n "$url_encoded" ]
+    do
+      case "$url_encoded" in
+        %[0-9A-Fa-f][0-9A-Fa-f]*)
+          hex="${url_encoded#%}"
+          hex="${hex%"${hex#??}"}"
+          decoded="${decoded}$(printf '%b' "\\x${hex}")"
+          url_encoded="${url_encoded#???}"
+          ;;
+        %*)
+          decoded="${decoded}%"
+          url_encoded="${url_encoded#?}"
+          ;;
+        *)
+          c="${url_encoded%"${url_encoded#?}"}"
+          decoded="${decoded}${c}"
+          url_encoded="${url_encoded#?}"
+          ;;
+      esac
+    done
+    printf '%s' "$decoded"
 }
 
 _IFS=${IFS}; IFS='&'

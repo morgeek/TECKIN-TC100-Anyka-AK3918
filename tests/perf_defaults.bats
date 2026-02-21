@@ -37,6 +37,20 @@
   [ "$status" -eq 0 ]
 }
 
+@test "action no longer exposes ONVIF/RTSP self-test command" {
+  run grep -n 'run_stream_self_test)' www/cgi-bin/action.cgi
+  [ "$status" -ne 0 ]
+
+  run grep -n 'apply_stream_safe_fallback_profile' www/cgi-bin/action.cgi
+  [ "$status" -ne 0 ]
+
+  run grep -n 'RTSP_SUBSTREAM 0' www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n 'ONVIF_STREAM_POLICY main-only' www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+}
+
 @test "status page exposes stream topology form" {
   run grep -n 'formStreamTopology' www/cgi-bin/status.cgi
   [ "$status" -eq 0 ]
@@ -53,29 +67,26 @@
   [ "$status" -eq 0 ]
 }
 
-@test "status page embeds services and camera controls panels" {
-  run grep -n 'id="embeddedServices"' www/cgi-bin/status.cgi
-  [ "$status" -eq 0 ]
+@test "status page no longer exposes stream self-test form" {
+  run grep -n 'formStreamSelfTest' www/cgi-bin/status.cgi
+  [ "$status" -ne 0 ]
 
-  run grep -n 'id="embeddedCamControls"' www/cgi-bin/status.cgi
-  [ "$status" -eq 0 ]
+  run grep -n 'name=\"auto_fallback\"' www/cgi-bin/status.cgi
+  [ "$status" -ne 0 ]
 }
 
-@test "status page embeds information panels" {
+@test "status page no longer embeds services/camera controls/information panels" {
+  run grep -n 'id="embeddedServices"' www/cgi-bin/status.cgi
+  [ "$status" -ne 0 ]
+
+  run grep -n 'id="embeddedCamControls"' www/cgi-bin/status.cgi
+  [ "$status" -ne 0 ]
+
   run grep -n 'id="embeddedSysUsageInfo"' www/cgi-bin/status.cgi
-  [ "$status" -eq 0 ]
-
-  run grep -n 'id="embeddedDeviceInfo"' www/cgi-bin/status.cgi
-  [ "$status" -eq 0 ]
-
-  run grep -n 'id="embeddedNetworkInfo"' www/cgi-bin/status.cgi
-  [ "$status" -eq 0 ]
-
-  run grep -n 'id="embeddedDiskInfo"' www/cgi-bin/status.cgi
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
 
   run grep -n 'id="embeddedLogs"' www/cgi-bin/status.cgi
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
 }
 
 @test "status bundle binds stream topology form" {
@@ -84,6 +95,9 @@
 
   run grep -n "formOnvifPolicy" www/scripts/status.bundle.min.js
   [ "$status" -eq 0 ]
+
+  run grep -n "formStreamSelfTest" www/scripts/status.bundle.min.js
+  [ "$status" -ne 0 ]
 }
 
 @test "status bundle loads embedded settings panels" {
@@ -91,9 +105,28 @@
   [ "$status" -eq 0 ]
 
   run grep -n "embeddedSysUsageInfo" www/scripts/status.bundle.min.js
+  [ "$status" -ne 0 ]
+
+  run grep -n "embeddedServices" www/scripts/status.bundle.min.js
+  [ "$status" -ne 0 ]
+}
+
+@test "state endpoint stays lightweight and avoids heavy helper sourcing" {
+  run grep -n 'source /mnt/scripts/common_functions.sh' www/cgi-bin/state.cgi
+  [ "$status" -ne 0 ]
+
+  run grep -n 'get_current_cpu_usage_fast' www/cgi-bin/state.cgi
   [ "$status" -eq 0 ]
 
-  run grep -n "embeddedLogs" www/scripts/status.bundle.min.js
+  run grep -n 'get_memory_usage_fast' www/cgi-bin/state.cgi
+  [ "$status" -eq 0 ]
+}
+
+@test "index bundle adapts polling cadence for low-cpu profiles" {
+  run grep -n "tuneUiPollIntervals" www/scripts/index.bundle.min.js
+  [ "$status" -eq 0 ]
+
+  run grep -n "currentPerfProfileToken" www/scripts/index.bundle.min.js
   [ "$status" -eq 0 ]
 }
 
