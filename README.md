@@ -2,7 +2,7 @@
 Based on the great work from:
 https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks
 
-This project keeps the original non-destructive MicroSD hack approach and adds a lighter, faster web UI plus extra CPU-saving controls.
+This project keeps the original non-destructive MicroSD hack approach and adds a lighter, faster web UI plus extra RAM/CPU-saving controls.
 
 **Important:** this hack does not modify or upgrade firmware. Remove the MicroSD card and reboot to return to factory behavior.
 
@@ -13,7 +13,7 @@ Reference product page:
 * https://www.teckinhome.com/products/teckin-tc100-wi-fi-smart-home-security-camera
 
 ## Main features
-* Local web UI (default HTTPS) with no cloud dependency
+* Local web UI (default HTTPS) with no cloud dependency !
 * RTSP streaming:
   * Main: `rtsp://CAMERA-IP:554/video0_unicast`
   * Sub: `rtsp://CAMERA-IP:554/video1_unicast`
