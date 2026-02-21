@@ -51,7 +51,7 @@ Remove the MicroSD card and reboot.
 * CPU and RAM usage badges are always visible in the top bar.
 * Performance profile badge is always visible in the top bar.
 * Theme selector is in **Settings -> System**.
-* **Services** and **Camera Functions** are available as dedicated menu entries.
+* **Services** is a dedicated menu entry; camera control selection is available from the Services page.
 * Services page uses a compact table view (Title, Start/Stop, Autorun at boot, View) with hover hints.
 * Services state probing is lazy-loaded per row to avoid startup CPU spikes when opening Services.
 * Information pages are available from the **Information** menu:
@@ -64,6 +64,10 @@ Remove the MicroSD card and reboot.
 * Settings now include a one-click **Performance profile** selector (Balanced / Low CPU / RTSP+ONVIF only).
 * Settings now include **Web server mode** control (`full` / `http` / `ultra-lite` / `off`) with ultra-lite port input.
 * Settings now include an **Advanced Tuning** section for boot-level controls (Lightweight mode, Ultra-lite UI mode, NTP behavior, memory guard thresholds, RTSP/ONVIF watchdog timeouts).
+* Settings include a **Config Backup & Health** card:
+  * download `/mnt/config` backup archive on demand
+  * restore from an uploaded `/tmp/*.tar.gz` archive (optional RTSP/ONVIF restart)
+  * open one-shot health snapshot JSON (`state.cgi?cmd=healthsnapshot`)
 
 ## Performance and CPU tuning
 Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/boot.conf.dist` on first boot).
@@ -149,6 +153,14 @@ The UI also applies dynamic throttling from live CPU/RAM pressure (high usage in
 ### Other low-load defaults
 * Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`
 * RTSP/ONVIF watchdog check interval default: `CHECK_TIMEOUT_SECONDS=60`
+* RTSP/ONVIF watchdog mode defaults: `RTSP_WATCHDOG_MODE=status`, `ONVIF_WATCHDOG_MODE=status`
+* ONVIF health hardening defaults:
+  * `ONVIF_STARTUP_GRACE_SECONDS=20`
+  * `ONVIF_HEALTHCHECK_RETRIES=2`
+  * `ONVIF_RTSP_DEPENDENCY_MODE=status`
+* Watchdog log rotation defaults:
+  * `WATCHDOG_LOG_MAX_BYTES=262144`
+  * `WATCHDOG_LOG_BACKUPS=2`
 * Network monitor default ping interval: `PINGINTERVAL=120`
 * Telegram bot supports long-poll tuning:
   * `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS`
@@ -160,6 +172,10 @@ Preferred OSD time format uses `%` placeholders, e.g.:
 * `%H:%M:%S .%m.%Y`
 
 Legacy `\\x`-style patterns are sanitized automatically at RTSP service start.
+
+## Developer checks
+Run local CGI smoke tests before deploying UI/CGI changes:
+* `tests/cgi-smoke.sh`
 
 ## Vendor binaries notes
 Reverse-engineering notes for closed binaries are documented in:

@@ -416,9 +416,6 @@
         closeNavDropdowns(dropdown);
         dropdown.classList.toggle("is-active", willOpen);
         toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
-        if (willOpen && dropdown.id === "camcontrol_link") {
-          syncSwitchesTimeout(300);
-        }
       });
     });
   }
@@ -589,27 +586,6 @@
     }
   }
 
-  function syncSwitchesTimeout(millis) {
-    clearJob("syncSwitches");
-    timeoutJobs.syncSwitches = setTimeout(syncSwitches, millis);
-  }
-
-  function syncSwitches() {
-    fetch("cgi-bin/camcontrols.cgi?cmd=getallstate", { cache: "no-store" })
-      .then(function (r) {
-        return r.text();
-      })
-      .then(function (data) {
-        var switchesStateArray = parseJsonArray(data);
-        switchesStateArray.forEach(function (switchState) {
-          var e = byId(switchState.id);
-          if (e) {
-            e.checked = switchState.status && switchState.status.trim().toLowerCase() === "on";
-          }
-        });
-      });
-  }
-
   function showResult(txt) {
     var qv = byId("quickviewDefault");
     var v = byId("quicViewContent");
@@ -708,72 +684,6 @@
     return getCookie("theme");
   }
 
-  function cameraControlClick(control) {
-    var e = control;
-    if (!e) {
-      return;
-    }
-    e.disabled = true;
-    var id = e.getAttribute("id");
-
-    fetch("cgi-bin/camcontrols.cgi?cmd=getstate&control=" + encodeURIComponent(id), { cache: "no-store" })
-      .then(function (r) {
-        return r.text();
-      })
-      .then(function (status) {
-        var url = status.trim().toLowerCase() === "on" ? e.dataset.unchecked : e.dataset.checked;
-        return fetch(url, { cache: "no-store" }).then(function () {
-          e.checked = status.trim().toLowerCase() !== "on";
-        });
-      })
-      .finally(function () {
-        e.disabled = false;
-        syncSwitchesTimeout(5000);
-      });
-  }
-
-  function updateCameraControls() {
-    fetch("cgi-bin/camcontrols.cgi?cmd=getcontrols", { cache: "no-store" })
-      .then(function (r) {
-        return r.text();
-      })
-      .then(function (data) {
-        var camControlsArray = parseJsonArray(data);
-        var container = byId("camcontrol_items");
-        if (!container) {
-          return;
-        }
-
-        container.innerHTML = "";
-        camControlsArray.forEach(function (camControl) {
-          var item = document.createElement("span");
-          item.className = "navbar-item";
-
-          var input = document.createElement("input");
-          input.id = camControl.id;
-          input.type = "checkbox";
-          input.name = camControl.id;
-          input.className = "switch";
-          input.dataset.checked = "cgi-bin/camcontrols.cgi?cmd=on&control=" + encodeURIComponent(camControl.id);
-          input.dataset.unchecked = "cgi-bin/camcontrols.cgi?cmd=off&control=" + encodeURIComponent(camControl.id);
-          input.onclick = function () {
-            cameraControlClick(this);
-          };
-
-          var label = document.createElement("label");
-          label.setAttribute("for", camControl.id);
-          label.textContent = camControl.name;
-
-          item.appendChild(input);
-          item.appendChild(document.createTextNode(" "));
-          item.appendChild(label);
-          container.appendChild(item);
-        });
-
-        syncSwitches();
-      });
-  }
-
   document.addEventListener("DOMContentLoaded", function () {
     setTheme(getThemeChoice());
 
@@ -788,8 +698,6 @@
           titleNode.title = title;
         }
       });
-
-    updateCameraControls();
 
     document.addEventListener("click", function (event) {
       var onPageTarget = event.target.closest(".onpage");
@@ -823,17 +731,6 @@
       }
     });
 
-    var camControlLink = byId("camcontrol_link");
-    if (camControlLink) {
-      camControlLink.addEventListener("mouseenter", function () {
-        camControlLink.classList.add("is-active");
-        syncSwitchesTimeout(500);
-      });
-      camControlLink.addEventListener("mouseleave", function () {
-        camControlLink.classList.remove("is-active");
-      });
-    }
-
     var navbarBurger = byId("navbar_burger");
     if (navbarBurger) {
       navbarBurger.addEventListener("click", function () {
@@ -846,9 +743,6 @@
         }
         if (!willOpen) {
           closeNavDropdowns();
-        }
-        if (willOpen) {
-          syncSwitchesTimeout(500);
         }
       });
     }
@@ -932,14 +826,10 @@
   window.refreshPerformanceProfile = refreshPerformanceProfile;
   window.refreshAutoNightLumAwb = refreshAutoNightLumAwb;
   window.scheduleRefreshAutoNightLumAwb = scheduleRefreshAutoNightLumAwb;
-  window.syncSwitchesTimeout = syncSwitchesTimeout;
-  window.syncSwitches = syncSwitches;
   window.showResult = showResult;
   window.fixMenuPadding = fixMenuPadding;
   window.setCookie = setCookie;
   window.getCookie = getCookie;
   window.setTheme = setTheme;
   window.getThemeChoice = getThemeChoice;
-  window.cameraControlClick = cameraControlClick;
-  window.updateCameraControls = updateCameraControls;
 })();

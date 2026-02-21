@@ -205,6 +205,80 @@ json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+sanitize_int() {
+  raw="$1"
+  fallback="$2"
+  case "$raw" in
+    ''|*[!0-9]*)
+      echo "$fallback"
+      ;;
+    *)
+      echo "$raw"
+      ;;
+  esac
+}
+
+codec_name() {
+  case "$1" in
+    2)
+      echo "H265"
+      ;;
+    0)
+      echo "H264"
+      ;;
+    *)
+      echo "unknown"
+      ;;
+  esac
+}
+
+service_state_json() {
+  service_script="$1"
+  service_state="stopped"
+  service_pid=0
+  service_status="$("$service_script" status 2>/dev/null)"
+  if [ -n "$service_status" ]; then
+    service_state="running"
+    service_pid="$(printf '%s' "$service_status" | sed -n 's/.*PID:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+    service_pid="$(sanitize_int "$service_pid" 0)"
+  fi
+  service_state_escaped="$(json_escape "$service_state")"
+  printf '{"state":"%s","pid":%s}' "$service_state_escaped" "$service_pid"
+}
+
+read_rtsp_stream_summary() {
+  if [ -x /mnt/bin/rwconf ]; then
+    set -- $(/mnt/bin/rwconf /mnt/config/rtspserver.conf r \
+      " " PORT \
+      0 codec 0 width 0 height 0 fps \
+      1 codec 1 width 1 height 1 fps)
+  else
+    set -- 554 0 0 0 0 0 0 0 0
+  fi
+
+  rtsp_port="$(sanitize_int "$1" 554)"
+  codec0="$(sanitize_int "$2" 0)"
+  width0="$(sanitize_int "$3" 0)"
+  height0="$(sanitize_int "$4" 0)"
+  fps0="$(sanitize_int "$5" 0)"
+  codec1="$(sanitize_int "$6" 0)"
+  width1="$(sanitize_int "$7" 0)"
+  height1="$(sanitize_int "$8" 0)"
+  fps1="$(sanitize_int "$9" 0)"
+
+  codec0_name="$(codec_name "$codec0")"
+  codec1_name="$(codec_name "$codec1")"
+}
+
+last_watchdog_event_json() {
+  event=""
+  if [ -r /var/log/service-watchdog.log ]; then
+    event="$(tail -n 1 /var/log/service-watchdog.log 2>/dev/null)"
+  fi
+  event_escaped="$(json_escape "$event")"
+  printf '%s' "$event_escaped"
+}
+
 load_lum_awb() {
   lum_value=""
   awb_value=""
@@ -323,6 +397,44 @@ if [ -n "$F_cmd" ]; then
     awb_json="$(json_escape "$awb_value")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
     echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\"}"
+    ;;
+
+  healthsnapshot)
+    load_or_compute_usage_metrics
+    profile="$(get_perf_profile)"
+    load_lum_awb
+    get_ui_ultralite_mode
+    read_rtsp_stream_summary
+
+    if [ -r /proc/sys/kernel/hostname ]; then
+      read -r health_hostname < /proc/sys/kernel/hostname
+    else
+      health_hostname="$(hostname 2>/dev/null)"
+    fi
+    health_hostname_json="$(json_escape "$health_hostname")"
+
+    health_time_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    health_time_utc_json="$(json_escape "$health_time_utc")"
+
+    uptime_seconds=0
+    if [ -r /proc/uptime ]; then
+      read -r uptime_raw _ < /proc/uptime
+      uptime_seconds="${uptime_raw%.*}"
+      uptime_seconds="$(sanitize_int "$uptime_seconds" 0)"
+    fi
+
+    profile_json="$(json_escape "$profile")"
+    lum_json="$(json_escape "$lum_value")"
+    awb_json="$(json_escape "$awb_value")"
+    web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
+    codec0_json="$(json_escape "$codec0_name")"
+    codec1_json="$(json_escape "$codec1_name")"
+    watchdog_json="$(last_watchdog_event_json)"
+
+    rtsp_state_json="$(service_state_json /mnt/controlscripts/rtsp-h26x)"
+    onvif_state_json="$(service_state_json /mnt/controlscripts/onvif)"
+
+    echo "{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
     ;;
 
   perfprofile)
