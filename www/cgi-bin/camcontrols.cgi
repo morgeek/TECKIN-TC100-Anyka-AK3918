@@ -43,8 +43,7 @@ if [ -n "$F_cmd" ]; then
       if [ -f /mnt/www/scripts/camcontrols.bundle.min.js ]; then
         echo "<script src=\"/scripts/camcontrols.bundle.min.js\"></script>"
       else
-        jscript=$(cat /mnt/www/scripts/camcontrols.cgi.js)
-        echo "<script>$jscript</script>"
+        echo "<script src=\"/scripts/camcontrols.cgi.js\"></script>"
       fi
 
       echo "<div class='card status_card'> \

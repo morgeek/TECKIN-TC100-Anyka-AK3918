@@ -17,7 +17,7 @@ Reference product page:
 * RTSP streaming:
   * Main: `rtsp://CAMERA-IP:554/video0_unicast`
   * Sub: `rtsp://CAMERA-IP:554/video1_unicast`
-* ONVIF discovery + stream profile policy controls
+* ONVIF discovery + stream profile policy controls, 2 cameras working with Home Assistant.
 * H.264 / H.265 support
 * Audio support
 * FTP / telnet / motion detection / recording / timelapse controls
@@ -53,6 +53,7 @@ Remove the MicroSD card and reboot.
 * Theme selector is in **Settings -> System**.
 * **Services** and **Camera Functions** are available as dedicated menu entries.
 * Services page uses a compact table view (Title, Start/Stop, Autorun at boot, View) with hover hints.
+* Services state probing is lazy-loaded per row to avoid startup CPU spikes when opening Services.
 * Information pages are available from the **Information** menu:
   * System Usage
   * Device Info
@@ -62,6 +63,7 @@ Remove the MicroSD card and reboot.
 * Settings page supports **Basic/All** density mode and collapsible cards.
 * Settings now include a one-click **Performance profile** selector (Balanced / Low CPU / RTSP+ONVIF only).
 * Settings now include **Web server mode** control (`full` / `http` / `ultra-lite` / `off`) with ultra-lite port input.
+* Settings now include an **Advanced Tuning** section for boot-level controls (Lightweight mode, Ultra-lite UI mode, NTP behavior, memory guard thresholds, RTSP/ONVIF watchdog timeouts).
 
 ## Performance and CPU tuning
 Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/boot.conf.dist` on first boot).
@@ -72,6 +74,11 @@ Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/
   * enables one-shot NTP by default
   * enables low-CPU profile defaults
   * can apply autostart denylist defaults
+
+* `UI_ULTRALITE_MODE=1`:
+  * pauses live preview by default and requires manual resume
+  * increases UI polling intervals and disables costly snapshot optimization fallback
+  * minimizes web UI CPU overhead while keeping controls available
 
 ### Low CPU profile
 * `LOW_CPU_PROFILE=1` applies conservative RTSP defaults.
@@ -87,11 +94,15 @@ Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/
 * `LOW_RAM_PROFILE=1` enables memory-saving defaults and starts the memory guard.
 * `MEM_GUARD_ENABLE=1` runs `/mnt/controlscripts/memory-guard`:
   * checks `MemAvailable` every `MEM_GUARD_INTERVAL_SECONDS`
+  * uses hit counters (`MEM_GUARD_WARN_HITS`, `MEM_GUARD_CRITICAL_HITS`) to avoid noisy one-shot spikes
   * at `MEM_GUARD_WARN_KB`, stops soft non-essential services
-  * at `MEM_GUARD_CRITICAL_KB`, also stops heavier services and can drop caches
+  * at `MEM_GUARD_CRITICAL_KB`, also stops heavier services
+  * at `MEM_GUARD_EMERGENCY_KB`, can apply emergency service stops and cache drop
+  * resets pressure counters only after memory recovers above `MEM_GUARD_WARN_KB + MEM_GUARD_RECOVERY_MARGIN_KB`
 * Tune service lists with:
   * `MEM_GUARD_SOFT_SERVICES`
   * `MEM_GUARD_CRITICAL_SERVICES`
+  * `MEM_GUARD_EMERGENCY_SERVICES`
 
 ### Stream topology (web UI)
 In **Settings -> System -> Stream topology**:
@@ -131,9 +142,9 @@ For minimum web stack overhead while keeping core camera functionality:
 * `SERVICE_TRIM=1`
 * Keep only one browser tab open to the UI (live snapshot requests are the main web-side load).
 
-When `LOW_CPU_PROFILE` or `SERVICE_TRIM` is active, the UI now automatically slows polling/live-preview cadence to reduce CGI/webserver load.
+When `LOW_CPU_PROFILE` or `SERVICE_TRIM` is active, the UI automatically slows polling/live-preview cadence to reduce CGI/webserver load.
 The UI also applies dynamic throttling from live CPU/RAM pressure (high usage increases polling/live-preview intervals automatically).
-`state.cgi` now uses short-lived cache files in `/tmp` to reduce repeated parsing when multiple requests arrive close together.
+`state.cgi` uses short-lived cache files in `/tmp` and now returns an enriched `statusline` payload (CPU/RAM/profile/LUM/AWB/UI mode) so the frontend can use fewer CGI requests.
 
 ### Other low-load defaults
 * Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`

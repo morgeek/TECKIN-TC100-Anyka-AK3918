@@ -5,7 +5,6 @@ echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 
-# source header.cgi
 . /mnt/scripts/common_functions.sh
 install_config /mnt/config/recording.conf
 install_config /mnt/config/boot.conf
@@ -26,6 +25,22 @@ RTSP_AUDIO="${RTSP_AUDIO:-1}"
 ONVIF_STREAM_POLICY="${ONVIF_STREAM_POLICY:-main-primary}"
 WEB_MODE="${WEB_MODE:-full}"
 ULTRALITE_HTTP_PORT="${ULTRALITE_HTTP_PORT:-80}"
+LIGHTWEIGHT_MODE="${LIGHTWEIGHT_MODE:-0}"
+UI_ULTRALITE_MODE="${UI_ULTRALITE_MODE:-0}"
+ENABLE_NTP="${ENABLE_NTP:-1}"
+NTP_ONE_SHOT="${NTP_ONE_SHOT:-0}"
+MEM_GUARD_ENABLE="${MEM_GUARD_ENABLE:-0}"
+MEM_GUARD_INTERVAL_SECONDS="${MEM_GUARD_INTERVAL_SECONDS:-20}"
+MEM_GUARD_WARN_KB="${MEM_GUARD_WARN_KB:-8192}"
+MEM_GUARD_CRITICAL_KB="${MEM_GUARD_CRITICAL_KB:-4096}"
+MEM_GUARD_RECOVERY_MARGIN_KB="${MEM_GUARD_RECOVERY_MARGIN_KB:-1536}"
+MEM_GUARD_WARN_HITS="${MEM_GUARD_WARN_HITS:-2}"
+MEM_GUARD_CRITICAL_HITS="${MEM_GUARD_CRITICAL_HITS:-1}"
+MEM_GUARD_COOLDOWN_SECONDS="${MEM_GUARD_COOLDOWN_SECONDS:-120}"
+MEM_GUARD_EMERGENCY_KB="${MEM_GUARD_EMERGENCY_KB:-2048}"
+MEM_GUARD_DROP_CACHES="${MEM_GUARD_DROP_CACHES:-1}"
+RTSP_HEALTHCHECK_TIMEOUT_SECONDS="${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:-4}"
+ONVIF_HEALTHCHECK_TIMEOUT_SECONDS="${ONVIF_HEALTHCHECK_TIMEOUT_SECONDS:-4}"
 
 case "$WEB_MODE" in
   full|http|ultra-lite|ultralite|off) ;;
@@ -39,6 +54,86 @@ case "$ULTRALITE_HTTP_PORT" in
 esac
 if [ "$ULTRALITE_HTTP_PORT" -lt 1 ] || [ "$ULTRALITE_HTTP_PORT" -gt 65535 ]; then
   ULTRALITE_HTTP_PORT=80
+fi
+for flag_name in LIGHTWEIGHT_MODE UI_ULTRALITE_MODE ENABLE_NTP NTP_ONE_SHOT MEM_GUARD_ENABLE MEM_GUARD_DROP_CACHES
+do
+  eval "flag_value=\${$flag_name}"
+  case "$flag_value" in
+    1|true|on|yes|enabled) eval "$flag_name=1" ;;
+    *) eval "$flag_name=0" ;;
+  esac
+done
+case "$MEM_GUARD_INTERVAL_SECONDS" in
+  ''|*[!0-9]*) MEM_GUARD_INTERVAL_SECONDS=20 ;;
+esac
+if [ "$MEM_GUARD_INTERVAL_SECONDS" -lt 5 ] || [ "$MEM_GUARD_INTERVAL_SECONDS" -gt 600 ]; then
+  MEM_GUARD_INTERVAL_SECONDS=20
+fi
+case "$MEM_GUARD_WARN_KB" in
+  ''|*[!0-9]*) MEM_GUARD_WARN_KB=8192 ;;
+esac
+if [ "$MEM_GUARD_WARN_KB" -lt 2048 ] || [ "$MEM_GUARD_WARN_KB" -gt 65535 ]; then
+  MEM_GUARD_WARN_KB=8192
+fi
+case "$MEM_GUARD_CRITICAL_KB" in
+  ''|*[!0-9]*) MEM_GUARD_CRITICAL_KB=4096 ;;
+esac
+if [ "$MEM_GUARD_CRITICAL_KB" -lt 1024 ] || [ "$MEM_GUARD_CRITICAL_KB" -gt 65535 ]; then
+  MEM_GUARD_CRITICAL_KB=4096
+fi
+if [ "$MEM_GUARD_CRITICAL_KB" -ge "$MEM_GUARD_WARN_KB" ]; then
+  MEM_GUARD_CRITICAL_KB=$((MEM_GUARD_WARN_KB / 2))
+  if [ "$MEM_GUARD_CRITICAL_KB" -lt 1024 ]; then
+    MEM_GUARD_CRITICAL_KB=1024
+  fi
+fi
+case "$MEM_GUARD_RECOVERY_MARGIN_KB" in
+  ''|*[!0-9]*) MEM_GUARD_RECOVERY_MARGIN_KB=1536 ;;
+esac
+if [ "$MEM_GUARD_RECOVERY_MARGIN_KB" -lt 256 ] || [ "$MEM_GUARD_RECOVERY_MARGIN_KB" -gt 32768 ]; then
+  MEM_GUARD_RECOVERY_MARGIN_KB=1536
+fi
+case "$MEM_GUARD_WARN_HITS" in
+  ''|*[!0-9]*) MEM_GUARD_WARN_HITS=2 ;;
+esac
+if [ "$MEM_GUARD_WARN_HITS" -lt 1 ] || [ "$MEM_GUARD_WARN_HITS" -gt 10 ]; then
+  MEM_GUARD_WARN_HITS=2
+fi
+case "$MEM_GUARD_CRITICAL_HITS" in
+  ''|*[!0-9]*) MEM_GUARD_CRITICAL_HITS=1 ;;
+esac
+if [ "$MEM_GUARD_CRITICAL_HITS" -lt 1 ] || [ "$MEM_GUARD_CRITICAL_HITS" -gt 10 ]; then
+  MEM_GUARD_CRITICAL_HITS=1
+fi
+case "$MEM_GUARD_COOLDOWN_SECONDS" in
+  ''|*[!0-9]*) MEM_GUARD_COOLDOWN_SECONDS=120 ;;
+esac
+if [ "$MEM_GUARD_COOLDOWN_SECONDS" -lt 10 ] || [ "$MEM_GUARD_COOLDOWN_SECONDS" -gt 3600 ]; then
+  MEM_GUARD_COOLDOWN_SECONDS=120
+fi
+case "$MEM_GUARD_EMERGENCY_KB" in
+  ''|*[!0-9]*) MEM_GUARD_EMERGENCY_KB=2048 ;;
+esac
+if [ "$MEM_GUARD_EMERGENCY_KB" -lt 512 ] || [ "$MEM_GUARD_EMERGENCY_KB" -gt 32768 ]; then
+  MEM_GUARD_EMERGENCY_KB=2048
+fi
+if [ "$MEM_GUARD_EMERGENCY_KB" -ge "$MEM_GUARD_CRITICAL_KB" ]; then
+  MEM_GUARD_EMERGENCY_KB=$((MEM_GUARD_CRITICAL_KB / 2))
+  if [ "$MEM_GUARD_EMERGENCY_KB" -lt 512 ]; then
+    MEM_GUARD_EMERGENCY_KB=512
+  fi
+fi
+case "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*) RTSP_HEALTHCHECK_TIMEOUT_SECONDS=4 ;;
+esac
+if [ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] || [ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ]; then
+  RTSP_HEALTHCHECK_TIMEOUT_SECONDS=4
+fi
+case "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*) ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4 ;;
+esac
+if [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] || [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ]; then
+  ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4
 fi
 
 if [ "$SERVICE_TRIM" = "1" ]; then
@@ -362,6 +457,138 @@ cat << EOF
             </div>
         </div>
     </form>
+    </div>
+</div>
+
+<!-- Advanced tuning -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Advanced Tuning</p></header>
+    <div class='card-content'>
+        <form id="formAdvancedTuning" action="cgi-bin/action.cgi?cmd=set_advanced_tuning" method="post">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Boot modes</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="lightweight_mode" value="0" />
+                            <input class="switch" name="lightweight_mode" id="lightweight_mode" type="checkbox" value="1" $(if [ "$LIGHTWEIGHT_MODE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="lightweight_mode">Lightweight mode</label>
+                        </div>
+                        <div class="control">
+                            <input type="hidden" name="ui_ultralite_mode" value="0" />
+                            <input class="switch" name="ui_ultralite_mode" id="ui_ultralite_mode" type="checkbox" value="1" $(if [ "$UI_ULTRALITE_MODE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="ui_ultralite_mode">Ultra-lite UI mode (min web CPU)</label>
+                        </div>
+                        <div class="control">
+                            <input type="hidden" name="enable_ntp" value="0" />
+                            <input class="switch" name="enable_ntp" id="enable_ntp" type="checkbox" value="1" $(if [ "$ENABLE_NTP" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="enable_ntp">Enable NTP sync</label>
+                        </div>
+                        <div class="control">
+                            <input type="hidden" name="ntp_one_shot" value="0" />
+                            <input class="switch" name="ntp_one_shot" id="ntp_one_shot" type="checkbox" value="1" $(if [ "$NTP_ONE_SHOT" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="ntp_one_shot">NTP one-shot at boot</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Memory guard</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="mem_guard_enable" value="0" />
+                            <input class="switch" name="mem_guard_enable" id="mem_guard_enable" type="checkbox" value="1" $(if [ "$MEM_GUARD_ENABLE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="mem_guard_enable">Enable memory guard daemon</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_interval_seconds" name="mem_guard_interval_seconds" type="number" min="5" max="600" value="$MEM_GUARD_INTERVAL_SECONDS" />
+                        </div>
+                        <p class="help">Check interval (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_warn_kb" name="mem_guard_warn_kb" type="number" min="2048" max="65535" value="$MEM_GUARD_WARN_KB" />
+                        </div>
+                        <p class="help">Warn threshold (kB)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_critical_kb" name="mem_guard_critical_kb" type="number" min="1024" max="65535" value="$MEM_GUARD_CRITICAL_KB" />
+                        </div>
+                        <p class="help">Critical threshold (kB)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_emergency_kb" name="mem_guard_emergency_kb" type="number" min="512" max="32768" value="$MEM_GUARD_EMERGENCY_KB" />
+                        </div>
+                        <p class="help">Emergency threshold (kB)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_recovery_margin_kb" name="mem_guard_recovery_margin_kb" type="number" min="256" max="32768" value="$MEM_GUARD_RECOVERY_MARGIN_KB" />
+                        </div>
+                        <p class="help">Recovery margin before counters reset (kB)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_warn_hits" name="mem_guard_warn_hits" type="number" min="1" max="10" value="$MEM_GUARD_WARN_HITS" />
+                        </div>
+                        <p class="help">Warn hits before action</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_critical_hits" name="mem_guard_critical_hits" type="number" min="1" max="10" value="$MEM_GUARD_CRITICAL_HITS" />
+                        </div>
+                        <p class="help">Critical hits before heavy action</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mem_guard_cooldown_seconds" name="mem_guard_cooldown_seconds" type="number" min="10" max="3600" value="$MEM_GUARD_COOLDOWN_SECONDS" />
+                        </div>
+                        <p class="help">Action cooldown (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="mem_guard_drop_caches" value="0" />
+                            <input class="switch" name="mem_guard_drop_caches" id="mem_guard_drop_caches" type="checkbox" value="1" $(if [ "$MEM_GUARD_DROP_CACHES" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="mem_guard_drop_caches">Allow cache drop under critical pressure</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Healthcheck timeouts</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="rtsp_healthcheck_timeout_seconds" name="rtsp_healthcheck_timeout_seconds" type="number" min="2" max="30" value="$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" />
+                        </div>
+                        <p class="help">RTSP watchdog timeout (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="onvif_healthcheck_timeout_seconds" name="onvif_healthcheck_timeout_seconds" type="number" min="2" max="30" value="$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" />
+                        </div>
+                        <p class="help">ONVIF watchdog timeout (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="advancedTuningSubmit" class="button is-primary" type="submit">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p class="help">Reboot recommended after changing boot modes (Lightweight/NTP) for full effect.</p>
+        </form>
     </div>
 </div>
 
@@ -1705,6 +1932,5 @@ EOF
 if [ -f /mnt/www/scripts/status.bundle.min.js ]; then
   echo "<script src=\"/scripts/status.bundle.min.js\"></script>"
 else
-  script=$(cat /mnt/www/scripts/status.cgi.js)
-  echo "<script>$script</script>"
+  echo "<script src=\"/scripts/status.cgi.js\"></script>"
 fi

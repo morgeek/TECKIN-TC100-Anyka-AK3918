@@ -39,6 +39,38 @@ schedule_onvif_restart() {
   schedule_service_restart /mnt/controlscripts/onvif 2
 }
 
+normalize_bool() {
+  case "$1" in
+    1|true|on|yes|enabled)
+      echo 1
+      ;;
+    *)
+      echo 0
+      ;;
+  esac
+}
+
+sanitize_int_range() {
+  value="$1"
+  min="$2"
+  max="$3"
+  fallback="$4"
+
+  case "$value" in
+    ''|*[!0-9]*)
+      value="$fallback"
+      ;;
+  esac
+
+  if [ "$value" -lt "$min" ]; then
+    value="$min"
+  fi
+  if [ "$value" -gt "$max" ]; then
+    value="$max"
+  fi
+  echo "$value"
+}
+
 apply_web_mode_async() {
   mode="$1"
   (
@@ -575,6 +607,76 @@ if [ -n "$F_cmd" ]; then
       if [ "$RTSP_SUBSTREAM" != "1" ] && [ "$policy" != "main-primary" ] && [ "$policy" != "main-only" ]; then
         echo "Note: RTSP substream is disabled, ONVIF will fall back to main stream.<br/>"
       fi
+    ;;
+
+    set_advanced_tuning)
+      install_config /mnt/config/boot.conf
+
+      lightweight_mode=$(normalize_bool "${F_lightweight_mode}")
+      ui_ultralite_mode=$(normalize_bool "${F_ui_ultralite_mode}")
+      enable_ntp=$(normalize_bool "${F_enable_ntp}")
+      ntp_one_shot=$(normalize_bool "${F_ntp_one_shot}")
+      mem_guard_enable=$(normalize_bool "${F_mem_guard_enable}")
+      mem_guard_drop_caches=$(normalize_bool "${F_mem_guard_drop_caches}")
+
+      mem_guard_interval_seconds=$(sanitize_int_range "${F_mem_guard_interval_seconds}" 5 600 20)
+      mem_guard_warn_kb=$(sanitize_int_range "${F_mem_guard_warn_kb}" 2048 65535 8192)
+      mem_guard_critical_kb=$(sanitize_int_range "${F_mem_guard_critical_kb}" 1024 65535 4096)
+      mem_guard_recovery_margin_kb=$(sanitize_int_range "${F_mem_guard_recovery_margin_kb}" 256 32768 1536)
+      mem_guard_warn_hits=$(sanitize_int_range "${F_mem_guard_warn_hits}" 1 10 2)
+      mem_guard_critical_hits=$(sanitize_int_range "${F_mem_guard_critical_hits}" 1 10 1)
+      mem_guard_cooldown_seconds=$(sanitize_int_range "${F_mem_guard_cooldown_seconds}" 10 3600 120)
+      mem_guard_emergency_kb=$(sanitize_int_range "${F_mem_guard_emergency_kb}" 512 32768 2048)
+      rtsp_healthcheck_timeout_seconds=$(sanitize_int_range "${F_rtsp_healthcheck_timeout_seconds}" 2 30 4)
+      onvif_healthcheck_timeout_seconds=$(sanitize_int_range "${F_onvif_healthcheck_timeout_seconds}" 2 30 4)
+
+      if [ "$mem_guard_critical_kb" -ge "$mem_guard_warn_kb" ]; then
+        mem_guard_critical_kb=$((mem_guard_warn_kb / 2))
+        if [ "$mem_guard_critical_kb" -lt 1024 ]; then
+          mem_guard_critical_kb=1024
+        fi
+      fi
+
+      if [ "$mem_guard_emergency_kb" -ge "$mem_guard_critical_kb" ]; then
+        mem_guard_emergency_kb=$((mem_guard_critical_kb / 2))
+        if [ "$mem_guard_emergency_kb" -lt 512 ]; then
+          mem_guard_emergency_kb=512
+        fi
+      fi
+
+      rewrite_config /mnt/config/boot.conf LIGHTWEIGHT_MODE "$lightweight_mode"
+      rewrite_config /mnt/config/boot.conf UI_ULTRALITE_MODE "$ui_ultralite_mode"
+      rewrite_config /mnt/config/boot.conf ENABLE_NTP "$enable_ntp"
+      rewrite_config /mnt/config/boot.conf NTP_ONE_SHOT "$ntp_one_shot"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE "$mem_guard_enable"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_INTERVAL_SECONDS "$mem_guard_interval_seconds"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_WARN_KB "$mem_guard_warn_kb"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_CRITICAL_KB "$mem_guard_critical_kb"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_RECOVERY_MARGIN_KB "$mem_guard_recovery_margin_kb"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_WARN_HITS "$mem_guard_warn_hits"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_CRITICAL_HITS "$mem_guard_critical_hits"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_COOLDOWN_SECONDS "$mem_guard_cooldown_seconds"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_EMERGENCY_KB "$mem_guard_emergency_kb"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_DROP_CACHES "$mem_guard_drop_caches"
+      rewrite_config /mnt/config/boot.conf RTSP_HEALTHCHECK_TIMEOUT_SECONDS "$rtsp_healthcheck_timeout_seconds"
+      rewrite_config /mnt/config/boot.conf ONVIF_HEALTHCHECK_TIMEOUT_SECONDS "$onvif_healthcheck_timeout_seconds"
+
+      if [ -x /mnt/controlscripts/memory-guard ]; then
+        if [ "$mem_guard_enable" = "1" ]; then
+          /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
+        else
+          /mnt/controlscripts/memory-guard stop >/dev/null 2>&1 || true
+        fi
+      fi
+
+      schedule_rtsp_restart
+      schedule_onvif_restart
+
+      echo "Advanced tuning saved.<br/>"
+      echo "LIGHTWEIGHT_MODE=$lightweight_mode, UI_ULTRALITE_MODE=$ui_ultralite_mode, ENABLE_NTP=$enable_ntp, NTP_ONE_SHOT=$ntp_one_shot<br/>"
+      echo "MEM_GUARD_ENABLE=$mem_guard_enable (interval=${mem_guard_interval_seconds}s, warn=${mem_guard_warn_kb}kB, critical=${mem_guard_critical_kb}kB, emergency=${mem_guard_emergency_kb}kB, recovery_margin=${mem_guard_recovery_margin_kb}kB, hits=${mem_guard_warn_hits}/${mem_guard_critical_hits}, cooldown=${mem_guard_cooldown_seconds}s, drop_caches=${mem_guard_drop_caches})<br/>"
+      echo "Healthcheck timeouts: RTSP=${rtsp_healthcheck_timeout_seconds}s, ONVIF=${onvif_healthcheck_timeout_seconds}s<br/>"
+      echo "Reboot recommended to fully apply lightweight/NTP boot behavior.<br/>"
     ;;
 
     set_rtsp_preset)

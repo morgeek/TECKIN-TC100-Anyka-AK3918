@@ -7,6 +7,42 @@ echo "Cache-Control: max-age=0, no-store, no-cache"
 SCRIPT_HOME="${SCRIPT_HOME:-/mnt/controlscripts/}"
 # Allow tests to override autostart dir for safer testing
 AUTOSTART_DIR="${AUTOSTART_DIR:-/mnt/config/autostart}"
+
+run_status_probe() {
+  script_path="$1"
+  timeout_seconds="${2:-2}"
+  probe_output="/tmp/scripts-status.$$.tmp"
+
+  "$script_path" status >"$probe_output" 2>/dev/null &
+  probe_pid=$!
+
+  (
+    sleep "$timeout_seconds"
+    if kill -0 "$probe_pid" >/dev/null 2>&1; then
+      kill "$probe_pid" >/dev/null 2>&1 || true
+      sleep 1
+      kill -9 "$probe_pid" >/dev/null 2>&1 || true
+    fi
+  ) >/dev/null 2>&1 &
+  watchdog_pid=$!
+
+  wait "$probe_pid" >/dev/null 2>&1
+  probe_rc=$?
+
+  kill "$watchdog_pid" >/dev/null 2>&1 || true
+  wait "$watchdog_pid" >/dev/null 2>&1 || true
+
+  if [ -f "$probe_output" ]; then
+    cat "$probe_output"
+    rm -f "$probe_output"
+  fi
+
+  if [ "$probe_rc" -ge 128 ]; then
+    return 124
+  fi
+  return "$probe_rc"
+}
+
 if [ -n "$F_script" ]; then
   script="${F_script##*/}"
   if [ -e "$SCRIPT_HOME/$script" ]; then
@@ -75,6 +111,62 @@ if [ -n "$F_script" ]; then
         echo "Contents of script '$script':"
         echo "<pre>$(cat "$SCRIPT_HOME/$script" 2>&1)</pre>"
         ;;
+      state)
+        # sanitize script name
+        script="${script##*/}"
+        case "$script" in
+          ''|*[!A-Za-z0-9._-]* )
+            echo "Content-type: application/json"
+            echo ""
+            echo "{\"status\": \"error\", \"reason\": \"invalid script name\"}"
+            ;;
+          *)
+            if [ ! -x "$SCRIPT_HOME/$script" ]; then
+              echo "Content-type: application/json"
+              echo ""
+              echo "{\"status\": \"error\", \"reason\": \"script not found\"}"
+            else
+              has_start=0
+              has_stop=0
+              has_status=0
+              state="unknown"
+              running=0
+
+              if grep -q "^start()" "$SCRIPT_HOME/$script"; then
+                has_start=1
+              fi
+              if grep -q "^stop()" "$SCRIPT_HOME/$script"; then
+                has_stop=1
+              fi
+              if grep -q "^status()" "$SCRIPT_HOME/$script"; then
+                has_status=1
+              fi
+
+              if [ "$has_status" -eq 1 ]; then
+                status_output="$(run_status_probe "$SCRIPT_HOME/$script" 2)"
+                status_rc=$?
+                if [ "$status_rc" -eq 0 ]; then
+                  if [ -n "$status_output" ]; then
+                    state="running"
+                    running=1
+                  else
+                    state="stopped"
+                  fi
+                elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
+                  state="timeout"
+                else
+                  state="error"
+                fi
+              fi
+
+              echo "Content-type: application/json"
+              echo ""
+              printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s}\n' \
+                "$script" "$state" "$running" "$has_start" "$has_stop"
+            fi
+            ;;
+        esac
+        ;;
       *)
         echo "Content-type: text/html"
         echo ""
@@ -108,88 +200,38 @@ else
 
     for i in $SCRIPTS; do
       [ -x "$SCRIPT_HOME/$i" ] || continue
+      case "$i" in
+        ''|*[!A-Za-z0-9._-]* ) continue ;;
+      esac
 
       script_id="$(printf '%s' "$i" | tr -c 'A-Za-z0-9._-' '_')"
-      has_start=0
-      has_stop=0
-      has_status=0
-      status_output=""
-      status_label="Unknown"
+      status_label="Loading..."
       status_class="is-unknown"
-
-      if grep -q "^start()" "$SCRIPT_HOME/$i"; then
-        has_start=1
-      fi
-      if grep -q "^stop()" "$SCRIPT_HOME/$i"; then
-        has_stop=1
-      fi
-      if grep -q "^status()" "$SCRIPT_HOME/$i"; then
-        has_status=1
-      fi
-
-      if [ "$has_status" -eq 1 ]; then
-        status_output="$("$SCRIPT_HOME/$i" status)"
-        status_rc=$?
-        if [ "$status_rc" -eq 0 ]; then
-          if [ -n "$status_output" ]; then
-            status_label="Running"
-            status_class="is-running"
-          else
-            status_label="Stopped"
-            status_class="is-stopped"
-          fi
-        else
-          status_label="Error"
-          status_class="is-error"
-        fi
-      fi
-
       action_cmd="start"
-      action_label="Run"
+      action_label="Start"
       action_class="is-link"
-      action_hint="Run this script now."
+      action_hint="Start this service now."
       action_disabled=""
-
-      if [ "$has_start" -eq 1 ]; then
-        action_label="Start"
-        action_hint="Start this service now."
-        if [ "$status_class" = "is-running" ]; then
-          if [ "$has_stop" -eq 1 ]; then
-            action_cmd="stop"
-            action_label="Stop"
-            action_class="is-danger"
-            action_hint="Stop this service now."
-          else
-            action_disabled="disabled"
-            action_hint="This service is already running."
-          fi
-        fi
-      elif [ "$has_stop" -eq 1 ] && [ "$status_class" = "is-running" ]; then
-        action_cmd="stop"
-        action_label="Stop"
-        action_class="is-danger"
-        action_hint="Stop this service now."
-      fi
 
       autorun_checked=""
       if [ -f "$AUTOSTART_DIR/$i" ]; then
         autorun_checked="checked='checked'"
       fi
 
-      echo "<tr>"
+      echo "<tr data-script-name='$i'>"
       echo "<td class='services-title-cell'>"
       echo "<strong>$i</strong>"
-      echo "<span class='services-status-tag $status_class' title='Current state reported by this script'>$status_label</span>"
+      echo "<span class='services-status-tag service-status $status_class' data-service-status='loading' title='Loading service state...'>$status_label</span>"
       echo "</td>"
       echo "<td>"
-      echo "<button data-target='cgi-bin/scripts.cgi?cmd=$action_cmd&script=$i' class='button is-small $action_class script_action_toggle' data-script='$script_id' title='$action_hint' $action_disabled>$action_label</button>"
+      echo "<button data-target='cgi-bin/scripts.cgi?cmd=$action_cmd&script=$i' class='button is-small $action_class script_action_toggle' data-script-name='$i' title='$action_hint' $action_disabled>$action_label</button>"
       echo "</td>"
       echo "<td class='services-autorun-cell'>"
-      echo "<input type='checkbox' id='autorun_$script_id' name='autorun_$script_id' class='switch is-rtl autostart' data-script='$script_id' data-unchecked='cgi-bin/scripts.cgi?cmd=disable&script=$i' data-checked='cgi-bin/scripts.cgi?cmd=enable&script=$i' $autorun_checked title='Enable or disable autorun for this service'>"
+      echo "<input type='checkbox' id='autorun_$script_id' name='autorun_$script_id' class='switch is-rtl autostart' data-unchecked='cgi-bin/scripts.cgi?cmd=disable&script=$i' data-checked='cgi-bin/scripts.cgi?cmd=enable&script=$i' $autorun_checked title='Enable or disable autorun for this service'>"
       echo "<label for='autorun_$script_id' title='Enable or disable autorun for this service'>Boot</label>"
       echo "</td>"
       echo "<td>"
-      echo "<a href='cgi-bin/scripts.cgi?cmd=view&script=$i' class='button is-small is-light view_script' data-script='$script_id' title='View this script source'>View</a>"
+      echo "<a href='cgi-bin/scripts.cgi?cmd=view&script=$i' class='button is-small is-light view_script' title='View this script source'>View</a>"
       echo "</td>"
       echo "</tr>"
     done
@@ -204,7 +246,6 @@ else
   if [ -f /mnt/www/scripts/scripts.bundle.min.js ]; then
     echo "<script src=\"/scripts/scripts.bundle.min.js\"></script>"
   else
-    script=$(cat /mnt/www/scripts/scripts.cgi.js)
-    echo "<script>$script</script>"
+    echo "<script src=\"/scripts/scripts.cgi.js\"></script>"
   fi
 fi

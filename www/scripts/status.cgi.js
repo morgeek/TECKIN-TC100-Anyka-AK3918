@@ -300,6 +300,7 @@
   function categorizeStatusCard(title) {
     switch (title) {
       case "System":
+      case "Advanced Tuning":
         return "system";
       case "HTTP/RTSP/Telnet Password":
       case "HTTP Password":
@@ -363,6 +364,7 @@
 
     var basicTitles = {
       System: true,
+      "Advanced Tuning": true,
       "HTTP/RTSP/Telnet Password": true,
       "Video Settings": true,
       "RTSP stream address": true,
@@ -565,6 +567,7 @@
       "formRtspPreset",
       "formStreamTopology",
       "formOnvifPolicy",
+      "formAdvancedTuning",
       "tzForm",
       "passwordForm",
       "allPasswordForm",
