@@ -48,6 +48,23 @@ LOW_CPU_SUB_GOPLEN=16
 LOW_CPU_SUB_MAXKBPS=200
 LOW_CPU_SUB_TARGETKBPS=150
 
+# Low RAM profile (recommended for 64MB-class devices)
+# Enables memory guard defaults to shed non-critical services when memory is low.
+LOW_RAM_PROFILE=0
+
+# Memory guard runtime behavior
+# - reads MemAvailable from /proc/meminfo
+# - if below WARN threshold, stops soft services
+# - if below CRITICAL threshold, also stops critical services and can drop caches
+MEM_GUARD_ENABLE=0
+MEM_GUARD_INTERVAL_SECONDS=20
+MEM_GUARD_WARN_KB=8192
+MEM_GUARD_CRITICAL_KB=4096
+MEM_GUARD_COOLDOWN_SECONDS=120
+MEM_GUARD_DROP_CACHES=1
+MEM_GUARD_SOFT_SERVICES="network-monitor auto-night-detection blue-led"
+MEM_GUARD_CRITICAL_SERVICES="ftp-server telnet-server timelapse recording motion-detection"
+
 # Autostart filtering:
 # - AUTOSTART_ALLOWLIST: if set, only these scripts will run.
 # - AUTOSTART_DENYLIST: if set, these scripts will be skipped.

@@ -1,15 +1,18 @@
 #!/usr/bin/env bats
 
-@test "index footer markup does not contain stray closing anchor before sysusage" {
-  run grep -n '</a><em id="sysusage"' www/index.html
+@test "index footer markup does not contain stray closing anchor before cpuusage" {
+  run grep -n '</a><em id="cpuusage"' www/index.html
   [ "$status" -ne 0 ]
 }
 
-@test "sysusage widget is rendered in fixed navbar shell" {
+@test "cpu and ram usage widgets are rendered in fixed navbar shell" {
   run grep -n 'class="navbar-item nav-sysusage-wrap"' www/index.html
   [ "$status" -eq 0 ]
 
-  run grep -n '<em id="sysusage">' www/index.html
+  run grep -n '<em id="cpuusage"' www/index.html
+  [ "$status" -eq 0 ]
+
+  run grep -n '<em id="ramusage"' www/index.html
   [ "$status" -eq 0 ]
 }
 
@@ -248,10 +251,16 @@
   run grep -n "statusline)" www/cgi-bin/state.cgi
   [ "$status" -eq 0 ]
 
+  run grep -n "ram_percent" www/cgi-bin/state.cgi
+  [ "$status" -eq 0 ]
+
   run grep -n "streamselftest" www/cgi-bin/state.cgi
   [ "$status" -ne 0 ]
 
   run grep -n "cmd=statusline" www/scripts/index.bundle.min.js
+  [ "$status" -eq 0 ]
+
+  run grep -n "ram_percent" www/scripts/index.bundle.min.js
   [ "$status" -eq 0 ]
 
   run grep -n "cmd=perfprofile" www/scripts/index.bundle.min.js

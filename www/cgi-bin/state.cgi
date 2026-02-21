@@ -50,6 +50,11 @@ get_current_cpu_usage_fast() {
 get_memory_usage_fast() {
   mem_total=0
   mem_available=0
+  mem_free=0
+  mem_buffers=0
+  mem_cached=0
+  mem_sreclaimable=0
+  mem_shmem=0
 
   while IFS=' ' read -r key value _; do
     case "$key" in
@@ -59,11 +64,36 @@ get_memory_usage_fast() {
       MemAvailable:)
         mem_available="$value"
         ;;
+      MemFree:)
+        mem_free="$value"
+        ;;
+      Buffers:)
+        mem_buffers="$value"
+        ;;
+      Cached:)
+        mem_cached="$value"
+        ;;
+      SReclaimable:)
+        mem_sreclaimable="$value"
+        ;;
+      Shmem:)
+        mem_shmem="$value"
+        ;;
     esac
     if [ "$mem_total" -gt 0 ] && [ "$mem_available" -gt 0 ]; then
       break
     fi
   done < /proc/meminfo
+
+  if [ "$mem_available" -le 0 ]; then
+    mem_available=$((mem_free + mem_buffers + mem_cached + mem_sreclaimable - mem_shmem))
+    if [ "$mem_available" -lt 0 ]; then
+      mem_available=0
+    fi
+  fi
+  if [ "$mem_available" -gt "$mem_total" ]; then
+    mem_available="$mem_total"
+  fi
 
   mem_used=$((mem_total - mem_available))
 }
@@ -139,7 +169,16 @@ if [ -n "$F_cmd" ]; then
     cpu="$(get_current_cpu_usage_fast)"
     get_memory_usage_fast
     profile="$(get_perf_profile)"
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"perfprofile\":\"$profile\"}"
+    ram_percent=0
+    if [ "$mem_total" -gt 0 ]; then
+      ram_percent=$((100 * mem_used / mem_total))
+      if [ "$ram_percent" -lt 0 ]; then
+        ram_percent=0
+      elif [ "$ram_percent" -gt 100 ]; then
+        ram_percent=100
+      fi
+    fi
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile\"}"
     ;;
 
   perfprofile)

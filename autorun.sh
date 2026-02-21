@@ -62,6 +62,7 @@ load_boot_config()
         : "${NTP_ONE_SHOT:=1}"
         : "${ENABLE_CROND:=0}"
         : "${LOW_CPU_PROFILE:=1}"
+        : "${LOW_RAM_PROFILE:=1}"
         if [ -z "${AUTOSTART_ALLOWLIST+x}" ] && [ -z "${AUTOSTART_DENYLIST+x}" ]; then
             AUTOSTART_DENYLIST="$DEFAULT_LIGHTWEIGHT_DENYLIST"
         fi
@@ -99,6 +100,12 @@ load_boot_config()
         fi
     fi
 
+    : "${LOW_RAM_PROFILE:=0}"
+    if is_truthy "$LOW_RAM_PROFILE"; then
+        : "${MEM_GUARD_ENABLE:=1}"
+        : "${ENABLE_CROND:=0}"
+    fi
+
     : "${ENABLE_WATCHDOG:=1}"
     : "${ENABLE_NTP:=1}"
     : "${NTP_ONE_SHOT:=0}"
@@ -109,14 +116,28 @@ load_boot_config()
     : "${AUTOSTART_ALLOWLIST:=}"
     : "${AUTOSTART_DENYLIST:=}"
     : "${SERVICE_TRIM:=0}"
-    : "${SERVICE_TRIM_ALLOWLIST:=00_system-config 02_system-webserver rtsp-h26x onvif}"
+    : "${SERVICE_TRIM_ALLOWLIST:=00_system-config 02_system-webserver rtsp-h26x onvif memory-guard}"
+    : "${MEM_GUARD_ENABLE:=0}"
+    : "${MEM_GUARD_INTERVAL_SECONDS:=20}"
+    : "${MEM_GUARD_WARN_KB:=8192}"
+    : "${MEM_GUARD_CRITICAL_KB:=4096}"
+    : "${MEM_GUARD_COOLDOWN_SECONDS:=120}"
+    : "${MEM_GUARD_DROP_CACHES:=1}"
+    : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection blue-led}"
+    : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
 
     if is_truthy "$SERVICE_TRIM"; then
         AUTOSTART_ALLOWLIST="$SERVICE_TRIM_ALLOWLIST"
         AUTOSTART_DENYLIST=""
     fi
 
-    echo "Boot config: lightweight=$LIGHTWEIGHT_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
+    if is_truthy "$MEM_GUARD_ENABLE" && [ -n "$AUTOSTART_ALLOWLIST" ]; then
+        if ! list_contains "memory-guard" $AUTOSTART_ALLOWLIST; then
+            AUTOSTART_ALLOWLIST="$AUTOSTART_ALLOWLIST memory-guard"
+        fi
+    fi
+
+    echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
 }
 
 enable_hardware_watchdog()

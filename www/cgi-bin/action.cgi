@@ -158,17 +158,39 @@ if [ -n "$F_cmd" ]; then
 
 
     set_telnet)
-      telnetport=$(echo "${F_telnetport}"| sed -e 's/+/ /g')
-      echo "TELNET_PORT=$telnetport" > /mnt/config/telnetd.conf
-      restart_service_if_need /mnt/controlscripts/telnet-server
-      echo "<p>Setting telnet service port to : $telnetport</p>"
+      telnetport=$(printf '%b' "${F_telnetport}")
+      case "$telnetport" in
+        ''|*[!0-9]*)
+          echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
+          ;;
+        *)
+          if [ "$telnetport" -lt 1 ] || [ "$telnetport" -gt 65535 ]; then
+            echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
+          else
+            echo "TELNET_PORT=$telnetport" > /mnt/config/telnetd.conf
+            restart_service_if_need /mnt/controlscripts/telnet-server
+            echo "<p>Setting telnet service port to : $telnetport</p>"
+          fi
+          ;;
+      esac
     ;;
 
     set_ftp)
-      ftpport=$(echo "${F_ftpport}"| sed -e 's/+/ /g')
-      echo "<p>Setting ftp service port to: $ftpport</p>"
-      echo "PORT=$ftpport" > /mnt/config/ftp.conf
-      restart_service_if_need /mnt/controlscripts/ftp-server
+      ftpport=$(printf '%b' "${F_ftpport}")
+      case "$ftpport" in
+        ''|*[!0-9]*)
+          echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
+          ;;
+        *)
+          if [ "$ftpport" -lt 1 ] || [ "$ftpport" -gt 65535 ]; then
+            echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
+          else
+            echo "<p>Setting ftp service port to: $ftpport</p>"
+            echo "PORT=$ftpport" > /mnt/config/ftp.conf
+            restart_service_if_need /mnt/controlscripts/ftp-server
+          fi
+          ;;
+      esac
     ;;
 
     settz)
@@ -367,6 +389,8 @@ if [ -n "$F_cmd" ]; then
       case "$profile" in
         balanced)
           rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 0
+          rewrite_config /mnt/config/boot.conf LOW_RAM_PROFILE 0
+          rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE 0
           rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 1
           rewrite_config /mnt/config/boot.conf RTSP_AUDIO 1
           rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-primary
@@ -378,6 +402,8 @@ if [ -n "$F_cmd" ]; then
           ;;
         low-cpu)
           rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
+          rewrite_config /mnt/config/boot.conf LOW_RAM_PROFILE 1
+          rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 1
@@ -397,10 +423,13 @@ if [ -n "$F_cmd" ]; then
               1 smartmode 1 1 smartgoplen 10 1 smartquality 50 1 smartstatic 100 1 maxkbps 160 1 targetkbps 120
 
           echo "Performance profile set to Low CPU.<br/>"
-          echo "Applied conservative RTSP settings now; reboot recommended for full low-CPU service profile.<br/>"
+          echo "Applied conservative RTSP settings now and enabled memory guard.<br/>"
+          echo "Reboot recommended for full low-CPU service profile.<br/>"
           ;;
         rtsp-only)
           rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
+          rewrite_config /mnt/config/boot.conf LOW_RAM_PROFILE 1
+          rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 1
@@ -429,6 +458,13 @@ if [ -n "$F_cmd" ]; then
 
       schedule_rtsp_restart
       schedule_onvif_restart
+      if [ -x /mnt/controlscripts/memory-guard ]; then
+        if [ "$profile" = "balanced" ]; then
+          /mnt/controlscripts/memory-guard stop >/dev/null 2>&1 || true
+        else
+          /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
+        fi
+      fi
     ;;
 
     set_web_mode)
