@@ -123,7 +123,7 @@ load_boot_config()
     : "${MEM_GUARD_CRITICAL_KB:=4096}"
     : "${MEM_GUARD_COOLDOWN_SECONDS:=120}"
     : "${MEM_GUARD_DROP_CACHES:=1}"
-    : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection blue-led}"
+    : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection}"
     : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
 
     if is_truthy "$SERVICE_TRIM"; then

@@ -22,6 +22,8 @@
   var liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
   var optimizedSnapshotsEnabled = true;
   var currentPerfProfileToken = "balanced";
+  var dynamicSysUsageIntervalMs = 0;
+  var dynamicAutoNightIntervalMs = 0;
   var settingsStylesInjected = false;
   var settingsStyleHrefs = [
     "css/bulma-divider.min.css",
@@ -53,9 +55,12 @@
     tuneUiPollIntervals(normalized);
   }
 
-  function setAdaptiveLivePreviewProfile(cpuPercent) {
+  function setAdaptiveLivePreviewProfile(cpuPercent, ramPercent) {
     var nextInterval = LIVEVIEW_INTERVAL_VISIBLE_MS;
     var nextEndpoint = "cgi-bin/currentpic.cgi";
+    var cpu = typeof cpuPercent === "number" && !isNaN(cpuPercent) ? cpuPercent : 0;
+    var ram = typeof ramPercent === "number" && !isNaN(ramPercent) ? ramPercent : 0;
+    var pressure = Math.max(cpu, ram);
 
     if (currentPerfProfileToken === "rtsp-only") {
       nextInterval = Math.max(nextInterval, 5500);
@@ -63,12 +68,12 @@
       nextInterval = Math.max(nextInterval, 4000);
     }
 
-    if (cpuPercent > 80) {
+    if (pressure > 80) {
       nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 10000 : 7000);
       if (optimizedSnapshotsEnabled) {
         nextEndpoint = "cgi-bin/currentpicoptim.cgi";
       }
-    } else if (cpuPercent >= 50) {
+    } else if (pressure >= 50) {
       nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 7000 : 4500);
       if (optimizedSnapshotsEnabled) {
         nextEndpoint = "cgi-bin/currentpicoptim.cgi";
@@ -81,6 +86,22 @@
 
     if (changed && liveFeedEnabled && !document.hidden) {
       scheduleRefreshLiveImage(liveViewVisibleIntervalMs);
+    }
+  }
+
+  function applyAdaptivePollingPressure(cpuPercent, ramPercent) {
+    var cpu = typeof cpuPercent === "number" && !isNaN(cpuPercent) ? cpuPercent : 0;
+    var ram = typeof ramPercent === "number" && !isNaN(ramPercent) ? ramPercent : 0;
+    var pressure = Math.max(cpu, ram);
+
+    dynamicSysUsageIntervalMs = 0;
+    dynamicAutoNightIntervalMs = 0;
+    if (pressure > 80) {
+      dynamicSysUsageIntervalMs = 12000;
+      dynamicAutoNightIntervalMs = 8000;
+    } else if (pressure >= 50) {
+      dynamicSysUsageIntervalMs = 6000;
+      dynamicAutoNightIntervalMs = 4000;
     }
   }
 
@@ -213,7 +234,7 @@
       }
       cpuBadge.textContent = "CPU: " + cpu + "%";
       applyUsageClass(cpuBadge, cpu);
-      setAdaptiveLivePreviewProfile(cpu);
+      setAdaptiveLivePreviewProfile(cpu, ramPercent);
     } else {
       cpuBadge.textContent = "CPU: ...";
       cpuBadge.classList.remove("usage-low", "usage-mid", "usage-high");
@@ -234,6 +255,7 @@
       ramBadge.classList.add("usage-low");
     }
 
+    applyAdaptivePollingPressure(cpu, ramPercent);
     return cpu;
   }
 
@@ -463,7 +485,8 @@
   }
 
   function refreshSysUsage() {
-    var nextInterval = document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS;
+    var baseInterval = document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS;
+    var nextInterval = baseInterval + dynamicSysUsageIntervalMs;
     fetch("cgi-bin/state.cgi?cmd=statusline&uid=" + Date.now(), { cache: "no-store" })
       .then(function (r) {
         return r.text();
@@ -500,7 +523,8 @@
   }
 
   function refreshAutoNightLumAwb() {
-    var nextInterval = document.hidden ? AUTONIGHT_INTERVAL_HIDDEN_MS : AUTONIGHT_INTERVAL_VISIBLE_MS;
+    var baseInterval = document.hidden ? AUTONIGHT_INTERVAL_HIDDEN_MS : AUTONIGHT_INTERVAL_VISIBLE_MS;
+    var nextInterval = baseInterval + dynamicAutoNightIntervalMs;
     fetch("cgi-bin/state.cgi?cmd=lumawb&uid=" + Date.now(), { cache: "no-store" })
       .then(function (r) {
         return r.text();

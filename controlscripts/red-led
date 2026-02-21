@@ -6,10 +6,12 @@ export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
 status()
 {
-  state=$(red_led status)
-  if [[ $state == "ON" || $state == "on" ]]; then
-    echo "PID: OK" 
-  fi
+  state="$(red_led status 2>/dev/null)"
+  case "$state" in
+    ON|on)
+      echo "PID: OK"
+      ;;
+  esac
 }
 
 start()
@@ -31,4 +33,3 @@ else
     ;;
   esac
 fi
-
