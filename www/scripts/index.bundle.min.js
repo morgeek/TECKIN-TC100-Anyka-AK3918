@@ -4,19 +4,179 @@
   var liveFeedEnabled = true;
   var currentContentTarget = "";
 
-  var LIVEVIEW_INTERVAL_VISIBLE_MS = 2000;
-  var LIVEVIEW_INTERVAL_HIDDEN_MS = 10000;
-  var SYSUSAGE_INTERVAL_VISIBLE_MS = 15000;
-  var SYSUSAGE_INTERVAL_HIDDEN_MS = 60000;
-  var AUTONIGHT_INTERVAL_VISIBLE_MS = 8000;
-  var AUTONIGHT_INTERVAL_HIDDEN_MS = 20000;
+  var LIVEVIEW_INTERVAL_VISIBLE_DEFAULT_MS = 2500;
+  var LIVEVIEW_INTERVAL_HIDDEN_DEFAULT_MS = 12000;
+  var SYSUSAGE_INTERVAL_VISIBLE_DEFAULT_MS = 15000;
+  var SYSUSAGE_INTERVAL_HIDDEN_DEFAULT_MS = 60000;
+  var AUTONIGHT_INTERVAL_VISIBLE_DEFAULT_MS = 8000;
+  var AUTONIGHT_INTERVAL_HIDDEN_DEFAULT_MS = 20000;
+
+  var LIVEVIEW_INTERVAL_VISIBLE_MS = LIVEVIEW_INTERVAL_VISIBLE_DEFAULT_MS;
+  var LIVEVIEW_INTERVAL_HIDDEN_MS = LIVEVIEW_INTERVAL_HIDDEN_DEFAULT_MS;
+  var SYSUSAGE_INTERVAL_VISIBLE_MS = SYSUSAGE_INTERVAL_VISIBLE_DEFAULT_MS;
+  var SYSUSAGE_INTERVAL_HIDDEN_MS = SYSUSAGE_INTERVAL_HIDDEN_DEFAULT_MS;
+  var AUTONIGHT_INTERVAL_VISIBLE_MS = AUTONIGHT_INTERVAL_VISIBLE_DEFAULT_MS;
+  var AUTONIGHT_INTERVAL_HIDDEN_MS = AUTONIGHT_INTERVAL_HIDDEN_DEFAULT_MS;
+
+  var liveViewVisibleIntervalMs = LIVEVIEW_INTERVAL_VISIBLE_MS;
+  var liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
+  var optimizedSnapshotsEnabled = true;
+  var currentPerfProfileToken = "balanced";
+  var settingsStylesInjected = false;
+  var settingsStyleHrefs = [
+    "css/bulma-divider.min.css",
+    "css/bulma-switch.1.0.1.min.css",
+    "css/bulma-badge.1.0.1.min.css",
+    "css/bulma-quickview.1.0.1.min.css",
+  ];
+
+  function setPerformanceProfileBadge(token) {
+    var badge = byId("perfprofile");
+    if (!badge) {
+      return;
+    }
+
+    var normalized = (token || "").trim().toLowerCase();
+    var label = "Balanced";
+    if (normalized === "low-cpu") {
+      label = "Low CPU";
+    } else if (normalized === "rtsp-only") {
+      label = "RTSP+ONVIF";
+    } else {
+      normalized = "balanced";
+    }
+
+    badge.textContent = "Profile: " + label;
+    badge.classList.remove("profile-balanced", "profile-low-cpu", "profile-rtsp-only");
+    badge.classList.add("profile-" + normalized);
+    currentPerfProfileToken = normalized;
+    tuneUiPollIntervals(normalized);
+  }
+
+  function setAdaptiveLivePreviewProfile(cpuPercent) {
+    var nextInterval = LIVEVIEW_INTERVAL_VISIBLE_MS;
+    var nextEndpoint = "cgi-bin/currentpic.cgi";
+
+    if (currentPerfProfileToken === "rtsp-only") {
+      nextInterval = Math.max(nextInterval, 5500);
+    } else if (currentPerfProfileToken === "low-cpu") {
+      nextInterval = Math.max(nextInterval, 4000);
+    }
+
+    if (cpuPercent > 80) {
+      nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 10000 : 7000);
+      if (optimizedSnapshotsEnabled) {
+        nextEndpoint = "cgi-bin/currentpicoptim.cgi";
+      }
+    } else if (cpuPercent >= 50) {
+      nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 7000 : 4500);
+      if (optimizedSnapshotsEnabled) {
+        nextEndpoint = "cgi-bin/currentpicoptim.cgi";
+      }
+    }
+
+    var changed = liveViewVisibleIntervalMs !== nextInterval || liveViewSnapshotEndpoint !== nextEndpoint;
+    liveViewVisibleIntervalMs = nextInterval;
+    liveViewSnapshotEndpoint = nextEndpoint;
+
+    if (changed && liveFeedEnabled && !document.hidden) {
+      scheduleRefreshLiveImage(liveViewVisibleIntervalMs);
+    }
+  }
 
   function byId(id) {
     return document.getElementById(id);
   }
 
+  function tuneUiPollIntervals(profileToken) {
+    var normalized = (profileToken || "").toLowerCase();
+    LIVEVIEW_INTERVAL_VISIBLE_MS = LIVEVIEW_INTERVAL_VISIBLE_DEFAULT_MS;
+    LIVEVIEW_INTERVAL_HIDDEN_MS = LIVEVIEW_INTERVAL_HIDDEN_DEFAULT_MS;
+    SYSUSAGE_INTERVAL_VISIBLE_MS = SYSUSAGE_INTERVAL_VISIBLE_DEFAULT_MS;
+    SYSUSAGE_INTERVAL_HIDDEN_MS = SYSUSAGE_INTERVAL_HIDDEN_DEFAULT_MS;
+    AUTONIGHT_INTERVAL_VISIBLE_MS = AUTONIGHT_INTERVAL_VISIBLE_DEFAULT_MS;
+    AUTONIGHT_INTERVAL_HIDDEN_MS = AUTONIGHT_INTERVAL_HIDDEN_DEFAULT_MS;
+
+    if (normalized === "rtsp-only") {
+      LIVEVIEW_INTERVAL_VISIBLE_MS = 5500;
+      LIVEVIEW_INTERVAL_HIDDEN_MS = 20000;
+      SYSUSAGE_INTERVAL_VISIBLE_MS = 30000;
+      SYSUSAGE_INTERVAL_HIDDEN_MS = 120000;
+      AUTONIGHT_INTERVAL_VISIBLE_MS = 12000;
+      AUTONIGHT_INTERVAL_HIDDEN_MS = 30000;
+    } else if (normalized === "low-cpu") {
+      LIVEVIEW_INTERVAL_VISIBLE_MS = 4000;
+      LIVEVIEW_INTERVAL_HIDDEN_MS = 16000;
+      SYSUSAGE_INTERVAL_VISIBLE_MS = 22000;
+      SYSUSAGE_INTERVAL_HIDDEN_MS = 90000;
+      AUTONIGHT_INTERVAL_VISIBLE_MS = 10000;
+      AUTONIGHT_INTERVAL_HIDDEN_MS = 25000;
+    }
+  }
+
   function byClass(cls) {
     return Array.prototype.slice.call(document.getElementsByClassName(cls));
+  }
+
+  function hasStylesheet(href) {
+    return Array.prototype.some.call(document.querySelectorAll("link[rel='stylesheet']"), function (node) {
+      var nodeHref = node.getAttribute("href") || "";
+      return nodeHref === href || nodeHref.indexOf(href) !== -1;
+    });
+  }
+
+  function injectStylesheet(href) {
+    if (!href || hasStylesheet(href)) {
+      return;
+    }
+    var link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.setAttribute("data-lazy-css", "1");
+    document.head.appendChild(link);
+  }
+
+  function ensureSettingsStylesLoaded() {
+    if (settingsStylesInjected) {
+      return;
+    }
+    settingsStylesInjected = true;
+    settingsStyleHrefs.forEach(function (href) {
+      injectStylesheet(href);
+    });
+  }
+
+  function parseCpuPercent(sysusageText) {
+    var match = /CPU:\s*([0-9]{1,3})%/i.exec(sysusageText || "");
+    if (!match) {
+      return null;
+    }
+    var cpu = parseInt(match[1], 10);
+    return isNaN(cpu) ? null : cpu;
+  }
+
+  function updateSysUsageBadge(sysusageText) {
+    var usage = byId("sysusage");
+    if (!usage) {
+      return null;
+    }
+
+    usage.textContent = sysusageText;
+    usage.classList.remove("usage-low", "usage-mid", "usage-high");
+    var cpu = parseCpuPercent(sysusageText);
+    if (cpu === null) {
+      return null;
+    }
+
+    if (cpu > 80) {
+      usage.classList.add("usage-high");
+    } else if (cpu >= 50) {
+      usage.classList.add("usage-mid");
+    } else {
+      usage.classList.add("usage-low");
+    }
+    setAdaptiveLivePreviewProfile(cpu);
+    return cpu;
   }
 
   function parseJsonArray(data) {
@@ -89,12 +249,23 @@
     closeNavDropdowns();
   }
 
+  function getDropdownToggle(dropdown) {
+    if (!dropdown) {
+      return null;
+    }
+    return dropdown.querySelector(".navbar-link");
+  }
+
   function closeNavDropdowns(exceptNode) {
     Array.prototype.slice.call(document.querySelectorAll("#nav_menu .navbar-item.has-dropdown")).forEach(function (node) {
       if (exceptNode && node === exceptNode) {
         return;
       }
       node.classList.remove("is-active");
+      var toggle = getDropdownToggle(node);
+      if (toggle) {
+        toggle.setAttribute("aria-expanded", "false");
+      }
     });
   }
 
@@ -104,6 +275,8 @@
         return;
       }
       toggle.dataset.dropdownBound = "1";
+      toggle.setAttribute("aria-haspopup", "true");
+      toggle.setAttribute("aria-expanded", "false");
       toggle.addEventListener("click", function (event) {
         if (window.innerWidth >= 1024) {
           return;
@@ -117,6 +290,7 @@
         var willOpen = !dropdown.classList.contains("is-active");
         closeNavDropdowns(dropdown);
         dropdown.classList.toggle("is-active", willOpen);
+        toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
         if (willOpen && dropdown.id === "camcontrol_link") {
           syncSwitchesTimeout(300);
         }
@@ -130,6 +304,9 @@
       return;
     }
     var normalizedTarget = normalizeTarget(target);
+    if (normalizedTarget === "cgi-bin/status.cgi") {
+      ensureSettingsStylesLoaded();
+    }
     if (!forceReload && normalizedTarget && normalizedTarget === currentContentTarget) {
       if (typeof onLoaded === "function") {
         onLoaded();
@@ -150,6 +327,9 @@
       signal: contentLoadController.signal,
     })
       .then(function (r) {
+        if (!r.ok) {
+          throw new Error("Failed to load " + target + " (" + r.status + ")");
+        }
         return r.text();
       })
       .then(function (html) {
@@ -166,6 +346,7 @@
           return;
         }
         console.log(e);
+        content.innerHTML = "<article class='message is-danger'><div class='message-header'><p>Load error</p></div><div class='message-body'>Unable to load page content.</div></article>";
       })
       .finally(function () {
         setContentLoading(false);
@@ -190,7 +371,7 @@
       scheduleRefreshLiveImage(LIVEVIEW_INTERVAL_HIDDEN_MS);
       return;
     }
-    liveview.src = "cgi-bin/currentpic.cgi?" + Date.now();
+    liveview.src = liveViewSnapshotEndpoint + "?" + Date.now();
   }
 
   function scheduleRefreshLiveImage(interval) {
@@ -198,33 +379,58 @@
     timeoutJobs.refreshLiveImage = setTimeout(refreshLiveImage, interval);
   }
 
-  function refreshSysUsage() {
-    var nextInterval = document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS;
+  function refreshPerformanceProfile() {
+    fetch("cgi-bin/state.cgi?cmd=perfprofile&uid=" + Date.now(), { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (profile) {
+        setPerformanceProfileBadge(profile);
+      })
+      .catch(function () {});
+  }
+
+  function refreshSysUsageLegacy(nextInterval) {
     fetch("cgi-bin/state.cgi?cmd=sysusage&uid=" + Date.now(), { cache: "no-store" })
       .then(function (r) {
         return r.text();
       })
       .then(function (sysusage) {
-        var usage = byId("sysusage");
-        if (usage) {
-          usage.textContent = sysusage;
-          usage.classList.remove("usage-low", "usage-mid", "usage-high");
-          var match = /CPU:\s*([0-9]{1,3})%/i.exec(sysusage);
-          if (match) {
-            var cpu = parseInt(match[1], 10);
-            if (cpu > 80) {
-              usage.classList.add("usage-high");
-            } else if (cpu >= 50) {
-              usage.classList.add("usage-mid");
-            } else {
-              usage.classList.add("usage-low");
-            }
-          }
-        }
+        updateSysUsageBadge(sysusage);
+        refreshPerformanceProfile();
+      })
+      .finally(function () {
         scheduleRefreshSysUsage(nextInterval);
+      });
+  }
+
+  function refreshSysUsage() {
+    var nextInterval = document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS;
+    fetch("cgi-bin/state.cgi?cmd=statusline&uid=" + Date.now(), { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (statuslinePayload) {
+        var statusline = null;
+        try {
+          statusline = JSON.parse(statuslinePayload);
+        } catch (e) {
+          statusline = null;
+        }
+
+        if (statusline && typeof statusline.sysusage === "string") {
+          updateSysUsageBadge(statusline.sysusage);
+          if (typeof statusline.perfprofile === "string") {
+            setPerformanceProfileBadge(statusline.perfprofile);
+          }
+          scheduleRefreshSysUsage(nextInterval);
+          return;
+        }
+
+        refreshSysUsageLegacy(nextInterval);
       })
       .catch(function () {
-        scheduleRefreshSysUsage(nextInterval);
+        refreshSysUsageLegacy(nextInterval);
       });
   }
 
@@ -446,34 +652,6 @@
       });
   }
 
-  function pushToTalk(action) {
-    var btn = byId("btn-ptt");
-    if (!btn) {
-      return;
-    }
-
-    var span = btn.querySelector("span");
-    if (action === "on") {
-      if (span) {
-        span.style.color = "red";
-        span.removeAttribute("onpointerdown");
-      }
-      btn.setAttribute("onpointerup", "pushToTalk('off')");
-      if (window.startRecording) {
-        window.startRecording();
-      }
-    } else {
-      if (window.stopRecording) {
-        window.stopRecording();
-      }
-      if (span) {
-        span.style.color = "";
-        span.removeAttribute("onpointerup");
-      }
-      btn.setAttribute("onpointerdown", "pushToTalk('on')");
-    }
-  }
-
   document.addEventListener("DOMContentLoaded", function () {
     setTheme(getThemeChoice());
 
@@ -496,6 +674,7 @@
       if (onPageTarget && onPageTarget.dataset.target) {
         event.preventDefault();
         loadOnPageTarget(onPageTarget.dataset.target, null, onPageTarget.dataset.forceReload === "1");
+        scheduleRefreshAutoNightLumAwb(onPageTarget.id === "status" ? AUTONIGHT_INTERVAL_VISIBLE_MS : 0);
         if (window.innerWidth < 1024) {
           closeNavMenu();
         } else {
@@ -504,17 +683,21 @@
         return;
       }
 
-      var directTarget = event.target.closest(".direct");
-      if (directTarget && directTarget.dataset.target) {
-        window.location.href = directTarget.dataset.target;
-        return;
-      }
-
       var promptTarget = event.target.closest(".prompt");
       if (promptTarget && promptTarget.dataset.target) {
         if (confirm(promptTarget.dataset.message)) {
           window.location.href = promptTarget.dataset.target;
         }
+        return;
+      }
+
+      if (window.innerWidth < 1024) {
+        var menu = byId("nav_menu");
+        if (menu && menu.classList.contains("is-active") && !event.target.closest("#nav_menu") && !event.target.closest("#navbar_burger")) {
+          closeNavMenu();
+        }
+      } else if (!event.target.closest("#nav_menu")) {
+        closeNavDropdowns();
       }
     });
 
@@ -579,22 +762,24 @@
       }
     }
 
-    Array.prototype.slice.call(document.querySelectorAll(".navbar-item")).forEach(function (node) {
-      node.addEventListener("click", function () {
-        var id = node.getAttribute("id");
-        if (id && !node.classList.contains("has-dropdown")) {
-          scheduleRefreshAutoNightLumAwb(id === "status" ? AUTONIGHT_INTERVAL_VISIBLE_MS : 0);
-        }
-      });
-    });
-
     var liveview = byId("liveview");
     if (liveview) {
       liveview.onload = function () {
         if (liveFeedEnabled) {
-          scheduleRefreshLiveImage(LIVEVIEW_INTERVAL_VISIBLE_MS);
+          scheduleRefreshLiveImage(liveViewVisibleIntervalMs);
         }
       };
+      liveview.addEventListener("error", function () {
+        if (!liveFeedEnabled) {
+          return;
+        }
+        if ((liveview.src || "").indexOf("currentpicoptim.cgi") !== -1) {
+          optimizedSnapshotsEnabled = false;
+          liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
+          liveViewVisibleIntervalMs = Math.max(liveViewVisibleIntervalMs, 5000);
+        }
+        scheduleRefreshLiveImage(800);
+      });
     }
 
     var liveToggle = byId("live_toggle");
@@ -612,7 +797,7 @@
     setLiveToggleButtonState();
 
     document.addEventListener("visibilitychange", function () {
-      scheduleRefreshLiveImage(document.hidden ? LIVEVIEW_INTERVAL_HIDDEN_MS : LIVEVIEW_INTERVAL_VISIBLE_MS);
+      scheduleRefreshLiveImage(document.hidden ? LIVEVIEW_INTERVAL_HIDDEN_MS : liveViewVisibleIntervalMs);
       scheduleRefreshSysUsage(document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS);
     });
 
@@ -627,6 +812,7 @@
   window.scheduleRefreshLiveImage = scheduleRefreshLiveImage;
   window.refreshSysUsage = refreshSysUsage;
   window.scheduleRefreshSysUsage = scheduleRefreshSysUsage;
+  window.refreshPerformanceProfile = refreshPerformanceProfile;
   window.refreshAutoNightLumAwb = refreshAutoNightLumAwb;
   window.scheduleRefreshAutoNightLumAwb = scheduleRefreshAutoNightLumAwb;
   window.syncSwitchesTimeout = syncSwitchesTimeout;
@@ -639,5 +825,4 @@
   window.getThemeChoice = getThemeChoice;
   window.cameraControlClick = cameraControlClick;
   window.updateCameraControls = updateCameraControls;
-  window.pushToTalk = pushToTalk;
 })();

@@ -137,19 +137,35 @@ ir_cut(){
 
 # Control the http server
 http_server(){
+  WEB_MODE="full"
+  ULTRALITE_HTTP_PORT="80"
+  if [ -f /mnt/config/boot.conf ]; then
+    # shellcheck disable=SC1090
+    . /mnt/config/boot.conf
+  fi
   case "$1" in
   on)
-    /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
+    if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
+      /mnt/bin/busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
+    else
+      /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
+    fi
     ;;
   off)
     killall lighttpd
+    killall httpd
     ;;
   restart)
     killall lighttpd
-    /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
+    killall httpd
+    if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
+      /mnt/bin/busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
+    else
+      /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
+    fi
     ;;
   status)
-    if pgrep lighttpd &> /dev/null
+    if pgrep lighttpd >/dev/null 2>&1 || pgrep httpd >/dev/null 2>&1
       then
         echo "ON"
     else

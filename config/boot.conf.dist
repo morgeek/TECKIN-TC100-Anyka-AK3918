@@ -10,9 +10,14 @@ NTP_ONE_SHOT=0
 ENABLE_CROND=1
 ENABLE_AUTOSTART=1
 
-# Web server mode: full (https + redirect), http (no TLS), off
-# Note: http mode uses Basic Auth without encryption.
+# Web server mode:
+# - full: https + redirect (lighttpd, default)
+# - http: http only (lighttpd, no TLS)
+# - ultra-lite: http only (busybox httpd, lightest CPU/RAM, no lighttpd auth/TLS layer)
+# - off: web server disabled
 WEB_MODE=full
+# Optional listen port for WEB_MODE=ultra-lite
+ULTRALITE_HTTP_PORT=80
 
 # Low CPU profile (recommended for very low usage)
 # When enabled, the startup script applies conservative RTSP settings and

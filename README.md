@@ -49,7 +49,10 @@ Remove the MicroSD card and reboot.
 ## Current web UI behavior
 * Live view includes pause/resume and snapshot.
 * CPU/RAM usage badge is always visible in the top bar.
+* Performance profile badge is always visible in the top bar.
 * Theme selector is in **Settings -> System**.
+* **Services** and **Camera Functions** are available as dedicated menu entries.
+* Services page uses a compact table view (Title, Start/Stop, Autorun at boot, View) with hover hints.
 * Information pages are available from the **Information** menu:
   * System Usage
   * Device Info
@@ -57,6 +60,8 @@ Remove the MicroSD card and reboot.
   * Disk & Mounts
   * Logs
 * Settings page supports **Basic/All** density mode and collapsible cards.
+* Settings now include a one-click **Performance profile** selector (Balanced / Low CPU / RTSP+ONVIF only).
+* Settings now include **Web server mode** control (`full` / `http` / `ultra-lite` / `off`) with ultra-lite port input.
 
 ## Performance and CPU tuning
 Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/boot.conf.dist` on first boot).
@@ -94,6 +99,9 @@ In **Settings -> System -> ONVIF stream policy**:
 * `sub-only`
 * `main-only`
 
+ONVIF identity metadata is configured in `/mnt/config/onvif.conf`:
+* `VENDOR_NAME`, `HW_NAME`, `DEVICE_LOCATION`, `DEVICE_NAME`, `DEVICE_MODEL`
+
 ### Service trim (web UI)
 The **Service trim** switch sets `/mnt/config/service_trim.conf` and keeps only a small autostart allowlist (RTSP/ONVIF/web essentials), reducing CPU load.
 
@@ -101,7 +109,18 @@ The **Service trim** switch sets `/mnt/config/service_trim.conf` and keeps only 
 Set in `/mnt/config/boot.conf`:
 * `WEB_MODE=full` (default HTTPS + redirect)
 * `WEB_MODE=http` (HTTP only, lower CPU, no TLS)
+* `WEB_MODE=ultra-lite` (BusyBox `httpd`, lowest web CPU/RAM, no lighttpd auth/TLS layer)
 * `WEB_MODE=off` (web server disabled)
+* Optional for ultra-lite: `ULTRALITE_HTTP_PORT=80`
+
+### Maximum web CPU savings
+For minimum web stack overhead while keeping core camera functionality:
+* `WEB_MODE=ultra-lite`
+* `LOW_CPU_PROFILE=1`
+* `SERVICE_TRIM=1`
+* Keep only one browser tab open to the UI (live snapshot requests are the main web-side load).
+
+When `LOW_CPU_PROFILE` or `SERVICE_TRIM` is active, the UI now automatically slows polling/live-preview cadence to reduce CGI/webserver load.
 
 ### Other low-load defaults
 * Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`
@@ -117,3 +136,7 @@ Preferred OSD time format uses `%` placeholders, e.g.:
 * `%H:%M:%S .%m.%Y`
 
 Legacy `\\x`-style patterns are sanitized automatically at RTSP service start.
+
+## Vendor binaries notes
+Reverse-engineering notes for closed binaries are documented in:
+* `docs/vendor-binaries-reverse-engineering.md`

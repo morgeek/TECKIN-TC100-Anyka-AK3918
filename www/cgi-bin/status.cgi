@@ -20,9 +20,34 @@ if [ -f /mnt/config/service_trim.conf ]; then
   . /mnt/config/service_trim.conf
 fi
 SERVICE_TRIM="${SERVICE_TRIM:-0}"
+LOW_CPU_PROFILE="${LOW_CPU_PROFILE:-0}"
 RTSP_SUBSTREAM="${RTSP_SUBSTREAM:-1}"
 RTSP_AUDIO="${RTSP_AUDIO:-1}"
 ONVIF_STREAM_POLICY="${ONVIF_STREAM_POLICY:-main-primary}"
+WEB_MODE="${WEB_MODE:-full}"
+ULTRALITE_HTTP_PORT="${ULTRALITE_HTTP_PORT:-80}"
+
+case "$WEB_MODE" in
+  full|http|ultra-lite|ultralite|off) ;;
+  *) WEB_MODE="full" ;;
+esac
+if [ "$WEB_MODE" = "ultralite" ]; then
+  WEB_MODE="ultra-lite"
+fi
+case "$ULTRALITE_HTTP_PORT" in
+  ''|*[!0-9]*) ULTRALITE_HTTP_PORT=80 ;;
+esac
+if [ "$ULTRALITE_HTTP_PORT" -lt 1 ] || [ "$ULTRALITE_HTTP_PORT" -gt 65535 ]; then
+  ULTRALITE_HTTP_PORT=80
+fi
+
+if [ "$SERVICE_TRIM" = "1" ]; then
+  PERFORMANCE_PROFILE="rtsp-only"
+elif [ "$LOW_CPU_PROFILE" = "1" ]; then
+  PERFORMANCE_PROFILE="low-cpu"
+else
+  PERFORMANCE_PROFILE="balanced"
+fi
 
 case "$ONVIF_STREAM_POLICY" in
   main-primary|sub-primary|sub-only|main-only) ;;
@@ -159,6 +184,65 @@ cat << EOF
             </div>
         </div>
     </div>
+    <form id="formPerformanceProfile" action="cgi-bin/action.cgi?cmd=set_performance_profile" method="post">
+        <div class="field is-horizontal">
+            <div class="field-label is-normal">
+                <label class="label" for="performance_profile">Performance profile</label>
+            </div>
+            <div class="field-body">
+                <div class="field">
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select id="performance_profile" name="performance_profile">
+                                <option value="balanced" $(if [ "$PERFORMANCE_PROFILE" = "balanced" ]; then echo selected; fi)>Balanced</option>
+                                <option value="low-cpu" $(if [ "$PERFORMANCE_PROFILE" = "low-cpu" ]; then echo selected; fi)>Low CPU</option>
+                                <option value="rtsp-only" $(if [ "$PERFORMANCE_PROFILE" = "rtsp-only" ]; then echo selected; fi)>RTSP + ONVIF only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="help">Applies grouped CPU-saving settings. Reboot recommended for full profile effect.</p>
+                </div>
+                <div class="field">
+                    <div class="control">
+                        <button id="performanceProfileSubmit" class="button is-primary" type="submit">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+    <form id="formWebMode" action="cgi-bin/action.cgi?cmd=set_web_mode" method="post">
+        <div class="field is-horizontal">
+            <div class="field-label is-normal">
+                <label class="label" for="web_mode">Web server mode</label>
+            </div>
+            <div class="field-body">
+                <div class="field">
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select id="web_mode" name="web_mode">
+                                <option value="full" $(if [ "$WEB_MODE" = "full" ]; then echo selected; fi)>Full HTTPS (default)</option>
+                                <option value="http" $(if [ "$WEB_MODE" = "http" ]; then echo selected; fi)>HTTP only</option>
+                                <option value="ultra-lite" $(if [ "$WEB_MODE" = "ultra-lite" ]; then echo selected; fi)>Ultra-lite BusyBox HTTP</option>
+                                <option value="off" $(if [ "$WEB_MODE" = "off" ]; then echo selected; fi)>Off</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="help">Use ultra-lite to minimize web CPU/RAM usage. ONVIF web endpoint follows this mode.</p>
+                </div>
+                <div class="field web-port-field">
+                    <div class="control">
+                        <input class="input" id="ultralite_http_port" name="ultralite_http_port" type="number" min="1" max="65535" value="$ULTRALITE_HTTP_PORT">
+                    </div>
+                    <p class="help">Ultra-lite HTTP port (only used when mode is ultra-lite).</p>
+                </div>
+                <div class="field">
+                    <div class="control">
+                        <button id="webModeSubmit" class="button is-primary" type="submit">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
     <form id="formStreamTopology" action="cgi-bin/action.cgi?cmd=set_stream_topology" method="post">
         <div class="field is-horizontal">
             <div class="field-label is-normal">
@@ -528,7 +612,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="video_codec0">
-                                    0 = H264, 2 = H265
                                     <option value="0" $(if [ "$codec0" == "0" ]; then echo selected; fi)>H264</option>
                                     <option value="2" $(if [ "$codec0" == "2" ]; then echo selected; fi)>H265</option>
                                 </select>
@@ -547,11 +630,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="codec_profile0">
-                                    	0 = PROFILE_MAIN,
-                                        1 = PROFILE_HIGH,
-                                        2 = PROFILE_BASE,
-                                        3 = PROFILE_HEVC_MAIN,
-                                        4 = PROFILE_HEVC_MAIN_STILL
                                     <option value="0" $(if [ "$profile0" == "0" ]; then echo selected; fi)>Main</option>
                                     <option value="1" $(if [ "$profile0" == "1" ]; then echo selected; fi)>High</option>
                                     <option value="2" $(if [ "$profile0" == "2" ]; then echo selected; fi)>Base</option>
@@ -593,7 +671,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="video_format0">
-                                    0 = CBR, 1 = VBR
                                     <option value="0" $(if [ "$brmode0" == "0" ]; then echo selected; fi)>CBR</option>
                                     <option value="1" $(if [ "$brmode0" == "1" ]; then echo selected; fi)>VBR</option>
                                 </select>
@@ -679,7 +756,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="smartmode0">
-                                    1 = LTR, 2 = GOP
                                     <option value="0" $(if [ "$smartmode0" == "0" ]; then echo selected; fi)>OFF</option>
                                     <option value="1" $(if [ "$smartmode0" == "1" ]; then echo selected; fi)>LTR</option>
                                     <option value="2" $(if [ "$smartmode0" == "2" ]; then echo selected; fi)>GOP len</option>
@@ -768,7 +844,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="video_codec1">
-                                    0 = H264, 2 = H265
                                     <option value="0" $(if [ "$codec1" == "0" ]; then echo selected; fi)>H264</option>
                                     <option value="2" $(if [ "$codec1" == "2" ]; then echo selected; fi)>H265</option>
                                 </select>
@@ -787,11 +862,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="codec_profile1">
-                                    	0 = PROFILE_MAIN,
-                                        1 = PROFILE_HIGH,
-                                        2 = PROFILE_BASE,
-                                        3 = PROFILE_HEVC_MAIN,
-                                        4 = PROFILE_HEVC_MAIN_STILL
                                     <option value="0" $(if [ "$profile1" == "0" ]; then echo selected; fi)>Main</option>
                                     <option value="1" $(if [ "$profile1" == "1" ]; then echo selected; fi)>High</option>
                                     <option value="2" $(if [ "$profile1" == "2" ]; then echo selected; fi)>Base</option>
@@ -831,7 +901,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="video_format1">
-                                    0 = CBR, 1 = VBR
                                     <option value="0" $(if [ "$brmode1" == "0" ]; then echo selected; fi)>CBR</option>
                                     <option value="1" $(if [ "$brmode1" == "1" ]; then echo selected; fi)>VBR</option>
                                 </select>
@@ -917,7 +986,6 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="smartmode1">
-                                    1 = LTR, 2 = GOP
                                     <option value="0" $(if [ "$smartmode1" == "0" ]; then echo selected; fi)>OFF</option>
                                     <option value="1" $(if [ "$smartmode1" == "1" ]; then echo selected; fi)>LTR</option>
                                     <option value="2" $(if [ "$smartmode1" == "2" ]; then echo selected; fi)>GOP len</option>
@@ -1085,12 +1153,6 @@ cat << EOF
                         <div class="field-body">
                             <div class="select is-fullwidth">
                                 <select name="audioCodec1">
-                                        0    AK_AUDIO_TYPE_UNKNOWN,
-                                        4    AK_AUDIO_TYPE_AAC,
-                                        6    AK_AUDIO_TYPE_PCM,
-                                       17    AK_AUDIO_TYPE_PCM_ALAW,
-                                       18    AK_AUDIO_TYPE_PCM_ULAW,
-
                                         <option value="0"  $(if [ "$codec3" == "0" ]; then echo selected; fi)>OFF</option>
                                         <option value="4"  $(if [ "$codec3" == "4" ]; then echo selected; fi)>AAC</option>
                                         <option value="6"  $(if [ "$codec3" == "6" ]; then echo selected; fi)>PCM</option>
@@ -1139,7 +1201,7 @@ cat << EOF
         </div>
 
         <div class="field is-horizontal">
-            <div class="field-label is-normal"/>
+            <div class="field-label is-normal"></div>
             <div class="field-body">
                 <div class="field">
                     <div class="control">
@@ -1219,7 +1281,7 @@ cat << EOF
         </div>
 
         <div class="field is-horizontal">
-            <div class="field-label is-normal"/>
+            <div class="field-label is-normal"></div>
             <div class="field-body">
                 <div class="field">
                     <div class="control">
@@ -1308,7 +1370,7 @@ cat << EOF
                     <div class="field">
                         <p class="control">
                                  <input class="input is-fullwidth" id="ndawb" name="ndawb" type="number" size="4" value="$nightdayawb"/>
-                                 <label class="labelAWB"/>
+                                 <label class="labelAWB"></label>
                         </p>
                     </div>
                 </div>
@@ -1322,13 +1384,13 @@ cat << EOF
                     <div class="field">
                         <p class="control">
                                  <input class="input is-fullwidth" id="ndlum" name="ndlum" type="number" size="4" value="$nightdaylum"/>
-                                 <label class="labelLum"/>
+                                 <label class="labelLum"></label>
                         </p>
                     </div>
                 </div>
             </div>
 
-            </br>
+            <br>
             When current AWB > 'Night-to-Day AWB' and current Lum < 'Night-to-Day Lum' then switch to DAY mode.
 
             <div class="is-divider"></div>
@@ -1341,7 +1403,7 @@ cat << EOF
                     <div class="field">
                         <p class="control">
                                  <input class="input is-fullwidth" id="dnawb" name="dnawb" type="number" size="4" value="$daynightawb"/>
-                                 <label class="labelAWB"/>
+                                 <label class="labelAWB"></label>
                         </p>
                     </div>
                 </div>
@@ -1355,14 +1417,14 @@ cat << EOF
                     <div class="field">
                         <p class="control">
                                  <input class="input is-fullwidth" id="dnlum" name="dnlum" type="number" size="4" value="$daynightlum"/>
-                                 <label class="labelLum"/>
+                                 <label class="labelLum"></label>
                         </p>
                     </div>
                 </div>
             </div>
-            </br>
+            <br>
             When current AWB < 'Day-to-Night AWB' and current Lum > 'Day-to-Night Lum' then switch to NIGHT mode.
-            <div class="is-divider"/>
+            <div class="is-divider"></div>
 
 
             <div class="field is-horizontal">
@@ -1576,41 +1638,6 @@ cat << EOF
 </div>
 
 
-<!-- Push to talk -->
-<!-- TODO: uncomment when implemented
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'>Push-to-talk</p></header>
-    <div class='card-content'>
-        <form id="formPtt" action="cgi-bin/action.cgi?cmd=conf_ptt" method="post">
-        <div class="field is-horizontal">
-            <div class="field-label is-normal">
-                <label class="label">Volume</label>
-            </div>
-            <div class="field-body">
-                <p class="control">
-                    <div class="double">
-                        <input class="slider is-fullwidth" name="audiooutVol" step="1" min="0" max="120" value="$(cat /mnt/config/pttvolume.conf)" type="range">
-                    </div>
-                </p>
-            </div>
-        </div>
-        <div class="field is-horizontal">
-            <div class="field-label is-normal">
-            </div>
-            <div class="field-body">
-                <div class="field">
-                <div class="control">
-                    <input id="pttSubmit" class="button is-primary" type="submit" value="Set" />
-                </div>
-                </div>
-            </div>
-        </div>
-        </form>
-    </div>
-</div>
--->
-
-
 <!-- Motion detection -->
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>Motion Detection</p></header>
@@ -1630,7 +1657,7 @@ cat << EOF
         </div>
 
         <div class="field is-horizontal">
-            <div class="field-label is-normal"/>
+            <div class="field-label is-normal"></div>
             <div class="field-body">
                 <div class="field">
                     <div class="control">
@@ -1662,33 +1689,6 @@ cat << EOF
     <div class='card-content'>
 
         <div class="columns">
-        <!-- TODO: uncomment when implemented
-        <div class="column">
-            <form id="formAudio" action="cgi-bin/action.cgi?cmd=audio_test" method="post">
-                <label>Audio Output Test</label>
-                <div class="select">
-                    <select name="audioSource">
-                        $(
-                           for i in `/mnt/bin/busybox find /mnt/media -name *.wav`
-                           do
-                                echo  "<option value=$i> `/mnt/bin/busybox basename $i` </option>"
-                           done
-                        )
-                    </select>
-                </div>
-                <input class="slider is-fullwidth" name="audiotestVol" step="1" min="0" max="120" value="50" type="range">
-
-                <div class="field-body">
-                    <div class="field">
-                        <div class="control">
-                            <input id="AudioTestSubmit" class="button is-primary" type="submit" value="Test" />
-                        </div>
-                    </div>
-                </div>
-            </form>
-        </div>
-        -->
-
         <div class="column">
             <label>Image</label>
             <div class="buttons">
@@ -1699,48 +1699,6 @@ cat << EOF
         </div>
     </div>
 </div>
-
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'>Services</p></header>
-    <div class='card-content'>
-        <div id="embeddedServices"><p>Loading services...</p></div>
-    </div>
-</div>
-
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'>Camera Controls</p></header>
-    <div class='card-content'>
-        <div id="embeddedCamControls"><p>Loading camera controls...</p></div>
-    </div>
-</div>
-
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'>Information</p></header>
-    <div class='card-content'>
-        <div class="is-divider" data-content="System Usage"></div>
-        <div id="embeddedSysUsageInfo"><p>Loading system usage information...</p></div>
-
-        <div class="is-divider" data-content="Device"></div>
-        <div id="embeddedDeviceInfo"><p>Loading device information...</p></div>
-
-        <div class="is-divider" data-content="Network"></div>
-        <div id="embeddedNetworkInfo"><p>Loading network information...</p></div>
-
-        <div class="is-divider" data-content="Disk"></div>
-        <div id="embeddedDiskInfo"><p>Loading disk information...</p></div>
-
-        <div class="is-divider" data-content="Logs"></div>
-        <div id="embeddedLogs"><p>Loading logs...</p></div>
-    </div>
-</div>
-
-<!-- TODO: uncomment when implemented
-<div class='card status_card'>
-    <div class='card-content'>
-        <pre>To remote play custom file use this url:<br/>https://[CAMERA_IP]/cgi-bin/action.cgi?cmd=audio_test&audioSource=/mnt/media/[WAV_FILE]&audiotestVol=30</pre>
-    </div>
-</div>
--->
 
 EOF
 # Prefer external bundled/minified script to reduce server CPU and allow client caching

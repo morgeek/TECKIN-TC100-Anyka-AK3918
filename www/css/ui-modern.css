@@ -1,10 +1,9 @@
 :root {
-  --ui-bg: #eef4fb;
-  --ui-bg-accent: #d7e7ff;
-  --ui-surface: rgba(255, 255, 255, 0.88);
+  --ui-bg: #f3f5f8;
+  --ui-surface: #ffffff;
   --ui-surface-strong: #ffffff;
-  --ui-border: rgba(22, 62, 112, 0.16);
-  --ui-shadow: 0 10px 30px rgba(10, 42, 82, 0.14);
+  --ui-border: #d2dbe6;
+  --ui-shadow: none;
   --ui-text: #1f2a39;
   --ui-muted: #5d6b7a;
   --ui-primary: #0b6acb;
@@ -14,22 +13,19 @@
 }
 
 html {
-  background:
-    radial-gradient(circle at 100% 0%, var(--ui-bg-accent) 0%, transparent 45%),
-    linear-gradient(160deg, #f9fbff 0%, var(--ui-bg) 100%);
+  background: var(--ui-bg);
 }
 
 body {
   color: var(--ui-text);
   font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
-  text-rendering: optimizeLegibility;
+  background: var(--ui-bg);
 }
 
 .navbar {
-  backdrop-filter: blur(8px);
-  background: rgba(255, 255, 255, 0.84);
+  background: #ffffff;
   border-bottom: 1px solid var(--ui-border);
-  box-shadow: 0 4px 18px rgba(10, 42, 82, 0.08);
+  box-shadow: none;
 }
 
 .icnbtn {
@@ -62,8 +58,7 @@ body {
 }
 
 .navbar-link:hover,
-.navbar-item:hover,
-.dropdown-item:hover {
+.navbar-item:hover {
   background: rgba(11, 106, 203, 0.08) !important;
 }
 
@@ -99,16 +94,14 @@ body {
 
 .app-toolbar .button {
   border-radius: 999px;
-  border-color: rgba(11, 106, 203, 0.2);
-  background: rgba(255, 255, 255, 0.8);
+  border-color: #c7d7eb;
+  background: #ffffff;
   color: var(--ui-primary-dark);
   font-weight: 600;
-  transition: transform 120ms ease, background-color 120ms ease;
 }
 
 .app-toolbar .button:hover {
-  transform: translateY(-1px);
-  background: rgba(11, 106, 203, 0.1);
+  background: #f2f7fd;
 }
 
 .app-shell {
@@ -122,17 +115,23 @@ body {
   padding-right: 0.25rem;
 }
 
+.nav-perfprofile-wrap {
+  margin-left: 0.05rem;
+  margin-right: 0.1rem;
+  padding-left: 0.1rem;
+  padding-right: 0.1rem;
+}
+
 .liveview-wrap {
   border: 1px solid var(--ui-border);
   border-radius: 18px;
   box-shadow: var(--ui-shadow);
-  background: linear-gradient(180deg, rgba(248, 252, 255, 0.95), rgba(233, 242, 253, 0.7));
+  background: var(--ui-surface);
   padding: 0.5rem;
 }
 
 #content.content-loading {
   opacity: 0.72;
-  transition: opacity 120ms ease;
 }
 
 .script_card,
@@ -146,7 +145,7 @@ body {
 
 .card-header {
   border-bottom: 1px solid var(--ui-border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(246, 250, 255, 0.85));
+  background: var(--ui-surface);
 }
 
 .card-header-title {
@@ -180,7 +179,6 @@ body {
   border: 1px solid rgba(31, 133, 86, 0.3);
   border-radius: 999px;
   padding: 0.28rem 0.9rem;
-  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
   white-space: nowrap;
   line-height: 1.2;
 }
@@ -201,6 +199,37 @@ body {
   color: #b42033;
   background: rgba(228, 92, 113, 0.2);
   border-color: rgba(180, 32, 51, 0.38);
+}
+
+#perfprofile {
+  display: inline-block;
+  font-style: normal;
+  font-weight: 700;
+  color: #0b6acb;
+  background: rgba(11, 106, 203, 0.14);
+  border: 1px solid rgba(11, 106, 203, 0.28);
+  border-radius: 999px;
+  padding: 0.28rem 0.72rem;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+#perfprofile.profile-balanced {
+  color: #1f8556;
+  background: rgba(31, 133, 86, 0.14);
+  border-color: rgba(31, 133, 86, 0.3);
+}
+
+#perfprofile.profile-low-cpu {
+  color: #b65c00;
+  background: rgba(250, 191, 103, 0.22);
+  border-color: rgba(182, 92, 0, 0.35);
+}
+
+#perfprofile.profile-rtsp-only {
+  color: #0b6acb;
+  background: rgba(11, 106, 203, 0.14);
+  border-color: rgba(11, 106, 203, 0.28);
 }
 
 .theme-switcher {
@@ -260,16 +289,97 @@ a.button[disabled]:hover {
   margin-bottom: 0;
 }
 
+.services-table-wrap {
+  overflow-x: auto;
+}
+
+.services-table {
+  min-width: 620px;
+}
+
+.services-table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ui-muted);
+  white-space: nowrap;
+}
+
+.services-table th[title] {
+  cursor: help;
+}
+
+.services-table td {
+  vertical-align: middle;
+}
+
+.services-title-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.services-status-tag {
+  display: inline-block;
+  padding: 0.12rem 0.44rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.services-status-tag.is-running {
+  color: #1f8556;
+  background: rgba(31, 133, 86, 0.14);
+  border-color: rgba(31, 133, 86, 0.3);
+}
+
+.services-status-tag.is-stopped {
+  color: #8a5200;
+  background: rgba(250, 191, 103, 0.22);
+  border-color: rgba(138, 82, 0, 0.3);
+}
+
+.services-status-tag.is-error {
+  color: #b42033;
+  background: rgba(228, 92, 113, 0.2);
+  border-color: rgba(180, 32, 51, 0.35);
+}
+
+.services-status-tag.is-unknown {
+  color: #5d6b7a;
+  background: rgba(93, 107, 122, 0.14);
+  border-color: rgba(93, 107, 122, 0.24);
+}
+
+.services-table .button {
+  min-width: 4.6rem;
+}
+
+.services-autorun-cell {
+  white-space: nowrap;
+}
+
+.services-autorun-cell .switch + label {
+  margin-left: 0.45rem;
+}
+
+.status-organizer {
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
 .status-view-mode {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--ui-border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.75);
+  margin-bottom: 0.5rem;
 }
 
 .status-view-mode-label {
@@ -282,6 +392,37 @@ a.button[disabled]:hover {
   background: var(--ui-primary);
   border-color: var(--ui-primary);
   color: #fff;
+}
+
+.status-filter-wrap {
+  margin-bottom: 0.5rem;
+}
+
+.status-filter-input {
+  width: 100%;
+  max-width: 22rem;
+}
+
+.status-filter-info {
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  font-size: 0.8rem;
+  color: var(--ui-muted);
+}
+
+.status-quicknav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.status-quicknav-btn {
+  border-color: #c7d7eb;
+}
+
+.status_card {
+  content-visibility: auto;
+  contain-intrinsic-size: 400px;
 }
 
 .status_card.status-collapsible .card-header {
@@ -306,27 +447,7 @@ a.button[disabled]:hover {
 
 .quickview {
   border-left: 1px solid var(--ui-border);
-  backdrop-filter: blur(6px);
-  background: rgba(255, 255, 255, 0.92);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .card,
-  #liveview,
-  .navbar {
-    animation: ui-fade-in 180ms ease both;
-  }
-}
-
-@keyframes ui-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  background: #ffffff;
 }
 
 @media screen and (max-width: 768px) {
@@ -338,9 +459,18 @@ a.button[disabled]:hover {
     margin-left: auto;
   }
 
+  .nav-perfprofile-wrap {
+    margin-left: 0.2rem;
+  }
+
   #sysusage {
     font-size: 0.74rem;
     padding: 0.22rem 0.5rem;
+  }
+
+  #perfprofile {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.46rem;
   }
 
   .app-toolbar {
@@ -351,8 +481,16 @@ a.button[disabled]:hover {
     flex: 1 1 0;
   }
 
+  .status-filter-input {
+    max-width: 100%;
+  }
+
   .records-actions {
     grid-template-columns: 1fr;
+  }
+
+  .services-table {
+    min-width: 560px;
   }
 
   #liveview {
