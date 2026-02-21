@@ -20,12 +20,18 @@ fi
 : "${RTSP_AUDIO:=1}"
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
+: "${RTSP_WATCHDOG_MODE:=status}"
 
 case "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" in
   ''|*[!0-9]*) RTSP_HEALTHCHECK_TIMEOUT_SECONDS=4 ;;
 esac
 [ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] && RTSP_HEALTHCHECK_TIMEOUT_SECONDS=2
 [ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ] && RTSP_HEALTHCHECK_TIMEOUT_SECONDS=30
+
+case "$RTSP_WATCHDOG_MODE" in
+  status|health) ;;
+  *) RTSP_WATCHDOG_MODE="status" ;;
+esac
 
 install_config $CONFIGPATH/rtspserver.conf
 
@@ -106,7 +112,13 @@ start()
 
     ## Watchdog
     if ! checkpid "$WATCHDOG_PIDFILE"; then
-      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/rtsp-h26x 0 health &
+      CHECK_TIMEOUT_SECONDS="${CHECK_TIMEOUT_SECONDS:-60}" \
+      WATCHDOG_LOG_MAX_BYTES="${WATCHDOG_LOG_MAX_BYTES:-262144}" \
+      WATCHDOG_LOG_BACKUPS="${WATCHDOG_LOG_BACKUPS:-2}" \
+      WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS:-20}" \
+      WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS="${WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS:-15}" \
+      WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS:-180}" \
+      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/rtsp-h26x 0 "$RTSP_WATCHDOG_MODE" &
       echo "$!" > "$WATCHDOG_PIDFILE"
     fi
   fi
@@ -152,16 +164,8 @@ health()
 
 restart()
 {
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ -n "$pid" ]; then
-    kill "$pid" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$pid" >/dev/null 2>&1; then
-      kill -9 "$pid" 2>/dev/null || true
-      sleep 1
-    fi
-    rm -f "$PIDFILE"
-  fi
+  stop
+  sleep 1
   start
 }
 

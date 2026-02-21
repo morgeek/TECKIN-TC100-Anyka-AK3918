@@ -103,6 +103,26 @@ ONVIF_STREAM_POLICY=main-primary
 # Health-probe timeout (seconds) for service watchdog checks.
 RTSP_HEALTHCHECK_TIMEOUT_SECONDS=4
 ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4
+# ONVIF health hardening:
+# - ONVIF_STARTUP_GRACE_SECONDS: skip ONVIF health failures right after start
+# - ONVIF_HEALTHCHECK_RETRIES: retries for local ONVIF HTTP probe
+# - ONVIF_RTSP_DEPENDENCY_MODE:
+#     off    -> ONVIF health ignores RTSP state
+#     status -> ONVIF health requires RTSP process only (recommended)
+#     health -> ONVIF health requires RTSP deep health
+ONVIF_STARTUP_GRACE_SECONDS=20
+ONVIF_HEALTHCHECK_RETRIES=2
+ONVIF_RTSP_DEPENDENCY_MODE=status
+# Watchdog monitor interval in seconds (used by service-watchdog).
+CHECK_TIMEOUT_SECONDS=60
+# Watchdog mode per service:
+# - status: restart only when process is not running (safer for flaky health probes)
+# - health: use deep health checks (RTSP DESCRIBE/ONVIF HTTP probe) before deciding
+RTSP_WATCHDOG_MODE=status
+ONVIF_WATCHDOG_MODE=status
+# service-watchdog log rotation safeguards
+WATCHDOG_LOG_MAX_BYTES=262144
+WATCHDOG_LOG_BACKUPS=2
 
 # Example lightweight allowlist:
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"

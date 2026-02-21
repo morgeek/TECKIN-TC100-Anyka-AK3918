@@ -187,7 +187,10 @@ else
   else
     SCRIPTS=$(ls -A "$SCRIPT_HOME")
     echo "<div class='card status_card services-table-card'>"
-    echo "<header class='card-header'><p class='card-header-title'>Services</p></header>"
+    echo "<header class='card-header'>"
+    echo "<p class='card-header-title'>Services</p>"
+    echo "<a class='card-header-icon onpage' href='javascript: void(0)' data-target='cgi-bin/camcontrols.cgi?cmd=getsettings' title='Choose which toggles appear in the Camera Controls dropdown'>Camera Controls</a>"
+    echo "</header>"
     echo "<div class='card-content services-table-wrap'>"
     echo "<table class='table is-fullwidth is-hoverable services-table'>"
     echo "<thead><tr>"
