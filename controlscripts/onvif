@@ -2,6 +2,7 @@
 SERVICE_NAME="ONVIF Discovery"
 PIDFILE="/var/run/onvif.pid"
 WATCHDOG_PIDFILE="/var/run/onvif-watch.pid"
+START_TS_FILE="/var/run/onvif-start.ts"
 export LD_LIBRARY_PATH='/mnt/lib/:/thirdlib:/system/lib/:/usr/lib/'
 CONFIGPATH="/mnt/config"
 
@@ -29,12 +30,38 @@ if [ -f "$BOOT_CONFIG" ]; then
 fi
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${ONVIF_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
+: "${ONVIF_WATCHDOG_MODE:=status}"
+: "${ONVIF_HEALTHCHECK_RETRIES:=2}"
+: "${ONVIF_STARTUP_GRACE_SECONDS:=20}"
+: "${ONVIF_RTSP_DEPENDENCY_MODE:=status}"
 
 case "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" in
   ''|*[!0-9]*) ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4 ;;
 esac
 [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] && ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=2
 [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ] && ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=30
+
+case "$ONVIF_HEALTHCHECK_RETRIES" in
+  ''|*[!0-9]*) ONVIF_HEALTHCHECK_RETRIES=2 ;;
+esac
+[ "$ONVIF_HEALTHCHECK_RETRIES" -lt 1 ] && ONVIF_HEALTHCHECK_RETRIES=1
+[ "$ONVIF_HEALTHCHECK_RETRIES" -gt 5 ] && ONVIF_HEALTHCHECK_RETRIES=5
+
+case "$ONVIF_STARTUP_GRACE_SECONDS" in
+  ''|*[!0-9]*) ONVIF_STARTUP_GRACE_SECONDS=20 ;;
+esac
+[ "$ONVIF_STARTUP_GRACE_SECONDS" -lt 0 ] && ONVIF_STARTUP_GRACE_SECONDS=0
+[ "$ONVIF_STARTUP_GRACE_SECONDS" -gt 180 ] && ONVIF_STARTUP_GRACE_SECONDS=180
+
+case "$ONVIF_WATCHDOG_MODE" in
+  status|health) ;;
+  *) ONVIF_WATCHDOG_MODE="status" ;;
+esac
+
+case "$ONVIF_RTSP_DEPENDENCY_MODE" in
+  off|status|health) ;;
+  *) ONVIF_RTSP_DEPENDENCY_MODE="status" ;;
+esac
 
 WEB_PROTO="https"
 WEB_PORT="443"
@@ -167,10 +194,17 @@ start()
         -rp1 "$PRIMARY_RP" -vw1 "$PRIMARY_WIDTH" -vh1 "$PRIMARY_HEIGHT" -vc1 "$PRIMARY_CODEC" -vcb1 "$PRIMARY_BPS" -fps1 "$PRIMARY_FPS" \
         $ONVIF_STREAM2_ARGS 2>> "$LOGPATH" >> "$LOGPATH" &
     echo "$!" > "$PIDFILE"
+    date +%s > "$START_TS_FILE" 2>/dev/null || true
 
     ## Watchdog
     if ! checkpid "$WATCHDOG_PIDFILE"; then
-      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/onvif 0 health &
+      CHECK_TIMEOUT_SECONDS="${CHECK_TIMEOUT_SECONDS:-60}" \
+      WATCHDOG_LOG_MAX_BYTES="${WATCHDOG_LOG_MAX_BYTES:-262144}" \
+      WATCHDOG_LOG_BACKUPS="${WATCHDOG_LOG_BACKUPS:-2}" \
+      WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS:-20}" \
+      WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS="${WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS:-15}" \
+      WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS:-180}" \
+      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/onvif 0 "$ONVIF_WATCHDOG_MODE" &
       echo "$!" > "$WATCHDOG_PIDFILE"
     fi
   fi
@@ -182,10 +216,46 @@ health()
     return 1
   fi
 
-  /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1 || return 1
+  if [ "$ONVIF_STARTUP_GRACE_SECONDS" -gt 0 ] && [ -r "$START_TS_FILE" ]; then
+    read -r start_ts < "$START_TS_FILE"
+    case "$start_ts" in
+      ''|*[!0-9]*) start_ts=0 ;;
+    esac
+    now_ts="$(date +%s 2>/dev/null)"
+    case "$now_ts" in
+      ''|*[!0-9]*) now_ts=0 ;;
+    esac
+    if [ "$start_ts" -gt 0 ] && [ "$now_ts" -gt "$start_ts" ]; then
+      age=$((now_ts - start_ts))
+      if [ "$age" -lt "$ONVIF_STARTUP_GRACE_SECONDS" ]; then
+        echo "HEALTHY"
+        return 0
+      fi
+    fi
+  fi
+
+  case "$ONVIF_RTSP_DEPENDENCY_MODE" in
+    health)
+      /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1 || return 1
+      ;;
+    status)
+      /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1 || return 1
+      ;;
+  esac
 
   if [ -x /mnt/bin/curl ]; then
-    /mnt/bin/curl -s -S -m "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -o /dev/null "http://127.0.0.1:${ONVIF_PORT}/" >/dev/null 2>&1 || return 1
+    attempt=1
+    while [ "$attempt" -le "$ONVIF_HEALTHCHECK_RETRIES" ]; do
+      if /mnt/bin/curl -s -S -m "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -o /dev/null "http://127.0.0.1:${ONVIF_PORT}/" >/dev/null 2>&1; then
+        echo "HEALTHY"
+        return 0
+      fi
+      attempt=$((attempt + 1))
+      if [ "$attempt" -le "$ONVIF_HEALTHCHECK_RETRIES" ]; then
+        sleep 1
+      fi
+    done
+    return 1
   fi
 
   echo "HEALTHY"
@@ -193,21 +263,14 @@ health()
 
 restart()
 {
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ -n "$pid" ]; then
-    kill "$pid" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$pid" >/dev/null 2>&1; then
-      kill -9 "$pid" 2>/dev/null || true
-      sleep 1
-    fi
-    rm -f "$PIDFILE"
-  fi
+  stop
+  sleep 1
   start
 }
 
 stop()
 {
+  rm -f "$START_TS_FILE"
   killpid "$WATCHDOG_PIDFILE"
   killpid "$PIDFILE"
 }

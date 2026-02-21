@@ -1910,6 +1910,57 @@ cat << EOF
     </div>
 </div>
 
+<!-- Config backup and health snapshot -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Config Backup & Health</p></header>
+    <div class='card-content'>
+        <p class="help">On-demand tools only. No background daemon or polling is added.</p>
+        <div class="buttons">
+            <a class="button is-link" href="cgi-bin/configbackup.cgi?cmd=download" target="_blank" rel="noopener">Download config backup</a>
+            <a class="button is-light" href="cgi-bin/state.cgi?cmd=healthsnapshot" target="_blank" rel="noopener">Open health snapshot (JSON)</a>
+        </div>
+
+        <form id="formConfigRestore" action="cgi-bin/configbackup.cgi?cmd=restore" method="post" target="_blank">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="archive_path">Restore archive path</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="archive_path" name="archive_path" type="text" value="/tmp/config-backup.tar.gz" />
+                        </div>
+                        <p class="help">Upload a backup archive to /tmp first (FTP/SCP), then restore here.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"></div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="switch" name="restart_services" id="restart_services" type="checkbox" value="1" checked />
+                            <label class="label" for="restart_services">Restart RTSP/ONVIF after restore</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"></div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <button class="button is-primary" type="submit">Restore config archive</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Audio / Image -->
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>Tests</p></header>
