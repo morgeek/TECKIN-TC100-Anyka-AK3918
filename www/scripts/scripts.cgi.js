@@ -18,6 +18,148 @@ function initScriptsPage() {
     }
   }
 
+  function parseJsonSafe(text) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function toBoolInt(value) {
+    return value === true || value === 1 || value === '1';
+  }
+
+  function updateStatusTag(tag, state) {
+    if (!tag) {
+      return;
+    }
+
+    tag.classList.remove('is-running', 'is-stopped', 'is-error', 'is-unknown');
+    switch (state) {
+      case 'running':
+        tag.classList.add('is-running');
+        tag.textContent = 'Running';
+        tag.title = 'Current state reported by this script';
+        break;
+      case 'stopped':
+        tag.classList.add('is-stopped');
+        tag.textContent = 'Stopped';
+        tag.title = 'Current state reported by this script';
+        break;
+      case 'error':
+        tag.classList.add('is-error');
+        tag.textContent = 'Error';
+        tag.title = 'Status probe returned an error';
+        break;
+      case 'timeout':
+        tag.classList.add('is-error');
+        tag.textContent = 'Timeout';
+        tag.title = 'Status probe timed out';
+        break;
+      default:
+        tag.classList.add('is-unknown');
+        tag.textContent = 'Unknown';
+        tag.title = 'Unable to determine service state';
+        break;
+    }
+  }
+
+  function updateActionButton(btn, scriptName, state, hasStart, hasStop) {
+    if (!btn || !scriptName) {
+      return;
+    }
+
+    var actionCmd = 'start';
+    var actionLabel = 'Start';
+    var actionClass = 'is-link';
+    var actionHint = 'Start this service now.';
+    var actionDisabled = false;
+
+    if (state === 'running') {
+      if (hasStop) {
+        actionCmd = 'stop';
+        actionLabel = 'Stop';
+        actionClass = 'is-danger';
+        actionHint = 'Stop this service now.';
+      } else {
+        actionLabel = 'Running';
+        actionClass = 'is-light';
+        actionHint = 'This service has no stop handler.';
+        actionDisabled = true;
+      }
+    } else if (!hasStart) {
+      actionLabel = 'N/A';
+      actionClass = 'is-light';
+      actionHint = 'This service has no start handler.';
+      actionDisabled = true;
+    }
+
+    btn.classList.remove('is-link', 'is-danger', 'is-light');
+    btn.classList.add(actionClass);
+    btn.textContent = actionLabel;
+    btn.title = actionHint;
+    btn.dataset.target = 'cgi-bin/scripts.cgi?cmd=' + actionCmd + '&script=' + encodeURIComponent(scriptName);
+    btn.disabled = !!actionDisabled;
+  }
+
+  function applyServiceState(row, stateInfo) {
+    if (!row || !stateInfo) {
+      return;
+    }
+
+    var scriptName = row.dataset.scriptName || '';
+    var state = String(stateInfo.state || 'unknown').toLowerCase();
+    var hasStart = toBoolInt(stateInfo.has_start);
+    var hasStop = toBoolInt(stateInfo.has_stop);
+
+    updateStatusTag(row.querySelector('.service-status'), state);
+    updateActionButton(row.querySelector('button.script_action_toggle'), scriptName, state, hasStart, hasStop);
+  }
+
+  function refreshServiceState(row) {
+    if (!row) {
+      return Promise.resolve();
+    }
+    var scriptName = row.dataset.scriptName || '';
+    if (!scriptName) {
+      return Promise.resolve();
+    }
+
+    return fetch('cgi-bin/scripts.cgi?cmd=state&script=' + encodeURIComponent(scriptName), { cache: 'no-store' })
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        var json = parseJsonSafe(text);
+        if (!json || json.status !== 'ok') {
+          updateStatusTag(row.querySelector('.service-status'), 'unknown');
+          return;
+        }
+        applyServiceState(row, json);
+      })
+      .catch(function (err) {
+        console.error(err);
+        updateStatusTag(row.querySelector('.service-status'), 'unknown');
+      });
+  }
+
+  function refreshServiceStates() {
+    var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-script-name]'));
+    var index = 0;
+
+    function tick() {
+      if (index >= rows.length) {
+        return;
+      }
+      var row = rows[index];
+      refreshServiceState(row).then(function () {
+        index += 1;
+        setTimeout(tick, 40);
+      });
+    }
+
+    tick();
+  }
+
   Array.prototype.slice.call(document.querySelectorAll('button.script_action_toggle,button.script_action_stop,button.script_action_start')).forEach(function (btn) {
     btn.addEventListener('click', function (ev) {
       ev.preventDefault();
@@ -73,6 +215,8 @@ function initScriptsPage() {
       return false;
     });
   });
+
+  refreshServiceStates();
 }
 
 if (document.readyState === 'loading') {

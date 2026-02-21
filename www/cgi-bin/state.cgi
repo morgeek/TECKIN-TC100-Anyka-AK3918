@@ -201,6 +201,40 @@ read_conf_value() {
   echo "$conf_value"
 }
 
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+load_lum_awb() {
+  lum_value=""
+  awb_value=""
+
+  if [ -r /var/run/lum ]; then
+    read -r lum_value < /var/run/lum
+  fi
+  if [ -r /var/run/awb ]; then
+    read -r awb_value < /var/run/awb
+  fi
+}
+
+get_ui_ultralite_mode() {
+  ui_mode=0
+  WEB_MODE_VALUE="$(read_conf_value /mnt/config/boot.conf WEB_MODE full)"
+  UI_ULTRALITE_MODE_VALUE="$(read_conf_value /mnt/config/boot.conf UI_ULTRALITE_MODE 0)"
+
+  case "$WEB_MODE_VALUE" in
+    ultra-lite|ultralite)
+      ui_mode=1
+      ;;
+  esac
+
+  case "$UI_ULTRALITE_MODE_VALUE" in
+    1|true|on|yes|enabled)
+      ui_mode=1
+      ;;
+  esac
+}
+
 compute_perf_profile() {
   LOW_CPU_PROFILE="$(read_conf_value /mnt/config/boot.conf LOW_CPU_PROFILE 0)"
   SERVICE_TRIM="$(read_conf_value /mnt/config/service_trim.conf SERVICE_TRIM 0)"
@@ -269,16 +303,9 @@ if [ -n "$F_cmd" ]; then
     ;;
 
   lumawb)
-    if [ -r /var/run/lum ]; then
-      cat /var/run/lum
-    else
-      echo ""
-    fi
-    if [ -r /var/run/awb ]; then
-      cat /var/run/awb
-    else
-      echo ""
-    fi
+    load_lum_awb
+    echo "$lum_value"
+    echo "$awb_value"
     ;;
 
   sysusage)
@@ -289,7 +316,13 @@ if [ -n "$F_cmd" ]; then
   statusline)
     load_or_compute_usage_metrics
     profile="$(get_perf_profile)"
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile\"}"
+    load_lum_awb
+    get_ui_ultralite_mode
+    profile_json="$(json_escape "$profile")"
+    lum_json="$(json_escape "$lum_value")"
+    awb_json="$(json_escape "$awb_value")"
+    web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\"}"
     ;;
 
   perfprofile)

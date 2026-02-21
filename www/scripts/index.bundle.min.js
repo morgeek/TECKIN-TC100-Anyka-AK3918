@@ -20,10 +20,12 @@
 
   var liveViewVisibleIntervalMs = LIVEVIEW_INTERVAL_VISIBLE_MS;
   var liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
-  var optimizedSnapshotsEnabled = true;
   var currentPerfProfileToken = "balanced";
   var dynamicSysUsageIntervalMs = 0;
   var dynamicAutoNightIntervalMs = 0;
+  var uiUltraLiteMode = false;
+  var lastLumValue = "";
+  var lastAwbValue = "";
   var settingsStylesInjected = false;
   var settingsStyleHrefs = [
     "css/bulma-divider.min.css",
@@ -53,6 +55,9 @@
     badge.classList.add("profile-" + normalized);
     currentPerfProfileToken = normalized;
     tuneUiPollIntervals(normalized);
+    if (uiUltraLiteMode) {
+      applyUiUltraLiteMode(true);
+    }
   }
 
   function setAdaptiveLivePreviewProfile(cpuPercent, ramPercent) {
@@ -70,14 +75,8 @@
 
     if (pressure > 80) {
       nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 10000 : 7000);
-      if (optimizedSnapshotsEnabled) {
-        nextEndpoint = "cgi-bin/currentpicoptim.cgi";
-      }
     } else if (pressure >= 50) {
       nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 7000 : 4500);
-      if (optimizedSnapshotsEnabled) {
-        nextEndpoint = "cgi-bin/currentpicoptim.cgi";
-      }
     }
 
     var changed = liveViewVisibleIntervalMs !== nextInterval || liveViewSnapshotEndpoint !== nextEndpoint;
@@ -132,6 +131,52 @@
       SYSUSAGE_INTERVAL_HIDDEN_MS = 90000;
       AUTONIGHT_INTERVAL_VISIBLE_MS = 10000;
       AUTONIGHT_INTERVAL_HIDDEN_MS = 25000;
+    }
+  }
+
+  function updateLumAwbLabels(lum, awb) {
+    if (typeof lum === "string") {
+      lastLumValue = lum;
+    }
+    if (typeof awb === "string") {
+      lastAwbValue = awb;
+    }
+    byClass("labelLum").forEach(function (node) {
+      node.textContent = "Current: " + (lastLumValue || "");
+    });
+    byClass("labelAWB").forEach(function (node) {
+      node.textContent = "Current: " + (lastAwbValue || "");
+    });
+  }
+
+  function applyUiUltraLiteMode(enabled) {
+    var next = !!enabled;
+    if (uiUltraLiteMode === next) {
+      return;
+    }
+    uiUltraLiteMode = next;
+    document.body.classList.toggle("ui-ultra-lite", uiUltraLiteMode);
+
+    if (uiUltraLiteMode) {
+      LIVEVIEW_INTERVAL_VISIBLE_MS = Math.max(LIVEVIEW_INTERVAL_VISIBLE_MS, 9000);
+      LIVEVIEW_INTERVAL_HIDDEN_MS = Math.max(LIVEVIEW_INTERVAL_HIDDEN_MS, 25000);
+      SYSUSAGE_INTERVAL_VISIBLE_MS = Math.max(SYSUSAGE_INTERVAL_VISIBLE_MS, 30000);
+      SYSUSAGE_INTERVAL_HIDDEN_MS = Math.max(SYSUSAGE_INTERVAL_HIDDEN_MS, 120000);
+      AUTONIGHT_INTERVAL_VISIBLE_MS = Math.max(AUTONIGHT_INTERVAL_VISIBLE_MS, 15000);
+      AUTONIGHT_INTERVAL_HIDDEN_MS = Math.max(AUTONIGHT_INTERVAL_HIDDEN_MS, 35000);
+      liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
+
+      if (liveFeedEnabled) {
+        liveFeedEnabled = false;
+        setLiveToggleButtonState();
+      }
+      clearJob("refreshLiveImage");
+    } else {
+      tuneUiPollIntervals(currentPerfProfileToken);
+      setLiveToggleButtonState();
+      if (!document.hidden && liveFeedEnabled) {
+        scheduleRefreshLiveImage(200);
+      }
     }
   }
 
@@ -438,6 +483,10 @@
     if (!toggle) {
       return;
     }
+    if (uiUltraLiteMode && !liveFeedEnabled) {
+      toggle.textContent = "Resume Live (manual)";
+      return;
+    }
     toggle.textContent = liveFeedEnabled ? "Pause Live" : "Resume Live";
   }
 
@@ -506,6 +555,10 @@
           if (typeof statusline.perfprofile === "string") {
             setPerformanceProfileBadge(statusline.perfprofile);
           }
+          if (typeof statusline.ui_ultralite_mode === "number") {
+            applyUiUltraLiteMode(statusline.ui_ultralite_mode > 0);
+          }
+          updateLumAwbLabels(typeof statusline.lum === "string" ? statusline.lum : "", typeof statusline.awb === "string" ? statusline.awb : "");
           scheduleRefreshSysUsage(nextInterval);
           return;
         }
@@ -525,23 +578,8 @@
   function refreshAutoNightLumAwb() {
     var baseInterval = document.hidden ? AUTONIGHT_INTERVAL_HIDDEN_MS : AUTONIGHT_INTERVAL_VISIBLE_MS;
     var nextInterval = baseInterval + dynamicAutoNightIntervalMs;
-    fetch("cgi-bin/state.cgi?cmd=lumawb&uid=" + Date.now(), { cache: "no-store" })
-      .then(function (r) {
-        return r.text();
-      })
-      .then(function (data) {
-        var lumAwb = data.split("\n");
-        byClass("labelLum").forEach(function (node) {
-          node.textContent = "Current: " + (lumAwb[0] || "");
-        });
-        byClass("labelAWB").forEach(function (node) {
-          node.textContent = "Current: " + (lumAwb[1] || "");
-        });
-        scheduleRefreshAutoNightLumAwb(nextInterval);
-      })
-      .catch(function () {
-        scheduleRefreshAutoNightLumAwb(nextInterval);
-      });
+    updateLumAwbLabels(lastLumValue, lastAwbValue);
+    scheduleRefreshAutoNightLumAwb(nextInterval);
   }
 
   function scheduleRefreshAutoNightLumAwb(interval) {
@@ -856,11 +894,6 @@
       liveview.addEventListener("error", function () {
         if (!liveFeedEnabled) {
           return;
-        }
-        if ((liveview.src || "").indexOf("currentpicoptim.cgi") !== -1) {
-          optimizedSnapshotsEnabled = false;
-          liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
-          liveViewVisibleIntervalMs = Math.max(liveViewVisibleIntervalMs, 5000);
         }
         scheduleRefreshLiveImage(800);
       });

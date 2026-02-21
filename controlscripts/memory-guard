@@ -40,12 +40,28 @@ load_config()
     MEM_GUARD_INTERVAL_SECONDS="$(sanitize_positive_int "${MEM_GUARD_INTERVAL_SECONDS:-20}" 20)"
     MEM_GUARD_WARN_KB="$(sanitize_positive_int "${MEM_GUARD_WARN_KB:-8192}" 8192)"
     MEM_GUARD_CRITICAL_KB="$(sanitize_positive_int "${MEM_GUARD_CRITICAL_KB:-4096}" 4096)"
+    MEM_GUARD_EMERGENCY_KB="$(sanitize_positive_int "${MEM_GUARD_EMERGENCY_KB:-2048}" 2048)"
+    MEM_GUARD_RECOVERY_MARGIN_KB="$(sanitize_positive_int "${MEM_GUARD_RECOVERY_MARGIN_KB:-1536}" 1536)"
+    MEM_GUARD_WARN_HITS="$(sanitize_positive_int "${MEM_GUARD_WARN_HITS:-2}" 2)"
+    MEM_GUARD_CRITICAL_HITS="$(sanitize_positive_int "${MEM_GUARD_CRITICAL_HITS:-1}" 1)"
     MEM_GUARD_COOLDOWN_SECONDS="$(sanitize_positive_int "${MEM_GUARD_COOLDOWN_SECONDS:-120}" 120)"
     : "${MEM_GUARD_DROP_CACHES:=1}"
     : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection}"
     : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
+    : "${MEM_GUARD_EMERGENCY_SERVICES:=}"
 
     [ "$MEM_GUARD_INTERVAL_SECONDS" -lt 5 ] && MEM_GUARD_INTERVAL_SECONDS=5
+    [ "$MEM_GUARD_WARN_HITS" -lt 1 ] && MEM_GUARD_WARN_HITS=1
+    [ "$MEM_GUARD_WARN_HITS" -gt 10 ] && MEM_GUARD_WARN_HITS=10
+    [ "$MEM_GUARD_CRITICAL_HITS" -lt 1 ] && MEM_GUARD_CRITICAL_HITS=1
+    [ "$MEM_GUARD_CRITICAL_HITS" -gt 10 ] && MEM_GUARD_CRITICAL_HITS=10
+    [ "$MEM_GUARD_RECOVERY_MARGIN_KB" -lt 256 ] && MEM_GUARD_RECOVERY_MARGIN_KB=256
+    [ "$MEM_GUARD_RECOVERY_MARGIN_KB" -gt 32768 ] && MEM_GUARD_RECOVERY_MARGIN_KB=32768
+    [ "$MEM_GUARD_EMERGENCY_KB" -lt 512 ] && MEM_GUARD_EMERGENCY_KB=512
+    if [ "$MEM_GUARD_EMERGENCY_KB" -ge "$MEM_GUARD_CRITICAL_KB" ]; then
+        MEM_GUARD_EMERGENCY_KB=$((MEM_GUARD_CRITICAL_KB / 2))
+        [ "$MEM_GUARD_EMERGENCY_KB" -lt 512 ] && MEM_GUARD_EMERGENCY_KB=512
+    fi
     [ "$MEM_GUARD_COOLDOWN_SECONDS" -lt 10 ] && MEM_GUARD_COOLDOWN_SECONDS=10
 }
 
@@ -88,20 +104,29 @@ stop_service_if_running()
 apply_memory_relief()
 {
     available_kb="$1"
+    stage="$2"
 
     for service in $MEM_GUARD_SOFT_SERVICES; do
         stop_service_if_running "$service"
     done
 
-    if [ "$available_kb" -le "$MEM_GUARD_CRITICAL_KB" ]; then
+    if [ "$stage" = "critical" ] || [ "$stage" = "emergency" ]; then
         for service in $MEM_GUARD_CRITICAL_SERVICES; do
             stop_service_if_running "$service"
         done
+    fi
 
+    if [ "$stage" = "emergency" ] && [ -n "$MEM_GUARD_EMERGENCY_SERVICES" ]; then
+        for service in $MEM_GUARD_EMERGENCY_SERVICES; do
+            stop_service_if_running "$service"
+        done
+    fi
+
+    if [ "$stage" = "critical" ] || [ "$stage" = "emergency" ]; then
         if is_truthy "$MEM_GUARD_DROP_CACHES"; then
             sync
             echo 3 > /proc/sys/vm/drop_caches
-            echo "$(date) Memory guard: dropped VM caches (MemAvailable=${available_kb}kB)" >> "$LOGPATH"
+            echo "$(date) Memory guard: dropped VM caches (stage=$stage MemAvailable=${available_kb}kB)" >> "$LOGPATH"
         fi
     fi
 }
@@ -109,6 +134,8 @@ apply_memory_relief()
 monitor()
 {
     last_action_ts=0
+    warn_hits=0
+    critical_hits=0
     while :; do
         sleep "$MEM_GUARD_INTERVAL_SECONDS"
 
@@ -116,7 +143,34 @@ monitor()
         available_kb="$(sanitize_positive_int "$available_kb" 0)"
         [ "$available_kb" -gt 0 ] || continue
 
+        if [ "$available_kb" -gt $((MEM_GUARD_WARN_KB + MEM_GUARD_RECOVERY_MARGIN_KB)) ]; then
+            warn_hits=0
+            critical_hits=0
+            continue
+        fi
+
         if [ "$available_kb" -le "$MEM_GUARD_WARN_KB" ]; then
+            warn_hits=$((warn_hits + 1))
+        else
+            warn_hits=0
+        fi
+
+        if [ "$available_kb" -le "$MEM_GUARD_CRITICAL_KB" ]; then
+            critical_hits=$((critical_hits + 1))
+        else
+            critical_hits=0
+        fi
+
+        stage=""
+        if [ "$available_kb" -le "$MEM_GUARD_EMERGENCY_KB" ]; then
+            stage="emergency"
+        elif [ "$critical_hits" -ge "$MEM_GUARD_CRITICAL_HITS" ]; then
+            stage="critical"
+        elif [ "$warn_hits" -ge "$MEM_GUARD_WARN_HITS" ]; then
+            stage="warn"
+        fi
+
+        if [ -n "$stage" ]; then
             now_ts="$(date +%s 2>/dev/null)"
             now_ts="$(sanitize_positive_int "$now_ts" 0)"
 
@@ -124,8 +178,10 @@ monitor()
                 continue
             fi
 
-            echo "$(date) Memory guard: low memory detected (MemAvailable=${available_kb}kB)" >> "$LOGPATH"
-            apply_memory_relief "$available_kb"
+            echo "$(date) Memory guard: low memory detected (stage=$stage MemAvailable=${available_kb}kB warn_hits=${warn_hits} critical_hits=${critical_hits})" >> "$LOGPATH"
+            apply_memory_relief "$available_kb" "$stage"
+            warn_hits=0
+            critical_hits=0
             [ "$now_ts" -gt 0 ] && last_action_ts="$now_ts"
         fi
     done
