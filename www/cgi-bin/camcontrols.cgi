@@ -14,7 +14,7 @@ containsElement()
 {
   for controlId in $2
   do
-    if [[ "$1" == "$controlId" ]]; then
+    if [ "$1" = "$controlId" ]; then
       return 0
     fi
   done
@@ -105,12 +105,16 @@ if [ -n "$F_cmd" ]; then
 
     on)
       script="${F_control##*/}"
-      "$SCRIPT_HOME/$script" start > /dev/null 2>&1
+      if [ -f "$SCRIPT_HOME/$script" ]; then
+        sh "$SCRIPT_HOME/$script" start > /dev/null 2>&1
+      fi
     ;;
 
     off)
       script="${F_control##*/}"
-      "$SCRIPT_HOME/$script" stop > /dev/null 2>&1
+      if [ -f "$SCRIPT_HOME/$script" ]; then
+        sh "$SCRIPT_HOME/$script" stop > /dev/null 2>&1
+      fi
     ;;
 
     getallstate)
@@ -121,7 +125,11 @@ if [ -n "$F_cmd" ]; then
       for controlId in $ENABLED_CAM_CONTROL_SWITCHES
       do
         state="OFF"
-        status="$("$SCRIPT_HOME/$controlId" status 2>/dev/null)"
+        if [ -f "$SCRIPT_HOME/$controlId" ]; then
+          status="$(sh "$SCRIPT_HOME/$controlId" status 2>/dev/null)"
+        else
+          status=""
+        fi
         if [ -n "$status" ]; then
           state="ON"
         fi
@@ -133,7 +141,11 @@ if [ -n "$F_cmd" ]; then
 
     getstate)
       script="${F_control##*/}"
-      status="$("$SCRIPT_HOME/$script" status 2>/dev/null)"
+      if [ -f "$SCRIPT_HOME/$script" ]; then
+        status="$(sh "$SCRIPT_HOME/$script" status 2>/dev/null)"
+      else
+        status=""
+      fi
       if [ -n "$status" ]; then
         echo "ON"
       else

@@ -9,6 +9,23 @@ echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 
+USAGE_CACHE_FILE="/tmp/state_usage.cache"
+USAGE_CACHE_TTL_SECONDS=2
+PERFPROFILE_CACHE_FILE="/tmp/state_perfprofile.cache"
+PERFPROFILE_CACHE_TTL_SECONDS=5
+
+now_epoch() {
+  now_ts="$(date +%s 2>/dev/null)"
+  case "$now_ts" in
+    ''|*[!0-9]*)
+      echo "0"
+      ;;
+    *)
+      echo "$now_ts"
+      ;;
+  esac
+}
+
 get_current_cpu_usage_fast() {
   cpu_active_prev=0
   cpu_total_prev=0
@@ -98,6 +115,67 @@ get_memory_usage_fast() {
   mem_used=$((mem_total - mem_available))
 }
 
+compute_usage_metrics() {
+  cpu="$(get_current_cpu_usage_fast)"
+  get_memory_usage_fast
+  ram_percent=0
+  if [ "$mem_total" -gt 0 ]; then
+    ram_percent=$((100 * mem_used / mem_total))
+    if [ "$ram_percent" -lt 0 ]; then
+      ram_percent=0
+    elif [ "$ram_percent" -gt 100 ]; then
+      ram_percent=100
+    fi
+  fi
+}
+
+load_cached_usage_metrics() {
+  [ -f "$USAGE_CACHE_FILE" ] || return 1
+
+  cached_ts=0
+  cached_cpu=0
+  cached_mem_used=0
+  cached_mem_total=0
+  cached_ram_percent=0
+
+  read -r cached_ts cached_cpu cached_mem_used cached_mem_total cached_ram_percent < "$USAGE_CACHE_FILE" || return 1
+
+  for value in "$cached_ts" "$cached_cpu" "$cached_mem_used" "$cached_mem_total" "$cached_ram_percent"; do
+    case "$value" in
+      ''|*[!0-9]*)
+        return 1
+        ;;
+    esac
+  done
+
+  now_ts="$(now_epoch)"
+  [ "$now_ts" -gt 0 ] || return 1
+  [ "$cached_ts" -le "$now_ts" ] || return 1
+
+  age=$((now_ts - cached_ts))
+  [ "$age" -le "$USAGE_CACHE_TTL_SECONDS" ] || return 1
+
+  cpu="$cached_cpu"
+  mem_used="$cached_mem_used"
+  mem_total="$cached_mem_total"
+  ram_percent="$cached_ram_percent"
+  return 0
+}
+
+save_cached_usage_metrics() {
+  now_ts="$(now_epoch)"
+  [ "$now_ts" -gt 0 ] || return 0
+  printf '%s %s %s %s %s\n' "$now_ts" "$cpu" "$mem_used" "$mem_total" "$ram_percent" > "$USAGE_CACHE_FILE"
+}
+
+load_or_compute_usage_metrics() {
+  if load_cached_usage_metrics; then
+    return 0
+  fi
+  compute_usage_metrics
+  save_cached_usage_metrics
+}
+
 read_conf_value() {
   conf_file="$1"
   conf_key="$2"
@@ -123,17 +201,61 @@ read_conf_value() {
   echo "$conf_value"
 }
 
-get_perf_profile() {
+compute_perf_profile() {
   LOW_CPU_PROFILE="$(read_conf_value /mnt/config/boot.conf LOW_CPU_PROFILE 0)"
   SERVICE_TRIM="$(read_conf_value /mnt/config/service_trim.conf SERVICE_TRIM 0)"
 
   if [ "${SERVICE_TRIM:-0}" = "1" ]; then
-    echo "rtsp-only"
+    profile="rtsp-only"
   elif [ "${LOW_CPU_PROFILE:-0}" = "1" ]; then
-    echo "low-cpu"
+    profile="low-cpu"
   else
-    echo "balanced"
+    profile="balanced"
   fi
+}
+
+load_cached_perf_profile() {
+  [ -f "$PERFPROFILE_CACHE_FILE" ] || return 1
+
+  cached_ts=0
+  cached_profile=""
+  read -r cached_ts cached_profile < "$PERFPROFILE_CACHE_FILE" || return 1
+  case "$cached_ts" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+  case "$cached_profile" in
+    balanced|low-cpu|rtsp-only) ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  now_ts="$(now_epoch)"
+  [ "$now_ts" -gt 0 ] || return 1
+  [ "$cached_ts" -le "$now_ts" ] || return 1
+  age=$((now_ts - cached_ts))
+  [ "$age" -le "$PERFPROFILE_CACHE_TTL_SECONDS" ] || return 1
+
+  profile="$cached_profile"
+  return 0
+}
+
+save_cached_perf_profile() {
+  now_ts="$(now_epoch)"
+  [ "$now_ts" -gt 0 ] || return 0
+  printf '%s %s\n' "$now_ts" "$profile" > "$PERFPROFILE_CACHE_FILE"
+}
+
+get_perf_profile() {
+  if load_cached_perf_profile; then
+    echo "$profile"
+    return 0
+  fi
+  compute_perf_profile
+  save_cached_perf_profile
+  echo "$profile"
 }
 
 if [ -n "$F_cmd" ]; then
@@ -160,24 +282,13 @@ if [ -n "$F_cmd" ]; then
     ;;
 
   sysusage)
-    cpu="$(get_current_cpu_usage_fast)"
-    get_memory_usage_fast
+    load_or_compute_usage_metrics
     echo "CPU: $cpu% RAM: $mem_used/$mem_total kB"
     ;;
 
   statusline)
-    cpu="$(get_current_cpu_usage_fast)"
-    get_memory_usage_fast
+    load_or_compute_usage_metrics
     profile="$(get_perf_profile)"
-    ram_percent=0
-    if [ "$mem_total" -gt 0 ]; then
-      ram_percent=$((100 * mem_used / mem_total))
-      if [ "$ram_percent" -lt 0 ]; then
-        ram_percent=0
-      elif [ "$ram_percent" -gt 100 ]; then
-        ram_percent=100
-      fi
-    fi
     echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile\"}"
     ;;
 

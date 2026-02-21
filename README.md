@@ -132,6 +132,8 @@ For minimum web stack overhead while keeping core camera functionality:
 * Keep only one browser tab open to the UI (live snapshot requests are the main web-side load).
 
 When `LOW_CPU_PROFILE` or `SERVICE_TRIM` is active, the UI now automatically slows polling/live-preview cadence to reduce CGI/webserver load.
+The UI also applies dynamic throttling from live CPU/RAM pressure (high usage increases polling/live-preview intervals automatically).
+`state.cgi` now uses short-lived cache files in `/tmp` to reduce repeated parsing when multiple requests arrive close together.
 
 ### Other low-load defaults
 * Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`
