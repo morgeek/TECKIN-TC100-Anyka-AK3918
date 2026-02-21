@@ -25,7 +25,7 @@ Reference product page:
   * Stream topology selector
   * RTSP presets (Full / Medium / Low, FPS capped at 25)
   * Service trim mode
-  * Boot-time lightweight and low-CPU profiles
+  * Boot-time lightweight, low-CPU, and low-RAM profiles
 
 ## Installation
 1. Prepare a MicroSD card as FAT32 with 32K allocation unit size.
@@ -48,7 +48,7 @@ Remove the MicroSD card and reboot.
 
 ## Current web UI behavior
 * Live view includes pause/resume and snapshot.
-* CPU/RAM usage badge is always visible in the top bar.
+* CPU and RAM usage badges are always visible in the top bar.
 * Performance profile badge is always visible in the top bar.
 * Theme selector is in **Settings -> System**.
 * **Services** and **Camera Functions** are available as dedicated menu entries.
@@ -82,6 +82,16 @@ Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/
   * `LOW_CPU_DISABLE_OSD`
   * `LOW_CPU_DISABLE_JPEG`
 * Resolution/FPS/bitrate overrides are available via `LOW_CPU_MAIN_*` and `LOW_CPU_SUB_*` variables in `config/boot.conf.dist`.
+
+### Low RAM profile
+* `LOW_RAM_PROFILE=1` enables memory-saving defaults and starts the memory guard.
+* `MEM_GUARD_ENABLE=1` runs `/mnt/controlscripts/memory-guard`:
+  * checks `MemAvailable` every `MEM_GUARD_INTERVAL_SECONDS`
+  * at `MEM_GUARD_WARN_KB`, stops soft non-essential services
+  * at `MEM_GUARD_CRITICAL_KB`, also stops heavier services and can drop caches
+* Tune service lists with:
+  * `MEM_GUARD_SOFT_SERVICES`
+  * `MEM_GUARD_CRITICAL_SERVICES`
 
 ### Stream topology (web UI)
 In **Settings -> System -> Stream topology**:
@@ -117,6 +127,7 @@ Set in `/mnt/config/boot.conf`:
 For minimum web stack overhead while keeping core camera functionality:
 * `WEB_MODE=ultra-lite`
 * `LOW_CPU_PROFILE=1`
+* `LOW_RAM_PROFILE=1`
 * `SERVICE_TRIM=1`
 * Keep only one browser tab open to the UI (live snapshot requests are the main web-side load).
 

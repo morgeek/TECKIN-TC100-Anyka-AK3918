@@ -29,6 +29,31 @@
   [ "$status" -eq 0 ]
 }
 
+@test "action validates telnet and ftp ports" {
+  run grep -n "Invalid telnet port. Allowed range is 1-65535." www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n '\"\\$telnetport\" -lt 1' www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n "Invalid ftp port. Allowed range is 1-65535." www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n '\"\\$ftpport\" -lt 1' www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+}
+
+@test "rewrite_config handles key/value updates safely" {
+  run grep -n 'case \"\\$cfg_key\"' scripts/common_functions.sh
+  [ "$status" -eq 0 ]
+
+  run grep -n "esc_value=.*sed 's/\\[" scripts/common_functions.sh
+  [ "$status" -eq 0 ]
+
+  run grep -nF "printf '%s=%s\\n'" scripts/common_functions.sh
+  [ "$status" -eq 0 ]
+}
+
 @test "action supports ONVIF stream policy command" {
   run grep -n 'set_onvif_stream_policy)' www/cgi-bin/action.cgi
   [ "$status" -eq 0 ]
@@ -122,6 +147,17 @@
   [ "$status" -eq 0 ]
 }
 
+@test "state endpoint supports legacy kernel memory fallback without MemAvailable" {
+  run grep -n 'MemFree:' www/cgi-bin/state.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n 'SReclaimable:' www/cgi-bin/state.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n 'mem_available=$((mem_free + mem_buffers + mem_cached + mem_sreclaimable - mem_shmem))' www/cgi-bin/state.cgi
+  [ "$status" -eq 0 ]
+}
+
 @test "index bundle adapts polling cadence for low-cpu profiles" {
   run grep -n "tuneUiPollIntervals" www/scripts/index.bundle.min.js
   [ "$status" -eq 0 ]
@@ -139,4 +175,59 @@
 
   run grep -n '\${F_osdtext//%/\\\\x}' www/cgi-bin/action.cgi
   [ "$status" -ne 0 ]
+}
+
+@test "boot config exposes low-ram memory guard defaults" {
+  run grep -n '^LOW_RAM_PROFILE=0' config/boot.conf.dist
+  [ "$status" -eq 0 ]
+
+  run grep -n '^MEM_GUARD_ENABLE=0' config/boot.conf.dist
+  [ "$status" -eq 0 ]
+
+  run grep -n '^MEM_GUARD_WARN_KB=' config/boot.conf.dist
+  [ "$status" -eq 0 ]
+}
+
+@test "performance profile wiring toggles memory guard settings" {
+  run grep -n 'LOW_RAM_PROFILE 1' www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n 'MEM_GUARD_ENABLE 1' www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+
+  run grep -n 'MEM_GUARD_ENABLE 0' www/cgi-bin/action.cgi
+  [ "$status" -eq 0 ]
+}
+
+@test "sysusage endpoint avoids heavy mpstat top and lsof calls" {
+  run grep -n 'mpstat -A' www/cgi-bin/sysusageinfo.cgi
+  [ "$status" -ne 0 ]
+
+  run grep -n 'top -n 1' www/cgi-bin/sysusageinfo.cgi
+  [ "$status" -ne 0 ]
+
+  run grep -n 'busybox lsof' www/cgi-bin/sysusageinfo.cgi
+  [ "$status" -ne 0 ]
+
+  run grep -n '/proc/meminfo' www/cgi-bin/sysusageinfo.cgi
+  [ "$status" -eq 0 ]
+}
+
+@test "memory guard service is available in controlscripts and autostart" {
+  run test -f controlscripts/memory-guard
+  [ "$status" -eq 0 ]
+
+  run grep -n '/mnt/controlscripts/memory-guard' config/autostart/memory-guard
+  [ "$status" -eq 0 ]
+}
+
+@test "memory guard uses MemAvailable fallback metrics" {
+  run grep -n '^mem_available_kb()' controlscripts/memory-guard
+  [ "$status" -eq 0 ]
+
+  run grep -n 'MemFree:' controlscripts/memory-guard
+  [ "$status" -eq 0 ]
+
+  run grep -n 'fallback = mem_free + mem_buffers + mem_cached + mem_sreclaimable - mem_shmem' controlscripts/memory-guard
+  [ "$status" -eq 0 ]
 }

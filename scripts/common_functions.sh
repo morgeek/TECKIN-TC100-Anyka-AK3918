@@ -7,17 +7,27 @@
 # Replace the old value of a config_key at the cfg_path with new_value
 # Don't rewrite commented lines
 rewrite_config(){
-  cfg_path=$1
-  cfg_key=$2
-  new_value=$3
+  cfg_path="$1"
+  cfg_key="$2"
+  new_value="$3"
 
-  # Check if the value exists (without comment), if not add it to the file
-  $(grep -v '^[[:space:]]*#' $1  | grep -q $2)
-  ret="$?"
-  if [ "$ret" == "1" ] ; then
-      echo "$2=$3" >> $1
+  # Keep key syntax strict to avoid malformed sed patterns.
+  case "$cfg_key" in
+    ''|*[!A-Za-z0-9_]*)
+      return 1
+      ;;
+  esac
+
+  if [ ! -f "$cfg_path" ]; then
+    return 1
+  fi
+
+  if grep -q "^[[:space:]]*${cfg_key}=" "$cfg_path"; then
+    # Escape replacement-sensitive characters for sed.
+    esc_value=$(printf '%s' "$new_value" | sed 's/[\\&|]/\\&/g')
+    sed -i -e "/^[[:space:]]*#/! s|^[[:space:]]*${cfg_key}=.*|${cfg_key}=${esc_value}|" "$cfg_path"
   else
-      sed -i -e "/\\s*#.*/!{/""$cfg_key""=/ s/=.*/=""$new_value""/}" "$cfg_path"
+    printf '%s=%s\n' "$cfg_key" "$new_value" >> "$cfg_path"
   fi
 }
 

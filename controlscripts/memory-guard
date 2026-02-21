@@ -1,0 +1,199 @@
+#!/bin/sh
+SERVICE_NAME="Memory Guard"
+PIDFILE="/var/run/memory-guard.pid"
+LOGPATH="/mnt/log/memory-guard.log"
+CONFIGPATH="/mnt/config"
+
+. /mnt/scripts/common_functions.sh
+
+is_truthy()
+{
+    case "$1" in
+        1|true|yes|on|enable|enabled) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+sanitize_positive_int()
+{
+    value="$1"
+    fallback="$2"
+    case "$value" in
+        ''|*[!0-9]*)
+            echo "$fallback"
+            ;;
+        *)
+            echo "$value"
+            ;;
+    esac
+}
+
+load_config()
+{
+    install_config "$CONFIGPATH/boot.conf"
+    if [ -f "$CONFIGPATH/boot.conf" ]; then
+        # shellcheck disable=SC1090
+        . "$CONFIGPATH/boot.conf"
+    fi
+
+    : "${MEM_GUARD_ENABLE:=0}"
+    MEM_GUARD_INTERVAL_SECONDS="$(sanitize_positive_int "${MEM_GUARD_INTERVAL_SECONDS:-20}" 20)"
+    MEM_GUARD_WARN_KB="$(sanitize_positive_int "${MEM_GUARD_WARN_KB:-8192}" 8192)"
+    MEM_GUARD_CRITICAL_KB="$(sanitize_positive_int "${MEM_GUARD_CRITICAL_KB:-4096}" 4096)"
+    MEM_GUARD_COOLDOWN_SECONDS="$(sanitize_positive_int "${MEM_GUARD_COOLDOWN_SECONDS:-120}" 120)"
+    : "${MEM_GUARD_DROP_CACHES:=1}"
+    : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection blue-led}"
+    : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
+
+    [ "$MEM_GUARD_INTERVAL_SECONDS" -lt 5 ] && MEM_GUARD_INTERVAL_SECONDS=5
+    [ "$MEM_GUARD_COOLDOWN_SECONDS" -lt 10 ] && MEM_GUARD_COOLDOWN_SECONDS=10
+}
+
+mem_available_kb()
+{
+    awk '
+        /^MemAvailable:/ {mem_available=$2}
+        /^MemFree:/ {mem_free=$2}
+        /^Buffers:/ {mem_buffers=$2}
+        /^Cached:/ {mem_cached=$2}
+        /^SReclaimable:/ {mem_sreclaimable=$2}
+        /^Shmem:/ {mem_shmem=$2}
+        END {
+            if (mem_available > 0) {
+                print mem_available
+            } else {
+                fallback = mem_free + mem_buffers + mem_cached + mem_sreclaimable - mem_shmem
+                if (fallback < 0) {
+                    fallback = 0
+                }
+                print fallback
+            }
+        }
+    ' /proc/meminfo 2>/dev/null
+}
+
+stop_service_if_running()
+{
+    service="$1"
+    script="/mnt/controlscripts/$service"
+    [ -x "$script" ] || return 0
+
+    status_output="$("$script" status 2>/dev/null || true)"
+    if [ -n "$status_output" ]; then
+        "$script" stop >/dev/null 2>&1 || true
+        echo "$(date) Memory guard: stopped $service" >> "$LOGPATH"
+    fi
+}
+
+apply_memory_relief()
+{
+    available_kb="$1"
+
+    for service in $MEM_GUARD_SOFT_SERVICES; do
+        stop_service_if_running "$service"
+    done
+
+    if [ "$available_kb" -le "$MEM_GUARD_CRITICAL_KB" ]; then
+        for service in $MEM_GUARD_CRITICAL_SERVICES; do
+            stop_service_if_running "$service"
+        done
+
+        if is_truthy "$MEM_GUARD_DROP_CACHES"; then
+            sync
+            echo 3 > /proc/sys/vm/drop_caches
+            echo "$(date) Memory guard: dropped VM caches (MemAvailable=${available_kb}kB)" >> "$LOGPATH"
+        fi
+    fi
+}
+
+monitor()
+{
+    last_action_ts=0
+    while :; do
+        sleep "$MEM_GUARD_INTERVAL_SECONDS"
+
+        available_kb="$(mem_available_kb)"
+        available_kb="$(sanitize_positive_int "$available_kb" 0)"
+        [ "$available_kb" -gt 0 ] || continue
+
+        if [ "$available_kb" -le "$MEM_GUARD_WARN_KB" ]; then
+            now_ts="$(date +%s 2>/dev/null)"
+            now_ts="$(sanitize_positive_int "$now_ts" 0)"
+
+            if [ "$now_ts" -gt 0 ] && [ $((now_ts - last_action_ts)) -lt "$MEM_GUARD_COOLDOWN_SECONDS" ]; then
+                continue
+            fi
+
+            echo "$(date) Memory guard: low memory detected (MemAvailable=${available_kb}kB)" >> "$LOGPATH"
+            apply_memory_relief "$available_kb"
+            [ "$now_ts" -gt 0 ] && last_action_ts="$now_ts"
+        fi
+    done
+}
+
+status()
+{
+    pid="$(cat "$PIDFILE" 2>/dev/null)"
+    if [ "$pid" ]; then
+        kill -0 "$pid" >/dev/null 2>&1 && echo "PID: $pid" || return 1
+    fi
+}
+
+start()
+{
+    load_config
+    if ! is_truthy "$MEM_GUARD_ENABLE"; then
+        echo "Memory guard disabled in /mnt/config/boot.conf"
+        return 0
+    fi
+
+    if [ "$(status)" != "" ]; then
+        echo "Memory guard is already running"
+        return 0
+    fi
+
+    echo "Starting Memory Guard"
+    /mnt/bin/busybox nohup "$0" run >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+}
+
+stop()
+{
+    killpid "$PIDFILE"
+}
+
+restart()
+{
+    stop
+    start
+}
+
+health()
+{
+    [ -r /proc/meminfo ] || return 1
+    [ "$(status)" != "" ] || return 1
+    echo "HEALTHY"
+}
+
+run()
+{
+    load_config
+    if ! is_truthy "$MEM_GUARD_ENABLE"; then
+        exit 0
+    fi
+    monitor
+}
+
+if [ $# -eq 0 ]; then
+    start
+else
+    case "$1" in
+        start|stop|status|restart|health|run)
+            "$1"
+            ;;
+        *)
+            echo "Usage: $0 {start|stop|status|restart|health}" >&2
+            exit 1
+            ;;
+    esac
+fi

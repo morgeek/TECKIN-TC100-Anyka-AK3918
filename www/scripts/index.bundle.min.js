@@ -155,27 +155,85 @@
     return isNaN(cpu) ? null : cpu;
   }
 
-  function updateSysUsageBadge(sysusageText) {
-    var usage = byId("sysusage");
-    if (!usage) {
+  function parseRamUsage(sysusageText) {
+    var match = /RAM:\s*([0-9]+)\s*\/\s*([0-9]+)\s*kB/i.exec(sysusageText || "");
+    if (!match) {
       return null;
     }
-
-    usage.textContent = sysusageText;
-    usage.classList.remove("usage-low", "usage-mid", "usage-high");
-    var cpu = parseCpuPercent(sysusageText);
-    if (cpu === null) {
+    var used = parseInt(match[1], 10);
+    var total = parseInt(match[2], 10);
+    if (isNaN(used) || isNaN(total) || total <= 0) {
       return null;
     }
+    var percent = Math.round((used * 100) / total);
+    if (percent < 0) {
+      percent = 0;
+    } else if (percent > 100) {
+      percent = 100;
+    }
+    return { used: used, total: total, percent: percent };
+  }
 
-    if (cpu > 80) {
-      usage.classList.add("usage-high");
-    } else if (cpu >= 50) {
-      usage.classList.add("usage-mid");
+  function applyUsageClass(node, percent) {
+    if (!node) {
+      return;
+    }
+    node.classList.remove("usage-low", "usage-mid", "usage-high");
+    if (percent > 80) {
+      node.classList.add("usage-high");
+    } else if (percent >= 50) {
+      node.classList.add("usage-mid");
     } else {
-      usage.classList.add("usage-low");
+      node.classList.add("usage-low");
     }
-    setAdaptiveLivePreviewProfile(cpu);
+  }
+
+  function updateSysUsageBadges(sysusageText, cpuPercentHint, ramPercentHint) {
+    var cpuBadge = byId("cpuusage");
+    var ramBadge = byId("ramusage");
+    if (!cpuBadge || !ramBadge) {
+      return null;
+    }
+
+    var cpu = cpuPercentHint;
+    if (typeof cpu !== "number" || isNaN(cpu)) {
+      cpu = parseCpuPercent(sysusageText);
+    }
+    var ramPercent = ramPercentHint;
+    if (typeof ramPercent !== "number" || isNaN(ramPercent)) {
+      var ram = parseRamUsage(sysusageText);
+      ramPercent = ram ? ram.percent : null;
+    }
+
+    if (typeof cpu === "number" && !isNaN(cpu)) {
+      if (cpu < 0) {
+        cpu = 0;
+      } else if (cpu > 100) {
+        cpu = 100;
+      }
+      cpuBadge.textContent = "CPU: " + cpu + "%";
+      applyUsageClass(cpuBadge, cpu);
+      setAdaptiveLivePreviewProfile(cpu);
+    } else {
+      cpuBadge.textContent = "CPU: ...";
+      cpuBadge.classList.remove("usage-low", "usage-mid", "usage-high");
+      cpuBadge.classList.add("usage-low");
+    }
+
+    if (typeof ramPercent === "number" && !isNaN(ramPercent)) {
+      if (ramPercent < 0) {
+        ramPercent = 0;
+      } else if (ramPercent > 100) {
+        ramPercent = 100;
+      }
+      ramBadge.textContent = "RAM: " + ramPercent + "%";
+      applyUsageClass(ramBadge, ramPercent);
+    } else {
+      ramBadge.textContent = "RAM: ...";
+      ramBadge.classList.remove("usage-low", "usage-mid", "usage-high");
+      ramBadge.classList.add("usage-low");
+    }
+
     return cpu;
   }
 
@@ -396,7 +454,7 @@
         return r.text();
       })
       .then(function (sysusage) {
-        updateSysUsageBadge(sysusage);
+        updateSysUsageBadges(sysusage, null, null);
         refreshPerformanceProfile();
       })
       .finally(function () {
@@ -419,7 +477,9 @@
         }
 
         if (statusline && typeof statusline.sysusage === "string") {
-          updateSysUsageBadge(statusline.sysusage);
+          var cpuPercent = typeof statusline.cpu === "number" ? statusline.cpu : null;
+          var ramPercent = typeof statusline.ram_percent === "number" ? statusline.ram_percent : null;
+          updateSysUsageBadges(statusline.sysusage, cpuPercent, ramPercent);
           if (typeof statusline.perfprofile === "string") {
             setPerformanceProfileBadge(statusline.perfprofile);
           }
