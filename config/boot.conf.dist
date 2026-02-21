@@ -123,6 +123,14 @@ ONVIF_WATCHDOG_MODE=status
 # service-watchdog log rotation safeguards
 WATCHDOG_LOG_MAX_BYTES=262144
 WATCHDOG_LOG_BACKUPS=2
+# Chip temperature source for UI/statusline:
+# - auto: try common Linux thermal nodes
+# - custom path: e.g. /sys/class/thermal/thermal_zone0/temp
+CHIP_TEMP_SOURCE_PATH=auto
+# Raw value divisor:
+# - auto: detect 1000-based millidegree or direct Celsius
+# - explicit: set 1000 (millidegree), 1 (Celsius), etc.
+CHIP_TEMP_RAW_DIVISOR=auto
 
 # Example lightweight allowlist:
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
