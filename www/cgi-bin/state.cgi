@@ -309,6 +309,62 @@ get_ui_ultralite_mode() {
   esac
 }
 
+read_chip_temperature() {
+  chip_temp_raw=""
+  chip_temp_c=""
+  chip_temp_json="null"
+  chip_temp_text="n/a"
+
+  temp_source_path="$(read_conf_value /mnt/config/boot.conf CHIP_TEMP_SOURCE_PATH auto)"
+  temp_raw_divisor="$(read_conf_value /mnt/config/boot.conf CHIP_TEMP_RAW_DIVISOR auto)"
+
+  temp_candidates=""
+  case "$temp_source_path" in
+    ''|auto)
+      temp_candidates="/sys/class/thermal/thermal_zone0/temp /sys/class/thermal/thermal_zone1/temp /sys/devices/virtual/thermal/thermal_zone0/temp /proc/temperature /tmp/chip_temp"
+      ;;
+    *)
+      temp_candidates="$temp_source_path"
+      ;;
+  esac
+
+  for candidate in $temp_candidates; do
+    [ -r "$candidate" ] || continue
+    read -r raw_value < "$candidate"
+    raw_value="$(sanitize_int "$raw_value" 0)"
+    if [ "$raw_value" -gt 0 ]; then
+      chip_temp_raw="$raw_value"
+      break
+    fi
+  done
+
+  if [ -n "$chip_temp_raw" ]; then
+    case "$temp_raw_divisor" in
+      ''|auto)
+        if [ "$chip_temp_raw" -ge 10000 ]; then
+          temp_raw_divisor=1000
+        elif [ "$chip_temp_raw" -le 125 ]; then
+          temp_raw_divisor=1
+        else
+          temp_raw_divisor=0
+        fi
+        ;;
+      *)
+        temp_raw_divisor="$(sanitize_int "$temp_raw_divisor" 0)"
+        ;;
+    esac
+
+    if [ "$temp_raw_divisor" -gt 0 ]; then
+      chip_temp_c=$((chip_temp_raw / temp_raw_divisor))
+    fi
+  fi
+
+  if [ -n "$chip_temp_c" ] && [ "$chip_temp_c" -ge 0 ] && [ "$chip_temp_c" -le 125 ]; then
+    chip_temp_text="${chip_temp_c}C"
+    chip_temp_json="$chip_temp_c"
+  fi
+}
+
 compute_perf_profile() {
   LOW_CPU_PROFILE="$(read_conf_value /mnt/config/boot.conf LOW_CPU_PROFILE 0)"
   SERVICE_TRIM="$(read_conf_value /mnt/config/service_trim.conf SERVICE_TRIM 0)"
@@ -392,11 +448,13 @@ if [ -n "$F_cmd" ]; then
     profile="$(get_perf_profile)"
     load_lum_awb
     get_ui_ultralite_mode
+    read_chip_temperature
     profile_json="$(json_escape "$profile")"
     lum_json="$(json_escape "$lum_value")"
     awb_json="$(json_escape "$awb_value")"
+    chip_temp_text_json="$(json_escape "$chip_temp_text")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\"}"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\"}"
     ;;
 
   healthsnapshot)
@@ -404,6 +462,7 @@ if [ -n "$F_cmd" ]; then
     profile="$(get_perf_profile)"
     load_lum_awb
     get_ui_ultralite_mode
+    read_chip_temperature
     read_rtsp_stream_summary
 
     if [ -r /proc/sys/kernel/hostname ]; then
@@ -426,6 +485,7 @@ if [ -n "$F_cmd" ]; then
     profile_json="$(json_escape "$profile")"
     lum_json="$(json_escape "$lum_value")"
     awb_json="$(json_escape "$awb_value")"
+    chip_temp_text_json="$(json_escape "$chip_temp_text")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
     codec0_json="$(json_escape "$codec0_name")"
     codec1_json="$(json_escape "$codec1_name")"
@@ -434,7 +494,7 @@ if [ -n "$F_cmd" ]; then
     rtsp_state_json="$(service_state_json /mnt/controlscripts/rtsp-h26x)"
     onvif_state_json="$(service_state_json /mnt/controlscripts/onvif)"
 
-    echo "{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
+    echo "{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
     ;;
 
   perfprofile)

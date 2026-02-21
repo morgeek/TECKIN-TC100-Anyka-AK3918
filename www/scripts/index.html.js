@@ -304,6 +304,42 @@
     return cpu;
   }
 
+  function updateChipTempBadge(chipTempC, chipTempText) {
+    var tempBadge = byId("chiptemp");
+    if (!tempBadge) {
+      return;
+    }
+
+    var tempValue = null;
+    if (typeof chipTempC === "number" && !isNaN(chipTempC)) {
+      tempValue = Math.round(chipTempC);
+    } else if (typeof chipTempText === "string") {
+      var match = /^([0-9]{1,3})\s*C$/i.exec(chipTempText.trim());
+      if (match) {
+        tempValue = parseInt(match[1], 10);
+      }
+    }
+
+    if (typeof tempValue === "number" && !isNaN(tempValue) && tempValue >= 0 && tempValue <= 150) {
+      tempBadge.textContent = "TEMP: " + tempValue + "C";
+      tempBadge.classList.remove("temp-unknown");
+      tempBadge.classList.remove("usage-low", "usage-mid", "usage-high");
+      if (tempValue > 80) {
+        tempBadge.classList.add("usage-high");
+      } else if (tempValue >= 65) {
+        tempBadge.classList.add("usage-mid");
+      } else {
+        tempBadge.classList.add("usage-low");
+      }
+      return;
+    }
+
+    tempBadge.textContent = "TEMP: n/a";
+    tempBadge.classList.remove("temp-unknown");
+    tempBadge.classList.remove("usage-low", "usage-mid", "usage-high");
+    tempBadge.classList.add("temp-unknown");
+  }
+
   function parseJsonArray(data) {
     try {
       var parsed = JSON.parse(data);
@@ -523,6 +559,7 @@
       })
       .then(function (sysusage) {
         updateSysUsageBadges(sysusage, null, null);
+        updateChipTempBadge(null, "n/a");
         refreshPerformanceProfile();
       })
       .finally(function () {
@@ -555,6 +592,10 @@
           if (typeof statusline.ui_ultralite_mode === "number") {
             applyUiUltraLiteMode(statusline.ui_ultralite_mode > 0);
           }
+          updateChipTempBadge(
+            typeof statusline.chip_temp_c === "number" ? statusline.chip_temp_c : null,
+            typeof statusline.chip_temp_text === "string" ? statusline.chip_temp_text : "n/a"
+          );
           updateLumAwbLabels(typeof statusline.lum === "string" ? statusline.lum : "", typeof statusline.awb === "string" ? statusline.awb : "");
           scheduleRefreshSysUsage(nextInterval);
           return;
