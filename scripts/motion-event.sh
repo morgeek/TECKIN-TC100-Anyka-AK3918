@@ -63,4 +63,17 @@ if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
   detail_json="$(json_escape "$detail")"
   payload=$(printf '{"ts":%s,"time_utc":"%s","type":"%s","snapshot":"%s","clip":"%s","detail":"%s"}' "$epoch" "$ts_utc" "$event_json" "$snapshot_json" "$clip_json" "$detail_json")
   /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
+
+  case "$event_type" in
+    motion_on)
+      /mnt/scripts/mqtt-bridge.sh publish motion/state "ON" 1 >/dev/null 2>&1 || true
+      ;;
+    motion_off)
+      /mnt/scripts/mqtt-bridge.sh publish motion/state "OFF" 1 >/dev/null 2>&1 || true
+      ;;
+  esac
+
+  if [ -n "$snapshot_path" ] && [ -f "$snapshot_path" ]; then
+    /mnt/scripts/mqtt-bridge.sh publish snapshot/last_path "$snapshot_path" 1 >/dev/null 2>&1 || true
+  fi
 fi

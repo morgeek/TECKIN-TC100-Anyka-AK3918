@@ -71,6 +71,101 @@ sanitize_int_range() {
   echo "$value"
 }
 
+align_up_to_multiple() {
+  value="$1"
+  multiple="$2"
+  fallback="$3"
+
+  case "$value" in
+    ''|*[!0-9]*) value="$fallback" ;;
+  esac
+  case "$multiple" in
+    ''|*[!0-9]*|0) multiple=1 ;;
+  esac
+
+  if [ $((value % multiple)) -ne 0 ]; then
+    value=$(( ((value + multiple - 1) / multiple) * multiple ))
+  fi
+  echo "$value"
+}
+
+sanitize_video_codec() {
+  case "$1" in
+    0|2) echo "$1" ;;
+    *) echo "0" ;;
+  esac
+}
+
+sanitize_video_brmode() {
+  case "$1" in
+    0|1) echo "$1" ;;
+    *) echo "1" ;;
+  esac
+}
+
+sanitize_video_smartmode() {
+  case "$1" in
+    0|1|2) echo "$1" ;;
+    *) echo "1" ;;
+  esac
+}
+
+sanitize_codec_profile_for_codec() {
+  codec="$1"
+  profile="$2"
+  stream_index="$3"
+
+  case "$codec" in
+    0)
+      case "$profile" in
+        0|1|2) echo "$profile" ;;
+        *)
+          if [ "$stream_index" = "0" ]; then
+            echo "1"
+          else
+            echo "0"
+          fi
+          ;;
+      esac
+      ;;
+    2)
+      case "$profile" in
+        3|4) echo "$profile" ;;
+        *) echo "3" ;;
+      esac
+      ;;
+    *)
+      if [ "$stream_index" = "0" ]; then
+        echo "1"
+      else
+        echo "0"
+      fi
+      ;;
+  esac
+}
+
+normalize_stream_geometry() {
+  raw_width="$1"
+  raw_height="$2"
+  raw_codec="$3"
+  fallback_width="$4"
+  fallback_height="$5"
+
+  width="$(sanitize_int_range "$raw_width" 160 1920 "$fallback_width")"
+  height="$(sanitize_int_range "$raw_height" 120 1080 "$fallback_height")"
+  codec="$(sanitize_video_codec "$raw_codec")"
+
+  # H265 on this platform is unstable with odd/un-aligned dimensions.
+  if [ "$codec" = "2" ]; then
+    width="$(align_up_to_multiple "$width" 16 "$fallback_width")"
+    height="$(align_up_to_multiple "$height" 8 "$fallback_height")"
+  fi
+
+  NORMALIZED_STREAM_WIDTH="$width"
+  NORMALIZED_STREAM_HEIGHT="$height"
+  NORMALIZED_STREAM_CODEC="$codec"
+}
+
 apply_web_mode_async() {
   mode="$1"
   (
@@ -105,6 +200,352 @@ publish_mqtt_event() {
   fi
 }
 
+LOG_SUMMARY_TAIL_LINES=40
+LOG_DMESG_TAIL_LINES=200
+LOG_VIDEO_TAIL_LINES=256
+
+emit_log_tail_dir() {
+  log_dir="$1"
+  heading="$2"
+  tail_lines="$3"
+  found=0
+
+  for log_file in "$log_dir"/*; do
+    [ -f "$log_file" ] || continue
+    if [ "$found" -eq 0 ]; then
+      echo "$heading<br/>"
+      found=1
+    fi
+    echo "--- $(basename "$log_file") ---<br/>"
+    tail -n "$tail_lines" "$log_file" 2>/dev/null || true
+    echo "<br/>"
+  done
+
+  if [ "$found" -eq 0 ]; then
+    echo "$heading<br/>No log files found.<br/>"
+  fi
+}
+
+clear_log_dir_files() {
+  log_dir="$1"
+  cleared=0
+
+  for log_file in "$log_dir"/*; do
+    [ -f "$log_file" ] || continue
+    : > "$log_file" 2>/dev/null || true
+    cleared=$((cleared + 1))
+  done
+
+  echo "$cleared"
+}
+
+SNAPSHOT_DIR="/mnt/config/snapshots"
+KNOWN_GOOD_RTSP_CONF="${SNAPSHOT_DIR}/rtspserver.known-good.conf"
+KNOWN_GOOD_STREAM_CONF="${SNAPSHOT_DIR}/stream.known-good.conf"
+PRECHANGE_RTSP_CONF=""
+PRECHANGE_STREAM_CONF=""
+PRECHANGE_RTSP_WAS_RUNNING=0
+PRECHANGE_ONVIF_WAS_RUNNING=0
+
+read_kv_or_default() {
+  file_path="$1"
+  key="$2"
+  default_value="$3"
+  value="$(awk -F= -v k="$key" '$1 == k { print substr($0, index($0, "=") + 1); found=1; exit } END { if (!found) exit 1 }' "$file_path" 2>/dev/null)"
+  if [ $? -eq 0 ]; then
+    echo "$value"
+  else
+    echo "$default_value"
+  fi
+}
+
+write_stream_state_snapshot() {
+  output_file="$1"
+  reason="$2"
+  install_config /mnt/config/boot.conf
+  install_config /mnt/config/service_trim.conf
+  now_ts="$(date +%s 2>/dev/null)"
+  [ -n "$now_ts" ] || now_ts=0
+
+  rtsp_substream="$(read_kv_or_default /mnt/config/boot.conf RTSP_SUBSTREAM 1)"
+  rtsp_audio="$(read_kv_or_default /mnt/config/boot.conf RTSP_AUDIO 1)"
+  onvif_policy="$(read_kv_or_default /mnt/config/boot.conf ONVIF_STREAM_POLICY main-primary)"
+  low_cpu_profile="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_PROFILE 0)"
+  low_ram_profile="$(read_kv_or_default /mnt/config/boot.conf LOW_RAM_PROFILE 0)"
+  mem_guard_enable="$(read_kv_or_default /mnt/config/boot.conf MEM_GUARD_ENABLE 0)"
+  low_cpu_disable_substream="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0)"
+  low_cpu_disable_audio="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO 0)"
+  low_cpu_disable_motion="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 0)"
+  low_cpu_disable_osd="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_OSD 0)"
+  low_cpu_disable_jpeg="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG 0)"
+  service_trim="$(read_kv_or_default /mnt/config/service_trim.conf SERVICE_TRIM "$(read_kv_or_default /mnt/config/boot.conf SERVICE_TRIM 0)")"
+
+  {
+    echo "TS=$now_ts"
+    echo "REASON=$reason"
+    echo "RTSP_SUBSTREAM=$rtsp_substream"
+    echo "RTSP_AUDIO=$rtsp_audio"
+    echo "ONVIF_STREAM_POLICY=$onvif_policy"
+    echo "LOW_CPU_PROFILE=$low_cpu_profile"
+    echo "LOW_RAM_PROFILE=$low_ram_profile"
+    echo "MEM_GUARD_ENABLE=$mem_guard_enable"
+    echo "LOW_CPU_DISABLE_SUBSTREAM=$low_cpu_disable_substream"
+    echo "LOW_CPU_DISABLE_AUDIO=$low_cpu_disable_audio"
+    echo "LOW_CPU_DISABLE_MOTION=$low_cpu_disable_motion"
+    echo "LOW_CPU_DISABLE_OSD=$low_cpu_disable_osd"
+    echo "LOW_CPU_DISABLE_JPEG=$low_cpu_disable_jpeg"
+    echo "SERVICE_TRIM=$service_trim"
+  } > "$output_file"
+}
+
+apply_stream_state_snapshot() {
+  state_file="$1"
+  [ -f "$state_file" ] || return 1
+  install_config /mnt/config/boot.conf
+  install_config /mnt/config/service_trim.conf
+
+  rtsp_substream="$(read_kv_or_default "$state_file" RTSP_SUBSTREAM 1)"
+  rtsp_audio="$(read_kv_or_default "$state_file" RTSP_AUDIO 1)"
+  onvif_policy="$(read_kv_or_default "$state_file" ONVIF_STREAM_POLICY main-primary)"
+  low_cpu_profile="$(read_kv_or_default "$state_file" LOW_CPU_PROFILE 0)"
+  low_ram_profile="$(read_kv_or_default "$state_file" LOW_RAM_PROFILE 0)"
+  mem_guard_enable="$(read_kv_or_default "$state_file" MEM_GUARD_ENABLE 0)"
+  low_cpu_disable_substream="$(read_kv_or_default "$state_file" LOW_CPU_DISABLE_SUBSTREAM 0)"
+  low_cpu_disable_audio="$(read_kv_or_default "$state_file" LOW_CPU_DISABLE_AUDIO 0)"
+  low_cpu_disable_motion="$(read_kv_or_default "$state_file" LOW_CPU_DISABLE_MOTION 0)"
+  low_cpu_disable_osd="$(read_kv_or_default "$state_file" LOW_CPU_DISABLE_OSD 0)"
+  low_cpu_disable_jpeg="$(read_kv_or_default "$state_file" LOW_CPU_DISABLE_JPEG 0)"
+  service_trim="$(read_kv_or_default "$state_file" SERVICE_TRIM 0)"
+
+  rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
+  rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
+  rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
+  rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
+  rewrite_config /mnt/config/boot.conf LOW_RAM_PROFILE "$low_ram_profile"
+  rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE "$mem_guard_enable"
+  rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM "$low_cpu_disable_substream"
+  rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO "$low_cpu_disable_audio"
+  rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION "$low_cpu_disable_motion"
+  rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_OSD "$low_cpu_disable_osd"
+  rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG "$low_cpu_disable_jpeg"
+  rewrite_config /mnt/config/boot.conf SERVICE_TRIM "$service_trim"
+  rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM "$service_trim"
+}
+
+capture_prechange_stream_snapshot() {
+  now_ts="$(date +%s 2>/dev/null)"
+  [ -n "$now_ts" ] || now_ts=0
+  PRECHANGE_RTSP_CONF="/tmp/rtspserver.pre.$$.${now_ts}.conf"
+  PRECHANGE_STREAM_CONF="/tmp/stream.pre.$$.${now_ts}.conf"
+  PRECHANGE_RTSP_WAS_RUNNING=0
+  PRECHANGE_ONVIF_WAS_RUNNING=0
+
+  cp /mnt/config/rtspserver.conf "$PRECHANGE_RTSP_CONF" >/dev/null 2>&1 || true
+  write_stream_state_snapshot "$PRECHANGE_STREAM_CONF" "prechange"
+
+  if [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; then
+    PRECHANGE_RTSP_WAS_RUNNING=1
+  fi
+  if [ -x /mnt/controlscripts/onvif ] && /mnt/controlscripts/onvif status >/dev/null 2>&1; then
+    PRECHANGE_ONVIF_WAS_RUNNING=1
+  fi
+}
+
+restart_stream_services_for_validation() {
+  if [ "$PRECHANGE_RTSP_WAS_RUNNING" = "1" ]; then
+    restart_service_if_need /mnt/controlscripts/rtsp-h26x
+  fi
+  if [ "$PRECHANGE_ONVIF_WAS_RUNNING" = "1" ]; then
+    restart_service_if_need /mnt/controlscripts/onvif
+  fi
+}
+
+rtsp_quick_health_check() {
+  if [ ! -x /mnt/controlscripts/rtsp-h26x ] || ! /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; then
+    return 1
+  fi
+  if [ ! -x /mnt/bin/curl ]; then
+    return 0
+  fi
+
+  rtsp_port="$(read_config rtspserver.conf PORT)"
+  [ -n "$rtsp_port" ] || rtsp_port=554
+  rtsp_user="$(read_config rtspserver.conf USERNAME)"
+  rtsp_pass="$(read_config rtspserver.conf USERPASSWORD)"
+  rtsp_substream="$(read_kv_or_default /mnt/config/boot.conf RTSP_SUBSTREAM 1)"
+  onvif_policy="$(read_kv_or_default /mnt/config/boot.conf ONVIF_STREAM_POLICY main-primary)"
+  health_stream="video0_unicast"
+  case "$onvif_policy" in
+    sub-primary|sub-only)
+      if [ "$rtsp_substream" = "1" ]; then
+        health_stream="video1_unicast"
+      fi
+      ;;
+  esac
+
+  # Process-level status is authoritative for rollback.
+  # DESCRIBE probe is best-effort and should not force rollback on flaky stacks.
+  if [ -n "$rtsp_user" ]; then
+    sdp="$(/mnt/bin/curl -s -S -m 2 -X DESCRIBE -u "${rtsp_user}:${rtsp_pass}" "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 0
+  else
+    sdp="$(/mnt/bin/curl -s -S -m 2 -X DESCRIBE "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 0
+  fi
+  echo "$sdp" | grep -q "m=video" || return 0
+  return 0
+}
+
+wait_for_rtsp_health() {
+  attempts="$1"
+  [ -n "$attempts" ] || attempts=6
+  if [ "$PRECHANGE_RTSP_WAS_RUNNING" != "1" ]; then
+    return 0
+  fi
+
+  i=0
+  while [ "$i" -lt "$attempts" ]; do
+    if rtsp_quick_health_check; then
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+save_known_good_snapshot() {
+  reason="$1"
+  mkdir -p "$SNAPSHOT_DIR" >/dev/null 2>&1 || return 1
+  cp /mnt/config/rtspserver.conf "$KNOWN_GOOD_RTSP_CONF" >/dev/null 2>&1 || return 1
+  write_stream_state_snapshot "$KNOWN_GOOD_STREAM_CONF" "$reason"
+}
+
+restore_stream_from_snapshot() {
+  rtsp_file="$1"
+  state_file="$2"
+  [ -f "$rtsp_file" ] || return 1
+  [ -f "$state_file" ] || return 1
+  cp "$rtsp_file" /mnt/config/rtspserver.conf >/dev/null 2>&1 || return 1
+  apply_stream_state_snapshot "$state_file" || return 1
+  restart_stream_services_for_validation
+  wait_for_rtsp_health 4
+}
+
+finalize_stream_apply() {
+  change_label="$1"
+
+  restart_stream_services_for_validation
+  if wait_for_rtsp_health 4; then
+    echo "Stream safety check: OK.<br/>"
+    if save_known_good_snapshot "auto:${change_label}"; then
+      echo "Known-good snapshot updated.<br/>"
+    else
+      echo "Warning: could not update known-good snapshot.<br/>"
+    fi
+    return 0
+  fi
+
+  echo "Stream safety check failed after applying ${change_label}. Rolling back...<br/>"
+  if restore_stream_from_snapshot "$PRECHANGE_RTSP_CONF" "$PRECHANGE_STREAM_CONF"; then
+    echo "Rollback completed using pre-change snapshot.<br/>"
+    return 1
+  fi
+
+  if restore_stream_from_snapshot "$KNOWN_GOOD_RTSP_CONF" "$KNOWN_GOOD_STREAM_CONF"; then
+    echo "Rollback completed using known-good snapshot.<br/>"
+    return 1
+  fi
+
+  echo "Rollback failed: no recoverable snapshot available.<br/>"
+  return 1
+}
+
+credentials_default_active() {
+  default_http_hash="1d06b7785388de1501e8d57847540f6d"
+  rtsp_username="$(read_config rtspserver.conf USERNAME)"
+  rtsp_password="$(read_config rtspserver.conf USERPASSWORD)"
+  if [ "$rtsp_username" = "root" ] && [ "$rtsp_password" = "pass" ]; then
+    return 0
+  fi
+
+  http_hash="$(awk -F: 'NR==1{print $3; exit}' /mnt/config/lighttpd.user 2>/dev/null | sed 's/\r//g')"
+  if [ "$http_hash" = "$default_http_hash" ]; then
+    return 0
+  fi
+
+  if [ -r /mnt/config/user.pwd ]; then
+    read -r all_services_password < /mnt/config/user.pwd
+    if [ "$all_services_password" = "pass" ]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+select_compat_profile_values() {
+  profile="$1"
+  case "$profile" in
+    universal-h264|high-quality)
+      profile_label="Universal H264 (recommended)"
+      width0=1920; height0=1080; fps0=20; bps0=2800; gop0=40; maxkbps0=3600; targetkbps0=2800; smartq0=90; smartstatic0=560
+      width1=640;  height1=360;  fps1=12; bps1=550;  gop1=24; maxkbps1=760;  targetkbps1=550;  smartq1=75; smartstatic1=210
+      codec0=0; profile0=1
+      codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=1
+      onvif_policy="main-primary"
+      low_cpu_profile=0
+      ;;
+    ha-frigate)
+      profile_label="HA Frigate"
+      width0=1920; height0=1080; fps0=15; bps0=1800; gop0=30; maxkbps0=2200; targetkbps0=1800; smartq0=85; smartstatic0=500
+      width1=640;  height1=360;  fps1=8;  bps1=260;  gop1=16; maxkbps1=360;  targetkbps1=260;  smartq1=65; smartstatic1=150
+      codec0=0; profile0=1
+      codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=0
+      onvif_policy="sub-primary"
+      low_cpu_profile=0
+      ;;
+    hybrid-hevc-main)
+      profile_label="Hybrid HEVC main + H264 sub"
+      width0=1920; height0=1080; fps0=20; bps0=2600; gop0=40; maxkbps0=3400; targetkbps0=2600; smartq0=90; smartstatic0=540
+      width1=640;  height1=360;  fps1=10; bps1=450;  gop1=20; maxkbps1=650;  targetkbps1=450;  smartq1=72; smartstatic1=190
+      codec0=2; profile0=3
+      codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=0
+      onvif_policy="main-primary"
+      low_cpu_profile=0
+      ;;
+    legacy-main-only)
+      profile_label="Legacy main-only H264"
+      width0=1280; height0=720;  fps0=15; bps0=1500; gop0=30; maxkbps0=2000; targetkbps0=1500; smartq0=75; smartstatic0=420
+      width1=352;  height1=200;  fps1=5;  bps1=120;  gop1=10; maxkbps1=180;  targetkbps1=120;  smartq1=50; smartstatic1=100
+      codec0=0; profile0=1
+      codec1=0; profile1=0
+      rtsp_substream=0
+      rtsp_audio=1
+      onvif_policy="main-only"
+      low_cpu_profile=0
+      ;;
+    nvr-low-cpu)
+      profile_label="NVR low-CPU (compat alias)"
+      width0=1280; height0=720;  fps0=10; bps0=900;  gop0=20; maxkbps0=1200; targetkbps0=900;  smartq0=65; smartstatic0=360
+      width1=352;  height1=200;  fps1=5;  bps1=120;  gop1=10; maxkbps1=180;  targetkbps1=120;  smartq1=50; smartstatic1=100
+      codec0=0; profile0=1
+      codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=0
+      onvif_policy="main-only"
+      low_cpu_profile=1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 if [ -n "$F_cmd" ]; then
   if [ -z "$F_val" ]; then
     F_val=100
@@ -114,20 +555,22 @@ if [ -n "$F_cmd" ]; then
       echo "<pre>"
       case "${F_logname}" in
         "" | 1)
-          echo "Summary of all log files:<br/>"
-          tail /var/log/*
-          echo "<br/>===SD card logs===<br/>"
-          tail /mnt/log/*
+          emit_log_tail_dir "/var/log" "Summary of /var/log (tail -n ${LOG_SUMMARY_TAIL_LINES})" "$LOG_SUMMARY_TAIL_LINES"
+          emit_log_tail_dir "/mnt/log" "=== /mnt/log (tail -n ${LOG_SUMMARY_TAIL_LINES}) ===" "$LOG_SUMMARY_TAIL_LINES"
           ;;
 
         2)
-          echo "Content of dmesg<br/>"
-          /bin/dmesg
+          echo "Content of dmesg (tail -n ${LOG_DMESG_TAIL_LINES})<br/>"
+          /bin/dmesg 2>/dev/null | tail -n "$LOG_DMESG_TAIL_LINES"
           ;;
 
         3)
-          echo "Content of v4l2rtspserver.log<br/>"
-          tail -n 256 /mnt/log/v4l2rtspserver.log
+          echo "Content of v4l2rtspserver.log (tail -n ${LOG_VIDEO_TAIL_LINES})<br/>"
+          if [ -f /mnt/log/v4l2rtspserver.log ]; then
+            tail -n "$LOG_VIDEO_TAIL_LINES" /mnt/log/v4l2rtspserver.log
+          else
+            echo "Log file not found: /mnt/log/v4l2rtspserver.log"
+          fi
           ;;
 
       esac
@@ -137,11 +580,11 @@ if [ -n "$F_cmd" ]; then
       echo "<pre>"
       case "${F_logname}" in
         "" | 1)
-          echo "Summary of all log files cleared<br/>"
-          for i in /var/log/*
-          do
-              echo -n "" > $i
-          done
+          cleared_var="$(clear_log_dir_files /var/log)"
+          cleared_mnt="$(clear_log_dir_files /mnt/log)"
+          echo "Summary logs cleared<br/>"
+          echo "/var/log files cleared: $cleared_var<br/>"
+          echo "/mnt/log files cleared: $cleared_mnt<br/>"
           ;;
         2)
           echo "Content of dmesg cleared<br/>"
@@ -149,7 +592,7 @@ if [ -n "$F_cmd" ]; then
           ;;
         3)
           echo "Content of v4l2rtspserver.log cleared<br/>"
-          echo -n "" > /mnt/log/v4l2rtspserver.log
+          : > /mnt/log/v4l2rtspserver.log 2>/dev/null || true
           ;;
       esac
       echo "</pre>"
@@ -294,13 +737,25 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_http_password)
-      password=$(printf '%b' "${F_password//%/\\x}")
+      password_raw="${F_password}"
+      [ -n "$password_raw" ] || password_raw="${F_httppassword}"
+      password=$(printf '%b' "${password_raw//%/\\x}")
+      if [ -z "$password" ] || [ "$password" = "*****" ]; then
+        echo "<p>Refusing empty/placeholder HTTP password.</p>"
+        exit 0
+      fi
       echo "<p>Setting http password to : $password</p>"
       http_password "$password"
     ;;
 
     set_all_password)
-      password=$(printf '%b' "${F_password//%/\\x}")
+      password_raw="${F_password}"
+      [ -n "$password_raw" ] || password_raw="${F_allpassword}"
+      password=$(printf '%b' "${password_raw//%/\\x}")
+      if [ -z "$password" ] || [ "$password" = "*****" ]; then
+        echo "<p>Refusing empty/placeholder all-services password.</p>"
+        exit 0
+      fi
       echo "<p>Setting all services password to : $password</p>"
       all_password "$password"
       restart_service_if_need /mnt/controlscripts/ftp-server
@@ -445,6 +900,7 @@ if [ -n "$F_cmd" ]; then
     set_performance_profile)
       install_config /mnt/config/boot.conf
       install_config /mnt/config/service_trim.conf
+      capture_prechange_stream_snapshot
       profile=$(printf '%b' "${F_performance_profile}")
 
       case "$profile" in
@@ -465,12 +921,12 @@ if [ -n "$F_cmd" ]; then
           rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
           rewrite_config /mnt/config/boot.conf LOW_RAM_PROFILE 1
           rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE 1
-          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 1
+          rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_OSD 1
           rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG 1
-          rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 0
+          rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 1
           rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
           rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
           rewrite_config /mnt/config/boot.conf SERVICE_TRIM 0
@@ -478,13 +934,13 @@ if [ -n "$F_cmd" ]; then
 
           # Apply conservative stream settings immediately.
           /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-              0 width 640 0 height 360 0 fps 10 0 bps 600 0 goplen 20 0 brmode 1 \
+              0 width 640 0 height 360 0 fps 10 0 bps 600 0 goplen 20 0 brmode 1 0 codec 0 0 profile 1 \
               0 smartmode 1 0 smartgoplen 20 0 smartquality 60 0 smartstatic 350 0 maxkbps 800 0 targetkbps 600 \
-              1 width 320 1 height 180 1 fps 5 1 bps 120 1 goplen 10 1 brmode 1 \
+              1 width 352 1 height 200 1 fps 5 1 bps 120 1 goplen 10 1 brmode 1 1 codec 0 1 profile 0 \
               1 smartmode 1 1 smartgoplen 10 1 smartquality 50 1 smartstatic 100 1 maxkbps 160 1 targetkbps 120
 
           echo "Performance profile set to Low CPU.<br/>"
-          echo "Applied conservative RTSP settings now and enabled memory guard.<br/>"
+          echo "Applied conservative dual-stream RTSP settings now (safe geometry, H264) and enabled memory guard.<br/>"
           echo "Reboot recommended for full low-CPU service profile.<br/>"
           ;;
         rtsp-only)
@@ -517,8 +973,7 @@ if [ -n "$F_cmd" ]; then
           ;;
       esac
 
-      schedule_rtsp_restart
-      schedule_onvif_restart
+      finalize_stream_apply "performance-profile:${profile}"
       if [ -x /mnt/controlscripts/memory-guard ]; then
         if [ "$profile" = "balanced" ]; then
           /mnt/controlscripts/memory-guard stop >/dev/null 2>&1 || true
@@ -580,6 +1035,7 @@ if [ -n "$F_cmd" ]; then
 
     set_stream_topology)
       install_config /mnt/config/boot.conf
+      capture_prechange_stream_snapshot
       topology=$(printf '%b' "${F_stream_topology}")
       case "$topology" in
         dual-audio)
@@ -610,13 +1066,13 @@ if [ -n "$F_cmd" ]; then
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
-      schedule_rtsp_restart
-      schedule_onvif_restart
+      finalize_stream_apply "stream-topology:${topology}"
       echo "Stream topology set to: $topology_label<br/>"
     ;;
 
     set_onvif_stream_policy)
       install_config /mnt/config/boot.conf
+      capture_prechange_stream_snapshot
       # shellcheck disable=SC1090
       if [ -f /mnt/config/boot.conf ]; then
         . /mnt/config/boot.conf
@@ -643,7 +1099,7 @@ if [ -n "$F_cmd" ]; then
       esac
 
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$policy"
-      schedule_onvif_restart
+      finalize_stream_apply "onvif-policy:${policy}"
 
       echo "ONVIF stream policy set to: $policy_label<br/>"
       if [ "$RTSP_SUBSTREAM" != "1" ] && [ "$policy" != "main-primary" ] && [ "$policy" != "main-only" ]; then
@@ -831,6 +1287,7 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_rtsp_preset)
+      capture_prechange_stream_snapshot
       preset=$(printf '%b' "${F_preset}")
       case "$preset" in
         full)
@@ -839,11 +1296,11 @@ if [ -n "$F_cmd" ]; then
           ;;
         medium)
           width0=1280; height0=720; fps0=20; bps0=1200; gop0=40; maxkbps0=1500; targetkbps0=1200; smartq0=80; smartstatic0=450
-          width1=320;  height1=180; fps1=8;  bps1=200;  gop1=16; maxkbps1=250;  targetkbps1=200;  smartq1=60; smartstatic1=120
+          width1=352;  height1=200; fps1=8;  bps1=200;  gop1=16; maxkbps1=250;  targetkbps1=200;  smartq1=60; smartstatic1=120
           ;;
         low)
           width0=640;  height0=360; fps0=10; bps0=600;  gop0=20; maxkbps0=800;  targetkbps0=600;  smartq0=60; smartstatic0=350
-          width1=320;  height1=180; fps1=5;  bps1=120;  gop1=10; maxkbps1=160;  targetkbps1=120;  smartq1=50; smartstatic1=100
+          width1=352;  height1=200; fps1=5;  bps1=120;  gop1=10; maxkbps1=160;  targetkbps1=120;  smartq1=50; smartstatic1=100
           ;;
         *)
           echo "Unknown preset '$preset'<br/>"
@@ -879,40 +1336,47 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      schedule_rtsp_restart
+      finalize_stream_apply "rtsp-preset:${preset}"
     ;;
 
-    set_client_profile)
-      client_profile=$(printf '%b' "${F_client_profile}")
+    set_rtsp_quality_profile)
       install_config /mnt/config/boot.conf
+      capture_prechange_stream_snapshot
+      quality_profile=$(printf '%b' "${F_rtsp_quality_profile}")
 
-      case "$client_profile" in
-        ha-frigate)
-          profile_label="HA Frigate"
-          width0=1920; height0=1080; fps0=15; bps0=1800; gop0=30; maxkbps0=2200; targetkbps0=1800; smartq0=85; smartstatic0=500
-          width1=640;  height1=360;  fps1=8;  bps1=260;  gop1=16; maxkbps1=360;  targetkbps1=260;  smartq1=65; smartstatic1=150
-          rtsp_substream=1
-          rtsp_audio=0
-          onvif_policy="sub-primary"
-          ;;
-        nvr-low-cpu)
-          profile_label="NVR low-CPU"
-          width0=1280; height0=720;  fps0=10; bps0=900;  gop0=20; maxkbps0=1200; targetkbps0=900;  smartq0=65; smartstatic0=360
-          width1=320;  height1=180;  fps1=5;  bps1=120;  gop1=10; maxkbps1=180;  targetkbps1=120;  smartq1=50; smartstatic1=100
-          rtsp_substream=0
-          rtsp_audio=0
-          onvif_policy="main-only"
-          ;;
-        high-quality)
-          profile_label="High quality"
-          width0=1920; height0=1080; fps0=25; bps0=2600; gop0=50; maxkbps0=3200; targetkbps0=2600; smartq0=100; smartstatic0=600
-          width1=640;  height1=360;  fps1=12; bps1=500;  gop1=24; maxkbps1=700;  targetkbps1=500;  smartq1=75; smartstatic1=200
+      case "$quality_profile" in
+        max-quality-h264)
+          profile_label="Max quality 1080p H264 (recommended)"
+          width0=1920; height0=1080; fps0=25; bps0=3600; gop0=50; maxkbps0=4500; targetkbps0=3600; smartq0=100; smartstatic0=620
+          width1=640;  height1=360;  fps1=15; bps1=700;  gop1=30; maxkbps1=900;  targetkbps1=700;  smartq1=80; smartstatic1=240
+          codec0=0; profile0=1
+          codec1=0; profile1=0
           rtsp_substream=1
           rtsp_audio=1
           onvif_policy="main-primary"
           ;;
+        max-quality-hevc)
+          profile_label="Max quality 1080p H265/HEVC"
+          width0=1920; height0=1080; fps0=25; bps0=3000; gop0=50; maxkbps0=3800; targetkbps0=3000; smartq0=100; smartstatic0=600
+          width1=640;  height1=360;  fps1=12; bps1=550;  gop1=24; maxkbps1=760;  targetkbps1=550;  smartq1=78; smartstatic1=220
+          codec0=2; profile0=3
+          codec1=2; profile1=3
+          rtsp_substream=1
+          rtsp_audio=1
+          onvif_policy="main-primary"
+          ;;
+        max-main-h264)
+          profile_label="Max quality main-only H264"
+          width0=1920; height0=1080; fps0=25; bps0=4200; gop0=50; maxkbps0=5200; targetkbps0=4200; smartq0=100; smartstatic0=650
+          width1=352;  height1=200;  fps1=5;  bps1=120;  gop1=10; maxkbps1=180;  targetkbps1=120;  smartq1=50; smartstatic1=100
+          codec0=0; profile0=1
+          codec1=0; profile1=0
+          rtsp_substream=0
+          rtsp_audio=1
+          onvif_policy="main-only"
+          ;;
         *)
-          echo "Unknown client profile '$client_profile'<br/>"
+          echo "Unknown RTSP quality profile '$quality_profile'<br/>"
           exit 0
           ;;
       esac
@@ -924,6 +1388,8 @@ if [ -n "$F_cmd" ]; then
           0 bps          "$bps0" \
           0 goplen       "$gop0" \
           0 brmode       1 \
+          0 codec        "$codec0" \
+          0 profile      "$profile0" \
           0 smartmode    1 \
           0 smartgoplen  "$gop0" \
           0 smartquality "$smartq0" \
@@ -936,6 +1402,60 @@ if [ -n "$F_cmd" ]; then
           1 bps          "$bps1" \
           1 goplen       "$gop1" \
           1 brmode       1 \
+          1 codec        "$codec1" \
+          1 profile      "$profile1" \
+          1 smartmode    1 \
+          1 smartgoplen  "$gop1" \
+          1 smartquality "$smartq1" \
+          1 smartstatic  "$smartstatic1" \
+          1 maxkbps      "$maxkbps1" \
+          1 targetkbps   "$targetkbps1"
+
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
+      rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
+      rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
+      rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 0
+      rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
+
+      finalize_stream_apply "rtsp-quality:${quality_profile}"
+
+      echo "RTSP quality profile applied: $profile_label<br/>"
+      echo "Main=${width0}x${height0}@${fps0}fps codec=${codec0}, Sub=${width1}x${height1}@${fps1}fps codec=${codec1}<br/>"
+      echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
+    ;;
+
+    set_client_profile)
+      client_profile=$(printf '%b' "${F_client_profile}")
+      install_config /mnt/config/boot.conf
+      capture_prechange_stream_snapshot
+      if ! select_compat_profile_values "$client_profile"; then
+        echo "Unknown client profile '$client_profile'<br/>"
+        exit 0
+      fi
+
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          0 width        "$width0" \
+          0 height       "$height0" \
+          0 fps          "$fps0" \
+          0 bps          "$bps0" \
+          0 goplen       "$gop0" \
+          0 brmode       1 \
+          0 codec        "$codec0" \
+          0 profile      "$profile0" \
+          0 smartmode    1 \
+          0 smartgoplen  "$gop0" \
+          0 smartquality "$smartq0" \
+          0 smartstatic  "$smartstatic0" \
+          0 maxkbps      "$maxkbps0" \
+          0 targetkbps   "$targetkbps0" \
+          1 width        "$width1" \
+          1 height       "$height1" \
+          1 fps          "$fps1" \
+          1 bps          "$bps1" \
+          1 goplen       "$gop1" \
+          1 brmode       1 \
+          1 codec        "$codec1" \
+          1 profile      "$profile1" \
           1 smartmode    1 \
           1 smartgoplen  "$gop1" \
           1 smartquality "$smartq1" \
@@ -950,16 +1470,12 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
-      if [ "$client_profile" = "nvr-low-cpu" ]; then
-        rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
-      else
-        rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 0
-      fi
+      rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
+      rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
 
-      schedule_rtsp_restart
-      schedule_onvif_restart
+      finalize_stream_apply "compat-profile:${client_profile}"
 
-      echo "Client preset applied: $profile_label<br/>"
+      echo "Compatibility preset applied: $profile_label<br/>"
       echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
       echo "Main=${width0}x${height0}@${fps0}fps, Sub=${width1}x${height1}@${fps1}fps<br/>"
       now_ts="$(date +%s 2>/dev/null)"
@@ -967,58 +1483,278 @@ if [ -n "$F_cmd" ]; then
       publish_mqtt_event "$(printf '{"ts":%s,"type":"client_profile","value":"%s"}' "$now_ts" "$client_profile")"
     ;;
 
+    save_known_good_profile)
+      if save_known_good_snapshot "manual:web-ui"; then
+        saved_ts="$(read_kv_or_default "$KNOWN_GOOD_STREAM_CONF" TS 0)"
+        echo "Known-good snapshot saved.<br/>"
+        echo "Timestamp (epoch): ${saved_ts}<br/>"
+      else
+        echo "Failed to save known-good snapshot.<br/>"
+      fi
+    ;;
+
+    restore_known_good_profile)
+      capture_prechange_stream_snapshot
+      if restore_stream_from_snapshot "$KNOWN_GOOD_RTSP_CONF" "$KNOWN_GOOD_STREAM_CONF"; then
+        restore_reason="$(read_kv_or_default "$KNOWN_GOOD_STREAM_CONF" REASON unknown)"
+        restore_ts="$(read_kv_or_default "$KNOWN_GOOD_STREAM_CONF" TS 0)"
+        echo "Known-good snapshot restored.<br/>"
+        echo "Source: ${restore_reason} (ts=${restore_ts})<br/>"
+      else
+        echo "Known-good restore failed.<br/>"
+        if restore_stream_from_snapshot "$PRECHANGE_RTSP_CONF" "$PRECHANGE_STREAM_CONF"; then
+          echo "Reverted to pre-restore snapshot.<br/>"
+        fi
+      fi
+    ;;
+
+    complete_setup_wizard)
+      install_config /mnt/config/boot.conf
+      install_config /mnt/config/service_trim.conf
+      wizard_password=$(printf '%b' "${F_wizard_password//%/\\x}")
+      wizard_profile=$(printf '%b' "${F_wizard_profile}")
+      wizard_tz=$(printf '%b' "${F_wizard_tz//%/\\x}")
+      wizard_ntp_srv=$(printf '%b' "${F_wizard_ntp_srv//%/\\x}")
+      wizard_hostname=$(printf '%b' "${F_wizard_hostname//%/\\x}")
+      wizard_enable_ntp=$(normalize_bool "${F_wizard_enable_ntp}")
+
+      [ -n "$wizard_profile" ] || wizard_profile="universal-h264"
+
+      case "$wizard_password" in
+        ''|*****)
+          wizard_password=""
+          ;;
+      esac
+
+      if credentials_default_active; then
+        if [ -z "$wizard_password" ] || [ "$wizard_password" = "pass" ]; then
+          echo "Setup wizard requires changing default credentials before completion.<br/>"
+          exit 0
+        fi
+      fi
+
+      if [ -n "$wizard_password" ] && [ "${#wizard_password}" -lt 4 ]; then
+        echo "Password too short. Use at least 4 characters.<br/>"
+        exit 0
+      fi
+
+      capture_prechange_stream_snapshot
+      if ! select_compat_profile_values "$wizard_profile"; then
+        echo "Unknown compatibility preset '$wizard_profile'<br/>"
+        exit 0
+      fi
+
+      if [ -n "$wizard_password" ]; then
+        all_password "$wizard_password"
+        restart_service_if_need /mnt/controlscripts/ftp-server
+        restart_service_if_need /mnt/controlscripts/telnet-server
+        echo "All service passwords updated.<br/>"
+      fi
+
+      if [ -z "$wizard_tz" ]; then
+        wizard_tz="$(cat /mnt/config/timezone.conf 2>/dev/null)"
+      fi
+      [ -n "$wizard_tz" ] || wizard_tz="UTC0"
+      echo "$wizard_tz" > /mnt/config/timezone.conf
+
+      wizard_ntp_srv="$(printf '%s' "$wizard_ntp_srv" | sed 's/[^A-Za-z0-9._:-]//g')"
+      if [ -z "$wizard_ntp_srv" ]; then
+        wizard_ntp_srv="$(cat /mnt/config/ntp_srv.conf 2>/dev/null)"
+      fi
+      [ -n "$wizard_ntp_srv" ] || wizard_ntp_srv="pool.ntp.org"
+      echo "$wizard_ntp_srv" > /mnt/config/ntp_srv.conf
+
+      wizard_hostname="$(printf '%s' "$wizard_hostname" | sed 's/[^A-Za-z0-9._-]//g')"
+      if [ -n "$wizard_hostname" ]; then
+        echo "$wizard_hostname" > /mnt/config/hostname.conf
+        hostname "$wizard_hostname" >/dev/null 2>&1 || true
+      fi
+
+      rewrite_config /mnt/config/boot.conf ENABLE_NTP "$wizard_enable_ntp"
+      if [ "$wizard_enable_ntp" = "1" ]; then
+        if /mnt/bin/busybox ntpd -q -n -p "$wizard_ntp_srv" >/dev/null 2>&1; then
+          echo "NTP sync successful.<br/>"
+        else
+          echo "NTP sync failed (check server/network).<br/>"
+        fi
+      fi
+
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          0 width        "$width0" \
+          0 height       "$height0" \
+          0 fps          "$fps0" \
+          0 bps          "$bps0" \
+          0 goplen       "$gop0" \
+          0 brmode       1 \
+          0 codec        "$codec0" \
+          0 profile      "$profile0" \
+          0 smartmode    1 \
+          0 smartgoplen  "$gop0" \
+          0 smartquality "$smartq0" \
+          0 smartstatic  "$smartstatic0" \
+          0 maxkbps      "$maxkbps0" \
+          0 targetkbps   "$targetkbps0" \
+          1 width        "$width1" \
+          1 height       "$height1" \
+          1 fps          "$fps1" \
+          1 bps          "$bps1" \
+          1 goplen       "$gop1" \
+          1 brmode       1 \
+          1 codec        "$codec1" \
+          1 profile      "$profile1" \
+          1 smartmode    1 \
+          1 smartgoplen  "$gop1" \
+          1 smartquality "$smartq1" \
+          1 smartstatic  "$smartstatic1" \
+          1 maxkbps      "$maxkbps1" \
+          1 targetkbps   "$targetkbps1"
+
+      if [ "$rtsp_audio" = "0" ]; then
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
+      fi
+
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
+      rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
+      rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
+      rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
+      rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
+
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      rewrite_config /mnt/config/boot.conf SETUP_WIZARD_DONE 1
+      rewrite_config /mnt/config/boot.conf SETUP_WIZARD_EPOCH "$now_ts"
+
+      finalize_stream_apply "setup-wizard:${wizard_profile}"
+
+      echo "Setup wizard completed.<br/>"
+      echo "Compatibility preset: $profile_label<br/>"
+      echo "Timezone: $wizard_tz, NTP: $wizard_ntp_srv (ENABLE_NTP=$wizard_enable_ntp)<br/>"
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"setup_wizard","profile":"%s"}' "$now_ts" "$wizard_profile")"
+    ;;
+
     set_video_size)
+      capture_prechange_stream_snapshot
+      safe_values_changed=0
       wh0=${F_video_size0}
       width0="${wh0%x*}"
       height0="${wh0#*x}"
+      req_width0="$width0"
+      req_height0="$height0"
 
       wh1=${F_video_size1}
       width1="${wh1%x*}"
       height1="${wh1#*x}"
+      req_width1="$width1"
+      req_height1="$height1"
+
+      codec0="$(sanitize_video_codec "${F_video_codec0}")"
+      codec1="$(sanitize_video_codec "${F_video_codec1}")"
+
+      normalize_stream_geometry "$width0" "$height0" "$codec0" 1280 720
+      width0="$NORMALIZED_STREAM_WIDTH"
+      height0="$NORMALIZED_STREAM_HEIGHT"
+      codec0="$NORMALIZED_STREAM_CODEC"
+
+      normalize_stream_geometry "$width1" "$height1" "$codec1" 352 200
+      width1="$NORMALIZED_STREAM_WIDTH"
+      height1="$NORMALIZED_STREAM_HEIGHT"
+      codec1="$NORMALIZED_STREAM_CODEC"
 
       username=$(printf '%b' "${F_videouser//%/\\x}")
       userpassword=$(printf '%b' "${F_videopassword//%/\\x}")
+      videoport="$(sanitize_int_range "${F_videoport}" 1 65535 554)"
+
+      bps0="$(sanitize_int_range "${F_brbitrate0}" 64 12000 2000)"
+      bps1="$(sanitize_int_range "${F_brbitrate1}" 64 4000 300)"
+      brmode0="$(sanitize_video_brmode "${F_video_format0}")"
+      brmode1="$(sanitize_video_brmode "${F_video_format1}")"
+      fps0="$(sanitize_int_range "${F_fps0}" 1 25 20)"
+      fps1="$(sanitize_int_range "${F_fps1}" 1 25 10)"
+      goplen0="$(sanitize_int_range "${F_goplen0}" 1 120 50)"
+      goplen1="$(sanitize_int_range "${F_goplen1}" 1 120 20)"
+      minqp0="$(sanitize_int_range "${F_minqp0}" 1 51 20)"
+      minqp1="$(sanitize_int_range "${F_minqp1}" 1 51 20)"
+      maxqp0="$(sanitize_int_range "${F_maxqp0}" 1 51 51)"
+      maxqp1="$(sanitize_int_range "${F_maxqp1}" 1 51 51)"
+      if [ "$minqp0" -gt "$maxqp0" ]; then
+        minqp0="$maxqp0"
+      fi
+      if [ "$minqp1" -gt "$maxqp1" ]; then
+        minqp1="$maxqp1"
+      fi
+      profile0="$(sanitize_codec_profile_for_codec "$codec0" "${F_codec_profile0}" 0)"
+      profile1="$(sanitize_codec_profile_for_codec "$codec1" "${F_codec_profile1}" 1)"
+      smartmode0="$(sanitize_video_smartmode "${F_smartmode0}")"
+      smartmode1="$(sanitize_video_smartmode "${F_smartmode1}")"
+      smartgoplen0="$(sanitize_int_range "${F_smartgoplen0}" 1 600 "$goplen0")"
+      smartgoplen1="$(sanitize_int_range "${F_smartgoplen1}" 1 600 "$goplen1")"
+      smartquality0="$(sanitize_int_range "${F_smartquality0}" 1 100 80)"
+      smartquality1="$(sanitize_int_range "${F_smartquality1}" 1 100 65)"
+      smartstatic0="$(sanitize_int_range "${F_smartstatic0}" 0 1000 550)"
+      smartstatic1="$(sanitize_int_range "${F_smartstatic1}" 0 1000 150)"
+      maxkbps0="$(sanitize_int_range "${F_maxkbps0}" 64 12000 "$bps0")"
+      maxkbps1="$(sanitize_int_range "${F_maxkbps1}" 64 4000 "$bps1")"
+      targetkbps0="$(sanitize_int_range "${F_targetkbps0}" 64 12000 "$bps0")"
+      targetkbps1="$(sanitize_int_range "${F_targetkbps1}" 64 4000 "$bps1")"
+      if [ "$targetkbps0" -gt "$maxkbps0" ]; then
+        targetkbps0="$maxkbps0"
+      fi
+      if [ "$targetkbps1" -gt "$maxkbps1" ]; then
+        targetkbps1="$maxkbps1"
+      fi
 
       echo "Video resolution set to $wh0 and $wh1<br/>"
+      if [ "$req_width0" != "$width0" ] || [ "$req_height0" != "$height0" ] || [ "${F_video_codec0}" != "$codec0" ]; then
+        echo "Main stream normalized to ${width0}x${height0} (codec=${codec0}) for encoder safety.<br/>"
+      fi
+      if [ "$req_width1" != "$width1" ] || [ "$req_height1" != "$height1" ] || [ "${F_video_codec1}" != "$codec1" ]; then
+        echo "Sub stream normalized to ${width1}x${height1} (codec=${codec1}) for encoder safety.<br/>"
+      fi
+      if [ "${F_videoport}" != "$videoport" ] || [ "${F_brbitrate0}" != "$bps0" ] || [ "${F_brbitrate1}" != "$bps1" ] || [ "${F_video_format0}" != "$brmode0" ] || [ "${F_video_format1}" != "$brmode1" ] || [ "${F_fps0}" != "$fps0" ] || [ "${F_fps1}" != "$fps1" ] || [ "${F_goplen0}" != "$goplen0" ] || [ "${F_goplen1}" != "$goplen1" ] || [ "${F_minqp0}" != "$minqp0" ] || [ "${F_minqp1}" != "$minqp1" ] || [ "${F_maxqp0}" != "$maxqp0" ] || [ "${F_maxqp1}" != "$maxqp1" ] || [ "${F_codec_profile0}" != "$profile0" ] || [ "${F_codec_profile1}" != "$profile1" ] || [ "${F_smartmode0}" != "$smartmode0" ] || [ "${F_smartmode1}" != "$smartmode1" ] || [ "${F_smartgoplen0}" != "$smartgoplen0" ] || [ "${F_smartgoplen1}" != "$smartgoplen1" ] || [ "${F_smartquality0}" != "$smartquality0" ] || [ "${F_smartquality1}" != "$smartquality1" ] || [ "${F_smartstatic0}" != "$smartstatic0" ] || [ "${F_smartstatic1}" != "$smartstatic1" ] || [ "${F_maxkbps0}" != "$maxkbps0" ] || [ "${F_maxkbps1}" != "$maxkbps1" ] || [ "${F_targetkbps0}" != "$targetkbps0" ] || [ "${F_targetkbps1}" != "$targetkbps1" ]; then
+        safe_values_changed=1
+      fi
+      if [ "$safe_values_changed" = "1" ]; then
+        echo "One or more advanced fields were sanitized to safe ranges/profile combinations.<br/>"
+      fi
 
       /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
           " " USERNAME "${username}" \
           " " USERPASSWORD "${userpassword}" \
-          " " PORT "${F_videoport}" \
-          0 bps          "${F_brbitrate0}" \
-          0 brmode       "${F_video_format0}" \
-          0 codec        "${F_video_codec0}" \
-          0 fps          "${F_fps0}" \
-          0 goplen       "${F_goplen0}" \
+          " " PORT "$videoport" \
+          0 bps          "$bps0" \
+          0 brmode       "$brmode0" \
+          0 codec        "$codec0" \
+          0 fps          "$fps0" \
+          0 goplen       "$goplen0" \
           0 height       "$height0" \
-          0 maxqp        "${F_maxqp0}" \
-          0 minqp        "${F_minqp0}" \
-          0 profile      "${F_codec_profile0}" \
+          0 maxqp        "$maxqp0" \
+          0 minqp        "$minqp0" \
+          0 profile      "$profile0" \
           0 width        "$width0" \
-          0 smartmode    "${F_smartmode0}" \
-          0 smartgoplen  "${F_smartgoplen0}" \
-          0 smartquality "${F_smartquality0}" \
-          0 smartstatic  "${F_smartstatic0}" \
-          0 maxkbps      "${F_maxkbps0}" \
-          0 targetkbps   "${F_targetkbps0}" \
-          1 bps          "${F_brbitrate1}" \
-          1 brmode       "${F_video_format1}" \
-          1 codec        "${F_video_codec1}" \
-          1 fps          "${F_fps1}" \
-          1 goplen       "${F_goplen1}" \
+          0 smartmode    "$smartmode0" \
+          0 smartgoplen  "$smartgoplen0" \
+          0 smartquality "$smartquality0" \
+          0 smartstatic  "$smartstatic0" \
+          0 maxkbps      "$maxkbps0" \
+          0 targetkbps   "$targetkbps0" \
+          1 bps          "$bps1" \
+          1 brmode       "$brmode1" \
+          1 codec        "$codec1" \
+          1 fps          "$fps1" \
+          1 goplen       "$goplen1" \
           1 height       "$height1" \
-          1 maxqp        "${F_maxqp1}" \
-          1 minqp        "${F_minqp1}" \
-          1 profile      "${F_codec_profile1}" \
+          1 maxqp        "$maxqp1" \
+          1 minqp        "$minqp1" \
+          1 profile      "$profile1" \
           1 width        "$width1" \
-          1 smartmode    "${F_smartmode1}" \
-          1 smartgoplen  "${F_smartgoplen1}" \
-          1 smartquality "${F_smartquality1}" \
-          1 smartstatic  "${F_smartstatic1}" \
-          1 maxkbps      "${F_maxkbps1}" \
-          1 targetkbps   "${F_targetkbps1}" \
+          1 smartmode    "$smartmode1" \
+          1 smartgoplen  "$smartgoplen1" \
+          1 smartquality "$smartquality1" \
+          1 smartstatic  "$smartstatic1" \
+          1 maxkbps      "$maxkbps1" \
+          1 targetkbps   "$targetkbps1"
 
-      schedule_rtsp_restart
+      finalize_stream_apply "manual-video-settings"
     ;;
 
 

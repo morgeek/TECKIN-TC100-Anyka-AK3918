@@ -28,6 +28,19 @@ MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
 MQTT_HA_DISCOVERY_ENABLE=1
 MQTT_HA_DISCOVERY_PREFIX=homeassistant
 
+# Commands can be plain text (legacy) or JSON.
+# Plain:
+#   reboot
+#   snapshot
+#   profile:balanced
+#   profile:low-cpu
+#   profile:rtsp-only
+# JSON examples:
+#   {"cmd":"motion","value":"on"}
+#   {"cmd":"motion","value":"off"}
+#   {"cmd":"ir_led","value":"on"}
+#   {"cmd":"ftp","value":"off"}
+
 # Power telemetry and draw estimation.
 # Estimation is optional and cheap: base + CPU load term + optional IR LED term.
 # Formulas:

@@ -66,6 +66,7 @@ POWER_ESTIMATE_BASE_MW="${POWER_ESTIMATE_BASE_MW:-1700}"
 POWER_ESTIMATE_CPU_SCALE_MW="${POWER_ESTIMATE_CPU_SCALE_MW:-500}"
 POWER_ESTIMATE_IR_LED_MW="${POWER_ESTIMATE_IR_LED_MW:-700}"
 POWER_SENSOR_PATH="${POWER_SENSOR_PATH:-auto}"
+SETUP_WIZARD_DONE="${SETUP_WIZARD_DONE:-0}"
 
 case "$WEB_MODE" in
   full|http|ultra-lite|ultralite|off) ;;
@@ -80,7 +81,7 @@ esac
 if [ "$ULTRALITE_HTTP_PORT" -lt 1 ] || [ "$ULTRALITE_HTTP_PORT" -gt 65535 ]; then
   ULTRALITE_HTTP_PORT=80
 fi
-for flag_name in LIGHTWEIGHT_MODE UI_ULTRALITE_MODE SECURITY_HARDENING_MODE ENABLE_NTP NTP_ONE_SHOT MEM_GUARD_ENABLE MEM_GUARD_DROP_CACHES MQTT_ENABLE MQTT_HA_DISCOVERY_ENABLE POWER_ESTIMATE_ENABLE
+for flag_name in LIGHTWEIGHT_MODE UI_ULTRALITE_MODE SECURITY_HARDENING_MODE ENABLE_NTP NTP_ONE_SHOT MEM_GUARD_ENABLE MEM_GUARD_DROP_CACHES MQTT_ENABLE MQTT_HA_DISCOVERY_ENABLE POWER_ESTIMATE_ENABLE SETUP_WIZARD_DONE
 do
   eval "flag_value=\${$flag_name}"
   case "$flag_value" in
@@ -345,7 +346,7 @@ if [ "$rtsp_username" = "$DEFAULT_USERNAME" ] && [ "$rtsp_password" = "$DEFAULT_
   default_password_reason="${default_password_reason} RTSP"
 fi
 
-http_hash="$(awk -F: 'NR==1{print $3; exit}' /mnt/config/lighttpd.user 2>/dev/null | tr -d '\r\n')"
+http_hash="$(awk -F: 'NR==1{print $3; exit}' /mnt/config/lighttpd.user 2>/dev/null | sed 's/\r//g')"
 if [ "$http_hash" = "$DEFAULT_HTTP_HASH" ]; then
   default_password_active=1
   default_password_reason="${default_password_reason} HTTP"
@@ -360,6 +361,23 @@ if [ -r /mnt/config/user.pwd ]; then
 fi
 
 default_password_reason="$(echo "$default_password_reason" | sed 's/^ *//')"
+setup_wizard_needed=0
+if [ "$default_password_active" -eq 1 ] || [ "$SETUP_WIZARD_DONE" != "1" ]; then
+  setup_wizard_needed=1
+fi
+
+KNOWN_GOOD_STREAM_FILE="/mnt/config/snapshots/stream.known-good.conf"
+known_good_snapshot_available=0
+known_good_snapshot_ts=""
+known_good_snapshot_reason=""
+if [ -r "$KNOWN_GOOD_STREAM_FILE" ]; then
+  known_good_snapshot_ts="$(awk -F= '/^TS=/{print $2; exit}' "$KNOWN_GOOD_STREAM_FILE" 2>/dev/null)"
+  known_good_snapshot_reason="$(awk -F= '/^REASON=/{print substr($0, index($0, "=")+1); exit}' "$KNOWN_GOOD_STREAM_FILE" 2>/dev/null)"
+  known_good_snapshot_available=1
+fi
+
+CAMERA_IP=$(ifconfig wlan0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}')
+[ -n "$CAMERA_IP" ] || CAMERA_IP="CAMERA-IP"
 
 mount|grep "/mmcblk"|grep "rw,">/dev/null
 
@@ -417,7 +435,7 @@ cat << EOF
                             </select>
                         </div>
                     </div>
-                    <p class="help">Applies grouped CPU-saving settings. Reboot recommended for full profile effect.</p>
+                    <p class="help">Applies grouped CPU-saving settings. Low CPU keeps dual RTSP endpoints on safe geometry; reboot recommended for full profile effect.</p>
                 </div>
                 <div class="field">
                     <div class="control">
@@ -579,6 +597,122 @@ cat << EOF
             </div>
         </div>
     </form>
+    </div>
+</div>
+
+<!-- Setup Wizard -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Setup Wizard</p></header>
+    <div class='card-content'>
+        $(if [ "$setup_wizard_needed" -eq 1 ]; then
+            echo "<article class=\"message is-warning\"><div class=\"message-header\"><p>Action required</p></div><div class=\"message-body\">Complete this wizard to lock in safe defaults for password, compatibility preset, timezone/NTP, and verification links.</div></article>";
+          else
+            echo "<article class=\"message is-success\"><div class=\"message-header\"><p>Completed</p></div><div class=\"message-body\">Setup wizard has been completed. You can rerun it anytime to update baseline settings.</div></article>";
+          fi)
+        <form id="formSetupWizard" action="cgi-bin/action.cgi?cmd=complete_setup_wizard" method="post">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="wizard_password">New password</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="wizard_password" name="wizard_password" type="password" placeholder="Required while defaults are active" />
+                        </div>
+                        <p class="help">If defaults are still active, password change is mandatory.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="wizard_profile">Compatibility preset</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select id="wizard_profile" name="wizard_profile">
+                                    <option value="universal-h264">Universal H264 (recommended)</option>
+                                    <option value="ha-frigate">HA Frigate (detection friendly)</option>
+                                    <option value="hybrid-hevc-main">Hybrid HEVC main + H264 sub</option>
+                                    <option value="legacy-main-only">Legacy main-only H264</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="wizard_tz">Timezone</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="wizard_tz" name="wizard_tz" type="text" value="$(cat /mnt/config/timezone.conf 2>/dev/null)" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="wizard_ntp_srv" name="wizard_ntp_srv" type="text" value="$(cat /mnt/config/ntp_srv.conf 2>/dev/null)" />
+                        </div>
+                        <p class="help">NTP server</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="wizard_hostname">Hostname</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="wizard_hostname" name="wizard_hostname" type="text" value="$(hostname)" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="wizard_enable_ntp" value="0" />
+                            <input class="switch" id="wizard_enable_ntp" name="wizard_enable_ntp" type="checkbox" value="1" $(if [ "$ENABLE_NTP" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="wizard_enable_ntp">Enable NTP sync</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="setupWizardSubmit" class="button is-primary" type="submit">Complete wizard</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"></div>
+                <div class="field-body">
+                    <div class="field">
+                        <p class="help">Wizard applies password (when needed), compatibility preset, timezone/NTP, and marks setup complete.</p>
+                    </div>
+                </div>
+            </div>
+        </form>
+        <div class="field is-horizontal">
+            <div class="field-label is-normal">
+                <label class="label">Quick checks</label>
+            </div>
+            <div class="field-body">
+                <div class="field">
+                    <div class="buttons">
+                        <a class="button is-light" href="rtsp://$CAMERA_IP:$RTSP_PORT/video0_unicast" target="_blank" rel="noopener">RTSP main</a>
+                        $(if [ "$RTSP_SUBSTREAM" = "1" ]; then
+                            echo "<a class=\"button is-light\" href=\"rtsp://$CAMERA_IP:$RTSP_PORT/video1_unicast\" target=\"_blank\" rel=\"noopener\">RTSP sub</a>";
+                          else
+                            echo "<a class=\"button is-light\" href=\"rtsp://$CAMERA_IP:$RTSP_PORT/unicast\" target=\"_blank\" rel=\"noopener\">RTSP main-only</a>";
+                          fi)
+                        <a class="button is-light" href="/onvif/device_service" target="_blank" rel="noopener">ONVIF endpoint</a>
+                        <a class="button is-light" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
+                    </div>
+                    <p class="help">Use these links to quickly confirm RTSP/ONVIF/snapshot availability after setup.</p>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -1124,32 +1258,86 @@ cat << EOF
                 </div>
             </div>
         </form>
+        <form id="formRtspQualityProfile" action="cgi-bin/action.cgi?cmd=set_rtsp_quality_profile" method="post">
+            <div class="is-divider" data-content="High-quality presets"></div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">RTSP quality profile</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select name="rtsp_quality_profile">
+                                    <option value="max-quality-h264">Max quality 1080p H264 (recommended)</option>
+                                    <option value="max-quality-hevc">Max quality 1080p H265/HEVC</option>
+                                    <option value="max-main-h264">Max quality main-only H264</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help">Predefined high-resolution stream tuning. Use H264 for widest VLC/NVR compatibility.</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="rtspQualityProfileSubmit" class="button is-primary" type="submit">Apply quality profile</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
         <form id="formClientProfilePreset" action="cgi-bin/action.cgi?cmd=set_client_profile" method="post">
             <div class="field is-horizontal">
                 <div class="field-label is-normal">
-                    <label class="label">Client preset</label>
+                    <label class="label">Compatibility preset</label>
                 </div>
                 <div class="field-body">
                     <div class="field">
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="client_profile">
-                                    <option value="ha-frigate">HA Frigate (dual stream, detection-friendly)</option>
-                                    <option value="nvr-low-cpu">NVR low-CPU (main stream only)</option>
-                                    <option value="high-quality">High quality (max detail)</option>
+                                    <option value="universal-h264">Universal H264 (recommended)</option>
+                                    <option value="ha-frigate">HA Frigate (detection friendly)</option>
+                                    <option value="hybrid-hevc-main">Hybrid HEVC main + H264 sub</option>
+                                    <option value="legacy-main-only">Legacy main-only H264</option>
                                 </select>
                             </div>
                         </div>
-                        <p class="help">One-click ONVIF/RTSP tuning for common NVR clients.</p>
+                        <p class="help">Four one-click ONVIF/RTSP profiles tuned for client compatibility and safe stream topology.</p>
                     </div>
                     <div class="field">
                         <div class="control">
-                            <button id="clientProfileSubmit" class="button is-primary" type="submit">Apply client preset</button>
+                            <button id="clientProfileSubmit" class="button is-primary" type="submit">Apply compatibility preset</button>
                         </div>
                     </div>
                 </div>
             </div>
         </form>
+        <div class="is-divider" data-content="Safety snapshots"></div>
+        <p class="help">
+            $(if [ "$known_good_snapshot_available" -eq 1 ]; then
+                echo "Known-good snapshot available (ts=${known_good_snapshot_ts}, reason=${known_good_snapshot_reason}).";
+              else
+                echo "No known-good snapshot saved yet.";
+              fi)
+        </p>
+        <div class="field is-horizontal">
+            <div class="field-label is-normal">
+                <label class="label">Known-good actions</label>
+            </div>
+            <div class="field-body">
+                <div class="field">
+                    <div class="buttons">
+                        <form id="formKnownGoodSave" action="cgi-bin/action.cgi?cmd=save_known_good_profile" method="post">
+                            <button class="button is-link" type="submit">Save known-good snapshot</button>
+                        </form>
+                        <form id="formKnownGoodRestore" action="cgi-bin/action.cgi?cmd=restore_known_good_profile" method="post">
+                            <button class="button is-warning" type="submit">Restore known-good snapshot</button>
+                        </form>
+                    </div>
+                    <p class="help">Save after a stable image profile. Restore if a later change causes stream issues.</p>
+                </div>
+            </div>
+        </div>
         <div class="is-divider" data-content="Advanced manual settings"></div>
         <form id="formResolution" action="cgi-bin/action.cgi?cmd=set_video_size" method="post">
                 <div class="field is-horizontal">
@@ -1242,7 +1430,7 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="video_size0">
-                                    <option value="1024x576"  $(if [ "$width0" == "960" ];  then echo selected; fi) >1024x576</option>
+                                    <option value="1024x576"  $(if [ "$width0" == "1024" ]; then echo selected; fi) >1024x576</option>
                                     <option value="1280x720"  $(if [ "$width0" == "1280" ]; then echo selected; fi) >1280x720</option>
                                     <option value="1600x904"  $(if [ "$width0" == "1600" ]; then echo selected; fi) >1600x904</option>
                                     <option value="1920x1080" $(if [ "$width0" == "1920" ]; then echo selected; fi) >1920x1080</option>
@@ -1814,9 +2002,14 @@ EOF
 
 PATH="/bin:/sbin:/usr/bin:/media/mmcblk0p2/data/bin:/media/mmcblk0p2/data/sbin:/media/mmcblk0p2/data/usr/bin"
 
-IP=$(ifconfig wlan0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}')
+IP="$CAMERA_IP"
 echo "<p>Path to main feed : <a href='rtsp://$IP:$RTSP_PORT/video0_unicast'>rtsp://$IP:$RTSP_PORT/video0_unicast</a></p>"
+if [ "$RTSP_SUBSTREAM" = "1" ]; then
 echo "<p>Path to sub feed : <a href='rtsp://$IP:$RTSP_PORT/video1_unicast'>rtsp://$IP:$RTSP_PORT/video1_unicast</a></p>"
+else
+echo "<p>Substream is disabled by current stream topology/profile.</p>"
+echo "<p>Main-only fallback path (firmware dependent): <a href='rtsp://$IP:$RTSP_PORT/unicast'>rtsp://$IP:$RTSP_PORT/unicast</a></p>"
+fi
 cat << EOF
     </div>
 </div>
