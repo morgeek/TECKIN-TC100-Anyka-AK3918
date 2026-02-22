@@ -1,23 +1,23 @@
 # TECKIN TC100 Anyka AK3918 camera hacks
-Based on the great work from:
-https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks
-
-This project keeps the original non-destructive MicroSD hack approach and adds a lighter, faster web UI plus extra RAM/CPU-saving controls.
-
-**Important:** this hack does not modify or upgrade firmware. Remove the MicroSD card and reboot to return to factory behavior.
-
-Supported model: **Teckin TC100 / Teckin Click** (Anyka AK3918 v300)
+Supported model: **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300)
 ![Teckin TC100](/media/TeckinTC100.jpg)
 
 Reference product page:
 * https://www.teckinhome.com/products/teckin-tc100-wi-fi-smart-home-security-camera
+Based on the great work from:
+https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks
+AI DRIVEN : This project keeps the original non-destructive MicroSD hack approach and adds a lighter, faster web UI plus extra RAM/CPU-saving controls.
+I've modded my cameras with an Aluminium Heatsink on top of the CPU !
+
+**Important:** this hack does not modify or upgrade firmware! 
+Remove the MicroSD card and reboot to return to factory behavior.
 
 ## Main features
-* Local web UI (default HTTPS) with no cloud dependency !
+* Local-only web UI (default HTTPS) with no cloud dependency.
 * RTSP streaming:
   * Main: `rtsp://CAMERA-IP:554/video0_unicast`
   * Sub: `rtsp://CAMERA-IP:554/video1_unicast`
-* ONVIF discovery + stream profile policy controls, 2 cameras working with Home Assistant.
+* ONVIF discovery plus stream profile policy controls (Home Assistant friendly, multi-camera ready).
 * H.264 / H.265 support
 * Audio support
 * FTP / telnet / motion detection / recording / timelapse controls
@@ -26,6 +26,22 @@ Reference product page:
   * RTSP presets (Full / Medium / Low, FPS capped at 25)
   * Service trim mode
   * Boot-time lightweight, low-CPU, and low-RAM profiles
+* MQTT bridge for local automations (publish health/events, receive commands)
+* Motion Event API for Home Assistant (`motionevents.cgi` + `motionthumb.cgi`)
+* Security hardening mode (force HTTPS + block FTP/Telnet)
+
+## Network ports (cloud-free/local LAN)
+Default and optional service ports used by this project:
+* `443/tcp` HTTPS web UI (`WEB_MODE=full`, default).
+* `80/tcp` HTTP web UI (`WEB_MODE=http` or `WEB_MODE=ultra-lite`; also used for HTTP->HTTPS redirect in full mode).
+* `554/tcp` RTSP main/sub streams.
+* `8081/tcp` ONVIF service endpoint (`ONVIF_PORT`, configurable in `onvif.conf`).
+* `21/tcp` FTP service (optional, configurable in Settings).
+* `23/tcp` Telnet service (optional, configurable in Settings).
+
+Notes:
+* FTP and Telnet may be closed depending on enabled services/profile.
+* No cloud endpoint is required for operation; camera control and streaming stay on your local network.
 
 ## Installation
 1. Prepare a MicroSD card as FAT32 with 32K allocation unit size.
@@ -35,39 +51,63 @@ Reference product page:
 5. Reboot the camera.
 6. Open:
   * `https://CAMERA-IP` (default, `WEB_MODE=full`)
-  * default credentials: `root/pass`
+  * default credentials: `root/pass` (change immediately after first login)
 
 When this hack is active, Teckin cloud features are not used !
 
-## Uninstall
-Remove the MicroSD card and reboot.
-
 ## Access and credentials
 * Default login/password: `root/pass`
+* Security: change the default password immediately after first login.
 * Password changes for HTTP/RTSP/FTP/Telnet are available in the web UI settings.
 
+## Uninstall
+Remove the MicroSD card and reboot.
 ## Current web UI behavior
 * Live view includes pause/resume and snapshot.
-* CPU and RAM usage badges are always visible in the top bar.
+* CPU/RAM/temperature/power badges are visible in the top bar.
 * Performance profile badge is always visible in the top bar.
+* Last reboot badge is visible in the top bar.
+* Security badge is visible in the top bar and warns when default credentials are detected.
 * Theme selector is in **Settings -> System**.
 * **Services** is a dedicated menu entry; camera control selection is available from the Services page.
-* Services page uses a compact table view (Title, Start/Stop, Autorun at boot, View) with hover hints.
+* Services page uses a compact table view (Title, Impact, Start/Stop, Autorun at boot, View) with hover hints.
+* Services include color-coded runtime impact tags:
+  * `Min` (green): low overhead
+  * `Med` (amber): moderate overhead
+  * `Heavy` (red): higher CPU/RAM usage when active
 * Services state probing is lazy-loaded per row to avoid startup CPU spikes when opening Services.
 * Information pages are available from the **Information** menu:
   * System Usage
-  * Device Info
+  * Device Info (includes last reboot/uptime and `/mnt/bin` binary versions)
   * Network & DNS
   * Disk & Mounts
   * Logs
+* Information pages now use a compact responsive split layout:
+  * summary/control cards on the left
+  * long/raw outputs on the right with internal scroll areas
+* Network & DNS page includes a live **Open Service Ports** table (runtime socket probe + configured expectation).
+* Logs page now has integrated controls:
+  * click tab to load a log view
+  * double-click tab to clear that log
+  * dedicated refresh button for current tab
 * Settings page supports **Basic/All** density mode and collapsible cards.
 * Settings now include a one-click **Performance profile** selector (Balanced / Low CPU / RTSP+ONVIF only).
 * Settings now include **Web server mode** control (`full` / `http` / `ultra-lite` / `off`) with ultra-lite port input.
+* Settings now include **Client presets** for ONVIF/RTSP consumers:
+  * HA Frigate
+  * NVR low-CPU
+  * High quality
 * Settings now include an **Advanced Tuning** section for boot-level controls (Lightweight mode, Ultra-lite UI mode, NTP behavior, memory guard thresholds, RTSP/ONVIF watchdog timeouts).
+* Settings now include an **MQTT Bridge** card to configure local broker/topic/intervals, Home Assistant discovery, and power telemetry/estimation behavior.
+* Settings now include a **Motion Event API** card with direct links to local automation endpoints.
+* Settings show a security warning in the password section when default credentials are still active.
 * Settings include a **Config Backup & Health** card:
   * download `/mnt/config` backup archive on demand
   * restore from an uploaded `/tmp/*.tar.gz` archive (optional RTSP/ONVIF restart)
   * open one-shot health snapshot JSON (`state.cgi?cmd=healthsnapshot`)
+* Navbar cleanup:
+  * Information is a single menu entry (no duplicate quick shortcut)
+  * System power actions are grouped under the last icon-only System menu item
 
 ## Performance and CPU tuning
 Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/boot.conf.dist` on first boot).
@@ -138,6 +178,14 @@ Set in `/mnt/config/boot.conf`:
 * `WEB_MODE=off` (web server disabled)
 * Optional for ultra-lite: `ULTRALITE_HTTP_PORT=80`
 
+### Security hardening mode
+Set in `/mnt/config/boot.conf`:
+* `SECURITY_HARDENING_MODE=1`:
+  * forces `WEB_MODE=full` (HTTPS)
+  * blocks FTP/Telnet changes via UI/API
+  * skips FTP/Telnet autostart at boot
+  * stops FTP/Telnet services at runtime when policy is applied
+
 ### Maximum web CPU savings
 For minimum web stack overhead while keeping core camera functionality:
 * `WEB_MODE=ultra-lite`
@@ -148,7 +196,13 @@ For minimum web stack overhead while keeping core camera functionality:
 
 When `LOW_CPU_PROFILE` or `SERVICE_TRIM` is active, the UI automatically slows polling/live-preview cadence to reduce CGI/webserver load.
 The UI also applies dynamic throttling from live CPU/RAM pressure (high usage increases polling/live-preview intervals automatically).
-`state.cgi` uses short-lived cache files in `/tmp` and now returns an enriched `statusline` payload (CPU/RAM/profile/LUM/AWB/UI mode) so the frontend can use fewer CGI requests.
+`state.cgi` uses short-lived cache files in `/tmp` and now returns an enriched `statusline` payload (CPU/RAM/profile/LUM/AWB/UI mode/reboot epoch) so the frontend can use fewer CGI requests.
+
+### Runtime self-heal and fallbacks
+* `autorun.sh` now performs a small runtime self-heal at boot:
+  * recreates `/mnt/lib/libcurl.so.4 -> /mnt/lib/libcurl.so.4.8.0` symlink when missing
+  * uses extended `/mnt/bin/busybox` if available, with safe fallback to `/bin/busybox`
+* `scripts/common_functions.sh` now routes BusyBox calls through a fallback wrapper (`/mnt/bin/busybox` -> `/bin/busybox` -> PATH).
 
 ### Other low-load defaults
 * Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`
@@ -176,10 +230,58 @@ Preferred OSD time format uses `%` placeholders, e.g.:
 
 Legacy `\\x`-style patterns are sanitized automatically at RTSP service start.
 
-## Developer checks
-Run local CGI smoke tests before deploying UI/CGI changes:
-* `tests/cgi-smoke.sh`
+## Home Assistant and local automation
+This project is designed for cloud-free LAN control and HA-friendly integrations.
 
-## Vendor binaries notes
-Reverse-engineering notes for closed binaries are documented in:
-* `docs/vendor-binaries-reverse-engineering.md`
+### ONVIF/RTSP one-click client presets
+In **Settings -> Video Settings -> Client preset**, you can apply:
+* `HA Frigate`:
+  * dual stream enabled
+  * audio off by default
+  * ONVIF policy set to `sub-primary`
+* `NVR low-CPU`:
+  * low bitrate/fps defaults
+  * main stream only
+  * ONVIF policy set to `main-only`
+* `High quality`:
+  * higher bitrate/fps defaults
+  * dual stream + audio
+  * ONVIF policy set to `main-primary`
+
+### Motion Event API (local HTTP/HTTPS)
+* Recent motion events JSON:
+  * `cgi-bin/motionevents.cgi?limit=20`
+  * optional filter: `type=motion_on` or `type=motion_off`
+* Latest motion thumbnail JPEG:
+  * `cgi-bin/motionthumb.cgi`
+  * optional: `file=<snapshot_filename.jpg>`
+
+Motion events are logged to `/mnt/log/motion-events.log`.
+
+### MQTT Bridge (local broker)
+Config file: `/mnt/config/mqtt.conf` (template: `config/mqtt.conf.dist`)
+
+When enabled (`MQTT_ENABLE=1`), the bridge publishes:
+* `<MQTT_TOPIC_ROOT>/health` (periodic device health)
+* `<MQTT_TOPIC_ROOT>/event` (reboot/profile/web-mode/motion and other events)
+* `<MQTT_TOPIC_ROOT>/availability` (`online`/`offline`, retained)
+
+Optional Home Assistant auto-discovery:
+* Enable `MQTT_HA_DISCOVERY_ENABLE=1` (default) to publish retained discovery configs under:
+  * `<MQTT_HA_DISCOVERY_PREFIX>/sensor/<node>/.../config`
+  * `<MQTT_HA_DISCOVERY_PREFIX>/button/<node>/.../config`
+* Exposed HA entities include CPU, RAM, chip temperature, input voltage, estimated power, reboot button, snapshot button.
+
+Command topic:
+* `<MQTT_TOPIC_COMMAND>` (or default `<MQTT_TOPIC_ROOT>/command`)
+
+Supported command payloads:
+* `reboot`
+* `snapshot`
+* `profile:balanced`
+* `profile:low-cpu`
+* `profile:rtsp-only`
+
+Power draw note:
+* On-device power is estimated from configurable model values (`POWER_ESTIMATE_*`) and optional voltage sensor input (`POWER_SENSOR_PATH`).
+* For true measured watts/amps, use an external USB power meter.

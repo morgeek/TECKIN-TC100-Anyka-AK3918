@@ -309,6 +309,25 @@ get_ui_ultralite_mode() {
   esac
 }
 
+get_security_and_mqtt_flags() {
+  security_hardening_mode=0
+  mqtt_enabled=0
+
+  security_raw="$(read_conf_value /mnt/config/boot.conf SECURITY_HARDENING_MODE 0)"
+  case "$security_raw" in
+    1|true|on|yes|enabled)
+      security_hardening_mode=1
+      ;;
+  esac
+
+  mqtt_raw="$(read_conf_value /mnt/config/mqtt.conf MQTT_ENABLE 0)"
+  case "$mqtt_raw" in
+    1|true|on|yes|enabled)
+      mqtt_enabled=1
+      ;;
+  esac
+}
+
 read_chip_temperature() {
   chip_temp_raw=""
   chip_temp_c=""
@@ -362,6 +381,126 @@ read_chip_temperature() {
   if [ -n "$chip_temp_c" ] && [ "$chip_temp_c" -ge 0 ] && [ "$chip_temp_c" -le 125 ]; then
     chip_temp_text="${chip_temp_c}C"
     chip_temp_json="$chip_temp_c"
+  fi
+}
+
+read_power_telemetry() {
+  power_sensor_path_cfg="$(read_conf_value /mnt/config/mqtt.conf POWER_SENSOR_PATH auto)"
+  power_estimate_enable_raw="$(read_conf_value /mnt/config/mqtt.conf POWER_ESTIMATE_ENABLE 0)"
+  power_estimate_base_mw="$(sanitize_int "$(read_conf_value /mnt/config/mqtt.conf POWER_ESTIMATE_BASE_MW 1700)" 1700)"
+  power_estimate_cpu_scale_mw="$(sanitize_int "$(read_conf_value /mnt/config/mqtt.conf POWER_ESTIMATE_CPU_SCALE_MW 500)" 500)"
+  power_estimate_ir_led_mw="$(sanitize_int "$(read_conf_value /mnt/config/mqtt.conf POWER_ESTIMATE_IR_LED_MW 700)" 700)"
+
+  if [ "$power_estimate_base_mw" -lt 0 ]; then
+    power_estimate_base_mw=0
+  fi
+  if [ "$power_estimate_cpu_scale_mw" -lt 0 ]; then
+    power_estimate_cpu_scale_mw=0
+  fi
+  if [ "$power_estimate_ir_led_mw" -lt 0 ]; then
+    power_estimate_ir_led_mw=0
+  fi
+
+  case "$power_estimate_enable_raw" in
+    1|true|on|yes|enabled)
+      power_estimate_enabled=1
+      ;;
+    *)
+      power_estimate_enabled=0
+      ;;
+  esac
+
+  case "$power_sensor_path_cfg" in
+    ''|auto)
+      power_sensor_candidates="/sys/kernel/ain/bat /sys/kernel/ain/ain0 /sys/kernel/ain/ain1"
+      ;;
+    /*)
+      power_sensor_candidates="$power_sensor_path_cfg"
+      ;;
+    *)
+      power_sensor_candidates="/sys/kernel/ain/bat /sys/kernel/ain/ain0 /sys/kernel/ain/ain1"
+      ;;
+  esac
+
+  power_sensor_raw=""
+  power_sensor_path=""
+  power_voltage_mv=0
+
+  for candidate in $power_sensor_candidates; do
+    [ -r "$candidate" ] || continue
+    read -r raw_value < "$candidate"
+    raw_value="$(sanitize_int "$raw_value" 0)"
+    if [ "$raw_value" -le 0 ]; then
+      continue
+    fi
+    power_sensor_raw="$raw_value"
+    power_sensor_path="$candidate"
+    break
+  done
+
+  if [ -n "$power_sensor_raw" ]; then
+    if [ "$power_sensor_raw" -ge 2500 ] && [ "$power_sensor_raw" -le 20000 ]; then
+      power_voltage_mv="$power_sensor_raw"
+    elif [ "$power_sensor_raw" -ge 2500000 ] && [ "$power_sensor_raw" -le 20000000 ]; then
+      power_voltage_mv=$((power_sensor_raw / 1000))
+    fi
+  fi
+
+  power_voltage_mv_json="null"
+  power_voltage_text="n/a"
+  if [ "$power_voltage_mv" -gt 0 ]; then
+    power_voltage_mv_json="$power_voltage_mv"
+    volts_centiv=$(((power_voltage_mv + 5) / 10))
+    volts_whole=$((volts_centiv / 100))
+    volts_frac=$((volts_centiv % 100))
+    power_voltage_text="$(printf '%s.%02sV' "$volts_whole" "$volts_frac")"
+  fi
+
+  power_sensor_raw_json="null"
+  if [ -n "$power_sensor_raw" ]; then
+    power_sensor_raw_json="$power_sensor_raw"
+  fi
+  if [ -n "$power_sensor_path" ]; then
+    power_sensor_path_json="$(json_escape "$power_sensor_path")"
+  else
+    power_sensor_path_json="n/a"
+  fi
+
+  power_estimated_mw_json="null"
+  power_estimated_text="n/a"
+  power_estimated_current_ma_json="null"
+
+  if [ "$power_estimate_enabled" -eq 1 ]; then
+    cpu_for_power="$(sanitize_int "$cpu" 0)"
+    if [ "$cpu_for_power" -lt 0 ]; then
+      cpu_for_power=0
+    elif [ "$cpu_for_power" -gt 100 ]; then
+      cpu_for_power=100
+    fi
+
+    power_estimated_mw=$((power_estimate_base_mw + (cpu_for_power * power_estimate_cpu_scale_mw / 100)))
+    ir_led_state=0
+    if [ -r /sys/user-gpio/ir-led ]; then
+      read -r ir_led_raw < /sys/user-gpio/ir-led
+      ir_led_state="$(sanitize_int "$ir_led_raw" 0)"
+    fi
+    if [ "$ir_led_state" -eq 1 ]; then
+      power_estimated_mw=$((power_estimated_mw + power_estimate_ir_led_mw))
+    fi
+    if [ "$power_estimated_mw" -lt 0 ]; then
+      power_estimated_mw=0
+    fi
+
+    power_estimated_mw_json="$power_estimated_mw"
+    est_tenths_w=$(((power_estimated_mw + 50) / 100))
+    est_w_whole=$((est_tenths_w / 10))
+    est_w_frac=$((est_tenths_w % 10))
+    power_estimated_text="$(printf '%s.%sW est' "$est_w_whole" "$est_w_frac")"
+
+    if [ "$power_voltage_mv" -gt 0 ]; then
+      power_estimated_current_ma=$((power_estimated_mw * 1000 / power_voltage_mv))
+      power_estimated_current_ma_json="$power_estimated_current_ma"
+    fi
   fi
 }
 
@@ -422,6 +561,54 @@ get_perf_profile() {
   echo "$profile"
 }
 
+read_reboot_epoch() {
+  reboot_epoch=0
+
+  if [ -r /proc/stat ]; then
+    reboot_epoch="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
+    reboot_epoch="$(sanitize_int "$reboot_epoch" 0)"
+  fi
+
+  if [ "$reboot_epoch" -le 0 ] && [ -r /proc/uptime ]; then
+    read -r uptime_raw _ < /proc/uptime
+    uptime_seconds_fallback="${uptime_raw%.*}"
+    uptime_seconds_fallback="$(sanitize_int "$uptime_seconds_fallback" 0)"
+    now_ts="$(now_epoch)"
+    if [ "$now_ts" -gt 0 ] && [ "$uptime_seconds_fallback" -gt 0 ]; then
+      reboot_epoch=$((now_ts - uptime_seconds_fallback))
+    fi
+  fi
+}
+
+default_password_active_flag() {
+  default_active=0
+  default_hash="1d06b7785388de1501e8d57847540f6d"
+
+  rtsp_username="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
+  rtsp_password="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
+  if [ "$rtsp_username" = "root" ] && [ "$rtsp_password" = "pass" ]; then
+    default_active=1
+  fi
+
+  http_hash=""
+  if [ -r /mnt/config/lighttpd.user ]; then
+    IFS=: read -r _ _ http_hash < /mnt/config/lighttpd.user
+    http_hash="$(printf '%s' "$http_hash" | tr -d '\r\n')"
+    if [ "$http_hash" = "$default_hash" ]; then
+      default_active=1
+    fi
+  fi
+
+  if [ -r /mnt/config/user.pwd ]; then
+    read -r all_services_password < /mnt/config/user.pwd
+    if [ "$all_services_password" = "pass" ]; then
+      default_active=1
+    fi
+  fi
+
+  echo "$default_active"
+}
+
 if [ -n "$F_cmd" ]; then
   case "$F_cmd" in
   hostname)
@@ -448,13 +635,20 @@ if [ -n "$F_cmd" ]; then
     profile="$(get_perf_profile)"
     load_lum_awb
     get_ui_ultralite_mode
+    get_security_and_mqtt_flags
     read_chip_temperature
+    read_power_telemetry
+    read_reboot_epoch
+    default_password_active="$(default_password_active_flag)"
+    default_password_active="$(sanitize_int "$default_password_active" 0)"
     profile_json="$(json_escape "$profile")"
     lum_json="$(json_escape "$lum_value")"
     awb_json="$(json_escape "$awb_value")"
     chip_temp_text_json="$(json_escape "$chip_temp_text")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\"}"
+    power_voltage_text_json="$(json_escape "$power_voltage_text")"
+    power_estimated_text_json="$(json_escape "$power_estimated_text")"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json}"
     ;;
 
   healthsnapshot)
@@ -462,7 +656,12 @@ if [ -n "$F_cmd" ]; then
     profile="$(get_perf_profile)"
     load_lum_awb
     get_ui_ultralite_mode
+    get_security_and_mqtt_flags
     read_chip_temperature
+    read_power_telemetry
+    read_reboot_epoch
+    default_password_active="$(default_password_active_flag)"
+    default_password_active="$(sanitize_int "$default_password_active" 0)"
     read_rtsp_stream_summary
 
     if [ -r /proc/sys/kernel/hostname ]; then
@@ -486,6 +685,8 @@ if [ -n "$F_cmd" ]; then
     lum_json="$(json_escape "$lum_value")"
     awb_json="$(json_escape "$awb_value")"
     chip_temp_text_json="$(json_escape "$chip_temp_text")"
+    power_voltage_text_json="$(json_escape "$power_voltage_text")"
+    power_estimated_text_json="$(json_escape "$power_estimated_text")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
     codec0_json="$(json_escape "$codec0_name")"
     codec1_json="$(json_escape "$codec1_name")"
@@ -494,7 +695,7 @@ if [ -n "$F_cmd" ]; then
     rtsp_state_json="$(service_state_json /mnt/controlscripts/rtsp-h26x)"
     onvif_state_json="$(service_state_json /mnt/controlscripts/onvif)"
 
-    echo "{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
+    echo "{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json,\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
     ;;
 
   perfprofile)

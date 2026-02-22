@@ -87,6 +87,24 @@ apply_web_mode_async() {
   ) >/dev/null 2>&1 &
 }
 
+security_hardening_enabled() {
+  hardening=0
+  if [ -f /mnt/config/boot.conf ]; then
+    hardening="$(awk -F= '/^SECURITY_HARDENING_MODE=/{print $2; exit}' /mnt/config/boot.conf 2>/dev/null)"
+  fi
+  case "$hardening" in
+    1|true|on|yes|enabled) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+publish_mqtt_event() {
+  payload="$1"
+  if [ -x /mnt/scripts/mqtt-bridge.sh ] && [ -n "$payload" ]; then
+    /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
+  fi
+}
+
 if [ -n "$F_cmd" ]; then
   if [ -z "$F_val" ]; then
     F_val=100
@@ -139,6 +157,9 @@ if [ -n "$F_cmd" ]; then
 
     reboot)
       echo "Rebooting device..."
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"reboot","source":"action.cgi"}' "$now_ts")"
       /sbin/reboot
     ;;
 
@@ -190,6 +211,10 @@ if [ -n "$F_cmd" ]; then
 
 
     set_telnet)
+      if security_hardening_enabled; then
+        echo "<p>Security hardening is enabled. Telnet changes are blocked.</p>"
+        exit 0
+      fi
       telnetport=$(printf '%b' "${F_telnetport}")
       case "$telnetport" in
         ''|*[!0-9]*)
@@ -208,6 +233,10 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_ftp)
+      if security_hardening_enabled; then
+        echo "<p>Security hardening is enabled. FTP changes are blocked.</p>"
+        exit 0
+      fi
       ftpport=$(printf '%b' "${F_ftpport}")
       case "$ftpport" in
         ''|*[!0-9]*)
@@ -497,12 +526,22 @@ if [ -n "$F_cmd" ]; then
           /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
         fi
       fi
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"profile","value":"%s"}' "$now_ts" "$profile")"
     ;;
 
     set_web_mode)
       install_config /mnt/config/boot.conf
       web_mode=$(printf '%b' "${F_web_mode}")
       ultralite_http_port=$(printf '%b' "${F_ultralite_http_port}")
+
+      if security_hardening_enabled; then
+        if [ "$web_mode" != "full" ]; then
+          echo "Security hardening is enabled. WEB_MODE is locked to full (HTTPS).<br/>"
+          exit 0
+        fi
+      fi
 
       case "$web_mode" in
         full|http|ultra-lite|ultralite|off) ;;
@@ -534,6 +573,9 @@ if [ -n "$F_cmd" ]; then
         echo "Ultra-lite HTTP port set to: $ultralite_http_port<br/>"
       fi
       echo "If the web UI disconnects, reconnect using the updated protocol/port.<br/>"
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"web_mode","mode":"%s"}' "$now_ts" "$web_mode")"
     ;;
 
     set_stream_topology)
@@ -609,11 +651,102 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
+    set_mqtt_config)
+      install_config /mnt/config/mqtt.conf
+
+      mqtt_enable=$(normalize_bool "${F_mqtt_enable}")
+      mqtt_host=$(printf '%b' "${F_mqtt_host}")
+      mqtt_port=$(sanitize_int_range "${F_mqtt_port}" 1 65535 1883)
+      mqtt_user=$(printf '%b' "${F_mqtt_user}")
+      mqtt_password=$(printf '%b' "${F_mqtt_password}")
+      mqtt_client_id=$(printf '%b' "${F_mqtt_client_id}")
+      mqtt_topic_root=$(printf '%b' "${F_mqtt_topic_root}")
+      mqtt_topic_command=$(printf '%b' "${F_mqtt_topic_command}")
+      mqtt_qos=$(sanitize_int_range "${F_mqtt_qos}" 0 2 0)
+      mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds}" 10 86400 60)
+      mqtt_command_wait_seconds=$(sanitize_int_range "${F_mqtt_command_wait_seconds}" 3 120 12)
+      mqtt_command_repeat_window_seconds=$(sanitize_int_range "${F_mqtt_command_repeat_window_seconds}" 0 600 20)
+      mqtt_ha_discovery_enable=$(normalize_bool "${F_mqtt_ha_discovery_enable}")
+      mqtt_ha_discovery_prefix=$(printf '%b' "${F_mqtt_ha_discovery_prefix}")
+      power_estimate_enable=$(normalize_bool "${F_power_estimate_enable}")
+      power_estimate_base_mw=$(sanitize_int_range "${F_power_estimate_base_mw}" 500 10000 1700)
+      power_estimate_cpu_scale_mw=$(sanitize_int_range "${F_power_estimate_cpu_scale_mw}" 0 5000 500)
+      power_estimate_ir_led_mw=$(sanitize_int_range "${F_power_estimate_ir_led_mw}" 0 5000 700)
+      power_sensor_path=$(printf '%b' "${F_power_sensor_path}")
+
+      case "$mqtt_host" in
+        ''|*[!A-Za-z0-9._:-]*)
+          mqtt_host="127.0.0.1"
+          ;;
+      esac
+
+      mqtt_client_id="$(printf '%s' "$mqtt_client_id" | sed 's/[^A-Za-z0-9._-]/-/g')"
+      [ -n "$mqtt_client_id" ] || mqtt_client_id="tc100-camera"
+
+      mqtt_topic_root="$(printf '%s' "$mqtt_topic_root" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
+      [ -n "$mqtt_topic_root" ] || mqtt_topic_root="tc100/camera"
+
+      mqtt_topic_command="$(printf '%s' "$mqtt_topic_command" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
+      if [ -z "$mqtt_topic_command" ]; then
+        mqtt_topic_command="${mqtt_topic_root}/command"
+      fi
+
+      mqtt_ha_discovery_prefix="$(printf '%s' "$mqtt_ha_discovery_prefix" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
+      [ -n "$mqtt_ha_discovery_prefix" ] || mqtt_ha_discovery_prefix="homeassistant"
+
+      case "$power_sensor_path" in
+        ''|auto)
+          power_sensor_path="auto"
+          ;;
+        /*)
+          power_sensor_path="$(printf '%s' "$power_sensor_path" | sed 's#[^A-Za-z0-9._/-]##g')"
+          [ -n "$power_sensor_path" ] || power_sensor_path="auto"
+          ;;
+        *)
+          power_sensor_path="auto"
+          ;;
+      esac
+
+      rewrite_config /mnt/config/mqtt.conf MQTT_ENABLE "$mqtt_enable"
+      rewrite_config /mnt/config/mqtt.conf MQTT_HOST "$mqtt_host"
+      rewrite_config /mnt/config/mqtt.conf MQTT_PORT "$mqtt_port"
+      rewrite_config /mnt/config/mqtt.conf MQTT_USER "$mqtt_user"
+      rewrite_config /mnt/config/mqtt.conf MQTT_PASSWORD "$mqtt_password"
+      rewrite_config /mnt/config/mqtt.conf MQTT_CLIENT_ID "$mqtt_client_id"
+      rewrite_config /mnt/config/mqtt.conf MQTT_TOPIC_ROOT "$mqtt_topic_root"
+      rewrite_config /mnt/config/mqtt.conf MQTT_TOPIC_COMMAND "$mqtt_topic_command"
+      rewrite_config /mnt/config/mqtt.conf MQTT_QOS "$mqtt_qos"
+      rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS "$mqtt_health_interval_seconds"
+      rewrite_config /mnt/config/mqtt.conf MQTT_COMMAND_WAIT_SECONDS "$mqtt_command_wait_seconds"
+      rewrite_config /mnt/config/mqtt.conf MQTT_COMMAND_REPEAT_WINDOW_SECONDS "$mqtt_command_repeat_window_seconds"
+      rewrite_config /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE "$mqtt_ha_discovery_enable"
+      rewrite_config /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_PREFIX "$mqtt_ha_discovery_prefix"
+      rewrite_config /mnt/config/mqtt.conf POWER_ESTIMATE_ENABLE "$power_estimate_enable"
+      rewrite_config /mnt/config/mqtt.conf POWER_ESTIMATE_BASE_MW "$power_estimate_base_mw"
+      rewrite_config /mnt/config/mqtt.conf POWER_ESTIMATE_CPU_SCALE_MW "$power_estimate_cpu_scale_mw"
+      rewrite_config /mnt/config/mqtt.conf POWER_ESTIMATE_IR_LED_MW "$power_estimate_ir_led_mw"
+      rewrite_config /mnt/config/mqtt.conf POWER_SENSOR_PATH "$power_sensor_path"
+
+      if [ -x /mnt/controlscripts/mqtt-bridge ]; then
+        if [ "$mqtt_enable" = "1" ]; then
+          /mnt/controlscripts/mqtt-bridge stop >/dev/null 2>&1 || true
+          /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1 || true
+        else
+          /mnt/controlscripts/mqtt-bridge stop >/dev/null 2>&1 || true
+        fi
+      fi
+
+      echo "MQTT bridge configuration saved.<br/>"
+      echo "Enabled=$mqtt_enable, broker=${mqtt_host}:${mqtt_port}, topic_root=${mqtt_topic_root}, command_topic=${mqtt_topic_command}, qos=${mqtt_qos}, dedupe_window=${mqtt_command_repeat_window_seconds}s<br/>"
+      echo "HA discovery=${mqtt_ha_discovery_enable} (prefix=${mqtt_ha_discovery_prefix}), power_estimate=${power_estimate_enable}, base=${power_estimate_base_mw}mW, cpu_scale=${power_estimate_cpu_scale_mw}mW, ir_led=${power_estimate_ir_led_mw}mW<br/>"
+    ;;
+
     set_advanced_tuning)
       install_config /mnt/config/boot.conf
 
       lightweight_mode=$(normalize_bool "${F_lightweight_mode}")
       ui_ultralite_mode=$(normalize_bool "${F_ui_ultralite_mode}")
+      security_hardening_mode=$(normalize_bool "${F_security_hardening_mode}")
       enable_ntp=$(normalize_bool "${F_enable_ntp}")
       ntp_one_shot=$(normalize_bool "${F_ntp_one_shot}")
       mem_guard_enable=$(normalize_bool "${F_mem_guard_enable}")
@@ -646,6 +779,7 @@ if [ -n "$F_cmd" ]; then
 
       rewrite_config /mnt/config/boot.conf LIGHTWEIGHT_MODE "$lightweight_mode"
       rewrite_config /mnt/config/boot.conf UI_ULTRALITE_MODE "$ui_ultralite_mode"
+      rewrite_config /mnt/config/boot.conf SECURITY_HARDENING_MODE "$security_hardening_mode"
       rewrite_config /mnt/config/boot.conf ENABLE_NTP "$enable_ntp"
       rewrite_config /mnt/config/boot.conf NTP_ONE_SHOT "$ntp_one_shot"
       rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE "$mem_guard_enable"
@@ -661,6 +795,17 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf RTSP_HEALTHCHECK_TIMEOUT_SECONDS "$rtsp_healthcheck_timeout_seconds"
       rewrite_config /mnt/config/boot.conf ONVIF_HEALTHCHECK_TIMEOUT_SECONDS "$onvif_healthcheck_timeout_seconds"
 
+      if [ "$security_hardening_mode" = "1" ]; then
+        rewrite_config /mnt/config/boot.conf WEB_MODE full
+        apply_web_mode_async full
+        for svc in ftp-server telnet-server; do
+          if [ -x "/mnt/controlscripts/$svc" ]; then
+            "/mnt/controlscripts/$svc" stop >/dev/null 2>&1 || true
+          fi
+          rm -f "/mnt/config/autostart/$svc" >/dev/null 2>&1 || true
+        done
+      fi
+
       if [ -x /mnt/controlscripts/memory-guard ]; then
         if [ "$mem_guard_enable" = "1" ]; then
           /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
@@ -673,10 +818,16 @@ if [ -n "$F_cmd" ]; then
       schedule_onvif_restart
 
       echo "Advanced tuning saved.<br/>"
-      echo "LIGHTWEIGHT_MODE=$lightweight_mode, UI_ULTRALITE_MODE=$ui_ultralite_mode, ENABLE_NTP=$enable_ntp, NTP_ONE_SHOT=$ntp_one_shot<br/>"
+      echo "LIGHTWEIGHT_MODE=$lightweight_mode, UI_ULTRALITE_MODE=$ui_ultralite_mode, SECURITY_HARDENING_MODE=$security_hardening_mode, ENABLE_NTP=$enable_ntp, NTP_ONE_SHOT=$ntp_one_shot<br/>"
       echo "MEM_GUARD_ENABLE=$mem_guard_enable (interval=${mem_guard_interval_seconds}s, warn=${mem_guard_warn_kb}kB, critical=${mem_guard_critical_kb}kB, emergency=${mem_guard_emergency_kb}kB, recovery_margin=${mem_guard_recovery_margin_kb}kB, hits=${mem_guard_warn_hits}/${mem_guard_critical_hits}, cooldown=${mem_guard_cooldown_seconds}s, drop_caches=${mem_guard_drop_caches})<br/>"
       echo "Healthcheck timeouts: RTSP=${rtsp_healthcheck_timeout_seconds}s, ONVIF=${onvif_healthcheck_timeout_seconds}s<br/>"
+      if [ "$security_hardening_mode" = "1" ]; then
+        echo "Security hardening is enabled: FTP/Telnet disabled, WEB_MODE forced to full (HTTPS).<br/>"
+      fi
       echo "Reboot recommended to fully apply lightweight/NTP boot behavior.<br/>"
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"security_hardening","enabled":%s}' "$now_ts" "$security_hardening_mode")"
     ;;
 
     set_rtsp_preset)
@@ -729,6 +880,91 @@ if [ -n "$F_cmd" ]; then
           1 targetkbps   "$targetkbps1"
 
       schedule_rtsp_restart
+    ;;
+
+    set_client_profile)
+      client_profile=$(printf '%b' "${F_client_profile}")
+      install_config /mnt/config/boot.conf
+
+      case "$client_profile" in
+        ha-frigate)
+          profile_label="HA Frigate"
+          width0=1920; height0=1080; fps0=15; bps0=1800; gop0=30; maxkbps0=2200; targetkbps0=1800; smartq0=85; smartstatic0=500
+          width1=640;  height1=360;  fps1=8;  bps1=260;  gop1=16; maxkbps1=360;  targetkbps1=260;  smartq1=65; smartstatic1=150
+          rtsp_substream=1
+          rtsp_audio=0
+          onvif_policy="sub-primary"
+          ;;
+        nvr-low-cpu)
+          profile_label="NVR low-CPU"
+          width0=1280; height0=720;  fps0=10; bps0=900;  gop0=20; maxkbps0=1200; targetkbps0=900;  smartq0=65; smartstatic0=360
+          width1=320;  height1=180;  fps1=5;  bps1=120;  gop1=10; maxkbps1=180;  targetkbps1=120;  smartq1=50; smartstatic1=100
+          rtsp_substream=0
+          rtsp_audio=0
+          onvif_policy="main-only"
+          ;;
+        high-quality)
+          profile_label="High quality"
+          width0=1920; height0=1080; fps0=25; bps0=2600; gop0=50; maxkbps0=3200; targetkbps0=2600; smartq0=100; smartstatic0=600
+          width1=640;  height1=360;  fps1=12; bps1=500;  gop1=24; maxkbps1=700;  targetkbps1=500;  smartq1=75; smartstatic1=200
+          rtsp_substream=1
+          rtsp_audio=1
+          onvif_policy="main-primary"
+          ;;
+        *)
+          echo "Unknown client profile '$client_profile'<br/>"
+          exit 0
+          ;;
+      esac
+
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          0 width        "$width0" \
+          0 height       "$height0" \
+          0 fps          "$fps0" \
+          0 bps          "$bps0" \
+          0 goplen       "$gop0" \
+          0 brmode       1 \
+          0 smartmode    1 \
+          0 smartgoplen  "$gop0" \
+          0 smartquality "$smartq0" \
+          0 smartstatic  "$smartstatic0" \
+          0 maxkbps      "$maxkbps0" \
+          0 targetkbps   "$targetkbps0" \
+          1 width        "$width1" \
+          1 height       "$height1" \
+          1 fps          "$fps1" \
+          1 bps          "$bps1" \
+          1 goplen       "$gop1" \
+          1 brmode       1 \
+          1 smartmode    1 \
+          1 smartgoplen  "$gop1" \
+          1 smartquality "$smartq1" \
+          1 smartstatic  "$smartstatic1" \
+          1 maxkbps      "$maxkbps1" \
+          1 targetkbps   "$targetkbps1"
+
+      if [ "$rtsp_audio" = "0" ]; then
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
+      fi
+
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
+      rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
+      rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
+      if [ "$client_profile" = "nvr-low-cpu" ]; then
+        rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
+      else
+        rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 0
+      fi
+
+      schedule_rtsp_restart
+      schedule_onvif_restart
+
+      echo "Client preset applied: $profile_label<br/>"
+      echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
+      echo "Main=${width0}x${height0}@${fps0}fps, Sub=${width1}x${height1}@${fps1}fps<br/>"
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"client_profile","value":"%s"}' "$now_ts" "$client_profile")"
     ;;
 
     set_video_size)

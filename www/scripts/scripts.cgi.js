@@ -30,6 +30,17 @@ function initScriptsPage() {
     return value === true || value === 1 || value === '1';
   }
 
+  function syncAutorunInput(row, stateInfo) {
+    if (!row || !stateInfo) {
+      return;
+    }
+    var autostartInput = row.querySelector('input.autostart');
+    if (!autostartInput) {
+      return;
+    }
+    autostartInput.checked = toBoolInt(stateInfo.autostart_enabled);
+  }
+
   function updateStatusTag(tag, state) {
     if (!tag) {
       return;
@@ -115,6 +126,7 @@ function initScriptsPage() {
 
     updateStatusTag(row.querySelector('.service-status'), state);
     updateActionButton(row.querySelector('button.script_action_toggle'), scriptName, state, hasStart, hasStop);
+    syncAutorunInput(row, stateInfo);
   }
 
   function refreshServiceState(row) {
@@ -180,14 +192,25 @@ function initScriptsPage() {
   Array.prototype.slice.call(document.querySelectorAll('input.autostart')).forEach(function (inp) {
     inp.addEventListener('change', function (ev) {
       var e = ev.currentTarget;
+      var row = e.closest('tr[data-script-name]');
       var desiredState = e.checked;
       var url = desiredState ? e.dataset.checked : e.dataset.unchecked;
       e.disabled = true;
-      fetch(url)
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
+      fetch(url, { cache: 'no-store' })
+        .then(function (r) { return r.text(); })
+        .then(function (text) {
+          var res = parseJsonSafe(text);
           if (!res || res.status !== 'ok') {
             e.checked = !desiredState;
+            return;
+          }
+          if (typeof res.autostart_enabled !== 'undefined') {
+            e.checked = toBoolInt(res.autostart_enabled);
+          } else {
+            e.checked = desiredState;
+          }
+          if (row) {
+            refreshServiceState(row);
           }
         })
         .catch(function (err) {

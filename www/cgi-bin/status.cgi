@@ -9,6 +9,7 @@ echo ""
 install_config /mnt/config/recording.conf
 install_config /mnt/config/boot.conf
 install_config /mnt/config/service_trim.conf
+install_config /mnt/config/mqtt.conf
 
 # shellcheck disable=SC1090
 if [ -f /mnt/config/boot.conf ]; then
@@ -17,6 +18,10 @@ fi
 # shellcheck disable=SC1090
 if [ -f /mnt/config/service_trim.conf ]; then
   . /mnt/config/service_trim.conf
+fi
+# shellcheck disable=SC1090
+if [ -f /mnt/config/mqtt.conf ]; then
+  . /mnt/config/mqtt.conf
 fi
 SERVICE_TRIM="${SERVICE_TRIM:-0}"
 LOW_CPU_PROFILE="${LOW_CPU_PROFILE:-0}"
@@ -27,6 +32,7 @@ WEB_MODE="${WEB_MODE:-full}"
 ULTRALITE_HTTP_PORT="${ULTRALITE_HTTP_PORT:-80}"
 LIGHTWEIGHT_MODE="${LIGHTWEIGHT_MODE:-0}"
 UI_ULTRALITE_MODE="${UI_ULTRALITE_MODE:-0}"
+SECURITY_HARDENING_MODE="${SECURITY_HARDENING_MODE:-0}"
 ENABLE_NTP="${ENABLE_NTP:-1}"
 NTP_ONE_SHOT="${NTP_ONE_SHOT:-0}"
 MEM_GUARD_ENABLE="${MEM_GUARD_ENABLE:-0}"
@@ -41,6 +47,25 @@ MEM_GUARD_EMERGENCY_KB="${MEM_GUARD_EMERGENCY_KB:-2048}"
 MEM_GUARD_DROP_CACHES="${MEM_GUARD_DROP_CACHES:-1}"
 RTSP_HEALTHCHECK_TIMEOUT_SECONDS="${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:-4}"
 ONVIF_HEALTHCHECK_TIMEOUT_SECONDS="${ONVIF_HEALTHCHECK_TIMEOUT_SECONDS:-4}"
+MQTT_ENABLE="${MQTT_ENABLE:-0}"
+MQTT_HOST="${MQTT_HOST:-127.0.0.1}"
+MQTT_PORT="${MQTT_PORT:-1883}"
+MQTT_USER="${MQTT_USER:-}"
+MQTT_PASSWORD="${MQTT_PASSWORD:-}"
+MQTT_CLIENT_ID="${MQTT_CLIENT_ID:-tc100-camera}"
+MQTT_TOPIC_ROOT="${MQTT_TOPIC_ROOT:-tc100/camera}"
+MQTT_TOPIC_COMMAND="${MQTT_TOPIC_COMMAND:-}"
+MQTT_QOS="${MQTT_QOS:-0}"
+MQTT_HEALTH_INTERVAL_SECONDS="${MQTT_HEALTH_INTERVAL_SECONDS:-60}"
+MQTT_COMMAND_WAIT_SECONDS="${MQTT_COMMAND_WAIT_SECONDS:-12}"
+MQTT_COMMAND_REPEAT_WINDOW_SECONDS="${MQTT_COMMAND_REPEAT_WINDOW_SECONDS:-20}"
+MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
+MQTT_HA_DISCOVERY_PREFIX="${MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
+POWER_ESTIMATE_ENABLE="${POWER_ESTIMATE_ENABLE:-0}"
+POWER_ESTIMATE_BASE_MW="${POWER_ESTIMATE_BASE_MW:-1700}"
+POWER_ESTIMATE_CPU_SCALE_MW="${POWER_ESTIMATE_CPU_SCALE_MW:-500}"
+POWER_ESTIMATE_IR_LED_MW="${POWER_ESTIMATE_IR_LED_MW:-700}"
+POWER_SENSOR_PATH="${POWER_SENSOR_PATH:-auto}"
 
 case "$WEB_MODE" in
   full|http|ultra-lite|ultralite|off) ;;
@@ -55,7 +80,7 @@ esac
 if [ "$ULTRALITE_HTTP_PORT" -lt 1 ] || [ "$ULTRALITE_HTTP_PORT" -gt 65535 ]; then
   ULTRALITE_HTTP_PORT=80
 fi
-for flag_name in LIGHTWEIGHT_MODE UI_ULTRALITE_MODE ENABLE_NTP NTP_ONE_SHOT MEM_GUARD_ENABLE MEM_GUARD_DROP_CACHES
+for flag_name in LIGHTWEIGHT_MODE UI_ULTRALITE_MODE SECURITY_HARDENING_MODE ENABLE_NTP NTP_ONE_SHOT MEM_GUARD_ENABLE MEM_GUARD_DROP_CACHES MQTT_ENABLE MQTT_HA_DISCOVERY_ENABLE POWER_ESTIMATE_ENABLE
 do
   eval "flag_value=\${$flag_name}"
   case "$flag_value" in
@@ -134,6 +159,74 @@ case "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" in
 esac
 if [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] || [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ]; then
   ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4
+fi
+case "$MQTT_PORT" in
+  ''|*[!0-9]*) MQTT_PORT=1883 ;;
+esac
+if [ "$MQTT_PORT" -lt 1 ] || [ "$MQTT_PORT" -gt 65535 ]; then
+  MQTT_PORT=1883
+fi
+case "$MQTT_QOS" in
+  ''|*[!0-9]*) MQTT_QOS=0 ;;
+esac
+if [ "$MQTT_QOS" -lt 0 ] || [ "$MQTT_QOS" -gt 2 ]; then
+  MQTT_QOS=0
+fi
+case "$MQTT_HEALTH_INTERVAL_SECONDS" in
+  ''|*[!0-9]*) MQTT_HEALTH_INTERVAL_SECONDS=60 ;;
+esac
+if [ "$MQTT_HEALTH_INTERVAL_SECONDS" -lt 10 ] || [ "$MQTT_HEALTH_INTERVAL_SECONDS" -gt 86400 ]; then
+  MQTT_HEALTH_INTERVAL_SECONDS=60
+fi
+case "$MQTT_COMMAND_WAIT_SECONDS" in
+  ''|*[!0-9]*) MQTT_COMMAND_WAIT_SECONDS=12 ;;
+esac
+if [ "$MQTT_COMMAND_WAIT_SECONDS" -lt 3 ] || [ "$MQTT_COMMAND_WAIT_SECONDS" -gt 120 ]; then
+  MQTT_COMMAND_WAIT_SECONDS=12
+fi
+case "$MQTT_COMMAND_REPEAT_WINDOW_SECONDS" in
+  ''|*[!0-9]*) MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20 ;;
+esac
+if [ "$MQTT_COMMAND_REPEAT_WINDOW_SECONDS" -lt 0 ] || [ "$MQTT_COMMAND_REPEAT_WINDOW_SECONDS" -gt 600 ]; then
+  MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
+fi
+MQTT_HA_DISCOVERY_PREFIX="$(printf '%s' "$MQTT_HA_DISCOVERY_PREFIX" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
+if [ -z "$MQTT_HA_DISCOVERY_PREFIX" ]; then
+  MQTT_HA_DISCOVERY_PREFIX="homeassistant"
+fi
+case "$POWER_ESTIMATE_BASE_MW" in
+  ''|*[!0-9]*) POWER_ESTIMATE_BASE_MW=1700 ;;
+esac
+if [ "$POWER_ESTIMATE_BASE_MW" -lt 500 ] || [ "$POWER_ESTIMATE_BASE_MW" -gt 10000 ]; then
+  POWER_ESTIMATE_BASE_MW=1700
+fi
+case "$POWER_ESTIMATE_CPU_SCALE_MW" in
+  ''|*[!0-9]*) POWER_ESTIMATE_CPU_SCALE_MW=500 ;;
+esac
+if [ "$POWER_ESTIMATE_CPU_SCALE_MW" -lt 0 ] || [ "$POWER_ESTIMATE_CPU_SCALE_MW" -gt 5000 ]; then
+  POWER_ESTIMATE_CPU_SCALE_MW=500
+fi
+case "$POWER_ESTIMATE_IR_LED_MW" in
+  ''|*[!0-9]*) POWER_ESTIMATE_IR_LED_MW=700 ;;
+esac
+if [ "$POWER_ESTIMATE_IR_LED_MW" -lt 0 ] || [ "$POWER_ESTIMATE_IR_LED_MW" -gt 5000 ]; then
+  POWER_ESTIMATE_IR_LED_MW=700
+fi
+case "$POWER_SENSOR_PATH" in
+  ''|auto)
+    POWER_SENSOR_PATH="auto"
+    ;;
+  /*)
+    POWER_SENSOR_PATH="$(printf '%s' "$POWER_SENSOR_PATH" | sed 's#[^A-Za-z0-9._/-]##g')"
+    [ -n "$POWER_SENSOR_PATH" ] || POWER_SENSOR_PATH="auto"
+    ;;
+  *)
+    POWER_SENSOR_PATH="auto"
+    ;;
+esac
+
+if [ -z "$MQTT_TOPIC_COMMAND" ]; then
+  MQTT_TOPIC_COMMAND="${MQTT_TOPIC_ROOT}/command"
 fi
 
 if [ "$SERVICE_TRIM" = "1" ]; then
@@ -238,6 +331,35 @@ mdsens=$55
 
 TELNET_PORT=$(read_config telnetd.conf TELNET_PORT)
 motion_trigger_led=$(read_config motion.conf motion_trigger_led)
+
+DEFAULT_USERNAME="root"
+DEFAULT_PASSWORD="pass"
+DEFAULT_HTTP_HASH="1d06b7785388de1501e8d57847540f6d"
+default_password_active=0
+default_password_reason=""
+
+rtsp_username="$(read_config rtspserver.conf USERNAME)"
+rtsp_password="$(read_config rtspserver.conf USERPASSWORD)"
+if [ "$rtsp_username" = "$DEFAULT_USERNAME" ] && [ "$rtsp_password" = "$DEFAULT_PASSWORD" ]; then
+  default_password_active=1
+  default_password_reason="${default_password_reason} RTSP"
+fi
+
+http_hash="$(awk -F: 'NR==1{print $3; exit}' /mnt/config/lighttpd.user 2>/dev/null | tr -d '\r\n')"
+if [ "$http_hash" = "$DEFAULT_HTTP_HASH" ]; then
+  default_password_active=1
+  default_password_reason="${default_password_reason} HTTP"
+fi
+
+if [ -r /mnt/config/user.pwd ]; then
+  read -r all_services_password < /mnt/config/user.pwd
+  if [ "$all_services_password" = "$DEFAULT_PASSWORD" ]; then
+    default_password_active=1
+    default_password_reason="${default_password_reason} all-services"
+  fi
+fi
+
+default_password_reason="$(echo "$default_password_reason" | sed 's/^ *//')"
 
 mount|grep "/mmcblk"|grep "rw,">/dev/null
 
@@ -491,6 +613,11 @@ cat << EOF
                             <input class="switch" name="ntp_one_shot" id="ntp_one_shot" type="checkbox" value="1" $(if [ "$NTP_ONE_SHOT" = "1" ]; then echo "checked"; fi) />
                             <label class="label" for="ntp_one_shot">NTP one-shot at boot</label>
                         </div>
+                        <div class="control">
+                            <input type="hidden" name="security_hardening_mode" value="0" />
+                            <input class="switch" name="security_hardening_mode" id="security_hardening_mode" type="checkbox" value="1" $(if [ "$SECURITY_HARDENING_MODE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="security_hardening_mode">Security hardening mode (force HTTPS, disable FTP/Telnet)</label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -587,11 +714,222 @@ cat << EOF
                     </div>
                 </div>
             </div>
-            <p class="help">Reboot recommended after changing boot modes (Lightweight/NTP) for full effect.</p>
+            <p class="help">Reboot recommended after changing boot modes (Lightweight/NTP/Security hardening) for full effect.</p>
+        </form>
+</div>
+</div>
+
+<!-- MQTT Bridge -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>MQTT Bridge</p></header>
+    <div class='card-content'>
+        <form id="formMqttConfig" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Enable</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="mqtt_enable" value="0" />
+                            <input class="switch" id="mqtt_enable" name="mqtt_enable" type="checkbox" value="1" $(if [ "$MQTT_ENABLE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="mqtt_enable">Publish health/events and accept command topic actions</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="mqtt_host">Broker</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_host" name="mqtt_host" type="text" value="$MQTT_HOST" />
+                        </div>
+                        <p class="help">Host/IP of your local broker.</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_port" name="mqtt_port" type="number" min="1" max="65535" value="$MQTT_PORT" />
+                        </div>
+                        <p class="help">Port (default 1883)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_qos" name="mqtt_qos" type="number" min="0" max="2" value="$MQTT_QOS" />
+                        </div>
+                        <p class="help">QoS (0..2)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="mqtt_user">Auth</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_user" name="mqtt_user" type="text" value="$MQTT_USER" />
+                        </div>
+                        <p class="help">Username (optional)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_password" name="mqtt_password" type="password" value="$MQTT_PASSWORD" />
+                        </div>
+                        <p class="help">Password (optional)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="mqtt_client_id">Topics</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_client_id" name="mqtt_client_id" type="text" value="$MQTT_CLIENT_ID" />
+                        </div>
+                        <p class="help">Client ID</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_topic_root" name="mqtt_topic_root" type="text" value="$MQTT_TOPIC_ROOT" />
+                        </div>
+                        <p class="help">Topic root, example: tc100/camera</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_topic_command" name="mqtt_topic_command" type="text" value="$MQTT_TOPIC_COMMAND" />
+                        </div>
+                        <p class="help">Command topic (empty = &lt;root&gt;/command)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Intervals</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_health_interval_seconds" name="mqtt_health_interval_seconds" type="number" min="10" max="86400" value="$MQTT_HEALTH_INTERVAL_SECONDS" />
+                        </div>
+                        <p class="help">Health publish interval (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_command_wait_seconds" name="mqtt_command_wait_seconds" type="number" min="3" max="120" value="$MQTT_COMMAND_WAIT_SECONDS" />
+                        </div>
+                        <p class="help">Command poll timeout (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_command_repeat_window_seconds" name="mqtt_command_repeat_window_seconds" type="number" min="0" max="600" value="$MQTT_COMMAND_REPEAT_WINDOW_SECONDS" />
+                        </div>
+                        <p class="help">Duplicate command suppression window (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="mqttConfigSubmit" class="button is-primary" type="submit">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Home Assistant</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="mqtt_ha_discovery_enable" value="0" />
+                            <input class="switch" id="mqtt_ha_discovery_enable" name="mqtt_ha_discovery_enable" type="checkbox" value="1" $(if [ "$MQTT_HA_DISCOVERY_ENABLE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="mqtt_ha_discovery_enable">Enable HA MQTT Discovery (retained topics)</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_ha_discovery_prefix" name="mqtt_ha_discovery_prefix" type="text" value="$MQTT_HA_DISCOVERY_PREFIX" />
+                        </div>
+                        <p class="help">Discovery prefix (default <code>homeassistant</code>)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Power</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="power_estimate_enable" value="0" />
+                            <input class="switch" id="power_estimate_enable" name="power_estimate_enable" type="checkbox" value="1" $(if [ "$POWER_ESTIMATE_ENABLE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="power_estimate_enable">Enable estimated power draw (CPU-safe)</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="power_estimate_base_mw" name="power_estimate_base_mw" type="number" min="500" max="10000" value="$POWER_ESTIMATE_BASE_MW" />
+                        </div>
+                        <p class="help">Base power (mW)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="power_estimate_cpu_scale_mw" name="power_estimate_cpu_scale_mw" type="number" min="0" max="5000" value="$POWER_ESTIMATE_CPU_SCALE_MW" />
+                        </div>
+                        <p class="help">CPU scaling at 100% load (mW)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="power_estimate_ir_led_mw" name="power_estimate_ir_led_mw" type="number" min="0" max="5000" value="$POWER_ESTIMATE_IR_LED_MW" />
+                        </div>
+                        <p class="help">IR LED add-on (mW)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="power_sensor_path" name="power_sensor_path" type="text" value="$POWER_SENSOR_PATH" />
+                        </div>
+                        <p class="help">Voltage sensor path (<code>auto</code> or absolute path)</p>
+                    </div>
+                </div>
+            </div>
+            <p class="help">MQTT commands currently supported: <code>reboot</code>, <code>snapshot</code>, <code>profile:&lt;balanced|low-cpu|rtsp-only&gt;</code>.</p>
+            <p class="help">Power draw is estimated unless measured with an external USB meter.</p>
         </form>
     </div>
 </div>
 
+<!-- Motion event API -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Motion Event API</p></header>
+    <div class='card-content'>
+        <p>Use these local endpoints for Home Assistant automations and dashboards:</p>
+        <ul>
+            <li><a href="cgi-bin/motionevents.cgi?limit=20" target="_blank">Recent events JSON</a> (<code>cgi-bin/motionevents.cgi?limit=20</code>)</li>
+            <li><a href="cgi-bin/motionthumb.cgi" target="_blank">Latest motion thumbnail</a> (<code>cgi-bin/motionthumb.cgi</code>)</li>
+        </ul>
+        <p class="help">`motionevents.cgi` supports <code>limit</code> and optional <code>type</code> filter. `motionthumb.cgi` supports optional <code>file</code> from the motion snapshot folder.</p>
+    </div>
+</div>
+
+EOF
+
+if [ "$default_password_active" -eq 1 ]; then
+cat << EOF
+  <article class="message is-danger">
+    <div class="message-header">
+      <p>Security warning</p>
+    </div>
+    <div class="message-body">
+      Default credentials are still active ($default_password_reason). Change password now in this section.
+    </div>
+  </article>
+EOF
+fi
+
+cat << EOF
 <!-- All services Password -->
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>HTTP/RTSP/Telnet Password</p></header>
@@ -781,6 +1119,32 @@ cat << EOF
                     <div class="field">
                         <div class="control">
                             <button id="presetSubmit" class="button is-primary" type="submit">Apply preset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+        <form id="formClientProfilePreset" action="cgi-bin/action.cgi?cmd=set_client_profile" method="post">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Client preset</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select name="client_profile">
+                                    <option value="ha-frigate">HA Frigate (dual stream, detection-friendly)</option>
+                                    <option value="nvr-low-cpu">NVR low-CPU (main stream only)</option>
+                                    <option value="high-quality">High quality (max detail)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help">One-click ONVIF/RTSP tuning for common NVR clients.</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="clientProfileSubmit" class="button is-primary" type="submit">Apply client preset</button>
                         </div>
                     </div>
                 </div>
