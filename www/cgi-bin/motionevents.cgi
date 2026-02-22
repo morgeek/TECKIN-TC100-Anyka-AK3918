@@ -33,7 +33,14 @@ sanitize_int_range()
 }
 
 limit="$(sanitize_int_range "${F_limit:-20}" 1 200 20)"
-type_filter="$(printf '%s' "${F_type:-}" | tr '\r\n' '  ')"
+type_filter="${F_type:-}"
+case "$type_filter" in
+  motion_on|motion_off)
+    ;;
+  *)
+    type_filter=""
+    ;;
+esac
 
 if [ ! -f "$EVENT_LOG" ]; then
   echo '{"items":[],"count":0,"latest_thumbnail":"cgi-bin/motionthumb.cgi"}'

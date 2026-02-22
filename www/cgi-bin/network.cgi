@@ -6,6 +6,8 @@ echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 source ./func.cgi
 PATH="/bin:/sbin:/usr/bin:/usr/sbin"
+NETSTAT_LISTEN_MAX_LINES=220
+NETSTAT_CONNECTIONS_MAX_LINES=320
 
 if [ -r /mnt/scripts/common_functions.sh ]; then
   . /mnt/scripts/common_functions.sh
@@ -31,6 +33,7 @@ read_cfg() {
   if [ -z "$value" ] && [ -r "/mnt/config/$conf" ]; then
     value="$(awk -F= -v key="$key" '$1==key{print $2; exit}' "/mnt/config/$conf" 2>/dev/null)"
   fi
+  value="$(printf '%s' "$value" | sed 's/\r//g; s/^[[:space:]]*//; s/[[:space:]]*$//')"
   [ -n "$value" ] || value="$fallback"
   printf '%s\n' "$value"
 }
@@ -47,11 +50,45 @@ sanitize_port() {
   printf '%s\n' "$value"
 }
 
+to_lower_ascii() {
+  printf '%s' "$1" | awk '{print tolower($0)}'
+}
+
 is_truthy_local() {
-  case "$1" in
+  token="$(printf '%s' "$1" | sed 's/\r//g; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+  token="$(to_lower_ascii "$token")"
+  case "$token" in
     1|true|on|yes|enabled) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+capture_limited_output() {
+  max_lines="$1"
+  shift
+  "$@" 2>/dev/null | awk -v max="$max_lines" '
+    NR <= max {
+      print
+      next
+    }
+    NR == (max + 1) {
+      printf "... (truncated to %d lines)\n", max
+      exit
+    }
+  '
+}
+
+normalize_web_mode() {
+  mode="$(printf '%s' "$1" | sed 's/\r//g; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+  mode="$(to_lower_ascii "$mode")"
+  case "$mode" in
+    ultralite) mode="ultra-lite" ;;
+  esac
+  case "$mode" in
+    full|http|ultra-lite|off) ;;
+    *) mode="full" ;;
+  esac
+  printf '%s\n' "$mode"
 }
 
 LISTEN_TCP="$(netstat -lnt 2>/dev/null)"
@@ -105,7 +142,7 @@ emit_port_row() {
     "$service_name" "$port" "$(status_badge "$runtime_state")" "$expected_label" "$note"
 }
 
-web_mode="$(printf '%s' "$(read_cfg boot.conf WEB_MODE full)" | tr '[:upper:]' '[:lower:]')"
+web_mode="$(normalize_web_mode "$(read_cfg boot.conf WEB_MODE full)")"
 ultralite_http_port="$(sanitize_port "$(read_cfg boot.conf ULTRALITE_HTTP_PORT 80)" 80)"
 rtsp_port="$(sanitize_port "$(read_cfg rtspserver.conf PORT 554)" 554)"
 onvif_port="$(sanitize_port "$(read_cfg onvif.conf ONVIF_PORT 8081)" 8081)"
@@ -171,8 +208,8 @@ EOF
 interfaces_text="$(ifconfig 2>/dev/null; iwconfig 2>/dev/null)"
 routes_text="$(route 2>/dev/null)"
 dns_text="$(cat /etc/resolv.conf 2>/dev/null)"
-listen_text="$(netstat -l 2>/dev/null)"
-connections_text="$(netstat 2>/dev/null)"
+listen_text="$(capture_limited_output "$NETSTAT_LISTEN_MAX_LINES" netstat -l)"
+connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" netstat)"
 
 primary_ip="$(printf '%s\n' "$interfaces_text" | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
 [ -n "$primary_ip" ] || primary_ip="n/a"
@@ -180,7 +217,15 @@ primary_ip="$(printf '%s\n' "$interfaces_text" | sed -n -e 's/.*inet addr:\([0-9
 default_gateway="$(printf '%s\n' "$routes_text" | awk '$1=="default" || $1=="0.0.0.0"{print $2; exit}')"
 [ -n "$default_gateway" ] || default_gateway="n/a"
 
-dns_servers="$(printf '%s\n' "$dns_text" | awk '/^nameserver[[:space:]]+/{print $2}' | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+dns_servers="$(printf '%s\n' "$dns_text" | awk '
+  /^nameserver[[:space:]]+/ {
+    if (out != "") {
+      out = out " "
+    }
+    out = out $2
+  }
+  END { print out }
+')"
 [ -n "$dns_servers" ] || dns_servers="n/a"
 
 listen_tcp_count="$(printf '%s\n' "$LISTEN_TCP" | awk '$1 ~ /^tcp/{count++} END{print count+0}')"

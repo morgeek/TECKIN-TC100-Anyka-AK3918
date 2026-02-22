@@ -7,6 +7,7 @@ LIB_DIR="$PKG_ROOT/lib"
 BACKUP_ROOT="$PKG_ROOT/backup/package-upgrades"
 LOG_FILE="$PKG_ROOT/log/pkg-upgrade.log"
 LOCK_FILE="$PKG_ROOT/config/packages.lock"
+BUSYBOX_REQUIRED_APPLETS="${BUSYBOX_REQUIRED_APPLETS:-tcpsvd ftpd telnetd httpd watchdog ntpd flock gzip strings nohup date run-parts crond sendmail}"
 
 timestamp()
 {
@@ -66,22 +67,51 @@ generate_lock()
   mv "$tmp" "$out"
 }
 
-list_bundle_files()
+count_regular_files()
 {
-  bundle="$1"
-  if [ -d "$bundle/bin" ]; then
-    find "$bundle/bin" -maxdepth 1 -type f | sort
-  fi
-  if [ -d "$bundle/lib" ]; then
-    find "$bundle/lib" -maxdepth 1 -type f | sort
-  fi
+  dir="$1"
+  count=0
+  [ -d "$dir" ] || {
+    echo 0
+    return
+  }
+
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    count=$((count + 1))
+  done
+
+  echo "$count"
 }
 
-bundle_rel_path()
+busybox_has_applet()
 {
-  bundle="$1"
-  f="$2"
-  printf '%s\n' "${f#$bundle/}"
+  bb="$1"
+  applet="$2"
+  LC_ALL=C strings "$bb" 2>/dev/null | grep -x "$applet" >/dev/null 2>&1
+}
+
+validate_candidate_file()
+{
+  rel="$1"
+  src="$2"
+
+  case "$rel" in
+    bin/busybox)
+      missing=""
+      for applet in $BUSYBOX_REQUIRED_APPLETS; do
+        if ! busybox_has_applet "$src" "$applet"; then
+          missing="$missing $applet"
+        fi
+      done
+      if [ -n "$missing" ]; then
+        log_msg "Apply blocked: busybox missing required applets:$missing"
+        return 1
+      fi
+      ;;
+  esac
+
+  return 0
 }
 
 backup_file()
@@ -148,8 +178,8 @@ do_apply()
 
   has_bin=0
   has_lib=0
-  [ -d "$bundle/bin" ] && [ "$(find "$bundle/bin" -maxdepth 1 -type f | wc -l | tr -d ' ')" -gt 0 ] && has_bin=1
-  [ -d "$bundle/lib" ] && [ "$(find "$bundle/lib" -maxdepth 1 -type f | wc -l | tr -d ' ')" -gt 0 ] && has_lib=1
+  [ "$(count_regular_files "$bundle/bin")" -gt 0 ] && has_bin=1
+  [ "$(count_regular_files "$bundle/lib")" -gt 0 ] && has_lib=1
   if [ "$has_bin" -eq 0 ] && [ "$has_lib" -eq 0 ]; then
     log_msg "Apply failed: bundle has no files in bin/ or lib/"
     return 1
@@ -162,33 +192,71 @@ do_apply()
   : > "$manifest"
 
   rollback_needed=0
-  for src in $(list_bundle_files "$bundle"); do
-    rel="$(bundle_rel_path "$bundle" "$src")"
-    dst="$PKG_ROOT/$rel"
-    tmp="$dst.new.$$"
+  if [ -d "$bundle/bin" ]; then
+    for src in "$bundle/bin"/*; do
+      [ -f "$src" ] || continue
+      rel="bin/$(basename "$src")"
+      dst="$PKG_ROOT/$rel"
+      tmp="$dst.new.$$"
 
-    if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
-      log_msg "Apply blocked: target does not exist in baseline: $rel"
-      rollback_needed=1
-      break
-    fi
+      if ! validate_candidate_file "$rel" "$src"; then
+        rollback_needed=1
+        break
+      fi
 
-    backup_file "$dst" "$backup_dir/current/$rel"
-    printf '%s\n' "$rel" >> "$manifest"
+      if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+        log_msg "Apply blocked: target does not exist in baseline: $rel"
+        rollback_needed=1
+        break
+      fi
 
-    cp "$src" "$tmp"
-    case "$rel" in
-      bin/*) chmod 0755 "$tmp" ;;
-      lib/*) chmod 0644 "$tmp" ;;
-    esac
+      backup_file "$dst" "$backup_dir/current/$rel"
+      printf '%s\n' "$rel" >> "$manifest"
 
-    if ! mv "$tmp" "$dst"; then
-      rm -f "$tmp" >/dev/null 2>&1 || true
-      log_msg "Apply failed while replacing $rel"
-      rollback_needed=1
-      break
-    fi
-  done
+      cp "$src" "$tmp"
+      chmod 0755 "$tmp"
+
+      if ! mv "$tmp" "$dst"; then
+        rm -f "$tmp" >/dev/null 2>&1 || true
+        log_msg "Apply failed while replacing $rel"
+        rollback_needed=1
+        break
+      fi
+    done
+  fi
+
+  if [ "$rollback_needed" -eq 0 ] && [ -d "$bundle/lib" ]; then
+    for src in "$bundle/lib"/*; do
+      [ -f "$src" ] || continue
+      rel="lib/$(basename "$src")"
+      dst="$PKG_ROOT/$rel"
+      tmp="$dst.new.$$"
+
+      if ! validate_candidate_file "$rel" "$src"; then
+        rollback_needed=1
+        break
+      fi
+
+      if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+        log_msg "Apply blocked: target does not exist in baseline: $rel"
+        rollback_needed=1
+        break
+      fi
+
+      backup_file "$dst" "$backup_dir/current/$rel"
+      printf '%s\n' "$rel" >> "$manifest"
+
+      cp "$src" "$tmp"
+      chmod 0644 "$tmp"
+
+      if ! mv "$tmp" "$dst"; then
+        rm -f "$tmp" >/dev/null 2>&1 || true
+        log_msg "Apply failed while replacing $rel"
+        rollback_needed=1
+        break
+      fi
+    done
+  fi
 
   if [ "$rollback_needed" -eq 1 ]; then
     log_msg "Apply failed. Rolling back from $id"

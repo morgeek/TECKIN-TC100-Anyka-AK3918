@@ -24,11 +24,32 @@ Remove the MicroSD card and reboot to return to factory behavior.
 * CPU-aware controls:
   * Stream topology selector
   * RTSP presets (Full / Medium / Low, FPS capped at 25)
+  * RTSP quality profiles (1080p H264/H265 + main-only max quality)
+  * Auto-rollback stream safety check (RTSP health validation after apply)
+  * Known-good snapshot save/restore for stream settings
   * Service trim mode
   * Boot-time lightweight, low-CPU, and low-RAM profiles
 * MQTT bridge for local automations (publish health/events, receive commands)
 * Motion Event API for Home Assistant (`motionevents.cgi` + `motionthumb.cgi`)
 * Security hardening mode (force HTTPS + block FTP/Telnet)
+
+## Latest optimizations (2026-02-22)
+* Stream safety guardrails:
+  * auto-rollback when RTSP health checks fail after video/profile changes
+  * known-good snapshot save/restore for fast recovery
+* Stable low-CPU behavior:
+  * low-CPU profile keeps dual RTSP endpoints usable (`video0_unicast` + `video1_unicast`)
+  * unsafe encoder dimensions are normalized automatically
+* UI and API efficiency:
+  * consolidated `statusline` payload in `state.cgi` to reduce polling overhead
+  * lazy service-state probing and compact split layout on information pages
+  * logs page supports severity colors, sortable parsed view, and download
+* Home Assistant/NVR readiness:
+  * compatibility presets plus RTSP quality presets (including max-quality 1080p)
+  * live Open Service Ports table in Network & DNS
+* Safer package workflow:
+  * hash-locked drop-in bundle builder and stricter compatibility checks
+  * verified-source tracking for safe upgrade candidates
 
 ## Network ports (cloud-free/local LAN)
 Default and optional service ports used by this project:
@@ -80,16 +101,24 @@ Remove the MicroSD card and reboot.
   * Network & DNS
   * Disk & Mounts
   * Logs
-* Information pages now use a compact responsive split layout:
+* Information pages use a compact responsive split layout.
 * Network & DNS page includes a live **Open Service Ports** table (runtime socket probe + configured expectation).
-* Logs page now has integrated controls:
+* Logs page includes integrated controls:
+  * severity-aware color tags and summary chips
+  * sortable parsed table (`Line`, `Time`, `Severity`, `Message`)
+  * raw/table view switch
+  * one-click download of the currently displayed log
+  * refresh and clear-current actions
 * Settings page supports **Basic/All** density mode and collapsible cards.
 * Settings now include a one-click **Performance profile** selector (Balanced / Low CPU / RTSP+ONVIF only).
 * Settings now include **Web server mode** control (`full` / `http` / `ultra-lite` / `off`) with ultra-lite port input.
-* Settings now include **Client presets** for ONVIF/RTSP consumers:
+* Settings now include **Compatibility presets** for ONVIF/RTSP consumers:
+  * Universal H264 (recommended)
   * HA Frigate
-  * NVR low-CPU
-  * High quality
+  * Hybrid HEVC main + H264 sub
+  * Legacy main-only H264
+* Settings now include a **Setup Wizard** (password + preset + timezone/NTP + quick RTSP/ONVIF checks).
+* Video Settings include **Known-good snapshot** controls (save current / restore last known-good).
 * Settings now include an **Advanced Tuning** section for boot-level controls (Lightweight mode, Ultra-lite UI mode, NTP behavior, memory guard thresholds, RTSP/ONVIF watchdog timeouts).
 * Settings now include an **MQTT Bridge** card to configure local broker/topic/intervals, Home Assistant discovery, and power telemetry/estimation behavior.
 * Settings now include a **Motion Event API** card with direct links to local automation endpoints.
@@ -116,6 +145,7 @@ Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/
 
 ### Low CPU profile
 * `LOW_CPU_PROFILE=1` applies conservative RTSP defaults.
+* Performance profile `low-cpu` now keeps dual RTSP endpoints available (`video0_unicast` and `video1_unicast`) with safe substream geometry.
 * Optional disables:
   * `LOW_CPU_DISABLE_SUBSTREAM`
   * `LOW_CPU_DISABLE_AUDIO`
@@ -214,6 +244,10 @@ Candidate bundle layout must be:
 * `<bundle>/bin/...`
 * `<bundle>/lib/...`
 
+For the safest possible drop-ins (no behavior drift), build a hash-locked bundle from a source repo:
+* `./tools/build_hash_locked_dropin_bundle.sh /path/to/source-repo /tmp/safe-dropin-bundle`
+* this copies only files that match `config/packages.lock.dist` exactly
+
 Run compatibility gate before upload:
 * `./tools/check_bundle_compat.sh /path/to/bundle`
 
@@ -222,6 +256,7 @@ This blocks bundles that:
 * use a different dynamic loader than `/lib/ld-uClibc.so.0`
 * introduce new runtime `NEEDED` dependencies vs baseline
 * include unknown file names not present in current baseline
+* for `busybox`, miss required applets (`tcpsvd`, `ftpd`, `telnetd`, `httpd`, `watchdog`, `ntpd`, `flock`, `gzip`, `strings`, `nohup`, `date`, `run-parts`, `crond`, `sendmail`)
 
 ### Stage 3: backup + apply on camera
 Script:
@@ -253,8 +288,14 @@ Recommended checks:
 * logs in `/mnt/log/startup.log` and `/mnt/log/pkg-upgrade.log`
 
 ### Notes on available package sets
-As of **February 22, 2026**, the known TECKIN/AK3918 forks ship the same `bin/` and `lib/` package hashes as this repo baseline.
-So safe upgrades currently require a separately built and validated ARM/uClibc bundle.
+As of **February 22, 2026**, the known TECKIN/AK3918 forks still ship the same `bin/` and `lib/` package hashes as this repo baseline.
+Verified source list is tracked in:
+* `upgrade/stage-02-safe-dropins/verified-sources-2026-02-22.tsv`
+
+Safe drop-in guidance:
+* if you need guaranteed non-breaking replacement, use hash-locked bundles only
+* no newer package set has been validated as safe drop-in yet
+* BusyBox alternates tested so far were rejected by required applet checks
 
 ### Other low-load defaults
 * Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`
@@ -285,20 +326,57 @@ Legacy `\\x`-style patterns are sanitized automatically at RTSP service start.
 ## Home Assistant and local automation
 This project is designed for cloud-free LAN control and HA-friendly integrations.
 
-### ONVIF/RTSP one-click client presets
-In **Settings -> Video Settings -> Client preset**, you can apply:
+### ONVIF/RTSP one-click compatibility presets
+In **Settings -> Video Settings -> Compatibility preset**, you can apply:
+* `Universal H264 (recommended)`:
+  * widest VLC/NVR compatibility
+  * dual stream + audio
+  * ONVIF policy set to `main-primary`
 * `HA Frigate`:
   * dual stream enabled
   * audio off by default
   * ONVIF policy set to `sub-primary`
-* `NVR low-CPU`:
-  * low bitrate/fps defaults
-  * main stream only
-  * ONVIF policy set to `main-only`
-* `High quality`:
-  * higher bitrate/fps defaults
-  * dual stream + audio
+* `Hybrid HEVC main + H264 sub`:
+  * H265 main stream for better bandwidth/quality tradeoff
+  * H264 substream for compatibility with clients that cannot decode H265 sub feeds
+  * audio off
   * ONVIF policy set to `main-primary`
+* `Legacy main-only H264`:
+  * conservative main-only H264 profile
+  * substream disabled
+  * ONVIF policy set to `main-only`
+
+### RTSP high-quality profiles
+In **Settings -> Video Settings -> RTSP quality profile**, you can apply:
+* `Max quality 1080p H264 (recommended)`:
+  * best compatibility for VLC/NVR/Home Assistant
+  * dual stream (`video0_unicast` + `video1_unicast`) with audio enabled
+* `Max quality 1080p H265/HEVC`:
+  * lower bandwidth for similar quality, requires HEVC-capable clients
+  * dual stream with audio enabled
+* `Max quality main-only H264`:
+  * highest bitrate on main stream with substream disabled
+  * useful when one client only needs `video0_unicast`
+
+### Stream safety guardrails
+For video/profile changes (`set_video_size`, compatibility preset, RTSP preset, RTSP quality profile, stream topology, performance profile):
+* the backend takes a pre-change snapshot
+* applies config and runs RTSP health verification
+* if health fails, it auto-rolls back to the previous snapshot (or known-good fallback)
+* on success, the known-good snapshot is automatically refreshed
+
+### Known-good snapshots
+In **Settings -> Video Settings -> Safety snapshots**:
+* `Save known-good snapshot` stores current stream + boot stream policy values
+* `Restore known-good snapshot` re-applies that baseline and restarts RTSP/ONVIF safely
+
+### Setup Wizard
+In **Settings -> Setup Wizard**, one submit can:
+* enforce password change when defaults are still active
+* apply a compatibility preset
+* set timezone, NTP server, hostname, and NTP enable flag
+* mark setup complete in `boot.conf` (`SETUP_WIZARD_DONE=1`)
+* provide quick links for RTSP main/sub, ONVIF endpoint, and snapshot test
 
 ### Motion Event API (local HTTP/HTTPS)
 * Recent motion events JSON:
@@ -310,6 +388,15 @@ In **Settings -> Video Settings -> Client preset**, you can apply:
 
 Motion events are logged to `/mnt/log/motion-events.log`.
 
+### RTSP endpoint behavior
+* With dual stream enabled (`RTSP_SUBSTREAM=1`), use:
+  * `rtsp://<user>:<pass>@<camera-ip>:554/video0_unicast`
+  * `rtsp://<user>:<pass>@<camera-ip>:554/video1_unicast`
+* With main-only topology (`RTSP_SUBSTREAM=0`), firmware may expose:
+  * `rtsp://<user>:<pass>@<camera-ip>:554/unicast`
+
+To avoid non-working encoder configs, the backend now normalizes unsafe H265 dimensions to aligned values automatically.
+
 ### MQTT Bridge (local broker)
 Config file: `/mnt/config/mqtt.conf` (template: `config/mqtt.conf.dist`)
 
@@ -317,12 +404,22 @@ When enabled (`MQTT_ENABLE=1`), the bridge publishes:
 * `<MQTT_TOPIC_ROOT>/health` (periodic device health)
 * `<MQTT_TOPIC_ROOT>/event` (reboot/profile/web-mode/motion and other events)
 * `<MQTT_TOPIC_ROOT>/availability` (`online`/`offline`, retained)
+* `<MQTT_TOPIC_ROOT>/motion/state` (`ON`/`OFF`, retained)
+* `<MQTT_TOPIC_ROOT>/snapshot/last_path` (last local snapshot path, retained)
 
 Optional Home Assistant auto-discovery:
 * Enable `MQTT_HA_DISCOVERY_ENABLE=1` (default) to publish retained discovery configs under:
   * `<MQTT_HA_DISCOVERY_PREFIX>/sensor/<node>/.../config`
+  * `<MQTT_HA_DISCOVERY_PREFIX>/binary_sensor/<node>/.../config`
+  * `<MQTT_HA_DISCOVERY_PREFIX>/switch/<node>/.../config`
+  * `<MQTT_HA_DISCOVERY_PREFIX>/select/<node>/.../config`
   * `<MQTT_HA_DISCOVERY_PREFIX>/button/<node>/.../config`
-* Exposed HA entities include CPU, RAM, chip temperature, input voltage, estimated power, reboot button, snapshot button.
+* Exposed HA entities now include:
+  * sensors: CPU, RAM, chip temp, VIN, estimated power, uptime, profile, web mode, primary IP, storage usage
+  * binary sensors: motion active, security hardening, FTP/Telnet port state
+  * switches: motion detection, IR LED, blue LED, red LED, FTP service, telnet service
+  * select: profile preset (`balanced`, `low-cpu`, `rtsp-only`)
+  * buttons: reboot, snapshot
 
 Command topic:
 * `<MQTT_TOPIC_COMMAND>` (or default `<MQTT_TOPIC_ROOT>/command`)
@@ -333,6 +430,18 @@ Supported command payloads:
 * `profile:balanced`
 * `profile:low-cpu`
 * `profile:rtsp-only`
+* JSON command mode (recommended for HA automations):
+  * `{"cmd":"motion","value":"on|off"}`
+  * `{"cmd":"ir_led","value":"on|off"}`
+  * `{"cmd":"blue_led","value":"on|off"}`
+  * `{"cmd":"red_led","value":"on|off"}`
+  * `{"cmd":"ftp","value":"on|off"}`
+  * `{"cmd":"telnet","value":"on|off"}`
+  * `{"cmd":"rtsp","value":"on|off"}`
+  * `{"cmd":"onvif","value":"on|off"}`
+  * `{"cmd":"profile","value":"balanced|low-cpu|rtsp-only"}`
+  * `{"cmd":"health"}` (force immediate health publish)
+  * `{"cmd":"discovery"}` (republish HA discovery configs)
 
 Power draw note:
 * On-device power is estimated from configurable model values (`POWER_ESTIMATE_*`) and optional voltage sensor input (`POWER_SENSOR_PATH`).

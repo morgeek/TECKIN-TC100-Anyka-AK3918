@@ -15,8 +15,36 @@
           <button class="button is-small" data-tab="2" type="button">dmesg</button>
           <button class="button is-small" data-tab="3" type="button">video server</button>
         </div>
-        <button class="button is-small is-light" id="logsRefreshBtn" type="button">Refresh</button>
-        <p class="help">Click to view the selected log. Double-click a tab to clear that log.</p>
+        <div class="logs-actions">
+          <button class="button is-small is-light" id="logsRefreshBtn" type="button">Refresh</button>
+          <button class="button is-small is-light" id="logsDownloadBtn" type="button">Download</button>
+          <button class="button is-small is-warning is-light" id="logsClearBtn" type="button">Clear current</button>
+        </div>
+        <div class="logs-toolbar">
+          <div class="logs-toolbar-row">
+            <label class="logs-toolbar-label" for="logsViewMode">View</label>
+            <div class="select is-small">
+              <select id="logsViewMode">
+                <option value="table">Parsed table</option>
+                <option value="raw">Raw text</option>
+              </select>
+            </div>
+          </div>
+          <div class="logs-toolbar-row">
+            <label class="logs-toolbar-label" for="logsSortBy">Sort</label>
+            <div class="select is-small">
+              <select id="logsSortBy">
+                <option value="line">Line</option>
+                <option value="time">Time</option>
+                <option value="severity">Severity</option>
+                <option value="message">Message</option>
+              </select>
+            </div>
+            <button class="button is-small is-light" id="logsSortDir" type="button">Desc</button>
+          </div>
+        </div>
+        <div class="logs-summary" id="logsSummary"></div>
+        <p class="help">Severity is auto-detected from each line. Click column headers to sort. Double-click a tab to clear that log.</p>
       </div>
     </div>
   </div>
@@ -33,6 +61,7 @@
       </header>
       <div class="card-content">
         <div id="logsOutput" class="logs-output-box">Loading logs...</div>
+        <pre id="logsRawOutput" class="logs-raw-output is-hidden"></pre>
       </div>
     </div>
   </div>
@@ -42,9 +71,16 @@
 (function () {
   var tabsContainer = document.getElementById("logsTabs");
   var output = document.getElementById("logsOutput");
+  var rawOutput = document.getElementById("logsRawOutput");
   var title = document.getElementById("logsTitle");
   var refreshBtn = document.getElementById("logsRefreshBtn");
-  if (!tabsContainer || !output || !title) {
+  var clearBtn = document.getElementById("logsClearBtn");
+  var downloadBtn = document.getElementById("logsDownloadBtn");
+  var sortBySelect = document.getElementById("logsSortBy");
+  var sortDirBtn = document.getElementById("logsSortDir");
+  var viewModeSelect = document.getElementById("logsViewMode");
+  var summaryNode = document.getElementById("logsSummary");
+  if (!tabsContainer || !output || !rawOutput || !title) {
     return;
   }
 
@@ -53,7 +89,41 @@
     "2": "dmesg",
     "3": "video server",
   };
-  var currentTab = "1";
+  var tabFileNames = {
+    "1": "summary",
+    "2": "dmesg",
+    "3": "video-server",
+  };
+
+  var severityMeta = {
+    critical: { label: "Critical", weight: 600, className: "sev-critical" },
+    error: { label: "Error", weight: 500, className: "sev-error" },
+    warning: { label: "Warning", weight: 400, className: "sev-warning" },
+    notice: { label: "Notice", weight: 300, className: "sev-notice" },
+    info: { label: "Info", weight: 200, className: "sev-info" },
+    debug: { label: "Debug", weight: 100, className: "sev-debug" },
+    unknown: { label: "Unknown", weight: 0, className: "sev-unknown" },
+  };
+
+  var kernelLevelMap = {
+    0: "critical",
+    1: "critical",
+    2: "critical",
+    3: "error",
+    4: "warning",
+    5: "notice",
+    6: "info",
+    7: "debug",
+  };
+
+  var state = {
+    currentTab: "1",
+    rawText: "",
+    entries: [],
+    sortBy: "line",
+    sortDir: "desc",
+    viewMode: "table",
+  };
 
   function setActiveTabButton(tab) {
     Array.prototype.slice.call(tabsContainer.querySelectorAll("button[data-tab]")).forEach(function (btn) {
@@ -63,16 +133,262 @@
 
   function setLoadingState() {
     output.textContent = "Loading logs...";
+    rawOutput.textContent = "";
+  }
+
+  function setErrorState() {
+    output.innerHTML =
+      "<article class='message is-danger'><div class='message-header'><p>Log error</p></div><div class='message-body'>Unable to load log output.</div></article>";
+    rawOutput.textContent = "";
+  }
+
+  function toText(html) {
+    var node = document.createElement("div");
+    node.innerHTML = html;
+    return (node.textContent || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\r\n/g, "\n")
+      .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+      .replace(/\0/g, "");
+  }
+
+  function detectSeverity(line) {
+    var kmsg = line.match(/^\s*<([0-7])>/);
+    if (kmsg) {
+      return kernelLevelMap[Number(kmsg[1])] || "unknown";
+    }
+
+    var lower = line.toLowerCase();
+    if (/\b(panic|fatal|critical|crit|alert|emerg)\b/.test(lower)) {
+      return "critical";
+    }
+    if (/\b(err|error|fail|failed|fault)\b/.test(lower)) {
+      return "error";
+    }
+    if (/\b(warn|warning)\b/.test(lower)) {
+      return "warning";
+    }
+    if (/\b(notice)\b/.test(lower)) {
+      return "notice";
+    }
+    if (/\b(debug|trace|verbose)\b/.test(lower)) {
+      return "debug";
+    }
+    if (/\b(info|started|ready|enabled|listen|connected|online)\b/.test(lower)) {
+      return "info";
+    }
+    return "unknown";
+  }
+
+  function extractTimeInfo(line) {
+    var iso = line.match(/\b(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})\b/);
+    if (iso) {
+      var isoMillis = Date.parse(iso[1].replace(" ", "T"));
+      if (!isNaN(isoMillis)) {
+        return { value: isoMillis, label: iso[1] };
+      }
+    }
+
+    var syslog = line.match(/^([A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})/);
+    if (syslog) {
+      var year = new Date().getFullYear();
+      var sysDate = Date.parse(syslog[1] + " " + year);
+      if (!isNaN(sysDate)) {
+        return { value: sysDate, label: syslog[1] };
+      }
+    }
+
+    var uptime = line.match(/^\[\s*([0-9]+\.[0-9]+)\]/);
+    if (uptime) {
+      var seconds = Number(uptime[1]);
+      return { value: seconds, label: uptime[0] };
+    }
+
+    return { value: null, label: "n/a" };
+  }
+
+  function parseEntries(rawText) {
+    var lines = rawText.split(/\n/);
+    var parsed = [];
+    for (var i = 0; i < lines.length; i += 1) {
+      var line = lines[i];
+      var trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      var sevKey = detectSeverity(trimmed);
+      var sev = severityMeta[sevKey] || severityMeta.unknown;
+      var time = extractTimeInfo(trimmed);
+
+      parsed.push({
+        lineNo: i + 1,
+        message: trimmed,
+        severityKey: sevKey,
+        severityLabel: sev.label,
+        severityClass: sev.className,
+        severityWeight: sev.weight,
+        timeLabel: time.label,
+        timeValue: time.value,
+      });
+    }
+    return parsed;
+  }
+
+  function sortEntries(entries) {
+    var direction = state.sortDir === "asc" ? 1 : -1;
+    var sorted = entries.slice();
+    sorted.sort(function (a, b) {
+      var result = 0;
+      if (state.sortBy === "time") {
+        var av = a.timeValue == null ? Number.NEGATIVE_INFINITY : a.timeValue;
+        var bv = b.timeValue == null ? Number.NEGATIVE_INFINITY : b.timeValue;
+        result = av - bv;
+      } else if (state.sortBy === "severity") {
+        result = a.severityWeight - b.severityWeight;
+      } else if (state.sortBy === "message") {
+        result = a.message.localeCompare(b.message);
+      } else {
+        result = a.lineNo - b.lineNo;
+      }
+
+      if (result === 0) {
+        result = a.lineNo - b.lineNo;
+      }
+      return result * direction;
+    });
+    return sorted;
+  }
+
+  function renderSummary(entries) {
+    if (!summaryNode) {
+      return;
+    }
+    var counts = {
+      critical: 0,
+      error: 0,
+      warning: 0,
+      notice: 0,
+      info: 0,
+      debug: 0,
+      unknown: 0,
+    };
+    entries.forEach(function (entry) {
+      counts[entry.severityKey] += 1;
+    });
+    var total = entries.length;
+    summaryNode.innerHTML = "";
+
+    function addChip(text, className) {
+      var chip = document.createElement("span");
+      chip.className = "logs-summary-chip " + className;
+      chip.textContent = text;
+      summaryNode.appendChild(chip);
+    }
+
+    addChip("Total: " + total, "sev-total");
+    addChip("Critical: " + counts.critical, "sev-critical");
+    addChip("Error: " + counts.error, "sev-error");
+    addChip("Warning: " + counts.warning, "sev-warning");
+    addChip("Notice: " + counts.notice, "sev-notice");
+    addChip("Info: " + counts.info, "sev-info");
+    addChip("Debug: " + counts.debug, "sev-debug");
+  }
+
+  function renderTable(entries) {
+    var sorted = sortEntries(entries);
+    output.innerHTML = "";
+
+    if (!sorted.length) {
+      output.textContent = "No log lines available.";
+      return;
+    }
+
+    var wrap = document.createElement("div");
+    wrap.className = "logs-table-wrap";
+    var table = document.createElement("table");
+    table.className = "table is-fullwidth is-hoverable logs-table";
+    table.innerHTML =
+      "<thead><tr>" +
+      "<th><button class='logs-sort-btn' type='button' data-sort='line'>Line</button></th>" +
+      "<th><button class='logs-sort-btn' type='button' data-sort='time'>Time</button></th>" +
+      "<th><button class='logs-sort-btn' type='button' data-sort='severity'>Severity</button></th>" +
+      "<th><button class='logs-sort-btn' type='button' data-sort='message'>Message</button></th>" +
+      "</tr></thead>";
+    var tbody = document.createElement("tbody");
+
+    sorted.forEach(function (entry) {
+      var row = document.createElement("tr");
+      row.className = "logs-row " + entry.severityClass;
+
+      var lineNo = document.createElement("td");
+      lineNo.textContent = String(entry.lineNo);
+
+      var time = document.createElement("td");
+      time.textContent = entry.timeLabel;
+
+      var severity = document.createElement("td");
+      var sevTag = document.createElement("span");
+      sevTag.className = "logs-severity-tag " + entry.severityClass;
+      sevTag.textContent = entry.severityLabel;
+      severity.appendChild(sevTag);
+
+      var message = document.createElement("td");
+      message.className = "logs-message-cell";
+      message.textContent = entry.message;
+
+      row.appendChild(lineNo);
+      row.appendChild(time);
+      row.appendChild(severity);
+      row.appendChild(message);
+      tbody.appendChild(row);
+    });
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    output.appendChild(wrap);
+  }
+
+  function renderRaw() {
+    rawOutput.textContent = state.rawText || "No log output.";
+  }
+
+  function applyView() {
+    var showRaw = state.viewMode === "raw";
+    output.classList.toggle("is-hidden", showRaw);
+    rawOutput.classList.toggle("is-hidden", !showRaw);
+  }
+
+  function render() {
+    renderSummary(state.entries);
+    renderTable(state.entries);
+    renderRaw();
+    applyView();
+    if (sortBySelect) {
+      sortBySelect.value = state.sortBy;
+    }
+    if (sortDirBtn) {
+      sortDirBtn.textContent = state.sortDir === "asc" ? "Asc" : "Desc";
+    }
+    if (viewModeSelect) {
+      viewModeSelect.value = state.viewMode;
+    }
+  }
+
+  function refreshStateFromResponse(html) {
+    state.rawText = toText(html).trim();
+    state.entries = parseEntries(state.rawText);
+    render();
   }
 
   function loadLog(tab, clearMode) {
-    currentTab = String(tab || "1");
-    setActiveTabButton(currentTab);
-    title.textContent = tabNames[currentTab] || "Logs";
+    state.currentTab = String(tab || "1");
+    setActiveTabButton(state.currentTab);
+    title.textContent = tabNames[state.currentTab] || "Logs";
     setLoadingState();
 
     var cmd = clearMode ? "clearlog" : "showlog";
-    var body = "logname=" + encodeURIComponent(currentTab);
+    var body = "logname=" + encodeURIComponent(state.currentTab);
 
     fetch("cgi-bin/action.cgi?cmd=" + cmd, {
       method: "POST",
@@ -84,13 +400,39 @@
         return r.text();
       })
       .then(function (html) {
-        output.innerHTML = html;
+        refreshStateFromResponse(html);
       })
       .catch(function (err) {
         console.error(err);
-        output.innerHTML =
-          "<article class='message is-danger'><div class='message-header'><p>Log error</p></div><div class='message-body'>Unable to load log output.</div></article>";
+        setErrorState();
       });
+  }
+
+  function downloadCurrentLog() {
+    if (!state.rawText) {
+      return;
+    }
+    var now = new Date();
+    var stamp =
+      now.getFullYear().toString() +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      String(now.getDate()).padStart(2, "0") +
+      "-" +
+      String(now.getHours()).padStart(2, "0") +
+      String(now.getMinutes()).padStart(2, "0") +
+      String(now.getSeconds()).padStart(2, "0");
+    var baseName = tabFileNames[state.currentTab] || "logs";
+    var filename = baseName + "-" + stamp + ".log";
+
+    var blob = new Blob([state.rawText + "\n"], { type: "text/plain;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   tabsContainer.addEventListener("click", function (event) {
@@ -109,12 +451,61 @@
     loadLog(btn.getAttribute("data-tab"), true);
   });
 
+  output.addEventListener("click", function (event) {
+    var btn = event.target.closest(".logs-sort-btn");
+    if (!btn) {
+      return;
+    }
+    var key = btn.getAttribute("data-sort");
+    if (!key) {
+      return;
+    }
+    if (state.sortBy === key) {
+      state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+    } else {
+      state.sortBy = key;
+      state.sortDir = key === "message" ? "asc" : "desc";
+    }
+    render();
+  });
+
   if (refreshBtn) {
     refreshBtn.addEventListener("click", function () {
-      loadLog(currentTab, false);
+      loadLog(state.currentTab, false);
     });
   }
 
-  loadLog(currentTab, false);
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      loadLog(state.currentTab, true);
+    });
+  }
+
+  if (downloadBtn) {
+    downloadBtn.addEventListener("click", downloadCurrentLog);
+  }
+
+  if (sortBySelect) {
+    sortBySelect.addEventListener("change", function () {
+      state.sortBy = sortBySelect.value || "line";
+      render();
+    });
+  }
+
+  if (sortDirBtn) {
+    sortDirBtn.addEventListener("click", function () {
+      state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+      render();
+    });
+  }
+
+  if (viewModeSelect) {
+    viewModeSelect.addEventListener("change", function () {
+      state.viewMode = viewModeSelect.value || "table";
+      applyView();
+    });
+  }
+
+  loadLog(state.currentTab, false);
 })();
 </script>

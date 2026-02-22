@@ -1,0 +1,12 @@
+# macOS Finder metadata
+.DS_Store
+
+# Runtime artifacts generated during local upgrade/testing
+log/*.log
+!log/.gitignore
+
+# Local host-side backup snapshots
+backup/package-upgrades/
+
+# Accidental local symlink; runtime script recreates this on camera when needed
+lib/libcurl.so.4
