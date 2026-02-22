@@ -796,8 +796,199 @@ a.button[disabled]:hover {
   color: #fff;
 }
 
+.logs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.logs-toolbar {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.6rem;
+}
+
+.logs-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.logs-toolbar-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--ui-muted);
+  min-width: 2.6rem;
+}
+
+.logs-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+
+.logs-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--ui-border);
+  padding: 0.16rem 0.52rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.logs-summary-chip.sev-total {
+  border-color: rgba(25, 58, 93, 0.28);
+  color: #234060;
+}
+
+.logs-summary-chip.sev-critical {
+  border-color: rgba(161, 21, 21, 0.38);
+  color: #8f1515;
+  background: rgba(255, 228, 228, 0.86);
+}
+
+.logs-summary-chip.sev-error {
+  border-color: rgba(198, 47, 47, 0.35);
+  color: #a32a2a;
+  background: rgba(255, 235, 235, 0.86);
+}
+
+.logs-summary-chip.sev-warning {
+  border-color: rgba(192, 132, 16, 0.38);
+  color: #8f6409;
+  background: rgba(255, 244, 219, 0.9);
+}
+
+.logs-summary-chip.sev-notice {
+  border-color: rgba(43, 110, 194, 0.32);
+  color: #1f5b9c;
+  background: rgba(231, 243, 255, 0.9);
+}
+
+.logs-summary-chip.sev-info {
+  border-color: rgba(26, 117, 80, 0.34);
+  color: #1d7654;
+  background: rgba(229, 248, 238, 0.9);
+}
+
+.logs-summary-chip.sev-debug {
+  border-color: rgba(96, 108, 124, 0.3);
+  color: #4f6075;
+  background: rgba(237, 242, 248, 0.9);
+}
+
 .logs-output-box {
-  min-height: 16rem;
+  min-height: 14rem;
+}
+
+.logs-table-wrap {
+  max-height: 66vh;
+  overflow: auto;
+  border: 1px solid var(--ui-border-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.logs-table {
+  margin-bottom: 0;
+  min-width: 720px;
+  font-size: 0.82rem;
+}
+
+.logs-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(236, 244, 253, 0.96);
+}
+
+.logs-sort-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+.logs-sort-btn:hover {
+  color: var(--ui-primary-dark);
+}
+
+.logs-severity-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.logs-row .logs-message-cell {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.logs-row.sev-critical .logs-severity-tag {
+  border-color: rgba(161, 21, 21, 0.42);
+  background: rgba(255, 228, 228, 0.92);
+  color: #8f1515;
+}
+
+.logs-row.sev-error .logs-severity-tag {
+  border-color: rgba(198, 47, 47, 0.38);
+  background: rgba(255, 235, 235, 0.92);
+  color: #a32a2a;
+}
+
+.logs-row.sev-warning .logs-severity-tag {
+  border-color: rgba(192, 132, 16, 0.42);
+  background: rgba(255, 244, 219, 0.92);
+  color: #8f6409;
+}
+
+.logs-row.sev-notice .logs-severity-tag {
+  border-color: rgba(43, 110, 194, 0.35);
+  background: rgba(231, 243, 255, 0.92);
+  color: #1f5b9c;
+}
+
+.logs-row.sev-info .logs-severity-tag {
+  border-color: rgba(26, 117, 80, 0.36);
+  background: rgba(229, 248, 238, 0.92);
+  color: #1d7654;
+}
+
+.logs-row.sev-debug .logs-severity-tag,
+.logs-row.sev-unknown .logs-severity-tag {
+  border-color: rgba(96, 108, 124, 0.3);
+  background: rgba(237, 242, 248, 0.92);
+  color: #4f6075;
+}
+
+.logs-raw-output {
+  margin: 0;
+  max-height: 66vh;
+  overflow: auto;
+  background: rgba(10, 38, 67, 0.05);
+  border-radius: 12px;
+  padding: 0.8rem;
+  font-size: 0.82rem;
+  line-height: 1.46;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .logs-output-box pre {
@@ -989,6 +1180,12 @@ body.ui-ultra-lite .app-toolbar {
     max-height: 48vh;
   }
 
+  .logs-table {
+    min-width: 620px;
+  }
+
+  .logs-table-wrap,
+  .logs-raw-output,
   .logs-output-box pre {
     max-height: 54vh;
   }

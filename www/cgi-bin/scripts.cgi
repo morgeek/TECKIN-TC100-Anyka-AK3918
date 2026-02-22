@@ -170,14 +170,22 @@ if [ -n "$F_script" ]; then
           running=0
           autostart_enabled=0
 
-          if grep -Eq '^start[[:space:]]*\(\)' "$SCRIPT_HOME/$script"; then
-            has_start=1
-          fi
-          if grep -Eq '^stop[[:space:]]*\(\)' "$SCRIPT_HOME/$script"; then
-            has_stop=1
-          fi
-          if grep -Eq '^status[[:space:]]*\(\)' "$SCRIPT_HOME/$script"; then
-            has_status=1
+          # Parse start/stop/status function presence in one pass to keep
+          # state polling lightweight when the Services page checks each row.
+          function_flags="$(awk '
+            BEGIN { s=0; t=0; u=0 }
+            /^[[:space:]]*start[[:space:]]*\(\)/  { s=1 }
+            /^[[:space:]]*stop[[:space:]]*\(\)/   { t=1 }
+            /^[[:space:]]*status[[:space:]]*\(\)/ { u=1 }
+            END { printf "%s %s %s", s, t, u }
+          ' "$SCRIPT_HOME/$script" 2>/dev/null)"
+          has_start=0
+          has_stop=0
+          has_status=0
+          if [ -n "$function_flags" ]; then
+            IFS=' ' read -r has_start has_stop has_status <<EOF
+$function_flags
+EOF
           fi
 
           if [ -f "$AUTOSTART_DIR/$script" ]; then

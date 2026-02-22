@@ -112,6 +112,98 @@ power_estimate_enabled()
   is_truthy_local "$POWER_ESTIMATE_ENABLE"
 }
 
+read_kv_config_value()
+{
+  conf_path="$1"
+  conf_key="$2"
+  conf_default="$3"
+  conf_value="$conf_default"
+
+  if [ -r "$conf_path" ]; then
+    conf_value="$(awk -F= -v key="$conf_key" '
+      $0 !~ /^[[:space:]]*#/ && $1 == key {print $2; exit}
+    ' "$conf_path" 2>/dev/null)"
+  fi
+  [ -n "$conf_value" ] || conf_value="$conf_default"
+  printf '%s' "$conf_value"
+}
+
+security_hardening_enabled_runtime()
+{
+  value="$(read_kv_config_value /mnt/config/boot.conf SECURITY_HARDENING_MODE 0)"
+  is_truthy_local "$value"
+}
+
+service_script_running_int()
+{
+  script_path="$1"
+  if [ ! -x "$script_path" ]; then
+    echo "0"
+    return
+  fi
+  script_status="$("$script_path" status 2>/dev/null)"
+  if [ -n "$script_status" ]; then
+    echo "1"
+  else
+    echo "0"
+  fi
+}
+
+normalize_toggle_value()
+{
+  value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  case "$value" in
+    on|1|true|start|enable|enabled)
+      echo "on"
+      ;;
+    off|0|false|stop|disable|disabled)
+      echo "off"
+      ;;
+    toggle)
+      echo "toggle"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+read_int_file_value()
+{
+  file_path="$1"
+  default_value="$2"
+  result="$default_value"
+  if [ -r "$file_path" ]; then
+    read -r raw_value < "$file_path"
+    case "$raw_value" in
+      ''|*[!0-9]*) raw_value="$default_value" ;;
+    esac
+    result="$raw_value"
+  fi
+  printf '%s' "$result"
+}
+
+port_open_from_list_int()
+{
+  listen_data="$1"
+  port="$2"
+  if printf '%s\n' "$listen_data" | awk -v port="$port" '
+    $1 ~ /^tcp/ {
+      local_addr=$4
+      split(local_addr, parts, ":")
+      if (parts[length(parts)] == port) {
+        found=1
+        exit
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  '; then
+    echo "1"
+  else
+    echo "0"
+  fi
+}
+
 mqtt_url()
 {
   topic="$1"
@@ -265,6 +357,13 @@ publish_availability()
   mqtt_publish_topic_suffix "availability" "$state" 1 >/dev/null 2>&1 || true
 }
 
+publish_discovery_config()
+{
+  cfg_topic="$1"
+  cfg_payload="$2"
+  mqtt_publish_raw "$cfg_topic" "$cfg_payload" 1 >/dev/null 2>&1 || true
+}
+
 publish_homeassistant_discovery()
 {
   if ! ha_discovery_enabled; then
@@ -280,37 +379,120 @@ publish_homeassistant_discovery()
   discovery_prefix="$MQTT_HA_DISCOVERY_PREFIX"
   root_json="$(json_escape "$MQTT_TOPIC_ROOT")"
   cmd_json="$(json_escape "$MQTT_TOPIC_COMMAND")"
+  health_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/health")"
+  motion_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/motion/state")"
   avail_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/availability")"
   device_name_json="$(json_escape "$hostname_value")"
   device_id_json="$(json_escape "$node_id")"
+  cmd_profile_tpl_json="$(json_escape "{\"cmd\":\"profile\",\"value\":\"{{ value }}\"}")"
+  cmd_motion_on_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"on\"}")"
+  cmd_motion_off_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"off\"}")"
+  cmd_ir_on_json="$(json_escape "{\"cmd\":\"ir_led\",\"value\":\"on\"}")"
+  cmd_ir_off_json="$(json_escape "{\"cmd\":\"ir_led\",\"value\":\"off\"}")"
+  cmd_blue_on_json="$(json_escape "{\"cmd\":\"blue_led\",\"value\":\"on\"}")"
+  cmd_blue_off_json="$(json_escape "{\"cmd\":\"blue_led\",\"value\":\"off\"}")"
+  cmd_red_on_json="$(json_escape "{\"cmd\":\"red_led\",\"value\":\"on\"}")"
+  cmd_red_off_json="$(json_escape "{\"cmd\":\"red_led\",\"value\":\"off\"}")"
+  cmd_ftp_on_json="$(json_escape "{\"cmd\":\"ftp\",\"value\":\"on\"}")"
+  cmd_ftp_off_json="$(json_escape "{\"cmd\":\"ftp\",\"value\":\"off\"}")"
+  cmd_telnet_on_json="$(json_escape "{\"cmd\":\"telnet\",\"value\":\"on\"}")"
+  cmd_telnet_off_json="$(json_escape "{\"cmd\":\"telnet\",\"value\":\"off\"}")"
 
   cpu_cfg_topic="${discovery_prefix}/sensor/${node_id}/cpu/config"
-  cpu_cfg_payload="$(printf '{"name":"%s CPU","uniq_id":"%s_cpu","stat_t":"%s/health","unit_of_meas":"%%","dev_cla":null,"stat_cla":"measurement","val_tpl":"{{ value_json.cpu }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:chip","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$root_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  mqtt_publish_raw "$cpu_cfg_topic" "$cpu_cfg_payload" 1 >/dev/null 2>&1 || true
+  cpu_cfg_payload="$(printf '{"name":"%s CPU","uniq_id":"%s_cpu","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.cpu }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:chip","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$cpu_cfg_topic" "$cpu_cfg_payload"
 
   ram_cfg_topic="${discovery_prefix}/sensor/${node_id}/ram/config"
-  ram_cfg_payload="$(printf '{"name":"%s RAM","uniq_id":"%s_ram","stat_t":"%s/health","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.ram_percent }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:memory","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$root_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  mqtt_publish_raw "$ram_cfg_topic" "$ram_cfg_payload" 1 >/dev/null 2>&1 || true
+  ram_cfg_payload="$(printf '{"name":"%s RAM","uniq_id":"%s_ram","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.ram_percent }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:memory","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$ram_cfg_topic" "$ram_cfg_payload"
 
   temp_cfg_topic="${discovery_prefix}/sensor/${node_id}/chip_temp/config"
-  temp_cfg_payload="$(printf '{"name":"%s Chip Temp","uniq_id":"%s_chip_temp","stat_t":"%s/health","unit_of_meas":"C","dev_cla":"temperature","stat_cla":"measurement","val_tpl":"{{ value_json.chip_temp_c if value_json.chip_temp_c is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:thermometer","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$root_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  mqtt_publish_raw "$temp_cfg_topic" "$temp_cfg_payload" 1 >/dev/null 2>&1 || true
+  temp_cfg_payload="$(printf '{"name":"%s Chip Temp","uniq_id":"%s_chip_temp","stat_t":"%s","unit_of_meas":"C","dev_cla":"temperature","stat_cla":"measurement","val_tpl":"{{ value_json.chip_temp_c if value_json.chip_temp_c is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:thermometer","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$temp_cfg_topic" "$temp_cfg_payload"
 
   power_cfg_topic="${discovery_prefix}/sensor/${node_id}/power_draw/config"
-  power_cfg_payload="$(printf '{"name":"%s Power","uniq_id":"%s_power","stat_t":"%s/health","unit_of_meas":"W","dev_cla":"power","stat_cla":"measurement","val_tpl":"{{ (value_json.power_estimated_mw | float(0) / 1000) | round(2) if value_json.power_estimated_mw is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:flash","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$root_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  mqtt_publish_raw "$power_cfg_topic" "$power_cfg_payload" 1 >/dev/null 2>&1 || true
+  power_cfg_payload="$(printf '{"name":"%s Power","uniq_id":"%s_power","stat_t":"%s","unit_of_meas":"W","dev_cla":"power","stat_cla":"measurement","val_tpl":"{{ (value_json.power_estimated_mw | float(0) / 1000) | round(2) if value_json.power_estimated_mw is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:flash","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$power_cfg_topic" "$power_cfg_payload"
 
   vin_cfg_topic="${discovery_prefix}/sensor/${node_id}/input_voltage/config"
-  vin_cfg_payload="$(printf '{"name":"%s Input Voltage","uniq_id":"%s_vin","stat_t":"%s/health","unit_of_meas":"V","dev_cla":"voltage","stat_cla":"measurement","val_tpl":"{{ (value_json.power_voltage_mv | float(0) / 1000) | round(3) if value_json.power_voltage_mv is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:power-plug","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$root_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  mqtt_publish_raw "$vin_cfg_topic" "$vin_cfg_payload" 1 >/dev/null 2>&1 || true
+  vin_cfg_payload="$(printf '{"name":"%s Input Voltage","uniq_id":"%s_vin","stat_t":"%s","unit_of_meas":"V","dev_cla":"voltage","stat_cla":"measurement","val_tpl":"{{ (value_json.power_voltage_mv | float(0) / 1000) | round(3) if value_json.power_voltage_mv is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:power-plug","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$vin_cfg_topic" "$vin_cfg_payload"
+
+  uptime_cfg_topic="${discovery_prefix}/sensor/${node_id}/uptime/config"
+  uptime_cfg_payload="$(printf '{"name":"%s Uptime","uniq_id":"%s_uptime","stat_t":"%s","unit_of_meas":"s","dev_cla":"duration","stat_cla":"measurement","val_tpl":"{{ value_json.uptime_seconds }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$uptime_cfg_topic" "$uptime_cfg_payload"
+
+  profile_state_cfg_topic="${discovery_prefix}/sensor/${node_id}/profile_state/config"
+  profile_state_cfg_payload="$(printf '{"name":"%s Profile","uniq_id":"%s_profile_state","stat_t":"%s","val_tpl":"{{ value_json.perfprofile }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$profile_state_cfg_topic" "$profile_state_cfg_payload"
+
+  web_mode_cfg_topic="${discovery_prefix}/sensor/${node_id}/web_mode/config"
+  web_mode_cfg_payload="$(printf '{"name":"%s Web Mode","uniq_id":"%s_web_mode","stat_t":"%s","val_tpl":"{{ value_json.web_mode }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:web","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$web_mode_cfg_topic" "$web_mode_cfg_payload"
+
+  ip_cfg_topic="${discovery_prefix}/sensor/${node_id}/primary_ip/config"
+  ip_cfg_payload="$(printf '{"name":"%s IP","uniq_id":"%s_primary_ip","stat_t":"%s","val_tpl":"{{ value_json.primary_ip }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:ip-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$ip_cfg_topic" "$ip_cfg_payload"
+
+  storage_used_cfg_topic="${discovery_prefix}/sensor/${node_id}/storage_used_percent/config"
+  storage_used_cfg_payload="$(printf '{"name":"%s Storage Used","uniq_id":"%s_storage_used","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.storage_used_percent }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:database","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$storage_used_cfg_topic" "$storage_used_cfg_payload"
+
+  storage_free_cfg_topic="${discovery_prefix}/sensor/${node_id}/storage_free_mb/config"
+  storage_free_cfg_payload="$(printf '{"name":"%s Storage Free","uniq_id":"%s_storage_free_mb","stat_t":"%s","unit_of_meas":"MB","stat_cla":"measurement","val_tpl":"{{ value_json.storage_avail_mb }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:database-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$storage_free_cfg_topic" "$storage_free_cfg_payload"
+
+  security_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/security_hardening/config"
+  security_cfg_payload="$(printf '{"name":"%s Security Hardening","uniq_id":"%s_security_hardening","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.security_hardening_mode == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:shield-lock","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$security_cfg_topic" "$security_cfg_payload"
+
+  motion_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/motion_active/config"
+  motion_cfg_payload="$(printf '{"name":"%s Motion Active","uniq_id":"%s_motion_active","stat_t":"%s","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$motion_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$motion_cfg_topic" "$motion_cfg_payload"
+
+  ftp_port_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/ftp_port/config"
+  ftp_port_cfg_payload="$(printf '{"name":"%s FTP Port","uniq_id":"%s_ftp_port","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.port_ftp_open == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:folder-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$ftp_port_cfg_topic" "$ftp_port_cfg_payload"
+
+  telnet_port_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/telnet_port/config"
+  telnet_port_cfg_payload="$(printf '{"name":"%s Telnet Port","uniq_id":"%s_telnet_port","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.port_telnet_open == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:console-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$telnet_port_cfg_topic" "$telnet_port_cfg_payload"
 
   reboot_cfg_topic="${discovery_prefix}/button/${node_id}/reboot/config"
   reboot_cfg_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","pl_prs":"reboot","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  mqtt_publish_raw "$reboot_cfg_topic" "$reboot_cfg_payload" 1 >/dev/null 2>&1 || true
+  publish_discovery_config "$reboot_cfg_topic" "$reboot_cfg_payload"
 
   snapshot_cfg_topic="${discovery_prefix}/button/${node_id}/snapshot/config"
   snapshot_cfg_payload="$(printf '{"name":"%s Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","pl_prs":"snapshot","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  mqtt_publish_raw "$snapshot_cfg_topic" "$snapshot_cfg_payload" 1 >/dev/null 2>&1 || true
+  publish_discovery_config "$snapshot_cfg_topic" "$snapshot_cfg_payload"
+
+  profile_select_cfg_topic="${discovery_prefix}/select/${node_id}/profile/config"
+  profile_select_cfg_payload="$(printf '{"name":"%s Profile Preset","uniq_id":"%s_profile_select","cmd_t":"%s","stat_t":"%s","options":["balanced","low-cpu","rtsp-only"],"val_tpl":"{{ value_json.perfprofile }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune-variant","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_profile_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$profile_select_cfg_topic" "$profile_select_cfg_payload"
+
+  motion_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/motion_detection/config"
+  motion_switch_cfg_payload="$(printf '{"name":"%s Motion Detection","uniq_id":"%s_motion_detection","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.motion_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_motion_on_json" "$cmd_motion_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$motion_switch_cfg_topic" "$motion_switch_cfg_payload"
+
+  ir_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/ir_led/config"
+  ir_switch_cfg_payload="$(printf '{"name":"%s IR LED","uniq_id":"%s_ir_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.ir_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lightbulb-night","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_ir_on_json" "$cmd_ir_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$ir_switch_cfg_topic" "$ir_switch_cfg_payload"
+
+  blue_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/blue_led/config"
+  blue_switch_cfg_payload="$(printf '{"name":"%s Blue LED","uniq_id":"%s_blue_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.blue_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:led-on","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_blue_on_json" "$cmd_blue_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$blue_switch_cfg_topic" "$blue_switch_cfg_payload"
+
+  red_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/red_led/config"
+  red_switch_cfg_payload="$(printf '{"name":"%s Red LED","uniq_id":"%s_red_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.red_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:led-on","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_red_on_json" "$cmd_red_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$red_switch_cfg_topic" "$red_switch_cfg_payload"
+
+  ftp_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/ftp_service/config"
+  ftp_switch_cfg_payload="$(printf '{"name":"%s FTP Service","uniq_id":"%s_ftp_service","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.ftp_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:folder-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_ftp_on_json" "$cmd_ftp_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$ftp_switch_cfg_topic" "$ftp_switch_cfg_payload"
+
+  telnet_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/telnet_service/config"
+  telnet_switch_cfg_payload="$(printf '{"name":"%s Telnet Service","uniq_id":"%s_telnet_service","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.telnet_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:console-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_telnet_on_json" "$cmd_telnet_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$telnet_switch_cfg_topic" "$telnet_switch_cfg_payload"
 }
 
 build_health_payload()
@@ -328,6 +510,14 @@ build_health_payload()
     esac
   else
     uptime_seconds=0
+  fi
+
+  reboot_epoch=0
+  if [ -r /proc/stat ]; then
+    reboot_epoch="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
+    case "$reboot_epoch" in
+      ''|*[!0-9]*) reboot_epoch=0 ;;
+    esac
   fi
 
   cpu="$(get_current_cpu_usage 2>/dev/null)"
@@ -373,12 +563,17 @@ build_health_payload()
 
   web_mode="full"
   profile="balanced"
+  security_hardening_mode=0
+  ultralite_http_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/boot.conf ULTRALITE_HTTP_PORT 80)" 1 65535 80)"
   if [ -f /mnt/config/boot.conf ]; then
     # shellcheck disable=SC1090
     . /mnt/config/boot.conf
     web_mode="${WEB_MODE:-full}"
     if [ "${LOW_CPU_PROFILE:-0}" = "1" ]; then
       profile="low-cpu"
+    fi
+    if is_truthy_local "${SECURITY_HARDENING_MODE:-0}"; then
+      security_hardening_mode=1
     fi
   fi
   if [ -f /mnt/config/service_trim.conf ]; then
@@ -389,20 +584,99 @@ build_health_payload()
     fi
   fi
 
+  ftp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/ftp.conf PORT 21)" 1 65535 21)"
+  telnet_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/telnetd.conf TELNET_PORT 23)" 1 65535 23)"
+  rtsp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/rtspserver.conf PORT 554)" 1 65535 554)"
+  onvif_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 1 65535 8081)"
+
+  http_port=80
+  case "$web_mode" in
+    ultra-lite|ultralite)
+      http_port="$ultralite_http_port"
+      ;;
+  esac
+
+  motion_enabled="$(service_script_running_int /mnt/controlscripts/motion-detection)"
+  ftp_enabled="$(service_script_running_int /mnt/controlscripts/ftp-server)"
+  telnet_enabled="$(service_script_running_int /mnt/controlscripts/telnet-server)"
+  rtsp_enabled="$(service_script_running_int /mnt/controlscripts/rtsp-h26x)"
+  onvif_enabled="$(service_script_running_int /mnt/controlscripts/onvif)"
+
+  blue_led_on="$(read_int_file_value /sys/class/leds/blue_led/brightness 0)"
+  red_led_on="$(read_int_file_value /sys/class/leds/red_led/brightness 0)"
+  ir_led_on="$(read_int_file_value /sys/user-gpio/ir-led 0)"
+
+  motion_active=0
+  if [ -x /mnt/bin/getflag ] && [ -f /tmp/rec_control ]; then
+    motion_active="$(/mnt/bin/getflag /tmp/rec_control 2>/dev/null)"
+    case "$motion_active" in
+      ''|*[!0-9]*) motion_active=0 ;;
+    esac
+  fi
+  case "$motion_active" in
+    1) motion_state_payload="ON" ;;
+    *) motion_state_payload="OFF" ;;
+  esac
+
+  primary_ip="$(ifconfig 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
+  [ -n "$primary_ip" ] || primary_ip="n/a"
+  dns_server_count="$(awk '/^nameserver[[:space:]]+/{count++} END{print count+0}' /etc/resolv.conf 2>/dev/null)"
+  case "$dns_server_count" in
+    ''|*[!0-9]*) dns_server_count=0 ;;
+  esac
+
+  storage_total_kb=0
+  storage_used_kb=0
+  storage_avail_kb=0
+  storage_used_percent=0
+  df_line="$(df -k /mnt 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
+  if [ -z "$df_line" ]; then
+    df_line="$(df -k / 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
+  fi
+  set -- $df_line
+  storage_total_kb="$1"
+  storage_used_kb="$2"
+  storage_avail_kb="$3"
+  storage_used_text="$4"
+  case "$storage_total_kb" in ''|*[!0-9]*) storage_total_kb=0 ;; esac
+  case "$storage_used_kb" in ''|*[!0-9]*) storage_used_kb=0 ;; esac
+  case "$storage_avail_kb" in ''|*[!0-9]*) storage_avail_kb=0 ;; esac
+  storage_used_percent="$(printf '%s' "$storage_used_text" | tr -cd '0-9')"
+  case "$storage_used_percent" in ''|*[!0-9]*) storage_used_percent=0 ;; esac
+  if [ "$storage_used_percent" -le 0 ] && [ "$storage_total_kb" -gt 0 ]; then
+    storage_used_percent=$((100 * storage_used_kb / storage_total_kb))
+  fi
+  storage_total_mb=$((storage_total_kb / 1024))
+  storage_used_mb=$((storage_used_kb / 1024))
+  storage_avail_mb=$((storage_avail_kb / 1024))
+
+  listen_tcp="$(netstat -lnt 2>/dev/null)"
+  if [ -z "$listen_tcp" ]; then
+    listen_tcp="$(netstat -ln 2>/dev/null)"
+  fi
+  port_https_open="$(port_open_from_list_int "$listen_tcp" 443)"
+  port_http_open="$(port_open_from_list_int "$listen_tcp" "$http_port")"
+  port_rtsp_open="$(port_open_from_list_int "$listen_tcp" "$rtsp_port")"
+  port_onvif_open="$(port_open_from_list_int "$listen_tcp" "$onvif_port")"
+  port_ftp_open="$(port_open_from_list_int "$listen_tcp" "$ftp_port")"
+  port_telnet_open="$(port_open_from_list_int "$listen_tcp" "$telnet_port")"
+
   hostname_value="$(hostname 2>/dev/null)"
   hostname_json="$(json_escape "$hostname_value")"
   web_mode_json="$(json_escape "$web_mode")"
   profile_json="$(json_escape "$profile")"
   power_sensor_path_json="$(json_escape "$power_sensor_path")"
+  primary_ip_json="$(json_escape "$primary_ip")"
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s"}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"blue_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$blue_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open"
 }
 
 publish_health()
 {
   payload="$(build_health_payload)"
   mqtt_publish_topic_suffix "health" "$payload" 0
+  mqtt_publish_topic_suffix "motion/state" "$motion_state_payload" 1 >/dev/null 2>&1 || true
 }
 
 publish_event_simple()
@@ -469,12 +743,12 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
       rewrite_config /mnt/config/boot.conf LOW_RAM_PROFILE 1
       rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE 1
-      rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 1
+      rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_AUDIO 1
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 1
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_OSD 1
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG 1
-      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 0
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 1
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
@@ -514,6 +788,76 @@ apply_profile_command()
   return 0
 }
 
+apply_toggle_command()
+{
+  cmd="$1"
+  requested_value="$(normalize_toggle_value "$2")"
+  if [ -z "$requested_value" ]; then
+    return 2
+  fi
+
+  case "$cmd" in
+    motion|motion_detection)
+      script="/mnt/controlscripts/motion-detection"
+      ;;
+    ir_led)
+      script="/mnt/controlscripts/ir-led"
+      ;;
+    blue_led)
+      script="/mnt/controlscripts/blue-led"
+      ;;
+    red_led)
+      script="/mnt/controlscripts/red-led"
+      ;;
+    ftp)
+      if security_hardening_enabled_runtime; then
+        return 3
+      fi
+      script="/mnt/controlscripts/ftp-server"
+      ;;
+    telnet)
+      if security_hardening_enabled_runtime; then
+        return 3
+      fi
+      script="/mnt/controlscripts/telnet-server"
+      ;;
+    rtsp)
+      script="/mnt/controlscripts/rtsp-h26x"
+      ;;
+    onvif)
+      script="/mnt/controlscripts/onvif"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  [ -x "$script" ] || return 1
+
+  action="$requested_value"
+  if [ "$requested_value" = "toggle" ]; then
+    if [ "$(service_script_running_int "$script")" = "1" ]; then
+      action="off"
+    else
+      action="on"
+    fi
+  fi
+
+  case "$action" in
+    on)
+      "$script" start >/dev/null 2>&1 || return 1
+      ;;
+    off)
+      "$script" stop >/dev/null 2>&1 || return 1
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+
+  return 0
+}
+
 handle_command_payload()
 {
   payload_raw="$(printf '%s' "$1" | tr -d '\r')"
@@ -542,14 +886,31 @@ handle_command_payload()
         value="${value#=}"
         value="${value# }"
         ;;
+      *:*)
+        cmd="${payload_trimmed%%:*}"
+        value="${payload_trimmed#*:}"
+        ;;
+      *=*)
+        cmd="${payload_trimmed%%=*}"
+        value="${payload_trimmed#*=}"
+        ;;
+      *_on)
+        cmd="${payload_trimmed%_on}"
+        value="on"
+        ;;
+      *_off)
+        cmd="${payload_trimmed%_off}"
+        value="off"
+        ;;
       *)
         cmd="$payload_trimmed"
         ;;
     esac
   fi
 
-  cmd="$(printf '%s' "$cmd" | tr '[:upper:]' '[:lower:]')"
+  cmd="$(printf '%s' "$cmd" | tr '[:upper:]' '[:lower:]' | tr '-' '_' | sed 's/[[:space:]]\+/_/g')"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  refresh_state=0
 
   case "$cmd" in
     reboot)
@@ -564,21 +925,55 @@ handle_command_payload()
         [ -n "$now_ts" ] || now_ts=0
         payload=$(printf '{"ts":%s,"type":"snapshot.manual","snapshot":"%s"}' "$now_ts" "$shot_json")
         mqtt_publish_topic_suffix "event" "$payload" 0
+        mqtt_publish_topic_suffix "snapshot/last_path" "$shot_path" 1 >/dev/null 2>&1 || true
       else
         publish_event_simple "command.snapshot" "failed"
       fi
+      refresh_state=1
       ;;
     profile)
       if apply_profile_command "$value"; then
         publish_event_simple "command.profile" "$value"
+        refresh_state=1
       else
         publish_event_simple "command.profile" "invalid:$value"
       fi
+      ;;
+    motion|motion_detection|ir_led|blue_led|red_led|ftp|telnet|rtsp|onvif)
+      if apply_toggle_command "$cmd" "$value"; then
+        publish_event_simple "command.${cmd}" "${value:-toggle}"
+        refresh_state=1
+      else
+        toggle_rc=$?
+        case "$toggle_rc" in
+          3)
+            publish_event_simple "command.${cmd}" "blocked:security_hardening"
+            ;;
+          2)
+            publish_event_simple "command.${cmd}" "invalid-value:${value}"
+            ;;
+          *)
+            publish_event_simple "command.${cmd}" "failed:${value}"
+            ;;
+        esac
+      fi
+      ;;
+    discovery|ha_discovery|discovery_refresh)
+      publish_homeassistant_discovery
+      publish_event_simple "command.discovery" "published"
+      ;;
+    health|health_now)
+      publish_health >/dev/null 2>&1 || true
+      publish_event_simple "command.health" "published"
       ;;
     *)
       publish_event_simple "command.unknown" "$payload_trimmed"
       ;;
   esac
+
+  if [ "$refresh_state" -eq 1 ]; then
+    publish_health >/dev/null 2>&1 || true
+  fi
 }
 
 subscribe_once_command()

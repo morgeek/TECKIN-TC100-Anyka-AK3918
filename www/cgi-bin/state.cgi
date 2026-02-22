@@ -593,7 +593,8 @@ default_password_active_flag() {
   http_hash=""
   if [ -r /mnt/config/lighttpd.user ]; then
     IFS=: read -r _ _ http_hash < /mnt/config/lighttpd.user
-    http_hash="$(printf '%s' "$http_hash" | tr -d '\r\n')"
+    # Keep compatibility with minimal BusyBox builds where `tr` may be absent.
+    http_hash="$(printf '%s' "$http_hash" | sed 's/\r//g')"
     if [ "$http_hash" = "$default_hash" ]; then
       default_active=1
     fi

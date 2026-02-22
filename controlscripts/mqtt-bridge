@@ -5,14 +5,14 @@ PIDFILE="/var/run/mqtt-bridge.pid"
 status()
 {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ -n "$pid" ]; then
-    kill -0 "$pid" >/dev/null 2>&1 && echo "PID: $pid" || return 1
+  if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+    echo "PID: $pid"
   fi
 }
 
 start()
 {
-  if status >/dev/null 2>&1; then
+  if [ -n "$(status)" ]; then
     echo "MQTT bridge already running"
     return 0
   fi

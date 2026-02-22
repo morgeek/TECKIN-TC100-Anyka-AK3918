@@ -11,10 +11,11 @@ usage() {
 Usage: tools/check_bundle_compat.sh <bundle_dir>
 
 Checks whether a candidate package bundle is likely compatible with this camera:
-- ARM 32-bit EABI5 ELF only
+- ELF payloads must be ARM 32-bit EABI5
 - Dynamic binaries must use /lib/ld-uClibc.so.0
 - New runtime dependencies vs baseline are rejected
 - Only known baseline file names are accepted by default
+- Non-ELF files are allowed only when the baseline file is also non-ELF
 
 Expected bundle layout:
   <bundle_dir>/bin/<files...>
@@ -35,6 +36,11 @@ is_arm_eabi5_elf() {
   local out
   out="$(file "$f")"
   [[ "$out" == *"ELF 32-bit LSB"* && "$out" == *"ARM"* && "$out" == *"EABI5"* ]]
+}
+
+is_elf() {
+  local f="$1"
+  file "$f" | grep -q "ELF"
 }
 
 get_needed_sorted() {
@@ -66,6 +72,29 @@ check_no_new_needed() {
   return 0
 }
 
+check_busybox_applets() {
+  local cand="$1"
+  # Applets required by this project runtime/control scripts.
+  local required="tcpsvd ftpd telnetd httpd watchdog ntpd flock gzip strings nohup date run-parts crond sendmail"
+  local missing=""
+  local s_file
+  s_file="$(mktemp)"
+  LC_ALL=C strings "$cand" > "$s_file" 2>/dev/null || true
+
+  for applet in $required; do
+    if ! grep -qx "$applet" "$s_file"; then
+      missing="$missing $applet"
+    fi
+  done
+  rm -f "$s_file"
+
+  if [[ -n "$missing" ]]; then
+    echo "    missing required BusyBox applets:${missing}"
+    return 1
+  fi
+  return 0
+}
+
 if [[ $# -ne 1 ]]; then
   usage
   exit 1
@@ -74,8 +103,11 @@ fi
 require_cmd file
 require_cmd objdump
 require_cmd awk
+require_cmd grep
+require_cmd mktemp
 require_cmd sort
 require_cmd comm
+require_cmd strings
 
 BUNDLE_DIR="$1"
 if [[ ! -d "$BUNDLE_DIR" ]]; then
@@ -107,22 +139,37 @@ if [[ -d "$BUNDLE_DIR/bin" ]]; then
       continue
     fi
 
-    if ! is_arm_eabi5_elf "$cand"; then
-      echo "  ERROR: expected ARM EABI5 ELF"
-      fail_count=$((fail_count + 1))
-      continue
-    fi
-
-    if file "$cand" | grep -q "dynamically linked"; then
-      if ! check_dynamic_interp "$cand"; then
-        echo "  ERROR: dynamic loader is not /lib/ld-uClibc.so.0"
+    if is_elf "$base"; then
+      if ! is_arm_eabi5_elf "$cand"; then
+        echo "  ERROR: expected ARM EABI5 ELF"
         fail_count=$((fail_count + 1))
+        continue
+      fi
+
+      if file "$cand" | grep -q "dynamically linked"; then
+        if ! check_dynamic_interp "$cand"; then
+          echo "  ERROR: dynamic loader is not /lib/ld-uClibc.so.0"
+          fail_count=$((fail_count + 1))
+        fi
+      fi
+
+      if ! check_no_new_needed "$base" "$cand"; then
+        echo "  ERROR: dependency profile differs from baseline"
+        fail_count=$((fail_count + 1))
+      fi
+    else
+      if is_elf "$cand"; then
+        echo "  ERROR: baseline is non-ELF but candidate is ELF"
+        fail_count=$((fail_count + 1))
+        continue
       fi
     fi
 
-    if ! check_no_new_needed "$base" "$cand"; then
-      echo "  ERROR: dependency profile differs from baseline"
-      fail_count=$((fail_count + 1))
+    if [[ "$name" == "busybox" ]]; then
+      if ! check_busybox_applets "$cand"; then
+        echo "  ERROR: busybox candidate is missing required applets"
+        fail_count=$((fail_count + 1))
+      fi
     fi
   done < <(find "$BUNDLE_DIR/bin" -maxdepth 1 -type f -print0 | sort -z)
 fi
