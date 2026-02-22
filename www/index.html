@@ -36,13 +36,20 @@
                 </a>
                 <a class="navbar-item icnbtn" href="." id="title" title="Anyka"><i class="icon-eye"></i></a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html" id="viewrecordspage" title="Records"><i class="icon-play-circle-o"></i></a>
-                <span class="navbar-item nav-sysusage-wrap" title="Current CPU, RAM and chip temperature">
+                <span class="navbar-item nav-sysusage-wrap" title="Current CPU, RAM, chip temperature and power telemetry">
                     <em id="cpuusage" class="usage-chip usage-low">CPU: ...</em>
                     <em id="ramusage" class="usage-chip usage-low">RAM: ...</em>
                     <em id="chiptemp" class="usage-chip usage-low">TEMP: ...</em>
+                    <em id="powerdraw" class="usage-chip temp-unknown">PWR: ...</em>
                 </span>
                 <span class="navbar-item nav-perfprofile-wrap" title="Current performance profile">
                     <em id="perfprofile">Profile: ...</em>
+                </span>
+                <span class="navbar-item nav-reboot-wrap" title="Last reboot time">
+                    <em id="lastreboot">Reboot: ...</em>
+                </span>
+                <span class="navbar-item nav-security-wrap" title="Credential security state">
+                    <em id="securitybadge" class="security-unknown">Security: ...</em>
                 </span>
             </div>
             <div class="navbar-menu" id="nav_menu">
@@ -60,18 +67,6 @@
                             <span>Services</span>
                         </span>
                     </a>
-                    <div class="navbar-item has-dropdown is-hoverable">
-                        <a class="navbar-link" href="javascript: void(0)">
-                            <span class="nav-icon">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v7M7.8 5.8a7 7 0 1 0 8.4 0"/></svg>
-                                <span>System</span>
-                            </span>
-                        </a>
-                        <div class="navbar-dropdown is-boxed">
-                            <a class="navbar-item prompt" href="javascript: void(0)" data-message="Are you sure you wish to reboot?" data-target="cgi-bin/action.cgi?cmd=reboot">Reboot</a>
-                            <a class="navbar-item prompt" href="javascript: void(0)" data-message="Are you sure you wish to shutdown?" data-target="cgi-bin/action.cgi?cmd=shutdown">Shutdown</a>
-                        </div>
-                    </div>
                     <div class="navbar-item has-dropdown is-hoverable">
                         <a class="navbar-link" href="javascript: void(0)">
                             <span class="nav-icon">
@@ -110,6 +105,17 @@
                                     <span>Logs</span>
                                 </span>
                             </a>
+                        </div>
+                    </div>
+                    <div class="navbar-item has-dropdown is-hoverable">
+                        <a class="navbar-link" href="javascript: void(0)" title="System" aria-label="System">
+                            <span class="nav-icon">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v7M7.8 5.8a7 7 0 1 0 8.4 0"/></svg>
+                            </span>
+                        </a>
+                        <div class="navbar-dropdown is-boxed">
+                            <a class="navbar-item prompt" href="javascript: void(0)" data-message="Are you sure you wish to reboot?" data-target="cgi-bin/action.cgi?cmd=reboot">Reboot</a>
+                            <a class="navbar-item prompt" href="javascript: void(0)" data-message="Are you sure you wish to shutdown?" data-target="cgi-bin/action.cgi?cmd=shutdown">Shutdown</a>
                         </div>
                     </div>
                 </div>

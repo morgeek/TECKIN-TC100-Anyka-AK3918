@@ -1,0 +1,48 @@
+#!/bin/sh
+SERVICE_NAME="MQTT Bridge"
+PIDFILE="/var/run/mqtt-bridge.pid"
+
+status()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  if [ -n "$pid" ]; then
+    kill -0 "$pid" >/dev/null 2>&1 && echo "PID: $pid" || return 1
+  fi
+}
+
+start()
+{
+  if status >/dev/null 2>&1; then
+    echo "MQTT bridge already running"
+    return 0
+  fi
+
+  rm -f "$PIDFILE" >/dev/null 2>&1 || true
+  /mnt/bin/busybox nohup /mnt/scripts/mqtt-bridge.sh run >/dev/null 2>&1 &
+  echo "$!" > "$PIDFILE"
+  echo "MQTT bridge started"
+}
+
+stop()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  if [ -n "$pid" ]; then
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+    kill -9 "$pid" >/dev/null 2>&1 || true
+    rm -f "$PIDFILE" >/dev/null 2>&1 || true
+    echo "MQTT bridge stopped"
+  else
+    echo "MQTT bridge is not running"
+  fi
+}
+
+if [ $# -eq 0 ]; then
+  start
+else
+  case "$1" in
+    start|stop|status)
+      "$1"
+      ;;
+  esac
+fi

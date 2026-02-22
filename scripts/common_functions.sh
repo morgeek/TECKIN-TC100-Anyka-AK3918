@@ -3,6 +3,34 @@
 # This file is supposed to bundle some frequently used functions
 # so they can be easily improved in one place and be reused all over the place
 
+BUSYBOX_BIN=""
+
+get_busybox_bin()
+{
+  if [ -n "$BUSYBOX_BIN" ] && [ -x "$BUSYBOX_BIN" ]; then
+    echo "$BUSYBOX_BIN"
+    return 0
+  fi
+
+  if [ -x /mnt/bin/busybox ]; then
+    BUSYBOX_BIN="/mnt/bin/busybox"
+  elif [ -x /bin/busybox ]; then
+    BUSYBOX_BIN="/bin/busybox"
+  elif command -v busybox >/dev/null 2>&1; then
+    BUSYBOX_BIN="$(command -v busybox)"
+  else
+    BUSYBOX_BIN="busybox"
+  fi
+
+  echo "$BUSYBOX_BIN"
+}
+
+run_busybox()
+{
+  bb_path="$(get_busybox_bin)"
+  "$bb_path" "$@"
+}
+
 
 # Replace the old value of a config_key at the cfg_path with new_value
 # Don't rewrite commented lines
@@ -156,7 +184,7 @@ http_server(){
   case "$1" in
   on)
     if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
-      /mnt/bin/busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
+      run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
     else
       /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
     fi
@@ -169,7 +197,7 @@ http_server(){
     killall lighttpd
     killall httpd
     if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
-      /mnt/bin/busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
+      run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
     else
       /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
     fi
@@ -218,13 +246,13 @@ rtsp_h26x_server(){
 activate_motion_recording()
 {
   # Set recording flag
-  /mnt/bin/busybox flock -x /tmp/rec_control echo "1" > /tmp/rec_control
+  run_busybox flock -x /tmp/rec_control echo "1" > /tmp/rec_control
 }
 
 deactivate_motion_recording()
 {
   # Reset recording flag
-  /mnt/bin/busybox flock -x /tmp/rec_control echo "0" > /tmp/rec_control
+  run_busybox flock -x /tmp/rec_control echo "0" > /tmp/rec_control
 }
 
 

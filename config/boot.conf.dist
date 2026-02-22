@@ -23,6 +23,12 @@ ULTRALITE_HTTP_PORT=80
 # - 0: normal UI behavior
 UI_ULTRALITE_MODE=0
 
+# Security hardening mode:
+# - forces WEB_MODE=full (HTTPS)
+# - disables FTP and Telnet services
+# - blocks FTP/Telnet and non-HTTPS web mode changes from the UI/API
+SECURITY_HARDENING_MODE=0
+
 # Low CPU profile (recommended for very low usage)
 # When enabled, the startup script applies conservative RTSP settings and
 # can disable substream/audio/OSD/motion/jpeg. These options are only

@@ -4,12 +4,12 @@ export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 CONFIGPATH="/mnt/config"
 LOGDIR="/mnt/log"
 LOGPATH="$LOGDIR/startup.log"
+RUNTIME_BUSYBOX="/mnt/bin/busybox"
+SYSTEM_BUSYBOX="/bin/busybox"
+BOOT_BUSYBOX="$SYSTEM_BUSYBOX"
 
 ## Load some common functions:
 . /mnt/scripts/common_functions.sh
-
-# Mount bind to extended busybox.
-mount -o bind /mnt/bin/busybox /bin/busybox
 
 install_config $CONFIGPATH/rtspserver.conf
 install_config $CONFIGPATH/boot.conf
@@ -22,6 +22,81 @@ init_log()
     if [ ! -d $LOGDIR ]; then
         mkdir -p $LOGDIR
     fi
+}
+
+log_boot()
+{
+    echo "$1" >> $LOGPATH
+}
+
+ensure_runtime_symlink()
+{
+    link_path="$1"
+    target_path="$2"
+
+    if [ ! -e "$target_path" ]; then
+        log_boot "Self-heal skipped: missing target $target_path"
+        return 1
+    fi
+
+    if [ -L "$link_path" ]; then
+        current_target="$(readlink "$link_path" 2>/dev/null)"
+        if [ "$current_target" = "$target_path" ]; then
+            return 0
+        fi
+    elif [ -e "$link_path" ]; then
+        log_boot "Self-heal skipped: $link_path exists and is not a symlink"
+        return 1
+    fi
+
+    rm -f "$link_path" 2>/dev/null
+    if ln -s "$target_path" "$link_path" 2>/dev/null; then
+        log_boot "Self-heal: linked $link_path -> $target_path"
+        return 0
+    fi
+
+    log_boot "Self-heal failed: unable to link $link_path -> $target_path"
+    return 1
+}
+
+select_boot_busybox()
+{
+    BOOT_BUSYBOX="$SYSTEM_BUSYBOX"
+
+    if [ -x "$RUNTIME_BUSYBOX" ]; then
+        if mount | grep -F "on $SYSTEM_BUSYBOX " | grep -F "$RUNTIME_BUSYBOX " > /dev/null 2>&1; then
+            log_boot "BusyBox bind already active: $RUNTIME_BUSYBOX -> $SYSTEM_BUSYBOX"
+            return 0
+        fi
+        if mount -o bind "$RUNTIME_BUSYBOX" "$SYSTEM_BUSYBOX" > /dev/null 2>&1; then
+            log_boot "BusyBox bind mounted: $RUNTIME_BUSYBOX -> $SYSTEM_BUSYBOX"
+            return 0
+        fi
+        log_boot "BusyBox bind mount failed, falling back to system busybox"
+    else
+        log_boot "Extended busybox missing at $RUNTIME_BUSYBOX, using system busybox"
+    fi
+
+    if [ -x "$SYSTEM_BUSYBOX" ]; then
+        BOOT_BUSYBOX="$SYSTEM_BUSYBOX"
+        return 0
+    fi
+
+    if command -v busybox > /dev/null 2>&1; then
+        BOOT_BUSYBOX="$(command -v busybox)"
+        log_boot "Using busybox from PATH: $BOOT_BUSYBOX"
+        return 0
+    fi
+
+    log_boot "Warning: busybox not found; watchdog/ntp/cron applets may fail"
+    return 1
+}
+
+self_heal_runtime()
+{
+    # Some upgraded bundles include versioned libs only; recreate SONAME links when safe.
+    ensure_runtime_symlink /mnt/lib/libcurl.so.4 /mnt/lib/libcurl.so.4.8.0
+    select_boot_busybox
 }
 
 is_truthy()
@@ -113,6 +188,8 @@ load_boot_config()
     : "${ENABLE_AUTOSTART:=1}"
     : "${RTSP_SUBSTREAM:=1}"
     : "${RTSP_AUDIO:=1}"
+    : "${WEB_MODE:=full}"
+    : "${SECURITY_HARDENING_MODE:=0}"
     : "${AUTOSTART_ALLOWLIST:=}"
     : "${AUTOSTART_DENYLIST:=}"
     : "${SERVICE_TRIM:=0}"
@@ -137,7 +214,17 @@ load_boot_config()
         fi
     fi
 
-    echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
+    if is_truthy "$SECURITY_HARDENING_MODE"; then
+        if [ "$WEB_MODE" != "full" ]; then
+            WEB_MODE="full"
+            rewrite_config "$CONFIGPATH/boot.conf" WEB_MODE full
+        fi
+        if [ -z "$AUTOSTART_ALLOWLIST" ] && ! list_contains "ftp-server" $AUTOSTART_DENYLIST; then
+            AUTOSTART_DENYLIST="$AUTOSTART_DENYLIST ftp-server telnet-server"
+        fi
+    fi
+
+    echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE security_hardening=$SECURITY_HARDENING_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
 }
 
 enable_hardware_watchdog()
@@ -162,7 +249,7 @@ enable_hardware_watchdog()
     #       echo 'V'>/dev/watchdog
     #       echo 'V'>/dev/watchdog0
     # Start watchdog (notify every 2 seconds, reboot if no notification in 5 seconds)
-    busybox watchdog -t 2 -T 5 /dev/watchdog
+    "$BOOT_BUSYBOX" watchdog -t 2 -T 5 /dev/watchdog
     echo "Enabling hardware watchdog" >> $LOGPATH
 }
 
@@ -245,9 +332,9 @@ sync_time()
     ntp_srv="$(cat "$CONFIGPATH/ntp_srv.conf")"
     timeout -t 30 sh -c "until ping -c1 \"$ntp_srv\" &>/dev/null; do sleep 3; done";
     if is_truthy "$NTP_ONE_SHOT"; then
-        busybox ntpd -q -n -p "$ntp_srv"
+        "$BOOT_BUSYBOX" ntpd -q -n -p "$ntp_srv"
     else
-        busybox ntpd -p "$ntp_srv"
+        "$BOOT_BUSYBOX" ntpd -p "$ntp_srv"
     fi
 }
 
@@ -268,15 +355,15 @@ init_crond()
                ${CRONPERIODIC}/monthly
       cat > ${CONFIGPATH}/cron/crontabs/root <<EOF
 # min   hour    day     month   weekday command
-*/15    *       *       *       *       busybox run-parts ${CRONPERIODIC}/15min
-0       *       *       *       *       busybox run-parts ${CRONPERIODIC}/hourly
-0       2       *       *       *       busybox run-parts ${CRONPERIODIC}/daily
-0       3       *       *       6       busybox run-parts ${CRONPERIODIC}/weekly
-0       5       1       *       *       busybox run-parts ${CRONPERIODIC}/monthly
+*/15    *       *       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/15min
+0       *       *       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/hourly
+0       2       *       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/daily
+0       3       *       *       6       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/weekly
+0       5       1       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/monthly
 EOF
       echo "Created cron directories and standard interval jobs" >> $LOGPATH
     fi
-    busybox crond -c ${CONFIGPATH}/cron/crontabs
+    "$BOOT_BUSYBOX" crond -c ${CONFIGPATH}/cron/crontabs
 }
 
 initialize_gpio()
@@ -351,6 +438,14 @@ run_autostart_scripts()
     for i in /mnt/config/autostart/*; do
         [ -e "$i" ] || continue
         script_name="$(basename "$i")"
+        if is_truthy "$SECURITY_HARDENING_MODE"; then
+            case "$script_name" in
+                ftp-server|telnet-server)
+                    echo "Skip $script_name (security hardening)" >> $LOGPATH
+                    continue
+                    ;;
+            esac
+        fi
         if [ -n "$AUTOSTART_ALLOWLIST" ]; then
             if ! list_contains "$script_name" $AUTOSTART_ALLOWLIST; then
                 echo "Skip $script_name (not in allowlist)" >> $LOGPATH
@@ -367,6 +462,55 @@ run_autostart_scripts()
     done
 }
 
+enforce_security_hardening_runtime()
+{
+    if ! is_truthy "$SECURITY_HARDENING_MODE"; then
+        return 0
+    fi
+
+    echo "Applying security hardening runtime policy" >> $LOGPATH
+    rewrite_config "$CONFIGPATH/boot.conf" SECURITY_HARDENING_MODE 1
+    rewrite_config "$CONFIGPATH/boot.conf" WEB_MODE full
+
+    for svc in ftp-server telnet-server; do
+        if [ -x "/mnt/controlscripts/$svc" ]; then
+            /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
+        fi
+        rm -f "/mnt/config/autostart/$svc" >/dev/null 2>&1 || true
+    done
+}
+
+publish_boot_event()
+{
+    if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
+        boot_ts="$(date +%s 2>/dev/null)"
+        [ -n "$boot_ts" ] || boot_ts=0
+        payload=$(printf '{"ts":%s,"type":"reboot","source":"autorun"}' "$boot_ts")
+        /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
+    fi
+}
+
+start_mqtt_bridge_if_enabled()
+{
+    install_config "$CONFIGPATH/mqtt.conf"
+
+    mqtt_enable=0
+    # shellcheck disable=SC1090
+    if [ -f "$CONFIGPATH/mqtt.conf" ]; then
+        . "$CONFIGPATH/mqtt.conf"
+        mqtt_enable="${MQTT_ENABLE:-0}"
+    fi
+
+    if ! is_truthy "$mqtt_enable"; then
+        return 0
+    fi
+
+    if [ -x /mnt/controlscripts/mqtt-bridge ]; then
+        /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1 || true
+        echo "MQTT bridge start requested (MQTT_ENABLE=1)" >> "$LOGPATH"
+    fi
+}
+
 init_password()
 {
     pass=$(cat /mnt/config/user.pwd)
@@ -374,8 +518,9 @@ init_password()
 }
 
 ##############################################################
-init_password
 init_log
+self_heal_runtime
+init_password
 load_boot_config
 echo "--------Starting Hacks--------" >> $LOGPATH
 stop_cloud
@@ -387,6 +532,9 @@ initialize_gpio
 init_rtsp_params
 apply_low_cpu_profile
 run_autostart_scripts
+enforce_security_hardening_runtime
+start_mqtt_bridge_if_enabled
+publish_boot_event
 echo "$(date)" >> $LOGPATH
 sleep 3
 sync

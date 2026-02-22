@@ -301,6 +301,8 @@
     switch (title) {
       case "System":
       case "Advanced Tuning":
+      case "MQTT Bridge":
+      case "Motion Event API":
         return "system";
       case "HTTP/RTSP/Telnet Password":
       case "HTTP Password":
@@ -565,9 +567,11 @@
       "formWebMode",
       "formResolution",
       "formRtspPreset",
+      "formClientProfilePreset",
       "formStreamTopology",
       "formOnvifPolicy",
       "formAdvancedTuning",
+      "formMqttConfig",
       "tzForm",
       "passwordForm",
       "allPasswordForm",

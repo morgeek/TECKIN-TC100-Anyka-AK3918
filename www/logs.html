@@ -1,112 +1,120 @@
-<style id="logs_custom_css">
-    #tab-content p {
-  display: none;
-}
+<div class="info-grid">
+  <div class="info-side">
+    <div class="card status_card info-card">
+      <header class="card-header">
+        <p class="card-header-title">
+          <span class="title-with-icon">
+            <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10l3 3v13H7zM14 4v3h3M10 11h7M10 15h7"/></svg>
+            <span>Log Controls</span>
+          </span>
+        </p>
+      </header>
+      <div class="card-content">
+        <div class="logs-tab-buttons" id="logsTabs">
+          <button class="button is-small is-active" data-tab="1" type="button">Summary</button>
+          <button class="button is-small" data-tab="2" type="button">dmesg</button>
+          <button class="button is-small" data-tab="3" type="button">video server</button>
+        </div>
+        <button class="button is-small is-light" id="logsRefreshBtn" type="button">Refresh</button>
+        <p class="help">Click to view the selected log. Double-click a tab to clear that log.</p>
+      </div>
+    </div>
+  </div>
 
-#tab-content p.is-active {
-  display: block;
-}
-#back-to-top {
-    position: fixed;
-    bottom: 40px;
-    right: 40px;
-    z-index: 9999;
-    width: 32px;
-    height: 32px;
-    text-align: center;
-    line-height: 30px;
-    background: #f5f5f5;
-    color: #444;
-    cursor: pointer;
-    border: 0;
-    border-radius: 2px;
-    text-decoration: none;
-    transition: opacity 0.2s ease-out;
-    opacity: 0;
-}
-#back-to-top:hover {
-    background: #e9ebec;
-}
-#back-to-top.show {
-    opacity: 1;
-}
-
-</style>
-
-
-<h1 class="is-size-4">logs</h1>
-<div class="tabs is-toggle is-fullwidth" id="tabs">
-    <ul>
-        <li class="is-active" data-tab="1">
-            <a>
-                <span class="icon is-small"><i class="fa fa-image"></i></span>
-                <span>Summary</span>
-            </a>
-        </li>
-        <li data-tab="2">
-            <a>
-                <span class="icon is-small"><i class="fa fa-music"></i></span>
-                <span>dmesg</span>
-            </a>
-        </li>
-        <li data-tab="3">
-            <a>
-                <span class="icon is-small"><i class="fa fa-file-text-o"></i></span>
-                <span>video server</span>
-            </a>
-        </li>
-    </ul>
+  <div class="info-main">
+    <div class="card status_card info-card">
+      <header class="card-header">
+        <p class="card-header-title">
+          <span class="title-with-icon">
+            <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01"/></svg>
+            <span id="logsTitle">Summary</span>
+          </span>
+        </p>
+      </header>
+      <div class="card-content">
+        <div id="logsOutput" class="logs-output-box">Loading logs...</div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<div id="tab-content">
-    <p class="is-active" data-content="1" id="tab1">
-
-    </p>
-    <p data-content="2" id="tab2">
-
-    </p>
-    <p data-content="3" id="tab3">
-    </p>
-</div>
-<a href="#" id="back-to-top" title="Back to top">&uarr;</a>
 <script type="text/javascript">
-(function(){
-  // Back to top handler
-  var back = document.getElementById('back-to-top');
-  if (back) {
-    var scrollTrigger = 100;
-    var backToTop = function(){
-      var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-      if (scrollTop > scrollTrigger) back.classList.add('show'); else back.classList.remove('show');
-    };
-    backToTop();
-    window.addEventListener('scroll', backToTop);
-    back.addEventListener('click', function(e){ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); });
+(function () {
+  var tabsContainer = document.getElementById("logsTabs");
+  var output = document.getElementById("logsOutput");
+  var title = document.getElementById("logsTitle");
+  var refreshBtn = document.getElementById("logsRefreshBtn");
+  if (!tabsContainer || !output || !title) {
+    return;
   }
 
-  // helper for single vs double click
-  function singleDoubleClick(el, single, dbl, timeout){ timeout = timeout || 300; var clicks=0, timer=null; el.addEventListener('click', function(evt){ clicks++; if (clicks===1){ timer=setTimeout(function(){ if(clicks===1) single.call(el,evt); else dbl.call(el,evt); clicks=0; }, timeout); } }); }
+  var tabNames = {
+    "1": "Summary",
+    "2": "dmesg",
+    "3": "video server",
+  };
+  var currentTab = "1";
 
-  // load initial log content and wire tabs
-  fetch('cgi-bin/action.cgi?cmd=showlog').then(function(r){ return r.text(); }).then(function(log){ var tab1=document.getElementById('tab1'); if(tab1) tab1.innerHTML=log;
-
-    var tabs = document.querySelectorAll('#tabs li'); tabs.forEach(function(li){
-      singleDoubleClick(li, function(){
-        var tab = li.getAttribute('data-tab'); var str = 'logname=' + tab;
-        fetch('cgi-bin/action.cgi?cmd=showlog', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: str}).then(function(r){ return r.text(); }).then(function(log){ document.querySelectorAll('#tab-content p').forEach(function(p){ p.innerHTML = log; }); });
-        document.querySelectorAll('#tabs li').forEach(function(x){ x.classList.remove('is-active'); });
-        li.classList.add('is-active');
-        document.querySelectorAll('#tab-content p').forEach(function(p){ p.classList.remove('is-active'); });
-        var target = document.querySelector('p[data-content="'+tab+'"]'); if(target) target.classList.add('is-active');
-      }, function(){
-        var tab = li.getAttribute('data-tab'); var str = 'logname=' + tab;
-        fetch('cgi-bin/action.cgi?cmd=clearlog', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: str}).then(function(r){ return r.text(); }).then(function(log){ document.querySelectorAll('#tab-content p').forEach(function(p){ p.innerHTML = log; }); });
-        document.querySelectorAll('#tabs li').forEach(function(x){ x.classList.remove('is-active'); });
-        li.classList.add('is-active');
-        document.querySelectorAll('#tab-content p').forEach(function(p){ p.classList.remove('is-active'); });
-        var target = document.querySelector('p[data-content="'+tab+'"]'); if(target) target.classList.add('is-active');
-      });
+  function setActiveTabButton(tab) {
+    Array.prototype.slice.call(tabsContainer.querySelectorAll("button[data-tab]")).forEach(function (btn) {
+      btn.classList.toggle("is-active", btn.getAttribute("data-tab") === tab);
     });
+  }
+
+  function setLoadingState() {
+    output.textContent = "Loading logs...";
+  }
+
+  function loadLog(tab, clearMode) {
+    currentTab = String(tab || "1");
+    setActiveTabButton(currentTab);
+    title.textContent = tabNames[currentTab] || "Logs";
+    setLoadingState();
+
+    var cmd = clearMode ? "clearlog" : "showlog";
+    var body = "logname=" + encodeURIComponent(currentTab);
+
+    fetch("cgi-bin/action.cgi?cmd=" + cmd, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body,
+      cache: "no-store",
+    })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (html) {
+        output.innerHTML = html;
+      })
+      .catch(function (err) {
+        console.error(err);
+        output.innerHTML =
+          "<article class='message is-danger'><div class='message-header'><p>Log error</p></div><div class='message-body'>Unable to load log output.</div></article>";
+      });
+  }
+
+  tabsContainer.addEventListener("click", function (event) {
+    var btn = event.target.closest("button[data-tab]");
+    if (!btn) {
+      return;
+    }
+    loadLog(btn.getAttribute("data-tab"), false);
   });
+
+  tabsContainer.addEventListener("dblclick", function (event) {
+    var btn = event.target.closest("button[data-tab]");
+    if (!btn) {
+      return;
+    }
+    loadLog(btn.getAttribute("data-tab"), true);
+  });
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", function () {
+      loadLog(currentTab, false);
+    });
+  }
+
+  loadLog(currentTab, false);
 })();
 </script>

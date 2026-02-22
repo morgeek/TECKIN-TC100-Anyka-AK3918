@@ -8,12 +8,19 @@ SCRIPT_HOME="${SCRIPT_HOME:-/mnt/controlscripts/}"
 # Allow tests to override autostart dir for safer testing
 AUTOSTART_DIR="${AUTOSTART_DIR:-/mnt/config/autostart}"
 
+is_valid_script_name() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._-]* ) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 run_status_probe() {
   script_path="$1"
   timeout_seconds="${2:-2}"
   probe_output="/tmp/scripts-status.$$.tmp"
 
-  "$script_path" status >"$probe_output" 2>/dev/null &
+  sh "$script_path" status >"$probe_output" 2>/dev/null &
   probe_pid=$!
 
   (
@@ -43,8 +50,69 @@ run_status_probe() {
   return "$probe_rc"
 }
 
+service_impact_level_for() {
+  case "$1" in
+    rtsp-h26x|recording|motion-detection|timelapse)
+      echo "heavy"
+      ;;
+    onvif|mqtt-bridge|motion-mail|motion-snapshot|telegram-bot|auto-night-detection|network-monitor)
+      echo "med"
+      ;;
+    *)
+      echo "min"
+      ;;
+  esac
+}
+
+service_impact_hint_for() {
+  case "$1" in
+    rtsp-h26x)
+      echo "Continuous video encode and streaming load."
+      ;;
+    recording)
+      echo "Video writing and rotation can be RAM and IO intensive."
+      ;;
+    motion-detection)
+      echo "Continuous detection loop uses CPU while active."
+      ;;
+    timelapse)
+      echo "Repeated capture and encoding over long periods."
+      ;;
+    onvif)
+      echo "Adds network discovery and ONVIF control workload."
+      ;;
+    mqtt-bridge)
+      echo "Low-to-medium network polling and publish workload."
+      ;;
+    motion-mail|motion-snapshot|telegram-bot)
+      echo "Triggered network tasks can spike CPU and RAM briefly."
+      ;;
+    auto-night-detection|network-monitor)
+      echo "Periodic checks with moderate overhead."
+      ;;
+    *)
+      echo "Lightweight service with minimal runtime overhead."
+      ;;
+  esac
+}
+
+service_impact_label_for() {
+  case "$1" in
+    heavy) echo "Heavy" ;;
+    med) echo "Med" ;;
+    *) echo "Min" ;;
+  esac
+}
+
 if [ -n "$F_script" ]; then
   script="${F_script##*/}"
+  if ! is_valid_script_name "$script"; then
+    echo "Content-type: application/json"
+    echo ""
+    echo "{\"status\":\"error\",\"reason\":\"invalid script name\"}"
+    exit 0
+  fi
+
   if [ -e "$SCRIPT_HOME/$script" ]; then
     case "$F_cmd" in
       start)
@@ -52,24 +120,13 @@ if [ -n "$F_script" ]; then
         echo ""
 
         echo "Running script '$script'..."
-        echo "<pre>$("$SCRIPT_HOME/$script" 2>&1)</pre>"
+        echo "<pre>$(sh "$SCRIPT_HOME/$script" start 2>&1)</pre>"
         ;;  
       disable)
-        # sanitize script name
-        script="${script##*/}"
-        case "$script" in
-          ''|*[!A-Za-z0-9._-]* )
-            echo "Content-type: application/json"
-            echo ""
-            echo "{\"status\": \"error\", \"reason\": \"invalid script name\"}"
-            ;;
-          *)
-            rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true
-            echo "Content-type: application/json"
-            echo ""
-            echo "{\"status\": \"ok\"}"
-            ;;
-        esac
+        rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true
+        echo "Content-type: application/json"
+        echo ""
+        echo "{\"status\":\"ok\",\"autostart_enabled\":0}"
         ;;
       stop)
         echo "Content-type: text/html"
@@ -77,33 +134,22 @@ if [ -n "$F_script" ]; then
         status='unknown'
         echo "Stopping script '$script'..."
         echo "<pre>"
-        "$SCRIPT_HOME/$script" stop 2>&1 && echo "OK" || echo "NOK"
+        sh "$SCRIPT_HOME/$script" stop 2>&1 && echo "OK" || echo "NOK"
         echo "</pre>"
         ;;
       enable)
-        # sanitize script name and ensure service exists
-        script="${script##*/}"
-        case "$script" in
-          ''|*[!A-Za-z0-9._-]* )
-            echo "Content-type: application/json"
-            echo ""
-            echo "{\"status\": \"error\", \"reason\": \"invalid script name\"}"
-            ;;
-          *)
-            if [ -e "$SCRIPT_HOME/$script" ]; then
-              mkdir -p "${AUTOSTART_DIR}"
-              printf "#!/bin/sh\n%s%s\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"
-              chmod +x "${AUTOSTART_DIR}/$script"
-              echo "Content-type: application/json"
-              echo ""
-              echo "{\"status\": \"ok\"}"
-            else
-              echo "Content-type: application/json"
-              echo ""
-              echo "{\"status\": \"error\", \"reason\": \"script not found\"}"
-            fi
-            ;;
-        esac
+        if [ -e "$SCRIPT_HOME/$script" ]; then
+          mkdir -p "${AUTOSTART_DIR}"
+          printf "#!/bin/sh\nsh \"%s%s\"\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"
+          chmod +x "${AUTOSTART_DIR}/$script"
+          echo "Content-type: application/json"
+          echo ""
+          echo "{\"status\":\"ok\",\"autostart_enabled\":1}"
+        else
+          echo "Content-type: application/json"
+          echo ""
+          echo "{\"status\":\"error\",\"reason\":\"script not found\"}"
+        fi
         ;;
       view)
         echo "Content-type: text/html"
@@ -112,60 +158,54 @@ if [ -n "$F_script" ]; then
         echo "<pre>$(cat "$SCRIPT_HOME/$script" 2>&1)</pre>"
         ;;
       state)
-        # sanitize script name
-        script="${script##*/}"
-        case "$script" in
-          ''|*[!A-Za-z0-9._-]* )
-            echo "Content-type: application/json"
-            echo ""
-            echo "{\"status\": \"error\", \"reason\": \"invalid script name\"}"
-            ;;
-          *)
-            if [ ! -x "$SCRIPT_HOME/$script" ]; then
-              echo "Content-type: application/json"
-              echo ""
-              echo "{\"status\": \"error\", \"reason\": \"script not found\"}"
+        if [ ! -f "$SCRIPT_HOME/$script" ]; then
+          echo "Content-type: application/json"
+          echo ""
+          echo "{\"status\":\"error\",\"reason\":\"script not found\"}"
+        else
+          has_start=0
+          has_stop=0
+          has_status=0
+          state="unknown"
+          running=0
+          autostart_enabled=0
+
+          if grep -Eq '^start[[:space:]]*\(\)' "$SCRIPT_HOME/$script"; then
+            has_start=1
+          fi
+          if grep -Eq '^stop[[:space:]]*\(\)' "$SCRIPT_HOME/$script"; then
+            has_stop=1
+          fi
+          if grep -Eq '^status[[:space:]]*\(\)' "$SCRIPT_HOME/$script"; then
+            has_status=1
+          fi
+
+          if [ -f "$AUTOSTART_DIR/$script" ]; then
+            autostart_enabled=1
+          fi
+
+          if [ "$has_status" -eq 1 ]; then
+            status_output="$(run_status_probe "$SCRIPT_HOME/$script" 2)"
+            status_rc=$?
+            if [ "$status_rc" -eq 0 ]; then
+              if [ -n "$status_output" ]; then
+                state="running"
+                running=1
+              else
+                state="stopped"
+              fi
+            elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
+              state="timeout"
             else
-              has_start=0
-              has_stop=0
-              has_status=0
-              state="unknown"
-              running=0
-
-              if grep -q "^start()" "$SCRIPT_HOME/$script"; then
-                has_start=1
-              fi
-              if grep -q "^stop()" "$SCRIPT_HOME/$script"; then
-                has_stop=1
-              fi
-              if grep -q "^status()" "$SCRIPT_HOME/$script"; then
-                has_status=1
-              fi
-
-              if [ "$has_status" -eq 1 ]; then
-                status_output="$(run_status_probe "$SCRIPT_HOME/$script" 2)"
-                status_rc=$?
-                if [ "$status_rc" -eq 0 ]; then
-                  if [ -n "$status_output" ]; then
-                    state="running"
-                    running=1
-                  else
-                    state="stopped"
-                  fi
-                elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
-                  state="timeout"
-                else
-                  state="error"
-                fi
-              fi
-
-              echo "Content-type: application/json"
-              echo ""
-              printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s}\n' \
-                "$script" "$state" "$running" "$has_start" "$has_stop"
+              state="error"
             fi
-            ;;
-        esac
+          fi
+
+          echo "Content-type: application/json"
+          echo ""
+          printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s}\n' \
+            "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled"
+        fi
         ;;
       *)
         echo "Content-type: text/html"
@@ -195,6 +235,7 @@ else
     echo "<table class='table is-fullwidth is-hoverable services-table'>"
     echo "<thead><tr>"
     echo "<th title='Service name and current runtime state'>Title</th>"
+    echo "<th title='Estimated runtime impact on CPU and RAM when this service is active'>Impact</th>"
     echo "<th title='Start, stop, or run this service now'>Start/Stop</th>"
     echo "<th title='Enable or disable automatic startup when the camera boots'>Autorun at boot</th>"
     echo "<th title='Open the script source in quick view'>View</th>"
@@ -202,12 +243,12 @@ else
     echo "<tbody>"
 
     for i in $SCRIPTS; do
-      [ -x "$SCRIPT_HOME/$i" ] || continue
-      case "$i" in
-        ''|*[!A-Za-z0-9._-]* ) continue ;;
-      esac
+      [ -f "$SCRIPT_HOME/$i" ] || continue
+      if ! is_valid_script_name "$i"; then
+        continue
+      fi
 
-      script_id="$(printf '%s' "$i" | tr -c 'A-Za-z0-9._-' '_')"
+      script_id="$(printf '%s' "$i" | sed 's/[^A-Za-z0-9._-]/_/g')"
       status_label="Loading..."
       status_class="is-unknown"
       action_cmd="start"
@@ -220,11 +261,17 @@ else
       if [ -f "$AUTOSTART_DIR/$i" ]; then
         autorun_checked="checked='checked'"
       fi
+      impact_level="$(service_impact_level_for "$i")"
+      impact_label="$(service_impact_label_for "$impact_level")"
+      impact_hint="$(service_impact_hint_for "$i")"
 
       echo "<tr data-script-name='$i'>"
       echo "<td class='services-title-cell'>"
       echo "<strong>$i</strong>"
-      echo "<span class='services-status-tag service-status $status_class' data-service-status='loading' title='Loading service state...'>$status_label</span>"
+      echo "<span class='services-tag services-status-tag service-status $status_class' data-service-status='loading' title='Loading service state...'>$status_label</span>"
+      echo "</td>"
+      echo "<td class='services-impact-cell'>"
+      echo "<span class='services-tag services-impact-tag impact-$impact_level' title='$impact_hint'>$impact_label</span>"
       echo "</td>"
       echo "<td>"
       echo "<button data-target='cgi-bin/scripts.cgi?cmd=$action_cmd&script=$i' class='button is-small $action_class script_action_toggle' data-script-name='$i' title='$action_hint' $action_disabled>$action_label</button>"
@@ -242,6 +289,12 @@ else
     echo "</tbody>"
     echo "</table>"
     echo "</div>"
+    echo "<div class='services-impact-legend'>"
+    echo "<span class='services-tag services-impact-tag impact-min'>Min</span><span>Low impact</span>"
+    echo "<span class='services-tag services-impact-tag impact-med'>Med</span><span>Moderate impact</span>"
+    echo "<span class='services-tag services-impact-tag impact-heavy'>Heavy</span><span>High CPU/RAM usage when active</span>"
+    echo "</div>"
+    echo "<p class='help'>Autorun toggles create/remove per-service startup entries in ${AUTOSTART_DIR}.</p>"
     echo "</div>"
   fi
   

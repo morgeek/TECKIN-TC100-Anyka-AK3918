@@ -61,39 +61,45 @@ cpu_active=$((cpu_user + cpu_nice + cpu_system + cpu_irq + cpu_softirq + cpu_ste
 cpu_total=$((cpu_active + cpu_idle + cpu_iowait))
 
 cat << EOF
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M4 18h16M7 14l3-3l3 2l4-5'/></svg><span>Quick System Summary</span></span></p></header>
-    <div class='card-content'>
-        <pre>Uptime: $uptime_line
+<div class='sysusage-grid'>
+    <div class='sysusage-side'>
+        <div class='card status_card sysusage-card'>
+            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M4 18h16M7 14l3-3l3 2l4-5'/></svg><span>Quick System Summary</span></span></p></header>
+            <div class='card-content'>
+                <pre class='sysusage-pre'>Uptime: $uptime_line
 Load avg: $loadavg
 Processes: $proc_count
 Open files: $open_files</pre>
-    </div>
-</div>
+            </div>
+        </div>
 
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M8 8h8v8H8zM4 10h2M4 14h2M18 10h2M18 14h2M10 4v2M14 4v2M10 18v2M14 18v2'/></svg><span>Memory Snapshot</span></span></p></header>
-    <div class='card-content'>
-        <pre>MemTotal: ${mem_total} kB
+        <div class='card status_card sysusage-card'>
+            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M8 8h8v8H8zM4 10h2M4 14h2M18 10h2M18 14h2M10 4v2M14 4v2M10 18v2M14 18v2'/></svg><span>Memory Snapshot</span></span></p></header>
+            <div class='card-content'>
+                <pre class='sysusage-pre'>MemTotal: ${mem_total} kB
 MemAvailable: ${mem_available} kB
 MemUsed(approx): ${mem_used} kB
 Cache+Buffers+SReclaimable: ${mem_cached_total} kB</pre>
-    </div>
-</div>
+            </div>
+        </div>
 
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3v3M12 18v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M3 12h3M18 12h3M4.9 19.1L7 17M17 7l2.1-2.1M12 8a4 4 0 1 1 0 8'/></svg><span>CPU Counters</span></span></p></header>
-    <div class='card-content'>
-        <pre>Active ticks: $cpu_active
+        <div class='card status_card sysusage-card'>
+            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3v3M12 18v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M3 12h3M18 12h3M4.9 19.1L7 17M17 7l2.1-2.1M12 8a4 4 0 1 1 0 8'/></svg><span>CPU Counters</span></span></p></header>
+            <div class='card-content'>
+                <pre class='sysusage-pre'>Active ticks: $cpu_active
 Total ticks: $cpu_total
 Snapshot source: /proc/stat</pre>
+            </div>
+        </div>
     </div>
-</div>
 
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01'/></svg><span>Process List (light)</span></span></p></header>
-    <div class='card-content'>
-        <pre>$(ps)</pre>
+    <div class='sysusage-main'>
+        <div class='card status_card sysusage-card sysusage-process-card'>
+            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01'/></svg><span>Process List (light)</span></span></p></header>
+            <div class='card-content'>
+                <pre class='sysusage-pre sysusage-process-pre'>$(ps)</pre>
+            </div>
+        </div>
     </div>
 </div>
 EOF
