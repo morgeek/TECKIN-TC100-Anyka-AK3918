@@ -1,0 +1,44 @@
+############################################################
+# edit this file and move it to /mnt/config/mqtt.conf
+############################################################
+
+# 0 = disabled, 1 = enabled
+MQTT_ENABLE=0
+
+# Broker connection (plain MQTT over TCP; TLS is not supported by this curl build)
+MQTT_HOST=192.168.1.10
+MQTT_PORT=1883
+MQTT_USER=
+MQTT_PASSWORD=
+
+# Client/topic settings
+MQTT_CLIENT_ID=tc100-camera
+MQTT_TOPIC_ROOT=tc100/camera
+# Leave empty to auto-generate: <MQTT_TOPIC_ROOT>/command
+MQTT_TOPIC_COMMAND=
+MQTT_QOS=0
+
+# Runtime behavior
+MQTT_HEALTH_INTERVAL_SECONDS=60
+MQTT_COMMAND_WAIT_SECONDS=12
+MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
+
+# Home Assistant MQTT Discovery (retained config topics).
+# Keep enabled for one-click entity creation in HA.
+MQTT_HA_DISCOVERY_ENABLE=1
+MQTT_HA_DISCOVERY_PREFIX=homeassistant
+
+# Power telemetry and draw estimation.
+# Estimation is optional and cheap: base + CPU load term + optional IR LED term.
+# Formulas:
+#   estimated_mW = POWER_ESTIMATE_BASE_MW + (cpu_percent * POWER_ESTIMATE_CPU_SCALE_MW / 100) + ir_led_bonus
+#   estimated_W  = estimated_mW / 1000
+POWER_ESTIMATE_ENABLE=0
+POWER_ESTIMATE_BASE_MW=1700
+POWER_ESTIMATE_CPU_SCALE_MW=500
+POWER_ESTIMATE_IR_LED_MW=700
+
+# Input voltage sensor source:
+# - auto: tries /sys/kernel/ain/bat, /sys/kernel/ain/ain0, /sys/kernel/ain/ain1
+# - or set an explicit readable path.
+POWER_SENSOR_PATH=auto

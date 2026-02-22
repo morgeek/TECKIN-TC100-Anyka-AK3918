@@ -8,6 +8,7 @@ install_config $CONFIGPATH
 
 . $CONFIGPATH
 
+snapshot_path=""
 
 
 # Led
@@ -28,7 +29,8 @@ if [ "$save_snapshot" = true ] ; then
 			rm -f "$save_dir/$(ls -ltr "$save_dir" | awk 'NR==2{print $9}')"
 		fi
 	} &
-	/mnt/bin/getimage > "$save_dir/$filename" &
+	snapshot_path="$save_dir/$filename"
+	/mnt/bin/getimage > "$snapshot_path" &
 fi
 
 # Send emails ...
@@ -39,7 +41,7 @@ fi
 # Send a telegram message
 if [ "$send_telegram" = true ]; then
 	if [ "$save_snapshot" = true ] ; then
-		/mnt/bin/telegram p "$save_dir/$filename"
+		/mnt/bin/telegram p "$snapshot_path"
 	else
 		/mnt/bin/getimage > "/tmp/telegram_image.jpg"
  		/mnt/bin/telegram p "/tmp/telegram_image.jpg"
@@ -47,10 +49,13 @@ if [ "$send_telegram" = true ]; then
 	fi
 fi
 
+# Persist motion event for local API + optional MQTT publish.
+/mnt/scripts/motion-event.sh motion_on "$snapshot_path" "" "trigger=motion" >/dev/null 2>&1 &
+
 # Run any user scripts.
 for i in /mnt/config/userscripts/motiondetection/*; do
     if [ -x "$i" ]; then
-        echo "Running: $i on $save_dir/$filename"
-        $i on "$save_dir/$filename" &
+        echo "Running: $i on $snapshot_path"
+        $i on "$snapshot_path" &
     fi
 done

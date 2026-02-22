@@ -340,6 +340,117 @@
     tempBadge.classList.add("temp-unknown");
   }
 
+  function formatTenths(valueTenths) {
+    var whole = Math.floor(valueTenths / 10);
+    var frac = Math.abs(valueTenths % 10);
+    return whole + "." + frac;
+  }
+
+  function updatePowerBadge(powerEstimatedMw, powerVoltageMv, powerEstimateEnabled, powerEstimatedCurrentMa, powerSensorPath) {
+    var powerBadge = byId("powerdraw");
+    if (!powerBadge) {
+      return;
+    }
+
+    powerBadge.classList.remove("usage-low", "usage-mid", "usage-high", "temp-unknown");
+
+    var hasEstimated = typeof powerEstimatedMw === "number" && !isNaN(powerEstimatedMw) && powerEstimatedMw >= 0;
+    var hasVoltage = typeof powerVoltageMv === "number" && !isNaN(powerVoltageMv) && powerVoltageMv > 0;
+    var hasCurrent = typeof powerEstimatedCurrentMa === "number" && !isNaN(powerEstimatedCurrentMa) && powerEstimatedCurrentMa >= 0;
+    var source = typeof powerSensorPath === "string" && powerSensorPath ? powerSensorPath : "n/a";
+
+    if (hasEstimated) {
+      var tenthsW = Math.round(powerEstimatedMw / 100);
+      var suffix = powerEstimateEnabled ? "*" : "";
+      powerBadge.textContent = "PWR: " + formatTenths(tenthsW) + "W" + suffix;
+
+      if (powerEstimatedMw > 2800) {
+        powerBadge.classList.add("usage-high");
+      } else if (powerEstimatedMw >= 1800) {
+        powerBadge.classList.add("usage-mid");
+      } else {
+        powerBadge.classList.add("usage-low");
+      }
+
+      var tooltip = "Estimated power draw. * means estimated model is enabled.";
+      if (hasVoltage) {
+        tooltip += " Voltage: " + (powerVoltageMv / 1000).toFixed(2) + "V.";
+      }
+      if (hasCurrent) {
+        tooltip += " Estimated current: " + Math.round(powerEstimatedCurrentMa) + "mA.";
+      }
+      tooltip += " Source: " + source + ".";
+      powerBadge.title = tooltip;
+      return;
+    }
+
+    if (hasVoltage) {
+      var vin = (powerVoltageMv / 1000).toFixed(2);
+      powerBadge.textContent = "VIN: " + vin + "V";
+      powerBadge.classList.add("usage-low");
+      powerBadge.title = "Input voltage from sensor path: " + source + ".";
+      return;
+    }
+
+    powerBadge.textContent = "PWR: n/a";
+    powerBadge.classList.add("temp-unknown");
+    powerBadge.title = "Power telemetry unavailable.";
+  }
+
+  function pad2(value) {
+    return value < 10 ? "0" + value : "" + value;
+  }
+
+  function updateLastRebootBadge(rebootEpoch) {
+    var rebootBadge = byId("lastreboot");
+    if (!rebootBadge) {
+      return;
+    }
+
+    var epoch = typeof rebootEpoch === "number" && !isNaN(rebootEpoch) ? Math.floor(rebootEpoch) : 0;
+    if (epoch > 0) {
+      var dt = new Date(epoch * 1000);
+      if (!isNaN(dt.getTime())) {
+        var shortLabel = pad2(dt.getMonth() + 1) + "-" + pad2(dt.getDate()) + " " + pad2(dt.getHours()) + ":" + pad2(dt.getMinutes());
+        rebootBadge.textContent = "Reboot: " + shortLabel;
+        rebootBadge.title = "Last reboot: " + dt.toLocaleString() + " (epoch " + epoch + ")";
+        return;
+      }
+    }
+
+    rebootBadge.textContent = "Reboot: n/a";
+    rebootBadge.title = "Last reboot: unavailable";
+  }
+
+  function updateSecurityBadge(defaultPasswordActive) {
+    var securityBadge = byId("securitybadge");
+    if (!securityBadge) {
+      return;
+    }
+
+    var isActive = defaultPasswordActive === 1 || defaultPasswordActive === true;
+    var isInactive = defaultPasswordActive === 0 || defaultPasswordActive === false;
+    securityBadge.classList.remove("security-safe", "security-risk", "security-unknown");
+
+    if (isActive) {
+      securityBadge.textContent = "Security: default password";
+      securityBadge.title = "Default password is active. Change credentials in Settings.";
+      securityBadge.classList.add("security-risk");
+      return;
+    }
+
+    if (isInactive) {
+      securityBadge.textContent = "Security: custom password";
+      securityBadge.title = "Default credential check passed.";
+      securityBadge.classList.add("security-safe");
+      return;
+    }
+
+    securityBadge.textContent = "Security: n/a";
+    securityBadge.title = "Credential security state unavailable.";
+    securityBadge.classList.add("security-unknown");
+  }
+
   function parseJsonArray(data) {
     try {
       var parsed = JSON.parse(data);
@@ -560,6 +671,9 @@
       .then(function (sysusage) {
         updateSysUsageBadges(sysusage, null, null);
         updateChipTempBadge(null, "n/a");
+        updatePowerBadge(null, null, null, null, null);
+        updateLastRebootBadge(null);
+        updateSecurityBadge(null);
         refreshPerformanceProfile();
       })
       .finally(function () {
@@ -596,6 +710,15 @@
             typeof statusline.chip_temp_c === "number" ? statusline.chip_temp_c : null,
             typeof statusline.chip_temp_text === "string" ? statusline.chip_temp_text : "n/a"
           );
+          updatePowerBadge(
+            typeof statusline.power_estimated_mw === "number" ? statusline.power_estimated_mw : null,
+            typeof statusline.power_voltage_mv === "number" ? statusline.power_voltage_mv : null,
+            typeof statusline.power_estimate_enabled === "number" ? statusline.power_estimate_enabled > 0 : false,
+            typeof statusline.power_estimated_current_ma === "number" ? statusline.power_estimated_current_ma : null,
+            typeof statusline.power_sensor_path === "string" ? statusline.power_sensor_path : "n/a"
+          );
+          updateLastRebootBadge(typeof statusline.reboot_epoch === "number" ? statusline.reboot_epoch : null);
+          updateSecurityBadge(typeof statusline.default_password_active === "number" ? statusline.default_password_active : null);
           updateLumAwbLabels(typeof statusline.lum === "string" ? statusline.lum : "", typeof statusline.awb === "string" ? statusline.awb : "");
           scheduleRefreshSysUsage(nextInterval);
           return;
