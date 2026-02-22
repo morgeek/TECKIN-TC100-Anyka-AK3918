@@ -14,6 +14,7 @@ BOOT_BUSYBOX="$SYSTEM_BUSYBOX"
 install_config $CONFIGPATH/rtspserver.conf
 install_config $CONFIGPATH/boot.conf
 install_config $CONFIGPATH/service_trim.conf
+install_config $CONFIGPATH/packages.lock
 
 DEFAULT_LIGHTWEIGHT_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection blue-led"
 

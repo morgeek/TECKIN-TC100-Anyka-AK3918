@@ -67,10 +67,8 @@ Remove the MicroSD card and reboot.
 * CPU/RAM/temperature/power badges are visible in the top bar.
 * Performance profile badge is always visible in the top bar.
 * Last reboot badge is visible in the top bar.
-* Security badge is visible in the top bar and warns when default credentials are detected.
 * Theme selector is in **Settings -> System**.
 * **Services** is a dedicated menu entry; camera control selection is available from the Services page.
-* Services page uses a compact table view (Title, Impact, Start/Stop, Autorun at boot, View) with hover hints.
 * Services include color-coded runtime impact tags:
   * `Min` (green): low overhead
   * `Med` (amber): moderate overhead
@@ -83,13 +81,8 @@ Remove the MicroSD card and reboot.
   * Disk & Mounts
   * Logs
 * Information pages now use a compact responsive split layout:
-  * summary/control cards on the left
-  * long/raw outputs on the right with internal scroll areas
 * Network & DNS page includes a live **Open Service Ports** table (runtime socket probe + configured expectation).
 * Logs page now has integrated controls:
-  * click tab to load a log view
-  * double-click tab to clear that log
-  * dedicated refresh button for current tab
 * Settings page supports **Basic/All** density mode and collapsible cards.
 * Settings now include a one-click **Performance profile** selector (Balanced / Low CPU / RTSP+ONVIF only).
 * Settings now include **Web server mode** control (`full` / `http` / `ultra-lite` / `off`) with ultra-lite port input.
@@ -105,9 +98,6 @@ Remove the MicroSD card and reboot.
   * download `/mnt/config` backup archive on demand
   * restore from an uploaded `/tmp/*.tar.gz` archive (optional RTSP/ONVIF restart)
   * open one-shot health snapshot JSON (`state.cgi?cmd=healthsnapshot`)
-* Navbar cleanup:
-  * Information is a single menu entry (no duplicate quick shortcut)
-  * System power actions are grouped under the last icon-only System menu item
 
 ## Performance and CPU tuning
 Boot-time tuning is controlled by `/mnt/config/boot.conf` (created from `config/boot.conf.dist` on first boot).
@@ -203,6 +193,68 @@ The UI also applies dynamic throttling from live CPU/RAM pressure (high usage in
   * recreates `/mnt/lib/libcurl.so.4 -> /mnt/lib/libcurl.so.4.8.0` symlink when missing
   * uses extended `/mnt/bin/busybox` if available, with safe fallback to `/bin/busybox`
 * `scripts/common_functions.sh` now routes BusyBox calls through a fallback wrapper (`/mnt/bin/busybox` -> `/bin/busybox` -> PATH).
+
+## Safe package upgrade workflow (step-by-step)
+Use this workflow when upgrading files in `/mnt/bin` and `/mnt/lib`.
+It is designed to keep rollback immediate if a package swap fails.
+
+### Stage 1: baseline snapshot (already included in this repo)
+Baseline references are in:
+* `upgrade/stage-01-baseline/manifest.sha256`
+* `upgrade/stage-01-baseline/versions.txt`
+* `upgrade/stage-01-baseline/abi.txt`
+* `upgrade/stage-01-baseline/fork-package-hashes-2026-02-22.txt`
+
+On the camera, baseline lock file template is:
+* `config/packages.lock.dist`
+  * auto-installed as `/mnt/config/packages.lock` on boot
+
+### Stage 2: preflight candidate bundle on host
+Candidate bundle layout must be:
+* `<bundle>/bin/...`
+* `<bundle>/lib/...`
+
+Run compatibility gate before upload:
+* `./tools/check_bundle_compat.sh /path/to/bundle`
+
+This blocks bundles that:
+* are not ARM EABI5 ELF
+* use a different dynamic loader than `/lib/ld-uClibc.so.0`
+* introduce new runtime `NEEDED` dependencies vs baseline
+* include unknown file names not present in current baseline
+
+### Stage 3: backup + apply on camera
+Script:
+* `/mnt/scripts/pkg-upgrade-safe.sh`
+
+Commands:
+* backup only:
+  * `/mnt/scripts/pkg-upgrade-safe.sh backup`
+* apply bundle:
+  * `/mnt/scripts/pkg-upgrade-safe.sh apply /mnt/upgrade-bundle`
+* status:
+  * `/mnt/scripts/pkg-upgrade-safe.sh status`
+
+Automatic behavior:
+* per-upgrade backup is written to `/mnt/backup/package-upgrades/<backup_id>/`
+* touched file list is written to `manifest.txt`
+* `/mnt/config/packages.lock` is regenerated after successful apply
+* if apply fails, automatic rollback is attempted immediately
+
+### Stage 4: rollback (if needed)
+Use backup id from apply output:
+* `/mnt/scripts/pkg-upgrade-safe.sh rollback <backup_id>`
+
+### Stage 5: post-upgrade validation
+Recommended checks:
+* web UI loads and auth works (`https://CAMERA-IP`)
+* RTSP main/sub stream open
+* ONVIF discovery and profile responses
+* logs in `/mnt/log/startup.log` and `/mnt/log/pkg-upgrade.log`
+
+### Notes on available package sets
+As of **February 22, 2026**, the known TECKIN/AK3918 forks ship the same `bin/` and `lib/` package hashes as this repo baseline.
+So safe upgrades currently require a separately built and validated ARM/uClibc bundle.
 
 ### Other low-load defaults
 * Motion monitor default interval: `MONITOR_TIMEOUT_SECONDS=6`
