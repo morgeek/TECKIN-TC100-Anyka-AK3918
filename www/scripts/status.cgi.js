@@ -67,10 +67,16 @@
     if (window._srScheduled) {
       return;
     }
+
+    var content = document.getElementById("content");
+    // If we've navigated away from the page that owns this script, stop polling
+    if (window.isHostStillActive && !window.isHostStillActive(content)) {
+      return;
+    }
+
     window._srScheduled = true;
     setTimeout(function () {
-      var content = document.getElementById("content");
-      if (!content) {
+      if (!content || (window.isHostStillActive && !window.isHostStillActive(content))) {
         window._srScheduled = false;
         return;
       }
@@ -79,6 +85,10 @@
           return r.text();
         })
         .then(function (html) {
+          // Final check before mutation: did the user navigate away while we were fetching?
+          if (window.isHostStillActive && !window.isHostStillActive(content)) {
+            return;
+          }
           content.innerHTML = html;
           executeEmbeddedScripts(content);
         })
@@ -463,12 +473,12 @@
       organizer.className = "status-organizer";
       organizer.innerHTML =
         "<div id='statusViewMode' class='status-view-mode'>" +
-          "<span class='status-view-mode-label'>Settings view</span>" +
-          "<button id='statusViewBasic' class='button is-small is-link is-outlined' type='button'>Basic</button>" +
-          "<button id='statusViewAll' class='button is-small is-link is-outlined' type='button'>All</button>" +
+        "<span class='status-view-mode-label'>Settings view</span>" +
+        "<button id='statusViewBasic' class='button is-small is-link is-outlined' type='button'>Basic</button>" +
+        "<button id='statusViewAll' class='button is-small is-link is-outlined' type='button'>All</button>" +
         "</div>" +
         "<div class='status-filter-wrap'>" +
-          "<input id='statusFilterInput' class='input is-small status-filter-input' type='search' placeholder='Filter settings...'>" +
+        "<input id='statusFilterInput' class='input is-small status-filter-input' type='search' placeholder='Filter settings...'>" +
         "</div>" +
         "<div id='statusQuickNav' class='status-quicknav'></div>" +
         "<p id='statusFilterInfo' class='status-filter-info'></p>";

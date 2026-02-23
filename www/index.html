@@ -29,14 +29,17 @@
     <nav class="navbar is-fixed-top" role="navigation" aria-label="main navigation">
         <div class="container">
             <div class="navbar-brand">
-                <a id="navbar_burger" role="button" class="navbar-burger" data-target="nav_menu" aria-label="menu" aria-expanded="false">
+                <a id="navbar_burger" role="button" class="navbar-burger" data-target="nav_menu" aria-label="menu"
+                    aria-expanded="false">
                     <span aria-hidden="true"></span>
                     <span aria-hidden="true"></span>
                     <span aria-hidden="true"></span>
                 </a>
                 <a class="navbar-item icnbtn" href="." id="title" title="Anyka"><i class="icon-eye"></i></a>
-                <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html" id="viewrecordspage" title="Records"><i class="icon-play-circle-o"></i></a>
-                <span class="navbar-item nav-sysusage-wrap" title="Current CPU, RAM, chip temperature and power telemetry">
+                <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
+                    id="viewrecordspage" title="Records"><i class="icon-play-circle-o"></i></a>
+                <span class="navbar-item nav-sysusage-wrap"
+                    title="Current CPU, RAM, chip temperature and power telemetry">
                     <em id="cpuusage" class="usage-chip usage-low">CPU: ...</em>
                     <em id="ramusage" class="usage-chip usage-low">RAM: ...</em>
                     <em id="chiptemp" class="usage-chip usage-low">TEMP: ...</em>
@@ -51,57 +54,86 @@
                 <span class="navbar-item nav-security-wrap" title="Credential security state">
                     <em id="securitybadge" class="security-unknown">Security: ...</em>
                 </span>
+                <span class="navbar-item nav-nightmode-wrap" title="Auto-night mode luminance indicator">
+                    <em id="nightmodebadge" class="nightmode-badge nightmode-unknown">&#127769; Night: ...</em>
+                </span>
             </div>
             <div class="navbar-menu" id="nav_menu">
                 <!-- left menu -->
                 <div class="navbar-start" id="common_nav">
-                    <a id="status" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/status.cgi" data-force-reload="1">
+                    <a id="status" class="navbar-item onpage" href="javascript: void(0)"
+                        data-target="cgi-bin/status.cgi" data-force-reload="1">
                         <span class="nav-icon">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 6h9M4.5 6h2M8.5 6a1 1 0 1 0-2 0a1 1 0 0 0 2 0zM19.5 12h-2M4.5 12h9M17.5 12a1 1 0 1 0 2 0a1 1 0 0 0-2 0zM10.5 18h9M4.5 18h2M8.5 18a1 1 0 1 0-2 0a1 1 0 0 0 2 0z"/></svg>
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                    d="M10.5 6h9M4.5 6h2M8.5 6a1 1 0 1 0-2 0a1 1 0 0 0 2 0zM19.5 12h-2M4.5 12h9M17.5 12a1 1 0 1 0 2 0a1 1 0 0 0-2 0zM10.5 18h9M4.5 18h2M8.5 18a1 1 0 1 0-2 0a1 1 0 0 0 2 0z" />
+                            </svg>
                             <span>Settings</span>
                         </span>
                     </a>
-                    <a id="services" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/scripts.cgi">
+                    <a id="services" class="navbar-item onpage" href="javascript: void(0)"
+                        data-target="cgi-bin/scripts.cgi">
                         <span class="nav-icon">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 4.3l.6 1.7a6.4 6.4 0 0 1 2.2 0l.6-1.7l2 1.1l-.4 1.7c.6.4 1.1 1 1.6 1.6l1.7-.4l1.1 2l-1.7.6a6.4 6.4 0 0 1 0 2.2l1.7.6l-1.1 2l-1.7-.4c-.4.6-1 1.1-1.6 1.6l.4 1.7l-2 1.1l-.6-1.7a6.4 6.4 0 0 1-2.2 0l-.6 1.7l-2-1.1l.4-1.7a6.4 6.4 0 0 1-1.6-1.6l-1.7.4l-1.1-2l1.7-.6a6.4 6.4 0 0 1 0-2.2l-1.7-.6l1.1-2l1.7.4c.4-.6 1-1.1 1.6-1.6l-.4-1.7l2-1.1zM12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6z"/></svg>
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                    d="M10.3 4.3l.6 1.7a6.4 6.4 0 0 1 2.2 0l.6-1.7l2 1.1l-.4 1.7c.6.4 1.1 1 1.6 1.6l1.7-.4l1.1 2l-1.7.6a6.4 6.4 0 0 1 0 2.2l1.7.6l-1.1 2l-1.7-.4c-.4.6-1 1.1-1.6 1.6l.4 1.7l-2 1.1l-.6-1.7a6.4 6.4 0 0 1-2.2 0l-.6 1.7l-2-1.1l.4-1.7a6.4 6.4 0 0 1-1.6-1.6l-1.7.4l-1.1-2l1.7-.6a6.4 6.4 0 0 1 0-2.2l-1.7-.6l1.1-2l1.7.4c.4-.6 1-1.1 1.6-1.6l-.4-1.7l2-1.1zM12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6z" />
+                            </svg>
                             <span>Services</span>
                         </span>
                     </a>
                     <div class="navbar-item has-dropdown is-hoverable">
                         <a class="navbar-link" href="javascript: void(0)">
                             <span class="nav-icon">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8h.01M11 12h1v4h1M12 22a10 10 0 1 1 0-20a10 10 0 0 1 0 20z"/></svg>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 8h.01M11 12h1v4h1M12 22a10 10 0 1 1 0-20a10 10 0 0 1 0 20z" />
+                                </svg>
                                 <span>Information</span>
                             </span>
                         </a>
                         <div class="navbar-dropdown is-boxed">
-                            <a id="sysusageinfo" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/sysusageinfo.cgi">
+                            <a id="sysusageinfo" class="navbar-item onpage" href="javascript: void(0)"
+                                data-target="cgi-bin/sysusageinfo.cgi">
                                 <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16M7 14l3-3l3 2l4-5"/></svg>
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M4 18h16M7 14l3-3l3 2l4-5" />
+                                    </svg>
                                     <span>System Usage</span>
                                 </span>
                             </a>
-                            <a id="devinfo" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/devinfo.cgi">
+                            <a id="devinfo" class="navbar-item onpage" href="javascript: void(0)"
+                                data-target="cgi-bin/devinfo.cgi">
                                 <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM10 17h4"/></svg>
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path
+                                            d="M8 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM10 17h4" />
+                                    </svg>
                                     <span>Device Info</span>
                                 </span>
                             </a>
-                            <a id="network" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/network.cgi">
+                            <a id="network" class="navbar-item onpage" href="javascript: void(0)"
+                                data-target="cgi-bin/network.cgi">
                                 <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v6M5 21h14M6 9h12M7 15h10"/></svg>
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 3v6M5 21h14M6 9h12M7 15h10" />
+                                    </svg>
                                     <span>Network & DNS</span>
                                 </span>
                             </a>
-                            <a id="disk" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/disk.cgi">
+                            <a id="disk" class="navbar-item onpage" href="javascript: void(0)"
+                                data-target="cgi-bin/disk.cgi">
                                 <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3s-3.6 3-8 3s-8-1.3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3M4 17c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path
+                                            d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3s-3.6 3-8 3s-8-1.3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3M4 17c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+                                    </svg>
                                     <span>Disk & Mounts</span>
                                 </span>
                             </a>
                             <a id="logs" class="navbar-item onpage" href="javascript: void(0)" data-target="logs.html">
                                 <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10l3 3v13H7zM14 4v3h3M10 11h7M10 15h7"/></svg>
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M7 4h10l3 3v13H7zM14 4v3h3M10 11h7M10 15h7" />
+                                    </svg>
                                     <span>Logs</span>
                                 </span>
                             </a>
@@ -110,12 +142,18 @@
                     <div class="navbar-item has-dropdown is-hoverable">
                         <a class="navbar-link" href="javascript: void(0)" title="System" aria-label="System">
                             <span class="nav-icon">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v7M7.8 5.8a7 7 0 1 0 8.4 0"/></svg>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 3v7M7.8 5.8a7 7 0 1 0 8.4 0" />
+                                </svg>
                             </span>
                         </a>
                         <div class="navbar-dropdown is-boxed">
-                            <a class="navbar-item prompt" href="javascript: void(0)" data-message="Are you sure you wish to reboot?" data-target="cgi-bin/action.cgi?cmd=reboot">Reboot</a>
-                            <a class="navbar-item prompt" href="javascript: void(0)" data-message="Are you sure you wish to shutdown?" data-target="cgi-bin/action.cgi?cmd=shutdown">Shutdown</a>
+                            <a class="navbar-item prompt" href="javascript: void(0)"
+                                data-message="Are you sure you wish to reboot?"
+                                data-target="cgi-bin/action.cgi?cmd=reboot">Reboot</a>
+                            <a class="navbar-item prompt" href="javascript: void(0)"
+                                data-message="Are you sure you wish to shutdown?"
+                                data-target="cgi-bin/action.cgi?cmd=shutdown">Shutdown</a>
                         </div>
                     </div>
                 </div>
@@ -127,10 +165,15 @@
         <div id="content" class="container app-shell">
             <div class="app-toolbar">
                 <button class="button" id="live_toggle" type="button">Pause Live</button>
-                <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
+                <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank"
+                    rel="noopener">Snapshot</a>
+                <button class="button is-danger" id="ptt_btn" type="button" title="Hold to talk to the camera speaker">
+                    <i class="icon-microphone"></i> Hold to Talk
+                </button>
             </div>
             <div class="liveview-wrap">
-                <img id="liveview" src="cgi-bin/currentpic.cgi" loading="eager" decoding="async" onerror="this.src='css/unable_load.png';">
+                <img id="liveview" src="cgi-bin/currentpic.cgi" loading="eager" decoding="async"
+                    onerror="this.src='css/unable_load.png';">
             </div>
         </div>
     </section>

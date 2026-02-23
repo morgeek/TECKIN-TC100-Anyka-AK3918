@@ -13,6 +13,8 @@ USAGE_CACHE_FILE="/tmp/state_usage.cache"
 USAGE_CACHE_TTL_SECONDS=2
 PERFPROFILE_CACHE_FILE="/tmp/state_perfprofile.cache"
 PERFPROFILE_CACHE_TTL_SECONDS=5
+PWD_CACHE_FILE="/tmp/state_pwd.cache"
+PWD_CACHE_TTL_SECONDS=120
 
 now_epoch() {
   now_ts="$(date +%s 2>/dev/null)"
@@ -581,6 +583,19 @@ read_reboot_epoch() {
 }
 
 default_password_active_flag() {
+  # Caching to reduce IO/CPU on frequent statusline polls
+  if [ -f "$PWD_CACHE_FILE" ]; then
+    read -r cached_ts cached_val < "$PWD_CACHE_FILE"
+    now_ts="$(now_epoch)"
+    if [ "$now_ts" -gt 0 ] && [ "$cached_ts" -le "$now_ts" ]; then
+      age=$((now_ts - cached_ts))
+      if [ "$age" -le "$PWD_CACHE_TTL_SECONDS" ]; then
+        echo "$cached_val"
+        return 0
+      fi
+    fi
+  fi
+
   default_active=0
   default_hash="1d06b7785388de1501e8d57847540f6d"
 
@@ -608,6 +623,7 @@ default_password_active_flag() {
   fi
 
   echo "$default_active"
+  printf '%s %s\n' "$(now_epoch)" "$default_active" > "$PWD_CACHE_FILE"
 }
 
 if [ -n "$F_cmd" ]; then
