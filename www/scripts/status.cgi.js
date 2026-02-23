@@ -301,6 +301,7 @@
     switch (title) {
       case "System":
       case "Advanced Tuning":
+      case "Scheduled Reboot":
       case "MQTT Bridge":
       case "Motion Event API":
         return "system";
@@ -350,6 +351,27 @@
     }
   }
 
+  function statusCategoryIconSvg(category) {
+    switch (category) {
+      case "system":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M10.5 6h9M4.5 6h2M8.5 6a1 1 0 1 0-2 0a1 1 0 0 0 2 0zM19.5 12h-2M4.5 12h9M17.5 12a1 1 0 1 0 2 0a1 1 0 0 0-2 0zM10.5 18h9M4.5 18h2M8.5 18a1 1 0 1 0-2 0a1 1 0 0 0 2 0z'/></svg>";
+      case "access":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3a5 5 0 0 1 5 5v2h1a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1V8a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v2h6V8a3 3 0 0 0-3-3zm0 8a2 2 0 0 0-1 3.73V18h2v-1.27A2 2 0 0 0 12 13z'/></svg>";
+      case "video":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v2.2l3.2-2a1 1 0 0 1 1.5.85v7.9a1 1 0 0 1-1.5.85L17 14.8V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z'/></svg>";
+      case "audio":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 10h4l5-4v12l-5-4H4v-4zm12.5-2.5a5 5 0 0 1 0 9M18.5 5a8 8 0 0 1 0 14'/></svg>";
+      case "recording":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M12 20a8 8 0 1 1 0-16a8 8 0 0 1 0 16zm0-11a3 3 0 1 0 0 6a3 3 0 0 0 0-6z'/></svg>";
+      case "imaging":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M5 7h4l2-2h2l2 2h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm7 3a4 4 0 1 0 0 8a4 4 0 0 0 0-8z'/></svg>";
+      case "tools":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M14.7 6.3a3.5 3.5 0 0 0-4.95 4.95l-5.2 5.2a1.5 1.5 0 1 0 2.12 2.12l5.2-5.2a3.5 3.5 0 0 0 4.95-4.95l-2.1 2.1l-2.12-2.12l2.1-2.1z'/></svg>";
+      default:
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M12 8h.01M11 12h1v4h1M12 22a10 10 0 1 1 0-20a10 10 0 0 1 0 20z'/></svg>";
+    }
+  }
+
   function setCardCollapsed(card, collapsed) {
     card.classList.toggle("status-collapsed", !!collapsed);
     var header = card.querySelector(".card-header");
@@ -378,6 +400,7 @@
       var isBasic = !!basicTitles[title];
       var header = card.querySelector(".card-header");
       var category = categorizeStatusCard(title);
+      var titleNode = card.querySelector(".card-header-title");
       var slugBase = slugifyStatusTitle(title) || "section";
       var slugIndex = assignedIds[slugBase] || 0;
       assignedIds[slugBase] = slugIndex + 1;
@@ -391,6 +414,14 @@
         setCardCollapsed(card, true);
       } else {
         setCardCollapsed(card, false);
+      }
+
+      if (titleNode && !titleNode.querySelector(".status-card-category-icon")) {
+        var iconSpan = document.createElement("span");
+        iconSpan.className = "status-card-category-icon";
+        iconSpan.setAttribute("aria-hidden", "true");
+        iconSpan.innerHTML = statusCategoryIconSvg(category);
+        titleNode.insertBefore(iconSpan, titleNode.firstChild);
       }
 
       if (!header || header.dataset.toggleBound === "1") {
@@ -524,7 +555,9 @@
         var button = document.createElement("button");
         button.type = "button";
         button.className = "button is-small is-light status-quicknav-btn";
-        button.textContent = statusCategoryLabel(category);
+        button.innerHTML =
+          "<span class='status-quicknav-icon' aria-hidden='true'>" + statusCategoryIconSvg(category) + "</span>" +
+          "<span class='status-quicknav-label'>" + statusCategoryLabel(category) + "</span>";
         button.addEventListener("click", function () {
           focusCard(firstCardByCategory[category]);
         });
@@ -575,7 +608,9 @@
       "formOnvifPolicy",
       "formSetupWizard",
       "formAdvancedTuning",
+      "formRebootSchedule",
       "formMqttConfig",
+      "formHomeAssistantPair",
       "tzForm",
       "passwordForm",
       "allPasswordForm",
