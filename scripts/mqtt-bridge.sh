@@ -362,6 +362,8 @@ publish_discovery_config()
   cfg_topic="$1"
   cfg_payload="$2"
   mqtt_publish_raw "$cfg_topic" "$cfg_payload" 1 >/dev/null 2>&1 || true
+  # Smear the discovery load to prevent CPU spikes from 20+ concurrent curls
+  sleep 0.1
 }
 
 publish_homeassistant_discovery()
@@ -918,7 +920,8 @@ handle_command_payload()
       /sbin/reboot
       ;;
     snapshot)
-      shot_path="/tmp/mqtt-snapshot-$(date +%Y%m%d-%H%M%S 2>/dev/null).jpg"
+      # Use a fixed path instead of timestamped to prevent /tmp RAM exhaustion
+      shot_path="/tmp/mqtt-last-snapshot.jpg"
       if /mnt/bin/getimage > "$shot_path" 2>/dev/null; then
         shot_json="$(json_escape "$shot_path")"
         now_ts="$(date +%s 2>/dev/null)"

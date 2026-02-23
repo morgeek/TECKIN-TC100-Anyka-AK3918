@@ -56,15 +56,18 @@ start()
       " "  PORT             \
       " "  RTSPLOGENABLED   \
       2    codec            \
-      3    codec)
+      3    codec            \
+      " "  USERNAME         \
+      " "  USERPASSWORD     \
+      " "  osdtext)
 
     PORT=$1          
     RTSPLOGENABLED=$2 
     audioCodec0=$3
     audioCodec1=$4
-    USERNAME=$(read_config rtspserver.conf USERNAME)
-    USERPASSWORD=$(read_config rtspserver.conf USERPASSWORD)
-    OSDTEXT=$(read_config rtspserver.conf osdtext)
+    USERNAME=$5
+    USERPASSWORD=$6
+    OSDTEXT=$7
 
     if echo "$OSDTEXT" | grep -q '\\x'; then
         CLEAN_OSDTEXT=$(printf '%s' "$OSDTEXT" | sed 's/\\x/%/g')
