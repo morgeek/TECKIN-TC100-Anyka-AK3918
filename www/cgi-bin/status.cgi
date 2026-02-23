@@ -353,6 +353,12 @@ mdsens=$55
 TELNET_PORT=$(read_config telnetd.conf TELNET_PORT)
 motion_trigger_led=$(read_config motion.conf motion_trigger_led)
 
+# Sound Detection Config
+install_config /mnt/config/sound_detection.conf
+SOUND_DET_ENABLE=$(read_config sound_detection.conf ENABLE 0)
+SOUND_DET_THRESHOLD=$(read_config sound_detection.conf THRESHOLD 1500)
+SOUND_DET_INTERVAL=$(read_config sound_detection.conf INTERVAL 5)
+
 DEFAULT_USERNAME="root"
 DEFAULT_PASSWORD="pass"
 DEFAULT_HTTP_HASH="1d06b7785388de1501e8d57847540f6d"
@@ -2414,197 +2420,189 @@ cat << EOF
 </div>
 
 
-<!-- OSD -->
+<!-- ISP Pro Mode & Advanced OSD -->
 <div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'>OSD Display</p></header>
+    <header class='card-header'><p class='card-header-title'>ISP Pro Mode & OSD</p></header>
     <div class='card-content'>
-        <form id="formOSD" action="cgi-bin/action.cgi?cmd=osd" method="post">
-
+        <form id="formISPPro" action="cgi-bin/action.cgi?cmd=isp_pro" method="post">
+            <div class="is-divider" data-content="Day / Night Switching Thresholds"></div>
+            <p class="help mb-3">Fine-tune when the camera switches between day and night modes based on light levels (Luminance) and White Balance (AWB).</p>
+            
             <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">Enable Text</label>
-                </div>
+                <div class="field-label is-normal"><label class="label">Day &rarr; Night</label></div>
                 <div class="field-body">
-                    <div class="field is-grouped">
-                        <p class="control">
-                            <input type="checkbox" name="OSDenable" value="enabled" $(if [ "$osdenabled" == "1" ]; then echo checked; fi) />
-                        </p>
-                        <p class="control">
-                            <input class="input is-fullwidth" id="osdtext" name="osdtext" type="text" size="25" value="$(read_config rtspserver.conf osdtext)"/>
-                            <span class="help">
-                                Enter time-variables in <a href="http://strftime.org/" target="_blank">strftime</a> format
-                            </span>
-                        </p>
+                    <div class="field">
+                        <div class="control"><input class="input" name="daynightlum" type="number" value="$daynightlum" min="0" max="20000"></div>
+                        <p class="help">Luminance (Lower = Darker). Current: <span class="labelLum">...</span></p>
+                    </div>
+                    <div class="field">
+                        <div class="control"><input class="input" name="daynightawb" type="number" value="$daynightawb" min="0" max="500000"></div>
+                        <p class="help">AWB Threshold. Current: <span class="labelAWB">...</span></p>
                     </div>
                 </div>
             </div>
 
             <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">OSD Front Color</label>
+                <div class="field-label is-normal"><label class="label">Night &rarr; Day</label></div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control"><input class="input" name="nightdaylum" type="number" value="$nightdaylum" min="0" max="20000"></div>
+                        <p class="help">Luminance (Higher = Brighter). Current: <span class="labelLum">...</span></p>
+                    </div>
+                    <div class="field">
+                        <div class="control"><input class="input" name="nightdayawb" type="number" value="$nightdayawb" min="0" max="500000"></div>
+                        <p class="help">AWB Threshold. Current: <span class="labelAWB">...</span></p>
+                    </div>
                 </div>
+            </div>
+
+            <div class="is-divider" data-content="Advanced OSD Styling"></div>
+            
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"><label class="label">Display</label></div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="switch" id="osdenabled" name="osdenabled" type="checkbox" value="1" $(if [ "$osdenabled" = "1" ]; then echo "checked"; fi)>
+                            <label class="label" for="osdenabled">Show OSD Text</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" name="osdtext" type="text" value="$osdtext" placeholder="%H:%M:%S %d.%m.%Y">
+                        </div>
+                        <p class="help">Text or strftime variables.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"><label class="label">Colors</label></div>
                 <div class="field-body">
                     <div class="field">
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="frontcolor">
-                                <option value="1" $(if [ $osdfrontcolor -eq 1 ]; then echo selected; fi)>White</option>
+                                    <option value="0" $(if [ "$osdfrontcolor" = "0" ]; then echo selected; fi)>Black</option>
+                                    <option value="1" $(if [ "$osdfrontcolor" = "1" ]; then echo selected; fi)>White</option>
+                                    <option value="2" $(if [ "$osdfrontcolor" = "2" ]; then echo selected; fi)>Red</option>
+                                    <option value="3" $(if [ "$osdfrontcolor" = "3" ]; then echo selected; fi)>Green</option>
+                                    <option value="4" $(if [ "$osdfrontcolor" = "4" ]; then echo selected; fi)>Blue</option>
+                                    <option value="5" $(if [ "$osdfrontcolor" = "5" ]; then echo selected; fi)>Cyan</option>
+                                    <option value="6" $(if [ "$osdfrontcolor" = "6" ]; then echo selected; fi)>Yellow</option>
                                 </select>
                             </div>
                         </div>
+                        <p class="help">Foreground</p>
                     </div>
-                </div>
-            </div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">OSD Back Color</label>
-                </div>
-                <div class="field-body">
                     <div class="field">
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="backcolor">
-                                <option value="0" $(if [ $osdbackcolor -eq 0 ]; then echo selected; fi)>Transparent</option>
+                                    <option value="0" $(if [ "$osdbackcolor" = "0" ]; then echo selected; fi)>Transparent</option>
+                                    <option value="1" $(if [ "$osdbackcolor" = "1" ]; then echo selected; fi)>Black</option>
+                                    <option value="2" $(if [ "$osdbackcolor" = "2" ]; then echo selected; fi)>White</option>
                                 </select>
                             </div>
                         </div>
+                        <p class="help">Background</p>
                     </div>
-                </div>
-            </div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">OSD Edge Color</label>
-                </div>
-                <div class="field-body">
                     <div class="field">
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select name="edgecolor">
-                                <option value="2" $(if [ $osdedgecolor -eq 2 ]; then echo selected; fi)>Black</option>
+                                    <option value="0" $(if [ "$osdedgecolor" = "0" ]; then echo selected; fi)>None</option>
+                                    <option value="1" $(if [ "$osdedgecolor" = "1" ]; then echo selected; fi)>White</option>
+                                    <option value="2" $(if [ "$osdedgecolor" = "2" ]; then echo selected; fi)>Black</option>
                                 </select>
                             </div>
+                        </div>
+                        <p class="help">Edge / Shadow</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"><label class="label">Layout</label></div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control"><input class="input" name="osdalpha" type="number" value="$osdalpha" min="0" max="255"></div>
+                        <p class="help">Alpha (0-255)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control"><input class="input" name="osdfontsize0" type="number" value="$osdfontsize0" min="8" max="128"></div>
+                        <p class="help">Size (Main)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control"><input class="input" name="osdx0" type="number" value="$osdx0"></div>
+                        <p class="help">X (Main)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control"><input class="input" name="osdy0" type="number" value="$osdy0"></div>
+                        <p class="help">Y (Main)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"></div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <button id="ispSubmit" class="button is-primary" type="submit">Apply ISP & OSD Settings</button>
                         </div>
                     </div>
                 </div>
             </div>
+        </form>
+    </div>
+</div>
 
+<!-- Sound Detection -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Sound Detection (Beta)</p></header>
+    <div class='card-content'>
+        <form id="formSoundDetection" action="cgi-bin/action.cgi?cmd=conf_sounddetect" method="post">
             <div class="field is-horizontal">
                 <div class="field-label is-normal">
-                    <label class="label">OSD Transparency</label>
+                    <label class="label">Detection</label>
                 </div>
                 <div class="field-body">
                     <div class="field">
-                        <p class="control">
-                                 <input class="input is-fullwidth" id="OSDAlpha" name="OSDAlpha" type="number" size="4" value="$osdalpha"/>
-                        </p>
+                        <div class="control">
+                            <input class="switch" id="sound_det_enable" name="sound_det_enable" type="checkbox" value="1" $(if [ "$SOUND_DET_ENABLE" = "1" ]; then echo "checked"; fi)>
+                            <label class="label" for="sound_det_enable">Enable Sound-Triggered Events</label>
+                        </div>
                     </div>
-                </div>
-            </div>
-
-            <div class="is-divider" data-content="Main stream"></div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">OSD Text Size</label>
-                </div>
-                <div class="field-body">
-                    <div class="select is-fullwidth">
-                        <select name="OSDSize0">
-                            <option value="16"  $(if [ "$osdfontsize0" == "16" ]; then echo selected; fi)>16</option>
-                            <option value="32"  $(if [ "$osdfontsize0" == "32" ]; then echo selected; fi)>32</option>
-                            <option value="48"  $(if [ "$osdfontsize0" == "48" ]; then echo selected; fi)>48</option>
-                            <option value="64"  $(if [ "$osdfontsize0" == "64" ]; then echo selected; fi)>64</option>
-                            <option value="96"  $(if [ "$osdfontsize0" == "96" ]; then echo selected; fi)>96</option>
-                        </select>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="sound_det_threshold" name="sound_det_threshold" type="number" value="$SOUND_DET_THRESHOLD" min="100" max="10000">
+                        </div>
+                        <p class="help">Sensitivity Threshold (Lower = More Sensitive)</p>
                     </div>
                 </div>
             </div>
 
             <div class="field is-horizontal">
                 <div class="field-label is-normal">
-                    <label class="label">X Position</label>
+                    <label class="label">Cooldown</label>
                 </div>
                 <div class="field-body">
                     <div class="field">
-                        <p class="control">
-                            <input class="input is-fullwidth" id="posx0" name="posx0" type="number" size="6" value="$osdx0"/>
-                        </p>
+                        <div class="control">
+                            <input class="input" id="sound_det_interval" name="sound_det_interval" type="number" value="$SOUND_DET_INTERVAL" min="1" max="300">
+                        </div>
+                        <p class="help">Seconds between triggers</p>
                     </div>
-                </div>
-            </div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">Y Position</label>
-                </div>
-                <div class="field-body">
                     <div class="field">
-                        <p class="control">
-                            <input class="input is-fullwidth" id="posy0" name="posy0" type="number" size="6" value="$osdy0"/>
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="is-divider" data-content="Sub stream"></div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">OSD Text Size</label>
-                </div>
-                <div class="field-body">
-                    <div class="select is-fullwidth">
-                        <select name="OSDSize1">
-                            <option value="16"  $(if [ "$osdfontsize1" == "16" ]; then echo selected; fi)>16</option>
-                            <option value="32"  $(if [ "$osdfontsize1" == "32" ]; then echo selected; fi)>32</option>
-                            <option value="48"  $(if [ "$osdfontsize1" == "48" ]; then echo selected; fi)>48</option>
-                            <option value="64"  $(if [ "$osdfontsize1" == "64" ]; then echo selected; fi)>64</option>
-                            <option value="96"  $(if [ "$osdfontsize1" == "96" ]; then echo selected; fi)>96</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">X Position</label>
-                </div>
-                <div class="field-body">
-                    <div class="field">
-                        <p class="control">
-                            <input class="input is-fullwidth" id="posx1" name="posx1" type="number" size="6" value="$osdx1"/>
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                    <label class="label">Y Position</label>
-                </div>
-                <div class="field-body">
-                    <div class="field">
-                        <p class="control">
-                            <input class="input is-fullwidth" id="posy1" name="posy1" type="number" size="6" value="$osdy1"/>
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="field is-horizontal">
-                <div class="field-label is-normal">
-                </div>
-                <div class="field-body">
-                    <div class="field">
-                    <div class="control">
-                        <input id="osdSubmit" class="button is-primary" type="submit" value="Set" />
-                    </div>
+                        <div class="control">
+                            <button id="soundSubmit" class="button is-primary" type="submit">Set Sound Detection</button>
+                        </div>
                     </div>
                 </div>
             </div>
         </form>
+        <p class="help mt-3">Triggered events will publish to MQTT as <code>&lt;root&gt;/sound</code> and start a recording if enabled.</p>
     </div>
 </div>
 

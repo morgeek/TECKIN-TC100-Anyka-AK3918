@@ -204,12 +204,6 @@ security_hardening_enabled() {
   esac
 }
 
-publish_mqtt_event() {
-  payload="$1"
-  if [ -x /mnt/scripts/mqtt-bridge.sh ] && [ -n "$payload" ]; then
-    /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
-  fi
-}
 
 cron_busybox_bin() {
   if [ -x /mnt/bin/busybox ]; then
@@ -718,6 +712,76 @@ if [ -n "$F_cmd" ]; then
     shutdown)
       echo "Shutting down device.."
       /sbin/halt
+    ;;
+
+    isp_pro)
+      daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
+      daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
+      nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
+      nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
+      
+      osdenabled=$(normalize_bool "${F_osdenabled}")
+      osdtext="${F_osdtext:-%H:%M:%S %d.%m.%Y}"
+      osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
+      osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
+      osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
+      osdalpha=$(sanitize_int_range "${F_osdalpha}" 0 255 0)
+      frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
+      backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
+      edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
+
+      # Persist
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          " " daynightlum "$daynightlum" \
+          " " daynightawb "$daynightawb" \
+          " " nightdaylum "$nightdaylum" \
+          " " nightdayawb "$nightdayawb" \
+          " " osdenabled "$osdenabled" \
+          " " osdtext "$osdtext" \
+          " " osdalpha "$osdalpha" \
+          " " osdfrontcolor "$frontcolor" \
+          " " osdbackcolor "$backcolor" \
+          " " osdedgecolor "$edgecolor" \
+          0 osdfontsize "$osdfontsize0" \
+          0 osdx "$osdx0" \
+          0 osdy "$osdy0"
+
+      # Apply immediately
+      /mnt/bin/setconf -k a -v "$daynightlum"
+      /mnt/bin/setconf -k r -v "$daynightawb"
+      /mnt/bin/setconf -k d -v "$nightdaylum"
+      /mnt/bin/setconf -k b -v "$nightdayawb"
+      /mnt/bin/setconf -k l -v "$osdenabled"
+      /mnt/bin/setconf -k o -v "$osdtext"
+      /mnt/bin/setconf -k h -v "$osdalpha"
+      /mnt/bin/setconf -k c -v "$frontcolor"
+      /mnt/bin/setconf -k i -v "$backcolor"
+      /mnt/bin/setconf -k j -v "$edgecolor"
+      /mnt/bin/setconf -k s -v "$osdfontsize0"
+      /mnt/bin/setconf -k x -v "$osdx0"
+      /mnt/bin/setconf -k y -v "$osdy0"
+
+      echo "ISP and OSD settings updated.<br/>"
+    ;;
+
+    conf_sounddetect)
+      enable=$(normalize_bool "${F_sound_det_enable}")
+      threshold=$(sanitize_int_range "${F_sound_det_threshold}" 100 10000 1500)
+      interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 5)
+
+      # Persist
+      install_config /mnt/config/sound_detection.conf
+      /mnt/bin/rwconf /mnt/config/sound_detection.conf w \
+          " " ENABLE "$enable" \
+          " " THRESHOLD "$threshold" \
+          " " INTERVAL "$interval"
+
+      if [ "$enable" = "1" ]; then
+        /mnt/controlscripts/sound-detection start
+      else
+        /mnt/controlscripts/sound-detection stop
+      fi
+      echo "Sound detection settings updated.<br/>"
     ;;
 
     blue_led_on)

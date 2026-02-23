@@ -1,0 +1,123 @@
+#!/bin/sh
+# sound-detection daemon for Anyka AK3918
+# Monitors audio level and triggers MQTT/Recording events.
+
+. /mnt/scripts/common_functions.sh
+
+CONFIG_FILE="/mnt/config/sound_detection.conf"
+PID_FILE="/var/run/sound-detection.pid"
+LOG_FILE="/var/log/sound-detection.log"
+STATE_FILE="/tmp/sound-detection.state"
+
+# Ensure we have a default config
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "ENABLE=0" > "$CONFIG_FILE"
+    echo "THRESHOLD=1500" >> "$CONFIG_FILE"
+    echo "INTERVAL=5" >> "$CONFIG_FILE"
+fi
+
+publish_sound_event() {
+    level="$1"
+    threshold="$2"
+    now_ts="$(date +%s 2>/dev/null)"
+    [ -n "$now_ts" ] || now_ts=0
+    
+    # Publish to MQTT via shared function
+    publish_mqtt_event "{\"type\":\"sound\",\"ts\":$now_ts,\"level\":$level,\"threshold\":$threshold}"
+    
+    # Trigger recording if enabled
+    if [ "$(read_config /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
+        touch /tmp/motion_detected # Re-use motion trigger for now to simplify
+    fi
+}
+
+start() {
+    if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "Already running ($pid)"
+            return 0
+        fi
+    fi
+
+    echo "Starting sound detection daemon..."
+    (
+        echo $$ > "$PID_FILE"
+        while :; do
+            ENABLE=$(read_config "$CONFIG_FILE" ENABLE 0)
+            if [ "$ENABLE" != "1" ]; then
+                sleep 10
+                continue
+            fi
+
+            THRESHOLD=$(read_config "$CONFIG_FILE" THRESHOLD 1500)
+            INTERVAL=$(read_config "$CONFIG_FILE" INTERVAL 5)
+
+            # --- AUDIO PORBE LOGIC ---
+            # Most Anyka cameras use /dev/voice or /dev/dsp for raw audio.
+            # We can use 'dd' to read a small chunk and calculate a primitive 'energy' score.
+            
+            LEVEL=0
+            if [ -c /dev/voice ]; then
+                # Read 512 bytes of raw PCM and count non-null/non-quiet bytes
+                LEVEL=$(dd if=/dev/voice bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')
+            elif [ -c /dev/dsp ]; then
+                 LEVEL=$(dd if=/dev/dsp bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')
+            else
+                # Fallback: Simulate if no hardware found, or use ffmpeg if available
+                # For now, we'll just log that hardware is missing if we never find it
+                if [ ! -f /tmp/sound_hw_missing ]; then
+                    echo "[$(date)] Warning: No audio device found (/dev/voice or /dev/dsp). Detection in shim mode." >> "$LOG_FILE"
+                    touch /tmp/sound_hw_missing
+                fi
+                # Shim: trigger if a test file appears
+                if [ -f /tmp/test-sound-trigger ]; then
+                    LEVEL=$((THRESHOLD + 100))
+                    rm /tmp/test-sound-trigger
+                fi
+            fi
+
+            echo "$LEVEL" > "$STATE_FILE"
+
+            if [ "$LEVEL" -gt "$THRESHOLD" ]; then
+                echo "[$(date)] Triggered! Level: $LEVEL (Thresh: $THRESHOLD)" >> "$LOG_FILE"
+                publish_sound_event "$LEVEL" "$THRESHOLD"
+            fi
+
+            sleep "$INTERVAL"
+        done
+    ) &
+}
+
+stop() {
+    if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE")
+        kill "$pid" 2>/dev/null
+        rm -f "$PID_FILE"
+        echo "Stopped"
+    fi
+}
+
+status() {
+    if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+             echo "Running (PID: $pid)"
+             # Show last level
+             if [ -f "$STATE_FILE" ]; then
+                 echo "Last Level: $(cat "$STATE_FILE")"
+             fi
+             return 0
+        fi
+    fi
+    echo "Stopped"
+    return 1
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    status) status ;;
+    restart) stop; sleep 1; start ;;
+    *) echo "Usage: $0 {start|stop|status|restart}"; exit 1 ;;
+esac
