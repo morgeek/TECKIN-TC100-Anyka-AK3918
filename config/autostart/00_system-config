@@ -95,4 +95,7 @@ osdtext="$(read_config rtspserver.conf osdtext)"
 /mnt/bin/setconf -k m -v "$mdsens"
 /mnt/bin/setconf -k p -v "$mdenabled"
 
+# Start sound detection daemon if enabled in config
+/mnt/controlscripts/sound-detection start
+
 

@@ -82,6 +82,13 @@ read_config()
   echo $value
 }
 
+publish_mqtt_event() {
+  payload="$1"
+  if [ -x /mnt/scripts/mqtt-bridge.sh ] && [ -n "$payload" ]; then
+    /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
+  fi
+}
+
 # Control the led
 led(){
   case "$1" in

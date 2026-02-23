@@ -329,8 +329,8 @@
       case "Recording":
       case "Timelapse":
         return "recording";
-      case "Day/Night auto detection":
-      case "OSD Display":
+      case "ISP Pro Mode & OSD":
+      case "Sound Detection (Beta)":
       case "Motion Detection":
         return "imaging";
       case "Tests":
@@ -626,12 +626,12 @@
       "allPasswordForm",
       "telnetForm",
       "ftpForm",
-      "formOSD",
+      "formISPPro",
+      "formSoundDetection",
       "formRecording",
       "formMotionDetection",
       "formTimelapse",
       "formaudioin",
-      "formDayNight",
     ];
 
     forms.forEach(function (id) {
