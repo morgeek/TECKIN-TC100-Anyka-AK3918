@@ -35,6 +35,10 @@ UI_ULTRALITE_MODE="${UI_ULTRALITE_MODE:-0}"
 SECURITY_HARDENING_MODE="${SECURITY_HARDENING_MODE:-0}"
 ENABLE_NTP="${ENABLE_NTP:-1}"
 NTP_ONE_SHOT="${NTP_ONE_SHOT:-0}"
+REBOOT_SCHEDULE_ENABLE="${REBOOT_SCHEDULE_ENABLE:-0}"
+REBOOT_SCHEDULE_MINUTE="${REBOOT_SCHEDULE_MINUTE:-0}"
+REBOOT_SCHEDULE_HOUR="${REBOOT_SCHEDULE_HOUR:-4}"
+REBOOT_SCHEDULE_WEEKDAY="${REBOOT_SCHEDULE_WEEKDAY:-*}"
 MEM_GUARD_ENABLE="${MEM_GUARD_ENABLE:-0}"
 MEM_GUARD_INTERVAL_SECONDS="${MEM_GUARD_INTERVAL_SECONDS:-20}"
 MEM_GUARD_WARN_KB="${MEM_GUARD_WARN_KB:-8192}"
@@ -81,7 +85,7 @@ esac
 if [ "$ULTRALITE_HTTP_PORT" -lt 1 ] || [ "$ULTRALITE_HTTP_PORT" -gt 65535 ]; then
   ULTRALITE_HTTP_PORT=80
 fi
-for flag_name in LIGHTWEIGHT_MODE UI_ULTRALITE_MODE SECURITY_HARDENING_MODE ENABLE_NTP NTP_ONE_SHOT MEM_GUARD_ENABLE MEM_GUARD_DROP_CACHES MQTT_ENABLE MQTT_HA_DISCOVERY_ENABLE POWER_ESTIMATE_ENABLE SETUP_WIZARD_DONE
+for flag_name in LIGHTWEIGHT_MODE UI_ULTRALITE_MODE SECURITY_HARDENING_MODE ENABLE_NTP NTP_ONE_SHOT REBOOT_SCHEDULE_ENABLE MEM_GUARD_ENABLE MEM_GUARD_DROP_CACHES MQTT_ENABLE MQTT_HA_DISCOVERY_ENABLE POWER_ESTIMATE_ENABLE SETUP_WIZARD_DONE
 do
   eval "flag_value=\${$flag_name}"
   case "$flag_value" in
@@ -161,6 +165,22 @@ esac
 if [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] || [ "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ]; then
   ONVIF_HEALTHCHECK_TIMEOUT_SECONDS=4
 fi
+case "$REBOOT_SCHEDULE_MINUTE" in
+  ''|*[!0-9]*) REBOOT_SCHEDULE_MINUTE=0 ;;
+esac
+if [ "$REBOOT_SCHEDULE_MINUTE" -lt 0 ] || [ "$REBOOT_SCHEDULE_MINUTE" -gt 59 ]; then
+  REBOOT_SCHEDULE_MINUTE=0
+fi
+case "$REBOOT_SCHEDULE_HOUR" in
+  ''|*[!0-9]*) REBOOT_SCHEDULE_HOUR=4 ;;
+esac
+if [ "$REBOOT_SCHEDULE_HOUR" -lt 0 ] || [ "$REBOOT_SCHEDULE_HOUR" -gt 23 ]; then
+  REBOOT_SCHEDULE_HOUR=4
+fi
+case "$REBOOT_SCHEDULE_WEEKDAY" in
+  '*'|0|1|2|3|4|5|6|1-5|0,6) ;;
+  *) REBOOT_SCHEDULE_WEEKDAY='*' ;;
+esac
 case "$MQTT_PORT" in
   ''|*[!0-9]*) MQTT_PORT=1883 ;;
 esac
@@ -853,6 +873,74 @@ cat << EOF
 </div>
 </div>
 
+<!-- Scheduled Reboot -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>Scheduled Reboot</p></header>
+    <div class='card-content'>
+        <form id="formRebootSchedule" action="cgi-bin/action.cgi?cmd=set_reboot_schedule" method="post">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Enable</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="reboot_schedule_enable" value="0" />
+                            <input class="switch" id="reboot_schedule_enable" name="reboot_schedule_enable" type="checkbox" value="1" $(if [ "$REBOOT_SCHEDULE_ENABLE" = "1" ]; then echo "checked"; fi) />
+                            <label class="label" for="reboot_schedule_enable">Enable scheduled reboot cron task</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="reboot_schedule_hour">Schedule</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="reboot_schedule_hour" name="reboot_schedule_hour" type="number" min="0" max="23" value="$REBOOT_SCHEDULE_HOUR" />
+                        </div>
+                        <p class="help">Hour (0-23)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="reboot_schedule_minute" name="reboot_schedule_minute" type="number" min="0" max="59" value="$REBOOT_SCHEDULE_MINUTE" />
+                        </div>
+                        <p class="help">Minute (0-59)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select id="reboot_schedule_weekday" name="reboot_schedule_weekday">
+                                    <option value="*" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "*" ]; then echo "selected"; fi)>Every day</option>
+                                    <option value="1-5" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "1-5" ]; then echo "selected"; fi)>Weekdays (Mon-Fri)</option>
+                                    <option value="0,6" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "0,6" ]; then echo "selected"; fi)>Weekend (Sun/Sat)</option>
+                                    <option value="0" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "0" ]; then echo "selected"; fi)>Sunday</option>
+                                    <option value="1" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "1" ]; then echo "selected"; fi)>Monday</option>
+                                    <option value="2" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "2" ]; then echo "selected"; fi)>Tuesday</option>
+                                    <option value="3" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "3" ]; then echo "selected"; fi)>Wednesday</option>
+                                    <option value="4" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "4" ]; then echo "selected"; fi)>Thursday</option>
+                                    <option value="5" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "5" ]; then echo "selected"; fi)>Friday</option>
+                                    <option value="6" $(if [ "$REBOOT_SCHEDULE_WEEKDAY" = "6" ]; then echo "selected"; fi)>Saturday</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help">Day pattern</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="rebootScheduleSubmit" class="button is-primary" type="submit">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p class="help">This creates a managed cron entry. When enabled, crond is auto-enabled in boot config if needed.</p>
+            <p class="help">Current expression: <code>$REBOOT_SCHEDULE_MINUTE $REBOOT_SCHEDULE_HOUR * * $REBOOT_SCHEDULE_WEEKDAY</code></p>
+        </form>
+    </div>
+</div>
+
 <!-- MQTT Bridge -->
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>MQTT Bridge</p></header>
@@ -1031,6 +1119,103 @@ cat << EOF
             </div>
             <p class="help">MQTT commands currently supported: <code>reboot</code>, <code>snapshot</code>, <code>profile:&lt;balanced|low-cpu|rtsp-only&gt;</code>.</p>
             <p class="help">Power draw is estimated unless measured with an external USB meter.</p>
+        </form>
+        <div class="is-divider" data-content="Home Assistant pairing"></div>
+        <form id="formHomeAssistantPair" action="cgi-bin/action.cgi?cmd=pair_home_assistant" method="post">
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="ha_broker_host">Broker</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="ha_broker_host" name="ha_broker_host" type="text" value="$MQTT_HOST" />
+                        </div>
+                        <p class="help">Home Assistant MQTT broker host/IP.</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="ha_broker_port" name="ha_broker_port" type="number" min="1" max="65535" value="$MQTT_PORT" />
+                        </div>
+                        <p class="help">Broker port (default 1883).</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select id="ha_profile" name="ha_profile">
+                                    <option value="ha-frigate">HA Frigate (recommended)</option>
+                                    <option value="universal-h264">Universal H264</option>
+                                    <option value="hybrid-hevc-main">Hybrid HEVC main + H264 sub</option>
+                                    <option value="legacy-main-only">Legacy main-only H264</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help">Stream compatibility preset to apply.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label" for="ha_user">Auth and topics</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="ha_user" name="ha_user" type="text" value="$MQTT_USER" />
+                        </div>
+                        <p class="help">MQTT username (optional).</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="ha_password" name="ha_password" type="password" value="$MQTT_PASSWORD" />
+                        </div>
+                        <p class="help">MQTT password (optional).</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="ha_client_id" name="ha_client_id" type="text" value="$MQTT_CLIENT_ID" />
+                        </div>
+                        <p class="help">MQTT client ID.</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="ha_topic_root" name="ha_topic_root" type="text" value="$MQTT_TOPIC_ROOT" />
+                        </div>
+                        <p class="help">Topic root (for example <code>tc100/camera</code>).</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="ha_discovery_prefix" name="ha_discovery_prefix" type="text" value="$MQTT_HA_DISCOVERY_PREFIX" />
+                        </div>
+                        <p class="help">Discovery prefix (default <code>homeassistant</code>).</p>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Service policy</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input type="hidden" name="ha_enable_onvif" value="0" />
+                            <input class="switch" id="ha_enable_onvif" name="ha_enable_onvif" type="checkbox" value="1" checked />
+                            <label class="label" for="ha_enable_onvif">Enable ONVIF service/autostart</label>
+                        </div>
+                        <div class="control">
+                            <input type="hidden" name="ha_enable_mqtt_autostart" value="0" />
+                            <input class="switch" id="ha_enable_mqtt_autostart" name="ha_enable_mqtt_autostart" type="checkbox" value="1" checked />
+                            <label class="label" for="ha_enable_mqtt_autostart">Enable MQTT bridge autostart</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <button id="haPairSubmit" class="button is-primary" type="submit">Pair with Home Assistant</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p class="help">This one-click action configures MQTT discovery, applies the selected RTSP/ONVIF profile, ensures autostart, and runs RTSP/ONVIF/MQTT health checks.</p>
         </form>
     </div>
 </div>

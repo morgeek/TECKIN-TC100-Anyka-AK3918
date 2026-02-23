@@ -110,6 +110,17 @@ sanitize_video_smartmode() {
   esac
 }
 
+sanitize_weekday_expr() {
+  case "$1" in
+    '*'|0|1|2|3|4|5|6|1-5|0,6)
+      echo "$1"
+      ;;
+    *)
+      echo "*"
+      ;;
+  esac
+}
+
 sanitize_codec_profile_for_codec() {
   codec="$1"
   profile="$2"
@@ -198,6 +209,104 @@ publish_mqtt_event() {
   if [ -x /mnt/scripts/mqtt-bridge.sh ] && [ -n "$payload" ]; then
     /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
   fi
+}
+
+cron_busybox_bin() {
+  if [ -x /mnt/bin/busybox ]; then
+    echo /mnt/bin/busybox
+    return 0
+  fi
+  if [ -x /bin/busybox ]; then
+    echo /bin/busybox
+    return 0
+  fi
+  echo busybox
+}
+
+ensure_cron_root_template() {
+  cron_root="/mnt/config/cron/crontabs/root"
+  cron_periodic="/mnt/config/cron/periodic"
+  cron_bb="$(cron_busybox_bin)"
+
+  mkdir -p /mnt/config/cron/crontabs >/dev/null 2>&1 || true
+  mkdir -p "${cron_periodic}/15min" \
+           "${cron_periodic}/hourly" \
+           "${cron_periodic}/daily" \
+           "${cron_periodic}/weekly" \
+           "${cron_periodic}/monthly" >/dev/null 2>&1 || true
+
+  if [ ! -f "$cron_root" ]; then
+    cat > "$cron_root" <<EOF
+# min   hour    day     month   weekday command
+*/15    *       *       *       *       ${cron_bb} run-parts ${cron_periodic}/15min
+0       *       *       *       *       ${cron_bb} run-parts ${cron_periodic}/hourly
+0       2       *       *       *       ${cron_bb} run-parts ${cron_periodic}/daily
+0       3       *       *       6       ${cron_bb} run-parts ${cron_periodic}/weekly
+0       5       1       *       *       ${cron_bb} run-parts ${cron_periodic}/monthly
+EOF
+  fi
+}
+
+sync_managed_reboot_cron() {
+  schedule_enable="$1"
+  schedule_minute="$2"
+  schedule_hour="$3"
+  schedule_weekday="$4"
+  cron_root="/mnt/config/cron/crontabs/root"
+  tmp_file="/tmp/root.crontab.$$.$(date +%s)"
+
+  ensure_cron_root_template
+
+  awk '
+    BEGIN { skip=0 }
+    /^# BEGIN TC100 MANAGED REBOOT$/ { skip=1; next }
+    /^# END TC100 MANAGED REBOOT$/ { skip=0; next }
+    skip==0 { print }
+  ' "$cron_root" > "$tmp_file" 2>/dev/null || cp "$cron_root" "$tmp_file"
+
+  {
+    echo "# BEGIN TC100 MANAGED REBOOT"
+    if [ "$schedule_enable" = "1" ]; then
+      echo "${schedule_minute} ${schedule_hour} * * ${schedule_weekday} /sbin/reboot >/dev/null 2>&1"
+    else
+      echo "# disabled"
+    fi
+    echo "# END TC100 MANAGED REBOOT"
+  } >> "$tmp_file"
+
+  mv "$tmp_file" "$cron_root"
+}
+
+restart_crond_if_enabled() {
+  crond_enable="$1"
+  cron_bb="$(cron_busybox_bin)"
+
+  if [ "$crond_enable" = "1" ]; then
+    killall crond >/dev/null 2>&1 || true
+    "$cron_bb" crond -c /mnt/config/cron/crontabs >/dev/null 2>&1 || true
+  fi
+}
+
+ensure_autostart_script() {
+  script_name="$1"
+  script_path="/mnt/controlscripts/$script_name"
+  autostart_dir="/mnt/config/autostart"
+  autostart_file="$autostart_dir/$script_name"
+
+  case "$script_name" in
+    ''|*[!A-Za-z0-9._-]*)
+      return 1
+      ;;
+  esac
+
+  if [ ! -x "$script_path" ]; then
+    return 1
+  fi
+
+  mkdir -p "$autostart_dir" >/dev/null 2>&1 || true
+  printf "#!/bin/sh\nsh \"%s\"\n" "$script_path" > "$autostart_file" || return 1
+  chmod +x "$autostart_file" >/dev/null 2>&1 || true
+  return 0
 }
 
 LOG_SUMMARY_TAIL_LINES=40
@@ -1033,6 +1142,55 @@ if [ -n "$F_cmd" ]; then
       publish_mqtt_event "$(printf '{"ts":%s,"type":"web_mode","mode":"%s"}' "$now_ts" "$web_mode")"
     ;;
 
+    set_reboot_schedule)
+      install_config /mnt/config/boot.conf
+
+      reboot_schedule_enable="$(normalize_bool "${F_reboot_schedule_enable}")"
+      reboot_schedule_minute="$(sanitize_int_range "${F_reboot_schedule_minute}" 0 59 0)"
+      reboot_schedule_hour="$(sanitize_int_range "${F_reboot_schedule_hour}" 0 23 4)"
+      reboot_schedule_weekday="$(sanitize_weekday_expr "${F_reboot_schedule_weekday}")"
+
+      # shellcheck disable=SC1090
+      if [ -f /mnt/config/boot.conf ]; then
+        . /mnt/config/boot.conf
+      fi
+      current_enable_crond="$(normalize_bool "${ENABLE_CROND}")"
+
+      if [ "$reboot_schedule_enable" = "1" ] && [ "$current_enable_crond" != "1" ]; then
+        current_enable_crond=1
+        rewrite_config /mnt/config/boot.conf ENABLE_CROND 1
+      fi
+
+      rewrite_config /mnt/config/boot.conf REBOOT_SCHEDULE_ENABLE "$reboot_schedule_enable"
+      rewrite_config /mnt/config/boot.conf REBOOT_SCHEDULE_MINUTE "$reboot_schedule_minute"
+      rewrite_config /mnt/config/boot.conf REBOOT_SCHEDULE_HOUR "$reboot_schedule_hour"
+      rewrite_config /mnt/config/boot.conf REBOOT_SCHEDULE_WEEKDAY "$reboot_schedule_weekday"
+
+      sync_managed_reboot_cron "$reboot_schedule_enable" "$reboot_schedule_minute" "$reboot_schedule_hour" "$reboot_schedule_weekday"
+      restart_crond_if_enabled "$current_enable_crond"
+
+      if [ "$reboot_schedule_enable" = "1" ]; then
+        echo "Scheduled reboot enabled via cron: ${reboot_schedule_minute} ${reboot_schedule_hour} * * ${reboot_schedule_weekday}<br/>"
+        if [ "$reboot_schedule_weekday" = "*" ]; then
+          echo "Reboot will run daily at $(printf '%02d:%02d' "$reboot_schedule_hour" "$reboot_schedule_minute").<br/>"
+        else
+          echo "Reboot will run weekly pattern '$reboot_schedule_weekday' at $(printf '%02d:%02d' "$reboot_schedule_hour" "$reboot_schedule_minute").<br/>"
+        fi
+      else
+        echo "Scheduled reboot disabled. Managed cron entry removed.<br/>"
+      fi
+
+      if [ "$current_enable_crond" = "1" ]; then
+        echo "Crond is enabled and cron schedule has been reloaded.<br/>"
+      else
+        echo "Warning: crond is disabled in boot config. Enable ENABLE_CROND=1 for schedules to run.<br/>"
+      fi
+
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"reboot_schedule","enabled":%s,"minute":%s,"hour":%s,"weekday":"%s"}' "$now_ts" "$reboot_schedule_enable" "$reboot_schedule_minute" "$reboot_schedule_hour" "$reboot_schedule_weekday")"
+    ;;
+
     set_stream_topology)
       install_config /mnt/config/boot.conf
       capture_prechange_stream_snapshot
@@ -1195,6 +1353,167 @@ if [ -n "$F_cmd" ]; then
       echo "MQTT bridge configuration saved.<br/>"
       echo "Enabled=$mqtt_enable, broker=${mqtt_host}:${mqtt_port}, topic_root=${mqtt_topic_root}, command_topic=${mqtt_topic_command}, qos=${mqtt_qos}, dedupe_window=${mqtt_command_repeat_window_seconds}s<br/>"
       echo "HA discovery=${mqtt_ha_discovery_enable} (prefix=${mqtt_ha_discovery_prefix}), power_estimate=${power_estimate_enable}, base=${power_estimate_base_mw}mW, cpu_scale=${power_estimate_cpu_scale_mw}mW, ir_led=${power_estimate_ir_led_mw}mW<br/>"
+    ;;
+
+    pair_home_assistant)
+      install_config /mnt/config/boot.conf
+      install_config /mnt/config/mqtt.conf
+
+      ha_broker_host="$(printf '%b' "${F_ha_broker_host}")"
+      ha_broker_port="$(sanitize_int_range "${F_ha_broker_port}" 1 65535 1883)"
+      ha_user="$(printf '%b' "${F_ha_user}")"
+      ha_password="$(printf '%b' "${F_ha_password}")"
+      ha_client_id="$(printf '%b' "${F_ha_client_id}")"
+      ha_topic_root="$(printf '%b' "${F_ha_topic_root}")"
+      ha_discovery_prefix="$(printf '%b' "${F_ha_discovery_prefix}")"
+      ha_profile="$(printf '%b' "${F_ha_profile}")"
+      ha_enable_onvif="$(normalize_bool "${F_ha_enable_onvif}")"
+      ha_enable_mqtt_autostart="$(normalize_bool "${F_ha_enable_mqtt_autostart}")"
+
+      case "$ha_broker_host" in
+        ''|*[!A-Za-z0-9._:-]*)
+          echo "Invalid broker host. Allowed characters: letters, numbers, dot, dash, underscore, colon.<br/>"
+          exit 0
+          ;;
+      esac
+
+      ha_client_id="$(printf '%s' "$ha_client_id" | sed 's/[^A-Za-z0-9._-]/-/g')"
+      [ -n "$ha_client_id" ] || ha_client_id="tc100-camera"
+
+      ha_topic_root="$(printf '%s' "$ha_topic_root" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
+      [ -n "$ha_topic_root" ] || ha_topic_root="tc100/camera"
+
+      ha_discovery_prefix="$(printf '%s' "$ha_discovery_prefix" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
+      [ -n "$ha_discovery_prefix" ] || ha_discovery_prefix="homeassistant"
+
+      [ -n "$ha_profile" ] || ha_profile="ha-frigate"
+      if ! select_compat_profile_values "$ha_profile"; then
+        echo "Unknown compatibility preset '$ha_profile'<br/>"
+        exit 0
+      fi
+
+      ha_topic_command="${ha_topic_root}/command"
+
+      rewrite_config /mnt/config/mqtt.conf MQTT_ENABLE 1
+      rewrite_config /mnt/config/mqtt.conf MQTT_HOST "$ha_broker_host"
+      rewrite_config /mnt/config/mqtt.conf MQTT_PORT "$ha_broker_port"
+      rewrite_config /mnt/config/mqtt.conf MQTT_USER "$ha_user"
+      rewrite_config /mnt/config/mqtt.conf MQTT_PASSWORD "$ha_password"
+      rewrite_config /mnt/config/mqtt.conf MQTT_CLIENT_ID "$ha_client_id"
+      rewrite_config /mnt/config/mqtt.conf MQTT_TOPIC_ROOT "$ha_topic_root"
+      rewrite_config /mnt/config/mqtt.conf MQTT_TOPIC_COMMAND "$ha_topic_command"
+      rewrite_config /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE 1
+      rewrite_config /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_PREFIX "$ha_discovery_prefix"
+
+      capture_prechange_stream_snapshot
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          0 width        "$width0" \
+          0 height       "$height0" \
+          0 fps          "$fps0" \
+          0 bps          "$bps0" \
+          0 goplen       "$gop0" \
+          0 brmode       1 \
+          0 codec        "$codec0" \
+          0 profile      "$profile0" \
+          0 smartmode    1 \
+          0 smartgoplen  "$gop0" \
+          0 smartquality "$smartq0" \
+          0 smartstatic  "$smartstatic0" \
+          0 maxkbps      "$maxkbps0" \
+          0 targetkbps   "$targetkbps0" \
+          1 width        "$width1" \
+          1 height       "$height1" \
+          1 fps          "$fps1" \
+          1 bps          "$bps1" \
+          1 goplen       "$gop1" \
+          1 brmode       1 \
+          1 codec        "$codec1" \
+          1 profile      "$profile1" \
+          1 smartmode    1 \
+          1 smartgoplen  "$gop1" \
+          1 smartquality "$smartq1" \
+          1 smartstatic  "$smartstatic1" \
+          1 maxkbps      "$maxkbps1" \
+          1 targetkbps   "$targetkbps1"
+
+      if [ "$rtsp_audio" = "0" ]; then
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
+      fi
+
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
+      rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
+      rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
+      rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
+      rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
+
+      finalize_stream_apply "ha-pair:${ha_profile}"
+
+      ensure_autostart_script rtsp-h26x >/dev/null 2>&1 || true
+      /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1 || true
+
+      if [ "$ha_enable_onvif" = "1" ]; then
+        ensure_autostart_script onvif >/dev/null 2>&1 || true
+        /mnt/controlscripts/onvif start >/dev/null 2>&1 || true
+      else
+        rm -f /mnt/config/autostart/onvif >/dev/null 2>&1 || true
+        /mnt/controlscripts/onvif stop >/dev/null 2>&1 || true
+      fi
+
+      if [ "$ha_enable_mqtt_autostart" = "1" ]; then
+        ensure_autostart_script mqtt-bridge >/dev/null 2>&1 || true
+      else
+        rm -f /mnt/config/autostart/mqtt-bridge >/dev/null 2>&1 || true
+      fi
+      if [ -x /mnt/controlscripts/mqtt-bridge ]; then
+        /mnt/controlscripts/mqtt-bridge stop >/dev/null 2>&1 || true
+        /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1 || true
+      fi
+
+      rtsp_health_ok=0
+      onvif_health_ok=0
+      mqtt_publish_ok=0
+
+      if [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1; then
+        rtsp_health_ok=1
+      fi
+      if [ "$ha_enable_onvif" = "1" ] && [ -x /mnt/controlscripts/onvif ] && /mnt/controlscripts/onvif health >/dev/null 2>&1; then
+        onvif_health_ok=1
+      fi
+
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      mqtt_test_payload="$(printf '{"ts":%s,"type":"ha_pair_test","profile":"%s"}' "$now_ts" "$ha_profile")"
+      if [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish event "$mqtt_test_payload" 0 >/dev/null 2>&1; then
+        mqtt_publish_ok=1
+      fi
+
+      echo "Home Assistant pairing applied.<br/>"
+      echo "Compatibility preset: $profile_label<br/>"
+      echo "Broker: ${ha_broker_host}:${ha_broker_port}, discovery prefix: ${ha_discovery_prefix}<br/>"
+      echo "Topics: root=${ha_topic_root}, command=${ha_topic_command}<br/>"
+      echo "Autostart: RTSP=on, ONVIF=${ha_enable_onvif}, MQTT=${ha_enable_mqtt_autostart}<br/>"
+      if [ "$rtsp_health_ok" = "1" ]; then
+        echo "RTSP health check: OK<br/>"
+      else
+        echo "RTSP health check: FAILED (check video profile/network)<br/>"
+      fi
+      if [ "$ha_enable_onvif" = "1" ]; then
+        if [ "$onvif_health_ok" = "1" ]; then
+          echo "ONVIF health check: OK<br/>"
+        else
+          echo "ONVIF health check: FAILED (check ONVIF service/network)<br/>"
+        fi
+      else
+        echo "ONVIF health check: skipped (disabled)<br/>"
+      fi
+      if [ "$mqtt_publish_ok" = "1" ]; then
+        echo "MQTT publish test: OK (discovery should republish at MQTT bridge start)<br/>"
+      else
+        echo "MQTT publish test: FAILED (check broker credentials/reachability)<br/>"
+      fi
+      echo "Quick links: /onvif/device_service, rtsp://CAMERA-IP:554/video0_unicast, rtsp://CAMERA-IP:554/video1_unicast<br/>"
+
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"ha_pair","profile":"%s","rtsp_ok":%s,"onvif_ok":%s,"mqtt_ok":%s}' "$now_ts" "$ha_profile" "$rtsp_health_ok" "$onvif_health_ok" "$mqtt_publish_ok")"
     ;;
 
     set_advanced_tuning)
