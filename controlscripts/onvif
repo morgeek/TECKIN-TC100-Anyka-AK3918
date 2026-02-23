@@ -97,29 +97,18 @@ start()
     
     LOGPATH="${ONVIF_LOGPATH:-/dev/null}"
 
-    WIDTH0=$(read_config  rtspserver.conf width   0)
-    HEIGHT0=$(read_config rtspserver.conf height  0)
-    CODEC0=$(read_config  rtspserver.conf codec   0)
-    FPS0=$(read_config    rtspserver.conf fps     0)
-    BPS0=$(read_config    rtspserver.conf bps     0)
+    IFS=" "
+    set -- $(/mnt/bin/rwconf $CONFIGPATH/rtspserver.conf r \
+      0 width 0 height 0 codec 0 fps 0 bps \
+      1 width 1 height 1 codec 1 fps 1 bps \
+      " " PORT)
 
-    CODECSTR0="H264"
-    if [ "$CODEC0" = "2" ]; then
-      CODECSTR0="H265"
-    fi
+    WIDTH0=$1; HEIGHT0=$2; CODEC0=$3; FPS0=$4; BPS0=$5
+    WIDTH1=$6; HEIGHT1=$7; CODEC1=$8; FPS1=$9; BPS1=${10}
+    PORT=${11}
 
-    WIDTH1=$(read_config  rtspserver.conf width   1)
-    HEIGHT1=$(read_config rtspserver.conf height  1)
-    CODEC1=$(read_config  rtspserver.conf codec   1)
-    FPS1=$(read_config    rtspserver.conf fps     1)
-    BPS1=$(read_config    rtspserver.conf bps     1)
-
-    CODECSTR1="H264"
-    if [ "$CODEC1" = "2" ]; then
-      CODECSTR1="H265"
-    fi
-
-    PORT=$(read_config rtspserver.conf PORT)
+    CODECSTR0="H264"; [ "$CODEC0" = "2" ] && CODECSTR0="H265"
+    CODECSTR1="H264"; [ "$CODEC1" = "2" ] && CODECSTR1="H265"
 
     PRIMARY_RP="video0_unicast"
     PRIMARY_WIDTH="$WIDTH0"

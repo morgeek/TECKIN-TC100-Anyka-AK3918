@@ -400,15 +400,53 @@ get_current_cpu_usage()
 
 get_current_memory_usage()
 {
-    # get used memory without buffers
-    used=$(free | awk 'NR==2{printf "%s\n", $3-$6}')
-    echo $used
+    # get used memory without buffers/cache by reading /proc/meminfo directly (saves 2 process forks)
+    total=0; free=0; buffers=0; cached=0; srec=0
+    while IFS=' :' read -r key val _; do
+        case "$key" in
+            MemTotal) total=$val ;;
+            MemFree) free=$val ;;
+            Buffers) buffers=$val ;;
+            Cached) cached=$val ;;
+            SReclaimable) srec=$val ;;
+        esac
+    done < /proc/meminfo
+    # Return used memory in KB (mimicking old logic: total - free - buffers - cached)
+    echo $((total - free - buffers - cached - srec))
+}
+
+get_mem_available_kb()
+{
+    # Return available memory in KB by reading /proc/meminfo directly.
+    # Uses MemAvailable if present, otherwise fallbacks to MemFree + Buffers + Cached + SReclaimable.
+    total=0; free=0; buffers=0; cached=0; srec=0; shmem=0; avail=0
+    while IFS=' :' read -r key val _; do
+        case "$key" in
+            MemTotal) total=$val ;;
+            MemAvailable) avail=$val ;;
+            MemFree) free=$val ;;
+            Buffers) buffers=$val ;;
+            Cached) cached=$val ;;
+            SReclaimable) srec=$val ;;
+            Shmem) shmem=$val ;;
+        esac
+    done < /proc/meminfo
+
+    if [ "$avail" -gt 0 ]; then
+        echo "$avail"
+    else
+        echo $((free + buffers + cached + srec - shmem))
+    fi
 }
 
 get_all_memory()
 {
-    all=$(free | awk 'NR==2{printf "%s\n", $2 }')
-    echo $all
+    while IFS=' :' read -r key val _; do
+        if [ "$key" = "MemTotal" ]; then
+            echo "$val"
+            return
+        fi
+    done < /proc/meminfo
 }
 
 restart_service_if_need()

@@ -67,25 +67,7 @@ load_config()
 
 mem_available_kb()
 {
-    awk '
-        /^MemAvailable:/ {mem_available=$2}
-        /^MemFree:/ {mem_free=$2}
-        /^Buffers:/ {mem_buffers=$2}
-        /^Cached:/ {mem_cached=$2}
-        /^SReclaimable:/ {mem_sreclaimable=$2}
-        /^Shmem:/ {mem_shmem=$2}
-        END {
-            if (mem_available > 0) {
-                print mem_available
-            } else {
-                fallback = mem_free + mem_buffers + mem_cached + mem_sreclaimable - mem_shmem
-                if (fallback < 0) {
-                    fallback = 0
-                }
-                print fallback
-            }
-        }
-    ' /proc/meminfo 2>/dev/null
+    get_mem_available_kb
 }
 
 stop_service_if_running()
