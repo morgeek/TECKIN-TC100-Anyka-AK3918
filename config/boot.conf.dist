@@ -10,6 +10,14 @@ NTP_ONE_SHOT=0
 ENABLE_CROND=1
 ENABLE_AUTOSTART=1
 
+# Managed scheduled reboot cron task:
+# Cron expression is: REBOOT_SCHEDULE_MINUTE REBOOT_SCHEDULE_HOUR * * REBOOT_SCHEDULE_WEEKDAY
+# REBOOT_SCHEDULE_WEEKDAY supports: *, 0..6, 1-5, 0,6
+REBOOT_SCHEDULE_ENABLE=0
+REBOOT_SCHEDULE_MINUTE=0
+REBOOT_SCHEDULE_HOUR=4
+REBOOT_SCHEDULE_WEEKDAY=*
+
 # Web server mode:
 # - full: https + redirect (lighttpd, default)
 # - http: http only (lighttpd, no TLS)

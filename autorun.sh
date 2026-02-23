@@ -120,6 +120,14 @@ list_contains()
     return 1
 }
 
+sanitize_weekday_expr()
+{
+    case "$1" in
+        '*'|0|1|2|3|4|5|6|1-5|0,6) echo "$1" ;;
+        *) echo "*" ;;
+    esac
+}
+
 load_boot_config()
 {
     # shellcheck disable=SC1090
@@ -187,6 +195,10 @@ load_boot_config()
     : "${NTP_ONE_SHOT:=0}"
     : "${ENABLE_CROND:=1}"
     : "${ENABLE_AUTOSTART:=1}"
+    : "${REBOOT_SCHEDULE_ENABLE:=0}"
+    : "${REBOOT_SCHEDULE_MINUTE:=0}"
+    : "${REBOOT_SCHEDULE_HOUR:=4}"
+    : "${REBOOT_SCHEDULE_WEEKDAY:=*}"
     : "${RTSP_SUBSTREAM:=1}"
     : "${RTSP_AUDIO:=1}"
     : "${WEB_MODE:=full}"
@@ -203,6 +215,11 @@ load_boot_config()
     : "${MEM_GUARD_DROP_CACHES:=1}"
     : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection}"
     : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
+
+    if is_truthy "$REBOOT_SCHEDULE_ENABLE" && ! is_truthy "$ENABLE_CROND"; then
+        ENABLE_CROND=1
+        rewrite_config "$CONFIGPATH/boot.conf" ENABLE_CROND 1
+    fi
 
     if is_truthy "$SERVICE_TRIM"; then
         AUTOSTART_ALLOWLIST="$SERVICE_TRIM_ALLOWLIST"
@@ -364,7 +381,63 @@ init_crond()
 EOF
       echo "Created cron directories and standard interval jobs" >> $LOGPATH
     fi
+    CRON_ROOT="${CONFIGPATH}/cron/crontabs/root"
+    CRONPERIODIC="${CONFIGPATH}/cron/periodic"
+    if [ ! -f "$CRON_ROOT" ]; then
+      cat > "$CRON_ROOT" <<EOF
+# min   hour    day     month   weekday command
+*/15    *       *       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/15min
+0       *       *       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/hourly
+0       2       *       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/daily
+0       3       *       *       6       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/weekly
+0       5       1       *       *       ${BOOT_BUSYBOX} run-parts ${CRONPERIODIC}/monthly
+EOF
+    fi
+
+    sched_enable=0
+    if is_truthy "$REBOOT_SCHEDULE_ENABLE"; then
+      sched_enable=1
+    fi
+    sched_minute="${REBOOT_SCHEDULE_MINUTE:-0}"
+    sched_hour="${REBOOT_SCHEDULE_HOUR:-4}"
+    sched_weekday="$(sanitize_weekday_expr "${REBOOT_SCHEDULE_WEEKDAY:-*}")"
+    case "$sched_minute" in
+      ''|*[!0-9]*) sched_minute=0 ;;
+    esac
+    case "$sched_hour" in
+      ''|*[!0-9]*) sched_hour=4 ;;
+    esac
+    if [ "$sched_minute" -lt 0 ] || [ "$sched_minute" -gt 59 ]; then
+      sched_minute=0
+    fi
+    if [ "$sched_hour" -lt 0 ] || [ "$sched_hour" -gt 23 ]; then
+      sched_hour=4
+    fi
+
+    CRON_TMP="/tmp/root.crontab.$$.$(date +%s)"
+    awk '
+      BEGIN { skip=0 }
+      /^# BEGIN TC100 MANAGED REBOOT$/ { skip=1; next }
+      /^# END TC100 MANAGED REBOOT$/ { skip=0; next }
+      skip==0 { print }
+    ' "$CRON_ROOT" > "$CRON_TMP" 2>/dev/null || cp "$CRON_ROOT" "$CRON_TMP"
+
+    {
+      echo "# BEGIN TC100 MANAGED REBOOT"
+      if [ "$sched_enable" = "1" ]; then
+        echo "${sched_minute} ${sched_hour} * * ${sched_weekday} /sbin/reboot >/dev/null 2>&1"
+      else
+        echo "# disabled"
+      fi
+      echo "# END TC100 MANAGED REBOOT"
+    } >> "$CRON_TMP"
+
+    mv "$CRON_TMP" "$CRON_ROOT"
+
     "$BOOT_BUSYBOX" crond -c ${CONFIGPATH}/cron/crontabs
+    if [ "$sched_enable" = "1" ]; then
+      echo "Scheduled reboot cron active: ${sched_minute} ${sched_hour} * * ${sched_weekday}" >> $LOGPATH
+    fi
 }
 
 initialize_gpio()

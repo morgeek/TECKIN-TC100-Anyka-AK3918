@@ -120,7 +120,9 @@ Remove the MicroSD card and reboot.
 * Settings now include a **Setup Wizard** (password + preset + timezone/NTP + quick RTSP/ONVIF checks).
 * Video Settings include **Known-good snapshot** controls (save current / restore last known-good).
 * Settings now include an **Advanced Tuning** section for boot-level controls (Lightweight mode, Ultra-lite UI mode, NTP behavior, memory guard thresholds, RTSP/ONVIF watchdog timeouts).
+* Settings now include a **Scheduled Reboot** card with cron-backed daily/weekly policy.
 * Settings now include an **MQTT Bridge** card to configure local broker/topic/intervals, Home Assistant discovery, and power telemetry/estimation behavior.
+* Settings now include a one-click **Pair with Home Assistant** action (MQTT + discovery + compatibility preset + RTSP/ONVIF/MQTT health checks + autostart wiring).
 * Settings now include a **Motion Event API** card with direct links to local automation endpoints.
 * Settings show a security warning in the password section when default credentials are still active.
 * Settings include a **Config Backup & Health** card:
@@ -205,6 +207,14 @@ Set in `/mnt/config/boot.conf`:
   * blocks FTP/Telnet changes via UI/API
   * skips FTP/Telnet autostart at boot
   * stops FTP/Telnet services at runtime when policy is applied
+
+### Scheduled reboot (cron)
+In **Settings -> Scheduled Reboot**, configure:
+* enable/disable scheduled reboot
+* hour/minute execution
+* weekday pattern (`Every day`, `Weekdays`, `Weekend`, or specific weekday)
+
+This writes a managed cron entry and reloads `crond`. If schedule is enabled, `ENABLE_CROND` is forced on in boot config.
 
 ### Maximum web CPU savings
 For minimum web stack overhead while keeping core camera functionality:
@@ -399,6 +409,13 @@ To avoid non-working encoder configs, the backend now normalizes unsafe H265 dim
 
 ### MQTT Bridge (local broker)
 Config file: `/mnt/config/mqtt.conf` (template: `config/mqtt.conf.dist`)
+
+### One-click Home Assistant pairing
+In **Settings -> MQTT Bridge -> Home Assistant pairing**:
+* set broker/auth/topic values
+* choose a compatibility preset (`HA Frigate`, `Universal H264`, `Hybrid HEVC main + H264 sub`, `Legacy main-only`)
+* apply MQTT discovery + RTSP/ONVIF profile + service autostart in one submit
+* run quick health checks for RTSP, ONVIF, and MQTT publish
 
 When enabled (`MQTT_ENABLE=1`), the bridge publishes:
 * `<MQTT_TOPIC_ROOT>/health` (periodic device health)
