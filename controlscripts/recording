@@ -34,8 +34,12 @@ start()
   else
     echo "Starting recording"
 
-    USERNAME=$(read_config rtspserver.conf USERNAME)
-    USERPASSWORD=$(read_config rtspserver.conf USERPASSWORD)
+    IFS=" "
+    set -- $(/mnt/bin/rwconf $CONFIGPATH/rtspserver.conf r \
+      " " USERNAME " " USERPASSWORD 0 codec " " PORT)
+
+    USERNAME=$1; USERPASSWORD=$2; CODEC0=$3; PORT=$4
+
     if [ "$USERNAME" != "" ]; then
         CREDENTIAL="$USERNAME:$USERPASSWORD@"
     fi
@@ -48,14 +52,10 @@ start()
         motion_args="-s_stop 0"
     fi
 
-    CODEC0=$(read_config rtspserver.conf codec 0)
-
     CODECSTR0="h264"
     if [ "$CODEC0" == "2" ]; then
-      CODECSTR0="hevc"
+        CODECSTR0="hevc"
     fi
-
-    PORT=$(read_config rtspserver.conf PORT)
 
     # Example:
     # /mnt/bin/ffmpeg-min-recorder -loglevel info -rtbufsize 786432 -re -vcodec h264 -analyzeduration 0 -rtsp_transport tcp -stimeout 3500000 -i rtsp://root:jco66688@0.0.0.0:554/unicast -vcodec copy -acodec copy -map 0 -dn -f extsegment -s_max_prerecord_bytes 524288 -s_prerecord_ms 0 -s_postrecord_ms 8000 -s_max_file_duration_ms 60000 -s_reserved_disk_space_mb 512 -s_stop 1 -s_control_file /tmp/rec_control /mnt/DCIM

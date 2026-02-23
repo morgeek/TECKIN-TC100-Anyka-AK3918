@@ -170,23 +170,17 @@ if [ -n "$F_script" ]; then
           running=0
           autostart_enabled=0
 
-          # Parse start/stop/status function presence in one pass to keep
-          # state polling lightweight when the Services page checks each row.
-          function_flags="$(awk '
-            BEGIN { s=0; t=0; u=0 }
-            /^[[:space:]]*start[[:space:]]*\(\)/  { s=1 }
-            /^[[:space:]]*stop[[:space:]]*\(\)/   { t=1 }
-            /^[[:space:]]*status[[:space:]]*\(\)/ { u=1 }
-            END { printf "%s %s %s", s, t, u }
-          ' "$SCRIPT_HOME/$script" 2>/dev/null)"
           has_start=0
           has_stop=0
           has_status=0
-          if [ -n "$function_flags" ]; then
-            IFS=' ' read -r has_start has_stop has_status <<EOF
-$function_flags
-EOF
-          fi
+          # Parse start/stop/status function presence using shell builtins to save forks
+          while read -r line; do
+            case "$line" in
+              *"start()"*)  has_start=1 ;;
+              *"stop()"*)   has_stop=1 ;;
+              *"status()"*) has_status=1 ;;
+            esac
+          done < "$SCRIPT_HOME/$script"
 
           if [ -f "$AUTOSTART_DIR/$script" ]; then
             autostart_enabled=1
@@ -214,6 +208,50 @@ EOF
           printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s}\n' \
             "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled"
         fi
+        ;;
+      allstates)
+        echo "Content-type: application/json"
+        echo ""
+        printf '{"status":"ok","services":['
+        SCRIPTS=$(ls -A "$SCRIPT_HOME")
+        first=1
+        for script in $SCRIPTS; do
+          if is_valid_script_name "$script" && [ -f "$SCRIPT_HOME/$script" ]; then
+            [ "$first" -eq 0 ] && printf ','
+            first=0
+            
+            has_start=0; has_stop=0; has_status=0; autostart_enabled=0; running=0; state="unknown"
+            while read -r line; do
+              case "$line" in
+                *"start()"*)  has_start=1 ;;
+                *"stop()"*)   has_stop=1 ;;
+                *"status()"*) has_status=1 ;;
+              esac
+            done < "$SCRIPT_HOME/$script"
+            
+            [ -f "$AUTOSTART_DIR/$script" ] && autostart_enabled=1
+            
+            if [ "$has_status" -eq 1 ]; then
+              # For bulk listing, use a shorter timeout to avoid blocking the whole response
+              status_output="$(run_status_probe "$SCRIPT_HOME/$script" 1)"
+              status_rc=$?
+              if [ "$status_rc" -eq 0 ]; then
+                if [ -n "$status_output" ]; then
+                  state="running"; running=1
+                else
+                  state="stopped"
+                fi
+              elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
+                state="timeout"
+              else
+                state="error"
+              fi
+            fi
+            printf '{"script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s}' \
+              "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled"
+          fi
+        done
+        echo ']}'
         ;;
       *)
         echo "Content-type: text/html"

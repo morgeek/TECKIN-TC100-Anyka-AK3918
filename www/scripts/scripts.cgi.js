@@ -155,24 +155,33 @@ function initScriptsPage() {
   }
 
   function refreshServiceStates() {
-    var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-script-name]'));
-    var index = 0;
-
     function tick() {
-      // If the content container has been swapped or unmounted, stop the recursion
       var content = document.getElementById("content");
       if (window.isHostStillActive && !window.isHostStillActive(content)) {
         return;
       }
 
-      if (index >= rows.length) {
-        return;
-      }
-      var row = rows[index];
-      refreshServiceState(row).then(function () {
-        index += 1;
-        setTimeout(tick, 300);
-      });
+      fetch('cgi-bin/scripts.cgi?cmd=allstates', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (json) {
+          if (!json || json.status !== 'ok' || !json.services) {
+            return;
+          }
+          var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-script-name]'));
+          json.services.forEach(function (stateInfo) {
+            var row = rows.find(function (r) { return r.dataset.scriptName === stateInfo.script; });
+            if (row) {
+              applyServiceState(row, stateInfo);
+            }
+          });
+        })
+        .catch(function (err) {
+          console.error('Service bulk poll error:', err);
+        })
+        .finally(function () {
+          // Poll every 5 seconds for bulk status, much lighter than 20x 300ms staggered hits.
+          setTimeout(tick, 5000);
+        });
     }
 
     tick();
