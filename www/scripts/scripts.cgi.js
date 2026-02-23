@@ -159,13 +159,19 @@ function initScriptsPage() {
     var index = 0;
 
     function tick() {
+      // If the content container has been swapped or unmounted, stop the recursion
+      var content = document.getElementById("content");
+      if (window.isHostStillActive && !window.isHostStillActive(content)) {
+        return;
+      }
+
       if (index >= rows.length) {
         return;
       }
       var row = rows[index];
       refreshServiceState(row).then(function () {
         index += 1;
-        setTimeout(tick, 40);
+        setTimeout(tick, 300);
       });
     }
 
