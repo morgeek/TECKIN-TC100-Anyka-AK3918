@@ -1229,3 +1229,81 @@ body.ui-ultra-lite .app-toolbar {
     max-height: 68vh;
   }
 }
+
+/* ─── PTT / Walkie-Talkie ─────────────────────────────────────────────────── */
+
+@keyframes ptt-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(180, 32, 51, 0.55); }
+  60%  { box-shadow: 0 0 0 9px rgba(180, 32, 51, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(180, 32, 51, 0); }
+}
+
+.ptt-label {
+  display: inline-block;
+}
+
+#ptt_btn.ptt-recording {
+  background-color: #b42033;
+  border-color: #8c1827;
+  color: #fff;
+  animation: ptt-pulse 900ms ease infinite;
+  transform: scale(1.04);
+}
+
+#ptt_btn.ptt-sent {
+  background-color: #1f8556;
+  border-color: #16643f;
+  color: #fff;
+}
+
+#ptt_btn.ptt-error {
+  background-color: #c47800;
+  border-color: #9e6000;
+  color: #fff;
+}
+
+/* ─── Night Mode Navbar Badge ─────────────────────────────────────────────── */
+
+.nav-nightmode-wrap {
+  margin-left: 0.05rem;
+  margin-right: 0.1rem;
+  padding-left: 0.1rem;
+  padding-right: 0.1rem;
+}
+
+.nightmode-badge {
+  display: inline-block;
+  font-style: normal;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.28rem 0.72rem;
+  white-space: nowrap;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  transition: background-color 600ms ease, color 600ms ease, border-color 600ms ease;
+}
+
+.nightmode-badge.nightmode-day {
+  color: #1f8556;
+  background: rgba(31, 133, 86, 0.14);
+  border-color: rgba(31, 133, 86, 0.3);
+}
+
+.nightmode-badge.nightmode-twilight {
+  color: #b65c00;
+  background: rgba(250, 191, 103, 0.22);
+  border-color: rgba(182, 92, 0, 0.35);
+}
+
+.nightmode-badge.nightmode-night {
+  color: #5340c9;
+  background: rgba(112, 90, 240, 0.14);
+  border-color: rgba(83, 64, 201, 0.32);
+}
+
+.nightmode-badge.nightmode-unknown {
+  color: #5d6b7a;
+  background: rgba(93, 107, 122, 0.16);
+  border-color: rgba(93, 107, 122, 0.28);
+}
+

@@ -1290,7 +1290,8 @@ if [ -n "$F_cmd" ]; then
 
       case "$mqtt_host" in
         ''|*[!A-Za-z0-9._:-]*)
-          mqtt_host="127.0.0.1"
+          echo "Invalid broker host. Allowed characters: letters, numbers, dot, dash, underscore, colon.<br/>"
+          exit 0
           ;;
       esac
 

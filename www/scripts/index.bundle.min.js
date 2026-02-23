@@ -129,7 +129,6 @@
       LIVEVIEW_INTERVAL_HIDDEN_MS = 16000;
       SYSUSAGE_INTERVAL_VISIBLE_MS = 22000;
       SYSUSAGE_INTERVAL_HIDDEN_MS = 90000;
-      AUTONIGHT_INTERVAL_VISIBLE_MS = 10000;
       AUTONIGHT_INTERVAL_HIDDEN_MS = 25000;
     }
   }
@@ -147,6 +146,41 @@
     byClass("labelAWB").forEach(function (node) {
       node.textContent = "Current: " + (lastAwbValue || "");
     });
+    updateNightModeBadge(lastLumValue, lastAwbValue);
+  }
+
+  function updateNightModeBadge(lum, awb) {
+    var badge = byId("nightmodebadge");
+    if (!badge) {
+      return;
+    }
+
+    badge.classList.remove("nightmode-day", "nightmode-twilight", "nightmode-night", "nightmode-unknown");
+
+    var lumStr = typeof lum === "string" ? lum.trim() : "";
+    // lum may be a plain integer string e.g. "23" or "145", or empty
+    var lumMatch = lumStr.match(/([0-9]+)/);
+    if (!lumMatch) {
+      badge.textContent = "\uD83C\uDF19 Night: n/a";
+      badge.classList.add("nightmode-unknown");
+      badge.title = "Luminance data unavailable (auto-night detection not running or /var/run/lum absent).";
+      return;
+    }
+
+    var lumVal = parseInt(lumMatch[1], 10);
+    if (lumVal < 40) {
+      badge.textContent = "\uD83C\uDF19 Night";
+      badge.classList.add("nightmode-night");
+      badge.title = "Low luminance " + lumVal + " — camera is in night mode. AWB: " + (awb || "n/a");
+    } else if (lumVal < 120) {
+      badge.textContent = "\uD83C\uDF24 Twilight";
+      badge.classList.add("nightmode-twilight");
+      badge.title = "Mid luminance " + lumVal + " — twilight / transition zone. AWB: " + (awb || "n/a");
+    } else {
+      badge.textContent = "\u2600\uFE0F Day";
+      badge.classList.add("nightmode-day");
+      badge.title = "High luminance " + lumVal + " — camera is in day mode. AWB: " + (awb || "n/a");
+    }
   }
 
   function applyUiUltraLiteMode(enabled) {
@@ -644,6 +678,8 @@
       scheduleRefreshLiveImage(LIVEVIEW_INTERVAL_HIDDEN_MS);
       return;
     }
+    // We only change the src here. The onload/onerror handlers
+    // will schedule the NEXT refresh once this one finishes.
     liveview.src = liveViewSnapshotEndpoint + "?" + Date.now();
   }
 
@@ -660,7 +696,7 @@
       .then(function (profile) {
         setPerformanceProfileBadge(profile);
       })
-      .catch(function () {});
+      .catch(function () { });
   }
 
   function refreshSysUsageLegacy(nextInterval) {
@@ -734,20 +770,6 @@
   function scheduleRefreshSysUsage(interval) {
     clearJob("refreshSysUsage");
     timeoutJobs.refreshSysUsage = setTimeout(refreshSysUsage, interval);
-  }
-
-  function refreshAutoNightLumAwb() {
-    var baseInterval = document.hidden ? AUTONIGHT_INTERVAL_HIDDEN_MS : AUTONIGHT_INTERVAL_VISIBLE_MS;
-    var nextInterval = baseInterval + dynamicAutoNightIntervalMs;
-    updateLumAwbLabels(lastLumValue, lastAwbValue);
-    scheduleRefreshAutoNightLumAwb(nextInterval);
-  }
-
-  function scheduleRefreshAutoNightLumAwb(interval) {
-    clearJob("refreshAutoNightLumAwb");
-    if (interval > 0) {
-      timeoutJobs.refreshAutoNightLumAwb = setTimeout(refreshAutoNightLumAwb, interval);
-    }
   }
 
   function showResult(txt) {
@@ -868,7 +890,6 @@
       if (onPageTarget && onPageTarget.dataset.target) {
         event.preventDefault();
         loadOnPageTarget(onPageTarget.dataset.target, null, onPageTarget.dataset.forceReload === "1");
-        scheduleRefreshAutoNightLumAwb(onPageTarget.id === "status" ? AUTONIGHT_INTERVAL_VISIBLE_MS : 0);
         if (window.innerWidth < 1024) {
           closeNavMenu();
         } else {
@@ -944,6 +965,8 @@
 
     var liveview = byId("liveview");
     if (liveview) {
+      // Instead of relying on a blind setInterval, we wait for the 
+      // previous image to finish loading before scheduling the next one.
       liveview.onload = function () {
         if (liveFeedEnabled) {
           scheduleRefreshLiveImage(liveViewVisibleIntervalMs);
@@ -953,6 +976,7 @@
         if (!liveFeedEnabled) {
           return;
         }
+        // If image fails to load, wait a short bit then try again
         scheduleRefreshLiveImage(800);
       });
     }
@@ -976,6 +1000,144 @@
       scheduleRefreshSysUsage(document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS);
     });
 
+    // Push-to-Talk (Walkie-Talkie) feature
+    (function () {
+      var pttBtn = byId("ptt_btn");
+      if (!pttBtn) { return; }
+
+      // Inject icon + label span structure so the mic icon always stays visible
+      pttBtn.innerHTML = '<i class="icon-microphone"></i> <span class="ptt-label">Hold to Talk</span>';
+
+      if (!navigator.mediaDevices || !window.MediaRecorder) {
+        var lbl = pttBtn.querySelector(".ptt-label");
+        if (lbl) { lbl.textContent = "PTT (unsupported)"; }
+        pttBtn.disabled = true;
+        return;
+      }
+
+      if (!window.isSecureContext) {
+        var lbl = pttBtn.querySelector(".ptt-label");
+        if (lbl) { lbl.textContent = "PTT (needs HTTPS/localhost)"; }
+        pttBtn.disabled = true;
+        pttBtn.title = "Microphone access requires a Secure Context (HTTPS or localhost).";
+        return;
+      }
+
+      var mediaRecorder = null;
+      var audioStream = null;
+      var audioChunks = [];
+      var pttActive = false;
+      var pttStartTime = 0;
+      var PTT_MIN_DURATION_MS = 400;
+      var pttResetTimer = null;
+
+      function setPttLabel(text) {
+        var lbl = pttBtn.querySelector(".ptt-label");
+        if (lbl) { lbl.textContent = text; }
+      }
+
+      function resetPttBtn() {
+        if (pttResetTimer) {
+          clearTimeout(pttResetTimer);
+          pttResetTimer = null;
+        }
+        pttBtn.classList.remove("is-loading", "ptt-recording", "ptt-sent", "ptt-error");
+        pttBtn.disabled = false;
+        setPttLabel("Hold to Talk");
+      }
+
+      function flashAndReset(label, cssClass, delayMs) {
+        pttBtn.classList.remove("ptt-recording");
+        pttBtn.classList.add(cssClass);
+        setPttLabel(label);
+        pttResetTimer = setTimeout(resetPttBtn, delayMs);
+      }
+
+      function releaseStream() {
+        if (audioStream) {
+          audioStream.getTracks().forEach(function (t) { t.stop(); });
+          audioStream = null;
+        }
+      }
+
+      function startRecording() {
+        if (pttActive) { return; }
+        setPttLabel("Requesting Mic\u2026");
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+          .then(function (stream) {
+            pttActive = true;
+            pttStartTime = Date.now();
+            audioStream = stream;
+            audioChunks = [];
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.addEventListener("dataavailable", function (e) {
+              if (e.data && e.data.size > 0) {
+                audioChunks.push(e.data);
+              }
+            });
+            mediaRecorder.start();
+            pttBtn.classList.add("ptt-recording");
+            setPttLabel("Recording\u2026");
+          })
+          .catch(function (err) {
+            console.log("PTT mic error: " + err.name + " - " + err.message);
+            flashAndReset("Mic denied", "ptt-error", 2000);
+          });
+      }
+
+      function stopRecording() {
+        if (!pttActive || !mediaRecorder) { return; }
+        pttActive = false;
+
+        var elapsed = Date.now() - pttStartTime;
+        if (elapsed < PTT_MIN_DURATION_MS) {
+          // Too short — discard, don't send
+          mediaRecorder.stop();
+          releaseStream();
+          mediaRecorder = null;
+          audioChunks = [];
+          flashAndReset("Too short", "ptt-error", 1200);
+          return;
+        }
+
+        setPttLabel("Sending\u2026");
+        pttBtn.classList.remove("ptt-recording");
+        pttBtn.classList.add("is-loading");
+        pttBtn.disabled = true;
+
+        mediaRecorder.addEventListener("stop", function () {
+          var blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+          mediaRecorder = null;
+          audioChunks = [];
+          fetch("cgi-bin/upload_audio.cgi", {
+            method: "POST",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: blob,
+          })
+            .then(function (r) { return r.text(); })
+            .then(function (result) {
+              var ok = result.trim() === "OK";
+              pttBtn.classList.remove("is-loading");
+              flashAndReset(ok ? "Sent!" : "Error", ok ? "ptt-sent" : "ptt-error", 1400);
+            })
+            .catch(function () {
+              pttBtn.classList.remove("is-loading");
+              flashAndReset("Error", "ptt-error", 1400);
+            });
+        });
+
+        mediaRecorder.stop();
+        releaseStream();
+      }
+
+      pttBtn.addEventListener("mousedown", startRecording);
+      pttBtn.addEventListener("touchstart", function (e) { e.preventDefault(); startRecording(); }, { passive: false });
+      pttBtn.addEventListener("mouseup", stopRecording);
+      pttBtn.addEventListener("mouseleave", stopRecording);
+      pttBtn.addEventListener("touchend", stopRecording);
+      pttBtn.addEventListener("touchcancel", stopRecording);
+    })();
+
     fixMenuPadding();
     initNavDropdownToggles();
     refreshSysUsage();
@@ -988,12 +1150,15 @@
   window.refreshSysUsage = refreshSysUsage;
   window.scheduleRefreshSysUsage = scheduleRefreshSysUsage;
   window.refreshPerformanceProfile = refreshPerformanceProfile;
-  window.refreshAutoNightLumAwb = refreshAutoNightLumAwb;
-  window.scheduleRefreshAutoNightLumAwb = scheduleRefreshAutoNightLumAwb;
   window.showResult = showResult;
   window.fixMenuPadding = fixMenuPadding;
   window.setCookie = setCookie;
   window.getCookie = getCookie;
   window.setTheme = setTheme;
   window.getThemeChoice = getThemeChoice;
+
+  // Global utility for sub-page scripts to check if they are still 'mounted'
+  window.isHostStillActive = function (node) {
+    return !!(node && node.parentNode && document.body.contains(node));
+  };
 })();

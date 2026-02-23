@@ -61,23 +61,21 @@ markAsRead() {
 main() {
   json="$(readNext)" || return 2
 
-  [ "$(echo "$json" | $JQ -r '.ok')" != "true" ] && return 1
+  # Check for error or empty result in one pass
+  p="$(echo "$json" | $JQ -r 'if .ok == true then .result[0] | @sh "chatId=\(.message.chat.id // \"\") cmd=\(.message.text // \"\") updateId=\(.update_id // \"\") username=\(.message.from.username // \"\") firstName=\(.message.from.first_name // \"\")" else "error" end' 2>/dev/null)"
+  [ -z "$p" ] || [ "$p" = "error" ] && return 1
 
-  chatId=$(echo "$json" | $JQ -r '.result[0].message.chat.id // ""')
-  [ -z "$chatId" ] && return 0 # no new messages
-
-  cmd=$(echo "$json" | $JQ -r '.result[0].message.text // ""')
-  updateId=$(echo "$json" | $JQ -r '.result[0].update_id // ""')
+  # Safely evaluate variables (chatId, cmd, updateId, username, firstName)
+  eval "$p"
+  [ -z "$chatId" ] && return 0 # no new updates
 
   if [ "$chatId" != "$userChatId" ]; then
-    username=$(echo "$json" | $JQ -r '.result[0].message.from.username // ""')
-    firstName=$(echo "$json" | $JQ -r '.result[0].message.from.first_name // ""')
-    $TELEGRAM m "Received message from not authrized chat: $chatId\nUser: $username($firstName)\nMessage: $cmd"
+    $TELEGRAM m "Unauthorized chat: $chatId\nUser: $username($firstName)\nMsg: $cmd"
   else
-    respond $cmd
-  fi;
+    respond "$cmd"
+  fi
 
-  markAsRead $updateId
+  markAsRead "$updateId"
 }
 
 while true; do
