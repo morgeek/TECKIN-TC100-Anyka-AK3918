@@ -600,6 +600,19 @@ cat << EOF
             </div>
         </div>
     </form>
+    <div class="field is-horizontal">
+        <div class="field-label is-normal">
+            <label class="label">Memory Management</label>
+        </div>
+        <div class="field-body">
+            <div class="field">
+                <div class="control">
+                    <button id="btnFreeRam" class="button is-warning is-light">Free System RAM</button>
+                </div>
+                <p class="help">Clears OS file/node caches. Safe to run anytime to relieve memory pressure.</p>
+            </div>
+        </div>
+    </div>
     <form id="formWebMode" action="cgi-bin/action.cgi?cmd=set_web_mode" method="post">
         <div class="field is-horizontal">
             <div class="field-label is-normal">
