@@ -714,6 +714,12 @@ if [ -n "$F_cmd" ]; then
       /sbin/halt
     ;;
 
+    clear_mem)
+      sync
+      echo 3 > /proc/sys/vm/drop_caches
+      echo "System caches cleared. Memory freed.<br/>"
+    ;;
+
     isp_pro)
       daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
       daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)

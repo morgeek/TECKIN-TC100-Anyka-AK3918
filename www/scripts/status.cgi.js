@@ -216,6 +216,34 @@
     }
   }
 
+  function initMemoryPurge() {
+    var btn = qs("#btnFreeRam");
+    if (!btn) {
+      return;
+    }
+
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      setLoading(btn, true);
+      fetch("cgi-bin/action.cgi?cmd=clear_mem", { cache: "no-store" })
+        .then(function (r) {
+          return r.text();
+        })
+        .then(function (text) {
+          showResult(text);
+          if (window.scheduleStatusReload) {
+            window.scheduleStatusReload(1000);
+          }
+        })
+        .catch(function (e) {
+          console.error(e);
+        })
+        .finally(function () {
+          setLoading(btn, false);
+        });
+    });
+  }
+
   function initWebModeForm() {
     var mode = qs("#web_mode");
     var port = qs("#ultralite_http_port");
@@ -645,6 +673,7 @@
     initImageFlipToggle();
     initRtspLogToggle();
     initThemePicker();
+    initMemoryPurge();
     initWebModeForm();
     initEmbeddedSettingsPanels();
     setupStatusDensityControls();
