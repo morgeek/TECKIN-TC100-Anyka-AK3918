@@ -6,8 +6,75 @@
 
 CONFIG_FILE="/mnt/config/sound_detection.conf"
 PID_FILE="/var/run/sound-detection.pid"
-LOG_FILE="/var/log/sound-detection.log"
+LOG_FILE="/mnt/log/sound-detection.log"
 STATE_FILE="/tmp/sound-detection.state"
+
+LOG_MAX_BYTES="${LOG_MAX_BYTES:-131072}"
+LOG_BACKUPS="${LOG_BACKUPS:-1}"
+EVENT_COOLDOWN_SECONDS="${EVENT_COOLDOWN_SECONDS:-10}"
+MIN_INTERVAL_SECONDS="${MIN_INTERVAL_SECONDS:-2}"
+
+sanitize_positive_int()
+{
+    raw="$1"
+    fallback="$2"
+    case "$raw" in
+        ''|*[!0-9]*)
+            echo "$fallback"
+            ;;
+        *)
+            echo "$raw"
+            ;;
+    esac
+}
+
+clamp_int()
+{
+    value="$(sanitize_positive_int "$1" "$2")"
+    min="$2"
+    max="$3"
+    if [ "$value" -lt "$min" ]; then
+        value="$min"
+    fi
+    if [ "$value" -gt "$max" ]; then
+        value="$max"
+    fi
+    echo "$value"
+}
+
+rotate_log_if_needed()
+{
+    max_bytes="$(sanitize_positive_int "$LOG_MAX_BYTES" 131072)"
+    backups="$(clamp_int "$LOG_BACKUPS" 0 3)"
+    [ -f "$LOG_FILE" ] || return 0
+
+    log_size="$(wc -c < "$LOG_FILE" 2>/dev/null)"
+    log_size="$(sanitize_positive_int "$log_size" 0)"
+    if [ "$log_size" -lt "$max_bytes" ]; then
+        return 0
+    fi
+
+    if [ "$backups" -gt 0 ]; then
+        idx="$backups"
+        while [ "$idx" -gt 1 ]; do
+            prev=$((idx - 1))
+            if [ -f "${LOG_FILE}.${prev}" ]; then
+                mv "${LOG_FILE}.${prev}" "${LOG_FILE}.${idx}" 2>/dev/null || true
+            fi
+            idx=$((idx - 1))
+        done
+        mv "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || : > "$LOG_FILE"
+    else
+        : > "$LOG_FILE"
+    fi
+}
+
+log_msg()
+{
+    mkdir -p "$(dirname "$LOG_FILE")" >/dev/null 2>&1 || true
+    rotate_log_if_needed
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$1" >> "$LOG_FILE"
+}
 
 # Ensure we have a default config
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -16,100 +83,125 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo "INTERVAL=5" >> "$CONFIG_FILE"
 fi
 
-publish_sound_event() {
+publish_sound_event()
+{
     level="$1"
     threshold="$2"
     now_ts="$(date +%s 2>/dev/null)"
     [ -n "$now_ts" ] || now_ts=0
-    
-    # Publish to MQTT via shared function
+
+    # Publish to MQTT via shared function.
     publish_mqtt_event "{\"type\":\"sound\",\"ts\":$now_ts,\"level\":$level,\"threshold\":$threshold}"
-    
-    # Trigger recording if enabled
+
+    # Trigger recording if enabled.
     if [ "$(read_config /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
-        touch /tmp/motion_detected # Re-use motion trigger for now to simplify
+        touch /tmp/motion_detected
     fi
 }
 
-start() {
-    if [ -f "$PID_FILE" ]; then
-        pid=$(cat "$PID_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "Already running ($pid)"
-            return 0
+read_level()
+{
+    threshold="$1"
+    level=0
+    if [ -c /dev/voice ]; then
+        level="$(dd if=/dev/voice bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')"
+    elif [ -c /dev/dsp ]; then
+        level="$(dd if=/dev/dsp bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')"
+    else
+        if [ ! -f /tmp/sound_hw_missing ]; then
+            log_msg "Warning: no audio device found (/dev/voice or /dev/dsp). Shim mode active."
+            touch /tmp/sound_hw_missing
+        fi
+        if [ -f /tmp/test-sound-trigger ]; then
+            level=$((threshold + 100))
+            rm -f /tmp/test-sound-trigger
         fi
     fi
 
-    echo "Starting sound detection daemon..."
-    (
-        echo $$ > "$PID_FILE"
-        while :; do
-            ENABLE=$(read_config "$CONFIG_FILE" ENABLE 0)
-            if [ "$ENABLE" != "1" ]; then
-                sleep 10
-                continue
-            fi
-
-            THRESHOLD=$(read_config "$CONFIG_FILE" THRESHOLD 1500)
-            INTERVAL=$(read_config "$CONFIG_FILE" INTERVAL 5)
-
-            # --- AUDIO PORBE LOGIC ---
-            # Most Anyka cameras use /dev/voice or /dev/dsp for raw audio.
-            # We can use 'dd' to read a small chunk and calculate a primitive 'energy' score.
-            
-            LEVEL=0
-            if [ -c /dev/voice ]; then
-                # Read 512 bytes of raw PCM and count non-null/non-quiet bytes
-                LEVEL=$(dd if=/dev/voice bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')
-            elif [ -c /dev/dsp ]; then
-                 LEVEL=$(dd if=/dev/dsp bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')
-            else
-                # Fallback: Simulate if no hardware found, or use ffmpeg if available
-                # For now, we'll just log that hardware is missing if we never find it
-                if [ ! -f /tmp/sound_hw_missing ]; then
-                    echo "[$(date)] Warning: No audio device found (/dev/voice or /dev/dsp). Detection in shim mode." >> "$LOG_FILE"
-                    touch /tmp/sound_hw_missing
-                fi
-                # Shim: trigger if a test file appears
-                if [ -f /tmp/test-sound-trigger ]; then
-                    LEVEL=$((THRESHOLD + 100))
-                    rm /tmp/test-sound-trigger
-                fi
-            fi
-
-            echo "$LEVEL" > "$STATE_FILE"
-
-            if [ "$LEVEL" -gt "$THRESHOLD" ]; then
-                echo "[$(date)] Triggered! Level: $LEVEL (Thresh: $THRESHOLD)" >> "$LOG_FILE"
-                publish_sound_event "$LEVEL" "$THRESHOLD"
-            fi
-
-            sleep "$INTERVAL"
-        done
-    ) &
+    level="$(sanitize_positive_int "$level" 0)"
+    echo "$level"
 }
 
-stop() {
-    if [ -f "$PID_FILE" ]; then
-        pid=$(cat "$PID_FILE")
-        kill "$pid" 2>/dev/null
+run_daemon()
+{
+    last_event_ts=0
+    cooldown_seconds="$(clamp_int "$EVENT_COOLDOWN_SECONDS" 0 300)"
+    min_interval="$(clamp_int "$MIN_INTERVAL_SECONDS" 1 30)"
+
+    while :; do
+        enable="$(read_config "$CONFIG_FILE" ENABLE 0)"
+        if [ "$enable" != "1" ]; then
+            sleep 10
+            continue
+        fi
+
+        threshold="$(clamp_int "$(read_config "$CONFIG_FILE" THRESHOLD 1500)" 100 10000)"
+        interval="$(clamp_int "$(read_config "$CONFIG_FILE" INTERVAL 5)" "$min_interval" 300)"
+        level="$(read_level "$threshold")"
+
+        printf '%s\n' "$level" > "$STATE_FILE"
+
+        if [ "$level" -gt "$threshold" ]; then
+            now_ts="$(date +%s 2>/dev/null)"
+            now_ts="$(sanitize_positive_int "$now_ts" 0)"
+
+            if [ "$cooldown_seconds" -gt 0 ] && [ "$last_event_ts" -gt 0 ]; then
+                if [ $((now_ts - last_event_ts)) -lt "$cooldown_seconds" ]; then
+                    sleep "$interval"
+                    continue
+                fi
+            fi
+
+            log_msg "Triggered level=$level threshold=$threshold"
+            publish_sound_event "$level" "$threshold"
+            last_event_ts="$now_ts"
+        fi
+
+        sleep "$interval"
+    done
+}
+
+start()
+{
+    if status >/dev/null 2>&1; then
+        pid="$(cat "$PID_FILE" 2>/dev/null)"
+        echo "Already running ($pid)"
+        return 0
+    fi
+
+    rm -f "$PID_FILE" >/dev/null 2>&1 || true
+    echo "Starting sound detection daemon..."
+    run_daemon >/dev/null 2>&1 &
+    echo "$!" > "$PID_FILE"
+}
+
+stop()
+{
+    pid="$(cat "$PID_FILE" 2>/dev/null)"
+    if [ -n "$pid" ]; then
+        kill "$pid" >/dev/null 2>&1 || true
+        sleep 1
+        kill -9 "$pid" >/dev/null 2>&1 || true
         rm -f "$PID_FILE"
         echo "Stopped"
+        return 0
     fi
+    echo "Stopped"
 }
 
-status() {
-    if [ -f "$PID_FILE" ]; then
-        pid=$(cat "$PID_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
-             echo "Running (PID: $pid)"
-             # Show last level
-             if [ -f "$STATE_FILE" ]; then
-                 echo "Last Level: $(cat "$STATE_FILE")"
-             fi
-             return 0
+status()
+{
+    pid="$(cat "$PID_FILE" 2>/dev/null)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "Running (PID: $pid)"
+        if [ -f "$STATE_FILE" ]; then
+            read -r last_level < "$STATE_FILE"
+            echo "Last Level: ${last_level:-0}"
         fi
+        return 0
     fi
+
+    rm -f "$PID_FILE" >/dev/null 2>&1 || true
     echo "Stopped"
     return 1
 }
