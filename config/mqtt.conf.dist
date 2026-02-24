@@ -19,7 +19,11 @@ MQTT_TOPIC_COMMAND=
 MQTT_QOS=0
 
 # Runtime behavior
-MQTT_HEALTH_INTERVAL_SECONDS=60
+# Health publish cadence. Higher values reduce CPU/network load.
+MQTT_HEALTH_INTERVAL_SECONDS=120
+# Expensive health probes (service status/ports/storage/network) are cached
+# for this many seconds to avoid periodic CPU spikes.
+MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=180
 MQTT_COMMAND_WAIT_SECONDS=12
 MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
 

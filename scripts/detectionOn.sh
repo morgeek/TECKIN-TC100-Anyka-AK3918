@@ -23,14 +23,17 @@ if [ "$save_snapshot" = true ] ; then
 	if [ ! -d "$save_dir" ]; then
 		mkdir -p "$save_dir"
 	fi
-	{
-		# Limit the number of snapshots
-		if [ "$(ls "$save_dir" | wc -l)" -ge "$max_snapshots" ]; then
-			rm -f "$save_dir/$(ls -ltr "$save_dir" | awk 'NR==2{print $9}')"
+	# Limit the number of snapshots without backgrounding extra processes.
+	if [ "$(ls -1 "$save_dir" 2>/dev/null | wc -l)" -ge "$max_snapshots" ]; then
+		oldest_file="$(ls -1tr "$save_dir" 2>/dev/null | awk 'NR==1{print $1; exit}')"
+		if [ -n "$oldest_file" ]; then
+			rm -f "$save_dir/$oldest_file"
 		fi
-	} &
+	fi
 	snapshot_path="$save_dir/$filename"
-	/mnt/bin/getimage > "$snapshot_path" &
+	if ! /mnt/bin/getimage > "$snapshot_path" 2>/dev/null; then
+		snapshot_path=""
+	fi
 fi
 
 # Send emails ...
