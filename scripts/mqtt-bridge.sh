@@ -3,6 +3,7 @@
 CONFIG_FILE="/mnt/config/mqtt.conf"
 LOGPATH="/mnt/log/mqtt-bridge.log"
 STATE_FILE="/tmp/mqtt-bridge.state"
+HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
 CURL_BIN="/mnt/bin/curl"
 JQ_BIN="/mnt/bin/jq"
 
@@ -65,7 +66,8 @@ load_config()
   MQTT_TOPIC_ROOT="${MQTT_TOPIC_ROOT:-tc100/camera}"
   MQTT_TOPIC_COMMAND="${MQTT_TOPIC_COMMAND:-}"
   MQTT_QOS="$(sanitize_int_range "${MQTT_QOS:-0}" 0 2 0)"
-  MQTT_HEALTH_INTERVAL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_INTERVAL_SECONDS:-60}" 10 86400 60)"
+  MQTT_HEALTH_INTERVAL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_INTERVAL_SECONDS:-120}" 10 86400 120)"
+  MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS:-180}" 10 86400 180)"
   MQTT_COMMAND_WAIT_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_WAIT_SECONDS:-12}" 3 120 12)"
   MQTT_COMMAND_REPEAT_WINDOW_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_REPEAT_WINDOW_SECONDS:-20}" 0 600 20)"
   MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
@@ -137,6 +139,19 @@ security_hardening_enabled_runtime()
 service_script_running_int()
 {
   script_path="$1"
+  pidfile_path="$2"
+
+  if [ -n "$pidfile_path" ] && [ -r "$pidfile_path" ]; then
+    read -r pid < "$pidfile_path"
+    case "$pid" in
+      ''|*[!0-9]*) pid=0 ;;
+    esac
+    if [ "$pid" -gt 0 ] && kill -0 "$pid" >/dev/null 2>&1; then
+      echo "1"
+      return
+    fi
+  fi
+
   if [ ! -x "$script_path" ]; then
     echo "0"
     return
@@ -497,6 +512,229 @@ publish_homeassistant_discovery()
   publish_discovery_config "$telnet_switch_cfg_topic" "$telnet_switch_cfg_payload"
 }
 
+init_slow_health_defaults()
+{
+  slow_web_mode="full"
+  slow_profile="balanced"
+  slow_security_hardening_mode=0
+  slow_motion_enabled=0
+  slow_ftp_enabled=0
+  slow_telnet_enabled=0
+  slow_rtsp_enabled=0
+  slow_onvif_enabled=0
+  slow_storage_total_mb=0
+  slow_storage_used_mb=0
+  slow_storage_avail_mb=0
+  slow_storage_used_percent=0
+  slow_primary_ip="n/a"
+  slow_dns_server_count=0
+  slow_port_https_open=0
+  slow_port_http_open=0
+  slow_port_rtsp_open=0
+  slow_port_onvif_open=0
+  slow_port_ftp_open=0
+  slow_port_telnet_open=0
+}
+
+collect_slow_health_metrics()
+{
+  init_slow_health_defaults
+
+  ultralite_http_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/boot.conf ULTRALITE_HTTP_PORT 80)" 1 65535 80)"
+  slow_web_mode="full"
+  slow_profile="balanced"
+  slow_security_hardening_mode=0
+  if [ -f /mnt/config/boot.conf ]; then
+    # shellcheck disable=SC1090
+    . /mnt/config/boot.conf
+    slow_web_mode="${WEB_MODE:-full}"
+    if [ "${LOW_CPU_PROFILE:-0}" = "1" ]; then
+      slow_profile="low-cpu"
+    fi
+    if is_truthy_local "${SECURITY_HARDENING_MODE:-0}"; then
+      slow_security_hardening_mode=1
+    fi
+  fi
+  if [ -f /mnt/config/service_trim.conf ]; then
+    # shellcheck disable=SC1090
+    . /mnt/config/service_trim.conf
+    if [ "${SERVICE_TRIM:-0}" = "1" ]; then
+      slow_profile="rtsp-only"
+    fi
+  fi
+
+  ftp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/ftp.conf PORT 21)" 1 65535 21)"
+  telnet_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/telnetd.conf TELNET_PORT 23)" 1 65535 23)"
+  rtsp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/rtspserver.conf PORT 554)" 1 65535 554)"
+  onvif_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 1 65535 8081)"
+
+  http_port=80
+  case "$slow_web_mode" in
+    ultra-lite|ultralite)
+      http_port="$ultralite_http_port"
+      ;;
+  esac
+
+  slow_motion_enabled="$(service_script_running_int /mnt/controlscripts/motion-detection /var/run/detection-monitor.pid)"
+  slow_ftp_enabled="$(service_script_running_int /mnt/controlscripts/ftp-server /var/run/ftp-server.pid)"
+  slow_telnet_enabled="$(service_script_running_int /mnt/controlscripts/telnet-server /var/run/telnet-server.pid)"
+  slow_rtsp_enabled="$(service_script_running_int /mnt/controlscripts/rtsp-h26x /var/run/v4l2rtspserver.pid)"
+  slow_onvif_enabled="$(service_script_running_int /mnt/controlscripts/onvif /var/run/onvif.pid)"
+
+  slow_primary_ip="$(ifconfig 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
+  [ -n "$slow_primary_ip" ] || slow_primary_ip="n/a"
+  slow_dns_server_count="$(awk '/^nameserver[[:space:]]+/{count++} END{print count+0}' /etc/resolv.conf 2>/dev/null)"
+  case "$slow_dns_server_count" in
+    ''|*[!0-9]*) slow_dns_server_count=0 ;;
+  esac
+
+  storage_total_kb=0
+  storage_used_kb=0
+  storage_avail_kb=0
+  storage_used_percent=0
+  df_line="$(df -k /mnt 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
+  if [ -z "$df_line" ]; then
+    df_line="$(df -k / 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
+  fi
+  set -- $df_line
+  storage_total_kb="$1"
+  storage_used_kb="$2"
+  storage_avail_kb="$3"
+  storage_used_text="$4"
+  case "$storage_total_kb" in ''|*[!0-9]*) storage_total_kb=0 ;; esac
+  case "$storage_used_kb" in ''|*[!0-9]*) storage_used_kb=0 ;; esac
+  case "$storage_avail_kb" in ''|*[!0-9]*) storage_avail_kb=0 ;; esac
+  storage_used_percent="$(printf '%s' "$storage_used_text" | tr -cd '0-9')"
+  case "$storage_used_percent" in ''|*[!0-9]*) storage_used_percent=0 ;; esac
+  if [ "$storage_used_percent" -le 0 ] && [ "$storage_total_kb" -gt 0 ]; then
+    storage_used_percent=$((100 * storage_used_kb / storage_total_kb))
+  fi
+  slow_storage_total_mb=$((storage_total_kb / 1024))
+  slow_storage_used_mb=$((storage_used_kb / 1024))
+  slow_storage_avail_mb=$((storage_avail_kb / 1024))
+  slow_storage_used_percent="$storage_used_percent"
+
+  listen_tcp="$(netstat -lnt 2>/dev/null)"
+  if [ -z "$listen_tcp" ]; then
+    listen_tcp="$(netstat -ln 2>/dev/null)"
+  fi
+  slow_port_https_open="$(port_open_from_list_int "$listen_tcp" 443)"
+  slow_port_http_open="$(port_open_from_list_int "$listen_tcp" "$http_port")"
+  slow_port_rtsp_open="$(port_open_from_list_int "$listen_tcp" "$rtsp_port")"
+  slow_port_onvif_open="$(port_open_from_list_int "$listen_tcp" "$onvif_port")"
+  slow_port_ftp_open="$(port_open_from_list_int "$listen_tcp" "$ftp_port")"
+  slow_port_telnet_open="$(port_open_from_list_int "$listen_tcp" "$telnet_port")"
+}
+
+save_slow_health_cache()
+{
+  now_ts="$(date +%s 2>/dev/null)"
+  case "$now_ts" in
+    ''|*[!0-9]*) now_ts=0 ;;
+  esac
+  [ "$now_ts" -gt 0 ] || return 0
+  {
+    printf 'ts=%s\n' "$now_ts"
+    printf 'web_mode=%s\n' "$slow_web_mode"
+    printf 'profile=%s\n' "$slow_profile"
+    printf 'security_hardening_mode=%s\n' "$slow_security_hardening_mode"
+    printf 'motion_enabled=%s\n' "$slow_motion_enabled"
+    printf 'ftp_enabled=%s\n' "$slow_ftp_enabled"
+    printf 'telnet_enabled=%s\n' "$slow_telnet_enabled"
+    printf 'rtsp_enabled=%s\n' "$slow_rtsp_enabled"
+    printf 'onvif_enabled=%s\n' "$slow_onvif_enabled"
+    printf 'storage_total_mb=%s\n' "$slow_storage_total_mb"
+    printf 'storage_used_mb=%s\n' "$slow_storage_used_mb"
+    printf 'storage_avail_mb=%s\n' "$slow_storage_avail_mb"
+    printf 'storage_used_percent=%s\n' "$slow_storage_used_percent"
+    printf 'primary_ip=%s\n' "$slow_primary_ip"
+    printf 'dns_server_count=%s\n' "$slow_dns_server_count"
+    printf 'port_https_open=%s\n' "$slow_port_https_open"
+    printf 'port_http_open=%s\n' "$slow_port_http_open"
+    printf 'port_rtsp_open=%s\n' "$slow_port_rtsp_open"
+    printf 'port_onvif_open=%s\n' "$slow_port_onvif_open"
+    printf 'port_ftp_open=%s\n' "$slow_port_ftp_open"
+    printf 'port_telnet_open=%s\n' "$slow_port_telnet_open"
+  } > "$HEALTH_SLOW_CACHE_FILE"
+}
+
+load_slow_health_cache()
+{
+  [ -f "$HEALTH_SLOW_CACHE_FILE" ] || return 1
+  init_slow_health_defaults
+  cache_ts=0
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      ts) cache_ts="$value" ;;
+      web_mode) slow_web_mode="$value" ;;
+      profile) slow_profile="$value" ;;
+      security_hardening_mode) slow_security_hardening_mode="$value" ;;
+      motion_enabled) slow_motion_enabled="$value" ;;
+      ftp_enabled) slow_ftp_enabled="$value" ;;
+      telnet_enabled) slow_telnet_enabled="$value" ;;
+      rtsp_enabled) slow_rtsp_enabled="$value" ;;
+      onvif_enabled) slow_onvif_enabled="$value" ;;
+      storage_total_mb) slow_storage_total_mb="$value" ;;
+      storage_used_mb) slow_storage_used_mb="$value" ;;
+      storage_avail_mb) slow_storage_avail_mb="$value" ;;
+      storage_used_percent) slow_storage_used_percent="$value" ;;
+      primary_ip) slow_primary_ip="$value" ;;
+      dns_server_count) slow_dns_server_count="$value" ;;
+      port_https_open) slow_port_https_open="$value" ;;
+      port_http_open) slow_port_http_open="$value" ;;
+      port_rtsp_open) slow_port_rtsp_open="$value" ;;
+      port_onvif_open) slow_port_onvif_open="$value" ;;
+      port_ftp_open) slow_port_ftp_open="$value" ;;
+      port_telnet_open) slow_port_telnet_open="$value" ;;
+    esac
+  done < "$HEALTH_SLOW_CACHE_FILE"
+
+  case "$cache_ts" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+
+  now_ts="$(date +%s 2>/dev/null)"
+  case "$now_ts" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$cache_ts" -le "$now_ts" ] || return 1
+  age=$((now_ts - cache_ts))
+  [ "$age" -le "$MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS" ] || return 1
+
+  case "$slow_security_hardening_mode" in ''|*[!0-9]*) slow_security_hardening_mode=0 ;; esac
+  case "$slow_motion_enabled" in ''|*[!0-9]*) slow_motion_enabled=0 ;; esac
+  case "$slow_ftp_enabled" in ''|*[!0-9]*) slow_ftp_enabled=0 ;; esac
+  case "$slow_telnet_enabled" in ''|*[!0-9]*) slow_telnet_enabled=0 ;; esac
+  case "$slow_rtsp_enabled" in ''|*[!0-9]*) slow_rtsp_enabled=0 ;; esac
+  case "$slow_onvif_enabled" in ''|*[!0-9]*) slow_onvif_enabled=0 ;; esac
+  case "$slow_storage_total_mb" in ''|*[!0-9]*) slow_storage_total_mb=0 ;; esac
+  case "$slow_storage_used_mb" in ''|*[!0-9]*) slow_storage_used_mb=0 ;; esac
+  case "$slow_storage_avail_mb" in ''|*[!0-9]*) slow_storage_avail_mb=0 ;; esac
+  case "$slow_storage_used_percent" in ''|*[!0-9]*) slow_storage_used_percent=0 ;; esac
+  case "$slow_dns_server_count" in ''|*[!0-9]*) slow_dns_server_count=0 ;; esac
+  case "$slow_port_https_open" in ''|*[!0-9]*) slow_port_https_open=0 ;; esac
+  case "$slow_port_http_open" in ''|*[!0-9]*) slow_port_http_open=0 ;; esac
+  case "$slow_port_rtsp_open" in ''|*[!0-9]*) slow_port_rtsp_open=0 ;; esac
+  case "$slow_port_onvif_open" in ''|*[!0-9]*) slow_port_onvif_open=0 ;; esac
+  case "$slow_port_ftp_open" in ''|*[!0-9]*) slow_port_ftp_open=0 ;; esac
+  case "$slow_port_telnet_open" in ''|*[!0-9]*) slow_port_telnet_open=0 ;; esac
+  [ -n "$slow_primary_ip" ] || slow_primary_ip="n/a"
+  case "$slow_web_mode" in full|http|off|ultra-lite|ultralite) ;; *) slow_web_mode="full" ;; esac
+  case "$slow_profile" in balanced|low-cpu|rtsp-only) ;; *) slow_profile="balanced" ;; esac
+
+  return 0
+}
+
+load_or_collect_slow_health_metrics()
+{
+  if load_slow_health_cache; then
+    return 0
+  fi
+  collect_slow_health_metrics
+  save_slow_health_cache
+}
+
 build_health_payload()
 {
   now_ts="$(date +%s 2>/dev/null)"
@@ -563,46 +801,15 @@ build_health_payload()
     power_estimated_current_ma_json="$power_estimated_current_ma"
   fi
 
-  web_mode="full"
-  profile="balanced"
-  security_hardening_mode=0
-  ultralite_http_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/boot.conf ULTRALITE_HTTP_PORT 80)" 1 65535 80)"
-  if [ -f /mnt/config/boot.conf ]; then
-    # shellcheck disable=SC1090
-    . /mnt/config/boot.conf
-    web_mode="${WEB_MODE:-full}"
-    if [ "${LOW_CPU_PROFILE:-0}" = "1" ]; then
-      profile="low-cpu"
-    fi
-    if is_truthy_local "${SECURITY_HARDENING_MODE:-0}"; then
-      security_hardening_mode=1
-    fi
-  fi
-  if [ -f /mnt/config/service_trim.conf ]; then
-    # shellcheck disable=SC1090
-    . /mnt/config/service_trim.conf
-    if [ "${SERVICE_TRIM:-0}" = "1" ]; then
-      profile="rtsp-only"
-    fi
-  fi
-
-  ftp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/ftp.conf PORT 21)" 1 65535 21)"
-  telnet_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/telnetd.conf TELNET_PORT 23)" 1 65535 23)"
-  rtsp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/rtspserver.conf PORT 554)" 1 65535 554)"
-  onvif_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 1 65535 8081)"
-
-  http_port=80
-  case "$web_mode" in
-    ultra-lite|ultralite)
-      http_port="$ultralite_http_port"
-      ;;
-  esac
-
-  motion_enabled="$(service_script_running_int /mnt/controlscripts/motion-detection)"
-  ftp_enabled="$(service_script_running_int /mnt/controlscripts/ftp-server)"
-  telnet_enabled="$(service_script_running_int /mnt/controlscripts/telnet-server)"
-  rtsp_enabled="$(service_script_running_int /mnt/controlscripts/rtsp-h26x)"
-  onvif_enabled="$(service_script_running_int /mnt/controlscripts/onvif)"
+  load_or_collect_slow_health_metrics
+  web_mode="$slow_web_mode"
+  profile="$slow_profile"
+  security_hardening_mode="$slow_security_hardening_mode"
+  motion_enabled="$slow_motion_enabled"
+  ftp_enabled="$slow_ftp_enabled"
+  telnet_enabled="$slow_telnet_enabled"
+  rtsp_enabled="$slow_rtsp_enabled"
+  onvif_enabled="$slow_onvif_enabled"
 
   blue_led_on="$(read_int_file_value /sys/class/leds/blue_led/brightness 0)"
   red_led_on="$(read_int_file_value /sys/class/leds/red_led/brightness 0)"
@@ -620,48 +827,18 @@ build_health_payload()
     *) motion_state_payload="OFF" ;;
   esac
 
-  primary_ip="$(ifconfig 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
-  [ -n "$primary_ip" ] || primary_ip="n/a"
-  dns_server_count="$(awk '/^nameserver[[:space:]]+/{count++} END{print count+0}' /etc/resolv.conf 2>/dev/null)"
-  case "$dns_server_count" in
-    ''|*[!0-9]*) dns_server_count=0 ;;
-  esac
-
-  storage_total_kb=0
-  storage_used_kb=0
-  storage_avail_kb=0
-  storage_used_percent=0
-  df_line="$(df -k /mnt 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
-  if [ -z "$df_line" ]; then
-    df_line="$(df -k / 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
-  fi
-  set -- $df_line
-  storage_total_kb="$1"
-  storage_used_kb="$2"
-  storage_avail_kb="$3"
-  storage_used_text="$4"
-  case "$storage_total_kb" in ''|*[!0-9]*) storage_total_kb=0 ;; esac
-  case "$storage_used_kb" in ''|*[!0-9]*) storage_used_kb=0 ;; esac
-  case "$storage_avail_kb" in ''|*[!0-9]*) storage_avail_kb=0 ;; esac
-  storage_used_percent="$(printf '%s' "$storage_used_text" | tr -cd '0-9')"
-  case "$storage_used_percent" in ''|*[!0-9]*) storage_used_percent=0 ;; esac
-  if [ "$storage_used_percent" -le 0 ] && [ "$storage_total_kb" -gt 0 ]; then
-    storage_used_percent=$((100 * storage_used_kb / storage_total_kb))
-  fi
-  storage_total_mb=$((storage_total_kb / 1024))
-  storage_used_mb=$((storage_used_kb / 1024))
-  storage_avail_mb=$((storage_avail_kb / 1024))
-
-  listen_tcp="$(netstat -lnt 2>/dev/null)"
-  if [ -z "$listen_tcp" ]; then
-    listen_tcp="$(netstat -ln 2>/dev/null)"
-  fi
-  port_https_open="$(port_open_from_list_int "$listen_tcp" 443)"
-  port_http_open="$(port_open_from_list_int "$listen_tcp" "$http_port")"
-  port_rtsp_open="$(port_open_from_list_int "$listen_tcp" "$rtsp_port")"
-  port_onvif_open="$(port_open_from_list_int "$listen_tcp" "$onvif_port")"
-  port_ftp_open="$(port_open_from_list_int "$listen_tcp" "$ftp_port")"
-  port_telnet_open="$(port_open_from_list_int "$listen_tcp" "$telnet_port")"
+  primary_ip="$slow_primary_ip"
+  dns_server_count="$slow_dns_server_count"
+  storage_total_mb="$slow_storage_total_mb"
+  storage_used_mb="$slow_storage_used_mb"
+  storage_avail_mb="$slow_storage_avail_mb"
+  storage_used_percent="$slow_storage_used_percent"
+  port_https_open="$slow_port_https_open"
+  port_http_open="$slow_port_http_open"
+  port_rtsp_open="$slow_port_rtsp_open"
+  port_onvif_open="$slow_port_onvif_open"
+  port_ftp_open="$slow_port_ftp_open"
+  port_telnet_open="$slow_port_telnet_open"
 
   hostname_value="$(hostname 2>/dev/null)"
   hostname_json="$(json_escape "$hostname_value")"
@@ -720,6 +897,35 @@ dedupe_command()
   return 0
 }
 
+ensure_low_cpu_runtime_tuning()
+{
+  install_config /mnt/config/mqtt.conf
+
+  mqtt_health_interval_current="$(sanitize_int_range "$(read_kv_config_value /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS 120)" 10 86400 120)"
+  if [ "$mqtt_health_interval_current" -lt 120 ]; then
+    rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS 120
+    MQTT_HEALTH_INTERVAL_SECONDS=120
+  fi
+
+  mqtt_slow_ttl_current="$(sanitize_int_range "$(read_kv_config_value /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180)" 10 86400 180)"
+  if [ "$mqtt_slow_ttl_current" -lt 180 ]; then
+    rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180
+    MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=180
+  fi
+
+  if [ ! -f /mnt/config/sound_detection.conf ]; then
+    {
+      echo "ENABLE=0"
+      echo "THRESHOLD=1500"
+      echo "INTERVAL=10"
+    } > /mnt/config/sound_detection.conf
+  fi
+  sound_interval_current="$(sanitize_int_range "$(read_kv_config_value /mnt/config/sound_detection.conf INTERVAL 10)" 1 300 10)"
+  if [ "$sound_interval_current" -lt 10 ]; then
+    rewrite_config /mnt/config/sound_detection.conf INTERVAL 10
+  fi
+}
+
 apply_profile_command()
 {
   profile_raw="$1"
@@ -754,6 +960,7 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
+      ensure_low_cpu_runtime_tuning
       if [ -x /mnt/controlscripts/memory-guard ]; then
         /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
       fi
@@ -771,6 +978,7 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
+      ensure_low_cpu_runtime_tuning
       for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection blue-led night-mode network-monitor; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
@@ -785,6 +993,7 @@ apply_profile_command()
       ;;
   esac
 
+  rm -f "$HEALTH_SLOW_CACHE_FILE" >/dev/null 2>&1 || true
   restart_service_if_need /mnt/controlscripts/rtsp-h26x
   restart_service_if_need /mnt/controlscripts/onvif
   return 0
@@ -975,6 +1184,7 @@ handle_command_payload()
   esac
 
   if [ "$refresh_state" -eq 1 ]; then
+    rm -f "$HEALTH_SLOW_CACHE_FILE" >/dev/null 2>&1 || true
     publish_health >/dev/null 2>&1 || true
   fi
 }

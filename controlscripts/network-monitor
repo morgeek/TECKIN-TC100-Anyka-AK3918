@@ -16,13 +16,14 @@ status()
 
 start()
 {
-  if [ -f $PIDFILE ]; then
-    echo "Network Monitor already running";
-  else
-    echo "Starting Network Monitor"
-    /mnt/bin/busybox nohup /mnt/scripts/network-monitor.sh &>/dev/null &
-    echo "$!" > "$PIDFILE"
+  if status >/dev/null 2>&1; then
+    echo "Network Monitor already running"
+    return 0
   fi
+  rm -f "$PIDFILE" >/dev/null 2>&1 || true
+  echo "Starting Network Monitor"
+  /mnt/bin/busybox nohup /mnt/scripts/network-monitor.sh >/dev/null 2>&1 &
+  echo "$!" > "$PIDFILE"
 }
 
 stop()
