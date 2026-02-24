@@ -500,6 +500,39 @@ apply_low_cpu_profile()
         1 goplen     "$LOW_CPU_SUB_GOPLEN" \
         1 maxkbps    "$LOW_CPU_SUB_MAXKBPS" \
         1 targetkbps "$LOW_CPU_SUB_TARGETKBPS"
+
+    # Apply conservative background intervals in low-CPU mode.
+    install_config "$CONFIGPATH/mqtt.conf"
+    mqtt_health_interval="$(awk -F= '$1=="MQTT_HEALTH_INTERVAL_SECONDS"{print $2; exit}' "$CONFIGPATH/mqtt.conf" 2>/dev/null)"
+    case "$mqtt_health_interval" in
+        ''|*[!0-9]*) mqtt_health_interval=120 ;;
+    esac
+    if [ "$mqtt_health_interval" -lt 120 ]; then
+        rewrite_config "$CONFIGPATH/mqtt.conf" MQTT_HEALTH_INTERVAL_SECONDS 120
+    fi
+
+    mqtt_health_slow_ttl="$(awk -F= '$1=="MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS"{print $2; exit}' "$CONFIGPATH/mqtt.conf" 2>/dev/null)"
+    case "$mqtt_health_slow_ttl" in
+        ''|*[!0-9]*) mqtt_health_slow_ttl=180 ;;
+    esac
+    if [ "$mqtt_health_slow_ttl" -lt 180 ]; then
+        rewrite_config "$CONFIGPATH/mqtt.conf" MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180
+    fi
+
+    if [ ! -f "$CONFIGPATH/sound_detection.conf" ]; then
+        {
+            echo "ENABLE=0"
+            echo "THRESHOLD=1500"
+            echo "INTERVAL=10"
+        } > "$CONFIGPATH/sound_detection.conf"
+    fi
+    sound_interval="$(awk -F= '$1=="INTERVAL"{print $2; exit}' "$CONFIGPATH/sound_detection.conf" 2>/dev/null)"
+    case "$sound_interval" in
+        ''|*[!0-9]*) sound_interval=10 ;;
+    esac
+    if [ "$sound_interval" -lt 10 ]; then
+        rewrite_config "$CONFIGPATH/sound_detection.conf" INTERVAL 10
+    fi
 }
 
 run_autostart_scripts()

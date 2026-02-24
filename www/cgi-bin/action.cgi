@@ -362,6 +362,33 @@ read_kv_or_default() {
   fi
 }
 
+apply_low_cpu_background_defaults() {
+  install_config /mnt/config/mqtt.conf
+
+  mqtt_health_interval="$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS 120)" 10 86400 120)"
+  if [ "$mqtt_health_interval" -lt 120 ]; then
+    rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS 120
+  fi
+
+  mqtt_slow_ttl="$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180)" 10 86400 180)"
+  if [ "$mqtt_slow_ttl" -lt 180 ]; then
+    rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180
+  fi
+
+  if [ ! -f /mnt/config/sound_detection.conf ]; then
+    {
+      echo "ENABLE=0"
+      echo "THRESHOLD=1500"
+      echo "INTERVAL=10"
+    } > /mnt/config/sound_detection.conf
+  fi
+
+  sound_interval="$(sanitize_int_range "$(read_kv_or_default /mnt/config/sound_detection.conf INTERVAL 10)" 1 300 10)"
+  if [ "$sound_interval" -lt 10 ]; then
+    rewrite_config /mnt/config/sound_detection.conf INTERVAL 10
+  fi
+}
+
 write_stream_state_snapshot() {
   output_file="$1"
   reason="$2"
@@ -433,6 +460,9 @@ apply_stream_state_snapshot() {
   rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG "$low_cpu_disable_jpeg"
   rewrite_config /mnt/config/boot.conf SERVICE_TRIM "$service_trim"
   rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM "$service_trim"
+  if [ "$low_cpu_profile" = "1" ]; then
+    apply_low_cpu_background_defaults
+  fi
 }
 
 capture_prechange_stream_snapshot() {
@@ -1117,6 +1147,7 @@ if [ -n "$F_cmd" ]; then
               0 smartmode 1 0 smartgoplen 20 0 smartquality 60 0 smartstatic 350 0 maxkbps 800 0 targetkbps 600 \
               1 width 352 1 height 200 1 fps 5 1 bps 120 1 goplen 10 1 brmode 1 1 codec 0 1 profile 0 \
               1 smartmode 1 1 smartgoplen 10 1 smartquality 50 1 smartstatic 100 1 maxkbps 160 1 targetkbps 120
+          apply_low_cpu_background_defaults
 
           echo "Performance profile set to Low CPU.<br/>"
           echo "Applied conservative dual-stream RTSP settings now (safe geometry, H264) and enabled memory guard.<br/>"
@@ -1142,6 +1173,7 @@ if [ -n "$F_cmd" ]; then
               /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
             fi
           done
+          apply_low_cpu_background_defaults
 
           echo "Performance profile set to RTSP + ONVIF only.<br/>"
           echo "Stopped non-essential services now; reboot to enforce trimmed autostart persistently.<br/>"
@@ -1347,7 +1379,8 @@ if [ -n "$F_cmd" ]; then
       mqtt_topic_root=$(printf '%b' "${F_mqtt_topic_root}")
       mqtt_topic_command=$(printf '%b' "${F_mqtt_topic_command}")
       mqtt_qos=$(sanitize_int_range "${F_mqtt_qos}" 0 2 0)
-      mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds}" 10 86400 60)
+      mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds}" 10 86400 120)
+      mqtt_health_slow_cache_ttl_seconds=$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180)" 10 86400 180)
       mqtt_command_wait_seconds=$(sanitize_int_range "${F_mqtt_command_wait_seconds}" 3 120 12)
       mqtt_command_repeat_window_seconds=$(sanitize_int_range "${F_mqtt_command_repeat_window_seconds}" 0 600 20)
       mqtt_ha_discovery_enable=$(normalize_bool "${F_mqtt_ha_discovery_enable}")
@@ -1402,6 +1435,7 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/mqtt.conf MQTT_TOPIC_COMMAND "$mqtt_topic_command"
       rewrite_config /mnt/config/mqtt.conf MQTT_QOS "$mqtt_qos"
       rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS "$mqtt_health_interval_seconds"
+      rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS "$mqtt_health_slow_cache_ttl_seconds"
       rewrite_config /mnt/config/mqtt.conf MQTT_COMMAND_WAIT_SECONDS "$mqtt_command_wait_seconds"
       rewrite_config /mnt/config/mqtt.conf MQTT_COMMAND_REPEAT_WINDOW_SECONDS "$mqtt_command_repeat_window_seconds"
       rewrite_config /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE "$mqtt_ha_discovery_enable"
@@ -1516,6 +1550,9 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
+      if [ "$low_cpu_profile" = "1" ]; then
+        apply_low_cpu_background_defaults
+      fi
 
       finalize_stream_apply "ha-pair:${ha_profile}"
 
@@ -1862,6 +1899,9 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
+      if [ "$low_cpu_profile" = "1" ]; then
+        apply_low_cpu_background_defaults
+      fi
 
       finalize_stream_apply "compat-profile:${client_profile}"
 
@@ -2008,6 +2048,9 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
+      if [ "$low_cpu_profile" = "1" ]; then
+        apply_low_cpu_background_defaults
+      fi
 
       now_ts="$(date +%s 2>/dev/null)"
       [ -n "$now_ts" ] || now_ts=0
