@@ -39,20 +39,12 @@
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
                     id="viewrecordspage" title="Records"><i class="icon-play-circle-o"></i></a>
                 <span class="navbar-item nav-sysusage-wrap"
-                    title="Current CPU, RAM, chip temperature and power telemetry">
+                    title="Current CPU and RAM usage">
                     <em id="cpuusage" class="usage-chip usage-low">CPU: ...</em>
                     <em id="ramusage" class="usage-chip usage-low">RAM: ...</em>
-                    <em id="chiptemp" class="usage-chip usage-low">TEMP: ...</em>
-                    <em id="powerdraw" class="usage-chip temp-unknown">PWR: ...</em>
                 </span>
                 <span class="navbar-item nav-perfprofile-wrap" title="Current performance profile">
                     <em id="perfprofile">Profile: ...</em>
-                </span>
-                <span class="navbar-item nav-reboot-wrap" title="Last reboot time">
-                    <em id="lastreboot">Reboot: ...</em>
-                </span>
-                <span class="navbar-item nav-security-wrap" title="Credential security state">
-                    <em id="securitybadge" class="security-unknown">Security: ...</em>
                 </span>
                 <span class="navbar-item nav-nightmode-wrap" title="Auto-night mode luminance indicator">
                     <em id="nightmodebadge" class="nightmode-badge nightmode-unknown">&#127769; Night: ...</em>
@@ -164,7 +156,7 @@
     <section id="main" class="section">
         <div id="content" class="container app-shell">
             <div class="app-toolbar">
-                <button class="button" id="live_toggle" type="button">Pause Live</button>
+                <button class="button" id="live_toggle" type="button">Resume Live</button>
                 <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank"
                     rel="noopener">Snapshot</a>
                 <button class="button is-danger" id="ptt_btn" type="button" title="Hold to talk to the camera speaker">
@@ -177,19 +169,6 @@
             </div>
         </div>
     </section>
-
-    <div id="quickviewDefault" class="quickview">
-        <header class="quickview-header">
-            <p class="title">Quickview</p>
-            <span id="quickViewClose" class="delete" data-dismiss="quickview"></span>
-        </header>
-
-        <div class="quickview-body">
-            <div class="quickview-block" id="quicViewContent">
-            </div>
-        </div>
-
-    </div>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
     <script src="scripts/index.bundle.min.js" type="text/javascript" defer></script>

@@ -410,6 +410,25 @@
     }
   }
 
+  function statusTitleIconSvg(title, category) {
+    switch (title) {
+      case "Setup Wizard":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 20l5-5M10 3l2 2M3 10l2 2M8 7l2 2M14 4l6 6M12 12l2 2M16 12l2-2M14 14l-2 2'/></svg>";
+      case "System":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M10.5 6h9M4.5 6h2M7.5 6h0M19.5 12h-2M4.5 12h9M18.5 12h0M10.5 18h9M4.5 18h2M7.5 18h0'/></svg>";
+      case "Advanced Tuning":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M10.3 4.3l.6 1.7a6.4 6.4 0 0 1 2.2 0l.6-1.7l2 1.1l-.4 1.7c.6.4 1.1 1 1.6 1.6l1.7-.4l1.1 2l-1.7.6a6.4 6.4 0 0 1 0 2.2l1.7.6l-1.1 2l-1.7-.4c-.4.6-1 1.1-1.6 1.6l.4 1.7l-2 1.1l-.6-1.7a6.4 6.4 0 0 1-2.2 0l-.6 1.7l-2-1.1l.4-1.7a6.4 6.4 0 0 1-1.6-1.6l-1.7.4l-1.1-2l1.7-.6a6.4 6.4 0 0 1 0-2.2l-1.7-.6l1.1-2l1.7.4c.4-.6 1-1.1 1.6-1.6l-.4-1.7l2-1.1zM12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6z'/></svg>";
+      case "Scheduled Reboot":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M12 8v5l3 2M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6'/></svg>";
+      case "MQTT Bridge":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M5 12h4M15 12h4M9 8l3-3l3 3M9 16l3 3l3-3M12 5v14'/></svg>";
+      case "Motion Event API":
+        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 12a8 8 0 0 1 16 0M8 12a4 4 0 0 1 8 0M12 12h.01'/></svg>";
+      default:
+        return statusCategoryIconSvg(category);
+    }
+  }
+
   function setCardCollapsed(card, collapsed) {
     card.classList.toggle("status-collapsed", !!collapsed);
     var header = card.querySelector(".card-header");
@@ -458,7 +477,7 @@
         var iconSpan = document.createElement("span");
         iconSpan.className = "status-card-category-icon";
         iconSpan.setAttribute("aria-hidden", "true");
-        iconSpan.innerHTML = statusCategoryIconSvg(category);
+        iconSpan.innerHTML = statusTitleIconSvg(title, category);
         titleNode.insertBefore(iconSpan, titleNode.firstChild);
       }
 

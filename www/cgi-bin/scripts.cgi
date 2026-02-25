@@ -7,6 +7,15 @@ echo "Cache-Control: max-age=0, no-store, no-cache"
 SCRIPT_HOME="${SCRIPT_HOME:-/mnt/controlscripts/}"
 # Allow tests to override autostart dir for safer testing
 AUTOSTART_DIR="${AUTOSTART_DIR:-/mnt/config/autostart}"
+status_timeout_cmd=""
+ALLSTATES_CACHE_FILE="${ALLSTATES_CACHE_FILE:-/tmp/scripts-allstates.cache}"
+ALLSTATES_CACHE_TTL_SECONDS="${ALLSTATES_CACHE_TTL_SECONDS:-4}"
+
+case "$ALLSTATES_CACHE_TTL_SECONDS" in
+  ''|*[!0-9]*) ALLSTATES_CACHE_TTL_SECONDS=4 ;;
+esac
+[ "$ALLSTATES_CACHE_TTL_SECONDS" -lt 0 ] && ALLSTATES_CACHE_TTL_SECONDS=0
+[ "$ALLSTATES_CACHE_TTL_SECONDS" -gt 30 ] && ALLSTATES_CACHE_TTL_SECONDS=30
 
 is_valid_script_name() {
   case "$1" in
@@ -15,39 +24,120 @@ is_valid_script_name() {
   esac
 }
 
+now_epoch_safe() {
+  now_ts="$(date +%s 2>/dev/null)"
+  case "$now_ts" in
+    ''|*[!0-9]*) echo "0" ;;
+    *) echo "$now_ts" ;;
+  esac
+}
+
+invalidate_allstates_cache() {
+  rm -f "$ALLSTATES_CACHE_FILE" >/dev/null 2>&1 || true
+}
+
+allstates_cache_is_fresh() {
+  [ "$ALLSTATES_CACHE_TTL_SECONDS" -gt 0 ] || return 1
+  [ -f "$ALLSTATES_CACHE_FILE" ] || return 1
+
+  read -r cache_header < "$ALLSTATES_CACHE_FILE" || return 1
+  case "$cache_header" in
+    ts=*) cache_ts="${cache_header#ts=}" ;;
+    *) return 1 ;;
+  esac
+  case "$cache_ts" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+
+  now_ts="$(now_epoch_safe)"
+  [ "$now_ts" -gt 0 ] || return 1
+  [ "$cache_ts" -le "$now_ts" ] || return 1
+
+  age=$((now_ts - cache_ts))
+  [ "$age" -le "$ALLSTATES_CACHE_TTL_SECONDS" ]
+}
+
 run_status_probe() {
   script_path="$1"
   timeout_seconds="${2:-2}"
   probe_output="/tmp/scripts-status.$$.tmp"
+  rm -f "$probe_output" 2>/dev/null || true
 
-  sh "$script_path" status >"$probe_output" 2>/dev/null &
-  probe_pid=$!
-
-  (
-    sleep "$timeout_seconds"
-    if kill -0 "$probe_pid" >/dev/null 2>&1; then
-      kill "$probe_pid" >/dev/null 2>&1 || true
-      sleep 1
-      kill -9 "$probe_pid" >/dev/null 2>&1 || true
+  if [ -z "$status_timeout_cmd" ]; then
+    if [ -x /mnt/bin/busybox ] && /mnt/bin/busybox timeout 1 sh -c ':' >/dev/null 2>&1; then
+      status_timeout_cmd="/mnt/bin/busybox timeout"
+    elif command -v timeout >/dev/null 2>&1; then
+      status_timeout_cmd="timeout"
+    elif [ -x /bin/busybox ] && /bin/busybox timeout 1 sh -c ':' >/dev/null 2>&1; then
+      status_timeout_cmd="/bin/busybox timeout"
     fi
-  ) >/dev/null 2>&1 &
-  watchdog_pid=$!
+  fi
 
-  wait "$probe_pid" >/dev/null 2>&1
-  probe_rc=$?
+  if [ -n "$status_timeout_cmd" ]; then
+    case "$status_timeout_cmd" in
+      "/mnt/bin/busybox timeout")
+        /mnt/bin/busybox timeout "$timeout_seconds" sh "$script_path" status >"$probe_output" 2>/dev/null
+        probe_rc=$?
+        ;;
+      "/bin/busybox timeout")
+        /bin/busybox timeout "$timeout_seconds" sh "$script_path" status >"$probe_output" 2>/dev/null
+        probe_rc=$?
+        ;;
+      *)
+        timeout "$timeout_seconds" sh "$script_path" status >"$probe_output" 2>/dev/null
+        probe_rc=$?
+        ;;
+    esac
+  else
+    sh "$script_path" status >"$probe_output" 2>/dev/null &
+    probe_pid=$!
 
-  kill "$watchdog_pid" >/dev/null 2>&1 || true
-  wait "$watchdog_pid" >/dev/null 2>&1 || true
+    (
+      sleep "$timeout_seconds"
+      if kill -0 "$probe_pid" >/dev/null 2>&1; then
+        kill "$probe_pid" >/dev/null 2>&1 || true
+        sleep 1
+        kill -9 "$probe_pid" >/dev/null 2>&1 || true
+      fi
+    ) >/dev/null 2>&1 &
+    watchdog_pid=$!
+
+    wait "$probe_pid" >/dev/null 2>&1
+    probe_rc=$?
+
+    kill "$watchdog_pid" >/dev/null 2>&1 || true
+    wait "$watchdog_pid" >/dev/null 2>&1 || true
+  fi
 
   if [ -f "$probe_output" ]; then
     cat "$probe_output"
     rm -f "$probe_output"
   fi
 
+  case "$probe_rc" in
+    124|137|143)
+      return 124
+      ;;
+  esac
   if [ "$probe_rc" -ge 128 ]; then
     return 124
   fi
   return "$probe_rc"
+}
+
+parse_script_capabilities() {
+  script_file="$1"
+  has_start=0
+  has_stop=0
+  has_status=0
+  # Parse start/stop/status function presence using shell builtins to save forks
+  while IFS= read -r line; do
+    case "$line" in
+      *"start()"*)  has_start=1 ;;
+      *"stop()"*)   has_stop=1 ;;
+      *"status()"*) has_status=1 ;;
+    esac
+  done < "$script_file"
 }
 
 service_impact_level_for() {
@@ -104,6 +194,72 @@ service_impact_label_for() {
   esac
 }
 
+generate_allstates_payload() {
+  printf '{"status":"ok","services":['
+  first=1
+  for script_path in "$SCRIPT_HOME"/*; do
+    [ -f "$script_path" ] || continue
+    script="${script_path##*/}"
+    if ! is_valid_script_name "$script"; then
+      continue
+    fi
+
+    [ "$first" -eq 0 ] && printf ','
+    first=0
+
+    autostart_enabled=0
+    running=0
+    state="unknown"
+    parse_script_capabilities "$script_path"
+
+    [ -f "$AUTOSTART_DIR/$script" ] && autostart_enabled=1
+
+    if [ "$has_status" -eq 1 ]; then
+      # For bulk listing, use a shorter timeout to avoid blocking the whole response.
+      status_output="$(run_status_probe "$script_path" 1)"
+      status_rc=$?
+      if [ "$status_rc" -eq 0 ]; then
+        if [ -n "$status_output" ]; then
+          state="running"
+          running=1
+        else
+          state="stopped"
+        fi
+      elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
+        state="timeout"
+      else
+        state="error"
+      fi
+    fi
+    printf '{"script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s}' \
+      "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled"
+  done
+  echo ']}'
+}
+
+emit_allstates_response() {
+  if allstates_cache_is_fresh; then
+    sed '1d' "$ALLSTATES_CACHE_FILE"
+    return
+  fi
+
+  if [ "$ALLSTATES_CACHE_TTL_SECONDS" -gt 0 ]; then
+    tmp_cache="/tmp/scripts-allstates.$$.tmp"
+    now_ts="$(now_epoch_safe)"
+    {
+      printf 'ts=%s\n' "$now_ts"
+      generate_allstates_payload
+    } > "$tmp_cache"
+    mv "$tmp_cache" "$ALLSTATES_CACHE_FILE" 2>/dev/null || true
+    if [ -f "$ALLSTATES_CACHE_FILE" ]; then
+      sed '1d' "$ALLSTATES_CACHE_FILE"
+      return
+    fi
+  fi
+
+  generate_allstates_payload
+}
+
 if [ -n "$F_script" ]; then
   script="${F_script##*/}"
   if ! is_valid_script_name "$script"; then
@@ -121,9 +277,11 @@ if [ -n "$F_script" ]; then
 
         echo "Running script '$script'..."
         echo "<pre>$(sh "$SCRIPT_HOME/$script" start 2>&1)</pre>"
+        invalidate_allstates_cache
         ;;  
       disable)
         rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true
+        invalidate_allstates_cache
         echo "Content-type: application/json"
         echo ""
         echo "{\"status\":\"ok\",\"autostart_enabled\":0}"
@@ -136,12 +294,14 @@ if [ -n "$F_script" ]; then
         echo "<pre>"
         sh "$SCRIPT_HOME/$script" stop 2>&1 && echo "OK" || echo "NOK"
         echo "</pre>"
+        invalidate_allstates_cache
         ;;
       enable)
         if [ -e "$SCRIPT_HOME/$script" ]; then
           mkdir -p "${AUTOSTART_DIR}"
           printf "#!/bin/sh\nsh \"%s%s\"\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"
           chmod +x "${AUTOSTART_DIR}/$script"
+          invalidate_allstates_cache
           echo "Content-type: application/json"
           echo ""
           echo "{\"status\":\"ok\",\"autostart_enabled\":1}"
@@ -163,24 +323,11 @@ if [ -n "$F_script" ]; then
           echo ""
           echo "{\"status\":\"error\",\"reason\":\"script not found\"}"
         else
-          has_start=0
-          has_stop=0
-          has_status=0
           state="unknown"
           running=0
           autostart_enabled=0
 
-          has_start=0
-          has_stop=0
-          has_status=0
-          # Parse start/stop/status function presence using shell builtins to save forks
-          while read -r line; do
-            case "$line" in
-              *"start()"*)  has_start=1 ;;
-              *"stop()"*)   has_stop=1 ;;
-              *"status()"*) has_status=1 ;;
-            esac
-          done < "$SCRIPT_HOME/$script"
+          parse_script_capabilities "$SCRIPT_HOME/$script"
 
           if [ -f "$AUTOSTART_DIR/$script" ]; then
             autostart_enabled=1
@@ -212,46 +359,7 @@ if [ -n "$F_script" ]; then
       allstates)
         echo "Content-type: application/json"
         echo ""
-        printf '{"status":"ok","services":['
-        SCRIPTS=$(ls -A "$SCRIPT_HOME")
-        first=1
-        for script in $SCRIPTS; do
-          if is_valid_script_name "$script" && [ -f "$SCRIPT_HOME/$script" ]; then
-            [ "$first" -eq 0 ] && printf ','
-            first=0
-            
-            has_start=0; has_stop=0; has_status=0; autostart_enabled=0; running=0; state="unknown"
-            while read -r line; do
-              case "$line" in
-                *"start()"*)  has_start=1 ;;
-                *"stop()"*)   has_stop=1 ;;
-                *"status()"*) has_status=1 ;;
-              esac
-            done < "$SCRIPT_HOME/$script"
-            
-            [ -f "$AUTOSTART_DIR/$script" ] && autostart_enabled=1
-            
-            if [ "$has_status" -eq 1 ]; then
-              # For bulk listing, use a shorter timeout to avoid blocking the whole response
-              status_output="$(run_status_probe "$SCRIPT_HOME/$script" 1)"
-              status_rc=$?
-              if [ "$status_rc" -eq 0 ]; then
-                if [ -n "$status_output" ]; then
-                  state="running"; running=1
-                else
-                  state="stopped"
-                fi
-              elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
-                state="timeout"
-              else
-                state="error"
-              fi
-            fi
-            printf '{"script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s}' \
-              "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled"
-          fi
-        done
-        echo ']}'
+        emit_allstates_response
         ;;
       *)
         echo "Content-type: text/html"
@@ -271,7 +379,6 @@ else
   if [ ! -d "$SCRIPT_HOME" ]; then
     echo "<p>No scripts.cgi found in $SCRIPT_HOME</p>"
   else
-    SCRIPTS=$(ls -A "$SCRIPT_HOME")
     echo "<div class='card status_card services-table-card'>"
     echo "<header class='card-header'>"
     echo "<p class='card-header-title'>Services</p>"
@@ -288,8 +395,9 @@ else
     echo "</tr></thead>"
     echo "<tbody>"
 
-    for i in $SCRIPTS; do
-      [ -f "$SCRIPT_HOME/$i" ] || continue
+    for script_path in "$SCRIPT_HOME"/*; do
+      [ -f "$script_path" ] || continue
+      i="${script_path##*/}"
       if ! is_valid_script_name "$i"; then
         continue
       fi

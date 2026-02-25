@@ -111,8 +111,8 @@ led(){
   esac
 }
 
-# Control the blue led
-blue_led(){
+# Control the front LED (hardware node is still `blue_led`)
+front_led(){
   led "$1" blue_led
 }
 
@@ -383,25 +383,54 @@ reboot_system() {
 
 get_current_cpu_usage()
 {
+    cpu_state_file="${CPU_USAGE_STATE_FILE:-/tmp/cpu_usage_common.state}"
+    cpu_min_delta_ticks="${CPU_USAGE_MIN_DELTA_TICKS:-20}"
+    case "$cpu_min_delta_ticks" in
+        ''|*[!0-9]*) cpu_min_delta_ticks=20 ;;
+    esac
+    [ "$cpu_min_delta_ticks" -lt 1 ] && cpu_min_delta_ticks=1
+
     cpu_active_prev=0
     cpu_total_prev=0
-    if [ -f /tmp/cpuact ]; then
-        read cpu_active_prev< /tmp/cpuact
+    cpu_util_prev=0
+    if [ -f "$cpu_state_file" ]; then
+        read -r cpu_active_prev cpu_total_prev cpu_util_prev < "$cpu_state_file"
+        case "$cpu_active_prev" in ''|*[!0-9]*) cpu_active_prev=0 ;; esac
+        case "$cpu_total_prev" in ''|*[!0-9]*) cpu_total_prev=0 ;; esac
+        case "$cpu_util_prev" in ''|*[!0-9]*) cpu_util_prev=0 ;; esac
     fi
 
-    if [ -f /tmp/cputot ]; then
-        read cpu_total_prev< /tmp/cputot
+    read -r _ user nice system idle iowait irq softirq steal _ _ < /proc/stat
+
+    cpu_active_cur=$((user + nice + system + irq + softirq + steal))
+    cpu_total_cur=$((cpu_active_cur + idle + iowait))
+
+    delta_total=$((cpu_total_cur - cpu_total_prev))
+    delta_active=$((cpu_active_cur - cpu_active_prev))
+
+    if [ "$cpu_total_prev" -le 0 ] || [ "$delta_total" -lt 0 ]; then
+        printf '%s %s %s\n' "$cpu_active_cur" "$cpu_total_cur" 0 > "$cpu_state_file"
+        echo "0"
+        return
     fi
 
-    read cpu user nice system idle iowait irq softirq steal guest< /proc/stat
+    if [ "$delta_total" -lt "$cpu_min_delta_ticks" ]; then
+        # Reuse previous stable value when calls are too close together.
+        echo "$cpu_util_prev"
+        return
+    fi
 
-    cpu_active_cur=$((user+system+nice+softirq+steal))
-    cpu_total_cur=$((user+system+nice+softirq+steal+idle+iowait))
-    echo $cpu_active_cur >/tmp/cpuact
-    echo $cpu_total_cur >/tmp/cputot
+    if [ "$delta_active" -lt 0 ]; then
+        delta_active=0
+    fi
+    cpu_util=$((100 * delta_active / delta_total))
+    if [ "$cpu_util" -lt 0 ]; then
+        cpu_util=0
+    elif [ "$cpu_util" -gt 100 ]; then
+        cpu_util=100
+    fi
 
-    cpu_util=$((100*( cpu_active_cur-cpu_active_prev ) / (cpu_total_cur-cpu_total_prev) ))
-
+    printf '%s %s %s\n' "$cpu_active_cur" "$cpu_total_cur" "$cpu_util" > "$cpu_state_file"
     echo "$cpu_util"
 }
 
@@ -535,7 +564,7 @@ led_blink()
     fi
 }
 
-blue_led_blink()
+front_led_blink()
 {
   led_blink $1 blue_led red_led
 }
