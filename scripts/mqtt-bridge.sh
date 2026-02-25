@@ -406,8 +406,8 @@ publish_homeassistant_discovery()
   cmd_motion_off_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"off\"}")"
   cmd_ir_on_json="$(json_escape "{\"cmd\":\"ir_led\",\"value\":\"on\"}")"
   cmd_ir_off_json="$(json_escape "{\"cmd\":\"ir_led\",\"value\":\"off\"}")"
-  cmd_blue_on_json="$(json_escape "{\"cmd\":\"blue_led\",\"value\":\"on\"}")"
-  cmd_blue_off_json="$(json_escape "{\"cmd\":\"blue_led\",\"value\":\"off\"}")"
+  cmd_front_on_json="$(json_escape "{\"cmd\":\"front_led\",\"value\":\"on\"}")"
+  cmd_front_off_json="$(json_escape "{\"cmd\":\"front_led\",\"value\":\"off\"}")"
   cmd_red_on_json="$(json_escape "{\"cmd\":\"red_led\",\"value\":\"on\"}")"
   cmd_red_off_json="$(json_escape "{\"cmd\":\"red_led\",\"value\":\"off\"}")"
   cmd_ftp_on_json="$(json_escape "{\"cmd\":\"ftp\",\"value\":\"on\"}")"
@@ -495,9 +495,9 @@ publish_homeassistant_discovery()
   ir_switch_cfg_payload="$(printf '{"name":"%s IR LED","uniq_id":"%s_ir_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.ir_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lightbulb-night","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_ir_on_json" "$cmd_ir_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$ir_switch_cfg_topic" "$ir_switch_cfg_payload"
 
-  blue_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/blue_led/config"
-  blue_switch_cfg_payload="$(printf '{"name":"%s Blue LED","uniq_id":"%s_blue_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.blue_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:led-on","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_blue_on_json" "$cmd_blue_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$blue_switch_cfg_topic" "$blue_switch_cfg_payload"
+  front_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/front_led/config"
+  front_switch_cfg_payload="$(printf '{"name":"%s Front LED","uniq_id":"%s_front_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.front_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:led-on","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_front_on_json" "$cmd_front_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$front_switch_cfg_topic" "$front_switch_cfg_payload"
 
   red_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/red_led/config"
   red_switch_cfg_payload="$(printf '{"name":"%s Red LED","uniq_id":"%s_red_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.red_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:led-on","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_red_on_json" "$cmd_red_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
@@ -811,7 +811,7 @@ build_health_payload()
   rtsp_enabled="$slow_rtsp_enabled"
   onvif_enabled="$slow_onvif_enabled"
 
-  blue_led_on="$(read_int_file_value /sys/class/leds/blue_led/brightness 0)"
+  front_led_on="$(read_int_file_value /sys/class/leds/blue_led/brightness 0)"
   red_led_on="$(read_int_file_value /sys/class/leds/red_led/brightness 0)"
   ir_led_on="$(read_int_file_value /sys/user-gpio/ir-led 0)"
 
@@ -847,8 +847,8 @@ build_health_payload()
   power_sensor_path_json="$(json_escape "$power_sensor_path")"
   primary_ip_json="$(json_escape "$primary_ip")"
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"blue_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$blue_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open"
 }
 
 publish_health()
@@ -979,7 +979,7 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
       ensure_low_cpu_runtime_tuning
-      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection blue-led night-mode network-monitor; do
+      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
         fi
@@ -1014,8 +1014,8 @@ apply_toggle_command()
     ir_led)
       script="/mnt/controlscripts/ir-led"
       ;;
-    blue_led)
-      script="/mnt/controlscripts/blue-led"
+    front_led)
+      script="/mnt/controlscripts/front-led"
       ;;
     red_led)
       script="/mnt/controlscripts/red-led"
@@ -1151,7 +1151,7 @@ handle_command_payload()
         publish_event_simple "command.profile" "invalid:$value"
       fi
       ;;
-    motion|motion_detection|ir_led|blue_led|red_led|ftp|telnet|rtsp|onvif)
+    motion|motion_detection|ir_led|front_led|red_led|ftp|telnet|rtsp|onvif)
       if apply_toggle_command "$cmd" "$value"; then
         publish_event_simple "command.${cmd}" "${value:-toggle}"
         refresh_state=1

@@ -16,7 +16,7 @@ install_config $CONFIGPATH/boot.conf
 install_config $CONFIGPATH/service_trim.conf
 install_config $CONFIGPATH/packages.lock
 
-DEFAULT_LIGHTWEIGHT_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection blue-led"
+DEFAULT_LIGHTWEIGHT_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection front-led"
 
 init_log()
 {
@@ -444,7 +444,7 @@ initialize_gpio()
 {
     ir_led off
     ir_cut on
-    blue_led off
+    front_led off
     red_led off
 }
 

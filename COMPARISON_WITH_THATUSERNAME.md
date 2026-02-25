@@ -129,7 +129,7 @@ config/lighttpd.conf.dist
 config/netmon.conf.dist
 config/onvif.conf.dist
 config/telegram.conf.dist
-controlscripts/blue-led
+controlscripts/front-led
 controlscripts/network-monitor
 controlscripts/onvif
 controlscripts/recording

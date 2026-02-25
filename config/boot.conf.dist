@@ -149,4 +149,4 @@ CHIP_TEMP_RAW_DIVISOR=auto
 # Example lightweight allowlist:
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
 # Example lightweight denylist:
-# AUTOSTART_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection blue-led"
+# AUTOSTART_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection front-led"

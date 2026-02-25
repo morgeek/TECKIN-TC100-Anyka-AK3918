@@ -16,7 +16,7 @@ status()
 
 start()
 {
-  blue_led off
+  front_led off
   red_led on
 }
 
