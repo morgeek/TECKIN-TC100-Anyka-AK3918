@@ -1,12 +1,12 @@
 #!/bin/sh
-SERVICE_NAME="Blue Led"
+SERVICE_NAME="Front Led"
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
 . /mnt/scripts/common_functions.sh
 
 status()
 {
-  state="$(blue_led status 2>/dev/null)"
+  state="$(front_led status 2>/dev/null)"
   case "$state" in
     ON|on)
       echo "PID: OK"
@@ -17,12 +17,12 @@ status()
 start()
 {
   red_led off
-  blue_led on
+  front_led on
 }
 
 stop()
 {
-  blue_led off
+  front_led off
 }
 
 if [ $# -eq 0 ]; then

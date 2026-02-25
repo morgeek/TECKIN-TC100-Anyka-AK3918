@@ -1,6 +1,7 @@
 # TECKIN TC100 Anyka AK3918 reversible camera hacks
 This is a fork from : https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks
 Supported model: **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300)
+AI used : GeminiPro 3.1 for UI, Claude and CODEX 5.3 for the heavy lifting
 
 This is a trimmed, essentials-only version focused on runtime camera operation from MicroSD.
 No firmware flashing is performed! 
@@ -9,12 +10,12 @@ No firmware flashing is performed!
 - Boot/runtime core: `autorun.sh`, `bin/`, `lib/`, `config/`, `scripts/`, `controlscripts/`, `www/`
 - AI Enhanced Local web UI (HTTP/HTTPS depending on config)
 - RTSP (`video0_unicast`, `video1_unicast`)
-- ONVIF
-- Core camera controls and services albeit enhanced.
+- ONVIF /Frigate and HomeAssistant friendly
+- Core camera controls and services enhanced.
 
 ## What is added :
-- Massive CPU/RAM optimization, memory leaks or CPU spikes on a small CPU is not fun.
-- Beter UI
+- Massive CPU/RAM optimization
+- UI, svg icons, smaller footprint
 - Setup Wizard
 - MQTT Support
 
@@ -36,4 +37,4 @@ Remove MicroSD and reboot.
 
 ## Unfinished 
 - Push-To-Talk (PTT)
-- UI Polishing
+- UI enhancements still needed

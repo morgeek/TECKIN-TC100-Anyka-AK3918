@@ -820,12 +820,12 @@ if [ -n "$F_cmd" ]; then
       echo "Sound detection settings updated.<br/>"
     ;;
 
-    blue_led_on)
-      blue_led on
+    front_led_on)
+      front_led on
     ;;
 
-    blue_led_off)
-      blue_led off
+    front_led_off)
+      front_led off
     ;;
 
     red_led_on)
@@ -1093,7 +1093,7 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
       echo "Service trimming enabled. Non-essential services will stop; reboot for full effect.<br/>"
 
-      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection blue-led night-mode network-monitor; do
+      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
         fi
@@ -1168,7 +1168,7 @@ if [ -n "$F_cmd" ]; then
           rewrite_config /mnt/config/boot.conf SERVICE_TRIM 1
           rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
 
-          for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection blue-led night-mode network-monitor; do
+          for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
             if [ -x "/mnt/controlscripts/$svc" ]; then
               /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
             fi
@@ -2274,8 +2274,9 @@ if [ -n "$F_cmd" ]; then
 
 
     conf_ptt)
-        echo "$F_audiooutVol" > /mnt/config/pttvolume.conf
-        echo "Push-to-talk volume set to $F_audiooutVol"
+        safe_ptt_vol="$(sanitize_int_range "$F_audiooutVol" 0 100 90)"
+        echo "$safe_ptt_vol" > /mnt/config/pttvolume.conf
+        echo "Push-to-talk volume set to $safe_ptt_vol"
     ;;
 
      motion_detection_mail_on)
