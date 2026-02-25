@@ -11,6 +11,8 @@ echo ""
 
 USAGE_CACHE_FILE="/tmp/state_usage.cache"
 USAGE_CACHE_TTL_SECONDS=2
+CPU_USAGE_STATE_FILE="/tmp/state_cpu_usage.state"
+CPU_USAGE_MIN_DELTA_TICKS=20
 PERFPROFILE_CACHE_FILE="/tmp/state_perfprofile.cache"
 PERFPROFILE_CACHE_TTL_SECONDS=5
 PWD_CACHE_FILE="/tmp/state_pwd.cache"
@@ -31,11 +33,17 @@ now_epoch() {
 get_current_cpu_usage_fast() {
   cpu_active_prev=0
   cpu_total_prev=0
-  if [ -f /tmp/cpuact ]; then
-    read -r cpu_active_prev < /tmp/cpuact
-  fi
-  if [ -f /tmp/cputot ]; then
-    read -r cpu_total_prev < /tmp/cputot
+  cpu_util_prev=0
+  case "$CPU_USAGE_MIN_DELTA_TICKS" in
+    ''|*[!0-9]*) CPU_USAGE_MIN_DELTA_TICKS=20 ;;
+  esac
+  [ "$CPU_USAGE_MIN_DELTA_TICKS" -lt 1 ] && CPU_USAGE_MIN_DELTA_TICKS=1
+
+  if [ -f "$CPU_USAGE_STATE_FILE" ]; then
+    read -r cpu_active_prev cpu_total_prev cpu_util_prev < "$CPU_USAGE_STATE_FILE"
+    case "$cpu_active_prev" in ''|*[!0-9]*) cpu_active_prev=0 ;; esac
+    case "$cpu_total_prev" in ''|*[!0-9]*) cpu_total_prev=0 ;; esac
+    case "$cpu_util_prev" in ''|*[!0-9]*) cpu_util_prev=0 ;; esac
   fi
 
   # /proc/stat layout:
@@ -44,15 +52,21 @@ get_current_cpu_usage_fast() {
   cpu_active_cur=$((user + nice + system + irq + softirq + steal))
   cpu_total_cur=$((cpu_active_cur + idle + iowait))
 
-  echo "$cpu_active_cur" > /tmp/cpuact
-  echo "$cpu_total_cur" > /tmp/cputot
-
   delta_total=$((cpu_total_cur - cpu_total_prev))
   delta_active=$((cpu_active_cur - cpu_active_prev))
-  if [ "$delta_total" -le 0 ]; then
+
+  if [ "$cpu_total_prev" -le 0 ] || [ "$delta_total" -lt 0 ]; then
+    printf '%s %s %s\n' "$cpu_active_cur" "$cpu_total_cur" 0 > "$CPU_USAGE_STATE_FILE"
     echo "0"
     return
   fi
+
+  if [ "$delta_total" -lt "$CPU_USAGE_MIN_DELTA_TICKS" ]; then
+    # Calls happened too close together; keep previous stable sample.
+    echo "$cpu_util_prev"
+    return
+  fi
+
   if [ "$delta_active" -lt 0 ]; then
     delta_active=0
   fi
@@ -63,6 +77,7 @@ get_current_cpu_usage_fast() {
   elif [ "$cpu_util" -gt 100 ]; then
     cpu_util=100
   fi
+  printf '%s %s %s\n' "$cpu_active_cur" "$cpu_total_cur" "$cpu_util" > "$CPU_USAGE_STATE_FILE"
   echo "$cpu_util"
 }
 
@@ -653,19 +668,13 @@ if [ -n "$F_cmd" ]; then
     load_lum_awb
     get_ui_ultralite_mode
     get_security_and_mqtt_flags
-    read_chip_temperature
-    read_power_telemetry
-    read_reboot_epoch
     default_password_active="$(default_password_active_flag)"
     default_password_active="$(sanitize_int "$default_password_active" 0)"
     profile_json="$(json_escape "$profile")"
     lum_json="$(json_escape "$lum_value")"
     awb_json="$(json_escape "$awb_value")"
-    chip_temp_text_json="$(json_escape "$chip_temp_text")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
-    power_voltage_text_json="$(json_escape "$power_voltage_text")"
-    power_estimated_text_json="$(json_escape "$power_estimated_text")"
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json}"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"default_password_active\":$default_password_active}"
     ;;
 
   healthsnapshot)
