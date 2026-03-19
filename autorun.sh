@@ -2,7 +2,7 @@
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
 CONFIGPATH="/mnt/config"
-LOGDIR="/mnt/log"
+LOGDIR="/tmp/log"
 LOGPATH="$LOGDIR/startup.log"
 RUNTIME_BUSYBOX="/mnt/bin/busybox"
 SYSTEM_BUSYBOX="/bin/busybox"
@@ -331,13 +331,61 @@ init_network()
         mkdir /var/network
         wpa_supplicant_status="$(wpa_supplicant -B -i wlan0 -c $WIFI_CONFIG -P /var/run/wpa_supplicant.pid)"
         echo "wpa_supplicant: $wpa_supplicant_status" >> $LOGPATH
-        udhcpc_status=$(udhcpc -i wlan0 -p /var/network/udhcpc.pid -b -x hostname:"$(hostname)")
-        echo "udhcpc: $udhcpc_status" >> $LOGPATH
+        install_config $CONFIGPATH/network.conf
+        . $CONFIGPATH/network.conf 2>/dev/null
+        if [ "${IP_MODE:-dhcp}" = "static" ] && [ -n "$STATIC_IP" ]; then
+            echo "init_network: applying static IP $STATIC_IP" >> $LOGPATH
+            ifconfig wlan0 "$STATIC_IP" netmask "${STATIC_NETMASK:-255.255.255.0}"
+            [ -n "$STATIC_GATEWAY" ] && route add default gw "$STATIC_GATEWAY" wlan0
+        else
+            udhcpc_status=$(udhcpc -i wlan0 -p /var/network/udhcpc.pid -b -x hostname:"$(hostname)")
+            echo "udhcpc: $udhcpc_status" >> $LOGPATH
+        fi
     else
         echo "Use Anyka default WIFI setup" >> $LOGPATH
         /usr/sbin/wifi_station.sh start
         /usr/sbin/wifi_station.sh connect
     fi
+}
+
+cache_camera_ip()
+{
+    ip="$(ifconfig wlan0 2>/dev/null | awk '/inet addr:/{split($2,a,":");print a[2];exit}')"
+    if [ -n "$ip" ]; then
+        echo "$ip" > /tmp/camera_ip.txt
+        echo "cache_camera_ip: cached $ip" >> $LOGPATH
+    fi
+}
+
+apply_custom_dns()
+{
+    install_config $CONFIGPATH/dns.conf
+    . $CONFIGPATH/dns.conf
+
+    if [ -z "$DNS_PRIMARY" ]; then
+        return 0
+    fi
+
+    # Validate: must look like an IPv4 address (4 dotted octets)
+    valid_ip() {
+        printf '%s' "$1" | awk -F. 'NF==4 && $1+0==$1 && $2+0==$2 && $3+0==$3 && $4+0==$4 &&
+            $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255
+            {exit 0} {exit 1}'
+    }
+
+    if ! valid_ip "$DNS_PRIMARY"; then
+        echo "apply_custom_dns: invalid DNS_PRIMARY '$DNS_PRIMARY', skipping" >> $LOGPATH
+        return 0
+    fi
+
+    {
+        echo "nameserver $DNS_PRIMARY"
+        if [ -n "$DNS_SECONDARY" ] && valid_ip "$DNS_SECONDARY"; then
+            echo "nameserver $DNS_SECONDARY"
+        fi
+    } > /etc/resolv.conf
+
+    echo "apply_custom_dns: set primary=$DNS_PRIMARY secondary=${DNS_SECONDARY:-none}" >> $LOGPATH
 }
 
 sync_time()
@@ -434,9 +482,51 @@ EOF
 
     mv "$CRON_TMP" "$CRON_ROOT"
 
+    # Motion arm/disarm schedule
+    ms_enable=0
+    if is_truthy "$MOTION_SCHEDULE_ENABLE"; then ms_enable=1; fi
+    ms_arm_min="${MOTION_ARM_MINUTE:-0}"
+    ms_arm_hr="${MOTION_ARM_HOUR:-8}"
+    ms_disarm_min="${MOTION_DISARM_MINUTE:-0}"
+    ms_disarm_hr="${MOTION_DISARM_HOUR:-22}"
+    ms_weekday="$(sanitize_weekday_expr "${MOTION_SCHEDULE_WEEKDAY:-*}")"
+    case "$ms_arm_min"    in ''|*[!0-9]*) ms_arm_min=0    ;; esac
+    case "$ms_arm_hr"     in ''|*[!0-9]*) ms_arm_hr=8     ;; esac
+    case "$ms_disarm_min" in ''|*[!0-9]*) ms_disarm_min=0 ;; esac
+    case "$ms_disarm_hr"  in ''|*[!0-9]*) ms_disarm_hr=22 ;; esac
+    if [ "$ms_arm_min"    -lt 0 ] || [ "$ms_arm_min"    -gt 59 ]; then ms_arm_min=0;    fi
+    if [ "$ms_arm_hr"     -lt 0 ] || [ "$ms_arm_hr"     -gt 23 ]; then ms_arm_hr=8;     fi
+    if [ "$ms_disarm_min" -lt 0 ] || [ "$ms_disarm_min" -gt 59 ]; then ms_disarm_min=0; fi
+    if [ "$ms_disarm_hr"  -lt 0 ] || [ "$ms_disarm_hr"  -gt 23 ]; then ms_disarm_hr=22; fi
+
+    CRON_TMP="/tmp/root.crontab.motion.$$"
+    awk '
+      BEGIN { skip=0 }
+      /^# BEGIN TC100 MANAGED MOTION$/ { skip=1; next }
+      /^# END TC100 MANAGED MOTION$/ { skip=0; next }
+      skip==0 { print }
+    ' "$CRON_ROOT" > "$CRON_TMP" 2>/dev/null || cp "$CRON_ROOT" "$CRON_TMP"
+
+    {
+      echo "# BEGIN TC100 MANAGED MOTION"
+      if [ "$ms_enable" = "1" ]; then
+        echo "${ms_arm_min} ${ms_arm_hr} * * ${ms_weekday} /mnt/scripts/motion-schedule.sh arm"
+        echo "${ms_disarm_min} ${ms_disarm_hr} * * ${ms_weekday} /mnt/scripts/motion-schedule.sh disarm"
+      else
+        echo "# disabled"
+      fi
+      echo "# END TC100 MANAGED MOTION"
+    } >> "$CRON_TMP"
+
+    mv "$CRON_TMP" "$CRON_ROOT"
+
     "$BOOT_BUSYBOX" crond -c ${CONFIGPATH}/cron/crontabs
     if [ "$sched_enable" = "1" ]; then
       echo "Scheduled reboot cron active: ${sched_minute} ${sched_hour} * * ${sched_weekday}" >> $LOGPATH
+    fi
+    if [ "$ms_enable" = "1" ]; then
+      echo "Scheduled motion arm cron: ${ms_arm_min} ${ms_arm_hr} * * ${ms_weekday}" >> $LOGPATH
+      echo "Scheduled motion disarm cron: ${ms_disarm_min} ${ms_disarm_hr} * * ${ms_weekday}" >> $LOGPATH
     fi
 }
 
@@ -633,6 +723,8 @@ echo "--------Starting Hacks--------" >> $LOGPATH
 stop_cloud
 enable_hardware_watchdog
 init_network
+cache_camera_ip
+apply_custom_dns
 sync_time
 init_crond
 initialize_gpio
@@ -643,6 +735,7 @@ enforce_security_hardening_runtime
 start_mqtt_bridge_if_enabled
 publish_boot_event
 echo "$(date)" >> $LOGPATH
+(build_devinfo_cache && echo "build_devinfo_cache: done" >> $LOGPATH) &
 sleep 3
 sync
 echo 3 > /proc/sys/vm/drop_caches
