@@ -8,7 +8,7 @@
 
     <!-- CSS Framework -->
     <link href="css/bulma.0.6.2.min.css" rel="stylesheet">
-    <link href="css/ui-modern.css" rel="stylesheet">
+    <link href="css/ui-modern.min.css" rel="stylesheet">
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -48,6 +48,9 @@
                 </span>
                 <span class="navbar-item nav-nightmode-wrap" title="Auto-night mode luminance indicator">
                     <em id="nightmodebadge" class="nightmode-badge nightmode-unknown">&#127769; Night: ...</em>
+                </span>
+                <span class="navbar-item nav-mqtt-wrap" title="MQTT last publish status" style="display:none">
+                    <em id="mqttbadge" class="mqtt-badge mqtt-unknown">MQTT</em>
                 </span>
             </div>
             <div class="navbar-menu" id="nav_menu">
@@ -162,6 +165,12 @@
                 <button class="button is-danger" id="ptt_btn" type="button" title="Hold to talk to the camera speaker">
                     <i class="icon-microphone"></i> Hold to Talk
                 </button>
+                <span class="ptt-vol-wrap" title="Speaker volume for Push-to-Talk">
+                    <i class="icon-volume-medium" style="vertical-align:middle;margin-right:2px;"></i>
+                    <input type="range" id="ptt_vol" min="0" max="100" value="90"
+                        style="width:80px;vertical-align:middle;" aria-label="PTT volume">
+                    <span id="ptt_vol_label" style="font-size:0.8em;vertical-align:middle;min-width:2.5em;display:inline-block;">90%</span>
+                </span>
             </div>
             <div class="liveview-wrap">
                 <img id="liveview" src="cgi-bin/currentpic.cgi" loading="eager" decoding="async"
@@ -172,6 +181,33 @@
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
     <script src="scripts/index.bundle.min.js" type="text/javascript" defer></script>
+    <script>
+    (function () {
+        var vol = document.getElementById('ptt_vol');
+        var lbl = document.getElementById('ptt_vol_label');
+        if (!vol || !lbl) { return; }
+
+        // Load current volume from server
+        fetch('cgi-bin/action.cgi?cmd=get_ptt_vol')
+            .then(function (r) { return r.text(); })
+            .then(function (t) {
+                var v = parseInt(t.trim(), 10);
+                if (!isNaN(v) && v >= 0 && v <= 100) {
+                    vol.value = v;
+                    lbl.textContent = v + '%';
+                }
+            })
+            .catch(function () {});
+
+        vol.addEventListener('input', function () {
+            lbl.textContent = vol.value + '%';
+        });
+        vol.addEventListener('change', function () {
+            fetch('cgi-bin/action.cgi?cmd=conf_ptt&audiooutVol=' + encodeURIComponent(vol.value))
+                .catch(function () {});
+        });
+    }());
+    </script>
 
 </body>
 

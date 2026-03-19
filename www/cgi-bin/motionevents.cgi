@@ -7,7 +7,7 @@ echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 
-EVENT_LOG="/mnt/log/motion-events.log"
+EVENT_LOG="/tmp/log/motion-events.log"
 
 json_escape()
 {

@@ -1,11 +1,21 @@
 #!/bin/sh
 
-LOGPATH="${LOGPATH:-/var/log/service-watchdog.log}"
+LOGPATH="${LOGPATH:-/tmp/log/service-watchdog.log}"
 WATCHDOG_LOG_MAX_BYTES="${WATCHDOG_LOG_MAX_BYTES:-262144}"
 WATCHDOG_LOG_BACKUPS="${WATCHDOG_LOG_BACKUPS:-2}"
 WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS:-20}"
 WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS="${WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS:-15}"
 WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS:-180}"
+_WD_BTIME=0
+_wd_now() {
+  if [ "$_WD_BTIME" -le 0 ]; then
+    while read -r _k _v _; do [ "$_k" = "btime" ] && _WD_BTIME="$_v" && break; done < /proc/stat
+  fi
+  read -r _wd_up _ < /proc/uptime
+  _wd_ts=$((_WD_BTIME + ${_wd_up%.*}))
+  [ "$_wd_ts" -gt 0 ] || _wd_ts=0
+}
+
 MAX_ERRORS_TO_REBOOT=5
 MAX_ERRORS_TO_ALTERNATIVE_REBOOT=10 # If normal reboot not work
 MIN_SUCCES_TO_RESET_REBOOT=30
@@ -58,7 +68,7 @@ append_log()
             ;;
     esac
 
-    log_dir=$(dirname "$LOGPATH")
+    log_dir="${LOGPATH%/*}"
     if [ ! -d "$log_dir" ]; then
         mkdir -p "$log_dir" >/dev/null 2>&1 || true
     fi
@@ -148,18 +158,15 @@ monitor_service()
                 CURRENT_ERRORS=0
             fi
         elif [ $NEED_REBOOT_ON_ERROR -eq 0 ]; then
-            now_ts="$(date +%s 2>/dev/null)"
-            case "$now_ts" in
-                ''|*[!0-9]*) now_ts=0 ;;
-            esac
+            _wd_now; now_ts="$_wd_ts"
             if [ "$no_reboot_delay_seconds" -gt 0 ] && [ "$last_no_reboot_restart_ts" -gt 0 ] && [ "$now_ts" -gt "$last_no_reboot_restart_ts" ]; then
                 elapsed=$((now_ts - last_no_reboot_restart_ts))
                 if [ "$elapsed" -lt "$no_reboot_delay_seconds" ]; then
-                    append_log "$(date) $SERVICE_TO_MONITOR - unhealthy, restart deferred ${elapsed}s/${no_reboot_delay_seconds}s (no reboot mode, check=$CHECK_MODE)"
+                    append_log "@${now_ts} $SERVICE_TO_MONITOR - unhealthy, restart deferred ${elapsed}s/${no_reboot_delay_seconds}s (no reboot mode, check=$CHECK_MODE)"
                     continue
                 fi
             fi
-            append_log "$(date) $SERVICE_TO_MONITOR - unhealthy, perform restart (no reboot mode, check=$CHECK_MODE, backoff=${no_reboot_delay_seconds}s)"
+            append_log "@${now_ts} $SERVICE_TO_MONITOR - unhealthy, perform restart (no reboot mode, check=$CHECK_MODE, backoff=${no_reboot_delay_seconds}s)"
             recover_service "$SERVICE_TO_MONITOR" "$CHECK_MODE"
             last_no_reboot_restart_ts="$now_ts"
             if [ "$no_reboot_delay_seconds" -lt "$WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS" ]; then
@@ -171,7 +178,8 @@ monitor_service()
         else
             CURRENT_SUCCESS=0
             CURRENT_ERRORS=$((CURRENT_ERRORS+1))
-            append_log "$(date) Service $SERVICE_TO_MONITOR unhealthy, error count: $CURRENT_ERRORS (check=$CHECK_MODE)"
+            _wd_now
+            append_log "@${_wd_ts} Service $SERVICE_TO_MONITOR unhealthy, error count: $CURRENT_ERRORS (check=$CHECK_MODE)"
             if [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_ALTERNATIVE_REBOOT" ]; then # If we can't reboot by normal call to 'reboot'
                 append_log "$SERVICE_TO_MONITOR - perform alternative reboot"
                 echo b >/proc/sysrq-trigger

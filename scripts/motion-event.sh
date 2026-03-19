@@ -1,17 +1,56 @@
 #!/bin/sh
 
-EVENT_LOG="/mnt/log/motion-events.log"
+EVENT_LOG="/tmp/log/motion-events.log"
 LATEST_SNAPSHOT_FILE="/tmp/motion-last-snapshot.path"
 MAX_EVENTS=400
+LOCK_DIR="/tmp/motion_event.lock"
+
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  exit 0
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
 json_escape()
 {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+  # Fast path: motion values (event types, paths) almost never contain special chars.
+  case "$1" in
+    *\\*|*'"'*) ;;
+    *) printf '%s' "$1"; return ;;
+  esac
+  # Slow path: escape backslashes then double-quotes via parameter expansion (no forks).
+  _je="$1"
+  _je_out=""
+  while [ -n "$_je" ]; do
+    case "$_je" in
+      *\\*)
+        _je_out="${_je_out}${_je%%\\*}\\\\"
+        _je="${_je#*\\}"
+        ;;
+      *'"'*)
+        _je_out="${_je_out}${_je%%\"*}\\\""
+        _je="${_je#*\"}"
+        ;;
+      *)
+        _je_out="${_je_out}${_je}"
+        _je=""
+        ;;
+    esac
+  done
+  printf '%s' "$_je_out"
 }
 
 sanitize_field()
 {
-  printf '%s' "$1" | tr '\r\n' '  ' | sed 's/|/%7C/g'
+  # Fast path: event types and file paths never contain |, CR, or LF.
+  case "$1" in
+    *'|'*|*'
+'*)
+      printf '%s' "$1" | tr '\r\n' '  ' | sed 's/|/%7C/g'
+      ;;
+    *)
+      printf '%s' "$1"
+      ;;
+  esac
 }
 
 trim_event_log()
@@ -40,13 +79,31 @@ if [ -z "$event_type" ]; then
   event_type="motion"
 fi
 
-if [ ! -d /mnt/log ]; then
-  mkdir -p /mnt/log >/dev/null 2>&1 || true
+if [ ! -d /tmp/log ]; then
+  mkdir -p /tmp/log >/dev/null 2>&1 || true
 fi
 
-epoch="$(date +%s 2>/dev/null)"
-[ -n "$epoch" ] || epoch=0
-ts_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+_btime=0
+while read -r _key _val _; do
+  [ "$_key" = "btime" ] && _btime="$_val" && break
+done < /proc/stat
+read -r _up _ < /proc/uptime
+epoch=$((_btime + ${_up%.*}))
+[ "$epoch" -gt 0 ] || epoch=0
+# Convert epoch to ISO 8601 UTC using Hinnant's civil_from_days — no date fork
+_sec=$(( epoch % 86400 )); _days=$(( epoch / 86400 ))
+_H=$(( _sec / 3600 )); _M=$(( (_sec % 3600) / 60 )); _S=$(( _sec % 60 ))
+_z=$(( _days + 719468 ))
+_era=$(( _z / 146097 ))
+_doe=$(( _z - _era * 146097 ))
+_yoe=$(( (_doe - _doe / 1460 + _doe / 36524 - _doe / 146096) / 365 ))
+_y=$(( _yoe + _era * 400 ))
+_doy=$(( _doe - 365 * _yoe - _yoe / 4 + _yoe / 100 ))
+_mp=$(( (5 * _doy + 2) / 153 ))
+_day=$(( _doy - (153 * _mp + 2) / 5 + 1 ))
+if [ "$_mp" -lt 10 ]; then _mon=$(( _mp + 3 )); else _mon=$(( _mp - 9 )); fi
+[ "$_mon" -le 2 ] && _y=$(( _y + 1 ))
+ts_utc="$(printf '%04d-%02d-%02dT%02d:%02d:%02dZ' "$_y" "$_mon" "$_day" "$_H" "$_M" "$_S")"
 [ -n "$ts_utc" ] || ts_utc="1970-01-01T00:00:00Z"
 
 printf '%s|%s|%s|%s|%s|%s\n' "$epoch" "$ts_utc" "$event_type" "$snapshot_path" "$clip_path" "$detail" >> "$EVENT_LOG"
@@ -62,18 +119,14 @@ if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
   clip_json="$(json_escape "$clip_path")"
   detail_json="$(json_escape "$detail")"
   payload=$(printf '{"ts":%s,"time_utc":"%s","type":"%s","snapshot":"%s","clip":"%s","detail":"%s"}' "$epoch" "$ts_utc" "$event_json" "$snapshot_json" "$clip_json" "$detail_json")
-  /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
 
+  set -- event "$payload" 0
   case "$event_type" in
-    motion_on)
-      /mnt/scripts/mqtt-bridge.sh publish motion/state "ON" 1 >/dev/null 2>&1 || true
-      ;;
-    motion_off)
-      /mnt/scripts/mqtt-bridge.sh publish motion/state "OFF" 1 >/dev/null 2>&1 || true
-      ;;
+    motion_on)  set -- "$@" motion/state "ON" 1 ;;
+    motion_off) set -- "$@" motion/state "OFF" 1 ;;
   esac
-
   if [ -n "$snapshot_path" ] && [ -f "$snapshot_path" ]; then
-    /mnt/scripts/mqtt-bridge.sh publish snapshot/last_path "$snapshot_path" 1 >/dev/null 2>&1 || true
+    set -- "$@" snapshot/last_path "$snapshot_path" 1
   fi
+  /mnt/scripts/mqtt-bridge.sh publish "$@" >/dev/null 2>&1 || true
 fi

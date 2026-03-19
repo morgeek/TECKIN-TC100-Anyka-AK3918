@@ -6,14 +6,10 @@ PTT_PLAYBACK_PID_FILE="/tmp/ptt-audioplay.pid"
 PTT_LOCK_DIR="/tmp/ptt-upload.lock"
 PLAYBACK_CLEANUP_DELAY_SECONDS=20
 
-FFMPEG_BIN="/mnt/bin/ffmpeg-min-recorder"
-AUDIOPLAY_BIN="/usr/bin/audioplay"
-if [ -x "/mnt/bin/audioplay" ]; then
-    AUDIOPLAY_BIN="/mnt/bin/audioplay"
-fi
+# Anyka native audio output binary: ak_ao_demo <rate> <channels> <pcm_file> <volume 0-6>
+AUDIOPLAY_BIN="/usr/bin/ak_ao_demo"
 
-webm_file=""
-wav_file=""
+pcm_file=""
 lock_acquired=0
 playback_started=0
 playback_pid=""
@@ -30,9 +26,8 @@ respond_plain() {
 }
 
 cleanup() {
-    [ -n "$webm_file" ] && rm -f "$webm_file" >/dev/null 2>&1
-    if [ "$playback_started" != "1" ] && [ -n "$wav_file" ]; then
-        rm -f "$wav_file" >/dev/null 2>&1
+    if [ "$playback_started" != "1" ] && [ -n "$pcm_file" ]; then
+        rm -f "$pcm_file" >/dev/null 2>&1
     fi
     if [ "$lock_acquired" = "1" ]; then
         rmdir "$PTT_LOCK_DIR" >/dev/null 2>&1 || true
@@ -46,17 +41,7 @@ if [ "$REQUEST_METHOD" != "POST" ]; then
     exit 0
 fi
 
-content_type="$(printf '%s' "$CONTENT_TYPE" | tr '[:upper:]' '[:lower:]')"
-case "$content_type" in
-    audio/webm*|application/octet-stream*|"")
-        ;;
-    *)
-        respond_plain "415 Unsupported Media Type" "UNSUPPORTED_CONTENT_TYPE"
-        exit 0
-        ;;
-esac
-
-if [ ! -x "$FFMPEG_BIN" ] || [ ! -x "$AUDIOPLAY_BIN" ]; then
+if [ ! -x "$AUDIOPLAY_BIN" ]; then
     respond_plain "500 Internal Server Error" "PTT_BIN_MISSING"
     exit 0
 fi
@@ -84,27 +69,20 @@ if ! mkdir "$PTT_LOCK_DIR" 2>/dev/null; then
 fi
 lock_acquired=1
 
-tmp_tag="$$.$(date +%s)"
-webm_file="/tmp/pttaudio_${tmp_tag}.webm"
-wav_file="/tmp/pttaudio_${tmp_tag}.wav"
+_wd_btime=0
+while read -r _k _v _; do [ "$_k" = "btime" ] && _wd_btime="$_v" && break; done < /proc/stat
+read -r _wd_up _ < /proc/uptime
+tmp_tag=$((_wd_btime + ${_wd_up%.*}))
+pcm_file="/tmp/pttaudio_${tmp_tag}.pcm"
 
-if ! dd bs=1 count="$CONTENT_LENGTH" of="$webm_file" 2>/dev/null; then
+# Read raw PCM body efficiently (Int16 LE at 8kHz mono from browser)
+if ! head -c "$CONTENT_LENGTH" > "$pcm_file" 2>/dev/null; then
     respond_plain "400 Bad Request" "READ_FAILED"
     exit 0
 fi
 
-if [ ! -s "$webm_file" ]; then
+if [ ! -s "$pcm_file" ]; then
     respond_plain "400 Bad Request" "EMPTY_INPUT"
-    exit 0
-fi
-
-if ! "$FFMPEG_BIN" -i "$webm_file" -acodec pcm_s16le -ar 8000 -ac 1 "$wav_file" -y >/dev/null 2>&1; then
-    respond_plain "400 Bad Request" "CONVERSION_FAILED"
-    exit 0
-fi
-
-if [ ! -s "$wav_file" ]; then
-    respond_plain "400 Bad Request" "CONVERSION_FAILED"
     exit 0
 fi
 
@@ -127,13 +105,16 @@ if [ "$ptt_volume" -gt 100 ]; then
     ptt_volume=100
 fi
 
+# Map 0-100 → 0-6 for ak_ao_demo
+vol_ak=$(( ptt_volume * 6 / 100 ))
+
 if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
-    last_pid="$(cat "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
+    last_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
     case "$last_pid" in
         ''|*[!0-9]*)
             ;;
         *)
-            if [ -r "/proc/$last_pid/cmdline" ] && grep -q "audioplay" "/proc/$last_pid/cmdline" 2>/dev/null; then
+            if [ -r "/proc/$last_pid/cmdline" ] && grep -q "ak_ao_demo" "/proc/$last_pid/cmdline" 2>/dev/null; then
                 kill "$last_pid" >/dev/null 2>&1 || true
             fi
             ;;
@@ -141,7 +122,7 @@ if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
     rm -f "$PTT_PLAYBACK_PID_FILE" >/dev/null 2>&1 || true
 fi
 
-"$AUDIOPLAY_BIN" "$wav_file" "$ptt_volume" >/dev/null 2>&1 &
+"$AUDIOPLAY_BIN" 8000 1 "$pcm_file" "$vol_ak" >/dev/null 2>&1 &
 playback_pid="$!"
 playback_started=1
 
@@ -160,9 +141,9 @@ esac
         loops=$((loops + 1))
     done
     sleep "$PLAYBACK_CLEANUP_DELAY_SECONDS"
-    rm -f "$wav_file" >/dev/null 2>&1 || true
+    rm -f "$pcm_file" >/dev/null 2>&1 || true
     if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
-        current_pid="$(cat "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
+        current_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
         if [ "$current_pid" = "$playback_pid" ]; then
             rm -f "$PTT_PLAYBACK_PID_FILE" >/dev/null 2>&1 || true
         fi

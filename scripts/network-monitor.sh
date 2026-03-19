@@ -1,6 +1,16 @@
 #!/bin/sh
 . /mnt/config/netmon.conf
-LOGPATH="/mnt/log/network_reboot.log"
+LOGPATH="/tmp/log/network_reboot.log"
+
+_NM_BTIME=0
+_nm_now() {
+  if [ "$_NM_BTIME" -le 0 ]; then
+    while read -r _k _v _; do [ "$_k" = "btime" ] && _NM_BTIME="$_v" && break; done < /proc/stat
+  fi
+  read -r _nm_up _ < /proc/uptime
+  _nm_ts=$((_NM_BTIME + ${_nm_up%.*}))
+  [ "$_nm_ts" -gt 0 ] || _nm_ts=0
+}
 
 : "${PINGADDRESS:=192.168.0.1}"
 : "${PINGINTERVAL:=120}"
@@ -49,10 +59,10 @@ check_connectivity()
 while true
 do
   check_connectivity || {
-    echo "$(date) Network is down, trying to reconnect..." >> "$LOGPATH"
+    _nm_now; echo "@${_nm_ts} Network is down, trying to reconnect..." >> "$LOGPATH"
     /sbin/ifconfig wlan0 down && sleep "$RECONNECT_WAIT_SECONDS" && /sbin/ifconfig wlan0 up && sleep "$RECHECK_WAIT_SECONDS"
     ping -q -c "$RECHECK_ATTEMPTS" -W "$PING_TIMEOUT_SECONDS" "$PINGADDRESS" >/dev/null 2>&1 || {
-      echo "$(date) Network reconnection failed, reboot..." >> "$LOGPATH"
+      _nm_now; echo "@${_nm_ts} Network reconnection failed, reboot..." >> "$LOGPATH"
       sleep "$REBOOT_DELAY_SECONDS" && /sbin/reboot
     }
   }

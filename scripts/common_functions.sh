@@ -27,8 +27,9 @@ get_busybox_bin()
 
 run_busybox()
 {
-  bb_path="$(get_busybox_bin)"
-  "$bb_path" "$@"
+  # Use the cached global directly to avoid a subshell fork on every call.
+  [ -n "$BUSYBOX_BIN" ] && [ -x "$BUSYBOX_BIN" ] || BUSYBOX_BIN="$(get_busybox_bin)"
+  "$BUSYBOX_BIN" "$@"
 }
 
 
@@ -252,14 +253,14 @@ rtsp_h26x_server(){
 
 activate_motion_recording()
 {
-  # Set recording flag
-  run_busybox flock -x /tmp/rec_control echo "1" > /tmp/rec_control
+  # Set recording flag (single write is atomic for small data; native readers do not use flock)
+  printf '1\n' > /tmp/rec_control
 }
 
 deactivate_motion_recording()
 {
-  # Reset recording flag
-  run_busybox flock -x /tmp/rec_control echo "0" > /tmp/rec_control
+  # Reset recording flag (single write is atomic for small data; native readers do not use flock)
+  printf '0\n' > /tmp/rec_control
 }
 
 
@@ -477,12 +478,9 @@ get_mem_available_kb()
 
 get_all_memory()
 {
-    while IFS=' :' read -r key val _; do
-        if [ "$key" = "MemTotal" ]; then
-            echo "$val"
-            return
-        fi
-    done < /proc/meminfo
+    # MemTotal is always the first line of /proc/meminfo — no loop needed.
+    read -r _ val _ < /proc/meminfo
+    printf '%s\n' "$val"
 }
 
 restart_service_if_need()
@@ -571,5 +569,89 @@ front_led_blink()
 
 red_led_blink()
 {
-  led_blink $1 red_led blue_led 
+  led_blink $1 red_led blue_led
+}
+
+run_strings() {
+  target="$1"
+  if command -v strings >/dev/null 2>&1; then
+    strings "$target" 2>/dev/null
+    return
+  fi
+  if [ -x /mnt/bin/busybox ]; then
+    /mnt/bin/busybox strings "$target" 2>/dev/null
+    return
+  fi
+  if [ -x /bin/busybox ]; then
+    /bin/busybox strings "$target" 2>/dev/null
+  fi
+}
+
+binary_version() {
+  name="$1"
+  path="/mnt/bin/$name"
+
+  if [ ! -e "$path" ]; then
+    echo "missing"
+    return
+  fi
+
+  case "$name" in
+    busybox)
+      v="$("$path" 2>/dev/null | head -n 1)"
+      [ -z "$v" ] && v="$(run_strings "$path" | grep -m1 'BusyBox v')"
+      ;;
+    curl)
+      v="$(run_strings "$path" | grep -m1 -E '^curl [0-9]')"
+      ;;
+    jq)
+      v="$("$path" --version 2>/dev/null | head -n 1)"
+      ;;
+    lighttpd)
+      v="$(run_strings "$path" | grep -m1 -E 'lighttpd/[0-9]')"
+      ;;
+    openssl)
+      v="$(run_strings "$path" | grep -m1 -E 'OpenSSL [0-9]')"
+      ;;
+    ffmpeg-min-recorder)
+      v="$(run_strings "$path" | grep -m1 -E 'version [0-9]+\.[0-9]+\.[0-9]+')"
+      ;;
+    monvifd)
+      v="$(run_strings "$path" | grep -m1 'Micro ONVIF discovery service')"
+      ;;
+    rwconf)
+      v="$(run_strings "$path" | grep -m1 'Read/Write ini-file utility')"
+      ;;
+    min-recorder-list)
+      v="$(run_strings "$path" | grep -m1 'Get list of video archive records')"
+      ;;
+    telegram)
+      v="shell wrapper"
+      ;;
+    *)
+      v=""
+      ;;
+  esac
+
+  if [ -z "$v" ]; then
+    if command -v cksum >/dev/null 2>&1; then
+      v="checksum $(cksum "$path" 2>/dev/null | awk '{print $1}')"
+    else
+      v="version n/a"
+    fi
+  fi
+  echo "$v"
+}
+
+build_binary_versions_block() {
+  for n in busybox curl ffmpeg-min-recorder getflag getimage jq lighttpd min-recorder-list monvifd openssl rwconf setconf telegram v4l2rtspserver; do
+    ver="$(binary_version "$n")"
+    printf '%-20s %s\n' "$n" "$ver"
+  done
+}
+
+build_devinfo_cache() {
+  build_binary_versions_block > /tmp/devinfo_binary_versions.txt
+  bl="$(run_strings /dev/mtd0 | grep -m1 'U-Boot 2' 2>/dev/null)"
+  echo "${bl:-n/a}" > /tmp/devinfo_bootloader.txt
 }
