@@ -63,6 +63,9 @@ MQTT_QOS="${MQTT_QOS:-0}"
 MQTT_HEALTH_INTERVAL_SECONDS="${MQTT_HEALTH_INTERVAL_SECONDS:-120}"
 MQTT_COMMAND_WAIT_SECONDS="${MQTT_COMMAND_WAIT_SECONDS:-12}"
 MQTT_COMMAND_REPEAT_WINDOW_SECONDS="${MQTT_COMMAND_REPEAT_WINDOW_SECONDS:-20}"
+MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS="${MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS:-2}"
+MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="${MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS:-20}"
+MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER="${MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER:-2}"
 MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
 MQTT_HA_DISCOVERY_PREFIX="${MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
 POWER_ESTIMATE_ENABLE="${POWER_ESTIMATE_ENABLE:-0}"
@@ -210,6 +213,27 @@ case "$MQTT_COMMAND_REPEAT_WINDOW_SECONDS" in
 esac
 if [ "$MQTT_COMMAND_REPEAT_WINDOW_SECONDS" -lt 0 ] || [ "$MQTT_COMMAND_REPEAT_WINDOW_SECONDS" -gt 600 ]; then
   MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
+fi
+case "$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS" in
+  ''|*[!0-9]*) MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS=2 ;;
+esac
+if [ "$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS" -lt 1 ] || [ "$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS" -gt 60 ]; then
+  MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS=2
+fi
+case "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" in
+  ''|*[!0-9]*) MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS=20 ;;
+esac
+if [ "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" -lt 1 ] || [ "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" -gt 600 ]; then
+  MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS=20
+fi
+if [ "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" -lt "$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS" ]; then
+  MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+fi
+case "$MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER" in
+  ''|*[!0-9]*) MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER=2 ;;
+esac
+if [ "$MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER" -lt 1 ] || [ "$MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER" -gt 5 ]; then
+  MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER=2
 fi
 MQTT_HA_DISCOVERY_PREFIX="$(printf '%s' "$MQTT_HA_DISCOVERY_PREFIX" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
 if [ -z "$MQTT_HA_DISCOVERY_PREFIX" ]; then
@@ -372,7 +396,7 @@ if [ "$rtsp_username" = "$DEFAULT_USERNAME" ] && [ "$rtsp_password" = "$DEFAULT_
   default_password_reason="${default_password_reason} RTSP"
 fi
 
-http_hash="$(awk -F: 'NR==1{print $3; exit}' /mnt/config/lighttpd.user 2>/dev/null | sed 's/\r//g')"
+http_hash="$(awk -F: 'NR==1{gsub(/\r/,"",$3); print $3; exit}' /mnt/config/lighttpd.user 2>/dev/null)"
 if [ "$http_hash" = "$DEFAULT_HTTP_HASH" ]; then
   default_password_active=1
   default_password_reason="${default_password_reason} HTTP"
@@ -402,7 +426,8 @@ if [ -r "$KNOWN_GOOD_STREAM_FILE" ]; then
   known_good_snapshot_available=1
 fi
 
-CAMERA_IP=$(ifconfig wlan0 |grep "inet addr" |awk '{print $2}' |awk -F: '{print $2}')
+CAMERA_IP=$(cat /tmp/camera_ip.txt 2>/dev/null)
+[ -n "$CAMERA_IP" ] || CAMERA_IP=$(ifconfig wlan0 2>/dev/null | awk '/inet addr:/{split($2,a,":");print a[2];exit}')
 [ -n "$CAMERA_IP" ] || CAMERA_IP="CAMERA-IP"
 
 mount|grep "/mmcblk"|grep "rw,">/dev/null
@@ -1089,6 +1114,31 @@ cat << EOF
                         <div class="control">
                             <button id="mqttConfigSubmit" class="button is-primary" type="submit">Apply</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal">
+                    <label class="label">Retry backoff</label>
+                </div>
+                <div class="field-body">
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_subscribe_backoff_initial_seconds" name="mqtt_subscribe_backoff_initial_seconds" type="number" min="1" max="60" value="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS" />
+                        </div>
+                        <p class="help">Initial retry delay after subscribe failure (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_subscribe_backoff_max_seconds" name="mqtt_subscribe_backoff_max_seconds" type="number" min="1" max="600" value="$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" />
+                        </div>
+                        <p class="help">Maximum retry delay (seconds)</p>
+                    </div>
+                    <div class="field">
+                        <div class="control">
+                            <input class="input" id="mqtt_subscribe_backoff_multiplier" name="mqtt_subscribe_backoff_multiplier" type="number" min="1" max="5" value="$MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER" />
+                        </div>
+                        <p class="help">Retry growth factor per failure</p>
                     </div>
                 </div>
             </div>

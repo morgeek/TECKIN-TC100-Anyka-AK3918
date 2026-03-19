@@ -815,6 +815,17 @@ a.button[disabled]:hover {
   margin-bottom: 0.45rem;
 }
 
+.logs-parse-notice {
+  margin-bottom: 0.55rem;
+  border: 1px solid rgba(192, 132, 16, 0.35);
+  background: rgba(255, 244, 219, 0.9);
+  color: #775106;
+  border-radius: 10px;
+  padding: 0.48rem 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .logs-summary-chip {
   display: inline-flex;
   align-items: center;
@@ -1222,6 +1233,49 @@ body.ui-ultra-lite .app-toolbar {
 }
 
 .nightmode-badge.nightmode-unknown {
+  color: #5d6b7a;
+  background: rgba(93, 107, 122, 0.16);
+  border-color: rgba(93, 107, 122, 0.28);
+}
+
+.nav-mqtt-wrap {
+  margin-left: 0.05rem;
+  margin-right: 0.1rem;
+  padding-left: 0.1rem;
+  padding-right: 0.1rem;
+}
+
+.mqtt-badge {
+  display: inline-block;
+  font-style: normal;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.28rem 0.72rem;
+  white-space: nowrap;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  transition: background-color 600ms ease, color 600ms ease, border-color 600ms ease;
+}
+
+.mqtt-badge.mqtt-ok {
+  color: #1f8556;
+  background: rgba(31, 133, 86, 0.14);
+  border-color: rgba(31, 133, 86, 0.3);
+}
+
+.mqtt-badge.mqtt-fail {
+  color: #cc0f35;
+  background: rgba(241, 70, 104, 0.14);
+  border-color: rgba(241, 70, 104, 0.3);
+}
+
+.mqtt-badge.mqtt-waiting {
+  color: #b65c00;
+  background: rgba(250, 191, 103, 0.22);
+  border-color: rgba(182, 92, 0, 0.35);
+}
+
+.mqtt-badge.mqtt-unknown {
   color: #5d6b7a;
   background: rgba(93, 107, 122, 0.16);
   border-color: rgba(93, 107, 122, 0.28);

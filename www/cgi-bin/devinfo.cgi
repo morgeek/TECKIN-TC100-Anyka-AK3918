@@ -4,14 +4,20 @@ source ./func.cgi
 source /mnt/scripts/common_functions.sh
 
 now_epoch_safe() {
+  # Prefer pure /proc arithmetic (btime + uptime) — no process fork
+  btime="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
+  up="$(cut -d'.' -f1 /proc/uptime 2>/dev/null)"
+  case "$btime" in ''|*[!0-9]*) btime=0 ;; esac
+  case "$up" in ''|*[!0-9]*) up=0 ;; esac
+  if [ "$btime" -gt 0 ] 2>/dev/null && [ "$up" -gt 0 ] 2>/dev/null; then
+    echo $((btime + up))
+    return
+  fi
+  # fallback: spawn date if /proc data unavailable
   ts="$(date +%s 2>/dev/null)"
   case "$ts" in
-    ''|*[!0-9]*)
-      echo "0"
-      ;;
-    *)
-      echo "$ts"
-      ;;
+    ''|*[!0-9]*) echo "0" ;;
+    *) echo "$ts" ;;
   esac
 }
 
@@ -65,83 +71,6 @@ format_uptime() {
   printf '%dd %02dh %02dm %02ds' "$days" "$hours" "$mins" "$secs"
 }
 
-run_strings() {
-  target="$1"
-  if command -v strings >/dev/null 2>&1; then
-    strings "$target" 2>/dev/null
-    return
-  fi
-  if [ -x /mnt/bin/busybox ]; then
-    /mnt/bin/busybox strings "$target" 2>/dev/null
-    return
-  fi
-  if [ -x /bin/busybox ]; then
-    /bin/busybox strings "$target" 2>/dev/null
-  fi
-}
-
-binary_version() {
-  name="$1"
-  path="/mnt/bin/$name"
-
-  if [ ! -e "$path" ]; then
-    echo "missing"
-    return
-  fi
-
-  case "$name" in
-    busybox)
-      v="$("$path" 2>/dev/null | head -n 1)"
-      [ -z "$v" ] && v="$(run_strings "$path" | grep -m1 'BusyBox v')"
-      ;;
-    curl)
-      v="$(run_strings "$path" | grep -m1 -E '^curl [0-9]')"
-      ;;
-    jq)
-      v="$("$path" --version 2>/dev/null | head -n 1)"
-      ;;
-    lighttpd)
-      v="$(run_strings "$path" | grep -m1 -E 'lighttpd/[0-9]')"
-      ;;
-    openssl)
-      v="$(run_strings "$path" | grep -m1 -E 'OpenSSL [0-9]')"
-      ;;
-    ffmpeg-min-recorder)
-      v="$(run_strings "$path" | grep -m1 -E 'version [0-9]+\.[0-9]+\.[0-9]+')"
-      ;;
-    monvifd)
-      v="$(run_strings "$path" | grep -m1 'Micro ONVIF discovery service')"
-      ;;
-    rwconf)
-      v="$(run_strings "$path" | grep -m1 'Read/Write ini-file utility')"
-      ;;
-    min-recorder-list)
-      v="$(run_strings "$path" | grep -m1 'Get list of video archive records')"
-      ;;
-    telegram)
-      v="shell wrapper"
-      ;;
-    *)
-      v=""
-      ;;
-  esac
-
-  if [ -z "$v" ]; then
-    if command -v cksum >/dev/null 2>&1; then
-      v="checksum $(cksum "$path" 2>/dev/null | awk '{print $1}')"
-    else
-      v="version n/a"
-    fi
-  fi
-  echo "$v"
-}
-
-build_binary_versions_block() {
-  for n in busybox curl ffmpeg-min-recorder getflag getimage jq lighttpd min-recorder-list monvifd openssl rwconf setconf telegram v4l2rtspserver; do
-    ver="$(binary_version "$n")"
-    printf '%-20s %s\n' "$n" "$ver"
-  done
-}
 
 last_boot_epoch="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
 case "$last_boot_epoch" in
@@ -160,7 +89,8 @@ fi
 uptime_secs="$(uptime_seconds_safe)"
 last_boot_text="$(format_epoch "$last_boot_epoch")"
 uptime_text="$(format_uptime "$uptime_secs")"
-binary_versions_text="$(build_binary_versions_block)"
+binary_versions_text="$(cat /tmp/devinfo_binary_versions.txt 2>/dev/null)"
+[ -n "$binary_versions_text" ] || binary_versions_text="$(build_binary_versions_block)"
 release_text="$(cat /usr/local/factory_fw_version 2>/dev/null)"
 [ -n "$release_text" ] || release_text="n/a"
 system_text="$(uname -a 2>/dev/null)"
@@ -169,7 +99,8 @@ cpu_text="$(cat /proc/cpuinfo 2>/dev/null)"
 [ -n "$cpu_text" ] || cpu_text="n/a"
 clock_text="$(run_strings /tmp/start_message | grep -m1 "clocks:" 2>/dev/null)"
 [ -n "$clock_text" ] || clock_text="n/a"
-bootloader_text="$(run_strings /dev/mtd0 | grep -m1 "U-Boot 2" 2>/dev/null)"
+bootloader_text="$(cat /tmp/devinfo_bootloader.txt 2>/dev/null)"
+[ -n "$bootloader_text" ] || bootloader_text="$(run_strings /dev/mtd0 | grep -m1 'U-Boot 2' 2>/dev/null)"
 [ -n "$bootloader_text" ] || bootloader_text="n/a"
 cmdline_text="$(cat /proc/cmdline 2>/dev/null)"
 [ -n "$cmdline_text" ] || cmdline_text="n/a"

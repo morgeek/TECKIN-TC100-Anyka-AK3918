@@ -18,16 +18,17 @@ PERFPROFILE_CACHE_TTL_SECONDS=5
 PWD_CACHE_FILE="/tmp/state_pwd.cache"
 PWD_CACHE_TTL_SECONDS=120
 
-now_epoch() {
-  now_ts="$(date +%s 2>/dev/null)"
-  case "$now_ts" in
-    ''|*[!0-9]*)
-      echo "0"
-      ;;
-    *)
-      echo "$now_ts"
-      ;;
-  esac
+_SCRIPT_BTIME=0
+_read_script_btime() {
+  while read -r _k _v _; do
+    [ "$_k" = "btime" ] && _SCRIPT_BTIME="$_v" && break
+  done < /proc/stat
+}
+_read_now_ts() {
+  [ "$_SCRIPT_BTIME" -gt 0 ] || _read_script_btime
+  read -r _rnt_up _ < /proc/uptime
+  now_ts=$((_SCRIPT_BTIME + ${_rnt_up%.*}))
+  [ "$now_ts" -gt 0 ] || now_ts=0
 }
 
 get_current_cpu_usage_fast() {
@@ -165,7 +166,7 @@ load_cached_usage_metrics() {
     esac
   done
 
-  now_ts="$(now_epoch)"
+  _read_now_ts
   [ "$now_ts" -gt 0 ] || return 1
   [ "$cached_ts" -le "$now_ts" ] || return 1
 
@@ -180,7 +181,7 @@ load_cached_usage_metrics() {
 }
 
 save_cached_usage_metrics() {
-  now_ts="$(now_epoch)"
+  _read_now_ts
   [ "$now_ts" -gt 0 ] || return 0
   printf '%s %s %s %s %s\n' "$now_ts" "$cpu" "$mem_used" "$mem_total" "$ram_percent" > "$USAGE_CACHE_FILE"
 }
@@ -289,8 +290,8 @@ read_rtsp_stream_summary() {
 
 last_watchdog_event_json() {
   event=""
-  if [ -r /var/log/service-watchdog.log ]; then
-    event="$(tail -n 1 /var/log/service-watchdog.log 2>/dev/null)"
+  if [ -r /tmp/log/service-watchdog.log ]; then
+    event="$(tail -n 1 /tmp/log/service-watchdog.log 2>/dev/null)"
   fi
   event_escaped="$(json_escape "$event")"
   printf '%s' "$event_escaped"
@@ -329,6 +330,8 @@ get_ui_ultralite_mode() {
 get_security_and_mqtt_flags() {
   security_hardening_mode=0
   mqtt_enabled=0
+  mqtt_last_pub_ts=0
+  mqtt_last_pub_ok=-1
 
   security_raw="$(read_conf_value /mnt/config/boot.conf SECURITY_HARDENING_MODE 0)"
   case "$security_raw" in
@@ -343,6 +346,16 @@ get_security_and_mqtt_flags() {
       mqtt_enabled=1
       ;;
   esac
+
+  if [ -f /tmp/mqtt_last_pub.status ]; then
+    read -r _mq_ts _mq_result < /tmp/mqtt_last_pub.status
+    case "$_mq_ts" in ''|*[!0-9]*) _mq_ts=0 ;; esac
+    case "$_mq_result" in
+      ok)   mqtt_last_pub_ok=1 ;;
+      fail) mqtt_last_pub_ok=0 ;;
+    esac
+    mqtt_last_pub_ts="$_mq_ts"
+  fi
 }
 
 read_chip_temperature() {
@@ -552,7 +565,7 @@ load_cached_perf_profile() {
       ;;
   esac
 
-  now_ts="$(now_epoch)"
+  _read_now_ts
   [ "$now_ts" -gt 0 ] || return 1
   [ "$cached_ts" -le "$now_ts" ] || return 1
   age=$((now_ts - cached_ts))
@@ -563,7 +576,7 @@ load_cached_perf_profile() {
 }
 
 save_cached_perf_profile() {
-  now_ts="$(now_epoch)"
+  _read_now_ts
   [ "$now_ts" -gt 0 ] || return 0
   printf '%s %s\n' "$now_ts" "$profile" > "$PERFPROFILE_CACHE_FILE"
 }
@@ -581,16 +594,16 @@ get_perf_profile() {
 read_reboot_epoch() {
   reboot_epoch=0
 
-  if [ -r /proc/stat ]; then
-    reboot_epoch="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
-    reboot_epoch="$(sanitize_int "$reboot_epoch" 0)"
+  [ "$_SCRIPT_BTIME" -gt 0 ] || _read_script_btime
+  if [ "$_SCRIPT_BTIME" -gt 0 ]; then
+    reboot_epoch="$_SCRIPT_BTIME"
   fi
 
   if [ "$reboot_epoch" -le 0 ] && [ -r /proc/uptime ]; then
     read -r uptime_raw _ < /proc/uptime
     uptime_seconds_fallback="${uptime_raw%.*}"
     uptime_seconds_fallback="$(sanitize_int "$uptime_seconds_fallback" 0)"
-    now_ts="$(now_epoch)"
+    _read_now_ts
     if [ "$now_ts" -gt 0 ] && [ "$uptime_seconds_fallback" -gt 0 ]; then
       reboot_epoch=$((now_ts - uptime_seconds_fallback))
     fi
@@ -601,7 +614,7 @@ default_password_active_flag() {
   # Caching to reduce IO/CPU on frequent statusline polls
   if [ -f "$PWD_CACHE_FILE" ]; then
     read -r cached_ts cached_val < "$PWD_CACHE_FILE"
-    now_ts="$(now_epoch)"
+    _read_now_ts
     if [ "$now_ts" -gt 0 ] && [ "$cached_ts" -le "$now_ts" ]; then
       age=$((now_ts - cached_ts))
       if [ "$age" -le "$PWD_CACHE_TTL_SECONDS" ]; then
@@ -638,7 +651,7 @@ default_password_active_flag() {
   fi
 
   echo "$default_active"
-  printf '%s %s\n' "$(now_epoch)" "$default_active" > "$PWD_CACHE_FILE"
+  _read_now_ts; printf '%s %s\n' "$now_ts" "$default_active" > "$PWD_CACHE_FILE"
 }
 
 if [ -n "$F_cmd" ]; then
@@ -674,10 +687,24 @@ if [ -n "$F_cmd" ]; then
     lum_json="$(json_escape "$lum_value")"
     awb_json="$(json_escape "$awb_value")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"default_password_active\":$default_password_active}"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active}"
     ;;
 
   healthsnapshot)
+    HEALTH_SNAP_CACHE="/tmp/health_snapshot.cache"
+    HEALTH_SNAP_TTL=5
+    read -r _hs_up _ < /proc/uptime
+    _hs_up="${_hs_up%.*}"
+    case "$_hs_up" in ''|*[!0-9]*) _hs_up=0 ;; esac
+    _hs_cached=""
+    if [ -f "$HEALTH_SNAP_CACHE" ]; then
+      { read -r _hs_snap_up; read -r _hs_cached; } < "$HEALTH_SNAP_CACHE" 2>/dev/null || true
+      case "$_hs_snap_up" in ''|*[!0-9]*) _hs_snap_up=0 ;; esac
+      [ $((_hs_up - _hs_snap_up)) -lt "$HEALTH_SNAP_TTL" ] && [ -n "$_hs_cached" ] || _hs_cached=""
+    fi
+    if [ -n "$_hs_cached" ]; then
+      printf '%s\n' "$_hs_cached"
+    else
     load_or_compute_usage_metrics
     profile="$(get_perf_profile)"
     load_lum_awb
@@ -721,7 +748,10 @@ if [ -n "$F_cmd" ]; then
     rtsp_state_json="$(service_state_json /mnt/controlscripts/rtsp-h26x)"
     onvif_state_json="$(service_state_json /mnt/controlscripts/onvif)"
 
-    echo "{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json,\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
+    _hs_result="{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json,\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
+    { printf '%s\n' "$_hs_up"; printf '%s\n' "$_hs_result"; } > "$HEALTH_SNAP_CACHE" 2>/dev/null || true
+    printf '%s\n' "$_hs_result"
+    fi
     ;;
 
   perfprofile)

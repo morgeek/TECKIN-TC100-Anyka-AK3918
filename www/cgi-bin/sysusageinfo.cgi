@@ -60,6 +60,16 @@ read -r _ cpu_user cpu_nice cpu_system cpu_idle cpu_iowait cpu_irq cpu_softirq c
 cpu_active=$((cpu_user + cpu_nice + cpu_system + cpu_irq + cpu_softirq + cpu_steal))
 cpu_total=$((cpu_active + cpu_idle + cpu_iowait))
 
+cpu_temp=""
+for _tz in /sys/class/thermal/thermal_zone*/temp; do
+  [ -f "$_tz" ] || continue
+  _raw="$(cat "$_tz" 2>/dev/null)"
+  if [ -n "$_raw" ] && [ "$_raw" -gt 0 ] 2>/dev/null; then
+    cpu_temp="$((_raw / 1000)).$(( (_raw % 1000) / 100 ))°C"
+    break
+  fi
+done
+
 cat << EOF
 <div class='sysusage-grid'>
     <div class='sysusage-side'>
@@ -88,7 +98,8 @@ Cache+Buffers+SReclaimable: ${mem_cached_total} kB</pre>
             <div class='card-content'>
                 <pre class='sysusage-pre'>Active ticks: $cpu_active
 Total ticks: $cpu_total
-Snapshot source: /proc/stat</pre>
+Snapshot source: /proc/stat$([ -n "$cpu_temp" ] && echo "
+Temperature: $cpu_temp")</pre>
             </div>
         </div>
     </div>

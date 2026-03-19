@@ -26,6 +26,10 @@ MQTT_HEALTH_INTERVAL_SECONDS=120
 MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=180
 MQTT_COMMAND_WAIT_SECONDS=12
 MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
+# Subscribe retry backoff when broker polling fails (reduces retry churn if broker is down)
+MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS=2
+MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS=20
+MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER=2
 
 # Home Assistant MQTT Discovery (retained config topics).
 # Keep enabled for one-click entity creation in HA.

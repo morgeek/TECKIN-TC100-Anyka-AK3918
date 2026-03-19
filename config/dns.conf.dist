@@ -1,0 +1,15 @@
+# Custom DNS configuration.
+# When DNS_PRIMARY is set, these nameservers are written to /etc/resolv.conf
+# at boot (after DHCP), overriding the DHCP-provided DNS.
+# DNS_SECONDARY is optional. Leave blank to keep DHCP-provided DNS.
+#
+# Examples:
+#   DNS_PRIMARY=1.1.1.1        (Cloudflare)
+#   DNS_PRIMARY=8.8.8.8        (Google)
+#   DNS_PRIMARY=9.9.9.9        (Quad9)
+#   DNS_SECONDARY=1.0.0.1
+#
+# Note: DHCP renewal may overwrite /etc/resolv.conf. Use static DHCP
+# lease on your router for stable DNS override.
+DNS_PRIMARY=
+DNS_SECONDARY=

@@ -14,12 +14,11 @@ fi
 
 . /mnt/config/sendmail.conf
 
-if [ -f /tmp/sendPictureMail.lock ]; then
-  echo "sendPictureEmail already running, /tmp/sendPictureMail.lock is present"
+if ! mkdir /tmp/sendPictureMail.lock 2>/dev/null; then
+  echo "sendPictureEmail already running"
   exit 1
 fi
-
-touch /tmp/sendPictureMail.lock
+trap 'rmdir /tmp/sendPictureMail.lock 2>/dev/null || true' EXIT
 
 # Build headers of the emails
 {
