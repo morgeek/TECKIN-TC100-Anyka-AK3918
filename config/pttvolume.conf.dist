@@ -1,1 +1,4 @@
 60
+# Push-to-Talk speaker volume (0-100).
+# Range: 0 (silent) to 100 (max).
+# Saved automatically when you adjust the volume slider in the web UI.

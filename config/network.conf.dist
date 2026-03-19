@@ -1,0 +1,7 @@
+# IP configuration mode: dhcp or static
+IP_MODE=dhcp
+
+# Static IP settings — only used when IP_MODE=static
+STATIC_IP=
+STATIC_NETMASK=255.255.255.0
+STATIC_GATEWAY=

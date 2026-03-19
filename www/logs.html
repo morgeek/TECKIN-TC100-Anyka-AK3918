@@ -31,6 +31,18 @@
             </div>
           </div>
           <div class="logs-toolbar-row">
+            <label class="logs-toolbar-label" for="logsParseLimit">Parse cap</label>
+            <div class="select is-small">
+              <select id="logsParseLimit">
+                <option value="500">500 lines</option>
+                <option value="1000" selected>1000 lines</option>
+                <option value="2000">2000 lines</option>
+                <option value="5000">5000 lines</option>
+                <option value="0">All lines</option>
+              </select>
+            </div>
+          </div>
+          <div class="logs-toolbar-row">
             <label class="logs-toolbar-label" for="logsSortBy">Sort</label>
             <div class="select is-small">
               <select id="logsSortBy">
@@ -45,6 +57,7 @@
         </div>
         <div class="logs-summary" id="logsSummary"></div>
         <p class="help">Severity is auto-detected from each line. Click column headers to sort. Double-click a tab to clear that log.</p>
+        <p class="help">Use Parse cap to keep the browser responsive on large logs; raw download still keeps full fetched text.</p>
       </div>
     </div>
   </div>
@@ -60,6 +73,7 @@
         </p>
       </header>
       <div class="card-content">
+        <div id="logsParseNotice" class="logs-parse-notice is-hidden"></div>
         <div id="logsOutput" class="logs-output-box">Loading logs...</div>
         <pre id="logsRawOutput" class="logs-raw-output is-hidden"></pre>
       </div>
@@ -79,7 +93,10 @@
   var sortBySelect = document.getElementById("logsSortBy");
   var sortDirBtn = document.getElementById("logsSortDir");
   var viewModeSelect = document.getElementById("logsViewMode");
+  var parseLimitSelect = document.getElementById("logsParseLimit");
   var summaryNode = document.getElementById("logsSummary");
+  var parseNoticeNode = document.getElementById("logsParseNotice");
+  var DEFAULT_PARSE_LINE_CAP = 1000;
   if (!tabsContainer || !output || !rawOutput || !title) {
     return;
   }
@@ -120,9 +137,12 @@
     currentTab: "1",
     rawText: "",
     entries: [],
+    totalEntries: 0,
+    truncatedEntries: 0,
     sortBy: "line",
     sortDir: "desc",
     viewMode: "table",
+    parseLineCap: DEFAULT_PARSE_LINE_CAP,
   };
 
   function setActiveTabButton(tab) {
@@ -134,12 +154,32 @@
   function setLoadingState() {
     output.textContent = "Loading logs...";
     rawOutput.textContent = "";
+    if (parseNoticeNode) {
+      parseNoticeNode.textContent = "";
+      parseNoticeNode.classList.add("is-hidden");
+    }
   }
 
   function setErrorState() {
     output.innerHTML =
       "<article class='message is-danger'><div class='message-header'><p>Log error</p></div><div class='message-body'>Unable to load log output.</div></article>";
     rawOutput.textContent = "";
+    if (parseNoticeNode) {
+      parseNoticeNode.textContent = "";
+      parseNoticeNode.classList.add("is-hidden");
+    }
+  }
+
+  function sanitizeParseLineCap(value) {
+    var parsed = Number(value);
+    if (!isFinite(parsed) || parsed < 0) {
+      return DEFAULT_PARSE_LINE_CAP;
+    }
+    parsed = Math.floor(parsed);
+    if (parsed > 20000) {
+      parsed = 20000;
+    }
+    return parsed;
   }
 
   function toText(html) {
@@ -207,7 +247,7 @@
     return { value: null, label: "n/a" };
   }
 
-  function parseEntries(rawText) {
+  function parseEntriesWithCap(rawText, parseLineCap) {
     var lines = rawText.split(/\n/);
     var parsed = [];
     for (var i = 0; i < lines.length; i += 1) {
@@ -232,7 +272,29 @@
         timeValue: time.value,
       });
     }
-    return parsed;
+
+    var totalEntries = parsed.length;
+    var truncatedEntries = 0;
+    var cap = sanitizeParseLineCap(parseLineCap);
+    if (cap > 0 && totalEntries > cap) {
+      truncatedEntries = totalEntries - cap;
+      parsed = parsed.slice(totalEntries - cap);
+    }
+
+    return {
+      entries: parsed,
+      totalEntries: totalEntries,
+      truncatedEntries: truncatedEntries,
+      cap: cap,
+    };
+  }
+
+  function recomputeParsedEntries() {
+    var parseResult = parseEntriesWithCap(state.rawText, state.parseLineCap);
+    state.entries = parseResult.entries;
+    state.totalEntries = parseResult.totalEntries;
+    state.truncatedEntries = parseResult.truncatedEntries;
+    state.parseLineCap = parseResult.cap;
   }
 
   function sortEntries(entries) {
@@ -276,7 +338,8 @@
     entries.forEach(function (entry) {
       counts[entry.severityKey] += 1;
     });
-    var total = entries.length;
+    var total = state.totalEntries || entries.length;
+    var displayed = entries.length;
     summaryNode.innerHTML = "";
 
     function addChip(text, className) {
@@ -286,13 +349,36 @@
       summaryNode.appendChild(chip);
     }
 
-    addChip("Total: " + total, "sev-total");
+    addChip("Parsed: " + displayed + "/" + total, "sev-total");
+    if (state.truncatedEntries > 0) {
+      addChip("Skipped: " + state.truncatedEntries, "sev-warning");
+    }
     addChip("Critical: " + counts.critical, "sev-critical");
     addChip("Error: " + counts.error, "sev-error");
     addChip("Warning: " + counts.warning, "sev-warning");
     addChip("Notice: " + counts.notice, "sev-notice");
     addChip("Info: " + counts.info, "sev-info");
     addChip("Debug: " + counts.debug, "sev-debug");
+  }
+
+  function renderParseNotice() {
+    if (!parseNoticeNode) {
+      return;
+    }
+    if (state.truncatedEntries > 0) {
+      parseNoticeNode.textContent =
+        "Showing " +
+        state.entries.length +
+        " of " +
+        state.totalEntries +
+        " parsed lines due to Parse cap (" +
+        state.parseLineCap +
+        "). Increase cap to inspect more lines.";
+      parseNoticeNode.classList.remove("is-hidden");
+      return;
+    }
+    parseNoticeNode.textContent = "";
+    parseNoticeNode.classList.add("is-hidden");
   }
 
   function renderTable(entries) {
@@ -361,6 +447,7 @@
 
   function render() {
     renderSummary(state.entries);
+    renderParseNotice();
     renderTable(state.entries);
     renderRaw();
     applyView();
@@ -373,11 +460,14 @@
     if (viewModeSelect) {
       viewModeSelect.value = state.viewMode;
     }
+    if (parseLimitSelect) {
+      parseLimitSelect.value = String(state.parseLineCap);
+    }
   }
 
   function refreshStateFromResponse(html) {
     state.rawText = toText(html).trim();
-    state.entries = parseEntries(state.rawText);
+    recomputeParsedEntries();
     render();
   }
 
@@ -504,6 +594,15 @@
       state.viewMode = viewModeSelect.value || "table";
       applyView();
     });
+  }
+
+  if (parseLimitSelect) {
+    parseLimitSelect.addEventListener("change", function () {
+      state.parseLineCap = sanitizeParseLineCap(parseLimitSelect.value);
+      recomputeParsedEntries();
+      render();
+    });
+    state.parseLineCap = sanitizeParseLineCap(parseLimitSelect.value);
   }
 
   loadLog(state.currentTab, false);

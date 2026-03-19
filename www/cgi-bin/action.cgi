@@ -854,11 +854,27 @@ if [ -n "$F_cmd" ]; then
 
     audio_test)
       F_audioSource=$(printf '%b' "${F_audioSource//%/\\x}")
-      if [ "$F_audioSource" == "" ]; then
-        F_audioSource="/mnt/media/police.wav"
+      F_audiotestVol=$(sanitize_int_range "${F_audiotestVol}" 0 100 90)
+      if [ -z "$F_audioSource" ]; then
+        for candidate in /mnt/config/audio-test.wav /mnt/config/ptt-test.wav; do
+          [ -f "$candidate" ] || continue
+          F_audioSource="$candidate"
+          break
+        done
       fi
-      /mnt/bin/busybox nohup /mnt/bin/audioplay $F_audioSource $F_audiotestVol > /dev/null 2>&1 &
-      echo  "Play $F_audioSource at volume $F_audiotestVol"
+      if [ -z "$F_audioSource" ]; then
+        # Keep the last match to bias toward the most recent timestamp-like name.
+        for candidate in /tmp/pttaudio_*.wav; do
+          [ -f "$candidate" ] || continue
+          F_audioSource="$candidate"
+        done
+      fi
+      if [ -z "$F_audioSource" ] || [ ! -r "$F_audioSource" ]; then
+        echo "Audio test failed: no readable source file. Upload audio first (PTT) or provide a valid path."
+        exit 0
+      fi
+      /mnt/bin/busybox nohup /mnt/bin/audioplay "$F_audioSource" "$F_audiotestVol" > /dev/null 2>&1 &
+      echo "Play $F_audioSource at volume $F_audiotestVol"
     ;;
 
 
@@ -900,7 +916,7 @@ if [ -n "$F_cmd" ]; then
           else
             echo "<p>Setting ftp service port to: $ftpport</p>"
             echo "PORT=$ftpport" > /mnt/config/ftp.conf
-            restart_service_if_need /mnt/controlscripts/ftp-server
+            start_service_if_need /mnt/controlscripts/ftp-server
           fi
           ;;
       esac
@@ -1098,12 +1114,14 @@ if [ -n "$F_cmd" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
         fi
       done
+      rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
     service_trim_off)
       install_config /mnt/config/service_trim.conf
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
       echo "Service trimming disabled. Reboot to restore autostart services.<br/>"
+      rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
     set_performance_profile)
@@ -1192,9 +1210,12 @@ if [ -n "$F_cmd" ]; then
           /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
         fi
       fi
-      now_ts="$(date +%s 2>/dev/null)"
-      [ -n "$now_ts" ] || now_ts=0
+      _ac_btime=0
+      while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
+      read -r _ac_up _ < /proc/uptime
+      now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"profile","value":"%s"}' "$now_ts" "$profile")"
+      rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
     set_web_mode)
@@ -1239,9 +1260,12 @@ if [ -n "$F_cmd" ]; then
         echo "Ultra-lite HTTP port set to: $ultralite_http_port<br/>"
       fi
       echo "If the web UI disconnects, reconnect using the updated protocol/port.<br/>"
-      now_ts="$(date +%s 2>/dev/null)"
-      [ -n "$now_ts" ] || now_ts=0
+      _ac_btime=0
+      while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
+      read -r _ac_up _ < /proc/uptime
+      now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"web_mode","mode":"%s"}' "$now_ts" "$web_mode")"
+      rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
     set_reboot_schedule)
@@ -1383,6 +1407,9 @@ if [ -n "$F_cmd" ]; then
       mqtt_health_slow_cache_ttl_seconds=$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180)" 10 86400 180)
       mqtt_command_wait_seconds=$(sanitize_int_range "${F_mqtt_command_wait_seconds}" 3 120 12)
       mqtt_command_repeat_window_seconds=$(sanitize_int_range "${F_mqtt_command_repeat_window_seconds}" 0 600 20)
+      mqtt_subscribe_backoff_initial_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_initial_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS 2)}" 1 60 2)
+      mqtt_subscribe_backoff_max_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_max_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS 20)}" 1 600 20)
+      mqtt_subscribe_backoff_multiplier=$(sanitize_int_range "${F_mqtt_subscribe_backoff_multiplier:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER 2)}" 1 5 2)
       mqtt_ha_discovery_enable=$(normalize_bool "${F_mqtt_ha_discovery_enable}")
       mqtt_ha_discovery_prefix=$(printf '%b' "${F_mqtt_ha_discovery_prefix}")
       power_estimate_enable=$(normalize_bool "${F_power_estimate_enable}")
@@ -1438,6 +1465,12 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS "$mqtt_health_slow_cache_ttl_seconds"
       rewrite_config /mnt/config/mqtt.conf MQTT_COMMAND_WAIT_SECONDS "$mqtt_command_wait_seconds"
       rewrite_config /mnt/config/mqtt.conf MQTT_COMMAND_REPEAT_WINDOW_SECONDS "$mqtt_command_repeat_window_seconds"
+      if [ "$mqtt_subscribe_backoff_max_seconds" -lt "$mqtt_subscribe_backoff_initial_seconds" ]; then
+        mqtt_subscribe_backoff_max_seconds="$mqtt_subscribe_backoff_initial_seconds"
+      fi
+      rewrite_config /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS "$mqtt_subscribe_backoff_initial_seconds"
+      rewrite_config /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS "$mqtt_subscribe_backoff_max_seconds"
+      rewrite_config /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER "$mqtt_subscribe_backoff_multiplier"
       rewrite_config /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE "$mqtt_ha_discovery_enable"
       rewrite_config /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_PREFIX "$mqtt_ha_discovery_prefix"
       rewrite_config /mnt/config/mqtt.conf POWER_ESTIMATE_ENABLE "$power_estimate_enable"
@@ -1457,7 +1490,9 @@ if [ -n "$F_cmd" ]; then
 
       echo "MQTT bridge configuration saved.<br/>"
       echo "Enabled=$mqtt_enable, broker=${mqtt_host}:${mqtt_port}, topic_root=${mqtt_topic_root}, command_topic=${mqtt_topic_command}, qos=${mqtt_qos}, dedupe_window=${mqtt_command_repeat_window_seconds}s<br/>"
+      echo "Retry backoff: initial=${mqtt_subscribe_backoff_initial_seconds}s, max=${mqtt_subscribe_backoff_max_seconds}s, multiplier=x${mqtt_subscribe_backoff_multiplier}<br/>"
       echo "HA discovery=${mqtt_ha_discovery_enable} (prefix=${mqtt_ha_discovery_prefix}), power_estimate=${power_estimate_enable}, base=${power_estimate_base_mw}mW, cpu_scale=${power_estimate_cpu_scale_mw}mW, ir_led=${power_estimate_ir_led_mw}mW<br/>"
+      rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
     pair_home_assistant)
@@ -2273,6 +2308,16 @@ if [ -n "$F_cmd" ]; then
      ;;
 
 
+    get_ptt_vol)
+        ptt_vol_val="$(head -n1 /mnt/config/pttvolume.conf 2>/dev/null | tr -d '[:space:]')"
+        case "$ptt_vol_val" in
+            ''|*[!0-9]*) ptt_vol_val=90 ;;
+        esac
+        if [ "$ptt_vol_val" -lt 0 ] 2>/dev/null; then ptt_vol_val=0; fi
+        if [ "$ptt_vol_val" -gt 100 ] 2>/dev/null; then ptt_vol_val=100; fi
+        echo "$ptt_vol_val"
+    ;;
+
     conf_ptt)
         safe_ptt_vol="$(sanitize_int_range "$F_audiooutVol" 0 100 90)"
         echo "$safe_ptt_vol" > /mnt/config/pttvolume.conf
@@ -2294,6 +2339,110 @@ if [ -n "$F_cmd" ]; then
      motion_detection_snapshot_off)
           rewrite_config /mnt/config/motion.conf save_snapshot "false"
           ;;
+
+    conf_dns)
+        # Validate: must be empty or a dotted-quad IPv4 address
+        validate_ip_or_empty() {
+            addr="$1"
+            [ -z "$addr" ] && return 0
+            printf '%s' "$addr" | awk -F. 'NF==4 && $1+0==$1 && $2+0==$2 && $3+0==$3 && $4+0==$4 &&
+                $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255
+                {exit 0} {exit 1}'
+        }
+        dns_primary="$F_dns_primary"
+        dns_secondary="$F_dns_secondary"
+        if ! validate_ip_or_empty "$dns_primary"; then
+            echo "ERROR: invalid primary DNS address '$dns_primary'"
+        elif ! validate_ip_or_empty "$dns_secondary"; then
+            echo "ERROR: invalid secondary DNS address '$dns_secondary'"
+        else
+            rewrite_config /mnt/config/dns.conf DNS_PRIMARY "$dns_primary"
+            rewrite_config /mnt/config/dns.conf DNS_SECONDARY "$dns_secondary"
+            # Apply immediately to /etc/resolv.conf
+            {
+                [ -n "$dns_primary" ] && echo "nameserver $dns_primary"
+                [ -n "$dns_secondary" ] && echo "nameserver $dns_secondary"
+            } > /etc/resolv.conf
+            echo "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
+        fi
+    ;;
+
+    conf_static_ip)
+        validate_ip_or_empty() {
+            addr="$1"
+            [ -z "$addr" ] && return 0
+            printf '%s' "$addr" | awk -F. 'NF==4 && $1+0==$1 && $2+0==$2 && $3+0==$3 && $4+0==$4 &&
+                $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255
+                {exit 0} {exit 1}'
+        }
+        ip_mode="$F_ip_mode"
+        static_ip="$F_static_ip"
+        static_netmask="$F_static_netmask"
+        static_gateway="$F_static_gateway"
+        case "$ip_mode" in
+            static|dhcp) ;;
+            *) ip_mode="dhcp" ;;
+        esac
+        if [ "$ip_mode" = "static" ]; then
+            if [ -z "$static_ip" ] || ! validate_ip_or_empty "$static_ip"; then
+                echo "ERROR: invalid static IP '$static_ip'"
+            elif ! validate_ip_or_empty "$static_netmask"; then
+                echo "ERROR: invalid netmask '$static_netmask'"
+            elif ! validate_ip_or_empty "$static_gateway"; then
+                echo "ERROR: invalid gateway '$static_gateway'"
+            else
+                install_config /mnt/config/network.conf
+                rewrite_config /mnt/config/network.conf IP_MODE "static"
+                rewrite_config /mnt/config/network.conf STATIC_IP "$static_ip"
+                rewrite_config /mnt/config/network.conf STATIC_NETMASK "${static_netmask:-255.255.255.0}"
+                rewrite_config /mnt/config/network.conf STATIC_GATEWAY "$static_gateway"
+                echo "Static IP saved: $static_ip / ${static_netmask:-255.255.255.0} gateway ${static_gateway:-none}. Reboot to apply."
+            fi
+        else
+            install_config /mnt/config/network.conf
+            rewrite_config /mnt/config/network.conf IP_MODE "dhcp"
+            echo "DHCP mode saved. Reboot to apply."
+        fi
+    ;;
+
+    wifi_scan)
+        scan_out="$(iwlist wlan0 scan 2>/dev/null)"
+        if [ -z "$scan_out" ]; then
+            echo "<p class='help'>Scan failed or no results. Ensure WiFi is up.</p>"
+        else
+            rows="$(printf '%s\n' "$scan_out" | awk '
+                /Cell [0-9]+ - Address:/ {
+                    if (ssid != "" || rssi != "") {
+                        name = (ssid == "") ? "(hidden)" : ssid
+                        printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
+                    }
+                    ssid = ""; rssi = ""; enc = "No"
+                }
+                /ESSID:/ {
+                    n = split($0, a, "\""); ssid = (n >= 2) ? a[2] : ""
+                }
+                /Encryption key:on/  { enc = "Yes" }
+                /Encryption key:off/ { enc = "No"  }
+                /Signal level=/ {
+                    sub(/.*Signal level=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
+                }
+                /Extra:rssi=/ {
+                    sub(/.*Extra:rssi=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
+                }
+                END {
+                    name = (ssid == "") ? "(hidden)" : ssid
+                    if (rssi != "" || ssid != "")
+                        printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
+                }
+            ')"
+            if [ -z "$rows" ]; then
+                echo "<p class='help'>No networks found.</p>"
+            else
+                printf "<table class='table is-fullwidth is-hoverable is-size-7'><thead><tr><th>SSID</th><th>Quality</th><th>Encrypted</th></tr></thead><tbody>%s</tbody></table>\n" "$rows"
+            fi
+        fi
+    ;;
+
      *)
         echo "Unsupported command '$F_cmd'"
         ;;

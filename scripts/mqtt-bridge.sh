@@ -1,7 +1,7 @@
 #!/bin/sh
 
 CONFIG_FILE="/mnt/config/mqtt.conf"
-LOGPATH="/mnt/log/mqtt-bridge.log"
+LOGPATH="/tmp/log/mqtt-bridge.log"
 STATE_FILE="/tmp/mqtt-bridge.state"
 HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
 CURL_BIN="/mnt/bin/curl"
@@ -9,9 +9,42 @@ JQ_BIN="/mnt/bin/jq"
 
 . /mnt/scripts/common_functions.sh
 
+# Cached boot-time epoch from /proc/stat — read once, zero forks on every subsequent call.
+BTIME=0
+_load_btime()
+{
+  while read -r _key _val _; do
+    [ "$_key" = "btime" ] && BTIME="$_val" && break
+  done < /proc/stat
+}
+
 json_escape()
 {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+  # Fast path: most values (hostnames, paths, profile names) have no special chars.
+  case "$1" in
+    *\\*|*'"'*) ;;
+    *) printf '%s' "$1"; return ;;
+  esac
+  # Slow path: escape backslashes then double-quotes via parameter expansion (no forks).
+  _je="$1"
+  _je_out=""
+  while [ -n "$_je" ]; do
+    case "$_je" in
+      *\\*)
+        _je_out="${_je_out}${_je%%\\*}\\\\"
+        _je="${_je#*\\}"
+        ;;
+      *'"'*)
+        _je_out="${_je_out}${_je%%\"*}\\\""
+        _je="${_je#*\"}"
+        ;;
+      *)
+        _je_out="${_je_out}${_je}"
+        _je=""
+        ;;
+    esac
+  done
+  printf '%s' "$_je_out"
 }
 
 sanitize_int_range()
@@ -43,10 +76,12 @@ is_truthy_local()
 
 log_msg()
 {
-  if [ ! -d /mnt/log ]; then
-    mkdir -p /mnt/log >/dev/null 2>&1 || true
+  if [ ! -d /tmp/log ]; then
+    mkdir -p /tmp/log >/dev/null 2>&1 || true
   fi
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$1" >> "$LOGPATH"
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _up _ < /proc/uptime
+  printf '%s %s\n' "$((BTIME + ${_up%.*}))" "$1" >> "$LOGPATH"
 }
 
 load_config()
@@ -70,6 +105,9 @@ load_config()
   MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS:-180}" 10 86400 180)"
   MQTT_COMMAND_WAIT_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_WAIT_SECONDS:-12}" 3 120 12)"
   MQTT_COMMAND_REPEAT_WINDOW_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_REPEAT_WINDOW_SECONDS:-20}" 0 600 20)"
+  MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS:-2}" 1 60 2)"
+  MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS:-20}" 1 600 20)"
+  MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER:-2}" 1 5 2)"
   MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
   MQTT_HA_DISCOVERY_PREFIX="${MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
   POWER_ESTIMATE_ENABLE="${POWER_ESTIMATE_ENABLE:-0}"
@@ -97,6 +135,10 @@ load_config()
       POWER_SENSOR_PATH="auto"
       ;;
   esac
+
+  if [ "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" -lt "$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS" ]; then
+    MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+  fi
 }
 
 mqtt_enabled()
@@ -166,19 +208,15 @@ service_script_running_int()
 
 normalize_toggle_value()
 {
-  value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-  case "$value" in
-    on|1|true|start|enable|enabled)
-      echo "on"
-      ;;
-    off|0|false|stop|disable|disabled)
-      echo "off"
-      ;;
-    toggle)
-      echo "toggle"
-      ;;
+  # Pure-shell case-insensitive match — avoids tr/sed forks.
+  case "$1" in
+    [Oo][Nn]|1|[Tt][Rr][Uu][Ee]|[Ss][Tt][Aa][Rr][Tt]|[Ee][Nn][Aa][Bb][Ll][Ee]|[Ee][Nn][Aa][Bb][Ll][Ee][Dd])
+      printf 'on\n' ;;
+    [Oo][Ff][Ff]|0|[Ff][Aa][Ll][Ss][Ee]|[Ss][Tt][Oo][Pp]|[Dd][Ii][Ss][Aa][Bb][Ll][Ee]|[Dd][Ii][Ss][Aa][Bb][Ll][Ee][Dd])
+      printf 'off\n' ;;
+    [Tt][Oo][Gg][Gg][Ll][Ee])
+      printf 'toggle\n' ;;
     *)
-      echo ""
       ;;
   esac
 }
@@ -219,6 +257,38 @@ port_open_from_list_int()
   fi
 }
 
+# Single-pass variant: checks all 6 ports in one awk+printf instead of 6 separate calls.
+# Sets slow_port_* variables directly in the caller's scope.
+# Args: listen_data http_port rtsp_port onvif_port ftp_port telnet_port
+collect_port_states_from_netstat()
+{
+  eval "$(printf '%s\n' "$1" | awk \
+    -v p_https=443 \
+    -v p_http="$2" \
+    -v p_rtsp="$3" \
+    -v p_onvif="$4" \
+    -v p_ftp="$5" \
+    -v p_telnet="$6" \
+    '$1 ~ /^tcp/ {
+      n = split($4, a, ":")
+      p = a[n]
+      if (p == p_https)  https  = 1
+      if (p == p_http)   http   = 1
+      if (p == p_rtsp)   rtsp   = 1
+      if (p == p_onvif)  onvif  = 1
+      if (p == p_ftp)    ftp    = 1
+      if (p == p_telnet) telnet = 1
+    }
+    END {
+      print "slow_port_https_open="  (https  + 0)
+      print "slow_port_http_open="   (http   + 0)
+      print "slow_port_rtsp_open="   (rtsp   + 0)
+      print "slow_port_onvif_open="  (onvif  + 0)
+      print "slow_port_ftp_open="    (ftp    + 0)
+      print "slow_port_telnet_open=" (telnet + 0)
+    }')"
+}
+
 mqtt_url()
 {
   topic="$1"
@@ -250,19 +320,32 @@ mqtt_publish_raw()
   retain="${3:-0}"
   [ -n "$topic" ] || return 1
 
-  tmp_payload="/tmp/mqtt-publish.$$.tmp"
-  url="$(mqtt_url "$topic" "$MQTT_CLIENT_ID-pub" "$retain")"
-  auth_arg="$(curl_auth_args)"
-
-  printf '%s' "$payload" > "$tmp_payload"
-  if [ -n "$auth_arg" ]; then
-    "$CURL_BIN" --silent --show-error --max-time 10 "$auth_arg" --upload-file "$tmp_payload" "$url" >/dev/null 2>&1
+  # Build URL inline — eliminates mqtt_url subshell fork.
+  if [ -n "$retain" ]; then
+    _url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${topic}?clientid=${MQTT_CLIENT_ID}-pub&qos=${MQTT_QOS}&retain=${retain}"
   else
-    "$CURL_BIN" --silent --show-error --max-time 10 --upload-file "$tmp_payload" "$url" >/dev/null 2>&1
+    _url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${topic}?clientid=${MQTT_CLIENT_ID}-pub&qos=${MQTT_QOS}"
   fi
-  rc=$?
-  rm -f "$tmp_payload"
-  return "$rc"
+
+  # Pipe payload via stdin — eliminates curl_auth_args subshell and temp file write/unlink.
+  if [ -n "$MQTT_USER" ]; then
+    printf '%s' "$payload" | "$CURL_BIN" --silent --show-error --max-time 10 \
+      -u "${MQTT_USER}:${MQTT_PASSWORD}" --upload-file - "$_url" >/dev/null 2>&1
+  else
+    printf '%s' "$payload" | "$CURL_BIN" --silent --show-error --max-time 10 \
+      --upload-file - "$_url" >/dev/null 2>&1
+  fi
+  _pub_rc=$?
+  # Record result for MQTT health indicator in web UI (/tmp/mqtt_last_pub.status).
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _pub_up _ < /proc/uptime
+  _pub_ts=$(( BTIME + ${_pub_up%.*} ))
+  if [ "$_pub_rc" -eq 0 ]; then
+    printf '%s ok\n' "$_pub_ts" > /tmp/mqtt_last_pub.status 2>/dev/null || true
+  else
+    printf '%s fail\n' "$_pub_ts" > /tmp/mqtt_last_pub.status 2>/dev/null || true
+  fi
+  return "$_pub_rc"
 }
 
 mqtt_publish_topic_suffix()
@@ -390,7 +473,7 @@ publish_homeassistant_discovery()
   node_id="$(printf '%s' "$MQTT_CLIENT_ID" | tr -c 'A-Za-z0-9_-' '_' | sed 's/^_//; s/_$//')"
   [ -n "$node_id" ] || node_id="tc100_camera"
 
-  hostname_value="$(hostname 2>/dev/null)"
+  read -r hostname_value < /proc/sys/kernel/hostname 2>/dev/null || hostname_value=""
   [ -n "$hostname_value" ] || hostname_value="TC100 Camera"
 
   discovery_prefix="$MQTT_HA_DISCOVERY_PREFIX"
@@ -581,7 +664,9 @@ collect_slow_health_metrics()
   slow_rtsp_enabled="$(service_script_running_int /mnt/controlscripts/rtsp-h26x /var/run/v4l2rtspserver.pid)"
   slow_onvif_enabled="$(service_script_running_int /mnt/controlscripts/onvif /var/run/onvif.pid)"
 
-  slow_primary_ip="$(ifconfig 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
+  slow_primary_ip="$(ifconfig 2>/dev/null | awk '
+    /inet addr:[0-9]/{split($2,a,":");if(a[2]!~/^127\./){print a[2];exit}}
+    /inet [0-9]/{if($2!~/^127\./){print $2;exit}}')"
   [ -n "$slow_primary_ip" ] || slow_primary_ip="n/a"
   slow_dns_server_count="$(awk '/^nameserver[[:space:]]+/{count++} END{print count+0}' /etc/resolv.conf 2>/dev/null)"
   case "$slow_dns_server_count" in
@@ -604,7 +689,7 @@ collect_slow_health_metrics()
   case "$storage_total_kb" in ''|*[!0-9]*) storage_total_kb=0 ;; esac
   case "$storage_used_kb" in ''|*[!0-9]*) storage_used_kb=0 ;; esac
   case "$storage_avail_kb" in ''|*[!0-9]*) storage_avail_kb=0 ;; esac
-  storage_used_percent="$(printf '%s' "$storage_used_text" | tr -cd '0-9')"
+  storage_used_percent="${storage_used_text%\%}"
   case "$storage_used_percent" in ''|*[!0-9]*) storage_used_percent=0 ;; esac
   if [ "$storage_used_percent" -le 0 ] && [ "$storage_total_kb" -gt 0 ]; then
     storage_used_percent=$((100 * storage_used_kb / storage_total_kb))
@@ -618,20 +703,14 @@ collect_slow_health_metrics()
   if [ -z "$listen_tcp" ]; then
     listen_tcp="$(netstat -ln 2>/dev/null)"
   fi
-  slow_port_https_open="$(port_open_from_list_int "$listen_tcp" 443)"
-  slow_port_http_open="$(port_open_from_list_int "$listen_tcp" "$http_port")"
-  slow_port_rtsp_open="$(port_open_from_list_int "$listen_tcp" "$rtsp_port")"
-  slow_port_onvif_open="$(port_open_from_list_int "$listen_tcp" "$onvif_port")"
-  slow_port_ftp_open="$(port_open_from_list_int "$listen_tcp" "$ftp_port")"
-  slow_port_telnet_open="$(port_open_from_list_int "$listen_tcp" "$telnet_port")"
+  collect_port_states_from_netstat "$listen_tcp" "$http_port" "$rtsp_port" "$onvif_port" "$ftp_port" "$telnet_port"
 }
 
 save_slow_health_cache()
 {
-  now_ts="$(date +%s 2>/dev/null)"
-  case "$now_ts" in
-    ''|*[!0-9]*) now_ts=0 ;;
-  esac
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((BTIME + ${_up%.*}))
   [ "$now_ts" -gt 0 ] || return 0
   {
     printf 'ts=%s\n' "$now_ts"
@@ -694,10 +773,9 @@ load_slow_health_cache()
     ''|*[!0-9]*) return 1 ;;
   esac
 
-  now_ts="$(date +%s 2>/dev/null)"
-  case "$now_ts" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((BTIME + ${_up%.*}))
   [ "$cache_ts" -le "$now_ts" ] || return 1
   age=$((now_ts - cache_ts))
   [ "$age" -le "$MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS" ] || return 1
@@ -737,28 +815,15 @@ load_or_collect_slow_health_metrics()
 
 build_health_payload()
 {
-  now_ts="$(date +%s 2>/dev/null)"
-  if [ -z "$now_ts" ] || [ "$now_ts" -le 0 ] 2>/dev/null; then
-    now_ts=0
-  fi
-
-  if [ -r /proc/uptime ]; then
-    read -r uptime_raw _ < /proc/uptime
-    uptime_seconds="${uptime_raw%.*}"
-    case "$uptime_seconds" in
-      ''|*[!0-9]*) uptime_seconds=0 ;;
-    esac
-  else
-    uptime_seconds=0
-  fi
-
-  reboot_epoch=0
-  if [ -r /proc/stat ]; then
-    reboot_epoch="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
-    case "$reboot_epoch" in
-      ''|*[!0-9]*) reboot_epoch=0 ;;
-    esac
-  fi
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r uptime_raw _ < /proc/uptime
+  uptime_seconds="${uptime_raw%.*}"
+  case "$uptime_seconds" in
+    ''|*[!0-9]*) uptime_seconds=0 ;;
+  esac
+  now_ts=$((BTIME + uptime_seconds))
+  [ "$now_ts" -gt 0 ] || now_ts=0
+  reboot_epoch="$BTIME"
 
   cpu="$(get_current_cpu_usage 2>/dev/null)"
   case "$cpu" in
@@ -840,7 +905,8 @@ build_health_payload()
   port_ftp_open="$slow_port_ftp_open"
   port_telnet_open="$slow_port_telnet_open"
 
-  hostname_value="$(hostname 2>/dev/null)"
+  read -r hostname_value < /proc/sys/kernel/hostname 2>/dev/null || hostname_value=""
+  [ -n "$hostname_value" ] || hostname_value="TC100 Camera"
   hostname_json="$(json_escape "$hostname_value")"
   web_mode_json="$(json_escape "$web_mode")"
   profile_json="$(json_escape "$profile")"
@@ -862,8 +928,9 @@ publish_event_simple()
 {
   event_type="$1"
   detail="$2"
-  now_ts="$(date +%s 2>/dev/null)"
-  [ -n "$now_ts" ] || now_ts=0
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((BTIME + ${_up%.*}))
   event_json="$(json_escape "$event_type")"
   detail_json="$(json_escape "$detail")"
   payload=$(printf '{"ts":%s,"type":"%s","detail":"%s"}' "$now_ts" "$event_json" "$detail_json")
@@ -873,9 +940,11 @@ publish_event_simple()
 dedupe_command()
 {
   cmd_payload="$1"
-  now_ts="$(date +%s 2>/dev/null)"
-  [ -n "$now_ts" ] || now_ts=0
-  cmd_hash="$(printf '%s' "$cmd_payload" | md5sum | awk '{print $1}')"
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((BTIME + ${_up%.*}))
+  _raw_hash="$(printf '%s' "$cmd_payload" | md5sum)"
+  cmd_hash="${_raw_hash%% *}"
 
   last_hash=""
   last_ts=0
@@ -1133,8 +1202,8 @@ handle_command_payload()
       shot_path="/tmp/mqtt-last-snapshot.jpg"
       if /mnt/bin/getimage > "$shot_path" 2>/dev/null; then
         shot_json="$(json_escape "$shot_path")"
-        now_ts="$(date +%s 2>/dev/null)"
-        [ -n "$now_ts" ] || now_ts=0
+        read -r _up _ < /proc/uptime
+        now_ts=$((BTIME + ${_up%.*}))
         payload=$(printf '{"ts":%s,"type":"snapshot.manual","snapshot":"%s"}' "$now_ts" "$shot_json")
         mqtt_publish_topic_suffix "event" "$payload" 0
         mqtt_publish_topic_suffix "snapshot/last_path" "$shot_path" 1 >/dev/null 2>&1 || true
@@ -1191,13 +1260,14 @@ handle_command_payload()
 
 subscribe_once_command()
 {
-  sub_client_id="${MQTT_CLIENT_ID}-sub"
-  url="$(mqtt_url "$MQTT_TOPIC_COMMAND" "$sub_client_id" "")"
-  auth_arg="$(curl_auth_args)"
-  if [ -n "$auth_arg" ]; then
-    "$CURL_BIN" --silent --show-error --max-time "$MQTT_COMMAND_WAIT_SECONDS" "$auth_arg" "$url" 2>/dev/null
+  # Build URL inline — eliminates mqtt_url and curl_auth_args subshell forks.
+  _sub_url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${MQTT_TOPIC_COMMAND}?clientid=${MQTT_CLIENT_ID}-sub&qos=${MQTT_QOS}"
+  if [ -n "$MQTT_USER" ]; then
+    "$CURL_BIN" --silent --show-error --max-time "$MQTT_COMMAND_WAIT_SECONDS" \
+      -u "${MQTT_USER}:${MQTT_PASSWORD}" "$_sub_url" 2>/dev/null
   else
-    "$CURL_BIN" --silent --show-error --max-time "$MQTT_COMMAND_WAIT_SECONDS" "$url" 2>/dev/null
+    "$CURL_BIN" --silent --show-error --max-time "$MQTT_COMMAND_WAIT_SECONDS" \
+      "$_sub_url" 2>/dev/null
   fi
 }
 
@@ -1223,9 +1293,11 @@ run_loop()
   publish_event_simple "bridge.start" "online"
 
   last_health_ts=0
+  subscribe_failures=0
+  subscribe_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
   while :; do
-    now_ts="$(date +%s 2>/dev/null)"
-    [ -n "$now_ts" ] || now_ts=0
+    read -r _up _ < /proc/uptime
+    now_ts=$((BTIME + ${_up%.*}))
 
     if [ "$last_health_ts" -le 0 ] || [ $((now_ts - last_health_ts)) -ge "$MQTT_HEALTH_INTERVAL_SECONDS" ]; then
       publish_health >/dev/null 2>&1 || true
@@ -1234,23 +1306,42 @@ run_loop()
 
     cmd_payload="$(subscribe_once_command)"
     subscribe_rc=$?
-    if [ "$subscribe_rc" -eq 0 ] && [ -n "$cmd_payload" ]; then
-      handle_command_payload "$cmd_payload"
+    if [ "$subscribe_rc" -eq 0 ]; then
+      if [ "$subscribe_failures" -gt 0 ]; then
+        log_msg "MQTT subscribe recovered after ${subscribe_failures} error(s)"
+      fi
+      subscribe_failures=0
+      subscribe_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+      if [ -n "$cmd_payload" ]; then
+        handle_command_payload "$cmd_payload"
+      fi
+      sleep 1
+      continue
     fi
 
-    sleep 1
+    subscribe_failures=$((subscribe_failures + 1))
+    if [ "$subscribe_failures" -eq 1 ] || [ $((subscribe_failures % 5)) -eq 0 ]; then
+      log_msg "MQTT subscribe failed rc=${subscribe_rc} failures=${subscribe_failures} backoff=${subscribe_backoff_seconds}s"
+    fi
+    sleep "$subscribe_backoff_seconds"
+    if [ "$subscribe_backoff_seconds" -lt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
+      subscribe_backoff_seconds=$((subscribe_backoff_seconds * MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER))
+      if [ "$subscribe_backoff_seconds" -gt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
+        subscribe_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS"
+      fi
+    fi
   done
 }
 
 publish_mode()
 {
-  suffix="$1"
-  payload="$2"
-  retain="${3:-0}"
-
   load_config
-  mqtt_publish_topic_suffix "$suffix" "$payload" "$retain"
-  exit $?
+  if ! mqtt_enabled; then exit 0; fi
+  while [ $# -ge 2 ]; do
+    _pm_suffix="$1"; _pm_payload="$2"; _pm_retain="${3:-0}"
+    mqtt_publish_topic_suffix "$_pm_suffix" "$_pm_payload" "$_pm_retain"
+    shift 3 2>/dev/null || break
+  done
 }
 
 case "$1" in

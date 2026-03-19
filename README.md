@@ -18,6 +18,7 @@ No firmware flashing is performed!
 - UI, svg icons, smaller footprint
 - Setup Wizard
 - MQTT Support
+- MQTT subscribe retry backoff controls in UI (low-overhead broker outage handling)
 
 ## Installation
 1. Format MicroSD as FAT32 (32K allocation size recommended).

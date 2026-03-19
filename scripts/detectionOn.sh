@@ -46,9 +46,10 @@ if [ "$send_telegram" = true ]; then
 	if [ "$save_snapshot" = true ] ; then
 		/mnt/bin/telegram p "$snapshot_path"
 	else
-		/mnt/bin/getimage > "/tmp/telegram_image.jpg"
- 		/mnt/bin/telegram p "/tmp/telegram_image.jpg"
- 		rm "/tmp/telegram_image.jpg"
+		tg_tmp="/tmp/telegram_image.$$.jpg"
+		/mnt/bin/getimage > "$tg_tmp"
+		/mnt/bin/telegram p "$tg_tmp"
+		rm -f "$tg_tmp"
 	fi
 fi
 

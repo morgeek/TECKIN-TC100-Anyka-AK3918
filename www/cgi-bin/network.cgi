@@ -19,6 +19,24 @@ if type install_config >/dev/null 2>&1; then
   install_config /mnt/config/onvif.conf
   install_config /mnt/config/ftp.conf
   install_config /mnt/config/telnetd.conf
+  install_config /mnt/config/dns.conf
+fi
+
+DNS_PRIMARY=""
+DNS_SECONDARY=""
+if [ -f /mnt/config/dns.conf ]; then
+  . /mnt/config/dns.conf 2>/dev/null
+fi
+
+IP_MODE="dhcp"
+STATIC_IP=""
+STATIC_NETMASK="255.255.255.0"
+STATIC_GATEWAY=""
+if type install_config >/dev/null 2>&1; then
+  install_config /mnt/config/network.conf
+fi
+if [ -f /mnt/config/network.conf ]; then
+  . /mnt/config/network.conf 2>/dev/null
 fi
 
 read_cfg() {
@@ -305,6 +323,151 @@ $dns_text</pre>
         </div>
     </div>
 </div>
+
+<div class='card status_card info-card' style='margin-top:1rem'>
+    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3v6M5 21h14M6 9h12M7 15h10'/></svg><span>DNS Configuration</span></span></p></header>
+    <div class='card-content'>
+        <p class='help' style='margin-bottom:0.75rem'>Override the DHCP-assigned DNS servers. Leave blank to use DHCP DNS. Changes take effect immediately and persist across reboots.</p>
+        <div class='field is-horizontal'>
+            <div class='field-label is-normal'><label class='label' for='dns_primary_input'>Primary DNS</label></div>
+            <div class='field-body'>
+                <div class='field'>
+                    <input class='input' type='text' id='dns_primary_input' placeholder='e.g. 1.1.1.1' maxlength='15' value='$DNS_PRIMARY'>
+                </div>
+            </div>
+        </div>
+        <div class='field is-horizontal'>
+            <div class='field-label is-normal'><label class='label' for='dns_secondary_input'>Secondary DNS</label></div>
+            <div class='field-body'>
+                <div class='field'>
+                    <input class='input' type='text' id='dns_secondary_input' placeholder='e.g. 1.0.0.1 (optional)' maxlength='15' value='$DNS_SECONDARY'>
+                </div>
+            </div>
+        </div>
+        <div class='field is-horizontal'>
+            <div class='field-label'></div>
+            <div class='field-body'>
+                <div class='field'>
+                    <button class='button is-primary' id='dns_save_btn' type='button' onclick='saveDns()'>Save DNS</button>
+                    <span id='dns_save_status' style='margin-left:0.75rem;font-size:0.9em;'></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function saveDns() {
+    var p = document.getElementById('dns_primary_input').value.trim();
+    var s = document.getElementById('dns_secondary_input').value.trim();
+    var statusEl = document.getElementById('dns_save_status');
+    var btn = document.getElementById('dns_save_btn');
+    btn.disabled = true;
+    statusEl.textContent = 'Saving...';
+    fetch('cgi-bin/action.cgi?cmd=conf_dns&dns_primary=' + encodeURIComponent(p) + '&dns_secondary=' + encodeURIComponent(s))
+        .then(function(r) { return r.text(); })
+        .then(function(t) {
+            statusEl.textContent = t.trim();
+            btn.disabled = false;
+        })
+        .catch(function(e) {
+            statusEl.textContent = 'Error: ' + e;
+            btn.disabled = false;
+        });
+}
+</script>
+
+
+<div class='card status_card info-card' style='margin-top:1rem'>
+    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M12 2a10 10 0 1 1 0 20A10 10 0 0 1 12 2zm0 4v4l3 3'/></svg><span>IP Configuration</span></span></p></header>
+    <div class='card-content'>
+        <p class='help' style='margin-bottom:0.75rem'>Switch between DHCP and a fixed static IP. Changes take effect after reboot.</p>
+        <div class='field'>
+            <label class='radio'><input type='radio' name='ip_mode' id='ip_mode_dhcp' value='dhcp' $([ "${IP_MODE:-dhcp}" != "static" ] && echo "checked")> DHCP (automatic)</label>
+            &nbsp;&nbsp;
+            <label class='radio'><input type='radio' name='ip_mode' id='ip_mode_static' value='static' $([ "${IP_MODE:-dhcp}" = "static" ] && echo "checked")> Static IP</label>
+        </div>
+        <div id='static_ip_fields' style='$([ "${IP_MODE:-dhcp}" != "static" ] && echo "display:none")'>
+            <div class='field is-horizontal' style='margin-top:0.5rem'>
+                <div class='field-label is-normal'><label class='label' for='static_ip_input'>IP Address</label></div>
+                <div class='field-body'><div class='field'>
+                    <input class='input' type='text' id='static_ip_input' placeholder='e.g. 192.168.1.100' maxlength='15' value='$STATIC_IP'>
+                </div></div>
+            </div>
+            <div class='field is-horizontal'>
+                <div class='field-label is-normal'><label class='label' for='static_netmask_input'>Netmask</label></div>
+                <div class='field-body'><div class='field'>
+                    <input class='input' type='text' id='static_netmask_input' placeholder='e.g. 255.255.255.0' maxlength='15' value='${STATIC_NETMASK:-255.255.255.0}'>
+                </div></div>
+            </div>
+            <div class='field is-horizontal'>
+                <div class='field-label is-normal'><label class='label' for='static_gateway_input'>Gateway</label></div>
+                <div class='field-body'><div class='field'>
+                    <input class='input' type='text' id='static_gateway_input' placeholder='e.g. 192.168.1.1' maxlength='15' value='$STATIC_GATEWAY'>
+                </div></div>
+            </div>
+        </div>
+        <div class='field' style='margin-top:0.75rem'>
+            <button class='button is-primary' id='ip_save_btn' type='button' onclick='saveIpConfig()'>Save IP Config</button>
+            <span id='ip_save_status' style='margin-left:0.75rem;font-size:0.9em;'></span>
+        </div>
+    </div>
+</div>
+
+<div class='card status_card info-card' style='margin-top:1rem'>
+    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M5 12.5C5 9 8 6 12 6s7 3 7 6.5M8 15c0-2.2 1.8-4 4-4s4 1.8 4 4M12 19h.01'/></svg><span>WiFi Networks</span></span></p></header>
+    <div class='card-content'>
+        <button class='button is-light' id='wifi_scan_btn' type='button' onclick='doWifiScan()'>Scan</button>
+        <span class='help' style='margin-left:0.5rem'>Scans for nearby WiFi networks. Takes 3-5 seconds.</span>
+        <div id='wifi_scan_results' style='margin-top:0.75rem'></div>
+    </div>
+</div>
+
+<script>
+document.querySelectorAll('input[name="ip_mode"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+        document.getElementById('static_ip_fields').style.display =
+            (this.value === 'static') ? '' : 'none';
+    });
+});
+function saveIpConfig() {
+    var mode = document.querySelector('input[name="ip_mode"]:checked').value;
+    var ip   = document.getElementById('static_ip_input').value.trim();
+    var mask = document.getElementById('static_netmask_input').value.trim();
+    var gw   = document.getElementById('static_gateway_input').value.trim();
+    var statusEl = document.getElementById('ip_save_status');
+    var btn = document.getElementById('ip_save_btn');
+    btn.disabled = true;
+    statusEl.textContent = 'Saving...';
+    var url = 'cgi-bin/action.cgi?cmd=conf_static_ip&ip_mode=' + encodeURIComponent(mode) +
+              '&static_ip=' + encodeURIComponent(ip) +
+              '&static_netmask=' + encodeURIComponent(mask) +
+              '&static_gateway=' + encodeURIComponent(gw);
+    fetch(url)
+        .then(function(r) { return r.text(); })
+        .then(function(t) { statusEl.textContent = t.replace('<hr/>', '').trim(); btn.disabled = false; })
+        .catch(function(e) { statusEl.textContent = 'Error: ' + e; btn.disabled = false; });
+}
+function doWifiScan() {
+    var btn = document.getElementById('wifi_scan_btn');
+    var results = document.getElementById('wifi_scan_results');
+    btn.disabled = true;
+    btn.textContent = 'Scanning...';
+    results.innerHTML = '';
+    fetch('cgi-bin/action.cgi?cmd=wifi_scan')
+        .then(function(r) { return r.text(); })
+        .then(function(t) {
+            results.innerHTML = t.replace('<hr/>', '').trim();
+            btn.disabled = false;
+            btn.textContent = 'Scan';
+        })
+        .catch(function(e) {
+            results.innerHTML = 'Scan failed: ' + e;
+            btn.disabled = false;
+            btn.textContent = 'Scan';
+        });
+}
+</script>
 
 </body>
 </html>
