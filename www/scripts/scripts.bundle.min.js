@@ -124,7 +124,20 @@ function initScriptsPage() {
     autostartInput.checked = toBoolInt(stateInfo.autostart_enabled);
   }
 
-  function updateStatusTag(tag, state) {
+  function formatUptime(s) {
+    if (typeof s !== 'number' || s < 0) return '';
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + 'm';
+    var h = Math.floor(m / 60);
+    var rm = m % 60;
+    if (h < 24) return h + 'h' + (rm ? ' ' + rm + 'm' : '');
+    var d = Math.floor(h / 24);
+    var rh = h % 24;
+    return d + 'd' + (rh ? ' ' + rh + 'h' : '');
+  }
+
+  function updateStatusTag(tag, state, uptimeSecs) {
     if (!tag) {
       return;
     }
@@ -133,8 +146,9 @@ function initScriptsPage() {
     switch (state) {
       case 'running':
         tag.classList.add('is-running');
-        tag.textContent = 'Running';
-        tag.title = 'Current state reported by this script';
+        var upLabel = formatUptime(uptimeSecs);
+        tag.textContent = upLabel ? 'Running \u00b7 ' + upLabel : 'Running';
+        tag.title = upLabel ? 'Running for ' + upLabel : 'Current state reported by this script';
         break;
       case 'stopped':
         tag.classList.add('is-stopped');
@@ -207,7 +221,7 @@ function initScriptsPage() {
     var hasStart = toBoolInt(stateInfo.has_start);
     var hasStop = toBoolInt(stateInfo.has_stop);
 
-    updateStatusTag(row.querySelector('.service-status'), state);
+    updateStatusTag(row.querySelector('.service-status'), state, stateInfo.uptime_s);
     updateActionButton(row.querySelector('button.script_action_toggle'), scriptName, state, hasStart, hasStop);
     syncAutorunInput(row, stateInfo);
   }
