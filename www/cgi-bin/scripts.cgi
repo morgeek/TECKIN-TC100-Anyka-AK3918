@@ -32,6 +32,36 @@ now_epoch_safe() {
   esac
 }
 
+# Cached /proc/uptime integer seconds — read once per request, reused across all PID probes
+_PROC_UPTIME_S=-1
+_svc_read_uptime_s() {
+  [ "$_PROC_UPTIME_S" -ge 0 ] 2>/dev/null && return
+  if [ -r /proc/uptime ]; then
+    read -r _up _idle < /proc/uptime
+    _PROC_UPTIME_S="${_up%.*}"
+  fi
+}
+
+# Compute how long a PID has been running (in seconds) via /proc/<pid>/stat.
+# Result stored in _svc_uptime_s (-1 = unknown/unavailable). No forks.
+_svc_pid_uptime() {
+  _svc_uptime_s=-1
+  _spid="$1"
+  case "$_spid" in ''|0|*[!0-9]*) return ;; esac
+  [ -r "/proc/$_spid/stat" ] || return
+  read -r _stat_raw < "/proc/$_spid/stat"
+  # Strip "pid (comm) " prefix — handles spaces in comm name by cutting at first ') '
+  _stat_rest="${_stat_raw#*) }"
+  set -- $_stat_rest
+  # Field 20 of _stat_rest = field 22 of /proc/pid/stat = starttime in jiffies since boot
+  _startjif="${20}"
+  case "$_startjif" in ''|0|*[!0-9]*) return ;; esac
+  _svc_read_uptime_s
+  [ "$_PROC_UPTIME_S" -ge 0 ] 2>/dev/null || return
+  _svc_uptime_s=$((_PROC_UPTIME_S - _startjif / 100))
+  [ "$_svc_uptime_s" -lt 0 ] && _svc_uptime_s=0
+}
+
 invalidate_allstates_cache() {
   rm -f "$ALLSTATES_CACHE_FILE" >/dev/null 2>&1 || true
 }
@@ -210,6 +240,7 @@ generate_allstates_payload() {
     autostart_enabled=0
     running=0
     state="unknown"
+    uptime_s=-1
     parse_script_capabilities "$script_path"
 
     [ -f "$AUTOSTART_DIR/$script" ] && autostart_enabled=1
@@ -222,6 +253,16 @@ generate_allstates_payload() {
         if [ -n "$status_output" ]; then
           state="running"
           running=1
+          # Extract PID from "PID: <number>" and compute process uptime via /proc
+          _svc_pid=0
+          case "$status_output" in
+            *"PID: "[0-9]*) _tmp="${status_output#*PID: }"; _svc_pid="${_tmp%%[!0-9]*}" ;;
+          esac
+          case "$_svc_pid" in ''|0|*[!0-9]*) _svc_pid=0 ;; esac
+          if [ "$_svc_pid" -gt 0 ]; then
+            _svc_pid_uptime "$_svc_pid"
+            uptime_s="$_svc_uptime_s"
+          fi
         else
           state="stopped"
         fi
@@ -231,8 +272,8 @@ generate_allstates_payload() {
         state="error"
       fi
     fi
-    printf '{"script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s}' \
-      "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled"
+    printf '{"script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s,"uptime_s":%s}' \
+      "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled" "$uptime_s"
   done
   echo ']}'
 }
@@ -326,6 +367,7 @@ if [ -n "$F_script" ]; then
           state="unknown"
           running=0
           autostart_enabled=0
+          uptime_s=-1
 
           parse_script_capabilities "$SCRIPT_HOME/$script"
 
@@ -340,6 +382,15 @@ if [ -n "$F_script" ]; then
               if [ -n "$status_output" ]; then
                 state="running"
                 running=1
+                _svc_pid=0
+                case "$status_output" in
+                  *"PID: "[0-9]*) _tmp="${status_output#*PID: }"; _svc_pid="${_tmp%%[!0-9]*}" ;;
+                esac
+                case "$_svc_pid" in ''|0|*[!0-9]*) _svc_pid=0 ;; esac
+                if [ "$_svc_pid" -gt 0 ]; then
+                  _svc_pid_uptime "$_svc_pid"
+                  uptime_s="$_svc_uptime_s"
+                fi
               else
                 state="stopped"
               fi
@@ -352,8 +403,8 @@ if [ -n "$F_script" ]; then
 
           echo "Content-type: application/json"
           echo ""
-          printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s}\n' \
-            "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled"
+          printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s,"uptime_s":%s}\n' \
+            "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled" "$uptime_s"
         fi
         ;;
       allstates)
