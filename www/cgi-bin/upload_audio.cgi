@@ -4,6 +4,7 @@ MAX_UPLOAD_BYTES=524288
 PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
 PTT_PLAYBACK_PID_FILE="/tmp/ptt-audioplay.pid"
 PTT_LOCK_DIR="/tmp/ptt-upload.lock"
+PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
 PLAYBACK_CLEANUP_DELAY_SECONDS=20
 
 # Anyka native audio output binary: ak_ao_demo <rate> <channels> <pcm_file> <volume 0-6>
@@ -58,6 +59,11 @@ if [ "$CONTENT_LENGTH" -le 0 ]; then
     exit 0
 fi
 
+if [ $((CONTENT_LENGTH % 2)) -ne 0 ]; then
+    respond_plain "400 Bad Request" "INVALID_PCM"
+    exit 0
+fi
+
 if [ "$CONTENT_LENGTH" -gt "$MAX_UPLOAD_BYTES" ]; then
     respond_plain "413 Payload Too Large" "TOO_LARGE"
     exit 0
@@ -73,7 +79,7 @@ _wd_btime=0
 while read -r _k _v _; do [ "$_k" = "btime" ] && _wd_btime="$_v" && break; done < /proc/stat
 read -r _wd_up _ < /proc/uptime
 tmp_tag=$((_wd_btime + ${_wd_up%.*}))
-pcm_file="/tmp/pttaudio_${tmp_tag}.pcm"
+pcm_file="/tmp/pttaudio_${tmp_tag}_$$.pcm"
 
 # Read raw PCM body efficiently (Int16 LE at 8kHz mono from browser)
 if ! head -c "$CONTENT_LENGTH" > "$pcm_file" 2>/dev/null; then
@@ -85,6 +91,8 @@ if [ ! -s "$pcm_file" ]; then
     respond_plain "400 Bad Request" "EMPTY_INPUT"
     exit 0
 fi
+
+cp "$pcm_file" "$PTT_LAST_PCM_FILE" >/dev/null 2>&1 || true
 
 ptt_volume=90
 if [ -f "$PTT_VOLUME_FILE" ]; then
@@ -105,8 +113,8 @@ if [ "$ptt_volume" -gt 100 ]; then
     ptt_volume=100
 fi
 
-# Map 0-100 → 0-6 for ak_ao_demo
-vol_ak=$(( ptt_volume * 6 / 100 ))
+# Map 0-100 to 0-6 for ak_ao_demo, rounding instead of always flooring.
+vol_ak=$(( (ptt_volume * 6 + 50) / 100 ))
 
 if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
     last_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"

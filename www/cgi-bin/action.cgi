@@ -204,6 +204,86 @@ security_hardening_enabled() {
   esac
 }
 
+PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
+PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
+PTT_PCM_PLAYBACK_BIN="/usr/bin/ak_ao_demo"
+PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
+
+ptt_backend_status() {
+  if [ -x "$PTT_PCM_PLAYBACK_BIN" ]; then
+    echo "OK"
+  else
+    echo "PTT_BIN_MISSING"
+  fi
+}
+
+read_ptt_volume() {
+  ptt_vol_val="$(head -n1 "$PTT_VOLUME_FILE" 2>/dev/null | tr -d '[:space:]')"
+  sanitize_int_range "$ptt_vol_val" 0 100 90
+}
+
+ptt_volume_to_ak() {
+  ptt_ui_volume="$(sanitize_int_range "$1" 0 100 90)"
+  echo $(( (ptt_ui_volume * 6 + 50) / 100 ))
+}
+
+resolve_audio_test_source() {
+  for candidate in /mnt/config/audio-test.wav /mnt/config/ptt-test.wav "$PTT_LAST_PCM_FILE"; do
+    [ -r "$candidate" ] || continue
+    echo "$candidate"
+    return 0
+  done
+
+  latest_candidate=""
+  for candidate in /tmp/pttaudio_*.pcm /tmp/pttaudio_*.wav; do
+    [ -r "$candidate" ] || continue
+    latest_candidate="$candidate"
+  done
+
+  if [ -n "$latest_candidate" ]; then
+    echo "$latest_candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+play_audio_test_source() {
+  audio_source="$1"
+  audio_volume="$(sanitize_int_range "$2" 0 100 90)"
+
+  if [ -z "$audio_source" ] || [ ! -r "$audio_source" ]; then
+    echo "Audio test failed: no readable source file. Upload audio first (PTT) or provide a valid path."
+    return 1
+  fi
+
+  case "$audio_source" in
+    *.pcm)
+      if [ ! -x "$PTT_PCM_PLAYBACK_BIN" ]; then
+        echo "Audio test failed: PCM playback backend is missing on the camera."
+        return 1
+      fi
+      ak_volume="$(ptt_volume_to_ak "$audio_volume")"
+      /mnt/bin/busybox nohup "$PTT_PCM_PLAYBACK_BIN" 8000 1 "$audio_source" "$ak_volume" > /dev/null 2>&1 &
+      echo "Play $audio_source at volume $audio_volume (PCM)"
+      return 0
+      ;;
+    *.wav)
+      if [ ! -x "$PTT_WAV_PLAYBACK_BIN" ]; then
+        echo "Audio test failed: WAV playback backend is missing on the camera."
+        return 1
+      fi
+      /mnt/bin/busybox nohup "$PTT_WAV_PLAYBACK_BIN" "$audio_source" "$audio_volume" > /dev/null 2>&1 &
+      echo "Play $audio_source at volume $audio_volume (WAV)"
+      return 0
+      ;;
+    *)
+      echo "Audio test failed: unsupported source format: $audio_source"
+      return 1
+      ;;
+  esac
+}
+
 
 cron_busybox_bin() {
   if [ -x /mnt/bin/busybox ]; then
@@ -493,6 +573,27 @@ restart_stream_services_for_validation() {
   fi
 }
 
+sync_memory_guard_service_with_config() {
+  if [ ! -x /mnt/controlscripts/memory-guard ]; then
+    return 0
+  fi
+
+  mem_guard_enable="$(read_kv_or_default /mnt/config/boot.conf MEM_GUARD_ENABLE 0)"
+  if [ "$mem_guard_enable" = "1" ]; then
+    /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
+  else
+    /mnt/controlscripts/memory-guard stop >/dev/null 2>&1 || true
+  fi
+}
+
+stop_trimmed_runtime_services() {
+  for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
+    if [ -x "/mnt/controlscripts/$svc" ]; then
+      /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
+    fi
+  done
+}
+
 rtsp_quick_health_check() {
   if [ ! -x /mnt/controlscripts/rtsp-h26x ] || ! /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; then
     return 1
@@ -545,6 +646,153 @@ wait_for_rtsp_health() {
   return 1
 }
 
+rtsp_strict_describe_check() {
+  health_stream="$1"
+  if [ ! -x /mnt/controlscripts/rtsp-h26x ] || ! /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; then
+    return 1
+  fi
+  if [ ! -x /mnt/bin/curl ]; then
+    return 2
+  fi
+
+  rtsp_timeout="$(sanitize_int_range "$(read_kv_or_default /mnt/config/boot.conf RTSP_HEALTHCHECK_TIMEOUT_SECONDS 4)" 2 30 4)"
+  rtsp_port="$(read_config rtspserver.conf PORT)"
+  [ -n "$rtsp_port" ] || rtsp_port=554
+  rtsp_user="$(read_config rtspserver.conf USERNAME)"
+  rtsp_pass="$(read_config rtspserver.conf USERPASSWORD)"
+
+  if [ -n "$rtsp_user" ]; then
+    sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE -u "${rtsp_user}:${rtsp_pass}" "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 1
+  else
+    sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 1
+  fi
+
+  printf '%s' "$sdp" | grep -q "m=video" || return 1
+  return 0
+}
+
+AUTO_STREAM_SELFTEST_BLOCKING_FAIL=0
+AUTO_STREAM_SELFTEST_WARN=0
+
+record_auto_stream_selftest_result() {
+  test_label="$1"
+  test_status="$2"
+  test_detail="$3"
+  test_severity="${4:-nonblocking}"
+
+  echo "Automatic integration self-test: ${test_label}: ${test_status}. ${test_detail}<br/>"
+
+  case "$test_status" in
+    FAIL)
+      if [ "$test_severity" = "blocking" ]; then
+        AUTO_STREAM_SELFTEST_BLOCKING_FAIL=1
+      else
+        AUTO_STREAM_SELFTEST_WARN=1
+      fi
+      ;;
+    WARN)
+      AUTO_STREAM_SELFTEST_WARN=1
+      ;;
+  esac
+}
+
+run_postchange_integration_selftest() {
+  AUTO_STREAM_SELFTEST_BLOCKING_FAIL=0
+  AUTO_STREAM_SELFTEST_WARN=0
+
+  rtsp_expected=0
+  onvif_expected=0
+  current_rtsp_substream="$(normalize_bool "$(read_kv_or_default /mnt/config/boot.conf RTSP_SUBSTREAM 1)")"
+  mqtt_enable="$(normalize_bool "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_ENABLE 0)")"
+  mqtt_topic_root="$(read_kv_or_default /mnt/config/mqtt.conf MQTT_TOPIC_ROOT tc100/camera)"
+  mqtt_host="$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HOST 127.0.0.1)"
+  mqtt_port="$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_PORT 1883)" 1 65535 1883)"
+
+  if [ "$PRECHANGE_RTSP_WAS_RUNNING" = "1" ] || { [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; }; then
+    rtsp_expected=1
+  fi
+  if [ "$PRECHANGE_ONVIF_WAS_RUNNING" = "1" ] || { [ -x /mnt/controlscripts/onvif ] && /mnt/controlscripts/onvif status >/dev/null 2>&1; }; then
+    onvif_expected=1
+  fi
+
+  if [ "$rtsp_expected" = "1" ]; then
+    rtsp_strict_describe_check video0_unicast
+    rtsp_main_rc=$?
+    case "$rtsp_main_rc" in
+      0)
+        record_auto_stream_selftest_result "RTSP main" "OK" "DESCRIBE succeeded for video0_unicast." blocking
+        ;;
+      2)
+        record_auto_stream_selftest_result "RTSP main" "WARN" "curl is unavailable, so DESCRIBE validation was skipped." nonblocking
+        ;;
+      *)
+        record_auto_stream_selftest_result "RTSP main" "FAIL" "DESCRIBE failed for video0_unicast." blocking
+        ;;
+    esac
+  else
+    record_auto_stream_selftest_result "RTSP main" "SKIP" "RTSP service is not running, so validation was skipped." nonblocking
+  fi
+
+  if [ "$rtsp_expected" != "1" ]; then
+    record_auto_stream_selftest_result "RTSP sub" "SKIP" "RTSP service is not running, so substream validation was skipped." nonblocking
+  elif [ "$current_rtsp_substream" != "1" ]; then
+    record_auto_stream_selftest_result "RTSP sub" "SKIP" "Substream disabled by RTSP_SUBSTREAM=0." nonblocking
+  else
+    rtsp_strict_describe_check video1_unicast
+    rtsp_sub_rc=$?
+    case "$rtsp_sub_rc" in
+      0)
+        record_auto_stream_selftest_result "RTSP sub" "OK" "DESCRIBE succeeded for video1_unicast." blocking
+        ;;
+      2)
+        record_auto_stream_selftest_result "RTSP sub" "WARN" "curl is unavailable, so substream DESCRIBE validation was skipped." nonblocking
+        ;;
+      *)
+        record_auto_stream_selftest_result "RTSP sub" "FAIL" "DESCRIBE failed for video1_unicast." blocking
+        ;;
+    esac
+  fi
+
+  if [ "$onvif_expected" = "1" ]; then
+    if [ -x /mnt/controlscripts/onvif ] && /mnt/controlscripts/onvif health >/dev/null 2>&1; then
+      record_auto_stream_selftest_result "ONVIF" "OK" "ONVIF health check succeeded." blocking
+    else
+      record_auto_stream_selftest_result "ONVIF" "FAIL" "ONVIF health check failed." blocking
+    fi
+  else
+    record_auto_stream_selftest_result "ONVIF" "SKIP" "ONVIF service is not running, so validation was skipped." nonblocking
+  fi
+
+  if [ "$mqtt_enable" = "1" ]; then
+    if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
+      now_ts="$(date +%s 2>/dev/null)"
+      [ -n "$now_ts" ] || now_ts=0
+      mqtt_selftest_payload="$(printf '{"ts":%s,"type":"auto_stream_selftest","origin":"action.cgi"}' "$now_ts")"
+      if /mnt/scripts/mqtt-bridge.sh publish selftest "$mqtt_selftest_payload" 0 >/dev/null 2>&1; then
+        record_auto_stream_selftest_result "MQTT publish" "OK" "Published self-test payload to ${mqtt_topic_root}/selftest via ${mqtt_host}:${mqtt_port}." nonblocking
+      else
+        record_auto_stream_selftest_result "MQTT publish" "WARN" "Publish failed to ${mqtt_host}:${mqtt_port}; keeping stream changes because broker reachability is non-blocking." nonblocking
+      fi
+    else
+      record_auto_stream_selftest_result "MQTT publish" "WARN" "mqtt-bridge.sh is missing, so MQTT publish validation was skipped." nonblocking
+    fi
+  else
+    record_auto_stream_selftest_result "MQTT publish" "SKIP" "MQTT bridge disabled in config." nonblocking
+  fi
+
+  snapshot_tmp="/tmp/action-selftest.$$.$(date +%s 2>/dev/null).jpg"
+  if [ -x /mnt/bin/getimage ]; then
+    if /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
+      record_auto_stream_selftest_result "Snapshot" "OK" "Local snapshot capture succeeded." nonblocking
+    else
+      record_auto_stream_selftest_result "Snapshot" "WARN" "Snapshot capture failed; keeping stream changes because this check is non-blocking." nonblocking
+    fi
+  else
+    record_auto_stream_selftest_result "Snapshot" "WARN" "getimage is unavailable, so snapshot validation was skipped." nonblocking
+  fi
+  rm -f "$snapshot_tmp" >/dev/null 2>&1 || true
+}
+
 save_known_good_snapshot() {
   reason="$1"
   mkdir -p "$SNAPSHOT_DIR" >/dev/null 2>&1 || return 1
@@ -563,33 +811,53 @@ restore_stream_from_snapshot() {
   wait_for_rtsp_health 4
 }
 
-finalize_stream_apply() {
-  change_label="$1"
+rollback_stream_change() {
+  failure_reason="$1"
 
-  restart_stream_services_for_validation
-  if wait_for_rtsp_health 4; then
-    echo "Stream safety check: OK.<br/>"
-    if save_known_good_snapshot "auto:${change_label}"; then
-      echo "Known-good snapshot updated.<br/>"
-    else
-      echo "Warning: could not update known-good snapshot.<br/>"
-    fi
-    return 0
-  fi
-
-  echo "Stream safety check failed after applying ${change_label}. Rolling back...<br/>"
+  echo "${failure_reason}<br/>"
   if restore_stream_from_snapshot "$PRECHANGE_RTSP_CONF" "$PRECHANGE_STREAM_CONF"; then
     echo "Rollback completed using pre-change snapshot.<br/>"
-    return 1
+    return 0
   fi
 
   if restore_stream_from_snapshot "$KNOWN_GOOD_RTSP_CONF" "$KNOWN_GOOD_STREAM_CONF"; then
     echo "Rollback completed using known-good snapshot.<br/>"
-    return 1
+    return 0
   fi
 
   echo "Rollback failed: no recoverable snapshot available.<br/>"
   return 1
+}
+
+finalize_stream_apply() {
+  change_label="$1"
+
+  restart_stream_services_for_validation
+  if ! wait_for_rtsp_health 4; then
+    rollback_stream_change "Stream restart safety check failed after applying ${change_label}. Rolling back..."
+    return 1
+  fi
+
+  echo "Stream restart safety check: OK.<br/>"
+  run_postchange_integration_selftest
+
+  if [ "$AUTO_STREAM_SELFTEST_BLOCKING_FAIL" = "1" ]; then
+    rollback_stream_change "Automatic integration self-test failed after applying ${change_label}. Rolling back..."
+    return 1
+  fi
+
+  if [ "$AUTO_STREAM_SELFTEST_WARN" = "1" ]; then
+    echo "Automatic integration self-test completed with warnings, but no blocking stream regressions were detected.<br/>"
+  else
+    echo "Automatic integration self-test: OK.<br/>"
+  fi
+
+  if save_known_good_snapshot "auto:${change_label}"; then
+    echo "Known-good snapshot updated.<br/>"
+  else
+    echo "Warning: could not update known-good snapshot.<br/>"
+  fi
+  return 0
 }
 
 credentials_default_active() {
@@ -856,25 +1124,9 @@ if [ -n "$F_cmd" ]; then
       F_audioSource=$(printf '%b' "${F_audioSource//%/\\x}")
       F_audiotestVol=$(sanitize_int_range "${F_audiotestVol}" 0 100 90)
       if [ -z "$F_audioSource" ]; then
-        for candidate in /mnt/config/audio-test.wav /mnt/config/ptt-test.wav; do
-          [ -f "$candidate" ] || continue
-          F_audioSource="$candidate"
-          break
-        done
+        F_audioSource="$(resolve_audio_test_source || true)"
       fi
-      if [ -z "$F_audioSource" ]; then
-        # Keep the last match to bias toward the most recent timestamp-like name.
-        for candidate in /tmp/pttaudio_*.wav; do
-          [ -f "$candidate" ] || continue
-          F_audioSource="$candidate"
-        done
-      fi
-      if [ -z "$F_audioSource" ] || [ ! -r "$F_audioSource" ]; then
-        echo "Audio test failed: no readable source file. Upload audio first (PTT) or provide a valid path."
-        exit 0
-      fi
-      /mnt/bin/busybox nohup /mnt/bin/audioplay "$F_audioSource" "$F_audiotestVol" > /dev/null 2>&1 &
-      echo "Play $F_audioSource at volume $F_audiotestVol"
+      play_audio_test_source "$F_audioSource" "$F_audiotestVol"
     ;;
 
 
@@ -1129,6 +1381,11 @@ if [ -n "$F_cmd" ]; then
       install_config /mnt/config/service_trim.conf
       capture_prechange_stream_snapshot
       profile=$(printf '%b' "${F_performance_profile}")
+      profile_summary_line=""
+      profile_detail_line=""
+      profile_detail_line2=""
+      apply_low_cpu_defaults_after_finalize=0
+      stop_trimmed_services_after_finalize=0
 
       case "$profile" in
         balanced)
@@ -1141,8 +1398,8 @@ if [ -n "$F_cmd" ]; then
           rewrite_config /mnt/config/boot.conf SERVICE_TRIM 0
           rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
 
-          echo "Performance profile set to Balanced.<br/>"
-          echo "Dual stream + audio defaults enabled; reboot to restore all background services if they were trimmed.<br/>"
+          profile_summary_line="Performance profile set to Balanced."
+          profile_detail_line="Dual stream + audio defaults enabled; reboot to restore all background services if they were trimmed."
           ;;
         low-cpu)
           rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
@@ -1165,11 +1422,10 @@ if [ -n "$F_cmd" ]; then
               0 smartmode 1 0 smartgoplen 20 0 smartquality 60 0 smartstatic 350 0 maxkbps 800 0 targetkbps 600 \
               1 width 352 1 height 200 1 fps 5 1 bps 120 1 goplen 10 1 brmode 1 1 codec 0 1 profile 0 \
               1 smartmode 1 1 smartgoplen 10 1 smartquality 50 1 smartstatic 100 1 maxkbps 160 1 targetkbps 120
-          apply_low_cpu_background_defaults
-
-          echo "Performance profile set to Low CPU.<br/>"
-          echo "Applied conservative dual-stream RTSP settings now (safe geometry, H264) and enabled memory guard.<br/>"
-          echo "Reboot recommended for full low-CPU service profile.<br/>"
+          apply_low_cpu_defaults_after_finalize=1
+          profile_summary_line="Performance profile set to Low CPU."
+          profile_detail_line="Applied conservative dual-stream RTSP settings now (safe geometry, H264) and enabled memory guard."
+          profile_detail_line2="Reboot recommended for full low-CPU service profile."
           ;;
         rtsp-only)
           rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 1
@@ -1186,15 +1442,10 @@ if [ -n "$F_cmd" ]; then
           rewrite_config /mnt/config/boot.conf SERVICE_TRIM 1
           rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
 
-          for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
-            if [ -x "/mnt/controlscripts/$svc" ]; then
-              /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
-            fi
-          done
-          apply_low_cpu_background_defaults
-
-          echo "Performance profile set to RTSP + ONVIF only.<br/>"
-          echo "Stopped non-essential services now; reboot to enforce trimmed autostart persistently.<br/>"
+          apply_low_cpu_defaults_after_finalize=1
+          stop_trimmed_services_after_finalize=1
+          profile_summary_line="Performance profile set to RTSP + ONVIF only."
+          profile_detail_line="Stopped non-essential services now; reboot to enforce trimmed autostart persistently."
           ;;
         *)
           echo "Unknown performance profile '$profile'<br/>"
@@ -1202,19 +1453,23 @@ if [ -n "$F_cmd" ]; then
           ;;
       esac
 
-      finalize_stream_apply "performance-profile:${profile}"
-      if [ -x /mnt/controlscripts/memory-guard ]; then
-        if [ "$profile" = "balanced" ]; then
-          /mnt/controlscripts/memory-guard stop >/dev/null 2>&1 || true
-        else
-          /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
+      if finalize_stream_apply "performance-profile:${profile}"; then
+        if [ "$apply_low_cpu_defaults_after_finalize" = "1" ]; then
+          apply_low_cpu_background_defaults
         fi
+        if [ "$stop_trimmed_services_after_finalize" = "1" ]; then
+          stop_trimmed_runtime_services
+        fi
+        sync_memory_guard_service_with_config
+        echo "${profile_summary_line}<br/>"
+        [ -n "$profile_detail_line" ] && echo "${profile_detail_line}<br/>"
+        [ -n "$profile_detail_line2" ] && echo "${profile_detail_line2}<br/>"
+        _ac_btime=0
+        while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
+        read -r _ac_up _ < /proc/uptime
+        now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
+        publish_mqtt_event "$(printf '{"ts":%s,"type":"profile","value":"%s"}' "$now_ts" "$profile")"
       fi
-      _ac_btime=0
-      while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
-      read -r _ac_up _ < /proc/uptime
-      now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
-      publish_mqtt_event "$(printf '{"ts":%s,"type":"profile","value":"%s"}' "$now_ts" "$profile")"
       rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
@@ -1350,8 +1605,9 @@ if [ -n "$F_cmd" ]; then
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
-      finalize_stream_apply "stream-topology:${topology}"
-      echo "Stream topology set to: $topology_label<br/>"
+      if finalize_stream_apply "stream-topology:${topology}"; then
+        echo "Stream topology set to: $topology_label<br/>"
+      fi
     ;;
 
     set_onvif_stream_policy)
@@ -1383,11 +1639,11 @@ if [ -n "$F_cmd" ]; then
       esac
 
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$policy"
-      finalize_stream_apply "onvif-policy:${policy}"
-
-      echo "ONVIF stream policy set to: $policy_label<br/>"
-      if [ "$RTSP_SUBSTREAM" != "1" ] && [ "$policy" != "main-primary" ] && [ "$policy" != "main-only" ]; then
-        echo "Note: RTSP substream is disabled, ONVIF will fall back to main stream.<br/>"
+      if finalize_stream_apply "onvif-policy:${policy}"; then
+        echo "ONVIF stream policy set to: $policy_label<br/>"
+        if [ "$RTSP_SUBSTREAM" != "1" ] && [ "$policy" != "main-primary" ] && [ "$policy" != "main-only" ]; then
+          echo "Note: RTSP substream is disabled, ONVIF will fall back to main stream.<br/>"
+        fi
       fi
     ;;
 
@@ -1585,78 +1841,79 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
-      if [ "$low_cpu_profile" = "1" ]; then
-        apply_low_cpu_background_defaults
-      fi
-
-      finalize_stream_apply "ha-pair:${ha_profile}"
-
-      ensure_autostart_script rtsp-h26x >/dev/null 2>&1 || true
-      /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1 || true
-
-      if [ "$ha_enable_onvif" = "1" ]; then
-        ensure_autostart_script onvif >/dev/null 2>&1 || true
-        /mnt/controlscripts/onvif start >/dev/null 2>&1 || true
-      else
-        rm -f /mnt/config/autostart/onvif >/dev/null 2>&1 || true
-        /mnt/controlscripts/onvif stop >/dev/null 2>&1 || true
-      fi
-
-      if [ "$ha_enable_mqtt_autostart" = "1" ]; then
-        ensure_autostart_script mqtt-bridge >/dev/null 2>&1 || true
-      else
-        rm -f /mnt/config/autostart/mqtt-bridge >/dev/null 2>&1 || true
-      fi
-      if [ -x /mnt/controlscripts/mqtt-bridge ]; then
-        /mnt/controlscripts/mqtt-bridge stop >/dev/null 2>&1 || true
-        /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1 || true
-      fi
-
-      rtsp_health_ok=0
-      onvif_health_ok=0
-      mqtt_publish_ok=0
-
-      if [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1; then
-        rtsp_health_ok=1
-      fi
-      if [ "$ha_enable_onvif" = "1" ] && [ -x /mnt/controlscripts/onvif ] && /mnt/controlscripts/onvif health >/dev/null 2>&1; then
-        onvif_health_ok=1
-      fi
-
-      now_ts="$(date +%s 2>/dev/null)"
-      [ -n "$now_ts" ] || now_ts=0
-      mqtt_test_payload="$(printf '{"ts":%s,"type":"ha_pair_test","profile":"%s"}' "$now_ts" "$ha_profile")"
-      if [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish event "$mqtt_test_payload" 0 >/dev/null 2>&1; then
-        mqtt_publish_ok=1
-      fi
-
-      echo "Home Assistant pairing applied.<br/>"
-      echo "Compatibility preset: $profile_label<br/>"
-      echo "Broker: ${ha_broker_host}:${ha_broker_port}, discovery prefix: ${ha_discovery_prefix}<br/>"
-      echo "Topics: root=${ha_topic_root}, command=${ha_topic_command}<br/>"
-      echo "Autostart: RTSP=on, ONVIF=${ha_enable_onvif}, MQTT=${ha_enable_mqtt_autostart}<br/>"
-      if [ "$rtsp_health_ok" = "1" ]; then
-        echo "RTSP health check: OK<br/>"
-      else
-        echo "RTSP health check: FAILED (check video profile/network)<br/>"
-      fi
-      if [ "$ha_enable_onvif" = "1" ]; then
-        if [ "$onvif_health_ok" = "1" ]; then
-          echo "ONVIF health check: OK<br/>"
-        else
-          echo "ONVIF health check: FAILED (check ONVIF service/network)<br/>"
+      if finalize_stream_apply "ha-pair:${ha_profile}"; then
+        if [ "$low_cpu_profile" = "1" ]; then
+          apply_low_cpu_background_defaults
         fi
-      else
-        echo "ONVIF health check: skipped (disabled)<br/>"
-      fi
-      if [ "$mqtt_publish_ok" = "1" ]; then
-        echo "MQTT publish test: OK (discovery should republish at MQTT bridge start)<br/>"
-      else
-        echo "MQTT publish test: FAILED (check broker credentials/reachability)<br/>"
-      fi
-      echo "Quick links: /onvif/device_service, rtsp://CAMERA-IP:554/video0_unicast, rtsp://CAMERA-IP:554/video1_unicast<br/>"
 
-      publish_mqtt_event "$(printf '{"ts":%s,"type":"ha_pair","profile":"%s","rtsp_ok":%s,"onvif_ok":%s,"mqtt_ok":%s}' "$now_ts" "$ha_profile" "$rtsp_health_ok" "$onvif_health_ok" "$mqtt_publish_ok")"
+        ensure_autostart_script rtsp-h26x >/dev/null 2>&1 || true
+        /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1 || true
+
+        if [ "$ha_enable_onvif" = "1" ]; then
+          ensure_autostart_script onvif >/dev/null 2>&1 || true
+          /mnt/controlscripts/onvif start >/dev/null 2>&1 || true
+        else
+          rm -f /mnt/config/autostart/onvif >/dev/null 2>&1 || true
+          /mnt/controlscripts/onvif stop >/dev/null 2>&1 || true
+        fi
+
+        if [ "$ha_enable_mqtt_autostart" = "1" ]; then
+          ensure_autostart_script mqtt-bridge >/dev/null 2>&1 || true
+        else
+          rm -f /mnt/config/autostart/mqtt-bridge >/dev/null 2>&1 || true
+        fi
+        if [ -x /mnt/controlscripts/mqtt-bridge ]; then
+          /mnt/controlscripts/mqtt-bridge stop >/dev/null 2>&1 || true
+          /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1 || true
+        fi
+
+        rtsp_health_ok=0
+        onvif_health_ok=0
+        mqtt_publish_ok=0
+
+        if [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1; then
+          rtsp_health_ok=1
+        fi
+        if [ "$ha_enable_onvif" = "1" ] && [ -x /mnt/controlscripts/onvif ] && /mnt/controlscripts/onvif health >/dev/null 2>&1; then
+          onvif_health_ok=1
+        fi
+
+        now_ts="$(date +%s 2>/dev/null)"
+        [ -n "$now_ts" ] || now_ts=0
+        mqtt_test_payload="$(printf '{"ts":%s,"type":"ha_pair_test","profile":"%s"}' "$now_ts" "$ha_profile")"
+        if [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish event "$mqtt_test_payload" 0 >/dev/null 2>&1; then
+          mqtt_publish_ok=1
+        fi
+
+        echo "Home Assistant pairing applied.<br/>"
+        echo "Compatibility preset: $profile_label<br/>"
+        echo "Broker: ${ha_broker_host}:${ha_broker_port}, discovery prefix: ${ha_discovery_prefix}<br/>"
+        echo "Topics: root=${ha_topic_root}, command=${ha_topic_command}<br/>"
+        echo "Autostart: RTSP=on, ONVIF=${ha_enable_onvif}, MQTT=${ha_enable_mqtt_autostart}<br/>"
+        if [ "$rtsp_health_ok" = "1" ]; then
+          echo "RTSP health check: OK<br/>"
+        else
+          echo "RTSP health check: FAILED (check video profile/network)<br/>"
+        fi
+        if [ "$ha_enable_onvif" = "1" ]; then
+          if [ "$onvif_health_ok" = "1" ]; then
+            echo "ONVIF health check: OK<br/>"
+          else
+            echo "ONVIF health check: FAILED (check ONVIF service/network)<br/>"
+          fi
+        else
+          echo "ONVIF health check: skipped (disabled)<br/>"
+        fi
+        if [ "$mqtt_publish_ok" = "1" ]; then
+          echo "MQTT publish test: OK (discovery should republish at MQTT bridge start)<br/>"
+        else
+          echo "MQTT publish test: FAILED (check broker credentials/reachability)<br/>"
+        fi
+        echo "Quick links: /onvif/device_service, rtsp://CAMERA-IP:554/video0_unicast, rtsp://CAMERA-IP:554/video1_unicast<br/>"
+        echo "Integration manifest: /cgi-bin/state.cgi?cmd=integrationmanifest<br/>"
+
+        publish_mqtt_event "$(printf '{"ts":%s,"type":"ha_pair","profile":"%s","rtsp_ok":%s,"onvif_ok":%s,"mqtt_ok":%s}' "$now_ts" "$ha_profile" "$rtsp_health_ok" "$onvif_health_ok" "$mqtt_publish_ok")"
+      fi
     ;;
 
     set_advanced_tuning)
@@ -1770,8 +2027,6 @@ if [ -n "$F_cmd" ]; then
           ;;
       esac
 
-      echo "RTSP preset applied: $preset (fps max 25)<br/>"
-
       /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
           0 width        "$width0" \
           0 height       "$height0" \
@@ -1798,7 +2053,9 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      finalize_stream_apply "rtsp-preset:${preset}"
+      if finalize_stream_apply "rtsp-preset:${preset}"; then
+        echo "RTSP preset applied: $preset (fps max 25)<br/>"
+      fi
     ;;
 
     set_rtsp_quality_profile)
@@ -1879,11 +2136,11 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
 
-      finalize_stream_apply "rtsp-quality:${quality_profile}"
-
-      echo "RTSP quality profile applied: $profile_label<br/>"
-      echo "Main=${width0}x${height0}@${fps0}fps codec=${codec0}, Sub=${width1}x${height1}@${fps1}fps codec=${codec1}<br/>"
-      echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
+      if finalize_stream_apply "rtsp-quality:${quality_profile}"; then
+        echo "RTSP quality profile applied: $profile_label<br/>"
+        echo "Main=${width0}x${height0}@${fps0}fps codec=${codec0}, Sub=${width1}x${height1}@${fps1}fps codec=${codec1}<br/>"
+        echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
+      fi
     ;;
 
     set_client_profile)
@@ -1934,18 +2191,18 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
-      if [ "$low_cpu_profile" = "1" ]; then
-        apply_low_cpu_background_defaults
+
+      if finalize_stream_apply "compat-profile:${client_profile}"; then
+        if [ "$low_cpu_profile" = "1" ]; then
+          apply_low_cpu_background_defaults
+        fi
+        echo "Compatibility preset applied: $profile_label<br/>"
+        echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
+        echo "Main=${width0}x${height0}@${fps0}fps, Sub=${width1}x${height1}@${fps1}fps<br/>"
+        now_ts="$(date +%s 2>/dev/null)"
+        [ -n "$now_ts" ] || now_ts=0
+        publish_mqtt_event "$(printf '{"ts":%s,"type":"client_profile","value":"%s"}' "$now_ts" "$client_profile")"
       fi
-
-      finalize_stream_apply "compat-profile:${client_profile}"
-
-      echo "Compatibility preset applied: $profile_label<br/>"
-      echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
-      echo "Main=${width0}x${height0}@${fps0}fps, Sub=${width1}x${height1}@${fps1}fps<br/>"
-      now_ts="$(date +%s 2>/dev/null)"
-      [ -n "$now_ts" ] || now_ts=0
-      publish_mqtt_event "$(printf '{"ts":%s,"type":"client_profile","value":"%s"}' "$now_ts" "$client_profile")"
     ;;
 
     save_known_good_profile)
@@ -2083,21 +2340,20 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY "$onvif_policy"
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
-      if [ "$low_cpu_profile" = "1" ]; then
-        apply_low_cpu_background_defaults
+
+      if finalize_stream_apply "setup-wizard:${wizard_profile}"; then
+        now_ts="$(date +%s 2>/dev/null)"
+        [ -n "$now_ts" ] || now_ts=0
+        rewrite_config /mnt/config/boot.conf SETUP_WIZARD_DONE 1
+        rewrite_config /mnt/config/boot.conf SETUP_WIZARD_EPOCH "$now_ts"
+        if [ "$low_cpu_profile" = "1" ]; then
+          apply_low_cpu_background_defaults
+        fi
+        echo "Setup wizard completed.<br/>"
+        echo "Compatibility preset: $profile_label<br/>"
+        echo "Timezone: $wizard_tz, NTP: $wizard_ntp_srv (ENABLE_NTP=$wizard_enable_ntp)<br/>"
+        publish_mqtt_event "$(printf '{"ts":%s,"type":"setup_wizard","profile":"%s"}' "$now_ts" "$wizard_profile")"
       fi
-
-      now_ts="$(date +%s 2>/dev/null)"
-      [ -n "$now_ts" ] || now_ts=0
-      rewrite_config /mnt/config/boot.conf SETUP_WIZARD_DONE 1
-      rewrite_config /mnt/config/boot.conf SETUP_WIZARD_EPOCH "$now_ts"
-
-      finalize_stream_apply "setup-wizard:${wizard_profile}"
-
-      echo "Setup wizard completed.<br/>"
-      echo "Compatibility preset: $profile_label<br/>"
-      echo "Timezone: $wizard_tz, NTP: $wizard_ntp_srv (ENABLE_NTP=$wizard_enable_ntp)<br/>"
-      publish_mqtt_event "$(printf '{"ts":%s,"type":"setup_wizard","profile":"%s"}' "$now_ts" "$wizard_profile")"
     ;;
 
     set_video_size)
@@ -2222,7 +2478,9 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      finalize_stream_apply "manual-video-settings"
+      if ! finalize_stream_apply "manual-video-settings"; then
+        echo "Manual video settings were rolled back.<br/>"
+      fi
     ;;
 
 
@@ -2309,18 +2567,16 @@ if [ -n "$F_cmd" ]; then
 
 
     get_ptt_vol)
-        ptt_vol_val="$(head -n1 /mnt/config/pttvolume.conf 2>/dev/null | tr -d '[:space:]')"
-        case "$ptt_vol_val" in
-            ''|*[!0-9]*) ptt_vol_val=90 ;;
-        esac
-        if [ "$ptt_vol_val" -lt 0 ] 2>/dev/null; then ptt_vol_val=0; fi
-        if [ "$ptt_vol_val" -gt 100 ] 2>/dev/null; then ptt_vol_val=100; fi
-        echo "$ptt_vol_val"
+        read_ptt_volume
+    ;;
+
+    get_ptt_status)
+        ptt_backend_status
     ;;
 
     conf_ptt)
         safe_ptt_vol="$(sanitize_int_range "$F_audiooutVol" 0 100 90)"
-        echo "$safe_ptt_vol" > /mnt/config/pttvolume.conf
+        echo "$safe_ptt_vol" > "$PTT_VOLUME_FILE"
         echo "Push-to-talk volume set to $safe_ptt_vol"
     ;;
 
