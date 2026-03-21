@@ -1,0 +1,8 @@
+{
+  "name": "teckin-tc100-web-assets",
+  "private": true,
+  "scripts": {
+    "build:web": "node tools/build-web-assets.mjs",
+    "check:web": "node tools/build-web-assets.mjs --check"
+  }
+}

@@ -62,6 +62,290 @@
     }
   }
 
+  function setTextValue(selector, text) {
+    var field = qs(selector);
+    if (!field) {
+      return;
+    }
+    field.value = text;
+  }
+
+  function yamlQuote(value) {
+    return JSON.stringify(value == null ? "" : String(value));
+  }
+
+  function fallbackCopyText(text) {
+    var probe = document.createElement("textarea");
+    probe.value = text;
+    probe.setAttribute("readonly", "readonly");
+    probe.style.position = "fixed";
+    probe.style.top = "-1000px";
+    probe.style.left = "-1000px";
+    document.body.appendChild(probe);
+    probe.focus();
+    probe.select();
+    try {
+      if (!document.execCommand("copy")) {
+        throw new Error("copy failed");
+      }
+    } finally {
+      document.body.removeChild(probe);
+    }
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext !== false) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        fallbackCopyText(text);
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function buildIntegrationSummary(manifest) {
+    var web = manifest.web || {};
+    var rtsp = manifest.rtsp || {};
+    var mqtt = manifest.mqtt || {};
+    var onvif = manifest.onvif || {};
+    var lines = [];
+
+    lines.push("Camera: " + (manifest.hostname || "TC100 Camera") + " (" + (manifest.primary_ip || "CAMERA-IP") + ")");
+    lines.push("Generated: " + (manifest.generated_at_utc || "n/a"));
+    lines.push("Web base: " + (web.base_url || "disabled"));
+    if (web.snapshot_url) {
+      lines.push("Snapshot: " + web.snapshot_url);
+    }
+    if (web.healthsnapshot_url) {
+      lines.push("Health JSON: " + web.healthsnapshot_url);
+    }
+    if (rtsp.main && rtsp.main.url) {
+      lines.push("RTSP main: " + rtsp.main.url);
+    }
+    if (rtsp.substream_enabled && rtsp.sub && rtsp.sub.url) {
+      lines.push("RTSP sub: " + rtsp.sub.url);
+    } else {
+      lines.push("RTSP sub: disabled");
+    }
+    if (onvif.device_service_url) {
+      lines.push("ONVIF: " + onvif.device_service_url);
+    }
+    if (mqtt.enabled) {
+      lines.push("MQTT broker: " + (mqtt.broker_host || "127.0.0.1") + ":" + (mqtt.broker_port || 1883));
+      lines.push("MQTT health topic: " + (mqtt.health_topic || ""));
+      lines.push("MQTT motion topic: " + (mqtt.motion_state_topic || ""));
+      lines.push("MQTT command topic: " + (mqtt.command_topic || ""));
+    } else {
+      lines.push("MQTT: disabled");
+    }
+
+    return lines.join("\n");
+  }
+
+  function buildFrigateSnippet(manifest) {
+    var rtsp = manifest.rtsp || {};
+    var mqtt = manifest.mqtt || {};
+    var frigate = rtsp.frigate || {};
+    var cameraSlug = manifest.camera_slug || "tc100_camera";
+    var lines = [];
+    var recordUrl = frigate.record_url || (rtsp.main && rtsp.main.url) || "";
+    var detectUrl = frigate.detect_url || recordUrl;
+
+    if (rtsp.auth_warning) {
+      lines.push("# " + rtsp.auth_warning);
+      lines.push("# Replace USERNAME/PASSWORD placeholders if needed.");
+      lines.push("");
+    }
+
+    if (mqtt.enabled) {
+      lines.push("mqtt:");
+      lines.push("  host: " + yamlQuote(mqtt.broker_host || "127.0.0.1"));
+      lines.push("  port: " + (mqtt.broker_port || 1883));
+      if (mqtt.username) {
+        lines.push("  user: " + yamlQuote(mqtt.username));
+      }
+      if (mqtt.password) {
+        lines.push("  password: " + yamlQuote(mqtt.password));
+      }
+      if (mqtt.topic_root) {
+        lines.push("  topic_prefix: " + yamlQuote(mqtt.topic_root));
+      }
+      lines.push("");
+    }
+
+    lines.push("cameras:");
+    lines.push("  " + cameraSlug + ":");
+    lines.push("    ffmpeg:");
+    lines.push("      inputs:");
+    lines.push("        - path: " + yamlQuote(recordUrl));
+    lines.push("          roles:");
+    lines.push("            - record");
+    if (detectUrl === recordUrl) {
+      lines.push("            - detect");
+    } else {
+      lines.push("        - path: " + yamlQuote(detectUrl));
+      lines.push("          roles:");
+      lines.push("            - detect");
+    }
+
+    return lines.join("\n");
+  }
+
+  function buildHomeAssistantNotes(manifest) {
+    var web = manifest.web || {};
+    var rtsp = manifest.rtsp || {};
+    var mqtt = manifest.mqtt || {};
+    var onvif = manifest.onvif || {};
+    var lines = [];
+
+    lines.push("ONVIF integration");
+    lines.push("host: " + (manifest.primary_ip || "CAMERA-IP"));
+    lines.push("port: " + (onvif.port || 8081));
+    lines.push("username: " + (rtsp.username || "root"));
+    lines.push("password: " + (rtsp.password || ""));
+    lines.push("stream policy: " + (onvif.stream_policy || "main-primary"));
+
+    if (mqtt.enabled) {
+      lines.push("");
+      lines.push("MQTT discovery");
+      lines.push("broker: " + (mqtt.broker_host || "127.0.0.1") + ":" + (mqtt.broker_port || 1883));
+      lines.push("discovery enabled: " + (mqtt.discovery_enabled ? "yes" : "no"));
+      lines.push("discovery prefix: " + (mqtt.discovery_prefix || "homeassistant"));
+      lines.push("topic root: " + (mqtt.topic_root || ""));
+      lines.push("command topic: " + (mqtt.command_topic || ""));
+      lines.push("availability topic: " + (mqtt.availability_topic || ""));
+      lines.push("health topic: " + (mqtt.health_topic || ""));
+      lines.push("motion state topic: " + (mqtt.motion_state_topic || ""));
+      lines.push("event topic: " + (mqtt.event_topic || ""));
+    } else {
+      lines.push("");
+      lines.push("MQTT discovery");
+      lines.push("disabled");
+    }
+
+    if (web.base_url) {
+      lines.push("");
+      lines.push("Useful local URLs");
+      lines.push("snapshot: " + (web.snapshot_url || ""));
+      lines.push("health JSON: " + (web.healthsnapshot_url || ""));
+      lines.push("motion events JSON: " + (web.motion_events_url || ""));
+      lines.push("latest motion thumbnail: " + (web.motion_thumbnail_url || ""));
+      lines.push("integration manifest: " + (web.integration_manifest_url || ""));
+    }
+
+    if (rtsp.auth_warning) {
+      lines.push("");
+      lines.push("Note");
+      lines.push(rtsp.auth_warning);
+    }
+
+    return lines.join("\n");
+  }
+
+  function initCopyTargets() {
+    qsa("[data-copy-target]").forEach(function (button) {
+      if (button.dataset.copyBound === "1") {
+        return;
+      }
+      button.dataset.copyBound = "1";
+      button.addEventListener("click", function () {
+        var targetId = button.getAttribute("data-copy-target");
+        var target = targetId ? document.getElementById(targetId) : null;
+        var text = target ? target.value || target.textContent || "" : "";
+        copyText(text)
+          .then(function () {
+            showResult("Copied.");
+          })
+          .catch(function (error) {
+            console.error(error);
+            showResult("Copy failed.");
+          });
+      });
+    });
+  }
+
+  function initIntegrationPack() {
+    if (!qs("#integrationSummarySnippet")) {
+      return;
+    }
+
+    fetch("cgi-bin/state.cgi?cmd=integrationmanifest&uid=" + Date.now(), { cache: "no-store" })
+      .then(function (response) {
+        return response.text();
+      })
+      .then(function (text) {
+        var manifest = JSON.parse(text);
+        setTextValue("#integrationSummarySnippet", buildIntegrationSummary(manifest));
+        setTextValue("#frigateConfigSnippet", buildFrigateSnippet(manifest));
+        setTextValue("#homeAssistantIntegrationNotes", buildHomeAssistantNotes(manifest));
+      })
+      .catch(function (error) {
+        var fallback = "Failed to load integration manifest.";
+        console.error(error);
+        setTextValue("#integrationSummarySnippet", fallback);
+        setTextValue("#frigateConfigSnippet", fallback);
+        setTextValue("#homeAssistantIntegrationNotes", fallback);
+      });
+  }
+
+  function buildIntegrationSelfTestSummary(result) {
+    var tests = result.tests || {};
+    var lines = [];
+
+    function renderTestLine(label, key) {
+      var test = tests[key] || {};
+      var status = String(test.status || "unknown").toUpperCase();
+      var detail = test.detail ? " - " + test.detail : "";
+      return label + ": " + status + detail;
+    }
+
+    lines.push("Overall: " + String(result.overall_status || "unknown").toUpperCase());
+    lines.push("Camera: " + (result.hostname || "TC100 Camera") + " (" + (result.primary_ip || "CAMERA-IP") + ")");
+    lines.push("Timestamp: " + (result.timestamp_utc || "n/a"));
+    lines.push("");
+    lines.push(renderTestLine("RTSP main", "rtsp_main"));
+    lines.push(renderTestLine("RTSP sub", "rtsp_sub"));
+    lines.push(renderTestLine("ONVIF", "onvif"));
+    lines.push(renderTestLine("MQTT publish", "mqtt_publish"));
+    lines.push(renderTestLine("Snapshot", "snapshot"));
+
+    return lines.join("\n");
+  }
+
+  function initIntegrationSelfTest() {
+    var runButton = qs("#integrationSelfTestRun");
+    var output = qs("#integrationSelfTestResult");
+    if (!runButton || !output || runButton.dataset.bound === "1") {
+      return;
+    }
+
+    runButton.dataset.bound = "1";
+    runButton.addEventListener("click", function () {
+      setLoading(runButton, true);
+      output.value = "Running integration self-test...";
+      fetch("cgi-bin/state.cgi?cmd=integrationtest&uid=" + Date.now(), { cache: "no-store" })
+        .then(function (response) {
+          return response.text();
+        })
+        .then(function (text) {
+          var result = JSON.parse(text);
+          output.value = buildIntegrationSelfTestSummary(result);
+        })
+        .catch(function (error) {
+          console.error(error);
+          output.value = "Integration self-test failed to run.";
+          showResult("Self-test failed.");
+        })
+        .finally(function () {
+          setLoading(runButton, false);
+        });
+    });
+  }
+
   function scheduleStatusReload(delay) {
     var reloadDelay = delay || 5000;
     if (window._srScheduled) {
@@ -694,6 +978,9 @@
     initThemePicker();
     initMemoryPurge();
     initWebModeForm();
+    initCopyTargets();
+    initIntegrationPack();
+    initIntegrationSelfTest();
     initEmbeddedSettingsPanels();
     setupStatusDensityControls();
 

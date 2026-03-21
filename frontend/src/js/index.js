@@ -1,0 +1,1470 @@
+(function () {
+  var timeoutJobs = {};
+  var contentLoadController = null;
+  var liveFeedEnabled = false;
+  var currentContentTarget = "";
+
+  var LIVEVIEW_INTERVAL_VISIBLE_DEFAULT_MS = 4000;
+  var LIVEVIEW_INTERVAL_HIDDEN_DEFAULT_MS = 20000;
+  var SYSUSAGE_INTERVAL_VISIBLE_DEFAULT_MS = 20000;
+  var SYSUSAGE_INTERVAL_HIDDEN_DEFAULT_MS = 90000;
+  var AUTONIGHT_INTERVAL_VISIBLE_DEFAULT_MS = 12000;
+  var AUTONIGHT_INTERVAL_HIDDEN_DEFAULT_MS = 30000;
+
+  var LIVEVIEW_INTERVAL_VISIBLE_MS = LIVEVIEW_INTERVAL_VISIBLE_DEFAULT_MS;
+  var LIVEVIEW_INTERVAL_HIDDEN_MS = LIVEVIEW_INTERVAL_HIDDEN_DEFAULT_MS;
+  var SYSUSAGE_INTERVAL_VISIBLE_MS = SYSUSAGE_INTERVAL_VISIBLE_DEFAULT_MS;
+  var SYSUSAGE_INTERVAL_HIDDEN_MS = SYSUSAGE_INTERVAL_HIDDEN_DEFAULT_MS;
+  var AUTONIGHT_INTERVAL_VISIBLE_MS = AUTONIGHT_INTERVAL_VISIBLE_DEFAULT_MS;
+  var AUTONIGHT_INTERVAL_HIDDEN_MS = AUTONIGHT_INTERVAL_HIDDEN_DEFAULT_MS;
+
+  var liveViewVisibleIntervalMs = LIVEVIEW_INTERVAL_VISIBLE_MS;
+  var liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
+  var liveViewInViewport = true;
+  var liveViewVisibilityObserver = null;
+  var currentPerfProfileToken = "balanced";
+  var dynamicSysUsageIntervalMs = 0;
+  var dynamicAutoNightIntervalMs = 0;
+  var uiUltraLiteMode = false;
+  var perfProfileFetchController = null;
+  var sysUsageFetchController = null;
+  var legacySysUsageFetchController = null;
+  var lastLumValue = "";
+  var lastAwbValue = "";
+  var settingsStylesInjected = false;
+  var settingsStyleHrefs = [
+    "css/bulma-divider.min.css",
+    "css/bulma-switch.1.0.1.min.css",
+    "css/bulma-badge.1.0.1.min.css",
+  ];
+
+  function setPerformanceProfileBadge(token) {
+    var badge = byId("perfprofile");
+    if (!badge) {
+      return;
+    }
+
+    var normalized = (token || "").trim().toLowerCase();
+    var label = "Balanced";
+    if (normalized === "low-cpu") {
+      label = "Low CPU";
+    } else if (normalized === "rtsp-only") {
+      label = "RTSP+ONVIF";
+    } else {
+      normalized = "balanced";
+    }
+
+    badge.textContent = "Profile: " + label;
+    badge.classList.remove("profile-balanced", "profile-low-cpu", "profile-rtsp-only");
+    badge.classList.add("profile-" + normalized);
+    currentPerfProfileToken = normalized;
+    tuneUiPollIntervals(normalized);
+    if (uiUltraLiteMode) {
+      applyUiUltraLiteMode(true);
+    }
+  }
+
+  function setAdaptiveLivePreviewProfile(cpuPercent, ramPercent) {
+    var nextInterval = LIVEVIEW_INTERVAL_VISIBLE_MS;
+    var nextEndpoint = "cgi-bin/currentpic.cgi";
+    var cpu = typeof cpuPercent === "number" && !isNaN(cpuPercent) ? cpuPercent : 0;
+    var ram = typeof ramPercent === "number" && !isNaN(ramPercent) ? ramPercent : 0;
+    var pressure = Math.max(cpu, ram);
+
+    if (currentPerfProfileToken === "rtsp-only") {
+      nextInterval = Math.max(nextInterval, 5500);
+    } else if (currentPerfProfileToken === "low-cpu") {
+      nextInterval = Math.max(nextInterval, 4000);
+    }
+
+    if (pressure > 80) {
+      nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 10000 : 7000);
+    } else if (pressure >= 50) {
+      nextInterval = Math.max(nextInterval, currentPerfProfileToken === "rtsp-only" ? 7000 : 4500);
+    }
+
+    var changed = liveViewVisibleIntervalMs !== nextInterval || liveViewSnapshotEndpoint !== nextEndpoint;
+    liveViewVisibleIntervalMs = nextInterval;
+    liveViewSnapshotEndpoint = nextEndpoint;
+
+    if (changed && liveFeedEnabled && !document.hidden && liveViewInViewport) {
+      scheduleRefreshLiveImage(liveViewVisibleIntervalMs);
+    }
+  }
+
+  function applyAdaptivePollingPressure(cpuPercent, ramPercent) {
+    var cpu = typeof cpuPercent === "number" && !isNaN(cpuPercent) ? cpuPercent : 0;
+    var ram = typeof ramPercent === "number" && !isNaN(ramPercent) ? ramPercent : 0;
+    var pressure = Math.max(cpu, ram);
+
+    dynamicSysUsageIntervalMs = 0;
+    dynamicAutoNightIntervalMs = 0;
+    if (pressure > 80) {
+      dynamicSysUsageIntervalMs = 20000;
+      dynamicAutoNightIntervalMs = 12000;
+    } else if (pressure >= 50) {
+      dynamicSysUsageIntervalMs = 10000;
+      dynamicAutoNightIntervalMs = 6000;
+    }
+  }
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  function tuneUiPollIntervals(profileToken) {
+    var normalized = (profileToken || "").toLowerCase();
+    LIVEVIEW_INTERVAL_VISIBLE_MS = LIVEVIEW_INTERVAL_VISIBLE_DEFAULT_MS;
+    LIVEVIEW_INTERVAL_HIDDEN_MS = LIVEVIEW_INTERVAL_HIDDEN_DEFAULT_MS;
+    SYSUSAGE_INTERVAL_VISIBLE_MS = SYSUSAGE_INTERVAL_VISIBLE_DEFAULT_MS;
+    SYSUSAGE_INTERVAL_HIDDEN_MS = SYSUSAGE_INTERVAL_HIDDEN_DEFAULT_MS;
+    AUTONIGHT_INTERVAL_VISIBLE_MS = AUTONIGHT_INTERVAL_VISIBLE_DEFAULT_MS;
+    AUTONIGHT_INTERVAL_HIDDEN_MS = AUTONIGHT_INTERVAL_HIDDEN_DEFAULT_MS;
+
+    if (normalized === "rtsp-only") {
+      LIVEVIEW_INTERVAL_VISIBLE_MS = 5500;
+      LIVEVIEW_INTERVAL_HIDDEN_MS = 20000;
+      SYSUSAGE_INTERVAL_VISIBLE_MS = 30000;
+      SYSUSAGE_INTERVAL_HIDDEN_MS = 120000;
+      AUTONIGHT_INTERVAL_VISIBLE_MS = 12000;
+      AUTONIGHT_INTERVAL_HIDDEN_MS = 30000;
+    } else if (normalized === "low-cpu") {
+      LIVEVIEW_INTERVAL_VISIBLE_MS = 4000;
+      LIVEVIEW_INTERVAL_HIDDEN_MS = 16000;
+      SYSUSAGE_INTERVAL_VISIBLE_MS = 22000;
+      SYSUSAGE_INTERVAL_HIDDEN_MS = 90000;
+      AUTONIGHT_INTERVAL_HIDDEN_MS = 25000;
+    }
+  }
+
+  function updateLumAwbLabels(lum, awb) {
+    if (typeof lum === "string") {
+      lastLumValue = lum;
+    }
+    if (typeof awb === "string") {
+      lastAwbValue = awb;
+    }
+    byClass("labelLum").forEach(function (node) {
+      node.textContent = "Current: " + (lastLumValue || "");
+    });
+    byClass("labelAWB").forEach(function (node) {
+      node.textContent = "Current: " + (lastAwbValue || "");
+    });
+    updateNightModeBadge(lastLumValue, lastAwbValue);
+  }
+
+  function updateNightModeBadge(lum, awb) {
+    var badge = byId("nightmodebadge");
+    if (!badge) {
+      return;
+    }
+
+    badge.classList.remove("nightmode-day", "nightmode-twilight", "nightmode-night", "nightmode-unknown");
+
+    var lumStr = typeof lum === "string" ? lum.trim() : "";
+    // lum may be a plain integer string e.g. "23" or "145", or empty
+    var lumMatch = lumStr.match(/([0-9]+)/);
+    if (!lumMatch) {
+      badge.textContent = "\uD83C\uDF19 Night: n/a";
+      badge.classList.add("nightmode-unknown");
+      badge.title = "Luminance data unavailable (auto-night detection not running or /var/run/lum absent).";
+      return;
+    }
+
+    var lumVal = parseInt(lumMatch[1], 10);
+    if (lumVal < 40) {
+      badge.textContent = "\uD83C\uDF19 Night";
+      badge.classList.add("nightmode-night");
+      badge.title = "Low luminance " + lumVal + " — camera is in night mode. AWB: " + (awb || "n/a");
+    } else if (lumVal < 120) {
+      badge.textContent = "\uD83C\uDF24 Twilight";
+      badge.classList.add("nightmode-twilight");
+      badge.title = "Mid luminance " + lumVal + " — twilight / transition zone. AWB: " + (awb || "n/a");
+    } else {
+      badge.textContent = "\u2600\uFE0F Day";
+      badge.classList.add("nightmode-day");
+      badge.title = "High luminance " + lumVal + " — camera is in day mode. AWB: " + (awb || "n/a");
+    }
+  }
+
+  function applyUiUltraLiteMode(enabled) {
+    var next = !!enabled;
+    if (uiUltraLiteMode === next) {
+      return;
+    }
+    uiUltraLiteMode = next;
+    document.body.classList.toggle("ui-ultra-lite", uiUltraLiteMode);
+
+    if (uiUltraLiteMode) {
+      LIVEVIEW_INTERVAL_VISIBLE_MS = Math.max(LIVEVIEW_INTERVAL_VISIBLE_MS, 9000);
+      LIVEVIEW_INTERVAL_HIDDEN_MS = Math.max(LIVEVIEW_INTERVAL_HIDDEN_MS, 25000);
+      SYSUSAGE_INTERVAL_VISIBLE_MS = Math.max(SYSUSAGE_INTERVAL_VISIBLE_MS, 30000);
+      SYSUSAGE_INTERVAL_HIDDEN_MS = Math.max(SYSUSAGE_INTERVAL_HIDDEN_MS, 120000);
+      AUTONIGHT_INTERVAL_VISIBLE_MS = Math.max(AUTONIGHT_INTERVAL_VISIBLE_MS, 15000);
+      AUTONIGHT_INTERVAL_HIDDEN_MS = Math.max(AUTONIGHT_INTERVAL_HIDDEN_MS, 35000);
+      liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
+
+      if (liveFeedEnabled) {
+        liveFeedEnabled = false;
+        setLiveToggleButtonState();
+      }
+      clearJob("refreshLiveImage");
+    } else {
+      tuneUiPollIntervals(currentPerfProfileToken);
+      setLiveToggleButtonState();
+      if (!document.hidden && liveFeedEnabled) {
+        scheduleRefreshLiveImage(200);
+      }
+    }
+  }
+
+  function byClass(cls) {
+    return Array.prototype.slice.call(document.getElementsByClassName(cls));
+  }
+
+  function hasStylesheet(href) {
+    return Array.prototype.some.call(document.querySelectorAll("link[rel='stylesheet']"), function (node) {
+      var nodeHref = node.getAttribute("href") || "";
+      return nodeHref === href || nodeHref.indexOf(href) !== -1;
+    });
+  }
+
+  function injectStylesheet(href) {
+    if (!href || hasStylesheet(href)) {
+      return;
+    }
+    var link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.setAttribute("data-lazy-css", "1");
+    document.head.appendChild(link);
+  }
+
+  function ensureSettingsStylesLoaded() {
+    if (settingsStylesInjected) {
+      return;
+    }
+    settingsStylesInjected = true;
+    settingsStyleHrefs.forEach(function (href) {
+      injectStylesheet(href);
+    });
+  }
+
+  function parseCpuPercent(sysusageText) {
+    var match = /CPU:\s*([0-9]{1,3})%/i.exec(sysusageText || "");
+    if (!match) {
+      return null;
+    }
+    var cpu = parseInt(match[1], 10);
+    return isNaN(cpu) ? null : cpu;
+  }
+
+  function parseRamUsage(sysusageText) {
+    var match = /RAM:\s*([0-9]+)\s*\/\s*([0-9]+)\s*kB/i.exec(sysusageText || "");
+    if (!match) {
+      return null;
+    }
+    var used = parseInt(match[1], 10);
+    var total = parseInt(match[2], 10);
+    if (isNaN(used) || isNaN(total) || total <= 0) {
+      return null;
+    }
+    var percent = Math.round((used * 100) / total);
+    if (percent < 0) {
+      percent = 0;
+    } else if (percent > 100) {
+      percent = 100;
+    }
+    return { used: used, total: total, percent: percent };
+  }
+
+  function applyUsageClass(node, percent) {
+    if (!node) {
+      return;
+    }
+    node.classList.remove("usage-low", "usage-mid", "usage-high");
+    if (percent > 80) {
+      node.classList.add("usage-high");
+    } else if (percent >= 50) {
+      node.classList.add("usage-mid");
+    } else {
+      node.classList.add("usage-low");
+    }
+  }
+
+  function updateSysUsageBadges(sysusageText, cpuPercentHint, ramPercentHint) {
+    var cpuBadge = byId("cpuusage");
+    var ramBadge = byId("ramusage");
+    if (!cpuBadge || !ramBadge) {
+      return null;
+    }
+
+    var cpu = cpuPercentHint;
+    if (typeof cpu !== "number" || isNaN(cpu)) {
+      cpu = parseCpuPercent(sysusageText);
+    }
+    var ramPercent = ramPercentHint;
+    if (typeof ramPercent !== "number" || isNaN(ramPercent)) {
+      var ram = parseRamUsage(sysusageText);
+      ramPercent = ram ? ram.percent : null;
+    }
+
+    if (typeof cpu === "number" && !isNaN(cpu)) {
+      if (cpu < 0) {
+        cpu = 0;
+      } else if (cpu > 100) {
+        cpu = 100;
+      }
+      cpuBadge.textContent = "CPU: " + cpu + "%";
+      applyUsageClass(cpuBadge, cpu);
+      setAdaptiveLivePreviewProfile(cpu, ramPercent);
+    } else {
+      cpuBadge.textContent = "CPU: ...";
+      cpuBadge.classList.remove("usage-low", "usage-mid", "usage-high");
+      cpuBadge.classList.add("usage-low");
+    }
+
+    if (typeof ramPercent === "number" && !isNaN(ramPercent)) {
+      if (ramPercent < 0) {
+        ramPercent = 0;
+      } else if (ramPercent > 100) {
+        ramPercent = 100;
+      }
+      ramBadge.textContent = "RAM: " + ramPercent + "%";
+      applyUsageClass(ramBadge, ramPercent);
+    } else {
+      ramBadge.textContent = "RAM: ...";
+      ramBadge.classList.remove("usage-low", "usage-mid", "usage-high");
+      ramBadge.classList.add("usage-low");
+    }
+
+    applyAdaptivePollingPressure(cpu, ramPercent);
+    return cpu;
+  }
+
+  function updateSecurityBadge(defaultPasswordActive) {
+    var securityBadge = byId("securitybadge");
+    if (!securityBadge) {
+      return;
+    }
+
+    var isActive = defaultPasswordActive === 1 || defaultPasswordActive === true;
+    var isInactive = defaultPasswordActive === 0 || defaultPasswordActive === false;
+    securityBadge.classList.remove("security-safe", "security-risk", "security-unknown");
+
+    if (isActive) {
+      securityBadge.textContent = "Security: default password";
+      securityBadge.title = "Default password is active. Change credentials in Settings.";
+      securityBadge.classList.add("security-risk");
+      return;
+    }
+
+    if (isInactive) {
+      securityBadge.textContent = "Security: custom password";
+      securityBadge.title = "Default credential check passed.";
+      securityBadge.classList.add("security-safe");
+      return;
+    }
+
+    securityBadge.textContent = "Security: n/a";
+    securityBadge.title = "Credential security state unavailable.";
+    securityBadge.classList.add("security-unknown");
+  }
+
+  function updateMqttBadge(mqttEnabled, lastPubTs, lastPubOk) {
+    var badge = byId("mqttbadge");
+    if (!badge) return;
+    var wrap = badge.parentElement;
+    badge.classList.remove("mqtt-ok", "mqtt-fail", "mqtt-waiting", "mqtt-unknown");
+    if (mqttEnabled !== 1) {
+      if (wrap) wrap.style.display = "none";
+      return;
+    }
+    if (wrap) wrap.style.display = "";
+    if (!lastPubTs || lastPubTs <= 0) {
+      badge.textContent = "MQTT: waiting";
+      badge.title = "MQTT enabled — no publish recorded yet since boot.";
+      badge.classList.add("mqtt-waiting");
+      return;
+    }
+    var nowTs = Math.floor(Date.now() / 1000);
+    var age = nowTs - lastPubTs;
+    var ageStr = age < 60 ? age + "s ago" : Math.floor(age / 60) + "m ago";
+    if (lastPubOk === 1) {
+      badge.textContent = "MQTT: ok";
+      badge.title = "Last publish OK, " + ageStr + ".";
+      badge.classList.add("mqtt-ok");
+    } else if (lastPubOk === 0) {
+      badge.textContent = "MQTT: fail";
+      badge.title = "Last publish FAILED, " + ageStr + ". Check broker connectivity.";
+      badge.classList.add("mqtt-fail");
+    } else {
+      badge.textContent = "MQTT";
+      badge.title = "MQTT publish status unavailable.";
+      badge.classList.add("mqtt-unknown");
+    }
+  }
+
+  function parseJsonArray(data) {
+    try {
+      var parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function clearJob(name) {
+    if (timeoutJobs[name] !== undefined) {
+      clearTimeout(timeoutJobs[name]);
+      delete timeoutJobs[name];
+    }
+  }
+
+  function executeEmbeddedScripts(root) {
+    var scripts = Array.prototype.slice.call(root.querySelectorAll("script"));
+    scripts.forEach(function (oldScript) {
+      var newScript = document.createElement("script");
+      Array.prototype.slice.call(oldScript.attributes).forEach(function (attr) {
+        newScript.setAttribute(attr.name, attr.value);
+      });
+      if (oldScript.src) {
+        newScript.async = false;
+        newScript.src = oldScript.src;
+      } else {
+        newScript.text = oldScript.textContent;
+      }
+      oldScript.parentNode.replaceChild(newScript, oldScript);
+    });
+  }
+
+  function setContentLoading(isLoading) {
+    var content = byId("content");
+    if (!content) {
+      return;
+    }
+    content.classList.toggle("content-loading", !!isLoading);
+  }
+
+  function cacheBustedUrl(target) {
+    var cachebuster = "_=" + Date.now();
+    return target.indexOf("?") >= 0 ? target + "&" + cachebuster : target + "?" + cachebuster;
+  }
+
+  function normalizeTarget(target) {
+    return (target || "").replace(/[?#].*$/, "");
+  }
+
+  function setActiveOnPageTarget(target) {
+    var normalized = normalizeTarget(target);
+    Array.prototype.slice.call(document.querySelectorAll(".onpage[data-target]")).forEach(function (node) {
+      node.classList.toggle("is-active", normalizeTarget(node.dataset.target) === normalized);
+    });
+  }
+
+  function closeNavMenu() {
+    var burger = byId("navbar_burger");
+    var menu = byId("nav_menu");
+    if (burger) {
+      burger.classList.remove("is-active");
+      burger.setAttribute("aria-expanded", "false");
+    }
+    if (menu) {
+      menu.classList.remove("is-active");
+    }
+    closeNavDropdowns();
+  }
+
+  function getDropdownToggle(dropdown) {
+    if (!dropdown) {
+      return null;
+    }
+    return dropdown.querySelector(".navbar-link");
+  }
+
+  function closeNavDropdowns(exceptNode) {
+    Array.prototype.slice.call(document.querySelectorAll("#nav_menu .navbar-item.has-dropdown")).forEach(function (node) {
+      if (exceptNode && node === exceptNode) {
+        return;
+      }
+      node.classList.remove("is-active");
+      var toggle = getDropdownToggle(node);
+      if (toggle) {
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+
+  function initNavDropdownToggles() {
+    Array.prototype.slice.call(document.querySelectorAll("#nav_menu .navbar-item.has-dropdown > .navbar-link")).forEach(function (toggle) {
+      if (toggle.dataset.dropdownBound === "1") {
+        return;
+      }
+      toggle.dataset.dropdownBound = "1";
+      toggle.setAttribute("aria-haspopup", "true");
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.addEventListener("click", function (event) {
+        if (window.innerWidth >= 1024) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        var dropdown = toggle.closest(".navbar-item.has-dropdown");
+        if (!dropdown) {
+          return;
+        }
+        var willOpen = !dropdown.classList.contains("is-active");
+        closeNavDropdowns(dropdown);
+        dropdown.classList.toggle("is-active", willOpen);
+        toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      });
+    });
+  }
+
+  function loadOnPageTarget(target, onLoaded, forceReload) {
+    var content = byId("content");
+    if (!content || !target) {
+      return;
+    }
+    var normalizedTarget = normalizeTarget(target);
+    if (normalizedTarget === "cgi-bin/status.cgi") {
+      ensureSettingsStylesLoaded();
+    }
+    if (!forceReload && normalizedTarget && normalizedTarget === currentContentTarget) {
+      if (typeof onLoaded === "function") {
+        onLoaded();
+      }
+      closeNavMenu();
+      return;
+    }
+
+    if (contentLoadController) {
+      contentLoadController.abort();
+    }
+
+    contentLoadController = new AbortController();
+    setContentLoading(true);
+
+    fetch(cacheBustedUrl(target), {
+      cache: "no-store",
+      signal: contentLoadController.signal,
+    })
+      .then(function (r) {
+        if (!r.ok) {
+          throw new Error("Failed to load " + target + " (" + r.status + ")");
+        }
+        return r.text();
+      })
+      .then(function (html) {
+        content.innerHTML = html;
+        executeEmbeddedScripts(content);
+        currentContentTarget = normalizedTarget;
+        setActiveOnPageTarget(target);
+        if (typeof onLoaded === "function") {
+          onLoaded();
+        }
+      })
+      .catch(function (e) {
+        if (e && e.name === "AbortError") {
+          return;
+        }
+        console.log(e);
+        content.innerHTML = "<article class='message is-danger'><div class='message-header'><p>Load error</p></div><div class='message-body'>Unable to load page content.</div></article>";
+      })
+      .finally(function () {
+        setContentLoading(false);
+      });
+  }
+
+  function setLiveToggleButtonState() {
+    var toggle = byId("live_toggle");
+    if (!toggle) {
+      return;
+    }
+    if (uiUltraLiteMode && !liveFeedEnabled) {
+      toggle.textContent = "Resume Live (manual)";
+      return;
+    }
+    toggle.textContent = liveFeedEnabled ? "Pause Live" : "Resume Live";
+  }
+
+  function canRefreshLiveImageNow() {
+    if (!liveFeedEnabled) {
+      return false;
+    }
+    if (document.hidden) {
+      return false;
+    }
+    if (!liveViewInViewport) {
+      return false;
+    }
+    return true;
+  }
+
+  function setLiveViewInViewport(inViewport) {
+    var next = !!inViewport;
+    if (next === liveViewInViewport) {
+      return;
+    }
+
+    liveViewInViewport = next;
+    if (!liveFeedEnabled) {
+      return;
+    }
+
+    if (canRefreshLiveImageNow()) {
+      scheduleRefreshLiveImage(150);
+      return;
+    }
+
+    clearJob("refreshLiveImage");
+  }
+
+  function initLiveViewVisibilityObserver() {
+    var liveview = byId("liveview");
+    if (!liveview) {
+      return;
+    }
+
+    var observeTarget = liveview.closest(".liveview-wrap") || liveview;
+    if (!window.IntersectionObserver) {
+      liveViewInViewport = true;
+      return;
+    }
+
+    liveViewVisibilityObserver = new window.IntersectionObserver(function (entries) {
+      var entry = entries && entries.length ? entries[0] : null;
+      if (!entry) {
+        return;
+      }
+      setLiveViewInViewport(entry.isIntersecting && entry.intersectionRatio > 0);
+    }, { threshold: 0.05 });
+
+    liveViewVisibilityObserver.observe(observeTarget);
+  }
+
+  function refreshLiveImage() {
+    var liveview = byId("liveview");
+    if (!liveview) {
+      clearJob("refreshLiveImage");
+      return;
+    }
+    if (!canRefreshLiveImageNow()) {
+      clearJob("refreshLiveImage");
+      return;
+    }
+    // We only change the src here. The onload/onerror handlers
+    // will schedule the NEXT refresh once this one finishes.
+    liveview.src = liveViewSnapshotEndpoint + "?" + Date.now();
+  }
+
+  function scheduleRefreshLiveImage(interval) {
+    if (!canRefreshLiveImageNow()) {
+      clearJob("refreshLiveImage");
+      return;
+    }
+    clearJob("refreshLiveImage");
+    timeoutJobs.refreshLiveImage = setTimeout(refreshLiveImage, interval);
+  }
+
+  function refreshPerformanceProfile() {
+    if (perfProfileFetchController) {
+      perfProfileFetchController.abort();
+    }
+    var controller = new AbortController();
+    perfProfileFetchController = controller;
+
+    fetch("cgi-bin/state.cgi?cmd=perfprofile&uid=" + Date.now(), { cache: "no-store", signal: controller.signal })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (profile) {
+        setPerformanceProfileBadge(profile);
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") {
+          return;
+        }
+      })
+      .finally(function () {
+        if (perfProfileFetchController === controller) {
+          perfProfileFetchController = null;
+        }
+      });
+  }
+
+  function refreshSysUsageLegacy(nextInterval) {
+    if (legacySysUsageFetchController) {
+      legacySysUsageFetchController.abort();
+    }
+    var controller = new AbortController();
+    legacySysUsageFetchController = controller;
+
+    fetch("cgi-bin/state.cgi?cmd=sysusage&uid=" + Date.now(), { cache: "no-store", signal: controller.signal })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (sysusage) {
+        updateSysUsageBadges(sysusage, null, null);
+        updateSecurityBadge(null);
+        refreshPerformanceProfile();
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") {
+          return;
+        }
+      })
+      .finally(function () {
+        if (legacySysUsageFetchController === controller) {
+          legacySysUsageFetchController = null;
+          scheduleRefreshSysUsage(nextInterval);
+        }
+      });
+  }
+
+  function refreshSysUsage() {
+    var baseInterval = document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS;
+    var nextInterval = baseInterval + dynamicSysUsageIntervalMs;
+    if (sysUsageFetchController) {
+      sysUsageFetchController.abort();
+    }
+    var controller = new AbortController();
+    sysUsageFetchController = controller;
+
+    fetch("cgi-bin/state.cgi?cmd=statusline&uid=" + Date.now(), { cache: "no-store", signal: controller.signal })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (statuslinePayload) {
+        var statusline = null;
+        try {
+          statusline = JSON.parse(statuslinePayload);
+        } catch (e) {
+          statusline = null;
+        }
+
+        if (statusline && typeof statusline.sysusage === "string") {
+          var cpuPercent = typeof statusline.cpu === "number" ? statusline.cpu : null;
+          var ramPercent = typeof statusline.ram_percent === "number" ? statusline.ram_percent : null;
+          updateSysUsageBadges(statusline.sysusage, cpuPercent, ramPercent);
+          if (typeof statusline.perfprofile === "string") {
+            setPerformanceProfileBadge(statusline.perfprofile);
+          }
+          if (typeof statusline.ui_ultralite_mode === "number") {
+            applyUiUltraLiteMode(statusline.ui_ultralite_mode > 0);
+          }
+          updateSecurityBadge(typeof statusline.default_password_active === "number" ? statusline.default_password_active : null);
+          updateMqttBadge(
+            typeof statusline.mqtt_enabled === "number" ? statusline.mqtt_enabled : -1,
+            typeof statusline.mqtt_last_pub_ts === "number" ? statusline.mqtt_last_pub_ts : 0,
+            typeof statusline.mqtt_last_pub_ok === "number" ? statusline.mqtt_last_pub_ok : -1
+          );
+          updateLumAwbLabels(typeof statusline.lum === "string" ? statusline.lum : "", typeof statusline.awb === "string" ? statusline.awb : "");
+          scheduleRefreshSysUsage(nextInterval);
+          return;
+        }
+
+        refreshSysUsageLegacy(nextInterval);
+      })
+      .catch(function (err) {
+        if (err && err.name === "AbortError") {
+          return;
+        }
+        refreshSysUsageLegacy(nextInterval);
+      })
+      .finally(function () {
+        if (sysUsageFetchController === controller) {
+          sysUsageFetchController = null;
+        }
+      });
+  }
+
+  function scheduleRefreshSysUsage(interval) {
+    clearJob("refreshSysUsage");
+    timeoutJobs.refreshSysUsage = setTimeout(refreshSysUsage, interval);
+  }
+
+  function showResult(txt) {
+    var qv = byId("quickviewDefault");
+    var v = byId("quicViewContent");
+    if (!qv || !v) {
+      var toast = byId("result_toast");
+      if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "result_toast";
+        toast.style.position = "fixed";
+        toast.style.right = "1rem";
+        toast.style.bottom = "1rem";
+        toast.style.maxWidth = "80vw";
+        toast.style.zIndex = "1200";
+        toast.style.padding = "0.55rem 0.8rem";
+        toast.style.borderRadius = "10px";
+        toast.style.background = "rgba(21, 31, 43, 0.92)";
+        toast.style.color = "#fff";
+        toast.style.fontSize = "0.9rem";
+        toast.style.boxShadow = "0 10px 24px rgba(0,0,0,0.28)";
+        document.body.appendChild(toast);
+      }
+      toast.textContent = String(txt || "");
+      toast.style.display = "block";
+      setTimeout(function () {
+        if (toast) {
+          toast.style.display = "none";
+        }
+      }, 2500);
+      return;
+    }
+    if (qv.classList.contains("is-active")) {
+      qv.classList.remove("is-active");
+    }
+    v.innerHTML = txt;
+    qv.classList.add("is-active");
+    setTimeout(function () {
+      var close = byId("quickViewClose");
+      if (close) {
+        close.click();
+      }
+    }, 2500);
+  }
+
+  function fixMenuPadding() {
+    var navMenu = byId("nav_menu");
+    if (!navMenu) {
+      return;
+    }
+    if (window.innerWidth < 1023) {
+      navMenu.style.paddingBottom = "6rem";
+    } else {
+      navMenu.style.paddingBottom = "";
+    }
+  }
+
+  function setCookie(name, value) {
+    document.cookie = encodeURIComponent(name) + "=" + encodeURIComponent(value) + "; path=/";
+  }
+
+  function getCookie(name) {
+    var nameEQ = encodeURIComponent(name) + "=";
+    var ca = document.cookie.split(";");
+    for (var i = 0; i < ca.length; i++) {
+      var c = ca[i];
+      while (c.charAt(0) === " ") {
+        c = c.substring(1, c.length);
+      }
+      if (c.indexOf(nameEQ) === 0) {
+        return decodeURIComponent(c.substring(nameEQ.length, c.length));
+      }
+    }
+    return null;
+  }
+
+  function setTheme(c) {
+    if (!c) {
+      return;
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll(".theme_choice")).forEach(function (choice) {
+      choice.classList.remove("is-active");
+    });
+
+    var theme = byId("theme_choice_" + c);
+    var cssHref = "";
+    if (theme) {
+      theme.classList.add("is-active");
+      cssHref = theme.dataset.css || "";
+    } else if (c === "0") {
+      cssHref = "css/bulma.0.6.2.min.css";
+    } else if (c === "1") {
+      cssHref = "css/bulmaswatch.min.css";
+    }
+
+    if (!cssHref) {
+      return;
+    }
+
+    Array.prototype.slice.call(document.querySelectorAll("link.custom_theme")).forEach(function (node) {
+      node.parentNode.removeChild(node);
+    });
+
+    var css = document.createElement("link");
+    css.className = "custom_theme";
+    css.rel = "stylesheet";
+    css.href = cssHref;
+    document.head.appendChild(css);
+
+    var customCss = byId("custom_css");
+    if (customCss) {
+      var clone = customCss.cloneNode(true);
+      customCss.remove();
+      document.head.appendChild(clone);
+    }
+
+    setCookie("theme", c);
+  }
+
+  function getThemeChoice() {
+    return getCookie("theme");
+  }
+
+  function initPttVolumeControls() {
+    var vol = byId("ptt_vol");
+    var lbl = byId("ptt_vol_label");
+    if (!vol || !lbl) {
+      return;
+    }
+
+    fetch("cgi-bin/action.cgi?cmd=get_ptt_vol", { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (t) {
+        var v = parseInt(String(t || "").trim(), 10);
+        if (!isNaN(v) && v >= 0 && v <= 100) {
+          vol.value = v;
+          lbl.textContent = v + "%";
+        }
+      })
+      .catch(function () {});
+
+    vol.addEventListener("input", function () {
+      lbl.textContent = vol.value + "%";
+    });
+    vol.addEventListener("change", function () {
+      fetch("cgi-bin/action.cgi?cmd=conf_ptt&audiooutVol=" + encodeURIComponent(vol.value))
+        .catch(function () {});
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    setTheme(getThemeChoice());
+    initPttVolumeControls();
+
+    fetch("cgi-bin/state.cgi?cmd=hostname", { cache: "no-store" })
+      .then(function (r) {
+        return r.text();
+      })
+      .then(function (title) {
+        document.title = title;
+        var titleNode = byId("title");
+        if (titleNode) {
+          titleNode.title = title;
+        }
+      });
+
+    document.addEventListener("click", function (event) {
+      var onPageTarget = event.target.closest(".onpage");
+      if (onPageTarget && onPageTarget.dataset.target) {
+        event.preventDefault();
+        loadOnPageTarget(onPageTarget.dataset.target, null, onPageTarget.dataset.forceReload === "1");
+        if (window.innerWidth < 1024) {
+          closeNavMenu();
+        } else {
+          closeNavDropdowns();
+        }
+        return;
+      }
+
+      var promptTarget = event.target.closest(".prompt");
+      if (promptTarget && promptTarget.dataset.target) {
+        if (confirm(promptTarget.dataset.message)) {
+          window.location.href = promptTarget.dataset.target;
+        }
+        return;
+      }
+
+      if (window.innerWidth < 1024) {
+        var menu = byId("nav_menu");
+        if (menu && menu.classList.contains("is-active") && !event.target.closest("#nav_menu") && !event.target.closest("#navbar_burger")) {
+          closeNavMenu();
+        }
+      } else if (!event.target.closest("#nav_menu")) {
+        closeNavDropdowns();
+      }
+    });
+
+    var navbarBurger = byId("navbar_burger");
+    if (navbarBurger) {
+      navbarBurger.addEventListener("click", function () {
+        var willOpen = !navbarBurger.classList.contains("is-active");
+        navbarBurger.classList.toggle("is-active", willOpen);
+        navbarBurger.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        var menu = byId(navbarBurger.dataset.target);
+        if (menu) {
+          menu.classList.toggle("is-active", willOpen);
+        }
+        if (!willOpen) {
+          closeNavDropdowns();
+        }
+      });
+    }
+
+    var navMenu = byId("nav_menu");
+    if (navMenu) {
+      navMenu.addEventListener("click", function (event) {
+        if (window.innerWidth >= 1024) {
+          return;
+        }
+        var clickedItem = event.target.closest(".navbar-item");
+        if (!clickedItem || clickedItem.classList.contains("has-dropdown")) {
+          return;
+        }
+        closeNavMenu();
+      });
+    }
+
+    if (document.location.hash !== "") {
+      var hashTarget = document.querySelector(document.location.hash);
+      if (hashTarget) {
+        hashTarget.click();
+      }
+    }
+
+    initLiveViewVisibilityObserver();
+
+    var liveview = byId("liveview");
+    if (liveview) {
+      // Instead of relying on a blind setInterval, we wait for the 
+      // previous image to finish loading before scheduling the next one.
+      liveview.onload = function () {
+        if (canRefreshLiveImageNow()) {
+          scheduleRefreshLiveImage(liveViewVisibleIntervalMs);
+        }
+      };
+      liveview.addEventListener("error", function () {
+        if (!canRefreshLiveImageNow()) {
+          return;
+        }
+        // If image fails to load, wait a short bit then try again
+        scheduleRefreshLiveImage(800);
+      });
+    }
+
+    var liveToggle = byId("live_toggle");
+    if (liveToggle) {
+      liveToggle.addEventListener("click", function () {
+        liveFeedEnabled = !liveFeedEnabled;
+        setLiveToggleButtonState();
+        if (canRefreshLiveImageNow()) {
+          scheduleRefreshLiveImage(100);
+        } else {
+          clearJob("refreshLiveImage");
+        }
+      });
+    }
+    setLiveToggleButtonState();
+
+    document.addEventListener("visibilitychange", function () {
+      if (canRefreshLiveImageNow()) {
+        scheduleRefreshLiveImage(150);
+      } else {
+        clearJob("refreshLiveImage");
+      }
+      scheduleRefreshSysUsage(document.hidden ? SYSUSAGE_INTERVAL_HIDDEN_MS : SYSUSAGE_INTERVAL_VISIBLE_MS);
+    });
+
+    // Push-to-Talk (Walkie-Talkie) feature
+    (function () {
+      var pttBtn = byId("ptt_btn");
+      if (!pttBtn) { return; }
+      var pttVol = byId("ptt_vol");
+      var defaultPttTitle = pttBtn.title || "Hold to talk to the camera speaker";
+
+      // Keep icon + label structure stable for status label updates.
+      pttBtn.innerHTML = '<i class="icon-microphone"></i> <span class="ptt-label">Hold to Talk</span>';
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        var unsupportedLbl = pttBtn.querySelector(".ptt-label");
+        if (unsupportedLbl) { unsupportedLbl.textContent = "PTT unsupported"; }
+        pttBtn.disabled = true;
+        return;
+      }
+
+      if (!window.isSecureContext) {
+        var secureLbl = pttBtn.querySelector(".ptt-label");
+        if (secureLbl) { secureLbl.textContent = "PTT needs HTTPS"; }
+        pttBtn.disabled = true;
+        pttBtn.title = "Microphone access requires HTTPS or localhost.";
+        return;
+      }
+
+      if (!window.AudioContext && !window.webkitAudioContext) {
+        var mimeLbl = pttBtn.querySelector(".ptt-label");
+        if (mimeLbl) { mimeLbl.textContent = "PTT unsupported"; }
+        pttBtn.disabled = true;
+        return;
+      }
+
+      var PTT_MIN_DURATION_MS = 400;
+      var PTT_MAX_DURATION_MS = 9000;
+      var PTT_UPLOAD_TIMEOUT_MS = 15000;
+      var PTT_MAX_BLOB_BYTES = 524288;
+
+      var audioCtx = null;
+      var audioSrc = null;
+      var scriptProc = null;
+      var audioStream = null;
+      var pttSamples = [];
+      var pttActive = false;
+      var pttStarting = false;
+      var pttHoldRequested = false;
+      var pttStartTime = 0;
+      var pttResetTimer = null;
+      var pttMaxRecordTimer = null;
+      var uploadController = null;
+      var uploadTimeoutTimer = null;
+      var pttServerUnavailable = false;
+
+      function setPttLabel(text) {
+        var lbl = pttBtn.querySelector(".ptt-label");
+        if (lbl) { lbl.textContent = text; }
+      }
+
+      function setPttUnavailable(label, title) {
+        pttServerUnavailable = true;
+        pttHoldRequested = false;
+        pttStarting = false;
+        pttActive = false;
+        clearResetTimer();
+        clearMaxRecordTimer();
+        cancelInFlightUpload();
+        releaseStream();
+        pttBtn.classList.remove("is-loading", "ptt-recording", "ptt-sent", "ptt-error");
+        pttBtn.disabled = true;
+        pttBtn.title = title || defaultPttTitle;
+        setPttLabel(label || "PTT unavailable");
+        if (pttVol) {
+          pttVol.disabled = true;
+          pttVol.title = title || "";
+        }
+      }
+
+      function clearResetTimer() {
+        if (pttResetTimer) {
+          clearTimeout(pttResetTimer);
+          pttResetTimer = null;
+        }
+      }
+
+      function clearMaxRecordTimer() {
+        if (pttMaxRecordTimer) {
+          clearTimeout(pttMaxRecordTimer);
+          pttMaxRecordTimer = null;
+        }
+      }
+
+      function clearUploadTimeout() {
+        if (uploadTimeoutTimer) {
+          clearTimeout(uploadTimeoutTimer);
+          uploadTimeoutTimer = null;
+        }
+      }
+
+      function cancelInFlightUpload() {
+        if (uploadController) {
+          try { uploadController.abort(); } catch (e) { }
+          uploadController = null;
+        }
+        clearUploadTimeout();
+      }
+
+      function resetPttBtn() {
+        clearResetTimer();
+        pttBtn.classList.remove("is-loading", "ptt-recording", "ptt-sent", "ptt-error");
+        if (pttServerUnavailable) {
+          pttBtn.disabled = true;
+          return;
+        }
+        pttBtn.disabled = false;
+        pttBtn.title = defaultPttTitle;
+        setPttLabel("Hold to Talk");
+      }
+
+      function flashAndReset(label, cssClass, delayMs) {
+        clearResetTimer();
+        pttBtn.classList.remove("is-loading", "ptt-recording", "ptt-sent", "ptt-error");
+        pttBtn.classList.add(cssClass);
+        setPttLabel(label);
+        pttResetTimer = setTimeout(resetPttBtn, delayMs);
+      }
+
+      function releaseStream() {
+        if (scriptProc) { try { scriptProc.disconnect(); } catch (e) {} scriptProc = null; }
+        if (audioSrc) { try { audioSrc.disconnect(); } catch (e) {} audioSrc = null; }
+        if (audioCtx) { try { audioCtx.close(); } catch (e) {} audioCtx = null; }
+        if (audioStream) {
+          audioStream.getTracks().forEach(function (t) { t.stop(); });
+          audioStream = null;
+        }
+      }
+
+      function startRecording() {
+        if (pttServerUnavailable || pttActive || pttStarting) { return; }
+        clearResetTimer();
+        cancelInFlightUpload();
+        pttHoldRequested = true;
+        pttStarting = true;
+        pttBtn.classList.remove("ptt-sent", "ptt-error");
+        setPttLabel("Requesting Mic...");
+
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+          .then(function (stream) {
+            if (!pttHoldRequested) {
+              stream.getTracks().forEach(function (t) { t.stop(); });
+              pttStarting = false;
+              return;
+            }
+
+            try {
+              var ACtx = window.AudioContext || window.webkitAudioContext;
+              audioCtx = new ACtx();
+              audioStream = stream;
+              pttSamples = [];
+              var resampleRatio = audioCtx.sampleRate / 8000;
+              audioSrc = audioCtx.createMediaStreamSource(stream);
+              scriptProc = audioCtx.createScriptProcessor(4096, 1, 1);
+              scriptProc.onaudioprocess = function (e) {
+                var input = e.inputBuffer.getChannelData(0);
+                for (var i = 0; i < input.length; i += resampleRatio) {
+                  pttSamples.push(input[Math.floor(i)]);
+                }
+              };
+              // Silent sink: must connect to destination for onaudioprocess to fire,
+              // but use gain=0 to avoid mic feedback to user's local speakers.
+              var silentGain = audioCtx.createGain();
+              silentGain.gain.value = 0;
+              audioSrc.connect(scriptProc);
+              scriptProc.connect(silentGain);
+              silentGain.connect(audioCtx.destination);
+              if (audioCtx.state === "suspended") { audioCtx.resume(); }
+            } catch (recErr) {
+              console.log("PTT recorder error: " + recErr.message);
+              pttActive = false;
+              releaseStream();
+              flashAndReset("Recorder error", "ptt-error", 1800);
+              return;
+            }
+
+            pttActive = true;
+            pttStarting = false;
+            pttStartTime = Date.now();
+            pttBtn.classList.add("ptt-recording");
+            pttBtn.classList.remove("is-loading", "ptt-sent", "ptt-error");
+            pttBtn.disabled = false;
+            setPttLabel("Recording...");
+
+            clearMaxRecordTimer();
+            pttMaxRecordTimer = setTimeout(function () {
+              stopRecording(true);
+            }, PTT_MAX_DURATION_MS);
+          })
+          .catch(function (err) {
+            pttStarting = false;
+            pttHoldRequested = false;
+            console.log("PTT mic error: " + err.name + " - " + err.message);
+            flashAndReset("Mic denied", "ptt-error", 2200);
+          });
+      }
+
+      function stopRecording(fromMaxDuration) {
+        pttHoldRequested = false;
+        if (!pttActive || !scriptProc) {
+          return;
+        }
+        pttActive = false;
+        clearMaxRecordTimer();
+
+        var elapsed = Date.now() - pttStartTime;
+        var samples = pttSamples;
+        pttSamples = [];
+        releaseStream();
+
+        if (elapsed < PTT_MIN_DURATION_MS) {
+          flashAndReset("Too short", "ptt-error", 1200);
+          return;
+        }
+
+        if (samples.length === 0) {
+          flashAndReset("No audio", "ptt-error", 1500);
+          return;
+        }
+
+        var pcm = new Int16Array(samples.length);
+        for (var i = 0; i < samples.length; i++) {
+          pcm[i] = Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767)));
+        }
+        var blob = new Blob([pcm.buffer], { type: "application/octet-stream" });
+        if (blob.size > PTT_MAX_BLOB_BYTES) {
+          flashAndReset("Clip too large", "ptt-error", 1800);
+          return;
+        }
+
+        if (fromMaxDuration) {
+          setPttLabel("Sending max clip...");
+        } else {
+          setPttLabel("Sending...");
+        }
+        pttBtn.classList.remove("ptt-recording");
+        pttBtn.classList.add("is-loading");
+        pttBtn.disabled = true;
+
+        cancelInFlightUpload();
+        if (window.AbortController) {
+          uploadController = new AbortController();
+          uploadTimeoutTimer = setTimeout(function () {
+            if (uploadController) {
+              uploadController.abort();
+            }
+          }, PTT_UPLOAD_TIMEOUT_MS);
+        }
+
+        var requestOptions = {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: blob
+        };
+        if (uploadController) {
+          requestOptions.signal = uploadController.signal;
+        }
+
+        fetch("cgi-bin/upload_audio.cgi", requestOptions)
+          .then(function (response) {
+            return response.text().then(function (payload) {
+              return { ok: response.ok, payload: (payload || "").trim() };
+            });
+          })
+          .then(function (result) {
+            uploadController = null;
+            clearUploadTimeout();
+            if (result.ok && result.payload === "OK") {
+              flashAndReset("Sent!", "ptt-sent", 1400);
+              return;
+            }
+
+            if (result.payload === "BUSY") {
+              flashAndReset("Busy", "ptt-error", 1500);
+            } else if (result.payload === "TOO_LARGE") {
+              flashAndReset("Too large", "ptt-error", 1800);
+            } else if (result.payload === "INVALID_PCM") {
+              flashAndReset("Bad audio", "ptt-error", 1800);
+            } else if (result.payload === "PTT_BIN_MISSING") {
+              setPttUnavailable("PTT unavailable", "Camera audio output backend is missing.");
+            } else {
+              flashAndReset("Error", "ptt-error", 1500);
+            }
+          })
+          .catch(function (err) {
+            uploadController = null;
+            clearUploadTimeout();
+            if (err && err.name === "AbortError") {
+              flashAndReset("Timeout", "ptt-error", 1800);
+            } else {
+              flashAndReset("Error", "ptt-error", 1500);
+            }
+          });
+      }
+
+      pttBtn.disabled = true;
+      setPttLabel("Checking PTT...");
+      fetch("cgi-bin/action.cgi?cmd=get_ptt_status", { cache: "no-store" })
+        .then(function (response) { return response.text(); })
+        .then(function (payload) {
+          var status = String(payload || "").trim();
+          if (status && status !== "OK") {
+            setPttUnavailable("PTT unavailable", "Camera audio output backend is missing.");
+            return;
+          }
+          if (pttVol) {
+            pttVol.disabled = false;
+            pttVol.title = "";
+          }
+          resetPttBtn();
+        })
+        .catch(function () {
+          if (pttVol) {
+            pttVol.disabled = false;
+            pttVol.title = "";
+          }
+          resetPttBtn();
+        });
+
+      function isPrimaryActivation(evt) {
+        if (!evt) { return true; }
+        if (typeof evt.button === "number" && evt.button !== 0) {
+          return false;
+        }
+        return true;
+      }
+
+      if (window.PointerEvent) {
+        pttBtn.addEventListener("pointerdown", function (e) {
+          if (!isPrimaryActivation(e)) { return; }
+          if (e.pointerType === "touch") { e.preventDefault(); }
+          startRecording();
+        });
+        window.addEventListener("pointerup", function () { stopRecording(false); });
+        pttBtn.addEventListener("pointercancel", function () { stopRecording(false); });
+      } else {
+        pttBtn.addEventListener("mousedown", function (e) {
+          if (!isPrimaryActivation(e)) { return; }
+          startRecording();
+        });
+        window.addEventListener("mouseup", function () { stopRecording(false); });
+        pttBtn.addEventListener("mouseleave", function () { stopRecording(false); });
+        pttBtn.addEventListener("touchstart", function (e) { e.preventDefault(); startRecording(); }, { passive: false });
+        window.addEventListener("touchend", function () { stopRecording(false); });
+        window.addEventListener("touchcancel", function () { stopRecording(false); });
+      }
+
+      pttBtn.addEventListener("keydown", function (e) {
+        if (e.code === "Space" || e.code === "Enter") {
+          e.preventDefault();
+          startRecording();
+        }
+      });
+      pttBtn.addEventListener("keyup", function (e) {
+        if (e.code === "Space" || e.code === "Enter") {
+          e.preventDefault();
+          stopRecording(false);
+        }
+      });
+
+      window.addEventListener("blur", function () {
+        stopRecording(false);
+      });
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden) {
+          stopRecording(false);
+        }
+      });
+    })();
+
+    fixMenuPadding();
+    initNavDropdownToggles();
+    refreshSysUsage();
+  });
+
+  window.addEventListener("resize", fixMenuPadding);
+  window.addEventListener("beforeunload", function () {
+    if (liveViewVisibilityObserver) {
+      liveViewVisibilityObserver.disconnect();
+      liveViewVisibilityObserver = null;
+    }
+  });
+
+  window.refreshLiveImage = refreshLiveImage;
+  window.scheduleRefreshLiveImage = scheduleRefreshLiveImage;
+  window.refreshSysUsage = refreshSysUsage;
+  window.scheduleRefreshSysUsage = scheduleRefreshSysUsage;
+  window.refreshPerformanceProfile = refreshPerformanceProfile;
+  window.showResult = showResult;
+  window.fixMenuPadding = fixMenuPadding;
+  window.setCookie = setCookie;
+  window.getCookie = getCookie;
+  window.setTheme = setTheme;
+  window.getThemeChoice = getThemeChoice;
+
+  // Global utility for sub-page scripts to check if they are still 'mounted'
+  window.isHostStillActive = function (node) {
+    return !!(node && node.parentNode && document.body.contains(node));
+  };
+})();

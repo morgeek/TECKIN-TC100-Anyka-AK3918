@@ -6,6 +6,8 @@ STATE_FILE="/tmp/mqtt-bridge.state"
 HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
 CURL_BIN="/mnt/bin/curl"
 JQ_BIN="/mnt/bin/jq"
+LOCAL_STATE_CGI="/mnt/www/cgi-bin/state.cgi"
+INTEGRATION_MANIFEST_STATE_FILE="/tmp/mqtt-bridge.integration-manifest.state"
 
 . /mnt/scripts/common_functions.sh
 
@@ -176,6 +178,88 @@ security_hardening_enabled_runtime()
 {
   value="$(read_kv_config_value /mnt/config/boot.conf SECURITY_HARDENING_MODE 0)"
   is_truthy_local "$value"
+}
+
+detect_primary_ip_current()
+{
+  primary_ip=""
+  if [ -r /tmp/camera_ip.txt ]; then
+    read -r primary_ip < /tmp/camera_ip.txt
+  fi
+  if [ -z "$primary_ip" ]; then
+    primary_ip="$(ifconfig 2>/dev/null | awk '
+      /inet addr:[0-9]/ {
+        split($2, a, ":")
+        if (a[2] !~ /^127\./) {
+          print a[2]
+          exit
+        }
+      }
+      /inet [0-9]/ {
+        if ($2 !~ /^127\./) {
+          print $2
+          exit
+        }
+      }
+    ')"
+  fi
+  [ -n "$primary_ip" ] || primary_ip="CAMERA-IP"
+  printf '%s\n' "$primary_ip"
+}
+
+integration_manifest_fingerprint()
+{
+  current_primary_ip="$(detect_primary_ip_current)"
+  current_hostname=""
+  read -r current_hostname < /proc/sys/kernel/hostname 2>/dev/null || current_hostname=""
+
+  {
+    printf 'hostname=%s\n' "$current_hostname"
+    printf 'primary_ip=%s\n' "$current_primary_ip"
+    for cfg_path in /mnt/config/boot.conf /mnt/config/rtspserver.conf /mnt/config/onvif.conf /mnt/config/mqtt.conf; do
+      printf '[%s]\n' "$cfg_path"
+      [ -r "$cfg_path" ] && cat "$cfg_path"
+    done
+  } | md5sum | awk '{print $1}'
+}
+
+run_local_state_cgi_query()
+{
+  state_query="$1"
+  [ -n "$state_query" ] || return 1
+  [ -x "$LOCAL_STATE_CGI" ] || return 1
+
+  (
+    cd "${LOCAL_STATE_CGI%/*}" || exit 1
+    REQUEST_METHOD=GET QUERY_STRING="$state_query" ./state.cgi 2>/dev/null
+  ) | awk 'BEGIN{body=0} body{print} /^$/{body=1}'
+}
+
+publish_integration_manifest()
+{
+  publish_mode="${1:-}"
+  manifest_fp="$(integration_manifest_fingerprint)"
+  [ -n "$manifest_fp" ] || return 1
+
+  last_manifest_fp=""
+  if [ -r "$INTEGRATION_MANIFEST_STATE_FILE" ]; then
+    read -r last_manifest_fp < "$INTEGRATION_MANIFEST_STATE_FILE"
+  fi
+  if [ "$publish_mode" != "force" ] && [ "$manifest_fp" = "$last_manifest_fp" ]; then
+    return 0
+  fi
+
+  manifest_payload="$(run_local_state_cgi_query 'cmd=integrationmanifest&redact=1')" || return 1
+  [ -n "$manifest_payload" ] || return 1
+  mqtt_publish_topic_suffix "integration/manifest" "$manifest_payload" 1 >/dev/null 2>&1 || return 1
+  printf '%s\n' "$manifest_fp" > "$INTEGRATION_MANIFEST_STATE_FILE" 2>/dev/null || true
+}
+
+publish_integration_selftest()
+{
+  selftest_payload="$(run_local_state_cgi_query 'cmd=integrationtest')" || return 1
+  [ -n "$selftest_payload" ] || return 1
+  mqtt_publish_topic_suffix "integration/selftest" "$selftest_payload" 1 >/dev/null 2>&1 || return 1
 }
 
 service_script_running_int()
@@ -481,6 +565,8 @@ publish_homeassistant_discovery()
   cmd_json="$(json_escape "$MQTT_TOPIC_COMMAND")"
   health_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/health")"
   motion_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/motion/state")"
+  integration_manifest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/manifest")"
+  integration_selftest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/selftest")"
   avail_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/availability")"
   device_name_json="$(json_escape "$hostname_value")"
   device_id_json="$(json_escape "$node_id")"
@@ -558,6 +644,18 @@ publish_homeassistant_discovery()
   telnet_port_cfg_payload="$(printf '{"name":"%s Telnet Port","uniq_id":"%s_telnet_port","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.port_telnet_open == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:console-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$telnet_port_cfg_topic" "$telnet_port_cfg_payload"
 
+  integration_status_cfg_topic="${discovery_prefix}/sensor/${node_id}/integration_status/config"
+  integration_status_cfg_payload="$(printf '{"name":"%s Integration Status","uniq_id":"%s_integration_status","stat_t":"%s","val_tpl":"{{ value_json.overall_status if value_json.overall_status is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-check","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_selftest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$integration_status_cfg_topic" "$integration_status_cfg_payload"
+
+  integration_ok_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/integration_ok/config"
+  integration_ok_cfg_payload="$(printf '{"name":"%s Integration Healthy","uniq_id":"%s_integration_ok","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.overall_ok == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:check-network-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_selftest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$integration_ok_cfg_topic" "$integration_ok_cfg_payload"
+
+  frigate_detect_source_cfg_topic="${discovery_prefix}/sensor/${node_id}/frigate_detect_source/config"
+  frigate_detect_source_cfg_payload="$(printf '{"name":"%s Frigate Detect Source","uniq_id":"%s_frigate_detect_source","stat_t":"%s","val_tpl":"{{ value_json.rtsp.frigate.detect_source if value_json.rtsp is defined and value_json.rtsp.frigate is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:cctv","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_manifest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$frigate_detect_source_cfg_topic" "$frigate_detect_source_cfg_payload"
+
   reboot_cfg_topic="${discovery_prefix}/button/${node_id}/reboot/config"
   reboot_cfg_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","pl_prs":"reboot","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$reboot_cfg_topic" "$reboot_cfg_payload"
@@ -565,6 +663,14 @@ publish_homeassistant_discovery()
   snapshot_cfg_topic="${discovery_prefix}/button/${node_id}/snapshot/config"
   snapshot_cfg_payload="$(printf '{"name":"%s Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","pl_prs":"snapshot","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$snapshot_cfg_topic" "$snapshot_cfg_payload"
+
+  integration_selftest_cfg_topic="${discovery_prefix}/button/${node_id}/integration_selftest/config"
+  integration_selftest_cfg_payload="$(printf '{"name":"%s Run Integration Self-Test","uniq_id":"%s_integration_selftest","cmd_t":"%s","pl_prs":"integration_selftest","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-check","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$integration_selftest_cfg_topic" "$integration_selftest_cfg_payload"
+
+  integration_manifest_cfg_topic="${discovery_prefix}/button/${node_id}/integration_manifest/config"
+  integration_manifest_cfg_payload="$(printf '{"name":"%s Refresh Integration Manifest","uniq_id":"%s_integration_manifest","cmd_t":"%s","pl_prs":"integration_manifest","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:file-refresh-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$integration_manifest_cfg_topic" "$integration_manifest_cfg_payload"
 
   profile_select_cfg_topic="${discovery_prefix}/select/${node_id}/profile/config"
   profile_select_cfg_payload="$(printf '{"name":"%s Profile Preset","uniq_id":"%s_profile_select","cmd_t":"%s","stat_t":"%s","options":["balanced","low-cpu","rtsp-only"],"val_tpl":"{{ value_json.perfprofile }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune-variant","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_profile_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
@@ -1239,12 +1345,28 @@ handle_command_payload()
         esac
       fi
       ;;
+    integration_selftest|selftest|integrationtest)
+      if publish_integration_selftest; then
+        publish_event_simple "command.integration_selftest" "published"
+      else
+        publish_event_simple "command.integration_selftest" "failed"
+      fi
+      ;;
+    integration_manifest|manifest|manifest_refresh)
+      if publish_integration_manifest force; then
+        publish_event_simple "command.integration_manifest" "published"
+      else
+        publish_event_simple "command.integration_manifest" "failed"
+      fi
+      ;;
     discovery|ha_discovery|discovery_refresh)
+      publish_integration_manifest force >/dev/null 2>&1 || true
       publish_homeassistant_discovery
       publish_event_simple "command.discovery" "published"
       ;;
     health|health_now)
       publish_health >/dev/null 2>&1 || true
+      publish_integration_manifest >/dev/null 2>&1 || true
       publish_event_simple "command.health" "published"
       ;;
     *)
@@ -1254,6 +1376,7 @@ handle_command_payload()
 
   if [ "$refresh_state" -eq 1 ]; then
     rm -f "$HEALTH_SLOW_CACHE_FILE" >/dev/null 2>&1 || true
+    publish_integration_manifest >/dev/null 2>&1 || true
     publish_health >/dev/null 2>&1 || true
   fi
 }
@@ -1289,6 +1412,7 @@ run_loop()
   trap 'shutdown_bridge' EXIT
   log_msg "MQTT bridge started host=${MQTT_HOST}:${MQTT_PORT} root=${MQTT_TOPIC_ROOT}"
   publish_availability online
+  publish_integration_manifest force >/dev/null 2>&1 || true
   publish_homeassistant_discovery
   publish_event_simple "bridge.start" "online"
 
@@ -1301,6 +1425,7 @@ run_loop()
 
     if [ "$last_health_ts" -le 0 ] || [ $((now_ts - last_health_ts)) -ge "$MQTT_HEALTH_INTERVAL_SECONDS" ]; then
       publish_health >/dev/null 2>&1 || true
+      publish_integration_manifest >/dev/null 2>&1 || true
       last_health_ts="$now_ts"
     fi
 

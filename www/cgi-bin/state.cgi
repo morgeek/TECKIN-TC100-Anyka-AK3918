@@ -219,6 +219,160 @@ read_conf_value() {
   echo "$conf_value"
 }
 
+normalize_web_mode_value() {
+  case "$1" in
+    ultra-lite|ultralite)
+      echo "ultra-lite"
+      ;;
+    full|http|off)
+      echo "$1"
+      ;;
+    *)
+      echo "full"
+      ;;
+  esac
+}
+
+detect_primary_ip() {
+  primary_ip=""
+  if [ -r /tmp/camera_ip.txt ]; then
+    read -r primary_ip < /tmp/camera_ip.txt
+  fi
+  if [ -z "$primary_ip" ]; then
+    primary_ip="$(ifconfig 2>/dev/null | awk '
+      /inet addr:[0-9]/ {
+        split($2, a, ":")
+        if (a[2] !~ /^127\./) {
+          print a[2]
+          exit
+        }
+      }
+      /inet [0-9]/ {
+        if ($2 !~ /^127\./) {
+          print $2
+          exit
+        }
+      }
+    ')"
+  fi
+  [ -n "$primary_ip" ] || primary_ip="CAMERA-IP"
+}
+
+truthy_flag() {
+  case "$1" in
+    1|true|on|yes|enabled)
+      echo "1"
+      ;;
+    *)
+      echo "0"
+      ;;
+  esac
+}
+
+userinfo_safe() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._~-]*)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+prepare_rtsp_auth_template() {
+  url_user="$1"
+  url_password="$2"
+  rtsp_url_auth_embedded=0
+  rtsp_url_auth_warning=""
+  rtsp_url_auth_prefix=""
+
+  if [ -n "$url_user" ] || [ -n "$url_password" ]; then
+    if userinfo_safe "$url_user" && userinfo_safe "$url_password"; then
+      rtsp_url_auth_prefix="${url_user}:${url_password}@"
+      rtsp_url_auth_embedded=1
+    else
+      rtsp_url_auth_prefix="USERNAME:PASSWORD@"
+      rtsp_url_auth_warning="RTSP credentials contain URL-sensitive characters; replace USERNAME/PASSWORD or percent-encode them in client configs."
+    fi
+  fi
+}
+
+build_rtsp_url_template() {
+  url_host="$1"
+  url_port="$2"
+  url_path="$3"
+  printf 'rtsp://%s%s:%s/%s' "$rtsp_url_auth_prefix" "$url_host" "$url_port" "$url_path"
+}
+
+build_web_base_url() {
+  web_mode_value="$1"
+  web_host="$2"
+  ultralite_port_value="$3"
+
+  web_enabled=1
+  web_scheme="https"
+  web_port=443
+  web_base_url=""
+
+  case "$web_mode_value" in
+    full)
+      web_scheme="https"
+      web_port=443
+      ;;
+    http)
+      web_scheme="http"
+      web_port=80
+      ;;
+    ultra-lite)
+      web_scheme="http"
+      web_port="$ultralite_port_value"
+      ;;
+    off)
+      web_enabled=0
+      web_scheme=""
+      web_port=0
+      ;;
+    *)
+      web_scheme="https"
+      web_port=443
+      ;;
+  esac
+
+  if [ "$web_enabled" = "1" ]; then
+    case "${web_scheme}:${web_port}" in
+      https:443|http:80)
+        web_base_url="${web_scheme}://${web_host}"
+        ;;
+      *)
+        web_base_url="${web_scheme}://${web_host}:${web_port}"
+        ;;
+    esac
+  fi
+}
+
+rtsp_describe_local_ok() {
+  describe_path="$1"
+  describe_port="$2"
+  describe_user="$3"
+  describe_password="$4"
+  describe_timeout="$5"
+
+  [ -x /mnt/bin/curl ] || return 1
+
+  if [ -n "$describe_user" ]; then
+    describe_sdp=$(/mnt/bin/curl -s -S -m "$describe_timeout" -X DESCRIBE -u "${describe_user}:${describe_password}" "rtsp://127.0.0.1:${describe_port}/${describe_path}" 2>/dev/null) || return 1
+  else
+    describe_sdp=$(/mnt/bin/curl -s -S -m "$describe_timeout" -X DESCRIBE "rtsp://127.0.0.1:${describe_port}/${describe_path}" 2>/dev/null) || return 1
+  fi
+
+  printf '%s' "$describe_sdp" | grep -q "m=video" || return 1
+}
+
+slugify_value() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g; s/__*/_/g; s/^_//; s/_$//'
+}
+
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
@@ -688,6 +842,318 @@ if [ -n "$F_cmd" ]; then
     awb_json="$(json_escape "$awb_value")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
     echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active}"
+    ;;
+
+  integrationtest)
+    detect_primary_ip
+    if [ -r /proc/sys/kernel/hostname ]; then
+      read -r test_hostname < /proc/sys/kernel/hostname
+    else
+      test_hostname="$(hostname 2>/dev/null)"
+    fi
+    [ -n "$test_hostname" ] || test_hostname="TC100 Camera"
+
+    read_rtsp_stream_summary
+    rtsp_username_test="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
+    rtsp_password_test="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
+    rtsp_substream_enabled_test="$(truthy_flag "$(read_conf_value /mnt/config/boot.conf RTSP_SUBSTREAM 1)")"
+    rtsp_timeout_test="$(sanitize_int "$(read_conf_value /mnt/config/boot.conf RTSP_HEALTHCHECK_TIMEOUT_SECONDS 4)" 4)"
+    if [ "$rtsp_timeout_test" -lt 2 ] || [ "$rtsp_timeout_test" -gt 30 ]; then
+      rtsp_timeout_test=4
+    fi
+    onvif_port_test="$(sanitize_int "$(read_conf_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 8081)"
+    if [ "$onvif_port_test" -lt 1 ] || [ "$onvif_port_test" -gt 65535 ]; then
+      onvif_port_test=8081
+    fi
+    mqtt_enabled_test="$(truthy_flag "$(read_conf_value /mnt/config/mqtt.conf MQTT_ENABLE 0)")"
+    mqtt_topic_root_test="$(read_conf_value /mnt/config/mqtt.conf MQTT_TOPIC_ROOT tc100/camera)"
+    mqtt_broker_host_test="$(read_conf_value /mnt/config/mqtt.conf MQTT_HOST 127.0.0.1)"
+    mqtt_broker_port_test="$(sanitize_int "$(read_conf_value /mnt/config/mqtt.conf MQTT_PORT 1883)" 1883)"
+    if [ "$mqtt_broker_port_test" -lt 1 ] || [ "$mqtt_broker_port_test" -gt 65535 ]; then
+      mqtt_broker_port_test=1883
+    fi
+
+    rtsp_main_status="fail"
+    rtsp_main_detail="RTSP service is not running."
+    if [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; then
+      if [ -x /mnt/bin/curl ]; then
+        if rtsp_describe_local_ok "video0_unicast" "$rtsp_port" "$rtsp_username_test" "$rtsp_password_test" "$rtsp_timeout_test"; then
+          rtsp_main_status="ok"
+          rtsp_main_detail="DESCRIBE succeeded for video0_unicast."
+        else
+          rtsp_main_status="fail"
+          rtsp_main_detail="DESCRIBE failed for video0_unicast."
+        fi
+      else
+        rtsp_main_status="ok"
+        rtsp_main_detail="RTSP service is running; DESCRIBE skipped because curl is unavailable."
+      fi
+    fi
+
+    rtsp_sub_status="disabled"
+    rtsp_sub_detail="Substream disabled by RTSP_SUBSTREAM=0."
+    if [ "$rtsp_substream_enabled_test" = "1" ]; then
+      rtsp_sub_status="fail"
+      rtsp_sub_detail="RTSP substream check failed because RTSP service is not running."
+      if [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; then
+        if [ -x /mnt/bin/curl ]; then
+          if rtsp_describe_local_ok "video1_unicast" "$rtsp_port" "$rtsp_username_test" "$rtsp_password_test" "$rtsp_timeout_test"; then
+            rtsp_sub_status="ok"
+            rtsp_sub_detail="DESCRIBE succeeded for video1_unicast."
+          else
+            rtsp_sub_status="fail"
+            rtsp_sub_detail="DESCRIBE failed for video1_unicast."
+          fi
+        else
+          rtsp_sub_status="ok"
+          rtsp_sub_detail="RTSP service is running; substream DESCRIBE skipped because curl is unavailable."
+        fi
+      fi
+    fi
+
+    onvif_status="disabled"
+    onvif_detail="ONVIF service is not running."
+    if [ -x /mnt/controlscripts/onvif ] && /mnt/controlscripts/onvif status >/dev/null 2>&1; then
+      if /mnt/controlscripts/onvif health >/dev/null 2>&1; then
+        onvif_status="ok"
+        onvif_detail="ONVIF service is healthy on port ${onvif_port_test}."
+      else
+        onvif_status="fail"
+        onvif_detail="ONVIF health check failed on port ${onvif_port_test}."
+      fi
+    fi
+
+    mqtt_status="disabled"
+    mqtt_detail="MQTT bridge disabled in config."
+    if [ "$mqtt_enabled_test" = "1" ]; then
+      if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
+        _read_now_ts
+        mqtt_selftest_payload="$(printf '{"ts":%s,"type":"integration_selftest","origin":"state.cgi"}' "$now_ts")"
+        if /mnt/scripts/mqtt-bridge.sh publish selftest "$mqtt_selftest_payload" 0 >/dev/null 2>&1; then
+          mqtt_status="ok"
+          mqtt_detail="Published self-test payload to ${mqtt_topic_root_test}/selftest via ${mqtt_broker_host_test}:${mqtt_broker_port_test}."
+        else
+          mqtt_status="fail"
+          mqtt_detail="MQTT publish failed to ${mqtt_broker_host_test}:${mqtt_broker_port_test}."
+        fi
+      else
+        mqtt_status="fail"
+        mqtt_detail="MQTT bridge helper script is missing."
+      fi
+    fi
+
+    snapshot_status="fail"
+    snapshot_detail="Snapshot capture failed."
+    snapshot_tmp="/tmp/integration-selftest.$$.$(date +%s 2>/dev/null).jpg"
+    if [ -x /mnt/bin/getimage ]; then
+      if /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
+        snapshot_status="ok"
+        snapshot_detail="Local snapshot capture succeeded."
+      else
+        snapshot_status="fail"
+        snapshot_detail="getimage did not return a valid JPEG."
+      fi
+    else
+      snapshot_status="fail"
+      snapshot_detail="getimage binary is missing."
+    fi
+    rm -f "$snapshot_tmp" >/dev/null 2>&1 || true
+
+    overall_status="ok"
+    overall_ok=1
+    for integration_test_status in "$rtsp_main_status" "$rtsp_sub_status" "$onvif_status" "$mqtt_status" "$snapshot_status"; do
+      if [ "$integration_test_status" = "fail" ]; then
+        overall_status="fail"
+        overall_ok=0
+        break
+      fi
+      if [ "$integration_test_status" = "disabled" ] && [ "$overall_status" = "ok" ]; then
+        overall_status="warn"
+      fi
+    done
+
+    test_time_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    test_time_utc_json="$(json_escape "$test_time_utc")"
+    test_hostname_json="$(json_escape "$test_hostname")"
+    primary_ip_json="$(json_escape "$primary_ip")"
+    overall_status_json="$(json_escape "$overall_status")"
+    rtsp_main_status_json="$(json_escape "$rtsp_main_status")"
+    rtsp_main_detail_json="$(json_escape "$rtsp_main_detail")"
+    rtsp_sub_status_json="$(json_escape "$rtsp_sub_status")"
+    rtsp_sub_detail_json="$(json_escape "$rtsp_sub_detail")"
+    onvif_status_json="$(json_escape "$onvif_status")"
+    onvif_detail_json="$(json_escape "$onvif_detail")"
+    mqtt_status_json="$(json_escape "$mqtt_status")"
+    mqtt_detail_json="$(json_escape "$mqtt_detail")"
+    snapshot_status_json="$(json_escape "$snapshot_status")"
+    snapshot_detail_json="$(json_escape "$snapshot_detail")"
+
+    printf '{"timestamp_utc":"%s","hostname":"%s","primary_ip":"%s","overall_status":"%s","overall_ok":%s,"tests":{"rtsp_main":{"status":"%s","detail":"%s"},"rtsp_sub":{"status":"%s","detail":"%s"},"onvif":{"status":"%s","detail":"%s"},"mqtt_publish":{"status":"%s","detail":"%s"},"snapshot":{"status":"%s","detail":"%s"}}}\n' \
+      "$test_time_utc_json" "$test_hostname_json" "$primary_ip_json" "$overall_status_json" "$overall_ok" \
+      "$rtsp_main_status_json" "$rtsp_main_detail_json" \
+      "$rtsp_sub_status_json" "$rtsp_sub_detail_json" \
+      "$onvif_status_json" "$onvif_detail_json" \
+      "$mqtt_status_json" "$mqtt_detail_json" \
+      "$snapshot_status_json" "$snapshot_detail_json"
+    ;;
+
+  integrationmanifest)
+    if [ -r /proc/sys/kernel/hostname ]; then
+      read -r manifest_hostname < /proc/sys/kernel/hostname
+    else
+      manifest_hostname="$(hostname 2>/dev/null)"
+    fi
+    [ -n "$manifest_hostname" ] || manifest_hostname="TC100 Camera"
+    manifest_redact="$(truthy_flag "$F_redact")"
+
+    detect_primary_ip
+
+    manifest_camera_slug="$(slugify_value "$manifest_hostname")"
+    [ -n "$manifest_camera_slug" ] || manifest_camera_slug="$(slugify_value "$(read_conf_value /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)")"
+    [ -n "$manifest_camera_slug" ] || manifest_camera_slug="tc100_camera"
+
+    manifest_web_mode="$(normalize_web_mode_value "$(read_conf_value /mnt/config/boot.conf WEB_MODE full)")"
+    manifest_ultralite_http_port="$(sanitize_int "$(read_conf_value /mnt/config/boot.conf ULTRALITE_HTTP_PORT 80)" 80)"
+    if [ "$manifest_ultralite_http_port" -lt 1 ] || [ "$manifest_ultralite_http_port" -gt 65535 ]; then
+      manifest_ultralite_http_port=80
+    fi
+    build_web_base_url "$manifest_web_mode" "$primary_ip" "$manifest_ultralite_http_port"
+
+    web_snapshot_url=""
+    web_healthsnapshot_url=""
+    web_manifest_url=""
+    web_motion_events_url=""
+    web_motion_thumbnail_url=""
+    if [ "$web_enabled" = "1" ]; then
+      web_snapshot_url="${web_base_url}/cgi-bin/currentpic.cgi"
+      web_healthsnapshot_url="${web_base_url}/cgi-bin/state.cgi?cmd=healthsnapshot"
+      web_manifest_url="${web_base_url}/cgi-bin/state.cgi?cmd=integrationmanifest"
+      web_motion_events_url="${web_base_url}/cgi-bin/motionevents.cgi?limit=20"
+      web_motion_thumbnail_url="${web_base_url}/cgi-bin/motionthumb.cgi"
+    fi
+
+    read_rtsp_stream_summary
+    rtsp_username="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
+    rtsp_password="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
+    rtsp_substream_enabled="$(truthy_flag "$(read_conf_value /mnt/config/boot.conf RTSP_SUBSTREAM 1)")"
+    rtsp_audio_enabled="$(truthy_flag "$(read_conf_value /mnt/config/boot.conf RTSP_AUDIO 1)")"
+    onvif_stream_policy_value="$(read_conf_value /mnt/config/boot.conf ONVIF_STREAM_POLICY main-primary)"
+    rtsp_manifest_username="$rtsp_username"
+    rtsp_manifest_password="$rtsp_password"
+    if [ "$manifest_redact" = "1" ]; then
+      rtsp_auth_embedded=0
+      if [ -n "$rtsp_username" ] || [ -n "$rtsp_password" ]; then
+        rtsp_manifest_username="USERNAME"
+        rtsp_manifest_password=""
+        rtsp_url_auth_prefix="USERNAME:PASSWORD@"
+        rtsp_auth_warning="Credentials omitted from redacted manifest; replace USERNAME/PASSWORD in client configs."
+      else
+        rtsp_manifest_username=""
+        rtsp_manifest_password=""
+        rtsp_url_auth_prefix=""
+        rtsp_auth_warning=""
+      fi
+    else
+      prepare_rtsp_auth_template "$rtsp_username" "$rtsp_password"
+      rtsp_auth_embedded="$rtsp_url_auth_embedded"
+      rtsp_auth_warning="$rtsp_url_auth_warning"
+    fi
+    rtsp_main_url="$(build_rtsp_url_template "$primary_ip" "$rtsp_port" "video0_unicast")"
+    rtsp_sub_url=""
+    if [ "$rtsp_substream_enabled" = "1" ]; then
+      rtsp_sub_url="$(build_rtsp_url_template "$primary_ip" "$rtsp_port" "video1_unicast")"
+    fi
+
+    frigate_record_url="$rtsp_main_url"
+    frigate_detect_url="$rtsp_main_url"
+    frigate_detect_source="main"
+    if [ "$rtsp_substream_enabled" = "1" ] && [ -n "$rtsp_sub_url" ]; then
+      frigate_detect_url="$rtsp_sub_url"
+      frigate_detect_source="sub"
+    fi
+
+    onvif_port="$(sanitize_int "$(read_conf_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 8081)"
+    if [ "$onvif_port" -lt 1 ] || [ "$onvif_port" -gt 65535 ]; then
+      onvif_port=8081
+    fi
+    onvif_device_service_url="http://${primary_ip}:${onvif_port}/onvif/device_service"
+
+    mqtt_enabled_flag="$(truthy_flag "$(read_conf_value /mnt/config/mqtt.conf MQTT_ENABLE 0)")"
+    mqtt_broker_host="$(read_conf_value /mnt/config/mqtt.conf MQTT_HOST 127.0.0.1)"
+    mqtt_broker_port="$(sanitize_int "$(read_conf_value /mnt/config/mqtt.conf MQTT_PORT 1883)" 1883)"
+    if [ "$mqtt_broker_port" -lt 1 ] || [ "$mqtt_broker_port" -gt 65535 ]; then
+      mqtt_broker_port=1883
+    fi
+    mqtt_username="$(read_conf_value /mnt/config/mqtt.conf MQTT_USER "")"
+    mqtt_password="$(read_conf_value /mnt/config/mqtt.conf MQTT_PASSWORD "")"
+    mqtt_manifest_username="$mqtt_username"
+    mqtt_manifest_password="$mqtt_password"
+    if [ "$manifest_redact" = "1" ]; then
+      mqtt_manifest_username=""
+      mqtt_manifest_password=""
+    fi
+    mqtt_client_id="$(read_conf_value /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)"
+    mqtt_topic_root="$(read_conf_value /mnt/config/mqtt.conf MQTT_TOPIC_ROOT tc100/camera)"
+    mqtt_command_topic="$(read_conf_value /mnt/config/mqtt.conf MQTT_TOPIC_COMMAND "")"
+    [ -n "$mqtt_command_topic" ] || mqtt_command_topic="${mqtt_topic_root}/command"
+    mqtt_discovery_enabled="$(truthy_flag "$(read_conf_value /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE 1)")"
+    mqtt_discovery_prefix="$(read_conf_value /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_PREFIX homeassistant)"
+    mqtt_availability_topic="${mqtt_topic_root}/availability"
+    mqtt_health_topic="${mqtt_topic_root}/health"
+    mqtt_motion_state_topic="${mqtt_topic_root}/motion/state"
+    mqtt_event_topic="${mqtt_topic_root}/event"
+    mqtt_snapshot_last_path_topic="${mqtt_topic_root}/snapshot/last_path"
+    mqtt_integration_manifest_topic="${mqtt_topic_root}/integration/manifest"
+    mqtt_integration_selftest_topic="${mqtt_topic_root}/integration/selftest"
+
+    manifest_time_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    manifest_time_utc_json="$(json_escape "$manifest_time_utc")"
+    manifest_hostname_json="$(json_escape "$manifest_hostname")"
+    manifest_camera_slug_json="$(json_escape "$manifest_camera_slug")"
+    primary_ip_json="$(json_escape "$primary_ip")"
+    web_mode_json="$(json_escape "$manifest_web_mode")"
+    web_base_url_json="$(json_escape "$web_base_url")"
+    web_snapshot_url_json="$(json_escape "$web_snapshot_url")"
+    web_healthsnapshot_url_json="$(json_escape "$web_healthsnapshot_url")"
+    web_manifest_url_json="$(json_escape "$web_manifest_url")"
+    web_motion_events_url_json="$(json_escape "$web_motion_events_url")"
+    web_motion_thumbnail_url_json="$(json_escape "$web_motion_thumbnail_url")"
+    rtsp_username_json="$(json_escape "$rtsp_manifest_username")"
+    rtsp_password_json="$(json_escape "$rtsp_manifest_password")"
+    rtsp_auth_warning_json="$(json_escape "$rtsp_auth_warning")"
+    rtsp_main_url_json="$(json_escape "$rtsp_main_url")"
+    rtsp_sub_url_json="$(json_escape "$rtsp_sub_url")"
+    codec0_json="$(json_escape "$codec0_name")"
+    codec1_json="$(json_escape "$codec1_name")"
+    frigate_record_url_json="$(json_escape "$frigate_record_url")"
+    frigate_detect_url_json="$(json_escape "$frigate_detect_url")"
+    frigate_detect_source_json="$(json_escape "$frigate_detect_source")"
+    onvif_device_service_url_json="$(json_escape "$onvif_device_service_url")"
+    onvif_stream_policy_json="$(json_escape "$onvif_stream_policy_value")"
+    mqtt_broker_host_json="$(json_escape "$mqtt_broker_host")"
+    mqtt_username_json="$(json_escape "$mqtt_manifest_username")"
+    mqtt_password_json="$(json_escape "$mqtt_manifest_password")"
+    mqtt_client_id_json="$(json_escape "$mqtt_client_id")"
+    mqtt_topic_root_json="$(json_escape "$mqtt_topic_root")"
+    mqtt_command_topic_json="$(json_escape "$mqtt_command_topic")"
+    mqtt_discovery_prefix_json="$(json_escape "$mqtt_discovery_prefix")"
+    mqtt_availability_topic_json="$(json_escape "$mqtt_availability_topic")"
+    mqtt_health_topic_json="$(json_escape "$mqtt_health_topic")"
+    mqtt_motion_state_topic_json="$(json_escape "$mqtt_motion_state_topic")"
+    mqtt_event_topic_json="$(json_escape "$mqtt_event_topic")"
+    mqtt_snapshot_last_path_topic_json="$(json_escape "$mqtt_snapshot_last_path_topic")"
+    mqtt_integration_manifest_topic_json="$(json_escape "$mqtt_integration_manifest_topic")"
+    mqtt_integration_selftest_topic_json="$(json_escape "$mqtt_integration_selftest_topic")"
+
+    printf '{"generated_at_utc":"%s","hostname":"%s","camera_slug":"%s","primary_ip":"%s","web":{"mode":"%s","enabled":%s,"base_url":"%s","snapshot_url":"%s","healthsnapshot_url":"%s","integration_manifest_url":"%s","motion_events_url":"%s","motion_thumbnail_url":"%s"},"rtsp":{"username":"%s","password":"%s","port":%s,"auth_embedded":%s,"auth_warning":"%s","audio_enabled":%s,"substream_enabled":%s,"main":{"path":"video0_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"sub":{"path":"video1_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"frigate":{"record_url":"%s","detect_url":"%s","detect_source":"%s"}},"onvif":{"port":%s,"device_service_url":"%s","stream_policy":"%s"},"mqtt":{"enabled":%s,"broker_host":"%s","broker_port":%s,"username":"%s","password":"%s","client_id":"%s","discovery_enabled":%s,"discovery_prefix":"%s","topic_root":"%s","command_topic":"%s","availability_topic":"%s","health_topic":"%s","motion_state_topic":"%s","event_topic":"%s","snapshot_last_path_topic":"%s","integration_manifest_topic":"%s","integration_selftest_topic":"%s"}}\n' \
+      "$manifest_time_utc_json" "$manifest_hostname_json" "$manifest_camera_slug_json" "$primary_ip_json" \
+      "$web_mode_json" "$web_enabled" "$web_base_url_json" "$web_snapshot_url_json" "$web_healthsnapshot_url_json" "$web_manifest_url_json" "$web_motion_events_url_json" "$web_motion_thumbnail_url_json" \
+      "$rtsp_username_json" "$rtsp_password_json" "$rtsp_port" "$rtsp_auth_embedded" "$rtsp_auth_warning_json" "$rtsp_audio_enabled" "$rtsp_substream_enabled" \
+      "$rtsp_main_url_json" "$codec0_json" "$width0" "$height0" "$fps0" \
+      "$rtsp_sub_url_json" "$codec1_json" "$width1" "$height1" "$fps1" \
+      "$frigate_record_url_json" "$frigate_detect_url_json" "$frigate_detect_source_json" \
+      "$onvif_port" "$onvif_device_service_url_json" "$onvif_stream_policy_json" \
+      "$mqtt_enabled_flag" "$mqtt_broker_host_json" "$mqtt_broker_port" "$mqtt_username_json" "$mqtt_password_json" "$mqtt_client_id_json" "$mqtt_discovery_enabled" "$mqtt_discovery_prefix_json" "$mqtt_topic_root_json" "$mqtt_command_topic_json" "$mqtt_availability_topic_json" "$mqtt_health_topic_json" "$mqtt_motion_state_topic_json" "$mqtt_event_topic_json" "$mqtt_snapshot_last_path_topic_json" "$mqtt_integration_manifest_topic_json" "$mqtt_integration_selftest_topic_json"
     ;;
 
   healthsnapshot)
