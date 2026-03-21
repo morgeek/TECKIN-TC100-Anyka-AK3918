@@ -1,1 +1,8 @@
+# Device hostname
+# Read by scripts/common_functions.sh at boot to set /proc/sys/kernel/hostname.
+#
+# The hostname appears in syslog messages, mDNS/Avahi (if enabled), and
+# ONVIF device discovery responses.  Keep it short, alphanumeric + hyphens.
+#
+# Example: TC100-Living-Room
 Anyka

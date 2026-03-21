@@ -1,4 +1,25 @@
 # Service trimming configuration
-# When enabled, only the allowlisted autostart scripts run at boot.
+# Read by scripts/boot-services.sh (or equivalent autostart handler).
+#
+# SERVICE_TRIM — set to 1 to restrict which autostart scripts run at boot.
+#   0 — disabled (default): all autostart scripts in /mnt/autostart/ run.
+#   1 — enabled: only scripts listed in SERVICE_TRIM_ALLOWLIST run.
+#
+# Useful on low-RAM devices to shed optional services and free memory for
+# recording, RTSP streaming, or ONVIF.
 SERVICE_TRIM=0
+
+# SERVICE_TRIM_ALLOWLIST — space-separated list of autostart script names
+# (filenames under /mnt/autostart/, without path) that are permitted to
+# run when SERVICE_TRIM=1.
+#
+# The two entries below are the minimum required for a functional camera:
+#   00_system-config  — applies hostname, timezone, network settings
+#   02_system-webserver — starts lighttpd (Web UI and CGI endpoints)
+#
+# Add further entries as needed, e.g.:
+#   rtsp-h26x         — RTSP stream (required for recording / ONVIF)
+#   onvif             — ONVIF discovery and PTZ control
+#   recording         — SD card recording
+#   mqtt-bridge       — MQTT integration
 SERVICE_TRIM_ALLOWLIST="00_system-config 02_system-webserver rtsp-h26x onvif"

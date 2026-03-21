@@ -42,6 +42,7 @@
                     title="Current CPU and RAM usage">
                     <em id="cpuusage" class="usage-chip usage-low">CPU: ...</em>
                     <em id="ramusage" class="usage-chip usage-low">RAM: ...</em>
+                    <em id="sdbadge" class="usage-chip usage-low" style="display:none">SD: ...</em>
                 </span>
                 <span class="navbar-item nav-perfprofile-wrap" title="Current performance profile">
                     <em id="perfprofile">Profile: ...</em>
@@ -122,6 +123,22 @@
                                             d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3s-3.6 3-8 3s-8-1.3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3M4 17c0 1.7 3.6 3 8 3s8-1.3 8-3" />
                                     </svg>
                                     <span>Disk & Mounts</span>
+                                </span>
+                            </a>
+                            <a id="configeditor" class="navbar-item onpage" href="javascript: void(0)" data-target="configeditor.html">
+                                <span class="info-menu-item">
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M14 3v4a1 1 0 0 0 1 1h4M5 8v-3a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3M5 18H3M7 15l-2 3l2 3" />
+                                    </svg>
+                                    <span>Config Editor</span>
+                                </span>
+                            </a>
+                            <a id="backup" class="navbar-item onpage" href="javascript: void(0)" data-target="backup.html">
+                                <span class="info-menu-item">
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3" />
+                                    </svg>
+                                    <span>Backup &amp; Restore</span>
                                 </span>
                             </a>
                             <a id="logs" class="navbar-item onpage" href="javascript: void(0)" data-target="logs.html">

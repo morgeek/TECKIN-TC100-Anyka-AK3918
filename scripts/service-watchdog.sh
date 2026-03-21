@@ -195,6 +195,16 @@ monitor_service()
                 append_log "$SERVICE_TO_MONITOR - perform restart"
                 log_event "warn" "service" "Watchdog restarting $SERVICE_TO_MONITOR (error count: $CURRENT_ERRORS)"
                 recover_service "$SERVICE_TO_MONITOR" "$CHECK_MODE"
+                # Post-restart validation: wait half a check cycle, then confirm recovery.
+                _post_wait=$(( CHECK_TIMEOUT_SECONDS / 2 ))
+                [ "$_post_wait" -lt 5 ] && _post_wait=5
+                sleep "$_post_wait"
+                if ! service_is_healthy "$SERVICE_TO_MONITOR" "$CHECK_MODE"; then
+                    _wd_now
+                    append_log "@${_wd_ts} $SERVICE_TO_MONITOR - restart did not recover service"
+                    log_event "error" "service" "Watchdog restart of $SERVICE_TO_MONITOR failed to recover (error count: $CURRENT_ERRORS)"
+                    CURRENT_ERRORS=$((CURRENT_ERRORS + 1))
+                fi
             fi
         fi
     done

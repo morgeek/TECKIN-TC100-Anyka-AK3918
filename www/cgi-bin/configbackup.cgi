@@ -231,6 +231,7 @@ case "$F_cmd" in
     download_backup
     ;;
   restore)
+    csrf_guard
     archive_path="${F_archive_path}"
     restart_services="${F_restart_services}"
 

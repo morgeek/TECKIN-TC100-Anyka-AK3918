@@ -1,4 +1,32 @@
+# recording.conf — TC100 video recording configuration
+# This file is sourced by controlscripts/recording on each start.
+# Changes take effect after the Recording service is restarted.
+# Managed via the web UI under Settings → Recording.
+
+# rec_motion_activated
+#   1 = record only when motion (or sound) is detected (motion-activated recording).
+#   0 = record continuously whenever the Recording service is running.
+#   Default: 1
 rec_motion_activated=1
+
+# rec_postrecord_sec
+#   Number of seconds to continue recording after the last detected motion event ends.
+#   Prevents clips from cutting off immediately when motion stops.
+#   Valid range: 0–60 seconds.
+#   Default: 5
 rec_postrecord_sec=5
+
+# rec_file_duration_sec
+#   Maximum duration of a single output video segment in seconds.
+#   When a clip reaches this length it is closed and a new segment is started.
+#   Valid range: 10–600 seconds.
+#   Default: 60
 rec_file_duration_sec=60
+
+# rec_reserverd_disk_mb  (note: intentional typo kept for compatibility)
+#   Minimum free space to preserve on the SD card (in megabytes).
+#   The recorder will delete the oldest clips in /mnt/DCIM when free space
+#   falls below this threshold.
+#   Set to 0 to disable automatic old-file removal (not recommended).
+#   Default: 256
 rec_reserverd_disk_mb=256

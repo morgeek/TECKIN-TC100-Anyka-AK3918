@@ -18,22 +18,22 @@ TELEGRAM_ERROR_BACKOFF_SECONDS="${TELEGRAM_ERROR_BACKOFF_SECONDS:-5}"
 
 sendShot() {
   /mnt/bin/getimage > "/tmp/telegram_image.jpg" &&\
-  $TELEGRAM p "/tmp/telegram_image.jpg"
+  "$TELEGRAM" p "/tmp/telegram_image.jpg"
   rm "/tmp/telegram_image.jpg"
 }
 
 sendMem() {
-  $TELEGRAM m $(free -k | awk '/^Mem/ {print "Mem: used "$3" free "$4} /^Swap/ {print "Swap: used "$3}')
+  "$TELEGRAM" m "$(free -k | awk '/^Mem/ {print "Mem: used "$3" free "$4} /^Swap/ {print "Swap: used "$3}')"
 }
 
 detectionOn() {
   . /mnt/scripts/common_functions.sh
-  motion_detection on && $TELEGRAM m "Motion detection started"
+  motion_detection on && "$TELEGRAM" m "Motion detection started"
 }
 
 detectionOff() {
   . /mnt/scripts/common_functions.sh
-  motion_detection off && $TELEGRAM m "Motion detection stopped"
+  motion_detection off && "$TELEGRAM" m "Motion detection stopped"
 }
 
 respond() {
@@ -42,14 +42,14 @@ respond() {
     /shot) sendShot;;
     /on) detectionOn;;
     /off) detectionOff;;
-    *) $TELEGRAM m "I can't respond to '$1' command"
+    *) "$TELEGRAM" m "I can't respond to '$1' command"
   esac
 }
 
 readNext() {
   lastUpdateId="$(cat "$LASTUPDATEFILE" 2>/dev/null || echo "0")"
   maxTime=$((TELEGRAM_LONG_POLL_TIMEOUT_SECONDS + 10))
-  $CURL -s --connect-timeout 5 --max-time "$maxTime" -X GET \
+  "$CURL" -s --connect-timeout 5 --max-time "$maxTime" -X GET \
     "https://api.telegram.org/bot$apiToken/getUpdates?offset=$lastUpdateId&limit=1&timeout=$TELEGRAM_LONG_POLL_TIMEOUT_SECONDS&allowed_updates=message"
 }
 
@@ -62,7 +62,7 @@ main() {
   json="$(readNext)" || return 2
 
   # Check for error or empty result in one pass
-  p="$(echo "$json" | $JQ -r 'if .ok == true then .result[0] | @sh "chatId=\(.message.chat.id // \"\") cmd=\(.message.text // \"\") updateId=\(.update_id // \"\") username=\(.message.from.username // \"\") firstName=\(.message.from.first_name // \"\")" else "error" end' 2>/dev/null)"
+  p="$(echo "$json" | "$JQ" -r 'if .ok == true then .result[0] | @sh "chatId=\(.message.chat.id // \"\") cmd=\(.message.text // \"\") updateId=\(.update_id // \"\") username=\(.message.from.username // \"\") firstName=\(.message.from.first_name // \"\")" else "error" end' 2>/dev/null)"
   [ -z "$p" ] || [ "$p" = "error" ] && return 1
 
   # Safely evaluate variables (chatId, cmd, updateId, username, firstName)
@@ -70,7 +70,7 @@ main() {
   [ -z "$chatId" ] && return 0 # no new updates
 
   if [ "$chatId" != "$userChatId" ]; then
-    $TELEGRAM m "Unauthorized chat: $chatId\nUser: $username($firstName)\nMsg: $cmd"
+    "$TELEGRAM" m "Unauthorized chat: $chatId\nUser: $username($firstName)\nMsg: $cmd"
   else
     respond "$cmd"
   fi

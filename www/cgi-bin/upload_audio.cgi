@@ -41,6 +41,8 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+rate_limit_check 5 60
+
 if [ "$REQUEST_METHOD" != "POST" ]; then
     respond_plain "405 Method Not Allowed" "METHOD_NOT_ALLOWED"
     exit 0

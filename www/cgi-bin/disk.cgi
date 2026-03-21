@@ -1,11 +1,51 @@
 #!/bin/sh
 
+source ./func.cgi
+rate_limit_check 30 60
+
 echo "Content-type: text/html"
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
-source ./func.cgi
 PATH="/bin:/sbin:/usr/bin:/usr/sbin"
+
+# Disk growth forecasting: compare current usage % to a cached value from last hour.
+DISK_USAGE_CACHE="/tmp/disk_usage.cache"
+_disk_forecast=""
+_btime=0
+while read -r _k _v _; do [ "$_k" = "btime" ] && _btime="$_v" && break; done < /proc/stat
+read -r _up _ < /proc/uptime
+_now_ts=$((_btime + ${_up%.*}))
+_mnt_pct="$(df /mnt 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5+0}')"
+case "$_mnt_pct" in ''|*[!0-9]*) _mnt_pct="" ;; esac
+if [ -n "$_mnt_pct" ]; then
+    if [ -f "$DISK_USAGE_CACHE" ]; then
+        read -r _cached_ts _cached_pct < "$DISK_USAGE_CACHE" 2>/dev/null || true
+        case "$_cached_ts" in ''|*[!0-9]*) _cached_ts=0 ;; esac
+        case "$_cached_pct" in ''|*[!0-9]*) _cached_pct="" ;; esac
+        _age=$((_now_ts - _cached_ts))
+        if [ "$_age" -ge 1800 ] && [ -n "$_cached_pct" ] && [ "$_mnt_pct" -gt "$_cached_pct" ]; then
+            # Growth rate in percentage points per hour
+            _growth_rate_x100=$(( (_mnt_pct - _cached_pct) * 360000 / _age ))
+            if [ "$_growth_rate_x100" -gt 0 ]; then
+                _remaining=$(( 100 - _mnt_pct ))
+                _hours_left=$(( _remaining * 10000 / _growth_rate_x100 ))
+                if [ "$_hours_left" -lt 24 ]; then
+                    _disk_forecast="WARNING: SD card may fill within ${_hours_left}h at current growth rate"
+                elif [ "$_hours_left" -lt 168 ]; then
+                    _disk_days=$(( _hours_left / 24 ))
+                    _disk_forecast="SD card may fill in ~${_disk_days} day(s) at current growth rate"
+                else
+                    _disk_forecast="Growth rate low — no fill risk detected in the next 7 days"
+                fi
+            fi
+        fi
+    fi
+    # Update cache if absent or older than 1 hour
+    if [ ! -f "$DISK_USAGE_CACHE" ] || [ "$(( _now_ts - $(awk '{print $1+0}' "$DISK_USAGE_CACHE" 2>/dev/null || echo 0) ))" -ge 3600 ]; then
+        printf '%s %s\n' "$_now_ts" "$_mnt_pct" > "$DISK_USAGE_CACHE" 2>/dev/null || true
+    fi
+fi
 
 df_text="$(df -h 2>/dev/null)"
 iostat_text="$(iostat -d -k 2>/dev/null)"
@@ -83,6 +123,8 @@ cat << EOF
             <div class='card-content'>
                 Root usage:
                 <pre class='info-pre'>$root_usage</pre>
+                SD growth forecast:
+                <pre class='info-pre'>${_disk_forecast:-collecting data...}</pre>
                 Filesystems:
                 <pre class='info-pre'>$filesystem_count</pre>
                 Mount points:

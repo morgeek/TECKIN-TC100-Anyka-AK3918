@@ -2,6 +2,8 @@
 SERVICE_NAME="Network Monitor"
 PIDFILE="/var/run/network-monitor.pid"
 
+. /mnt/scripts/common_functions.sh
+
 if [ ! -f /mnt/config/netmon.conf ]; then
   echo "You have to configure network monitor first. Please see /mnt/config/netmon.conf for further instructions"
 fi
@@ -28,10 +30,7 @@ start()
 
 stop()
 {
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ "$pid" ]; then
-     kill "$pid" && rm "$PIDFILE"
-  fi
+  killpid_graceful "$PIDFILE" 5
 }
 
 restart()
@@ -41,10 +40,15 @@ restart()
   start
 }
 
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status|restart)
+  case $1 in start|stop|status|restart|health)
     $1
     ;;
   esac

@@ -4,7 +4,20 @@
 . /mnt/scripts/common_functions.sh
 
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
-SCRIPT_HOME="/mnt/controlscripts/"
+SCRIPT_HOME="/mnt/controlscripts"
+
+# Validate that a controlscript name contains only safe characters (no path traversal)
+validate_control_id() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._-]*|..*|.) return 1 ;;
+  esac
+  return 0
+}
+
+# CSRF check before headers for state-changing commands
+case "${F_cmd:-}" in
+  setsettings|on|off) csrf_guard ;;
+esac
 # Allow tests to override config locations via environment for safer testing
 ENABLED_CONTROLS_CONFIG="${ENABLED_CONTROLS_CONFIG:-/mnt/config/webcontrols.conf}"
 
@@ -104,14 +117,14 @@ if [ -n "$F_cmd" ]; then
 
     on)
       script="${F_control##*/}"
-      if [ -f "$SCRIPT_HOME/$script" ]; then
+      if validate_control_id "$script" && [ -f "$SCRIPT_HOME/$script" ]; then
         sh "$SCRIPT_HOME/$script" start > /dev/null 2>&1
       fi
     ;;
 
     off)
       script="${F_control##*/}"
-      if [ -f "$SCRIPT_HOME/$script" ]; then
+      if validate_control_id "$script" && [ -f "$SCRIPT_HOME/$script" ]; then
         sh "$SCRIPT_HOME/$script" stop > /dev/null 2>&1
       fi
     ;;
@@ -140,7 +153,7 @@ if [ -n "$F_cmd" ]; then
 
     getstate)
       script="${F_control##*/}"
-      if [ -f "$SCRIPT_HOME/$script" ]; then
+      if validate_control_id "$script" && [ -f "$SCRIPT_HOME/$script" ]; then
         status="$(sh "$SCRIPT_HOME/$script" status 2>/dev/null)"
       else
         status=""

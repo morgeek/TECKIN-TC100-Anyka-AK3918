@@ -32,6 +32,23 @@ run_busybox()
   "$BUSYBOX_BIN" "$@"
 }
 
+# run_with_timeout <seconds> <cmd> [args...] — runs cmd under a timeout.
+# Tries system timeout first, then busybox timeout, then runs directly.
+run_with_timeout()
+{
+  _rwt_secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$_rwt_secs" "$@"
+    return
+  fi
+  [ -n "$BUSYBOX_BIN" ] && [ -x "$BUSYBOX_BIN" ] || BUSYBOX_BIN="$(get_busybox_bin)"
+  if "$BUSYBOX_BIN" timeout --help >/dev/null 2>&1; then
+    "$BUSYBOX_BIN" timeout "$_rwt_secs" "$@"
+    return
+  fi
+  "$@"
+}
+
 
 # Replace the old value of a config_key at the cfg_path with new_value
 # Don't rewrite commented lines
@@ -522,6 +539,33 @@ killpid()
   fi
 }
 
+# killpid_graceful — send SIGTERM, wait up to N seconds, then SIGKILL if still alive.
+# Usage: killpid_graceful <pidfile> [timeout_seconds]
+killpid_graceful()
+{
+  _kpg_file="$1"
+  _kpg_timeout="${2:-5}"
+  _kpg_pid="$(cat "$_kpg_file" 2>/dev/null)"
+  if [ -z "$_kpg_pid" ]; then
+    rm -f "$_kpg_file" 2>/dev/null || true
+    return 0
+  fi
+  # Send SIGTERM
+  kill "$_kpg_pid" 2>/dev/null || true
+  # Wait up to timeout for process to exit
+  _kpg_waited=0
+  while [ "$_kpg_waited" -lt "$_kpg_timeout" ]; do
+    kill -0 "$_kpg_pid" 2>/dev/null || break
+    sleep 1
+    _kpg_waited=$((_kpg_waited + 1))
+  done
+  # Force kill if still running
+  if kill -0 "$_kpg_pid" 2>/dev/null; then
+    kill -9 "$_kpg_pid" 2>/dev/null || true
+  fi
+  rm -f "$_kpg_file" 2>/dev/null || true
+}
+
 # Input arg - file with PID
 checkpid()
 {
@@ -574,6 +618,23 @@ red_led_blink()
 
 run_strings() {
   target="$1"
+  # Device files (e.g. /dev/mtd*) can block indefinitely — apply a timeout.
+  case "$target" in
+    /dev/*)
+      if command -v strings >/dev/null 2>&1; then
+        run_with_timeout 8 strings "$target" 2>/dev/null
+        return
+      fi
+      if [ -x /mnt/bin/busybox ]; then
+        run_with_timeout 8 /mnt/bin/busybox strings "$target" 2>/dev/null
+        return
+      fi
+      if [ -x /bin/busybox ]; then
+        run_with_timeout 8 /bin/busybox strings "$target" 2>/dev/null
+      fi
+      return
+      ;;
+  esac
   if command -v strings >/dev/null 2>&1; then
     strings "$target" 2>/dev/null
     return

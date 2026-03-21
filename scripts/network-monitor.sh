@@ -55,6 +55,15 @@ read_conf_value() {
 log_line() {
   _nm_now
   ensure_log_dir
+  # Rotate at 64 KB — keep last 100 lines
+  if [ -f "$LOGPATH" ]; then
+    _nm_sz="$(wc -c < "$LOGPATH" 2>/dev/null)"
+    case "$_nm_sz" in ''|*[!0-9]*) _nm_sz=0 ;; esac
+    if [ "$_nm_sz" -gt 65536 ]; then
+      tail -n 100 "$LOGPATH" > "${LOGPATH}.tmp" 2>/dev/null \
+        && mv "${LOGPATH}.tmp" "$LOGPATH" 2>/dev/null || true
+    fi
+  fi
   printf '@%s %s\n' "$_nm_ts" "$1" >> "$LOGPATH"
 }
 
@@ -210,6 +219,8 @@ read_broker_status() {
 assess_current_state() {
   load_mqtt_runtime
   wifi_connected="$(detect_wifi_connected)"
+  # Refresh gateway address each cycle in case DHCP assigned a new one.
+  PINGADDRESS="$(detect_gateway)"
 
   gateway_reachable=0
   if [ "$wifi_connected" = "1" ] && check_gateway_connectivity; then
@@ -226,6 +237,16 @@ assess_current_state() {
   elif [ "$broker_monitor_enabled" = "1" ] && [ "$broker_state" = "fail" ]; then
     current_problem="broker_unreachable"
   fi
+}
+
+graceful_shutdown_services() {
+  # Stop services that may be mid-write before rebooting, to prevent data loss.
+  for _svc in mqtt-bridge recording; do
+    if [ -x "/mnt/controlscripts/$_svc" ]; then
+      /mnt/controlscripts/"$_svc" stop >/dev/null 2>&1 || true
+    fi
+  done
+  sleep 2
 }
 
 bounce_wifi_interface() {
@@ -281,11 +302,37 @@ run_post_recovery_validation() {
   log_line "Network recovered after ${validation_reason}; running integration repair validation..."
   if /mnt/scripts/mqtt-bridge.sh command repair_integration network_recovery >/dev/null 2>&1; then
     log_line "Post-recovery integration validation succeeded after ${validation_reason}."
+    _nm_now
+    _recovery_payload="$(printf '{"ts":%d,"type":"network_recovery","reason":"%s","result":"ok"}' "$_nm_ts" "$validation_reason")"
+    /mnt/scripts/mqtt-bridge.sh publish event "$_recovery_payload" 0 \
+      network/recovery "ok" 1 >/dev/null 2>&1 || true
     return 0
   fi
 
   log_line "Post-recovery integration validation failed after ${validation_reason}."
+  _nm_now
+  _recovery_payload="$(printf '{"ts":%d,"type":"network_recovery","reason":"%s","result":"failed"}' "$_nm_ts" "$validation_reason")"
+  /mnt/scripts/mqtt-bridge.sh publish event "$_recovery_payload" 0 \
+    network/recovery "failed" 1 >/dev/null 2>&1 || true
   return 1
+}
+
+detect_gateway() {
+  # Try to read default gateway from /proc/net/route; fall back to configured PINGADDRESS.
+  # Gateway is stored as little-endian hex, e.g. "0101A8C0" = 192.168.1.1.
+  [ -r /proc/net/route ] || { printf '%s\n' "${PINGADDRESS:-192.168.0.1}"; return; }
+  while read -r _rt_iface _rt_dst _rt_gw _rest; do
+    [ "$_rt_dst" = "00000000" ] || continue
+    [ "$_rt_gw"  = "00000000" ] && continue
+    _a="$(printf '%d' "0x$(printf '%s' "$_rt_gw" | cut -c1-2)" 2>/dev/null)"
+    _b="$(printf '%d' "0x$(printf '%s' "$_rt_gw" | cut -c3-4)" 2>/dev/null)"
+    _c="$(printf '%d' "0x$(printf '%s' "$_rt_gw" | cut -c5-6)" 2>/dev/null)"
+    _d="$(printf '%d' "0x$(printf '%s' "$_rt_gw" | cut -c7-8)" 2>/dev/null)"
+    case "${_a}${_b}${_c}${_d}" in ''|*[!0-9]*) continue ;; esac
+    printf '%d.%d.%d.%d\n' "$_a" "$_b" "$_c" "$_d"
+    return
+  done < /proc/net/route
+  printf '%s\n' "${PINGADDRESS:-192.168.0.1}"
 }
 
 : "${WIFI_IFACE:=wlan0}"
@@ -371,8 +418,9 @@ do
           ;;
         *)
           record_recovery "$current_problem" "reboot"
-          log_line "Network reconnection failed (${current_problem}), reboot..."
+          log_line "Network reconnection failed (${current_problem}), stopping services and rebooting..."
           write_state
+          graceful_shutdown_services
           sleep "$REBOOT_DELAY_SECONDS"
           /sbin/reboot
           ;;

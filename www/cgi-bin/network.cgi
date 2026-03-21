@@ -1,10 +1,12 @@
 #!/bin/sh
 
+source ./func.cgi
+rate_limit_check 30 60
+
 echo "Content-type: text/html"
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
-source ./func.cgi
 PATH="/bin:/sbin:/usr/bin:/usr/sbin"
 NETSTAT_LISTEN_MAX_LINES=220
 NETSTAT_CONNECTIONS_MAX_LINES=320
@@ -81,6 +83,19 @@ is_truthy_local() {
   esac
 }
 
+with_timeout() {
+  _wt_secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$_wt_secs" "$@"
+    return
+  fi
+  if [ -x /mnt/bin/busybox ] && /mnt/bin/busybox timeout --help >/dev/null 2>&1; then
+    /mnt/bin/busybox timeout "$_wt_secs" "$@"
+    return
+  fi
+  "$@"
+}
+
 capture_limited_output() {
   max_lines="$1"
   shift
@@ -109,9 +124,9 @@ normalize_web_mode() {
   printf '%s\n' "$mode"
 }
 
-LISTEN_TCP="$(netstat -lnt 2>/dev/null)"
+LISTEN_TCP="$(with_timeout 5 netstat -lnt 2>/dev/null)"
 if [ -z "$LISTEN_TCP" ]; then
-  LISTEN_TCP="$(netstat -ln 2>/dev/null)"
+  LISTEN_TCP="$(with_timeout 5 netstat -ln 2>/dev/null)"
 fi
 
 is_port_open_tcp() {
@@ -223,11 +238,11 @@ $(emit_port_row "Telnet" "$telnet_port" "$telnet_expected" "$telnet_note")
 EOF
 )"
 
-interfaces_text="$(ifconfig 2>/dev/null; iwconfig 2>/dev/null)"
-routes_text="$(route 2>/dev/null)"
+interfaces_text="$(with_timeout 5 ifconfig 2>/dev/null; with_timeout 5 iwconfig 2>/dev/null)"
+routes_text="$(with_timeout 5 route 2>/dev/null)"
 dns_text="$(cat /etc/resolv.conf 2>/dev/null)"
-listen_text="$(capture_limited_output "$NETSTAT_LISTEN_MAX_LINES" netstat -l)"
-connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" netstat)"
+listen_text="$(capture_limited_output "$NETSTAT_LISTEN_MAX_LINES" with_timeout 5 netstat -l)"
+connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 netstat)"
 
 primary_ip="$(printf '%s\n' "$interfaces_text" | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
 [ -n "$primary_ip" ] || primary_ip="n/a"

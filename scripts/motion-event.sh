@@ -130,3 +130,35 @@ if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
   fi
   /mnt/scripts/mqtt-bridge.sh publish "$@" >/dev/null 2>&1 || true
 fi
+
+if [ -x /mnt/scripts/onvif-notify.sh ]; then
+  case "$event_type" in
+    motion_on|motion_off)
+      /mnt/scripts/onvif-notify.sh "$event_type" "$ts_utc" >/dev/null 2>&1 || true
+      ;;
+  esac
+fi
+
+# Telegram snapshot on motion_on — opt-in via TELEGRAM_MOTION_SNAPSHOT=1 in telegram.conf
+if [ "$event_type" = "motion_on" ] && \
+   [ -f /mnt/config/telegram.conf ] && \
+   [ -x /mnt/bin/telegram ]; then
+  TELEGRAM_MOTION_SNAPSHOT=0
+  # shellcheck disable=SC1091
+  . /mnt/config/telegram.conf 2>/dev/null || true
+  if [ "${TELEGRAM_MOTION_SNAPSHOT:-0}" = "1" ] && [ -n "${apiToken:-}" ]; then
+    if [ -n "$snapshot_path" ] && [ -f "$snapshot_path" ]; then
+      /mnt/bin/telegram p "$snapshot_path" >/dev/null 2>&1 || true
+    else
+      # Take a fresh snapshot if no snapshot was passed with the event
+      if [ -x /mnt/bin/getimage ]; then
+        _tg_snap="/tmp/telegram_motion_snap_$$.jpg"
+        /mnt/bin/getimage > "$_tg_snap" 2>/dev/null && \
+          /mnt/bin/telegram p "$_tg_snap" >/dev/null 2>&1 || true
+        rm -f "$_tg_snap" 2>/dev/null || true
+      else
+        /mnt/bin/telegram m "Motion detected at $ts_utc" >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
+fi
