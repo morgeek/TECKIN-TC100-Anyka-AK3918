@@ -2,10 +2,16 @@
 
 . /mnt/www/cgi-bin/func.cgi
 . /mnt/scripts/common_functions.sh
+. /mnt/scripts/event-logger.sh
 
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
-echo "Content-type: text/html"
+# Set content type based on requested format
+if wants_json_response; then
+  echo "Content-type: application/json"
+else
+  echo "Content-type: text/html"
+fi
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
@@ -211,15 +217,28 @@ PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
 
 ptt_backend_status() {
   if [ -x "$PTT_PCM_PLAYBACK_BIN" ]; then
-    echo "OK"
+    if wants_json_response; then
+      json_response "success" "OK"
+    else
+      echo "OK"
+    fi
   else
-    echo "PTT_BIN_MISSING"
+    if wants_json_response; then
+      json_error "PTT_BIN_MISSING" "PTT_BIN_MISSING"
+    else
+      echo "PTT_BIN_MISSING"
+    fi
   fi
 }
 
 read_ptt_volume() {
   ptt_vol_val="$(head -n1 "$PTT_VOLUME_FILE" 2>/dev/null | tr -d '[:space:]')"
-  sanitize_int_range "$ptt_vol_val" 0 100 90
+  volume="$(sanitize_int_range "$ptt_vol_val" 0 100 90)"
+  if wants_json_response; then
+    json_response "success" "$volume"
+  else
+    echo "$volume"
+  fi
 }
 
 ptt_volume_to_ak() {
@@ -253,32 +272,56 @@ play_audio_test_source() {
   audio_volume="$(sanitize_int_range "$2" 0 100 90)"
 
   if [ -z "$audio_source" ] || [ ! -r "$audio_source" ]; then
-    echo "Audio test failed: no readable source file. Upload audio first (PTT) or provide a valid path."
+    if wants_json_response; then
+      json_error "AUDIO_TEST_FAILED" "no readable source file. Upload audio first (PTT) or provide a valid path."
+    else
+      echo "Audio test failed: no readable source file. Upload audio first (PTT) or provide a valid path."
+    fi
     return 1
   fi
 
   case "$audio_source" in
     *.pcm)
       if [ ! -x "$PTT_PCM_PLAYBACK_BIN" ]; then
-        echo "Audio test failed: PCM playback backend is missing on the camera."
+        if wants_json_response; then
+          json_error "AUDIO_TEST_FAILED" "PCM playback backend is missing on the camera."
+        else
+          echo "Audio test failed: PCM playback backend is missing on the camera."
+        fi
         return 1
       fi
       ak_volume="$(ptt_volume_to_ak "$audio_volume")"
       /mnt/bin/busybox nohup "$PTT_PCM_PLAYBACK_BIN" 8000 1 "$audio_source" "$ak_volume" > /dev/null 2>&1 &
-      echo "Play $audio_source at volume $audio_volume (PCM)"
+      if wants_json_response; then
+        json_response "success" "Playing $audio_source at volume $audio_volume (PCM)"
+      else
+        echo "Play $audio_source at volume $audio_volume (PCM)"
+      fi
       return 0
       ;;
     *.wav)
       if [ ! -x "$PTT_WAV_PLAYBACK_BIN" ]; then
-        echo "Audio test failed: WAV playback backend is missing on the camera."
+        if wants_json_response; then
+          json_error "AUDIO_TEST_FAILED" "WAV playback backend is missing on the camera."
+        else
+          echo "Audio test failed: WAV playback backend is missing on the camera."
+        fi
         return 1
       fi
       /mnt/bin/busybox nohup "$PTT_WAV_PLAYBACK_BIN" "$audio_source" "$audio_volume" > /dev/null 2>&1 &
-      echo "Play $audio_source at volume $audio_volume (WAV)"
+      if wants_json_response; then
+        json_response "success" "Playing $audio_source at volume $audio_volume (WAV)"
+      else
+        echo "Play $audio_source at volume $audio_volume (WAV)"
+      fi
       return 0
       ;;
     *)
-      echo "Audio test failed: unsupported source format: $audio_source"
+      if wants_json_response; then
+        json_error "AUDIO_TEST_FAILED" "unsupported source format: $audio_source"
+      else
+        echo "Audio test failed: unsupported source format: $audio_source"
+      fi
       return 1
       ;;
   esac
@@ -896,10 +939,32 @@ select_compat_profile_values() {
       onvif_policy="main-primary"
       low_cpu_profile=0
       ;;
-    ha-frigate)
-      profile_label="HA Frigate"
-      width0=1920; height0=1080; fps0=15; bps0=1800; gop0=30; maxkbps0=2200; targetkbps0=1800; smartq0=85; smartstatic0=500
-      width1=640;  height1=360;  fps1=8;  bps1=260;  gop1=16; maxkbps1=360;  targetkbps1=260;  smartq1=65; smartstatic1=150
+    ha-frigate|frigate-balanced)
+      profile_label="Frigate balanced"
+      width0=1920; height0=1080; fps0=15; bps0=1800; gop0=15; maxkbps0=2400; targetkbps0=1800; smartq0=85; smartstatic0=480
+      width1=640;  height1=360;  fps1=8;  bps1=260;  gop1=8;  maxkbps1=360;  targetkbps1=260;  smartq1=65; smartstatic1=150
+      codec0=0; profile0=1
+      codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=0
+      onvif_policy="sub-primary"
+      low_cpu_profile=0
+      ;;
+    frigate-low-bandwidth)
+      profile_label="Frigate low-bandwidth"
+      width0=1280; height0=720;  fps0=10; bps0=1000; gop0=10; maxkbps0=1300; targetkbps0=1000; smartq0=72; smartstatic0=360
+      width1=640;  height1=360;  fps1=5;  bps1=180;  gop1=5;  maxkbps1=240;  targetkbps1=180;  smartq1=60; smartstatic1=120
+      codec0=0; profile0=1
+      codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=0
+      onvif_policy="sub-primary"
+      low_cpu_profile=0
+      ;;
+    frigate-quality)
+      profile_label="Frigate quality"
+      width0=1920; height0=1080; fps0=20; bps0=2600; gop0=20; maxkbps0=3200; targetkbps0=2600; smartq0=90; smartstatic0=520
+      width1=640;  height1=360;  fps1=10; bps1=350;  gop1=10; maxkbps1=480;  targetkbps1=350;  smartq1=70; smartstatic1=180
       codec0=0; profile0=1
       codec1=0; profile1=0
       rtsp_substream=1
@@ -953,54 +1018,66 @@ if [ -n "$F_cmd" ]; then
   fi
   case "$F_cmd" in
     showlog)
-      echo "<pre>"
-      case "${F_logname}" in
-        "" | 1)
-          emit_log_tail_dir "/var/log" "Summary of /var/log (tail -n ${LOG_SUMMARY_TAIL_LINES})" "$LOG_SUMMARY_TAIL_LINES"
-          emit_log_tail_dir "/mnt/log" "=== /mnt/log (tail -n ${LOG_SUMMARY_TAIL_LINES}) ===" "$LOG_SUMMARY_TAIL_LINES"
-          ;;
+      if wants_json_response; then
+        json_error "FORMAT_NOT_SUPPORTED" "showlog command does not support JSON format"
+      else
+        echo "<pre>"
+        case "${F_logname}" in
+          "" | 1)
+            emit_log_tail_dir "/var/log" "Summary of /var/log (tail -n ${LOG_SUMMARY_TAIL_LINES})" "$LOG_SUMMARY_TAIL_LINES"
+            emit_log_tail_dir "/mnt/log" "=== /mnt/log (tail -n ${LOG_SUMMARY_TAIL_LINES}) ===" "$LOG_SUMMARY_TAIL_LINES"
+            ;;
 
-        2)
-          echo "Content of dmesg (tail -n ${LOG_DMESG_TAIL_LINES})<br/>"
-          /bin/dmesg 2>/dev/null | tail -n "$LOG_DMESG_TAIL_LINES"
-          ;;
+          2)
+            echo "Content of dmesg (tail -n ${LOG_DMESG_TAIL_LINES})<br/>"
+            /bin/dmesg 2>/dev/null | tail -n "$LOG_DMESG_TAIL_LINES"
+            ;;
 
-        3)
-          echo "Content of v4l2rtspserver.log (tail -n ${LOG_VIDEO_TAIL_LINES})<br/>"
-          if [ -f /mnt/log/v4l2rtspserver.log ]; then
-            tail -n "$LOG_VIDEO_TAIL_LINES" /mnt/log/v4l2rtspserver.log
-          else
-            echo "Log file not found: /mnt/log/v4l2rtspserver.log"
-          fi
-          ;;
+          3)
+            echo "Content of v4l2rtspserver.log (tail -n ${LOG_VIDEO_TAIL_LINES})<br/>"
+            if [ -f /mnt/log/v4l2rtspserver.log ]; then
+              tail -n "$LOG_VIDEO_TAIL_LINES" /mnt/log/v4l2rtspserver.log
+            else
+              echo "Log file not found: /mnt/log/v4l2rtspserver.log"
+            fi
+            ;;
 
-      esac
-      echo "</pre>"
+        esac
+        echo "</pre>"
+      fi
     ;;
     clearlog)
-      echo "<pre>"
-      case "${F_logname}" in
-        "" | 1)
-          cleared_var="$(clear_log_dir_files /var/log)"
-          cleared_mnt="$(clear_log_dir_files /mnt/log)"
-          echo "Summary logs cleared<br/>"
-          echo "/var/log files cleared: $cleared_var<br/>"
-          echo "/mnt/log files cleared: $cleared_mnt<br/>"
-          ;;
-        2)
-          echo "Content of dmesg cleared<br/>"
-          /bin/dmesg -c > /dev/null
-          ;;
-        3)
-          echo "Content of v4l2rtspserver.log cleared<br/>"
-          : > /mnt/log/v4l2rtspserver.log 2>/dev/null || true
-          ;;
-      esac
-      echo "</pre>"
+      if wants_json_response; then
+        json_error "FORMAT_NOT_SUPPORTED" "clearlog command does not support JSON format"
+      else
+        echo "<pre>"
+        case "${F_logname}" in
+          "" | 1)
+            cleared_var="$(clear_log_dir_files /var/log)"
+            cleared_mnt="$(clear_log_dir_files /mnt/log)"
+            echo "Summary logs cleared<br/>"
+            echo "/var/log files cleared: $cleared_var<br/>"
+            echo "/mnt/log files cleared: $cleared_mnt<br/>"
+            ;;
+          2)
+            echo "Content of dmesg cleared<br/>"
+            /bin/dmesg -c > /dev/null
+            ;;
+          3)
+            echo "Content of v4l2rtspserver.log cleared<br/>"
+            : > /mnt/log/v4l2rtspserver.log 2>/dev/null || true
+            ;;
+        esac
+        echo "</pre>"
+      fi
     ;;
 
     reboot)
-      echo "Rebooting device..."
+      if wants_json_response; then
+        json_response "success" "Rebooting device..."
+      else
+        echo "Rebooting device..."
+      fi
       now_ts="$(date +%s 2>/dev/null)"
       [ -n "$now_ts" ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"reboot","source":"action.cgi"}' "$now_ts")"
@@ -1008,14 +1085,22 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     shutdown)
-      echo "Shutting down device.."
+      if wants_json_response; then
+        json_response "success" "Shutting down device.."
+      else
+        echo "Shutting down device.."
+      fi
       /sbin/halt
     ;;
 
     clear_mem)
       sync
       echo 3 > /proc/sys/vm/drop_caches
-      echo "System caches cleared. Memory freed.<br/>"
+      if wants_json_response; then
+        json_response "success" "System caches cleared. Memory freed."
+      else
+        echo "System caches cleared. Memory freed.<br/>"
+      fi
     ;;
 
     isp_pro)
@@ -1065,7 +1150,11 @@ if [ -n "$F_cmd" ]; then
       /mnt/bin/setconf -k x -v "$osdx0"
       /mnt/bin/setconf -k y -v "$osdy0"
 
-      echo "ISP and OSD settings updated.<br/>"
+      if wants_json_response; then
+        json_response "success" "ISP and OSD settings updated."
+      else
+        echo "ISP and OSD settings updated.<br/>"
+      fi
     ;;
 
     conf_sounddetect)
@@ -1085,39 +1174,67 @@ if [ -n "$F_cmd" ]; then
       else
         /mnt/controlscripts/sound-detection stop
       fi
-      echo "Sound detection settings updated.<br/>"
+      if wants_json_response; then
+        json_response "success" "Sound detection settings updated."
+      else
+        echo "Sound detection settings updated.<br/>"
+      fi
     ;;
 
     front_led_on)
       front_led on
+      if wants_json_response; then
+        json_response "success" "Front LED turned on"
+      fi
     ;;
 
     front_led_off)
       front_led off
+      if wants_json_response; then
+        json_response "success" "Front LED turned off"
+      fi
     ;;
 
     red_led_on)
       red_led on
+      if wants_json_response; then
+        json_response "success" "Red LED turned on"
+      fi
     ;;
 
     red_led_off)
       red_led off
+      if wants_json_response; then
+        json_response "success" "Red LED turned off"
+      fi
     ;;
 
     ir_led_on)
       ir_led on
+      if wants_json_response; then
+        json_response "success" "IR LED turned on"
+      fi
     ;;
 
     ir_led_off)
       ir_led off
+      if wants_json_response; then
+        json_response "success" "IR LED turned off"
+      fi
     ;;
 
     ir_cut_on)
       ir_cut on
+      if wants_json_response; then
+        json_response "success" "IR cut filter enabled"
+      fi
     ;;
 
     ir_cut_off)
       ir_cut off
+      if wants_json_response; then
+        json_response "success" "IR cut filter disabled"
+      fi
     ;;
 
     audio_test)
@@ -1132,21 +1249,37 @@ if [ -n "$F_cmd" ]; then
 
     set_telnet)
       if security_hardening_enabled; then
-        echo "<p>Security hardening is enabled. Telnet changes are blocked.</p>"
+        if wants_json_response; then
+          json_error "SECURITY_HARDENING_ENABLED" "Telnet changes are blocked."
+        else
+          echo "<p>Security hardening is enabled. Telnet changes are blocked.</p>"
+        fi
         exit 0
       fi
       telnetport=$(printf '%b' "${F_telnetport}")
       case "$telnetport" in
         ''|*[!0-9]*)
-          echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
+          if wants_json_response; then
+            json_error "INVALID_PORT" "Invalid telnet port. Allowed range is 1-65535."
+          else
+            echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
+          fi
           ;;
         *)
           if [ "$telnetport" -lt 1 ] || [ "$telnetport" -gt 65535 ]; then
-            echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
+            if wants_json_response; then
+              json_error "INVALID_PORT" "Invalid telnet port. Allowed range is 1-65535."
+            else
+              echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
+            fi
           else
             echo "TELNET_PORT=$telnetport" > /mnt/config/telnetd.conf
             restart_service_if_need /mnt/controlscripts/telnet-server
-            echo "<p>Setting telnet service port to : $telnetport</p>"
+            if wants_json_response; then
+              json_response "success" "Setting telnet service port to: $telnetport"
+            else
+              echo "<p>Setting telnet service port to : $telnetport</p>"
+            fi
           fi
           ;;
       esac
@@ -1154,19 +1287,35 @@ if [ -n "$F_cmd" ]; then
 
     set_ftp)
       if security_hardening_enabled; then
-        echo "<p>Security hardening is enabled. FTP changes are blocked.</p>"
+        if wants_json_response; then
+          json_error "SECURITY_HARDENING_ENABLED" "FTP changes are blocked."
+        else
+          echo "<p>Security hardening is enabled. FTP changes are blocked.</p>"
+        fi
         exit 0
       fi
       ftpport=$(printf '%b' "${F_ftpport}")
       case "$ftpport" in
         ''|*[!0-9]*)
-          echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
+          if wants_json_response; then
+            json_error "INVALID_PORT" "Invalid ftp port. Allowed range is 1-65535."
+          else
+            echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
+          fi
           ;;
         *)
           if [ "$ftpport" -lt 1 ] || [ "$ftpport" -gt 65535 ]; then
-            echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
+            if wants_json_response; then
+              json_error "INVALID_PORT" "Invalid ftp port. Allowed range is 1-65535."
+            else
+              echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
+            fi
           else
-            echo "<p>Setting ftp service port to: $ftpport</p>"
+            if wants_json_response; then
+              json_response "success" "Setting ftp service port to: $ftpport"
+            else
+              echo "<p>Setting ftp service port to: $ftpport</p>"
+            fi
             echo "PORT=$ftpport" > /mnt/config/ftp.conf
             start_service_if_need /mnt/controlscripts/ftp-server
           fi
@@ -1474,53 +1623,57 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_web_mode)
-      install_config /mnt/config/boot.conf
-      web_mode=$(printf '%b' "${F_web_mode}")
-      ultralite_http_port=$(printf '%b' "${F_ultralite_http_port}")
+      if wants_json_response; then
+        json_error "FORMAT_NOT_SUPPORTED" "set_web_mode command does not support JSON format"
+      else
+        install_config /mnt/config/boot.conf
+        web_mode=$(printf '%b' "${F_web_mode}")
+        ultralite_http_port=$(printf '%b' "${F_ultralite_http_port}")
 
-      if security_hardening_enabled; then
-        if [ "$web_mode" != "full" ]; then
-          echo "Security hardening is enabled. WEB_MODE is locked to full (HTTPS).<br/>"
-          exit 0
+        if security_hardening_enabled; then
+          if [ "$web_mode" != "full" ]; then
+            echo "Security hardening is enabled. WEB_MODE is locked to full (HTTPS).<br/>"
+            exit 0
+          fi
         fi
+
+        case "$web_mode" in
+          full|http|ultra-lite|ultralite|off) ;;
+          *)
+            echo "Unknown web mode '$web_mode'<br/>"
+            exit 0
+            ;;
+        esac
+
+        if [ "$web_mode" = "ultralite" ]; then
+          web_mode="ultra-lite"
+        fi
+
+        case "$ultralite_http_port" in
+          ''|*[!0-9]*) ultralite_http_port=80 ;;
+        esac
+        if [ "$ultralite_http_port" -lt 1 ] || [ "$ultralite_http_port" -gt 65535 ]; then
+          ultralite_http_port=80
+        fi
+
+        rewrite_config /mnt/config/boot.conf WEB_MODE "$web_mode"
+        rewrite_config /mnt/config/boot.conf ULTRALITE_HTTP_PORT "$ultralite_http_port"
+
+        apply_web_mode_async "$web_mode"
+        schedule_onvif_restart
+
+        echo "Web mode set to: $web_mode<br/>"
+        if [ "$web_mode" = "ultra-lite" ]; then
+          echo "Ultra-lite HTTP port set to: $ultralite_http_port<br/>"
+        fi
+        echo "If the web UI disconnects, reconnect using the updated protocol/port.<br/>"
+        _ac_btime=0
+        while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
+        read -r _ac_up _ < /proc/uptime
+        now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
+        publish_mqtt_event "$(printf '{"ts":%s,"type":"web_mode","mode":"%s"}' "$now_ts" "$web_mode")"
+        rm -f /tmp/health_snapshot.cache 2>/dev/null || true
       fi
-
-      case "$web_mode" in
-        full|http|ultra-lite|ultralite|off) ;;
-        *)
-          echo "Unknown web mode '$web_mode'<br/>"
-          exit 0
-          ;;
-      esac
-
-      if [ "$web_mode" = "ultralite" ]; then
-        web_mode="ultra-lite"
-      fi
-
-      case "$ultralite_http_port" in
-        ''|*[!0-9]*) ultralite_http_port=80 ;;
-      esac
-      if [ "$ultralite_http_port" -lt 1 ] || [ "$ultralite_http_port" -gt 65535 ]; then
-        ultralite_http_port=80
-      fi
-
-      rewrite_config /mnt/config/boot.conf WEB_MODE "$web_mode"
-      rewrite_config /mnt/config/boot.conf ULTRALITE_HTTP_PORT "$ultralite_http_port"
-
-      apply_web_mode_async "$web_mode"
-      schedule_onvif_restart
-
-      echo "Web mode set to: $web_mode<br/>"
-      if [ "$web_mode" = "ultra-lite" ]; then
-        echo "Ultra-lite HTTP port set to: $ultralite_http_port<br/>"
-      fi
-      echo "If the web UI disconnects, reconnect using the updated protocol/port.<br/>"
-      _ac_btime=0
-      while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
-      read -r _ac_up _ < /proc/uptime
-      now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
-      publish_mqtt_event "$(printf '{"ts":%s,"type":"web_mode","mode":"%s"}' "$now_ts" "$web_mode")"
-      rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
     set_reboot_schedule)
@@ -1782,7 +1935,7 @@ if [ -n "$F_cmd" ]; then
       ha_discovery_prefix="$(printf '%s' "$ha_discovery_prefix" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
       [ -n "$ha_discovery_prefix" ] || ha_discovery_prefix="homeassistant"
 
-      [ -n "$ha_profile" ] || ha_profile="ha-frigate"
+      [ -n "$ha_profile" ] || ha_profile="frigate-balanced"
       if ! select_compat_profile_values "$ha_profile"; then
         echo "Unknown compatibility preset '$ha_profile'<br/>"
         exit 0
@@ -2231,7 +2384,10 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     complete_setup_wizard)
-      install_config /mnt/config/boot.conf
+      if wants_json_response; then
+        json_error "FORMAT_NOT_SUPPORTED" "complete_setup_wizard command does not support JSON format"
+      else
+        install_config /mnt/config/boot.conf
       install_config /mnt/config/service_trim.conf
       wizard_password=$(printf '%b' "${F_wizard_password//%/\\x}")
       wizard_profile=$(printf '%b' "${F_wizard_profile}")
@@ -2353,6 +2509,7 @@ if [ -n "$F_cmd" ]; then
         echo "Compatibility preset: $profile_label<br/>"
         echo "Timezone: $wizard_tz, NTP: $wizard_ntp_srv (ENABLE_NTP=$wizard_enable_ntp)<br/>"
         publish_mqtt_event "$(printf '{"ts":%s,"type":"setup_wizard","profile":"%s"}' "$now_ts" "$wizard_profile")"
+      fi
       fi
     ;;
 
@@ -2577,7 +2734,11 @@ if [ -n "$F_cmd" ]; then
     conf_ptt)
         safe_ptt_vol="$(sanitize_int_range "$F_audiooutVol" 0 100 90)"
         echo "$safe_ptt_vol" > "$PTT_VOLUME_FILE"
-        echo "Push-to-talk volume set to $safe_ptt_vol"
+        if wants_json_response; then
+          json_response "success" "Push-to-talk volume set to $safe_ptt_vol"
+        else
+          echo "Push-to-talk volume set to $safe_ptt_vol"
+        fi
     ;;
 
      motion_detection_mail_on)
@@ -2608,9 +2769,19 @@ if [ -n "$F_cmd" ]; then
         dns_primary="$F_dns_primary"
         dns_secondary="$F_dns_secondary"
         if ! validate_ip_or_empty "$dns_primary"; then
-            echo "ERROR: invalid primary DNS address '$dns_primary'"
+            if wants_json_response; then
+              json_error "INVALID_DNS" "Invalid primary DNS address: $dns_primary"
+            else
+              log_event "error" "network" "Invalid primary DNS address: $dns_primary"
+              echo "ERROR: invalid primary DNS address '$dns_primary'"
+            fi
         elif ! validate_ip_or_empty "$dns_secondary"; then
-            echo "ERROR: invalid secondary DNS address '$dns_secondary'"
+            if wants_json_response; then
+              json_error "INVALID_DNS" "Invalid secondary DNS address: $dns_secondary"
+            else
+              log_event "error" "network" "Invalid secondary DNS address: $dns_secondary"
+              echo "ERROR: invalid secondary DNS address '$dns_secondary'"
+            fi
         else
             rewrite_config /mnt/config/dns.conf DNS_PRIMARY "$dns_primary"
             rewrite_config /mnt/config/dns.conf DNS_SECONDARY "$dns_secondary"
@@ -2619,7 +2790,11 @@ if [ -n "$F_cmd" ]; then
                 [ -n "$dns_primary" ] && echo "nameserver $dns_primary"
                 [ -n "$dns_secondary" ] && echo "nameserver $dns_secondary"
             } > /etc/resolv.conf
-            echo "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
+            if wants_json_response; then
+              json_response "success" "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
+            else
+              echo "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
+            fi
         fi
     ;;
 
@@ -2641,10 +2816,13 @@ if [ -n "$F_cmd" ]; then
         esac
         if [ "$ip_mode" = "static" ]; then
             if [ -z "$static_ip" ] || ! validate_ip_or_empty "$static_ip"; then
+                log_event "error" "network" "Invalid static IP address: $static_ip"
                 echo "ERROR: invalid static IP '$static_ip'"
             elif ! validate_ip_or_empty "$static_netmask"; then
+                log_event "error" "network" "Invalid netmask: $static_netmask"
                 echo "ERROR: invalid netmask '$static_netmask'"
             elif ! validate_ip_or_empty "$static_gateway"; then
+                log_event "error" "network" "Invalid gateway: $static_gateway"
                 echo "ERROR: invalid gateway '$static_gateway'"
             else
                 install_config /mnt/config/network.conf
@@ -2662,48 +2840,58 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     wifi_scan)
-        scan_out="$(iwlist wlan0 scan 2>/dev/null)"
-        if [ -z "$scan_out" ]; then
-            echo "<p class='help'>Scan failed or no results. Ensure WiFi is up.</p>"
+        if wants_json_response; then
+          json_error "FORMAT_NOT_SUPPORTED" "wifi_scan command does not support JSON format"
         else
-            rows="$(printf '%s\n' "$scan_out" | awk '
-                /Cell [0-9]+ - Address:/ {
-                    if (ssid != "" || rssi != "") {
-                        name = (ssid == "") ? "(hidden)" : ssid
-                        printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
-                    }
-                    ssid = ""; rssi = ""; enc = "No"
-                }
-                /ESSID:/ {
-                    n = split($0, a, "\""); ssid = (n >= 2) ? a[2] : ""
-                }
-                /Encryption key:on/  { enc = "Yes" }
-                /Encryption key:off/ { enc = "No"  }
-                /Signal level=/ {
-                    sub(/.*Signal level=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
-                }
-                /Extra:rssi=/ {
-                    sub(/.*Extra:rssi=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
-                }
-                END {
-                    name = (ssid == "") ? "(hidden)" : ssid
-                    if (rssi != "" || ssid != "")
-                        printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
-                }
-            ')"
-            if [ -z "$rows" ]; then
-                echo "<p class='help'>No networks found.</p>"
-            else
-                printf "<table class='table is-fullwidth is-hoverable is-size-7'><thead><tr><th>SSID</th><th>Quality</th><th>Encrypted</th></tr></thead><tbody>%s</tbody></table>\n" "$rows"
-            fi
+          scan_out="$(iwlist wlan0 scan 2>/dev/null)"
+          if [ -z "$scan_out" ]; then
+              echo "<p class='help'>Scan failed or no results. Ensure WiFi is up.</p>"
+          else
+              rows="$(printf '%s\n' "$scan_out" | awk '
+                  /Cell [0-9]+ - Address:/ {
+                      if (ssid != "" || rssi != "") {
+                          name = (ssid == "") ? "(hidden)" : ssid
+                          printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
+                      }
+                      ssid = ""; rssi = ""; enc = "No"
+                  }
+                  /ESSID:/ {
+                      n = split($0, a, "\""); ssid = (n >= 2) ? a[2] : ""
+                  }
+                  /Encryption key:on/  { enc = "Yes" }
+                  /Encryption key:off/ { enc = "No"  }
+                  /Signal level=/ {
+                      sub(/.*Signal level=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
+                  }
+                  /Extra:rssi=/ {
+                      sub(/.*Extra:rssi=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
+                  }
+                  END {
+                      name = (ssid == "") ? "(hidden)" : ssid
+                      if (rssi != "" || ssid != "")
+                          printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
+                  }
+              ')"
+              if [ -z "$rows" ]; then
+                  echo "<p class='help'>No networks found.</p>"
+              else
+                  printf "<table class='table is-fullwidth is-hoverable is-size-7'><thead><tr><th>SSID</th><th>Quality</th><th>Encrypted</th></tr></thead><tbody>%s</tbody></table>\n" "$rows"
+              fi
+          fi
         fi
     ;;
 
      *)
-        echo "Unsupported command '$F_cmd'"
+        if wants_json_response; then
+          json_error "UNSUPPORTED_COMMAND" "Unsupported command '$F_cmd'"
+        else
+          echo "Unsupported command '$F_cmd'"
+        fi
         ;;
 
   esac
 fi
 
-echo "<hr/>"
+if ! wants_json_response; then
+  echo "<hr/>"
+fi

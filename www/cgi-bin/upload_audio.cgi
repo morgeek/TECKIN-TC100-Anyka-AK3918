@@ -1,5 +1,9 @@
 #!/bin/sh
 
+# Source common functions
+. /mnt/www/cgi-bin/func.cgi
+. /mnt/www/cgi-bin/action.cgi
+
 MAX_UPLOAD_BYTES=524288
 PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
 PTT_PLAYBACK_PID_FILE="/tmp/ptt-audioplay.pid"
@@ -113,8 +117,8 @@ if [ "$ptt_volume" -gt 100 ]; then
     ptt_volume=100
 fi
 
-# Map 0-100 to 0-6 for ak_ao_demo, rounding instead of always flooring.
-vol_ak=$(( (ptt_volume * 6 + 50) / 100 ))
+# Map 0-100 to 0-6 for ak_ao_demo
+vol_ak="$(ptt_volume_to_ak "$ptt_volume")"
 
 if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
     last_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
