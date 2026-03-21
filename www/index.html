@@ -181,33 +181,6 @@
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
     <script src="scripts/index.bundle.min.js" type="text/javascript" defer></script>
-    <script>
-    (function () {
-        var vol = document.getElementById('ptt_vol');
-        var lbl = document.getElementById('ptt_vol_label');
-        if (!vol || !lbl) { return; }
-
-        // Load current volume from server
-        fetch('cgi-bin/action.cgi?cmd=get_ptt_vol')
-            .then(function (r) { return r.text(); })
-            .then(function (t) {
-                var v = parseInt(t.trim(), 10);
-                if (!isNaN(v) && v >= 0 && v <= 100) {
-                    vol.value = v;
-                    lbl.textContent = v + '%';
-                }
-            })
-            .catch(function () {});
-
-        vol.addEventListener('input', function () {
-            lbl.textContent = vol.value + '%';
-        });
-        vol.addEventListener('change', function () {
-            fetch('cgi-bin/action.cgi?cmd=conf_ptt&audiooutVol=' + encodeURIComponent(vol.value))
-                .catch(function () {});
-        });
-    }());
-    </script>
 
 </body>
 

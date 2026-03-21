@@ -43,11 +43,17 @@ MQTT_HA_DISCOVERY_PREFIX=homeassistant
 #   profile:balanced
 #   profile:low-cpu
 #   profile:rtsp-only
+#   integration_manifest
+#   integration_selftest
 # JSON examples:
 #   {"cmd":"motion","value":"on"}
 #   {"cmd":"motion","value":"off"}
 #   {"cmd":"ir_led","value":"on"}
 #   {"cmd":"ftp","value":"off"}
+
+# The bridge also publishes retained integration topics for HA/Frigate:
+#   <MQTT_TOPIC_ROOT>/integration/manifest
+#   <MQTT_TOPIC_ROOT>/integration/selftest
 
 # Power telemetry and draw estimation.
 # Estimation is optional and cheap: base + CPU load term + optional IR LED term.

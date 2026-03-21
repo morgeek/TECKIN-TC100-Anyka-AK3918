@@ -1303,6 +1303,59 @@ cat << EOF
     </div>
 </div>
 
+<!-- HA / Frigate integration pack -->
+<div class='card status_card'>
+    <header class='card-header'><p class='card-header-title'>HA / Frigate Integration Pack</p></header>
+    <div class='card-content'>
+        <p>Generated from the current live config so you can paste the camera into Frigate or Home Assistant without reconstructing URLs and MQTT topics by hand.</p>
+        <div class="buttons">
+            <a class="button is-light" href="cgi-bin/state.cgi?cmd=integrationmanifest" target="_blank" rel="noopener">Open integration manifest (JSON)</a>
+        </div>
+        <div class="field">
+            <label class="label" for="integrationSummarySnippet">Endpoint summary</label>
+            <div class="control">
+                <textarea class="textarea" id="integrationSummarySnippet" rows="8" readonly>Loading integration summary...</textarea>
+            </div>
+            <p class="help">Quick operator view of the active RTSP, ONVIF, HTTP, and MQTT endpoints.</p>
+            <div class="buttons mt-2">
+                <button class="button is-light" type="button" data-copy-target="integrationSummarySnippet">Copy summary</button>
+            </div>
+        </div>
+        <div class="field">
+            <label class="label" for="frigateConfigSnippet">Frigate config snippet</label>
+            <div class="control">
+                <textarea class="textarea" id="frigateConfigSnippet" rows="14" readonly>Loading Frigate snippet...</textarea>
+            </div>
+            <p class="help">Uses the main stream for recording and the substream for detection when available.</p>
+            <div class="buttons mt-2">
+                <button class="button is-light" type="button" data-copy-target="frigateConfigSnippet">Copy Frigate YAML</button>
+            </div>
+        </div>
+        <div class="field">
+            <label class="label" for="homeAssistantIntegrationNotes">Home Assistant notes</label>
+            <div class="control">
+                <textarea class="textarea" id="homeAssistantIntegrationNotes" rows="12" readonly>Loading Home Assistant notes...</textarea>
+            </div>
+            <p class="help">Includes ONVIF settings, MQTT discovery details, and the most useful local URLs.</p>
+            <div class="buttons mt-2">
+                <button class="button is-light" type="button" data-copy-target="homeAssistantIntegrationNotes">Copy HA notes</button>
+            </div>
+        </div>
+        <div class="field">
+            <label class="label" for="integrationSelfTestResult">Integration self-test</label>
+            <div class="buttons">
+                <button id="integrationSelfTestRun" class="button is-primary is-light" type="button">Run self-test</button>
+                <a class="button is-light" href="cgi-bin/state.cgi?cmd=integrationtest" target="_blank" rel="noopener">Open self-test JSON</a>
+                <button class="button is-light" type="button" data-copy-target="integrationSelfTestResult">Copy self-test</button>
+            </div>
+            <div class="control">
+                <textarea class="textarea" id="integrationSelfTestResult" rows="10" readonly>Click "Run self-test" to verify RTSP, ONVIF, MQTT publish, and local snapshot capture.</textarea>
+            </div>
+            <p class="help">Runs on demand so the page does not publish MQTT probes or re-check services every time Status reloads.</p>
+        </div>
+    </div>
+</div>
+
 <!-- Motion event API -->
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>Motion Event API</p></header>
