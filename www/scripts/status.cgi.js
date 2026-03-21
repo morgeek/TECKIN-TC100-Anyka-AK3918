@@ -932,7 +932,7 @@
     }
 
     buildQuickNav();
-    setMode("basic");
+    setMode("all");
   }
 
   function initStatusPage() {

@@ -43,6 +43,11 @@ MQTT_HA_DISCOVERY_PREFIX=homeassistant
 #   profile:balanced
 #   profile:low-cpu
 #   profile:rtsp-only
+#   restart_rtsp
+#   restart_onvif
+#   restart_network_monitor
+#   restart_mqtt_bridge
+#   repair_integration
 #   integration_manifest
 #   integration_selftest
 # JSON examples:
@@ -50,10 +55,14 @@ MQTT_HA_DISCOVERY_PREFIX=homeassistant
 #   {"cmd":"motion","value":"off"}
 #   {"cmd":"ir_led","value":"on"}
 #   {"cmd":"ftp","value":"off"}
+#   {"cmd":"restart_rtsp"}
 
-# The bridge also publishes retained integration topics for HA/Frigate:
+# The bridge also publishes integration and command-result topics for HA/Frigate:
 #   <MQTT_TOPIC_ROOT>/integration/manifest
 #   <MQTT_TOPIC_ROOT>/integration/selftest
+#   <MQTT_TOPIC_ROOT>/command/result
+#   <MQTT_TOPIC_ROOT>/command/last_result
+#   <MQTT_TOPIC_ROOT>/repair/last_result
 
 # Power telemetry and draw estimation.
 # Estimation is optional and cheap: base + CPU load term + optional IR LED term.

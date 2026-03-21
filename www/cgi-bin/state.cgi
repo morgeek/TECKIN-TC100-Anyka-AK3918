@@ -1105,6 +1105,9 @@ if [ -n "$F_cmd" ]; then
     mqtt_snapshot_last_path_topic="${mqtt_topic_root}/snapshot/last_path"
     mqtt_integration_manifest_topic="${mqtt_topic_root}/integration/manifest"
     mqtt_integration_selftest_topic="${mqtt_topic_root}/integration/selftest"
+    mqtt_command_result_topic="${mqtt_topic_root}/command/result"
+    mqtt_command_last_result_topic="${mqtt_topic_root}/command/last_result"
+    mqtt_repair_last_result_topic="${mqtt_topic_root}/repair/last_result"
 
     manifest_time_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
     manifest_time_utc_json="$(json_escape "$manifest_time_utc")"
@@ -1144,8 +1147,11 @@ if [ -n "$F_cmd" ]; then
     mqtt_snapshot_last_path_topic_json="$(json_escape "$mqtt_snapshot_last_path_topic")"
     mqtt_integration_manifest_topic_json="$(json_escape "$mqtt_integration_manifest_topic")"
     mqtt_integration_selftest_topic_json="$(json_escape "$mqtt_integration_selftest_topic")"
+    mqtt_command_result_topic_json="$(json_escape "$mqtt_command_result_topic")"
+    mqtt_command_last_result_topic_json="$(json_escape "$mqtt_command_last_result_topic")"
+    mqtt_repair_last_result_topic_json="$(json_escape "$mqtt_repair_last_result_topic")"
 
-    printf '{"generated_at_utc":"%s","hostname":"%s","camera_slug":"%s","primary_ip":"%s","web":{"mode":"%s","enabled":%s,"base_url":"%s","snapshot_url":"%s","healthsnapshot_url":"%s","integration_manifest_url":"%s","motion_events_url":"%s","motion_thumbnail_url":"%s"},"rtsp":{"username":"%s","password":"%s","port":%s,"auth_embedded":%s,"auth_warning":"%s","audio_enabled":%s,"substream_enabled":%s,"main":{"path":"video0_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"sub":{"path":"video1_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"frigate":{"record_url":"%s","detect_url":"%s","detect_source":"%s"}},"onvif":{"port":%s,"device_service_url":"%s","stream_policy":"%s"},"mqtt":{"enabled":%s,"broker_host":"%s","broker_port":%s,"username":"%s","password":"%s","client_id":"%s","discovery_enabled":%s,"discovery_prefix":"%s","topic_root":"%s","command_topic":"%s","availability_topic":"%s","health_topic":"%s","motion_state_topic":"%s","event_topic":"%s","snapshot_last_path_topic":"%s","integration_manifest_topic":"%s","integration_selftest_topic":"%s"}}\n' \
+    printf '{"generated_at_utc":"%s","hostname":"%s","camera_slug":"%s","primary_ip":"%s","web":{"mode":"%s","enabled":%s,"base_url":"%s","snapshot_url":"%s","healthsnapshot_url":"%s","integration_manifest_url":"%s","motion_events_url":"%s","motion_thumbnail_url":"%s"},"rtsp":{"username":"%s","password":"%s","port":%s,"auth_embedded":%s,"auth_warning":"%s","audio_enabled":%s,"substream_enabled":%s,"main":{"path":"video0_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"sub":{"path":"video1_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"frigate":{"record_url":"%s","detect_url":"%s","detect_source":"%s"}},"onvif":{"port":%s,"device_service_url":"%s","stream_policy":"%s"},"mqtt":{"enabled":%s,"broker_host":"%s","broker_port":%s,"username":"%s","password":"%s","client_id":"%s","discovery_enabled":%s,"discovery_prefix":"%s","topic_root":"%s","command_topic":"%s","availability_topic":"%s","health_topic":"%s","motion_state_topic":"%s","event_topic":"%s","snapshot_last_path_topic":"%s","integration_manifest_topic":"%s","integration_selftest_topic":"%s","command_result_topic":"%s","command_last_result_topic":"%s","repair_last_result_topic":"%s"}}\n' \
       "$manifest_time_utc_json" "$manifest_hostname_json" "$manifest_camera_slug_json" "$primary_ip_json" \
       "$web_mode_json" "$web_enabled" "$web_base_url_json" "$web_snapshot_url_json" "$web_healthsnapshot_url_json" "$web_manifest_url_json" "$web_motion_events_url_json" "$web_motion_thumbnail_url_json" \
       "$rtsp_username_json" "$rtsp_password_json" "$rtsp_port" "$rtsp_auth_embedded" "$rtsp_auth_warning_json" "$rtsp_audio_enabled" "$rtsp_substream_enabled" \
@@ -1153,7 +1159,7 @@ if [ -n "$F_cmd" ]; then
       "$rtsp_sub_url_json" "$codec1_json" "$width1" "$height1" "$fps1" \
       "$frigate_record_url_json" "$frigate_detect_url_json" "$frigate_detect_source_json" \
       "$onvif_port" "$onvif_device_service_url_json" "$onvif_stream_policy_json" \
-      "$mqtt_enabled_flag" "$mqtt_broker_host_json" "$mqtt_broker_port" "$mqtt_username_json" "$mqtt_password_json" "$mqtt_client_id_json" "$mqtt_discovery_enabled" "$mqtt_discovery_prefix_json" "$mqtt_topic_root_json" "$mqtt_command_topic_json" "$mqtt_availability_topic_json" "$mqtt_health_topic_json" "$mqtt_motion_state_topic_json" "$mqtt_event_topic_json" "$mqtt_snapshot_last_path_topic_json" "$mqtt_integration_manifest_topic_json" "$mqtt_integration_selftest_topic_json"
+      "$mqtt_enabled_flag" "$mqtt_broker_host_json" "$mqtt_broker_port" "$mqtt_username_json" "$mqtt_password_json" "$mqtt_client_id_json" "$mqtt_discovery_enabled" "$mqtt_discovery_prefix_json" "$mqtt_topic_root_json" "$mqtt_command_topic_json" "$mqtt_availability_topic_json" "$mqtt_health_topic_json" "$mqtt_motion_state_topic_json" "$mqtt_event_topic_json" "$mqtt_snapshot_last_path_topic_json" "$mqtt_integration_manifest_topic_json" "$mqtt_integration_selftest_topic_json" "$mqtt_command_result_topic_json" "$mqtt_command_last_result_topic_json" "$mqtt_repair_last_result_topic_json"
     ;;
 
   healthsnapshot)
@@ -1223,6 +1229,24 @@ if [ -n "$F_cmd" ]; then
   perfprofile)
     get_perf_profile
     ;;
+
+  get_events)
+    # Source event logger
+    . /mnt/scripts/event-logger.sh
+
+    since_param="${F_since:-0}"
+    limit_param="${F_limit:-50}"
+
+    # Validate parameters
+    since_param="$(sanitize_int "$since_param" 0)"
+    limit_param="$(sanitize_int "$limit_param" 50)"
+    if [ "$limit_param" -gt 200 ]; then
+      limit_param=200
+    fi
+
+    get_events_since "$since_param" "$limit_param"
+    ;;
+
   *)
     echo "Unsupported command '$F_cmd'"
     ;;

@@ -1,5 +1,7 @@
 #!/bin/sh
 
+. /mnt/scripts/event-logger.sh
+
 CONFIG_FILE="/mnt/config/mqtt.conf"
 LOGPATH="/tmp/log/mqtt-bridge.log"
 STATE_FILE="/tmp/mqtt-bridge.state"
@@ -655,6 +657,8 @@ publish_homeassistant_discovery()
   network_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/network/state")"
   integration_manifest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/manifest")"
   integration_selftest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/selftest")"
+  command_last_result_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/command/last_result")"
+  repair_last_result_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/repair/last_result")"
   avail_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/availability")"
   device_name_json="$(json_escape "$hostname_value")"
   device_id_json="$(json_escape "$node_id")"
@@ -780,6 +784,14 @@ publish_homeassistant_discovery()
   frigate_detect_source_cfg_payload="$(printf '{"name":"%s Frigate Detect Source","uniq_id":"%s_frigate_detect_source","stat_t":"%s","val_tpl":"{{ value_json.rtsp.frigate.detect_source if value_json.rtsp is defined and value_json.rtsp.frigate is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:cctv","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_manifest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$frigate_detect_source_cfg_topic" "$frigate_detect_source_cfg_payload"
 
+  last_command_cfg_topic="${discovery_prefix}/sensor/${node_id}/last_command_result/config"
+  last_command_cfg_payload="$(printf '{"name":"%s Last Command Result","uniq_id":"%s_last_command_result","stat_t":"%s","val_tpl":"{{ (value_json.command ~ \":\" ~ value_json.status) if value_json.command is defined and value_json.status is defined else \"none\" }}","json_attr_t":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:message-text-clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$command_last_result_topic_json" "$command_last_result_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$last_command_cfg_topic" "$last_command_cfg_payload"
+
+  last_repair_cfg_topic="${discovery_prefix}/sensor/${node_id}/last_repair_result/config"
+  last_repair_cfg_payload="$(printf '{"name":"%s Last Repair Result","uniq_id":"%s_last_repair_result","stat_t":"%s","val_tpl":"{{ (value_json.command ~ \":\" ~ value_json.status) if value_json.command is defined and value_json.status is defined else \"none\" }}","json_attr_t":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:auto-fix","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$repair_last_result_topic_json" "$repair_last_result_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$last_repair_cfg_topic" "$last_repair_cfg_payload"
+
   reboot_cfg_topic="${discovery_prefix}/button/${node_id}/reboot/config"
   reboot_cfg_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","pl_prs":"reboot","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$reboot_cfg_topic" "$reboot_cfg_payload"
@@ -795,6 +807,26 @@ publish_homeassistant_discovery()
   integration_manifest_cfg_topic="${discovery_prefix}/button/${node_id}/integration_manifest/config"
   integration_manifest_cfg_payload="$(printf '{"name":"%s Refresh Integration Manifest","uniq_id":"%s_integration_manifest","cmd_t":"%s","pl_prs":"integration_manifest","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:file-refresh-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$integration_manifest_cfg_topic" "$integration_manifest_cfg_payload"
+
+  repair_integration_cfg_topic="${discovery_prefix}/button/${node_id}/repair_integration/config"
+  repair_integration_cfg_payload="$(printf '{"name":"%s Repair Integration","uniq_id":"%s_repair_integration","cmd_t":"%s","pl_prs":"repair_integration","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:auto-fix","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$repair_integration_cfg_topic" "$repair_integration_cfg_payload"
+
+  restart_rtsp_cfg_topic="${discovery_prefix}/button/${node_id}/restart_rtsp/config"
+  restart_rtsp_cfg_payload="$(printf '{"name":"%s Restart RTSP","uniq_id":"%s_restart_rtsp","cmd_t":"%s","pl_prs":"restart_rtsp","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:video-wireless","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$restart_rtsp_cfg_topic" "$restart_rtsp_cfg_payload"
+
+  restart_onvif_cfg_topic="${discovery_prefix}/button/${node_id}/restart_onvif/config"
+  restart_onvif_cfg_payload="$(printf '{"name":"%s Restart ONVIF","uniq_id":"%s_restart_onvif","cmd_t":"%s","pl_prs":"restart_onvif","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:radar","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$restart_onvif_cfg_topic" "$restart_onvif_cfg_payload"
+
+  restart_network_monitor_cfg_topic="${discovery_prefix}/button/${node_id}/restart_network_monitor/config"
+  restart_network_monitor_cfg_payload="$(printf '{"name":"%s Restart Network Monitor","uniq_id":"%s_restart_network_monitor","cmd_t":"%s","pl_prs":"restart_network_monitor","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-refresh","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$restart_network_monitor_cfg_topic" "$restart_network_monitor_cfg_payload"
+
+  restart_mqtt_bridge_cfg_topic="${discovery_prefix}/button/${node_id}/restart_mqtt_bridge/config"
+  restart_mqtt_bridge_cfg_payload="$(printf '{"name":"%s Restart MQTT Bridge","uniq_id":"%s_restart_mqtt_bridge","cmd_t":"%s","pl_prs":"restart_mqtt_bridge","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$restart_mqtt_bridge_cfg_topic" "$restart_mqtt_bridge_cfg_payload"
 
   profile_select_cfg_topic="${discovery_prefix}/select/${node_id}/profile/config"
   profile_select_cfg_payload="$(printf '{"name":"%s Profile Preset","uniq_id":"%s_profile_select","cmd_t":"%s","stat_t":"%s","options":["balanced","low-cpu","rtsp-only"],"val_tpl":"{{ value_json.perfprofile }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune-variant","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_profile_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
@@ -1190,6 +1222,36 @@ publish_event_simple()
   mqtt_publish_topic_suffix "event" "$payload" 0
 }
 
+publish_command_result()
+{
+  result_command="$1"
+  result_status="$2"
+  result_detail="$3"
+  result_ok="${4:-0}"
+  result_source="${5:-mqtt}"
+  result_class="${6:-command}"
+
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((BTIME + ${_up%.*}))
+
+  result_command_json="$(json_escape "$result_command")"
+  result_status_json="$(json_escape "$result_status")"
+  result_detail_json="$(json_escape "$result_detail")"
+  result_source_json="$(json_escape "$result_source")"
+  result_class_json="$(json_escape "$result_class")"
+  payload="$(printf '{"ts":%s,"command":"%s","status":"%s","detail":"%s","ok":%s,"source":"%s","class":"%s"}' \
+    "$now_ts" "$result_command_json" "$result_status_json" "$result_detail_json" "$result_ok" "$result_source_json" "$result_class_json")"
+
+  mqtt_publish_topic_suffix "command/result" "$payload" 0 >/dev/null 2>&1 || true
+  mqtt_publish_topic_suffix "command/last_result" "$payload" 1 >/dev/null 2>&1 || true
+  case "$result_class" in
+    repair|recovery)
+      mqtt_publish_topic_suffix "repair/last_result" "$payload" 1 >/dev/null 2>&1 || true
+      ;;
+  esac
+}
+
 dedupe_command()
 {
   cmd_payload="$1"
@@ -1391,14 +1453,126 @@ apply_toggle_command()
   return 0
 }
 
+restart_service_script()
+{
+  script_path="$1"
+  [ -x "$script_path" ] || return 1
+
+  if "$script_path" restart >/dev/null 2>&1; then
+    return 0
+  fi
+
+  "$script_path" stop >/dev/null 2>&1 || true
+  sleep 1
+  "$script_path" start >/dev/null 2>&1 || return 1
+  return 0
+}
+
+queue_mqtt_bridge_restart()
+{
+  [ -x /mnt/controlscripts/mqtt-bridge ] || return 1
+  (
+    sleep 1
+    /mnt/controlscripts/mqtt-bridge stop >/dev/null 2>&1 || true
+    sleep 1
+    /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1 || true
+  ) >/dev/null 2>&1 &
+  return 0
+}
+
+restart_named_service()
+{
+  service_name="$1"
+  case "$service_name" in
+    rtsp|rtsp_h26x|rtsp_server)
+      service_script="/mnt/controlscripts/rtsp-h26x"
+      ;;
+    onvif)
+      service_script="/mnt/controlscripts/onvif"
+      ;;
+    network_monitor|network)
+      service_script="/mnt/controlscripts/network-monitor"
+      ;;
+    mqtt_bridge|mqtt)
+      queue_mqtt_bridge_restart
+      return $?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  restart_service_script "$service_script"
+}
+
+REPAIR_INTEGRATION_SUMMARY=""
+
+repair_integration_services()
+{
+  rtsp_ok=0
+  onvif_expected=0
+  onvif_ok=1
+  manifest_ok=1
+  selftest_ok=1
+
+  if [ -x /mnt/controlscripts/rtsp-h26x ]; then
+    if ! /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1; then
+      restart_service_script /mnt/controlscripts/rtsp-h26x >/dev/null 2>&1 || true
+      sleep 2
+    fi
+    if /mnt/controlscripts/rtsp-h26x health >/dev/null 2>&1; then
+      rtsp_ok=1
+    fi
+  fi
+
+  if [ -x /mnt/controlscripts/onvif ] && { [ -f /mnt/config/autostart/onvif ] || /mnt/controlscripts/onvif status >/dev/null 2>&1; }; then
+    onvif_expected=1
+    onvif_ok=0
+    if ! /mnt/controlscripts/onvif health >/dev/null 2>&1; then
+      restart_service_script /mnt/controlscripts/onvif >/dev/null 2>&1 || true
+      sleep 2
+    fi
+    if /mnt/controlscripts/onvif health >/dev/null 2>&1; then
+      onvif_ok=1
+    fi
+  fi
+
+  publish_integration_manifest force >/dev/null 2>&1 || manifest_ok=0
+  publish_integration_selftest >/dev/null 2>&1 || selftest_ok=0
+  publish_homeassistant_discovery >/dev/null 2>&1 || true
+  rm -f "$HEALTH_SLOW_CACHE_FILE" >/dev/null 2>&1 || true
+  publish_health >/dev/null 2>&1 || true
+
+  rtsp_result="fail"
+  onvif_result="skipped"
+  manifest_result="fail"
+  selftest_result="fail"
+  [ "$rtsp_ok" = "1" ] && rtsp_result="ok"
+  [ "$manifest_ok" = "1" ] && manifest_result="ok"
+  [ "$selftest_ok" = "1" ] && selftest_result="ok"
+  if [ "$onvif_expected" = "1" ]; then
+    [ "$onvif_ok" = "1" ] && onvif_result="ok" || onvif_result="fail"
+  fi
+
+  REPAIR_INTEGRATION_SUMMARY="rtsp=${rtsp_result},onvif=${onvif_result},manifest=${manifest_result},selftest=${selftest_result}"
+
+  if [ "$rtsp_ok" = "1" ] && [ "$manifest_ok" = "1" ] && { [ "$onvif_expected" != "1" ] || [ "$onvif_ok" = "1" ]; }; then
+    return 0
+  fi
+  return 1
+}
+
 handle_command_payload()
 {
+  command_source="${2:-mqtt}"
   payload_raw="$(printf '%s' "$1" | tr -d '\r')"
   payload_trimmed="$(printf '%s' "$payload_raw" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   [ -n "$payload_trimmed" ] || return 0
 
-  if ! dedupe_command "$payload_trimmed"; then
-    return 0
+  if [ "$command_source" = "mqtt" ]; then
+    if ! dedupe_command "$payload_trimmed"; then
+      return 0
+    fi
   fi
 
   cmd=""
@@ -1444,10 +1618,12 @@ handle_command_payload()
   cmd="$(printf '%s' "$cmd" | tr '[:upper:]' '[:lower:]' | tr '-' '_' | sed 's/[[:space:]]\+/_/g')"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
   refresh_state=0
+  command_rc=0
 
   case "$cmd" in
     reboot)
       publish_event_simple "command.reboot" "accepted"
+      publish_command_result "reboot" "accepted" "Reboot requested." 1 "$command_source" command
       /sbin/reboot
       ;;
     snapshot)
@@ -1460,64 +1636,116 @@ handle_command_payload()
         payload=$(printf '{"ts":%s,"type":"snapshot.manual","snapshot":"%s"}' "$now_ts" "$shot_json")
         mqtt_publish_topic_suffix "event" "$payload" 0
         mqtt_publish_topic_suffix "snapshot/last_path" "$shot_path" 1 >/dev/null 2>&1 || true
+        publish_command_result "snapshot" "captured" "Captured a fresh snapshot to /tmp/mqtt-last-snapshot.jpg." 1 "$command_source" command
       else
         publish_event_simple "command.snapshot" "failed"
+        publish_command_result "snapshot" "failed" "Snapshot capture failed." 0 "$command_source" command
+        command_rc=1
       fi
       refresh_state=1
       ;;
     profile)
       if apply_profile_command "$value"; then
         publish_event_simple "command.profile" "$value"
+        publish_command_result "profile" "applied" "Applied profile ${value}." 1 "$command_source" command
         refresh_state=1
       else
         publish_event_simple "command.profile" "invalid:$value"
+        publish_command_result "profile" "invalid" "Unknown profile ${value}." 0 "$command_source" command
+        command_rc=1
       fi
       ;;
     motion|motion_detection|ir_led|front_led|red_led|ftp|telnet|rtsp|onvif)
       if apply_toggle_command "$cmd" "$value"; then
         publish_event_simple "command.${cmd}" "${value:-toggle}"
+        publish_command_result "$cmd" "applied" "Applied ${cmd}=${value:-toggle}." 1 "$command_source" command
         refresh_state=1
       else
         toggle_rc=$?
         case "$toggle_rc" in
           3)
             publish_event_simple "command.${cmd}" "blocked:security_hardening"
+            publish_command_result "$cmd" "blocked" "Blocked by security hardening." 0 "$command_source" command
             ;;
           2)
             publish_event_simple "command.${cmd}" "invalid-value:${value}"
+            publish_command_result "$cmd" "invalid_value" "Invalid value ${value}." 0 "$command_source" command
             ;;
           *)
             publish_event_simple "command.${cmd}" "failed:${value}"
+            publish_command_result "$cmd" "failed" "Failed to apply ${cmd}=${value}." 0 "$command_source" command
             ;;
         esac
+        command_rc=1
+      fi
+      ;;
+    restart_rtsp|restart_onvif|restart_network_monitor|restart_mqtt_bridge)
+      restart_target="${cmd#restart_}"
+      if restart_named_service "$restart_target"; then
+        case "$restart_target" in
+          mqtt_bridge)
+            publish_event_simple "command.${cmd}" "scheduled"
+            publish_command_result "$cmd" "scheduled" "Scheduled MQTT bridge restart." 1 "$command_source" repair
+            ;;
+          *)
+            publish_event_simple "command.${cmd}" "restarted"
+            publish_command_result "$cmd" "restarted" "Restarted ${restart_target}." 1 "$command_source" repair
+            refresh_state=1
+            ;;
+        esac
+      else
+        publish_event_simple "command.${cmd}" "failed"
+        publish_command_result "$cmd" "failed" "Failed to restart ${restart_target}." 0 "$command_source" repair
+        command_rc=1
+      fi
+      ;;
+    repair_integration|integration_repair)
+      if repair_integration_services; then
+        publish_event_simple "command.repair_integration" "$REPAIR_INTEGRATION_SUMMARY"
+        publish_command_result "repair_integration" "ok" "$REPAIR_INTEGRATION_SUMMARY" 1 "$command_source" repair
+        refresh_state=1
+      else
+        publish_event_simple "command.repair_integration" "failed:${REPAIR_INTEGRATION_SUMMARY}"
+        publish_command_result "repair_integration" "failed" "$REPAIR_INTEGRATION_SUMMARY" 0 "$command_source" repair
+        command_rc=1
       fi
       ;;
     integration_selftest|selftest|integrationtest)
       if publish_integration_selftest; then
         publish_event_simple "command.integration_selftest" "published"
+        publish_command_result "integration_selftest" "published" "Published the live integration self-test payload." 1 "$command_source" integration
       else
         publish_event_simple "command.integration_selftest" "failed"
+        publish_command_result "integration_selftest" "failed" "Failed to publish the integration self-test payload." 0 "$command_source" integration
+        command_rc=1
       fi
       ;;
     integration_manifest|manifest|manifest_refresh)
       if publish_integration_manifest force; then
         publish_event_simple "command.integration_manifest" "published"
+        publish_command_result "integration_manifest" "published" "Published the redacted integration manifest." 1 "$command_source" integration
       else
         publish_event_simple "command.integration_manifest" "failed"
+        publish_command_result "integration_manifest" "failed" "Failed to publish the integration manifest." 0 "$command_source" integration
+        command_rc=1
       fi
       ;;
     discovery|ha_discovery|discovery_refresh)
       publish_integration_manifest force >/dev/null 2>&1 || true
       publish_homeassistant_discovery
       publish_event_simple "command.discovery" "published"
+      publish_command_result "discovery" "published" "Published Home Assistant discovery payloads." 1 "$command_source" integration
       ;;
     health|health_now)
       publish_health >/dev/null 2>&1 || true
       publish_integration_manifest >/dev/null 2>&1 || true
       publish_event_simple "command.health" "published"
+      publish_command_result "health" "published" "Published health and integration state." 1 "$command_source" integration
       ;;
     *)
       publish_event_simple "command.unknown" "$payload_trimmed"
+      publish_command_result "unknown" "rejected" "Unsupported command payload: ${payload_trimmed}" 0 "$command_source" command
+      command_rc=1
       ;;
   esac
 
@@ -1526,6 +1754,8 @@ handle_command_payload()
     publish_integration_manifest >/dev/null 2>&1 || true
     publish_health >/dev/null 2>&1 || true
   fi
+
+  return "$command_rc"
 }
 
 subscribe_once_command()
@@ -1558,6 +1788,7 @@ run_loop()
   trap 'shutdown_bridge; trap - INT TERM EXIT; exit 0' INT TERM
   trap 'shutdown_bridge' EXIT
   log_msg "MQTT bridge started host=${MQTT_HOST}:${MQTT_PORT} root=${MQTT_TOPIC_ROOT}"
+  log_event "info" "mqtt" "MQTT bridge started"
   publish_availability online
   publish_integration_manifest force >/dev/null 2>&1 || true
   publish_homeassistant_discovery
@@ -1585,7 +1816,7 @@ run_loop()
       subscribe_failures=0
       subscribe_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
       if [ -n "$cmd_payload" ]; then
-        handle_command_payload "$cmd_payload"
+        handle_command_payload "$cmd_payload" mqtt
       fi
       sleep 1
       continue
@@ -1594,6 +1825,7 @@ run_loop()
     subscribe_failures=$((subscribe_failures + 1))
     if [ "$subscribe_failures" -eq 1 ] || [ $((subscribe_failures % 5)) -eq 0 ]; then
       log_msg "MQTT subscribe failed rc=${subscribe_rc} failures=${subscribe_failures} backoff=${subscribe_backoff_seconds}s"
+      log_event "error" "mqtt" "MQTT subscribe failed (attempt ${subscribe_failures}, backoff ${subscribe_backoff_seconds}s)"
     fi
     sleep "$subscribe_backoff_seconds"
     if [ "$subscribe_backoff_seconds" -lt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
@@ -1616,6 +1848,16 @@ publish_mode()
   done
 }
 
+command_mode()
+{
+  load_config
+  [ "$BTIME" -gt 0 ] || _load_btime
+  cmd_payload="$1"
+  cmd_source="${2:-local}"
+  [ -n "$cmd_payload" ] || exit 1
+  handle_command_payload "$cmd_payload" "$cmd_source"
+}
+
 case "$1" in
   run|daemon|"")
     run_loop
@@ -1623,8 +1865,11 @@ case "$1" in
   publish)
     publish_mode "$2" "$3" "$4"
     ;;
+  command)
+    command_mode "$2" "$3"
+    ;;
   *)
-    echo "Usage: $0 [run|publish <topic_suffix> <payload> [retain]]"
+    echo "Usage: $0 [run|publish <topic_suffix> <payload> [retain]|command <payload> [source]]"
     exit 1
     ;;
 esac

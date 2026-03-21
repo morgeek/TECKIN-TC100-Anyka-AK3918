@@ -29,3 +29,7 @@ BROKER_CHECK_MAX_AGE_SECONDS=300
 # restart the MQTT bridge instead of bouncing wlan0 or rebooting the camera.
 BROKER_RECOVERY_RESTART_MQTT=1
 BROKER_RECOVERY_COOLDOWN_SECONDS=180
+
+# After network recovery is confirmed, wait a few seconds and then run the
+# local repair_integration flow so RTSP/ONVIF/self-test state is refreshed.
+POST_RECOVERY_VALIDATE_DELAY_SECONDS=5

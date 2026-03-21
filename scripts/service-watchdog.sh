@@ -1,5 +1,7 @@
 #!/bin/sh
 
+. /mnt/scripts/event-logger.sh
+
 LOGPATH="${LOGPATH:-/tmp/log/service-watchdog.log}"
 WATCHDOG_LOG_MAX_BYTES="${WATCHDOG_LOG_MAX_BYTES:-262144}"
 WATCHDOG_LOG_BACKUPS="${WATCHDOG_LOG_BACKUPS:-2}"
@@ -182,13 +184,16 @@ monitor_service()
             append_log "@${_wd_ts} Service $SERVICE_TO_MONITOR unhealthy, error count: $CURRENT_ERRORS (check=$CHECK_MODE)"
             if [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_ALTERNATIVE_REBOOT" ]; then # If we can't reboot by normal call to 'reboot'
                 append_log "$SERVICE_TO_MONITOR - perform alternative reboot"
+                log_event "critical" "system" "Watchdog performing alternative reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
                 echo b >/proc/sysrq-trigger
                 CURRENT_ERRORS=0
             elif [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_REBOOT" ]; then
                 append_log "$SERVICE_TO_MONITOR - perform reboot"
+                log_event "critical" "system" "Watchdog performing system reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
                 /sbin/reboot -f
             else
                 append_log "$SERVICE_TO_MONITOR - perform restart"
+                log_event "warn" "service" "Watchdog restarting $SERVICE_TO_MONITOR (error count: $CURRENT_ERRORS)"
                 recover_service "$SERVICE_TO_MONITOR" "$CHECK_MODE"
             fi
         fi
