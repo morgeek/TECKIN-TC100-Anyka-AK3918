@@ -4,6 +4,8 @@ CONFIG_FILE="/mnt/config/mqtt.conf"
 LOGPATH="/tmp/log/mqtt-bridge.log"
 STATE_FILE="/tmp/mqtt-bridge.state"
 HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
+NETWORK_STATE_FILE="/tmp/network-monitor.state"
+NETWORK_STATE_MAX_AGE_SECONDS=900
 CURL_BIN="/mnt/bin/curl"
 JQ_BIN="/mnt/bin/jq"
 LOCAL_STATE_CGI="/mnt/www/cgi-bin/state.cgi"
@@ -290,6 +292,91 @@ service_script_running_int()
   fi
 }
 
+init_network_state_defaults()
+{
+  network_state_ts=0
+  network_state_fresh=0
+  network_wifi_iface="wlan0"
+  network_wifi_connected=0
+  network_gateway_address=""
+  network_gateway_reachable=0
+  network_broker_monitor_enabled=0
+  network_broker_host=""
+  network_broker_port=1883
+  network_broker_state="disabled"
+  network_broker_reachable=0
+  network_current_problem="disabled"
+  network_reconnect_count=0
+  network_broker_restart_count=0
+  network_last_recovery_reason="none"
+  network_last_recovery_action="none"
+  network_last_recovery_ts=0
+}
+
+load_network_monitor_state()
+{
+  init_network_state_defaults
+
+  if [ "$network_monitor_enabled" != "1" ]; then
+    return 1
+  fi
+
+  network_current_problem="state_missing"
+  [ -r "$NETWORK_STATE_FILE" ] || return 1
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      ts) network_state_ts="$value" ;;
+      wifi_iface) network_wifi_iface="$value" ;;
+      wifi_connected) network_wifi_connected="$value" ;;
+      gateway_address) network_gateway_address="$value" ;;
+      gateway_reachable) network_gateway_reachable="$value" ;;
+      broker_monitor_enabled) network_broker_monitor_enabled="$value" ;;
+      broker_host) network_broker_host="$value" ;;
+      broker_port) network_broker_port="$value" ;;
+      broker_state) network_broker_state="$value" ;;
+      broker_reachable) network_broker_reachable="$value" ;;
+      current_problem) network_current_problem="$value" ;;
+      reconnect_count) network_reconnect_count="$value" ;;
+      broker_restart_count) network_broker_restart_count="$value" ;;
+      last_recovery_reason) network_last_recovery_reason="$value" ;;
+      last_recovery_action) network_last_recovery_action="$value" ;;
+      last_recovery_ts) network_last_recovery_ts="$value" ;;
+    esac
+  done < "$NETWORK_STATE_FILE"
+
+  case "$network_state_ts" in ''|*[!0-9]*) network_state_ts=0 ;; esac
+  case "$network_wifi_connected" in ''|*[!0-9]*) network_wifi_connected=0 ;; esac
+  case "$network_gateway_reachable" in ''|*[!0-9]*) network_gateway_reachable=0 ;; esac
+  case "$network_broker_monitor_enabled" in ''|*[!0-9]*) network_broker_monitor_enabled=0 ;; esac
+  case "$network_broker_port" in ''|*[!0-9]*) network_broker_port=1883 ;; esac
+  case "$network_broker_reachable" in ''|*[!0-9]*) network_broker_reachable=0 ;; esac
+  case "$network_reconnect_count" in ''|*[!0-9]*) network_reconnect_count=0 ;; esac
+  case "$network_broker_restart_count" in ''|*[!0-9]*) network_broker_restart_count=0 ;; esac
+  case "$network_last_recovery_ts" in ''|*[!0-9]*) network_last_recovery_ts=0 ;; esac
+  [ -n "$network_wifi_iface" ] || network_wifi_iface="wlan0"
+  [ -n "$network_current_problem" ] || network_current_problem="unknown"
+  [ -n "$network_broker_state" ] || network_broker_state="unknown"
+  [ -n "$network_last_recovery_reason" ] || network_last_recovery_reason="none"
+  [ -n "$network_last_recovery_action" ] || network_last_recovery_action="none"
+
+  [ "$BTIME" -gt 0 ] || _load_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((BTIME + ${_up%.*}))
+  if [ "$network_state_ts" -le 0 ] || [ "$network_state_ts" -gt "$now_ts" ]; then
+    network_current_problem="stale"
+    return 1
+  fi
+
+  if [ $((now_ts - network_state_ts)) -gt "$NETWORK_STATE_MAX_AGE_SECONDS" ]; then
+    network_current_problem="stale"
+    return 1
+  fi
+
+  network_state_fresh=1
+  return 0
+}
+
 normalize_toggle_value()
 {
   # Pure-shell case-insensitive match — avoids tr/sed forks.
@@ -565,6 +652,7 @@ publish_homeassistant_discovery()
   cmd_json="$(json_escape "$MQTT_TOPIC_COMMAND")"
   health_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/health")"
   motion_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/motion/state")"
+  network_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/network/state")"
   integration_manifest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/manifest")"
   integration_selftest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/selftest")"
   avail_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/availability")"
@@ -644,6 +732,42 @@ publish_homeassistant_discovery()
   telnet_port_cfg_payload="$(printf '{"name":"%s Telnet Port","uniq_id":"%s_telnet_port","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.port_telnet_open == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:console-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$telnet_port_cfg_topic" "$telnet_port_cfg_payload"
 
+  network_monitor_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/network_monitor/config"
+  network_monitor_cfg_payload="$(printf '{"name":"%s Network Monitor","uniq_id":"%s_network_monitor","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.monitor_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-cog","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$network_monitor_cfg_topic" "$network_monitor_cfg_payload"
+
+  wifi_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/wifi_connected/config"
+  wifi_cfg_payload="$(printf '{"name":"%s WiFi Connected","uniq_id":"%s_wifi_connected","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.wifi_connected == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$wifi_cfg_topic" "$wifi_cfg_payload"
+
+  gateway_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/gateway_reachable/config"
+  gateway_cfg_payload="$(printf '{"name":"%s Gateway Reachable","uniq_id":"%s_gateway_reachable","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.gateway_reachable == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:router-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$gateway_cfg_topic" "$gateway_cfg_payload"
+
+  broker_reachable_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/broker_reachable/config"
+  broker_reachable_cfg_payload="$(printf '{"name":"%s MQTT Broker Reachable","uniq_id":"%s_broker_reachable","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.broker_reachable == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-connect","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$broker_reachable_cfg_topic" "$broker_reachable_cfg_payload"
+
+  network_problem_cfg_topic="${discovery_prefix}/sensor/${node_id}/network_problem/config"
+  network_problem_cfg_payload="$(printf '{"name":"%s Network Problem","uniq_id":"%s_network_problem","stat_t":"%s","val_tpl":"{{ value_json.current_problem if value_json.current_problem is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-alert","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$network_problem_cfg_topic" "$network_problem_cfg_payload"
+
+  broker_state_cfg_topic="${discovery_prefix}/sensor/${node_id}/broker_state/config"
+  broker_state_cfg_payload="$(printf '{"name":"%s MQTT Broker State","uniq_id":"%s_broker_state","stat_t":"%s","val_tpl":"{{ value_json.broker_state if value_json.broker_state is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-pending","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$broker_state_cfg_topic" "$broker_state_cfg_payload"
+
+  reconnect_cfg_topic="${discovery_prefix}/sensor/${node_id}/wifi_reconnect_count/config"
+  reconnect_cfg_payload="$(printf '{"name":"%s WiFi Reconnects","uniq_id":"%s_wifi_reconnect_count","stat_t":"%s","unit_of_meas":"count","stat_cla":"measurement","val_tpl":"{{ value_json.reconnect_count }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-refresh","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$reconnect_cfg_topic" "$reconnect_cfg_payload"
+
+  broker_restart_cfg_topic="${discovery_prefix}/sensor/${node_id}/broker_restart_count/config"
+  broker_restart_cfg_payload="$(printf '{"name":"%s MQTT Bridge Restarts","uniq_id":"%s_broker_restart_count","stat_t":"%s","unit_of_meas":"count","stat_cla":"measurement","val_tpl":"{{ value_json.broker_restart_count }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart-alert","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$broker_restart_cfg_topic" "$broker_restart_cfg_payload"
+
+  last_recovery_reason_cfg_topic="${discovery_prefix}/sensor/${node_id}/last_recovery_reason/config"
+  last_recovery_reason_cfg_payload="$(printf '{"name":"%s Last Recovery Reason","uniq_id":"%s_last_recovery_reason","stat_t":"%s","val_tpl":"{{ value_json.last_recovery_reason if value_json.last_recovery_reason is defined else \"none\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:alert-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$last_recovery_reason_cfg_topic" "$last_recovery_reason_cfg_payload"
+
   integration_status_cfg_topic="${discovery_prefix}/sensor/${node_id}/integration_status/config"
   integration_status_cfg_payload="$(printf '{"name":"%s Integration Status","uniq_id":"%s_integration_status","stat_t":"%s","val_tpl":"{{ value_json.overall_status if value_json.overall_status is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-check","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_selftest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$integration_status_cfg_topic" "$integration_status_cfg_payload"
@@ -706,6 +830,7 @@ init_slow_health_defaults()
   slow_web_mode="full"
   slow_profile="balanced"
   slow_security_hardening_mode=0
+  slow_network_monitor_enabled=0
   slow_motion_enabled=0
   slow_ftp_enabled=0
   slow_telnet_enabled=0
@@ -765,6 +890,7 @@ collect_slow_health_metrics()
   esac
 
   slow_motion_enabled="$(service_script_running_int /mnt/controlscripts/motion-detection /var/run/detection-monitor.pid)"
+  slow_network_monitor_enabled="$(service_script_running_int /mnt/controlscripts/network-monitor /var/run/network-monitor.pid)"
   slow_ftp_enabled="$(service_script_running_int /mnt/controlscripts/ftp-server /var/run/ftp-server.pid)"
   slow_telnet_enabled="$(service_script_running_int /mnt/controlscripts/telnet-server /var/run/telnet-server.pid)"
   slow_rtsp_enabled="$(service_script_running_int /mnt/controlscripts/rtsp-h26x /var/run/v4l2rtspserver.pid)"
@@ -823,6 +949,7 @@ save_slow_health_cache()
     printf 'web_mode=%s\n' "$slow_web_mode"
     printf 'profile=%s\n' "$slow_profile"
     printf 'security_hardening_mode=%s\n' "$slow_security_hardening_mode"
+    printf 'network_monitor_enabled=%s\n' "$slow_network_monitor_enabled"
     printf 'motion_enabled=%s\n' "$slow_motion_enabled"
     printf 'ftp_enabled=%s\n' "$slow_ftp_enabled"
     printf 'telnet_enabled=%s\n' "$slow_telnet_enabled"
@@ -855,6 +982,7 @@ load_slow_health_cache()
       web_mode) slow_web_mode="$value" ;;
       profile) slow_profile="$value" ;;
       security_hardening_mode) slow_security_hardening_mode="$value" ;;
+      network_monitor_enabled) slow_network_monitor_enabled="$value" ;;
       motion_enabled) slow_motion_enabled="$value" ;;
       ftp_enabled) slow_ftp_enabled="$value" ;;
       telnet_enabled) slow_telnet_enabled="$value" ;;
@@ -887,6 +1015,7 @@ load_slow_health_cache()
   [ "$age" -le "$MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS" ] || return 1
 
   case "$slow_security_hardening_mode" in ''|*[!0-9]*) slow_security_hardening_mode=0 ;; esac
+  case "$slow_network_monitor_enabled" in ''|*[!0-9]*) slow_network_monitor_enabled=0 ;; esac
   case "$slow_motion_enabled" in ''|*[!0-9]*) slow_motion_enabled=0 ;; esac
   case "$slow_ftp_enabled" in ''|*[!0-9]*) slow_ftp_enabled=0 ;; esac
   case "$slow_telnet_enabled" in ''|*[!0-9]*) slow_telnet_enabled=0 ;; esac
@@ -917,6 +1046,20 @@ load_or_collect_slow_health_metrics()
   fi
   collect_slow_health_metrics
   save_slow_health_cache
+}
+
+build_network_state_payload()
+{
+  network_wifi_iface_json="$(json_escape "$network_wifi_iface")"
+  network_gateway_address_json="$(json_escape "$network_gateway_address")"
+  network_broker_host_json="$(json_escape "$network_broker_host")"
+  network_broker_state_json="$(json_escape "$network_broker_state")"
+  network_current_problem_json="$(json_escape "$network_current_problem")"
+  network_last_recovery_reason_json="$(json_escape "$network_last_recovery_reason")"
+  network_last_recovery_action_json="$(json_escape "$network_last_recovery_action")"
+
+  network_state_payload="$(printf '{"ts":%s,"hostname":"%s","monitor_enabled":%s,"state_fresh":%s,"wifi_iface":"%s","wifi_connected":%s,"gateway_address":"%s","gateway_reachable":%s,"broker_monitor_enabled":%s,"broker_host":"%s","broker_port":%s,"broker_state":"%s","broker_reachable":%s,"current_problem":"%s","reconnect_count":%s,"broker_restart_count":%s,"last_recovery_reason":"%s","last_recovery_action":"%s","last_recovery_ts":%s}' \
+    "$now_ts" "$hostname_json" "$network_monitor_enabled" "$network_state_fresh" "$network_wifi_iface_json" "$network_wifi_connected" "$network_gateway_address_json" "$network_gateway_reachable" "$network_broker_monitor_enabled" "$network_broker_host_json" "$network_broker_port" "$network_broker_state_json" "$network_broker_reachable" "$network_current_problem_json" "$network_reconnect_count" "$network_broker_restart_count" "$network_last_recovery_reason_json" "$network_last_recovery_action_json" "$network_last_recovery_ts")"
 }
 
 build_health_payload()
@@ -976,6 +1119,7 @@ build_health_payload()
   web_mode="$slow_web_mode"
   profile="$slow_profile"
   security_hardening_mode="$slow_security_hardening_mode"
+  network_monitor_enabled="$slow_network_monitor_enabled"
   motion_enabled="$slow_motion_enabled"
   ftp_enabled="$slow_ftp_enabled"
   telnet_enabled="$slow_telnet_enabled"
@@ -1018,9 +1162,11 @@ build_health_payload()
   profile_json="$(json_escape "$profile")"
   power_sensor_path_json="$(json_escape "$power_sensor_path")"
   primary_ip_json="$(json_escape "$primary_ip")"
+  load_network_monitor_state >/dev/null 2>&1 || true
+  build_network_state_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload"
 }
 
 publish_health()
@@ -1028,6 +1174,7 @@ publish_health()
   payload="$(build_health_payload)"
   mqtt_publish_topic_suffix "health" "$payload" 0
   mqtt_publish_topic_suffix "motion/state" "$motion_state_payload" 1 >/dev/null 2>&1 || true
+  mqtt_publish_topic_suffix "network/state" "$network_state_payload" 1 >/dev/null 2>&1 || true
 }
 
 publish_event_simple()
