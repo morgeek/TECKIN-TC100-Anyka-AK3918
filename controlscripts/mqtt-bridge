@@ -37,11 +37,18 @@ stop()
   fi
 }
 
+restart()
+{
+  stop >/dev/null 2>&1 || true
+  sleep 1
+  start
+}
+
 if [ $# -eq 0 ]; then
   start
 else
   case "$1" in
-    start|stop|status)
+    start|stop|status|restart)
       "$1"
       ;;
   esac

@@ -18,6 +18,10 @@ const assetMap = [
     targets: ["www/scripts/index.bundle.min.js"],
   },
   {
+    source: "frontend/src/js/ptt-audio.js",
+    targets: ["www/scripts/ptt-audio.bundle.min.js"],
+  },
+  {
     source: "frontend/src/js/scripts.js",
     targets: [
       "www/scripts/scripts.cgi.js",

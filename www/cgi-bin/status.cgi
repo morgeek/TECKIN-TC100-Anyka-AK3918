@@ -499,7 +499,9 @@ cat << EOF
                             <div class="select is-fullwidth">
                                 <select id="wizard_profile" name="wizard_profile">
                                     <option value="universal-h264">Universal H264 (recommended)</option>
-                                    <option value="ha-frigate">HA Frigate (detection friendly)</option>
+                                    <option value="frigate-balanced">Frigate balanced</option>
+                                    <option value="frigate-low-bandwidth">Frigate low-bandwidth</option>
+                                    <option value="frigate-quality">Frigate quality</option>
                                     <option value="hybrid-hevc-main">Hybrid HEVC main + H264 sub</option>
                                     <option value="legacy-main-only">Legacy main-only H264</option>
                                 </select>
@@ -1226,7 +1228,9 @@ cat << EOF
                         <div class="control">
                             <div class="select is-fullwidth">
                                 <select id="ha_profile" name="ha_profile">
-                                    <option value="ha-frigate">HA Frigate (recommended)</option>
+                                    <option value="frigate-balanced">Frigate balanced (recommended)</option>
+                                    <option value="frigate-low-bandwidth">Frigate low-bandwidth</option>
+                                    <option value="frigate-quality">Frigate quality</option>
                                     <option value="universal-h264">Universal H264</option>
                                     <option value="hybrid-hevc-main">Hybrid HEVC main + H264 sub</option>
                                     <option value="legacy-main-only">Legacy main-only H264</option>
@@ -1605,13 +1609,15 @@ cat << EOF
                             <div class="select is-fullwidth">
                                 <select name="client_profile">
                                     <option value="universal-h264">Universal H264 (recommended)</option>
-                                    <option value="ha-frigate">HA Frigate (detection friendly)</option>
+                                    <option value="frigate-balanced">Frigate balanced</option>
+                                    <option value="frigate-low-bandwidth">Frigate low-bandwidth</option>
+                                    <option value="frigate-quality">Frigate quality</option>
                                     <option value="hybrid-hevc-main">Hybrid HEVC main + H264 sub</option>
                                     <option value="legacy-main-only">Legacy main-only H264</option>
                                 </select>
                             </div>
                         </div>
-                        <p class="help">Four one-click ONVIF/RTSP profiles tuned for client compatibility and safe stream topology.</p>
+                        <p class="help">Six one-click ONVIF/RTSP profiles tuned for client compatibility and Frigate-friendly stream topology.</p>
                     </div>
                     <div class="field">
                         <div class="control">

@@ -257,6 +257,37 @@ restart_mqtt_bridge_recovery() {
   return 0
 }
 
+recovery_validation_ready() {
+  [ "$current_problem" = "ok" ] || return 1
+  if [ "$broker_monitor_enabled" = "1" ] && [ "$broker_reachable" != "1" ]; then
+    return 1
+  fi
+  return 0
+}
+
+run_post_recovery_validation() {
+  validation_reason="$1"
+  [ -n "$validation_reason" ] || return 1
+
+  if [ ! -x /mnt/scripts/mqtt-bridge.sh ]; then
+    log_line "Post-recovery integration validation skipped after ${validation_reason}: mqtt-bridge.sh missing."
+    return 1
+  fi
+
+  if [ "$POST_RECOVERY_VALIDATE_DELAY_SECONDS" -gt 0 ]; then
+    sleep "$POST_RECOVERY_VALIDATE_DELAY_SECONDS"
+  fi
+
+  log_line "Network recovered after ${validation_reason}; running integration repair validation..."
+  if /mnt/scripts/mqtt-bridge.sh command repair_integration network_recovery >/dev/null 2>&1; then
+    log_line "Post-recovery integration validation succeeded after ${validation_reason}."
+    return 0
+  fi
+
+  log_line "Post-recovery integration validation failed after ${validation_reason}."
+  return 1
+}
+
 : "${WIFI_IFACE:=wlan0}"
 : "${PINGADDRESS:=192.168.0.1}"
 : "${PINGINTERVAL:=120}"
@@ -269,6 +300,7 @@ restart_mqtt_bridge_recovery() {
 : "${BROKER_CHECK_MAX_AGE_SECONDS:=300}"
 : "${BROKER_RECOVERY_RESTART_MQTT:=1}"
 : "${BROKER_RECOVERY_COOLDOWN_SECONDS:=180}"
+: "${POST_RECOVERY_VALIDATE_DELAY_SECONDS:=5}"
 
 PINGINTERVAL="$(sanitize_int_local "$PINGINTERVAL" 120)"
 PING_ATTEMPTS="$(sanitize_int_local "$PING_ATTEMPTS" 1)"
@@ -279,6 +311,7 @@ RECHECK_ATTEMPTS="$(sanitize_int_local "$RECHECK_ATTEMPTS" 1)"
 REBOOT_DELAY_SECONDS="$(sanitize_int_local "$REBOOT_DELAY_SECONDS" 3)"
 BROKER_CHECK_MAX_AGE_SECONDS="$(sanitize_int_local "$BROKER_CHECK_MAX_AGE_SECONDS" 300)"
 BROKER_RECOVERY_COOLDOWN_SECONDS="$(sanitize_int_local "$BROKER_RECOVERY_COOLDOWN_SECONDS" 180)"
+POST_RECOVERY_VALIDATE_DELAY_SECONDS="$(sanitize_int_local "$POST_RECOVERY_VALIDATE_DELAY_SECONDS" 5)"
 
 [ "$PINGINTERVAL" -lt 5 ] && PINGINTERVAL=5
 [ "$PING_ATTEMPTS" -lt 1 ] && PING_ATTEMPTS=1
@@ -300,6 +333,7 @@ case "$BROKER_RECOVERY_RESTART_MQTT" in
 esac
 
 load_previous_state
+pending_validation_reason=""
 
 while true
 do
@@ -310,9 +344,12 @@ do
     ok)
       ;;
     broker_unreachable)
-      restart_mqtt_bridge_recovery || true
+      if restart_mqtt_bridge_recovery; then
+        pending_validation_reason="broker_unreachable"
+      fi
       ;;
     wifi_disconnected|gateway_unreachable)
+      recovery_reason="$current_problem"
       reconnect_count=$((reconnect_count + 1))
       record_recovery "$current_problem" "bounce_wifi"
       log_line "Network issue (${current_problem}), trying to reconnect..."
@@ -324,10 +361,13 @@ do
       case "$current_problem" in
         ok)
           log_line "Network connectivity recovered after ${WIFI_IFACE} reset."
+          pending_validation_reason="$recovery_reason"
           ;;
         broker_unreachable)
           log_line "Gateway recovered after ${WIFI_IFACE} reset; broker still unreachable."
-          restart_mqtt_bridge_recovery || true
+          if restart_mqtt_bridge_recovery; then
+            pending_validation_reason="broker_unreachable"
+          fi
           ;;
         *)
           record_recovery "$current_problem" "reboot"
@@ -339,6 +379,14 @@ do
       esac
       ;;
   esac
+
+  if [ -n "$pending_validation_reason" ] && recovery_validation_ready; then
+    validation_reason="$pending_validation_reason"
+    pending_validation_reason=""
+    run_post_recovery_validation "$validation_reason" || true
+    assess_current_state
+    write_state
+  fi
 
   sleep "$PINGINTERVAL"
 done
