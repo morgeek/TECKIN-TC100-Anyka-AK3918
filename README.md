@@ -16,7 +16,7 @@ No firmware flashing is performed!
 ## What is added :
 - Massive CPU/RAM optimization
 - UI, SVG icons, updated bulma, smaller footprint
-- Setup Wizardyes
+- Setup Wizard
 - MQTT Support
 - MQTT subscribe retry backoff controls in UI (low-overhead broker outage handling)
 
@@ -44,6 +44,8 @@ Remove MicroSD and reboot.
 - Regenerate or re-open that manifest after changing RTSP, ONVIF, credentials, or MQTT settings so your pasted config stays in sync with the camera.
 - The MQTT bridge now publishes retained integration topics at `<MQTT_TOPIC_ROOT>/integration/manifest` and `<MQTT_TOPIC_ROOT>/integration/selftest`; the MQTT manifest is intentionally redacted so RTSP and broker secrets are not broadcast over MQTT.
 - Home Assistant MQTT discovery now exposes integration status sensors plus buttons to refresh the integration manifest and run the integration self-test from HA.
+- Network monitoring now publishes retained telemetry at `<MQTT_TOPIC_ROOT>/network/state` with Wi-Fi, gateway, broker, and recovery metadata, and Home Assistant discovery exposes those signals as network-health entities.
+- Broker failure is now treated separately from Wi‑Fi/gateway failure: the network monitor can restart the MQTT bridge when the LAN is healthy instead of bouncing `wlan0` or rebooting the camera.
 
 ## Web workflow
 - Frontend source now lives in `frontend/src/`.
