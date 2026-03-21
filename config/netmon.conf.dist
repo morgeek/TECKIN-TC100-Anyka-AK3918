@@ -2,6 +2,9 @@
 # edit this file and move it to /mnt/config/netmon.conf #
 ############################################################
 
+# Interface to recover / observe
+WIFI_IFACE=wlan0
+
 # IP address to ping
 PINGADDRESS=192.168.0.1
 
@@ -17,3 +20,12 @@ RECONNECT_WAIT_SECONDS=10
 RECHECK_WAIT_SECONDS=20
 RECHECK_ATTEMPTS=1
 REBOOT_DELAY_SECONDS=3
+
+# MQTT broker fault tracking uses /tmp/mqtt_last_pub.status from mqtt-bridge.sh.
+# If the result is older than this window, broker state is treated as stale.
+BROKER_CHECK_MAX_AGE_SECONDS=300
+
+# When Wi-Fi/gateway are healthy but broker publishes are failing, optionally
+# restart the MQTT bridge instead of bouncing wlan0 or rebooting the camera.
+BROKER_RECOVERY_RESTART_MQTT=1
+BROKER_RECOVERY_COOLDOWN_SECONDS=180
