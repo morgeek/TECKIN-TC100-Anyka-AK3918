@@ -81,23 +81,28 @@ start()
         CREDENTIAL="-U $USERNAME:$USERPASSWORD"
     fi
 
-    ## Port
-    if [ "$PORT" != "" ]; then
-        PORT="-P $PORT"
-    fi
+    ## Port — validate numeric, range 1–65535; fall back to default 8554 on bad value.
+    case "$PORT" in
+      ''|*[!0-9]*) PORT="8554" ;;
+    esac
+    [ "$PORT" -lt 1 ]     && PORT="8554"
+    [ "$PORT" -gt 65535 ] && PORT="8554"
+    PORT="-P $PORT"
    
     ## Log
     if [ $RTSPLOGENABLED -eq 0 ]; then
         LOGPATH="/dev/null"
     fi
 
-    ## Audio
+    ## Audio — sanitize codec values before numeric comparisons.
+    case "$audioCodec0" in ''|*[!0-9]*) audioCodec0=0 ;; esac
+    case "$audioCodec1" in ''|*[!0-9]*) audioCodec1=0 ;; esac
     AUDIO0=",audio0"
     AUDIO1=",audio1"
-    if [ $audioCodec0 -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
+    if [ "$audioCodec0" -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
         AUDIO0=""
     fi
-    if [ $audioCodec1 -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
+    if [ "$audioCodec1" -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
         AUDIO1=""
     fi
 
@@ -174,8 +179,8 @@ restart()
 
 stop()
 {
-  killpid "$WATCHDOG_PIDFILE"
-  killpid "$PIDFILE"
+  killpid_graceful "$WATCHDOG_PIDFILE" 3
+  killpid_graceful "$PIDFILE" 5
 }
 
 if [ $# -eq 0 ]; then

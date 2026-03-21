@@ -4,7 +4,12 @@
 
 source ./func.cgi
 
-echo "Content-type: text"
+# Set content type based on requested format
+if wants_json_response; then
+  echo "Content-type: application/json"
+else
+  echo "Content-type: text"
+fi
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
@@ -745,6 +750,32 @@ get_perf_profile() {
   echo "$profile"
 }
 
+get_sd_usage() {
+  sd_used_kb=0
+  sd_total_kb=0
+  sd_percent=0
+
+  # df output: Filesystem 1K-blocks Used Available Use% Mounted
+  # BusyBox df may omit header or use slightly different columns; parse by mount point.
+  while read -r _fs _total _used _avail _pct _mp _rest; do
+    case "$_mp" in
+      /mnt|/mnt/)
+        case "$_total" in ''|*[!0-9]*) continue ;; esac
+        case "$_used"  in ''|*[!0-9]*) continue ;; esac
+        sd_total_kb="$_total"
+        sd_used_kb="$_used"
+        # _pct may be "72%" — strip trailing %
+        _pct_num="${_pct%%%}"
+        case "$_pct_num" in ''|*[!0-9]*) _pct_num=0 ;; esac
+        sd_percent="$_pct_num"
+        break
+        ;;
+    esac
+  done <<EOF
+$(df -k /mnt 2>/dev/null | tail -n +2)
+EOF
+}
+
 read_reboot_epoch() {
   reboot_epoch=0
 
@@ -835,13 +866,20 @@ if [ -n "$F_cmd" ]; then
     load_lum_awb
     get_ui_ultralite_mode
     get_security_and_mqtt_flags
+    get_sd_usage
     default_password_active="$(default_password_active_flag)"
     default_password_active="$(sanitize_int "$default_password_active" 0)"
     profile_json="$(json_escape "$profile")"
     lum_json="$(json_escape "$lum_value")"
     awb_json="$(json_escape "$awb_value")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active}"
+    csrf_token=""
+    if [ -r /tmp/csrf_token ]; then
+        read -r csrf_token < /tmp/csrf_token
+        # Strip any non-hex characters for safety
+        csrf_token="$(printf '%s' "$csrf_token" | tr -cd '0-9a-fA-F')"
+    fi
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\"}"
     ;;
 
   integrationtest)

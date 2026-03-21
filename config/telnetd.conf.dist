@@ -1,1 +1,9 @@
+# Telnet server configuration
+# Managed by: controlscripts/telnet-server
+#
+# TELNET_PORT — TCP port the BusyBox telnetd listens on.
+#   Default: 23 (standard Telnet)
+#   Change if port 23 is blocked or you want a non-standard port.
+#   Note: Telnet transmits credentials in plaintext. Only enable on
+#   trusted local networks and disable when not in active use.
 TELNET_PORT=23

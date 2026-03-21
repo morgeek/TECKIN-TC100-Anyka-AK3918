@@ -160,3 +160,121 @@ json_error() {
 wants_json_response() {
   [ "${F_format}" = "json" ] || [ "${HTTP_ACCEPT:-}" = "application/json" ]
 }
+
+# rate_limit_check — call BEFORE any output headers have been emitted.
+# Limits a single REMOTE_ADDR to at most RL_MAX_REQUESTS per RL_WINDOW_SECONDS.
+# Defaults: 10 requests per 60 seconds.
+# On limit exceeded: emits 429 JSON response and exits.
+# Usage: rate_limit_check [max_requests] [window_seconds]
+rate_limit_check() {
+  _rl_max="${1:-10}"
+  _rl_win="${2:-60}"
+  _rl_dir="/tmp/ratelimit"
+  _rl_ip="${REMOTE_ADDR:-unknown}"
+  # Sanitize IP to safe filename characters (alnum, dot, colon, underscore)
+  _rl_ip="$(printf '%s' "$_rl_ip" | tr -cd 'A-Za-z0-9._:-' | cut -c1-64)"
+  [ -z "$_rl_ip" ] && _rl_ip="unknown"
+
+  # Ensure directory exists
+  [ -d "$_rl_dir" ] || mkdir -p "$_rl_dir" 2>/dev/null || return 0
+
+  # Purge stale files older than 2× the window (best-effort, non-blocking)
+  find "$_rl_dir" -maxdepth 1 -type f -name '*' 2>/dev/null | while read -r _stale; do
+    _st_ws=0; _st_cnt=0
+    read -r _st_ws _st_cnt < "$_stale" 2>/dev/null || true
+    case "$_st_ws" in ''|*[!0-9]*) _st_ws=0 ;; esac
+    if [ $((_rl_now - _st_ws)) -gt $((_rl_win * 2)) ] 2>/dev/null; then
+      rm -f "$_stale" 2>/dev/null || true
+    fi
+  done
+
+  _rl_file="$_rl_dir/$_rl_ip"
+
+  # Read current btime + uptime for fork-free epoch
+  _rl_btime=0
+  while read -r _k _v _; do
+    [ "$_k" = "btime" ] && _rl_btime="$_v" && break
+  done < /proc/stat
+  read -r _rl_up _ < /proc/uptime
+  _rl_now=$((_rl_btime + ${_rl_up%.*}))
+
+  _rl_window_start=0
+  _rl_count=0
+  if [ -f "$_rl_file" ]; then
+    read -r _rl_window_start _rl_count < "$_rl_file" 2>/dev/null || true
+    case "$_rl_window_start" in ''|*[!0-9]*) _rl_window_start=0 ;; esac
+    case "$_rl_count" in ''|*[!0-9]*) _rl_count=0 ;; esac
+  fi
+
+  # If outside window, reset
+  _rl_elapsed=$((_rl_now - _rl_window_start))
+  if [ "$_rl_elapsed" -ge "$_rl_win" ] || [ "$_rl_elapsed" -lt 0 ]; then
+    _rl_window_start="$_rl_now"
+    _rl_count=0
+  fi
+
+  _rl_count=$((_rl_count + 1))
+  printf '%s %s\n' "$_rl_window_start" "$_rl_count" > "$_rl_file" 2>/dev/null || true
+
+  if [ "$_rl_count" -gt "$_rl_max" ]; then
+    echo "Status: 429 Too Many Requests"
+    echo "Content-Type: application/json"
+    echo "Cache-Control: no-store, no-cache"
+    echo "Pragma: no-cache"
+    echo "Retry-After: $_rl_win"
+    echo ""
+    printf '{"ok":false,"error":"Rate limit exceeded. Try again later.","code":"rate_limited"}\n'
+    exit 0
+  fi
+}
+
+# csrf_guard — call BEFORE any output headers have been emitted.
+# If the per-boot CSRF token in /tmp/csrf_token doesn't match the
+# X-CSRF-Token request header, emits a 403 JSON response and exits.
+# When no token exists yet (very early boot), silently passes through.
+csrf_guard() {
+  _cg_stored=""
+  if [ -r /tmp/csrf_token ]; then
+    read -r _cg_stored < /tmp/csrf_token
+    _cg_stored="$(printf '%s' "$_cg_stored" | tr -cd '0-9a-fA-F')"
+  fi
+  [ -z "$_cg_stored" ] && return 0  # no token generated yet, skip
+  _cg_header="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | tr -cd '0-9a-fA-F')"
+  if [ "$_cg_header" != "$_cg_stored" ]; then
+    echo "Status: 403 Forbidden"
+    echo "Content-Type: application/json"
+    echo "Cache-Control: no-store, no-cache"
+    echo "Pragma: no-cache"
+    echo ""
+    printf '{"ok":false,"error":"CSRF token missing or invalid. Reload the page.","code":"permission_denied"}\n'
+    exit 0
+  fi
+}
+
+# audit_log_event — append a timestamped entry to /tmp/log/audit.log (fork-free).
+# Usage: audit_log_event <action> [detail]
+# Safe to call before or after response headers — writes only to the log file.
+audit_log_event() {
+  _ale_action="${1:-?}"
+  _ale_detail="${2:-}"
+  _ale_dir="/tmp/log"
+  _ale_file="$_ale_dir/audit.log"
+  _ale_max=65536
+  [ -d "$_ale_dir" ] || mkdir -p "$_ale_dir" 2>/dev/null || return 0
+  if [ -f "$_ale_file" ]; then
+    _ale_sz="$(wc -c < "$_ale_file" 2>/dev/null)"; case "$_ale_sz" in ''|*[!0-9]*) _ale_sz=0 ;; esac
+    if [ "$_ale_sz" -gt "$_ale_max" ]; then
+      tail -n 100 "$_ale_file" > "${_ale_file}.tmp" 2>/dev/null && mv "${_ale_file}.tmp" "$_ale_file" 2>/dev/null || true
+    fi
+  fi
+  _ale_btime=0
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _ale_btime="$_v" && break; done < /proc/stat
+  read -r _ale_up _ < /proc/uptime
+  _ale_ts=$((_ale_btime + ${_ale_up%.*}))
+  _ale_ip="${REMOTE_ADDR:-unknown}"
+  if [ -n "$_ale_detail" ]; then
+    printf '%s action=%s ip=%s detail=%s\n' "$_ale_ts" "$_ale_action" "$_ale_ip" "$_ale_detail" >> "$_ale_file" 2>/dev/null || true
+  else
+    printf '%s action=%s ip=%s\n' "$_ale_ts" "$_ale_action" "$_ale_ip" >> "$_ale_file" 2>/dev/null || true
+  fi
+}

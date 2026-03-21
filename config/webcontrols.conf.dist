@@ -1,1 +1,26 @@
+# Web UI camera control switches
+# Managed by: www/cgi-bin/camcontrols.cgi
+#
+# ENABLED_CAM_CONTROL_SWITCHES — space-separated list of controlscript names
+# whose toggle buttons appear on the Web UI Controls page.
+#
+# Each entry must match a file in /mnt/controlscripts/ that supports the
+# start / stop / status subcommands.  Entries not present on the filesystem
+# are silently skipped by camcontrols.cgi.
+#
+# Available switches (from the default controlscripts directory):
+#   auto-night-detection  — hardware auto day/night IR switching
+#   night-mode            — manual night mode (IR LEDs + IR cut filter)
+#   front-led             — white status LED on the camera front
+#   rtsp-h26x             — RTSP H.264/H.265 stream server
+#   motion-detection      — firmware motion detection + event monitor
+#   sound-detection       — audio level monitor and MQTT event publisher
+#   recording             — continuous / motion-activated SD card recording
+#   timelapse             — periodic snapshot timelapse recorder
+#   ftp-server            — BusyBox FTP server on /
+#   telnet-server         — BusyBox telnetd shell access
+#   telegram-bot          — Telegram bot command listener
+#   mqtt-bridge           — MQTT command-to-controlscript bridge
+#   network-monitor       — connectivity watchdog / auto-reconnect
+#   memory-guard          — low-memory process reaper
 ENABLED_CAM_CONTROL_SWITCHES="auto-night-detection night-mode front-led rtsp-h26x motion-detection recording ftp-server telnet-server"

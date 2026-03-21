@@ -27,11 +27,14 @@ _load_btime()
 json_escape()
 {
   # Fast path: most values (hostnames, paths, profile names) have no special chars.
+  _je_nl='
+'
+  _je_tab='	'
   case "$1" in
-    *\\*|*'"'*) ;;
+    *\\*|*'"'*|*"$_je_nl"*|*"$_je_tab"*) ;;
     *) printf '%s' "$1"; return ;;
   esac
-  # Slow path: escape backslashes then double-quotes via parameter expansion (no forks).
+  # Slow path: escape backslash, double-quote, newline, tab (no forks).
   _je="$1"
   _je_out=""
   while [ -n "$_je" ]; do
@@ -43,6 +46,14 @@ json_escape()
       *'"'*)
         _je_out="${_je_out}${_je%%\"*}\\\""
         _je="${_je#*\"}"
+        ;;
+      *"$_je_nl"*)
+        _je_out="${_je_out}${_je%%"$_je_nl"*}\\n"
+        _je="${_je#*"$_je_nl"}"
+        ;;
+      *"$_je_tab"*)
+        _je_out="${_je_out}${_je%%"$_je_tab"*}\\t"
+        _je="${_je#*"$_je_tab"}"
         ;;
       *)
         _je_out="${_je_out}${_je}"

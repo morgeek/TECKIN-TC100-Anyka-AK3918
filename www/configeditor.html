@@ -1,0 +1,184 @@
+<style id="configeditor_css">
+.configeditor-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.configeditor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.configeditor-toolbar .select select {
+  min-width: 200px;
+}
+#configeditor_area {
+  font-family: monospace;
+  font-size: 0.85em;
+  width: 100%;
+  min-height: 320px;
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+.configeditor-status { font-size: 0.9em; min-height: 1.4em; }
+.configeditor-status.ok  { color: #23d160; }
+.configeditor-status.err { color: #ff3860; }
+.configeditor-note { font-size: 0.82em; color: #888; margin-top: 0.25rem; }
+</style>
+
+<div class="card status_card">
+  <header class="card-header">
+    <p class="card-header-title">
+      <span class="title-with-icon">
+        <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4M5 8v-3a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3M5 18H3M7 15l-2 3l2 3"/></svg>
+        <span>Config File Editor</span>
+      </span>
+    </p>
+  </header>
+  <div class="card-content">
+    <div class="configeditor-wrap">
+      <div class="configeditor-toolbar">
+        <div class="select">
+          <select id="configeditor_file" onchange="configEditorLoad()">
+            <option value="boot.conf">boot.conf</option>
+            <option value="mqtt.conf">mqtt.conf</option>
+            <option value="rtspserver.conf">rtspserver.conf</option>
+            <option value="recording.conf">recording.conf</option>
+            <option value="onvif.conf">onvif.conf</option>
+            <option value="hostname.conf">hostname.conf</option>
+            <option value="ntp_srv.conf">ntp_srv.conf</option>
+            <option value="timezone.conf">timezone.conf</option>
+            <option value="telegram.conf">telegram.conf</option>
+            <option value="netmon.conf">netmon.conf</option>
+            <option value="dns.conf">dns.conf</option>
+            <option value="motion.conf">motion.conf</option>
+            <option value="timelapse.conf">timelapse.conf</option>
+            <option value="pttvolume.conf">pttvolume.conf</option>
+          </select>
+        </div>
+        <button class="button is-small" type="button" onclick="configEditorLoad()">Reload</button>
+        <button class="button is-primary is-small" id="configeditor_save" type="button" onclick="configEditorSave()" disabled>Save</button>
+      </div>
+
+      <textarea id="configeditor_area" class="textarea" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Loading..."></textarea>
+
+      <p id="configeditor_status" class="configeditor-status"></p>
+      <p class="configeditor-note">
+        Changes take effect after the relevant service is restarted. A timestamped backup is kept in <code>/tmp/</code> before each save. Boot-critical settings (lighttpd, network) are not editable here.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var _isDirty = false;
+
+  function markClean() { _isDirty = false; }
+  function markDirty() { _isDirty = true; }
+
+  window.addEventListener('beforeunload', function (e) {
+    if (_isDirty) {
+      e.preventDefault();
+      e.returnValue = 'You have unsaved changes in the Config Editor.';
+    }
+  });
+
+  function getCsrfToken() {
+    return (typeof csrfToken !== 'undefined' && csrfToken) ? csrfToken : '';
+  }
+
+  function setStatus(msg, isErr) {
+    var el = document.getElementById('configeditor_status');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'configeditor-status' + (msg ? (isErr ? ' err' : ' ok') : '');
+  }
+
+  function getSelectedFile() {
+    var sel = document.getElementById('configeditor_file');
+    return sel ? sel.value : '';
+  }
+
+  window.configEditorLoad = function () {
+    var file = getSelectedFile();
+    if (!file) return;
+    if (_isDirty && !confirm('You have unsaved changes. Discard and load a different file?')) {
+      // Revert the dropdown to the last-loaded file
+      return;
+    }
+    var area = document.getElementById('configeditor_area');
+    var saveBtn = document.getElementById('configeditor_save');
+    if (area) { area.value = 'Loading...'; area.disabled = true; }
+    if (saveBtn) saveBtn.disabled = true;
+    setStatus('');
+    markClean();
+
+    fetch('cgi-bin/configeditor.cgi?cmd=read&file=' + encodeURIComponent(file), { cache: 'no-store' })
+      .then(function (r) { return r.text(); })
+      .then(function (t) {
+        try {
+          var d = JSON.parse(t);
+          if (!d.ok) { setStatus('Load failed: ' + (d.error || 'unknown'), true); return; }
+          if (area) {
+            area.value = d.content.replace(/\\n/g, '\n');
+            area.disabled = false;
+            area.addEventListener('input', markDirty, { once: true });
+          }
+          if (saveBtn) saveBtn.disabled = false;
+          if (d.source === 'dist') setStatus('Showing .dist template (no active config found)', false);
+        } catch (e) {
+          setStatus('Failed to parse response', true);
+        }
+      })
+      .catch(function (e) { setStatus('Load error: ' + e, true); });
+  };
+
+  window.configEditorSave = function () {
+    var file = getSelectedFile();
+    var area = document.getElementById('configeditor_area');
+    var saveBtn = document.getElementById('configeditor_save');
+    if (!file || !area) return;
+
+    var content = area.value;
+    var tok = getCsrfToken();
+    var headers = { 'Content-Type': 'text/plain; charset=utf-8' };
+    if (tok) headers['X-CSRF-Token'] = tok;
+
+    if (saveBtn) saveBtn.disabled = true;
+    setStatus('Saving...');
+
+    fetch('cgi-bin/configeditor.cgi?cmd=save&file=' + encodeURIComponent(file), {
+      method: 'POST',
+      headers: headers,
+      body: content,
+      cache: 'no-store'
+    })
+    .then(function (r) { return r.text(); })
+    .then(function (t) {
+      try {
+        var d = JSON.parse(t);
+        if (d.ok) markClean();
+        setStatus(d.ok ? 'Saved successfully.' : ('Save failed: ' + (d.error || 'unknown')), !d.ok);
+      } catch (e) {
+        setStatus('Unexpected response', true);
+      }
+      if (saveBtn) saveBtn.disabled = false;
+    })
+    .catch(function (e) {
+      setStatus('Save error: ' + e, true);
+      if (saveBtn) saveBtn.disabled = false;
+    });
+  };
+
+  // Load first file on page open
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', window.configEditorLoad);
+  } else {
+    window.configEditorLoad();
+  }
+}());
+</script>

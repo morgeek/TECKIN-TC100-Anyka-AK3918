@@ -1,1 +1,14 @@
+# Device timezone offset
+# Read by scripts/update_timezone.sh at service start to set the TZ environment
+# variable used by BusyBox date/cron/syslog.
+#
+# Format: UTC±HH or UTC±HH:MM
+#   UTC+0    — Greenwich Mean Time / UTC (default)
+#   UTC-5    — US Eastern Standard Time
+#   UTC-8    — US Pacific Standard Time
+#   UTC+1    — Central European Time
+#   UTC+5:30 — India Standard Time
+#
+# Daylight-saving time adjustments are NOT applied automatically; update
+# this value manually when clocks change, or use UTC to avoid the issue.
 UTC+0

@@ -313,14 +313,16 @@ if [ -n "$F_script" ]; then
   if [ -e "$SCRIPT_HOME/$script" ]; then
     case "$F_cmd" in
       start)
+        csrf_guard
         echo "Content-type: text/html"
         echo ""
 
         echo "Running script '$script'..."
         echo "<pre>$(sh "$SCRIPT_HOME/$script" start 2>&1)</pre>"
         invalidate_allstates_cache
-        ;;  
+        ;;
       disable)
+        csrf_guard
         rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true
         invalidate_allstates_cache
         echo "Content-type: application/json"
@@ -328,6 +330,7 @@ if [ -n "$F_script" ]; then
         echo "{\"status\":\"ok\",\"autostart_enabled\":0}"
         ;;
       stop)
+        csrf_guard
         echo "Content-type: text/html"
         echo ""
         status='unknown'
@@ -338,6 +341,7 @@ if [ -n "$F_script" ]; then
         invalidate_allstates_cache
         ;;
       enable)
+        csrf_guard
         if [ -e "$SCRIPT_HOME/$script" ]; then
           mkdir -p "${AUTOSTART_DIR}"
           printf "#!/bin/sh\nsh \"%s%s\"\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"

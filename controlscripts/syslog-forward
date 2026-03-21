@@ -1,0 +1,101 @@
+#!/bin/sh
+# syslog-forward controlscript
+# Manages remote syslog forwarding via BusyBox syslogd -R.
+# Reads SYSLOG_ENABLE, SYSLOG_HOST, SYSLOG_PORT from /mnt/config/boot.conf.
+
+SERVICE_NAME="Syslog Forward"
+PIDFILE="/var/run/syslog-forward.pid"
+BUSYBOX="${BUSYBOX:-/mnt/bin/busybox}"
+
+. /mnt/scripts/common_functions.sh
+
+_load_conf() {
+  SYSLOG_ENABLE="${SYSLOG_ENABLE:-0}"
+  SYSLOG_HOST="${SYSLOG_HOST:-}"
+  SYSLOG_PORT="${SYSLOG_PORT:-514}"
+  if [ -f /mnt/config/boot.conf ]; then
+    # shellcheck disable=SC1091
+    . /mnt/config/boot.conf 2>/dev/null || true
+  fi
+  case "$SYSLOG_PORT" in
+    ''|*[!0-9]*) SYSLOG_PORT=514 ;;
+  esac
+}
+
+status() {
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    echo "running (PID $pid)"
+  else
+    echo "stopped"
+  fi
+}
+
+start() {
+  _load_conf
+
+  case "$SYSLOG_ENABLE" in
+    1|true|on|yes) ;;
+    *) echo "$SERVICE_NAME: disabled in boot.conf (SYSLOG_ENABLE=0)"; return 0 ;;
+  esac
+
+  if [ -z "$SYSLOG_HOST" ]; then
+    echo "$SERVICE_NAME: SYSLOG_HOST is not set — skipping"
+    return 1
+  fi
+
+  _cur_pid="$(cat "$PIDFILE" 2>/dev/null)"
+  if [ -n "$_cur_pid" ] && kill -0 "$_cur_pid" 2>/dev/null; then
+    echo "$SERVICE_NAME already running (PID $_cur_pid)"
+    return 0
+  fi
+  rm -f "$PIDFILE" 2>/dev/null || true
+
+  # Prefer remote syslogd (-R host:port)
+  if "$BUSYBOX" syslogd --help 2>&1 | grep -q '\-R'; then
+    killall syslogd 2>/dev/null || true
+    sleep 1
+    "$BUSYBOX" syslogd -R "${SYSLOG_HOST}:${SYSLOG_PORT}" &
+    echo "$!" > "$PIDFILE"
+    echo "$SERVICE_NAME: syslogd forwarding to ${SYSLOG_HOST}:${SYSLOG_PORT} (PID $!)"
+  else
+    echo "$SERVICE_NAME: busybox syslogd -R not supported; no forwarding daemon started"
+    return 1
+  fi
+}
+
+stop() {
+  if [ -n "$(cat "$PIDFILE" 2>/dev/null)" ]; then
+    killpid_graceful "$PIDFILE" 5
+    echo "$SERVICE_NAME stopped"
+  else
+    killall syslogd 2>/dev/null || true
+    rm -f "$PIDFILE" 2>/dev/null || true
+    echo "$SERVICE_NAME: not running"
+  fi
+}
+
+restart() {
+  stop >/dev/null 2>&1 || true
+  sleep 1
+  start
+}
+
+health() {
+  _s="$(status)"
+  case "$_s" in
+    running*) echo "ok: $_s" ;;
+    *)
+      _load_conf
+      case "$SYSLOG_ENABLE" in
+        1|true|on|yes) echo "warn: $_s" ;;
+        *) echo "ok: disabled" ;;
+      esac
+      ;;
+  esac
+}
+
+case "${1:-start}" in
+  start|stop|restart|status|health) "$1" ;;
+  *) echo "Usage: $0 {start|stop|restart|status|health}"; exit 1 ;;
+esac

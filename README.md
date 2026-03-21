@@ -8,19 +8,19 @@ No firmware flashing is performed!
 
 ## What is kept from the original project
 - Boot/runtime core: `autorun.sh`, `bin/`, `lib/`, `config/`, `scripts/`, `controlscripts/`, `www/`
-- AI Enhanced Local web UI (HTTP/HTTPS depending on config)
+- Local web UI (HTTP/HTTPS depending on config)
 - RTSP (`video0_unicast`, `video1_unicast`)
-- ONVIF /Frigate and HomeAssistant friendly
 - Core camera controls and services enhanced.
 
 ## What is added :
 - Massive CPU/RAM optimization
 - UI, SVG icons, updated bulma, smaller footprint
 - Setup Wizard
+- ONVIF /Frigate and HomeAssistant friendly
 - MQTT Support
 - MQTT subscribe retry backoff controls in UI (low-overhead broker outage handling)
-- **NEW: Complete Push-To-Talk (PTT) with audio level meter and test speaker button**
-- **NEW: Two-Way Audio streaming - listen to camera microphone in real-time**
+- Complete Push-To-Talk (PTT) with audio level meter and test speaker button**
+- Two-Way Audio streaming - listen to camera microphone in real-time**
 
 ## Installation
 1. Format MicroSD as FAT32 (32K allocation size recommended).
@@ -61,7 +61,7 @@ Remove MicroSD and reboot.
 
 ## Audio Features
 
-### Push-To-Talk (PTT) - COMPLETE ✓
+### Push-To-Talk (PTT)
 - **Talk**: Hold the "Hold to Talk" button to record voice messages (400ms - 9s)
 - **Visual Feedback**: Real-time audio level meter during recording
 - **Test Speaker**: "Test" button verifies speaker is working
@@ -69,7 +69,7 @@ Remove MicroSD and reboot.
 - **Cross-Platform**: Works with touch, mouse, and keyboard (Space/Enter)
 - **Requires**: HTTPS or localhost for microphone access (browser security policy)
 
-### Two-Way Audio - COMPLETE ✓
+### Two-Way Audio
 - **Listen**: Click "Listen" to stream audio from camera microphone in real-time
 - **Browser Playback**: Native HTML5 audio streaming
 - **Auto-Disconnect**: Stops after 30 seconds to conserve resources
@@ -79,4 +79,3 @@ Remove MicroSD and reboot.
 ## Remaining Features
 - UI/UX enhancements still needed for other areas
 - Optional: Cloud backup integration
-- Optional: Motion event timeline/review dashboard

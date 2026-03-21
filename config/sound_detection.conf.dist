@@ -1,0 +1,19 @@
+# Sound detection configuration
+# Managed by: controlscripts/sound-detection → scripts/sound-detection (daemon)
+#
+# ENABLE — set to 1 to activate audio level monitoring.
+#   0 = disabled (default, no CPU overhead)
+#   1 = enabled
+ENABLE=0
+
+# THRESHOLD — audio energy level that triggers a sound event.
+#   Higher = less sensitive (fewer false positives).
+#   Lower  = more sensitive (triggers on quieter sounds).
+#   Range: 100–10000.  Default: 1500
+#   Tune by watching "Last Level" in the service status output.
+THRESHOLD=1500
+
+# INTERVAL — seconds between audio level samples.
+#   Lower = more responsive but higher CPU usage.
+#   Range: 2–300.  Default: 5
+INTERVAL=5

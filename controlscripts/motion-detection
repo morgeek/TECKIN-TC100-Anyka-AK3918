@@ -37,13 +37,18 @@ start()
 stop()
 {
   motion_detection off
-  killpid "$MONITOR_PIDFILE"
+  killpid_graceful "$MONITOR_PIDFILE" 3
+}
+
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
 }
 
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status)
+  case $1 in start|stop|status|health)
     $1
     ;;
   esac

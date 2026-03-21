@@ -538,6 +538,10 @@
     if (!btn) {
       return;
     }
+    var tabLabel = tabNames[btn.getAttribute("data-tab")] || "this log";
+    if (!confirm("Clear " + tabLabel + " log? This cannot be undone.")) {
+      return;
+    }
     loadLog(btn.getAttribute("data-tab"), true);
   });
 
@@ -567,6 +571,10 @@
 
   if (clearBtn) {
     clearBtn.addEventListener("click", function () {
+      var tabLabel = tabNames[state.currentTab] || "this log";
+      if (!confirm("Clear " + tabLabel + " log? This cannot be undone.")) {
+        return;
+      }
       loadLog(state.currentTab, true);
     });
   }

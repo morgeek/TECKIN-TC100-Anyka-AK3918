@@ -44,8 +44,13 @@ resolve_snapshot_path()
 {
   if [ -n "$F_file" ]; then
     filename="${F_file##*/}"
+    # Reject filenames with unsafe characters (dots, alnum, hyphen, underscore only)
+    case "$filename" in
+      ''|*[!A-Za-z0-9._-]*|..*|.)
+        filename="" ;;
+    esac
     candidate="${motion_save_dir%/}/$filename"
-    if [ -f "$candidate" ]; then
+    if [ -n "$filename" ] && [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0
     fi

@@ -1,0 +1,144 @@
+<style id="backup_css">
+.backup-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media screen and (min-width: 768px) {
+  .backup-grid { grid-template-columns: 1fr 1fr; }
+}
+.backup-status { margin-top: 0.5rem; font-size: 0.9em; min-height: 1.4em; }
+.backup-status.ok  { color: #23d160; }
+.backup-status.err { color: #ff3860; }
+</style>
+
+<div class="backup-grid">
+
+  <div class="card status_card">
+    <header class="card-header">
+      <p class="card-header-title">
+        <span class="title-with-icon">
+          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>
+          <span>Download Config Backup</span>
+        </span>
+      </p>
+    </header>
+    <div class="card-content">
+      <p class="help" style="margin-bottom:0.75rem">
+        Downloads a <code>.tar.gz</code> archive of the entire <code>/mnt/config/</code> directory.
+        Store this file somewhere safe — it contains passwords and credentials.
+      </p>
+      <a id="backup_dl_btn" class="button is-primary" href="cgi-bin/configbackup.cgi?cmd=download" download>
+        Download Backup
+      </a>
+      <p id="backup_dl_status" class="backup-status"></p>
+    </div>
+  </div>
+
+  <div class="card status_card">
+    <header class="card-header">
+      <p class="card-header-title">
+        <span class="title-with-icon">
+          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0l-4 4m4-4l4 4M4 7V4h16v3"/></svg>
+          <span>Restore Config Backup</span>
+        </span>
+      </p>
+    </header>
+    <div class="card-content">
+      <p class="help" style="margin-bottom:0.75rem">
+        Upload a previously downloaded <code>camera-config-*.tar.gz</code> file to restore settings.
+        The camera will keep a rollback snapshot in <code>/tmp/</code>. A reboot is recommended after restore.
+      </p>
+      <div class="field">
+        <label class="label" for="restore_file_input">Select backup file</label>
+        <div class="control">
+          <input class="input" type="file" id="restore_file_input" accept=".tar.gz,.tgz" style="padding:0.35rem 0.5rem;">
+        </div>
+      </div>
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" id="restore_restart_cb"> Restart RTSP &amp; ONVIF after restore
+        </label>
+      </div>
+      <button class="button is-warning" id="restore_btn" type="button" disabled onclick="doRestore()">
+        Restore Backup
+      </button>
+      <p id="restore_status" class="backup-status"></p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var fileInput = document.getElementById('restore_file_input');
+  var restoreBtn = document.getElementById('restore_btn');
+  var restoreStatus = document.getElementById('restore_status');
+
+  var MAX_BACKUP_BYTES = 16 * 1024 * 1024; // 16 MB — must match upload_backup.cgi
+  fileInput.addEventListener('change', function () {
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) {
+      restoreBtn.disabled = true;
+      restoreStatus.textContent = '';
+      restoreStatus.className = 'backup-status';
+      return;
+    }
+    if (f.size > MAX_BACKUP_BYTES) {
+      restoreBtn.disabled = true;
+      restoreStatus.textContent = 'File too large (' + (f.size / 1048576).toFixed(1) + ' MB). Maximum is 16 MB.';
+      restoreStatus.className = 'backup-status err';
+      return;
+    }
+    restoreBtn.disabled = false;
+    restoreStatus.textContent = '';
+    restoreStatus.className = 'backup-status';
+  });
+
+  function getCsrfToken() {
+    if (typeof csrfToken !== 'undefined' && csrfToken) return csrfToken;
+    return '';
+  }
+
+  window.doRestore = function () {
+    var file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    var restart = document.getElementById('restore_restart_cb').checked ? '1' : '0';
+
+    restoreBtn.disabled = true;
+    restoreStatus.textContent = 'Uploading...';
+    restoreStatus.className = 'backup-status';
+
+    // Step 1: upload the file to upload_audio.cgi... but that's audio.
+    // Instead upload via action.cgi?cmd=upload_config (we need to add this),
+    // OR use a FormData POST to a dedicated upload endpoint.
+    // We use action.cgi?cmd=upload_backup which writes to /tmp then restores.
+    var headers = { 'Content-Type': 'application/octet-stream' };
+    var tok = getCsrfToken();
+    if (tok) headers['X-CSRF-Token'] = tok;
+
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      fetch('cgi-bin/upload_backup.cgi?restart_services=' + restart, {
+        method: 'POST',
+        headers: headers,
+        body: ev.target.result,
+        cache: 'no-store'
+      })
+      .then(function (r) { return r.text(); })
+      .then(function (t) {
+        var ok = t.indexOf('completed') !== -1 || t.indexOf('OK') !== -1;
+        restoreStatus.textContent = t.replace(/<br\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+        restoreStatus.className = 'backup-status ' + (ok ? 'ok' : 'err');
+        restoreBtn.disabled = false;
+      })
+      .catch(function (err) {
+        restoreStatus.textContent = 'Upload failed: ' + err;
+        restoreStatus.className = 'backup-status err';
+        restoreBtn.disabled = false;
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  };
+}());
+</script>
