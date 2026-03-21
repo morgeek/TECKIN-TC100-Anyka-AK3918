@@ -2,6 +2,7 @@
 SERVICE_NAME="Timelapse"
 PIDFILE='/var/run/timelapse.pid'
 
+. /mnt/scripts/common_functions.sh
 . /mnt/scripts/update_timezone.sh
 
 status()
@@ -29,19 +30,18 @@ start()
 
 stop()
 {
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ -n "$pid" ]; then
-    kill "$pid" >/dev/null 2>&1 || true
-    sleep 1
-    kill -9 "$pid" >/dev/null 2>&1 || true
-  fi
-  rm -f "$PIDFILE" >/dev/null 2>&1 || true
+  killpid_graceful "$PIDFILE" 5
+}
+
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
 }
 
 if [ $# -eq 0 ]; then
   start
 else
-  case "$1" in start|stop|status)
+  case "$1" in start|stop|status|health)
     "$1"
     ;;
   esac

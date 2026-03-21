@@ -1,1 +1,9 @@
+# FTP server configuration
+# Managed by: controlscripts/ftp-server
+#
+# PORT — TCP port the BusyBox ftpd listens on.
+#   Default: 21 (standard FTP)
+#   Change if port 21 is blocked or you want a non-standard port.
+#   Note: The FTP server runs as root with write access to /. Restrict
+#   network access at the router/firewall level if security is a concern.
 PORT=21

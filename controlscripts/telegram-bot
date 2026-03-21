@@ -9,6 +9,8 @@
 SERVICE_NAME="Telegram Bot"
 PIDFILE="/var/run/telegram-bot.pid"
 
+. /mnt/scripts/common_functions.sh
+
 if [ ! -f /mnt/config/telegram.conf ]; then
   echo "You have to configure telegram first. Please see /mnt/config/telegram.conf.dist for further instructions"
 fi
@@ -34,20 +36,19 @@ start()
 
 stop()
 {
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ "$pid" ]; then
-    kill -9 "$pid"
-    rm "$PIDFILE"
-    echo "Bot stopped"
-  else
-    echo "Could not find a bot to stop."
-  fi
+  killpid_graceful "$PIDFILE" 5
+  echo "Bot stopped"
+}
+
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
 }
 
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status)
+  case $1 in start|stop|status|health)
       $1
       ;;
   esac

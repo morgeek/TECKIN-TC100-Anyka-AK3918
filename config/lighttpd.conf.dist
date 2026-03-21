@@ -48,6 +48,17 @@ $HTTP["url"] !~ "^/.well-known/(.*)" {
     }
 }
 
+## IP allowlist — restrict web UI to a specific subnet.
+## Uncomment and set your LAN CIDR to block access from other networks/interfaces.
+## Example: allow only 192.168.1.x
+#$HTTP["remoteip"] !~ "^192\.168\.1\." {
+#    url.access-deny = ("")
+#}
+## To allow multiple subnets, extend the pattern:
+#$HTTP["remoteip"] !~ "^(192\.168\.1\.|10\.0\.0\.)" {
+#    url.access-deny = ("")
+#}
+
 ## enable debugging
 #debug.log-request-header     = "enable"
 #debug.log-response-header    = "enable"

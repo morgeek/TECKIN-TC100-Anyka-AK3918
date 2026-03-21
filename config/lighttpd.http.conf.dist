@@ -24,6 +24,12 @@ auth.backend                = "htdigest"
 auth.backend.htdigest.userfile = "/mnt/config/lighttpd.user"
 auth.require = ( "/" => ("method" => "basic", "realm" => "all", "require" => "user=root"))
 
+## IP allowlist — restrict web UI to a specific subnet.
+## Uncomment and set your LAN CIDR to block access from other networks/interfaces.
+#$HTTP["remoteip"] !~ "^192\.168\.1\." {
+#    url.access-deny = ("")
+#}
+
 ## where to send error-messages to
 server.errorlog             = "/var/log/lighttpd-error.log"
 server.upload-dirs          = ("/tmp/")

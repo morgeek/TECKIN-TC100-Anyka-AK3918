@@ -24,14 +24,16 @@
   var liveViewVisibilityObserver = null;
   var currentPerfProfileToken = "balanced";
   var dynamicSysUsageIntervalMs = 0;
-  var dynamicAutoNightIntervalMs = 0;
   var uiUltraLiteMode = false;
   var perfProfileFetchController = null;
   var sysUsageFetchController = null;
   var legacySysUsageFetchController = null;
+  var sysUsageConsecErrors = 0;
+  var sysUsageLastSuccessTs = 0;
   var lastLumValue = "";
   var lastAwbValue = "";
   var settingsStylesInjected = false;
+  var csrfToken = "";
   var settingsStyleHrefs = [
     "css/bulma-divider.min.css",
     "css/bulma-switch.1.0.1.min.css",
@@ -98,13 +100,10 @@
     var pressure = Math.max(cpu, ram);
 
     dynamicSysUsageIntervalMs = 0;
-    dynamicAutoNightIntervalMs = 0;
     if (pressure > 80) {
       dynamicSysUsageIntervalMs = 20000;
-      dynamicAutoNightIntervalMs = 12000;
     } else if (pressure >= 50) {
       dynamicSysUsageIntervalMs = 10000;
-      dynamicAutoNightIntervalMs = 6000;
     }
   }
 
@@ -342,6 +341,20 @@
     return cpu;
   }
 
+  function updateSdUsageBadge(sdPercent) {
+    var sdBadge = byId("sdbadge");
+    if (!sdBadge) {
+      return;
+    }
+    if (typeof sdPercent !== "number" || isNaN(sdPercent) || sdPercent < 0) {
+      sdBadge.style.display = "none";
+      return;
+    }
+    sdBadge.style.display = "";
+    sdBadge.textContent = "SD: " + Math.min(sdPercent, 100) + "%";
+    applyUsageClass(sdBadge, sdPercent);
+  }
+
   function updateSecurityBadge(defaultPasswordActive) {
     var securityBadge = byId("securitybadge");
     if (!securityBadge) {
@@ -369,6 +382,23 @@
     securityBadge.textContent = "Security: n/a";
     securityBadge.title = "Credential security state unavailable.";
     securityBadge.classList.add("security-unknown");
+  }
+
+  function updateStaleBanner(isStale) {
+    var bannerId = "stale-data-banner";
+    var existing = byId(bannerId);
+    if (!isStale) {
+      if (existing) existing.parentNode.removeChild(existing);
+      return;
+    }
+    if (existing) return; // already shown
+    var ageSec = sysUsageLastSuccessTs > 0 ? Math.round((Date.now() - sysUsageLastSuccessTs) / 1000) : 0;
+    var ageStr = ageSec > 60 ? Math.round(ageSec / 60) + " min" : ageSec + "s";
+    var banner = document.createElement("div");
+    banner.id = bannerId;
+    banner.style.cssText = "position:fixed;top:0;left:0;width:100%;background:#b00020;color:#fff;text-align:center;padding:4px 8px;font-size:0.82rem;z-index:9999;";
+    banner.textContent = "Device unreachable — last update " + (sysUsageLastSuccessTs > 0 ? ageStr + " ago" : "unknown") + ". Retrying...";
+    document.body.insertBefore(banner, document.body.firstChild);
   }
 
   function updateMqttBadge(mqttEnabled, lastPubTs, lastPubOk) {
@@ -402,15 +432,6 @@
       badge.textContent = "MQTT";
       badge.title = "MQTT publish status unavailable.";
       badge.classList.add("mqtt-unknown");
-    }
-  }
-
-  function parseJsonArray(data) {
-    try {
-      var parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      return [];
     }
   }
 
@@ -705,6 +726,9 @@
         return r.text();
       })
       .then(function (sysusage) {
+        sysUsageConsecErrors = 0;
+        sysUsageLastSuccessTs = Date.now();
+        updateStaleBanner(false);
         updateSysUsageBadges(sysusage, null, null);
         updateSecurityBadge(null);
         refreshPerformanceProfile();
@@ -760,17 +784,30 @@
             typeof statusline.mqtt_last_pub_ok === "number" ? statusline.mqtt_last_pub_ok : -1
           );
           updateLumAwbLabels(typeof statusline.lum === "string" ? statusline.lum : "", typeof statusline.awb === "string" ? statusline.awb : "");
+          updateSdUsageBadge(typeof statusline.sd_percent === "number" ? statusline.sd_percent : -1);
+          if (typeof statusline.csrf_token === "string" && statusline.csrf_token.length > 0) {
+            csrfToken = statusline.csrf_token;
+          }
+          sysUsageConsecErrors = 0;
+          sysUsageLastSuccessTs = Date.now();
+          updateStaleBanner(false);
           scheduleRefreshSysUsage(nextInterval);
           return;
         }
 
-        refreshSysUsageLegacy(nextInterval);
+        sysUsageConsecErrors++;
+        updateStaleBanner(true);
+        var backoffInterval = Math.min(nextInterval * Math.pow(2, sysUsageConsecErrors), nextInterval * 8);
+        refreshSysUsageLegacy(backoffInterval);
       })
       .catch(function (err) {
         if (err && err.name === "AbortError") {
           return;
         }
-        refreshSysUsageLegacy(nextInterval);
+        sysUsageConsecErrors++;
+        updateStaleBanner(true);
+        var backoffInterval = Math.min(nextInterval * Math.pow(2, sysUsageConsecErrors), nextInterval * 8);
+        refreshSysUsageLegacy(backoffInterval);
       })
       .finally(function () {
         if (sysUsageFetchController === controller) {
@@ -906,6 +943,15 @@
     return getCookie("theme");
   }
 
+  // Attach the current CSRF token as a header on state-changing requests to action.cgi.
+  function csrfFetch(url, opts) {
+    opts = opts || {};
+    if (csrfToken) {
+      opts.headers = Object.assign({}, opts.headers || {}, { "X-CSRF-Token": csrfToken });
+    }
+    return fetch(url, opts);
+  }
+
   function initPttVolumeControls() {
     var vol = byId("ptt_vol");
     var lbl = byId("ptt_vol_label");
@@ -930,7 +976,7 @@
       lbl.textContent = vol.value + "%";
     });
     vol.addEventListener("change", function () {
-      fetch("cgi-bin/action.cgi?cmd=conf_ptt&audiooutVol=" + encodeURIComponent(vol.value))
+      csrfFetch("cgi-bin/action.cgi?cmd=conf_ptt&audiooutVol=" + encodeURIComponent(vol.value))
         .catch(function () {});
     });
   }
@@ -967,7 +1013,9 @@
       var promptTarget = event.target.closest(".prompt");
       if (promptTarget && promptTarget.dataset.target) {
         if (confirm(promptTarget.dataset.message)) {
-          window.location.href = promptTarget.dataset.target;
+          // Use csrfFetch so the CSRF token is sent as a header.
+          csrfFetch(promptTarget.dataset.target, { cache: "no-store" })
+            .catch(function () {});
         }
         return;
       }

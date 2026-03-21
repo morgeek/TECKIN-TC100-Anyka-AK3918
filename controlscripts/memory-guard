@@ -197,7 +197,7 @@ start()
 
 stop()
 {
-    killpid "$PIDFILE"
+    killpid_graceful "$PIDFILE" 5
 }
 
 restart()

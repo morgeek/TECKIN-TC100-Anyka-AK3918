@@ -1,4 +1,34 @@
 <style id="custom_css">
+.motion-timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.motion-timeline-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  cursor: pointer;
+  font-size: 0.82em;
+  transition: background 0.1s;
+}
+.motion-timeline-item:hover { background: rgba(0,100,200,0.06); }
+.motion-timeline-item.is-selected { background: rgba(0,100,200,0.12); font-weight: 600; }
+.motion-timeline-thumb {
+  width: 52px; height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #eee;
+  flex-shrink: 0;
+}
+.motion-timeline-info { flex: 1; min-width: 0; }
+.motion-timeline-time { color: #555; }
+.motion-timeline-type-on  { color: #e04040; font-weight: 600; }
+.motion-timeline-type-off { color: #555; }
 .records-layout {
   display: grid;
   grid-template-columns: 1fr;
@@ -52,15 +82,32 @@
         <label for="autoplay">Autoplay</label>
       </div>
     </div>
+    <div id="disk_usage_wrap" style="display:none;margin-bottom:0.5rem;">
+      <progress id="disk_usage_bar" class="progress is-info" value="0" max="100" style="margin-bottom:0.15rem;height:0.6rem;"></progress>
+      <p id="disk_usage_label" style="font-size:0.8em;color:#555;"></p>
+    </div>
     <div class="records-actions">
       <button id="dwbtn" class="button is-primary" type="button" disabled onclick="downloadRecord()">Download</button>
       <button id="rmbtn" class="button is-danger" type="button" disabled onclick="removeRecord()">Remove</button>
     </div>
   </div>
 
-  <div class="records-video">
-    <p id="videonote" class="help is-danger"></p>
-    <video id="rpl" controls playsinline></video>
+  <div class="records-video-col">
+    <div class="records-video">
+      <p id="videonote" class="help is-danger" style="display:none;"></p>
+      <video id="rpl" controls playsinline></video>
+    </div>
+    <div class="card status_card" id="motion_timeline_card" style="margin-top:1rem;">
+      <header class="card-header" style="cursor:pointer;" onclick="toggleMotionTimeline()">
+        <p class="card-header-title">Motion Events</p>
+        <span class="card-header-icon" id="motion_timeline_toggle_icon" aria-label="toggle">&#9660;</span>
+      </header>
+      <div id="motion_timeline_body" class="card-content" style="padding:0.5rem;">
+        <ul id="motion_timeline_list" class="motion-timeline-list">
+          <li style="padding:0.5rem;color:#999;font-size:0.85em;">Loading...</li>
+        </ul>
+      </div>
+    </div>
   </div>
 </div>
 

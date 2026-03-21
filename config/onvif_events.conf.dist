@@ -1,0 +1,18 @@
+###########################################################################
+# Edit this file and copy it to /mnt/config/onvif_events.conf            #
+# to enable push notifications to ONVIF WS-Notification subscribers.     #
+###########################################################################
+
+# Enable ONVIF event push (0 = disabled, 1 = enabled)
+ONVIF_EVENT_ENABLE=0
+
+# Space-separated list of ONVIF WS-Notification consumer URLs.
+# These are the endpoints that will receive motion start/stop events.
+# Example (Blue Iris):
+#   ONVIF_EVENT_SUBSCRIBERS="http://192.168.1.100:8080/onvif/events"
+# Example (multiple):
+#   ONVIF_EVENT_SUBSCRIBERS="http://192.168.1.100:8080/onvif/events http://192.168.1.101:5000/notify"
+ONVIF_EVENT_SUBSCRIBERS=""
+
+# Per-request timeout in seconds (default: 5)
+ONVIF_EVENT_TIMEOUT=5

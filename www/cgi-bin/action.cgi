@@ -6,6 +6,11 @@
 
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
+case "$F_cmd" in
+  reboot|shutdown) rate_limit_check 3 300 ;;
+  *) rate_limit_check 20 60 ;;
+esac
+
 # Set content type based on requested format
 if wants_json_response; then
   echo "Content-type: application/json"
@@ -27,7 +32,14 @@ schedule_service_restart() {
     return 0
   fi
   if ! mkdir "$lock_dir" 2>/dev/null; then
-    return 0
+    # Clear stale lock if older than 3× the expected delay (restart hung or crashed).
+    _lock_stale_threshold=$(( delay_seconds * 3 ))
+    if [ -n "$(find "$lock_dir" -maxdepth 0 -mmin +"$(( _lock_stale_threshold / 60 + 1 ))" 2>/dev/null)" ]; then
+      rmdir "$lock_dir" 2>/dev/null || true
+      mkdir "$lock_dir" 2>/dev/null || return 0
+    else
+      return 0
+    fi
   fi
 
   (
@@ -75,6 +87,20 @@ sanitize_int_range() {
     value="$max"
   fi
   echo "$value"
+}
+
+# Fork-free epoch — sets now_ts via /proc/stat btime + /proc/uptime.
+# btime is cached after first call.
+_AC_BTIME=0
+_ac_now() {
+  if [ "$_AC_BTIME" -le 0 ]; then
+    while read -r _k _v _; do
+      [ "$_k" = "btime" ] && _AC_BTIME="$_v" && break
+    done < /proc/stat
+  fi
+  read -r _ac_up _ < /proc/uptime
+  now_ts=$((_AC_BTIME + ${_ac_up%.*}))
+  [ "$now_ts" -gt 0 ] || now_ts=0
 }
 
 align_up_to_multiple() {
@@ -370,7 +396,7 @@ sync_managed_reboot_cron() {
   schedule_hour="$3"
   schedule_weekday="$4"
   cron_root="/mnt/config/cron/crontabs/root"
-  tmp_file="/tmp/root.crontab.$$.$(date +%s)"
+  _ac_now; tmp_file="/tmp/root.crontab.$$.$now_ts"
 
   ensure_cron_root_template
 
@@ -517,8 +543,7 @@ write_stream_state_snapshot() {
   reason="$2"
   install_config /mnt/config/boot.conf
   install_config /mnt/config/service_trim.conf
-  now_ts="$(date +%s 2>/dev/null)"
-  [ -n "$now_ts" ] || now_ts=0
+  _ac_now
 
   rtsp_substream="$(read_kv_or_default /mnt/config/boot.conf RTSP_SUBSTREAM 1)"
   rtsp_audio="$(read_kv_or_default /mnt/config/boot.conf RTSP_AUDIO 1)"
@@ -589,8 +614,7 @@ apply_stream_state_snapshot() {
 }
 
 capture_prechange_stream_snapshot() {
-  now_ts="$(date +%s 2>/dev/null)"
-  [ -n "$now_ts" ] || now_ts=0
+  _ac_now
   PRECHANGE_RTSP_CONF="/tmp/rtspserver.pre.$$.${now_ts}.conf"
   PRECHANGE_STREAM_CONF="/tmp/stream.pre.$$.${now_ts}.conf"
   PRECHANGE_RTSP_WAS_RUNNING=0
@@ -808,7 +832,7 @@ run_postchange_integration_selftest() {
 
   if [ "$mqtt_enable" = "1" ]; then
     if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
-      now_ts="$(date +%s 2>/dev/null)"
+      _ac_now
       [ -n "$now_ts" ] || now_ts=0
       mqtt_selftest_payload="$(printf '{"ts":%s,"type":"auto_stream_selftest","origin":"action.cgi"}' "$now_ts")"
       if /mnt/scripts/mqtt-bridge.sh publish selftest "$mqtt_selftest_payload" 0 >/dev/null 2>&1; then
@@ -823,7 +847,7 @@ run_postchange_integration_selftest() {
     record_auto_stream_selftest_result "MQTT publish" "SKIP" "MQTT bridge disabled in config." nonblocking
   fi
 
-  snapshot_tmp="/tmp/action-selftest.$$.$(date +%s 2>/dev/null).jpg"
+  _ac_now; snapshot_tmp="/tmp/action-selftest.$$.$now_ts.jpg"
   if [ -x /mnt/bin/getimage ]; then
     if /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
       record_auto_stream_selftest_result "Snapshot" "OK" "Local snapshot capture succeeded." nonblocking
@@ -1012,10 +1036,59 @@ select_compat_profile_values() {
   return 0
 }
 
+# csrf_check — called AFTER response headers have already been emitted (inside cmd handlers).
+# Validates the X-CSRF-Token header against the per-boot token.
+# Outputs an error body and exits on mismatch; silently passes on early boot.
+csrf_check() {
+  _csrf_stored=""
+  if [ -r /tmp/csrf_token ]; then
+    read -r _csrf_stored < /tmp/csrf_token
+    _csrf_stored="$(printf '%s' "$_csrf_stored" | tr -cd '0-9a-fA-F')"
+  fi
+  [ -z "$_csrf_stored" ] && return 0  # no token yet, skip enforcement
+  _csrf_header="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | tr -cd '0-9a-fA-F')"
+  if [ "$_csrf_header" != "$_csrf_stored" ]; then
+    # Headers already sent — output body only (HTTP status will be 200 but action won't run)
+    if wants_json_response; then
+      printf '{"ok":false,"error":"CSRF token missing or invalid. Reload the page.","code":"permission_denied"}\n'
+    else
+      echo "<p>Error: CSRF token missing or invalid. Please reload the page.</p>"
+    fi
+    exit 0
+  fi
+}
+
+audit_log() {
+  _al_cmd="$1"
+  _al_dir="/tmp/log"
+  _al_file="$_al_dir/audit.log"
+  _al_max_bytes=65536
+  [ -d "$_al_dir" ] || mkdir -p "$_al_dir" 2>/dev/null || return 0
+  # Rotate if too large
+  if [ -f "$_al_file" ]; then
+    _al_sz="$(wc -c < "$_al_file" 2>/dev/null)"; case "$_al_sz" in ''|*[!0-9]*) _al_sz=0 ;; esac
+    if [ "$_al_sz" -gt "$_al_max_bytes" ]; then
+      tail -n 100 "$_al_file" > "${_al_file}.tmp" 2>/dev/null && mv "${_al_file}.tmp" "$_al_file" 2>/dev/null || true
+    fi
+  fi
+  _al_btime=0
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _al_btime="$_v" && break; done < /proc/stat
+  read -r _al_up _ < /proc/uptime
+  _al_ts=$((_al_btime + ${_al_up%.*}))
+  _al_ip="${REMOTE_ADDR:-unknown}"
+  printf '%s cmd=%s ip=%s\n' "$_al_ts" "$_al_cmd" "$_al_ip" >> "$_al_file" 2>/dev/null || true
+}
+
 if [ -n "$F_cmd" ]; then
   if [ -z "$F_val" ]; then
     F_val=100
   fi
+  audit_log "$F_cmd"
+  # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
+  case "$F_cmd" in
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan) ;;
+    *) csrf_check ;;
+  esac
   case "$F_cmd" in
     showlog)
       if wants_json_response; then
@@ -1073,18 +1146,20 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     reboot)
+      csrf_check
       if wants_json_response; then
         json_response "success" "Rebooting device..."
       else
         echo "Rebooting device..."
       fi
-      now_ts="$(date +%s 2>/dev/null)"
+      _ac_now
       [ -n "$now_ts" ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"reboot","source":"action.cgi"}' "$now_ts")"
       /sbin/reboot
     ;;
 
     shutdown)
+      csrf_check
       if wants_json_response; then
         json_response "success" "Shutting down device.."
       else
@@ -1613,10 +1688,7 @@ if [ -n "$F_cmd" ]; then
         echo "${profile_summary_line}<br/>"
         [ -n "$profile_detail_line" ] && echo "${profile_detail_line}<br/>"
         [ -n "$profile_detail_line2" ] && echo "${profile_detail_line2}<br/>"
-        _ac_btime=0
-        while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
-        read -r _ac_up _ < /proc/uptime
-        now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
+        _ac_now
         publish_mqtt_event "$(printf '{"ts":%s,"type":"profile","value":"%s"}' "$now_ts" "$profile")"
       fi
       rm -f /tmp/health_snapshot.cache 2>/dev/null || true
@@ -1667,10 +1739,7 @@ if [ -n "$F_cmd" ]; then
           echo "Ultra-lite HTTP port set to: $ultralite_http_port<br/>"
         fi
         echo "If the web UI disconnects, reconnect using the updated protocol/port.<br/>"
-        _ac_btime=0
-        while read -r _k _v _; do [ "$_k" = "btime" ] && _ac_btime="$_v" && break; done < /proc/stat
-        read -r _ac_up _ < /proc/uptime
-        now_ts=$((_ac_btime + ${_ac_up%.*})); [ "$now_ts" -gt 0 ] || now_ts=0
+        _ac_now
         publish_mqtt_event "$(printf '{"ts":%s,"type":"web_mode","mode":"%s"}' "$now_ts" "$web_mode")"
         rm -f /tmp/health_snapshot.cache 2>/dev/null || true
       fi
@@ -1720,7 +1789,7 @@ if [ -n "$F_cmd" ]; then
         echo "Warning: crond is disabled in boot config. Enable ENABLE_CROND=1 for schedules to run.<br/>"
       fi
 
-      now_ts="$(date +%s 2>/dev/null)"
+      _ac_now
       [ -n "$now_ts" ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"reboot_schedule","enabled":%s,"minute":%s,"hour":%s,"weekday":"%s"}' "$now_ts" "$reboot_schedule_enable" "$reboot_schedule_minute" "$reboot_schedule_hour" "$reboot_schedule_weekday")"
     ;;
@@ -1801,6 +1870,7 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_mqtt_config)
+      csrf_check
       install_config /mnt/config/mqtt.conf
 
       mqtt_enable=$(normalize_bool "${F_mqtt_enable}")
@@ -2031,7 +2101,7 @@ if [ -n "$F_cmd" ]; then
           onvif_health_ok=1
         fi
 
-        now_ts="$(date +%s 2>/dev/null)"
+        _ac_now
         [ -n "$now_ts" ] || now_ts=0
         mqtt_test_payload="$(printf '{"ts":%s,"type":"ha_pair_test","profile":"%s"}' "$now_ts" "$ha_profile")"
         if [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish event "$mqtt_test_payload" 0 >/dev/null 2>&1; then
@@ -2153,7 +2223,7 @@ if [ -n "$F_cmd" ]; then
         echo "Security hardening is enabled: FTP/Telnet disabled, WEB_MODE forced to full (HTTPS).<br/>"
       fi
       echo "Reboot recommended to fully apply lightweight/NTP boot behavior.<br/>"
-      now_ts="$(date +%s 2>/dev/null)"
+      _ac_now
       [ -n "$now_ts" ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"security_hardening","enabled":%s}' "$now_ts" "$security_hardening_mode")"
     ;;
@@ -2352,7 +2422,7 @@ if [ -n "$F_cmd" ]; then
         echo "Compatibility preset applied: $profile_label<br/>"
         echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
         echo "Main=${width0}x${height0}@${fps0}fps, Sub=${width1}x${height1}@${fps1}fps<br/>"
-        now_ts="$(date +%s 2>/dev/null)"
+        _ac_now
         [ -n "$now_ts" ] || now_ts=0
         publish_mqtt_event "$(printf '{"ts":%s,"type":"client_profile","value":"%s"}' "$now_ts" "$client_profile")"
       fi
@@ -2384,6 +2454,7 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     complete_setup_wizard)
+      csrf_check
       if wants_json_response; then
         json_error "FORMAT_NOT_SUPPORTED" "complete_setup_wizard command does not support JSON format"
       else
@@ -2498,7 +2569,7 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
 
       if finalize_stream_apply "setup-wizard:${wizard_profile}"; then
-        now_ts="$(date +%s 2>/dev/null)"
+        _ac_now
         [ -n "$now_ts" ] || now_ts=0
         rewrite_config /mnt/config/boot.conf SETUP_WIZARD_DONE 1
         rewrite_config /mnt/config/boot.conf SETUP_WIZARD_EPOCH "$now_ts"

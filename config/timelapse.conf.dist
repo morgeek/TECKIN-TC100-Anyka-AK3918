@@ -1,0 +1,16 @@
+# Timelapse configuration
+# Managed by: controlscripts/timelapse → scripts/timelapse.sh
+# Edit via: Web UI → Information → Config Editor → timelapse.conf
+#
+# TIMELAPSE_INTERVAL — seconds between each snapshot capture.
+#   Range: 1–300 (values outside this range are clamped).
+#   Default: 2.0  (one frame every 2 seconds)
+#   Example: 10   (one frame every 10 seconds, lower SD card wear)
+TIMELAPSE_INTERVAL=2.0
+
+# TIMELAPSE_DURATION — how many minutes to record before stopping.
+#   0 = run indefinitely until manually stopped.
+#   Range: 0–1440 (0 to 24 hours).
+#   Default: 0 (run until stopped)
+#   Example: 60  (auto-stop after 1 hour)
+TIMELAPSE_DURATION=0
