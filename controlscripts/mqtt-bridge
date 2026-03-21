@@ -2,6 +2,8 @@
 SERVICE_NAME="MQTT Bridge"
 PIDFILE="/var/run/mqtt-bridge.pid"
 
+. /mnt/scripts/common_functions.sh
+
 status()
 {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
@@ -25,14 +27,11 @@ start()
 
 stop()
 {
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ -n "$pid" ]; then
-    kill "$pid" >/dev/null 2>&1 || true
-    sleep 1
-    kill -9 "$pid" >/dev/null 2>&1 || true
-    rm -f "$PIDFILE" >/dev/null 2>&1 || true
+  if [ -n "$(cat "$PIDFILE" 2>/dev/null)" ]; then
+    killpid_graceful "$PIDFILE" 5
     echo "MQTT bridge stopped"
   else
+    rm -f "$PIDFILE" 2>/dev/null || true
     echo "MQTT bridge is not running"
   fi
 }
@@ -44,11 +43,20 @@ restart()
   start
 }
 
+health()
+{
+  if [ -n "$(status)" ]; then
+    echo "ok: running"
+  else
+    echo "warn: stopped"
+  fi
+}
+
 if [ $# -eq 0 ]; then
   start
 else
   case "$1" in
-    start|stop|status|restart)
+    start|stop|status|restart|health)
       "$1"
       ;;
   esac

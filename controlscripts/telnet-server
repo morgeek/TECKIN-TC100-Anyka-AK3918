@@ -34,17 +34,18 @@ start()
 
 stop()
 {
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ "$pid" ]; then
-    kill "$pid"
-    rm "$PIDFILE" 1> /dev/null 2>&1
-  fi
+  killpid_graceful "$PIDFILE" 3
+}
+
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
 }
 
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status)
+  case $1 in start|stop|status|health)
     $1
     ;;
   esac

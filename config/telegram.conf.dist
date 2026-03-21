@@ -10,3 +10,7 @@ userChatId="30985132"
 # TELEGRAM_LONG_POLL_TIMEOUT_SECONDS=25
 # TELEGRAM_IDLE_SLEEP_SECONDS=1
 # TELEGRAM_ERROR_BACKOFF_SECONDS=5
+
+# Send a snapshot photo to your Telegram chat on each motion_on event.
+# Set to 1 to enable. Requires apiToken and userChatId to be configured above.
+# TELEGRAM_MOTION_SNAPSHOT=0

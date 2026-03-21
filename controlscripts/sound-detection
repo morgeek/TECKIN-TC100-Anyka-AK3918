@@ -177,15 +177,7 @@ start()
 
 stop()
 {
-    pid="$(cat "$PID_FILE" 2>/dev/null)"
-    if [ -n "$pid" ]; then
-        kill "$pid" >/dev/null 2>&1 || true
-        sleep 1
-        kill -9 "$pid" >/dev/null 2>&1 || true
-        rm -f "$PID_FILE"
-        echo "Stopped"
-        return 0
-    fi
+    killpid_graceful "$PID_FILE" 5
     echo "Stopped"
 }
 
@@ -206,10 +198,16 @@ status()
     return 1
 }
 
+health()
+{
+    if status >/dev/null 2>&1; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
 case "$1" in
     start) start ;;
     stop) stop ;;
     status) status ;;
     restart) stop; sleep 1; start ;;
-    *) echo "Usage: $0 {start|stop|status|restart}"; exit 1 ;;
+    health) health ;;
+    *) echo "Usage: $0 {start|stop|status|restart|health}"; exit 1 ;;
 esac

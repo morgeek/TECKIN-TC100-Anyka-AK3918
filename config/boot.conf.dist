@@ -157,6 +157,20 @@ CHIP_TEMP_SOURCE_PATH=auto
 # - explicit: set 1000 (millidegree), 1 (Celsius), etc.
 CHIP_TEMP_RAW_DIVISOR=auto
 
+# Storage auto-cleanup:
+# Delete oldest recordings in STORAGE_CLEANUP_DCIM_PATH when SD usage >= threshold.
+# Runs hourly via cron (requires ENABLE_CROND=1).
+STORAGE_CLEANUP_ENABLE=0
+STORAGE_CLEANUP_THRESHOLD=90
+STORAGE_CLEANUP_TARGET=85
+STORAGE_CLEANUP_DCIM_PATH=/mnt/DCIM
+
+# Syslog forwarding: stream logs to a remote syslog server at SYSLOG_HOST:SYSLOG_PORT.
+# Requires logger -n support in your busybox build.
+SYSLOG_ENABLE=0
+SYSLOG_HOST=
+SYSLOG_PORT=514
+
 # Example lightweight allowlist:
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
 # Example lightweight denylist:

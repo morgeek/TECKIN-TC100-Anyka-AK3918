@@ -215,6 +215,13 @@ load_boot_config()
     : "${MEM_GUARD_DROP_CACHES:=1}"
     : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection}"
     : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
+    : "${STORAGE_CLEANUP_ENABLE:=0}"
+    : "${STORAGE_CLEANUP_THRESHOLD:=90}"
+    : "${STORAGE_CLEANUP_TARGET:=85}"
+    : "${STORAGE_CLEANUP_DCIM_PATH:=/mnt/DCIM}"
+    : "${SYSLOG_ENABLE:=0}"
+    : "${SYSLOG_HOST:=}"
+    : "${SYSLOG_PORT:=514}"
 
     if is_truthy "$REBOOT_SCHEDULE_ENABLE" && ! is_truthy "$ENABLE_CROND"; then
         ENABLE_CROND=1
@@ -520,6 +527,25 @@ EOF
 
     mv "$CRON_TMP" "$CRON_ROOT"
 
+    # Storage auto-cleanup schedule (runs hourly if enabled)
+    CRON_TMP="/tmp/root.crontab.storage.$$"
+    awk '
+      BEGIN { skip=0 }
+      /^# BEGIN TC100 MANAGED STORAGE$/ { skip=1; next }
+      /^# END TC100 MANAGED STORAGE$/ { skip=0; next }
+      skip==0 { print }
+    ' "$CRON_ROOT" > "$CRON_TMP" 2>/dev/null || cp "$CRON_ROOT" "$CRON_TMP"
+    {
+      echo "# BEGIN TC100 MANAGED STORAGE"
+      if is_truthy "${STORAGE_CLEANUP_ENABLE:-0}"; then
+        echo "0 * * * * /mnt/scripts/storage-cleanup.sh >/dev/null 2>&1"
+      else
+        echo "# disabled"
+      fi
+      echo "# END TC100 MANAGED STORAGE"
+    } >> "$CRON_TMP"
+    mv "$CRON_TMP" "$CRON_ROOT"
+
     "$BOOT_BUSYBOX" crond -c ${CONFIGPATH}/cron/crontabs
     if [ "$sched_enable" = "1" ]; then
       echo "Scheduled reboot cron active: ${sched_minute} ${sched_hour} * * ${sched_weekday}" >> $LOGPATH
@@ -677,14 +703,92 @@ enforce_security_hardening_runtime()
     done
 }
 
+start_syslog_forwarding()
+{
+    if ! is_truthy "${SYSLOG_ENABLE:-0}"; then
+        return 0
+    fi
+    if [ -z "$SYSLOG_HOST" ]; then
+        echo "start_syslog_forwarding: SYSLOG_HOST not set, skipping" >> "$LOGPATH"
+        return 0
+    fi
+    _syslog_port="${SYSLOG_PORT:-514}"
+    case "$_syslog_port" in
+        ''|*[!0-9]*) _syslog_port=514 ;;
+    esac
+
+    # Try busybox syslogd with -R for remote forwarding.
+    # -n runs in foreground (we background it ourselves), -R sends to remote host.
+    if "$BOOT_BUSYBOX" syslogd --help 2>&1 | grep -q '\-R'; then
+        # Kill any existing local syslogd
+        killall syslogd 2>/dev/null || true
+        sleep 1
+        "$BOOT_BUSYBOX" syslogd -R "${SYSLOG_HOST}:${_syslog_port}" &
+        echo "start_syslog_forwarding: syslogd -R ${SYSLOG_HOST}:${_syslog_port}" >> "$LOGPATH"
+    else
+        # Fallback: send the startup log as a one-shot UDP syslog message via logger -n
+        if "$BOOT_BUSYBOX" logger --help 2>&1 | grep -q '\-n'; then
+            "$BOOT_BUSYBOX" logger -n "$SYSLOG_HOST" -P "$_syslog_port" \
+                -t "tc100" "Camera boot complete — $(cat /tmp/camera_ip.txt 2>/dev/null)" \
+                >/dev/null 2>&1 || true
+            echo "start_syslog_forwarding: sent boot notice via logger to ${SYSLOG_HOST}:${_syslog_port}" >> "$LOGPATH"
+        else
+            echo "start_syslog_forwarding: busybox syslogd -R and logger -n not available" >> "$LOGPATH"
+        fi
+    fi
+}
+
+generate_csrf_token()
+{
+    # Per-boot random token for CSRF protection.
+    # Written to /tmp (tmpfs, lost on reboot) — authenticated clients get it via state.cgi.
+    _csrf_token=""
+    if [ -r /proc/sys/kernel/random/uuid ]; then
+        _csrf_token="$(tr -d '-\n' < /proc/sys/kernel/random/uuid 2>/dev/null)"
+    fi
+    if [ -z "$_csrf_token" ]; then
+        # Fallback: mix PID + btime + uptime + /dev/urandom
+        _csrf_btime=0
+        while read -r _k _v _; do
+            [ "$_k" = "btime" ] && _csrf_btime="$_v" && break
+        done < /proc/stat
+        read -r _csrf_up _ < /proc/uptime
+        _csrf_rand="$(head -c 8 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+        _csrf_token="$(printf '%s%s%s%s' "$$" "$_csrf_btime" "${_csrf_up%.*}" "$_csrf_rand" \
+            | md5sum 2>/dev/null | awk '{print $1}')"
+    fi
+    if [ -n "$_csrf_token" ]; then
+        printf '%s' "$_csrf_token" > /tmp/csrf_token
+        echo "CSRF token generated" >> "$LOGPATH"
+    else
+        echo "CSRF token generation failed" >> "$LOGPATH"
+    fi
+}
+
 publish_boot_event()
 {
-    if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
-        boot_ts="$(date +%s 2>/dev/null)"
-        [ -n "$boot_ts" ] || boot_ts=0
-        payload=$(printf '{"ts":%s,"type":"reboot","source":"autorun"}' "$boot_ts")
-        /mnt/scripts/mqtt-bridge.sh publish event "$payload" 0 >/dev/null 2>&1 || true
+    if [ ! -x /mnt/scripts/mqtt-bridge.sh ]; then
+        return 0
     fi
+    # Compute timestamp without fork: btime + uptime_secs
+    _pb_btime=0
+    while read -r _k _v _; do
+        [ "$_k" = "btime" ] && _pb_btime="$_v" && break
+    done < /proc/stat
+    read -r _pb_up _ < /proc/uptime
+    _pb_ts=$((_pb_btime + ${_pb_up%.*}))
+    _pb_uptime="${_pb_up%.*}"
+    _pb_ip=""
+    if [ -f /tmp/camera_ip.txt ]; then
+        _pb_ip="$(head -n 1 /tmp/camera_ip.txt 2>/dev/null)"
+    fi
+    # Publish in background after a short delay so the MQTT bridge has time to connect
+    (
+        sleep 8
+        _payload=$(printf '{"ts":%s,"type":"boot","ip":"%s","uptime_seconds":%s,"source":"autorun"}' \
+            "$_pb_ts" "$_pb_ip" "$_pb_uptime")
+        /mnt/scripts/mqtt-bridge.sh publish event "$_payload" 0 >/dev/null 2>&1 || true
+    ) &
 }
 
 start_mqtt_bridge_if_enabled()
@@ -714,8 +818,57 @@ init_password()
     all_password "$pass"
 }
 
+preflight_checks()
+{
+    local _ok=1
+
+    # 1. /mnt must be readable and contain our expected structure
+    if [ ! -d /mnt/bin ] || [ ! -d /mnt/scripts ] || [ ! -d /mnt/www ]; then
+        echo "PREFLIGHT FAIL: /mnt does not appear to be a valid TC100 SD card mount" >> "$LOGPATH"
+        _ok=0
+    fi
+
+    # 2. Key binaries must be executable
+    for _bin in /mnt/bin/busybox /mnt/bin/v4l2rtspserver /mnt/bin/rwconf /mnt/bin/getflag; do
+        if [ ! -x "$_bin" ]; then
+            echo "PREFLIGHT WARN: binary not executable: $_bin" >> "$LOGPATH"
+        fi
+    done
+
+    # 3. /tmp must be writable (tmpfs should always be mounted)
+    if ! touch /tmp/.preflight_check 2>/dev/null; then
+        echo "PREFLIGHT FAIL: /tmp is not writable" >> "$LOGPATH"
+        _ok=0
+    else
+        rm -f /tmp/.preflight_check
+    fi
+
+    # 4. Check minimum free space on /mnt (warn if < 4 MB)
+    _mnt_avail_kb=0
+    _mnt_avail_kb="$(df -k /mnt 2>/dev/null | awk 'NR==2{print $4}')"
+    case "$_mnt_avail_kb" in ''|*[!0-9]*) _mnt_avail_kb=0 ;; esac
+    if [ "$_mnt_avail_kb" -lt 4096 ]; then
+        echo "PREFLIGHT WARN: /mnt has less than 4 MB free ($_mnt_avail_kb kB) — logs/recordings may fail" >> "$LOGPATH"
+    fi
+
+    # 5. Reinstall any zero-byte config files from their .dist templates
+    for _conf in boot.conf rtspserver.conf; do
+        _dst="$CONFIGPATH/$_conf"
+        _src="$CONFIGPATH/${_conf}.dist"
+        if [ -f "$_dst" ] && [ ! -s "$_dst" ] && [ -f "$_src" ]; then
+            echo "PREFLIGHT: $_dst is empty — reinstalling from $_src" >> "$LOGPATH"
+            cp "$_src" "$_dst" 2>/dev/null || true
+        fi
+    done
+
+    if [ "$_ok" -eq 1 ]; then
+        echo "PREFLIGHT OK" >> "$LOGPATH"
+    fi
+}
+
 ##############################################################
 init_log
+preflight_checks
 self_heal_runtime
 init_password
 load_boot_config
@@ -732,6 +885,8 @@ init_rtsp_params
 apply_low_cpu_profile
 run_autostart_scripts
 enforce_security_hardening_runtime
+start_syslog_forwarding
+generate_csrf_token
 start_mqtt_bridge_if_enabled
 publish_boot_event
 echo "$(date)" >> $LOGPATH

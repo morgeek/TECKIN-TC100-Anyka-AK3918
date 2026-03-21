@@ -260,8 +260,8 @@ restart()
 stop()
 {
   rm -f "$START_TS_FILE"
-  killpid "$WATCHDOG_PIDFILE"
-  killpid "$PIDFILE"
+  killpid_graceful "$WATCHDOG_PIDFILE" 3
+  killpid_graceful "$PIDFILE" 5
 }
 
 if [ $# -eq 0 ]; then

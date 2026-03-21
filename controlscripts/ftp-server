@@ -41,10 +41,15 @@ stop()
   ps|awk '/[f]tpd/ {print $1}' | while read OLDPID; do kill -9 $OLDPID; done;
 }
 
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status)
+  case $1 in start|stop|status|health)
     $1
     ;;
   esac
