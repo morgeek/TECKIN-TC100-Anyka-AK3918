@@ -727,22 +727,6 @@ cat << EOF
             </div>
         </div>
     </form>
-    <div class="field is-horizontal">
-        <div class="field-label is-normal">
-            <label class="label">Theme</label>
-        </div>
-        <div class="field-body">
-            <div class="field">
-                <div class="control">
-                    <div class="theme-switcher">
-                        <button id="theme_choice_0" class="button theme_choice" type="button" data-css="css/bulma.0.6.2.min.css" data-theme="0">Light</button>
-                        <button id="theme_choice_1" class="button theme_choice" type="button" data-css="css/bulmaswatch.min.css" data-theme="1">Dark</button>
-                    </div>
-                </div>
-                <p class="help">Theme moved here to keep the live screen focused.</p>
-            </div>
-        </div>
-    </div>
     <form id="tzForm" action="cgi-bin/action.cgi?cmd=settz" method="post">
         <div class="field is-horizontal">
             <div class="field-label is-normal">
