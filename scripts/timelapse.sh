@@ -28,6 +28,52 @@ case "$SAVE_DIR_PER_DAY" in
     *) SAVE_DIR_PER_DAY=0 ;;
 esac
 
+_BTIME=0
+_read_btime() {
+  while read -r _k _v _; do
+    [ "$_k" = "btime" ] && _BTIME="$_v" && break
+  done < /proc/stat
+}
+_read_ts() {
+  [ "$_BTIME" -gt 0 ] || _read_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((_BTIME + ${_up%.*}))
+}
+_format_date_ymd() {
+  _epoch="$1"
+  _days=$(((_epoch / 86400) + 719468))
+  _z=$((_days - _days % 146097 + (_days % 146097 >= 109573 ? 146097 : 0)))
+  _era=$((_z / 146097))
+  _doe=$((_days - _z))
+  _yoe=$(((_doe + 1) * 400 / 146097))
+  _y=$((_era * 400 + _yoe))
+  _doy=$((_doe - _yoe * 365 - _yoe / 4 + _yoe / 100))
+  _mp=$(((5 * _doy + 2) * 153 / 5))
+  _d=$((_mp % 153 + 1))
+  _m=$((_mp / 153 + ([ $_mp -lt 306 ] && echo 3 || echo -9)))
+  _y=$((_m <= 2 ? _y + 1 : _y))
+  printf '%04d-%02d-%02d' "$_y" "$_m" "$_d"
+}
+_format_datetime() {
+  _epoch="$1"
+  _days=$(((_epoch / 86400) + 719468))
+  _secs=$((_epoch % 86400))
+  _z=$((_days - _days % 146097 + (_days % 146097 >= 109573 ? 146097 : 0)))
+  _era=$((_z / 146097))
+  _doe=$((_days - _z))
+  _yoe=$(((_doe + 1) * 400 / 146097))
+  _y=$((_era * 400 + _yoe))
+  _doy=$((_doe - _yoe * 365 - _yoe / 4 + _yoe / 100))
+  _mp=$(((5 * _doy + 2) * 153 / 5))
+  _d=$((_mp % 153 + 1))
+  _m=$((_mp / 153 + ([ $_mp -lt 306 ] && echo 3 || echo -9)))
+  _y=$((_m <= 2 ? _y + 1 : _y))
+  _hr=$((_secs / 3600))
+  _min=$(((_secs % 3600) / 60))
+  _sec=$((_secs % 60))
+  printf '%04d-%02d-%02d_%02d%02d%02d' "$_y" "$_m" "$_d" "$_hr" "$_min" "$_sec"
+}
+
 case "$TIMELAPSE_INTERVAL" in
     ''|*[!0-9.]*|*.*.*)
         TIMELAPSE_INTERVAL=2
@@ -47,17 +93,19 @@ trap cleanup EXIT INT TERM
 # we have to use a running counter to generate filenames
 counter=0
 last_prefix=''
-ts_started=$(date +%s)
+_read_ts
+ts_started=$now_ts
 
 while true; do
+    _read_ts
     SAVE_DIR=$BASE_SAVE_DIR
     if [ $SAVE_DIR_PER_DAY -eq 1 ]; then
-        SAVE_DIR="$BASE_SAVE_DIR/$(date +%Y-%m-%d)"
+        SAVE_DIR="$BASE_SAVE_DIR/$(_format_date_ymd "$now_ts")"
     fi
     if [ ! -d "$SAVE_DIR" ]; then
         mkdir -p "$SAVE_DIR"
     fi
-    filename_prefix="$(date +%Y-%m-%d_%H%M%S)"
+    filename_prefix="$(_format_datetime "$now_ts")"
     if [ "$filename_prefix" = "$last_prefix" ]; then
         counter=$(($counter + 1))
     else
@@ -74,7 +122,8 @@ while true; do
     sleep $TIMELAPSE_INTERVAL
 
     if [ $TIMELAPSE_DURATION -gt 0 ]; then
-        ts_now=$(date +%s)
+        _read_ts
+        ts_now=$now_ts
         elapsed=$(($ts_now - $ts_started))
         if [ $(($TIMELAPSE_DURATION * 60)) -le $elapsed ]; then
             break
