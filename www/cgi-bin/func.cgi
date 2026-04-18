@@ -147,6 +147,26 @@ wants_json_response() {
   [ "${F_format}" = "json" ] || [ "${HTTP_ACCEPT:-}" = "application/json" ]
 }
 
+# Config install cache: skip expensive install_config() when configs unchanged
+# Checks mtime of .dist vs .conf to decide if install_config is needed
+# Usage: install_config_cached <config_file>
+install_config_cached() {
+  _icc_conf="$1"
+  _icc_dist="${_icc_conf}.dist"
+  [ -f "$_icc_dist" ] || return 0
+  [ -f "$_icc_conf" ] || { install_config "$_icc_conf"; return 0; }
+  _icc_dist_mtime="$(stat -c %Y "$_icc_dist" 2>/dev/null || stat -f %m "$_icc_dist" 2>/dev/null)"
+  _icc_conf_mtime="$(stat -c %Y "$_icc_conf" 2>/dev/null || stat -f %m "$_icc_conf" 2>/dev/null)"
+  case "$_icc_dist_mtime:$_icc_conf_mtime" in
+    ''|*[!0-9:]*)
+      install_config "$_icc_conf"
+      ;;
+    *)
+      [ "$_icc_dist_mtime" -le "$_icc_conf_mtime" ] || install_config "$_icc_conf"
+      ;;
+  esac
+}
+
 # rate_limit_check — call BEFORE any output headers have been emitted.
 # Limits a single REMOTE_ADDR to at most RL_MAX_REQUESTS per RL_WINDOW_SECONDS.
 # Defaults: 10 requests per 60 seconds.
