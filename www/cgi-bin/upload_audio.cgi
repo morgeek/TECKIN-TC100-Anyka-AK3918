@@ -148,7 +148,7 @@ case "$playback_pid" in
         ;;
 esac
 
-(
+_cleanup_pid=$((
     loops=0
     while kill -0 "$playback_pid" >/dev/null 2>&1 && [ "$loops" -lt 120 ]; do
         sleep 1
@@ -162,5 +162,7 @@ esac
             rm -f "$PTT_PLAYBACK_PID_FILE" >/dev/null 2>&1 || true
         fi
     fi
-) >/dev/null 2>&1 &
+) >/dev/null 2>&1 &)
+[ -n "$_cleanup_pid" ] && echo "$_cleanup_pid" > /tmp/ptt-cleanup.$$.pid 2>/dev/null || true
+trap 'rm -f /tmp/ptt-cleanup.$$.pid "$pcm_file" "$PTT_PLAYBACK_PID_FILE"' EXIT INT TERM
 respond_plain "200 OK" "OK"

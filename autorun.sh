@@ -297,8 +297,12 @@ stop_cloud()
         done
     fi
 
-    # Unmonut RAM disk
-    /bin/umount /dev/loop0
+    # Unmount RAM disk
+    if /bin/umount /dev/loop0 2>/dev/null; then
+        : # success
+    else
+        echo "WARNING: Failed to unmount /dev/loop0" >> "$LOGPATH"
+    fi
     rm -f -r /tmp/ramdisk
     rm -f /tmp/zero
 

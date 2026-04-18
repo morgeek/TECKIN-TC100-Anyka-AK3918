@@ -2,6 +2,9 @@
 
 source ./func.cgi
 
+tmp_events="/tmp/motionevents.$$.tmp"
+trap 'rm -f "$tmp_events"' EXIT INT TERM
+
 echo "Content-type: application/json"
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
@@ -47,7 +50,6 @@ if [ ! -f "$EVENT_LOG" ]; then
   exit 0
 fi
 
-tmp_events="/tmp/motionevents.$$.tmp"
 tail -n "$limit" "$EVENT_LOG" > "$tmp_events" 2>/dev/null || true
 
 printf '{"items":['
