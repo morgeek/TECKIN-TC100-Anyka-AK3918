@@ -86,6 +86,8 @@ install_config()
 }
 
 
+# read_config — reads a single key from an INI-style config file via the rwconf binary.
+# Most scripts source config files directly; this helper is for rwconf INI-section format only.
 read_config()
 {
   cfg_path=/mnt/config/$1
@@ -505,24 +507,24 @@ restart_service_if_need()
     service_path="$1"
     service_status="$("$service_path" status 2>/dev/null)"
     if [ -n "$service_status" ]; then
-        $service_path stop > /dev/null 2>&1
-        $service_path start > /dev/null 2>&1
+        "$service_path" stop > /dev/null 2>&1
+        "$service_path" start > /dev/null 2>&1
     fi
 }
 
 start_service_if_need()
 {
     service_path="$1"
-    status=$("$service_path" status)
-    if [ $? -ne 0 -o -z "$status" ]; then
-        $service_path start > /dev/null 2>&1
+    status=$("$service_path" status 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$status" ]; then
+        "$service_path" start > /dev/null 2>&1
     fi
 }
 
 all_password()
 {
     DEFAULT_LOGIN="root"
-    echo -e "$1\n$1" | passwd > /dev/null 2>&1
+    printf '%s\n%s\n' "$1" "$1" | passwd > /dev/null 2>&1
     http_password $1
     rewrite_config /mnt/config/rtspserver.conf USERNAME "$DEFAULT_LOGIN"
     rewrite_config /mnt/config/rtspserver.conf USERPASSWORD "$1"
@@ -597,12 +599,12 @@ led_blink()
        i=$(( i + 1 ))
     done
 
-    if [ $led_status == "ON" ]; then
-      led on $led_type
+    if [ "$led_status" = "ON" ]; then
+      led on "$led_type"
     fi
 
-    if [ $off_led_status == "ON" ]; then
-      led on $off_led_type
+    if [ "$off_led_status" = "ON" ]; then
+      led on "$off_led_type"
     fi
 }
 
@@ -715,4 +717,21 @@ build_devinfo_cache() {
   build_binary_versions_block > /tmp/devinfo_binary_versions.txt
   bl="$(run_strings /dev/mtd0 | grep -m1 'U-Boot 2' 2>/dev/null)"
   echo "${bl:-n/a}" > /tmp/devinfo_bootloader.txt
+  # Write a timestamp so callers can check cache age.
+  date +%s > /tmp/devinfo_cache.ts 2>/dev/null || true
+}
+
+# devinfo_cache_fresh — returns 0 if cache files exist and are < TTL_SECONDS old.
+# TTL defaults to 3600s (1h); binary versions on embedded devices rarely change.
+devinfo_cache_fresh() {
+  _dcf_ttl="${1:-3600}"
+  [ -f /tmp/devinfo_binary_versions.txt ] || return 1
+  [ -f /tmp/devinfo_cache.ts ] || return 1
+  _dcf_ts=0; read -r _dcf_ts < /tmp/devinfo_cache.ts 2>/dev/null || true
+  case "$_dcf_ts" in ''|*[!0-9]*) return 1 ;; esac
+  _dcf_btime=0
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _dcf_btime="$_v" && break; done < /proc/stat
+  read -r _dcf_up _ < /proc/uptime 2>/dev/null || true
+  _dcf_now=$((_dcf_btime + ${_dcf_up%.*}))
+  [ "$((_dcf_now - _dcf_ts))" -lt "$_dcf_ttl" ]
 }

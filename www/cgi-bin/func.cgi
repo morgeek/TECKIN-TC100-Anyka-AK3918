@@ -5,7 +5,11 @@ _DEBUG_=
 
 if [ "${REQUEST_METHOD}" = "POST" ]
 then
-  POST_QUERY_STRING=`dd bs=1 count=${CONTENT_LENGTH} 2>/dev/null`
+  # Validate CONTENT_LENGTH before reading; cap at 64 KB to prevent RAM exhaustion.
+  _cl="${CONTENT_LENGTH:-0}"
+  case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
+  [ "$_cl" -gt 65536 ] && _cl=65536
+  POST_QUERY_STRING="$(head -c "$_cl" 2>/dev/null)"
   if [ "${QUERY_STRING}" != "" ]
   then
       QUERY_STRING=${POST_QUERY_STRING}"&"${QUERY_STRING}
@@ -111,23 +115,22 @@ JSON_ERROR_SERVICE_UNAVAILABLE="service_unavailable"
 
 # Escape JSON string values
 json_escape() {
-  # Fast path for simple strings
-  case "$1" in
-    *[\"\\]*)
-      # Need escaping
-      printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\n/\\n/g; s/\r/\\r/g; s/\t/\\t/g'
-      ;;
-    *)
-      printf '%s' "$1"
-      ;;
-  esac
+  # Use awk for correct multi-char escaping on BusyBox sed (sed \n/\t in patterns is unreliable).
+  # awk processes line-by-line; NR>1 inserts \n between lines for embedded newlines.
+  printf '%s' "$1" | awk '
+    NR > 1 { printf "\\n" }
+    { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); printf "%s", $0 }
+  '
 }
 
 # Generate JSON response
 json_response() {
   local data="$1"
   local status_code="${2:-200}"
-  local timestamp=$(date +%s 2>/dev/null || echo "0")
+  local _jr_btime=0 _jr_up="" _jr_ts=0
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _jr_btime="$_v" && break; done < /proc/stat
+  read -r _jr_up _ < /proc/uptime 2>/dev/null || true
+  local timestamp=$((_jr_btime + ${_jr_up%.*}))
 
   echo "Status: $status_code"
   echo "Content-type: application/json"
@@ -144,7 +147,10 @@ json_error() {
   local error_message="$1"
   local error_code="${2:-$JSON_ERROR_SERVER_ERROR}"
   local status_code="${3:-500}"
-  local timestamp=$(date +%s 2>/dev/null || echo "0")
+  local _je_btime=0 _je_up="" _je_ts=0
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _je_btime="$_v" && break; done < /proc/stat
+  read -r _je_up _ < /proc/uptime 2>/dev/null || true
+  local timestamp=$((_je_btime + ${_je_up%.*}))
 
   echo "Status: $status_code"
   echo "Content-type: application/json"
@@ -178,25 +184,27 @@ rate_limit_check() {
   # Ensure directory exists
   [ -d "$_rl_dir" ] || mkdir -p "$_rl_dir" 2>/dev/null || return 0
 
-  # Purge stale files older than 2× the window (best-effort, non-blocking)
-  find "$_rl_dir" -maxdepth 1 -type f -name '*' 2>/dev/null | while read -r _stale; do
-    _st_ws=0; _st_cnt=0
-    read -r _st_ws _st_cnt < "$_stale" 2>/dev/null || true
-    case "$_st_ws" in ''|*[!0-9]*) _st_ws=0 ;; esac
-    if [ $((_rl_now - _st_ws)) -gt $((_rl_win * 2)) ] 2>/dev/null; then
-      rm -f "$_stale" 2>/dev/null || true
-    fi
-  done
-
-  _rl_file="$_rl_dir/$_rl_ip"
-
-  # Read current btime + uptime for fork-free epoch
+  # Compute fork-free epoch FIRST so it is available for the purge loop below.
   _rl_btime=0
   while read -r _k _v _; do
     [ "$_k" = "btime" ] && _rl_btime="$_v" && break
   done < /proc/stat
   read -r _rl_up _ < /proc/uptime
   _rl_now=$((_rl_btime + ${_rl_up%.*}))
+
+  # Purge stale files older than 2× the window.
+  # Use a for-glob loop (not find|while) so _rl_now is visible without a subshell.
+  for _rl_stale in "$_rl_dir"/*; do
+    [ -f "$_rl_stale" ] || continue
+    _st_ws=0
+    read -r _st_ws _ < "$_rl_stale" 2>/dev/null || true
+    case "$_st_ws" in ''|*[!0-9]*) _st_ws=0 ;; esac
+    if [ $((_rl_now - _st_ws)) -gt $((_rl_win * 2)) ] 2>/dev/null; then
+      rm -f "$_rl_stale" 2>/dev/null || true
+    fi
+  done
+
+  _rl_file="$_rl_dir/$_rl_ip"
 
   _rl_window_start=0
   _rl_count=0
@@ -238,7 +246,19 @@ csrf_guard() {
     read -r _cg_stored < /tmp/csrf_token
     _cg_stored="$(printf '%s' "$_cg_stored" | tr -cd '0-9a-fA-F')"
   fi
-  [ -z "$_cg_stored" ] && return 0  # no token generated yet, skip
+  if [ -z "$_cg_stored" ]; then
+    # Token not yet written. Pass during early boot (<60s uptime); deny after that.
+    _cg_up=0; read -r _cg_up _ < /proc/uptime 2>/dev/null || true; _cg_up="${_cg_up%.*}"
+    case "$_cg_up" in ''|*[!0-9]*) _cg_up=0 ;; esac
+    if [ "$_cg_up" -lt 60 ]; then return 0; fi
+    echo "Status: 403 Forbidden"
+    echo "Content-Type: application/json"
+    echo "Cache-Control: no-store, no-cache"
+    echo "Pragma: no-cache"
+    echo ""
+    printf '{"ok":false,"error":"CSRF token unavailable. Reload the page.","code":"permission_denied"}\n'
+    exit 0
+  fi
   _cg_header="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | tr -cd '0-9a-fA-F')"
   if [ "$_cg_header" != "$_cg_stored" ]; then
     echo "Status: 403 Forbidden"

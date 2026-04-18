@@ -176,27 +176,32 @@
     <section id="main" class="section">
         <div id="content" class="container app-shell">
             <div class="app-toolbar">
-                <button class="button" id="live_toggle" type="button">Resume Live</button>
-                <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank"
-                    rel="noopener">Snapshot</a>
-                <button class="button is-info" id="listen_btn" type="button" title="Listen to camera microphone in real-time">
-                    <i class="icon-headphones"></i> <span class="listen-label">Listen</span>
-                </button>
-                <button class="button is-danger" id="ptt_btn" type="button" title="Hold to talk to the camera speaker">
-                    <i class="icon-microphone"></i> <span class="ptt-label">Hold to Talk</span>
-                </button>
-                <span class="ptt-vol-wrap" title="Speaker volume for Push-to-Talk">
-                    <i class="icon-volume-medium" style="vertical-align:middle;margin-right:2px;"></i>
-                    <input type="range" id="ptt_vol" min="0" max="100" value="90"
-                        style="width:80px;vertical-align:middle;" aria-label="PTT volume">
-                    <span id="ptt_vol_label" style="font-size:0.8em;vertical-align:middle;min-width:2.5em;display:inline-block;">90%</span>
-                </span>
-                <button class="button is-small" id="ptt_test_btn" type="button" title="Test speaker with last recorded audio">
-                    <i class="icon-play"></i> <span style="margin-left:4px;">Test</span>
-                </button>
-                <div class="ptt-meter-wrap" style="display:none;margin-left:8px;">
-                    <span style="font-size:0.85em;margin-right:6px;">Recording:</span>
-                    <progress id="ptt_level" class="progress is-success" value="0" max="100" style="width:120px;"></progress>
+                <div class="toolbar-group">
+                    <button class="button" id="live_toggle" type="button">Resume Live</button>
+                    <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank"
+                        rel="noopener">Snapshot</a>
+                </div>
+                <span class="toolbar-divider"></span>
+                <div class="toolbar-group">
+                    <button class="button is-info" id="listen_btn" type="button" title="Listen to camera microphone in real-time">
+                        <i class="icon-headphones"></i> <span class="listen-label">Listen</span>
+                    </button>
+                    <button class="button is-danger" id="ptt_btn" type="button" title="Hold to talk to the camera speaker">
+                        <i class="icon-microphone"></i> <span class="ptt-label">Hold to Talk</span>
+                    </button>
+                    <span class="ptt-vol-wrap" title="Speaker volume for Push-to-Talk">
+                        <i class="icon-volume-medium ptt-vol-icon"></i>
+                        <input type="range" id="ptt_vol" min="0" max="100" value="90"
+                            class="ptt-vol-slider" aria-label="PTT volume">
+                        <span id="ptt_vol_label" class="ptt-vol-label">90%</span>
+                    </span>
+                    <button class="button is-small" id="ptt_test_btn" type="button" title="Test speaker with last recorded audio">
+                        <i class="icon-play"></i> <span class="ptt-test-label">Test</span>
+                    </button>
+                </div>
+                <div class="ptt-meter-wrap" style="display:none">
+                    <span class="ptt-meter-label">Recording:</span>
+                    <progress id="ptt_level" class="progress is-success" value="0" max="100"></progress>
                 </div>
             </div>
             <div class="liveview-wrap">

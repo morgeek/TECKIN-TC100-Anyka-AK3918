@@ -71,7 +71,18 @@
       "Bash(curl --max-time 5 -s \"ftp://root:pass@192.168.1.24:2121/mnt/www/\" --list-only)",
       "Bash(for dir:*)",
       "Bash(bash deploy-ftp.sh)",
-      "Bash(bash deploy-curl.sh)"
+      "Bash(bash deploy-curl.sh)",
+      "Bash(chmod +x /Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main/scripts/config-validator.sh)",
+      "Bash(find /Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main -name autorun* -o -name rc.local* -o -name startup*)",
+      "Bash(chmod +x /Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main/scripts/health-snapshot.sh /Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main/controlscripts/health-snapshot)",
+      "Bash(chmod +x /Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main/config/autostart/health-snapshot)",
+      "Bash(curl -sv --ftp-create-dirs -T www/css/ui-modern.css \"ftp://root:pass@192.168.1.24:2121/css/ui-modern.css\")",
+      "Bash(curl -s --ftp-create-dirs -T www/css/ui-modern.css \"ftp://root:pass@192.168.1.24:2121/css/ui-modern.css\")",
+      "Bash(lftp -u root,pass -e \"set ftp:timeout 10; open 192.168.1.24 2121; ls /mnt/www/index.html; bye\")",
+      "Bash(ping -c 2 -W 3 192.168.1.24)",
+      "Bash(curl -v --ftp-create-dirs -T www/css/ui-modern.css \"ftp://root:pass@192.168.1.24:2121/css/ui-modern.css\")",
+      "Bash(curl -v --ftp-create-dirs -T www/css/ui-modern.css \"ftp://root:pass@192.168.1.24:2121/mnt/www/css/ui-modern.css\")",
+      "Bash(curl -s --ftp-create-dirs -T www/logs.html \"ftp://root:pass@192.168.1.24:2121/mnt/www/logs.html\")"
     ],
     "additionalDirectories": [
       "/Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main"

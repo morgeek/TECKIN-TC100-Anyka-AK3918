@@ -42,6 +42,7 @@
   let pttTestBtn = null;
   let pttLevelMeter = null;
   let pttMeterWrap = null;
+  let pttLastSentEl = null;
 
   // Named handlers for cleanup
   function handlePointerUp() { stopRecording(false); }
@@ -57,6 +58,15 @@
   function setPttLabel(text) {
     const lbl = pttBtn.querySelector(".ptt-label");
     if (lbl) lbl.textContent = text;
+  }
+
+  function updatePttLastSent() {
+    if (!pttLastSentEl) return;
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    pttLastSentEl.textContent = "Last PTT: " + hh + ":" + mm;
+    pttLastSentEl.style.display = "";
   }
 
   function setListenLabel(text) {
@@ -364,6 +374,7 @@
         // Original logic continues:
         if (result.ok && result.payload === "OK") {
           flashAndReset("Sent!", "ptt-sent", 1400);
+          updatePttLastSent();
           return;
         }
         
@@ -503,6 +514,15 @@
     pttMeterWrap = document.querySelector(".ptt-meter-wrap");
 
     if (!pttBtn || !listenBtn) return;
+
+    // Last-sent indicator: use existing element or inject one after the PTT button.
+    pttLastSentEl = byId("ptt_last_sent");
+    if (!pttLastSentEl && pttBtn.parentNode) {
+      pttLastSentEl = document.createElement("span");
+      pttLastSentEl.id = "ptt_last_sent";
+      pttLastSentEl.style.cssText = "display:none;font-size:0.75rem;opacity:0.7;margin-left:0.5rem;";
+      pttBtn.parentNode.insertBefore(pttLastSentEl, pttBtn.nextSibling);
+    }
 
     // Initialize PTT
     pttBtn.disabled = true;

@@ -7,7 +7,7 @@ echo "Content-type: text/html"
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
-PATH="/bin:/sbin:/usr/bin:/usr/sbin"
+PATH="/bin:/sbin:/usr/bin:/usr/sbin:/mnt/bin:/mnt/sbin"
 NETSTAT_LISTEN_MAX_LINES=220
 NETSTAT_CONNECTIONS_MAX_LINES=320
 
@@ -128,6 +128,23 @@ LISTEN_TCP="$(with_timeout 5 netstat -lnt 2>/dev/null)"
 if [ -z "$LISTEN_TCP" ]; then
   LISTEN_TCP="$(with_timeout 5 netstat -ln 2>/dev/null)"
 fi
+if [ -z "$LISTEN_TCP" ] && [ -r /proc/net/tcp ]; then
+  # Build a netstat-like line set from /proc/net/tcp so is_port_open_tcp awk still works
+  LISTEN_TCP="$(awk '
+    function h2d(h,   v,i,c) {
+      v=0; for(i=1;i<=length(h);i++) {
+        c=substr(h,i,1)
+        if(c>="0"&&c<="9") v=v*16+c-"0"
+        else if(c>="a"&&c<="f") v=v*16+(c-"a")+10
+        else if(c>="A"&&c<="F") v=v*16+(c-"A")+10
+      }; return v
+    }
+    NR>1 && $4=="0A" {
+      split($2,la,":")
+      printf "tcp 0 0 0.0.0.0:%d 0.0.0.0:* LISTEN\n", h2d(la[2])
+    }
+  ' /proc/net/tcp 2>/dev/null)"
+fi
 
 is_port_open_tcp() {
   port="$1"
@@ -238,11 +255,108 @@ $(emit_port_row "Telnet" "$telnet_port" "$telnet_expected" "$telnet_note")
 EOF
 )"
 
-interfaces_text="$(with_timeout 5 ifconfig 2>/dev/null; with_timeout 5 iwconfig 2>/dev/null)"
+# ── interfaces ────────────────────────────────────────────────────────────────
+interfaces_text="$(with_timeout 5 ifconfig 2>/dev/null)"
+if [ -z "$interfaces_text" ]; then
+  interfaces_text="$(with_timeout 5 ip addr 2>/dev/null)"
+fi
+if [ -z "$interfaces_text" ] && [ -r /proc/net/dev ]; then
+  interfaces_text="$(cat /proc/net/dev 2>/dev/null)"
+fi
+# append wireless info if available (errors suppressed)
+_wifi_text="$(with_timeout 3 iwconfig 2>/dev/null)"
+[ -n "$_wifi_text" ] && interfaces_text="${interfaces_text}
+--- wireless ---
+${_wifi_text}"
+
+# ── routes ────────────────────────────────────────────────────────────────────
 routes_text="$(with_timeout 5 route 2>/dev/null)"
+if [ -z "$routes_text" ]; then
+  routes_text="$(with_timeout 5 ip route 2>/dev/null)"
+fi
+if [ -z "$routes_text" ] && [ -r /proc/net/route ]; then
+  routes_text="$(awk '
+    function h2d(h,   v,i,c) {
+      v=0; for(i=1;i<=length(h);i++) {
+        c=substr(h,i,1)
+        if(c>="0"&&c<="9") v=v*16+c-"0"
+        else if(c>="a"&&c<="f") v=v*16+(c-"a")+10
+        else if(c>="A"&&c<="F") v=v*16+(c-"A")+10
+      }; return v
+    }
+    function hexip(s) {
+      return h2d(substr(s,7,2))"."h2d(substr(s,5,2))"."h2d(substr(s,3,2))"."h2d(substr(s,1,2))
+    }
+    NR==1 { printf "%-8s %-16s %-16s %-6s %-16s\n","Iface","Destination","Gateway","Flags","Mask"; next }
+    { printf "%-8s %-16s %-16s %-6s %-16s\n",$1,hexip($2),hexip($3),$4,hexip($8) }
+  ' /proc/net/route 2>/dev/null)"
+fi
+
+# ── dns ───────────────────────────────────────────────────────────────────────
 dns_text="$(cat /etc/resolv.conf 2>/dev/null)"
-listen_text="$(capture_limited_output "$NETSTAT_LISTEN_MAX_LINES" with_timeout 5 netstat -l)"
-connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 netstat)"
+
+# ── helper: decode /proc/net/tcp or /proc/net/udp ────────────────────────────
+_proc_net_to_text() {
+  _pn_file="$1"
+  _pn_proto="$2"
+  [ -r "$_pn_file" ] || return
+  awk -v proto="$_pn_proto" '
+    function h2d(h,   v,i,c) {
+      v=0; for(i=1;i<=length(h);i++) {
+        c=substr(h,i,1)
+        if(c>="0"&&c<="9") v=v*16+c-"0"
+        else if(c>="a"&&c<="f") v=v*16+(c-"a")+10
+        else if(c>="A"&&c<="F") v=v*16+(c-"A")+10
+      }; return v
+    }
+    function hexip(s) {
+      return h2d(substr(s,7,2))"."h2d(substr(s,5,2))"."h2d(substr(s,3,2))"."h2d(substr(s,1,2))
+    }
+    function st2s(st) {
+      if(st=="01") return "ESTABLISHED"
+      if(st=="02") return "SYN_SENT"
+      if(st=="03") return "SYN_RECV"
+      if(st=="04") return "FIN_WAIT1"
+      if(st=="05") return "FIN_WAIT2"
+      if(st=="06") return "TIME_WAIT"
+      if(st=="07") return "CLOSE"
+      if(st=="08") return "CLOSE_WAIT"
+      if(st=="09") return "LAST_ACK"
+      if(st=="0A") return "LISTEN"
+      if(st=="0B") return "CLOSING"
+      return st
+    }
+    NR==1 { printf "%-5s %-21s %-21s %s\n","Proto","Local","Remote","State"; next }
+    {
+      split($2,la,":"); split($3,ra,":")
+      printf "%-5s %-21s %-21s %s\n", proto,
+        hexip(la[1])":"h2d(la[2]),
+        hexip(ra[1])":"h2d(ra[2]),
+        st2s($4)
+    }
+  ' "$_pn_file" 2>/dev/null
+}
+
+# ── listening sockets ─────────────────────────────────────────────────────────
+listen_text="$(capture_limited_output "$NETSTAT_LISTEN_MAX_LINES" with_timeout 5 netstat -ln 2>/dev/null)"
+if [ -z "$listen_text" ]; then
+  listen_text="$(capture_limited_output "$NETSTAT_LISTEN_MAX_LINES" with_timeout 5 ss -ln 2>/dev/null)"
+fi
+if [ -z "$listen_text" ]; then
+  _tcp_l="$(_proc_net_to_text /proc/net/tcp tcp | awk '$4=="LISTEN"')"
+  _udp_l="$(_proc_net_to_text /proc/net/udp udp)"
+  listen_text="${_tcp_l}
+${_udp_l}"
+fi
+
+# ── connections ───────────────────────────────────────────────────────────────
+connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 netstat 2>/dev/null)"
+if [ -z "$connections_text" ]; then
+  connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 ss 2>/dev/null)"
+fi
+if [ -z "$connections_text" ]; then
+  connections_text="$(_proc_net_to_text /proc/net/tcp tcp)"
+fi
 
 primary_ip="$(printf '%s\n' "$interfaces_text" | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
 [ -n "$primary_ip" ] || primary_ip="n/a"
@@ -483,7 +597,4 @@ function doWifiScan() {
         });
 }
 </script>
-
-</body>
-</html>
 EOF

@@ -235,7 +235,10 @@ health()
   if [ -x /mnt/bin/curl ]; then
     attempt=1
     while [ "$attempt" -le "$ONVIF_HEALTHCHECK_RETRIES" ]; do
-      if /mnt/bin/curl -s -S -m "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -o /dev/null "http://127.0.0.1:${ONVIF_PORT}/" >/dev/null 2>&1; then
+      # Use WEB_PROTO (set from WEB_MODE) so the probe matches the actual protocol
+      # monvifd is serving.  -k ignores the self-signed cert when using HTTPS.
+      if /mnt/bin/curl -s -S -k -m "$ONVIF_HEALTHCHECK_TIMEOUT_SECONDS" -o /dev/null \
+          "${WEB_PROTO}://127.0.0.1:${ONVIF_PORT}/" >/dev/null 2>&1; then
         echo "HEALTHY"
         return 0
       fi

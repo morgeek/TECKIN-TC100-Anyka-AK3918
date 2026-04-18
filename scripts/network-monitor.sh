@@ -348,6 +348,7 @@ detect_gateway() {
 : "${BROKER_RECOVERY_RESTART_MQTT:=1}"
 : "${BROKER_RECOVERY_COOLDOWN_SECONDS:=180}"
 : "${POST_RECOVERY_VALIDATE_DELAY_SECONDS:=5}"
+: "${WIFI_MAX_BOUNCES_BEFORE_REBOOT:=3}"
 
 PINGINTERVAL="$(sanitize_int_local "$PINGINTERVAL" 120)"
 PING_ATTEMPTS="$(sanitize_int_local "$PING_ATTEMPTS" 1)"
@@ -379,8 +380,15 @@ case "$BROKER_RECOVERY_RESTART_MQTT" in
     ;;
 esac
 
+WIFI_MAX_BOUNCES_BEFORE_REBOOT="$(sanitize_int_local "$WIFI_MAX_BOUNCES_BEFORE_REBOOT" 3)"
+[ "$WIFI_MAX_BOUNCES_BEFORE_REBOOT" -lt 1 ] && WIFI_MAX_BOUNCES_BEFORE_REBOOT=1
+
 load_previous_state
 pending_validation_reason=""
+consecutive_bounce_failures=0
+
+# Ensure a clean exit on SIGTERM/SIGINT (e.g. from controlscript stop or system shutdown).
+trap 'log_line "network-monitor received signal — exiting"; exit 0' TERM INT
 
 while true
 do
@@ -399,7 +407,7 @@ do
       recovery_reason="$current_problem"
       reconnect_count=$((reconnect_count + 1))
       record_recovery "$current_problem" "bounce_wifi"
-      log_line "Network issue (${current_problem}), trying to reconnect..."
+      log_line "Network issue (${current_problem}), trying to reconnect (attempt $((consecutive_bounce_failures + 1))/${WIFI_MAX_BOUNCES_BEFORE_REBOOT})..."
       write_state
       bounce_wifi_interface
       assess_current_state
@@ -407,22 +415,29 @@ do
 
       case "$current_problem" in
         ok)
+          consecutive_bounce_failures=0
           log_line "Network connectivity recovered after ${WIFI_IFACE} reset."
           pending_validation_reason="$recovery_reason"
           ;;
         broker_unreachable)
+          consecutive_bounce_failures=0
           log_line "Gateway recovered after ${WIFI_IFACE} reset; broker still unreachable."
           if restart_mqtt_bridge_recovery; then
             pending_validation_reason="broker_unreachable"
           fi
           ;;
         *)
-          record_recovery "$current_problem" "reboot"
-          log_line "Network reconnection failed (${current_problem}), stopping services and rebooting..."
-          write_state
-          graceful_shutdown_services
-          sleep "$REBOOT_DELAY_SECONDS"
-          /sbin/reboot
+          consecutive_bounce_failures=$((consecutive_bounce_failures + 1))
+          if [ "$consecutive_bounce_failures" -ge "$WIFI_MAX_BOUNCES_BEFORE_REBOOT" ]; then
+            record_recovery "$current_problem" "reboot"
+            log_line "Network reconnection failed after ${consecutive_bounce_failures} bounces (${current_problem}), rebooting..."
+            write_state
+            graceful_shutdown_services
+            sleep "$REBOOT_DELAY_SECONDS"
+            /sbin/reboot
+          else
+            log_line "Bounce ${consecutive_bounce_failures}/${WIFI_MAX_BOUNCES_BEFORE_REBOOT} failed (${current_problem}); will retry next cycle."
+          fi
           ;;
       esac
       ;;

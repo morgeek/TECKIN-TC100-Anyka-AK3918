@@ -5,7 +5,11 @@
 # Interface to recover / observe
 WIFI_IFACE=wlan0
 
-# IP address to ping
+# IP address to ping for gateway reachability.
+# At runtime, network-monitor.sh auto-detects the default gateway from
+# /proc/net/route and overrides this value each cycle, so DHCP reassignments
+# are handled automatically.  Set this explicitly only if auto-detection fails
+# (e.g. static routing without a default route).
 PINGADDRESS=192.168.0.1
 
 # Ping interval in sec (increased to 120s to reduce CPU/ping load)
@@ -33,3 +37,8 @@ BROKER_RECOVERY_COOLDOWN_SECONDS=180
 # After network recovery is confirmed, wait a few seconds and then run the
 # local repair_integration flow so RTSP/ONVIF/self-test state is refreshed.
 POST_RECOVERY_VALIDATE_DELAY_SECONDS=5
+
+# Number of consecutive failed bounce attempts before rebooting the camera.
+# Allows the Wi-Fi interface to be bounced up to N times across polling cycles
+# before escalating to a full reboot. Set to 1 to reboot on the first failure.
+WIFI_MAX_BOUNCES_BEFORE_REBOOT=3

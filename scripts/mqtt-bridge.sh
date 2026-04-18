@@ -1838,6 +1838,23 @@ run_loop()
       log_msg "MQTT subscribe failed rc=${subscribe_rc} failures=${subscribe_failures} backoff=${subscribe_backoff_seconds}s"
       log_event "error" "mqtt" "MQTT subscribe failed (attempt ${subscribe_failures}, backoff ${subscribe_backoff_seconds}s)"
     fi
+
+    # Circuit breaker: after too many consecutive failures, pause for an extended
+    # cooldown before retrying.  This prevents hot-looping against a permanently
+    # dead broker and gives the network/broker time to recover.
+    _cb_thresh="${MQTT_CIRCUIT_BREAKER_THRESHOLD:-50}"
+    case "$_cb_thresh" in ''|*[!0-9]*) _cb_thresh=50 ;; esac
+    if [ "$subscribe_failures" -ge "$_cb_thresh" ]; then
+      _cb_cooldown="${MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS:-300}"
+      case "$_cb_cooldown" in ''|*[!0-9]*) _cb_cooldown=300 ;; esac
+      log_msg "MQTT circuit breaker tripped (${subscribe_failures} consecutive failures) — pausing ${_cb_cooldown}s"
+      log_event "critical" "mqtt" "MQTT circuit breaker tripped after ${subscribe_failures} failures; cooling down ${_cb_cooldown}s"
+      sleep "$_cb_cooldown"
+      subscribe_failures=0
+      subscribe_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+      continue
+    fi
+
     sleep "$subscribe_backoff_seconds"
     if [ "$subscribe_backoff_seconds" -lt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
       subscribe_backoff_seconds=$((subscribe_backoff_seconds * MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER))

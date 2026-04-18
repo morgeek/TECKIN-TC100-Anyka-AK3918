@@ -20,7 +20,7 @@ _wd_now() {
 
 MAX_ERRORS_TO_REBOOT=5
 MAX_ERRORS_TO_ALTERNATIVE_REBOOT=10 # If normal reboot not work
-MIN_SUCCES_TO_RESET_REBOOT=30
+MIN_SUCCESS_TO_RESET_REBOOT=30
 # Increase default check interval to reduce CPU usage (can be overridden)
 CHECK_TIMEOUT_SECONDS="${CHECK_TIMEOUT_SECONDS:-60}"
 
@@ -131,6 +131,16 @@ recover_service()
     fi
 }
 
+_wd_graceful_shutdown() {
+  # Stop services that may be mid-write before rebooting.
+  sync 2>/dev/null || true
+  for _svc in recording mqtt-bridge rtsp-h26x; do
+    [ -x "/mnt/controlscripts/$_svc" ] && \
+      /mnt/controlscripts/"$_svc" stop >/dev/null 2>&1 || true
+  done
+  sleep 2
+}
+
 monitor_service()
 {
     SERVICE_TO_MONITOR=$1
@@ -146,6 +156,9 @@ monitor_service()
         *) CHECK_MODE="status" ;;
     esac
 
+    # Allow clean exit via SIGTERM/SIGINT (e.g. when the watchdog itself is stopped).
+    trap 'exit 0' TERM INT
+
     while :
     do
         sleep $CHECK_TIMEOUT_SECONDS
@@ -155,7 +168,7 @@ monitor_service()
             if [ "$CURRENT_SUCCESS" -gt 10 ]; then
                 no_reboot_delay_seconds="$WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS"
             fi
-            if [ "$CURRENT_SUCCESS" -gt "$MIN_SUCCES_TO_RESET_REBOOT" ]; then
+            if [ "$CURRENT_SUCCESS" -gt "$MIN_SUCCESS_TO_RESET_REBOOT" ]; then
                 CURRENT_SUCCESS=0
                 CURRENT_ERRORS=0
             fi
@@ -185,11 +198,13 @@ monitor_service()
             if [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_ALTERNATIVE_REBOOT" ]; then # If we can't reboot by normal call to 'reboot'
                 append_log "$SERVICE_TO_MONITOR - perform alternative reboot"
                 log_event "critical" "system" "Watchdog performing alternative reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
+                _wd_graceful_shutdown
                 echo b >/proc/sysrq-trigger
                 CURRENT_ERRORS=0
             elif [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_REBOOT" ]; then
                 append_log "$SERVICE_TO_MONITOR - perform reboot"
                 log_event "critical" "system" "Watchdog performing system reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
+                _wd_graceful_shutdown
                 /sbin/reboot -f
             else
                 append_log "$SERVICE_TO_MONITOR - perform restart"
