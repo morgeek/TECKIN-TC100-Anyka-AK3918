@@ -895,53 +895,6 @@
     return null;
   }
 
-  function setTheme(c) {
-    if (!c) {
-      return;
-    }
-
-    Array.prototype.slice.call(document.querySelectorAll(".theme_choice")).forEach(function (choice) {
-      choice.classList.remove("is-active");
-    });
-
-    var theme = byId("theme_choice_" + c);
-    var cssHref = "";
-    if (theme) {
-      theme.classList.add("is-active");
-      cssHref = theme.dataset.css || "";
-    } else if (c === "0") {
-      cssHref = "css/bulma.0.6.2.min.css";
-    } else if (c === "1") {
-      cssHref = "css/bulmaswatch.min.css";
-    }
-
-    if (!cssHref) {
-      return;
-    }
-
-    Array.prototype.slice.call(document.querySelectorAll("link.custom_theme")).forEach(function (node) {
-      node.parentNode.removeChild(node);
-    });
-
-    var css = document.createElement("link");
-    css.className = "custom_theme";
-    css.rel = "stylesheet";
-    css.href = cssHref;
-    document.head.appendChild(css);
-
-    var customCss = byId("custom_css");
-    if (customCss) {
-      var clone = customCss.cloneNode(true);
-      customCss.remove();
-      document.head.appendChild(clone);
-    }
-
-    setCookie("theme", c);
-  }
-
-  function getThemeChoice() {
-    return getCookie("theme");
-  }
 
   // Attach the current CSRF token as a header on state-changing requests to action.cgi.
   function csrfFetch(url, opts) {
@@ -982,7 +935,6 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    setTheme(getThemeChoice());
     initPttVolumeControls();
 
     fetch("cgi-bin/state.cgi?cmd=hostname", { cache: "no-store" })
@@ -1134,8 +1086,6 @@
   window.fixMenuPadding = fixMenuPadding;
   window.setCookie = setCookie;
   window.getCookie = getCookie;
-  window.setTheme = setTheme;
-  window.getThemeChoice = getThemeChoice;
 
   // Global utility for sub-page scripts to check if they are still 'mounted'
   window.isHostStillActive = function (node) {
