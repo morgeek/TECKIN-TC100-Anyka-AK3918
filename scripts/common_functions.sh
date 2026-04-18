@@ -5,6 +5,18 @@
 
 BUSYBOX_BIN=""
 
+_CF_BTIME=0
+_cf_read_btime() {
+  while read -r _k _v _; do
+    [ "$_k" = "btime" ] && _CF_BTIME="$_v" && break
+  done < /proc/stat
+}
+_cf_read_ts() {
+  [ "$_CF_BTIME" -gt 0 ] || _cf_read_btime
+  read -r _up _ < /proc/uptime
+  _CF_TS=$((_CF_BTIME + ${_up%.*}))
+}
+
 get_busybox_bin()
 {
   if [ -n "$BUSYBOX_BIN" ] && [ -x "$BUSYBOX_BIN" ]; then
@@ -718,7 +730,8 @@ build_devinfo_cache() {
   bl="$(run_strings /dev/mtd0 | grep -m1 'U-Boot 2' 2>/dev/null)"
   echo "${bl:-n/a}" > /tmp/devinfo_bootloader.txt
   # Write a timestamp so callers can check cache age.
-  date +%s > /tmp/devinfo_cache.ts 2>/dev/null || true
+  _cf_read_ts
+  printf '%s\n' "$_CF_TS" > /tmp/devinfo_cache.ts 2>/dev/null || true
 }
 
 # devinfo_cache_fresh — returns 0 if cache files exist and are < TTL_SECONDS old.
