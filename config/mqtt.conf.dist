@@ -30,6 +30,11 @@ MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
 MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS=2
 MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS=20
 MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER=2
+# Circuit breaker: after this many consecutive subscribe failures, pause for
+# MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS before retrying. Prevents busy-looping
+# against a permanently unreachable broker.
+MQTT_CIRCUIT_BREAKER_THRESHOLD=50
+MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS=300
 
 # Home Assistant MQTT Discovery (retained config topics).
 # Keep enabled for one-click entity creation in HA.

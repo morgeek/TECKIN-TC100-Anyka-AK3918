@@ -872,6 +872,8 @@ preflight_checks
 self_heal_runtime
 init_password
 load_boot_config
+# Validate config values early — logs to /tmp/log/config-validator.log, never fatal.
+[ -x /mnt/scripts/config-validator.sh ] && /mnt/scripts/config-validator.sh &
 echo "--------Starting Hacks--------" >> $LOGPATH
 stop_cloud
 enable_hardware_watchdog

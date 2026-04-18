@@ -385,6 +385,34 @@
     }, reloadDelay);
   }
 
+  // After a web-mode change the server restarts; poll until it comes back, then reload.
+  function waitForServerReconnect() {
+    var maxAttempts = 40;
+    var attempts = 0;
+    function attempt() {
+      attempts++;
+      if (attempts > maxAttempts) {
+        showResult("Server did not respond after " + maxAttempts + "s. Reload the page manually.");
+        return;
+      }
+      setTimeout(function () {
+        fetch("cgi-bin/state.cgi", { cache: "no-store" })
+          .then(function (r) {
+            if (r.ok) {
+              showResult("Reconnected. Reloading settings...");
+              scheduleStatusReload(500);
+            } else {
+              attempt();
+            }
+          })
+          .catch(function () {
+            attempt();
+          });
+      }, 1000);
+    }
+    attempt();
+  }
+
   function bindAjaxForm(form, triggerReload) {
     form.addEventListener("submit", function (event) {
       event.preventDefault();
@@ -404,6 +432,12 @@
             setTimeout(function () {
               window.refreshPerformanceProfile();
             }, 700);
+          }
+          // Web mode changes restart the HTTP server — wait for it to come back.
+          if (text && text.indexOf("Web mode set to:") !== -1) {
+            showResult("Server restarting after web mode change, reconnecting...");
+            waitForServerReconnect();
+            return;
           }
           if (triggerReload !== false) {
             scheduleStatusReload(5000);

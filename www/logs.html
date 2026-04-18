@@ -202,11 +202,15 @@
     if (/\b(panic|fatal|critical|crit|alert|emerg)\b/.test(lower)) {
       return "critical";
     }
-    if (/\b(err|error|fail|failed|fault)\b/.test(lower)) {
+    if (/\b(err|error|fail|failed|failure|fault|exception)\b/.test(lower)) {
       return "error";
     }
     if (/\b(warn|warning)\b/.test(lower)) {
       return "warning";
+    }
+    // Section header / banner lines: === foo ===  or  ----bar----
+    if (/^[=\-]{3,}/.test(line) || /[=\-]{3,}$/.test(line)) {
+      return "notice";
     }
     if (/\b(notice)\b/.test(lower)) {
       return "notice";
@@ -214,7 +218,7 @@
     if (/\b(debug|trace|verbose)\b/.test(lower)) {
       return "debug";
     }
-    if (/\b(info|started|ready|enabled|listen|connected|online)\b/.test(lower)) {
+    if (/\b(info|start|started|starting|stop|stopped|stopping|ready|enabled|listen|connected|online|loading|loaded|boot|init|initialized|running|finished|complete|completed|success|done)\b/.test(lower)) {
       return "info";
     }
     return "unknown";

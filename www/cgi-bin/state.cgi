@@ -8,7 +8,7 @@ source ./func.cgi
 if wants_json_response; then
   echo "Content-type: application/json"
 else
-  echo "Content-type: text"
+  echo "Content-type: text/plain"
 fi
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"

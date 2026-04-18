@@ -6,7 +6,10 @@
 # Cache is invalidated by action.cgi when service topology changes.
 
 CACHE_FILE="/tmp/health_snapshot.cache"
-CACHE_TTL_SECONDS=10
+# When health-snapshot daemon is running it refreshes the cache every ~30s.
+# Use a longer TTL here so CGI requests are always instant cache hits.
+# If the daemon isn't running we fall back to building the snapshot inline.
+CACHE_TTL_SECONDS=45
 
 echo "Content-type: application/json"
 echo "Pragma: no-cache"
