@@ -1,8 +1,6 @@
 #!/bin/sh
 # Source: http://isquared.nl/blog/2008/11/01/Bourne-Bash-Shell-CGI-Scripts/
 
-_DEBUG_=
-
 if [ "${REQUEST_METHOD}" = "POST" ]
 then
   # Validate CONTENT_LENGTH before reading; cap at 64 KB to prevent RAM exhaustion.
@@ -56,13 +54,6 @@ for _VAR in ${QUERY_STRING}
 do
   [ -z "${_VAR}" ] && continue
 
-  if [ ${_DEBUG_} ]
-  then
-      echo _VAR: ${_VAR}
-      echo -n variable: `echo ${_VAR} | cut -d= -f1`" "
-      echo value: `echo ${_VAR} | cut -d= -f2`
-  fi
-
   name="${_VAR%%=*}"
   raw_value="${_VAR#*=}"
 
@@ -84,20 +75,9 @@ do
 
   # assign to F_<name> variable (name already validated)
   eval "F_${name}=\"${esc_value}\""
-
-  if [ ${_DEBUG_} ]
-  then
-      echo "--- EXIT ---"
-  fi
 done
 IFS=${_IFS}
 unset _IFS _VAR name raw_value value esc_value
-
-if [ ${_DEBUG_} ]
-then
-  echo query string: ${QUERY_STRING}
-  echo post-part of query string: ${POST_QUERY_STRING}
-fi
 
 # JSON API Response Helpers
 # Unified JSON response envelope for CGI endpoints
