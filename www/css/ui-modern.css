@@ -18,6 +18,28 @@
   --ui-radius-md: 14px;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ui-bg: #1a2332;
+    --ui-bg-alt: #242d3a;
+    --ui-surface: rgba(255, 255, 255, 0.08);
+    --ui-surface-strong: rgba(255, 255, 255, 0.12);
+    --ui-border: rgba(255, 255, 255, 0.1);
+    --ui-border-soft: rgba(255, 255, 255, 0.05);
+    --ui-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+    --ui-shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.3);
+    --ui-text: #e8eef7;
+    --ui-muted: #8a94a8;
+    --ui-primary: #5ba8f5;
+    --ui-primary-dark: #4a94d9;
+    --ui-accent: #3dd5e3;
+    --ui-danger: #ff6b6b;
+    --ui-success: #51cf66;
+  }
+  html { background: linear-gradient(170deg, #0f1419 0%, #1a2332 48%, #161d28 100%); }
+  body { background: transparent; }
+}
+
 html {
   background: linear-gradient(170deg, #d4e2f1 0%, #eef4fa 48%, #dde8f4 100%);
 }
