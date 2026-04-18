@@ -6,10 +6,11 @@ echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 
 . /mnt/scripts/common_functions.sh
-install_config /mnt/config/recording.conf
-install_config /mnt/config/boot.conf
-install_config /mnt/config/service_trim.conf
-install_config /mnt/config/mqtt.conf
+. ./func.cgi
+install_config_cached /mnt/config/recording.conf
+install_config_cached /mnt/config/boot.conf
+install_config_cached /mnt/config/service_trim.conf
+install_config_cached /mnt/config/mqtt.conf
 
 # shellcheck disable=SC1090
 if [ -f /mnt/config/boot.conf ]; then
