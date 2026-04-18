@@ -1,6 +1,9 @@
 #!/bin/sh
 source ./func.cgi
 
+# Ensure temp files are cleaned up on exit/interrupt
+trap 'rm -f /tmp/scripts-status.$$.tmp /tmp/scripts-allstates.cache' EXIT INT TERM
+
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 
