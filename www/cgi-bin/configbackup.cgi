@@ -9,6 +9,38 @@ fi
 TMP_ROOT="/tmp"
 MAX_ARCHIVE_BYTES=16777216
 
+_BTIME=0
+_read_btime() {
+  while read -r _k _v _; do
+    [ "$_k" = "btime" ] && _BTIME="$_v" && break
+  done < /proc/stat
+}
+_read_ts() {
+  [ "$_BTIME" -gt 0 ] || _read_btime
+  read -r _up _ < /proc/uptime
+  now_ts=$((_BTIME + ${_up%.*}))
+  [ "$now_ts" -gt 0 ] || now_ts=0
+}
+_format_backup_tag() {
+  _epoch="$1"
+  _days=$(((_epoch / 86400) + 719468))
+  _secs=$((_epoch % 86400))
+  _z=$((_days - _days % 146097 + (_days % 146097 >= 109573 ? 146097 : 0)))
+  _era=$((_z / 146097))
+  _doe=$((_days - _z))
+  _yoe=$(((_doe + 1) * 400 / 146097))
+  _y=$((_era * 400 + _yoe))
+  _doy=$((_doe - _yoe * 365 - _yoe / 4 + _yoe / 100))
+  _mp=$(((5 * _doy + 2) * 153 / 5))
+  _d=$((_mp % 153 + 1))
+  _m=$((_mp / 153 + ([ $_mp -lt 306 ] && echo 3 || echo -9)))
+  _y=$((_m <= 2 ? _y + 1 : _y))
+  _hr=$((_secs / 3600))
+  _min=$(((_secs % 3600) / 60))
+  _sec=$((_secs % 60))
+  printf '%04d%02d%02d-%02d%02d%02d' "$_y" "$_m" "$_d" "$_hr" "$_min" "$_sec"
+}
+
 html_header() {
   echo "Content-type: text/html"
   echo "Pragma: no-cache"
@@ -116,7 +148,8 @@ extract_archive() {
 }
 
 download_backup() {
-  now_tag="$(date -u +%Y%m%d-%H%M%S 2>/dev/null)"
+  _read_ts
+  now_tag="$(_format_backup_tag "$now_ts")"
   case "$now_tag" in
     ''|*[!0-9-]*)
       now_tag="unknown"
@@ -190,7 +223,8 @@ EOF
 restore_backup() {
   archive_path="$1"
   restart_services="$2"
-  now_tag="$(date -u +%Y%m%d-%H%M%S 2>/dev/null)"
+  _read_ts
+  now_tag="$(_format_backup_tag "$now_ts")"
   case "$now_tag" in
     ''|*[!0-9-]*)
       now_tag="unknown"
