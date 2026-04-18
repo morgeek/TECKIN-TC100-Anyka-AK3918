@@ -4,6 +4,18 @@
 # Lightweight JSON-based event logging system
 # Usage: source this file and call log_event <level> <category> <message> [extra_json]
 
+_EL_BTIME=0
+_el_read_btime() {
+  while read -r _k _v _; do
+    [ "$_k" = "btime" ] && _EL_BTIME="$_v" && break
+  done < /proc/stat
+}
+_el_read_ts() {
+  [ "$_EL_BTIME" -gt 0 ] || _el_read_btime
+  read -r _up _ < /proc/uptime
+  _EL_TS=$((_EL_BTIME + ${_up%.*}))
+}
+
 EVENT_LOG_FILE="/tmp/events.jsonl"
 EVENT_LOG_MAX_SIZE_KB=256
 EVENT_LOG_BACKUP_COUNT=2
@@ -65,7 +77,8 @@ log_event() {
     esac
 
     # Get timestamp
-    local timestamp=$(date +%s)
+    _el_read_ts
+    local timestamp=$_EL_TS
 
     # Build JSON
     local json="{\"timestamp\":$timestamp,\"level\":\"$level\",\"category\":\"$category\",\"message\":\"$message\""
