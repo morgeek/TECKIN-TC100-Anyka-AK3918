@@ -982,7 +982,8 @@ if [ -n "$F_cmd" ]; then
 
     snapshot_status="fail"
     snapshot_detail="Snapshot capture failed."
-    snapshot_tmp="/tmp/integration-selftest.$$.$(date +%s 2>/dev/null).jpg"
+    _read_now_ts
+    snapshot_tmp="/tmp/integration-selftest.$$.$now_ts.jpg"
     if [ -x /mnt/bin/getimage ]; then
       if /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
         snapshot_status="ok"
