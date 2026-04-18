@@ -735,7 +735,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                     <div class="control">
-                        <input class="input" id="tz" name="tz" type="text" size="25" value="$(cat /mnt/config/timezone.conf)" />
+                        <input class="input" id="tz" name="tz" type="text"value="$(cat /mnt/config/timezone.conf)" />
                     </div>
                     <p>$(date)</p>
                 </div>
@@ -748,7 +748,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                     <div class="control">
-                        <input class="input" id="ntp_srv" name="ntp_srv" type="text" size="25" value="$(cat /mnt/config/ntp_srv.conf)" />
+                        <input class="input" id="ntp_srv" name="ntp_srv" type="text"value="$(cat /mnt/config/ntp_srv.conf)" />
                     </div>
                 </div>
             </div>
@@ -760,7 +760,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input class="input" id="hostname" name="hostname" type="text" size="15" value="$(hostname)" />
+                    <input class="input" id="hostname" name="hostname" type="text"value="$(hostname)" />
                 </div>
                 </div>
             </div>
@@ -771,7 +771,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="tzSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="tzSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>
@@ -1397,7 +1397,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="allpwSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="allpwSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>
@@ -1442,7 +1442,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="pwSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="pwSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>
@@ -1475,7 +1475,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="telnetSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="telnetSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>
@@ -1507,7 +1507,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="ftpSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="ftpSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>
@@ -2147,7 +2147,7 @@ cat << EOF
                 <div class="field-body">
                     <div class="field">
                     <div class="control">
-                        <input id="resSubmit" class="button is-primary" type="submit" value="Set" />
+                        <button id="resSubmit" class="button is-primary" type="submit">Set</button>
                     </div>
                     </div>
                 </div>
@@ -2248,7 +2248,7 @@ cat << EOF
                 <div class="field-body">
                     <div class="field">
                     <div class="control">
-                        <input id="audioinSubmit" class="button is-primary" type="submit" value="Set" />
+                        <button id="audioinSubmit" class="button is-primary" type="submit">Set</button>
                     </div>
                     </div>
                 </div>
@@ -2383,7 +2383,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="recSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="recSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>
@@ -2429,7 +2429,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="tlSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="tlSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>
@@ -2517,7 +2517,7 @@ cat << EOF
                 <div class="field-body">
                     <div class="field">
                     <div class="control">
-                        <input id="autodaynightSubmit" class="button is-primary" type="submit" value="Set" />
+                        <button id="autodaynightSubmit" class="button is-primary" type="submit">Set</button>
                     </div>
                     </div>
                 </div>
@@ -2750,7 +2750,7 @@ cat << EOF
             <div class="field-body">
                 <div class="field">
                 <div class="control">
-                    <input id="mdsensSubmit" class="button is-primary" type="submit" value="Set" />
+                    <button id="mdsensSubmit" class="button is-primary" type="submit">Set</button>
                 </div>
                 </div>
             </div>

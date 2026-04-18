@@ -105,7 +105,7 @@ Temperature: $cpu_temp")</pre>
 
         <div class='card status_card sysusage-card'>
             <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M9 12l2 2l4-4M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18z'/></svg><span>Service Health</span></span></p></header>
-            <div class='card-content' id='svc_health_body'><em style='color:#aaa'>Loading service health...</em></div>
+            <div class='card-content' id='svc_health_body'><em class='text-muted'>Loading service health...</em></div>
         </div>
     </div>
 
@@ -119,7 +119,7 @@ Temperature: $cpu_temp")</pre>
 
         <div class='card status_card sysusage-card'>
             <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2M9 5h6M9 12h6M9 16h4'/></svg><span>Recent Events</span></span></p></header>
-            <div class='card-content' id='recent_events_body'><em style='color:#aaa'>Loading events...</em></div>
+            <div class='card-content' id='recent_events_body'><em class='text-muted'>Loading events...</em></div>
         </div>
     </div>
 </div>
@@ -151,7 +151,7 @@ Temperature: $cpu_temp")</pre>
         + '<thead><tr><th>Service</th><th>Status</th><th>Restarts</th></tr></thead>'
         + '<tbody>'+rows.join('')+'</tbody></table>';
     })
-    .catch(function(){ body.innerHTML = '<em style="color:#ff3860">Health data unavailable</em>'; });
+    .catch(function(){ body.innerHTML = '<em class="text-error">Health data unavailable</em>'; });
 })();
 </script>
 <script>
@@ -162,7 +162,7 @@ Temperature: $cpu_temp")</pre>
     .then(function(r){ return r.json(); })
     .then(function(events){
       if (!Array.isArray(events) || !events.length) {
-        evBody.innerHTML = '<em style="color:#aaa">No events recorded yet</em>';
+        evBody.innerHTML = '<em class="text-muted">No events recorded yet</em>';
         return;
       }
       var rows = events.slice().reverse().map(function(ev){
@@ -180,7 +180,7 @@ Temperature: $cpu_temp")</pre>
         + '<thead><tr><th>Time</th><th>Level</th><th>Category</th><th>Message</th></tr></thead>'
         + '<tbody>'+rows.join('')+'</tbody></table>';
     })
-    .catch(function(){ evBody.innerHTML = '<em style="color:#ff3860">Event log unavailable</em>'; });
+    .catch(function(){ evBody.innerHTML = '<em class="text-error">Event log unavailable</em>'; });
 })();
 </script>
 EOF
