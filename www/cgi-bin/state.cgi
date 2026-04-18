@@ -35,6 +35,44 @@ _read_now_ts() {
   now_ts=$((_SCRIPT_BTIME + ${_rnt_up%.*}))
   [ "$now_ts" -gt 0 ] || now_ts=0
 }
+_format_iso8601_utc() {
+  _ts="$1"
+  _sec_in_day=$((_ts % 86400))
+  _days=$((_ts / 86400))
+  _hr=$((_sec_in_day / 3600))
+  _min=$(((_sec_in_day % 3600) / 60))
+  _sec=$((_sec_in_day % 60))
+  _q=$((_days / 36524))
+  _r=$((_days % 36524))
+  _y=$((1970 + _q * 100))
+  _q=$((_r / 1461))
+  _r=$((_r % 1461))
+  _y=$((_y + _q * 4))
+  if [ "$_q" -lt 25 ]; then
+    _q=$((_r / 365))
+    [ "$_q" -gt 3 ] && _q=3
+    _r=$((_r - _q * 365))
+    _y=$((_y + _q))
+  else
+    _r=$((_r - 1461))
+    _y=$((_y + 4))
+  fi
+  if [ $(((_y % 4 == 0 && _y % 100 != 0) || _y % 400 == 0)) -eq 1 ]; then
+    _month_days="31 29 31 30 31 30 31 31 30 31 30 31"
+  else
+    _month_days="31 28 31 30 31 30 31 31 30 31 30 31"
+  fi
+  _m=0
+  for _days_in_m in $_month_days; do
+    _m=$((_m + 1))
+    if [ "$_r" -lt "$_days_in_m" ]; then
+      break
+    fi
+    _r=$((_r - _days_in_m))
+  done
+  _d=$((_r + 1))
+  printf '%04d-%02d-%02dT%02d:%02d:%02dZ' "$_y" "$_m" "$_d" "$_hr" "$_min" "$_sec"
+}
 
 get_current_cpu_usage_fast() {
   cpu_active_prev=0
@@ -1011,7 +1049,8 @@ if [ -n "$F_cmd" ]; then
       fi
     done
 
-    test_time_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    _read_now_ts
+    test_time_utc="$(_format_iso8601_utc "$now_ts")"
     test_time_utc_json="$(json_escape "$test_time_utc")"
     test_hostname_json="$(json_escape "$test_hostname")"
     primary_ip_json="$(json_escape "$primary_ip")"
@@ -1148,7 +1187,8 @@ if [ -n "$F_cmd" ]; then
     mqtt_command_last_result_topic="${mqtt_topic_root}/command/last_result"
     mqtt_repair_last_result_topic="${mqtt_topic_root}/repair/last_result"
 
-    manifest_time_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    _read_now_ts
+    manifest_time_utc="$(_format_iso8601_utc "$now_ts")"
     manifest_time_utc_json="$(json_escape "$manifest_time_utc")"
     manifest_hostname_json="$(json_escape "$manifest_hostname")"
     manifest_camera_slug_json="$(json_escape "$manifest_camera_slug")"
@@ -1235,7 +1275,8 @@ if [ -n "$F_cmd" ]; then
     fi
     health_hostname_json="$(json_escape "$health_hostname")"
 
-    health_time_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    _read_now_ts
+    health_time_utc="$(_format_iso8601_utc "$now_ts")"
     health_time_utc_json="$(json_escape "$health_time_utc")"
 
     uptime_seconds=0
