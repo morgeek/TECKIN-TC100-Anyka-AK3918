@@ -51,12 +51,26 @@ df_text="$(df -h 2>/dev/null)"
 iostat_text="$(iostat -d -k 2>/dev/null)"
 mount_text="$(mount 2>/dev/null)"
 
-root_usage="$(printf '%s\n' "$df_text" | awk '$NF=="/"{print $5; exit}')"
-[ -n "$root_usage" ] || root_usage="n/a"
-filesystem_count="$(printf '%s\n' "$df_text" | awk 'NR>1{count++} END{print count+0}')"
-mount_count="$(printf '%s\n' "$mount_text" | awk 'NF{count++} END{print count+0}')"
-mmc_mount="$(printf '%s\n' "$mount_text" | awk '/mmcblk/{print $3 " (" $1 ")"; exit}')"
-[ -n "$mmc_mount" ] || mmc_mount="n/a"
+# Single pass over df output: root usage % + filesystem count
+eval "$(printf '%s\n' "$df_text" | awk '
+  NR==1{next}
+  {count++}
+  $NF=="/"{root=$5}
+  END{
+    printf "root_usage=%s\n", (root ? root : "n/a")
+    printf "filesystem_count=%d\n", count+0
+  }
+')"
+# Single pass over mount output: mount count + mmc mount point
+eval "$(printf '%s\n' "$mount_text" | awk '
+  NF{count++}
+  /mmcblk/ && !mmc{mmc=$3 " (" $1 ")"}
+  END{
+    printf "mount_count=%d\n", count+0
+    if (mmc) printf "mmc_mount=\"%s\"\n", mmc
+    else      printf "mmc_mount=n/a\n"
+  }
+')"
 
 # SD card health from sysfs
 MMC_BLOCK="/sys/block/mmcblk0"
@@ -90,9 +104,12 @@ if [ -d "$MMC_BLOCK" ]; then
     # Fields: read_ios read_merges read_sectors read_ticks write_ios write_merges write_sectors write_ticks in_flight io_ticks time_in_queue
     if [ -r "$MMC_BLOCK/stat" ]; then
         stat_line="$(cat "$MMC_BLOCK/stat" 2>/dev/null)"
-        mmc_read_ios="$(printf '%s' "$stat_line" | awk '{print $1+0}')"
-        mmc_write_ios="$(printf '%s' "$stat_line" | awk '{print $5+0}')"
-        in_flight="$(printf '%s' "$stat_line" | awk '{print $9+0}')"
+        # Single pass: read_ios (field 1), write_ios (field 5), in_flight (field 9)
+        eval "$(printf '%s' "$stat_line" | awk '{
+          printf "mmc_read_ios=%d\n",  $1+0
+          printf "mmc_write_ios=%d\n", $5+0
+          printf "in_flight=%d\n",     $9+0
+        }')"
         [ "$in_flight" = "0" ] && mmc_io_errors="none detected" || mmc_io_errors="$in_flight in-flight"
     fi
 
