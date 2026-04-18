@@ -1,0 +1,34 @@
+#!/bin/sh
+SERVICE_NAME="Health Snapshot Daemon"
+PIDFILE="/var/run/health-snapshot.pid"
+
+. /mnt/scripts/common_functions.sh
+
+status() {
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && echo "PID: $pid"
+}
+
+start() {
+  if [ -n "$(status)" ]; then return 0; fi
+  HEALTH_SNAPSHOT_INTERVAL_SECONDS="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-30}" \
+    /mnt/scripts/health-snapshot.sh &
+  echo "$!" > "$PIDFILE"
+}
+
+stop() {
+  killpid_graceful "$PIDFILE" 3
+}
+
+health() {
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
+case "${1:-start}" in
+  start)   start   ;;
+  stop)    stop    ;;
+  restart) stop; sleep 1; start ;;
+  status)  status  ;;
+  health)  health  ;;
+  *) echo "Usage: $0 {start|stop|restart|status|health}" >&2; exit 1 ;;
+esac

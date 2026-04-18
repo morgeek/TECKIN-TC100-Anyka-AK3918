@@ -148,6 +148,13 @@ ONVIF_WATCHDOG_MODE=status
 # service-watchdog log rotation safeguards
 WATCHDOG_LOG_MAX_BYTES=262144
 WATCHDOG_LOG_BACKUPS=2
+# Watchdog no-reboot (soft) service restart backoff:
+# - BASE_DELAY: minimum seconds between restarts for NEED_REBOOT_ON_ERROR=0 services
+# - BACKOFF_STEP: added to delay after each failed restart
+# - MAX_DELAY: upper bound on the inter-restart delay
+WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS=20
+WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS=15
+WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS=180
 # Chip temperature source for UI/statusline:
 # - auto: try common Linux thermal nodes
 # - custom path: e.g. /sys/class/thermal/thermal_zone0/temp
@@ -164,6 +171,10 @@ STORAGE_CLEANUP_ENABLE=0
 STORAGE_CLEANUP_THRESHOLD=90
 STORAGE_CLEANUP_TARGET=85
 STORAGE_CLEANUP_DCIM_PATH=/mnt/DCIM
+
+# Health snapshot daemon: pre-builds the health.cgi cache every N seconds (min 10, max 300).
+# Lower values mean fresher health data at the cost of more CPU cycles per minute.
+HEALTH_SNAPSHOT_INTERVAL_SECONDS=30
 
 # Syslog forwarding: stream logs to a remote syslog server at SYSLOG_HOST:SYSLOG_PORT.
 # Requires logger -n support in your busybox build.

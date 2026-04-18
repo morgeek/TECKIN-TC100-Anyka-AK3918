@@ -103,21 +103,25 @@ get_events_since() {
     if command -v jq >/dev/null 2>&1; then
         jq -s "map(select(.timestamp >= $since)) | .[-$limit:]" "$EVENT_LOG_FILE" 2>/dev/null || echo "[]"
     else
-        # Basic filtering without jq
+        # Basic filtering without jq.
+        # Assumes one complete JSON object per line (JSONL/ndjson format) with
+        # "timestamp":<epoch> as the first numeric field — the format log_event() writes.
+        # head -n guard: each event is one line + one comma = 2 lines; cap output size.
         awk -v since="$since" -v limit="$limit" '
         BEGIN { count = 0; print "[" }
+        NF == 0 { next }
         {
             if (count > 0) print ","
-            # Extract timestamp from JSON (basic parsing)
+            # Extract timestamp from JSON (expects "timestamp":<number> anywhere in line)
             if (match($0, /"timestamp":([0-9]+)/, arr)) {
-                if (arr[1] >= since) {
+                if (arr[1] >= since && count < limit) {
                     print $0
                     count++
                 }
             }
         }
         END { print "]" }
-        ' "$EVENT_LOG_FILE" | head -n $((limit * 2 + 2)) || echo "[]"
+        ' "$EVENT_LOG_FILE" | head -n $((limit * 2 + 4)) || echo "[]"
     fi
 }
 
@@ -159,21 +163,21 @@ get_error_events() {
     if command -v jq >/dev/null 2>&1; then
         jq -s "map(select(.timestamp >= $since and (.level == \"error\" or .level == \"critical\"))) | .[-$limit:]" "$EVENT_LOG_FILE" 2>/dev/null || echo "[]"
     else
-        # Basic filtering without jq
+        # Basic filtering without jq (same JSONL format assumption as get_events_since).
         awk -v since="$since" -v limit="$limit" '
         BEGIN { count = 0; print "[" }
+        NF == 0 { next }
         /"level":"error"/ || /"level":"critical"/ {
             if (count > 0) print ","
-            # Check timestamp
             if (match($0, /"timestamp":([0-9]+)/, arr)) {
-                if (arr[1] >= since) {
+                if (arr[1] >= since && count < limit) {
                     print $0
                     count++
                 }
             }
         }
         END { print "]" }
-        ' "$EVENT_LOG_FILE" | head -n $((limit * 2 + 2)) || echo "[]"
+        ' "$EVENT_LOG_FILE" | head -n $((limit * 2 + 4)) || echo "[]"
     fi
 }
 

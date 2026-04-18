@@ -1654,3 +1654,183 @@ body::after {
     border-color: rgba(60, 120, 220, 0.18);
   }
 }
+
+/* ─── Toolbar Groups & Divider ─────────────────────────────────────────────── */
+
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.toolbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 1.5rem;
+  background: var(--ui-border);
+  align-self: center;
+  margin: 0 0.15rem;
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+/* ─── PTT Volume & Meter Controls ─────────────────────────────────────────── */
+
+.ptt-vol-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.ptt-vol-icon {
+  color: var(--ui-muted);
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.ptt-vol-slider {
+  width: 80px;
+  cursor: pointer;
+  accent-color: var(--ui-primary);
+  flex-shrink: 0;
+}
+
+.ptt-vol-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ui-muted);
+  min-width: 2.5em;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ptt-test-label {
+  margin-left: 3px;
+}
+
+.ptt-meter-label {
+  font-size: 0.82rem;
+  color: var(--ui-muted);
+  white-space: nowrap;
+}
+
+#ptt_level {
+  width: 120px;
+  margin-bottom: 0;
+}
+
+@media screen and (max-width: 768px) {
+  .toolbar-group {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .toolbar-divider {
+    display: none;
+  }
+}
+
+/* ─── Sysusage: Service Health Table ──────────────────────────────────────── */
+
+.svc-health-table {
+  width: 100%;
+  font-size: 0.82em;
+  border-collapse: collapse;
+}
+
+.svc-health-table thead tr {
+  border-bottom: 1px solid var(--ui-border-soft);
+}
+
+.svc-health-table th {
+  padding: 3px 8px;
+  text-align: left;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ui-muted);
+  font-weight: 700;
+}
+
+.svc-health-table td {
+  padding: 3px 8px;
+  vertical-align: middle;
+}
+
+.svc-cell-running { color: #1f8556; }
+.svc-cell-absent  { color: var(--ui-muted); }
+.svc-cell-stopped { color: var(--ui-danger); }
+
+.svc-restart-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.svc-restart-badge.badge-warn {
+  background: rgba(250, 221, 87, 0.5);
+  color: #7a5200;
+  border: 1px solid rgba(182, 92, 0, 0.32);
+}
+
+.svc-restart-badge.badge-high {
+  background: rgba(241, 70, 104, 0.14);
+  color: var(--ui-danger);
+  border: 1px solid rgba(180, 32, 51, 0.3);
+}
+
+/* ─── Sysusage: Recent Events Table ───────────────────────────────────────── */
+
+.evt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.evt-table thead tr {
+  border-bottom: 1px solid var(--ui-border-soft);
+}
+
+.evt-table th {
+  padding: 2px 6px;
+  text-align: left;
+  font-size: 0.75em;
+  font-weight: 700;
+  color: var(--ui-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.evt-table td {
+  padding: 2px 6px;
+  font-size: 0.75em;
+}
+
+.evt-table tbody tr {
+  border-bottom: 1px solid var(--ui-border-soft);
+}
+
+.evt-ts  { white-space: nowrap; color: var(--ui-muted); }
+.evt-lvl { font-weight: 700; }
+.evt-lvl-debug    { color: var(--ui-muted); font-weight: normal; }
+.evt-lvl-info     { color: #3273dc; }
+.evt-lvl-warn     { color: #b65c00; }
+.evt-lvl-error    { color: var(--ui-danger); font-weight: 700; }
+.evt-lvl-critical { color: var(--ui-danger); font-weight: 700; }
+.evt-cat { color: var(--ui-muted); }
+.evt-msg { word-break: break-word; }
+
+@media (prefers-color-scheme: dark) {
+  .svc-cell-running { color: #28c87a; }
+  .svc-restart-badge.badge-warn {
+    background: rgba(250, 191, 60, 0.18);
+    color: #f0c060;
+    border-color: rgba(200, 160, 30, 0.28);
+  }
+  .evt-lvl-info { color: #5ba8f5; }
+  .evt-lvl-warn { color: #f0c060; }
+}
