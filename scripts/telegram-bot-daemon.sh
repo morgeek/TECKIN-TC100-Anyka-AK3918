@@ -13,7 +13,7 @@ JQ="/mnt/bin/jq"
 # - Use Telegram long polling to avoid tight request loops.
 # - Add configurable sleep/backoff to keep CPU usage predictable.
 TELEGRAM_LONG_POLL_TIMEOUT_SECONDS="${TELEGRAM_LONG_POLL_TIMEOUT_SECONDS:-25}"
-TELEGRAM_IDLE_SLEEP_SECONDS="${TELEGRAM_IDLE_SLEEP_SECONDS:-1}"
+TELEGRAM_IDLE_SLEEP_SECONDS="${TELEGRAM_IDLE_SLEEP_SECONDS:-5}"
 TELEGRAM_ERROR_BACKOFF_SECONDS="${TELEGRAM_ERROR_BACKOFF_SECONDS:-5}"
 
 sendShot() {
