@@ -14,8 +14,22 @@
   --ui-accent: #0da5c9;
   --ui-danger: #c93d3d;
   --ui-success: #1f8556;
+  --ui-warning: #d97706;
+  --ui-warning-bg: rgba(217, 119, 6, 0.12);
+  --ui-warning-text: #92400e;
+  --ui-info: #3273dc;
   --ui-radius-lg: 20px;
   --ui-radius-md: 14px;
+  --ui-radius-sm: 8px;
+  --ui-radius-xs: 4px;
+  --ui-transition-fast: 140ms ease;
+  --ui-transition-base: 220ms ease;
+  --ui-transition-slow: 400ms ease;
+  --ui-blur-sm: 8px;
+  --ui-blur-md: 16px;
+  --ui-font-mono: "JetBrains Mono", "Fira Mono", "Consolas", monospace;
+  --ui-font-body: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+  --ui-gradient-primary: linear-gradient(135deg, #1a78e0, #0b4f9b);
 }
 
 html {
@@ -24,11 +38,15 @@ html {
 
 body {
   color: var(--ui-text);
-  font-family: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+  font-family: var(--ui-font-body);
   background: transparent;
   line-height: 1.45;
   position: relative;
   overflow-x: hidden;
+}
+
+pre, code, .logs-raw-output, .sysusage-pre, .info-pre {
+  font-family: var(--ui-font-mono);
 }
 
 body::before,
@@ -259,6 +277,11 @@ body::after {
   backdrop-filter: blur(5px);
   overflow: hidden;
   animation: fade-up 330ms ease both;
+  transition: box-shadow var(--ui-transition-base);
+}
+
+.card:hover {
+  box-shadow: var(--ui-shadow);
 }
 
 .card + .card,
@@ -269,13 +292,32 @@ body::after {
 
 .card-header {
   border-bottom: 1px solid var(--ui-border-soft);
+  border-top: 3px solid transparent;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.88));
+  padding: 1rem;
+}
+
+.card.is-primary .card-header {
+  border-top-color: var(--ui-primary);
+}
+
+.card.is-accent .card-header {
+  border-top-color: var(--ui-accent);
+}
+
+.card.is-danger .card-header {
+  border-top-color: var(--ui-danger);
+}
+
+.card.is-success .card-header {
+  border-top-color: var(--ui-success);
 }
 
 .card-header-title {
   color: var(--ui-text);
-  letter-spacing: 0.2px;
+  letter-spacing: -0.01em;
   font-weight: 700;
+  font-size: 1rem;
 }
 
 .card-content pre {
@@ -390,20 +432,24 @@ body::after {
 }
 
 .button {
-  border-radius: 10px;
-  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+  border-radius: var(--ui-radius-sm);
+  transition: transform var(--ui-transition-base), box-shadow var(--ui-transition-base), filter var(--ui-transition-base);
 }
 
 .button:hover {
   transform: translateY(-1px);
 }
 
+.button.is-rounded {
+  border-radius: 999px;
+}
+
 .button:focus-visible,
 .input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid rgba(13, 101, 200, 0.45);
-  outline-offset: 1px;
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
 }
 
 .button.is-primary {
@@ -429,6 +475,111 @@ a.button[disabled]:hover {
   transform: none;
 }
 
+.message {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border-soft);
+  border-radius: var(--ui-radius-md);
+  border-left: 3px solid transparent;
+  backdrop-filter: blur(var(--ui-blur-sm));
+  transition: box-shadow var(--ui-transition-base);
+}
+
+.message.is-danger {
+  border-left-color: var(--ui-danger);
+  background: rgba(201, 61, 61, 0.08);
+}
+
+.message.is-warning {
+  border-left-color: var(--ui-warning);
+  background: var(--ui-warning-bg);
+}
+
+.message.is-success {
+  border-left-color: var(--ui-success);
+  background: rgba(31, 133, 86, 0.08);
+}
+
+.message.is-info {
+  border-left-color: var(--ui-info);
+  background: rgba(50, 115, 220, 0.08);
+}
+
+.message-header {
+  background: transparent;
+  color: var(--ui-text);
+  border-bottom: 1px solid var(--ui-border-soft);
+  padding: 0.75rem 1rem;
+}
+
+.message-body {
+  color: var(--ui-text);
+  border: none;
+  padding: 0.75rem 1rem;
+}
+
+.save-status-label {
+  margin-left: 0.6rem;
+  font-size: 0.85em;
+  opacity: 0;
+  transition: opacity var(--ui-transition-base);
+}
+
+.save-status-label.is-visible {
+  opacity: 1;
+}
+
+.save-status-label.is-success {
+  color: var(--ui-success);
+}
+
+.save-status-label.is-danger {
+  color: var(--ui-danger);
+}
+
+.ui-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ui-border-soft);
+  overflow: hidden;
+  width: 100%;
+}
+
+.ui-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ui-primary);
+  transition: width var(--ui-transition-slow);
+  display: block;
+}
+
+.ui-progress-bar.is-success {
+  background: var(--ui-success);
+}
+
+.ui-progress-bar.is-warning {
+  background: var(--ui-warning);
+}
+
+.ui-progress-bar.is-danger {
+  background: var(--ui-danger);
+}
+
+.has-text-danger {
+  color: var(--ui-danger) !important;
+}
+
+.has-background-danger {
+  background-color: var(--ui-danger) !important;
+}
+
+.has-text-warning {
+  color: var(--ui-warning) !important;
+}
+
+.has-text-success {
+  color: var(--ui-success) !important;
+}
+
 .records-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -437,6 +588,30 @@ a.button[disabled]:hover {
 
 .records-actions .button {
   margin-bottom: 0;
+}
+
+.mt-card {
+  margin-top: 1rem;
+}
+
+.mb-help {
+  margin-bottom: 0.75rem;
+}
+
+.help-inline {
+  margin-left: 0.5rem;
+}
+
+.mt-section {
+  margin-top: 0.75rem;
+}
+
+.text-muted {
+  color: var(--ui-muted);
+}
+
+.text-error {
+  color: var(--ui-danger);
 }
 
 .services-table-wrap {
@@ -1452,6 +1627,10 @@ body::after {
     --ui-accent: #12c8f0;
     --ui-danger: #f25555;
     --ui-success: #28c87a;
+    --ui-warning: #f59e0b;
+    --ui-warning-bg: rgba(245, 158, 11, 0.15);
+    --ui-warning-text: #d97706;
+    --ui-info: #60a5fa;
   }
 
   html {
@@ -1833,4 +2012,8 @@ body::after {
   }
   .evt-lvl-info { color: #5ba8f5; }
   .evt-lvl-warn { color: #f0c060; }
+  .message.is-danger { background: rgba(242, 85, 85, 0.1); }
+  .message.is-warning { background: rgba(245, 158, 11, 0.15); }
+  .message.is-success { background: rgba(40, 200, 122, 0.1); }
+  .message.is-info { background: rgba(96, 165, 250, 0.1); }
 }
