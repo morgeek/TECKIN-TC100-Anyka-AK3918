@@ -288,7 +288,7 @@ stop_cloud()
         for pid in $pids; do
             kill "$pid" 2>/dev/null || true
         done
-        sleep 3
+        sleep 1
         for pid in $pids; do
             if kill -0 "$pid" 2>/dev/null; then
                 echo "Killing unresponsive PID $pid" >> $LOGPATH
@@ -319,18 +319,17 @@ init_network()
     hostname -F $CONFIGPATH/hostname.conf
 
     insmod /usr/modules/otg-hs.ko
-    sleep 1
     insmod /usr/modules/8188fu.ko
     echo "0" > /sys/module/8188fu/parameters/rtw_drv_log_level
 
     i=0
-    while [ $i -lt 3 ]
+    while [ $i -lt 15 ]
     do
         if [ -d "/sys/class/net/wlan0" ];then
             break
         else
-            sleep 1
-            i=`expr $i + 1`
+            sleep 0.2
+            i=$((i + 1))
         fi
     done
 
@@ -407,7 +406,14 @@ sync_time()
     fi
     install_config $CONFIGPATH/ntp_srv.conf
     ntp_srv="$(cat "$CONFIGPATH/ntp_srv.conf")"
-    timeout -t 30 sh -c "until ping -c1 \"$ntp_srv\" &>/dev/null; do sleep 3; done";
+    _ntp_backoff=1
+    while [ "$_ntp_backoff" -le 5 ]; do
+        if ping -c1 "$ntp_srv" &>/dev/null; then
+            break
+        fi
+        sleep "$_ntp_backoff"
+        _ntp_backoff=$((_ntp_backoff * 2))
+    done
     if is_truthy "$NTP_ONE_SHOT"; then
         "$BOOT_BUSYBOX" ntpd -q -n -p "$ntp_srv"
     else
@@ -726,7 +732,6 @@ start_syslog_forwarding()
     if "$BOOT_BUSYBOX" syslogd --help 2>&1 | grep -q '\-R'; then
         # Kill any existing local syslogd
         killall syslogd 2>/dev/null || true
-        sleep 1
         "$BOOT_BUSYBOX" syslogd -R "${SYSLOG_HOST}:${_syslog_port}" &
         echo "start_syslog_forwarding: syslogd -R ${SYSLOG_HOST}:${_syslog_port}" >> "$LOGPATH"
     else
@@ -788,7 +793,7 @@ publish_boot_event()
     fi
     # Publish in background after a short delay so the MQTT bridge has time to connect
     (
-        sleep 8
+        sleep 2
         _payload=$(printf '{"ts":%s,"type":"boot","ip":"%s","uptime_seconds":%s,"source":"autorun"}' \
             "$_pb_ts" "$_pb_ip" "$_pb_uptime")
         /mnt/scripts/mqtt-bridge.sh publish event "$_payload" 0 >/dev/null 2>&1 || true
@@ -897,7 +902,7 @@ start_mqtt_bridge_if_enabled
 publish_boot_event
 echo "$(date)" >> $LOGPATH
 (build_devinfo_cache && echo "build_devinfo_cache: done" >> $LOGPATH) &
-sleep 3
+sleep 1
 sync
 echo 3 > /proc/sys/vm/drop_caches
 echo "--------Starting Hacks Finished!--------" >> $LOGPATH
