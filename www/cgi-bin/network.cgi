@@ -453,10 +453,10 @@ $dns_text</pre>
     </div>
 </div>
 
-<div class='card status_card info-card' style='margin-top:1rem'>
+<div class='card status_card info-card mt-card'>
     <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3v6M5 21h14M6 9h12M7 15h10'/></svg><span>DNS Configuration</span></span></p></header>
     <div class='card-content'>
-        <p class='help' style='margin-bottom:0.75rem'>Override the DHCP-assigned DNS servers. Leave blank to use DHCP DNS. Changes take effect immediately and persist across reboots.</p>
+        <p class='help mb-help'>Override the DHCP-assigned DNS servers. Leave blank to use DHCP DNS. Changes take effect immediately and persist across reboots.</p>
         <div class='field is-horizontal'>
             <div class='field-label is-normal'><label class='label' for='dns_primary_input'>Primary DNS</label></div>
             <div class='field-body'>
@@ -478,7 +478,7 @@ $dns_text</pre>
             <div class='field-body'>
                 <div class='field'>
                     <button class='button is-primary' id='dns_save_btn' type='button' onclick='saveDns()'>Save DNS</button>
-                    <span id='dns_save_status' style='margin-left:0.75rem;font-size:0.9em;'></span>
+                    <span id='dns_save_status' class='save-status-label'></span>
                 </div>
             </div>
         </div>
@@ -507,17 +507,17 @@ function saveDns() {
 </script>
 
 
-<div class='card status_card info-card' style='margin-top:1rem'>
+<div class='card status_card info-card mt-card'>
     <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M12 2a10 10 0 1 1 0 20A10 10 0 0 1 12 2zm0 4v4l3 3'/></svg><span>IP Configuration</span></span></p></header>
     <div class='card-content'>
-        <p class='help' style='margin-bottom:0.75rem'>Switch between DHCP and a fixed static IP. Changes take effect after reboot.</p>
+        <p class='help mb-help'>Switch between DHCP and a fixed static IP. Changes take effect after reboot.</p>
         <div class='field'>
             <label class='radio'><input type='radio' name='ip_mode' id='ip_mode_dhcp' value='dhcp' $([ "${IP_MODE:-dhcp}" != "static" ] && echo "checked")> DHCP (automatic)</label>
             &nbsp;&nbsp;
             <label class='radio'><input type='radio' name='ip_mode' id='ip_mode_static' value='static' $([ "${IP_MODE:-dhcp}" = "static" ] && echo "checked")> Static IP</label>
         </div>
-        <div id='static_ip_fields' style='$([ "${IP_MODE:-dhcp}" != "static" ] && echo "display:none")'>
-            <div class='field is-horizontal' style='margin-top:0.5rem'>
+        <div id='static_ip_fields' class='$([ "${IP_MODE:-dhcp}" != "static" ] && echo "is-hidden")'>
+            <div class='field is-horizontal mt-section'>
                 <div class='field-label is-normal'><label class='label' for='static_ip_input'>IP Address</label></div>
                 <div class='field-body'><div class='field'>
                     <input class='input' type='text' id='static_ip_input' placeholder='e.g. 192.168.1.100' maxlength='15' value='$STATIC_IP'>
@@ -536,19 +536,19 @@ function saveDns() {
                 </div></div>
             </div>
         </div>
-        <div class='field' style='margin-top:0.75rem'>
+        <div class='field mt-section'>
             <button class='button is-primary' id='ip_save_btn' type='button' onclick='saveIpConfig()'>Save IP Config</button>
-            <span id='ip_save_status' style='margin-left:0.75rem;font-size:0.9em;'></span>
+            <span id='ip_save_status' class='save-status-label'></span>
         </div>
     </div>
 </div>
 
-<div class='card status_card info-card' style='margin-top:1rem'>
+<div class='card status_card info-card mt-card'>
     <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M5 12.5C5 9 8 6 12 6s7 3 7 6.5M8 15c0-2.2 1.8-4 4-4s4 1.8 4 4M12 19h.01'/></svg><span>WiFi Networks</span></span></p></header>
     <div class='card-content'>
         <button class='button is-light' id='wifi_scan_btn' type='button' onclick='doWifiScan()'>Scan</button>
-        <span class='help' style='margin-left:0.5rem'>Scans for nearby WiFi networks. Takes 3-5 seconds.</span>
-        <div id='wifi_scan_results' style='margin-top:0.75rem'></div>
+        <span class='help help-inline'>Scans for nearby WiFi networks. Takes 3-5 seconds.</span>
+        <div id='wifi_scan_results' class='mt-section'></div>
     </div>
 </div>
 
