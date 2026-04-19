@@ -61,6 +61,33 @@ run_with_timeout()
   "$@"
 }
 
+get_active_primary_ip()
+{
+  # Tries to find the IP assigned to the interface with the default route.
+  # Fallbacks to first non-loopback IP if no default route is found.
+  _gai_route_iface="$(run_with_timeout 3 route 2>/dev/null | awk '$1=="default" || $1=="0.0.0.0" {print $NF; exit}')"
+  _gai_iface="${_gai_route_iface:-wlan0}"
+
+  _gai_ip="$(ifconfig "$_gai_iface" 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | head -n 1)"
+
+  if [ -z "$_gai_ip" ]; then
+    # Global fallback: any non-loopback inet addr from any interface
+    _gai_ip="$(ifconfig 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
+  fi
+
+  printf '%s\n' "${_gai_ip:-n/a}"
+}
+
+get_default_gateway()
+{
+  # Pulls the second column from the default route line in netstat-route output.
+  _gdg_gw="$(run_with_timeout 3 route 2>/dev/null | awk '$1=="default" || $1=="0.0.0.0" {print $2; exit}')"
+  case "$_gdg_gw" in
+    ''|'*'|'0.0.0.0') _gdg_gw="n/a" ;;
+  esac
+  printf '%s\n' "$_gdg_gw"
+}
+
 
 # Replace the old value of a config_key at the cfg_path with new_value
 # Don't rewrite commented lines
