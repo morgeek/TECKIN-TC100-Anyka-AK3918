@@ -237,29 +237,28 @@ load_or_compute_usage_metrics() {
   save_cached_usage_metrics
 }
 
-read_conf_value() {
-  conf_file="$1"
-  conf_key="$2"
-  conf_default="$3"
-  conf_value="$conf_default"
+# Load configs into shell variables in one pass per file to save IO/forks.
+load_conf_file() {
+  _lcf_path="$1"
+  [ -f "$_lcf_path" ] || return 1
+  while IFS='=' read -r _lcf_k _lcf_v; do
+    case "$_lcf_k" in
+      ''|'#'*) continue ;;
+    esac
+    _lcf_k_clean="$(printf '%s' "$_lcf_k" | tr -cd 'A-Za-z0-9_')"
+    [ -n "$_lcf_k_clean" ] || continue
+    eval "C_${_lcf_k_clean}=\"\$_lcf_v\""
+  done < "$_lcf_path"
+}
 
-  if [ -f "$conf_file" ]; then
-    while IFS= read -r line; do
-      case "$line" in
-        ''|'#'*)
-          continue
-          ;;
-      esac
-      case "$line" in
-        "$conf_key"=*)
-          conf_value="${line#*=}"
-          break
-          ;;
-      esac
-    done < "$conf_file"
+# Helper to get the loaded value or default
+get_cfg() {
+  eval "_gc_val=\"\$C_$1\""
+  if [ -z "$_gc_val" ]; then
+    echo "$2"
+  else
+    echo "$_gc_val"
   fi
-
-  echo "$conf_value"
 }
 
 normalize_web_mode_value() {
@@ -1243,19 +1242,26 @@ if [ -n "$F_cmd" ]; then
 
   healthsnapshot)
     HEALTH_SNAP_CACHE="/tmp/health_snapshot.cache"
-    HEALTH_SNAP_TTL=5
-    read -r _hs_up _ < /proc/uptime
-    _hs_up="${_hs_up%.*}"
-    case "$_hs_up" in ''|*[!0-9]*) _hs_up=0 ;; esac
+    HEALTH_SNAP_TTL=3
+    _read_now_ts
+    _hs_now="$now_ts"
     _hs_cached=""
     if [ -f "$HEALTH_SNAP_CACHE" ]; then
-      { read -r _hs_snap_up; read -r _hs_cached; } < "$HEALTH_SNAP_CACHE" 2>/dev/null || true
-      case "$_hs_snap_up" in ''|*[!0-9]*) _hs_snap_up=0 ;; esac
-      [ $((_hs_up - _hs_snap_up)) -lt "$HEALTH_SNAP_TTL" ] && [ -n "$_hs_cached" ] || _hs_cached=""
+      { read -r _hs_snap_ts; read -r _hs_cached; } < "$HEALTH_SNAP_CACHE" 2>/dev/null || true
+      case "$_hs_snap_ts" in ''|*[!0-9]*) _hs_snap_ts=0 ;; esac
+      [ $((_hs_now - _hs_snap_ts)) -lt "$HEALTH_SNAP_TTL" ] && [ -n "$_hs_cached" ] || _hs_cached=""
     fi
     if [ -n "$_hs_cached" ]; then
       printf '%s\n' "$_hs_cached"
     else
+    # Load all configs needed for a full state overview
+    load_conf_file /mnt/config/boot.conf
+    load_conf_file /mnt/config/service_trim.conf
+    load_conf_file /mnt/config/rtspserver.conf
+    load_conf_file /mnt/config/mqtt.conf
+    load_conf_file /mnt/config/recording.conf
+    load_conf_file /mnt/config/sound_detection.conf
+
     load_or_compute_usage_metrics
     profile="$(get_perf_profile)"
     load_lum_awb
@@ -1275,8 +1281,7 @@ if [ -n "$F_cmd" ]; then
     fi
     health_hostname_json="$(json_escape "$health_hostname")"
 
-    _read_now_ts
-    health_time_utc="$(_format_iso8601_utc "$now_ts")"
+    health_time_utc="$(_format_iso8601_utc "$_hs_now")"
     health_time_utc_json="$(json_escape "$health_time_utc")"
 
     uptime_seconds=0
@@ -1292,7 +1297,7 @@ if [ -n "$F_cmd" ]; then
     chip_temp_text_json="$(json_escape "$chip_temp_text")"
     power_voltage_text_json="$(json_escape "$power_voltage_text")"
     power_estimated_text_json="$(json_escape "$power_estimated_text")"
-    web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
+    web_mode_json="$(json_escape "$(get_cfg WEB_MODE full)")"
     codec0_json="$(json_escape "$codec0_name")"
     codec1_json="$(json_escape "$codec1_name")"
     watchdog_json="$(last_watchdog_event_json)"
@@ -1300,8 +1305,21 @@ if [ -n "$F_cmd" ]; then
     rtsp_state_json="$(service_state_json /mnt/controlscripts/rtsp-h26x)"
     onvif_state_json="$(service_state_json /mnt/controlscripts/onvif)"
 
-    _hs_result="{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json,\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
-    { printf '%s\n' "$_hs_up"; printf '%s\n' "$_hs_result"; } > "$HEALTH_SNAP_CACHE" 2>/dev/null || true
+    # SD Card Read-Only check
+    sd_readonly=1
+    if mount | grep "/mmcblk" | grep -q "rw,"; then
+      sd_readonly=0
+    fi
+
+    # CSRF Token
+    csrf_token=""
+    if [ -r /tmp/csrf_token ]; then
+        read -r csrf_token < /tmp/csrf_token
+        csrf_token="$(printf '%s' "$csrf_token" | tr -cd '0-9a-fA-F')"
+    fi
+
+    _hs_result="{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"sd_readonly\":$sd_readonly,\"csrf_token\":\"$csrf_token\",\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json,\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
+    { printf '%s\n' "$_hs_now"; printf '%s\n' "$_hs_result"; } > "$HEALTH_SNAP_CACHE" 2>/dev/null || true
     printf '%s\n' "$_hs_result"
     fi
     ;;
