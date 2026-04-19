@@ -20,6 +20,13 @@ NC='\033[0m'
 
 echo -e "${BLUE}=== Deploying TECKIN TC100 Hacks to $FTP_HOST:$FTP_PORT ===${NC}"
 
+# Ensure curl is available on host
+if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${RED}Error: curl is required on your computer to perform this deployment.${NC}"
+    echo -e "Please install curl and try again."
+    exit 1
+fi
+
 # List of directories to upload (local relative path : remote destination)
 DIRS_TO_UPLOAD=(
   "bin"
