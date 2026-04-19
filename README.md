@@ -1,4 +1,5 @@
-# TECKIN TC100 Anyka AK3918 reversible camera hacks
+# TECKIN TC100 Anyka AK3918 Camera Hacks
+**Version 1.0.0**
 This is a fork from : https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks
 Supported model: **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300)
 AI used

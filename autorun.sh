@@ -884,6 +884,7 @@ load_boot_config
 # Validate config values early — logs to /tmp/log/config-validator.log, never fatal.
 [ -x /mnt/scripts/config-validator.sh ] && /mnt/scripts/config-validator.sh &
 echo "--------Starting Hacks--------" >> $LOGPATH
+echo "Version: 1.0.0" >> $LOGPATH
 stop_cloud
 enable_hardware_watchdog
 init_network
@@ -906,3 +907,12 @@ sleep 1
 sync
 echo 3 > /proc/sys/vm/drop_caches
 echo "--------Starting Hacks Finished!--------" >> $LOGPATH
+
+## Audio Feedback: Play Startup Chime
+PTT_PCM_PLAYBACK_BIN="/usr/bin/ak_ao_demo"
+STARTUP_CHIME="/mnt/sounds/startup_complete.pcm"
+
+if [ -x "$PTT_PCM_PLAYBACK_BIN" ] && [ -f "$STARTUP_CHIME" ]; then
+    # Play startup sound: 8000Hz, 1 channel, startup_complete.pcm, volume 5
+    nohup "$PTT_PCM_PLAYBACK_BIN" 8000 1 "$STARTUP_CHIME" 5 > /dev/null 2>&1 &
+fi
