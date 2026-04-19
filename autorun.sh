@@ -238,6 +238,12 @@ load_boot_config()
     : "${SYSLOG_ENABLE:=0}"
     : "${SYSLOG_HOST:=}"
     : "${SYSLOG_PORT:=514}"
+    : "${CPU_SCALER_ENABLE:=0}"
+    : "${CPU_SCALER_INTERVAL_SECONDS:=10}"
+    : "${CPU_SCALER_THRESHOLD_PERCENT:=80}"
+    : "${CPU_SCALER_HOLD_TIME_SECONDS:=30}"
+    : "${CPU_SCALER_D1_WIDTH:=720}"
+    : "${CPU_SCALER_D1_HEIGHT:=480}"
 
     if is_truthy "$REBOOT_SCHEDULE_ENABLE" && ! is_truthy "$ENABLE_CROND"; then
         ENABLE_CROND=1
@@ -255,6 +261,12 @@ load_boot_config()
         fi
     fi
 
+    if is_truthy "$CPU_SCALER_ENABLE" && [ -n "$AUTOSTART_ALLOWLIST" ]; then
+        if ! list_contains "cpu-scaler" $AUTOSTART_ALLOWLIST; then
+            AUTOSTART_ALLOWLIST="$AUTOSTART_ALLOWLIST cpu-scaler"
+        fi
+    fi
+
     if is_truthy "$SECURITY_HARDENING_MODE"; then
         if [ "$WEB_MODE" != "full" ]; then
             WEB_MODE="full"
@@ -265,7 +277,12 @@ load_boot_config()
         fi
     fi
 
-    echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE security_hardening=$SECURITY_HARDENING_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
+    echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE cpuscaler=$CPU_SCALER_ENABLE security_hardening=$SECURITY_HARDENING_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
+
+    # Late-boot background tasks
+    if [ -x /mnt/scripts/update-check.sh ]; then
+        /mnt/scripts/update-check.sh &
+    fi
 }
 
 enable_hardware_watchdog()

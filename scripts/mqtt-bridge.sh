@@ -110,7 +110,31 @@ load_config()
   fi
 
   MQTT_ENABLE="${MQTT_ENABLE:-0}"
-  MQTT_HOST="${MQTT_HOST:-127.0.0.1}"
+  MQTT_HOST="${MQTT_HOST:-}"
+  
+  # Plug & Play: Auto-detect MQTT broker if not configured
+  if [ -z "$MQTT_HOST" ] || [ "$MQTT_HOST" = "127.0.0.1" ] || [ "$MQTT_HOST" = "192.168.1.10" ]; then
+    # Try common Home Assistant broker names
+    for host in "homeassistant" "hassio" "home-assistant"; do
+      if ping -c 1 -W 2 "$host" >/dev/null 2>&1; then
+        MQTT_HOST="$host"
+        log_msg "Auto-detected MQTT broker at: $MQTT_HOST"
+        break
+      fi
+    done
+    # Fallback to Gateway if still not found
+    if [ -z "$MQTT_HOST" ] || [ "$MQTT_HOST" = "127.0.0.1" ]; then
+      gw_ip="$(get_default_gateway)"
+      if [ "$gw_ip" != "n/a" ] && [ "$gw_ip" != "0.0.0.0" ]; then
+        if ping -c 1 -W 1 "$gw_ip" >/dev/null 2>&1; then
+          # We don't assume the gateway IS the broker, but it's a better default than loopback in many IoT networks
+          # However, let's stick to the config default if auto-detect fails
+          [ -n "$MQTT_HOST" ] || MQTT_HOST="$(read_kv_config_value "$CONFIG_FILE" MQTT_HOST "127.0.0.1")"
+        fi
+      fi
+    fi
+  fi
+  [ -n "$MQTT_HOST" ] || MQTT_HOST="127.0.0.1"
   MQTT_PORT="$(sanitize_int_range "${MQTT_PORT:-1883}" 1 65535 1883)"
   MQTT_USER="${MQTT_USER:-}"
   MQTT_PASSWORD="${MQTT_PASSWORD:-}"
@@ -667,12 +691,11 @@ publish_homeassistant_discovery()
   motion_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/motion/state")"
   network_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/network/state")"
   integration_manifest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/manifest")"
-  integration_selftest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/selftest")"
-  command_last_result_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/command/last_result")"
-  repair_last_result_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/repair/last_result")"
   avail_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/availability")"
   device_name_json="$(json_escape "$hostname_value")"
   device_id_json="$(json_escape "$node_id")"
+  
+  # Command templates for interactive entities
   cmd_profile_tpl_json="$(json_escape "{\"cmd\":\"profile\",\"value\":\"{{ value }}\"}")"
   cmd_motion_on_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"on\"}")"
   cmd_motion_off_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"off\"}")"
@@ -687,6 +710,8 @@ publish_homeassistant_discovery()
   cmd_telnet_on_json="$(json_escape "{\"cmd\":\"telnet\",\"value\":\"on\"}")"
   cmd_telnet_off_json="$(json_escape "{\"cmd\":\"telnet\",\"value\":\"off\"}")"
 
+  # --- Sensors (CPU, RAM, Temp, Power) ---
+  
   cpu_cfg_topic="${discovery_prefix}/sensor/${node_id}/cpu/config"
   cpu_cfg_payload="$(printf '{"name":"%s CPU","uniq_id":"%s_cpu","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.cpu }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:chip","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$cpu_cfg_topic" "$cpu_cfg_payload"
@@ -700,172 +725,61 @@ publish_homeassistant_discovery()
   publish_discovery_config "$temp_cfg_topic" "$temp_cfg_payload"
 
   power_cfg_topic="${discovery_prefix}/sensor/${node_id}/power_draw/config"
-  power_cfg_payload="$(printf '{"name":"%s Power","uniq_id":"%s_power","stat_t":"%s","unit_of_meas":"W","dev_cla":"power","stat_cla":"measurement","val_tpl":"{{ (value_json.power_estimated_mw | float(0) / 1000) | round(2) if value_json.power_estimated_mw is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:flash","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  power_cfg_payload="$(printf '{"name":"%s Power Draw","uniq_id":"%s_power","stat_t":"%s","unit_of_meas":"W","dev_cla":"power","stat_cla":"measurement","val_tpl":"{{ (value_json.power_estimated_mw | float(0) / 1000) | round(2) if value_json.power_estimated_mw is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:flash","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$power_cfg_topic" "$power_cfg_payload"
-
-  vin_cfg_topic="${discovery_prefix}/sensor/${node_id}/input_voltage/config"
-  vin_cfg_payload="$(printf '{"name":"%s Input Voltage","uniq_id":"%s_vin","stat_t":"%s","unit_of_meas":"V","dev_cla":"voltage","stat_cla":"measurement","val_tpl":"{{ (value_json.power_voltage_mv | float(0) / 1000) | round(3) if value_json.power_voltage_mv is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:power-plug","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$vin_cfg_topic" "$vin_cfg_payload"
 
   uptime_cfg_topic="${discovery_prefix}/sensor/${node_id}/uptime/config"
   uptime_cfg_payload="$(printf '{"name":"%s Uptime","uniq_id":"%s_uptime","stat_t":"%s","unit_of_meas":"s","dev_cla":"duration","stat_cla":"measurement","val_tpl":"{{ value_json.uptime_seconds }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$uptime_cfg_topic" "$uptime_cfg_payload"
 
-  profile_state_cfg_topic="${discovery_prefix}/sensor/${node_id}/profile_state/config"
-  profile_state_cfg_payload="$(printf '{"name":"%s Profile","uniq_id":"%s_profile_state","stat_t":"%s","val_tpl":"{{ value_json.perfprofile }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$profile_state_cfg_topic" "$profile_state_cfg_payload"
+  # --- Elite Integration Entities ---
 
-  web_mode_cfg_topic="${discovery_prefix}/sensor/${node_id}/web_mode/config"
-  web_mode_cfg_payload="$(printf '{"name":"%s Web Mode","uniq_id":"%s_web_mode","stat_t":"%s","val_tpl":"{{ value_json.web_mode }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:web","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$web_mode_cfg_topic" "$web_mode_cfg_payload"
+  # Camera (RTSP Stream)
+  rtsp_port="$(read_kv_config_value /mnt/config/rtspserver.conf PORT 554)"
+  rtsp_user="$(read_kv_config_value /mnt/config/rtspserver.conf USERNAME "")"
+  rtsp_pass="$(read_kv_config_value /mnt/config/rtspserver.conf USERPASSWORD "")"
+  rtsp_url_json="$(json_escape "rtsp://${rtsp_user:+$rtsp_user:$rtsp_pass@}$(detect_primary_ip_current):$rtsp_port/video0_unicast")"
+  
+  camera_cfg_topic="${discovery_prefix}/camera/${node_id}/live/config"
+  camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","stream_source":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/last_path" "$rtsp_url_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$camera_cfg_topic" "$camera_cfg_payload"
 
-  ip_cfg_topic="${discovery_prefix}/sensor/${node_id}/primary_ip/config"
-  ip_cfg_payload="$(printf '{"name":"%s IP","uniq_id":"%s_primary_ip","stat_t":"%s","val_tpl":"{{ value_json.primary_ip }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:ip-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$ip_cfg_topic" "$ip_cfg_payload"
+  # Switches (Interactive Toggles)
+  for cmd in ir_led front_led red_led motion_detection privacy_shield; do
+    uniq_id="${node_id}_${cmd}"
+    name_suffix="$(echo "$cmd" | tr '_' ' ' | sed 's/led/LED/g' | sed 's/\b./\u&/g')"
+    ic="mdi:toggle-switch"
+    [ "$cmd" = "ir_led" ] && ic="mdi:eye-outline"
+    [ "$cmd" = "front_led" ] && ic="mdi:led-on"
+    [ "$cmd" = "red_led" ] && ic="mdi:led-variant-on"
+    [ "$cmd" = "motion_detection" ] && ic="mdi:motion-sensor"
+    [ "$cmd" = "privacy_shield" ] && ic="mdi:shield-account"
 
-  storage_used_cfg_topic="${discovery_prefix}/sensor/${node_id}/storage_used_percent/config"
-  storage_used_cfg_payload="$(printf '{"name":"%s Storage Used","uniq_id":"%s_storage_used","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.storage_used_percent }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:database","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$storage_used_cfg_topic" "$storage_used_cfg_payload"
+    stat_field="${cmd}_on"
+    [ "$cmd" = "motion_detection" ] && stat_field="motion_enabled"
+    [ "$cmd" = "privacy_shield" ] && stat_field="privacy_mode"
 
-  storage_free_cfg_topic="${discovery_prefix}/sensor/${node_id}/storage_free_mb/config"
-  storage_free_cfg_payload="$(printf '{"name":"%s Storage Free","uniq_id":"%s_storage_free_mb","stat_t":"%s","unit_of_meas":"MB","stat_cla":"measurement","val_tpl":"{{ value_json.storage_avail_mb }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:database-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$storage_free_cfg_topic" "$storage_free_cfg_payload"
+    switch_cfg_topic="${discovery_prefix}/switch/${node_id}/${cmd}/config"
+    switch_cfg_payload="$(printf '{"name":"%s %s","uniq_id":"%s","stat_t":"%s","val_tpl":"{{ \"ON\" if value_json.%s == 1 else \"OFF\" }}","cmd_t":"%s","pl_on":"{\"cmd\":\"%s\",\"value\":\"on\"}","pl_off":"{\"cmd\":\"%s\",\"value\":\"off\"}","avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$name_suffix" "$uniq_id" "$health_topic_json" "$stat_field" "$cmd_json" "$cmd" "$cmd" "$avail_topic_json" "$ic" "$device_id_json" "$device_name_json")"
+    publish_discovery_config "$switch_cfg_topic" "$switch_cfg_payload"
+  done
 
-  security_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/security_hardening/config"
-  security_cfg_payload="$(printf '{"name":"%s Security Hardening","uniq_id":"%s_security_hardening","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.security_hardening_mode == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:shield-lock","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$security_cfg_topic" "$security_cfg_payload"
+  # Maintenance Entities (Buttons/Select)
+  reboot_btn_topic="${discovery_prefix}/button/${node_id}/reboot/config"
+  reboot_btn_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","payload_press":"{\"cmd\":\"reboot\"}","avty_t":"%s","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$reboot_btn_topic" "$reboot_btn_payload"
 
-  motion_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/motion_active/config"
-  motion_cfg_payload="$(printf '{"name":"%s Motion Active","uniq_id":"%s_motion_active","stat_t":"%s","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$motion_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$motion_cfg_topic" "$motion_cfg_payload"
+  snapshot_btn_topic="${discovery_prefix}/button/${node_id}/snapshot/config"
+  snapshot_btn_payload="$(printf '{"name":"%s Take Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","payload_press":"{\"cmd\":\"snapshot\"}","avty_t":"%s","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$snapshot_btn_topic" "$snapshot_btn_payload"
 
-  ftp_port_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/ftp_port/config"
-  ftp_port_cfg_payload="$(printf '{"name":"%s FTP Port","uniq_id":"%s_ftp_port","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.port_ftp_open == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:folder-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$ftp_port_cfg_topic" "$ftp_port_cfg_payload"
-
-  telnet_port_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/telnet_port/config"
-  telnet_port_cfg_payload="$(printf '{"name":"%s Telnet Port","uniq_id":"%s_telnet_port","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.port_telnet_open == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:console-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$telnet_port_cfg_topic" "$telnet_port_cfg_payload"
-
-  network_monitor_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/network_monitor/config"
-  network_monitor_cfg_payload="$(printf '{"name":"%s Network Monitor","uniq_id":"%s_network_monitor","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.monitor_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-cog","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$network_monitor_cfg_topic" "$network_monitor_cfg_payload"
-
-  wifi_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/wifi_connected/config"
-  wifi_cfg_payload="$(printf '{"name":"%s WiFi Connected","uniq_id":"%s_wifi_connected","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.wifi_connected == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$wifi_cfg_topic" "$wifi_cfg_payload"
-
-  gateway_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/gateway_reachable/config"
-  gateway_cfg_payload="$(printf '{"name":"%s Gateway Reachable","uniq_id":"%s_gateway_reachable","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.gateway_reachable == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:router-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$gateway_cfg_topic" "$gateway_cfg_payload"
-
-  broker_reachable_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/broker_reachable/config"
-  broker_reachable_cfg_payload="$(printf '{"name":"%s MQTT Broker Reachable","uniq_id":"%s_broker_reachable","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.broker_reachable == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-connect","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$broker_reachable_cfg_topic" "$broker_reachable_cfg_payload"
-
-  network_problem_cfg_topic="${discovery_prefix}/sensor/${node_id}/network_problem/config"
-  network_problem_cfg_payload="$(printf '{"name":"%s Network Problem","uniq_id":"%s_network_problem","stat_t":"%s","val_tpl":"{{ value_json.current_problem if value_json.current_problem is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-alert","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$network_problem_cfg_topic" "$network_problem_cfg_payload"
-
-  broker_state_cfg_topic="${discovery_prefix}/sensor/${node_id}/broker_state/config"
-  broker_state_cfg_payload="$(printf '{"name":"%s MQTT Broker State","uniq_id":"%s_broker_state","stat_t":"%s","val_tpl":"{{ value_json.broker_state if value_json.broker_state is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-pending","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$broker_state_cfg_topic" "$broker_state_cfg_payload"
-
-  reconnect_cfg_topic="${discovery_prefix}/sensor/${node_id}/wifi_reconnect_count/config"
-  reconnect_cfg_payload="$(printf '{"name":"%s WiFi Reconnects","uniq_id":"%s_wifi_reconnect_count","stat_t":"%s","unit_of_meas":"count","stat_cla":"measurement","val_tpl":"{{ value_json.reconnect_count }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-refresh","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$reconnect_cfg_topic" "$reconnect_cfg_payload"
-
-  broker_restart_cfg_topic="${discovery_prefix}/sensor/${node_id}/broker_restart_count/config"
-  broker_restart_cfg_payload="$(printf '{"name":"%s MQTT Bridge Restarts","uniq_id":"%s_broker_restart_count","stat_t":"%s","unit_of_meas":"count","stat_cla":"measurement","val_tpl":"{{ value_json.broker_restart_count }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart-alert","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$broker_restart_cfg_topic" "$broker_restart_cfg_payload"
-
-  last_recovery_reason_cfg_topic="${discovery_prefix}/sensor/${node_id}/last_recovery_reason/config"
-  last_recovery_reason_cfg_payload="$(printf '{"name":"%s Last Recovery Reason","uniq_id":"%s_last_recovery_reason","stat_t":"%s","val_tpl":"{{ value_json.last_recovery_reason if value_json.last_recovery_reason is defined else \"none\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:alert-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$network_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$last_recovery_reason_cfg_topic" "$last_recovery_reason_cfg_payload"
-
-  integration_status_cfg_topic="${discovery_prefix}/sensor/${node_id}/integration_status/config"
-  integration_status_cfg_payload="$(printf '{"name":"%s Integration Status","uniq_id":"%s_integration_status","stat_t":"%s","val_tpl":"{{ value_json.overall_status if value_json.overall_status is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-check","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_selftest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$integration_status_cfg_topic" "$integration_status_cfg_payload"
-
-  integration_ok_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/integration_ok/config"
-  integration_ok_cfg_payload="$(printf '{"name":"%s Integration Healthy","uniq_id":"%s_integration_ok","stat_t":"%s","pl_on":"ON","pl_off":"OFF","val_tpl":"{{ \"ON\" if value_json.overall_ok == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:check-network-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_selftest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$integration_ok_cfg_topic" "$integration_ok_cfg_payload"
-
-  frigate_detect_source_cfg_topic="${discovery_prefix}/sensor/${node_id}/frigate_detect_source/config"
-  frigate_detect_source_cfg_payload="$(printf '{"name":"%s Frigate Detect Source","uniq_id":"%s_frigate_detect_source","stat_t":"%s","val_tpl":"{{ value_json.rtsp.frigate.detect_source if value_json.rtsp is defined and value_json.rtsp.frigate is defined else \"unknown\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:cctv","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$integration_manifest_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$frigate_detect_source_cfg_topic" "$frigate_detect_source_cfg_payload"
-
-  last_command_cfg_topic="${discovery_prefix}/sensor/${node_id}/last_command_result/config"
-  last_command_cfg_payload="$(printf '{"name":"%s Last Command Result","uniq_id":"%s_last_command_result","stat_t":"%s","val_tpl":"{{ (value_json.command ~ \":\" ~ value_json.status) if value_json.command is defined and value_json.status is defined else \"none\" }}","json_attr_t":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:message-text-clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$command_last_result_topic_json" "$command_last_result_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$last_command_cfg_topic" "$last_command_cfg_payload"
-
-  last_repair_cfg_topic="${discovery_prefix}/sensor/${node_id}/last_repair_result/config"
-  last_repair_cfg_payload="$(printf '{"name":"%s Last Repair Result","uniq_id":"%s_last_repair_result","stat_t":"%s","val_tpl":"{{ (value_json.command ~ \":\" ~ value_json.status) if value_json.command is defined and value_json.status is defined else \"none\" }}","json_attr_t":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:auto-fix","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$repair_last_result_topic_json" "$repair_last_result_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$last_repair_cfg_topic" "$last_repair_cfg_payload"
-
-  reboot_cfg_topic="${discovery_prefix}/button/${node_id}/reboot/config"
-  reboot_cfg_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","pl_prs":"reboot","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$reboot_cfg_topic" "$reboot_cfg_payload"
-
-  snapshot_cfg_topic="${discovery_prefix}/button/${node_id}/snapshot/config"
-  snapshot_cfg_payload="$(printf '{"name":"%s Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","pl_prs":"snapshot","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$snapshot_cfg_topic" "$snapshot_cfg_payload"
-
-  integration_selftest_cfg_topic="${discovery_prefix}/button/${node_id}/integration_selftest/config"
-  integration_selftest_cfg_payload="$(printf '{"name":"%s Run Integration Self-Test","uniq_id":"%s_integration_selftest","cmd_t":"%s","pl_prs":"integration_selftest","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lan-check","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$integration_selftest_cfg_topic" "$integration_selftest_cfg_payload"
-
-  integration_manifest_cfg_topic="${discovery_prefix}/button/${node_id}/integration_manifest/config"
-  integration_manifest_cfg_payload="$(printf '{"name":"%s Refresh Integration Manifest","uniq_id":"%s_integration_manifest","cmd_t":"%s","pl_prs":"integration_manifest","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:file-refresh-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$integration_manifest_cfg_topic" "$integration_manifest_cfg_payload"
-
-  repair_integration_cfg_topic="${discovery_prefix}/button/${node_id}/repair_integration/config"
-  repair_integration_cfg_payload="$(printf '{"name":"%s Repair Integration","uniq_id":"%s_repair_integration","cmd_t":"%s","pl_prs":"repair_integration","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:auto-fix","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$repair_integration_cfg_topic" "$repair_integration_cfg_payload"
-
-  restart_rtsp_cfg_topic="${discovery_prefix}/button/${node_id}/restart_rtsp/config"
-  restart_rtsp_cfg_payload="$(printf '{"name":"%s Restart RTSP","uniq_id":"%s_restart_rtsp","cmd_t":"%s","pl_prs":"restart_rtsp","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:video-wireless","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$restart_rtsp_cfg_topic" "$restart_rtsp_cfg_payload"
-
-  restart_onvif_cfg_topic="${discovery_prefix}/button/${node_id}/restart_onvif/config"
-  restart_onvif_cfg_payload="$(printf '{"name":"%s Restart ONVIF","uniq_id":"%s_restart_onvif","cmd_t":"%s","pl_prs":"restart_onvif","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:radar","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$restart_onvif_cfg_topic" "$restart_onvif_cfg_payload"
-
-  restart_network_monitor_cfg_topic="${discovery_prefix}/button/${node_id}/restart_network_monitor/config"
-  restart_network_monitor_cfg_payload="$(printf '{"name":"%s Restart Network Monitor","uniq_id":"%s_restart_network_monitor","cmd_t":"%s","pl_prs":"restart_network_monitor","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:wifi-refresh","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$restart_network_monitor_cfg_topic" "$restart_network_monitor_cfg_payload"
-
-  restart_mqtt_bridge_cfg_topic="${discovery_prefix}/button/${node_id}/restart_mqtt_bridge/config"
-  restart_mqtt_bridge_cfg_payload="$(printf '{"name":"%s Restart MQTT Bridge","uniq_id":"%s_restart_mqtt_bridge","cmd_t":"%s","pl_prs":"restart_mqtt_bridge","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:restart-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$restart_mqtt_bridge_cfg_topic" "$restart_mqtt_bridge_cfg_payload"
+  update_cfg_topic="${discovery_prefix}/update/${node_id}/firmware/config"
+  update_cfg_payload="$(printf '{"name":"%s Firmware","uniq_id":"%s_update","stat_t":"%s","val_tpl":"{{ value_json.update_status if value_json.update_status is defined else \"none\" }}","cmd_t":"%s","pl_inst":"{\"cmd\":\"update_install\"}","avty_t":"%s","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/update/state" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$update_cfg_topic" "$update_cfg_payload"
 
   profile_select_cfg_topic="${discovery_prefix}/select/${node_id}/profile/config"
   profile_select_cfg_payload="$(printf '{"name":"%s Profile Preset","uniq_id":"%s_profile_select","cmd_t":"%s","stat_t":"%s","options":["balanced","low-cpu","rtsp-only"],"val_tpl":"{{ value_json.perfprofile }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune-variant","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_profile_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$profile_select_cfg_topic" "$profile_select_cfg_payload"
-
-  motion_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/motion_detection/config"
-  motion_switch_cfg_payload="$(printf '{"name":"%s Motion Detection","uniq_id":"%s_motion_detection","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.motion_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_motion_on_json" "$cmd_motion_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$motion_switch_cfg_topic" "$motion_switch_cfg_payload"
-
-  ir_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/ir_led/config"
-  ir_switch_cfg_payload="$(printf '{"name":"%s IR LED","uniq_id":"%s_ir_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.ir_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:lightbulb-night","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_ir_on_json" "$cmd_ir_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$ir_switch_cfg_topic" "$ir_switch_cfg_payload"
-
-  front_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/front_led/config"
-  front_switch_cfg_payload="$(printf '{"name":"%s Front LED","uniq_id":"%s_front_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.front_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:led-on","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_front_on_json" "$cmd_front_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$front_switch_cfg_topic" "$front_switch_cfg_payload"
-
-  red_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/red_led/config"
-  red_switch_cfg_payload="$(printf '{"name":"%s Red LED","uniq_id":"%s_red_led","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.red_led_on == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:led-on","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_red_on_json" "$cmd_red_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$red_switch_cfg_topic" "$red_switch_cfg_payload"
-
-  ftp_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/ftp_service/config"
-  ftp_switch_cfg_payload="$(printf '{"name":"%s FTP Service","uniq_id":"%s_ftp_service","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.ftp_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:folder-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_ftp_on_json" "$cmd_ftp_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$ftp_switch_cfg_topic" "$ftp_switch_cfg_payload"
-
-  telnet_switch_cfg_topic="${discovery_prefix}/switch/${node_id}/telnet_service/config"
-  telnet_switch_cfg_payload="$(printf '{"name":"%s Telnet Service","uniq_id":"%s_telnet_service","cmd_t":"%s","stat_t":"%s","pl_on":"%s","pl_off":"%s","stat_on":"ON","stat_off":"OFF","val_tpl":"{{ \"ON\" if value_json.telnet_enabled == 1 else \"OFF\" }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:console-network","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_telnet_on_json" "$cmd_telnet_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$telnet_switch_cfg_topic" "$telnet_switch_cfg_payload"
 }
 
 init_slow_health_defaults()

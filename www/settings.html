@@ -276,6 +276,38 @@
                 </div>
             </form>
 
+            <div class='card status_card mt-4 ha-connectivity-card'>
+                <header class='card-header'><p class='card-header-title'>Home Assistant Connectivity</p></header>
+                <div class='card-content'>
+                    <div id="ha_discovery_status_container">
+                        <div class="level is-mobile mb-2">
+                            <div class="level-left">
+                                <div class="level-item">
+                                    <span class="icon is-small mr-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-home"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></span>
+                                    <span class="is-size-7">Discovery Status:</span>
+                                </div>
+                            </div>
+                            <div class="level-right">
+                                <div class="level-item">
+                                    <span class="tag is-small" id="ha_discovery_badge">Checking...</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="field is-grouped is-grouped-multiline mb-4">
+                            <div class="control"><div class="tags has-addons"><span class="tag is-dark is-small">Prefix</span><span class="tag is-info is-small" id="ha_discovery_prefix">--</span></div></div>
+                            <div class="control"><div class="tags has-addons"><span class="tag is-dark is-small">Entities</span><span class="tag is-success is-small">25+ Discovery Nodes</span></div></div>
+                        </div>
+                    </div>
+                    <div class="buttons">
+                        <button type="button" class="button is-link is-small is-fullwidth" id="btn_refresh_ha_discovery">
+                            <span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-refresh-cw"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg></span>
+                            <span>Refresh Home Assistant Entities</span>
+                        </button>
+                    </div>
+                    <p class="help">Use this if entities are missing or named incorrectly in Home Assistant.</p>
+                </div>
+            </div>
+
             <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
                 <div class='card status_card mt-4'>
                     <header class='card-header'><p class='card-header-title'>Motion & Sound Detection</p></header>
@@ -476,7 +508,51 @@
                 document.querySelectorAll('.tab-content').forEach(content => {
                     content.classList.toggle('is-hidden', content.id !== targetId);
                 });
+                if (targetId === 'tab-automation') { initHAStatus(); }
             });
         });
+
+        function initHAStatus() {
+            const btn = document.getElementById('btn_refresh_ha_discovery');
+            if (btn && !btn.dataset.init) {
+                btn.dataset.init = '1';
+                btn.onclick = async () => {
+                    btn.classList.add('is-loading');
+                    try {
+                        const res = await fetch('cgi-bin/action.cgi?cmd=refresh_ha_discovery', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.status === 'success') {
+                            alert('Home Assistant Discovery refresh triggered successfully.');
+                        } else {
+                            alert('Refresh failed: ' + (data.message || 'Unknown error'));
+                        }
+                    } catch (e) {
+                        alert('Error contacting camera: ' + e.message);
+                    } finally {
+                        btn.classList.remove('is-loading');
+                    }
+                };
+            }
+
+            // Sync HA Status from live telemetry
+            if (window.EliteUI && window.EliteUI.onStateUpdate) {
+                const originalOnState = window.EliteUI.onStateUpdate;
+                window.EliteUI.onStateUpdate = (state) => {
+                    if (originalOnState) originalOnState(state);
+                    const badge = document.getElementById('ha_discovery_badge');
+                    const prefix = document.getElementById('ha_discovery_prefix');
+                    if (state.mqtt_discovery_enabled === 1 || state.mqtt_discovery === 1) {
+                        badge.className = 'tag is-small is-success';
+                        badge.textContent = 'Active';
+                    } else {
+                        badge.className = 'tag is-small is-light';
+                        badge.textContent = 'Disabled';
+                    }
+                    if (state.mqtt && state.mqtt.discovery_prefix) {
+                        prefix.textContent = state.mqtt.discovery_prefix;
+                    }
+                };
+            }
+        }
     })();
 </script>

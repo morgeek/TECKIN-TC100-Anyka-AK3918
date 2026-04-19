@@ -2007,6 +2007,24 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
+    refresh_ha_discovery)
+      csrf_check
+      if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
+        /mnt/scripts/mqtt-bridge.sh discovery > /dev/null 2>&1
+        if wants_json_response; then
+          json_response "success" "Home Assistant Discovery refresh triggered."
+        else
+          echo "Home Assistant Discovery refresh triggered.<br/>"
+        fi
+      else
+        if wants_json_response; then
+          json_error "BRIDGE_MISSING" "MQTT bridge script missing."
+        else
+          echo "Error: MQTT bridge script missing.<br/>"
+        fi
+      fi
+    ;;
+
     set_mqtt_config)
       csrf_check
       install_config /mnt/config/mqtt.conf
