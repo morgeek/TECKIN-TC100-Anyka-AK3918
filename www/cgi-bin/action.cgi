@@ -1150,6 +1150,46 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
+    set_video_params)
+      stream_idx="$(sanitize_int_range "${F_stream}" 0 1 0)"
+      raw_size=$(printf '%b' "${F_video_size0}")
+      [ "$stream_idx" = "1" ] && raw_size=$(printf '%b' "${F_video_size1}")
+      
+      width=$(echo "$raw_size" | cut -d'x' -f1)
+      height=$(echo "$raw_size" | cut -d'x' -f2)
+      fps=$(sanitize_int_range "${F_fps0:-${F_fps1}}" 1 30 25)
+      bitrate=$(sanitize_int_range "${F_brbitrate0:-${F_brbitrate1}}" 32 8000 1000)
+
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          "$stream_idx" width "$width" \
+          "$stream_idx" height "$height" \
+          "$stream_idx" fps "$fps" \
+          "$stream_idx" bps "$bitrate"
+      
+      schedule_rtsp_restart
+      if wants_json_response; then
+        json_response "success" "Video settings updated."
+      else
+        echo "Video settings updated. RTSP restarting...<br/>"
+      fi
+    ;;
+
+    conf_audioin)
+      samplerate=$(sanitize_int_range "${F_samplerate}" 8000 48000 8000)
+      volume=$(sanitize_int_range "${F_audioinVol}" 0 12 10)
+      
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          " " samplerate "$samplerate" \
+          " " audioinVol "$volume"
+          
+      schedule_rtsp_restart
+      if wants_json_response; then
+        json_response "success" "Audio settings updated."
+      else
+        echo "Audio settings updated. RTSP restarting...<br/>"
+      fi
+    ;;
+
     reboot)
       csrf_check
       if wants_json_response; then

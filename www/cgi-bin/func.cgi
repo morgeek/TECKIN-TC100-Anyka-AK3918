@@ -49,6 +49,28 @@ urldecode() {
     printf '%s' "$decoded"
 }
 
+# read_conf_value <conf_file> <key> <default>
+# Efficiently reads a single key from a simple key=value config file.
+read_conf_value() {
+  _rcv_file="$1"
+  _rcv_key="$2"
+  _rcv_default="$3"
+  _rcv_val="$_rcv_default"
+
+  if [ -r "$_rcv_file" ]; then
+    while IFS= read -r _rcv_line; do
+      case "$_rcv_line" in
+        ''|'#'*) continue ;;
+        "$_rcv_key"=*)
+          _rcv_val="${_rcv_line#*=}"
+          break
+          ;;
+      esac
+    done < "$_rcv_file"
+  fi
+  printf '%s\n' "$_rcv_val"
+}
+
 _IFS=${IFS}; IFS='&'
 for _VAR in ${QUERY_STRING}
 do
