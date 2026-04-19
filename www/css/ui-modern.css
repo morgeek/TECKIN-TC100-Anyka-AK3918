@@ -3,6 +3,15 @@
   --h-primary: 212;
   --h-accent: 191;
   
+  /* Bulma 1.0.2 Native Variable Overrides */
+  --bulma-primary-h: var(--h-primary);
+  --bulma-primary-s: 75%;
+  --bulma-primary-l: 50%;
+  --bulma-body-background-color: transparent; /* Allow our gradient to show */
+  --bulma-body-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --bulma-scheme-main: hsla(0, 0%, 100%, 0.72);
+  --bulma-scheme-main-bis: hsla(0, 0%, 100%, 0.45);
+  
   --ui-bg: hsl(210, 30%, 96%);
   --ui-bg-alt: hsl(210, 40%, 98%);
   --ui-surface: hsla(0, 0%, 100%, 0.72);
@@ -2027,17 +2036,107 @@ body::after {
 .evt-cat { color: var(--ui-muted); }
 .evt-msg { word-break: break-word; }
 
+
+/* --- ELITE AESTHETICS: DEEP COBALT DARK MODE --- */
+[data-theme="dark"] {
+  --h-primary: 200; /* Cooler hue for dark mode */
+  
+  --bulma-primary-h: var(--h-primary);
+  --bulma-primary-s: 85%;
+  --bulma-primary-l: 60%;
+  
+  --ui-bg: hsl(212, 60%, 8%);
+  --ui-bg-alt: hsl(212, 50%, 12%);
+  --ui-surface: hsla(212, 60%, 15%, 0.65);
+  --ui-surface-strong: hsl(212, 50%, 18%);
+  --ui-border: hsla(200, 80%, 50%, 0.15);
+  --ui-border-soft: hsla(200, 80%, 50%, 0.08);
+  
+  --ui-text: hsl(212, 20%, 92%);
+  --ui-muted: hsl(212, 20%, 70%);
+  
+  --ui-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --ui-shadow-md: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --ui-shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.8);
+
+  --bulma-scheme-main: var(--ui-surface);
+  --bulma-scheme-main-bis: hsla(212, 60%, 20%, 0.4);
+  --bulma-text: var(--ui-text);
+  --bulma-title-color: var(--ui-text);
+  --bulma-subtitle-color: var(--ui-muted);
+}
+
+[data-theme="dark"] html {
+  background: linear-gradient(170deg, #050d18 0%, #0a1624 48%, #07111d 100%);
+}
+
+[data-theme="dark"] body::before {
+  background: radial-gradient(circle, rgba(0, 210, 255, 0.15) 0%, rgba(0, 210, 255, 0) 72%);
+}
+
+[data-theme="dark"] body::after {
+  background: radial-gradient(circle, rgba(13, 165, 201, 0.1) 0%, rgba(13, 165, 201, 0) 70%);
+}
+
+[data-theme="dark"] .navbar {
+  background: hsla(212, 60%, 12%, 0.75);
+  border-bottom: 1px solid hsla(200, 80%, 50%, 0.2);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(var(--ui-blur-md)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--ui-blur-md)) saturate(180%);
+}
+
+[data-theme="dark"] .card {
+  background: var(--ui-surface);
+  border-color: var(--ui-border);
+  box-shadow: var(--ui-shadow-md);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+[data-theme="dark"] .card-header {
+  border-bottom-color: var(--ui-border-soft);
+}
+
+[data-theme="dark"] .table {
+  background: transparent;
+  color: var(--ui-text);
+}
+
+[data-theme="dark"] .table thead th {
+  color: var(--ui-muted);
+}
+
+[data-theme="dark"] .table.is-hoverable tbody tr:hover {
+  background-color: hsla(212, 60%, 25%, 0.3);
+}
+
+[data-theme="dark"] .button.is-light {
+  background-color: hsla(212, 30%, 30%, 0.5);
+  color: var(--ui-text);
+  border-color: transparent;
+}
+
+[data-theme="dark"] .usage-chip {
+  background: hsla(212, 60%, 25%, 0.4);
+  color: var(--ui-text);
+  border-color: hsla(212, 60%, 40%, 0.3);
+}
+
+[data-theme="dark"] .tag:not(.is-delete) {
+  background-color: hsla(212, 60%, 25%, 0.5);
+  color: var(--ui-muted);
+}
+
+/* Fallback for the services table */
+[data-theme="dark"] .svc-cell-running { color: #50e3c2; }
+[data-theme="dark"] .evt-lvl-info { color: #5ba8f5; }
+[data-theme="dark"] .evt-lvl-warn { color: #f0c060; }
+
 @media (prefers-color-scheme: dark) {
-  .svc-cell-running { color: #28c87a; }
-  .svc-restart-badge.badge-warn {
-    background: rgba(250, 191, 60, 0.18);
-    color: #f0c060;
-    border-color: rgba(200, 160, 30, 0.28);
+  /* Auto-activate Deep Cobalt if no preferred theme is saved */
+  html:not([data-theme="light"]) {
+    /* Implicitly inherits the [data-theme="dark"] styles via JS or CSS duplication if needed, 
+       but for simplicity we just let the JS handle it on load if no preference exists. */
   }
-  .evt-lvl-info { color: #5ba8f5; }
-  .evt-lvl-warn { color: #f0c060; }
-  .message.is-danger { background: rgba(242, 85, 85, 0.1); }
-  .message.is-warning { background: rgba(245, 158, 11, 0.15); }
-  .message.is-success { background: rgba(40, 200, 122, 0.1); }
-  .message.is-info { background: rgba(96, 165, 250, 0.1); }
 }
