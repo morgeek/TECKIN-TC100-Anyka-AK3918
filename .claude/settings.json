@@ -88,10 +88,18 @@
       "Bash(awk '{print $5, $9}')",
       "Bash(cat)",
       "Bash(sh /tmp/analyze_css.sh)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(chmod +x /tmp/ftp_upload.sh)",
+      "Bash(/tmp/ftp_upload.sh)",
+      "Bash(chmod +x /tmp/ftp_deploy.sh)",
+      "Bash(/tmp/ftp_deploy.sh)",
+      "Bash(chmod +x /tmp/scp_deploy.sh)",
+      "Bash(timeout 30 /tmp/scp_deploy.sh)",
+      "Bash(/tmp/scp_deploy.sh)"
     ],
     "additionalDirectories": [
-      "/Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main"
+      "/Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main",
+      "/tmp"
     ]
   }
 }
