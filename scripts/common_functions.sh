@@ -64,8 +64,8 @@ run_with_timeout()
 get_active_primary_ip()
 {
   # Tries to find the IP assigned to the interface with the default route.
-  # Fallbacks to first non-loopback IP if no default route is found.
-  _gai_route_iface="$(run_with_timeout 3 route 2>/dev/null | awk '$1=="default" || $1=="0.0.0.0" {print $NF; exit}')"
+  # Use route -n (numeric) to avoid slow DNS lookups that cause timeouts.
+  _gai_route_iface="$(run_with_timeout 3 route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $NF; exit}')"
   _gai_iface="${_gai_route_iface:-wlan0}"
 
   _gai_ip="$(ifconfig "$_gai_iface" 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | head -n 1)"
@@ -80,12 +80,45 @@ get_active_primary_ip()
 
 get_default_gateway()
 {
-  # Pulls the second column from the default route line in netstat-route output.
-  _gdg_gw="$(run_with_timeout 3 route 2>/dev/null | awk '$1=="default" || $1=="0.0.0.0" {print $2; exit}')"
+  # Pulls the second column from the default route line in numeric mode.
+  _gdg_gw="$(run_with_timeout 3 route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $2; exit}')"
   case "$_gdg_gw" in
     ''|'*'|'0.0.0.0') _gdg_gw="n/a" ;;
   esac
   printf '%s\n' "$_gdg_gw"
+}
+
+get_wifi_signal_strength()
+{
+  # Extracts wireless telemetry from the kernel.
+  # Format: Quality-Link Quality-Level (normalized)
+  _gwss_iface="wlan0"
+  _gwss_raw="$(grep "${_gwss_iface}" /proc/net/wireless 2>/dev/null)"
+
+  if [ -n "$_gwss_raw" ]; then
+    # Extract columns 3 (link quality) and 4 (signal level)
+    # tr -d '.' removes trailing dots often found in Anyka Kernels
+    _gwss_qual="$(echo "$_gwss_raw" | awk '{print $3}' | tr -d '.')"
+    _gwss_lvl="$(echo "$_gwss_raw" | awk '{print $4}' | tr -d '.')"
+
+    # Handle dBm offset (some drivers report level as level + 256)
+    case "$_gwss_lvl" in
+        ''|*[!0-9-]*) _gwss_lvl=0 ;;
+    esac
+    if [ "$_gwss_lvl" -gt 0 ] && [ "$_gwss_lvl" -le 256 ]; then
+        _gwss_lvl=$((_gwss_lvl - 256))
+    fi
+
+    # Strip any fraction if reported as X/Y
+    _gwss_qual="${_gwss_qual%/*}"
+    case "$_gwss_qual" in
+        ''|*[!0-9]*) _gwss_qual=0 ;;
+    esac
+
+    printf '%s %s\n' "$_gwss_qual" "$_gwss_lvl"
+  else
+    printf '0 0\n'
+  fi
 }
 
 
