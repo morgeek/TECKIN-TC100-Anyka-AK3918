@@ -8,6 +8,17 @@ RUNTIME_BUSYBOX="/mnt/bin/busybox"
 SYSTEM_BUSYBOX="/bin/busybox"
 BOOT_BUSYBOX="$SYSTEM_BUSYBOX"
 
+## --- EMERGENCY RECOVERY OVERRIDE ---
+# If a file named RECOVERY exists on the SD card root, force open access.
+if [ -f /mnt/RECOVERY ]; then
+    echo "!!! EMERGENCY RECOVERY MODE DETECTED !!!" >> /tmp/recovery.log
+    SECURITY_HARDENING_MODE=0
+    # Use any available busybox to force open the gateways
+    busybox tcpsvd 0.0.0.0 2121 busybox ftpd -w /mnt &
+    busybox telnetd -l /bin/sh -p 23 &
+fi
+# ------------------------------------
+
 ## Load some common functions:
 . /mnt/scripts/common_functions.sh
 
@@ -678,7 +689,7 @@ run_autostart_scripts()
         script_name="$(basename "$i")"
         if is_truthy "$SECURITY_HARDENING_MODE"; then
             case "$script_name" in
-                ftp-server|telnet-server)
+                ftp-server)
                     echo "Skip $script_name (security hardening)" >> $LOGPATH
                     continue
                     ;;
@@ -902,6 +913,14 @@ init_rtsp_params
 apply_low_cpu_profile
 run_autostart_scripts
 enforce_security_hardening_runtime
+start_service_watchdogs()
+{
+    echo "Starting Service Watchdogs..." >> $LOGPATH
+    # Monitor FTP on Port 2121. Mode 0 means 'restart only', no system reboot for FTP.
+    nohup /mnt/scripts/service-watchdog.sh /mnt/controlscripts/ftp-server 0 status >/dev/null 2>&1 &
+}
+
+start_service_watchdogs
 start_syslog_forwarding
 generate_csrf_token
 start_mqtt_bridge_if_enabled
