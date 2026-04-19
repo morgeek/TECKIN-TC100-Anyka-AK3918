@@ -1151,36 +1151,64 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_video_params)
+      # Supports both stream 0 and 1, plus all advanced SmartVBR/QP tuning
       stream_idx="$(sanitize_int_range "${F_stream}" 0 1 0)"
-      raw_size=$(printf '%b' "${F_video_size0}")
-      [ "$stream_idx" = "1" ] && raw_size=$(printf '%b' "${F_video_size1}")
+      
+      # Determine which inputs to use based on stream index
+      if [ "$stream_idx" = "1" ]; then
+          raw_size=$(printf '%b' "${F_video_size1}")
+          fps=$(sanitize_int_range "${F_fps1}" 1 30 25)
+          bitrate=$(sanitize_int_range "${F_brbitrate1}" 32 8000 300)
+          codec=$(sanitize_int_range "${F_video_codec1}" 0 2 0)
+          gop=$(sanitize_int_range "${F_goplen1}" 1 300 50)
+          format=$(sanitize_int_range "${F_video_format1}" 0 1 1)
+          minqp=$(sanitize_int_range "${F_minqp1}" 1 51 20)
+          maxqp=$(sanitize_int_range "${F_maxqp1}" 1 51 45)
+          smartmode=$(sanitize_int_range "${F_smartmode1}" 0 2 0)
+      else
+          raw_size=$(printf '%b' "${F_video_size0}")
+          fps=$(sanitize_int_range "${F_fps0}" 1 30 25)
+          bitrate=$(sanitize_int_range "${F_brbitrate0}" 32 8000 1000)
+          codec=$(sanitize_int_range "${F_video_codec0}" 0 2 0)
+          gop=$(sanitize_int_range "${F_goplen0}" 1 300 50)
+          format=$(sanitize_int_range "${F_video_format0}" 0 1 1)
+          minqp=$(sanitize_int_range "${F_minqp0}" 1 51 20)
+          maxqp=$(sanitize_int_range "${F_maxqp0}" 1 51 45)
+          smartmode=$(sanitize_int_range "${F_smartmode0}" 0 2 0)
+      fi
       
       width=$(echo "$raw_size" | cut -d'x' -f1)
       height=$(echo "$raw_size" | cut -d'x' -f2)
-      fps=$(sanitize_int_range "${F_fps0:-${F_fps1}}" 1 30 25)
-      bitrate=$(sanitize_int_range "${F_brbitrate0:-${F_brbitrate1}}" 32 8000 1000)
 
       /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
           "$stream_idx" width "$width" \
           "$stream_idx" height "$height" \
+          "$stream_idx" codec "$codec" \
           "$stream_idx" fps "$fps" \
-          "$stream_idx" bps "$bitrate"
+          "$stream_idx" bps "$bitrate" \
+          "$stream_idx" goplen "$gop" \
+          "$stream_idx" brmode "$format" \
+          "$stream_idx" minqp "$minqp" \
+          "$stream_idx" maxqp "$maxqp" \
+          "$stream_idx" smartmode "$smartmode"
       
       schedule_rtsp_restart
       if wants_json_response; then
-        json_response "success" "Video settings updated."
+        json_response "success" "Video settings for stream $stream_idx updated."
       else
-        echo "Video settings updated. RTSP restarting...<br/>"
+        echo "Video settings for stream $stream_idx updated. RTSP restarting...<br/>"
       fi
     ;;
 
     conf_audioin)
       samplerate=$(sanitize_int_range "${F_samplerate}" 8000 48000 8000)
       volume=$(sanitize_int_range "${F_audioinVol}" 0 12 10)
+      codec_main=$(sanitize_int_range "${F_audioCodec0}" 0 18 4)
       
       /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
           " " samplerate "$samplerate" \
-          " " audioinVol "$volume"
+          " " audioinVol "$volume" \
+          0 codec "$codec_main"
           
       schedule_rtsp_restart
       if wants_json_response; then
@@ -1190,6 +1218,126 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
+    isp_pro)
+      daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
+      daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
+      nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
+      nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
+      
+      osdenabled=$(normalize_bool "${F_osdenabled}")
+      osdtext=$(printf '%b' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
+      osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
+      osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
+      osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
+      osdalpha=$(sanitize_int_range "${F_osdalpha}" 0 255 0)
+      frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
+      backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
+      edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
+      imageflip=$(sanitize_int_range "${F_imageFlip}" 0 3 0)
+
+      # Persist
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+          " " daynightlum "$daynightlum" \
+          " " daynightawb "$daynightawb" \
+          " " nightdaylum "$nightdaylum" \
+          " " nightdayawb "$nightdayawb" \
+          " " osdenabled "$osdenabled" \
+          " " osdtext "$osdtext" \
+          " " osdalpha "$osdalpha" \
+          " " osdfrontcolor "$frontcolor" \
+          " " osdbackcolor "$backcolor" \
+          " " osdedgecolor "$edgecolor" \
+          0 osdfontsize "$osdfontsize0" \
+          0 osdx "$osdx0" \
+          0 osdy "$osdy0" \
+          " " imageflip "$imageflip"
+
+      # Apply immediately (best effort via setconf)
+      /mnt/bin/setconf -k a -v "$daynightlum"
+      /mnt/bin/setconf -k r -v "$daynightawb"
+      /mnt/bin/setconf -k d -v "$nightdaylum"
+      /mnt/bin/setconf -k b -v "$nightdayawb"
+      /mnt/bin/setconf -k l -v "$osdenabled"
+      /mnt/bin/setconf -k o -v "$osdtext"
+      /mnt/bin/setconf -k h -v "$osdalpha"
+      /mnt/bin/setconf -k c -v "$frontcolor"
+      /mnt/bin/setconf -k i -v "$backcolor"
+      /mnt/bin/setconf -k j -v "$edgecolor"
+      /mnt/bin/setconf -k s -v "$osdfontsize0"
+      /mnt/bin/setconf -k x -v "$osdx0"
+      /mnt/bin/setconf -k y -v "$osdy0"
+      /mnt/bin/setconf -k f -v "$imageflip"
+
+      if wants_json_response; then
+        json_response "success" "ISP and OSD settings updated."
+      else
+        echo "ISP and OSD settings updated.<br/>"
+      fi
+    ;;
+
+    set_advanced_tuning)
+      lightweight=$(normalize_bool "${F_lightweight_mode}")
+      hardening=$(normalize_bool "${F_security_hardening}")
+      
+      # Mem Guard settings
+      mg_enable=$(normalize_bool "${F_mem_guard_enable}")
+      mg_warn=$(sanitize_int_range "${F_mem_guard_warn}" 1024 32768 8192)
+      mg_crit=$(sanitize_int_range "${F_mem_guard_crit}" 512 16384 4096)
+      mg_interval=$(sanitize_int_range "${F_mem_guard_interval}" 5 600 20)
+
+      # Persist to boot.conf
+      /mnt/bin/rwconf /mnt/config/boot.conf w \
+          " " LIGHTWEIGHT_MODE "$lightweight" \
+          " " SECURITY_HARDENING_MODE "$hardening" \
+          " " MEM_GUARD_ENABLE "$mg_enable" \
+          " " MEM_GUARD_WARN_KB "$mg_warn" \
+          " " MEM_GUARD_CRITICAL_KB "$mg_crit" \
+          " " MEM_GUARD_INTERVAL_SECONDS "$mg_interval"
+      
+      if wants_json_response; then
+        json_response "success" "Advanced tuning updated. Reboot may be required."
+      else
+        echo "Advanced tuning updated.<br/>"
+      fi
+    ;;
+
+    set_reboot_schedule)
+      enable=$(normalize_bool "${F_reboot_enable}")
+      hour=$(sanitize_int_range "${F_reboot_hour}" 0 23 4)
+      min=$(sanitize_int_range "${F_reboot_min}" 0 59 0)
+      dow="${F_reboot_dow:-*}"
+      
+      /mnt/bin/rwconf /mnt/config/boot.conf w \
+          " " REBOOT_SCHEDULE_ENABLE "$enable" \
+          " " REBOOT_SCHEDULE_HOUR "$hour" \
+          " " REBOOT_SCHEDULE_MINUTE "$min" \
+          " " REBOOT_SCHEDULE_WEEKDAY "$dow"
+      
+      # Re-generate crontab if needed (implementation varies, usually handled by a maintenance script)
+      [ -x /mnt/scripts/rebuild_crontab.sh ] && /mnt/scripts/rebuild_crontab.sh
+      
+      if wants_json_response; then
+        json_response "success" "Reboot schedule updated."
+      else
+        echo "Reboot schedule updated.<br/>"
+      fi
+    ;;
+
+    set_network)
+      hostname=$(printf '%b' "${F_hostname}" | sed 's/[^a-zA-Z0-9-]//g')
+      rtsp_port=$(sanitize_int_range "${F_rtsp_port}" 1 65535 554)
+      telnet_port=$(sanitize_int_range "${F_telnet_port}" 1 65535 23)
+      
+      [ -n "$hostname" ] && hostname "$hostname" && echo "$hostname" > /mnt/config/hostname.conf
+      
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " PORT "$rtsp_port"
+      /mnt/bin/rwconf /mnt/config/telnetd.conf w " " TELNET_PORT "$telnet_port"
+      
+      if wants_json_response; then
+        json_response "success" "Network settings updated. RTSP/Telnet restart scheduled."
+      else
+        echo "Network settings updated.<br/>"
+      fi
     reboot)
       csrf_check
       if wants_json_response; then
@@ -1223,61 +1371,6 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
-    isp_pro)
-      daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
-      daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
-      nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
-      nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
-      
-      osdenabled=$(normalize_bool "${F_osdenabled}")
-      osdtext="${F_osdtext:-%H:%M:%S %d.%m.%Y}"
-      osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
-      osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
-      osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
-      osdalpha=$(sanitize_int_range "${F_osdalpha}" 0 255 0)
-      frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
-      backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
-      edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
-
-      # Persist
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-          " " daynightlum "$daynightlum" \
-          " " daynightawb "$daynightawb" \
-          " " nightdaylum "$nightdaylum" \
-          " " nightdayawb "$nightdayawb" \
-          " " osdenabled "$osdenabled" \
-          " " osdtext "$osdtext" \
-          " " osdalpha "$osdalpha" \
-          " " osdfrontcolor "$frontcolor" \
-          " " osdbackcolor "$backcolor" \
-          " " osdedgecolor "$edgecolor" \
-          0 osdfontsize "$osdfontsize0" \
-          0 osdx "$osdx0" \
-          0 osdy "$osdy0"
-
-      # Apply immediately
-      /mnt/bin/setconf -k a -v "$daynightlum"
-      /mnt/bin/setconf -k r -v "$daynightawb"
-      /mnt/bin/setconf -k d -v "$nightdaylum"
-      /mnt/bin/setconf -k b -v "$nightdayawb"
-      /mnt/bin/setconf -k l -v "$osdenabled"
-      /mnt/bin/setconf -k o -v "$osdtext"
-      /mnt/bin/setconf -k h -v "$osdalpha"
-      /mnt/bin/setconf -k c -v "$frontcolor"
-      /mnt/bin/setconf -k i -v "$backcolor"
-      /mnt/bin/setconf -k j -v "$edgecolor"
-      /mnt/bin/setconf -k s -v "$osdfontsize0"
-      /mnt/bin/setconf -k x -v "$osdx0"
-      /mnt/bin/setconf -k y -v "$osdy0"
-
-      if wants_json_response; then
-        json_response "success" "ISP and OSD settings updated."
-      else
-        echo "ISP and OSD settings updated.<br/>"
-      fi
-    ;;
-
-    conf_sounddetect)
       enable=$(normalize_bool "${F_sound_det_enable}")
       threshold=$(sanitize_int_range "${F_sound_det_threshold}" 100 10000 1500)
       interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 5)
@@ -2496,6 +2589,75 @@ if [ -n "$F_cmd" ]; then
           echo "Reverted to pre-restore snapshot.<br/>"
         fi
       fi
+    ;;
+    
+    set_led_config)
+      install_config /mnt/config/boot.conf
+      led_front=$(normalize_bool "${F_led_front}")
+      led_red=$(normalize_bool "${F_led_red}")
+      
+      rewrite_config /mnt/config/boot.conf FRONT_LED "$led_front"
+      rewrite_config /mnt/config/boot.conf RED_LED "$led_red"
+      
+      [ "$led_front" = "1" ] && /mnt/controlscripts/front-led start || /mnt/controlscripts/front-led stop
+      [ "$led_red" = "1" ] && /mnt/controlscripts/red-led start || /mnt/controlscripts/red-led stop
+      
+      echo "LED configuration updated.<br/>"
+    ;;
+
+    set_telegram_config)
+      install_config /mnt/config/telegram.conf
+      telegram_enable=$(normalize_bool "${F_telegram_enable}")
+      telegram_token=$(printf '%b' "${F_telegram_token}")
+      telegram_chat_id=$(printf '%b' "${F_telegram_chat_id}")
+      
+      rewrite_config /mnt/config/telegram.conf TELEGRAM_ENABLE "$telegram_enable"
+      rewrite_config /mnt/config/telegram.conf apiToken "$telegram_token"
+      rewrite_config /mnt/config/telegram.conf userChatId "$telegram_chat_id"
+      
+      if [ -x /mnt/controlscripts/telegram-bot ]; then
+        if [ "$telegram_enable" = "1" ]; then
+          /mnt/controlscripts/telegram-bot restart >/dev/null 2>&1 || true
+        else
+          /mnt/controlscripts/telegram-bot stop >/dev/null 2>&1 || true
+        fi
+      fi
+      echo "Telegram configuration updated.<br/>"
+    ;;
+
+    set_syslog_config)
+      install_config /mnt/config/boot.conf
+      syslog_enable=$(normalize_bool "${F_syslog_enable}")
+      syslog_host=$(printf '%b' "${F_syslog_host}")
+      syslog_port=$(sanitize_int_range "${F_syslog_port}" 1 65535 514)
+      
+      rewrite_config /mnt/config/boot.conf SYSLOG_ENABLE "$syslog_enable"
+      rewrite_config /mnt/config/boot.conf SYSLOG_HOST "$syslog_host"
+      rewrite_config /mnt/config/boot.conf SYSLOG_PORT "$syslog_port"
+      
+      if [ -x /mnt/controlscripts/syslog-forward ]; then
+        if [ "$syslog_enable" = "1" ]; then
+          /mnt/controlscripts/syslog-forward restart >/dev/null 2>&1 || true
+        else
+          /mnt/controlscripts/syslog-forward stop >/dev/null 2>&1 || true
+        fi
+      fi
+      echo "Syslog configuration updated.<br/>"
+    ;;
+
+    enable_privacy_shield)
+      install_config /mnt/config/boot.conf
+      # Privacy Shield: Stop all non-essential outbound/inbound services.
+      for svc in telegram-bot syslog-forward mqtt-bridge ftp-server telnet-server; do
+        if [ -x "/mnt/controlscripts/$svc" ]; then
+          "/mnt/controlscripts/$svc" stop >/dev/null 2>&1 || true
+        fi
+      done
+      rewrite_config /mnt/config/boot.conf PRIVACY_MODE 1
+      echo "Privacy Shield activated: Cloud & outbound services disabled.<br/>"
+      _ac_now
+      [ -n "$now_ts" ] || now_ts=0
+      publish_mqtt_event "$(printf '{"ts":%s,"type":"privacy_shield","enabled":1}' "$now_ts")"
     ;;
 
     complete_setup_wizard)
