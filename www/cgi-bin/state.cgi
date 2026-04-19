@@ -1369,6 +1369,7 @@ if [ -n "$F_cmd" ]; then
     audio_vol="$(get_cfg volume 8)"
     
     # MQTT particulars
+    mqtt_enabled="$(truthy_flag "$(get_cfg MQTT_ENABLE 0)")"
     mqtt_discovery="$(truthy_flag "$(get_cfg MQTT_HA_DISCOVERY_ENABLE 1)")"
     
     # Reboot epoch calculation (needed for uptime display)
