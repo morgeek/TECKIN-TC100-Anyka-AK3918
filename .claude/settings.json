@@ -95,7 +95,8 @@
       "Bash(/tmp/ftp_deploy.sh)",
       "Bash(chmod +x /tmp/scp_deploy.sh)",
       "Bash(timeout 30 /tmp/scp_deploy.sh)",
-      "Bash(/tmp/scp_deploy.sh)"
+      "Bash(/tmp/scp_deploy.sh)",
+      "Bash(curl -v --user root:pass --ftp-create-dirs -T www/scripts/index.bundle.min.js ftp://192.168.1.24:2121/www/scripts/index.bundle.min.js)"
     ],
     "additionalDirectories": [
       "/Users/keegrom/Downloads/TECKIN-TC100-Anyka-AK3918-camera-hacks-main",
