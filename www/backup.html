@@ -67,6 +67,54 @@
     </div>
   </div>
 
+  <div class="card status_card" style="grid-column: 1 / -1">
+    <header class="card-header">
+      <p class="card-header-title">
+        <span class="title-with-icon">
+          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4m4-10l5 5 5-5m-5 5V3"/></svg>
+          <span>JSON Configuration Exchange</span>
+        </span>
+      </p>
+    </header>
+    <div class="card-content">
+      <p class="help" style="margin-bottom:1rem">
+        Export your settings as a single portable JSON file to easily clone a configuration to multiple cameras.
+        Importing is additive: settings in the JSON will be updated, while others remain unchanged.
+      </p>
+      
+      <div class="columns">
+        <div class="column">
+          <label class="label">Export</label>
+          <a class="button is-link" href="cgi-bin/config_exchange.cgi?cmd=export">
+            Download Settings (.json)
+          </a>
+        </div>
+        <div class="column">
+          <label class="label">Import</label>
+          <div class="field">
+            <div class="control">
+              <input class="input" type="file" id="json_import_file" accept=".json" style="padding:0.35rem 0.5rem; margin-bottom:0.5rem;">
+            </div>
+          </div>
+          <div class="field">
+            <label class="checkbox">
+              <input type="checkbox" id="json_exclude_network" checked> Exclude Network Identity (IP/Hostname)
+            </label>
+          </div>
+          <div class="field">
+            <label class="checkbox" style="margin-bottom:0.5rem; display:block">
+              <input type="checkbox" id="json_exclude_credentials"> Exclude Credentials (Passwords/Tokens)
+            </label>
+          </div>
+          <button class="button is-warning" id="json_import_btn" onclick="doJsonImport()">
+            Import JSON Settings
+          </button>
+          <p id="json_exchange_status" class="backup-status"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -139,6 +187,52 @@
       });
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  window.doJsonImport = function () {
+    var fileInput = document.getElementById('json_import_file');
+    var file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      alert("Please select a JSON file first.");
+      return;
+    }
+
+    var importBtn = document.getElementById('json_import_btn');
+    var status = document.getElementById('json_exchange_status');
+    var exNet = document.getElementById('json_exclude_network').checked ? '1' : '0';
+    var exCred = document.getElementById('json_exclude_credentials').checked ? '1' : '0';
+
+    importBtn.disabled = true;
+    status.textContent = 'Importing...';
+    status.className = 'backup-status';
+
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      var headers = { 'Content-Type': 'application/json' };
+      var tok = getCsrfToken();
+      if (tok) headers['X-CSRF-Token'] = tok;
+
+      fetch('cgi-bin/config_exchange.cgi?cmd=import&exclude_network=' + exNet + '&exclude_credentials=' + exCred, {
+        method: 'POST',
+        headers: headers,
+        body: ev.target.result,
+        cache: 'no-store'
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var ok = res.status === 'success';
+        status.textContent = res.message || (ok ? 'Success' : 'Error');
+        status.className = 'backup-status ' + (ok ? 'ok' : 'err');
+        importBtn.disabled = false;
+        if (ok) fileInput.value = '';
+      })
+      .catch(function (err) {
+        status.textContent = 'Import failed: ' + err;
+        status.className = 'backup-status err';
+        importBtn.disabled = false;
+      });
+    };
+    reader.readAsText(file);
   };
 }());
 </script>
