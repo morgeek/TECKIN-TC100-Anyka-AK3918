@@ -159,27 +159,30 @@
                                 data-message="Are you sure you wish to shutdown?"
                                 data-target="cgi-bin/action.cgi?cmd=shutdown">Shutdown</a>
                         </div>
-                    <!-- Elite Controls: Theme Toggle & Logout -->
-                    <div class="navbar-end">
-                        <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
-                            <span class="nav-icon" id="theme_toggle_icon">
-                                <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px;">
-                                    <path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.303 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z" />
-                                </svg>
-                            </span>
-                        </a>
-                        <a id="logout" class="navbar-item prompt" href="javascript: void(0)" 
-                           data-message="Are you sure you wish to logout?" 
-                           data-target="cgi-bin/action.cgi?cmd=logout" title="Logout session">
-                            <span class="nav-icon">
-                                <svg viewBox="0 0 24 24" aria-hidden="true">
-                                    <path d="M16 17l5-5l-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                                </svg>
-                            </span>
-                        </a>
-                    </div>
-                </div>
-            </div>
+                    </div> <!-- End of System Dropdown -->
+                </div> <!-- End of navbar-start -->
+
+                <!-- Elite Controls: Theme Toggle & Logout -->
+                <div class="navbar-end">
+                    <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
+                        <span class="nav-icon" id="theme_toggle_icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px;">
+                                <path fill="currentColor"
+                                    d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.303 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z" />
+                            </svg>
+                        </span>
+                    </a>
+                    <a id="logout" class="navbar-item prompt" href="javascript: void(0)"
+                        data-message="Are you sure you wish to logout?" data-target="cgi-bin/action.cgi?cmd=logout"
+                        title="Logout session">
+                        <span class="nav-icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M16 17l5-5l-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                            </svg>
+                        </span>
+                    </a>
+                </div> <!-- End of navbar-end -->
+            </div> <!-- End of navbar-menu -->
         </div>
     </nav>
 
