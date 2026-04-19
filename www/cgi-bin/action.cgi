@@ -3159,6 +3159,97 @@ if [ -n "$F_cmd" ]; then
         fi
     ;;
 
+    save_preset)
+        preset_name="${F_name:-}"
+        preset_data="${F_data:-}"
+        presets_dir="/mnt/config/presets"
+
+        mkdir -p "$presets_dir"
+
+        if [ -z "$preset_name" ] || [ -z "$preset_data" ]; then
+            if wants_json_response; then
+              json_error "INVALID_PRESET" "Preset name and data required"
+            else
+              echo "ERROR: Preset name and data required"
+            fi
+        else
+            # Validate preset name (alphanumeric, underscore, hyphen only)
+            if ! printf '%s' "$preset_name" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+                if wants_json_response; then
+                  json_error "INVALID_NAME" "Preset name must be alphanumeric with underscore/hyphen only"
+                else
+                  echo "ERROR: Invalid preset name"
+                fi
+            else
+                # Limit to 10 presets
+                preset_count=$(find "$presets_dir" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
+                preset_file="$presets_dir/$preset_name.json"
+
+                if [ -f "$preset_file" ]; then
+                    # Update existing preset
+                    printf '%s' "$preset_data" > "$preset_file"
+                    if wants_json_response; then
+                      json_response "success" "Preset '$preset_name' updated"
+                    else
+                      echo "Preset '$preset_name' updated"
+                    fi
+                elif [ "$preset_count" -lt 10 ]; then
+                    # Create new preset
+                    printf '%s' "$preset_data" > "$preset_file"
+                    if wants_json_response; then
+                      json_response "success" "Preset '$preset_name' created"
+                    else
+                      echo "Preset '$preset_name' created"
+                    fi
+                else
+                    if wants_json_response; then
+                      json_error "PRESET_LIMIT" "Maximum 10 presets allowed"
+                    else
+                      echo "ERROR: Maximum 10 presets allowed"
+                    fi
+                fi
+            fi
+        fi
+    ;;
+
+    delete_preset)
+        preset_name="${F_name:-}"
+        presets_dir="/mnt/config/presets"
+
+        if [ -z "$preset_name" ]; then
+            if wants_json_response; then
+              json_error "INVALID_PRESET" "Preset name required"
+            else
+              echo "ERROR: Preset name required"
+            fi
+        else
+            # Validate preset name
+            if ! printf '%s' "$preset_name" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+                if wants_json_response; then
+                  json_error "INVALID_NAME" "Invalid preset name"
+                else
+                  echo "ERROR: Invalid preset name"
+                fi
+            else
+                preset_file="$presets_dir/$preset_name.json"
+                if [ -f "$preset_file" ]; then
+                    rm -f "$preset_file"
+                    if wants_json_response; then
+                      json_response "success" "Preset '$preset_name' deleted"
+                    else
+                      echo "Preset '$preset_name' deleted"
+                    fi
+                else
+                    if wants_json_response; then
+                      json_error "PRESET_NOT_FOUND" "Preset '$preset_name' not found"
+                    else
+                      echo "ERROR: Preset '$preset_name' not found"
+                    fi
+                fi
+            fi
+        fi
+    ;;
+
      *)
         if wants_json_response; then
           json_error "UNSUPPORTED_COMMAND" "Unsupported command '$F_cmd'"
