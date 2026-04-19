@@ -65,15 +65,20 @@ select_boot_busybox()
     BOOT_BUSYBOX="$SYSTEM_BUSYBOX"
 
     if [ -x "$RUNTIME_BUSYBOX" ]; then
-        if mount | grep -F "on $SYSTEM_BUSYBOX " | grep -F "$RUNTIME_BUSYBOX " > /dev/null 2>&1; then
-            log_boot "BusyBox bind already active: $RUNTIME_BUSYBOX -> $SYSTEM_BUSYBOX"
-            return 0
+        # Health check: ensure the binary actually runs and reports a valid version.
+        if ! "$RUNTIME_BUSYBOX" --help > /dev/null 2>&1; then
+            log_boot "Extended busybox at $RUNTIME_BUSYBOX is corrupted or broken; skipping bind-mount."
+        else
+            if mount | grep -F "on $SYSTEM_BUSYBOX " | grep -F "$RUNTIME_BUSYBOX " > /dev/null 2>&1; then
+                log_boot "BusyBox bind already active: $RUNTIME_BUSYBOX -> $SYSTEM_BUSYBOX"
+                return 0
+            fi
+            if mount -o bind "$RUNTIME_BUSYBOX" "$SYSTEM_BUSYBOX" > /dev/null 2>&1; then
+                log_boot "BusyBox bind mounted: $RUNTIME_BUSYBOX -> $SYSTEM_BUSYBOX"
+                return 0
+            fi
+            log_boot "BusyBox bind mount failed, falling back to system busybox"
         fi
-        if mount -o bind "$RUNTIME_BUSYBOX" "$SYSTEM_BUSYBOX" > /dev/null 2>&1; then
-            log_boot "BusyBox bind mounted: $RUNTIME_BUSYBOX -> $SYSTEM_BUSYBOX"
-            return 0
-        fi
-        log_boot "BusyBox bind mount failed, falling back to system busybox"
     else
         log_boot "Extended busybox missing at $RUNTIME_BUSYBOX, using system busybox"
     fi
