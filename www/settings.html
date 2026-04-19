@@ -2,11 +2,12 @@
     <!-- Tabs Header -->
     <div class="tabs is-centered is-toggle is-small mb-4">
         <ul>
-            <li class="is-active" data-tab="tab-dashboard"><a><span class="icon is-small"><i class="icon-meter"></i></span><span>Dashboard</span></a></li>
-            <li data-tab="tab-video"><a><span class="icon is-small"><i class="icon-camera"></i></span><span>Video/Audio</span></a></li>
-            <li data-tab="tab-isp"><a><span class="icon is-small"><i class="icon-brightness-contrast"></i></span><span>ISP/OSD</span></a></li>
-            <li data-tab="tab-mqtt"><a><span class="icon is-small"><i class="icon-bubbles"></i></span><span>MQTT/Events</span></a></li>
-            <li data-tab="tab-system"><a><span class="icon is-small"><i class="icon-cog"></i></span><span>System</span></a></li>
+            <li class="is-active" data-tab="tab-dashboard"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-activity"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span><span>Dashboard</span></a></li>
+            <li data-tab="tab-video"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-video"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span><span>Video/Audio</span></a></li>
+            <li data-tab="tab-isp"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-sliders"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="2" y1="14" x2="6" y2="14"></line><line x1="10" y1="8" x2="14" y2="8"></line><line x1="18" y1="16" x2="22" y2="16"></line></svg></span><span>ISP/OSD</span></a></li>
+            <li data-tab="tab-automation"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-zap"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span><span>Automation</span></a></li>
+            <li data-tab="tab-network"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-wifi"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg></span><span>Network</span></a></li>
+            <li data-tab="tab-system"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-settings"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span><span>System</span></a></li>
         </ul>
     </div>
 
@@ -14,7 +15,6 @@
     <div id="tab-contents">
         <!-- Dashboard Tab -->
         <div class="tab-content" id="tab-dashboard">
-            <!-- SD Card & Security Warnings moved here -->
             <div id="sd_readonly_warning" style="display:none">
                 <article class="message is-warning">
                     <div class="message-body">Your sdcard is mounted read-only. Settings can't be saved.</div>
@@ -22,7 +22,7 @@
             </div>
             <div id="security_warning" style="display:none">
                 <article class="message is-danger">
-                    <div class="message-body">Default credentials active. Change passwords in System tab.</div>
+                    <div class="message-body">Security warning: Default credentials active.</div>
                 </article>
             </div>
 
@@ -50,7 +50,7 @@
                                 <div><p class="heading">Gateway</p><p class="title is-6" id="dash_gw">--.--.--.--</p></div>
                             </div>
                             <div class="buttons mt-2">
-                                <a class="button is-small is-light" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
+                                <a class="button is-small is-primary" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
                                 <a class="button is-small is-light" id="dash_snapshot_link" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
                             </div>
                         </div>
@@ -61,90 +61,266 @@
 
         <!-- Video/Audio Tab -->
         <div class="tab-content is-hidden" id="tab-video">
-            <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Main Stream (video0)</p></header>
+            <div class='card status_card mb-4 is-link is-light'>
+                <header class='card-header'><p class='card-header-title'>Elite Setup Presets (One-Click Tuning)</p></header>
                 <div class='card-content'>
-                    <form id="formVideoMain" action="cgi-bin/action.cgi?cmd=set_video_params&stream=0" method="post">
-                        <div class="field is-horizontal">
-                            <div class="field-label is-small"><label class="label">Resolution</label></div>
-                            <div class="field-body">
-                                <div class="select is-small is-fullwidth">
-                                    <select name="video_size0" id="video_size0">
-                                        <option value="1920x1080">1920x1080</option>
-                                        <option value="1600x904">1600x904</option>
-                                        <option value="1280x720">1280x720</option>
-                                        <option value="1024x576">1024x576</option>
-                                    </select>
+                    <div class="columns">
+                        <div class="column">
+                            <form action="cgi-bin/action.cgi?cmd=set_rtsp_preset" method="post">
+                                <label class="label is-small">System Performance Preset</label>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded">
+                                        <div class="select is-small is-fullwidth"><select name="preset"><option value="full">Elite (1080p 25fps)</option><option value="medium">Balanced (720p 20fps)</option><option value="low">Low Footprint (360p 10fps)</option></select></div>
+                                    </div>
+                                    <div class="control"><button type="submit" class="button is-link is-small">Apply</button></div>
                                 </div>
-                            </div>
+                            </form>
                         </div>
-                        <div class="field is-horizontal">
-                            <div class="field-label is-small"><label class="label">FPS / Bitrate</label></div>
-                            <div class="field-body">
-                                <div class="field"><div class="control"><input class="input is-small" name="fps0" id="fps0" type="number" placeholder="25"></div></div>
-                                <div class="field"><div class="control"><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" placeholder="Kbps"></div></div>
-                            </div>
+                        <div class="column">
+                            <form action="cgi-bin/action.cgi?cmd=set_client_profile" method="post">
+                                <label class="label is-small">NVR / Client Compatibility</label>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded">
+                                        <div class="select is-small is-fullwidth"><select name="client_profile"><option value="universal-h264">Universal H264 (Max Comp)</option><option value="frigate-balanced">Frigate Balanced</option><option value="frigate-quality">Frigate Quality</option><option value="hybrid-hevc-main">Hybrid HEVC/264</option></select></div>
+                                    </div>
+                                    <div class="control"><button type="submit" class="button is-info is-small">Apply</button></div>
+                                </div>
+                            </form>
                         </div>
-                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply</button></div>
-                    </form>
+                    </div>
                 </div>
             </div>
-            <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Audio Settings</p></header>
-                <div class='card-content'>
-                    <form id="formAudio" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post">
-                        <div class="field is-horizontal">
-                            <div class="field-label is-small"><label class="label">Sample Rate</label></div>
-                            <div class="field-body">
-                                <div class="select is-small is-fullwidth">
-                                    <select name="samplerate" id="samplerate">
-                                        <option value="8000">8000 Hz</option>
-                                        <option value="16000">16000 Hz</option>
-                                        <option value="32000">32000 Hz</option>
-                                    </select>
-                                </div>
+
+            <form id="formVideoAdvanced" action="cgi-bin/action.cgi?cmd=set_video_params" method="post">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Main Stream Advanced (video0)</p></header>
+                    <div class='card-content'>
+                        <div class="columns is-multiline is-mobile">
+                            <div class="column is-half"><label class="label is-small">Resolution</label>
+                                <div class="select is-small is-fullwidth"><select name="video_size0" id="video_size0"><option value="1920x1080">1920x1080</option><option value="1600x904">1600x904</option><option value="1280x720">1280x720</option><option value="1024x576">1024x576</option></select></div>
+                            </div>
+                            <div class="column is-half"><label class="label is-small">Codec</label>
+                                <div class="select is-small is-fullwidth"><select name="video_codec0" id="video_codec0"><option value="0">H264</option><option value="2">H265</option></select></div>
+                            </div>
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">FPS</label><input class="input is-small" name="fps0" id="fps0" type="number"></div>
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Bitrate (K)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number"></div>
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">GOP</label><input class="input is-small" name="goplen0" id="goplen0" type="number"></div>
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Mode</label>
+                                <div class="select is-small is-fullwidth"><select name="video_format0" id="video_format0"><option value="0">CBR</option><option value="1">VBR</option></select></div>
                             </div>
                         </div>
-                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply</button></div>
-                    </form>
+                        <div class="is-divider" data-content="VBR / Quality Fine-tuning"></div>
+                        <div class="columns is-multiline is-mobile">
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Min QP</label><input class="input is-small" name="minqp0" id="minqp0" type="number"></div>
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Max QP</label><input class="input is-small" name="maxqp0" id="maxqp0" type="number"></div>
+                            <div class="column is-half"><label class="label is-small">Smart Mode</label>
+                                <div class="select is-small is-fullwidth"><select name="smartmode0" id="smartmode0"><option value="0">OFF</option><option value="1">LTR</option><option value="2">GOP len</option></select></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+
+                <div class='card status_card mt-4'>
+                    <header class='card-header'><p class='card-header-title'>Sub Stream Advanced (video1)</p></header>
+                    <div class='card-content'>
+                        <div class="columns is-multiline is-mobile">
+                            <div class="column is-half"><label class="label is-small">Resolution</label>
+                                <div class="select is-small is-fullwidth"><select name="video_size1" id="video_size1"><option value="640x360">640x360</option><option value="352x200">352x200</option></select></div>
+                            </div>
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">FPS</label><input class="input is-small" name="fps1" id="fps1" type="number"></div>
+                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Bitrate</label><input class="input is-small" name="brbitrate1" id="brbitrate1" type="number"></div>
+                        </div>
+                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply Video Tunings</button></div>
+                    </div>
+                </div>
+            </form>
+
+            <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post">
+                <div class='card status_card mt-4'>
+                    <header class='card-header'><p class='card-header-title'>Audio Settings</p></header>
+                    <div class='card-content'>
+                        <div class="columns is-multiline">
+                            <div class="column is-half"><label class="label is-small">Sample Rate</label>
+                                <div class="select is-small is-fullwidth"><select name="samplerate" id="samplerate"><option value="8000">8000 Hz</option><option value="16000">16000 Hz</option><option value="32000">32000 Hz</option></select></div>
+                            </div>
+                            <div class="column is-half"><label class="label is-small">Main Stream Codec</label>
+                                <div class="select is-small is-fullwidth"><select name="audioCodec0" id="audioCodec0"><option value="0">OFF</option><option value="4">AAC</option><option value="6">PCM</option><option value="17">ALAW</option><option value="18">ULAW</option></select></div>
+                            </div>
+                            <div class="column is-full"><label class="label is-small">Mic Sensitivity (0-12)</label><input class="input is-small" name="audioinVol" id="audio_vol" type="number"></div>
+                        </div>
+                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply Audio</button></div>
+                    </div>
+                </div>
+            </form>
         </div>
 
         <!-- ISP/OSD Tab -->
         <div class="tab-content is-hidden" id="tab-isp">
-            <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>OSD Styling</p></header>
-                <div class='card-content'>
-                    <form id="formOSD" action="cgi-bin/action.cgi?cmd=isp_pro" method="post">
-                        <div class="field mb-3">
-                            <input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox">
-                            <label for="osdenabled">Enable OSD Overlay</label>
+            <form id="formISP" action="cgi-bin/action.cgi?cmd=isp_pro" method="post">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Day/Night Switching Thresholds</p></header>
+                    <div class='card-content'>
+                        <div class="columns">
+                            <div class="column is-half">
+                                <p class="heading">Day → Night (Darkness)</p>
+                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="daynightlum" id="daynightlum" type="number"></div>
+                                <div class="field"><label class="label is-small">AWB</label><input class="input is-small" name="daynightawb" id="daynightawb" type="number"></div>
+                            </div>
+                            <div class="column is-half">
+                                <p class="heading">Night → Day (Brightness)</p>
+                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="nightdaylum" id="nightdaylum" type="number"></div>
+                                <div class="field"><label class="label is-small">AWB</label><input class="input is-small" name="nightdayawb" id="nightdayawb" type="number"></div>
+                            </div>
                         </div>
-                        <div class="field">
-                            <div class="control"><input class="input is-small" id="osdtext" name="osdtext" type="text" placeholder="OSD Text (e.g. %H:%M:%S)"></div>
+                    </div>
+                </div>
+
+                <div class='card status_card mt-4'>
+                    <header class='card-header'><p class='card-header-title'>OSD & Image Controls</p></header>
+                    <div class='card-content'>
+                        <div class="field mb-3"><input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox"><label for="osdenabled">Enable OSD Text</label></div>
+                        <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
+                        
+                        <div class="is-divider" data-content="OSD Styling"></div>
+                        <div class="columns is-multiline is-mobile">
+                            <div class="column is-4"><label class="label is-small">Color</label>
+                                <div class="select is-small is-fullwidth"><select name="frontcolor" id="frontcolor"><option value="1">White</option><option value="0">Black</option><option value="2">Red</option><option value="3">Green</option><option value="4">Blue</option></select></div>
+                            </div>
+                            <div class="column is-4"><label class="label is-small">Background</label>
+                                <div class="select is-small is-fullwidth"><select name="backcolor" id="backcolor"><option value="0">Transparent</option><option value="1">Black</option><option value="2">White</option></select></div>
+                            </div>
+                            <div class="column is-4"><label class="label is-small">Alpha (0-255)</label><input class="input is-small" name="osdalpha" id="osdalpha" type="number"></div>
+                            <div class="column is-3"><label class="label is-small">Size</label><input class="input is-small" name="osdfontsize0" id="osdfontsize0" type="number"></div>
+                            <div class="column is-3"><label class="label is-small">X pos</label><input class="input is-small" name="osdx0" id="osdx0" type="number"></div>
+                            <div class="column is-3"><label class="label is-small">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number"></div>
                         </div>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save OSD</button></div>
+
+                        <div class="is-divider"></div>
+                        <div class="field"><label class="label is-small">Image Rotation</label>
+                            <div class="select is-small is-fullwidth"><select name="imageFlip" id="imageFlip"><option value="0">Normal</option><option value="1">Flip</option><option value="2">Mirror</option><option value="3">Flip & Mirror</option></select></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply ISP Settings</button></div>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Automation Tab -->
+        <div class="tab-content is-hidden" id="tab-automation">
+            <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>MQTT Broker & HA Discovery</p></header>
+                    <div class='card-content'>
+                        <div class="field"><input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1"><label for="mqtt_enabled">Enable MQTT Bridge</label></div>
+                        <div class="columns is-multiline">
+                            <div class="column is-8"><label class="label is-small">Host</label><input class="input is-small" name="mqtt_host" id="mqtt_host" type="text" placeholder="192.168.1.x"></div>
+                            <div class="column is-4"><label class="label is-small">Port</label><input class="input is-small" name="mqtt_port" id="mqtt_port" type="number" placeholder="1883"></div>
+                            <div class="column is-6"><label class="label is-small">Username</label><input class="input is-small" name="mqtt_user" id="mqtt_user" type="text" autocomplete="username"></div>
+                            <div class="column is-6"><label class="label is-small">Root Topic</label><input class="input is-small" name="mqtt_topic_root" id="mqtt_topic_root" type="text"></div>
+                        </div>
+                        <div class="is-divider"></div>
+                        <div class="field"><input class="switch is-small" id="mqtt_discovery" name="mqtt_discovery" type="checkbox"><label for="mqtt_discovery">Enable Home Assistant Discovery</label></div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save MQTT</button></div>
+                    </div>
+                </div>
+            </form>
+
+            <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
+                <div class='card status_card mt-4'>
+                    <header class='card-header'><p class='card-header-title'>Motion & Sound Detection</p></header>
+                    <div class='card-content'>
+                        <div class="columns">
+                            <div class="column is-half"><label class="label is-small">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number"></div>
+                            <div class="column is-half"><label class="label is-small">Sound Threshold</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number"></div>
+                        </div>
+                        <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
+                    </div>
+                </div>
+            </form>
+
+            <form id="formTimelapse" action="cgi-bin/action.cgi?cmd=conf_timelapse" method="post" class="mb-4">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Elite Timelapse Studio</p></header>
+                    <div class='card-content'>
+                        <div class="columns">
+                            <div class="column is-half">
+                                <label class="label is-small">Capture Interval (s)</label>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded"><input class="input is-small" name="tlinterval" id="tlinterval" type="number" placeholder="10"></div>
+                                    <div class="control"><a class="button is-small is-static">sec</a></div>
+                                </div>
+                            </div>
+                            <div class="column is-half">
+                                <label class="label is-small">Total Duration (min)</label>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded"><input class="input is-small" name="tlduration" id="tlduration" type="number" placeholder="0"></div>
+                                    <div class="control"><a class="button is-small is-static">min</a></div>
+                                </div>
+                                <p class="help">0 for unlimited capture</p>
+                            </div>
+                        </div>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Initialize Timelapse</button></div>
+                    </div>
+                </div>
+            </form>
+
+            <div class="columns">
+                <div class="column is-half">
+                    <form id="formTelegram" action="cgi-bin/action.cgi?cmd=set_telegram_config" method="post">
+                        <div class='card status_card'>
+                            <header class='card-header'><p class='card-header-title'>Telegram Bot</p></header>
+                            <div class='card-content'>
+                                <div class="field"><input class="switch is-small" id="telegram_enable" name="telegram_enable" type="checkbox"><label for="telegram_enable">Enable Telegram Notifications</label></div>
+                                <label class="label is-small">Bot Token</label>
+                                <input class="input is-small" name="telegram_token" id="telegram_token" type="password" placeholder="123456789:ABCDEF...">
+                                <label class="label is-small mt-2">Chat ID</label>
+                                <input class="input is-small" name="telegram_chat_id" id="telegram_chat_id" type="text" placeholder="987654321">
+                                <div class="buttons is-right mt-4"><button class="button is-primary is-small" type="submit">Save Telegram</button></div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="column is-half">
+                    <form id="formSyslog" action="cgi-bin/action.cgi?cmd=set_syslog_config" method="post">
+                        <div class='card status_card'>
+                            <header class='card-header'><p class='card-header-title'>Syslog Forwarding</p></header>
+                            <div class='card-content'>
+                                <div class="field"><input class="switch is-small" id="syslog_enable" name="syslog_enable" type="checkbox"><label for="syslog_enable">Enable Remote Syslog</label></div>
+                                <label class="label is-small">Remote Host</label>
+                                <input class="input is-small" name="syslog_host" id="syslog_host" type="text" placeholder="192.168.1.10">
+                                <label class="label is-small mt-2">Remote Port</label>
+                                <input class="input is-small" name="syslog_port" id="syslog_port" type="number" placeholder="514">
+                                <div class="buttons is-right mt-4"><button class="button is-primary is-small" type="submit">Save Syslog</button></div>
+                            </div>
+                        </div>
                     </form>
                 </div>
             </div>
         </div>
 
-        <!-- MQTT Tab -->
-        <div class="tab-content is-hidden" id="tab-mqtt">
-            <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>MQTT Broker</p></header>
+        <!-- Network Tab -->
+        <div class="tab-content is-hidden" id="tab-network">
+             <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Identity & Network Services</p></header>
                 <div class='card-content'>
-                    <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
-                        <div class="field mb-3">
-                            <input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1">
-                            <label for="mqtt_enabled">Enable MQTT Bridge</label>
+                    <form id="formNetwork" action="cgi-bin/action.cgi?cmd=set_network" method="post">
+                        <div class="field"><label class="label is-small">Hostname</label><input class="input is-small" name="hostname" id="hostname" type="text"></div>
+                        <div class="columns">
+                            <div class="column"><label class="label is-small">RTSP Port</label><input class="input is-small" name="rtsp_port" id="rtsp_port" type="number" placeholder="554"></div>
+                            <div class="column"><label class="label is-small">Telnet Port</label><input class="input is-small" name="telnet_port" id="telnet_port" type="number" placeholder="23"></div>
                         </div>
-                        <div class="field is-horizontal">
-                            <div class="field-label is-small"><label class="label">Host</label></div>
-                            <div class="field-body"><div class="field"><div class="control"><input class="input is-small" name="mqtt_host" id="mqtt_host" type="text"></div></div></div>
-                        </div>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save MQTT</button></div>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Update Network</button></div>
+                    </form>
+                </div>
+            </div>
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Region & Time (NTP)</p></header>
+                <div class='card-content'>
+                    <form id="formTime" action="cgi-bin/action.cgi?cmd=settz" method="post">
+                        <div class="field"><label class="label is-small">Timezone (TZ string)</label><input class="input is-small" name="tz" id="timezone" type="text" placeholder="UTC0"></div>
+                        <div class="field"><label class="label is-small">NTP Server</label><input class="input is-small" name="ntp_srv" id="ntp_server" type="text" placeholder="pool.ntp.org"></div>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply Time</button></div>
                     </form>
                 </div>
             </div>
@@ -153,11 +329,79 @@
         <!-- System Tab -->
         <div class="tab-content is-hidden" id="tab-system">
              <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>System Controls</p></header>
+                <header class='card-header'><p class='card-header-title'>Advanced Performance Tuning</p></header>
                 <div class='card-content'>
-                    <div class="buttons">
-                        <button id="btnReboot" class="button is-danger is-small">Reboot Camera</button>
-                        <button id="btnFreeRam" class="button is-warning is-small">Free RAM</button>
+                    <form id="formTuning" action="cgi-bin/action.cgi?cmd=set_advanced_tuning" method="post">
+                        <div class="columns is-multiline mb-0">
+                            <div class="column is-half"><div class="field"><input class="switch is-small" id="lightweight_mode" name="lightweight_mode" type="checkbox"><label for="lightweight_mode">Lightweight Boot</label></div></div>
+                            <div class="column is-half"><div class="field"><input class="switch is-small" id="security_hardening" name="security_hardening" type="checkbox"><label for="security_hardening">Security Hardening</label></div></div>
+                        </div>
+                        <div class="is-divider" data-content="Memory Guard (OOM Prevention)"></div>
+                        <div class="field"><input class="switch is-small" id="mem_guard_enable" name="mem_guard_enable" type="checkbox"><label for="mem_guard_enable">Enable Memory Guard Daemon</label></div>
+                        <div class="columns is-mobile mb-0">
+                            <div class="column"><label class="label is-small">Warn (K)</label><input class="input is-small" name="mem_guard_warn" id="mem_guard_warn_kb" type="number"></div>
+                            <div class="column"><label class="label is-small">Crit (K)</label><input class="input is-small" name="mem_guard_crit" id="mem_guard_crit_kb" type="number"></div>
+                            <div class="column"><label class="label is-small">Check (s)</label><input class="input is-small" name="mem_guard_interval" id="mem_guard_interval" type="number"></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save Hardening</button></div>
+                    </form>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Elite Peripheral Mastery</p></header>
+                <div class='card-content'>
+                    <div class="columns">
+                        <div class="column is-half">
+                            <form id="formLeds" action="cgi-bin/action.cgi?cmd=set_led_config" method="post">
+                                <div class="field"><input class="switch is-small" id="led_front" name="led_front" type="checkbox"><label for="led_front">Front Activity LED</label></div>
+                                <div class="field"><input class="switch is-small" id="led_red" name="led_red" type="checkbox"><label for="led_red">Infrared Red Dot</label></div>
+                                <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Save LEDs</button></div>
+                            </form>
+                        </div>
+                        <div class="column is-half">
+                            <div class="field"><label class="label is-small">Privacy Shield</label></div>
+                            <div class="buttons">
+                                <button class="button is-danger is-small is-fullwidth" type="button" id="btnPrivacyEnable">Enable Privacy Shield</button>
+                            </div>
+                            <p class="help">Disables all cloud and non-local access paths instantly.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Safety Snapshots & Maintenance</p></header>
+                <div class='card-content'>
+                    <div class="columns mb-0">
+                        <div class="column">
+                            <form action="cgi-bin/action.cgi?cmd=save_known_good_profile" method="post">
+                                <button class="button is-link is-small is-fullwidth" type="submit">Save Known-Good Snapshot</button>
+                            </form>
+                            <p class="help mt-1">Capture current stable profile as a restore point.</p>
+                        </div>
+                        <div class="column">
+                            <form action="cgi-bin/action.cgi?cmd=restore_known_good_profile" method="post">
+                                <button class="button is-warning is-small is-fullwidth" type="submit">Restore Known-Good Snapshot</button>
+                            </form>
+                            <p class="help mt-1">Revert if a profile change causes image issues.</p>
+                        </div>
+                    </div>
+                    <div class="is-divider" data-content="System Maintenance"></div>
+                    <form id="formRebootSchedule" action="cgi-bin/action.cgi?cmd=set_reboot_schedule" method="post">
+                         <div class="field"><input class="switch is-small" id="reboot_enable" name="reboot_enable" type="checkbox"><label for="reboot_enable">Enable Scheduled Reboot</label></div>
+                         <div class="columns is-mobile">
+                            <div class="column"><label class="label is-small">Hour (0-23)</label><input class="input is-small" name="reboot_hour" id="reboot_schedule_hour" type="number"></div>
+                            <div class="column"><label class="label is-small">Min (0-59)</label><input class="input is-small" name="reboot_min" id="reboot_schedule_min" type="number"></div>
+                            <div class="column is-half"><label class="label is-small">Weekday (* or 0-6)</label><input class="input is-small" name="reboot_dow" id="reboot_schedule_dow" type="text"></div>
+                         </div>
+                         <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Set Schedule</button></div>
+                    </form>
+                    <hr class="mt-2 mb-3">
+                    <div class="buttons is-centered">
+                        <button id="btnReboot" class="button is-danger is-small is-outlined">Hard Reboot</button>
+                        <button id="btnFreeRam" class="button is-warning is-small is-outlined">Clear Page Cache</button>
+                        <a class="button is-link is-small is-outlined" href="cgi-bin/configbackup.cgi?cmd=download" target="_blank">Export Backup</a>
                     </div>
                 </div>
             </div>
