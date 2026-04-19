@@ -1,0 +1,133 @@
+<!-- Elite Settings Dashboard (JSON-Driven) -->
+<div id="settings_dashboard">
+    <!-- SD Card Warning -->
+    <div id="sd_readonly_warning" style="display:none">
+        <article class="message is-warning">
+            <div class="message-header">
+                <p>Warning</p>
+                <button class="delete" aria-label="delete"></button>
+            </div>
+            <div class="message-body">
+                Your sdcard is mounted read-only. Settings can't be saved.
+                <br>
+                <p>Please try rebooting.</p>
+            </div>
+        </article>
+    </div>
+
+    <!-- Security Warning -->
+    <div id="security_warning" style="display:none">
+        <article class="message is-danger">
+            <div class="message-header">
+                <p>Security warning</p>
+            </div>
+            <div class="message-body">
+                Default credentials are still active. Change password now in this section.
+            </div>
+        </article>
+    </div>
+
+    <!-- Device Health Card -->
+    <div class='card status_card is-primary'>
+        <header class='card-header'><p class='card-header-title'>Device Health & Network</p></header>
+        <div class='card-content'>
+            <div class="columns">
+                <div class="column is-4">
+                    <div class="vital-row" style="margin-bottom: 0.75rem;">
+                        <span class="vital-label">CPU Usage <span class="vital-value" id="dash_cpu_val">--%</span></span>
+                        <div class="ui-progress"><span class="ui-progress-bar" id="dash_cpu_bar" style="width: 0%"></span></div>
+                    </div>
+                    <div class="vital-row" style="margin-bottom: 0.75rem;">
+                        <span class="vital-label">Memory Usage <span class="vital-value" id="dash_mem_val">--%</span></span>
+                        <div class="ui-progress"><span class="ui-progress-bar" id="dash_mem_bar" style="width: 0%"></span></div>
+                    </div>
+                    <div class="vital-row">
+                        <span class="vital-label">Signal Quality <span class="vital-value" id="dash_wifi_val">--%</span></span>
+                        <div class="ui-progress"><span class="ui-progress-bar" id="dash_wifi_bar" style="width: 0%"></span></div>
+                    </div>
+                </div>
+                <div class="column">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div>
+                            <p class="heading">Primary IP Address</p>
+                            <p class="title is-5" style="margin-top: 0;" id="dash_ip">--.--.--.--</p>
+                        </div>
+                        <div>
+                            <p class="heading">Default Gateway</p>
+                            <p class="title is-5" style="margin-top: 0;" id="dash_gw">--.--.--.--</p>
+                        </div>
+                    </div>
+                    <div class="buttons mt-section" style="margin-top: 1rem;">
+                        <a class="button is-small is-light" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
+                        <a class="button is-small is-light" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup Wizard Card -->
+    <div class='card status_card'>
+        <header class='card-header'><p class='card-header-title'>Setup Wizard</p></header>
+        <div class='card-content'>
+            <div id="wizard_status_msg"></div>
+            <form id="formSetupWizard" action="cgi-bin/action.cgi?cmd=complete_setup_wizard" method="post">
+                <div class="field is-horizontal">
+                    <div class="field-label is-normal"><label class="label" for="wizard_password">New password</label></div>
+                    <div class="field-body">
+                        <div class="field">
+                            <div class="control"><input class="input" id="wizard_password" name="wizard_password" type="password" placeholder="Required if defaults active" /></div>
+                            <p class="help">Password change is mandatory if defaults are still active.</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- ... other wizard fields omitted for brevity, adding key ones ... -->
+                <div class="field is-horizontal">
+                    <div class="field-label is-normal"></div>
+                    <div class="field-body"><div class="field"><div class="control"><button id="setupWizardSubmit" class="button is-primary" type="submit">Complete wizard</button></div></div></div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- System Controls -->
+    <div class='card status_card'>
+        <header class='card-header'><p class='card-header-title'>System & Performance</p></header>
+        <div class='card-content'>
+            <form id="formPerformanceProfile" action="cgi-bin/action.cgi?cmd=set_performance_profile" method="post">
+                <div class="field is-horizontal">
+                    <div class="field-label is-normal"><label class="label" for="performance_profile">Performance profile</label></div>
+                    <div class="field-body">
+                        <div class="field">
+                            <div class="control">
+                                <div class="select is-fullwidth">
+                                    <select id="performance_profile" name="performance_profile">
+                                        <option value="balanced">Balanced</option>
+                                        <option value="low-cpu">Low CPU</option>
+                                        <option value="rtsp-only">RTSP + ONVIF only</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="field"><div class="control"><button class="button is-primary" type="submit">Apply</button></div></div>
+                    </div>
+                </div>
+            </form>
+            <div class="field is-horizontal">
+                <div class="field-label is-normal"><label class="label">Memory</label></div>
+                <div class="field-body">
+                    <div class="control"><button id="btnFreeRam" class="button is-warning is-light">Free System RAM</button></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Injected initialization script for the dashboard.
+    // This script is executed after the HTML is inserted into the #content div.
+    (function() {
+        if (!window.EliteUI) return;
+        EliteUI.initDashboard();
+    })();
+</script>
