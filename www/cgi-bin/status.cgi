@@ -471,6 +471,11 @@ mem_used=$(get_current_memory_usage)
 mem_total=$(get_all_memory)
 mem_perc=$((100 * mem_used / mem_total))
 
+# Fetch Wireless Stats
+wifi_state="$(get_wifi_signal_strength)"
+wifi_qual="${wifi_state% *}"
+wifi_dbm="${wifi_state#* }"
+
 cpu_color="is-success"
 [ "$cpu_val" -gt 40 ] && cpu_color="is-warning"
 [ "$cpu_val" -gt 80 ] && cpu_color="is-danger"
@@ -479,6 +484,10 @@ mem_color="is-success"
 [ "$mem_perc" -gt 60 ] && mem_color="is-warning"
 [ "$mem_perc" -gt 90 ] && mem_color="is-danger"
 
+wifi_color="is-success"
+[ "$wifi_qual" -lt 70 ] && wifi_color="is-warning"
+[ "$wifi_qual" -lt 40 ] && wifi_color="is-danger"
+
 cat << EOF
 <!-- Elite Device Health & Info -->
 <div class='card status_card is-primary'>
@@ -486,13 +495,17 @@ cat << EOF
     <div class='card-content'>
         <div class="columns">
             <div class="column is-4">
-                <div class="vital-row">
+                <div class="vital-row" style="margin-bottom: 0.75rem;">
                     <span class="vital-label">CPU Usage <span class="vital-value">${cpu_val}%</span></span>
                     <div class="ui-progress"><span class="ui-progress-bar ${cpu_color}" style="width: ${cpu_val}%"></span></div>
                 </div>
-                <div class="vital-row">
+                <div class="vital-row" style="margin-bottom: 0.75rem;">
                     <span class="vital-label">Memory Usage <span class="vital-value">${mem_perc}%</span></span>
                     <div class="ui-progress"><span class="ui-progress-bar ${mem_color}" style="width: ${mem_perc}%"></span></div>
+                </div>
+                <div class="vital-row">
+                    <span class="vital-label">Signal Quality <span class="vital-value">${wifi_qual}% (${wifi_dbm} dBm)</span></span>
+                    <div class="ui-progress"><span class="ui-progress-bar ${wifi_color}" style="width: ${wifi_qual}%"></span></div>
                 </div>
             </div>
             <div class="column">

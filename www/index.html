@@ -3,11 +3,11 @@
 
 <head>
     <meta charset=utf-8 />
-    <title>Anyka</title>
+    <title>Elite TC100</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- CSS Framework -->
-    <link href="css/bulma.0.6.2.min.css" rel="stylesheet">
+    <!-- CSS Framework: Modernization v1.0.2 -->
+    <link href="css/bulma.1.0.2.min.css" rel="stylesheet">
     <link href="css/ui-modern.min.css" rel="stylesheet">
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
@@ -35,14 +35,14 @@
                     <span aria-hidden="true"></span>
                     <span aria-hidden="true"></span>
                 </a>
-                <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition v1.1.0"><i class="icon-eye"></i> <span style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span></a>
+                <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition v1.3.0"><i class="icon-eye"></i> <span style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span></a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
                     id="viewrecordspage" title="Archive Records"><i class="icon-play-circle-o"></i></a>
                 <span class="navbar-item nav-vitals-wrap" title="System Health Summary">
                     <div id="vitals_summary" style="display: flex; gap: 0.6rem;">
                         <!-- Injected via status.cgi/index.js -->
-                        <div class="usage-chip usage-low" id="cpu_badge">CPU: --%</div>
-                        <div class="usage-chip usage-low" id="ram_badge">RAM: --%</div>
+                        <div class="usage-chip usage-low" id="cpuBadge">CPU: --%</div>
+                        <div class="usage-chip usage-low" id="ramBadge">RAM: --%</div>
                     </div>
                 </span>
             </div>
@@ -159,6 +159,24 @@
                                 data-message="Are you sure you wish to shutdown?"
                                 data-target="cgi-bin/action.cgi?cmd=shutdown">Shutdown</a>
                         </div>
+                    <!-- Elite Controls: Theme Toggle & Logout -->
+                    <div class="navbar-end">
+                        <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
+                            <span class="nav-icon" id="theme_toggle_icon">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px;">
+                                    <path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.303 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z" />
+                                </svg>
+                            </span>
+                        </a>
+                        <a id="logout" class="navbar-item prompt" href="javascript: void(0)" 
+                           data-message="Are you sure you wish to logout?" 
+                           data-target="cgi-bin/action.cgi?cmd=logout" title="Logout session">
+                            <span class="nav-icon">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M16 17l5-5l-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                </svg>
+                            </span>
+                        </a>
                     </div>
                 </div>
             </div>
@@ -207,6 +225,37 @@
     <script src="scripts/index.bundle.min.js" type="text/javascript" defer></script>
     <script src="scripts/ptt-audio.bundle.min.js" type="text/javascript" defer></script>
 
+    <script>
+        (function() {
+            var html = document.documentElement;
+            var toggle = document.getElementById('theme_toggle');
+            var icon = document.getElementById('theme_toggle_icon');
+            var themes = {
+                light: { attr: 'light', path: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM2 13h2M20 13h2M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41' },
+                dark: { attr: 'dark', path: 'M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.303 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z' }
+            };
+
+            function setTheme(mode) {
+                html.setAttribute('data-theme', mode);
+                localStorage.setItem('elite_theme', mode);
+                if (icon) {
+                    var svg = icon.querySelector('svg');
+                    var path = svg.querySelector('path');
+                    path.setAttribute('d', themes[mode === 'dark' ? 'dark' : 'light'].path);
+                    icon.title = mode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+                }
+            }
+
+            var saved = localStorage.getItem('elite_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            setTheme(saved);
+
+            if (toggle) {
+                toggle.addEventListener('click', function() {
+                    setTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+                });
+            }
+        })();
+    </script>
 </body>
 
 </html>
