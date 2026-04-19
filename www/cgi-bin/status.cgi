@@ -427,9 +427,8 @@ if [ -r "$KNOWN_GOOD_STREAM_FILE" ]; then
   known_good_snapshot_available=1
 fi
 
-CAMERA_IP=$(cat /tmp/camera_ip.txt 2>/dev/null)
-[ -n "$CAMERA_IP" ] || CAMERA_IP=$(ifconfig wlan0 2>/dev/null | awk '/inet addr:/{split($2,a,":");print a[2];exit}')
-[ -n "$CAMERA_IP" ] || CAMERA_IP="CAMERA-IP"
+CAMERA_IP="$(get_active_primary_ip)"
+DEFAULT_GATEWAY="$(get_default_gateway)"
 
 mount|grep "/mmcblk"|grep "rw,">/dev/null
 
@@ -466,7 +465,56 @@ cat << EOF
 EOF
 fi
 
+# Calculate health metrics for visual bars
+cpu_val=$(get_current_cpu_usage)
+mem_used=$(get_current_memory_usage)
+mem_total=$(get_all_memory)
+mem_perc=$((100 * mem_used / mem_total))
+
+cpu_color="is-success"
+[ "$cpu_val" -gt 40 ] && cpu_color="is-warning"
+[ "$cpu_val" -gt 80 ] && cpu_color="is-danger"
+
+mem_color="is-success"
+[ "$mem_perc" -gt 60 ] && mem_color="is-warning"
+[ "$mem_perc" -gt 90 ] && mem_color="is-danger"
+
 cat << EOF
+<!-- Elite Device Health & Info -->
+<div class='card status_card is-primary'>
+    <header class='card-header'><p class='card-header-title'>Device Health & Network</p></header>
+    <div class='card-content'>
+        <div class="columns">
+            <div class="column is-4">
+                <div class="vital-row">
+                    <span class="vital-label">CPU Usage <span class="vital-value">${cpu_val}%</span></span>
+                    <div class="ui-progress"><span class="ui-progress-bar ${cpu_color}" style="width: ${cpu_val}%"></span></div>
+                </div>
+                <div class="vital-row">
+                    <span class="vital-label">Memory Usage <span class="vital-value">${mem_perc}%</span></span>
+                    <div class="ui-progress"><span class="ui-progress-bar ${mem_color}" style="width: ${mem_perc}%"></span></div>
+                </div>
+            </div>
+            <div class="column">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <p class="heading">Primary IP Address</p>
+                        <p class="title is-5" style="margin-top: 0;">${CAMERA_IP}</p>
+                    </div>
+                    <div>
+                        <p class="heading">Default Gateway</p>
+                        <p class="title is-5" style="margin-top: 0;">${DEFAULT_GATEWAY:-n/a}</p>
+                    </div>
+                </div>
+                <div class="buttons mt-section" style="margin-top: 1rem;">
+                    <a class="button is-small is-light" href="rtsp://${CAMERA_IP}:${RTSP_PORT}/video0_unicast" target="_blank">RTSP Main</a>
+                    <a class="button is-small is-light" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Setup Wizard -->
 <div class='card status_card'>
     <header class='card-header'><p class='card-header-title'>Setup Wizard</p></header>
@@ -2294,25 +2342,7 @@ cat << EOF
     </div>
 </div>
 
-<!-- H264 RTSP -->
-<div class='card status_card'>
-    <header class='card-header'><p class='card-header-title'>RTSP stream address</p></header>
-    <div class='card-content'>
-EOF
-
-PATH="/bin:/sbin:/usr/bin:/media/mmcblk0p2/data/bin:/media/mmcblk0p2/data/sbin:/media/mmcblk0p2/data/usr/bin"
-
-IP="$CAMERA_IP"
-echo "<p>Path to main feed : <a href='rtsp://$IP:$RTSP_PORT/video0_unicast'>rtsp://$IP:$RTSP_PORT/video0_unicast</a></p>"
-if [ "$RTSP_SUBSTREAM" = "1" ]; then
-echo "<p>Path to sub feed : <a href='rtsp://$IP:$RTSP_PORT/video1_unicast'>rtsp://$IP:$RTSP_PORT/video1_unicast</a></p>"
-else
-echo "<p>Substream is disabled by current stream topology/profile.</p>"
-echo "<p>Main-only fallback path (firmware dependent): <a href='rtsp://$IP:$RTSP_PORT/unicast'>rtsp://$IP:$RTSP_PORT/unicast</a></p>"
-fi
-cat << EOF
-    </div>
-</div>
+<!-- H264 RTSP moved to Elite Discovery Panel -->
 
 <!-- Recording -->
 <div class='card status_card'>

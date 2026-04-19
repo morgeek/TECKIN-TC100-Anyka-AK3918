@@ -6,7 +6,7 @@ set -e
 
 STAGING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FTP_HOST="192.168.1.24"
-FTP_PORT="2121"
+FTP_PORT="21"
 FTP_USER="root"
 FTP_PASS="pass"
 FTP_URL="ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT"

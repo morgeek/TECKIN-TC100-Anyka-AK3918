@@ -35,23 +35,15 @@
                     <span aria-hidden="true"></span>
                     <span aria-hidden="true"></span>
                 </a>
-                <a class="navbar-item icnbtn" href="." id="title" title="Anyka"><i class="icon-eye"></i></a>
+                <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition v1.1.0"><i class="icon-eye"></i> <span style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span></a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
-                    id="viewrecordspage" title="Records"><i class="icon-play-circle-o"></i></a>
-                <span class="navbar-item nav-sysusage-wrap"
-                    title="Current CPU and RAM usage">
-                    <em id="cpuusage" class="usage-chip usage-low">CPU: ...</em>
-                    <em id="ramusage" class="usage-chip usage-low">RAM: ...</em>
-                    <em id="sdbadge" class="usage-chip usage-low" style="display:none">SD: ...</em>
-                </span>
-                <span class="navbar-item nav-perfprofile-wrap" title="Current performance profile">
-                    <em id="perfprofile">Profile: ...</em>
-                </span>
-                <span class="navbar-item nav-nightmode-wrap" title="Auto-night mode luminance indicator">
-                    <em id="nightmodebadge" class="nightmode-badge nightmode-unknown">&#127769; Night: ...</em>
-                </span>
-                <span class="navbar-item nav-mqtt-wrap" title="MQTT last publish status" style="display:none">
-                    <em id="mqttbadge" class="mqtt-badge mqtt-unknown">MQTT</em>
+                    id="viewrecordspage" title="Archive Records"><i class="icon-play-circle-o"></i></a>
+                <span class="navbar-item nav-vitals-wrap" title="System Health Summary">
+                    <div id="vitals_summary" style="display: flex; gap: 0.6rem;">
+                        <!-- Injected via status.cgi/index.js -->
+                        <div class="usage-chip usage-low" id="cpu_badge">CPU: --%</div>
+                        <div class="usage-chip usage-low" id="ram_badge">RAM: --%</div>
+                    </div>
                 </span>
             </div>
             <div class="navbar-menu" id="nav_menu">

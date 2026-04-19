@@ -254,22 +254,24 @@ csrf_guard() {
     read -r _cg_stored < /tmp/csrf_token
     _cg_stored="$(printf '%s' "$_cg_stored" | tr -cd '0-9a-fA-F')"
   fi
+
   if [ -z "$_cg_stored" ]; then
-    # Token not yet written. Pass during early boot (<60s uptime); deny after that.
-    _cg_up=0; read -r _cg_up _ < /proc/uptime 2>/dev/null || true; _cg_up="${_cg_up%.*}"
-    case "$_cg_up" in ''|*[!0-9]*) _cg_up=0 ;; esac
-    if [ "$_cg_up" -lt 60 ]; then
-      logger -t cgi-recovery "CSRF guard bypassed for endpoint ${REQUEST_URI:-unknown} (early-boot window)"
-      return 0
+    # Token not yet written. Auto-generate it now to prevent lock-outs.
+    # We use a mix of random data if available, or just a timestamp hash.
+    if [ -r /dev/urandom ]; then
+      _cg_stored="$(head -c 16 /dev/urandom | hexdump -e '16/1 "%02x"')"
+    else
+      _cg_stored="$(date +%s%N | md5sum | cut -c1-32)"
     fi
-    echo "Status: 403 Forbidden"
-    echo "Content-Type: application/json"
-    echo "Cache-Control: no-store, no-cache"
-    echo "Pragma: no-cache"
-    echo ""
-    printf '{"ok":false,"error":"CSRF token unavailable. Reload the page.","code":"permission_denied"}\n'
-    exit 0
+    printf '%s' "$_cg_stored" > /tmp/csrf_token 2>/dev/null || true
+    logger -t cgi-hardened "CSRF token auto-initialized for session"
   fi
+
+  # Skip token check for safe methods (GET/HEAD) to allow UI to load and receive the token via state.cgi
+  if [ "${REQUEST_METHOD}" = "GET" ] || [ "${REQUEST_METHOD}" = "HEAD" ]; then
+    return 0
+  fi
+
   _cg_header="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | tr -cd '0-9a-fA-F')"
   if [ "$_cg_header" != "$_cg_stored" ]; then
     echo "Status: 403 Forbidden"
