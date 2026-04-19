@@ -72,6 +72,14 @@ do
   esc_value="${esc_value//\"/\\\"}"
   esc_value="${esc_value//\`/\\\`}"
   esc_value="${esc_value//\$/\\\$}"
+  # surgical hardening: escape characters that enable command chaining/redirection
+  esc_value="${esc_value//;/\\;}"
+  esc_value="${esc_value//|/\\|}"
+  esc_value="${esc_value//&/\\&}"
+  esc_value="${esc_value//(/\\(}"
+  esc_value="${esc_value//)/\\)}"
+  esc_value="${esc_value//</\\<}"
+  esc_value="${esc_value//>/\\>}"
 
   # assign to F_<name> variable (name already validated)
   eval "F_${name}=\"${esc_value}\""
@@ -250,7 +258,10 @@ csrf_guard() {
     # Token not yet written. Pass during early boot (<60s uptime); deny after that.
     _cg_up=0; read -r _cg_up _ < /proc/uptime 2>/dev/null || true; _cg_up="${_cg_up%.*}"
     case "$_cg_up" in ''|*[!0-9]*) _cg_up=0 ;; esac
-    if [ "$_cg_up" -lt 60 ]; then return 0; fi
+    if [ "$_cg_up" -lt 60 ]; then
+      logger -t cgi-recovery "CSRF guard bypassed for endpoint ${REQUEST_URI:-unknown} (early-boot window)"
+      return 0
+    fi
     echo "Status: 403 Forbidden"
     echo "Content-Type: application/json"
     echo "Cache-Control: no-store, no-cache"
