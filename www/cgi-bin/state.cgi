@@ -1332,21 +1332,25 @@ if [ -n "$F_cmd" ]; then
     load_conf_file /mnt/config/mqtt.conf
     load_conf_file /mnt/config/recording.conf
     load_conf_file /mnt/config/sound_detection.conf
+    load_conf_file /mnt/config/timelapse.conf
     load_conf_file /mnt/config/service_trim.conf
     load_conf_file /mnt/config/timezone.conf
+    load_conf_file /mnt/config/ntp_srv.conf
+    load_conf_file /mnt/config/motion.conf
+    load_conf_file /mnt/config/telnetd.conf
+    load_conf_file /mnt/config/telegram.conf
     
     read_rtsp_stream_summary
     detect_primary_ip
     
     # ISP / OSD Specifics
-    # osdenabled is usually a 1/0 or true/false, standardization needed for UI
     osdenabled="$(truthy_flag "$(get_cfg osdenabled 0)")"
     osdtext_raw="$(get_cfg osdtext "")"
     osdtext_json="$(json_escape "$osdtext_raw")"
     
     # Audio specifics
-    samplerate="$(get_cfg SAMPLERATE 8000)"
-    audio_vol="$(get_cfg AUDIO_VOLUME 8)"
+    samplerate="$(get_cfg samplerate 8000)"
+    audio_vol="$(get_cfg volume 8)"
     
     # MQTT particulars
     mqtt_discovery="$(truthy_flag "$(get_cfg MQTT_HA_DISCOVERY_ENABLE 1)")"
@@ -1360,19 +1364,33 @@ if [ -n "$F_cmd" ]; then
     else
       health_hostname="$(hostname 2>/dev/null)"
     fi
-    
-    # Output JSON object
-    printf '{"boot":{"web_mode":"%s","perf_profile":"%s","service_trim":%s,"topology":"%s","ultralite_port":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s},"sub":{"codec":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s"}}\n' \
-      "$(json_escape "$(get_cfg WEB_MODE full)")" "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(sanitize_int "$(get_cfg ULTRALITE_HTTP_PORT 80)" 80)" \
-      "$rtsp_port" "$codec0" "$width0" "$height0" "$fps0" "$(sanitize_int "$(get_cfg brbitrate0 1000)" 1000)" "$(sanitize_int "$(get_cfg goplen0 50)" 50)" \
-      "$codec1" "$width1" "$height1" "$fps1" "$(sanitize_int "$(get_cfg brbitrate1 300)" 300)" "$(sanitize_int "$(get_cfg goplen1 50)" 50)" \
+
+    # Peripheral & Specialized status
+    front_led_state="$(truthy_flag "$(get_cfg FRONT_LED 0)")"
+    red_led_state="$(truthy_flag "$(get_cfg RED_LED 0)")"
+    syslog_enabled="$(truthy_flag "$(get_cfg SYSLOG_ENABLE 0)")"
+    telegram_enabled="$(truthy_flag "$(get_cfg TELEGRAM_ENABLE 0)")"
+    privacy_enabled="$(truthy_flag "$(get_cfg PRIVACY_MODE 0)")"
+
+    # Feature blocks
+    printf '{"boot":{"web_mode":"%s","perf_profile":"%s","service_trim":%s,"topology":"%s","ultralite_port":%s,"lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":%s,"minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":%s,"minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s}}\n' \
+      "$(json_escape "$(get_cfg WEB_MODE full)")" "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(sanitize_int "$(get_cfg ULTRALITE_HTTP_PORT 80)" 80)" "$(truthy_flag "$(get_cfg LIGHTWEIGHT_MODE 0)")" "$(truthy_flag "$(get_cfg SECURITY_HARDENING_MODE 0)")" \
+      "$rtsp_port" "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$(sanitize_int "$(get_cfg brbitrate0 1000)" 1000)" "$(sanitize_int "$(get_cfg goplen0 50)" 50)" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" \
+      "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$(sanitize_int "$(get_cfg brbitrate1 300)" 300)" "$(sanitize_int "$(get_cfg goplen1 50)" 50)" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
       "$(sanitize_int "$(get_cfg imageFlip 0)" 0)" "$(truthy_flag "$(get_cfg enable_rtsp_log 0)")" \
-      "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg audioCodec0 4)" 4)" "$(sanitize_int "$(get_cfg audioCodec1 4)" 4)" \
+      "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg audioCodec0 4)" 4)" "$(sanitize_int "$(get_cfg audioCodec1 4)" 4)" "$audio_vol" \
       "$(sanitize_int "$(get_cfg daynightlum 2000)" 2000)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(sanitize_int "$(get_cfg nightdaylum 6000)" 6000)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
       "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg osdfontsize0 24)" 24)" "$(sanitize_int "$(get_cfg frontcolor 1)" 1)" "$(sanitize_int "$(get_cfg backcolor 0)" 0)" "$(sanitize_int "$(get_cfg edgecolor 2)" 2)" "$(sanitize_int "$(get_cfg osdx0 10)" 10)" "$(sanitize_int "$(get_cfg osdy0 10)" 10)" \
-      "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
+      "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
       "$(sanitize_int "$(get_cfg postrec 10)" 10)" "$(sanitize_int "$(get_cfg maxduration 60)" 60)" "$(sanitize_int "$(get_cfg diskspace 1024)" 1024)" "$(truthy_flag "$(get_cfg motion_act 0)")" \
-      "$(json_escape "$health_hostname")" "$(json_escape "$(get_cfg TIMEZONE UTC)")" "$(json_escape "$(get_cfg NTP_SERVER pool.ntp.org)")"
+      "$(json_escape "$health_hostname")" "$(json_escape "$(get_cfg TIMEZONE UTC)")" "$(json_escape "$(get_cfg NTP_SERVER pool.ntp.org)")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
+      "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 8192)" 8192)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 4096)" 4096)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
+      "$(sanitize_int "$(get_cfg tlinterval 10)" 10)" "$(sanitize_int "$(get_cfg tlduration 0)" 0)" \
+      "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$(sanitize_int "$(get_cfg THRESHOLD 1500)" 1500)" "$(sanitize_int "$(get_cfg INTERVAL 5)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")", \
+      "telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"peripherals":{"led_front":%s,"led_red":%s,"privacy":%s}}\n' \
+      "$telegram_enabled" "$(json_escape "$(get_cfg apiToken "")")" "$(json_escape "$(get_cfg userChatId "")")" \
+      "$syslog_enabled" "$(json_escape "$(get_cfg SYSLOG_HOST "")")" "$(sanitize_int "$(get_cfg SYSLOG_PORT 514)" 514)" \
+      "$front_led_state" "$red_led_state" "$privacy_enabled"
     ;;
 
   perfprofile)
