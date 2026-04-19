@@ -63,10 +63,24 @@ run_with_timeout()
 
 get_active_primary_ip()
 {
-  # Tries to find the IP assigned to the interface with the default route.
-  # Use route -n (numeric) to avoid slow DNS lookups that cause timeouts.
-  _gai_route_iface="$(run_with_timeout 3 route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $NF; exit}')"
-  _gai_iface="${_gai_route_iface:-wlan0}"
+  # High-speed path: use the boot-time cached IP if available.
+  if [ -r /tmp/camera_ip.txt ]; then
+    read -r _gai_ip < /tmp/camera_ip.txt
+    if [ -n "$_gai_ip" ]; then
+      printf '%s\n' "$_gai_ip"
+      return 0
+    fi
+  fi
+
+  # Fallback: Tries to find the IP assigned to the interface with the default route.
+  # Use /proc/net/route to avoid 'route -n' fork.
+  _gai_iface="wlan0"
+  while read -r _iface _dest _gw _flags _ref _use _metric _mask _mtu _window _irtt; do
+      if [ "$_dest" = "00000000" ] && [ "$_mask" = "00000000" ]; then
+          _gai_iface="$_iface"
+          break
+      fi
+  done < /proc/net/route
 
   _gai_ip="$(ifconfig "$_gai_iface" 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | head -n 1)"
 
@@ -80,45 +94,59 @@ get_active_primary_ip()
 
 get_default_gateway()
 {
-  # Pulls the second column from the default route line in numeric mode.
-  _gdg_gw="$(run_with_timeout 3 route -n 2>/dev/null | awk '$1=="0.0.0.0" {print $2; exit}')"
-  case "$_gdg_gw" in
-    ''|'*'|'0.0.0.0') _gdg_gw="n/a" ;;
-  esac
-  printf '%s\n' "$_gdg_gw"
+  # Use /proc/net/route instead of route -n (saves 1 fork).
+  # Gateway is column 3 (index 2 in hex).
+  _gdg_hex_gw="00000000"
+  while read -r _iface _dest _gw _flags _rest; do
+      if [ "$_dest" = "00000000" ]; then
+          _gdg_hex_gw="$_gw"
+          break
+      fi
+  done < /proc/net/route
+
+  if [ "$_gdg_hex_gw" = "00000000" ]; then
+      printf 'n/a\n'
+      return
+  fi
+
+  # Convert hex IP (little endian) to dotted decimal.
+  # Hex: DDCBBAAA -> AAA.BBB.CCC.DDD
+  _h_v1="${_gdg_hex_gw:6:2}"
+  _h_v2="${_gdg_hex_gw:4:2}"
+  _h_v3="${_gdg_hex_gw:2:2}"
+  _h_v4="${_gdg_hex_gw:0:2}"
+  printf '%d.%d.%d.%d\n' "0x$_h_v1" "0x$_h_v2" "0x$_h_v3" "0x$_h_v4"
 }
 
 get_wifi_signal_strength()
 {
-  # Extracts wireless telemetry from the kernel.
-  # Format: Quality-Link Quality-Level (normalized)
+  # Extracts wireless telemetry directly from the kernel without grep/awk forks.
   _gwss_iface="wlan0"
-  _gwss_raw="$(grep "${_gwss_iface}" /proc/net/wireless 2>/dev/null)"
+  _gwss_qual=0
+  _gwss_lvl=0
 
-  if [ -n "$_gwss_raw" ]; then
-    # Extract columns 3 (link quality) and 4 (signal level)
-    # tr -d '.' removes trailing dots often found in Anyka Kernels
-    _gwss_qual="$(echo "$_gwss_raw" | awk '{print $3}' | tr -d '.')"
-    _gwss_lvl="$(echo "$_gwss_raw" | awk '{print $4}' | tr -d '.')"
+  while read -r _gif _status _link _level _noise _rest; do
+      # Format: wlan0: 0000   44.  -66.  -256
+      [ "${_gif%:}" = "$_gwss_iface" ] || continue
+      
+      # Strip trailing dots from link/level using shell parameter expansion
+      _gwss_qual="${_link%.}"
+      _gwss_lvl="${_level%.}"
+      break
+  done < /proc/net/wireless
 
-    # Handle dBm offset (some drivers report level as level + 256)
-    case "$_gwss_lvl" in
-        ''|*[!0-9-]*) _gwss_lvl=0 ;;
-    esac
-    if [ "$_gwss_lvl" -gt 0 ] && [ "$_gwss_lvl" -le 256 ]; then
-        _gwss_lvl=$((_gwss_lvl - 256))
-    fi
-
-    # Strip any fraction if reported as X/Y
-    _gwss_qual="${_gwss_qual%/*}"
-    case "$_gwss_qual" in
-        ''|*[!0-9]*) _gwss_qual=0 ;;
-    esac
-
-    printf '%s %s\n' "$_gwss_qual" "$_gwss_lvl"
-  else
-    printf '0 0\n'
+  # Handle dBm offset (some drivers report level as unsigned level + 256)
+  case "$_gwss_lvl" in
+      ''|*[!0-9-]*) _gwss_lvl=0 ;;
+  esac
+  if [ "$_gwss_lvl" -gt 0 ] && [ "$_gwss_lvl" -le 256 ]; then
+      _gwss_lvl=$((_gwss_lvl - 256))
   fi
+
+  case "$_gwss_qual" in
+      ''|*[!0-9]*) _gwss_qual=0 ;;
+  esac
+  printf '%s %s\n' "$_gwss_qual" "$_gwss_lvl"
 }
 
 
@@ -153,8 +181,19 @@ install_config()
 {
   cfg_path=$1
   if [ ! -f "$cfg_path" ]; then
-			cp "$cfg_path.dist" "$cfg_path" > /dev/null 2>&1
-	fi
+    cp "$cfg_path.dist" "$cfg_path" > /dev/null 2>&1
+  fi
+}
+
+# install_config_cached — like install_config but avoids fork/stat if already done this boot.
+# Used extensively in performance-critical CGI scripts.
+install_config_cached()
+{
+  _icc_path="$1"
+  _icc_slug="$(printf '%s' "$_icc_path" | md5sum | cut -b -8)"
+  [ -f "/tmp/.cfg_inst_$_icc_slug" ] && return 0
+  install_config "$_icc_path"
+  touch "/tmp/.cfg_inst_$_icc_slug"
 }
 
 

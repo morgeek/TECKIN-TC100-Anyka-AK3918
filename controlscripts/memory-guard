@@ -30,7 +30,7 @@ sanitize_positive_int()
 
 load_config()
 {
-    install_config "$CONFIGPATH/boot.conf"
+    install_config_cached "$CONFIGPATH/boot.conf"
     if [ -f "$CONFIGPATH/boot.conf" ]; then
         # shellcheck disable=SC1090
         . "$CONFIGPATH/boot.conf"
@@ -95,16 +95,28 @@ mem_available_kb()
     get_mem_available_kb
 }
 
+# Fork-free timestamp helpers
+_MG_BTIME=0
+_read_btime() {
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _MG_BTIME="$_v" && break; done < /proc/stat
+}
+get_now_ts() {
+  [ "$_MG_BTIME" -gt 0 ] || _read_btime
+  read -r _up _ < /proc/uptime
+  echo $((_MG_BTIME + ${_up%.*}))
+}
+
 stop_service_if_running()
 {
     service="$1"
     script="/mnt/controlscripts/$service"
     [ -x "$script" ] || return 0
 
-    status_output="$("$script" status 2>/dev/null || true)"
-    if [ -n "$status_output" ]; then
+    # Optimization: check if PID file exists before calling script status (save fork)
+    if [ -f "/var/run/$service.pid" ]; then
         "$script" stop >/dev/null 2>&1 || true
-        echo "$(date) Memory guard: stopped $service" >> "$LOGPATH"
+        _nts="$(get_now_ts)"
+        echo "[$_nts] Memory guard: stopped $service" >> "$LOGPATH"
     fi
 }
 
@@ -133,7 +145,8 @@ apply_memory_relief()
         if is_truthy "$MEM_GUARD_DROP_CACHES"; then
             sync
             echo 3 > /proc/sys/vm/drop_caches
-            echo "$(date) Memory guard: dropped VM caches (stage=$stage MemAvailable=${available_kb}kB)" >> "$LOGPATH"
+            _nts="$(get_now_ts)"
+            echo "[$_nts] Memory guard: dropped VM caches (stage=$stage MemAvailable=${available_kb}kB)" >> "$LOGPATH"
         fi
     fi
 }
@@ -178,14 +191,14 @@ monitor()
         fi
 
         if [ -n "$stage" ]; then
-            now_ts="$(date +%s 2>/dev/null)"
+            now_ts="$(get_now_ts)"
             now_ts="$(sanitize_positive_int "$now_ts" 0)"
 
             if [ "$now_ts" -gt 0 ] && [ $((now_ts - last_action_ts)) -lt "$MEM_GUARD_COOLDOWN_SECONDS" ]; then
                 continue
             fi
 
-            echo "$(date) Memory guard: low memory detected (stage=$stage MemAvailable=${available_kb}kB warn_hits=${warn_hits} critical_hits=${critical_hits})" >> "$LOGPATH"
+            echo "[$now_ts] Memory guard: low memory detected (stage=$stage MemAvailable=${available_kb}kB warn_hits=${warn_hits} critical_hits=${critical_hits})" >> "$LOGPATH"
             apply_memory_relief "$available_kb" "$stage"
             warn_hits=0
             critical_hits=0
