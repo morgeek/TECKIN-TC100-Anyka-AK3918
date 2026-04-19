@@ -1,0 +1,197 @@
+#!/bin/sh
+SERVICE_NAME="CPU Scaler"
+PIDFILE="/var/run/cpu-scaler.pid"
+LOGPATH="/mnt/log/cpu-scaler.log"
+CONFIGPATH="/mnt/config"
+
+. /mnt/scripts/common_functions.sh
+
+is_truthy()
+{
+    case "$1" in
+        1|true|yes|on|enable|enabled) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+sanitize_positive_int()
+{
+    value="$1"
+    fallback="$2"
+    case "$value" in
+        ''|*[!0-9]*)
+            echo "$fallback"
+            ;;
+        *)
+            echo "$value"
+            ;;
+    esac
+}
+
+load_config()
+{
+    install_config_cached "$CONFIGPATH/boot.conf"
+    if [ -f "$CONFIGPATH/boot.conf" ]; then
+        # shellcheck disable=SC1090
+        . "$CONFIGPATH/boot.conf"
+    fi
+
+    : "${CPU_SCALER_ENABLE:=0}"
+    CPU_SCALER_INTERVAL_SECONDS="$(sanitize_positive_int "${CPU_SCALER_INTERVAL_SECONDS:-10}" 10)"
+    CPU_SCALER_THRESHOLD_PERCENT="$(sanitize_positive_int "${CPU_SCALER_THRESHOLD_PERCENT:-80}" 80)"
+    CPU_SCALER_HOLD_TIME_SECONDS="$(sanitize_positive_int "${CPU_SCALER_HOLD_TIME_SECONDS:-30}" 30)"
+    CPU_SCALER_D1_WIDTH="$(sanitize_positive_int "${CPU_SCALER_D1_WIDTH:-720}" 720)"
+    CPU_SCALER_D1_HEIGHT="$(sanitize_positive_int "${CPU_SCALER_D1_HEIGHT:-480}" 480)"
+
+    [ "$CPU_SCALER_INTERVAL_SECONDS" -lt 2 ] && CPU_SCALER_INTERVAL_SECONDS=2
+    [ "$CPU_SCALER_THRESHOLD_PERCENT" -gt 100 ] && CPU_SCALER_THRESHOLD_PERCENT=100
+    [ "$CPU_SCALER_HOLD_TIME_SECONDS" -lt "$CPU_SCALER_INTERVAL_SECONDS" ] && CPU_SCALER_HOLD_TIME_SECONDS="$CPU_SCALER_INTERVAL_SECONDS"
+}
+
+# Fork-free timestamp helpers
+_CS_BTIME=0
+_read_btime() {
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _CS_BTIME="$_v" && break; done < /proc/stat
+}
+get_now_ts() {
+  [ "$_CS_BTIME" -gt 0 ] || _read_btime
+  read -r _up _ < /proc/uptime
+  echo $((_CS_BTIME + ${_up%.*}))
+}
+
+log_msg() {
+    _nts="$(get_now_ts)"
+    echo "[$_nts] CPU Scaler: $1" >> "$LOGPATH"
+}
+
+get_current_resolution() {
+    # Check stream [0] resolution
+    _res_w="$(/mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" r 0 width)"
+    _res_h="$(/mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" r 0 height)"
+    echo "${_res_w}x${_res_h}"
+}
+
+apply_downscale() {
+    log_msg "Sustained high CPU detected. Lowering resolution to ${CPU_SCALER_D1_WIDTH}x${CPU_SCALER_D1_HEIGHT}."
+    
+    # Update rtspserver.conf
+    /mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" w 0 width "$CPU_SCALER_D1_WIDTH"
+    /mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" w 0 height "$CPU_SCALER_D1_HEIGHT"
+    
+    # Restart RTSP service
+    restart_service_if_need /mnt/controlscripts/rtsp-h26x
+    
+    log_msg "Resolution updated and RTSP server restarted."
+}
+
+monitor()
+{
+    high_cpu_start_ts=0
+    
+    # Clear state file so we start fresh
+    rm -f /tmp/cpu_usage_scaler.state 2>/dev/null
+    export CPU_USAGE_STATE_FILE="/tmp/cpu_usage_scaler.state"
+
+    while :; do
+        sleep "$CPU_SCALER_INTERVAL_SECONDS"
+
+        cpu_usage="$(get_current_cpu_usage)"
+        case "$cpu_usage" in ''|*[!0-9]*) cpu_usage=0 ;; esac
+
+        if [ "$cpu_usage" -ge "$CPU_SCALER_THRESHOLD_PERCENT" ]; then
+            now_ts="$(get_now_ts)"
+            if [ "$high_cpu_start_ts" -eq 0 ]; then
+                high_cpu_start_ts="$now_ts"
+                log_msg "High CPU detected ($cpu_usage%). Monitoring for sustained load."
+            else
+                elapsed=$((now_ts - high_cpu_start_ts))
+                if [ "$elapsed" -ge "$CPU_SCALER_HOLD_TIME_SECONDS" ]; then
+                    cur_res="$(get_current_resolution)"
+                    target_res="${CPU_SCALER_D1_WIDTH}x${CPU_SCALER_D1_HEIGHT}"
+                    
+                    if [ "$cur_res" != "$target_res" ]; then
+                        log_msg "CPU high for ${elapsed}s. Current res: $cur_res. Triggering downscale."
+                        apply_downscale
+                    else
+                        log_msg "CPU high for ${elapsed}s, but resolution is already at target $cur_res. No action taken."
+                    fi
+                    # Reset start time after action to avoid immediate re-triggering
+                    # Or maybe we should keep it to log that it stays high?
+                    # Let's reset to wait another hold_time if it stays high.
+                    high_cpu_start_ts="$now_ts"
+                fi
+            fi
+        else
+            if [ "$high_cpu_start_ts" -ne 0 ]; then
+                log_msg "CPU load normalized ($cpu_usage%)."
+                high_cpu_start_ts=0
+            fi
+        fi
+    done
+}
+
+status()
+{
+    pid="$(cat "$PIDFILE" 2>/dev/null)"
+    if [ "$pid" ]; then
+        kill -0 "$pid" >/dev/null 2>&1 && echo "PID: $pid" || return 1
+    fi
+}
+
+start()
+{
+    load_config
+    if ! is_truthy "$CPU_SCALER_ENABLE"; then
+        echo "CPU scaler disabled in /mnt/config/boot.conf"
+        return 0
+    fi
+
+    if [ "$(status)" != "" ]; then
+        echo "CPU scaler is already running"
+        return 0
+    fi
+
+    echo "Starting CPU Scaler"
+    /mnt/bin/busybox nohup "$0" run >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+}
+
+stop()
+{
+    killpid_graceful "$PIDFILE" 5
+}
+
+restart()
+{
+    stop
+    start
+}
+
+health()
+{
+    [ "$(status)" != "" ] || return 1
+    echo "HEALTHY"
+}
+
+run()
+{
+    load_config
+    if ! is_truthy "$CPU_SCALER_ENABLE"; then
+        exit 0
+    fi
+    monitor
+}
+
+if [ $# -eq 0 ]; then
+    start
+else
+    case "$1" in
+        start|stop|status|restart|health|run)
+            "$1"
+            ;;
+        *)
+            echo "Usage: $0 {start|stop|status|restart|health}" >&2
+            exit 1
+            ;;
+    esac
+fi

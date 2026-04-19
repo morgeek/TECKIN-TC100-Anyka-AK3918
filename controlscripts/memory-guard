@@ -88,6 +88,13 @@ load_config()
         [ "$MEM_GUARD_EMERGENCY_KB" -lt 512 ] && MEM_GUARD_EMERGENCY_KB=512
     fi
     [ "$MEM_GUARD_COOLDOWN_SECONDS" -lt 10 ] && MEM_GUARD_COOLDOWN_SECONDS=10
+    : "${MEM_WATCHDOG_ENABLE:=0}"
+    : "${MEM_WATCHDOG_INTERVAL_SECONDS:=40}"
+    : "${MEM_WATCHDOG_MAX_RETRIES:=3}"
+    : "${MEM_WATCHDOG_SERVICES:=web-server rtsp-h26x recording onvif}"
+
+    [ "$MEM_WATCHDOG_INTERVAL_SECONDS" -lt 10 ] && MEM_WATCHDOG_INTERVAL_SECONDS=10
+    [ "$MEM_WATCHDOG_MAX_RETRIES" -lt 1 ] && MEM_WATCHDOG_MAX_RETRIES=1
 }
 
 mem_available_kb()
@@ -104,6 +111,42 @@ get_now_ts() {
   [ "$_MG_BTIME" -gt 0 ] || _read_btime
   read -r _up _ < /proc/uptime
   echo $((_MG_BTIME + ${_up%.*}))
+}
+
+_MG_FAIL_DIR="/tmp/watchdog_failures"
+check_services()
+{
+    [ -d "$_MG_FAIL_DIR" ] || mkdir -p "$_MG_FAIL_DIR"
+
+    for svc in $MEM_WATCHDOG_SERVICES; do
+        script="/mnt/controlscripts/$svc"
+        if [ ! -x "$script" ]; then
+            continue
+        fi
+
+        # Skip services that are not supposed to be running (no PID file)
+        [ -f "/var/run/$svc.pid" ] || continue
+
+        if "$script" health >/dev/null 2>&1; then
+            # Healthy: reset failure count
+            rm -f "$_MG_FAIL_DIR/$svc" 2>/dev/null
+        else
+            # Unhealthy: increment failure count
+            count=0
+            [ -f "$_MG_FAIL_DIR/$svc" ] && read -r count < "$_MG_FAIL_DIR/$svc"
+            count=$((count + 1))
+            _nts="$(get_now_ts)"
+            echo "[$_nts] Service watchdog: $svc is UNHEALTHY (failure $count/$MEM_WATCHDOG_MAX_RETRIES)" >> "$LOGPATH"
+
+            if [ "$count" -ge "$MEM_WATCHDOG_MAX_RETRIES" ]; then
+                echo "[$_nts] Service watchdog: RESTARTING $svc after $count failures" >> "$LOGPATH"
+                "$script" restart >/dev/null 2>&1 || true
+                rm -f "$_MG_FAIL_DIR/$svc" 2>/dev/null
+            else
+                echo "$count" > "$_MG_FAIL_DIR/$svc"
+            fi
+        fi
+    done
 }
 
 stop_service_if_running()
@@ -154,11 +197,24 @@ apply_memory_relief()
 monitor()
 {
     last_action_ts=0
+    last_watchdog_ts=0
     warn_hits=0
     critical_hits=0
     while :; do
         sleep "$MEM_GUARD_INTERVAL_SECONDS"
 
+        now_ts="$(get_now_ts)"
+        now_ts="$(sanitize_positive_int "$now_ts" 0)"
+
+        # 1. Service Watchdog Check
+        if is_truthy "$MEM_WATCHDOG_ENABLE"; then
+            if [ "$now_ts" -ge $((last_watchdog_ts + MEM_WATCHDOG_INTERVAL_SECONDS)) ]; then
+                check_services
+                last_watchdog_ts="$now_ts"
+            fi
+        fi
+
+        # 2. Memory Check
         available_kb="$(mem_available_kb)"
         available_kb="$(sanitize_positive_int "$available_kb" 0)"
         [ "$available_kb" -gt 0 ] || continue

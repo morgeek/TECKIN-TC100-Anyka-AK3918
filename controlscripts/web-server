@@ -1,0 +1,82 @@
+#!/bin/sh
+# web-server — Unified control script for Elite TC100 Web Services
+
+SERVICE_NAME="Elite Web Server"
+PIDFILE="/var/run/lighttpd.pid"
+ULTRALITE_PIDFILE="/var/run/httpd.pid"
+CONFIGPATH="/mnt/config"
+
+. /mnt/scripts/common_functions.sh
+
+status()
+{
+    if [ -f "$PIDFILE" ]; then
+        _pid="$(cat "$PIDFILE" 2>/dev/null)"
+        if [ -n "$_pid" ] && kill -0 "$_pid" >/dev/null 2>&1; then
+            echo "PID: $_pid (lighttpd)"
+            return 0
+        fi
+    fi
+    if [ -f "$ULTRALITE_PIDFILE" ]; then
+        _pid="$(cat "$ULTRALITE_PIDFILE" 2>/dev/null)"
+        if [ -n "$_pid" ] && kill -0 "$_pid" >/dev/null 2>&1; then
+            echo "PID: $_pid (httpd)"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+health()
+{
+    if ! status >/dev/null; then
+        return 1
+    fi
+
+    # End-to-end responsiveness check:
+    # We probe the internal status API. If it fails or times out, the web engine is locked.
+    # We use -k to ignore SSL cert verification on internal calls.
+    if [ -x /mnt/bin/curl ]; then
+        _res=$(/mnt/bin/curl -s -k -m 5 "http://127.0.0.1/cgi-bin/state.cgi?cmd=statusline" 2>/dev/null)
+        if echo "$_res" | grep -q "\"sysusage\""; then
+            echo "HEALTHY"
+            return 0
+        fi
+    else
+        # Fallback for ultra-lite mode without curl: just check PID
+        echo "HEALTHY (PID ONLY)"
+        return 0
+    fi
+
+    return 1
+}
+
+start()
+{
+    http_server on
+}
+
+stop()
+{
+    http_server off
+    rm -f "$PIDFILE" "$ULTRALITE_PIDFILE"
+}
+
+restart()
+{
+    http_server restart
+}
+
+if [ $# -eq 0 ]; then
+    start
+else
+    case "$1" in
+        start|stop|status|restart|health)
+            "$1"
+            ;;
+        *)
+            echo "Usage: $0 {start|stop|status|restart|health}" >&2
+            exit 1
+            ;;
+    esac
+fi

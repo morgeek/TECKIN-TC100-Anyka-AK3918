@@ -167,7 +167,41 @@ health()
   fi
 
   echo "$sdp" | grep -q "m=video" || return 1
+
+  # Deep Health Check (GOP stall detection)
+  if is_truthy "$RTSP_DEEP_HEALTH_CHECK"; then
+    _pid="$(cat "$PIDFILE" 2>/dev/null)"
+    if [ -n "$_pid" ] && [ -d "/proc/$_pid" ]; then
+      # Read process CPU ticks to ensure it's actually processing data
+      # /proc/[pid]/stat field 14 (utime) and 15 (stime)
+      _pstat="$(cat "/proc/$_pid/stat" 2>/dev/null)"
+      _ticks="$(echo "$_pstat" | awk '{print $14 + $15}')"
+      _state_file="/tmp/rtsp_gop_health.state"
+      _now="$(date +%s)"
+      
+      if [ -f "$_state_file" ]; then
+        read -r _last_ts _last_ticks < "$_state_file"
+        _delta_ticks=$((_ticks - _last_ticks))
+        _elapsed=$((_now - _last_ts))
+        
+        # If no ticks incremented over the threshold period, it's likely stalled
+        if [ "$_delta_ticks" -le 0 ] && [ "$_elapsed" -ge "${RTSP_GOP_STALL_THRESHOLD_SECONDS:-15}" ]; then
+          echo "UNHEALTHY (GOP STALL)" >> "$LOGPATH"
+          return 1
+        fi
+        
+        # If ticks improved, update state
+        if [ "$_delta_ticks" -gt 0 ]; then
+          echo "$_now $_ticks" > "$_state_file"
+        fi
+      else
+        echo "$_now $_ticks" > "$_state_file"
+      fi
+    fi
+  fi
+
   echo "HEALTHY"
+  return 0
 }
 
 restart()
