@@ -1431,6 +1431,61 @@ if [ -n "$F_cmd" ]; then
     get_events_since "$since_param" "$limit_param"
     ;;
 
+  list_presets)
+    presets_dir="/mnt/config/presets"
+    mkdir -p "$presets_dir"
+
+    if wants_json_response; then
+      printf '{"presets":['
+      first=1
+      for preset_file in "$presets_dir"/*.json; do
+        [ -f "$preset_file" ] || continue
+        if [ "$first" = "1" ]; then
+          first=0
+        else
+          printf ','
+        fi
+        preset_name=$(basename "$preset_file" .json)
+        printf '{"name":"'
+        json_escape "$(basename "$preset_file" .json)"
+        printf '"}'
+      done
+      printf ']}'
+    else
+      ls "$presets_dir"/*.json 2>/dev/null | xargs -n1 basename -s .json
+    fi
+    ;;
+
+  load_preset)
+    preset_name="${F_name:-}"
+    presets_dir="/mnt/config/presets"
+
+    if [ -z "$preset_name" ]; then
+      if wants_json_response; then
+        json_error "INVALID_PRESET" "Preset name required"
+      else
+        echo "ERROR: Preset name required"
+      fi
+    else
+      preset_file="$presets_dir/$preset_name.json"
+      if [ -f "$preset_file" ]; then
+        if wants_json_response; then
+          printf '{"preset":'
+          cat "$preset_file"
+          printf '}'
+        else
+          cat "$preset_file"
+        fi
+      else
+        if wants_json_response; then
+          json_error "PRESET_NOT_FOUND" "Preset '$preset_name' not found"
+        else
+          echo "ERROR: Preset '$preset_name' not found"
+        fi
+      fi
+    fi
+    ;;
+
   *)
     echo "Unsupported command '$F_cmd'"
     ;;
