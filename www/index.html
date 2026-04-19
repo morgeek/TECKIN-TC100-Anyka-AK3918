@@ -22,6 +22,27 @@
         #main {
             flex: 1 0 auto;
         }
+
+        /* Update Notification Pulse */
+        @keyframes pulse-orange {
+            0% { box-shadow: 0 0 0 0 rgba(255, 159, 67, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 159, 67, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 159, 67, 0); }
+        }
+        .update-badge {
+            display: none;
+            background: #ff9f43;
+            color: #fff;
+            font-size: 0.65rem;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 5px;
+            vertical-align: middle;
+            animation: pulse-orange 2s infinite;
+            cursor: pointer;
+        }
+        .update-badge.is-active { display: inline-block; }
     </style>
 </head>
 
@@ -35,7 +56,11 @@
                     <span aria-hidden="true"></span>
                     <span aria-hidden="true"></span>
                 </a>
-                <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition v1.3.0"><i class="icon-eye"></i> <span style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span></a>
+                <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition v1.1.0-ELITE">
+                    <i class="icon-eye"></i> 
+                    <span style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span>
+                    <span id="update_notifier" class="update-badge" title="New Version Available! Click to view.">NEW</span>
+                </a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
                     id="viewrecordspage" title="Archive Records"><i class="icon-play-circle-o"></i></a>
             </div>
@@ -250,6 +275,30 @@
                     setTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
                 });
             }
+
+            // Update Notifier Logic
+            function checkUpdates() {
+                var badge = document.getElementById('update_notifier');
+                if (!badge) return;
+                
+                fetch('cgi-bin/state.cgi?cmd=statusline')
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.update_available) {
+                            badge.classList.add('is-active');
+                            badge.title = "New Version Available: " + data.update_latest_version + " (Current: " + data.current_version + ")";
+                            badge.onclick = function(e) {
+                                e.preventDefault();
+                                alert("A newer version of the Elite firmware is available!\n\nLatest: " + data.update_latest_version + "\nYour Version: " + (data.current_version || "v1.1.0-ELITE") + "\n\nPlease visit the GitHub repository to download the update.");
+                            };
+                        }
+                    })
+                    .catch(e => console.warn("Update check failed", e));
+            }
+
+            // Run check once on load, then every 6 hours (if the tab stays open)
+            setTimeout(checkUpdates, 2000);
+            setInterval(checkUpdates, 1000 * 60 * 60 * 6);
         })();
     </script>
 </body>
