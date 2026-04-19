@@ -1324,6 +1324,57 @@ if [ -n "$F_cmd" ]; then
     fi
     ;;
 
+  fullconfig)
+    # This command returns ALL configurable values for the UI to populate its tabs.
+    # It avoids multiple requests and keeps everything in sync.
+    load_conf_file /mnt/config/boot.conf
+    load_conf_file /mnt/config/rtspserver.conf
+    load_conf_file /mnt/config/mqtt.conf
+    load_conf_file /mnt/config/recording.conf
+    load_conf_file /mnt/config/sound_detection.conf
+    load_conf_file /mnt/config/service_trim.conf
+    load_conf_file /mnt/config/timezone.conf
+    
+    read_rtsp_stream_summary
+    detect_primary_ip
+    
+    # ISP / OSD Specifics
+    # osdenabled is usually a 1/0 or true/false, standardization needed for UI
+    osdenabled="$(truthy_flag "$(get_cfg osdenabled 0)")"
+    osdtext_raw="$(get_cfg osdtext "")"
+    osdtext_json="$(json_escape "$osdtext_raw")"
+    
+    # Audio specifics
+    samplerate="$(get_cfg SAMPLERATE 8000)"
+    audio_vol="$(get_cfg AUDIO_VOLUME 8)"
+    
+    # MQTT particulars
+    mqtt_discovery="$(truthy_flag "$(get_cfg MQTT_HA_DISCOVERY_ENABLE 1)")"
+    
+    # Reboot epoch calculation (needed for uptime display)
+    read_reboot_epoch
+    
+    # System info
+    if [ -r /proc/sys/kernel/hostname ]; then
+      read -r health_hostname < /proc/sys/kernel/hostname
+    else
+      health_hostname="$(hostname 2>/dev/null)"
+    fi
+    
+    # Output JSON object
+    printf '{"boot":{"web_mode":"%s","perf_profile":"%s","service_trim":%s,"topology":"%s","ultralite_port":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s},"sub":{"codec":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s"}}\n' \
+      "$(json_escape "$(get_cfg WEB_MODE full)")" "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(sanitize_int "$(get_cfg ULTRALITE_HTTP_PORT 80)" 80)" \
+      "$rtsp_port" "$codec0" "$width0" "$height0" "$fps0" "$(sanitize_int "$(get_cfg brbitrate0 1000)" 1000)" "$(sanitize_int "$(get_cfg goplen0 50)" 50)" \
+      "$codec1" "$width1" "$height1" "$fps1" "$(sanitize_int "$(get_cfg brbitrate1 300)" 300)" "$(sanitize_int "$(get_cfg goplen1 50)" 50)" \
+      "$(sanitize_int "$(get_cfg imageFlip 0)" 0)" "$(truthy_flag "$(get_cfg enable_rtsp_log 0)")" \
+      "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg audioCodec0 4)" 4)" "$(sanitize_int "$(get_cfg audioCodec1 4)" 4)" \
+      "$(sanitize_int "$(get_cfg daynightlum 2000)" 2000)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(sanitize_int "$(get_cfg nightdaylum 6000)" 6000)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
+      "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg osdfontsize0 24)" 24)" "$(sanitize_int "$(get_cfg frontcolor 1)" 1)" "$(sanitize_int "$(get_cfg backcolor 0)" 0)" "$(sanitize_int "$(get_cfg edgecolor 2)" 2)" "$(sanitize_int "$(get_cfg osdx0 10)" 10)" "$(sanitize_int "$(get_cfg osdy0 10)" 10)" \
+      "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
+      "$(sanitize_int "$(get_cfg postrec 10)" 10)" "$(sanitize_int "$(get_cfg maxduration 60)" 60)" "$(sanitize_int "$(get_cfg diskspace 1024)" 1024)" "$(truthy_flag "$(get_cfg motion_act 0)")" \
+      "$(json_escape "$health_hostname")" "$(json_escape "$(get_cfg TIMEZONE UTC)")" "$(json_escape "$(get_cfg NTP_SERVER pool.ntp.org)")"
+    ;;
+
   perfprofile)
     get_perf_profile
     ;;

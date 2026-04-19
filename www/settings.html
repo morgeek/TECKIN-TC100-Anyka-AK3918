@@ -1,122 +1,164 @@
-<!-- Elite Settings Dashboard (JSON-Driven) -->
-<div id="settings_dashboard">
-    <!-- SD Card Warning -->
-    <div id="sd_readonly_warning" style="display:none">
-        <article class="message is-warning">
-            <div class="message-header">
-                <p>Warning</p>
-                <button class="delete" aria-label="delete"></button>
-            </div>
-            <div class="message-body">
-                Your sdcard is mounted read-only. Settings can't be saved.
-                <br>
-                <p>Please try rebooting.</p>
-            </div>
-        </article>
+<div id="settings_container">
+    <!-- Tabs Header -->
+    <div class="tabs is-centered is-toggle is-small mb-4">
+        <ul>
+            <li class="is-active" data-tab="tab-dashboard"><a><span class="icon is-small"><i class="icon-meter"></i></span><span>Dashboard</span></a></li>
+            <li data-tab="tab-video"><a><span class="icon is-small"><i class="icon-camera"></i></span><span>Video/Audio</span></a></li>
+            <li data-tab="tab-isp"><a><span class="icon is-small"><i class="icon-brightness-contrast"></i></span><span>ISP/OSD</span></a></li>
+            <li data-tab="tab-mqtt"><a><span class="icon is-small"><i class="icon-bubbles"></i></span><span>MQTT/Events</span></a></li>
+            <li data-tab="tab-system"><a><span class="icon is-small"><i class="icon-cog"></i></span><span>System</span></a></li>
+        </ul>
     </div>
 
-    <!-- Security Warning -->
-    <div id="security_warning" style="display:none">
-        <article class="message is-danger">
-            <div class="message-header">
-                <p>Security warning</p>
+    <!-- Tab Contents -->
+    <div id="tab-contents">
+        <!-- Dashboard Tab -->
+        <div class="tab-content" id="tab-dashboard">
+            <!-- SD Card & Security Warnings moved here -->
+            <div id="sd_readonly_warning" style="display:none">
+                <article class="message is-warning">
+                    <div class="message-body">Your sdcard is mounted read-only. Settings can't be saved.</div>
+                </article>
             </div>
-            <div class="message-body">
-                Default credentials are still active. Change password now in this section.
+            <div id="security_warning" style="display:none">
+                <article class="message is-danger">
+                    <div class="message-body">Default credentials active. Change passwords in System tab.</div>
+                </article>
             </div>
-        </article>
-    </div>
 
-    <!-- Device Health Card -->
-    <div class='card status_card is-primary'>
-        <header class='card-header'><p class='card-header-title'>Device Health & Network</p></header>
-        <div class='card-content'>
-            <div class="columns">
-                <div class="column is-4">
-                    <div class="vital-row" style="margin-bottom: 0.75rem;">
-                        <span class="vital-label">CPU Usage <span class="vital-value" id="dash_cpu_val">--%</span></span>
-                        <div class="ui-progress"><span class="ui-progress-bar" id="dash_cpu_bar" style="width: 0%"></span></div>
-                    </div>
-                    <div class="vital-row" style="margin-bottom: 0.75rem;">
-                        <span class="vital-label">Memory Usage <span class="vital-value" id="dash_mem_val">--%</span></span>
-                        <div class="ui-progress"><span class="ui-progress-bar" id="dash_mem_bar" style="width: 0%"></span></div>
-                    </div>
-                    <div class="vital-row">
-                        <span class="vital-label">Signal Quality <span class="vital-value" id="dash_wifi_val">--%</span></span>
-                        <div class="ui-progress"><span class="ui-progress-bar" id="dash_wifi_bar" style="width: 0%"></span></div>
-                    </div>
-                </div>
-                <div class="column">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div>
-                            <p class="heading">Primary IP Address</p>
-                            <p class="title is-5" style="margin-top: 0;" id="dash_ip">--.--.--.--</p>
+            <div class='card status_card is-primary'>
+                <header class='card-header'><p class='card-header-title'>Device Health & Network</p></header>
+                <div class='card-content'>
+                    <div class="columns">
+                        <div class="column is-4">
+                            <div class="vital-row mb-2">
+                                <span class="vital-label">CPU <span class="vital-value" id="dash_cpu_val">--%</span></span>
+                                <div class="ui-progress"><span class="ui-progress-bar" id="dash_cpu_bar" style="width: 0%"></span></div>
+                            </div>
+                            <div class="vital-row mb-2">
+                                <span class="vital-label">RAM <span class="vital-value" id="dash_mem_val">--%</span></span>
+                                <div class="ui-progress"><span class="ui-progress-bar" id="dash_mem_bar" style="width: 0%"></span></div>
+                            </div>
+                            <div class="vital-row">
+                                <span class="vital-label">WiFi <span class="vital-value" id="dash_wifi_val">--%</span></span>
+                                <div class="ui-progress"><span class="ui-progress-bar" id="dash_wifi_bar" style="width: 0%"></span></div>
+                            </div>
                         </div>
-                        <div>
-                            <p class="heading">Default Gateway</p>
-                            <p class="title is-5" style="margin-top: 0;" id="dash_gw">--.--.--.--</p>
+                        <div class="column">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div><p class="heading">IP Address</p><p class="title is-6" id="dash_ip">--.--.--.--</p></div>
+                                <div><p class="heading">Gateway</p><p class="title is-6" id="dash_gw">--.--.--.--</p></div>
+                            </div>
+                            <div class="buttons mt-2">
+                                <a class="button is-small is-light" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
+                                <a class="button is-small is-light" id="dash_snapshot_link" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
+                            </div>
                         </div>
-                    </div>
-                    <div class="buttons mt-section" style="margin-top: 1rem;">
-                        <a class="button is-small is-light" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
-                        <a class="button is-small is-light" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Setup Wizard Card -->
-    <div class='card status_card'>
-        <header class='card-header'><p class='card-header-title'>Setup Wizard</p></header>
-        <div class='card-content'>
-            <div id="wizard_status_msg"></div>
-            <form id="formSetupWizard" action="cgi-bin/action.cgi?cmd=complete_setup_wizard" method="post">
-                <div class="field is-horizontal">
-                    <div class="field-label is-normal"><label class="label" for="wizard_password">New password</label></div>
-                    <div class="field-body">
-                        <div class="field">
-                            <div class="control"><input class="input" id="wizard_password" name="wizard_password" type="password" placeholder="Required if defaults active" /></div>
-                            <p class="help">Password change is mandatory if defaults are still active.</p>
-                        </div>
-                    </div>
-                </div>
-                <!-- ... other wizard fields omitted for brevity, adding key ones ... -->
-                <div class="field is-horizontal">
-                    <div class="field-label is-normal"></div>
-                    <div class="field-body"><div class="field"><div class="control"><button id="setupWizardSubmit" class="button is-primary" type="submit">Complete wizard</button></div></div></div>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- System Controls -->
-    <div class='card status_card'>
-        <header class='card-header'><p class='card-header-title'>System & Performance</p></header>
-        <div class='card-content'>
-            <form id="formPerformanceProfile" action="cgi-bin/action.cgi?cmd=set_performance_profile" method="post">
-                <div class="field is-horizontal">
-                    <div class="field-label is-normal"><label class="label" for="performance_profile">Performance profile</label></div>
-                    <div class="field-body">
-                        <div class="field">
-                            <div class="control">
-                                <div class="select is-fullwidth">
-                                    <select id="performance_profile" name="performance_profile">
-                                        <option value="balanced">Balanced</option>
-                                        <option value="low-cpu">Low CPU</option>
-                                        <option value="rtsp-only">RTSP + ONVIF only</option>
+        <!-- Video/Audio Tab -->
+        <div class="tab-content is-hidden" id="tab-video">
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Main Stream (video0)</p></header>
+                <div class='card-content'>
+                    <form id="formVideoMain" action="cgi-bin/action.cgi?cmd=set_video_params&stream=0" method="post">
+                        <div class="field is-horizontal">
+                            <div class="field-label is-small"><label class="label">Resolution</label></div>
+                            <div class="field-body">
+                                <div class="select is-small is-fullwidth">
+                                    <select name="video_size0" id="video_size0">
+                                        <option value="1920x1080">1920x1080</option>
+                                        <option value="1600x904">1600x904</option>
+                                        <option value="1280x720">1280x720</option>
+                                        <option value="1024x576">1024x576</option>
                                     </select>
                                 </div>
                             </div>
                         </div>
-                        <div class="field"><div class="control"><button class="button is-primary" type="submit">Apply</button></div></div>
-                    </div>
+                        <div class="field is-horizontal">
+                            <div class="field-label is-small"><label class="label">FPS / Bitrate</label></div>
+                            <div class="field-body">
+                                <div class="field"><div class="control"><input class="input is-small" name="fps0" id="fps0" type="number" placeholder="25"></div></div>
+                                <div class="field"><div class="control"><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" placeholder="Kbps"></div></div>
+                            </div>
+                        </div>
+                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply</button></div>
+                    </form>
                 </div>
-            </form>
-            <div class="field is-horizontal">
-                <div class="field-label is-normal"><label class="label">Memory</label></div>
-                <div class="field-body">
-                    <div class="control"><button id="btnFreeRam" class="button is-warning is-light">Free System RAM</button></div>
+            </div>
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Audio Settings</p></header>
+                <div class='card-content'>
+                    <form id="formAudio" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post">
+                        <div class="field is-horizontal">
+                            <div class="field-label is-small"><label class="label">Sample Rate</label></div>
+                            <div class="field-body">
+                                <div class="select is-small is-fullwidth">
+                                    <select name="samplerate" id="samplerate">
+                                        <option value="8000">8000 Hz</option>
+                                        <option value="16000">16000 Hz</option>
+                                        <option value="32000">32000 Hz</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply</button></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ISP/OSD Tab -->
+        <div class="tab-content is-hidden" id="tab-isp">
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>OSD Styling</p></header>
+                <div class='card-content'>
+                    <form id="formOSD" action="cgi-bin/action.cgi?cmd=isp_pro" method="post">
+                        <div class="field mb-3">
+                            <input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox">
+                            <label for="osdenabled">Enable OSD Overlay</label>
+                        </div>
+                        <div class="field">
+                            <div class="control"><input class="input is-small" id="osdtext" name="osdtext" type="text" placeholder="OSD Text (e.g. %H:%M:%S)"></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save OSD</button></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- MQTT Tab -->
+        <div class="tab-content is-hidden" id="tab-mqtt">
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>MQTT Broker</p></header>
+                <div class='card-content'>
+                    <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
+                        <div class="field mb-3">
+                            <input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1">
+                            <label for="mqtt_enabled">Enable MQTT Bridge</label>
+                        </div>
+                        <div class="field is-horizontal">
+                            <div class="field-label is-small"><label class="label">Host</label></div>
+                            <div class="field-body"><div class="field"><div class="control"><input class="input is-small" name="mqtt_host" id="mqtt_host" type="text"></div></div></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save MQTT</button></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Tab -->
+        <div class="tab-content is-hidden" id="tab-system">
+             <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>System Controls</p></header>
+                <div class='card-content'>
+                    <div class="buttons">
+                        <button id="btnReboot" class="button is-danger is-small">Reboot Camera</button>
+                        <button id="btnFreeRam" class="button is-warning is-small">Free RAM</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -124,10 +166,21 @@
 </div>
 
 <script>
-    // Injected initialization script for the dashboard.
-    // This script is executed after the HTML is inserted into the #content div.
     (function() {
         if (!window.EliteUI) return;
         EliteUI.initDashboard();
+        
+        // Tab switching logic
+        document.querySelectorAll('#settings_container .tabs li').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('#settings_container .tabs li').forEach(t => t.classList.remove('is-active'));
+                tab.classList.add('is-active');
+                
+                const targetId = tab.dataset.tab;
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.toggle('is-hidden', content.id !== targetId);
+                });
+            });
+        });
     })();
 </script>
