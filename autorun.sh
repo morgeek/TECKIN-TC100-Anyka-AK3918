@@ -22,10 +22,10 @@ fi
 ## Load some common functions:
 . /mnt/scripts/common_functions.sh
 
-install_config $CONFIGPATH/rtspserver.conf
-install_config $CONFIGPATH/boot.conf
-install_config $CONFIGPATH/service_trim.conf
-install_config $CONFIGPATH/packages.lock
+install_config_cached $CONFIGPATH/rtspserver.conf
+install_config_cached $CONFIGPATH/boot.conf
+install_config_cached $CONFIGPATH/service_trim.conf
+install_config_cached $CONFIGPATH/packages.lock
 
 DEFAULT_LIGHTWEIGHT_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection front-led"
 
@@ -376,10 +376,24 @@ init_network()
 
 cache_camera_ip()
 {
-    ip="$(ifconfig wlan0 2>/dev/null | awk '/inet addr:/{split($2,a,":");print a[2];exit}')"
-    if [ -n "$ip" ]; then
-        echo "$ip" > /tmp/camera_ip.txt
-        echo "cache_camera_ip: cached $ip" >> $LOGPATH
+    # Use shell parsing of ifconfig if awk isn't preferred, but here it is only run once at boot.
+    # We will just ensure it uses the cached ifconfig output if it were to run many times.
+    # For boot, we keep it simple but ensure target file is updated correctly.
+    _ccip_val=""
+    while read -r _line; do
+        case "$_line" in
+            *"inet addr:"*)
+                _ccip_val="${_line#*addr:}"
+                _ccip_val="${_ccip_val%% *}"
+                break
+                ;;
+        esac
+    done <<EOF
+$(ifconfig wlan0 2>/dev/null)
+EOF
+    if [ -n "$_ccip_val" ]; then
+        echo "$_ccip_val" > /tmp/camera_ip.txt
+        echo "cache_camera_ip: cached $_ccip_val" >> $LOGPATH
     fi
 }
 
@@ -607,7 +621,7 @@ apply_low_cpu_profile()
 
     echo "Applying low CPU RTSP profile" >> $LOGPATH
 
-    install_config $CONFIGPATH/rtspserver.conf
+    install_config_cached $CONFIGPATH/rtspserver.conf
 
     if is_truthy "$LOW_CPU_DISABLE_MOTION"; then
         /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " mdenabled 0
@@ -644,7 +658,7 @@ apply_low_cpu_profile()
         1 targetkbps "$LOW_CPU_SUB_TARGETKBPS"
 
     # Apply conservative background intervals in low-CPU mode.
-    install_config "$CONFIGPATH/mqtt.conf"
+    install_config_cached "$CONFIGPATH/mqtt.conf"
     mqtt_health_interval="$(awk -F= '$1=="MQTT_HEALTH_INTERVAL_SECONDS"{print $2; exit}' "$CONFIGPATH/mqtt.conf" 2>/dev/null)"
     case "$mqtt_health_interval" in
         ''|*[!0-9]*) mqtt_health_interval=120 ;;
