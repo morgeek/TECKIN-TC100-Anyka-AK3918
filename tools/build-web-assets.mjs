@@ -37,8 +37,7 @@ const assetMap = [
     targets: ["www/scripts/view_records.bundle.min.js"],
   },
   {
-    // The page links ui-modern.min.css; www/css/ui-modern.css is an
-    // unreferenced design draft ("deep cobalt") and is left untouched.
+    // The pages link ui-modern.min.css (historical filename).
     source: "frontend/src/css/ui-modern.css",
     targets: ["www/css/ui-modern.min.css"],
   },

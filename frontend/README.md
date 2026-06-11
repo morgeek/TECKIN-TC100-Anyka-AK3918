@@ -41,10 +41,9 @@ the HTML/CGI pages; the content is not minified.
   authoritative until that date; `frontend/src` is authoritative since.
 - `frontend/src/js/status.js` was retired: its output
   (`status.bundle.min.js.legacy`) was unreferenced and has been deleted.
-- `www/css/ui-modern.css` (unreferenced "deep cobalt" design draft from
-  commit `6a45117`) is intentionally **not** a build target: the pages load
-  `ui-modern.min.css`. Adopt the draft by copying it over
-  `frontend/src/css/ui-modern.css` and rebuilding — or delete it.
+- An unreferenced "deep cobalt" design draft (`www/css/ui-modern.css`,
+  from commit `6a45117`) was deleted; recover it from git history if ever
+  wanted.
 
 ## Notes
 
