@@ -11,3 +11,12 @@ backup/package-upgrades/
 
 # Accidental local symlink; runtime script recreates this on camera when needed
 lib/libcurl.so.4
+
+# Live configs (may hold credentials) — only the .dist templates are tracked;
+# the camera seeds live copies from .dist at boot via install_config.
+config/mqtt.conf
+config/user.pwd
+config/timelapse.conf
+# Last-known-good snapshots and corruption quarantine written by the camera
+config/.lkg/
+config/*.conf.corrupt

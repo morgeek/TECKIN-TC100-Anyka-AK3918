@@ -171,10 +171,20 @@ rewrite_config(){
   if grep -q "^[[:space:]]*${cfg_key}=" "$cfg_path"; then
     # Escape replacement-sensitive characters for sed.
     esc_value=$(printf '%s' "$new_value" | sed 's/[\\&|]/\\&/g')
-    sed -i -e "/^[[:space:]]*#/! s|^[[:space:]]*${cfg_key}=.*|${cfg_key}=${esc_value}|" "$cfg_path"
+    # Write to a temp file and rename so a power cut mid-write can never leave
+    # a truncated config behind (FAT32 has no journal to recover from that).
+    _rc_tmp="${cfg_path}.tmp.$$"
+    if sed -e "/^[[:space:]]*#/! s|^[[:space:]]*${cfg_key}=.*|${cfg_key}=${esc_value}|" "$cfg_path" > "$_rc_tmp"; then
+      mv "$_rc_tmp" "$cfg_path"
+    else
+      rm -f "$_rc_tmp" 2>/dev/null
+      return 1
+    fi
   else
     printf '%s=%s\n' "$cfg_key" "$new_value" >> "$cfg_path"
   fi
+  # Flush FAT metadata promptly; config writes are rare so this is cheap.
+  sync
 }
 
 install_config()
@@ -305,6 +315,9 @@ http_server(){
     # shellcheck disable=SC1090
     . /mnt/config/boot.conf
   fi
+  # lighttpd refuses to start if deflate.cache-dir is missing, and /tmp is
+  # recreated on every boot.
+  mkdir -p /tmp/lighttpd-deflate 2>/dev/null
   case "$1" in
   on)
     if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then

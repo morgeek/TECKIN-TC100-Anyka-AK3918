@@ -1,7 +1,7 @@
 #!/bin/sh
 SERVICE_NAME="CPU Scaler"
 PIDFILE="/var/run/cpu-scaler.pid"
-LOGPATH="/mnt/log/cpu-scaler.log"
+LOGPATH="/tmp/log/cpu-scaler.log"
 CONFIGPATH="/mnt/config"
 
 . /mnt/scripts/common_functions.sh
@@ -40,6 +40,7 @@ load_config()
     CPU_SCALER_INTERVAL_SECONDS="$(sanitize_positive_int "${CPU_SCALER_INTERVAL_SECONDS:-10}" 10)"
     CPU_SCALER_THRESHOLD_PERCENT="$(sanitize_positive_int "${CPU_SCALER_THRESHOLD_PERCENT:-80}" 80)"
     CPU_SCALER_HOLD_TIME_SECONDS="$(sanitize_positive_int "${CPU_SCALER_HOLD_TIME_SECONDS:-30}" 30)"
+    CPU_SCALER_FPS_TARGET="$(sanitize_positive_int "${CPU_SCALER_FPS_TARGET:-10}" 10)"
     CPU_SCALER_D1_WIDTH="$(sanitize_positive_int "${CPU_SCALER_D1_WIDTH:-720}" 720)"
     CPU_SCALER_D1_HEIGHT="$(sanitize_positive_int "${CPU_SCALER_D1_HEIGHT:-480}" 480)"
 
@@ -69,6 +70,20 @@ get_current_resolution() {
     _res_w="$(/mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" r 0 width)"
     _res_h="$(/mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" r 0 height)"
     echo "${_res_w}x${_res_h}"
+}
+
+get_current_fps() {
+    /mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" r 0 fps
+}
+
+apply_fps_reduction() {
+    log_msg "Sustained high CPU detected. Stage 1: lowering stream 0 FPS to ${CPU_SCALER_FPS_TARGET}."
+
+    /mnt/bin/rwconf "$CONFIGPATH/rtspserver.conf" w 0 fps "$CPU_SCALER_FPS_TARGET"
+
+    restart_service_if_need /mnt/controlscripts/rtsp-h26x
+
+    log_msg "FPS updated and RTSP server restarted."
 }
 
 apply_downscale() {
@@ -106,14 +121,21 @@ monitor()
             else
                 elapsed=$((now_ts - high_cpu_start_ts))
                 if [ "$elapsed" -ge "$CPU_SCALER_HOLD_TIME_SECONDS" ]; then
+                    cur_fps="$(get_current_fps)"
+                    case "$cur_fps" in ''|*[!0-9]*) cur_fps=0 ;; esac
                     cur_res="$(get_current_resolution)"
                     target_res="${CPU_SCALER_D1_WIDTH}x${CPU_SCALER_D1_HEIGHT}"
-                    
-                    if [ "$cur_res" != "$target_res" ]; then
-                        log_msg "CPU high for ${elapsed}s. Current res: $cur_res. Triggering downscale."
+
+                    # Shed load gently first: dropping FPS costs far less image
+                    # quality than dropping resolution, and often suffices.
+                    if [ "$cur_fps" -gt "$CPU_SCALER_FPS_TARGET" ]; then
+                        log_msg "CPU high for ${elapsed}s. FPS ${cur_fps} above target ${CPU_SCALER_FPS_TARGET}. Triggering FPS reduction."
+                        apply_fps_reduction
+                    elif [ "$cur_res" != "$target_res" ]; then
+                        log_msg "CPU high for ${elapsed}s. FPS already at target; current res: $cur_res. Triggering downscale."
                         apply_downscale
                     else
-                        log_msg "CPU high for ${elapsed}s, but resolution is already at target $cur_res. No action taken."
+                        log_msg "CPU high for ${elapsed}s, but FPS and resolution are already at targets. No action taken."
                     fi
                     # Reset start time after action to avoid immediate re-triggering
                     # Or maybe we should keep it to log that it stays high?

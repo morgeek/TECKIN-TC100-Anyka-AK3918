@@ -20,6 +20,8 @@ server.modules = ("mod_auth",
                   "mod_cgi",
                   "mod_staticfile",
                   "mod_openssl",
+                  "mod_setenv",
+                  "mod_deflate",
                   "mod_alias")
 
 cgi.assign = ( ".cgi" => "/bin/sh" )
@@ -70,8 +72,27 @@ $HTTP["url"] !~ "^/.well-known/(.*)" {
 server.errorlog             = "/var/log/lighttpd-error.log"
 server.upload-dirs          = ("/tmp/")
 
-# Cache headers (mod_setenv / mod_expire not available in Anyka firmware build)
-# ETags are active — browsers use conditional GET (If-None-Match) instead
+# Security headers applied to all responses to harden the web UI
+setenv.add-response-header = (
+  "X-Content-Type-Options" => "nosniff",
+  "X-Frame-Options" => "SAMEORIGIN",
+  "Content-Security-Policy" => "default-src 'self' 'unsafe-inline'"
+)
+
+# Cache static assets (css/js/images) so browsers skip the request entirely
+# instead of re-validating via conditional GET on every page load.
+$HTTP["url"] =~ "\.(css|js|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf)$" {
+  setenv.add-response-header = (
+    "Cache-Control" => "public, max-age=86400"
+  )
+}
+
+# Compress CSS/JS once per boot into tmpfs and serve from cache (~75% smaller
+# first loads). Restricted to static text assets: CGI output stays uncompressed
+# so dynamic responses cost no CPU and leak nothing via compressed lengths.
+deflate.cache-dir = "/tmp/lighttpd-deflate/"
+deflate.mimetypes = ("text/css", "text/javascript")
+deflate.allowed-encodings = ("gzip", "deflate")
 
 ## CGI (etc) stderr log
 server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
