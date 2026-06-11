@@ -957,6 +957,14 @@ preflight_checks()
         rm -f /tmp/.preflight_check
     fi
 
+    # 3b. /mnt must be writable (detect SD card hardware failure/RO mode)
+    if ! touch /mnt/.rw_test 2>/dev/null; then
+        echo "PREFLIGHT FAIL: /mnt is READ-ONLY. SD card may be failing." >> "$LOGPATH"
+        _ok=0
+    else
+        rm -f /mnt/.rw_test
+    fi
+
     # 4. Check minimum free space on /mnt (warn if < 4 MB)
     _mnt_avail_kb=0
     _mnt_avail_kb="$(df -k /mnt 2>/dev/null | awk 'NR==2{print $4}')"
