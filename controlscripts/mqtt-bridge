@@ -1,8 +1,23 @@
 #!/bin/sh
 SERVICE_NAME="MQTT Bridge"
 PIDFILE="/var/run/mqtt-bridge.pid"
+WATCHDOG_PIDFILE="/var/run/mqtt-bridge-watch.pid"
 
 . /mnt/scripts/common_functions.sh
+
+bridge_enabled_in_config()
+{
+  # Subshell so the sourced config does not leak variables here.
+  (
+    [ -f /mnt/config/mqtt.conf ] || exit 1
+    # shellcheck disable=SC1091
+    . /mnt/config/mqtt.conf 2>/dev/null
+    case "$MQTT_ENABLE" in
+      1|true|yes|on|enable|enabled) exit 0 ;;
+      *) exit 1 ;;
+    esac
+  )
+}
 
 status()
 {
@@ -23,10 +38,18 @@ start()
   /mnt/bin/busybox nohup /mnt/scripts/mqtt-bridge.sh run >/dev/null 2>&1 &
   echo "$!" > "$PIDFILE"
   echo "MQTT bridge started"
+
+  ## Watchdog — only when the bridge is enabled in config; a disabled bridge
+  ## exits by design and a watchdog would restart-loop it forever.
+  if bridge_enabled_in_config && ! checkpid "$WATCHDOG_PIDFILE"; then
+    /mnt/scripts/service-watchdog.sh /mnt/controlscripts/mqtt-bridge 0 status &
+    echo "$!" > "$WATCHDOG_PIDFILE"
+  fi
 }
 
 stop()
 {
+  killpid_graceful "$WATCHDOG_PIDFILE" 3
   if [ -n "$(cat "$PIDFILE" 2>/dev/null)" ]; then
     killpid_graceful "$PIDFILE" 5
     echo "MQTT bridge stopped"

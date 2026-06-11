@@ -8,12 +8,24 @@
 
 SERVICE_NAME="Telegram Bot"
 PIDFILE="/var/run/telegram-bot.pid"
+WATCHDOG_PIDFILE="/var/run/telegram-bot-watch.pid"
 
 . /mnt/scripts/common_functions.sh
 
 if [ ! -f /mnt/config/telegram.conf ]; then
   echo "You have to configure telegram first. Please see /mnt/config/telegram.conf.dist for further instructions"
 fi
+
+bot_configured()
+{
+  # Subshell so the sourced config does not leak variables here.
+  (
+    [ -f /mnt/config/telegram.conf ] || exit 1
+    # shellcheck disable=SC1091
+    . /mnt/config/telegram.conf 2>/dev/null
+    [ -n "$apiToken" ] && [ -n "$userChatId" ]
+  )
+}
 
 status()
 {
@@ -25,17 +37,28 @@ status()
 
 start()
 {
-  if [ -f $PIDFILE ]; then
+  # Check the process, not just the pidfile — a stale pidfile after a crash
+  # must not block restarts (the watchdog relies on start to recover).
+  if [ -n "$(status)" ]; then
     echo "Bot already running";
   else
+    rm -f "$PIDFILE" 2>/dev/null || true
     echo "Starting bot"
     /mnt/bin/busybox nohup /mnt/scripts/telegram-bot-daemon.sh >/dev/null 2>&1 &
     echo "$!" > "$PIDFILE"
+
+    ## Watchdog — only when the bot is configured; an unconfigured daemon
+    ## exits immediately and a watchdog would restart-loop it forever.
+    if bot_configured && ! checkpid "$WATCHDOG_PIDFILE"; then
+      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/telegram-bot 0 status &
+      echo "$!" > "$WATCHDOG_PIDFILE"
+    fi
   fi
 }
 
 stop()
 {
+  killpid_graceful "$WATCHDOG_PIDFILE" 3
   killpid_graceful "$PIDFILE" 5
   echo "Bot stopped"
 }

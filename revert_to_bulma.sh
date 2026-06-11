@@ -1,12 +1,16 @@
 #!/bin/bash
 # Restoration Script: Revert to Bulma Build
-# IP: 192.168.1.50
-# Path: /mnt/www/
+# Usage: CAM_HOST=192.168.1.50 CAM_PASS=secret ./revert_to_bulma.sh
 
-HOST="192.168.1.50"
-USER="root"
-PASS="pass"
+HOST="${CAM_HOST:-192.168.1.50}"
+USER="${CAM_USER:-root}"
+PASS="${CAM_PASS:-}"
 REMOTE_PATH="/mnt/www"
+
+if [ -z "$PASS" ]; then
+    echo "❌ Set CAM_PASS (and optionally CAM_HOST/CAM_USER) before running." >&2
+    exit 1
+fi
 
 echo "⏪ Starting Reversion to Bulma build on $HOST..."
 

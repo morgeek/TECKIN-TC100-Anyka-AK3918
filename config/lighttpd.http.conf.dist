@@ -15,6 +15,8 @@ server.modules = ("mod_auth",
                   "mod_authn_file",
                   "mod_cgi",
                   "mod_staticfile",
+                  "mod_setenv",
+                  "mod_deflate",
                   "mod_alias")
 
 cgi.assign = ( ".cgi" => "/bin/sh" )
@@ -47,6 +49,13 @@ $HTTP["url"] =~ "\\.(css|js|png|jpg|jpeg|svg|gif)$" {
     "Cache-Control" => "public, max-age=86400"
   )
 }
+
+# Compress CSS/JS once per boot into tmpfs and serve from cache (~75% smaller
+# first loads). Restricted to static text assets: CGI output stays uncompressed
+# so dynamic responses cost no CPU and leak nothing via compressed lengths.
+deflate.cache-dir = "/tmp/lighttpd-deflate/"
+deflate.mimetypes = ("text/css", "text/javascript")
+deflate.allowed-encodings = ("gzip", "deflate")
 
 ## CGI (etc) stderr log
 server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
