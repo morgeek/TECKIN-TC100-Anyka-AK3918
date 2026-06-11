@@ -11,6 +11,20 @@ GITHUB_API="https://api.github.com/repos/$REPO/releases/latest"
 CURL="/mnt/bin/curl"
 JQ="/mnt/bin/jq"
 
+# ver_to_int: Converts v1.2.3 to a comparable integer (001002003)
+ver_to_int() {
+    echo "$1" | tr -d 'v' | awk -F. '{ printf("%03d%03d%03d", $1,$2,$3); }'
+}
+
+is_newer() {
+    _cur=$(ver_to_int "$1")
+    _new=$(ver_to_int "$2")
+    if [ "$_new" -gt "$_cur" ]; then
+        return 0
+    fi
+    return 1
+}
+
 # 1. Check if check is forced or cache is expired
 if [ -f "$CACHE_FILE" ]; then
     _now=$(date +%s)
@@ -50,9 +64,7 @@ fi
 
 # 5. Compare and Save Status
 UPDATE_AVAILABLE=0
-if [ "$LATEST_TAG" != "$CURRENT_VERSION" ]; then
-    # Simple check for now: if the strings are different, an update is available.
-    # In a more advanced version, we could do semantic version comparison.
+if is_newer "$CURRENT_VERSION" "$LATEST_TAG"; then
     UPDATE_AVAILABLE=1
 fi
 

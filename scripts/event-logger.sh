@@ -20,6 +20,19 @@ EVENT_LOG_FILE="/tmp/events.jsonl"
 EVENT_LOG_MAX_SIZE_KB=256
 EVENT_LOG_BACKUP_COUNT=2
 
+# Log Level mapping (numeric for comparison)
+# debug: 10, info: 20, warn: 30, error: 40, critical: 50
+get_level_val() {
+    case "$1" in
+        debug) echo 10 ;;
+        info)  echo 20 ;;
+        warn)  echo 30 ;;
+        error) echo 40 ;;
+        critical) echo 50 ;;
+        *) echo 20 ;;
+    esac
+}
+
 # Check if event logging is enabled (default: enabled)
 event_logging_enabled() {
     [ "${EVENT_LOG_ENABLE:-1}" = "1" ]
@@ -75,6 +88,14 @@ log_event() {
         debug|info|warn|error|critical) ;;
         *) level="info" ;;
     esac
+
+    # Filter by threshold (Default to INFO)
+    _threshold_val=$(get_level_val "${EVENT_LOG_THRESHOLD:-info}")
+    _current_val=$(get_level_val "$level")
+    
+    if [ "$_current_val" -lt "$_threshold_val" ]; then
+        return
+    fi
 
     # Get timestamp
     _el_read_ts
