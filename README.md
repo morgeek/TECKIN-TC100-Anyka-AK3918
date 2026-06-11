@@ -41,7 +41,7 @@ The camera has been fully modernized with a premium, tabbed dashboard built on B
 ## 📜 Development Workflow
 - **Frontend**: Source lives in `frontend/src/` using a zero-dependency Bulma 1.0.2 baseline.
 - **CGI API**: State is served via JSON-atomic `state.cgi` and persisted via `action.cgi`.
-- **Build**: Use `npm run build:web` to sync and optimize the dashboard assets.
+- **Build**: Use `npm run build:web` to sync `frontend/src/` to the served assets, and `npm run check:web` to detect drift (CI gate). Details in `frontend/README.md`. Always edit `frontend/src/`, never `www/scripts/` or `www/css/ui-modern.min.css` directly.
 
 ---
 *This project is local-LAN focused and does not require cloud services. Your privacy is prioritized by default.*
