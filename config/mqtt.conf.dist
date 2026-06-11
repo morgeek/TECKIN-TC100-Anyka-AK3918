@@ -26,6 +26,13 @@ MQTT_HEALTH_INTERVAL_SECONDS=120
 MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=180
 MQTT_COMMAND_WAIT_SECONDS=12
 MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
+# Persistent command subscription (recommended). Holds one MQTT connection
+# open for up to MQTT_STREAM_MAX_SECONDS and dispatches commands as they
+# arrive (~1s latency), instead of reconnecting every MQTT_COMMAND_WAIT_SECONDS.
+# Cuts connection churn ~25x and lowers idle CPU. Falls back to one-shot
+# polling automatically if the shell lacks read-timeout support.
+MQTT_STREAM_ENABLE=1
+MQTT_STREAM_MAX_SECONDS=300
 # Subscribe retry backoff when broker polling fails (reduces retry churn if broker is down)
 MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS=2
 MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS=20
