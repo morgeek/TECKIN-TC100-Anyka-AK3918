@@ -18,6 +18,9 @@ if [ "$WEB_MODE" = "off" ]; then
     exit 0
 fi
 
+# lighttpd refuses to start if deflate.cache-dir is missing (tmpfs, gone each boot)
+mkdir -p /tmp/lighttpd-deflate 2>/dev/null
+
 case "$WEB_MODE" in
     full)
         ## Create a certificate for the webserver

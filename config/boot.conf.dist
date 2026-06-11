@@ -101,13 +101,16 @@ MEM_WATCHDOG_SERVICES="web-server rtsp-h26x recording onvif"
 # Optional extra emergency stop list (only when MEM_GUARD_EMERGENCY_KB is hit)
 MEM_GUARD_EMERGENCY_SERVICES=""
 
-# CPU usage scaler (automatic resolution downsizing)
+# CPU usage scaler (automatic stream load shedding)
 # - thresholds and hold time to prevent flapping
-# - if CPU utility > threshold for > hold_time, lowers stream 0 resolution to D1
+# - if CPU utility > threshold for > hold_time, sheds load in two stages:
+#   stage 1 lowers stream 0 FPS to CPU_SCALER_FPS_TARGET (gentler quality loss),
+#   stage 2 lowers stream 0 resolution to D1 if CPU stays high after that
 CPU_SCALER_ENABLE=0
 CPU_SCALER_INTERVAL_SECONDS=10
 CPU_SCALER_THRESHOLD_PERCENT=80
 CPU_SCALER_HOLD_TIME_SECONDS=30
+CPU_SCALER_FPS_TARGET=10
 CPU_SCALER_D1_WIDTH=720
 CPU_SCALER_D1_HEIGHT=480
 

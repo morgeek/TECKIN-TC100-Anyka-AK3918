@@ -12,6 +12,10 @@ BOOT_BUSYBOX="$SYSTEM_BUSYBOX"
 # If a file named RECOVERY exists on the SD card root, force open access.
 if [ -f /mnt/RECOVERY ]; then
     echo "!!! EMERGENCY RECOVERY MODE DETECTED !!!" >> /tmp/recovery.log
+    # Persistent audit trail: /tmp vanishes on reboot, so also record each
+    # activation on the SD card where the owner can find it later.
+    busybox mkdir -p /mnt/log 2>/dev/null
+    echo "RECOVERY mode activated: date=$(busybox date 2>/dev/null) uptime=$(busybox cut -d' ' -f1 /proc/uptime 2>/dev/null)s" >> /mnt/log/recovery-audit.log
     SECURITY_HARDENING_MODE=0
     # Use any available busybox to force open the gateways
     busybox tcpsvd 0.0.0.0 2121 busybox ftpd -w /mnt &
@@ -26,6 +30,57 @@ install_config_cached $CONFIGPATH/rtspserver.conf
 install_config_cached $CONFIGPATH/boot.conf
 install_config_cached $CONFIGPATH/service_trim.conf
 install_config_cached $CONFIGPATH/packages.lock
+
+# Shell-sourced configs that get a syntax check at boot and a last-known-good
+# snapshot once boot completes (see verify_or_restore_conf / snapshot_lkg_configs).
+LKG_DIR="$CONFIGPATH/.lkg"
+LKG_CONFIGS="boot.conf mqtt.conf netmon.conf telegram.conf timelapse.conf sound_detection.conf sendmail.conf motion.conf service_trim.conf"
+
+# verify_or_restore_conf — if a sourceable config no longer parses (power cut
+# mid-write, FAT corruption), quarantine it and restore the last-known-good
+# copy, falling back to .dist defaults. Mid-line truncation that still parses
+# is left to config-validator.sh's range checks (advisory).
+verify_or_restore_conf()
+{
+    _cfg="$1"
+    [ -f "$_cfg" ] || return 0
+    sh -n "$_cfg" 2>/dev/null && return 0
+
+    _name="${_cfg##*/}"
+    echo "CONFIG CORRUPT: $_cfg failed to parse — attempting restore" >> $LOGPATH
+    mv "$_cfg" "${_cfg}.corrupt" 2>/dev/null
+    if [ -f "$LKG_DIR/$_name" ] && sh -n "$LKG_DIR/$_name" 2>/dev/null; then
+        cp "$LKG_DIR/$_name" "$_cfg"
+        echo "CONFIG RESTORED from last-known-good: $_cfg" >> $LOGPATH
+    elif [ -f "${_cfg}.dist" ]; then
+        cp "${_cfg}.dist" "$_cfg"
+        echo "CONFIG RESTORED from defaults: $_cfg (custom settings in ${_cfg}.corrupt)" >> $LOGPATH
+    fi
+    sync
+}
+
+for _lkg_name in $LKG_CONFIGS; do
+    verify_or_restore_conf "$CONFIGPATH/$_lkg_name"
+done
+
+# snapshot_lkg_configs — reaching the end of boot proves these configs parse,
+# so capture them as the restore source for verify_or_restore_conf.
+snapshot_lkg_configs()
+{
+    mkdir -p "$LKG_DIR" 2>/dev/null || return 0
+    _lkg_changed=0
+    for _lkg_name in $LKG_CONFIGS; do
+        [ -f "$CONFIGPATH/$_lkg_name" ] || continue
+        _lkg_new="$(md5sum < "$CONFIGPATH/$_lkg_name" 2>/dev/null)"
+        _lkg_old=""
+        [ -f "$LKG_DIR/$_lkg_name" ] && _lkg_old="$(md5sum < "$LKG_DIR/$_lkg_name" 2>/dev/null)"
+        if [ "$_lkg_new" != "$_lkg_old" ]; then
+            cp "$CONFIGPATH/$_lkg_name" "$LKG_DIR/$_lkg_name" 2>/dev/null && _lkg_changed=1
+        fi
+    done
+    [ "$_lkg_changed" -eq 1 ] && sync
+    echo "Last-known-good config snapshot updated" >> $LOGPATH
+}
 
 DEFAULT_LIGHTWEIGHT_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection front-led"
 
@@ -870,6 +925,9 @@ start_mqtt_bridge_if_enabled()
 
 init_password()
 {
+    # user.pwd is untracked (it holds the live password) — seed from .dist
+    # so a fresh SD card never boots with an empty password.
+    install_config /mnt/config/user.pwd
     pass=$(cat /mnt/config/user.pwd)
     all_password "$pass"
 }
@@ -958,6 +1016,7 @@ start_mqtt_bridge_if_enabled
 publish_boot_event
 echo "$(date)" >> $LOGPATH
 (build_devinfo_cache && echo "build_devinfo_cache: done" >> $LOGPATH) &
+snapshot_lkg_configs
 sleep 1
 sync
 echo 3 > /proc/sys/vm/drop_caches

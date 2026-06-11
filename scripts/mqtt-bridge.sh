@@ -12,6 +12,8 @@ CURL_BIN="/mnt/bin/curl"
 JQ_BIN="/mnt/bin/jq"
 LOCAL_STATE_CGI="/mnt/www/cgi-bin/state.cgi"
 INTEGRATION_MANIFEST_STATE_FILE="/tmp/mqtt-bridge.integration-manifest.state"
+STREAM_FIFO="/tmp/mqtt-bridge-sub.fifo"
+stream_pid=""
 
 . /mnt/scripts/common_functions.sh
 
@@ -145,6 +147,8 @@ load_config()
   MQTT_HEALTH_INTERVAL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_INTERVAL_SECONDS:-120}" 10 86400 120)"
   MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS:-180}" 10 86400 180)"
   MQTT_COMMAND_WAIT_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_WAIT_SECONDS:-12}" 3 120 12)"
+  MQTT_STREAM_ENABLE="${MQTT_STREAM_ENABLE:-1}"
+  MQTT_STREAM_MAX_SECONDS="$(sanitize_int_range "${MQTT_STREAM_MAX_SECONDS:-300}" 30 3600 300)"
   MQTT_COMMAND_REPEAT_WINDOW_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_REPEAT_WINDOW_SECONDS:-20}" 0 600 20)"
   MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS:-2}" 1 60 2)"
   MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS:-20}" 1 600 20)"
@@ -1696,8 +1700,173 @@ subscribe_once_command()
   fi
 }
 
+stream_mode_enabled()
+{
+  is_truthy_local "$MQTT_STREAM_ENABLE"
+}
+
+stream_read_supported()
+{
+  # Stream mode needs a `read -t` that returns partial input on timeout, so a
+  # payload published without a trailing newline is still delivered promptly.
+  # Probe at runtime: the writer holds the pipe open past the timeout so the
+  # read genuinely times out instead of seeing EOF. Costs ~2s once at startup.
+  _srs_out="$( { printf 'PROBE'; sleep 2; } | { _srs_p=""; read -r -t 1 _srs_p 2>/dev/null; printf '%s' "$_srs_p"; } )"
+  [ "$_srs_out" = "PROBE" ]
+}
+
+subscribe_stream_start()
+{
+  # Long-lived subscription: one connection per MQTT_STREAM_MAX_SECONDS instead
+  # of one per MQTT_COMMAND_WAIT_SECONDS. --no-buffer makes curl flush each
+  # PUBLISH payload to the FIFO as it arrives; --connect-timeout keeps failure
+  # detection fast now that --max-time no longer bounds the connect phase.
+  _ss_url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${MQTT_TOPIC_COMMAND}?clientid=${MQTT_CLIENT_ID}-sub&qos=${MQTT_QOS}"
+  if [ -n "$MQTT_USER" ]; then
+    "$CURL_BIN" --silent --no-buffer --connect-timeout 10 \
+      --max-time "$MQTT_STREAM_MAX_SECONDS" \
+      -u "${MQTT_USER}:${MQTT_PASSWORD}" "$_ss_url" >"$STREAM_FIFO" 2>/dev/null &
+  else
+    "$CURL_BIN" --silent --no-buffer --connect-timeout 10 \
+      --max-time "$MQTT_STREAM_MAX_SECONDS" "$_ss_url" >"$STREAM_FIFO" 2>/dev/null &
+  fi
+  stream_pid=$!
+}
+
+run_stream_loop()
+{
+  rm -f "$STREAM_FIFO" 2>/dev/null
+  if ! mkfifo "$STREAM_FIFO" 2>/dev/null; then
+    log_msg "mkfifo failed; staying on one-shot polling"
+    return 1
+  fi
+  # Open read-write so the open never blocks and the fd never reports EOF;
+  # curl death is detected with kill -0 on an idle tick instead.
+  exec 3<>"$STREAM_FIFO"
+
+  stream_failures=0
+  stream_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+  last_health_ts=0
+
+  while :; do
+    read -r _up _ < /proc/uptime
+    _sl_session_start_ts=$((BTIME + ${_up%.*}))
+
+    subscribe_stream_start
+
+    _sl_pending=""
+    _sl_pending_ts=0
+    while :; do
+      read -r _up _ < /proc/uptime
+      now_ts=$((BTIME + ${_up%.*}))
+
+      if [ "$last_health_ts" -le 0 ] || [ $((now_ts - last_health_ts)) -ge "$MQTT_HEALTH_INTERVAL_SECONDS" ]; then
+        publish_health >/dev/null 2>&1 || true
+        publish_integration_manifest >/dev/null 2>&1 || true
+        last_health_ts="$now_ts"
+      fi
+
+      _sl_line=""
+      if read -r -t 1 _sl_line <&3; then
+        _sl_got_eol=1
+      else
+        _sl_got_eol=0
+      fi
+
+      if [ -n "$_sl_line" ]; then
+        if [ -n "$_sl_pending" ]; then
+          _sl_pending="${_sl_pending} ${_sl_line}"
+        else
+          _sl_pending="$_sl_line"
+          _sl_pending_ts="$now_ts"
+        fi
+      fi
+
+      if [ -n "$_sl_pending" ]; then
+        case "$_sl_pending" in
+          '{'*'}'*)
+            handle_command_payload "$_sl_pending" mqtt
+            _sl_pending=""
+            ;;
+          '{'*)
+            # JSON payload still open (pretty-printed, multi-line) — keep
+            # accumulating, but never hold a torn payload longer than 5s.
+            if [ $((now_ts - _sl_pending_ts)) -ge 5 ]; then
+              handle_command_payload "$_sl_pending" mqtt
+              _sl_pending=""
+            fi
+            ;;
+          *)
+            handle_command_payload "$_sl_pending" mqtt
+            _sl_pending=""
+            ;;
+        esac
+      fi
+
+      if [ "$_sl_got_eol" -eq 0 ] && [ -z "$_sl_line" ]; then
+        if ! kill -0 "$stream_pid" 2>/dev/null; then
+          if [ -n "$_sl_pending" ]; then
+            handle_command_payload "$_sl_pending" mqtt
+            _sl_pending=""
+          fi
+          break
+        fi
+      fi
+    done
+
+    wait "$stream_pid" 2>/dev/null
+    stream_pid=""
+
+    read -r _up _ < /proc/uptime
+    now_ts=$((BTIME + ${_up%.*}))
+    _sl_lifetime=$((now_ts - _sl_session_start_ts))
+
+    # A session that survived past the one-shot wait window counts as a healthy
+    # connection (max-time expiry is the normal end of life); reconnect at once.
+    if [ "$_sl_lifetime" -ge "$MQTT_COMMAND_WAIT_SECONDS" ]; then
+      if [ "$stream_failures" -gt 0 ]; then
+        log_msg "MQTT stream recovered after ${stream_failures} error(s)"
+      fi
+      stream_failures=0
+      stream_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+      continue
+    fi
+
+    stream_failures=$((stream_failures + 1))
+    if [ "$stream_failures" -eq 1 ] || [ $((stream_failures % 5)) -eq 0 ]; then
+      log_msg "MQTT stream died after ${_sl_lifetime}s failures=${stream_failures} backoff=${stream_backoff_seconds}s"
+      log_event "error" "mqtt" "MQTT stream failed (attempt ${stream_failures}, backoff ${stream_backoff_seconds}s)"
+    fi
+
+    _cb_thresh="${MQTT_CIRCUIT_BREAKER_THRESHOLD:-50}"
+    case "$_cb_thresh" in ''|*[!0-9]*) _cb_thresh=50 ;; esac
+    if [ "$stream_failures" -ge "$_cb_thresh" ]; then
+      _cb_cooldown="${MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS:-300}"
+      case "$_cb_cooldown" in ''|*[!0-9]*) _cb_cooldown=300 ;; esac
+      log_msg "MQTT circuit breaker tripped (${stream_failures} consecutive failures) — pausing ${_cb_cooldown}s"
+      log_event "critical" "mqtt" "MQTT circuit breaker tripped after ${stream_failures} failures; cooling down ${_cb_cooldown}s"
+      sleep "$_cb_cooldown"
+      stream_failures=0
+      stream_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+      continue
+    fi
+
+    sleep "$stream_backoff_seconds"
+    if [ "$stream_backoff_seconds" -lt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
+      stream_backoff_seconds=$((stream_backoff_seconds * MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER))
+      if [ "$stream_backoff_seconds" -gt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
+        stream_backoff_seconds="$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS"
+      fi
+    fi
+  done
+}
+
 shutdown_bridge()
 {
+  if [ -n "$stream_pid" ] && kill -0 "$stream_pid" 2>/dev/null; then
+    kill "$stream_pid" 2>/dev/null
+  fi
+  rm -f "$STREAM_FIFO" 2>/dev/null
   publish_availability offline
   log_msg "MQTT bridge stopping"
 }
@@ -1718,6 +1887,17 @@ run_loop()
   publish_integration_manifest force >/dev/null 2>&1 || true
   publish_homeassistant_discovery
   publish_event_simple "bridge.start" "online"
+
+  if stream_mode_enabled; then
+    if stream_read_supported; then
+      log_msg "Persistent subscription enabled (one connection per ${MQTT_STREAM_MAX_SECONDS}s instead of per ${MQTT_COMMAND_WAIT_SECONDS}s poll)"
+      run_stream_loop
+      # run_stream_loop only returns if the FIFO could not be created —
+      # fall through to the legacy one-shot polling loop.
+    else
+      log_msg "Shell read -t does not preserve partial input; using legacy one-shot polling"
+    fi
+  fi
 
   last_health_ts=0
   subscribe_failures=0
