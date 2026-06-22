@@ -1,6 +1,8 @@
 ---
 name: validate-cgi
 description: Review a CGI shell script for safety, correctness and camera compatibility. Use when adding or modifying a CGI endpoint.
+argument-hint: "[path/to/script.cgi]"
+allowed-tools: Read Bash(git diff*)
 ---
 
 Review the CGI script at $ARGUMENTS (or the most recently modified `.cgi` file if no argument given).

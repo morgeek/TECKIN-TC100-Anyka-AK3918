@@ -3,6 +3,7 @@
     "allow": [
       "Bash(npm run *)",
       "Bash(node tools/build-web-assets.mjs*)",
+      "Bash(node .claude/hooks/*.mjs)",
       "Bash(git status)",
       "Bash(git diff*)",
       "Bash(git log*)",
@@ -16,6 +17,19 @@
     ],
     "additionalDirectories": [
       "C:\\tmp"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/build-frontend.mjs"
+          }
+        ]
+      }
     ]
   }
 }
