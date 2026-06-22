@@ -97,7 +97,7 @@ MEM_GUARD_EMERGENCY_SERVICES=""
 MEM_WATCHDOG_ENABLE=1
 MEM_WATCHDOG_INTERVAL_SECONDS=40
 MEM_WATCHDOG_MAX_RETRIES=3
-MEM_WATCHDOG_SERVICES="web-server rtsp-h26x recording onvif"
+MEM_WATCHDOG_SERVICES="web-server rtsp-h26x onvif"
 # Optional extra emergency stop list (only when MEM_GUARD_EMERGENCY_KB is hit)
 MEM_GUARD_EMERGENCY_SERVICES=""
 
@@ -194,7 +194,7 @@ STORAGE_CLEANUP_DCIM_PATH=/mnt/DCIM
 
 # Health snapshot daemon: pre-builds the health.cgi cache every N seconds (min 10, max 300).
 # Lower values mean fresher health data at the cost of more CPU cycles per minute.
-HEALTH_SNAPSHOT_INTERVAL_SECONDS=30
+HEALTH_SNAPSHOT_INTERVAL_SECONDS=60
 
 # Syslog forwarding: stream logs to a remote syslog server at SYSLOG_HOST:SYSLOG_PORT.
 # Requires logger -n support in your busybox build.
@@ -203,10 +203,11 @@ SYSLOG_HOST=
 SYSLOG_PORT=514
 
 # Integration profile — controls which optional daemons are started at boot.
+# "default"    starts everything enabled in autostart/ (safe baseline).
 # "frigate_ha" skips Telegram, Timelapse, Syslog, Sound detection, FTP,
-#              Telnet and local Recording (all handled by Frigate / Home Assistant).
-# "default"    starts everything enabled in autostart/.
-INTEGRATION_PROFILE=frigate_ha
+#              Telnet and local Recording (handled by Frigate / Home Assistant).
+# Set to "frigate_ha" in boot.conf if this camera feeds Frigate/HA.
+INTEGRATION_PROFILE=default
 
 # Example lightweight allowlist:
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
