@@ -25,7 +25,7 @@ MQTT_QOS=0
 MQTT_HEALTH_INTERVAL_SECONDS=300
 # Expensive health probes (service status/ports/storage/network) are cached
 # for this many seconds to avoid periodic CPU spikes.
-MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=180
+MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=300
 MQTT_COMMAND_WAIT_SECONDS=12
 MQTT_COMMAND_REPEAT_WINDOW_SECONDS=20
 # Persistent command subscription (recommended). Holds one MQTT connection
