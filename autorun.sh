@@ -772,6 +772,28 @@ apply_low_cpu_profile()
     fi
 }
 
+apply_frigate_ha_rtsp_profile()
+{
+    [ "$INTEGRATION_PROFILE" = "frigate_ha" ] || return 0
+
+    echo "[frigate_ha] Applying RTSP profile: disable motion/OSD/JPEG, fixed GOP" >> $LOGPATH
+
+    install_config_cached $CONFIGPATH/rtspserver.conf
+
+    # Camera-side motion detection is redundant when Frigate handles detection.
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " mdenabled 0
+
+    # OSD timestamp overlay not needed in NVR pipeline.
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " osdenabled 0
+
+    # JPEG stream not needed; Frigate snapshots from RTSP directly.
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " jpegstream 0
+
+    # Fixed GOP (smartmode=0) avoids per-frame LTR analysis; saves ~5-10% CPU.
+    # Frigate handles its own scene analysis independently of encoder intelligence.
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w 0 smartmode 0 1 smartmode 0
+}
+
 run_autostart_scripts()
 {
     echo "Autostart..." >> $LOGPATH
@@ -1017,6 +1039,7 @@ init_crond
 initialize_gpio
 init_rtsp_params
 apply_low_cpu_profile
+apply_frigate_ha_rtsp_profile
 run_autostart_scripts
 enforce_security_hardening_runtime
 start_service_watchdogs()
