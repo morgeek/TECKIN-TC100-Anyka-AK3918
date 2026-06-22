@@ -336,7 +336,7 @@ load_boot_config()
     if [ "$INTEGRATION_PROFILE" = "frigate_ha" ] && [ -z "$AUTOSTART_ALLOWLIST" ]; then
         _frigate_ha_denylist="telegram-bot timelapse syslog-forward sound-detection ftp-server telnet-server recording motion-mail"
         for _svc in $_frigate_ha_denylist; do
-            list_contains "$_svc" $AUTOSTART_DENYLIST || AUTOSTART_DENYLIST="$AUTOSTART_DENYLIST $_svc"
+            list_contains "$_svc" $AUTOSTART_DENYLIST || AUTOSTART_DENYLIST="${AUTOSTART_DENYLIST:+$AUTOSTART_DENYLIST }$_svc"
         done
         echo "[frigate_ha] daemons exclus du démarrage : ${_frigate_ha_denylist}" >> $LOGPATH
     fi
