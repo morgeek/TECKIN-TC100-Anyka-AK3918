@@ -1,6 +1,7 @@
 # macOS Finder metadata
 .DS_Store
-.claude
+# Claude Code local overrides (personal, not shared)
+.claude/settings.local.json
 
 # Runtime artifacts generated during local upgrade/testing
 log/*.log
