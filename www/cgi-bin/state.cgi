@@ -1354,17 +1354,20 @@ if [ -n "$F_cmd" ]; then
     # This command returns ALL configurable values for the UI to populate its tabs.
     # It avoids multiple requests and keeps everything in sync.
     load_conf_file /mnt/config/boot.conf
+    _iprofile="$(get_cfg INTEGRATION_PROFILE default)"
     load_conf_file /mnt/config/rtspserver.conf
     load_conf_file /mnt/config/mqtt.conf
-    load_conf_file /mnt/config/recording.conf
-    load_conf_file /mnt/config/sound_detection.conf
-    load_conf_file /mnt/config/timelapse.conf
     load_conf_file /mnt/config/service_trim.conf
     load_conf_file /mnt/config/timezone.conf
     load_conf_file /mnt/config/ntp_srv.conf
     load_conf_file /mnt/config/motion.conf
     load_conf_file /mnt/config/telnetd.conf
-    load_conf_file /mnt/config/telegram.conf
+    if [ "$_iprofile" != "frigate_ha" ]; then
+      load_conf_file /mnt/config/recording.conf
+      load_conf_file /mnt/config/sound_detection.conf
+      load_conf_file /mnt/config/timelapse.conf
+      load_conf_file /mnt/config/telegram.conf
+    fi
     
     read_rtsp_stream_summary
     detect_primary_ip
