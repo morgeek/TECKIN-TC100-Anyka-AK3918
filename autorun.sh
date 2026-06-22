@@ -276,6 +276,7 @@ load_boot_config()
     : "${SECURITY_HARDENING_MODE:=0}"
     : "${AUTOSTART_ALLOWLIST:=}"
     : "${AUTOSTART_DENYLIST:=}"
+    : "${INTEGRATION_PROFILE:=default}"
     : "${SERVICE_TRIM:=0}"
     : "${SERVICE_TRIM_ALLOWLIST:=00_system-config 02_system-webserver rtsp-h26x onvif memory-guard}"
     : "${MEM_GUARD_ENABLE:=0}"
@@ -330,6 +331,14 @@ load_boot_config()
         if [ -z "$AUTOSTART_ALLOWLIST" ] && ! list_contains "ftp-server" $AUTOSTART_DENYLIST; then
             AUTOSTART_DENYLIST="$AUTOSTART_DENYLIST ftp-server telnet-server"
         fi
+    fi
+
+    if [ "$INTEGRATION_PROFILE" = "frigate_ha" ] && [ -z "$AUTOSTART_ALLOWLIST" ]; then
+        _frigate_ha_denylist="telegram-bot timelapse syslog-forward sound-detection ftp-server telnet-server recording motion-mail"
+        for _svc in $_frigate_ha_denylist; do
+            list_contains "$_svc" $AUTOSTART_DENYLIST || AUTOSTART_DENYLIST="$AUTOSTART_DENYLIST $_svc"
+        done
+        echo "[frigate_ha] daemons exclus du démarrage : ${_frigate_ha_denylist}" >> $LOGPATH
     fi
 
     echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE cpuscaler=$CPU_SCALER_ENABLE security_hardening=$SECURITY_HARDENING_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
