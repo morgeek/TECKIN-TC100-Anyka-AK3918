@@ -1,6 +1,7 @@
 ---
 name: deploy
 description: Deploy modified files to the camera via FTP. Use when the user asks to deploy, push, upload or sync files to the camera.
+argument-hint: "[camera-ip]"
 disable-model-invocation: true
 ---
 
