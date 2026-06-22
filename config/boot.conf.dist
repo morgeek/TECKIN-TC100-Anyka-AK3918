@@ -81,7 +81,7 @@ LOW_CPU_SUB_TARGETKBPS=150
 # Memory Guard & Service Watchdog
 # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 MEM_GUARD_ENABLE=0
-MEM_GUARD_INTERVAL_SECONDS=20
+MEM_GUARD_INTERVAL_SECONDS=60
 MEM_GUARD_WARN_KB=8192
 MEM_GUARD_CRITICAL_KB=4096
 MEM_GUARD_EMERGENCY_KB=2048
@@ -201,6 +201,12 @@ HEALTH_SNAPSHOT_INTERVAL_SECONDS=30
 SYSLOG_ENABLE=0
 SYSLOG_HOST=
 SYSLOG_PORT=514
+
+# Integration profile — controls which optional daemons are started at boot.
+# "frigate_ha" skips Telegram, Timelapse, Syslog, Sound detection, FTP,
+#              Telnet and local Recording (all handled by Frigate / Home Assistant).
+# "default"    starts everything enabled in autostart/.
+INTEGRATION_PROFILE=frigate_ha
 
 # Example lightweight allowlist:
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"

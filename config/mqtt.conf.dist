@@ -20,7 +20,9 @@ MQTT_QOS=0
 
 # Runtime behavior
 # Health publish cadence. Higher values reduce CPU/network load.
-MQTT_HEALTH_INTERVAL_SECONDS=120
+# 300s (5 min) is sufficient for HA availability — the LWT retained topic
+# handles immediate offline detection without frequent polling.
+MQTT_HEALTH_INTERVAL_SECONDS=300
 # Expensive health probes (service status/ports/storage/network) are cached
 # for this many seconds to avoid periodic CPU spikes.
 MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=180

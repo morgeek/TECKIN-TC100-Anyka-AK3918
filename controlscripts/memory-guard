@@ -38,7 +38,7 @@ load_config()
     fi
 
     : "${MEM_GUARD_ENABLE:=0}"
-    MEM_GUARD_INTERVAL_SECONDS="$(sanitize_positive_int "${MEM_GUARD_INTERVAL_SECONDS:-20}" 20)"
+    MEM_GUARD_INTERVAL_SECONDS="$(sanitize_positive_int "${MEM_GUARD_INTERVAL_SECONDS:-60}" 20)"
 
     # Auto-tune thresholds if not set: derive from actual total RAM so that
     # fixed KB values do not become meaningless on low-memory variants.
