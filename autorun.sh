@@ -1024,6 +1024,14 @@ init_log
 preflight_checks
 self_heal_runtime
 init_password
+# First-boot wizard: set flag if user has never completed the wizard.
+# The flag is checked by wizard.cgi?check and cleared after wizard completes.
+if [ ! -f "$CONFIGPATH/.wizard_done" ]; then
+    touch /tmp/.first_boot 2>/dev/null || true
+    echo "[first-boot] Wizard not yet completed — flag set." >> $LOGPATH
+else
+    rm -f /tmp/.first_boot 2>/dev/null || true
+fi
 load_boot_config
 # Validate config values early — logs to /tmp/log/config-validator.log, never fatal.
 [ -x /mnt/scripts/config-validator.sh ] && /mnt/scripts/config-validator.sh &
