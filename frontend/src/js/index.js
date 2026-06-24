@@ -1093,6 +1093,7 @@
   };
 
   window.EliteUI = {
+    csrfFetch: csrfFetch,
     initDashboard: function() {
         var dash = byId('settings_container');
         if (!dash) return;
