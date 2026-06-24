@@ -1091,7 +1091,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid) ;;
     *) csrf_check ;;
   esac
   case "$F_cmd" in
@@ -3266,6 +3266,54 @@ if [ -n "$F_cmd" ]; then
                 fi
             fi
         fi
+    ;;
+
+    wifi_get_ssid)
+        _wpa_conf="/mnt/config/wpa_supplicant.conf"
+        _ssid=""
+        if [ -f "$_wpa_conf" ]; then
+            _ssid="$(awk -F'"' '/^[ \t]*ssid=/ { print $2; exit }' "$_wpa_conf")"
+        fi
+        _ssid_safe="$(printf '%s' "$_ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+        printf '{"status":"success","ssid":"%s"}\n' "$_ssid_safe"
+    ;;
+
+    wifi_set_config)
+        _wpa_conf="/mnt/config/wpa_supplicant.conf"
+        _ssid="$(printf '%s' "${F_ssid:-}" | tr -d '"\\' | cut -c1-32)"
+        _psk="$(printf '%s' "${F_psk:-}" | tr -d '"\\' | cut -c1-63)"
+        _ssid_len="$(printf '%s' "$_ssid" | wc -c)"
+        _psk_len="$(printf '%s' "$_psk" | wc -c)"
+        if [ "$_ssid_len" -lt 1 ]; then
+            json_error "INVALID_SSID" "SSID must be 1-32 characters"
+        elif [ "$_psk_len" -lt 8 ]; then
+            json_error "INVALID_PSK" "PSK must be at least 8 characters"
+        else
+            _wpa_tmp="${_wpa_conf}.tmp.$$"
+            {
+                printf 'ctrl_interface=/var/run/wpa_supplicant\n'
+                printf 'ctrl_interface_group=0\n'
+                printf 'ap_scan=1\n'
+                printf 'network={\n'
+                printf '\tssid="%s"\n'   "$_ssid"
+                printf '\tkey_mgmt=WPA-PSK\n'
+                printf '\tpsk="%s"\n'    "$_psk"
+                printf '\tpriority=2\n'
+                printf '}\n'
+            } > "$_wpa_tmp" && mv "$_wpa_tmp" "$_wpa_conf" || {
+                rm -f "$_wpa_tmp" 2>/dev/null
+                json_error "WRITE_ERROR" "Failed to write WiFi configuration"
+                exit 0
+            }
+            command -v wpa_cli >/dev/null 2>&1 && wpa_cli -i wlan0 reconfigure >/dev/null 2>&1 || true
+            json_response "success" "WiFi configuration updated for SSID: $_ssid. Reconnecting..."
+        fi
+    ;;
+
+    wizard_reset)
+        rm -f /mnt/config/.wizard_done 2>/dev/null || true
+        touch /tmp/.first_boot 2>/dev/null || true
+        json_response "success" "Wizard reset. Redirecting to setup wizard."
     ;;
 
      *)

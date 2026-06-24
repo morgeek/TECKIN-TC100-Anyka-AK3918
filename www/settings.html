@@ -384,6 +384,31 @@
 
         <!-- Network Tab -->
         <div class="tab-content is-hidden" id="tab-network">
+            <div class='card status_card mb-4'>
+                <header class='card-header'><p class='card-header-title'>Configuration WiFi</p></header>
+                <div class='card-content'>
+                    <div class="level is-mobile mb-3">
+                        <div class="level-left"><div class="level-item"><span class="is-size-7">Réseau actuel :</span></div></div>
+                        <div class="level-right"><div class="level-item"><span class="tag is-info is-light is-size-7" id="current_ssid_tag">Chargement…</span></div></div>
+                    </div>
+                    <article class="message is-warning is-small mb-3">
+                        <div class="message-body">La connexion sera interrompue pendant le changement de réseau. Reconnectez-vous à la page après quelques secondes.</div>
+                    </article>
+                    <div class="field">
+                        <label class="label is-small">Nouveau SSID</label>
+                        <input class="input is-small" id="wifi_ssid_input" type="text" placeholder="NomDuRéseau" maxlength="32" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div class="field">
+                        <label class="label is-small">Mot de passe (PSK)</label>
+                        <input class="input is-small" id="wifi_psk_input" type="password" placeholder="●●●●●●●●" autocomplete="new-password">
+                        <p class="help">Minimum 8 caractères</p>
+                    </div>
+                    <div class="buttons is-right mt-3">
+                        <button class="button is-warning is-small" type="button" id="btnWifiApply">Appliquer la configuration WiFi</button>
+                    </div>
+                </div>
+            </div>
+
              <div class='card status_card'>
                 <header class='card-header'><p class='card-header-title'>Identity & Network Services</p></header>
                 <div class='card-content'>
@@ -488,6 +513,44 @@
                     </div>
                 </div>
             </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Assistant de configuration</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-3">Relance le wizard de première configuration (profil, sécurité, MQTT). La configuration actuelle n'est <strong>pas</strong> modifiée tant que le wizard n'est pas soumis.</p>
+                    <button class="button is-warning is-small is-fullwidth" type="button" id="btnWizardReset">Relancer le wizard</button>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Export / Import de configuration</p></header>
+                <div class='card-content'>
+                    <div class="columns">
+                        <div class="column is-half">
+                            <p class="is-size-7 mb-2">Télécharge <code>boot.conf</code> + <code>mqtt.conf</code> dans un fichier <code>.conf</code> texte.</p>
+                            <a class="button is-info is-small is-fullwidth" href="cgi-bin/conf-export.cgi">
+                                <span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+                                <span>Exporter la configuration</span>
+                            </a>
+                        </div>
+                        <div class="column is-half">
+                            <p class="is-size-7 mb-2">Importe un fichier exporté par cette caméra. Seules les clés connues sont appliquées.</p>
+                            <div class="file is-small is-fullwidth mb-2">
+                                <label class="file-label" style="width:100%">
+                                    <input class="file-input" type="file" id="confImportFile" accept=".conf">
+                                    <span class="file-cta" style="flex-shrink:0">
+                                        <span class="file-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 14 12 9 7 14"/><line x1="12" y1="9" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg></span>
+                                        <span class="file-label">Choisir…</span>
+                                    </span>
+                                    <span class="file-name" id="confImportFileName" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Aucun fichier</span>
+                                </label>
+                            </div>
+                            <button class="button is-warning is-small is-fullwidth" id="btnConfImport" disabled>Importer</button>
+                        </div>
+                    </div>
+                    <p class="help mt-2">Un redémarrage est nécessaire pour appliquer les changements importés.</p>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -509,8 +572,148 @@
                     content.classList.toggle('is-hidden', content.id !== targetId);
                 });
                 if (targetId === 'tab-automation') { initHAStatus(); }
+                if (targetId === 'tab-network') { loadWifiSsid(); }
             });
         });
+
+        function loadWifiSsid() {
+            var tag = document.getElementById('current_ssid_tag');
+            if (!tag || tag.dataset.loaded) return;
+            fetch('cgi-bin/action.cgi?cmd=wifi_get_ssid&_=' + Date.now())
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d && d.ssid) {
+                        tag.textContent = d.ssid;
+                        tag.className = 'tag is-success is-light is-size-7';
+                    } else {
+                        tag.textContent = 'Non configuré';
+                        tag.className = 'tag is-warning is-light is-size-7';
+                    }
+                    tag.dataset.loaded = '1';
+                })
+                .catch(function() {
+                    tag.textContent = 'Erreur de lecture';
+                    tag.className = 'tag is-danger is-light is-size-7';
+                });
+        }
+
+        (function initWifiApply() {
+            var btn = document.getElementById('btnWifiApply');
+            if (!btn) return;
+            btn.addEventListener('click', function() {
+                var ssid = (document.getElementById('wifi_ssid_input').value || '').trim();
+                var psk  = document.getElementById('wifi_psk_input').value || '';
+                if (!ssid) { alert('Le SSID est requis.'); return; }
+                if (psk.length < 8) { alert('Le mot de passe doit faire au moins 8 caractères.'); return; }
+                if (!confirm('Changer le réseau WiFi vers "' + ssid + '" ?\n\nLa connexion sera interrompue. Reconnectez-vous après quelques secondes.')) return;
+
+                btn.classList.add('is-loading');
+                var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+                var body = 'ssid=' + encodeURIComponent(ssid) + '&psk=' + encodeURIComponent(psk);
+                cf('cgi-bin/action.cgi?cmd=wifi_set_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    btn.classList.remove('is-loading');
+                    if (d && d.status === 'success') {
+                        var tag = document.getElementById('current_ssid_tag');
+                        if (tag) { tag.textContent = ssid; tag.className = 'tag is-success is-light is-size-7'; delete tag.dataset.loaded; }
+                        document.getElementById('wifi_ssid_input').value = '';
+                        document.getElementById('wifi_psk_input').value = '';
+                        alert('Configuration WiFi mise à jour. La caméra se reconnecte…');
+                    } else {
+                        alert('Erreur : ' + ((d && d.error) || 'Réponse inattendue'));
+                    }
+                })
+                .catch(function(e) {
+                    btn.classList.remove('is-loading');
+                    alert('Erreur réseau : ' + e.message);
+                });
+            });
+        })();
+
+        (function initWizardReset() {
+            var btn = document.getElementById('btnWizardReset');
+            if (!btn) return;
+            btn.addEventListener('click', function() {
+                if (!confirm('Relancer le wizard de configuration ?\n\nVous serez redirigé vers le wizard. La configuration actuelle est conservée.')) return;
+                btn.classList.add('is-loading');
+                var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+                cf('cgi-bin/action.cgi?cmd=wizard_reset', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d && d.status === 'success') {
+                        window.location.replace('/cgi-bin/wizard.cgi');
+                    } else {
+                        btn.classList.remove('is-loading');
+                        alert('Erreur : ' + ((d && d.error) || 'Réponse inattendue'));
+                    }
+                })
+                .catch(function(e) {
+                    btn.classList.remove('is-loading');
+                    alert('Erreur réseau : ' + e.message);
+                });
+            });
+        })();
+
+        (function initConfImport() {
+            var fileInput = document.getElementById('confImportFile');
+            var fileLabel = document.getElementById('confImportFileName');
+            var btnImport = document.getElementById('btnConfImport');
+            if (!fileInput || !btnImport) return;
+
+            fileInput.addEventListener('change', function() {
+                var f = fileInput.files[0];
+                fileLabel.textContent = f ? f.name : 'Aucun fichier';
+                btnImport.disabled = !f;
+            });
+
+            btnImport.addEventListener('click', function() {
+                var f = fileInput.files[0];
+                if (!f) return;
+                if (!confirm('Appliquer la configuration importée ?\n\nLes valeurs connues de boot.conf et mqtt.conf seront écrasées.\nUn redémarrage est nécessaire pour les prendre en compte.')) return;
+
+                btnImport.classList.add('is-loading');
+                btnImport.disabled = true;
+
+                var reader = new FileReader();
+                reader.onload = function(ev) {
+                    var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+                    cf('cgi-bin/conf-import.cgi', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+                        body: ev.target.result
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        btnImport.classList.remove('is-loading');
+                        if (d && d.ok) {
+                            alert('Import réussi : ' + d.applied + ' clé(s) appliquée(s), ' + d.skipped + ' ignorée(s).\n\nRedémarrez la caméra pour appliquer les changements.');
+                            fileInput.value = '';
+                            fileLabel.textContent = 'Aucun fichier';
+                            btnImport.disabled = true;
+                        } else {
+                            btnImport.disabled = false;
+                            alert('Erreur : ' + ((d && d.message) || (d && d.error) || 'Réponse inattendue'));
+                        }
+                    })
+                    .catch(function(e) {
+                        btnImport.classList.remove('is-loading');
+                        btnImport.disabled = false;
+                        alert('Erreur réseau : ' + e.message);
+                    });
+                };
+                reader.onerror = function() {
+                    btnImport.classList.remove('is-loading');
+                    btnImport.disabled = false;
+                    alert('Impossible de lire le fichier.');
+                };
+                reader.readAsText(f, 'utf-8');
+            });
+        })();
 
         function initHAStatus() {
             const btn = document.getElementById('btn_refresh_ha_discovery');
