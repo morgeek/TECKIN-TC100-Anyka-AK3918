@@ -1,47 +1,150 @@
-# TECKIN TC100 "Elite Edition" Anyka AK3918 Camera Hacks
-**Version 1.2.0** — *Definitive Elite Dashboard Release*
+# TECKIN TC100 / Anyka AK3918 — Firmware Extension
+**Version 1.3.0** — *Frigate & Home Assistant Edition*
 
-This is a high-performance, modernized firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). This version is 100% cloud-free, MicroSD-based, and performance-optimized.
-
-## 🚀 "Elite Edition" Highlights
-The camera has been fully modernized with a premium, tabbed dashboard built on Bulma 1.0.2:
-
-- **Elite Dashboard**: A single-page, tabbed management interface (Dashboard, Video, ISP, Automation, Network, System).
-- **High-Performance Icons**: 100% custom SVG iconography for instant, reliable rendering on any device.
-- **Elite Optimization Presets**: 1-click tuning for `Frigate Balanced`, `Universal H264`, and `Maximum Performance`.
-- **Safety Snapshot Management**: Save and restore "Known-Good" configuration points to recover from aggressive tuning experiments.
-- **Privacy Shield**: One-click "Stealth Mode" that instantly severs all cloud, external, and outbound polling paths.
-- **Full Legacy Parity**: 100% of the features from the original hack are preserved and enhanced, including LED controls, Telegram bot, and Syslog forwarding.
-
-## 🛠 Features
-- **Massive Optimization**: Extreme focus on zero-memory leaks and low CPU footprint for the AK3918 hardware.
-- **Two-Way Audio + PTT**: Listen in real-time or hold-to-talk to speak through the camera speaker.
-- **Elite Timelapse Studio**: Integrated management for automated timelapse capture.
-- **Home Assistant & Frigate Native**: Auto-pairing with compatibility presets, MQTT discovery, and live integration manifests.
-- **Advanced Security**: Security hardening mode, HTTPS support, and Privacy Shield isolation.
-
-## 📦 Installation
-1. Format MicroSD as FAT32 (32K allocation size recommended).
-2. Copy repository contents to the card.
-3. Create `wpa_supplicant.conf` from `wpa_supplicant.conf.dist` and set Wi-Fi SSID/PSK.
-4. Insert card into camera and reboot.
-5. Open `https://CAMERA-IP` (default user: `root` / pass: `pass`).
-
-## 🏠 Home Assistant / Frigate Integration
-- **One-Click Pairing**: Use the UI to pair with Home Assistant using the `Frigate Balanced` or `Frigate Low-Bandwidth` presets.
-- **Integration Pack**: Fetch the live manifest via `cgi-bin/state.cgi?cmd=integrationmanifest` for instant Frigate YAML snippets.
-- **MQTT Telemetry**: Structured results for all commands, network health monitoring, and recovery metadata.
-- **Self-Healing**: Automatic "Integration Repair" and post-change stream health checks with auto-rollback.
-
-## 🎛 Peripherals & Mastery
-- **LED Control**: Granular toggles for Front Activity LED and Infrared status lights.
-- **Notification Suite**: Native Telegram Bot support and remote Syslog forwarding for expert monitoring.
-- **Smart Memory Guard**: OOM prevention daemon with customizable warn/critical/emergency thresholds.
-
-## 📜 Development Workflow
-- **Frontend**: Source lives in `frontend/src/` using a zero-dependency Bulma 1.0.2 baseline.
-- **CGI API**: State is served via JSON-atomic `state.cgi` and persisted via `action.cgi`.
-- **Build**: Use `npm run build:web` to sync `frontend/src/` to the served assets, and `npm run check:web` to detect drift (CI gate). Details in `frontend/README.md`. Always edit `frontend/src/`, never `www/scripts/` or `www/css/ui-modern.min.css` directly.
+Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
 ---
-*This project is local-LAN focused and does not require cloud services. Your privacy is prioritized by default.*
+
+## Highlights
+
+- **First-boot wizard** — guided setup for profile, security, WiFi, and MQTT on a fresh SD card.
+- **Tabbed Elite Dashboard** — single-page UI (Dashboard, Video, ISP, Automation, Network, System) built on Bulma 1.0.2 with custom SVG icons.
+- **Frigate HA profile** — auto-disables unused daemons (3–6 MB RAM freed), RTSP pipeline tuned for Frigate segment ingestion, MQTT discovery for Home Assistant.
+- **Privacy Shield** — one-click Stealth Mode that severs all outbound traffic.
+- **Safety Snapshots** — save and restore known-good configuration checkpoints before tuning experiments.
+- **Config export / import** — download or restore `boot.conf` + `mqtt.conf` as a single versioned file.
+- **WiFi reconfiguration** — update SSID and PSK from the Network tab without touching the SD card.
+- **Full legacy parity** — LED controls, Telegram bot, Timelapse, Syslog forwarding, email notifications all preserved.
+
+---
+
+## Features
+
+### Video & Streaming
+- RTSP main + sub streams via `v4l2rtspserver`; ONVIF compatible.
+- Optimization presets: `Frigate Balanced`, `Universal H264`, `Maximum Performance`.
+- RTSP deep health check (detects GOP stalls, not just process liveness).
+- CPU scaler — auto-adjusts resolution/fps under load.
+
+### Home Assistant / Frigate
+- `INTEGRATION_PROFILE=frigate_ha` trims autostart to only what Frigate needs.
+- MQTT bridge with structured telemetry, motion events, and HA MQTT discovery.
+- Integration manifest via `state.cgi?cmd=integrationmanifest` (ready-to-paste Frigate YAML).
+- Service watchdog with auto-restart, backoff, and MQTT alerts.
+
+### Security & Privacy
+- HTTPS (self-signed) — required for PTT mic API.
+- CSRF protection on all mutating endpoints; per-boot token.
+- Security hardening mode (disable telnet, restrict CGI surface).
+- Privacy Shield: one-click isolation of all outbound paths.
+- Password change and HTTPS toggle from the wizard and System tab.
+
+### System Management
+- **First-boot wizard** (`/cgi-bin/wizard.cgi`) — 3 or 4 steps depending on profile.
+- **WiFi reconfiguration** — live `wpa_cli reconfigure` after applying new credentials.
+- **Config export/import** — `conf-export.cgi` / `conf-import.cgi` with key allowlist validation.
+- **Wizard reset** — System tab button to re-run setup from scratch.
+- Memory guard daemon — OOM prevention with configurable warn/critical/emergency thresholds.
+- Storage cleanup daemon — auto-prune recordings at configurable disk threshold.
+- Firmware update checker — semantic version comparison against remote manifest.
+- SD write preflight — checks free space and write speed before recording/timelapse.
+
+### Audio
+- Two-way audio: live listen + PTT (hold-to-talk via browser mic — requires HTTPS).
+- Audio clip upload and playback.
+
+### Notifications & Monitoring
+- Telegram bot daemon for motion events.
+- Email notifications (sendPictureMail).
+- Remote Syslog forwarding.
+- Health snapshot — periodic system state capture for diagnostics.
+- Network monitor daemon.
+
+### Automation
+- Timelapse studio with schedule management.
+- Motion schedule (arm/disarm on a cron schedule).
+- Night mode auto-detection.
+- LED granular control (front activity LED + IR LEDs independently).
+
+---
+
+## Installation
+
+1. Format MicroSD as FAT32 (32 KB allocation size recommended).
+2. Copy repository contents to the card root.
+3. Create `wpa_supplicant.conf` from `wpa_supplicant.conf.dist` and set your Wi-Fi SSID/PSK.
+4. Insert card into camera and power on.
+5. Open `https://CAMERA-IP` in a browser — the first-boot wizard will appear automatically.
+   - Default IP: `192.168.1.24` · Default credentials: `root` / `pass`
+
+---
+
+## Home Assistant / Frigate Quick Start
+
+1. In the wizard (or Network tab), select profile `frigate_ha` and configure MQTT host/credentials.
+2. Restart the camera — MQTT discovery publishes entities to HA automatically.
+3. Add the two RTSP streams to Frigate:
+   - Main (detection): `rtsp://CAMERA-IP:554/stream0`
+   - Sub (recording): `rtsp://CAMERA-IP:554/stream1`
+4. Fetch the ready-to-paste Frigate YAML: `GET /cgi-bin/state.cgi?cmd=integrationmanifest`
+
+---
+
+## CGI API
+
+Full reference in [`docs/api.md`](docs/api.md) — covers all 25+ endpoints with method, parameters, JSON response schema, and curl examples.
+
+Key endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `state.cgi?cmd=all` | Full system state snapshot |
+| `action.cgi?cmd=<cmd>` | All mutating commands (CSRF required) |
+| `health.cgi` | Lightweight liveness check |
+| `wizard.cgi` | First-boot setup wizard |
+| `conf-export.cgi` | Download config backup |
+| `conf-import.cgi` | Upload and apply config backup |
+
+---
+
+## Development Workflow
+
+```bash
+# After any JS or CSS edit:
+npm run build:web
+
+# Verify no drift (CI gate):
+npm run check:web
+```
+
+Source lives in `frontend/src/` — **never edit `www/scripts/` or `www/css/ui-modern.min.css` directly.**
+
+### Claude Code skills (project-local)
+
+| Skill | Usage |
+|-------|-------|
+| `/deploy [ip]` | FTP upload of changed files to camera |
+| `/commit` | Stage and commit with project conventions |
+| `/healthcheck [ip]` | Ping + health.cgi status summary |
+| `/camera-probe <endpoint> [ip]` | Test a CGI endpoint on live hardware |
+| `/camera-logs [type] [lines] [ip]` | Fetch camera logs via FTP |
+| `/validate-cgi [path]` | Review a CGI script for correctness |
+
+---
+
+## Repository Structure
+
+```
+www/cgi-bin/        CGI endpoints (shell, executable)
+frontend/src/       Frontend source (JS, CSS) — edit here
+www/scripts/        Built frontend assets — do not edit directly
+scripts/            Autonomous daemons and one-shot scripts
+controlscripts/     On/off toggles for daemons (called with on|off)
+config/             Config templates (*.conf.dist) and autostart scripts
+config/autostart/   Boot scripts executed in numeric order by autorun.sh
+docs/               API reference and project documentation
+```
+
+---
+
+*LAN-only. No cloud required. Privacy by default.*
