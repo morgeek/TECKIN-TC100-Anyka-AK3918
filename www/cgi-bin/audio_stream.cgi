@@ -1,7 +1,19 @@
 #!/bin/sh
 
-#	Audio streaming CGI endpoint for two-way audio
-# Allows remote listening to camera microphone in real-time
+# Audio streaming CGI — microphone → browser (listen direction).
+#
+# STATUS: Non-functional on AK3918 hardware.
+#
+# The AK3918 uses a proprietary Anyka audio framework. There is no ALSA
+# userspace (no arecord, no /dev/snd/) and no ak_ai_demo binary in this
+# firmware distribution. All find_audio_capture_bin() calls will fail and
+# this endpoint will always return 503 AUDIO_CAPTURE_UNAVAILABLE.
+#
+# To enable listen support in the future, either:
+#   a) obtain the Anyka audio input binary (ak_ai_demo or equivalent), or
+#   b) build ffmpeg with AK3918 audio capture support and pipe its output.
+#
+# The frontend (ptt-audio.js) detects the 503 and disables the Listen button.
 
 . /mnt/www/cgi-bin/func.cgi
 . /mnt/scripts/common_functions.sh

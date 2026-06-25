@@ -1,8 +1,8 @@
 #!/bin/sh
 
-# Source common functions
+# Source common functions only — do NOT source action.cgi (it emits Content-Type headers on load)
 . /mnt/www/cgi-bin/func.cgi
-. /mnt/www/cgi-bin/action.cgi
+. /mnt/scripts/common_functions.sh
 
 MAX_UPLOAD_BYTES=524288
 PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
@@ -13,6 +13,13 @@ PLAYBACK_CLEANUP_DELAY_SECONDS=20
 
 # Anyka native audio output binary: ak_ao_demo <rate> <channels> <pcm_file> <volume 0-6>
 AUDIOPLAY_BIN="/usr/bin/ak_ao_demo"
+
+# Map UI volume (0-100) to ak_ao_demo scale (0-6).
+# Caller guarantees $1 is already clamped to 0-100.
+ptt_volume_to_ak() {
+    _num=$(expr "$1" \* 6 + 50)
+    expr "$_num" / 100
+}
 
 pcm_file=""
 lock_acquired=0
@@ -65,7 +72,7 @@ if [ "$CONTENT_LENGTH" -le 0 ]; then
     exit 0
 fi
 
-if [ $((CONTENT_LENGTH % 2)) -ne 0 ]; then
+if [ "$(expr "$CONTENT_LENGTH" % 2)" -ne 0 ]; then
     respond_plain "400 Bad Request" "INVALID_PCM"
     exit 0
 fi
@@ -84,7 +91,7 @@ lock_acquired=1
 _wd_btime=0
 while read -r _k _v _; do [ "$_k" = "btime" ] && _wd_btime="$_v" && break; done < /proc/stat
 read -r _wd_up _ < /proc/uptime
-tmp_tag=$((_wd_btime + ${_wd_up%.*}))
+tmp_tag=$(expr "$_wd_btime" + "${_wd_up%.*}")
 pcm_file="/tmp/pttaudio_${tmp_tag}_$$.pcm"
 
 # Read raw PCM body efficiently (Int16 LE at 8kHz mono from browser)
@@ -148,21 +155,22 @@ case "$playback_pid" in
         ;;
 esac
 
-_cleanup_pid=$((
-    loops=0
-    while kill -0 "$playback_pid" >/dev/null 2>&1 && [ "$loops" -lt 120 ]; do
+(
+    _cl_loops=0
+    while kill -0 "$playback_pid" >/dev/null 2>&1 && [ "$_cl_loops" -lt 120 ]; do
         sleep 1
-        loops=$((loops + 1))
+        _cl_loops=$(expr "$_cl_loops" + 1)
     done
     sleep "$PLAYBACK_CLEANUP_DELAY_SECONDS"
     rm -f "$pcm_file" >/dev/null 2>&1 || true
     if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
-        current_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
-        if [ "$current_pid" = "$playback_pid" ]; then
+        _cur_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
+        if [ "$_cur_pid" = "$playback_pid" ]; then
             rm -f "$PTT_PLAYBACK_PID_FILE" >/dev/null 2>&1 || true
         fi
     fi
-) >/dev/null 2>&1 &)
+) >/dev/null 2>&1 &
+_cleanup_pid=$!
 [ -n "$_cleanup_pid" ] && echo "$_cleanup_pid" > /tmp/ptt-cleanup.$$.pid 2>/dev/null || true
 trap 'rm -f /tmp/ptt-cleanup.$$.pid "$pcm_file" "$PTT_PLAYBACK_PID_FILE"' EXIT INT TERM
 respond_plain "200 OK" "OK"
