@@ -51,7 +51,7 @@ fi
 if mkdir "$CACHE_LOCK_DIR" 2>/dev/null; then
   _read_ts
   tmp_img="/tmp/currentpic.cache.$$.$now_ts.jpg"
-  if /mnt/bin/getimage > "$tmp_img" 2>/dev/null; then
+  if timeout 5 /mnt/bin/getimage > "$tmp_img" 2>/dev/null; then
     mv "$tmp_img" "$CACHE_FILE" 2>/dev/null || cat "$tmp_img" > "$CACHE_FILE"
     rm -f "$tmp_img" >/dev/null 2>&1 || true
     _read_ts
@@ -74,4 +74,4 @@ while [ "$wait_count" -lt 4 ]; do
   wait_count=$((wait_count + 1))
 done
 
-/mnt/bin/getimage
+timeout 5 /mnt/bin/getimage

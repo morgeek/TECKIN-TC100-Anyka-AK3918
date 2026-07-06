@@ -562,13 +562,13 @@
         EliteUI.initPresets();
 
         // Tab switching logic
-        document.querySelectorAll('#settings_container .tabs li').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('#settings_container .tabs li').forEach(t => t.classList.remove('is-active'));
+        document.querySelectorAll('#settings_container .tabs li').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('#settings_container .tabs li').forEach(function(t) { t.classList.remove('is-active'); });
                 tab.classList.add('is-active');
-                
-                const targetId = tab.dataset.tab;
-                document.querySelectorAll('.tab-content').forEach(content => {
+
+                var targetId = tab.dataset.tab;
+                document.querySelectorAll('.tab-content').forEach(function(content) {
                     content.classList.toggle('is-hidden', content.id !== targetId);
                 });
                 if (targetId === 'tab-automation') { initHAStatus(); }
@@ -716,34 +716,37 @@
         })();
 
         function initHAStatus() {
-            const btn = document.getElementById('btn_refresh_ha_discovery');
+            var btn = document.getElementById('btn_refresh_ha_discovery');
             if (btn && !btn.dataset.init) {
                 btn.dataset.init = '1';
-                btn.onclick = async () => {
+                btn.onclick = function() {
+                    var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
                     btn.classList.add('is-loading');
-                    try {
-                        const res = await fetch('cgi-bin/action.cgi?cmd=refresh_ha_discovery', { method: 'POST' });
-                        const data = await res.json();
-                        if (data.status === 'success') {
-                            alert('Home Assistant Discovery refresh triggered successfully.');
-                        } else {
-                            alert('Refresh failed: ' + (data.message || 'Unknown error'));
-                        }
-                    } catch (e) {
-                        alert('Error contacting camera: ' + e.message);
-                    } finally {
-                        btn.classList.remove('is-loading');
-                    }
+                    cf('cgi-bin/action.cgi?cmd=refresh_ha_discovery', { method: 'POST' })
+                        .then(function(res) { return res.json(); })
+                        .then(function(data) {
+                            if (data.status === 'success') {
+                                alert('Home Assistant Discovery refresh triggered successfully.');
+                            } else {
+                                alert('Refresh failed: ' + (data.message || 'Unknown error'));
+                            }
+                        })
+                        .catch(function(e) {
+                            alert('Error contacting camera: ' + e.message);
+                        })
+                        .then(function() {
+                            btn.classList.remove('is-loading');
+                        });
                 };
             }
 
             // Sync HA Status from live telemetry
             if (window.EliteUI && window.EliteUI.onStateUpdate) {
-                const originalOnState = window.EliteUI.onStateUpdate;
-                window.EliteUI.onStateUpdate = (state) => {
+                var originalOnState = window.EliteUI.onStateUpdate;
+                window.EliteUI.onStateUpdate = function(state) {
                     if (originalOnState) originalOnState(state);
-                    const badge = document.getElementById('ha_discovery_badge');
-                    const prefix = document.getElementById('ha_discovery_prefix');
+                    var badge = document.getElementById('ha_discovery_badge');
+                    var prefix = document.getElementById('ha_discovery_prefix');
                     if (state.mqtt_discovery_enabled === 1 || state.mqtt_discovery === 1) {
                         badge.className = 'tag is-small is-success';
                         badge.textContent = 'Active';
