@@ -854,7 +854,7 @@ run_postchange_integration_selftest() {
 
   _ac_now; snapshot_tmp="/tmp/action-selftest.$$.$now_ts.jpg"
   if [ -x /mnt/bin/getimage ]; then
-    if /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
+    if timeout 5 /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
       record_auto_stream_selftest_result "Snapshot" "OK" "Local snapshot capture succeeded." nonblocking
     else
       record_auto_stream_selftest_result "Snapshot" "WARN" "Snapshot capture failed; keeping stream changes because this check is non-blocking." nonblocking
@@ -1156,7 +1156,7 @@ if [ -n "$F_cmd" ]; then
       
       # Determine which inputs to use based on stream index
       if [ "$stream_idx" = "1" ]; then
-          raw_size=$(printf '%b' "${F_video_size1}")
+          raw_size=$(printf '%s' "${F_video_size1}")
           fps=$(sanitize_int_range "${F_fps1}" 1 30 25)
           bitrate=$(sanitize_int_range "${F_brbitrate1}" 32 8000 300)
           codec=$(sanitize_int_range "${F_video_codec1}" 0 2 0)
@@ -1166,7 +1166,7 @@ if [ -n "$F_cmd" ]; then
           maxqp=$(sanitize_int_range "${F_maxqp1}" 1 51 45)
           smartmode=$(sanitize_int_range "${F_smartmode1}" 0 2 0)
       else
-          raw_size=$(printf '%b' "${F_video_size0}")
+          raw_size=$(printf '%s' "${F_video_size0}")
           fps=$(sanitize_int_range "${F_fps0}" 1 30 25)
           bitrate=$(sanitize_int_range "${F_brbitrate0}" 32 8000 1000)
           codec=$(sanitize_int_range "${F_video_codec0}" 0 2 0)
@@ -1225,7 +1225,7 @@ if [ -n "$F_cmd" ]; then
       nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
       
       osdenabled=$(normalize_bool "${F_osdenabled}")
-      osdtext=$(printf '%b' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
+      osdtext=$(printf '%s' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
       osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
       osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
       osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
@@ -1276,9 +1276,10 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_advanced_tuning)
+      install_config /mnt/config/boot.conf
       lightweight=$(normalize_bool "${F_lightweight_mode}")
       hardening=$(normalize_bool "${F_security_hardening}")
-      
+
       # Mem Guard settings
       mg_enable=$(normalize_bool "${F_mem_guard_enable}")
       mg_warn=$(sanitize_int_range "${F_mem_guard_warn}" 1024 32768 8192)
@@ -1286,14 +1287,13 @@ if [ -n "$F_cmd" ]; then
       mg_interval=$(sanitize_int_range "${F_mem_guard_interval}" 5 600 20)
 
       # Persist to boot.conf
-      /mnt/bin/rwconf /mnt/config/boot.conf w \
-          " " LIGHTWEIGHT_MODE "$lightweight" \
-          " " SECURITY_HARDENING_MODE "$hardening" \
-          " " MEM_GUARD_ENABLE "$mg_enable" \
-          " " MEM_GUARD_WARN_KB "$mg_warn" \
-          " " MEM_GUARD_CRITICAL_KB "$mg_crit" \
-          " " MEM_GUARD_INTERVAL_SECONDS "$mg_interval"
-      
+      rewrite_config /mnt/config/boot.conf LIGHTWEIGHT_MODE "$lightweight"
+      rewrite_config /mnt/config/boot.conf SECURITY_HARDENING_MODE "$hardening"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE "$mg_enable"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_WARN_KB "$mg_warn"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_CRITICAL_KB "$mg_crit"
+      rewrite_config /mnt/config/boot.conf MEM_GUARD_INTERVAL_SECONDS "$mg_interval"
+
       if wants_json_response; then
         json_response "success" "Advanced tuning updated. Reboot may be required."
       else
@@ -1301,30 +1301,8 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
-    set_reboot_schedule)
-      enable=$(normalize_bool "${F_reboot_enable}")
-      hour=$(sanitize_int_range "${F_reboot_hour}" 0 23 4)
-      min=$(sanitize_int_range "${F_reboot_min}" 0 59 0)
-      dow="${F_reboot_dow:-*}"
-      
-      /mnt/bin/rwconf /mnt/config/boot.conf w \
-          " " REBOOT_SCHEDULE_ENABLE "$enable" \
-          " " REBOOT_SCHEDULE_HOUR "$hour" \
-          " " REBOOT_SCHEDULE_MINUTE "$min" \
-          " " REBOOT_SCHEDULE_WEEKDAY "$dow"
-      
-      # Re-generate crontab if needed (implementation varies, usually handled by a maintenance script)
-      [ -x /mnt/scripts/rebuild_crontab.sh ] && /mnt/scripts/rebuild_crontab.sh
-      
-      if wants_json_response; then
-        json_response "success" "Reboot schedule updated."
-      else
-        echo "Reboot schedule updated.<br/>"
-      fi
-    ;;
-
     set_network)
-      hostname=$(printf '%b' "${F_hostname}" | sed 's/[^a-zA-Z0-9-]//g')
+      hostname=$(printf '%s' "${F_hostname}" | sed 's/[^a-zA-Z0-9-]//g')
       rtsp_port=$(sanitize_int_range "${F_rtsp_port}" 1 65535 554)
       telnet_port=$(sanitize_int_range "${F_telnet_port}" 1 65535 23)
       
@@ -1338,6 +1316,8 @@ if [ -n "$F_cmd" ]; then
       else
         echo "Network settings updated.<br/>"
       fi
+    ;;
+
     reboot)
       csrf_check
       if wants_json_response; then
@@ -1371,6 +1351,7 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
+    set_sound_detection)
       enable=$(normalize_bool "${F_sound_det_enable}")
       threshold=$(sanitize_int_range "${F_sound_det_threshold}" 100 10000 1500)
       interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 5)
@@ -1469,7 +1450,7 @@ if [ -n "$F_cmd" ]; then
         fi
         exit 0
       fi
-      telnetport=$(printf '%b' "${F_telnetport}")
+      telnetport=$(printf '%s' "${F_telnetport}")
       case "$telnetport" in
         ''|*[!0-9]*)
           if wants_json_response; then
@@ -1507,7 +1488,7 @@ if [ -n "$F_cmd" ]; then
         fi
         exit 0
       fi
-      ftpport=$(printf '%b' "${F_ftpport}")
+      ftpport=$(printf '%s' "${F_ftpport}")
       case "$ftpport" in
         ''|*[!0-9]*)
           if wants_json_response; then
@@ -1537,7 +1518,7 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     settz)
-       ntp_srv=$(printf '%b' "${F_ntp_srv}")
+       ntp_srv=$(printf '%s' "${F_ntp_srv}")
 
       #read ntp_serv.conf
       conf_ntp_srv=$(cat /mnt/config/ntp_srv.conf)
@@ -1564,7 +1545,7 @@ if [ -n "$F_cmd" ]; then
         fi
         schedule_rtsp_restart
       fi
-      hst=$(printf '%b' "${F_hostname}")
+      hst=$(printf '%s' "${F_hostname}")
       if [ "$(cat /mnt/config/hostname.conf)" != "$hst" ]; then
         echo "<p>Setting hostname to '$hst'...</p>"
         echo "$hst" > /mnt/config/hostname.conf
@@ -1742,7 +1723,7 @@ if [ -n "$F_cmd" ]; then
       install_config /mnt/config/boot.conf
       install_config /mnt/config/service_trim.conf
       capture_prechange_stream_snapshot
-      profile=$(printf '%b' "${F_performance_profile}")
+      profile=$(printf '%s' "${F_performance_profile}")
       profile_summary_line=""
       profile_detail_line=""
       profile_detail_line2=""
@@ -1837,8 +1818,8 @@ if [ -n "$F_cmd" ]; then
         json_error "FORMAT_NOT_SUPPORTED" "set_web_mode command does not support JSON format"
       else
         install_config /mnt/config/boot.conf
-        web_mode=$(printf '%b' "${F_web_mode}")
-        ultralite_http_port=$(printf '%b' "${F_ultralite_http_port}")
+        web_mode=$(printf '%s' "${F_web_mode}")
+        ultralite_http_port=$(printf '%s' "${F_ultralite_http_port}")
 
         if security_hardening_enabled; then
           if [ "$web_mode" != "full" ]; then
@@ -1886,10 +1867,10 @@ if [ -n "$F_cmd" ]; then
     set_reboot_schedule)
       install_config /mnt/config/boot.conf
 
-      reboot_schedule_enable="$(normalize_bool "${F_reboot_schedule_enable}")"
-      reboot_schedule_minute="$(sanitize_int_range "${F_reboot_schedule_minute}" 0 59 0)"
-      reboot_schedule_hour="$(sanitize_int_range "${F_reboot_schedule_hour}" 0 23 4)"
-      reboot_schedule_weekday="$(sanitize_weekday_expr "${F_reboot_schedule_weekday}")"
+      reboot_schedule_enable="$(normalize_bool "${F_reboot_enable}")"
+      reboot_schedule_minute="$(sanitize_int_range "${F_reboot_min}" 0 59 0)"
+      reboot_schedule_hour="$(sanitize_int_range "${F_reboot_hour}" 0 23 4)"
+      reboot_schedule_weekday="$(sanitize_weekday_expr "${F_reboot_dow}")"
 
       # shellcheck disable=SC1090
       if [ -f /mnt/config/boot.conf ]; then
@@ -1935,7 +1916,7 @@ if [ -n "$F_cmd" ]; then
     set_stream_topology)
       install_config /mnt/config/boot.conf
       capture_prechange_stream_snapshot
-      topology=$(printf '%b' "${F_stream_topology}")
+      topology=$(printf '%s' "${F_stream_topology}")
       case "$topology" in
         dual-audio)
           rtsp_substream=1
@@ -1978,7 +1959,7 @@ if [ -n "$F_cmd" ]; then
         . /mnt/config/boot.conf
       fi
 
-      policy=$(printf '%b' "${F_onvif_stream_policy}")
+      policy=$(printf '%s' "${F_onvif_stream_policy}")
       case "$policy" in
         main-primary)
           policy_label="Main primary (default)"
@@ -2030,13 +2011,13 @@ if [ -n "$F_cmd" ]; then
       install_config /mnt/config/mqtt.conf
 
       mqtt_enable=$(normalize_bool "${F_mqtt_enable}")
-      mqtt_host=$(printf '%b' "${F_mqtt_host}")
+      mqtt_host=$(printf '%s' "${F_mqtt_host}")
       mqtt_port=$(sanitize_int_range "${F_mqtt_port}" 1 65535 1883)
-      mqtt_user=$(printf '%b' "${F_mqtt_user}")
-      mqtt_password=$(printf '%b' "${F_mqtt_password}")
-      mqtt_client_id=$(printf '%b' "${F_mqtt_client_id}")
-      mqtt_topic_root=$(printf '%b' "${F_mqtt_topic_root}")
-      mqtt_topic_command=$(printf '%b' "${F_mqtt_topic_command}")
+      mqtt_user=$(printf '%s' "${F_mqtt_user}")
+      mqtt_password=$(printf '%s' "${F_mqtt_password}")
+      mqtt_client_id=$(printf '%s' "${F_mqtt_client_id}")
+      mqtt_topic_root=$(printf '%s' "${F_mqtt_topic_root}")
+      mqtt_topic_command=$(printf '%s' "${F_mqtt_topic_command}")
       mqtt_qos=$(sanitize_int_range "${F_mqtt_qos}" 0 2 0)
       mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds}" 10 86400 120)
       mqtt_health_slow_cache_ttl_seconds=$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180)" 10 86400 180)
@@ -2046,12 +2027,12 @@ if [ -n "$F_cmd" ]; then
       mqtt_subscribe_backoff_max_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_max_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS 20)}" 1 600 20)
       mqtt_subscribe_backoff_multiplier=$(sanitize_int_range "${F_mqtt_subscribe_backoff_multiplier:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER 2)}" 1 5 2)
       mqtt_ha_discovery_enable=$(normalize_bool "${F_mqtt_ha_discovery_enable}")
-      mqtt_ha_discovery_prefix=$(printf '%b' "${F_mqtt_ha_discovery_prefix}")
+      mqtt_ha_discovery_prefix=$(printf '%s' "${F_mqtt_ha_discovery_prefix}")
       power_estimate_enable=$(normalize_bool "${F_power_estimate_enable}")
       power_estimate_base_mw=$(sanitize_int_range "${F_power_estimate_base_mw}" 500 10000 1700)
       power_estimate_cpu_scale_mw=$(sanitize_int_range "${F_power_estimate_cpu_scale_mw}" 0 5000 500)
       power_estimate_ir_led_mw=$(sanitize_int_range "${F_power_estimate_ir_led_mw}" 0 5000 700)
-      power_sensor_path=$(printf '%b' "${F_power_sensor_path}")
+      power_sensor_path=$(printf '%s' "${F_power_sensor_path}")
 
       case "$mqtt_host" in
         ''|*[!A-Za-z0-9._:-]*)
@@ -2134,14 +2115,14 @@ if [ -n "$F_cmd" ]; then
       install_config /mnt/config/boot.conf
       install_config /mnt/config/mqtt.conf
 
-      ha_broker_host="$(printf '%b' "${F_ha_broker_host}")"
+      ha_broker_host="$(printf '%s' "${F_ha_broker_host}")"
       ha_broker_port="$(sanitize_int_range "${F_ha_broker_port}" 1 65535 1883)"
-      ha_user="$(printf '%b' "${F_ha_user}")"
-      ha_password="$(printf '%b' "${F_ha_password}")"
-      ha_client_id="$(printf '%b' "${F_ha_client_id}")"
-      ha_topic_root="$(printf '%b' "${F_ha_topic_root}")"
-      ha_discovery_prefix="$(printf '%b' "${F_ha_discovery_prefix}")"
-      ha_profile="$(printf '%b' "${F_ha_profile}")"
+      ha_user="$(printf '%s' "${F_ha_user}")"
+      ha_password="$(printf '%s' "${F_ha_password}")"
+      ha_client_id="$(printf '%s' "${F_ha_client_id}")"
+      ha_topic_root="$(printf '%s' "${F_ha_topic_root}")"
+      ha_discovery_prefix="$(printf '%s' "${F_ha_discovery_prefix}")"
+      ha_profile="$(printf '%s' "${F_ha_profile}")"
       ha_enable_onvif="$(normalize_bool "${F_ha_enable_onvif}")"
       ha_enable_mqtt_autostart="$(normalize_bool "${F_ha_enable_mqtt_autostart}")"
 
@@ -2295,98 +2276,9 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
-    set_advanced_tuning)
-      install_config /mnt/config/boot.conf
-
-      lightweight_mode=$(normalize_bool "${F_lightweight_mode}")
-      ui_ultralite_mode=$(normalize_bool "${F_ui_ultralite_mode}")
-      security_hardening_mode=$(normalize_bool "${F_security_hardening_mode}")
-      enable_ntp=$(normalize_bool "${F_enable_ntp}")
-      ntp_one_shot=$(normalize_bool "${F_ntp_one_shot}")
-      mem_guard_enable=$(normalize_bool "${F_mem_guard_enable}")
-      mem_guard_drop_caches=$(normalize_bool "${F_mem_guard_drop_caches}")
-
-      mem_guard_interval_seconds=$(sanitize_int_range "${F_mem_guard_interval_seconds}" 5 600 20)
-      mem_guard_warn_kb=$(sanitize_int_range "${F_mem_guard_warn_kb}" 2048 65535 8192)
-      mem_guard_critical_kb=$(sanitize_int_range "${F_mem_guard_critical_kb}" 1024 65535 4096)
-      mem_guard_recovery_margin_kb=$(sanitize_int_range "${F_mem_guard_recovery_margin_kb}" 256 32768 1536)
-      mem_guard_warn_hits=$(sanitize_int_range "${F_mem_guard_warn_hits}" 1 10 2)
-      mem_guard_critical_hits=$(sanitize_int_range "${F_mem_guard_critical_hits}" 1 10 1)
-      mem_guard_cooldown_seconds=$(sanitize_int_range "${F_mem_guard_cooldown_seconds}" 10 3600 120)
-      mem_guard_emergency_kb=$(sanitize_int_range "${F_mem_guard_emergency_kb}" 512 32768 2048)
-      rtsp_healthcheck_timeout_seconds=$(sanitize_int_range "${F_rtsp_healthcheck_timeout_seconds}" 2 30 4)
-      onvif_healthcheck_timeout_seconds=$(sanitize_int_range "${F_onvif_healthcheck_timeout_seconds}" 2 30 4)
-
-      if [ "$mem_guard_critical_kb" -ge "$mem_guard_warn_kb" ]; then
-        mem_guard_critical_kb=$((mem_guard_warn_kb / 2))
-        if [ "$mem_guard_critical_kb" -lt 1024 ]; then
-          mem_guard_critical_kb=1024
-        fi
-      fi
-
-      if [ "$mem_guard_emergency_kb" -ge "$mem_guard_critical_kb" ]; then
-        mem_guard_emergency_kb=$((mem_guard_critical_kb / 2))
-        if [ "$mem_guard_emergency_kb" -lt 512 ]; then
-          mem_guard_emergency_kb=512
-        fi
-      fi
-
-      rewrite_config /mnt/config/boot.conf LIGHTWEIGHT_MODE "$lightweight_mode"
-      rewrite_config /mnt/config/boot.conf UI_ULTRALITE_MODE "$ui_ultralite_mode"
-      rewrite_config /mnt/config/boot.conf SECURITY_HARDENING_MODE "$security_hardening_mode"
-      rewrite_config /mnt/config/boot.conf ENABLE_NTP "$enable_ntp"
-      rewrite_config /mnt/config/boot.conf NTP_ONE_SHOT "$ntp_one_shot"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE "$mem_guard_enable"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_INTERVAL_SECONDS "$mem_guard_interval_seconds"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_WARN_KB "$mem_guard_warn_kb"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_CRITICAL_KB "$mem_guard_critical_kb"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_RECOVERY_MARGIN_KB "$mem_guard_recovery_margin_kb"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_WARN_HITS "$mem_guard_warn_hits"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_CRITICAL_HITS "$mem_guard_critical_hits"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_COOLDOWN_SECONDS "$mem_guard_cooldown_seconds"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_EMERGENCY_KB "$mem_guard_emergency_kb"
-      rewrite_config /mnt/config/boot.conf MEM_GUARD_DROP_CACHES "$mem_guard_drop_caches"
-      rewrite_config /mnt/config/boot.conf RTSP_HEALTHCHECK_TIMEOUT_SECONDS "$rtsp_healthcheck_timeout_seconds"
-      rewrite_config /mnt/config/boot.conf ONVIF_HEALTHCHECK_TIMEOUT_SECONDS "$onvif_healthcheck_timeout_seconds"
-
-      if [ "$security_hardening_mode" = "1" ]; then
-        rewrite_config /mnt/config/boot.conf WEB_MODE full
-        apply_web_mode_async full
-        for svc in ftp-server telnet-server; do
-          if [ -x "/mnt/controlscripts/$svc" ]; then
-            "/mnt/controlscripts/$svc" stop >/dev/null 2>&1 || true
-          fi
-          rm -f "/mnt/config/autostart/$svc" >/dev/null 2>&1 || true
-        done
-      fi
-
-      if [ -x /mnt/controlscripts/memory-guard ]; then
-        if [ "$mem_guard_enable" = "1" ]; then
-          /mnt/controlscripts/memory-guard start >/dev/null 2>&1 || true
-        else
-          /mnt/controlscripts/memory-guard stop >/dev/null 2>&1 || true
-        fi
-      fi
-
-      schedule_rtsp_restart
-      schedule_onvif_restart
-
-      echo "Advanced tuning saved.<br/>"
-      echo "LIGHTWEIGHT_MODE=$lightweight_mode, UI_ULTRALITE_MODE=$ui_ultralite_mode, SECURITY_HARDENING_MODE=$security_hardening_mode, ENABLE_NTP=$enable_ntp, NTP_ONE_SHOT=$ntp_one_shot<br/>"
-      echo "MEM_GUARD_ENABLE=$mem_guard_enable (interval=${mem_guard_interval_seconds}s, warn=${mem_guard_warn_kb}kB, critical=${mem_guard_critical_kb}kB, emergency=${mem_guard_emergency_kb}kB, recovery_margin=${mem_guard_recovery_margin_kb}kB, hits=${mem_guard_warn_hits}/${mem_guard_critical_hits}, cooldown=${mem_guard_cooldown_seconds}s, drop_caches=${mem_guard_drop_caches})<br/>"
-      echo "Healthcheck timeouts: RTSP=${rtsp_healthcheck_timeout_seconds}s, ONVIF=${onvif_healthcheck_timeout_seconds}s<br/>"
-      if [ "$security_hardening_mode" = "1" ]; then
-        echo "Security hardening is enabled: FTP/Telnet disabled, WEB_MODE forced to full (HTTPS).<br/>"
-      fi
-      echo "Reboot recommended to fully apply lightweight/NTP boot behavior.<br/>"
-      _ac_now
-      [ -n "$now_ts" ] || now_ts=0
-      publish_mqtt_event "$(printf '{"ts":%s,"type":"security_hardening","enabled":%s}' "$now_ts" "$security_hardening_mode")"
-    ;;
-
     set_rtsp_preset)
       capture_prechange_stream_snapshot
-      preset=$(printf '%b' "${F_preset}")
+      preset=$(printf '%s' "${F_preset}")
       case "$preset" in
         full)
           width0=1280; height0=720; fps0=25; bps0=2000; gop0=50; maxkbps0=2500; targetkbps0=2000; smartq0=100; smartstatic0=550
@@ -2440,7 +2332,7 @@ if [ -n "$F_cmd" ]; then
     set_rtsp_quality_profile)
       install_config /mnt/config/boot.conf
       capture_prechange_stream_snapshot
-      quality_profile=$(printf '%b' "${F_rtsp_quality_profile}")
+      quality_profile=$(printf '%s' "${F_rtsp_quality_profile}")
 
       case "$quality_profile" in
         max-quality-h264)
@@ -2523,7 +2415,7 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     set_client_profile)
-      client_profile=$(printf '%b' "${F_client_profile}")
+      client_profile=$(printf '%s' "${F_client_profile}")
       install_config /mnt/config/boot.conf
       capture_prechange_stream_snapshot
       if ! select_compat_profile_values "$client_profile"; then
@@ -2626,8 +2518,8 @@ if [ -n "$F_cmd" ]; then
     set_telegram_config)
       install_config /mnt/config/telegram.conf
       telegram_enable=$(normalize_bool "${F_telegram_enable}")
-      telegram_token=$(printf '%b' "${F_telegram_token}")
-      telegram_chat_id=$(printf '%b' "${F_telegram_chat_id}")
+      telegram_token=$(printf '%s' "${F_telegram_token}")
+      telegram_chat_id=$(printf '%s' "${F_telegram_chat_id}")
       
       rewrite_config /mnt/config/telegram.conf TELEGRAM_ENABLE "$telegram_enable"
       rewrite_config /mnt/config/telegram.conf apiToken "$telegram_token"
@@ -2646,7 +2538,7 @@ if [ -n "$F_cmd" ]; then
     set_syslog_config)
       install_config /mnt/config/boot.conf
       syslog_enable=$(normalize_bool "${F_syslog_enable}")
-      syslog_host=$(printf '%b' "${F_syslog_host}")
+      syslog_host=$(printf '%s' "${F_syslog_host}")
       syslog_port=$(sanitize_int_range "${F_syslog_port}" 1 65535 514)
       
       rewrite_config /mnt/config/boot.conf SYSLOG_ENABLE "$syslog_enable"
@@ -2686,7 +2578,7 @@ if [ -n "$F_cmd" ]; then
         install_config /mnt/config/boot.conf
       install_config /mnt/config/service_trim.conf
       wizard_password=$(printf '%b' "${F_wizard_password//%/\\x}")
-      wizard_profile=$(printf '%b' "${F_wizard_profile}")
+      wizard_profile=$(printf '%s' "${F_wizard_profile}")
       wizard_tz=$(printf '%b' "${F_wizard_tz//%/\\x}")
       wizard_ntp_srv=$(printf '%b' "${F_wizard_ntp_srv//%/\\x}")
       wizard_hostname=$(printf '%b' "${F_wizard_hostname//%/\\x}")
@@ -2938,7 +2830,7 @@ if [ -n "$F_cmd" ]; then
 
 
     conf_timelapse)
-      tlinterval=$(printf '%b' "${F_tlinterval}")
+      tlinterval=$(printf '%s' "${F_tlinterval}")
       tlinterval=$(echo "$tlinterval" | sed "s/[^0-9\.]//g")
       if [ "$tlinterval" ]; then
         rewrite_config /mnt/config/timelapse.conf TIMELAPSE_INTERVAL "$tlinterval"
@@ -2946,7 +2838,7 @@ if [ -n "$F_cmd" ]; then
       else
         echo "Invalid timelapse interval"
       fi
-      tlduration=$(printf '%b' "${F_tlduration}")
+      tlduration=$(printf '%s' "${F_tlduration}")
       tlduration=$(echo "$tlduration" | sed "s/[^0-9\.]//g")
       if [ "$tlduration" ]; then
         rewrite_config /mnt/config/timelapse.conf TIMELAPSE_DURATION "$tlduration"
@@ -2957,10 +2849,10 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     conf_recording)
-      motion_act=$(printf '%b' "${F_motion_act}")
-      postrec=$(printf '%b' "${F_postrec}")
-      maxduration=$(printf '%b' "${F_maxduration}")
-      diskspace=$(printf '%b' "${F_diskspace}")
+      motion_act=$(printf '%s' "${F_motion_act}")
+      postrec=$(printf '%s' "${F_postrec}")
+      maxduration=$(printf '%s' "${F_maxduration}")
+      diskspace=$(printf '%s' "${F_diskspace}")
 
       echo "Motion activated recording set to $motion_act.<BR>"
       echo "Postrecord set to $postrec seconds.<BR>"
@@ -2983,22 +2875,6 @@ if [ -n "$F_cmd" ]; then
       echo "Motion red led blink set to ${F_motionBlink}<BR>"
       echo "Motion sensitivity set to ${F_mdsens}<BR>"
     ;;
-
-    conf_audioin)
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-          " " samplerate "${F_samplerate}" \
-          " " volume "${F_audioinVol}" \
-          2 codec "${F_audioCodec0}" \
-          2 samplerate "${F_samplerate}" \
-          3 codec "${F_audioCodec1}" \
-          3 samplerate "${F_samplerate}"
-
-       echo "In audio bitrate ${F_samplerate} <BR>"
-       echo "Volume $F_audioinVol <BR>"
-
-       schedule_rtsp_restart
-     ;;
-
 
     conf_autodaynight)
         /mnt/bin/rwconf /mnt/config/rtspserver.conf w \

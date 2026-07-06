@@ -1048,7 +1048,7 @@ if [ -n "$F_cmd" ]; then
     _read_now_ts
     snapshot_tmp="/tmp/integration-selftest.$$.$now_ts.jpg"
     if [ -x /mnt/bin/getimage ]; then
-      if /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
+      if timeout 5 /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
         snapshot_status="ok"
         snapshot_detail="Local snapshot capture succeeded."
       else

@@ -114,7 +114,7 @@ if [ "$serve_cached" = "0" ]; then
   tmp_thumb="${cache_file}.tmp.$$"
 
   # Extract first keyframe, scale to requested width
-  "$FFMPEG" -y -loglevel error \
+  timeout 8 "$FFMPEG" -y -loglevel error \
     -ss 0 \
     -i "$full_path" \
     -vframes 1 \
