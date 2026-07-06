@@ -1,5 +1,60 @@
 (function () {
-  var recordsMap = new Map();
+  // This page does not load index.js, so it fetches its own CSRF token
+  // (same source: state.cgi?cmd=statusline) rather than sharing EliteUI's.
+  var csrfToken = "";
+
+  function ensureCsrfToken(callback) {
+    if (csrfToken) {
+      callback();
+      return;
+    }
+    fetch("cgi-bin/state.cgi?cmd=statusline", { cache: "no-store" })
+      .then(function (r) { return r.text(); })
+      .then(function (t) {
+        try {
+          var d = JSON.parse(t);
+          if (d && typeof d.csrf_token === "string") {
+            csrfToken = d.csrf_token;
+          }
+        } catch (e) { /* ignore */ }
+        callback();
+      })
+      .catch(function () { callback(); });
+  }
+
+  // Minimal Map/Set shims (ES5 has no native Map/Set; accessor "get size()"
+  // syntax is ES5-legal, only the Map/Set constructors themselves are ES6).
+  function createSimpleMap() {
+    var keys = [];
+    var values = [];
+    return {
+      get: function (k) {
+        var i = keys.indexOf(k);
+        return i === -1 ? undefined : values[i];
+      },
+      set: function (k, v) {
+        var i = keys.indexOf(k);
+        if (i === -1) { keys.push(k); values.push(v); } else { values[i] = v; }
+        return this;
+      },
+      "delete": function (k) {
+        var i = keys.indexOf(k);
+        if (i !== -1) { keys.splice(i, 1); values.splice(i, 1); }
+      }
+    };
+  }
+
+  function createSimpleSet() {
+    var items = [];
+    return {
+      add: function (v) { if (items.indexOf(v) === -1) { items.push(v); } return this; },
+      "delete": function (v) { var i = items.indexOf(v); if (i !== -1) { items.splice(i, 1); } },
+      get size() { return items.length; },
+      toArray: function () { return items.slice(); }
+    };
+  }
+
+  var recordsMap = createSimpleMap();
   var autoPlayEnabled = false;
 
   function byId(id) {
@@ -128,7 +183,7 @@
 
     var cached = recordsMap.get(date);
     if (cached && cached.size > 0) {
-      setDateRecords(Array.prototype.slice.call(cached));
+      setDateRecords(cached.toArray());
       return;
     }
 
@@ -138,14 +193,14 @@
       })
       .then(function (data) {
         var allRecords = safeParseArray(data);
-        var recordSet = new Set();
+        var recordSet = createSimpleSet();
         allRecords.forEach(function (item) {
           if (item && item.record) {
             recordSet.add(item.record);
           }
         });
         recordsMap.set(date, recordSet);
-        setDateRecords(Array.prototype.slice.call(recordSet));
+        setDateRecords(recordSet.toArray());
       })
       .catch(function (e) {
         if (recordSelectDiv) {
@@ -221,7 +276,14 @@
       removeBtn.disabled = true;
     }
 
-    fetch("cgi-bin/viewrecords.cgi?cmd=remove_record&record=" + encodeURIComponent(file), { cache: "no-store" })
+    ensureCsrfToken(function () {
+      var headers = {};
+      if (csrfToken) { headers["X-CSRF-Token"] = csrfToken; }
+      fetch("cgi-bin/viewrecords.cgi?cmd=remove_record&record=" + encodeURIComponent(file), {
+        method: "POST",
+        cache: "no-store",
+        headers: headers
+      })
       .then(function (r) { return r.text(); })
       .then(function (t) {
         var result = {};
@@ -247,7 +309,7 @@
           }
           onDateChanged();
         } else {
-          setDateRecords(Array.prototype.slice.call(dateSet));
+          setDateRecords(dateSet.toArray());
         }
       })
       .catch(function (e) {
@@ -259,6 +321,7 @@
           removeBtn.disabled = false;
         }
       });
+    });
   }
 
   function populateDates(dates) {
@@ -277,7 +340,7 @@
         return;
       }
       var date = item.date;
-      recordsMap.set(date, new Set());
+      recordsMap.set(date, createSimpleSet());
       var opt = document.createElement("option");
       opt.value = date;
       opt.textContent = date;

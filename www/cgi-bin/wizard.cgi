@@ -77,6 +77,16 @@ esac
 
 # POST — apply wizard answers
 if [ "$METHOD" = "POST" ]; then
+    # Only accept POST while the wizard is actually pending (first boot, or
+    # after an explicit wizard_reset). Prevents a stray/replayed POST from
+    # silently re-applying settings once setup is complete.
+    if [ ! -f "$FIRST_BOOT_FLAG" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"ok":false,"error":"wizard_already_completed"}'
+        exit 0
+    fi
+
     _cl="${CONTENT_LENGTH:-0}"
     case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
     [ "$_cl" -gt 8192 ] && _cl=8192
