@@ -900,7 +900,13 @@
   function csrfFetch(url, opts) {
     opts = opts || {};
     if (csrfToken) {
-      opts.headers = Object.assign({}, opts.headers || {}, { "X-CSRF-Token": csrfToken });
+      var headers = {};
+      var srcHeaders = opts.headers || {};
+      for (var hk in srcHeaders) {
+        if (Object.prototype.hasOwnProperty.call(srcHeaders, hk)) { headers[hk] = srcHeaders[hk]; }
+      }
+      headers["X-CSRF-Token"] = csrfToken;
+      opts.headers = headers;
     }
     return fetch(url, opts);
   }
@@ -1146,115 +1152,121 @@
                 }
 
                 // 2. Video & Audio
-                var vmain = vid?.main || {};
-                var vsub = vid?.sub || {};
-                var rsch = sys?.reboot_schedule || {};
-                var mguard = sys?.mem_guard || {};
+                // vid/sys/aud/isp/osd/mqtt/rec/svc/tel/sysl/periph are all
+                // guaranteed objects (defaulted with || {} above), so plain
+                // dot access is safe here — no optional chaining needed.
+                var vmain = vid.main || {};
+                var vsub = vid.sub || {};
+                var rsch = sys.reboot_schedule || {};
+                var mguard = sys.mem_guard || {};
+                var bootCfg = res.boot || {};
+                var timelapseCfg = res.timelapse || {};
 
-                setVal('video_size0', (vmain?.width ?? 1920) + 'x' + (vmain?.height ?? 1080));
-                setVal('video_codec0', vmain?.codec);
-                setVal('fps0', vmain?.fps);
-                setVal('brbitrate0', vmain?.bitrate);
-                setVal('goplen0', vmain?.gop);
-                setVal('video_format0', vmain?.format);
-                setVal('minqp0', vmain?.minqp);
-                setVal('maxqp0', vmain?.maxqp);
-                setVal('smartmode0', vmain?.smartmode);
+                setVal('video_size0', (vmain.width || 1920) + 'x' + (vmain.height || 1080));
+                setVal('video_codec0', vmain.codec);
+                setVal('fps0', vmain.fps);
+                setVal('brbitrate0', vmain.bitrate);
+                setVal('goplen0', vmain.gop);
+                setVal('video_format0', vmain.format);
+                setVal('minqp0', vmain.minqp);
+                setVal('maxqp0', vmain.maxqp);
+                setVal('smartmode0', vmain.smartmode);
 
-                setVal('video_size1', (vsub?.width ?? 640) + 'x' + (vsub?.height ?? 360));
-                setVal('fps1', vsub?.fps);
-                setVal('brbitrate1', vsub?.bitrate);
+                setVal('video_size1', (vsub.width || 640) + 'x' + (vsub.height || 360));
+                setVal('fps1', vsub.fps);
+                setVal('brbitrate1', vsub.bitrate);
 
-                setVal('samplerate', aud?.samplerate);
-                setVal('audioCodec0', aud?.codec_main);
-                setVal('audio_vol', aud?.volume);
+                setVal('samplerate', aud.samplerate);
+                setVal('audioCodec0', aud.codec_main);
+                setVal('audio_vol', aud.volume);
 
                 // 3. ISP & OSD
-                setVal('daynightlum', isp?.daynight_lum);
-                setVal('daynightawb', isp?.daynight_awb);
-                setVal('nightdaylum', isp?.nightday_lum);
-                setVal('nightdayawb', isp?.nightday_awb);
+                setVal('daynightlum', isp.daynight_lum);
+                setVal('daynightawb', isp.daynight_awb);
+                setVal('nightdaylum', isp.nightday_lum);
+                setVal('nightdayawb', isp.nightday_awb);
 
-                setVal('osdenabled', osd?.enabled);
-                setVal('osdtext', osd?.text);
-                setVal('frontcolor', osd?.frontcolor);
-                setVal('backcolor', osd?.backcolor);
-                setVal('osdalpha', osd?.alpha);
-                setVal('osdfontsize0', osd?.fontsize0);
-                setVal('osdx0', osd?.x0);
-                setVal('osdy0', osd?.y0);
-                setVal('imageFlip', vid?.flip);
+                setVal('osdenabled', osd.enabled);
+                setVal('osdtext', osd.text);
+                setVal('frontcolor', osd.frontcolor);
+                setVal('backcolor', osd.backcolor);
+                setVal('osdalpha', osd.alpha);
+                setVal('osdfontsize0', osd.fontsize0);
+                setVal('osdx0', osd.x0);
+                setVal('osdy0', osd.y0);
+                setVal('imageFlip', vid.flip);
 
                 // 4. Automation
-                setVal('mqtt_enabled', mqtt?.enabled);
-                setVal('mqtt_host', mqtt?.host);
-                setVal('mqtt_port', mqtt?.port);
-                setVal('mqtt_user', mqtt?.user);
-                setVal('mqtt_topic_root', mqtt?.topic_root);
-                setVal('mqtt_discovery', mqtt?.discovery);
+                setVal('mqtt_enabled', mqtt.enabled);
+                setVal('mqtt_host', mqtt.host);
+                setVal('mqtt_port', mqtt.port);
+                setVal('mqtt_user', mqtt.user);
+                setVal('mqtt_topic_root', mqtt.topic_root);
+                setVal('mqtt_discovery', mqtt.discovery);
 
-                setVal('mdsens', svc?.motion_sens);
-                setVal('sound_det_threshold', svc?.sound_det_threshold);
-                setVal('motion_led', svc?.motion_led);
+                setVal('mdsens', svc.motion_sens);
+                setVal('sound_det_threshold', svc.sound_det_threshold);
+                setVal('motion_led', svc.motion_led);
 
-                setVal('motion_activated', rec?.motion_activated);
-                setVal('postrec', rec?.postrec);
-                setVal('maxduration', rec?.maxduration);
-                setVal('reserved_mb', rec?.reserved_mb);
+                setVal('motion_activated', rec.motion_activated);
+                setVal('postrec', rec.postrec);
+                setVal('maxduration', rec.maxduration);
+                setVal('reserved_mb', rec.reserved_mb);
 
                 // 5. Network
-                setVal('hostname', sys?.hostname);
-                setVal('rtsp_port', vid?.rtsp_port);
-                setVal('telnet_port', svc?.telnet_port);
-                setVal('timezone', sys?.timezone);
-                setVal('ntp_server', sys?.ntp_server);
+                setVal('hostname', sys.hostname);
+                setVal('rtsp_port', vid.rtsp_port);
+                setVal('telnet_port', svc.telnet_port);
+                setVal('timezone', sys.timezone);
+                setVal('ntp_server', sys.ntp_server);
 
                 // 6. System & Tuning
-                setVal('lightweight_mode', res?.boot?.lightweight_mode);
-                setVal('security_hardening', res?.boot?.security_hardening);
-                setVal('mem_guard_enable', mguard?.enable);
-                setVal('mem_guard_warn_kb', mguard?.warn_kb);
-                setVal('mem_guard_crit_kb', mguard?.crit_kb);
-                setVal('mem_guard_interval', mguard?.interval);
+                setVal('lightweight_mode', bootCfg.lightweight_mode);
+                setVal('security_hardening', bootCfg.security_hardening);
+                setVal('mem_guard_enable', mguard.enable);
+                setVal('mem_guard_warn_kb', mguard.warn_kb);
+                setVal('mem_guard_crit_kb', mguard.crit_kb);
+                setVal('mem_guard_interval', mguard.interval);
 
-                setVal('reboot_enable', rsch?.enable);
-                setVal('reboot_schedule_hour', rsch?.hour);
-                setVal('reboot_schedule_min', rsch?.min);
-                setVal('reboot_schedule_dow', rsch?.dow);
+                setVal('reboot_enable', rsch.enable);
+                setVal('reboot_schedule_hour', rsch.hour);
+                setVal('reboot_schedule_min', rsch.min);
+                setVal('reboot_schedule_dow', rsch.dow);
 
                 // 7. Timelapse Studio
-                setVal('tlinterval', res?.timelapse?.interval);
-                setVal('tlduration', res?.timelapse?.duration);
+                setVal('tlinterval', timelapseCfg.interval);
+                setVal('tlduration', timelapseCfg.duration);
 
                 // 8. Telegram & Syslog
-                setVal('telegram_enable', tel?.enabled);
-                setVal('telegram_token', tel?.token);
-                setVal('telegram_chat_id', tel?.chat_id);
-                setVal('syslog_enable', sysl?.enabled);
-                setVal('syslog_host', sysl?.host);
-                setVal('syslog_port', sysl?.port);
+                setVal('telegram_enable', tel.enabled);
+                setVal('telegram_token', tel.token);
+                setVal('telegram_chat_id', tel.chat_id);
+                setVal('syslog_enable', sysl.enabled);
+                setVal('syslog_host', sysl.host);
+                setVal('syslog_port', sysl.port);
 
                 // 9. Peripherals
-                setVal('led_front', periph?.led_front);
-                setVal('led_red', periph?.led_red);
+                setVal('led_front', periph.led_front);
+                setVal('led_red', periph.led_red);
 
                 // Form dirty state tracking and validation
-                var dirtyForms = new Set();
+                var dirtyForms = [];
 
                 function markFormDirty(form) {
-                    dirtyForms.add(form);
+                    if (dirtyForms.indexOf(form) === -1) { dirtyForms.push(form); }
                     updateFormSubmitButton(form);
                 }
 
                 function markFormClean(form) {
-                    dirtyForms.delete(form);
+                    var i = dirtyForms.indexOf(form);
+                    if (i !== -1) { dirtyForms.splice(i, 1); }
                     updateFormSubmitButton(form);
                 }
 
                 function updateFormSubmitButton(form) {
                     var submitBtn = form.querySelector('button[type="submit"]');
                     if (!submitBtn) return;
-                    var isDirty = dirtyForms.has(form);
+                    var isDirty = dirtyForms.indexOf(form) !== -1;
                     submitBtn.classList.toggle('is-loading', false);
                     if (isDirty) {
                         submitBtn.classList.add('has-background-warning-light');
@@ -1270,7 +1282,7 @@
                     var val = input.value.trim();
 
                     // Port validation: 1-65535
-                    if (input.name.toLowerCase().includes('port')) {
+                    if (input.name.toLowerCase().indexOf('port') !== -1) {
                         var port = parseInt(val, 10);
                         if (val && (isNaN(port) || port < 1 || port > 65535)) {
                             input.classList.add('is-danger');
@@ -1280,7 +1292,7 @@
                     }
 
                     // Hostname validation (basic: alphanumeric, dots, hyphens)
-                    if (input.name.toLowerCase().includes('hostname')) {
+                    if (input.name.toLowerCase().indexOf('hostname') !== -1) {
                         if (val && !/^[a-zA-Z0-9.-]*$/.test(val)) {
                             input.classList.add('is-danger');
                             input.title = 'Invalid hostname characters';
@@ -1289,7 +1301,7 @@
                     }
 
                     // IP address validation
-                    if (input.name.toLowerCase().includes('ip') || input.name.toLowerCase().includes('host')) {
+                    if (input.name.toLowerCase().indexOf('ip') !== -1 || input.name.toLowerCase().indexOf('host') !== -1) {
                         if (val && !/^[\d.]*$/.test(val) && val !== '127.0.0.1') {
                             // Allow IPs or localhost
                             if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(val) && val !== 'localhost') {

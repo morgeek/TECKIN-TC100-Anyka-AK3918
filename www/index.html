@@ -294,19 +294,23 @@
                 var badge = document.getElementById('update_notifier');
                 if (!badge) return;
                 
-                fetch('cgi-bin/state.cgi?cmd=statusline')
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.update_available) {
-                            badge.classList.add('is-active');
-                            badge.title = "New Version Available: " + data.update_latest_version + " (Current: " + data.current_version + ")";
-                            badge.onclick = function(e) {
-                                e.preventDefault();
-                                alert("A newer version of the Elite firmware is available!\n\nLatest: " + data.update_latest_version + "\nYour Version: " + (data.current_version || "v1.1.0-ELITE") + "\n\nPlease visit the GitHub repository to download the update.");
-                            };
-                        }
-                    })
-                    .catch(e => console.warn("Update check failed", e));
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', 'cgi-bin/state.cgi?cmd=statusline', true);
+                xhr.onload = function() {
+                    if (xhr.status < 200 || xhr.status >= 300) return;
+                    var data;
+                    try { data = JSON.parse(xhr.responseText); } catch (parseErr) { return; }
+                    if (data.update_available) {
+                        badge.classList.add('is-active');
+                        badge.title = "New Version Available: " + data.update_latest_version + " (Current: " + data.current_version + ")";
+                        badge.onclick = function(e) {
+                            e.preventDefault();
+                            alert("A newer version of the Elite firmware is available!\n\nLatest: " + data.update_latest_version + "\nYour Version: " + (data.current_version || "v1.1.0-ELITE") + "\n\nPlease visit the GitHub repository to download the update.");
+                        };
+                    }
+                };
+                xhr.onerror = function() { console.warn("Update check failed"); };
+                xhr.send();
             }
 
             // Run check once on load, then every 6 hours (if the tab stays open)

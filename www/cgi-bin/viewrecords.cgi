@@ -4,9 +4,9 @@
 
 DCIM_FOLDER="/mnt/DCIM"
 
-# Rate-limit only destructive operations (before headers)
+# Rate-limit and CSRF-guard destructive operations (before headers)
 case "$F_cmd" in
-  remove_record) rate_limit_check 10 60 ;;
+  remove_record) rate_limit_check 10 60; csrf_guard ;;
 esac
 
 echo "Content-type: text/html"
