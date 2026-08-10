@@ -519,7 +519,7 @@ sync_time()
     ntp_srv="$(cat "$CONFIGPATH/ntp_srv.conf")"
     _ntp_backoff=1
     while [ "$_ntp_backoff" -le 5 ]; do
-        if ping -c1 "$ntp_srv" &>/dev/null; then
+        if ping -c1 "$ntp_srv" >/dev/null 2>&1; then
             break
         fi
         sleep "$_ntp_backoff"

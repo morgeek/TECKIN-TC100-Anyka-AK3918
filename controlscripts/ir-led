@@ -7,7 +7,7 @@ export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 status()
 {
   state=$(ir_led status)
-  if [[ $state == "ON" || $state == "on" ]]; then
+  if [ "$state" = "ON" ] || [ "$state" = "on" ]; then
     echo "PID: OK" 
   fi
 }

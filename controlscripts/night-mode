@@ -9,7 +9,7 @@ status()
   state_led=$(ir_led status)
   state_cut=$(ir_cut status)
   state_bw=$(black_white status)
-  if [[ $state_led == "ON" || $state_led == "on" ]] && [[ $state_cut == "OFF" || $state_cut == "off" ]] && [[ $state_bw == "ON" || $state_bw == "on" ]]; then
+  if { [ "$state_led" = "ON" ] || [ "$state_led" = "on" ]; } && { [ "$state_cut" = "OFF" ] || [ "$state_cut" = "off" ]; } && { [ "$state_bw" = "ON" ] || [ "$state_bw" = "on" ]; }; then
     echo "PID: OK"
   fi
 }
