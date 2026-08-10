@@ -1,0 +1,63 @@
+name: test
+
+# Regression guard: runs the full suite on every push / PR so a future change
+# can't silently reintroduce a fixed bug or a busybox-incompatible bashism.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure dash is available (busybox-parity syntax check)
+        run: sudo apt-get update -qq && sudo apt-get install -y dash
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Playwright + Chromium (for the topbar render test)
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: check:web (frontend/src <-> www in sync)
+        run: npm run check:web
+
+      - name: Shell fixes regression suite
+        run: npm run test:shell
+
+      - name: Wave 2 hardening regression suite
+        run: npm run test:wave2
+
+      - name: JSON API validity (real parser)
+        run: npm run test:json
+
+      - name: Topbar version render (Chromium)
+        run: node tools/test-topbar-version.mjs
+
+      - name: dash -n on every camera-side shell file
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            head -1 "$f" 2>/dev/null | grep -q '^#!/bin/sh' || continue
+            if ! dash -n "$f"; then echo "FAIL: $f"; fail=1; fi
+          done < <(git ls-files)
+          [ "$fail" = "0" ] || { echo "dash -n found errors"; exit 1; }
+
+      - name: Sweep for busybox-incompatible bashisms
+        run: |
+          # These must never reappear in camera-side shell (frontend JS is exempt).
+          if git ls-files 'scripts/**' 'controlscripts/**' 'www/cgi-bin/**' 'autorun.sh' 'config/autostart/**' \
+             | xargs grep -nE '&>|\[\[|\$\{[A-Za-z_][A-Za-z0-9_]*:[0-9]+:[0-9]+\}' 2>/dev/null; then
+            echo "Found a bashism (&>, [[ ]], or \${var:n:m}) in camera-side shell"; exit 1
+          fi
+          echo "clean"
