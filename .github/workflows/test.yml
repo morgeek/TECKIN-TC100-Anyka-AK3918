@@ -41,6 +41,9 @@ jobs:
       - name: Wave 3 Frigate/HA regression suite
         run: npm run test:wave3
 
+      - name: Low-CPU tuning regression suite
+        run: npm run test:cpu
+
       - name: JSON API validity (real parser)
         run: npm run test:json
 
