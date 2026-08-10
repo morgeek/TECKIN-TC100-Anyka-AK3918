@@ -111,10 +111,13 @@ get_default_gateway()
 
   # Convert hex IP (little endian) to dotted decimal.
   # Hex: DDCBBAAA -> AAA.BBB.CCC.DDD
-  _h_v1="${_gdg_hex_gw:6:2}"
-  _h_v2="${_gdg_hex_gw:4:2}"
-  _h_v3="${_gdg_hex_gw:2:2}"
-  _h_v4="${_gdg_hex_gw:0:2}"
+  # Use `cut -c` rather than bash substring expansion (${var:off:len}) — busybox
+  # ash built without ASH_BASH_COMPAT dies with "Bad substitution" on that form,
+  # which kills the whole calling script (mqtt-bridge.sh sources this file).
+  _h_v1="$(printf '%s' "$_gdg_hex_gw" | cut -c7-8)"
+  _h_v2="$(printf '%s' "$_gdg_hex_gw" | cut -c5-6)"
+  _h_v3="$(printf '%s' "$_gdg_hex_gw" | cut -c3-4)"
+  _h_v4="$(printf '%s' "$_gdg_hex_gw" | cut -c1-2)"
   printf '%d.%d.%d.%d\n' "0x$_h_v1" "0x$_h_v2" "0x$_h_v3" "0x$_h_v4"
 }
 
@@ -221,6 +224,26 @@ read_config()
 
   value=$(/mnt/bin/rwconf $cfg_path r "$section" $2)
   echo $value
+}
+
+# read_kv_config_value — reads a single KEY=VALUE line from a plain shell-style
+# config file (an absolute path, NOT rwconf's INI format). Promoted here from
+# mqtt-bridge.sh so every caller shares one implementation; do not reintroduce
+# a copy in mqtt-bridge.sh.
+read_kv_config_value()
+{
+  conf_path="$1"
+  conf_key="$2"
+  conf_default="$3"
+  conf_value="$conf_default"
+
+  if [ -r "$conf_path" ]; then
+    conf_value="$(awk -F= -v key="$conf_key" '
+      $0 !~ /^[[:space:]]*#/ && $1 == key {print $2; exit}
+    ' "$conf_path" 2>/dev/null)"
+  fi
+  [ -n "$conf_value" ] || conf_value="$conf_default"
+  printf '%s' "$conf_value"
 }
 
 publish_mqtt_event() {

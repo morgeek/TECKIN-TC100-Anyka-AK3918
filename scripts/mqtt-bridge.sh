@@ -201,21 +201,8 @@ power_estimate_enabled()
   is_truthy_local "$POWER_ESTIMATE_ENABLE"
 }
 
-read_kv_config_value()
-{
-  conf_path="$1"
-  conf_key="$2"
-  conf_default="$3"
-  conf_value="$conf_default"
-
-  if [ -r "$conf_path" ]; then
-    conf_value="$(awk -F= -v key="$conf_key" '
-      $0 !~ /^[[:space:]]*#/ && $1 == key {print $2; exit}
-    ' "$conf_path" 2>/dev/null)"
-  fi
-  [ -n "$conf_value" ] || conf_value="$conf_default"
-  printf '%s' "$conf_value"
-}
+# read_kv_config_value now lives in common_functions.sh (sourced above) so
+# sound-detection and other callers share the same implementation.
 
 security_hardening_enabled_runtime()
 {
@@ -725,7 +712,7 @@ publish_homeassistant_discovery()
   publish_discovery_config "$ram_cfg_topic" "$ram_cfg_payload"
 
   temp_cfg_topic="${discovery_prefix}/sensor/${node_id}/chip_temp/config"
-  temp_cfg_payload="$(printf '{"name":"%s Chip Temp","uniq_id":"%s_chip_temp","stat_t":"%s","unit_of_meas":"C","dev_cla":"temperature","stat_cla":"measurement","val_tpl":"{{ value_json.chip_temp_c if value_json.chip_temp_c is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:thermometer","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  temp_cfg_payload="$(printf '{"name":"%s Chip Temp","uniq_id":"%s_chip_temp","stat_t":"%s","unit_of_meas":"°C","dev_cla":"temperature","stat_cla":"measurement","val_tpl":"{{ value_json.chip_temp_c if value_json.chip_temp_c is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:thermometer","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$temp_cfg_topic" "$temp_cfg_payload"
 
   power_cfg_topic="${discovery_prefix}/sensor/${node_id}/power_draw/config"
@@ -1985,7 +1972,8 @@ case "$1" in
     run_loop
     ;;
   publish)
-    publish_mode "$2" "$3" "$4"
+    shift
+    publish_mode "$@"
     ;;
   command)
     command_mode "$2" "$3"
