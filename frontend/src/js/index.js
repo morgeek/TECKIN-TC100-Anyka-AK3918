@@ -384,6 +384,39 @@
     securityBadge.classList.add("security-unknown");
   }
 
+  function updateFirmwareVersionUi(currentVersion, updateAvailable, updateLatestVersion) {
+    var chip = byId("fw_version");
+    var haveCurrent = typeof currentVersion === "string" && currentVersion.length > 0 && currentVersion !== "n/a";
+    var isOutdated = updateAvailable === 1 || updateAvailable === true;
+
+    if (chip) {
+      chip.textContent = haveCurrent ? currentVersion : "version n/a";
+      chip.title = haveCurrent ? "Firmware version " + currentVersion : "Firmware version unavailable";
+      chip.classList.toggle("fw-outdated", isOutdated);
+    }
+
+    var badge = byId("update_notifier");
+    if (badge) {
+      if (isOutdated) {
+        var latest = typeof updateLatestVersion === "string" && updateLatestVersion.length > 0 ? updateLatestVersion : "n/a";
+        var current = haveCurrent ? currentVersion : "n/a";
+        badge.classList.add("is-active");
+        badge.title = "New Version Available: " + latest + " (Current: " + current + ")";
+        badge.onclick = function (e) {
+          e.preventDefault();
+          alert(
+            "A newer version of the firmware is available!\n\nLatest: " + latest +
+            "\nYour Version: " + current +
+            "\n\nPlease visit the GitHub repository to download the update."
+          );
+        };
+      } else {
+        badge.classList.remove("is-active");
+        badge.onclick = null;
+      }
+    }
+  }
+
   function updateStaleBanner(isStale) {
     var bannerId = "stale-data-banner";
     var existing = byId(bannerId);
@@ -788,6 +821,11 @@
           if (typeof statusline.csrf_token === "string" && statusline.csrf_token.length > 0) {
             csrfToken = statusline.csrf_token;
           }
+          updateFirmwareVersionUi(
+            typeof statusline.current_version === "string" ? statusline.current_version : null,
+            typeof statusline.update_available === "number" ? statusline.update_available : null,
+            typeof statusline.update_latest_version === "string" ? statusline.update_latest_version : null
+          );
           sysUsageConsecErrors = 0;
           sysUsageLastSuccessTs = Date.now();
           updateStaleBanner(false);

@@ -56,6 +56,25 @@
             cursor: pointer;
         }
         .update-badge.is-active { display: inline-block; }
+
+        #fw_version {
+            margin-left: 0.5rem;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.18);
+            vertical-align: middle;
+        }
+        #fw_version.fw-outdated {
+            background: #ff9f43;
+            color: #1a1a1a;
+        }
+        /* Below 400px there isn't room for both the wordmark and the version
+           chip — drop the wordmark, the version is the more useful of the two. */
+        @media (max-width: 400px) {
+            #title .wordmark { display: none; }
+        }
     </style>
 </head>
 
@@ -69,9 +88,10 @@
                     <span aria-hidden="true"></span>
                     <span aria-hidden="true"></span>
                 </a>
-                <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition v1.1.0-ELITE">
-                    <i class="icon-eye"></i> 
-                    <span style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span>
+                <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition">
+                    <i class="icon-eye"></i>
+                    <span class="wordmark" style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span>
+                    <span id="fw_version" title="Firmware version">version n/a</span>
                     <span id="update_notifier" class="update-badge" title="New Version Available! Click to view.">NEW</span>
                 </a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
@@ -289,33 +309,11 @@
                 });
             }
 
-            // Update Notifier Logic
-            function checkUpdates() {
-                var badge = document.getElementById('update_notifier');
-                if (!badge) return;
-                
-                var xhr = new XMLHttpRequest();
-                xhr.open('GET', 'cgi-bin/state.cgi?cmd=statusline', true);
-                xhr.onload = function() {
-                    if (xhr.status < 200 || xhr.status >= 300) return;
-                    var data;
-                    try { data = JSON.parse(xhr.responseText); } catch (parseErr) { return; }
-                    if (data.update_available) {
-                        badge.classList.add('is-active');
-                        badge.title = "New Version Available: " + data.update_latest_version + " (Current: " + data.current_version + ")";
-                        badge.onclick = function(e) {
-                            e.preventDefault();
-                            alert("A newer version of the Elite firmware is available!\n\nLatest: " + data.update_latest_version + "\nYour Version: " + (data.current_version || "v1.1.0-ELITE") + "\n\nPlease visit the GitHub repository to download the update.");
-                        };
-                    }
-                };
-                xhr.onerror = function() { console.warn("Update check failed"); };
-                xhr.send();
-            }
-
-            // Run check once on load, then every 6 hours (if the tab stays open)
-            setTimeout(checkUpdates, 2000);
-            setInterval(checkUpdates, 1000 * 60 * 60 * 6);
+            // Firmware version chip + update notifier badge are rendered by
+            // index.bundle.min.js from the statusline poll it already runs
+            // every few seconds (see updateFirmwareVersionUi in index.js).
+            // This used to run its own separate XHR here, on load and every
+            // 6h, purely to read the same two fields off an identical payload.
         })();
     </script>
 </body>

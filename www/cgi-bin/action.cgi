@@ -2587,7 +2587,7 @@ if [ -n "$F_cmd" ]; then
       [ -n "$wizard_profile" ] || wizard_profile="universal-h264"
 
       case "$wizard_password" in
-        ''|*****)
+        ''|'*****')
           wizard_password=""
           ;;
       esac
