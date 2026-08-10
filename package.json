@@ -8,8 +8,9 @@
     "test:wave2": "sh tools/test-wave2-fixes.sh",
     "test:json": "python3 tools/test-json-api.py",
     "test:topbar": "node tools/test-topbar-version.mjs",
-    "test": "npm run check:web && npm run test:shell && npm run test:wave2 && npm run test:wave3 && npm run test:json && npm run test:topbar",
+    "test": "npm run check:web && npm run test:shell && npm run test:wave2 && npm run test:wave3 && npm run test:cpu && npm run test:json && npm run test:topbar",
     "test:wave3": "sh tools/test-wave3-fixes.sh",
-    "test:frigateyaml": "python3 tools/test-frigateyaml.py"
+    "test:frigateyaml": "python3 tools/test-frigateyaml.py",
+    "test:cpu": "sh tools/test-cpu-tuning.sh"
   }
 }
