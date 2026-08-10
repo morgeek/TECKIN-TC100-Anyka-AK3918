@@ -38,8 +38,14 @@ jobs:
       - name: Wave 2 hardening regression suite
         run: npm run test:wave2
 
+      - name: Wave 3 Frigate/HA regression suite
+        run: npm run test:wave3
+
       - name: JSON API validity (real parser)
         run: npm run test:json
+
+      - name: Frigate YAML end-to-end (best-effort; skips if /mnt not writable)
+        run: pip install pyyaml && python3 tools/test-frigateyaml.py
 
       - name: Topbar version render (Chromium)
         run: node tools/test-topbar-version.mjs
