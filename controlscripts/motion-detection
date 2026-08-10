@@ -11,7 +11,7 @@ install_config $CONFIGPATH/rtspserver.conf
 status()
 {
   state=$(motion_detection status)
-  if [[ $state == "ON" || $state == "on" ]]; then
+  if [ "$state" = "ON" ] || [ "$state" = "on" ]; then
     if checkpid "$MONITOR_PIDFILE"; then
         pid="$(cat "$MONITOR_PIDFILE" 2>/dev/null)"
         echo "PID: $pid"
