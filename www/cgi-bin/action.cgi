@@ -16,6 +16,13 @@ case "$F_cmd" in
   *) rate_limit_check 20 60 ;;
 esac
 
+# CSRF: enforce the per-boot token on state-changing (POST) requests, matching
+# scripts.cgi / configeditor.cgi / config_exchange.cgi. Safe methods (GET/HEAD)
+# pass through untouched, so read-style action.cgi calls still work. state.cgi
+# guarantees the token is delivered to the client, so this cannot lock the UI
+# out. Must run BEFORE any header output.
+csrf_guard
+
 # Set content type based on requested format
 if wants_json_response; then
   echo "Content-type: application/json"
@@ -249,13 +256,13 @@ PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
 ptt_backend_status() {
   if [ -x "$PTT_PCM_PLAYBACK_BIN" ]; then
     if wants_json_response; then
-      json_response "success" "OK"
+      json_body_ok "OK"
     else
       echo "OK"
     fi
   else
     if wants_json_response; then
-      json_error "PTT_BIN_MISSING" "PTT_BIN_MISSING"
+      json_body_err "PTT_BIN_MISSING" "PTT_BIN_MISSING"
     else
       echo "PTT_BIN_MISSING"
     fi
@@ -266,7 +273,7 @@ read_ptt_volume() {
   ptt_vol_val="$(head -n1 "$PTT_VOLUME_FILE" 2>/dev/null | tr -d '[:space:]')"
   volume="$(sanitize_int_range "$ptt_vol_val" 0 100 90)"
   if wants_json_response; then
-    json_response "success" "$volume"
+    json_body_ok "$volume"
   else
     echo "$volume"
   fi
@@ -304,7 +311,7 @@ play_audio_test_source() {
 
   if [ -z "$audio_source" ] || [ ! -r "$audio_source" ]; then
     if wants_json_response; then
-      json_error "AUDIO_TEST_FAILED" "no readable source file. Upload audio first (PTT) or provide a valid path."
+      json_body_err "AUDIO_TEST_FAILED" "no readable source file. Upload audio first (PTT) or provide a valid path."
     else
       echo "Audio test failed: no readable source file. Upload audio first (PTT) or provide a valid path."
     fi
@@ -315,7 +322,7 @@ play_audio_test_source() {
     *.pcm)
       if [ ! -x "$PTT_PCM_PLAYBACK_BIN" ]; then
         if wants_json_response; then
-          json_error "AUDIO_TEST_FAILED" "PCM playback backend is missing on the camera."
+          json_body_err "AUDIO_TEST_FAILED" "PCM playback backend is missing on the camera."
         else
           echo "Audio test failed: PCM playback backend is missing on the camera."
         fi
@@ -324,7 +331,7 @@ play_audio_test_source() {
       ak_volume="$(ptt_volume_to_ak "$audio_volume")"
       /mnt/bin/busybox nohup "$PTT_PCM_PLAYBACK_BIN" 8000 1 "$audio_source" "$ak_volume" > /dev/null 2>&1 &
       if wants_json_response; then
-        json_response "success" "Playing $audio_source at volume $audio_volume (PCM)"
+        json_body_ok "Playing $audio_source at volume $audio_volume (PCM)"
       else
         echo "Play $audio_source at volume $audio_volume (PCM)"
       fi
@@ -333,7 +340,7 @@ play_audio_test_source() {
     *.wav)
       if [ ! -x "$PTT_WAV_PLAYBACK_BIN" ]; then
         if wants_json_response; then
-          json_error "AUDIO_TEST_FAILED" "WAV playback backend is missing on the camera."
+          json_body_err "AUDIO_TEST_FAILED" "WAV playback backend is missing on the camera."
         else
           echo "Audio test failed: WAV playback backend is missing on the camera."
         fi
@@ -341,7 +348,7 @@ play_audio_test_source() {
       fi
       /mnt/bin/busybox nohup "$PTT_WAV_PLAYBACK_BIN" "$audio_source" "$audio_volume" > /dev/null 2>&1 &
       if wants_json_response; then
-        json_response "success" "Playing $audio_source at volume $audio_volume (WAV)"
+        json_body_ok "Playing $audio_source at volume $audio_volume (WAV)"
       else
         echo "Play $audio_source at volume $audio_volume (WAV)"
       fi
@@ -349,7 +356,7 @@ play_audio_test_source() {
       ;;
     *)
       if wants_json_response; then
-        json_error "AUDIO_TEST_FAILED" "unsupported source format: $audio_source"
+        json_body_err "AUDIO_TEST_FAILED" "unsupported source format: $audio_source"
       else
         echo "Audio test failed: unsupported source format: $audio_source"
       fi
@@ -1097,7 +1104,7 @@ if [ -n "$F_cmd" ]; then
   case "$F_cmd" in
     showlog)
       if wants_json_response; then
-        json_error "FORMAT_NOT_SUPPORTED" "showlog command does not support JSON format"
+        json_body_err "FORMAT_NOT_SUPPORTED" "showlog command does not support JSON format"
       else
         echo "<pre>"
         case "${F_logname}" in
@@ -1126,7 +1133,7 @@ if [ -n "$F_cmd" ]; then
     ;;
     clearlog)
       if wants_json_response; then
-        json_error "FORMAT_NOT_SUPPORTED" "clearlog command does not support JSON format"
+        json_body_err "FORMAT_NOT_SUPPORTED" "clearlog command does not support JSON format"
       else
         echo "<pre>"
         case "${F_logname}" in
@@ -1194,7 +1201,7 @@ if [ -n "$F_cmd" ]; then
       
       schedule_rtsp_restart
       if wants_json_response; then
-        json_response "success" "Video settings for stream $stream_idx updated."
+        json_body_ok "Video settings for stream $stream_idx updated."
       else
         echo "Video settings for stream $stream_idx updated. RTSP restarting...<br/>"
       fi
@@ -1212,7 +1219,7 @@ if [ -n "$F_cmd" ]; then
           
       schedule_rtsp_restart
       if wants_json_response; then
-        json_response "success" "Audio settings updated."
+        json_body_ok "Audio settings updated."
       else
         echo "Audio settings updated. RTSP restarting...<br/>"
       fi
@@ -1269,7 +1276,7 @@ if [ -n "$F_cmd" ]; then
       /mnt/bin/setconf -k f -v "$imageflip"
 
       if wants_json_response; then
-        json_response "success" "ISP and OSD settings updated."
+        json_body_ok "ISP and OSD settings updated."
       else
         echo "ISP and OSD settings updated.<br/>"
       fi
@@ -1295,7 +1302,7 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf MEM_GUARD_INTERVAL_SECONDS "$mg_interval"
 
       if wants_json_response; then
-        json_response "success" "Advanced tuning updated. Reboot may be required."
+        json_body_ok "Advanced tuning updated. Reboot may be required."
       else
         echo "Advanced tuning updated.<br/>"
       fi
@@ -1312,7 +1319,7 @@ if [ -n "$F_cmd" ]; then
       /mnt/bin/rwconf /mnt/config/telnetd.conf w " " TELNET_PORT "$telnet_port"
       
       if wants_json_response; then
-        json_response "success" "Network settings updated. RTSP/Telnet restart scheduled."
+        json_body_ok "Network settings updated. RTSP/Telnet restart scheduled."
       else
         echo "Network settings updated.<br/>"
       fi
@@ -1321,7 +1328,7 @@ if [ -n "$F_cmd" ]; then
     reboot)
       csrf_check
       if wants_json_response; then
-        json_response "success" "Rebooting device..."
+        json_body_ok "Rebooting device..."
       else
         echo "Rebooting device..."
       fi
@@ -1334,7 +1341,7 @@ if [ -n "$F_cmd" ]; then
     shutdown)
       csrf_check
       if wants_json_response; then
-        json_response "success" "Shutting down device.."
+        json_body_ok "Shutting down device.."
       else
         echo "Shutting down device.."
       fi
@@ -1345,7 +1352,7 @@ if [ -n "$F_cmd" ]; then
       sync
       echo 3 > /proc/sys/vm/drop_caches
       if wants_json_response; then
-        json_response "success" "System caches cleared. Memory freed."
+        json_body_ok "System caches cleared. Memory freed."
       else
         echo "System caches cleared. Memory freed.<br/>"
       fi
@@ -1369,7 +1376,7 @@ if [ -n "$F_cmd" ]; then
         /mnt/controlscripts/sound-detection stop
       fi
       if wants_json_response; then
-        json_response "success" "Sound detection settings updated."
+        json_body_ok "Sound detection settings updated."
       else
         echo "Sound detection settings updated.<br/>"
       fi
@@ -1378,56 +1385,56 @@ if [ -n "$F_cmd" ]; then
     front_led_on)
       front_led on
       if wants_json_response; then
-        json_response "success" "Front LED turned on"
+        json_body_ok "Front LED turned on"
       fi
     ;;
 
     front_led_off)
       front_led off
       if wants_json_response; then
-        json_response "success" "Front LED turned off"
+        json_body_ok "Front LED turned off"
       fi
     ;;
 
     red_led_on)
       red_led on
       if wants_json_response; then
-        json_response "success" "Red LED turned on"
+        json_body_ok "Red LED turned on"
       fi
     ;;
 
     red_led_off)
       red_led off
       if wants_json_response; then
-        json_response "success" "Red LED turned off"
+        json_body_ok "Red LED turned off"
       fi
     ;;
 
     ir_led_on)
       ir_led on
       if wants_json_response; then
-        json_response "success" "IR LED turned on"
+        json_body_ok "IR LED turned on"
       fi
     ;;
 
     ir_led_off)
       ir_led off
       if wants_json_response; then
-        json_response "success" "IR LED turned off"
+        json_body_ok "IR LED turned off"
       fi
     ;;
 
     ir_cut_on)
       ir_cut on
       if wants_json_response; then
-        json_response "success" "IR cut filter enabled"
+        json_body_ok "IR cut filter enabled"
       fi
     ;;
 
     ir_cut_off)
       ir_cut off
       if wants_json_response; then
-        json_response "success" "IR cut filter disabled"
+        json_body_ok "IR cut filter disabled"
       fi
     ;;
 
@@ -1444,7 +1451,7 @@ if [ -n "$F_cmd" ]; then
     set_telnet)
       if security_hardening_enabled; then
         if wants_json_response; then
-          json_error "SECURITY_HARDENING_ENABLED" "Telnet changes are blocked."
+          json_body_err "SECURITY_HARDENING_ENABLED" "Telnet changes are blocked."
         else
           echo "<p>Security hardening is enabled. Telnet changes are blocked.</p>"
         fi
@@ -1454,7 +1461,7 @@ if [ -n "$F_cmd" ]; then
       case "$telnetport" in
         ''|*[!0-9]*)
           if wants_json_response; then
-            json_error "INVALID_PORT" "Invalid telnet port. Allowed range is 1-65535."
+            json_body_err "INVALID_PORT" "Invalid telnet port. Allowed range is 1-65535."
           else
             echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
           fi
@@ -1462,7 +1469,7 @@ if [ -n "$F_cmd" ]; then
         *)
           if [ "$telnetport" -lt 1 ] || [ "$telnetport" -gt 65535 ]; then
             if wants_json_response; then
-              json_error "INVALID_PORT" "Invalid telnet port. Allowed range is 1-65535."
+              json_body_err "INVALID_PORT" "Invalid telnet port. Allowed range is 1-65535."
             else
               echo "<p>Invalid telnet port. Allowed range is 1-65535.</p>"
             fi
@@ -1470,7 +1477,7 @@ if [ -n "$F_cmd" ]; then
             echo "TELNET_PORT=$telnetport" > /mnt/config/telnetd.conf
             restart_service_if_need /mnt/controlscripts/telnet-server
             if wants_json_response; then
-              json_response "success" "Setting telnet service port to: $telnetport"
+              json_body_ok "Setting telnet service port to: $telnetport"
             else
               echo "<p>Setting telnet service port to : $telnetport</p>"
             fi
@@ -1482,7 +1489,7 @@ if [ -n "$F_cmd" ]; then
     set_ftp)
       if security_hardening_enabled; then
         if wants_json_response; then
-          json_error "SECURITY_HARDENING_ENABLED" "FTP changes are blocked."
+          json_body_err "SECURITY_HARDENING_ENABLED" "FTP changes are blocked."
         else
           echo "<p>Security hardening is enabled. FTP changes are blocked.</p>"
         fi
@@ -1492,7 +1499,7 @@ if [ -n "$F_cmd" ]; then
       case "$ftpport" in
         ''|*[!0-9]*)
           if wants_json_response; then
-            json_error "INVALID_PORT" "Invalid ftp port. Allowed range is 1-65535."
+            json_body_err "INVALID_PORT" "Invalid ftp port. Allowed range is 1-65535."
           else
             echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
           fi
@@ -1500,13 +1507,13 @@ if [ -n "$F_cmd" ]; then
         *)
           if [ "$ftpport" -lt 1 ] || [ "$ftpport" -gt 65535 ]; then
             if wants_json_response; then
-              json_error "INVALID_PORT" "Invalid ftp port. Allowed range is 1-65535."
+              json_body_err "INVALID_PORT" "Invalid ftp port. Allowed range is 1-65535."
             else
               echo "<p>Invalid ftp port. Allowed range is 1-65535.</p>"
             fi
           else
             if wants_json_response; then
-              json_response "success" "Setting ftp service port to: $ftpport"
+              json_body_ok "Setting ftp service port to: $ftpport"
             else
               echo "<p>Setting ftp service port to: $ftpport</p>"
             fi
@@ -1815,7 +1822,7 @@ if [ -n "$F_cmd" ]; then
 
     set_web_mode)
       if wants_json_response; then
-        json_error "FORMAT_NOT_SUPPORTED" "set_web_mode command does not support JSON format"
+        json_body_err "FORMAT_NOT_SUPPORTED" "set_web_mode command does not support JSON format"
       else
         install_config /mnt/config/boot.conf
         web_mode=$(printf '%s' "${F_web_mode}")
@@ -1993,13 +2000,13 @@ if [ -n "$F_cmd" ]; then
       if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
         /mnt/scripts/mqtt-bridge.sh discovery > /dev/null 2>&1
         if wants_json_response; then
-          json_response "success" "Home Assistant Discovery refresh triggered."
+          json_body_ok "Home Assistant Discovery refresh triggered."
         else
           echo "Home Assistant Discovery refresh triggered.<br/>"
         fi
       else
         if wants_json_response; then
-          json_error "BRIDGE_MISSING" "MQTT bridge script missing."
+          json_body_err "BRIDGE_MISSING" "MQTT bridge script missing."
         else
           echo "Error: MQTT bridge script missing.<br/>"
         fi
@@ -2573,7 +2580,7 @@ if [ -n "$F_cmd" ]; then
     complete_setup_wizard)
       csrf_check
       if wants_json_response; then
-        json_error "FORMAT_NOT_SUPPORTED" "complete_setup_wizard command does not support JSON format"
+        json_body_err "FORMAT_NOT_SUPPORTED" "complete_setup_wizard command does not support JSON format"
       else
         install_config /mnt/config/boot.conf
       install_config /mnt/config/service_trim.conf
@@ -2849,10 +2856,16 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     conf_recording)
-      motion_act=$(printf '%s' "${F_motion_act}")
-      postrec=$(printf '%s' "${F_postrec}")
-      maxduration=$(printf '%s' "${F_maxduration}")
-      diskspace=$(printf '%s' "${F_diskspace}")
+      # SECURITY: recording.conf is sourced as root by controlscripts/recording
+      # (`. $CONFIGPATH/recording.conf`). These four values MUST be validated to
+      # bare bool/integers before being written, otherwise a newline or backtick
+      # in the POST body lands in the sourced file and executes as root. The
+      # sibling conf_dns/conf_static_ip handlers already validate; this one did
+      # not. normalize_bool/sanitize_int_range strip anything non-numeric.
+      motion_act="$(normalize_bool "${F_motion_act}")"
+      postrec="$(sanitize_int_range "${F_postrec}" 0 3600 8)"
+      maxduration="$(sanitize_int_range "${F_maxduration}" 1 3600 60)"
+      diskspace="$(sanitize_int_range "${F_diskspace}" 0 1000000 512)"
 
       echo "Motion activated recording set to $motion_act.<BR>"
       echo "Postrecord set to $postrec seconds.<BR>"
@@ -2907,7 +2920,7 @@ if [ -n "$F_cmd" ]; then
         safe_ptt_vol="$(sanitize_int_range "$F_audiooutVol" 0 100 90)"
         echo "$safe_ptt_vol" > "$PTT_VOLUME_FILE"
         if wants_json_response; then
-          json_response "success" "Push-to-talk volume set to $safe_ptt_vol"
+          json_body_ok "Push-to-talk volume set to $safe_ptt_vol"
         else
           echo "Push-to-talk volume set to $safe_ptt_vol"
         fi
@@ -2942,14 +2955,14 @@ if [ -n "$F_cmd" ]; then
         dns_secondary="$F_dns_secondary"
         if ! validate_ip_or_empty "$dns_primary"; then
             if wants_json_response; then
-              json_error "INVALID_DNS" "Invalid primary DNS address: $dns_primary"
+              json_body_err "INVALID_DNS" "Invalid primary DNS address: $dns_primary"
             else
               log_event "error" "network" "Invalid primary DNS address: $dns_primary"
               echo "ERROR: invalid primary DNS address '$dns_primary'"
             fi
         elif ! validate_ip_or_empty "$dns_secondary"; then
             if wants_json_response; then
-              json_error "INVALID_DNS" "Invalid secondary DNS address: $dns_secondary"
+              json_body_err "INVALID_DNS" "Invalid secondary DNS address: $dns_secondary"
             else
               log_event "error" "network" "Invalid secondary DNS address: $dns_secondary"
               echo "ERROR: invalid secondary DNS address '$dns_secondary'"
@@ -2963,7 +2976,7 @@ if [ -n "$F_cmd" ]; then
                 [ -n "$dns_secondary" ] && echo "nameserver $dns_secondary"
             } > /etc/resolv.conf
             if wants_json_response; then
-              json_response "success" "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
+              json_body_ok "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
             else
               echo "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
             fi
@@ -3013,7 +3026,7 @@ if [ -n "$F_cmd" ]; then
 
     wifi_scan)
         if wants_json_response; then
-          json_error "FORMAT_NOT_SUPPORTED" "wifi_scan command does not support JSON format"
+          json_body_err "FORMAT_NOT_SUPPORTED" "wifi_scan command does not support JSON format"
         else
           scan_out="$(iwlist wlan0 scan 2>/dev/null)"
           if [ -z "$scan_out" ]; then
@@ -3062,15 +3075,18 @@ if [ -n "$F_cmd" ]; then
 
         if [ -z "$preset_name" ] || [ -z "$preset_data" ]; then
             if wants_json_response; then
-              json_error "INVALID_PRESET" "Preset name and data required"
+              json_body_err "INVALID_PRESET" "Preset name and data required"
             else
               echo "ERROR: Preset name and data required"
             fi
         else
-            # Validate preset name (alphanumeric, underscore, hyphen only)
-            if ! printf '%s' "$preset_name" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+            # Validate preset name (alphanumeric, underscore, hyphen only).
+            # Fork-free case idiom — busybox grep may lack -E (CLAUDE.md), in
+            # which case `grep -qE` errored and rejected EVERY name.
+            case "$preset_name" in ''|*[!a-zA-Z0-9_-]*) _preset_name_bad=1 ;; *) _preset_name_bad=0 ;; esac
+            if [ "$_preset_name_bad" = "1" ]; then
                 if wants_json_response; then
-                  json_error "INVALID_NAME" "Preset name must be alphanumeric with underscore/hyphen only"
+                  json_body_err "INVALID_NAME" "Preset name must be alphanumeric with underscore/hyphen only"
                 else
                   echo "ERROR: Invalid preset name"
                 fi
@@ -3083,7 +3099,7 @@ if [ -n "$F_cmd" ]; then
                     # Update existing preset
                     printf '%s' "$preset_data" > "$preset_file"
                     if wants_json_response; then
-                      json_response "success" "Preset '$preset_name' updated"
+                      json_body_ok "Preset '$preset_name' updated"
                     else
                       echo "Preset '$preset_name' updated"
                     fi
@@ -3091,13 +3107,13 @@ if [ -n "$F_cmd" ]; then
                     # Create new preset
                     printf '%s' "$preset_data" > "$preset_file"
                     if wants_json_response; then
-                      json_response "success" "Preset '$preset_name' created"
+                      json_body_ok "Preset '$preset_name' created"
                     else
                       echo "Preset '$preset_name' created"
                     fi
                 else
                     if wants_json_response; then
-                      json_error "PRESET_LIMIT" "Maximum 10 presets allowed"
+                      json_body_err "PRESET_LIMIT" "Maximum 10 presets allowed"
                     else
                       echo "ERROR: Maximum 10 presets allowed"
                     fi
@@ -3112,15 +3128,16 @@ if [ -n "$F_cmd" ]; then
 
         if [ -z "$preset_name" ]; then
             if wants_json_response; then
-              json_error "INVALID_PRESET" "Preset name required"
+              json_body_err "INVALID_PRESET" "Preset name required"
             else
               echo "ERROR: Preset name required"
             fi
         else
-            # Validate preset name
-            if ! printf '%s' "$preset_name" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+            # Validate preset name (busybox-safe, no grep -E — see save_preset)
+            case "$preset_name" in ''|*[!a-zA-Z0-9_-]*) _preset_name_bad=1 ;; *) _preset_name_bad=0 ;; esac
+            if [ "$_preset_name_bad" = "1" ]; then
                 if wants_json_response; then
-                  json_error "INVALID_NAME" "Invalid preset name"
+                  json_body_err "INVALID_NAME" "Invalid preset name"
                 else
                   echo "ERROR: Invalid preset name"
                 fi
@@ -3129,13 +3146,13 @@ if [ -n "$F_cmd" ]; then
                 if [ -f "$preset_file" ]; then
                     rm -f "$preset_file"
                     if wants_json_response; then
-                      json_response "success" "Preset '$preset_name' deleted"
+                      json_body_ok "Preset '$preset_name' deleted"
                     else
                       echo "Preset '$preset_name' deleted"
                     fi
                 else
                     if wants_json_response; then
-                      json_error "PRESET_NOT_FOUND" "Preset '$preset_name' not found"
+                      json_body_err "PRESET_NOT_FOUND" "Preset '$preset_name' not found"
                     else
                       echo "ERROR: Preset '$preset_name' not found"
                     fi
@@ -3161,9 +3178,9 @@ if [ -n "$F_cmd" ]; then
         _ssid_len="$(printf '%s' "$_ssid" | wc -c)"
         _psk_len="$(printf '%s' "$_psk" | wc -c)"
         if [ "$_ssid_len" -lt 1 ]; then
-            json_error "INVALID_SSID" "SSID must be 1-32 characters"
+            json_body_err "INVALID_SSID" "SSID must be 1-32 characters"
         elif [ "$_psk_len" -lt 8 ]; then
-            json_error "INVALID_PSK" "PSK must be at least 8 characters"
+            json_body_err "INVALID_PSK" "PSK must be at least 8 characters"
         else
             _wpa_tmp="${_wpa_conf}.tmp.$$"
             {
@@ -3178,23 +3195,23 @@ if [ -n "$F_cmd" ]; then
                 printf '}\n'
             } > "$_wpa_tmp" && mv "$_wpa_tmp" "$_wpa_conf" || {
                 rm -f "$_wpa_tmp" 2>/dev/null
-                json_error "WRITE_ERROR" "Failed to write WiFi configuration"
+                json_body_err "WRITE_ERROR" "Failed to write WiFi configuration"
                 exit 0
             }
             command -v wpa_cli >/dev/null 2>&1 && wpa_cli -i wlan0 reconfigure >/dev/null 2>&1 || true
-            json_response "success" "WiFi configuration updated for SSID: $_ssid. Reconnecting..."
+            json_body_ok "WiFi configuration updated for SSID: $_ssid. Reconnecting..."
         fi
     ;;
 
     wizard_reset)
         rm -f /mnt/config/.wizard_done 2>/dev/null || true
         touch /tmp/.first_boot 2>/dev/null || true
-        json_response "success" "Wizard reset. Redirecting to setup wizard."
+        json_body_ok "Wizard reset. Redirecting to setup wizard."
     ;;
 
      *)
         if wants_json_response; then
-          json_error "UNSUPPORTED_COMMAND" "Unsupported command '$F_cmd'"
+          json_body_err "UNSUPPORTED_COMMAND" "Unsupported command '$F_cmd'"
         else
           echo "Unsupported command '$F_cmd'"
         fi

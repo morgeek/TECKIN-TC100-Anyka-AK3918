@@ -75,20 +75,28 @@
 
 <script>
 (function () {
-  var _isDirty = false;
+  // This inline script is re-executed every time the Config Editor SPA page is
+  // injected into #content. Dirty state is kept on window (not an IIFE-local
+  // var) and the beforeunload listener is registered ONCE (guarded), otherwise
+  // each visit leaked a new listener bound to a stale closure.
+  function isDirty() { return !!window.__cfgEditorDirty; }
+  function markClean() { window.__cfgEditorDirty = false; }
+  function markDirty() { window.__cfgEditorDirty = true; }
 
-  function markClean() { _isDirty = false; }
-  function markDirty() { _isDirty = true; }
-
-  window.addEventListener('beforeunload', function (e) {
-    if (_isDirty) {
-      e.preventDefault();
-      e.returnValue = 'You have unsaved changes in the Config Editor.';
-    }
-  });
+  if (!window.__cfgEditorUnloadBound) {
+    window.__cfgEditorUnloadBound = true;
+    window.addEventListener('beforeunload', function (e) {
+      if (window.__cfgEditorDirty) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes in the Config Editor.';
+      }
+    });
+  }
 
   function getCsrfToken() {
-    return (typeof csrfToken !== 'undefined' && csrfToken) ? csrfToken : '';
+    // Read the live token via index.js's exported getter (it is not in scope here).
+    if (typeof window.getCsrfToken === 'function') return window.getCsrfToken() || '';
+    return '';
   }
 
   function setStatus(msg, isErr) {
@@ -106,7 +114,7 @@
   window.configEditorLoad = function () {
     var file = getSelectedFile();
     if (!file) return;
-    if (_isDirty && !confirm('You have unsaved changes. Discard and load a different file?')) {
+    if (isDirty() && !confirm('You have unsaved changes. Discard and load a different file?')) {
       // Revert the dropdown to the last-loaded file
       return;
     }
@@ -126,7 +134,15 @@
           if (area) {
             area.value = d.content.replace(/\\n/g, '\n');
             area.disabled = false;
-            area.addEventListener('input', markDirty, { once: true });
+            // Persistent input listener, attached once per textarea element.
+            // The old { once: true } removed itself after the first keystroke,
+            // so after a save (markClean) further edits never re-flagged dirty —
+            // and on the old browsers this targets, the options object was
+            // coerced to useCapture=true, ignoring `once` entirely.
+            if (!area._dirtyBound) {
+              area._dirtyBound = true;
+              area.addEventListener('input', markDirty);
+            }
           }
           if (saveBtn) saveBtn.disabled = false;
           if (d.source === 'dist') setStatus('Showing .dist template (no active config found)', false);
