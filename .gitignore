@@ -21,3 +21,4 @@ config/timelapse.conf
 # Last-known-good snapshots and corruption quarantine written by the camera
 config/.lkg/
 config/*.conf.corrupt
+node_modules/
