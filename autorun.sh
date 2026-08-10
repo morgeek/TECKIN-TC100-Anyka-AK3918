@@ -812,6 +812,31 @@ apply_frigate_ha_rtsp_profile()
     /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w 0 goplen 32 1 goplen 16
 }
 
+apply_kernel_log_tuning()
+{
+    # Opt-in, guarded kernel-log verbosity reduction. Both knobs default empty in
+    # boot.conf (= leave the kernel as-is), and every write is guarded by a
+    # writability test, so this is a silent no-op unless the operator sets a value
+    # AND the interface exists on this build. Cuts syslogd/klogd wakeups from the
+    # ISP/USB message flood on a 400MHz core.
+    if [ -n "$KERNEL_PRINTK_LEVEL" ] && [ -w /proc/sys/kernel/printk ]; then
+        if echo "$KERNEL_PRINTK_LEVEL" > /proc/sys/kernel/printk 2>/dev/null; then
+            echo "[tune] printk=$KERNEL_PRINTK_LEVEL" >> $LOGPATH
+        fi
+    fi
+    if [ -n "$AK_PRINT_LEVEL" ]; then
+        # Vendor ISP driver verbosity. Path varies by build; try the known ones,
+        # write to the first that is writable, then stop.
+        for _klp in /proc/ak_print_level /proc/akcipher/print_level /sys/module/ak_isp/parameters/ak_print_level; do
+            [ -w "$_klp" ] || continue
+            if echo "$AK_PRINT_LEVEL" > "$_klp" 2>/dev/null; then
+                echo "[tune] ak_print_level=$AK_PRINT_LEVEL ($_klp)" >> $LOGPATH
+            fi
+            break
+        done
+    fi
+}
+
 run_autostart_scripts()
 {
     echo "Autostart..." >> $LOGPATH
@@ -1051,6 +1076,7 @@ else
     rm -f /tmp/.first_boot 2>/dev/null || true
 fi
 load_boot_config
+apply_kernel_log_tuning
 # Validate config values early — logs to /tmp/log/config-validator.log, never fatal.
 [ -x /mnt/scripts/config-validator.sh ] && /mnt/scripts/config-validator.sh &
 echo "--------Starting Hacks--------" >> $LOGPATH

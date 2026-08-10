@@ -213,3 +213,13 @@ INTEGRATION_PROFILE=default
 # AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
 # Example lightweight denylist:
 # AUTOSTART_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection front-led"
+
+# Kernel log verbosity (optional CPU/thermal tuning). Both default empty, meaning
+# "leave the kernel exactly as-is". Writes are guarded — if the interface does not
+# exist on this build, the setting is silently ignored.
+#   KERNEL_PRINTK_LEVEL: written verbatim to /proc/sys/kernel/printk. Lower =
+#     quieter console. Example (quiet): "3 4 1 3".
+KERNEL_PRINTK_LEVEL=
+#   AK_PRINT_LEVEL: Anyka ISP driver verbosity (typically 0-3; default 3 floods
+#     the log every ~10s). Try 1 to cut syslogd wakeups on the 400MHz core.
+AK_PRINT_LEVEL=
