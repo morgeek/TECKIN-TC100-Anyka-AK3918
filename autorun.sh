@@ -122,7 +122,16 @@ ensure_runtime_symlink()
         return 0
     fi
 
-    log_boot "Self-heal failed: unable to link $link_path -> $target_path"
+    # /mnt is vfat, which has NO symlink support — ln -s can never succeed there,
+    # so this used to log "Self-heal failed" on every single boot. Fall back to a
+    # plain copy so the runtime file actually exists (e.g. if a bundle ever ships
+    # only the versioned libcurl, this is what keeps curl working).
+    if cp -f "$target_path" "$link_path" 2>/dev/null; then
+        log_boot "Self-heal: copied $link_path <- $target_path (filesystem has no symlinks)"
+        return 0
+    fi
+
+    log_boot "Self-heal failed: unable to link or copy $link_path -> $target_path"
     return 1
 }
 
@@ -792,6 +801,15 @@ apply_frigate_ha_rtsp_profile()
     # Fixed GOP (smartmode=0) avoids per-frame LTR analysis; saves ~5-10% CPU.
     # Frigate handles its own scene analysis independently of encoder intelligence.
     /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w 0 smartmode 0 1 smartmode 0
+
+    # Set an explicit GOP length ~= 2x fps (a ~2s keyframe interval) on both
+    # streams. The profile's log line has always claimed "fixed GOP" but only
+    # smartmode was ever written — so rtspserver.conf's 4s-keyframe default
+    # (goplen 64 @ fps 16, 32 @ fps 8) stood, which hurts Frigate's MSE live-view
+    # startup, record-segment boundaries and event pre-capture. Values track the
+    # shipped default fps (16 main / 8 sub); adjust if you change fps. Uses the
+    # same proven multi-pair section write form as the smartmode line above.
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w 0 goplen 32 1 goplen 16
 }
 
 run_autostart_scripts()

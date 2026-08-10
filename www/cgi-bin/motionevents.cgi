@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source ./func.cgi
+. /mnt/www/cgi-bin/func.cgi
 
 tmp_events="/tmp/motionevents.$$.tmp"
 trap 'rm -f "$tmp_events"' EXIT INT TERM
