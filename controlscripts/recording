@@ -44,7 +44,7 @@ start()
         CREDENTIAL="$USERNAME:$USERPASSWORD@"
     fi
 
-    if [ "$rec_motion_activated" == 1 ]; then
+    if [ "$rec_motion_activated" = 1 ]; then
         start_service_if_need /mnt/controlscripts/motion-detection
         motion_args="-s_stop 1 -s_control_file /tmp/rec_control"
         deactivate_motion_recording #Disable record on start
@@ -53,7 +53,7 @@ start()
     fi
 
     CODECSTR0="h264"
-    if [ "$CODEC0" == "2" ]; then
+    if [ "$CODEC0" = "2" ]; then
         CODECSTR0="hevc"
     fi
 
@@ -63,7 +63,7 @@ start()
     /mnt/bin/busybox nohup /mnt/bin/ffmpeg-min-recorder -loglevel quiet -rtbufsize 786432 -vcodec $CODECSTR0 -analyzeduration 0 -rtsp_transport tcp -stimeout 6500000 -i rtsp://${CREDENTIAL}127.0.0.1:$PORT/video0_unicast \
         -vcodec copy -acodec copy -map 0 -dn -f extsegment \
         -s_max_prerecord_bytes 524288 -s_prerecord_ms 0 -s_postrecord_ms ${rec_postrecord_sec}000 -s_max_file_duration_ms ${rec_file_duration_sec}000 \
-        -s_reserved_disk_space_mb $rec_reserverd_disk_mb $motion_args "$DCIM_PATH" &>/dev/null &
+        -s_reserved_disk_space_mb $rec_reserverd_disk_mb $motion_args "$DCIM_PATH" >/dev/null 2>&1 &
     echo "$!" > "$PIDFILE"
 
     ## Watchdog

@@ -1,7 +1,7 @@
 #!/bin/sh
 # update-check.sh — Secure HTTPS check for new releases on GitHub.
 
-VERSION_FILE="/VERSION"
+VERSION_FILE="/mnt/VERSION"
 CACHE_FILE="/tmp/update_status.json"
 CACHE_TTL=86400 # 24 hours
 CACERT="/mnt/config/ssl/cacert/cacert.pem"
