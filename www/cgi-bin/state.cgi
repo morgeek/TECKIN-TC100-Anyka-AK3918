@@ -2,7 +2,7 @@
 
 # A very light-weight interface just for responsive ui to get states
 
-source ./func.cgi
+. /mnt/www/cgi-bin/func.cgi
 
 # Set content type based on requested format
 if wants_json_response; then

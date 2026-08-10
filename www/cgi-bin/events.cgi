@@ -3,7 +3,7 @@
 # GET /cgi-bin/events.cgi?limit=50
 # Response: JSON array of event objects from /tmp/events.jsonl
 
-source ./func.cgi
+. /mnt/www/cgi-bin/func.cgi
 rate_limit_check 10 60
 
 echo "Content-type: application/json"
