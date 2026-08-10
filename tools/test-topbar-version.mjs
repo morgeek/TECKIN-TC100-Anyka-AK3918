@@ -70,10 +70,13 @@ function startServer(statuslineFactory) {
 async function withPage(statuslineFactory, fn) {
   const server = await startServer(statuslineFactory);
   const { port } = server.address();
-  const browser = await chromium.launch({
-    executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-    args: ["--no-sandbox"],
-  });
+  // Prefer the sandbox's preinstalled Chromium; fall back to Playwright's own
+  // download (e.g. in CI, where `npx playwright install chromium` provides it).
+  const fs = await import("node:fs");
+  const SANDBOX_CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+  const launchOpts = { args: ["--no-sandbox"] };
+  if (fs.existsSync(SANDBOX_CHROME)) { launchOpts.executablePath = SANDBOX_CHROME; }
+  const browser = await chromium.launch(launchOpts);
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${port}/index.html`);
