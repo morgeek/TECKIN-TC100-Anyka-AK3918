@@ -34,6 +34,12 @@
   var lastAwbValue = "";
   var settingsStylesInjected = false;
   var csrfToken = "";
+  // Stable anchors for Settings dirty-form tracking. initDashboard runs on every
+  // Settings visit; keeping these at IIFE scope lets a SINGLE beforeunload
+  // listener always see the current visit's dirty set instead of leaking one
+  // stale listener (bound to a stale array) per visit.
+  var activeDirtyForms = null;
+  var settingsUnloadBound = false;
   var settingsStyleHrefs = [
     "css/bulma-divider.min.css",
     "css/bulma-switch.1.0.1.min.css",
@@ -859,7 +865,7 @@
     timeoutJobs.refreshSysUsage = setTimeout(refreshSysUsage, interval);
   }
 
-  function showResult(txt) {
+  function showResult(txt, cls) {
     var qv = byId("quickviewDefault");
     var v = byId("quicViewContent");
     if (!qv || !v) {
@@ -874,12 +880,19 @@
         toast.style.zIndex = "1200";
         toast.style.padding = "0.55rem 0.8rem";
         toast.style.borderRadius = "10px";
-        toast.style.background = "rgba(21, 31, 43, 0.92)";
         toast.style.color = "#fff";
         toast.style.fontSize = "0.9rem";
         toast.style.boxShadow = "0 10px 24px rgba(0,0,0,0.28)";
         document.body.appendChild(toast);
       }
+      // Honor the severity class callers pass (is-success / is-danger /
+      // is-warning) — previously the second argument was silently ignored so
+      // every banner rendered the same neutral color.
+      var bg = "rgba(21, 31, 43, 0.92)";
+      if (cls === "is-success") { bg = "rgba(24, 110, 60, 0.95)"; }
+      else if (cls === "is-danger") { bg = "rgba(160, 30, 40, 0.95)"; }
+      else if (cls === "is-warning") { bg = "rgba(150, 100, 10, 0.95)"; }
+      toast.style.background = bg;
       toast.textContent = String(txt || "");
       toast.style.display = "block";
       setTimeout(function () {
@@ -892,7 +905,7 @@
     if (qv.classList.contains("is-active")) {
       qv.classList.remove("is-active");
     }
-    v.innerHTML = txt;
+    v.textContent = txt;
     qv.classList.add("is-active");
     setTimeout(function () {
       var close = byId("quickViewClose");
@@ -1126,6 +1139,11 @@
   window.refreshSysUsage = refreshSysUsage;
   window.scheduleRefreshSysUsage = scheduleRefreshSysUsage;
   window.refreshPerformanceProfile = refreshPerformanceProfile;
+  // Expose the live CSRF token to SPA sub-pages (backup.html, configeditor.html)
+  // whose inline getCsrfToken() otherwise read the IIFE-local `csrfToken`, which
+  // is out of their scope — so their X-CSRF-Token header was always empty and
+  // config import / backup restore failed once CSRF is enforced.
+  window.getCsrfToken = function () { return csrfToken; };
   window.showResult = showResult;
   window.fixMenuPadding = fixMenuPadding;
   window.setCookie = setCookie;
@@ -1289,6 +1307,7 @@
 
                 // Form dirty state tracking and validation
                 var dirtyForms = [];
+                activeDirtyForms = dirtyForms;
 
                 function markFormDirty(form) {
                     if (dirtyForms.indexOf(form) === -1) { dirtyForms.push(form); }
@@ -1338,15 +1357,23 @@
                         }
                     }
 
-                    // IP address validation
-                    if (input.name.toLowerCase().indexOf('ip') !== -1 || input.name.toLowerCase().indexOf('host') !== -1) {
-                        if (val && !/^[\d.]*$/.test(val) && val !== '127.0.0.1') {
-                            // Allow IPs or localhost
-                            if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(val) && val !== 'localhost') {
-                                input.classList.add('is-danger');
-                                input.title = 'Invalid IP address format';
-                                return false;
-                            }
+                    // Host fields (mqtt_host, syslog_host, ...) must accept a
+                    // HOSTNAME as well as an IP — otherwise mqtt_host cannot be
+                    // set to e.g. "homeassistant.local", which blocked the
+                    // documented Home Assistant quick-start. Checked before the
+                    // stricter IP rule below.
+                    if (input.name.toLowerCase().indexOf('host') !== -1) {
+                        if (val && !/^[a-zA-Z0-9.-]+$/.test(val)) {
+                            input.classList.add('is-danger');
+                            input.title = 'Invalid hostname or IP address';
+                            return false;
+                        }
+                    } else if (input.name.toLowerCase().indexOf('ip') !== -1) {
+                        // Pure IP fields (dns, static ip, gateway): dotted quad or localhost.
+                        if (val && !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(val) && val !== 'localhost') {
+                            input.classList.add('is-danger');
+                            input.title = 'Invalid IP address format';
+                            return false;
                         }
                     }
 
@@ -1369,9 +1396,6 @@
 
                 // Set up generic form submission listeners for all dashboard forms
                 dash.querySelectorAll('form').forEach(function(f) {
-                    // Store initial state
-                    f._initialState = new FormData(f);
-
                     // Track changes on all inputs
                     var inputs = f.querySelectorAll('input, select, textarea');
                     inputs.forEach(function(input) {
@@ -1425,14 +1449,21 @@
                     };
                 });
 
-                // Warn if user tries to leave with unsaved changes
-                window.addEventListener('beforeunload', function(e) {
-                    if (dirtyForms.size > 0) {
-                        e.preventDefault();
-                        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-                        return e.returnValue;
-                    }
-                });
+                // Warn if user tries to leave with unsaved changes. Registered
+                // ONCE (guarded) to avoid leaking a listener per Settings visit;
+                // it reads activeDirtyForms so it always reflects the current
+                // visit. Note: dirtyForms is an Array — the old code checked
+                // `.size` (undefined on arrays) so the warning never fired.
+                if (!settingsUnloadBound) {
+                    settingsUnloadBound = true;
+                    window.addEventListener('beforeunload', function(e) {
+                        if (activeDirtyForms && activeDirtyForms.length > 0) {
+                            e.preventDefault();
+                            e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+                            return e.returnValue;
+                        }
+                    });
+                }
 
                 // PHASE 2: Password Visibility Toggle
                 dash.querySelectorAll('input[type="password"]').forEach(function(pwdInput) {
@@ -1522,7 +1553,7 @@
                         values: {}
                     };
                     form.querySelectorAll('input, select, textarea').forEach(function(field) {
-                        if (field.name && !field.name.startsWith('_')) {
+                        if (field.name && field.name.indexOf('_') !== 0) {
                             if (field.type === 'checkbox' || field.type === 'radio') {
                                 cacheData.values[field.name] = field.checked;
                             } else {
@@ -1546,16 +1577,28 @@
                         var ageMinutes = (Date.now() - cacheData.timestamp) / (1000 * 60);
                         if (ageMinutes > CACHE_TTL_MINUTES) return; // Cache expired
 
+                        var restoredChanged = false;
                         form.querySelectorAll('input, select, textarea').forEach(function(field) {
                             if (field.name && cacheData.values.hasOwnProperty(field.name)) {
                                 var val = cacheData.values[field.name];
                                 if (field.type === 'checkbox' || field.type === 'radio') {
+                                    if (field.checked !== val) { restoredChanged = true; }
                                     field.checked = val;
                                 } else {
+                                    if (field.value !== val) { restoredChanged = true; }
                                     field.value = val;
                                 }
                             }
                         });
+                        // The cached values (up to 60 min old) have just overwritten
+                        // the fresh device config read into these fields. If that
+                        // actually changed anything, mark the form dirty so the user
+                        // SEES these are unsaved local values — otherwise stale cache
+                        // was silently presented as current device state and a later
+                        // save would re-POST it, reverting changes made elsewhere.
+                        if (restoredChanged && typeof markFormDirty === 'function') {
+                            markFormDirty(form);
+                        }
                     } catch (e) {
                         // JSON parse error or localStorage issue, silently fail
                     }
@@ -1618,6 +1661,15 @@
         // Also fetch health snapshot for the real-time gauges every 4s (slightly slower for performance)
         var pollHealth = function() {
             if (!window.isHostStillActive(dash)) return;
+            // Reschedule via a trailing .then so it runs after BOTH success and
+            // error. The old code put setTimeout inside the success .then and had
+            // no .catch, so a single dropped request (e.g. during a reboot) killed
+            // the chain permanently and froze the dashboard gauges. Poll slower
+            // when the tab is hidden to spare the 400MHz core.
+            var reschedule = function() {
+                if (!window.isHostStillActive(dash)) return;
+                setTimeout(pollHealth, document.hidden ? 30000 : 4000);
+            };
             fetch('cgi-bin/state.cgi?cmd=statusline&_=' + Date.now())
                 .then(function(r) { return r.json(); })
                 .then(function(res) {
@@ -1642,9 +1694,9 @@
 
                     if (byId('sd_readonly_warning')) byId('sd_readonly_warning').style.display = res.sd_readonly ? 'block' : 'none';
                     if (byId('security_warning')) byId('security_warning').style.display = (res.default_password_active || res.setup_wizard_done === 0) ? 'block' : 'none';
-
-                    setTimeout(pollHealth, 4000);
-                });
+                })
+                .catch(function() { /* transient (reboot, dropped request) — ignore and retry */ })
+                .then(reschedule);
         };
         pollHealth();
     },
