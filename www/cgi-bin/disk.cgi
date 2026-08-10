@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source ./func.cgi
+. /mnt/www/cgi-bin/func.cgi
 rate_limit_check 30 60
 
 echo "Content-type: text/html"

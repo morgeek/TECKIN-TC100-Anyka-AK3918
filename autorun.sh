@@ -122,7 +122,16 @@ ensure_runtime_symlink()
         return 0
     fi
 
-    log_boot "Self-heal failed: unable to link $link_path -> $target_path"
+    # /mnt is vfat, which has NO symlink support — ln -s can never succeed there,
+    # so this used to log "Self-heal failed" on every single boot. Fall back to a
+    # plain copy so the runtime file actually exists (e.g. if a bundle ever ships
+    # only the versioned libcurl, this is what keeps curl working).
+    if cp -f "$target_path" "$link_path" 2>/dev/null; then
+        log_boot "Self-heal: copied $link_path <- $target_path (filesystem has no symlinks)"
+        return 0
+    fi
+
+    log_boot "Self-heal failed: unable to link or copy $link_path -> $target_path"
     return 1
 }
 
