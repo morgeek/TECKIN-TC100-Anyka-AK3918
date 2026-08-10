@@ -83,10 +83,14 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 
 1. In the wizard (or Network tab), select profile `frigate_ha` and configure MQTT host/credentials.
 2. Restart the camera — MQTT discovery publishes entities to HA automatically.
-3. Add the two RTSP streams to Frigate:
-   - Main (detection): `rtsp://CAMERA-IP:554/stream0`
-   - Sub (recording): `rtsp://CAMERA-IP:554/stream1`
-4. Fetch the ready-to-paste Frigate YAML: `GET /cgi-bin/state.cgi?cmd=integrationmanifest`
+3. RTSP streams (the v4l2rtspserver mountpoints are `video0_unicast` /
+   `video1_unicast`, not `stream0`/`stream1`):
+   - Main (recording): `rtsp://CAMERA-IP:554/video0_unicast`
+   - Sub (detection): `rtsp://CAMERA-IP:554/video1_unicast`
+4. Fetch a ready-to-paste Frigate config (go2rtc restream, current Frigate
+   schema): `GET /cgi-bin/state.cgi?cmd=frigateyaml` (add `&redact=1` to share it
+   without credentials). The raw machine-readable manifest is still available at
+   `GET /cgi-bin/state.cgi?cmd=integrationmanifest`.
 
 ---
 

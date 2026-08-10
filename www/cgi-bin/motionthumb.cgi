@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source ./func.cgi
+. /mnt/www/cgi-bin/func.cgi
 . /mnt/scripts/common_functions.sh
 
 MOTION_CONFIG="/mnt/config/motion.conf"
