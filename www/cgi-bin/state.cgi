@@ -927,6 +927,18 @@ if [ -n "$F_cmd" ]; then
     awb_json="$(json_escape "$awb_value")"
     web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
     csrf_token=""
+    # Ensure a CSRF token exists so the client ALWAYS receives one on its first
+    # statusline poll. Without this, if no CGI had called csrf_guard since boot
+    # the token file would be absent, the client would hold no token, and the
+    # first authenticated POST (now that action.cgi enforces CSRF) would 403 —
+    # a bootstrap lock-out. Generating it here (once, when missing) closes that.
+    if [ ! -s /tmp/csrf_token ]; then
+        if [ -r /dev/urandom ]; then
+            _stt="$(head -c 16 /dev/urandom | hexdump -e '16/1 "%02x"' 2>/dev/null)"
+        fi
+        [ -n "$_stt" ] || _stt="$(date +%s%N | md5sum | cut -c1-32)"
+        printf '%s' "$_stt" > /tmp/csrf_token 2>/dev/null || true
+    fi
     if [ -r /tmp/csrf_token ]; then
         read -r csrf_token < /tmp/csrf_token
         # Strip any non-hex characters for safety
@@ -1475,7 +1487,11 @@ if [ -n "$F_cmd" ]; then
       done
       printf ']}'
     else
-      ls "$presets_dir"/*.json 2>/dev/null | xargs -n1 basename -s .json
+      # busybox basename has no -s flag; iterate and strip the suffix per file.
+      for _pf in "$presets_dir"/*.json; do
+        [ -f "$_pf" ] || continue
+        basename "$_pf" .json
+      done
     fi
     ;;
 
@@ -1489,7 +1505,24 @@ if [ -n "$F_cmd" ]; then
       else
         echo "ERROR: Preset name required"
       fi
+    # SECURITY: validate the name before building a path, exactly like
+    # save_preset/delete_preset do. Without this, name=../../../tmp/update_status
+    # reads /mnt/config/presets/../../../tmp/update_status.json — an arbitrary
+    # file read outside the presets directory. Fork-free case idiom (busybox-safe,
+    # no grep -E) — rejects empty and anything with a char outside [A-Za-z0-9_-],
+    # which blocks '/' and '.'.
     else
+      case "$preset_name" in
+        ''|*[!A-Za-z0-9_-]*)
+          if wants_json_response; then
+            json_error "INVALID_NAME" "Invalid preset name"
+          else
+            echo "ERROR: Invalid preset name"
+          fi
+          preset_name="" ;;
+      esac
+    fi
+    if [ -n "$preset_name" ]; then
       preset_file="$presets_dir/$preset_name.json"
       if [ -f "$preset_file" ]; then
         if wants_json_response; then

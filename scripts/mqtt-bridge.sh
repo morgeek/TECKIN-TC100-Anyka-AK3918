@@ -98,6 +98,16 @@ log_msg()
   if [ ! -d /tmp/log ]; then
     mkdir -p /tmp/log >/dev/null 2>&1 || true
   fi
+  # Rotate at 64 KB, keep last 100 lines. This log lives on tmpfs (RAM); without
+  # rotation it grew unbounded — the only daemon log that wasn't capped.
+  if [ -f "$LOGPATH" ]; then
+    _lm_sz="$(wc -c < "$LOGPATH" 2>/dev/null)"
+    case "$_lm_sz" in ''|*[!0-9]*) _lm_sz=0 ;; esac
+    if [ "$_lm_sz" -gt 65536 ]; then
+      tail -n 100 "$LOGPATH" > "${LOGPATH}.tmp" 2>/dev/null \
+        && mv "${LOGPATH}.tmp" "$LOGPATH" 2>/dev/null || true
+    fi
+  fi
   [ "$BTIME" -gt 0 ] || _load_btime
   read -r _up _ < /proc/uptime
   printf '%s %s\n' "$((BTIME + ${_up%.*}))" "$1" >> "$LOGPATH"
@@ -738,7 +748,18 @@ publish_homeassistant_discovery()
   # Switches (Interactive Toggles)
   for cmd in ir_led front_led red_led motion_detection privacy_shield; do
     uniq_id="${node_id}_${cmd}"
-    name_suffix="$(echo "$cmd" | tr '_' ' ' | sed 's/led/LED/g' | sed 's/\b./\u&/g')"
+    # Fixed friendly names. The previous `sed 's/\b./\u&/g'` used GNU-only \b and
+    # \u, which busybox sed does not implement — it produced mangled names like
+    # "uir uLED" in Home Assistant. A case over the known set is fork-free and
+    # renders correctly on-device.
+    case "$cmd" in
+      ir_led)           name_suffix="IR LED" ;;
+      front_led)        name_suffix="Front LED" ;;
+      red_led)          name_suffix="Red LED" ;;
+      motion_detection) name_suffix="Motion Detection" ;;
+      privacy_shield)   name_suffix="Privacy Shield" ;;
+      *)                name_suffix="$cmd" ;;
+    esac
     ic="mdi:toggle-switch"
     [ "$cmd" = "ir_led" ] && ic="mdi:eye-outline"
     [ "$cmd" = "front_led" ] && ic="mdi:led-on"
