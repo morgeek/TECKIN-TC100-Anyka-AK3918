@@ -12,15 +12,24 @@
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
-    <!-- First-boot wizard redirect: synchronous LAN check (~1 ms), transparent on normal boots -->
+    <!-- First-boot wizard redirect: ASYNC LAN check. This was a *synchronous*
+         XHR that blocked page rendering on a forked shell CGI on every single
+         load (the "~1 ms" comment is wildly optimistic on a 400MHz ARM926).
+         Async + timeout keeps the redirect on genuine first boot without
+         freezing the UI thread for everyone else on every page load. -->
     <script>
     (function() {
-        var x = new XMLHttpRequest();
         try {
-            x.open('GET', '/cgi-bin/wizard.cgi?check', false);
+            var x = new XMLHttpRequest();
+            x.open('GET', '/cgi-bin/wizard.cgi?check', true);
+            x.timeout = 2000;
+            x.onload = function() {
+                try {
+                    var d = JSON.parse(x.responseText);
+                    if (d && d.first_boot) { window.location.replace('/cgi-bin/wizard.cgi'); }
+                } catch (e) {}
+            };
             x.send();
-            var d = JSON.parse(x.responseText);
-            if (d && d.first_boot) { window.location.replace('/cgi-bin/wizard.cgi'); }
         } catch (e) {}
     })();
     </script>

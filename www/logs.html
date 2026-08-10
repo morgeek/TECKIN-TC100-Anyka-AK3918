@@ -183,9 +183,16 @@
   }
 
   function toText(html) {
-    var node = document.createElement("div");
-    node.innerHTML = html;
-    return (node.textContent || "")
+    // SECURITY: decode HTML entities WITHOUT executing markup. A detached
+    // <div>.innerHTML still runs the HTML parser, so "<img src=x onerror=...>"
+    // in a hostname / SSID / OSD string / imported config value / lighttpd log
+    // line fired the handler \u2014 stored XSS. A <textarea>'s content model is raw
+    // text (RCDATA): entities are decoded into .value but no child elements are
+    // created and no onerror/onload runs. Strip any literal tags that remain.
+    var ta = document.createElement("textarea");
+    ta.innerHTML = String(html == null ? "" : html);
+    return ta.value
+      .replace(/<[^>]*>/g, "")
       .replace(/\u00a0/g, " ")
       .replace(/\r\n/g, "\n")
       .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
