@@ -131,7 +131,11 @@ run_daemon()
     while :; do
         enable="$(read_kv_config_value "$CONFIG_FILE" ENABLE 0)"
         if [ "$enable" != "1" ]; then
-            sleep 10
+            # Disabled: poll the config only occasionally. This daemon is started
+            # unconditionally at boot, so a tight 10s idle loop woke the 400MHz
+            # core 8,640x/day for nothing; 300s cuts that ~30x while still picking
+            # up an enable within 5 minutes.
+            sleep 300
             continue
         fi
 

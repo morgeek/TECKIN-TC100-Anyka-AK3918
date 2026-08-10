@@ -801,6 +801,15 @@ apply_frigate_ha_rtsp_profile()
     # Fixed GOP (smartmode=0) avoids per-frame LTR analysis; saves ~5-10% CPU.
     # Frigate handles its own scene analysis independently of encoder intelligence.
     /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w 0 smartmode 0 1 smartmode 0
+
+    # Set an explicit GOP length ~= 2x fps (a ~2s keyframe interval) on both
+    # streams. The profile's log line has always claimed "fixed GOP" but only
+    # smartmode was ever written — so rtspserver.conf's 4s-keyframe default
+    # (goplen 64 @ fps 16, 32 @ fps 8) stood, which hurts Frigate's MSE live-view
+    # startup, record-segment boundaries and event pre-capture. Values track the
+    # shipped default fps (16 main / 8 sub); adjust if you change fps. Uses the
+    # same proven multi-pair section write form as the smartmode line above.
+    /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w 0 goplen 32 1 goplen 16
 }
 
 run_autostart_scripts()
