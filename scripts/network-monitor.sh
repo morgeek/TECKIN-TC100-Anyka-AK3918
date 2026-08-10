@@ -219,8 +219,12 @@ read_broker_status() {
 assess_current_state() {
   load_mqtt_runtime
   wifi_connected="$(detect_wifi_connected)"
-  # Refresh gateway address each cycle in case DHCP assigned a new one.
-  PINGADDRESS="$(detect_gateway)"
+  # Refresh the auto-detected gateway address each cycle in case DHCP assigned
+  # a new one — but only when the operator hasn't pinned PINGADDRESS themselves
+  # in netmon.conf, otherwise this silently overrides their configuration.
+  if [ "$PINGADDRESS_AUTO" = "1" ]; then
+    PINGADDRESS="$(detect_gateway)"
+  fi
 
   gateway_reachable=0
   if [ "$wifi_connected" = "1" ] && check_gateway_connectivity; then
@@ -329,7 +333,11 @@ detect_gateway() {
     _c="$(printf '%d' "0x$(printf '%s' "$_rt_gw" | cut -c5-6)" 2>/dev/null)"
     _d="$(printf '%d' "0x$(printf '%s' "$_rt_gw" | cut -c7-8)" 2>/dev/null)"
     case "${_a}${_b}${_c}${_d}" in ''|*[!0-9]*) continue ;; esac
-    printf '%d.%d.%d.%d\n' "$_a" "$_b" "$_c" "$_d"
+    # Gateway is little-endian hex (e.g. 192.168.1.1 -> 0101A8C0): _a is the
+    # LOWEST byte and _d the HIGHEST, so the dotted IP prints _d._c._b._a, not
+    # _a._b._c._d — the old order produced e.g. "1.1.168.192" and sent the
+    # daemon into a permanent reboot loop.
+    printf '%d.%d.%d.%d\n' "$_d" "$_c" "$_b" "$_a"
     return
   done < /proc/net/route
   printf '%s\n' "${PINGADDRESS:-192.168.0.1}"
@@ -337,6 +345,10 @@ detect_gateway() {
 
 : "${WIFI_IFACE:=wlan0}"
 : "${PINGADDRESS:=192.168.0.1}"
+# Track whether the operator pinned a real PINGADDRESS in netmon.conf. If so,
+# assess_current_state() must not clobber it every cycle with auto-detection.
+PINGADDRESS_AUTO=0
+[ "$PINGADDRESS" = "192.168.0.1" ] && PINGADDRESS_AUTO=1
 : "${PINGINTERVAL:=120}"
 : "${PING_ATTEMPTS:=1}"
 : "${PING_TIMEOUT_SECONDS:=1}"

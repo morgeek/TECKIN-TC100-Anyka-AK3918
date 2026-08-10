@@ -1,8 +1,12 @@
 #!/bin/sh
 source ./func.cgi
 
-# Ensure temp files are cleaned up on exit/interrupt
-trap 'rm -f /tmp/scripts-status.$$.tmp /tmp/scripts-allstates.cache' EXIT INT TERM
+# Ensure temp files are cleaned up on exit/interrupt. The allstates cache is
+# intentionally NOT removed here — it's supposed to survive across requests
+# (ALLSTATES_CACHE_TTL_SECONDS governs its lifetime); deleting it on every
+# exit made the cache permanently dead code and forced a full re-scan of
+# every controlscript on every poll.
+trap 'rm -f /tmp/scripts-status.$$.tmp' EXIT INT TERM
 
 echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
