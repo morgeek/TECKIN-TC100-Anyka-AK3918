@@ -742,8 +742,21 @@ publish_homeassistant_discovery()
   rtsp_url_json="$(json_escape "rtsp://${rtsp_user:+$rtsp_user:$rtsp_pass@}$(detect_primary_ip_current):$rtsp_port/video0_unicast")"
   
   camera_cfg_topic="${discovery_prefix}/camera/${node_id}/live/config"
-  camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","stream_source":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/last_path" "$rtsp_url_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  # NOTE: "stream_source" is NOT a valid key in HA's MQTT camera schema — its
+  # presence made HA reject the whole payload, so the camera entity never
+  # registered. Removed. The MQTT camera shows the last snapshot JPEG path; for
+  # a live RTSP feed use the go2rtc/Frigate config from state.cgi?cmd=frigateyaml.
+  camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/last_path" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$camera_cfg_topic" "$camera_cfg_payload"
+
+  # Motion binary_sensor. motion-event.sh already publishes ON/OFF (retained) to
+  # <root>/motion/state and publish_health republishes it every cycle, but no
+  # discovery config was ever emitted — so HA users had to hand-configure the
+  # entity. dev_cla:motion + the default ON/OFF payloads match what we publish.
+  motion_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/motion/state")"
+  motion_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/motion/config"
+  motion_cfg_payload="$(printf '{"name":"%s Motion","uniq_id":"%s_motion","stat_t":"%s","dev_cla":"motion","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$motion_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$motion_cfg_topic" "$motion_cfg_payload"
 
   # Switches (Interactive Toggles)
   for cmd in ir_led front_led red_led motion_detection privacy_shield; do
