@@ -144,7 +144,10 @@
   });
 
   function getCsrfToken() {
-    if (typeof csrfToken !== 'undefined' && csrfToken) return csrfToken;
+    // The token lives in index.js's IIFE scope; read it via the exported getter.
+    // (The old `typeof csrfToken` check always saw undefined here, so the
+    // X-CSRF-Token header was always empty and restore/import failed.)
+    if (typeof window.getCsrfToken === 'function') return window.getCsrfToken() || '';
     return '';
   }
 

@@ -13,12 +13,24 @@ function saveCamControls() {
     submit.disabled = true;
   }
 
-  fetch("cgi-bin/camcontrols.cgi", {
+  // Use csrfFetch so the X-CSRF-Token header is attached — camcontrols.cgi
+  // enforces CSRF on `setsettings`, so a plain fetch was rejected with 403.
+  var doFetch = (window.EliteUI && window.EliteUI.csrfFetch) ? window.EliteUI.csrfFetch : fetch;
+  doFetch("cgi-bin/camcontrols.cgi", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: "cmd=setsettings&controls=" + encodeURIComponent(enabled.join(" ")),
   })
-    .then(function () {
+    .then(function (r) {
+      // Check r.ok — previously any HTTP error (403/500) still fell through to
+      // updateCameraControls and the UI silently reported success.
+      if (!r || !r.ok) {
+        if (window.showResult) {
+          window.showResult("Failed to save camera controls" + (r ? " (" + r.status + ")" : ""), "is-danger");
+        }
+        return;
+      }
+      if (window.showResult) { window.showResult("Camera controls saved", "is-success"); }
       if (window.updateCameraControls) {
         try {
           window.updateCameraControls();
@@ -29,6 +41,7 @@ function saveCamControls() {
     })
     .catch(function (e) {
       console.error(e);
+      if (window.showResult) { window.showResult("Error saving camera controls", "is-danger"); }
     })
     .finally(function () {
       if (submit) {

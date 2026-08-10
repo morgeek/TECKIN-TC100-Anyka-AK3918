@@ -89,19 +89,19 @@ do
 
   value="$(urldecode "${raw_value}")"
 
-  # escape characters that could lead to evaluation during eval
+  # Escape only the four characters that can break out of the double-quoted
+  # eval string below: backslash, double-quote, backtick, dollar. With those
+  # neutralized the eval is safe, so ; | & ( ) < > need NO escaping — they are
+  # literal inside double quotes. The former "surgical hardening" block escaped
+  # those seven too, which (since a backslash before them is not a valid escape
+  # inside double quotes) inserted LITERAL backslashes into the value: a
+  # password like "MyP@ss(2026)" was stored as "MyP@ss\(2026\)", locking the
+  # user out of FTP/Telnet/RTSP and corrupting OSD text, hostnames and MQTT
+  # credentials. Removed.
   esc_value="${value//\\/\\\\}"
   esc_value="${esc_value//\"/\\\"}"
   esc_value="${esc_value//\`/\\\`}"
   esc_value="${esc_value//\$/\\\$}"
-  # surgical hardening: escape characters that enable command chaining/redirection
-  esc_value="${esc_value//;/\\;}"
-  esc_value="${esc_value//|/\\|}"
-  esc_value="${esc_value//&/\\&}"
-  esc_value="${esc_value//(/\\(}"
-  esc_value="${esc_value//)/\\)}"
-  esc_value="${esc_value//</\\<}"
-  esc_value="${esc_value//>/\\>}"
 
   # assign to F_<name> variable (name already validated)
   eval "F_${name}=\"${esc_value}\""
@@ -170,6 +170,31 @@ json_error() {
 
   printf '{"ok":false,"data":null,"error":"%s","code":"%s","timestamp":%d}\n' \
     "$(json_escape "$error_message")" "$error_code" "$timestamp"
+}
+
+# Body-only JSON helpers — emit ONLY the JSON object, no HTTP headers.
+# Use these in CGIs that have ALREADY emitted their own Content-type/blank-line
+# header block (e.g. action.cgi lines 20-27). Calling json_response/json_error
+# there emits a SECOND header block that lands inside the response body and, for
+# json_response, also produced invalid JSON (bareword data + the human message
+# in the Status line). These helpers fix both by writing a well-formed body only.
+#
+# json_body_ok   <message>
+# json_body_err  <code> <message>
+json_body_ok() {
+  _jbo_btime=0 _jbo_up=""
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _jbo_btime="$_v" && break; done < /proc/stat
+  read -r _jbo_up _ < /proc/uptime 2>/dev/null || true
+  printf '{"ok":true,"data":null,"message":"%s","error":null,"code":"%s","timestamp":%d}\n' \
+    "$(json_escape "$1")" "$JSON_OK" "$((_jbo_btime + ${_jbo_up%.*}))"
+}
+
+json_body_err() {
+  _jbe_btime=0 _jbe_up=""
+  while read -r _k _v _; do [ "$_k" = "btime" ] && _jbe_btime="$_v" && break; done < /proc/stat
+  read -r _jbe_up _ < /proc/uptime 2>/dev/null || true
+  printf '{"ok":false,"data":null,"message":null,"error":"%s","code":"%s","timestamp":%d}\n' \
+    "$(json_escape "$2")" "${1:-$JSON_ERROR_SERVER_ERROR}" "$((_jbe_btime + ${_jbe_up%.*}))"
 }
 
 # Check if client requested JSON format

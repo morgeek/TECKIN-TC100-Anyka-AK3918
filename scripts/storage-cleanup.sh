@@ -22,7 +22,8 @@ done
 
 CONFIGPATH="/mnt/config"
 LOGPATH="/tmp/log/storage-cleanup.log"
-LOGMAX="${STORAGE_CLEANUP_LOG_MAX_BYTES:-65536}"
+# LOGMAX is assigned AFTER boot.conf is sourced (below); assigning it here would
+# lock in the default before the operator's STORAGE_CLEANUP_LOG_MAX_BYTES is read.
 
 _sc_log() {
     if [ ! -d /tmp/log ]; then
@@ -54,6 +55,9 @@ STORAGE_CLEANUP_ENABLE="${STORAGE_CLEANUP_ENABLE:-0}"
 STORAGE_CLEANUP_THRESHOLD="${STORAGE_CLEANUP_THRESHOLD:-90}"
 STORAGE_CLEANUP_TARGET="${STORAGE_CLEANUP_TARGET:-85}"
 STORAGE_CLEANUP_DCIM_PATH="${STORAGE_CLEANUP_DCIM_PATH:-/mnt/DCIM}"
+# Now that boot.conf has been sourced, honor the operator's log-size tunable.
+LOGMAX="${STORAGE_CLEANUP_LOG_MAX_BYTES:-65536}"
+case "$LOGMAX" in ''|*[!0-9]*) LOGMAX=65536 ;; esac
 
 case "$STORAGE_CLEANUP_ENABLE" in
     1|true|yes|on|enable|enabled) ;;
@@ -121,9 +125,13 @@ while true; do
     target_path="$STORAGE_CLEANUP_DCIM_PATH/$oldest"
 
     # Skip entries modified within the last minute — likely still being written to.
+    # `oldest` is the entry with the OLDEST mtime, so if IT is recent then every
+    # remaining entry is too. Break instead of `continue`: continuing would re-pick
+    # the same oldest entry every round and spin all 100 rounds (df+ls+find forks)
+    # deleting nothing on a 400MHz core.
     if [ -n "$(find "$target_path" -maxdepth 0 -mmin -1 2>/dev/null)" ]; then
-      _sc_log "SKIP: $target_path modified recently, may be active — skipping"
-      continue
+      _sc_log "SKIP: oldest entry $target_path modified recently — nothing safe to delete yet"
+      break
     fi
 
     if [ -d "$target_path" ]; then
