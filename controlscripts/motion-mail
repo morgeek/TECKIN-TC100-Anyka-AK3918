@@ -10,7 +10,7 @@ install_config $CONFIGPATH
 status()
 {
   . $CONFIGPATH 2> /dev/null
-  if [ "$sendemail" == "true" ]; then
+  if [ "$sendemail" = "true" ]; then
     echo "PID: OK" 
   fi
 }

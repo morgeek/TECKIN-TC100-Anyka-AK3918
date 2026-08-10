@@ -94,7 +94,7 @@ publish_sound_event()
     publish_mqtt_event "{\"type\":\"sound\",\"ts\":$now_ts,\"level\":$level,\"threshold\":$threshold}"
 
     # Trigger recording if enabled.
-    if [ "$(read_config /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
+    if [ "$(read_kv_config_value /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
         touch /tmp/motion_detected
     fi
 }
@@ -129,14 +129,14 @@ run_daemon()
     min_interval="$(clamp_int "$MIN_INTERVAL_SECONDS" 1 30)"
 
     while :; do
-        enable="$(read_config "$CONFIG_FILE" ENABLE 0)"
+        enable="$(read_kv_config_value "$CONFIG_FILE" ENABLE 0)"
         if [ "$enable" != "1" ]; then
             sleep 10
             continue
         fi
 
-        threshold="$(clamp_int "$(read_config "$CONFIG_FILE" THRESHOLD 1500)" 100 10000)"
-        interval="$(clamp_int "$(read_config "$CONFIG_FILE" INTERVAL 5)" "$min_interval" 300)"
+        threshold="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" THRESHOLD 1500)" 100 10000)"
+        interval="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" INTERVAL 5)" "$min_interval" 300)"
         level="$(read_level "$threshold")"
 
         printf '%s\n' "$level" > "$STATE_FILE"
