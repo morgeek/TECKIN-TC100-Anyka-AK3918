@@ -1,5 +1,5 @@
 #!/bin/sh
-source ./func.cgi
+. /mnt/www/cgi-bin/func.cgi
 
 # Ensure temp files are cleaned up on exit/interrupt. The allstates cache is
 # intentionally NOT removed here — it's supposed to survive across requests

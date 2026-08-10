@@ -1,7 +1,7 @@
 #!/bin/sh
 
-source ./func.cgi
-source /mnt/scripts/common_functions.sh
+. /mnt/www/cgi-bin/func.cgi
+. /mnt/scripts/common_functions.sh
 
 now_epoch_safe() {
   # Prefer pure /proc arithmetic (btime + uptime) — no process fork
