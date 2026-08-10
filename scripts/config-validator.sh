@@ -53,7 +53,7 @@ if [ -f "$CONFIGPATH/boot.conf" ]; then
   # shellcheck disable=SC1090
   . "$CONFIGPATH/boot.conf"
 
-  check_enum  "WEB_MODE"                    "${WEB_MODE:-full}"         full http ultra-lite
+  check_enum  "WEB_MODE"                    "${WEB_MODE:-full}"         full http ultra-lite off
   check_int   "REBOOT_SCHEDULE_HOUR"        "${REBOOT_SCHEDULE_HOUR:-3}"        0  23
   check_int   "STORAGE_CLEANUP_THRESHOLD"   "${STORAGE_CLEANUP_THRESHOLD:-90}"  1  99
   check_int   "STORAGE_CLEANUP_TARGET"      "${STORAGE_CLEANUP_TARGET:-85}"     1  99
