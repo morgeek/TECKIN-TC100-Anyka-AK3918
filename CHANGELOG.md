@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.6.2] — 2026-08-11
+
+Closes the last MQTT gap: Home Assistant can now **control** the camera, not just
+watch it. Everything below is verified on both live cameras.
+
+### Added
+- **Forged SUBSCRIBE — inbound HA → camera commands work.** `subscribe_once_command()`
+  now builds the MQTT 3.1.1 CONNECT + SUBSCRIBE frames in shell, pipes them to
+  `nc`, and decodes the reply stream (read as decimal bytes via `od -An -tu1`,
+  since busybox awk has no `strtonum()`). Verified end-to-end: publishing
+  `{"cmd":"front_led","value":"on"}` yields
+  `{"command":"front_led","status":"applied","ok":1,"source":"mqtt"}` on
+  `<root>/command/result`, on both cameras independently.
+  - Beyond the feature, this **frees CPU**: the old curl path failed on every
+    attempt (`rc=28`), leaving a hung 10 s process every ~32 s, forever.
+  - The curl implementation is kept as `subscribe_once_command_curl()` and stays
+    reachable via `MQTT_FORGE_SUBSCRIBE=0` — disabled, not deleted.
+
+### Fixed
+- **Cameras listened on a shared command topic (regression from 1.6.1).** 1.6.1
+  derived `MQTT_CLIENT_ID` and `MQTT_TOPIC_ROOT` from the hostname, but
+  `MQTT_TOPIC_COMMAND` is written out explicitly in `mqtt.conf`, so it stayed at
+  `teckin/tc100/command`: each camera published under its own root while every
+  camera listened on the *same* topic — the exact collision 1.6.1 set out to fix.
+  The command topic is now re-derived alongside the root whenever it still matches
+  a shipped default; a genuinely custom topic is preserved.
+- **`is_truthy` was out of scope in `mqtt-bridge.sh`.** The bridge's helper is
+  `is_truthy_local`; `is_truthy` only exists in `autorun.sh`. Calling it failed
+  silently and always took the fallback branch — the same "call something that
+  isn't there, fail quietly" pattern as the `tr` family of bugs.
+
+### Changed
+- **HA "Live" camera entity is off by default** (`MQTT_HA_CAMERA_ENTITY_ENABLE=0`).
+  Its discovery config points at `snapshot/last_path`, which carries a filesystem
+  *path*, while HA's MQTT camera platform expects the image *bytes* — the entity
+  could never render. Publishing the JPEG over MQTT instead would cost tens of KB
+  per snapshot on a 33 MB device, so the supported route stays RTSP/go2rtc. The
+  entity is disabled, not removed: set the flag to `1` to publish it again.
+
+### Notes
+- Command delivery is polled in ~12 s windows, so a QoS 0 message published
+  between windows is missed. Publish **retained** for guaranteed delivery, then
+  clear the retained value so the command is not replayed on the next subscribe.
+
+---
+
 ## [1.6.1] — 2026-08-11
 
 Multi-camera follow-up to 1.6.0's MQTT publishing: two cameras seeded from the
