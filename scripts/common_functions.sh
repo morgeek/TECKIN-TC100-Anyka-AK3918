@@ -3,6 +3,14 @@
 # This file is supposed to bundle some frequently used functions
 # so they can be easily improved in one place and be reused all over the place
 
+# tr(1) shim — same as func.cgi's. The camera's busybox carries the tr applet
+# but ships no symlink for it, so a bare `tr` exits 127 and yields "" inside
+# $(...): silent data corruption, not an error. Daemons sourcing this file get
+# working tr calls; standalone scripts must define their own or avoid tr.
+if ! command -v tr >/dev/null 2>&1; then
+    tr() { busybox tr "$@"; }
+fi
+
 BUSYBOX_BIN=""
 
 _CF_BTIME=0

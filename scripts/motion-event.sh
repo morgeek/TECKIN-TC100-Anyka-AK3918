@@ -45,7 +45,8 @@ sanitize_field()
   case "$1" in
     *'|'*|*'
 '*)
-      printf '%s' "$1" | tr '\r\n' '  ' | sed 's/|/%7C/g'
+      # awk instead of tr (absent on camera): join lines, blank CRs, escape |
+      printf '%s' "$1" | awk 'NR > 1 { printf " " } { gsub(/\r/, " "); gsub(/\|/, "%7C"); printf "%s", $0 }'
       ;;
     *)
       printf '%s' "$1"
