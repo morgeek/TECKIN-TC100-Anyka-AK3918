@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.6.1** — *Frigate & Home Assistant Edition*
+**Version 1.6.2** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -31,8 +31,11 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 ### Home Assistant / Frigate
 - `INTEGRATION_PROFILE=frigate_ha` trims autostart to only what Frigate needs.
 - MQTT bridge with structured telemetry, motion events, and HA MQTT discovery.
-  Packets are forged in shell and sent via `nc` — the platform `curl` sends
-  SUBSCRIBE instead of PUBLISH, so it cannot publish (see [Known issues](#known-issues)).
+  Both directions are forged in shell and piped to `nc` — the platform `curl`
+  cannot do MQTT on this firmware.
+- **Two-way control**: HA can drive the camera (LEDs, profile, snapshot, motion
+  toggle…) by publishing to `<topic-root>/command`; results come back on
+  `<topic-root>/command/result` and `.../last_result` (retained).
 - **Per-camera identity from the hostname.** When `MQTT_CLIENT_ID` / `MQTT_TOPIC_ROOT`
   are left at their defaults, the bridge derives them from a slug of the hostname
   (`IPCAMERA1` → topic root `ipcamera1`, HA device `IPCAMERA1`). Give each camera a
@@ -40,8 +43,10 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 - Firmware version is reported on the HA device page (`sw` in the discovery device block).
 - Integration manifest via `state.cgi?cmd=integrationmanifest` (ready-to-paste Frigate YAML).
 - Service watchdog with auto-restart, backoff, and MQTT alerts.
-- *Inbound* commands (HA → camera) are not yet functional: the SUBSCRIBE path still
-  uses `curl` and times out. Camera → HA (discovery, telemetry, availability) works.
+- Commands are polled in windows (~12 s of listening per cycle), so a QoS 0
+  message published while the camera is between windows is not seen. Publish
+  commands **retained** for guaranteed delivery, and clear the retained value
+  afterwards so the command is not replayed on the next subscribe.
 
 ### Security & Privacy
 - HTTPS (self-signed) — required for PTT mic API.
@@ -155,7 +160,9 @@ verified on two live cameras. Kept here for the record; see `CHANGELOG.md` for d
 
 | Symptom | Cause | Status |
 |---------|-------|--------|
-| Inbound HA → camera commands time out | the SUBSCRIBE path still uses `curl`, which can't do MQTT on this device; only the publish path was reforged | **Open** |
+| HA "Live" camera entity shows nothing | it points at `snapshot/last_path`, a file PATH, while HA's MQTT camera expects image BYTES. Entity now off by default (`MQTT_HA_CAMERA_ENTITY_ENABLE=1` to re-enable); use the RTSP/go2rtc stream instead | Disabled 1.6.2 |
+| Inbound HA → camera commands time out | the SUBSCRIBE path used `curl`, which can't do MQTT here; it is now forged like the publish path | Fixed 1.6.2 |
+| Cameras listened on a shared command topic | 1.6.1 re-derived the topic root but left `MQTT_TOPIC_COMMAND` at its written-out default, so every camera received every camera's commands | Fixed 1.6.2 |
 | Two cameras merged into one HA device | shared default `MQTT_CLIENT_ID` / topic root; identity now derives from the hostname | Fixed 1.6.1 |
 | Firmware version not shown in HA | discovery device block now carries `sw` from `/mnt/VERSION` | Fixed 1.6.1 |
 | Config import silently did nothing | `conf-import.cgi` used bare `tr -d '\r'` with no shim — emptied the upload | Fixed 1.6.1 |
