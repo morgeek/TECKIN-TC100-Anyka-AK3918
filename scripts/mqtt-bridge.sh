@@ -818,23 +818,23 @@ publish_homeassistant_discovery()
   # --- Sensors (CPU, RAM, Temp, Power) ---
   
   cpu_cfg_topic="${discovery_prefix}/sensor/${node_id}/cpu/config"
-  cpu_cfg_payload="$(printf '{"name":"%s CPU","uniq_id":"%s_cpu","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.cpu }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:chip","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918","sw":"%s"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json" "$sw_json")"
+  cpu_cfg_payload="$(printf '{"name":"%s CPU","uniq_id":"%s_cpu","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.cpu }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:chip","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918","sw":"%s"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json" "$sw_json")"
   publish_discovery_config "$cpu_cfg_topic" "$cpu_cfg_payload"
 
   ram_cfg_topic="${discovery_prefix}/sensor/${node_id}/ram/config"
-  ram_cfg_payload="$(printf '{"name":"%s RAM","uniq_id":"%s_ram","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.ram_percent }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:memory","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  ram_cfg_payload="$(printf '{"name":"%s RAM","uniq_id":"%s_ram","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.ram_percent }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:memory","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$ram_cfg_topic" "$ram_cfg_payload"
 
   temp_cfg_topic="${discovery_prefix}/sensor/${node_id}/chip_temp/config"
-  temp_cfg_payload="$(printf '{"name":"%s Chip Temp","uniq_id":"%s_chip_temp","stat_t":"%s","unit_of_meas":"°C","dev_cla":"temperature","stat_cla":"measurement","val_tpl":"{{ value_json.chip_temp_c if value_json.chip_temp_c is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:thermometer","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  temp_cfg_payload="$(printf '{"name":"%s Chip Temp","uniq_id":"%s_chip_temp","stat_t":"%s","unit_of_meas":"°C","dev_cla":"temperature","stat_cla":"measurement","val_tpl":"{{ value_json.chip_temp_c if value_json.chip_temp_c is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:thermometer","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$temp_cfg_topic" "$temp_cfg_payload"
 
   power_cfg_topic="${discovery_prefix}/sensor/${node_id}/power_draw/config"
-  power_cfg_payload="$(printf '{"name":"%s Power Draw","uniq_id":"%s_power","stat_t":"%s","unit_of_meas":"W","dev_cla":"power","stat_cla":"measurement","val_tpl":"{{ (value_json.power_estimated_mw | float(0) / 1000) | round(2) if value_json.power_estimated_mw is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:flash","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  power_cfg_payload="$(printf '{"name":"%s Power Draw","uniq_id":"%s_power","stat_t":"%s","unit_of_meas":"W","dev_cla":"power","stat_cla":"measurement","val_tpl":"{{ (value_json.power_estimated_mw | float(0) / 1000) | round(2) if value_json.power_estimated_mw is number else none }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:flash","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$power_cfg_topic" "$power_cfg_payload"
 
   uptime_cfg_topic="${discovery_prefix}/sensor/${node_id}/uptime/config"
-  uptime_cfg_payload="$(printf '{"name":"%s Uptime","uniq_id":"%s_uptime","stat_t":"%s","unit_of_meas":"s","dev_cla":"duration","stat_cla":"measurement","val_tpl":"{{ value_json.uptime_seconds }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  uptime_cfg_payload="$(printf '{"name":"%s Uptime","uniq_id":"%s_uptime","stat_t":"%s","unit_of_meas":"s","dev_cla":"duration","stat_cla":"measurement","val_tpl":"{{ value_json.uptime_seconds }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$uptime_cfg_topic" "$uptime_cfg_payload"
 
   # --- Elite Integration Entities ---
@@ -850,7 +850,7 @@ publish_homeassistant_discovery()
   # presence made HA reject the whole payload, so the camera entity never
   # registered. Removed. The MQTT camera shows the last snapshot JPEG path; for
   # a live RTSP feed use the go2rtc/Frigate config from state.cgi?cmd=frigateyaml.
-  camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/last_path" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/last_path" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   # Off by default: snapshot/last_path carries a filesystem PATH, but HA's MQTT
   # camera platform expects the image BYTES — the entity can never render. Set
   # MQTT_HA_CAMERA_ENTITY_ENABLE=1 to publish it anyway. Streaming the JPEG over
@@ -866,7 +866,7 @@ publish_homeassistant_discovery()
   # entity. dev_cla:motion + the default ON/OFF payloads match what we publish.
   motion_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/motion/state")"
   motion_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/motion/config"
-  motion_cfg_payload="$(printf '{"name":"%s Motion","uniq_id":"%s_motion","stat_t":"%s","dev_cla":"motion","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$motion_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  motion_cfg_payload="$(printf '{"name":"%s Motion","uniq_id":"%s_motion","stat_t":"%s","dev_cla":"motion","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$motion_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$motion_cfg_topic" "$motion_cfg_payload"
 
   # Switches (Interactive Toggles)
@@ -896,25 +896,25 @@ publish_homeassistant_discovery()
     [ "$cmd" = "privacy_shield" ] && stat_field="privacy_mode"
 
     switch_cfg_topic="${discovery_prefix}/switch/${node_id}/${cmd}/config"
-    switch_cfg_payload="$(printf '{"name":"%s %s","uniq_id":"%s","stat_t":"%s","val_tpl":"{{ \"ON\" if value_json.%s == 1 else \"OFF\" }}","cmd_t":"%s","pl_on":"{\"cmd\":\"%s\",\"value\":\"on\"}","pl_off":"{\"cmd\":\"%s\",\"value\":\"off\"}","avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$name_suffix" "$uniq_id" "$health_topic_json" "$stat_field" "$cmd_json" "$cmd" "$cmd" "$avail_topic_json" "$ic" "$device_id_json" "$device_name_json")"
+    switch_cfg_payload="$(printf '{"name":"%s %s","uniq_id":"%s","stat_t":"%s","val_tpl":"{{ \"ON\" if value_json.%s == 1 else \"OFF\" }}","cmd_t":"%s","pl_on":"{\"cmd\":\"%s\",\"value\":\"on\"}","pl_off":"{\"cmd\":\"%s\",\"value\":\"off\"}","avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$name_suffix" "$uniq_id" "$health_topic_json" "$stat_field" "$cmd_json" "$cmd" "$cmd" "$avail_topic_json" "$ic" "$device_id_json" "$device_name_json")"
     publish_discovery_config "$switch_cfg_topic" "$switch_cfg_payload"
   done
 
   # Maintenance Entities (Buttons/Select)
   reboot_btn_topic="${discovery_prefix}/button/${node_id}/reboot/config"
-  reboot_btn_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","payload_press":"{\"cmd\":\"reboot\"}","avty_t":"%s","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  reboot_btn_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","payload_press":"{\"cmd\":\"reboot\"}","avty_t":"%s","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$reboot_btn_topic" "$reboot_btn_payload"
 
   snapshot_btn_topic="${discovery_prefix}/button/${node_id}/snapshot/config"
-  snapshot_btn_payload="$(printf '{"name":"%s Take Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","payload_press":"{\"cmd\":\"snapshot\"}","avty_t":"%s","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  snapshot_btn_payload="$(printf '{"name":"%s Take Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","payload_press":"{\"cmd\":\"snapshot\"}","avty_t":"%s","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$snapshot_btn_topic" "$snapshot_btn_payload"
 
   update_cfg_topic="${discovery_prefix}/update/${node_id}/firmware/config"
-  update_cfg_payload="$(printf '{"name":"%s Firmware","uniq_id":"%s_update","stat_t":"%s","val_tpl":"{{ value_json.update_status if value_json.update_status is defined else \"none\" }}","cmd_t":"%s","pl_inst":"{\"cmd\":\"update_install\"}","avty_t":"%s","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/update/state" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  update_cfg_payload="$(printf '{"name":"%s Firmware","uniq_id":"%s_update","stat_t":"%s","val_tpl":"{{ value_json.update_status if value_json.update_status is defined else \"none\" }}","cmd_t":"%s","pl_inst":"{\"cmd\":\"update_install\"}","avty_t":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/update/state" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$update_cfg_topic" "$update_cfg_payload"
 
   profile_select_cfg_topic="${discovery_prefix}/select/${node_id}/profile/config"
-  profile_select_cfg_payload="$(printf '{"name":"%s Profile Preset","uniq_id":"%s_profile_select","cmd_t":"%s","stat_t":"%s","options":["balanced","low-cpu","rtsp-only"],"val_tpl":"{{ value_json.perfprofile }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune-variant","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_profile_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  profile_select_cfg_payload="$(printf '{"name":"%s Profile Preset","uniq_id":"%s_profile_select","cmd_t":"%s","stat_t":"%s","options":["balanced","low-cpu","rtsp-only"],"val_tpl":"{{ value_json.perfprofile }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune-variant","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_profile_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$profile_select_cfg_topic" "$profile_select_cfg_payload"
 }
 
