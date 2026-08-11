@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.3.0** — *Frigate & Home Assistant Edition*
+**Version 1.4.0** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -108,6 +108,35 @@ Key endpoints:
 | `wizard.cgi` | First-boot setup wizard |
 | `conf-export.cgi` | Download config backup |
 | `conf-import.cgi` | Upload and apply config backup |
+
+---
+
+## Known issues
+
+Verified on a live TC100 (firmware v1.3.0, August 2026). See `CHANGELOG.md` for detail.
+
+| Symptom | Cause | Status |
+|---------|-------|--------|
+| MQTT never reaches the broker | `curl --upload-file` sends `SUBSCRIBE` instead of `PUBLISH` on curl 8.1.2 for this platform — needs a different publish mechanism | **Open** |
+| Dashboard buttons fail with 403 | `csrf_guard()` filtered tokens through `tr`, absent on the device — both sides collapsed to empty | Fixed (unreleased) |
+| `health.cgi` output rejected by parsers | `/proc/meminfo` values pad with multiple spaces; only one was stripped, so `mem_total_kb` came out empty | Fixed (unreleased) |
+| First-boot wizard stuck on "Réessayer" | Same missing `tr` broke POST body parsing | Fixed (unreleased) |
+
+### Platform constraint: `tr(1)` is not available
+
+The camera's busybox includes the `tr` applet but ships no symlink for it, and `/mnt/bin` is not on the CGI `PATH`
+(`/sbin:/usr/sbin:/bin:/usr/bin`). Any `tr` invocation fails with `tr: not found` (exit 127) and, in a command
+substitution, silently yields an empty string — so the failure surfaces as bad data rather than an error.
+
+`awk`, `sed`, `cut`, `grep`, `head`, `sort` and `od` are all present. Use `awk` for character filtering
+(`gsub(/[^…]/, "")` replaces `tr -cd`) and for field splitting (`BEGIN { RS = "&" }` replaces `tr '&' '\n'`).
+
+CGIs that source `func.cgi` (19 of them) get a `tr()` shell function that falls back to `busybox tr`, so existing
+`tr` calls there work. Standalone scripts — daemons in `scripts/`, `controlscripts/`, and `wizard.cgi`, which does
+not source `func.cgi` — must avoid `tr` themselves.
+
+When testing a `health.cgi` change, clear `/tmp/health_snapshot.cache` first: responses are cached for 45 s and a
+stale entry looks exactly like a fix that did not take.
 
 ---
 

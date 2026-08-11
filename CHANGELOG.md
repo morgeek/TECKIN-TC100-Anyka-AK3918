@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.0] — 2026-08-11
+
+Minor rather than patch: the theme toggle goes from inert to functional, which is
+a visible behaviour change. Everything else here is a fix for a defect that made
+a shipped 1.3.0 feature unusable on real hardware.
+
+### Changed
+- **Theme switching now actually works, and the dark palette matches the wizard.** `index.html` had a working toggle writing `data-theme` to `<html>` and persisting it, but `ui-modern.css` keyed its dark rules off `@media (prefers-color-scheme: dark)` and contained zero `[data-theme]` selectors — so pressing the toggle only swapped the icon. The three media blocks are now `:root[data-theme="dark"]` rules (56 selectors), the theme is resolved in JS (stored choice, else OS preference) and stamped in `<head>` before any stylesheet so no light frame paints, and the dark palette was remapped from its blue tones to the wizard's violet/indigo: background `#0d0f1a`, surfaces `#131624`, text `#e2e8f0`, accent `#6d58f5`. Only `index.html` needed the change — the other five HTML files are fragments injected into it and inherit the attribute.
+  - `--ui-muted` is `#8a93a6` rather than the wizard's `#6b7280`: the wizard uses it for short card descriptions, but the dashboard uses it for table headers and dense rows, where `#6b7280` on `#0d0f1a` sits at the edge of the 4.5:1 contrast floor.
+
+### Fixed
+- **`action.cgi` `wifi_get_ssid` returned an empty SSID.** It read `/mnt/config/wpa_supplicant.conf`, a path that need not exist — this camera carries no `wpa_supplicant.conf` at all, the credentials live in flash. It now queries the interface first (`wpa_cli -i wlan0 status`, then `iwconfig wlan0`), falling back to the config files. Only the `ssid=` line is taken: `wpa_cli status` also prints `passphrase=` in the clear.
+- **`action.cgi` `wifi_set_config` wrote to a file nothing reads.** It wrote `/mnt/config/wpa_supplicant.conf` and then called `wpa_cli reconfigure`, but `autorun.sh` starts `wpa_supplicant -c /mnt/wpa_supplicant.conf` — so the reconnect re-read the old file and the new credentials were used neither immediately nor at the next boot. Both commands now share a `WIFI_CONFIG_PATH` constant pinned to `autorun.sh`'s path.
+- **`wizard.cgi` — the first-boot wizard could never complete on real hardware.** `get_field()` split the POST body with `tr '&' '\n'`, but `tr(1)` does not exist on the camera: busybox carries the applet without shipping a symlink for it, and `/mnt/bin` is not on the CGI `PATH` (`/sbin:/usr/sbin:/bin:/usr/bin`). Every field parsed as empty, so the handler always returned `{"ok":false,"error":"missing_params"}` and the UI showed only a bare "Réessayer" button. Splitting is now done with awk's record separator (`RS="&"`).
+- **`wizard.cgi` — MQTT field sanitizers replaced.** The four `tr -cd` filters added in 1.3.0 were dead for the same reason; they now use `awk gsub()` with the equivalent negated character classes.
+
+- **`func.cgi` — the dashboard was read-only: every mutating request returned 403.** `csrf_guard()` filtered both the stored token and the `X-CSRF-Token` header through `tr -cd` (lines 302, 322). Both sides collapsed to an empty string, the stored token was regenerated on each call, and the comparison could never match; `state.cgi` handed the browser an empty `csrf_token` for the same reason. Rather than patch each call site, a `tr()` shell function now routes to `busybox tr` when no `tr` binary is on `PATH`. It is defined at the top of `func.cgi`, which all 19 CGIs source, so every `tr` call in the CGI layer is repaired at once — including the WiFi SSID/PSK filters in `action.cgi` (lines 3176–3177), which silently blanked both fields.
+- **`health.cgi` — emitted invalid JSON.** `/proc/meminfo` pads its values with several spaces, but line 62 stripped only one (`${_mv# }`), so `${_mv%% *}` yielded an empty string and the output contained `"mem_total_kb":,`. Values are now taken by word-splitting, which is padding-agnostic. Note `mem_avail_kb` legitimately reports `0`: this kernel's `/proc/meminfo` has no `MemAvailable` line.
+
+### Known issues — verified on hardware, not yet fixed
+
+- **`mqtt-bridge.sh` — no message is ever published.** `mqtt_publish_raw()` publishes with `curl --upload-file`, but curl 8.1.2 on this device sends `CONNECT` followed by `SUBSCRIBE`, never `PUBLISH` — confirmed against an instrumented broker, with both a stdin pipe and a real file, with and without credentials. The bridge's `rc=28` timeouts are this, not a broker or credential problem. Fixing it means replacing the publish mechanism, not tuning the config.
+- `conf-import.cgi` and `configeditor.cgi` also call `tr`; they source `func.cgi` so the shim covers them, but their code paths have not been exercised on hardware.
+
+### Tooling notes
+- `tools/deploy-full.sh` — three defects hit during a live deploy: it overwrites binaries without stopping the daemons using them (`ETXTBSY`, which killed lighttpd mid-deploy), its `health.cgi` probe sends no credentials so it always reads the 401 body as a failure, and piping the script into `tail` masks its exit code. A caller that checks `$?` on the pipeline sees `0` for a failed deploy.
+- Camera-side backups pulled by that script (`backup-<ip>-<timestamp>/`) are now git-ignored.
+
+---
+
 ## [1.3.0] — 2026-06-25
 
 ### Added

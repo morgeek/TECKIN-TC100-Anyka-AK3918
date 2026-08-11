@@ -9,6 +9,9 @@ log/*.log
 
 # Local host-side backup snapshots
 backup/package-upgrades/
+# Pre-deploy camera snapshots pulled over FTP by tools/deploy-full.sh
+# (backup-<camera-ip>-<timestamp>/). Device state, never source.
+backup-*/
 
 # Accidental local symlink; runtime script recreates this on camera when needed
 lib/libcurl.so.4
