@@ -244,10 +244,12 @@ load_conf_file() {
   while IFS='=' read -r _lcf_k _lcf_v; do
     case "$_lcf_k" in
       ''|'#'*) continue ;;
+      # Malformed key: refuse it outright rather than stripping characters.
+      # Stricter for the eval below, and drops the per-line $(tr) fork that
+      # dominated this loop's cost (one exec per config key on the AK3918).
+      *[!A-Za-z0-9_]*) continue ;;
     esac
-    _lcf_k_clean="$(printf '%s' "$_lcf_k" | tr -cd 'A-Za-z0-9_')"
-    [ -n "$_lcf_k_clean" ] || continue
-    eval "C_${_lcf_k_clean}=\"\$_lcf_v\""
+    eval "C_${_lcf_k}=\"\$_lcf_v\""
   done < "$_lcf_path"
 }
 
