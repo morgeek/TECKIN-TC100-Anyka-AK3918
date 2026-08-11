@@ -21,6 +21,8 @@ The `.min.*` suffix is historical — no actual minification happens.
 ### Shell (CGI scripts and daemons)
 - POSIX sh only — no bash-isms (`[[`, `$((...))`, arrays, etc.)
 - Camera runs Busybox ash; assume no `grep -E`, use `grep -e` or `awk`
+- **`tr` does not exist on the camera** — busybox has the applet but no symlink, and `/mnt/bin` is not on the CGI `PATH`. `tr` fails with exit 127 and, inside `$(...)`, returns an empty string instead of erroring, so bugs surface as silent data loss. Use `awk` instead: `gsub(/[^…]/, "")` for `tr -cd`, `BEGIN { RS = "&" }` for `tr '&' '\n'`
+- Available: `awk`, `sed`, `cut`, `grep`, `head`, `sort`, `od`, `hexdump`, `logger`
 - CGI scripts: always print `Content-Type: application/json` header, then blank line, then JSON
 - Config files: `key=value` format (no spaces around `=`), sourced with `. /mnt/config/foo.conf`
 - Use `command -v tool` to test availability before calling optional binaries
@@ -60,3 +62,7 @@ The `.min.*` suffix is historical — no actual minification happens.
 - Motion events log to `/mnt/logs/events.log`; rotate with `tail -n 500`
 - `getimage` blocks until frame captured; timeout with `timeout 5 getimage`
 - PTT audio requires HTTPS (browser mic API) — HTTP fallback shows error
+- Deploying over FTP: never overwrite a binary while its daemon runs — the write fails with `ETXTBSY` and can leave the service dead until reboot. Stop the daemon first, or skip the file (the binaries in `bin/` rarely change between versions — compare checksums before pushing)
+- FTP login on the camera costs ~7 s per connection; pass many URLs to a single `curl` invocation so the control connection is reused (160 files: ~2 min instead of ~80)
+- `curl -I` on FTP writes its headers to **stderr**, not stdout — parse with `2>&1`
+- `SITE CHMOD` returns 500 on the camera's ftpd; harmless, since the SD card is vfat and exec bits come from the mount options
