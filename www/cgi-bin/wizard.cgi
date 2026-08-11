@@ -52,8 +52,14 @@ urldecode() {
 }
 
 # Parse one field from a URL-encoded body string.
+# tr(1) is absent on this device: busybox carries the applet but ships no
+# symlink for it, and /mnt/bin is not on the CGI PATH. Splitting on "&" is
+# therefore done with awk's record separator instead.
 get_field() {
-    printf '%s' "$1" | tr '&' '\n' | grep "^${2}=" | head -1 | cut -d= -f2-
+    printf '%s' "$1" | awk -v k="$2" '
+        BEGIN { RS = "&" }
+        index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }
+    '
 }
 
 # ── router ────────────────────────────────────────────────────────────────────
@@ -117,11 +123,11 @@ if [ "$METHOD" = "POST" ]; then
         *) echo '{"ok":false,"error":"invalid_security"}'; exit 0 ;;
     esac
 
-    # Decode and sanitize MQTT fields
-    _mqtt_host="$(urldecode "$_mqtt_host_raw" | tr -cd 'a-zA-Z0-9.:_-')"
-    _mqtt_port="$(urldecode "$_mqtt_port_raw" | tr -cd '0-9')"
-    _mqtt_user="$(urldecode "$_mqtt_user_raw" | tr -cd 'a-zA-Z0-9._@!#%^*()=+-')"
-    _mqtt_pass="$(urldecode "$_mqtt_pass_raw" | tr -cd 'a-zA-Z0-9._@!#%^*()=+-')"
+    # Decode and sanitize MQTT fields (awk, not tr -cd — see get_field above)
+    _mqtt_host="$(urldecode "$_mqtt_host_raw" | awk '{ gsub(/[^a-zA-Z0-9.:_-]/, ""); print }')"
+    _mqtt_port="$(urldecode "$_mqtt_port_raw" | awk '{ gsub(/[^0-9]/, ""); print }')"
+    _mqtt_user="$(urldecode "$_mqtt_user_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*()=+-]/, ""); print }')"
+    _mqtt_pass="$(urldecode "$_mqtt_pass_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*()=+-]/, ""); print }')"
 
     case "$_mqtt_port" in
         ''|*[!0-9]*) _mqtt_port=1883 ;;
