@@ -59,7 +59,13 @@ probe_service() {
 # System stats
 _memtotal=0; _memfree=0; _memavail=0
 while IFS=: read -r _mk _mv _mu; do
-  _mv="${_mv# }"; _mv="${_mv%% *}"
+  # /proc/meminfo pads values with several spaces ("MemTotal:      61234 kB").
+  # "${_mv# }" strips only one of them, so "${_mv%% *}" then cut at the next
+  # remaining space and yielded "" — emitting `"mem_total_kb":,` and invalid
+  # JSON. Word-splitting takes the first field whatever the padding.
+  _mnum=0
+  for _mw in $_mv; do _mnum="$_mw"; break; done
+  _mv="$_mnum"
   case "$_mk" in
     MemTotal) _memtotal="$_mv" ;;
     MemFree)  _memfree="$_mv"  ;;
