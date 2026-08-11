@@ -537,6 +537,15 @@ sync_time()
     if is_truthy "$NTP_ONE_SHOT"; then
         "$BOOT_BUSYBOX" ntpd -q -n -p "$ntp_srv"
     else
+        # Step the clock ONCE, blocking, before returning — sync_time runs just
+        # before the web server starts (autorun tail). A bare `ntpd -p` forks a
+        # daemon that returns immediately and makes its first step ~30-40 s
+        # later, AFTER lighttpd is up: the jump triggers lighttpd's "clock
+        # jumped" graceful restart, dropping every open (keep-alive) connection
+        # and stamping boot-time logs with 1970 dates. Bounded so an
+        # unreachable server can't stall boot.
+        "$BOOT_BUSYBOX" timeout 15 "$BOOT_BUSYBOX" ntpd -q -n -p "$ntp_srv" 2>/dev/null
+        # Then launch the disciplining daemon for ongoing drift correction.
         "$BOOT_BUSYBOX" ntpd -p "$ntp_srv"
     fi
 }

@@ -946,14 +946,21 @@ if [ -n "$F_cmd" ]; then
         # Strip any non-hex characters for safety
         csrf_token="$(printf '%s' "$csrf_token" | tr -cd '0-9a-fA-F')"
     fi
-    # Update notifier integration
+    # Update notifier integration. Parsed with the shell, not jq: this runs on
+    # every statusline poll and each jq spawn costs ~0.3 s on the AK3918 (two
+    # calls dominated the whole request). The file is a flat one-line object
+    # written by update-check.sh, so a single read + case-match suffices.
     update_available=0
     update_latest="n/a"
     if [ -r /tmp/update_status.json ]; then
-        update_available="$(/mnt/bin/jq -r '.update_available' /tmp/update_status.json 2>/dev/null)"
-        update_latest="$(/mnt/bin/jq -r '.latest_version' /tmp/update_status.json 2>/dev/null)"
-        [ "$update_available" = "1" ] || update_available=0
-        [ -n "$update_latest" ] || update_latest="n/a"
+        read -r _upd_line < /tmp/update_status.json
+        case "$_upd_line" in *'"update_available":1'*) update_available=1 ;; esac
+        # extract latest_version="..."; strip everything around the quoted value
+        _upd_lv="${_upd_line#*\"latest_version\":\"}"
+        case "$_upd_lv" in
+          "$_upd_line") ;;                    # key absent → leave n/a
+          *) _upd_lv="${_upd_lv%%\"*}"; [ -n "$_upd_lv" ] && update_latest="$_upd_lv" ;;
+        esac
     fi
     update_latest_json="$(json_escape "$update_latest")"
 
