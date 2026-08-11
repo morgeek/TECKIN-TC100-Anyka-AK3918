@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.4.0** — *Frigate & Home Assistant Edition*
+**Version 1.5.0** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -131,9 +131,11 @@ substitution, silently yields an empty string — so the failure surfaces as bad
 `awk`, `sed`, `cut`, `grep`, `head`, `sort` and `od` are all present. Use `awk` for character filtering
 (`gsub(/[^…]/, "")` replaces `tr -cd`) and for field splitting (`BEGIN { RS = "&" }` replaces `tr '&' '\n'`).
 
-CGIs that source `func.cgi` (19 of them) get a `tr()` shell function that falls back to `busybox tr`, so existing
-`tr` calls there work. Standalone scripts — daemons in `scripts/`, `controlscripts/`, and `wizard.cgi`, which does
-not source `func.cgi` — must avoid `tr` themselves.
+CGIs that source `func.cgi` (19 of them) and daemons that source `scripts/common_functions.sh` (including
+`autorun.sh` and `mqtt-bridge.sh`) get a `tr()` shell function that falls back to `busybox tr`, so existing `tr`
+calls there work. Fully standalone scripts — e.g. `wizard.cgi`, which sources neither — must avoid `tr` themselves.
+Prefer awk regardless: the shim still pays one `busybox` exec per call, which matters in loops (see
+`load_conf_file` in `state.cgi`).
 
 When testing a `health.cgi` change, clear `/tmp/health_snapshot.cache` first: responses are cached for 45 s and a
 stale entry looks exactly like a fix that did not take.
