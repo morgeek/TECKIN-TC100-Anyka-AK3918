@@ -8,7 +8,9 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 ## Highlights
 
 - **First-boot wizard** — guided setup for profile, security, WiFi, and MQTT on a fresh SD card.
-- **Tabbed Elite Dashboard** — single-page UI (Dashboard, Video, ISP, Automation, Network, System) built on Bulma 1.0.2 with custom SVG icons.
+- **Working MQTT publishing** — the bridge forges MQTT packets and pipes them to `nc`, because this device's `curl` cannot PUBLISH. HA discovery, telemetry and availability all reach the broker.
+- **Multi-camera by hostname** — MQTT identity (client id, topic root, HA device) is derived from the hostname, so two cameras from the same image show up as two distinct devices in Home Assistant. The firmware version appears on the HA device page.
+- **Tabbed Elite Dashboard** — single-page UI (Dashboard, Video, ISP, Automation, Network, System) built on Bulma 1.0.2, with a working light/dark theme toggle.
 - **Frigate HA profile** — auto-disables unused daemons (3–6 MB RAM freed), RTSP pipeline tuned for Frigate segment ingestion, MQTT discovery for Home Assistant.
 - **Privacy Shield** — one-click Stealth Mode that severs all outbound traffic.
 - **Safety Snapshots** — save and restore known-good configuration checkpoints before tuning experiments.
@@ -29,8 +31,17 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 ### Home Assistant / Frigate
 - `INTEGRATION_PROFILE=frigate_ha` trims autostart to only what Frigate needs.
 - MQTT bridge with structured telemetry, motion events, and HA MQTT discovery.
+  Packets are forged in shell and sent via `nc` — the platform `curl` sends
+  SUBSCRIBE instead of PUBLISH, so it cannot publish (see [Known issues](#known-issues)).
+- **Per-camera identity from the hostname.** When `MQTT_CLIENT_ID` / `MQTT_TOPIC_ROOT`
+  are left at their defaults, the bridge derives them from a slug of the hostname
+  (`IPCAMERA1` → topic root `ipcamera1`, HA device `IPCAMERA1`). Give each camera a
+  unique hostname and two units stop colliding as one HA device.
+- Firmware version is reported on the HA device page (`sw` in the discovery device block).
 - Integration manifest via `state.cgi?cmd=integrationmanifest` (ready-to-paste Frigate YAML).
 - Service watchdog with auto-restart, backoff, and MQTT alerts.
+- *Inbound* commands (HA → camera) are not yet functional: the SUBSCRIBE path still
+  uses `curl` and times out. Camera → HA (discovery, telemetry, availability) works.
 
 ### Security & Privacy
 - HTTPS (self-signed) — required for PTT mic API.
@@ -41,13 +52,24 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 
 ### System Management
 - **First-boot wizard** (`/cgi-bin/wizard.cgi`) — 3 or 4 steps depending on profile.
-- **WiFi reconfiguration** — live `wpa_cli reconfigure` after applying new credentials.
+- **WiFi reconfiguration** — reads the live SSID from the interface (`wpa_cli` /
+  `iwconfig`, not a config file that may not exist), writes the credentials to the
+  path `autorun.sh` actually reads, and triggers a live `wpa_cli reconfigure`.
+- **Per-camera hostname** — set in the wizard or Network tab; drives the MQTT/HA identity.
 - **Config export/import** — `conf-export.cgi` / `conf-import.cgi` with key allowlist validation.
 - **Wizard reset** — System tab button to re-run setup from scratch.
 - Memory guard daemon — OOM prevention with configurable warn/critical/emergency thresholds.
 - Storage cleanup daemon — auto-prune recordings at configurable disk threshold.
 - Firmware update checker — semantic version comparison against remote manifest.
 - SD write preflight — checks free space and write speed before recording/timelapse.
+
+### UI & Performance
+- Light/dark theme toggle that actually re-themes the UI (keyed on `data-theme`,
+  resolved in JS, stamped before first paint so there's no light flash).
+- Tuned for the AK3918 (single core, ~33 MB RAM): fork-free service probing
+  (`scripts/health-probe.sh`), HTTP keep-alive (avoids an RSA handshake per poll),
+  NTP clock step before the web server starts (no boot-time graceful restart), and
+  a `jq`-free statusline hot path. See `docs/api.md` → *Platform & performance notes*.
 
 ### Audio
 - Two-way audio: live listen + PTT (hold-to-talk via browser mic — requires HTTPS).
@@ -76,21 +98,36 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 4. Insert card into camera and power on.
 5. Open `https://CAMERA-IP` in a browser — the first-boot wizard will appear automatically.
    - Default IP: `192.168.1.24` · Default credentials: `root` / `pass`
+   - Give each camera a **unique hostname** in the wizard — it names the HA device
+     and MQTT topic root.
+
+> Live config holding secrets (`config/mqtt.conf`, `config/user.pwd`,
+> `wpa_supplicant.conf`) is git-ignored; only the `*.dist` templates are tracked.
+> Seed your credentials into the live copies on the SD card, not into the templates.
 
 ---
 
 ## Home Assistant / Frigate Quick Start
 
 1. In the wizard (or Network tab), select profile `frigate_ha` and configure MQTT host/credentials.
-2. Restart the camera — MQTT discovery publishes entities to HA automatically.
-3. RTSP streams (the v4l2rtspserver mountpoints are `video0_unicast` /
+2. **Give the camera a unique hostname** (wizard or Network tab) — this is what
+   names its HA device and MQTT topic root. With more than one camera, use a
+   distinct name each (e.g. `IPCAMERA1`, `IPCAMERA2`), or they merge into one HA device.
+3. Restart the camera — MQTT discovery publishes entities to HA automatically, and
+   the HA device page shows the firmware version.
+4. RTSP streams (the v4l2rtspserver mountpoints are `video0_unicast` /
    `video1_unicast`, not `stream0`/`stream1`):
    - Main (recording): `rtsp://CAMERA-IP:554/video0_unicast`
    - Sub (detection): `rtsp://CAMERA-IP:554/video1_unicast`
-4. Fetch a ready-to-paste Frigate config (go2rtc restream, current Frigate
+5. Fetch a ready-to-paste Frigate config (go2rtc restream, current Frigate
    schema): `GET /cgi-bin/state.cgi?cmd=frigateyaml` (add `&redact=1` to share it
    without credentials). The raw machine-readable manifest is still available at
    `GET /cgi-bin/state.cgi?cmd=integrationmanifest`.
+
+> **Upgrading a camera that was already paired to HA?** Changing the topic root
+> (default → hostname-derived) leaves the old retained discovery behind as a ghost
+> device. Delete the stale device in HA, or clear the old
+> `homeassistant/…/<old-id>/…/config` topics with empty retained payloads.
 
 ---
 
@@ -118,15 +155,18 @@ verified on two live cameras. Kept here for the record; see `CHANGELOG.md` for d
 
 | Symptom | Cause | Status |
 |---------|-------|--------|
+| Inbound HA → camera commands time out | the SUBSCRIBE path still uses `curl`, which can't do MQTT on this device; only the publish path was reforged | **Open** |
+| Two cameras merged into one HA device | shared default `MQTT_CLIENT_ID` / topic root; identity now derives from the hostname | Fixed 1.6.1 |
+| Firmware version not shown in HA | discovery device block now carries `sw` from `/mnt/VERSION` | Fixed 1.6.1 |
+| Config import silently did nothing | `conf-import.cgi` used bare `tr -d '\r'` with no shim — emptied the upload | Fixed 1.6.1 |
 | MQTT never reached the broker | `curl --upload-file` sends `SUBSCRIBE` not `PUBLISH` on curl 8.1.2; the bridge now forges the MQTT packets and pipes them to `nc` | Fixed 1.6.0 |
 | WiFi SSID blank / reconfig ignored | read a `wpa_supplicant.conf` that need not exist; write path disagreed with `autorun.sh` | Fixed 1.5.0 |
 | Dashboard buttons fail with 403 | `csrf_guard()` filtered tokens through `tr`, absent on the device — both sides collapsed to empty | Fixed 1.4.0 |
 | `health.cgi` output rejected by parsers | `/proc/meminfo` values pad with multiple spaces; only one was stripped | Fixed 1.4.0 |
 | First-boot wizard stuck on "Réessayer" | Same missing `tr` broke POST body parsing | Fixed 1.4.0 |
 
-A CI lint (`.github/workflows/test.yml`) now fails the build on any bare `tr` in
-camera-side shell without the `busybox` shim in scope — the root cause behind
-most of the above.
+A bare `tr` in camera-side shell without the `busybox` shim in scope was the root
+cause behind most of the above — see the platform note below before adding one.
 
 ### Platform constraint: `tr(1)` is not available
 
@@ -148,43 +188,25 @@ stale entry looks exactly like a fix that did not take.
 
 ---
 
-## Development Workflow
-
-```bash
-# After any JS or CSS edit:
-npm run build:web
-
-# Verify no drift (CI gate):
-npm run check:web
-```
-
-Source lives in `frontend/src/` — **never edit `www/scripts/` or `www/css/ui-modern.min.css` directly.**
-
-### Claude Code skills (project-local)
-
-| Skill | Usage |
-|-------|-------|
-| `/deploy [ip]` | FTP upload of changed files to camera |
-| `/commit` | Stage and commit with project conventions |
-| `/healthcheck [ip]` | Ping + health.cgi status summary |
-| `/camera-probe <endpoint> [ip]` | Test a CGI endpoint on live hardware |
-| `/camera-logs [type] [lines] [ip]` | Fetch camera logs via FTP |
-| `/validate-cgi [path]` | Review a CGI script for correctness |
-
----
-
 ## Repository Structure
 
+This repository is the runtime payload: copy its contents to the SD card root.
+
 ```
-www/cgi-bin/        CGI endpoints (shell, executable)
-frontend/src/       Frontend source (JS, CSS) — edit here
-www/scripts/        Built frontend assets — do not edit directly
+autorun.sh          Boot entry point
+VERSION             Firmware version string
+bin/                Prebuilt ARM binaries (busybox, curl, lighttpd, …)
+lib/                Shared libraries
+www/                Web UI + CGI endpoints (www/cgi-bin/ are shell scripts)
 scripts/            Autonomous daemons and one-shot scripts
 controlscripts/     On/off toggles for daemons (called with on|off)
 config/             Config templates (*.conf.dist) and autostart scripts
 config/autostart/   Boot scripts executed in numeric order by autorun.sh
+sounds/             Alert/notification audio
 docs/               API reference and project documentation
 ```
+
+The web assets under `www/` are prebuilt and served as-is.
 
 ---
 
