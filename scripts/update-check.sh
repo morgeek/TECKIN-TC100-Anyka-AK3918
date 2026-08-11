@@ -12,8 +12,9 @@ CURL="/mnt/bin/curl"
 JQ="/mnt/bin/jq"
 
 # ver_to_int: Converts v1.2.3 to a comparable integer (001002003)
+# (no tr: absent on the camera — the awk already here handles the v prefix)
 ver_to_int() {
-    echo "$1" | tr -d 'v' | awk -F. '{ printf("%03d%03d%03d", $1,$2,$3); }'
+    echo "$1" | awk -F. '{ sub(/^v/, "", $1); printf("%03d%03d%03d", $1,$2,$3); }'
 }
 
 is_newer() {
@@ -37,7 +38,7 @@ fi
 
 # 2. Identify current version
 if [ -f "$VERSION_FILE" ]; then
-    CURRENT_VERSION=$(cat "$VERSION_FILE" | tr -d ' \n\r')
+    CURRENT_VERSION=$(awk '{ gsub(/[ \r]/, ""); print; exit }' "$VERSION_FILE")
 else
     # Fallback if VERSION file is missing
     CURRENT_VERSION="v0.0.0"
