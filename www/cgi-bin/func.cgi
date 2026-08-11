@@ -1,6 +1,16 @@
 #!/bin/sh
 # Source: http://isquared.nl/blog/2008/11/01/Bourne-Bash-Shell-CGI-Scripts/
 
+# tr(1) shim. Busybox on this camera carries the applet but ships no symlink for
+# it, and /mnt/bin is not on the CGI PATH (/sbin:/usr/sbin:/bin:/usr/bin). A bare
+# `tr` therefore fails with exit 127 and — inside $(...) — expands to an empty
+# string instead of raising an error, so callers silently get blank data. That is
+# what emptied both sides of the CSRF token comparison and made every mutating
+# request 403. Defined here because 19 CGIs source this file.
+if ! command -v tr >/dev/null 2>&1; then
+    tr() { busybox tr "$@"; }
+fi
+
 if [ "${REQUEST_METHOD}" = "POST" ]
 then
   # Validate CONTENT_LENGTH before reading; cap at 64 KB to prevent RAM exhaustion.
