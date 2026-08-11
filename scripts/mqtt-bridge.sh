@@ -522,6 +522,69 @@ curl_auth_args()
   fi
 }
 
+# ── forged-packet publisher ──────────────────────────────────────────────────
+# curl 8.1.2 on this device NEVER publishes: with --upload-file it sends
+# CONNECT then SUBSCRIBE (verified against an instrumented broker, stdin and
+# real file alike). So the MQTT 3.1.1 packets are forged here in pure ash —
+# printf is a builtin and emits \xNN bytes including NUL — and piped to nc.
+# QoS is forced to 0 (no packet-id/PUBACK handling in shell); the retain flag
+# is preserved, which is what HA discovery and availability actually need.
+# Success = the broker's CONNACK 0x20 0x02 0x00 0x00 seen in nc's output.
+
+# Emit an MQTT length-prefixed string (2-byte big-endian length + bytes).
+_mqtt_str()
+{
+  _ms_l=${#1}
+  printf "\\x$(printf '%02x' $((_ms_l / 256)))\\x$(printf '%02x' $((_ms_l % 256)))"
+  printf '%s' "$1"
+}
+
+# Emit an MQTT remaining-length varint.
+_mqtt_varint()
+{
+  _mv_n=$1
+  while :; do
+    _mv_d=$((_mv_n % 128)); _mv_n=$((_mv_n / 128))
+    [ "$_mv_n" -gt 0 ] && _mv_d=$((_mv_d | 128))
+    printf "\\x$(printf '%02x' "$_mv_d")"
+    [ "$_mv_n" -gt 0 ] || break
+  done
+}
+
+# CONNECT + PUBLISH(QoS0) + DISCONNECT on one TCP connection.
+_mqtt_send_packets()
+{
+  _sp_topic="$1"; _sp_payload="$2"; _sp_retain="$3"; _sp_cid="$4"
+
+  # CONNECT: proto "MQTT" v4, clean session, keepalive 60, optional user/pass.
+  _sp_flags=2; _sp_rem=$((10 + 2 + ${#_sp_cid}))
+  if [ -n "$MQTT_USER" ]; then
+    _sp_flags=$((0x80 | 0x40 | 2))
+    _sp_rem=$((_sp_rem + 2 + ${#MQTT_USER} + 2 + ${#MQTT_PASSWORD}))
+  fi
+  printf '\x10'; _mqtt_varint "$_sp_rem"
+  printf '\x00\x04MQTT\x04'
+  printf "\\x$(printf '%02x' "$_sp_flags")"
+  printf '\x00\x3c'
+  _mqtt_str "$_sp_cid"
+  if [ -n "$MQTT_USER" ]; then
+    _mqtt_str "$MQTT_USER"
+    _mqtt_str "$MQTT_PASSWORD"
+  fi
+
+  # PUBLISH: header 0x30 (+1 if retained), topic, raw payload.
+  _sp_hdr=48
+  [ "$_sp_retain" = "1" ] && _sp_hdr=49
+  printf "\\x$(printf '%02x' "$_sp_hdr")"
+  _mqtt_varint $((2 + ${#_sp_topic} + ${#_sp_payload}))
+  _mqtt_str "$_sp_topic"
+  printf '%s' "$_sp_payload"
+
+  # Give the broker time to answer CONNACK and ingest before the close.
+  sleep 1
+  printf '\xe0\x00'
+}
+
 mqtt_publish_raw()
 {
   topic="$1"
@@ -529,22 +592,15 @@ mqtt_publish_raw()
   retain="${3:-0}"
   [ -n "$topic" ] || return 1
 
-  # Build URL inline — eliminates mqtt_url subshell fork.
-  if [ -n "$retain" ]; then
-    _url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${topic}?clientid=${MQTT_CLIENT_ID}-pub&qos=${MQTT_QOS}&retain=${retain}"
+  _mqtt_resp="/tmp/.mqtt_pub_resp.$$"
+  _mqtt_send_packets "$topic" "$payload" "$retain" "${MQTT_CLIENT_ID}-pub" \
+    | nc -w 4 "$MQTT_HOST" "$MQTT_PORT" > "$_mqtt_resp" 2>/dev/null
+  if od -An -tx1 "$_mqtt_resp" 2>/dev/null | grep -q '20 02 00 00'; then
+    _pub_rc=0
   else
-    _url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${topic}?clientid=${MQTT_CLIENT_ID}-pub&qos=${MQTT_QOS}"
+    _pub_rc=1
   fi
-
-  # Pipe payload via stdin — eliminates curl_auth_args subshell and temp file write/unlink.
-  if [ -n "$MQTT_USER" ]; then
-    printf '%s' "$payload" | "$CURL_BIN" --silent --show-error --max-time 10 \
-      -u "${MQTT_USER}:${MQTT_PASSWORD}" --upload-file - "$_url" >/dev/null 2>&1
-  else
-    printf '%s' "$payload" | "$CURL_BIN" --silent --show-error --max-time 10 \
-      --upload-file - "$_url" >/dev/null 2>&1
-  fi
-  _pub_rc=$?
+  rm -f "$_mqtt_resp" 2>/dev/null
   # Record result for MQTT health indicator in web UI (/tmp/mqtt_last_pub.status).
   [ "$BTIME" -gt 0 ] || _load_btime
   read -r _pub_up _ < /proc/uptime
