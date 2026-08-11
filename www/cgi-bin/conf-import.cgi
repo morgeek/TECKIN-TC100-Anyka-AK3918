@@ -12,13 +12,16 @@ printf 'Content-Type: application/json\r\n'
 printf '\r\n'
 
 # ── CSRF check ────────────────────────────────────────────────────────────────
+# awk, not tr: this CGI sources neither func.cgi nor common_functions.sh, so it
+# has no tr() shim. A bare `tr` exits 127 on the camera and yields "" — which
+# here would collapse both sides of the comparison and BYPASS the CSRF check.
 _csrf_stored=""
 if [ -r /tmp/csrf_token ]; then
     read -r _csrf_stored < /tmp/csrf_token
-    _csrf_stored="$(printf '%s' "$_csrf_stored" | tr -cd '0-9a-fA-F')"
+    _csrf_stored="$(printf '%s' "$_csrf_stored" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')"
 fi
 if [ -n "$_csrf_stored" ]; then
-    _csrf_hdr="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | tr -cd '0-9a-fA-F')"
+    _csrf_hdr="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')"
     if [ "$_csrf_hdr" != "$_csrf_stored" ]; then
         printf '{"ok":false,"error":"csrf_invalid","message":"CSRF token invalid — reload the page."}\n'
         exit 0
@@ -36,7 +39,9 @@ case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
 [ "$_cl" -gt 131072 ] && _cl=131072
 
 _tmp="/tmp/conf_import_$$.txt"
-head -c "$_cl" 2>/dev/null | tr -d '\r' > "$_tmp"
+# awk, not `tr -d '\r'` (no shim here): a failed tr would empty the pipe and
+# silently import nothing.
+head -c "$_cl" 2>/dev/null | awk '{ gsub(/\r/, ""); print }' > "$_tmp"
 
 # ── Validate magic header ────────────────────────────────────────────────────
 if ! grep -q '^## tc100-boot-mqtt-export v1' "$_tmp" 2>/dev/null; then
@@ -138,7 +143,7 @@ while IFS= read -r _line; do
 
     # Value: strip inline comments and leading/trailing whitespace is preserved
     # (boot.conf values may be quoted: KEY="val with spaces" — keep as-is)
-    # Block only values containing newlines (already stripped by tr -d '\r' above)
+    # Block only values containing newlines (CRs already stripped by awk above)
     # and null bytes. Values with = in them are handled by ${_line#*=} above.
 
     if [ "$_section" = "boot" ] && in_list "$_key" "$BOOT_KEYS"; then
