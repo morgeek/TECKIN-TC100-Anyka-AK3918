@@ -27,3 +27,15 @@ config/*.conf.corrupt
 node_modules/
 # Last deployed commit, written by tools/deploy-full.sh (machine-local state)
 .last-deploy-sha
+
+# ── Development-only, not published ──────────────────────────────────────────
+# The published repo is runtime-pure: only what runs on the SD card plus user
+# docs. Build tooling, tests, CI, AI-assistant config and frontend source stay
+# local (kept on disk; git rm --cached'd from the index). www/ ships the built
+# assets, so frontend/src is not needed to use the project.
+/CLAUDE.md
+/package.json
+/tools/
+/frontend/
+/.claude/
+/.github/
