@@ -6,6 +6,21 @@
     <title>Elite TC100</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
+    <!-- Theme stamp, before any stylesheet: ui-modern.css keys the dark palette
+         off [data-theme] only (no prefers-color-scheme fallback), so without
+         this the page would paint light for a frame. The toggle wiring lives at
+         the end of <body>, where its button exists. -->
+    <script>
+        (function () {
+            var mode = null;
+            try { mode = localStorage.getItem('elite_theme'); } catch (e) { }
+            if (mode !== 'dark' && mode !== 'light') {
+                mode = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+            }
+            document.documentElement.setAttribute('data-theme', mode);
+        })();
+    </script>
+
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.min.css" rel="stylesheet">
     <link href="css/ui-modern.min.css" rel="stylesheet">
