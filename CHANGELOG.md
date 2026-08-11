@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.5.0] — 2026-08-11
+
+Performance release, driven by on-device measurements (AK3918, 33 MB RAM, CPU at
+74% baseline). Every number below was measured on hardware before and after.
+
+### Performance
+- **Shared fork-free service prober** (`scripts/health-probe.sh`) — health.cgi and the health-snapshot daemon probed ~20 services by exec'ing each controlscript (a shell spawn + 21 KB `common_functions.sh` source per service): ~10 s of CPU per sweep, paid every 30 s by the daemon — roughly a third of the CPU budget spent on monitoring alone. The prober replicates the pidfile checks with ash builtins (`read` + `kill -0`, zero forks: 12 probes in 0.16 s) and still execs the controlscript for deep or composite services (rtsp-h26x RTSP DESCRIBE/GOP, onvif, motion-detection, motion-snapshot, auto-night-detection — 2.6 s). Sweep: ~10 s → ~2.8 s. Unknown services fall back to the slow-but-correct exec path.
+- **lighttpd keep-alive raised to 45 s idle / 500 requests** (`lighttpd*.conf.dist` + live conf). The dashboard polls every 20 s but lighttpd's default idle is 5 s, so **every poll paid a full RSA handshake** — measured 0.2 s unloaded to 4.8 s under load, against 0.3–1.0 s for the same request on a reused connection. An idle connection costs a few KB of RAM; the handshake costs CPU. Note `install_config` never re-seeds an existing conf, so the live `/mnt/config/lighttpd.conf` was patched directly as well.
+- **`state.cgi` `load_conf_file` no longer forks per config key** — the `$(printf | tr -cd)` key sanitizer ran once per line of every conf file loaded; replaced by a pure-shell `case` guard that outright rejects malformed keys (also stricter for the `eval` it protects).
+
+### Fixed
+- **health-snapshot daemon rewrote invalid JSON every 30 s** — it carried the same one-space meminfo bug fixed in health.cgi in 1.4.0, and since the daemon owns the cache, the 1.4.0 fix only held until the next refresh. Both paths now agree.
+- **`tr` audit outside the CGI layer** (same missing-binary failure mode as 1.4.0):
+  - `common_functions.sh` now carries the `tr()` → `busybox tr` shim, covering `autorun.sh` (boot-time CSRF token generation silently produced "", masked by func.cgi's lazy regen) and `mqtt-bridge.sh` (HA discovery node_id, and inbound command normalization — subscribe works even though publish is broken, so commands from HA hit these paths).
+  - `update-check.sh` — version comparison fed empty strings to the badge logic; rewritten in awk.
+  - `motion-event.sh` — event-log sanitizer emitted empty descriptions; rewritten in awk.
+
+---
+
 ## [1.4.0] — 2026-08-11
 
 Minor rather than patch: the theme toggle goes from inert to functional, which is
