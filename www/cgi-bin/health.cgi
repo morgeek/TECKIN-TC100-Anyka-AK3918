@@ -56,6 +56,15 @@ probe_service() {
   esac
 }
 
+# Prefer the shared fork-free prober (~20 controlscript execs -> ~5); the
+# exec-everything probe_service above remains the fallback so a partial deploy
+# without the lib still answers correctly, just slowly.
+if [ -r /mnt/scripts/health-probe.sh ]; then
+  . /mnt/scripts/health-probe.sh
+else
+  probe_service_fast() { probe_service "$1"; }
+fi
+
 # System stats
 _memtotal=0; _memfree=0; _memavail=0
 while IFS=: read -r _mk _mv _mu; do
@@ -120,7 +129,7 @@ _svc_json=""
 _rst_sep=""
 _rst_json=""
 for _svc in $_core_svcs $_extra_svcs; do
-  _status="$(probe_service "$_svc")"
+  _status="$(probe_service_fast "$_svc")"
   _flaps="$(record_health_history "$_svc" "$_status")"
   _svc_json="${_svc_json}${_sep}\"${_svc}\":\"${_status}\""
   _rst_json="${_rst_json}${_rst_sep}\"${_svc}\":${_flaps}"
