@@ -25,3 +25,5 @@ config/timelapse.conf
 config/.lkg/
 config/*.conf.corrupt
 node_modules/
+# Last deployed commit, written by tools/deploy-full.sh (machine-local state)
+.last-deploy-sha
