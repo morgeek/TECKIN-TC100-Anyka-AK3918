@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.6.0** — *Frigate & Home Assistant Edition*
+**Version 1.6.1** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
