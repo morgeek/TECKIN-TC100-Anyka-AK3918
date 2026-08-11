@@ -2203,8 +2203,35 @@ curl -X POST "http://root:pass@192.168.1.24/cgi-bin/action.cgi?cmd=reboot" \
   -H "X-CSRF-Token: $TOKEN"
 ```
 
-### Source anomaly in action.cgi
+### Platform & performance notes (AK3918)
 
-The `set_network` case block (lines ~1326–1341) is missing its `;;` terminator, causing it to fall through into the `reboot` case. This is a bug in the source. In practice the `reboot` command works correctly when called directly; `set_network` will also trigger a reboot unexpectedly if the shell reaches the `reboot` label.
+The camera is a single-core ARM (Anyka AK3918) with ~33 MB RAM, so the CGI layer
+is written to minimise `fork`/`exec`. A few behaviours are worth knowing when
+consuming this API:
 
-A `set_sound_detection`-equivalent body (params `sound_det_enable`, `sound_det_threshold`, `sound_det_interval`) exists in the source at lines 1374–1395 but has no `case` label, making it dead code. Sound detection configuration is effectively inaccessible via the CGI layer in the current codebase; use `conf_motiondetect` for the related motion sensitivity parameter.
+- **`health.cgi` is served from a cache.** The `health-snapshot` daemon rebuilds
+  `/tmp/health_snapshot.cache` every ~30 s; `health.cgi` serves it for up to 45 s
+  before rebuilding inline. Service state can therefore lag reality by up to that
+  window. Both paths use the shared fork-free prober `scripts/health-probe.sh`
+  (pidfile checks via shell builtins; only deep/composite services exec their
+  controlscript). When testing a `health.cgi` change, delete the cache file first
+  — a stale entry is indistinguishable from a fix that did not take.
+
+- **`statusline` caches its usage metrics** (`/tmp/state_usage.cache`, 2 s TTL) and
+  the perf profile (5 s). The `csrf_token` it returns is generated on first call
+  if absent, so a fresh client's first `statusline` poll always yields a usable
+  token — no bootstrap lock-out.
+
+- **HTTP keep-alive is 45 s / 500 requests.** Polling clients should reuse the
+  connection: on this CPU a fresh TLS handshake costs up to several seconds,
+  versus ~0.3–1 s for a request on an established connection.
+
+- **MQTT is published by forging packets**, not via a client library. `curl`'s
+  `mqtt://` sends SUBSCRIBE rather than PUBLISH on this device, so
+  `mqtt-bridge.sh` builds the MQTT 3.1.1 CONNECT/PUBLISH/DISCONNECT frames in
+  shell and pipes them to `nc`. Published at QoS 0; the retain flag is honoured
+  (HA discovery and availability topics are retained). `statusline` exposes
+  `mqtt_last_pub_ok` (1/0/-1) so the UI can show publish health.
+
+- **`tr(1) is absent`** on the device — see the README's platform section. It
+  affects CGI internals, not this API's request/response contract.

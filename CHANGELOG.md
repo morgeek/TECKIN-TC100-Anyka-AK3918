@@ -5,7 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [1.6.0] — 2026-08-11
+
+The headline: **MQTT actually publishes now** — the camera's whole reason to
+speak MQTT (Home Assistant discovery, telemetry, motion events) worked for the
+first time on hardware this release.
+
+### Added / Fixed — MQTT publishing
+- **`mqtt-bridge.sh` — messages are finally delivered.** `curl --upload-file mqtt://…` never published on this device's curl 8.1.2 (it sent SUBSCRIBE, not PUBLISH). `mqtt_publish_raw()` now forges the MQTT 3.1.1 CONNECT + PUBLISH(QoS0) + DISCONNECT packets in pure ash — `printf` is a builtin and emits `\xNN` bytes including NUL — and pipes them to `nc`. Success is confirmed by the broker's CONNACK in nc's reply. Verified end-to-end against the live broker: HA discovery config topics, health, availability and events all arrive; `mqtt_last_pub_ok` flips to 1. QoS is 0 (no packet-id/PUBACK bookkeeping in shell); the retain flag is preserved, which is what discovery and availability need.
+
+### Performance
+- **`state.cgi` statusline drops two `jq` forks.** The update-notifier read `/tmp/update_status.json` via two `jq` invocations, ~0.3 s each on the AK3918 and the dominant per-poll cost. Replaced with a single `read` + shell parameter expansion (the file is a flat one-line object).
+- **NTP steps the clock before the web server starts.** In daemon mode `sync_time` ran a bare `ntpd -p` that forks and returns immediately, then makes its first step ~30–40 s later — after lighttpd is up. The jump tripped lighttpd's "clock jumped" graceful restart, dropping every keep-alive connection and stamping early logs with 1970 dates. A bounded (`busybox timeout 15`) one-shot step now runs first, then the disciplining daemon.
+
+### Fixed
+- **`conf-import.cgi` — latent `tr` bug (same class as 1.4.0/1.5.0).** This CGI sources neither `func.cgi` nor `common_functions.sh`, so it has no `tr()` shim, yet it used bare `tr`: `tr -d '\r'` on the uploaded body would have emptied it (silent no-op import), and the CSRF token strip would have collapsed both sides and bypassed the check. Rewritten in awk. Exercised end-to-end on hardware (export → import round-trip applies 92 keys; malformed input rejected).
+
+### CI
+- **`tr(1)` lint added to `.github/workflows/test.yml`.** Shim-aware: a bare `tr` fails CI unless the file has the `tr()`→`busybox tr` shim in scope (defines it, or sources `func.cgi`/`common_functions.sh`). This is the guard that would have caught all five `tr` bugs before they shipped.
 
 ### Tooling
 - **`tools/deploy-full.sh` rewritten** around the failures observed during the 2026-08-11 deploy to the first camera (each one hit on real hardware):

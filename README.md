@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.5.0** — *Frigate & Home Assistant Edition*
+**Version 1.6.0** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -113,14 +113,20 @@ Key endpoints:
 
 ## Known issues
 
-Verified on a live TC100 (firmware v1.3.0, August 2026). See `CHANGELOG.md` for detail.
+All the issues found during the August 2026 hardware bring-up have been fixed and
+verified on two live cameras. Kept here for the record; see `CHANGELOG.md` for detail.
 
 | Symptom | Cause | Status |
 |---------|-------|--------|
-| MQTT never reaches the broker | `curl --upload-file` sends `SUBSCRIBE` instead of `PUBLISH` on curl 8.1.2 for this platform — needs a different publish mechanism | **Open** |
-| Dashboard buttons fail with 403 | `csrf_guard()` filtered tokens through `tr`, absent on the device — both sides collapsed to empty | Fixed (unreleased) |
-| `health.cgi` output rejected by parsers | `/proc/meminfo` values pad with multiple spaces; only one was stripped, so `mem_total_kb` came out empty | Fixed (unreleased) |
-| First-boot wizard stuck on "Réessayer" | Same missing `tr` broke POST body parsing | Fixed (unreleased) |
+| MQTT never reached the broker | `curl --upload-file` sends `SUBSCRIBE` not `PUBLISH` on curl 8.1.2; the bridge now forges the MQTT packets and pipes them to `nc` | Fixed 1.6.0 |
+| WiFi SSID blank / reconfig ignored | read a `wpa_supplicant.conf` that need not exist; write path disagreed with `autorun.sh` | Fixed 1.5.0 |
+| Dashboard buttons fail with 403 | `csrf_guard()` filtered tokens through `tr`, absent on the device — both sides collapsed to empty | Fixed 1.4.0 |
+| `health.cgi` output rejected by parsers | `/proc/meminfo` values pad with multiple spaces; only one was stripped | Fixed 1.4.0 |
+| First-boot wizard stuck on "Réessayer" | Same missing `tr` broke POST body parsing | Fixed 1.4.0 |
+
+A CI lint (`.github/workflows/test.yml`) now fails the build on any bare `tr` in
+camera-side shell without the `busybox` shim in scope — the root cause behind
+most of the above.
 
 ### Platform constraint: `tr(1)` is not available
 
