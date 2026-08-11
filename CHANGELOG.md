@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Tooling
+- **`tools/deploy-full.sh` rewritten** around the failures observed during the 2026-08-11 deploy to the first camera (each one hit on real hardware):
+  - Binaries (`bin/*`, `lib/*`) identical to the camera's copy are skipped by size comparison; differing ones are refused with a clear list unless `--force-binaries`. This is what prevents the ETXTBSY write onto a running daemon's binary that killed lighttpd mid-deploy.
+  - Everything is batched — one curl invocation carries many URLs, so the camera's slow FTP login (~7 s on one unit, ~19 s on the other) is paid ~15 times instead of ~500. Preflight timeouts raised accordingly (the second camera's FTP accepts too slowly for the old 15 s cap).
+  - The backup phase downloads only files that actually exist remotely (from a batched directory scan) — the old per-file loop burned a 20 s timeout per missing file, an hour on a fresh camera.
+  - The health probe authenticates; unauthenticated, it read the 401 page and rolled back healthy deploys.
+  - Upload success is established by re-listing the tree and comparing sizes — curl with several URLs only reports the last transfer's status. Failed files are retried individually.
+  - No more `SITE CHMOD` (answers 500 on this ftpd; exec bits come from the vfat mount options).
+  - A final `RESULT: exit N (reason)` line survives pipelines that mask the exit code.
+
+---
+
 ## [1.5.0] — 2026-08-11
 
 Performance release, driven by on-device measurements (AK3918, 33 MB RAM, CPU at
