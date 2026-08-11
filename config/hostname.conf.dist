@@ -5,4 +5,9 @@
 # ONVIF device discovery responses.  Keep it short, alphanumeric + hyphens.
 #
 # Example: TC100-Living-Room
-Anyka
+#
+# Give EACH camera a unique hostname: the MQTT bridge derives its client id and
+# topic root from this name when they are left at their defaults, so a unique
+# hostname is what keeps two cameras from colliding as one device in Home
+# Assistant. Set it in the first-boot wizard or the Network tab.
+TC100-CAMERA
