@@ -6,6 +6,11 @@
 
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
+# Must stay in sync with WIFI_CONFIG in autorun.sh — that is the file passed to
+# `wpa_supplicant -c`, so anything written elsewhere is ignored at boot and by
+# `wpa_cli reconfigure`.
+WIFI_CONFIG_PATH="/mnt/wpa_supplicant.conf"
+
 # Override install_config to use caching (skips .dist→.conf copy when .conf is fresh)
 install_config() {
   install_config_cached "$@"
@@ -3162,19 +3167,36 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     wifi_get_ssid)
-        _wpa_conf="/mnt/config/wpa_supplicant.conf"
+        # Ask the interface, not a file. The camera often carries no
+        # wpa_supplicant.conf at all (the firmware holds credentials in flash),
+        # and after a wpa_cli reconfigure the file can disagree with the network
+        # actually joined. Files are only a last resort.
         _ssid=""
-        if [ -f "$_wpa_conf" ]; then
-            _ssid="$(awk -F'"' '/^[ \t]*ssid=/ { print $2; exit }' "$_wpa_conf")"
+        if command -v wpa_cli >/dev/null 2>&1; then
+            # Take the ssid line only — `wpa_cli status` also prints `passphrase=`.
+            _ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk '/^ssid=/ { print substr($0, 6); exit }')"
+        fi
+        if [ -z "$_ssid" ] && command -v iwconfig >/dev/null 2>&1; then
+            _ssid="$(iwconfig wlan0 2>/dev/null | awk -F'"' '/ESSID:"/ { print $2; exit }')"
+        fi
+        if [ -z "$_ssid" ]; then
+            for _wpa_conf in "$WIFI_CONFIG_PATH" /mnt/config/wpa_supplicant.conf; do
+                [ -f "$_wpa_conf" ] || continue
+                _ssid="$(awk -F'"' '/^[ \t]*ssid=/ { print $2; exit }' "$_wpa_conf")"
+                [ -n "$_ssid" ] && break
+            done
         fi
         _ssid_safe="$(printf '%s' "$_ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')"
         printf '{"status":"success","ssid":"%s"}\n' "$_ssid_safe"
     ;;
 
     wifi_set_config)
-        _wpa_conf="/mnt/config/wpa_supplicant.conf"
-        _ssid="$(printf '%s' "${F_ssid:-}" | tr -d '"\\' | cut -c1-32)"
-        _psk="$(printf '%s' "${F_psk:-}" | tr -d '"\\' | cut -c1-63)"
+        # Must be the very path autorun.sh passes to `wpa_supplicant -c`, or
+        # `wpa_cli reconfigure` below re-reads the old file and the change is
+        # silently discarded — and the new one is never used at boot either.
+        _wpa_conf="$WIFI_CONFIG_PATH"
+        _ssid="$(printf '%s' "${F_ssid:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-32)"
+        _psk="$(printf '%s' "${F_psk:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-63)"
         _ssid_len="$(printf '%s' "$_ssid" | wc -c)"
         _psk_len="$(printf '%s' "$_psk" | wc -c)"
         if [ "$_ssid_len" -lt 1 ]; then
