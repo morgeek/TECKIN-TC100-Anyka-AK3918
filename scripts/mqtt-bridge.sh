@@ -152,6 +152,26 @@ load_config()
   MQTT_PASSWORD="${MQTT_PASSWORD:-}"
   MQTT_CLIENT_ID="${MQTT_CLIENT_ID:-tc100-camera}"
   MQTT_TOPIC_ROOT="${MQTT_TOPIC_ROOT:-tc100/camera}"
+  # Derive a unique MQTT identity from the hostname when the config is still at
+  # a shipped default. Two cameras seeded from the same .dist would otherwise
+  # share client id + topic root and collide in Home Assistant (one device,
+  # two publishers fighting over the same topics). Naming the camera —
+  # IPCAMERA1 vs IPCAMERA2 — is then the single action that separates them.
+  case "$MQTT_CLIENT_ID" in
+    ''|tc100-camera|teckin-tc100)
+      _mb_host=""
+      read -r _mb_host < /proc/sys/kernel/hostname 2>/dev/null || _mb_host=""
+      # slug: lowercase, non [a-z0-9] -> '-', trim repeats/edges
+      _mb_slug="$(printf '%s' "$_mb_host" | awk '{ print tolower($0) }' \
+        | sed 's/[^a-z0-9]\{1,\}/-/g; s/^-//; s/-$//')"
+      if [ -n "$_mb_slug" ]; then
+        MQTT_CLIENT_ID="$_mb_slug"
+        case "$MQTT_TOPIC_ROOT" in
+          ''|tc100/camera|teckin/tc100) MQTT_TOPIC_ROOT="$_mb_slug" ;;
+        esac
+      fi
+      ;;
+  esac
   MQTT_TOPIC_COMMAND="${MQTT_TOPIC_COMMAND:-}"
   MQTT_QOS="$(sanitize_int_range "${MQTT_QOS:-0}" 0 2 0)"
   MQTT_HEALTH_INTERVAL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_INTERVAL_SECONDS:-300}" 10 86400 300)"
@@ -751,7 +771,14 @@ publish_homeassistant_discovery()
   avail_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/availability")"
   device_name_json="$(json_escape "$hostname_value")"
   device_id_json="$(json_escape "$node_id")"
-  
+  # Firmware/project version for the HA device page ("sw" in the device dict).
+  # HA merges device info across a device's entities, so setting it on the CPU
+  # sensor below is enough — the whole device inherits it.
+  _mb_ver=""
+  [ -r /mnt/VERSION ] && read -r _mb_ver < /mnt/VERSION 2>/dev/null
+  [ -n "$_mb_ver" ] || _mb_ver="unknown"
+  sw_json="$(json_escape "$_mb_ver")"
+
   # Command templates for interactive entities
   cmd_profile_tpl_json="$(json_escape "{\"cmd\":\"profile\",\"value\":\"{{ value }}\"}")"
   cmd_motion_on_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"on\"}")"
@@ -770,7 +797,7 @@ publish_homeassistant_discovery()
   # --- Sensors (CPU, RAM, Temp, Power) ---
   
   cpu_cfg_topic="${discovery_prefix}/sensor/${node_id}/cpu/config"
-  cpu_cfg_payload="$(printf '{"name":"%s CPU","uniq_id":"%s_cpu","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.cpu }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:chip","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  cpu_cfg_payload="$(printf '{"name":"%s CPU","uniq_id":"%s_cpu","stat_t":"%s","unit_of_meas":"%%","stat_cla":"measurement","val_tpl":"{{ value_json.cpu }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:chip","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918","sw":"%s"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json" "$sw_json")"
   publish_discovery_config "$cpu_cfg_topic" "$cpu_cfg_payload"
 
   ram_cfg_topic="${discovery_prefix}/sensor/${node_id}/ram/config"

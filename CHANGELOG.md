@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.6.1] — 2026-08-11
+
+Multi-camera follow-up to 1.6.0's MQTT publishing: two cameras seeded from the
+same image no longer collide as one device in Home Assistant.
+
+### Added
+- **MQTT identity derives from the hostname.** `mqtt-bridge.sh` now sets
+  `MQTT_CLIENT_ID` and `MQTT_TOPIC_ROOT` from a slug of the device hostname when
+  they are still at a shipped default (empty / `tc100-camera` / `teckin-tc100`).
+  Naming a camera `IPCAMERA1` vs `IPCAMERA2` is then the single action that gives
+  each its own topic root, `uniq_id` prefix and HA device — no more two
+  publishers fighting over `teckin/tc100`. Verified on both cameras: roots
+  `ipcamera1` / `ipcamera2`, distinct HA devices.
+- **Firmware version on the HA device page.** The discovery device dict now
+  carries `"sw"` read from `/mnt/VERSION` (HA merges device info across a
+  device's entities, so it's set on the CPU sensor). Verified: `"sw":"v1.6.1"`.
+
+### Changed
+- **`config/hostname.conf.dist` no longer ships a specific device name.** It held
+  the literal `Anyka`; replaced with a neutral `TC100-CAMERA` default plus a note
+  that each camera needs a unique hostname (which now also drives MQTT identity).
+- **`tools/deploy-full.sh`** usage example uses `<camera-ip>` instead of a real
+  LAN address.
+
+### Notes
+- The inbound command path (HA → camera) still uses `curl` for SUBSCRIBE and
+  times out (`rc=28`); only the publish path was reforged. Camera → HA discovery,
+  telemetry and availability all work.
+- Upgrading from a pre-1.6.1 topic root leaves the old retained discovery under
+  `homeassistant/.../teckin-tc100` as a ghost device in HA. Clear it by
+  publishing empty retained payloads to those `.../config` topics (done for the
+  two live cameras this release), or delete the stale device in HA.
+
+---
+
 ## [1.6.0] — 2026-08-11
 
 The headline: **MQTT actually publishes now** — the camera's whole reason to

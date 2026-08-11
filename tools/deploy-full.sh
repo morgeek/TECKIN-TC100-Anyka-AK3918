@@ -23,7 +23,7 @@
 #     never by curl's exit code.
 #
 # USAGE
-#   CAM_HOST=192.168.1.11 CAM_PASS=pass ./tools/deploy-full.sh [options]
+#   CAM_HOST=<camera-ip> CAM_PASS=pass ./tools/deploy-full.sh [options]
 #
 # OPTIONS
 #   --dry-run          Show what would happen; upload nothing.
