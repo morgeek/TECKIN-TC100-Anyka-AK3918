@@ -99,3 +99,10 @@ server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
 
 ## accesslog module
 #accesslog.filename = "/var/log/lighttpd-access.log"
+
+# Keep-alive: the dashboard polls every 20 s, but lighttpd default idle is 5 s,
+# so every poll paid a full RSA handshake (~1-5 s of CPU on the AK3918 —
+# measured: reused connection answers in 0.3 s, fresh one in up to 5.7 s).
+# Holding an idle connection costs a few KB of RAM; the handshake costs CPU.
+server.max-keep-alive-idle = 45
+server.max-keep-alive-requests = 500
