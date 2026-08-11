@@ -167,7 +167,19 @@ load_config()
       if [ -n "$_mb_slug" ]; then
         MQTT_CLIENT_ID="$_mb_slug"
         case "$MQTT_TOPIC_ROOT" in
-          ''|tc100/camera|teckin/tc100) MQTT_TOPIC_ROOT="$_mb_slug" ;;
+          ''|tc100/camera|teckin/tc100)
+            # The command topic is usually written out explicitly in mqtt.conf
+            # ("<old-root>/command"), so moving only the root would leave the
+            # camera PUBLISHING under its new root while still LISTENING on the
+            # shared old one — every camera receiving every camera's commands.
+            # Re-derive it too whenever it still matches a shipped default.
+            case "$MQTT_TOPIC_COMMAND" in
+              ''|"${MQTT_TOPIC_ROOT}/command"|tc100/camera/command|teckin/tc100/command)
+                MQTT_TOPIC_COMMAND="${_mb_slug}/command"
+                ;;
+            esac
+            MQTT_TOPIC_ROOT="$_mb_slug"
+            ;;
         esac
       fi
       ;;
@@ -183,6 +195,15 @@ load_config()
   MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS:-2}" 1 60 2)"
   MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS:-20}" 1 600 20)"
   MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER:-2}" 1 5 2)"
+  # 1 = forge SUBSCRIBE packets and pipe them to nc (works on this firmware).
+  # 0 = fall back to the legacy curl path, which times out here — see
+  # subscribe_once_command_curl().
+  MQTT_FORGE_SUBSCRIBE="${MQTT_FORGE_SUBSCRIBE:-1}"
+  # 0 disables the MQTT "Live" camera entity in HA discovery. It publishes a
+  # file PATH on snapshot/last_path while HA's MQTT camera expects image BYTES,
+  # so the entity can never render; point HA at the RTSP/go2rtc stream instead.
+  # Kept opt-in rather than removed.
+  MQTT_HA_CAMERA_ENTITY_ENABLE="${MQTT_HA_CAMERA_ENTITY_ENABLE:-0}"
   MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
   MQTT_HA_DISCOVERY_PREFIX="${MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
   POWER_ESTIMATE_ENABLE="${POWER_ESTIMATE_ENABLE:-0}"
@@ -830,7 +851,14 @@ publish_homeassistant_discovery()
   # registered. Removed. The MQTT camera shows the last snapshot JPEG path; for
   # a live RTSP feed use the go2rtc/Frigate config from state.cgi?cmd=frigateyaml.
   camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"TechTimeGuy","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/last_path" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$camera_cfg_topic" "$camera_cfg_payload"
+  # Off by default: snapshot/last_path carries a filesystem PATH, but HA's MQTT
+  # camera platform expects the image BYTES — the entity can never render. Set
+  # MQTT_HA_CAMERA_ENTITY_ENABLE=1 to publish it anyway. Streaming the JPEG over
+  # MQTT instead would cost tens of KB per snapshot on a 33 MB device, so the
+  # supported route stays RTSP/go2rtc (state.cgi?cmd=frigateyaml).
+  if is_truthy_local "$MQTT_HA_CAMERA_ENTITY_ENABLE"; then
+    publish_discovery_config "$camera_cfg_topic" "$camera_cfg_payload"
+  fi
 
   # Motion binary_sensor. motion-event.sh already publishes ON/OFF (retained) to
   # <root>/motion/state and publish_health republishes it every cycle, but no
@@ -1791,7 +1819,11 @@ handle_command_payload()
   return "$command_rc"
 }
 
-subscribe_once_command()
+# Legacy curl-based subscribe. Kept intact and reachable via
+# MQTT_FORGE_SUBSCRIBE=0, but non-functional on this firmware: curl 8.1.2 times
+# out (rc=28) on every attempt, which used to burn a hung 10 s process every
+# ~32 s forever. Left in place for other builds / rollback, not deleted.
+subscribe_once_command_curl()
 {
   # Build URL inline — eliminates mqtt_url and curl_auth_args subshell forks.
   _sub_url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${MQTT_TOPIC_COMMAND}?clientid=${MQTT_CLIENT_ID}-sub&qos=${MQTT_QOS}"
@@ -1801,6 +1833,91 @@ subscribe_once_command()
   else
     "$CURL_BIN" --silent --show-error --max-time "$MQTT_COMMAND_WAIT_SECONDS" \
       "$_sub_url" 2>/dev/null
+  fi
+}
+
+# Forged SUBSCRIBE, same approach as mqtt_publish_raw: build the MQTT 3.1.1
+# frames in shell and pipe them to nc, then decode the reply stream.
+#
+# The reply is read as DECIMAL bytes (od -An -tu1) rather than hex on purpose:
+# busybox awk has no strtonum(), so decimal keeps the parser pure POSIX awk.
+# The parser walks the frame chain (type + remaining-length varint) and prints
+# the payload of the first PUBLISH it meets, which matches the "once" contract
+# the caller expects (stdout = payload, rc 0 = a command was received).
+subscribe_once_command_forged()
+{
+  _sub_resp="/tmp/.mqtt_sub_resp.$$"
+  _sub_cid="${MQTT_CLIENT_ID}-sub"
+
+  {
+    # CONNECT (clean session, keepalive 60, optional credentials)
+    _sc_flags=2
+    _sc_rem=$((10 + 2 + ${#_sub_cid}))
+    if [ -n "$MQTT_USER" ]; then
+      _sc_flags=$((0x80 | 0x40 | 2))
+      _sc_rem=$((_sc_rem + 2 + ${#MQTT_USER} + 2 + ${#MQTT_PASSWORD}))
+    fi
+    printf '\x10'; _mqtt_varint "$_sc_rem"
+    printf '\x00\x04MQTT\x04'
+    printf "\\x$(printf '%02x' "$_sc_flags")"
+    printf '\x00\x3c'
+    _mqtt_str "$_sub_cid"
+    if [ -n "$MQTT_USER" ]; then
+      _mqtt_str "$MQTT_USER"
+      _mqtt_str "$MQTT_PASSWORD"
+    fi
+
+    # SUBSCRIBE (0x82 = type 8 + required flags 0x02), packet id 1, QoS 0
+    printf '\x82'; _mqtt_varint $((2 + 2 + ${#MQTT_TOPIC_COMMAND} + 1))
+    printf '\x00\x01'
+    _mqtt_str "$MQTT_TOPIC_COMMAND"
+    printf '\x00'
+
+    # Hold the connection open so the broker can deliver a command.
+    sleep "$MQTT_COMMAND_WAIT_SECONDS"
+  } | nc -w $((MQTT_COMMAND_WAIT_SECONDS + 3)) "$MQTT_HOST" "$MQTT_PORT" 2>/dev/null \
+    | od -An -tu1 > "$_sub_resp" 2>/dev/null
+
+  _sub_payload="$(awk '
+    { for (i = 1; i <= NF; i++) { b[n] = $i + 0; n++ } }
+    END {
+      i = 0
+      while (i < n) {
+        type = int(b[i] / 16)
+        mult = 1; rem = 0; j = i + 1
+        do {
+          if (j >= n) exit
+          d = b[j]; rem += (d % 128) * mult; mult *= 128; j++
+        } while (d >= 128)
+        if (j + rem > n) exit
+        if (type == 3) {                      # PUBLISH
+          tl = b[j] * 256 + b[j + 1]
+          start = j + 2 + tl
+          if (int(b[i] / 2) % 4 > 0) start += 2   # QoS > 0 carries a packet id
+          out = ""
+          for (k = start; k < j + rem; k++) out = out sprintf("%c", b[k])
+          print out
+          exit
+        }
+        i = j + rem
+      }
+    }
+  ' "$_sub_resp" 2>/dev/null)"
+
+  rm -f "$_sub_resp" 2>/dev/null
+  [ -n "$_sub_payload" ] || return 1
+  printf '%s' "$_sub_payload"
+  return 0
+}
+
+subscribe_once_command()
+{
+  # is_truthy_local, not is_truthy: the latter lives in autorun.sh and is NOT
+  # in scope here, so calling it would fail and silently take the curl branch.
+  if is_truthy_local "$MQTT_FORGE_SUBSCRIBE"; then
+    subscribe_once_command_forged
+  else
+    subscribe_once_command_curl
   fi
 }
 
