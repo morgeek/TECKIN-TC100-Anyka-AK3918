@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.7.1** — *Frigate & Home Assistant Edition*
+**Version 1.7.2** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -129,6 +129,16 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
    schema): `GET /cgi-bin/state.cgi?cmd=frigateyaml` (add `&redact=1` to share it
    without credentials). The raw machine-readable manifest is still available at
    `GET /cgi-bin/state.cgi?cmd=integrationmanifest`.
+6. **Still image in HA at zero camera cost** — add a *Generic Camera*
+   integration (Settings → Devices & Services → Add → Generic Camera) with:
+   - Still image URL: `https://CAMERA-IP/cgi-bin/currentpic.cgi`
+   - Basic auth `root` / your password · SSL verification off (self-signed cert)
+
+   HA pulls a JPEG on demand and the camera's built-in 2 s snapshot cache
+   absorbs the polling. This replaces the MQTT camera entity, which is disabled
+   by default because HA's MQTT camera expects image *bytes* while the bridge
+   publishes a file *path* (`MQTT_HA_CAMERA_ENTITY_ENABLE=1 `re-enables it).
+   For live video use the RTSP/go2rtc streams above.
 
 > **Upgrading a camera that was already paired to HA?** Changing the topic root
 > (default → hostname-derived) leaves the old retained discovery behind as a ghost

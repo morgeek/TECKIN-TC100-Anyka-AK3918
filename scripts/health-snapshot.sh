@@ -55,7 +55,7 @@ fi
 build_snapshot() {
   _now
 
-  _memtotal=0; _memfree=0; _memavail=0
+  _memtotal=0; _memfree=0; _memavail=0; _membuf=0; _memcach=0; _memsrec=0
   while IFS=: read -r _mk _mv _mu; do
     # Same fix as health.cgi: /proc/meminfo pads with several spaces, stripping
     # one then cutting at the next produced "" and invalid JSON in the cache.
@@ -66,8 +66,17 @@ build_snapshot() {
       MemTotal)     _memtotal="$_mv" ;;
       MemFree)      _memfree="$_mv"  ;;
       MemAvailable) _memavail="$_mv" ;;
+      Buffers)      _membuf="$_mv" ;;
+      Cached)       _memcach="$_mv" ;;
+      SReclaimable) _memsrec="$_mv" ;;
     esac
   done < /proc/meminfo
+  # No MemAvailable on this kernel — fall back to the reclaimable-aware
+  # estimate (same as health.cgi/state.cgi) instead of reporting 0.
+  if [ "$_memavail" -le 0 ] 2>/dev/null; then
+    _memavail=$((_memfree + _membuf + _memcach + _memsrec))
+    [ "$_memavail" -gt "$_memtotal" ] 2>/dev/null && _memavail="$_memtotal"
+  fi
   read -r _loadavg _ < /proc/loadavg 2>/dev/null || true
   _uptime_sec="${_up%.*}"
 
