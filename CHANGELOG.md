@@ -51,6 +51,20 @@ watch it. Everything below is verified on both live cameras.
 
 ---
 
+## [1.6.3] — 2026-08-11
+
+### Fixed
+- **The dashboard reported the front/red LED state from configuration, not from the hardware.** `state.cgi` read `get_cfg FRONT_LED 0` / `RED_LED`, but those keys were **absent from `boot.conf.dist`** — and therefore from every camera's live `boot.conf` — so the lookup always fell through to the default `0`. The UI showed "off" permanently while the LED was physically lit, on every camera. Verified on both units: `blue_led/brightness=1` and `controlscripts/front-led status` → `ON`, while the dashboard insisted it was off.
+
+  Both LEDs are now read from `/sys/class/leds/*/brightness`, matching what `mqtt-bridge.sh` already did and what `controlscripts/front-led status` reports — one source of truth, so the whole class of drift becomes impossible. Confirmed on hardware: lighting the LED now flips the reported value to `1`, which the old code could never do.
+
+  This mattered because the LED can be changed without the config ever being rewritten — by the motion blink, an MQTT command, or a controlscript — so configuration records *intent*, never *reality*.
+
+### Changed
+- **`initialize_gpio()` applies the configured LED intent at boot** instead of unconditionally forcing both LEDs off. `FRONT_LED` / `RED_LED` are now declared in `boot.conf.dist` (both `0`), so out-of-the-box behaviour is unchanged — but a camera deliberately left with its LED lit now survives a reboot, and what boot applies agrees with what `state.cgi` reports.
+
+---
+
 ## [1.6.1] — 2026-08-11
 
 Multi-camera follow-up to 1.6.0's MQTT publishing: two cameras seeded from the

@@ -699,8 +699,13 @@ initialize_gpio()
 {
     ir_led off
     ir_cut on
-    front_led off
-    red_led off
+    # Apply the CONFIGURED LED intent, not a hardcoded off. boot.conf is already
+    # sourced by load_boot_config() above, and FRONT_LED/RED_LED default to 0 in
+    # boot.conf.dist, so behaviour is unchanged out of the box — but a camera
+    # deliberately set to keep its LED lit now survives a reboot, and the state
+    # reported by state.cgi (which reads sysfs) matches what boot applied.
+    if is_truthy "$FRONT_LED"; then front_led on; else front_led off; fi
+    if is_truthy "$RED_LED";   then red_led on;   else red_led off;   fi
 }
 
 init_rtsp_params()
