@@ -220,8 +220,12 @@ INTEGRATION_PROFILE=default
 #   KERNEL_PRINTK_LEVEL: written verbatim to /proc/sys/kernel/printk. Lower =
 #     quieter console. Example (quiet): "3 4 1 3".
 KERNEL_PRINTK_LEVEL=
-#   AK_PRINT_LEVEL: Anyka ISP driver verbosity (typically 0-3; default 3 floods
-#     the log every ~10s). Try 1 to cut syslogd wakeups on the 400MHz core.
+#   AK_PRINT_LEVEL: Anyka ISP driver verbosity (typically 0-3). Kept for builds
+#     that expose it, but MEASURED USELESS on CLOUD39EV3_AK3918EV300_MNBD: none
+#     of the three candidate paths exist, and the kernel emits nothing to begin
+#     with (last dmesg line unchanged over 15 s; syslogd+klogd together burned
+#     1.35 s of CPU across 6 h of uptime, ~0.006%). Setting it here is a no-op
+#     on this hardware — do not expect a thermal or CPU win from it.
 AK_PRINT_LEVEL=
 
 # Front (blue) and rear (red) status LED state applied at boot by
