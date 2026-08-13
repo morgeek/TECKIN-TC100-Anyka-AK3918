@@ -66,7 +66,7 @@ else
 fi
 
 # System stats
-_memtotal=0; _memfree=0; _memavail=0
+_memtotal=0; _memfree=0; _memavail=0; _membuf=0; _memcach=0; _memsrec=0
 while IFS=: read -r _mk _mv _mu; do
   # /proc/meminfo pads values with several spaces ("MemTotal:      61234 kB").
   # "${_mv# }" strips only one of them, so "${_mv%% *}" then cut at the next
@@ -79,8 +79,17 @@ while IFS=: read -r _mk _mv _mu; do
     MemTotal) _memtotal="$_mv" ;;
     MemFree)  _memfree="$_mv"  ;;
     MemAvailable) _memavail="$_mv" ;;
+    Buffers)  _membuf="$_mv" ;;
+    Cached)   _memcach="$_mv" ;;
+    SReclaimable) _memsrec="$_mv" ;;
   esac
 done < /proc/meminfo
+# This kernel ships no MemAvailable line, so mem_avail_kb sat at a misleading 0.
+# Fall back to the reclaimable-aware estimate state.cgi already uses.
+if [ "$_memavail" -le 0 ] 2>/dev/null; then
+  _memavail=$((_memfree + _membuf + _memcach + _memsrec))
+  [ "$_memavail" -gt "$_memtotal" ] 2>/dev/null && _memavail="$_memtotal"
+fi
 
 _loadavg=""; read -r _loadavg _ < /proc/loadavg 2>/dev/null || true
 _uptime_sec="${_up%.*}"
