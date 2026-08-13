@@ -51,6 +51,27 @@ watch it. Everything below is verified on both live cameras.
 
 ---
 
+## [1.7.3] — 2026-08-13
+
+Two real PTT bugs fixed. **Push-to-talk still produces no audible sound** — the
+remaining cause is below the software layer; see *Known issues*.
+
+### Fixed
+- **Every PTT control was greyed out even with a healthy backend.** `ptt-audio.js` compared the `get_ptt_status` response strictly against `OK`, but `action.cgi` appends an HTML footer to every non-JSON reply, so the body is `OK\n<hr/>`. The mismatch reported "audio backend missing" and disabled the PTT button, the volume slider and the test button. Only the first line is read now.
+- **Every PTT upload answered `EMPTY_INPUT`.** `upload_audio.cgi` streams a raw PCM body, but a hygiene pass had made it source `func.cgi` (for the `tr`/`timeout` shims) — and `func.cgi` slurps stdin at load time to parse form bodies, draining the stream before the PCM reader ran. A `FUNC_CGI_SKIP_BODY=1` guard now skips that slurp for binary-body callers; the shims stay. Upload returns `OK`/200 on both cameras.
+
+### Known issues
+- **PTT is silent: `v4l2rtspserver` holds the audio codec, and freeing it is not enough.** Diagnosed on hardware:
+  - `ak_ao_demo` (the playback binary the CGI uses) prints `play finished` and exits 0 while producing **zero** DAC events in the kernel — it never reaches the hardware and never reports the failure.
+  - The full-duplex path reveals the real error: `open /dev/akpcm_cdev1 failed: Operation not permitted`. `v4l2rtspserver` keeps that device open to capture `audio0`, and on this Anyka codec output requires opening it too.
+  - With RTSP stopped, `ak_aec_demo` drives the kernel through the *exact* sequence the stock firmware logs at boot — `IOC_SET_SPEAKER value=1`, `ak39_set_hp_power 1`, `set_channel_source: s_dac=1` — identically for `spk_gpio` 0 and 1 (the driver powers the amp itself; that GPIO is not the gate). **Still no audible output.**
+
+  So the software chain is now provably complete down to the driver powering the amplifier, and the remaining gap is below it. Disabling audio in the RTSP stream would free the device but, on this evidence, would *not* restore sound — it was effectively tested by stopping RTSP entirely.
+
+  Next discriminator (needs the operator): boot a camera **without the SD card** so the stock firmware and its `anyka_ipc` app run, and test two-way audio from the vendor app. Working there points at an initialisation `anyka_ipc` performs that our environment never runs (we kill it in `stop_cloud`); silent there points at hardware.
+
+---
+
 ## [1.7.2] — 2026-08-13
 
 Consolidation release: no new features, only truthfulness — of logs, of metrics,

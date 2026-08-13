@@ -22,7 +22,12 @@ if ! timeout 1 true >/dev/null 2>&1; then
     timeout() { busybox timeout "$@"; }
 fi
 
-if [ "${REQUEST_METHOD}" = "POST" ]
+# Callers that stream a BINARY body (raw PCM for PTT) must set
+# FUNC_CGI_SKIP_BODY=1 before sourcing this file: the form-parsing slurp below
+# would otherwise drain stdin, leaving the real reader an empty stream — that is
+# exactly how upload_audio.cgi came to answer EMPTY_INPUT to every PTT upload
+# after a hygiene pass sourced func.cgi into it for the shims.
+if [ "${REQUEST_METHOD}" = "POST" ] && [ -z "${FUNC_CGI_SKIP_BODY:-}" ]
 then
   # Validate CONTENT_LENGTH before reading; cap at 64 KB to prevent RAM exhaustion.
   _cl="${CONTENT_LENGTH:-0}"
