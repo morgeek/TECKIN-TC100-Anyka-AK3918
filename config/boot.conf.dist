@@ -223,3 +223,11 @@ KERNEL_PRINTK_LEVEL=
 #   AK_PRINT_LEVEL: Anyka ISP driver verbosity (typically 0-3; default 3 floods
 #     the log every ~10s). Try 1 to cut syslogd wakeups on the 400MHz core.
 AK_PRINT_LEVEL=
+
+# Front (blue) and rear (red) status LED state applied at boot by
+# initialize_gpio(). 0 = off, 1 = on. These keys were previously absent, which
+# left the dashboard reporting a permanent "off" regardless of the hardware.
+# The live LED state is read from /sys/class/leds/*/brightness — these values
+# only decide what boot applies.
+FRONT_LED=0
+RED_LED=0
