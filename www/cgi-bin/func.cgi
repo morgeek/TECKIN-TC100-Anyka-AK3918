@@ -11,6 +11,17 @@ if ! command -v tr >/dev/null 2>&1; then
     tr() { busybox tr "$@"; }
 fi
 
+# timeout(1) shim. /bin/timeout EXISTS here but is the pre-2014 busybox variant
+# that wants `timeout -t SECS CMD`; given the modern `timeout SECS CMD` it tries
+# to exec the duration as the command and fails:
+#     timeout 5 getimage  ->  timeout: can't execute '5': No such file...
+# The failure is silent in a redirect, which is how currentpic.cgi ended up
+# serving a 0-byte JPEG (HTTP 200, right MIME type, no image) on every camera.
+# /mnt/bin/busybox's applet accepts the modern form, so route through it.
+if ! timeout 1 true >/dev/null 2>&1; then
+    timeout() { busybox timeout "$@"; }
+fi
+
 if [ "${REQUEST_METHOD}" = "POST" ]
 then
   # Validate CONTENT_LENGTH before reading; cap at 64 KB to prevent RAM exhaustion.
