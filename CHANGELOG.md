@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.2] — 2026-08-13
+
+### Fixed
+- **Capability probe reported `fail` on a healthy camera.** `capability-check.sh`
+  runs right after `run_autostart_scripts`, which starts the video daemons in the
+  background — so the ISP pipeline is frequently not capturing yet and the single
+  `getimage` attempt returned 0 bytes. A camera that served a 42 KB frame one
+  minute later was flagged `{"status":"fail","failed":["getimage"]}`, and a
+  monitoring signal that cries wolf is worse than no signal at all.
+  The probe now retries up to 3 times (~24 s worst case; a healthy camera answers
+  on the first, so it costs nothing normally) and distinguishes the two cases it
+  previously conflated: a genuine `fail` only when `/var/run/v4l2rtspserver.pid`
+  shows RTSP is up and `getimage` *still* yields nothing; otherwise
+  `getimage_unverified` under `shimmed`, because with the pipeline down the probe
+  honestly cannot tell "broken" from "not ready yet".
+  Verified across two reboots of `.11`: `fail` before, `degraded` with
+  `failed:[]` after, while `currentpic.cgi` served 41 976 bytes.
+
 ## [1.8.1] — 2026-08-13
 
 TLS certificate lifecycle. Measured on both live cameras.

@@ -62,12 +62,37 @@ fi
 # ── getimage: must emit a non-empty JPEG, bounded ──────────────────────────
 # Blank liveview was invisible for months because the CGI returned HTTP 200 with
 # zero bytes. Probe the size, not the exit code.
+#
+# RACE: this runs just after run_autostart_scripts, which launches the video
+# daemons in the background — so at boot the ISP pipeline is often not capturing
+# yet and getimage legitimately returns nothing. A single attempt reported
+# status "fail" on a perfectly healthy camera (currentpic.cgi served 40 KB one
+# minute later), and a monitoring signal that cries wolf is worse than none.
+# So: retry while the pipeline warms up, and only call it a FAILURE if the RTSP
+# server is up — i.e. the pipeline claims to be ready and getimage still yields
+# nothing. If RTSP never came up we genuinely cannot tell the two apart, so we
+# say nothing rather than guess.
 if [ -x /mnt/bin/getimage ]; then
     _cc_img="/tmp/.capcheck-img.$$"
-    busybox timeout 8 /mnt/bin/getimage > "$_cc_img" 2>/dev/null
-    _cc_sz="$(busybox wc -c < "$_cc_img" 2>/dev/null)"
-    case "$_cc_sz" in ''|*[!0-9]*) _cc_sz=0 ;; esac
-    [ "$_cc_sz" -lt 1000 ] && add_fail getimage "produced ${_cc_sz} bytes (expected a JPEG)"
+    _cc_sz=0
+    # Bounded on purpose: 3 attempts, ~24 s worst case. A healthy camera returns
+    # on the first one, so this costs nothing at boot unless something is wrong.
+    _cc_try=0
+    while [ "$_cc_try" -lt 3 ]; do
+        busybox timeout 5 /mnt/bin/getimage > "$_cc_img" 2>/dev/null
+        _cc_sz="$(busybox wc -c < "$_cc_img" 2>/dev/null)"
+        case "$_cc_sz" in ''|*[!0-9]*) _cc_sz=0 ;; esac
+        [ "$_cc_sz" -ge 1000 ] && break
+        _cc_try=$((_cc_try + 1))
+        [ "$_cc_try" -lt 3 ] && sleep 3
+    done
+    if [ "$_cc_sz" -lt 1000 ]; then
+        if [ -s /var/run/v4l2rtspserver.pid ]; then
+            add_fail getimage "produced ${_cc_sz} bytes (expected a JPEG) with RTSP up"
+        else
+            add_warn getimage_unverified
+        fi
+    fi
     rm -f "$_cc_img" 2>/dev/null
 fi
 
