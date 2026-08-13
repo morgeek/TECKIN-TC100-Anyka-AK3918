@@ -417,8 +417,18 @@ slugify_value() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g; s/__*/_/g; s/^_//; s/_$//'
 }
 
+# Escapes backslash and double-quote for embedding in JSON.
+#
+# Fast path first: almost every value here (hostnames, profile names, paths,
+# IPs) contains neither character, and this is called ~80 times per statusline
+# poll — each `printf | sed` being a fork+exec pair on a 400 MHz core. The case
+# test is pure shell, so the common path now costs nothing; sed is spawned only
+# for the rare value that genuinely needs escaping. Output is identical.
 json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+  case "$1" in
+    *\\*|*\"*) printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 sanitize_int() {
