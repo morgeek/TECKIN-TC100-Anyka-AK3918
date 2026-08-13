@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.8.0** — *Frigate & Home Assistant Edition*
+**Version 1.8.1** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -171,6 +171,7 @@ verified on two live cameras. Kept here for the record; see `CHANGELOG.md` for d
 
 | Symptom | Cause | Status |
 |---------|-------|--------|
+| Browser warns on HTTPS; `sslv3 alert certificate unknown` in the lighttpd log | the self-signed cert was issued for 365 days and only regenerated when *missing*, so any camera past its first year served an expired certificate. It is now also regenerated when `openssl x509 -checkend 0` fails, is valid 10 years, and uses ECDSA P-256 (handshake ~0.09 s vs ~0.14 s for the RSA-1024 it replaces) | Fixed 1.8.1 |
 | HA "Live" camera entity shows nothing | it points at `snapshot/last_path`, a file PATH, while HA's MQTT camera expects image BYTES. Entity now off by default (`MQTT_HA_CAMERA_ENTITY_ENABLE=1` to re-enable); use the RTSP/go2rtc stream instead | Disabled 1.6.2 |
 | Dashboard liveview / snapshot blank | `/bin/timeout` is the pre-2014 busybox variant wanting `-t SECS`; `timeout 5 getimage` exec'd the duration and failed silently, so `currentpic.cgi` served a 0-byte JPEG | Fixed 1.7.1 |
 | Push-to-talk is silent | `v4l2rtspserver` holds `/dev/akpcm_cdev1` (audio capture); on this codec, output needs it too. Freeing it is necessary but not sufficient — see CHANGELOG 1.7.3 | **Open** |
