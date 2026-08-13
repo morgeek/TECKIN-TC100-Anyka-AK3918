@@ -2268,7 +2268,12 @@ run_loop()
     log_msg "Persistent MQTT listener started (pid ${MQTT_LISTENER_PID}, topic ${MQTT_TOPIC_COMMAND})"
   fi
 
-  if stream_mode_enabled; then
+  if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
+    # The background listener above owns the broker connection; the older FIFO
+    # stream mode would open a competing one, and its "legacy one-shot polling"
+    # log line was plain wrong in this mode — it cost real debugging time.
+    log_msg "Command path: persistent listener (spool drained every ${MQTT_SPOOL_POLL_SECONDS}s)"
+  elif stream_mode_enabled; then
     if stream_read_supported; then
       log_msg "Persistent subscription enabled (one connection per ${MQTT_STREAM_MAX_SECONDS}s instead of per ${MQTT_COMMAND_WAIT_SECONDS}s poll)"
       run_stream_loop
