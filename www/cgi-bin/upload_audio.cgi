@@ -1,6 +1,10 @@
 #!/bin/sh
 
 # Source common functions only — do NOT source action.cgi (it emits Content-Type headers on load)
+# FUNC_CGI_SKIP_BODY: the body of this request is raw PCM, and func.cgi's form
+# parser would otherwise slurp stdin dry before we read it (every upload then
+# fails with EMPTY_INPUT).
+FUNC_CGI_SKIP_BODY=1
 . /mnt/www/cgi-bin/func.cgi
 . /mnt/scripts/common_functions.sh
 
