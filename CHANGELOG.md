@@ -51,6 +51,24 @@ watch it. Everything below is verified on both live cameras.
 
 ---
 
+## [1.8.0] — 2026-08-13
+
+### Added
+- **Boot-time capability probe** (`scripts/capability-check.sh`). This firmware has now shipped two bug classes where a tool *existed* but did not behave as the code assumed, and failed **silently**:
+  - `tr` — busybox carries the applet but ships no symlink, and `/mnt/bin` is not on the CGI `PATH`. Exit 127 inside `$(...)` yields `""`, so callers got empty data rather than an error. Five shipped bugs.
+  - `timeout` — `/bin/timeout` exists *and is on `PATH`*, but is the pre-2014 busybox variant wanting `-t SECS`. Given the modern form it execs the duration as the command; inside a redirect that is invisible. `currentpic.cgi` served a 0-byte JPEG with HTTP 200 and the correct MIME type, and the dashboard liveview was simply blank.
+
+  A `command -v` check passes in the second case, which is precisely why this probe runs each tool and inspects the **result**: `tr` must actually translate, `timeout SECS CMD` must run CMD, `awk` must `gsub()` and split on `RS`, `getimage` must emit a non-empty JPEG, `od -An -tu1` must yield decimal bytes (the MQTT decoder depends on it), and `nc` must exist (the MQTT transport).
+
+  Results land in `/tmp/capability-check.json` and are surfaced under `capabilities` in `health.cgi`, so a misbehaving tool shows up in monitoring instead of as corrupted data downstream. The report distinguishes **`shimmed`** (expected here — the `tr()`/`timeout()` shims cover it) from **`failed`** (something the project genuinely relies on is broken). Verified on hardware: the probe independently rediscovered both known traps — `{"status":"degraded","failed":[],"shimmed":["tr","timeout"]}`.
+
+  Cost: a handful of execs, once, at the end of boot. No daemon, no polling, and it never blocks boot (always exits 0).
+
+### Fixed
+- **Power-draw sensor missing on one camera in Home Assistant.** `POWER_ESTIMATE_ENABLE` was `1` on one unit and `0` (the shipped default) on the other, so `power_estimated_mw` published as `null` and the HA template resolved to `none`. The hardware sensor was fine on both — only the estimate was off. Aligned. Worth remembering that this value is *computed* (base + CPU share + IR-LED bonus), not measured: the camera reads voltage only, never current.
+
+---
+
 ## [1.7.3] — 2026-08-13
 
 Two real PTT bugs fixed. **Push-to-talk still produces no audible sound** — the

@@ -1115,6 +1115,14 @@ start_service_watchdogs()
     nohup /mnt/scripts/service-watchdog.sh /mnt/controlscripts/ftp-server 0 status >/dev/null 2>&1 &
 }
 
+# Probe the shell tools the firmware assumes, by BEHAVIOUR rather than presence.
+# Two shipped bug classes came from a tool that existed but misbehaved silently
+# (tr absent from PATH, /bin/timeout wanting the old -t syntax) — see
+# scripts/capability-check.sh. Runs once, reports into health.cgi, never blocks.
+if [ -x /mnt/scripts/capability-check.sh ]; then
+    /mnt/scripts/capability-check.sh >> "$LOGPATH" 2>&1 || true
+fi
+
 start_service_watchdogs
 start_syslog_forwarding
 generate_csrf_token
