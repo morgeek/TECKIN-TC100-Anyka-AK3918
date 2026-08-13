@@ -23,11 +23,36 @@ mkdir -p /tmp/lighttpd-deflate 2>/dev/null
 
 case "$WEB_MODE" in
     full)
-        ## Create a certificate for the webserver
-        if [ ! -f "$CONFIGPATH/lighttpd.pem" ]; then
+        ## Create a certificate for the webserver.
+        # Regenerated when absent OR expired. The original 365-day RSA cert was
+        # only ever generated on first boot, so every camera older than a year
+        # was serving an expired certificate — browsers warned, and lighttpd
+        # logged "sslv3 alert certificate unknown" on every rejected handshake.
+        #
+        # ECDSA P-256 rather than RSA: on this ARMv5 core (no crypto
+        # instructions) the RSA-1024 handshake measured ~0.14 s against ~0.09 s
+        # for P-256, and key generation drops from seconds to instant — which
+        # matters because it happens during boot. P-256 is also stronger than
+        # the RSA-1024 it replaces.
+        _cert="$CONFIGPATH/lighttpd.pem"
+        _gen_cert=0
+        if [ ! -f "$_cert" ]; then
+            _gen_cert=1
+        elif ! /mnt/bin/openssl x509 -in "$_cert" -noout -checkend 0 >/dev/null 2>&1; then
+            # -checkend 0 fails on an expired cert; also fails on an unreadable
+            # one, which equally warrants regenerating.
+            echo "02_system-webserver: certificate expired or unreadable, regenerating" >&2
+            mv "$_cert" "${_cert}.expired" 2>/dev/null
+            _gen_cert=1
+        fi
+        if [ "$_gen_cert" = "1" ]; then
+            # openssl on this device is built with a hardcoded config path that
+            # does not exist; without OPENSSL_CONF `req` fails outright.
             export OPENSSL_CONF="$CONFIGPATH/openssl.cnf"
-            /mnt/bin/openssl req -new -x509 -keyout "$CONFIGPATH/lighttpd.pem" -out "$CONFIGPATH/lighttpd.pem" -days 365 -nodes -subj "/C=DE/ST=Mars/L=HellasPlanitia/O=.../OU=.../CN=.../emailAddress=..."
-            chmod 400 "$CONFIGPATH/lighttpd.pem"
+            /mnt/bin/openssl req -new -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+                -keyout "$_cert" -out "$_cert" -days 3650 -nodes \
+                -subj "/C=DE/ST=Mars/L=HellasPlanitia/O=TC100/OU=camera/CN=TC100"
+            chmod 400 "$_cert"
         fi
         install_config "$CONFIGPATH/lighttpd.conf"
         /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.conf"
