@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.7.3** — *Frigate & Home Assistant Edition*
+**Version 1.8.0** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -187,6 +187,10 @@ verified on two live cameras. Kept here for the record; see `CHANGELOG.md` for d
 
 A bare `tr` in camera-side shell without the `busybox` shim in scope was the root
 cause behind most of the above — see the platform note below before adding one.
+
+A boot-time probe (`scripts/capability-check.sh`) tests these tools by **behaviour** rather than presence —
+`command -v` passes for `timeout`, which exists but wants the old `-t SECS` syntax. Its verdict appears under
+`capabilities` in `health.cgi`, separating `shimmed` (expected here) from `failed` (genuinely broken).
 
 ### Platform constraint: `tr(1)` is not available
 

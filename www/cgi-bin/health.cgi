@@ -146,8 +146,18 @@ for _svc in $_core_svcs $_extra_svcs; do
   _rst_sep=","
 done
 
-_json="$(printf '{"ok":true,"ts":%s,"services":{%s},"service_restarts":{%s},"system":{"mem_total_kb":%s,"mem_free_kb":%s,"mem_avail_kb":%s,"load1":"%s","uptime_sec":%s}}' \
-  "$_now" "$_svc_json" "$_rst_json" "$_memtotal" "$_memfree" "$_memavail" "$_loadavg" "$_uptime_sec")"
+# Boot-time capability probe (scripts/capability-check.sh). Surfaced here so a
+# tool that exists but misbehaves — the failure mode behind the tr and timeout
+# bugs — shows up in monitoring instead of as corrupted data downstream.
+# "unknown" simply means the probe has not run (older boot, or script absent).
+_capjson='{"status":"unknown","failed":[],"shimmed":[]}'
+if [ -s /tmp/capability-check.json ]; then
+  read -r _capline < /tmp/capability-check.json 2>/dev/null
+  case "$_capline" in '{"status":'*) _capjson="$_capline" ;; esac
+fi
+
+_json="$(printf '{"ok":true,"ts":%s,"services":{%s},"service_restarts":{%s},"capabilities":%s,"system":{"mem_total_kb":%s,"mem_free_kb":%s,"mem_avail_kb":%s,"load1":"%s","uptime_sec":%s}}' \
+  "$_now" "$_svc_json" "$_rst_json" "$_capjson" "$_memtotal" "$_memfree" "$_memavail" "$_loadavg" "$_uptime_sec")"
 
 # Write cache: first line = timestamp, second line = JSON
 printf '%s\n%s\n' "$_now" "$_json" > "$CACHE_FILE" 2>/dev/null || true
