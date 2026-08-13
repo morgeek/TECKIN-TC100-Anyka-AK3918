@@ -199,6 +199,20 @@ load_config()
   # 0 = fall back to the legacy curl path, which times out here — see
   # subscribe_once_command_curl().
   MQTT_FORGE_SUBSCRIBE="${MQTT_FORGE_SUBSCRIBE:-1}"
+  # 1 = hold one connection open and decode commands as they arrive (instant
+  # commands, no lost QoS 0). 0 = legacy windowed subscribe, which only listens
+  # ~MQTT_COMMAND_WAIT_SECONDS per cycle and drops anything sent in between.
+  MQTT_PERSISTENT_SUBSCRIBE="${MQTT_PERSISTENT_SUBSCRIBE:-1}"
+  # PINGREQ cadence for the persistent listener; must stay below the 60 s
+  # keepalive announced in CONNECT or the broker will disconnect us.
+  MQTT_KEEPALIVE_PING_SECONDS="$(sanitize_int_range "${MQTT_KEEPALIVE_PING_SECONDS:-30}" 5 55 30)"
+  # How often the main loop checks the spool. Bounds command latency; the check
+  # is a file test, so this is cheap.
+  MQTT_SPOOL_POLL_SECONDS="$(sanitize_int_range "${MQTT_SPOOL_POLL_SECONDS:-3}" 1 30 3)"
+  # PINGREQs before the listener recycles its connection (30 s x 120 = 1 h).
+  # Each PINGRESP appends 2 bytes to the raw capture, so recycling bounds that
+  # file instead of letting it grow without limit.
+  MQTT_LISTENER_MAX_PINGS="$(sanitize_int_range "${MQTT_LISTENER_MAX_PINGS:-120}" 2 10000 120)"
   # 0 disables the MQTT "Live" camera entity in HA discovery. It publishes a
   # file PATH on snapshot/last_path while HA's MQTT camera expects image BYTES,
   # so the entity can never render; point HA at the RTSP/go2rtc stream instead.
@@ -1921,6 +1935,136 @@ subscribe_once_command()
   fi
 }
 
+# ── persistent listener ──────────────────────────────────────────────────────
+# The windowed subscribe above listens ~12 s per cycle, so a QoS 0 command
+# published while the camera is between windows is lost, and latency is 0-30 s.
+# This holds ONE connection open instead: CONNECT + SUBSCRIBE once, then PINGREQ
+# to keep it, decoding PUBLISH frames as they arrive.
+#
+# It runs in the background because the main loop must also publish health on a
+# timer — a blocking read there would freeze telemetry. Decoded payloads are
+# appended to a spool file (one JSON per line) that the main loop drains.
+#
+# Cost: fewer forks than windowed mode (no connect/teardown every ~13 s), traded
+# for a few small resident busybox processes.
+MQTT_STREAM_RAW="/tmp/mqtt_stream.bin"
+MQTT_STREAM_OFFSET=0
+
+# Frame decoder. Reads the WHOLE raw capture, skips the bytes already consumed,
+# emits each complete PUBLISH payload, and finally reports how many bytes it
+# actually consumed so the caller can resume exactly on a frame boundary (a
+# partial frame at the tail is left for the next pass).
+#
+# It runs per drain rather than as a live filter on purpose: `od` block-buffers
+# its pipe output, so a persistent `nc | od | awk` pipeline delivers NOTHING
+# until the connection closes — verified on the device (50 bytes sent, awk saw
+# them only after the stream ended). Decoding a finite file sidesteps that,
+# since od flushes at exit. Decimal input because busybox awk has no strtonum().
+_mqtt_frame_decoder='
+{ for (i = 1; i <= NF; i++) { b[n] = $i + 0; n++ } }
+END {
+  p = skip
+  while (1) {
+    if (n - p < 2) break
+    type = int(b[p] / 16)
+    mult = 1; rem = 0; j = p + 1; ok = 0
+    while (j < n) {
+      d = b[j]; rem += (d % 128) * mult; mult *= 128; j++
+      if (d < 128) { ok = 1; break }
+    }
+    if (!ok) break
+    if (n - j < rem) break
+    if (type == 3) {
+      tl = b[j] * 256 + b[j + 1]
+      start = j + 2 + tl
+      if (int(b[p] / 2) % 4 > 0) start += 2
+      out = ""
+      for (k = start; k < j + rem; k++) out = out sprintf("%c", b[k])
+      print out
+    }
+    p = j + rem
+  }
+  print "#CONSUMED " p
+}'
+
+# One connection attempt; returns when the broker drops us or nc exits.
+mqtt_listener_once()
+{
+  _ml_cid="${MQTT_CLIENT_ID}-sub"
+  {
+    _ml_flags=2
+    _ml_rem=$((10 + 2 + ${#_ml_cid}))
+    if [ -n "$MQTT_USER" ]; then
+      _ml_flags=$((0x80 | 0x40 | 2))
+      _ml_rem=$((_ml_rem + 2 + ${#MQTT_USER} + 2 + ${#MQTT_PASSWORD}))
+    fi
+    printf '\x10'; _mqtt_varint "$_ml_rem"
+    printf '\x00\x04MQTT\x04'
+    printf "\\x$(printf '%02x' "$_ml_flags")"
+    printf '\x00\x3c'
+    _mqtt_str "$_ml_cid"
+    if [ -n "$MQTT_USER" ]; then
+      _mqtt_str "$MQTT_USER"
+      _mqtt_str "$MQTT_PASSWORD"
+    fi
+
+    printf '\x82'; _mqtt_varint $((2 + 2 + ${#MQTT_TOPIC_COMMAND} + 1))
+    printf '\x00\x01'
+    _mqtt_str "$MQTT_TOPIC_COMMAND"
+    printf '\x00'
+
+    # Hold the socket open with PINGREQ, but bound the session: each PINGRESP
+    # adds 2 bytes to the raw capture, so recycling the connection periodically
+    # keeps that file small instead of letting it grow forever. One reconnect
+    # per hour (default) is free compared to the ~13 s teardown of windowed mode.
+    _ml_pings=0
+    while [ "$_ml_pings" -lt "$MQTT_LISTENER_MAX_PINGS" ]; do
+      sleep "$MQTT_KEEPALIVE_PING_SECONDS"
+      printf '\xc0\x00' 2>/dev/null || break
+      _ml_pings=$((_ml_pings + 1))
+    done
+  } | nc "$MQTT_HOST" "$MQTT_PORT" > "$MQTT_STREAM_RAW" 2>/dev/null
+}
+
+mqtt_listener_loop()
+{
+  _ll_backoff="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
+  while :; do
+    mqtt_listener_once
+    sleep "$_ll_backoff"
+    if [ "$_ll_backoff" -lt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
+      _ll_backoff=$((_ll_backoff * MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER))
+      [ "$_ll_backoff" -gt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ] \
+        && _ll_backoff="$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS"
+    fi
+  done
+}
+
+# Decode whatever the listener has captured since the last pass and dispatch it.
+# Cheap when idle: a size check short-circuits before od/awk are spawned.
+drain_command_spool()
+{
+  [ -f "$MQTT_STREAM_RAW" ] || return 0
+  _dc_size="$(wc -c < "$MQTT_STREAM_RAW" 2>/dev/null)"
+  case "$_dc_size" in ''|*[!0-9]*) return 0 ;; esac
+  # The listener truncates on reconnect, so a shrinking file means "new session".
+  [ "$_dc_size" -lt "$MQTT_STREAM_OFFSET" ] && MQTT_STREAM_OFFSET=0
+  [ "$_dc_size" -gt "$MQTT_STREAM_OFFSET" ] || return 0
+
+  _dc_out="$(od -An -tu1 "$MQTT_STREAM_RAW" 2>/dev/null \
+    | awk -v skip="$MQTT_STREAM_OFFSET" "$_mqtt_frame_decoder" 2>/dev/null)"
+
+  while IFS= read -r _dc_line; do
+    [ -n "$_dc_line" ] || continue
+    case "$_dc_line" in
+      '#CONSUMED '*) MQTT_STREAM_OFFSET="${_dc_line#\#CONSUMED }" ;;
+      *) handle_command_payload "$_dc_line" mqtt ;;
+    esac
+  done <<EOF
+$_dc_out
+EOF
+}
+
 stream_mode_enabled()
 {
   is_truthy_local "$MQTT_STREAM_ENABLE"
@@ -2088,6 +2232,12 @@ shutdown_bridge()
     kill "$stream_pid" 2>/dev/null
   fi
   rm -f "$STREAM_FIFO" 2>/dev/null
+  # The listener is a background subshell owning nc/od/awk; killing the process
+  # group tears the whole pipeline down rather than orphaning it.
+  if [ -n "$MQTT_LISTENER_PID" ] && kill -0 "$MQTT_LISTENER_PID" 2>/dev/null; then
+    kill -TERM "-${MQTT_LISTENER_PID}" 2>/dev/null || kill "$MQTT_LISTENER_PID" 2>/dev/null
+  fi
+  rm -f "$MQTT_STREAM_RAW" 2>/dev/null
   publish_availability offline
   log_msg "MQTT bridge stopping"
 }
@@ -2108,6 +2258,15 @@ run_loop()
   publish_integration_manifest force >/dev/null 2>&1 || true
   publish_homeassistant_discovery
   publish_event_simple "bridge.start" "online"
+
+  # Start the background listener before entering the loop, so commands are
+  # captured from the first second rather than from the first poll window.
+  if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
+    rm -f "$MQTT_STREAM_RAW" 2>/dev/null
+    mqtt_listener_loop &
+    MQTT_LISTENER_PID=$!
+    log_msg "Persistent MQTT listener started (pid ${MQTT_LISTENER_PID}, topic ${MQTT_TOPIC_COMMAND})"
+  fi
 
   if stream_mode_enabled; then
     if stream_read_supported; then
@@ -2131,6 +2290,15 @@ run_loop()
       publish_health >/dev/null 2>&1 || true
       publish_integration_manifest >/dev/null 2>&1 || true
       last_health_ts="$now_ts"
+    fi
+
+    # Persistent mode: the background listener owns the connection, so here we
+    # only drain what it spooled and idle briefly. Health publishing above keeps
+    # running on its own timer, which a blocking read would have starved.
+    if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
+      drain_command_spool
+      sleep "$MQTT_SPOOL_POLL_SECONDS"
+      continue
     fi
 
     cmd_payload="$(subscribe_once_command)"
