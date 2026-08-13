@@ -51,6 +51,28 @@ watch it. Everything below is verified on both live cameras.
 
 ---
 
+## [1.7.2] — 2026-08-13
+
+Consolidation release: no new features, only truthfulness — of logs, of metrics,
+and of documentation — plus the first real reboot validation of the 1.6.x boot
+changes.
+
+### Fixed
+- **`health.cgi` / `health-snapshot` reported `mem_avail_kb:0`.** This kernel ships no `MemAvailable` line and neither consumer had the fallback `state.cgi` already used. Both now estimate available memory as free + buffers + cached + SReclaimable. (While auditing this, the RAM gauges in `state.cgi` and the MQTT health payload turned out to already be cache-aware — the ~17–19 MB "used" figures are honest, and the inter-camera delta is page-cache noise, not a leak. Verified: process sets on both cameras are identical, no orphaned listeners.)
+- **The bridge logged `using legacy one-shot polling` while the persistent listener was active.** The pre-persistent FIFO "stream mode" still ran its detection and printed its verdict; in persistent mode it would even have opened a competing broker connection had the shell supported it. The persistent path now short-circuits that block and logs what is actually happening (`Command path: persistent listener`). This line cost real debugging time twice.
+
+### Documentation
+- **Quick Start: still image in HA at zero camera cost** — a *Generic Camera* integration pointing at `currentpic.cgi` (basic auth, SSL verify off). HA pulls the JPEG on demand and the camera's 2 s snapshot cache absorbs the polling. This is the supported replacement for the disabled MQTT camera entity.
+
+### Validated
+First controlled reboot since the 1.6.x boot changes, on both cameras:
+- `initialize_gpio` applies the configured LED intent (`FRONT_LED=0` → LED off at boot, previously only verified by inspection).
+- The blocking NTP step before lighttpd holds: the error log opens with a real 2026 date and contains **zero** `clock jumped` graceful restarts (previously one per boot, killing every open connection ~40 s in).
+- The `frigate_ha` autostart trim is back in effect — deploy sessions had left `ftp-server` running on both units; after reboot it is off, as profiled. Start it on demand for deploys (`scripts.cgi?cmd=start&script=ftp-server`).
+- `mem_avail_kb` reports ~24.7 MB where it previously reported 0.
+
+---
+
 ## [1.7.1] — 2026-08-13
 
 ### Fixed
