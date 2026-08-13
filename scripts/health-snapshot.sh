@@ -103,8 +103,17 @@ build_snapshot() {
     _sep=","; _rst_sep=","
   done
 
-  _json="$(printf '{"ok":true,"ts":%s,"services":{%s},"service_restarts":{%s},"system":{"mem_total_kb":%s,"mem_free_kb":%s,"mem_avail_kb":%s,"load1":"%s","uptime_sec":%s}}' \
-    "$_ts" "$_svc_json" "$_rst_json" "$_memtotal" "$_memfree" "$_memavail" "$_loadavg" "$_uptime_sec")"
+  # Must mirror health.cgi's field set: this daemon OWNS the cache that
+  # health.cgi serves, so any field only health.cgi knows about is invisible in
+  # practice — it would surface solely in the rare cache-miss path.
+  _capjson='{"status":"unknown","failed":[],"shimmed":[]}'
+  if [ -s /tmp/capability-check.json ]; then
+    read -r _capline < /tmp/capability-check.json 2>/dev/null
+    case "$_capline" in '{"status":'*) _capjson="$_capline" ;; esac
+  fi
+
+  _json="$(printf '{"ok":true,"ts":%s,"services":{%s},"service_restarts":{%s},"capabilities":%s,"system":{"mem_total_kb":%s,"mem_free_kb":%s,"mem_avail_kb":%s,"load1":"%s","uptime_sec":%s}}' \
+    "$_ts" "$_svc_json" "$_rst_json" "$_capjson" "$_memtotal" "$_memfree" "$_memavail" "$_loadavg" "$_uptime_sec")"
 
   # Atomic write: temp file + mv to prevent health.cgi reading a partial file.
   _tmp="${CACHE_FILE}.$$"
