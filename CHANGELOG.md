@@ -51,6 +51,30 @@ watch it. Everything below is verified on both live cameras.
 
 ---
 
+## [1.7.0] — 2026-08-13
+
+Validated on one camera (IPCAMERA1) before propagating; the second unit stays on
+1.6.3 as a control until this is signed off.
+
+### Added
+- **Persistent MQTT listener — commands from Home Assistant are no longer lost.** The bridge used to subscribe in ~12 s windows, so a QoS 0 command published between windows was silently dropped and latency was 0–30 s (the README told users to publish *retained* and then clear the topic to work around it). One connection is now held open — CONNECT + SUBSCRIBE once, PINGREQ to keep it — and decoded frames are dispatched by the main loop. Verified on hardware with a **non-retained** command, the exact case that previously could not work: `{"cmd":"front_led","value":"on"}` was executed.
+
+  Two device constraints shaped the design and are worth recording:
+  - `od` **block-buffers its pipe output**, so the obvious `nc | od | awk` live pipeline delivers nothing until the connection closes (measured: 50 bytes sent, awk saw them only at stream end). `nc` therefore writes the raw stream to a file and the main loop decodes the increment — `od` flushes because it exits each pass.
+  - The decoder resumes on an exact frame boundary and reports how many bytes it consumed, so a frame split across two passes is reassembled rather than lost. Covered by a split-frame test.
+
+  The listener recycles its connection hourly (`MQTT_LISTENER_MAX_PINGS`) to bound the raw capture file. `MQTT_PERSISTENT_SUBSCRIBE=0` restores the previous windowed behaviour; nothing was deleted.
+
+### Performance
+- **`state.cgi` `json_escape` no longer forks for the common case.** It ran `printf | sed` — a fork+exec pair — for each of ~80 values per statusline poll, though hostnames, profile names and paths contain neither backslash nor quote. A pure-shell `case` guard now handles those; `sed` is spawned only when escaping is genuinely needed. Output verified byte-identical across backslash/quote/empty edge cases. Warm statusline: **~1.0 s → ~0.83 s**.
+- **`health-probe.sh` gates the expensive deep probes behind a pidfile check.** `rtsp-h26x` and `onvif` both carry a pidfile *and* a costly probe (an RTSP DESCRIBE measured at ~1.2 s). A dead process is now reported `stopped` without paying for a network round-trip that could only confirm it. A live process still gets the full deep check, so a hung-but-running daemon is still detected.
+
+### Notes
+- The persistent listener trades roughly **1–1.5 MB of resident memory** (a held `nc` plus its shell) for the loss of the connect/teardown churn every ~13 s. On a 33 MB device that is a real trade, not a free win — set `MQTT_PERSISTENT_SUBSCRIBE=0` if memory matters more than command latency on a given unit.
+- **Watchdog consolidation was evaluated and deliberately not done.** Measured cost of the current design: 504 KB per `service-watchdog.sh`, 1 008 KB for the two running instances, waking once per 60 s. Merging them into a single supervisor would mean moving per-service reboot-escalation state out into files (POSIX sh has no arrays) inside the one component that can reboot the device. ~500 KB does not justify that risk.
+
+---
+
 ## [1.6.3] — 2026-08-11
 
 ### Fixed

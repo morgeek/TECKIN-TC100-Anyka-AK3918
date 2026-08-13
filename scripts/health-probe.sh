@@ -49,6 +49,26 @@ probe_service_fast() {
 
   # Deep or composite services: exec the controlscript, same contract as the
   # historical probe (health -> ok:/warn:, else status output non-empty).
+  #
+  # Cheap gate first: rtsp-h26x and onvif carry a pidfile AND an expensive probe
+  # (an RTSP DESCRIBE costs ~1.2 s here). If the process is plainly dead there is
+  # nothing to interrogate, so skip straight to "stopped" instead of paying for a
+  # network round-trip that can only confirm it. A live process still gets the
+  # full deep check, so a hung-but-running daemon is still caught.
+  case "$_pf_svc" in
+    rtsp-h26x) _pf_gate="/var/run/v4l2rtspserver.pid" ;;
+    onvif)     _pf_gate="/var/run/onvif.pid" ;;
+    *)         _pf_gate="" ;;
+  esac
+  if [ -n "$_pf_gate" ]; then
+    _pf_gpid=""
+    [ -f "$_pf_gate" ] && read -r _pf_gpid _ < "$_pf_gate" 2>/dev/null
+    case "$_pf_gpid" in
+      ''|*[!0-9]*) echo "stopped"; return ;;
+      *) kill -0 "$_pf_gpid" 2>/dev/null || { echo "stopped"; return ; } ;;
+    esac
+  fi
+
   _pf_out="$("$_pf_script" health 2>/dev/null)"
   case "$_pf_out" in
     ok:*)   echo "running" ;;

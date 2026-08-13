@@ -1,5 +1,5 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
-**Version 1.6.3** — *Frigate & Home Assistant Edition*
+**Version 1.7.0** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -43,10 +43,11 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 - Firmware version is reported on the HA device page (`sw` in the discovery device block).
 - Integration manifest via `state.cgi?cmd=integrationmanifest` (ready-to-paste Frigate YAML).
 - Service watchdog with auto-restart, backoff, and MQTT alerts.
-- Commands are polled in windows (~12 s of listening per cycle), so a QoS 0
-  message published while the camera is between windows is not seen. Publish
-  commands **retained** for guaranteed delivery, and clear the retained value
-  afterwards so the command is not replayed on the next subscribe.
+- Commands are received over a **persistent** subscription, so ordinary
+  (non-retained) QoS 0 publishes from HA are picked up — no need to publish
+  retained and clear the topic afterwards, as earlier versions required.
+  Set `MQTT_PERSISTENT_SUBSCRIBE=0` to fall back to the old windowed polling
+  (lower memory, but commands sent between windows are lost).
 
 ### Security & Privacy
 - HTTPS (self-signed) — required for PTT mic API.
