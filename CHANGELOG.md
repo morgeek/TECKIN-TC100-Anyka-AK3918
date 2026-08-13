@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.1] — 2026-08-13
+
+TLS certificate lifecycle. Measured on both live cameras.
+
+### Fixed
+- **Expired HTTPS certificate was never renewed.** The certificate was generated
+  with `-days 365` and only ever when the file was *absent*, so every camera older
+  than a year served an expired cert — `.11` had been expired since 8 May 2026,
+  which is what produced the `sslv3 alert certificate unknown` entries in
+  `lighttpd-error.log`. `02_system-webserver` now also regenerates when
+  `openssl x509 -checkend 0` fails, moving the old file aside as
+  `lighttpd.pem.expired` rather than deleting it. Validity raised to 10 years.
+
+### Changed
+- **Self-signed certificate is now ECDSA P-256 instead of RSA-1024.** On this
+  ARMv5 core (no crypto instructions) the TLS handshake measured **~0.09 s against
+  ~0.14 s** — a real but modest gain, because the key being replaced was RSA-1024,
+  already cheap to verify; against RSA-2048 the difference would have been far
+  larger. The stronger reasons are correctness: RSA-1024 is below any current
+  security floor, and EC keygen is instant where RSA took seconds — which matters
+  because it runs during boot. Verified end-to-end on `.11`: `lighttpd -t` clean,
+  HTTPS back 5 s after restart, certificate valid to 2036.
+
+### Notes
+- **`AK_PRINT_LEVEL` is a no-op on this hardware — deliberately left unset.**
+  Probed on `CLOUD39EV3_AK3918EV300_MNBD`: none of the three candidate sysfs/proc
+  paths exist, and there is no message flood to suppress in the first place (last
+  `dmesg` line unchanged over 15 s; `syslogd` and `klogd` together consumed 1.35 s
+  of CPU across 6 h of uptime, ~0.006%). The knob is kept for builds that expose
+  it, but `boot.conf.dist` now records the measurement so nobody chases the
+  phantom win again.
+- Contrary to an earlier suspicion, certificate generation on a fresh card is
+  **not** broken: `config/openssl.cnf` ships with the payload and
+  `02_system-webserver` already exports `OPENSSL_CONF`. The manual failure that
+  prompted the concern came from invoking `openssl` without that variable set.
+
 ## [1.6.2] — 2026-08-11
 
 Closes the last MQTT gap: Home Assistant can now **control** the camera, not just
