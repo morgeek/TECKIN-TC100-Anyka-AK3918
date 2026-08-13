@@ -51,6 +51,24 @@ watch it. Everything below is verified on both live cameras.
 
 ---
 
+## [1.7.1] — 2026-08-13
+
+### Fixed
+- **Dashboard liveview and snapshots were blank on every camera.** `/bin/timeout` on this firmware is the pre-2014 busybox variant, which wants `timeout -t SECS CMD`. Given the modern `timeout SECS CMD` it tries to exec the *duration* as the command:
+
+      timeout 5 /mnt/bin/getimage  ->  timeout: can't execute '5': No such file or directory
+
+  Inside a redirect that failure is silent, so `currentpic.cgi` returned HTTP 200 with `Content-Type: image/jpeg` and **zero bytes** — the browser simply showed nothing. `getimage` itself was fine all along (57 KB JPEG when run directly).
+
+  A `timeout()` shim now routes to `busybox timeout` (whose applet accepts the modern form) from `func.cgi` and `common_functions.sh`, covering `action.cgi`, `state.cgi` and `clip_thumb.cgi`. `currentpic.cgi` is deliberately standalone — it sits on the liveview hot path and sources neither — so it carries its own copy. Verified on both cameras: a real 1280×720 JPEG is served again.
+
+  Same shape as the `tr` class of bug, with a twist worth remembering: the binary **exists and is on `PATH`**, so a `command -v` check passes. Only its *behaviour* differs, which is why the shim probes with `timeout 1 true` instead.
+
+### Notes
+- The firmware version shown on the HA device page comes from the **retained** discovery config, which is only republished when the bridge starts. Deploying a new `VERSION` therefore does not update Home Assistant on its own — restart `mqtt-bridge` (or reboot) to refresh it. If HA still shows the old value afterwards, reload the MQTT integration; HA caches device metadata in its own registry.
+
+---
+
 ## [1.7.0] — 2026-08-13
 
 Validated on one camera (IPCAMERA1) before propagating; the second unit stays on

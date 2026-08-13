@@ -3,6 +3,16 @@
 echo "Content-type: image/jpeg"
 echo ""
 
+# timeout(1) shim. This CGI is standalone (it sources neither func.cgi nor
+# common_functions.sh, deliberately — it is on the liveview hot path), so it
+# carries its own. /bin/timeout is the old busybox variant wanting `-t SECS`;
+# given `timeout SECS CMD` it tries to exec the duration and fails silently in a
+# redirect. That is why this endpoint served a 0-byte JPEG — HTTP 200, correct
+# Content-Type, no image — and the dashboard liveview stayed blank.
+if ! timeout 1 true >/dev/null 2>&1; then
+    timeout() { busybox timeout "$@"; }
+fi
+
 _BTIME=0
 _read_btime() {
   while read -r _k _v _; do
