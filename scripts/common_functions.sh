@@ -11,6 +11,13 @@ if ! command -v tr >/dev/null 2>&1; then
     tr() { busybox tr "$@"; }
 fi
 
+# timeout(1) shim — see func.cgi for the full story. /bin/timeout is the old
+# busybox variant expecting `-t SECS`, so `timeout SECS CMD` silently fails to
+# run CMD at all. Route through busybox, whose applet takes the modern form.
+if ! timeout 1 true >/dev/null 2>&1; then
+    timeout() { busybox timeout "$@"; }
+fi
+
 BUSYBOX_BIN=""
 
 _CF_BTIME=0
