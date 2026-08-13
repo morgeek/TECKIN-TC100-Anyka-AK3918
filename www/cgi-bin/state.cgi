@@ -1426,9 +1426,26 @@ if [ -n "$F_cmd" ]; then
       health_hostname="$(hostname 2>/dev/null)"
     fi
 
-    # Peripheral & Specialized status
-    front_led_state="$(truthy_flag "$(get_cfg FRONT_LED 0)")"
-    red_led_state="$(truthy_flag "$(get_cfg RED_LED 0)")"
+    # Peripheral & Specialized status.
+    # LEDs are read from sysfs, NOT from boot.conf: the config records the last
+    # requested INTENT, while the LED can be changed by motion blink, an MQTT
+    # command or a controlscript without the config ever being rewritten. Worse,
+    # FRONT_LED/RED_LED were absent from boot.conf.dist, so get_cfg fell through
+    # to 0 and the dashboard reported "off" permanently while the LED was lit.
+    # mqtt-bridge.sh already reads sysfs — this makes the web UI agree with it
+    # and with `controlscripts/front-led status`. Any non-"1" brightness (the
+    # panel supports 0..255) is reported as off, matching led() in
+    # common_functions.sh.
+    front_led_state=0
+    if [ -r /sys/class/leds/blue_led/brightness ]; then
+      read -r _led_raw < /sys/class/leds/blue_led/brightness 2>/dev/null
+      [ "$_led_raw" = "1" ] && front_led_state=1
+    fi
+    red_led_state=0
+    if [ -r /sys/class/leds/red_led/brightness ]; then
+      read -r _led_raw < /sys/class/leds/red_led/brightness 2>/dev/null
+      [ "$_led_raw" = "1" ] && red_led_state=1
+    fi
     syslog_enabled="$(truthy_flag "$(get_cfg SYSLOG_ENABLE 0)")"
     telegram_enabled="$(truthy_flag "$(get_cfg TELEGRAM_ENABLE 0)")"
     privacy_enabled="$(truthy_flag "$(get_cfg PRIVACY_MODE 0)")"
