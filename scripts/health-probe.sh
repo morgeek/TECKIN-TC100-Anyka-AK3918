@@ -70,6 +70,11 @@ probe_service_fast() {
   fi
 
   _pf_out="$("$_pf_script" health 2>/dev/null)"
+  _pf_rc=$?
+  case "$_pf_svc" in
+    rtsp-h26x|onvif)
+      if [ "$_pf_rc" -ne 0 ]; then echo "unhealthy"; return; fi ;;
+  esac
   case "$_pf_out" in
     ok:*)   echo "running" ;;
     warn:*) echo "stopped" ;;

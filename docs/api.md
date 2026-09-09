@@ -1533,7 +1533,7 @@ curl -o snapshot.jpg http://root:pass@192.168.1.24/cgi-bin/currentpic.cgi
 
 ## GET /cgi-bin/health.cgi
 
-Returns a JSON health summary for all services, cached for 45 seconds.
+Returns a JSON health summary for all services, cached for the configured snapshot interval plus 15 seconds (75 seconds by default).
 
 **Response:**
 ```json
@@ -1743,6 +1743,8 @@ curl "http://root:pass@192.168.1.24/cgi-bin/viewrecords.cgi?F_cmd=disk_usage"
 
 ## GET/POST /cgi-bin/camcontrols.cgi
 
+Since 1.8.3-rc1, `setsettings`, `on` and `off` require POST with `X-CSRF-Token`; GET mutations return 405.
+
 Manages camera controlscripts (on/off service toggles).
 
 ### cmd=getcontrols *(read-only)*
@@ -1794,6 +1796,8 @@ curl -X POST "http://root:pass@192.168.1.24/cgi-bin/camcontrols.cgi?cmd=on&contr
 ---
 
 ## GET/POST /cgi-bin/scripts.cgi
+
+Since 1.8.3-rc1, service start/stop and autostart changes require POST with `X-CSRF-Token`; GET mutations return 405.
 
 Manages autostart scripts and daemons.
 
@@ -1972,7 +1976,7 @@ Restores configuration from a previously uploaded tar.gz. CSRF required.
 | `archive_path` | Path to archive file on camera (must be `/tmp/*.tar.gz`) |
 | `restart_services` | `1`/`0` — restart services after restore |
 
-- Validates: path must be `/tmp/`, max 16 MB, all entries must be under `config/`
+- Validates: path must be `/tmp/`, max 1 MiB, all entries must be under `config/`, at most 2 MiB expanded and 512 entries; links are rejected
 - Creates a rollback archive before applying
 - Response: HTML
 
@@ -1991,7 +1995,7 @@ Accepts a raw tar.gz backup archive upload and delegates to `configbackup.cgi?cm
 - Method: `POST` only
 - CSRF required
 - Rate limit: 2 per 300 s
-- Body: raw binary `tar.gz`, max 16 MB
+- Body: raw binary `tar.gz`, max 1 MiB
 - Parameter: `restart_services` (`1`/`0`)
 
 ```sh
@@ -2210,7 +2214,8 @@ is written to minimise `fork`/`exec`. A few behaviours are worth knowing when
 consuming this API:
 
 - **`health.cgi` is served from a cache.** The `health-snapshot` daemon rebuilds
-  `/tmp/health_snapshot.cache` every ~30 s; `health.cgi` serves it for up to 45 s
+  `/tmp/health_snapshot.cache` at the configured interval (60 s by default); `health.cgi`
+  serves it for that interval plus 15 s
   before rebuilding inline. Service state can therefore lag reality by up to that
   window. Both paths use the shared fork-free prober `scripts/health-probe.sh`
   (pidfile checks via shell builtins; only deep/composite services exec their

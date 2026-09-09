@@ -153,15 +153,18 @@ do_backup()
   id="$(timestamp)"
   backup_dir="$BACKUP_ROOT/$id"
   mkdir -p "$backup_dir/current/bin" "$backup_dir/current/lib"
+  : > "$backup_dir/manifest.txt"
 
   for f in "$BIN_DIR"/*; do
     [ -f "$f" ] || continue
     backup_file "$f" "$backup_dir/current/bin/$(basename "$f")"
+    printf 'bin/%s\n' "$(basename "$f")" >> "$backup_dir/manifest.txt"
   done
 
   for f in "$LIB_DIR"/*; do
     [ -f "$f" ] || [ -L "$f" ] || continue
     backup_file "$f" "$backup_dir/current/lib/$(basename "$f")"
+    printf 'lib/%s\n' "$(basename "$f")" >> "$backup_dir/manifest.txt"
   done
 
   generate_lock "$backup_dir/packages.lock"

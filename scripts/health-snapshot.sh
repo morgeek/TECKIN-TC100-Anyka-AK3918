@@ -1,6 +1,6 @@
 #!/bin/sh
 # health-snapshot.sh — Background daemon that refreshes the health.cgi cache
-# every HEALTH_SNAPSHOT_INTERVAL_SECONDS (default 30).
+# every HEALTH_SNAPSHOT_INTERVAL_SECONDS (default 60).
 # This makes health.cgi instant: it always reads a pre-built cache file instead
 # of running 15 blocking service probes per HTTP request.
 #
@@ -8,12 +8,13 @@
 
 CACHE_FILE="/tmp/health_snapshot.cache"
 HEALTH_CGI="/mnt/www/cgi-bin/health.cgi"
-INTERVAL="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-30}"
+INTERVAL="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-60}"
 PIDFILE="/var/run/health-snapshot.pid"
 
-case "$INTERVAL" in ''|*[!0-9]*) INTERVAL=30 ;; esac
+case "$INTERVAL" in ''|*[!0-9]*) INTERVAL=60 ;; esac
 [ "$INTERVAL" -lt 10 ] && INTERVAL=10
 [ "$INTERVAL" -gt 300 ] && INTERVAL=300
+printf '%s\n' "$INTERVAL" > /tmp/health_snapshot.interval
 
 echo "$$" > "$PIDFILE" 2>/dev/null || true
 trap 'rm -f "$PIDFILE"; exit 0' TERM INT
@@ -55,7 +56,7 @@ fi
 build_snapshot() {
   _now
 
-  _memtotal=0; _memfree=0; _memavail=0; _membuf=0; _memcach=0; _memsrec=0
+  _memtotal=0; _memfree=0; _memavail=0; _membuf=0; _memcach=0; _memsrec=0; _memshmem=0
   while IFS=: read -r _mk _mv _mu; do
     # Same fix as health.cgi: /proc/meminfo pads with several spaces, stripping
     # one then cutting at the next produced "" and invalid JSON in the cache.
@@ -69,12 +70,14 @@ build_snapshot() {
       Buffers)      _membuf="$_mv" ;;
       Cached)       _memcach="$_mv" ;;
       SReclaimable) _memsrec="$_mv" ;;
+      Shmem) _memshmem="$_mv" ;;
     esac
   done < /proc/meminfo
   # No MemAvailable on this kernel — fall back to the reclaimable-aware
   # estimate (same as health.cgi/state.cgi) instead of reporting 0.
   if [ "$_memavail" -le 0 ] 2>/dev/null; then
-    _memavail=$((_memfree + _membuf + _memcach + _memsrec))
+    _memavail=$((_memfree + _membuf + _memcach + _memsrec - _memshmem))
+    [ "$_memavail" -lt 0 ] && _memavail=0
     [ "$_memavail" -gt "$_memtotal" ] 2>/dev/null && _memavail="$_memtotal"
   fi
   read -r _loadavg _ < /proc/loadavg 2>/dev/null || true
