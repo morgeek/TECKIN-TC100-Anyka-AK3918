@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc2] — 2026-09-09 (device trial pending)
+
+### Changed
+- Keep everyday video/audio controls visible and collapse advanced encoding,
+  audio formats and day/night thresholds in native, keyboard-accessible details.
+  Opening a section preserves all values and makes no network request.
+- Save main and secondary streams independently, including the selected stream
+  and all existing advanced parameters. Correct the quality preset label to 720p.
+- Settings submissions request JSON and inspect the application result, keep
+  drafts on failure, prevent concurrent submissions, and show persistent feedback.
+- Video/audio saves perform one configuration readback. A requested restart is
+  clearly distinguished from a verified RTSP health check. Quick profiles return
+  the result of the existing restart/rollback checks and refresh clean video forms.
+- Disable settings submission until configuration is loaded; reveal and focus
+  invalid fields inside closed advanced sections. Update asset cache versions.
+
+### Fixed
+- Read real INI sections when loading settings; expose CBR/VBR as the bitrate
+  mode and read audio codecs from sections 2/3. Audio saves write the volume and
+  section 2 codec, preserving the main video codec in section 0.
+- Video/audio write failures no longer schedule a restart or return success.
+- The local draft is removed only after the asynchronous save is confirmed.
+- Improve inactive tab contrast and primary button text in settings.
+
+### Validation
+- 27 host regression tests and 14 Chrome interaction checks using simulated CGI
+  responses. Mobile (390 px), desktop (1280 px), light and dark views inspected.
+- Hardware behavior and CPU/RAM gains remain pending. No new background polling
+  or frontend dependency. See [the rc2 trial guide](docs/essai-1.8.3-rc2.md).
+
 ## [1.8.3-rc1] — 2026-09-09 (device trial pending)
 
 ### Changed

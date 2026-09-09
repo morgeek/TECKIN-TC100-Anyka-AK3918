@@ -2013,3 +2013,20 @@ body::after {
   :root[data-theme="dark"] .message.is-warning { background: rgba(245, 158, 11, 0.15); }
   :root[data-theme="dark"] .message.is-success { background: rgba(40, 200, 122, 0.1); }
   :root[data-theme="dark"] .message.is-info { background: rgba(96, 165, 250, 0.1); }
+
+/* Settings disclosure and save feedback; native details needs no extra requests. */
+.settings-intro { margin-bottom: 1rem; max-width: 65ch; }
+.settings-advanced { border: 1px solid var(--ui-border); border-radius: 10px; padding: 0 1rem; margin: 1rem 0; }
+.settings-advanced > summary { min-height: 44px; padding: 0.75rem 0; cursor: pointer; font-weight: 600; }
+.settings-advanced > summary:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 3px; }
+.settings-advanced[open] { padding-bottom: 1rem; }
+.settings-save-status { padding: 0.75rem; margin-top: 0.75rem; border-left: 3px solid currentColor; overflow-wrap: anywhere; }
+.settings-save-status:empty { display: none; }
+#settings_container [aria-busy="true"] { opacity: 0.8; }
+@media (max-width: 768px) {
+  #tab-video button[type="submit"] { min-height: 44px; width: 100%; }
+  #tab-video .buttons { display: block; }
+}
+
+#settings_container .tabs li:not(.is-active) a { color: var(--ui-text); }
+#settings_container .button.is-primary { color: #fff; }
