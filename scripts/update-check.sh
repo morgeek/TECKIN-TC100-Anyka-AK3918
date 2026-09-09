@@ -47,7 +47,7 @@ fi
 # 3. Fetch latest release from GitHub
 # We use a custom User-Agent as required by GitHub API.
 # We use --cacert for secure, verified HTTPS connectivity.
-_response=$( "$CURL" -s -H "User-Agent: Elite-TC100-Updater" \
+_response=$( "$CURL" -s --connect-timeout 5 --max-time 15 -H "User-Agent: Elite-TC100-Updater" \
              --cacert "$CACERT" \
              "$GITHUB_API" 2>/dev/null )
 

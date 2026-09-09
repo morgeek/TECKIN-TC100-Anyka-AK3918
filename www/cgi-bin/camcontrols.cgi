@@ -16,7 +16,7 @@ validate_control_id() {
 
 # CSRF check before headers for state-changing commands
 case "${F_cmd:-}" in
-  setsettings|on|off) csrf_guard ;;
+  setsettings|on|off) mutation_guard ;;
 esac
 # Allow tests to override config locations via environment for safer testing
 ENABLED_CONTROLS_CONFIG="${ENABLED_CONTROLS_CONFIG:-/mnt/config/webcontrols.conf}"

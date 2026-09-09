@@ -493,7 +493,7 @@ function saveDns() {
     var btn = document.getElementById('dns_save_btn');
     btn.disabled = true;
     statusEl.textContent = 'Saving...';
-    fetch('cgi-bin/action.cgi?cmd=conf_dns&dns_primary=' + encodeURIComponent(p) + '&dns_secondary=' + encodeURIComponent(s))
+    window.EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=conf_dns&dns_primary=' + encodeURIComponent(p) + '&dns_secondary=' + encodeURIComponent(s))
         .then(function(r) { return r.text(); })
         .then(function(t) {
             statusEl.textContent = t.trim();
@@ -572,7 +572,7 @@ function saveIpConfig() {
               '&static_ip=' + encodeURIComponent(ip) +
               '&static_netmask=' + encodeURIComponent(mask) +
               '&static_gateway=' + encodeURIComponent(gw);
-    fetch(url)
+    window.EliteUI.csrfFetch(url)
         .then(function(r) { return r.text(); })
         .then(function(t) { statusEl.textContent = t.replace('<hr/>', '').trim(); btn.disabled = false; })
         .catch(function(e) { statusEl.textContent = 'Error: ' + e; btn.disabled = false; });

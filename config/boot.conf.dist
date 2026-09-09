@@ -86,7 +86,7 @@ MEM_GUARD_WARN_KB=8192
 MEM_GUARD_CRITICAL_KB=4096
 MEM_GUARD_EMERGENCY_KB=2048
 MEM_GUARD_COOLDOWN_SECONDS=120
-MEM_GUARD_DROP_CACHES=1
+MEM_GUARD_DROP_CACHES=0
 
 # List of services to stop based on stage (soft, critical, emergency)
 MEM_GUARD_SOFT_SERVICES="network-monitor auto-night-detection"

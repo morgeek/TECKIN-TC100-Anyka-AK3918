@@ -11,10 +11,6 @@ export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 # `wpa_cli reconfigure`.
 WIFI_CONFIG_PATH="/mnt/wpa_supplicant.conf"
 
-# Override install_config to use caching (skips .dist→.conf copy when .conf is fresh)
-install_config() {
-  install_config_cached "$@"
-}
 
 case "$F_cmd" in
   reboot|shutdown) rate_limit_check 3 300 ;;
