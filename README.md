@@ -1,4 +1,6 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
+
+> **1.8.3-rc1 — device trial pending.** Resource optimizations and regression fixes are ready for hardware testing. See the [French trial and rollback guide](docs/essai-1.8.3-rc1.md) and the [offline SD trial package](docs/downloads/tc100-1.8.3-rc1-essai.zip). Existing video settings and personal configurations are preserved.
 **Version 1.8.2** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
@@ -208,7 +210,7 @@ calls there work. Fully standalone scripts — e.g. `wizard.cgi`, which sources 
 Prefer awk regardless: the shim still pays one `busybox` exec per call, which matters in loops (see
 `load_conf_file` in `state.cgi`).
 
-When testing a `health.cgi` change, clear `/tmp/health_snapshot.cache` first: responses are cached for 45 s and a
+When testing a `health.cgi` change, clear `/tmp/health_snapshot.cache` first: responses are cached for the snapshot interval plus 15 s (75 s by default), and a
 stale entry looks exactly like a fix that did not take.
 
 ---

@@ -1950,88 +1950,145 @@ subscribe_once_command()
 MQTT_STREAM_RAW="/tmp/mqtt_stream.bin"
 MQTT_STREAM_OFFSET=0
 
-# Frame decoder. Reads the WHOLE raw capture, skips the bytes already consumed,
-# emits each complete PUBLISH payload, and finally reports how many bytes it
-# actually consumed so the caller can resume exactly on a frame boundary (a
-# partial frame at the tail is left for the next pass).
-#
-# It runs per drain rather than as a live filter on purpose: `od` block-buffers
-# its pipe output, so a persistent `nc | od | awk` pipeline delivers NOTHING
-# until the connection closes — verified on the device (50 bytes sent, awk saw
-# them only after the stream ended). Decoding a finite file sidesteps that,
-# since od flushes at exit. Decimal input because busybox awk has no strtonum().
+# Only decode new bytes, in batches of at most 16 KiB. A command frame is
+# limited to 4 KiB; the capture is capped by RLIMIT_FSIZE in the nc subprocess.
+# A distinct filename per TCP session prevents offset reuse after reconnect.
+MQTT_STREAM_SESSION=""
+MQTT_STREAM_SEQUENCE=0
+MQTT_DECODE_MAX_BYTES=16384
+MQTT_COMMAND_MAX_BYTES=4096
 _mqtt_frame_decoder='
+BEGIN { n = 0 }
 { for (i = 1; i <= NF; i++) { b[n] = $i + 0; n++ } }
 END {
-  p = skip
-  while (1) {
+  p = 0
+  while (p < n) {
     if (n - p < 2) break
     type = int(b[p] / 16)
-    mult = 1; rem = 0; j = p + 1; ok = 0
-    while (j < n) {
-      d = b[j]; rem += (d % 128) * mult; mult *= 128; j++
+    mult = 1; rem = 0; j = p + 1; ok = 0; digits = 0
+    while (j < n && digits < 4) {
+      d = b[j]; rem += (d % 128) * mult; mult *= 128; j++; digits++
       if (d < 128) { ok = 1; break }
     }
-    if (!ok) break
-    if (n - j < rem) break
+    if ((!ok && digits == 4) || rem > max_frame) {
+      print "#INVALID"; p = n; break
+    }
+    if (!ok || n - j < rem) break
     if (type == 3) {
+      if (rem < 2) { print "#INVALID"; p = n; break }
       tl = b[j] * 256 + b[j + 1]
       start = j + 2 + tl
-      if (int(b[p] / 2) % 4 > 0) start += 2
+      qos = int(b[p] / 2) % 4
+      if (qos > 0) start += 2
+      if (tl < 1 || start > j + rem || qos != 0) {
+        print "#INVALID"; p = n; break
+      }
       out = ""
-      for (k = start; k < j + rem; k++) out = out sprintf("%c", b[k])
-      print out
+      for (k = start; k < j + rem; k++) {
+        # One output record per packet, also for pretty-printed JSON.
+        c = b[k]; if (c == 10 || c == 13) c = 32
+        if (c == 0) { print "#INVALID"; p = n; exit }
+        out = out sprintf("%c", c)
+      }
+      print "#PAYLOAD " out
     }
     p = j + rem
   }
   print "#CONSUMED " p
 }'
 
-# One connection attempt; returns when the broker drops us or nc exits.
+# Writer runs in its own subshell. Kill only its own pending sleep on shutdown.
+mqtt_listener_packets()
+{
+  _ml_sleep=""
+  trap 'if [ -n "$_ml_sleep" ]; then kill "$_ml_sleep" 2>/dev/null; wait "$_ml_sleep" 2>/dev/null; fi; exit 0' TERM INT
+  _ml_cid="${MQTT_CLIENT_ID}-sub"
+  _ml_will_topic="${MQTT_TOPIC_ROOT}/availability"
+  # Clean session + Will flag + retained Will, QoS 0.
+  _ml_flags=38
+  _ml_rem=$((10 + 2 + ${#_ml_cid} + 2 + ${#_ml_will_topic} + 2 + 7))
+  if [ -n "$MQTT_USER" ]; then
+    _ml_flags=$((_ml_flags | 0x80 | 0x40))
+    _ml_rem=$((_ml_rem + 2 + ${#MQTT_USER} + 2 + ${#MQTT_PASSWORD}))
+  fi
+  printf '\x10'; _mqtt_varint "$_ml_rem"
+  printf '\x00\x04MQTT\x04'
+  printf "\\x$(printf '%02x' "$_ml_flags")"
+  printf '\x00\x3c'
+  _mqtt_str "$_ml_cid"
+  _mqtt_str "$_ml_will_topic"
+  _mqtt_str offline
+  if [ -n "$MQTT_USER" ]; then
+    _mqtt_str "$MQTT_USER"
+    _mqtt_str "$MQTT_PASSWORD"
+  fi
+  printf '\x82'; _mqtt_varint $((2 + 2 + ${#MQTT_TOPIC_COMMAND} + 1))
+  printf '\x00\x01'; _mqtt_str "$MQTT_TOPIC_COMMAND"; printf '\x00'
+  # Refresh availability on every reconnect, paired with this session's Will.
+  printf '\x31'; _mqtt_varint $((2 + ${#_ml_will_topic} + 6))
+  _mqtt_str "$_ml_will_topic"; printf '%s' online
+
+  _ml_pings=0
+  while [ "$_ml_pings" -lt "$MQTT_LISTENER_MAX_PINGS" ]; do
+    sleep "$MQTT_KEEPALIVE_PING_SECONDS" &
+    _ml_sleep=$!; wait "$_ml_sleep"; _ml_sleep=""
+    [ ! -f "${MQTT_STREAM_RAW}.reset" ] || break
+    printf '\xc0\x00' || break
+    _ml_pings=$((_ml_pings + 1))
+  done
+  # End normally on planned recycling; no false offline Will at this point.
+  printf '\xe0\x00'
+}
+
+mqtt_listener_cleanup()
+{
+  [ -z "${_ml_writer:-}" ] || kill "$_ml_writer" 2>/dev/null || true
+  [ -z "${_ml_socket:-}" ] || kill "$_ml_socket" 2>/dev/null || true
+  [ -z "${_ml_writer:-}" ] || wait "$_ml_writer" 2>/dev/null || true
+  [ -z "${_ml_socket:-}" ] || wait "$_ml_socket" 2>/dev/null || true
+  _ml_writer=""; _ml_socket=""
+  rm -f "${MQTT_STREAM_RAW}.input"
+}
+
 mqtt_listener_once()
 {
-  _ml_cid="${MQTT_CLIENT_ID}-sub"
-  {
-    _ml_flags=2
-    _ml_rem=$((10 + 2 + ${#_ml_cid}))
-    if [ -n "$MQTT_USER" ]; then
-      _ml_flags=$((0x80 | 0x40 | 2))
-      _ml_rem=$((_ml_rem + 2 + ${#MQTT_USER} + 2 + ${#MQTT_PASSWORD}))
-    fi
-    printf '\x10'; _mqtt_varint "$_ml_rem"
-    printf '\x00\x04MQTT\x04'
-    printf "\\x$(printf '%02x' "$_ml_flags")"
-    printf '\x00\x3c'
-    _mqtt_str "$_ml_cid"
-    if [ -n "$MQTT_USER" ]; then
-      _mqtt_str "$MQTT_USER"
-      _mqtt_str "$MQTT_PASSWORD"
-    fi
-
-    printf '\x82'; _mqtt_varint $((2 + 2 + ${#MQTT_TOPIC_COMMAND} + 1))
-    printf '\x00\x01'
-    _mqtt_str "$MQTT_TOPIC_COMMAND"
-    printf '\x00'
-
-    # Hold the socket open with PINGREQ, but bound the session: each PINGRESP
-    # adds 2 bytes to the raw capture, so recycling the connection periodically
-    # keeps that file small instead of letting it grow forever. One reconnect
-    # per hour (default) is free compared to the ~13 s teardown of windowed mode.
-    _ml_pings=0
-    while [ "$_ml_pings" -lt "$MQTT_LISTENER_MAX_PINGS" ]; do
-      sleep "$MQTT_KEEPALIVE_PING_SECONDS"
-      printf '\xc0\x00' 2>/dev/null || break
-      _ml_pings=$((_ml_pings + 1))
-    done
-  } | nc "$MQTT_HOST" "$MQTT_PORT" > "$MQTT_STREAM_RAW" 2>/dev/null
+  MQTT_STREAM_SEQUENCE=$((MQTT_STREAM_SEQUENCE + 1))
+  _ml_file="${MQTT_STREAM_RAW}.${MQTT_STREAM_SEQUENCE}"
+  _ml_fifo="${MQTT_STREAM_RAW}.input"
+  rm -f "$_ml_fifo" "${MQTT_STREAM_RAW}.reset"
+  mkfifo "$_ml_fifo" || return 1
+  : > "$_ml_file" || { rm -f "$_ml_fifo"; return 1; }
+  printf '%s\n' "$MQTT_STREAM_SEQUENCE" > "${MQTT_STREAM_RAW}.session.tmp"
+  mv "${MQTT_STREAM_RAW}.session.tmp" "${MQTT_STREAM_RAW}.session"
+  # Keep one preceding capture so an in-flight reader can finish safely.
+  if [ "$MQTT_STREAM_SEQUENCE" -gt 2 ]; then
+    rm -f "${MQTT_STREAM_RAW}.$((MQTT_STREAM_SEQUENCE - 2))"
+  fi
+  mqtt_listener_packets > "$_ml_fifo" &
+  _ml_writer=$!
+  (
+    # ash variants express -f in 512-byte or 1-KiB blocks: <=128 KiB either way.
+    ulimit -c 0 2>/dev/null || true
+    ulimit -f 128 || exit 1
+    exec nc -w 70 "$MQTT_HOST" "$MQTT_PORT"
+  ) < "$_ml_fifo" > "$_ml_file" 2>/dev/null &
+  _ml_socket=$!
+  wait "$_ml_socket"
+  _ml_rc=$?
+  _ml_socket=""
+  mqtt_listener_cleanup
+  return "$_ml_rc"
 }
 
 mqtt_listener_loop()
 {
+  _ml_writer=""; _ml_socket=""; _ll_sleep=""
+  trap 'mqtt_listener_cleanup; [ -z "$_ll_sleep" ] || kill "$_ll_sleep" 2>/dev/null; exit 0' TERM INT
   _ll_backoff="$MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS"
   while :; do
     mqtt_listener_once
-    sleep "$_ll_backoff"
+    sleep "$_ll_backoff" &
+    _ll_sleep=$!; wait "$_ll_sleep"; _ll_sleep=""
     if [ "$_ll_backoff" -lt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ]; then
       _ll_backoff=$((_ll_backoff * MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER))
       [ "$_ll_backoff" -gt "$MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS" ] \
@@ -2040,29 +2097,42 @@ mqtt_listener_loop()
   done
 }
 
-# Decode whatever the listener has captured since the last pass and dispatch it.
-# Cheap when idle: a size check short-circuits before od/awk are spawned.
 drain_command_spool()
 {
-  [ -f "$MQTT_STREAM_RAW" ] || return 0
-  _dc_size="$(wc -c < "$MQTT_STREAM_RAW" 2>/dev/null)"
+  _dc_session=""
+  [ -r "${MQTT_STREAM_RAW}.session" ] || return 0
+  read -r _dc_session < "${MQTT_STREAM_RAW}.session"
+  case "$_dc_session" in ''|*[!0-9]*) return 0 ;; esac
+  _dc_file="${MQTT_STREAM_RAW}.${_dc_session}"
+  if [ "$MQTT_STREAM_SESSION" != "$_dc_session" ]; then
+    MQTT_STREAM_SESSION="$_dc_session"
+    MQTT_STREAM_OFFSET=0
+  fi
+  [ ! -f "${MQTT_STREAM_RAW}.reset" ] || return 0
+  [ -f "$_dc_file" ] || return 0
+  _dc_size="$(wc -c < "$_dc_file" 2>/dev/null)"
+  read -r _dc_size <<EOF
+$_dc_size
+EOF
   case "$_dc_size" in ''|*[!0-9]*) return 0 ;; esac
-  # The listener truncates on reconnect, so a shrinking file means "new session".
-  [ "$_dc_size" -lt "$MQTT_STREAM_OFFSET" ] && MQTT_STREAM_OFFSET=0
   [ "$_dc_size" -gt "$MQTT_STREAM_OFFSET" ] || return 0
-
-  _dc_out="$(od -An -tu1 "$MQTT_STREAM_RAW" 2>/dev/null \
-    | awk -v skip="$MQTT_STREAM_OFFSET" "$_mqtt_frame_decoder" 2>/dev/null)"
-
+  _dc_out="$(tail -c +$((MQTT_STREAM_OFFSET + 1)) "$_dc_file" 2>/dev/null \
+    | head -c "$MQTT_DECODE_MAX_BYTES" | od -An -v -tu1 \
+    | LC_ALL=C awk -v max_frame="$MQTT_COMMAND_MAX_BYTES" "$_mqtt_frame_decoder")"
+  _dc_consumed=0
   while IFS= read -r _dc_line; do
-    [ -n "$_dc_line" ] || continue
     case "$_dc_line" in
-      '#CONSUMED '*) MQTT_STREAM_OFFSET="${_dc_line#\#CONSUMED }" ;;
-      *) handle_command_payload "$_dc_line" mqtt ;;
+      '#CONSUMED '*) _dc_consumed="${_dc_line#\#CONSUMED }" ;;
+      '#PAYLOAD '*) handle_command_payload "${_dc_line#\#PAYLOAD }" mqtt ;;
+      '#INVALID')
+        : > "${MQTT_STREAM_RAW}.reset"
+        log_msg "MQTT command frame rejected (invalid or over 4 KiB)" ;;
     esac
   done <<EOF
 $_dc_out
 EOF
+  case "$_dc_consumed" in ''|*[!0-9]*) return 1 ;; esac
+  MQTT_STREAM_OFFSET=$((MQTT_STREAM_OFFSET + _dc_consumed))
 }
 
 stream_mode_enabled()
@@ -2232,12 +2302,13 @@ shutdown_bridge()
     kill "$stream_pid" 2>/dev/null
   fi
   rm -f "$STREAM_FIFO" 2>/dev/null
-  # The listener is a background subshell owning nc/od/awk; killing the process
-  # group tears the whole pipeline down rather than orphaning it.
+  # The listener owns and cleans up its nc/writer PIDs. Never signal an
+  # assumed process group: non-interactive ash does not create one per job.
   if [ -n "$MQTT_LISTENER_PID" ] && kill -0 "$MQTT_LISTENER_PID" 2>/dev/null; then
-    kill -TERM "-${MQTT_LISTENER_PID}" 2>/dev/null || kill "$MQTT_LISTENER_PID" 2>/dev/null
+    kill -TERM "$MQTT_LISTENER_PID" 2>/dev/null
+    wait "$MQTT_LISTENER_PID" 2>/dev/null || true
   fi
-  rm -f "$MQTT_STREAM_RAW" 2>/dev/null
+  rm -f "$MQTT_STREAM_RAW" "${MQTT_STREAM_RAW}."* 2>/dev/null
   publish_availability offline
   log_msg "MQTT bridge stopping"
 }
@@ -2262,7 +2333,7 @@ run_loop()
   # Start the background listener before entering the loop, so commands are
   # captured from the first second rather than from the first poll window.
   if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
-    rm -f "$MQTT_STREAM_RAW" 2>/dev/null
+    rm -f "$MQTT_STREAM_RAW" "${MQTT_STREAM_RAW}."* 2>/dev/null
     mqtt_listener_loop &
     MQTT_LISTENER_PID=$!
     log_msg "Persistent MQTT listener started (pid ${MQTT_LISTENER_PID}, topic ${MQTT_TOPIC_COMMAND})"

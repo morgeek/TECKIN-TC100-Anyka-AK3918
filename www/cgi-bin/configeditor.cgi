@@ -3,6 +3,7 @@
 # GET  ?file=<name>         → JSON {"ok":true,"content":"...","file":"..."}
 # POST ?cmd=save&file=<name> body: raw file content (text/plain)
 
+FUNC_CGI_SKIP_BODY=1
 if [ -r /mnt/www/cgi-bin/func.cgi ]; then
   . /mnt/www/cgi-bin/func.cgi
 else
@@ -46,7 +47,7 @@ json_str() {
 
 if [ "$F_cmd" = "save" ]; then
   rate_limit_check 5 60
-  csrf_guard
+  mutation_guard
 fi
 
 emit_headers
@@ -90,29 +91,40 @@ case "${F_cmd:-read}" in
       printf '{"ok":false,"error":"Content too large (max 64 KB)"}\n'
       exit 0
     fi
-    # Backup existing file to /tmp before overwriting
-    if [ -f "$_path" ]; then
-      _btime=0
-      while read -r _k _v _; do [ "$_k" = "btime" ] && _btime="$_v" && break; done < /proc/stat
-      read -r _up _ < /proc/uptime
-      _ts=$((_btime + ${_up%.*}))
-      cp "$_path" "/tmp/configeditor-backup-${_file}-${_ts}" 2>/dev/null || true
+    _tmp="${_path}.write.$$"
+    _lock="/tmp/configeditor-${_file}.lock"
+    if ! mkdir "$_lock" 2>/dev/null; then
+      printf '{"ok":false,"error":"Configuration is busy; retry shortly"}\n'
+      exit 0
     fi
-    # Read the POST body and write atomically via temp file
-    _tmp="/tmp/configeditor-write-$$"
-    if head -c "$_cl" > "$_tmp" 2>/dev/null; then
-      if mv "$_tmp" "$_path" 2>/dev/null; then
-        audit_log_event "configeditor_save" "$_file"
-        printf '{"ok":true,"file":"%s","message":"Saved successfully"}\n' "$_file"
-      else
-        rm -f "$_tmp" 2>/dev/null || true
-        audit_log_event "configeditor_save_failed" "$_file (write error)"
-        printf '{"ok":false,"error":"Write failed — check SD card permissions"}\n'
-      fi
+    trap 'rm -f "$_tmp"; rmdir "$_lock" 2>/dev/null' EXIT
+    trap 'exit 1' INT TERM
+    if ! head -c "$_cl" > "$_tmp" || [ "$(wc -c < "$_tmp")" -ne "$_cl" ]; then
+      printf '{"ok":false,"error":"Incomplete upload; original configuration preserved"}\n'
+      exit 0
+    fi
+    # Only these files use shell assignments; RTSP/ONVIF and one-line files do not.
+    case "$_file" in
+      boot.conf|mqtt.conf|recording.conf|telegram.conf|netmon.conf|dns.conf|motion.conf|timelapse.conf)
+        if ! sh -n "$_tmp" 2>/dev/null; then
+          printf '{"ok":false,"error":"Invalid configuration syntax; original preserved"}\n'
+          exit 0
+        fi ;;
+    esac
+    if [ -f "$_path" ] && cmp -s "$_tmp" "$_path"; then
+      printf '{"ok":true,"file":"%s","message":"Unchanged"}\n' "$_file"
+      exit 0
+    fi
+    if [ -f "$_path" ] && ! cp "$_path" "/tmp/configeditor-backup-${_file}"; then
+      printf '{"ok":false,"error":"Cannot create backup; original preserved"}\n'
+      exit 0
+    fi
+    if mv "$_tmp" "$_path"; then
+      sync
+      audit_log_event "configeditor_save" "$_file"
+      printf '{"ok":true,"file":"%s","message":"Saved successfully"}\n' "$_file"
     else
-      rm -f "$_tmp" 2>/dev/null || true
-      audit_log_event "configeditor_save_failed" "$_file (read body error)"
-      printf '{"ok":false,"error":"Failed to read upload body"}\n'
+      printf '{"ok":false,"error":"Write failed; check SD card"}\n'
     fi
     ;;
 
