@@ -85,6 +85,82 @@ class Regressions(unittest.TestCase):
         r = subprocess.run(['node', str(ROOT / 'tests/frontend.test.js')], capture_output=True, timeout=8)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_settings_save_contract(self):
+        r = subprocess.run(['node', str(ROOT / 'tests/settings-save.test.js')], capture_output=True, timeout=8)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_profile_reply_reports_real_restart_result(self):
+        code = function('www/cgi-bin/action.cgi', 'ui_finalize_stream_apply')
+        code += '''\nwants_json_response() { return 0; }; json_body_err() { printf '{"ok":false,"error":"%s"}\\n' "$1"; };\n'''
+        for rc in [0, 1]:
+            r = run(code + 'finalize_stream_apply() { echo "diagnostic"; return ' + str(rc) + '; }; ui_finalize_stream_apply test')
+            result = json.loads(r.stdout)
+            self.assertEqual(result['ok'], rc == 0)
+            self.assertEqual(r.returncode, rc)
+            if rc == 0:
+                self.assertEqual(result['restart'], 'verified')
+
+    def test_video_audio_write_failure_never_reports_success(self):
+        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        for command, following in [('set_video_params', 'conf_audioin'), ('conf_audioin', 'isp_pro')]:
+            a = source.index('    ' + command + ')')
+            b = source.index('    ' + following + ')', a)
+            block = source[a:b].replace('/mnt/bin/rwconf', 'rwconf')
+            code = function('www/cgi-bin/action.cgi', 'sanitize_int_range') + '\n'
+            code += 'rwconf() { return 1; }; wants_json_response() { return 0; }; schedule_rtsp_restart() { echo RESTART; };\n'
+            code += '''json_body_err() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }; json_body_ok() { echo SUCCESS; };\n'''
+            r = run(code + 'case ' + command + ' in\n' + block + '\nesac')
+            self.assertFalse(json.loads(r.stdout)['ok'], r.stdout)
+            self.assertNotIn(b'RESTART', r.stdout)
+
+    def test_ini_loader_preserves_sections_and_literal_values(self):
+        ini = self.base / 'rtsp.conf'
+        ini.write_text('volume=7\nsamplerate=16000\n[0]\ncodec=2\nfps=19\n[1]\ncodec=0\nfps=6\n[2]\ncodec=4\n[3]\ncodec=17\n')
+        plain = self.base / 'boot.conf'
+        plain.write_text('VALUE=$(printf unsafe)\nPORT=555')
+        code = function('www/cgi-bin/state.cgi', 'load_conf_file') + '\n' + function('www/cgi-bin/state.cgi', 'get_cfg')
+        code += '\nload_conf_file ' + shlex.quote(str(ini)) + '\nload_conf_file ' + shlex.quote(str(plain))
+        code += '\nprintf "%s|%s|%s|%s|%s|%s|%s" "$C_volume" "$C_0_codec" "$C_1_fps" "$C_2_codec" "$C_3_codec" "$C_VALUE" "$C_PORT"'
+        self.assertEqual(run(code).stdout, b'7|2|6|4|17|$(printf unsafe)|555')
+
+    def test_fullconfig_reads_actual_ini_video_and_audio(self):
+        cfg = self.base / 'config'
+        cfg.mkdir()
+        data = (ROOT / 'config/rtspserver.conf.dist').read_text().replace('volume=10', 'volume=7').replace('fps=16', 'fps=19').replace('brmode=1', 'brmode=0')
+        (cfg / 'rtspserver.conf').write_text(data)
+        source = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        a = source.index('  fullconfig)')
+        b = source.index('  perfprofile)', a)
+        body = source[a:b].replace('/mnt/config', str(cfg)).replace('/proc/sys/kernel/hostname', str(self.base / 'hostname'))
+        helpers = '\n'.join(function('www/cgi-bin/state.cgi', name) for name in ['load_conf_file', 'get_cfg', 'read_rtsp_stream_summary', 'sanitize_int', 'truthy_flag'])
+        helpers += '\n' + function('www/cgi-bin/func.cgi', 'json_escape')
+        helpers += '\ndetect_primary_ip() { :; }; read_reboot_epoch() { :; }; get_perf_profile() { echo balanced; }; hostname() { echo fixture; };\n'
+        r = run(helpers + 'case fullconfig in\n' + body + '\nesac')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        result = json.loads(r.stdout)
+        self.assertEqual(result['video']['main']['fps'], 19)
+        self.assertEqual(result['video']['main']['format'], '0')
+        self.assertEqual(result['video']['main']['codec'], 2)
+        self.assertEqual(result['video']['sub']['height'], 200)
+        self.assertEqual(result['audio']['volume'], 7)
+        self.assertEqual(result['audio']['codec_main'], 4)
+        self.assertEqual(result['audio']['codec_sub'], 17)
+
+    def test_audio_write_targets_audio_not_video(self):
+        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        a = source.index('    conf_audioin)'); b = source.index('    isp_pro)', a)
+        block = source[a:b].replace('/mnt/bin/rwconf', 'rwconf')
+        args = self.base / 'rwconf-args'
+        code = function('www/cgi-bin/action.cgi', 'sanitize_int_range') + '\n'
+        code += 'rwconf() { printf "%s\\n" "$@" > ' + shlex.quote(str(args)) + '; };\n'
+        code += 'wants_json_response() { return 0; }; schedule_rtsp_restart() { :; }; json_body_ok() { echo OK; };\n'
+        code += 'F_samplerate=16000; F_audioinVol=7; F_audioCodec0=17;\ncase conf_audioin in\n' + block + '\nesac'
+        r = run(code)
+        self.assertEqual(r.stdout, b'OK\n', r.stderr)
+        values = args.read_text().splitlines()[2:]
+        writes = [tuple(values[i:i+3]) for i in range(0, len(values), 3)]
+        self.assertEqual(writes, [(' ', 'samplerate', '16000'), (' ', 'volume', '7'), ('2', 'samplerate', '16000'), ('2', 'codec', '17')])
+
     def test_bundled_binaries_unchanged(self):
         count = 0
         for line in (ROOT / 'config/packages.lock.dist').read_text().splitlines():
