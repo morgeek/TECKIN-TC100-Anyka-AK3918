@@ -1,7 +1,8 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
 
-> **1.8.3-rc1 — device trial pending.** Resource optimizations and regression fixes are ready for hardware testing. See the [French trial and rollback guide](docs/essai-1.8.3-rc1.md) and the [offline SD trial package](docs/downloads/tc100-1.8.3-rc1-essai.zip). Existing video settings and personal configurations are preserved.
-**Version 1.8.2** — *Frigate & Home Assistant Edition*
+> **1.8.3-rc2 — device trial pending.** Resource optimizations and regression fixes are ready for hardware testing. See the [French trial and rollback guide](docs/essai-1.8.3-rc2.md) and the [offline SD trial package](docs/downloads/tc100-1.8.3-rc2-essai.zip). Existing video settings and personal configurations are preserved.
+
+**Version 1.8.3-rc2** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
