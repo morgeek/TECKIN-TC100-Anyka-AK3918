@@ -186,6 +186,20 @@ rewrite_config(){
     return 1
   fi
 
+  _rc_found=0; _rc_changed=0
+  while IFS= read -r _rc_line || [ -n "$_rc_line" ]; do
+    # Match the same leading whitespace accepted by the replacement below.
+    while :; do
+      case "$_rc_line" in ' '*|"	"*) _rc_line="${_rc_line#?}" ;; *) break ;; esac
+    done
+    case "$_rc_line" in
+      "$cfg_key"=*)
+        _rc_found=1
+        [ "${_rc_line#*=}" = "$new_value" ] || _rc_changed=1 ;;
+    esac
+  done < "$cfg_path"
+  [ "$_rc_found" -eq 1 ] && [ "$_rc_changed" -eq 0 ] && return 0
+
   if grep -q "^[[:space:]]*${cfg_key}=" "$cfg_path"; then
     # Escape replacement-sensitive characters for sed.
     esc_value=$(printf '%s' "$new_value" | sed 's/[\\&|]/\\&/g')
@@ -213,15 +227,12 @@ install_config()
   fi
 }
 
-# install_config_cached — like install_config but avoids fork/stat if already done this boot.
+# install_config_cached — use a builtin file check; no hash or per-boot marker.
 # Used extensively in performance-critical CGI scripts.
 install_config_cached()
 {
-  _icc_path="$1"
-  _icc_slug="$(printf '%s' "$_icc_path" | md5sum | cut -b -8)"
-  [ -f "/tmp/.cfg_inst_$_icc_slug" ] && return 0
-  install_config "$_icc_path"
-  touch "/tmp/.cfg_inst_$_icc_slug"
+  [ -f "$1" ] && return 0
+  install_config "$1"
 }
 
 

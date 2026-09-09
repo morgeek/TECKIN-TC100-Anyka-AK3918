@@ -7,7 +7,7 @@ else
 fi
 
 TMP_ROOT="/tmp"
-MAX_ARCHIVE_BYTES=16777216
+MAX_ARCHIVE_BYTES=1048576
 
 _BTIME=0
 _read_btime() {
@@ -22,23 +22,7 @@ _read_ts() {
   [ "$now_ts" -gt 0 ] || now_ts=0
 }
 _format_backup_tag() {
-  _epoch="$1"
-  _days=$(((_epoch / 86400) + 719468))
-  _secs=$((_epoch % 86400))
-  _z=$((_days - _days % 146097 + (_days % 146097 >= 109573 ? 146097 : 0)))
-  _era=$((_z / 146097))
-  _doe=$((_days - _z))
-  _yoe=$(((_doe + 1) * 400 / 146097))
-  _y=$((_era * 400 + _yoe))
-  _doy=$((_doe - _yoe * 365 - _yoe / 4 + _yoe / 100))
-  _mp=$(((5 * _doy + 2) * 153 / 5))
-  _d=$((_mp % 153 + 1))
-  _m=$((_mp / 153 + ([ $_mp -lt 306 ] && echo 3 || echo -9)))
-  _y=$((_m <= 2 ? _y + 1 : _y))
-  _hr=$((_secs / 3600))
-  _min=$(((_secs % 3600) / 60))
-  _sec=$((_secs % 60))
-  printf '%04d%02d%02d-%02d%02d%02d' "$_y" "$_m" "$_d" "$_hr" "$_min" "$_sec"
+  date '+%Y%m%d-%H%M%S'
 }
 
 html_header() {
@@ -149,7 +133,7 @@ extract_archive() {
 
 download_backup() {
   _read_ts
-  now_tag="$(_format_backup_tag "$now_ts")"
+  now_tag="$(_format_backup_tag "$now_ts")-$$"
   case "$now_tag" in
     ''|*[!0-9-]*)
       now_tag="unknown"
@@ -196,6 +180,16 @@ validate_archive_path() {
 
 validate_archive_entries() {
   archive_path="$1"
+  # Bound decompression before loading the listing into a shell variable.
+  _expanded="$(gzip -dc "$archive_path" 2>/dev/null | head -c 2097153 | wc -c)"
+  case "$_expanded" in ''|*[!0-9[:space:]]*) return 1 ;; esac
+  [ "$_expanded" -gt 0 ] && [ "$_expanded" -le 2097152 ] || return 1
+  # Symlinks/hardlinks/devices are not configuration data. Reject before extract.
+  _types="$(tar -tvzf "$archive_path" 2>/dev/null)" || return 1
+  printf '%s\n' "$_types" | awk '
+    substr($0,1,1) != "-" && substr($0,1,1) != "d" { bad=1 }
+    END { exit (bad || NR > 512) }
+  ' || return 1
   entry_list="$(list_archive_entries "$archive_path")" || return 1
   [ -n "$entry_list" ] || return 1
 
@@ -224,7 +218,7 @@ restore_backup() {
   archive_path="$1"
   restart_services="$2"
   _read_ts
-  now_tag="$(_format_backup_tag "$now_ts")"
+  now_tag="$(_format_backup_tag "$now_ts")-$$"
   case "$now_tag" in
     ''|*[!0-9-]*)
       now_tag="unknown"
@@ -265,7 +259,7 @@ case "$F_cmd" in
     download_backup
     ;;
   restore)
-    csrf_guard
+    mutation_guard
     archive_path="${F_archive_path}"
     restart_services="${F_restart_services}"
 

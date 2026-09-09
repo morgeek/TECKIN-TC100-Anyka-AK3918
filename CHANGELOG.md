@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc1] — 2026-09-09 (device trial pending)
+
+### Changed
+- Share the main statusline poll with dashboard gauges; respect the configured
+  health snapshot interval and adapt cache expiry to it (60 seconds by default).
+- Bound MQTT capture size and decode only unread bytes in 16 KiB batches, with
+  session-specific offsets and a 4 KiB maximum command frame. Add a retained
+  offline Will and clean up the listener's own child processes.
+- Skip identical configuration writes and unnecessary config-install hashing.
+  Remove the unconditional FTP watchdog and boot-time cache drop. Existing
+  live configurations and video settings are preserved.
+- Limit backup uploads to 1 MiB compressed / 2 MiB expanded / 512 entries,
+  rejecting archive links. Require POST and CSRF on the corrected mutation routes.
+  Frontend callers and asset cache versions are updated together.
+
+### Fixed
+- Preserve raw POST bodies in the config editor and backup upload; refuse
+  truncated writes and invalid shell syntax, keep a bounded editor backup.
+- Remove recursive configuration installation in action.cgi; correct backup and
+  timelapse date formatting; make package backups include the rollback manifest.
+- Subtract shared memory from the fallback available-memory estimate and report
+  failed deep RTSP/ONVIF probes instead of treating a live PID as healthy.
+- Prevent FTP/Telnet starts in security hardening mode and bound update-check waits.
+
+### Validation
+- Host regression tests, syntax checks and existing binary hashes checked.
+  ARM/BusyBox compatibility and resource gains still require the camera trial.
+- French trial and rollback procedure: [docs/essai-1.8.3-rc1.md](docs/essai-1.8.3-rc1.md).
+
 ## [1.8.2] — 2026-08-13
 
 ### Fixed
