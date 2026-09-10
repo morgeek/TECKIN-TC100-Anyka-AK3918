@@ -741,14 +741,23 @@ rtsp_strict_describe_check() {
   rtsp_user="$(read_config rtspserver.conf USERNAME)"
   rtsp_pass="$(read_config rtspserver.conf USERPASSWORD)"
 
-  if [ -n "$rtsp_user" ]; then
-    sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE -u "${rtsp_user}:${rtsp_pass}" "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 1
-  else
-    sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 1
-  fi
-
-  printf '%s' "$sdp" | grep -q "m=video" || return 1
-  return 0
+  # The encoder process becomes visible before its RTSP listener is ready.
+  # Retry short-lived startup failures instead of rolling back a valid profile.
+  describe_attempt=1
+  while [ "$describe_attempt" -le 5 ]; do
+    sdp=""
+    if [ -n "$rtsp_user" ]; then
+      sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE -u "${rtsp_user}:${rtsp_pass}" "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || true
+    else
+      sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || true
+    fi
+    if printf '%s' "$sdp" | grep -q "m=video"; then
+      return 0
+    fi
+    [ "$describe_attempt" -lt 5 ] && sleep 1
+    describe_attempt=$((describe_attempt + 1))
+  done
+  return 1
 }
 
 AUTO_STREAM_SELFTEST_BLOCKING_FAIL=0
