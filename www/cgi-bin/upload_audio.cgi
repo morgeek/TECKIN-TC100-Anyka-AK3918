@@ -13,10 +13,11 @@ PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
 PTT_PLAYBACK_PID_FILE="/tmp/ptt-audioplay.pid"
 PTT_LOCK_DIR="/tmp/ptt-upload.lock"
 PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
-PLAYBACK_CLEANUP_DELAY_SECONDS=20
+PLAYBACK_CLEANUP_DELAY_SECONDS=2
+RTSP_SERVICE="/mnt/controlscripts/rtsp-h26x"
 
 # Anyka native audio output binary: ak_ao_demo <rate> <channels> <pcm_file> <volume 0-6>
-AUDIOPLAY_BIN="/usr/bin/ak_ao_demo"
+AUDIOPLAY_BIN="/mnt/bin/ak_ao_ptt"
 
 # Map UI volume (0-100) to ak_ao_demo scale (0-6).
 # Caller guarantees $1 is already clamped to 0-100.
@@ -29,6 +30,7 @@ pcm_file=""
 lock_acquired=0
 playback_started=0
 playback_pid=""
+rtsp_was_running=0
 
 respond_plain() {
     status_code="$1"
@@ -60,6 +62,10 @@ if [ "$REQUEST_METHOD" != "POST" ]; then
     exit 0
 fi
 
+if [ ! -x "$AUDIOPLAY_BIN" ] && [ -r /mnt/scripts/prepare-ptt-player.sh ]; then
+    sh /mnt/scripts/prepare-ptt-player.sh >/dev/null 2>&1 || true
+fi
+
 if [ ! -x "$AUDIOPLAY_BIN" ]; then
     respond_plain "500 Internal Server Error" "PTT_BIN_MISSING"
     exit 0
@@ -88,8 +94,27 @@ if [ "$CONTENT_LENGTH" -gt "$MAX_UPLOAD_BYTES" ]; then
 fi
 
 if ! mkdir "$PTT_LOCK_DIR" 2>/dev/null; then
-    respond_plain "429 Too Many Requests" "BUSY"
-    exit 0
+    # Recover a lock orphaned by an interrupted/older CGI only when no tracked
+    # playback process is still alive.
+    active_playback=0
+    if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
+        active_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
+        case "$active_pid" in
+            ''|*[!0-9]*) ;;
+            *)
+                if kill -0 "$active_pid" >/dev/null 2>&1; then
+                    active_playback=1
+                fi
+                ;;
+        esac
+    fi
+    if [ "$active_playback" = "0" ]; then
+        rmdir "$PTT_LOCK_DIR" >/dev/null 2>&1 || true
+    fi
+    if ! mkdir "$PTT_LOCK_DIR" 2>/dev/null; then
+        respond_plain "429 Too Many Requests" "BUSY"
+        exit 0
+    fi
 fi
 lock_acquired=1
 
@@ -137,15 +162,27 @@ vol_ak="$(ptt_volume_to_ak "$ptt_volume")"
 if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
     last_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
     case "$last_pid" in
-        ''|*[!0-9]*)
-            ;;
+        ''|*[!0-9]*) ;;
         *)
-            if [ -r "/proc/$last_pid/cmdline" ] && grep -q "ak_ao_demo" "/proc/$last_pid/cmdline" 2>/dev/null; then
-                kill "$last_pid" >/dev/null 2>&1 || true
+            if kill -0 "$last_pid" >/dev/null 2>&1; then
+                respond_plain "429 Too Many Requests" "BUSY"
+                exit 0
             fi
             ;;
     esac
     rm -f "$PTT_PLAYBACK_PID_FILE" >/dev/null 2>&1 || true
+fi
+
+# The AK3918 exposes capture and playback through one exclusive codec device.
+# Stop RTSP only when it currently owns that device, then restore it from the
+# detached cleanup worker after the short PTT clip has completed.
+if [ -x "$RTSP_SERVICE" ] && "$RTSP_SERVICE" status >/dev/null 2>&1; then
+    rtsp_was_running=1
+    "$RTSP_SERVICE" stop >/dev/null 2>&1 || {
+        respond_plain "503 Service Unavailable" "AUDIO_DEVICE_BUSY"
+        exit 0
+    }
+    sleep 1
 fi
 
 "$AUDIOPLAY_BIN" 8000 1 "$pcm_file" "$vol_ak" >/dev/null 2>&1 &
@@ -167,6 +204,9 @@ esac
         _cl_loops=$(expr "$_cl_loops" + 1)
     done
     sleep "$PLAYBACK_CLEANUP_DELAY_SECONDS"
+    if [ "$rtsp_was_running" = "1" ] && [ -x "$RTSP_SERVICE" ]; then
+        "$RTSP_SERVICE" start >/dev/null 2>&1 || true
+    fi
     rm -f "$pcm_file" >/dev/null 2>&1 || true
     if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
         _cur_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
@@ -174,8 +214,9 @@ esac
             rm -f "$PTT_PLAYBACK_PID_FILE" >/dev/null 2>&1 || true
         fi
     fi
+    rmdir "$PTT_LOCK_DIR" >/dev/null 2>&1 || true
 ) >/dev/null 2>&1 &
-_cleanup_pid=$!
-[ -n "$_cleanup_pid" ] && echo "$_cleanup_pid" > /tmp/ptt-cleanup.$$.pid 2>/dev/null || true
-trap 'rm -f /tmp/ptt-cleanup.$$.pid "$pcm_file" "$PTT_PLAYBACK_PID_FILE"' EXIT INT TERM
+# Transfer lock ownership to the detached worker so another upload cannot
+# interrupt playback or race the RTSP restart.
+lock_acquired=0
 respond_plain "200 OK" "OK"

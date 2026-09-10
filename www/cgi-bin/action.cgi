@@ -251,7 +251,7 @@ security_hardening_enabled() {
 
 PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
 PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
-PTT_PCM_PLAYBACK_BIN="/usr/bin/ak_ao_demo"
+PTT_PCM_PLAYBACK_BIN="/mnt/bin/ak_ao_ptt"
 PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
 
 ptt_backend_status() {
@@ -731,24 +731,28 @@ rtsp_strict_describe_check() {
   if [ ! -x /mnt/controlscripts/rtsp-h26x ] || ! /mnt/controlscripts/rtsp-h26x status >/dev/null 2>&1; then
     return 1
   fi
-  if [ ! -x /mnt/bin/curl ]; then
+  if ! command -v nc >/dev/null 2>&1; then
     return 2
   fi
 
   rtsp_timeout="$(sanitize_int_range "$(read_kv_or_default /mnt/config/boot.conf RTSP_HEALTHCHECK_TIMEOUT_SECONDS 4)" 2 30 4)"
   rtsp_port="$(read_config rtspserver.conf PORT)"
   [ -n "$rtsp_port" ] || rtsp_port=554
-  rtsp_user="$(read_config rtspserver.conf USERNAME)"
-  rtsp_pass="$(read_config rtspserver.conf USERPASSWORD)"
+  describe_uri="rtsp://127.0.0.1:${rtsp_port}/${health_stream}"
 
-  if [ -n "$rtsp_user" ]; then
-    sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE -u "${rtsp_user}:${rtsp_pass}" "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 1
-  else
-    sdp="$(/mnt/bin/curl -s -S -m "$rtsp_timeout" -X DESCRIBE "rtsp://127.0.0.1:${rtsp_port}/${health_stream}" 2>/dev/null)" || return 1
-  fi
-
-  printf '%s' "$sdp" | grep -q "m=video" || return 1
-  return 0
+  # The bundled curl sends OPTIONS even with -X DESCRIBE. Use the same raw
+  # probe as state.cgi and allow the encoder a short warm-up period.
+  describe_attempt=1
+  while [ "$describe_attempt" -le 5 ]; do
+    describe_reply="$(printf 'DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n' "$describe_uri"       | nc -w "$rtsp_timeout" 127.0.0.1 "$rtsp_port" 2>/dev/null)" || true
+    case "$describe_reply" in
+      *'RTSP/1.0 401 Unauthorized'*) return 0 ;;
+      *'RTSP/1.0 200 OK'*'m=video'*) return 0 ;;
+    esac
+    [ "$describe_attempt" -lt 5 ] && sleep 1
+    describe_attempt=$((describe_attempt + 1))
+  done
+  return 1
 }
 
 AUTO_STREAM_SELFTEST_BLOCKING_FAIL=0
