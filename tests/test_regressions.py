@@ -460,6 +460,23 @@ class Regressions(unittest.TestCase):
         self.assertIn('WEB_MODE=ultra-lite', (cfg / 'boot.conf').read_text())
         self.assertTrue(list(self.base.glob('config-rollback-*.tar.gz')))
 
+    def test_ptt_player_patcher_rejects_unknown_firmware_binary(self):
+        source = self.base / 'ak_ao_demo'
+        destination = self.base / 'ak_ao_ptt'
+        source.write_bytes(b'unknown firmware binary')
+        env = dict(os.environ, PTT_SOURCE_BIN=str(source), PTT_DEST_BIN=str(destination))
+        r = subprocess.run(
+            ['/bin/sh', str(ROOT / 'scripts/prepare-ptt-player.sh')],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
+        )
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse(destination.exists())
+        patcher = (ROOT / 'scripts/prepare-ptt-player.sh').read_text()
+        self.assertIn('seek=3584', patcher)
+        self.assertIn('seek=4208', patcher)
+        self.assertIn('04b300db2de09f5fbbbef316b978a42e', patcher)
+        self.assertIn('50afb76d22a1341366306dccffd2d671', patcher)
+
     def test_stream_profile_health_uses_raw_rtsp_describe(self):
         source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
         start = source.index('rtsp_strict_describe_check() {')

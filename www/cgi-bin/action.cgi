@@ -251,7 +251,7 @@ security_hardening_enabled() {
 
 PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
 PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
-PTT_PCM_PLAYBACK_BIN="/usr/bin/ak_ao_demo"
+PTT_PCM_PLAYBACK_BIN="/mnt/bin/ak_ao_ptt"
 PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
 
 ptt_backend_status() {

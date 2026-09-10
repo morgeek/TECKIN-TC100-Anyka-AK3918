@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc8] — 2026-09-10
+
+### Fixed
+- Rebuild PTT playback from the stock firmware behavior: the TC100 amplifier enable is active-low, while ak_ao_demo drives it with the opposite polarity. A source-MD5-guarded installer creates /mnt/bin/ak_ao_ptt and flips only the two speaker-control instructions; /usr/bin/ak_ao_demo remains untouched.
+
+
 ## [1.8.3-rc3] — 2026-09-10 (device trial pending)
 
 ### Changed
