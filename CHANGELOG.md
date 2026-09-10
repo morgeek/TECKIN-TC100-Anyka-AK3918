@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc9] — 2026-09-10
+
+### Fixed
+- Release the PTT upload lock when the CGI exits, preserve PCM until playback finishes, and recover locks orphaned by older versions when no playback PID is alive.
+
+
 ## [1.8.3-rc8] — 2026-09-10
 
 ### Fixed
