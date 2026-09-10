@@ -357,6 +357,16 @@ csrf_guard() {
   fi
 }
 
+# Mutation routes must reject safe methods before changing any state.
+mutation_guard() {
+  if [ "${REQUEST_METHOD:-GET}" != "POST" ]; then
+    printf 'Status: 405 Method Not Allowed\nAllow: POST\nContent-Type: application/json\nCache-Control: no-store\n\n'
+    printf '{"ok":false,"error":"POST required","code":"invalid_method"}\n'
+    exit 0
+  fi
+  csrf_guard
+}
+
 # audit_log_event — append a timestamped entry to /tmp/log/audit.log (fork-free).
 # Usage: audit_log_event <action> [detail]
 # Safe to call before or after response headers — writes only to the log file.

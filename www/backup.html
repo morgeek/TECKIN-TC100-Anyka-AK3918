@@ -123,7 +123,7 @@
   var restoreBtn = document.getElementById('restore_btn');
   var restoreStatus = document.getElementById('restore_status');
 
-  var MAX_BACKUP_BYTES = 16 * 1024 * 1024; // 16 MB — must match upload_backup.cgi
+  var MAX_BACKUP_BYTES = 1 * 1024 * 1024; // 1 MB — must match upload_backup.cgi
   fileInput.addEventListener('change', function () {
     var f = fileInput.files && fileInput.files[0];
     if (!f) {
@@ -134,7 +134,7 @@
     }
     if (f.size > MAX_BACKUP_BYTES) {
       restoreBtn.disabled = true;
-      restoreStatus.textContent = 'File too large (' + (f.size / 1048576).toFixed(1) + ' MB). Maximum is 16 MB.';
+      restoreStatus.textContent = 'File too large (' + (f.size / 1048576).toFixed(1) + ' MB). Maximum is 1 MB.';
       restoreStatus.className = 'backup-status err';
       return;
     }
@@ -223,8 +223,9 @@
       })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        var ok = res.status === 'success';
-        status.textContent = res.message || (ok ? 'Success' : 'Error');
+        var ok = !!(res && res.ok === true);
+        var successText = ok ? ('Import réussi : ' + (res.applied || 0) + ' valeur(s), ' + (res.changed_files || 0) + ' fichier(s) modifié(s).') : 'Erreur';
+        status.textContent = res.message || res.error || successText;
         status.className = 'backup-status ' + (ok ? 'ok' : 'err');
         importBtn.disabled = false;
         if (ok) fileInput.value = '';

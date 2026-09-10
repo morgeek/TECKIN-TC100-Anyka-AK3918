@@ -1108,13 +1108,6 @@ apply_low_cpu_profile
 apply_frigate_ha_rtsp_profile
 run_autostart_scripts
 enforce_security_hardening_runtime
-start_service_watchdogs()
-{
-    echo "Starting Service Watchdogs..." >> $LOGPATH
-    # Monitor FTP on Port 2121. Mode 0 means 'restart only', no system reboot for FTP.
-    nohup /mnt/scripts/service-watchdog.sh /mnt/controlscripts/ftp-server 0 status >/dev/null 2>&1 &
-}
-
 # Probe the shell tools the firmware assumes, by BEHAVIOUR rather than presence.
 # Two shipped bug classes came from a tool that existed but misbehaved silently
 # (tr absent from PATH, /bin/timeout wanting the old -t syntax) — see
@@ -1123,7 +1116,6 @@ if [ -x /mnt/scripts/capability-check.sh ]; then
     /mnt/scripts/capability-check.sh >> "$LOGPATH" 2>&1 || true
 fi
 
-start_service_watchdogs
 start_syslog_forwarding
 generate_csrf_token
 start_mqtt_bridge_if_enabled
@@ -1133,7 +1125,6 @@ echo "$(date)" >> $LOGPATH
 snapshot_lkg_configs
 sleep 1
 sync
-echo 3 > /proc/sys/vm/drop_caches
 echo "--------Starting Hacks Finished!--------" >> $LOGPATH
 
 ## Audio Feedback: Play Startup Chime

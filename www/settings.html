@@ -1,11 +1,12 @@
 <div id="settings_container">
+    <p id="settings_load_status" class="help mb-3" role="status">Loading current settings…</p>
     <!-- Tabs Header -->
     <div class="tabs is-centered is-toggle is-small mb-4">
         <ul>
             <li class="is-active" data-tab="tab-dashboard"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-activity"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span><span>Dashboard</span></a></li>
             <li data-tab="tab-video"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-video"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span><span>Video/Audio</span></a></li>
             <li data-tab="tab-profiles"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span><span>Config Profiles</span></a></li>
-            <li data-tab="tab-isp"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-sliders"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="2" y1="14" x2="6" y2="14"></line><line x1="10" y1="8" x2="14" y2="8"></line><line x1="18" y1="16" x2="22" y2="16"></line></svg></span><span>ISP/OSD</span></a></li>
+            <li data-tab="tab-isp"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-sliders"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="2" y1="14" x2="6" y2="14"></line><line x1="10" y1="8" x2="14" y2="8"></line><line x1="18" y1="16" x2="22" y2="16"></line></svg></span><span>Image &amp; text</span></a></li>
             <li data-tab="tab-automation"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-zap"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span><span>Automation</span></a></li>
             <li data-tab="tab-network"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-wifi"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg></span><span>Network</span></a></li>
             <li data-tab="tab-system"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-settings"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span><span>System</span></a></li>
@@ -62,16 +63,17 @@
 
         <!-- Video/Audio Tab -->
         <div class="tab-content is-hidden" id="tab-video">
+            <p class="settings-intro">Start with a profile, or adjust each stream below. Advanced options are collapsed; opening them does not change any settings.</p>
             <div class='card status_card mb-4 is-link is-light'>
-                <header class='card-header'><p class='card-header-title'>Elite Setup Presets (One-Click Tuning)</p></header>
+                <header class='card-header'><p class='card-header-title'>Quick setup</p></header>
                 <div class='card-content'>
                     <div class="columns">
                         <div class="column">
                             <form action="cgi-bin/action.cgi?cmd=set_rtsp_preset" method="post">
-                                <label class="label is-small">System Performance Preset</label>
+                                <label class="label is-small">Video quality profile</label>
                                 <div class="field has-addons">
                                     <div class="control is-expanded">
-                                        <div class="select is-small is-fullwidth"><select name="preset"><option value="full">Elite (1080p 25fps)</option><option value="medium">Balanced (720p 20fps)</option><option value="low">Low Footprint (360p 10fps)</option></select></div>
+                                        <div class="select is-small is-fullwidth"><select name="preset"><option value="full">Quality (720p, 25 fps)</option><option value="medium">Balanced (720p, 20 fps)</option><option value="low">Economy (360p, 10 fps)</option></select></div>
                                     </div>
                                     <div class="control"><button type="submit" class="button is-link is-small">Apply</button></div>
                                 </div>
@@ -82,77 +84,70 @@
                                 <label class="label is-small">NVR / Client Compatibility</label>
                                 <div class="field has-addons">
                                     <div class="control is-expanded">
-                                        <div class="select is-small is-fullwidth"><select name="client_profile"><option value="universal-h264">Universal H264 (Max Comp)</option><option value="frigate-balanced">Frigate Balanced</option><option value="frigate-quality">Frigate Quality</option><option value="hybrid-hevc-main">Hybrid HEVC/264</option></select></div>
+                                        <div class="select is-small is-fullwidth"><select name="client_profile"><option value="frigate-light-ak3918">Frigate léger AK3918 (recommandé)</option><option value="universal-h264">Universal H264 (Max Comp)</option><option value="frigate-balanced">Frigate Balanced</option><option value="frigate-quality">Frigate Quality</option><option value="hybrid-hevc-main">Hybrid HEVC/264</option></select></div>
                                     </div>
                                     <div class="control"><button type="submit" class="button is-info is-small">Apply</button></div>
                                 </div>
+                                <p class="help">Le profil léger utilise deux flux H.265 compatibles AK3918 : principal 720p/12 fps et sous-flux 360p/8 fps pour la détection Frigate, sans audio.</p>
                             </form>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <form id="formVideoAdvanced" action="cgi-bin/action.cgi?cmd=set_video_params" method="post">
-                <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Main Stream Advanced (video0)</p></header>
-                    <div class='card-content'>
-                        <div class="columns is-multiline is-mobile">
-                            <div class="column is-half"><label class="label is-small">Resolution</label>
-                                <div class="select is-small is-fullwidth"><select name="video_size0" id="video_size0"><option value="1920x1080">1920x1080</option><option value="1600x904">1600x904</option><option value="1280x720">1280x720</option><option value="1024x576">1024x576</option></select></div>
-                            </div>
-                            <div class="column is-half"><label class="label is-small">Codec</label>
-                                <div class="select is-small is-fullwidth"><select name="video_codec0" id="video_codec0"><option value="0">H264</option><option value="2">H265</option></select></div>
-                            </div>
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">FPS</label><input class="input is-small" name="fps0" id="fps0" type="number"></div>
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Bitrate (K)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number"></div>
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">GOP</label><input class="input is-small" name="goplen0" id="goplen0" type="number"></div>
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Mode</label>
-                                <div class="select is-small is-fullwidth"><select name="video_format0" id="video_format0"><option value="0">CBR</option><option value="1">VBR</option></select></div>
-                            </div>
-                        </div>
-                        <div class="is-divider" data-content="VBR / Quality Fine-tuning"></div>
-                        <div class="columns is-multiline is-mobile">
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Min QP</label><input class="input is-small" name="minqp0" id="minqp0" type="number"></div>
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Max QP</label><input class="input is-small" name="maxqp0" id="maxqp0" type="number"></div>
-                            <div class="column is-half"><label class="label is-small">Smart Mode</label>
-                                <div class="select is-small is-fullwidth"><select name="smartmode0" id="smartmode0"><option value="0">OFF</option><option value="1">LTR</option><option value="2">GOP len</option></select></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class='card status_card mt-4'>
-                    <header class='card-header'><p class='card-header-title'>Sub Stream Advanced (video1)</p></header>
-                    <div class='card-content'>
-                        <div class="columns is-multiline is-mobile">
-                            <div class="column is-half"><label class="label is-small">Resolution</label>
-                                <div class="select is-small is-fullwidth"><select name="video_size1" id="video_size1"><option value="640x360">640x360</option><option value="352x200">352x200</option></select></div>
-                            </div>
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">FPS</label><input class="input is-small" name="fps1" id="fps1" type="number"></div>
-                            <div class="column is-3-tablet is-half-mobile"><label class="label is-small">Bitrate</label><input class="input is-small" name="brbitrate1" id="brbitrate1" type="number"></div>
-                        </div>
-                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply Video Tunings</button></div>
+            <form id="formVideoAdvanced" action="cgi-bin/action.cgi?cmd=set_video_params" method="post" class="mt-4">
+                <input type="hidden" name="stream" value="0">
+                <div class="card status_card">
+                    <header class="card-header"><p class="card-header-title">Main stream</p></header>
+                    <div class="card-content">
+                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_size0">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size0" id="video_size0"><option value="1920x1080">1920x1080</option><option value="1600x904">1600x904</option><option value="1280x720">1280x720</option><option value="1024x576">1024x576</option><option value="640x360">640x360</option></select></div></div><div class="column is-half"><label class="label is-small" for="fps0">Frames per second</label><input class="input is-small" name="fps0" id="fps0" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate0">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" min="32" max="8000" step="1" required></div></div>
+                        <details class="settings-advanced">
+                            <summary>Advanced encoding</summary>
+                            <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
+                            <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_codec0">Video codec</label><div class="select is-small is-fullwidth"><select name="video_codec0" id="video_codec0"><option value="0">H.264</option><option value="2">H.265</option></select></div></div><div class="column is-half"><label class="label is-small" for="goplen0">Keyframe interval (frames)</label><input class="input is-small" name="goplen0" id="goplen0" type="number" min="1" max="300" step="1" required></div><div class="column is-half"><label class="label is-small" for="video_format0">Bitrate mode</label><div class="select is-small is-fullwidth"><select name="video_format0" id="video_format0"><option value="0">Constant (CBR)</option><option value="1">Variable (VBR)</option></select></div></div><div class="column is-half"><label class="label is-small" for="minqp0">Minimum QP</label><input class="input is-small" name="minqp0" id="minqp0" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="maxqp0">Maximum QP</label><input class="input is-small" name="maxqp0" id="maxqp0" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="smartmode0">Smart encoding</label><div class="select is-small is-fullwidth"><select name="smartmode0" id="smartmode0"><option value="0">Off</option><option value="1">Long-term reference</option><option value="2">Adaptive keyframes</option></select></div></div></div>
+                        </details>
+                        <p class="help">Saving this stream may briefly interrupt video.</p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save main stream</button></div>
                     </div>
                 </div>
             </form>
 
-            <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post">
-                <div class='card status_card mt-4'>
-                    <header class='card-header'><p class='card-header-title'>Audio Settings</p></header>
-                    <div class='card-content'>
-                        <div class="columns is-multiline">
-                            <div class="column is-half"><label class="label is-small">Sample Rate</label>
-                                <div class="select is-small is-fullwidth"><select name="samplerate" id="samplerate"><option value="8000">8000 Hz</option><option value="16000">16000 Hz</option><option value="32000">32000 Hz</option></select></div>
-                            </div>
-                            <div class="column is-half"><label class="label is-small">Main Stream Codec</label>
-                                <div class="select is-small is-fullwidth"><select name="audioCodec0" id="audioCodec0"><option value="0">OFF</option><option value="4">AAC</option><option value="6">PCM</option><option value="17">ALAW</option><option value="18">ULAW</option></select></div>
-                            </div>
-                            <div class="column is-full"><label class="label is-small">Mic Sensitivity (0-12)</label><input class="input is-small" name="audioinVol" id="audio_vol" type="number"></div>
-                        </div>
-                        <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Apply Audio</button></div>
+            <form id="formVideoSub" action="cgi-bin/action.cgi?cmd=set_video_params" method="post" class="mt-4">
+                <input type="hidden" name="stream" value="1">
+                <div class="card status_card">
+                    <header class="card-header"><p class="card-header-title">Secondary stream</p></header>
+                    <div class="card-content">
+                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_size1">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size1" id="video_size1"><option value="640x360">640x360</option><option value="352x200">352x200</option></select></div></div><div class="column is-half"><label class="label is-small" for="fps1">Frames per second</label><input class="input is-small" name="fps1" id="fps1" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate1">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate1" id="brbitrate1" type="number" min="32" max="8000" step="1" required></div></div>
+                        <details class="settings-advanced">
+                            <summary>Advanced encoding</summary>
+                            <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
+                            <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_codec1">Video codec</label><div class="select is-small is-fullwidth"><select name="video_codec1" id="video_codec1"><option value="0">H.264</option><option value="2">H.265</option></select></div></div><div class="column is-half"><label class="label is-small" for="goplen1">Keyframe interval (frames)</label><input class="input is-small" name="goplen1" id="goplen1" type="number" min="1" max="300" step="1" required></div><div class="column is-half"><label class="label is-small" for="video_format1">Bitrate mode</label><div class="select is-small is-fullwidth"><select name="video_format1" id="video_format1"><option value="0">Constant (CBR)</option><option value="1">Variable (VBR)</option></select></div></div><div class="column is-half"><label class="label is-small" for="minqp1">Minimum QP</label><input class="input is-small" name="minqp1" id="minqp1" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="maxqp1">Maximum QP</label><input class="input is-small" name="maxqp1" id="maxqp1" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="smartmode1">Smart encoding</label><div class="select is-small is-fullwidth"><select name="smartmode1" id="smartmode1"><option value="0">Off</option><option value="1">Long-term reference</option><option value="2">Adaptive keyframes</option></select></div></div></div>
+                        </details>
+                        <p class="help">Saving this stream may briefly interrupt video.</p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save secondary stream</button></div>
                     </div>
                 </div>
             </form>
+
+            <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post" class="mt-4">
+                <div class="card status_card">
+                    <header class="card-header"><p class="card-header-title">Microphone</p></header>
+                    <div class="card-content">
+                        <div class="field"><label class="label" for="audio_vol">Microphone level (0–12)</label><input class="input" name="audioinVol" id="audio_vol" type="number" min="0" max="12" step="1" required></div>
+                        <details class="settings-advanced">
+                            <summary>Advanced audio format</summary>
+                            <p class="help mb-3">Match the format supported by your recorder.</p>
+                            <div class="columns is-multiline">
+                                <div class="column is-half"><label class="label is-small" for="samplerate">Sample rate</label><div class="select is-small is-fullwidth"><select name="samplerate" id="samplerate"><option value="8000">8000 Hz</option><option value="16000">16000 Hz</option><option value="32000">32000 Hz</option></select></div></div>
+                                <div class="column is-half"><label class="label is-small" for="audioCodec0">Audio codec</label><div class="select is-small is-fullwidth"><select name="audioCodec0" id="audioCodec0"><option value="0">Off</option><option value="4">AAC</option><option value="6">PCM</option><option value="17">A-law</option><option value="18">µ-law</option></select></div></div>
+                            </div>
+                        </details>
+                        <p class="help">Saving audio may briefly interrupt video.</p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save audio</button></div>
+                    </div>
+                </div>
+            </form>
+
         </div>
 
         <!-- Configuration Profiles Tab -->
@@ -208,6 +203,8 @@
         <!-- ISP/OSD Tab -->
         <div class="tab-content is-hidden" id="tab-isp">
             <form id="formISP" action="cgi-bin/action.cgi?cmd=isp_pro" method="post">
+                <details class="settings-advanced mb-4">
+                    <summary>Advanced day/night thresholds</summary>
                 <div class='card status_card'>
                     <header class='card-header'><p class='card-header-title'>Day/Night Switching Thresholds</p></header>
                     <div class='card-content'>
@@ -226,6 +223,7 @@
                     </div>
                 </div>
 
+                </details>
                 <div class='card status_card mt-4'>
                     <header class='card-header'><p class='card-header-title'>OSD & Image Controls</p></header>
                     <div class='card-content'>
