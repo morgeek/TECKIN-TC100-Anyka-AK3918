@@ -1128,7 +1128,8 @@ sync
 echo "--------Starting Hacks Finished!--------" >> $LOGPATH
 
 ## Audio Feedback: Play Startup Chime
-PTT_PCM_PLAYBACK_BIN="/usr/bin/ak_ao_demo"
+sh /mnt/scripts/prepare-ptt-player.sh >/dev/null 2>&1 || true
+PTT_PCM_PLAYBACK_BIN="/mnt/bin/ak_ao_ptt"
 STARTUP_CHIME="/mnt/sounds/startup_complete.pcm"
 
 if [ -x "$PTT_PCM_PLAYBACK_BIN" ] && [ -f "$STARTUP_CHIME" ]; then
