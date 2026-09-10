@@ -223,8 +223,9 @@
       })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        var ok = res.status === 'success';
-        status.textContent = res.message || (ok ? 'Success' : 'Error');
+        var ok = !!(res && res.ok === true);
+        var successText = ok ? ('Import réussi : ' + (res.applied || 0) + ' valeur(s), ' + (res.changed_files || 0) + ' fichier(s) modifié(s).') : 'Erreur';
+        status.textContent = res.message || res.error || successText;
         status.className = 'backup-status ' + (ok ? 'ok' : 'err');
         importBtn.disabled = false;
         if (ok) fileInput.value = '';
