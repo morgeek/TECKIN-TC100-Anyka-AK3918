@@ -16,7 +16,7 @@ PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
 PLAYBACK_CLEANUP_DELAY_SECONDS=20
 
 # Anyka native audio output binary: ak_ao_demo <rate> <channels> <pcm_file> <volume 0-6>
-AUDIOPLAY_BIN="/usr/bin/ak_ao_demo"
+AUDIOPLAY_BIN="/mnt/bin/ak_ao_ptt"
 
 # Map UI volume (0-100) to ak_ao_demo scale (0-6).
 # Caller guarantees $1 is already clamped to 0-100.
@@ -58,6 +58,10 @@ rate_limit_check 5 60
 if [ "$REQUEST_METHOD" != "POST" ]; then
     respond_plain "405 Method Not Allowed" "METHOD_NOT_ALLOWED"
     exit 0
+fi
+
+if [ ! -x "$AUDIOPLAY_BIN" ] && [ -x /mnt/scripts/prepare-ptt-player.sh ]; then
+    /mnt/scripts/prepare-ptt-player.sh >/dev/null 2>&1 || true
 fi
 
 if [ ! -x "$AUDIOPLAY_BIN" ]; then
