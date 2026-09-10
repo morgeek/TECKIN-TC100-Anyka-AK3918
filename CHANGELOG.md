@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc10] — 2026-09-10
+
+### Fixed
+- Coordinate PTT with the AK3918 exclusive audio device: pause RTSP only for the clip, keep the upload lock until playback ends, then restart RTSP from a detached cleanup worker.
+
+
+## [1.8.3-rc9] — 2026-09-10
+
+### Fixed
+- Release the PTT upload lock when the CGI exits, preserve PCM until playback finishes, and recover locks orphaned by older versions when no playback PID is alive.
+
+
+## [1.8.3-rc8] — 2026-09-10
+
+### Fixed
+- Rebuild PTT playback from the stock firmware behavior: the TC100 amplifier enable is active-low, while ak_ao_demo drives it with the opposite polarity. A source-MD5-guarded installer creates /mnt/bin/ak_ao_ptt and flips only the two speaker-control instructions; /usr/bin/ak_ao_demo remains untouched.
+
+
 ## [1.8.3-rc3] — 2026-09-10 (device trial pending)
 
 ### Changed
@@ -16,6 +34,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   resident process or added idle-memory cost.
 - Add `frigate-light-ak3918`: H.265 720p/12 fps main stream and H.265 360p/8 fps substream, matching the AK3918 dual-encoder constraint observed on real hardware
 - Preserve valid AK3918 audio codec values when profiles disable RTSP audio; `RTSP_AUDIO=0` now controls publication without breaking RTSP startup
+- Retry RTSP DESCRIBE during encoder warm-up so a healthy stream is not rolled back before its listener becomes ready
+- Use a raw RTSP DESCRIBE probe for profile validation because the bundled curl sends OPTIONS; accept Digest 401 or a video SDP 200 response
   detection stream, 1.32 Mbit/s combined target and audio disabled.
 
 ### Fixed

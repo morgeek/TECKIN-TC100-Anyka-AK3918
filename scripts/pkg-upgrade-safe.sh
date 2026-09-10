@@ -8,6 +8,8 @@ BACKUP_ROOT="$PKG_ROOT/backup/package-upgrades"
 LOG_FILE="$PKG_ROOT/log/pkg-upgrade.log"
 LOCK_FILE="$PKG_ROOT/config/packages.lock"
 BUSYBOX_REQUIRED_APPLETS="${BUSYBOX_REQUIRED_APPLETS:-tcpsvd ftpd telnetd httpd watchdog ntpd flock gzip strings nohup date run-parts crond sendmail}"
+BUNDLE_REQUIRE_MANIFEST="${BUNDLE_REQUIRE_MANIFEST:-1}"
+APPLY_LOCK_DIR="${APPLY_LOCK_DIR:-$PKG_ROOT/tmp/pkg-upgrade.lock}"
 
 timestamp()
 {
@@ -65,6 +67,53 @@ generate_lock()
     done
   } > "$tmp"
   mv "$tmp" "$out"
+}
+
+verify_bundle_manifest()
+{
+  bundle="$1"
+  manifest="$bundle/manifest.sha256"
+  if [ ! -f "$manifest" ]; then
+    [ "$BUNDLE_REQUIRE_MANIFEST" != "1" ] && return 0
+    log_msg "Apply blocked: missing manifest.sha256"
+    return 1
+  fi
+  listed=0
+  while read -r expected rel extra; do
+    [ -n "$expected" ] || continue
+    case "$expected" in \#*) continue ;; esac
+    [ -z "$extra" ] || { log_msg "Apply blocked: malformed manifest entry"; return 1; }
+    rel="${rel#\*}"
+    case "$rel" in bin/*|lib/*) ;; *) log_msg "Apply blocked: unsafe manifest path: $rel"; return 1 ;; esac
+    case "$rel" in */*/*|*..*) log_msg "Apply blocked: unsafe manifest path: $rel"; return 1 ;; esac
+    src="$bundle/$rel"
+    [ -f "$src" ] || { log_msg "Apply blocked: manifest file missing: $rel"; return 1; }
+    actual="$(hash_file "$src")"
+    [ "$actual" = "$expected" ] || { log_msg "Apply blocked: checksum mismatch: $rel"; return 1; }
+    listed=$((listed + 1))
+  done < "$manifest"
+  [ "$listed" -gt 0 ] || { log_msg "Apply blocked: empty manifest.sha256"; return 1; }
+  for dir in bin lib; do
+    [ -d "$bundle/$dir" ] || continue
+    for src in "$bundle/$dir"/*; do
+      [ -f "$src" ] || continue
+      rel="$dir/${src##*/}"
+      awk -v rel="$rel" '$2 == rel || $2 == "*" rel { found=1 } END { exit(found ? 0 : 1) }' "$manifest" || {
+        log_msg "Apply blocked: unlisted bundle file: $rel"
+        return 1
+      }
+    done
+  done
+}
+
+acquire_apply_lock()
+{
+  mkdir -p "${APPLY_LOCK_DIR%/*}" >/dev/null 2>&1 || true
+  if ! mkdir "$APPLY_LOCK_DIR" 2>/dev/null; then
+    log_msg "Apply blocked: another package operation is active"
+    return 1
+  fi
+  trap 'rmdir "$APPLY_LOCK_DIR" >/dev/null 2>&1 || true' EXIT INT TERM
 }
 
 count_regular_files()
@@ -178,6 +227,9 @@ do_apply()
     log_msg "Apply failed: bundle directory missing"
     return 1
   fi
+
+  acquire_apply_lock || return 1
+  verify_bundle_manifest "$bundle" || return 1
 
   has_bin=0
   has_lib=0
