@@ -132,7 +132,7 @@ class Regressions(unittest.TestCase):
         a = source.index('  fullconfig)')
         b = source.index('  perfprofile)', a)
         body = source[a:b].replace('/mnt/config', str(cfg)).replace('/proc/sys/kernel/hostname', str(self.base / 'hostname'))
-        helpers = '\n'.join(function('www/cgi-bin/state.cgi', name) for name in ['load_conf_file', 'get_cfg', 'read_rtsp_stream_summary', 'sanitize_int', 'truthy_flag'])
+        helpers = '\n'.join(function('www/cgi-bin/state.cgi', name) for name in ['load_conf_file', 'get_cfg', 'read_rtsp_stream_summary', 'sanitize_int', 'truthy_flag', 'codec_name'])
         helpers += '\n' + function('www/cgi-bin/func.cgi', 'json_escape')
         helpers += '\ndetect_primary_ip() { :; }; read_reboot_epoch() { :; }; get_perf_profile() { echo balanced; }; hostname() { echo fixture; };\n'
         r = run(helpers + 'case fullconfig in\n' + body + '\nesac')
@@ -145,6 +145,40 @@ class Regressions(unittest.TestCase):
         self.assertEqual(result['audio']['volume'], 7)
         self.assertEqual(result['audio']['codec_main'], 4)
         self.assertEqual(result['audio']['codec_sub'], 17)
+
+    def test_stream_summary_exposes_codec_names(self):
+        code = function('www/cgi-bin/state.cgi', 'read_rtsp_stream_summary')
+        code += '\n' + function('www/cgi-bin/state.cgi', 'sanitize_int')
+        code += '\n' + function('www/cgi-bin/state.cgi', 'codec_name')
+        code += '\nget_cfg() { case "$1" in 0_codec) echo 2 ;; 1_codec) echo 0 ;; *) echo "$3" ;; esac; }'
+        code += '\nread_rtsp_stream_summary; printf "%s|%s" "$codec0_name" "$codec1_name"'
+        self.assertEqual(run(code).stdout, b'H265|H264')
+
+    def test_mqtt_health_flags_always_include_discovery_boolean(self):
+        cfg = self.base / 'config'
+        cfg.mkdir()
+        (cfg / 'boot.conf').write_text('SECURITY_HARDENING_MODE=0\n')
+        (cfg / 'mqtt.conf').write_text('MQTT_ENABLE=1\nMQTT_HA_DISCOVERY_ENABLE=1\n')
+        code = function('www/cgi-bin/func.cgi', 'read_conf_value') + '\n'
+        flags = function('www/cgi-bin/state.cgi', 'get_security_and_mqtt_flags')
+        flags = flags.replace('/mnt/config', str(cfg)).replace('/tmp/mqtt_last_pub.status', str(self.base / 'missing-status'))
+        code += flags + '\nget_security_and_mqtt_flags; printf "%s|%s" "$mqtt_enabled" "$mqtt_discovery"'
+        self.assertEqual(run(code).stdout, b'1|1')
+
+    def test_service_status_fails_when_pidfile_is_absent(self):
+        missing = shlex.quote(str(self.base / 'missing.pid'))
+        for path in ['controlscripts/mqtt-bridge', 'controlscripts/onvif']:
+            code = function(path, 'status') + '\nPIDFILE=' + missing + '; status'
+            result = run(code)
+            self.assertEqual(result.returncode, 1, path)
+            self.assertEqual(result.stdout, b'', path)
+
+    def test_rtsp_probe_accepts_digest_challenge(self):
+        reply = self.base / 'rtsp-reply'
+        reply.write_bytes(b'RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm="LIVE555"\r\n\r\n')
+        code = function('www/cgi-bin/state.cgi', 'rtsp_describe_local_ok')
+        code += '\nRTSP_REPLY=' + shlex.quote(str(reply)) + '; export RTSP_REPLY; nc() { cat "$RTSP_REPLY"; }; rtsp_describe_local_ok video0_unicast 554 root pass 2'
+        self.assertEqual(run(code).returncode, 0)
 
     def test_audio_write_targets_audio_not_video(self):
         source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
