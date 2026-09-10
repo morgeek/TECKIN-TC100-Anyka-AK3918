@@ -407,19 +407,20 @@ build_web_base_url() {
 rtsp_describe_local_ok() {
   describe_path="$1"
   describe_port="$2"
-  describe_user="$3"
-  describe_password="$4"
   describe_timeout="$5"
 
-  [ -x /mnt/bin/curl ] || return 1
-
-  if [ -n "$describe_user" ]; then
-    describe_sdp=$(/mnt/bin/curl -s -S -m "$describe_timeout" -X DESCRIBE -u "${describe_user}:${describe_password}" "rtsp://127.0.0.1:${describe_port}/${describe_path}" 2>/dev/null) || return 1
-  else
-    describe_sdp=$(/mnt/bin/curl -s -S -m "$describe_timeout" -X DESCRIBE "rtsp://127.0.0.1:${describe_port}/${describe_path}" 2>/dev/null) || return 1
-  fi
-
-  printf '%s' "$describe_sdp" | grep -q "m=video" || return 1
+  # The bundled curl cannot load libcurl from the CGI environment and its RTSP
+  # build sends OPTIONS even when asked for DESCRIBE. Probe the endpoint with a
+  # tiny raw request instead. A 401 challenge is a valid response when Digest
+  # authentication is enabled; an unauthenticated endpoint must return SDP.
+  describe_uri="rtsp://127.0.0.1:${describe_port}/${describe_path}"
+  describe_reply="$(printf 'DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n' "$describe_uri" \
+    | nc -w "$describe_timeout" 127.0.0.1 "$describe_port" 2>/dev/null)" || return 1
+  case "$describe_reply" in
+    *'RTSP/1.0 401 Unauthorized'*) return 0 ;;
+    *'RTSP/1.0 200 OK'*'m=video'*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 slugify_value() {
@@ -518,6 +519,9 @@ read_rtsp_stream_summary() {
     maxkbps1="$(sanitize_int "$(get_cfg 1_maxkbps 450)" 450)"
     targetkbps1="$(sanitize_int "$(get_cfg 1_targetkbps 400)" 400)"
 
+    codec0_name="$(codec_name "$codec0")"
+    codec1_name="$(codec_name "$codec1")"
+
     rtsp_port="$(sanitize_int "$(get_cfg PORT 554)" 554)"
 }
 
@@ -563,6 +567,7 @@ get_ui_ultralite_mode() {
 get_security_and_mqtt_flags() {
   security_hardening_mode=0
   mqtt_enabled=0
+  mqtt_discovery=0
   mqtt_last_pub_ts=0
   mqtt_last_pub_ok=-1
 
@@ -577,6 +582,13 @@ get_security_and_mqtt_flags() {
   case "$mqtt_raw" in
     1|true|on|yes|enabled)
       mqtt_enabled=1
+      ;;
+  esac
+
+  mqtt_discovery_raw="$(read_conf_value /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE 1)"
+  case "$mqtt_discovery_raw" in
+    1|true|on|yes|enabled)
+      mqtt_discovery=1
       ;;
   esac
 
@@ -1030,10 +1042,10 @@ if [ -n "$F_cmd" ]; then
       if [ -x /mnt/bin/curl ]; then
         if rtsp_describe_local_ok "video0_unicast" "$rtsp_port" "$rtsp_username_test" "$rtsp_password_test" "$rtsp_timeout_test"; then
           rtsp_main_status="ok"
-          rtsp_main_detail="DESCRIBE succeeded for video0_unicast."
+          rtsp_main_detail="RTSP endpoint responded for video0_unicast."
         else
           rtsp_main_status="fail"
-          rtsp_main_detail="DESCRIBE failed for video0_unicast."
+          rtsp_main_detail="RTSP endpoint did not respond for video0_unicast."
         fi
       else
         rtsp_main_status="ok"
@@ -1050,10 +1062,10 @@ if [ -n "$F_cmd" ]; then
         if [ -x /mnt/bin/curl ]; then
           if rtsp_describe_local_ok "video1_unicast" "$rtsp_port" "$rtsp_username_test" "$rtsp_password_test" "$rtsp_timeout_test"; then
             rtsp_sub_status="ok"
-            rtsp_sub_detail="DESCRIBE succeeded for video1_unicast."
+            rtsp_sub_detail="RTSP endpoint responded for video1_unicast."
           else
             rtsp_sub_status="fail"
-            rtsp_sub_detail="DESCRIBE failed for video1_unicast."
+            rtsp_sub_detail="RTSP endpoint did not respond for video1_unicast."
           fi
         else
           rtsp_sub_status="ok"

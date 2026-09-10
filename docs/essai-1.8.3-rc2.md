@@ -1,9 +1,10 @@
 # Essai TC100 — 1.8.3-rc2
 
 Version candidate issue de la base `5b0f4881de0fadd9a548cd62a302c59d625523b7` (1.8.2).
-Les vérifications ont été exécutées sur ordinateur, avec fichiers et services simulés.
-**Aucun déploiement ni essai sur la caméra n’a été effectué.** La compatibilité avec
-l’ash/BusyBox ARM et les gains réels de CPU/RAM restent à mesurer sur l’appareil.
+Les vérifications sur ordinateur ont été complétées par un déploiement réel le
+10 septembre 2026 sur une TC100 AK3918. La compatibilité avec l’ash/BusyBox ARM,
+les pages HTTPS, la capture, RTSP et MQTT a été vérifiée. Le test d’endurance de
+24 h reste à effectuer avant une version stable.
 
 ## Interface ajoutée dans rc2
 
@@ -75,6 +76,39 @@ restauration des paquets, les dates, la mémoire, le JavaScript et MQTT.
 Les fonctions embarquées sont exercées dans des fichiers temporaires ; les opérations
 matérielles ne sont pas exécutées. Les tests de sockets utilisent un substitut de `nc`.
 Le paquet d’essai ajoute un test indépendant d’application/retour arrière sur une fausse carte.
+
+## Validation initiale sur matériel réel
+
+Le 10 septembre 2026, la RC2 a été installée sur une TC100 en service. Le profil
+observé confirme les contraintes retenues pendant l’optimisation : ARM926EJ-S
+(ARMv5TEJ), noyau Linux 3.4.35, 33 384 Kio de RAM visible, aucun swap, racine
+SquashFS en lecture seule et données sur VFAT. La ligne de démarrage réserve 64 Mio,
+mais environ 33 Mio seulement sont exposés à Linux. La flash SPI fait 8 Mio.
+
+La carte SD de test présente une première partition montée de 255 Mio et une seconde
+partition non montée. Le projet ne doit ni monter, ni reformater automatiquement cette
+seconde partition sans identification préalable de son rôle sur chaque variante.
+
+Contrôles réussis après installation :
+
+- version `1.8.3-rc2`, interface et réglages servis en HTTPS ;
+- empreintes des fichiers `boot.conf`, `mqtt.conf` et `rtspserver.conf` inchangées ;
+- capture JPEG réelle 1280×720 ;
+- flux principal H.265 1280×720 à 25 i/s et secondaire H.265 640×360 à 30 i/s détectés ;
+- publication MQTT et cycle arrêt/démarrage sans processus `nc` résiduel ;
+- JSON `statusline`, `healthsnapshot` et `integrationtest` valide ;
+- sauvegarde locale et sur carte vérifiée avant chaque remplacement.
+
+Le relevé CPU ponctuel avant installation variait de 53 à 100 %, pour 56–57 % de RAM
+utilisée. Après installation, les lectures ponctuelles observées ont varié de 36 à 67 %
+et 57 % de RAM. Les conditions n’étant pas assez longues ni strictement identiques,
+ces valeurs valident l’absence de régression immédiate mais ne constituent pas encore
+une mesure de gain. ONVIF était arrêté sur l’appareil et est donc signalé comme service
+désactivé. Le mot de passe par défaut était encore actif ; il doit être remplacé avant
+une exposition sur un réseau non fiable.
+
+Le test d’endurance de 2 h puis 24 h et une comparaison à charge RTSP identique restent
+nécessaires avant de retirer le suffixe `rc2`.
 
 ## Préparer la carte hors ligne
 

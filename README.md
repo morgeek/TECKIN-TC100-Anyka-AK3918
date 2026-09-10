@@ -1,6 +1,6 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
 
-> **1.8.3-rc2 — device trial pending.** Resource optimizations and regression fixes are ready for hardware testing. See the [French trial and rollback guide](docs/essai-1.8.3-rc2.md) and the [offline SD trial package](docs/downloads/tc100-1.8.3-rc2-essai.zip). Existing video settings and personal configurations are preserved.
+> **1.8.3-rc2 — validated on a real AK3918 device.** Resource optimizations and regression fixes passed the initial hardware checks; the endurance test remains in progress. See the [French trial and rollback guide](docs/essai-1.8.3-rc2.md) and the [offline SD trial package](docs/downloads/tc100-1.8.3-rc2-essai.zip). Existing video settings and personal configurations are preserved.
 
 **Version 1.8.3-rc2** — *Frigate & Home Assistant Edition*
 
