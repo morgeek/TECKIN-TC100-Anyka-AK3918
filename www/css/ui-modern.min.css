@@ -225,6 +225,32 @@ body::after {
   box-shadow: 0 8px 16px rgba(19, 71, 121, 0.16);
 }
 
+.toolbar-status {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ui-text-muted);
+  font-size: 0.78rem;
+}
+
+.toolbar-status #status_updated {
+  min-width: 10rem;
+  text-align: right;
+}
+
+@media (max-width: 620px) {
+  .toolbar-status {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .toolbar-status #status_updated {
+    min-width: 0;
+    text-align: left;
+  }
+}
+
 .nav-sysusage-wrap {
   margin-left: 0.1rem;
   margin-right: 0.1rem;

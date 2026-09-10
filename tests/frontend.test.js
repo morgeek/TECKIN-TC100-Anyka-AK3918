@@ -45,5 +45,21 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   active = false;
   context.dashboardStatusRenderer({});
   assert.equal(context.dashboardStatusRenderer, null, 'unmounted view must release its renderer');
-  process.stdout.write('CSRF bootstrap, POST headers, HTTP failures and dashboard lifecycle: OK\n');
+  let scheduledPolls = 0;
+  context.document = {hidden: true};
+  context.timeoutJobs = {};
+  context.clearJob = () => {};
+  context.setTimeout = () => { scheduledPolls++; return 1; };
+  context.refreshSysUsage = () => {};
+  const scheduleStart = source.indexOf('  function scheduleRefreshSysUsage(interval)');
+  const scheduleEnd = source.indexOf('  function updateStatusRefreshUi(state)', scheduleStart);
+  vm.runInContext(source.slice(scheduleStart, scheduleEnd), context);
+  context.scheduleRefreshSysUsage(10);
+  assert.equal(scheduledPolls, 0, 'hidden tabs must not schedule status polling');
+  context.document.hidden = false;
+  context.scheduleRefreshSysUsage(10);
+  assert.equal(scheduledPolls, 1, 'visible tabs must resume status polling');
+  assert.match(fs.readFileSync(path.join(__dirname, '../www/scripts/scripts.bundle.min.js'), 'utf8'), /document\.hidden\) clearServiceStatePolling/);
+
+  process.stdout.write('CSRF bootstrap, POST headers, dashboard lifecycle and background polling: OK\n');
 })().catch(error => {console.error(error); process.exitCode = 1;});
