@@ -21,6 +21,11 @@ status()
 
 start()
 {
+  _security="$(read_kv_config_value /mnt/config/boot.conf SECURITY_HARDENING_MODE 0)"
+  case "$_security" in 1|true|yes|on|enabled)
+    echo "Service disabled by security hardening" >&2
+    return 1 ;;
+  esac
   if [ "$(status)" != "" ]; then
     echo "A ftp server is already running, please stop it or reboot"
   else

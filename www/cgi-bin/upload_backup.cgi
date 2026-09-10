@@ -3,13 +3,14 @@
 # saves it to /tmp, validates it, and restores it.
 # The backup.html frontend sends the file as application/octet-stream.
 
+FUNC_CGI_SKIP_BODY=1
 if [ -r /mnt/www/cgi-bin/func.cgi ]; then
   . /mnt/www/cgi-bin/func.cgi
 else
   . ./func.cgi
 fi
 
-MAX_UPLOAD_BYTES=16777216
+MAX_UPLOAD_BYTES=1048576
 TMP_ROOT="/tmp"
 
 html_header() {
@@ -28,7 +29,7 @@ sanitize_int() {
 }
 
 rate_limit_check 2 300
-csrf_guard
+mutation_guard
 
 if [ "$REQUEST_METHOD" != "POST" ]; then
   html_header
@@ -45,7 +46,7 @@ fi
 
 if [ "$content_length" -gt "$MAX_UPLOAD_BYTES" ]; then
   html_header
-  echo "Upload too large (max 16 MB)."
+  echo "Upload too large (max 1 MB)."
   exit 0
 fi
 
@@ -70,9 +71,9 @@ if ! head -c "$content_length" > "$archive_path" 2>/dev/null; then
 fi
 
 # Validate: must be a non-empty file
-if [ ! -s "$archive_path" ]; then
+if [ "$(wc -c < "$archive_path")" -ne "$content_length" ]; then
   html_header
-  echo "Uploaded file is empty."
+  echo "Upload is incomplete."
   rm -f "$archive_path"
   exit 0
 fi
@@ -87,10 +88,13 @@ F_cmd="restore"
 # Simpler: just call it as a subprocess with the right query string.
 # Note: configbackup.cgi expects F_* vars from func.cgi; we already sourced it.
 # Since validate_archive_path and restore_backup are defined in configbackup.cgi
-# and not available here, we exec configbackup.cgi with QUERY_STRING set.
+# and not available here, invoke configbackup.cgi with QUERY_STRING set.
 
 QUERY_STRING="cmd=restore&archive_path=${archive_path}&restart_services=${restart_services}"
-REQUEST_METHOD="GET"
+REQUEST_METHOD="POST"
+CONTENT_LENGTH=0
+export CONTENT_LENGTH
 export QUERY_STRING REQUEST_METHOD F_cmd F_archive_path F_restart_services
 
-exec /mnt/www/cgi-bin/configbackup.cgi
+trap 'rm -f "$archive_path"' EXIT
+/mnt/www/cgi-bin/configbackup.cgi

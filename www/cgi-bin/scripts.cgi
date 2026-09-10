@@ -320,7 +320,7 @@ if [ -n "$F_script" ]; then
   if [ -e "$SCRIPT_HOME/$script" ]; then
     case "$F_cmd" in
       start)
-        csrf_guard
+        mutation_guard
         echo "Content-type: text/html"
         echo ""
 
@@ -329,7 +329,7 @@ if [ -n "$F_script" ]; then
         invalidate_allstates_cache
         ;;
       disable)
-        csrf_guard
+        mutation_guard
         rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true
         invalidate_allstates_cache
         echo "Content-type: application/json"
@@ -337,7 +337,7 @@ if [ -n "$F_script" ]; then
         echo "{\"status\":\"ok\",\"autostart_enabled\":0}"
         ;;
       stop)
-        csrf_guard
+        mutation_guard
         echo "Content-type: text/html"
         echo ""
         status='unknown'
@@ -348,7 +348,7 @@ if [ -n "$F_script" ]; then
         invalidate_allstates_cache
         ;;
       enable)
-        csrf_guard
+        mutation_guard
         if [ -e "$SCRIPT_HOME/$script" ]; then
           mkdir -p "${AUTOSTART_DIR}"
           printf "#!/bin/sh\nsh \"%s%s\"\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"
@@ -515,5 +515,5 @@ else
   fi
   
   # Use bundled script to allow client caching and reduce server CPU
-  echo "<script src=\"/scripts/scripts.bundle.min.js\"></script>"
+  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.3-rc1\"></script>"
 fi

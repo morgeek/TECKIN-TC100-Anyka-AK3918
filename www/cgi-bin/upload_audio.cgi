@@ -52,6 +52,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+mutation_guard
 rate_limit_check 5 60
 
 if [ "$REQUEST_METHOD" != "POST" ]; then
