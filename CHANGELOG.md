@@ -14,7 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   files together and automatically restore originals after a write or readback failure.
 - Bound backup decompression to 2 MiB and keep all import work sequential, with no
   resident process or added idle-memory cost.
-- Add `frigate-light-ak3918`: H.265 720p/12 fps main stream, H.264 360p/8 fps
+- Add `frigate-light-ak3918`: H.265 720p/12 fps main stream and H.265 360p/8 fps substream, matching the AK3918 dual-encoder constraint observed on real hardware
   detection stream, 1.32 Mbit/s combined target and audio disabled.
 
 ### Fixed

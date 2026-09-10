@@ -706,7 +706,7 @@ Applies a named compatibility preset optimized for a specific NVR or integration
 | Parameter | Values | Description |
 |---|---|---|
 | `client_profile` | `universal-h264` | Broad compatibility H.264 |
-| `client_profile` | `frigate-light-ak3918` | Frigate léger pour AK3918 : H.265 720p/12 fps + détection H.264 360p/8 fps |
+| `client_profile` | `frigate-light-ak3918` | Frigate léger pour AK3918 : H.265 720p/12 fps + détection H.265 360p/8 fps |
 | `client_profile` | `frigate-balanced` | Frigate balanced (recommended) |
 | `client_profile` | `frigate-low-bandwidth` | Frigate low-bandwidth |
 | `client_profile` | `frigate-quality` | Frigate high-quality |
