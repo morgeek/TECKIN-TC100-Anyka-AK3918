@@ -111,6 +111,7 @@ build_snapshot() {
     _restarts=0
     [ -f "$_rfile" ] && read -r _restarts _ < "$_rfile" 2>/dev/null || true
     case "$_restarts" in ''|*[!0-9]*) _restarts=0 ;; esac
+    [ "$_status" = "unhealthy" ] && _unhealthy=$((_unhealthy + 1))
     _svc_json="${_svc_json}${_sep}\"${_svc}\":\"${_status}\""
     _rst_json="${_rst_json}${_rst_sep}\"${_svc}\":${_restarts}"
     _sep=","; _rst_sep=","
