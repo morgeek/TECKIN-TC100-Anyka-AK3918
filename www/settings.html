@@ -84,10 +84,11 @@
                                 <label class="label is-small">NVR / Client Compatibility</label>
                                 <div class="field has-addons">
                                     <div class="control is-expanded">
-                                        <div class="select is-small is-fullwidth"><select name="client_profile"><option value="universal-h264">Universal H264 (Max Comp)</option><option value="frigate-balanced">Frigate Balanced</option><option value="frigate-quality">Frigate Quality</option><option value="hybrid-hevc-main">Hybrid HEVC/264</option></select></div>
+                                        <div class="select is-small is-fullwidth"><select name="client_profile"><option value="frigate-light-ak3918">Frigate léger AK3918 (recommandé)</option><option value="universal-h264">Universal H264 (Max Comp)</option><option value="frigate-balanced">Frigate Balanced</option><option value="frigate-quality">Frigate Quality</option><option value="hybrid-hevc-main">Hybrid HEVC/264</option></select></div>
                                     </div>
                                     <div class="control"><button type="submit" class="button is-info is-small">Apply</button></div>
                                 </div>
+                                <p class="help">Le profil léger utilise le flux principal H.265 en 720p/12 fps et le sous-flux H.264 en 360p/8 fps pour la détection Frigate, sans audio.</p>
                             </form>
                         </div>
                     </div>

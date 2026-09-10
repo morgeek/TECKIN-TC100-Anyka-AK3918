@@ -706,6 +706,7 @@ Applies a named compatibility preset optimized for a specific NVR or integration
 | Parameter | Values | Description |
 |---|---|---|
 | `client_profile` | `universal-h264` | Broad compatibility H.264 |
+| `client_profile` | `frigate-light-ak3918` | Frigate léger pour AK3918 : H.265 720p/12 fps + détection H.264 360p/8 fps |
 | `client_profile` | `frigate-balanced` | Frigate balanced (recommended) |
 | `client_profile` | `frigate-low-bandwidth` | Frigate low-bandwidth |
 | `client_profile` | `frigate-quality` | Frigate high-quality |
@@ -1977,7 +1978,9 @@ Restores configuration from a previously uploaded tar.gz. CSRF required.
 | `restart_services` | `1`/`0` — restart services after restore |
 
 - Validates: path must be `/tmp/`, max 1 MiB, all entries must be under `config/`, at most 2 MiB expanded and 512 entries; links are rejected
-- Creates a rollback archive before applying
+- Validates configuration syntax and value ranges in an isolated staging directory
+- Commits all files together and restores the originals automatically if a write or readback fails
+- Creates a downloadable rollback archive before applying
 - Response: HTML
 
 ```sh
@@ -2009,7 +2012,7 @@ curl -X POST http://root:pass@192.168.1.24/cgi-bin/upload_backup.cgi \
 
 ## GET/POST /cgi-bin/config_exchange.cgi
 
-CSRF required for all commands. Rate limit: 10 per 60 s.
+CSRF is required for import; export is read-only. Rate limit: 10 per 60 s.
 
 ### cmd=export
 
@@ -2025,9 +2028,10 @@ curl -o config.json \
 
 ### cmd=import
 
-Imports a JSON configuration object. Applies values via `rwconf`. Triggers async RTSP and MQTT restart.
+Imports a JSON configuration object. Values are type/range checked in isolated copies, then all changed files are committed together. Any write or readback failure restores the originals. A successful change triggers an asynchronous RTSP and MQTT restart.
 
-- Method: `POST`, JSON body
+- Method: `POST`, JSON body, max 64 KB
+- Response includes `applied`, `changed_files`, `skipped`, and `transactional: true`
 - Parameters (query string or JSON):
 
 | Parameter | Values | Description |
@@ -2067,6 +2071,7 @@ Imports a `conf-export` format file, updating only allowlisted keys in `boot.con
 - Body: raw text (`Content-Type: text/plain`), max 128 KB
 - Must begin with `## tc100-boot-mqtt-export v1` magic header
 - Only keys in the BOOT_KEYS or MQTT_KEYS allowlists are applied; all others are silently skipped
+- Known values are type/range checked; both files are staged and committed as one transaction
 
 **Allowlisted boot.conf keys include** (non-exhaustive): `LIGHTWEIGHT_MODE`, `ENABLE_NTP`, `NTP_ONE_SHOT`, `WEB_MODE`, `SECURITY_HARDENING_MODE`, `MEM_GUARD_*`, `REBOOT_SCHEDULE_*`, `RTSP_SUBSTREAM`, `RTSP_AUDIO`, `ONVIF_STREAM_POLICY`, `INTEGRATION_PROFILE`, `MQTT_ENABLE`, and others.
 
@@ -2074,7 +2079,7 @@ Imports a `conf-export` format file, updating only allowlisted keys in `boot.con
 
 **Response:**
 ```json
-{"ok": true, "applied": 12, "skipped": 3}
+{"ok": true, "applied": 12, "changed_files": 2, "skipped": 3, "transactional": true}
 ```
 
 Error responses:

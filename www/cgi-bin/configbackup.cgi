@@ -6,7 +6,15 @@ else
   . ./func.cgi
 fi
 
-TMP_ROOT="/tmp"
+if [ -r "${CONFIG_TX_LIB:-/mnt/scripts/config-transaction.sh}" ]; then
+  . "${CONFIG_TX_LIB:-/mnt/scripts/config-transaction.sh}"
+elif [ -r ../../scripts/config-transaction.sh ]; then
+  . ../../scripts/config-transaction.sh
+fi
+
+TMP_ROOT="${TMP_ROOT:-/tmp}"
+MNT_ROOT="${TC_MNT_ROOT:-/mnt}"
+CONFIG_ROOT="${TC_CONFIG_ROOT:-$MNT_ROOT/config}"
 MAX_ARCHIVE_BYTES=1048576
 
 _BTIME=0
@@ -46,6 +54,7 @@ is_truthy() {
 sanitize_int() {
   value="$1"
   fallback="$2"
+  set -- $value; value="${1:-}"
   case "$value" in
     ''|*[!0-9]*)
       echo "$fallback"
@@ -96,41 +105,6 @@ create_archive() {
   return 1
 }
 
-list_archive_entries() {
-  archive_path="$1"
-  if tar -tzf "$archive_path" 2>/dev/null; then
-    return 0
-  fi
-  if [ -x /mnt/bin/busybox ] && /mnt/bin/busybox tar -tzf "$archive_path" 2>/dev/null; then
-    return 0
-  fi
-  if tar -tf "$archive_path" 2>/dev/null; then
-    return 0
-  fi
-  if [ -x /mnt/bin/busybox ] && /mnt/bin/busybox tar -tf "$archive_path" 2>/dev/null; then
-    return 0
-  fi
-  return 1
-}
-
-extract_archive() {
-  archive_path="$1"
-  dest_root="$2"
-  if tar -xzf "$archive_path" -C "$dest_root" >/dev/null 2>&1; then
-    return 0
-  fi
-  if [ -x /mnt/bin/busybox ] && /mnt/bin/busybox tar -xzf "$archive_path" -C "$dest_root" >/dev/null 2>&1; then
-    return 0
-  fi
-  if tar -xf "$archive_path" -C "$dest_root" >/dev/null 2>&1; then
-    return 0
-  fi
-  if [ -x /mnt/bin/busybox ] && /mnt/bin/busybox tar -xf "$archive_path" -C "$dest_root" >/dev/null 2>&1; then
-    return 0
-  fi
-  return 1
-}
-
 download_backup() {
   _read_ts
   now_tag="$(_format_backup_tag "$now_ts")-$$"
@@ -143,7 +117,7 @@ download_backup() {
   archive_path="$TMP_ROOT/config-backup-$now_tag.tar.gz"
   file_name="camera-config-$now_tag.tar.gz"
 
-  if ! create_archive "$archive_path" /mnt config; then
+  if ! create_archive "$archive_path" "$MNT_ROOT" config; then
     html_header
     echo "Failed to build backup archive."
     return 1
@@ -171,85 +145,141 @@ validate_archive_path() {
       ;;
   esac
   case "$archive_path" in
-    *".."*)
+    *".."*|*[!A-Za-z0-9_./-]*)
       return 1
       ;;
   esac
   return 0
 }
 
+archive_to_plain() {
+  archive_path="$1"; plain_path="$2"
+  rm -f "$plain_path"
+  if gzip -dc "$archive_path" 2>/dev/null | head -c 2097153 > "$plain_path"; then
+    [ -s "$plain_path" ] && return 0
+  fi
+  rm -f "$plain_path"
+  if [ -x /mnt/bin/busybox ] && /mnt/bin/busybox gzip -dc "$archive_path" 2>/dev/null | head -c 2097153 > "$plain_path"; then
+    [ -s "$plain_path" ] && return 0
+  fi
+  rm -f "$plain_path"
+  return 1
+}
+
+list_plain_entries() {
+  plain_path="$1"
+  if tar -tf "$plain_path" 2>/dev/null; then return 0; fi
+  if [ -x /mnt/bin/busybox ]; then /mnt/bin/busybox tar -tf "$plain_path" 2>/dev/null; return $?; fi
+  return 1
+}
+
+list_plain_verbose() {
+  plain_path="$1"
+  if tar -tvf "$plain_path" 2>/dev/null; then return 0; fi
+  if [ -x /mnt/bin/busybox ]; then /mnt/bin/busybox tar -tvf "$plain_path" 2>/dev/null; return $?; fi
+  return 1
+}
+
+extract_plain_archive() {
+  plain_path="$1"; dest_root="$2"
+  if tar -xf "$plain_path" -C "$dest_root" >/dev/null 2>&1; then return 0; fi
+  if [ -x /mnt/bin/busybox ]; then /mnt/bin/busybox tar -xf "$plain_path" -C "$dest_root" >/dev/null 2>&1; return $?; fi
+  return 1
+}
+
 validate_archive_entries() {
   archive_path="$1"
-  # Bound decompression before loading the listing into a shell variable.
-  _expanded="$(gzip -dc "$archive_path" 2>/dev/null | head -c 2097153 | wc -c)"
-  case "$_expanded" in ''|*[!0-9[:space:]]*) return 1 ;; esac
-  [ "$_expanded" -gt 0 ] && [ "$_expanded" -le 2097152 ] || return 1
-  # Symlinks/hardlinks/devices are not configuration data. Reject before extract.
-  _types="$(tar -tvzf "$archive_path" 2>/dev/null)" || return 1
-  printf '%s\n' "$_types" | awk '
-    substr($0,1,1) != "-" && substr($0,1,1) != "d" { bad=1 }
-    END { exit (bad || NR > 512) }
-  ' || return 1
-  entry_list="$(list_archive_entries "$archive_path")" || return 1
-  [ -n "$entry_list" ] || return 1
+  plain_path="$TMP_ROOT/config-validate.$$.tar"
+  if ! archive_to_plain "$archive_path" "$plain_path"; then return 1; fi
+  _expanded="$(wc -c < "$plain_path" 2>/dev/null)"
+  case "$_expanded" in ''|*[!0-9[:space:]]*) rm -f "$plain_path"; return 1 ;; esac
+  if [ "$_expanded" -le 0 ] || [ "$_expanded" -gt 2097152 ]; then rm -f "$plain_path"; return 1; fi
 
-  invalid=0
+  _types="$TMP_ROOT/config-types.$$.txt"
+  if ! list_plain_verbose "$plain_path" > "$_types"; then rm -f "$plain_path" "$_types"; return 1; fi
+  if ! awk 'substr($0,1,1) != "-" && substr($0,1,1) != "d" {bad=1} END {exit (bad || NR > 512)}' "$_types"; then
+    rm -f "$plain_path" "$_types"; return 1
+  fi
+  entry_file="$TMP_ROOT/config-entries.$$.txt"
+  if ! list_plain_entries "$plain_path" > "$entry_file"; then rm -f "$plain_path" "$_types" "$entry_file"; return 1; fi
+  rm -f "$plain_path" "$_types"
+
+  invalid=0; count=0
   while IFS= read -r entry; do
     [ -n "$entry" ] || continue
-    case "$entry" in
-      config|config/*) ;;
-      *)
-        invalid=1
-        ;;
-    esac
-    case "$entry" in
-      /?*|../*|*/../*|*/..|..)
-        invalid=1
-        ;;
-    esac
-  done <<EOF
-$entry_list
-EOF
-
-  [ "$invalid" -eq 0 ]
+    count=$((count + 1))
+    case "$entry" in config|config/*) ;; *) invalid=1 ;; esac
+    case "$entry" in /?*|../*|*/../*|*/..|..|*[!A-Za-z0-9_./-]*) invalid=1 ;; esac
+  done < "$entry_file"
+  rm -f "$entry_file"
+  [ "$count" -gt 0 ] && [ "$invalid" -eq 0 ]
 }
 
 restore_backup() {
-  archive_path="$1"
+  restore_input="$1"
   restart_services="$2"
   _read_ts
   now_tag="$(_format_backup_tag "$now_ts")-$$"
-  case "$now_tag" in
-    ''|*[!0-9-]*)
-      now_tag="unknown"
-      ;;
-  esac
+  case "$now_tag" in ''|*[!0-9-]*) now_tag="unknown" ;; esac
   rollback_archive="$TMP_ROOT/config-rollback-$now_tag.tar.gz"
+  stage_root="$TMP_ROOT/config-restore-stage.$$"
+  transaction_backup="$TMP_ROOT/config-restore-transaction.$$"
+  plain_archive="$TMP_ROOT/config-restore.$$.tar"
 
-  if ! create_archive "$rollback_archive" /mnt config; then
-    html_header
-    echo "Restore aborted: failed to create rollback archive."
-    return 1
+  if ! command -v tc_commit_config_files >/dev/null 2>&1; then
+    html_header; echo "Restore aborted: configuration validator is unavailable."; return 1
+  fi
+  if ! create_archive "$rollback_archive" "$MNT_ROOT" config; then
+    html_header; echo "Restore aborted: failed to create rollback archive."; return 1
+  fi
+  rm -rf "$stage_root" "$transaction_backup"
+  mkdir -p "$stage_root" || { html_header; echo "Restore aborted: staging area unavailable."; return 1; }
+  if ! archive_to_plain "$restore_input" "$plain_archive" || ! extract_plain_archive "$plain_archive" "$stage_root"; then
+    rm -rf "$stage_root" "$transaction_backup"; rm -f "$plain_archive"
+    html_header; echo "Restore failed while staging archive. Active configuration was preserved."; return 1
+  fi
+  rm -f "$plain_archive"
+  if [ ! -d "$stage_root/config" ]; then
+    rm -rf "$stage_root" "$transaction_backup"
+    html_header; echo "Restore rejected: config directory missing. Active configuration was preserved."; return 1
   fi
 
-  if ! extract_archive "$archive_path" /mnt; then
+  restore_files=""
+  find "$stage_root/config" -type f 2>/dev/null | while IFS= read -r staged_file; do
+    printf '%s\n' "${staged_file#"$stage_root/config/"}"
+  done > "$stage_root/file-list"
+  while IFS= read -r restore_rel; do
+    [ -n "$restore_rel" ] || continue
+    case "$restore_rel" in *[!A-Za-z0-9_./-]*|*/../*|../*)
+      rm -rf "$stage_root" "$transaction_backup"
+      html_header; echo "Restore rejected: unsafe file name. Active configuration was preserved."; return 1 ;;
+    esac
+    restore_files="$restore_files $restore_rel"
+  done < "$stage_root/file-list"
+  [ -n "$restore_files" ] || {
+    rm -rf "$stage_root" "$transaction_backup"
+    html_header; echo "Restore rejected: archive contains no configuration files."; return 1
+  }
+
+  if ! tc_commit_config_files "$stage_root/config" "$CONFIG_ROOT" "$transaction_backup" "$restore_files"; then
+    restore_error="${TC_CONFIG_ERROR:-transaction failed}"
+    rm -rf "$stage_root" "$transaction_backup"
     html_header
-    echo "Restore failed while extracting archive."
+    echo "Restore rejected ($restore_error). Active configuration was preserved or rolled back."
     echo "<br/>Rollback archive: $rollback_archive"
     return 1
   fi
+  restored_count="$TC_COMMIT_COUNT"
+  rm -rf "$stage_root" "$transaction_backup"
 
   html_header
-  echo "Config restore completed from: $archive_path"
+  echo "Config restore completed transactionally ($restored_count changed file(s))."
   echo "<br/>Rollback archive: $rollback_archive"
-  echo "<br/>"
-
   if is_truthy "$restart_services"; then
-    /mnt/controlscripts/rtsp-h26x restart >/dev/null 2>&1 || true
-    /mnt/controlscripts/onvif restart >/dev/null 2>&1 || true
+    "$MNT_ROOT/controlscripts/rtsp-h26x" restart >/dev/null 2>&1 || true
+    "$MNT_ROOT/controlscripts/onvif" restart >/dev/null 2>&1 || true
     echo "<br/>RTSP/ONVIF restart requested."
   fi
-
   echo "<br/>Reboot is recommended if boot-level settings were restored."
   return 0
 }

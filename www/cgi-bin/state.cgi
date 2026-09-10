@@ -262,6 +262,21 @@ load_conf_file() {
   done < "$_lcf_path"
 }
 
+# Read one-line configuration files such as hostname/timezone/NTP without
+# treating their value as a key=value assignment.
+read_single_config() {
+  _rsc_file="$1"; _rsc_default="$2"; _rsc_value=""
+  if [ -r "$_rsc_file" ]; then
+    while IFS= read -r _rsc_line || [ -n "$_rsc_line" ]; do
+      case "$_rsc_line" in ''|'#'*) continue ;; esac
+      _rsc_value="$_rsc_line"
+      break
+    done < "$_rsc_file"
+  fi
+  [ -n "$_rsc_value" ] || _rsc_value="$_rsc_default"
+  printf '%s\n' "$_rsc_value"
+}
+
 # Helper to get the loaded value or default
 get_cfg() {
   eval "_gc_val=\"\$C_$1\""
@@ -1420,8 +1435,9 @@ if [ -n "$F_cmd" ]; then
     load_conf_file /mnt/config/rtspserver.conf
     load_conf_file /mnt/config/mqtt.conf
     load_conf_file /mnt/config/service_trim.conf
-    load_conf_file /mnt/config/timezone.conf
-    load_conf_file /mnt/config/ntp_srv.conf
+    fullconfig_hostname="$(read_single_config /mnt/config/hostname.conf TC100-CAMERA)"
+    fullconfig_timezone="$(read_single_config /mnt/config/timezone.conf UTC+0)"
+    fullconfig_ntp="$(read_single_config /mnt/config/ntp_srv.conf pool.ntp.org)"
     load_conf_file /mnt/config/motion.conf
     load_conf_file /mnt/config/telnetd.conf
     if [ "$_iprofile" != "frigate_ha" ]; then
@@ -1487,13 +1503,13 @@ if [ -n "$F_cmd" ]; then
       "$rtsp_port" \
       "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" \
       "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
-      "$(sanitize_int "$(get_cfg imageFlip 0)" 0)" "$(truthy_flag "$(get_cfg enable_rtsp_log 0)")" \
+      "$(sanitize_int "$(get_cfg imageflip 0)" 0)" "$(truthy_flag "$(get_cfg RTSPLOGENABLED 0)")" \
       "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg 2_codec 4)" 4)" "$(sanitize_int "$(get_cfg 3_codec 4)" 4)" "$audio_vol" \
       "$(sanitize_int "$(get_cfg daynightlum 2000)" 2000)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(sanitize_int "$(get_cfg nightdaylum 6000)" 6000)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
-      "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg osdfontsize0 24)" 24)" "$(sanitize_int "$(get_cfg frontcolor 1)" 1)" "$(sanitize_int "$(get_cfg backcolor 0)" 0)" "$(sanitize_int "$(get_cfg edgecolor 2)" 2)" "$(sanitize_int "$(get_cfg osdx0 10)" 10)" "$(sanitize_int "$(get_cfg osdy0 10)" 10)" \
+      "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg 0_osdfontsize 24)" 24)" "$(sanitize_int "$(get_cfg osdfrontcolor 1)" 1)" "$(sanitize_int "$(get_cfg osdbackcolor 0)" 0)" "$(sanitize_int "$(get_cfg osdedgecolor 2)" 2)" "$(sanitize_int "$(get_cfg 0_osdx 10)" 10)" "$(sanitize_int "$(get_cfg 0_osdy 10)" 10)" \
       "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
-      "$(sanitize_int "$(get_cfg postrec 10)" 10)" "$(sanitize_int "$(get_cfg maxduration 60)" 60)" "$(sanitize_int "$(get_cfg diskspace 1024)" 1024)" "$(truthy_flag "$(get_cfg motion_act 0)")" \
-      "$(json_escape "$health_hostname")" "$(json_escape "$(get_cfg TIMEZONE UTC)")" "$(json_escape "$(get_cfg NTP_SERVER pool.ntp.org)")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_cfg DEFAULT_GATEWAY "0.0.0.0")")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
+      "$(sanitize_int "$(get_cfg rec_postrecord_sec 10)" 10)" "$(sanitize_int "$(get_cfg rec_file_duration_sec 60)" 60)" "$(sanitize_int "$(get_cfg rec_reserverd_disk_mb 1024)" 1024)" "$(truthy_flag "$(get_cfg rec_motion_activated 0)")" \
+      "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_cfg DEFAULT_GATEWAY "0.0.0.0")")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
       "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 8192)" 8192)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 4096)" 4096)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
       "$(sanitize_int "$(get_cfg tlinterval 10)" 10)" "$(sanitize_int "$(get_cfg tlduration 0)" 0)" \
       "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$(sanitize_int "$(get_cfg THRESHOLD 1500)" 1500)" "$(sanitize_int "$(get_cfg INTERVAL 5)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")" \
