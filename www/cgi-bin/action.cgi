@@ -1007,6 +1007,17 @@ select_compat_profile_values() {
       onvif_policy="sub-primary"
       low_cpu_profile=0
       ;;
+    frigate-light-ak3918)
+      profile_label="Frigate léger AK3918"
+      width0=1280; height0=720;  fps0=12; bps0=1000; gop0=12; maxkbps0=1300; targetkbps0=1000; smartq0=72; smartstatic0=360
+      width1=640;  height1=360;  fps1=8;  bps1=320;  gop1=8;  maxkbps1=420;  targetkbps1=320;  smartq1=65; smartstatic1=150
+      codec0=2; profile0=3
+      codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=0
+      onvif_policy="sub-primary"
+      low_cpu_profile=0
+      ;;
     frigate-low-bandwidth)
       profile_label="Frigate low-bandwidth"
       width0=1280; height0=720;  fps0=10; bps0=1000; gop0=10; maxkbps0=1300; targetkbps0=1000; smartq0=72; smartstatic0=360

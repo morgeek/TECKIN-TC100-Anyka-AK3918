@@ -3,10 +3,20 @@
 # POST: raw text body (Content-Type: text/plain), X-CSRF-Token header required.
 # Returns JSON: {"ok":true,"applied":N,"skipped":N} or {"ok":false,"error":"..."}
 
-BOOT_CONF="/mnt/config/boot.conf"
-MQTT_CONF="/mnt/config/mqtt.conf"
-BOOT_CONF_DIST="/mnt/config/boot.conf.dist"
-MQTT_CONF_DIST="/mnt/config/mqtt.conf.dist"
+CONFIG_ROOT="${TC_CONFIG_ROOT:-/mnt/config}"
+if [ -r "${CONFIG_TX_LIB:-/mnt/scripts/config-transaction.sh}" ]; then
+    . "${CONFIG_TX_LIB:-/mnt/scripts/config-transaction.sh}"
+elif [ -r ../../scripts/config-transaction.sh ]; then
+    . ../../scripts/config-transaction.sh
+else
+    printf 'Content-Type: application/json\r\n\r\n'
+    printf '{"ok":false,"error":"validator_unavailable"}\n'
+    exit 0
+fi
+BOOT_SOURCE="$CONFIG_ROOT/boot.conf"
+MQTT_SOURCE="$CONFIG_ROOT/mqtt.conf"
+BOOT_CONF_DIST="$CONFIG_ROOT/boot.conf.dist"
+MQTT_CONF_DIST="$CONFIG_ROOT/mqtt.conf.dist"
 
 printf 'Content-Type: application/json\r\n'
 printf '\r\n'
@@ -36,12 +46,23 @@ fi
 # ── Read raw POST body (max 128 KB) ─────────────────────────────────────────
 _cl="${CONTENT_LENGTH:-0}"
 case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
-[ "$_cl" -gt 131072 ] && _cl=131072
+if [ "$_cl" -le 0 ] || [ "$_cl" -gt 131072 ]; then
+    printf '{"ok":false,"error":"invalid_size","message":"Import must be between 1 byte and 128 KB."}\n'
+    exit 0
+fi
 
 _tmp="/tmp/conf_import_$$.txt"
-# awk, not `tr -d '\r'` (no shim here): a failed tr would empty the pipe and
-# silently import nothing.
-head -c "$_cl" 2>/dev/null | awk '{ gsub(/\r/, ""); print }' > "$_tmp"
+_raw="/tmp/conf_import_$$.raw"
+head -c "$_cl" > "$_raw" 2>/dev/null
+_got="$(wc -c < "$_raw" 2>/dev/null)"
+set -- $_got; _got="${1:-0}"
+if [ "$_got" != "$_cl" ]; then
+    rm -f "$_tmp" "$_raw"
+    printf '{"ok":false,"error":"incomplete_payload"}\n'
+    exit 0
+fi
+awk '{ gsub(/\r/, ""); print }' "$_raw" > "$_tmp"
+rm -f "$_raw"
 
 # ── Validate magic header ────────────────────────────────────────────────────
 if ! grep -q '^## tc100-boot-mqtt-export v1' "$_tmp" 2>/dev/null; then
@@ -50,29 +71,53 @@ if ! grep -q '^## tc100-boot-mqtt-export v1' "$_tmp" 2>/dev/null; then
     exit 0
 fi
 
-# ── Ensure target files exist (copy from .dist if needed) ────────────────────
-[ -f "$BOOT_CONF" ] || { [ -f "$BOOT_CONF_DIST" ] && cp "$BOOT_CONF_DIST" "$BOOT_CONF" 2>/dev/null; }
-[ -f "$MQTT_CONF" ] || { [ -f "$MQTT_CONF_DIST" ] && cp "$MQTT_CONF_DIST" "$MQTT_CONF" 2>/dev/null; }
-
+# ── Prepare isolated copies; active files remain untouched until commit ───────
+_stage="/tmp/conf-import-stage.$$"
+_backup="/tmp/conf-import-rollback.$$"
+rm -rf "$_stage" "$_backup"
+mkdir -p "$_stage" || { rm -f "$_tmp"; printf '{"ok":false,"error":"staging_failed"}\n'; exit 0; }
+if [ -f "$BOOT_SOURCE" ]; then cp "$BOOT_SOURCE" "$_stage/boot.conf"; else cp "$BOOT_CONF_DIST" "$_stage/boot.conf" 2>/dev/null; fi
+if [ -f "$MQTT_SOURCE" ]; then cp "$MQTT_SOURCE" "$_stage/mqtt.conf"; else cp "$MQTT_CONF_DIST" "$_stage/mqtt.conf" 2>/dev/null; fi
+BOOT_CONF="$_stage/boot.conf"
+MQTT_CONF="$_stage/mqtt.conf"
 if [ ! -f "$BOOT_CONF" ] || [ ! -f "$MQTT_CONF" ]; then
-    rm -f "$_tmp"
+    rm -rf "$_tmp" "$_stage" "$_backup"
     printf '{"ok":false,"error":"config_not_found","message":"Cannot locate boot.conf or mqtt.conf on SD card."}\n'
     exit 0
 fi
 
-# ── set_conf KEY VALUE FILE — atomic awk rewrite ────────────────────────────
-set_conf() {
-    _k="$1" _v="$2" _f="$3"
-    [ -f "$_f" ] || return 1
-    _t="${_f}.ictmp.$$"
-    # Escape backslashes before awk -v to prevent awk from interpreting \n, \t, etc.
-    _ve="$(printf '%s' "$_v" | sed 's/\\/\\\\/g')"
-    awk -v k="$_k" -v v="$_ve" '
-        BEGIN { FS="="; found=0 }
-        $1==k  { print k"="v; found=1; next }
-        { print }
-        END { if (!found) print k"="v }
-    ' "$_f" > "$_t" && mv "$_t" "$_f" || { rm -f "$_t"; return 1; }
+set_conf() { tc_set_flat "$3" "$1" "$2"; }
+
+validate_legacy_value() {
+    _vl_key="$1"; _vl_raw="$2"
+    case "$_vl_raw" in *'\'*|*'`'*|*'$'*|*';'*|*'&'*|*'|'*|*'<'*|*'>'*) return 1 ;; esac
+    case "$_vl_raw" in
+      \"*\") ;;
+      \'*\') ;;
+      *' '*) return 1 ;;
+    esac
+    tc_strip_quotes "$_vl_raw"
+    _vl_value="$TC_UNQUOTED_VALUE"
+    case "$_vl_key" in
+      WEB_MODE) _vl_type=web_mode ;;
+      ONVIF_STREAM_POLICY) _vl_type=onvif_policy ;;
+      MQTT_PORT|ULTRALITE_HTTP_PORT|SYSLOG_PORT) _vl_type=port ;;
+      MQTT_QOS) _vl_type=qos ;;
+      REBOOT_SCHEDULE_HOUR|MOTION_ARM_HOUR|MOTION_DISARM_HOUR) _vl_type=hour ;;
+      REBOOT_SCHEDULE_MINUTE|MOTION_ARM_MINUTE|MOTION_DISARM_MINUTE) _vl_type=minute ;;
+      REBOOT_SCHEDULE_WEEKDAY|MOTION_SCHEDULE_WEEKDAY) _vl_type=weekday ;;
+      LOW_CPU_MAIN_WIDTH|LOW_CPU_SUB_WIDTH|CPU_SCALER_D1_WIDTH) _vl_type=width ;;
+      LOW_CPU_MAIN_HEIGHT|LOW_CPU_SUB_HEIGHT|CPU_SCALER_D1_HEIGHT) _vl_type=height ;;
+      LOW_CPU_MAIN_FPS|LOW_CPU_SUB_FPS|CPU_SCALER_FPS_TARGET) _vl_type=fps ;;
+      LOW_CPU_MAIN_BPS|LOW_CPU_SUB_BPS|LOW_CPU_MAIN_MAXKBPS|LOW_CPU_SUB_MAXKBPS|LOW_CPU_MAIN_TARGETKBPS|LOW_CPU_SUB_TARGETKBPS) _vl_type=bitrate ;;
+      LOW_CPU_MAIN_GOPLEN|LOW_CPU_SUB_GOPLEN) _vl_type=gop ;;
+      MQTT_HOST|SYSLOG_HOST) _vl_type=host ;;
+      MQTT_TOPIC_ROOT|MQTT_TOPIC_COMMAND|MQTT_HA_DISCOVERY_PREFIX) _vl_type=topic ;;
+      MQTT_CLIENT_ID) _vl_type=identifier ;;
+      ENABLE_*|*_ENABLE|LOW_CPU_DISABLE_*|RTSP_SUBSTREAM|RTSP_AUDIO|MEM_GUARD_DROP_CACHES|RTSP_DEEP_HEALTH_CHECK|NTP_ONE_SHOT|LIGHTWEIGHT_MODE|UI_ULTRALITE_MODE|SECURITY_HARDENING_MODE|LOW_CPU_PROFILE) _vl_type=bool ;;
+      *) _vl_type=safe_text_optional ;;
+    esac
+    tc_normalize_and_validate "$_vl_type" "$_vl_value"
 }
 
 # ── Allowlists ────────────────────────────────────────────────────────────────
@@ -146,23 +191,47 @@ while IFS= read -r _line; do
     # Block only values containing newlines (CRs already stripped by awk above)
     # and null bytes. Values with = in them are handled by ${_line#*=} above.
 
+    if { [ "$_section" = "boot" ] && in_list "$_key" "$BOOT_KEYS"; } || { [ "$_section" = "mqtt" ] && in_list "$_key" "$MQTT_KEYS"; }; then
+        if ! validate_legacy_value "$_key" "$_val"; then
+            _invalid_key="$_key"
+            break
+        fi
+    fi
+
     if [ "$_section" = "boot" ] && in_list "$_key" "$BOOT_KEYS"; then
         if set_conf "$_key" "$_val" "$BOOT_CONF"; then
-            _applied=$(expr "$_applied" + 1)
+            _applied=$((_applied + 1))
         else
-            _skipped=$(expr "$_skipped" + 1)
+            _skipped=$((_skipped + 1))
         fi
     elif [ "$_section" = "mqtt" ] && in_list "$_key" "$MQTT_KEYS"; then
         if set_conf "$_key" "$_val" "$MQTT_CONF"; then
-            _applied=$(expr "$_applied" + 1)
+            _applied=$((_applied + 1))
         else
-            _skipped=$(expr "$_skipped" + 1)
+            _skipped=$((_skipped + 1))
         fi
     else
-        _skipped=$(expr "$_skipped" + 1)
+        _skipped=$((_skipped + 1))
     fi
 done < "$_tmp"
 
 rm -f "$_tmp"
-
-printf '{"ok":true,"applied":%d,"skipped":%d}\n' "$_applied" "$_skipped"
+if [ -n "${_invalid_key:-}" ]; then
+    rm -rf "$_stage" "$_backup"
+    printf '{"ok":false,"error":"validation_failed","message":"Invalid value for %s; active configuration was preserved."}\n' "$_invalid_key"
+    exit 0
+fi
+if [ "$_applied" -le 0 ]; then
+    rm -rf "$_stage" "$_backup"
+    printf '{"ok":false,"error":"empty_config","message":"No known configuration values found."}\n'
+    exit 0
+fi
+if ! tc_commit_config_files "$_stage" "$CONFIG_ROOT" "$_backup" "boot.conf mqtt.conf"; then
+    _error="${TC_CONFIG_ERROR:-transaction_failed}"
+    rm -rf "$_stage" "$_backup"
+    printf '{"ok":false,"error":"transaction_failed","message":"%s; active configuration was preserved."}\n' "$_error"
+    exit 0
+fi
+_changed="$TC_COMMIT_COUNT"
+rm -rf "$_stage" "$_backup"
+printf '{"ok":true,"applied":%d,"changed_files":%d,"skipped":%d,"transactional":true}\n' "$_applied" "$_changed" "$_skipped"

@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc3] — 2026-09-10 (device trial pending)
+
+### Changed
+- Validate imported ports, video geometry/rates/codecs, schedules, recording,
+  sound, MQTT and one-line system values before touching active files.
+- Stage JSON, legacy text and tar.gz restores under `/tmp`; commit all candidate
+  files together and automatically restore originals after a write or readback failure.
+- Bound backup decompression to 2 MiB and keep all import work sequential, with no
+  resident process or added idle-memory cost.
+- Add `frigate-light-ak3918`: H.265 720p/12 fps main stream, H.264 360p/8 fps
+  detection stream, 1.32 Mbit/s combined target and audio disabled.
+
+### Fixed
+- Correct JSON import mappings for RTSP sections 0/1, audio sections 2/3, OSD,
+  motion sensitivity and recording keys. Preserve raw JSON POST bodies.
+- Export the real hostname, timezone, NTP server, flip/log flags, OSD placement and
+  recording values so exported JSON can be restored without silent drift.
+- Preserve the uploaded archive path while creating a rollback archive.
+
+### Validation
+- 38 host regression tests cover valid commits, full-batch rejection, JSON and legacy
+  imports, staged archive restore, the new profile values, shell/JavaScript syntax and
+  existing resource regressions. Real AK3918 validation remains pending.
+
 ## [1.8.3-rc2] — 2026-09-09 (device trial pending)
 
 ### Changed

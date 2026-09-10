@@ -1,8 +1,8 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
 
-> **1.8.3-rc2 — validated on a real AK3918 device.** Resource optimizations and regression fixes passed the initial hardware checks; the endurance test remains in progress. See the [French trial and rollback guide](docs/essai-1.8.3-rc2.md) and the [offline SD trial package](docs/downloads/tc100-1.8.3-rc2-essai.zip). Existing video settings and personal configurations are preserved.
+> **1.8.3-rc3 — ready for device trial.** This candidate adds strict configuration validation, transactional import/restore and a low-resource Frigate profile. The previous rc2 baseline was validated on a real AK3918 device; rc3 has passed the host regression suite and still needs the camera trial.
 
-**Version 1.8.3-rc2** — *Frigate & Home Assistant Edition*
+**Version 1.8.3-rc3** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 
@@ -17,7 +17,7 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 - **Frigate HA profile** — auto-disables unused daemons (3–6 MB RAM freed), RTSP pipeline tuned for Frigate segment ingestion, MQTT discovery for Home Assistant.
 - **Privacy Shield** — one-click Stealth Mode that severs all outbound traffic.
 - **Safety Snapshots** — save and restore known-good configuration checkpoints before tuning experiments.
-- **Config export / import** — download or restore `boot.conf` + `mqtt.conf` as a single versioned file.
+- **Transactional config import/restore** — validate complete candidates in `/tmp`, then commit all files together with automatic rollback on write or verification failure.
 - **WiFi reconfiguration** — update SSID and PSK from the Network tab without touching the SD card.
 - **Full legacy parity** — LED controls, Telegram bot, Timelapse, Syslog forwarding, email notifications all preserved.
 
@@ -27,7 +27,7 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 
 ### Video & Streaming
 - RTSP main + sub streams via `v4l2rtspserver`; ONVIF compatible.
-- Optimization presets: `Frigate Balanced`, `Universal H264`, `Maximum Performance`.
+- Optimization presets: `Frigate léger AK3918`, `Frigate Balanced`, `Universal H264`, `Maximum Performance`.
 - RTSP deep health check (detects GOP stalls, not just process liveness).
 - CPU scaler — auto-adjusts resolution/fps under load.
 
