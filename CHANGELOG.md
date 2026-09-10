@@ -5,6 +5,90 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc3] — 2026-09-10 (device trial pending)
+
+### Changed
+- Validate imported ports, video geometry/rates/codecs, schedules, recording,
+  sound, MQTT and one-line system values before touching active files.
+- Stage JSON, legacy text and tar.gz restores under `/tmp`; commit all candidate
+  files together and automatically restore originals after a write or readback failure.
+- Bound backup decompression to 2 MiB and keep all import work sequential, with no
+  resident process or added idle-memory cost.
+- Add `frigate-light-ak3918`: H.265 720p/12 fps main stream and H.265 360p/8 fps substream, matching the AK3918 dual-encoder constraint observed on real hardware
+- Preserve valid AK3918 audio codec values when profiles disable RTSP audio; `RTSP_AUDIO=0` now controls publication without breaking RTSP startup
+  detection stream, 1.32 Mbit/s combined target and audio disabled.
+
+### Fixed
+- Correct JSON import mappings for RTSP sections 0/1, audio sections 2/3, OSD,
+  motion sensitivity and recording keys. Preserve raw JSON POST bodies.
+- Export the real hostname, timezone, NTP server, flip/log flags, OSD placement and
+  recording values so exported JSON can be restored without silent drift.
+- Preserve the uploaded archive path while creating a rollback archive.
+
+### Validation
+- 38 host regression tests cover valid commits, full-batch rejection, JSON and legacy
+  imports, staged archive restore, the new profile values, shell/JavaScript syntax and
+  existing resource regressions. Real AK3918 validation remains pending.
+
+## [1.8.3-rc2] — 2026-09-09 (device trial pending)
+
+### Changed
+- Keep everyday video/audio controls visible and collapse advanced encoding,
+  audio formats and day/night thresholds in native, keyboard-accessible details.
+  Opening a section preserves all values and makes no network request.
+- Save main and secondary streams independently, including the selected stream
+  and all existing advanced parameters. Correct the quality preset label to 720p.
+- Settings submissions request JSON and inspect the application result, keep
+  drafts on failure, prevent concurrent submissions, and show persistent feedback.
+- Video/audio saves perform one configuration readback. A requested restart is
+  clearly distinguished from a verified RTSP health check. Quick profiles return
+  the result of the existing restart/rollback checks and refresh clean video forms.
+- Disable settings submission until configuration is loaded; reveal and focus
+  invalid fields inside closed advanced sections. Update asset cache versions.
+
+### Fixed
+- Read real INI sections when loading settings; expose CBR/VBR as the bitrate
+  mode and read audio codecs from sections 2/3. Audio saves write the volume and
+  section 2 codec, preserving the main video codec in section 0.
+- Video/audio write failures no longer schedule a restart or return success.
+- The local draft is removed only after the asynchronous save is confirmed.
+- Improve inactive tab contrast and primary button text in settings.
+
+### Validation
+- 27 host regression tests and 14 Chrome interaction checks using simulated CGI
+  responses. Mobile (390 px), desktop (1280 px), light and dark views inspected.
+- Hardware behavior and CPU/RAM gains remain pending. No new background polling
+  or frontend dependency. See [the rc2 trial guide](docs/essai-1.8.3-rc2.md).
+
+## [1.8.3-rc1] — 2026-09-09 (device trial pending)
+
+### Changed
+- Share the main statusline poll with dashboard gauges; respect the configured
+  health snapshot interval and adapt cache expiry to it (60 seconds by default).
+- Bound MQTT capture size and decode only unread bytes in 16 KiB batches, with
+  session-specific offsets and a 4 KiB maximum command frame. Add a retained
+  offline Will and clean up the listener's own child processes.
+- Skip identical configuration writes and unnecessary config-install hashing.
+  Remove the unconditional FTP watchdog and boot-time cache drop. Existing
+  live configurations and video settings are preserved.
+- Limit backup uploads to 1 MiB compressed / 2 MiB expanded / 512 entries,
+  rejecting archive links. Require POST and CSRF on the corrected mutation routes.
+  Frontend callers and asset cache versions are updated together.
+
+### Fixed
+- Preserve raw POST bodies in the config editor and backup upload; refuse
+  truncated writes and invalid shell syntax, keep a bounded editor backup.
+- Remove recursive configuration installation in action.cgi; correct backup and
+  timelapse date formatting; make package backups include the rollback manifest.
+- Subtract shared memory from the fallback available-memory estimate and report
+  failed deep RTSP/ONVIF probes instead of treating a live PID as healthy.
+- Prevent FTP/Telnet starts in security hardening mode and bound update-check waits.
+
+### Validation
+- Host regression tests, syntax checks and existing binary hashes checked.
+  ARM/BusyBox compatibility and resource gains still require the camera trial.
+- French trial and rollback procedure: [docs/essai-1.8.3-rc1.md](docs/essai-1.8.3-rc1.md).
+
 ## [1.8.2] — 2026-08-13
 
 ### Fixed

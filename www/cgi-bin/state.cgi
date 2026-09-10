@@ -241,16 +241,40 @@ load_or_compute_usage_metrics() {
 load_conf_file() {
   _lcf_path="$1"
   [ -f "$_lcf_path" ] || return 1
-  while IFS='=' read -r _lcf_k _lcf_v; do
+  _lcf_section=""
+  while IFS='=' read -r _lcf_k _lcf_v || [ -n "$_lcf_k" ]; do
     case "$_lcf_k" in
-      ''|'#'*) continue ;;
-      # Malformed key: refuse it outright rather than stripping characters.
-      # Stricter for the eval below, and drops the per-line $(tr) fork that
-      # dominated this loop's cost (one exec per config key on the AK3918).
-      *[!A-Za-z0-9_]*) continue ;;
+      '['*']')
+        _lcf_section="${_lcf_k#?}"
+        _lcf_section="${_lcf_section%?}"
+        case "$_lcf_section" in ''|*[!A-Za-z0-9_]*) _lcf_section="!" ;; esac
+        continue ;;
+      ''|'#'*|';'*|*[!A-Za-z0-9_]*) continue ;;
     esac
-    eval "C_${_lcf_k}=\"\$_lcf_v\""
+    [ "$_lcf_section" != "!" ] || continue
+    if [ -n "$_lcf_section" ]; then
+      _lcf_key="${_lcf_section}_${_lcf_k}"
+    else
+      _lcf_key="$_lcf_k"
+    fi
+    # Values remain data. Only validated keys/section names enter the eval syntax.
+    eval "C_${_lcf_key}=\"\$_lcf_v\""
   done < "$_lcf_path"
+}
+
+# Read one-line configuration files such as hostname/timezone/NTP without
+# treating their value as a key=value assignment.
+read_single_config() {
+  _rsc_file="$1"; _rsc_default="$2"; _rsc_value=""
+  if [ -r "$_rsc_file" ]; then
+    while IFS= read -r _rsc_line || [ -n "$_rsc_line" ]; do
+      case "$_rsc_line" in ''|'#'*) continue ;; esac
+      _rsc_value="$_rsc_line"
+      break
+    done < "$_rsc_file"
+  fi
+  [ -n "$_rsc_value" ] || _rsc_value="$_rsc_default"
+  printf '%s\n' "$_rsc_value"
 }
 
 # Helper to get the loaded value or default
@@ -398,19 +422,20 @@ build_web_base_url() {
 rtsp_describe_local_ok() {
   describe_path="$1"
   describe_port="$2"
-  describe_user="$3"
-  describe_password="$4"
   describe_timeout="$5"
 
-  [ -x /mnt/bin/curl ] || return 1
-
-  if [ -n "$describe_user" ]; then
-    describe_sdp=$(/mnt/bin/curl -s -S -m "$describe_timeout" -X DESCRIBE -u "${describe_user}:${describe_password}" "rtsp://127.0.0.1:${describe_port}/${describe_path}" 2>/dev/null) || return 1
-  else
-    describe_sdp=$(/mnt/bin/curl -s -S -m "$describe_timeout" -X DESCRIBE "rtsp://127.0.0.1:${describe_port}/${describe_path}" 2>/dev/null) || return 1
-  fi
-
-  printf '%s' "$describe_sdp" | grep -q "m=video" || return 1
+  # The bundled curl cannot load libcurl from the CGI environment and its RTSP
+  # build sends OPTIONS even when asked for DESCRIBE. Probe the endpoint with a
+  # tiny raw request instead. A 401 challenge is a valid response when Digest
+  # authentication is enabled; an unauthenticated endpoint must return SDP.
+  describe_uri="rtsp://127.0.0.1:${describe_port}/${describe_path}"
+  describe_reply="$(printf 'DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n' "$describe_uri" \
+    | nc -w "$describe_timeout" 127.0.0.1 "$describe_port" 2>/dev/null)" || return 1
+  case "$describe_reply" in
+    *'RTSP/1.0 401 Unauthorized'*) return 0 ;;
+    *'RTSP/1.0 200 OK'*'m=video'*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 slugify_value() {
@@ -509,6 +534,9 @@ read_rtsp_stream_summary() {
     maxkbps1="$(sanitize_int "$(get_cfg 1_maxkbps 450)" 450)"
     targetkbps1="$(sanitize_int "$(get_cfg 1_targetkbps 400)" 400)"
 
+    codec0_name="$(codec_name "$codec0")"
+    codec1_name="$(codec_name "$codec1")"
+
     rtsp_port="$(sanitize_int "$(get_cfg PORT 554)" 554)"
 }
 
@@ -554,6 +582,7 @@ get_ui_ultralite_mode() {
 get_security_and_mqtt_flags() {
   security_hardening_mode=0
   mqtt_enabled=0
+  mqtt_discovery=0
   mqtt_last_pub_ts=0
   mqtt_last_pub_ok=-1
 
@@ -568,6 +597,13 @@ get_security_and_mqtt_flags() {
   case "$mqtt_raw" in
     1|true|on|yes|enabled)
       mqtt_enabled=1
+      ;;
+  esac
+
+  mqtt_discovery_raw="$(read_conf_value /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE 1)"
+  case "$mqtt_discovery_raw" in
+    1|true|on|yes|enabled)
+      mqtt_discovery=1
       ;;
   esac
 
@@ -1021,10 +1057,10 @@ if [ -n "$F_cmd" ]; then
       if [ -x /mnt/bin/curl ]; then
         if rtsp_describe_local_ok "video0_unicast" "$rtsp_port" "$rtsp_username_test" "$rtsp_password_test" "$rtsp_timeout_test"; then
           rtsp_main_status="ok"
-          rtsp_main_detail="DESCRIBE succeeded for video0_unicast."
+          rtsp_main_detail="RTSP endpoint responded for video0_unicast."
         else
           rtsp_main_status="fail"
-          rtsp_main_detail="DESCRIBE failed for video0_unicast."
+          rtsp_main_detail="RTSP endpoint did not respond for video0_unicast."
         fi
       else
         rtsp_main_status="ok"
@@ -1041,10 +1077,10 @@ if [ -n "$F_cmd" ]; then
         if [ -x /mnt/bin/curl ]; then
           if rtsp_describe_local_ok "video1_unicast" "$rtsp_port" "$rtsp_username_test" "$rtsp_password_test" "$rtsp_timeout_test"; then
             rtsp_sub_status="ok"
-            rtsp_sub_detail="DESCRIBE succeeded for video1_unicast."
+            rtsp_sub_detail="RTSP endpoint responded for video1_unicast."
           else
             rtsp_sub_status="fail"
-            rtsp_sub_detail="DESCRIBE failed for video1_unicast."
+            rtsp_sub_detail="RTSP endpoint did not respond for video1_unicast."
           fi
         else
           rtsp_sub_status="ok"
@@ -1399,8 +1435,9 @@ if [ -n "$F_cmd" ]; then
     load_conf_file /mnt/config/rtspserver.conf
     load_conf_file /mnt/config/mqtt.conf
     load_conf_file /mnt/config/service_trim.conf
-    load_conf_file /mnt/config/timezone.conf
-    load_conf_file /mnt/config/ntp_srv.conf
+    fullconfig_hostname="$(read_single_config /mnt/config/hostname.conf TC100-CAMERA)"
+    fullconfig_timezone="$(read_single_config /mnt/config/timezone.conf UTC+0)"
+    fullconfig_ntp="$(read_single_config /mnt/config/ntp_srv.conf pool.ntp.org)"
     load_conf_file /mnt/config/motion.conf
     load_conf_file /mnt/config/telnetd.conf
     if [ "$_iprofile" != "frigate_ha" ]; then
@@ -1464,15 +1501,15 @@ if [ -n "$F_cmd" ]; then
     printf '{"boot":{"web_mode":"%s","perf_profile":"%s","service_trim":%s,"topology":"%s","ultralite_port":%s,"lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s},"telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"peripherals":{"led_front":%s,"led_red":%s,"privacy":%s}}\n' \
       "$(json_escape "$(get_cfg WEB_MODE full)")" "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(sanitize_int "$(get_cfg ULTRALITE_HTTP_PORT 80)" 80)" "$(truthy_flag "$(get_cfg LIGHTWEIGHT_MODE 0)")" "$(truthy_flag "$(get_cfg SECURITY_HARDENING_MODE 0)")" \
       "$rtsp_port" \
-      "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$(codec_name "$codec0")" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" \
-      "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$(codec_name "$codec1")" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
-      "$(sanitize_int "$(get_cfg imageFlip 0)" 0)" "$(truthy_flag "$(get_cfg enable_rtsp_log 0)")" \
-      "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg audioCodec0 4)" 4)" "$(sanitize_int "$(get_cfg audioCodec1 4)" 4)" "$audio_vol" \
+      "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" \
+      "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
+      "$(sanitize_int "$(get_cfg imageflip 0)" 0)" "$(truthy_flag "$(get_cfg RTSPLOGENABLED 0)")" \
+      "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg 2_codec 4)" 4)" "$(sanitize_int "$(get_cfg 3_codec 4)" 4)" "$audio_vol" \
       "$(sanitize_int "$(get_cfg daynightlum 2000)" 2000)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(sanitize_int "$(get_cfg nightdaylum 6000)" 6000)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
-      "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg osdfontsize0 24)" 24)" "$(sanitize_int "$(get_cfg frontcolor 1)" 1)" "$(sanitize_int "$(get_cfg backcolor 0)" 0)" "$(sanitize_int "$(get_cfg edgecolor 2)" 2)" "$(sanitize_int "$(get_cfg osdx0 10)" 10)" "$(sanitize_int "$(get_cfg osdy0 10)" 10)" \
+      "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg 0_osdfontsize 24)" 24)" "$(sanitize_int "$(get_cfg osdfrontcolor 1)" 1)" "$(sanitize_int "$(get_cfg osdbackcolor 0)" 0)" "$(sanitize_int "$(get_cfg osdedgecolor 2)" 2)" "$(sanitize_int "$(get_cfg 0_osdx 10)" 10)" "$(sanitize_int "$(get_cfg 0_osdy 10)" 10)" \
       "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
-      "$(sanitize_int "$(get_cfg postrec 10)" 10)" "$(sanitize_int "$(get_cfg maxduration 60)" 60)" "$(sanitize_int "$(get_cfg diskspace 1024)" 1024)" "$(truthy_flag "$(get_cfg motion_act 0)")" \
-      "$(json_escape "$health_hostname")" "$(json_escape "$(get_cfg TIMEZONE UTC)")" "$(json_escape "$(get_cfg NTP_SERVER pool.ntp.org)")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_cfg DEFAULT_GATEWAY "0.0.0.0")")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
+      "$(sanitize_int "$(get_cfg rec_postrecord_sec 10)" 10)" "$(sanitize_int "$(get_cfg rec_file_duration_sec 60)" 60)" "$(sanitize_int "$(get_cfg rec_reserverd_disk_mb 1024)" 1024)" "$(truthy_flag "$(get_cfg rec_motion_activated 0)")" \
+      "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_cfg DEFAULT_GATEWAY "0.0.0.0")")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
       "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 8192)" 8192)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 4096)" 4096)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
       "$(sanitize_int "$(get_cfg tlinterval 10)" 10)" "$(sanitize_int "$(get_cfg tlduration 0)" 0)" \
       "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$(sanitize_int "$(get_cfg THRESHOLD 1500)" 1500)" "$(sanitize_int "$(get_cfg INTERVAL 5)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")" \

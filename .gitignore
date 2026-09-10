@@ -39,3 +39,7 @@ node_modules/
 /frontend/
 /.claude/
 /.github/
+
+# Host regression test bytecode
+__pycache__/
+*.pyc
