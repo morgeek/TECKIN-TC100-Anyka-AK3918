@@ -92,8 +92,27 @@ if [ "$CONTENT_LENGTH" -gt "$MAX_UPLOAD_BYTES" ]; then
 fi
 
 if ! mkdir "$PTT_LOCK_DIR" 2>/dev/null; then
-    respond_plain "429 Too Many Requests" "BUSY"
-    exit 0
+    # Recover a lock orphaned by an interrupted/older CGI only when no tracked
+    # playback process is still alive.
+    active_playback=0
+    if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
+        active_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
+        case "$active_pid" in
+            ''|*[!0-9]*) ;;
+            *)
+                if kill -0 "$active_pid" >/dev/null 2>&1; then
+                    active_playback=1
+                fi
+                ;;
+        esac
+    fi
+    if [ "$active_playback" = "0" ]; then
+        rmdir "$PTT_LOCK_DIR" >/dev/null 2>&1 || true
+    fi
+    if ! mkdir "$PTT_LOCK_DIR" 2>/dev/null; then
+        respond_plain "429 Too Many Requests" "BUSY"
+        exit 0
+    fi
 fi
 lock_acquired=1
 
@@ -179,7 +198,6 @@ esac
         fi
     fi
 ) >/dev/null 2>&1 &
-_cleanup_pid=$!
-[ -n "$_cleanup_pid" ] && echo "$_cleanup_pid" > /tmp/ptt-cleanup.$$.pid 2>/dev/null || true
-trap 'rm -f /tmp/ptt-cleanup.$$.pid "$pcm_file" "$PTT_PLAYBACK_PID_FILE"' EXIT INT TERM
+# The original cleanup trap releases the upload lock at CGI exit. The detached
+# worker owns the PCM and PID files until playback has really completed.
 respond_plain "200 OK" "OK"
