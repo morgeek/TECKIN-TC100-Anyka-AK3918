@@ -11,10 +11,6 @@ export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 # `wpa_cli reconfigure`.
 WIFI_CONFIG_PATH="/mnt/wpa_supplicant.conf"
 
-# Override install_config to use caching (skips .dist→.conf copy when .conf is fresh)
-install_config() {
-  install_config_cached "$@"
-}
 
 case "$F_cmd" in
   reboot|shutdown) rate_limit_check 3 300 ;;
@@ -944,6 +940,26 @@ finalize_stream_apply() {
   return 0
 }
 
+# Preserve the existing restart/rollback checks and expose their actual result
+# to the settings UI. Legacy HTML callers retain their original diagnostics.
+ui_finalize_stream_apply() {
+  if ! wants_json_response; then
+    finalize_stream_apply "$1"
+    return $?
+  fi
+  _ui_apply_report="$(finalize_stream_apply "$1")"
+  _ui_apply_rc=$?
+  if [ "$_ui_apply_rc" -ne 0 ]; then
+    json_body_err "STREAM_APPLY_FAILED" "The video check failed. The camera attempted rollback; check playback before retrying."
+    return 1
+  fi
+  case "$_ui_apply_report" in
+    *[Ww]arning*) _ui_apply_message="Saved. Video health check passed with warnings; review diagnostics." ;;
+    *) _ui_apply_message="Saved. Video restart and health check passed." ;;
+  esac
+  printf '{"ok":true,"message":"%s","restart":"verified"}\n' "$_ui_apply_message"
+}
+
 credentials_default_active() {
   default_http_hash="1d06b7785388de1501e8d57847540f6d"
   rtsp_username="$(read_config rtspserver.conf USERNAME)"
@@ -986,6 +1002,19 @@ select_compat_profile_values() {
       width1=640;  height1=360;  fps1=8;  bps1=260;  gop1=8;  maxkbps1=360;  targetkbps1=260;  smartq1=65; smartstatic1=150
       codec0=0; profile0=1
       codec1=0; profile1=0
+      rtsp_substream=1
+      rtsp_audio=0
+      onvif_policy="sub-primary"
+      low_cpu_profile=0
+      ;;
+    frigate-light-ak3918)
+      profile_label="Frigate léger AK3918"
+      width0=1280; height0=720;  fps0=12; bps0=1000; gop0=12; maxkbps0=1300; targetkbps0=1000; smartq0=72; smartstatic0=360
+      width1=640;  height1=360;  fps1=8;  bps1=320;  gop1=8;  maxkbps1=420;  targetkbps1=320;  smartq1=65; smartstatic1=150
+      codec0=2; profile0=3
+      # Real TC100 hardware rejects mixed H.265-main/H.264-sub encoding.
+      # Keep both hardware channels on H.265 and save resources via fps/bitrate.
+      codec1=2; profile1=3
       rtsp_substream=1
       rtsp_audio=0
       onvif_policy="sub-primary"
@@ -1192,7 +1221,7 @@ if [ -n "$F_cmd" ]; then
       width=$(echo "$raw_size" | cut -d'x' -f1)
       height=$(echo "$raw_size" | cut -d'x' -f2)
 
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+      if ! /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
           "$stream_idx" width "$width" \
           "$stream_idx" height "$height" \
           "$stream_idx" codec "$codec" \
@@ -1202,8 +1231,15 @@ if [ -n "$F_cmd" ]; then
           "$stream_idx" brmode "$format" \
           "$stream_idx" minqp "$minqp" \
           "$stream_idx" maxqp "$maxqp" \
-          "$stream_idx" smartmode "$smartmode"
-      
+          "$stream_idx" smartmode "$smartmode"; then
+        if wants_json_response; then
+          json_body_err "CONFIG_WRITE_FAILED" "Settings could not be written. Check the SD card."
+        else
+          echo "Settings write failed; no restart scheduled.<br/>"
+        fi
+        exit 0
+      fi
+
       schedule_rtsp_restart
       if wants_json_response; then
         json_body_ok "Video settings for stream $stream_idx updated."
@@ -1217,11 +1253,19 @@ if [ -n "$F_cmd" ]; then
       volume=$(sanitize_int_range "${F_audioinVol}" 0 12 10)
       codec_main=$(sanitize_int_range "${F_audioCodec0}" 0 18 4)
       
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+      if ! /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
           " " samplerate "$samplerate" \
-          " " audioinVol "$volume" \
-          0 codec "$codec_main"
-          
+          " " volume "$volume" \
+          2 samplerate "$samplerate" \
+          2 codec "$codec_main"; then
+        if wants_json_response; then
+          json_body_err "CONFIG_WRITE_FAILED" "Settings could not be written. Check the SD card."
+        else
+          echo "Settings write failed; no restart scheduled.<br/>"
+        fi
+        exit 0
+      fi
+
       schedule_rtsp_restart
       if wants_json_response; then
         json_body_ok "Audio settings updated."
@@ -2204,9 +2248,8 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      if [ "$rtsp_audio" = "0" ]; then
-        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
-      fi
+      # RTSP_AUDIO controls publication of the audio tracks. Keep the configured
+      # codec values: codec=0 prevents rtsp-h26x startup on the AK3918 firmware.
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
@@ -2305,7 +2348,8 @@ if [ -n "$F_cmd" ]; then
           width1=352;  height1=200; fps1=5;  bps1=120;  gop1=10; maxkbps1=160;  targetkbps1=120;  smartq1=50; smartstatic1=100
           ;;
         *)
-          echo "Unknown preset '$preset'<br/>"
+          if wants_json_response; then json_body_err "INVALID_PRESET" "Unknown video profile."
+          else echo "Unknown preset '$preset'<br/>"; fi
           exit 0
           ;;
       esac
@@ -2336,8 +2380,8 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      if finalize_stream_apply "rtsp-preset:${preset}"; then
-        echo "RTSP preset applied: $preset (fps max 25)<br/>"
+      if ui_finalize_stream_apply "rtsp-preset:${preset}"; then
+        if ! wants_json_response; then echo "RTSP preset applied: $preset (fps max 25)<br/>"; fi
       fi
     ;;
 
@@ -2431,7 +2475,8 @@ if [ -n "$F_cmd" ]; then
       install_config /mnt/config/boot.conf
       capture_prechange_stream_snapshot
       if ! select_compat_profile_values "$client_profile"; then
-        echo "Unknown client profile '$client_profile'<br/>"
+        if wants_json_response; then json_body_err "INVALID_PROFILE" "Unknown recorder profile."
+        else echo "Unknown client profile '$client_profile'<br/>"; fi
         exit 0
       fi
 
@@ -2465,9 +2510,8 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      if [ "$rtsp_audio" = "0" ]; then
-        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
-      fi
+      # RTSP_AUDIO controls publication of the audio tracks. Keep the configured
+      # codec values: codec=0 prevents rtsp-h26x startup on the AK3918 firmware.
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
@@ -2475,13 +2519,15 @@ if [ -n "$F_cmd" ]; then
       rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_SUBSTREAM 0
       rewrite_config /mnt/config/boot.conf LOW_CPU_PROFILE "$low_cpu_profile"
 
-      if finalize_stream_apply "compat-profile:${client_profile}"; then
+      if ui_finalize_stream_apply "compat-profile:${client_profile}"; then
         if [ "$low_cpu_profile" = "1" ]; then
           apply_low_cpu_background_defaults
         fi
+        if ! wants_json_response; then
         echo "Compatibility preset applied: $profile_label<br/>"
         echo "RTSP_SUBSTREAM=$rtsp_substream, RTSP_AUDIO=$rtsp_audio, ONVIF_STREAM_POLICY=$onvif_policy<br/>"
         echo "Main=${width0}x${height0}@${fps0}fps, Sub=${width1}x${height1}@${fps1}fps<br/>"
+        fi
         _ac_now
         [ -n "$now_ts" ] || now_ts=0
         publish_mqtt_event "$(printf '{"ts":%s,"type":"client_profile","value":"%s"}' "$now_ts" "$client_profile")"
@@ -2687,9 +2733,8 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      if [ "$rtsp_audio" = "0" ]; then
-        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
-      fi
+      # RTSP_AUDIO controls publication of the audio tracks. Keep the configured
+      # codec values: codec=0 prevents rtsp-h26x startup on the AK3918 firmware.
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"

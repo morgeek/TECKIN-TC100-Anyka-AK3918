@@ -1,0 +1,64 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+const qa=path.resolve(process.argv[2]);
+const pages=await (await fetch('http://127.0.0.1:9339/json/list')).json();
+const ws=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
+await new Promise(r=>ws.addEventListener('open',r,{once:true}));
+let seq=0;const pending=new Map(),errors=[];
+ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result)}}else if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text)});
+function call(method,params={}){return new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});}
+async function js(expression){const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value;}
+await call('Page.enable');await call('Runtime.enable');
+await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+await call('Page.navigate',{url:pathToFileURL(path.join(qa,'fixture.html')).href});
+await new Promise(r=>setTimeout(r,900));
+console.log('LOAD',await js(`document.querySelector('#settings_load_status').textContent`));
+console.log('ERRORS',errors);
+console.log('LAYOUT',await js(`({width:innerWidth,scroll:document.documentElement.scrollWidth,forms:document.forms.length,video:document.querySelector('#video_size0').value,sub:document.querySelector('#video_size1').value})`));
+for(const [name,width,mobile] of [['desktop',1280,false],['mobile',390,true]]){
+ await call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile});
+ await new Promise(r=>setTimeout(r,100));
+ const metrics=await call('Page.getLayoutMetrics');
+ const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:Math.min(metrics.cssContentSize.height,2300),scale:1}});
+ fs.writeFileSync(path.join(qa,name+'.png'),Buffer.from(shot.data,'base64'));
+ console.log(name,await js(`({width:innerWidth,scroll:document.documentElement.scrollWidth,advancedClosed:[...document.querySelectorAll('#tab-video details')].every(x=>!x.open)})`));
+}
+await js(`document.documentElement.setAttribute('data-theme','dark')`);
+await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+const dark=await call('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(qa,'dark.png'),Buffer.from(dark.data,'base64'));
+await js(`document.documentElement.setAttribute('data-theme','light')`);
+const tests=await js(`(async()=>{
+ const checks=[];const check=(yes,label)=>{if(!yes)throw new Error(label);checks.push(label)};
+ const tick=()=>new Promise(r=>setTimeout(r,40));
+ const sub=document.querySelector('#formVideoSub');const fps=sub.querySelector('[name="fps1"]');
+ check([...document.querySelectorAll('#tab-video details')].every(d=>!d.open),'advanced sections initially closed');
+ const snapshot=new URLSearchParams(new FormData(sub));
+ sub.querySelector('summary').click();sub.querySelector('summary').click();
+ check(snapshot.toString()===new URLSearchParams(new FormData(sub)).toString(),'disclosure preserves all field values');
+ fps.value='9';fps.dispatchEvent(new Event('change',{bubbles:true}));
+ window.__hold=true;sub.requestSubmit();sub.requestSubmit();await tick();
+ check(window.__posts.length===1,'double submit sends one POST');
+ check(sub.querySelector('button[type=submit]').disabled,'save button disabled while pending');
+ const posted=new URLSearchParams(window.__posts[0].body);
+ check(posted.get('stream')==='1'&&posted.get('goplen1')==='16'&&posted.get('video_codec1')==='0','secondary stream and collapsed tuning submitted');
+ window.__hold=false;window.__release();await tick();await tick();
+ check(sub.querySelector('.settings-save-status').textContent.includes('Saved and checked'),'successful readback confirmed');
+ check(!localStorage.getItem('dashboard_form_formVideoSub'),'draft cleared only after confirmed save');
+ window.__mode='error';fps.value='10';fps.dispatchEvent(new Event('change',{bubbles:true}));sub.requestSubmit();await tick();
+ check(sub.querySelector('.settings-save-status').textContent.includes('read-only'),'HTTP 200 application error shown');
+ check(fps.value==='10'&&!!localStorage.getItem('dashboard_form_formVideoSub'),'failed save preserves input and draft');
+ window.__mode='mismatch';fps.value='11';fps.dispatchEvent(new Event('change',{bubbles:true}));sub.requestSubmit();await tick();
+ check(sub.querySelector('.settings-save-status').textContent.includes('differ'),'readback mismatch is not shown as saved');
+ const main=document.querySelector('#formVideoAdvanced'),qp=main.querySelector('[name=maxqp0]');qp.value='52';const count=window.__posts.length;main.requestSubmit();await tick();
+ check(qp.closest('details').open&&window.__posts.length===count,'invalid hidden field revealed without a POST');
+ check(document.activeElement===qp,'focus moved to invalid field');
+ window.__loadFail=true;EliteUI.initDashboard();await tick();
+ check(document.querySelector('#settings_load_status').textContent.includes('could not be loaded'),'load error leaves clear feedback');
+ check([...document.querySelectorAll('#settings_container button[type=submit]')].every(b=>b.disabled),'failed load cannot submit defaults');
+ return checks;
+})()`);
+console.log('BROWSER CHECKS',tests.length,JSON.stringify(tests));
+fs.writeFileSync(path.join(qa,'results.json'),JSON.stringify({checks:tests,errors},null,2));
+if(process.argv.includes('--close')) await call('Browser.close');
+ws.close();

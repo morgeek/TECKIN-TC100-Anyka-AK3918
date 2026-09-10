@@ -6,10 +6,18 @@
 # Cache is invalidated by action.cgi when service topology changes.
 
 CACHE_FILE="/tmp/health_snapshot.cache"
-# When health-snapshot daemon is running it refreshes the cache every ~30s.
+# Follow the snapshot daemon cadence (60s by default).
 # Use a longer TTL here so CGI requests are always instant cache hits.
 # If the daemon isn't running we fall back to building the snapshot inline.
-CACHE_TTL_SECONDS=45
+CACHE_TTL_SECONDS=75
+if [ -r /tmp/health_snapshot.interval ]; then
+  read -r _interval < /tmp/health_snapshot.interval
+  case "$_interval" in ''|*[!0-9]*) ;; *)
+    if [ "$_interval" -ge 10 ] && [ "$_interval" -le 300 ]; then
+      CACHE_TTL_SECONDS=$((_interval + 15))
+    fi ;;
+  esac
+fi
 
 echo "Content-type: application/json"
 echo "Pragma: no-cache"
@@ -66,7 +74,7 @@ else
 fi
 
 # System stats
-_memtotal=0; _memfree=0; _memavail=0; _membuf=0; _memcach=0; _memsrec=0
+_memtotal=0; _memfree=0; _memavail=0; _membuf=0; _memcach=0; _memsrec=0; _memshmem=0
 while IFS=: read -r _mk _mv _mu; do
   # /proc/meminfo pads values with several spaces ("MemTotal:      61234 kB").
   # "${_mv# }" strips only one of them, so "${_mv%% *}" then cut at the next
@@ -82,12 +90,14 @@ while IFS=: read -r _mk _mv _mu; do
     Buffers)  _membuf="$_mv" ;;
     Cached)   _memcach="$_mv" ;;
     SReclaimable) _memsrec="$_mv" ;;
+    Shmem) _memshmem="$_mv" ;;
   esac
 done < /proc/meminfo
 # This kernel ships no MemAvailable line, so mem_avail_kb sat at a misleading 0.
 # Fall back to the reclaimable-aware estimate state.cgi already uses.
 if [ "$_memavail" -le 0 ] 2>/dev/null; then
-  _memavail=$((_memfree + _membuf + _memcach + _memsrec))
+  _memavail=$((_memfree + _membuf + _memcach + _memsrec - _memshmem))
+  [ "$_memavail" -lt 0 ] && _memavail=0
   [ "$_memavail" -gt "$_memtotal" ] 2>/dev/null && _memavail="$_memtotal"
 fi
 
