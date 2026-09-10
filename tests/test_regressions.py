@@ -460,6 +460,18 @@ class Regressions(unittest.TestCase):
         self.assertIn('WEB_MODE=ultra-lite', (cfg / 'boot.conf').read_text())
         self.assertTrue(list(self.base.glob('config-rollback-*.tar.gz')))
 
+    def test_ptt_coordinates_exclusive_audio_with_rtsp(self):
+        source = (ROOT / 'www/cgi-bin/upload_audio.cgi').read_text()
+        stop = source.index('"$RTSP_SERVICE" stop')
+        play = source.index('"$AUDIOPLAY_BIN" 8000 1')
+        restart = source.index('"$RTSP_SERVICE" start', play)
+        unlock = source.index('rmdir "$PTT_LOCK_DIR"', restart)
+        transfer = source.index('lock_acquired=0', unlock)
+        self.assertLess(stop, play)
+        self.assertLess(play, restart)
+        self.assertLess(restart, unlock)
+        self.assertLess(unlock, transfer)
+
     def test_ptt_player_patcher_rejects_unknown_firmware_binary(self):
         source = self.base / 'ak_ao_demo'
         destination = self.base / 'ak_ao_ptt'
