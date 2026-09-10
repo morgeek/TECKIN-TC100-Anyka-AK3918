@@ -86,6 +86,7 @@ status()
     # Prints PID: $pid if exists and returns 0(no error) else returns 1(error condition)
     kill -0 "$pid" >/dev/null && echo "PID: $pid" || return 1
   fi
+  [ -n "$pid" ] || return 1
 }
 
 start()
