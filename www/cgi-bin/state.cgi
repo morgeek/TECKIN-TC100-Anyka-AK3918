@@ -1648,12 +1648,15 @@ if [ -n "$F_cmd" ]; then
     fi
 
     if [ "$fy_sub_enabled" = "1" ]; then
-      fy_detect_w="$width1"; fy_detect_h="$height1"; fy_detect_fps="$fps1"
+      fy_detect_w="$width1"; fy_detect_h="$height1"; fy_detect_source_fps="$fps1"
       fy_detect_stream="${fy_slug}_sub"
     else
-      fy_detect_w="$width0"; fy_detect_h="$height0"; fy_detect_fps="$fps0"
+      fy_detect_w="$width0"; fy_detect_h="$height0"; fy_detect_source_fps="$fps0"
       fy_detect_stream="$fy_slug"
     fi
+    # Frigate recommends 5 fps for object detection.
+    fy_detect_fps="$fy_detect_source_fps"
+    [ "$fy_detect_fps" -gt 5 ] && fy_detect_fps=5
 
     fy_mqtt_enabled="$(truthy_flag "$(read_conf_value /mnt/config/mqtt.conf MQTT_ENABLE 0)")"
     fy_mqtt_host="$(read_conf_value /mnt/config/mqtt.conf MQTT_HOST 127.0.0.1)"
@@ -1690,10 +1693,10 @@ if [ -n "$F_cmd" ]; then
     printf 'go2rtc:\n'
     printf '  streams:\n'
     printf '    %s:\n' "$fy_slug"
-    printf '      - rtsp://%s%s:%s/video0_unicast\n' "$fy_auth" "$primary_ip" "$rtsp_port"
+    printf '      - rtsp://%s%s:%s/video0_unicast#backchannel=0\n' "$fy_auth" "$primary_ip" "$rtsp_port"
     if [ "$fy_sub_enabled" = "1" ]; then
       printf '    %s_sub:\n' "$fy_slug"
-      printf '      - rtsp://%s%s:%s/video1_unicast\n' "$fy_auth" "$primary_ip" "$rtsp_port"
+      printf '      - rtsp://%s%s:%s/video1_unicast#backchannel=0\n' "$fy_auth" "$primary_ip" "$rtsp_port"
     fi
     printf '\n'
 
@@ -1720,8 +1723,17 @@ if [ -n "$F_cmd" ]; then
     printf '      width: %s\n' "$fy_detect_w"
     printf '      height: %s\n' "$fy_detect_h"
     printf '      fps: %s\n' "$fy_detect_fps"
+    printf '    live:\n'
+    printf '      streams:\n'
+    printf '        Main Stream: %s\n' "$fy_slug"
+    if [ "$fy_sub_enabled" = "1" ]; then
+      printf '        Sub Stream: %s_sub\n' "$fy_slug"
+    fi
     printf '    record:\n'
     printf '      enabled: true\n'
+    if [ "$(codec_name "$codec0")" = "H265" ]; then
+      printf '      apple_compatibility: true\n'
+    fi
     printf '      # Current Frigate schema (0.14+): event-based retention lives\n'
     printf '      # under alerts/detections, NOT the deprecated record.retain.days.\n'
     printf '      alerts:\n'
