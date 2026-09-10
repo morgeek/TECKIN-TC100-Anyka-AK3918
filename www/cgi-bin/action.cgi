@@ -1012,7 +1012,9 @@ select_compat_profile_values() {
       width0=1280; height0=720;  fps0=12; bps0=1000; gop0=12; maxkbps0=1300; targetkbps0=1000; smartq0=72; smartstatic0=360
       width1=640;  height1=360;  fps1=8;  bps1=320;  gop1=8;  maxkbps1=420;  targetkbps1=320;  smartq1=65; smartstatic1=150
       codec0=2; profile0=3
-      codec1=0; profile1=0
+      # Real TC100 hardware rejects mixed H.265-main/H.264-sub encoding.
+      # Keep both hardware channels on H.265 and save resources via fps/bitrate.
+      codec1=2; profile1=3
       rtsp_substream=1
       rtsp_audio=0
       onvif_policy="sub-primary"

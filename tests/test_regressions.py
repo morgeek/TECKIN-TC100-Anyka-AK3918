@@ -466,7 +466,7 @@ class Regressions(unittest.TestCase):
         code += '\nprintf "%s|%s|%s|%s|%s|%s|%s|%s|%s" "$codec0" "$width0" "$height0" "$fps0" "$bps0" "$codec1" "$fps1" "$bps1" "$rtsp_audio"'
         r = run(code)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout, b'2|1280|720|12|1000|0|8|320|0')
+        self.assertEqual(r.stdout, b'2|1280|720|12|1000|2|8|320|0')
         self.assertIn('value="frigate-light-ak3918"', (ROOT / 'www/settings.html').read_text())
 
     def test_package_backup_is_restorable(self):
