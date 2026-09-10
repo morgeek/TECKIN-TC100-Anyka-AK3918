@@ -10,10 +10,20 @@ CACHE_FILE="/tmp/health_snapshot.cache"
 HEALTH_CGI="/mnt/www/cgi-bin/health.cgi"
 INTERVAL="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-60}"
 PIDFILE="/var/run/health-snapshot.pid"
+STABILITY_FILE="${STABILITY_FILE:-/mnt/log/stability.csv}"
+STABILITY_SAMPLE_SECONDS="${STABILITY_SAMPLE_SECONDS:-300}"
+STABILITY_MAX_SAMPLES="${STABILITY_MAX_SAMPLES:-576}"
+_stability_elapsed=0
 
 case "$INTERVAL" in ''|*[!0-9]*) INTERVAL=60 ;; esac
 [ "$INTERVAL" -lt 10 ] && INTERVAL=10
 [ "$INTERVAL" -gt 300 ] && INTERVAL=300
+case "$STABILITY_SAMPLE_SECONDS" in ''|*[!0-9]*) STABILITY_SAMPLE_SECONDS=300 ;; esac
+[ "$STABILITY_SAMPLE_SECONDS" -lt 60 ] && STABILITY_SAMPLE_SECONDS=60
+[ "$STABILITY_SAMPLE_SECONDS" -gt 3600 ] && STABILITY_SAMPLE_SECONDS=3600
+case "$STABILITY_MAX_SAMPLES" in ''|*[!0-9]*) STABILITY_MAX_SAMPLES=576 ;; esac
+[ "$STABILITY_MAX_SAMPLES" -lt 24 ] && STABILITY_MAX_SAMPLES=24
+[ "$STABILITY_MAX_SAMPLES" -gt 2016 ] && STABILITY_MAX_SAMPLES=2016
 printf '%s\n' "$INTERVAL" > /tmp/health_snapshot.interval
 
 echo "$$" > "$PIDFILE" 2>/dev/null || true
@@ -94,7 +104,7 @@ build_snapshot() {
     done
   fi
 
-  _sep=""; _svc_json=""; _rst_sep=""; _rst_json=""
+  _sep=""; _svc_json=""; _rst_sep=""; _rst_json=""; _unhealthy=0
   for _svc in $_core $_extra; do
     _status="$(probe_service_fast "$_svc")"
     _rfile="/tmp/health_history/${_svc}"
@@ -122,6 +132,21 @@ build_snapshot() {
   _tmp="${CACHE_FILE}.$$"
   printf '%s\n%s\n' "$_ts" "$_json" > "$_tmp" 2>/dev/null \
     && mv "$_tmp" "$CACHE_FILE" 2>/dev/null || rm -f "$_tmp" 2>/dev/null
+
+  _stability_elapsed=$((_stability_elapsed + INTERVAL))
+  if [ "$_stability_elapsed" -ge "$STABILITY_SAMPLE_SECONDS" ]; then
+    _stability_elapsed=0
+    mkdir -p "${STABILITY_FILE%/*}" 2>/dev/null || true
+    [ -s "$STABILITY_FILE" ] || printf 'timestamp,uptime_s,load1,mem_available_kb,unhealthy_services\n' > "$STABILITY_FILE"
+    printf '%s,%s,%s,%s,%s\n' "$_ts" "$_uptime_sec" "$_loadavg" "$_memavail" "$_unhealthy" >> "$STABILITY_FILE"
+    _stability_lines="$(wc -l < "$STABILITY_FILE" 2>/dev/null)"
+    case "$_stability_lines" in ''|*[!0-9]*) _stability_lines=0 ;; esac
+    if [ "$_stability_lines" -gt $((STABILITY_MAX_SAMPLES + 25)) ]; then
+      _stmp="${STABILITY_FILE}.$$"
+      { printf 'timestamp,uptime_s,load1,mem_available_kb,unhealthy_services\n'; tail -n "$STABILITY_MAX_SAMPLES" "$STABILITY_FILE"; } > "$_stmp" \
+        && mv "$_stmp" "$STABILITY_FILE" || rm -f "$_stmp"
+    fi
+  fi
 }
 
 # Build once immediately, then loop.
