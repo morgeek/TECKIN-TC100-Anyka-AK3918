@@ -17,6 +17,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add `frigate-light-ak3918`: H.265 720p/12 fps main stream and H.265 360p/8 fps substream, matching the AK3918 dual-encoder constraint observed on real hardware
 - Preserve valid AK3918 audio codec values when profiles disable RTSP audio; `RTSP_AUDIO=0` now controls publication without breaking RTSP startup
 - Retry RTSP DESCRIBE during encoder warm-up so a healthy stream is not rolled back before its listener becomes ready
+- Use a raw RTSP DESCRIBE probe for profile validation because the bundled curl sends OPTIONS; accept Digest 401 or a video SDP 200 response
   detection stream, 1.32 Mbit/s combined target and audio disabled.
 
 ### Fixed
