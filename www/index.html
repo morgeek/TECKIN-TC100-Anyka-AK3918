@@ -23,7 +23,7 @@
 
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.min.css" rel="stylesheet">
-    <link href="css/ui-modern.min.css?v=1.8.3-rc2" rel="stylesheet">
+    <link href="css/ui-modern.min.css?v=1.8.3-rc11" rel="stylesheet">
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -264,6 +264,10 @@
     <section id="main" class="section">
         <div id="content" class="container app-shell">
             <div class="app-toolbar">
+                <div class="toolbar-status" role="status" aria-live="polite">
+                    <span id="status_updated">Updating…</span>
+                    <button class="button is-small" id="status_refresh" type="button" title="Refresh camera status now">Refresh status</button>
+                </div>
                 <div class="toolbar-group">
                     <button class="button" id="live_toggle" type="button">Resume Live</button>
                     <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank"
@@ -300,7 +304,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.3-rc2" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.3-rc11" type="text/javascript" defer></script>
     <script src="scripts/ptt-audio.bundle.min.js?v=1.8.3-rc10" type="text/javascript" defer></script>
 
     <script>
