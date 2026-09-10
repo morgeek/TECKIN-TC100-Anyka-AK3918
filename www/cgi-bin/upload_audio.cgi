@@ -60,8 +60,8 @@ if [ "$REQUEST_METHOD" != "POST" ]; then
     exit 0
 fi
 
-if [ ! -x "$AUDIOPLAY_BIN" ] && [ -x /mnt/scripts/prepare-ptt-player.sh ]; then
-    /mnt/scripts/prepare-ptt-player.sh >/dev/null 2>&1 || true
+if [ ! -x "$AUDIOPLAY_BIN" ] && [ -r /mnt/scripts/prepare-ptt-player.sh ]; then
+    sh /mnt/scripts/prepare-ptt-player.sh >/dev/null 2>&1 || true
 fi
 
 if [ ! -x "$AUDIOPLAY_BIN" ]; then
