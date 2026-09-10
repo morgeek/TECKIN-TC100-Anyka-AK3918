@@ -460,6 +460,16 @@ class Regressions(unittest.TestCase):
         self.assertIn('WEB_MODE=ultra-lite', (cfg / 'boot.conf').read_text())
         self.assertTrue(list(self.base.glob('config-rollback-*.tar.gz')))
 
+    def test_stream_profile_health_uses_raw_rtsp_describe(self):
+        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        start = source.index('rtsp_strict_describe_check() {')
+        end = source.index('AUTO_STREAM_SELFTEST_BLOCKING_FAIL=', start)
+        probe = source[start:end]
+        self.assertIn("printf 'DESCRIBE %s RTSP/1.0", probe)
+        self.assertIn('| nc -w "$rtsp_timeout"', probe)
+        self.assertIn("*'RTSP/1.0 401 Unauthorized'*", probe)
+        self.assertNotIn('/mnt/bin/curl', probe)
+
     def test_frigate_light_profile_matches_ak3918_budget(self):
         code = function('www/cgi-bin/action.cgi', 'select_compat_profile_values')
         code += '\nselect_compat_profile_values frigate-light-ak3918'
