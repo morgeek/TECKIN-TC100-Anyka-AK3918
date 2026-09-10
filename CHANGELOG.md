@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc10] — 2026-09-10
+
+### Fixed
+- Coordinate PTT with the AK3918 exclusive audio device: pause RTSP only for the clip, keep the upload lock until playback ends, then restart RTSP from a detached cleanup worker.
+
+
 ## [1.8.3-rc9] — 2026-09-10
 
 ### Fixed
