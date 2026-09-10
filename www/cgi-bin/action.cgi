@@ -2248,9 +2248,8 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      if [ "$rtsp_audio" = "0" ]; then
-        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
-      fi
+      # RTSP_AUDIO controls publication of the audio tracks. Keep the configured
+      # codec values: codec=0 prevents rtsp-h26x startup on the AK3918 firmware.
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
@@ -2511,9 +2510,8 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      if [ "$rtsp_audio" = "0" ]; then
-        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
-      fi
+      # RTSP_AUDIO controls publication of the audio tracks. Keep the configured
+      # codec values: codec=0 prevents rtsp-h26x startup on the AK3918 firmware.
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
@@ -2735,9 +2733,8 @@ if [ -n "$F_cmd" ]; then
           1 maxkbps      "$maxkbps1" \
           1 targetkbps   "$targetkbps1"
 
-      if [ "$rtsp_audio" = "0" ]; then
-        /mnt/bin/rwconf /mnt/config/rtspserver.conf w 2 codec 0 3 codec 0
-      fi
+      # RTSP_AUDIO controls publication of the audio tracks. Keep the configured
+      # codec values: codec=0 prevents rtsp-h26x startup on the AK3918 firmware.
 
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$rtsp_substream"
       rewrite_config /mnt/config/boot.conf RTSP_AUDIO "$rtsp_audio"
