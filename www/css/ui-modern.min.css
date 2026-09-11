@@ -2048,3 +2048,9 @@ body::after {
 @media(prefers-reduced-motion:reduce){.camera-state-dot,.app-shell,.liveview-wrap{animation:none!important;transition:none!important}}
 :root[data-theme="dark"] .camera-summary,:root[data-theme="dark"] .diagnostics-panel{background:rgba(12,24,44,.92)}
 :root[data-theme="dark"] .app-toolbar{background:rgba(12,24,44,.94)}
+
+/* rc18: lightweight progressive tools and on-demand audio controls */
+.home-tools{position:relative;margin-left:auto}.home-tools summary{cursor:pointer;list-style:none;padding:.48rem .75rem;border:1px solid var(--ui-border-soft);border-radius:999px;background:var(--ui-surface);color:var(--ui-primary-dark);font-size:.82rem;font-weight:700}.home-tools summary::-webkit-details-marker{display:none}.home-tools summary::after{content:" ▾"}.home-tools[open] summary::after{content:" ▴"}.home-tools-menu{position:absolute;right:0;bottom:calc(100% + .45rem);z-index:25;display:flex;gap:.35rem;padding:.45rem;border:1px solid var(--ui-border-soft);border-radius:14px;background:var(--ui-surface);box-shadow:var(--ui-shadow-soft);white-space:nowrap}
+:root[data-theme="dark"] .home-tools summary,:root[data-theme="dark"] .home-tools-menu{background:rgba(12,24,44,.98)}
+@media(max-width:768px){.home-tools{width:100%;margin-left:0}.home-tools summary{text-align:center}.home-tools-menu{position:static;margin-top:.4rem;display:grid;grid-template-columns:repeat(3,1fr);white-space:normal}.home-tools-menu>*{width:100%}}
+@media(prefers-reduced-motion:reduce){#ptt_btn.ptt-recording{animation:none!important;transform:none!important}.app-shell{animation:none!important}}
