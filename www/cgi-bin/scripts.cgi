@@ -446,14 +446,17 @@ else
     echo "<p class='card-header-title'>Services</p>"
     echo "<a class='card-header-icon onpage' href='javascript: void(0)' data-target='cgi-bin/camcontrols.cgi?cmd=getsettings' title='Choose which toggles appear in the Camera Controls dropdown'>Camera Controls</a>"
     echo "</header>"
-    echo "<div class='card-content services-table-wrap'>"
+    echo "<div class='card-content'>"
+    echo "<div class='services-overview'><strong id='services_summary'>Checking services...</strong><label><input id='services_issues_only' type='checkbox'> Problems only</label></div>"
+    echo "<div id='services_error' class='message is-danger services-error' hidden><div class='message-body'><span id='services_error_text'></span> <button id='services_retry' class='button is-small' type='button'>Retry</button> <a class='button is-small onpage' href='javascript:void(0)' data-target='logs.html'>Open logs</a></div></div>"
+    echo "<div class='services-table-wrap'>"
     echo "<table class='table is-fullwidth is-hoverable services-table'>"
     echo "<thead><tr>"
     echo "<th title='Service name and current runtime state'>Title</th>"
     echo "<th title='Estimated runtime impact on CPU and RAM when this service is active'>Impact</th>"
     echo "<th title='Start, stop, or run this service now'>Start/Stop</th>"
     echo "<th title='Enable or disable automatic startup when the camera boots'>Autorun at boot</th>"
-    echo "<th title='Open the script source in quick view'>View</th>"
+    echo "<th title='Open the script source in a new tab'>View</th>"
     echo "</tr></thead>"
     echo "<tbody>"
 
@@ -478,10 +481,11 @@ else
         autorun_checked="checked='checked'"
       fi
       impact_level="$(service_impact_level_for "$i")"
+      case "$i" in rtsp-h26x|web-server|network-monitor|memory-guard) essential="1" ;; *) essential="0" ;; esac
       impact_label="$(service_impact_label_for "$impact_level")"
       impact_hint="$(service_impact_hint_for "$i")"
 
-      echo "<tr data-script-name='$i'>"
+      echo "<tr data-script-name='$i' data-essential='$essential' data-service-state='loading'>"
       echo "<td class='services-title-cell'>"
       echo "<strong>$i</strong>"
       echo "<span class='services-tag services-status-tag service-status $status_class' data-service-status='loading' title='Loading service state...'>$status_label</span>"
@@ -505,6 +509,7 @@ else
     echo "</tbody>"
     echo "</table>"
     echo "</div>"
+    echo "</div>"
     echo "<div class='services-impact-legend'>"
     echo "<span class='services-tag services-impact-tag impact-min'>Min</span><span>Low impact</span>"
     echo "<span class='services-tag services-impact-tag impact-med'>Med</span><span>Moderate impact</span>"
@@ -515,5 +520,5 @@ else
   fi
   
   # Use bundled script to allow client caching and reduce server CPU
-  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.3-rc11\"></script>"
+  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.3-rc20\"></script>"
 fi
