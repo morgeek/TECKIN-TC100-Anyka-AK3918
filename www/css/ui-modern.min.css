@@ -1201,20 +1201,6 @@ a.button[disabled]:hover {
   margin-bottom: 0;
 }
 
-.quickview {
-  border-left: 1px solid var(--ui-border-soft);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(245, 250, 255, 0.92));
-  box-shadow: -8px 0 28px rgba(21, 40, 64, 0.12);
-}
-
-.quickview-header {
-  border-bottom: 1px solid var(--ui-border-soft);
-}
-
-.quickview .title {
-  font-size: 1.05rem;
-  font-weight: 700;
-}
 
 @keyframes fade-up {
   from {
@@ -1821,15 +1807,6 @@ body::after {
     background: rgba(14, 26, 50, 0.5);
   }
 
-  :root[data-theme="dark"] .quickview {
-    background: linear-gradient(180deg, rgba(10, 18, 38, 0.97), rgba(8, 14, 30, 0.95));
-    border-left-color: rgba(109, 88, 245, 0.18);
-    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.55);
-  }
-
-  :root[data-theme="dark"] .quickview-header {
-    border-bottom-color: rgba(109, 88, 245, 0.16);
-  }
 
   :root[data-theme="dark"] .input,
 :root[data-theme="dark"] .select select,
