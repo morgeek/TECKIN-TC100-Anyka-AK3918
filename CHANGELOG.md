@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.3-rc20] — 2026-09-11
+
+### Changed
+- Final stabilization candidate for 1.8.3: Frigate Light profile, bounded monitoring, restored PTT, transactional configuration updates, flat low-cost UI, and the completed operator workflow.
+- Tighten release readiness by documenting the final validation gates required before tagging 1.8.3.
+
+### Validation
+- Candidate branch is prepared for the final AK3918 trial and release checks before promoting to the 1.8.3 tag.
+
 ## [1.8.3-rc10] — 2026-09-10
 
 ### Fixed
