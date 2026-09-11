@@ -60,6 +60,10 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   context.scheduleRefreshSysUsage(10);
   assert.equal(scheduledPolls, 1, 'visible tabs must resume status polling');
   assert.match(fs.readFileSync(path.join(__dirname, '../www/scripts/scripts.bundle.min.js'), 'utf8'), /document\.hidden\) clearServiceStatePolling/);
+  const home = fs.readFileSync(path.join(__dirname, '../www/index.html'), 'utf8');
+  assert.doesNotMatch(home, /<script src="scripts\/ptt-audio/, 'PTT bundle must not load during initial render');
+  assert.match(home, /createElement\('script'\)[\s\S]*ptt-audio\.bundle\.min\.js/, 'PTT bundle must load on demand');
+  assert.match(source, /diagnostics_toggle/, 'diagnostics remain wired after moving into More tools');
 
   const cameraNodes = {
     camera_state: {textContent: ''},
