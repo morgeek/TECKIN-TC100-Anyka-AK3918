@@ -65,6 +65,7 @@
     align-items: start;
   }
 }
+.motion-timeline>summary{cursor:pointer;list-style:none}.motion-timeline>summary::-webkit-details-marker{display:none}.motion-timeline>summary::after{content:"+";margin-left:auto}.motion-timeline[open]>summary::after{content:"−"}.motion-timeline-tools{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}.motion-timeline-empty{padding:.5rem;color:#777;font-size:.85em}
 </style>
 
 <div class="records-layout">
@@ -94,21 +95,21 @@
 
   <div class="records-video-col">
     <div class="records-video">
-      <p id="videonote" class="help is-danger" style="display:none;"></p>
+      <div id="videonote" class="message is-danger" style="display:none;"><div class="message-body"><span id="videonote_text"></span> <button id="records_retry" class="button is-small" type="button">Retry</button></div></div>
       <video id="rpl" controls playsinline></video>
     </div>
-    <div class="card status_card" id="motion_timeline_card" style="margin-top:1rem;">
-      <header class="card-header" style="cursor:pointer;" onclick="toggleMotionTimeline()">
-        <p class="card-header-title">Motion Events</p>
-        <span class="card-header-icon" id="motion_timeline_toggle_icon" aria-label="toggle">&#9660;</span>
-      </header>
+    <details class="card status_card motion-timeline" id="motion_timeline_card" style="margin-top:1rem;">
+      <summary class="card-header"><span class="card-header-title">Motion Events</span></summary>
       <div id="motion_timeline_body" class="card-content" style="padding:0.5rem;">
-        <ul id="motion_timeline_list" class="motion-timeline-list">
-          <li style="padding:0.5rem;color:#999;font-size:0.85em;">Loading...</li>
-        </ul>
+        <div class="motion-timeline-tools">
+          <label for="motion_event_filter">Show</label>
+          <select id="motion_event_filter" class="select is-small"><option value="all">All events</option><option value="motion_on">Motion started</option><option value="motion_off">Motion ended</option></select>
+          <span id="motion_event_count" class="help"></span>
+        </div>
+        <ul id="motion_timeline_list" class="motion-timeline-list"><li class="motion-timeline-empty">Open to load events.</li></ul>
       </div>
-    </div>
+    </details>
   </div>
 </div>
 
-<script src="scripts/view_records.bundle.min.js" type="text/javascript"></script>
+<script src="scripts/view_records.bundle.min.js?v=1.8.3-rc20" type="text/javascript"></script>
