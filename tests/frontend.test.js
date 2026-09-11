@@ -14,6 +14,12 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
       return {ok: !url.includes('fail'), status: url.includes('fail') ? 403 : 200};
     }
   });
+  context.lastStatusline = null;
+  context.lastStatuslineTs = 0;
+  context.sharedStatuslineRequest = null;
+  const sharedStatusStart = source.indexOf('  function getStatusline(');
+  const sharedStatusEnd = source.indexOf('  function updateStatusRefreshUi(', sharedStatusStart);
+  vm.runInContext(source.slice(sharedStatusStart, sharedStatusEnd), context);
   vm.runInContext(source.slice(source.indexOf('  var csrfTokenRequest ='), source.indexOf('  function initPttVolumeControls()')), context);
   const options = {headers: {'Content-Type': 'text/plain'}, body: 'KEY=1'};
   await Promise.all([context.csrfFetch('/action', options), context.csrfFetch('/second')]);
@@ -64,6 +70,16 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   assert.doesNotMatch(home, /<script src="scripts\/ptt-audio/, 'PTT bundle must not load during initial render');
   assert.match(home, /createElement\('script'\)[\s\S]*ptt-audio\.bundle\.min\.js/, 'PTT bundle must load on demand');
   assert.match(source, /diagnostics_toggle/, 'diagnostics remain wired after moving into More tools');
+  assert.match(home, /id="operator_mode_toggle"/, 'operator mode must remain directly reversible');
+  assert.match(source, /elite_operator_mode[\s\S]*location\.replace/, 'operator mode must be persisted and leave admin content');
+  assert.match(source, /getStatusline: getStatusline/, 'subpages must share the latest statusline snapshot');
+  const servicesSource = fs.readFileSync(path.join(__dirname, '../www/scripts/scripts.bundle.min.js'), 'utf8');
+  assert.doesNotMatch(servicesSource, /function loadInto/, 'service commands must not reload the whole page');
+  assert.match(servicesSource, /refreshServiceState\(row\)/, 'service commands refresh only their row');
+  const recordsSource = fs.readFileSync(path.join(__dirname, '../www/scripts/view_records.bundle.min.js'), 'utf8');
+  assert.match(recordsSource, /MOTION_DOM_LIMIT = 40/, 'event DOM must remain bounded');
+  assert.match(recordsSource, /img\.loading = "lazy"/, 'event thumbnails must load lazily');
+  assert.doesNotMatch(recordsSource, /loadMotionTimeline\(""\)/, 'events must not load while collapsed');
 
   const cameraNodes = {
     camera_state: {textContent: ''},
