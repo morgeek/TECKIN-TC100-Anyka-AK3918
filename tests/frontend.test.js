@@ -71,10 +71,10 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   context.applyUsageClass = () => {};
   context.setAdaptiveLivePreviewProfile = () => {};
   context.applyAdaptivePollingPressure = () => {};
-  const usageStart = source.indexOf('  function updateSysUsageBadges(');
-  const usageEnd = source.indexOf('  function updateSdUsageBadge(', usageStart);
+  const usageStart = source.indexOf('  function updateSystemLoadState(');
+  const usageEnd = source.indexOf('  function updateSecurityBadge(', usageStart);
   vm.runInContext(source.slice(usageStart, usageEnd), context);
-  context.updateSysUsageBadges('', 22, 41);
+  context.updateSystemLoadState('', 22, 41);
   assert.equal(cameraNodes.camera_state.textContent, 'Camera operational');
   assert.match(cameraNodes.camera_state_dot.className, /is-online/);
 
