@@ -79,7 +79,7 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   const usageEnd = source.indexOf('  function updateSecurityBadge(', usageStart);
   vm.runInContext(source.slice(usageStart, usageEnd), context);
   context.updateSystemLoadState('', 22, 41);
-  assert.equal(cameraNodes.camera_state.textContent, 'Camera operational');
+  assert.equal(cameraNodes.camera_state.textContent, 'Online');
   assert.match(cameraNodes.camera_state_dot.className, /is-online/);
 
   process.stdout.write('CSRF bootstrap, dashboard lifecycle, camera state and background polling: OK\n');
