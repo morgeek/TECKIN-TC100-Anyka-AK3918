@@ -61,5 +61,22 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   assert.equal(scheduledPolls, 1, 'visible tabs must resume status polling');
   assert.match(fs.readFileSync(path.join(__dirname, '../www/scripts/scripts.bundle.min.js'), 'utf8'), /document\.hidden\) clearServiceStatePolling/);
 
-  process.stdout.write('CSRF bootstrap, POST headers, dashboard lifecycle and background polling: OK\n');
+  const cameraNodes = {
+    camera_state: {textContent: ''},
+    camera_state_dot: {className: ''}
+  };
+  context.byId = id => cameraNodes[id] || null;
+  context.parseCpuPercent = value => value;
+  context.parseRamUsage = value => value;
+  context.applyUsageClass = () => {};
+  context.setAdaptiveLivePreviewProfile = () => {};
+  context.applyAdaptivePollingPressure = () => {};
+  const usageStart = source.indexOf('  function updateSysUsageBadges(');
+  const usageEnd = source.indexOf('  function updateSdUsageBadge(', usageStart);
+  vm.runInContext(source.slice(usageStart, usageEnd), context);
+  context.updateSysUsageBadges('', 22, 41);
+  assert.equal(cameraNodes.camera_state.textContent, 'Camera operational');
+  assert.match(cameraNodes.camera_state_dot.className, /is-online/);
+
+  process.stdout.write('CSRF bootstrap, dashboard lifecycle, camera state and background polling: OK\n');
 })().catch(error => {console.error(error); process.exitCode = 1;});
