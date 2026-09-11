@@ -31,7 +31,6 @@
       <a id="backup_dl_btn" class="button is-primary" href="cgi-bin/configbackup.cgi?cmd=download" download>
         Download Backup
       </a>
-      <p id="backup_dl_status" class="backup-status"></p>
     </div>
   </div>
 
@@ -160,10 +159,7 @@
     restoreStatus.textContent = 'Uploading...';
     restoreStatus.className = 'backup-status';
 
-    // Step 1: upload the file to upload_audio.cgi... but that's audio.
-    // Instead upload via action.cgi?cmd=upload_config (we need to add this),
-    // OR use a FormData POST to a dedicated upload endpoint.
-    // We use action.cgi?cmd=upload_backup which writes to /tmp then restores.
+    // Send the archive to the dedicated restore endpoint.
     var headers = { 'Content-Type': 'application/octet-stream' };
     var tok = getCsrfToken();
     if (tok) headers['X-CSRF-Token'] = tok;
@@ -224,7 +220,7 @@
       .then(function (r) { return r.json(); })
       .then(function (res) {
         var ok = !!(res && res.ok === true);
-        var successText = ok ? ('Import réussi : ' + (res.applied || 0) + ' valeur(s), ' + (res.changed_files || 0) + ' fichier(s) modifié(s).') : 'Erreur';
+        var successText = ok ? ('Import successful: ' + (res.applied || 0) + ' value(s), ' + (res.changed_files || 0) + ' file(s) changed.') : 'Error';
         status.textContent = res.message || res.error || successText;
         status.className = 'backup-status ' + (ok ? 'ok' : 'err');
         importBtn.disabled = false;
