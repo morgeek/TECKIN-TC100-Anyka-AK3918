@@ -23,7 +23,7 @@
 
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.min.css" rel="stylesheet">
-    <link href="css/ui-modern.min.css?v=1.8.3-rc19" rel="stylesheet">
+    <link href="css/ui-modern.min.css?v=1.8.3-rc20" rel="stylesheet">
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -144,7 +144,7 @@
                             <span>Services</span>
                         </span>
                     </a>
-                    <div class="navbar-item has-dropdown is-hoverable">
+                    <div class="navbar-item has-dropdown is-hoverable admin-nav">
                         <a class="navbar-link" href="javascript: void(0)">
                             <span class="nav-icon">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -218,7 +218,7 @@
                             </a>
                         </div>
                     </div>
-                    <div class="navbar-item has-dropdown is-hoverable">
+                    <div class="navbar-item has-dropdown is-hoverable admin-nav">
                         <a class="navbar-link" href="javascript: void(0)" title="System" aria-label="System">
                             <span class="nav-icon">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -240,6 +240,7 @@
 
                 <!-- Elite Controls: Theme Toggle & Logout -->
                 <div class="navbar-end">
+                    <button class="navbar-item operator-toggle" id="operator_mode_toggle" type="button" title="Show only daily camera controls">Operator mode</button>
                     <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
                         <span class="nav-icon" id="theme_toggle_icon">
                             <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px;">
@@ -311,7 +312,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.3-rc19" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.3-rc20" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
@@ -323,7 +324,7 @@
                 if (pttLabel) pttLabel.textContent = 'Loading PTT…';
                 if (listenLabel) listenLabel.textContent = 'Loading…';
                 var script = document.createElement('script');
-                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.3-rc19';
+                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.3-rc20';
                 script.onerror = function () {
                     loading = false;
                     if (pttLabel) pttLabel.textContent = 'Retry PTT';

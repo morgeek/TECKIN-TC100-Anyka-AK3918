@@ -220,7 +220,7 @@
       .then(function (r) { return r.json(); })
       .then(function (res) {
         var ok = !!(res && res.ok === true);
-        var successText = ok ? ('Import réussi : ' + (res.applied || 0) + ' valeur(s), ' + (res.changed_files || 0) + ' fichier(s) modifié(s).') : 'Erreur';
+        var successText = ok ? ('Import successful: ' + (res.applied || 0) + ' value(s), ' + (res.changed_files || 0) + ' file(s) changed.') : 'Error';
         status.textContent = res.message || res.error || successText;
         status.className = 'backup-status ' + (ok ? 'ok' : 'err');
         importBtn.disabled = false;

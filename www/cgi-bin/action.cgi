@@ -1012,7 +1012,7 @@ select_compat_profile_values() {
       low_cpu_profile=0
       ;;
     frigate-light-ak3918)
-      profile_label="Frigate léger AK3918"
+      profile_label="Frigate Light AK3918"
       width0=1280; height0=720;  fps0=12; bps0=1000; gop0=12; maxkbps0=1300; targetkbps0=1000; smartq0=72; smartstatic0=360
       width1=640;  height1=360;  fps1=8;  bps1=320;  gop1=8;  maxkbps1=420;  targetkbps1=320;  smartq1=65; smartstatic1=150
       codec0=2; profile0=3
