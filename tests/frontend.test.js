@@ -14,6 +14,12 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
       return {ok: !url.includes('fail'), status: url.includes('fail') ? 403 : 200};
     }
   });
+  context.lastStatusline = null;
+  context.lastStatuslineTs = 0;
+  context.sharedStatuslineRequest = null;
+  const sharedStatusStart = source.indexOf('  function getStatusline(');
+  const sharedStatusEnd = source.indexOf('  function updateStatusRefreshUi(', sharedStatusStart);
+  vm.runInContext(source.slice(sharedStatusStart, sharedStatusEnd), context);
   vm.runInContext(source.slice(source.indexOf('  var csrfTokenRequest ='), source.indexOf('  function initPttVolumeControls()')), context);
   const options = {headers: {'Content-Type': 'text/plain'}, body: 'KEY=1'};
   await Promise.all([context.csrfFetch('/action', options), context.csrfFetch('/second')]);
@@ -60,6 +66,37 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   context.scheduleRefreshSysUsage(10);
   assert.equal(scheduledPolls, 1, 'visible tabs must resume status polling');
   assert.match(fs.readFileSync(path.join(__dirname, '../www/scripts/scripts.bundle.min.js'), 'utf8'), /document\.hidden\) clearServiceStatePolling/);
+  const home = fs.readFileSync(path.join(__dirname, '../www/index.html'), 'utf8');
+  assert.doesNotMatch(home, /<script src="scripts\/ptt-audio/, 'PTT bundle must not load during initial render');
+  assert.match(home, /createElement\('script'\)[\s\S]*ptt-audio\.bundle\.min\.js/, 'PTT bundle must load on demand');
+  assert.match(source, /diagnostics_toggle/, 'diagnostics remain wired after moving into More tools');
+  assert.match(home, /id="operator_mode_toggle"/, 'operator mode must remain directly reversible');
+  assert.match(source, /elite_operator_mode[\s\S]*location\.replace/, 'operator mode must be persisted and leave admin content');
+  assert.match(source, /getStatusline: getStatusline/, 'subpages must share the latest statusline snapshot');
+  const servicesSource = fs.readFileSync(path.join(__dirname, '../www/scripts/scripts.bundle.min.js'), 'utf8');
+  assert.doesNotMatch(servicesSource, /function loadInto/, 'service commands must not reload the whole page');
+  assert.match(servicesSource, /refreshServiceState\(row\)/, 'service commands refresh only their row');
+  const recordsSource = fs.readFileSync(path.join(__dirname, '../www/scripts/view_records.bundle.min.js'), 'utf8');
+  assert.match(recordsSource, /MOTION_DOM_LIMIT = 40/, 'event DOM must remain bounded');
+  assert.match(recordsSource, /img\.loading = "lazy"/, 'event thumbnails must load lazily');
+  assert.doesNotMatch(recordsSource, /loadMotionTimeline\(""\)/, 'events must not load while collapsed');
 
-  process.stdout.write('CSRF bootstrap, POST headers, dashboard lifecycle and background polling: OK\n');
+  const cameraNodes = {
+    camera_state: {textContent: ''},
+    camera_state_dot: {className: ''}
+  };
+  context.byId = id => cameraNodes[id] || null;
+  context.parseCpuPercent = value => value;
+  context.parseRamUsage = value => value;
+  context.applyUsageClass = () => {};
+  context.setAdaptiveLivePreviewProfile = () => {};
+  context.applyAdaptivePollingPressure = () => {};
+  const usageStart = source.indexOf('  function updateSystemLoadState(');
+  const usageEnd = source.indexOf('  function updateSecurityBadge(', usageStart);
+  vm.runInContext(source.slice(usageStart, usageEnd), context);
+  context.updateSystemLoadState('', 22, 41);
+  assert.equal(cameraNodes.camera_state.textContent, 'Online');
+  assert.match(cameraNodes.camera_state_dot.className, /is-online/);
+
+  process.stdout.write('CSRF bootstrap, dashboard lifecycle, camera state and background polling: OK\n');
 })().catch(error => {console.error(error); process.exitCode = 1;});

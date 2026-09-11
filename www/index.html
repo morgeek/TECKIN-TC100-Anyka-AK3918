@@ -23,7 +23,7 @@
 
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.min.css" rel="stylesheet">
-    <link href="css/ui-modern.min.css?v=1.8.3-rc15" rel="stylesheet">
+    <link href="css/ui-modern.min.css?v=1.8.3-rc20" rel="stylesheet">
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -144,13 +144,13 @@
                             <span>Services</span>
                         </span>
                     </a>
-                    <div class="navbar-item has-dropdown is-hoverable">
+                    <div class="navbar-item has-dropdown is-hoverable admin-nav">
                         <a class="navbar-link" href="javascript: void(0)">
                             <span class="nav-icon">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M12 8h.01M11 12h1v4h1M12 22a10 10 0 1 1 0-20a10 10 0 0 1 0 20z" />
                                 </svg>
-                                <span>Information</span>
+                                <span>Tools</span>
                             </span>
                         </a>
                         <div class="navbar-dropdown is-boxed">
@@ -218,12 +218,13 @@
                             </a>
                         </div>
                     </div>
-                    <div class="navbar-item has-dropdown is-hoverable">
+                    <div class="navbar-item has-dropdown is-hoverable admin-nav">
                         <a class="navbar-link" href="javascript: void(0)" title="System" aria-label="System">
                             <span class="nav-icon">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M12 3v7M7.8 5.8a7 7 0 1 0 8.4 0" />
                                 </svg>
+                                <span>System</span>
                             </span>
                         </a>
                         <div class="navbar-dropdown is-boxed">
@@ -239,6 +240,7 @@
 
                 <!-- Elite Controls: Theme Toggle & Logout -->
                 <div class="navbar-end">
+                    <button class="navbar-item operator-toggle" id="operator_mode_toggle" type="button" title="Show only daily camera controls">Operator mode</button>
                     <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
                         <span class="nav-icon" id="theme_toggle_icon">
                             <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px;">
@@ -268,11 +270,6 @@
                     <span id="camera_state_dot" class="camera-state-dot is-checking"></span>
                     <div><strong id="camera_state">Checking camera…</strong><small id="status_updated">Updating…</small></div>
                 </div>
-                <div class="camera-metrics" aria-label="Camera resources">
-                    <span>CPU <strong id="home_cpu">--%</strong></span>
-                    <span>RAM <strong id="home_ram">--%</strong></span>
-                    <span>SD <strong id="home_sd">--%</strong></span>
-                </div>
             </header>
 
             <div class="liveview-wrap">
@@ -284,21 +281,24 @@
                 <div class="toolbar-group live-actions">
                     <button class="button" id="live_toggle" type="button">Resume Live</button>
                     <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
-                    <button class="button is-light" id="diagnostics_toggle" type="button" aria-expanded="false" aria-controls="diagnostics_panel">Diagnostics</button>
                 </div>
                 <span class="toolbar-divider"></span>
                 <div class="toolbar-group audio-actions">
-                    <button class="button is-info" id="listen_btn" type="button" title="Listen to camera microphone"><i class="icon-headphones"></i> <span class="listen-label">Listen</span></button>
-                    <button class="button is-danger ptt-primary" id="ptt_btn" type="button" title="Hold to talk to the camera speaker"><i class="icon-microphone"></i> <span class="ptt-label">Hold to Talk</span></button>
-                    <span class="ptt-vol-wrap" title="Speaker volume"><i class="icon-volume-medium ptt-vol-icon"></i><input type="range" id="ptt_vol" min="0" max="100" value="90" class="ptt-vol-slider" aria-label="PTT volume"><span id="ptt_vol_label" class="ptt-vol-label">90%</span></span>
-                    <button class="button is-small" id="ptt_test_btn" type="button"><i class="icon-play"></i> <span class="ptt-test-label">Test</span></button>
-                    <span id="ptt_last_sent" class="ptt-last-sent">PTT ready</span>
+                    <button class="button is-info" id="listen_btn" type="button" title="Load camera audio controls"><i class="icon-headphones"></i> <span class="listen-label">Enable audio</span></button>
+                    <button class="button is-danger ptt-primary" id="ptt_btn" type="button" title="Load push-to-talk controls"><i class="icon-microphone"></i> <span class="ptt-label">Enable PTT</span></button>
+                    <span class="ptt-vol-wrap" title="Speaker volume"><i class="icon-volume-medium ptt-vol-icon"></i><input type="range" id="ptt_vol" min="0" max="100" value="90" class="ptt-vol-slider" aria-label="PTT volume" disabled><span id="ptt_vol_label" class="ptt-vol-label">90%</span></span>
+                    <button class="button is-small" id="ptt_test_btn" type="button" disabled><i class="icon-play"></i> <span class="ptt-test-label">Test</span></button>
+                    <span id="ptt_last_sent" class="ptt-last-sent">Audio loads on demand</span>
                 </div>
                 <div class="ptt-meter-wrap" style="display:none"><span class="ptt-meter-label">Recording:</span><progress id="ptt_level" class="progress is-success" value="0" max="100"></progress></div>
-                <div class="toolbar-secondary">
-                    <button class="button is-small" id="status_refresh" type="button">Refresh status</button>
-                    <a class="button is-small is-light" href="cgi-bin/stability.cgi" download>Download CSV</a>
-                </div>
+                <details class="home-tools">
+                    <summary>More tools</summary>
+                    <div class="home-tools-menu">
+                        <button class="button is-small" id="diagnostics_toggle" type="button" aria-expanded="false" aria-controls="diagnostics_panel">Diagnostics</button>
+                        <button class="button is-small" id="status_refresh" type="button">Refresh status</button>
+                        <a class="button is-small is-light" href="cgi-bin/stability.cgi" download>Download CSV</a>
+                    </div>
+                </details>
             </div>
 
             <section id="diagnostics_panel" class="diagnostics-panel" hidden>
@@ -312,8 +312,32 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.3-rc15" type="text/javascript" defer></script>
-    <script src="scripts/ptt-audio.bundle.min.js?v=1.8.3-rc15" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.3-rc20" type="text/javascript" defer></script>
+    <script>
+        (function () {
+            var loading = false;
+            function loadAudioControls() {
+                if (loading || window.pttModuleCleanup) return;
+                loading = true;
+                var pttLabel = document.querySelector('#ptt_btn .ptt-label');
+                var listenLabel = document.querySelector('#listen_btn .listen-label');
+                if (pttLabel) pttLabel.textContent = 'Loading PTT…';
+                if (listenLabel) listenLabel.textContent = 'Loading…';
+                var script = document.createElement('script');
+                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.3-rc20';
+                script.onerror = function () {
+                    loading = false;
+                    if (pttLabel) pttLabel.textContent = 'Retry PTT';
+                    if (listenLabel) listenLabel.textContent = 'Retry audio';
+                };
+                document.head.appendChild(script);
+            }
+            ['ptt_btn', 'listen_btn'].forEach(function (id) {
+                var button = document.getElementById(id);
+                if (button) button.addEventListener('click', loadAudioControls);
+            });
+        }());
+    </script>
 
     <script>
         (function() {

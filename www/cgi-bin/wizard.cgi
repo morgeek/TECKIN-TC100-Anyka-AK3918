@@ -193,7 +193,7 @@ cat << 'HTMLEOF'
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TC100 — Configuration initiale</title>
+<title>TC100 — Initial setup</title>
 <link rel="stylesheet" href="/css/bulma.1.0.2.min.css">
 <style>
 *, *::before, *::after { box-sizing: border-box; }
@@ -402,16 +402,16 @@ body {
       </svg>
     </div>
     <span class="wz-title">TC100 ELITE</span>
-    <span class="wz-subtitle">Configuration initiale</span>
+    <span class="wz-subtitle">Initial setup</span>
   </div>
 
   <!-- Step bar (rendered by JS) -->
   <div class="wz-steps" id="wzStepBar"></div>
 
-  <!-- ── Panel 1 : Profil ──────────────────────── -->
+  <!-- ── Panel 1 : Profile ──────────────────────── -->
   <div class="wz-panel active" id="wpanel1">
-    <div class="wz-step-title">Profil d'intégration</div>
-    <div class="wz-step-hint">Comment cette caméra sera-t-elle utilisée ?</div>
+    <div class="wz-step-title">Integration profile</div>
+    <div class="wz-step-hint">How will this camera be used?</div>
 
     <div class="wz-card" data-val="standalone" data-group="profile" onclick="pick(this)">
       <div class="wz-icon" style="background:rgba(109,88,245,.12)">
@@ -421,8 +421,8 @@ body {
         </svg>
       </div>
       <div class="wz-card-body">
-        <div class="wz-card-title">Autonome</div>
-        <div class="wz-card-desc">Caméra locale indépendante — dashboard complet, toutes les fonctionnalités</div>
+        <div class="wz-card-title">Standalone</div>
+        <div class="wz-card-desc">Independent local camera — full dashboard and all features</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
@@ -437,8 +437,8 @@ body {
         </svg>
       </div>
       <div class="wz-card-body">
-        <div class="wz-card-title">Frigate + Home Assistant <span class="badge badge-green">Recommandé</span></div>
-        <div class="wz-card-desc">Délègue détection, enregistrement et alertes à Frigate — footprint minimal</div>
+        <div class="wz-card-title">Frigate + Home Assistant <span class="badge badge-green">Recommended</span></div>
+        <div class="wz-card-desc">Delegates detection, recording and alerts to Frigate — minimal footprint</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
@@ -452,8 +452,8 @@ body {
         </svg>
       </div>
       <div class="wz-card-body">
-        <div class="wz-card-title">NVR tiers</div>
-        <div class="wz-card-desc">Blue Iris, Synology Surveillance, iSpy — flux RTSP direct sans MQTT</div>
+        <div class="wz-card-title">Third-party NVR</div>
+        <div class="wz-card-desc">Blue Iris, Synology Surveillance, iSpy — direct RTSP streams without MQTT</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
@@ -461,16 +461,16 @@ body {
     <div class="wz-nav">
       <span></span>
       <button class="btn-primary" id="wbtn1" disabled onclick="goStep(2)">
-        Suivant
+        Next
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="8,4 11,7 8,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   </div>
 
-  <!-- ── Panel 2 : Sécurité ────────────────────── -->
+  <!-- ── Panel 2 : Security ────────────────────── -->
   <div class="wz-panel" id="wpanel2">
-    <div class="wz-step-title">Accès et sécurité</div>
-    <div class="wz-step-hint">Comment accéder à l'interface web ?</div>
+    <div class="wz-step-title">Access and security</div>
+    <div class="wz-step-hint">How should the web interface be accessed?</div>
 
     <div class="wz-card" data-val="https_strict" data-group="security" onclick="pick(this)">
       <div class="wz-icon" style="background:rgba(22,163,74,.12)">
@@ -480,8 +480,8 @@ body {
         </svg>
       </div>
       <div class="wz-card-body">
-        <div class="wz-card-title">HTTPS uniquement <span class="badge badge-green">Recommandé</span></div>
-        <div class="wz-card-desc">Chiffrement TLS, HTTP redirigé automatiquement, certificat auto-signé</div>
+        <div class="wz-card-title">HTTPS only <span class="badge badge-green">Recommended</span></div>
+        <div class="wz-card-desc">TLS encryption, automatic HTTP redirect, self-signed certificate</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
@@ -494,7 +494,7 @@ body {
       </div>
       <div class="wz-card-body">
         <div class="wz-card-title">HTTPS + HTTP</div>
-        <div class="wz-card-desc">Les deux protocoles acceptés — pratique pour intégrations locales mixtes</div>
+        <div class="wz-card-desc">Both protocols enabled — useful for mixed local integrations</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
@@ -506,16 +506,16 @@ body {
         </svg>
       </div>
       <div class="wz-card-body">
-        <div class="wz-card-title">HTTP ultra-léger</div>
-        <div class="wz-card-desc">Busybox httpd — RAM minimal, idéal si dashboard inutilisé (Frigate headless)</div>
+        <div class="wz-card-title">Ultra-light HTTP</div>
+        <div class="wz-card-desc">Busybox httpd — minimal RAM, suitable when the dashboard is unused (Frigate headless)</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
 
     <div class="wz-nav">
-      <button class="btn-ghost" onclick="goStep(1)">← Retour</button>
+      <button class="btn-ghost" onclick="goStep(1)">← Back</button>
       <button class="btn-primary" id="wbtn2" disabled onclick="goStep(nextPanel(2))">
-        Suivant
+        Next
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="8,4 11,7 8,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
@@ -524,11 +524,11 @@ body {
   <!-- ── Panel 3 : MQTT (frigate_ha only) ──────── -->
   <div class="wz-panel" id="wpanel3">
     <div class="wz-step-title">Broker MQTT</div>
-    <div class="wz-step-hint">Connexion au broker Home Assistant (Mosquitto ou autre)</div>
+    <div class="wz-step-hint">Connection to the Home Assistant broker (Mosquitto or another broker)</div>
 
     <div class="wz-row-2">
       <div class="wz-field">
-        <label class="wz-label" for="wzMqttHost">Hôte du broker</label>
+        <label class="wz-label" for="wzMqttHost">Broker host</label>
         <input class="wz-input" id="wzMqttHost" type="text" placeholder="192.168.1.10" autocomplete="off" spellcheck="false" oninput="mqttHostChanged()">
       </div>
       <div class="wz-field">
@@ -539,39 +539,39 @@ body {
 
     <div class="wz-row-eq">
       <div class="wz-field">
-        <label class="wz-label" for="wzMqttUser">Utilisateur <span class="opt">(optionnel)</span></label>
+        <label class="wz-label" for="wzMqttUser">Username <span class="opt">(optional)</span></label>
         <input class="wz-input" id="wzMqttUser" type="text" placeholder="homeassistant" autocomplete="off">
       </div>
       <div class="wz-field">
-        <label class="wz-label" for="wzMqttPass">Mot de passe <span class="opt">(optionnel)</span></label>
+        <label class="wz-label" for="wzMqttPass">Password <span class="opt">(optional)</span></label>
         <input class="wz-input" id="wzMqttPass" type="password" placeholder="••••••••" autocomplete="new-password">
       </div>
     </div>
 
     <div class="wz-note">
-      Le topic root et le client ID sont configurés dans <code>mqtt.conf</code> — modifiables depuis l'onglet Réseau après le démarrage.
+      The root topic and client ID are configured in <code>mqtt.conf</code> and can be changed in Network after startup.
     </div>
 
     <div class="wz-nav">
-      <button class="btn-ghost" onclick="goStep(2)">← Retour</button>
+      <button class="btn-ghost" onclick="goStep(2)">← Back</button>
       <button class="btn-primary" id="wbtn3" disabled onclick="goStep(4)">
-        Résumé
+        Summary
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="8,4 11,7 8,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   </div>
 
-  <!-- ── Panel 4 : Résumé ──────────────────────── -->
+  <!-- ── Panel 4 : Summary ──────────────────────── -->
   <div class="wz-panel" id="wpanel4">
-    <div class="wz-step-title">Résumé</div>
-    <div class="wz-step-hint">Vérifiez avant d'appliquer — tout est modifiable depuis le dashboard ensuite</div>
+    <div class="wz-step-title">Summary</div>
+    <div class="wz-step-hint">Review before applying. Everything can be changed later from the dashboard.</div>
 
     <div class="wz-summary" id="wzSummary"></div>
 
     <div class="wz-nav">
-      <button class="btn-ghost" id="wbtnBack4" onclick="goStep(prevPanel(4))">← Retour</button>
+      <button class="btn-ghost" id="wbtnBack4" onclick="goStep(prevPanel(4))">← Back</button>
       <button class="btn-primary" id="wbtnApply" onclick="applyConfig()">
-        Appliquer et lancer
+        Apply and start
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="8,4 11,7 8,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
@@ -584,8 +584,8 @@ body {
         <polyline points="5,14 11,20 23,8" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </div>
-    <div class="wz-success-title">Configuration appliquée</div>
-    <div class="wz-success-sub">Redirection dans <span id="wzCountdown">3</span> s…</div>
+    <div class="wz-success-title">Configuration applied</div>
+    <div class="wz-success-sub">Redirecting in <span id="wzCountdown">3</span> s…</div>
   </div>
 
 </div>
@@ -593,9 +593,9 @@ body {
 <script>
 var wz = { profile: null, security: null, mqtt_host: '', mqtt_port: '1883', mqtt_user: '', mqtt_pass: '' };
 
-var PROFILE_LABEL  = { standalone: 'Autonome', frigate_ha: 'Frigate + Home Assistant', nvr: 'NVR tiers' };
+var PROFILE_LABEL  = { standalone: 'Standalone', frigate_ha: 'Frigate + Home Assistant', nvr: 'Third-party NVR' };
 var PROFILE_BADGE  = { standalone: 'badge-purple', frigate_ha: 'badge-green', nvr: 'badge-amber' };
-var SECURITY_LABEL = { https_strict: 'HTTPS uniquement', https_mixed: 'HTTPS + HTTP', http_lite: 'HTTP ultra-léger' };
+var SECURITY_LABEL = { https_strict: 'HTTPS only', https_mixed: 'HTTPS + HTTP', http_lite: 'Ultra-light HTTP' };
 var SECURITY_BADGE = { https_strict: 'badge-green', https_mixed: 'badge-purple', http_lite: 'badge-amber' };
 
 var CHECK_SVG = '<svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -670,14 +670,14 @@ function renderSummary() {
     var mqttHost = document.getElementById('wzMqttHost').value.trim();
     var mqttPort = document.getElementById('wzMqttPort').value.trim() || '1883';
     var rows = [
-        ['Profil',    badge(PROFILE_BADGE[wz.profile]   || 'badge-slate', PROFILE_LABEL[wz.profile]   || wz.profile)],
-        ['Accès web', badge(SECURITY_BADGE[wz.security] || 'badge-slate', SECURITY_LABEL[wz.security] || wz.security)]
+        ['Profile',    badge(PROFILE_BADGE[wz.profile]   || 'badge-slate', PROFILE_LABEL[wz.profile]   || wz.profile)],
+        ['Web access', badge(SECURITY_BADGE[wz.security] || 'badge-slate', SECURITY_LABEL[wz.security] || wz.security)]
     ];
     if (hasMQTTStep()) {
-        var mqttLabel = mqttHost ? (esc(mqttHost) + ' : ' + esc(mqttPort)) : 'non configuré';
+        var mqttLabel = mqttHost ? (esc(mqttHost) + ' : ' + esc(mqttPort)) : 'not configured';
         rows.push(['Broker MQTT', badge(mqttHost ? 'badge-green' : 'badge-amber', mqttLabel)]);
     } else {
-        rows.push(['MQTT', badge('badge-slate', 'Désactivé')]);
+        rows.push(['MQTT', badge('badge-slate', 'Disabled')]);
     }
     var html = '';
     var r;
@@ -690,7 +690,7 @@ function renderSummary() {
 function applyConfig() {
     var btn = document.getElementById('wbtnApply');
     btn.disabled = true;
-    btn.innerHTML = '<span class="wz-spinner"></span> Application…';
+    btn.innerHTML = '<span class="wz-spinner"></span> Applying…';
 
     var body = 'profile=' + encodeURIComponent(wz.profile) +
                '&security=' + encodeURIComponent(wz.security);
@@ -715,7 +715,7 @@ function applyConfig() {
             showSuccess();
         } else {
             btn.disabled = false;
-            btn.innerHTML = 'Réessayer ' + ARROW_SVG;
+            btn.innerHTML = 'Retry ' + ARROW_SVG;
         }
     };
     xhr.send(body);
