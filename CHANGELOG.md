@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- Push-to-talk is confirmed working on hardware: README *Known issues* and `docs/api.md` (`upload_audio.cgi`, `get_ptt_status`) now describe the patched `/mnt/bin/ak_ao_ptt` player, the RTSP pause during playback, CSRF on uploads and the `READ_FAILED` / `AUDIO_DEVICE_BUSY` responses.
+
+### Added
+- Restore `.gitignore` (live configs with credentials, `wpa_supplicant.conf`, runtime artifacts, Python bytecode). `.github/` is no longer ignored.
+- GitHub Actions CI: `busybox ash -n` syntax check of every camera-side shell script, Python host regressions and Node frontend tests.
+
 ## [1.8.3-rc20] — 2026-09-11
 
 ### Changed
