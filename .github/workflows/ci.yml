@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-syntax:
+    name: Shell syntax (busybox ash)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install busybox
+        run: sudo apt-get update && sudo apt-get install -y busybox-static
+      - name: Parse every camera-side shell script with busybox ash
+        run: |
+          fail=0
+          count=0
+          for f in $(git ls-files); do
+            head -n 1 "$f" 2>/dev/null | grep -qE '^#!.*(/sh|ash)' || continue
+            count=$((count + 1))
+            if ! out=$(busybox ash -n "$f" 2>&1); then
+              echo "::error file=$f::$out"
+              fail=1
+            fi
+          done
+          echo "Checked $count scripts"
+          exit $fail
+
+  host-tests:
+    name: Host regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python regressions
+        run: python3 -m unittest discover -s tests -v
+      - name: Frontend tests
+        run: node --test tests/frontend.test.js tests/settings-save.test.js
