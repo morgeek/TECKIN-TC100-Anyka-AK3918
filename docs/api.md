@@ -1283,7 +1283,7 @@ curl "http://root:pass@192.168.1.24/cgi-bin/action.cgi?cmd=get_ptt_vol"
 
 ### cmd=get_ptt_status *(read-only, no CSRF)*
 
-Returns the PTT backend status (whether the `ak_ao_demo` binary is available and idle/busy).
+Returns the PTT backend status (whether the patched `/mnt/bin/ak_ao_ptt` player is available and idle/busy).
 
 **Response:** JSON or plain text
 
@@ -1902,25 +1902,30 @@ Plays audio through the camera speaker (push-to-talk).
 - Rate limit: 5 per 60 s
 - Body: raw PCM — **Int16 LE, mono, 8 kHz**. Must be an even byte count.
 - Max body size: 524 288 bytes (512 KB / ~32 s of audio)
-- No CSRF required (treated as a media upload, not a config change)
-- Uses `/usr/bin/ak_ao_demo` for playback; volume is read from `/mnt/config/pttvolume.conf` (0–100 → mapped to 0–6 for `ak_ao_demo`)
+- CSRF required (`X-CSRF-Token` header), like every mutating endpoint
+- Plays through `/mnt/bin/ak_ao_ptt`, created at boot by `scripts/prepare-ptt-player.sh`: an MD5-guarded copy of `/usr/bin/ak_ao_demo` with the speaker-enable polarity flipped (the TC100 amplifier is active-low). The stock binary is never modified.
+- Volume is read from `/mnt/config/pttvolume.conf` (0–100 → mapped to 0–6)
+- The codec device is exclusive: if RTSP is running it is stopped for the clip and restarted by a detached worker ~2 s after playback ends. The upload lock is held until then, so a second upload gets `BUSY`.
 
 **Response:** Plain text `OK`, or one of:
 
 | Code | Meaning |
 |---|---|
 | `METHOD_NOT_ALLOWED` | Not a POST request |
-| `PTT_BIN_MISSING` | `ak_ao_demo` not found |
+| `PTT_BIN_MISSING` | `/mnt/bin/ak_ao_ptt` not found (stock `ak_ao_demo` missing or MD5 mismatch at boot) |
 | `INVALID_CONTENT_LENGTH` | Missing or non-numeric Content-Length |
 | `EMPTY_INPUT` | Zero bytes received |
 | `INVALID_PCM` | Odd byte count (not valid Int16) |
 | `TOO_LARGE` | Body exceeds 512 KB |
-| `BUSY` | Another PTT playback is in progress |
+| `READ_FAILED` | The PCM body could not be read |
+| `BUSY` | Another PTT playback is in progress (429) |
+| `AUDIO_DEVICE_BUSY` | RTSP could not be stopped to free the codec (503) |
 
 ```sh
 # Record 3 s of PCM and send it to the speaker
 sox -n -r 8000 -c 1 -e signed -b 16 /tmp/ptt.raw synth 3 sine 1000
-curl -X POST http://root:pass@192.168.1.24/cgi-bin/upload_audio.cgi \
+curl -k -X POST https://root:pass@192.168.1.24/cgi-bin/upload_audio.cgi \
+  -H "X-CSRF-Token: $TOKEN" \
   --data-binary @/tmp/ptt.raw \
   -H "Content-Type: application/octet-stream"
 ```
