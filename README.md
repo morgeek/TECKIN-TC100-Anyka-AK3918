@@ -82,6 +82,9 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 
 ### Audio
 - Two-way audio: live listen + PTT (hold-to-talk via browser mic — requires HTTPS).
+- PTT works on the TC100 speaker. The AK3918 has a single exclusive audio codec
+  device, so while a clip plays the RTSP stream is paused (a few seconds) and
+  restarted automatically afterwards; Frigate/go2rtc simply reconnect.
 - Audio clip upload and playback.
 
 ### Notifications & Monitoring
@@ -170,14 +173,14 @@ Key endpoints:
 ## Known issues
 
 All the issues found during the August 2026 hardware bring-up have been fixed and
-verified on two live cameras. Kept here for the record; see `CHANGELOG.md` for detail.
+verified on live cameras (PTT since 1.8.3). Kept here for the record; see `CHANGELOG.md` for detail.
 
 | Symptom | Cause | Status |
 |---------|-------|--------|
 | Browser warns on HTTPS; `sslv3 alert certificate unknown` in the lighttpd log | the self-signed cert was issued for 365 days and only regenerated when *missing*, so any camera past its first year served an expired certificate. It is now also regenerated when `openssl x509 -checkend 0` fails, is valid 10 years, and uses ECDSA P-256 (handshake ~0.09 s vs ~0.14 s for the RSA-1024 it replaces) | Fixed 1.8.1 |
 | HA "Live" camera entity shows nothing | it points at `snapshot/last_path`, a file PATH, while HA's MQTT camera expects image BYTES. Entity now off by default (`MQTT_HA_CAMERA_ENTITY_ENABLE=1` to re-enable); use the RTSP/go2rtc stream instead | Disabled 1.6.2 |
 | Dashboard liveview / snapshot blank | `/bin/timeout` is the pre-2014 busybox variant wanting `-t SECS`; `timeout 5 getimage` exec'd the duration and failed silently, so `currentpic.cgi` served a 0-byte JPEG | Fixed 1.7.1 |
-| Push-to-talk is silent | `v4l2rtspserver` holds `/dev/akpcm_cdev1` (audio capture); on this codec, output needs it too. Freeing it is necessary but not sufficient — see CHANGELOG 1.7.3 | **Open** |
+| Push-to-talk is silent | two causes: `v4l2rtspserver` holds the exclusive codec device `/dev/akpcm_cdev1`, and the TC100 amplifier enable is active-low while stock `ak_ao_demo` drives it the other way. PTT now pauses RTSP only for the clip, and plays through `/mnt/bin/ak_ao_ptt`, an MD5-guarded copy of `ak_ao_demo` with the two speaker-control instructions flipped (the stock binary is untouched) — see CHANGELOG 1.8.3-rc8 → rc10 | Fixed 1.8.3 |
 | Inbound HA → camera commands time out | the SUBSCRIBE path used `curl`, which can't do MQTT here; it is now forged like the publish path | Fixed 1.6.2 |
 | Cameras listened on a shared command topic | 1.6.1 re-derived the topic root but left `MQTT_TOPIC_COMMAND` at its written-out default, so every camera received every camera's commands | Fixed 1.6.2 |
 | Two cameras merged into one HA device | shared default `MQTT_CLIENT_ID` / topic root; identity now derives from the hostname | Fixed 1.6.1 |
