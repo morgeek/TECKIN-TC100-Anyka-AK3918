@@ -284,6 +284,7 @@ tc_validate_candidate()
       tc_check_flat "$_tc_file" RTSP_FPS_LOCK bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" RTSP_MIC_OFF_WHEN_NO_AUDIO bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" VENDOR_PRINT_LEVEL print_level "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" ISP_TUNE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" ONVIF_STREAM_POLICY onvif_policy "$_tc_rel" || return 1 ;;
     mqtt.conf)
       tc_require_flat "$_tc_file" MQTT_ENABLE "$_tc_rel" || return 1

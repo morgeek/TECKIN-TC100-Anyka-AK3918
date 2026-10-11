@@ -21,6 +21,7 @@ fi
 : "${RTSP_FPS_LOCK:=0}"
 : "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"
 : "${VENDOR_PRINT_LEVEL:=}"
+: "${ISP_TUNE:=0}"
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
 : "${RTSP_WATCHDOG_MODE:=status}"
@@ -138,6 +139,10 @@ start()
       [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
     esac
     case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
+    case "$ISP_TUNE" in 1|true|yes|on|enabled)
+      install_config "$CONFIGPATH/isp_tune.conf"
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_ISP_TUNE=$CONFIGPATH/isp_tune.conf" ;;
+    esac
     if [ -n "$TC100FIX_ENV" ] && [ ! -f /mnt/lib/libtc100fix.so ]; then
       echo "tc100fix options set but /mnt/lib/libtc100fix.so is missing" >> "$LOGPATH"
       TC100FIX_ENV=""
