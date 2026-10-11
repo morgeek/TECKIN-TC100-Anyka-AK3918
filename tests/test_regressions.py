@@ -278,6 +278,31 @@ class Regressions(unittest.TestCase):
         self.assertIn('rc start_capture 0', out)
         self.assertNotIn('vendor stop_capture', out)
 
+    def test_tc100fix_isp_tuning_under_arm_emulation(self):
+        # Same requirements as the emulated shim test; ~20 s (thread sleeps).
+        import shutil
+        sysroot = os.environ.get('TC100_SYSROOT')
+        fx = ROOT / 'tests/tc100fix'
+        if not (sysroot and shutil.which('qemu-arm') and (fx / 'ispdriver').exists()):
+            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
+        conf, status = self.base / 'isp_tune.conf', self.base / 'isp.status'
+        out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
+                              '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
+                              '-E', 'TC100FIX_ISP_TUNE=%s' % conf, '-E', 'TC100FIX_ISP_STATUS=%s' % status,
+                              str(fx / 'ispdriver')], capture_output=True, timeout=60).stdout.decode()
+        start = out.split('--- after start')[1].split('--- after change')[0]
+        self.assertIn('status: BRIGHTNESS=20', start)
+        self.assertIn('status: SHARPNESS=50', start)          # 99 clamped to 50
+        self.assertIn('status: EXPOSURE_NOW=500', start)      # 50% of 1000
+        change = out.split('--- after change')[0].split('--- after start')[1]
+        self.assertIn('vpss effect_set 3 0', change)          # contrast back to ISP value
+        self.assertIn('vpss effect_set 6 50', change)         # mains frequency
+        reload = out.split('--- after reload')[0].split('vpss reload')[1]
+        self.assertIn('vpss ae exp_time_max=500', reload)     # cap survives an ISP reload
+        reset = out.split('--- after reset')[1]
+        self.assertIn('status: EXPOSURE_MAX_PCT=0', reset)
+        self.assertIn('status: EXPOSURE_NOW=1000', reset)     # original restored
+
     def test_rtsp_probe_accepts_digest_challenge(self):
         reply = self.base / 'rtsp-reply'
         reply.write_bytes(b'RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm="LIVE555"\r\n\r\n')
