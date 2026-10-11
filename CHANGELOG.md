@@ -7,10 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
+
 ### Changed
 - Push-to-talk is confirmed working on hardware: README *Known issues* and `docs/api.md` (`upload_audio.cgi`, `get_ptt_status`) now describe the patched `/mnt/bin/ak_ao_ptt` player, the RTSP pause during playback, CSRF on uploads and the `READ_FAILED` / `AUDIO_DEVICE_BUSY` responses.
 
 ### Added
+- `scripts/collect-platform-dump.sh`: read-only platform inventory for reverse engineering (raw MTD images via `dd if=`, `/proc` and `/sys` facts, vendor filesystem, library fingerprints), written to the SD card only. Uncompressed archives: the camera busybox has no `gzip` applet.
 - Restore `.gitignore` (live configs with credentials, `wpa_supplicant.conf`, runtime artifacts, Python bytecode). `.github/` is no longer ignored.
 - GitHub Actions CI: `busybox ash -n` syntax check of every camera-side shell script, Python host regressions and Node frontend tests.
 

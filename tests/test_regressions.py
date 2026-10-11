@@ -183,6 +183,20 @@ class Regressions(unittest.TestCase):
             self.assertEqual(result.returncode, 1, path)
             self.assertEqual(result.stdout, b'', path)
 
+    def test_service_start_does_not_capture_daemon_output_through_a_pipe(self):
+        # A service that backgrounds a daemon inherits a $(...) pipe and keeps it
+        # open; scripts.cgi then never returned (seen on ftp-server, 2026-10-11).
+        s = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        start = s[s.index('      start)'):s.index('      disable)')]
+        self.assertNotIn('$(sh "$SCRIPT_HOME/$script" start', start)
+        self.assertIn('</dev/null >"$_start_out" 2>&1', start)
+        svc = self.base / 'svc'
+        svc.write_text('#!/bin/sh\nsleep 30 &\necho started\n')
+        out = self.base / 'start.out'
+        code = 'sh ' + shlex.quote(str(svc)) + ' start </dev/null >' + shlex.quote(str(out)) + ' 2>&1; cat ' + shlex.quote(str(out))
+        result = subprocess.run(['sh', '-c', code], capture_output=True, timeout=10)
+        self.assertEqual(result.stdout, b'started\n')
+
     def test_rtsp_probe_accepts_digest_challenge(self):
         reply = self.base / 'rtsp-reply'
         reply.write_bytes(b'RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm="LIVE555"\r\n\r\n')
