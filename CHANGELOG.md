@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Sensor frame rate no longer drops from 25 to ~10 fps in low light (and back), which made the RTSP rate oscillate under Frigate. The vendor `libplat_vi.so` (V1.0.04) arms an automatic switch thread from `ak_vi_set_channel_attr()`; `v4l2rtspserver` never disabled it. New `lib/libfpslock.so` (source in `src/fpslock/`, built with the Anyka uClibc toolchain) interposes `ak_vi_set_fps()` to call `ak_vi_set_switch_fps_enable(h, 0)` before applying the configured rate. Opt-in with `RTSP_FPS_LOCK=1` in `boot.conf`; preloaded for `v4l2rtspserver` only. Verified loaded on hardware (`/proc/<pid>/maps`, sensor held at 25 fps); low-light validation pending.
+- Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
+
+### Changed
+- Push-to-talk is confirmed working on hardware: README *Known issues* and `docs/api.md` (`upload_audio.cgi`, `get_ptt_status`) now describe the patched `/mnt/bin/ak_ao_ptt` player, the RTSP pause during playback, CSRF on uploads and the `READ_FAILED` / `AUDIO_DEVICE_BUSY` responses.
+
+### Added
+- `scripts/collect-platform-dump.sh`: read-only platform inventory for reverse engineering (raw MTD images via `dd if=`, `/proc` and `/sys` facts, vendor filesystem, library fingerprints), written to the SD card only. Uncompressed archives: the camera busybox has no `gzip` applet.
+- Restore `.gitignore` (live configs with credentials, `wpa_supplicant.conf`, runtime artifacts, Python bytecode). `.github/` is no longer ignored.
+- GitHub Actions CI: `busybox ash -n` syntax check of every camera-side shell script, Python host regressions and Node frontend tests.
+
 ## [1.8.3-rc20] — 2026-09-11
 
 ### Changed
