@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Sensor frame rate no longer drops from 25 to ~10 fps in low light (and back), which made the RTSP rate oscillate under Frigate. The vendor `libplat_vi.so` (V1.0.04) arms an automatic switch thread from `ak_vi_set_channel_attr()`; `v4l2rtspserver` never disabled it. New `lib/libfpslock.so` (source in `src/fpslock/`, built with the Anyka uClibc toolchain) interposes `ak_vi_set_fps()` to call `ak_vi_set_switch_fps_enable(h, 0)` before applying the configured rate. Opt-in with `RTSP_FPS_LOCK=1` in `boot.conf`; preloaded for `v4l2rtspserver` only. Verified loaded on hardware (`/proc/<pid>/maps`, sensor held at 25 fps); low-light validation pending.
 - Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
 
 ### Changed

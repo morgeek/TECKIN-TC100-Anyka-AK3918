@@ -131,6 +131,10 @@ AUTOSTART_DENYLIST=""
 # - Main stream only: RTSP_SUBSTREAM=0, RTSP_AUDIO=0
 RTSP_SUBSTREAM=1
 RTSP_AUDIO=1
+# Lock the sensor at the configured frame rate (1=on). The vendor library
+# otherwise drops to ~10 fps in low light and back to 25 fps, which makes the
+# RTSP frame rate oscillate (bad for Frigate). Preloads /mnt/lib/libfpslock.so.
+RTSP_FPS_LOCK=0
 
 # ONVIF advertised stream policy:
 # - main-primary: ONVIF profile 1 = main stream (default)
