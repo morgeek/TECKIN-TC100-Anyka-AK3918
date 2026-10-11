@@ -197,6 +197,20 @@ class Regressions(unittest.TestCase):
         result = subprocess.run(['sh', '-c', code], capture_output=True, timeout=10)
         self.assertEqual(result.stdout, b'started\n')
 
+    def test_fps_lock_preload_is_opt_in_and_scoped_to_rtsp_server(self):
+        s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn(': "${RTSP_FPS_LOCK:=0}"', s)
+        # The preload is set on the v4l2rtspserver command only, never exported.
+        self.assertNotIn('export LD_PRELOAD', s)
+        self.assertIn('LD_PRELOAD="$FPSLOCK_PRELOAD" /mnt/bin/v4l2rtspserver', s)
+        self.assertRegex((ROOT / 'config/boot.conf.dist').read_text(), r'(?m)^RTSP_FPS_LOCK=0$')
+        lib = (ROOT / 'lib/libfpslock.so').read_bytes()
+        self.assertEqual(lib[:4], b'\x7fELF')
+        self.assertEqual(lib[18], 40)  # e_machine = EM_ARM
+        self.assertIn(b'ak_vi_set_fps', lib)
+        self.assertIn(b'ak_vi_set_switch_fps_enable', lib)
+        self.assertIn(b'libc.so.0', lib)  # uClibc, like the camera
+
     def test_rtsp_probe_accepts_digest_challenge(self):
         reply = self.base / 'rtsp-reply'
         reply.write_bytes(b'RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm="LIVE555"\r\n\r\n')
@@ -226,7 +240,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 25)
+        self.assertEqual(count, 26)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
