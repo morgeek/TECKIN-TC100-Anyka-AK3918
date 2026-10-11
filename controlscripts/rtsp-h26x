@@ -19,6 +19,8 @@ fi
 : "${RTSP_SUBSTREAM:=1}"
 : "${RTSP_AUDIO:=1}"
 : "${RTSP_FPS_LOCK:=0}"
+: "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"
+: "${VENDOR_PRINT_LEVEL:=}"
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
 : "${RTSP_WATCHDOG_MODE:=status}"
@@ -43,6 +45,18 @@ status()
     # Prints PID: $pid if exists and returns 0(no error) else returns 1(error condition)
     kill -0 "$pid" >/dev/null && echo "PID: $pid" || return 1
   fi
+}
+
+# Wait (max $2 s) until no socket uses TCP port $1, local or remote side.
+rtsp_wait_port_free()
+{
+  _w=0
+  while [ $_w -lt "$2" ]; do
+    netstat -tan 2>/dev/null | grep -q ":$1 " || return 0
+    sleep 1
+    _w=$((_w + 1))
+  done
+  return 1
 }
 
 start()
@@ -88,6 +102,7 @@ start()
     esac
     [ "$PORT" -lt 1 ]     && PORT="8554"
     [ "$PORT" -gt 65535 ] && PORT="8554"
+    RTSP_PORT_NUM="$PORT"
     PORT="-P $PORT"
    
     ## Log
@@ -115,25 +130,39 @@ start()
     fi
 
     echo "================== START ===============" >> "$LOGPATH"
-    # RTSP_FPS_LOCK=1 preloads libfpslock.so, which turns off the vendor
-    # low-light frame-rate switch (25 <-> ~10 fps) for this process only.
-    FPSLOCK_PRELOAD=""
-    case "$RTSP_FPS_LOCK" in
-      1|true|yes|on|enabled)
-        if [ -f /mnt/lib/libfpslock.so ]; then
-          FPSLOCK_PRELOAD="/mnt/lib/libfpslock.so"
-        else
-          echo "RTSP_FPS_LOCK set but /mnt/lib/libfpslock.so is missing" >> "$LOGPATH"
-        fi
-        ;;
+    # libtc100fix.so fixes the closed vendor v4l2rtspserver at run time; each
+    # fix is enabled by an environment variable set here, for this process only.
+    TC100FIX_ENV=""
+    case "$RTSP_FPS_LOCK" in 1|true|yes|on|enabled) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_FPS_LOCK=1" ;; esac
+    case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
+      [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
     esac
-    echo "/mnt/bin/v4l2rtspserver  $STREAMS $CREDENTIAL $PORT${FPSLOCK_PRELOAD:+ (preload $FPSLOCK_PRELOAD)}" >> "$LOGPATH"
-    if [ -n "$FPSLOCK_PRELOAD" ]; then
-      LD_PRELOAD="$FPSLOCK_PRELOAD" /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
-    else
-      /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+    case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
+    if [ -n "$TC100FIX_ENV" ] && [ ! -f /mnt/lib/libtc100fix.so ]; then
+      echo "tc100fix options set but /mnt/lib/libtc100fix.so is missing" >> "$LOGPATH"
+      TC100FIX_ENV=""
     fi
-    echo "$!" > "$PIDFILE"
+    echo "/mnt/bin/v4l2rtspserver  $STREAMS $CREDENTIAL $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
+    # A quick restart while the previous server's client sockets on the RTSP
+    # port are still closing makes the bind fail; the server then exits at once
+    # with a misleading "Address family not supported" (seen on hardware). Wait
+    # for the port to drain, and retry if the server dies right after start.
+    _rtsp_try=0
+    while [ $_rtsp_try -lt 3 ]; do
+      _rtsp_try=$((_rtsp_try + 1))
+      rtsp_wait_port_free "$RTSP_PORT_NUM" 45
+      if [ -n "$TC100FIX_ENV" ]; then
+        # shellcheck disable=SC2086
+        env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+      else
+        /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+      fi
+      _rtsp_pid=$!
+      echo "$_rtsp_pid" > "$PIDFILE"
+      sleep 3
+      kill -0 "$_rtsp_pid" 2>/dev/null && break
+      echo "v4l2rtspserver exited at start (attempt $_rtsp_try), retrying" >> "$LOGPATH"
+    done
 
     ## Watchdog
     if ! checkpid "$WATCHDOG_PIDFILE"; then
