@@ -1335,6 +1335,46 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
+    isp_tune)
+      # Live image tuning (see scripts/isp-tune.sh). Values apply within ~2 s
+      # without restarting the stream; only switching ISP_TUNE itself on or
+      # off restarts RTSP, because the tuning thread lives in v4l2rtspserver.
+      . /mnt/scripts/isp-tune.sh
+      _it_bad=""
+      for _it_k in $ISP_TUNE_KEYS; do
+        case "$_it_k" in
+          BRIGHTNESS) _it_in="$F_isp_brightness" ;;
+          CONTRAST) _it_in="$F_isp_contrast" ;;
+          SATURATION) _it_in="$F_isp_saturation" ;;
+          SHARPNESS) _it_in="$F_isp_sharpness" ;;
+          HUE) _it_in="$F_isp_hue" ;;
+          POWER_HZ) _it_in="$F_isp_power_hz" ;;
+          EXPOSURE_MAX_PCT) _it_in="$F_isp_exposure_max_pct" ;;
+        esac
+        isp_tune_norm "$_it_k" "$_it_in" >/dev/null || _it_bad="$_it_bad $_it_k"
+      done
+      if [ -n "$_it_bad" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "Invalid value for:$_it_bad"; else echo "Invalid value for:$_it_bad<br/>"; fi
+        exit 0
+      fi
+      isp_tune_set BRIGHTNESS "$F_isp_brightness"
+      isp_tune_set CONTRAST "$F_isp_contrast"
+      isp_tune_set SATURATION "$F_isp_saturation"
+      isp_tune_set SHARPNESS "$F_isp_sharpness"
+      isp_tune_set HUE "$F_isp_hue"
+      isp_tune_set POWER_HZ "$F_isp_power_hz"
+      isp_tune_set EXPOSURE_MAX_PCT "$F_isp_exposure_max_pct"
+      _it_want="$(normalize_bool "${F_isp_enable}")"
+      _it_msg="Image settings saved; applied within a few seconds."
+      if [ "$_it_want" != "$(isp_tune_enabled)" ]; then
+        install_config /mnt/config/boot.conf
+        rewrite_config /mnt/config/boot.conf ISP_TUNE "$_it_want"
+        schedule_service_restart /mnt/controlscripts/rtsp-h26x 1
+        _it_msg="Image tuning $( [ "$_it_want" = 1 ] && echo enabled || echo disabled ); the video stream restarts once."
+      fi
+      if wants_json_response; then json_body_ok "$_it_msg"; else echo "$_it_msg<br/>"; fi
+    ;;
+
     set_advanced_tuning)
       install_config /mnt/config/boot.conf
       lightweight=$(normalize_bool "${F_lightweight_mode}")

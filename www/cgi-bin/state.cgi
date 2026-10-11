@@ -1427,6 +1427,13 @@ if [ -n "$F_cmd" ]; then
     fi
     ;;
 
+  isp_tune)
+    # Live image tuning: configured values, ISP_TUNE flag and what the
+    # libtc100fix thread reports as applied (/var/run/isp_tune.status).
+    . /mnt/scripts/isp-tune.sh
+    isp_tune_json
+    ;;
+
   fullconfig)
     # This command returns ALL configurable values for the UI to populate its tabs.
     # It avoids multiple requests and keeps everything in sync.
