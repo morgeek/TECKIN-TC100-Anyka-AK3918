@@ -325,7 +325,14 @@ if [ -n "$F_script" ]; then
         echo ""
 
         echo "Running script '$script'..."
-        echo "<pre>$(sh "$SCRIPT_HOME/$script" start 2>&1)</pre>"
+        # Capture via a temp file, never via $(...): services that background a
+        # daemon (ftp-server's tcpsvd, the service watchdogs) would inherit the
+        # command-substitution pipe and keep it open, so the CGI never returned
+        # and the browser hung even though the service had started.
+        _start_out="/tmp/scripts-start.$$.out"
+        sh "$SCRIPT_HOME/$script" start </dev/null >"$_start_out" 2>&1
+        echo "<pre>$(cat "$_start_out" 2>/dev/null)</pre>"
+        rm -f "$_start_out"
         invalidate_allstates_cache
         ;;
       disable)
