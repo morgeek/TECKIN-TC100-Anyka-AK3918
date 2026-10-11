@@ -197,19 +197,86 @@ class Regressions(unittest.TestCase):
         result = subprocess.run(['sh', '-c', code], capture_output=True, timeout=10)
         self.assertEqual(result.stdout, b'started\n')
 
-    def test_fps_lock_preload_is_opt_in_and_scoped_to_rtsp_server(self):
+    def test_tc100fix_preload_is_opt_in_and_scoped_to_rtsp_server(self):
         s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        self.assertIn(': "${RTSP_FPS_LOCK:=0}"', s)
+        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"', ': "${VENDOR_PRINT_LEVEL:=}"'):
+            self.assertIn(default, s)
         # The preload is set on the v4l2rtspserver command only, never exported.
         self.assertNotIn('export LD_PRELOAD', s)
-        self.assertIn('LD_PRELOAD="$FPSLOCK_PRELOAD" /mnt/bin/v4l2rtspserver', s)
-        self.assertRegex((ROOT / 'config/boot.conf.dist').read_text(), r'(?m)^RTSP_FPS_LOCK=0$')
-        lib = (ROOT / 'lib/libfpslock.so').read_bytes()
+        self.assertIn('env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
+        conf = (ROOT / 'config/boot.conf.dist').read_text()
+        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=0', 'VENDOR_PRINT_LEVEL='):
+            self.assertRegex(conf, r'(?m)^' + re.escape(line) + r'$')
+        lib = (ROOT / 'lib/libtc100fix.so').read_bytes()
         self.assertEqual(lib[:4], b'\x7fELF')
         self.assertEqual(lib[18], 40)  # e_machine = EM_ARM
-        self.assertIn(b'ak_vi_set_fps', lib)
-        self.assertIn(b'ak_vi_set_switch_fps_enable', lib)
-        self.assertIn(b'libc.so.0', lib)  # uClibc, like the camera
+        for sym in (b'ak_vi_set_fps', b'ak_vi_set_switch_fps_enable', b'ak_ai_start_capture',
+                    b'ak_ai_set_aec', b'ak_ai_set_nr_agc', b'ak_print_set_level', b'libc.so.0'):
+            self.assertIn(sym, lib)
+
+    def test_rtsp_start_waits_for_port_to_drain(self):
+        # Restarting while old client sockets on :554 are still closing made the
+        # server exit at once ("Address family not supported"), seen on hardware.
+        code = function('controlscripts/rtsp-h26x', 'rtsp_wait_port_free')
+        state = self.base / 'netstat-calls'
+        # netstat runs in a pipeline subshell, so the call counter lives in a file.
+        st = shlex.quote(str(state))
+        code += ('\necho 0 > ' + st + '\nnetstat() { n=$(($(cat ' + st + ') + 1)); echo $n > ' + st +
+                 '; [ $n -lt 3 ] && echo "tcp 0 0 192.168.1.11:554 192.168.1.2:40000 TIME_WAIT"; return 0; }'
+                 '\nsleep() { :; }\nrtsp_wait_port_free 554 10; echo "rc=$?"')
+        self.assertEqual(run(code).stdout.strip(), b'rc=0')
+        self.assertEqual(state.read_text().strip(), '3')
+        busy = function('controlscripts/rtsp-h26x', 'rtsp_wait_port_free')
+        busy += '\nnetstat() { echo "tcp 0 0 0.0.0.0:554 0.0.0.0:* LISTEN"; }\nsleep() { :; }\nrtsp_wait_port_free 554 5; echo "rc=$?"'
+        self.assertEqual(run(busy).stdout.strip(), b'rc=1')
+        s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        loop = s[s.index('    while [ $_rtsp_try -lt 3 ]; do'):s.index('    done', s.index('    while [ $_rtsp_try -lt 3 ]; do'))]
+        self.assertIn('rtsp_wait_port_free "$RTSP_PORT_NUM"', loop)
+        self.assertIn('kill -0 "$_rtsp_pid"', loop)
+
+    def test_tc100fix_env_assembly(self):
+        # Extract the env-building block of rtsp-h26x and run it with each option.
+        s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        block = s[s.index('    TC100FIX_ENV=""'):s.index('    if [ -n "$TC100FIX_ENV" ] && [ ! -f')]
+        cases = [
+            ({}, ''),
+            ({'RTSP_FPS_LOCK': '1'}, 'TC100FIX_FPS_LOCK=1'),
+            ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '1'}, ''),
+            ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '0'}, 'TC100FIX_MIC_OFF=1'),
+            ({'VENDOR_PRINT_LEVEL': '1'}, 'TC100FIX_PRINT_LEVEL=1'),
+            ({'VENDOR_PRINT_LEVEL': '12'}, ''),
+        ]
+        for env, expected in cases:
+            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1'}
+            vals.update(env)
+            code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
+            self.assertEqual(run(code).stdout.decode().strip(), expected, env)
+
+    def test_tc100fix_behaviour_under_arm_emulation(self):
+        # Runs only where qemu-arm and a camera sysroot (uClibc /lib) are available:
+        # TC100_SYSROOT=/path/to/extracted/rootfs. Fixtures: tests/tc100fix/build.sh.
+        import shutil
+        sysroot = os.environ.get('TC100_SYSROOT')
+        fx = ROOT / 'tests/tc100fix'
+        if not (sysroot and shutil.which('qemu-arm') and (fx / 'driver').exists()):
+            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
+        def emu(*envs):
+            args = ['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx]
+            for e in envs:
+                args += ['-E', e]
+            return subprocess.run(args + [str(fx / 'driver')], capture_output=True, timeout=30)
+        plain = emu().stdout.decode()
+        inert = emu('LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so')).stdout.decode()
+        self.assertEqual(inert, plain)
+        out = emu('LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'), 'TC100FIX_FPS_LOCK=1',
+                  'TC100FIX_MIC_OFF=1', 'TC100FIX_PRINT_LEVEL=1').stdout.decode()
+        self.assertIn('vendor print_level 1', out)
+        self.assertLess(out.index('vendor switch_fps_enable 0'), out.index('vendor set_fps 25'))
+        self.assertIn('vendor set_aec 0', out)
+        self.assertIn('vendor set_nr_agc 0', out)
+        self.assertNotIn('vendor start_capture', out)
+        self.assertIn('rc start_capture 0', out)
+        self.assertNotIn('vendor stop_capture', out)
 
     def test_rtsp_probe_accepts_digest_challenge(self):
         reply = self.base / 'rtsp-reply'
