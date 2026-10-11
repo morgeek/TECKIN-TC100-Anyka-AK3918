@@ -19,6 +19,8 @@ fi
 : "${RTSP_SUBSTREAM:=1}"
 : "${RTSP_AUDIO:=1}"
 : "${RTSP_FPS_LOCK:=0}"
+: "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"
+: "${VENDOR_PRINT_LEVEL:=}"
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
 : "${RTSP_WATCHDOG_MODE:=status}"
@@ -115,21 +117,22 @@ start()
     fi
 
     echo "================== START ===============" >> "$LOGPATH"
-    # RTSP_FPS_LOCK=1 preloads libfpslock.so, which turns off the vendor
-    # low-light frame-rate switch (25 <-> ~10 fps) for this process only.
-    FPSLOCK_PRELOAD=""
-    case "$RTSP_FPS_LOCK" in
-      1|true|yes|on|enabled)
-        if [ -f /mnt/lib/libfpslock.so ]; then
-          FPSLOCK_PRELOAD="/mnt/lib/libfpslock.so"
-        else
-          echo "RTSP_FPS_LOCK set but /mnt/lib/libfpslock.so is missing" >> "$LOGPATH"
-        fi
-        ;;
+    # libtc100fix.so fixes the closed vendor v4l2rtspserver at run time; each
+    # fix is enabled by an environment variable set here, for this process only.
+    TC100FIX_ENV=""
+    case "$RTSP_FPS_LOCK" in 1|true|yes|on|enabled) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_FPS_LOCK=1" ;; esac
+    case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
+      [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
     esac
-    echo "/mnt/bin/v4l2rtspserver  $STREAMS $CREDENTIAL $PORT${FPSLOCK_PRELOAD:+ (preload $FPSLOCK_PRELOAD)}" >> "$LOGPATH"
-    if [ -n "$FPSLOCK_PRELOAD" ]; then
-      LD_PRELOAD="$FPSLOCK_PRELOAD" /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+    case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
+    if [ -n "$TC100FIX_ENV" ] && [ ! -f /mnt/lib/libtc100fix.so ]; then
+      echo "tc100fix options set but /mnt/lib/libtc100fix.so is missing" >> "$LOGPATH"
+      TC100FIX_ENV=""
+    fi
+    echo "/mnt/bin/v4l2rtspserver  $STREAMS $CREDENTIAL $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
+    if [ -n "$TC100FIX_ENV" ]; then
+      # shellcheck disable=SC2086
+      env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
     else
       /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
     fi
