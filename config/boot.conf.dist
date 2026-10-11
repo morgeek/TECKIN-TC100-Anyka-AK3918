@@ -143,9 +143,13 @@ RTSP_AUDIO=1
 # - VENDOR_PRINT_LEVEL=0..9: replace the level the server forces (3) into
 #   /var/log/ak_print_level, read by every vendor library. Empty = untouched.
 #   Small effect: vendor syslog chatter is cheap on this hardware.
+# - ISP_TUNE=1: live image tuning from /mnt/config/isp_tune.conf (brightness,
+#   contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied
+#   without restarting the stream.
 RTSP_FPS_LOCK=0
 RTSP_MIC_OFF_WHEN_NO_AUDIO=0
 VENDOR_PRINT_LEVEL=
+ISP_TUNE=0
 
 # ONVIF advertised stream policy:
 # - main-primary: ONVIF profile 1 = main stream (default)
