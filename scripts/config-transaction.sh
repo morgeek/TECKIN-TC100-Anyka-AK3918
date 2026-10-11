@@ -53,6 +53,7 @@ tc_normalize_and_validate()
     lum) tc_uint_range "$_tc_value" 0 65535 ;;
     awb) tc_uint_range "$_tc_value" 0 9999999 ;;
     hour) tc_uint_range "$_tc_value" 0 23 ;;
+    print_level) [ -z "$_tc_value" ] || tc_uint_range "$_tc_value" 0 9 ;;
     minute) tc_uint_range "$_tc_value" 0 59 ;;
     weekday) case "$_tc_value" in '*'|[0-6]|1-5|0,6) ;; *) return 1 ;; esac ;;
     web_mode) case "$_tc_value" in full|http|ultra-lite|ultralite|off) ;; *) return 1 ;; esac ;;
@@ -281,6 +282,8 @@ tc_validate_candidate()
       tc_check_flat "$_tc_file" RTSP_SUBSTREAM bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" RTSP_AUDIO bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" RTSP_FPS_LOCK bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" RTSP_MIC_OFF_WHEN_NO_AUDIO bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VENDOR_PRINT_LEVEL print_level "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" ONVIF_STREAM_POLICY onvif_policy "$_tc_rel" || return 1 ;;
     mqtt.conf)
       tc_require_flat "$_tc_file" MQTT_ENABLE "$_tc_rel" || return 1
