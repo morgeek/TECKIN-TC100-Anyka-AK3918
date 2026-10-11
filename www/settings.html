@@ -252,6 +252,26 @@
                     </div>
                 </div>
             </form>
+            <form id="formIspTune" action="cgi-bin/action.cgi?cmd=isp_tune" method="post" class="mt-4">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Live image tuning</p></header>
+                    <div class='card-content'>
+                        <p class="help mb-3">Applied within a few seconds, without restarting the stream. 0 keeps the sensor's factory value. Switching tuning on or off restarts the video once.</p>
+                        <div class="field mb-3"><input class="switch is-small" id="isp_enable" name="isp_enable" type="checkbox"><label for="isp_enable">Enable live image tuning</label></div>
+                        <div class="columns is-multiline">
+                            <div class="column is-half"><label class="label is-small" for="isp_brightness">Brightness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_brightness" id="isp_brightness_out">0</output></label><input class="isp-tune-range" name="isp_brightness" id="isp_brightness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Moves the auto-exposure target.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_contrast">Contrast <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_contrast" id="isp_contrast_out">0</output></label><input class="isp-tune-range" name="isp_contrast" id="isp_contrast" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Wider or narrower range between dark and light.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_saturation">Saturation <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_saturation" id="isp_saturation_out">0</output></label><input class="isp-tune-range" name="isp_saturation" id="isp_saturation" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour intensity.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_sharpness">Sharpness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_sharpness" id="isp_sharpness_out">0</output></label><input class="isp-tune-range" name="isp_sharpness" id="isp_sharpness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Edge enhancement; lower reduces noise.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_hue">Hue <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_hue" id="isp_hue_out">0</output></label><input class="isp-tune-range" name="isp_hue" id="isp_hue" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour shift.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_power_hz">Mains frequency (anti-flicker)</label><div class="select is-small is-fullwidth"><select name="isp_power_hz" id="isp_power_hz"><option value="">Unchanged</option><option value="50">50 Hz (Europe)</option><option value="60">60 Hz</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_exposure_max_pct">Exposure time cap <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" id="isp_exposure_max_pct_out">off</output></label><input name="isp_exposure_max_pct" id="isp_exposure_max_pct" type="range" min="0" max="100" step="5" value="0" style="width:100%"><p class="help">Limits motion blur at night (image gets darker). 0 = no cap; otherwise 10–100 % of the sensor value.</p></div>
+                        </div>
+                        <p class="help" id="isp_tune_applied" role="status"></p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply image tuning</button></div>
+                    </div>
+                </div>
+            </form>
         </div>
 
         <!-- Automation Tab -->
