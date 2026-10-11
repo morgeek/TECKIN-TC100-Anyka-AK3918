@@ -19,6 +19,11 @@
  *   ai_capture ~2 % with RTSP_AUDIO=0. We force AEC/NR off and report a
  *   successful capture start without starting the ADC.
  *
+ * TC100FIX_ISP_TUNE=<path>
+ *   Live image tuning (brightness, contrast, ..., exposure cap) from a config
+ *   file, applied by a background thread without restarting the stream. See
+ *   isp_tune.c.
+ *
  * TC100FIX_PRINT_LEVEL=<0..9>
  *   The AnykaCameraManager constructor forces ak_print_set_level(3), which
  *   rewrites /var/log/ak_print_level for every vendor library. We substitute
@@ -33,6 +38,8 @@
 #include <string.h>
 
 #define TAG "[tc100fix] "
+
+void tc100fix_isp_start(void *handle);   /* isp_tune.c */
 
 static int env_on(const char *name)
 {
@@ -63,6 +70,8 @@ int ak_vi_set_fps(void *handle, int fps)
         if (set_switch)
             fprintf(stderr, TAG "auto fps switch disabled (rc=%d)\n", set_switch(handle, 0));
     }
+    if (handle)
+        tc100fix_isp_start(handle);       /* no-op unless TC100FIX_ISP_TUNE set */
     return real ? real(handle, fps) : -1;
 }
 
