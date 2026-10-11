@@ -303,6 +303,52 @@ class Regressions(unittest.TestCase):
         self.assertIn('status: EXPOSURE_MAX_PCT=0', reset)
         self.assertIn('status: EXPOSURE_NOW=1000', reset)     # original restored
 
+    def test_isp_tune_helpers_validate_and_report(self):
+        conf, boot, status = self.base / 'isp_tune.conf', self.base / 'boot.conf', self.base / 'status'
+        conf.write_text((ROOT / 'config/isp_tune.conf.dist').read_text())
+        boot.write_text('ISP_TUNE=1\n')
+        status.write_text('BRIGHTNESS=20\nPOWER_HZ=50\nEXPOSURE_NOW=450\nEXPOSURE_ORIG=1125\n')
+        env = 'ISP_TUNE_CONF=%s ISP_TUNE_BOOT=%s ISP_TUNE_STATUS=%s\n' % tuple(shlex.quote(str(x)) for x in (conf, boot, status))
+        lib = env + function('scripts/common_functions.sh', 'rewrite_config') + '\nsync() { :; }\n' + (ROOT / 'scripts/isp-tune.sh').read_text()
+        for key, val, ok in [('BRIGHTNESS', '20', '20'), ('BRIGHTNESS', '-50', '-50'), ('BRIGHTNESS', '51', None),
+                             ('BRIGHTNESS', '1x', None), ('HUE', '', '0'), ('POWER_HZ', '60', '60'), ('POWER_HZ', '55', None),
+                             ('EXPOSURE_MAX_PCT', '0', ''), ('EXPOSURE_MAX_PCT', '9', None), ('EXPOSURE_MAX_PCT', '40', '40')]:
+            r = run(lib + '\nisp_tune_norm %s %s; echo "rc=$?"' % (key, shlex.quote(val)))
+            out = r.stdout.decode().split('\n')
+            if ok is None:
+                self.assertIn('rc=1', out, (key, val))
+            else:
+                self.assertEqual(out[0], ok, (key, val)); self.assertIn('rc=0', out)
+        self.assertEqual(run(lib + '\nisp_tune_set CONTRAST -12; isp_tune_set EXPOSURE_MAX_PCT 30; isp_tune_set HUE 99; echo "rc=$?"').stdout.strip(), b'rc=1')
+        data = json.loads(run(lib + '\nisp_tune_json').stdout)
+        self.assertEqual(data['enabled'], 1)
+        self.assertEqual(data['conf']['CONTRAST'], -12)
+        self.assertEqual(data['conf']['EXPOSURE_MAX_PCT'], 30)
+        self.assertIsNone(data['conf']['POWER_HZ'])
+        self.assertEqual(data['applied'], {'BRIGHTNESS': 20, 'POWER_HZ': 50, 'EXPOSURE_NOW': 450, 'EXPOSURE_ORIG': 1125})
+
+    def test_isp_tune_mqtt_discovery_is_valid_json(self):
+        s = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        block = s[s.index('  # Live image tuning (number/select/switch).'):s.index('  # Maintenance Entities (Buttons/Select)')]
+        json_escape = function('www/cgi-bin/func.cgi', 'json_escape')
+        code = (json_escape + '\nisp_tune_json() { :; }\nout=' + shlex.quote(str(self.base / 'disc')) +
+                '\npublish_discovery_config() { printf "%s\\t%s\\n" "$1" "$2" >> "$out"; }\n'
+                'MQTT_TOPIC_ROOT=cam/x; discovery_prefix=homeassistant; node_id=cam_x; device_name_json=Cam; device_id_json=cam_x\n'
+                'cmd_json=cam/x/command; avail_topic_json=cam/x/availability\n')
+        r = run(code + block)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = (self.base / 'disc').read_text().strip().split('\n')
+        self.assertEqual(len(lines), 8)   # 6 numbers + select + switch
+        for line in lines:
+            topic, payload = line.split('\t', 1)
+            d = json.loads(payload)
+            self.assertEqual(d['stat_t'], 'cam/x/isp/state', topic)
+            if '/number/' in topic:
+                cmd = d['cmd_tpl'].replace('{{ value | int }}', '7')
+                self.assertTrue(json.loads(cmd)['cmd'].startswith('isp_'))
+        sw = json.loads([l for l in lines if '/switch/' in l][0].split('\t', 1)[1])
+        self.assertEqual(json.loads(sw['pl_on']), {'cmd': 'isp_tune', 'value': 'on'})
+
     def test_rtsp_probe_accepts_digest_challenge(self):
         reply = self.base / 'rtsp-reply'
         reply.write_bytes(b'RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm="LIVE555"\r\n\r\n')

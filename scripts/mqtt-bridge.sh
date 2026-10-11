@@ -16,6 +16,8 @@ STREAM_FIFO="/tmp/mqtt-bridge-sub.fifo"
 stream_pid=""
 
 . /mnt/scripts/common_functions.sh
+# Live image tuning helpers (isp_tune_* functions, ISP_TUNE_KEYS).
+[ -r /mnt/scripts/isp-tune.sh ] && . /mnt/scripts/isp-tune.sh
 
 # Cached boot-time epoch from /proc/stat — read once, zero forks on every subsequent call.
 BTIME=0
@@ -914,6 +916,37 @@ publish_homeassistant_discovery()
     publish_discovery_config "$switch_cfg_topic" "$switch_cfg_payload"
   done
 
+  # Live image tuning (number/select/switch). State: retained <root>/isp/state.
+  if command -v isp_tune_json >/dev/null 2>&1; then
+    isp_state_json="$(json_escape "${MQTT_TOPIC_ROOT}/isp/state")"
+    for isp_key in brightness contrast saturation sharpness hue exposure_max_pct; do
+      case "$isp_key" in
+        brightness) isp_name="Brightness"; isp_ic="mdi:brightness-6"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.BRIGHTNESS }}" ;;
+        contrast) isp_name="Contrast"; isp_ic="mdi:contrast-box"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.CONTRAST }}" ;;
+        saturation) isp_name="Saturation"; isp_ic="mdi:palette"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.SATURATION }}" ;;
+        sharpness) isp_name="Sharpness"; isp_ic="mdi:image-filter-center-focus"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.SHARPNESS }}" ;;
+        hue) isp_name="Hue"; isp_ic="mdi:palette-swatch"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.HUE }}" ;;
+        exposure_max_pct) isp_name="Exposure Cap"; isp_ic="mdi:camera-timer"; isp_min=0; isp_max=100; isp_step=5; isp_tpl="{{ value_json.conf.EXPOSURE_MAX_PCT or 0 }}" ;;
+      esac
+      isp_cmd_tpl_json="$(json_escape "{\"cmd\":\"isp_${isp_key}\",\"value\":\"{{ value | int }}\"}")"
+      isp_tpl_json="$(json_escape "$isp_tpl")"
+      isp_unit=""
+      [ "$isp_key" = "exposure_max_pct" ] && isp_unit=',"unit_of_meas":"%"'
+      publish_discovery_config "${discovery_prefix}/number/${node_id}/isp_${isp_key}/config" \
+        "$(printf '{"name":"%s %s","uniq_id":"%s_isp_%s","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","min":%s,"max":%s,"step":%s,"mode":"slider","ent_cat":"config"%s,"avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+          "$device_name_json" "$isp_name" "$device_id_json" "$isp_key" "$isp_state_json" "$isp_tpl_json" "$cmd_json" "$isp_cmd_tpl_json" "$isp_min" "$isp_max" "$isp_step" "$isp_unit" "$avail_topic_json" "$isp_ic" "$device_id_json" "$device_name_json")"
+    done
+    isp_hz_tpl_json="$(json_escape "{{ value_json.conf.POWER_HZ | string if value_json.conf.POWER_HZ else 'unchanged' }}")"
+    isp_hz_cmd_json="$(json_escape "{\"cmd\":\"isp_power_hz\",\"value\":\"{{ value }}\"}")"
+    publish_discovery_config "${discovery_prefix}/select/${node_id}/isp_power_hz/config" \
+      "$(printf '{"name":"%s Anti-flicker","uniq_id":"%s_isp_power_hz","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","options":["unchanged","50","60"],"ent_cat":"config","avty_t":"%s","ic":"mdi:sine-wave","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_hz_tpl_json" "$cmd_json" "$isp_hz_cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+    isp_en_tpl_json="$(json_escape "{{ 'ON' if value_json.enabled == 1 else 'OFF' }}")"
+    publish_discovery_config "${discovery_prefix}/switch/${node_id}/isp_tune/config" \
+      "$(printf '{"name":"%s Image Tuning","uniq_id":"%s_isp_tune","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","pl_on":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"on\\"}","pl_off":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"off\\"}","ent_cat":"config","avty_t":"%s","ic":"mdi:tune","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_en_tpl_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  fi
+
   # Maintenance Entities (Buttons/Select)
   reboot_btn_topic="${discovery_prefix}/button/${node_id}/reboot/config"
   reboot_btn_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","payload_press":"{\"cmd\":\"reboot\"}","avty_t":"%s","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
@@ -1282,6 +1315,15 @@ publish_health()
   mqtt_publish_topic_suffix "health" "$payload" 0
   mqtt_publish_topic_suffix "motion/state" "$motion_state_payload" 1 >/dev/null 2>&1 || true
   mqtt_publish_topic_suffix "network/state" "$network_state_payload" 1 >/dev/null 2>&1 || true
+  publish_isp_state
+}
+
+# Retained <root>/isp/state: configured tuning values, ISP_TUNE flag and the
+# values the libtc100fix thread reports as applied.
+publish_isp_state()
+{
+  command -v isp_tune_json >/dev/null 2>&1 || return 0
+  mqtt_publish_topic_suffix "isp/state" "$(isp_tune_json)" 1 >/dev/null 2>&1 || true
 }
 
 publish_event_simple()
@@ -1751,6 +1793,39 @@ handle_command_payload()
             publish_command_result "$cmd" "failed" "Failed to apply ${cmd}=${value}." 0 "$command_source" command
             ;;
         esac
+        command_rc=1
+      fi
+      ;;
+    isp_brightness|isp_contrast|isp_saturation|isp_sharpness|isp_hue|isp_power_hz|isp_exposure_max_pct)
+      isp_key="$(printf '%s' "${cmd#isp_}" | tr '[:lower:]' '[:upper:]')"
+      isp_val="${value%.0}"
+      case "$isp_key:$isp_val" in
+        POWER_HZ:unchanged) isp_val="" ;;
+        EXPOSURE_MAX_PCT:0) isp_val="" ;;
+      esac
+      if command -v isp_tune_set >/dev/null 2>&1 && isp_tune_set "$isp_key" "$isp_val"; then
+        publish_event_simple "command.${cmd}" "${isp_val:-default}"
+        publish_command_result "$cmd" "applied" "Set ${isp_key}=${isp_val:-default}; applied within a few seconds." 1 "$command_source" command
+        publish_isp_state
+      else
+        publish_event_simple "command.${cmd}" "invalid-value:${value}"
+        publish_command_result "$cmd" "invalid_value" "Invalid value ${value} for ${isp_key}." 0 "$command_source" command
+        command_rc=1
+      fi
+      ;;
+    isp_tune)
+      isp_want=""
+      case "$value" in on|1|true) isp_want=1 ;; off|0|false) isp_want=0 ;; esac
+      if [ -n "$isp_want" ] && command -v isp_tune_enabled >/dev/null 2>&1; then
+        if [ "$isp_want" != "$(isp_tune_enabled)" ]; then
+          rewrite_config /mnt/config/boot.conf ISP_TUNE "$isp_want"
+          /mnt/controlscripts/rtsp-h26x stop >/dev/null 2>&1
+          /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1
+        fi
+        publish_command_result "$cmd" "applied" "Image tuning ${value}; the video stream restarted if it changed." 1 "$command_source" command
+        publish_isp_state
+      else
+        publish_command_result "$cmd" "invalid_value" "Invalid value ${value}." 0 "$command_source" command
         command_rc=1
       fi
       ;;

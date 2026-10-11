@@ -1517,6 +1517,41 @@ curl -X POST "http://root:pass@192.168.1.24/cgi-bin/action.cgi?cmd=wizard_reset"
 
 ---
 
+## Live image tuning (`isp_tune`)
+
+Requires `ISP_TUNE=1` in `boot.conf` (the tuning thread runs inside `v4l2rtspserver`
+via `libtc100fix.so`). Values are applied within ~2 s without restarting the stream.
+
+### GET /cgi-bin/state.cgi?cmd=isp_tune&format=json
+
+```json
+{"enabled":1,
+ "conf":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"HUE":0,"POWER_HZ":null,"EXPOSURE_MAX_PCT":null},
+ "applied":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"HUE":0,"POWER_HZ":50,"EXPOSURE_MAX_PCT":0,"EXPOSURE_NOW":1125}}
+```
+
+`conf` is `/mnt/config/isp_tune.conf`; `applied` is what the camera reports
+(`/var/run/isp_tune.status`), `null` until the video server has started.
+
+### POST /cgi-bin/action.cgi?cmd=isp_tune
+
+CSRF required. Fields: `isp_enable` (switching it restarts RTSP once),
+`isp_brightness`, `isp_contrast`, `isp_saturation`, `isp_sharpness`, `isp_hue`
+(−50..50, 0 = sensor ISP value), `isp_power_hz` (empty, 50, 60),
+`isp_exposure_max_pct` (0 = no cap, else 10..100). Any invalid field rejects the
+whole request (`{"ok":false,"code":"INVALID_VALUE"}`).
+
+### MQTT
+
+Retained state on `<root>/isp/state` (same JSON as above). Commands on the
+command topic: `{"cmd":"isp_brightness","value":"20"}` (also `isp_contrast`,
+`isp_saturation`, `isp_sharpness`, `isp_hue`, `isp_exposure_max_pct`,
+`isp_power_hz` with `unchanged|50|60`) and `{"cmd":"isp_tune","value":"on|off"}`.
+Home Assistant discovery creates six `number` sliders, an `Anti-flicker` select
+and an `Image Tuning` switch (entity category: config).
+
+---
+
 ## GET /cgi-bin/currentpic.cgi
 
 Returns a current JPEG snapshot from the camera sensor.
