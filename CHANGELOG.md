@@ -5,9 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [1.8.4] — 2026-10-12
 
 ### Fixed
+- Logs page showed `{"ok":false,"error":"CSRF token missing or invalid…"}` instead of the logs: `logs.html` posted to `action.cgi` without the CSRF header, which every POST requires. It now sends the token.
+- Settings → Config Profiles: "Failed to refresh preset list" on every visit and presets that could not be loaded — the page asked `list_presets` / `load_preset` without `format=json` and got plain text. Verified on hardware: save → list → load → delete round trip.
+- Network page: "Primary IP" and "Default gateway" were `n/a`. The firmware's `timeout` shim (`busybox timeout`) could not find bare command names ("can't execute 'ifconfig'"), so `ifconfig`/`route` never ran; the shim now resolves the path first (`func.cgi`, `common_functions.sh`). Routes are read with `route -n` (the gateway had shown as "lan.home"), `ip route` "default via" is parsed, and ONVIF/FTP/Telnet ports are "expected" only when the service starts at boot.
+- Logout did nothing (`action.cgi` has no `logout` command; HTTP Basic auth cannot be ended server-side). The button now replaces the browser's cached credentials and reloads to the login prompt.
+- Device Info: binary versions showed printf placeholders (`curl 8.1.2 (…) %s`, `%s version 2.1.3`); "Release" showed only the vendor flash version — the SD firmware version is now listed first.
+- Disk page: the summary showed "Root usage: 100 %" — the read-only squashfs root, full by design. It now shows SD card usage.
+- System Usage → Service Health listed the boot hooks `00_system-config`, `01_system-emergency-telnet`, `02_system-webserver` as permanently "absent".
+- Services: memory-guard and cpu-scaler (started at boot, off until enabled in `boot.conf`) now report "Disabled" (status exit code 3) instead of needing attention; Settings can still enable them without touching autostart.
+- Dark theme: the logs table header was a blank light bar (light text on a light background); other light-only panels got dark counterparts.
+- Services → View opened a new browser tab with an unescaped `<pre>` (a script containing `<` rendered as markup). It now opens the source in a dialog (Copy, Esc / click outside to close; Ctrl/⌘-click still opens a tab), served as plain text by `scripts.cgi?cmd=source`; the full-page view escapes the source.
 - Services page: every row stayed on "Loading…" with "Service status is unavailable". The page polls `scripts.cgi?cmd=allstates` without a script name, but `allstates` was only handled inside the per-script branch, so the request got the HTML listing and the JSON parse failed. It is now answered first. A status exit code of 1 now means "stopped" instead of "error" (onvif, timelapse, sound-detection return 1 when not running); `web-server` finds lighttpd by process (its config writes no pidfile, so a running server showed as failed); `telegram-bot` and `network-monitor` no longer print their "configure first" message on `status` (read as "running"); `syslog-forward status` returns 1 when stopped. The summary counts only real problems (failures and services set to start at boot that are not running). Dark theme: the services table had a light background behind light text. Verified on hardware: 8 running · 17 stopped · 2 need attention (memory-guard and cpu-scaler start at boot but are disabled in `boot.conf`).
 - Settings → Dashboard: the Wi-Fi gauge was never filled — the page read `wifi_qual` but `statusline` did not send it. `statusline` now reports `wifi_qual` (link quality 0–100 from `/proc/net/wireless`, shell only) and `wifi_iface`. The "Gateway" field showed `0.0.0.0` from a config key nothing writes; it now shows the live default route. Verified on hardware: Wi-Fi 85–93 %, gateway 192.168.1.1.
 - The web server could not start from a fresh install: `lighttpd.conf.dist` loaded `mod_setenv`, which the bundled lighttpd 1.4.69 (static build) does not include ("mod_setenv plugin not found", lighttpd exits). Its `mod_deflate` is missing as well (keys silently ignored), so the gzip and cache/security-header blocks never worked. Both are removed from the templates (kept commented, with the reason) and a test pins `server.modules` to the plugins the binary actually has, measured on the camera with `lighttpd -tt`.
@@ -18,6 +28,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
 
 ### Changed
+- Version 1.8.4: `VERSION`, asset cache keys (`?v=1.8.4`), README; the boot log printed a hard-coded "Version: 1.0.0" and now reads `/mnt/VERSION`.
+- Motion detection monitor polls every 10 s (12 s after a detection), the values the camera had been tuned to, instead of 20/20 s.
+- Removed dead code: the lazy loader for `bulma-switch`/`bulma-badge`/`bulma-divider` (only triggered by a `status.cgi` page that no longer exists, so they were never applied) and the three stylesheets.
 - The web UI loads a purged Bulma: 677 KB → 123 KB on every uncompressed first load (the camera cannot gzip, see above); measured on the camera 0.9 s → 0.2 s for the stylesheet. Rendering checked identical against the full Bulma on 84 screenshots (every page and Settings tab, light/dark, desktop/mobile, real CGI output from the camera); only the "Updated" clock differs.
 - Push-to-talk is confirmed working on hardware: README *Known issues* and `docs/api.md` (`upload_audio.cgi`, `get_ptt_status`) now describe the patched `/mnt/bin/ak_ao_ptt` player, the RTSP pause during playback, CSRF on uploads and the `READ_FAILED` / `AUDIO_DEVICE_BUSY` responses.
 

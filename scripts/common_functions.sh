@@ -15,7 +15,18 @@ fi
 # busybox variant expecting `-t SECS`, so `timeout SECS CMD` silently fails to
 # run CMD at all. Route through busybox, whose applet takes the modern form.
 if ! timeout 1 true >/dev/null 2>&1; then
-    timeout() { busybox timeout "$@"; }
+    # The busybox applet only finds CMD when it is given as a path ("timeout 5
+    # ifconfig" failed with "can't execute 'ifconfig'", which is why the
+    # Network page showed no IP and no gateway), so resolve bare names first.
+    timeout() {
+        _to_secs="$1"; shift
+        case "$1" in
+            */*|'') ;;
+            *) _to_cmd="$(command -v "$1" 2>/dev/null)"
+               case "$_to_cmd" in /*) shift; set -- "$_to_cmd" "$@" ;; esac ;;
+        esac
+        busybox timeout "$_to_secs" "$@"
+    }
 fi
 
 BUSYBOX_BIN=""
@@ -866,6 +877,9 @@ binary_version() {
       v=""
       ;;
   esac
+  # strings(1) returns printf formats verbatim ("curl 8.1.2 (...) %s",
+  # "%s version 2.1.3"): drop the placeholders.
+  case "$v" in *%s*) v="$(printf '%s' "$v" | sed -e 's/ *%s *\([^ ]\)/ \1/g' -e 's/ *%s *$//' -e 's/^ *//')" ;; esac
 
   if [ -z "$v" ]; then
     if command -v cksum >/dev/null 2>&1; then
