@@ -356,6 +356,18 @@ ir_cut(){
 }
 
 
+# _http_server_lighttpd — start lighttpd the way 02_system-webserver does.
+# lighttpd needs /mnt/lib (libpcre2, libssl): started from a CGI or a service
+# script without LD_LIBRARY_PATH it exits at once ("can't load library
+# 'libpcre2-8.so.0'"), so a web-server restart used to leave the camera with
+# no web UI until the next reboot. WEB_MODE=http uses the plain-HTTP config.
+_http_server_lighttpd(){
+  _hs_conf=/mnt/config/lighttpd.conf
+  [ "$WEB_MODE" = "http" ] && _hs_conf=/mnt/config/lighttpd.http.conf
+  install_config "$_hs_conf"
+  LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$_hs_conf"
+}
+
 # Control the http server
 http_server(){
   WEB_MODE="full"
@@ -372,7 +384,7 @@ http_server(){
     if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
       run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
     else
-      /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
+      _http_server_lighttpd
     fi
     ;;
   off)
@@ -385,7 +397,7 @@ http_server(){
     if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
       run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
     else
-      /mnt/bin/lighttpd -f /mnt/config/lighttpd.conf
+      _http_server_lighttpd
     fi
     ;;
   status)
