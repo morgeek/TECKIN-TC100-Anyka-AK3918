@@ -34,36 +34,43 @@ auth.require = ( "/" => ("method" => "basic", "realm" => "all", "require" => "us
 server.errorlog             = "/var/log/lighttpd-error.log"
 server.upload-dirs          = ("/tmp/")
 
-# NOTE: the bundled lighttpd 1.4.69 is a static build WITHOUT mod_setenv
-# (checked on the camera: "mod_setenv plugin not found"), so response
-# headers cannot be set here; with mod_setenv in server.modules lighttpd
-# refuses to start. CGI scripts send their own Cache-Control headers.
-# Kept commented for a future build that includes mod_setenv:
-# Security headers applied to all responses to harden the web UI and reduce attack surface
-#setenv.add-response-header = (
-#  "X-Content-Type-Options" => "nosniff",
-#  "X-Frame-Options" => "SAMEORIGIN",
-#  "Content-Security-Policy" => "default-src 'self' 'unsafe-inline'"
-#)
+# --- Response headers, browser cache, compression -------------------------
+# Needs the lighttpd built by src/lighttpd/build.sh (1.8.4+): mod_setenv,
+# mod_expire and mod_deflate are compiled in. The binary shipped up to 1.8.3
+# lacks them and refuses a config that loads them; config-migrate only adds
+# this block once that binary is in place (probe: lighttpd -tt).
+# @migrate webperf deflate.max-loadavg
+server.modules += ("mod_setenv", "mod_expire", "mod_deflate")
 
-# Cache static assets (css/js/images) to reduce client/server CPU and I/O
-#$HTTP["url"] =~ "\\.(css|js|png|jpg|jpeg|svg|gif)$" {
-#  setenv.add-response-header = (
-#    "Cache-Control" => "public, max-age=86400"
-#  )
-#}
+# Security headers. CGI responses get them too.
+setenv.add-response-header = (
+  "X-Content-Type-Options" => "nosniff",
+  "X-Frame-Options" => "SAMEORIGIN",
+  "Referrer-Policy" => "same-origin"
+)
 
-# NOTE: the bundled lighttpd 1.4.69 is also built WITHOUT mod_deflate
-# ("mod_deflate plugin not found", deflate.* keys ignored), so static
-# files cannot be compressed by the server. Keep CSS/JS small instead
-# (www/css is purged of unused rules at build time).
-# Kept commented for a future build that includes mod_deflate:
-# Compress CSS/JS once per boot into tmpfs and serve from cache (~75% smaller
-# first loads). Restricted to static text assets: CGI output stays uncompressed
-# so dynamic responses cost no CPU and leak nothing via compressed lengths.
-#deflate.cache-dir = "/tmp/lighttpd-deflate/"
-#deflate.mimetypes = ("text/css", "text/javascript")
-#deflate.allowed-encodings = ("gzip", "deflate")
+# Versioned assets (?v=<release>) never change under the same URL: let the
+# browser keep them for 30 days without asking again. A new release changes
+# the URL, so nothing goes stale. Unversioned files keep the default
+# revalidation (ETag / 304).
+$HTTP["querystring"] =~ "^v=" {
+  expire.url = ( "/" => "access plus 30 days" )
+}
+
+# Compress static text files once, keep the result in tmpfs (/tmp) and serve
+# it from there afterwards: the CPU cost is paid once per file per boot, and
+# every later response is smaller to encrypt and send. CGI output is never
+# compressed (no per-request CPU, nothing leaked through compressed sizes).
+$HTTP["url"] !~ "^/cgi-bin/" {
+  deflate.mimetypes = ( "text/css", "text/javascript", "text/html", "text/plain", "image/svg+xml" )
+  deflate.allowed-encodings = ( "gzip", "deflate" )
+  deflate.cache-dir = "/tmp/lighttpd-deflate/"
+  deflate.min-compress-size = 512
+  # Skip compression (serve the file as is) while the camera is very busy.
+  # The AK3918 idles around a load of 2.5-3 because of the vendor app.
+  deflate.max-loadavg = "6.0"
+}
+# @end
 
 ## CGI (etc) stderr log
 server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
