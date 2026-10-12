@@ -4,17 +4,18 @@
 #
 # install_config only copies a .dist when the config is absent, so a camera
 # set up with an older release never receives new settings or new web-server
-# directives (measured on a 1.8.3 camera: lighttpd.conf had no mod_deflate,
-# so the 677 KB stylesheet was sent uncompressed; boot.conf lacked 34 keys).
+# directives (measured on a 1.8.3 camera: boot.conf lacked 34 keys and
+# lighttpd.conf none of the 1.8.4 keep-alive / compression settings).
 #
 # What it does (append-only, idempotent):
 #   * shell-style KEY=VALUE configs: keys present in the .dist but missing from
 #     the config are appended with their default. A key the user commented out
 #     (#KEY=) counts as present. Existing lines are never modified.
 #   * lighttpd configs: blocks marked "# @migrate <name> <probe>" ... "# @end"
-#     in the .dist are appended when <probe> is absent from the config (blocks
-#     must only use modules already loaded by the stock config). The result is
-#     checked with `lighttpd -tt` before it replaces the file. A config the
+#     in the .dist are appended when <probe> is absent from the config. The
+#     result is checked with `lighttpd -tt` before it replaces the file, so a
+#     block needing a plugin the installed binary lacks (webperf: mod_deflate,
+#     1.8.4 binary) is refused and retried on the next boot. A config the
 #     bundled lighttpd rejects because it names mod_setenv (not built in) is
 #     repaired first.
 #
