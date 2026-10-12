@@ -1,0 +1,12 @@
+{
+  "name": "tc100-webui-build",
+  "private": true,
+  "description": "Build step for the web UI stylesheet (not shipped to the camera).",
+  "type": "module",
+  "scripts": {
+    "purge": "node purge-bulma.mjs"
+  },
+  "devDependencies": {
+    "purgecss": "6.0.0"
+  }
+}
