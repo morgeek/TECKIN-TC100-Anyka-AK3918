@@ -155,9 +155,15 @@ monitor()
 status()
 {
     pid="$(cat "$PIDFILE" 2>/dev/null)"
-    if [ "$pid" ]; then
-        kill -0 "$pid" >/dev/null 2>&1 && echo "PID: $pid" || return 1
+    if [ "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+        echo "PID: $pid"
+        return 0
     fi
+    # Not running. Exit code 3 = turned off in boot.conf (CPU_SCALER_ENABLE=0): the
+    # Services page shows "Disabled" rather than a boot service that failed.
+    load_config >/dev/null 2>&1
+    is_truthy "$CPU_SCALER_ENABLE" || return 3
+    [ -z "$pid" ] || return 1
 }
 
 start()

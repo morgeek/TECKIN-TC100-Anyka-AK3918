@@ -281,6 +281,8 @@ generate_allstates_payload() {
         # not a failure. Other codes (2 = shell error, 127 = missing command)
         # remain "error".
         state="stopped"
+      elif [ "$status_rc" -eq 3 ]; then
+        state="disabled"   # turned off in boot.conf (memory-guard, cpu-scaler)
       else
         state="error"
       fi
@@ -388,10 +390,20 @@ if [ -n "$F_script" ]; then
         fi
         ;;
       view)
+        # Full page (direct link / new tab). The source is HTML-escaped: a
+        # script containing "<" used to be rendered as markup.
         echo "Content-type: text/html"
         echo ""
         echo "Contents of script '$script':"
-        echo "<pre>$(cat "$SCRIPT_HOME/$script" 2>&1)</pre>"
+        printf '<pre>'
+        sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' "$SCRIPT_HOME/$script" 2>&1
+        printf '</pre>\n'
+        ;;
+      source)
+        # Plain text for the Services page dialog.
+        echo "Content-type: text/plain; charset=utf-8"
+        echo ""
+        cat "$SCRIPT_HOME/$script" 2>&1
         ;;
       state)
         if [ ! -f "$SCRIPT_HOME/$script" ]; then
@@ -433,6 +445,8 @@ if [ -n "$F_script" ]; then
               state="timeout"
             elif [ "$status_rc" -eq 1 ]; then
               state="stopped"   # status() returns 1 when not running (see allstates)
+            elif [ "$status_rc" -eq 3 ]; then
+              state="disabled"
             else
               state="error"
             fi
@@ -522,7 +536,7 @@ else
       echo "<label for='autorun_$script_id' title='Enable or disable autorun for this service'>Boot</label>"
       echo "</td>"
       echo "<td>"
-      echo "<a href='cgi-bin/scripts.cgi?cmd=view&script=$i' class='button is-small is-light view_script' title='View this script source'>View</a>"
+      echo "<a href='cgi-bin/scripts.cgi?cmd=view&script=$i' class='button is-small is-light view_script' data-script-name='$i' title='View this script source'>View</a>"
       echo "</td>"
       echo "</tr>"
     done
@@ -541,5 +555,5 @@ else
   fi
   
   # Use bundled script to allow client caching and reduce server CPU
-  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.3-rc20-svc2\"></script>"
+  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.4\"></script>"
 fi

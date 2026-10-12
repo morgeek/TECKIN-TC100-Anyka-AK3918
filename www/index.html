@@ -23,7 +23,7 @@
 
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.purged.min.css" rel="stylesheet">
-    <link href="css/ui-modern.min.css?v=1.8.3-rc20-ui2" rel="stylesheet">
+    <link href="css/ui-modern.min.css?v=1.8.4" rel="stylesheet">
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -115,7 +115,7 @@
                 <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition">
                     <i class="icon-eye"></i>
                     <span class="wordmark" style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span>
-                    <span id="fw_version" title="Firmware version">version n/a</span>
+                    <span id="fw_version" title="Firmware version">…</span>
                     <span id="update_notifier" class="update-badge" title="New Version Available! Click to view.">NEW</span>
                 </a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
@@ -312,7 +312,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.3-rc20-isp1" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.4" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
@@ -324,7 +324,7 @@
                 if (pttLabel) pttLabel.textContent = 'Loading PTT…';
                 if (listenLabel) listenLabel.textContent = 'Loading…';
                 var script = document.createElement('script');
-                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.3-rc20';
+                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.4';
                 script.onerror = function () {
                     loading = false;
                     if (pttLabel) pttLabel.textContent = 'Retry PTT';

@@ -51,13 +51,15 @@ df_text="$(df -h 2>/dev/null)"
 iostat_text="$(iostat -d -k 2>/dev/null)"
 mount_text="$(mount 2>/dev/null)"
 
-# Single pass over df output: root usage % + filesystem count
+# Single pass over df output: SD card usage + filesystem count. (The summary
+# used to show the root filesystem, a read-only squashfs that is always 100 %
+# full by design — an alarming number that meant nothing.)
 eval "$(printf '%s\n' "$df_text" | awk '
   NR==1{next}
   {count++}
-  $NF=="/"{root=$5}
+  $1 ~ /mmcblk/ && $NF=="/mnt" && !sd {sd=$3 " used of " $2 " (" $5 ")"}
   END{
-    printf "root_usage=%s\n", (root ? root : "n/a")
+    printf "sd_usage=\"%s\"\n", (sd ? sd : "n/a")
     printf "filesystem_count=%d\n", count+0
   }
 ')"
@@ -138,8 +140,8 @@ cat << EOF
         <div class='card status_card info-card'>
             <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3s-3.6 3-8 3s-8-1.3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3M4 17c0 1.7 3.6 3 8 3s8-1.3 8-3'/></svg><span>Disk Summary</span></span></p></header>
             <div class='card-content'>
-                Root usage:
-                <pre class='info-pre'>$root_usage</pre>
+                SD card usage:
+                <pre class='info-pre'>$sd_usage</pre>
                 SD growth forecast:
                 <pre class='info-pre'>${_disk_forecast:-collecting data...}</pre>
                 Filesystems:

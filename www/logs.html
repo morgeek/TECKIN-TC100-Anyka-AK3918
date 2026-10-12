@@ -491,13 +491,24 @@
     var cmd = clearMode ? "clearlog" : "showlog";
     var body = "logname=" + encodeURIComponent(state.currentTab);
 
-    fetch("cgi-bin/action.cgi?cmd=" + cmd, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body,
-      cache: "no-store",
-    })
+    // action.cgi rejects any POST without the per-boot CSRF token (403): the
+    // log viewer used to show that JSON error instead of the logs.
+    var tokenReady = (typeof window.ensureCsrfToken === "function")
+      ? window.ensureCsrfToken().catch(function () { return ""; })
+      : Promise.resolve("");
+    tokenReady
+      .then(function (token) {
+        var headers = { "Content-Type": "application/x-www-form-urlencoded" };
+        if (token) headers["X-CSRF-Token"] = token;
+        return fetch("cgi-bin/action.cgi?cmd=" + cmd, {
+          method: "POST",
+          headers: headers,
+          body: body,
+          cache: "no-store",
+        });
+      })
       .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
         return r.text();
       })
       .then(function (html) {

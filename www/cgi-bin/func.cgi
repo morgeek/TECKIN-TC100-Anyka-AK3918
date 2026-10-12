@@ -19,7 +19,18 @@ fi
 # serving a 0-byte JPEG (HTTP 200, right MIME type, no image) on every camera.
 # /mnt/bin/busybox's applet accepts the modern form, so route through it.
 if ! timeout 1 true >/dev/null 2>&1; then
-    timeout() { busybox timeout "$@"; }
+    # The busybox applet only finds CMD when it is given as a path ("timeout 5
+    # ifconfig" failed with "can't execute 'ifconfig'", which is why the
+    # Network page showed no IP and no gateway), so resolve bare names first.
+    timeout() {
+        _to_secs="$1"; shift
+        case "$1" in
+            */*|'') ;;
+            *) _to_cmd="$(command -v "$1" 2>/dev/null)"
+               case "$_to_cmd" in /*) shift; set -- "$_to_cmd" "$@" ;; esac ;;
+        esac
+        busybox timeout "$_to_secs" "$@"
+    }
 fi
 
 # Callers that stream a BINARY body (raw PCM for PTT) must set
