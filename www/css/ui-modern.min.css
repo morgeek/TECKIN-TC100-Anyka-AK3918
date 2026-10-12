@@ -1473,6 +1473,10 @@ body.ui-ultra-lite .app-toolbar {
 :root[data-theme="dark"]{background:#101418}
 :root[data-theme="dark"] .navbar,:root[data-theme="dark"] .navbar-menu,:root[data-theme="dark"] .navbar-dropdown,:root[data-theme="dark"] .card,:root[data-theme="dark"] .status_card,:root[data-theme="dark"] .script_card,:root[data-theme="dark"] .camera-summary,:root[data-theme="dark"] .diagnostics-panel,:root[data-theme="dark"] .app-toolbar,:root[data-theme="dark"] .home-tools summary,:root[data-theme="dark"] .home-tools-menu{background:#171c21}
 :root[data-theme="dark"] .card-header,:root[data-theme="dark"] .services-table th{background:#1c2228}
+/* Services table: the light .services-table background (rgba(255,255,255,.86)) made the
+   light dark-theme text unreadable. */
+:root[data-theme="dark"] .services-table{background:transparent}
+:root[data-theme="dark"] .services-table tbody tr:nth-child(even){background:rgba(255,255,255,.035)}
 :root[data-theme="dark"] .button,:root[data-theme="dark"] .app-toolbar .button{background:#20272d;color:var(--ui-text);border-color:var(--ui-border)}
 :root[data-theme="dark"] .button:hover,:root[data-theme="dark"] .app-toolbar .button:hover{background:#29323a}
 :root[data-theme="dark"] .button.is-primary{background:#326fa9;border-color:#326fa9;color:#fff}

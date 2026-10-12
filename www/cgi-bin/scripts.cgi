@@ -275,6 +275,12 @@ generate_allstates_payload() {
         fi
       elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
         state="timeout"
+      elif [ "$status_rc" -eq 1 ]; then
+        # Most controlscripts' status() returns 1 when the daemon is not
+        # running (onvif, timelapse, sound-detection, ...): that is "stopped",
+        # not a failure. Other codes (2 = shell error, 127 = missing command)
+        # remain "error".
+        state="stopped"
       else
         state="error"
       fi
@@ -307,6 +313,17 @@ emit_allstates_response() {
 
   generate_allstates_payload
 }
+
+# allstates is a page-wide poll: the Services page calls it without a script
+# name. It used to be handled only inside the per-script branch below, so the
+# request fell through to the HTML listing, the page's JSON parse failed and
+# every row stayed on "Loading..." ("Service status is unavailable").
+if [ "$F_cmd" = "allstates" ]; then
+  echo "Content-type: application/json"
+  echo ""
+  emit_allstates_response
+  exit 0
+fi
 
 if [ -n "$F_script" ]; then
   script="${F_script##*/}"
@@ -414,6 +431,8 @@ if [ -n "$F_script" ]; then
               fi
             elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
               state="timeout"
+            elif [ "$status_rc" -eq 1 ]; then
+              state="stopped"   # status() returns 1 when not running (see allstates)
             else
               state="error"
             fi
@@ -424,11 +443,6 @@ if [ -n "$F_script" ]; then
           printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s,"uptime_s":%s}\n' \
             "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled" "$uptime_s"
         fi
-        ;;
-      allstates)
-        echo "Content-type: application/json"
-        echo ""
-        emit_allstates_response
         ;;
       *)
         echo "Content-type: text/html"
@@ -527,5 +541,5 @@ else
   fi
   
   # Use bundled script to allow client caching and reduce server CPU
-  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.3-rc20\"></script>"
+  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.3-rc20-svc2\"></script>"
 fi
