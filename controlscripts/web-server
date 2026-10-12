@@ -24,6 +24,17 @@ status()
             return 0
         fi
     fi
+    # lighttpd.conf sets no server.pid-file, so the pidfile above normally
+    # does not exist: look the process up instead (the Services page showed a
+    # running web server as failed).
+    for _name in lighttpd httpd; do
+        _pid="$(pidof "$_name" 2>/dev/null)"
+        _pid="${_pid%% *}"
+        if [ -n "$_pid" ]; then
+            echo "PID: $_pid ($_name)"
+            return 0
+        fi
+    done
     return 1
 }
 

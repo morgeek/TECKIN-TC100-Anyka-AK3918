@@ -1032,5 +1032,60 @@ class WebUiCss(unittest.TestCase):
             self.assertIn('css/bulma.1.0.2.purged.min.css', f.read_text())
         self.assertLess((ROOT / 'www/css/bulma.1.0.2.purged.min.css').stat().st_size, 160_000)
 
+class ServicesAndStatus(unittest.TestCase):
+    def test_allstates_is_answered_without_a_script_name(self):
+        # The Services page polls scripts.cgi?cmd=allstates with no script; the
+        # handler used to sit inside the per-script branch, so it got the HTML
+        # listing and every row stayed on "Loading...".
+        s = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertLess(s.index('if [ "$F_cmd" = "allstates" ]'), s.index('if [ -n "$F_script" ]'))
+        self.assertEqual(s.count('  emit_allstates_response\n'), 1)   # a single call site
+        js = (ROOT / 'www/scripts/scripts.bundle.min.js').read_text()
+        self.assertIn("fetch('cgi-bin/scripts.cgi?cmd=allstates'", js)
+
+    def test_service_status_conventions(self):
+        # status: output + rc 0 = running, no output + rc 0 or rc 1 = stopped.
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertEqual(cgi.count('elif [ "$status_rc" -eq 1 ]; then'), 2)
+        for name in ('telegram-bot', 'network-monitor'):
+            s = (ROOT / 'controlscripts' / name).read_text()
+            self.assertIn('[ "$1" = "status" ] || echo "You have to configure', s)
+        r = run('PIDFILE=/nonexistent\n' + function('controlscripts/syslog-forward', 'status') + '\nstatus')
+        self.assertEqual((r.returncode, r.stdout), (1, b''))
+        ws = (ROOT / 'controlscripts/web-server').read_text()
+        self.assertIn('pidof "$_name"', ws)
+
+    def test_dashboard_gateway_is_the_live_default_route(self):
+        fn = function('www/cgi-bin/state.cgi', 'get_live_gateway')
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'route'
+            hdr = 'Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n'
+            for body, want in [('wlan0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n'
+                                'wlan0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n', '192.168.1.1'),
+                               ('wlan0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n', 'n/a')]:
+                f.write_text(hdr + body)
+                r = run(fn + '\nROUTE_PROC_FILE=%s; get_live_gateway' % shlex.quote(str(f)))
+                self.assertEqual(r.stdout.decode().strip(), want)
+        self.assertNotIn('get_cfg DEFAULT_GATEWAY', (ROOT / 'www/cgi-bin/state.cgi').read_text())
+
+    def test_statusline_reports_wifi_quality(self):
+        fn = function('www/cgi-bin/state.cgi', 'get_wifi_quality')
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'wireless'
+            hdr = ('Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\n'
+                   ' face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\n')
+            cases = [(' wlan0: 0000   86.   78.    0.       0      0      0      0      0        0\n'
+                      ' wlan1: 0000    0.    0.    0.       0      0      0      0      0        0\n', '86 wlan0'),
+                     (' wlan1: 0000    0.    0.    0.       0      0      0      0      0        0\n', 'null '),
+                     (' wlan1: 0000   40.   30.    0.       0      0      0      0      0        0\n', '40 wlan1'),
+                     (' wlan0: 0000  120.   78.    0.       0      0      0      0      0        0\n', '100 wlan0'),
+                     ('', 'null ')]
+            for body, want in cases:
+                f.write_text(hdr + body)
+                r = run(fn + '\nWIFI_PROC_FILE=%s; get_wifi_quality; echo "$wifi_qual_json $wifi_iface_json"' % shlex.quote(str(f)))
+                self.assertEqual(r.stdout.decode().strip('\n'), want, body)
+        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        self.assertIn('\\"wifi_qual\\":$wifi_qual_json', s)
+
 if __name__ == '__main__':
     unittest.main()
