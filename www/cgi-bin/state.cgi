@@ -851,6 +851,65 @@ get_perf_profile() {
   echo "$profile"
 }
 
+# get_wifi_quality — Wi-Fi link quality (0-100) for the dashboard gauge, read
+# from /proc/net/wireless with the shell only (this runs on every statusline
+# poll). The RTL8188FU reports "link" and "level" on a 0-100 scale, e.g.
+#   wlan0: 0000   86.   78.    0. ...   (iwconfig: Link Quality=86/100)
+# wlan1 is the idle AP interface (all zeros). Prefers wlan0, otherwise the
+# first interface with a non-zero link. Sets wifi_qual_json ("null" when no
+# wireless link) and wifi_iface_json.
+# get_live_gateway — default route gateway from /proc/net/route, shell only.
+# The dashboard's "Gateway" used to come from a DEFAULT_GATEWAY config key that
+# nothing ever writes, so it always showed 0.0.0.0. Prints "n/a" without one.
+get_live_gateway() {
+  _glg_src="${ROUTE_PROC_FILE:-/proc/net/route}"
+  _glg_hex=""
+  if [ -r "$_glg_src" ]; then
+    while read -r _glg_if _glg_dst _glg_gw _glg_rest; do
+      [ "$_glg_dst" = "00000000" ] || continue
+      case "$_glg_gw" in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) continue ;; esac
+      [ "$_glg_gw" = "00000000" ] && continue
+      _glg_hex="$_glg_gw"
+      break
+    done < "$_glg_src"
+  fi
+  if [ -z "$_glg_hex" ]; then
+    echo "n/a"
+    return 0
+  fi
+  # Little-endian hex: 0101A8C0 -> 192.168.1.1
+  _glg_a="${_glg_hex#??????}"
+  _glg_b="${_glg_hex#????}"; _glg_b="${_glg_b%??}"
+  _glg_c="${_glg_hex#??}"; _glg_c="${_glg_c%????}"
+  _glg_d="${_glg_hex%??????}"
+  printf '%d.%d.%d.%d\n' "0x$_glg_a" "0x$_glg_b" "0x$_glg_c" "0x$_glg_d"
+}
+
+get_wifi_quality() {
+  wifi_qual_json="null"
+  wifi_iface_json=""
+  _gwq_src="${WIFI_PROC_FILE:-/proc/net/wireless}"
+  [ -r "$_gwq_src" ] || return 0
+  _gwq_best=""
+  _gwq_iface=""
+  while read -r _gwq_if _gwq_status _gwq_link _gwq_rest; do
+    case "$_gwq_if" in *:) ;; *) continue ;; esac
+    _gwq_if="${_gwq_if%:}"
+    _gwq_link="${_gwq_link%%.*}"
+    case "$_gwq_link" in ''|*[!0-9]*) continue ;; esac
+    [ "$_gwq_link" -gt 0 ] || continue
+    if [ "$_gwq_if" = "wlan0" ] || [ -z "$_gwq_best" ]; then
+      _gwq_best="$_gwq_link"
+      _gwq_iface="$_gwq_if"
+      [ "$_gwq_if" = "wlan0" ] && break
+    fi
+  done < "$_gwq_src"
+  [ -n "$_gwq_best" ] || return 0
+  [ "$_gwq_best" -gt 100 ] && _gwq_best=100
+  wifi_qual_json="$_gwq_best"
+  wifi_iface_json="$_gwq_iface"
+}
+
 get_sd_usage() {
   sd_used_kb=0
   sd_total_kb=0
@@ -968,6 +1027,7 @@ if [ -n "$F_cmd" ]; then
     get_ui_ultralite_mode
     get_security_and_mqtt_flags
     get_sd_usage
+    get_wifi_quality
     default_password_active="$(default_password_active_flag)"
     default_password_active="$(sanitize_int "$default_password_active" 0)"
     profile_json="$(json_escape "$profile")"
@@ -1019,7 +1079,7 @@ if [ -n "$F_cmd" ]; then
     fi
     current_version_json="$(json_escape "$current_version")"
 
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\"}"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\"}"
     ;;
 
   integrationtest)
@@ -1516,7 +1576,7 @@ if [ -n "$F_cmd" ]; then
       "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg 0_osdfontsize 24)" 24)" "$(sanitize_int "$(get_cfg osdfrontcolor 1)" 1)" "$(sanitize_int "$(get_cfg osdbackcolor 0)" 0)" "$(sanitize_int "$(get_cfg osdedgecolor 2)" 2)" "$(sanitize_int "$(get_cfg 0_osdx 10)" 10)" "$(sanitize_int "$(get_cfg 0_osdy 10)" 10)" \
       "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
       "$(sanitize_int "$(get_cfg rec_postrecord_sec 10)" 10)" "$(sanitize_int "$(get_cfg rec_file_duration_sec 60)" 60)" "$(sanitize_int "$(get_cfg rec_reserverd_disk_mb 1024)" 1024)" "$(truthy_flag "$(get_cfg rec_motion_activated 0)")" \
-      "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_cfg DEFAULT_GATEWAY "0.0.0.0")")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
+      "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_live_gateway)")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
       "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 8192)" 8192)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 4096)" 4096)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
       "$(sanitize_int "$(get_cfg tlinterval 10)" 10)" "$(sanitize_int "$(get_cfg tlduration 0)" 0)" \
       "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$(sanitize_int "$(get_cfg THRESHOLD 1500)" 1500)" "$(sanitize_int "$(get_cfg INTERVAL 5)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")" \

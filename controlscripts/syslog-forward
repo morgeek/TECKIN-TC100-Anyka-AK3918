@@ -27,7 +27,8 @@ status() {
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     echo "running (PID $pid)"
   else
-    echo "stopped"
+    echo "stopped" >&2
+    return 1
   fi
 }
 
@@ -82,7 +83,7 @@ restart() {
 }
 
 health() {
-  _s="$(status)"
+  _s="$(status 2>&1)"
   case "$_s" in
     running*) echo "ok: $_s" ;;
     *)
