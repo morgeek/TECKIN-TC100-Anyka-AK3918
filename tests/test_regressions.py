@@ -903,9 +903,10 @@ class ConfigMigrate(unittest.TestCase):
         self.assertEqual((self.cfg / 'rtspserver.conf').read_text(), '[0]\nPORT=554\n')
         httpd = (self.cfg / 'lighttpd.conf').read_text()
         httpd = '\n'.join(l for l in httpd.splitlines() if not l.lstrip().startswith('#'))
-        self.assertNotIn('setenv', httpd)
-        self.assertNotIn('deflate', httpd)
         self.assertEqual(httpd.count('server.max-keep-alive-idle = 45'), 1)
+        # webperf block (lighttpd -tt cannot run here, so it is accepted)
+        self.assertEqual(httpd.count('server.modules += ("mod_setenv", "mod_expire", "mod_deflate")'), 1)
+        self.assertEqual(httpd.count('deflate.max-loadavg'), 1)
         for name in ('boot.conf', 'mqtt.conf'):
             r = subprocess.run(['sh', '-n', str(self.cfg / name)], capture_output=True)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -925,21 +926,33 @@ class ConfigMigrate(unittest.TestCase):
         self.assertEqual((self.cfg / 'boot.conf').read_text(), 'X=1\n')
         self.assertEqual((self.cfg / '.migrate-stamp').read_text(), stamp)
 
-    # Modules the bundled bin/lighttpd (static 1.4.69) accepts, checked on the
-    # camera with `lighttpd -tt` and its error log: mod_setenv, mod_deflate,
-    # mod_expire, mod_access, mod_rewrite, mod_accesslog and mod_status are NOT
-    # built in (mod_deflate is only a warning, its keys are silently ignored).
-    LIGHTTPD_MODULES = {'mod_auth', 'mod_authn_file', 'mod_redirect', 'mod_cgi', 'mod_staticfile',
-                        'mod_openssl', 'mod_alias'}
+    # Plugins compiled into bin/lighttpd: src/lighttpd/plugin-static.h. A
+    # static lighttpd refuses a config that loads anything else.
+    @staticmethod
+    def built_in_modules():
+        return set(re.findall(r'^PLUGIN_INIT\((mod_\w+)\)', (ROOT / 'src/lighttpd/plugin-static.h').read_text(), re.M))
 
     def test_httpd_dist_modules_are_built_in(self):
+        built_in = self.built_in_modules()
         for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
             text = (ROOT / 'config' / name).read_text()
-            mods = set(re.findall(r'"(mod_\w+)"', re.search(r'^server\.modules = \((.*?)\)', text, re.M | re.S).group(1)))
-            self.assertLessEqual(mods, self.LIGHTTPD_MODULES, name)
             live = '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
-            self.assertNotIn('setenv.', live, name)
-            self.assertNotIn('deflate.', live, name)
+            mods = set()
+            for m in re.finditer(r'^server\.modules \+?= \((.*?)\)', live, re.M | re.S):
+                mods |= set(re.findall(r'"(mod_\w+)"', m.group(1)))
+            self.assertIn('mod_deflate', mods, name)
+            self.assertLessEqual(mods, built_in, name)
+
+    def test_bundled_lighttpd_matches_plugin_list(self):
+        # The 1.8.3 binary had neither zlib nor mod_setenv/expire/deflate
+        # registered ("plugin not found"); the rebuilt one has both.
+        binary = (ROOT / 'bin/lighttpd').read_bytes()
+        self.assertIn(b'\t+ zlib support', binary)
+        self.assertNotIn(b'/home/a/PROJECTS', binary)          # not the old build
+        for mod in self.built_in_modules():
+            self.assertIn(mod.encode() + b'\0', binary, mod)
+        self.assertEqual(self.built_in_modules() & {'mod_setenv', 'mod_expire', 'mod_deflate'},
+                         {'mod_setenv', 'mod_expire', 'mod_deflate'})
 
     def test_repairs_config_naming_mod_setenv(self):
         # A camera installed from the 1.8.3-rc20 .dist names mod_setenv, which
@@ -960,8 +973,13 @@ class ConfigMigrate(unittest.TestCase):
         live = [l for l in httpd.splitlines() if not l.lstrip().startswith('#')]
         self.assertFalse([l for l in live if 'setenv' in l], httpd)
         self.assertIn('$HTTP["url"] =~ "\\.css$" {', live)          # block kept, now empty
-        self.assertIn('removed mod_setenv', (self.cfg / 'log').read_text())
-        self.assertTrue((self.cfg / '.migrate-stamp').exists())
+        log = (self.cfg / 'log').read_text()
+        self.assertIn('removed mod_setenv', log)
+        # The stub is the 1.8.3 binary: the webperf block (mod_setenv) is
+        # refused, the config stays as repaired, and the next boot retries.
+        self.assertIn('lighttpd rejected the migrated config', log)
+        self.assertNotIn('deflate.max-loadavg', httpd)
+        self.assertFalse((self.cfg / '.migrate-stamp').exists())
 
     def test_vendor_busybox(self):
         # The camera runs this with its own BusyBox 1.24 ash (rootfs /bin/busybox).
@@ -1004,7 +1022,7 @@ class ConfigMigrate(unittest.TestCase):
         for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
             text = (ROOT / 'config' / name).read_text()
             blocks = re.findall(r'^# @migrate (\S+) ([^\n]+)\n(.*?)^# @end$', text, re.M | re.S)
-            self.assertEqual([b[0] for b in blocks], ['keepalive'], name)
+            self.assertEqual([b[0] for b in blocks], ['webperf', 'keepalive'], name)
             for _, probe, body in blocks:
                 self.assertIn(probe, body, (name, probe))
 

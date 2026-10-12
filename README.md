@@ -235,6 +235,8 @@ config/             Config templates (*.conf.dist) and autostart scripts
 config/autostart/   Boot scripts executed in numeric order by autorun.sh
 sounds/             Alert/notification audio
 docs/               API reference and project documentation
+src/                Build sources: libtc100fix shim, lighttpd plugin set and
+                    cross-build script, Bulma purge
 ```
 
 The web assets under `www/` are prebuilt and served as-is.
