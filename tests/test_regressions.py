@@ -1068,6 +1068,48 @@ class ServicesAndStatus(unittest.TestCase):
                 self.assertEqual(r.stdout.decode().strip(), want)
         self.assertNotIn('get_cfg DEFAULT_GATEWAY', (ROOT / 'www/cgi-bin/state.cgi').read_text())
 
+    def test_config_disabled_services_report_disabled(self):
+        # memory-guard / cpu-scaler start at boot but stay off until enabled in
+        # boot.conf: status exits 3, shown as "Disabled", not as a problem.
+        for name, var in (('memory-guard', 'MEM_GUARD_ENABLE'), ('cpu-scaler', 'CPU_SCALER_ENABLE')):
+            fn = function('controlscripts/' + name, 'status')
+            for enable, want in (('0', 3), ('1', 0)):
+                code = ('PIDFILE=/nonexistent\nis_truthy() { [ "$1" = 1 ]; }\n'
+                        'load_config() { %s=%s; }\n' % (var, enable)) + fn + '\nstatus'
+                self.assertEqual(run(code).returncode, want, (name, enable))
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertEqual(cgi.count('state="disabled"'), 2)
+        js = (ROOT / 'www/scripts/scripts.bundle.min.js').read_text()
+        self.assertIn("case 'disabled':", js)
+        self.assertIn('state === "disabled") return false;', js)
+
+    def test_page_audit_regressions(self):
+        logs = (ROOT / 'www/logs.html').read_text()
+        self.assertIn('headers["X-CSRF-Token"] = token', logs)          # showlog POST was 403
+        idx = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
+        self.assertIn("cmd=list_presets&format=json", idx)               # empty text -> JSON error
+        self.assertIn("cmd=load_preset&format=json", idx)
+        self.assertIn('xhr.open("GET", "cgi-bin/state.cgi?cmd=hostname', idx)  # logout did nothing
+        svc = (ROOT / 'www/scripts/scripts.bundle.min.js').read_text()
+        self.assertIn("cmd=source&script=", svc)                          # View opens a dialog
+        self.assertNotIn("window.open(href, '_blank'", svc)
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertIn('      source)\n', cgi)
+        self.assertIn("-e 's/</\\&lt;/g'", cgi)                           # view page escapes markup
+        health = (ROOT / 'www/cgi-bin/health.cgi').read_text()
+        self.assertIn('[ -x "/mnt/controlscripts/$_as_name" ] || continue', health)
+        # Gateway parsing of the /proc/net/route fallback format.
+        net = (ROOT / 'www/cgi-bin/network.cgi').read_text()
+        awk = re.search(r"default_gateway=\"\$\(printf '%s\\n' \"\$routes_text\" \| awk '(.*?)'\)\"", net).group(1)
+        for text, want in (('Iface Destination Gateway\nwlan0 0.0.0.0 192.168.1.1 0003\n', '192.168.1.1'),
+                           ('Destination Gateway Genmask\n0.0.0.0 192.168.1.1 0.0.0.0 UG\n', '192.168.1.1'),
+                           ('default via 10.0.0.1 dev wlan0\n', '10.0.0.1')):
+            r = subprocess.run(['awk', awk], input=text.encode(), capture_output=True)
+            self.assertEqual(r.stdout.decode().strip(), want, text)
+        # timeout shim resolves bare command names (busybox applet could not).
+        for p in ('www/cgi-bin/func.cgi', 'scripts/common_functions.sh'):
+            self.assertIn('_to_cmd="$(command -v "$1" 2>/dev/null)"', (ROOT / p).read_text())
+
     def test_statusline_reports_wifi_quality(self):
         fn = function('www/cgi-bin/state.cgi', 'get_wifi_quality')
         with tempfile.TemporaryDirectory() as d:

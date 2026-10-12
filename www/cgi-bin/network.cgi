@@ -234,8 +234,13 @@ case "$web_mode" in
     ;;
 esac
 
-ftp_expected=1
-telnet_expected=1
+# A port is "expected" open only when its service starts at boot; otherwise
+# it is "optional" (ONVIF/FTP/Telnet were always "expected", so a stopped
+# optional service read as a fault).
+_autostart() { [ -e "/mnt/config/autostart/$1" ] && echo 1 || echo ""; }
+onvif_expected="$(_autostart onvif)"
+ftp_expected="$(_autostart ftp-server)"
+telnet_expected="$(_autostart telnet-server)"
 ftp_note="File transfer service"
 telnet_note="Shell access service"
 if is_truthy_local "$security_hardening_mode"; then
@@ -249,7 +254,7 @@ open_ports_rows="$(cat <<EOF
 $(emit_port_row "HTTPS web UI" 443 "$https_expected" "$https_note")
 $(emit_port_row "HTTP web UI" "$http_port" "$http_expected" "$http_note")
 $(emit_port_row "RTSP" "$rtsp_port" 1 "Main/sub streams")
-$(emit_port_row "ONVIF" "$onvif_port" 1 "NVR/Home Assistant discovery")
+$(emit_port_row "ONVIF" "$onvif_port" "$onvif_expected" "NVR/Home Assistant discovery")
 $(emit_port_row "FTP" "$ftp_port" "$ftp_expected" "$ftp_note")
 $(emit_port_row "Telnet" "$telnet_port" "$telnet_expected" "$telnet_note")
 EOF
@@ -270,7 +275,9 @@ _wifi_text="$(with_timeout 3 iwconfig 2>/dev/null)"
 ${_wifi_text}"
 
 # ── routes ────────────────────────────────────────────────────────────────────
-routes_text="$(with_timeout 5 route 2>/dev/null)"
+# -n: numeric. Without it the gateway showed as "lan.home" and the reverse
+# DNS lookups could stall the page.
+routes_text="$(with_timeout 5 route -n 2>/dev/null)"
 if [ -z "$routes_text" ]; then
   routes_text="$(with_timeout 5 ip route 2>/dev/null)"
 fi
@@ -361,7 +368,9 @@ fi
 primary_ip="$(printf '%s\n' "$interfaces_text" | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
 [ -n "$primary_ip" ] || primary_ip="n/a"
 
-default_gateway="$(printf '%s\n' "$routes_text" | awk '$1=="default" || $1=="0.0.0.0"{print $2; exit}')"
+# route prints "0.0.0.0 <gw>", ip route "default via <gw>"; the /proc/net/route fallback above
+# prints "<iface> 0.0.0.0 <gw>".
+default_gateway="$(printf '%s\n' "$routes_text" | awk '$1=="default"{for(i=2;i<NF;i++) if($i=="via"){print $(i+1); exit} print $2; exit} $1=="0.0.0.0"{print $2; exit} $2=="0.0.0.0" && $3!="0.0.0.0"{print $3; exit}')"
 [ -n "$default_gateway" ] || default_gateway="n/a"
 
 dns_servers="$(printf '%s\n' "$dns_text" | awk '

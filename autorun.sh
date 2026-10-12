@@ -1097,7 +1097,8 @@ apply_kernel_log_tuning
 # Validate config values early — logs to /tmp/log/config-validator.log, never fatal.
 [ -x /mnt/scripts/config-validator.sh ] && /mnt/scripts/config-validator.sh &
 echo "--------Starting Hacks--------" >> $LOGPATH
-echo "Version: 1.0.0" >> $LOGPATH
+_fw_version="unknown"; [ -r /mnt/VERSION ] && read -r _fw_version < /mnt/VERSION
+echo "Version: $_fw_version" >> $LOGPATH
 stop_cloud
 enable_hardware_watchdog
 init_network
