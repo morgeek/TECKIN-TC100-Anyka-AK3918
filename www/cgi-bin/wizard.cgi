@@ -194,7 +194,7 @@ cat << 'HTMLEOF'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TC100 — Initial setup</title>
-<link rel="stylesheet" href="/css/bulma.1.0.2.min.css">
+<link rel="stylesheet" href="/css/bulma.1.0.2.purged.min.css">
 <style>
 *, *::before, *::after { box-sizing: border-box; }
 
