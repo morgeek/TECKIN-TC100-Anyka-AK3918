@@ -200,13 +200,13 @@ class Regressions(unittest.TestCase):
 
     def test_tc100fix_preload_is_opt_in_and_scoped_to_rtsp_server(self):
         s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"', ': "${VENDOR_PRINT_LEVEL:=}"'):
+        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"', ': "${VENDOR_PRINT_LEVEL:=}"'):
             self.assertIn(default, s)
         # The preload is set on the v4l2rtspserver command only, never exported.
         self.assertNotIn('export LD_PRELOAD', s)
         self.assertIn('env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
         conf = (ROOT / 'config/boot.conf.dist').read_text()
-        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=0', 'VENDOR_PRINT_LEVEL='):
+        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=1', 'VENDOR_PRINT_LEVEL='):
             self.assertRegex(conf, r'(?m)^' + re.escape(line) + r'$')
         lib = (ROOT / 'lib/libtc100fix.so').read_bytes()
         self.assertEqual(lib[:4], b'\x7fELF')
@@ -1078,7 +1078,7 @@ class ServicesAndStatus(unittest.TestCase):
                         'load_config() { %s=%s; }\n' % (var, enable)) + fn + '\nstatus'
                 self.assertEqual(run(code).returncode, want, (name, enable))
         cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
-        self.assertEqual(cgi.count('state="disabled"'), 2)
+        self.assertEqual(cgi.count('state="disabled"'), 3)   # probe (x2) + fast path
         js = (ROOT / 'www/scripts/scripts.bundle.min.js').read_text()
         self.assertIn("case 'disabled':", js)
         self.assertIn('state === "disabled") return false;', js)
@@ -1109,6 +1109,55 @@ class ServicesAndStatus(unittest.TestCase):
         # timeout shim resolves bare command names (busybox applet could not).
         for p in ('www/cgi-bin/func.cgi', 'scripts/common_functions.sh'):
             self.assertIn('_to_cmd="$(command -v "$1" 2>/dev/null)"', (ROOT / p).read_text())
+
+    def test_allstates_fast_path(self):
+        # Fast-path services must have a pidfile-only status(); the fast path
+        # must agree with it (running iff the pidfile PID is alive).
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        fast = re.search(r'FAST_PIDFILE_SERVICES=" ([^"]+) "', cgi).group(1).split()
+        for name in fast:
+            body = function('controlscripts/' + name, 'status')
+            self.assertRegex(body, r'\$\{?(PIDFILE|PID_FILE)', name)
+            self.assertNotRegex(body, r'(setconf|_status\b|_led |ir_cut|ir_led|motion_detection)', name)
+        code = '\n'.join(function('www/cgi-bin/scripts.cgi', f) for f in
+                         ('parse_script_capabilities', 'boot_conf_flag', 'fast_pidfile_state'))
+        code = ('cd %s\n' % shlex.quote(str(ROOT))) + re.search(r'^FAST_PIDFILE_SERVICES=.*$', cgi, re.M).group(0) + '\n' + code
+        code += '\n_svc_pid_uptime() { _svc_uptime_s=7; }\n'
+        with tempfile.TemporaryDirectory() as d:
+            live, dead = Path(d) / 'live.pid', Path(d) / 'dead.pid'
+            live.write_text('%d\n' % os.getpid()); dead.write_text('999999\n')
+            for pidfile, want in ((live, 'running 1 7'), (dead, 'stopped 0 -1'), (Path(d) / 'none', 'stopped 0 -1')):
+                r = run(code + '\nparse_script_capabilities controlscripts/ftp-server; script_pidfile=%s; state=unknown; running=0; uptime_s=-1;'
+                        ' fast_pidfile_state ftp-server; echo "$state $running $uptime_s"' % shlex.quote(str(pidfile)))
+                self.assertEqual(r.stdout.decode().strip(), want, (pidfile, r.stderr))
+            r = run(code + '\nparse_script_capabilities controlscripts/auto-night-detection; fast_pidfile_state auto-night-detection; echo "rc=$?"')
+            self.assertEqual(r.stdout.decode().strip(), 'rc=1')
+
+    def test_allstates_payload_and_caps_cache(self):
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        names = ['is_valid_script_name', '_svc_read_uptime_s', '_svc_pid_uptime', 'parse_script_capabilities',
+                 'read_first', 'kv_value', 'fast_toggle_state', 'boot_conf_flag', 'fast_pidfile_state',
+                 'ensure_caps_cache', 'generate_allstates_payload']
+        code = re.search(r'^FAST_PIDFILE_SERVICES=.*$', cgi, re.M).group(0) + '\n'
+        code += '\n'.join(function('www/cgi-bin/scripts.cgi', n) for n in names)
+        code += '\nrun_status_probe() { echo "PROBED $1" >&2; return 1; }\n'
+        with tempfile.TemporaryDirectory() as d:
+            env = 'SCRIPT_HOME=%s; AUTOSTART_DIR=%s; CAPS_CACHE_FILE=%s/caps\n' % (
+                shlex.quote(str(ROOT / 'controlscripts')), shlex.quote(d), shlex.quote(d))
+            r = run(env + code + '\ngenerate_allstates_payload')
+            data = json.loads(r.stdout)
+            self.assertEqual(len(data['services']), len(list((ROOT / 'controlscripts').iterdir())))
+            self.assertNotIn(b'PROBED', r.stderr)          # every script is on a fast path
+            caps = (Path(d) / 'caps').read_text()
+            self.assertIn('rtsp-h26x 1 1 1 /var/run/v4l2rtspserver.pid', caps)
+            r2 = run(env + code + '\nparse_script_capabilities() { echo REPARSED >&2; }\ngenerate_allstates_payload')
+            self.assertEqual(json.loads(r2.stdout), data)
+            self.assertNotIn(b'REPARSED', r2.stderr)      # cache reused
+        # The fast toggle paths read the same files as common_functions.sh.
+        cf = (ROOT / 'scripts/common_functions.sh').read_text()
+        for f in ('/sys/user-gpio/ir-led', '/var/run/ircut', '/var/run/vday', '/sys/class/leds/$2/brightness',
+                  '/mnt/bin/setconf -g p'):
+            self.assertIn(f, cf)
 
     def test_statusline_reports_wifi_quality(self):
         fn = function('www/cgi-bin/state.cgi', 'get_wifi_quality')
