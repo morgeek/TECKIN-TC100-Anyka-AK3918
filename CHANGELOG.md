@@ -28,6 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
 
 ### Changed
+- Services page: `allstates` answers in ~1 s instead of 5–12 s (measured on the camera, CLI 5.3 s → 1.0 s). Services whose status is "PID in the pidfile is alive" are read from the pidfile and `/proc`; the LED / IR / night / motion / auto-night / web-server toggles are computed from the same files their `status()` reads; script capabilities are cached in `/tmp` until a controlscript changes. No script is started per poll any more (each start cost ~0.2 s). States verified identical to the probe-based version on hardware.
+- `RTSP_MIC_OFF_WHEN_NO_AUDIO` defaults to 1: with `RTSP_AUDIO=0` the vendor server no longer runs the microphone, echo canceller and noise reduction (~6.5 % CPU). No effect when audio is served; set 0 to restore the vendor behaviour.
 - Version 1.8.4: `VERSION`, asset cache keys (`?v=1.8.4`), README; the boot log printed a hard-coded "Version: 1.0.0" and now reads `/mnt/VERSION`.
 - Motion detection monitor polls every 10 s (12 s after a detection), the values the camera had been tuned to, instead of 20/20 s.
 - Removed dead code: the lazy loader for `bulma-switch`/`bulma-badge`/`bulma-divider` (only triggered by a `status.cgi` page that no longer exists, so they were never applied) and the three stylesheets.

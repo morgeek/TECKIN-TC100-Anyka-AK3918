@@ -19,7 +19,7 @@ fi
 : "${RTSP_SUBSTREAM:=1}"
 : "${RTSP_AUDIO:=1}"
 : "${RTSP_FPS_LOCK:=0}"
-: "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"
+: "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"
 : "${VENDOR_PRINT_LEVEL:=}"
 : "${ISP_TUNE:=0}"
 : "${ONVIF_STREAM_POLICY:=main-primary}"

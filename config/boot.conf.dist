@@ -136,10 +136,10 @@ RTSP_AUDIO=1
 # - RTSP_FPS_LOCK=1: keep the sensor at the configured frame rate. The vendor
 #   library otherwise drops to ~10 fps in low light and back to 25 fps, which
 #   makes the RTSP frame rate oscillate (bad for Frigate).
-# - RTSP_MIC_OFF_WHEN_NO_AUDIO=1: when RTSP_AUDIO=0, do not start the
-#   microphone, echo canceller and noise reduction the server otherwise runs
-#   for nothing (measured ~6.5% CPU: aec_task + ai_capture). No effect when
-#   RTSP_AUDIO=1.
+# - RTSP_MIC_OFF_WHEN_NO_AUDIO=1 (default since 1.8.4): when RTSP_AUDIO=0,
+#   do not start the microphone, echo canceller and noise reduction the server
+#   otherwise runs for nothing (measured ~6.5% CPU: aec_task + ai_capture).
+#   No effect when RTSP_AUDIO=1. Set 0 to restore the vendor behaviour.
 # - VENDOR_PRINT_LEVEL=0..9: replace the level the server forces (3) into
 #   /var/log/ak_print_level, read by every vendor library. Empty = untouched.
 #   Small effect: vendor syslog chatter is cheap on this hardware.
@@ -147,7 +147,7 @@ RTSP_AUDIO=1
 #   contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied
 #   without restarting the stream.
 RTSP_FPS_LOCK=0
-RTSP_MIC_OFF_WHEN_NO_AUDIO=0
+RTSP_MIC_OFF_WHEN_NO_AUDIO=1
 VENDOR_PRINT_LEVEL=
 ISP_TUNE=0
 
