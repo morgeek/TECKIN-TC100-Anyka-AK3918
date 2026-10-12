@@ -1,8 +1,8 @@
 # TECKIN TC100 / Anyka AK3918 — Firmware Extension
 
-> **1.8.3-rc20 — stabilization candidate for 1.8.3.** This release candidate combines the Frigate Light profile, bounded monitoring, restored PTT, transactional configuration updates, the flat low-cost UI, and the final operator workflow. It is the branch to validate before tagging the 1.8.3 release.
+> **1.8.4** — builds on the 1.8.3 stabilization work: run-time fixes for the vendor RTSP server (`libtc100fix.so`: steady frame rate in low light, microphone off when audio is not served), live image tuning from the web UI and Home Assistant, automatic migration of configs from older releases, a lighter web UI and a round of web UI fixes verified on hardware. See [CHANGELOG.md](CHANGELOG.md).
 
-**Version 1.8.3-rc20** — *Frigate & Home Assistant Edition*
+**Version 1.8.4** — *Frigate & Home Assistant Edition*
 
 Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Click** (CPU Anyka AK3918 v300). Optimized for direct Frigate + Home Assistant integration without any cloud dependency.
 

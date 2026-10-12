@@ -1710,3 +1710,20 @@ html{background:var(--ui-bg)}body::before,body::after{display:none}.navbar{backg
 
 /* rc20 operator mode and compact service feedback */
 .operator-toggle{font:inherit;color:var(--ui-text);background:transparent;border:0;cursor:pointer}.operator-mode #status,.operator-mode #services,.operator-mode .admin-nav{display:none!important}.operator-mode .operator-toggle{font-weight:700;border-bottom:2px solid var(--ui-primary)}.services-overview{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.6rem;padding:.45rem .55rem;border:1px solid var(--ui-border-soft);background:var(--ui-bg-alt)}.services-overview label{font-size:.82rem}.services-overview input{vertical-align:middle}.services-error{margin-bottom:.6rem}.services-error[hidden]{display:none}
+
+/* Services → View: script source in a native <dialog> (scripts.bundle.min.js). */
+.source-dialog{width:min(960px,calc(100vw - 2rem));max-height:calc(100vh - 3rem);padding:0;border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:var(--ui-surface-strong);color:var(--ui-text);box-shadow:var(--ui-shadow)}
+.source-dialog[open]{display:flex;flex-direction:column}
+.source-dialog::backdrop{background:rgba(8,12,18,.55)}
+.source-dialog-head{display:flex;align-items:center;gap:.6rem;padding:.65rem .9rem;border-bottom:1px solid var(--ui-border-soft)}
+.source-dialog-title{font-family:var(--ui-font-mono);font-size:.95rem}
+.source-dialog-meta{color:var(--ui-muted);font-size:.8rem;margin-right:auto}
+.source-dialog-close{flex:none;font-size:1.1rem;line-height:1;min-width:2.2em}
+.source-dialog-body{margin:0;padding:.8rem .9rem;overflow:auto;flex:1;min-height:6rem;font-family:var(--ui-font-mono);font-size:.78rem;line-height:1.45;white-space:pre;background:transparent;color:inherit;tab-size:4}
+
+/* Dark theme: light panels that had no dark counterpart (logs table header
+   showed as a blank light bar, its text being light too). */
+:root[data-theme="dark"] .logs-table-wrap,:root[data-theme="dark"] .status-organizer{background:transparent}
+:root[data-theme="dark"] .logs-table thead th{background:#1c2228}
+:root[data-theme="dark"] .logs-parse-notice{background:rgba(192,132,16,.16);color:#f0c060}
+:root[data-theme="dark"] .liveview-wrap{background:var(--ui-surface)}
