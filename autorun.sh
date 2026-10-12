@@ -1080,6 +1080,9 @@ preflight_checks()
 init_log
 preflight_checks
 self_heal_runtime
+# Bring configs from older releases up to date with the new .dist defaults
+# (append-only; a stamp makes this a single md5sum once done).
+sh /mnt/scripts/config-migrate.sh >/dev/null 2>&1 || true
 init_password
 # First-boot wizard: set flag if user has never completed the wizard.
 # The flag is checked by wizard.cgi?check and cleared after wizard completes.

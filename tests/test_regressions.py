@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -851,6 +852,161 @@ class Regressions(unittest.TestCase):
                 code = code[:code.rfind('_loadavg=')]
             r = run(code + '\necho "$_memavail"')
             self.assertEqual(r.stdout, b'11776\n', (path, r.stderr))
+
+class ConfigMigrate(unittest.TestCase):
+    """scripts/config-migrate.sh: configs from older releases gain new .dist
+    settings without losing the user's values."""
+    SCRIPT = ROOT / 'scripts/config-migrate.sh'
+    # ${KEY:-x} used only to print a log line, not as a behavioural default.
+    DISPLAY_ONLY = {'dns.conf:DNS_SECONDARY'}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = Path(self.tmp.name)
+        for d in (ROOT / 'config').glob('*.dist'):
+            (self.cfg / d.name).write_bytes(d.read_bytes())
+        httpd = (ROOT / 'tests/fixtures/lighttpd.conf.v1.8.3').read_text()
+        (self.cfg / 'lighttpd.conf').write_text(re.sub(r'^server\.max-keep-alive.*\n', '', httpd, flags=re.M))
+        boot = [l for l in (ROOT / 'config/boot.conf.dist').read_text().splitlines()
+                if not l.startswith(('MEM_WATCHDOG', 'FRONT_LED', 'SYSLOG_', 'RED_LED'))]
+        (self.cfg / 'boot.conf').write_text('\n'.join(boot) + '\nRED_LED=1')   # no final newline
+        (self.cfg / 'mqtt.conf').write_text('MQTT_ENABLE=1\n#MQTT_PORT=1884\nMQTT_HOST=10.0.0.5\n')
+        (self.cfg / 'rtspserver.conf').write_text('[0]\nPORT=554\n')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def migrate(self, *args, shell=None):
+        env = dict(os.environ, CONFIGPATH=str(self.cfg), MIGRATE_LOG=str(self.cfg / 'log'),
+                   LIGHTTPD_BIN='/nonexistent')
+        cmd = (shell or ['/bin/bash']) + [str(self.SCRIPT)] + list(args)
+        return subprocess.run(cmd, capture_output=True, env=env, timeout=30)
+
+    def kv(self, name):
+        out = {}
+        for l in (self.cfg / name).read_text().splitlines():
+            m = re.match(r'^([A-Za-z_]\w*)=(.*)$', l)
+            if m:
+                self.assertNotIn(m.group(1), out, (name, 'duplicate key', m.group(1)))
+                out[m.group(1)] = m.group(2)
+        return out
+
+    def check_result(self):
+        boot = self.kv('boot.conf')
+        self.assertEqual(boot['RED_LED'], '1')                  # user value kept
+        self.assertEqual(boot['FRONT_LED'], '0')                # new key added
+        self.assertEqual(boot['MEM_WATCHDOG_ENABLE'], '0')      # code default, not the .dist one
+        mqtt = self.kv('mqtt.conf')
+        self.assertEqual(mqtt['MQTT_HOST'], '10.0.0.5')
+        self.assertNotIn('MQTT_PORT', mqtt)                     # commented out by the user: left alone
+        self.assertIn('MQTT_STREAM_ENABLE', mqtt)
+        self.assertEqual((self.cfg / 'rtspserver.conf').read_text(), '[0]\nPORT=554\n')
+        httpd = (self.cfg / 'lighttpd.conf').read_text()
+        httpd = '\n'.join(l for l in httpd.splitlines() if not l.lstrip().startswith('#'))
+        self.assertNotIn('setenv', httpd)
+        self.assertNotIn('deflate', httpd)
+        self.assertEqual(httpd.count('server.max-keep-alive-idle = 45'), 1)
+        for name in ('boot.conf', 'mqtt.conf'):
+            r = subprocess.run(['sh', '-n', str(self.cfg / name)], capture_output=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.cfg / 'lighttpd.conf.pre-migrate').exists())
+
+    def test_appends_missing_settings_only(self):
+        r = self.migrate()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.check_result()
+        snapshot = {p.name: p.read_bytes() for p in self.cfg.iterdir()}
+        self.assertEqual(self.migrate('--force').returncode, 0)      # idempotent
+        for name in ('boot.conf', 'mqtt.conf', 'lighttpd.conf'):
+            self.assertEqual((self.cfg / name).read_bytes(), snapshot[name], name)
+        stamp = (self.cfg / '.migrate-stamp').read_text()
+        (self.cfg / 'boot.conf').write_text('X=1\n')
+        self.migrate()                                                 # stamp matches: no-op
+        self.assertEqual((self.cfg / 'boot.conf').read_text(), 'X=1\n')
+        self.assertEqual((self.cfg / '.migrate-stamp').read_text(), stamp)
+
+    # Modules the bundled bin/lighttpd (static 1.4.69) accepts, checked on the
+    # camera with `lighttpd -tt` and its error log: mod_setenv, mod_deflate,
+    # mod_expire, mod_access, mod_rewrite, mod_accesslog and mod_status are NOT
+    # built in (mod_deflate is only a warning, its keys are silently ignored).
+    LIGHTTPD_MODULES = {'mod_auth', 'mod_authn_file', 'mod_redirect', 'mod_cgi', 'mod_staticfile',
+                        'mod_openssl', 'mod_alias'}
+
+    def test_httpd_dist_modules_are_built_in(self):
+        for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
+            text = (ROOT / 'config' / name).read_text()
+            mods = set(re.findall(r'"(mod_\w+)"', re.search(r'^server\.modules = \((.*?)\)', text, re.M | re.S).group(1)))
+            self.assertLessEqual(mods, self.LIGHTTPD_MODULES, name)
+            live = '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
+            self.assertNotIn('setenv.', live, name)
+            self.assertNotIn('deflate.', live, name)
+
+    def test_repairs_config_naming_mod_setenv(self):
+        # A camera installed from the 1.8.3-rc20 .dist names mod_setenv, which
+        # the bundled lighttpd lacks: the web server does not start.
+        stub = self.cfg / 'lighttpd-stub'
+        stub.write_text('#!/bin/sh\n[ "$1" = -tt ] && [ "$2" = -f ] || exit 2\n'
+                        'grep -q "mod_setenv" "$3" && exit 255\nexit 0\n')
+        stub.chmod(0o755)
+        old = (ROOT / 'tests/fixtures/lighttpd.conf.v1.8.3').read_text().replace(
+            '"mod_openssl",\n', '"mod_openssl",\n                  "mod_setenv",\n')
+        old += ('\nsetenv.add-response-header = (\n  "X-Frame-Options" => "SAMEORIGIN"\n)\n'
+                '$HTTP["url"] =~ "\\.css$" {\n  setenv.add-response-header = (\n    "Cache-Control" => "x"\n  )\n}\n')
+        (self.cfg / 'lighttpd.conf').write_text(old)
+        env = dict(os.environ, CONFIGPATH=str(self.cfg), MIGRATE_LOG=str(self.cfg / 'log'), LIGHTTPD_BIN=str(stub))
+        r = subprocess.run(['/bin/bash', str(self.SCRIPT)], capture_output=True, env=env, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        httpd = (self.cfg / 'lighttpd.conf').read_text()
+        live = [l for l in httpd.splitlines() if not l.lstrip().startswith('#')]
+        self.assertFalse([l for l in live if 'setenv' in l], httpd)
+        self.assertIn('$HTTP["url"] =~ "\\.css$" {', live)          # block kept, now empty
+        self.assertIn('removed mod_setenv', (self.cfg / 'log').read_text())
+        self.assertTrue((self.cfg / '.migrate-stamp').exists())
+
+    def test_vendor_busybox(self):
+        # The camera runs this with its own BusyBox 1.24 ash (rootfs /bin/busybox).
+        sysroot = os.environ.get('TC100_SYSROOT')
+        if not (sysroot and shutil.which('qemu-arm') and Path(sysroot, 'bin/busybox').exists()):
+            self.skipTest('qemu-arm or TC100_SYSROOT not available')
+        cmd = ['qemu-arm', '-L', sysroot]
+        for k in ('CONFIGPATH', 'MIGRATE_LOG', 'LIGHTTPD_BIN'):
+            cmd += ['-E', '%s=%s' % (k, {'CONFIGPATH': self.cfg, 'MIGRATE_LOG': self.cfg / 'log',
+                                         'LIGHTTPD_BIN': '/nonexistent'}[k])]
+        r = subprocess.run(cmd + [str(Path(sysroot, 'bin/busybox')), 'sh', str(self.SCRIPT)],
+                           capture_output=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.check_result()
+
+    def test_dist_divergences_are_declared(self):
+        # A key whose .dist default differs from the code's fallback must be in
+        # MIGRATE_KEEP_BEHAVIOUR, or migrating would change a camera's behaviour.
+        script = self.SCRIPT.read_text()
+        kv_files = re.search(r'^MIGRATE_KV_CONFIGS="([^"]*)"', script, re.M).group(1).split()
+        keep = re.search(r"^MIGRATE_KEEP_BEHAVIOUR='(.*?)'", script, re.M | re.S).group(1).splitlines()
+        keep = {l.split('=', 1)[0]: l.split('=', 1)[1].strip('"') for l in keep}
+        sources = [ROOT / 'autorun.sh'] + list((ROOT / 'scripts').glob('*.sh')) + \
+            list((ROOT / 'controlscripts').iterdir()) + list((ROOT / 'config/autostart').iterdir()) + \
+            list((ROOT / 'www/cgi-bin').iterdir())
+        text = '\n'.join(p.read_text(errors='ignore') for p in sources if p.is_file())
+        for name in kv_files:
+            dist = (ROOT / 'config' / (name + '.dist')).read_text()
+            for m in re.finditer(r'^([A-Za-z_]\w*)=(.*)$', dist, re.M):
+                key, val = m.group(1), m.group(2).strip().strip('"\'')
+                code = {d.strip('"\'') for d in re.findall(r'\$\{' + key + r':?[-=]([^}]*)\}', text)}
+                code.discard('$motion_save_dir')
+                if '%s:%s' % (name, key) in self.DISPLAY_ONLY:
+                    continue
+                if code and val not in code:
+                    self.assertIn('%s:%s' % (name, key), keep, 'undeclared default divergence')
+                    self.assertIn(keep['%s:%s' % (name, key)], code)
+
+    def test_httpd_dist_blocks_are_well_formed(self):
+        for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
+            text = (ROOT / 'config' / name).read_text()
+            blocks = re.findall(r'^# @migrate (\S+) ([^\n]+)\n(.*?)^# @end$', text, re.M | re.S)
+            self.assertEqual([b[0] for b in blocks], ['keepalive'], name)
+            for _, probe, body in blocks:
+                self.assertIn(probe, body, (name, probe))
 
 if __name__ == '__main__':
     unittest.main()
