@@ -20,8 +20,6 @@ server.modules = ("mod_auth",
                   "mod_cgi",
                   "mod_staticfile",
                   "mod_openssl",
-                  "mod_setenv",
-                  "mod_deflate",
                   "mod_alias")
 
 cgi.assign = ( ".cgi" => "/bin/sh" )
@@ -72,27 +70,37 @@ $HTTP["url"] !~ "^/.well-known/(.*)" {
 server.errorlog             = "/var/log/lighttpd-error.log"
 server.upload-dirs          = ("/tmp/")
 
+# NOTE: the bundled lighttpd 1.4.69 is a static build WITHOUT mod_setenv
+# (checked on the camera: "mod_setenv plugin not found"), so response
+# headers cannot be set here; with mod_setenv in server.modules lighttpd
+# refuses to start. CGI scripts send their own Cache-Control headers.
+# Kept commented for a future build that includes mod_setenv:
 # Security headers applied to all responses to harden the web UI
-setenv.add-response-header = (
-  "X-Content-Type-Options" => "nosniff",
-  "X-Frame-Options" => "SAMEORIGIN",
-  "Content-Security-Policy" => "default-src 'self' 'unsafe-inline'"
-)
+#setenv.add-response-header = (
+#  "X-Content-Type-Options" => "nosniff",
+#  "X-Frame-Options" => "SAMEORIGIN",
+#  "Content-Security-Policy" => "default-src 'self' 'unsafe-inline'"
+#)
 
 # Cache static assets (css/js/images) so browsers skip the request entirely
 # instead of re-validating via conditional GET on every page load.
-$HTTP["url"] =~ "\.(css|js|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf)$" {
-  setenv.add-response-header = (
-    "Cache-Control" => "public, max-age=86400"
-  )
-}
+#$HTTP["url"] =~ "\.(css|js|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf)$" {
+#  setenv.add-response-header = (
+#    "Cache-Control" => "public, max-age=86400"
+#  )
+#}
 
+# NOTE: the bundled lighttpd 1.4.69 is also built WITHOUT mod_deflate
+# ("mod_deflate plugin not found", deflate.* keys ignored), so static
+# files cannot be compressed by the server. Keep CSS/JS small instead
+# (www/css is purged of unused rules at build time).
+# Kept commented for a future build that includes mod_deflate:
 # Compress CSS/JS once per boot into tmpfs and serve from cache (~75% smaller
 # first loads). Restricted to static text assets: CGI output stays uncompressed
 # so dynamic responses cost no CPU and leak nothing via compressed lengths.
-deflate.cache-dir = "/tmp/lighttpd-deflate/"
-deflate.mimetypes = ("text/css", "text/javascript")
-deflate.allowed-encodings = ("gzip", "deflate")
+#deflate.cache-dir = "/tmp/lighttpd-deflate/"
+#deflate.mimetypes = ("text/css", "text/javascript")
+#deflate.allowed-encodings = ("gzip", "deflate")
 
 ## CGI (etc) stderr log
 server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
@@ -100,9 +108,11 @@ server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
 ## accesslog module
 #accesslog.filename = "/var/log/lighttpd-access.log"
 
+# @migrate keepalive max-keep-alive-idle
 # Keep-alive: the dashboard polls every 20 s, but lighttpd default idle is 5 s,
 # so every poll paid a full RSA handshake (~1-5 s of CPU on the AK3918 —
 # measured: reused connection answers in 0.3 s, fresh one in up to 5.7 s).
 # Holding an idle connection costs a few KB of RAM; the handshake costs CPU.
 server.max-keep-alive-idle = 45
 server.max-keep-alive-requests = 500
+# @end
