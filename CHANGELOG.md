@@ -32,6 +32,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
 
 ### Changed
+- **SD card wear: routine logs stay in RAM.** Measured on a TC100: a cron heartbeat file rewritten every minute (temp file + rename), a stability sample appended every 5 minutes, one sound-detection log line per event (hundreds an evening) and the RTSP server's output all went to the SD card. Now:
+  - the sound-detection and RTSP server logs live in /tmp/log, bounded;
+  - stability samples are batched in RAM and appended once an hour;
+  - the heartbeat is overwritten in place (64 bytes, no new cluster or directory entry) every 15 minutes;
+  - /mnt is remounted noatime.
+- **System log:** notice and above plus logins, in at most 256 KB of RAM. It used to keep everything, in up to 800 KB; three quarters of it was a USB host controller info line every ~15 s and crond's per-job lines. Remote forwarding sends the same filtered stream and keeps logging locally; stopping the syslog-forward service used to leave the camera with no syslogd at all.
+- **Critical lines survive reboots:** every 5 minutes, new warning-or-worse lines about storage, memory, kernel faults and our own `tc100_log_event` failures (RTSP start failure, GOP stall) are appended to /mnt/log/important.log. Nothing is written when nothing happened.
+- **System usage page:** one load-average line. The `uptime` output printed it a second time.
 - Hardware watchdog: fed every second with an 8 s timeout (the AK39 driver maximum) instead of every 2 s / 5 s, at nice -15 so a loaded system does not starve it. Suspected cause of an unexplained reboot under load. Verified on hardware (`watchdog -t 1 -T 8`, nice -15).
 - `vm.min_free_kbytes` 1024 → 2048 at boot: free RAM hovered at 1.5–2 MB, fragmented, and the RTL8188FU driver drops what it cannot buffer.
 - The RTSP password no longer shows in `ps` / `/proc/<pid>/cmdline`: `libtc100fix.so` (`TC100FIX_HIDE_CREDENTIALS`, set by rtsp-h26x whenever credentials are passed) overwrites the `-U` argument once v4l2rtspserver has copied it; the start line in the RTSP log is masked too. Verified on hardware (`-U *********`, clients still authenticate).
