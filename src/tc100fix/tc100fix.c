@@ -347,3 +347,39 @@ int ak_print_set_level(int level, int arg)
     }
     return real ? real(level, arg) : -1;
 }
+
+/* ------------------------------------------------------- day/night polling */
+
+/*
+ * TC100FIX_DAYNIGHT_POLL_MS=<ms>
+ *   AnykaDayNight::processAutoModeThread() polls the ISP's day/night level
+ *   with a hard-coded ak_sleep_ms(100), and with daynightinfo=1 rewrites
+ *   /var/run/lum and /var/run/awb on every turn: ~20 file writes a second
+ *   for a dashboard badge. Only that call is stretched: it is the one whose
+ *   return address is 0x37d3c in the bundled (non-PIE) v4l2rtspserver, md5
+ *   e02408de163ce9d64864fb871c34fe87. Any other binary or caller is left
+ *   untouched. Range 100-2000 ms.
+ */
+#define DAYNIGHT_SLEEP_RET ((void *)0x37d3c)
+
+void ak_sleep_ms(int ms)
+{
+    static void (*real)(int);
+    static int poll_ms = -1;
+
+    if (!real)
+        real = (void (*)(int))next_sym("ak_sleep_ms");
+    if (poll_ms < 0) {
+        const char *v = getenv("TC100FIX_DAYNIGHT_POLL_MS");
+        int p = v ? atoi(v) : 0;
+        poll_ms = (p >= 100 && p <= 2000) ? p : 0;
+        if (poll_ms)
+            fprintf(stderr, TAG "day/night poll every %d ms\n", poll_ms);
+    }
+    if (poll_ms && ms == 100 && __builtin_return_address(0) == DAYNIGHT_SLEEP_RET)
+        ms = poll_ms;
+    if (real)
+        real(ms);
+    else
+        usleep((useconds_t)ms * 1000);
+}
