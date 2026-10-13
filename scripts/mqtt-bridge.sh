@@ -622,8 +622,9 @@ _mqtt_publish_packet()
 # Fast path: publish over the persistent listener's connection instead of a
 # new TCP connection + CONNECT + 1 s wait + DISCONNECT per message (measured
 # on a TC100: ~1,100 outgoing connections in 4 h, mostly sound events).
-# Used only when that session exists and the broker accepted it (CONNACK at
-# the start of its capture). The packet goes into the connection's FIFO in a
+# Used only when that session exists, its handshake is fully written (.ready,
+# set by the listener writer) and the broker accepted it (CONNACK at the start
+# of its capture). The packet goes into the connection's FIFO in a
 # single write: pipe writes up to 4096 bytes are atomic, so it cannot
 # interleave with the listener's keepalive pings. Larger packets, or no live
 # session, return 1 and the caller falls back to a one-shot connection.
@@ -635,6 +636,11 @@ _mqtt_publish_session()
   _ps_seq=""
   read -r _ps_seq < "${MQTT_STREAM_RAW}.session" 2>/dev/null || return 1
   case "$_ps_seq" in ''|*[!0-9]*) return 1 ;; esac
+  # The listener finished writing its CONNECT/SUBSCRIBE for this session...
+  _ps_ready=""
+  read -r _ps_ready < "${MQTT_STREAM_RAW}.ready" 2>/dev/null || return 1
+  [ "$_ps_ready" = "$_ps_seq" ] || return 1
+  # ...and the broker accepted it.
   _ps_ok=""
   read -r _ps_ok < "${MQTT_STREAM_RAW}.connack" 2>/dev/null || true
   if [ "$_ps_ok" != "$_ps_seq" ]; then
@@ -2147,6 +2153,9 @@ mqtt_listener_packets()
   # Refresh availability on every reconnect, paired with this session's Will.
   printf '\x31'; _mqtt_varint $((2 + ${#_ml_will_topic} + 6))
   _mqtt_str "$_ml_will_topic"; printf '%s' online
+  # Handshake fully written: from now on other processes may append whole
+  # packets to this connection (see _mqtt_publish_session).
+  printf '%s\n' "$MQTT_STREAM_SEQUENCE" > "${MQTT_STREAM_RAW}.ready" 2>/dev/null
 
   _ml_pings=0
   while [ "$_ml_pings" -lt "$MQTT_LISTENER_MAX_PINGS" ]; do
@@ -2156,7 +2165,9 @@ mqtt_listener_packets()
     printf '\xc0\x00' || break
     _ml_pings=$((_ml_pings + 1))
   done
-  # End normally on planned recycling; no false offline Will at this point.
+  # No more publishes on this connection, then end normally on planned
+  # recycling; no false offline Will at this point.
+  rm -f "${MQTT_STREAM_RAW}.ready" 2>/dev/null
   printf '\xe0\x00'
 }
 
@@ -2445,19 +2456,26 @@ run_loop()
   trap 'shutdown_bridge' EXIT
   log_msg "MQTT bridge started host=${MQTT_HOST}:${MQTT_PORT} root=${MQTT_TOPIC_ROOT}"
   log_event "info" "mqtt" "MQTT bridge started"
-  publish_availability online
-  publish_integration_manifest force >/dev/null 2>&1 || true
-  publish_homeassistant_discovery
-  publish_event_simple "bridge.start" "online"
-
-  # Start the background listener before entering the loop, so commands are
-  # captured from the first second rather than from the first poll window.
+  # Start the background listener first: commands are captured from the first
+  # second, and the discovery burst below (~40 messages) can go over its
+  # connection once the broker has accepted it, instead of one TCP connection
+  # each (~45 s at boot, measured). Until then publishes fall back.
   if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
     rm -f "$MQTT_STREAM_RAW" "${MQTT_STREAM_RAW}."* 2>/dev/null
     mqtt_listener_loop &
     MQTT_LISTENER_PID=$!
     log_msg "Persistent MQTT listener started (pid ${MQTT_LISTENER_PID}, topic ${MQTT_TOPIC_COMMAND})"
   fi
+  # Give the listener a moment to get its CONNACK.
+  _st_i=0
+  while [ "$_st_i" -lt 5 ] && is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE" && [ ! -s "${MQTT_STREAM_RAW}.1" ]; do
+    sleep 1; _st_i=$((_st_i + 1))
+  done
+  publish_availability online
+  publish_integration_manifest force >/dev/null 2>&1 || true
+  publish_homeassistant_discovery
+  publish_event_simple "bridge.start" "online"
+
 
   if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
     # The background listener above owns the broker connection; the older FIFO

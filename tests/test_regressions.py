@@ -1431,6 +1431,7 @@ class MqttFastPath(unittest.TestCase):
         if session:
             os.mkfifo(fifo)
             (Path(str(raw) + '.session')).write_text('3\n')
+            (Path(str(raw) + '.ready')).write_text('3\n')
             (Path(str(raw) + '.3')).write_bytes(connack + b'\x90\x03\x00\x01\x00')
         code = '\n'.join(function(MQTT, n) for n in
                          ('_mqtt_str', '_mqtt_varint', '_mqtt_publish_packet', '_mqtt_publish_session'))
@@ -1465,6 +1466,21 @@ class MqttFastPath(unittest.TestCase):
             r = self.run_pub(d, 't', 'x' * 5000)
             self.assertIn(b'rc=1', r.stderr)
             self.assertEqual(r.stdout, b'')
+
+    def test_no_publish_before_the_handshake_is_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            raw = Path(d) / 'stream.bin'
+            os.mkfifo(str(raw) + '.input')
+            Path(str(raw) + '.session').write_text('4\n')
+            Path(str(raw) + '.ready').write_text('3\n')            # previous session
+            Path(str(raw) + '.4').write_bytes(b'\x20\x02\x00\x00')
+            code = '\n'.join(function(MQTT, n) for n in
+                             ('_mqtt_str', '_mqtt_varint', '_mqtt_publish_packet', '_mqtt_publish_session'))
+            code += '\nMQTT_STREAM_RAW=%s; MQTT_FASTPATH_MAX_BYTES=4000\n_mqtt_publish_session t p 0; echo rc=$?' % shlex.quote(str(raw))
+            self.assertIn(b'rc=1', run(code).stdout)
+        w = function(MQTT, 'mqtt_listener_packets')
+        self.assertLess(w.index('.ready"'), w.index('_ml_pings=0'))
+        self.assertLess(w.rindex('rm -f "${MQTT_STREAM_RAW}.ready"'), w.rindex("printf '\\xe0\\x00'"))
 
     def test_publish_raw_tries_the_session_first(self):
         fn = function(MQTT, 'mqtt_publish_raw')
