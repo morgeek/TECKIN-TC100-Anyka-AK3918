@@ -81,6 +81,33 @@ normalize_bool() {
   esac
 }
 
+# sound_threshold_db VALUE FALLBACK -> integer dBFS in -90..0
+sound_threshold_db() {
+  case "$1" in
+    -[0-9]|-[0-9][0-9]|0) _std="$1" ;;
+    *) _std="$2" ;;
+  esac
+  [ "$_std" -lt -90 ] && _std=-90
+  echo "$_std"
+}
+
+# apply_sound_detection ENABLE THRESHOLD_DB [INTERVAL] — persist, (re)start the
+# daemon and restart RTSP when ENABLE changed (the microphone capture and the
+# level meter are set up when v4l2rtspserver starts).
+apply_sound_detection() {
+  install_config /mnt/config/sound_detection.conf
+  _asd_old="$(read_kv_or_default /mnt/config/sound_detection.conf ENABLE 0)"
+  rewrite_config /mnt/config/sound_detection.conf ENABLE "$1"
+  rewrite_config /mnt/config/sound_detection.conf THRESHOLD_DB "$2"
+  [ -n "$3" ] && rewrite_config /mnt/config/sound_detection.conf INTERVAL "$3"
+  if [ "$1" = "1" ]; then
+    /mnt/controlscripts/sound-detection start >/dev/null 2>&1
+  else
+    /mnt/controlscripts/sound-detection stop >/dev/null 2>&1
+  fi
+  [ "$_asd_old" != "$1" ] && schedule_rtsp_restart
+}
+
 sanitize_int_range() {
   value="$1"
   min="$2"
@@ -540,15 +567,11 @@ apply_low_cpu_background_defaults() {
   if [ ! -f /mnt/config/sound_detection.conf ]; then
     {
       echo "ENABLE=0"
-      echo "THRESHOLD=1500"
-      echo "INTERVAL=10"
+      echo "THRESHOLD_DB=-30"
+      echo "INTERVAL=2"
     } > /mnt/config/sound_detection.conf
   fi
 
-  sound_interval="$(sanitize_int_range "$(read_kv_or_default /mnt/config/sound_detection.conf INTERVAL 10)" 1 300 10)"
-  if [ "$sound_interval" -lt 10 ]; then
-    rewrite_config /mnt/config/sound_detection.conf INTERVAL 10
-  fi
 }
 
 write_stream_state_snapshot() {
@@ -1455,21 +1478,9 @@ if [ -n "$F_cmd" ]; then
 
     set_sound_detection)
       enable=$(normalize_bool "${F_sound_det_enable}")
-      threshold=$(sanitize_int_range "${F_sound_det_threshold}" 100 10000 1500)
-      interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 5)
-
-      # Persist
-      install_config /mnt/config/sound_detection.conf
-      /mnt/bin/rwconf /mnt/config/sound_detection.conf w \
-          " " ENABLE "$enable" \
-          " " THRESHOLD "$threshold" \
-          " " INTERVAL "$interval"
-
-      if [ "$enable" = "1" ]; then
-        /mnt/controlscripts/sound-detection start
-      else
-        /mnt/controlscripts/sound-detection stop
-      fi
+      threshold=$(sound_threshold_db "${F_sound_det_threshold}" -30)
+      interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 2)
+      apply_sound_detection "$enable" "$threshold" "$interval"
       if wants_json_response; then
         json_body_ok "Sound detection settings updated."
       else
@@ -2977,12 +2988,20 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     conf_motiondetect)
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " mdsens ${F_mdsens} 
-      /mnt/bin/setconf -k m -v "${F_mdsens}"
-      rewrite_config /mnt/config/motion.conf motion_trigger_led "${F_motionBlink}"
+      # Settings → Motion & Sound. The form posts motion_trigger_led (checkbox:
+      # "on" or absent) and sound_det_*; older pages posted motionBlink.
+      mdsens=$(sanitize_int_range "${F_mdsens}" 1 100 50)
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " mdsens "$mdsens"
+      /mnt/bin/setconf -k m -v "$mdsens"
+      motion_led="$(normalize_bool "${F_motion_trigger_led:-${F_motionBlink:-0}}")"
+      rewrite_config /mnt/config/motion.conf motion_trigger_led "$motion_led"
+      sound_enable="$(normalize_bool "${F_sound_det_enable:-0}")"
+      sound_threshold="$(sound_threshold_db "${F_sound_det_threshold}" -30)"
+      apply_sound_detection "$sound_enable" "$sound_threshold"
 
-      echo "Motion red led blink set to ${F_motionBlink}<BR>"
-      echo "Motion sensitivity set to ${F_mdsens}<BR>"
+      echo "Motion red led blink set to ${motion_led}<BR>"
+      echo "Motion sensitivity set to ${mdsens}<BR>"
+      echo "Sound detection: enable=${sound_enable} threshold=${sound_threshold} dBFS<BR>"
     ;;
 
     conf_autodaynight)

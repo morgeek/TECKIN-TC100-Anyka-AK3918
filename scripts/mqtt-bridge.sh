@@ -1417,13 +1417,9 @@ ensure_low_cpu_runtime_tuning()
   if [ ! -f /mnt/config/sound_detection.conf ]; then
     {
       echo "ENABLE=0"
-      echo "THRESHOLD=1500"
-      echo "INTERVAL=10"
+      echo "THRESHOLD_DB=-30"
+      echo "INTERVAL=2"
     } > /mnt/config/sound_detection.conf
-  fi
-  sound_interval_current="$(sanitize_int_range "$(read_kv_config_value /mnt/config/sound_detection.conf INTERVAL 10)" 1 300 10)"
-  if [ "$sound_interval_current" -lt 10 ]; then
-    rewrite_config /mnt/config/sound_detection.conf INTERVAL 10
   fi
 }
 
