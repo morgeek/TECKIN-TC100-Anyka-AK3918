@@ -11,3 +11,8 @@ POWER_HZ=
 # Cap the auto-exposure time at a percentage of the ISP file value (10..100).
 # Lower = less motion blur at night, darker image. Empty = no cap.
 EXPOSURE_MAX_PCT=
+# Temporal (3D) noise reduction. NR3D=0 turns it off, removing the line puts
+# the ISP file's setting back. Measured on a TC100 (1080p, low indoor light):
+# frame rate unchanged, bitrate +39 % (the encoder spends it on noise) —
+# leave it on unless testing.
+#NR3D=0
