@@ -198,12 +198,14 @@ monitor_service()
             if [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_ALTERNATIVE_REBOOT" ]; then # If we can't reboot by normal call to 'reboot'
                 append_log "$SERVICE_TO_MONITOR - perform alternative reboot"
                 log_event "critical" "system" "Watchdog performing alternative reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
+                /bin/sh /mnt/scripts/reboot-tracker.sh intent "service-watchdog: $SERVICE_TO_MONITOR unhealthy ($CURRENT_ERRORS errors), forced reboot" >/dev/null 2>&1
                 _wd_graceful_shutdown
                 echo b >/proc/sysrq-trigger
                 CURRENT_ERRORS=0
             elif [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_REBOOT" ]; then
                 append_log "$SERVICE_TO_MONITOR - perform reboot"
                 log_event "critical" "system" "Watchdog performing system reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
+                /bin/sh /mnt/scripts/reboot-tracker.sh intent "service-watchdog: $SERVICE_TO_MONITOR unhealthy ($CURRENT_ERRORS errors)" >/dev/null 2>&1
                 _wd_graceful_shutdown
                 /sbin/reboot -f
             else
