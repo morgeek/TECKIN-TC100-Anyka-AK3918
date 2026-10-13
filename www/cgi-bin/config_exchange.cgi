@@ -151,7 +151,7 @@ _ce_build_rows() {
 
     row("telnetd.conf";"flat";"root";"TELNET_PORT";"port";"network";.services.telnet_port),
     row("sound_detection.conf";"flat";"root";"ENABLE";"bool";"general";.services.sound_det_enable),
-    row("sound_detection.conf";"flat";"root";"THRESHOLD";"sound_threshold";"general";.services.sound_det_threshold),
+    row("sound_detection.conf";"flat";"root";"THRESHOLD_DB";"sound_threshold";"general";.services.sound_det_threshold),
     row("sound_detection.conf";"flat";"root";"INTERVAL";"sound_interval";"general";.services.sound_det_interval),
     row("rtspserver.conf";"ini";"root";"mdsens";"motion_sens";"general";.services.motion_sens),
     row("motion.conf";"flat";"root";"motion_trigger_led";"bool";"general";.services.motion_led),

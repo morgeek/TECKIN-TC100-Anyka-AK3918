@@ -33,6 +33,20 @@
  *   first environment string and checked byte for byte against
  *   /proc/self/cmdline; on any mismatch nothing is touched.
  *
+ * TC100FIX_SOUND_LEVEL=<path>
+ *   Sound level meter for scripts/sound-detection.sh. The vendor audio
+ *   encoder (libmpi_aenc) pulls raw 16-bit PCM from the microphone with
+ *   ak_ai_get_frame(); we pass each frame through and keep its RMS and peak.
+ *   Once a second (>= 0.5 s of audio) we write to <path> (tmpfs, atomic):
+ *     "<epoch> <rms_dbfs> <peak_dbfs> <events> <last_event_epoch> <last_event_dbfs>"
+ *   A window whose RMS reaches the threshold (dBFS, read every 10 s from
+ *   <path>.threshold, written by sound-detection.sh; default -30) counts as an
+ *   event, so the daemon can poll slowly without missing short sounds.
+ *   No second reader on the ADC, no extra thread.
+ *   The meter only sees audio while the encoder runs, i.e. while the
+ *   microphone is captured (rtsp-h26x keeps it on when sound detection is
+ *   enabled, even with RTSP_AUDIO=0).
+ *
  * TC100FIX_PRINT_LEVEL=<0..9>
  *   The AnykaCameraManager constructor forces ak_print_set_level(3), which
  *   rewrites /var/log/ak_print_level for every vendor library. We substitute
@@ -47,6 +61,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <math.h>
+#include <time.h>
 
 #define TAG "[tc100fix] "
 
@@ -176,6 +192,102 @@ int ak_ai_stop_capture(void *handle)
     if (!real)
         real = (int (*)(void *))next_sym("ak_ai_stop_capture");
     return real ? real(handle) : -1;
+}
+
+/* ---------------------------------------------------------- sound level */
+
+struct ak_frame {                  /* struct frame, ak_global.h */
+    unsigned char *data;
+    unsigned int len;
+    unsigned long long ts;
+    unsigned long seq_no;
+};
+
+static void sound_meter(const struct ak_frame *f)
+{
+    static const char *path;
+    static int checked;
+    static double sum_sq;
+    static unsigned long n_samples;
+    static int peak;
+    static time_t last, thr_read;
+    static int threshold = -30;
+    static unsigned long events;
+    static long last_event;
+    static int last_event_db = -96;
+    const short *pcm;
+    unsigned int i, n;
+    time_t now;
+
+    if (!checked) {
+        path = getenv("TC100FIX_SOUND_LEVEL");
+        checked = 1;
+    }
+    if (!path || !*path || !f || !f->data || f->len < 2)
+        return;
+    pcm = (const short *)f->data;
+    n = f->len / 2;
+    for (i = 0; i < n; i++) {
+        int v = pcm[i];
+        if (v < 0) v = -v;
+        if (v > peak) peak = v;
+        sum_sq += (double)pcm[i] * pcm[i];
+    }
+    n_samples += n;
+    now = time(NULL);
+    if (n_samples >= 4000 && now != last) {   /* >= 0.5 s at 8 kHz, at most 1/s */
+        char tmp[256], line[96];
+        double rms = sqrt(sum_sq / n_samples);
+        int rms_db = rms > 0.5 ? (int)lrint(20.0 * log10(rms / 32768.0)) : -96;
+        int peak_db = peak > 0 ? (int)lrint(20.0 * log10(peak / 32768.0)) : -96;
+        int fd, len;
+        if (now - thr_read >= 10) {          /* threshold set by the daemon */
+            int t, tfd;
+            char tb[16];
+            snprintf(tmp, sizeof(tmp), "%s.threshold", path);
+            tfd = open(tmp, O_RDONLY);
+            if (tfd >= 0) {
+                int r = (int)read(tfd, tb, sizeof(tb) - 1);
+                close(tfd);
+                if (r > 0) {
+                    tb[r] = 0;
+                    t = atoi(tb);
+                    if (t <= 0 && t >= -90)
+                        threshold = t;
+                }
+            }
+            thr_read = now;
+        }
+        if (rms_db >= threshold) {
+            events++;
+            last_event = (long)now;
+            last_event_db = rms_db;
+        }
+        snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+        len = snprintf(line, sizeof(line), "%ld %d %d %lu %ld %d\n", (long)now, rms_db, peak_db,
+                       events, last_event, last_event_db);
+        fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) {
+            if (write(fd, line, (size_t)len) == len)
+                rename(tmp, path);
+            close(fd);
+        }
+        sum_sq = 0; n_samples = 0; peak = 0; last = now;
+    }
+}
+
+int ak_ai_get_frame(void *handle, struct ak_frame *frame, long ms)
+{
+    static int (*real)(void *, struct ak_frame *, long);
+    int rc;
+    if (!real)
+        real = (int (*)(void *, struct ak_frame *, long))next_sym("ak_ai_get_frame");
+    if (!real)
+        return -1;
+    rc = real(handle, frame, ms);
+    if (rc == 0)
+        sound_meter(frame);
+    return rc;
 }
 
 /* ---------------------------------------------------------------- logging */

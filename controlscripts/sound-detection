@@ -1,6 +1,15 @@
 #!/bin/sh
 # sound-detection daemon for Anyka AK3918
-# Monitors audio level and triggers MQTT/Recording events.
+# Publishes a "sound" event (MQTT, optional recording trigger) when the
+# microphone level reaches THRESHOLD_DB.
+#
+# The level comes from libtc100fix.so inside v4l2rtspserver (rtsp-h26x sets
+# TC100FIX_SOUND_LEVEL=/var/run/sound_level when ENABLE=1): it measures every
+# second of the PCM the vendor audio encoder reads and counts the seconds at
+# or above the threshold, so polling every INTERVAL seconds misses nothing.
+# The previous implementation read /dev/voice or /dev/dsp, which do not exist
+# on the AK3918 (the microphone is /dev/akpcm_cdev0 behind ak_ai), and then
+# fell back to a "shim mode" that reported a level above the threshold.
 
 . /mnt/scripts/common_functions.sh
 
@@ -76,22 +85,33 @@ log_msg()
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$1" >> "$LOG_FILE"
 }
 
+LEVEL_FILE="${SOUND_LEVEL_FILE:-/var/run/sound_level}"
+
 # Ensure we have a default config
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "ENABLE=0" > "$CONFIG_FILE"
-    echo "THRESHOLD=1500" >> "$CONFIG_FILE"
-    echo "INTERVAL=5" >> "$CONFIG_FILE"
+    echo "THRESHOLD_DB=-30" >> "$CONFIG_FILE"
+    echo "INTERVAL=2" >> "$CONFIG_FILE"
 fi
+
+# threshold_db -> THRESHOLD_DB clamped to -90..0 (dBFS), default -30.
+threshold_db()
+{
+    _td="$(read_kv_config_value "$CONFIG_FILE" THRESHOLD_DB -30)"
+    case "$_td" in -[0-9]|-[0-9][0-9]|0) ;; *) _td=-30 ;; esac
+    [ "$_td" -lt -90 ] && _td=-90
+    echo "$_td"
+}
 
 publish_sound_event()
 {
     level="$1"
     threshold="$2"
-    now_ts="$(date +%s 2>/dev/null)"
+    now_ts="${3:-$(date +%s 2>/dev/null)}"
     [ -n "$now_ts" ] || now_ts=0
 
-    # Publish to MQTT via shared function.
-    publish_mqtt_event "{\"type\":\"sound\",\"ts\":$now_ts,\"level\":$level,\"threshold\":$threshold}"
+    # Publish to MQTT via shared function. level / threshold are dBFS.
+    publish_mqtt_event "{\"type\":\"sound\",\"ts\":$now_ts,\"level_db\":$level,\"threshold_db\":$threshold}"
 
     # Trigger recording if enabled.
     if [ "$(read_kv_config_value /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
@@ -99,66 +119,62 @@ publish_sound_event()
     fi
 }
 
-read_level()
+# read_meter -> sets m_ts m_rms m_peak m_events m_last_ts m_last_db; 1 if no
+# fresh reading (meter not running: RTSP server down or started without it).
+read_meter()
 {
-    threshold="$1"
-    level=0
-    if [ -c /dev/voice ]; then
-        level="$(dd if=/dev/voice bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')"
-    elif [ -c /dev/dsp ]; then
-        level="$(dd if=/dev/dsp bs=512 count=1 2>/dev/null | hexdump -v -e '1/1 "%u\n"' | awk 'BEGIN{s=0} {v=$1-128; if(v<0)v=-v; s+=v} END{print s}')"
-    else
-        if [ ! -f /tmp/sound_hw_missing ]; then
-            log_msg "Warning: no audio device found (/dev/voice or /dev/dsp). Shim mode active."
-            touch /tmp/sound_hw_missing
-        fi
-        if [ -f /tmp/test-sound-trigger ]; then
-            level=$((threshold + 100))
-            rm -f /tmp/test-sound-trigger
-        fi
-    fi
-
-    level="$(sanitize_positive_int "$level" 0)"
-    echo "$level"
+    m_ts=""
+    [ -r "$LEVEL_FILE" ] && read -r m_ts m_rms m_peak m_events m_last_ts m_last_db _m < "$LEVEL_FILE"
+    case "$m_ts" in ''|*[!0-9]*) return 1 ;; esac
+    _rm_now="$(date +%s 2>/dev/null)"
+    case "$_rm_now" in ''|*[!0-9]*) return 0 ;; esac
+    [ $((_rm_now - m_ts)) -le 10 ]
 }
 
 run_daemon()
 {
-    last_event_ts=0
+    last_events=""
+    last_threshold=""
+    last_publish=0
+    warned=0
     cooldown_seconds="$(clamp_int "$EVENT_COOLDOWN_SECONDS" 0 300)"
-    min_interval="$(clamp_int "$MIN_INTERVAL_SECONDS" 1 30)"
 
     while :; do
         enable="$(read_kv_config_value "$CONFIG_FILE" ENABLE 0)"
         if [ "$enable" != "1" ]; then
-            # Disabled: poll the config only occasionally. This daemon is started
-            # unconditionally at boot, so a tight 10s idle loop woke the 400MHz
-            # core 8,640x/day for nothing; 300s cuts that ~30x while still picking
-            # up an enable within 5 minutes.
+            # Disabled: poll the config only occasionally.
             sleep 300
             continue
         fi
 
-        threshold="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" THRESHOLD 1500)" 100 10000)"
-        interval="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" INTERVAL 5)" "$min_interval" 300)"
-        level="$(read_level "$threshold")"
+        threshold="$(threshold_db)"
+        interval="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" INTERVAL 2)" 1 300)"
+        # Tell the meter when it changes (it re-reads this file every 10 s).
+        if [ "$threshold" != "$last_threshold" ] || [ ! -f "$LEVEL_FILE.threshold" ]; then
+            echo "$threshold" > "$LEVEL_FILE.threshold" 2>/dev/null
+            last_threshold="$threshold"
+        fi
 
-        printf '%s\n' "$level" > "$STATE_FILE"
-
-        if [ "$level" -gt "$threshold" ]; then
-            now_ts="$(date +%s 2>/dev/null)"
-            now_ts="$(sanitize_positive_int "$now_ts" 0)"
-
-            if [ "$cooldown_seconds" -gt 0 ] && [ "$last_event_ts" -gt 0 ]; then
-                if [ $((now_ts - last_event_ts)) -lt "$cooldown_seconds" ]; then
-                    sleep "$interval"
-                    continue
+        if read_meter; then
+            warned=0
+            printf '%s %s %s\n' "$m_rms" "$m_peak" "$m_ts" > "$STATE_FILE"
+            if [ -z "$last_events" ]; then
+                last_events="$m_events"           # do not replay past events
+            elif [ "$m_events" != "$last_events" ]; then
+                last_events="$m_events"
+                if [ "$cooldown_seconds" -eq 0 ] || [ $((m_last_ts - last_publish)) -ge "$cooldown_seconds" ]; then
+                    log_msg "Triggered level=${m_last_db}dBFS threshold=${threshold}dBFS"
+                    publish_sound_event "$m_last_db" "$threshold" "$m_last_ts"
+                    last_publish="$m_last_ts"
                 fi
             fi
-
-            log_msg "Triggered level=$level threshold=$threshold"
-            publish_sound_event "$level" "$threshold"
-            last_event_ts="$now_ts"
+        else
+            printf '%s\n' "none" > "$STATE_FILE"
+            if [ "$warned" = 0 ]; then
+                log_msg "No sound level from the RTSP server (is rtsp-h26x running, restarted since sound detection was enabled?)"
+                warned=1
+            fi
+            last_events=""
         fi
 
         sleep "$interval"
@@ -191,8 +207,12 @@ status()
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         echo "Running (PID: $pid)"
         if [ -f "$STATE_FILE" ]; then
-            read -r last_level < "$STATE_FILE"
-            echo "Last Level: ${last_level:-0}"
+            read -r last_level last_peak _ < "$STATE_FILE"
+            if [ "$last_level" = none ]; then
+                echo "Level: no reading (restart rtsp-h26x after enabling)"
+            else
+                echo "Level: ${last_level:-?} dBFS (peak ${last_peak:-?}), threshold $(threshold_db) dBFS"
+            fi
         fi
         return 0
     fi

@@ -110,14 +110,10 @@ osdtext="$(read_config rtspserver.conf osdtext)"
 /mnt/bin/setconf -k m -v "$mdsens"
 /mnt/bin/setconf -k p -v "$mdenabled"
 
-# Start sound detection daemon — but NOT under the frigate_ha feeder profile,
-# where Frigate/HA handle events and a camera-side audio daemon is pure overhead.
-# (This start is hardcoded here rather than in autostart/, so the frigate_ha
-# denylist in autorun.sh could never reach it — hence the explicit guard.)
-_integration_profile="$(read_kv_config_value /mnt/config/boot.conf INTEGRATION_PROFILE default)"
-if [ "$_integration_profile" = "frigate_ha" ]; then
-    echo "sound-detection not started (frigate_ha profile)"
-else
+# Start the sound detection daemon only when it is enabled. Since 1.8.4 the
+# level is measured inside the RTSP server and the daemon just reads a tmpfs
+# file, so it is cheap enough for every profile, frigate_ha included.
+if [ "$(read_kv_config_value /mnt/config/sound_detection.conf ENABLE 0)" = "1" ]; then
     /mnt/controlscripts/sound-detection start
 fi
 

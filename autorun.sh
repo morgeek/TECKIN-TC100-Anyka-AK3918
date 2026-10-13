@@ -806,16 +806,9 @@ apply_low_cpu_profile()
     if [ ! -f "$CONFIGPATH/sound_detection.conf" ]; then
         {
             echo "ENABLE=0"
-            echo "THRESHOLD=1500"
-            echo "INTERVAL=10"
+            echo "THRESHOLD_DB=-30"
+            echo "INTERVAL=2"
         } > "$CONFIGPATH/sound_detection.conf"
-    fi
-    sound_interval="$(awk -F= '$1=="INTERVAL"{print $2; exit}' "$CONFIGPATH/sound_detection.conf" 2>/dev/null)"
-    case "$sound_interval" in
-        ''|*[!0-9]*) sound_interval=10 ;;
-    esac
-    if [ "$sound_interval" -lt 10 ]; then
-        rewrite_config "$CONFIGPATH/sound_detection.conf" INTERVAL 10
     fi
 }
 

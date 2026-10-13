@@ -332,9 +332,10 @@
                     <div class='card-content'>
                         <div class="columns">
                             <div class="column is-half"><label class="label is-small">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number"></div>
-                            <div class="column is-half"><label class="label is-small">Sound Threshold</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number"></div>
+                            <div class="column is-half"><label class="label is-small">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
                         </div>
                         <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
+                        <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; restarts the RTSP stream when switched)</label></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
                     </div>
                 </div>

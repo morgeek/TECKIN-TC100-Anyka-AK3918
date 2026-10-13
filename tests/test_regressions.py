@@ -372,6 +372,31 @@ class Regressions(unittest.TestCase):
         writes = [tuple(values[i:i+3]) for i in range(0, len(values), 3)]
         self.assertEqual(writes, [(' ', 'samplerate', '16000'), (' ', 'volume', '7'), ('2', 'samplerate', '16000'), ('2', 'codec', '17')])
 
+    def test_sound_detection_never_fakes_a_level(self):
+        # 1.8.3 read /dev/voice or /dev/dsp (absent on the AK3918) and then
+        # reported threshold+100: enabling it produced a fake event per poll.
+        script = (ROOT / 'controlscripts/sound-detection').read_text()
+        live = '\n'.join(l for l in script.splitlines() if not l.lstrip().startswith('#'))
+        for bad in ('/dev/voice', '/dev/dsp', 'threshold + 100'):
+            self.assertNotIn(bad, live)
+        self.assertIn('/var/run/sound_level', live)
+        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('TC100FIX_SOUND_LEVEL=/var/run/sound_level', rtsp)
+        # The meter needs the microphone: MIC_OFF must not be set when enabled.
+        block = rtsp[rtsp.index('_sound_enable='):rtsp.index('VENDOR_PRINT_LEVEL', rtsp.index('_sound_enable='))]
+        self.assertRegex(block, r'if \[ "\$_sound_enable" = "1" \]; then\n\s*TC100FIX_ENV="\$TC100FIX_ENV TC100FIX_SOUND_LEVEL=[^"]*"\n\s*else')
+
+    def test_motion_form_fields_are_read(self):
+        # Settings → Motion & Sound posts these names; conf_motiondetect read
+        # motionBlink (a name the form never sends) and ignored the sound fields.
+        html = (ROOT / 'www/settings.html').read_text()
+        form = html[html.index('id="formDetect"'):html.index('</form>', html.index('id="formDetect"'))]
+        names = set(re.findall(r'name="([^"]+)"', form))
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        handler = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
+        for n in names:
+            self.assertIn('F_' + n, handler, n)
+
     def test_tcp_tw_recycle_stays_off(self):
         # tcp_tw_recycle=1 silently drops SYNs from NATed clients (Frigate's
         # go2rtc): new RTSP connections timed out while ping worked.
