@@ -135,9 +135,16 @@ start()
     # fix is enabled by an environment variable set here, for this process only.
     TC100FIX_ENV=""
     case "$RTSP_FPS_LOCK" in 1|true|yes|on|enabled) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_FPS_LOCK=1" ;; esac
-    case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
-      [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
-    esac
+    # Sound detection needs the microphone captured, even when no audio is
+    # served: the level meter in libtc100fix.so reads what the encoder pulls.
+    _sound_enable="$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)"
+    if [ "$_sound_enable" = "1" ]; then
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SOUND_LEVEL=/var/run/sound_level"
+    else
+      case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
+        [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
+      esac
+    fi
     case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
     case "$ISP_TUNE" in 1|true|yes|on|enabled)
       install_config "$CONFIGPATH/isp_tune.conf"

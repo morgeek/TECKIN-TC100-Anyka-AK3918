@@ -1,19 +1,23 @@
 # Sound detection configuration
-# Managed by: controlscripts/sound-detection → scripts/sound-detection (daemon)
+# Managed by: controlscripts/sound-detection
 #
-# ENABLE — set to 1 to activate audio level monitoring.
-#   0 = disabled (default, no CPU overhead)
-#   1 = enabled
+# The level is measured inside the RTSP server (libtc100fix.so) on the raw
+# microphone signal, once a second. Enabling or disabling restarts the RTSP
+# service (the microphone must be captured even when RTSP_AUDIO=0).
+#
+# ENABLE — 1 to publish a "sound" event (MQTT; also triggers a recording when
+#   recording on motion is enabled) when the level reaches THRESHOLD_DB.
 ENABLE=0
 
-# THRESHOLD — audio energy level that triggers a sound event.
-#   Higher = less sensitive (fewer false positives).
-#   Lower  = more sensitive (triggers on quieter sounds).
-#   Range: 100–10000.  Default: 1500
-#   Tune by watching "Last Level" in the service status output.
-THRESHOLD=1500
+# THRESHOLD_DB — level in dBFS (0 = loudest the microphone can capture).
+#   A quiet room is around -60, speech near the camera around -35 to -25,
+#   a shout or a dog barking around -20 to -10. Range -90..0. Default: -30.
+#   Watch "Level" in Services → sound-detection → status to tune it.
+THRESHOLD_DB=-30
 
-# INTERVAL — seconds between audio level samples.
-#   Lower = more responsive but higher CPU usage.
-#   Range: 2–300.  Default: 5
-INTERVAL=5
+# INTERVAL — seconds between checks of the meter. Every loud second is counted
+#   by the meter, so a longer interval only delays the event, it never misses
+#   one. Range 1–300. Default: 2
+INTERVAL=2
+
+# THRESHOLD — legacy (1.8.3 and earlier, raw sample sum); no longer used.
