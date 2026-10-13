@@ -2,15 +2,21 @@
 # reboot-tracker.sh — record why the camera restarted.
 #
 #   intent "<who>: <why>"  called right before a deliberate reboot
-#   heartbeat              called every minute by cron: last time seen alive
+#   tick                   called every 5 min by cron: copies new critical
+#                          syslog lines to important.log; every 15 min also
+#                          runs heartbeat
+#   heartbeat              last time seen alive (rewritten in place)
 #   boot                   called early by autorun.sh: classifies the previous
 #                          shutdown and appends one line to the history
 #
 # A boot with no recorded intent means the previous run ended without anyone
 # asking for it: hardware watchdog, power loss or kernel crash. The last
-# heartbeat then dates it to within a minute.
-# Files live on the SD card (survive reboots); writes are tiny and at most one
-# per minute. Camera-side shell: busybox ash.
+# heartbeat then dates it to within 15 minutes.
+# Files live on the SD card (survive reboots). SD writes are kept rare: the
+# heartbeat is overwritten in place (same 64 bytes, no new cluster or directory
+# entry, unlike a temp file + rename), 4 times an hour; important.log is only
+# appended to when a critical line actually appeared.
+# Camera-side shell: busybox ash.
 
 LOGDIR="${REBOOT_TRACKER_DIR:-/mnt/log}"
 INTENT="$LOGDIR/.reboot-intent"
@@ -18,11 +24,20 @@ HEARTBEAT="$LOGDIR/.heartbeat"
 HISTORY="$LOGDIR/reboot-history.log"
 LAST="${REBOOT_TRACKER_LAST:-/tmp/last-reboot-reason}"
 KEEP=50
+IMPORTANT="$LOGDIR/important.log"
+IMPORTANT_MAX_BYTES=65536
+IMPORTANT_KEEP=400
+IMPORTANT_MARK="${REBOOT_TRACKER_MARK:-/tmp/log/important.last}"
+SYSLOG_FILES="${REBOOT_TRACKER_SYSLOG:-/var/log/messages.0 /var/log/messages}"
+# What deserves to survive a reboot: storage, memory and kernel failures, and
+# our own tc100_log_event lines. Everything else stays in the RAM syslog.
+IMPORTANT_PATTERN='FAT-fs|mmc[0-9]|mmcblk|get_card_status|I/O error|Out of memory|oom-killer|Killed process|page allocation failure|segfault|Unable to handle|Internal error|Oops|BUG:|Kernel panic|soft lockup|blocked for more than|tc100-event'
 
 _rt_ts() { date '+%Y-%m-%d %H:%M:%S' 2>/dev/null; }
 
 rt_intent()
 {
+  rt_flush_important
   mkdir -p "$LOGDIR" 2>/dev/null
   printf '%s|%s\n' "$(_rt_ts)" "${1:-unspecified}" > "$INTENT" 2>/dev/null
   sync
@@ -34,8 +49,40 @@ rt_heartbeat()
   _hb_load=""; read -r _hb_load _hb_rest < /proc/loadavg 2>/dev/null
   _hb_free="$(sed -n 's/^MemFree: *\([0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null)"
   mkdir -p "$LOGDIR" 2>/dev/null
-  printf '%s|%s|%s|%s\n' "$(_rt_ts)" "${_hb_up%.*}" "$_hb_load" "$_hb_free" > "$HEARTBEAT.tmp" 2>/dev/null &&
-    mv -f "$HEARTBEAT.tmp" "$HEARTBEAT" 2>/dev/null
+  # Fixed 64-byte record written over the previous one (read -r trims the
+  # padding back off).
+  printf '%-63s\n' "$(_rt_ts)|${_hb_up%.*}|$_hb_load|$_hb_free" |
+    dd of="$HEARTBEAT" bs=64 count=1 conv=notrunc 2>/dev/null
+}
+
+# Copy the critical lines logged since the last call to important.log. The
+# last copied line is remembered in RAM; when it has rotated out of the RAM
+# log (or after a boot) every matching line still there is new.
+rt_flush_important()
+{
+  mkdir -p "${IMPORTANT_MARK%/*}" 2>/dev/null
+  # shellcheck disable=SC2086
+  _fi_new="$(cat $SYSLOG_FILES 2>/dev/null | grep -E "$IMPORTANT_PATTERN" |
+    awk -v markfile="$IMPORTANT_MARK" '
+      BEGIN { if ((getline last < markfile) <= 0) last = "\001" }
+      { a[++n] = $0; if ($0 == last) m = n }
+      END { for (i = m + 1; i <= n; i++) print a[i] }')"
+  [ -n "$_fi_new" ] || return 0
+  mkdir -p "$LOGDIR" 2>/dev/null
+  printf '%s\n' "$_fi_new" >> "$IMPORTANT" 2>/dev/null || return 0
+  printf '%s\n' "$_fi_new" | tail -n 1 > "$IMPORTANT_MARK" 2>/dev/null
+  _fi_size="$(wc -c < "$IMPORTANT" 2>/dev/null)"
+  if [ "${_fi_size:-0}" -gt "$IMPORTANT_MAX_BYTES" ] 2>/dev/null; then
+    tail -n "$IMPORTANT_KEEP" "$IMPORTANT" > "$IMPORTANT.tmp" 2>/dev/null && mv -f "$IMPORTANT.tmp" "$IMPORTANT"
+  fi
+}
+
+rt_tick()
+{
+  rt_flush_important
+  case "$(date +%M 2>/dev/null)" in
+    00|15|30|45) rt_heartbeat ;;
+  esac
 }
 
 rt_boot()
@@ -69,7 +116,9 @@ case "${0##*/}" in
     case "$1" in
       intent) shift; rt_intent "$*" ;;
       heartbeat) rt_heartbeat ;;
+      tick) rt_tick ;;
+      flush) rt_flush_important ;;
       boot) rt_boot ;;
-      *) echo "usage: $0 intent <reason> | heartbeat | boot" >&2; exit 2 ;;
+      *) echo "usage: $0 intent <reason> | tick | heartbeat | flush | boot" >&2; exit 2 ;;
     esac ;;
 esac

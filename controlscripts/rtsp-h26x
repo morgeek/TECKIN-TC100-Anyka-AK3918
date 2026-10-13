@@ -2,8 +2,11 @@
 SERVICE_NAME="RTSP H264/H265 Server"
 PIDFILE="/var/run/v4l2rtspserver.pid"
 WATCHDOG_PIDFILE="/var/run/v4l2rtspserver-watch.pid"
-LOGDIR="/mnt/log"
+# RAM: the server's own output is chatty and only useful while it runs.
+# Failures also go through tc100_log_event, which keeps them on the SD card.
+LOGDIR="/tmp/log"
 LOGPATH="$LOGDIR/v4l2rtspserver.log"
+LOG_MAX_BYTES=65536
 CONFIGPATH="/mnt/config"
 export LD_LIBRARY_PATH='/mnt/lib/:/thirdlib:/system/lib/:/usr/lib/'
 
@@ -137,6 +140,8 @@ start()
       STREAMS="$STREAMS video1$AUDIO1"
     fi
 
+    mkdir -p "$LOGDIR" 2>/dev/null
+    cap_log
     echo "================== START ===============" >> "$LOGPATH"
     # libtc100fix.so fixes the closed vendor v4l2rtspserver at run time; each
     # fix is enabled by an environment variable set here, for this process only.
@@ -187,6 +192,7 @@ start()
       sleep 3
       kill -0 "$_rtsp_pid" 2>/dev/null && break
       echo "v4l2rtspserver exited at start (attempt $_rtsp_try), retrying" >> "$LOGPATH"
+      tc100_log_event "rtsp: v4l2rtspserver exited at start (attempt $_rtsp_try)"
     done
 
     ## Watchdog
@@ -203,8 +209,22 @@ start()
   fi
 }
 
+# The log is in RAM: keep it bounded. The server writes with O_APPEND, so
+# rewriting the file in place keeps it writing at the (new) end.
+cap_log()
+{
+  [ "$LOGPATH" = "/dev/null" ] && return 0
+  _cl_size="$(wc -c < "$LOGPATH" 2>/dev/null)"
+  case "$_cl_size" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$_cl_size" -gt "$LOG_MAX_BYTES" ] || return 0
+  tail -c $((LOG_MAX_BYTES / 2)) "$LOGPATH" > "$LOGPATH.tmp" 2>/dev/null &&
+    cat "$LOGPATH.tmp" > "$LOGPATH" 2>/dev/null
+  rm -f "$LOGPATH.tmp"
+}
+
 health()
 {
+  cap_log
   if [ "$(status)" = "" ]; then
     return 1
   fi
@@ -247,6 +267,7 @@ health()
         # If no ticks incremented over the threshold period, it's likely stalled
         if [ "$_delta_ticks" -le 0 ] && [ "$_elapsed" -ge "${RTSP_GOP_STALL_THRESHOLD_SECONDS:-15}" ]; then
           echo "UNHEALTHY (GOP STALL)" >> "$LOGPATH"
+          tc100_log_event "rtsp: GOP stall, no encoder progress for ${_elapsed}s"
           return 1
         fi
         

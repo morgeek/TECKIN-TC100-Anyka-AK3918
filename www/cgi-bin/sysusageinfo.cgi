@@ -53,8 +53,13 @@ if read -r open_alloc _ open_max < /proc/sys/fs/file-nr 2>/dev/null; then
   open_files="${open_alloc}/${open_max}"
 fi
 
-loadavg="$(cat /proc/loadavg 2>/dev/null)"
-uptime_line="$(uptime)"
+# One load line: "uptime" also prints the load average, which duplicated
+# the /proc/loadavg line below it.
+read -r load1 load5 load15 load_tasks _ < /proc/loadavg 2>/dev/null
+read -r up_s _ < /proc/uptime 2>/dev/null
+up_s="${up_s%.*}"; case "$up_s" in ''|*[!0-9]*) up_s=0 ;; esac
+up_d=$((up_s / 86400)); up_h=$((up_s % 86400 / 3600)); up_m=$((up_s % 3600 / 60))
+if [ "$up_d" -gt 0 ]; then uptime_line="${up_d}d ${up_h}h ${up_m}m"; else uptime_line="${up_h}h ${up_m}m"; fi
 
 read -r _ cpu_user cpu_nice cpu_system cpu_idle cpu_iowait cpu_irq cpu_softirq cpu_steal _ _ < /proc/stat
 cpu_active=$((cpu_user + cpu_nice + cpu_system + cpu_irq + cpu_softirq + cpu_steal))
@@ -77,8 +82,8 @@ cat << EOF
             <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M4 18h16M7 14l3-3l3 2l4-5'/></svg><span>Quick System Summary</span></span></p></header>
             <div class='card-content'>
                 <pre class='sysusage-pre'>Uptime: $uptime_line
-Load avg: $loadavg
-Processes: $proc_count
+Load average (1/5/15 min): $load1 / $load5 / $load15
+Processes: $proc_count (running/total: ${load_tasks:-n/a})
 Open files: $open_files</pre>
             </div>
         </div>

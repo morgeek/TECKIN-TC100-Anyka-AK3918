@@ -15,10 +15,12 @@
 
 CONFIG_FILE="/mnt/config/sound_detection.conf"
 PID_FILE="/var/run/sound-detection.pid"
-LOG_FILE="/mnt/log/sound-detection.log"
+# RAM only: every event is also published over MQTT; nothing here needs to
+# survive a reboot, and one SD write per event wore the card for nothing.
+LOG_FILE="/tmp/log/sound-detection.log"
 STATE_FILE="/tmp/sound-detection.state"
 
-LOG_MAX_BYTES="${LOG_MAX_BYTES:-131072}"
+LOG_MAX_BYTES="${LOG_MAX_BYTES:-32768}"
 LOG_BACKUPS="${LOG_BACKUPS:-1}"
 EVENT_COOLDOWN_SECONDS="${EVENT_COOLDOWN_SECONDS:-10}"
 MIN_INTERVAL_SECONDS="${MIN_INTERVAL_SECONDS:-2}"
@@ -53,7 +55,7 @@ clamp_int()
 
 rotate_log_if_needed()
 {
-    max_bytes="$(sanitize_positive_int "$LOG_MAX_BYTES" 131072)"
+    max_bytes="$(sanitize_positive_int "$LOG_MAX_BYTES" 32768)"
     backups="$(clamp_int "$LOG_BACKUPS" 0 3)"
     [ -f "$LOG_FILE" ] || return 0
 
