@@ -446,6 +446,7 @@ do
             write_state
             graceful_shutdown_services
             sleep "$REBOOT_DELAY_SECONDS"
+            /bin/sh /mnt/scripts/reboot-tracker.sh intent "network-monitor: ${current_problem}, ${consecutive_bounce_failures} reconnections failed" >/dev/null 2>&1
             /sbin/reboot
           else
             log_line "Bounce ${consecutive_bounce_failures}/${WIFI_MAX_BOUNCES_BEFORE_REBOOT} failed (${current_problem}); will retry next cycle."

@@ -1741,6 +1741,7 @@ handle_command_payload()
     reboot)
       publish_event_simple "command.reboot" "accepted"
       publish_command_result "reboot" "accepted" "Reboot requested." 1 "$command_source" command
+      /bin/sh /mnt/scripts/reboot-tracker.sh intent "MQTT reboot command ($command_source)" >/dev/null 2>&1
       /sbin/reboot
       ;;
     snapshot)
