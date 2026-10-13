@@ -19,6 +19,18 @@
  *   ai_capture ~2 % with RTSP_AUDIO=0. We force AEC/NR off and report a
  *   successful capture start without starting the ADC.
  *
+ * TC100FIX_AEC_OFF=1   (set by rtsp-h26x when sound detection is enabled)
+ *   Same AEC/NR/AGC override as TC100FIX_MIC_OFF, but the microphone keeps
+ *   capturing: the echo canceller and noise gate are only useful for two-way
+ *   audio, and they flatten the signal a level meter or Frigate listens to.
+ *
+ * TC100FIX_DC_BLOCK=1  (set with TC100FIX_AEC_OFF)
+ *   Without the vendor noise processing the ADC output carries a DC offset
+ *   (~ -1450 of 32768 on the TC100). It would reach the RTSP audio (recordings,
+ *   Frigate's audio detector, whose volume gate sees it as permanent sound).
+ *   A one-pole DC blocker is applied in place to each frame before the
+ *   encoder gets it.
+ *
  * TC100FIX_ISP_TUNE=<path>
  *   Live image tuning (brightness, contrast, ..., exposure cap) from a config
  *   file, applied by a background thread without restarting the stream. See
@@ -36,16 +48,18 @@
  * TC100FIX_SOUND_LEVEL=<path>
  *   Sound level meter for scripts/sound-detection.sh. The vendor audio
  *   encoder (libmpi_aenc) pulls raw 16-bit PCM from the microphone with
- *   ak_ai_get_frame(); we pass each frame through and keep its RMS and peak.
+ *   ak_ai_get_frame(); we pass each frame through and keep its RMS and peak,
+ *   both measured around the window's mean: with the vendor noise processing
+ *   off the ADC output carries a DC offset (~ -1450 on the TC100, i.e.
+ *   -27 dBFS on its own), which must not count as sound.
  *   Once a second (>= 0.5 s of audio) we write to <path> (tmpfs, atomic):
  *     "<epoch> <rms_dbfs> <peak_dbfs> <events> <last_event_epoch> <last_event_dbfs>"
  *   A window whose RMS reaches the threshold (dBFS, read every 10 s from
  *   <path>.threshold, written by sound-detection.sh; default -30) counts as an
  *   event, so the daemon can poll slowly without missing short sounds.
  *   No second reader on the ADC, no extra thread.
- *   The meter only sees audio while the encoder runs, i.e. while the
- *   microphone is captured (rtsp-h26x keeps it on when sound detection is
- *   enabled, even with RTSP_AUDIO=0).
+ *   The meter only sees audio while the encoder runs, i.e. while audio is
+ *   served (rtsp-h26x serves it whenever sound detection is enabled).
  *
  * TC100FIX_PRINT_LEVEL=<0..9>
  *   The AnykaCameraManager constructor forces ak_print_set_level(3), which
@@ -157,7 +171,7 @@ int ak_ai_set_aec(void *handle, int enable)
     static int (*real)(void *, int);
     if (!real)
         real = (int (*)(void *, int))next_sym("ak_ai_set_aec");
-    if (env_on("TC100FIX_MIC_OFF"))
+    if (env_on("TC100FIX_MIC_OFF") || env_on("TC100FIX_AEC_OFF"))
         enable = 0;
     return real ? real(handle, enable) : -1;
 }
@@ -167,7 +181,7 @@ int ak_ai_set_nr_agc(void *handle, int enable)
     static int (*real)(void *, int);
     if (!real)
         real = (int (*)(void *, int))next_sym("ak_ai_set_nr_agc");
-    if (env_on("TC100FIX_MIC_OFF"))
+    if (env_on("TC100FIX_MIC_OFF") || env_on("TC100FIX_AEC_OFF"))
         enable = 0;
     return real ? real(handle, enable) : -1;
 }
@@ -207,9 +221,9 @@ static void sound_meter(const struct ak_frame *f)
 {
     static const char *path;
     static int checked;
-    static double sum_sq;
+    static double sum, sum_sq;
+    static int vmin = 32767, vmax = -32768;
     static unsigned long n_samples;
-    static int peak;
     static time_t last, thr_read;
     static int threshold = -30;
     static unsigned long events;
@@ -229,17 +243,21 @@ static void sound_meter(const struct ak_frame *f)
     n = f->len / 2;
     for (i = 0; i < n; i++) {
         int v = pcm[i];
-        if (v < 0) v = -v;
-        if (v > peak) peak = v;
-        sum_sq += (double)pcm[i] * pcm[i];
+        if (v < vmin) vmin = v;
+        if (v > vmax) vmax = v;
+        sum += v;
+        sum_sq += (double)v * v;
     }
     n_samples += n;
     now = time(NULL);
     if (n_samples >= 4000 && now != last) {   /* >= 0.5 s at 8 kHz, at most 1/s */
         char tmp[256], line[96];
-        double rms = sqrt(sum_sq / n_samples);
+        double mean = sum / n_samples;
+        double var = sum_sq / n_samples - mean * mean;
+        double rms = var > 0 ? sqrt(var) : 0;
+        double peak = vmax - mean > mean - vmin ? vmax - mean : mean - vmin;
         int rms_db = rms > 0.5 ? (int)lrint(20.0 * log10(rms / 32768.0)) : -96;
-        int peak_db = peak > 0 ? (int)lrint(20.0 * log10(peak / 32768.0)) : -96;
+        int peak_db = peak > 0.5 ? (int)lrint(20.0 * log10(peak / 32768.0)) : -96;
         int fd, len;
         if (now - thr_read >= 10) {          /* threshold set by the daemon */
             int t, tfd;
@@ -272,7 +290,30 @@ static void sound_meter(const struct ak_frame *f)
                 rename(tmp, path);
             close(fd);
         }
-        sum_sq = 0; n_samples = 0; peak = 0; last = now;
+        sum = 0; sum_sq = 0; n_samples = 0; vmin = 32767; vmax = -32768; last = now;
+    }
+}
+
+static void dc_block(struct ak_frame *f)
+{
+    /* y[n] = x[n] - x[n-1] + R*y[n-1], R = 0.995 (corner ~6 Hz at 8 kHz),
+     * fixed point Q15. */
+    static int on = -1;
+    static int x1, y1;
+    short *pcm;
+    unsigned int i, n;
+    if (on < 0)
+        on = env_on("TC100FIX_DC_BLOCK");
+    if (!on || !f || !f->data || f->len < 2)
+        return;
+    pcm = (short *)f->data;
+    n = f->len / 2;
+    for (i = 0; i < n; i++) {
+        int x = pcm[i];
+        int y = x - x1 + ((32604 * y1) >> 15);
+        x1 = x;
+        y1 = y;
+        pcm[i] = (short)(y > 32767 ? 32767 : y < -32768 ? -32768 : y);
     }
 }
 
@@ -285,8 +326,10 @@ int ak_ai_get_frame(void *handle, struct ak_frame *frame, long ms)
     if (!real)
         return -1;
     rc = real(handle, frame, ms);
-    if (rc == 0)
+    if (rc == 0) {
+        dc_block(frame);
         sound_meter(frame);
+    }
     return rc;
 }
 
