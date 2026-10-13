@@ -1181,10 +1181,10 @@ if [ -n "$F_cmd" ]; then
 
           3)
             echo "Content of v4l2rtspserver.log (tail -n ${LOG_VIDEO_TAIL_LINES})<br/>"
-            if [ -f /mnt/log/v4l2rtspserver.log ]; then
-              tail -n "$LOG_VIDEO_TAIL_LINES" /mnt/log/v4l2rtspserver.log
+            if [ -f /tmp/log/v4l2rtspserver.log ]; then
+              tail -n "$LOG_VIDEO_TAIL_LINES" /tmp/log/v4l2rtspserver.log
             else
-              echo "Log file not found: /mnt/log/v4l2rtspserver.log"
+              echo "Log file not found: /tmp/log/v4l2rtspserver.log"
             fi
             ;;
 
@@ -1211,7 +1211,7 @@ if [ -n "$F_cmd" ]; then
             ;;
           3)
             echo "Content of v4l2rtspserver.log cleared<br/>"
-            : > /mnt/log/v4l2rtspserver.log 2>/dev/null || true
+            : > /tmp/log/v4l2rtspserver.log 2>/dev/null || true
             ;;
         esac
         echo "</pre>"

@@ -694,7 +694,9 @@ EOF
     } >> "$CRON_TMP"
     mv "$CRON_TMP" "$CRON_ROOT"
 
-    # Heartbeat for reboot-tracker.sh: last time seen alive, once a minute.
+    # reboot-tracker.sh tick every 5 min: copies new critical syslog lines to
+    # the SD card (only when there are some) and, every 15 min, rewrites the
+    # "last seen alive" heartbeat in place.
     CRON_TMP="/tmp/root.crontab.heartbeat.$$"
     awk '
       BEGIN { skip=0 }
@@ -704,7 +706,7 @@ EOF
     ' "$CRON_ROOT" > "$CRON_TMP" 2>/dev/null || cp "$CRON_ROOT" "$CRON_TMP"
     {
       echo "# BEGIN TC100 MANAGED HEARTBEAT"
-      echo "* * * * * /bin/sh /mnt/scripts/reboot-tracker.sh heartbeat >/dev/null 2>&1"
+      echo "*/5 * * * * /bin/sh /mnt/scripts/reboot-tracker.sh tick >/dev/null 2>&1"
       echo "# END TC100 MANAGED HEARTBEAT"
     } >> "$CRON_TMP"
     mv "$CRON_TMP" "$CRON_ROOT"
@@ -922,36 +924,26 @@ enforce_security_hardening_runtime()
 
 start_syslog_forwarding()
 {
-    if ! is_truthy "${SYSLOG_ENABLE:-0}"; then
-        return 0
-    fi
-    if [ -z "$SYSLOG_HOST" ]; then
-        echo "start_syslog_forwarding: SYSLOG_HOST not set, skipping" >> "$LOGPATH"
-        return 0
-    fi
-    _syslog_port="${SYSLOG_PORT:-514}"
-    case "$_syslog_port" in
-        ''|*[!0-9]*) _syslog_port=514 ;;
-    esac
-
-    # Try busybox syslogd with -R for remote forwarding.
-    # -n runs in foreground (we background it ourselves), -R sends to remote host.
-    if "$BOOT_BUSYBOX" syslogd --help 2>&1 | grep -q '\-R'; then
-        # Kill any existing local syslogd
-        killall syslogd 2>/dev/null || true
-        "$BOOT_BUSYBOX" syslogd -R "${SYSLOG_HOST}:${_syslog_port}" &
-        echo "start_syslog_forwarding: syslogd -R ${SYSLOG_HOST}:${_syslog_port}" >> "$LOGPATH"
-    else
-        # Fallback: send the startup log as a one-shot UDP syslog message via logger -n
-        if "$BOOT_BUSYBOX" logger --help 2>&1 | grep -q '\-n'; then
-            "$BOOT_BUSYBOX" logger -n "$SYSLOG_HOST" -P "$_syslog_port" \
-                -t "tc100" "Camera boot complete — $(cat /tmp/camera_ip.txt 2>/dev/null)" \
-                >/dev/null 2>&1 || true
-            echo "start_syslog_forwarding: sent boot notice via logger to ${SYSLOG_HOST}:${_syslog_port}" >> "$LOGPATH"
+    # Always replace the vendor syslogd: filtered (notice and above + logins),
+    # 256 KB of RAM at most. With SYSLOG_ENABLE=1 the same stream also goes to
+    # SYSLOG_HOST (and is still kept locally, -L).
+    _syslog_remote=""
+    if is_truthy "${SYSLOG_ENABLE:-0}"; then
+        if [ -z "$SYSLOG_HOST" ]; then
+            echo "start_syslog_forwarding: SYSLOG_HOST not set, local log only" >> "$LOGPATH"
         else
-            echo "start_syslog_forwarding: busybox syslogd -R and logger -n not available" >> "$LOGPATH"
+            _syslog_port="${SYSLOG_PORT:-514}"
+            case "$_syslog_port" in
+                ''|*[!0-9]*) _syslog_port=514 ;;
+            esac
+            _syslog_remote="${SYSLOG_HOST}:${_syslog_port}"
         fi
     fi
+    _syslog_pid="$(syslogd_start "$_syslog_remote")"
+    if [ -n "$_syslog_remote" ] && [ -n "$_syslog_pid" ]; then
+        echo "$_syslog_pid" > /var/run/syslog-forward.pid
+    fi
+    echo "start_syslog_forwarding: syslogd pid=${_syslog_pid:-?} remote=${_syslog_remote:-none}" >> "$LOGPATH"
 }
 
 generate_csrf_token()
