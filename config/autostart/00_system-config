@@ -26,6 +26,10 @@ echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse
 ## block above 64 KB); the RTL8188FU driver drops what it cannot buffer.
 echo 2048 > /proc/sys/vm/min_free_kbytes
 
+## SD card wear: do not record access dates. With relatime, vfat rewrote the
+## directory entry of every script cron/CGIs read at most once a day each.
+mount -o remount,noatime /mnt 2>/dev/null || true
+
 ## Init status files
 echo 0 > /var/run/lum
 echo 0 > /var/run/awb
