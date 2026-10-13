@@ -80,7 +80,7 @@ osdx=10
 osdy=12
 [2]
 channels=1
-codec=4
+codec=17
 samplerate=8000
 [3]
 channels=1
