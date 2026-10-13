@@ -194,6 +194,22 @@ parse_script_capabilities() {
 # fast_toggle_state; any other script is probed.
 FAST_PIDFILE_SERVICES=" ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler "
 
+# port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
+# (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID
+# or a half-dead tcpsvd showed services as running with their port closed.
+port_listening() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  _pl_hex="$(printf '%04X' "$1")"
+  for _pl_f in /proc/net/tcp /proc/net/tcp6; do
+    [ -r "$_pl_f" ] || continue
+    while read -r _pl_sl _pl_local _pl_rem _pl_st _pl_rest; do
+      [ "$_pl_st" = 0A ] || continue
+      case "$_pl_local" in *":$_pl_hex") return 0 ;; esac
+    done < "$_pl_f"
+  done
+  return 1
+}
+
 # read_first FILE -> first word of FILE ("" if unreadable), no fork.
 read_first() {
   _rf_v=""
@@ -274,6 +290,15 @@ fast_pidfile_state() {
   _fp_pid=""
   [ -r "$script_pidfile" ] && read -r _fp_pid < "$script_pidfile" 2>/dev/null
   case "$_fp_pid" in ''|*[!0-9]*) _fp_pid="" ;; esac
+  case "$1" in
+    ftp-server)    _fp_port="$(kv_value /mnt/config/ftp.conf PORT)" ;;
+    telnet-server) _fp_port="$(kv_value /mnt/config/telnetd.conf TELNET_PORT)" ;;
+    *)             _fp_port="" ;;
+  esac
+  # Listener services: a live PID whose port is closed is not running.
+  if [ -n "$_fp_pid" ] && [ -n "$_fp_port" ] && ! port_listening "$_fp_port"; then
+    _fp_pid=""
+  fi
   if [ -n "$_fp_pid" ] && [ -d "/proc/$_fp_pid" ]; then
     state="running"; running=1
     _svc_pid_uptime "$_fp_pid"

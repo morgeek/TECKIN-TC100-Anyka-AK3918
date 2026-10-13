@@ -423,7 +423,7 @@ sync_managed_reboot_cron() {
   {
     echo "# BEGIN TC100 MANAGED REBOOT"
     if [ "$schedule_enable" = "1" ]; then
-      echo "${schedule_minute} ${schedule_hour} * * ${schedule_weekday} /sbin/reboot >/dev/null 2>&1"
+      echo "${schedule_minute} ${schedule_hour} * * ${schedule_weekday} /bin/sh /mnt/scripts/reboot-tracker.sh intent 'scheduled reboot (REBOOT_SCHEDULE)'; /sbin/reboot >/dev/null 2>&1"
     else
       echo "# disabled"
     fi
@@ -1428,6 +1428,7 @@ if [ -n "$F_cmd" ]; then
       _ac_now
       [ -n "$now_ts" ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"reboot","source":"action.cgi"}' "$now_ts")"
+      /bin/sh /mnt/scripts/reboot-tracker.sh intent "web UI reboot (${REMOTE_ADDR:-?})" >/dev/null 2>&1
       /sbin/reboot
     ;;
 
@@ -1438,6 +1439,7 @@ if [ -n "$F_cmd" ]; then
       else
         echo "Shutting down device.."
       fi
+      /bin/sh /mnt/scripts/reboot-tracker.sh intent "web UI shutdown (${REMOTE_ADDR:-?})" >/dev/null 2>&1
       /sbin/halt
     ;;
 
