@@ -946,6 +946,8 @@ devinfo_cache_fresh() {
 # ... cmd" for each job. Keep notice and above, plus logins (auth.info), in
 # RAM only; tc100_log_event / reboot-tracker.sh copy the few critical lines to
 # the SD card. A remote host, when set, gets the same filtered stream.
+# BusyBox writes a message no rule matched to the default file when its
+# priority passes -l, hence "-l 6" as well (notice and above).
 #   syslogd_start [HOST:PORT]   -> prints the new syslogd PID
 # ---------------------------------------------------------------------------
 SYSLOG_CONF_RUNTIME="/tmp/syslog.conf"
@@ -957,9 +959,9 @@ syslogd_start() {
   _sl_i=0
   while pidof syslogd >/dev/null 2>&1 && [ "$_sl_i" -lt 10 ]; do sleep 1; _sl_i=$((_sl_i + 1)); done
   if [ -n "$_sl_remote" ]; then
-    ( trap '' HUP; exec /bin/busybox syslogd -n -D -f "$SYSLOG_CONF_RUNTIME" -s 128 -b 1 -R "$_sl_remote" -L ) </dev/null >/dev/null 2>&1 &
+    ( trap '' HUP; exec /bin/busybox syslogd -n -D -f "$SYSLOG_CONF_RUNTIME" -l 6 -s 128 -b 1 -R "$_sl_remote" -L ) </dev/null >/dev/null 2>&1 &
   else
-    ( trap '' HUP; exec /bin/busybox syslogd -n -D -f "$SYSLOG_CONF_RUNTIME" -s 128 -b 1 ) </dev/null >/dev/null 2>&1 &
+    ( trap '' HUP; exec /bin/busybox syslogd -n -D -f "$SYSLOG_CONF_RUNTIME" -l 6 -s 128 -b 1 ) </dev/null >/dev/null 2>&1 &
   fi
   echo "$!"
 }
