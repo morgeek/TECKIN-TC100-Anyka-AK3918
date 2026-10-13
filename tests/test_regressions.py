@@ -148,7 +148,7 @@ class Regressions(unittest.TestCase):
         self.assertEqual(result['video']['main']['codec'], 2)
         self.assertEqual(result['video']['sub']['height'], 200)
         self.assertEqual(result['audio']['volume'], 7)
-        self.assertEqual(result['audio']['codec_main'], 4)
+        self.assertEqual(result['audio']['codec_main'], 17)
         self.assertEqual(result['audio']['codec_sub'], 17)
         self.assertEqual(result['video']['flip'], 1)
         self.assertEqual(result['recording']['postrec'], 7)

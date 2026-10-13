@@ -32,6 +32,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
 
 ### Changed
+- **Main-stream audio defaults to G.711 A-law instead of AAC** (new installs; settings page labels the cost). Measured on a TC100 at 1080p: v4l2rtspserver 36 % → 28-29 % CPU, idle 52 % → 55-60 %. Frigate's `preset-record-generic-audio-aac` re-encodes recordings to AAC anyway (checked: copy video + AAC audio from the G.711 stream).
 - **SD card wear: routine logs stay in RAM.** Measured on a TC100: a cron heartbeat file rewritten every minute (temp file + rename), a stability sample appended every 5 minutes, one sound-detection log line per event (hundreds an evening) and the RTSP server's output all went to the SD card. Now:
   - the sound-detection and RTSP server logs live in /tmp/log, bounded;
   - stability samples are batched in RAM and appended once an hour;
