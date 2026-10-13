@@ -31,6 +31,8 @@ IMPORTANT_MARK="${REBOOT_TRACKER_MARK:-/tmp/log/important.last}"
 SYSLOG_FILES="${REBOOT_TRACKER_SYSLOG:-/var/log/messages.0 /var/log/messages}"
 # What deserves to survive a reboot: storage, memory and kernel failures, and
 # our own tc100_log_event lines. Everything else stays in the RAM syslog.
+# IMPORTANT_IGNORE: harmless warnings printed at every boot.
+IMPORTANT_IGNORE='does not support reading read-only switch'
 IMPORTANT_PATTERN='FAT-fs|mmc[0-9]|mmcblk|get_card_status|I/O error|Out of memory|oom-killer|Killed process|page allocation failure|segfault|Unable to handle|Internal error|Oops|BUG:|Kernel panic|soft lockup|blocked for more than|tc100-event'
 
 _rt_ts() { date '+%Y-%m-%d %H:%M:%S' 2>/dev/null; }
@@ -63,7 +65,7 @@ rt_flush_important()
   mkdir -p "${IMPORTANT_MARK%/*}" 2>/dev/null
   # shellcheck disable=SC2086
   _fi_new="$(cat $SYSLOG_FILES 2>/dev/null | grep -E "$IMPORTANT_PATTERN" |
-    grep -E '\.(emerg|alert|crit|err|warn|warning) |tc100-event' |
+    grep -E '\.(emerg|alert|crit|err|warn|warning) |tc100-event' | grep -vE "$IMPORTANT_IGNORE" |
     awk -v markfile="$IMPORTANT_MARK" '
       BEGIN { if ((getline last < markfile) <= 0) last = "\001" }
       { a[++n] = $0; if ($0 == last) m = n }
