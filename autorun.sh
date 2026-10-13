@@ -808,7 +808,7 @@ apply_low_cpu_profile()
     if [ ! -f "$CONFIGPATH/sound_detection.conf" ]; then
         {
             echo "ENABLE=0"
-            echo "THRESHOLD_DB=-30"
+            echo "THRESHOLD_DB=-24"
             echo "INTERVAL=2"
         } > "$CONFIGPATH/sound_detection.conf"
     fi

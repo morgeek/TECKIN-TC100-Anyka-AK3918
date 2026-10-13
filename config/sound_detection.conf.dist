@@ -13,9 +13,16 @@ ENABLE=0
 
 # THRESHOLD_DB — level in dBFS (0 = loudest the microphone can capture).
 #   A quiet room is around -60, speech near the camera around -35 to -25,
-#   a shout or a dog barking around -20 to -10. Range -90..0. Default: -30.
+#   a shout or a dog barking around -20 to -10. Range -90..0. Default: -24
+#   (measured on a TC100: at -30, an evening at home gave ~170 events an hour,
+#   70 % of them within 3 dB of the threshold).
 #   Watch "Level" in Services → sound-detection → status to tune it.
-THRESHOLD_DB=-30
+THRESHOLD_DB=-24
+
+# MIN_LOUD_SECONDS — publish only once a burst has been loud for this many
+#   seconds (1 = any loud second). 2 ignores single knocks and clicks but also
+#   a single short bark. Range 1-10. Default: 1
+MIN_LOUD_SECONDS=1
 
 # INTERVAL — seconds between checks of the meter. Every loud second is counted
 #   by the meter, so a longer interval only delays the event, it never misses
