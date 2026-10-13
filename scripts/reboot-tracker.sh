@@ -63,6 +63,7 @@ rt_flush_important()
   mkdir -p "${IMPORTANT_MARK%/*}" 2>/dev/null
   # shellcheck disable=SC2086
   _fi_new="$(cat $SYSLOG_FILES 2>/dev/null | grep -E "$IMPORTANT_PATTERN" |
+    grep -E '\.(emerg|alert|crit|err|warn|warning) |tc100-event' |
     awk -v markfile="$IMPORTANT_MARK" '
       BEGIN { if ((getline last < markfile) <= 0) last = "\001" }
       { a[++n] = $0; if ($0 == last) m = n }
