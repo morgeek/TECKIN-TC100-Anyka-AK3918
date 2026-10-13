@@ -1343,3 +1343,78 @@ class ServicesAndStatus(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SdWear(unittest.TestCase):
+    """Routine logs stay in RAM; the SD card only gets rare, useful writes."""
+
+    def tracker(self, d, *args):
+        env = dict(os.environ, REBOOT_TRACKER_DIR=str(Path(d) / 'sd'),
+                   REBOOT_TRACKER_MARK=str(Path(d) / 'ram' / 'important.last'),
+                   REBOOT_TRACKER_SYSLOG='%s %s' % (Path(d) / 'messages.0', Path(d) / 'messages'))
+        return subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh')] + list(args),
+                              capture_output=True, timeout=8, env=env)
+
+    def test_only_new_critical_lines_reach_the_card(self):
+        with tempfile.TemporaryDirectory() as d:
+            msgs = Path(d) / 'messages'
+            noise = 'Oct 13 18:00:0%d anyka kern.info kernel: akotg_usbhc_hub_status_data\n'
+            msgs.write_text(noise % 1 +
+                            'Oct 13 18:00:02 anyka kern.err kernel: FAT-fs (mmcblk0p1): error\n' +
+                            noise % 3)
+            self.tracker(d, 'flush')
+            imp = Path(d) / 'sd' / 'important.log'
+            self.assertEqual(imp.read_text().count('\n'), 1)
+            self.assertIn('FAT-fs', imp.read_text())
+            before = imp.stat().st_mtime_ns
+            self.tracker(d, 'flush')                      # nothing new: no write
+            self.assertEqual(imp.stat().st_mtime_ns, before)
+            with msgs.open('a') as f:
+                f.write('Oct 13 18:05:00 anyka user.err tc100-event: rtsp: GOP stall\n')
+            self.tracker(d, 'flush')
+            self.assertEqual(imp.read_text().count('\n'), 2)
+            self.assertNotIn('usbhc', imp.read_text())
+            # Marker rotated out of the RAM log (or a new boot): all matches are new.
+            msgs.write_text('Oct 13 19:00:00 anyka kern.err kernel: Out of memory: Killed process 808\n')
+            self.tracker(d, 'flush')
+            self.assertEqual(imp.read_text().count('\n'), 3)
+
+    def test_heartbeat_is_rewritten_in_place_and_read_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.tracker(d, 'heartbeat')
+            hb = Path(d) / 'sd' / '.heartbeat'
+            self.assertEqual(hb.stat().st_size, 64)
+            ino = hb.stat().st_ino
+            self.tracker(d, 'heartbeat')
+            self.assertEqual((hb.stat().st_size, hb.stat().st_ino), (64, ino))
+            env = dict(os.environ, REBOOT_TRACKER_DIR=str(Path(d) / 'sd'),
+                       REBOOT_TRACKER_LAST=str(Path(d) / 'last'))
+            subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
+            line = (Path(d) / 'last').read_text()
+            self.assertRegex(line, r'MemFree [0-9]+ kB\n$')       # padding trimmed
+
+    def test_routine_logs_live_in_ram(self):
+        self.assertIn('LOG_FILE="/tmp/log/sound-detection.log"',
+                      (ROOT / 'controlscripts/sound-detection').read_text())
+        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('LOGDIR="/tmp/log"', rtsp)
+        self.assertIn('cap_log', function('controlscripts/rtsp-h26x', 'health'))
+        autorun = (ROOT / 'autorun.sh').read_text()
+        self.assertIn('*/5 * * * * /bin/sh /mnt/scripts/reboot-tracker.sh tick', autorun)
+        self.assertNotIn('* * * * * /bin/sh /mnt/scripts/reboot-tracker.sh', autorun)
+        self.assertIn('remount,noatime /mnt', (ROOT / 'config/autostart/00_system-config').read_text())
+        conf = function('scripts/common_functions.sh', 'syslogd_start')
+        self.assertIn('*.notice;auth.*;authpriv.*', conf)
+        self.assertNotIn('/mnt', conf)
+
+    def test_stability_samples_are_batched(self):
+        with tempfile.TemporaryDirectory() as d:
+            sd, ram = Path(d) / 'stability.csv', Path(d) / 'pending'
+            code = ('STABILITY_FILE=%s; STABILITY_PENDING=%s; STABILITY_MAX_SAMPLES=576\n'
+                    % (shlex.quote(str(sd)), shlex.quote(str(ram))) +
+                    function('scripts/health-snapshot.sh', 'stability_flush') +
+                    '\nfor i in 1 2 3; do echo "$i,0,0,0,0" >> "$STABILITY_PENDING"; done\n'
+                    'stability_flush')
+            self.assertEqual(run(code).returncode, 0)
+            self.assertEqual(sd.read_text().count('\n'), 4)        # header + 3
+            self.assertEqual(ram.read_text(), '')
