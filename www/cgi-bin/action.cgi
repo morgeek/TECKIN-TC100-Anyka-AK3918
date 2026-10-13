@@ -567,7 +567,7 @@ apply_low_cpu_background_defaults() {
   if [ ! -f /mnt/config/sound_detection.conf ]; then
     {
       echo "ENABLE=0"
-      echo "THRESHOLD_DB=-30"
+      echo "THRESHOLD_DB=-24"
       echo "INTERVAL=2"
     } > /mnt/config/sound_detection.conf
   fi
@@ -1478,7 +1478,7 @@ if [ -n "$F_cmd" ]; then
 
     set_sound_detection)
       enable=$(normalize_bool "${F_sound_det_enable}")
-      threshold=$(sound_threshold_db "${F_sound_det_threshold}" -30)
+      threshold=$(sound_threshold_db "${F_sound_det_threshold}" -24)
       interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 2)
       apply_sound_detection "$enable" "$threshold" "$interval"
       if wants_json_response; then
@@ -2996,7 +2996,7 @@ if [ -n "$F_cmd" ]; then
       motion_led="$(normalize_bool "${F_motion_trigger_led:-${F_motionBlink:-0}}")"
       rewrite_config /mnt/config/motion.conf motion_trigger_led "$motion_led"
       sound_enable="$(normalize_bool "${F_sound_det_enable:-0}")"
-      sound_threshold="$(sound_threshold_db "${F_sound_det_threshold}" -30)"
+      sound_threshold="$(sound_threshold_db "${F_sound_det_threshold}" -24)"
       apply_sound_detection "$sound_enable" "$sound_threshold"
 
       echo "Motion red led blink set to ${motion_led}<BR>"

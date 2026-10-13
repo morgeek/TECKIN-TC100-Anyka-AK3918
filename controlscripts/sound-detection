@@ -92,15 +92,15 @@ LEVEL_FILE="${SOUND_LEVEL_FILE:-/var/run/sound_level}"
 # Ensure we have a default config
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "ENABLE=0" > "$CONFIG_FILE"
-    echo "THRESHOLD_DB=-30" >> "$CONFIG_FILE"
+    echo "THRESHOLD_DB=-24" >> "$CONFIG_FILE"
     echo "INTERVAL=2" >> "$CONFIG_FILE"
 fi
 
-# threshold_db -> THRESHOLD_DB clamped to -90..0 (dBFS), default -30.
+# threshold_db -> THRESHOLD_DB clamped to -90..0 (dBFS), default -24.
 threshold_db()
 {
-    _td="$(read_kv_config_value "$CONFIG_FILE" THRESHOLD_DB -30)"
-    case "$_td" in -[0-9]|-[0-9][0-9]|0) ;; *) _td=-30 ;; esac
+    _td="$(read_kv_config_value "$CONFIG_FILE" THRESHOLD_DB -24)"
+    case "$_td" in -[0-9]|-[0-9][0-9]|0) ;; *) _td=-24 ;; esac
     [ "$_td" -lt -90 ] && _td=-90
     echo "$_td"
 }
@@ -138,6 +138,7 @@ run_daemon()
     last_events=""
     last_threshold=""
     last_publish=0
+    streak=0
     warned=0
     cooldown_seconds="$(clamp_int "$EVENT_COOLDOWN_SECONDS" 0 300)"
 
@@ -151,6 +152,7 @@ run_daemon()
 
         threshold="$(threshold_db)"
         interval="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" INTERVAL 2)" 1 300)"
+        min_loud="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" MIN_LOUD_SECONDS 1)" 1 10)"
         # Tell the meter when it changes (it re-reads this file every 10 s).
         if [ "$threshold" != "$last_threshold" ] || [ ! -f "$LEVEL_FILE.threshold" ]; then
             echo "$threshold" > "$LEVEL_FILE.threshold" 2>/dev/null
@@ -163,12 +165,20 @@ run_daemon()
             if [ -z "$last_events" ]; then
                 last_events="$m_events"           # do not replay past events
             elif [ "$m_events" != "$last_events" ]; then
+                # The meter counts loud seconds; a run of checks that each saw
+                # some is one burst. Publish once it lasted MIN_LOUD_SECONDS.
+                _delta=$((m_events - last_events))
+                [ "$_delta" -gt 0 ] || _delta=1
                 last_events="$m_events"
-                if [ "$cooldown_seconds" -eq 0 ] || [ $((m_last_ts - last_publish)) -ge "$cooldown_seconds" ]; then
-                    log_msg "Triggered level=${m_last_db}dBFS threshold=${threshold}dBFS"
+                streak=$((streak + _delta))
+                if [ "$streak" -ge "$min_loud" ] && \
+                   { [ "$cooldown_seconds" -eq 0 ] || [ $((m_last_ts - last_publish)) -ge "$cooldown_seconds" ]; }; then
+                    log_msg "Triggered level=${m_last_db}dBFS threshold=${threshold}dBFS loud=${streak}s"
                     publish_sound_event "$m_last_db" "$threshold" "$m_last_ts"
                     last_publish="$m_last_ts"
                 fi
+            else
+                streak=0
             fi
         else
             printf '%s\n' "none" > "$STATE_FILE"

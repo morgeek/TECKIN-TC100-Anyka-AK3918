@@ -32,6 +32,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
 
 ### Changed
+- **Day/night thread polls every 500 ms instead of 100 ms** (`RTSP_DAYNIGHT_POLL_MS`, applied by libtc100fix to that single `ak_sleep_ms` call site, identified by its return address in the bundled binary). Measured on a TC100 at night: the thread wakes up 2×/s, v4l2rtspserver goes from 30 % to 28 % CPU.
+- **Sound detection:** the default threshold moves to -24 dBFS. At -30, an evening at home gave ~170 events an hour, 70 % of them within 3 dB of the threshold. New `MIN_LOUD_SECONDS` setting: publish only once a burst has lasted that long (default 1).
 - **MQTT: publishes reuse the persistent connection.** Each message used to open its own TCP connection, with CONNECT, a 1 s wait and DISCONNECT. That made ~1,100 connections in 4 h on a camera with sound detection. Now the packet is written in one go into the listener's connection, once its handshake is written and the broker has accepted it; otherwise it falls back to the old path. Measured on a TC100:
   - 5 publishes: 0 new connections, all received by a subscriber;
   - bridge startup: 13 s instead of 44 s, because the listener now starts before the ~40 Home Assistant discovery messages;

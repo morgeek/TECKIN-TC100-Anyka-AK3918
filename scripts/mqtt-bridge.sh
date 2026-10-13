@@ -1471,7 +1471,7 @@ ensure_low_cpu_runtime_tuning()
   if [ ! -f /mnt/config/sound_detection.conf ]; then
     {
       echo "ENABLE=0"
-      echo "THRESHOLD_DB=-30"
+      echo "THRESHOLD_DB=-24"
       echo "INTERVAL=2"
     } > /mnt/config/sound_detection.conf
   fi
