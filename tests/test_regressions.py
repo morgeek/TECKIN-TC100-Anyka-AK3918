@@ -372,6 +372,16 @@ class Regressions(unittest.TestCase):
         writes = [tuple(values[i:i+3]) for i in range(0, len(values), 3)]
         self.assertEqual(writes, [(' ', 'samplerate', '16000'), (' ', 'volume', '7'), ('2', 'samplerate', '16000'), ('2', 'codec', '17')])
 
+    def test_tcp_tw_recycle_stays_off(self):
+        # tcp_tw_recycle=1 silently drops SYNs from NATed clients (Frigate's
+        # go2rtc): new RTSP connections timed out while ping worked.
+        files = [ROOT / 'autorun.sh'] + [p for d in ('scripts', 'controlscripts', 'config/autostart', 'www/cgi-bin')
+                                          for p in (ROOT / d).iterdir() if p.is_file()]
+        for p in files:
+            for line in p.read_text(errors='ignore').splitlines():
+                if 'tcp_tw_recycle' in line and not line.lstrip().startswith('#'):
+                    self.assertRegex(line, r'echo 0 > /proc/sys/net/ipv4/tcp_tw_recycle', str(p))
+
     def test_bundled_binaries_unchanged(self):
         count = 0
         for line in (ROOT / 'config/packages.lock.dist').read_text().splitlines():

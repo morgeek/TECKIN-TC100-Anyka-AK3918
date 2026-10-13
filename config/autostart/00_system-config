@@ -8,8 +8,17 @@ CONFIGPATH="/mnt/config"
 install_config $CONFIGPATH/rtspserver.conf
 install_config $CONFIGPATH/motion.conf
 
-## Set the socket option in order to restart easily the server (socket in use)
-echo 1 > /proc/sys/net/ipv4/tcp_tw_recycle
+## TIME_WAIT handling. tcp_tw_recycle must stay OFF: with it, the kernel
+## silently drops a SYN whose TCP timestamp is older than the last one seen
+## from the same IP, which happens all the time for clients behind NAT or
+## with per-connection timestamp offsets (Linux >= 4.10, e.g. go2rtc/Frigate
+## in Docker). Measured on a TC100 (2026-10-13): ~22 SYNs/min dropped
+## (PAWSPassive), Frigate re-dialing the RTSP sub-stream into "i/o timeout"
+## 2-12 times an hour while ping and open streams kept working. The option was
+## removed from Linux 4.12 for this reason. tcp_tw_reuse only affects
+## outgoing connections and keeps quick restarts working.
+echo 0 > /proc/sys/net/ipv4/tcp_tw_recycle
+echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse
 
 ## Init status files
 echo 0 > /var/run/lum
