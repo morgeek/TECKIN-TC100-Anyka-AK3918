@@ -114,6 +114,13 @@ start()
     ## Audio — sanitize codec values before numeric comparisons.
     case "$audioCodec0" in ''|*[!0-9]*) audioCodec0=0 ;; esac
     case "$audioCodec1" in ''|*[!0-9]*) audioCodec1=0 ;; esac
+    # Sound detection measures the PCM the vendor audio encoder pulls, and
+    # v4l2rtspserver only opens the encoder for served audio: enabling sound
+    # detection therefore serves audio even when RTSP_AUDIO=0.
+    if [ "$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)" = "1" ] && [ "$RTSP_AUDIO" = "0" ]; then
+      echo "sound detection enabled: serving audio although RTSP_AUDIO=0" >> "$LOGPATH"
+      RTSP_AUDIO=1
+    fi
     AUDIO0=",audio0"
     AUDIO1=",audio1"
     if [ "$audioCodec0" -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
@@ -135,11 +142,12 @@ start()
     # fix is enabled by an environment variable set here, for this process only.
     TC100FIX_ENV=""
     case "$RTSP_FPS_LOCK" in 1|true|yes|on|enabled) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_FPS_LOCK=1" ;; esac
-    # Sound detection needs the microphone captured, even when no audio is
-    # served: the level meter in libtc100fix.so reads what the encoder pulls.
+    # Sound detection: level meter on the PCM the encoder pulls, microphone
+    # without the vendor echo canceller / noise gate (they flatten everything
+    # below speech level to digital silence), DC offset removed in place.
     _sound_enable="$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)"
     if [ "$_sound_enable" = "1" ]; then
-      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SOUND_LEVEL=/var/run/sound_level"
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SOUND_LEVEL=/var/run/sound_level TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1"
     else
       case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
         [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
