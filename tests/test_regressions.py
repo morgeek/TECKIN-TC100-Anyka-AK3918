@@ -1360,6 +1360,7 @@ class SdWear(unittest.TestCase):
             msgs = Path(d) / 'messages'
             noise = 'Oct 13 18:00:0%d anyka kern.info kernel: akotg_usbhc_hub_status_data\n'
             msgs.write_text(noise % 1 +
+                            'Jan  1 00:00:04 anyka kern.info kernel:  mmcblk0: p1\n' +
                             'Oct 13 18:00:02 anyka kern.err kernel: FAT-fs (mmcblk0p1): error\n' +
                             noise % 3)
             self.tracker(d, 'flush')
@@ -1405,6 +1406,7 @@ class SdWear(unittest.TestCase):
         self.assertIn('remount,noatime /mnt', (ROOT / 'config/autostart/00_system-config').read_text())
         conf = function('scripts/common_functions.sh', 'syslogd_start')
         self.assertIn('*.notice;auth.*;authpriv.*', conf)
+        self.assertEqual(conf.count('-l 6'), 2)
         self.assertNotIn('/mnt', conf)
 
     def test_stability_samples_are_batched(self):
