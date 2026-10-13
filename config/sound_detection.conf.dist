@@ -3,7 +3,9 @@
 #
 # The level is measured inside the RTSP server (libtc100fix.so) on the raw
 # microphone signal, once a second. Enabling or disabling restarts the RTSP
-# service (the microphone must be captured even when RTSP_AUDIO=0).
+# service; while enabled the RTSP server serves audio (the meter needs the
+# vendor audio encoder running) and the vendor echo canceller / noise gate
+# are off.
 #
 # ENABLE — 1 to publish a "sound" event (MQTT; also triggers a recording when
 #   recording on motion is enabled) when the level reaches THRESHOLD_DB.
