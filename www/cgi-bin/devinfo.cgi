@@ -88,6 +88,8 @@ fi
 
 uptime_secs="$(uptime_seconds_safe)"
 last_boot_text="$(format_epoch "$last_boot_epoch")"
+prev_shutdown_text="$(sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' /tmp/last-reboot-reason 2>/dev/null)"
+[ -n "$prev_shutdown_text" ] || prev_shutdown_text="unknown"
 uptime_text="$(format_uptime "$uptime_secs")"
 binary_versions_text="$(cat /tmp/devinfo_binary_versions.txt 2>/dev/null)"
 [ -n "$binary_versions_text" ] || binary_versions_text="$(build_binary_versions_block)"
@@ -135,6 +137,8 @@ cat << EOF
             <div class='card-content'>
                 Last reboot:
                 <pre class='info-pre'>${last_boot_text} (epoch ${last_boot_epoch})</pre>
+                Previous run ended:
+                <pre class='info-pre'>${prev_shutdown_text}</pre>
                 Uptime:
                 <pre class='info-pre'>${uptime_text} (${uptime_secs}s)</pre>
             </div>

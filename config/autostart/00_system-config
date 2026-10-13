@@ -20,6 +20,12 @@ install_config $CONFIGPATH/motion.conf
 echo 0 > /proc/sys/net/ipv4/tcp_tw_recycle
 echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse
 
+## Keep 2 MB free for atomic allocations (Wi-Fi USB receive buffers, network
+## stack) instead of the kernel's 1 MB. With ~33 MB of RAM and the page cache
+## filling the rest, free memory hovered at 1.5-2 MB and fragmented (no free
+## block above 64 KB); the RTL8188FU driver drops what it cannot buffer.
+echo 2048 > /proc/sys/vm/min_free_kbytes
+
 ## Init status files
 echo 0 > /var/run/lum
 echo 0 > /var/run/awb

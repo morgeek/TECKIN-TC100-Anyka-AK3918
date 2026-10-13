@@ -72,6 +72,15 @@ $HTTP["url"] !~ "^/cgi-bin/" {
 }
 # @end
 
+# @migrate updatestream update\.cgi
+# Firmware update uploads (several MB) are streamed to update.cgi, which
+# writes them to the SD card. Without this lighttpd first buffers the whole
+# body in server.upload-dirs (/tmp, i.e. RAM, ~33 MB in total).
+$HTTP["url"] =~ "^/cgi-bin/update\.cgi" {
+  server.stream-request-body = 2
+}
+# @end
+
 ## CGI (etc) stderr log
 server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
 

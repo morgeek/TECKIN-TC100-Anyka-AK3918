@@ -569,6 +569,27 @@
                     <p class="help mt-2">A reboot is required to apply imported changes.</p>
                 </div>
             </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Mise à jour du firmware</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-2">Upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept.</p>
+                    <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
+                    <div class="file is-small is-fullwidth mb-2">
+                        <label class="file-label" style="width:100%">
+                            <input class="file-input" type="file" id="fwuFile" accept=".tar">
+                            <span class="file-cta" style="flex-shrink:0"><span class="file-label">Choose…</span></span>
+                            <span class="file-name" id="fwuFileName" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">No file selected</span>
+                        </label>
+                    </div>
+                    <progress class="progress is-small is-info mb-2" id="fwuProgress" value="0" max="100" style="display:none"></progress>
+                    <div class="buttons">
+                        <button class="button is-info is-small" type="button" id="btnFwuUpload" disabled>Upload &amp; check</button>
+                        <button class="button is-warning is-small" type="button" id="btnFwuInstall" style="display:none">Install &amp; reboot</button>
+                        <button class="button is-small" type="button" id="btnFwuRollback" style="display:none">Roll back</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -731,6 +752,105 @@
                 };
                 reader.readAsText(f, 'utf-8');
             });
+        })();
+
+
+        (function initFirmwareUpdate() {
+            var file = document.getElementById('fwuFile');
+            var name = document.getElementById('fwuFileName');
+            var up = document.getElementById('btnFwuUpload');
+            var inst = document.getElementById('btnFwuInstall');
+            var rb = document.getElementById('btnFwuRollback');
+            var bar = document.getElementById('fwuProgress');
+            var cur = document.getElementById('fwuCurrent');
+            var status = document.getElementById('fwuStatus');
+            if (!file || !up) return;
+            var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+
+            // Bulma's display rules on .button/.progress override [hidden].
+            function show(el, on) { el.style.display = on ? '' : 'none'; }
+            function say(text) { status.textContent = text; }
+            function refresh() {
+                return fetch('cgi-bin/update.cgi?cmd=status', { cache: 'no-store' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        cur.textContent = d.current || '?';
+                        show(rb, !!d.rollback_to);
+                        if (d.rollback_to) rb.textContent = 'Roll back to ' + d.rollback_to;
+                        show(inst, d.state === 'staged');
+                        if (d.state === 'staged') inst.textContent = 'Install ' + d.staged + ' & reboot';
+                        return d;
+                    }).catch(function() {});
+            }
+            function waitForReboot(msg) {
+                say(msg + ' The camera is rebooting; this page reloads when it is back (about 1–2 min).');
+                var start = Date.now();
+                setTimeout(function poll() {
+                    fetch('cgi-bin/update.cgi?cmd=status', { cache: 'no-store' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            if (d && (d.state === 'installing')) throw new Error('busy');
+                            if (Date.now() - start < 40000) throw new Error('too early');
+                            location.reload();
+                        })
+                        .catch(function() { setTimeout(poll, 5000); });
+                }, 20000);
+            }
+            function run(cmd, confirmText, msg) {
+                if (!confirm(confirmText)) return;
+                inst.disabled = rb.disabled = up.disabled = true;
+                cf('cgi-bin/update.cgi?cmd=' + cmd, { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (!d || !d.ok) throw new Error((d && (d.message || d.error)) || 'refused');
+                        waitForReboot(msg);
+                    })
+                    .catch(function(e) { inst.disabled = rb.disabled = false; say('Error: ' + e.message); });
+            }
+
+            file.addEventListener('change', function() {
+                var f = file.files[0];
+                name.textContent = f ? f.name : 'No file selected';
+                up.disabled = !f;
+            });
+            up.addEventListener('click', function() {
+                var f = file.files[0];
+                if (!f) return;
+                up.classList.add('is-loading'); up.disabled = true; show(inst, false);
+                show(bar, true); bar.value = 0;
+                var tokenP = window.ensureCsrfToken ? window.ensureCsrfToken() : Promise.resolve('');
+                tokenP.then(function(token) {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', 'cgi-bin/update.cgi?cmd=upload');
+                    xhr.setRequestHeader('X-CSRF-Token', token);
+                    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                    xhr.upload.onprogress = function(ev) {
+                        if (ev.lengthComputable) { bar.value = Math.round(ev.loaded * 100 / ev.total); say('Uploading… ' + bar.value + ' %'); }
+                    };
+                    xhr.upload.onload = function() { bar.removeAttribute('value'); say('Checking the package on the camera…'); };
+                    xhr.onload = function() {
+                        up.classList.remove('is-loading'); up.disabled = false; show(bar, false);
+                        var d; try { d = JSON.parse(xhr.responseText); } catch (e) { d = null; }
+                        if (d && d.ok) {
+                            say('Package ' + d.version + ' is valid: ' + d.changed + ' of ' + d.files + ' files differ from the installed ' + d.current + '.');
+                            refresh();
+                        } else {
+                            say('Package rejected: ' + ((d && (d.message || d.error)) || ('HTTP ' + xhr.status)) +
+                                (d && d.bad_md5 ? ' (' + d.bad_md5 + ' damaged file(s))' : '') +
+                                (d && d.syntax_errors ? ' (syntax: ' + d.syntax_errors + ')' : ''));
+                        }
+                    };
+                    xhr.onerror = function() { up.classList.remove('is-loading'); up.disabled = false; show(bar, false); say('Network error during upload.'); };
+                    xhr.send(f);
+                });
+            });
+            inst.addEventListener('click', function() {
+                run('install', 'Install the uploaded firmware and reboot the camera?\n\nThe replaced files are kept for a rollback.', 'Installing.');
+            });
+            rb.addEventListener('click', function() {
+                run('rollback', 'Restore the files replaced by the last update and reboot the camera?', 'Rolling back.');
+            });
+            refresh();
         })();
 
         function initHAStatus() {

@@ -24,6 +24,15 @@
  *   file, applied by a background thread without restarting the stream. See
  *   isp_tune.c.
  *
+ * TC100FIX_HIDE_CREDENTIALS=1
+ *   rtsp-h26x passes "-U user:password" on the command line, readable by
+ *   anything that lists processes (ps, /proc/<pid>/cmdline, the web UI's
+ *   process views). v4l2rtspserver copies it into a std::string while parsing
+ *   options, so once the camera starts (ak_vi_set_fps) we overwrite the
+ *   argument in place with '*'. The argv area is located just before the
+ *   first environment string and checked byte for byte against
+ *   /proc/self/cmdline; on any mismatch nothing is touched.
+ *
  * TC100FIX_PRINT_LEVEL=<0..9>
  *   The AnykaCameraManager constructor forces ak_print_set_level(3), which
  *   rewrites /var/log/ak_print_level for every vendor library. We substitute
@@ -36,8 +45,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define TAG "[tc100fix] "
+
+extern char **environ;
+static char *env_start;   /* first environment string, captured before main() */
+
+__attribute__((constructor)) static void tc100fix_init(void)
+{
+    if (environ && environ[0])
+        env_start = environ[0];
+}
 
 void tc100fix_isp_start(void *handle);   /* isp_tune.c */
 
@@ -55,6 +75,44 @@ static void *next_sym(const char *name)
     return p;
 }
 
+/* ---------------------------------------------------------- credentials */
+
+static void hide_credentials(void)
+{
+    static int done;
+    char buf[1024], *start, *p, *end;
+    ssize_t n;
+    int fd, hidden = 0;
+
+    if (done || !env_on("TC100FIX_HIDE_CREDENTIALS") || !env_start)
+        return;
+    done = 1;
+    fd = open("/proc/self/cmdline", O_RDONLY);
+    if (fd < 0)
+        return;
+    n = read(fd, buf, sizeof(buf));
+    close(fd);
+    if (n <= 0 || n >= (ssize_t)sizeof(buf))
+        return;
+    start = env_start - n;          /* argv strings end where the env begins */
+    if (memcmp(start, buf, (size_t)n)) {
+        fprintf(stderr, TAG "credentials: argv not found, left as is\n");
+        return;
+    }
+    end = start + n;
+    for (p = start; p < end; p += strlen(p) + 1) {
+        if (!strcmp(p, "-U") && p + 3 < end) {
+            char *v = p + 3;
+            memset(v, '*', strlen(v));
+            hidden++;
+        } else if (!strncmp(p, "-U", 2) && p[2]) {
+            memset(p + 2, '*', strlen(p + 2));
+            hidden++;
+        }
+    }
+    fprintf(stderr, TAG "credentials hidden from the process list (%d)\n", hidden);
+}
+
 /* ---------------------------------------------------------------- video */
 
 int ak_vi_set_fps(void *handle, int fps)
@@ -64,6 +122,7 @@ int ak_vi_set_fps(void *handle, int fps)
 
     if (!real)
         real = (int (*)(void *, int))next_sym("ak_vi_set_fps");
+    hide_credentials();                 /* options are parsed by now */
     if (env_on("TC100FIX_FPS_LOCK") && handle) {
         if (!set_switch)
             set_switch = (int (*)(void *, int))next_sym("ak_vi_set_switch_fps_enable");

@@ -1032,9 +1032,119 @@ class ConfigMigrate(unittest.TestCase):
         for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
             text = (ROOT / 'config' / name).read_text()
             blocks = re.findall(r'^# @migrate (\S+) ([^\n]+)\n(.*?)^# @end$', text, re.M | re.S)
-            self.assertEqual([b[0] for b in blocks], ['webperf', 'keepalive'], name)
+            self.assertEqual([b[0] for b in blocks], ['webperf', 'updatestream', 'keepalive'], name)
             for _, probe, body in blocks:
                 self.assertIn(probe, body, (name, probe))
+
+
+class FwUpdate(unittest.TestCase):
+    """scripts/fw-update.sh: verify / install / rollback of an update package."""
+    SCRIPT = ROOT / 'scripts/fw-update.sh'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.root = self.d / 'root'
+        for rel, text in {'VERSION': '1.0\n', 'www/index.html': 'old page\n', 'bin/tool': 'old bin\n',
+                          'wpa_supplicant.conf.dist': 'my wifi\n', 'config/lighttpd.conf': 'x\n',
+                          'config/autostart/rtsp-h26x': 'old toggle\n',
+                          'config/autostart/00_system-config': '#!/bin/sh\necho old\n'}.items():
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / rel).write_text(text)
+        self.pkg_files = {'VERSION': '2.0\n', 'www/index.html': 'new page\n', 'bin/tool': 'old bin\n',
+                          'scripts/new.sh': '#!/bin/sh\necho hi\n', 'wpa_supplicant.conf.dist': 'template\n',
+                          'config/autostart/ftp-server': '/mnt/controlscripts/ftp-server\n',
+                          'config/autostart/rtsp-h26x': 'new toggle\n',
+                          'config/autostart/00_system-config': '#!/bin/sh\necho new\n'}
+        self.ok = self.d / 'ok.sh'; self.ok.write_text('#!/bin/sh\nexit 0\n'); self.ok.chmod(0o755)
+        self.bad = self.d / 'bad.sh'; self.bad.write_text('#!/bin/sh\nexit 1\n'); self.bad.chmod(0o755)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def package(self, files=None, extra=None, manifest=None):
+        import tarfile, io
+        files = dict(self.pkg_files if files is None else files)
+        lines = manifest if manifest is not None else \
+            ''.join('%s  %s\n' % (hashlib.md5(v.encode()).hexdigest(), k) for k, v in files.items())
+        out = self.d / 'pkg.tar'
+        with tarfile.open(out, 'w') as t:
+            for name, data in list({'MANIFEST': lines}.items()) + list(files.items()) + list((extra or {}).items()):
+                b = data.encode(); ti = tarfile.TarInfo(name); ti.size = len(b)
+                t.addfile(ti, io.BytesIO(b))
+        return out
+
+    def run_fwu(self, *args, lighttpd=None, shell=None):
+        env = dict(os.environ, FWU_ROOT=str(self.root), FWU_BACKUPS=str(self.d / 'bk'), FWU_LOCK=str(self.d / 'lock'),
+                   FWU_MIGRATE='/dev/null', FWU_TRACKER='/dev/null', FWU_LIGHTTPD=str(lighttpd or self.ok))
+        return subprocess.run((shell or ['sh']) + [str(self.SCRIPT)] + list(args), capture_output=True, env=env, timeout=60)
+
+    def read(self, rel):
+        return (self.root / rel).read_text()
+
+    def test_install_and_rollback(self):
+        r = self.run_fwu('verify', str(self.package()))
+        info = json.loads(r.stdout)
+        self.assertTrue(info['ok'], r.stdout)
+        # VERSION, index.html, new.sh, 00_system-config; not the toggles, not wpa, not the unchanged bin
+        self.assertEqual(info['changed'], 4)
+        r = self.run_fwu('install', '--no-reboot')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('VERSION'), '2.0\n')
+        self.assertEqual(self.read('www/index.html'), 'new page\n')
+        self.assertEqual(self.read('config/autostart/00_system-config'), '#!/bin/sh\necho new\n')
+        self.assertEqual(self.read('wpa_supplicant.conf.dist'), 'my wifi\n')          # credentials kept
+        self.assertEqual(self.read('config/autostart/rtsp-h26x'), 'old toggle\n')    # boot choice kept
+        self.assertFalse((self.root / 'config/autostart/ftp-server').exists())       # not re-enabled
+        self.assertEqual(json.loads(self.run_fwu('status').stdout)['rollback_to'], '1.0')
+        r = self.run_fwu('rollback', '--no-reboot')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
+        self.assertEqual(self.read('www/index.html'), 'old page\n')
+        self.assertFalse((self.root / 'scripts/new.sh').exists())
+
+    def test_failed_web_server_check_rolls_back(self):
+        self.run_fwu('verify', str(self.package()))
+        r = self.run_fwu('install', '--no-reboot', lighttpd=self.bad)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
+        self.assertEqual(self.read('www/index.html'), 'old page\n')
+        self.assertFalse((self.root / 'scripts/new.sh').exists())
+
+    def test_damaged_copy_is_detected_and_rolled_back(self):
+        # A write that comes out wrong (seen on the SD card under memory
+        # pressure) must never be renamed into place.
+        self.run_fwu('verify', str(self.package()))
+        (self.root / 'update/stage/scripts/new.sh').write_text('#!/bin/sh\necho damaged\n')
+        r = self.run_fwu('install', '--no-reboot')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
+        self.assertFalse((self.root / 'scripts/new.sh').exists())
+        self.assertFalse(list(self.root.rglob('*.fwu')))
+        self.assertIn('damaged on write', (self.root / 'update/update.log').read_text())
+
+    def test_rejects_bad_packages(self):
+        bad_md5 = self.package(manifest='%s  VERSION\n' % ('0' * 32))
+        self.assertEqual(json.loads(self.run_fwu('verify', str(bad_md5)).stdout)['error'], 'verify_failed')
+        bad_sh = dict(self.pkg_files, **{'scripts/new.sh': 'if then fi(\n'})
+        self.assertEqual(json.loads(self.run_fwu('verify', str(self.package(bad_sh))).stdout)['error'], 'verify_failed')
+        evil = self.package(extra={'../escape': 'x'})
+        self.assertEqual(json.loads(self.run_fwu('verify', str(evil)).stdout)['error'], 'unsafe_path')
+        self.assertFalse((self.d / 'escape').exists())
+        self.assertNotEqual(self.run_fwu('install', '--no-reboot').returncode, 0)   # nothing staged
+
+    def test_vendor_busybox(self):
+        sysroot = os.environ.get('TC100_SYSROOT')
+        if not (sysroot and shutil.which('qemu-arm') and Path(sysroot, 'bin/busybox').exists()):
+            self.skipTest('qemu-arm or TC100_SYSROOT not available')
+        sh = ['qemu-arm', '-L', sysroot, str(Path(sysroot, 'bin/busybox')), 'sh']
+        r = self.run_fwu('verify', str(self.package()), shell=sh)
+        self.assertTrue(json.loads(r.stdout)['ok'], r.stdout + r.stderr)
+        r = self.run_fwu('install', '--no-reboot', shell=sh)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('VERSION'), '2.0\n')
+        r = self.run_fwu('rollback', '--no-reboot', shell=sh)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
 
 class WebUiCss(unittest.TestCase):
     """www/css/bulma.1.0.2.purged.min.css is generated by src/webui/purge-bulma.mjs."""

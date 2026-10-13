@@ -379,8 +379,17 @@ enable_hardware_watchdog()
     # To disable watchdog use:
     #       echo 'V'>/dev/watchdog
     #       echo 'V'>/dev/watchdog0
-    # Start watchdog (notify every 2 seconds, reboot if no notification in 5 seconds)
-    "$BOOT_BUSYBOX" watchdog -t 2 -T 5 /dev/watchdog
+    # Feed every second; reboot after 8 s without a feed. 8 s is the AK39
+    # driver maximum (ak_drv_wdt.h); the former -t 2 -T 5 left 3 s of slack,
+    # little on a single 400 MHz core during encoder start or SD writes (a
+    # camera rebooted for no visible reason under load). The feeder runs at
+    # high priority so a busy system does not starve it. A rejected timeout
+    # is only a warning in busybox, so the hardware default then applies.
+    if "$BOOT_BUSYBOX" nice -n -15 true >/dev/null 2>&1; then
+        "$BOOT_BUSYBOX" nice -n -15 "$BOOT_BUSYBOX" watchdog -t 1 -T 8 /dev/watchdog
+    else
+        "$BOOT_BUSYBOX" watchdog -t 1 -T 8 /dev/watchdog
+    fi
     echo "Enabling hardware watchdog" >> $LOGPATH
 }
 
@@ -619,7 +628,7 @@ EOF
     {
       echo "# BEGIN TC100 MANAGED REBOOT"
       if [ "$sched_enable" = "1" ]; then
-        echo "${sched_minute} ${sched_hour} * * ${sched_weekday} /sbin/reboot >/dev/null 2>&1"
+        echo "${sched_minute} ${sched_hour} * * ${sched_weekday} /bin/sh /mnt/scripts/reboot-tracker.sh intent 'scheduled reboot (REBOOT_SCHEDULE)'; /sbin/reboot >/dev/null 2>&1"
       else
         echo "# disabled"
       fi
@@ -682,6 +691,21 @@ EOF
         echo "# disabled"
       fi
       echo "# END TC100 MANAGED STORAGE"
+    } >> "$CRON_TMP"
+    mv "$CRON_TMP" "$CRON_ROOT"
+
+    # Heartbeat for reboot-tracker.sh: last time seen alive, once a minute.
+    CRON_TMP="/tmp/root.crontab.heartbeat.$$"
+    awk '
+      BEGIN { skip=0 }
+      /^# BEGIN TC100 MANAGED HEARTBEAT$/ { skip=1; next }
+      /^# END TC100 MANAGED HEARTBEAT$/ { skip=0; next }
+      skip==0 { print }
+    ' "$CRON_ROOT" > "$CRON_TMP" 2>/dev/null || cp "$CRON_ROOT" "$CRON_TMP"
+    {
+      echo "# BEGIN TC100 MANAGED HEARTBEAT"
+      echo "* * * * * /bin/sh /mnt/scripts/reboot-tracker.sh heartbeat >/dev/null 2>&1"
+      echo "# END TC100 MANAGED HEARTBEAT"
     } >> "$CRON_TMP"
     mv "$CRON_TMP" "$CRON_ROOT"
 
@@ -1083,6 +1107,8 @@ self_heal_runtime
 # Bring configs from older releases up to date with the new .dist defaults
 # (append-only; a stamp makes this a single md5sum once done).
 sh /mnt/scripts/config-migrate.sh >/dev/null 2>&1 || true
+# Why did the previous run end? (/mnt/log/reboot-history.log, Device Info)
+sh /mnt/scripts/reboot-tracker.sh boot >/dev/null 2>&1 || true
 init_password
 # First-boot wizard: set flag if user has never completed the wizard.
 # The flag is checked by wizard.cgi?check and cleared after wizard completes.
@@ -1126,6 +1152,9 @@ start_mqtt_bridge_if_enabled
 publish_boot_event
 echo "$(date)" >> $LOGPATH
 (build_devinfo_cache && echo "build_devinfo_cache: done" >> $LOGPATH) &
+# Warm the Services page cache (script capabilities): the first visit after a
+# boot otherwise waited ~9 s while it was built. Low priority, after services.
+(sleep 45; export REQUEST_METHOD=GET QUERY_STRING='cmd=allstates'; nice -n 10 sh /mnt/www/cgi-bin/scripts.cgi >/dev/null 2>&1 || sh /mnt/www/cgi-bin/scripts.cgi >/dev/null 2>&1) &
 snapshot_lkg_configs
 sleep 1
 sync
