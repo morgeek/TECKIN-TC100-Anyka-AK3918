@@ -608,6 +608,56 @@ _mqtt_varint()
   done
 }
 
+# PUBLISH (QoS 0): header 0x30 (+1 if retained), topic, raw payload.
+_mqtt_publish_packet()
+{
+  _pp_hdr=48
+  [ "$3" = "1" ] && _pp_hdr=49
+  printf "\\x$(printf '%02x' "$_pp_hdr")"
+  _mqtt_varint $((2 + ${#1} + ${#2}))
+  _mqtt_str "$1"
+  printf '%s' "$2"
+}
+
+# Fast path: publish over the persistent listener's connection instead of a
+# new TCP connection + CONNECT + 1 s wait + DISCONNECT per message (measured
+# on a TC100: ~1,100 outgoing connections in 4 h, mostly sound events).
+# Used only when that session exists and the broker accepted it (CONNACK at
+# the start of its capture). The packet goes into the connection's FIFO in a
+# single write: pipe writes up to 4096 bytes are atomic, so it cannot
+# interleave with the listener's keepalive pings. Larger packets, or no live
+# session, return 1 and the caller falls back to a one-shot connection.
+MQTT_FASTPATH_MAX_BYTES=4000
+_mqtt_publish_session()
+{
+  _ps_fifo="${MQTT_STREAM_RAW}.input"
+  [ -p "$_ps_fifo" ] || return 1
+  _ps_seq=""
+  read -r _ps_seq < "${MQTT_STREAM_RAW}.session" 2>/dev/null || return 1
+  case "$_ps_seq" in ''|*[!0-9]*) return 1 ;; esac
+  _ps_ok=""
+  read -r _ps_ok < "${MQTT_STREAM_RAW}.connack" 2>/dev/null || true
+  if [ "$_ps_ok" != "$_ps_seq" ]; then
+    case "$(head -c 4 "${MQTT_STREAM_RAW}.${_ps_seq}" 2>/dev/null | od -An -tx1)" in
+      *'20 02 00 00'*) printf '%s\n' "$_ps_seq" > "${MQTT_STREAM_RAW}.connack" ;;
+      *) return 1 ;;
+    esac
+  fi
+  _ps_tmp="/tmp/.mqtt_pkt.$$"
+  _mqtt_publish_packet "$1" "$2" "$3" > "$_ps_tmp" 2>/dev/null || { rm -f "$_ps_tmp"; return 1; }
+  _ps_size="$(wc -c < "$_ps_tmp" 2>/dev/null)"
+  case "$_ps_size" in ''|*[!0-9]*) _ps_size=99999 ;; esac
+  if [ "$_ps_size" -gt "$MQTT_FASTPATH_MAX_BYTES" ] || [ ! -p "$_ps_fifo" ]; then
+    rm -f "$_ps_tmp"; return 1
+  fi
+  # One read + one write() of the whole packet (dd, not cat: cat may use
+  # sendfile/splice). O_RDWR: never blocks, even if the reader just left.
+  dd if="$_ps_tmp" bs=4096 count=1 1<>"$_ps_fifo" 2>/dev/null
+  _ps_rc=$?
+  rm -f "$_ps_tmp"
+  return "$_ps_rc"
+}
+
 # CONNECT + PUBLISH(QoS0) + DISCONNECT on one TCP connection.
 _mqtt_send_packets()
 {
@@ -629,13 +679,7 @@ _mqtt_send_packets()
     _mqtt_str "$MQTT_PASSWORD"
   fi
 
-  # PUBLISH: header 0x30 (+1 if retained), topic, raw payload.
-  _sp_hdr=48
-  [ "$_sp_retain" = "1" ] && _sp_hdr=49
-  printf "\\x$(printf '%02x' "$_sp_hdr")"
-  _mqtt_varint $((2 + ${#_sp_topic} + ${#_sp_payload}))
-  _mqtt_str "$_sp_topic"
-  printf '%s' "$_sp_payload"
+  _mqtt_publish_packet "$_sp_topic" "$_sp_payload" "$_sp_retain"
 
   # Give the broker time to answer CONNACK and ingest before the close.
   sleep 1
@@ -649,15 +693,19 @@ mqtt_publish_raw()
   retain="${3:-0}"
   [ -n "$topic" ] || return 1
 
-  _mqtt_resp="/tmp/.mqtt_pub_resp.$$"
-  _mqtt_send_packets "$topic" "$payload" "$retain" "${MQTT_CLIENT_ID}-pub" \
-    | nc -w 4 "$MQTT_HOST" "$MQTT_PORT" > "$_mqtt_resp" 2>/dev/null
-  if od -An -tx1 "$_mqtt_resp" 2>/dev/null | grep -q '20 02 00 00'; then
+  if _mqtt_publish_session "$topic" "$payload" "$retain"; then
     _pub_rc=0
   else
-    _pub_rc=1
+    _mqtt_resp="/tmp/.mqtt_pub_resp.$$"
+    _mqtt_send_packets "$topic" "$payload" "$retain" "${MQTT_CLIENT_ID}-pub" \
+      | nc -w 4 "$MQTT_HOST" "$MQTT_PORT" > "$_mqtt_resp" 2>/dev/null
+    if od -An -tx1 "$_mqtt_resp" 2>/dev/null | grep -q '20 02 00 00'; then
+      _pub_rc=0
+    else
+      _pub_rc=1
+    fi
+    rm -f "$_mqtt_resp" 2>/dev/null
   fi
-  rm -f "$_mqtt_resp" 2>/dev/null
   # Record result for MQTT health indicator in web UI (/tmp/mqtt_last_pub.status).
   [ "$BTIME" -gt 0 ] || _load_btime
   read -r _pub_up _ < /proc/uptime

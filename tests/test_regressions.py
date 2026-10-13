@@ -1420,3 +1420,52 @@ class SdWear(unittest.TestCase):
             self.assertEqual(run(code).returncode, 0)
             self.assertEqual(sd.read_text().count('\n'), 4)        # header + 3
             self.assertEqual(ram.read_text(), '')
+
+
+class MqttFastPath(unittest.TestCase):
+    """Publishes reuse the persistent listener connection when it is up."""
+
+    def run_pub(self, d, topic, payload, retain='0', session=True, connack=b'\x20\x02\x00\x00'):
+        raw = Path(d) / 'stream.bin'
+        fifo = Path(str(raw) + '.input')
+        if session:
+            os.mkfifo(fifo)
+            (Path(str(raw) + '.session')).write_text('3\n')
+            (Path(str(raw) + '.3')).write_bytes(connack + b'\x90\x03\x00\x01\x00')
+        code = '\n'.join(function(MQTT, n) for n in
+                         ('_mqtt_str', '_mqtt_varint', '_mqtt_publish_packet', '_mqtt_publish_session'))
+        code += ('\nMQTT_STREAM_RAW=%s; MQTT_FASTPATH_MAX_BYTES=4000\n' % shlex.quote(str(raw)) +
+                 ('exec 3<>%s\n' % shlex.quote(str(fifo)) if session else '') +
+                 '_mqtt_publish_session %s %s %s; echo "rc=$?" >&2\n'
+                 % (shlex.quote(topic), shlex.quote(payload), retain) +
+                 ('timeout 1 cat <&3\n' if session else ''))
+        return run(code, timeout=10)
+
+    def test_publish_goes_through_the_session_fifo(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self.run_pub(d, 'tc100/cam/event', '{"type":"sound","level_db":-27}', '1')
+            self.assertIn(b'rc=0', r.stderr)
+            pk = packets(r.stdout)
+            self.assertEqual(len(pk), 1)
+            hdr, body = pk[0]
+            self.assertEqual(hdr, 0x31)                       # PUBLISH, retained
+            tl = int.from_bytes(body[:2], 'big')
+            self.assertEqual(body[2:2 + tl], b'tc100/cam/event')
+            self.assertEqual(body[2 + tl:], b'{"type":"sound","level_db":-27}')
+            self.assertEqual((Path(d) / 'stream.bin.connack').read_text(), '3\n')
+
+    def test_falls_back_without_a_live_accepted_session(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIn(b'rc=1', self.run_pub(d, 't', 'p', session=False).stderr)
+        with tempfile.TemporaryDirectory() as d:                 # broker refused
+            r = self.run_pub(d, 't', 'p', connack=b'\x20\x02\x00\x05')
+            self.assertIn(b'rc=1', r.stderr)
+            self.assertEqual(r.stdout, b'')
+        with tempfile.TemporaryDirectory() as d:                 # too big for one atomic write
+            r = self.run_pub(d, 't', 'x' * 5000)
+            self.assertIn(b'rc=1', r.stderr)
+            self.assertEqual(r.stdout, b'')
+
+    def test_publish_raw_tries_the_session_first(self):
+        fn = function(MQTT, 'mqtt_publish_raw')
+        self.assertLess(fn.index('_mqtt_publish_session'), fn.index('nc -w 4'))
