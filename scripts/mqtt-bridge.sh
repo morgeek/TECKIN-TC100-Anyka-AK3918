@@ -16,6 +16,8 @@ STREAM_FIFO="/tmp/mqtt-bridge-sub.fifo"
 stream_pid=""
 
 . /mnt/scripts/common_functions.sh
+# Live image tuning helpers (isp_tune_* functions, ISP_TUNE_KEYS).
+[ -r /mnt/scripts/isp-tune.sh ] && . /mnt/scripts/isp-tune.sh
 
 # Cached boot-time epoch from /proc/stat — read once, zero forks on every subsequent call.
 BTIME=0
@@ -606,6 +608,62 @@ _mqtt_varint()
   done
 }
 
+# PUBLISH (QoS 0): header 0x30 (+1 if retained), topic, raw payload.
+_mqtt_publish_packet()
+{
+  _pp_hdr=48
+  [ "$3" = "1" ] && _pp_hdr=49
+  printf "\\x$(printf '%02x' "$_pp_hdr")"
+  _mqtt_varint $((2 + ${#1} + ${#2}))
+  _mqtt_str "$1"
+  printf '%s' "$2"
+}
+
+# Fast path: publish over the persistent listener's connection instead of a
+# new TCP connection + CONNECT + 1 s wait + DISCONNECT per message (measured
+# on a TC100: ~1,100 outgoing connections in 4 h, mostly sound events).
+# Used only when that session exists, its handshake is fully written (.ready,
+# set by the listener writer) and the broker accepted it (CONNACK at the start
+# of its capture). The packet goes into the connection's FIFO in a
+# single write: pipe writes up to 4096 bytes are atomic, so it cannot
+# interleave with the listener's keepalive pings. Larger packets, or no live
+# session, return 1 and the caller falls back to a one-shot connection.
+MQTT_FASTPATH_MAX_BYTES=4000
+_mqtt_publish_session()
+{
+  _ps_fifo="${MQTT_STREAM_RAW}.input"
+  [ -p "$_ps_fifo" ] || return 1
+  _ps_seq=""
+  read -r _ps_seq < "${MQTT_STREAM_RAW}.session" 2>/dev/null || return 1
+  case "$_ps_seq" in ''|*[!0-9]*) return 1 ;; esac
+  # The listener finished writing its CONNECT/SUBSCRIBE for this session...
+  _ps_ready=""
+  read -r _ps_ready < "${MQTT_STREAM_RAW}.ready" 2>/dev/null || return 1
+  [ "$_ps_ready" = "$_ps_seq" ] || return 1
+  # ...and the broker accepted it.
+  _ps_ok=""
+  read -r _ps_ok < "${MQTT_STREAM_RAW}.connack" 2>/dev/null || true
+  if [ "$_ps_ok" != "$_ps_seq" ]; then
+    case "$(head -c 4 "${MQTT_STREAM_RAW}.${_ps_seq}" 2>/dev/null | od -An -tx1)" in
+      *'20 02 00 00'*) printf '%s\n' "$_ps_seq" > "${MQTT_STREAM_RAW}.connack" ;;
+      *) return 1 ;;
+    esac
+  fi
+  _ps_tmp="/tmp/.mqtt_pkt.$$"
+  _mqtt_publish_packet "$1" "$2" "$3" > "$_ps_tmp" 2>/dev/null || { rm -f "$_ps_tmp"; return 1; }
+  _ps_size="$(wc -c < "$_ps_tmp" 2>/dev/null)"
+  case "$_ps_size" in ''|*[!0-9]*) _ps_size=99999 ;; esac
+  if [ "$_ps_size" -gt "$MQTT_FASTPATH_MAX_BYTES" ] || [ ! -p "$_ps_fifo" ]; then
+    rm -f "$_ps_tmp"; return 1
+  fi
+  # One read + one write() of the whole packet (dd, not cat: cat may use
+  # sendfile/splice). O_RDWR: never blocks, even if the reader just left.
+  dd if="$_ps_tmp" bs=4096 count=1 1<>"$_ps_fifo" 2>/dev/null
+  _ps_rc=$?
+  rm -f "$_ps_tmp"
+  return "$_ps_rc"
+}
+
 # CONNECT + PUBLISH(QoS0) + DISCONNECT on one TCP connection.
 _mqtt_send_packets()
 {
@@ -627,13 +685,7 @@ _mqtt_send_packets()
     _mqtt_str "$MQTT_PASSWORD"
   fi
 
-  # PUBLISH: header 0x30 (+1 if retained), topic, raw payload.
-  _sp_hdr=48
-  [ "$_sp_retain" = "1" ] && _sp_hdr=49
-  printf "\\x$(printf '%02x' "$_sp_hdr")"
-  _mqtt_varint $((2 + ${#_sp_topic} + ${#_sp_payload}))
-  _mqtt_str "$_sp_topic"
-  printf '%s' "$_sp_payload"
+  _mqtt_publish_packet "$_sp_topic" "$_sp_payload" "$_sp_retain"
 
   # Give the broker time to answer CONNACK and ingest before the close.
   sleep 1
@@ -647,15 +699,19 @@ mqtt_publish_raw()
   retain="${3:-0}"
   [ -n "$topic" ] || return 1
 
-  _mqtt_resp="/tmp/.mqtt_pub_resp.$$"
-  _mqtt_send_packets "$topic" "$payload" "$retain" "${MQTT_CLIENT_ID}-pub" \
-    | nc -w 4 "$MQTT_HOST" "$MQTT_PORT" > "$_mqtt_resp" 2>/dev/null
-  if od -An -tx1 "$_mqtt_resp" 2>/dev/null | grep -q '20 02 00 00'; then
+  if _mqtt_publish_session "$topic" "$payload" "$retain"; then
     _pub_rc=0
   else
-    _pub_rc=1
+    _mqtt_resp="/tmp/.mqtt_pub_resp.$$"
+    _mqtt_send_packets "$topic" "$payload" "$retain" "${MQTT_CLIENT_ID}-pub" \
+      | nc -w 4 "$MQTT_HOST" "$MQTT_PORT" > "$_mqtt_resp" 2>/dev/null
+    if od -An -tx1 "$_mqtt_resp" 2>/dev/null | grep -q '20 02 00 00'; then
+      _pub_rc=0
+    else
+      _pub_rc=1
+    fi
+    rm -f "$_mqtt_resp" 2>/dev/null
   fi
-  rm -f "$_mqtt_resp" 2>/dev/null
   # Record result for MQTT health indicator in web UI (/tmp/mqtt_last_pub.status).
   [ "$BTIME" -gt 0 ] || _load_btime
   read -r _pub_up _ < /proc/uptime
@@ -851,6 +907,30 @@ publish_homeassistant_discovery()
   uptime_cfg_payload="$(printf '{"name":"%s Uptime","uniq_id":"%s_uptime","stat_t":"%s","unit_of_meas":"s","dev_cla":"duration","stat_cla":"measurement","val_tpl":"{{ value_json.uptime_seconds }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$uptime_cfg_topic" "$uptime_cfg_payload"
 
+  # --- Diagnostics (value_json.diag, see build_diag_payload) ---
+  _dev_json="$(printf '"dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}' "$device_id_json" "$device_name_json")"
+  _avty_json="$(printf '"avty_t":"%s","pl_avail":"online","pl_not_avail":"offline"' "$avail_topic_json")"
+  # id | name | template | extra JSON members (unit, classes, icon)
+  while IFS='|' read -r _d_id _d_name _d_tpl _d_extra; do
+    [ -n "$_d_id" ] || continue
+    publish_discovery_config "${discovery_prefix}/sensor/${node_id}/${_d_id}/config" \
+      "$(printf '{"name":"%s %s","uniq_id":"%s_%s","stat_t":"%s","val_tpl":"%s",%s,%s,%s}' \
+        "$device_name_json" "$_d_name" "$device_id_json" "$_d_id" "$health_topic_json" "$_d_tpl" "$_d_extra" "$_avty_json" "$_dev_json")"
+  done <<'DIAG'
+wifi_signal|Wi-Fi Signal|{{ value_json.diag.wifi_rssi_dbm }}|"unit_of_meas":"dBm","dev_cla":"signal_strength","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi"
+mem_available|Memory Available|{{ value_json.diag.mem_available_kb }}|"unit_of_meas":"kB","dev_cla":"data_size","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:memory"
+wifi_rx_drop|Wi-Fi Dropped Packets|{{ value_json.diag.wifi_rx_drop }}|"stat_cla":"total_increasing","ent_cat":"diagnostic","ic":"mdi:wifi-alert"
+tcp_paws_drop|Refused Connections|{{ value_json.diag.tcp_paws_drop }}|"stat_cla":"total_increasing","ent_cat":"diagnostic","ic":"mdi:lan-disconnect"
+sound_level|Sound Level|{{ value_json.diag.sound_db }}|"unit_of_meas":"dBFS","stat_cla":"measurement","ic":"mdi:volume-high"
+light_level|Light Level|{{ value_json.diag.light_level }}|"stat_cla":"measurement","ic":"mdi:brightness-5"
+DIAG
+  publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/sd_problem/config" \
+    "$(printf '{"name":"%s SD Card Problem","uniq_id":"%s_sd_problem","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.sd_problem == 1 else \\"OFF\\" }}","dev_cla":"problem","ent_cat":"diagnostic","ic":"mdi:sd",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
+  publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/night_mode/config" \
+    "$(printf '{"name":"%s Night Mode","uniq_id":"%s_night_mode","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.day_mode == 0 else \\"OFF\\" }}","ic":"mdi:weather-night",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
+
   # --- Elite Integration Entities ---
 
   # Camera (RTSP Stream)
@@ -913,6 +993,37 @@ publish_homeassistant_discovery()
     switch_cfg_payload="$(printf '{"name":"%s %s","uniq_id":"%s","stat_t":"%s","val_tpl":"{{ \"ON\" if value_json.%s == 1 else \"OFF\" }}","cmd_t":"%s","pl_on":"{\"cmd\":\"%s\",\"value\":\"on\"}","pl_off":"{\"cmd\":\"%s\",\"value\":\"off\"}","avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$name_suffix" "$uniq_id" "$health_topic_json" "$stat_field" "$cmd_json" "$cmd" "$cmd" "$avail_topic_json" "$ic" "$device_id_json" "$device_name_json")"
     publish_discovery_config "$switch_cfg_topic" "$switch_cfg_payload"
   done
+
+  # Live image tuning (number/select/switch). State: retained <root>/isp/state.
+  if command -v isp_tune_json >/dev/null 2>&1; then
+    isp_state_json="$(json_escape "${MQTT_TOPIC_ROOT}/isp/state")"
+    for isp_key in brightness contrast saturation sharpness hue exposure_max_pct; do
+      case "$isp_key" in
+        brightness) isp_name="Brightness"; isp_ic="mdi:brightness-6"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.BRIGHTNESS }}" ;;
+        contrast) isp_name="Contrast"; isp_ic="mdi:contrast-box"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.CONTRAST }}" ;;
+        saturation) isp_name="Saturation"; isp_ic="mdi:palette"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.SATURATION }}" ;;
+        sharpness) isp_name="Sharpness"; isp_ic="mdi:image-filter-center-focus"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.SHARPNESS }}" ;;
+        hue) isp_name="Hue"; isp_ic="mdi:palette-swatch"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.HUE }}" ;;
+        exposure_max_pct) isp_name="Exposure Cap"; isp_ic="mdi:camera-timer"; isp_min=0; isp_max=100; isp_step=5; isp_tpl="{{ value_json.conf.EXPOSURE_MAX_PCT or 0 }}" ;;
+      esac
+      isp_cmd_tpl_json="$(json_escape "{\"cmd\":\"isp_${isp_key}\",\"value\":\"{{ value | int }}\"}")"
+      isp_tpl_json="$(json_escape "$isp_tpl")"
+      isp_unit=""
+      [ "$isp_key" = "exposure_max_pct" ] && isp_unit=',"unit_of_meas":"%"'
+      publish_discovery_config "${discovery_prefix}/number/${node_id}/isp_${isp_key}/config" \
+        "$(printf '{"name":"%s %s","uniq_id":"%s_isp_%s","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","min":%s,"max":%s,"step":%s,"mode":"slider","ent_cat":"config"%s,"avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+          "$device_name_json" "$isp_name" "$device_id_json" "$isp_key" "$isp_state_json" "$isp_tpl_json" "$cmd_json" "$isp_cmd_tpl_json" "$isp_min" "$isp_max" "$isp_step" "$isp_unit" "$avail_topic_json" "$isp_ic" "$device_id_json" "$device_name_json")"
+    done
+    isp_hz_tpl_json="$(json_escape "{{ value_json.conf.POWER_HZ | string if value_json.conf.POWER_HZ else 'unchanged' }}")"
+    isp_hz_cmd_json="$(json_escape "{\"cmd\":\"isp_power_hz\",\"value\":\"{{ value }}\"}")"
+    publish_discovery_config "${discovery_prefix}/select/${node_id}/isp_power_hz/config" \
+      "$(printf '{"name":"%s Anti-flicker","uniq_id":"%s_isp_power_hz","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","options":["unchanged","50","60"],"ent_cat":"config","avty_t":"%s","ic":"mdi:sine-wave","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_hz_tpl_json" "$cmd_json" "$isp_hz_cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+    isp_en_tpl_json="$(json_escape "{{ 'ON' if value_json.enabled == 1 else 'OFF' }}")"
+    publish_discovery_config "${discovery_prefix}/switch/${node_id}/isp_tune/config" \
+      "$(printf '{"name":"%s Image Tuning","uniq_id":"%s_isp_tune","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","pl_on":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"on\\"}","pl_off":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"off\\"}","ent_cat":"config","avty_t":"%s","ic":"mdi:tune","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_en_tpl_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  fi
 
   # Maintenance Entities (Buttons/Select)
   reboot_btn_topic="${discovery_prefix}/button/${node_id}/reboot/config"
@@ -1169,6 +1280,85 @@ build_network_state_payload()
     "$now_ts" "$hostname_json" "$network_monitor_enabled" "$network_state_fresh" "$network_wifi_iface_json" "$network_wifi_connected" "$network_gateway_address_json" "$network_gateway_reachable" "$network_broker_monitor_enabled" "$network_broker_host_json" "$network_broker_port" "$network_broker_state_json" "$network_broker_reachable" "$network_current_problem_json" "$network_reconnect_count" "$network_broker_restart_count" "$network_last_recovery_reason_json" "$network_last_recovery_action_json" "$network_last_recovery_ts")"
 }
 
+# Diagnostics for Home Assistant, read from /proc and tmpfs without forks
+# except one dmesg|grep for SD card errors. Sets diag_payload (JSON object).
+build_diag_payload()
+{
+  _dg_rssi=null; _dg_qual=null
+  for _dg_f in /proc/net/rtl*/wlan0/rx_signal; do
+    [ -r "$_dg_f" ] || continue
+    while IFS=: read -r _dg_k _dg_v; do
+      case "$_dg_k:$_dg_v" in
+        rssi:-[0-9]*|rssi:[0-9]*) _dg_rssi="$_dg_v" ;;
+        signal_qual:[0-9]*) _dg_qual="$_dg_v" ;;
+      esac
+    done < "$_dg_f"
+    break
+  done
+  _dg_rxdrop=null
+  while read -r _dg_if _dg_rest; do
+    case "$_dg_if" in
+      # "wlan0: 123 ..." or "wlan0:123 ..." (no space once the counter is
+      # large): rx_bytes rx_packets rx_errs rx_drop ...
+      wlan0:*) set -- ${_dg_if#wlan0:} $_dg_rest; _dg_rxdrop="$4"; break ;;
+    esac
+  done < /proc/net/dev
+  _dg_paws=null; _dg_retrans=null; _dg_h=""
+  while read -r _dg_k _dg_rest; do
+    case "$_dg_k" in
+      TcpExt:)
+        if [ -z "$_dg_h" ]; then _dg_h="$_dg_rest"; else
+          set -- $_dg_h; _dg_i=0
+          for _dg_v in $_dg_rest; do _dg_i=$((_dg_i + 1)); eval "_dg_n=\${$_dg_i}"
+            [ "$_dg_n" = PAWSPassive ] && { _dg_paws="$_dg_v"; break; }; done
+          _dg_h=""; fi ;;
+    esac
+  done < /proc/net/netstat
+  _dg_h=""
+  while read -r _dg_k _dg_rest; do
+    case "$_dg_k" in
+      Tcp:)
+        if [ -z "$_dg_h" ]; then _dg_h="$_dg_rest"; else
+          set -- $_dg_h; _dg_i=0
+          for _dg_v in $_dg_rest; do _dg_i=$((_dg_i + 1)); eval "_dg_n=\${$_dg_i}"
+            [ "$_dg_n" = RetransSegs ] && { _dg_retrans="$_dg_v"; break; }; done
+          _dg_h=""; fi ;;
+    esac
+  done < /proc/net/snmp
+  _dg_avail=null; _dg_free=0; _dg_buf=0; _dg_cache=0
+  while read -r _dg_k _dg_v _dg_u; do
+    case "$_dg_k" in
+      MemAvailable:) _dg_avail="$_dg_v" ;;
+      MemFree:) _dg_free="$_dg_v" ;; Buffers:) _dg_buf="$_dg_v" ;; Cached:) _dg_cache="$_dg_v" ;;
+    esac
+  done < /proc/meminfo
+  [ "$_dg_avail" = null ] && _dg_avail=$((_dg_free + _dg_buf + _dg_cache))
+  _dg_sound=null
+  if [ -r /var/run/sound_level ]; then
+    read -r _dg_sts _dg_rms _dg_rest < /var/run/sound_level
+    case "$_dg_sts" in ''|*[!0-9]*) ;; *)
+      [ $((now_ts - _dg_sts)) -le 15 ] && case "$_dg_rms" in -[0-9]*|0) _dg_sound="$_dg_rms" ;; esac ;;
+    esac
+  fi
+  _dg_lum=null; _dg_day=null
+  # These files have no trailing newline: read sets the value but returns 1.
+  _dg_v=""; read -r _dg_v < /var/run/lum 2>/dev/null
+  case "$_dg_v" in ''|*[!0-9]*) ;; *) _dg_lum="$_dg_v" ;; esac
+  _dg_v=""; read -r _dg_v < /var/run/vday 2>/dev/null
+  case "$_dg_v" in 0|1) _dg_day="$_dg_v" ;; esac
+  _dg_ro=0
+  while read -r _dg_dev _dg_mp _dg_fs _dg_opt _dg_rest; do
+    [ "$_dg_mp" = /mnt ] || continue
+    case "$_dg_dev" in /dev/mmc*) case "$_dg_opt" in ro,*|ro) _dg_ro=1 ;; esac ;; esac
+  done < /proc/mounts
+  _dg_fat="$(dmesg 2>/dev/null | grep -c -E 'FAT-fs .*error|exFAT.*error|I/O error.*mmcblk|get_card_status wait too long')"
+  case "$_dg_fat" in ''|*[!0-9]*) _dg_fat=0 ;; esac
+  _dg_sdprob=0
+  { [ "$_dg_ro" = 1 ] || [ "$_dg_fat" -gt 0 ]; } && _dg_sdprob=1
+  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s}' \
+    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob")"
+}
+
 build_health_payload()
 {
   [ "$BTIME" -gt 0 ] || _load_btime
@@ -1271,9 +1461,10 @@ build_health_payload()
   primary_ip_json="$(json_escape "$primary_ip")"
   load_network_monitor_state >/dev/null 2>&1 || true
   build_network_state_payload
+  build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s,"diag":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload" "$diag_payload"
 }
 
 publish_health()
@@ -1282,6 +1473,15 @@ publish_health()
   mqtt_publish_topic_suffix "health" "$payload" 0
   mqtt_publish_topic_suffix "motion/state" "$motion_state_payload" 1 >/dev/null 2>&1 || true
   mqtt_publish_topic_suffix "network/state" "$network_state_payload" 1 >/dev/null 2>&1 || true
+  publish_isp_state
+}
+
+# Retained <root>/isp/state: configured tuning values, ISP_TUNE flag and the
+# values the libtc100fix thread reports as applied.
+publish_isp_state()
+{
+  command -v isp_tune_json >/dev/null 2>&1 || return 0
+  mqtt_publish_topic_suffix "isp/state" "$(isp_tune_json)" 1 >/dev/null 2>&1 || true
 }
 
 publish_event_simple()
@@ -1375,13 +1575,9 @@ ensure_low_cpu_runtime_tuning()
   if [ ! -f /mnt/config/sound_detection.conf ]; then
     {
       echo "ENABLE=0"
-      echo "THRESHOLD=1500"
-      echo "INTERVAL=10"
+      echo "THRESHOLD_DB=-24"
+      echo "INTERVAL=2"
     } > /mnt/config/sound_detection.conf
-  fi
-  sound_interval_current="$(sanitize_int_range "$(read_kv_config_value /mnt/config/sound_detection.conf INTERVAL 10)" 1 300 10)"
-  if [ "$sound_interval_current" -lt 10 ]; then
-    rewrite_config /mnt/config/sound_detection.conf INTERVAL 10
   fi
 }
 
@@ -1699,6 +1895,7 @@ handle_command_payload()
     reboot)
       publish_event_simple "command.reboot" "accepted"
       publish_command_result "reboot" "accepted" "Reboot requested." 1 "$command_source" command
+      /bin/sh /mnt/scripts/reboot-tracker.sh intent "MQTT reboot command ($command_source)" >/dev/null 2>&1
       /sbin/reboot
       ;;
     snapshot)
@@ -1751,6 +1948,39 @@ handle_command_payload()
             publish_command_result "$cmd" "failed" "Failed to apply ${cmd}=${value}." 0 "$command_source" command
             ;;
         esac
+        command_rc=1
+      fi
+      ;;
+    isp_brightness|isp_contrast|isp_saturation|isp_sharpness|isp_hue|isp_power_hz|isp_exposure_max_pct)
+      isp_key="$(printf '%s' "${cmd#isp_}" | tr '[:lower:]' '[:upper:]')"
+      isp_val="${value%.0}"
+      case "$isp_key:$isp_val" in
+        POWER_HZ:unchanged) isp_val="" ;;
+        EXPOSURE_MAX_PCT:0) isp_val="" ;;
+      esac
+      if command -v isp_tune_set >/dev/null 2>&1 && isp_tune_set "$isp_key" "$isp_val"; then
+        publish_event_simple "command.${cmd}" "${isp_val:-default}"
+        publish_command_result "$cmd" "applied" "Set ${isp_key}=${isp_val:-default}; applied within a few seconds." 1 "$command_source" command
+        publish_isp_state
+      else
+        publish_event_simple "command.${cmd}" "invalid-value:${value}"
+        publish_command_result "$cmd" "invalid_value" "Invalid value ${value} for ${isp_key}." 0 "$command_source" command
+        command_rc=1
+      fi
+      ;;
+    isp_tune)
+      isp_want=""
+      case "$value" in on|1|true) isp_want=1 ;; off|0|false) isp_want=0 ;; esac
+      if [ -n "$isp_want" ] && command -v isp_tune_enabled >/dev/null 2>&1; then
+        if [ "$isp_want" != "$(isp_tune_enabled)" ]; then
+          rewrite_config /mnt/config/boot.conf ISP_TUNE "$isp_want"
+          /mnt/controlscripts/rtsp-h26x stop >/dev/null 2>&1
+          /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1
+        fi
+        publish_command_result "$cmd" "applied" "Image tuning ${value}; the video stream restarted if it changed." 1 "$command_source" command
+        publish_isp_state
+      else
+        publish_command_result "$cmd" "invalid_value" "Invalid value ${value}." 0 "$command_source" command
         command_rc=1
       fi
       ;;
@@ -2027,6 +2257,9 @@ mqtt_listener_packets()
   # Refresh availability on every reconnect, paired with this session's Will.
   printf '\x31'; _mqtt_varint $((2 + ${#_ml_will_topic} + 6))
   _mqtt_str "$_ml_will_topic"; printf '%s' online
+  # Handshake fully written: from now on other processes may append whole
+  # packets to this connection (see _mqtt_publish_session).
+  printf '%s\n' "$MQTT_STREAM_SEQUENCE" > "${MQTT_STREAM_RAW}.ready" 2>/dev/null
 
   _ml_pings=0
   while [ "$_ml_pings" -lt "$MQTT_LISTENER_MAX_PINGS" ]; do
@@ -2036,7 +2269,9 @@ mqtt_listener_packets()
     printf '\xc0\x00' || break
     _ml_pings=$((_ml_pings + 1))
   done
-  # End normally on planned recycling; no false offline Will at this point.
+  # No more publishes on this connection, then end normally on planned
+  # recycling; no false offline Will at this point.
+  rm -f "${MQTT_STREAM_RAW}.ready" 2>/dev/null
   printf '\xe0\x00'
 }
 
@@ -2325,19 +2560,26 @@ run_loop()
   trap 'shutdown_bridge' EXIT
   log_msg "MQTT bridge started host=${MQTT_HOST}:${MQTT_PORT} root=${MQTT_TOPIC_ROOT}"
   log_event "info" "mqtt" "MQTT bridge started"
-  publish_availability online
-  publish_integration_manifest force >/dev/null 2>&1 || true
-  publish_homeassistant_discovery
-  publish_event_simple "bridge.start" "online"
-
-  # Start the background listener before entering the loop, so commands are
-  # captured from the first second rather than from the first poll window.
+  # Start the background listener first: commands are captured from the first
+  # second, and the discovery burst below (~40 messages) can go over its
+  # connection once the broker has accepted it, instead of one TCP connection
+  # each (~45 s at boot, measured). Until then publishes fall back.
   if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
     rm -f "$MQTT_STREAM_RAW" "${MQTT_STREAM_RAW}."* 2>/dev/null
     mqtt_listener_loop &
     MQTT_LISTENER_PID=$!
     log_msg "Persistent MQTT listener started (pid ${MQTT_LISTENER_PID}, topic ${MQTT_TOPIC_COMMAND})"
   fi
+  # Give the listener a moment to get its CONNACK.
+  _st_i=0
+  while [ "$_st_i" -lt 5 ] && is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE" && [ ! -s "${MQTT_STREAM_RAW}.1" ]; do
+    sleep 1; _st_i=$((_st_i + 1))
+  done
+  publish_availability online
+  publish_integration_manifest force >/dev/null 2>&1 || true
+  publish_homeassistant_discovery
+  publish_event_simple "bridge.start" "online"
+
 
   if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
     # The background listener above owns the broker connection; the older FIFO

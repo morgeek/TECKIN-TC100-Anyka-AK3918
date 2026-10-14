@@ -14,10 +14,14 @@ install_config $CONFIGPATH/telnetd.conf
 status()
 {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ "$pid" ]; then
-    # Prints PID: $pid if exists and returns 0(no error) else returns 1(error condition)
-    kill -0 "$pid" >/dev/null && echo "PID: $pid" || return 1
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  # Running = telnetd alive AND the port listens (see ftp-server).
+  if kill -0 "$pid" 2>/dev/null && grep -q telnetd "/proc/$pid/cmdline" 2>/dev/null && port_listening "$TELNET_PORT"; then
+    echo "PID: $pid"
+    return 0
   fi
+  rm -f "$PIDFILE"
+  return 1
 }
 
 start()
@@ -32,7 +36,7 @@ start()
   else
     telnetd -p$TELNET_PORT
     sleep 1
-    PID=$(ps | grep "[t]elnetd -p$TELNET_PORT" | awk '{print $1}')
+    PID=$(ps | grep "[t]elnetd -p$TELNET_PORT" | awk 'NR==1 {print $1}')
     echo "$PID" > "$PIDFILE"
   fi
 }

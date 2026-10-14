@@ -70,8 +70,10 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   assert.doesNotMatch(home, /<script src="scripts\/ptt-audio/, 'PTT bundle must not load during initial render');
   assert.match(home, /createElement\('script'\)[\s\S]*ptt-audio\.bundle\.min\.js/, 'PTT bundle must load on demand');
   assert.match(source, /diagnostics_toggle/, 'diagnostics remain wired after moving into More tools');
-  assert.match(home, /id="operator_mode_toggle"/, 'operator mode must remain directly reversible');
-  assert.match(source, /elite_operator_mode[\s\S]*location\.replace/, 'operator mode must be persisted and leave admin content');
+  // Operator mode was removed (it only hid menus in one browser); its saved
+  // state must be cleared so no browser keeps the menus hidden.
+  assert.doesNotMatch(home, /operator_mode_toggle/, 'operator mode button removed');
+  assert.match(source, /localStorage\.removeItem\("elite_operator_mode"\)/, 'stale operator-mode state is cleared');
   assert.match(source, /getStatusline: getStatusline/, 'subpages must share the latest statusline snapshot');
   const servicesSource = fs.readFileSync(path.join(__dirname, '../www/scripts/scripts.bundle.min.js'), 'utf8');
   assert.doesNotMatch(servicesSource, /function loadInto/, 'service commands must not reload the whole page');

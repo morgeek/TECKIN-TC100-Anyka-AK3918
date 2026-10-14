@@ -81,6 +81,33 @@ normalize_bool() {
   esac
 }
 
+# sound_threshold_db VALUE FALLBACK -> integer dBFS in -90..0
+sound_threshold_db() {
+  case "$1" in
+    -[0-9]|-[0-9][0-9]|0) _std="$1" ;;
+    *) _std="$2" ;;
+  esac
+  [ "$_std" -lt -90 ] && _std=-90
+  echo "$_std"
+}
+
+# apply_sound_detection ENABLE THRESHOLD_DB [INTERVAL] — persist, (re)start the
+# daemon and restart RTSP when ENABLE changed (the microphone capture and the
+# level meter are set up when v4l2rtspserver starts).
+apply_sound_detection() {
+  install_config /mnt/config/sound_detection.conf
+  _asd_old="$(read_kv_or_default /mnt/config/sound_detection.conf ENABLE 0)"
+  rewrite_config /mnt/config/sound_detection.conf ENABLE "$1"
+  rewrite_config /mnt/config/sound_detection.conf THRESHOLD_DB "$2"
+  [ -n "$3" ] && rewrite_config /mnt/config/sound_detection.conf INTERVAL "$3"
+  if [ "$1" = "1" ]; then
+    /mnt/controlscripts/sound-detection start >/dev/null 2>&1
+  else
+    /mnt/controlscripts/sound-detection stop >/dev/null 2>&1
+  fi
+  [ "$_asd_old" != "$1" ] && schedule_rtsp_restart
+}
+
 sanitize_int_range() {
   value="$1"
   min="$2"
@@ -423,7 +450,7 @@ sync_managed_reboot_cron() {
   {
     echo "# BEGIN TC100 MANAGED REBOOT"
     if [ "$schedule_enable" = "1" ]; then
-      echo "${schedule_minute} ${schedule_hour} * * ${schedule_weekday} /sbin/reboot >/dev/null 2>&1"
+      echo "${schedule_minute} ${schedule_hour} * * ${schedule_weekday} /bin/sh /mnt/scripts/reboot-tracker.sh intent 'scheduled reboot (REBOOT_SCHEDULE)'; /sbin/reboot >/dev/null 2>&1"
     else
       echo "# disabled"
     fi
@@ -540,15 +567,11 @@ apply_low_cpu_background_defaults() {
   if [ ! -f /mnt/config/sound_detection.conf ]; then
     {
       echo "ENABLE=0"
-      echo "THRESHOLD=1500"
-      echo "INTERVAL=10"
+      echo "THRESHOLD_DB=-24"
+      echo "INTERVAL=2"
     } > /mnt/config/sound_detection.conf
   fi
 
-  sound_interval="$(sanitize_int_range "$(read_kv_or_default /mnt/config/sound_detection.conf INTERVAL 10)" 1 300 10)"
-  if [ "$sound_interval" -lt 10 ]; then
-    rewrite_config /mnt/config/sound_detection.conf INTERVAL 10
-  fi
 }
 
 write_stream_state_snapshot() {
@@ -1158,10 +1181,10 @@ if [ -n "$F_cmd" ]; then
 
           3)
             echo "Content of v4l2rtspserver.log (tail -n ${LOG_VIDEO_TAIL_LINES})<br/>"
-            if [ -f /mnt/log/v4l2rtspserver.log ]; then
-              tail -n "$LOG_VIDEO_TAIL_LINES" /mnt/log/v4l2rtspserver.log
+            if [ -f /tmp/log/v4l2rtspserver.log ]; then
+              tail -n "$LOG_VIDEO_TAIL_LINES" /tmp/log/v4l2rtspserver.log
             else
-              echo "Log file not found: /mnt/log/v4l2rtspserver.log"
+              echo "Log file not found: /tmp/log/v4l2rtspserver.log"
             fi
             ;;
 
@@ -1188,7 +1211,7 @@ if [ -n "$F_cmd" ]; then
             ;;
           3)
             echo "Content of v4l2rtspserver.log cleared<br/>"
-            : > /mnt/log/v4l2rtspserver.log 2>/dev/null || true
+            : > /tmp/log/v4l2rtspserver.log 2>/dev/null || true
             ;;
         esac
         echo "</pre>"
@@ -1335,6 +1358,46 @@ if [ -n "$F_cmd" ]; then
       fi
     ;;
 
+    isp_tune)
+      # Live image tuning (see scripts/isp-tune.sh). Values apply within ~2 s
+      # without restarting the stream; only switching ISP_TUNE itself on or
+      # off restarts RTSP, because the tuning thread lives in v4l2rtspserver.
+      . /mnt/scripts/isp-tune.sh
+      _it_bad=""
+      for _it_k in $ISP_TUNE_KEYS; do
+        case "$_it_k" in
+          BRIGHTNESS) _it_in="$F_isp_brightness" ;;
+          CONTRAST) _it_in="$F_isp_contrast" ;;
+          SATURATION) _it_in="$F_isp_saturation" ;;
+          SHARPNESS) _it_in="$F_isp_sharpness" ;;
+          HUE) _it_in="$F_isp_hue" ;;
+          POWER_HZ) _it_in="$F_isp_power_hz" ;;
+          EXPOSURE_MAX_PCT) _it_in="$F_isp_exposure_max_pct" ;;
+        esac
+        isp_tune_norm "$_it_k" "$_it_in" >/dev/null || _it_bad="$_it_bad $_it_k"
+      done
+      if [ -n "$_it_bad" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "Invalid value for:$_it_bad"; else echo "Invalid value for:$_it_bad<br/>"; fi
+        exit 0
+      fi
+      isp_tune_set BRIGHTNESS "$F_isp_brightness"
+      isp_tune_set CONTRAST "$F_isp_contrast"
+      isp_tune_set SATURATION "$F_isp_saturation"
+      isp_tune_set SHARPNESS "$F_isp_sharpness"
+      isp_tune_set HUE "$F_isp_hue"
+      isp_tune_set POWER_HZ "$F_isp_power_hz"
+      isp_tune_set EXPOSURE_MAX_PCT "$F_isp_exposure_max_pct"
+      _it_want="$(normalize_bool "${F_isp_enable}")"
+      _it_msg="Image settings saved; applied within a few seconds."
+      if [ "$_it_want" != "$(isp_tune_enabled)" ]; then
+        install_config /mnt/config/boot.conf
+        rewrite_config /mnt/config/boot.conf ISP_TUNE "$_it_want"
+        schedule_service_restart /mnt/controlscripts/rtsp-h26x 1
+        _it_msg="Image tuning $( [ "$_it_want" = 1 ] && echo enabled || echo disabled ); the video stream restarts once."
+      fi
+      if wants_json_response; then json_body_ok "$_it_msg"; else echo "$_it_msg<br/>"; fi
+    ;;
+
     set_advanced_tuning)
       install_config /mnt/config/boot.conf
       lightweight=$(normalize_bool "${F_lightweight_mode}")
@@ -1388,6 +1451,7 @@ if [ -n "$F_cmd" ]; then
       _ac_now
       [ -n "$now_ts" ] || now_ts=0
       publish_mqtt_event "$(printf '{"ts":%s,"type":"reboot","source":"action.cgi"}' "$now_ts")"
+      /bin/sh /mnt/scripts/reboot-tracker.sh intent "web UI reboot (${REMOTE_ADDR:-?})" >/dev/null 2>&1
       /sbin/reboot
     ;;
 
@@ -1398,6 +1462,7 @@ if [ -n "$F_cmd" ]; then
       else
         echo "Shutting down device.."
       fi
+      /bin/sh /mnt/scripts/reboot-tracker.sh intent "web UI shutdown (${REMOTE_ADDR:-?})" >/dev/null 2>&1
       /sbin/halt
     ;;
 
@@ -1413,21 +1478,9 @@ if [ -n "$F_cmd" ]; then
 
     set_sound_detection)
       enable=$(normalize_bool "${F_sound_det_enable}")
-      threshold=$(sanitize_int_range "${F_sound_det_threshold}" 100 10000 1500)
-      interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 5)
-
-      # Persist
-      install_config /mnt/config/sound_detection.conf
-      /mnt/bin/rwconf /mnt/config/sound_detection.conf w \
-          " " ENABLE "$enable" \
-          " " THRESHOLD "$threshold" \
-          " " INTERVAL "$interval"
-
-      if [ "$enable" = "1" ]; then
-        /mnt/controlscripts/sound-detection start
-      else
-        /mnt/controlscripts/sound-detection stop
-      fi
+      threshold=$(sound_threshold_db "${F_sound_det_threshold}" -24)
+      interval=$(sanitize_int_range "${F_sound_det_interval}" 1 300 2)
+      apply_sound_detection "$enable" "$threshold" "$interval"
       if wants_json_response; then
         json_body_ok "Sound detection settings updated."
       else
@@ -2602,19 +2655,79 @@ if [ -n "$F_cmd" ]; then
       syslog_enable=$(normalize_bool "${F_syslog_enable}")
       syslog_host=$(printf '%s' "${F_syslog_host}")
       syslog_port=$(sanitize_int_range "${F_syslog_port}" 1 65535 514)
-      
-      rewrite_config /mnt/config/boot.conf SYSLOG_ENABLE "$syslog_enable"
-      rewrite_config /mnt/config/boot.conf SYSLOG_HOST "$syslog_host"
-      rewrite_config /mnt/config/boot.conf SYSLOG_PORT "$syslog_port"
-      
-      if [ -x /mnt/controlscripts/syslog-forward ]; then
+      # boot.conf is sourced by the shell: only a host name or an IP address
+      # (v4 or v6) may go in it.
+      syslog_err=""
+      case "$syslog_host" in
+        *[!A-Za-z0-9.:-]*) syslog_err="The syslog server must be a host name or an IP address (e.g. 192.168.1.10)." ;;
+      esac
+      [ "${#syslog_host}" -le 253 ] || syslog_err="The syslog server name is too long."
+      if [ -z "$syslog_err" ] && [ "$syslog_enable" = "1" ] && [ -z "$syslog_host" ]; then
+        syslog_err="Enter the syslog server address (e.g. your NAS: 192.168.1.10) to enable remote logging."
+      fi
+      if [ -n "$syslog_err" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "$syslog_err"; else echo "<p>$syslog_err</p>"; fi
+      else
+        rewrite_config /mnt/config/boot.conf SYSLOG_ENABLE "$syslog_enable"
+        rewrite_config /mnt/config/boot.conf SYSLOG_HOST "$syslog_host"
+        rewrite_config /mnt/config/boot.conf SYSLOG_PORT "$syslog_port"
+
+        if [ -x /mnt/controlscripts/syslog-forward ]; then
+          if [ "$syslog_enable" = "1" ]; then
+            /mnt/controlscripts/syslog-forward restart >/dev/null 2>&1 || true
+          else
+            /mnt/controlscripts/syslog-forward stop >/dev/null 2>&1 || true
+          fi
+        fi
         if [ "$syslog_enable" = "1" ]; then
-          /mnt/controlscripts/syslog-forward restart >/dev/null 2>&1 || true
+          echo "Syslog configuration updated: sending to ${syslog_host}:${syslog_port} (UDP).<br/>"
         else
-          /mnt/controlscripts/syslog-forward stop >/dev/null 2>&1 || true
+          echo "Syslog configuration updated: remote logging off.<br/>"
         fi
       fi
-      echo "Syslog configuration updated.<br/>"
+    ;;
+
+    set_frigate_live)
+      # Smooth live view: a link to this camera in Frigate's own live page
+      # (go2rtc restream: no extra connection to the camera). Frigate is
+      # plain HTTP and this UI HTTPS, so it opens in its own tab rather than
+      # being embedded (mixed content). Stored in config/frigate_live.conf.
+      fl_url="$(printf '%s' "${F_frigate_url}")"; fl_cam="$(printf '%s' "${F_frigate_camera}")"
+      fl_url="${fl_url%/}"; fl_err=""; fl_note=""
+      if [ -n "$fl_url" ]; then
+        case "$fl_url" in http://*|https://*) ;; *) fl_url="http://$fl_url" ;; esac
+        case "${fl_url#*://}" in
+          ''|*[!A-Za-z0-9.:/_-]*) fl_err="The Frigate address must look like http://192.168.1.20:5000." ;;
+        esac
+      fi
+      case "$fl_cam" in *[!A-Za-z0-9_-]*) fl_err="The Frigate camera name may only contain letters, digits, - and _." ;; esac
+      if [ -z "$fl_err" ] && [ -n "$fl_url" ] && [ -z "$fl_cam" ]; then
+        # Find which Frigate camera reads this one: an input or a go2rtc
+        # stream with this camera's IP (one request, only when saving).
+        fl_ip=""; [ -r /tmp/camera_ip.txt ] && read -r fl_ip < /tmp/camera_ip.txt
+        if [ -n "$fl_ip" ] && [ -x /mnt/bin/curl ] && [ -x /mnt/bin/jq ]; then
+          fl_cam="$(/mnt/bin/curl -s -m 6 "$fl_url/api/config" 2>/dev/null | /mnt/bin/jq -r --arg ip "$fl_ip" '
+            def has_ip: (tostring) as $u | ($u | test("[@/]" + ($ip | gsub("\\."; "\\.")) + "([:/]|$)"));
+            (.go2rtc.streams // {} | to_entries
+              | map(select(.value | if type == "array" then any(.[]; has_ip) else has_ip end)) | map(.key)) as $s
+            | (.cameras // {}) | to_entries[]
+            | select(any(.value.ffmpeg.inputs[]?; .path as $p | ($p | has_ip) or any($s[]; . as $n | $p | endswith("/" + $n))))
+            | .key' 2>/dev/null | head -n 1)"
+          case "$fl_cam" in *[!A-Za-z0-9_-]*) fl_cam="" ;; esac
+        fi
+        [ -n "$fl_cam" ] && fl_note=" (camera ${fl_cam} found in Frigate)" ||
+          fl_note=" — this camera was not found in Frigate's configuration; enter its Frigate name"
+      fi
+      if [ -n "$fl_err" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "$fl_err"; else echo "<p>$fl_err</p>"; fi
+      elif [ -z "$fl_url" ]; then
+        rm -f /mnt/config/frigate_live.conf
+        echo "Smooth live view link removed.<br/>"
+      else
+        printf 'FRIGATE_URL=%s\nFRIGATE_CAMERA=%s\n' "$fl_url" "$fl_cam" > /mnt/config/frigate_live.conf.tmp &&
+          mv -f /mnt/config/frigate_live.conf.tmp /mnt/config/frigate_live.conf
+        echo "Smooth live view: ${fl_url}/#${fl_cam}${fl_note}.<br/>"
+      fi
     ;;
 
     enable_privacy_shield)
@@ -2935,12 +3048,20 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     conf_motiondetect)
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " mdsens ${F_mdsens} 
-      /mnt/bin/setconf -k m -v "${F_mdsens}"
-      rewrite_config /mnt/config/motion.conf motion_trigger_led "${F_motionBlink}"
+      # Settings → Motion & Sound. The form posts motion_trigger_led (checkbox:
+      # "on" or absent) and sound_det_*; older pages posted motionBlink.
+      mdsens=$(sanitize_int_range "${F_mdsens}" 1 100 50)
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " mdsens "$mdsens"
+      /mnt/bin/setconf -k m -v "$mdsens"
+      motion_led="$(normalize_bool "${F_motion_trigger_led:-${F_motionBlink:-0}}")"
+      rewrite_config /mnt/config/motion.conf motion_trigger_led "$motion_led"
+      sound_enable="$(normalize_bool "${F_sound_det_enable:-0}")"
+      sound_threshold="$(sound_threshold_db "${F_sound_det_threshold}" -24)"
+      apply_sound_detection "$sound_enable" "$sound_threshold"
 
-      echo "Motion red led blink set to ${F_motionBlink}<BR>"
-      echo "Motion sensitivity set to ${F_mdsens}<BR>"
+      echo "Motion red led blink set to ${motion_led}<BR>"
+      echo "Motion sensitivity set to ${mdsens}<BR>"
+      echo "Sound detection: enable=${sound_enable} threshold=${sound_threshold} dBFS<BR>"
     ;;
 
     conf_autodaynight)
@@ -3086,12 +3207,15 @@ if [ -n "$F_cmd" ]; then
           if [ -z "$scan_out" ]; then
               echo "<p class='help'>Scan failed or no results. Ensure WiFi is up.</p>"
           else
+              # SSIDs come from any neighbour: HTML-escaped before display.
               rows="$(printf '%s\n' "$scan_out" | awk '
+                  function esc(t) { gsub(/&/, "\\&amp;", t); gsub(/</, "\\&lt;", t); gsub(/>/, "\\&gt;", t); gsub(/"/, "\\&quot;", t); gsub(/\047/, "\\&#39;", t); return t }
+                  function row() {
+                      name = (ssid == "") ? "(hidden)" : esc(ssid)
+                      printf "<tr class=\"wifi-pick\" data-ssid=\"%s\"><td>%s</td><td>%s</td><td>%s</td></tr>\n", (ssid == "" ? "" : esc(ssid)), name, (rssi != "" ? esc(rssi) : "n/a"), enc
+                  }
                   /Cell [0-9]+ - Address:/ {
-                      if (ssid != "" || rssi != "") {
-                          name = (ssid == "") ? "(hidden)" : ssid
-                          printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
-                      }
+                      if (ssid != "" || rssi != "") row()
                       ssid = ""; rssi = ""; enc = "No"
                   }
                   /ESSID:/ {
@@ -3105,11 +3229,7 @@ if [ -n "$F_cmd" ]; then
                   /Extra:rssi=/ {
                       sub(/.*Extra:rssi=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
                   }
-                  END {
-                      name = (ssid == "") ? "(hidden)" : ssid
-                      if (rssi != "" || ssid != "")
-                          printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
-                  }
+                  END { if (rssi != "" || ssid != "") row() }
               ')"
               if [ -z "$rows" ]; then
                   echo "<p class='help'>No networks found.</p>"

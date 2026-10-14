@@ -23,6 +23,11 @@ if [ -f /mnt/RECOVERY ]; then
 fi
 # ------------------------------------
 
+## Read-only firmware image: when firmware.sqfs is on the card, mount it over
+## the code directories before any of them is used (scripts/rofs.sh; falls
+## back to the FAT copies on any problem).
+[ -f /mnt/scripts/rofs.sh ] && sh /mnt/scripts/rofs.sh mount >/dev/null 2>&1
+
 ## Load some common functions:
 . /mnt/scripts/common_functions.sh
 
@@ -352,8 +357,9 @@ load_boot_config()
 
     echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE cpuscaler=$CPU_SCALER_ENABLE security_hardening=$SECURITY_HARDENING_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
 
-    # Late-boot background tasks
-    if [ -x /mnt/scripts/update-check.sh ]; then
+    # Late-boot background tasks. The release check contacts GitHub: off
+    # unless UPDATE_CHECK=1 (the camera is meant to stay off the internet).
+    if is_truthy "${UPDATE_CHECK:-0}" && [ -x /mnt/scripts/update-check.sh ]; then
         /mnt/scripts/update-check.sh &
     fi
 }
@@ -379,8 +385,17 @@ enable_hardware_watchdog()
     # To disable watchdog use:
     #       echo 'V'>/dev/watchdog
     #       echo 'V'>/dev/watchdog0
-    # Start watchdog (notify every 2 seconds, reboot if no notification in 5 seconds)
-    "$BOOT_BUSYBOX" watchdog -t 2 -T 5 /dev/watchdog
+    # Feed every second; reboot after 8 s without a feed. 8 s is the AK39
+    # driver maximum (ak_drv_wdt.h); the former -t 2 -T 5 left 3 s of slack,
+    # little on a single 400 MHz core during encoder start or SD writes (a
+    # camera rebooted for no visible reason under load). The feeder runs at
+    # high priority so a busy system does not starve it. A rejected timeout
+    # is only a warning in busybox, so the hardware default then applies.
+    if "$BOOT_BUSYBOX" nice -n -15 true >/dev/null 2>&1; then
+        "$BOOT_BUSYBOX" nice -n -15 "$BOOT_BUSYBOX" watchdog -t 1 -T 8 /dev/watchdog
+    else
+        "$BOOT_BUSYBOX" watchdog -t 1 -T 8 /dev/watchdog
+    fi
     echo "Enabling hardware watchdog" >> $LOGPATH
 }
 
@@ -403,8 +418,11 @@ stop_cloud()
         done
     fi
 
-    # Unmount RAM disk
-    if /bin/umount /dev/loop0 2>/dev/null; then
+    # Unmount the vendor RAM disk (loop0) — unless loop0 is the firmware
+    # image (scripts/rofs.sh), which is mounted under /tmp/rofs.
+    if grep -q '^/dev/loop0 /tmp/rofs/' /proc/mounts 2>/dev/null; then
+        : # firmware image, keep
+    elif /bin/umount /dev/loop0 2>/dev/null; then
         : # success
     else
         echo "WARNING: Failed to unmount /dev/loop0" >> "$LOGPATH"
@@ -445,8 +463,12 @@ init_network()
     if [ -f "$WIFI_CONFIG" ]; then
         echo "Use manual WIFI setup" >> $LOGPATH
         mkdir /var/network
-        wpa_supplicant_status="$(wpa_supplicant -B -i wlan0 -c $WIFI_CONFIG -P /var/run/wpa_supplicant.pid)"
-        echo "wpa_supplicant: $wpa_supplicant_status" >> $LOGPATH
+        if [ "${WIFI_CLIENT:-vendor}" = new ] && sh /mnt/scripts/wifi-client.sh start "$WIFI_CONFIG"; then
+            echo "wpa_supplicant: 2.11 (WIFI_CLIENT=new)" >> $LOGPATH
+        else
+            wpa_supplicant_status="$(wpa_supplicant -B -i wlan0 -c $WIFI_CONFIG -P /var/run/wpa_supplicant.pid)"
+            echo "wpa_supplicant: $wpa_supplicant_status" >> $LOGPATH
+        fi
         install_config $CONFIGPATH/network.conf
         . $CONFIGPATH/network.conf 2>/dev/null
         if [ "${IP_MODE:-dhcp}" = "static" ] && [ -n "$STATIC_IP" ]; then
@@ -459,8 +481,14 @@ init_network()
         fi
     else
         echo "Use Anyka default WIFI setup" >> $LOGPATH
-        /usr/sbin/wifi_station.sh start
-        /usr/sbin/wifi_station.sh connect
+        # WIFI_CLIENT=new: wpa_supplicant 2.11 (scripts/wifi-client.sh), the
+        # vendor client again if it has not associated within 60 s.
+        if [ "${WIFI_CLIENT:-vendor}" = new ] && sh /mnt/scripts/wifi-client.sh start anyka; then
+            echo "Wi-Fi client: wpa_supplicant 2.11" >> $LOGPATH
+        else
+            /usr/sbin/wifi_station.sh start
+            /usr/sbin/wifi_station.sh connect
+        fi
     fi
 }
 
@@ -619,7 +647,7 @@ EOF
     {
       echo "# BEGIN TC100 MANAGED REBOOT"
       if [ "$sched_enable" = "1" ]; then
-        echo "${sched_minute} ${sched_hour} * * ${sched_weekday} /sbin/reboot >/dev/null 2>&1"
+        echo "${sched_minute} ${sched_hour} * * ${sched_weekday} /bin/sh /mnt/scripts/reboot-tracker.sh intent 'scheduled reboot (REBOOT_SCHEDULE)'; /sbin/reboot >/dev/null 2>&1"
       else
         echo "# disabled"
       fi
@@ -682,6 +710,23 @@ EOF
         echo "# disabled"
       fi
       echo "# END TC100 MANAGED STORAGE"
+    } >> "$CRON_TMP"
+    mv "$CRON_TMP" "$CRON_ROOT"
+
+    # reboot-tracker.sh tick every 5 min: copies new critical syslog lines to
+    # the SD card (only when there are some) and, every 15 min, rewrites the
+    # "last seen alive" heartbeat in place.
+    CRON_TMP="/tmp/root.crontab.heartbeat.$$"
+    awk '
+      BEGIN { skip=0 }
+      /^# BEGIN TC100 MANAGED HEARTBEAT$/ { skip=1; next }
+      /^# END TC100 MANAGED HEARTBEAT$/ { skip=0; next }
+      skip==0 { print }
+    ' "$CRON_ROOT" > "$CRON_TMP" 2>/dev/null || cp "$CRON_ROOT" "$CRON_TMP"
+    {
+      echo "# BEGIN TC100 MANAGED HEARTBEAT"
+      echo "*/5 * * * * /bin/sh /mnt/scripts/reboot-tracker.sh tick >/dev/null 2>&1"
+      echo "# END TC100 MANAGED HEARTBEAT"
     } >> "$CRON_TMP"
     mv "$CRON_TMP" "$CRON_ROOT"
 
@@ -782,16 +827,9 @@ apply_low_cpu_profile()
     if [ ! -f "$CONFIGPATH/sound_detection.conf" ]; then
         {
             echo "ENABLE=0"
-            echo "THRESHOLD=1500"
-            echo "INTERVAL=10"
+            echo "THRESHOLD_DB=-24"
+            echo "INTERVAL=2"
         } > "$CONFIGPATH/sound_detection.conf"
-    fi
-    sound_interval="$(awk -F= '$1=="INTERVAL"{print $2; exit}' "$CONFIGPATH/sound_detection.conf" 2>/dev/null)"
-    case "$sound_interval" in
-        ''|*[!0-9]*) sound_interval=10 ;;
-    esac
-    if [ "$sound_interval" -lt 10 ]; then
-        rewrite_config "$CONFIGPATH/sound_detection.conf" INTERVAL 10
     fi
 }
 
@@ -905,36 +943,26 @@ enforce_security_hardening_runtime()
 
 start_syslog_forwarding()
 {
-    if ! is_truthy "${SYSLOG_ENABLE:-0}"; then
-        return 0
-    fi
-    if [ -z "$SYSLOG_HOST" ]; then
-        echo "start_syslog_forwarding: SYSLOG_HOST not set, skipping" >> "$LOGPATH"
-        return 0
-    fi
-    _syslog_port="${SYSLOG_PORT:-514}"
-    case "$_syslog_port" in
-        ''|*[!0-9]*) _syslog_port=514 ;;
-    esac
-
-    # Try busybox syslogd with -R for remote forwarding.
-    # -n runs in foreground (we background it ourselves), -R sends to remote host.
-    if "$BOOT_BUSYBOX" syslogd --help 2>&1 | grep -q '\-R'; then
-        # Kill any existing local syslogd
-        killall syslogd 2>/dev/null || true
-        "$BOOT_BUSYBOX" syslogd -R "${SYSLOG_HOST}:${_syslog_port}" &
-        echo "start_syslog_forwarding: syslogd -R ${SYSLOG_HOST}:${_syslog_port}" >> "$LOGPATH"
-    else
-        # Fallback: send the startup log as a one-shot UDP syslog message via logger -n
-        if "$BOOT_BUSYBOX" logger --help 2>&1 | grep -q '\-n'; then
-            "$BOOT_BUSYBOX" logger -n "$SYSLOG_HOST" -P "$_syslog_port" \
-                -t "tc100" "Camera boot complete — $(cat /tmp/camera_ip.txt 2>/dev/null)" \
-                >/dev/null 2>&1 || true
-            echo "start_syslog_forwarding: sent boot notice via logger to ${SYSLOG_HOST}:${_syslog_port}" >> "$LOGPATH"
+    # Always replace the vendor syslogd: filtered (notice and above + logins),
+    # 256 KB of RAM at most. With SYSLOG_ENABLE=1 the same stream also goes to
+    # SYSLOG_HOST (and is still kept locally, -L).
+    _syslog_remote=""
+    if is_truthy "${SYSLOG_ENABLE:-0}"; then
+        if [ -z "$SYSLOG_HOST" ]; then
+            echo "start_syslog_forwarding: SYSLOG_HOST not set, local log only" >> "$LOGPATH"
         else
-            echo "start_syslog_forwarding: busybox syslogd -R and logger -n not available" >> "$LOGPATH"
+            _syslog_port="${SYSLOG_PORT:-514}"
+            case "$_syslog_port" in
+                ''|*[!0-9]*) _syslog_port=514 ;;
+            esac
+            _syslog_remote="${SYSLOG_HOST}:${_syslog_port}"
         fi
     fi
+    _syslog_pid="$(syslogd_start "$_syslog_remote")"
+    if [ -n "$_syslog_remote" ] && [ -n "$_syslog_pid" ]; then
+        echo "$_syslog_pid" > /var/run/syslog-forward.pid
+    fi
+    echo "start_syslog_forwarding: syslogd pid=${_syslog_pid:-?} remote=${_syslog_remote:-none}" >> "$LOGPATH"
 }
 
 generate_csrf_token()
@@ -1080,6 +1108,11 @@ preflight_checks()
 init_log
 preflight_checks
 self_heal_runtime
+# Bring configs from older releases up to date with the new .dist defaults
+# (append-only; a stamp makes this a single md5sum once done).
+sh /mnt/scripts/config-migrate.sh >/dev/null 2>&1 || true
+# Why did the previous run end? (/mnt/log/reboot-history.log, Device Info)
+sh /mnt/scripts/reboot-tracker.sh boot >/dev/null 2>&1 || true
 init_password
 # First-boot wizard: set flag if user has never completed the wizard.
 # The flag is checked by wizard.cgi?check and cleared after wizard completes.
@@ -1094,7 +1127,8 @@ apply_kernel_log_tuning
 # Validate config values early — logs to /tmp/log/config-validator.log, never fatal.
 [ -x /mnt/scripts/config-validator.sh ] && /mnt/scripts/config-validator.sh &
 echo "--------Starting Hacks--------" >> $LOGPATH
-echo "Version: 1.0.0" >> $LOGPATH
+_fw_version="unknown"; [ -r /mnt/VERSION ] && read -r _fw_version < /mnt/VERSION
+echo "Version: $_fw_version" >> $LOGPATH
 stop_cloud
 enable_hardware_watchdog
 init_network
@@ -1122,7 +1156,15 @@ start_mqtt_bridge_if_enabled
 publish_boot_event
 echo "$(date)" >> $LOGPATH
 (build_devinfo_cache && echo "build_devinfo_cache: done" >> $LOGPATH) &
+# Warm the Services page cache (script capabilities): the first visit after a
+# boot otherwise waited ~9 s while it was built. Low priority, after services.
+(sleep 45; export REQUEST_METHOD=GET QUERY_STRING='cmd=allstates'; nice -n 10 sh /mnt/www/cgi-bin/scripts.cgi >/dev/null 2>&1 || sh /mnt/www/cgi-bin/scripts.cgi >/dev/null 2>&1) &
 snapshot_lkg_configs
+# Firmware image in use: check its md5 once the boot has settled (niced).
+if [ -f /tmp/rofs/status ] && read -r _rofs_state _rofs_rest < /tmp/rofs/status && [ "$_rofs_state" = active ]; then
+    (sleep 300; nice -n 19 sh /mnt/scripts/rofs.sh verify >/dev/null 2>&1) &
+fi
+echo "Firmware image: $(cat /tmp/rofs/status 2>/dev/null || echo 'not used')" >> $LOGPATH
 sleep 1
 sync
 echo "--------Starting Hacks Finished!--------" >> $LOGPATH

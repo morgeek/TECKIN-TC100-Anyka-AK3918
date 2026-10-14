@@ -1,0 +1,45 @@
+<div id="diagnostics_container">
+    <!-- One page for the camera's state, each part loaded when its tab is
+         opened (each one runs several probes on the camera). -->
+    <div class="tabs is-centered is-toggle is-small mb-4">
+        <ul>
+            <li class="is-active" data-diag="diag_system"><a><span>System usage</span></a></li>
+            <li data-diag="diag_device"><a><span>Device</span></a></li>
+            <li data-diag="diag_storage"><a><span>Storage</span></a></li>
+            <li data-diag="diag_network"><a><span>Network</span></a></li>
+        </ul>
+    </div>
+    <div class="buttons is-right mb-2">
+        <button class="button is-small is-light" type="button" id="diag_refresh">Refresh</button>
+    </div>
+    <div class="diag-panel" id="diag_system" data-src="cgi-bin/sysusageinfo.cgi"></div>
+    <div class="diag-panel" id="diag_device" data-src="cgi-bin/devinfo.cgi" hidden></div>
+    <div class="diag-panel" id="diag_storage" data-src="cgi-bin/disk.cgi" hidden></div>
+    <div class="diag-panel" id="diag_network" data-src="cgi-bin/network.cgi?part=diag" hidden></div>
+</div>
+
+<script>
+    (function () {
+        var root = document.getElementById('diagnostics_container');
+        if (!root || !window.EliteUI || !window.EliteUI.loadInto) return;
+        var current = 'diag_system';
+        function show(id, reload) {
+            current = id;
+            root.querySelectorAll('.tabs li').forEach(function (li) {
+                li.classList.toggle('is-active', li.dataset.diag === id);
+            });
+            root.querySelectorAll('.diag-panel').forEach(function (p) { p.hidden = p.id !== id; });
+            var panel = document.getElementById(id);
+            if (reload || !panel.dataset.loaded) {
+                panel.dataset.loaded = '1';
+                panel.innerHTML = '<p class="help">Loading…</p>';
+                window.EliteUI.loadInto(panel, panel.dataset.src);
+            }
+        }
+        root.querySelectorAll('.tabs li').forEach(function (li) {
+            li.addEventListener('click', function () { show(li.dataset.diag, false); });
+        });
+        document.getElementById('diag_refresh').addEventListener('click', function () { show(current, true); });
+        show(current, false);
+    })();
+</script>

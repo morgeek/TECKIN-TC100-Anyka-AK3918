@@ -111,6 +111,9 @@ if [ -d /mnt/config/autostart ]; then
   for _as_f in /mnt/config/autostart/*; do
     [ -f "$_as_f" ] || continue
     _as_name="${_as_f##*/}"
+    # 00_system-config, 01_system-emergency-telnet, 02_system-webserver are
+    # boot hooks, not services: listing them showed three permanent "absent".
+    [ -x "/mnt/controlscripts/$_as_name" ] || continue
     case " $_core_svcs " in
       *" $_as_name "*) ;;  # already in core list
       *) _extra_svcs="$_extra_svcs $_as_name" ;;

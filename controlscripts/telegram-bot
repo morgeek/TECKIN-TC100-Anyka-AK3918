@@ -13,7 +13,8 @@ WATCHDOG_PIDFILE="/var/run/telegram-bot-watch.pid"
 . /mnt/scripts/common_functions.sh
 
 if [ ! -f /mnt/config/telegram.conf ]; then
-  echo "You have to configure telegram first. Please see /mnt/config/telegram.conf.dist for further instructions"
+  # Not on "status": the Services page reads any status output as "running".
+  [ "$1" = "status" ] || echo "You have to configure telegram first. Please see /mnt/config/telegram.conf.dist for further instructions" >&2
 fi
 
 bot_configured()

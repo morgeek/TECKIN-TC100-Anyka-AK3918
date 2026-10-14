@@ -40,7 +40,7 @@ fi
           --fullchain-file ${ACMEPATH}/fullchain.crt \
           --reloadcmd  "cat ${ACMEPATH}/host.crt ${ACMEPATH}/host.key > ${CONFIGPATH}/lighttpd.pem ;\
                         pkill lighttpd.bin ;\
-                        /mnt/bin/lighttpd -f ${CONFIGPATH}/lighttpd.conf"
+                        LD_LIBRARY_PATH=/mnt/lib:/lib:/usr/lib /mnt/bin/lighttpd -f ${CONFIGPATH}/lighttpd.conf"
 
 
 ## Adding cronjob to keep the cert updated

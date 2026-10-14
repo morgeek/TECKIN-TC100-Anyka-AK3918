@@ -27,7 +27,8 @@ status() {
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     echo "running (PID $pid)"
   else
-    echo "stopped"
+    echo "stopped" >&2
+    return 1
   fi
 }
 
@@ -51,28 +52,24 @@ start() {
   fi
   rm -f "$PIDFILE" 2>/dev/null || true
 
-  # Prefer remote syslogd (-R host:port)
-  if "$BUSYBOX" syslogd --help 2>&1 | grep -q '\-R'; then
-    killall syslogd 2>/dev/null || true
-    sleep 1
-    "$BUSYBOX" syslogd -R "${SYSLOG_HOST}:${SYSLOG_PORT}" &
-    echo "$!" > "$PIDFILE"
-    echo "$SERVICE_NAME: syslogd forwarding to ${SYSLOG_HOST}:${SYSLOG_PORT} (PID $!)"
+  # Same filtered syslogd as at boot (common_functions.sh), also sending to
+  # the remote host and still logging locally.
+  _pid="$(syslogd_start "${SYSLOG_HOST}:${SYSLOG_PORT}")"
+  if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+    echo "$_pid" > "$PIDFILE"
+    echo "$SERVICE_NAME: syslogd forwarding to ${SYSLOG_HOST}:${SYSLOG_PORT} (PID $_pid)"
   else
-    echo "$SERVICE_NAME: busybox syslogd -R not supported; no forwarding daemon started"
+    echo "$SERVICE_NAME: syslogd did not start"
     return 1
   fi
 }
 
 stop() {
-  if [ -n "$(cat "$PIDFILE" 2>/dev/null)" ]; then
-    killpid_graceful "$PIDFILE" 5
-    echo "$SERVICE_NAME stopped"
-  else
-    killall syslogd 2>/dev/null || true
-    rm -f "$PIDFILE" 2>/dev/null || true
-    echo "$SERVICE_NAME: not running"
-  fi
+  # Back to local-only logging (killing syslogd outright would leave the
+  # camera with no system log at all).
+  rm -f "$PIDFILE" 2>/dev/null || true
+  syslogd_start "" >/dev/null
+  echo "$SERVICE_NAME stopped (local log only)"
 }
 
 restart() {
@@ -82,7 +79,7 @@ restart() {
 }
 
 health() {
-  _s="$(status)"
+  _s="$(status 2>&1)"
   case "$_s" in
     running*) echo "ok: $_s" ;;
     *)

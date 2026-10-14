@@ -136,16 +136,28 @@ RTSP_AUDIO=1
 # - RTSP_FPS_LOCK=1: keep the sensor at the configured frame rate. The vendor
 #   library otherwise drops to ~10 fps in low light and back to 25 fps, which
 #   makes the RTSP frame rate oscillate (bad for Frigate).
-# - RTSP_MIC_OFF_WHEN_NO_AUDIO=1: when RTSP_AUDIO=0, do not start the
-#   microphone, echo canceller and noise reduction the server otherwise runs
-#   for nothing (measured ~6.5% CPU: aec_task + ai_capture). No effect when
-#   RTSP_AUDIO=1.
+# - RTSP_MIC_OFF_WHEN_NO_AUDIO=1 (default since 1.8.4): when RTSP_AUDIO=0,
+#   do not start the microphone, echo canceller and noise reduction the server
+#   otherwise runs for nothing (measured ~6.5% CPU: aec_task + ai_capture).
+#   No effect when RTSP_AUDIO=1. Set 0 to restore the vendor behaviour.
 # - VENDOR_PRINT_LEVEL=0..9: replace the level the server forces (3) into
 #   /var/log/ak_print_level, read by every vendor library. Empty = untouched.
 #   Small effect: vendor syslog chatter is cheap on this hardware.
+# - ISP_TUNE=1: live image tuning from /mnt/config/isp_tune.conf (brightness,
+#   contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied
+#   without restarting the stream.
+# - RTSP_DAYNIGHT_POLL_MS=500: the server's day/night thread polls the ISP
+#   every 100 ms (and rewrites /var/run/lum and /var/run/awb each time);
+#   500 ms is plenty for day/night switching. Measured: -2 % CPU. 0 = vendor.
 RTSP_FPS_LOCK=0
-RTSP_MIC_OFF_WHEN_NO_AUDIO=0
+RTSP_MIC_OFF_WHEN_NO_AUDIO=1
 VENDOR_PRINT_LEVEL=
+ISP_TUNE=0
+RTSP_DAYNIGHT_POLL_MS=500
+# TAMPER_DETECTION=1: sample the ISP sharpness/histogram statistics every 2 s
+# into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
+# default until the thresholds are calibrated on hardware.
+TAMPER_DETECTION=0
 
 # ONVIF advertised stream policy:
 # - main-primary: ONVIF profile 1 = main stream (default)
@@ -219,8 +231,10 @@ SYSLOG_PORT=514
 
 # Integration profile — controls which optional daemons are started at boot.
 # "default"    starts everything enabled in autostart/ (safe baseline).
-# "frigate_ha" skips Telegram, Timelapse, Syslog, Sound detection, FTP,
-#              Telnet and local Recording (handled by Frigate / Home Assistant).
+# "frigate_ha" skips Telegram, Timelapse, FTP, Telnet and local Recording
+#              (handled by Frigate / Home Assistant). Remote syslog
+#              (SYSLOG_ENABLE) and sound detection (sound_detection.conf
+#              ENABLE) still follow their own settings.
 # Set to "frigate_ha" in boot.conf if this camera feeds Frigate/HA.
 INTEGRATION_PROFILE=default
 
@@ -252,3 +266,18 @@ AK_PRINT_LEVEL=
 # only decide what boot applies.
 FRONT_LED=0
 RED_LED=0
+# FIRMWARE_IMAGE=1: when firmware.sqfs is on the card (release packages and
+# updates ship it), run bin/ lib/ scripts/ controlscripts/ www/ from that
+# read-only image instead of the FAT copies, which stay as the fallback
+# (scripts/rofs.sh). 0 = always use the FAT copies (needed to edit code files
+# on the card directly).
+FIRMWARE_IMAGE=1
+# WIFI_CLIENT=new: connect with the bundled wpa_supplicant 2.11 (wireless
+# extensions, WPA2-PSK, current security fixes) instead of the vendor 0.8.x
+# from 2013. If it has not associated within 60 s the vendor client is
+# started as before and an important event is logged (scripts/wifi-client.sh).
+WIFI_CLIENT=vendor
+# UPDATE_CHECK=1: at boot, ask GitHub (api.github.com) whether a newer release
+# exists and show it in the web UI. Off by default: the camera needs no
+# internet access; updates are installed from Settings → Firmware update.
+UPDATE_CHECK=0

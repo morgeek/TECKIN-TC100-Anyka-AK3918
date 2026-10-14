@@ -28,7 +28,7 @@ window.fetch=async function(url, opts={}) {
 };
 '''.replace('CONFIG',json.dumps(config))
 html='<!doctype html><html data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-for f in ['bulma.1.0.2.min.css','ui-modern.min.css']:html+='<link rel="stylesheet" href="'+(root/'www/css'/f).as_uri()+'">'
+for f in ['bulma.1.0.2.purged.min.css','ui-modern.min.css']:html+='<link rel="stylesheet" href="'+(root/'www/css'/f).as_uri()+'">'
 html+='<script>'+fake+'</script><script src="'+(root/'www/scripts/index.bundle.min.js').as_uri()+'"></script></head><body><section class="section"><div id="content" class="container">'
 html+=(root/'www/settings.html').read_text()
 html+='</div></section><script>document.querySelector(\'[data-tab="tab-video"]\').click();</script></body></html>'

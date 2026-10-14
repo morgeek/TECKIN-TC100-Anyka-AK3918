@@ -5,7 +5,8 @@ PIDFILE="/var/run/network-monitor.pid"
 . /mnt/scripts/common_functions.sh
 
 if [ ! -f /mnt/config/netmon.conf ]; then
-  echo "You have to configure network monitor first. Please see /mnt/config/netmon.conf for further instructions"
+  # Not on "status": the Services page reads any status output as "running".
+  [ "$1" = "status" ] || echo "You have to configure network monitor first. Please see /mnt/config/netmon.conf for further instructions" >&2
 fi
 
 status()

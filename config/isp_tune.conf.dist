@@ -1,0 +1,18 @@
+# Live image tuning (needs ISP_TUNE=1 in boot.conf). Applied within ~2 s,
+# without restarting the stream. 0 / empty = value from the sensor ISP file.
+# Effects: -50..50, relative to the ISP file.
+BRIGHTNESS=0
+CONTRAST=0
+SATURATION=0
+SHARPNESS=0
+HUE=0
+# Mains frequency for anti-flicker: 50 (Europe) or 60. Empty = unchanged.
+POWER_HZ=
+# Cap the auto-exposure time at a percentage of the ISP file value (10..100).
+# Lower = less motion blur at night, darker image. Empty = no cap.
+EXPOSURE_MAX_PCT=
+# Temporal (3D) noise reduction. NR3D=0 turns it off, removing the line puts
+# the ISP file's setting back. Measured on a TC100 (1080p, low indoor light):
+# frame rate unchanged, bitrate +39 % (the encoder spends it on noise) —
+# leave it on unless testing.
+#NR3D=0
