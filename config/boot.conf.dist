@@ -272,3 +272,8 @@ RED_LED=0
 # (scripts/rofs.sh). 0 = always use the FAT copies (needed to edit code files
 # on the card directly).
 FIRMWARE_IMAGE=1
+# WIFI_CLIENT=new: connect with the bundled wpa_supplicant 2.11 (wireless
+# extensions, WPA2-PSK, current security fixes) instead of the vendor 0.8.x
+# from 2013. If it has not associated within 60 s the vendor client is
+# started as before and an important event is logged (scripts/wifi-client.sh).
+WIFI_CLIENT=vendor
