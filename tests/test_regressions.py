@@ -1397,6 +1397,41 @@ class WebUiLanguage(unittest.TestCase):
         self.assertIn('i18n.js?v=' + version, index)     # bump both together (30-day cache)
 
 
+class SettingsLayout(unittest.TestCase):
+    """Settings regrouped (2026-10-14): 6 tabs, Tools reduced to Diagnostics / Logs / Config editor."""
+
+    def test_six_tabs_and_unique_ids(self):
+        html = (ROOT / 'www/settings.html').read_text()
+        tabs = re.findall(r'data-tab="([^"]+)"', html)
+        self.assertEqual(tabs, ['tab-video', 'tab-detect', 'tab-integrations', 'tab-network', 'tab-system', 'tab-backup'])
+        for t in tabs:
+            self.assertEqual(html.count('id="%s"' % t), 1, t)
+        ids = re.findall(r'\bid=["\']([^"\']+)["\']', html.split('<script>')[0])
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        self.assertEqual(dup, [])
+        # every form that existed before the move is still there
+        for form in ('formVideoAdvanced', 'formVideoSub', 'formAudioAdvanced', 'formISP', 'formIspTune', 'formMQTT',
+                     'formFrigateLive', 'formDetect', 'formTimelapse', 'formTelegram', 'formSyslog', 'formNetwork',
+                     'formTime', 'formTuning', 'formLeds', 'formRebootSchedule', 'preset_dropdown', 'fwuFile'):
+            self.assertIn('id="%s"' % form, html)
+        self.assertIn('network.cgi?part=settings', html)
+        self.assertIn('data-src="backup.html"', html)
+
+    def test_tools_menu_and_network_parts(self):
+        index = (ROOT / 'www/index.html').read_text()
+        for gone in ('cgi-bin/sysusageinfo.cgi', 'cgi-bin/devinfo.cgi', 'data-target="cgi-bin/network.cgi"',
+                     'cgi-bin/disk.cgi', 'data-target="backup.html"'):
+            self.assertNotIn(gone, index)
+        self.assertIn('data-target="diagnostics.html"', index)
+        diag = (ROOT / 'www/diagnostics.html').read_text()
+        for src in ('sysusageinfo.cgi', 'devinfo.cgi', 'disk.cgi', 'network.cgi?part=diag'):
+            self.assertIn(src, diag)
+        net = (ROOT / 'www/cgi-bin/network.cgi').read_text()
+        self.assertLess(net.index('if [ "$NET_PART" = settings ]'), net.index('connections_text="$(capture_limited_output'))  # settings part skips the probes
+        js = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
+        self.assertIn('loadInto: loadInto,', js)
+        self.assertNotIn('loadSubPage(', js)
+
 class FrigateLiveAndSyslog(unittest.TestCase):
     """Settings: Frigate live link and remote syslog host, both written to sourced/parsed config."""
 

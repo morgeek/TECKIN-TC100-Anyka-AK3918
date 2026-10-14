@@ -268,15 +268,15 @@ body::before, body::after { display: none !important; }
 
 /* ------------------------------------------------------------- settings */
 #settings_load_status { color: var(--v2-muted); }
-#settings_container .tabs {
+#settings_container .tabs , #diagnostics_container .tabs {
   justify-content: flex-start !important;
   overflow-x: auto;
   scrollbar-width: none;
   border-bottom: 1px solid var(--v2-rule);
   margin-bottom: 1.25rem !important;
 }
-#settings_container .tabs ul { justify-content: flex-start !important; border: 0 !important; flex-wrap: nowrap; }
-#settings_container .tabs li a {
+#settings_container .tabs ul , #diagnostics_container .tabs ul { justify-content: flex-start !important; border: 0 !important; flex-wrap: nowrap; }
+#settings_container .tabs li a , #diagnostics_container .tabs li a {
   background: transparent !important;
   border: 0 !important;
   border-radius: 0 !important;
@@ -286,8 +286,8 @@ body::before, body::after { display: none !important; }
   white-space: nowrap;
   box-shadow: none !important;
 }
-#settings_container .tabs li a:hover { color: var(--v2-ink) !important; background: transparent !important; }
-#settings_container .tabs li.is-active a {
+#settings_container .tabs li a:hover , #diagnostics_container .tabs li a:hover { color: var(--v2-ink) !important; background: transparent !important; }
+#settings_container .tabs li.is-active a , #diagnostics_container .tabs li.is-active a {
   color: var(--v2-ink) !important;
   font-weight: 650;
   box-shadow: inset 0 -2px 0 var(--v2-ink) !important;
@@ -383,3 +383,9 @@ input.switch[type="checkbox"] + label::before, input.switch[type="checkbox"] + l
 
 /* Language switch (scripts/i18n.js) */
 .navbar-item.lang-toggle { font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; }
+
+/* Tools menu: section label */
+.navbar-item.nav-section-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6; padding-top: .25rem; padding-bottom: .25rem; cursor: default; }
+.backup-guide { margin: .4rem 0 0 1.1rem; list-style: disc; }
+#settings_warnings:empty { display: none; }
+.nav-section-divider { margin: .3rem 0; height: 1px; border: 0; background: var(--v2-rule); }

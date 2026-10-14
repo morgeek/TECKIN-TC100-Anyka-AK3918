@@ -3,6 +3,7 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
+  align-items: start;
 }
 @media screen and (min-width: 768px) {
   .backup-grid { grid-template-columns: 1fr 1fr; }
@@ -28,7 +29,7 @@
         Downloads a <code>.tar.gz</code> archive of the entire <code>/mnt/config/</code> directory.
         Store this file somewhere safe — it contains passwords and credentials.
       </p>
-      <a id="backup_dl_btn" class="button is-primary" href="cgi-bin/configbackup.cgi?cmd=download" download>
+      <a id="backup_dl_btn" class="button is-primary is-small" href="cgi-bin/configbackup.cgi?cmd=download" download>
         Download Backup
       </a>
     </div>
@@ -49,9 +50,9 @@
         The camera will keep a rollback snapshot in <code>/tmp/</code>. A reboot is recommended after restore.
       </p>
       <div class="field">
-        <label class="label" for="restore_file_input">Select backup file</label>
+        <label class="label is-small" for="restore_file_input">Select backup file</label>
         <div class="control">
-          <input class="input" type="file" id="restore_file_input" accept=".tar.gz,.tgz" style="padding:0.35rem 0.5rem;">
+          <input class="input is-small" type="file" id="restore_file_input" accept=".tar.gz,.tgz" style="padding:0.35rem 0.5rem;">
         </div>
       </div>
       <div class="field">
@@ -59,7 +60,7 @@
           <input type="checkbox" id="restore_restart_cb"> Restart RTSP &amp; ONVIF after restore
         </label>
       </div>
-      <button class="button is-warning" id="restore_btn" type="button" disabled onclick="doRestore()">
+      <button class="button is-warning is-small" id="restore_btn" type="button" disabled onclick="doRestore()">
         Restore Backup
       </button>
       <p id="restore_status" class="backup-status"></p>
@@ -83,16 +84,16 @@
       
       <div class="columns">
         <div class="column">
-          <label class="label">Export</label>
-          <a class="button is-link" href="cgi-bin/config_exchange.cgi?cmd=export">
+          <label class="label is-small">Export</label>
+          <a class="button is-link is-small" href="cgi-bin/config_exchange.cgi?cmd=export">
             Download Settings (.json)
           </a>
         </div>
         <div class="column">
-          <label class="label">Import</label>
+          <label class="label is-small">Import</label>
           <div class="field">
             <div class="control">
-              <input class="input" type="file" id="json_import_file" accept=".json" style="padding:0.35rem 0.5rem; margin-bottom:0.5rem;">
+              <input class="input is-small" type="file" id="json_import_file" accept=".json" style="padding:0.35rem 0.5rem; margin-bottom:0.5rem;">
             </div>
           </div>
           <div class="field">
@@ -105,7 +106,7 @@
               <input type="checkbox" id="json_exclude_credentials"> Exclude Credentials (Passwords/Tokens)
             </label>
           </div>
-          <button class="button is-warning" id="json_import_btn" onclick="doJsonImport()">
+          <button class="button is-warning is-small" id="json_import_btn" onclick="doJsonImport()">
             Import JSON Settings
           </button>
           <p id="json_exchange_status" class="backup-status"></p>
