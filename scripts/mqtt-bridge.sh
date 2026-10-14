@@ -907,6 +907,30 @@ publish_homeassistant_discovery()
   uptime_cfg_payload="$(printf '{"name":"%s Uptime","uniq_id":"%s_uptime","stat_t":"%s","unit_of_meas":"s","dev_cla":"duration","stat_cla":"measurement","val_tpl":"{{ value_json.uptime_seconds }}","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:clock-outline","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$health_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$uptime_cfg_topic" "$uptime_cfg_payload"
 
+  # --- Diagnostics (value_json.diag, see build_diag_payload) ---
+  _dev_json="$(printf '"dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}' "$device_id_json" "$device_name_json")"
+  _avty_json="$(printf '"avty_t":"%s","pl_avail":"online","pl_not_avail":"offline"' "$avail_topic_json")"
+  # id | name | template | extra JSON members (unit, classes, icon)
+  while IFS='|' read -r _d_id _d_name _d_tpl _d_extra; do
+    [ -n "$_d_id" ] || continue
+    publish_discovery_config "${discovery_prefix}/sensor/${node_id}/${_d_id}/config" \
+      "$(printf '{"name":"%s %s","uniq_id":"%s_%s","stat_t":"%s","val_tpl":"%s",%s,%s,%s}' \
+        "$device_name_json" "$_d_name" "$device_id_json" "$_d_id" "$health_topic_json" "$_d_tpl" "$_d_extra" "$_avty_json" "$_dev_json")"
+  done <<'DIAG'
+wifi_signal|Wi-Fi Signal|{{ value_json.diag.wifi_rssi_dbm }}|"unit_of_meas":"dBm","dev_cla":"signal_strength","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi"
+mem_available|Memory Available|{{ value_json.diag.mem_available_kb }}|"unit_of_meas":"kB","dev_cla":"data_size","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:memory"
+wifi_rx_drop|Wi-Fi Dropped Packets|{{ value_json.diag.wifi_rx_drop }}|"stat_cla":"total_increasing","ent_cat":"diagnostic","ic":"mdi:wifi-alert"
+tcp_paws_drop|Refused Connections|{{ value_json.diag.tcp_paws_drop }}|"stat_cla":"total_increasing","ent_cat":"diagnostic","ic":"mdi:lan-disconnect"
+sound_level|Sound Level|{{ value_json.diag.sound_db }}|"unit_of_meas":"dBFS","stat_cla":"measurement","ic":"mdi:volume-high"
+light_level|Light Level|{{ value_json.diag.light_level }}|"stat_cla":"measurement","ic":"mdi:brightness-5"
+DIAG
+  publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/sd_problem/config" \
+    "$(printf '{"name":"%s SD Card Problem","uniq_id":"%s_sd_problem","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.sd_problem == 1 else \\"OFF\\" }}","dev_cla":"problem","ent_cat":"diagnostic","ic":"mdi:sd",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
+  publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/night_mode/config" \
+    "$(printf '{"name":"%s Night Mode","uniq_id":"%s_night_mode","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.day_mode == 0 else \\"OFF\\" }}","ic":"mdi:weather-night",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
+
   # --- Elite Integration Entities ---
 
   # Camera (RTSP Stream)
@@ -1256,6 +1280,85 @@ build_network_state_payload()
     "$now_ts" "$hostname_json" "$network_monitor_enabled" "$network_state_fresh" "$network_wifi_iface_json" "$network_wifi_connected" "$network_gateway_address_json" "$network_gateway_reachable" "$network_broker_monitor_enabled" "$network_broker_host_json" "$network_broker_port" "$network_broker_state_json" "$network_broker_reachable" "$network_current_problem_json" "$network_reconnect_count" "$network_broker_restart_count" "$network_last_recovery_reason_json" "$network_last_recovery_action_json" "$network_last_recovery_ts")"
 }
 
+# Diagnostics for Home Assistant, read from /proc and tmpfs without forks
+# except one dmesg|grep for SD card errors. Sets diag_payload (JSON object).
+build_diag_payload()
+{
+  _dg_rssi=null; _dg_qual=null
+  for _dg_f in /proc/net/rtl*/wlan0/rx_signal; do
+    [ -r "$_dg_f" ] || continue
+    while IFS=: read -r _dg_k _dg_v; do
+      case "$_dg_k:$_dg_v" in
+        rssi:-[0-9]*|rssi:[0-9]*) _dg_rssi="$_dg_v" ;;
+        signal_qual:[0-9]*) _dg_qual="$_dg_v" ;;
+      esac
+    done < "$_dg_f"
+    break
+  done
+  _dg_rxdrop=null
+  while read -r _dg_if _dg_rest; do
+    case "$_dg_if" in
+      # "wlan0: 123 ..." or "wlan0:123 ..." (no space once the counter is
+      # large): rx_bytes rx_packets rx_errs rx_drop ...
+      wlan0:*) set -- ${_dg_if#wlan0:} $_dg_rest; _dg_rxdrop="$4"; break ;;
+    esac
+  done < /proc/net/dev
+  _dg_paws=null; _dg_retrans=null; _dg_h=""
+  while read -r _dg_k _dg_rest; do
+    case "$_dg_k" in
+      TcpExt:)
+        if [ -z "$_dg_h" ]; then _dg_h="$_dg_rest"; else
+          set -- $_dg_h; _dg_i=0
+          for _dg_v in $_dg_rest; do _dg_i=$((_dg_i + 1)); eval "_dg_n=\${$_dg_i}"
+            [ "$_dg_n" = PAWSPassive ] && { _dg_paws="$_dg_v"; break; }; done
+          _dg_h=""; fi ;;
+    esac
+  done < /proc/net/netstat
+  _dg_h=""
+  while read -r _dg_k _dg_rest; do
+    case "$_dg_k" in
+      Tcp:)
+        if [ -z "$_dg_h" ]; then _dg_h="$_dg_rest"; else
+          set -- $_dg_h; _dg_i=0
+          for _dg_v in $_dg_rest; do _dg_i=$((_dg_i + 1)); eval "_dg_n=\${$_dg_i}"
+            [ "$_dg_n" = RetransSegs ] && { _dg_retrans="$_dg_v"; break; }; done
+          _dg_h=""; fi ;;
+    esac
+  done < /proc/net/snmp
+  _dg_avail=null; _dg_free=0; _dg_buf=0; _dg_cache=0
+  while read -r _dg_k _dg_v _dg_u; do
+    case "$_dg_k" in
+      MemAvailable:) _dg_avail="$_dg_v" ;;
+      MemFree:) _dg_free="$_dg_v" ;; Buffers:) _dg_buf="$_dg_v" ;; Cached:) _dg_cache="$_dg_v" ;;
+    esac
+  done < /proc/meminfo
+  [ "$_dg_avail" = null ] && _dg_avail=$((_dg_free + _dg_buf + _dg_cache))
+  _dg_sound=null
+  if [ -r /var/run/sound_level ]; then
+    read -r _dg_sts _dg_rms _dg_rest < /var/run/sound_level
+    case "$_dg_sts" in ''|*[!0-9]*) ;; *)
+      [ $((now_ts - _dg_sts)) -le 15 ] && case "$_dg_rms" in -[0-9]*|0) _dg_sound="$_dg_rms" ;; esac ;;
+    esac
+  fi
+  _dg_lum=null; _dg_day=null
+  # These files have no trailing newline: read sets the value but returns 1.
+  _dg_v=""; read -r _dg_v < /var/run/lum 2>/dev/null
+  case "$_dg_v" in ''|*[!0-9]*) ;; *) _dg_lum="$_dg_v" ;; esac
+  _dg_v=""; read -r _dg_v < /var/run/vday 2>/dev/null
+  case "$_dg_v" in 0|1) _dg_day="$_dg_v" ;; esac
+  _dg_ro=0
+  while read -r _dg_dev _dg_mp _dg_fs _dg_opt _dg_rest; do
+    [ "$_dg_mp" = /mnt ] || continue
+    case "$_dg_dev" in /dev/mmc*) case "$_dg_opt" in ro,*|ro) _dg_ro=1 ;; esac ;; esac
+  done < /proc/mounts
+  _dg_fat="$(dmesg 2>/dev/null | grep -c -E 'FAT-fs .*error|exFAT.*error|I/O error.*mmcblk|get_card_status wait too long')"
+  case "$_dg_fat" in ''|*[!0-9]*) _dg_fat=0 ;; esac
+  _dg_sdprob=0
+  { [ "$_dg_ro" = 1 ] || [ "$_dg_fat" -gt 0 ]; } && _dg_sdprob=1
+  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s}' \
+    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob")"
+}
+
 build_health_payload()
 {
   [ "$BTIME" -gt 0 ] || _load_btime
@@ -1358,9 +1461,10 @@ build_health_payload()
   primary_ip_json="$(json_escape "$primary_ip")"
   load_network_monitor_state >/dev/null 2>&1 || true
   build_network_state_payload
+  build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s,"diag":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload" "$diag_payload"
 }
 
 publish_health()

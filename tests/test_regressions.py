@@ -353,6 +353,34 @@ class Regressions(unittest.TestCase):
         sw = json.loads([l for l in lines if '/switch/' in l][0].split('\t', 1)[1])
         self.assertEqual(json.loads(sw['pl_on']), {'cmd': 'isp_tune', 'value': 'on'})
 
+    def test_diagnostic_discovery_is_valid_json(self):
+        s = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        block = s[s.index('  # --- Diagnostics (value_json.diag'):s.index('  # --- Elite Integration Entities ---')]
+        code = ('out=' + shlex.quote(str(self.base / 'diag')) +
+                '\npublish_discovery_config() { printf "%s\\t%s\\n" "$1" "$2" >> "$out"; }\n'
+                'discovery_prefix=homeassistant; node_id=cam_x; device_name_json=Cam; device_id_json=cam_x\n'
+                'health_topic_json=cam/x/health; avail_topic_json=cam/x/availability\n')
+        r = run(code + block)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = (self.base / 'diag').read_text().strip().split('\n')
+        self.assertEqual(len(lines), 8)   # 6 sensors + 2 binary sensors
+        for line in lines:
+            topic, payload = line.split('\t', 1)
+            d = json.loads(payload)
+            self.assertEqual(d['stat_t'], 'cam/x/health', topic)
+            self.assertIn('value_json.diag.', d['val_tpl'])
+            self.assertEqual(d['dev']['ids'], ['cam_x'])
+        sd = json.loads([l for l in lines if 'sd_problem' in l][0].split('\t', 1)[1])
+        self.assertEqual(sd['val_tpl'], '{{ "ON" if value_json.diag.sd_problem == 1 else "OFF" }}')
+
+    def test_diag_payload_is_valid_json(self):
+        fn = function('scripts/mqtt-bridge.sh', 'build_diag_payload')
+        r = run(fn + '\nnow_ts=$(date +%s); build_diag_payload; printf "%s" "$diag_payload"')
+        d = json.loads(r.stdout)
+        for k in ('wifi_rssi_dbm', 'mem_available_kb', 'sound_db', 'light_level', 'sd_problem'):
+            self.assertIn(k, d)
+        self.assertIsInstance(d['mem_available_kb'], int)
+
     def test_rtsp_probe_accepts_digest_challenge(self):
         reply = self.base / 'rtsp-reply'
         reply.write_bytes(b'RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm="LIVE555"\r\n\r\n')
