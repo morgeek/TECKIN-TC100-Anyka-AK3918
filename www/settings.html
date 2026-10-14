@@ -367,6 +367,12 @@
                     <div class="buttons is-right mt-3">
                         <button class="button is-warning is-small" type="button" id="btnWifiApply">Connect to this network</button>
                     </div>
+                    <div class="is-divider" data-content="Nearby networks"></div>
+                    <div class="buttons mb-2">
+                        <button class="button is-light is-small" type="button" id="wifi_scan_btn">Scan</button>
+                        <span class="help">Takes 3-5 seconds. Choose a network to fill in its name.</span>
+                    </div>
+                    <div id="wifi_scan_results"></div>
                 </div>
             </div>
             <div id="network_settings_slot" class="mt-4" data-src="cgi-bin/network.cgi?part=settings">
@@ -640,6 +646,31 @@
             slot.dataset.loaded = '1';
             window.EliteUI.loadInto(slot, slot.dataset.src);
         }
+
+        // Nearby networks, inside the Wi-Fi card: a click on a row fills the
+        // network name (rows carry the escaped SSID in data-ssid).
+        (function initWifiScan() {
+            var btn = document.getElementById('wifi_scan_btn');
+            var results = document.getElementById('wifi_scan_results');
+            if (!btn || !results) return;
+            btn.addEventListener('click', function () {
+                btn.classList.add('is-loading');
+                results.innerHTML = '';
+                fetch('cgi-bin/action.cgi?cmd=wifi_scan&_=' + Date.now(), { cache: 'no-store' })
+                    .then(function (r) { return r.text(); })
+                    .then(function (t) { results.innerHTML = t.replace('<hr/>', '').trim(); })
+                    .catch(function (e) { results.textContent = 'Scan failed: ' + e; })
+                    .finally(function () { btn.classList.remove('is-loading'); });
+            });
+            results.addEventListener('click', function (ev) {
+                var row = ev.target.closest('tr.wifi-pick');
+                if (!row || !row.dataset.ssid) return;
+                var ssid = document.getElementById('wifi_ssid_input');
+                if (ssid) { ssid.value = row.dataset.ssid; ssid.dispatchEvent(new Event('input', { bubbles: true })); }
+                var psk = document.getElementById('wifi_psk_input');
+                if (psk) psk.focus();
+            });
+        })();
 
         function loadWifiSsid() {
             var tag = document.getElementById('current_ssid_tag');

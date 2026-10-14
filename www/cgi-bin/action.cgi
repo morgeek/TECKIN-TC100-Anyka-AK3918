@@ -3207,12 +3207,15 @@ if [ -n "$F_cmd" ]; then
           if [ -z "$scan_out" ]; then
               echo "<p class='help'>Scan failed or no results. Ensure WiFi is up.</p>"
           else
+              # SSIDs come from any neighbour: HTML-escaped before display.
               rows="$(printf '%s\n' "$scan_out" | awk '
+                  function esc(t) { gsub(/&/, "\\&amp;", t); gsub(/</, "\\&lt;", t); gsub(/>/, "\\&gt;", t); gsub(/"/, "\\&quot;", t); gsub(/\047/, "\\&#39;", t); return t }
+                  function row() {
+                      name = (ssid == "") ? "(hidden)" : esc(ssid)
+                      printf "<tr class=\"wifi-pick\" data-ssid=\"%s\"><td>%s</td><td>%s</td><td>%s</td></tr>\n", (ssid == "" ? "" : esc(ssid)), name, (rssi != "" ? esc(rssi) : "n/a"), enc
+                  }
                   /Cell [0-9]+ - Address:/ {
-                      if (ssid != "" || rssi != "") {
-                          name = (ssid == "") ? "(hidden)" : ssid
-                          printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
-                      }
+                      if (ssid != "" || rssi != "") row()
                       ssid = ""; rssi = ""; enc = "No"
                   }
                   /ESSID:/ {
@@ -3226,11 +3229,7 @@ if [ -n "$F_cmd" ]; then
                   /Extra:rssi=/ {
                       sub(/.*Extra:rssi=/, ""); sub(/[[:space:]].*/, ""); rssi = $0
                   }
-                  END {
-                      name = (ssid == "") ? "(hidden)" : ssid
-                      if (rssi != "" || ssid != "")
-                          printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n", name, (rssi != "" ? rssi : "n/a"), enc
-                  }
+                  END { if (rssi != "" || ssid != "") row() }
               ')"
               if [ -z "$rows" ]; then
                   echo "<p class='help'>No networks found.</p>"

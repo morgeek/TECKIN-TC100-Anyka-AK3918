@@ -142,14 +142,6 @@ function saveDns() {
     </div>
 </div>
 
-<div class='card status_card info-card mt-card'>
-    <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M5 12.5C5 9 8 6 12 6s7 3 7 6.5M8 15c0-2.2 1.8-4 4-4s4 1.8 4 4M12 19h.01'/></svg><span>WiFi Networks</span></span></p></header>
-    <div class='card-content'>
-        <button class='button is-light' id='wifi_scan_btn' type='button' onclick='doWifiScan()'>Scan</button>
-        <span class='help help-inline'>Scans for nearby WiFi networks. Takes 3-5 seconds.</span>
-        <div id='wifi_scan_results' class='mt-section'></div>
-    </div>
-</div>
 
 <script>
 document.querySelectorAll('input[name="ip_mode"]').forEach(function(r) {
@@ -175,25 +167,6 @@ function saveIpConfig() {
         .then(function(r) { return r.text(); })
         .then(function(t) { statusEl.textContent = t.replace('<hr/>', '').trim(); btn.disabled = false; })
         .catch(function(e) { statusEl.textContent = 'Error: ' + e; btn.disabled = false; });
-}
-function doWifiScan() {
-    var btn = document.getElementById('wifi_scan_btn');
-    var results = document.getElementById('wifi_scan_results');
-    btn.disabled = true;
-    btn.textContent = 'Scanning...';
-    results.innerHTML = '';
-    fetch('cgi-bin/action.cgi?cmd=wifi_scan')
-        .then(function(r) { return r.text(); })
-        .then(function(t) {
-            results.innerHTML = t.replace('<hr/>', '').trim();
-            btn.disabled = false;
-            btn.textContent = 'Scan';
-        })
-        .catch(function(e) {
-            results.innerHTML = 'Scan failed: ' + e;
-            btn.disabled = false;
-            btn.textContent = 'Scan';
-        });
 }
 </script>
 EOF
