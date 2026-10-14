@@ -1,6 +1,12 @@
 #!/bin/sh
 SOURCE_BIN="${PTT_SOURCE_BIN:-/usr/bin/ak_ao_demo}"
 DEST_BIN="${PTT_DEST_BIN:-/mnt/bin/ak_ao_ptt}"
+# Read-only firmware image (scripts/rofs.sh): /mnt/bin cannot be written; the
+# image's bin/ak_ao_ptt is a link to this RAM copy instead.
+# (test -w is always true for root, so look at the mount table.)
+if [ -z "$PTT_DEST_BIN" ] && grep -q ' /mnt/bin squashfs ' /proc/mounts 2>/dev/null; then
+    DEST_BIN=/tmp/bin/ak_ao_ptt
+fi
 EXPECTED_SOURCE_MD5="04b300db2de09f5fbbbef316b978a42e"
 EXPECTED_DEST_MD5="50afb76d22a1341366306dccffd2d671"
 md5_file() {

@@ -1215,6 +1215,151 @@ class FwUpdate(unittest.TestCase):
         r = self.run_fwu('rollback', '--no-reboot', shell=sh)
         self.assertEqual(self.read('VERSION'), '1.0\n')
 
+    def test_firmware_image_goes_to_new_and_rolls_back_by_rename(self):
+        # The image in use is loop-mounted: never replaced under it, swapped at
+        # the next boot (scripts/rofs.sh); no 7 MB backup copy.
+        (self.root / 'firmware.sqfs').write_text('image v1\n')
+        files = dict(self.pkg_files, **{'firmware.sqfs': 'image v2\n'})
+        self.assertTrue(json.loads(self.run_fwu('verify', str(self.package(files))).stdout)['ok'])
+        r = self.run_fwu('install', '--no-reboot')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('firmware.sqfs'), 'image v1\n')
+        self.assertEqual(self.read('firmware.sqfs.new'), 'image v2\n')
+        self.assertFalse(list((self.d / 'bk').rglob('firmware.sqfs')))
+        # Rolled back before the reboot: the pending image is dropped.
+        self.assertEqual(self.run_fwu('rollback', '--no-reboot').returncode, 0)
+        self.assertFalse((self.root / 'firmware.sqfs.new').exists())
+        self.assertEqual(self.read('firmware.sqfs'), 'image v1\n')
+        # Installed and booted (rofs.sh swapped it): rollback brings .old back as .new.
+        self.run_fwu('verify', str(self.package(files)))
+        self.run_fwu('install', '--no-reboot')
+        os.rename(self.root / 'firmware.sqfs', self.root / 'firmware.sqfs.old')
+        os.rename(self.root / 'firmware.sqfs.new', self.root / 'firmware.sqfs')
+        self.assertEqual(self.run_fwu('rollback', '--no-reboot').returncode, 0)
+        self.assertEqual(self.read('firmware.sqfs.new'), 'image v1\n')
+
+
+class FirmwareImage(unittest.TestCase):
+    """scripts/rofs.sh: boot-time decision to run from firmware.sqfs, with stubbed mount."""
+    SCRIPT = ROOT / 'scripts/rofs.sh'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.sd = self.d / 'sd'
+        for sub in ('bin', 'lib', 'scripts', 'controlscripts', 'www', 'config'):
+            (self.sd / sub).mkdir(parents=True)
+        (self.sd / 'VERSION').write_text('2.0\n')
+        self.stub = self.d / 'stub'; self.stub.mkdir()
+        self.calls = self.d / 'calls'
+        # mount stub: a squashfs mount "fills" the mount point with the image's
+        # VERSION and directories; binds and umount just get logged.
+        (self.stub / 'mount').write_text(
+            '#!/bin/sh\necho "mount $*" >> "%s"\n'
+            'case "$*" in *squashfs*) [ -n "$STUB_MOUNT_FAIL" ] && exit 1\n'
+            '  for a; do t="$a"; done; for x in bin lib scripts controlscripts www; do mkdir -p "$t/$x"; done\n'
+            '  echo "$STUB_IMAGE_VERSION" > "$t/VERSION" ;; esac\nexit 0\n' % self.calls)
+        (self.stub / 'umount').write_text('#!/bin/sh\necho "umount $*" >> "%s"\n' % self.calls)
+        for f in self.stub.iterdir():
+            f.chmod(0o755)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_rofs(self, *args, image_version='2.0', fail=False):
+        env = dict(os.environ, ROFS_SD=str(self.sd), ROFS_RUN=str(self.d / 'run'), ROFS_LOG=str(self.d / 'log/rofs.log'),
+                   PATH='%s:%s' % (self.stub, os.environ['PATH']), STUB_IMAGE_VERSION=image_version)
+        if fail:
+            env['STUB_MOUNT_FAIL'] = '1'
+        r = subprocess.run(['sh', str(self.SCRIPT)] + list(args), capture_output=True, env=env, timeout=30)
+        return (self.d / 'run/status').read_text().strip() if (self.d / 'run/status').exists() else '', r
+
+    def test_no_image_keeps_fat(self):
+        self.assertEqual(self.run_rofs('mount')[0], 'inactive no_image')
+
+    def test_disabled_and_recovery(self):
+        (self.sd / 'firmware.sqfs').write_text('img')
+        (self.sd / 'config/boot.conf').write_text('FIRMWARE_IMAGE=0\n')
+        self.assertEqual(self.run_rofs('mount')[0], 'inactive disabled')
+        (self.sd / 'RECOVERY').write_text('')
+        self.assertEqual(self.run_rofs('mount')[0], 'inactive recovery_mode')
+
+    def test_stale_image_is_not_used(self):
+        (self.sd / 'firmware.sqfs').write_text('img')
+        status, _ = self.run_rofs('mount', image_version='1.0')
+        self.assertEqual(status, 'inactive version_mismatch image=1.0 sd=2.0')
+        self.assertNotIn('bind', self.calls.read_text())
+
+    def test_mount_failure_falls_back(self):
+        (self.sd / 'firmware.sqfs').write_text('img')
+        self.assertEqual(self.run_rofs('mount', fail=True)[0], 'inactive mount_failed')
+
+    def test_pending_image_is_swapped_in_before_mounting(self):
+        (self.sd / 'firmware.sqfs').write_text('old')
+        (self.sd / 'firmware.sqfs.new').write_text('new')
+        status, r = self.run_rofs('mount')
+        self.assertEqual((self.sd / 'firmware.sqfs').read_text(), 'new')
+        self.assertEqual((self.sd / 'firmware.sqfs.old').read_text(), 'old')
+        self.assertFalse((self.sd / 'firmware.sqfs.new').exists())
+        # The FAT view is bound before the overlays, then each code directory.
+        binds = [l.split()[-1] for l in self.calls.read_text().splitlines() if 'bind' in l]
+        self.assertEqual(binds[0], str(self.d / 'run/fat'))
+        self.assertEqual(binds[1:], [str(self.sd / x) for x in ('bin', 'lib', 'scripts', 'controlscripts', 'www')])
+        # The stub cannot provide a runnable busybox, so the smoke test refuses
+        # the overlay and everything is unmounted again.
+        self.assertEqual(status, 'inactive smoke_test_failed')
+        self.assertIn('umount %s' % (self.d / 'run/img'), self.calls.read_text())
+
+    def test_verify_renames_a_corrupt_image(self):
+        (self.d / 'run').mkdir()
+        (self.d / 'run/status').write_text('active 2.0\n')
+        (self.sd / 'firmware.sqfs').write_text('img')
+        (self.sd / 'firmware.sqfs.md5').write_text('%s  firmware.sqfs\n' % hashlib.md5(b'img').hexdigest())
+        _, r = self.run_rofs('verify')
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual((self.d / 'run/verified').read_text().strip(), 'verified')
+        (self.sd / 'firmware.sqfs').write_text('imG')
+        _, r = self.run_rofs('verify')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertTrue((self.sd / 'firmware.sqfs.bad').exists())
+        self.assertFalse((self.sd / 'firmware.sqfs').exists())
+
+    def test_image_build_is_executable_and_reproducible(self):
+        if not shutil.which('mksquashfs') or not shutil.which('unsquashfs'):
+            self.skipTest('squashfs-tools not installed')
+        outs = []
+        for n in ('a', 'b'):
+            out = self.d / n
+            subprocess.run(['sh', str(ROOT / 'src/release/build-image.sh'), str(out)], check=True,
+                           capture_output=True, timeout=300)
+            outs.append((out / 'firmware.sqfs').read_bytes())
+        self.assertEqual(outs[0], outs[1])
+        listing = subprocess.run(['unsquashfs', '-lls', str(self.d / 'a/firmware.sqfs')],
+                                 capture_output=True, text=True).stdout
+        modes = {}
+        for l in listing.splitlines():
+            path = [w for w in l.split() if w.startswith('squashfs-root/')]
+            if path:
+                modes[path[0][len('squashfs-root/'):]] = l.split()[0]
+        self.assertEqual(modes['bin/busybox'], '-rwxr-xr-x')        # FAT gives every file x
+        self.assertEqual(modes['www/cgi-bin/state.cgi'], '-rwxr-xr-x')
+        self.assertTrue(modes['bin/ak_ao_ptt'].startswith('l'))
+        self.assertTrue(modes['lib/libcurl.so.4'].startswith('l'))
+        self.assertIn('VERSION', modes)
+
+    def test_prepare_ptt_player_uses_ram_with_image(self):
+        text = (ROOT / 'scripts/prepare-ptt-player.sh').read_text()
+        self.assertIn("' /mnt/bin squashfs ' /proc/mounts", text)
+        self.assertIn('DEST_BIN=/tmp/bin/ak_ao_ptt', text)
+
+    def test_boot_wiring(self):
+        auto = (ROOT / 'autorun.sh').read_text()
+        self.assertLess(auto.index('rofs.sh mount'), auto.index('. /mnt/scripts/common_functions.sh'))
+        self.assertIn("grep -q '^/dev/loop0 /tmp/rofs/'", auto)      # vendor ramdisk cleanup keeps the image
+        self.assertIn('rofs.sh verify', auto)
+        fwu = (ROOT / 'scripts/fw-update.sh').read_text()
+        self.assertIn('ROOT=/tmp/rofs/fat', fwu)
+
 class WebUiCss(unittest.TestCase):
     """www/css/bulma.1.0.2.purged.min.css is generated by src/webui/purge-bulma.mjs."""
 
