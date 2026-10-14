@@ -91,33 +91,47 @@ fwu_verify()
   if grep -qE '^/|(^|/)\.\.(/|$)' "$_list"; then
     echo '{"ok":false,"error":"unsafe_path"}'; return 1
   fi
-  grep -qx 'MANIFEST' "$_list" || grep -qx './MANIFEST' "$_list" || {
-    echo '{"ok":false,"error":"no_manifest"}'; return 1; }
-  if ! tar -xf "$_pkg" -C "$STAGE" 2>/dev/null; then
+  # Member names may carry a "./" prefix depending on how the tar was built.
+  if grep -qx 'MANIFEST' "$_list"; then _pfx=""
+  elif grep -qx './MANIFEST' "$_list"; then _pfx="./"
+  else echo '{"ok":false,"error":"no_manifest"}'; return 1; fi
+  if ! (cd "$STAGE" && tar -xf "$_pkg" "${_pfx}MANIFEST" "${_pfx}VERSION") 2>/dev/null; then
     rm -rf "$STAGE"; echo '{"ok":false,"error":"extract_failed"}'; return 1
   fi
   [ -r "$STAGE/VERSION" ] || { echo '{"ok":false,"error":"no_version"}'; return 1; }
+  # Only the files that differ from the installed ones are extracted: an
+  # update rewrote the whole 16 MB package (hundreds of files) on the SD card
+  # just to compare checksums, and SD writes are what failed on hardware.
   _bad=0; _total=0; _changed=0; _syntax=""
+  _todo="$WORK/package.todo"; : > "$_todo"
   while read -r _sum _path; do
     [ -n "$_path" ] || continue
     _total=$((_total + 1))
     case "$_path" in /*|*..*) _bad=$((_bad + 1)); continue ;; esac
+    grep -qxF "${_pfx}$_path" "$_list" || { _bad=$((_bad + 1)); continue; }
+    _fwu_skip "$_path" && continue
+    [ "$(_fwu_md5 "$ROOT/$_path")" = "$_sum" ] && continue
+    _changed=$((_changed + 1))
+    printf '%s %s\n' "$_sum" "$_path" >> "$_todo"
+  done < "$STAGE/MANIFEST"
+  if [ -s "$_todo" ]; then
+    # One pass over the package for all changed files.
+    (cd "$STAGE" && sed "s|^[^ ]* |$_pfx|" "$_todo" | xargs tar -xf "$_pkg") 2>/dev/null
+  fi
+  while read -r _sum _path; do
     _try=0
     while [ "$(_fwu_md5 "$STAGE/$_path")" != "$_sum" ] && [ $_try -lt 2 ]; do
       _try=$((_try + 1))
       _fwu_log "verify: $_path damaged after extraction, extracting it again ($_try)"
       rm -f "$STAGE/$_path"
-      (cd "$STAGE" && tar -xf "$_pkg" "$_path") 2>/dev/null
+      (cd "$STAGE" && tar -xf "$_pkg" "${_pfx}$_path") 2>/dev/null
     done
     if [ "$(_fwu_md5 "$STAGE/$_path")" != "$_sum" ]; then _bad=$((_bad + 1)); continue; fi
     case "$_path" in
       *.sh|*.cgi|autorun.sh|controlscripts/*|scripts/*|config/autostart/*)
         case "$_path" in *.py|*.md) ;; *) sh -n "$STAGE/$_path" 2>/dev/null || _syntax="$_syntax $_path" ;; esac ;;
     esac
-    _fwu_skip "$_path" && continue
-    _cur="$(md5sum "$ROOT/$_path" 2>/dev/null)"; _cur="${_cur%% *}"
-    [ "$_cur" = "$_sum" ] || _changed=$((_changed + 1))
-  done < "$STAGE/MANIFEST"
+  done < "$_todo"
   _ver="$(_fwu_first "$STAGE/VERSION")"
   if [ "$_bad" -gt 0 ] || [ -n "$_syntax" ] || [ "$_total" = 0 ]; then
     _fwu_state failed
@@ -205,7 +219,7 @@ fwu_install()
     echo "install failed, rolled back" >&2
     return 1
   fi
-  rm -rf "$STAGE" "$WORK/package.tar" "$WORK/staged-version"
+  rm -rf "$STAGE" "$WORK/package.tar" "$WORK/staged-version" "$WORK/package.todo"
   _fwu_state installed
   _fwu_log "installed $_to: $_n file(s)"
   echo "installed $_to: $_n file(s), backup $_b"
@@ -251,7 +265,7 @@ case "${0##*/}" in
       verify) fwu_verify "$2" ;;
       install) fwu_install "$2" ;;
       rollback) fwu_rollback "$2" ;;
-      discard) rm -rf "$STAGE" "$WORK/package.tar" "$WORK/staged-version"; _fwu_state idle; echo '{"ok":true}' ;;
+      discard) rm -rf "$STAGE" "$WORK/package.tar" "$WORK/staged-version" "$WORK/package.todo"; _fwu_state idle; echo '{"ok":true}' ;;
       status) fwu_status ;;
       *) echo "usage: $0 verify <tar> | install [--no-reboot] | rollback [--no-reboot] | discard | status" >&2; exit 2 ;;
     esac ;;
