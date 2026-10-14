@@ -462,8 +462,12 @@ init_network()
     if [ -f "$WIFI_CONFIG" ]; then
         echo "Use manual WIFI setup" >> $LOGPATH
         mkdir /var/network
-        wpa_supplicant_status="$(wpa_supplicant -B -i wlan0 -c $WIFI_CONFIG -P /var/run/wpa_supplicant.pid)"
-        echo "wpa_supplicant: $wpa_supplicant_status" >> $LOGPATH
+        if [ "${WIFI_CLIENT:-vendor}" = new ] && sh /mnt/scripts/wifi-client.sh start "$WIFI_CONFIG"; then
+            echo "wpa_supplicant: 2.11 (WIFI_CLIENT=new)" >> $LOGPATH
+        else
+            wpa_supplicant_status="$(wpa_supplicant -B -i wlan0 -c $WIFI_CONFIG -P /var/run/wpa_supplicant.pid)"
+            echo "wpa_supplicant: $wpa_supplicant_status" >> $LOGPATH
+        fi
         install_config $CONFIGPATH/network.conf
         . $CONFIGPATH/network.conf 2>/dev/null
         if [ "${IP_MODE:-dhcp}" = "static" ] && [ -n "$STATIC_IP" ]; then
@@ -476,8 +480,14 @@ init_network()
         fi
     else
         echo "Use Anyka default WIFI setup" >> $LOGPATH
-        /usr/sbin/wifi_station.sh start
-        /usr/sbin/wifi_station.sh connect
+        # WIFI_CLIENT=new: wpa_supplicant 2.11 (scripts/wifi-client.sh), the
+        # vendor client again if it has not associated within 60 s.
+        if [ "${WIFI_CLIENT:-vendor}" = new ] && sh /mnt/scripts/wifi-client.sh start anyka; then
+            echo "Wi-Fi client: wpa_supplicant 2.11" >> $LOGPATH
+        else
+            /usr/sbin/wifi_station.sh start
+            /usr/sbin/wifi_station.sh connect
+        fi
     fi
 }
 
