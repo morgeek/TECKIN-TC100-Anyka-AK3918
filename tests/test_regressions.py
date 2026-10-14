@@ -1216,6 +1216,14 @@ class FwUpdate(unittest.TestCase):
         r = self.run_fwu('rollback', '--no-reboot', shell=sh)
         self.assertEqual(self.read('VERSION'), '1.0\n')
 
+    def test_status_survives_garbage_in_the_log(self):
+        # The log of the 2026-10-13 FAT incident held file names made of
+        # random bytes; update.cgi status then returned invalid JSON.
+        (self.root / 'update').mkdir(parents=True, exist_ok=True)
+        (self.root / 'update/update.log').write_bytes(b'ok\nrm: bad \x01\x1b name\x7f\n')
+        info = json.loads(self.run_fwu('status').stdout)
+        self.assertIn('bad ?? name?', info['log'])
+
     def test_firmware_image_goes_to_new_and_rolls_back_by_rename(self):
         # The image in use is loop-mounted: never replaced under it, swapped at
         # the next boot (scripts/rofs.sh); no 7 MB backup copy.
