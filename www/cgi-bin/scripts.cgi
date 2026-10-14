@@ -725,5 +725,5 @@ else
   fi
   
   # Use bundled script to allow client caching and reduce server CPU
-  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.4\"></script>"
+  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.4-ui2\"></script>"
 fi

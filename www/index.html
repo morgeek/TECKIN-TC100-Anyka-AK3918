@@ -24,6 +24,7 @@
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.purged.min.css?v=1.8.4" rel="stylesheet">
     <link href="css/ui-modern.min.css?v=1.8.4" rel="stylesheet">
+    <link href="css/ui-v2.css?v=1.8.4-ui2" rel="stylesheet">
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -265,27 +266,38 @@
 
     <section id="main" class="section">
         <div id="content" class="container app-shell">
-            <header class="camera-summary">
-                <div class="camera-health">
-                    <span id="camera_state_dot" class="camera-state-dot is-checking"></span>
-                    <div><strong id="camera_state">Checking camera…</strong><small id="status_updated">Updating…</small></div>
-                </div>
-            </header>
-
-            <div class="liveview-wrap">
+            <div class="liveview-wrap v2-monitor">
                 <img id="liveview" src="cgi-bin/currentpic.cgi" loading="eager" decoding="async"
                     alt="Live camera preview" onerror="this.src='css/unable_load.png';">
+                <div class="v2-osd top">
+                    <div class="camera-health">
+                        <span id="camera_state_dot" class="camera-state-dot is-checking"></span>
+                        <div><strong id="camera_state">Checking camera…</strong><small id="status_updated">Updating…</small></div>
+                    </div>
+                    <span id="osd_name"></span>
+                </div>
+                <div class="v2-osd bottom">
+                    <span id="osd_profile"></span>
+                    <span id="osd_light"></span>
+                </div>
+            </div>
+            <div class="v2-readings" id="readings" aria-live="polite">
+                <span id="rd_cpu">CPU<b>…</b></span>
+                <span id="rd_ram">Memory<b>…</b></span>
+                <span id="rd_wifi">Wi-Fi<b>…</b></span>
+                <span id="rd_sd">SD card<b>…</b></span>
+                <span id="rd_mqtt">MQTT<b>…</b></span>
             </div>
 
             <div class="app-toolbar">
                 <div class="toolbar-group live-actions">
-                    <button class="button" id="live_toggle" type="button">Resume Live</button>
+                    <button class="button v2-primary" id="live_toggle" type="button">Resume Live</button>
                     <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
                 </div>
                 <span class="toolbar-divider"></span>
                 <div class="toolbar-group audio-actions">
-                    <button class="button is-info" id="listen_btn" type="button" title="Load camera audio controls"><i class="icon-headphones"></i> <span class="listen-label">Enable audio</span></button>
-                    <button class="button is-danger ptt-primary" id="ptt_btn" type="button" title="Load push-to-talk controls"><i class="icon-microphone"></i> <span class="ptt-label">Enable PTT</span></button>
+                    <button class="button is-info" id="listen_btn" type="button" title="Load camera audio controls"><i class="icon-headphones"></i> <span class="listen-label">Listen</span></button>
+                    <button class="button is-danger ptt-primary" id="ptt_btn" type="button" title="Load push-to-talk controls"><i class="icon-microphone"></i> <span class="ptt-label">Talk</span></button>
                     <span class="ptt-vol-wrap" title="Speaker volume"><i class="icon-volume-medium ptt-vol-icon"></i><input type="range" id="ptt_vol" min="0" max="100" value="90" class="ptt-vol-slider" aria-label="PTT volume" disabled><span id="ptt_vol_label" class="ptt-vol-label">90%</span></span>
                     <button class="button is-small" id="ptt_test_btn" type="button" disabled><i class="icon-play"></i> <span class="ptt-test-label">Test</span></button>
                     <span id="ptt_last_sent" class="ptt-last-sent">Audio loads on demand</span>
@@ -312,7 +324,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.4" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.4-ui2" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;

@@ -32,6 +32,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Starting a service from the web UI no longer hangs: `scripts.cgi` captured the start output through `$(...)`, and services that background a daemon (`ftp-server`'s `tcpsvd`, the service watchdogs) inherited that pipe, so the request never completed although the service had started. Output now goes through a temp file with stdin from `/dev/null`. Verified on hardware (start returns in ~1.6 s).
 
 ### Changed
+- **Web UI, "control monitor" style (css/ui-v2.css, loaded after ui-modern):**
+  - the live image is the centrepiece, with its status overlaid in the picture (state, time, camera name, profile, light level);
+  - one line of readings sits under the picture: CPU, memory, Wi-Fi, SD card, MQTT;
+  - visual hierarchy: one dark primary action; Push-to-talk ("Talk") is no longer an alarm-red button; flat background without halos; underlined active menu item;
+  - Services is a list with a state dot, a "Boot" switch and a plain Start/Stop button. On a phone the button used to be off-screen;
+  - Device Info and System Usage no longer overflow the screen on a phone (they were 714 px and 1036 px wide on a 390 px screen).
 - **Firmware updates extract only the files that differ from the installed ones.** The whole package used to be written to the SD card. Measured on a TC100: 12 files extracted instead of 179, and upload + verification took 68 s instead of 132 s.
 - **Day/night thread polls every 500 ms instead of 100 ms** (`RTSP_DAYNIGHT_POLL_MS`, applied by libtc100fix to that single `ak_sleep_ms` call site, identified by its return address in the bundled binary). Measured on a TC100 at night: the thread wakes up 2×/s, v4l2rtspserver goes from 30 % to 28 % CPU.
 - **Sound detection:** the default threshold moves to -24 dBFS. At -30, an evening at home gave ~170 events an hour, 70 % of them within 3 dB of the threshold. New `MIN_LOUD_SECONDS` setting: publish only once a burst has lasted that long (default 1).
