@@ -277,3 +277,7 @@ FIRMWARE_IMAGE=1
 # from 2013. If it has not associated within 60 s the vendor client is
 # started as before and an important event is logged (scripts/wifi-client.sh).
 WIFI_CLIENT=vendor
+# UPDATE_CHECK=1: at boot, ask GitHub (api.github.com) whether a newer release
+# exists and show it in the web UI. Off by default: the camera needs no
+# internet access; updates are installed from Settings → Firmware update.
+UPDATE_CHECK=0
