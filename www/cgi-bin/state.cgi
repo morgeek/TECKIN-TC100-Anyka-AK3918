@@ -1507,9 +1507,12 @@ if [ -n "$F_cmd" ]; then
     fullconfig_ntp="$(read_single_config /mnt/config/ntp_srv.conf pool.ntp.org)"
     load_conf_file /mnt/config/motion.conf
     load_conf_file /mnt/config/telnetd.conf
+    # Sound detection runs in every profile since 1.8.4 (the level is
+    # measured inside the RTSP server): the Settings switch showed "off" on
+    # frigate_ha cameras where it was on.
+    load_conf_file /mnt/config/sound_detection.conf
     if [ "$_iprofile" != "frigate_ha" ]; then
       load_conf_file /mnt/config/recording.conf
-      load_conf_file /mnt/config/sound_detection.conf
       load_conf_file /mnt/config/timelapse.conf
       load_conf_file /mnt/config/telegram.conf
     fi
@@ -1579,7 +1582,7 @@ if [ -n "$F_cmd" ]; then
       "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_live_gateway)")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
       "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 8192)" 8192)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 4096)" 4096)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
       "$(sanitize_int "$(get_cfg tlinterval 10)" 10)" "$(sanitize_int "$(get_cfg tlduration 0)" 0)" \
-      "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$(_st_db="$(get_cfg THRESHOLD_DB -24)"; case "$_st_db" in -[0-9]|-[0-9][0-9]|0) echo "$_st_db" ;; *) echo -24 ;; esac)" "$(sanitize_int "$(get_cfg INTERVAL 5)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")" \
+      "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$(_st_db="$(get_cfg THRESHOLD_DB -24)"; case "$_st_db" in -[0-9]|-[0-9][0-9]|0) echo "$_st_db" ;; *) echo -24 ;; esac)" "$(sanitize_int "$(get_cfg INTERVAL 2)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")" \
       "$telegram_enabled" "$(json_escape "$(get_cfg apiToken "")")" "$(json_escape "$(get_cfg userChatId "")")" \
       "$syslog_enabled" "$(json_escape "$(get_cfg SYSLOG_HOST "")")" "$(sanitize_int "$(get_cfg SYSLOG_PORT 514)" 514)" \
       "$front_led_state" "$red_led_state" "$privacy_enabled"

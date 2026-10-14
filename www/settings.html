@@ -29,7 +29,7 @@
             </div>
 
             <div class='card status_card is-primary'>
-                <header class='card-header'><p class='card-header-title'>Device Health & Network</p></header>
+                <header class='card-header'><p class='card-header-title'>Health and network</p></header>
                 <div class='card-content'>
                     <div class="columns">
                         <div class="column is-4">
@@ -153,7 +153,7 @@
         <!-- Configuration Profiles Tab -->
         <div class="tab-content is-hidden" id="tab-profiles">
             <div class='card status_card mb-4 is-primary is-light'>
-                <header class='card-header'><p class='card-header-title'>Configuration Profiles</p></header>
+                <header class='card-header'><p class='card-header-title'>Configuration profiles</p></header>
                 <div class='card-content'>
                     <p class="mb-4">Save your current configuration as a named preset, or load a previously saved preset to restore settings.</p>
                     <div class="columns">
@@ -181,7 +181,7 @@
                 </div>
             </div>
             <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Preset Management</p></header>
+                <header class='card-header'><p class='card-header-title'>Saved presets</p></header>
                 <div class='card-content'>
                     <table class="table is-fullwidth is-hoverable is-size-7" id="presets_table" style="display:none">
                         <thead>
@@ -206,7 +206,7 @@
                 <details class="settings-advanced mb-4">
                     <summary>Advanced day/night thresholds</summary>
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Day/Night Switching Thresholds</p></header>
+                    <header class='card-header'><p class='card-header-title'>Day/night switching</p></header>
                     <div class='card-content'>
                         <div class="columns">
                             <div class="column is-half">
@@ -225,7 +225,7 @@
 
                 </details>
                 <div class='card status_card mt-4'>
-                    <header class='card-header'><p class='card-header-title'>OSD & Image Controls</p></header>
+                    <header class='card-header'><p class='card-header-title'>On-screen text and orientation</p></header>
                     <div class='card-content'>
                         <div class="field mb-3"><input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox"><label for="osdenabled">Enable OSD Text</label></div>
                         <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
@@ -278,7 +278,7 @@
         <div class="tab-content is-hidden" id="tab-automation">
             <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>MQTT Broker & HA Discovery</p></header>
+                    <header class='card-header'><p class='card-header-title'>MQTT and Home Assistant</p></header>
                     <div class='card-content'>
                         <div class="field"><input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1"><label for="mqtt_enabled">Enable MQTT Bridge</label></div>
                         <div class="columns is-multiline">
@@ -295,7 +295,7 @@
             </form>
 
             <div class='card status_card mt-4 ha-connectivity-card'>
-                <header class='card-header'><p class='card-header-title'>Home Assistant Connectivity</p></header>
+                <header class='card-header'><p class='card-header-title'>Home Assistant status</p></header>
                 <div class='card-content'>
                     <div id="ha_discovery_status_container">
                         <div class="level is-mobile mb-2">
@@ -328,7 +328,7 @@
 
             <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
                 <div class='card status_card mt-4'>
-                    <header class='card-header'><p class='card-header-title'>Motion & Sound Detection</p></header>
+                    <header class='card-header'><p class='card-header-title'>Motion and sound detection</p></header>
                     <div class='card-content'>
                         <div class="columns">
                             <div class="column is-half"><label class="label is-small">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number"></div>
@@ -343,7 +343,7 @@
 
             <form id="formTimelapse" action="cgi-bin/action.cgi?cmd=conf_timelapse" method="post" class="mb-4">
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Elite Timelapse Studio</p></header>
+                    <header class='card-header'><p class='card-header-title'>Timelapse</p></header>
                     <div class='card-content'>
                         <div class="columns">
                             <div class="column is-half">
@@ -371,7 +371,7 @@
                 <div class="column is-half">
                     <form id="formTelegram" action="cgi-bin/action.cgi?cmd=set_telegram_config" method="post">
                         <div class='card status_card'>
-                            <header class='card-header'><p class='card-header-title'>Telegram Bot</p></header>
+                            <header class='card-header'><p class='card-header-title'>Telegram notifications</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="telegram_enable" name="telegram_enable" type="checkbox"><label for="telegram_enable">Enable Telegram Notifications</label></div>
                                 <label class="label is-small">Bot Token</label>
@@ -386,7 +386,7 @@
                 <div class="column is-half">
                     <form id="formSyslog" action="cgi-bin/action.cgi?cmd=set_syslog_config" method="post">
                         <div class='card status_card'>
-                            <header class='card-header'><p class='card-header-title'>Syslog Forwarding</p></header>
+                            <header class='card-header'><p class='card-header-title'>Remote logging (syslog)</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="syslog_enable" name="syslog_enable" type="checkbox"><label for="syslog_enable">Enable Remote Syslog</label></div>
                                 <label class="label is-small">Remote Host</label>
@@ -404,7 +404,7 @@
         <!-- Network Tab -->
         <div class="tab-content is-hidden" id="tab-network">
             <div class='card status_card mb-4'>
-                <header class='card-header'><p class='card-header-title'>Wi-Fi configuration</p></header>
+                <header class='card-header'><p class='card-header-title'>Wi-Fi network</p></header>
                 <div class='card-content'>
                     <div class="level is-mobile mb-3">
                         <div class="level-left"><div class="level-item"><span class="is-size-7">Current network:</span></div></div>
@@ -414,22 +414,22 @@
                         <div class="message-body">The connection will be interrupted while changing networks. Reconnect to this page after a few seconds.</div>
                     </article>
                     <div class="field">
-                        <label class="label is-small">Nouveau SSID</label>
+                        <label class="label is-small">Network name (SSID)</label>
                         <input class="input is-small" id="wifi_ssid_input" type="text" placeholder="NetworkName" maxlength="32" autocomplete="off" spellcheck="false">
                     </div>
                     <div class="field">
-                        <label class="label is-small">Mot de passe (PSK)</label>
+                        <label class="label is-small">Password</label>
                         <input class="input is-small" id="wifi_psk_input" type="password" placeholder="●●●●●●●●" autocomplete="new-password">
                         <p class="help">Minimum 8 characters</p>
                     </div>
                     <div class="buttons is-right mt-3">
-                        <button class="button is-warning is-small" type="button" id="btnWifiApply">Appliquer la configuration WiFi</button>
+                        <button class="button is-warning is-small" type="button" id="btnWifiApply">Connect to this network</button>
                     </div>
                 </div>
             </div>
 
              <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Identity & Network Services</p></header>
+                <header class='card-header'><p class='card-header-title'>Name and network services</p></header>
                 <div class='card-content'>
                     <form id="formNetwork" action="cgi-bin/action.cgi?cmd=set_network" method="post">
                         <div class="field"><label class="label is-small">Hostname</label><input class="input is-small" name="hostname" id="hostname" type="text"></div>
@@ -442,7 +442,7 @@
                 </div>
             </div>
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Region & Time (NTP)</p></header>
+                <header class='card-header'><p class='card-header-title'>Time zone and clock</p></header>
                 <div class='card-content'>
                     <form id="formTime" action="cgi-bin/action.cgi?cmd=settz" method="post">
                         <div class="field"><label class="label is-small">Timezone (TZ string)</label><input class="input is-small" name="tz" id="timezone" type="text" placeholder="UTC0"></div>
@@ -456,7 +456,7 @@
         <!-- System Tab -->
         <div class="tab-content is-hidden" id="tab-system">
              <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Advanced Performance Tuning</p></header>
+                <header class='card-header'><p class='card-header-title'>Performance and security</p></header>
                 <div class='card-content'>
                     <form id="formTuning" action="cgi-bin/action.cgi?cmd=set_advanced_tuning" method="post">
                         <div class="columns is-multiline mb-0">
@@ -476,7 +476,7 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Elite Peripheral Mastery</p></header>
+                <header class='card-header'><p class='card-header-title'>LEDs and privacy</p></header>
                 <div class='card-content'>
                     <div class="columns">
                         <div class="column is-half">
@@ -498,7 +498,7 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Safety Snapshots & Maintenance</p></header>
+                <header class='card-header'><p class='card-header-title'>Restore points and maintenance</p></header>
                 <div class='card-content'>
                     <div class="columns mb-0">
                         <div class="column">
@@ -534,7 +534,7 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Assistant de configuration</p></header>
+                <header class='card-header'><p class='card-header-title'>Setup wizard</p></header>
                 <div class='card-content'>
                     <p class="is-size-7 mb-3">Restart the initial setup wizard (profile, security, MQTT). The current configuration is unchanged until the wizard is submitted.</p>
                     <button class="button is-warning is-small is-fullwidth" type="button" id="btnWizardReset">Restart setup wizard</button>
@@ -542,14 +542,14 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Export / Import de configuration</p></header>
+                <header class='card-header'><p class='card-header-title'>Export and import settings</p></header>
                 <div class='card-content'>
                     <div class="columns">
                         <div class="column is-half">
                             <p class="is-size-7 mb-2">Download <code>boot.conf</code> and <code>mqtt.conf</code> as a text <code>.conf</code> file.</p>
                             <a class="button is-info is-small is-fullwidth" href="cgi-bin/conf-export.cgi">
                                 <span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-                                <span>Exporter la configuration</span>
+                                <span>Export settings</span>
                             </a>
                         </div>
                         <div class="column is-half">
@@ -572,7 +572,7 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Mise à jour du firmware</p></header>
+                <header class='card-header'><p class='card-header-title'>Firmware update</p></header>
                 <div class='card-content'>
                     <p class="is-size-7 mb-2">Upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept.</p>
                     <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
