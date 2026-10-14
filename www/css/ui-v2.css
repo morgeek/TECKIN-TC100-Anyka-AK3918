@@ -377,3 +377,9 @@ input.switch[type="checkbox"] + label::before, input.switch[type="checkbox"] + l
   background: var(--v2-panel) !important; color: var(--v2-ink) !important;
   border: 1px solid var(--v2-rule) !important; border-left: 4px solid var(--v2-ink) !important;
 }
+
+/* hidden must win over .button { display: inline-flex } */
+[hidden] { display: none !important; }
+
+/* Language switch (scripts/i18n.js) */
+.navbar-item.lang-toggle { font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; }
