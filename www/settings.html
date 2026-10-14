@@ -294,6 +294,20 @@
                 </div>
             </form>
 
+            <form id="formFrigateLive" class="mt-4" action="cgi-bin/action.cgi?cmd=set_frigate_live" method="post">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Frigate live view</p></header>
+                    <div class='card-content'>
+                        <div class="columns is-multiline">
+                            <div class="column is-8"><label class="label is-small" for="frigate_url">Frigate address</label><input class="input is-small" name="frigate_url" id="frigate_url" type="text" placeholder="http://192.168.1.20:5000" autocomplete="off"></div>
+                            <div class="column is-4"><label class="label is-small" for="frigate_camera">Camera name in Frigate</label><input class="input is-small" name="frigate_camera" id="frigate_camera" type="text" placeholder="found automatically" autocomplete="off"></div>
+                        </div>
+                        <p class="help">Adds a "Smooth live" button under the picture that opens this camera in Frigate's live view (full frame rate, sound). Frigate already receives the stream, so it costs the camera nothing. Leave the name empty to look it up in Frigate's configuration; clear the address to remove the button.</p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save</button></div>
+                    </div>
+                </div>
+            </form>
+
             <div class='card status_card mt-4 ha-connectivity-card'>
                 <header class='card-header'><p class='card-header-title'>Home Assistant status</p></header>
                 <div class='card-content'>
@@ -392,7 +406,8 @@
                                 <label class="label is-small">Remote Host</label>
                                 <input class="input is-small" name="syslog_host" id="syslog_host" type="text" placeholder="192.168.1.10">
                                 <label class="label is-small mt-2">Remote Port</label>
-                                <input class="input is-small" name="syslog_port" id="syslog_port" type="number" placeholder="514">
+                                <input class="input is-small" name="syslog_port" id="syslog_port" type="number" min="1" max="65535" placeholder="514">
+                                <p class="help">Sends the camera's important messages (notice level and above, logins) over UDP, still kept locally. On a Synology NAS: Log Center → Log Receiving → Create, format BSD, transfer protocol UDP, port 514; then enter the NAS address here.</p>
                                 <div class="buttons is-right mt-4"><button class="button is-primary is-small" type="submit">Save Syslog</button></div>
                             </div>
                         </div>
@@ -408,7 +423,7 @@
                 <div class='card-content'>
                     <div class="level is-mobile mb-3">
                         <div class="level-left"><div class="level-item"><span class="is-size-7">Current network:</span></div></div>
-                        <div class="level-right"><div class="level-item"><span class="tag is-info is-light is-size-7" id="current_ssid_tag">Chargement…</span></div></div>
+                        <div class="level-right"><div class="level-item"><span class="tag is-info is-light is-size-7" id="current_ssid_tag">Loading…</span></div></div>
                     </div>
                     <article class="message is-warning is-small mb-3">
                         <div class="message-body">The connection will be interrupted while changing networks. Reconnect to this page after a few seconds.</div>
