@@ -231,8 +231,10 @@ SYSLOG_PORT=514
 
 # Integration profile — controls which optional daemons are started at boot.
 # "default"    starts everything enabled in autostart/ (safe baseline).
-# "frigate_ha" skips Telegram, Timelapse, Syslog, Sound detection, FTP,
-#              Telnet and local Recording (handled by Frigate / Home Assistant).
+# "frigate_ha" skips Telegram, Timelapse, FTP, Telnet and local Recording
+#              (handled by Frigate / Home Assistant). Remote syslog
+#              (SYSLOG_ENABLE) and sound detection (sound_detection.conf
+#              ENABLE) still follow their own settings.
 # Set to "frigate_ha" in boot.conf if this camera feeds Frigate/HA.
 INTEGRATION_PROFILE=default
 

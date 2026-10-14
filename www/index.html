@@ -24,7 +24,8 @@
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.purged.min.css?v=1.8.4" rel="stylesheet">
     <link href="css/ui-modern.min.css?v=1.8.4-ui4" rel="stylesheet">
-    <link href="css/ui-v2.css?v=1.8.4-ui4" rel="stylesheet">
+    <link href="css/ui-v2.css?v=1.8.4-ui5" rel="stylesheet">
+    <script src="scripts/i18n.js?v=1.8.4-i18n2"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -241,6 +242,7 @@
 
                 <!-- Elite Controls: Theme Toggle & Logout -->
                 <div class="navbar-end">
+                    <a class="navbar-item lang-toggle" id="lang_toggle" href="#" translate="no">FR</a>
                     <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
                         <span class="nav-icon" id="theme_toggle_icon">
                             <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px;">
@@ -292,6 +294,7 @@
                 <div class="toolbar-group live-actions">
                     <button class="button v2-primary" id="live_toggle" type="button">Resume Live</button>
                     <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
+                    <a class="button is-light" id="live_frigate" href="#" target="_blank" rel="noopener" title="Open this camera in Frigate's live view (full frame rate)" hidden>Smooth live</a>
                 </div>
                 <span class="toolbar-divider"></span>
                 <div class="toolbar-group audio-actions">
@@ -323,7 +326,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.4-ui4" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.4-ui5" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
