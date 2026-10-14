@@ -389,3 +389,4 @@ input.switch[type="checkbox"] + label::before, input.switch[type="checkbox"] + l
 .backup-guide { margin: .4rem 0 0 1.1rem; list-style: disc; }
 #settings_warnings:empty { display: none; }
 .nav-section-divider { margin: .3rem 0; height: 1px; border: 0; background: var(--v2-rule); }
+#wifi_scan_results tr.wifi-pick { cursor: pointer; }

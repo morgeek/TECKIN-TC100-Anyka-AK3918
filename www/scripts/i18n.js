@@ -12,7 +12,7 @@
 (function () {
   "use strict";
   var KEY = "tc100_lang";
-  var VERSION = "1.8.4-i18n3";
+  var VERSION = "1.8.4-i18n4";
   var lang = null;
   try { lang = window.localStorage.getItem(KEY); } catch (e) { /* storage blocked */ }
   if (lang !== "fr" && lang !== "en") {
@@ -20,7 +20,7 @@
   }
   document.documentElement.lang = lang;
 
-  var ATTRS = ["placeholder", "title", "aria-label", "data-message"];
+  var ATTRS = ["placeholder", "title", "aria-label", "data-message", "data-content"];
   var SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, PRE: 1, CODE: 1, NOSCRIPT: 1 };
   var dict = null;
   var rules = [];

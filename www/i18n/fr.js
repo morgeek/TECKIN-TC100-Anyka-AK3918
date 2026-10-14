@@ -585,7 +585,12 @@ window.tc100I18nFr = {
   "Streams for Frigate and recorders": "Flux pour Frigate et les enregistreurs",
   "System usage": "Utilisation du système",
   "Which one to use?": "Laquelle utiliser ?",
-  "Load preset": "Charger"
+  "Load preset": "Charger",
+  "Memory Guard (OOM Prevention)": "Surveillance mémoire (prévention OOM)",
+  "Nearby networks": "Réseaux à proximité",
+  "OSD Styling": "Style du texte incrusté",
+  "Takes 3-5 seconds. Choose a network to fill in its name.": "Prend 3 à 5 secondes. Choisissez un réseau pour remplir son nom.",
+  "Scan failed: ": "Échec de la recherche : "
  },
  "rules": [
   [
