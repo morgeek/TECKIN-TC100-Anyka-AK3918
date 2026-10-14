@@ -357,8 +357,9 @@ load_boot_config()
 
     echo "Boot config: lightweight=$LIGHTWEIGHT_MODE lowcpu=$LOW_CPU_PROFILE lowram=$LOW_RAM_PROFILE memguard=$MEM_GUARD_ENABLE cpuscaler=$CPU_SCALER_ENABLE security_hardening=$SECURITY_HARDENING_MODE watchdog=$ENABLE_WATCHDOG ntp=$ENABLE_NTP crond=$ENABLE_CROND autostart=$ENABLE_AUTOSTART" >> $LOGPATH
 
-    # Late-boot background tasks
-    if [ -x /mnt/scripts/update-check.sh ]; then
+    # Late-boot background tasks. The release check contacts GitHub: off
+    # unless UPDATE_CHECK=1 (the camera is meant to stay off the internet).
+    if is_truthy "${UPDATE_CHECK:-0}" && [ -x /mnt/scripts/update-check.sh ]; then
         /mnt/scripts/update-check.sh &
     fi
 }
