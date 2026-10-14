@@ -23,6 +23,11 @@ if [ -f /mnt/RECOVERY ]; then
 fi
 # ------------------------------------
 
+## Read-only firmware image: when firmware.sqfs is on the card, mount it over
+## the code directories before any of them is used (scripts/rofs.sh; falls
+## back to the FAT copies on any problem).
+[ -f /mnt/scripts/rofs.sh ] && sh /mnt/scripts/rofs.sh mount >/dev/null 2>&1
+
 ## Load some common functions:
 . /mnt/scripts/common_functions.sh
 
@@ -412,8 +417,11 @@ stop_cloud()
         done
     fi
 
-    # Unmount RAM disk
-    if /bin/umount /dev/loop0 2>/dev/null; then
+    # Unmount the vendor RAM disk (loop0) — unless loop0 is the firmware
+    # image (scripts/rofs.sh), which is mounted under /tmp/rofs.
+    if grep -q '^/dev/loop0 /tmp/rofs/' /proc/mounts 2>/dev/null; then
+        : # firmware image, keep
+    elif /bin/umount /dev/loop0 2>/dev/null; then
         : # success
     else
         echo "WARNING: Failed to unmount /dev/loop0" >> "$LOGPATH"
@@ -1141,6 +1149,11 @@ echo "$(date)" >> $LOGPATH
 # boot otherwise waited ~9 s while it was built. Low priority, after services.
 (sleep 45; export REQUEST_METHOD=GET QUERY_STRING='cmd=allstates'; nice -n 10 sh /mnt/www/cgi-bin/scripts.cgi >/dev/null 2>&1 || sh /mnt/www/cgi-bin/scripts.cgi >/dev/null 2>&1) &
 snapshot_lkg_configs
+# Firmware image in use: check its md5 once the boot has settled (niced).
+if [ -f /tmp/rofs/status ] && read -r _rofs_state _rofs_rest < /tmp/rofs/status && [ "$_rofs_state" = active ]; then
+    (sleep 300; nice -n 19 sh /mnt/scripts/rofs.sh verify >/dev/null 2>&1) &
+fi
+echo "Firmware image: $(cat /tmp/rofs/status 2>/dev/null || echo 'not used')" >> $LOGPATH
 sleep 1
 sync
 echo "--------Starting Hacks Finished!--------" >> $LOGPATH
