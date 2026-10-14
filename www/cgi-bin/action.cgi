@@ -2655,19 +2655,79 @@ if [ -n "$F_cmd" ]; then
       syslog_enable=$(normalize_bool "${F_syslog_enable}")
       syslog_host=$(printf '%s' "${F_syslog_host}")
       syslog_port=$(sanitize_int_range "${F_syslog_port}" 1 65535 514)
-      
-      rewrite_config /mnt/config/boot.conf SYSLOG_ENABLE "$syslog_enable"
-      rewrite_config /mnt/config/boot.conf SYSLOG_HOST "$syslog_host"
-      rewrite_config /mnt/config/boot.conf SYSLOG_PORT "$syslog_port"
-      
-      if [ -x /mnt/controlscripts/syslog-forward ]; then
+      # boot.conf is sourced by the shell: only a host name or an IP address
+      # (v4 or v6) may go in it.
+      syslog_err=""
+      case "$syslog_host" in
+        *[!A-Za-z0-9.:-]*) syslog_err="The syslog server must be a host name or an IP address (e.g. 192.168.1.10)." ;;
+      esac
+      [ "${#syslog_host}" -le 253 ] || syslog_err="The syslog server name is too long."
+      if [ -z "$syslog_err" ] && [ "$syslog_enable" = "1" ] && [ -z "$syslog_host" ]; then
+        syslog_err="Enter the syslog server address (e.g. your NAS: 192.168.1.10) to enable remote logging."
+      fi
+      if [ -n "$syslog_err" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "$syslog_err"; else echo "<p>$syslog_err</p>"; fi
+      else
+        rewrite_config /mnt/config/boot.conf SYSLOG_ENABLE "$syslog_enable"
+        rewrite_config /mnt/config/boot.conf SYSLOG_HOST "$syslog_host"
+        rewrite_config /mnt/config/boot.conf SYSLOG_PORT "$syslog_port"
+
+        if [ -x /mnt/controlscripts/syslog-forward ]; then
+          if [ "$syslog_enable" = "1" ]; then
+            /mnt/controlscripts/syslog-forward restart >/dev/null 2>&1 || true
+          else
+            /mnt/controlscripts/syslog-forward stop >/dev/null 2>&1 || true
+          fi
+        fi
         if [ "$syslog_enable" = "1" ]; then
-          /mnt/controlscripts/syslog-forward restart >/dev/null 2>&1 || true
+          echo "Syslog configuration updated: sending to ${syslog_host}:${syslog_port} (UDP).<br/>"
         else
-          /mnt/controlscripts/syslog-forward stop >/dev/null 2>&1 || true
+          echo "Syslog configuration updated: remote logging off.<br/>"
         fi
       fi
-      echo "Syslog configuration updated.<br/>"
+    ;;
+
+    set_frigate_live)
+      # Smooth live view: a link to this camera in Frigate's own live page
+      # (go2rtc restream: no extra connection to the camera). Frigate is
+      # plain HTTP and this UI HTTPS, so it opens in its own tab rather than
+      # being embedded (mixed content). Stored in config/frigate_live.conf.
+      fl_url="$(printf '%s' "${F_frigate_url}")"; fl_cam="$(printf '%s' "${F_frigate_camera}")"
+      fl_url="${fl_url%/}"; fl_err=""; fl_note=""
+      if [ -n "$fl_url" ]; then
+        case "$fl_url" in http://*|https://*) ;; *) fl_url="http://$fl_url" ;; esac
+        case "${fl_url#*://}" in
+          ''|*[!A-Za-z0-9.:/_-]*) fl_err="The Frigate address must look like http://192.168.1.25:5000." ;;
+        esac
+      fi
+      case "$fl_cam" in *[!A-Za-z0-9_-]*) fl_err="The Frigate camera name may only contain letters, digits, - and _." ;; esac
+      if [ -z "$fl_err" ] && [ -n "$fl_url" ] && [ -z "$fl_cam" ]; then
+        # Find which Frigate camera reads this one: an input or a go2rtc
+        # stream with this camera's IP (one request, only when saving).
+        fl_ip=""; [ -r /tmp/camera_ip.txt ] && read -r fl_ip < /tmp/camera_ip.txt
+        if [ -n "$fl_ip" ] && [ -x /mnt/bin/curl ] && [ -x /mnt/bin/jq ]; then
+          fl_cam="$(/mnt/bin/curl -s -m 6 "$fl_url/api/config" 2>/dev/null | /mnt/bin/jq -r --arg ip "$fl_ip" '
+            def has_ip: (tostring) as $u | ($u | test("[@/]" + ($ip | gsub("\\."; "\\.")) + "([:/]|$)"));
+            (.go2rtc.streams // {} | to_entries
+              | map(select(.value | if type == "array" then any(.[]; has_ip) else has_ip end)) | map(.key)) as $s
+            | (.cameras // {}) | to_entries[]
+            | select(any(.value.ffmpeg.inputs[]?; .path as $p | ($p | has_ip) or any($s[]; . as $n | $p | endswith("/" + $n))))
+            | .key' 2>/dev/null | head -n 1)"
+          case "$fl_cam" in *[!A-Za-z0-9_-]*) fl_cam="" ;; esac
+        fi
+        [ -n "$fl_cam" ] && fl_note=" (camera ${fl_cam} found in Frigate)" ||
+          fl_note=" — this camera was not found in Frigate's configuration; enter its Frigate name"
+      fi
+      if [ -n "$fl_err" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "$fl_err"; else echo "<p>$fl_err</p>"; fi
+      elif [ -z "$fl_url" ]; then
+        rm -f /mnt/config/frigate_live.conf
+        echo "Smooth live view link removed.<br/>"
+      else
+        printf 'FRIGATE_URL=%s\nFRIGATE_CAMERA=%s\n' "$fl_url" "$fl_cam" > /mnt/config/frigate_live.conf.tmp &&
+          mv -f /mnt/config/frigate_live.conf.tmp /mnt/config/frigate_live.conf
+        echo "Smooth live view: ${fl_url}/#${fl_cam}${fl_note}.<br/>"
+      fi
     ;;
 
     enable_privacy_shield)
