@@ -271,7 +271,7 @@ fwu_status()
   _st="$(_fwu_first "$STATE")"; [ -n "$_st" ] || _st=idle
   _b="$(_fwu_first "$LAST_BACKUP")"; _bv=""
   [ -n "$_b" ] && _bv="$(_fwu_first "$_b/from-version")"
-  _tail="$(tail -n 5 "$LOG" 2>/dev/null | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk '{printf "%s\\n", $0}')"
+  _tail="$(tail -n 5 "$LOG" 2>/dev/null | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk '{gsub(/[[:cntrl:]]/, "?"); printf "%s\\n", $0}')"
   printf '{"ok":true,"state":"%s","current":"%s","staged":"%s","rollback_to":"%s","log":"%s"}\n' \
     "$_st" "$(_fwu_json_str "$(_fwu_first "$ROOT/VERSION")")" \
     "$(_fwu_json_str "$(_fwu_first "$WORK/staged-version")")" "$(_fwu_json_str "$_bv")" "$_tail"
