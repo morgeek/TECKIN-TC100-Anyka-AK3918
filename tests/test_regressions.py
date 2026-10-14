@@ -1452,6 +1452,11 @@ class WifiClient(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertNotIn('-B', calls)
 
+    def test_release_check_is_opt_in(self):
+        auto = (ROOT / 'autorun.sh').read_text()
+        self.assertIn('is_truthy "${UPDATE_CHECK:-0}" && [ -x /mnt/scripts/update-check.sh ]', auto)
+        self.assertIn('UPDATE_CHECK=0', (ROOT / 'config/boot.conf.dist').read_text())
+
     def test_boot_wiring_defaults_to_vendor(self):
         auto = (ROOT / 'autorun.sh').read_text()
         self.assertEqual(auto.count('wifi-client.sh start'), 2)

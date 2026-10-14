@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.8.4] — 2026-10-12
 
 ### Fixed
+- The camera contacted GitHub (`api.github.com`) at every boot to check for a new release, although it is meant to stay off the internet. The check now only runs with `UPDATE_CHECK=1` in boot.conf (default 0); updates are installed from Settings → Firmware update.
 - Settings → Firmware update showed nothing on a camera whose update log held control characters (file names made of random bytes from the 2026-10-13 FAT incident): `update.cgi?cmd=status` returned invalid JSON. They are replaced in the log excerpt.
 - **Settings: sound detection showed "off" (interval 5 s) on frigate_ha cameras where it was on.** state.cgi fullconfig did not read sound_detection.conf in that profile, even though detection runs in every profile since 1.8.4.
 - **Settings: the Telegram card was squeezed into one row.** The show/hide password button set `display:flex` on the field's parent. The field now gets its own wrapper, and the 👁/🙈 emojis became "Show"/"Hide".
