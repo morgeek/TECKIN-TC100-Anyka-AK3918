@@ -1,0 +1,267 @@
+/* ui-v2.css — "control monitor" layer, loaded after ui-modern.min.css.
+ * The live image is the centrepiece, framed like a camera monitor with its
+ * status written into the picture (OSD); everything around it stays quiet.
+ * One accent: tally red, only for "live" and for destructive actions.
+ * System fonts only: the camera serves every byte from a 400 MHz CPU. */
+
+:root {
+  --v2-bg: #eef0f2;
+  --v2-panel: #ffffff;
+  --v2-ink: #18202a;
+  --v2-muted: #5f6b77;
+  --v2-rule: #d5dae0;
+  --v2-hover: #e4e8ec;
+  --v2-tally: #d33a2c;
+  --v2-ok: #23845a;
+  --v2-warn: #b7791f;
+  --v2-osd: rgba(8, 12, 16, 0.55);
+  --v2-radius: 8px;
+  --v2-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --ui-bg: var(--v2-bg);
+  --ui-surface: var(--v2-panel);
+  --ui-text: var(--v2-ink);
+  --ui-muted: var(--v2-muted);
+  --ui-border: var(--v2-rule);
+  --ui-border-soft: var(--v2-rule);
+  --ui-primary: var(--v2-ink);
+  --ui-primary-dark: var(--v2-ink);
+}
+[data-theme="dark"] {
+  --v2-bg: #0e1318;
+  --v2-panel: #151c23;
+  --v2-ink: #e6eaee;
+  --v2-muted: #8a96a3;
+  --v2-rule: #263240;
+  --v2-hover: #1d2731;
+  --v2-tally: #ef5a4a;
+  --v2-ok: #3fb984;
+  --v2-warn: #e0a640;
+}
+
+/* Page: flat, no decorative halos or gradients. */
+html, [data-theme="dark"] { background: var(--v2-bg) !important; }
+body { background: var(--v2-bg); color: var(--v2-ink); font-variant-numeric: tabular-nums; }
+body::before, body::after { display: none !important; }
+
+/* Navigation: a plain bar; the active page is underlined, not a pill. */
+.navbar, [data-theme="dark"] .navbar {
+  background: var(--v2-panel) !important;
+  border-bottom: 1px solid var(--v2-rule);
+  box-shadow: none !important;
+  backdrop-filter: none;
+}
+.navbar-item, .navbar-link { color: var(--v2-ink) !important; }
+.navbar-start > .navbar-item.onpage { border-radius: 0; margin: 0; }
+.navbar-item.onpage.is-active, .navbar-dropdown .navbar-item.onpage.is-active {
+  background: transparent !important;
+  color: var(--v2-ink) !important;
+  box-shadow: inset 0 -2px 0 var(--v2-ink);
+}
+.navbar-link:hover, .navbar-item:hover { background: var(--v2-hover) !important; }
+.navbar-item .icon-eye, .navbar-item .icon-play-circle-o { color: var(--v2-ink) !important; }
+#fw_version { background: transparent !important; color: var(--v2-muted); font-weight: 500; padding: 0; }
+.navbar-dropdown { background: var(--v2-panel); border: 1px solid var(--v2-rule); box-shadow: none; }
+
+/* Buttons: one filled primary, the rest outlined or plain. */
+.button {
+  border-radius: 6px;
+  box-shadow: none !important;
+  font-weight: 600;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.button, .button.is-light, .button.is-info, .button.is-link {
+  background: var(--v2-panel) !important;
+  color: var(--v2-ink) !important;
+  border: 1px solid var(--v2-rule) !important;
+}
+.button:hover { background: var(--v2-hover) !important; }
+.button.is-primary, .button.v2-primary {
+  background: var(--v2-ink) !important;
+  color: var(--v2-panel) !important;
+  border-color: var(--v2-ink) !important;
+}
+.button.is-danger { background: var(--v2-panel) !important; color: var(--v2-tally) !important; border-color: currentColor !important; }
+.button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--v2-ink);
+  outline-offset: 2px;
+}
+
+/* Cards: one hairline, no shadow, quieter headers. */
+.card, .box, .status_card {
+  background: var(--v2-panel) !important;
+  border: 1px solid var(--v2-rule) !important;
+  box-shadow: none !important;
+  border-radius: var(--v2-radius) !important;
+}
+.card-header { background: transparent !important; box-shadow: inset 0 -1px 0 var(--v2-rule) !important; }
+.card-header-title { font-size: 1rem; font-weight: 650; }
+
+/* ---------------------------------------------------------- live monitor */
+.app-shell { max-width: 1180px; }
+.liveview-wrap.v2-monitor {
+  position: relative;
+  background: #000;
+  border-radius: var(--v2-radius);
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+}
+.v2-monitor #liveview { display: block; width: 100%; height: auto; border: 0; border-radius: 0; }
+.v2-osd {
+  position: absolute;
+  left: 0; right: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  font: 500 0.82rem/1.2 var(--v2-mono);
+  letter-spacing: 0.02em;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+.v2-osd.top { top: 0; background: linear-gradient(to bottom, var(--v2-osd), transparent); }
+.v2-osd.bottom { bottom: 0; background: linear-gradient(to top, var(--v2-osd), transparent); }
+.v2-osd .camera-health { display: flex; align-items: center; gap: 0.45rem; }
+.v2-osd .camera-health strong, .v2-osd .camera-health small { font: inherit; color: inherit; }
+.v2-osd .camera-health small { opacity: 0.8; margin-left: 0.6rem; }
+.v2-osd .camera-health > div { display: flex; align-items: baseline; }
+.v2-osd .camera-state-dot {
+  width: 0.62rem; height: 0.62rem; border-radius: 50%;
+  background: #9aa4ae; box-shadow: none; margin: 0;
+}
+.v2-osd .camera-state-dot.is-online { background: var(--v2-tally); }
+.v2-osd .camera-state-dot.is-warning { background: #f0b429; }
+.v2-osd .camera-state-dot.is-offline { background: #9aa4ae; }
+@media (prefers-reduced-motion: no-preference) {
+  .v2-osd .camera-state-dot.is-online { animation: v2-tally 2s ease-in-out infinite; }
+}
+@keyframes v2-tally { 50% { opacity: 0.35; } }
+.camera-summary { display: none; }
+
+/* Readings under the picture: one quiet line of instruments. */
+.v2-readings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.6rem;
+  margin: 0.75rem 0.15rem 0.25rem;
+  font-size: 0.9rem;
+  color: var(--v2-muted);
+}
+.v2-readings span b { color: var(--v2-ink); font-weight: 650; margin-left: 0.35rem; }
+.v2-readings .is-high b { color: var(--v2-warn); }
+
+/* Toolbar: sits on the page, not in a box. */
+.app-toolbar {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0.5rem 0 !important;
+  gap: 0.5rem;
+}
+.toolbar-divider { display: none; }
+.ptt-primary.is-danger { color: var(--v2-ink) !important; border-color: var(--v2-rule) !important; }
+.ptt-primary.is-active, .ptt-primary[aria-pressed="true"] {
+  background: var(--v2-tally) !important; color: #fff !important; border-color: var(--v2-tally) !important;
+}
+.ptt-last-sent { color: var(--v2-muted); font-size: 0.82rem; }
+.home-tools summary { color: var(--v2-ink); }
+
+/* ------------------------------------------------------------- services */
+.services-overview { background: transparent !important; border: 0 !important; padding: 0 0 0.75rem !important; }
+.services-table { background: transparent !important; border: 0 !important; }
+.services-table thead { display: none; }
+.services-table tbody tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  padding: 0.65rem 0.25rem;
+  border-bottom: 1px solid var(--v2-rule);
+  background: transparent !important;
+}
+.services-table tbody tr:hover { background: var(--v2-hover) !important; }
+.services-table td { border: 0 !important; padding: 0 !important; background: transparent !important; }
+.services-title-cell { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.services-title-cell strong { font-weight: 600; }
+.services-impact-cell { display: none; }
+.services-tag.services-status-tag {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--v2-muted) !important;
+}
+.services-tag.services-status-tag::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem; height: 0.5rem;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  background: var(--v2-rule);
+  vertical-align: 0.05rem;
+}
+.service-status.is-running::before { background: var(--v2-ok); }
+.service-status.is-error::before { background: var(--v2-tally); }
+.service-status.is-error { color: var(--v2-tally) !important; }
+.script_action_toggle.button { min-width: 4.5rem; }
+.script_action_toggle.is-danger, .script_action_toggle.is-warning { color: var(--v2-tally) !important; }
+.view_script.button { border-color: transparent !important; background: transparent !important; color: var(--v2-muted) !important; }
+
+/* Boot autorun as a switch. */
+.services-autorun-cell { display: flex; align-items: center; gap: 0.5rem; }
+.services-autorun-cell input.autostart {
+  -webkit-appearance: none; appearance: none;
+  position: relative; opacity: 1 !important;
+  width: 2.25rem; height: 1.3rem; margin: 0;
+  border-radius: 1rem;
+  background: var(--v2-rule);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.services-autorun-cell input.autostart::after {
+  content: ""; position: absolute; top: 0.15rem; left: 0.15rem;
+  width: 1rem; height: 1rem; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 120ms ease;
+}
+.services-autorun-cell input.autostart:checked { background: var(--v2-ok); }
+.services-autorun-cell input.autostart:checked::after { transform: translateX(0.95rem); }
+.services-autorun-cell label { color: var(--v2-muted); font-size: 0.84rem; }
+.services-autorun-cell label::before, .services-autorun-cell label::after { display: none !important; }
+.services-legend, .services-table-card .card-content > p:last-child { color: var(--v2-muted); }
+
+@media (max-width: 640px) {
+  .services-table tbody tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title title" "boot action" ;
+  }
+  .services-title-cell { grid-area: title; }
+  .services-autorun-cell { grid-area: boot; }
+  .services-table tbody tr td:nth-child(3) { grid-area: action; justify-self: end; }
+  .services-table tbody tr td:nth-child(5) { display: none; }
+  .v2-osd { font-size: 0.72rem; padding: 0.45rem 0.55rem; }
+  .v2-readings { gap: 0.3rem 1.1rem; font-size: 0.85rem; }
+}
+
+/* ---- fixes after the first screenshots ---- */
+.services-table, .services-table tbody { display: block; width: 100%; }
+.services-table tbody tr { width: 100%; }
+.services-impact-legend { display: none !important; }
+.services-title-cell strong { letter-spacing: normal; }
+.v2-osd .camera-health > div { display: flex !important; flex-direction: row !important; align-items: baseline; gap: 0.6rem; }
+.v2-osd .camera-health small { margin-left: 0; }
+.v2-osd .camera-state-dot { flex: none; }
+.button > i[class^="icon-"], .button > i[class*=" icon-"] { margin-right: 0.45rem; }
+.ptt-primary { min-width: 0 !important; }
+.navbar-link:not(.is-arrowless)::after { border-color: var(--v2-ink) !important; }
+.services-table, .services-table tbody, .services-table tbody tr { min-width: 0 !important; max-width: 100%; }
+/* Long technical text (kernel line, process list) scrolls inside its block
+   instead of widening the whole page on a phone (pre-existing overflow). */
+.card-content pre, .info-pre, .sysusage-pre, .card-content code { max-width: 100%; overflow-x: auto; }
+.sysusage-grid, .sysusage-side, .sysusage-main, .card, .card-content, .columns > .column { min-width: 0; }
+@media (max-width: 768px) { .sysusage-grid { display: block !important; } .sysusage-grid > * { width: 100% !important; } }
+.info-side, .info-main { min-width: 0; grid-template-columns: minmax(0, 1fr) !important; }
+@media (max-width: 899px) { .info-grid { grid-template-columns: minmax(0, 1fr) !important; } }
