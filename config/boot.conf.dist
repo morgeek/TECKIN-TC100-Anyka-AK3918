@@ -154,6 +154,10 @@ RTSP_MIC_OFF_WHEN_NO_AUDIO=1
 VENDOR_PRINT_LEVEL=
 ISP_TUNE=0
 RTSP_DAYNIGHT_POLL_MS=500
+# TAMPER_DETECTION=1: sample the ISP sharpness/histogram statistics every 2 s
+# into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
+# default until the thresholds are calibrated on hardware.
+TAMPER_DETECTION=0
 
 # ONVIF advertised stream policy:
 # - main-primary: ONVIF profile 1 = main stream (default)

@@ -161,6 +161,11 @@ start()
     case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
     # Day/night thread: poll the ISP every 500 ms instead of every 100 ms
     # (it also rewrites /var/run/lum and /var/run/awb on each turn). 0 = vendor.
+    # Image statistics for the lens-covered alert (controlscripts/tamper-detection).
+    case "$TAMPER_DETECTION" in 1|true|yes|on|enabled)
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD=/var/run/od"
+      [ "$TAMPER_DETECTION_RAW" = 1 ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD_RAW=1" ;;
+    esac
     : "${RTSP_DAYNIGHT_POLL_MS:=500}"
     case "$RTSP_DAYNIGHT_POLL_MS" in
       ''|0|*[!0-9]*) ;;
