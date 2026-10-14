@@ -1131,6 +1131,19 @@ class FwUpdate(unittest.TestCase):
         self.assertEqual(self.read('www/index.html'), 'old page\n')
         self.assertFalse((self.root / 'scripts/new.sh').exists())
 
+    def test_only_changed_files_are_extracted(self):
+        # The SD card only receives what will actually be installed.
+        r = self.run_fwu('verify', str(self.package()))
+        self.assertTrue(json.loads(r.stdout)['ok'], r.stdout)
+        stage = self.root / 'update/stage'
+        got = sorted(str(p.relative_to(stage)) for p in stage.rglob('*') if p.is_file())
+        self.assertEqual(got, ['MANIFEST', 'VERSION', 'config/autostart/00_system-config',
+                               'scripts/new.sh', 'www/index.html'])
+        # A changed script with a syntax error is still refused.
+        files = dict(self.pkg_files, **{'scripts/new.sh': 'if then fi(\n'})
+        r = self.run_fwu('verify', str(self.package(files)))
+        self.assertIn('scripts/new.sh', json.loads(r.stdout).get('syntax_errors', ''))
+
     def test_failed_web_server_check_rolls_back(self):
         self.run_fwu('verify', str(self.package()))
         r = self.run_fwu('install', '--no-reboot', lighttpd=self.bad)
