@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WWW = ROOT / 'www'
-ATTRS = ('placeholder', 'title', 'aria-label', 'data-message')
+ATTRS = ('placeholder', 'title', 'aria-label', 'data-message', 'data-content')
 # CGIs whose output is JSON / plain text, or that only include helpers.
 CGI_SKIP = {'action.cgi', 'state.cgi', 'func.cgi'}
 JS_FILES = ('scripts/index.bundle.min.js', 'scripts/scripts.bundle.min.js')
