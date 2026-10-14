@@ -90,6 +90,7 @@ __attribute__((constructor)) static void tc100fix_init(void)
 }
 
 void tc100fix_isp_start(void *handle);   /* isp_tune.c */
+void tc100fix_od_start(void *handle);    /* od.c */
 
 static int env_on(const char *name)
 {
@@ -161,6 +162,8 @@ int ak_vi_set_fps(void *handle, int fps)
     }
     if (handle)
         tc100fix_isp_start(handle);       /* no-op unless TC100FIX_ISP_TUNE set */
+    if (handle)
+        tc100fix_od_start(handle);        /* no-op unless TC100FIX_OD set */
     return real ? real(handle, fps) : -1;
 }
 
