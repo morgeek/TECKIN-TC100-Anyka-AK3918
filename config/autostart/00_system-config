@@ -29,6 +29,8 @@ echo 2048 > /proc/sys/vm/min_free_kbytes
 ## SD card wear: do not record access dates. With relatime, vfat rewrote the
 ## directory entry of every script cron/CGIs read at most once a day each.
 mount -o remount,noatime /mnt 2>/dev/null || true
+# Same for the overlay-free view of the card used with the firmware image.
+grep -q ' /tmp/rofs/fat ' /proc/mounts 2>/dev/null && mount -o remount,bind,noatime /tmp/rofs/fat 2>/dev/null
 
 ## Init status files
 echo 0 > /var/run/lum
