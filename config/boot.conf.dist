@@ -264,3 +264,9 @@ AK_PRINT_LEVEL=
 # only decide what boot applies.
 FRONT_LED=0
 RED_LED=0
+# FIRMWARE_IMAGE=1: when firmware.sqfs is on the card (release packages and
+# updates ship it), run bin/ lib/ scripts/ controlscripts/ www/ from that
+# read-only image instead of the FAT copies, which stay as the fallback
+# (scripts/rofs.sh). 0 = always use the FAT copies (needed to edit code files
+# on the card directly).
+FIRMWARE_IMAGE=1

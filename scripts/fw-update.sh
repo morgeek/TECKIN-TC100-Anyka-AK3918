@@ -24,6 +24,10 @@
 #     written next to it and renamed over it. Renaming (never rewriting in
 #     place) is what makes this safe for running binaries ("Text file busy")
 #     and for shell scripts being executed.
+#   * the read-only firmware image (firmware.sqfs, see scripts/rofs.sh) is in
+#     use by a loop device, so it is written as firmware.sqfs.new and swapped
+#     in at the next boot; the previous image stays as firmware.sqfs.old,
+#     which is what a rollback puts back (no 7 MB backup copy).
 # Then config-migrate.sh adds new settings, and the web server config is
 # checked with the new lighttpd (-tt). If that check fails the install is
 # rolled back automatically, so the web UI stays reachable.
@@ -37,6 +41,15 @@ LOG="$WORK/update.log"
 STATE="$WORK/state"
 LAST_BACKUP="$WORK/last-backup"
 LOCK="${FWU_LOCK:-/tmp/fw-update.lock}"
+# Read-only firmware image in use (scripts/rofs.sh): bin/ lib/ www/ scripts/
+# controlscripts/ under /mnt are the image, read-only. Install into the FAT
+# copies underneath instead, through the overlay-free view of the card. The
+# work and backup directories above keep their /mnt paths (not overlaid), so
+# a rollback still finds them on a boot without the image.
+if [ -z "$FWU_ROOT" ] && [ -r /tmp/rofs/status ] && read -r _fwu_ro _fwu_rov < /tmp/rofs/status &&
+   [ "$_fwu_ro" = active ] && [ -r /tmp/rofs/fat/VERSION ]; then
+  ROOT=/tmp/rofs/fat
+fi
 MIGRATE="${FWU_MIGRATE:-$ROOT/scripts/config-migrate.sh}"
 LIGHTTPD="${FWU_LIGHTTPD:-$ROOT/bin/lighttpd}"
 TRACKER="${FWU_TRACKER:-$ROOT/scripts/reboot-tracker.sh}"
@@ -155,6 +168,9 @@ _fwu_restore()   # _fwu_restore BACKUP_DIR
     case "$_act" in
       replaced) cp -f "$_rb/files/$_path" "$ROOT/$_path.fwu" 2>/dev/null &&
                   mv -f "$ROOT/$_path.fwu" "$ROOT/$_path" ;;
+      image) if [ -f "$ROOT/$_path.new" ]; then rm -f "$ROOT/$_path.new"      # not booted yet
+             elif [ -f "$ROOT/$_path.old" ]; then mv -f "$ROOT/$_path.old" "$ROOT/$_path.new"
+             fi ;;
       added) rm -f "$ROOT/$_path" ;;
     esac
   done < "$_rb/changes"
@@ -180,7 +196,10 @@ fwu_install()
     _cur="$(md5sum "$_dst" 2>/dev/null)"; _cur="${_cur%% *}"
     [ "$_cur" = "$_sum" ] && continue
     mkdir -p "$ROOT/$(_fwu_dir "$_path")" 2>/dev/null
-    if [ -e "$_dst" ]; then
+    if [ "$_path" = firmware.sqfs ]; then
+      echo "image $_path" >> "$_b/changes"
+      _dst="$_dst.new"
+    elif [ -e "$_dst" ]; then
       mkdir -p "$_b/files/$(_fwu_dir "$_path")" 2>/dev/null
       cp -f "$_dst" "$_b/files/$_path" || { _fail=1; break; }
       echo "replaced $_path" >> "$_b/changes"
