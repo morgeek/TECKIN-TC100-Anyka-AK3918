@@ -1708,8 +1708,8 @@ html{background:var(--ui-bg)}body::before,body::after{display:none}.navbar{backg
 :root[data-theme="dark"] .navbar-item.onpage.is-active,:root[data-theme="dark"] .navbar-dropdown .navbar-item.onpage.is-active{background:#263440;color:#9ac4e8}
 @media(max-width:768px){.app-toolbar{background:var(--ui-surface);box-shadow:none}}
 
-/* rc20 operator mode and compact service feedback */
-.operator-toggle{font:inherit;color:var(--ui-text);background:transparent;border:0;cursor:pointer}.operator-mode #status,.operator-mode #services,.operator-mode .admin-nav{display:none!important}.operator-mode .operator-toggle{font-weight:700;border-bottom:2px solid var(--ui-primary)}.services-overview{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.6rem;padding:.45rem .55rem;border:1px solid var(--ui-border-soft);background:var(--ui-bg-alt)}.services-overview label{font-size:.82rem}.services-overview input{vertical-align:middle}.services-error{margin-bottom:.6rem}.services-error[hidden]{display:none}
+/* compact service feedback */
+.services-overview{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.6rem;padding:.45rem .55rem;border:1px solid var(--ui-border-soft);background:var(--ui-bg-alt)}.services-overview label{font-size:.82rem}.services-overview input{vertical-align:middle}.services-error{margin-bottom:.6rem}.services-error[hidden]{display:none}
 
 /* Services → View: script source in a native <dialog> (scripts.bundle.min.js). */
 .source-dialog{width:min(960px,calc(100vw - 2rem));max-height:calc(100vh - 3rem);padding:0;border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:var(--ui-surface-strong);color:var(--ui-text);box-shadow:var(--ui-shadow)}
