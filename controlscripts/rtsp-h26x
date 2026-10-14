@@ -2,8 +2,11 @@
 SERVICE_NAME="RTSP H264/H265 Server"
 PIDFILE="/var/run/v4l2rtspserver.pid"
 WATCHDOG_PIDFILE="/var/run/v4l2rtspserver-watch.pid"
-LOGDIR="/mnt/log"
+# RAM: the server's own output is chatty and only useful while it runs.
+# Failures also go through tc100_log_event, which keeps them on the SD card.
+LOGDIR="/tmp/log"
 LOGPATH="$LOGDIR/v4l2rtspserver.log"
+LOG_MAX_BYTES=65536
 CONFIGPATH="/mnt/config"
 export LD_LIBRARY_PATH='/mnt/lib/:/thirdlib:/system/lib/:/usr/lib/'
 
@@ -19,8 +22,9 @@ fi
 : "${RTSP_SUBSTREAM:=1}"
 : "${RTSP_AUDIO:=1}"
 : "${RTSP_FPS_LOCK:=0}"
-: "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"
+: "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"
 : "${VENDOR_PRINT_LEVEL:=}"
+: "${ISP_TUNE:=0}"
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
 : "${RTSP_WATCHDOG_MODE:=status}"
@@ -45,6 +49,18 @@ status()
     # Prints PID: $pid if exists and returns 0(no error) else returns 1(error condition)
     kill -0 "$pid" >/dev/null && echo "PID: $pid" || return 1
   fi
+}
+
+# Wait (max $2 s) until no socket uses TCP port $1, local or remote side.
+rtsp_wait_port_free()
+{
+  _w=0
+  while [ $_w -lt "$2" ]; do
+    netstat -tan 2>/dev/null | grep -q ":$1 " || return 0
+    sleep 1
+    _w=$((_w + 1))
+  done
+  return 1
 }
 
 start()
@@ -90,6 +106,7 @@ start()
     esac
     [ "$PORT" -lt 1 ]     && PORT="8554"
     [ "$PORT" -gt 65535 ] && PORT="8554"
+    RTSP_PORT_NUM="$PORT"
     PORT="-P $PORT"
    
     ## Log
@@ -100,6 +117,13 @@ start()
     ## Audio — sanitize codec values before numeric comparisons.
     case "$audioCodec0" in ''|*[!0-9]*) audioCodec0=0 ;; esac
     case "$audioCodec1" in ''|*[!0-9]*) audioCodec1=0 ;; esac
+    # Sound detection measures the PCM the vendor audio encoder pulls, and
+    # v4l2rtspserver only opens the encoder for served audio: enabling sound
+    # detection therefore serves audio even when RTSP_AUDIO=0.
+    if [ "$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)" = "1" ] && [ "$RTSP_AUDIO" = "0" ]; then
+      echo "sound detection enabled: serving audio although RTSP_AUDIO=0" >> "$LOGPATH"
+      RTSP_AUDIO=1
+    fi
     AUDIO0=",audio0"
     AUDIO1=",audio1"
     if [ "$audioCodec0" -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
@@ -116,27 +140,72 @@ start()
       STREAMS="$STREAMS video1$AUDIO1"
     fi
 
+    mkdir -p "$LOGDIR" 2>/dev/null
+    cap_log
     echo "================== START ===============" >> "$LOGPATH"
     # libtc100fix.so fixes the closed vendor v4l2rtspserver at run time; each
     # fix is enabled by an environment variable set here, for this process only.
     TC100FIX_ENV=""
     case "$RTSP_FPS_LOCK" in 1|true|yes|on|enabled) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_FPS_LOCK=1" ;; esac
-    case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
-      [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
-    esac
+    # Sound detection: level meter on the PCM the encoder pulls, microphone
+    # without the vendor echo canceller / noise gate (they flatten everything
+    # below speech level to digital silence), DC offset removed in place.
+    _sound_enable="$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)"
+    if [ "$_sound_enable" = "1" ]; then
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SOUND_LEVEL=/var/run/sound_level TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1"
+    else
+      case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
+        [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
+      esac
+    fi
     case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
+    # Day/night thread: poll the ISP every 500 ms instead of every 100 ms
+    # (it also rewrites /var/run/lum and /var/run/awb on each turn). 0 = vendor.
+    # Image statistics for the lens-covered alert (controlscripts/tamper-detection).
+    case "$TAMPER_DETECTION" in 1|true|yes|on|enabled)
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD=/var/run/od"
+      [ "$TAMPER_DETECTION_RAW" = 1 ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD_RAW=1" ;;
+    esac
+    : "${RTSP_DAYNIGHT_POLL_MS:=500}"
+    case "$RTSP_DAYNIGHT_POLL_MS" in
+      ''|0|*[!0-9]*) ;;
+      *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_POLL_MS=$RTSP_DAYNIGHT_POLL_MS" ;;
+    esac
+    case "$ISP_TUNE" in 1|true|yes|on|enabled)
+      install_config "$CONFIGPATH/isp_tune.conf"
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_ISP_TUNE=$CONFIGPATH/isp_tune.conf" ;;
+    esac
+    # Overwrite "-U user:password" in the process's argv once it is parsed, so
+    # ps / /proc/<pid>/cmdline do not show the RTSP password.
+    if [ -n "$CREDENTIAL" ] && [ -f /mnt/lib/libtc100fix.so ]; then
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_HIDE_CREDENTIALS=1"
+    fi
     if [ -n "$TC100FIX_ENV" ] && [ ! -f /mnt/lib/libtc100fix.so ]; then
       echo "tc100fix options set but /mnt/lib/libtc100fix.so is missing" >> "$LOGPATH"
       TC100FIX_ENV=""
     fi
-    echo "/mnt/bin/v4l2rtspserver  $STREAMS $CREDENTIAL $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
-    if [ -n "$TC100FIX_ENV" ]; then
-      # shellcheck disable=SC2086
-      env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
-    else
-      /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
-    fi
-    echo "$!" > "$PIDFILE"
+    echo "/mnt/bin/v4l2rtspserver  $STREAMS ${CREDENTIAL:+-U ***} $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
+    # A quick restart while the previous server's client sockets on the RTSP
+    # port are still closing makes the bind fail; the server then exits at once
+    # with a misleading "Address family not supported" (seen on hardware). Wait
+    # for the port to drain, and retry if the server dies right after start.
+    _rtsp_try=0
+    while [ $_rtsp_try -lt 3 ]; do
+      _rtsp_try=$((_rtsp_try + 1))
+      rtsp_wait_port_free "$RTSP_PORT_NUM" 45
+      if [ -n "$TC100FIX_ENV" ]; then
+        # shellcheck disable=SC2086
+        env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+      else
+        /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+      fi
+      _rtsp_pid=$!
+      echo "$_rtsp_pid" > "$PIDFILE"
+      sleep 3
+      kill -0 "$_rtsp_pid" 2>/dev/null && break
+      echo "v4l2rtspserver exited at start (attempt $_rtsp_try), retrying" >> "$LOGPATH"
+      tc100_log_event "rtsp: v4l2rtspserver exited at start (attempt $_rtsp_try)"
+    done
 
     ## Watchdog
     if ! checkpid "$WATCHDOG_PIDFILE"; then
@@ -152,8 +221,22 @@ start()
   fi
 }
 
+# The log is in RAM: keep it bounded. The server writes with O_APPEND, so
+# rewriting the file in place keeps it writing at the (new) end.
+cap_log()
+{
+  [ "$LOGPATH" = "/dev/null" ] && return 0
+  _cl_size="$(wc -c < "$LOGPATH" 2>/dev/null)"
+  case "$_cl_size" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$_cl_size" -gt "$LOG_MAX_BYTES" ] || return 0
+  tail -c $((LOG_MAX_BYTES / 2)) "$LOGPATH" > "$LOGPATH.tmp" 2>/dev/null &&
+    cat "$LOGPATH.tmp" > "$LOGPATH" 2>/dev/null
+  rm -f "$LOGPATH.tmp"
+}
+
 health()
 {
+  cap_log
   if [ "$(status)" = "" ]; then
     return 1
   fi
@@ -196,6 +279,7 @@ health()
         # If no ticks incremented over the threshold period, it's likely stalled
         if [ "$_delta_ticks" -le 0 ] && [ "$_elapsed" -ge "${RTSP_GOP_STALL_THRESHOLD_SECONDS:-15}" ]; then
           echo "UNHEALTHY (GOP STALL)" >> "$LOGPATH"
+          tc100_log_event "rtsp: GOP stall, no encoder progress for ${_elapsed}s"
           return 1
         fi
         

@@ -1,22 +1,6 @@
 <div id="settings_container">
     <p id="settings_load_status" class="help mb-3" role="status">Loading current settings…</p>
-    <!-- Tabs Header -->
-    <div class="tabs is-centered is-toggle is-small mb-4">
-        <ul>
-            <li class="is-active" data-tab="tab-dashboard"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-activity"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span><span>Dashboard</span></a></li>
-            <li data-tab="tab-video"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-video"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span><span>Video/Audio</span></a></li>
-            <li data-tab="tab-profiles"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span><span>Config Profiles</span></a></li>
-            <li data-tab="tab-isp"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-sliders"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="2" y1="14" x2="6" y2="14"></line><line x1="10" y1="8" x2="14" y2="8"></line><line x1="18" y1="16" x2="22" y2="16"></line></svg></span><span>Image &amp; text</span></a></li>
-            <li data-tab="tab-automation"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-zap"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span><span>Automation</span></a></li>
-            <li data-tab="tab-network"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-wifi"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg></span><span>Network</span></a></li>
-            <li data-tab="tab-system"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-settings"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span><span>System</span></a></li>
-        </ul>
-    </div>
-
-    <!-- Tab Contents -->
-    <div id="tab-contents">
-        <!-- Dashboard Tab -->
-        <div class="tab-content" id="tab-dashboard">
+    <div id="settings_warnings">
             <div id="sd_readonly_warning" style="display:none">
                 <article class="message is-warning">
                     <div class="message-body">Your sdcard is mounted read-only. Settings can't be saved.</div>
@@ -27,42 +11,22 @@
                     <div class="message-body">Security warning: Default credentials active.</div>
                 </article>
             </div>
+    </div>
+    <div class="tabs is-centered is-toggle is-small mb-4">
+        <ul>
+            <li class="is-active" data-tab="tab-video"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-video"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span><span>Image &amp; video</span></a></li>
+            <li data-tab="tab-detect"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line></svg></span><span>Sound &amp; detection</span></a></li>
+            <li data-tab="tab-integrations"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-zap"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span><span>Integrations</span></a></li>
+            <li data-tab="tab-network"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-wifi"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg></span><span>Network</span></a></li>
+            <li data-tab="tab-system"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-settings"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span><span>System</span></a></li>
+            <li data-tab="tab-backup"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span><span>Backup</span></a></li>
+        </ul>
+    </div>
 
-            <div class='card status_card is-primary'>
-                <header class='card-header'><p class='card-header-title'>Device Health & Network</p></header>
-                <div class='card-content'>
-                    <div class="columns">
-                        <div class="column is-4">
-                            <div class="vital-row mb-2">
-                                <span class="vital-label">CPU <span class="vital-value" id="dash_cpu_val">--%</span></span>
-                                <div class="ui-progress"><span class="ui-progress-bar" id="dash_cpu_bar" style="width: 0%"></span></div>
-                            </div>
-                            <div class="vital-row mb-2">
-                                <span class="vital-label">RAM <span class="vital-value" id="dash_mem_val">--%</span></span>
-                                <div class="ui-progress"><span class="ui-progress-bar" id="dash_mem_bar" style="width: 0%"></span></div>
-                            </div>
-                            <div class="vital-row">
-                                <span class="vital-label">WiFi <span class="vital-value" id="dash_wifi_val">--%</span></span>
-                                <div class="ui-progress"><span class="ui-progress-bar" id="dash_wifi_bar" style="width: 0%"></span></div>
-                            </div>
-                        </div>
-                        <div class="column">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                                <div><p class="heading">IP Address</p><p class="title is-6" id="dash_ip">--.--.--.--</p></div>
-                                <div><p class="heading">Gateway</p><p class="title is-6" id="dash_gw">--.--.--.--</p></div>
-                            </div>
-                            <div class="buttons mt-2">
-                                <a class="button is-small is-primary" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
-                                <a class="button is-small is-light" id="dash_snapshot_link" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Video/Audio Tab -->
-        <div class="tab-content is-hidden" id="tab-video">
+    <!-- Tab Contents -->
+    <div id="tab-contents">
+        <!-- Image & video -->
+        <div class="tab-content" id="tab-video">
             <p class="settings-intro">Start with a profile, or adjust each stream below. Advanced options are collapsed; opening them does not change any settings.</p>
             <div class='card status_card mb-4 is-link is-light'>
                 <header class='card-header'><p class='card-header-title'>Quick setup</p></header>
@@ -129,84 +93,11 @@
                 </div>
             </form>
 
-            <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post" class="mt-4">
-                <div class="card status_card">
-                    <header class="card-header"><p class="card-header-title">Microphone</p></header>
-                    <div class="card-content">
-                        <div class="field"><label class="label" for="audio_vol">Microphone level (0–12)</label><input class="input" name="audioinVol" id="audio_vol" type="number" min="0" max="12" step="1" required></div>
-                        <details class="settings-advanced">
-                            <summary>Advanced audio format</summary>
-                            <p class="help mb-3">Match the format supported by your recorder.</p>
-                            <div class="columns is-multiline">
-                                <div class="column is-half"><label class="label is-small" for="samplerate">Sample rate</label><div class="select is-small is-fullwidth"><select name="samplerate" id="samplerate"><option value="8000">8000 Hz</option><option value="16000">16000 Hz</option><option value="32000">32000 Hz</option></select></div></div>
-                                <div class="column is-half"><label class="label is-small" for="audioCodec0">Audio codec</label><div class="select is-small is-fullwidth"><select name="audioCodec0" id="audioCodec0"><option value="0">Off</option><option value="4">AAC</option><option value="6">PCM</option><option value="17">A-law</option><option value="18">µ-law</option></select></div></div>
-                            </div>
-                        </details>
-                        <p class="help">Saving audio may briefly interrupt video.</p>
-                        <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save audio</button></div>
-                    </div>
-                </div>
-            </form>
-
-        </div>
-
-        <!-- Configuration Profiles Tab -->
-        <div class="tab-content is-hidden" id="tab-profiles">
-            <div class='card status_card mb-4 is-primary is-light'>
-                <header class='card-header'><p class='card-header-title'>Configuration Profiles</p></header>
-                <div class='card-content'>
-                    <p class="mb-4">Save your current configuration as a named preset, or load a previously saved preset to restore settings.</p>
-                    <div class="columns">
-                        <div class="column is-half">
-                            <label class="label is-small">Load Preset</label>
-                            <div class="field has-addons">
-                                <div class="control is-expanded">
-                                    <div class="select is-small is-fullwidth"><select id="preset_dropdown"><option value="">-- Select a preset --</option></select></div>
-                                </div>
-                                <div class="control"><button type="button" id="btn_load_preset" class="button is-info is-small">Load</button></div>
-                            </div>
-                            <p class="help">Load a previously saved configuration.</p>
-                        </div>
-                        <div class="column is-half">
-                            <label class="label is-small">Save as New Preset</label>
-                            <div class="field has-addons">
-                                <div class="control is-expanded">
-                                    <input class="input is-small" id="preset_name_input" type="text" placeholder="e.g., frigate-night, universal-h264">
-                                </div>
-                                <div class="control"><button type="button" id="btn_save_preset" class="button is-success is-small">Save</button></div>
-                            </div>
-                            <p class="help">Save current settings with a new name.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Preset Management</p></header>
-                <div class='card-content'>
-                    <table class="table is-fullwidth is-hoverable is-size-7" id="presets_table" style="display:none">
-                        <thead>
-                            <tr><th>Preset Name</th><th>Actions</th></tr>
-                        </thead>
-                        <tbody id="presets_tbody"></tbody>
-                    </table>
-                    <p id="presets_empty" class="help">No presets saved yet.</p>
-                    <div class="buttons mt-4">
-                        <button type="button" id="btn_refresh_presets" class="button is-light is-small">Refresh List</button>
-                        <button type="button" id="btn_export_config" class="button is-light is-small">Export Current</button>
-                        <button type="button" id="btn_import_config" class="button is-light is-small">Import File</button>
-                    </div>
-                    <input type="file" id="import_file_input" accept=".json" style="display:none;">
-                </div>
-            </div>
-        </div>
-
-        <!-- ISP/OSD Tab -->
-        <div class="tab-content is-hidden" id="tab-isp">
-            <form id="formISP" action="cgi-bin/action.cgi?cmd=isp_pro" method="post">
+            <form id="formISP" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
                 <details class="settings-advanced mb-4">
                     <summary>Advanced day/night thresholds</summary>
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Day/Night Switching Thresholds</p></header>
+                    <header class='card-header'><p class='card-header-title'>Day/night switching</p></header>
                     <div class='card-content'>
                         <div class="columns">
                             <div class="column is-half">
@@ -225,7 +116,7 @@
 
                 </details>
                 <div class='card status_card mt-4'>
-                    <header class='card-header'><p class='card-header-title'>OSD & Image Controls</p></header>
+                    <header class='card-header'><p class='card-header-title'>On-screen text and orientation</p></header>
                     <div class='card-content'>
                         <div class="field mb-3"><input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox"><label for="osdenabled">Enable OSD Text</label></div>
                         <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
@@ -252,13 +143,96 @@
                     </div>
                 </div>
             </form>
+            <form id="formIspTune" action="cgi-bin/action.cgi?cmd=isp_tune" method="post" class="mt-4">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Live image tuning</p></header>
+                    <div class='card-content'>
+                        <p class="help mb-3">Applied within a few seconds, without restarting the stream. 0 keeps the sensor's factory value. Switching tuning on or off restarts the video once.</p>
+                        <div class="field mb-3"><input class="switch is-small" id="isp_enable" name="isp_enable" type="checkbox"><label for="isp_enable">Enable live image tuning</label></div>
+                        <div class="columns is-multiline">
+                            <div class="column is-half"><label class="label is-small" for="isp_brightness">Brightness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_brightness" id="isp_brightness_out">0</output></label><input class="isp-tune-range" name="isp_brightness" id="isp_brightness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Moves the auto-exposure target.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_contrast">Contrast <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_contrast" id="isp_contrast_out">0</output></label><input class="isp-tune-range" name="isp_contrast" id="isp_contrast" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Wider or narrower range between dark and light.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_saturation">Saturation <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_saturation" id="isp_saturation_out">0</output></label><input class="isp-tune-range" name="isp_saturation" id="isp_saturation" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour intensity.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_sharpness">Sharpness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_sharpness" id="isp_sharpness_out">0</output></label><input class="isp-tune-range" name="isp_sharpness" id="isp_sharpness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Edge enhancement; lower reduces noise.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_hue">Hue <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_hue" id="isp_hue_out">0</output></label><input class="isp-tune-range" name="isp_hue" id="isp_hue" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour shift.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_power_hz">Mains frequency (anti-flicker)</label><div class="select is-small is-fullwidth"><select name="isp_power_hz" id="isp_power_hz"><option value="">Unchanged</option><option value="50">50 Hz (Europe)</option><option value="60">60 Hz</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_exposure_max_pct">Exposure time cap <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" id="isp_exposure_max_pct_out">off</output></label><input name="isp_exposure_max_pct" id="isp_exposure_max_pct" type="range" min="0" max="100" step="5" value="0" style="width:100%"><p class="help">Limits motion blur at night (image gets darker). 0 = no cap; otherwise 10–100 % of the sensor value.</p></div>
+                        </div>
+                        <p class="help" id="isp_tune_applied" role="status"></p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply image tuning</button></div>
+                    </div>
+                </div>
+            </form>
         </div>
 
-        <!-- Automation Tab -->
-        <div class="tab-content is-hidden" id="tab-automation">
+        <!-- Sound & detection -->
+        <div class="tab-content is-hidden" id="tab-detect">
+            <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post">
+                <div class="card status_card">
+                    <header class="card-header"><p class="card-header-title">Microphone</p></header>
+                    <div class="card-content">
+                        <div class="field"><label class="label" for="audio_vol">Microphone level (0–12)</label><input class="input" name="audioinVol" id="audio_vol" type="number" min="0" max="12" step="1" required></div>
+                        <details class="settings-advanced">
+                            <summary>Advanced audio format</summary>
+                            <p class="help mb-3">Match the format supported by your recorder.</p>
+                            <div class="columns is-multiline">
+                                <div class="column is-half"><label class="label is-small" for="samplerate">Sample rate</label><div class="select is-small is-fullwidth"><select name="samplerate" id="samplerate"><option value="8000">8000 Hz</option><option value="16000">16000 Hz</option><option value="32000">32000 Hz</option></select></div></div>
+                                <div class="column is-half"><label class="label is-small" for="audioCodec0">Audio codec</label><div class="select is-small is-fullwidth"><select name="audioCodec0" id="audioCodec0"><option value="0">Off</option><option value="4">AAC (+8 % CPU)</option><option value="6">PCM</option><option value="17">A-law (G.711, recommended)</option><option value="18">µ-law</option></select></div></div>
+                            </div>
+                        </details>
+                        <p class="help">Saving audio may briefly interrupt video.</p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save audio</button></div>
+                    </div>
+                </div>
+            </form>
+
+            <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
+                <div class='card status_card mt-4'>
+                    <header class='card-header'><p class='card-header-title'>Motion and sound detection</p></header>
+                    <div class='card-content'>
+                        <div class="columns">
+                            <div class="column is-half"><label class="label is-small">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number"></div>
+                            <div class="column is-half"><label class="label is-small">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
+                        </div>
+                        <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
+                        <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; restarts the RTSP stream when switched)</label></div>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
+                    </div>
+                </div>
+            </form>
+
+            <form id="formTimelapse" action="cgi-bin/action.cgi?cmd=conf_timelapse" method="post" class="mb-4">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Timelapse</p></header>
+                    <div class='card-content'>
+                        <div class="columns">
+                            <div class="column is-half">
+                                <label class="label is-small">Capture Interval (s)</label>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded"><input class="input is-small" name="tlinterval" id="tlinterval" type="number" placeholder="10"></div>
+                                    <div class="control"><a class="button is-small is-static">sec</a></div>
+                                </div>
+                            </div>
+                            <div class="column is-half">
+                                <label class="label is-small">Total Duration (min)</label>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded"><input class="input is-small" name="tlduration" id="tlduration" type="number" placeholder="0"></div>
+                                    <div class="control"><a class="button is-small is-static">min</a></div>
+                                </div>
+                                <p class="help">0 for unlimited capture</p>
+                            </div>
+                        </div>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Initialize Timelapse</button></div>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Integrations -->
+        <div class="tab-content is-hidden" id="tab-integrations">
             <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>MQTT Broker & HA Discovery</p></header>
+                    <header class='card-header'><p class='card-header-title'>MQTT and Home Assistant</p></header>
                     <div class='card-content'>
                         <div class="field"><input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1"><label for="mqtt_enabled">Enable MQTT Bridge</label></div>
                         <div class="columns is-multiline">
@@ -275,7 +249,7 @@
             </form>
 
             <div class='card status_card mt-4 ha-connectivity-card'>
-                <header class='card-header'><p class='card-header-title'>Home Assistant Connectivity</p></header>
+                <header class='card-header'><p class='card-header-title'>Home Assistant status</p></header>
                 <div class='card-content'>
                     <div id="ha_discovery_status_container">
                         <div class="level is-mobile mb-2">
@@ -306,51 +280,39 @@
                 </div>
             </div>
 
-            <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
-                <div class='card status_card mt-4'>
-                    <header class='card-header'><p class='card-header-title'>Motion & Sound Detection</p></header>
-                    <div class='card-content'>
-                        <div class="columns">
-                            <div class="column is-half"><label class="label is-small">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number"></div>
-                            <div class="column is-half"><label class="label is-small">Sound Threshold</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number"></div>
-                        </div>
-                        <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
-                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
-                    </div>
-                </div>
-            </form>
-
-            <form id="formTimelapse" action="cgi-bin/action.cgi?cmd=conf_timelapse" method="post" class="mb-4">
+            <form id="formFrigateLive" class="mt-4" action="cgi-bin/action.cgi?cmd=set_frigate_live" method="post">
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Elite Timelapse Studio</p></header>
+                    <header class='card-header'><p class='card-header-title'>Frigate live view</p></header>
                     <div class='card-content'>
-                        <div class="columns">
-                            <div class="column is-half">
-                                <label class="label is-small">Capture Interval (s)</label>
-                                <div class="field has-addons">
-                                    <div class="control is-expanded"><input class="input is-small" name="tlinterval" id="tlinterval" type="number" placeholder="10"></div>
-                                    <div class="control"><a class="button is-small is-static">sec</a></div>
-                                </div>
-                            </div>
-                            <div class="column is-half">
-                                <label class="label is-small">Total Duration (min)</label>
-                                <div class="field has-addons">
-                                    <div class="control is-expanded"><input class="input is-small" name="tlduration" id="tlduration" type="number" placeholder="0"></div>
-                                    <div class="control"><a class="button is-small is-static">min</a></div>
-                                </div>
-                                <p class="help">0 for unlimited capture</p>
-                            </div>
+                        <div class="columns is-multiline">
+                            <div class="column is-8"><label class="label is-small" for="frigate_url">Frigate address</label><input class="input is-small" name="frigate_url" id="frigate_url" type="text" placeholder="http://192.168.1.20:5000" autocomplete="off"></div>
+                            <div class="column is-4"><label class="label is-small" for="frigate_camera">Camera name in Frigate</label><input class="input is-small" name="frigate_camera" id="frigate_camera" type="text" placeholder="found automatically" autocomplete="off"></div>
                         </div>
-                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Initialize Timelapse</button></div>
+                        <p class="help">Adds a "Smooth live" button under the picture that opens this camera in Frigate's live view (full frame rate, sound). Frigate already receives the stream, so it costs the camera nothing. Leave the name empty to look it up in Frigate's configuration; clear the address to remove the button.</p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save</button></div>
                     </div>
                 </div>
             </form>
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Streams for Frigate and recorders</p></header>
+                <div class='card-content'>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div><p class="heading">IP Address</p><p class="title is-6" id="dash_ip">--.--.--.--</p></div>
+                        <div><p class="heading">Gateway</p><p class="title is-6" id="dash_gw">--.--.--.--</p></div>
+                    </div>
+                    <div class="buttons mt-2">
+                        <a class="button is-small is-primary" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
+                        <a class="button is-small is-light" id="dash_snapshot_link" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
+                    </div>
+                    <p class="help">Secondary stream: same address ending in <code>video1_unicast</code>. A Frigate configuration ready to paste is under More tools → Diagnostics on the main screen.</p>
+                </div>
+            </div>
 
-            <div class="columns">
+            <div class="columns mt-4">
                 <div class="column is-half">
                     <form id="formTelegram" action="cgi-bin/action.cgi?cmd=set_telegram_config" method="post">
                         <div class='card status_card'>
-                            <header class='card-header'><p class='card-header-title'>Telegram Bot</p></header>
+                            <header class='card-header'><p class='card-header-title'>Telegram notifications</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="telegram_enable" name="telegram_enable" type="checkbox"><label for="telegram_enable">Enable Telegram Notifications</label></div>
                                 <label class="label is-small">Bot Token</label>
@@ -365,13 +327,14 @@
                 <div class="column is-half">
                     <form id="formSyslog" action="cgi-bin/action.cgi?cmd=set_syslog_config" method="post">
                         <div class='card status_card'>
-                            <header class='card-header'><p class='card-header-title'>Syslog Forwarding</p></header>
+                            <header class='card-header'><p class='card-header-title'>Remote logging (syslog)</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="syslog_enable" name="syslog_enable" type="checkbox"><label for="syslog_enable">Enable Remote Syslog</label></div>
                                 <label class="label is-small">Remote Host</label>
                                 <input class="input is-small" name="syslog_host" id="syslog_host" type="text" placeholder="192.168.1.10">
                                 <label class="label is-small mt-2">Remote Port</label>
-                                <input class="input is-small" name="syslog_port" id="syslog_port" type="number" placeholder="514">
+                                <input class="input is-small" name="syslog_port" id="syslog_port" type="number" min="1" max="65535" placeholder="514">
+                                <p class="help">Sends the camera's important messages (notice level and above, logins) over UDP, still kept locally. On a Synology NAS: Log Center → Log Receiving → Create, format BSD, transfer protocol UDP, port 514; then enter the NAS address here.</p>
                                 <div class="buttons is-right mt-4"><button class="button is-primary is-small" type="submit">Save Syslog</button></div>
                             </div>
                         </div>
@@ -380,35 +343,44 @@
             </div>
         </div>
 
-        <!-- Network Tab -->
+        <!-- Network -->
         <div class="tab-content is-hidden" id="tab-network">
             <div class='card status_card mb-4'>
-                <header class='card-header'><p class='card-header-title'>Wi-Fi configuration</p></header>
+                <header class='card-header'><p class='card-header-title'>Wi-Fi network</p></header>
                 <div class='card-content'>
                     <div class="level is-mobile mb-3">
                         <div class="level-left"><div class="level-item"><span class="is-size-7">Current network:</span></div></div>
-                        <div class="level-right"><div class="level-item"><span class="tag is-info is-light is-size-7" id="current_ssid_tag">Chargement…</span></div></div>
+                        <div class="level-right"><div class="level-item"><span class="tag is-info is-light is-size-7" id="current_ssid_tag">Loading…</span></div></div>
                     </div>
                     <article class="message is-warning is-small mb-3">
                         <div class="message-body">The connection will be interrupted while changing networks. Reconnect to this page after a few seconds.</div>
                     </article>
                     <div class="field">
-                        <label class="label is-small">Nouveau SSID</label>
+                        <label class="label is-small">Network name (SSID)</label>
                         <input class="input is-small" id="wifi_ssid_input" type="text" placeholder="NetworkName" maxlength="32" autocomplete="off" spellcheck="false">
                     </div>
                     <div class="field">
-                        <label class="label is-small">Mot de passe (PSK)</label>
+                        <label class="label is-small">Password</label>
                         <input class="input is-small" id="wifi_psk_input" type="password" placeholder="●●●●●●●●" autocomplete="new-password">
                         <p class="help">Minimum 8 characters</p>
                     </div>
                     <div class="buttons is-right mt-3">
-                        <button class="button is-warning is-small" type="button" id="btnWifiApply">Appliquer la configuration WiFi</button>
+                        <button class="button is-warning is-small" type="button" id="btnWifiApply">Connect to this network</button>
                     </div>
+                    <div class="is-divider" data-content="Nearby networks"></div>
+                    <div class="buttons mb-2">
+                        <button class="button is-light is-small" type="button" id="wifi_scan_btn">Scan</button>
+                        <span class="help">Takes 3-5 seconds. Choose a network to fill in its name.</span>
+                    </div>
+                    <div id="wifi_scan_results"></div>
                 </div>
             </div>
+            <div id="network_settings_slot" class="mt-4" data-src="cgi-bin/network.cgi?part=settings">
+                <p class="help">Loading…</p>
+            </div>
 
-             <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Identity & Network Services</p></header>
+             <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Name and network services</p></header>
                 <div class='card-content'>
                     <form id="formNetwork" action="cgi-bin/action.cgi?cmd=set_network" method="post">
                         <div class="field"><label class="label is-small">Hostname</label><input class="input is-small" name="hostname" id="hostname" type="text"></div>
@@ -421,7 +393,7 @@
                 </div>
             </div>
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Region & Time (NTP)</p></header>
+                <header class='card-header'><p class='card-header-title'>Time zone and clock</p></header>
                 <div class='card-content'>
                     <form id="formTime" action="cgi-bin/action.cgi?cmd=settz" method="post">
                         <div class="field"><label class="label is-small">Timezone (TZ string)</label><input class="input is-small" name="tz" id="timezone" type="text" placeholder="UTC0"></div>
@@ -432,10 +404,10 @@
             </div>
         </div>
 
-        <!-- System Tab -->
+        <!-- System -->
         <div class="tab-content is-hidden" id="tab-system">
              <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Advanced Performance Tuning</p></header>
+                <header class='card-header'><p class='card-header-title'>Performance and security</p></header>
                 <div class='card-content'>
                     <form id="formTuning" action="cgi-bin/action.cgi?cmd=set_advanced_tuning" method="post">
                         <div class="columns is-multiline mb-0">
@@ -455,7 +427,7 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Elite Peripheral Mastery</p></header>
+                <header class='card-header'><p class='card-header-title'>LEDs and privacy</p></header>
                 <div class='card-content'>
                     <div class="columns">
                         <div class="column is-half">
@@ -477,7 +449,70 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Safety Snapshots & Maintenance</p></header>
+                <header class='card-header'><p class='card-header-title'>Maintenance</p></header>
+                <div class='card-content'>
+                    <form id="formRebootSchedule" action="cgi-bin/action.cgi?cmd=set_reboot_schedule" method="post">
+                         <div class="field"><input class="switch is-small" id="reboot_enable" name="reboot_enable" type="checkbox"><label for="reboot_enable">Enable Scheduled Reboot</label></div>
+                         <div class="columns is-mobile">
+                            <div class="column"><label class="label is-small">Hour (0-23)</label><input class="input is-small" name="reboot_hour" id="reboot_schedule_hour" type="number"></div>
+                            <div class="column"><label class="label is-small">Min (0-59)</label><input class="input is-small" name="reboot_min" id="reboot_schedule_min" type="number"></div>
+                            <div class="column is-half"><label class="label is-small">Weekday (* or 0-6)</label><input class="input is-small" name="reboot_dow" id="reboot_schedule_dow" type="text"></div>
+                         </div>
+                         <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Set Schedule</button></div>
+                    </form>
+                    <hr class="mt-2 mb-3">
+                    <div class="buttons is-centered">
+                        <button id="btnReboot" class="button is-danger is-small is-outlined">Hard Reboot</button>
+                        <button id="btnFreeRam" class="button is-warning is-small is-outlined">Clear Page Cache</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Setup wizard</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-3">Restart the initial setup wizard (profile, security, MQTT). The current configuration is unchanged until the wizard is submitted.</p>
+                    <button class="button is-warning is-small is-fullwidth" type="button" id="btnWizardReset">Restart setup wizard</button>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Firmware update</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-2">Upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept.</p>
+                    <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
+                    <div class="file is-small is-fullwidth mb-2">
+                        <label class="file-label" style="width:100%">
+                            <input class="file-input" type="file" id="fwuFile" accept=".tar">
+                            <span class="file-cta" style="flex-shrink:0"><span class="file-label">Choose…</span></span>
+                            <span class="file-name" id="fwuFileName" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">No file selected</span>
+                        </label>
+                    </div>
+                    <progress class="progress is-small is-info mb-2" id="fwuProgress" value="0" max="100" style="display:none"></progress>
+                    <div class="buttons">
+                        <button class="button is-info is-small" type="button" id="btnFwuUpload" disabled>Upload &amp; check</button>
+                        <button class="button is-warning is-small" type="button" id="btnFwuInstall" style="display:none">Install &amp; reboot</button>
+                        <button class="button is-small" type="button" id="btnFwuRollback" style="display:none">Roll back</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backup -->
+        <div class="tab-content is-hidden" id="tab-backup">
+            <article class="message is-info is-small">
+                <div class="message-body">
+                    <p><strong>Which one to use?</strong></p>
+                    <ul class="backup-guide">
+                        <li><strong>Restore point</strong>: one "last known good" copy, saved on the camera before trying new settings.</li>
+                        <li><strong>Presets</strong>: named setups kept on the camera, to switch between them.</li>
+                        <li><strong>Full backup</strong>: an archive of every configuration file, passwords included; keep one before replacing the SD card.</li>
+                        <li><strong>JSON exchange</strong>: copy settings to another camera (its network identity can be left out).</li>
+                    </ul>
+                </div>
+            </article>
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Restore point</p></header>
                 <div class='card-content'>
                     <div class="columns mb-0">
                         <div class="column">
@@ -493,42 +528,65 @@
                             <p class="help mt-1">Revert if a profile change causes image issues.</p>
                         </div>
                     </div>
-                    <div class="is-divider" data-content="System Maintenance"></div>
-                    <form id="formRebootSchedule" action="cgi-bin/action.cgi?cmd=set_reboot_schedule" method="post">
-                         <div class="field"><input class="switch is-small" id="reboot_enable" name="reboot_enable" type="checkbox"><label for="reboot_enable">Enable Scheduled Reboot</label></div>
-                         <div class="columns is-mobile">
-                            <div class="column"><label class="label is-small">Hour (0-23)</label><input class="input is-small" name="reboot_hour" id="reboot_schedule_hour" type="number"></div>
-                            <div class="column"><label class="label is-small">Min (0-59)</label><input class="input is-small" name="reboot_min" id="reboot_schedule_min" type="number"></div>
-                            <div class="column is-half"><label class="label is-small">Weekday (* or 0-6)</label><input class="input is-small" name="reboot_dow" id="reboot_schedule_dow" type="text"></div>
-                         </div>
-                         <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Set Schedule</button></div>
-                    </form>
-                    <hr class="mt-2 mb-3">
-                    <div class="buttons is-centered">
-                        <button id="btnReboot" class="button is-danger is-small is-outlined">Hard Reboot</button>
-                        <button id="btnFreeRam" class="button is-warning is-small is-outlined">Clear Page Cache</button>
-                        <a class="button is-link is-small is-outlined" href="cgi-bin/configbackup.cgi?cmd=download" target="_blank">Export Backup</a>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Configuration profiles</p></header>
+                <div class='card-content'>
+                    <p class="mb-4">Save your current configuration as a named preset, or load a previously saved preset to restore settings.</p>
+                    <div class="columns">
+                        <div class="column is-half">
+                            <label class="label is-small">Load Preset</label>
+                            <div class="field has-addons">
+                                <div class="control is-expanded">
+                                    <div class="select is-small is-fullwidth"><select id="preset_dropdown"><option value="">-- Select a preset --</option></select></div>
+                                </div>
+                                <div class="control"><button type="button" id="btn_load_preset" class="button is-info is-small">Load preset</button></div>
+                            </div>
+                            <p class="help">Load a previously saved configuration.</p>
+                        </div>
+                        <div class="column is-half">
+                            <label class="label is-small">Save as New Preset</label>
+                            <div class="field has-addons">
+                                <div class="control is-expanded">
+                                    <input class="input is-small" id="preset_name_input" type="text" placeholder="e.g., frigate-night, universal-h264">
+                                </div>
+                                <div class="control"><button type="button" id="btn_save_preset" class="button is-success is-small">Save</button></div>
+                            </div>
+                            <p class="help">Save current settings with a new name.</p>
+                        </div>
                     </div>
                 </div>
             </div>
-
-            <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Assistant de configuration</p></header>
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Saved presets</p></header>
                 <div class='card-content'>
-                    <p class="is-size-7 mb-3">Restart the initial setup wizard (profile, security, MQTT). The current configuration is unchanged until the wizard is submitted.</p>
-                    <button class="button is-warning is-small is-fullwidth" type="button" id="btnWizardReset">Restart setup wizard</button>
+                    <table class="table is-fullwidth is-hoverable is-size-7" id="presets_table" style="display:none">
+                        <thead>
+                            <tr><th>Preset Name</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody id="presets_tbody"></tbody>
+                    </table>
+                    <p id="presets_empty" class="help">No presets saved yet.</p>
+                    <div class="buttons mt-4">
+                        <button type="button" id="btn_refresh_presets" class="button is-light is-small">Refresh List</button>
+                        <button type="button" id="btn_export_config" class="button is-light is-small">Export Current</button>
+                        <button type="button" id="btn_import_config" class="button is-light is-small">Import File</button>
+                    </div>
+                    <input type="file" id="import_file_input" accept=".json" style="display:none;">
                 </div>
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Export / Import de configuration</p></header>
+                <header class='card-header'><p class='card-header-title'>Export and import settings</p></header>
                 <div class='card-content'>
                     <div class="columns">
                         <div class="column is-half">
                             <p class="is-size-7 mb-2">Download <code>boot.conf</code> and <code>mqtt.conf</code> as a text <code>.conf</code> file.</p>
                             <a class="button is-info is-small is-fullwidth" href="cgi-bin/conf-export.cgi">
                                 <span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-                                <span>Exporter la configuration</span>
+                                <span>Export settings</span>
                             </a>
                         </div>
                         <div class="column is-half">
@@ -549,7 +607,11 @@
                     <p class="help mt-2">A reboot is required to apply imported changes.</p>
                 </div>
             </div>
+            <div id="backup_slot" class="mt-4" data-src="backup.html">
+                <p class="help">Loading…</p>
+            </div>
         </div>
+
     </div>
 </div>
 
@@ -569,10 +631,46 @@
                 document.querySelectorAll('.tab-content').forEach(function(content) {
                     content.classList.toggle('is-hidden', content.id !== targetId);
                 });
-                if (targetId === 'tab-automation') { initHAStatus(); }
-                if (targetId === 'tab-network') { loadWifiSsid(); }
+                if (targetId === 'tab-integrations') { initHAStatus(); }
+                if (targetId === 'tab-network') { loadWifiSsid(); loadSlot('network_settings_slot'); }
+                if (targetId === 'tab-backup') { loadSlot('backup_slot'); }
             });
         });
+
+        // Parts that live in their own page (IP/DNS/Wi-Fi scan from
+        // network.cgi, the full backup from backup.html) are loaded the first
+        // time their tab is opened.
+        function loadSlot(id) {
+            var slot = document.getElementById(id);
+            if (!slot || slot.dataset.loaded || !window.EliteUI || !window.EliteUI.loadInto) return;
+            slot.dataset.loaded = '1';
+            window.EliteUI.loadInto(slot, slot.dataset.src);
+        }
+
+        // Nearby networks, inside the Wi-Fi card: a click on a row fills the
+        // network name (rows carry the escaped SSID in data-ssid).
+        (function initWifiScan() {
+            var btn = document.getElementById('wifi_scan_btn');
+            var results = document.getElementById('wifi_scan_results');
+            if (!btn || !results) return;
+            btn.addEventListener('click', function () {
+                btn.classList.add('is-loading');
+                results.innerHTML = '';
+                fetch('cgi-bin/action.cgi?cmd=wifi_scan&_=' + Date.now(), { cache: 'no-store' })
+                    .then(function (r) { return r.text(); })
+                    .then(function (t) { results.innerHTML = t.replace('<hr/>', '').trim(); })
+                    .catch(function (e) { results.textContent = 'Scan failed: ' + e; })
+                    .finally(function () { btn.classList.remove('is-loading'); });
+            });
+            results.addEventListener('click', function (ev) {
+                var row = ev.target.closest('tr.wifi-pick');
+                if (!row || !row.dataset.ssid) return;
+                var ssid = document.getElementById('wifi_ssid_input');
+                if (ssid) { ssid.value = row.dataset.ssid; ssid.dispatchEvent(new Event('input', { bubbles: true })); }
+                var psk = document.getElementById('wifi_psk_input');
+                if (psk) psk.focus();
+            });
+        })();
 
         function loadWifiSsid() {
             var tag = document.getElementById('current_ssid_tag');
@@ -711,6 +809,105 @@
                 };
                 reader.readAsText(f, 'utf-8');
             });
+        })();
+
+
+        (function initFirmwareUpdate() {
+            var file = document.getElementById('fwuFile');
+            var name = document.getElementById('fwuFileName');
+            var up = document.getElementById('btnFwuUpload');
+            var inst = document.getElementById('btnFwuInstall');
+            var rb = document.getElementById('btnFwuRollback');
+            var bar = document.getElementById('fwuProgress');
+            var cur = document.getElementById('fwuCurrent');
+            var status = document.getElementById('fwuStatus');
+            if (!file || !up) return;
+            var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+
+            // Bulma's display rules on .button/.progress override [hidden].
+            function show(el, on) { el.style.display = on ? '' : 'none'; }
+            function say(text) { status.textContent = text; }
+            function refresh() {
+                return fetch('cgi-bin/update.cgi?cmd=status', { cache: 'no-store' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        cur.textContent = d.current || '?';
+                        show(rb, !!d.rollback_to);
+                        if (d.rollback_to) rb.textContent = 'Roll back to ' + d.rollback_to;
+                        show(inst, d.state === 'staged');
+                        if (d.state === 'staged') inst.textContent = 'Install ' + d.staged + ' & reboot';
+                        return d;
+                    }).catch(function() {});
+            }
+            function waitForReboot(msg) {
+                say(msg + ' The camera is rebooting; this page reloads when it is back (about 1–2 min).');
+                var start = Date.now();
+                setTimeout(function poll() {
+                    fetch('cgi-bin/update.cgi?cmd=status', { cache: 'no-store' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            if (d && (d.state === 'installing')) throw new Error('busy');
+                            if (Date.now() - start < 40000) throw new Error('too early');
+                            location.reload();
+                        })
+                        .catch(function() { setTimeout(poll, 5000); });
+                }, 20000);
+            }
+            function run(cmd, confirmText, msg) {
+                if (!confirm(confirmText)) return;
+                inst.disabled = rb.disabled = up.disabled = true;
+                cf('cgi-bin/update.cgi?cmd=' + cmd, { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (!d || !d.ok) throw new Error((d && (d.message || d.error)) || 'refused');
+                        waitForReboot(msg);
+                    })
+                    .catch(function(e) { inst.disabled = rb.disabled = false; say('Error: ' + e.message); });
+            }
+
+            file.addEventListener('change', function() {
+                var f = file.files[0];
+                name.textContent = f ? f.name : 'No file selected';
+                up.disabled = !f;
+            });
+            up.addEventListener('click', function() {
+                var f = file.files[0];
+                if (!f) return;
+                up.classList.add('is-loading'); up.disabled = true; show(inst, false);
+                show(bar, true); bar.value = 0;
+                var tokenP = window.ensureCsrfToken ? window.ensureCsrfToken() : Promise.resolve('');
+                tokenP.then(function(token) {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', 'cgi-bin/update.cgi?cmd=upload');
+                    xhr.setRequestHeader('X-CSRF-Token', token);
+                    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                    xhr.upload.onprogress = function(ev) {
+                        if (ev.lengthComputable) { bar.value = Math.round(ev.loaded * 100 / ev.total); say('Uploading… ' + bar.value + ' %'); }
+                    };
+                    xhr.upload.onload = function() { bar.removeAttribute('value'); say('Checking the package on the camera…'); };
+                    xhr.onload = function() {
+                        up.classList.remove('is-loading'); up.disabled = false; show(bar, false);
+                        var d; try { d = JSON.parse(xhr.responseText); } catch (e) { d = null; }
+                        if (d && d.ok) {
+                            say('Package ' + d.version + ' is valid: ' + d.changed + ' of ' + d.files + ' files differ from the installed ' + d.current + '.');
+                            refresh();
+                        } else {
+                            say('Package rejected: ' + ((d && (d.message || d.error)) || ('HTTP ' + xhr.status)) +
+                                (d && d.bad_md5 ? ' (' + d.bad_md5 + ' damaged file(s))' : '') +
+                                (d && d.syntax_errors ? ' (syntax: ' + d.syntax_errors + ')' : ''));
+                        }
+                    };
+                    xhr.onerror = function() { up.classList.remove('is-loading'); up.disabled = false; show(bar, false); say('Network error during upload.'); };
+                    xhr.send(f);
+                });
+            });
+            inst.addEventListener('click', function() {
+                run('install', 'Install the uploaded firmware and reboot the camera?\n\nThe replaced files are kept for a rollback.', 'Installing.');
+            });
+            rb.addEventListener('click', function() {
+                run('rollback', 'Restore the files replaced by the last update and reboot the camera?', 'Rolling back.');
+            });
+            refresh();
         })();
 
         function initHAStatus() {

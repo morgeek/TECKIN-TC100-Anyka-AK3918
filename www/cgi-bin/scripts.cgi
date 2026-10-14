@@ -113,20 +113,20 @@ run_status_probe() {
   if [ -n "$status_timeout_cmd" ]; then
     case "$status_timeout_cmd" in
       "/mnt/bin/busybox timeout")
-        /mnt/bin/busybox timeout "$timeout_seconds" sh "$script_path" status >"$probe_output" 2>/dev/null
+        /mnt/bin/busybox timeout "$timeout_seconds" sh "$script_path" status </dev/null >"$probe_output" 2>/dev/null
         probe_rc=$?
         ;;
       "/bin/busybox timeout")
-        /bin/busybox timeout "$timeout_seconds" sh "$script_path" status >"$probe_output" 2>/dev/null
+        /bin/busybox timeout "$timeout_seconds" sh "$script_path" status </dev/null >"$probe_output" 2>/dev/null
         probe_rc=$?
         ;;
       *)
-        timeout "$timeout_seconds" sh "$script_path" status >"$probe_output" 2>/dev/null
+        timeout "$timeout_seconds" sh "$script_path" status </dev/null >"$probe_output" 2>/dev/null
         probe_rc=$?
         ;;
     esac
   else
-    sh "$script_path" status >"$probe_output" 2>/dev/null &
+    sh "$script_path" status </dev/null >"$probe_output" 2>/dev/null &
     probe_pid=$!
 
     (
@@ -167,14 +167,154 @@ parse_script_capabilities() {
   has_start=0
   has_stop=0
   has_status=0
-  # Parse start/stop/status function presence using shell builtins to save forks
+  script_pidfile=""
+  # Parse start/stop/status function presence (and the declared PIDFILE /
+  # PID_FILE) using shell builtins to save forks
   while IFS= read -r line; do
     case "$line" in
       *"start()"*)  has_start=1 ;;
       *"stop()"*)   has_stop=1 ;;
       *"status()"*) has_status=1 ;;
+      PIDFILE=*|PID_FILE=*)
+        if [ -z "$script_pidfile" ]; then
+          script_pidfile="${line#*=}"
+          script_pidfile="${script_pidfile%%[ 	#]*}"
+          script_pidfile="${script_pidfile#[\"\']}"; script_pidfile="${script_pidfile%[\"\']}"
+        fi ;;
     esac
   done < "$script_file"
+}
+
+# Services whose status() is exactly "the PID in the pidfile is alive". For
+# them allstates reads the pidfile and /proc directly instead of running the
+# script: running 25 controlscripts one after another (each sourcing
+# common_functions.sh under busybox timeout) took ~12 s per Services poll.
+# memory-guard / cpu-scaler add "disabled" when their boot.conf key is off.
+# LED/IR toggles, motion, auto-night and web-server go through
+# fast_toggle_state; any other script is probed.
+FAST_PIDFILE_SERVICES=" ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler "
+
+# port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
+# (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID
+# or a half-dead tcpsvd showed services as running with their port closed.
+port_listening() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  _pl_hex="$(printf '%04X' "$1")"
+  for _pl_f in /proc/net/tcp /proc/net/tcp6; do
+    [ -r "$_pl_f" ] || continue
+    while read -r _pl_sl _pl_local _pl_rem _pl_st _pl_rest; do
+      [ "$_pl_st" = 0A ] || continue
+      case "$_pl_local" in *":$_pl_hex") return 0 ;; esac
+    done < "$_pl_f"
+  done
+  return 1
+}
+
+# read_first FILE -> first word of FILE ("" if unreadable), no fork.
+read_first() {
+  _rf_v=""
+  [ -r "$1" ] && read -r _rf_v _rf_rest < "$1" 2>/dev/null
+  printf '%s' "$_rf_v"
+}
+
+# kv_value FILE KEY -> raw value of KEY=... in FILE, no fork.
+kv_value() {
+  _kv_v=""
+  [ -r "$1" ] || return 0
+  while IFS= read -r _kv_l; do
+    case "$_kv_l" in "$2="*) _kv_v="${_kv_l#*=}" ;; esac
+  done < "$1"
+  _kv_v="${_kv_v#[\"\']}"; _kv_v="${_kv_v%[\"\']}"
+  printf '%s' "$_kv_v"
+}
+
+# fast_toggle_state SCRIPT -> same result as the script's status(), computed
+# here: those status() functions only read a sysfs/run file or setconf, but
+# starting each script costs ~0.2 s (common_functions.sh + busybox timeout).
+# Keep in sync with common_functions.sh (led, ir_led, ir_cut, black_white,
+# motion_detection) — tests/test_regressions.py checks the files they read.
+fast_toggle_state() {
+  _ft_on=""
+  case "$1" in
+    front-led) [ "$(read_first /sys/class/leds/blue_led/brightness)" = 1 ] && _ft_on=1 ;;
+    red-led)   [ "$(read_first /sys/class/leds/red_led/brightness)" = 1 ] && _ft_on=1 ;;
+    ir-led)    [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] && _ft_on=1 ;;
+    ir-cut)    [ "$(read_first /var/run/ircut)" = 1 ] && _ft_on=1 ;;
+    black-white) [ "$(read_first /var/run/vday)" = 0 ] && _ft_on=1 ;;
+    night-mode)
+      [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] && [ "$(read_first /var/run/ircut)" = 0 ] \
+        && [ "$(read_first /var/run/vday)" = 0 ] && _ft_on=1 ;;
+    motion-mail)     [ "$(kv_value /mnt/config/motion.conf sendemail)" = true ] && _ft_on=1 ;;
+    motion-snapshot) [ "$(kv_value /mnt/config/motion.conf save_snapshot)" = true ] && _ft_on=1 ;;
+    auto-night-detection) [ "$(/mnt/bin/setconf -g n 2>/dev/null)" = 2 ] && _ft_on=1 ;;
+    motion-detection)
+      if [ "$(/mnt/bin/setconf -g p 2>/dev/null)" != 0 ]; then
+        _ft_pid="$(read_first /var/run/detection-monitor.pid)"
+        case "$_ft_pid" in ''|*[!0-9]*) ;; *) [ -d "/proc/$_ft_pid" ] && _ft_on=1 ;; esac
+      fi ;;
+    web-server)
+      for _ft_p in /proc/[0-9]*; do
+        [ -r "$_ft_p/stat" ] || continue
+        read -r _ft_stat 2>/dev/null < "$_ft_p/stat" || continue
+        case "$_ft_stat" in *"(lighttpd)"*|*"(httpd)"*) _ft_on=1; _ft_pid="${_ft_p#/proc/}"; break ;; esac
+      done ;;
+    *) return 1 ;;
+  esac
+  if [ -n "$_ft_on" ]; then
+    state="running"; running=1
+    if [ "$1" = web-server ] || [ "$1" = motion-detection ]; then
+      _svc_pid_uptime "$_ft_pid"; uptime_s="$_svc_uptime_s"
+    fi
+  else
+    state="stopped"
+  fi
+  return 0
+}
+
+# boot_conf_flag KEY -> prints the raw value of KEY from boot.conf (no forks).
+boot_conf_flag() {
+  _bcf_v=""
+  [ -r /mnt/config/boot.conf ] || return 0
+  while IFS= read -r _bcf_l; do
+    case "$_bcf_l" in "$1="*) _bcf_v="${_bcf_l#*=}" ;; esac
+  done < /mnt/config/boot.conf
+  _bcf_v="${_bcf_v#[\"\']}"; _bcf_v="${_bcf_v%[\"\']}"
+  printf '%s' "$_bcf_v"
+}
+
+# fast_pidfile_state SCRIPT -> sets state / running / uptime_s; returns 1 when
+# SCRIPT is not on the fast path (caller probes it).
+fast_pidfile_state() {
+  case "$FAST_PIDFILE_SERVICES" in *" $1 "*) ;; *) return 1 ;; esac
+  [ -n "$script_pidfile" ] || return 1
+  _fp_pid=""
+  [ -r "$script_pidfile" ] && read -r _fp_pid < "$script_pidfile" 2>/dev/null
+  case "$_fp_pid" in ''|*[!0-9]*) _fp_pid="" ;; esac
+  case "$1" in
+    ftp-server)    _fp_port="$(kv_value /mnt/config/ftp.conf PORT)" ;;
+    telnet-server) _fp_port="$(kv_value /mnt/config/telnetd.conf TELNET_PORT)" ;;
+    *)             _fp_port="" ;;
+  esac
+  # Listener services: a live PID whose port is closed is not running.
+  if [ -n "$_fp_pid" ] && [ -n "$_fp_port" ] && ! port_listening "$_fp_port"; then
+    _fp_pid=""
+  fi
+  if [ -n "$_fp_pid" ] && [ -d "/proc/$_fp_pid" ]; then
+    state="running"; running=1
+    _svc_pid_uptime "$_fp_pid"
+    uptime_s="$_svc_uptime_s"
+    return 0
+  fi
+  state="stopped"
+  case "$1" in
+    memory-guard) _fp_key=MEM_GUARD_ENABLE ;;
+    cpu-scaler)   _fp_key=CPU_SCALER_ENABLE ;;
+    *)            _fp_key="" ;;
+  esac
+  if [ -n "$_fp_key" ]; then
+    case "$(boot_conf_flag "$_fp_key")" in 1|true|yes|on|enabled) ;; *) state="disabled" ;; esac
+  fi
+  return 0
 }
 
 service_impact_level_for() {
@@ -231,15 +371,44 @@ service_impact_label_for() {
   esac
 }
 
+# Script capabilities (start/stop/status, PIDFILE) only change when the
+# controlscripts do; parsing all of them line by line cost ~1.3 s per poll.
+# Cached in tmpfs, rebuilt when the list changes or any script is newer.
+CAPS_CACHE_FILE="${CAPS_CACHE_FILE:-/tmp/scripts-caps.cache}"
+ensure_caps_cache() {
+  _cc_names=""
+  _cc_stale=0
+  [ -f "$CAPS_CACHE_FILE" ] || _cc_stale=1
+  for _cc_p in "$SCRIPT_HOME"/*; do
+    [ -f "$_cc_p" ] || continue
+    _cc_n="${_cc_p##*/}"
+    is_valid_script_name "$_cc_n" || continue
+    _cc_names="$_cc_names $_cc_n"
+    [ "$_cc_stale" = 1 ] || [ ! "$_cc_p" -nt "$CAPS_CACHE_FILE" ] || _cc_stale=1
+  done
+  if [ "$_cc_stale" = 0 ]; then
+    read -r _cc_head < "$CAPS_CACHE_FILE" 2>/dev/null
+    [ "$_cc_head" = "#$_cc_names" ] && return 0
+  fi
+  _cc_tmp="$CAPS_CACHE_FILE.$$"
+  {
+    echo "#$_cc_names"
+    for _cc_n in $_cc_names; do
+      parse_script_capabilities "$SCRIPT_HOME/$_cc_n"
+      echo "$_cc_n $has_start $has_stop $has_status ${script_pidfile:--}"
+    done
+  } > "$_cc_tmp" && mv -f "$_cc_tmp" "$CAPS_CACHE_FILE"
+}
+
 generate_allstates_payload() {
+  ensure_caps_cache
   printf '{"status":"ok","services":['
   first=1
-  for script_path in "$SCRIPT_HOME"/*; do
+  while read -r script has_start has_stop has_status script_pidfile; do
+    case "$script" in '#'*|'') continue ;; esac
+    [ "$script_pidfile" = "-" ] && script_pidfile=""
+    script_path="$SCRIPT_HOME/$script"
     [ -f "$script_path" ] || continue
-    script="${script_path##*/}"
-    if ! is_valid_script_name "$script"; then
-      continue
-    fi
 
     [ "$first" -eq 0 ] && printf ','
     first=0
@@ -248,11 +417,12 @@ generate_allstates_payload() {
     running=0
     state="unknown"
     uptime_s=-1
-    parse_script_capabilities "$script_path"
 
     [ -f "$AUTOSTART_DIR/$script" ] && autostart_enabled=1
 
-    if [ "$has_status" -eq 1 ]; then
+    if [ "$has_status" -eq 1 ] && { fast_pidfile_state "$script" || fast_toggle_state "$script"; }; then
+      :
+    elif [ "$has_status" -eq 1 ]; then
       # For bulk listing, use a shorter timeout to avoid blocking the whole response.
       status_output="$(run_status_probe "$script_path" 1)"
       status_rc=$?
@@ -275,13 +445,21 @@ generate_allstates_payload() {
         fi
       elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
         state="timeout"
+      elif [ "$status_rc" -eq 1 ]; then
+        # Most controlscripts' status() returns 1 when the daemon is not
+        # running (onvif, timelapse, sound-detection, ...): that is "stopped",
+        # not a failure. Other codes (2 = shell error, 127 = missing command)
+        # remain "error".
+        state="stopped"
+      elif [ "$status_rc" -eq 3 ]; then
+        state="disabled"   # turned off in boot.conf (memory-guard, cpu-scaler)
       else
         state="error"
       fi
     fi
     printf '{"script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s,"uptime_s":%s}' \
       "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled" "$uptime_s"
-  done
+  done < "$CAPS_CACHE_FILE"
   echo ']}'
 }
 
@@ -307,6 +485,17 @@ emit_allstates_response() {
 
   generate_allstates_payload
 }
+
+# allstates is a page-wide poll: the Services page calls it without a script
+# name. It used to be handled only inside the per-script branch below, so the
+# request fell through to the HTML listing, the page's JSON parse failed and
+# every row stayed on "Loading..." ("Service status is unavailable").
+if [ "$F_cmd" = "allstates" ]; then
+  echo "Content-type: application/json"
+  echo ""
+  emit_allstates_response
+  exit 0
+fi
 
 if [ -n "$F_script" ]; then
   script="${F_script##*/}"
@@ -371,10 +560,20 @@ if [ -n "$F_script" ]; then
         fi
         ;;
       view)
+        # Full page (direct link / new tab). The source is HTML-escaped: a
+        # script containing "<" used to be rendered as markup.
         echo "Content-type: text/html"
         echo ""
         echo "Contents of script '$script':"
-        echo "<pre>$(cat "$SCRIPT_HOME/$script" 2>&1)</pre>"
+        printf '<pre>'
+        sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' "$SCRIPT_HOME/$script" 2>&1
+        printf '</pre>\n'
+        ;;
+      source)
+        # Plain text for the Services page dialog.
+        echo "Content-type: text/plain; charset=utf-8"
+        echo ""
+        cat "$SCRIPT_HOME/$script" 2>&1
         ;;
       state)
         if [ ! -f "$SCRIPT_HOME/$script" ]; then
@@ -414,6 +613,10 @@ if [ -n "$F_script" ]; then
               fi
             elif [ "$status_rc" -eq 143 ] || [ "$status_rc" -eq 124 ]; then
               state="timeout"
+            elif [ "$status_rc" -eq 1 ]; then
+              state="stopped"   # status() returns 1 when not running (see allstates)
+            elif [ "$status_rc" -eq 3 ]; then
+              state="disabled"
             else
               state="error"
             fi
@@ -424,11 +627,6 @@ if [ -n "$F_script" ]; then
           printf '{"status":"ok","script":"%s","state":"%s","running":%s,"has_start":%s,"has_stop":%s,"has_status":%s,"autostart_enabled":%s,"uptime_s":%s}\n' \
             "$script" "$state" "$running" "$has_start" "$has_stop" "$has_status" "$autostart_enabled" "$uptime_s"
         fi
-        ;;
-      allstates)
-        echo "Content-type: application/json"
-        echo ""
-        emit_allstates_response
         ;;
       *)
         echo "Content-type: text/html"
@@ -508,7 +706,7 @@ else
       echo "<label for='autorun_$script_id' title='Enable or disable autorun for this service'>Boot</label>"
       echo "</td>"
       echo "<td>"
-      echo "<a href='cgi-bin/scripts.cgi?cmd=view&script=$i' class='button is-small is-light view_script' title='View this script source'>View</a>"
+      echo "<a href='cgi-bin/scripts.cgi?cmd=view&script=$i' class='button is-small is-light view_script' data-script-name='$i' title='View this script source'>View</a>"
       echo "</td>"
       echo "</tr>"
     done
@@ -527,5 +725,5 @@ else
   fi
   
   # Use bundled script to allow client caching and reduce server CPU
-  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.3-rc20\"></script>"
+  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.4-ui2\"></script>"
 fi

@@ -22,8 +22,10 @@
     </script>
 
     <!-- CSS Framework: Modernization v1.0.2 -->
-    <link href="css/bulma.1.0.2.min.css" rel="stylesheet">
-    <link href="css/ui-modern.min.css?v=1.8.3-rc20" rel="stylesheet">
+    <link href="css/bulma.1.0.2.purged.min.css?v=1.8.4" rel="stylesheet">
+    <link href="css/ui-modern.min.css?v=1.8.4-ui4" rel="stylesheet">
+    <link href="css/ui-v2.css?v=1.8.4-ui8" rel="stylesheet">
+    <script src="scripts/i18n.js?v=1.8.4-i18n4"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -115,7 +117,7 @@
                 <a class="navbar-item icnbtn" href="." id="title" title="Elite Edition">
                     <i class="icon-eye"></i>
                     <span class="wordmark" style="margin-left: 0.5rem; font-weight: 800; letter-spacing: -0.5px;">ELITE</span>
-                    <span id="fw_version" title="Firmware version">version n/a</span>
+                    <span id="fw_version" title="Firmware version">…</span>
                     <span id="update_notifier" class="update-badge" title="New Version Available! Click to view.">NEW</span>
                 </a>
                 <a class="navbar-item icnbtn onpage" href="javascript: void(0)" data-target="view_records.html"
@@ -154,58 +156,12 @@
                             </span>
                         </a>
                         <div class="navbar-dropdown is-boxed">
-                            <a id="sysusageinfo" class="navbar-item onpage" href="javascript: void(0)"
-                                data-target="cgi-bin/sysusageinfo.cgi">
+                            <a id="diagnostics" class="navbar-item onpage" href="javascript: void(0)" data-target="diagnostics.html">
                                 <span class="info-menu-item">
                                     <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
                                         <path d="M4 18h16M7 14l3-3l3 2l4-5" />
                                     </svg>
-                                    <span>System Usage</span>
-                                </span>
-                            </a>
-                            <a id="devinfo" class="navbar-item onpage" href="javascript: void(0)"
-                                data-target="cgi-bin/devinfo.cgi">
-                                <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path
-                                            d="M8 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM10 17h4" />
-                                    </svg>
-                                    <span>Device Info</span>
-                                </span>
-                            </a>
-                            <a id="network" class="navbar-item onpage" href="javascript: void(0)"
-                                data-target="cgi-bin/network.cgi">
-                                <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path d="M12 3v6M5 21h14M6 9h12M7 15h10" />
-                                    </svg>
-                                    <span>Network & DNS</span>
-                                </span>
-                            </a>
-                            <a id="disk" class="navbar-item onpage" href="javascript: void(0)"
-                                data-target="cgi-bin/disk.cgi">
-                                <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path
-                                            d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3s-3.6 3-8 3s-8-1.3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3M4 17c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-                                    </svg>
-                                    <span>Disk & Mounts</span>
-                                </span>
-                            </a>
-                            <a id="configeditor" class="navbar-item onpage" href="javascript: void(0)" data-target="configeditor.html">
-                                <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path d="M14 3v4a1 1 0 0 0 1 1h4M5 8v-3a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3M5 18H3M7 15l-2 3l2 3" />
-                                    </svg>
-                                    <span>Config Editor</span>
-                                </span>
-                            </a>
-                            <a id="backup" class="navbar-item onpage" href="javascript: void(0)" data-target="backup.html">
-                                <span class="info-menu-item">
-                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-                                        <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3" />
-                                    </svg>
-                                    <span>Backup &amp; Restore</span>
+                                    <span>Diagnostics</span>
                                 </span>
                             </a>
                             <a id="logs" class="navbar-item onpage" href="javascript: void(0)" data-target="logs.html">
@@ -214,6 +170,16 @@
                                         <path d="M7 4h10l3 3v13H7zM14 4v3h3M10 11h7M10 15h7" />
                                     </svg>
                                     <span>Logs</span>
+                                </span>
+                            </a>
+                            <hr class="nav-section-divider">
+                            <p class="navbar-item nav-section-label">Advanced</p>
+                            <a id="configeditor" class="navbar-item onpage" href="javascript: void(0)" data-target="configeditor.html">
+                                <span class="info-menu-item">
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M14 3v4a1 1 0 0 0 1 1h4M5 8v-3a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3M5 18H3M7 15l-2 3l2 3" />
+                                    </svg>
+                                    <span>Config Editor</span>
                                 </span>
                             </a>
                         </div>
@@ -240,7 +206,7 @@
 
                 <!-- Elite Controls: Theme Toggle & Logout -->
                 <div class="navbar-end">
-                    <button class="navbar-item operator-toggle" id="operator_mode_toggle" type="button" title="Show only daily camera controls">Operator mode</button>
+                    <a class="navbar-item lang-toggle" id="lang_toggle" href="#" translate="no">FR</a>
                     <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
                         <span class="nav-icon" id="theme_toggle_icon">
                             <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 20px; height: 20px;">
@@ -265,27 +231,39 @@
 
     <section id="main" class="section">
         <div id="content" class="container app-shell">
-            <header class="camera-summary">
-                <div class="camera-health">
-                    <span id="camera_state_dot" class="camera-state-dot is-checking"></span>
-                    <div><strong id="camera_state">Checking camera…</strong><small id="status_updated">Updating…</small></div>
-                </div>
-            </header>
-
-            <div class="liveview-wrap">
+            <div class="liveview-wrap v2-monitor">
                 <img id="liveview" src="cgi-bin/currentpic.cgi" loading="eager" decoding="async"
                     alt="Live camera preview" onerror="this.src='css/unable_load.png';">
+                <div class="v2-osd top">
+                    <div class="camera-health">
+                        <span id="camera_state_dot" class="camera-state-dot is-checking"></span>
+                        <div><strong id="camera_state">Checking camera…</strong><small id="status_updated">Updating…</small></div>
+                    </div>
+                    <span id="osd_name"></span>
+                </div>
+                <div class="v2-osd bottom">
+                    <span id="osd_profile"></span>
+                    <span id="osd_light"></span>
+                </div>
+            </div>
+            <div class="v2-readings" id="readings" aria-live="polite">
+                <span id="rd_cpu">CPU<b>…</b></span>
+                <span id="rd_ram">Memory<b>…</b></span>
+                <span id="rd_wifi">Wi-Fi<b>…</b></span>
+                <span id="rd_sd">SD card<b>…</b></span>
+                <span id="rd_mqtt">MQTT<b>…</b></span>
             </div>
 
             <div class="app-toolbar">
                 <div class="toolbar-group live-actions">
-                    <button class="button" id="live_toggle" type="button">Resume Live</button>
+                    <button class="button v2-primary" id="live_toggle" type="button">Resume Live</button>
                     <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
+                    <a class="button is-light" id="live_frigate" href="#" target="_blank" rel="noopener" title="Open this camera in Frigate's live view (full frame rate)" hidden>Smooth live</a>
                 </div>
                 <span class="toolbar-divider"></span>
                 <div class="toolbar-group audio-actions">
-                    <button class="button is-info" id="listen_btn" type="button" title="Load camera audio controls"><i class="icon-headphones"></i> <span class="listen-label">Enable audio</span></button>
-                    <button class="button is-danger ptt-primary" id="ptt_btn" type="button" title="Load push-to-talk controls"><i class="icon-microphone"></i> <span class="ptt-label">Enable PTT</span></button>
+                    <button class="button is-info" id="listen_btn" type="button" title="Load camera audio controls"><i class="icon-headphones"></i> <span class="listen-label">Listen</span></button>
+                    <button class="button is-danger ptt-primary" id="ptt_btn" type="button" title="Load push-to-talk controls"><i class="icon-microphone"></i> <span class="ptt-label">Talk</span></button>
                     <span class="ptt-vol-wrap" title="Speaker volume"><i class="icon-volume-medium ptt-vol-icon"></i><input type="range" id="ptt_vol" min="0" max="100" value="90" class="ptt-vol-slider" aria-label="PTT volume" disabled><span id="ptt_vol_label" class="ptt-vol-label">90%</span></span>
                     <button class="button is-small" id="ptt_test_btn" type="button" disabled><i class="icon-play"></i> <span class="ptt-test-label">Test</span></button>
                     <span id="ptt_last_sent" class="ptt-last-sent">Audio loads on demand</span>
@@ -312,7 +290,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.3-rc20" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.4-ui6" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
@@ -324,7 +302,7 @@
                 if (pttLabel) pttLabel.textContent = 'Loading PTT…';
                 if (listenLabel) listenLabel.textContent = 'Loading…';
                 var script = document.createElement('script');
-                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.3-rc20';
+                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.4';
                 script.onerror = function () {
                     loading = false;
                     if (pttLabel) pttLabel.textContent = 'Retry PTT';

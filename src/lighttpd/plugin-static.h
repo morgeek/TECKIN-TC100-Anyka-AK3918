@@ -1,0 +1,16 @@
+/* TC100 build: plugins compiled into the static lighttpd binary.
+ * 1.8.3 and earlier shipped the first nine only. */
+PLUGIN_INIT(mod_auth)
+PLUGIN_INIT(mod_redirect)
+PLUGIN_INIT(mod_alias)
+PLUGIN_INIT(mod_cgi)
+PLUGIN_INIT(mod_indexfile)
+PLUGIN_INIT(mod_staticfile)
+PLUGIN_INIT(mod_authn_file)
+PLUGIN_INIT(mod_openssl)
+PLUGIN_INIT(mod_dirlisting)
+PLUGIN_INIT(mod_access)
+PLUGIN_INIT(mod_accesslog)
+PLUGIN_INIT(mod_setenv)
+PLUGIN_INIT(mod_expire)
+PLUGIN_INIT(mod_deflate)

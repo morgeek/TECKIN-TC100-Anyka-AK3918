@@ -53,8 +53,13 @@ if read -r open_alloc _ open_max < /proc/sys/fs/file-nr 2>/dev/null; then
   open_files="${open_alloc}/${open_max}"
 fi
 
-loadavg="$(cat /proc/loadavg 2>/dev/null)"
-uptime_line="$(uptime)"
+# One load line: "uptime" also prints the load average, which duplicated
+# the /proc/loadavg line below it.
+read -r load1 load5 load15 load_tasks _ < /proc/loadavg 2>/dev/null
+read -r up_s _ < /proc/uptime 2>/dev/null
+up_s="${up_s%.*}"; case "$up_s" in ''|*[!0-9]*) up_s=0 ;; esac
+up_d=$((up_s / 86400)); up_h=$((up_s % 86400 / 3600)); up_m=$((up_s % 3600 / 60))
+if [ "$up_d" -gt 0 ]; then uptime_line="${up_d}d ${up_h}h ${up_m}m"; else uptime_line="${up_h}h ${up_m}m"; fi
 
 read -r _ cpu_user cpu_nice cpu_system cpu_idle cpu_iowait cpu_irq cpu_softirq cpu_steal _ _ < /proc/stat
 cpu_active=$((cpu_user + cpu_nice + cpu_system + cpu_irq + cpu_softirq + cpu_steal))
@@ -70,56 +75,58 @@ for _tz in /sys/class/thermal/thermal_zone*/temp; do
   fi
 done
 
+# kB -> "12.3 MB"
+mb() { awk -v k="$1" 'BEGIN { printf "%.1f MB", k / 1024 }'; }
+mem_avail_pct=0
+[ "$mem_total" -gt 0 ] 2>/dev/null && mem_avail_pct=$((100 * mem_available / mem_total))
+cpu_busy_pct=0
+[ "$cpu_total" -gt 0 ] 2>/dev/null && cpu_busy_pct=$((100 * cpu_active / cpu_total))
+
 cat << EOF
 <div class='sysusage-grid'>
     <div class='sysusage-side'>
         <div class='card status_card sysusage-card'>
-            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M4 18h16M7 14l3-3l3 2l4-5'/></svg><span>Quick System Summary</span></span></p></header>
+            <header class='card-header'><p class='card-header-title'>System</p></header>
             <div class='card-content'>
-                <pre class='sysusage-pre'>Uptime: $uptime_line
-Load avg: $loadavg
-Processes: $proc_count
-Open files: $open_files</pre>
+                <dl class='v2-facts'>
+                    <dt>Up for</dt><dd>$uptime_line</dd>
+                    <dt>Load (1, 5, 15 min)</dt><dd>$load1 &nbsp; $load5 &nbsp; $load15</dd>
+                    <dt>CPU busy since boot</dt><dd>$cpu_busy_pct %</dd>
+                    <dt>Processes</dt><dd>$proc_count</dd>$([ -n "$cpu_temp" ] && echo "
+                    <dt>Chip temperature</dt><dd>$cpu_temp</dd>")
+                </dl>
             </div>
         </div>
 
         <div class='card status_card sysusage-card'>
-            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M8 8h8v8H8zM4 10h2M4 14h2M18 10h2M18 14h2M10 4v2M14 4v2M10 18v2M14 18v2'/></svg><span>Memory Snapshot</span></span></p></header>
+            <header class='card-header'><p class='card-header-title'>Memory</p></header>
             <div class='card-content'>
-                <pre class='sysusage-pre'>MemTotal: ${mem_total} kB
-MemAvailable: ${mem_available} kB
-MemUsed(approx): ${mem_used} kB
-Cache+Buffers+SReclaimable: ${mem_cached_total} kB</pre>
+                <dl class='v2-facts'>
+                    <dt>Available</dt><dd>$(mb "$mem_available") of $(mb "$mem_total") ($mem_avail_pct %)</dd>
+                    <dt>Used by programs</dt><dd>$(mb "$mem_used")</dd>
+                    <dt>Cache (reclaimable)</dt><dd>$(mb "$mem_cached_total")</dd>
+                    <dt>Open files</dt><dd>$open_files</dd>
+                </dl>
             </div>
         </div>
 
-        <div class='card status_card sysusage-card'>
-            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3v3M12 18v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M3 12h3M18 12h3M4.9 19.1L7 17M17 7l2.1-2.1M12 8a4 4 0 1 1 0 8'/></svg><span>CPU Counters</span></span></p></header>
-            <div class='card-content'>
-                <pre class='sysusage-pre'>Active ticks: $cpu_active
-Total ticks: $cpu_total
-Snapshot source: /proc/stat$([ -n "$cpu_temp" ] && echo "
-Temperature: $cpu_temp")</pre>
-            </div>
-        </div>
-
-        <div class='card status_card sysusage-card'>
-            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M9 12l2 2l4-4M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18z'/></svg><span>Service Health</span></span></p></header>
-            <div class='card-content' id='svc_health_body'><em class='text-muted'>Loading service health...</em></div>
-        </div>
     </div>
 
     <div class='sysusage-main'>
         <div class='card status_card sysusage-card sysusage-process-card'>
-            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01'/></svg><span>Process List (light)</span></span></p></header>
-            <div class='card-content'>
+            <details class='v2-procs'>
+                <summary>Running processes ($proc_count)</summary>
                 <pre class='sysusage-pre sysusage-process-pre'>$(ps)</pre>
-            </div>
+            </details>
         </div>
 
         <div class='card status_card sysusage-card'>
-            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2M9 5h6M9 12h6M9 16h4'/></svg><span>Recent Events</span></span></p></header>
+            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2M9 5h6M9 12h6M9 16h4'/></svg><span>Recent events</span></span></p></header>
             <div class='card-content' id='recent_events_body'><em class='text-muted'>Loading events...</em></div>
+        </div>
+        <div class='card status_card sysusage-card'>
+            <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M9 12l2 2l4-4M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18z'/></svg><span>Services</span></span></p></header>
+            <div class='card-content' id='svc_health_body'><em class='text-muted'>Loading service health...</em></div>
         </div>
     </div>
 </div>
@@ -132,7 +139,7 @@ Temperature: $cpu_temp")</pre>
     .then(function(d){
       var svcs = d.services || {};
       var rst  = d.service_restarts || {};
-      var keys = Object.keys(svcs).sort();
+      var keys = Object.keys(svcs).filter(function(k){ return svcs[k] !== 'absent'; }).sort();
       if (!keys.length) { body.innerHTML = '<em>No services found</em>'; return; }
       var rows = keys.map(function(svc){
         var st = svcs[svc];

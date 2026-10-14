@@ -9,7 +9,9 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -147,7 +149,7 @@ class Regressions(unittest.TestCase):
         self.assertEqual(result['video']['main']['codec'], 2)
         self.assertEqual(result['video']['sub']['height'], 200)
         self.assertEqual(result['audio']['volume'], 7)
-        self.assertEqual(result['audio']['codec_main'], 4)
+        self.assertEqual(result['audio']['codec_main'], 17)
         self.assertEqual(result['audio']['codec_sub'], 17)
         self.assertEqual(result['video']['flip'], 1)
         self.assertEqual(result['recording']['postrec'], 7)
@@ -199,13 +201,13 @@ class Regressions(unittest.TestCase):
 
     def test_tc100fix_preload_is_opt_in_and_scoped_to_rtsp_server(self):
         s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=0}"', ': "${VENDOR_PRINT_LEVEL:=}"'):
+        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"', ': "${VENDOR_PRINT_LEVEL:=}"'):
             self.assertIn(default, s)
         # The preload is set on the v4l2rtspserver command only, never exported.
         self.assertNotIn('export LD_PRELOAD', s)
         self.assertIn('env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
         conf = (ROOT / 'config/boot.conf.dist').read_text()
-        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=0', 'VENDOR_PRINT_LEVEL='):
+        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=1', 'VENDOR_PRINT_LEVEL='):
             self.assertRegex(conf, r'(?m)^' + re.escape(line) + r'$')
         lib = (ROOT / 'lib/libtc100fix.so').read_bytes()
         self.assertEqual(lib[:4], b'\x7fELF')
@@ -213,6 +215,26 @@ class Regressions(unittest.TestCase):
         for sym in (b'ak_vi_set_fps', b'ak_vi_set_switch_fps_enable', b'ak_ai_start_capture',
                     b'ak_ai_set_aec', b'ak_ai_set_nr_agc', b'ak_print_set_level', b'libc.so.0'):
             self.assertIn(sym, lib)
+
+    def test_rtsp_start_waits_for_port_to_drain(self):
+        # Restarting while old client sockets on :554 are still closing made the
+        # server exit at once ("Address family not supported"), seen on hardware.
+        code = function('controlscripts/rtsp-h26x', 'rtsp_wait_port_free')
+        state = self.base / 'netstat-calls'
+        # netstat runs in a pipeline subshell, so the call counter lives in a file.
+        st = shlex.quote(str(state))
+        code += ('\necho 0 > ' + st + '\nnetstat() { n=$(($(cat ' + st + ') + 1)); echo $n > ' + st +
+                 '; [ $n -lt 3 ] && echo "tcp 0 0 192.168.1.51:554 192.168.1.2:40000 TIME_WAIT"; return 0; }'
+                 '\nsleep() { :; }\nrtsp_wait_port_free 554 10; echo "rc=$?"')
+        self.assertEqual(run(code).stdout.strip(), b'rc=0')
+        self.assertEqual(state.read_text().strip(), '3')
+        busy = function('controlscripts/rtsp-h26x', 'rtsp_wait_port_free')
+        busy += '\nnetstat() { echo "tcp 0 0 0.0.0.0:554 0.0.0.0:* LISTEN"; }\nsleep() { :; }\nrtsp_wait_port_free 554 5; echo "rc=$?"'
+        self.assertEqual(run(busy).stdout.strip(), b'rc=1')
+        s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        loop = s[s.index('    while [ $_rtsp_try -lt 3 ]; do'):s.index('    done', s.index('    while [ $_rtsp_try -lt 3 ]; do'))]
+        self.assertIn('rtsp_wait_port_free "$RTSP_PORT_NUM"', loop)
+        self.assertIn('kill -0 "$_rtsp_pid"', loop)
 
     def test_tc100fix_env_assembly(self):
         # Extract the env-building block of rtsp-h26x and run it with each option.
@@ -225,9 +247,12 @@ class Regressions(unittest.TestCase):
             ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '0'}, 'TC100FIX_MIC_OFF=1'),
             ({'VENDOR_PRINT_LEVEL': '1'}, 'TC100FIX_PRINT_LEVEL=1'),
             ({'VENDOR_PRINT_LEVEL': '12'}, ''),
+            ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
+            ({'RTSP_DAYNIGHT_POLL_MS': 'x'}, ''),
         ]
         for env, expected in cases:
-            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1'}
+            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
+                    'RTSP_DAYNIGHT_POLL_MS': '0'}
             vals.update(env)
             code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
@@ -258,6 +283,105 @@ class Regressions(unittest.TestCase):
         self.assertIn('rc start_capture 0', out)
         self.assertNotIn('vendor stop_capture', out)
 
+    def test_tc100fix_isp_tuning_under_arm_emulation(self):
+        # Same requirements as the emulated shim test; ~20 s (thread sleeps).
+        import shutil
+        sysroot = os.environ.get('TC100_SYSROOT')
+        fx = ROOT / 'tests/tc100fix'
+        if not (sysroot and shutil.which('qemu-arm') and (fx / 'ispdriver').exists()):
+            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
+        conf, status = self.base / 'isp_tune.conf', self.base / 'isp.status'
+        out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
+                              '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
+                              '-E', 'TC100FIX_ISP_TUNE=%s' % conf, '-E', 'TC100FIX_ISP_STATUS=%s' % status,
+                              str(fx / 'ispdriver')], capture_output=True, timeout=60).stdout.decode()
+        start = out.split('--- after start')[1].split('--- after change')[0]
+        self.assertIn('status: BRIGHTNESS=20', start)
+        self.assertIn('status: SHARPNESS=50', start)          # 99 clamped to 50
+        self.assertIn('status: EXPOSURE_NOW=500', start)      # 50% of 1000
+        change = out.split('--- after change')[0].split('--- after start')[1]
+        self.assertIn('vpss effect_set 3 0', change)          # contrast back to ISP value
+        self.assertIn('vpss effect_set 6 50', change)         # mains frequency
+        reload = out.split('--- after reload')[0].split('vpss reload')[1]
+        self.assertIn('vpss ae exp_time_max=500', reload)     # cap survives an ISP reload
+        reset = out.split('--- after reset')[1]
+        self.assertIn('status: EXPOSURE_MAX_PCT=0', reset)
+        self.assertIn('status: EXPOSURE_NOW=1000', reset)     # original restored
+
+    def test_isp_tune_helpers_validate_and_report(self):
+        conf, boot, status = self.base / 'isp_tune.conf', self.base / 'boot.conf', self.base / 'status'
+        conf.write_text((ROOT / 'config/isp_tune.conf.dist').read_text())
+        boot.write_text('ISP_TUNE=1\n')
+        status.write_text('BRIGHTNESS=20\nPOWER_HZ=50\nEXPOSURE_NOW=450\nEXPOSURE_ORIG=1125\n')
+        env = 'ISP_TUNE_CONF=%s ISP_TUNE_BOOT=%s ISP_TUNE_STATUS=%s\n' % tuple(shlex.quote(str(x)) for x in (conf, boot, status))
+        lib = env + function('scripts/common_functions.sh', 'rewrite_config') + '\nsync() { :; }\n' + (ROOT / 'scripts/isp-tune.sh').read_text()
+        for key, val, ok in [('BRIGHTNESS', '20', '20'), ('BRIGHTNESS', '-50', '-50'), ('BRIGHTNESS', '51', None),
+                             ('BRIGHTNESS', '1x', None), ('HUE', '', '0'), ('POWER_HZ', '60', '60'), ('POWER_HZ', '55', None),
+                             ('EXPOSURE_MAX_PCT', '0', ''), ('EXPOSURE_MAX_PCT', '9', None), ('EXPOSURE_MAX_PCT', '40', '40')]:
+            r = run(lib + '\nisp_tune_norm %s %s; echo "rc=$?"' % (key, shlex.quote(val)))
+            out = r.stdout.decode().split('\n')
+            if ok is None:
+                self.assertIn('rc=1', out, (key, val))
+            else:
+                self.assertEqual(out[0], ok, (key, val)); self.assertIn('rc=0', out)
+        self.assertEqual(run(lib + '\nisp_tune_set CONTRAST -12; isp_tune_set EXPOSURE_MAX_PCT 30; isp_tune_set HUE 99; echo "rc=$?"').stdout.strip(), b'rc=1')
+        data = json.loads(run(lib + '\nisp_tune_json').stdout)
+        self.assertEqual(data['enabled'], 1)
+        self.assertEqual(data['conf']['CONTRAST'], -12)
+        self.assertEqual(data['conf']['EXPOSURE_MAX_PCT'], 30)
+        self.assertIsNone(data['conf']['POWER_HZ'])
+        self.assertEqual(data['applied'], {'BRIGHTNESS': 20, 'POWER_HZ': 50, 'EXPOSURE_NOW': 450, 'EXPOSURE_ORIG': 1125})
+
+    def test_isp_tune_mqtt_discovery_is_valid_json(self):
+        s = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        block = s[s.index('  # Live image tuning (number/select/switch).'):s.index('  # Maintenance Entities (Buttons/Select)')]
+        json_escape = function('www/cgi-bin/func.cgi', 'json_escape')
+        code = (json_escape + '\nisp_tune_json() { :; }\nout=' + shlex.quote(str(self.base / 'disc')) +
+                '\npublish_discovery_config() { printf "%s\\t%s\\n" "$1" "$2" >> "$out"; }\n'
+                'MQTT_TOPIC_ROOT=cam/x; discovery_prefix=homeassistant; node_id=cam_x; device_name_json=Cam; device_id_json=cam_x\n'
+                'cmd_json=cam/x/command; avail_topic_json=cam/x/availability\n')
+        r = run(code + block)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = (self.base / 'disc').read_text().strip().split('\n')
+        self.assertEqual(len(lines), 8)   # 6 numbers + select + switch
+        for line in lines:
+            topic, payload = line.split('\t', 1)
+            d = json.loads(payload)
+            self.assertEqual(d['stat_t'], 'cam/x/isp/state', topic)
+            if '/number/' in topic:
+                cmd = d['cmd_tpl'].replace('{{ value | int }}', '7')
+                self.assertTrue(json.loads(cmd)['cmd'].startswith('isp_'))
+        sw = json.loads([l for l in lines if '/switch/' in l][0].split('\t', 1)[1])
+        self.assertEqual(json.loads(sw['pl_on']), {'cmd': 'isp_tune', 'value': 'on'})
+
+    def test_diagnostic_discovery_is_valid_json(self):
+        s = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        block = s[s.index('  # --- Diagnostics (value_json.diag'):s.index('  # --- Elite Integration Entities ---')]
+        code = ('out=' + shlex.quote(str(self.base / 'diag')) +
+                '\npublish_discovery_config() { printf "%s\\t%s\\n" "$1" "$2" >> "$out"; }\n'
+                'discovery_prefix=homeassistant; node_id=cam_x; device_name_json=Cam; device_id_json=cam_x\n'
+                'health_topic_json=cam/x/health; avail_topic_json=cam/x/availability\n')
+        r = run(code + block)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = (self.base / 'diag').read_text().strip().split('\n')
+        self.assertEqual(len(lines), 8)   # 6 sensors + 2 binary sensors
+        for line in lines:
+            topic, payload = line.split('\t', 1)
+            d = json.loads(payload)
+            self.assertEqual(d['stat_t'], 'cam/x/health', topic)
+            self.assertIn('value_json.diag.', d['val_tpl'])
+            self.assertEqual(d['dev']['ids'], ['cam_x'])
+        sd = json.loads([l for l in lines if 'sd_problem' in l][0].split('\t', 1)[1])
+        self.assertEqual(sd['val_tpl'], '{{ "ON" if value_json.diag.sd_problem == 1 else "OFF" }}')
+
+    def test_diag_payload_is_valid_json(self):
+        fn = function('scripts/mqtt-bridge.sh', 'build_diag_payload')
+        r = run(fn + '\nnow_ts=$(date +%s); build_diag_payload; printf "%s" "$diag_payload"')
+        d = json.loads(r.stdout)
+        for k in ('wifi_rssi_dbm', 'mem_available_kb', 'sound_db', 'light_level', 'sd_problem'):
+            self.assertIn(k, d)
+        self.assertIsInstance(d['mem_available_kb'], int)
+
     def test_rtsp_probe_accepts_digest_challenge(self):
         reply = self.base / 'rtsp-reply'
         reply.write_bytes(b'RTSP/1.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm="LIVE555"\r\n\r\n')
@@ -280,6 +404,41 @@ class Regressions(unittest.TestCase):
         writes = [tuple(values[i:i+3]) for i in range(0, len(values), 3)]
         self.assertEqual(writes, [(' ', 'samplerate', '16000'), (' ', 'volume', '7'), ('2', 'samplerate', '16000'), ('2', 'codec', '17')])
 
+    def test_sound_detection_never_fakes_a_level(self):
+        # 1.8.3 read /dev/voice or /dev/dsp (absent on the AK3918) and then
+        # reported threshold+100: enabling it produced a fake event per poll.
+        script = (ROOT / 'controlscripts/sound-detection').read_text()
+        live = '\n'.join(l for l in script.splitlines() if not l.lstrip().startswith('#'))
+        for bad in ('/dev/voice', '/dev/dsp', 'threshold + 100'):
+            self.assertNotIn(bad, live)
+        self.assertIn('/var/run/sound_level', live)
+        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('TC100FIX_SOUND_LEVEL=/var/run/sound_level', rtsp)
+        # The meter needs the microphone: MIC_OFF must not be set when enabled.
+        block = rtsp[rtsp.index('_sound_enable='):rtsp.index('VENDOR_PRINT_LEVEL', rtsp.index('_sound_enable='))]
+        self.assertRegex(block, r'if \[ "\$_sound_enable" = "1" \]; then\n\s*TC100FIX_ENV="\$TC100FIX_ENV TC100FIX_SOUND_LEVEL=[^"]*"\n\s*else')
+
+    def test_motion_form_fields_are_read(self):
+        # Settings → Motion & Sound posts these names; conf_motiondetect read
+        # motionBlink (a name the form never sends) and ignored the sound fields.
+        html = (ROOT / 'www/settings.html').read_text()
+        form = html[html.index('id="formDetect"'):html.index('</form>', html.index('id="formDetect"'))]
+        names = set(re.findall(r'name="([^"]+)"', form))
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        handler = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
+        for n in names:
+            self.assertIn('F_' + n, handler, n)
+
+    def test_tcp_tw_recycle_stays_off(self):
+        # tcp_tw_recycle=1 silently drops SYNs from NATed clients (Frigate's
+        # go2rtc): new RTSP connections timed out while ping worked.
+        files = [ROOT / 'autorun.sh'] + [p for d in ('scripts', 'controlscripts', 'config/autostart', 'www/cgi-bin')
+                                          for p in (ROOT / d).iterdir() if p.is_file()]
+        for p in files:
+            for line in p.read_text(errors='ignore').splitlines():
+                if 'tcp_tw_recycle' in line and not line.lstrip().startswith('#'):
+                    self.assertRegex(line, r'echo 0 > /proc/sys/net/ipv4/tcp_tw_recycle', str(p))
+
     def test_bundled_binaries_unchanged(self):
         count = 0
         for line in (ROOT / 'config/packages.lock.dist').read_text().splitlines():
@@ -287,7 +446,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 26)
+        self.assertEqual(count, 27)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -761,5 +920,894 @@ class Regressions(unittest.TestCase):
             r = run(code + '\necho "$_memavail"')
             self.assertEqual(r.stdout, b'11776\n', (path, r.stderr))
 
+class ConfigMigrate(unittest.TestCase):
+    """scripts/config-migrate.sh: configs from older releases gain new .dist
+    settings without losing the user's values."""
+    SCRIPT = ROOT / 'scripts/config-migrate.sh'
+    # ${KEY:-x} used only to print a log line, not as a behavioural default.
+    DISPLAY_ONLY = {'dns.conf:DNS_SECONDARY'}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = Path(self.tmp.name)
+        for d in (ROOT / 'config').glob('*.dist'):
+            (self.cfg / d.name).write_bytes(d.read_bytes())
+        httpd = (ROOT / 'tests/fixtures/lighttpd.conf.v1.8.3').read_text()
+        (self.cfg / 'lighttpd.conf').write_text(re.sub(r'^server\.max-keep-alive.*\n', '', httpd, flags=re.M))
+        boot = [l for l in (ROOT / 'config/boot.conf.dist').read_text().splitlines()
+                if not l.startswith(('MEM_WATCHDOG', 'FRONT_LED', 'SYSLOG_', 'RED_LED'))]
+        (self.cfg / 'boot.conf').write_text('\n'.join(boot) + '\nRED_LED=1')   # no final newline
+        (self.cfg / 'mqtt.conf').write_text('MQTT_ENABLE=1\n#MQTT_PORT=1884\nMQTT_HOST=10.0.0.5\n')
+        (self.cfg / 'rtspserver.conf').write_text('[0]\nPORT=554\n')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def migrate(self, *args, shell=None):
+        env = dict(os.environ, CONFIGPATH=str(self.cfg), MIGRATE_LOG=str(self.cfg / 'log'),
+                   LIGHTTPD_BIN='/nonexistent')
+        cmd = (shell or ['/bin/bash']) + [str(self.SCRIPT)] + list(args)
+        return subprocess.run(cmd, capture_output=True, env=env, timeout=30)
+
+    def kv(self, name):
+        out = {}
+        for l in (self.cfg / name).read_text().splitlines():
+            m = re.match(r'^([A-Za-z_]\w*)=(.*)$', l)
+            if m:
+                self.assertNotIn(m.group(1), out, (name, 'duplicate key', m.group(1)))
+                out[m.group(1)] = m.group(2)
+        return out
+
+    def check_result(self):
+        boot = self.kv('boot.conf')
+        self.assertEqual(boot['RED_LED'], '1')                  # user value kept
+        self.assertEqual(boot['FRONT_LED'], '0')                # new key added
+        self.assertEqual(boot['MEM_WATCHDOG_ENABLE'], '0')      # code default, not the .dist one
+        mqtt = self.kv('mqtt.conf')
+        self.assertEqual(mqtt['MQTT_HOST'], '10.0.0.5')
+        self.assertNotIn('MQTT_PORT', mqtt)                     # commented out by the user: left alone
+        self.assertIn('MQTT_STREAM_ENABLE', mqtt)
+        self.assertEqual((self.cfg / 'rtspserver.conf').read_text(), '[0]\nPORT=554\n')
+        httpd = (self.cfg / 'lighttpd.conf').read_text()
+        httpd = '\n'.join(l for l in httpd.splitlines() if not l.lstrip().startswith('#'))
+        self.assertEqual(httpd.count('server.max-keep-alive-idle = 45'), 1)
+        # webperf block (lighttpd -tt cannot run here, so it is accepted)
+        self.assertEqual(httpd.count('server.modules += ("mod_setenv", "mod_expire", "mod_deflate")'), 1)
+        self.assertEqual(httpd.count('deflate.max-loadavg'), 1)
+        for name in ('boot.conf', 'mqtt.conf'):
+            r = subprocess.run(['sh', '-n', str(self.cfg / name)], capture_output=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.cfg / 'lighttpd.conf.pre-migrate').exists())
+
+    def test_appends_missing_settings_only(self):
+        r = self.migrate()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.check_result()
+        snapshot = {p.name: p.read_bytes() for p in self.cfg.iterdir()}
+        self.assertEqual(self.migrate('--force').returncode, 0)      # idempotent
+        for name in ('boot.conf', 'mqtt.conf', 'lighttpd.conf'):
+            self.assertEqual((self.cfg / name).read_bytes(), snapshot[name], name)
+        stamp = (self.cfg / '.migrate-stamp').read_text()
+        (self.cfg / 'boot.conf').write_text('X=1\n')
+        self.migrate()                                                 # stamp matches: no-op
+        self.assertEqual((self.cfg / 'boot.conf').read_text(), 'X=1\n')
+        self.assertEqual((self.cfg / '.migrate-stamp').read_text(), stamp)
+
+    # Plugins compiled into bin/lighttpd: src/lighttpd/plugin-static.h. A
+    # static lighttpd refuses a config that loads anything else.
+    @staticmethod
+    def built_in_modules():
+        return set(re.findall(r'^PLUGIN_INIT\((mod_\w+)\)', (ROOT / 'src/lighttpd/plugin-static.h').read_text(), re.M))
+
+    def test_httpd_dist_modules_are_built_in(self):
+        built_in = self.built_in_modules()
+        for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
+            text = (ROOT / 'config' / name).read_text()
+            live = '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
+            mods = set()
+            for m in re.finditer(r'^server\.modules \+?= \((.*?)\)', live, re.M | re.S):
+                mods |= set(re.findall(r'"(mod_\w+)"', m.group(1)))
+            self.assertIn('mod_deflate', mods, name)
+            self.assertLessEqual(mods, built_in, name)
+
+    def test_bundled_lighttpd_matches_plugin_list(self):
+        # The 1.8.3 binary had neither zlib nor mod_setenv/expire/deflate
+        # registered ("plugin not found"); the rebuilt one has both.
+        binary = (ROOT / 'bin/lighttpd').read_bytes()
+        self.assertIn(b'\t+ zlib support', binary)
+        self.assertNotIn(b'/home/a/PROJECTS', binary)          # not the old build
+        for mod in self.built_in_modules():
+            self.assertIn(mod.encode() + b'\0', binary, mod)
+        self.assertEqual(self.built_in_modules() & {'mod_setenv', 'mod_expire', 'mod_deflate'},
+                         {'mod_setenv', 'mod_expire', 'mod_deflate'})
+
+    def test_repairs_config_naming_mod_setenv(self):
+        # A camera installed from the 1.8.3-rc20 .dist names mod_setenv, which
+        # the bundled lighttpd lacks: the web server does not start.
+        stub = self.cfg / 'lighttpd-stub'
+        stub.write_text('#!/bin/sh\n[ "$1" = -tt ] && [ "$2" = -f ] || exit 2\n'
+                        'grep -q "mod_setenv" "$3" && exit 255\nexit 0\n')
+        stub.chmod(0o755)
+        old = (ROOT / 'tests/fixtures/lighttpd.conf.v1.8.3').read_text().replace(
+            '"mod_openssl",\n', '"mod_openssl",\n                  "mod_setenv",\n')
+        old += ('\nsetenv.add-response-header = (\n  "X-Frame-Options" => "SAMEORIGIN"\n)\n'
+                '$HTTP["url"] =~ "\\.css$" {\n  setenv.add-response-header = (\n    "Cache-Control" => "x"\n  )\n}\n')
+        (self.cfg / 'lighttpd.conf').write_text(old)
+        env = dict(os.environ, CONFIGPATH=str(self.cfg), MIGRATE_LOG=str(self.cfg / 'log'), LIGHTTPD_BIN=str(stub))
+        r = subprocess.run(['/bin/bash', str(self.SCRIPT)], capture_output=True, env=env, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        httpd = (self.cfg / 'lighttpd.conf').read_text()
+        live = [l for l in httpd.splitlines() if not l.lstrip().startswith('#')]
+        self.assertFalse([l for l in live if 'setenv' in l], httpd)
+        self.assertIn('$HTTP["url"] =~ "\\.css$" {', live)          # block kept, now empty
+        log = (self.cfg / 'log').read_text()
+        self.assertIn('removed mod_setenv', log)
+        # The stub is the 1.8.3 binary: the webperf block (mod_setenv) is
+        # refused, the config stays as repaired, and the next boot retries.
+        self.assertIn('lighttpd rejected the migrated config', log)
+        self.assertNotIn('deflate.max-loadavg', httpd)
+        self.assertFalse((self.cfg / '.migrate-stamp').exists())
+
+    def test_vendor_busybox(self):
+        # The camera runs this with its own BusyBox 1.24 ash (rootfs /bin/busybox).
+        sysroot = os.environ.get('TC100_SYSROOT')
+        if not (sysroot and shutil.which('qemu-arm') and Path(sysroot, 'bin/busybox').exists()):
+            self.skipTest('qemu-arm or TC100_SYSROOT not available')
+        cmd = ['qemu-arm', '-L', sysroot]
+        for k in ('CONFIGPATH', 'MIGRATE_LOG', 'LIGHTTPD_BIN'):
+            cmd += ['-E', '%s=%s' % (k, {'CONFIGPATH': self.cfg, 'MIGRATE_LOG': self.cfg / 'log',
+                                         'LIGHTTPD_BIN': '/nonexistent'}[k])]
+        r = subprocess.run(cmd + [str(Path(sysroot, 'bin/busybox')), 'sh', str(self.SCRIPT)],
+                           capture_output=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.check_result()
+
+    def test_dist_divergences_are_declared(self):
+        # A key whose .dist default differs from the code's fallback must be in
+        # MIGRATE_KEEP_BEHAVIOUR, or migrating would change a camera's behaviour.
+        script = self.SCRIPT.read_text()
+        kv_files = re.search(r'^MIGRATE_KV_CONFIGS="([^"]*)"', script, re.M).group(1).split()
+        keep = re.search(r"^MIGRATE_KEEP_BEHAVIOUR='(.*?)'", script, re.M | re.S).group(1).splitlines()
+        keep = {l.split('=', 1)[0]: l.split('=', 1)[1].strip('"') for l in keep}
+        sources = [ROOT / 'autorun.sh'] + list((ROOT / 'scripts').glob('*.sh')) + \
+            list((ROOT / 'controlscripts').iterdir()) + list((ROOT / 'config/autostart').iterdir()) + \
+            list((ROOT / 'www/cgi-bin').iterdir())
+        text = '\n'.join(p.read_text(errors='ignore') for p in sources if p.is_file())
+        for name in kv_files:
+            dist = (ROOT / 'config' / (name + '.dist')).read_text()
+            for m in re.finditer(r'^([A-Za-z_]\w*)=(.*)$', dist, re.M):
+                key, val = m.group(1), m.group(2).strip().strip('"\'')
+                code = {d.strip('"\'') for d in re.findall(r'\$\{' + key + r':?[-=]([^}]*)\}', text)}
+                code.discard('$motion_save_dir')
+                if '%s:%s' % (name, key) in self.DISPLAY_ONLY:
+                    continue
+                if code and val not in code:
+                    self.assertIn('%s:%s' % (name, key), keep, 'undeclared default divergence')
+                    self.assertIn(keep['%s:%s' % (name, key)], code)
+
+    def test_httpd_dist_blocks_are_well_formed(self):
+        for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
+            text = (ROOT / 'config' / name).read_text()
+            blocks = re.findall(r'^# @migrate (\S+) ([^\n]+)\n(.*?)^# @end$', text, re.M | re.S)
+            self.assertEqual([b[0] for b in blocks], ['webperf', 'updatestream', 'keepalive'], name)
+            for _, probe, body in blocks:
+                self.assertIn(probe, body, (name, probe))
+
+
+class FwUpdate(unittest.TestCase):
+    """scripts/fw-update.sh: verify / install / rollback of an update package."""
+    SCRIPT = ROOT / 'scripts/fw-update.sh'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.root = self.d / 'root'
+        for rel, text in {'VERSION': '1.0\n', 'www/index.html': 'old page\n', 'bin/tool': 'old bin\n',
+                          'wpa_supplicant.conf.dist': 'my wifi\n', 'config/lighttpd.conf': 'x\n',
+                          'config/autostart/rtsp-h26x': 'old toggle\n',
+                          'config/autostart/00_system-config': '#!/bin/sh\necho old\n'}.items():
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / rel).write_text(text)
+        self.pkg_files = {'VERSION': '2.0\n', 'www/index.html': 'new page\n', 'bin/tool': 'old bin\n',
+                          'scripts/new.sh': '#!/bin/sh\necho hi\n', 'wpa_supplicant.conf.dist': 'template\n',
+                          'config/autostart/ftp-server': '/mnt/controlscripts/ftp-server\n',
+                          'config/autostart/rtsp-h26x': 'new toggle\n',
+                          'config/autostart/00_system-config': '#!/bin/sh\necho new\n'}
+        self.ok = self.d / 'ok.sh'; self.ok.write_text('#!/bin/sh\nexit 0\n'); self.ok.chmod(0o755)
+        self.bad = self.d / 'bad.sh'; self.bad.write_text('#!/bin/sh\nexit 1\n'); self.bad.chmod(0o755)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def package(self, files=None, extra=None, manifest=None):
+        import tarfile, io
+        files = dict(self.pkg_files if files is None else files)
+        lines = manifest if manifest is not None else \
+            ''.join('%s  %s\n' % (hashlib.md5(v.encode()).hexdigest(), k) for k, v in files.items())
+        out = self.d / 'pkg.tar'
+        with tarfile.open(out, 'w') as t:
+            for name, data in list({'MANIFEST': lines}.items()) + list(files.items()) + list((extra or {}).items()):
+                b = data.encode(); ti = tarfile.TarInfo(name); ti.size = len(b)
+                t.addfile(ti, io.BytesIO(b))
+        return out
+
+    def run_fwu(self, *args, lighttpd=None, shell=None):
+        env = dict(os.environ, FWU_ROOT=str(self.root), FWU_BACKUPS=str(self.d / 'bk'), FWU_LOCK=str(self.d / 'lock'),
+                   FWU_MIGRATE='/dev/null', FWU_TRACKER='/dev/null', FWU_LIGHTTPD=str(lighttpd or self.ok))
+        return subprocess.run((shell or ['sh']) + [str(self.SCRIPT)] + list(args), capture_output=True, env=env, timeout=60)
+
+    def read(self, rel):
+        return (self.root / rel).read_text()
+
+    def test_install_and_rollback(self):
+        r = self.run_fwu('verify', str(self.package()))
+        info = json.loads(r.stdout)
+        self.assertTrue(info['ok'], r.stdout)
+        # VERSION, index.html, new.sh, 00_system-config; not the toggles, not wpa, not the unchanged bin
+        self.assertEqual(info['changed'], 4)
+        r = self.run_fwu('install', '--no-reboot')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('VERSION'), '2.0\n')
+        self.assertEqual(self.read('www/index.html'), 'new page\n')
+        self.assertEqual(self.read('config/autostart/00_system-config'), '#!/bin/sh\necho new\n')
+        self.assertEqual(self.read('wpa_supplicant.conf.dist'), 'my wifi\n')          # credentials kept
+        self.assertEqual(self.read('config/autostart/rtsp-h26x'), 'old toggle\n')    # boot choice kept
+        self.assertFalse((self.root / 'config/autostart/ftp-server').exists())       # not re-enabled
+        self.assertEqual(json.loads(self.run_fwu('status').stdout)['rollback_to'], '1.0')
+        r = self.run_fwu('rollback', '--no-reboot')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
+        self.assertEqual(self.read('www/index.html'), 'old page\n')
+        self.assertFalse((self.root / 'scripts/new.sh').exists())
+
+    def test_only_changed_files_are_extracted(self):
+        # The SD card only receives what will actually be installed.
+        r = self.run_fwu('verify', str(self.package()))
+        self.assertTrue(json.loads(r.stdout)['ok'], r.stdout)
+        stage = self.root / 'update/stage'
+        got = sorted(str(p.relative_to(stage)) for p in stage.rglob('*') if p.is_file())
+        self.assertEqual(got, ['MANIFEST', 'VERSION', 'config/autostart/00_system-config',
+                               'scripts/new.sh', 'www/index.html'])
+        # A changed script with a syntax error is still refused.
+        files = dict(self.pkg_files, **{'scripts/new.sh': 'if then fi(\n'})
+        r = self.run_fwu('verify', str(self.package(files)))
+        self.assertIn('scripts/new.sh', json.loads(r.stdout).get('syntax_errors', ''))
+
+    def test_failed_web_server_check_rolls_back(self):
+        self.run_fwu('verify', str(self.package()))
+        r = self.run_fwu('install', '--no-reboot', lighttpd=self.bad)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
+        self.assertEqual(self.read('www/index.html'), 'old page\n')
+        self.assertFalse((self.root / 'scripts/new.sh').exists())
+
+    def test_damaged_copy_is_detected_and_rolled_back(self):
+        # A write that comes out wrong (seen on the SD card under memory
+        # pressure) must never be renamed into place.
+        self.run_fwu('verify', str(self.package()))
+        (self.root / 'update/stage/scripts/new.sh').write_text('#!/bin/sh\necho damaged\n')
+        r = self.run_fwu('install', '--no-reboot')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
+        self.assertFalse((self.root / 'scripts/new.sh').exists())
+        self.assertFalse(list(self.root.rglob('*.fwu')))
+        self.assertIn('damaged on write', (self.root / 'update/update.log').read_text())
+
+    def test_rejects_bad_packages(self):
+        bad_md5 = self.package(manifest='%s  VERSION\n' % ('0' * 32))
+        self.assertEqual(json.loads(self.run_fwu('verify', str(bad_md5)).stdout)['error'], 'verify_failed')
+        bad_sh = dict(self.pkg_files, **{'scripts/new.sh': 'if then fi(\n'})
+        self.assertEqual(json.loads(self.run_fwu('verify', str(self.package(bad_sh))).stdout)['error'], 'verify_failed')
+        evil = self.package(extra={'../escape': 'x'})
+        self.assertEqual(json.loads(self.run_fwu('verify', str(evil)).stdout)['error'], 'unsafe_path')
+        self.assertFalse((self.d / 'escape').exists())
+        self.assertNotEqual(self.run_fwu('install', '--no-reboot').returncode, 0)   # nothing staged
+
+    def test_vendor_busybox(self):
+        sysroot = os.environ.get('TC100_SYSROOT')
+        if not (sysroot and shutil.which('qemu-arm') and Path(sysroot, 'bin/busybox').exists()):
+            self.skipTest('qemu-arm or TC100_SYSROOT not available')
+        sh = ['qemu-arm', '-L', sysroot, str(Path(sysroot, 'bin/busybox')), 'sh']
+        r = self.run_fwu('verify', str(self.package()), shell=sh)
+        self.assertTrue(json.loads(r.stdout)['ok'], r.stdout + r.stderr)
+        r = self.run_fwu('install', '--no-reboot', shell=sh)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('VERSION'), '2.0\n')
+        r = self.run_fwu('rollback', '--no-reboot', shell=sh)
+        self.assertEqual(self.read('VERSION'), '1.0\n')
+
+    def test_status_survives_garbage_in_the_log(self):
+        # The log of the 2026-10-13 FAT incident held file names made of
+        # random bytes; update.cgi status then returned invalid JSON.
+        (self.root / 'update').mkdir(parents=True, exist_ok=True)
+        (self.root / 'update/update.log').write_bytes(b'ok\nrm: bad \x01\x1b name\x7f\n')
+        info = json.loads(self.run_fwu('status').stdout)
+        self.assertIn('bad ?? name?', info['log'])
+
+    def test_firmware_image_goes_to_new_and_rolls_back_by_rename(self):
+        # The image in use is loop-mounted: never replaced under it, swapped at
+        # the next boot (scripts/rofs.sh); no 7 MB backup copy.
+        (self.root / 'firmware.sqfs').write_text('image v1\n')
+        files = dict(self.pkg_files, **{'firmware.sqfs': 'image v2\n'})
+        self.assertTrue(json.loads(self.run_fwu('verify', str(self.package(files))).stdout)['ok'])
+        r = self.run_fwu('install', '--no-reboot')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read('firmware.sqfs'), 'image v1\n')
+        self.assertEqual(self.read('firmware.sqfs.new'), 'image v2\n')
+        self.assertFalse(list((self.d / 'bk').rglob('firmware.sqfs')))
+        # Rolled back before the reboot: the pending image is dropped.
+        self.assertEqual(self.run_fwu('rollback', '--no-reboot').returncode, 0)
+        self.assertFalse((self.root / 'firmware.sqfs.new').exists())
+        self.assertEqual(self.read('firmware.sqfs'), 'image v1\n')
+        # Installed and booted (rofs.sh swapped it): rollback brings .old back as .new.
+        self.run_fwu('verify', str(self.package(files)))
+        self.run_fwu('install', '--no-reboot')
+        os.rename(self.root / 'firmware.sqfs', self.root / 'firmware.sqfs.old')
+        os.rename(self.root / 'firmware.sqfs.new', self.root / 'firmware.sqfs')
+        self.assertEqual(self.run_fwu('rollback', '--no-reboot').returncode, 0)
+        self.assertEqual(self.read('firmware.sqfs.new'), 'image v1\n')
+
+
+class FirmwareImage(unittest.TestCase):
+    """scripts/rofs.sh: boot-time decision to run from firmware.sqfs, with stubbed mount."""
+    SCRIPT = ROOT / 'scripts/rofs.sh'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.sd = self.d / 'sd'
+        for sub in ('bin', 'lib', 'scripts', 'controlscripts', 'www', 'config'):
+            (self.sd / sub).mkdir(parents=True)
+        (self.sd / 'VERSION').write_text('2.0\n')
+        self.stub = self.d / 'stub'; self.stub.mkdir()
+        self.calls = self.d / 'calls'
+        # mount stub: a squashfs mount "fills" the mount point with the image's
+        # VERSION and directories; binds and umount just get logged.
+        (self.stub / 'mount').write_text(
+            '#!/bin/sh\necho "mount $*" >> "%s"\n'
+            'case "$*" in *squashfs*) [ -n "$STUB_MOUNT_FAIL" ] && exit 1\n'
+            '  for a; do t="$a"; done; for x in bin lib scripts controlscripts www; do mkdir -p "$t/$x"; done\n'
+            '  echo "$STUB_IMAGE_VERSION" > "$t/VERSION" ;; esac\nexit 0\n' % self.calls)
+        (self.stub / 'umount').write_text('#!/bin/sh\necho "umount $*" >> "%s"\n' % self.calls)
+        for f in self.stub.iterdir():
+            f.chmod(0o755)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_rofs(self, *args, image_version='2.0', fail=False):
+        env = dict(os.environ, ROFS_SD=str(self.sd), ROFS_RUN=str(self.d / 'run'), ROFS_LOG=str(self.d / 'log/rofs.log'),
+                   PATH='%s:%s' % (self.stub, os.environ['PATH']), STUB_IMAGE_VERSION=image_version)
+        if fail:
+            env['STUB_MOUNT_FAIL'] = '1'
+        r = subprocess.run(['sh', str(self.SCRIPT)] + list(args), capture_output=True, env=env, timeout=30)
+        return (self.d / 'run/status').read_text().strip() if (self.d / 'run/status').exists() else '', r
+
+    def test_no_image_keeps_fat(self):
+        self.assertEqual(self.run_rofs('mount')[0], 'inactive no_image')
+
+    def test_disabled_and_recovery(self):
+        (self.sd / 'firmware.sqfs').write_text('img')
+        (self.sd / 'config/boot.conf').write_text('FIRMWARE_IMAGE=0\n')
+        self.assertEqual(self.run_rofs('mount')[0], 'inactive disabled')
+        (self.sd / 'RECOVERY').write_text('')
+        self.assertEqual(self.run_rofs('mount')[0], 'inactive recovery_mode')
+
+    def test_stale_image_is_not_used(self):
+        (self.sd / 'firmware.sqfs').write_text('img')
+        status, _ = self.run_rofs('mount', image_version='1.0')
+        self.assertEqual(status, 'inactive version_mismatch image=1.0 sd=2.0')
+        self.assertNotIn('bind', self.calls.read_text())
+
+    def test_mount_failure_falls_back(self):
+        (self.sd / 'firmware.sqfs').write_text('img')
+        self.assertEqual(self.run_rofs('mount', fail=True)[0], 'inactive mount_failed')
+
+    def test_pending_image_is_swapped_in_before_mounting(self):
+        (self.sd / 'firmware.sqfs').write_text('old')
+        (self.sd / 'firmware.sqfs.new').write_text('new')
+        status, r = self.run_rofs('mount')
+        self.assertEqual((self.sd / 'firmware.sqfs').read_text(), 'new')
+        self.assertEqual((self.sd / 'firmware.sqfs.old').read_text(), 'old')
+        self.assertFalse((self.sd / 'firmware.sqfs.new').exists())
+        # The FAT view is bound before the overlays, then each code directory.
+        binds = [l.split()[-1] for l in self.calls.read_text().splitlines() if 'bind' in l]
+        self.assertEqual(binds[0], str(self.d / 'run/fat'))
+        self.assertEqual(binds[1:], [str(self.sd / x) for x in ('bin', 'lib', 'scripts', 'controlscripts', 'www')])
+        # The stub cannot provide a runnable busybox, so the smoke test refuses
+        # the overlay and everything is unmounted again.
+        self.assertEqual(status, 'inactive smoke_test_failed')
+        self.assertIn('umount %s' % (self.d / 'run/img'), self.calls.read_text())
+
+    def test_verify_renames_a_corrupt_image(self):
+        (self.d / 'run').mkdir()
+        (self.d / 'run/status').write_text('active 2.0\n')
+        (self.sd / 'firmware.sqfs').write_text('img')
+        (self.sd / 'firmware.sqfs.md5').write_text('%s  firmware.sqfs\n' % hashlib.md5(b'img').hexdigest())
+        _, r = self.run_rofs('verify')
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual((self.d / 'run/verified').read_text().strip(), 'verified')
+        (self.sd / 'firmware.sqfs').write_text('imG')
+        _, r = self.run_rofs('verify')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertTrue((self.sd / 'firmware.sqfs.bad').exists())
+        self.assertFalse((self.sd / 'firmware.sqfs').exists())
+
+    def test_image_build_is_executable_and_reproducible(self):
+        if not shutil.which('mksquashfs') or not shutil.which('unsquashfs'):
+            self.skipTest('squashfs-tools not installed')
+        outs = []
+        for n in ('a', 'b'):
+            out = self.d / n
+            subprocess.run(['sh', str(ROOT / 'src/release/build-image.sh'), str(out)], check=True,
+                           capture_output=True, timeout=300)
+            outs.append((out / 'firmware.sqfs').read_bytes())
+        self.assertEqual(outs[0], outs[1])
+        listing = subprocess.run(['unsquashfs', '-lls', str(self.d / 'a/firmware.sqfs')],
+                                 capture_output=True, text=True).stdout
+        modes = {}
+        for l in listing.splitlines():
+            path = [w for w in l.split() if w.startswith('squashfs-root/')]
+            if path:
+                modes[path[0][len('squashfs-root/'):]] = l.split()[0]
+        self.assertEqual(modes['bin/busybox'], '-rwxr-xr-x')        # FAT gives every file x
+        self.assertEqual(modes['www/cgi-bin/state.cgi'], '-rwxr-xr-x')
+        self.assertTrue(modes['bin/ak_ao_ptt'].startswith('l'))
+        self.assertTrue(modes['lib/libcurl.so.4'].startswith('l'))
+        self.assertIn('VERSION', modes)
+
+    def test_prepare_ptt_player_uses_ram_with_image(self):
+        text = (ROOT / 'scripts/prepare-ptt-player.sh').read_text()
+        self.assertIn("' /mnt/bin squashfs ' /proc/mounts", text)
+        self.assertIn('DEST_BIN=/tmp/bin/ak_ao_ptt', text)
+
+    def test_boot_wiring(self):
+        auto = (ROOT / 'autorun.sh').read_text()
+        self.assertLess(auto.index('rofs.sh mount'), auto.index('. /mnt/scripts/common_functions.sh'))
+        self.assertIn("grep -q '^/dev/loop0 /tmp/rofs/'", auto)      # vendor ramdisk cleanup keeps the image
+        self.assertIn('rofs.sh verify', auto)
+        fwu = (ROOT / 'scripts/fw-update.sh').read_text()
+        self.assertIn('ROOT=/tmp/rofs/fat', fwu)
+
+class WebUiLanguage(unittest.TestCase):
+    """FR/EN switch: www/scripts/i18n.js + www/i18n/fr.js."""
+
+    def test_every_ui_string_has_a_translation(self):
+        r = subprocess.run([sys.executable, str(ROOT / 'src/webui/i18n-strings.py'), '--missing'],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), '', 'add these to www/i18n/fr.js:\n' + r.stdout)
+
+    def test_dictionary_is_valid(self):
+        text = (ROOT / 'www/i18n/fr.js').read_text(encoding='utf-8')
+        self.assertTrue(text.startswith('window.tc100I18nFr = {'))
+        data = json.loads(text[text.index('{'):text.rindex('}') + 1])
+        for k, v in data['strings'].items():
+            self.assertTrue(v.strip() or k.strip() == 'file.', k)
+        for pattern, _ in data['rules']:
+            re.compile(pattern)
+
+    def test_pages_load_the_switch(self):
+        index = (ROOT / 'www/index.html').read_text()
+        self.assertIn('scripts/i18n.js?v=', index)
+        self.assertIn('id="lang_toggle"', index)
+        self.assertIn('/scripts/i18n.js?v=', (ROOT / 'www/cgi-bin/wizard.cgi').read_text())
+        js = (ROOT / 'www/scripts/i18n.js').read_text()
+        version = re.search(r'VERSION = "([^"]+)"', js).group(1)
+        self.assertIn('i18n.js?v=' + version, index)     # bump both together (30-day cache)
+
+
+class SettingsLayout(unittest.TestCase):
+    """Settings regrouped (2026-10-14): 6 tabs, Tools reduced to Diagnostics / Logs / Config editor."""
+
+    def test_six_tabs_and_unique_ids(self):
+        html = (ROOT / 'www/settings.html').read_text()
+        tabs = re.findall(r'data-tab="([^"]+)"', html)
+        self.assertEqual(tabs, ['tab-video', 'tab-detect', 'tab-integrations', 'tab-network', 'tab-system', 'tab-backup'])
+        for t in tabs:
+            self.assertEqual(html.count('id="%s"' % t), 1, t)
+        ids = re.findall(r'\bid=["\']([^"\']+)["\']', html.split('<script>')[0])
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        self.assertEqual(dup, [])
+        # every form that existed before the move is still there
+        for form in ('formVideoAdvanced', 'formVideoSub', 'formAudioAdvanced', 'formISP', 'formIspTune', 'formMQTT',
+                     'formFrigateLive', 'formDetect', 'formTimelapse', 'formTelegram', 'formSyslog', 'formNetwork',
+                     'formTime', 'formTuning', 'formLeds', 'formRebootSchedule', 'preset_dropdown', 'fwuFile'):
+            self.assertIn('id="%s"' % form, html)
+        self.assertIn('network.cgi?part=settings', html)
+        self.assertIn('data-src="backup.html"', html)
+
+    def test_tools_menu_and_network_parts(self):
+        index = (ROOT / 'www/index.html').read_text()
+        for gone in ('cgi-bin/sysusageinfo.cgi', 'cgi-bin/devinfo.cgi', 'data-target="cgi-bin/network.cgi"',
+                     'cgi-bin/disk.cgi', 'data-target="backup.html"'):
+            self.assertNotIn(gone, index)
+        self.assertIn('data-target="diagnostics.html"', index)
+        diag = (ROOT / 'www/diagnostics.html').read_text()
+        for src in ('sysusageinfo.cgi', 'devinfo.cgi', 'disk.cgi', 'network.cgi?part=diag'):
+            self.assertIn(src, diag)
+        net = (ROOT / 'www/cgi-bin/network.cgi').read_text()
+        self.assertLess(net.index('if [ "$NET_PART" = settings ]'), net.index('connections_text="$(capture_limited_output'))  # settings part skips the probes
+        js = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
+        self.assertIn('loadInto: loadInto,', js)
+        self.assertNotIn('loadSubPage(', js)
+
+class FrigateLiveAndSyslog(unittest.TestCase):
+    """Settings: Frigate live link and remote syslog host, both written to sourced/parsed config."""
+
+    def test_syslog_host_is_validated(self):
+        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        block = text[text.index('    set_syslog_config)'):text.index('    set_frigate_live)')]
+        self.assertIn('*[!A-Za-z0-9.:-]*)', block)
+        self.assertLess(block.index('syslog_err'), block.index('rewrite_config'))
+
+    def test_frigate_live_link_in_statusline(self):
+        state = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        self.assertIn('\\"frigate_live\\":\\"$frigate_live\\"', state)
+        action = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        self.assertIn('/mnt/config/frigate_live.conf', action)
+        self.assertIn('id="live_frigate"', (ROOT / 'www/index.html').read_text())
+
+class WifiClient(unittest.TestCase):
+    """scripts/wifi-client.sh: opt-in wpa_supplicant 2.11 with fallback to the vendor client."""
+    SCRIPT = ROOT / 'scripts/wifi-client.sh'
+
+    def run_wc(self, conf_text, state, bin_ok=True):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d); stub = d / 'stub'; stub.mkdir()
+            calls = d / 'calls'
+            (stub / 'newwpa').write_text('#!/bin/sh\necho "new $*" >> %s\n[ "$1" = -v ] && exit %d\nexit 0\n'
+                                         % (calls, 0 if bin_ok else 1))
+            (stub / 'wpa_cli').write_text('#!/bin/sh\necho "wpa_state=%s"\n' % state)
+            (stub / 'logger').write_text('#!/bin/sh\necho "logger $*" >> %s\n' % calls)
+            for f in stub.iterdir():
+                f.chmod(0o755)
+            conf = d / 'wpa.conf'; conf.write_text(conf_text)
+            env = dict(os.environ, PATH='%s:%s' % (stub, os.environ['PATH']), WIFI_NEW_BIN=str(stub / 'newwpa'),
+                       WIFI_NEW_TIMEOUT='2', WIFI_CLIENT_LOG=str(d / 'log'))
+            r = subprocess.run(['sh', str(self.SCRIPT), 'start', str(conf)], capture_output=True, env=env, timeout=60)
+            return r.returncode, calls.read_text() if calls.exists() else '', \
+                Path('/tmp/wpa_supplicant-new.conf').read_text() if Path('/tmp/wpa_supplicant-new.conf').exists() else ''
+
+    def test_associates_with_plain_config(self):
+        rc, calls, _ = self.run_wc('ctrl_interface=/var/run/wpa_supplicant\nnetwork={\n ssid="x"\n}\n', 'COMPLETED')
+        self.assertEqual(rc, 0)
+        self.assertRegex(calls, r'new -B -i wlan0 -Dwext -c \S+/wpa.conf ')       # the UI's file itself
+
+    def test_wps_keys_are_filtered_and_fallback_on_timeout(self):
+        rc, calls, filtered = self.run_wc('ctrl_interface=/var/run/wpa_supplicant\nconfig_methods=keypad\n'
+                                          'device_type=1-0050F204-1\n', 'SCANNING')
+        self.assertEqual(rc, 1)
+        self.assertIn('-c /tmp/wpa_supplicant-new.conf', calls)
+        self.assertNotIn('config_methods', filtered)
+        self.assertIn('logger -t tc100-event', calls)
+
+    def test_unusable_binary_is_not_started(self):
+        rc, calls, _ = self.run_wc('ctrl_interface=/x\n', 'COMPLETED', bin_ok=False)
+        self.assertEqual(rc, 1)
+        self.assertNotIn('-B', calls)
+
+    def test_release_check_is_opt_in(self):
+        auto = (ROOT / 'autorun.sh').read_text()
+        self.assertIn('is_truthy "${UPDATE_CHECK:-0}" && [ -x /mnt/scripts/update-check.sh ]', auto)
+        self.assertIn('UPDATE_CHECK=0', (ROOT / 'config/boot.conf.dist').read_text())
+
+    def test_boot_wiring_defaults_to_vendor(self):
+        auto = (ROOT / 'autorun.sh').read_text()
+        self.assertEqual(auto.count('wifi-client.sh start'), 2)
+        self.assertIn('WIFI_CLIENT=vendor', (ROOT / 'config/boot.conf.dist').read_text())
+
+class WebUiCss(unittest.TestCase):
+    """www/css/bulma.1.0.2.purged.min.css is generated by src/webui/purge-bulma.mjs."""
+
+    @staticmethod
+    def classes(css):
+        return set(re.findall(r'\.(-?[A-Za-z_][\w-]*)', re.sub(r'url\([^)]*\)|"[^"]*"', '', css)))
+
+    def test_purged_bulma_keeps_every_class_the_ui_uses(self):
+        full = self.classes((ROOT / 'src/webui/bulma.1.0.2.min.css').read_text())
+        purged = self.classes((ROOT / 'www/css/bulma.1.0.2.purged.min.css').read_text())
+        files = list((ROOT / 'www').glob('*.html')) + list((ROOT / 'www/scripts').glob('*.js')) + \
+            [p for p in (ROOT / 'www/cgi-bin').iterdir() if p.is_file()]
+        tokens = set()
+        for f in files:
+            tokens |= set(re.findall(r'[A-Za-z0-9_-]+', f.read_text(errors='ignore')))
+        missing = sorted((full & tokens) - purged)
+        self.assertEqual(missing, [], 'run: cd src/webui && npm install && npm run purge')
+
+    def test_ui_links_the_purged_bulma(self):
+        self.assertFalse((ROOT / 'www/css/bulma.1.0.2.min.css').exists())
+        for f in [ROOT / 'www/index.html', ROOT / 'www/cgi-bin/wizard.cgi']:
+            self.assertIn('css/bulma.1.0.2.purged.min.css', f.read_text())
+        self.assertLess((ROOT / 'www/css/bulma.1.0.2.purged.min.css').stat().st_size, 160_000)
+
+class ServicesAndStatus(unittest.TestCase):
+    def test_allstates_is_answered_without_a_script_name(self):
+        # The Services page polls scripts.cgi?cmd=allstates with no script; the
+        # handler used to sit inside the per-script branch, so it got the HTML
+        # listing and every row stayed on "Loading...".
+        s = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertLess(s.index('if [ "$F_cmd" = "allstates" ]'), s.index('if [ -n "$F_script" ]'))
+        self.assertEqual(s.count('  emit_allstates_response\n'), 1)   # a single call site
+        js = (ROOT / 'www/scripts/scripts.bundle.min.js').read_text()
+        self.assertIn("fetch('cgi-bin/scripts.cgi?cmd=allstates'", js)
+
+    def test_service_status_conventions(self):
+        # status: output + rc 0 = running, no output + rc 0 or rc 1 = stopped.
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertEqual(cgi.count('elif [ "$status_rc" -eq 1 ]; then'), 2)
+        for name in ('telegram-bot', 'network-monitor'):
+            s = (ROOT / 'controlscripts' / name).read_text()
+            self.assertIn('[ "$1" = "status" ] || echo "You have to configure', s)
+        r = run('PIDFILE=/nonexistent\n' + function('controlscripts/syslog-forward', 'status') + '\nstatus')
+        self.assertEqual((r.returncode, r.stdout), (1, b''))
+        ws = (ROOT / 'controlscripts/web-server').read_text()
+        self.assertIn('pidof "$_name"', ws)
+
+    def test_dashboard_gateway_is_the_live_default_route(self):
+        fn = function('www/cgi-bin/state.cgi', 'get_live_gateway')
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'route'
+            hdr = 'Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n'
+            for body, want in [('wlan0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n'
+                                'wlan0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n', '192.168.1.1'),
+                               ('wlan0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n', 'n/a')]:
+                f.write_text(hdr + body)
+                r = run(fn + '\nROUTE_PROC_FILE=%s; get_live_gateway' % shlex.quote(str(f)))
+                self.assertEqual(r.stdout.decode().strip(), want)
+        self.assertNotIn('get_cfg DEFAULT_GATEWAY', (ROOT / 'www/cgi-bin/state.cgi').read_text())
+
+    def test_config_disabled_services_report_disabled(self):
+        # memory-guard / cpu-scaler start at boot but stay off until enabled in
+        # boot.conf: status exits 3, shown as "Disabled", not as a problem.
+        for name, var in (('memory-guard', 'MEM_GUARD_ENABLE'), ('cpu-scaler', 'CPU_SCALER_ENABLE')):
+            fn = function('controlscripts/' + name, 'status')
+            for enable, want in (('0', 3), ('1', 0)):
+                code = ('PIDFILE=/nonexistent\nis_truthy() { [ "$1" = 1 ]; }\n'
+                        'load_config() { %s=%s; }\n' % (var, enable)) + fn + '\nstatus'
+                self.assertEqual(run(code).returncode, want, (name, enable))
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertEqual(cgi.count('state="disabled"'), 3)   # probe (x2) + fast path
+        js = (ROOT / 'www/scripts/scripts.bundle.min.js').read_text()
+        self.assertIn("case 'disabled':", js)
+        self.assertIn('state === "disabled") return false;', js)
+
+    def test_page_audit_regressions(self):
+        logs = (ROOT / 'www/logs.html').read_text()
+        self.assertIn('headers["X-CSRF-Token"] = token', logs)          # showlog POST was 403
+        idx = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
+        self.assertIn("cmd=list_presets&format=json", idx)               # empty text -> JSON error
+        self.assertIn("cmd=load_preset&format=json", idx)
+        self.assertIn('xhr.open("GET", "cgi-bin/state.cgi?cmd=hostname', idx)  # logout did nothing
+        svc = (ROOT / 'www/scripts/scripts.bundle.min.js').read_text()
+        self.assertIn("cmd=source&script=", svc)                          # View opens a dialog
+        self.assertNotIn("window.open(href, '_blank'", svc)
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertIn('      source)\n', cgi)
+        self.assertIn("-e 's/</\\&lt;/g'", cgi)                           # view page escapes markup
+        health = (ROOT / 'www/cgi-bin/health.cgi').read_text()
+        self.assertIn('[ -x "/mnt/controlscripts/$_as_name" ] || continue', health)
+        # Gateway parsing of the /proc/net/route fallback format.
+        net = (ROOT / 'www/cgi-bin/network.cgi').read_text()
+        awk = re.search(r"default_gateway=\"\$\(printf '%s\\n' \"\$routes_text\" \| awk '(.*?)'\)\"", net).group(1)
+        for text, want in (('Iface Destination Gateway\nwlan0 0.0.0.0 192.168.1.1 0003\n', '192.168.1.1'),
+                           ('Destination Gateway Genmask\n0.0.0.0 192.168.1.1 0.0.0.0 UG\n', '192.168.1.1'),
+                           ('default via 10.0.0.1 dev wlan0\n', '10.0.0.1')):
+            r = subprocess.run(['awk', awk], input=text.encode(), capture_output=True)
+            self.assertEqual(r.stdout.decode().strip(), want, text)
+        # timeout shim resolves bare command names (busybox applet could not).
+        for p in ('www/cgi-bin/func.cgi', 'scripts/common_functions.sh'):
+            self.assertIn('_to_cmd="$(command -v "$1" 2>/dev/null)"', (ROOT / p).read_text())
+
+    def test_allstates_fast_path(self):
+        # Fast-path services must have a pidfile-only status(); the fast path
+        # must agree with it (running iff the pidfile PID is alive).
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        fast = re.search(r'FAST_PIDFILE_SERVICES=" ([^"]+) "', cgi).group(1).split()
+        for name in fast:
+            body = function('controlscripts/' + name, 'status')
+            self.assertRegex(body, r'\$\{?(PIDFILE|PID_FILE)', name)
+            self.assertNotRegex(body, r'(setconf|_status\b|_led |ir_cut|ir_led|motion_detection)', name)
+        code = '\n'.join(function('www/cgi-bin/scripts.cgi', f) for f in
+                         ('parse_script_capabilities', 'boot_conf_flag', 'fast_pidfile_state'))
+        code = ('cd %s\n' % shlex.quote(str(ROOT))) + re.search(r'^FAST_PIDFILE_SERVICES=.*$', cgi, re.M).group(0) + '\n' + code
+        code += '\n_svc_pid_uptime() { _svc_uptime_s=7; }\n'
+        with tempfile.TemporaryDirectory() as d:
+            live, dead = Path(d) / 'live.pid', Path(d) / 'dead.pid'
+            live.write_text('%d\n' % os.getpid()); dead.write_text('999999\n')
+            for pidfile, want in ((live, 'running 1 7'), (dead, 'stopped 0 -1'), (Path(d) / 'none', 'stopped 0 -1')):
+                r = run(code + '\nparse_script_capabilities controlscripts/ftp-server; script_pidfile=%s; state=unknown; running=0; uptime_s=-1;'
+                        ' fast_pidfile_state ftp-server; echo "$state $running $uptime_s"' % shlex.quote(str(pidfile)))
+                self.assertEqual(r.stdout.decode().strip(), want, (pidfile, r.stderr))
+            r = run(code + '\nparse_script_capabilities controlscripts/auto-night-detection; fast_pidfile_state auto-night-detection; echo "rc=$?"')
+            self.assertEqual(r.stdout.decode().strip(), 'rc=1')
+
+    def test_allstates_payload_and_caps_cache(self):
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        names = ['is_valid_script_name', '_svc_read_uptime_s', '_svc_pid_uptime', 'parse_script_capabilities',
+                 'read_first', 'kv_value', 'fast_toggle_state', 'boot_conf_flag', 'fast_pidfile_state',
+                 'ensure_caps_cache', 'generate_allstates_payload']
+        code = re.search(r'^FAST_PIDFILE_SERVICES=.*$', cgi, re.M).group(0) + '\n'
+        code += '\n'.join(function('www/cgi-bin/scripts.cgi', n) for n in names)
+        code += '\nrun_status_probe() { echo "PROBED $1" >&2; return 1; }\n'
+        with tempfile.TemporaryDirectory() as d:
+            env = 'SCRIPT_HOME=%s; AUTOSTART_DIR=%s; CAPS_CACHE_FILE=%s/caps\n' % (
+                shlex.quote(str(ROOT / 'controlscripts')), shlex.quote(d), shlex.quote(d))
+            r = run(env + code + '\ngenerate_allstates_payload')
+            data = json.loads(r.stdout)
+            self.assertEqual(len(data['services']), len(list((ROOT / 'controlscripts').iterdir())))
+            self.assertNotIn(b'PROBED', r.stderr)          # every script is on a fast path
+            caps = (Path(d) / 'caps').read_text()
+            self.assertIn('rtsp-h26x 1 1 1 /var/run/v4l2rtspserver.pid', caps)
+            r2 = run(env + code + '\nparse_script_capabilities() { echo REPARSED >&2; }\ngenerate_allstates_payload')
+            self.assertEqual(json.loads(r2.stdout), data)
+            self.assertNotIn(b'REPARSED', r2.stderr)      # cache reused
+        # The fast toggle paths read the same files as common_functions.sh.
+        cf = (ROOT / 'scripts/common_functions.sh').read_text()
+        for f in ('/sys/user-gpio/ir-led', '/var/run/ircut', '/var/run/vday', '/sys/class/leds/$2/brightness',
+                  '/mnt/bin/setconf -g p'):
+            self.assertIn(f, cf)
+
+    def test_statusline_reports_wifi_quality(self):
+        fn = function('www/cgi-bin/state.cgi', 'get_wifi_quality')
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'wireless'
+            hdr = ('Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\n'
+                   ' face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\n')
+            cases = [(' wlan0: 0000   86.   78.    0.       0      0      0      0      0        0\n'
+                      ' wlan1: 0000    0.    0.    0.       0      0      0      0      0        0\n', '86 wlan0'),
+                     (' wlan1: 0000    0.    0.    0.       0      0      0      0      0        0\n', 'null '),
+                     (' wlan1: 0000   40.   30.    0.       0      0      0      0      0        0\n', '40 wlan1'),
+                     (' wlan0: 0000  120.   78.    0.       0      0      0      0      0        0\n', '100 wlan0'),
+                     ('', 'null ')]
+            for body, want in cases:
+                f.write_text(hdr + body)
+                r = run(fn + '\nWIFI_PROC_FILE=%s; get_wifi_quality; echo "$wifi_qual_json $wifi_iface_json"' % shlex.quote(str(f)))
+                self.assertEqual(r.stdout.decode().strip('\n'), want, body)
+        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        self.assertIn('\\"wifi_qual\\":$wifi_qual_json', s)
+
 if __name__ == '__main__':
     unittest.main()
+
+
+class SdWear(unittest.TestCase):
+    """Routine logs stay in RAM; the SD card only gets rare, useful writes."""
+
+    def tracker(self, d, *args):
+        env = dict(os.environ, REBOOT_TRACKER_DIR=str(Path(d) / 'sd'),
+                   REBOOT_TRACKER_MARK=str(Path(d) / 'ram' / 'important.last'),
+                   REBOOT_TRACKER_SYSLOG='%s %s' % (Path(d) / 'messages.0', Path(d) / 'messages'))
+        return subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh')] + list(args),
+                              capture_output=True, timeout=8, env=env)
+
+    def test_only_new_critical_lines_reach_the_card(self):
+        with tempfile.TemporaryDirectory() as d:
+            msgs = Path(d) / 'messages'
+            noise = 'Oct 13 18:00:0%d anyka kern.info kernel: akotg_usbhc_hub_status_data\n'
+            msgs.write_text(noise % 1 +
+                            'Jan  1 00:00:04 anyka kern.info kernel:  mmcblk0: p1\n' +
+                            'Oct 13 18:00:02 anyka kern.err kernel: FAT-fs (mmcblk0p1): error\n' +
+                            noise % 3)
+            self.tracker(d, 'flush')
+            imp = Path(d) / 'sd' / 'important.log'
+            self.assertEqual(imp.read_text().count('\n'), 1)
+            self.assertIn('FAT-fs', imp.read_text())
+            before = imp.stat().st_mtime_ns
+            self.tracker(d, 'flush')                      # nothing new: no write
+            self.assertEqual(imp.stat().st_mtime_ns, before)
+            with msgs.open('a') as f:
+                f.write('Oct 13 18:05:00 anyka user.err tc100-event: rtsp: GOP stall\n')
+            self.tracker(d, 'flush')
+            self.assertEqual(imp.read_text().count('\n'), 2)
+            self.assertNotIn('usbhc', imp.read_text())
+            # Marker rotated out of the RAM log (or a new boot): all matches are new.
+            msgs.write_text('Oct 13 19:00:00 anyka kern.err kernel: Out of memory: Killed process 808\n')
+            self.tracker(d, 'flush')
+            self.assertEqual(imp.read_text().count('\n'), 3)
+
+    def test_heartbeat_is_rewritten_in_place_and_read_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.tracker(d, 'heartbeat')
+            hb = Path(d) / 'sd' / '.heartbeat'
+            self.assertEqual(hb.stat().st_size, 64)
+            ino = hb.stat().st_ino
+            self.tracker(d, 'heartbeat')
+            self.assertEqual((hb.stat().st_size, hb.stat().st_ino), (64, ino))
+            env = dict(os.environ, REBOOT_TRACKER_DIR=str(Path(d) / 'sd'),
+                       REBOOT_TRACKER_LAST=str(Path(d) / 'last'))
+            subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
+            line = (Path(d) / 'last').read_text()
+            self.assertRegex(line, r'MemFree [0-9]+ kB\n$')       # padding trimmed
+
+    def test_routine_logs_live_in_ram(self):
+        self.assertIn('LOG_FILE="/tmp/log/sound-detection.log"',
+                      (ROOT / 'controlscripts/sound-detection').read_text())
+        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('LOGDIR="/tmp/log"', rtsp)
+        self.assertIn('cap_log', function('controlscripts/rtsp-h26x', 'health'))
+        autorun = (ROOT / 'autorun.sh').read_text()
+        self.assertIn('*/5 * * * * /bin/sh /mnt/scripts/reboot-tracker.sh tick', autorun)
+        self.assertNotIn('* * * * * /bin/sh /mnt/scripts/reboot-tracker.sh', autorun)
+        self.assertIn('remount,noatime /mnt', (ROOT / 'config/autostart/00_system-config').read_text())
+        conf = function('scripts/common_functions.sh', 'syslogd_start')
+        self.assertIn('*.notice;auth.*;authpriv.*', conf)
+        self.assertEqual(conf.count('-l 6'), 2)
+        self.assertNotIn('/mnt', conf)
+
+    def test_stability_samples_are_batched(self):
+        with tempfile.TemporaryDirectory() as d:
+            sd, ram = Path(d) / 'stability.csv', Path(d) / 'pending'
+            code = ('STABILITY_FILE=%s; STABILITY_PENDING=%s; STABILITY_MAX_SAMPLES=576\n'
+                    % (shlex.quote(str(sd)), shlex.quote(str(ram))) +
+                    function('scripts/health-snapshot.sh', 'stability_flush') +
+                    '\nfor i in 1 2 3; do echo "$i,0,0,0,0" >> "$STABILITY_PENDING"; done\n'
+                    'stability_flush')
+            self.assertEqual(run(code).returncode, 0)
+            self.assertEqual(sd.read_text().count('\n'), 4)        # header + 3
+            self.assertEqual(ram.read_text(), '')
+
+
+class MqttFastPath(unittest.TestCase):
+    """Publishes reuse the persistent listener connection when it is up."""
+
+    def run_pub(self, d, topic, payload, retain='0', session=True, connack=b'\x20\x02\x00\x00'):
+        raw = Path(d) / 'stream.bin'
+        fifo = Path(str(raw) + '.input')
+        if session:
+            os.mkfifo(fifo)
+            (Path(str(raw) + '.session')).write_text('3\n')
+            (Path(str(raw) + '.ready')).write_text('3\n')
+            (Path(str(raw) + '.3')).write_bytes(connack + b'\x90\x03\x00\x01\x00')
+        code = '\n'.join(function(MQTT, n) for n in
+                         ('_mqtt_str', '_mqtt_varint', '_mqtt_publish_packet', '_mqtt_publish_session'))
+        code += ('\nMQTT_STREAM_RAW=%s; MQTT_FASTPATH_MAX_BYTES=4000\n' % shlex.quote(str(raw)) +
+                 ('exec 3<>%s\n' % shlex.quote(str(fifo)) if session else '') +
+                 '_mqtt_publish_session %s %s %s; echo "rc=$?" >&2\n'
+                 % (shlex.quote(topic), shlex.quote(payload), retain) +
+                 ('timeout 1 cat <&3\n' if session else ''))
+        return run(code, timeout=10)
+
+    def test_publish_goes_through_the_session_fifo(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self.run_pub(d, 'tc100/cam/event', '{"type":"sound","level_db":-27}', '1')
+            self.assertIn(b'rc=0', r.stderr)
+            pk = packets(r.stdout)
+            self.assertEqual(len(pk), 1)
+            hdr, body = pk[0]
+            self.assertEqual(hdr, 0x31)                       # PUBLISH, retained
+            tl = int.from_bytes(body[:2], 'big')
+            self.assertEqual(body[2:2 + tl], b'tc100/cam/event')
+            self.assertEqual(body[2 + tl:], b'{"type":"sound","level_db":-27}')
+            self.assertEqual((Path(d) / 'stream.bin.connack').read_text(), '3\n')
+
+    def test_falls_back_without_a_live_accepted_session(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIn(b'rc=1', self.run_pub(d, 't', 'p', session=False).stderr)
+        with tempfile.TemporaryDirectory() as d:                 # broker refused
+            r = self.run_pub(d, 't', 'p', connack=b'\x20\x02\x00\x05')
+            self.assertIn(b'rc=1', r.stderr)
+            self.assertEqual(r.stdout, b'')
+        with tempfile.TemporaryDirectory() as d:                 # too big for one atomic write
+            r = self.run_pub(d, 't', 'x' * 5000)
+            self.assertIn(b'rc=1', r.stderr)
+            self.assertEqual(r.stdout, b'')
+
+    def test_no_publish_before_the_handshake_is_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            raw = Path(d) / 'stream.bin'
+            os.mkfifo(str(raw) + '.input')
+            Path(str(raw) + '.session').write_text('4\n')
+            Path(str(raw) + '.ready').write_text('3\n')            # previous session
+            Path(str(raw) + '.4').write_bytes(b'\x20\x02\x00\x00')
+            code = '\n'.join(function(MQTT, n) for n in
+                             ('_mqtt_str', '_mqtt_varint', '_mqtt_publish_packet', '_mqtt_publish_session'))
+            code += '\nMQTT_STREAM_RAW=%s; MQTT_FASTPATH_MAX_BYTES=4000\n_mqtt_publish_session t p 0; echo rc=$?' % shlex.quote(str(raw))
+            self.assertIn(b'rc=1', run(code).stdout)
+        w = function(MQTT, 'mqtt_listener_packets')
+        self.assertLess(w.index('.ready"'), w.index('_ml_pings=0'))
+        self.assertLess(w.rindex('rm -f "${MQTT_STREAM_RAW}.ready"'), w.rindex("printf '\\xe0\\x00'"))
+
+    def test_publish_raw_tries_the_session_first(self):
+        fn = function(MQTT, 'mqtt_publish_raw')
+        self.assertLess(fn.index('_mqtt_publish_session'), fn.index('nc -w 4'))

@@ -36,3 +36,4 @@ node_modules/
 # Host regression test bytecode
 __pycache__/
 *.pyc
+dist/

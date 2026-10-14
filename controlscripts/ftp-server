@@ -13,10 +13,15 @@ install_config $CONFIGPATH/ftp.conf
 status()
 {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ "$pid" ]; then
-    # Prints PID: $pid if exists and returns 0(no error) else returns 1(error condition)
-    kill -0 "$pid" >/dev/null && echo "PID: $pid" || return 1
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  # Running = our tcpsvd is alive AND the port listens. A stale pidfile (dead
+  # tcpsvd, PID reused) used to report "running" and block start.
+  if kill -0 "$pid" 2>/dev/null && grep -q tcpsvd "/proc/$pid/cmdline" 2>/dev/null && port_listening "$PORT"; then
+    echo "PID: $pid"
+    return 0
   fi
+  rm -f "$PIDFILE"
+  return 1
 }
 
 start()
@@ -30,10 +35,11 @@ start()
     echo "A ftp server is already running, please stop it or reboot"
   else
     stop
-    /mnt/bin/busybox tcpsvd 0 $PORT /mnt/bin/busybox ftpd -w -t 600 / &
+    /mnt/bin/busybox tcpsvd 0 $PORT /mnt/bin/busybox ftpd -w -t 600 / </dev/null >/dev/null 2>&1 &
+    # $! is tcpsvd itself (it stays in the foreground); ps|awk also matched
+    # ftpd session children and wrote several PIDs.
+    echo "$!" > "$PIDFILE"
     sleep 1
-    PID=$(ps|awk '/[f]tpd/ {print $1}')
-    echo "$PID" > "$PIDFILE"
   fi
 }
 
