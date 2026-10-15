@@ -1810,6 +1810,82 @@ class ResetButton(unittest.TestCase):
         self.assertEqual(self.run_events([21], storage='sd'), ['reboot'])
 
 
+class LocalRecording(unittest.TestCase):
+    """src/tc100fix/rec.c built for the host, fed Annex-B streams; scripts/rec-storage.sh."""
+
+    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe'), 'gcc + ffmpeg')
+    def test_fragmented_mp4_h264_h265(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            exe = d / 'rec-test'
+            subprocess.run(['gcc', '-DREC_HOST_TEST', '-Wall', '-Wextra', '-Werror', '-O2', '-o', str(exe),
+                            str(ROOT / 'src/tc100fix/rec.c'), '-lpthread'], check=True)
+            for enc, fmt, extra in (('libx264', 'h264', ['-x264-params', 'aud=1']),
+                                    ('libx265', 'hevc', ['-x265-params', 'aud=1:log-level=error'])):
+                src = d / ('in.' + fmt)
+                r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=12',
+                                    '-t', '70', '-c:v', enc, '-g', '24', '-bf', '0', '-sc_threshold', '0'] + extra +
+                                   ['-f', fmt, str(src)], capture_output=True)
+                if r.returncode:
+                    self.skipTest('ffmpeg without ' + enc)
+                for drop in (None, '50'):
+                    out = d / ('out-%s-%s' % (fmt, drop)); out.mkdir()
+                    env = dict(os.environ, TC100FIX_REC_DIR=str(out), TC100FIX_REC_STATUS=str(d / 'st'),
+                               TC100FIX_REC_SEGMENT_SEC='30', TC100FIX_REC_RESERVE_MB='16', REC_TEST_ANY_FS='1')
+                    if drop:
+                        env['REC_TEST_DROP'] = drop
+                    subprocess.run([str(exe), str(src), '12'], env=env, check=True, capture_output=True, timeout=60)
+                    files = sorted(out.glob('*/*.mp4'))
+                    self.assertTrue(all(re.fullmatch(r'\d{6}\.mp4', f.name) for f in files), files)
+                    total = 0
+                    for f in files:
+                        p = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-show_entries',
+                                            'stream=codec_name,width,height,nb_read_frames', '-of', 'json', str(f)],
+                                           capture_output=True, text=True, check=True)
+                        st = json.loads(p.stdout)['streams'][0]
+                        self.assertEqual((st['codec_name'], st['width'], st['height']), (fmt, 640, 360))
+                        total += int(st['nb_read_frames'])
+                        e = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(f), '-f', 'null', '-'], capture_output=True, text=True)
+                        self.assertEqual(e.stderr, '', f)
+                    # 840 frames, 30 s files cut at keyframes (every 2 s);
+                    # a dropped frame skips to the next keyframe (frame 72).
+                    self.assertEqual(len(files), 3)
+                    self.assertEqual(total, 840 if not drop else 840 - 22)
+                    status = (d / 'st').read_text()
+                    self.assertIn('codec=%s' % ('h264' if fmt == 'h264' else 'h265'), status)
+                # a file cut short (power loss) stays readable up to the cut
+                f = sorted((d / ('out-%s-None' % fmt)).glob('*/*.mp4'))[0]
+                cut = d / 'cut.mp4'; cut.write_bytes(f.read_bytes()[:f.stat().st_size // 2])
+                p = subprocess.run(['ffprobe', '-v', 'quiet', '-count_frames', '-show_entries', 'stream=nb_read_frames',
+                                    '-of', 'csv=p=0', str(cut)], capture_output=True, text=True)
+                self.assertGreater(int(p.stdout.strip() or 0), 100)
+
+    def test_refuses_ram_and_flash_filesystems(self):
+        src = (ROOT / 'src/tc100fix/rec.c').read_text()
+        for magic in ('0x01021994', '0x858458f6', '0x72b6', '0x73717368'):
+            self.assertIn(magic, src)
+        self.assertIn('O_CREAT | O_EXCL', src)
+
+    def test_storage_dir_and_wiring(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'storage').write_text('sd\n')
+            env = dict(os.environ, TC100_STORAGE_FILE=str(d / 'storage'), REC_SD_DIR=str(d / 'records'),
+                       REC_PROC_MOUNTS=str(d / 'mounts'), REC_SD_DEVS=str(d / 'nodev'), REC_SD_MOUNT=str(d / 'sd'))
+            r = subprocess.run(['sh', str(ROOT / 'scripts/rec-storage.sh'), 'dir'], env=env, capture_output=True, text=True)
+            self.assertEqual(r.stdout.strip(), str(d / 'records'))
+            self.assertTrue((d / 'records').is_dir())
+            (d / 'storage').write_text('flash\n')
+            (d / 'mounts').write_text('')
+            r = subprocess.run(['sh', str(ROOT / 'scripts/rec-storage.sh'), 'dir'], env=env, capture_output=True, text=True)
+            self.assertEqual((r.returncode, r.stdout), (1, ''))
+        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('TC100FIX_REC_DIR=$_rec_dir', rtsp)
+        boot = (ROOT / 'config/boot.conf.dist').read_text()
+        self.assertIn('\nREC_LOCAL=0\n', boot)
+        self.assertIn('rec.c', (ROOT / 'src/tc100fix/build.sh').read_text())
+
+
 class CodePackageRelease(unittest.TestCase):
     @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
     def test_package_from_git_is_valid_and_executable(self):

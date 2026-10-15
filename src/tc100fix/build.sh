@@ -13,6 +13,6 @@ root=$(cd "$here/../.." && pwd)
 
 "${CROSS}gcc" -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft -Os \
     -fPIC -shared -Wall -Wextra -Werror \
-    -o "$root/lib/libtc100fix.so" "$here/tc100fix.c" "$here/isp_tune.c" "$here/od.c" -ldl -lpthread -lm
+    -o "$root/lib/libtc100fix.so" "$here/tc100fix.c" "$here/isp_tune.c" "$here/od.c" "$here/rec.c" -ldl -lpthread -lm -lrt
 "${CROSS}strip" --strip-unneeded "$root/lib/libtc100fix.so"
 md5sum "$root/lib/libtc100fix.so"
