@@ -51,8 +51,10 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
         _st=staged; set -- $_chk; _staged="$2"
       fi
       _rb=""; case "$_fz" in "valid "*) _rb="built-in code" ;; esac
-      printf '{"ok":true,"storage":"flash","state":"%s","current":"%s","staged":"%s","rollback_to":"%s","log":""}\n' \
-        "$_st" "$_cur" "$_staged" "$_rb" ;;
+      # Update history (installs, confirmations, automatic rollbacks), JSON-escaped.
+      _log="$(tail -n 6 "${FC_HISTORY:-/etc/jffs2/tc100/log/code-updates.log}" 2>/dev/null | awk '{ gsub(/[\\"]/, ""); printf "%s\\n", $0 }')"
+      printf '{"ok":true,"storage":"flash","state":"%s","current":"%s","staged":"%s","rollback_to":"%s","log":"%s"}\n' \
+        "$_st" "$_cur" "$_staged" "$_rb" "$_log" ;;
     POST:upload)
       _cl="${CONTENT_LENGTH:-0}"
       case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac

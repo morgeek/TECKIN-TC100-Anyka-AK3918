@@ -24,6 +24,7 @@
 #                                   reads the same before and after
 #   flash-code.sh mount <dir>       read-only mount of a valid zone on <dir>
 #   flash-code.sh clear             blank the header: back to the code in /usr
+#   flash-code.sh history           installs, confirmations and rollbacks
 #
 # Built by src/flash/build-code.sh. Uses only the rootfs BusyBox applets
 # (dd, md5sum, losetup, mount), never the firmware's own binaries.
@@ -32,6 +33,11 @@ MTD_CHAR="${FC_MTD_CHAR:-/dev/mtd1}"
 MTD_BLOCK="${FC_MTD_BLOCK:-/dev/mtdblock1}"
 PROC_MTD="${FC_PROC_MTD:-/proc/mtd}"
 LOG="${FC_LOG:-/tmp/log/flash-code.log}"
+# A freshly written zone stays "pending" until flashboot.sh confirms that the
+# camera came back with it (network + web server); a second boot without that
+# confirmation puts the built-in code back. History kept in jffs2.
+PENDING="${FC_PENDING:-/etc/jffs2/tc100/code-pending}"
+HISTORY="${FC_HISTORY:-/etc/jffs2/tc100/log/code-updates.log}"
 BS=4096
 ZONE_BLOCK=352                # 0x160000 / 4096
 KERNEL_BLOCKS=352             # everything before the zone
@@ -105,7 +111,21 @@ fc_write()
     fi
     [ "$_got" = "$_want" ] || { _fc_log "write failed after 3 tries"; echo "error: read back differs"; return 2; }
     _fc_log "write ok ($FC_VERSION)"
+    mkdir -p "${PENDING%/*}" "${HISTORY%/*}" 2>/dev/null
+    echo "$FC_VERSION 0" > "$PENDING"
+    fc_history "installed $FC_VERSION (pending confirmation)"
+    sync
     echo "ok $FC_VERSION"
+}
+
+# fc_history <text>: one line in the update history (last 40 kept).
+fc_history()
+{
+    mkdir -p "${HISTORY%/*}" 2>/dev/null
+    echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) $*" >> "$HISTORY"
+    if [ "$(wc -l < "$HISTORY" 2>/dev/null)" -gt 40 ] 2>/dev/null; then
+        tail -n 40 "$HISTORY" > "$HISTORY.tmp" && mv -f "$HISTORY.tmp" "$HISTORY"
+    fi
 }
 
 fc_clear()
@@ -117,6 +137,9 @@ fc_clear()
     [ "$(dd if="$MTD_CHAR" bs=$BS count=$KERNEL_BLOCKS 2>/dev/null | md5sum | cut -d' ' -f1)" = "$_kern" ] || { _fc_log "KERNEL AREA CHANGED by clear"; echo "error: kernel area changed"; return 3; }
     _fc_header "$MTD_CHAR" "$ZONE_BLOCK" && { echo "error: header still there"; return 2; }
     _fc_log "code zone cleared"
+    rm -f "$PENDING"
+    fc_history "${FC_CLEAR_REASON:-cleared}: built-in code"
+    sync
     echo ok
 }
 
@@ -141,6 +164,7 @@ case "${0##*/}" in
             write) fc_write "$2" ;;
             mount) fc_mount "$1" "$2" ;;
             clear) fc_clear ;;
+            history) cat "$HISTORY" 2>/dev/null ;;
             *) echo "usage: $0 status | check <file> | write <file> | mount <dir> | clear" >&2; exit 2 ;;
         esac ;;
 esac
