@@ -1737,6 +1737,38 @@ class ForkLightLoops(unittest.TestCase):
         self.assertLess(drain.index('-nt "$_dc_file"'), drain.index('wc -c'))
 
 
+class ResetButton(unittest.TestCase):
+    """scripts/button-watch.sh fed with struct input_event records through a FIFO."""
+
+    def run_events(self, holds, storage='flash'):
+        import struct
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            data = b''
+            t = 100
+            for h in holds:
+                data += struct.pack('<IIHHi', t, 0, 1, 11, 1) + struct.pack('<IIHHi', t, 0, 0, 0, 0)
+                data += struct.pack('<IIHHi', t + h, 0, 1, 11, 0)
+                t += h + 50
+            os.mkfifo(d / 'ev')
+            (d / 'storage').write_text(storage + '\n')
+            for name, line in (('fc.sh', 'echo "fc $*"'), ('reboot', 'echo reboot')):
+                (d / name).write_text('#!/bin/sh\n%s >> "%s/calls"\n' % (line, d)); (d / name).chmod(0o755)
+            env = dict(os.environ, BUTTON_DEV=str(d / 'ev'), BUTTON_FLASH_CODE=str(d / 'fc.sh'),
+                       BUTTON_REBOOT_CMD=str(d / 'reboot'), TC100_STORAGE_FILE=str(d / 'storage'))
+            p = subprocess.Popen(['sh', str(ROOT / 'scripts/button-watch.sh')], env=env)
+            with open(d / 'ev', 'wb') as w:
+                w.write(data); w.flush(); time.sleep(1.5)
+            p.wait(timeout=10)
+            return (d / 'calls').read_text().split('\n')[:-1] if (d / 'calls').exists() else []
+
+    def test_hold_durations(self):
+        self.assertEqual(self.run_events([3]), [])
+        self.assertEqual(self.run_events([9]), ['reboot'])
+        self.assertEqual(self.run_events([21]), ['fc clear', 'reboot'])
+        self.assertEqual(self.run_events([21], storage='sd'), ['reboot'])
+
+
 class VendorWpaWrapper(unittest.TestCase):
     def test_filters_conf_and_keeps_args(self):
         with tempfile.TemporaryDirectory() as d:
