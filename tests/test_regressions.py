@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import tarfile
 import tempfile
 import unittest
@@ -1428,7 +1429,9 @@ class FlashUsrImage(unittest.TestCase):
     SERVICE = ('#! /bin/sh\nstart_service ()\n{\n\tif [ $WIFI_TEST = 1 ]; then\n'
                '\t    /mnt/wifitest/wifi_test.sh \n\telse\n'
                '\t\tdaemon\n\t\techo 1 > /sys/class/leds/red_led/brightness\n'
-               '\t\t/usr/sbin/anyka_ipc.sh start \n\t\techo "start net service......"\n\tfi\n}\n')
+               '\t\t/usr/sbin/anyka_ipc.sh start \n\t\techo "start net service......"\n\tfi\n'
+               '\tif [ -z "$boot_from" ] && [ $FACTORY_TEST = 0 ] && [ $WIFI_TEST = 0 ] && [ $AGING_TEST = 0 ];then\n'
+               '\t\techo "start net service......"\n\t\t/usr/sbin/net_manage.sh &\n\tfi\n}\n')
 
     @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
     def test_build(self):
@@ -1458,12 +1461,91 @@ class FlashUsrImage(unittest.TestCase):
             self.assertNotIn('anyka_ipc.sh start', svc)
             self.assertIn('/etc/jffs2/tc100/boot.sh', svc)
             self.assertIn('telnetd -p 23', svc)
+            self.assertIn('/usr/tc100/scripts/flashboot.sh', svc)
+            self.assertIn('[ "${TC100_FLASH:-0}" = 0 ];then', svc)
 
     def test_flash_script_checks_partition_and_reads_back(self):
         t = (ROOT / 'src/flash/flash-usr.sh').read_text()
         self.assertIn('"C"$', t)
         self.assertIn('if=/dev/mtd6', t)       # verify from the raw flash, not the block cache
         self.assertIn('3891200', t)
+
+
+class FlashBoot(unittest.TestCase):
+    """scripts/flashboot.sh with stubbed mount: SD layout rebuilt from /usr/tc100 + jffs2 config."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        self.code = d / 'usr_tc100'
+        for sub in ('bin', 'lib', 'scripts', 'controlscripts', 'www', 'sounds', 'config/autostart'):
+            (self.code / sub).mkdir(parents=True)
+        (self.code / 'autorun.sh').write_text('#!/bin/sh\necho ran > "%s/autorun.ran"\n' % d)
+        (self.code / 'autorun.sh').chmod(0o755)
+        (self.code / 'VERSION').write_text('9.9\n')
+        (self.code / 'config/boot.conf.dist').write_text('WEB_MODE=full\nWIFI_CLIENT=vendor\nX=1\n')
+        (self.code / 'config/mqtt.conf.dist').write_text('MQTT_ENABLE=0\n')
+        (self.code / 'config/autostart/rtsp-h26x').write_text('x')
+        self.stub = d / 'stub'; self.stub.mkdir()
+        self.calls = d / 'calls'
+        for name in ('mount', 'umount', 'telnetd'):
+            (self.stub / name).write_text('#!/bin/sh\necho "%s $*" >> "%s"\n' % (name, self.calls))
+            (self.stub / name).chmod(0o755)
+        self.persist = d / 'jffs2'; self.mnt = d / 'mnt'; self.mnt.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_fb(self):
+        env = dict(os.environ, PATH='%s:%s' % (self.stub, os.environ['PATH']),
+                   FLASHBOOT_CODE=str(self.code), FLASHBOOT_PERSIST=str(self.persist),
+                   FLASHBOOT_MNT=str(self.mnt), FLASHBOOT_LOG=str(self.d / 'fb.log'),
+                   FLASHBOOT_STATE=str(self.d / 'storage'))
+        r = subprocess.run(['sh', str(ROOT / 'scripts/flashboot.sh')], env=env, capture_output=True, text=True)
+        time.sleep(0.3)
+        return r
+
+    def test_layout_and_config(self):
+        self.run_fb()
+        calls = self.calls.read_text()
+        self.assertIn('mount -t tmpfs -o size=4m', calls)
+        for d in ('bin', 'scripts', 'www', 'controlscripts'):
+            self.assertIn('mount -o bind %s/%s %s/%s' % (self.code, d, self.mnt, d), calls)
+        self.assertIn('mount -o bind %s/config %s/config' % (self.persist, self.mnt), calls)
+        cfg = self.persist / 'config'
+        self.assertTrue((cfg / 'mqtt.conf.dist').is_symlink())
+        self.assertTrue((cfg / 'autostart/rtsp-h26x').exists())
+        boot = (cfg / 'boot.conf').read_text()
+        self.assertIn('WEB_MODE=http', boot); self.assertIn('WIFI_CLIENT=new', boot); self.assertIn('X=1', boot)
+        self.assertTrue((self.d / 'autorun.ran').exists())
+        self.assertEqual((self.d / 'storage').read_text().strip(), 'flash')
+
+    def test_second_boot_does_not_rewrite_config(self):
+        self.run_fb()
+        boot = self.persist / 'config/boot.conf'
+        before = boot.stat().st_mtime_ns
+        time.sleep(0.05)
+        self.run_fb()
+        self.assertEqual(boot.stat().st_mtime_ns, before)
+
+    def test_no_code_gives_rescue_telnet(self):
+        shutil.rmtree(self.code / 'scripts')
+        self.run_fb()
+        self.assertIn('telnetd -p 23', self.calls.read_text())
+
+
+class VendorWpaWrapper(unittest.TestCase):
+    def test_filters_conf_and_keeps_args(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            fake = d / 'wpa'; fake.write_text('#!/bin/sh\nfor a; do echo "[$a]"; done\n'); fake.chmod(0o755)
+            conf = d / 'v.conf'; conf.write_text('ctrl_interface=/var/run/wpa_supplicant\ndevice_name=X\nwps_cred_processing=1\nnetwork={\n}\n')
+            tmpc = d / 'out.conf'
+            env = dict(os.environ, WPA_NEW=str(fake), WPA_TMPCONF=str(tmpc))
+            r = subprocess.run(['sh', str(ROOT / 'src/flash/wpa_supplicant-wrapper.sh'), '-B', '-iwlan0', '-Dwext',
+                                '-c', str(conf)], env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(r.stdout.split(), ['[-B]', '[-iwlan0]', '[-Dwext]', '[-c]', '[%s]' % tmpc])
+            out = tmpc.read_text()
+            self.assertIn('ctrl_interface', out); self.assertNotIn('device_name', out); self.assertNotIn('wps_', out)
 
 
 class SettingsLayout(unittest.TestCase):
