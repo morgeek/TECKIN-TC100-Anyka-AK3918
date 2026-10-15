@@ -1422,6 +1422,50 @@ class SdCardKit(unittest.TestCase):
                 self.assertFalse((out / 'config' / live).exists(), live)
 
 
+class FlashUsrImage(unittest.TestCase):
+    """src/flash/build-usr.sh on a synthetic vendor /usr: cloud removed, SD keeps priority."""
+
+    SERVICE = ('#! /bin/sh\nstart_service ()\n{\n\tif [ $WIFI_TEST = 1 ]; then\n'
+               '\t    /mnt/wifitest/wifi_test.sh \n\telse\n'
+               '\t\tdaemon\n\t\techo 1 > /sys/class/leds/red_led/brightness\n'
+               '\t\t/usr/sbin/anyka_ipc.sh start \n\t\techo "start net service......"\n\tfi\n}\n')
+
+    @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
+    def test_build(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            v = d / 'usr'
+            for sub in ('bin', 'lib', 'sbin', 'modules', 'share'):
+                (v / sub).mkdir(parents=True)
+            (v / 'sbin/service.sh').write_text(self.SERVICE); (v / 'sbin/service.sh').chmod(0o755)
+            for f in ('modules/8188fu.ko', 'bin/anyka_ipc', 'bin/ak_vi_demo', 'bin/ak_ao_demo',
+                      'bin/wpa_supplicant', 'lib/libapp_net.so', 'lib/libakv_encode.so', 'share/x.mp3'):
+                (v / f).write_text(f)
+            tc = d / 'tc'; (tc / 'bin').mkdir(parents=True); (tc / 'lib').mkdir()
+            (tc / 'bin/curl').write_text('x')
+            out = d / 'u.img'
+            subprocess.run(['sh', str(ROOT / 'src/flash/build-usr.sh'), str(v), str(tc), str(out)],
+                           check=True, capture_output=True)
+            x = d / 'x'
+            subprocess.run(['unsquashfs', '-q', '-d', str(x), str(out)], check=True, capture_output=True)
+            for gone in ('bin/anyka_ipc', 'bin/ak_vi_demo', 'lib/libapp_net.so', 'share/x.mp3'):
+                self.assertFalse((x / gone).exists(), gone)
+            for kept in ('bin/ak_ao_demo', 'bin/wpa_supplicant', 'lib/libakv_encode.so',
+                         'modules/8188fu.ko', 'tc100/bin/curl'):
+                self.assertTrue((x / kept).exists(), kept)
+            svc = (x / 'sbin/service.sh').read_text()
+            self.assertIn('/mnt/wifitest/wifi_test.sh', svc)   # SD path untouched
+            self.assertNotIn('anyka_ipc.sh start', svc)
+            self.assertIn('/etc/jffs2/tc100/boot.sh', svc)
+            self.assertIn('telnetd -p 23', svc)
+
+    def test_flash_script_checks_partition_and_reads_back(self):
+        t = (ROOT / 'src/flash/flash-usr.sh').read_text()
+        self.assertIn('"C"$', t)
+        self.assertIn('if=/dev/mtd6', t)       # verify from the raw flash, not the block cache
+        self.assertIn('3891200', t)
+
+
 class SettingsLayout(unittest.TestCase):
     """Settings regrouped (2026-10-14): 6 tabs, Tools reduced to Diagnostics / Logs / Config editor."""
 
