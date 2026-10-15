@@ -1515,7 +1515,7 @@ class FlashBoot(unittest.TestCase):
         self.assertTrue((cfg / 'mqtt.conf.dist').is_symlink())
         self.assertTrue((cfg / 'autostart/rtsp-h26x').exists())
         boot = (cfg / 'boot.conf').read_text()
-        self.assertIn('WEB_MODE=http', boot); self.assertIn('WIFI_CLIENT=new', boot); self.assertIn('X=1', boot)
+        self.assertIn('WEB_MODE=full', boot); self.assertIn('WIFI_CLIENT=new', boot); self.assertIn('X=1', boot)
         self.assertTrue((self.d / 'autorun.ran').exists())
         self.assertEqual((self.d / 'storage').read_text().strip(), 'flash')
 
@@ -1531,6 +1531,22 @@ class FlashBoot(unittest.TestCase):
         shutil.rmtree(self.code / 'scripts')
         self.run_fb()
         self.assertIn('telnetd -p 23', self.calls.read_text())
+
+
+class FlashWebServer(unittest.TestCase):
+    def test_flash_conf_uses_mbedtls_without_h2(self):
+        t = (ROOT / 'config/lighttpd.flash.conf.dist').read_text()
+        self.assertIn('"mod_mbedtls"', t); self.assertNotIn('"mod_openssl"', t)
+        self.assertIn('"server.h2proto" => "disable"', t)
+        self.assertIn('ssl.pemfile = "/mnt/config/lighttpd.pem"', t)
+
+    def test_selection_in_flash_mode(self):
+        cf = (ROOT / 'scripts/common_functions.sh').read_text()
+        self.assertIn('_hs_conf=/mnt/config/lighttpd.flash.conf', cf)
+        ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
+        flash = ws.index('/tmp/tc100-storage'); full = ws.index('case "$WEB_MODE" in')
+        self.assertLess(flash, full)   # decided before the OpenSSL path
+        self.assertIn('lighttpd.flash.conf', ws[flash:full])
 
 
 class VendorWpaWrapper(unittest.TestCase):

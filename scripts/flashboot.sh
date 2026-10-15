@@ -16,9 +16,10 @@
 # missing, so they cost no space in the 500 KB jffs2 partition. The autostart
 # directory is copied once (the Services page adds and removes files in it).
 #
-# In flash mode the web server runs over HTTP (the flash lighttpd has no TLS)
-# and the Wi-Fi client is wpa_supplicant 2.11: boot.conf gets WEB_MODE=http
-# and WIFI_CLIENT=new. /tmp/tc100-storage reads "flash".
+# In flash mode the Wi-Fi client is wpa_supplicant 2.11 (boot.conf gets
+# WIFI_CLIENT=new) and the web server's TLS is mbedTLS (lighttpd.flash.conf,
+# HTTPS with the certificate in /mnt/config/lighttpd.pem, HTTP when there is
+# none). /tmp/tc100-storage reads "flash".
 #
 # A card with the firmware (/mnt/wifitest) always wins: service.sh never
 # calls this script then.
@@ -78,7 +79,6 @@ set_key()
     fi
     log "boot.conf: $1=$2"
 }
-set_key WEB_MODE http
 set_key WIFI_CLIENT new
 mkdir -p "$M/config"
 mount -o bind "$CFG" "$M/config" || rescue "bind config failed"

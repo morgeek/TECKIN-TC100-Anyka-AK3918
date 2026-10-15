@@ -8,7 +8,9 @@
 #   - removed: the cloud application and what only it uses (anyka_ipc,
 #     hostapd, test/demo programs except ak_ao_demo/ak_ai_demo, libapp_*,
 #     libzbar, libwolfmqtt, libiconv/iconv, voice prompts *.mp3, nooie tools,
-#     ca.crt.pem). The SD firmware never runs them (stop_cloud, WIFI_TEST).
+#     ca.crt.pem, daemon, cmd_serverd, ccli), vendor libraries no process
+#     loads, USB gadget modules and unused vendor tools. The SD firmware never
+#     runs them (stop_cloud, WIFI_TEST).
 #   - sbin/service.sh: the SD card keeps priority — with /mnt/wifitest on the
 #     card the boot is exactly the vendor one (the SD firmware starts). Only
 #     without it, instead of the cloud app: /etc/jffs2/tc100/boot.sh if
@@ -36,6 +38,15 @@ for b in bin/ak_*_demo bin/ak_lib_version; do
 done
 rm -f bin/anyka_ipc bin/hostapd bin/ca.crt.pem bin/get_nooie_uid bin/set_nooie_ssid \
       bin/iconv lib/libiconv.so lib/libapp_*.so lib/libzbar.so* lib/libwolfmqtt.so* share/*.mp3
+# Never loaded on the camera (no process maps them; only disk_repair, itself
+# unused, needs two of them), USB gadget/burn modules, vendor tools nothing
+# here runs (daemon and cmd_serverd: cloud watchdog and command server).
+rm -f lib/libmpi_adec.so lib/libmpi_aed.so lib/libmpi_muxer.so lib/libmpi_venc.so \
+      lib/libplat_ats.so lib/libplat_drv.so lib/libplat_its.so lib/libplat_tw.so \
+      modules/g_file_storage.ko modules/g_mass_storage.ko modules/udc.ko \
+      modules/usbburn.ko modules/ak_videobuf_block.ko \
+      bin/wpa_passphrase bin/get_device_id bin/top_thread bin/daemon bin/getconf \
+      bin/ldd bin/cmd_serverd bin/ccli bin/disk_repair
 # VENDOR_WPA=wrapper: the vendor wpa_supplicant 0.8 (164 KB) becomes a wrapper
 # running 2.11 from /usr/tc100 (src/flash/wpa_supplicant-wrapper.sh).
 if [ "${VENDOR_WPA:-keep}" = wrapper ]; then
