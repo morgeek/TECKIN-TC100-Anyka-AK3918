@@ -33,10 +33,61 @@ if [ "${REQUEST_METHOD:-GET}" = "POST" ]; then
   fi
 fi
 
-# Running from flash (scripts/flashboot.sh): /mnt is a small RAM disk and the
-# code is in the flash /usr image, which this updater does not write.
-if [ "${REQUEST_METHOD:-GET}" = "POST" ] && [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
-  echo '{"ok":false,"error":"flash_mode","message":"The camera runs from its flash memory: updates are written with src/flash/flash-usr.sh, not from this page."}'
+# Running from flash (scripts/flashboot.sh): updates are code packages
+# (src/flash/build-code.sh) written to the code zone of the flash by
+# scripts/flash-code.sh — staged in RAM (/tmp), never on /mnt. The binaries in
+# /usr are not updated from here. "rollback" clears the zone: the camera then
+# runs the code built into /usr.
+if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
+  FC="${FC_SCRIPT:-/usr/tc100/scripts/flash-code.sh}"
+  FW="${FC_WORK:-/tmp/update}"
+  _fz="$(sh "$FC" status 2>/dev/null)"
+  case "$_fz" in "valid "*) _cur="${_fz#valid }" ;; *) _cur="$(cat /usr/tc100/VERSION 2>/dev/null) (built in)" ;; esac
+  case "${REQUEST_METHOD:-GET}:$_cmd" in
+    GET:status|GET:)
+      _st=idle; _staged=""
+      if [ -f "$FW/installing" ]; then _st=installing
+      elif [ -f "$FW/code.bin" ] && _chk="$(sh "$FC" check "$FW/code.bin")"; then
+        _st=staged; set -- $_chk; _staged="$2"
+      fi
+      _rb=""; case "$_fz" in "valid "*) _rb="built-in code" ;; esac
+      printf '{"ok":true,"storage":"flash","state":"%s","current":"%s","staged":"%s","rollback_to":"%s","log":""}\n' \
+        "$_st" "$_cur" "$_staged" "$_rb" ;;
+    POST:upload)
+      _cl="${CONTENT_LENGTH:-0}"
+      case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
+      if [ "$_cl" -le 4096 ] || [ "$_cl" -gt 655360 ]; then
+        echo '{"ok":false,"error":"invalid_size","message":"From flash, upload a code package (tc100-code-<version>.bin, at most 640 KB)."}'
+        exit 0
+      fi
+      mkdir -p "$FW"; rm -f "$FW/code.bin"
+      head -c "$_cl" > "$FW/code.bin" 2>/dev/null
+      if _chk="$(sh "$FC" check "$FW/code.bin")"; then
+        set -- $_chk
+        printf '{"ok":true,"kind":"code","version":"%s","current":"%s","changed":1,"files":1}\n' "$2" "$_cur"
+      else
+        rm -f "$FW/code.bin"
+        printf '{"ok":false,"error":"invalid_package","message":"Not a valid code package: %s."}\n' "$_chk"
+      fi ;;
+    POST:install)
+      if ! sh "$FC" check "$FW/code.bin" >/dev/null 2>&1; then
+        echo '{"ok":false,"error":"nothing_staged","message":"Upload a code package first."}'; exit 0
+      fi
+      : > "$FW/installing"
+      ( trap '' HUP
+        if sh "$FC" write "$FW/code.bin" >/dev/null 2>&1; then rm -f "$FW/code.bin"; sync; reboot
+        else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
+      echo '{"ok":true,"started":"install"}' ;;
+    POST:rollback)
+      : > "$FW/installing"
+      ( trap '' HUP
+        if sh "$FC" clear >/dev/null 2>&1; then sync; reboot; else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
+      echo '{"ok":true,"started":"rollback"}' ;;
+    POST:discard)
+      rm -f "$FW/code.bin"; echo '{"ok":true}' ;;
+    *)
+      echo '{"ok":false,"error":"unknown_command"}' ;;
+  esac
   exit 0
 fi
 

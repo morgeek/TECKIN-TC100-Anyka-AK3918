@@ -479,11 +479,11 @@
             <div class='card status_card mt-4'>
                 <header class='card-header'><p class='card-header-title'>Firmware update</p></header>
                 <div class='card-content'>
-                    <p class="is-size-7 mb-2">Upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept.</p>
+                    <p class="is-size-7 mb-2">Running from the SD card: upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept. Running from the flash memory (FLASH badge): upload a <code>tc100-code-&lt;version&gt;.bin</code> package (<code>src/flash/build-code.sh</code>); it is written to the flash, read back, and the camera reboots; "Roll back" returns to the code built into the firmware.</p>
                     <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
                     <div class="file is-small is-fullwidth mb-2">
                         <label class="file-label" style="width:100%">
-                            <input class="file-input" type="file" id="fwuFile" accept=".tar">
+                            <input class="file-input" type="file" id="fwuFile" accept=".tar,.bin">
                             <span class="file-cta" style="flex-shrink:0"><span class="file-label">Choose…</span></span>
                             <span class="file-name" id="fwuFileName" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">No file selected</span>
                         </label>
@@ -888,7 +888,10 @@
                     xhr.onload = function() {
                         up.classList.remove('is-loading'); up.disabled = false; show(bar, false);
                         var d; try { d = JSON.parse(xhr.responseText); } catch (e) { d = null; }
-                        if (d && d.ok) {
+                        if (d && d.ok && d.kind === 'code') {
+                            say('Code package ' + d.version + ' is valid; it will be written to the flash memory (installed: ' + d.current + ').');
+                            refresh();
+                        } else if (d && d.ok) {
                             say('Package ' + d.version + ' is valid: ' + d.changed + ' of ' + d.files + ' files differ from the installed ' + d.current + '.');
                             refresh();
                         } else {
