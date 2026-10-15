@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.8.4] — 2026-10-12
 
+### Added
+- `src/release/build-sd.sh` builds the content of a new SD card (`dist/tc100-sd-<version>/`, and a zip), with `SD-CARD.txt` (formatting, bringing the settings over) and checks that no reflash file name or live configuration ends up on it. The boot hook `wifitest/wifi_test.sh` (the vendor `service.sh` sees `/mnt/wifitest`, skips the cloud app and runs it; it starts `autorun.sh`) was only on the cameras' cards and is now in the repository: a card made from git alone did not boot the firmware.
+
 ### Fixed
 - The camera contacted GitHub (`api.github.com`) at every boot to check for a new release, although it is meant to stay off the internet. The check now only runs with `UPDATE_CHECK=1` in boot.conf (default 0); updates are installed from Settings → Firmware update.
 - Settings → Firmware update showed nothing on a camera whose update log held control characters (file names made of random bytes from the 2026-10-13 FAT incident): `update.cgi?cmd=status` returned invalid JSON. They are replaced in the log excerpt.

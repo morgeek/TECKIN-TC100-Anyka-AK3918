@@ -1397,6 +1397,31 @@ class WebUiLanguage(unittest.TestCase):
         self.assertIn('i18n.js?v=' + version, index)     # bump both together (30-day cache)
 
 
+class SdCardKit(unittest.TestCase):
+    """src/release/build-sd.sh: content of a new SD card."""
+
+    def test_boot_hook_starts_autorun(self):
+        hook = ROOT / 'wifitest/wifi_test.sh'
+        self.assertIn('/mnt/autorun.sh &', hook.read_text())
+        self.assertTrue(os.access(hook, os.X_OK))
+
+    def test_kit_is_complete_and_safe(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / 'kit'
+            env = dict(os.environ, PATH='/nonexistent:' + os.environ['PATH'])
+            subprocess.run(['sh', str(ROOT / 'src/release/build-sd.sh'), str(out)], check=True,
+                           capture_output=True, env=env)
+            for p in ('autorun.sh', 'VERSION', 'wifitest/wifi_test.sh', 'SD-CARD.txt',
+                      'scripts/rofs.sh', 'config/boot.conf.dist', 'log'):
+                self.assertTrue((out / p).exists(), p)
+            names = {p.name for p in out.iterdir()}
+            for bad in ('uimage', 'uImage', 'root.sqsh4', 'usr.sqsh4', 'usr.jffs2', 'update',
+                        'wpa_supplicant.conf'):
+                self.assertNotIn(bad, names)
+            for live in ('mqtt.conf', 'user.pwd', 'lighttpd.pem'):
+                self.assertFalse((out / 'config' / live).exists(), live)
+
+
 class SettingsLayout(unittest.TestCase):
     """Settings regrouped (2026-10-14): 6 tabs, Tools reduced to Diagnostics / Logs / Config editor."""
 
