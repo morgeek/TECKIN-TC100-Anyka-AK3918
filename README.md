@@ -244,6 +244,29 @@ stale entry looks exactly like a fix that did not take.
 
 ---
 
+## Flash /usr (experimental)
+
+The camera's `/usr` (flash partition C, mtd6, 3,891,200 bytes) can be replaced
+from Linux, without opening the camera. `src/flash/build-usr.sh` builds the image
+from the camera's own `/usr` (unsquashfs of a flash dump; no vendor binary is in
+this repository): the cloud application and what only it uses are removed, every
+other vendor file is kept byte for byte, `/usr/tc100` receives the HTTP-only
+binaries (`src/curl/build.sh`, `NO_TLS=1 src/lighttpd/build.sh`), and
+`sbin/service.sh` changes only where the cloud app started:
+
+- with the SD card (`/mnt/wifitest`) the boot is the vendor one, so the SD
+  firmware starts exactly as before — a working SD card always wins;
+- without it: `/etc/jffs2/tc100/boot.sh` when present, else a rescue `telnetd` on port 23.
+
+`src/flash/flash-usr.sh <image> <md5>` (run on the camera) checks that mtd6 is
+"C" with the expected size and the image md5, writes it and reads the flash back
+through `/dev/mtd6`, rewriting up to three times. Done on camera 2 on 2026-10-15
+after a boot of the same image loop-mounted over `/usr` from the SD card. U-Boot,
+the kernel and the rootfs are not touched, so U-Boot's SD + reset-button recovery
+stays available.
+
+---
+
 ## Repository Structure
 
 This repository is the runtime payload: copy its contents to the SD card root.

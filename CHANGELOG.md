@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.8.4] — 2026-10-12
 
 ### Added
+- Flash `/usr` replacement, written from Linux without opening the camera (README "Flash /usr"): `src/flash/build-usr.sh` (vendor `/usr` minus the cloud app, SD card keeps priority in `service.sh`, `/usr/tc100` HTTP-only binaries, size check) and `src/flash/flash-usr.sh` (partition check, write, read-back through `/dev/mtd6`). HTTP-only builds: `src/curl/build.sh` (HTTP/MQTT/RTSP) and `NO_TLS=1 src/lighttpd/build.sh`. camera 2 runs from it since 2026-10-15.
 - `src/release/build-sd.sh` builds the content of a new SD card (`dist/tc100-sd-<version>/`, and a zip), with `SD-CARD.txt` (formatting, bringing the settings over) and checks that no reflash file name or live configuration ends up on it. The boot hook `wifitest/wifi_test.sh` (the vendor `service.sh` sees `/mnt/wifitest`, skips the cloud app and runs it; it starts `autorun.sh`) was only on the cameras' cards and is now in the repository: a card made from git alone did not boot the firmware.
 
 ### Fixed
