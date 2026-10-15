@@ -90,7 +90,10 @@ fc_write()
     _try=1
     while [ "$_try" -le 3 ]; do
         dd if="$1" of="$MTD_BLOCK" bs=$BS seek=$ZONE_BLOCK count="$_blocks" conv=sync,notrunc 2>>"$LOG"
-        sync
+        # sync alone leaves blocks behind while the zone is mounted (measured:
+        # read-back mismatches only then): flush and drop the block device's
+        # buffers before reading the flash back.
+        sync; blockdev --flushbufs "$MTD_BLOCK" 2>/dev/null; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
         _got="$(dd if="$MTD_CHAR" bs=$BS skip=$ZONE_BLOCK count="$_blocks" 2>/dev/null | md5sum | cut -d' ' -f1)"
         [ "$_got" = "$_want" ] && break
         _fc_log "write $_try: read back $_got, expected $_want"
