@@ -1,6 +1,9 @@
-# lighttpd.conf for the firmware running from flash (TLS by mbedTLS).
-# Same as lighttpd.conf.dist otherwise; picked by _http_server_lighttpd
-# (scripts/common_functions.sh) when /tmp/tc100-storage reads "flash".
+# lighttpd.conf for the firmware running from flash (TLS by mbedTLS, no PCRE:
+# src/lighttpd/build.sh TLS=mbedtls NO_PCRE=1). Same as lighttpd.conf.dist,
+# with conditions written without regular expressions (==, =^, CIDR) and the
+# http -> https redirect done by a small page instead of mod_redirect.
+# Picked by _http_server_lighttpd (scripts/common_functions.sh) when
+# /tmp/tc100-storage reads "flash".
 server.document-root = "/mnt/www"
 
 server.port = 80
@@ -19,7 +22,6 @@ mimetype.assign = (
 index-file.names = ( "index.html" )
 server.modules = ("mod_auth",
                   "mod_authn_file",
-                  "mod_redirect",
                   "mod_cgi",
                   "mod_staticfile",
                   "mod_mbedtls",
@@ -39,31 +41,22 @@ $SERVER["socket"] == ":443" {
 server.feature-flags = ( "server.h2proto" => "disable" )
 
 
-# Support letsencrypt SSL cert paths
-# (we don't want to upgrade to SSL nor auth' this path)
-$HTTP["url"] !~ "^/.well-known/(.*)" {
+auth.backend                = "htdigest"
+auth.backend.htdigest.userfile = "/mnt/config/lighttpd.user"
+auth.require = ( "/" => ("method" => "basic", "realm" => "all", "require" => "user=root"))
 
-    auth.backend                = "htdigest"
-    auth.backend.htdigest.userfile = "/mnt/config/lighttpd.user"
-    auth.require = ( "/" => ("method" => "basic", "realm" => "all", "require" => "user=root"))
-
-    $HTTP["scheme"] == "http" {
-        # capture vhost name with regex conditiona -> %0 in redirect pattern
-        # must be the most inner block to the redirect rule
-        $HTTP["host"] =~ ".*" {
-            url.redirect = (".*" => "https://%0$0")
-        }
-    }
+# Plain HTTP (port 80): no login, every path answers with a page that sends
+# the browser to the same address over HTTPS (www/http-redirect/index.html).
+$HTTP["scheme"] == "http" {
+    auth.require = ()
+    server.document-root = "/mnt/www/http-redirect"
+    server.error-handler-404 = "/index.html"
 }
 
 ## IP allowlist — restrict web UI to a specific subnet.
 ## Uncomment and set your LAN CIDR to block access from other networks/interfaces.
 ## Example: allow only 192.168.1.x
-#$HTTP["remoteip"] !~ "^192\.168\.1\." {
-#    url.access-deny = ("")
-#}
-## To allow multiple subnets, extend the pattern:
-#$HTTP["remoteip"] !~ "^(192\.168\.1\.|10\.0\.0\.)" {
+#$HTTP["remoteip"] != "192.168.1.0/24" {
 #    url.access-deny = ("")
 #}
 
@@ -97,7 +90,7 @@ setenv.add-response-header = (
 # browser keep them for 30 days without asking again. A new release changes
 # the URL, so nothing goes stale. Unversioned files keep the default
 # revalidation (ETag / 304).
-$HTTP["querystring"] =~ "^v=" {
+$HTTP["querystring"] =^ "v=" {
   expire.url = ( "/" => "access plus 30 days" )
 }
 
@@ -105,14 +98,15 @@ $HTTP["querystring"] =~ "^v=" {
 # it from there afterwards: the CPU cost is paid once per file per boot, and
 # every later response is smaller to encrypt and send. CGI output is never
 # compressed (no per-request CPU, nothing leaked through compressed sizes).
-$HTTP["url"] !~ "^/cgi-bin/" {
-  deflate.mimetypes = ( "text/css", "text/javascript", "text/html", "text/plain", "image/svg+xml" )
-  deflate.allowed-encodings = ( "gzip", "deflate" )
-  deflate.cache-dir = "/tmp/lighttpd-deflate/"
-  deflate.min-compress-size = 512
-  # Skip compression (serve the file as is) while the camera is very busy.
-  # The AK3918 idles around a load of 2.5-3 because of the vendor app.
-  deflate.max-loadavg = "6.0"
+deflate.mimetypes = ( "text/css", "text/javascript", "text/html", "text/plain", "image/svg+xml" )
+deflate.allowed-encodings = ( "gzip", "deflate" )
+deflate.cache-dir = "/tmp/lighttpd-deflate/"
+deflate.min-compress-size = 512
+# Skip compression (serve the file as is) while the camera is very busy.
+# The AK3918 idles around a load of 2.5-3 because of the vendor app.
+deflate.max-loadavg = "6.0"
+$HTTP["url"] =^ "/cgi-bin/" {
+  deflate.mimetypes = ()
 }
 # @end
 
@@ -120,7 +114,7 @@ $HTTP["url"] !~ "^/cgi-bin/" {
 # Firmware update uploads (several MB) are streamed to update.cgi, which
 # writes them to the SD card. Without this lighttpd first buffers the whole
 # body in server.upload-dirs (/tmp, i.e. RAM, ~33 MB in total).
-$HTTP["url"] =~ "^/cgi-bin/update\.cgi" {
+$HTTP["url"] =^ "/cgi-bin/update.cgi" {
   server.stream-request-body = 2
 }
 # @end

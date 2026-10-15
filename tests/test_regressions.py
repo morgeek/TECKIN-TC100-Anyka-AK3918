@@ -1551,6 +1551,15 @@ class FlashWebServer(unittest.TestCase):
         self.assertIn('"server.h2proto" => "disable"', t)
         self.assertIn('ssl.pemfile = "/mnt/config/lighttpd.pem"', t)
 
+    def test_flash_conf_needs_no_pcre(self):
+        t = (ROOT / 'config/lighttpd.flash.conf.dist').read_text()
+        code = '\n'.join(l for l in t.splitlines() if not l.lstrip().startswith('#'))
+        self.assertNotRegex(code, r'=~|!~|url\.redirect|url\.rewrite|"mod_redirect"')
+        self.assertIn('$HTTP["querystring"] =^ "v="', code)
+        self.assertIn('$HTTP["url"] =^ "/cgi-bin/" {\n  deflate.mimetypes = ()', code)
+        self.assertIn('server.document-root = "/mnt/www/http-redirect"', code)
+        self.assertIn('location.replace("https://"', (ROOT / 'www/http-redirect/index.html').read_text())
+
     def test_selection_in_flash_mode(self):
         cf = (ROOT / 'scripts/common_functions.sh').read_text()
         self.assertIn('_hs_conf=/mnt/config/lighttpd.flash.conf', cf)

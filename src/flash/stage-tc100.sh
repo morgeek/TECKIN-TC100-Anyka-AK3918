@@ -10,7 +10,7 @@
 #                  (config without ssl/)
 #
 # Usage: STRIP=<cross-strip> src/flash/stage-tc100.sh <out-dir> <curl-notls> <lighttpd>
-# <lighttpd>: TLS=mbedtls src/lighttpd/build.sh (HTTPS) or NO_TLS=1 (HTTP only).
+# <lighttpd>: TLS=mbedtls [NO_PCRE=1] src/lighttpd/build.sh (HTTPS) or NO_TLS=1 (HTTP only).
 set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 out=$1; curl_bin=$2; lighttpd_bin=$3
@@ -23,6 +23,10 @@ while IFS= read -r f; do
   mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"
 done
 cp "$curl_bin" "$out/bin/curl"; cp "$lighttpd_bin" "$out/bin/lighttpd"
+# lighttpd built with NO_PCRE=1: nothing else uses PCRE2.
+if ! readelf -d "$out/bin/lighttpd" 2>/dev/null | grep -q 'libpcre2-8'; then
+  rm -f "$out"/lib/libpcre2-8.so*
+fi
 for f in "$out"/bin/* "$out"/lib/*; do
   file -b "$f" | grep -q ELF && "$STRIP" --strip-unneeded "$f"
 done

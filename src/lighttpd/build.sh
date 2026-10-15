@@ -19,6 +19,7 @@
 #                 a TLS 1.2 ECDHE-ECDSA server (mbedtls-tc100-config.h), +107 KB
 #                 compressed; mod_mbedtls-mbedtls3.patch fixes two crashes of
 #                 lighttpd 1.4.69 with mbedTLS 3 (default OUT: <workdir>/lighttpd-mbedtls)
+#   NO_PCRE=1     without PCRE2 (-110 KB compressed with its library)
 #
 # Usage: TC=/path/to/arm-anykav200-crosstool/usr src/lighttpd/build.sh [workdir]
 set -eu
@@ -62,6 +63,9 @@ Cflags: -I$P/include
 PC
 
 NO_TLS=${NO_TLS:-0}; TLS=${TLS:-openssl}
+# NO_PCRE=1: no regular expressions (=~ !~ and url.redirect/url.rewrite need
+# them): config/lighttpd.flash.conf.dist only uses == and =^.
+PCRE=ON; [ "${NO_PCRE:-0}" = 1 ] && PCRE=OFF
 MBED=OFF; EXTRA_CFLAGS=""; EXTRA_LDFLAGS=""
 (cd lighttpd && git checkout -q -- src/mod_mbedtls.c)
 if [ "$NO_TLS" = 1 ]; then
@@ -84,7 +88,7 @@ elif [ "$TLS" = mbedtls ]; then
   (cd lighttpd && patch -s -p1 < "$here/mod_mbedtls-mbedtls3.patch")
   sed 's/PLUGIN_INIT(mod_openssl)/PLUGIN_INIT(mod_mbedtls)/' "$here/plugin-static.h" > lighttpd/src/plugin-static.h
   SSL=OFF; MBED=ON; OUT=${OUT:-$W/lighttpd-mbedtls}
-  EXTRA_CFLAGS="-ffunction-sections -fdata-sections"
+  EXTRA_CFLAGS="-ffunction-sections -fdata-sections -I$P/include"
   EXTRA_LDFLAGS="-L$P/mbedtls/lib -Wl,--gc-sections"
 else
   cp "$here/plugin-static.h" lighttpd/src/plugin-static.h
@@ -107,7 +111,7 @@ rm -rf build && mkdir build
 (cd build && PKG_CONFIG_LIBDIR="$P/lib/pkgconfig" PKG_CONFIG_PATH= cmake -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$W/toolchain.cmake" -DCMAKE_BUILD_TYPE=MinSizeRel \
   -DCMAKE_SKIP_RPATH=ON -DBUILD_STATIC=ON \
-  -DWITH_OPENSSL=$SSL -DWITH_PCRE2=ON -DWITH_ZLIB=ON \
+  -DWITH_OPENSSL=$SSL -DWITH_PCRE2=$PCRE -DWITH_ZLIB=ON \
   -DWITH_MBEDTLS=$MBED -DHAVE_LIBMEDCRYPTO=1 -DHAVE_LIBMEDX509=1 -DHAVE_LIBMBEDX509=1 \
   -DZLIB_LIBRARY="$P/lib/libz.a" -DZLIB_INCLUDE_DIR="$P/include" \
   -DOPENSSL_ROOT_DIR="$P" -DOPENSSL_INCLUDE_DIR="$P/include" \
