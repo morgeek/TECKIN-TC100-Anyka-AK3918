@@ -120,11 +120,13 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 
 ## Installation
 
-1. Format MicroSD as FAT32 (32 KB allocation size recommended) or exFAT.
-2. Copy repository contents to the card root. To also get the read-only image,
-   build it (`src/release/build-image.sh`, needs `squashfs-tools`) and copy
-   `dist/firmware.sqfs` and `dist/firmware.sqfs.md5` to the card root; without
-   them the camera simply runs from the copied files. Cameras already running
+1. Format MicroSD as FAT32 (MBR, 32 KB allocation size recommended) or exFAT.
+2. Build the card content with `src/release/build-sd.sh` (needs `squashfs-tools`
+   for the read-only image) and copy `dist/tc100-sd-<version>/` to the card root.
+   It holds the boot hook `wifitest/wifi_test.sh` (the vendor boot sees
+   `/mnt/wifitest`, skips the cloud app and starts `autorun.sh`), the firmware,
+   `firmware.sqfs` and an `SD-CARD.txt` with the formatting commands and how to
+   bring the settings of an old card over. Cameras already running
    1.8.x are updated from Settings → Firmware update with a package built by
    `src/release/build-update.sh` (it includes the image).
 3. Create `wpa_supplicant.conf` from `wpa_supplicant.conf.dist` and set your Wi-Fi SSID/PSK.
