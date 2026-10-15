@@ -1706,6 +1706,37 @@ class FlashCodeZone(unittest.TestCase):
         self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
 
 
+class ForkLightLoops(unittest.TestCase):
+    """The loops that run all day start (almost) no process: 525 -> 85 forks/min measured on camera 2."""
+
+    def body(self, rel, name):
+        src = (ROOT / rel).read_text()
+        i = src.index(name + '()\n{'); j = src.index('\n}\n', i)
+        return src[i:j]
+
+    def test_sound_detection_loop(self):
+        loop = self.body('controlscripts/sound-detection', 'run_daemon')
+        tail = loop[loop.index('while :; do'):]
+        self.assertNotIn('$(', tail.split('publish_sound_event')[0])
+        self.assertIn('sd_wait "$interval"', loop)
+        self.assertNotIn('sleep', tail)
+        self.assertIn('-nt "$SD_STAMP"', self.body('controlscripts/sound-detection', 'load_config'))
+
+    def test_waits_fall_back_to_sleep(self):
+        for rel, name, var in (('controlscripts/sound-detection', 'sd_wait', 'SD_FIFO'),
+                               ('scripts/mqtt-bridge.sh', 'mqtt_wait', 'MQTT_WAIT_FIFO')):
+            with tempfile.TemporaryDirectory() as d:
+                code = '%s=%s/fifo\n%s\n}\n%s 1\n' % (var, d, self.body(rel, name), name)
+                t0 = time.time()
+                subprocess.run(['sh', '-c', code], check=True, timeout=10)
+                self.assertGreaterEqual(time.time() - t0, 0.9, rel)   # dash has no read -t: sleep
+
+    def test_mqtt_spool_skipped_when_unchanged(self):
+        drain = self.body('scripts/mqtt-bridge.sh', 'drain_command_spool')
+        self.assertIn('[ "$_dc_mark" -nt "$_dc_file" ] && return 0', drain)
+        self.assertLess(drain.index('-nt "$_dc_file"'), drain.index('wc -c'))
+
+
 class VendorWpaWrapper(unittest.TestCase):
     def test_filters_conf_and_keeps_args(self):
         with tempfile.TemporaryDirectory() as d:

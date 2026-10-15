@@ -2336,6 +2336,21 @@ mqtt_listener_loop()
   done
 }
 
+# mqtt_wait <seconds>: sleep without starting a process (read with a timeout
+# on a FIFO nobody writes to; BusyBox ash returns 1 on the timeout), sleep(1)
+# otherwise. The spool poll runs every few seconds all day.
+MQTT_WAIT_FIFO="${MQTT_WAIT_FIFO:-/tmp/mqtt-bridge.wait.fifo}"
+mqtt_wait()
+{
+  [ -p "$MQTT_WAIT_FIFO" ] || mkfifo "$MQTT_WAIT_FIFO" 2>/dev/null
+  if [ -p "$MQTT_WAIT_FIFO" ]; then
+    read -t "$1" _mw_nothing <> "$MQTT_WAIT_FIFO" 2>/dev/null
+    [ $? -eq 1 ] || sleep "$1"
+  else
+    sleep "$1"
+  fi
+}
+
 drain_command_spool()
 {
   _dc_session=""
@@ -2349,6 +2364,11 @@ drain_command_spool()
   fi
   [ ! -f "${MQTT_STREAM_RAW}.reset" ] || return 0
   [ -f "$_dc_file" ] || return 0
+  # Nothing appended since the last look (mark strictly newer than the spool,
+  # shell test, no process): skip the wc. Same-second appends are re-read.
+  _dc_mark="${MQTT_STREAM_RAW}.checked"
+  [ "$_dc_mark" -nt "$_dc_file" ] && return 0
+  : > "$_dc_mark"
   _dc_size="$(wc -c < "$_dc_file" 2>/dev/null)"
   read -r _dc_size <<EOF
 $_dc_size
@@ -2619,7 +2639,7 @@ run_loop()
     # running on its own timer, which a blocking read would have starved.
     if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
       drain_command_spool
-      sleep "$MQTT_SPOOL_POLL_SECONDS"
+      mqtt_wait "$MQTT_SPOOL_POLL_SECONDS"
       continue
     fi
 
