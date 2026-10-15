@@ -414,7 +414,7 @@ static struct {
     uint32_t seq;
     struct sample s[FRAG_MAX_SAMPLES]; int ns;
     struct buf data;                                 /* fragment payload */
-    uint64_t last_sync;
+    uint64_t last_sync, last_ts;
     unsigned long long bytes, files;
     char state[32];
     uint64_t last_status, last_space, retry_at;
@@ -649,7 +649,7 @@ static int paused(void)
     return access(p, F_OK) == 0;
 }
 
-static void handle_frame(const struct qhdr *h, const unsigned char *data)
+static void handle_frame(struct qhdr *h, const unsigned char *data)
 {
     struct nal u[24];
     const struct nal *vps = NULL, *sps = NULL, *pps = NULL;
@@ -658,6 +658,11 @@ static void handle_frame(const struct qhdr *h, const unsigned char *data)
 
     n = split_nals(data, h->len, u, 24);
     if (n <= 0) return;
+    /* Frames can come out of the encoder in a burst (two within microseconds):
+     * keep at least 10 ms between samples, the clock catches up afterwards. */
+    if (W.last_ts && h->ts < W.last_ts + 10000 && !h->gap)
+        h->ts = W.last_ts + 10000;
+    W.last_ts = h->ts;
     if (W.codec == C_NONE && (W.codec = detect_codec(u, n)) == C_NONE) return;
     for (i = 0; i < n; i++) {
         int t = nal_type(W.codec, &u[i]);
