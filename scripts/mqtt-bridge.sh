@@ -9,7 +9,7 @@ HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
 NETWORK_STATE_FILE="/tmp/network-monitor.state"
 NETWORK_STATE_MAX_AGE_SECONDS=900
 CURL_BIN="/mnt/bin/curl"
-JQ_BIN="/mnt/bin/jq"
+JSONFLAT="${JSONFLAT:-/mnt/scripts/jsonflat.awk}"
 LOCAL_STATE_CGI="/mnt/www/cgi-bin/state.cgi"
 INTEGRATION_MANIFEST_STATE_FILE="/tmp/mqtt-bridge.integration-manifest.state"
 STREAM_FIFO="/tmp/mqtt-bridge-sub.fifo"
@@ -1849,10 +1849,14 @@ handle_command_payload()
   cmd=""
   value=""
   if printf '%s' "$payload_trimmed" | grep -q '^{'; then
-    if [ -x "$JQ_BIN" ]; then
-      cmd="$(printf '%s' "$payload_trimmed" | "$JQ_BIN" -r '.cmd // .command // empty' 2>/dev/null)"
-      value="$(printf '%s' "$payload_trimmed" | "$JQ_BIN" -r '.value // .profile // empty' 2>/dev/null)"
-    fi
+    # jq's `.cmd // .command` and `.value // .profile` (null and false are
+    # absent), from the flattened payload (scripts/jsonflat.awk, no jq).
+    _mb_pick="$(printf '%s' "$payload_trimmed" | LC_ALL=C awk -v require=object -f "$JSONFLAT" 2>/dev/null |
+      awk -F '\t' '$2 != "z" && !($2 == "b" && $3 == "false") { v[$1] = $3 }
+        END { c = (".cmd" in v) ? v[".cmd"] : v[".command"]; x = (".value" in v) ? v[".value"] : v[".profile"]
+              printf "%s\t%s\n", c, x }')"
+    cmd="${_mb_pick%%	*}"
+    value="${_mb_pick#*	}"
   fi
 
   if [ -z "$cmd" ]; then

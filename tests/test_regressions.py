@@ -623,7 +623,7 @@ class Regressions(unittest.TestCase):
 
     def config_exchange_code(self):
         names = ['_ce_cleanup', '_ce_fail', '_ce_truthy', '_ce_add_file',
-                 '_ce_prepare_file', '_ce_build_rows', '_ce_import']
+                 '_ce_prepare_file', '_ce_row_table', '_ce_build_rows', '_ce_import']
         code = '. ' + shlex.quote(str(ROOT / 'scripts/config-transaction.sh')) + '\n'
         code += function('www/cgi-bin/func.cgi', 'urldecode') + '\n'
         code += 'json_body_err() { printf \'{"ok":false,"error":"%s","message":"%s"}\\n\' "$1" "$2"; }\n'
@@ -634,7 +634,7 @@ class Regressions(unittest.TestCase):
         cfg = self.base / 'config'; cfg.mkdir()
         for name in ('boot.conf', 'rtspserver.conf', 'recording.conf', 'telegram.conf'):
             (cfg / name).write_text((ROOT / ('config/' + name + '.dist')).read_text())
-        env = dict(os.environ, CONFIG_ROOT=str(cfg), TC_CONFIG_ROOT=str(cfg), JQ_BIN='/usr/bin/jq',
+        env = dict(os.environ, CONFIG_ROOT=str(cfg), TC_CONFIG_ROOT=str(cfg), JSONFLAT=str(ROOT / 'scripts/jsonflat.awk'),
                    F_exclude_network='0', F_exclude_credentials='0')
         good = json.dumps({'video': {'main': {'fps': 12, 'bitrate': 1000}},
                            'recording': {'postrec': 8},
@@ -1571,6 +1571,51 @@ class AutostartModes(unittest.TestCase):
 
     def test_autorun_runs_non_executable_entries_with_sh(self):
         self.assertIn('if [ -x "$i" ]; then "$i"; else sh "$i"; fi', (ROOT / 'autorun.sh').read_text())
+
+
+class JsonFlat(unittest.TestCase):
+    """scripts/jsonflat.awk replaces jq on the flash firmware."""
+    AWK = ROOT / 'scripts/jsonflat.awk'
+
+    def flat(self, text, *args):
+        return subprocess.run(['awk', *args, '-f', str(self.AWK)], input=text.encode(), capture_output=True,
+                              env=dict(os.environ, LC_ALL='C'))
+
+    def test_paths_types_and_escapes(self):
+        doc = '{"a":{"b":"x\\"y\\\\ \\u00e9\\ud83d\\ude00\\tz","n":-1.5e3,"t":true,"z":null},"l":[1,[2,{"k":"v"}],[]],"e":{}}'
+        r = self.flat(doc)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.decode('utf-8').splitlines()
+        self.assertEqual(lines, ['.a.b\ts\tx"y\\\\ \u00e9\U0001F600\\tz', '.a.n\tn\t-1.5e3', '.a.t\tb\ttrue',
+                                 '.a.z\tz\t', '.l[0]\tn\t1', '.l[1][0]\tn\t2', '.l[1][1].k\ts\tv'])
+
+    def test_rejects_malformed_and_wrong_top_level(self):
+        for bad in ('{"a":1,}', '{"a" 1}', '[1', '{"a":"x}', '{} x', 'nul'):
+            self.assertEqual(self.flat(bad).returncode, 2, bad)
+        self.assertEqual(self.flat('[1]', '-v', 'require=object').returncode, 2)
+        self.assertEqual(self.flat('{"a":1}', '-v', 'require=object').returncode, 0)
+
+    def test_no_jq_left_in_flash_paths(self):
+        for rel in ('www/cgi-bin/config_exchange.cgi', 'www/cgi-bin/action.cgi', 'scripts/event-logger.sh', 'scripts/mqtt-bridge.sh'):
+            text = (ROOT / rel).read_text()
+            self.assertNotRegex(text, r'(/mnt/bin/jq|JQ_BIN|command -v jq)', rel)
+        self.assertIn('jq|', (ROOT / 'src/flash/stage-tc100.sh').read_text())
+
+
+class EventLogQueries(unittest.TestCase):
+    def test_last_matches_as_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / 'ev.jsonl'
+            log.write_text('{"timestamp":100,"level":"info","msg":"a"}\n{"timestamp":200,"level":"error","msg":"b"}\n\n'
+                           '{"timestamp":300,"level":"critical","msg":"c"}\n{"timestamp":400,"level":"info","msg":"d"}\n')
+            def q(call):
+                r = subprocess.run(['sh', '-c', '. %s >/dev/null 2>&1; %s' % (ROOT / 'scripts/event-logger.sh', call)],
+                                   capture_output=True, text=True, env=dict(os.environ, EVENT_LOG_FILE=str(log)))
+                return [e['msg'] for e in json.loads(r.stdout)]
+            self.assertEqual(q('get_events_since 150 2'), ['c', 'd'])
+            self.assertEqual(q('get_recent_events 10'), ['a', 'b', 'c', 'd'])
+            self.assertEqual(q('get_error_events 0 5'), ['b', 'c'])
+            self.assertEqual(q('get_error_events 250 5'), ['c'])
 
 
 class VendorWpaWrapper(unittest.TestCase):

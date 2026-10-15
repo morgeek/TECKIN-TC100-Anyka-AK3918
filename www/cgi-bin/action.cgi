@@ -2705,14 +2705,28 @@ if [ -n "$F_cmd" ]; then
         # Find which Frigate camera reads this one: an input or a go2rtc
         # stream with this camera's IP (one request, only when saving).
         fl_ip=""; [ -r /tmp/camera_ip.txt ] && read -r fl_ip < /tmp/camera_ip.txt
-        if [ -n "$fl_ip" ] && [ -x /mnt/bin/curl ] && [ -x /mnt/bin/jq ]; then
-          fl_cam="$(/mnt/bin/curl -s -m 6 "$fl_url/api/config" 2>/dev/null | /mnt/bin/jq -r --arg ip "$fl_ip" '
-            def has_ip: (tostring) as $u | ($u | test("[@/]" + ($ip | gsub("\\."; "\\.")) + "([:/]|$)"));
-            (.go2rtc.streams // {} | to_entries
-              | map(select(.value | if type == "array" then any(.[]; has_ip) else has_ip end)) | map(.key)) as $s
-            | (.cameras // {}) | to_entries[]
-            | select(any(.value.ffmpeg.inputs[]?; .path as $p | ($p | has_ip) or any($s[]; . as $n | $p | endswith("/" + $n))))
-            | .key' 2>/dev/null | head -n 1)"
+        if [ -n "$fl_ip" ] && [ -x /mnt/bin/curl ] && [ -r /mnt/scripts/jsonflat.awk ]; then
+          # Frigate's /api/config flattened (scripts/jsonflat.awk, no jq): the
+          # first camera with an input on this IP, or on a go2rtc stream that
+          # points to this IP.
+          fl_cam="$(/mnt/bin/curl -s -m 6 "$fl_url/api/config" 2>/dev/null |
+            LC_ALL=C awk -f /mnt/scripts/jsonflat.awk 2>/dev/null | LC_ALL=C awk -F '\t' -v ip="$fl_ip" '
+            function has_ip(u,   r) { r = ip; gsub(/\./, "\\.", r); return u ~ ("[@/]" r "([:/]|$)") }
+            $2 == "s" && index($1, ".go2rtc.streams.") == 1 {
+              n = substr($1, 17); sub(/\[[0-9]+\]$/, "", n); if (has_ip($3)) st[n] = 1; next }
+            $2 == "s" && $1 ~ /^\.cameras\.[^.]+\.ffmpeg\.inputs\[[0-9]+\]\.path$/ {
+              c = substr($1, 10); sub(/\.ffmpeg\..*/, "", c)
+              if (!(c in seen)) { seen[c] = 1; order[++nc] = c }
+              paths[c] = paths[c] "\n" $3; next }
+            END {
+              for (i = 1; i <= nc; i++) {
+                c = order[i]; m = split(paths[c], P, "\n")
+                for (j = 2; j <= m; j++) {
+                  if (has_ip(P[j])) { print c; exit }
+                  for (k in st) if (substr(P[j], length(P[j]) - length(k)) == "/" k) { print c; exit }
+                }
+              }
+            }' | head -n 1)"
           case "$fl_cam" in *[!A-Za-z0-9_-]*) fl_cam="" ;; esac
         fi
         [ -n "$fl_cam" ] && fl_note=" (camera ${fl_cam} found in Frigate)" ||
