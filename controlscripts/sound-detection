@@ -123,14 +123,61 @@ publish_sound_event()
 
 # read_meter -> sets m_ts m_rms m_peak m_events m_last_ts m_last_db; 1 if no
 # fresh reading (meter not running: RTSP server down or started without it).
+# "Fresh" = the meter's timestamp changed within the last 10 s of uptime: no
+# date(1) call, this runs every INTERVAL seconds.
 read_meter()
 {
     m_ts=""
     [ -r "$LEVEL_FILE" ] && read -r m_ts m_rms m_peak m_events m_last_ts m_last_db _m < "$LEVEL_FILE"
     case "$m_ts" in ''|*[!0-9]*) return 1 ;; esac
-    _rm_now="$(date +%s 2>/dev/null)"
-    case "$_rm_now" in ''|*[!0-9]*) return 0 ;; esac
-    [ $((_rm_now - m_ts)) -le 10 ]
+    read -r _rm_up _rm_rest < /proc/uptime
+    _rm_up="${_rm_up%.*}"
+    if [ "$m_ts" != "${rm_last_ts:-}" ]; then
+        rm_last_ts="$m_ts"; rm_last_change="$_rm_up"
+    fi
+    [ $((_rm_up - ${rm_last_change:-0})) -le 10 ]
+}
+
+# sd_wait <seconds>: sleep without starting a process (read with a timeout
+# on a FIFO nobody writes to); sleep(1) if the FIFO cannot be made.
+SD_FIFO="${SD_FIFO:-/tmp/sound-detection.fifo}"
+sd_wait()
+{
+    [ -p "$SD_FIFO" ] || mkfifo "$SD_FIFO" 2>/dev/null
+    if [ -p "$SD_FIFO" ]; then
+        # BusyBox ash returns 1 on the timeout; anything else (a shell without
+        # read -t, data on the FIFO) falls back to sleep, never a busy loop.
+        read -t "$1" _sd_nothing <> "$SD_FIFO" 2>/dev/null
+        [ $? -eq 1 ] || sleep "$1"
+    else
+        sleep "$1"
+    fi
+}
+
+# load_config -> enable threshold interval min_loud, read in one pass without
+# a subshell; only when the file changed since the last load (shell -nt test).
+SD_STAMP="${SD_STAMP:-/tmp/sound-detection.loaded}"
+load_config()
+{
+    [ -n "${enable:-}" ] && [ -f "$SD_STAMP" ] && ! [ "$CONFIG_FILE" -nt "$SD_STAMP" ] && return 0
+    enable=0; threshold=-24; interval=2; min_loud=1
+    if [ -r "$CONFIG_FILE" ]; then
+        while IFS='=' read -r _lc_k _lc_v; do
+            case "$_lc_k" in
+                ENABLE) enable="$_lc_v" ;;
+                THRESHOLD_DB) threshold="$_lc_v" ;;
+                INTERVAL) interval="$_lc_v" ;;
+                MIN_LOUD_SECONDS) min_loud="$_lc_v" ;;
+            esac
+        done < "$CONFIG_FILE"
+    fi
+    case "$threshold" in -[0-9]|-[0-9][0-9]|0) ;; *) threshold=-24 ;; esac
+    [ "$threshold" -lt -90 ] && threshold=-90
+    case "$interval" in ''|*[!0-9]*) interval=2 ;; esac
+    [ "$interval" -lt 1 ] && interval=1; [ "$interval" -gt 300 ] && interval=300
+    case "$min_loud" in ''|*[!0-9]*) min_loud=1 ;; esac
+    [ "$min_loud" -lt 1 ] && min_loud=1; [ "$min_loud" -gt 10 ] && min_loud=10
+    : > "$SD_STAMP"
 }
 
 run_daemon()
@@ -142,17 +189,16 @@ run_daemon()
     warned=0
     cooldown_seconds="$(clamp_int "$EVENT_COOLDOWN_SECONDS" 0 300)"
 
+    enable=""
+    rm -f "$SD_STAMP"
     while :; do
-        enable="$(read_kv_config_value "$CONFIG_FILE" ENABLE 0)"
+        load_config
         if [ "$enable" != "1" ]; then
             # Disabled: poll the config only occasionally.
-            sleep 300
+            sd_wait 300
             continue
         fi
 
-        threshold="$(threshold_db)"
-        interval="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" INTERVAL 2)" 1 300)"
-        min_loud="$(clamp_int "$(read_kv_config_value "$CONFIG_FILE" MIN_LOUD_SECONDS 1)" 1 10)"
         # Tell the meter when it changes (it re-reads this file every 10 s).
         if [ "$threshold" != "$last_threshold" ] || [ ! -f "$LEVEL_FILE.threshold" ]; then
             echo "$threshold" > "$LEVEL_FILE.threshold" 2>/dev/null
@@ -189,7 +235,7 @@ run_daemon()
             last_events=""
         fi
 
-        sleep "$interval"
+        sd_wait "$interval"
     done
 }
 
