@@ -26,5 +26,7 @@ cp "$curl_bin" "$out/bin/curl"; cp "$lighttpd_bin" "$out/bin/lighttpd"
 for f in "$out"/bin/* "$out"/lib/*; do
   file -b "$f" | grep -q ELF && "$STRIP" --strip-unneeded "$f"
 done
-chmod -R 755 "$out/bin" "$out/lib" "$out/scripts" "$out/controlscripts" "$out/autorun.sh"
+# autorun.sh runs autostart entries directly: they must be executable (on the
+# SD card FAT makes every file executable, in a squashfs only the mode counts).
+chmod -R 755 "$out/bin" "$out/lib" "$out/scripts" "$out/controlscripts" "$out/autorun.sh" "$out/config/autostart"
 echo "$out: $(find "$out" -type f | wc -l) files, $(du -sk "$out" | cut -f1) KB"

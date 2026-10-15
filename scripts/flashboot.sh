@@ -62,6 +62,16 @@ mkdir -p "$M/log" "$M/DCIM"
 # Persistent configuration in jffs2.
 mkdir -p "$CFG" || rescue "no $CFG"
 [ -d "$CFG/autostart" ] || cp -a "$T/config/autostart" "$CFG/autostart"
+chmod 755 "$CFG"/autostart/* 2>/dev/null
+# The 0?_system-* boot scripts are firmware code, not a user choice: always
+# the image's version (a copy brought from an SD card may be older). The
+# other entries are the Services page's on/off switches and stay as they are.
+for f in "$T"/config/autostart/0?_system-*; do
+    [ -f "$f" ] || continue
+    n="$CFG/autostart/${f##*/}"
+    [ -L "$n" ] && [ "$(readlink "$n")" = "$f" ] && continue
+    rm -f "$n"; ln -s "$f" "$n"
+done
 for f in "$T"/config/*; do
     [ -f "$f" ] || continue
     n="${f##*/}"

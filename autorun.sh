@@ -919,7 +919,9 @@ run_autostart_scripts()
             fi
         fi
         echo "Run $i" >> $LOGPATH
-        $i
+        # Not executable (flash firmware: squashfs keeps the file modes,
+        # unlike the SD card's FAT): run it with sh instead of skipping it.
+        if [ -x "$i" ]; then "$i"; else sh "$i"; fi
     done
 }
 
