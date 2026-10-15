@@ -18,7 +18,7 @@ out=$1; curl_bin=$2; lighttpd_bin=$3
 rm -rf "$out"; mkdir -p "$out"
 cd "$root"
 git ls-files -- autorun.sh VERSION bin lib scripts controlscripts www sounds config |
-  grep -v -E '^config/ssl/|^bin/(openssl|monvifd|telegram|ffmpeg-min-recorder|min-recorder-list|curl|lighttpd)$|^lib/(libssl|libcrypto|libcurl|libjq|libiconv)' |
+  grep -v -E '^config/ssl/|^bin/(openssl|monvifd|telegram|jq|ffmpeg-min-recorder|min-recorder-list|curl|lighttpd)$|^lib/(libssl|libcrypto|libcurl|libjq|libiconv)' |
 while IFS= read -r f; do
   mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"
 done
