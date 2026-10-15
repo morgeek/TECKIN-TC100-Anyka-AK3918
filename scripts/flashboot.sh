@@ -57,6 +57,22 @@ fi
 mount -t tmpfs -o size=4m,mode=0755 tmpfs "$M" || rescue "tmpfs on $M failed"
 
 mkdir -p "$C"
+# A code update not yet confirmed (flash-code.sh write): first boot with it ->
+# count it and confirm below once network and web server are up; already
+# counted -> it did not come back last time: built-in code again.
+PENDING="${FLASHBOOT_PENDING:-$P/code-pending}"
+confirm=0
+if [ "${FLASHBOOT_ZONE:-1}" = 1 ] && [ -f "$PENDING" ]; then
+    read -r p_ver p_boots < "$PENDING"
+    if [ "${p_boots:-0}" -ge 1 ]; then
+        log "code $p_ver not confirmed after its first boot: back to the built-in code"
+        logger -t tc100-event -p user.err "code update $p_ver not confirmed: rolled back to the built-in code" 2>/dev/null
+        FC_CLEAR_REASON="rolled back $p_ver (not confirmed)" sh "$T/scripts/flash-code.sh" clear >/dev/null 2>&1
+        rm -f "$PENDING"
+    else
+        echo "$p_ver 1" > "$PENDING"; confirm=1
+    fi
+fi
 if [ "${FLASHBOOT_ZONE:-1}" = 1 ] && [ -x "$T/scripts/flash-code.sh" ] && sh "$T/scripts/flash-code.sh" mount "$C"; then
     log "code from the code zone: $(sh "$T/scripts/flash-code.sh" status)"
 else
@@ -116,5 +132,21 @@ mkdir -p "$M/config"
 mount -o bind "$CFG" "$M/config" || rescue "bind config failed"
 
 echo flash > "$STATE"
+if [ "$confirm" = 1 ]; then
+    ( n=0
+      while [ "$n" -lt "${FLASHBOOT_CONFIRM_TRIES:-30}" ]; do
+          sleep "${FLASHBOOT_CONFIRM_STEP:-10}"; n=$((n + 1))
+          netstat -ltn 2>/dev/null | grep -qE ':(443|80) ' || continue
+          gw="$(route -n 2>/dev/null | awk '$1 == "0.0.0.0" {print $2; exit}')"
+          [ -n "$gw" ] && ping -c 1 -W 3 "$gw" >/dev/null 2>&1 || continue
+          rm -f "$PENDING"
+          log "code $p_ver confirmed (network and web server up)"
+          h="${FLASHBOOT_HISTORY:-$P/log/code-updates.log}"; mkdir -p "${h%/*}"
+          echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) confirmed $p_ver" >> "$h"; sync
+          exit 0
+      done
+      log "code $p_ver: no network or web server in time, reboot (built-in code next)"
+      sync; ${FLASHBOOT_REBOOT:-reboot} ) </dev/null >/dev/null 2>&1 &
+fi
 log "flash mode: firmware $(cat "$C/VERSION" 2>/dev/null), binaries from $T, config in $CFG"
 "$M/autorun.sh" &

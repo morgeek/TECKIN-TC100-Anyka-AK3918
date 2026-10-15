@@ -1539,6 +1539,43 @@ class FlashBoot(unittest.TestCase):
         self.run_fb()
         self.assertEqual(boot.stat().st_mtime_ns, before)
 
+    def pending_env(self, net_ok=True):
+        fc = self.code / 'scripts/flash-code.sh'
+        fc.write_text('#!/bin/sh\necho "fc $*" >> "%s"\ncase "$1" in mount) exit 1 ;; status) echo none ;; esac\n' % self.calls)
+        fc.chmod(0o755)
+        for name, body in (('netstat', 'echo "tcp 0 0 0.0.0.0:443 0.0.0.0:* LISTEN"' if net_ok else 'true'),
+                           ('route', 'echo "0.0.0.0 192.168.1.1 0.0.0.0 UG 0 0 0 wlan0"'), ('ping', 'exit 0'),
+                           ('reboot', 'echo reboot >> "%s"' % self.calls), ('logger', 'true')):
+            (self.stub / name).write_text('#!/bin/sh\n%s\n' % body); (self.stub / name).chmod(0o755)
+        self.persist.mkdir(exist_ok=True)
+
+    def run_fb_zone(self, tries='3'):
+        env = dict(os.environ, PATH='%s:%s' % (self.stub, os.environ['PATH']),
+                   FLASHBOOT_CODE=str(self.code), FLASHBOOT_PERSIST=str(self.persist),
+                   FLASHBOOT_MNT=str(self.mnt), FLASHBOOT_LOG=str(self.d / 'fb.log'),
+                   FLASHBOOT_STATE=str(self.d / 'storage'), FLASHBOOT_CODEROOT=str(self.code),
+                   FLASHBOOT_CONFIRM_STEP='0', FLASHBOOT_CONFIRM_TRIES=tries, FLASHBOOT_REBOOT=str(self.stub / 'reboot'))
+        subprocess.run(['sh', str(ROOT / 'scripts/flashboot.sh')], env=env, capture_output=True)
+        time.sleep(1.0)
+
+    def test_pending_update_confirmed(self):
+        self.pending_env()
+        (self.persist / 'code-pending').write_text('2.0 0\n')
+        self.run_fb_zone()
+        self.assertFalse((self.persist / 'code-pending').exists())
+        self.assertIn('confirmed 2.0', (self.persist / 'log/code-updates.log').read_text())
+        self.assertNotIn('reboot', self.calls.read_text())
+
+    def test_pending_update_not_confirmed_reboots_then_rolls_back(self):
+        self.pending_env(net_ok=False)
+        (self.persist / 'code-pending').write_text('2.0 0\n')
+        self.run_fb_zone(tries='2')
+        self.assertEqual((self.persist / 'code-pending').read_text().split(), ['2.0', '1'])
+        self.assertIn('reboot', self.calls.read_text())
+        self.run_fb_zone()                    # next boot: never confirmed -> clear
+        self.assertIn('fc clear', self.calls.read_text())
+        self.assertFalse((self.persist / 'code-pending').exists())
+
     def test_no_code_gives_rescue_telnet(self):
         shutil.rmtree(self.code / 'scripts')
         self.run_fb()
@@ -1649,7 +1686,8 @@ class FlashCodeZone(unittest.TestCase):
         self.stub = d / 'stub'; self.stub.mkdir()
         (self.stub / 'reboot').write_text('#!/bin/sh\necho rebooted > "%s/rebooted"\n' % d); (self.stub / 'reboot').chmod(0o755)
         self.env = dict(os.environ, FC_MTD_CHAR=str(self.mtd), FC_MTD_BLOCK=str(self.mtd), FC_PROC_MTD=str(d / 'proc'),
-                        FC_LOG=str(d / 'fc.log'), PATH='%s:%s' % (self.stub, os.environ['PATH']))
+                        FC_LOG=str(d / 'fc.log'), PATH='%s:%s' % (self.stub, os.environ['PATH']),
+                        FC_PENDING=str(d / 'pending'), FC_HISTORY=str(d / 'hist'))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -1661,12 +1699,15 @@ class FlashCodeZone(unittest.TestCase):
         self.assertEqual(self.fc('status').stdout.strip(), 'none')
         self.assertEqual(self.fc('check', str(self.pkg)).stdout.split()[:2], ['ok', '9.9-test'])
         self.assertEqual(self.fc('write', str(self.pkg)).stdout.strip(), 'ok 9.9-test')
+        self.assertEqual((self.d / 'pending').read_text().split(), ['9.9-test', '0'])
         self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
         data = self.mtd.read_bytes()
         self.assertEqual(len(data), 0x200000)
         self.assertEqual(data[:0x15aca0], self.kernel)
         self.assertEqual(data[0x160000:0x160000 + 11], b'TC100CODE 1')
         self.assertEqual(self.fc('clear').stdout.strip(), 'ok')
+        self.assertFalse((self.d / 'pending').exists())
+        self.assertIn('installed 9.9-test', (self.d / 'hist').read_text())
         self.assertEqual(self.fc('status').stdout.strip(), 'none')
         self.assertEqual(self.mtd.read_bytes()[:0x15aca0], self.kernel)
 
