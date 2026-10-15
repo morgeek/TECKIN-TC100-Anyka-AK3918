@@ -266,7 +266,13 @@ binaries (`src/curl/build.sh`, `NO_TLS=1 src/lighttpd/build.sh`), and
 Image v2 (`src/flash/stage-tc100.sh` + `VENDOR_WPA=wrapper`) carries the whole
 firmware: 3,837,952 bytes, without ONVIF, and with the vendor wpa_supplicant
 0.8 replaced by a wrapper around 2.11 (`src/flash/wpa_supplicant-wrapper.sh`).
-Firmware updates from the web page are refused in flash mode.
+Updates from flash: the code (scripts, web UI, config templates) lives in the
+free end of the KERNEL partition (0x160000–0x200000, after the kernel) as a
+code package (`src/flash/build-code.sh`, `scripts/flash-code.sh`): Settings →
+Firmware update accepts a `tc100-code-<version>.bin`, writes it, reads it back
+(the kernel area is compared before and after) and reboots; "Roll back" clears
+it. A missing or damaged zone falls back to the copy in `/usr/tc100`. Only a
+change of the binaries needs a new `/usr` image (`flash-usr.sh`, from SD mode).
 
 `src/flash/flash-usr.sh <image> <md5>` (run on the camera) checks that mtd6 is
 "C" with the expected size and the image md5, writes it and reads the flash back
