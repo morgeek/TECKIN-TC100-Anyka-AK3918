@@ -12,13 +12,19 @@
 # A boot with no recorded intent means the previous run ended without anyone
 # asking for it: hardware watchdog, power loss or kernel crash. The last
 # heartbeat then dates it to within 15 minutes.
-# Files live on the SD card (survive reboots). SD writes are kept rare: the
+# Files live on the SD card, or in jffs2 when the firmware runs from flash
+# (survive reboots). SD writes are kept rare: the
 # heartbeat is overwritten in place (same 64 bytes, no new cluster or directory
 # entry, unlike a temp file + rename), 4 times an hour; important.log is only
 # appended to when a critical line actually appeared.
 # Camera-side shell: busybox ash.
 
 LOGDIR="${REBOOT_TRACKER_DIR:-/mnt/log}"
+# Firmware run from flash: /mnt/log is a RAM disk; keep these few files in the
+# jffs2 flash partition instead (small, and written as rarely as on the card).
+if [ -z "${REBOOT_TRACKER_DIR:-}" ] && [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
+  LOGDIR=/etc/jffs2/tc100/log
+fi
 INTENT="$LOGDIR/.reboot-intent"
 HEARTBEAT="$LOGDIR/.heartbeat"
 HISTORY="$LOGDIR/reboot-history.log"
@@ -26,6 +32,7 @@ LAST="${REBOOT_TRACKER_LAST:-/tmp/last-reboot-reason}"
 KEEP=50
 IMPORTANT="$LOGDIR/important.log"
 IMPORTANT_MAX_BYTES=65536
+case "$LOGDIR" in /etc/jffs2/*) IMPORTANT_MAX_BYTES=16384 ;; esac
 IMPORTANT_KEEP=400
 IMPORTANT_MARK="${REBOOT_TRACKER_MARK:-/tmp/log/important.last}"
 SYSLOG_FILES="${REBOOT_TRACKER_SYSLOG:-/var/log/messages.0 /var/log/messages}"
