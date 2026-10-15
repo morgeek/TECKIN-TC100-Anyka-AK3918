@@ -13,6 +13,11 @@ sync
 echo "sd hook restored: $(ls -d /mnt/wifitest 2>&1)" >> $L
 ( sleep 360
   gw=$(route -n | awk '$1=="0.0.0.0" {print $2; exit}')
-  if [ -n "$gw" ] && ping -c 2 -W 3 "$gw" >/dev/null 2>&1; then echo "network ok (gw $gw)" >> $L
-  else echo "no network, reboot" >> $L; sync; reboot; fi ) &
+  if [ -n "$gw" ] && ping -c 2 -W 3 "$gw" >/dev/null 2>&1; then r="network ok (gw $gw)"; else r="no network"; fi
+  echo "$r" >> $L
+  # A few KB kept in flash for a look after the next (SD) boot.
+  { echo "$r"; cat $L; tail -n 40 /tmp/log/startup.log 2>/dev/null; tail -n 20 /tmp/log/flashboot.log 2>/dev/null
+    tail -n 10 /var/log/lighttpd-error.log 2>/dev/null; netstat -ltn 2>/dev/null; ps 2>/dev/null | head -n 60
+  } > /etc/jffs2/tc100/flashmode-diag.txt 2>&1; sync
+  case "$r" in no*) reboot ;; esac ) &
 exec /usr/tc100/scripts/flashboot.sh

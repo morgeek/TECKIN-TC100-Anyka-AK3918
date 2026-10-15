@@ -1563,7 +1563,7 @@ class FlashWebServer(unittest.TestCase):
 
     def test_selection_in_flash_mode(self):
         cf = (ROOT / 'scripts/common_functions.sh').read_text()
-        self.assertIn('_hs_conf=/mnt/config/lighttpd.flash.conf', cf)
+        self.assertIn('_hs_conf=/mnt/config/lighttpd.flash.conf.dist', cf)
         ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
         flash = ws.index('/tmp/tc100-storage'); full = ws.index('case "$WEB_MODE" in')
         self.assertLess(flash, full)   # decided before the OpenSSL path
