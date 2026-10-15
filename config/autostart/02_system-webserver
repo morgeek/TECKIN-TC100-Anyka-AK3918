@@ -24,12 +24,11 @@ mkdir -p /tmp/lighttpd-deflate 2>/dev/null
 # Firmware from flash: see _http_server_lighttpd (common_functions.sh).
 if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ] && { [ "$WEB_MODE" = full ] || [ -z "$WEB_MODE" ]; }; then
     if [ -s "$CONFIGPATH/lighttpd.pem" ]; then
-        install_config "$CONFIGPATH/lighttpd.flash.conf"
-        LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.flash.conf"
+        # The template itself (matches this firmware's lighttpd: no PCRE).
+        LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.flash.conf.dist"
     else
         echo "02_system-webserver: no certificate in flash mode, HTTP only" >&2
-        install_config "$CONFIGPATH/lighttpd.http.conf"
-        LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.http.conf"
+        LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.flash-http.conf.dist"
     fi
     exit 0
 fi
