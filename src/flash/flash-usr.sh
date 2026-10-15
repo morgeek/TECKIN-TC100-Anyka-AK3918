@@ -15,7 +15,9 @@ try=1
 while [ $try -le 3 ]; do
     log "write $try start"
     dd if="$IMG" of=/dev/mtdblock6 bs=4096 2>>$LOG; rc=$?
-    sync
+    # /usr is mounted from this device: sync alone left blocks unwritten (the
+    # first read-back always differed); flush and drop its buffers.
+    sync; blockdev --flushbufs /dev/mtdblock6 2>/dev/null; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
     log "write $try end rc=$rc"
     back=$(dd if=/dev/mtd6 bs=4096 count=$blocks 2>/dev/null | md5sum | cut -d' ' -f1)
     if [ "$back" = "$WANT" ]; then log "RESULT: OK readback $back"; exit 0; fi
