@@ -21,8 +21,7 @@ fi
 
 rate_limit_check 10 60
 CONFIG_ROOT="${TC_CONFIG_ROOT:-/mnt/config}"
-JQ_BIN="${JQ_BIN:-/mnt/bin/jq}"
-[ -x "$JQ_BIN" ] || JQ_BIN="$(command -v jq 2>/dev/null)"
+JSONFLAT="${JSONFLAT:-/mnt/scripts/jsonflat.awk}"
 
 output_json_header() {
   echo "Content-type: application/json"
@@ -31,7 +30,7 @@ output_json_header() {
 }
 
 _ce_cleanup() {
-  rm -rf "${_ce_json:-}" "${_ce_rows:-}" "${_ce_stage:-}" "${_ce_backup:-}" 2>/dev/null || true
+  rm -rf "${_ce_json:-}" "${_ce_flat:-}" "${_ce_rows:-}" "${_ce_stage:-}" "${_ce_backup:-}" 2>/dev/null || true
 }
 
 _ce_fail() {
@@ -62,10 +61,12 @@ _ce_prepare_file() {
   fi
 }
 
-_ce_build_rows() {
-  "$JQ_BIN" -r '
-    def row($f;$m;$s;$k;$t;$c;$v):
-      if $v == null then empty else [$f,$m,$s,$k,$t,$c,($v|tostring|@uri)] | join("|") end;
+# Values imported from the JSON document, one declaration per value:
+#   row(file;mode;section;key;validation type;category;.json.path)
+# read by awk against the document flattened by scripts/jsonflat.awk (no jq on
+# the flash firmware). A path that is absent or null is skipped.
+_ce_row_table() {
+  cat <<'ROWS'
     row("boot.conf";"flat";"root";"WEB_MODE";"web_mode";"network";.boot.web_mode),
     row("boot.conf";"flat";"root";"STREAM_TOPOLOGY";"topology";"general";.boot.topology),
     row("boot.conf";"flat";"root";"ULTRALITE_HTTP_PORT";"port";"network";.boot.ultralite_port),
@@ -165,7 +166,40 @@ _ce_build_rows() {
     row("boot.conf";"flat";"root";"FRONT_LED";"bool";"general";.peripherals.led_front),
     row("boot.conf";"flat";"root";"RED_LED";"bool";"general";.peripherals.led_red),
     row("boot.conf";"flat";"root";"PRIVACY_MODE";"bool";"general";.peripherals.privacy)
-  ' "$_ce_json" > "$_ce_rows"
+ROWS
+}
+
+_ce_build_rows() {
+  _ce_row_table | LC_ALL=C awk -F '\t' '
+    BEGIN { for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i }
+    function unesc(v,   o, i, c, n) {
+      o = ""
+      for (i = 1; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (c == "\\") { n = substr(v, i + 1, 1); i++
+          if (n == "n") c = "\n"; else if (n == "t") c = "\t"; else c = n }
+        o = o c
+      }
+      return o
+    }
+    function uri(v,   o, i, c) {
+      o = ""
+      for (i = 1; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (c ~ /[A-Za-z0-9_.~-]/) o = o c; else o = o sprintf("%%%02X", ord[c])
+      }
+      return o
+    }
+    # Numbers as jq prints them: 1.5e3 -> 1500, 8.0 -> 8.
+    function num(v,   n) { n = v + 0; if (n == int(n) && n < 1e15 && n > -1e15) return sprintf("%d", n); return v }
+    NR == FNR { if ($2 != "z") val[$1] = ($2 == "n") ? num($3) : unesc($3); next }
+    /row\(/ {
+      line = $0; sub(/^[^(]*\(/, "", line); sub(/\),?[ \t]*$/, "", line)
+      n = split(line, a, ";"); path = a[n]
+      for (i = 1; i < n; i++) gsub(/"/, "", a[i])
+      if (path in val) print a[1] "|" a[2] "|" a[3] "|" a[4] "|" a[5] "|" a[6] "|" uri(val[path])
+    }
+  ' "$_ce_flat" - > "$_ce_rows"
 }
 
 _ce_import() {
@@ -173,9 +207,10 @@ _ce_import() {
   case "$_ce_cl" in ''|*[!0-9]*) _ce_fail "Invalid content length" "INVALID_PAYLOAD" ;; esac
   [ "$_ce_cl" -gt 0 ] || _ce_fail "No JSON data received" "EMPTY_PAYLOAD"
   [ "$_ce_cl" -le 65536 ] || _ce_fail "JSON configuration exceeds 64 KB" "PAYLOAD_TOO_LARGE"
-  [ -n "$JQ_BIN" ] && [ -x "$JQ_BIN" ] || _ce_fail "JSON parser is unavailable" "SERVICE_UNAVAILABLE"
+  [ -r "$JSONFLAT" ] || _ce_fail "JSON parser is unavailable" "SERVICE_UNAVAILABLE"
 
   _ce_json="/tmp/config-import.$$.json"
+  _ce_flat="/tmp/config-import.$$.flat"
   _ce_rows="/tmp/config-import.$$.rows"
   _ce_stage="/tmp/config-import-stage.$$"
   _ce_backup="/tmp/config-import-rollback.$$"
@@ -184,7 +219,7 @@ _ce_import() {
   _ce_got="$(wc -c < "$_ce_json" 2>/dev/null)"
   set -- $_ce_got; _ce_got="${1:-0}"
   [ "$_ce_got" = "$_ce_cl" ] || _ce_fail "Incomplete JSON upload" "INCOMPLETE_PAYLOAD"
-  "$JQ_BIN" -e 'type == "object"' "$_ce_json" >/dev/null 2>&1 || _ce_fail "Malformed JSON configuration" "INVALID_JSON"
+  LC_ALL=C awk -v require=object -f "$JSONFLAT" "$_ce_json" > "$_ce_flat" 2>/dev/null || _ce_fail "Malformed JSON configuration" "INVALID_JSON"
   _ce_build_rows || _ce_fail "Unsupported JSON values" "INVALID_JSON"
 
   _ce_exclude_network="$(_ce_truthy "${F_exclude_network:-0}")"
