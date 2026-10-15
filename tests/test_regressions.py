@@ -1485,6 +1485,7 @@ class FlashBoot(unittest.TestCase):
         (self.code / 'config/boot.conf.dist').write_text('WEB_MODE=full\nWIFI_CLIENT=vendor\nX=1\n')
         (self.code / 'config/mqtt.conf.dist').write_text('MQTT_ENABLE=0\n')
         (self.code / 'config/autostart/rtsp-h26x').write_text('x')
+        (self.code / 'config/autostart/02_system-webserver').write_text('new')
         self.stub = d / 'stub'; self.stub.mkdir()
         self.calls = d / 'calls'
         for name in ('mount', 'umount', 'telnetd'):
@@ -1519,6 +1520,16 @@ class FlashBoot(unittest.TestCase):
         self.assertTrue((self.d / 'autorun.ran').exists())
         self.assertEqual((self.d / 'storage').read_text().strip(), 'flash')
 
+    def test_system_boot_scripts_come_from_the_image(self):
+        cfg = self.persist / 'config/autostart'
+        cfg.mkdir(parents=True)
+        (cfg / '02_system-webserver').write_text('old copy from an SD card')
+        (cfg / 'ftp-server').write_text('switch')
+        self.run_fb()
+        self.assertTrue((cfg / '02_system-webserver').is_symlink())
+        self.assertEqual((cfg / '02_system-webserver').read_text(), 'new')
+        self.assertEqual((cfg / 'ftp-server').read_text(), 'switch')
+
     def test_second_boot_does_not_rewrite_config(self):
         self.run_fb()
         boot = self.persist / 'config/boot.conf'
@@ -1547,6 +1558,19 @@ class FlashWebServer(unittest.TestCase):
         flash = ws.index('/tmp/tc100-storage'); full = ws.index('case "$WEB_MODE" in')
         self.assertLess(flash, full)   # decided before the OpenSSL path
         self.assertIn('lighttpd.flash.conf', ws[flash:full])
+
+
+class AutostartModes(unittest.TestCase):
+    def test_autostart_entries_are_executable_in_git(self):
+        out = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-s', 'config/autostart'],
+                             capture_output=True, text=True, check=True).stdout.split('\n')
+        modes = {l.split()[3]: l.split()[0] for l in out if l.strip()}
+        self.assertTrue(modes)
+        for f, m in modes.items():
+            self.assertEqual(m, '100755', f)
+
+    def test_autorun_runs_non_executable_entries_with_sh(self):
+        self.assertIn('if [ -x "$i" ]; then "$i"; else sh "$i"; fi', (ROOT / 'autorun.sh').read_text())
 
 
 class VendorWpaWrapper(unittest.TestCase):
