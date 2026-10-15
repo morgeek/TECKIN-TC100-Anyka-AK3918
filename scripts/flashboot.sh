@@ -7,8 +7,10 @@
 # firmware runs unchanged:
 #
 #   /mnt                     tmpfs, 4 MB cap (logs, runtime files; RAM, lost at reboot)
-#   /mnt/{bin,lib,scripts,controlscripts,www,sounds}   bind of /usr/tc100/* (read-only)
-#   /mnt/autorun.sh, VERSION from /usr/tc100
+#   /mnt/{bin,lib}           bind of /usr/tc100/* (read-only)
+#   /mnt/{scripts,controlscripts,www,sounds}, autorun.sh, VERSION
+#                            from the code zone (flash-code.sh) when valid,
+#                            else from /usr/tc100 — mounted on /tmp/tc100code
 #   /mnt/config              bind of /etc/jffs2/tc100/config (flash, kept across reboots)
 #
 # /mnt/config only holds the live configuration; the *.dist templates and
@@ -25,6 +27,10 @@
 # calls this script then.
 
 T="${FLASHBOOT_CODE:-/usr/tc100}"
+# Where the code is taken from: the code zone of the KERNEL partition when it
+# is valid (scripts/flash-code.sh, updated without touching /usr), else the
+# copy in /usr/tc100. Binaries (bin, lib) always come from /usr/tc100.
+C="${FLASHBOOT_CODEROOT:-/tmp/tc100code}"
 P="${FLASHBOOT_PERSIST:-/etc/jffs2/tc100}"
 M="${FLASHBOOT_MNT:-/mnt}"
 LOG="${FLASHBOOT_LOG:-/tmp/log/flashboot.log}"
@@ -50,34 +56,50 @@ if grep -q " $M vfat " /proc/mounts 2>/dev/null || grep -q " $M exfat " /proc/mo
 fi
 mount -t tmpfs -o size=4m,mode=0755 tmpfs "$M" || rescue "tmpfs on $M failed"
 
-for d in bin lib scripts controlscripts www sounds; do
+mkdir -p "$C"
+if [ "${FLASHBOOT_ZONE:-1}" = 1 ] && [ -x "$T/scripts/flash-code.sh" ] && sh "$T/scripts/flash-code.sh" mount "$C"; then
+    log "code from the code zone: $(sh "$T/scripts/flash-code.sh" status)"
+else
+    [ "${FLASHBOOT_ZONE:-1}" = 1 ] && log "code zone: $(sh "$T/scripts/flash-code.sh" status 2>/dev/null); code from $T"
+    mount -o bind "$T" "$C" || rescue "bind code failed"
+fi
+for d in bin lib; do
     [ -d "$T/$d" ] || continue
     mkdir -p "$M/$d"
     mount -o bind "$T/$d" "$M/$d" || rescue "bind $d failed"
 done
-ln -s "$T/autorun.sh" "$M/autorun.sh"
-cp "$T/VERSION" "$M/VERSION" 2>/dev/null
+for d in scripts controlscripts www sounds; do
+    [ -d "$C/$d" ] || continue
+    mkdir -p "$M/$d"
+    mount -o bind "$C/$d" "$M/$d" || rescue "bind $d failed"
+done
+ln -s "$C/autorun.sh" "$M/autorun.sh"
+cp "$C/VERSION" "$M/VERSION" 2>/dev/null
 mkdir -p "$M/log" "$M/DCIM"
 
 # Persistent configuration in jffs2.
 mkdir -p "$CFG" || rescue "no $CFG"
-[ -d "$CFG/autostart" ] || cp -a "$T/config/autostart" "$CFG/autostart"
+[ -d "$CFG/autostart" ] || cp -a "$C/config/autostart" "$CFG/autostart"
 chmod 755 "$CFG"/autostart/* 2>/dev/null
 # The 0?_system-* boot scripts are firmware code, not a user choice: always
 # the image's version (a copy brought from an SD card may be older). The
 # other entries are the Services page's on/off switches and stay as they are.
-for f in "$T"/config/autostart/0?_system-*; do
+for f in "$C"/config/autostart/0?_system-*; do
     [ -f "$f" ] || continue
     n="$CFG/autostart/${f##*/}"
     [ -L "$n" ] && [ "$(readlink "$n")" = "$f" ] && continue
     rm -f "$n"; ln -s "$f" "$n"
 done
-for f in "$T"/config/*; do
+for f in "$C"/config/*; do
     [ -f "$f" ] || continue
-    n="${f##*/}"
-    [ -e "$CFG/$n" ] || [ -L "$CFG/$n" ] || ln -s "$f" "$CFG/$n"
+    n="$CFG/${f##*/}"
+    if [ -L "$n" ]; then
+        [ "$(readlink "$n")" = "$f" ] && continue
+        rm -f "$n"          # a link made by an older layout
+    fi
+    [ -e "$n" ] || ln -s "$f" "$n"
 done
-[ -f "$CFG/boot.conf" ] || cp "$T/config/boot.conf.dist" "$CFG/boot.conf"
+[ -f "$CFG/boot.conf" ] || cp "$C/config/boot.conf.dist" "$CFG/boot.conf"
 # Rewrite only when a value differs: every write wears the flash.
 set_key()
 {
@@ -94,5 +116,5 @@ mkdir -p "$M/config"
 mount -o bind "$CFG" "$M/config" || rescue "bind config failed"
 
 echo flash > "$STATE"
-log "flash mode: firmware $(cat "$T/VERSION" 2>/dev/null) from $T, config in $CFG"
+log "flash mode: firmware $(cat "$C/VERSION" 2>/dev/null), binaries from $T, config in $CFG"
 "$M/autorun.sh" &
