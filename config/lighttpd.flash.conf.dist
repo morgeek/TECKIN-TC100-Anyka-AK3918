@@ -1,0 +1,141 @@
+# lighttpd.conf for the firmware running from flash (TLS by mbedTLS).
+# Same as lighttpd.conf.dist otherwise; picked by _http_server_lighttpd
+# (scripts/common_functions.sh) when /tmp/tc100-storage reads "flash".
+server.document-root = "/mnt/www"
+
+server.port = 80
+
+# uncomment to allow more exotic hostnames e.g. with underscores
+#server.http-parseopt-host-strict = "disable"
+
+mimetype.assign = (
+  ".html" => "text/html",
+  ".txt" => "text/plain",
+  ".jpg" => "image/jpeg",
+  ".png" => "image/png",
+  ".css" => "text/css",
+  ".js" => "text/javascript"
+)
+index-file.names = ( "index.html" )
+server.modules = ("mod_auth",
+                  "mod_authn_file",
+                  "mod_redirect",
+                  "mod_cgi",
+                  "mod_staticfile",
+                  "mod_mbedtls",
+                  "mod_alias")
+
+cgi.assign = ( ".cgi" => "/bin/sh" )
+alias.url = ( "/DCIM/" => "/mnt/DCIM/" )
+
+$SERVER["socket"] == ":443" {
+  ssl.engine = "enable"
+  ssl.pemfile = "/mnt/config/lighttpd.pem"
+}
+
+# Flash firmware (scripts/flashboot.sh): lighttpd is built with mbedTLS
+# (src/lighttpd/build.sh TLS=mbedtls), HTTP/1.1 only — HTTP/2 over mbedTLS
+# fails with this lighttpd release.
+server.feature-flags = ( "server.h2proto" => "disable" )
+
+
+# Support letsencrypt SSL cert paths
+# (we don't want to upgrade to SSL nor auth' this path)
+$HTTP["url"] !~ "^/.well-known/(.*)" {
+
+    auth.backend                = "htdigest"
+    auth.backend.htdigest.userfile = "/mnt/config/lighttpd.user"
+    auth.require = ( "/" => ("method" => "basic", "realm" => "all", "require" => "user=root"))
+
+    $HTTP["scheme"] == "http" {
+        # capture vhost name with regex conditiona -> %0 in redirect pattern
+        # must be the most inner block to the redirect rule
+        $HTTP["host"] =~ ".*" {
+            url.redirect = (".*" => "https://%0$0")
+        }
+    }
+}
+
+## IP allowlist — restrict web UI to a specific subnet.
+## Uncomment and set your LAN CIDR to block access from other networks/interfaces.
+## Example: allow only 192.168.1.x
+#$HTTP["remoteip"] !~ "^192\.168\.1\." {
+#    url.access-deny = ("")
+#}
+## To allow multiple subnets, extend the pattern:
+#$HTTP["remoteip"] !~ "^(192\.168\.1\.|10\.0\.0\.)" {
+#    url.access-deny = ("")
+#}
+
+## enable debugging
+#debug.log-request-header     = "enable"
+#debug.log-response-header    = "enable"
+#debug.log-request-handling   = "enable"
+#debug.log-file-not-found     = "enable"
+#debug.log-condition-handling = "enable"
+
+## where to send error-messages to
+server.errorlog             = "/var/log/lighttpd-error.log"
+server.upload-dirs          = ("/tmp/")
+
+# --- Response headers, browser cache, compression -------------------------
+# Needs the lighttpd built by src/lighttpd/build.sh (1.8.4+): mod_setenv,
+# mod_expire and mod_deflate are compiled in. The binary shipped up to 1.8.3
+# lacks them and refuses a config that loads them; config-migrate only adds
+# this block once that binary is in place (probe: lighttpd -tt).
+# @migrate webperf deflate.max-loadavg
+server.modules += ("mod_setenv", "mod_expire", "mod_deflate")
+
+# Security headers. CGI responses get them too.
+setenv.add-response-header = (
+  "X-Content-Type-Options" => "nosniff",
+  "X-Frame-Options" => "SAMEORIGIN",
+  "Referrer-Policy" => "same-origin"
+)
+
+# Versioned assets (?v=<release>) never change under the same URL: let the
+# browser keep them for 30 days without asking again. A new release changes
+# the URL, so nothing goes stale. Unversioned files keep the default
+# revalidation (ETag / 304).
+$HTTP["querystring"] =~ "^v=" {
+  expire.url = ( "/" => "access plus 30 days" )
+}
+
+# Compress static text files once, keep the result in tmpfs (/tmp) and serve
+# it from there afterwards: the CPU cost is paid once per file per boot, and
+# every later response is smaller to encrypt and send. CGI output is never
+# compressed (no per-request CPU, nothing leaked through compressed sizes).
+$HTTP["url"] !~ "^/cgi-bin/" {
+  deflate.mimetypes = ( "text/css", "text/javascript", "text/html", "text/plain", "image/svg+xml" )
+  deflate.allowed-encodings = ( "gzip", "deflate" )
+  deflate.cache-dir = "/tmp/lighttpd-deflate/"
+  deflate.min-compress-size = 512
+  # Skip compression (serve the file as is) while the camera is very busy.
+  # The AK3918 idles around a load of 2.5-3 because of the vendor app.
+  deflate.max-loadavg = "6.0"
+}
+# @end
+
+# @migrate updatestream update\.cgi
+# Firmware update uploads (several MB) are streamed to update.cgi, which
+# writes them to the SD card. Without this lighttpd first buffers the whole
+# body in server.upload-dirs (/tmp, i.e. RAM, ~33 MB in total).
+$HTTP["url"] =~ "^/cgi-bin/update\.cgi" {
+  server.stream-request-body = 2
+}
+# @end
+
+## CGI (etc) stderr log
+server.breakagelog = "/var/log/lighttpd-cgi-stderr.log"
+
+## accesslog module
+#accesslog.filename = "/var/log/lighttpd-access.log"
+
+# @migrate keepalive max-keep-alive-idle
+# Keep-alive: the dashboard polls every 20 s, but lighttpd default idle is 5 s,
+# so every poll paid a full RSA handshake (~1-5 s of CPU on the AK3918 —
+# measured: reused connection answers in 0.3 s, fresh one in up to 5.7 s).
+# Holding an idle connection costs a few KB of RAM; the handshake costs CPU.
+server.max-keep-alive-idle = 45
+server.max-keep-alive-requests = 500
+# @end

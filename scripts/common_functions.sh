@@ -375,6 +375,12 @@ ir_cut(){
 _http_server_lighttpd(){
   _hs_conf=/mnt/config/lighttpd.conf
   [ "$WEB_MODE" = "http" ] && _hs_conf=/mnt/config/lighttpd.http.conf
+  # Firmware from flash: lighttpd has mbedTLS instead of OpenSSL, and no
+  # openssl tool to make a certificate — HTTPS only with an existing one.
+  if [ "$_hs_conf" = /mnt/config/lighttpd.conf ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+    if [ -s /mnt/config/lighttpd.pem ]; then _hs_conf=/mnt/config/lighttpd.flash.conf
+    else _hs_conf=/mnt/config/lighttpd.http.conf; fi
+  fi
   install_config "$_hs_conf"
   LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$_hs_conf"
 }

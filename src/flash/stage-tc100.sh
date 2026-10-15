@@ -4,12 +4,13 @@
 #   bin, lib       minus TLS (openssl, libssl, libcrypto), libcurl (curl is
 #                  static), libjq/libiconv (unused: jq is static), ONVIF
 #                  (monvifd), internet-only or SD-only tools (telegram,
-#                  ffmpeg-min-recorder, min-recorder-list); curl and lighttpd
-#                  replaced by the HTTP-only builds; everything stripped
+#                  ffmpeg-min-recorder, min-recorder-list); curl replaced by
+#                  the HTTP-only build, lighttpd by the mbedTLS one; everything stripped
 #   code           autorun.sh VERSION scripts controlscripts www sounds config
 #                  (config without ssl/)
 #
-# Usage: STRIP=<cross-strip> src/flash/stage-tc100.sh <out-dir> <curl-notls> <lighttpd-notls>
+# Usage: STRIP=<cross-strip> src/flash/stage-tc100.sh <out-dir> <curl-notls> <lighttpd>
+# <lighttpd>: TLS=mbedtls src/lighttpd/build.sh (HTTPS) or NO_TLS=1 (HTTP only).
 set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 out=$1; curl_bin=$2; lighttpd_bin=$3
