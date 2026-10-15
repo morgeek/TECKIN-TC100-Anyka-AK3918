@@ -1500,7 +1500,8 @@ class FlashBoot(unittest.TestCase):
         env = dict(os.environ, PATH='%s:%s' % (self.stub, os.environ['PATH']),
                    FLASHBOOT_CODE=str(self.code), FLASHBOOT_PERSIST=str(self.persist),
                    FLASHBOOT_MNT=str(self.mnt), FLASHBOOT_LOG=str(self.d / 'fb.log'),
-                   FLASHBOOT_STATE=str(self.d / 'storage'))
+                   FLASHBOOT_STATE=str(self.d / 'storage'), FLASHBOOT_CODEROOT=str(self.code),
+                   FLASHBOOT_ZONE='0')
         r = subprocess.run(['sh', str(ROOT / 'scripts/flashboot.sh')], env=env, capture_output=True, text=True)
         time.sleep(0.3)
         return r
@@ -1625,6 +1626,84 @@ class EventLogQueries(unittest.TestCase):
             self.assertEqual(q('get_recent_events 10'), ['a', 'b', 'c', 'd'])
             self.assertEqual(q('get_error_events 0 5'), ['b', 'c'])
             self.assertEqual(q('get_error_events 250 5'), ['c'])
+
+
+class FlashCodeZone(unittest.TestCase):
+    """scripts/flash-code.sh + update.cgi in flash mode, on a fake 2 MB KERNEL partition."""
+
+    @unittest.skipUnless(shutil.which('mksquashfs'), 'squashfs-tools')
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        self.mtd = d / 'mtd1'
+        self.kernel = os.urandom(0x15aca0)
+        self.mtd.write_bytes(self.kernel + b'\xff' * (0x200000 - 0x15aca0))
+        (d / 'proc').write_text('mtd1: 00200000 00001000 "KERNEL"\n')
+        stage = d / 'stage'
+        for sub in ('scripts', 'www', 'config'):
+            (stage / sub).mkdir(parents=True)
+        (stage / 'autorun.sh').write_text('#!/bin/sh\n'); (stage / 'autorun.sh').chmod(0o755)
+        (stage / 'VERSION').write_text('9.9-test\n')
+        (stage / 'scripts/x.sh').write_text('echo x\n')
+        self.pkg = d / 'code.bin'
+        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(self.pkg)], check=True, capture_output=True)
+        self.stub = d / 'stub'; self.stub.mkdir()
+        (self.stub / 'reboot').write_text('#!/bin/sh\necho rebooted > "%s/rebooted"\n' % d); (self.stub / 'reboot').chmod(0o755)
+        self.env = dict(os.environ, FC_MTD_CHAR=str(self.mtd), FC_MTD_BLOCK=str(self.mtd), FC_PROC_MTD=str(d / 'proc'),
+                        FC_LOG=str(d / 'fc.log'), PATH='%s:%s' % (self.stub, os.environ['PATH']))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fc(self, *args):
+        return subprocess.run(['sh', str(ROOT / 'scripts/flash-code.sh'), *args], capture_output=True, text=True, env=self.env)
+
+    def test_write_status_clear_and_kernel_untouched(self):
+        self.assertEqual(self.fc('status').stdout.strip(), 'none')
+        self.assertEqual(self.fc('check', str(self.pkg)).stdout.split()[:2], ['ok', '9.9-test'])
+        self.assertEqual(self.fc('write', str(self.pkg)).stdout.strip(), 'ok 9.9-test')
+        self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
+        data = self.mtd.read_bytes()
+        self.assertEqual(len(data), 0x200000)
+        self.assertEqual(data[:0x15aca0], self.kernel)
+        self.assertEqual(data[0x160000:0x160000 + 11], b'TC100CODE 1')
+        self.assertEqual(self.fc('clear').stdout.strip(), 'ok')
+        self.assertEqual(self.fc('status').stdout.strip(), 'none')
+        self.assertEqual(self.mtd.read_bytes()[:0x15aca0], self.kernel)
+
+    def test_refusals_and_damage(self):
+        bad = self.d / 'bad.bin'; bad.write_bytes(b'TC100CODE 1\nsize 10\nmd5 ' + b'0' * 32 + b'\n' + b'\0' * 5000)
+        self.assertIn('refused', self.fc('write', str(bad)).stdout)
+        (self.d / 'proc').write_text('mtd1: 00200000 00010000 "KERNEL"\n')
+        self.assertIn('refused', self.fc('write', str(self.pkg)).stdout)
+        (self.d / 'proc').write_text('mtd1: 00200000 00001000 "KERNEL"\n')
+        self.fc('write', str(self.pkg))
+        with open(self.mtd, 'r+b') as f:
+            f.seek(0x161010); f.write(b'\0' * 64)
+        self.assertEqual(self.fc('status').stdout.strip(), 'bad md5')
+
+    def cgi(self, method, cmd, body=b''):
+        (self.d / 'csrf').write_text('ab12\n')
+        src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
+        env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
+                   HTTP_X_CSRF_TOKEN='ab12', TC100_STORAGE_FILE=str(self.d / 'storage'),
+                   FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'work'))
+        (self.d / 'storage').write_text('flash\n')
+        r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
+        return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
+
+    def test_update_cgi_flash_flow(self):
+        self.assertEqual(self.cgi('GET', 'status')['state'], 'idle')
+        self.assertFalse(self.cgi('POST', 'upload', b'x' * 5000)['ok'])
+        up = self.cgi('POST', 'upload', self.pkg.read_bytes())
+        self.assertTrue(up['ok']); self.assertEqual(up['kind'], 'code'); self.assertEqual(up['version'], '9.9-test')
+        st = self.cgi('GET', 'status'); self.assertEqual((st['state'], st['staged']), ('staged', '9.9-test'))
+        self.assertTrue(self.cgi('POST', 'install')['ok'])
+        for _ in range(50):
+            if (self.d / 'rebooted').exists():
+                break
+            time.sleep(0.1)
+        self.assertTrue((self.d / 'rebooted').exists())
+        self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
 
 
 class VendorWpaWrapper(unittest.TestCase):
