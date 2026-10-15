@@ -1810,6 +1810,22 @@ class ResetButton(unittest.TestCase):
         self.assertEqual(self.run_events([21], storage='sd'), ['reboot'])
 
 
+class CodePackageRelease(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
+    def test_package_from_git_is_valid_and_executable(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / 'c.bin'
+            subprocess.run(['sh', str(ROOT / 'src/release/build-code-package.sh'), str(out)], check=True, capture_output=True)
+            r = subprocess.run(['sh', str(ROOT / 'scripts/flash-code.sh'), 'check', str(out)], capture_output=True, text=True)
+            self.assertTrue(r.stdout.startswith('ok '), r.stdout)
+            sq = Path(d) / 'c.sqsh'; sq.write_bytes(out.read_bytes()[4096:])
+            ls = subprocess.run(['unsquashfs', '-lls', str(sq)], capture_output=True, text=True).stdout
+            self.assertRegex(ls, r'-rwxr-xr-x .* squashfs-root/config/autostart/02_system-webserver')
+            self.assertIn('squashfs-root/scripts/flashboot.sh', ls)
+            self.assertNotIn('config/ssl', ls)
+        self.assertIn('build-code-package.sh', (ROOT / '.github/workflows/ci.yml').read_text())
+
+
 class VendorWpaWrapper(unittest.TestCase):
     def test_filters_conf_and_keeps_args(self):
         with tempfile.TemporaryDirectory() as d:
