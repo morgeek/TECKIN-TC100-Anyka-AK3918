@@ -2359,14 +2359,16 @@ drain_command_spool()
   case "$_dc_session" in ''|*[!0-9]*) return 0 ;; esac
   _dc_file="${MQTT_STREAM_RAW}.${_dc_session}"
   if [ "$MQTT_STREAM_SESSION" != "$_dc_session" ]; then
+    [ -z "$MQTT_STREAM_SESSION" ] || rm -f "${MQTT_STREAM_RAW}.${MQTT_STREAM_SESSION}.checked"
     MQTT_STREAM_SESSION="$_dc_session"
     MQTT_STREAM_OFFSET=0
   fi
   [ ! -f "${MQTT_STREAM_RAW}.reset" ] || return 0
   [ -f "$_dc_file" ] || return 0
-  # Nothing appended since the last look (mark strictly newer than the spool,
-  # shell test, no process): skip the wc. Same-second appends are re-read.
-  _dc_mark="${MQTT_STREAM_RAW}.checked"
+  # Nothing appended since the last look (this session's mark strictly newer
+  # than its spool, shell test, no process): skip the wc. Same-second appends
+  # are re-read; a new session has no mark yet.
+  _dc_mark="${_dc_file}.checked"
   [ "$_dc_mark" -nt "$_dc_file" ] && return 0
   : > "$_dc_mark"
   _dc_size="$(wc -c < "$_dc_file" 2>/dev/null)"

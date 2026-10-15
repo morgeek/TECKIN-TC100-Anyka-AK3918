@@ -1717,7 +1717,7 @@ class ForkLightLoops(unittest.TestCase):
     def test_sound_detection_loop(self):
         loop = self.body('controlscripts/sound-detection', 'run_daemon')
         tail = loop[loop.index('while :; do'):]
-        self.assertNotIn('$(', tail.split('publish_sound_event')[0])
+        self.assertNotRegex(tail.split('publish_sound_event')[0], r'\$\((?!\()')   # no command substitution
         self.assertIn('sd_wait "$interval"', loop)
         self.assertNotIn('sleep', tail)
         self.assertIn('-nt "$SD_STAMP"', self.body('controlscripts/sound-detection', 'load_config'))
