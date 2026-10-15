@@ -24,8 +24,8 @@
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.purged.min.css?v=1.8.4" rel="stylesheet">
     <link href="css/ui-modern.min.css?v=1.8.4-ui4" rel="stylesheet">
-    <link href="css/ui-v2.css?v=1.8.4-ui8" rel="stylesheet">
-    <script src="scripts/i18n.js?v=1.8.4-i18n4"></script>
+    <link href="css/ui-v2.css?v=1.8.4-ui9" rel="stylesheet">
+    <script src="scripts/i18n.js?v=1.8.4-i18n5"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -206,6 +206,7 @@
 
                 <!-- Elite Controls: Theme Toggle & Logout -->
                 <div class="navbar-end">
+                    <span class="navbar-item storage-badge" id="storage_badge" title="The firmware runs from the camera's flash memory: no SD card needed" hidden>Flash</span>
                     <a class="navbar-item lang-toggle" id="lang_toggle" href="#" translate="no">FR</a>
                     <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
                         <span class="nav-icon" id="theme_toggle_icon">
@@ -290,7 +291,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.4-ui6" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.4-ui7" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
