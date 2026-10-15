@@ -33,6 +33,13 @@ if [ "${REQUEST_METHOD:-GET}" = "POST" ]; then
   fi
 fi
 
+# Running from flash (scripts/flashboot.sh): /mnt is a small RAM disk and the
+# code is in the flash /usr image, which this updater does not write.
+if [ "${REQUEST_METHOD:-GET}" = "POST" ] && [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
+  echo '{"ok":false,"error":"flash_mode","message":"The camera runs from its flash memory: updates are written with src/flash/flash-usr.sh, not from this page."}'
+  exit 0
+fi
+
 case "${REQUEST_METHOD:-GET}:$_cmd" in
   GET:status|GET:)
     sh "$FWU" status ;;

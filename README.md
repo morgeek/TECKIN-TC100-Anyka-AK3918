@@ -256,7 +256,17 @@ binaries (`src/curl/build.sh`, `NO_TLS=1 src/lighttpd/build.sh`), and
 
 - with the SD card (`/mnt/wifitest`) the boot is the vendor one, so the SD
   firmware starts exactly as before — a working SD card always wins;
-- without it: `/etc/jffs2/tc100/boot.sh` when present, else a rescue `telnetd` on port 23.
+- without it (card removed, or no `wifitest/` on it): the firmware runs from
+  flash — `scripts/flashboot.sh` rebuilds the card layout (`/mnt` = 4 MB RAM
+  disk, code bound from `/usr/tc100`, `/mnt/config` = `/etc/jffs2/tc100/config`
+  in flash), web UI over HTTP, Wi-Fi with wpa_supplicant 2.11. A writable
+  `/etc/jffs2/tc100/boot.sh` wins (tests: `src/flash/test-flashmode-once.sh`,
+  one-shot, restores the card hook first); with neither, a rescue `telnetd` on port 23.
+
+Image v2 (`src/flash/stage-tc100.sh` + `VENDOR_WPA=wrapper`) carries the whole
+firmware: 3,837,952 bytes, without ONVIF, and with the vendor wpa_supplicant
+0.8 replaced by a wrapper around 2.11 (`src/flash/wpa_supplicant-wrapper.sh`).
+Firmware updates from the web page are refused in flash mode.
 
 `src/flash/flash-usr.sh <image> <md5>` (run on the camera) checks that mtd6 is
 "C" with the expected size and the image md5, writes it and reads the flash back
