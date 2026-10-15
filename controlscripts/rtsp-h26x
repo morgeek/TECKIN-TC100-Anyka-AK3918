@@ -175,6 +175,16 @@ start()
       install_config "$CONFIGPATH/isp_tune.conf"
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_ISP_TUNE=$CONFIGPATH/isp_tune.conf" ;;
     esac
+    # Local backup recording: the encoder's frames copied into fragmented MP4
+    # files on the card, no re-encoding (src/tc100fix/rec.c).
+    case "$REC_LOCAL" in 1|true|yes|on|enabled)
+      _rec_dir="$(sh /mnt/scripts/rec-storage.sh dir 2>/dev/null)"
+      if [ -n "$_rec_dir" ]; then
+        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_REC_DIR=$_rec_dir TC100FIX_REC_SEGMENT_SEC=${REC_SEGMENT_SEC:-300} TC100FIX_REC_RESERVE_MB=${REC_RESERVE_MB:-256} TC100FIX_REC_STREAM=${REC_STREAM:-main}"
+      else
+        echo "local recording: no usable card, not recording" >> "$LOGPATH"
+      fi ;;
+    esac
     # Overwrite "-U user:password" in the process's argv once it is parsed, so
     # ps / /proc/<pid>/cmdline do not show the RTSP password.
     if [ -n "$CREDENTIAL" ] && [ -f /mnt/lib/libtc100fix.so ]; then

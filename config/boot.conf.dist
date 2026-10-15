@@ -158,6 +158,17 @@ RTSP_DAYNIGHT_POLL_MS=500
 # into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
 # default until the thresholds are calibrated on hardware.
 TAMPER_DETECTION=0
+# Local backup recording (REC_LOCAL=1): the frames the SoC encoder already
+# produces for RTSP are copied into fragmented MP4 files on the SD card, with
+# no decoding or re-encoding. Files: records/YYYYMMDD/HHMMSS.mp4, REC_SEGMENT_SEC
+# long; the oldest are deleted to keep REC_RESERVE_MB free. A file cut by a
+# power loss stays playable up to its last second. From flash the card is
+# mounted on /mnt/sd ("scripts/rec-storage.sh eject" before removing it).
+# REC_STREAM=main|sub.
+REC_LOCAL=0
+REC_SEGMENT_SEC=300
+REC_RESERVE_MB=256
+REC_STREAM=main
 
 # ONVIF advertised stream policy:
 # - main-primary: ONVIF profile 1 = main stream (default)
