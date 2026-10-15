@@ -12,6 +12,10 @@
 #   dpkg --add-architecture i386 && apt-get install libc6:i386 zlib1g:i386
 # Needs: git, cmake, ninja, perl (OpenSSL header generation).
 #
+# NO_TLS=1 builds an HTTP-only binary (no mod_openssl, no libssl/libcrypto:
+# -1.5 MB, for a /usr image in the camera's flash) into $OUT instead of
+# bin/lighttpd (default OUT: <workdir>/lighttpd-notls).
+#
 # Usage: TC=/path/to/arm-anykav200-crosstool/usr src/lighttpd/build.sh [workdir]
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -53,7 +57,14 @@ Libs: -L$P/lib -lpcre2-8
 Cflags: -I$P/include
 PC
 
-cp "$here/plugin-static.h" lighttpd/src/plugin-static.h
+NO_TLS=${NO_TLS:-0}
+if [ "$NO_TLS" = 1 ]; then
+  grep -v mod_openssl "$here/plugin-static.h" > lighttpd/src/plugin-static.h
+  SSL=OFF; OUT=${OUT:-$W/lighttpd-notls}
+else
+  cp "$here/plugin-static.h" lighttpd/src/plugin-static.h
+  SSL=ON; OUT=$root/bin/lighttpd
+fi
 cat > toolchain.cmake <<TCF
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR arm)
@@ -70,12 +81,12 @@ rm -rf build && mkdir build
 (cd build && PKG_CONFIG_LIBDIR="$P/lib/pkgconfig" PKG_CONFIG_PATH= cmake -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$W/toolchain.cmake" -DCMAKE_BUILD_TYPE=MinSizeRel \
   -DCMAKE_SKIP_RPATH=ON -DBUILD_STATIC=ON \
-  -DWITH_OPENSSL=ON -DWITH_PCRE2=ON -DWITH_ZLIB=ON \
+  -DWITH_OPENSSL=$SSL -DWITH_PCRE2=ON -DWITH_ZLIB=ON \
   -DZLIB_LIBRARY="$P/lib/libz.a" -DZLIB_INCLUDE_DIR="$P/include" \
   -DOPENSSL_ROOT_DIR="$P" -DOPENSSL_INCLUDE_DIR="$P/include" \
   -DOPENSSL_SSL_LIBRARY="$P/lib/libssl.so" -DOPENSSL_CRYPTO_LIBRARY="$P/lib/libcrypto.so" \
   ../lighttpd >/dev/null && ninja lighttpd >/dev/null)
 
-cp build/build/lighttpd "$root/bin/lighttpd"
-"${X}strip" "$root/bin/lighttpd"
-md5sum "$root/bin/lighttpd"
+cp build/build/lighttpd "$OUT"
+"${X}strip" "$OUT"
+md5sum "$OUT"
