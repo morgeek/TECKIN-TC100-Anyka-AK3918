@@ -192,7 +192,7 @@ parse_script_capabilities() {
 # memory-guard / cpu-scaler add "disabled" when their boot.conf key is off.
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
-FAST_PIDFILE_SERVICES=" ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler "
+FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
 # (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID
