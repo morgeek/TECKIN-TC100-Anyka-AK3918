@@ -271,7 +271,11 @@ free end of the KERNEL partition (0x160000–0x200000, after the kernel) as a
 code package (`src/flash/build-code.sh`, `scripts/flash-code.sh`): Settings →
 Firmware update accepts a `tc100-code-<version>.bin`, writes it, reads it back
 (the kernel area is compared before and after) and reboots; "Roll back" clears
-it. A missing or damaged zone falls back to the copy in `/usr/tc100`. Only a
+it. A missing or damaged zone falls back to the copy in `/usr/tc100`, and an
+update the camera does not come back with (web server + gateway within
+5 min) is rolled back at the next boot. `src/release/build-code-package.sh`
+builds the `.bin` from git (no toolchain needed); CI attaches it, with the SD
+card `.tar`, to each `v*` release. Only a
 change of the binaries needs a new `/usr` image (`flash-usr.sh`, from SD mode).
 
 `src/flash/flash-usr.sh <image> <md5>` (run on the camera) checks that mtd6 is
