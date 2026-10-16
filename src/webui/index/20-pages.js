@@ -138,6 +138,7 @@
         return r.text();
       })
       .then(function (html) {
+        leaveHome();
         content.innerHTML = html;
         executeEmbeddedScripts(content);
         currentContentTarget = normalizedTarget;
@@ -151,6 +152,7 @@
           return;
         }
         console.log(e);
+        leaveHome();
         content.innerHTML = "<article class='message is-danger'><div class='message-header'><p>Page unavailable</p></div><div class='message-body'>The camera did not return this page. <button id='page_retry' class='button is-small' type='button'>Retry</button> <button id='page_logs' class='button is-small' type='button'>Open logs</button></div></article>";
         var retryButton = byId("page_retry");
         if (retryButton) retryButton.addEventListener("click", function () { loadOnPageTarget(target, onLoaded, true); });

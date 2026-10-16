@@ -10,7 +10,7 @@ the browser. Nothing needs the internet, and no vendor file is published.
 at all. The card becomes optional, for recordings only. The SD card mode of
 earlier versions is still there and is the way in.
 
-![Live view](docs/screenshots/live-view.png)
+![Dashboard](docs/screenshots/dashboard-dark.png)
 
 <sub>Every screenshot shows a test pattern instead of the camera image, and example addresses.</sub>
 
@@ -88,7 +88,9 @@ Full list: [CHANGELOG.md](CHANGELOG.md).
 | ![Integrations](docs/screenshots/settings-integrations.png) Settings → Integrations: MQTT and Home Assistant | ![Update](docs/screenshots/settings-update.png) Update & backup, from flash |
 | ![Install to flash](docs/screenshots/settings-install-to-flash.png) Install to flash, from the SD card | ![System](docs/screenshots/settings-system.png) Settings → System |
 | ![Services](docs/screenshots/tools-services.png) Tools → Services | ![Diagnostics](docs/screenshots/tools-diagnostics.png) Tools → Diagnostics |
-| ![Dark, French](docs/screenshots/live-view-dark-fr.png) Dark theme, in French | ![Phone](docs/screenshots/live-view-mobile.png) On a phone |
+| ![Live view](docs/screenshots/live-view-dark.png) Live view | ![Light theme](docs/screenshots/dashboard.png) Light theme |
+| ![Dark, French](docs/screenshots/settings-dark-fr.png) Settings in French | ![Phone](docs/screenshots/dashboard-mobile.png) On a phone |
+| ![Live, light](docs/screenshots/live-view.png) Live view, light theme | ![Phone settings](docs/screenshots/settings-mobile.png) Settings on a phone |
 
 Setup wizard:
 

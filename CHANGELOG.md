@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.0] — 2026-10-16
+
+### Changed
+- **New web interface layout, after the OpenIPC web interface.** Top bar with the camera name and firmware version, and Dashboard, Live, Recordings, Camera ▾, Services ▾, System ▾. Dark theme by default (light still one click away), one indigo accent.
+- **Settings**: a sidebar grouped by use (Image, Video & audio, Events, Network & integrations, System) with a search box that shows every matching card across sections. On a phone it becomes a row of chips. Each section also opens straight from the menus.
+- Dashboard and Live switch instantly: the home page is kept aside while other pages are open, not downloaded again.
+
+### Added
+- **Dashboard**: CPU, memory, Wi-Fi signal, network out and uptime tiles with small graphs; network in/out and CPU/memory graphs over the last 5 minutes; snapshot, streams, device and storage cards. The graphs are kept in the browser only, and are fed by `state.cgi?cmd=dash` (raw counters from `/proc`, shell built-ins only, every 5 s while the dashboard is on screen) and `cmd=dashinfo` (once a minute).
+
+---
+
 ## [2.0.1] — 2026-10-16
 
 ### Added

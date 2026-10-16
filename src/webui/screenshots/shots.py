@@ -27,14 +27,18 @@ def settings(pg, tab):
     pg.evaluate("window.scrollTo(0,0)")
 with sync_playwright() as p:
     b=p.chromium.launch()
-    pg=page(b); pg.screenshot(path=OUT+'/live-view.png'); 
+    pg=page(b,'dark'); pg.wait_for_timeout(40000); pg.screenshot(path=OUT+'/dashboard-dark.png')
+    pg.evaluate("document.getElementById('home_nav').click()"); pg.wait_for_timeout(1500); pg.screenshot(path=OUT+'/live-view-dark.png')
+    pg=page(b); pg.wait_for_timeout(12000); pg.screenshot(path=OUT+'/dashboard.png')
+    pg.evaluate("document.getElementById('home_nav').click()"); pg.wait_for_timeout(1500); pg.screenshot(path=OUT+'/live-view.png')
     for tab,name in [('tab-image','settings-image'),('tab-integrations','settings-integrations'),('tab-record','settings-recording'),('tab-backup','settings-update'),('tab-system','settings-system')]:
         settings(pg,tab); pg.screenshot(path=OUT+'/%s.png'%name)
     for t,name in [('services','tools-services'),('diagnostics','tools-diagnostics')]:
         pg.evaluate("document.getElementById(%r).click()"%t); pg.wait_for_timeout(2500); pg.screenshot(path=OUT+'/%s.png'%name)
     print('errors light', pg.errs)
-    pg=page(b,'dark','fr'); pg.screenshot(path=OUT+'/live-view-dark-fr.png'); print('errors dark', pg.errs)
-    pg=page(b,'light','en',390,844,True); pg.screenshot(path=OUT+'/live-view-mobile.png')
+    pg=page(b,'dark','fr'); settings(pg,'tab-video'); pg.screenshot(path=OUT+'/settings-dark-fr.png'); print('errors dark', pg.errs)
+    pg=page(b,'dark','en',390,844,True); pg.wait_for_timeout(11000); pg.screenshot(path=OUT+'/dashboard-mobile.png', full_page=True)
+    settings(pg,'tab-image'); pg.screenshot(path=OUT+'/settings-mobile.png')
     # SD mode: install-to-flash card
     mock.STATUS['storage']='sd'
     json.dump({"ok":True,"state":"prepared","running":0,"log":"2026-10-16 09:12:03 prepare: flash checked, copying the original /usr (3.7 MB)…\n2026-10-16 09:12:41 prepare: DONE. Next: take the card out and run src/flash/build-flash-kit.sh on a computer (README).\n"},open(mock.MOCKDIR+'/flashinstall.cgi.status.json','w'))
