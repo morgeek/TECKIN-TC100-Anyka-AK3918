@@ -16,6 +16,14 @@ FWU="${FWU_SCRIPT:-/mnt/scripts/fw-update.sh}"
 WORK="${FWU_WORK:-/mnt/tc100-update}"
 MAX_BYTES=$((48 * 1024 * 1024))
 
+# Record why the camera is about to restart (scripts/reboot-tracker.sh reads
+# it at the next boot), written directly: the code zone holding the tracker
+# script may just have been rewritten.
+fl_reboot_intent() {
+  mkdir -p "${FWU_JFFS_LOG:-/etc/jffs2/tc100/log}" 2>/dev/null
+  printf '%s|%s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$1" > "${FWU_JFFS_LOG:-/etc/jffs2/tc100/log}/.reboot-intent" 2>/dev/null
+}
+
 printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
 
 _cmd=""
@@ -131,7 +139,7 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
       ( trap '' HUP
         if sh "$FC" write "$FW/code.bin" >/dev/null 2>&1; then rm -f "$FW/code.bin"
           [ -s /tmp/usr-update.sh ] && sh /tmp/usr-update.sh oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
-          sync; reboot
+          fl_reboot_intent "web: code update"; sync; reboot
         else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"install"}' ;;
     POST:rollback)
@@ -140,7 +148,7 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
       ( trap '' HUP
         if sh "$FC" clear >/dev/null 2>&1; then
           [ -s /tmp/usr-update.sh ] && sh /tmp/usr-update.sh oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
-          sync; reboot
+          fl_reboot_intent "web: code rollback"; sync; reboot
         else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"rollback"}' ;;
     POST:discard)

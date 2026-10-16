@@ -35,6 +35,9 @@ with sync_playwright() as p:
         settings(pg,tab); pg.screenshot(path=OUT+'/%s.png'%name)
     for t,name in [('services','tools-services'),('diagnostics','tools-diagnostics')]:
         pg.evaluate("document.getElementById(%r).click()"%t); pg.wait_for_timeout(2500); pg.screenshot(path=OUT+'/%s.png'%name)
+    for t,name in [('logs','tools-logs'),('configeditor','tools-configeditor')]:
+        pg.evaluate("document.getElementById(%r).click()"%t); pg.wait_for_timeout(2500); pg.screenshot(path=OUT+'/%s.png'%name)
+    settings(pg,'tab-image'); pg.fill('#settings_search','mqtt'); pg.wait_for_timeout(2500); pg.screenshot(path=OUT+'/settings-search.png')
     print('errors light', pg.errs)
     pg=page(b,'dark','fr'); settings(pg,'tab-video'); pg.screenshot(path=OUT+'/settings-dark-fr.png'); print('errors dark', pg.errs)
     pg=page(b,'dark','en',390,844,True); pg.wait_for_timeout(11000); pg.screenshot(path=OUT+'/dashboard-mobile.png', full_page=True)

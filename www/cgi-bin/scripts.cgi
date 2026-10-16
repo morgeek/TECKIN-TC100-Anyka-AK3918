@@ -648,6 +648,7 @@ else
   if [ ! -d "$SCRIPT_HOME" ]; then
     echo "<p>No scripts.cgi found in $SCRIPT_HOME</p>"
   else
+    echo "<header class='page-head'><h1 class='page-title'>Services</h1></header>"
     echo "<div class='card status_card services-table-card'>"
     echo "<header class='card-header'>"
     echo "<p class='card-header-title'>Services</p>"

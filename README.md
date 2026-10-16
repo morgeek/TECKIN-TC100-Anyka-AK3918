@@ -37,7 +37,7 @@ earlier versions is still there and is the way in.
 ## What you can do
 
 **Video**
-- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`). ONVIF (discovery and profiles, port 8081) in both modes: off by default, Tools → Services → onvif.
+- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`). ONVIF (discovery and profiles, port 8081) in both modes: off by default, Services → Services → onvif.
 - Presets for Frigate (light, balanced, quality), live image tuning (brightness, contrast, sharpness, saturation, anti-flicker, exposure cap) with no stream restart, a fixed frame rate, day / night with the IR LEDs and the IR filter, flip and on-screen text.
 - Still JPEG at `cgi-bin/currentpic.cgi`, cached so that Home Assistant polling costs nothing.
 
@@ -87,7 +87,9 @@ Full list: [CHANGELOG.md](CHANGELOG.md).
 | ![Settings, image](docs/screenshots/settings-image.png) Settings → Image: live tuning | ![Recording](docs/screenshots/settings-recording.png) Settings → Recording |
 | ![Integrations](docs/screenshots/settings-integrations.png) Settings → Integrations: MQTT and Home Assistant | ![Update](docs/screenshots/settings-update.png) Update & backup, from flash |
 | ![Install to flash](docs/screenshots/settings-install-to-flash.png) Install to flash, from the SD card | ![System](docs/screenshots/settings-system.png) Settings → System |
-| ![Services](docs/screenshots/tools-services.png) Tools → Services | ![Diagnostics](docs/screenshots/tools-diagnostics.png) Tools → Diagnostics |
+| ![Services](docs/screenshots/tools-services.png) Services → Services | ![Diagnostics](docs/screenshots/tools-diagnostics.png) System → Diagnostics |
+| ![Logs](docs/screenshots/tools-logs.png) System → Logs | ![Search](docs/screenshots/settings-search.png) Settings search |
+| ![Config editor](docs/screenshots/tools-configeditor.png) System → Config editor | |
 | ![Live view](docs/screenshots/live-view-dark.png) Live view | ![Light theme](docs/screenshots/dashboard.png) Light theme |
 | ![Dark, French](docs/screenshots/settings-dark-fr.png) Settings in French | ![Phone](docs/screenshots/dashboard-mobile.png) On a phone |
 | ![Live, light](docs/screenshots/live-view.png) Live view, light theme | ![Phone settings](docs/screenshots/settings-mobile.png) Settings on a phone |

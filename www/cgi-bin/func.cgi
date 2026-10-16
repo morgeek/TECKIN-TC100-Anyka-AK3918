@@ -18,7 +18,16 @@ fi
 # The failure is silent in a redirect, which is how currentpic.cgi ended up
 # serving a 0-byte JPEG (HTTP 200, right MIME type, no image) on every camera.
 # /mnt/bin/busybox's applet accepts the modern form, so route through it.
-if ! timeout 1 true >/dev/null 2>&1; then
+# The probe (an exec of /bin/timeout) is done once per boot: its answer is
+# kept in /tmp/.tc100-timeout-ok (1 = the system timeout takes "SECS CMD").
+_to_ok=""
+[ -r /tmp/.tc100-timeout-ok ] && read -r _to_ok < /tmp/.tc100-timeout-ok
+case "$_to_ok" in
+  0|1) ;;
+  *) if timeout 1 true >/dev/null 2>&1; then _to_ok=1; else _to_ok=0; fi
+     echo "$_to_ok" > /tmp/.tc100-timeout-ok 2>/dev/null ;;
+esac
+if [ "$_to_ok" = 0 ]; then
     # The busybox applet only finds CMD when it is given as a path ("timeout 5
     # ifconfig" failed with "can't execute 'ifconfig'", which is why the
     # Network page showed no IP and no gateway), so resolve bare names first.
@@ -88,6 +97,21 @@ urldecode() {
 
 # read_conf_value <conf_file> <key> <default>
 # Efficiently reads a single key from a simple key=value config file.
+# conf_get VAR FILE KEY DEFAULT: read_conf_value into a variable, without the
+# subshell of VAR="$(read_conf_value ...)" (a fork per call on hot paths).
+conf_get() {
+  _cg_val="$4"
+  if [ -r "$2" ]; then
+    while IFS= read -r _cg_line; do
+      case "$_cg_line" in
+        ''|'#'*) continue ;;
+        "$3"=*) _cg_val="${_cg_line#*=}"; break ;;
+      esac
+    done < "$2"
+  fi
+  eval "$1=\$_cg_val"
+}
+
 read_conf_value() {
   _rcv_file="$1"
   _rcv_key="$2"
@@ -124,7 +148,12 @@ do
       ;;
   esac
 
-  value="$(urldecode "${raw_value}")"
+  # Plain values (no %XX, no +) are taken as they are: urldecode runs in a
+  # subshell, a fork per parameter on every request (cmd=…&_=…).
+  case "${raw_value}" in
+    *%*|*+*) value="$(urldecode "${raw_value}")" ;;
+    *) value="${raw_value}" ;;
+  esac
 
   # Escape only the four characters that can break out of the double-quoted
   # eval string below: backslash, double-quote, backtick, dollar. With those
