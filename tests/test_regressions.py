@@ -1852,8 +1852,16 @@ class FlashInstallFromCard(unittest.TestCase):
         p = self.d / 'proc/4242'; p.mkdir()
         (p / 'maps').write_text('b6f00000-b6f10000 r-xp 00000000 1f:06 12 %s/usr/lib/libakuio.so\n' % self.d)
         (p / 'comm').write_text('v4l2rtspserver\n')
+        self.env['FI_BUSY_WAIT'] = '0'
         self.fi('install'); self.assertIn('programs use /usr: v4l2rtspserver', self.status)
         self.assertEqual((self.d / 'mtd6').read_bytes(), self.stock)
+        # A script read from /usr (the vendor service.sh at boot) counts too.
+        (p / 'maps').write_text(''); (p / 'comm').write_text('sh\n')
+        (p / 'fd').mkdir(); (self.d / 'usr/sbin').mkdir(parents=True); (self.d / 'usr/sbin/service.sh').write_text('')
+        os.symlink(self.d / 'usr/sbin/service.sh', p / 'fd' / '10')
+        self.fi('install'); self.assertIn('programs use /usr: sh', self.status)
+        os.unlink(p / 'fd' / '10')
+        r = self.fi('install'); self.assertIn('install: DONE', self.status, r.stdout + r.stderr)
 
 
 class FlashKitOnComputer(unittest.TestCase):

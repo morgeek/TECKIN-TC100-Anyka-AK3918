@@ -151,11 +151,22 @@ fi_install()
     [ "$(_fi_md5 "$K/usr.img")" = "$_img_md5" ] || { _fi_say "INSTALL REFUSED: usr.img is damaged (md5)"; return 1; }
     [ "$(wc -c < "$K/usr.img")" -le "$USR_BYTES" ] || { _fi_say "INSTALL REFUSED: usr.img is too big"; return 1; }
     sh "$SCRIPTS/flash-code.sh" check "$K/code.bin" >/dev/null 2>&1 || { _fi_say "INSTALL REFUSED: code.bin is not a valid code package"; return 1; }
-    _busy=""
-    for p in "$PROC"/[0-9]*; do
-        [ "${p##*/}" = "$$" ] && continue
-        grep -q " $USR/" "$p/maps" 2>/dev/null && _busy="$_busy $(cat "$p/comm" 2>/dev/null)"
-    done
+    # Nothing may run from /usr, or read a file in it, while it is rewritten:
+    # at boot the vendor service.sh (a script in /usr/sbin) is still running
+    # for a few seconds after it started this firmware, so wait for it.
+    _fi_busy()
+    {
+        _busy=""
+        for p in "$PROC"/[0-9]*; do
+            [ "${p##*/}" = "$$" ] && continue
+            if grep -q " $USR/" "$p/maps" 2>/dev/null || ls -l "$p/fd/" 2>/dev/null | grep -q -e "-> $USR/"; then
+                _busy="$_busy $(cat "$p/comm" 2>/dev/null)"
+            fi
+        done
+        [ -n "$_busy" ]
+    }
+    _w=0
+    while _fi_busy && [ "$_w" -lt "${FI_BUSY_WAIT:-60}" ]; do sleep 2; _w=$((_w + 2)); done
     [ -z "$_busy" ] || { _fi_say "INSTALL REFUSED: programs use /usr:$_busy (install runs at boot)"; return 1; }
     _fi_df="$(df -k "${JFFS%/*}" 2>/dev/null | awk 'NR == 2 { print $4 }')"
     [ "${_fi_df:-0}" -ge 150 ] || [ -d "$JFFS/config" ] || { _fi_say "INSTALL REFUSED: not enough room in the settings partition (${_fi_df} KB)"; return 1; }
