@@ -437,3 +437,5 @@ input.switch[type="checkbox"] + label::before, input.switch[type="checkbox"] + l
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.services-table tbody[data-group]:not(:has(tr[data-script-name])) { display: none; }
+.svc-toggle-state { color: var(--v2-muted); font-size: 0.8rem; margin-left: 0.35rem; }

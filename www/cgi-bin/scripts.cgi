@@ -192,8 +192,8 @@ parse_script_capabilities() {
 # memory-guard / cpu-scaler add "disabled" when their boot.conf key is off.
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
-SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection onvif recording wifi-rescue"
-SERVICES_SYSTEM="rtsp-h26x web-server network-monitor memory-guard cpu-scaler health-snapshot button-actions ftp-server telnet-server syslog-forward"
+SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection onvif recording wifi-rescue motion-detection motion-snapshot motion-mail sound-detection telegram-bot timelapse"
+SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard cpu-scaler health-snapshot button-actions ftp-server telnet-server syslog-forward"
 FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler wifi-rescue "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
@@ -664,15 +664,17 @@ else
     echo "<th title='Enable or disable automatic startup when the camera boots'>Autorun at boot</th>"
     echo "<th title='Open the script source in a new tab'>View</th>"
     echo "</tr></thead>"
-    # Camera controls (day/night, IR, LEDs) are on the main page, next to the
-    # picture; the ONVIF server and the SD-card ffmpeg recorder are not used
-    # (local recording is native: Settings), the rescue access point is on
-    # hold. The rest is grouped: programs the camera needs, then features.
+    # Only the camera's own programs are listed here. Camera controls
+    # (day/night, IR, LEDs) are under the live picture; features have their
+    # on/off switch in their Settings tab (Detection, Recording, Integrations);
+    # the ONVIF server and the SD-card ffmpeg recorder are not used (local
+    # recording is native), the rescue access point is on hold. Any other
+    # script (added later) still shows, under "Other".
     for _grp in system features; do
     if [ "$_grp" = system ]; then
       echo "<tbody data-group='system'><tr class='services-group-row'><th colspan='5'>System programs</th></tr>"
     else
-      echo "<tbody data-group='features'><tr class='services-group-row'><th colspan='5'>Features</th></tr>"
+      echo "<tbody data-group='features'><tr class='services-group-row'><th colspan='5'>Other</th></tr>"
     fi
     for script_path in "$SCRIPT_HOME"/*; do
       [ -f "$script_path" ] || continue

@@ -1159,7 +1159,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status) ;;
     *) csrf_check ;;
   esac
   case "$F_cmd" in
@@ -1302,60 +1302,109 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     isp_pro)
-      daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
-      daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
-      nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
-      nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
-      
-      osdenabled=$(normalize_bool "${F_osdenabled}")
-      osdtext=$(printf '%s' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
-      osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
-      osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
-      osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
-      osdalpha=$(sanitize_int_range "${F_osdalpha}" 0 255 0)
-      frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
-      backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
-      edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
-      imageflip=$(sanitize_int_range "${F_imageFlip}" 0 3 0)
-
-      # Persist
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-          " " daynightlum "$daynightlum" \
-          " " daynightawb "$daynightawb" \
-          " " nightdaylum "$nightdaylum" \
-          " " nightdayawb "$nightdayawb" \
-          " " osdenabled "$osdenabled" \
-          " " osdtext "$osdtext" \
-          " " osdalpha "$osdalpha" \
-          " " osdfrontcolor "$frontcolor" \
-          " " osdbackcolor "$backcolor" \
-          " " osdedgecolor "$edgecolor" \
-          0 osdfontsize "$osdfontsize0" \
-          0 osdx "$osdx0" \
-          0 osdy "$osdy0" \
-          " " imageflip "$imageflip"
-
-      # Apply immediately (best effort via setconf)
-      /mnt/bin/setconf -k a -v "$daynightlum"
-      /mnt/bin/setconf -k r -v "$daynightawb"
-      /mnt/bin/setconf -k d -v "$nightdaylum"
-      /mnt/bin/setconf -k b -v "$nightdayawb"
-      /mnt/bin/setconf -k l -v "$osdenabled"
-      /mnt/bin/setconf -k o -v "$osdtext"
-      /mnt/bin/setconf -k h -v "$osdalpha"
-      /mnt/bin/setconf -k c -v "$frontcolor"
-      /mnt/bin/setconf -k i -v "$backcolor"
-      /mnt/bin/setconf -k j -v "$edgecolor"
-      /mnt/bin/setconf -k s -v "$osdfontsize0"
-      /mnt/bin/setconf -k x -v "$osdx0"
-      /mnt/bin/setconf -k y -v "$osdy0"
-      /mnt/bin/setconf -k f -v "$imageflip"
+      # Two forms post here: Settings → Day/night (the four thresholds) and
+      # Settings → Image (on-screen text and orientation). Each part is only
+      # written when its fields were sent.
+      if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then
+        daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
+        daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
+        nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
+        nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+            " " daynightlum "$daynightlum" \
+            " " daynightawb "$daynightawb" \
+            " " nightdaylum "$nightdaylum" \
+            " " nightdayawb "$nightdayawb"
+        /mnt/bin/setconf -k a -v "$daynightlum"
+        /mnt/bin/setconf -k r -v "$daynightawb"
+        /mnt/bin/setconf -k d -v "$nightdaylum"
+        /mnt/bin/setconf -k b -v "$nightdayawb"
+      fi
+      if [ -n "${F_imageFlip}" ]; then
+        osdenabled=$(normalize_bool "${F_osdenabled}")
+        osdtext=$(printf '%s' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
+        osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
+        osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
+        osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
+        osdalpha=$(sanitize_int_range "${F_osdalpha}" 0 255 0)
+        frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
+        backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
+        edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
+        imageflip=$(sanitize_int_range "${F_imageFlip}" 0 3 0)
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+            " " osdenabled "$osdenabled" \
+            " " osdtext "$osdtext" \
+            " " osdalpha "$osdalpha" \
+            " " osdfrontcolor "$frontcolor" \
+            " " osdbackcolor "$backcolor" \
+            " " osdedgecolor "$edgecolor" \
+            0 osdfontsize "$osdfontsize0" \
+            0 osdx "$osdx0" \
+            0 osdy "$osdy0" \
+            " " imageflip "$imageflip"
+        /mnt/bin/setconf -k l -v "$osdenabled"
+        /mnt/bin/setconf -k o -v "$osdtext"
+        /mnt/bin/setconf -k h -v "$osdalpha"
+        /mnt/bin/setconf -k c -v "$frontcolor"
+        /mnt/bin/setconf -k i -v "$backcolor"
+        /mnt/bin/setconf -k j -v "$edgecolor"
+        /mnt/bin/setconf -k s -v "$osdfontsize0"
+        /mnt/bin/setconf -k x -v "$osdx0"
+        /mnt/bin/setconf -k y -v "$osdy0"
+        /mnt/bin/setconf -k f -v "$imageflip"
+      fi
 
       if wants_json_response; then
         json_body_ok "ISP and OSD settings updated."
       else
         echo "ISP and OSD settings updated.<br/>"
       fi
+    ;;
+
+    # Local backup recording (libtc100fix, src/tc100fix/rec.c): settings in
+    # boot.conf, applied by restarting the RTSP server.
+    set_local_recording)
+      install_config /mnt/config/boot.conf
+      _lr_on=$(normalize_bool "${F_rec_local}")
+      case "${F_rec_when}" in always) _lr_when=always ;; *) _lr_when=offline ;; esac
+      case "${F_rec_stream}" in sub) _lr_stream=sub ;; *) _lr_stream=main ;; esac
+      _lr_seg=$(sanitize_int_range "${F_rec_segment_min}" 1 60 5)
+      _lr_res=$(sanitize_int_range "${F_rec_reserve_mb}" 32 8192 256)
+      rewrite_config /mnt/config/boot.conf REC_LOCAL "$_lr_on"
+      rewrite_config /mnt/config/boot.conf REC_WHEN "$_lr_when"
+      rewrite_config /mnt/config/boot.conf REC_STREAM "$_lr_stream"
+      rewrite_config /mnt/config/boot.conf REC_SEGMENT_SEC "$((_lr_seg * 60))"
+      rewrite_config /mnt/config/boot.conf REC_RESERVE_MB "$_lr_res"
+      schedule_service_restart /mnt/controlscripts/rtsp-h26x 1
+      if wants_json_response; then
+        json_body_ok "Local recording settings saved; the video stream restarts once."
+      else
+        echo "Local recording settings saved.<br/>"
+      fi
+    ;;
+
+    local_rec_status)
+      # Settings and live state, for Settings → Recording.
+      _lr_b=/mnt/config/boot.conf
+      _lr_kv() { _v="$(sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" "$_lr_b" 2>/dev/null | tail -n 1)"; printf '%s' "${_v:-$2}"; }
+      _lr_st() { sed -n "s/^$1=//p" /var/run/tc100rec 2>/dev/null | head -n 1; }
+      _lr_seg="$(_lr_kv REC_SEGMENT_SEC 300)"; case "$_lr_seg" in ''|*[!0-9]*) _lr_seg=300 ;; esac
+      _lr_card=0; grep -qE " /mnt/sd | /mnt vfat " /proc/mounts 2>/dev/null && _lr_card=1
+      _lr_paused=0; [ -f /var/run/tc100rec.pause ] && _lr_paused=1
+      printf '{"ok":true,"rec_local":"%s","rec_when":"%s","rec_stream":"%s","rec_segment_min":%s,"rec_reserve_mb":"%s","card":%s,"paused":%s,"state":"%s","file":"%s","files":"%s","free_mb":"%s","rtsp_client":"%s","storage":"%s"}\n' \
+        "$(json_escape "$(_lr_kv REC_LOCAL 0)")" "$(json_escape "$(_lr_kv REC_WHEN offline)")" "$(json_escape "$(_lr_kv REC_STREAM main)")" \
+        "$((_lr_seg / 60))" "$(json_escape "$(_lr_kv REC_RESERVE_MB 256)")" "$_lr_card" "$_lr_paused" \
+        "$(json_escape "$(_lr_st state)")" "$(json_escape "$(_lr_st file)")" "$(json_escape "$(_lr_st files)")" \
+        "$(json_escape "$(_lr_st free_mb)")" "$(json_escape "$(_lr_st rtsp_client)")" \
+        "$(cat /tmp/tc100-storage 2>/dev/null || echo sd)"
+    ;;
+
+    local_rec_eject|local_rec_resume)
+      _lr_out="$(sh /mnt/scripts/rec-storage.sh "${F_cmd#local_rec_}" 2>&1)"
+      case "$_lr_out" in
+        ok*) json_body_ok "$_lr_out" ;;
+        *) json_body_err "REC_STORAGE" "$_lr_out" ;;
+      esac
     ;;
 
     isp_tune)
