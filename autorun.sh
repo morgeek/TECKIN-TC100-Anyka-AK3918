@@ -30,6 +30,10 @@ fi
 
 ## Load some common functions:
 . /mnt/scripts/common_functions.sh
+# One time zone for every program started from here on (syslogd, crond,
+# the RTSP server…): only the RTSP server had it, so log lines from the
+# vendor libraries and from the kernel were two hours apart.
+[ -f /mnt/scripts/update_timezone.sh ] && . /mnt/scripts/update_timezone.sh
 
 install_config_cached $CONFIGPATH/rtspserver.conf
 install_config_cached $CONFIGPATH/boot.conf
@@ -106,10 +110,9 @@ ensure_runtime_symlink()
     link_path="$1"
     target_path="$2"
 
-    if [ ! -e "$target_path" ]; then
-        log_boot "Self-heal skipped: missing target $target_path"
-        return 1
-    fi
+    # Nothing to heal when the versioned library is not shipped (the flash
+    # firmware uses a curl without libcurl): stay quiet.
+    [ -e "$target_path" ] || return 0
 
     if [ -L "$link_path" ]; then
         current_target="$(readlink "$link_path" 2>/dev/null)"
@@ -1092,7 +1095,8 @@ preflight_checks()
     _mnt_avail_kb=0
     _mnt_avail_kb="$(df -k /mnt 2>/dev/null | awk 'NR==2{print $4}')"
     case "$_mnt_avail_kb" in ''|*[!0-9]*) _mnt_avail_kb=0 ;; esac
-    if [ "$_mnt_avail_kb" -lt 4096 ]; then
+    # From flash, /mnt is a small RAM disk by design: nothing is recorded there.
+    if [ "$_mnt_avail_kb" -lt 4096 ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" != flash ]; then
         echo "PREFLIGHT WARN: /mnt has less than 4 MB free ($_mnt_avail_kb kB) — logs/recordings may fail" >> "$LOGPATH"
     fi
 
