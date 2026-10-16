@@ -57,14 +57,20 @@ TC100 firmware $ver - content of a new SD card
 2. Copy everything in this folder to the card root (wifitest/ included).
    On macOS, then run: dot_clean -m /Volumes/TC100   (removes the ._ files)
 3. Settings from the old card (pick one):
-   a. before the swap, Settings > Backup > download the configuration backup,
+   a. before the swap, Settings > Update & backup > download the full backup,
       and after the first boot of the new card restore it from the same tab;
    b. or copy the old card's config/ folder onto the new card (replace).
-   Wi-Fi: the camera keeps using the network stored in its flash memory, no
-   file needed (only create wpa_supplicant.conf from wpa_supplicant.conf.dist
-   if you want to set it from the card).
+   Wi-Fi: the camera keeps using the network stored in its flash memory. To
+   set another one (or on a camera never set up), create a text file named
+   wifi.txt at the card root with two lines:
+     SSID=YourNetwork
+     PASSWORD=your password
+   It is applied at boot; the password is then removed from the card.
 4. Insert the card, power on, open https://CAMERA-IP (root / pass on a new
-   configuration: change them in the wizard).
+   configuration: the wizard asks for new ones).
+5. Optional, run without the card: create an empty folder named tc100-flash
+   at the card root (or use Settings > Update & backup > Install to flash)
+   and follow README.md, section "Install to flash".
 
 Never put files named uimage, root.sqsh4, usr.sqsh4 or usr.jffs2 on the card
 root: the camera would try to reflash itself.

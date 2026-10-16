@@ -11,7 +11,7 @@
 #   rec-storage.sh status   the recorder's status lines
 #
 # SD mode: the card is /mnt itself, recordings go to /mnt/records.
-# Flash mode: the card (first FAT partition, or the whole card) is mounted on
+# Flash mode: the card (first FAT32/exFAT partition, or the whole card) is mounted on
 # /mnt/sd, recordings go to /mnt/sd/records. The card must not carry the files
 # that make the vendor boot use it (wifitest/, or uImage / root.sqsh4 /
 # usr.sqsh4 / usr.jffs2 at its root): those are refused, not mounted.
@@ -33,7 +33,9 @@ _mount_card()
     mkdir -p "$MNT_SD" 2>/dev/null
     for _d in $DEVS; do
         [ -b "$_d" ] || continue
-        if mount -t vfat -o rw,noatime,nodiratime,shortname=mixed "$_d" "$MNT_SD" 2>/dev/null; then
+        # FAT32 (cards up to 32 GB) or exFAT (larger cards, as formatted out of the box)
+        if mount -t vfat -o rw,noatime,nodiratime,shortname=mixed "$_d" "$MNT_SD" 2>/dev/null ||
+           mount -t exfat -o rw,noatime "$_d" "$MNT_SD" 2>/dev/null; then
             for _bad in wifitest uImage uimage root.sqsh4 usr.sqsh4 usr.jffs2; do
                 if [ -e "$MNT_SD/$_bad" ]; then
                     umount "$MNT_SD" 2>/dev/null
