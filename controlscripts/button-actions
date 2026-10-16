@@ -1,0 +1,43 @@
+#!/bin/sh
+# Reset button actions (scripts/button-watch.sh): held 3-7 s = rescue Wi-Fi
+# access point, held 8 s = reboot,
+# held 20 s = back to the built-in code (flash) and reboot.
+SERVICE_NAME="Reset button actions"
+PIDFILE="/var/run/button-watch.pid"
+
+. /mnt/scripts/common_functions.sh
+
+status() {
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && echo "PID: $pid"
+}
+
+start() {
+  if [ -n "$(status)" ]; then return 0; fi
+  [ -r /dev/input/event0 ] || { echo "no button device" >&2; return 1; }
+  /bin/sh /mnt/scripts/button-watch.sh </dev/null >/dev/null 2>&1 &
+  echo "$!" > "$PIDFILE"
+}
+
+stop() {
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  if [ -n "$pid" ]; then
+    # The loop sits in dd: stop its children too.
+    for c in $(ps | awk -v p="$pid" '$0 ~ /dd if=\/dev\/input\/event0/ {print $1}'); do kill "$c" 2>/dev/null; done
+    kill "$pid" 2>/dev/null
+  fi
+  rm -f "$PIDFILE"
+}
+
+health() {
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
+case "${1:-start}" in
+  start)   start   ;;
+  stop)    stop    ;;
+  restart) stop; sleep 1; start ;;
+  status)  status  ;;
+  health)  health  ;;
+  *) echo "Usage: $0 {start|stop|restart|status|health}" >&2; exit 1 ;;
+esac

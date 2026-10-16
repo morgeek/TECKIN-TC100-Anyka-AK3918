@@ -12,6 +12,15 @@
 #   dpkg --add-architecture i386 && apt-get install libc6:i386 zlib1g:i386
 # Needs: git, cmake, ninja, perl (OpenSSL header generation).
 #
+# For the /usr image in the camera's flash (no room for OpenSSL's 1.5 MB),
+# into $OUT instead of bin/lighttpd:
+#   NO_TLS=1      HTTP only (default OUT: <workdir>/lighttpd-notls)
+#   TLS=mbedtls   mod_mbedtls with mbedTLS 3.6.2 linked statically, reduced to
+#                 a TLS 1.2 ECDHE-ECDSA server (mbedtls-tc100-config.h), +107 KB
+#                 compressed; mod_mbedtls-mbedtls3.patch fixes two crashes of
+#                 lighttpd 1.4.69 with mbedTLS 3 (default OUT: <workdir>/lighttpd-mbedtls)
+#   NO_PCRE=1     without PCRE2 (-110 KB compressed with its library)
+#
 # Usage: TC=/path/to/arm-anykav200-crosstool/usr src/lighttpd/build.sh [workdir]
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -53,7 +62,38 @@ Libs: -L$P/lib -lpcre2-8
 Cflags: -I$P/include
 PC
 
-cp "$here/plugin-static.h" lighttpd/src/plugin-static.h
+NO_TLS=${NO_TLS:-0}; TLS=${TLS:-openssl}
+# NO_PCRE=1: no regular expressions (=~ !~ and url.redirect/url.rewrite need
+# them): config/lighttpd.flash.conf.dist only uses == and =^.
+PCRE=ON; [ "${NO_PCRE:-0}" = 1 ] && PCRE=OFF
+MBED=OFF; EXTRA_CFLAGS=""; EXTRA_LDFLAGS=""
+(cd lighttpd && git checkout -q -- src/mod_mbedtls.c)
+if [ "$NO_TLS" = 1 ]; then
+  grep -v mod_openssl "$here/plugin-static.h" > lighttpd/src/plugin-static.h
+  SSL=OFF; OUT=${OUT:-$W/lighttpd-notls}
+elif [ "$TLS" = mbedtls ]; then
+  V=3.6.2; SHA=8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca
+  [ -f mbedtls-$V.tar.bz2 ] || curl -sSL -o mbedtls-$V.tar.bz2 \
+    https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$V/mbedtls-$V.tar.bz2
+  echo "$SHA  mbedtls-$V.tar.bz2" | sha256sum -c - >/dev/null
+  rm -rf mbedtls-$V && tar xjf mbedtls-$V.tar.bz2
+  # The reduced configuration replaces the default one, for the library and
+  # for mod_mbedtls alike.
+  cp "$here/mbedtls-tc100-config.h" mbedtls-$V/include/mbedtls/mbedtls_config.h
+  make -s -C mbedtls-$V/library CC=${X}gcc AR=${X}ar \
+    CFLAGS="-Os -std=gnu99 -march=armv5te -mtune=arm926ej-s -ffunction-sections -fdata-sections" \
+    static >/dev/null 2>&1
+  mkdir -p "$P/mbedtls/lib" && cp -r mbedtls-$V/include/mbedtls mbedtls-$V/include/psa "$P/include/"
+  cp mbedtls-$V/library/libmbed*.a "$P/mbedtls/lib/"
+  (cd lighttpd && patch -s -p1 < "$here/mod_mbedtls-mbedtls3.patch")
+  sed 's/PLUGIN_INIT(mod_openssl)/PLUGIN_INIT(mod_mbedtls)/' "$here/plugin-static.h" > lighttpd/src/plugin-static.h
+  SSL=OFF; MBED=ON; OUT=${OUT:-$W/lighttpd-mbedtls}
+  EXTRA_CFLAGS="-ffunction-sections -fdata-sections -I$P/include"
+  EXTRA_LDFLAGS="-L$P/mbedtls/lib -Wl,--gc-sections"
+else
+  cp "$here/plugin-static.h" lighttpd/src/plugin-static.h
+  SSL=ON; OUT=$root/bin/lighttpd
+fi
 cat > toolchain.cmake <<TCF
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR arm)
@@ -64,18 +104,20 @@ set(CMAKE_FIND_ROOT_PATH $P $TC/arm-anykav200-linux-uclibcgnueabi/sysroot)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-set(CMAKE_C_FLAGS "-Os -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft" CACHE STRING "")
+set(CMAKE_C_FLAGS "-Os -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft $EXTRA_CFLAGS" CACHE STRING "")
+set(CMAKE_EXE_LINKER_FLAGS "$EXTRA_LDFLAGS" CACHE STRING "")
 TCF
 rm -rf build && mkdir build
 (cd build && PKG_CONFIG_LIBDIR="$P/lib/pkgconfig" PKG_CONFIG_PATH= cmake -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$W/toolchain.cmake" -DCMAKE_BUILD_TYPE=MinSizeRel \
   -DCMAKE_SKIP_RPATH=ON -DBUILD_STATIC=ON \
-  -DWITH_OPENSSL=ON -DWITH_PCRE2=ON -DWITH_ZLIB=ON \
+  -DWITH_OPENSSL=$SSL -DWITH_PCRE2=$PCRE -DWITH_ZLIB=ON \
+  -DWITH_MBEDTLS=$MBED -DHAVE_LIBMEDCRYPTO=1 -DHAVE_LIBMEDX509=1 -DHAVE_LIBMBEDX509=1 \
   -DZLIB_LIBRARY="$P/lib/libz.a" -DZLIB_INCLUDE_DIR="$P/include" \
   -DOPENSSL_ROOT_DIR="$P" -DOPENSSL_INCLUDE_DIR="$P/include" \
   -DOPENSSL_SSL_LIBRARY="$P/lib/libssl.so" -DOPENSSL_CRYPTO_LIBRARY="$P/lib/libcrypto.so" \
   ../lighttpd >/dev/null && ninja lighttpd >/dev/null)
 
-cp build/build/lighttpd "$root/bin/lighttpd"
-"${X}strip" "$root/bin/lighttpd"
-md5sum "$root/bin/lighttpd"
+cp build/build/lighttpd "$OUT"
+"${X}strip" "$OUT"
+md5sum "$OUT"

@@ -4,12 +4,16 @@
 #   POST (raw body)   ?cmd=upload              save the package to the SD card and verify it
 #   POST              ?cmd=install|rollback    run in the background, then the camera reboots
 #   POST              ?cmd=discard             drop the staged package
+# From flash, two kinds of package: a code package (tc100-code-VERSION.bin,
+# the scripts and web pages: code zone) and a system package
+# (tc100-system-VERSION.tar from src/flash/build-flash-kit.sh: /usr and code,
+# scripts/usr-update.sh).
 # POSTs need the X-CSRF-Token header. The request body is streamed by lighttpd
 # (server.stream-request-body for this URL) straight to the SD card: a package
 # is several MB and RAM is ~33 MB in total.
 
 FWU="${FWU_SCRIPT:-/mnt/scripts/fw-update.sh}"
-WORK="${FWU_WORK:-/mnt/update}"
+WORK="${FWU_WORK:-/mnt/tc100-update}"
 MAX_BYTES=$((48 * 1024 * 1024))
 
 printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
@@ -31,6 +35,115 @@ if [ "${REQUEST_METHOD:-GET}" = "POST" ]; then
     echo '{"ok":false,"error":"csrf_invalid","message":"CSRF token invalid, reload the page."}'
     exit 0
   fi
+fi
+
+# Running from flash (scripts/flashboot.sh): updates are code packages
+# (src/flash/build-code.sh) written to the code zone of the flash by
+# scripts/flash-code.sh — staged in RAM (/tmp), never on /mnt. The binaries in
+# /usr are not updated from here. "rollback" clears the zone: the camera then
+# runs the code built into /usr.
+if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
+  FC="${FC_SCRIPT:-/usr/tc100/scripts/flash-code.sh}"
+  FW="${FC_WORK:-/tmp/update}"
+  SW="${UU_WORK:-/tmp/sysupd}"
+  UU="${UU_SCRIPT:-/mnt/scripts/usr-update.sh}"
+  _fz="$(sh "$FC" status 2>/dev/null)"
+  case "$_fz" in "valid "*) _cur="${_fz#valid }" ;; *) _cur="$(cat /usr/tc100/VERSION 2>/dev/null) (built in)" ;; esac
+  case "${REQUEST_METHOD:-GET}:$_cmd" in
+    GET:status|GET:)
+      _st=idle; _staged=""; _kind=""
+      if [ -f "$FW/installing" ]; then _st=installing
+      elif [ -f "$SW/ready" ]; then
+        _st=staged; _kind=system; read -r _staged _r < "$SW/VERSION"
+      elif [ -f "$FW/code.bin" ] && _chk="$(sh "$FC" check "$FW/code.bin")"; then
+        _st=staged; _kind=code; set -- $_chk; _staged="$2"
+      fi
+      _rb=""; case "$_fz" in "valid "*) _rb="built-in code" ;; esac
+      # Update history (installs, confirmations, automatic rollbacks), JSON-escaped.
+      _log="$(tail -n 6 "${FC_HISTORY:-/etc/jffs2/tc100/log/code-updates.log}" 2>/dev/null | awk '{ gsub(/[\\"]/, ""); printf "%s\\n", $0 }')"
+      printf '{"ok":true,"storage":"flash","state":"%s","kind":"%s","current":"%s","staged":"%s","rollback_to":"%s","log":"%s"}\n' \
+        "$_st" "$_kind" "$_cur" "$_staged" "$_rb" "$_log" ;;
+    POST:upload)
+      _cl="${CONTENT_LENGTH:-0}"
+      case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
+      if [ "$_cl" -gt 655360 ] && [ "$_cl" -le 6291456 ]; then
+        # System package (/usr + code), unpacked in RAM. The video server is
+        # stopped first: it holds most of the 33 MB.
+        rm -rf "$SW" "$FW/code.bin"
+        sh /mnt/controlscripts/rtsp-h26x stop </dev/null >/dev/null 2>&1
+        sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+        _avail=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo 2>/dev/null)
+        [ -n "$_avail" ] || _avail=$(awk '/^(MemFree|Cached):/ { s += $2 } END { print s + 0 }' /proc/meminfo)
+        if [ "$_avail" -lt $(( _cl / 1024 + 6144 )) ]; then
+          head -c "$_cl" > /dev/null
+          sh /mnt/controlscripts/rtsp-h26x start </dev/null >/dev/null 2>&1 &
+          printf '{"ok":false,"error":"no_memory","message":"Not enough free memory (%s KB) to receive the system package."}\n' "$_avail"
+          exit 0
+        fi
+        mkdir -p "$SW"
+        head -c "$_cl" | tar -xf - -C "$SW" 2>/dev/null
+        if _chk="$(sh "$UU" check "$SW" 2>&1)"; then
+          set -- $_chk
+          printf '{"ok":true,"kind":"system","version":"%s","current":"%s","changed":1,"files":1}\n' "$2" "$_cur"
+        else
+          rm -rf "$SW"
+          sh /mnt/controlscripts/rtsp-h26x start </dev/null >/dev/null 2>&1 &
+          _chk="$(printf '%s' "${_chk#refused }" | awk '{ gsub(/[\\"]/, ""); printf "%s", $0 }')"
+          printf '{"ok":false,"error":"invalid_package","message":"Not a valid system package: %s."}\n' "$_chk"
+        fi
+        exit 0
+      fi
+      if [ "$_cl" -le 4096 ] || [ "$_cl" -gt 655360 ]; then
+        echo '{"ok":false,"error":"invalid_size","message":"From flash, upload a code package (tc100-code-VERSION.bin, at most 640 KB) or a system package (tc100-system-VERSION.tar)."}'
+        exit 0
+      fi
+      mkdir -p "$FW"; rm -f "$FW/code.bin"
+      head -c "$_cl" > "$FW/code.bin" 2>/dev/null
+      if _chk="$(sh "$FC" check "$FW/code.bin")"; then
+        set -- $_chk
+        printf '{"ok":true,"kind":"code","version":"%s","current":"%s","changed":1,"files":1}\n' "$2" "$_cur"
+      else
+        rm -f "$FW/code.bin"
+        printf '{"ok":false,"error":"invalid_package","message":"Not a valid code package: %s."}\n' "$_chk"
+      fi ;;
+    POST:install)
+      if [ -f "$SW/ready" ]; then
+        # The installer stops everything that runs from /usr, this web server
+        # included: it runs from RAM with the rootfs shell (usr-update.sh).
+        cp "$UU" "$SW/usr-update.sh" && cp "$FC" "$SW/flash-code.sh" &&
+          cp "${FM:-/mnt/scripts/flashmode-once.sh}" "$SW/flashmode-once.sh" || {
+          echo '{"ok":false,"error":"copy","message":"Could not prepare the installer."}'; exit 0; }
+        : > "$FW/installing" 2>/dev/null || { mkdir -p "$FW"; : > "$FW/installing"; }
+        ( trap '' HUP TERM; exec /bin/sh "$SW/usr-update.sh" install "$SW" ) </dev/null >/dev/null 2>&1 &
+        echo '{"ok":true,"started":"install","kind":"system"}'
+        exit 0
+      fi
+      if ! sh "$FC" check "$FW/code.bin" >/dev/null 2>&1; then
+        echo '{"ok":false,"error":"nothing_staged","message":"Upload a code package first."}'; exit 0
+      fi
+      : > "$FW/installing"
+      ( trap '' HUP
+        # An SD card with the firmware hook would start instead of the new
+        # code: one boot from flash (usr-update.sh oneshot).
+        if sh "$FC" write "$FW/code.bin" >/dev/null 2>&1; then rm -f "$FW/code.bin"
+          cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null &&
+            sh "$UU" oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
+          sync; reboot
+        else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
+      echo '{"ok":true,"started":"install"}' ;;
+    POST:rollback)
+      : > "$FW/installing"
+      ( trap '' HUP
+        if sh "$FC" clear >/dev/null 2>&1; then sync; reboot; else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
+      echo '{"ok":true,"started":"rollback"}' ;;
+    POST:discard)
+      rm -f "$FW/code.bin"
+      if [ -d "$SW" ]; then rm -rf "$SW"; sh /mnt/controlscripts/rtsp-h26x start </dev/null >/dev/null 2>&1 & fi
+      echo '{"ok":true}' ;;
+    *)
+      echo '{"ok":false,"error":"unknown_command"}' ;;
+  esac
+  exit 0
 fi
 
 case "${REQUEST_METHOD:-GET}:$_cmd" in

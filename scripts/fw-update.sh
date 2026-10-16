@@ -34,7 +34,10 @@
 # Camera-side shell: busybox ash.
 
 ROOT="${FWU_ROOT:-/mnt}"
-WORK="${FWU_WORK:-$ROOT/update}"
+# Not "update": the vendor service.sh treats /mnt/update as a request to
+# reflash the camera from the card (update_check.sh). Older firmware used it;
+# autorun.sh moves it to tc100-update at boot.
+WORK="${FWU_WORK:-$ROOT/tc100-update}"
 STAGE="$WORK/stage"
 BACKUPS="${FWU_BACKUPS:-$ROOT/backup}"
 LOG="$WORK/update.log"

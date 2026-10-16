@@ -1,10 +1,9 @@
 #!/bin/sh
 
 . /mnt/www/cgi-bin/func.cgi
-. /mnt/scripts/common_functions.sh
 
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
-SCRIPT_HOME="/mnt/controlscripts"
+SCRIPT_HOME="${SCRIPT_HOME:-/mnt/controlscripts}"
 
 # Validate that a controlscript name contains only safe characters (no path traversal)
 validate_control_id() {
@@ -16,8 +15,57 @@ validate_control_id() {
 
 # CSRF check before headers for state-changing commands
 case "${F_cmd:-}" in
-  setsettings|on|off) mutation_guard ;;
+  setsettings|on|off|set|mode) mutation_guard ;;
 esac
+
+# --- Camera controls panel on the main page (JSON) ---------------------------
+#   GET  ?cmd=panel                       state of every control
+#   POST ?cmd=set&control=<id>&on=0|1     one control (ir-led, ir-cut,
+#                                         black-white, front-led, red-led)
+#   POST ?cmd=mode&value=auto|day|night   day/night mode
+# The state is read from the same files as the controlscripts' status()
+# (sysfs, /var/run), without running them; only "auto" needs setconf.
+PANEL_RUN="${PANEL_RUN:-/var/run}"
+PANEL_SYS="${PANEL_SYS:-/sys}"
+PANEL_SETCONF="${PANEL_SETCONF:-/mnt/bin/setconf}"
+_panel_first() { _pf=""; [ -r "$1" ] && read -r _pf _pr < "$1" 2>/dev/null; printf '%s' "$_pf"; }
+panel_json() {
+  _irled=0; [ "$(_panel_first "$PANEL_SYS/user-gpio/ir-led")" = 1 ] && _irled=1
+  _ircut=0; [ "$(_panel_first "$PANEL_RUN/ircut")" = 1 ] && _ircut=1
+  _bw=0;    [ "$(_panel_first "$PANEL_RUN/vday")" = 0 ] && _bw=1
+  _blue=0;  [ "$(_panel_first "$PANEL_SYS/class/leds/blue_led/brightness")" = 1 ] && _blue=1
+  _red=0;   [ "$(_panel_first "$PANEL_SYS/class/leds/red_led/brightness")" = 1 ] && _red=1
+  if [ "$("$PANEL_SETCONF" -g n 2>/dev/null)" = 2 ]; then _mode=auto
+  elif [ "$_irled$_ircut$_bw" = 101 ]; then _mode=night
+  elif [ "$_irled$_ircut$_bw" = 010 ]; then _mode=day
+  else _mode=custom; fi
+  printf '{"ok":true,"mode":"%s","ir-led":%s,"ir-cut":%s,"black-white":%s,"front-led":%s,"red-led":%s}\n' \
+    "$_mode" "$_irled" "$_ircut" "$_bw" "$_blue" "$_red"
+}
+case "${F_cmd:-}" in
+  panel|set|mode)
+    printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
+    case "$F_cmd" in
+      set)
+        case "$F_control" in ir-led|ir-cut|black-white|front-led|red-led) ;; *)
+          echo '{"ok":false,"error":"unknown control"}'; exit 0 ;;
+        esac
+        case "$F_on" in 1) _act=start ;; 0) _act=stop ;; *) echo '{"ok":false,"error":"on must be 0 or 1"}'; exit 0 ;; esac
+        sh "$SCRIPT_HOME/$F_control" "$_act" </dev/null >/dev/null 2>&1 ;;
+      mode)
+        case "$F_value" in
+          auto)  sh "$SCRIPT_HOME/auto-night-detection" start </dev/null >/dev/null 2>&1 ;;
+          day)   sh "$SCRIPT_HOME/night-mode" stop </dev/null >/dev/null 2>&1 ;;
+          night) sh "$SCRIPT_HOME/night-mode" start </dev/null >/dev/null 2>&1 ;;
+          *) echo '{"ok":false,"error":"mode must be auto, day or night"}'; exit 0 ;;
+        esac ;;
+    esac
+    rm -f /tmp/scripts-allstates.cache 2>/dev/null
+    panel_json
+    exit 0 ;;
+esac
+
+. /mnt/scripts/common_functions.sh
 # Allow tests to override config locations via environment for safer testing
 ENABLED_CONTROLS_CONFIG="${ENABLED_CONTROLS_CONFIG:-/mnt/config/webcontrols.conf}"
 

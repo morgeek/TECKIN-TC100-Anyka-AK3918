@@ -18,8 +18,30 @@ if [ "$WEB_MODE" = "off" ]; then
     exit 0
 fi
 
+# Last resort when the web interface does not come up (or stops): one restart,
+# then a rescue telnet on port 23, closed again once the web is back
+# (scripts/web-guard.sh), so the camera can be repaired without opening it.
+start_web_guard()
+{
+    [ -s /var/run/web-guard.pid ] && kill -0 "$(cat /var/run/web-guard.pid)" 2>/dev/null && return 0
+    sh /mnt/scripts/web-guard.sh run </dev/null >/dev/null 2>&1 &
+    echo $! > /var/run/web-guard.pid
+}
+
 # lighttpd refuses to start if deflate.cache-dir is missing (tmpfs, gone each boot)
 mkdir -p /tmp/lighttpd-deflate 2>/dev/null
+
+# Firmware from flash: see _http_server_lighttpd (common_functions.sh) — the
+# flash templates only (a conf brought from an SD card may not parse with
+# this lighttpd), HTTPS when the certificate loads, else plain HTTP.
+if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+    case "$WEB_MODE" in
+        ultra-lite|ultralite) run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www ;;
+        *) http_server on ;;
+    esac
+    start_web_guard
+    exit 0
+fi
 
 case "$WEB_MODE" in
     full)
@@ -72,3 +94,4 @@ case "$WEB_MODE" in
         /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.conf"
         ;;
 esac
+start_web_guard

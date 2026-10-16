@@ -1,0 +1,1 @@
+{"services": {"rtsp-h26x": "running", "web-server": "running", "mqtt-bridge": "running", "network-monitor": "running", "memory-guard": "running", "button-actions": "running", "telnet-server": "stopped"}, "service_restarts": {"mqtt-bridge": 1}}
