@@ -1973,6 +1973,86 @@ class WifiTxt(unittest.TestCase):
         self.assertIn('_wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf', (ROOT / 'www/cgi-bin/action.cgi').read_text())
 
 
+class CameraPanel(unittest.TestCase):
+    """camcontrols.cgi panel/set/mode (camera controls under the picture) and
+    the regrouped Services page."""
+
+    def run_cgi(self, d, method, query, body=b''):
+        func = (ROOT / 'www/cgi-bin/func.cgi').read_text().replace('/tmp/csrf_token', str(d / 'csrf'))
+        (d / 'func.cgi').write_text(func)
+        src = (ROOT / 'www/cgi-bin/camcontrols.cgi').read_text().replace('/mnt/www/cgi-bin/func.cgi', str(d / 'func.cgi'))
+        env = dict(os.environ, REQUEST_METHOD=method, QUERY_STRING=query, CONTENT_LENGTH=str(len(body)),
+                   CONTENT_TYPE='application/x-www-form-urlencoded', HTTP_X_CSRF_TOKEN='ab12',
+                   SCRIPT_HOME=str(d / 'cs'), PANEL_RUN=str(d / 'run'), PANEL_SYS=str(d / 'sys'),
+                   PANEL_SETCONF=str(d / 'setconf'))
+        r = subprocess.run(['bash', '-c', src], input=body, capture_output=True, env=env, timeout=20)
+        out = r.stdout.split(b'\r\n\r\n', 1)
+        return json.loads(out[1]) if len(out) == 2 else r.stdout
+
+    def setup_fake(self, d):
+        (d / 'csrf').write_text('ab12\n')
+        for p in ('run', 'sys/user-gpio', 'sys/class/leds/blue_led', 'sys/class/leds/red_led', 'cs'):
+            (d / p).mkdir(parents=True, exist_ok=True)
+        def put(path, v): (d / path).write_text(v + '\n')
+        # A fake camera: the controlscripts write the files the panel reads.
+        put('n', '3')
+        (d / 'setconf').write_text('#!/bin/sh\ncat "%s/n"\n' % d); (d / 'setconf').chmod(0o755)
+        put('sys/user-gpio/ir-led', '0'); put('run/ircut', '1'); put('run/vday', '1')
+        put('sys/class/leds/blue_led/brightness', '0'); put('sys/class/leds/red_led/brightness', '0')
+        scripts = {
+            'night-mode': ('echo 3 > %(d)s/n; echo 1 > %(d)s/sys/user-gpio/ir-led; echo 0 > %(d)s/run/ircut; echo 0 > %(d)s/run/vday',
+                           'echo 3 > %(d)s/n; echo 0 > %(d)s/sys/user-gpio/ir-led; echo 1 > %(d)s/run/ircut; echo 1 > %(d)s/run/vday'),
+            'auto-night-detection': ('echo 2 > %(d)s/n', 'echo 3 > %(d)s/n'),
+            'front-led': ('echo 1 > %(d)s/sys/class/leds/blue_led/brightness', 'echo 0 > %(d)s/sys/class/leds/blue_led/brightness'),
+        }
+        for name, (on, off) in scripts.items():
+            (d / 'cs' / name).write_text('case "$1" in start) %s ;; stop) %s ;; esac\necho "$0 $1" >> %s/calls\n'
+                                         % (on % {'d': d}, off % {'d': d}, d))
+
+    def test_panel_state_and_commands(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d); self.setup_fake(d)
+            st = self.run_cgi(d, 'GET', 'cmd=panel')
+            self.assertEqual((st['mode'], st['ir-led'], st['ir-cut'], st['black-white'], st['front-led']), ('day', 0, 1, 0, 0))
+            st = self.run_cgi(d, 'POST', '', b'cmd=mode&value=night')
+            self.assertEqual((st['mode'], st['ir-led'], st['ir-cut'], st['black-white']), ('night', 1, 0, 1))
+            st = self.run_cgi(d, 'POST', '', b'cmd=mode&value=auto')
+            self.assertEqual(st['mode'], 'auto')
+            st = self.run_cgi(d, 'POST', '', b'cmd=set&control=front-led&on=1')
+            self.assertEqual(st['front-led'], 1)
+            # only the five switches, and never without the CSRF token
+            self.assertFalse(self.run_cgi(d, 'POST', '', b'cmd=set&control=rtsp-h26x&on=0')['ok'])
+            calls = (d / 'calls').read_text()
+            (d / 'csrf').write_text('ffff\n')
+            r = self.run_cgi(d, 'POST', '', b'cmd=mode&value=day')
+            self.assertEqual((d / 'calls').read_text(), calls)
+            self.assertNotIn(b'"ok":true', r if isinstance(r, bytes) else json.dumps(r).encode())
+
+    def test_services_page_grouped_without_camera_controls(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = (ROOT / 'www/cgi-bin/scripts.cgi').read_text().replace('/mnt/www/cgi-bin/func.cgi', str(ROOT / 'www/cgi-bin/func.cgi'))
+            env = dict(os.environ, REQUEST_METHOD='GET', QUERY_STRING='', SCRIPT_HOME=str(ROOT / 'controlscripts'),
+                       AUTOSTART_DIR=str(d))
+            html = subprocess.run(['sh', '-c', src], capture_output=True, env=env, timeout=30).stdout.decode()
+            rows = re.findall(r"<tr data-script-name='([^']+)'", html)
+            for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection', 'onvif', 'recording'):
+                self.assertNotIn(hidden, rows)
+            system = html.split("data-group='system'")[1].split("data-group='features'")[0]
+            self.assertIn("data-script-name='rtsp-h26x'", system)
+            self.assertIn("data-script-name='mqtt-bridge'", html.split("data-group='features'")[1])
+            self.assertNotIn('Camera Controls', html)
+
+    def test_navigation(self):
+        html = (ROOT / 'www/index.html').read_text()
+        nav = html.split('id="common_nav"')[1].split('navbar-end')[0]
+        self.assertLess(nav.index('id="home_nav"'), nav.index('id="status"'))
+        tools = nav.split('<span>Tools</span>')[1]
+        self.assertIn('id="services"', tools)        # Services lives under Tools
+        self.assertEqual(html.count('data-cam-control='), 5)
+        self.assertIn('initCamPanel();', (ROOT / 'www/scripts/index.bundle.min.js').read_text())
+
+
 class CodePackageRelease(unittest.TestCase):
     @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
     def test_package_from_git_is_valid_and_executable(self):
