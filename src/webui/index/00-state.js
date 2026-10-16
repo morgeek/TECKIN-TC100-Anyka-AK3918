@@ -1,4 +1,4 @@
-// Web UI main script, part 1/12 — shared state and poll intervals.
+// Web UI main script, part 1/14 — shared state and poll intervals.
 // Source of www/scripts/index.bundle.min.js: edit these files, then run
 // src/webui/build-index.sh (the tests check that the bundle matches).
 (function () {

@@ -1520,6 +1520,90 @@ if [ -n "$F_cmd" ]; then
     isp_tune_json
     ;;
 
+  dash)
+    # Raw counters for the dashboard graphs, polled every few seconds while the
+    # dashboard is on screen: the page turns them into rates (CPU %, Mbit/s).
+    # Shell built-ins only, no process started.
+    _d_cpu="0,0,0,0,0,0,0"
+    while read -r _k _u _n _s _i _w _q _sq _rest; do
+      [ "$_k" = cpu ] && { _d_cpu="$_u,$_n,$_s,$_i,${_w:-0},${_q:-0},${_sq:-0}"; break; }
+    done < /proc/stat
+    _d_mt=0; _d_mf=0; _d_mb=0; _d_mc=0
+    while read -r _k _v _rest; do
+      case "$_k" in
+        MemTotal:) _d_mt=$_v ;; MemFree:) _d_mf=$_v ;; Buffers:) _d_mb=$_v ;; Cached:) _d_mc=$_v; break ;;
+      esac
+    done < /proc/meminfo
+    _d_rx=0; _d_tx=0; _d_if=""
+    while IFS= read -r _l; do
+      case "$_l" in
+        *wlan0:*|*eth0:*)
+          _d_if="${_l%%:*}"; _d_if="${_d_if##* }"
+          set -- ${_l#*:}
+          _d_rx="${1:-0}"; _d_tx="${9:-0}"
+          [ "$_d_if" = wlan0 ] && break ;;
+      esac
+    done < /proc/net/dev
+    _d_wq=null; _d_wl=null
+    while read -r _k _st _lk _lv _rest; do
+      [ "$_k" = "wlan0:" ] || continue
+      _lk="${_lk%%.*}"; _lv="${_lv%%.*}"
+      case "$_lk" in ''|*[!0-9]*) ;; *) _d_wq=$_lk ;; esac
+      case "$_lv" in -[0-9]*) _d_wl=$_lv ;; esac
+    done 2>/dev/null < /proc/net/wireless
+    _d_up=0; read -r _d_up _rest < /proc/uptime; _d_up="${_d_up%%.*}"
+    _d_l1=0; read -r _d_l1 _d_l5 _d_l15 _rest < /proc/loadavg
+    # RTSP viewers: established TCP connections to the RTSP port (default 554).
+    _d_rp=554
+    while IFS='=' read -r _k _v; do [ "$_k" = PORT ] && { _v="${_v%\"}"; _d_rp="${_v#\"}"; }; done 2>/dev/null < /mnt/config/rtspserver.conf
+    case "$_d_rp" in ''|*[!0-9]*) _d_rp=554 ;; esac
+    _d_cl=0
+    while read -r _sl _loc _rem _st _rest; do
+      [ "$_st" = 01 ] || continue
+      _p="${_loc##*:}"
+      case "$_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+      [ "$((0x$_p))" = "$_d_rp" ] && _d_cl=$((_d_cl + 1))
+    done < /proc/net/tcp
+    _d_sd=""
+    if [ -r /tmp/sd-health ]; then
+      while IFS='=' read -r _k _v; do [ "$_k" = state ] && _d_sd="$_v"; done < /tmp/sd-health
+    fi
+    case "$_d_sd" in *[!a-z]*) _d_sd="" ;; esac
+    printf '{"up":%s,"load":"%s","cpu":[%s],"mem":[%s,%s,%s,%s],"iface":"%s","net":[%s,%s],"wifi":[%s,%s],"rtsp_clients":%s,"sd_health":"%s"}\n' \
+      "$_d_up" "$_d_l1" "$_d_cpu" "$_d_mt" "$_d_mf" "$_d_mb" "$_d_mc" "$_d_if" "$_d_rx" "$_d_tx" "$_d_wq" "$_d_wl" "$_d_cl" "$_d_sd"
+    ;;
+
+  dashinfo)
+    # What changes rarely, for the dashboard cards (read once a minute).
+    load_conf_file /mnt/config/rtspserver.conf
+    read_rtsp_stream_summary
+    detect_primary_ip
+    get_sd_usage
+    _di_host=""; read -r _di_host < /proc/sys/kernel/hostname 2>/dev/null
+    _di_kern=""; read -r _di_kern < /proc/sys/kernel/osrelease 2>/dev/null
+    _di_mac=""; read -r _di_mac < /sys/class/net/wlan0/address 2>/dev/null
+    _di_ver=""; read -r _di_ver < /mnt/VERSION 2>/dev/null
+    # Flash and card usage. In flash mode the card (if any) is on /mnt/sd.
+    _di_sdmp=/mnt; [ "${storage_json:-sd}" = flash ] && _di_sdmp=/mnt/sd
+    _di_jt=0; _di_ju=0; _di_st=0; _di_su=0
+    while read -r _fs _t _u _a _p _mp _rest; do
+      case "$_t$_u" in ''|*[!0-9]*) continue ;; esac
+      case "$_mp" in
+        /etc/jffs2) _di_jt=$_t; _di_ju=$_u ;;
+        "$_di_sdmp") _di_st=$_t; _di_su=$_u ;;
+      esac
+    done <<EOF_DF
+$(df -k 2>/dev/null)
+EOF_DF
+    _di_ssid=""
+    command -v wpa_cli >/dev/null 2>&1 && _di_ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk -F= '$1 == "ssid" { print $2; exit }')"
+    printf '{"hostname":"%s","ip":"%s","mac":"%s","kernel":"%s","firmware":"%s","storage":"%s","soc":"Anyka AK3918EV300","sensor":"SOI JXF23","wifi_chip":"Realtek RTL8188FU","ssid":"%s","rtsp_port":%s,"main":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"sub":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"jffs":[%s,%s],"sd":[%s,%s]}\n' \
+      "$(json_escape "$_di_host")" "$(json_escape "$primary_ip")" "$(json_escape "$_di_mac")" "$(json_escape "$_di_kern")" \
+      "$(json_escape "$_di_ver")" "${storage_json:-sd}" "$(json_escape "$_di_ssid")" "$rtsp_port" \
+      "$codec0_name" "$width0" "$height0" "$fps0" "$bps0" "$codec1_name" "$width1" "$height1" "$fps1" "$bps1" \
+      "$_di_jt" "$_di_ju" "$_di_st" "$_di_su"
+    ;;
+
   fullconfig)
     # This command returns ALL configurable values for the UI to populate its tabs.
     # It avoids multiple requests and keeps everything in sync.

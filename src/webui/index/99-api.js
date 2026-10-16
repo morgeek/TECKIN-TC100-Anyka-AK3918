@@ -7,6 +7,7 @@
     initCamPanel: initCamPanel,
     initServiceToggles: initServiceToggles,
     initDashboard: initDashboard,
-    initPresets: initPresets
+    initPresets: initPresets,
+    showHome: showHome
   };
 })();
