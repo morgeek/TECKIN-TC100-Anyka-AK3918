@@ -2040,7 +2040,9 @@ class CameraPanel(unittest.TestCase):
                 self.assertNotIn(hidden, rows)
             system = html.split("data-group='system'")[1].split("data-group='features'")[0]
             self.assertIn("data-script-name='rtsp-h26x'", system)
-            self.assertIn("data-script-name='mqtt-bridge'", html.split("data-group='features'")[1])
+            self.assertIn("data-script-name='mqtt-bridge'", system)
+            for feature in ('motion-detection', 'sound-detection', 'timelapse', 'telegram-bot'):
+                self.assertNotIn(feature, rows)   # switched in their Settings tab
             self.assertNotIn('Camera Controls', html)
 
     def test_navigation(self):
@@ -2051,6 +2053,30 @@ class CameraPanel(unittest.TestCase):
         self.assertIn('id="services"', tools)        # Services lives under Tools
         self.assertEqual(html.count('data-cam-control='), 5)
         self.assertIn('initCamPanel();', (ROOT / 'www/scripts/index.bundle.min.js').read_text())
+
+
+class SettingsByUse(unittest.TestCase):
+    """isp_pro split between Image and Day/night; local recording commands."""
+
+    def test_isp_pro_writes_only_what_was_posted(self):
+        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        block = text[text.index('    isp_pro)'):text.index('    set_local_recording)')]
+        self.assertIn('if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then', block)
+        self.assertIn('if [ -n "${F_imageFlip}" ]; then', block)
+        self.assertLess(block.index('if [ -n "${F_daynightlum}'), block.index('setconf -k a'))
+        self.assertLess(block.index('if [ -n "${F_imageFlip}" ]'), block.index('setconf -k f'))
+
+    def test_local_recording_commands(self):
+        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        self.assertIn('wifi_get_ssid|local_rec_status) ;;', text)     # read-only: no CSRF needed
+        block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
+        for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
+            self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)
+        self.assertIn('schedule_service_restart /mnt/controlscripts/rtsp-h26x', block)
+        html = (ROOT / 'www/settings.html').read_text()
+        for name in ('rec_local', 'rec_when', 'rec_stream', 'rec_segment_min', 'rec_reserve_mb'):
+            self.assertIn('name="%s"' % name, html)
+        self.assertIn('initServiceToggles: initServiceToggles,', (ROOT / 'www/scripts/index.bundle.min.js').read_text())
 
 
 class CodePackageRelease(unittest.TestCase):
@@ -2085,12 +2111,25 @@ class VendorWpaWrapper(unittest.TestCase):
 
 
 class SettingsLayout(unittest.TestCase):
-    """Settings regrouped (2026-10-14): 6 tabs, Tools reduced to Diagnostics / Logs / Config editor."""
+    """Settings by use (2026-10-16): Image, Video, Day/night, Audio, Detection, Recording, Integrations,
+    Network, System, Update & backup; Tools = Diagnostics / Logs / Services / Config editor."""
 
-    def test_six_tabs_and_unique_ids(self):
+    def test_tabs_by_use_and_unique_ids(self):
         html = (ROOT / 'www/settings.html').read_text()
         tabs = re.findall(r'data-tab="([^"]+)"', html)
-        self.assertEqual(tabs, ['tab-video', 'tab-detect', 'tab-integrations', 'tab-network', 'tab-system', 'tab-backup'])
+        self.assertEqual(tabs, ['tab-image', 'tab-video', 'tab-daynight', 'tab-audio', 'tab-detect', 'tab-record',
+                                'tab-integrations', 'tab-network', 'tab-system', 'tab-backup'])
+        def tab(t):
+            a = html.index('id="%s"' % t)
+            nxt = [html.index('id="%s"' % o, a + 1) for o in tabs if html.find('id="%s"' % o, a + 1) > 0]
+            return html[a:min(nxt) if nxt else len(html)]
+        self.assertIn('id="formIspTune"', tab('tab-image')); self.assertIn('id="formISP"', tab('tab-image'))
+        self.assertNotIn('daynightlum', tab('tab-image'))
+        self.assertIn('id="formDayNight"', tab('tab-daynight')); self.assertIn('data-cam-panel', tab('tab-daynight'))
+        self.assertIn('id="formAudioAdvanced"', tab('tab-audio'))
+        self.assertIn('data-service="motion-detection"', tab('tab-detect'))
+        self.assertIn('id="formLocalRec"', tab('tab-record')); self.assertIn('id="formTimelapse"', tab('tab-record'))
+        self.assertIn('id="fwuFile"', tab('tab-backup')); self.assertNotIn('id="fwuFile"', tab('tab-system'))
         for t in tabs:
             self.assertEqual(html.count('id="%s"' % t), 1, t)
         ids = re.findall(r'\bid=["\']([^"\']+)["\']', html.split('<script>')[0])
