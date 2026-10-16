@@ -16,7 +16,7 @@ _el_read_ts() {
   _EL_TS=$((_EL_BTIME + ${_up%.*}))
 }
 
-EVENT_LOG_FILE="/tmp/events.jsonl"
+EVENT_LOG_FILE="${EVENT_LOG_FILE:-/tmp/events.jsonl}"
 EVENT_LOG_MAX_SIZE_KB=256
 EVENT_LOG_BACKUP_COUNT=2
 
@@ -122,97 +122,48 @@ log_event() {
     echo "$json" >> "$EVENT_LOG_FILE" 2>/dev/null || true
 }
 
-# Get events since timestamp
-# Usage: get_events_since <timestamp> [limit]
-get_events_since() {
-    local since="$1"
-    local limit="${2:-100}"
-
+# The event log is JSONL: one object per line, as log_event() writes it.
+# Queries are done in awk (BusyBox: no 3-argument match(), and no jq on the
+# flash firmware); the result is a JSON array of the last <limit> matches.
+#   _el_query <since> <limit> <errors-only 0|1>
+_el_query() {
     if [ ! -f "$EVENT_LOG_FILE" ]; then
         echo "[]"
         return
     fi
+    awk -v since="$1" -v limit="$2" -v errors="$3" '
+    BEGIN { n = 0; if (limit + 0 < 1) limit = 1 }
+    NF == 0 { next }
+    {
+        if (!match($0, /"timestamp":[0-9]+/)) next
+        if (substr($0, RSTART + 12, RLENGTH - 12) + 0 < since + 0) next
+        if (errors == 1 && $0 !~ /"level":"(error|critical)"/) next
+        buf[n % limit] = $0; n++
+    }
+    END {
+        printf "["
+        first = (n > limit) ? n - limit : 0
+        for (i = first; i < n; i++) printf "%s%s", (i > first ? "," : ""), buf[i % limit]
+        print "]"
+    }' "$EVENT_LOG_FILE" 2>/dev/null || echo "[]"
+}
 
-    # Use jq if available, otherwise basic filtering
-    if command -v jq >/dev/null 2>&1; then
-        jq -s "map(select(.timestamp >= $since)) | .[-$limit:]" "$EVENT_LOG_FILE" 2>/dev/null || echo "[]"
-    else
-        # Basic filtering without jq.
-        # Assumes one complete JSON object per line (JSONL/ndjson format) with
-        # "timestamp":<epoch> as the first numeric field — the format log_event() writes.
-        # head -n guard: each event is one line + one comma = 2 lines; cap output size.
-        awk -v since="$since" -v limit="$limit" '
-        BEGIN { count = 0; print "[" }
-        NF == 0 { next }
-        {
-            if (count > 0) print ","
-            # Extract timestamp from JSON (expects "timestamp":<number> anywhere in line)
-            if (match($0, /"timestamp":([0-9]+)/, arr)) {
-                if (arr[1] >= since && count < limit) {
-                    print $0
-                    count++
-                }
-            }
-        }
-        END { print "]" }
-        ' "$EVENT_LOG_FILE" | head -n $((limit * 2 + 4)) || echo "[]"
-    fi
+# Get events since timestamp
+# Usage: get_events_since <timestamp> [limit]
+get_events_since() {
+    _el_query "${1:-0}" "${2:-100}" 0
 }
 
 # Get recent events
 # Usage: get_recent_events [limit]
 get_recent_events() {
-    local limit="${1:-50}"
-
-    if [ ! -f "$EVENT_LOG_FILE" ]; then
-        echo "[]"
-        return
-    fi
-
-    # Get last N lines and format as JSON array
-    if command -v jq >/dev/null 2>&1; then
-        tail -n "$limit" "$EVENT_LOG_FILE" 2>/dev/null | jq -s '.' 2>/dev/null || echo "[]"
-    else
-        # Basic formatting without jq
-        echo "["
-        tail -n "$limit" "$EVENT_LOG_FILE" 2>/dev/null | awk '
-        NR > 1 { print "," }
-        { print $0 }
-        '
-        echo "]"
-    fi
+    _el_query 0 "${1:-50}" 0
 }
 
 # Get error events only
 # Usage: get_error_events [since_timestamp] [limit]
 get_error_events() {
-    local since="${1:-0}"
-    local limit="${2:-20}"
-
-    if [ ! -f "$EVENT_LOG_FILE" ]; then
-        echo "[]"
-        return
-    fi
-
-    if command -v jq >/dev/null 2>&1; then
-        jq -s "map(select(.timestamp >= $since and (.level == \"error\" or .level == \"critical\"))) | .[-$limit:]" "$EVENT_LOG_FILE" 2>/dev/null || echo "[]"
-    else
-        # Basic filtering without jq (same JSONL format assumption as get_events_since).
-        awk -v since="$since" -v limit="$limit" '
-        BEGIN { count = 0; print "[" }
-        NF == 0 { next }
-        /"level":"error"/ || /"level":"critical"/ {
-            if (count > 0) print ","
-            if (match($0, /"timestamp":([0-9]+)/, arr)) {
-                if (arr[1] >= since && count < limit) {
-                    print $0
-                    count++
-                }
-            }
-        }
-        END { print "]" }
-        ' "$EVENT_LOG_FILE" | head -n $((limit * 2 + 4)) || echo "[]"
-    fi
+    _el_query "${1:-0}" "${2:-20}" 1
 }
 
 # Clean up old log files beyond EVENT_LOG_BACKUP_COUNT

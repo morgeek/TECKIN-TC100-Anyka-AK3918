@@ -192,7 +192,9 @@ parse_script_capabilities() {
 # memory-guard / cpu-scaler add "disabled" when their boot.conf key is off.
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
-FAST_PIDFILE_SERVICES=" ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler "
+SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection onvif recording wifi-rescue motion-detection motion-snapshot motion-mail sound-detection telegram-bot timelapse"
+SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard cpu-scaler health-snapshot button-actions ftp-server telnet-server syslog-forward"
+FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler wifi-rescue "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
 # (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID
@@ -649,7 +651,6 @@ else
     echo "<div class='card status_card services-table-card'>"
     echo "<header class='card-header'>"
     echo "<p class='card-header-title'>Services</p>"
-    echo "<a class='card-header-icon onpage' href='javascript: void(0)' data-target='cgi-bin/camcontrols.cgi?cmd=getsettings' title='Choose which toggles appear in the Camera Controls dropdown'>Camera Controls</a>"
     echo "</header>"
     echo "<div class='card-content'>"
     echo "<div class='services-overview'><strong id='services_summary'>Checking services...</strong><label><input id='services_issues_only' type='checkbox'> Problems only</label></div>"
@@ -663,14 +664,27 @@ else
     echo "<th title='Enable or disable automatic startup when the camera boots'>Autorun at boot</th>"
     echo "<th title='Open the script source in a new tab'>View</th>"
     echo "</tr></thead>"
-    echo "<tbody>"
-
+    # Only the camera's own programs are listed here. Camera controls
+    # (day/night, IR, LEDs) are under the live picture; features have their
+    # on/off switch in their Settings tab (Detection, Recording, Integrations);
+    # the ONVIF server and the SD-card ffmpeg recorder are not used (local
+    # recording is native), the rescue access point is on hold. Any other
+    # script (added later) still shows, under "Other".
+    for _grp in system features; do
+    if [ "$_grp" = system ]; then
+      echo "<tbody data-group='system'><tr class='services-group-row'><th colspan='5'>System programs</th></tr>"
+    else
+      echo "<tbody data-group='features'><tr class='services-group-row'><th colspan='5'>Other</th></tr>"
+    fi
     for script_path in "$SCRIPT_HOME"/*; do
       [ -f "$script_path" ] || continue
       i="${script_path##*/}"
       if ! is_valid_script_name "$i"; then
         continue
       fi
+      case " $SERVICES_HIDDEN " in *" $i "*) continue ;; esac
+      case " $SERVICES_SYSTEM " in *" $i "*) _in=system ;; *) _in=features ;; esac
+      [ "$_in" = "$_grp" ] || continue
 
       script_id="$(printf '%s' "$i" | sed 's/[^A-Za-z0-9._-]/_/g')"
       status_label="Loading..."
@@ -710,8 +724,9 @@ else
       echo "</td>"
       echo "</tr>"
     done
-
     echo "</tbody>"
+    done
+
     echo "</table>"
     echo "</div>"
     echo "</div>"

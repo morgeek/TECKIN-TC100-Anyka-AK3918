@@ -1159,7 +1159,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status) ;;
     *) csrf_check ;;
   esac
   case "$F_cmd" in
@@ -1302,60 +1302,109 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     isp_pro)
-      daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
-      daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
-      nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
-      nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
-      
-      osdenabled=$(normalize_bool "${F_osdenabled}")
-      osdtext=$(printf '%s' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
-      osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
-      osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
-      osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
-      osdalpha=$(sanitize_int_range "${F_osdalpha}" 0 255 0)
-      frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
-      backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
-      edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
-      imageflip=$(sanitize_int_range "${F_imageFlip}" 0 3 0)
-
-      # Persist
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-          " " daynightlum "$daynightlum" \
-          " " daynightawb "$daynightawb" \
-          " " nightdaylum "$nightdaylum" \
-          " " nightdayawb "$nightdayawb" \
-          " " osdenabled "$osdenabled" \
-          " " osdtext "$osdtext" \
-          " " osdalpha "$osdalpha" \
-          " " osdfrontcolor "$frontcolor" \
-          " " osdbackcolor "$backcolor" \
-          " " osdedgecolor "$edgecolor" \
-          0 osdfontsize "$osdfontsize0" \
-          0 osdx "$osdx0" \
-          0 osdy "$osdy0" \
-          " " imageflip "$imageflip"
-
-      # Apply immediately (best effort via setconf)
-      /mnt/bin/setconf -k a -v "$daynightlum"
-      /mnt/bin/setconf -k r -v "$daynightawb"
-      /mnt/bin/setconf -k d -v "$nightdaylum"
-      /mnt/bin/setconf -k b -v "$nightdayawb"
-      /mnt/bin/setconf -k l -v "$osdenabled"
-      /mnt/bin/setconf -k o -v "$osdtext"
-      /mnt/bin/setconf -k h -v "$osdalpha"
-      /mnt/bin/setconf -k c -v "$frontcolor"
-      /mnt/bin/setconf -k i -v "$backcolor"
-      /mnt/bin/setconf -k j -v "$edgecolor"
-      /mnt/bin/setconf -k s -v "$osdfontsize0"
-      /mnt/bin/setconf -k x -v "$osdx0"
-      /mnt/bin/setconf -k y -v "$osdy0"
-      /mnt/bin/setconf -k f -v "$imageflip"
+      # Two forms post here: Settings → Day/night (the four thresholds) and
+      # Settings → Image (on-screen text and orientation). Each part is only
+      # written when its fields were sent.
+      if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then
+        daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
+        daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
+        nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
+        nightdayawb=$(sanitize_int_range "${F_nightdayawb}" 0 500000 10000)
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+            " " daynightlum "$daynightlum" \
+            " " daynightawb "$daynightawb" \
+            " " nightdaylum "$nightdaylum" \
+            " " nightdayawb "$nightdayawb"
+        /mnt/bin/setconf -k a -v "$daynightlum"
+        /mnt/bin/setconf -k r -v "$daynightawb"
+        /mnt/bin/setconf -k d -v "$nightdaylum"
+        /mnt/bin/setconf -k b -v "$nightdayawb"
+      fi
+      if [ -n "${F_imageFlip}" ]; then
+        osdenabled=$(normalize_bool "${F_osdenabled}")
+        osdtext=$(printf '%s' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
+        osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
+        osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
+        osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
+        osdalpha=$(sanitize_int_range "${F_osdalpha}" 0 255 0)
+        frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
+        backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
+        edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
+        imageflip=$(sanitize_int_range "${F_imageFlip}" 0 3 0)
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
+            " " osdenabled "$osdenabled" \
+            " " osdtext "$osdtext" \
+            " " osdalpha "$osdalpha" \
+            " " osdfrontcolor "$frontcolor" \
+            " " osdbackcolor "$backcolor" \
+            " " osdedgecolor "$edgecolor" \
+            0 osdfontsize "$osdfontsize0" \
+            0 osdx "$osdx0" \
+            0 osdy "$osdy0" \
+            " " imageflip "$imageflip"
+        /mnt/bin/setconf -k l -v "$osdenabled"
+        /mnt/bin/setconf -k o -v "$osdtext"
+        /mnt/bin/setconf -k h -v "$osdalpha"
+        /mnt/bin/setconf -k c -v "$frontcolor"
+        /mnt/bin/setconf -k i -v "$backcolor"
+        /mnt/bin/setconf -k j -v "$edgecolor"
+        /mnt/bin/setconf -k s -v "$osdfontsize0"
+        /mnt/bin/setconf -k x -v "$osdx0"
+        /mnt/bin/setconf -k y -v "$osdy0"
+        /mnt/bin/setconf -k f -v "$imageflip"
+      fi
 
       if wants_json_response; then
         json_body_ok "ISP and OSD settings updated."
       else
         echo "ISP and OSD settings updated.<br/>"
       fi
+    ;;
+
+    # Local backup recording (libtc100fix, src/tc100fix/rec.c): settings in
+    # boot.conf, applied by restarting the RTSP server.
+    set_local_recording)
+      install_config /mnt/config/boot.conf
+      _lr_on=$(normalize_bool "${F_rec_local}")
+      case "${F_rec_when}" in always) _lr_when=always ;; *) _lr_when=offline ;; esac
+      case "${F_rec_stream}" in sub) _lr_stream=sub ;; *) _lr_stream=main ;; esac
+      _lr_seg=$(sanitize_int_range "${F_rec_segment_min}" 1 60 5)
+      _lr_res=$(sanitize_int_range "${F_rec_reserve_mb}" 32 8192 256)
+      rewrite_config /mnt/config/boot.conf REC_LOCAL "$_lr_on"
+      rewrite_config /mnt/config/boot.conf REC_WHEN "$_lr_when"
+      rewrite_config /mnt/config/boot.conf REC_STREAM "$_lr_stream"
+      rewrite_config /mnt/config/boot.conf REC_SEGMENT_SEC "$((_lr_seg * 60))"
+      rewrite_config /mnt/config/boot.conf REC_RESERVE_MB "$_lr_res"
+      schedule_service_restart /mnt/controlscripts/rtsp-h26x 1
+      if wants_json_response; then
+        json_body_ok "Local recording settings saved; the video stream restarts once."
+      else
+        echo "Local recording settings saved.<br/>"
+      fi
+    ;;
+
+    local_rec_status)
+      # Settings and live state, for Settings → Recording.
+      _lr_b=/mnt/config/boot.conf
+      _lr_kv() { _v="$(sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" "$_lr_b" 2>/dev/null | tail -n 1)"; printf '%s' "${_v:-$2}"; }
+      _lr_st() { sed -n "s/^$1=//p" /var/run/tc100rec 2>/dev/null | head -n 1; }
+      _lr_seg="$(_lr_kv REC_SEGMENT_SEC 300)"; case "$_lr_seg" in ''|*[!0-9]*) _lr_seg=300 ;; esac
+      _lr_card=0; grep -qE " /mnt/sd | /mnt vfat " /proc/mounts 2>/dev/null && _lr_card=1
+      _lr_paused=0; [ -f /var/run/tc100rec.pause ] && _lr_paused=1
+      printf '{"ok":true,"rec_local":"%s","rec_when":"%s","rec_stream":"%s","rec_segment_min":%s,"rec_reserve_mb":"%s","card":%s,"paused":%s,"state":"%s","file":"%s","files":"%s","free_mb":"%s","rtsp_client":"%s","storage":"%s"}\n' \
+        "$(json_escape "$(_lr_kv REC_LOCAL 0)")" "$(json_escape "$(_lr_kv REC_WHEN offline)")" "$(json_escape "$(_lr_kv REC_STREAM main)")" \
+        "$((_lr_seg / 60))" "$(json_escape "$(_lr_kv REC_RESERVE_MB 256)")" "$_lr_card" "$_lr_paused" \
+        "$(json_escape "$(_lr_st state)")" "$(json_escape "$(_lr_st file)")" "$(json_escape "$(_lr_st files)")" \
+        "$(json_escape "$(_lr_st free_mb)")" "$(json_escape "$(_lr_st rtsp_client)")" \
+        "$(cat /tmp/tc100-storage 2>/dev/null || echo sd)"
+    ;;
+
+    local_rec_eject|local_rec_resume)
+      _lr_out="$(sh /mnt/scripts/rec-storage.sh "${F_cmd#local_rec_}" 2>&1)"
+      case "$_lr_out" in
+        ok*) json_body_ok "$_lr_out" ;;
+        *) json_body_err "REC_STORAGE" "$_lr_out" ;;
+      esac
     ;;
 
     isp_tune)
@@ -1685,11 +1734,20 @@ if [ -n "$F_cmd" ]; then
       password_raw="${F_password}"
       [ -n "$password_raw" ] || password_raw="${F_allpassword}"
       password=$(printf '%b' "${password_raw//%/\\x}")
-      if [ -z "$password" ] || [ "$password" = "*****" ]; then
-        echo "<p>Refusing empty/placeholder all-services password.</p>"
+      # Characters that the passwd/htdigest/rtspserver.conf writers cannot
+      # carry safely are refused (the form says so too).
+      case "$password" in
+        ''|'*****') _pw_err="Refusing an empty password." ;;
+        *[\"\'\$\`\\\ %]*|*"$(printf '\t')"*) _pw_err="Refused: no spaces, quotes, %, \$, \` or \\ in the password." ;;
+        *) _pw_err="" ;;
+      esac
+      [ ${#password} -lt 6 ] && [ -z "$_pw_err" ] && _pw_err="The password needs at least 6 characters."
+      if [ -n "$_pw_err" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "$_pw_err"; else echo "<p>$_pw_err</p>"; fi
         exit 0
       fi
-      echo "<p>Setting all services password to : $password</p>"
+      if wants_json_response; then json_body_ok "Password changed for the web interface, RTSP, FTP and telnet."
+      else echo "<p>Password changed for the web interface, RTSP, FTP and telnet.</p>"; fi
       all_password "$password"
       restart_service_if_need /mnt/controlscripts/ftp-server
       restart_service_if_need /mnt/controlscripts/telnet-server
@@ -2705,14 +2763,28 @@ if [ -n "$F_cmd" ]; then
         # Find which Frigate camera reads this one: an input or a go2rtc
         # stream with this camera's IP (one request, only when saving).
         fl_ip=""; [ -r /tmp/camera_ip.txt ] && read -r fl_ip < /tmp/camera_ip.txt
-        if [ -n "$fl_ip" ] && [ -x /mnt/bin/curl ] && [ -x /mnt/bin/jq ]; then
-          fl_cam="$(/mnt/bin/curl -s -m 6 "$fl_url/api/config" 2>/dev/null | /mnt/bin/jq -r --arg ip "$fl_ip" '
-            def has_ip: (tostring) as $u | ($u | test("[@/]" + ($ip | gsub("\\."; "\\.")) + "([:/]|$)"));
-            (.go2rtc.streams // {} | to_entries
-              | map(select(.value | if type == "array" then any(.[]; has_ip) else has_ip end)) | map(.key)) as $s
-            | (.cameras // {}) | to_entries[]
-            | select(any(.value.ffmpeg.inputs[]?; .path as $p | ($p | has_ip) or any($s[]; . as $n | $p | endswith("/" + $n))))
-            | .key' 2>/dev/null | head -n 1)"
+        if [ -n "$fl_ip" ] && [ -x /mnt/bin/curl ] && [ -r /mnt/scripts/jsonflat.awk ]; then
+          # Frigate's /api/config flattened (scripts/jsonflat.awk, no jq): the
+          # first camera with an input on this IP, or on a go2rtc stream that
+          # points to this IP.
+          fl_cam="$(/mnt/bin/curl -s -m 6 "$fl_url/api/config" 2>/dev/null |
+            LC_ALL=C awk -f /mnt/scripts/jsonflat.awk 2>/dev/null | LC_ALL=C awk -F '\t' -v ip="$fl_ip" '
+            function has_ip(u,   r) { r = ip; gsub(/\./, "\\.", r); return u ~ ("[@/]" r "([:/]|$)") }
+            $2 == "s" && index($1, ".go2rtc.streams.") == 1 {
+              n = substr($1, 17); sub(/\[[0-9]+\]$/, "", n); if (has_ip($3)) st[n] = 1; next }
+            $2 == "s" && $1 ~ /^\.cameras\.[^.]+\.ffmpeg\.inputs\[[0-9]+\]\.path$/ {
+              c = substr($1, 10); sub(/\.ffmpeg\..*/, "", c)
+              if (!(c in seen)) { seen[c] = 1; order[++nc] = c }
+              paths[c] = paths[c] "\n" $3; next }
+            END {
+              for (i = 1; i <= nc; i++) {
+                c = order[i]; m = split(paths[c], P, "\n")
+                for (j = 2; j <= m; j++) {
+                  if (has_ip(P[j])) { print c; exit }
+                  for (k in st) if (substr(P[j], length(P[j]) - length(k)) == "/" k) { print c; exit }
+                }
+              }
+            }' | head -n 1)"
           case "$fl_cam" in *[!A-Za-z0-9_-]*) fl_cam="" ;; esac
         fi
         [ -n "$fl_cam" ] && fl_note=" (camera ${fl_cam} found in Frigate)" ||
@@ -3364,6 +3436,11 @@ if [ -n "$F_cmd" ]; then
         # `wpa_cli reconfigure` below re-reads the old file and the change is
         # silently discarded — and the new one is never used at boot either.
         _wpa_conf="$WIFI_CONFIG_PATH"
+        # From flash /mnt is in RAM: the file lives in jffs2, /mnt points to it.
+        if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+            _wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf
+            [ -L "$WIFI_CONFIG_PATH" ] || { rm -f "$WIFI_CONFIG_PATH"; ln -s "$_wpa_conf" "$WIFI_CONFIG_PATH"; }
+        fi
         _ssid="$(printf '%s' "${F_ssid:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-32)"
         _psk="$(printf '%s' "${F_psk:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-63)"
         _ssid_len="$(printf '%s' "$_ssid" | wc -c)"
@@ -3373,22 +3450,17 @@ if [ -n "$F_cmd" ]; then
         elif [ "$_psk_len" -lt 8 ]; then
             json_body_err "INVALID_PSK" "PSK must be at least 8 characters"
         else
-            _wpa_tmp="${_wpa_conf}.tmp.$$"
-            {
-                printf 'ctrl_interface=/var/run/wpa_supplicant\n'
-                printf 'ctrl_interface_group=0\n'
-                printf 'ap_scan=1\n'
-                printf 'network={\n'
-                printf '\tssid="%s"\n'   "$_ssid"
-                printf '\tkey_mgmt=WPA-PSK\n'
-                printf '\tpsk="%s"\n'    "$_psk"
-                printf '\tpriority=2\n'
-                printf '}\n'
-            } > "$_wpa_tmp" && mv "$_wpa_tmp" "$_wpa_conf" || {
-                rm -f "$_wpa_tmp" 2>/dev/null
+            # scripts/wifi-txt.sh writes the new network first and keeps the
+            # ones already in the file as a fallback (priority 1): a wrong
+            # password does not take the camera off the network it was on.
+            _wd="/tmp/wifi-set.$$"; mkdir -p "$_wd"
+            printf 'SSID=%s\nPASSWORD=%s\n' "$_ssid" "$_psk" > "$_wd/wifi.txt"
+            if ! sh /mnt/scripts/wifi-txt.sh apply "$_wd/wifi.txt" "$_wpa_conf" /etc/jffs2/anyka_cfg.ini >/dev/null 2>&1; then
+                rm -rf "$_wd"
                 json_body_err "WRITE_ERROR" "Failed to write WiFi configuration"
                 exit 0
-            }
+            fi
+            rm -rf "$_wd"
             command -v wpa_cli >/dev/null 2>&1 && wpa_cli -i wlan0 reconfigure >/dev/null 2>&1 || true
             json_body_ok "WiFi configuration updated for SSID: $_ssid. Reconnecting..."
         fi

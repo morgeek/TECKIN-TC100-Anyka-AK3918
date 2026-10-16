@@ -14,19 +14,76 @@
     </div>
     <div class="tabs is-centered is-toggle is-small mb-4">
         <ul>
-            <li class="is-active" data-tab="tab-video"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-video"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span><span>Image &amp; video</span></a></li>
-            <li data-tab="tab-detect"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line></svg></span><span>Sound &amp; detection</span></a></li>
-            <li data-tab="tab-integrations"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-zap"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span><span>Integrations</span></a></li>
-            <li data-tab="tab-network"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-wifi"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg></span><span>Network</span></a></li>
-            <li data-tab="tab-system"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-settings"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span><span>System</span></a></li>
-            <li data-tab="tab-backup"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span><span>Backup</span></a></li>
+            <li class="is-active" data-tab="tab-image"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M15 9h.01"/></svg></span><span>Image</span></a></li>
+            <li data-tab="tab-video"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h12v10H3zM15 10l6-3v10l-6-3"/></svg></span><span>Video</span></a></li>
+            <li data-tab="tab-daynight"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg></span><span>Day/night</span></a></li>
+            <li data-tab="tab-audio"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span>Audio</span></a></li>
+            <li data-tab="tab-detect"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg></span><span>Detection</span></a></li>
+            <li data-tab="tab-record"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg></span><span>Recording</span></a></li>
+            <li data-tab="tab-integrations"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M10 7H7a5 5 0 0 0 0 10h3M14 7h3a5 5 0 0 1 0 10h-3"/></svg></span><span>Integrations</span></a></li>
+            <li data-tab="tab-network"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M2 9a15 15 0 0 1 20 0M12 20h.01"/></svg></span><span>Network</span></a></li>
+            <li data-tab="tab-system"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span><span>System</span></a></li>
+            <li data-tab="tab-backup"><a><span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span><span>Update &amp; backup</span></a></li>
         </ul>
     </div>
 
     <!-- Tab Contents -->
     <div id="tab-contents">
-        <!-- Image & video -->
-        <div class="tab-content" id="tab-video">
+        <!-- Image -->
+        <div class="tab-content" id="tab-image">
+            <form id="formIspTune" action="cgi-bin/action.cgi?cmd=isp_tune" method="post" >
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Live image tuning</p></header>
+                    <div class='card-content'>
+                        <p class="help mb-3">Applied within a few seconds, without restarting the stream. 0 keeps the sensor's factory value. Switching tuning on or off restarts the video once.</p>
+                        <div class="field mb-3"><input class="switch is-small" id="isp_enable" name="isp_enable" type="checkbox"><label for="isp_enable">Enable live image tuning</label></div>
+                        <div class="columns is-multiline">
+                            <div class="column is-half"><label class="label is-small" for="isp_brightness">Brightness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_brightness" id="isp_brightness_out">0</output></label><input class="isp-tune-range" name="isp_brightness" id="isp_brightness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Moves the auto-exposure target.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_contrast">Contrast <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_contrast" id="isp_contrast_out">0</output></label><input class="isp-tune-range" name="isp_contrast" id="isp_contrast" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Wider or narrower range between dark and light.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_saturation">Saturation <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_saturation" id="isp_saturation_out">0</output></label><input class="isp-tune-range" name="isp_saturation" id="isp_saturation" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour intensity.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_sharpness">Sharpness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_sharpness" id="isp_sharpness_out">0</output></label><input class="isp-tune-range" name="isp_sharpness" id="isp_sharpness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Edge enhancement; lower reduces noise.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_hue">Hue <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_hue" id="isp_hue_out">0</output></label><input class="isp-tune-range" name="isp_hue" id="isp_hue" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour shift.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_power_hz">Mains frequency (anti-flicker)</label><div class="select is-small is-fullwidth"><select name="isp_power_hz" id="isp_power_hz"><option value="">Unchanged</option><option value="50">50 Hz (Europe)</option><option value="60">60 Hz</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="isp_exposure_max_pct">Exposure time cap <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" id="isp_exposure_max_pct_out">off</output></label><input name="isp_exposure_max_pct" id="isp_exposure_max_pct" type="range" min="0" max="100" step="5" value="0" style="width:100%"><p class="help">Limits motion blur at night (image gets darker). 0 = no cap; otherwise 10–100 % of the sensor value.</p></div>
+                        </div>
+                        <p class="help" id="isp_tune_applied" role="status"></p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply image tuning</button></div>
+                    </div>
+                </div>
+            </form>
+            <form id="formISP" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>On-screen text and orientation</p></header>
+                    <div class='card-content'>
+                        <div class="field mb-3"><input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox"><label for="osdenabled">Enable OSD Text</label></div>
+                        <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
+                        
+                        <div class="is-divider" data-content="OSD Styling"></div>
+                        <div class="columns is-multiline is-mobile">
+                            <div class="column is-4"><label class="label is-small">Color</label>
+                                <div class="select is-small is-fullwidth"><select name="frontcolor" id="frontcolor"><option value="1">White</option><option value="0">Black</option><option value="2">Red</option><option value="3">Green</option><option value="4">Blue</option></select></div>
+                            </div>
+                            <div class="column is-4"><label class="label is-small">Background</label>
+                                <div class="select is-small is-fullwidth"><select name="backcolor" id="backcolor"><option value="0">Transparent</option><option value="1">Black</option><option value="2">White</option></select></div>
+                            </div>
+                            <div class="column is-4"><label class="label is-small">Alpha (0-255)</label><input class="input is-small" name="osdalpha" id="osdalpha" type="number"></div>
+                            <div class="column is-3"><label class="label is-small">Size</label><input class="input is-small" name="osdfontsize0" id="osdfontsize0" type="number"></div>
+                            <div class="column is-3"><label class="label is-small">X pos</label><input class="input is-small" name="osdx0" id="osdx0" type="number"></div>
+                            <div class="column is-3"><label class="label is-small">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number"></div>
+                        </div>
+
+                        <div class="is-divider"></div>
+                        <div class="field"><label class="label is-small">Image Rotation</label>
+                            <div class="select is-small is-fullwidth"><select name="imageFlip" id="imageFlip"><option value="0">Normal</option><option value="1">Flip</option><option value="2">Mirror</option><option value="3">Flip & Mirror</option></select></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply ISP Settings</button></div>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Video -->
+        <div class="tab-content is-hidden" id="tab-video">
             <p class="settings-intro">Start with a profile, or adjust each stream below. Advanced options are collapsed; opening them does not change any settings.</p>
             <div class='card status_card mb-4 is-link is-light'>
                 <header class='card-header'><p class='card-header-title'>Quick setup</p></header>
@@ -93,12 +150,36 @@
                 </div>
             </form>
 
-            <form id="formISP" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
-                <details class="settings-advanced mb-4">
-                    <summary>Advanced day/night thresholds</summary>
+        </div>
+
+        <!-- Day/night -->
+        <div class="tab-content is-hidden" id="tab-daynight">
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Day/night mode</p></header>
+                <div class='card-content'>
+                    <p class="help mb-3">The same controls as under the live picture. Auto follows the light level with the thresholds below; Day and Night fix the mode until you change it.</p>
+                    <section class="cam-panel" data-cam-panel aria-label="Camera controls">
+                        <div class="cam-group" role="group" aria-label="Day/night mode">
+                            <div class="buttons has-addons cam-modes">
+                                <button type="button" class="button is-small" data-cam-mode="auto" aria-pressed="false">Auto</button>
+                                <button type="button" class="button is-small" data-cam-mode="day" aria-pressed="false">Day</button>
+                                <button type="button" class="button is-small" data-cam-mode="night" aria-pressed="false">Night</button>
+                            </div>
+                        </div>
+                        <div class="cam-group cam-toggles" role="group" aria-label="Camera controls">
+                            <button type="button" class="button is-small cam-toggle" data-cam-control="ir-led" aria-pressed="false" title="Infrared lights">IR light</button>
+                            <button type="button" class="button is-small cam-toggle" data-cam-control="ir-cut" aria-pressed="false" title="Infrared-cut filter in front of the sensor (in for daylight colours)">IR filter</button>
+                            <button type="button" class="button is-small cam-toggle" data-cam-control="black-white" aria-pressed="false">Black &amp; white</button>
+                        </div>
+                        <small class="cam-status" aria-live="polite"></small>
+                    </section>
+                </div>
+            </div>
+            <form id="formDayNight" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Day/night switching</p></header>
+                    <header class='card-header'><p class='card-header-title'>Automatic switching thresholds</p></header>
                     <div class='card-content'>
+                        <p class="help mb-3">Used in Auto mode. Night starts when the light falls below the first luminance; day comes back above the second one (the gap avoids flapping at dusk). Current values: see the live reading under the picture.</p>
                         <div class="columns">
                             <div class="column is-half">
                                 <p class="heading">Day → Night (Darkness)</p>
@@ -111,62 +192,15 @@
                                 <div class="field"><label class="label is-small">AWB</label><input class="input is-small" name="nightdayawb" id="nightdayawb" type="number"></div>
                             </div>
                         </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save thresholds</button></div>
                     </div>
                 </div>
 
-                </details>
-                <div class='card status_card mt-4'>
-                    <header class='card-header'><p class='card-header-title'>On-screen text and orientation</p></header>
-                    <div class='card-content'>
-                        <div class="field mb-3"><input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox"><label for="osdenabled">Enable OSD Text</label></div>
-                        <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
-                        
-                        <div class="is-divider" data-content="OSD Styling"></div>
-                        <div class="columns is-multiline is-mobile">
-                            <div class="column is-4"><label class="label is-small">Color</label>
-                                <div class="select is-small is-fullwidth"><select name="frontcolor" id="frontcolor"><option value="1">White</option><option value="0">Black</option><option value="2">Red</option><option value="3">Green</option><option value="4">Blue</option></select></div>
-                            </div>
-                            <div class="column is-4"><label class="label is-small">Background</label>
-                                <div class="select is-small is-fullwidth"><select name="backcolor" id="backcolor"><option value="0">Transparent</option><option value="1">Black</option><option value="2">White</option></select></div>
-                            </div>
-                            <div class="column is-4"><label class="label is-small">Alpha (0-255)</label><input class="input is-small" name="osdalpha" id="osdalpha" type="number"></div>
-                            <div class="column is-3"><label class="label is-small">Size</label><input class="input is-small" name="osdfontsize0" id="osdfontsize0" type="number"></div>
-                            <div class="column is-3"><label class="label is-small">X pos</label><input class="input is-small" name="osdx0" id="osdx0" type="number"></div>
-                            <div class="column is-3"><label class="label is-small">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number"></div>
-                        </div>
-
-                        <div class="is-divider"></div>
-                        <div class="field"><label class="label is-small">Image Rotation</label>
-                            <div class="select is-small is-fullwidth"><select name="imageFlip" id="imageFlip"><option value="0">Normal</option><option value="1">Flip</option><option value="2">Mirror</option><option value="3">Flip & Mirror</option></select></div>
-                        </div>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply ISP Settings</button></div>
-                    </div>
-                </div>
-            </form>
-            <form id="formIspTune" action="cgi-bin/action.cgi?cmd=isp_tune" method="post" class="mt-4">
-                <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Live image tuning</p></header>
-                    <div class='card-content'>
-                        <p class="help mb-3">Applied within a few seconds, without restarting the stream. 0 keeps the sensor's factory value. Switching tuning on or off restarts the video once.</p>
-                        <div class="field mb-3"><input class="switch is-small" id="isp_enable" name="isp_enable" type="checkbox"><label for="isp_enable">Enable live image tuning</label></div>
-                        <div class="columns is-multiline">
-                            <div class="column is-half"><label class="label is-small" for="isp_brightness">Brightness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_brightness" id="isp_brightness_out">0</output></label><input class="isp-tune-range" name="isp_brightness" id="isp_brightness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Moves the auto-exposure target.</p></div>
-                            <div class="column is-half"><label class="label is-small" for="isp_contrast">Contrast <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_contrast" id="isp_contrast_out">0</output></label><input class="isp-tune-range" name="isp_contrast" id="isp_contrast" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Wider or narrower range between dark and light.</p></div>
-                            <div class="column is-half"><label class="label is-small" for="isp_saturation">Saturation <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_saturation" id="isp_saturation_out">0</output></label><input class="isp-tune-range" name="isp_saturation" id="isp_saturation" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour intensity.</p></div>
-                            <div class="column is-half"><label class="label is-small" for="isp_sharpness">Sharpness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_sharpness" id="isp_sharpness_out">0</output></label><input class="isp-tune-range" name="isp_sharpness" id="isp_sharpness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Edge enhancement; lower reduces noise.</p></div>
-                            <div class="column is-half"><label class="label is-small" for="isp_hue">Hue <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_hue" id="isp_hue_out">0</output></label><input class="isp-tune-range" name="isp_hue" id="isp_hue" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour shift.</p></div>
-                            <div class="column is-half"><label class="label is-small" for="isp_power_hz">Mains frequency (anti-flicker)</label><div class="select is-small is-fullwidth"><select name="isp_power_hz" id="isp_power_hz"><option value="">Unchanged</option><option value="50">50 Hz (Europe)</option><option value="60">60 Hz</option></select></div></div>
-                            <div class="column is-half"><label class="label is-small" for="isp_exposure_max_pct">Exposure time cap <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" id="isp_exposure_max_pct_out">off</output></label><input name="isp_exposure_max_pct" id="isp_exposure_max_pct" type="range" min="0" max="100" step="5" value="0" style="width:100%"><p class="help">Limits motion blur at night (image gets darker). 0 = no cap; otherwise 10–100 % of the sensor value.</p></div>
-                        </div>
-                        <p class="help" id="isp_tune_applied" role="status"></p>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply image tuning</button></div>
-                    </div>
-                </div>
             </form>
         </div>
 
-        <!-- Sound & detection -->
-        <div class="tab-content is-hidden" id="tab-detect">
+        <!-- Audio -->
+        <div class="tab-content is-hidden" id="tab-audio">
             <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post">
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Microphone</p></header>
@@ -185,9 +219,20 @@
                     </div>
                 </div>
             </form>
+        </div>
 
+        <!-- Detection -->
+        <div class="tab-content is-hidden" id="tab-detect">
+            <div class='card status_card mb-4'>
+                <header class='card-header'><p class='card-header-title'>Detectors</p></header>
+                <div class='card-content'>
+                    <p class="help mb-3">Switched on or off at once, and kept for the next boots.</p>
+                    <div class="field svc-toggle-field"><input class="switch is-small svc-toggle" id="svc_motion-detection" type="checkbox" data-service="motion-detection" disabled><label for="svc_motion-detection">Motion detection (MQTT event)</label> <small class="svc-toggle-state"></small></div>
+                    <div class="field svc-toggle-field needs-sd"><input class="switch is-small svc-toggle" id="svc_motion-snapshot" type="checkbox" data-service="motion-snapshot" disabled><label for="svc_motion-snapshot">Save a picture on motion</label> <small class="svc-toggle-state"></small></div>
+                </div>
+            </div>
             <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
-                <div class='card status_card mt-4'>
+                <div class='card status_card'>
                     <header class='card-header'><p class='card-header-title'>Motion and sound detection</p></header>
                     <div class='card-content'>
                         <div class="columns">
@@ -200,11 +245,43 @@
                     </div>
                 </div>
             </form>
+        </div>
 
-            <form id="formTimelapse" action="cgi-bin/action.cgi?cmd=conf_timelapse" method="post" class="mb-4">
+        <!-- Recording -->
+        <div class="tab-content is-hidden" id="tab-record">
+            <form id="formLocalRec" action="cgi-bin/action.cgi?cmd=set_local_recording" method="post">
                 <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Local backup recording</p></header>
+                    <div class='card-content'>
+                        <p class="help mb-3">MP4 files on the SD card, copied from the video the camera already encodes (no re-encoding). Oldest files are deleted when the card is full.</p>
+                        <div class="field"><input class="switch is-small" id="rec_local" name="rec_local" type="checkbox"><label for="rec_local">Record to the SD card</label></div>
+                        <div class="columns is-multiline">
+                            <div class="column is-half"><label class="label is-small" for="rec_when">When</label><div class="select is-small is-fullwidth"><select name="rec_when" id="rec_when"><option value="offline">Only while Frigate does not receive the video</option><option value="always">All the time</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="rec_stream">Stream</label><div class="select is-small is-fullwidth"><select name="rec_stream" id="rec_stream"><option value="main">Main stream (best quality, ~4.5 % CPU while recording)</option><option value="sub">Secondary stream (under 1 % CPU)</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="rec_segment_min">File length (minutes)</label><input class="input is-small" name="rec_segment_min" id="rec_segment_min" type="number" min="1" max="60" step="1"></div>
+                            <div class="column is-half"><label class="label is-small" for="rec_reserve_mb">Keep free on the card (MB)</label><input class="input is-small" name="rec_reserve_mb" id="rec_reserve_mb" type="number" min="32" max="8192" step="1"></div>
+                        </div>
+                        <p class="help">Saving restarts the video stream once. From the flash memory the card must not carry the firmware (no <code>wifitest</code> folder).</p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save recording</button></div>
+                    </div>
+                </div>
+            </form>
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Recorder status</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7" id="rec_status_text">Loading…</p>
+                    <div class="buttons mt-2">
+                        <button class="button is-small" type="button" id="btnRecEject">Stop and eject the card</button>
+                        <button class="button is-small" type="button" id="btnRecResume">Resume</button>
+                    </div>
+                    <p class="help">Eject before taking the card out: recording pauses, the files are closed and the card is released.</p>
+                </div>
+            </div>
+            <form id="formTimelapse" action="cgi-bin/action.cgi?cmd=conf_timelapse" method="post" class="mt-4">
+                <div class='card status_card needs-sd'>
                     <header class='card-header'><p class='card-header-title'>Timelapse</p></header>
                     <div class='card-content'>
+                        <div class="field svc-toggle-field"><input class="switch is-small svc-toggle" id="svc_timelapse" type="checkbox" data-service="timelapse" disabled><label for="svc_timelapse">Timelapse capture running</label> <small class="svc-toggle-state"></small></div>
                         <div class="columns">
                             <div class="column is-half">
                                 <label class="label is-small">Capture Interval (s)</label>
@@ -227,6 +304,7 @@
                 </div>
             </form>
         </div>
+
 
         <!-- Integrations -->
         <div class="tab-content is-hidden" id="tab-integrations">
@@ -311,7 +389,7 @@
             <div class="columns mt-4">
                 <div class="column is-half">
                     <form id="formTelegram" action="cgi-bin/action.cgi?cmd=set_telegram_config" method="post">
-                        <div class='card status_card'>
+                        <div class='card status_card needs-sd'>
                             <header class='card-header'><p class='card-header-title'>Telegram notifications</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="telegram_enable" name="telegram_enable" type="checkbox"><label for="telegram_enable">Enable Telegram Notifications</label></div>
@@ -427,6 +505,20 @@
             </div>
 
             <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Password</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-3">One password for the user <code>root</code>: web interface, RTSP streams, FTP and telnet. After the change, update the stream addresses in Frigate or your NVR, and the browser asks you to sign in again.</p>
+                    <form id="formPassword" action="cgi-bin/action.cgi?cmd=set_all_password" method="post" autocomplete="off">
+                        <div class="columns mb-0">
+                            <div class="column"><label class="label is-small" for="all_password">New password</label><input class="input is-small" id="all_password" name="password" type="password" minlength="6" maxlength="64" autocomplete="new-password" required></div>
+                            <div class="column"><label class="label is-small" for="all_password2">Repeat it</label><input class="input is-small" id="all_password2" type="password" autocomplete="new-password" required></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-warning is-small" type="submit">Change the password</button></div>
+                    </form>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
                 <header class='card-header'><p class='card-header-title'>LEDs and privacy</p></header>
                 <div class='card-content'>
                     <div class="columns">
@@ -476,14 +568,19 @@
                 </div>
             </div>
 
-            <div class='card status_card mt-4'>
+        </div>
+
+        <!-- Backup -->
+        <div class="tab-content is-hidden" id="tab-backup">
+            <div class='card status_card mb-4'>
                 <header class='card-header'><p class='card-header-title'>Firmware update</p></header>
                 <div class='card-content'>
-                    <p class="is-size-7 mb-2">Upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept.</p>
+                    <p class="is-size-7 mb-2">Running from the SD card: upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept. Running from the flash memory (FLASH badge): upload a <code>tc100-code-&lt;version&gt;.bin</code> package (<code>src/flash/build-code.sh</code>); it is written to the flash, read back, and the camera reboots; "Roll back" returns to the code built into the firmware.</p>
+                    <p class="is-size-7 mb-2">From the flash memory, a system package <code>tc100-system-&lt;version&gt;.tar</code> (made by <code>src/flash/build-flash-kit.sh</code>) also replaces the programs, without SD card.</p>
                     <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
                     <div class="file is-small is-fullwidth mb-2">
                         <label class="file-label" style="width:100%">
-                            <input class="file-input" type="file" id="fwuFile" accept=".tar">
+                            <input class="file-input" type="file" id="fwuFile" accept=".tar,.bin">
                             <span class="file-cta" style="flex-shrink:0"><span class="file-label">Choose…</span></span>
                             <span class="file-name" id="fwuFileName" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">No file selected</span>
                         </label>
@@ -496,10 +593,18 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Backup -->
-        <div class="tab-content is-hidden" id="tab-backup">
+            <div class='card status_card mb-4' id="flashInstallCard" style="display:none">
+                <header class='card-header'><p class='card-header-title'>Install to flash (run without the SD card)</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-2">Puts this firmware into the camera's own memory, so that it works without the SD card (README, "Install to flash"). Three steps: <strong>1.</strong> the camera copies its original system partition to the card (nothing is written to the flash); <strong>2.</strong> on a computer, <code>src/flash/build-flash-kit.sh</code> turns that copy into the image to install; <strong>3.</strong> card back in, the camera installs it at boot, checks it, and restarts from its flash. The card keeps working as before until step 3 succeeds.</p>
+                    <p class="is-size-7 mb-2"><strong id="fiState">…</strong></p>
+                    <pre class="is-size-7 mb-2" id="fiLog" style="display:none;white-space:pre-wrap;max-height:10em;overflow:auto"></pre>
+                    <div class="buttons">
+                        <button class="button is-info is-small" type="button" id="btnFiPrepare" style="display:none">Step 1: copy the original system to the card</button>
+                        <button class="button is-warning is-small" type="button" id="btnFiInstall" style="display:none">Step 3: reboot and install</button>
+                    </div>
+                </div>
+            </div>
             <article class="message is-info is-small">
                 <div class="message-body">
                     <p><strong>Which one to use?</strong></p>
@@ -634,6 +739,69 @@
                 if (targetId === 'tab-integrations') { initHAStatus(); }
                 if (targetId === 'tab-network') { loadWifiSsid(); loadSlot('network_settings_slot'); }
                 if (targetId === 'tab-backup') { loadSlot('backup_slot'); }
+                if (targetId === 'tab-daynight' && EliteUI.initCamPanel) { EliteUI.initCamPanel(); }
+                if ((targetId === 'tab-detect' || targetId === 'tab-record') && EliteUI.initServiceToggles) {
+                    EliteUI.initServiceToggles(document.getElementById(targetId));
+                }
+                if (targetId === 'tab-record') { loadLocalRec(); }
+            });
+        });
+
+        // Settings → Recording: local backup recording (action.cgi
+        // local_rec_status / set_local_recording / local_rec_eject|resume).
+        function recStatusParts(d) {
+            if (!d || !d.ok) return ['Status unavailable.'];
+            if (d.rec_local !== '1') return ['Off.'];
+            var state = {
+                recording: 'Recording', standby: 'Standing by: Frigate receives the video',
+                waiting: 'Waiting for the video', paused: 'Paused (card can be removed)',
+                'no-card': 'No usable SD card', full: 'Card full', error: 'Write error, retrying'
+            }[d.state];
+            if (!state) return [d.card ? 'Starting…' : 'No usable SD card.'];
+            var parts = [state];
+            if (d.files) parts.push(d.files + ' file(s) this session');
+            if (d.free_mb) parts.push(d.free_mb + ' MB free');
+            return parts;
+        }
+        function showRecStatus(text, d) {
+            // One text node per part, so the French dictionary can translate each.
+            text.textContent = '';
+            recStatusParts(d).forEach(function (part, i) {
+                if (i) text.appendChild(document.createTextNode(' · '));
+                var span = document.createElement('span');
+                span.textContent = part;
+                text.appendChild(span);
+            });
+        }
+        function loadLocalRec(keepForm) {
+            var text = document.getElementById('rec_status_text');
+            fetch('cgi-bin/action.cgi?cmd=local_rec_status&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (text) showRecStatus(text, d);
+                    var form = document.getElementById('formLocalRec');
+                    if (!form || keepForm || form.dataset.loaded) return;
+                    form.dataset.loaded = '1';
+                    document.getElementById('rec_local').checked = d.rec_local === '1';
+                    document.getElementById('rec_when').value = d.rec_when === 'always' ? 'always' : 'offline';
+                    document.getElementById('rec_stream').value = d.rec_stream === 'sub' ? 'sub' : 'main';
+                    document.getElementById('rec_segment_min').value = d.rec_segment_min || 5;
+                    document.getElementById('rec_reserve_mb').value = d.rec_reserve_mb || 256;
+                })
+                .catch(function () { if (text) text.textContent = 'Status unavailable.'; });
+        }
+        ['btnRecEject', 'btnRecResume'].forEach(function (id) {
+            var btn = document.getElementById(id);
+            if (!btn) return;
+            btn.addEventListener('click', function () {
+                btn.classList.add('is-loading');
+                EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=' + (id === 'btnRecEject' ? 'local_rec_eject' : 'local_rec_resume') + '&format=json', { method: 'POST' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (window.showResult) window.showResult(d.ok ? (id === 'btnRecEject' ? 'The card can be removed' : 'Recording resumed') : (d.error || 'Failed'), d.ok ? 'is-success' : 'is-danger');
+                    })
+                    .catch(function () { if (window.showResult) window.showResult('Failed', 'is-danger'); })
+                    .finally(function () { btn.classList.remove('is-loading'); loadLocalRec(true); });
             });
         });
 
@@ -823,6 +991,7 @@
             var status = document.getElementById('fwuStatus');
             if (!file || !up) return;
             var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+            var stagedKind = '';
 
             // Bulma's display rules on .button/.progress override [hidden].
             function show(el, on) { el.style.display = on ? '' : 'none'; }
@@ -835,6 +1004,7 @@
                         show(rb, !!d.rollback_to);
                         if (d.rollback_to) rb.textContent = 'Roll back to ' + d.rollback_to;
                         show(inst, d.state === 'staged');
+                        stagedKind = d.kind || '';
                         if (d.state === 'staged') inst.textContent = 'Install ' + d.staged + ' & reboot';
                         return d;
                     }).catch(function() {});
@@ -888,7 +1058,13 @@
                     xhr.onload = function() {
                         up.classList.remove('is-loading'); up.disabled = false; show(bar, false);
                         var d; try { d = JSON.parse(xhr.responseText); } catch (e) { d = null; }
-                        if (d && d.ok) {
+                        if (d && d.ok && d.kind === 'system') {
+                            say('System package ' + d.version + ' is valid: the programs in the flash memory (/usr) and the code will be replaced (installed: ' + d.current + '). The video is paused until the install.');
+                            refresh();
+                        } else if (d && d.ok && d.kind === 'code') {
+                            say('Code package ' + d.version + ' is valid; it will be written to the flash memory (installed: ' + d.current + ').');
+                            refresh();
+                        } else if (d && d.ok) {
                             say('Package ' + d.version + ' is valid: ' + d.changed + ' of ' + d.files + ' files differ from the installed ' + d.current + '.');
                             refresh();
                         } else {
@@ -902,10 +1078,78 @@
                 });
             });
             inst.addEventListener('click', function() {
+                if (stagedKind === 'system') {
+                    run('install', 'Install the system package and reboot the camera?\n\nThe camera stops its programs, Wi-Fi included, writes its flash memory and restarts: it is unreachable for about 3 minutes. Do not unplug it.', 'Installing the system package.');
+                    return;
+                }
                 run('install', 'Install the uploaded firmware and reboot the camera?\n\nThe replaced files are kept for a rollback.', 'Installing.');
             });
             rb.addEventListener('click', function() {
                 run('rollback', 'Restore the files replaced by the last update and reboot the camera?', 'Rolling back.');
+            });
+            refresh();
+        })();
+
+        (function initPasswordForm() {
+            var a = document.getElementById('all_password'), b = document.getElementById('all_password2');
+            if (!a || !b) return;
+            function check() {
+                var bad = /["'\\$`%\s]/.test(a.value);
+                a.setCustomValidity(bad ? 'No spaces, quotes, %, $, ` or \\.' : '');
+                b.setCustomValidity(b.value && b.value !== a.value ? 'The two passwords differ.' : '');
+            }
+            a.addEventListener('input', check); b.addEventListener('input', check);
+        })();
+
+        (function initFlashInstall() {
+            var box = document.getElementById('flashInstallCard');
+            var st = document.getElementById('fiState');
+            var log = document.getElementById('fiLog');
+            var prep = document.getElementById('btnFiPrepare');
+            var inst = document.getElementById('btnFiInstall');
+            if (!box) return;
+            var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+            function show(el, on) { el.style.display = on ? '' : 'none'; }
+            var text = {
+                none: 'Step 1 not done yet.',
+                empty: 'Step 1 not done yet.',
+                prepared: 'Step 1 done: take the card out and run src/flash/build-flash-kit.sh on a computer (step 2).',
+                ready: 'Step 2 done: the image to install is on the card. Step 3 reboots the camera to install it (about 2 minutes).',
+                installed: 'Installed. If the page showed the FLASH badge after the test boot: power off, take the card out, power on.'
+            };
+            function refresh() {
+                return fetch('cgi-bin/flashinstall.cgi?cmd=status', { cache: 'no-store' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (!d || !d.ok || d.state === 'flash') { show(box, false); return; }
+                        show(box, true);
+                        st.textContent = d.running ? 'Copying the original system to the card…' : text[d.state] || d.state;
+                        log.textContent = d.log || ''; show(log, !!d.log);
+                        show(prep, !d.running && (d.state === 'none' || d.state === 'empty'));
+                        show(inst, !d.running && d.state === 'ready');
+                        if (d.running) setTimeout(refresh, 4000);
+                    }).catch(function() { show(box, false); });
+            }
+            function post(cmd) {
+                prep.disabled = inst.disabled = true;
+                return cf('cgi-bin/flashinstall.cgi?cmd=' + cmd, { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        prep.disabled = inst.disabled = false;
+                        if (!d || !d.ok) throw new Error((d && (d.message || d.error)) || 'refused');
+                        return d;
+                    })
+                    .catch(function(e) { prep.disabled = inst.disabled = false; st.textContent = 'Error:' + ' ' + e.message; throw e; });
+            }
+            prep.addEventListener('click', function() {
+                post('prepare').then(function() { setTimeout(refresh, 1500); }, function() {});
+            });
+            inst.addEventListener('click', function() {
+                if (!confirm('Reboot the camera and install the firmware into its flash memory?\n\nDo not unplug it during the next 3 minutes.')) return;
+                post('install').then(function() {
+                    st.textContent = 'Rebooting to install. This takes about 2 minutes, then the camera restarts from its flash with the card still in.';
+                    show(inst, false);
+                }, function() {});
             });
             refresh();
         })();

@@ -158,6 +158,44 @@ RTSP_DAYNIGHT_POLL_MS=500
 # into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
 # default until the thresholds are calibrated on hardware.
 TAMPER_DETECTION=0
+# Rescue Wi-Fi access point — ON HOLD: with the vendor hostapd (2013,
+# rtl871xdrv) and this driver, phones complete WPA2 but receive no data (no
+# DHCP), even with the station stopped (tested 2026-10-16); hostapd is not in
+# the flash /usr. Use wifi.txt on the SD card instead. When the Wi-Fi link (association + gateway ping)
+# stays down for WIFI_RESCUE_AFTER_MIN minutes, the camera opens a WPA2 access
+# point (SSID WIFI_RESCUE_SSID, default TC100-<end of MAC>) with the web
+# interface at https://10.42.0.1 to fix the Wi-Fi settings; it closes once the
+# Wi-Fi is back and nobody uses it. Holding the reset button 3-7 s opens it
+# for WIFI_RESCUE_MANUAL_MIN minutes. WIFI_RESCUE_PSK empty = a password
+# generated once, shown in Settings. WIFI_RESCUE_CHANNEL applies when the
+# camera is not associated (otherwise the access point follows the Wi-Fi).
+WIFI_RESCUE=0
+WIFI_RESCUE_AFTER_MIN=10
+WIFI_RESCUE_MANUAL_MIN=15
+WIFI_RESCUE_SSID=
+WIFI_RESCUE_PSK=
+WIFI_RESCUE_CHANNEL=6
+# Local backup recording (REC_LOCAL=1): the frames the SoC encoder already
+# produces for RTSP are copied into fragmented MP4 files on the SD card, with
+# no decoding or re-encoding. Files: records/YYYYMMDD/HHMMSS.mp4, REC_SEGMENT_SEC
+# long; the oldest are deleted to keep REC_RESERVE_MB free. A file cut by a
+# power loss stays playable up to its last second. From flash the card is
+# mounted on /mnt/sd ("scripts/rec-storage.sh eject" before removing it).
+# REC_STREAM=main|sub (main: 1080p, ~4.5 % CPU while recording; sub: <1 %).
+# REC_WHEN=offline: record only while the recorder is not receiving the RTSP
+# stream (Frigate down, Wi-Fi/network cut): from REC_OFFLINE_SEC after it stops
+# (the file starts with the last ~3 s kept in memory) until REC_POSTROLL_SEC
+# after it is back. REC_CLIENT = the recorder's IPv4 address; empty = the
+# host of the Frigate URL in Settings, or any client. REC_WHEN=always records
+# all the time.
+REC_LOCAL=0
+REC_SEGMENT_SEC=300
+REC_RESERVE_MB=256
+REC_STREAM=main
+REC_WHEN=offline
+REC_CLIENT=
+REC_OFFLINE_SEC=5
+REC_POSTROLL_SEC=30
 
 # ONVIF advertised stream policy:
 # - main-primary: ONVIF profile 1 = main stream (default)

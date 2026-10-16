@@ -382,6 +382,9 @@ input.switch[type="checkbox"] + label::before, input.switch[type="checkbox"] + l
 [hidden] { display: none !important; }
 
 /* Language switch (scripts/i18n.js) */
+.storage-flash .needs-sd { display: none !important; }
+.navbar-item.storage-badge { font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; opacity: .75; cursor: default; }
+.navbar-item.storage-badge.webfb-badge { color: #b45309; opacity: 1; }
 .navbar-item.lang-toggle { font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; }
 
 /* Tools menu: section label */
@@ -390,3 +393,50 @@ input.switch[type="checkbox"] + label::before, input.switch[type="checkbox"] + l
 #settings_warnings:empty { display: none; }
 .nav-section-divider { margin: .3rem 0; height: 1px; border: 0; background: var(--v2-rule); }
 #wifi_scan_results tr.wifi-pick { cursor: pointer; }
+
+/* ---- Camera controls under the picture (index.html #cam_panel) ---- */
+.cam-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin: 0.5rem 0.15rem 0.25rem;
+}
+.cam-group { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.cam-label { color: var(--v2-muted); font-size: 0.9rem; margin-right: 0.15rem; }
+.cam-modes.buttons { margin: 0 !important; }
+.cam-modes .button { margin-bottom: 0 !important; }
+.cam-panel .button.is-selected,
+.cam-panel .cam-toggle.is-on {
+  background: var(--v2-ink) !important;
+  border-color: var(--v2-ink) !important;
+  color: var(--v2-panel) !important;
+}
+.cam-panel.is-busy .button { cursor: progress; opacity: 0.7; }
+.cam-panel.is-unavailable .button { opacity: 0.45; }
+.cam-status { color: var(--v2-muted); font-size: 0.85rem; }
+@media (max-width: 600px) {
+  .cam-panel { gap: 0.5rem; }
+  .cam-toggles .button { flex: 1 1 auto; }
+}
+
+/* ---- Services page: group headings ---- */
+.services-table tbody tr.services-group-row,
+.services-table tbody tr.services-group-row:hover {
+  display: block;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 1rem 0 0.35rem !important;
+}
+.services-table tr.services-group-row th {
+  display: block;
+  border: 0 !important;
+  padding: 0 !important;
+  color: var(--v2-muted) !important;
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.services-table tbody[data-group]:not(:has(tr[data-script-name])) { display: none; }
+.svc-toggle-state { color: var(--v2-muted); font-size: 0.8rem; margin-left: 0.35rem; }

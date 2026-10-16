@@ -460,6 +460,11 @@ init_network()
     ifconfig wlan0 up
 
     WIFI_CONFIG="/mnt/wpa_supplicant.conf"
+    # wifi.txt at the root of the card (SSID=/PASSWORD=): Wi-Fi settings
+    # without the web interface. From flash, flashboot.sh has applied it.
+    if [ -f /mnt/wifi.txt ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" != flash ]; then
+        sh /mnt/scripts/wifi-txt.sh apply /mnt/wifi.txt "$WIFI_CONFIG" /etc/jffs2/anyka_cfg.ini >> $LOGPATH 2>&1
+    fi
     if [ -f "$WIFI_CONFIG" ]; then
         echo "Use manual WIFI setup" >> $LOGPATH
         mkdir /var/network
@@ -919,7 +924,9 @@ run_autostart_scripts()
             fi
         fi
         echo "Run $i" >> $LOGPATH
-        $i
+        # Not executable (flash firmware: squashfs keeps the file modes,
+        # unlike the SD card's FAT): run it with sh instead of skipping it.
+        if [ -x "$i" ]; then "$i"; else sh "$i"; fi
     done
 }
 
@@ -1130,6 +1137,18 @@ echo "--------Starting Hacks--------" >> $LOGPATH
 _fw_version="unknown"; [ -r /mnt/VERSION ] && read -r _fw_version < /mnt/VERSION
 echo "Version: $_fw_version" >> $LOGPATH
 stop_cloud
+# The update work directory of firmware before 2.0.1 was /mnt/update, a name
+# the vendor service.sh reserves (it asks update_check.sh to reflash the camera
+# from the card when wifitest/ is absent). Ours holds only state files: move it.
+if [ -d /mnt/update ] && [ ! -e /mnt/update/update.tar ] && [ ! -e /mnt/tc100-update ] &&
+   { [ -e /mnt/update/state ] || [ -e /mnt/update/update.log ] || [ -e /mnt/update/package.list ]; }; then
+    mv /mnt/update /mnt/tc100-update && echo "moved /mnt/update to /mnt/tc100-update" >> $LOGPATH
+fi
+# Installing to flash from the card (tc100-flash/ folder, scripts/flash-install.sh):
+# before the watchdog and before anything uses /usr; an install reboots.
+if [ -d /mnt/tc100-flash ]; then
+    sh /mnt/scripts/flash-install.sh boot >> $LOGPATH 2>&1
+fi
 enable_hardware_watchdog
 init_network
 cache_camera_ip

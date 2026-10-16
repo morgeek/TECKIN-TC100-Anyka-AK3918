@@ -9,7 +9,7 @@ HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
 NETWORK_STATE_FILE="/tmp/network-monitor.state"
 NETWORK_STATE_MAX_AGE_SECONDS=900
 CURL_BIN="/mnt/bin/curl"
-JQ_BIN="/mnt/bin/jq"
+JSONFLAT="${JSONFLAT:-/mnt/scripts/jsonflat.awk}"
 LOCAL_STATE_CGI="/mnt/www/cgi-bin/state.cgi"
 INTEGRATION_MANIFEST_STATE_FILE="/tmp/mqtt-bridge.integration-manifest.state"
 STREAM_FIFO="/tmp/mqtt-bridge-sub.fifo"
@@ -923,6 +923,7 @@ wifi_rx_drop|Wi-Fi Dropped Packets|{{ value_json.diag.wifi_rx_drop }}|"stat_cla"
 tcp_paws_drop|Refused Connections|{{ value_json.diag.tcp_paws_drop }}|"stat_cla":"total_increasing","ent_cat":"diagnostic","ic":"mdi:lan-disconnect"
 sound_level|Sound Level|{{ value_json.diag.sound_db }}|"unit_of_meas":"dBFS","stat_cla":"measurement","ic":"mdi:volume-high"
 light_level|Light Level|{{ value_json.diag.light_level }}|"stat_cla":"measurement","ic":"mdi:brightness-5"
+sd_state|SD Card State|{{ value_json.diag.sd_state }}|"ent_cat":"diagnostic","ic":"mdi:sd"
 DIAG
   publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/sd_problem/config" \
     "$(printf '{"name":"%s SD Card Problem","uniq_id":"%s_sd_problem","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.sd_problem == 1 else \\"OFF\\" }}","dev_cla":"problem","ent_cat":"diagnostic","ic":"mdi:sd",%s,%s}' \
@@ -1355,8 +1356,22 @@ build_diag_payload()
   case "$_dg_fat" in ''|*[!0-9]*) _dg_fat=0 ;; esac
   _dg_sdprob=0
   { [ "$_dg_ro" = 1 ] || [ "$_dg_fat" -gt 0 ]; } && _dg_sdprob=1
-  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s}' \
-    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob")"
+  # scripts/sd-health.sh (web-guard.sh, every 10 min, write test daily) knows
+  # more: a card that garbles writes, the recording card in flash mode.
+  _dg_sdst=""
+  if [ -r /tmp/sd-health ]; then
+    while IFS='=' read -r _dg_k _dg_v; do
+      case "$_dg_k" in
+        state) _dg_sdst="$_dg_v" ;;
+        errors) case "$_dg_v" in ''|*[!0-9]*) ;; *) [ "$_dg_v" -gt "$_dg_fat" ] && _dg_fat="$_dg_v" ;; esac ;;
+        readonly) [ "$_dg_v" = 1 ] && _dg_ro=1 ;;
+      esac
+    done < /tmp/sd-health
+    case "$_dg_sdst" in failing|readonly|errors) _dg_sdprob=1 ;; esac
+  fi
+  case "$_dg_sdst" in *[!a-z]*) _dg_sdst="" ;; esac
+  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s"}' \
+    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob" "${_dg_sdst:-unknown}")"
 }
 
 build_health_payload()
@@ -1849,10 +1864,14 @@ handle_command_payload()
   cmd=""
   value=""
   if printf '%s' "$payload_trimmed" | grep -q '^{'; then
-    if [ -x "$JQ_BIN" ]; then
-      cmd="$(printf '%s' "$payload_trimmed" | "$JQ_BIN" -r '.cmd // .command // empty' 2>/dev/null)"
-      value="$(printf '%s' "$payload_trimmed" | "$JQ_BIN" -r '.value // .profile // empty' 2>/dev/null)"
-    fi
+    # jq's `.cmd // .command` and `.value // .profile` (null and false are
+    # absent), from the flattened payload (scripts/jsonflat.awk, no jq).
+    _mb_pick="$(printf '%s' "$payload_trimmed" | LC_ALL=C awk -v require=object -f "$JSONFLAT" 2>/dev/null |
+      awk -F '\t' '$2 != "z" && !($2 == "b" && $3 == "false") { v[$1] = $3 }
+        END { c = (".cmd" in v) ? v[".cmd"] : v[".command"]; x = (".value" in v) ? v[".value"] : v[".profile"]
+              printf "%s\t%s\n", c, x }')"
+    cmd="${_mb_pick%%	*}"
+    value="${_mb_pick#*	}"
   fi
 
   if [ -z "$cmd" ]; then
@@ -2332,6 +2351,21 @@ mqtt_listener_loop()
   done
 }
 
+# mqtt_wait <seconds>: sleep without starting a process (read with a timeout
+# on a FIFO nobody writes to; BusyBox ash returns 1 on the timeout), sleep(1)
+# otherwise. The spool poll runs every few seconds all day.
+MQTT_WAIT_FIFO="${MQTT_WAIT_FIFO:-/tmp/mqtt-bridge.wait.fifo}"
+mqtt_wait()
+{
+  [ -p "$MQTT_WAIT_FIFO" ] || mkfifo "$MQTT_WAIT_FIFO" 2>/dev/null
+  if [ -p "$MQTT_WAIT_FIFO" ]; then
+    read -t "$1" _mw_nothing <> "$MQTT_WAIT_FIFO" 2>/dev/null
+    [ $? -eq 1 ] || sleep "$1"
+  else
+    sleep "$1"
+  fi
+}
+
 drain_command_spool()
 {
   _dc_session=""
@@ -2340,11 +2374,18 @@ drain_command_spool()
   case "$_dc_session" in ''|*[!0-9]*) return 0 ;; esac
   _dc_file="${MQTT_STREAM_RAW}.${_dc_session}"
   if [ "$MQTT_STREAM_SESSION" != "$_dc_session" ]; then
+    [ -z "$MQTT_STREAM_SESSION" ] || rm -f "${MQTT_STREAM_RAW}.${MQTT_STREAM_SESSION}.checked"
     MQTT_STREAM_SESSION="$_dc_session"
     MQTT_STREAM_OFFSET=0
   fi
   [ ! -f "${MQTT_STREAM_RAW}.reset" ] || return 0
   [ -f "$_dc_file" ] || return 0
+  # Nothing appended since the last look (this session's mark strictly newer
+  # than its spool, shell test, no process): skip the wc. Same-second appends
+  # are re-read; a new session has no mark yet.
+  _dc_mark="${_dc_file}.checked"
+  [ "$_dc_mark" -nt "$_dc_file" ] && return 0
+  : > "$_dc_mark"
   _dc_size="$(wc -c < "$_dc_file" 2>/dev/null)"
   read -r _dc_size <<EOF
 $_dc_size
@@ -2615,7 +2656,7 @@ run_loop()
     # running on its own timer, which a blocking read would have starved.
     if is_truthy_local "$MQTT_PERSISTENT_SUBSCRIBE"; then
       drain_command_spool
-      sleep "$MQTT_SPOOL_POLL_SECONDS"
+      mqtt_wait "$MQTT_SPOOL_POLL_SECONDS"
       continue
     fi
 
