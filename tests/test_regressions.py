@@ -2209,6 +2209,12 @@ class UsrUpdateFromFlash(unittest.TestCase):
         self.assertEqual((self.d / 'mtd6').read_bytes()[:16], b'\x11' * 16)
 
 
+class WebUiSources(unittest.TestCase):
+    def test_index_bundle_is_built_from_src_webui_index(self):
+        r = subprocess.run(['sh', str(ROOT / 'src/webui/build-index.sh'), '--check'], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 class FlashCodeZone(unittest.TestCase):
     """scripts/flash-code.sh + update.cgi in flash mode, on a fake 2 MB KERNEL partition."""
 
