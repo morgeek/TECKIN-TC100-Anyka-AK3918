@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.1] — 2026-10-16
+
+### Changed
+- **Lighter web requests.** `state.cgi?cmd=statusline` (polled by every open page) runs without subshells on its usual path: about half the time per request on the camera (0.94 → 0.50 s). `func.cgi`, sourced by every CGI, no longer runs `timeout` at each request (the probe is kept in `/tmp` once per boot) and only url-decodes values that need it.
+- **HTTPS from flash prefers ChaCha20-Poly1305** (the AK3918 has no AES instructions): serving a page costs about 55 % less CPU and is about twice as fast. Clients that only offer AES-GCM still get it. The certificate was already ECDSA P-256.
+- Diagnostics, Logs, Services, Config editor and Recordings get the same page title as the rest; the log tabs are one segmented control; the recordings player follows the dark theme.
+- Settings: the page title shows the open section; the search also finds the Wi-Fi and backup cards (loaded on the first search).
+- A web code or system update now records its restart as planned in the reboot history, instead of "UNEXPECTED".
+
+---
+
 ## [2.1.0] — 2026-10-16
 
 ### Changed

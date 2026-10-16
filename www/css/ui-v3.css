@@ -197,3 +197,22 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
   .settings-nav a { flex: none; white-space: nowrap; border: 1px solid var(--v2-rule); border-left-width: 1px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
   .settings-nav a.is-active { border-color: var(--v2-accent-fill); }
 }
+
+/* ---------------------------------------------------------- tool pages */
+/* Logs: the three logs as one segmented control. */
+.logs-tab-buttons { display: flex !important; flex-direction: row !important; gap: 0 !important; margin-bottom: 0.75rem; }
+.logs-tab-buttons .button { flex: 1; margin: 0 !important; border-radius: 0 !important; }
+.logs-tab-buttons .button + .button { margin-left: -1px !important; }
+.logs-tab-buttons .button:first-child { border-radius: 6px 0 0 6px !important; }
+.logs-tab-buttons .button:last-child { border-radius: 0 6px 6px 0 !important; }
+.logs-tab-buttons .button.is-active { background: var(--v2-accent-soft) !important; color: var(--v2-accent) !important; border-color: var(--v2-accent-fill) !important; position: relative; z-index: 1; }
+[data-theme="dark"] .logs-severity-tag, [data-theme="dark"] .logs-summary-chip { filter: saturate(0.7) brightness(0.85); }
+/* Recordings: the player frame follows the theme. */
+.records-video { background: var(--v2-panel) !important; border-color: var(--v2-rule) !important; border-radius: var(--v2-radius) !important; }
+.records-video .notification { margin: 0; }
+#disk_usage_label { color: var(--v2-muted) !important; }
+.motion-timeline > summary { display: flex; align-items: center; padding-right: 1.1rem !important; }
+.motion-timeline-thumb { background: var(--v2-hover) !important; }
+.motion-timeline-item { border-bottom-color: var(--v2-rule) !important; }
+/* Diagnostics tabs: same look as the rest of the bar. */
+#diagnostics_container .tabs li.is-active a { box-shadow: inset 0 -2px 0 var(--v2-accent-fill) !important; }
