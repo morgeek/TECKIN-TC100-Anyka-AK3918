@@ -67,7 +67,7 @@ TC100 firmware $ver - content of a new SD card
      PASSWORD=your password
    It is applied at boot; the password is then removed from the card.
 4. Insert the card, power on, open https://CAMERA-IP (root / pass on a new
-   configuration: the wizard asks for new ones).
+   configuration: change it, see README.md "Passwords").
 5. Optional, run without the card: create an empty folder named tc100-flash
    at the card root (or use Settings > Update & backup > Install to flash)
    and follow README.md, section "Install to flash".

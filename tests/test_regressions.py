@@ -1889,6 +1889,97 @@ class FlashKitOnComputer(unittest.TestCase):
             self.assertEqual((t / 'a/bin/lighttpd').read_bytes(), (ROOT / 'src/flash/prebuilt/lighttpd').read_bytes())
 
 
+class SetupWizard(unittest.TestCase):
+    """www/cgi-bin/wizard.cgi: the first-boot wizard's backend."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        (d / 'config').mkdir()
+        (d / 'config/boot.conf').write_text('REC_LOCAL=0\nREC_WHEN=offline\nWEB_MODE=full\n')
+        (d / 'config/mqtt.conf.dist').write_text('MQTT_ENABLE=0\nMQTT_HOST=\n')
+        (d / 'first').write_text('')
+        (d / 'wpa.conf').write_text('network={\n\tssid="OldNet"\n\tpsk="oldpassword"\n\tpriority=2\n}\n')
+        sc = d / 'scripts'; sc.mkdir()
+        shutil.copy(ROOT / 'scripts/wifi-txt.sh', sc / 'wifi-txt.sh')
+        (sc / 'flash-install.sh').write_text('#!/bin/sh\ncase "$1" in status) echo none ;; prepare) touch "%s/prepared" ;; esac\n' % d)
+        self.env = dict(os.environ, WZ_FIRST_BOOT_FLAG=str(d / 'first'), WZ_CONFIG=str(d / 'config'), WZ_CARD=str(d),
+                        WZ_SCRIPTS=str(sc), WZ_WIFI_CONF=str(d / 'wpa.conf'), TC100_STORAGE_FILE=str(d / 'storage'))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def post(self, body):
+        env = dict(self.env, REQUEST_METHOD='POST', CONTENT_LENGTH=str(len(body)), QUERY_STRING='')
+        r = subprocess.run(['sh', str(ROOT / 'www/cgi-bin/wizard.cgi')], input=body.encode(), capture_output=True, env=env)
+        return json.loads(r.stdout.decode().split('\n\n', 1)[1])
+
+    def test_full_answers_are_applied(self):
+        from urllib.parse import urlencode
+        r = self.post(urlencode(dict(profile='frigate_ha', security='https_strict', rec='offline', wifi_ssid='New Net',
+                                     wifi_pass='p@ss w0rd!', mqtt_host='192.0.2.5', mqtt_port='1883',
+                                     frigate_url='192.0.2.9:5000/', flash_prepare='1')))
+        self.assertEqual(r, {'ok': True, 'wifi': 'applied', 'flash': 'started'})
+        boot = (self.d / 'config/boot.conf').read_text()
+        self.assertIn('REC_LOCAL=1', boot); self.assertIn('REC_WHEN=offline', boot); self.assertIn('MQTT_ENABLE=1', boot)
+        self.assertIn('MQTT_HOST=192.0.2.5', (self.d / 'config/mqtt.conf').read_text())
+        self.assertEqual((self.d / 'config/frigate_live.conf').read_text(), 'FRIGATE_URL=http://192.0.2.9:5000\nFRIGATE_CAMERA=\n')
+        wpa = (self.d / 'wpa.conf').read_text()
+        self.assertIn('ssid="New Net"', wpa); self.assertIn('psk="p@ss w0rd!"', wpa)
+        self.assertIn('ssid="OldNet"', wpa)                               # fallback kept
+        self.assertTrue((self.d / 'config/.wizard_done').exists()); self.assertFalse((self.d / 'first').exists())
+        for _ in range(50):
+            if (self.d / 'prepared').exists():
+                break
+            time.sleep(0.1)
+        self.assertTrue((self.d / 'prepared').exists())
+        self.assertFalse(self.post('profile=standalone&security=https_strict')['ok'])   # once only
+
+    def test_invalid_answers_write_nothing(self):
+        before = (self.d / 'config/boot.conf').read_text()
+        for body in ('profile=standalone&security=https_strict&wifi_ssid=Net&wifi_pass=short',
+                     'profile=standalone&security=https_strict&wifi_ssid=a%22b&wifi_pass=12345678',
+                     'profile=standalone&security=https_strict&frigate_url=http://x%24y',
+                     'profile=standalone&security=https_strict&rec=sometimes'):
+            self.assertFalse(self.post(body)['ok'], body)
+        self.assertEqual((self.d / 'config/boot.conf').read_text(), before)
+        self.assertIn('OldNet', (self.d / 'wpa.conf').read_text()); self.assertNotIn('Net"\n\tscan', (self.d / 'wpa.conf').read_text())
+        self.assertTrue((self.d / 'first').exists())
+
+    def test_minimal_answers_keep_wifi_and_recording(self):
+        r = self.post('profile=nvr&security=https_mixed&rec=keep')
+        self.assertEqual(r['wifi'], 'unchanged'); self.assertEqual(r['flash'], 'no')
+        self.assertIn('REC_LOCAL=0', (self.d / 'config/boot.conf').read_text())
+        self.assertNotIn('New', (self.d / 'wpa.conf').read_text())
+
+    def test_info_and_flash_mode(self):
+        env = dict(self.env, REQUEST_METHOD='GET', QUERY_STRING='info', PATH='/nonexistent:/usr/bin:/bin')
+        out = subprocess.run(['sh', str(ROOT / 'www/cgi-bin/wizard.cgi')], capture_output=True, text=True, env=env).stdout
+        info = json.loads(out.split('\n\n', 1)[1])
+        self.assertEqual((info['first_boot'], info['storage'], info['flash'], info['card']), (True, 'sd', 'none', 1))
+        (self.d / 'storage').write_text('flash\n')
+        r = self.post('profile=standalone&security=https_strict&flash_prepare=1')
+        self.assertEqual(r['flash'], 'no')
+
+
+class PasswordsStayOffTheBrowser(unittest.TestCase):
+    def test_form_drafts_skip_password_fields(self):
+        js = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
+        cache = js[js.index('function cacheFormState'):js.index('function restoreFormState')]
+        self.assertIn("field.type !== 'password'", cache)
+        restore = js[js.index('function restoreFormState'):js.index('function restoreFormState') + 1500]
+        self.assertIn("field.type !== 'password'", restore)
+
+    def test_password_command_refuses_unsafe_characters(self):
+        src = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        block = src[src.index('    set_all_password)'):src.index('all_password "$password"')]
+        pattern = re.search(r'\n        (\*\[.*?\]\*)\|', block).group(1)
+        for pw, ok in (('Good-pass1', True), ('a b', False), ('a"b', False), ("a'b", False), ('a$b', False),
+                       ('a`b', False), ('a\\b', False), ('a%b', False)):
+            r = subprocess.run(['sh', '-c', 'case "$1" in %s) echo bad ;; *) echo ok ;; esac' % pattern, 'x', pw],
+                               capture_output=True, text=True)
+            self.assertEqual(r.stdout.strip(), 'ok' if ok else 'bad', pw)
+
+
 class FlashCodeZone(unittest.TestCase):
     """scripts/flash-code.sh + update.cgi in flash mode, on a fake 2 MB KERNEL partition."""
 

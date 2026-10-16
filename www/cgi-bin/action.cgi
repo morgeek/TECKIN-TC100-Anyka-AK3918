@@ -1734,11 +1734,20 @@ if [ -n "$F_cmd" ]; then
       password_raw="${F_password}"
       [ -n "$password_raw" ] || password_raw="${F_allpassword}"
       password=$(printf '%b' "${password_raw//%/\\x}")
-      if [ -z "$password" ] || [ "$password" = "*****" ]; then
-        echo "<p>Refusing empty/placeholder all-services password.</p>"
+      # Characters that the passwd/htdigest/rtspserver.conf writers cannot
+      # carry safely are refused (the form says so too).
+      case "$password" in
+        ''|'*****') _pw_err="Refusing an empty password." ;;
+        *[\"\'\$\`\\\ %]*|*"$(printf '\t')"*) _pw_err="Refused: no spaces, quotes, %, \$, \` or \\ in the password." ;;
+        *) _pw_err="" ;;
+      esac
+      [ ${#password} -lt 6 ] && [ -z "$_pw_err" ] && _pw_err="The password needs at least 6 characters."
+      if [ -n "$_pw_err" ]; then
+        if wants_json_response; then json_body_err "INVALID_VALUE" "$_pw_err"; else echo "<p>$_pw_err</p>"; fi
         exit 0
       fi
-      echo "<p>Setting all services password to : $password</p>"
+      if wants_json_response; then json_body_ok "Password changed for the web interface, RTSP, FTP and telnet."
+      else echo "<p>Password changed for the web interface, RTSP, FTP and telnet.</p>"; fi
       all_password "$password"
       restart_service_if_need /mnt/controlscripts/ftp-server
       restart_service_if_need /mnt/controlscripts/telnet-server
@@ -3441,22 +3450,17 @@ if [ -n "$F_cmd" ]; then
         elif [ "$_psk_len" -lt 8 ]; then
             json_body_err "INVALID_PSK" "PSK must be at least 8 characters"
         else
-            _wpa_tmp="${_wpa_conf}.tmp.$$"
-            {
-                printf 'ctrl_interface=/var/run/wpa_supplicant\n'
-                printf 'ctrl_interface_group=0\n'
-                printf 'ap_scan=1\n'
-                printf 'network={\n'
-                printf '\tssid="%s"\n'   "$_ssid"
-                printf '\tkey_mgmt=WPA-PSK\n'
-                printf '\tpsk="%s"\n'    "$_psk"
-                printf '\tpriority=2\n'
-                printf '}\n'
-            } > "$_wpa_tmp" && mv "$_wpa_tmp" "$_wpa_conf" || {
-                rm -f "$_wpa_tmp" 2>/dev/null
+            # scripts/wifi-txt.sh writes the new network first and keeps the
+            # ones already in the file as a fallback (priority 1): a wrong
+            # password does not take the camera off the network it was on.
+            _wd="/tmp/wifi-set.$$"; mkdir -p "$_wd"
+            printf 'SSID=%s\nPASSWORD=%s\n' "$_ssid" "$_psk" > "$_wd/wifi.txt"
+            if ! sh /mnt/scripts/wifi-txt.sh apply "$_wd/wifi.txt" "$_wpa_conf" /etc/jffs2/anyka_cfg.ini >/dev/null 2>&1; then
+                rm -rf "$_wd"
                 json_body_err "WRITE_ERROR" "Failed to write WiFi configuration"
                 exit 0
-            }
+            fi
+            rm -rf "$_wd"
             command -v wpa_cli >/dev/null 2>&1 && wpa_cli -i wlan0 reconfigure >/dev/null 2>&1 || true
             json_body_ok "WiFi configuration updated for SSID: $_ssid. Reconnecting..."
         fi
