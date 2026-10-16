@@ -3,10 +3,12 @@
 # /usr (extracted from a flash dump: unsquashfs of mtd6) — no vendor binary is
 # stored in this repository.
 #
+# hostapd is kept: scripts/wifi-rescue.sh runs the rescue access point with it.
+#
 # What changes compared with the vendor /usr (everything else is copied as is,
 # byte for byte):
 #   - removed: the cloud application and what only it uses (anyka_ipc,
-#     hostapd, test/demo programs except ak_ao_demo/ak_ai_demo, libapp_*,
+#     test/demo programs except ak_ao_demo/ak_ai_demo, libapp_*,
 #     libzbar, libwolfmqtt, libiconv/iconv, voice prompts *.mp3, nooie tools,
 #     ca.crt.pem, daemon, cmd_serverd, ccli), vendor libraries no process
 #     loads, USB gadget modules and unused vendor tools. The SD firmware never
@@ -36,7 +38,7 @@ cd "$W/usr"
 for b in bin/ak_*_demo bin/ak_lib_version; do
   case "$b" in bin/ak_ao_demo|bin/ak_ai_demo) ;; *) rm -f "$b" ;; esac
 done
-rm -f bin/anyka_ipc bin/hostapd bin/ca.crt.pem bin/get_nooie_uid bin/set_nooie_ssid \
+rm -f bin/anyka_ipc bin/ca.crt.pem bin/get_nooie_uid bin/set_nooie_ssid \
       bin/iconv lib/libiconv.so lib/libapp_*.so lib/libzbar.so* lib/libwolfmqtt.so* share/*.mp3
 # Never loaded on the camera (no process maps them; only disk_repair, itself
 # unused, needs two of them), USB gadget/burn modules, vendor tools nothing

@@ -1,0 +1,42 @@
+#!/bin/sh
+# Rescue Wi-Fi access point watcher (scripts/wifi-rescue.sh): an access point
+# with the web interface at https://10.42.0.1 when the Wi-Fi stays down.
+SERVICE_NAME="Wi-Fi rescue access point"
+PIDFILE="/var/run/wifi-rescue.pid"
+
+. /mnt/scripts/common_functions.sh
+
+status() {
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && echo "PID: $pid"
+}
+
+start() {
+  if [ -n "$(status)" ]; then return 0; fi
+  case "$(read_kv_config_value /mnt/config/boot.conf WIFI_RESCUE 0)" in
+    1|true|yes|on|enabled) ;;
+    *) echo "disabled (WIFI_RESCUE=0)"; return 3 ;;
+  esac
+  /bin/sh /mnt/scripts/wifi-rescue.sh run </dev/null >/dev/null 2>&1 &
+  echo "$!" > "$PIDFILE"
+}
+
+stop() {
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  rm -f "$PIDFILE"
+  sh /mnt/scripts/wifi-rescue.sh stop-ap service-stop >/dev/null 2>&1
+}
+
+health() {
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
+case "${1:-start}" in
+  start)   start   ;;
+  stop)    stop    ;;
+  restart) stop; sleep 1; start ;;
+  status)  status  ;;
+  health)  health  ;;
+  *) echo "Usage: $0 {start|stop|restart|status|health}" >&2; exit 1 ;;
+esac

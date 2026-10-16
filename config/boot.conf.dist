@@ -158,6 +158,21 @@ RTSP_DAYNIGHT_POLL_MS=500
 # into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
 # default until the thresholds are calibrated on hardware.
 TAMPER_DETECTION=0
+# Rescue Wi-Fi access point (off until validated on hardware: DHCP over the
+# access point does not reach clients yet). When the Wi-Fi link (association + gateway ping)
+# stays down for WIFI_RESCUE_AFTER_MIN minutes, the camera opens a WPA2 access
+# point (SSID WIFI_RESCUE_SSID, default TC100-<end of MAC>) with the web
+# interface at https://10.42.0.1 to fix the Wi-Fi settings; it closes once the
+# Wi-Fi is back and nobody uses it. Holding the reset button 3-7 s opens it
+# for WIFI_RESCUE_MANUAL_MIN minutes. WIFI_RESCUE_PSK empty = a password
+# generated once, shown in Settings. WIFI_RESCUE_CHANNEL applies when the
+# camera is not associated (otherwise the access point follows the Wi-Fi).
+WIFI_RESCUE=0
+WIFI_RESCUE_AFTER_MIN=10
+WIFI_RESCUE_MANUAL_MIN=15
+WIFI_RESCUE_SSID=
+WIFI_RESCUE_PSK=
+WIFI_RESCUE_CHANNEL=6
 # Local backup recording (REC_LOCAL=1): the frames the SoC encoder already
 # produces for RTSP are copied into fragmented MP4 files on the SD card, with
 # no decoding or re-encoding. Files: records/YYYYMMDD/HHMMSS.mp4, REC_SEGMENT_SEC
