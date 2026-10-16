@@ -10,6 +10,12 @@
  * TC100FIX_REC_RESERVE_MB=256   keep this much free: oldest files are deleted
  * TC100FIX_REC_STREAM=main|sub  which encoder output (largest = main)
  * TC100FIX_REC_STATUS=<path>    status line, every 10 s (default /var/run/tc100rec)
+ * TC100FIX_REC_WHEN=offline     record only while the recorder is not receiving
+ *                               the RTSP stream (always = all the time)
+ * TC100FIX_REC_CLIENT=<ipv4>    the recorder (default: any remote client)
+ * TC100FIX_REC_OFFLINE_SEC=10   start this long after the stream stops flowing
+ *                               (the file starts at the keyframe before: pre-roll)
+ * TC100FIX_REC_POSTROLL_SEC=30  keep recording this long after it is back
  * TC100FIX_REC_RING_KB=512      frame queue between the encoder thread and the
  *                               writer (frames are dropped, never waited for,
  *                               when the card is too slow)
@@ -50,7 +56,7 @@
 #define TAG "[tc100fix] rec: "
 #define TS 90000ULL                     /* MP4 media timescale */
 #define FRAG_US 1000000ULL              /* one fragment per second */
-#define FRAG_MAX_SAMPLES 64
+#define FRAG_MAX_SAMPLES 128            /* a whole GOP of pre-roll fits */
 #define PS_MAX 256                      /* parameter set size limit */
 
 /* ---------------------------------------------------------------- queue */
@@ -403,6 +409,14 @@ static void init_segment(struct buf *b, int codec, const struct vinfo *vi,
 static const char *r_dir, *r_status;
 static unsigned r_segment_us_sec = 300, r_reserve_mb = 256;
 
+/* TC100FIX_REC_WHEN=offline: record only while nobody (or not the recorder
+ * TC100FIX_REC_CLIENT, an IPv4 address) is receiving the RTSP stream. */
+static int r_offline;                    /* 0: always record */
+static unsigned r_client;                /* /proc/net/tcp byte order, 0 = any */
+static unsigned r_rtsp_port = 554;
+static uint64_t r_offline_us = 10000000ULL, r_postroll_us = 30000000ULL;
+static const char *r_tcp = "/proc/net/tcp";
+
 struct sample { uint32_t size; uint32_t key; uint64_t ts; };
 
 static struct {
@@ -417,6 +431,10 @@ static struct {
     uint64_t last_sync, last_ts;
     unsigned long long bytes, files;
     char state[32];
+    /* offline mode */
+    int want, watched, pre_ok;
+    uint64_t last_check, last_watched, watch_since;
+    unsigned char pre_ps[3][PS_MAX]; uint32_t pre_psn[3];
     uint64_t last_status, last_space, retry_at;
 } W = { .fd = -1 };
 
@@ -633,6 +651,7 @@ static void write_status(uint64_t now)
     pthread_mutex_lock(&q_lock); dr = q_dropped; pu = q_pushed; pthread_mutex_unlock(&q_lock);
     snprintf(tmp, sizeof(tmp), "%s.tmp", r_status);
     if (!(f = fopen(tmp, "w"))) return;
+    fprintf(f, "mode=%s\nrtsp_client=%d\n", r_offline ? "offline" : "always", W.watched);
     fprintf(f, "state=%s\nfile=%s\nfiles=%llu\nbytes=%llu\nframes=%lu\ndropped=%lu\ncodec=%s\nsize=%dx%d\nfree_mb=%lu\nuptime_s=%llu\n",
             W.state, W.path, W.files, W.bytes, pu, dr,
             W.codec == C_H265 ? "h265" : W.codec == C_H264 ? "h264" : "none", W.vi.w, W.vi.h,
@@ -649,12 +668,88 @@ static int paused(void)
     return access(p, F_OK) == 0;
 }
 
+/* A client receiving the RTSP stream: an established connection to the RTSP
+ * port from a remote address (from r_client when set) whose data flows: an
+ * unacknowledged send queue under 256 KB and no retransmission timeouts. A
+ * recorder that lost the network keeps its socket "established" for many
+ * minutes on the camera; its queue and timeouts give it away. */
+#ifdef REC_HOST_TEST
+/* REC_TEST_WATCH="from-to,from-to" (seconds of stream time): a client is
+ * watching during those ranges. */
+static uint64_t t_watch_ts;
+static int rtsp_watched(void)
+{
+    const char *v = getenv("REC_TEST_WATCH");
+    double a, b;
+    int k;
+    while (v && *v) {
+        if (sscanf(v, "%lf-%lf%n", &a, &b, &k) != 2) break;
+        if (t_watch_ts >= (uint64_t)(a * 1e6) + 5000000ULL && t_watch_ts < (uint64_t)(b * 1e6) + 5000000ULL) return 1;
+        v += k; if (*v == ',') v++;
+    }
+    return 0;
+}
+#else
+static int rtsp_watched(void)
+{
+    FILE *f = fopen(r_tcp, "r");
+    char line[256];
+    int seen = 0;
+    if (!f) return 0;
+    while (fgets(line, sizeof(line), f)) {
+        unsigned lip, lport, rip, rport, st, txq, rxq, tr, retr;
+        unsigned long when;
+        if (sscanf(line, " %*d: %8X:%4X %8X:%4X %2X %8X:%8X %2X:%8lX %8X",
+                   &lip, &lport, &rip, &rport, &st, &txq, &rxq, &tr, &when, &retr) != 10)
+            continue;
+        if (lport != r_rtsp_port || st != 1 || (rip & 0xff) == 127) continue;
+        if (r_client && rip != r_client) continue;
+        if (txq < 256 * 1024 && retr == 0) { seen = 1; break; }
+    }
+    fclose(f);
+    return seen;
+}
+#endif
+
+/* Decide, on the stream clock, whether frames go to a file. */
+static void update_want(uint64_t ts)
+{
+    if (!r_offline) { W.want = 1; return; }
+    if (!W.last_check) { W.last_check = ts; W.last_watched = ts; }   /* grace at start */
+    if (ts - W.last_check >= 2000000ULL || W.last_check == ts) {
+        W.last_check = ts;
+#ifdef REC_HOST_TEST
+        t_watch_ts = ts;
+#endif
+        W.watched = rtsp_watched();
+        if (W.watched) { W.last_watched = ts; if (!W.watch_since) W.watch_since = ts; }
+        else W.watch_since = 0;
+    }
+    if (ts - W.last_watched >= r_offline_us) W.want = 1;
+    else if (W.want && W.watch_since && ts - W.watch_since >= r_postroll_us) W.want = 0;
+}
+
+static void append_sample(const struct nal *u, int n, int key, uint64_t ts)
+{
+    size_t size = 0;
+    int i;
+    for (i = 0; i < n; i++) {          /* length-prefixed, parameter sets and AUDs left out */
+        int t = nal_type(W.codec, &u[i]);
+        if (W.codec == C_H265 ? (t >= 32 && t <= 35) : (t == 7 || t == 8 || t == 9)) continue;
+        b32(&W.data, u[i].n); b_put(&W.data, u[i].p, u[i].n);
+        size += 4 + u[i].n;
+    }
+    if (W.data.err) { W.data.err = 0; W.data.n = 0; W.ns = 0; W.waiting_key = 1; W.pre_ok = 0; return; }
+    if (!size) return;
+    W.s[W.ns].size = (uint32_t)size; W.s[W.ns].key = (uint32_t)key; W.s[W.ns].ts = ts;
+    W.ns++;
+}
+
 static void handle_frame(struct qhdr *h, const unsigned char *data)
 {
     struct nal u[24];
     const struct nal *vps = NULL, *sps = NULL, *pps = NULL;
     int n, i, key = 0;
-    size_t size = 0;
 
     n = split_nals(data, h->len, u, 24);
     if (n <= 0) return;
@@ -677,6 +772,40 @@ static void handle_frame(struct qhdr *h, const unsigned char *data)
         flush_frag(0);
         W.waiting_key = 1;
     }
+    update_want(h->ts);
+    if (!W.want) {
+        /* Standby: keep the frames since the last keyframe as pre-roll. */
+        if (W.fd >= 0) { flush_frag(h->ts); close_file(); }
+        set_state("standby");
+        W.waiting_key = 1;
+        if (key && sps && pps && (W.codec == C_H264 || vps) && sps->n <= PS_MAX && pps->n <= PS_MAX && (!vps || vps->n <= PS_MAX)) {
+            W.ns = 0; W.data.n = 0; W.pre_ok = 1;
+            W.pre_psn[0] = vps ? vps->n : 0; if (vps) memcpy(W.pre_ps[0], vps->p, vps->n);
+            W.pre_psn[1] = sps->n; memcpy(W.pre_ps[1], sps->p, sps->n);
+            W.pre_psn[2] = pps->n; memcpy(W.pre_ps[2], pps->p, pps->n);
+        }
+        if (!W.pre_ok || h->gap) { W.pre_ok = 0; W.ns = 0; W.data.n = 0; return; }
+        if (W.ns >= FRAG_MAX_SAMPLES || W.data.n > 768 * 1024) { W.pre_ok = 0; W.ns = 0; W.data.n = 0; return; }
+        append_sample(u, n, key, h->ts);
+        return;
+    }
+    if (W.fd < 0 && W.pre_ok && W.ns > 0 && !h->gap) {
+        /* Recording starts: the file begins with the pre-roll GOP. */
+        struct nal pv, ps_, pp;
+        uint64_t now = now_us();
+        pv.p = W.pre_ps[0]; pv.n = W.pre_psn[0]; ps_.p = W.pre_ps[1]; ps_.n = W.pre_psn[1];
+        pp.p = W.pre_ps[2]; pp.n = W.pre_psn[2];
+        W.pre_ok = 0;
+        memset(&W.vi, 0, sizeof(W.vi)); W.vi.chroma = 1;
+        if (now >= W.retry_at && (W.codec == C_H265 ? parse_sps265(&ps_, &W.vi) : parse_sps264(&ps_, &W.vi)) == 0
+            && open_file(W.codec == C_H265 ? &pv : NULL, &ps_, &pp, W.s[0].ts) == 0) {
+            W.waiting_key = 0;
+        } else {
+            if (W.fd >= 0) fail("open"); else close_file();
+            W.ns = 0; W.data.n = 0;
+        }
+    }
+    W.pre_ok = 0;
     if (W.waiting_key && !key) return;
 
     if (key && sps && pps && (W.codec == C_H264 || vps) && sps->n <= PS_MAX && pps->n <= PS_MAX && (!vps || vps->n <= PS_MAX)) {
@@ -704,17 +833,7 @@ static void handle_frame(struct qhdr *h, const unsigned char *data)
         flush_frag(h->ts);
     if (W.fd < 0) return;
     if (W.ns == 0) W.frag_base = h->ts;
-
-    for (i = 0; i < n; i++) {          /* length-prefixed, parameter sets and AUDs left out */
-        int t = nal_type(W.codec, &u[i]);
-        if (W.codec == C_H265 ? (t >= 32 && t <= 35) : (t == 7 || t == 8 || t == 9)) continue;
-        b32(&W.data, u[i].n); b_put(&W.data, u[i].p, u[i].n);
-        size += 4 + u[i].n;
-    }
-    if (W.data.err) { W.data.err = 0; W.data.n = 0; W.ns = 0; W.waiting_key = 1; return; }
-    if (!size) return;
-    W.s[W.ns].size = (uint32_t)size; W.s[W.ns].key = (uint32_t)key; W.s[W.ns].ts = h->ts;
-    W.ns++;
+    append_sample(u, n, key, h->ts);
 }
 
 static void *writer(void *arg)
@@ -768,6 +887,18 @@ static int rec_setup(void)
     if ((v = getenv("TC100FIX_REC_SEGMENT_SEC")) && atoi(v) >= 30) r_segment_us_sec = (unsigned)atoi(v);
     if ((v = getenv("TC100FIX_REC_RESERVE_MB")) && atoi(v) >= 16) r_reserve_mb = (unsigned)atoi(v);
     if ((v = getenv("TC100FIX_REC_RING_KB")) && atoi(v) >= 128 && atoi(v) <= 4096) ring = (size_t)atoi(v);
+    if ((v = getenv("TC100FIX_REC_WHEN")) && !strcmp(v, "offline")) r_offline = 1;
+    if ((v = getenv("TC100FIX_REC_CLIENT")) && v[0]) {
+        unsigned a, b, c, d;
+        if (sscanf(v, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 && a < 256 && b < 256 && c < 256 && d < 256)
+            r_client = (d << 24) | (c << 16) | (b << 8) | a;
+    }
+    if ((v = getenv("TC100FIX_REC_RTSP_PORT")) && atoi(v) > 0 && atoi(v) < 65536) r_rtsp_port = (unsigned)atoi(v);
+    if ((v = getenv("TC100FIX_REC_OFFLINE_SEC")) && atoi(v) >= 0) r_offline_us = (uint64_t)atoi(v) * 1000000ULL;
+    if ((v = getenv("TC100FIX_REC_POSTROLL_SEC")) && atoi(v) >= 0) r_postroll_us = (uint64_t)atoi(v) * 1000000ULL;
+#ifdef REC_HOST_TEST
+    if ((v = getenv("REC_TEST_TCP"))) r_tcp = v;
+#endif
     q_size = ring * 1024;
     q_buf = malloc(q_size);
     if (!q_buf) return -1;

@@ -1860,6 +1860,42 @@ class LocalRecording(unittest.TestCase):
                                     '-of', 'csv=p=0', str(cut)], capture_output=True, text=True)
                 self.assertGreater(int(p.stdout.strip() or 0), 100)
 
+    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe'), 'gcc + ffmpeg')
+    def test_records_only_while_the_recorder_is_away(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            exe = d / 'rec-test'
+            subprocess.run(['gcc', '-DREC_HOST_TEST', '-Wall', '-Wextra', '-Werror', '-O2', '-o', str(exe),
+                            str(ROOT / 'src/tc100fix/rec.c'), '-lpthread'], check=True)
+            src = d / 'in.h264'
+            r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=12',
+                                '-t', '70', '-c:v', 'libx264', '-g', '24', '-bf', '0', '-sc_threshold', '0',
+                                '-x264-params', 'aud=1', '-f', 'h264', str(src)], capture_output=True)
+            if r.returncode:
+                self.skipTest('ffmpeg without libx264')
+
+            def run(watch):
+                out = d / ('out' + watch.replace(',', '_')); out.mkdir()
+                env = dict(os.environ, TC100FIX_REC_DIR=str(out), TC100FIX_REC_STATUS=str(d / 'st'),
+                           TC100FIX_REC_RESERVE_MB='16', REC_TEST_ANY_FS='1', REC_TEST_WATCH=watch,
+                           TC100FIX_REC_WHEN='offline', TC100FIX_REC_OFFLINE_SEC='10', TC100FIX_REC_POSTROLL_SEC='15')
+                subprocess.run([str(exe), str(src), '12'], env=env, check=True, capture_output=True, timeout=60)
+                res = []
+                for f in sorted(out.glob('*/*.mp4')):
+                    p = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-show_entries',
+                                        'stream=nb_read_frames', '-of', 'csv=p=0', str(f)], capture_output=True, text=True)
+                    res.append(int(p.stdout.strip()))
+                return res
+            # watched all along: nothing recorded
+            self.assertEqual(run('0-100'), [])
+            # nobody watching: from 10 s (a keyframe) to the end
+            self.assertEqual(run(''), [720])
+            # away from 20 s to 40 s: starts at 30 s, ends 15 s after the
+            # recorder is back (+ the 2 s polling)
+            n = run('0-20,40-100')
+            self.assertEqual(len(n), 1)
+            self.assertTrue(300 <= n[0] <= 360, n)
+
     def test_refuses_ram_and_flash_filesystems(self):
         src = (ROOT / 'src/tc100fix/rec.c').read_text()
         for magic in ('0x01021994', '0x858458f6', '0x72b6', '0x73717368'):
