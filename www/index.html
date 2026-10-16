@@ -24,8 +24,8 @@
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.purged.min.css?v=1.8.4" rel="stylesheet">
     <link href="css/ui-modern.min.css?v=1.8.4-ui4" rel="stylesheet">
-    <link href="css/ui-v2.css?v=1.8.4-ui10" rel="stylesheet">
-    <script src="scripts/i18n.js?v=1.8.4-i18n6"></script>
+    <link href="css/ui-v2.css?v=1.8.4-ui11" rel="stylesheet">
+    <script src="scripts/i18n.js?v=1.8.4-i18n7"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -126,6 +126,14 @@
             <div class="navbar-menu" id="nav_menu">
                 <!-- left menu -->
                 <div class="navbar-start" id="common_nav">
+                    <a id="home_nav" class="navbar-item" href=".">
+                        <span class="nav-icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M3 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM16 10l5-3v10l-5-3" />
+                            </svg>
+                            <span>Live view</span>
+                        </span>
+                    </a>
                     <a id="status" class="navbar-item onpage" href="javascript: void(0)"
                         data-target="settings.html" data-force-reload="1">
                         <span class="nav-icon">
@@ -134,16 +142,6 @@
                                     d="M10.5 6h9M4.5 6h2M8.5 6a1 1 0 1 0-2 0a1 1 0 0 0 2 0zM19.5 12h-2M4.5 12h9M17.5 12a1 1 0 1 0 2 0a1 1 0 0 0-2 0zM10.5 18h9M4.5 18h2M8.5 18a1 1 0 1 0-2 0a1 1 0 0 0 2 0z" />
                             </svg>
                             <span>Settings</span>
-                        </span>
-                    </a>
-                    <a id="services" class="navbar-item onpage" href="javascript: void(0)"
-                        data-target="cgi-bin/scripts.cgi">
-                        <span class="nav-icon">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path
-                                    d="M10.3 4.3l.6 1.7a6.4 6.4 0 0 1 2.2 0l.6-1.7l2 1.1l-.4 1.7c.6.4 1.1 1 1.6 1.6l1.7-.4l1.1 2l-1.7.6a6.4 6.4 0 0 1 0 2.2l1.7.6l-1.1 2l-1.7-.4c-.4.6-1 1.1-1.6 1.6l.4 1.7l-2 1.1l-.6-1.7a6.4 6.4 0 0 1-2.2 0l-.6 1.7l-2-1.1l.4-1.7a6.4 6.4 0 0 1-1.6-1.6l-1.7.4l-1.1-2l1.7-.6a6.4 6.4 0 0 1 0-2.2l-1.7-.6l1.1-2l1.7.4c.4-.6 1-1.1 1.6-1.6l-.4-1.7l2-1.1zM12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6z" />
-                            </svg>
-                            <span>Services</span>
                         </span>
                     </a>
                     <div class="navbar-item has-dropdown is-hoverable admin-nav">
@@ -170,6 +168,14 @@
                                         <path d="M7 4h10l3 3v13H7zM14 4v3h3M10 11h7M10 15h7" />
                                     </svg>
                                     <span>Logs</span>
+                                </span>
+                            </a>
+                            <a id="services" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/scripts.cgi">
+                                <span class="info-menu-item">
+                                    <svg class="info-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M4 6h16M4 12h16M4 18h16M7 4v4M15 10v4M10 16v4" />
+                                    </svg>
+                                    <span>Services</span>
                                 </span>
                             </a>
                             <hr class="nav-section-divider">
@@ -255,6 +261,25 @@
                 <span id="rd_mqtt">MQTT<b>…</b></span>
             </div>
 
+            <section class="cam-panel" id="cam_panel" aria-label="Camera controls">
+                <div class="cam-group" role="group" aria-label="Day/night mode">
+                    <span class="cam-label">Day/night</span>
+                    <div class="buttons has-addons cam-modes">
+                        <button type="button" class="button is-small" data-cam-mode="auto" aria-pressed="false">Auto</button>
+                        <button type="button" class="button is-small" data-cam-mode="day" aria-pressed="false">Day</button>
+                        <button type="button" class="button is-small" data-cam-mode="night" aria-pressed="false">Night</button>
+                    </div>
+                </div>
+                <div class="cam-group cam-toggles" role="group" aria-label="Camera controls">
+                    <button type="button" class="button is-small cam-toggle" data-cam-control="ir-led" aria-pressed="false" title="Infrared lights">IR light</button>
+                    <button type="button" class="button is-small cam-toggle" data-cam-control="ir-cut" aria-pressed="false" title="Infrared-cut filter in front of the sensor (in for daylight colours)">IR filter</button>
+                    <button type="button" class="button is-small cam-toggle" data-cam-control="black-white" aria-pressed="false">Black &amp; white</button>
+                    <button type="button" class="button is-small cam-toggle" data-cam-control="front-led" aria-pressed="false">Blue LED</button>
+                    <button type="button" class="button is-small cam-toggle" data-cam-control="red-led" aria-pressed="false">Red LED</button>
+                </div>
+                <small class="cam-status" id="cam_status" aria-live="polite"></small>
+            </section>
+
             <div class="app-toolbar">
                 <div class="toolbar-group live-actions">
                     <button class="button v2-primary" id="live_toggle" type="button">Resume Live</button>
@@ -291,7 +316,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=1.8.4-ui8" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=1.8.4-ui9" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
