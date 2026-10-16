@@ -181,6 +181,15 @@ start()
       _rec_dir="$(sh /mnt/scripts/rec-storage.sh dir 2>/dev/null)"
       if [ -n "$_rec_dir" ]; then
         TC100FIX_ENV="$TC100FIX_ENV TC100FIX_REC_DIR=$_rec_dir TC100FIX_REC_SEGMENT_SEC=${REC_SEGMENT_SEC:-300} TC100FIX_REC_RESERVE_MB=${REC_RESERVE_MB:-256} TC100FIX_REC_STREAM=${REC_STREAM:-main}"
+        # REC_WHEN=offline: only while the recorder (REC_CLIENT, by default the
+        # host of the Frigate URL in Settings) is not receiving the stream.
+        _rec_client="$REC_CLIENT"
+        if [ -z "$_rec_client" ]; then
+          _rec_client="$(read_kv_config_value "$CONFIGPATH/frigate_live.conf" FRIGATE_URL "")"
+          _rec_client="${_rec_client#*://}"; _rec_client="${_rec_client%%[:/]*}"
+          case "$_rec_client" in *[!0-9.]*) _rec_client="" ;; esac
+        fi
+        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_REC_WHEN=${REC_WHEN:-offline} TC100FIX_REC_OFFLINE_SEC=${REC_OFFLINE_SEC:-10} TC100FIX_REC_POSTROLL_SEC=${REC_POSTROLL_SEC:-30}${_rec_client:+ TC100FIX_REC_CLIENT=$_rec_client}"
       else
         echo "local recording: no usable card, not recording" >> "$LOGPATH"
       fi ;;
