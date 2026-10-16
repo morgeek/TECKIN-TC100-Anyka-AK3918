@@ -35,6 +35,10 @@ LIGHTTPD_BIN="${LIGHTTPD_BIN:-/mnt/bin/lighttpd}"
 # every switch"; the default list would hide some).
 MIGRATE_KV_CONFIGS="boot.conf mqtt.conf netmon.conf motion.conf recording.conf onvif.conf onvif_events.conf sound_detection.conf timelapse.conf service_trim.conf ftp.conf telnetd.conf dns.conf network.conf isp_tune.conf"
 MIGRATE_HTTPD_CONFIGS="lighttpd.conf lighttpd.http.conf"
+# From flash, lighttpd runs on lighttpd.flash*.conf.dist (code zone, not
+# edited) and the bundled lighttpd (mbedTLS) rejects the SD-card config, which
+# names mod_openssl: checking it only logged a false "rejected".
+[ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ] && MIGRATE_HTTPD_CONFIGS=""
 
 # Keys whose .dist default differs from what the code does when the key is
 # absent. A camera that never had the key keeps its current behaviour, so the

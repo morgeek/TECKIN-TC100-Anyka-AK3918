@@ -439,6 +439,7 @@ window.tc100I18nFr = {
   "Open to load events.": "Ouvrez pour charger les événements.",
   "Other": "Autres",
   "PCM": "PCM",
+  "POSIX format, e.g. CET-1CEST,M3.5.0,M10.5.0/3 for Paris with summer time (east of Greenwich is negative). Logs and scheduled tasks use it after the next restart.": "Format POSIX, par ex. CET-1CEST,M3.5.0,M10.5.0/3 pour Paris avec l'heure d'été (à l'est de Greenwich, le décalage est négatif). Journaux et tâches planifiées l'utilisent après le prochain redémarrage.",
   "PTT volume": "Volume de l'interphone",
   "Parse cap": "Limite d'analyse",
   "Parsed table": "Tableau analysé",
@@ -699,6 +700,7 @@ window.tc100I18nFr = {
   "Used in Auto mode. Night starts when the light falls below the first luminance; day comes back above the second one (the gap avoids flapping at dusk). Current values: see the live reading under the picture.": "Utilisés en mode Auto. La nuit commence quand la lumière passe sous la première luminance ; le jour revient au-dessus de la seconde (l'écart évite les bascules répétées au crépuscule). Valeur actuelle : voir la lecture sous l'image.",
   "Username": "Nom d'utilisateur",
   "Variable (VBR)": "Variable (VBR)",
+  "Vendor": "Constructeur",
   "Vendor firmware (flash):": "Firmware constructeur (flash) :",
   "Version:": "Version :",
   "Video": "Vidéo",
@@ -887,6 +889,10 @@ window.tc100I18nFr = {
   [
    "^strength (\\d+)%$",
    "puissance $1 %"
+  ],
+  [
+   "^Vendor messages: (\\d+)$",
+   "Messages constructeur : $1"
   ]
  ],
  "untranslated": [
