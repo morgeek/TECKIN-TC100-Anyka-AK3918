@@ -1,0 +1,1 @@
+{"ok": true, "rec_local": "1", "rec_when": "offline", "rec_stream": "main", "rec_segment_min": 5, "rec_reserve_mb": "256", "card": 1, "paused": 0, "state": "standby", "file": "", "files": "42", "free_mb": "28411", "rtsp_client": "192.168.1.20", "storage": "flash"}

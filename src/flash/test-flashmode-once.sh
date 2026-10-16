@@ -1,5 +1,5 @@
 #!/bin/sh
-# ONE-SHOT test of the flash mode (no SD firmware) on camera 2, 2026-10-15.
+# ONE-SHOT test of the flash mode (no SD firmware) on a test camera, 2026-10-15.
 # Run by /usr/sbin/service.sh because /mnt/wifitest was renamed wifitest.off.
 # First thing: make the next boot a normal SD boot and remove this script.
 L=/tmp/log/fbtest.log
