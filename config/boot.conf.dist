@@ -182,7 +182,7 @@ WIFI_RESCUE_CHANNEL=6
 # REC_STREAM=main|sub (main: 1080p, ~4.5 % CPU while recording; sub: <1 %).
 # REC_WHEN=offline: record only while the recorder is not receiving the RTSP
 # stream (Frigate down, Wi-Fi/network cut): from REC_OFFLINE_SEC after it stops
-# (the file starts at the last keyframe before that) until REC_POSTROLL_SEC
+# (the file starts with the last ~3 s kept in memory) until REC_POSTROLL_SEC
 # after it is back. REC_CLIENT = the recorder's IPv4 address; empty = the
 # host of the Frigate URL in Settings, or any client. REC_WHEN=always records
 # all the time.
@@ -192,7 +192,7 @@ REC_RESERVE_MB=256
 REC_STREAM=main
 REC_WHEN=offline
 REC_CLIENT=
-REC_OFFLINE_SEC=10
+REC_OFFLINE_SEC=5
 REC_POSTROLL_SEC=30
 
 # ONVIF advertised stream policy:
