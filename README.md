@@ -37,7 +37,7 @@ earlier versions is still there and is the way in.
 ## What you can do
 
 **Video**
-- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`). ONVIF is available from the SD card.
+- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`). ONVIF (discovery and profiles, port 8081) in both modes: off by default, Tools → Services → onvif.
 - Presets for Frigate (light, balanced, quality), live image tuning (brightness, contrast, sharpness, saturation, anti-flicker, exposure cap) with no stream restart, a fixed frame rate, day / night with the IR LEDs and the IR filter, flip and on-screen text.
 - Still JPEG at `cgi-bin/currentpic.cgi`, cached so that Home Assistant polling costs nothing.
 

@@ -2,8 +2,8 @@
 # Assemble /usr/tc100 for the flash /usr image (src/flash/build-usr.sh) from
 # the firmware in this repository, as installed on the cameras:
 #   bin, lib       minus TLS (openssl, libssl, libcrypto), libcurl (curl is
-#                  static), libjq/libiconv (unused: jq is static), ONVIF
-#                  (monvifd), internet-only or SD-only tools (telegram,
+#                  static), jq and libjq/libiconv (replaced by awk),
+#                  internet-only or SD-only tools (telegram,
 #                  ffmpeg-min-recorder, min-recorder-list); curl replaced by
 #                  the HTTP-only build, lighttpd by the mbedTLS one (no PCRE)
 #   code           autorun.sh VERSION scripts controlscripts www sounds config
@@ -30,7 +30,7 @@ list() {
   fi
 }
 list |
-  grep -v -E '^config/ssl/|^bin/(openssl|monvifd|telegram|jq|ffmpeg-min-recorder|min-recorder-list|curl|lighttpd)$|^lib/(libssl|libcrypto|libcurl|libjq|libiconv|libpcre2)' |
+  grep -v -E '^config/ssl/|^bin/(openssl|telegram|jq|ffmpeg-min-recorder|min-recorder-list|curl|lighttpd)$|^lib/(libssl|libcrypto|libcurl|libjq|libiconv|libpcre2)' |
 while IFS= read -r f; do
   mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"
 done
