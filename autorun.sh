@@ -1137,6 +1137,13 @@ echo "--------Starting Hacks--------" >> $LOGPATH
 _fw_version="unknown"; [ -r /mnt/VERSION ] && read -r _fw_version < /mnt/VERSION
 echo "Version: $_fw_version" >> $LOGPATH
 stop_cloud
+# The update work directory of firmware before 2.0.1 was /mnt/update, a name
+# the vendor service.sh reserves (it asks update_check.sh to reflash the camera
+# from the card when wifitest/ is absent). Ours holds only state files: move it.
+if [ -d /mnt/update ] && [ ! -e /mnt/update/update.tar ] && [ ! -e /mnt/tc100-update ] &&
+   { [ -e /mnt/update/state ] || [ -e /mnt/update/update.log ] || [ -e /mnt/update/package.list ]; }; then
+    mv /mnt/update /mnt/tc100-update && echo "moved /mnt/update to /mnt/tc100-update" >> $LOGPATH
+fi
 # Installing to flash from the card (tc100-flash/ folder, scripts/flash-install.sh):
 # before the watchdog and before anything uses /usr; an install reboots.
 if [ -d /mnt/tc100-flash ]; then
