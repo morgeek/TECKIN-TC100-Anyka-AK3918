@@ -2,6 +2,44 @@
 
 Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGELOG.md).
 
+## Reading the camera logs (2.1.2)
+
+Logs of two cameras over a day (2026-10-16) showed that almost every line marked
+"error" or "critical" was not a fault:
+
+| What you see | What it is |
+|---|---|
+| `kern.err kernel: reg0x40, read:0x89`, `f22_set_power_on`, `akisp_init`, `2lane thssettle` | the sensor driver dumping its registers each time the video starts, at error priority |
+| `user.emerg … encode frame type=1`, `group_type=1, index=…`, `sensor fps switch 25 to 10` | the vendor encoder library starting a stream, at emergency priority |
+| `user.err … ak_cmd_register_module … no server was register` | the vendor library looking for the cloud command server, which is not run |
+| `user.emerg … [wait_move_stable:193] not stable` | vendor image library message every ~15 min, no effect seen |
+| `RTW: …` (≈130 lines at boot) | Wi-Fi driver banner |
+| `rfkill: Cannot get wiphy`, `ioctl[SIOCSIWENCODEEXT]: Invalid argument` | wpa_supplicant with the vendor driver's old interface; the camera connects anyway |
+| `MTLS … fatal alert message was received from our peer` | a browser refusing the self-signed certificate until it is accepted |
+
+The Logs page now reads the priority that syslog lines carry instead of guessing
+from words, and shows these as "Vendor" instead of errors. Real faults stay
+errors: SD card timeouts (`mmcblk0: timed out…`, `get_card_status wait too long`),
+out of memory, kernel oops.
+
+Found at the same time and fixed in 2.1.2:
+
+- **Clock**: only the RTSP server had a time zone (and on a camera left on the
+  template, the whole commented file as its `TZ`), so kernel and vendor lines
+  in the same log were two hours apart and cron ran on UTC. `TZ` is now read
+  properly and exported for every program from the start. The template's
+  example was also wrong: in POSIX, Paris is `CET-1CEST,M3.5.0,M10.5.0/3`,
+  not `UTC+1`.
+- **False boot warnings** from flash: "/mnt has less than 4 MB free" (a RAM
+  disk by design), "Self-heal skipped: missing libcurl" (not shipped) and
+  "lighttpd.conf rejected" (the SD-card web config, not used from flash).
+- **Sudden restarts**: on a camera with a failing SD card, the kernel's card
+  driver busy-waits (`get_card_status wait too long`) until the hardware
+  watchdog resets the camera — about every 1–4 hours that day. The reboot
+  history now records the card state with each heartbeat (every 5 minutes from
+  flash) and names it as the likely cause; web updates are recorded as
+  requested restarts instead of "UNEXPECTED".
+
 ## Fixed issues (2026 bring-up)
 
 All the issues found during the August 2026 hardware bring-up have been fixed and

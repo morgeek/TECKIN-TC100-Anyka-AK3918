@@ -1,14 +1,12 @@
-# Device timezone offset
-# Read by scripts/update_timezone.sh at service start to set the TZ environment
-# variable used by BusyBox date/cron/syslog.
+# Time zone of the camera: a POSIX TZ string, on the first line that is not
+# a comment. Used for the clock in logs, cron jobs (scheduled reboot) and the
+# image overlay.
 #
-# Format: UTC±HH or UTC±HH:MM
-#   UTC+0    — Greenwich Mean Time / UTC (default)
-#   UTC-5    — US Eastern Standard Time
-#   UTC-8    — US Pacific Standard Time
-#   UTC+1    — Central European Time
-#   UTC+5:30 — India Standard Time
-#
-# Daylight-saving time adjustments are NOT applied automatically; update
-# this value manually when clocks change, or use UTC to avoid the issue.
-UTC+0
+# POSIX sign: the offset is what you ADD to local time to get UTC, so places
+# east of Greenwich are negative. Examples:
+#   UTC0                              UTC (default)
+#   CET-1CEST,M3.5.0,M10.5.0/3        France, Belgium, Germany… (summer time included)
+#   GMT0BST,M3.5.0/1,M10.5.0          United Kingdom
+#   EST5EDT,M3.2.0,M11.1.0            US Eastern
+#   <+0530>-5:30                      India
+UTC0
