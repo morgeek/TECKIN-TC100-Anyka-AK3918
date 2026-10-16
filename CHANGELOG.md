@@ -13,7 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dashboard and Live switch instantly: the home page is kept aside while other pages are open, not downloaded again.
 
 ### Added
-- **Dashboard**: CPU, memory, Wi-Fi signal, network out and uptime tiles with small graphs; network in/out and CPU/memory graphs over the last 5 minutes; snapshot, streams, device and storage cards. The graphs are kept in the browser only, and are fed by `state.cgi?cmd=dash` (raw counters from `/proc`, shell built-ins only, every 5 s while the dashboard is on screen) and `cmd=dashinfo` (once a minute).
+- **Dashboard**: CPU, memory, Wi-Fi signal, network out and uptime tiles with small graphs; network in/out and CPU/memory graphs over the last 5 minutes; snapshot, streams, device and storage cards. The graphs are kept in the browser only, and are fed by `dash.cgi` (raw counters from `/proc`, a separate tiny CGI, shell built-ins only, every 5 s while the dashboard is on screen) and `cmd=dashinfo` (once a minute).
 
 ---
 
