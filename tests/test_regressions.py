@@ -2158,6 +2158,7 @@ class UsrUpdateFromFlash(unittest.TestCase):
         env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
                    HTTP_X_CSRF_TOKEN='ab12', FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'fw'),
                    UU_WORK=str(self.d / 'sysupd'), UU_SCRIPT=str(ROOT / 'scripts/usr-update.sh'))
+        env.setdefault('FM', str(ROOT / 'scripts/flashmode-once.sh'))
         r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
         return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
 
@@ -2178,6 +2179,24 @@ class UsrUpdateFromFlash(unittest.TestCase):
         bad = self.cgi('POST', 'upload', tar.read_bytes())
         self.assertFalse(bad['ok']); self.assertIn('another original', bad['message'])
         self.assertFalse((self.d / 'sysupd').exists())
+
+    def test_web_install_of_a_system_package_starts_the_installer(self):
+        tar = self.d / 'sys.tar'
+        with open(self.pkg / 'usr.img', 'ab') as f:
+            f.write(b'\0' * 700 * 1024)
+        (self.pkg / 'usr.img.md5').write_text(hashlib.md5((self.pkg / 'usr.img').read_bytes()).hexdigest() + '  usr.img\n')
+        subprocess.run(['tar', '-cf', str(tar), '-C', str(self.pkg), 'usr.img', 'usr.img.md5', 'code.bin', 'camera.txt', 'VERSION'], check=True)
+        self.assertTrue(self.cgi('POST', 'upload', tar.read_bytes())['ok'])
+        self.env['FM'] = str(ROOT / 'scripts/flashmode-once.sh')
+        r = self.cgi('POST', 'install')            # FC_WORK does not exist yet
+        self.assertEqual((r['ok'], r['kind']), (True, 'system'))
+        log = self.d / 'sysupd/install.log'
+        for _ in range(100):
+            if log.exists() and 'DONE' in log.read_text():
+                break
+            time.sleep(0.2)
+        self.assertIn('DONE', log.read_text())
+        self.assertIn('system 9.9.9 written', (self.d / 'jffs/log/code-updates.log').read_text())
 
     def test_install_aborts_when_a_process_cannot_be_stopped(self):
         self.uu('check', str(self.pkg))
