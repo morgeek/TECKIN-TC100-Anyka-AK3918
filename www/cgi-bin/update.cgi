@@ -124,19 +124,24 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
         echo '{"ok":false,"error":"nothing_staged","message":"Upload a code package first."}'; exit 0
       fi
       mkdir -p "$FW"; touch "$FW/installing"
+      # An SD card with the firmware hook would start instead of the new code:
+      # one boot from flash (usr-update.sh oneshot). Both scripts are copied to
+      # RAM first: /mnt/scripts is the code zone being rewritten.
+      cp "$UU" /tmp/usr-update.sh 2>/dev/null; cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null
       ( trap '' HUP
-        # An SD card with the firmware hook would start instead of the new
-        # code: one boot from flash (usr-update.sh oneshot).
         if sh "$FC" write "$FW/code.bin" >/dev/null 2>&1; then rm -f "$FW/code.bin"
-          cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null &&
-            sh "$UU" oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
+          [ -s /tmp/usr-update.sh ] && sh /tmp/usr-update.sh oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
           sync; reboot
         else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"install"}' ;;
     POST:rollback)
       mkdir -p "$FW"; touch "$FW/installing"
+      cp "$UU" /tmp/usr-update.sh 2>/dev/null; cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null
       ( trap '' HUP
-        if sh "$FC" clear >/dev/null 2>&1; then sync; reboot; else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
+        if sh "$FC" clear >/dev/null 2>&1; then
+          [ -s /tmp/usr-update.sh ] && sh /tmp/usr-update.sh oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
+          sync; reboot
+        else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"rollback"}' ;;
     POST:discard)
       rm -f "$FW/code.bin"
