@@ -61,6 +61,7 @@ sdh_check()
         fi
     fi
     if [ ! -b "$DEV" ] && [ -z "$_mp" ]; then _st=none
+    elif [ -z "$_mp" ] && [ "$_err" -gt 0 ]; then _st=errors      # not mounted, but the kernel saw it fail
     elif [ -z "$_mp" ]; then _st=unused
     elif [ "$_t" = bad ]; then _st=failing
     elif [ "$_ro" = 1 ]; then _st=readonly
