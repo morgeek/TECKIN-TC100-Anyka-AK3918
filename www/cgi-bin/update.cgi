@@ -113,7 +113,9 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
         cp "$UU" "$SW/usr-update.sh" && cp "$FC" "$SW/flash-code.sh" &&
           cp "${FM:-/mnt/scripts/flashmode-once.sh}" "$SW/flashmode-once.sh" || {
           echo '{"ok":false,"error":"copy","message":"Could not prepare the installer."}'; exit 0; }
-        : > "$FW/installing" 2>/dev/null || { mkdir -p "$FW"; : > "$FW/installing"; }
+        # (not ": > file || ...": a failed redirection of a special builtin
+        # ends a non-interactive ash, and this request answered nothing)
+        mkdir -p "$FW"; touch "$FW/installing"
         ( trap '' HUP TERM; exec /bin/sh "$SW/usr-update.sh" install "$SW" ) </dev/null >/dev/null 2>&1 &
         echo '{"ok":true,"started":"install","kind":"system"}'
         exit 0
@@ -121,7 +123,7 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
       if ! sh "$FC" check "$FW/code.bin" >/dev/null 2>&1; then
         echo '{"ok":false,"error":"nothing_staged","message":"Upload a code package first."}'; exit 0
       fi
-      : > "$FW/installing"
+      mkdir -p "$FW"; touch "$FW/installing"
       ( trap '' HUP
         # An SD card with the firmware hook would start instead of the new
         # code: one boot from flash (usr-update.sh oneshot).
@@ -132,7 +134,7 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
         else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"install"}' ;;
     POST:rollback)
-      : > "$FW/installing"
+      mkdir -p "$FW"; touch "$FW/installing"
       ( trap '' HUP
         if sh "$FC" clear >/dev/null 2>&1; then sync; reboot; else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"rollback"}' ;;
