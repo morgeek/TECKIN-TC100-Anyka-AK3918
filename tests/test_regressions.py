@@ -1600,11 +1600,39 @@ class FlashWebServer(unittest.TestCase):
 
     def test_selection_in_flash_mode(self):
         cf = (ROOT / 'scripts/common_functions.sh').read_text()
-        self.assertIn('_hs_conf=/mnt/config/lighttpd.flash.conf.dist', cf)
+        fn = cf[cf.index('_http_server_lighttpd(){'):cf.index('# Control the http server')]
+        flash = fn[fn.index('/tmp/tc100-storage'):fn.index('install_config "$_hs_conf"')]
+        # from flash: only the flash templates, HTTPS first, plain HTTP if it does not listen
+        self.assertIn('-f /mnt/config/lighttpd.flash.conf.dist', flash)
+        self.assertIn('_hs_http=/mnt/config/lighttpd.flash-http.conf.dist', flash)
+        self.assertLess(flash.index('port_listening 443'), flash.index('-f "$_hs_http"'))
+        self.assertNotIn('install_config', flash)
         ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
-        flash = ws.index('/tmp/tc100-storage'); full = ws.index('case "$WEB_MODE" in')
-        self.assertLess(flash, full)   # decided before the OpenSSL path
-        self.assertIn('lighttpd.flash.conf', ws[flash:full])
+        fl = ws.index('if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then')
+        sd = ws.index('    full)\n')
+        self.assertLess(fl, sd)   # decided before the OpenSSL path
+        block = ws[fl:sd]
+        self.assertIn('*) http_server on ;;', block)
+        self.assertIn('telnetd -p 23', block)          # rescue when no web server
+        self.assertIn('exit 0', block)
+
+    def test_flash_https_falls_back_to_http(self):
+        cf = (ROOT / 'scripts/common_functions.sh').read_text()
+        fn = cf[cf.index('_http_server_lighttpd(){'):cf.index('# Control the http server')]
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'storage').write_text('flash\n')
+            (d / 'pem').write_text('x\n')
+            fn2 = (fn.replace('/tmp/tc100-storage', str(d / 'storage')).replace('/mnt/config/lighttpd.pem', str(d / 'pem'))
+                     .replace('/mnt/bin/lighttpd', 'echo lighttpd').replace('sleep 1', ':'))
+            script = ('port_listening() { return 1; }\nlogger() { :; }\nkillall() { echo killall "$@"; }\n'
+                      + fn2 + '\nWEB_MODE=full; _http_server_lighttpd\n')
+            out = subprocess.run(['sh', '-c', script], capture_output=True, text=True).stdout.split('\n')
+            self.assertEqual([l for l in out if l], ['lighttpd -f /mnt/config/lighttpd.flash.conf.dist', 'killall lighttpd',
+                                                     'lighttpd -f /mnt/config/lighttpd.flash-http.conf.dist'])
+            script = script.replace('WEB_MODE=full', 'WEB_MODE=http')
+            out = subprocess.run(['sh', '-c', script], capture_output=True, text=True).stdout.split('\n')
+            self.assertEqual([l for l in out if l], ['lighttpd -f /mnt/config/lighttpd.flash-http.conf.dist'])
 
 
 class AutostartModes(unittest.TestCase):

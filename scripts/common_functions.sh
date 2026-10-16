@@ -375,15 +375,28 @@ ir_cut(){
 _http_server_lighttpd(){
   _hs_conf=/mnt/config/lighttpd.conf
   [ "$WEB_MODE" = "http" ] && _hs_conf=/mnt/config/lighttpd.http.conf
-  # Firmware from flash: lighttpd has mbedTLS instead of OpenSSL, and no
-  # openssl tool to make a certificate — HTTPS only with an existing one.
-  if [ "$_hs_conf" = /mnt/config/lighttpd.conf ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
-    # The template itself, never a copy: it must match the lighttpd binary
-    # of the running firmware (no PCRE, mbedTLS), and nobody edits it.
-    if [ -s /mnt/config/lighttpd.pem ]; then _hs_conf=/mnt/config/lighttpd.flash.conf.dist
-    else _hs_conf=/mnt/config/lighttpd.flash-http.conf.dist; fi
+  # Firmware from flash: lighttpd has mbedTLS instead of OpenSSL, no PCRE and
+  # no openssl tool to make a certificate. Only the flash templates match that
+  # binary (a lighttpd.conf brought from an SD card may not even parse), and
+  # HTTPS needs an existing certificate it can load (ECDSA). If lighttpd does
+  # not come up with TLS, the plain HTTP template is used instead: a camera
+  # without its web interface can only be fixed with a screwdriver.
+  if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+    _hs_http=/mnt/config/lighttpd.flash-http.conf.dist
+    if [ "$_hs_conf" = /mnt/config/lighttpd.conf ] && [ -s /mnt/config/lighttpd.pem ]; then
+      LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f /mnt/config/lighttpd.flash.conf.dist
+      _hs_i=0
+      while [ $_hs_i -lt 5 ]; do
+        sleep 1; _hs_i=$((_hs_i + 1))
+        port_listening 443 && return 0
+      done
+      logger -t tc100-event -p user.err "web server: HTTPS did not start (certificate?), falling back to HTTP" 2>/dev/null
+      killall lighttpd 2>/dev/null; sleep 1
+    fi
+    LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$_hs_http"
+    return
   fi
-  case "$_hs_conf" in *.dist) ;; *) install_config "$_hs_conf" ;; esac
+  install_config "$_hs_conf"
   LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$_hs_conf"
 }
 
