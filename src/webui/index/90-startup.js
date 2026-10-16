@@ -18,13 +18,28 @@
         if (titleNode) {
           titleNode.title = title;
         }
+        var brandHost = byId("brand_host");
+        if (brandHost) brandHost.textContent = title;
       });
 
     document.addEventListener("click", function (event) {
+      var homeTarget = event.target.closest("[data-home-view]");
+      if (homeTarget) {
+        event.preventDefault();
+        showHome(homeTarget.dataset.homeView);
+        if (window.innerWidth < 1024) closeNavMenu(); else closeNavDropdowns();
+        return;
+      }
       var onPageTarget = event.target.closest(".onpage");
       if (onPageTarget && onPageTarget.dataset.target) {
         event.preventDefault();
-        loadOnPageTarget(onPageTarget.dataset.target, null, onPageTarget.dataset.forceReload === "1");
+        // Settings sections open straight from the menu (data-tab); the page
+        // is fetched only if it is not already on screen.
+        var tab = onPageTarget.dataset.tab;
+        loadOnPageTarget(onPageTarget.dataset.target, tab ? function () {
+          if (typeof window.tc100SettingsTab === "function") window.tc100SettingsTab(tab);
+        } : null, onPageTarget.dataset.forceReload === "1");
+        if (onPageTarget.id) setHash("#" + onPageTarget.id);
         if (window.innerWidth < 1024) {
           closeNavMenu();
         } else {
@@ -94,13 +109,6 @@
       });
     }
 
-    if (document.location.hash !== "") {
-      var hashTarget = document.querySelector(document.location.hash);
-      if (hashTarget) {
-        hashTarget.click();
-      }
-    }
-
     initDiagnosticsPanel();
 
     initLiveViewVisibilityObserver();
@@ -166,6 +174,19 @@
     fixMenuPadding();
     initNavDropdownToggles();
     refreshSysUsage();
+
+    // #dashboard (default), #live, or the id of a menu entry (#status,
+    // #nav_video, #logs…) to come back to the same page after a reload.
+    var hash = document.location.hash;
+    var hashTarget = null;
+    if (hash && hash !== "#dashboard" && hash !== "#live" && /^#[A-Za-z][\w-]*$/.test(hash)) {
+      hashTarget = document.querySelector(hash);
+    }
+    if (hashTarget && hashTarget.classList.contains("onpage")) {
+      hashTarget.click();
+    } else {
+      showHome(hash === "#live" ? "live" : "dashboard");
+    }
   });
 
   window.addEventListener("resize", fixMenuPadding);

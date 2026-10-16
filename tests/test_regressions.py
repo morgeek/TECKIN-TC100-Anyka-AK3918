@@ -2216,6 +2216,36 @@ class WebUiSources(unittest.TestCase):
         r = subprocess.run(['sh', str(ROOT / 'src/webui/build-index.sh'), '--check'], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_dash_endpoint_reads_proc_without_processes(self):
+        # Polled every 5 s while the dashboard is open: shell built-ins only.
+        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        body = s[s.index('  dash)\n'):s.index('  dashinfo)\n')]
+        self.assertEqual(body.count('$(') - body.count('$(('), 0)   # no command substitution (a fork)
+        self.assertNotIn(' | ', body)                    # no pipeline
+        for f in ('/proc/stat', '/proc/meminfo', '/proc/net/dev', '/proc/net/wireless', '/proc/net/tcp'):
+            self.assertIn(f, body)
+        lines = '\n'.join(l for l in body.splitlines() if not l.strip().startswith('#'))
+        code = lines.split('\n', 1)[1].rsplit('    ;;', 1)[0]
+        tmp = tempfile.mkdtemp()
+        try:
+            script = Path(tmp) / 'dash.sh'; script.write_text(code)
+            r = subprocess.run(['busybox', 'ash', str(script)] if shutil.which('busybox') else ['sh', str(script)],
+                               capture_output=True, text=True)
+            d = json.loads(r.stdout)
+            self.assertEqual(len(d['cpu']), 7); self.assertEqual(len(d['mem']), 4); self.assertEqual(len(d['net']), 2)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_home_views_and_settings_deep_links(self):
+        js = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
+        self.assertIn('function showHome(view)', js)
+        self.assertIn('leaveHome();\n        content.innerHTML = html;', js)   # home kept aside, not rebuilt
+        self.assertIn('window.tc100SettingsTab', js)
+        html = (ROOT / 'www/index.html').read_text()
+        self.assertIn('id="view_dashboard"', html); self.assertIn('id="view_live"', html)
+        self.assertIn("if (mode !== 'dark' && mode !== 'light') mode = 'dark';", html)
+        self.assertIn('css/ui-v3.css?v=', html)
+
 
 class FlashCodeZone(unittest.TestCase):
     """scripts/flash-code.sh + update.cgi in flash mode, on a fake 2 MB KERNEL partition."""
@@ -2600,9 +2630,17 @@ class CameraPanel(unittest.TestCase):
     def test_navigation(self):
         html = (ROOT / 'www/index.html').read_text()
         nav = html.split('id="common_nav"')[1].split('navbar-end')[0]
+        self.assertLess(nav.index('id="dashboard_nav"'), nav.index('id="home_nav"'))
         self.assertLess(nav.index('id="home_nav"'), nav.index('id="status"'))
-        tools = nav.split('<span>Tools</span>')[1]
-        self.assertIn('id="services"', tools)        # Services lives under Tools
+        services = nav.split('<span>Services</span>')[1].split('<span>System</span>')[0]
+        self.assertIn('id="services"', services)     # Services menu: Integrations + Services
+        system = nav.split('<span>System</span>')[1]
+        for page in ('id="status"', 'id="diagnostics"', 'id="logs"', 'id="configeditor"', 'cmd=reboot'):
+            self.assertIn(page, system)
+        # every settings deep link names a section that exists
+        settings = (ROOT / 'www/settings.html').read_text()
+        for tab in re.findall(r'data-tab="([^"]+)"', nav):
+            self.assertIn('id="%s"' % tab, settings)
         self.assertEqual(html.count('data-cam-control='), 5)
         self.assertIn('initCamPanel();', (ROOT / 'www/scripts/index.bundle.min.js').read_text())
 
@@ -2669,8 +2707,11 @@ class SettingsLayout(unittest.TestCase):
     def test_tabs_by_use_and_unique_ids(self):
         html = (ROOT / 'www/settings.html').read_text()
         tabs = re.findall(r'data-tab="([^"]+)"', html)
-        self.assertEqual(tabs, ['tab-image', 'tab-video', 'tab-daynight', 'tab-audio', 'tab-detect', 'tab-record',
-                                'tab-integrations', 'tab-network', 'tab-system', 'tab-backup'])
+        # sidebar order (2.1.0): Image, Video & audio, Events, Network & integrations, System
+        self.assertEqual(tabs, ['tab-image', 'tab-daynight', 'tab-video', 'tab-audio', 'tab-detect', 'tab-record',
+                                'tab-network', 'tab-integrations', 'tab-system', 'tab-backup'])
+        self.assertIn('id="settings_search"', html)
+        self.assertIn('window.tc100SettingsTab = ', html)
         def tab(t):
             a = html.index('id="%s"' % t)
             nxt = [html.index('id="%s"' % o, a + 1) for o in tabs if html.find('id="%s"' % o, a + 1) > 0]
