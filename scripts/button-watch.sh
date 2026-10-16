@@ -6,6 +6,7 @@
 # code, value; little endian). This loop blocks in dd until the button moves:
 # no process at all while nobody touches it.
 #
+#   held  3–7 s    open the rescue Wi-Fi access point (scripts/wifi-rescue.sh)
 #   held  8–19 s   reboot
 #   held 20 s +    firmware from flash: back to the code built into /usr
 #                  (clears the code zone, scripts/flash-code.sh), then reboot —
@@ -20,6 +21,8 @@ REBOOT_SECONDS="${BUTTON_REBOOT_SECONDS:-8}"
 RESTORE_SECONDS="${BUTTON_RESTORE_SECONDS:-20}"
 FC="${BUTTON_FLASH_CODE:-/usr/tc100/scripts/flash-code.sh}"
 REBOOT="${BUTTON_REBOOT_CMD:-/sbin/reboot}"
+RESCUE_SECONDS="${BUTTON_RESCUE_SECONDS:-3}"
+RESCUE="${BUTTON_RESCUE:-/mnt/scripts/wifi-rescue.sh}"
 
 _bw_log() { logger -t tc100-event -p user.err "button: $*" 2>/dev/null; }
 
@@ -56,5 +59,8 @@ while _bw_event; do
         _bw_log "held ${held}s: reboot"
         sh /mnt/scripts/reboot-tracker.sh intent "reset button held ${held}s" >/dev/null 2>&1
         sync; $REBOOT
+    elif [ "$held" -ge "$RESCUE_SECONDS" ]; then
+        _bw_log "held ${held}s: rescue access point"
+        sh "$RESCUE" start-ap "reset button" </dev/null >/dev/null 2>&1 &
     fi
 done
