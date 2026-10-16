@@ -576,6 +576,7 @@
                 <header class='card-header'><p class='card-header-title'>Firmware update</p></header>
                 <div class='card-content'>
                     <p class="is-size-7 mb-2">Running from the SD card: upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept. Running from the flash memory (FLASH badge): upload a <code>tc100-code-&lt;version&gt;.bin</code> package (<code>src/flash/build-code.sh</code>); it is written to the flash, read back, and the camera reboots; "Roll back" returns to the code built into the firmware.</p>
+                    <p class="is-size-7 mb-2">From the flash memory, a system package <code>tc100-system-&lt;version&gt;.tar</code> (made by <code>src/flash/build-flash-kit.sh</code>) also replaces the programs, without SD card.</p>
                     <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
                     <div class="file is-small is-fullwidth mb-2">
                         <label class="file-label" style="width:100%">
@@ -990,6 +991,7 @@
             var status = document.getElementById('fwuStatus');
             if (!file || !up) return;
             var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+            var stagedKind = '';
 
             // Bulma's display rules on .button/.progress override [hidden].
             function show(el, on) { el.style.display = on ? '' : 'none'; }
@@ -1002,6 +1004,7 @@
                         show(rb, !!d.rollback_to);
                         if (d.rollback_to) rb.textContent = 'Roll back to ' + d.rollback_to;
                         show(inst, d.state === 'staged');
+                        stagedKind = d.kind || '';
                         if (d.state === 'staged') inst.textContent = 'Install ' + d.staged + ' & reboot';
                         return d;
                     }).catch(function() {});
@@ -1055,7 +1058,10 @@
                     xhr.onload = function() {
                         up.classList.remove('is-loading'); up.disabled = false; show(bar, false);
                         var d; try { d = JSON.parse(xhr.responseText); } catch (e) { d = null; }
-                        if (d && d.ok && d.kind === 'code') {
+                        if (d && d.ok && d.kind === 'system') {
+                            say('System package ' + d.version + ' is valid: the programs in the flash memory (/usr) and the code will be replaced (installed: ' + d.current + '). The video is paused until the install.');
+                            refresh();
+                        } else if (d && d.ok && d.kind === 'code') {
                             say('Code package ' + d.version + ' is valid; it will be written to the flash memory (installed: ' + d.current + ').');
                             refresh();
                         } else if (d && d.ok) {
@@ -1072,6 +1078,10 @@
                 });
             });
             inst.addEventListener('click', function() {
+                if (stagedKind === 'system') {
+                    run('install', 'Install the system package and reboot the camera?\n\nThe camera stops its programs, Wi-Fi included, writes its flash memory and restarts: it is unreachable for about 3 minutes. Do not unplug it.', 'Installing the system package.');
+                    return;
+                }
                 run('install', 'Install the uploaded firmware and reboot the camera?\n\nThe replaced files are kept for a rollback.', 'Installing.');
             });
             rb.addEventListener('click', function() {
