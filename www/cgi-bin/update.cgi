@@ -123,7 +123,12 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
       fi
       : > "$FW/installing"
       ( trap '' HUP
-        if sh "$FC" write "$FW/code.bin" >/dev/null 2>&1; then rm -f "$FW/code.bin"; sync; reboot
+        # An SD card with the firmware hook would start instead of the new
+        # code: one boot from flash (usr-update.sh oneshot).
+        if sh "$FC" write "$FW/code.bin" >/dev/null 2>&1; then rm -f "$FW/code.bin"
+          cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null &&
+            sh "$UU" oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
+          sync; reboot
         else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"install"}' ;;
     POST:rollback)

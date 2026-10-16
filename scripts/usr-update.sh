@@ -152,19 +152,34 @@ uu_install()
     _c=$(sh "$D/flash-code.sh" write "$D/code.bin" 2>&1)
     _uu_log "code zone: $_c"
     # 5. A card with the firmware hook would start instead: one boot from flash.
-    if [ -b "${CARD_DEV}p1" ] || [ -b "$CARD_DEV" ]; then
-        mkdir -p "$D/card"
-        if mount "${CARD_DEV}p1" "$D/card" 2>/dev/null || mount "$CARD_DEV" "$D/card" 2>/dev/null; then
-            if [ -d "$D/card/wifitest" ] && cp "$D/flashmode-once.sh" "$JFFS/boot.sh" && chmod 755 "$JFFS/boot.sh"; then
-                mv "$D/card/wifitest" "$D/card/wifitest.off" && _uu_log "SD card hook set aside for one boot from flash"
-            fi
-            sync; umount "$D/card"
-        fi
-    fi
+    uu_oneshot "$D/flashmode-once.sh" "$D/card"
     mkdir -p "$JFFS/log"
     echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) system $_v written (/usr $_m)" >> "$JFFS/log/code-updates.log"
     _uu_log "DONE: rebooting"
     _uu_finish
+}
+
+# With an SD card carrying the firmware boot hook (wifitest/) in the slot,
+# the next boot would start the card firmware: set the hook aside for one
+# boot from flash (flashmode-once.sh puts it back). Used after a system or a
+# code update from flash.
+uu_oneshot()
+{
+    _once="$1"; _mp="${2:-/tmp/uu-card}"
+    [ -b "${CARD_DEV}p1" ] || [ -b "$CARD_DEV" ] || return 0
+    [ -s "$_once" ] || return 1
+    mkdir -p "$_mp"
+    mount "${CARD_DEV}p1" "$_mp" 2>/dev/null || mount "$CARD_DEV" "$_mp" 2>/dev/null || return 1
+    _r=0
+    if [ -d "$_mp/wifitest" ]; then
+        if cp "$_once" "$JFFS/boot.sh" && chmod 755 "$JFFS/boot.sh" && mv "$_mp/wifitest" "$_mp/wifitest.off"; then
+            [ -n "$D" ] && _uu_log "SD card hook set aside for one boot from flash"
+        else
+            _r=1
+        fi
+    fi
+    sync; umount "$_mp"
+    return $_r
 }
 
 _uu_finish()
@@ -180,6 +195,7 @@ case "${0##*/}" in
         case "$1" in
             check) uu_check "$2" ;;
             install) uu_install "$2" ;;
-            *) echo "usage: $0 check <dir> | install <dir>" >&2; exit 2 ;;
+            oneshot) uu_oneshot "$2" ;;
+            *) echo "usage: $0 check <dir> | install <dir> | oneshot <flashmode-once.sh>" >&2; exit 2 ;;
         esac ;;
 esac
