@@ -16,6 +16,14 @@ FWU="${FWU_SCRIPT:-/mnt/scripts/fw-update.sh}"
 WORK="${FWU_WORK:-/mnt/tc100-update}"
 MAX_BYTES=$((48 * 1024 * 1024))
 
+# Record why the camera is about to restart (scripts/reboot-tracker.sh reads
+# it at the next boot), written directly: the code zone holding the tracker
+# script may just have been rewritten.
+fl_reboot_intent() {
+  mkdir -p "${FWU_JFFS_LOG:-/etc/jffs2/tc100/log}" 2>/dev/null
+  printf '%s|%s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$1" > "${FWU_JFFS_LOG:-/etc/jffs2/tc100/log}/.reboot-intent" 2>/dev/null
+}
+
 printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
 
 _cmd=""
@@ -113,7 +121,9 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
         cp "$UU" "$SW/usr-update.sh" && cp "$FC" "$SW/flash-code.sh" &&
           cp "${FM:-/mnt/scripts/flashmode-once.sh}" "$SW/flashmode-once.sh" || {
           echo '{"ok":false,"error":"copy","message":"Could not prepare the installer."}'; exit 0; }
-        : > "$FW/installing" 2>/dev/null || { mkdir -p "$FW"; : > "$FW/installing"; }
+        # (not ": > file || ...": a failed redirection of a special builtin
+        # ends a non-interactive ash, and this request answered nothing)
+        mkdir -p "$FW"; touch "$FW/installing"
         ( trap '' HUP TERM; exec /bin/sh "$SW/usr-update.sh" install "$SW" ) </dev/null >/dev/null 2>&1 &
         echo '{"ok":true,"started":"install","kind":"system"}'
         exit 0
@@ -121,20 +131,25 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
       if ! sh "$FC" check "$FW/code.bin" >/dev/null 2>&1; then
         echo '{"ok":false,"error":"nothing_staged","message":"Upload a code package first."}'; exit 0
       fi
-      : > "$FW/installing"
+      mkdir -p "$FW"; touch "$FW/installing"
+      # An SD card with the firmware hook would start instead of the new code:
+      # one boot from flash (usr-update.sh oneshot). Both scripts are copied to
+      # RAM first: /mnt/scripts is the code zone being rewritten.
+      cp "$UU" /tmp/usr-update.sh 2>/dev/null; cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null
       ( trap '' HUP
-        # An SD card with the firmware hook would start instead of the new
-        # code: one boot from flash (usr-update.sh oneshot).
         if sh "$FC" write "$FW/code.bin" >/dev/null 2>&1; then rm -f "$FW/code.bin"
-          cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null &&
-            sh "$UU" oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
-          sync; reboot
+          [ -s /tmp/usr-update.sh ] && sh /tmp/usr-update.sh oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
+          fl_reboot_intent "web: code update"; sync; reboot
         else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"install"}' ;;
     POST:rollback)
-      : > "$FW/installing"
+      mkdir -p "$FW"; touch "$FW/installing"
+      cp "$UU" /tmp/usr-update.sh 2>/dev/null; cp "${FM:-/mnt/scripts/flashmode-once.sh}" /tmp/flashmode-once.sh 2>/dev/null
       ( trap '' HUP
-        if sh "$FC" clear >/dev/null 2>&1; then sync; reboot; else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
+        if sh "$FC" clear >/dev/null 2>&1; then
+          [ -s /tmp/usr-update.sh ] && sh /tmp/usr-update.sh oneshot /tmp/flashmode-once.sh >/dev/null 2>&1
+          fl_reboot_intent "web: code rollback"; sync; reboot
+        else rm -f "$FW/installing"; fi ) </dev/null >/dev/null 2>&1 &
       echo '{"ok":true,"started":"rollback"}' ;;
     POST:discard)
       rm -f "$FW/code.bin"

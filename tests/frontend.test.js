@@ -42,7 +42,7 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   context.dash = {};
   context.byId = id => nodes[id];
   const start = source.indexOf('dashboardStatusRenderer = function(res)');
-  const end = source.indexOf('\n        };', start) + '\n        };'.length;
+  const end = source.indexOf('\n    };', start) + '\n    };'.length;
   vm.runInContext(source.slice(start, end), context);
   context.dashboardStatusRenderer({cpu: 0, ram: 0, wifi_qual: 0});
   assert.equal(nodes.dash_wifi_val.textContent, '0%');

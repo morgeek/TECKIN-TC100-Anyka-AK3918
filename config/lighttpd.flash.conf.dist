@@ -33,6 +33,12 @@ alias.url = ( "/DCIM/" => "/mnt/DCIM/" )
 $SERVER["socket"] == ":443" {
   ssl.engine = "enable"
   ssl.pemfile = "/mnt/config/lighttpd.pem"
+  # ChaCha20-Poly1305 first: this CPU has no AES instructions, and with it
+  # serving a file costs about half the CPU of AES-GCM (measured 2026-10-16:
+  # 25 x 117 KB, 450-690 vs 1020-1100 busy ticks). Browsers that only offer
+  # AES-GCM still get it. mbedTLS names (mod_mbedtls), not OpenSSL ones.
+  ssl.openssl.ssl-conf-cmd = ("CipherString" => "TLS-ECDHE-ECDSA-WITH-CHACHA20-POLY1305-SHA256:TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256:TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384",
+                              "Options" => "ServerPreference")
 }
 
 # Flash firmware (scripts/flashboot.sh): lighttpd is built with mbedTLS

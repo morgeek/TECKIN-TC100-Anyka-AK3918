@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.2] — 2026-10-16
+
+What the logs of two cameras showed over a day (details: docs/known-issues.md, "Reading the camera logs").
+
+### Fixed
+- **Time zone**: `timezone.conf` was read whole, comments included (a camera on the template got that as its `TZ`), and only the RTSP server used it, so kernel and vendor lines in one log were hours apart and cron ran on UTC. The first non-comment line is used, checked, and exported to every program from the start of `autorun.sh`; klogd is restarted with it so kernel lines carry the same clock. The template now shows POSIX strings (`CET-1CEST,M3.5.0,M10.5.0/3` for Paris; `UTC+1` meant one hour *behind* UTC).
+- False boot warnings from flash: "/mnt has less than 4 MB free", "Self-heal skipped: missing libcurl", "lighttpd.conf rejected by lighttpd".
+
+### Changed
+- **Logs page**: syslog lines are classed by the priority they carry, and the vendor drivers' start-up chatter (sensor register dump at "err", encoder start at "emerg", Wi-Fi driver banner, cloud command server not found…) shows as "Vendor" instead of errors: 31–37 "errors" per boot → 0 on a healthy camera, while SD card timeouts and other real faults stay errors.
+- **Reboot history**: each heartbeat records the SD card state; an unexpected restart after card errors says "SD card errors (N kernel errors): likely cause". Heartbeat every 5 minutes from flash (15 on an SD card).
+- Settings → Network: the time zone field explains the POSIX format.
+
+---
+
+## [2.1.1] — 2026-10-16
+
+### Changed
+- **Lighter web requests.** `state.cgi?cmd=statusline` (polled by every open page) runs without subshells on its usual path: about half the time per request on the camera (0.94 → 0.50 s). `func.cgi`, sourced by every CGI, no longer runs `timeout` at each request (the probe is kept in `/tmp` once per boot) and only url-decodes values that need it.
+- **HTTPS from flash prefers ChaCha20-Poly1305** (the AK3918 has no AES instructions): serving a page costs about 55 % less CPU and is about twice as fast. Clients that only offer AES-GCM still get it. The certificate was already ECDSA P-256.
+- Diagnostics, Logs, Services, Config editor and Recordings get the same page title as the rest; the log tabs are one segmented control; the recordings player follows the dark theme.
+- Settings: the page title shows the open section; the search also finds the Wi-Fi and backup cards (loaded on the first search).
+- A web code or system update now records its restart as planned in the reboot history, instead of "UNEXPECTED".
+
+---
+
+## [2.1.0] — 2026-10-16
+
+### Changed
+- **New web interface layout, after the OpenIPC web interface.** Top bar with the camera name and firmware version, and Dashboard, Live, Recordings, Camera ▾, Services ▾, System ▾. Dark theme by default (light still one click away), one indigo accent.
+- **Settings**: a sidebar grouped by use (Image, Video & audio, Events, Network & integrations, System) with a search box that shows every matching card across sections. On a phone it becomes a row of chips. Each section also opens straight from the menus.
+- Dashboard and Live switch instantly: the home page is kept aside while other pages are open, not downloaded again.
+
+### Added
+- **Dashboard**: CPU, memory, Wi-Fi signal, network out and uptime tiles with small graphs; network in/out and CPU/memory graphs over the last 5 minutes; snapshot, streams, device and storage cards. The graphs are kept in the browser only, and are fed by `dash.cgi` (raw counters from `/proc`, a separate tiny CGI, shell built-ins only, every 5 s while the dashboard is on screen) and `cmd=dashinfo` (once a minute).
+
+---
+
 ## [2.0.1] — 2026-10-16
 
 ### Added

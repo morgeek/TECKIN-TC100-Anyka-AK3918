@@ -1,19 +1,23 @@
 /* ui-v2.css — "control monitor" layer, loaded after ui-modern.min.css.
  * The live image is the centrepiece, framed like a camera monitor with its
  * status written into the picture (OSD); everything around it stays quiet.
- * One accent: tally red, only for "live" and for destructive actions.
+ * Palette after the OpenIPC web interface (2.1.0): navy/grey, one indigo
+ * accent (ui-v3.css), tally red only for "live" and destructive actions.
  * System fonts only: the camera serves every byte from a 400 MHz CPU. */
 
 :root {
-  --v2-bg: #eef0f2;
+  --v2-bg: #f4f5f8;
   --v2-panel: #ffffff;
-  --v2-ink: #18202a;
-  --v2-muted: #5f6b77;
-  --v2-rule: #d5dae0;
-  --v2-hover: #e4e8ec;
-  --v2-tally: #d33a2c;
-  --v2-ok: #23845a;
-  --v2-warn: #b7791f;
+  --v2-ink: #1d2129;
+  --v2-muted: #6b7280;
+  --v2-rule: #e1e4ea;
+  --v2-hover: #eef0f4;
+  --v2-tally: #dc3b3b;
+  --v2-ok: #16a34a;
+  --v2-warn: #c2780e;
+  --v2-accent: #4f46e5;
+  --v2-accent-fill: #4f46e5;
+  --v2-accent-soft: rgba(79, 70, 229, 0.12);
   --v2-osd: rgba(8, 12, 16, 0.55);
   --v2-radius: 8px;
   --v2-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -27,15 +31,18 @@
   --ui-primary-dark: var(--v2-ink);
 }
 [data-theme="dark"] {
-  --v2-bg: #0e1318;
-  --v2-panel: #151c23;
-  --v2-ink: #e6eaee;
-  --v2-muted: #8a96a3;
-  --v2-rule: #263240;
-  --v2-hover: #1d2731;
-  --v2-tally: #ef5a4a;
-  --v2-ok: #3fb984;
-  --v2-warn: #e0a640;
+  --v2-bg: #15171c;
+  --v2-panel: #1c1f26;
+  --v2-ink: #e4e6eb;
+  --v2-muted: #8b93a1;
+  --v2-rule: #2b2f39;
+  --v2-hover: #252933;
+  --v2-tally: #f05252;
+  --v2-ok: #34d399;
+  --v2-warn: #f59e0b;
+  --v2-accent: #818cf8;
+  --v2-accent-fill: #6366f1;
+  --v2-accent-soft: rgba(99, 102, 241, 0.16);
 }
 
 /* Page: flat, no decorative halos or gradients. */

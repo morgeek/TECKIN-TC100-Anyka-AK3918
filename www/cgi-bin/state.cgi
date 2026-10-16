@@ -101,12 +101,14 @@ get_current_cpu_usage_fast() {
 
   if [ "$cpu_total_prev" -le 0 ] || [ "$delta_total" -lt 0 ]; then
     printf '%s %s %s\n' "$cpu_active_cur" "$cpu_total_cur" 0 > "$CPU_USAGE_STATE_FILE"
+    cpu_util=0
     echo "0"
     return
   fi
 
   if [ "$delta_total" -lt "$CPU_USAGE_MIN_DELTA_TICKS" ]; then
     # Calls happened too close together; keep previous stable sample.
+    cpu_util="$cpu_util_prev"
     echo "$cpu_util_prev"
     return
   fi
@@ -177,7 +179,8 @@ get_memory_usage_fast() {
 }
 
 compute_usage_metrics() {
-  cpu="$(get_current_cpu_usage_fast)"
+  get_current_cpu_usage_fast >/dev/null    # sets cpu_util (no subshell)
+  cpu="$cpu_util"
   get_memory_usage_fast
   ram_percent=0
   if [ "$mem_total" -gt 0 ]; then
@@ -449,6 +452,15 @@ slugify_value() {
 # poll — each `printf | sed` being a fork+exec pair on a 400 MHz core. The case
 # test is pure shell, so the common path now costs nothing; sed is spawned only
 # for the rare value that genuinely needs escaping. Output is identical.
+# json_esc_to VAR VALUE: json_escape into a variable; forks only when the
+# value holds a backslash or a double quote (almost never on the status line).
+json_esc_to() {
+  case "$2" in
+    *\\*|*\"*) eval "$1=\$(json_escape \"\$2\")" ;;
+    *) eval "$1=\$2" ;;
+  esac
+}
+
 json_escape() {
   case "$1" in
     *\\*|*\"*) printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' ;;
@@ -563,8 +575,8 @@ load_lum_awb() {
 
 get_ui_ultralite_mode() {
   ui_mode=0
-  WEB_MODE_VALUE="$(read_conf_value /mnt/config/boot.conf WEB_MODE full)"
-  UI_ULTRALITE_MODE_VALUE="$(read_conf_value /mnt/config/boot.conf UI_ULTRALITE_MODE 0)"
+  conf_get WEB_MODE_VALUE /mnt/config/boot.conf WEB_MODE full
+  conf_get UI_ULTRALITE_MODE_VALUE /mnt/config/boot.conf UI_ULTRALITE_MODE 0
 
   case "$WEB_MODE_VALUE" in
     ultra-lite|ultralite)
@@ -586,21 +598,21 @@ get_security_and_mqtt_flags() {
   mqtt_last_pub_ts=0
   mqtt_last_pub_ok=-1
 
-  security_raw="$(read_conf_value /mnt/config/boot.conf SECURITY_HARDENING_MODE 0)"
+  conf_get security_raw /mnt/config/boot.conf SECURITY_HARDENING_MODE 0
   case "$security_raw" in
     1|true|on|yes|enabled)
       security_hardening_mode=1
       ;;
   esac
 
-  mqtt_raw="$(read_conf_value /mnt/config/mqtt.conf MQTT_ENABLE 0)"
+  conf_get mqtt_raw /mnt/config/mqtt.conf MQTT_ENABLE 0
   case "$mqtt_raw" in
     1|true|on|yes|enabled)
       mqtt_enabled=1
       ;;
   esac
 
-  mqtt_discovery_raw="$(read_conf_value /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE 1)"
+  conf_get mqtt_discovery_raw /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE 1
   case "$mqtt_discovery_raw" in
     1|true|on|yes|enabled)
       mqtt_discovery=1
@@ -795,8 +807,8 @@ read_power_telemetry() {
 }
 
 compute_perf_profile() {
-  LOW_CPU_PROFILE="$(read_conf_value /mnt/config/boot.conf LOW_CPU_PROFILE 0)"
-  SERVICE_TRIM="$(read_conf_value /mnt/config/service_trim.conf SERVICE_TRIM 0)"
+  conf_get LOW_CPU_PROFILE /mnt/config/boot.conf LOW_CPU_PROFILE 0
+  conf_get SERVICE_TRIM /mnt/config/service_trim.conf SERVICE_TRIM 0
 
   if [ "${SERVICE_TRIM:-0}" = "1" ]; then
     profile="rtsp-only"
@@ -961,25 +973,24 @@ read_reboot_epoch() {
   fi
 }
 
-default_password_active_flag() {
-  # Caching to reduce IO/CPU on frequent statusline polls
+# Sets default_password_active (0/1) without a subshell; cached 120 s.
+compute_default_password_flag() {
   if [ -f "$PWD_CACHE_FILE" ]; then
     read -r cached_ts cached_val < "$PWD_CACHE_FILE"
     _read_now_ts
-    if [ "$now_ts" -gt 0 ] && [ "$cached_ts" -le "$now_ts" ]; then
-      age=$((now_ts - cached_ts))
-      if [ "$age" -le "$PWD_CACHE_TTL_SECONDS" ]; then
-        echo "$cached_val"
+    case "$cached_ts$cached_val" in ''|*[!0-9]*) ;; *)
+      if [ "$now_ts" -gt 0 ] && [ "$cached_ts" -le "$now_ts" ] && [ $((now_ts - cached_ts)) -le "$PWD_CACHE_TTL_SECONDS" ]; then
+        default_password_active="$cached_val"
         return 0
-      fi
-    fi
+      fi ;;
+    esac
   fi
 
   default_active=0
   default_hash="1d06b7785388de1501e8d57847540f6d"
 
-  rtsp_username="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
-  rtsp_password="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
+  conf_get rtsp_username /mnt/config/rtspserver.conf USERNAME root
+  conf_get rtsp_password /mnt/config/rtspserver.conf USERPASSWORD pass
   if [ "$rtsp_username" = "root" ] && [ "$rtsp_password" = "pass" ]; then
     default_active=1
   fi
@@ -987,8 +998,7 @@ default_password_active_flag() {
   http_hash=""
   if [ -r /mnt/config/lighttpd.user ]; then
     IFS=: read -r _ _ http_hash < /mnt/config/lighttpd.user
-    # Keep compatibility with minimal BusyBox builds where `tr` may be absent.
-    http_hash="$(printf '%s' "$http_hash" | sed 's/\r//g')"
+    case "$http_hash" in *[!0-9a-fA-F]) http_hash="${http_hash%?}" ;; esac   # trailing CR
     if [ "$http_hash" = "$default_hash" ]; then
       default_active=1
     fi
@@ -1001,8 +1011,13 @@ default_password_active_flag() {
     fi
   fi
 
-  echo "$default_active"
+  default_password_active="$default_active"
   _read_now_ts; printf '%s %s\n' "$now_ts" "$default_active" > "$PWD_CACHE_FILE"
+}
+
+default_password_active_flag() {
+  compute_default_password_flag
+  echo "$default_password_active"
 }
 
 if [ -n "$F_cmd" ]; then
@@ -1027,19 +1042,21 @@ if [ -n "$F_cmd" ]; then
     ;;
 
   statusline)
+    # Polled by every open page: shell built-ins only, no subshell on the
+    # usual path (each fork costs ~10 ms of the 400 MHz CPU).
     load_or_compute_usage_metrics
-    profile="$(get_perf_profile)"
+    load_cached_perf_profile || { compute_perf_profile; save_cached_perf_profile; }
     load_lum_awb
     get_ui_ultralite_mode
     get_security_and_mqtt_flags
     get_sd_usage
     get_wifi_quality
-    default_password_active="$(default_password_active_flag)"
-    default_password_active="$(sanitize_int "$default_password_active" 0)"
-    profile_json="$(json_escape "$profile")"
-    lum_json="$(json_escape "$lum_value")"
-    awb_json="$(json_escape "$awb_value")"
-    web_mode_json="$(json_escape "$WEB_MODE_VALUE")"
+    compute_default_password_flag
+    case "$default_password_active" in 0|1) ;; *) default_password_active=0 ;; esac
+    json_esc_to profile_json "$profile"
+    json_esc_to lum_json "$lum_value"
+    json_esc_to awb_json "$awb_value"
+    json_esc_to web_mode_json "$WEB_MODE_VALUE"
     csrf_token=""
     # Ensure a CSRF token exists so the client ALWAYS receives one on its first
     # statusline poll. Without this, if no CGI had called csrf_guard since boot
@@ -1055,8 +1072,8 @@ if [ -n "$F_cmd" ]; then
     fi
     if [ -r /tmp/csrf_token ]; then
         read -r csrf_token < /tmp/csrf_token
-        # Strip any non-hex characters for safety
-        csrf_token="$(printf '%s' "$csrf_token" | tr -cd '0-9a-fA-F')"
+        # Strip any non-hex characters for safety (only forks if there are any)
+        case "$csrf_token" in *[!0-9a-fA-F]*) csrf_token="$(printf '%s' "$csrf_token" | tr -cd '0-9a-fA-F')" ;; esac
     fi
     # Update notifier integration. Parsed with the shell, not jq: this runs on
     # every statusline poll and each jq spawn costs ~0.3 s on the AK3918 (two
@@ -1074,7 +1091,7 @@ if [ -n "$F_cmd" ]; then
           *) _upd_lv="${_upd_lv%%\"*}"; [ -n "$_upd_lv" ] && update_latest="$_upd_lv" ;;
         esac
     fi
-    update_latest_json="$(json_escape "$update_latest")"
+    json_esc_to update_latest_json "$update_latest"
 
     # Firmware version for the UI topbar chip. Read with the `read` builtin
     # (no fork) since this runs on every hot statusline poll.
@@ -1083,7 +1100,7 @@ if [ -n "$F_cmd" ]; then
         read -r current_version < /mnt/VERSION
         [ -n "$current_version" ] || current_version="n/a"
     fi
-    current_version_json="$(json_escape "$current_version")"
+    json_esc_to current_version_json "$current_version"
 
     # Smooth live view link (Settings → Frigate live view), read builtin only.
     frigate_live=""
@@ -1518,6 +1535,37 @@ if [ -n "$F_cmd" ]; then
     # libtc100fix thread reports as applied (/var/run/isp_tune.status).
     . /mnt/scripts/isp-tune.sh
     isp_tune_json
+    ;;
+
+  dashinfo)
+    # What changes rarely, for the dashboard cards (read once a minute).
+    load_conf_file /mnt/config/rtspserver.conf
+    read_rtsp_stream_summary
+    detect_primary_ip
+    get_sd_usage
+    _di_host=""; read -r _di_host < /proc/sys/kernel/hostname 2>/dev/null
+    _di_kern=""; read -r _di_kern < /proc/sys/kernel/osrelease 2>/dev/null
+    _di_mac=""; read -r _di_mac < /sys/class/net/wlan0/address 2>/dev/null
+    _di_ver=""; read -r _di_ver < /mnt/VERSION 2>/dev/null
+    # Flash and card usage. In flash mode the card (if any) is on /mnt/sd.
+    _di_sdmp=/mnt; [ "${storage_json:-sd}" = flash ] && _di_sdmp=/mnt/sd
+    _di_jt=0; _di_ju=0; _di_st=0; _di_su=0
+    while read -r _fs _t _u _a _p _mp _rest; do
+      case "$_t$_u" in ''|*[!0-9]*) continue ;; esac
+      case "$_mp" in
+        /etc/jffs2) _di_jt=$_t; _di_ju=$_u ;;
+        "$_di_sdmp") _di_st=$_t; _di_su=$_u ;;
+      esac
+    done <<EOF_DF
+$(df -k 2>/dev/null)
+EOF_DF
+    _di_ssid=""
+    command -v wpa_cli >/dev/null 2>&1 && _di_ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk -F= '$1 == "ssid" { print $2; exit }')"
+    printf '{"hostname":"%s","ip":"%s","mac":"%s","kernel":"%s","firmware":"%s","storage":"%s","soc":"Anyka AK3918EV300","sensor":"SOI JXF23","wifi_chip":"Realtek RTL8188FU","ssid":"%s","rtsp_port":%s,"main":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"sub":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"jffs":[%s,%s],"sd":[%s,%s]}\n' \
+      "$(json_escape "$_di_host")" "$(json_escape "$primary_ip")" "$(json_escape "$_di_mac")" "$(json_escape "$_di_kern")" \
+      "$(json_escape "$_di_ver")" "${storage_json:-sd}" "$(json_escape "$_di_ssid")" "$rtsp_port" \
+      "$codec0_name" "$width0" "$height0" "$fps0" "$bps0" "$codec1_name" "$width1" "$height1" "$fps1" "$bps1" \
+      "$_di_jt" "$_di_ju" "$_di_st" "$_di_su"
     ;;
 
   fullconfig)

@@ -6,11 +6,17 @@ Frigate or any NVR, MQTT and Home Assistant discovery, a French / English web
 interface, recording on the SD card when the network fails, and updates from
 the browser. Nothing needs the internet, and no vendor file is published.
 
-**Version 2.0.0** runs **from the camera's own flash memory**, with no SD card
-at all. The card becomes optional, for recordings only. The SD card mode of
-earlier versions is still there and is the way in.
+Since **2.0** it runs **from the camera's own flash memory**, with no SD card
+at all: the card becomes optional, for recordings only. The SD card mode of
+earlier versions is still there and is the way in. **2.1** brings a new web
+interface inspired by [OpenIPC's](https://openipc.org/web-interface): a
+dashboard with live graphs, settings in a sidebar with a search box, and a
+dark theme.
 
-![Live view](docs/screenshots/live-view.png)
+It started from [the original TC100 SD-card hack](#where-it-comes-from) and
+grew from there.
+
+![Dashboard](docs/screenshots/dashboard-dark.png)
 
 <sub>Every screenshot shows a test pattern instead of the camera image, and example addresses.</sub>
 
@@ -19,6 +25,7 @@ earlier versions is still there and is the way in.
 ## Contents
 
 - [What you can do](#what-you-can-do)
+- [What's new in 2.1](#whats-new-in-21)
 - [What's new in 2.0](#whats-new-in-20)
 - [Screenshots](#screenshots)
 - [Step 1: run from the SD card](#step-1-run-from-the-sd-card)
@@ -29,6 +36,7 @@ earlier versions is still there and is the way in.
 - [Recording on the SD card](#recording-on-the-sd-card)
 - [Wi-Fi, passwords, safety](#wi-fi-passwords-safety)
 - [The hardware, and OpenIPC](#the-hardware-and-openipc)
+- [Where it comes from](#where-it-comes-from)
 - [How it works](#how-it-works)
 - [Repository structure](#repository-structure)
 
@@ -37,7 +45,7 @@ earlier versions is still there and is the way in.
 ## What you can do
 
 **Video**
-- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`). ONVIF (discovery and profiles, port 8081) in both modes: off by default, Tools → Services → onvif.
+- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`). ONVIF (discovery and profiles, port 8081) in both modes: off by default, Services → Services → onvif.
 - Presets for Frigate (light, balanced, quality), live image tuning (brightness, contrast, sharpness, saturation, anti-flicker, exposure cap) with no stream restart, a fixed frame rate, day / night with the IR LEDs and the IR filter, flip and on-screen text.
 - Still JPEG at `cgi-bin/currentpic.cgi`, cached so that Home Assistant polling costs nothing.
 
@@ -66,12 +74,20 @@ earlier versions is still there and is the way in.
 
 ---
 
+## What's new in 2.1
+
+- **A new web interface**, laid out after [OpenIPC's](https://openipc.org/web-interface): a top bar with the camera name, *Dashboard*, *Live*, *Recordings* and the *Camera*, *Services* and *System* menus; dark theme by default (light one click away), in French or English.
+- **Dashboard**: CPU, memory, Wi-Fi signal, network and uptime tiles with small graphs, network and CPU/memory graphs over the last five minutes, a snapshot, the streams, the device and the storage. The figures come from a tiny CGI that reads a few `/proc` files every 5 s while the dashboard is open, at no measurable CPU cost; the history stays in the browser.
+- **Settings in a sidebar** grouped by use (Image, Video & audio, Events, Network & integrations, System) with a **search box** across every section; each section also opens straight from the menus.
+- **Faster and lighter**: the status poll answers in half the time, HTTPS uses ChaCha20 (this CPU has no AES instructions: about half the CPU to serve a page).
+- **Logs that tell faults from noise**: the vendor drivers print their start-up chatter at "error" or "emergency" priority; the Logs page now shows it as "Vendor" and keeps real faults (SD card timeouts, out of memory…) as errors. The reboot history names a failing SD card as the likely cause of a sudden restart. One clock for every log line (time zone fixed). See [docs/known-issues.md](docs/known-issues.md#reading-the-camera-logs-212).
+
 ## What's new in 2.0
 
 - **Runs without an SD card.** The firmware is installed into the camera's flash memory, from the card, in three guided steps (below). The vendor's U-Boot, kernel and root file system are not touched. Only the `/usr` partition is replaced (cloud app removed, firmware added), and the code goes into the free end of the kernel partition.
 - **Updates from flash** with a small code package (`tc100-code-<version>.bin`, about 350 KB): written, read back, kept only if the camera comes back on the network, rolled back automatically otherwise.
 - **Recording on the SD card** when Frigate stops receiving the video (or always), with pre- and post-roll.
-- **New interface**: Live view / Settings / Tools / System. Settings are grouped in tabs (Image, Video, Day/night, Audio, Detection, Recording, Integrations, Network, System, Update & backup). Camera controls sit under the live image.
+- **New interface**: settings grouped by use (Image, Video, Day/night, Audio, Detection, Recording, Integrations, Network, System, Update & backup), camera controls under the live image (reworked again in 2.1).
 - **New wizard**: language and Wi-Fi, profile, web access, Frigate and MQTT, recording, install to flash.
 - **Wi-Fi from a text file** (`wifi.txt`), and a fallback network kept on every change.
 - Password card, exFAT cards for recording, HTTP fallback and a rescue telnet when the web server cannot start from flash.
@@ -84,11 +100,15 @@ Full list: [CHANGELOG.md](CHANGELOG.md).
 
 | | |
 |---|---|
+| ![Dashboard, light](docs/screenshots/dashboard.png) Dashboard, light theme | ![Live view](docs/screenshots/live-view-dark.png) Live view |
 | ![Settings, image](docs/screenshots/settings-image.png) Settings → Image: live tuning | ![Recording](docs/screenshots/settings-recording.png) Settings → Recording |
 | ![Integrations](docs/screenshots/settings-integrations.png) Settings → Integrations: MQTT and Home Assistant | ![Update](docs/screenshots/settings-update.png) Update & backup, from flash |
 | ![Install to flash](docs/screenshots/settings-install-to-flash.png) Install to flash, from the SD card | ![System](docs/screenshots/settings-system.png) Settings → System |
-| ![Services](docs/screenshots/tools-services.png) Tools → Services | ![Diagnostics](docs/screenshots/tools-diagnostics.png) Tools → Diagnostics |
-| ![Dark, French](docs/screenshots/live-view-dark-fr.png) Dark theme, in French | ![Phone](docs/screenshots/live-view-mobile.png) On a phone |
+| ![Services](docs/screenshots/tools-services.png) Services → Services | ![Diagnostics](docs/screenshots/tools-diagnostics.png) System → Diagnostics |
+| ![Logs](docs/screenshots/tools-logs.png) System → Logs | ![Search](docs/screenshots/settings-search.png) Settings search |
+| ![Config editor](docs/screenshots/tools-configeditor.png) System → Config editor | |
+| ![Dark, French](docs/screenshots/settings-dark-fr.png) Settings in French | ![Phone](docs/screenshots/dashboard-mobile.png) On a phone |
+| ![Live, light](docs/screenshots/live-view.png) Live view, light theme | ![Phone settings](docs/screenshots/settings-mobile.png) Settings on a phone |
 
 Setup wizard:
 
@@ -203,9 +223,10 @@ Settings → **Update & backup** → *Firmware update*. The release has one file
 | The camera runs from | Upload | What happens |
 |---|---|---|
 | the **flash** (FLASH badge) | `tc100-code-<version>.bin` | written to the code area, read back, reboot; kept only if the camera comes back on the network, rolled back otherwise. "Roll back" returns to the code inside `/usr`. |
+| the **flash** (FLASH badge) | `tc100-system-<version>.tar` | the programs in `/usr` **and** the code, without SD card (see below). |
 | the **SD card** | `tc100-update-<version>.tar` | every file checked against its md5, only changed files replaced, the previous ones kept for "Roll back". |
 
-The binaries in `/usr` (RTSP server, web server, curl) only change with a new `/usr` image, built and installed with the same three steps.
+The programs in `/usr` (RTSP server, web server, curl, ONVIF) change with a **system package**: `src/flash/build-flash-kit.sh` writes `tc100-system-<version>.tar` next to the install kit, from the `usr-stock.img` saved at step 1 (it holds the vendor's programs, so it is never in a release). Upload it in Update & backup: the camera checks it (same original `/usr`, image intact, the files a boot needs), pauses the video, then stops every program that runs from `/usr` (Wi-Fi included), writes `/usr` and the code, reads them back and restarts — about 3 minutes without the camera. With an SD card carrying the firmware in the slot, the camera sets it aside for one boot so that the new system is what starts. If something cannot be stopped, nothing is written.
 
 Build them yourself: `sh src/release/build-code-package.sh` and `sh src/release/build-update.sh` (no cross toolchain needed). CI attaches all three files (`.zip`, `.tar`, `.bin`) to each `v*` release.
 
@@ -244,7 +265,9 @@ From flash, the card is mounted on `/mnt/sd` when needed. *Stop and eject the ca
 
 - **Wi-Fi**: `wifi.txt` on a card (`SSID=`, `PASSWORD=`), the wizard, or Settings → Network. In every case the new network comes first and the previous ones stay as fallbacks, so a typo does not take the camera off the network. An invalid `wifi.txt` becomes `wifi-invalid.txt` with the reason.
 - **Password**: `root` / `pass` on a new installation. A banner says so until you change it in Settings → System → Password.
-- **HTTPS** with an ECDSA certificate made by the camera (10 years). From flash, if HTTPS cannot start, the web page falls back to HTTP, and a rescue telnet opens on port 23 when no web server answers within a minute.
+- **HTTPS** with an ECDSA certificate made by the camera (10 years). From flash, if HTTPS cannot start, the page falls back to HTTP and an **HTTP** badge shows it in the top bar; HTTPS is tried again at the next restart.
+- **Rescue access**: when no web port answers, the web server is restarted once; if that does not help, a rescue telnet opens on port 23, and it closes again by itself once the web interface has been back for two minutes.
+- **SD card health**: kernel errors, a read-only card, and a write/read-back test after each boot and every day. A card that garbles writes shows "failing: replace it" under the live view and in Home Assistant ("SD Card Problem", "SD Card State").
 - **Offline by design**: the camera makes no outgoing connection except to your MQTT broker, NTP server and syslog server, if set. *Privacy Shield* (Settings → System → LEDs and privacy) stops every outgoing service at once.
 - **Recovery**: the SD card firmware always wins over the flash, and the vendor U-Boot (with its own SD card recovery) is untouched.
 
@@ -269,9 +292,33 @@ Flash layout: U-Boot, `KERNEL` 2 MB (kernel ends before 0x15b000; this firmware'
 - The flash-mode design follows OpenIPC's approach: a small read-only system, settings in a separate jffs2 partition, and nothing that needs the cloud.
 - Anyone porting OpenIPC to the AK3918EV300 can reuse what is documented here: `src/tc100fix` (the vendor encoder and ISP API, run-time hooks), `src/flash` (rebuilding `/usr` from the camera's own files) and `scripts/flash-code.sh` (using the free end of the kernel partition).
 
-Other projects this builds on: [anyka-software](https://github.com/ThatUsernameAlreadyExist/anyka-software) and [anyka-v4l2rtspserver](https://github.com/ThatUsernameAlreadyExist/anyka-v4l2rtspserver) (most of `bin/`, and the RTSP server), and the earlier Anyka hacks they come from.
+Other projects this builds on: see [Where it comes from](#where-it-comes-from).
 
 ---
+
+## Where it comes from
+
+- **The original hack.** This project began in February 2026 as a copy of
+  [TECKIN-TC100-Anyka-AK3918-camera-hacks](https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks)
+  by **ThatUsernameAlreadyExist**: an SD card that takes over the camera through
+  the vendor's factory test hook (`wifitest/`), without changing the firmware,
+  and gives it RTSP, a web interface, FTP and telnet instead of the cloud app.
+  Everything here grew from that card: same hook, same RTSP server
+  ([anyka-v4l2rtspserver](https://github.com/ThatUsernameAlreadyExist/anyka-v4l2rtspserver)),
+  same tools ([anyka-software](https://github.com/ThatUsernameAlreadyExist/anyka-software)).
+  Thanks to its author, and to the earlier Anyka camera hacks it built on.
+- **OpenIPC.** [OpenIPC](https://openipc.org) is the reference open firmware for
+  IP cameras, and the model for where this project went: the flash-mode design
+  (a small read-only system, settings in their own partition, nothing that needs
+  the cloud) and, in 2.1, the layout of the web interface
+  ([OpenIPC web interface](https://openipc.org/web-interface)). This camera is not
+  supported by OpenIPC; what was learnt about it is shared with them (see
+  [The hardware, and OpenIPC](#the-hardware-and-openipc)).
+- **From there to here**: Home Assistant and Frigate integration, a fixed frame
+  rate and live image tuning inside the RTSP server, push-to-talk, recording when
+  Frigate is down, updates from the browser with rollback, then the install to
+  flash that removes the need for the SD card (2.0), and the new interface (2.1).
+  The whole history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
 
@@ -300,7 +347,7 @@ src/flash/          Flash images: build-flash-kit.sh, build-usr.sh, build-code.s
 src/release/        Release files: SD card zip, update .tar, code .bin
 src/tc100fix/       libtc100fix (RTSP server hooks, MP4 recorder)
 src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolchain
-src/webui/          i18n check, Bulma purge, screenshot tool
+src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
 docs/               API, known issues, screenshots
 ```

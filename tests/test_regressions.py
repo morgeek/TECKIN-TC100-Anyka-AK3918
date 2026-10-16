@@ -173,7 +173,7 @@ class Regressions(unittest.TestCase):
         cfg.mkdir()
         (cfg / 'boot.conf').write_text('SECURITY_HARDENING_MODE=0\n')
         (cfg / 'mqtt.conf').write_text('MQTT_ENABLE=1\nMQTT_HA_DISCOVERY_ENABLE=1\n')
-        code = function('www/cgi-bin/func.cgi', 'read_conf_value') + '\n'
+        code = function('www/cgi-bin/func.cgi', 'read_conf_value') + '\n' + function('www/cgi-bin/func.cgi', 'conf_get') + '\n'
         flags = function('www/cgi-bin/state.cgi', 'get_security_and_mqtt_flags')
         flags = flags.replace('/mnt/config', str(cfg)).replace('/tmp/mqtt_last_pub.status', str(self.base / 'missing-status'))
         code += flags + '\nget_security_and_mqtt_flags; printf "%s|%s" "$mqtt_enabled" "$mqtt_discovery"'
@@ -1589,6 +1589,11 @@ class FlashWebServer(unittest.TestCase):
         self.assertIn('"mod_mbedtls"', t); self.assertNotIn('"mod_openssl"', t)
         self.assertIn('"server.h2proto" => "disable"', t)
         self.assertIn('ssl.pemfile = "/mnt/config/lighttpd.pem"', t)
+        # ChaCha20 first, in mbedTLS names (OpenSSL names stop lighttpd: tried on a camera)
+        cs = re.search(r'"CipherString" => "([^"]+)"', t).group(1).split(':')
+        self.assertEqual(cs[0], 'TLS-ECDHE-ECDSA-WITH-CHACHA20-POLY1305-SHA256')
+        self.assertTrue(all(c.startswith('TLS-ECDHE-ECDSA-WITH-') for c in cs), cs)
+        self.assertIn('"Options" => "ServerPreference"', t)
 
     def test_flash_conf_needs_no_pcre(self):
         t = (ROOT / 'config/lighttpd.flash.conf.dist').read_text()
@@ -2057,6 +2062,8 @@ class WebGuardAndSdHealth(unittest.TestCase):
         self.assertEqual(st, 'readonly')
         st, _ = self.sdh(mounts='', storage='flash', dev='/dev/null')
         self.assertEqual(st, 'none')
+        st, _ = self.sdh(mounts='', storage='flash', dev='/dev/loop0', dmesg=bad) if Path('/dev/loop0').is_block_device() else ('errors', None)
+        self.assertEqual(st, 'errors')
 
 
 class UsrUpdateFromFlash(unittest.TestCase):
@@ -2157,7 +2164,9 @@ class UsrUpdateFromFlash(unittest.TestCase):
         src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
         env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
                    HTTP_X_CSRF_TOKEN='ab12', FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'fw'),
+                   FWU_JFFS_LOG=str(self.d / 'jffslog'),
                    UU_WORK=str(self.d / 'sysupd'), UU_SCRIPT=str(ROOT / 'scripts/usr-update.sh'))
+        env.setdefault('FM', str(ROOT / 'scripts/flashmode-once.sh'))
         r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
         return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
 
@@ -2179,6 +2188,24 @@ class UsrUpdateFromFlash(unittest.TestCase):
         self.assertFalse(bad['ok']); self.assertIn('another original', bad['message'])
         self.assertFalse((self.d / 'sysupd').exists())
 
+    def test_web_install_of_a_system_package_starts_the_installer(self):
+        tar = self.d / 'sys.tar'
+        with open(self.pkg / 'usr.img', 'ab') as f:
+            f.write(b'\0' * 700 * 1024)
+        (self.pkg / 'usr.img.md5').write_text(hashlib.md5((self.pkg / 'usr.img').read_bytes()).hexdigest() + '  usr.img\n')
+        subprocess.run(['tar', '-cf', str(tar), '-C', str(self.pkg), 'usr.img', 'usr.img.md5', 'code.bin', 'camera.txt', 'VERSION'], check=True)
+        self.assertTrue(self.cgi('POST', 'upload', tar.read_bytes())['ok'])
+        self.env['FM'] = str(ROOT / 'scripts/flashmode-once.sh')
+        r = self.cgi('POST', 'install')            # FC_WORK does not exist yet
+        self.assertEqual((r['ok'], r['kind']), (True, 'system'))
+        log = self.d / 'sysupd/install.log'
+        for _ in range(100):
+            if log.exists() and 'DONE' in log.read_text():
+                break
+            time.sleep(0.2)
+        self.assertIn('DONE', log.read_text())
+        self.assertIn('system 9.9.9 written', (self.d / 'jffs/log/code-updates.log').read_text())
+
     def test_install_aborts_when_a_process_cannot_be_stopped(self):
         self.uu('check', str(self.pkg))
         for f in ('flash-code.sh', 'flashmode-once.sh'):
@@ -2188,6 +2215,57 @@ class UsrUpdateFromFlash(unittest.TestCase):
         self.uu('install', str(self.pkg))
         self.assertIn('ABORT', (self.pkg / 'install.log').read_text())
         self.assertEqual((self.d / 'mtd6').read_bytes()[:16], b'\x11' * 16)
+
+
+class WebUiSources(unittest.TestCase):
+    def test_index_bundle_is_built_from_src_webui_index(self):
+        r = subprocess.run(['sh', str(ROOT / 'src/webui/build-index.sh'), '--check'], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_dash_endpoint_reads_proc_without_processes(self):
+        # Polled every 5 s while the dashboard is open: shell built-ins only.
+        body = (ROOT / 'www/cgi-bin/dash.cgi').read_text()
+        self.assertNotIn('. /mnt/www/cgi-bin/func.cgi', body)
+        self.assertEqual(body.count('$(') - body.count('$(('), 0)   # no command substitution (a fork)
+        self.assertNotIn(' | ', body)                    # no pipeline
+        for f in ('/proc/stat', '/proc/meminfo', '/proc/net/dev', '/proc/net/wireless', '/proc/net/tcp'):
+            self.assertIn(f, body)
+        code = body
+        tmp = tempfile.mkdtemp()
+        try:
+            script = Path(tmp) / 'dash.sh'; script.write_text(code)
+            r = subprocess.run(['busybox', 'ash', str(script)] if shutil.which('busybox') else ['sh', str(script)],
+                               capture_output=True, text=True)
+            d = json.loads(r.stdout[r.stdout.index('{'):])   # after the CGI header
+            self.assertEqual(len(d['cpu']), 7); self.assertEqual(len(d['mem']), 4); self.assertEqual(len(d['net']), 2)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_statusline_and_func_cgi_avoid_subshells(self):
+        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        body = s[s.index('  statusline)\n'):s.index('  integrationtest)\n')]
+        subshells = [l.strip() for l in body.splitlines() if '$(' in l.replace('$((', '')]
+        # only the one-time CSRF token creation and the rare non-hex token clean-up
+        self.assertEqual(len(subshells), 3, subshells)
+        f = (ROOT / 'www/cgi-bin/func.cgi').read_text()
+        self.assertIn('*%*|*+*) value="$(urldecode "${raw_value}")" ;;', f)
+        self.assertIn('/tmp/.tc100-timeout-ok', f)
+        # plain and encoded values still decode to the same thing
+        sh = ['busybox', 'ash'] if shutil.which('busybox') else ['sh']   # ${x//a/b}: ash, not dash
+        r = subprocess.run(sh + ['-c', '. ' + str(ROOT / 'www/cgi-bin/func.cgi') + '; printf "%s|%s|%s" "$F_cmd" "$F_a" "$F_b"'],
+                           env={'PATH': os.environ['PATH'], 'REQUEST_METHOD': 'GET',
+                                'QUERY_STRING': 'cmd=statusline&a=x%20y%26z&b=1+2'}, capture_output=True, text=True)
+        self.assertEqual(r.stdout.split('\n')[-1], 'statusline|x y&z|1 2')
+
+    def test_home_views_and_settings_deep_links(self):
+        js = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
+        self.assertIn('function showHome(view)', js)
+        self.assertIn('leaveHome();\n        content.innerHTML = html;', js)   # home kept aside, not rebuilt
+        self.assertIn('window.tc100SettingsTab', js)
+        html = (ROOT / 'www/index.html').read_text()
+        self.assertIn('id="view_dashboard"', html); self.assertIn('id="view_live"', html)
+        self.assertIn("if (mode !== 'dark' && mode !== 'light') mode = 'dark';", html)
+        self.assertIn('css/ui-v3.css?v=', html)
 
 
 class FlashCodeZone(unittest.TestCase):
@@ -2252,7 +2330,8 @@ class FlashCodeZone(unittest.TestCase):
         src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
         env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
                    HTTP_X_CSRF_TOKEN='ab12', TC100_STORAGE_FILE=str(self.d / 'storage'),
-                   FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'work'))
+                   FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'work'),
+                   FWU_JFFS_LOG=str(self.d / 'jffslog'))
         (self.d / 'storage').write_text('flash\n')
         r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
         return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
@@ -2270,6 +2349,54 @@ class FlashCodeZone(unittest.TestCase):
             time.sleep(0.1)
         self.assertTrue((self.d / 'rebooted').exists())
         self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
+        # planned restart recorded for reboot-tracker.sh (not "UNEXPECTED")
+        self.assertIn('|web: code update', (self.d / 'jffslog/.reboot-intent').read_text())
+
+
+class CameraLogFindings(unittest.TestCase):
+    """2026-10-16: what two cameras' logs showed (docs/known-issues.md)."""
+
+    def tz(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'timezone.conf'; f.write_text(text)
+            sh = ['busybox', 'ash'] if shutil.which('busybox') else ['sh']
+            r = subprocess.run(sh + ['-c', '. %s; printf %%s "$TZ"' % (ROOT / 'scripts/update_timezone.sh')],
+                               env=dict(os.environ, TIME_ZONE_CONFIG_FILE=str(f)), capture_output=True, text=True)
+            return r.stdout
+
+    def test_time_zone_skips_comments_and_is_exported_for_everything(self):
+        self.assertEqual(self.tz((ROOT / 'config/timezone.conf.dist').read_text()), 'UTC0')
+        self.assertEqual(self.tz('# x\n\nCET-1CEST,M3.5.0,M10.5.0/3\n'), 'CET-1CEST,M3.5.0,M10.5.0/3')
+        self.assertEqual(self.tz('UTC-2'), 'UTC-2')
+        self.assertEqual(self.tz('x;reboot\n'), 'UTC0')
+        a = (ROOT / 'autorun.sh').read_text()
+        self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\nstart_syslog_forwarding\n'))
+        self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\ninit_crond\n'))
+
+    def test_no_false_boot_warnings_from_flash(self):
+        a = (ROOT / 'autorun.sh').read_text()
+        self.assertIn('[ "$_mnt_avail_kb" -lt 4096 ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" != flash ]', a)
+        self.assertIn('[ -e "$target_path" ] || return 0', a)
+        self.assertIn('= flash ] && MIGRATE_HTTPD_CONFIGS=""', (ROOT / 'scripts/config-migrate.sh').read_text())
+
+    @unittest.skipUnless(shutil.which('node'), 'node')
+    def test_logs_page_tells_vendor_chatter_from_faults(self):
+        src = (ROOT / 'www/logs.html').read_text()
+        js = ("const src=require('fs').readFileSync(process.argv[1],'utf8');"
+              "const a=src.indexOf('  var severityMeta'),b=src.indexOf('  var state = {');"
+              "const c=src.indexOf('  function detectSeverity'),d=src.indexOf('  function extractTimeInfo');"
+              "eval(src.slice(a,b)+src.slice(c,d));"
+              "for (const l of JSON.parse(process.argv[2])) console.log(detectSeverity(l));")
+        lines = ['Oct 16 18:35:10 anyka kern.err kernel: reg0x40, read:0x89',
+                 'Oct 16 18:35:12 anyka user.emerg syslog:  group_type=1, index=589, ts=37040, enc_ts=36812',
+                 'Oct 16 18:35:10 anyka user.err syslog:  [ak_cmd_register_module:741] no server was register, can not register module',
+                 'Oct 16 18:45:25 IPCAMERA1 user.emerg syslog:  [wait_move_stable:193] not stable',
+                 'Jan  1 00:00:15 anyka kern.warn kernel: RTW: module init start',
+                 'Oct 16 11:56:44 cam kern.err kernel: mmcblk0: timed out sending r/w cmd command, card status 0x400e00',
+                 'Oct 16 11:56:44 cam kern.warn kernel: mmc0: data(write) req failed (CMD25): -110, retrying(1)...',
+                 'Oct 16 12:00:00 cam user.notice tc100: started']
+        r = subprocess.run(['node', '-e', js, str(ROOT / 'www/logs.html'), json.dumps(lines)], capture_output=True, text=True)
+        self.assertEqual(r.stdout.split(), ['known'] * 5 + ['error', 'warning', 'notice'], r.stderr)
 
 
 class ForkLightLoops(unittest.TestCase):
@@ -2573,9 +2700,17 @@ class CameraPanel(unittest.TestCase):
     def test_navigation(self):
         html = (ROOT / 'www/index.html').read_text()
         nav = html.split('id="common_nav"')[1].split('navbar-end')[0]
+        self.assertLess(nav.index('id="dashboard_nav"'), nav.index('id="home_nav"'))
         self.assertLess(nav.index('id="home_nav"'), nav.index('id="status"'))
-        tools = nav.split('<span>Tools</span>')[1]
-        self.assertIn('id="services"', tools)        # Services lives under Tools
+        services = nav.split('<span>Services</span>')[1].split('<span>System</span>')[0]
+        self.assertIn('id="services"', services)     # Services menu: Integrations + Services
+        system = nav.split('<span>System</span>')[1]
+        for page in ('id="status"', 'id="diagnostics"', 'id="logs"', 'id="configeditor"', 'cmd=reboot'):
+            self.assertIn(page, system)
+        # every settings deep link names a section that exists
+        settings = (ROOT / 'www/settings.html').read_text()
+        for tab in re.findall(r'data-tab="([^"]+)"', nav):
+            self.assertIn('id="%s"' % tab, settings)
         self.assertEqual(html.count('data-cam-control='), 5)
         self.assertIn('initCamPanel();', (ROOT / 'www/scripts/index.bundle.min.js').read_text())
 
@@ -2642,8 +2777,11 @@ class SettingsLayout(unittest.TestCase):
     def test_tabs_by_use_and_unique_ids(self):
         html = (ROOT / 'www/settings.html').read_text()
         tabs = re.findall(r'data-tab="([^"]+)"', html)
-        self.assertEqual(tabs, ['tab-image', 'tab-video', 'tab-daynight', 'tab-audio', 'tab-detect', 'tab-record',
-                                'tab-integrations', 'tab-network', 'tab-system', 'tab-backup'])
+        # sidebar order (2.1.0): Image, Video & audio, Events, Network & integrations, System
+        self.assertEqual(tabs, ['tab-image', 'tab-daynight', 'tab-video', 'tab-audio', 'tab-detect', 'tab-record',
+                                'tab-network', 'tab-integrations', 'tab-system', 'tab-backup'])
+        self.assertIn('id="settings_search"', html)
+        self.assertIn('window.tc100SettingsTab = ', html)
         def tab(t):
             a = html.index('id="%s"' % t)
             nxt = [html.index('id="%s"' % o, a + 1) for o in tabs if html.find('id="%s"' % o, a + 1) > 0]
@@ -2970,6 +3108,15 @@ class SdWear(unittest.TestCase):
             subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
             line = (Path(d) / 'last').read_text()
             self.assertRegex(line, r'MemFree [0-9]+ kB\n$')       # padding trimmed
+
+    def test_boot_line_names_a_failing_sd_card(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'sdh').write_text('state=errors\nerrors=42\n')
+            env = dict(os.environ, REBOOT_TRACKER_DIR=str(Path(d) / 'sd'), SDH_OUT=str(Path(d) / 'sdh'),
+                       REBOOT_TRACKER_LAST=str(Path(d) / 'last'))
+            subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'heartbeat'], env=env, timeout=8)
+            subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
+            self.assertIn('SD card errors (42 kernel errors): likely cause', (Path(d) / 'last').read_text())
 
     def test_routine_logs_live_in_ram(self):
         self.assertIn('LOG_FILE="/tmp/log/sound-detection.log"',
