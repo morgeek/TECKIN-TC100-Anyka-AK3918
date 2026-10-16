@@ -21,15 +21,21 @@ fi
 # lighttpd refuses to start if deflate.cache-dir is missing (tmpfs, gone each boot)
 mkdir -p /tmp/lighttpd-deflate 2>/dev/null
 
-# Firmware from flash: see _http_server_lighttpd (common_functions.sh).
-if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ] && { [ "$WEB_MODE" = full ] || [ -z "$WEB_MODE" ]; }; then
-    if [ -s "$CONFIGPATH/lighttpd.pem" ]; then
-        # The template itself (matches this firmware's lighttpd: no PCRE).
-        LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.flash.conf.dist"
-    else
-        echo "02_system-webserver: no certificate in flash mode, HTTP only" >&2
-        LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.flash-http.conf.dist"
-    fi
+# Firmware from flash: see _http_server_lighttpd (common_functions.sh) — the
+# flash templates only (a conf brought from an SD card may not parse with
+# this lighttpd), HTTPS when the certificate loads, else plain HTTP.
+if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+    case "$WEB_MODE" in
+        ultra-lite|ultralite) run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www ;;
+        *) http_server on ;;
+    esac
+    # Last resort: no web interface a minute later -> telnet on the LAN, so
+    # the camera can still be repaired without opening it.
+    ( sleep 60
+      if ! port_listening 80 && ! port_listening 443 && ! port_listening "${ULTRALITE_HTTP_PORT:-80}"; then
+          logger -t tc100-event -p user.err "web server not running: rescue telnet on port 23" 2>/dev/null
+          telnetd -p 23
+      fi ) </dev/null >/dev/null 2>&1 &
     exit 0
 fi
 
