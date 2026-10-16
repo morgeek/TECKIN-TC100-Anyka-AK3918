@@ -3378,6 +3378,11 @@ if [ -n "$F_cmd" ]; then
         # `wpa_cli reconfigure` below re-reads the old file and the change is
         # silently discarded — and the new one is never used at boot either.
         _wpa_conf="$WIFI_CONFIG_PATH"
+        # From flash /mnt is in RAM: the file lives in jffs2, /mnt points to it.
+        if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+            _wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf
+            [ -L "$WIFI_CONFIG_PATH" ] || { rm -f "$WIFI_CONFIG_PATH"; ln -s "$_wpa_conf" "$WIFI_CONFIG_PATH"; }
+        fi
         _ssid="$(printf '%s' "${F_ssid:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-32)"
         _psk="$(printf '%s' "${F_psk:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-63)"
         _ssid_len="$(printf '%s' "$_ssid" | wc -c)"

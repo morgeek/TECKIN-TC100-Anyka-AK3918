@@ -1924,6 +1924,55 @@ class LocalRecording(unittest.TestCase):
         self.assertIn('rec.c', (ROOT / 'src/tc100fix/build.sh').read_text())
 
 
+class WifiTxt(unittest.TestCase):
+    """scripts/wifi-txt.sh: Wi-Fi settings from wifi.txt on the SD card."""
+
+    def apply(self, d, text, anyka=None):
+        (d / 'sd').mkdir(exist_ok=True)
+        (d / 'sd' / 'wifi.txt').write_bytes(text.encode())
+        args = ['sh', str(ROOT / 'scripts/wifi-txt.sh'), 'apply', str(d / 'sd' / 'wifi.txt'), str(d / 'wpa.conf')]
+        if anyka:
+            (d / 'anyka.ini').write_text(anyka); args.append(str(d / 'anyka.ini'))
+        return subprocess.run(args, capture_output=True, text=True).returncode
+
+    def test_applies_keeps_fallbacks_and_removes_the_password(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rc = self.apply(d, 'SSID=Phone Hotspot\r\nPASSWORD="new secret 1"\r\n',
+                            '[wireless]\nssid = Home\npassword = homepass99\n[ethernet]\nssid = x\n')
+            self.assertEqual(rc, 0)
+            conf = (d / 'wpa.conf').read_text()
+            self.assertIn('ssid="Phone Hotspot"\n\tscan_ssid=1\n\tkey_mgmt=WPA-PSK\n\tpsk="new secret 1"\n\tpriority=2', conf)
+            self.assertIn('ssid="Home"\n\tscan_ssid=1\n\tkey_mgmt=WPA-PSK\n\tpsk="homepass99"\n\tpriority=1', conf)
+            self.assertNotIn('ssid="x"', conf)
+            self.assertEqual(oct((d / 'wpa.conf').stat().st_mode & 0o777), '0o600')
+            self.assertFalse((d / 'sd' / 'wifi.txt').exists())
+            self.assertNotIn('new secret', (d / 'sd' / 'wifi-applied.txt').read_text())
+            # a second file keeps the earlier networks as fallbacks, once each
+            self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=changed99\n'), 0)
+            conf = (d / 'wpa.conf').read_text()
+            self.assertEqual(conf.count('ssid="Home"'), 1)
+            self.assertIn('psk="changed99"\n\tpriority=2', conf)
+            self.assertIn('ssid="Phone Hotspot"', conf)
+
+    def test_invalid_file_is_set_aside_and_conf_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'wpa.conf').write_text('old\n')
+            self.assertEqual(self.apply(d, 'SSID=x\nPASSWORD=short\n'), 2)
+            self.assertEqual((d / 'wpa.conf').read_text(), 'old\n')
+            self.assertIn('8-63', (d / 'sd' / 'wifi-invalid.txt').read_text())
+            self.assertFalse((d / 'sd' / 'wifi.txt').exists())
+            self.assertEqual(self.apply(d, 'SSID=Open net\n'), 0)
+            self.assertIn('key_mgmt=NONE', (d / 'wpa.conf').read_text())
+
+    def test_wired_into_boot_and_settings(self):
+        self.assertIn('wifi-txt.sh" apply "$M/wifi.txt" "$P/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
+        self.assertIn('ln -s "$P/wpa_supplicant.conf" "$M/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
+        self.assertIn('wifi-txt.sh apply /mnt/wifi.txt "$WIFI_CONFIG"', (ROOT / 'autorun.sh').read_text())
+        self.assertIn('_wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf', (ROOT / 'www/cgi-bin/action.cgi').read_text())
+
+
 class CodePackageRelease(unittest.TestCase):
     @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
     def test_package_from_git_is_valid_and_executable(self):

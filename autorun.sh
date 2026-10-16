@@ -460,6 +460,11 @@ init_network()
     ifconfig wlan0 up
 
     WIFI_CONFIG="/mnt/wpa_supplicant.conf"
+    # wifi.txt at the root of the card (SSID=/PASSWORD=): Wi-Fi settings
+    # without the web interface. From flash, flashboot.sh has applied it.
+    if [ -f /mnt/wifi.txt ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" != flash ]; then
+        sh /mnt/scripts/wifi-txt.sh apply /mnt/wifi.txt "$WIFI_CONFIG" /etc/jffs2/anyka_cfg.ini >> $LOGPATH 2>&1
+    fi
     if [ -f "$WIFI_CONFIG" ]; then
         echo "Use manual WIFI setup" >> $LOGPATH
         mkdir /var/network
