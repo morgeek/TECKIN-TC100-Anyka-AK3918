@@ -2063,7 +2063,7 @@ class FlashCodeZone(unittest.TestCase):
 
 
 class ForkLightLoops(unittest.TestCase):
-    """The loops that run all day start (almost) no process: 525 -> 85 forks/min measured on camera 2."""
+    """The loops that run all day start (almost) no process: 525 -> 85 forks/min measured on a test camera."""
 
     def body(self, rel, name):
         src = (ROOT / rel).read_text()
