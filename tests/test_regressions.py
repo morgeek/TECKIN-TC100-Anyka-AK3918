@@ -2057,6 +2057,8 @@ class WebGuardAndSdHealth(unittest.TestCase):
         self.assertEqual(st, 'readonly')
         st, _ = self.sdh(mounts='', storage='flash', dev='/dev/null')
         self.assertEqual(st, 'none')
+        st, _ = self.sdh(mounts='', storage='flash', dev='/dev/loop0', dmesg=bad) if Path('/dev/loop0').is_block_device() else ('errors', None)
+        self.assertEqual(st, 'errors')
 
 
 class UsrUpdateFromFlash(unittest.TestCase):
