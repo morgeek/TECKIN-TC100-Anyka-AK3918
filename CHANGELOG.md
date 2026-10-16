@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.3] — 2026-10-17
+
+### Changed
+- **Vendor libraries log errors only** (`VENDOR_PRINT_LEVEL` now defaults to 1 instead of the vendor's 3). At 3 the encoder library writes every slow frame (`>>> encode frame type=0 … time=…ms`, `group_type=…`) at *emergency* priority: with remote syslog on, a NAS received bursts of "emergency" events and sent an alert for each. Checked on a camera: after a stream start only the vendor's error lines remain. Set 3 in boot.conf to get the vendor behaviour back.
+
+---
+
 ## [2.1.2] — 2026-10-16
 
 What the logs of two cameras showed over a day (details: docs/known-issues.md, "Reading the camera logs").
