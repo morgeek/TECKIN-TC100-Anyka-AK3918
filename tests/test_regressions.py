@@ -1883,8 +1883,8 @@ class FlashKitOnComputer(unittest.TestCase):
             subprocess.run(['sh', str(src / 'src/flash/stage-tc100.sh'), str(t / 'a')], check=True, capture_output=True,
                            env=dict(os.environ, GIT_DIR=str(t / 'nogit')))
             names = sorted(str(p.relative_to(t / 'a')) for p in (t / 'a').rglob('*') if p.is_file())
-            self.assertIn('bin/lighttpd', names); self.assertIn('bin/curl', names); self.assertIn('autorun.sh', names)
-            self.assertFalse([n for n in names if re.match(r'(config/ssl/|bin/(openssl|monvifd|jq)$|lib/(libssl|libcrypto|libpcre2))', n)])
+            self.assertIn('bin/lighttpd', names); self.assertIn('bin/monvifd', names); self.assertIn('bin/curl', names); self.assertIn('autorun.sh', names)
+            self.assertFalse([n for n in names if re.match(r'(config/ssl/|bin/(openssl|jq)$|lib/(libssl|libcrypto|libpcre2))', n)])
             self.assertTrue(os.access(t / 'a/config/autostart', os.X_OK))
             self.assertEqual((t / 'a/bin/lighttpd').read_bytes(), (ROOT / 'src/flash/prebuilt/lighttpd').read_bytes())
 

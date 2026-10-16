@@ -113,7 +113,7 @@ fi_copy_settings()
         case "$n" in *.dist|*.pre-migrate|*.expired|*.bak*|*-bak|openssl.cnf|packages.lock|ssl|.lkg|lighttpd.conf|lighttpd.http.conf) continue ;; esac
         cp -a "$f" "$JFFS/config/" || return 1
     done
-    rm -f "$JFFS/config/autostart/recording" "$JFFS/config/autostart/onvif"
+    rm -f "$JFFS/config/autostart/recording"
     [ -d "$JFFS/config/autostart" ] && [ ! -e "$JFFS/config/autostart/button-actions" ] && \
         printf '#!/bin/sh\n/mnt/controlscripts/button-actions\n' > "$JFFS/config/autostart/button-actions"
     chmod 755 "$JFFS"/config/autostart/* 2>/dev/null
