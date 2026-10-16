@@ -51,8 +51,22 @@ rescue()
 
 # An SD card without the firmware is mounted on /mnt by service.sh: leave it
 # out of the way (the firmware would take it for its own card).
+# wifi.txt at the root of that card (scripts/wifi-txt.sh): new Wi-Fi settings,
+# kept in jffs2. A card the vendor boot did not mount is looked at too.
 if grep -q " $M vfat " /proc/mounts 2>/dev/null || grep -q " $M exfat " /proc/mounts 2>/dev/null; then
+    [ -f "$M/wifi.txt" ] && log "$(sh "$T/scripts/wifi-txt.sh" apply "$M/wifi.txt" "$P/wpa_supplicant.conf" /etc/jffs2/anyka_cfg.ini 2>&1)"
     umount "$M" 2>/dev/null || log "could not unmount the SD card from $M"
+elif [ "${FLASHBOOT_SD_PROBE:-1}" = 1 ]; then
+    for dev in /dev/mmcblk0p1 /dev/mmcblk0; do
+        [ -b "$dev" ] || continue
+        mkdir -p /tmp/wifisd
+        if mount -t vfat -o rw,noatime "$dev" /tmp/wifisd 2>/dev/null; then
+            [ -f /tmp/wifisd/wifi.txt ] && log "$(sh "$T/scripts/wifi-txt.sh" apply /tmp/wifisd/wifi.txt "$P/wpa_supplicant.conf" /etc/jffs2/anyka_cfg.ini 2>&1)"
+            umount /tmp/wifisd 2>/dev/null
+            break
+        fi
+    done
+    rmdir /tmp/wifisd 2>/dev/null
 fi
 mount -t tmpfs -o size=4m,mode=0755 tmpfs "$M" || rescue "tmpfs on $M failed"
 
@@ -90,6 +104,9 @@ for d in scripts controlscripts www sounds; do
     mount -o bind "$C/$d" "$M/$d" || rescue "bind $d failed"
 done
 ln -s "$C/autorun.sh" "$M/autorun.sh"
+# Wi-Fi settings made from flash (wifi.txt, Settings) live in jffs2;
+# autorun.sh connects with /mnt/wpa_supplicant.conf when it exists.
+[ -f "$P/wpa_supplicant.conf" ] && ln -s "$P/wpa_supplicant.conf" "$M/wpa_supplicant.conf"
 cp "$C/VERSION" "$M/VERSION" 2>/dev/null
 mkdir -p "$M/log" "$M/DCIM"
 

@@ -121,6 +121,8 @@ Cloud-free, MicroSD-based firmware extension for the **Teckin TC100 / Teckin Cli
 
 ## Installation
 
+> **Changing the Wi-Fi without the web interface:** put a text file `wifi.txt` at the root of an SD card (`SSID=MyNetwork` and `PASSWORD=my password` lines) and power the camera on with it. The settings are applied before the Wi-Fi starts (from flash they are kept in the flash), the password is then removed from the card (`wifi-applied.txt`), and the networks known before stay as fallbacks, so a typo does not take the camera off its old network. An invalid file becomes `wifi-invalid.txt` with the reason.
+
 1. Format MicroSD as FAT32 (MBR, 32 KB allocation size recommended) or exFAT.
 2. Build the card content with `src/release/build-sd.sh` (needs `squashfs-tools`
    for the read-only image) and copy `dist/tc100-sd-<version>/` to the card root.

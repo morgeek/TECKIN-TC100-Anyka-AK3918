@@ -158,8 +158,10 @@ RTSP_DAYNIGHT_POLL_MS=500
 # into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
 # default until the thresholds are calibrated on hardware.
 TAMPER_DETECTION=0
-# Rescue Wi-Fi access point (off until validated on hardware: DHCP over the
-# access point does not reach clients yet). When the Wi-Fi link (association + gateway ping)
+# Rescue Wi-Fi access point — ON HOLD: with the vendor hostapd (2013,
+# rtl871xdrv) and this driver, phones complete WPA2 but receive no data (no
+# DHCP), even with the station stopped (tested 2026-10-16); hostapd is not in
+# the flash /usr. Use wifi.txt on the SD card instead. When the Wi-Fi link (association + gateway ping)
 # stays down for WIFI_RESCUE_AFTER_MIN minutes, the camera opens a WPA2 access
 # point (SSID WIFI_RESCUE_SSID, default TC100-<end of MAC>) with the web
 # interface at https://10.42.0.1 to fix the Wi-Fi settings; it closes once the
