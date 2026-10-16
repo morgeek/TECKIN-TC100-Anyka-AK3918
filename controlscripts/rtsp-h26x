@@ -23,7 +23,7 @@ fi
 : "${RTSP_AUDIO:=1}"
 : "${RTSP_FPS_LOCK:=0}"
 : "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"
-: "${VENDOR_PRINT_LEVEL:=}"
+: "${VENDOR_PRINT_LEVEL:=1}"   # vendor libraries: errors only (2.1.3); 3 = vendor default
 : "${ISP_TUNE:=0}"
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"

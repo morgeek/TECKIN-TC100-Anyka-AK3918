@@ -10,7 +10,7 @@ Logs of two cameras over a day (2026-10-16) showed that almost every line marked
 | What you see | What it is |
 |---|---|
 | `kern.err kernel: reg0x40, read:0x89`, `f22_set_power_on`, `akisp_init`, `2lane thssettle` | the sensor driver dumping its registers each time the video starts, at error priority |
-| `user.emerg … encode frame type=1`, `group_type=1, index=…`, `sensor fps switch 25 to 10` | the vendor encoder library starting a stream, at emergency priority |
+| `user.emerg … encode frame type=1`, `group_type=1, index=…`, `sensor fps switch 25 to 10` | the vendor encoder library at emergency priority, at stream start and whenever a frame takes more than ~100 ms to encode. Silenced from 2.1.3 (vendor print level 1, errors only); it was flooding a remote syslog server and its email alerts |
 | `user.err … ak_cmd_register_module … no server was register` | the vendor library looking for the cloud command server, which is not run |
 | `user.emerg … [wait_move_stable:193] not stable` | vendor image library message every ~15 min, no effect seen |
 | `RTW: …` (≈130 lines at boot) | Wi-Fi driver banner |
