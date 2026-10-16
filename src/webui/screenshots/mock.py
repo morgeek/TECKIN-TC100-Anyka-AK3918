@@ -28,7 +28,7 @@ def route(path, q, method):
             return ({'.json':'application/json','.html':'text/html','.txt':'text/plain'}[ext], open(f+ext,'rb').read())
     if name=='currentpic.cgi': return ('image/jpeg', open(os.path.join(HERE,'pattern.jpg'),'rb').read())
     if name=='state.cgi' and cmd=='statusline': return J(STATUS)
-    if name=='state.cgi' and cmd=='dash': return J(dash())
+    if name=='dash.cgi': return J(dash())
     if name=='state.cgi' and cmd=='dashinfo': return J(DASHINFO)
     if name=='state.cgi' and cmd=='hostname': return T('camera')
     if name=='state.cgi' and cmd=='sysusage': return T(STATUS['sysusage'])
