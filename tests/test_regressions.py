@@ -2353,6 +2353,52 @@ class FlashCodeZone(unittest.TestCase):
         self.assertIn('|web: code update', (self.d / 'jffslog/.reboot-intent').read_text())
 
 
+class CameraLogFindings(unittest.TestCase):
+    """2026-10-16: what two cameras' logs showed (docs/known-issues.md)."""
+
+    def tz(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'timezone.conf'; f.write_text(text)
+            sh = ['busybox', 'ash'] if shutil.which('busybox') else ['sh']
+            r = subprocess.run(sh + ['-c', '. %s; printf %%s "$TZ"' % (ROOT / 'scripts/update_timezone.sh')],
+                               env=dict(os.environ, TIME_ZONE_CONFIG_FILE=str(f)), capture_output=True, text=True)
+            return r.stdout
+
+    def test_time_zone_skips_comments_and_is_exported_for_everything(self):
+        self.assertEqual(self.tz((ROOT / 'config/timezone.conf.dist').read_text()), 'UTC0')
+        self.assertEqual(self.tz('# x\n\nCET-1CEST,M3.5.0,M10.5.0/3\n'), 'CET-1CEST,M3.5.0,M10.5.0/3')
+        self.assertEqual(self.tz('UTC-2'), 'UTC-2')
+        self.assertEqual(self.tz('x;reboot\n'), 'UTC0')
+        a = (ROOT / 'autorun.sh').read_text()
+        self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\nstart_syslog_forwarding\n'))
+        self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\ninit_crond\n'))
+
+    def test_no_false_boot_warnings_from_flash(self):
+        a = (ROOT / 'autorun.sh').read_text()
+        self.assertIn('[ "$_mnt_avail_kb" -lt 4096 ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" != flash ]', a)
+        self.assertIn('[ -e "$target_path" ] || return 0', a)
+        self.assertIn('= flash ] && MIGRATE_HTTPD_CONFIGS=""', (ROOT / 'scripts/config-migrate.sh').read_text())
+
+    @unittest.skipUnless(shutil.which('node'), 'node')
+    def test_logs_page_tells_vendor_chatter_from_faults(self):
+        src = (ROOT / 'www/logs.html').read_text()
+        js = ("const src=require('fs').readFileSync(process.argv[1],'utf8');"
+              "const a=src.indexOf('  var severityMeta'),b=src.indexOf('  var state = {');"
+              "const c=src.indexOf('  function detectSeverity'),d=src.indexOf('  function extractTimeInfo');"
+              "eval(src.slice(a,b)+src.slice(c,d));"
+              "for (const l of JSON.parse(process.argv[2])) console.log(detectSeverity(l));")
+        lines = ['Oct 16 18:35:10 anyka kern.err kernel: reg0x40, read:0x89',
+                 'Oct 16 18:35:12 anyka user.emerg syslog:  group_type=1, index=589, ts=37040, enc_ts=36812',
+                 'Oct 16 18:35:10 anyka user.err syslog:  [ak_cmd_register_module:741] no server was register, can not register module',
+                 'Oct 16 18:45:25 IPCAMERA1 user.emerg syslog:  [wait_move_stable:193] not stable',
+                 'Jan  1 00:00:15 anyka kern.warn kernel: RTW: module init start',
+                 'Oct 16 11:56:44 cam kern.err kernel: mmcblk0: timed out sending r/w cmd command, card status 0x400e00',
+                 'Oct 16 11:56:44 cam kern.warn kernel: mmc0: data(write) req failed (CMD25): -110, retrying(1)...',
+                 'Oct 16 12:00:00 cam user.notice tc100: started']
+        r = subprocess.run(['node', '-e', js, str(ROOT / 'www/logs.html'), json.dumps(lines)], capture_output=True, text=True)
+        self.assertEqual(r.stdout.split(), ['known'] * 5 + ['error', 'warning', 'notice'], r.stderr)
+
+
 class ForkLightLoops(unittest.TestCase):
     """The loops that run all day start (almost) no process: 525 -> 85 forks/min measured on a test camera."""
 
@@ -3062,6 +3108,15 @@ class SdWear(unittest.TestCase):
             subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
             line = (Path(d) / 'last').read_text()
             self.assertRegex(line, r'MemFree [0-9]+ kB\n$')       # padding trimmed
+
+    def test_boot_line_names_a_failing_sd_card(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'sdh').write_text('state=errors\nerrors=42\n')
+            env = dict(os.environ, REBOOT_TRACKER_DIR=str(Path(d) / 'sd'), SDH_OUT=str(Path(d) / 'sdh'),
+                       REBOOT_TRACKER_LAST=str(Path(d) / 'last'))
+            subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'heartbeat'], env=env, timeout=8)
+            subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
+            self.assertIn('SD card errors (42 kernel errors): likely cause', (Path(d) / 'last').read_text())
 
     def test_routine_logs_live_in_ram(self):
         self.assertIn('LOG_FILE="/tmp/log/sound-detection.log"',

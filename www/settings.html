@@ -481,7 +481,7 @@
                 <header class='card-header'><p class='card-header-title'>Time zone and clock</p></header>
                 <div class='card-content'>
                     <form id="formTime" action="cgi-bin/action.cgi?cmd=settz" method="post">
-                        <div class="field"><label class="label is-small">Timezone (TZ string)</label><input class="input is-small" name="tz" id="timezone" type="text" placeholder="UTC0"></div>
+                        <div class="field"><label class="label is-small">Timezone (TZ string)</label><input class="input is-small" name="tz" id="timezone" type="text" placeholder="UTC0"><p class="help">POSIX format, e.g. CET-1CEST,M3.5.0,M10.5.0/3 for Paris with summer time (east of Greenwich is negative). Logs and scheduled tasks use it after the next restart.</p></div>
                         <div class="field"><label class="label is-small">NTP Server</label><input class="input is-small" name="ntp_srv" id="ntp_server" type="text" placeholder="pool.ntp.org"></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply Time</button></div>
                     </form>

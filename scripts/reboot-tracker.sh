@@ -11,7 +11,8 @@
 #
 # A boot with no recorded intent means the previous run ended without anyone
 # asking for it: hardware watchdog, power loss or kernel crash. The last
-# heartbeat then dates it to within 15 minutes.
+# heartbeat then dates it to within 5 minutes (flash) or 15 (SD card), and
+# says whether the SD card was failing at that time.
 # Files live on the SD card, or in jffs2 when the firmware runs from flash
 # (survive reboots). SD writes are kept rare: the
 # heartbeat is overwritten in place (same 64 bytes, no new cluster or directory
@@ -57,10 +58,21 @@ rt_heartbeat()
   _hb_up=""; read -r _hb_up _hb_rest < /proc/uptime 2>/dev/null
   _hb_load=""; read -r _hb_load _hb_rest < /proc/loadavg 2>/dev/null
   _hb_free="$(sed -n 's/^MemFree: *\([0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null)"
+  # SD card state (scripts/sd-health.sh): a failing card blocks the kernel in
+  # its driver until the hardware watchdog resets the camera, so the boot line
+  # can then name the likely cause (seen on a test camera, 2026-10-16).
+  _hb_sd=""; _hb_err=0
+  if [ -r "${SDH_OUT:-/tmp/sd-health}" ]; then
+    while IFS='=' read -r _hb_k _hb_v; do
+      case "$_hb_k" in state) _hb_sd="$_hb_v" ;; errors) _hb_err="$_hb_v" ;; esac
+    done < "${SDH_OUT:-/tmp/sd-health}"
+  fi
+  case "$_hb_sd" in *[!a-z]*) _hb_sd="" ;; esac
+  case "$_hb_err" in ''|*[!0-9]*) _hb_err=0 ;; esac
   mkdir -p "$LOGDIR" 2>/dev/null
   # Fixed 64-byte record written over the previous one (read -r trims the
   # padding back off).
-  printf '%-63s\n' "$(_rt_ts)|${_hb_up%.*}|$_hb_load|$_hb_free" |
+  printf '%-63s\n' "$(_rt_ts)|${_hb_up%.*}|$_hb_load|$_hb_free|${_hb_sd}:$_hb_err" |
     dd of="$HEARTBEAT" bs=64 count=1 conv=notrunc 2>/dev/null
 }
 
@@ -90,8 +102,13 @@ rt_flush_important()
 rt_tick()
 {
   rt_flush_important
-  case "$(date +%M 2>/dev/null)" in
-    00|15|30|45) rt_heartbeat ;;
+  # In flash (jffs2, log-structured) every tick: dates a sudden reset to
+  # within 5 minutes. On an SD card, every 15 minutes (fewer writes).
+  case "$LOGDIR" in
+    /etc/jffs2/*) rt_heartbeat ;;
+    *) case "$(date +%M 2>/dev/null)" in
+         00|15|30|45) rt_heartbeat ;;
+       esac ;;
   esac
 }
 
@@ -107,7 +124,16 @@ rt_boot()
     _bt_rest="${_bt_hb#*|}"
     _bt_line="UNEXPECTED (hardware watchdog, power loss or crash); last alive ${_bt_hb%%|*}, uptime ${_bt_rest%%|*}s"
     _bt_rest="${_bt_rest#*|}"
-    _bt_line="$_bt_line, load ${_bt_rest%%|*}, MemFree ${_bt_rest#*|} kB"
+    _bt_line="$_bt_line, load ${_bt_rest%%|*}"
+    _bt_rest="${_bt_rest#*|}"
+    _bt_line="$_bt_line, MemFree ${_bt_rest%%|*} kB"
+    case "$_bt_rest" in
+      *'|'*) _bt_sd="${_bt_rest#*|}"; _bt_n="${_bt_sd#*:}"
+             case "${_bt_sd%%:*}" in
+               errors|failing|readonly) _bt_line="$_bt_line; SD card ${_bt_sd%%:*} ($_bt_n kernel errors): likely cause" ;;
+               *) case "$_bt_n" in ''|0|*[!0-9]*) ;; *) _bt_line="$_bt_line; $_bt_n SD card errors in the kernel log" ;; esac ;;
+             esac ;;
+    esac
   else
     _bt_line="unknown (no heartbeat recorded yet)"
   fi

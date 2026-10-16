@@ -120,8 +120,30 @@
     notice: { label: "Notice", weight: 300, className: "sev-notice" },
     info: { label: "Info", weight: 200, className: "sev-info" },
     debug: { label: "Debug", weight: 100, className: "sev-debug" },
+    known: { label: "Vendor", weight: 150, className: "sev-known" },
     unknown: { label: "Unknown", weight: 0, className: "sev-unknown" },
   };
+
+  // Messages the vendor drivers and libraries print at every start (or that
+  // clients cause), often at "err" or "emerg" priority although nothing is
+  // wrong: sensor register dump, Wi-Fi driver banner, encoder start, the
+  // browser refusing the self-signed certificate once… Measured on two
+  // cameras (2026-10-16): they were nearly every "Error"/"Critical" line of
+  // the summary. Shown as "Vendor", not counted as faults.
+  var KNOWN_VENDOR_PATTERNS = [
+    /\breg0x[0-9a-f]+, read:0x/i, /\bf2[23]_(set_power_on|probe_id)\b/, /\b(aksensor_module_init|akisp_init|ak_info_dump_init)\b/,
+    /2lane thssettle|isp_>blc_mode|ak_camera_set_parm|aksensor_s_stream/, /i2c-ak39: Unable to achieve desired frequency/,
+    /ion: failed to create debug files/, /hctosys\.c: unable to open rtc device/, /We're Using Internal RC OSC/,
+    /@@@ \[/, /irq_handle_continous_mode \d+: vb->i=\d+, but id -1/, /akotg_usbhc_hub_status_data/, /\bRTW: /,
+    /ak_cmd_(un)?register_(module|msg_handle).*no server was register/, /encode frame type=\d|group_type=\d+, index=\d+/,
+    /sensor fps switch|check_sensor_fps_switch/, /\[ak_vi_get_frame:\d+\] get frame failed/, /isp_vi_get_frame.*dropped it/,
+    /\[wait_move_stable:\d+\] not stable/, /rfkill: Cannot get wiphy information/, /ioctl\[SIOCSIW(AP|ENCODEEXT)\]/,
+    /MTLS: mod_mbedtls_ssl_handshake: SSL - A fatal alert message was received from our peer/,
+    /invalid request-line -> sending Status 400/
+  ];
+  var SYSLOG_PRIORITY = /\s(?:kern|user|mail|daemon|auth|authpriv|syslog|lpr|news|uucp|cron|ftp|local[0-7])\.(emerg|alert|crit|err|error|warn|warning|notice|info|debug)\s/;
+  var SYSLOG_LEVEL_MAP = { emerg: "critical", alert: "critical", crit: "critical", err: "error", error: "error",
+    warn: "warning", warning: "warning", notice: "notice", info: "info", debug: "debug" };
 
   var kernelLevelMap = {
     0: "critical",
@@ -204,6 +226,18 @@
     var kmsg = line.match(/^\s*<([0-7])>/);
     if (kmsg) {
       return kernelLevelMap[Number(kmsg[1])] || "unknown";
+    }
+
+    for (var k = 0; k < KNOWN_VENDOR_PATTERNS.length; k += 1) {
+      if (KNOWN_VENDOR_PATTERNS[k].test(line)) {
+        return "known";
+      }
+    }
+    // A syslog line carries its own priority ("kern.warn"): use it instead of
+    // guessing from words ("kern.err" used to make every kernel line an error).
+    var prio = line.match(SYSLOG_PRIORITY);
+    if (prio) {
+      return SYSLOG_LEVEL_MAP[prio[1]] || "unknown";
     }
 
     var lower = line.toLowerCase();
@@ -345,6 +379,7 @@
       notice: 0,
       info: 0,
       debug: 0,
+      known: 0,
       unknown: 0,
     };
     entries.forEach(function (entry) {
@@ -371,6 +406,9 @@
     addChip("Notice: " + counts.notice, "sev-notice");
     addChip("Info: " + counts.info, "sev-info");
     addChip("Debug: " + counts.debug, "sev-debug");
+    if (counts.known) {
+      addChip("Vendor messages: " + counts.known, "sev-known");
+    }
   }
 
   function renderParseNotice() {

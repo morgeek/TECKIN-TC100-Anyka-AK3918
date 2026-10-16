@@ -216,3 +216,4 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
 .motion-timeline-item { border-bottom-color: var(--v2-rule) !important; }
 /* Diagnostics tabs: same look as the rest of the bar. */
 #diagnostics_container .tabs li.is-active a { box-shadow: inset 0 -2px 0 var(--v2-accent-fill) !important; }
+.logs-summary-chip.sev-known, .logs-row.sev-known .logs-severity-tag { background: var(--v2-hover) !important; color: var(--v2-muted) !important; border-color: var(--v2-rule) !important; }

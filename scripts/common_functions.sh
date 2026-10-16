@@ -993,7 +993,17 @@ syslogd_start() {
   else
     ( trap '' HUP; exec $_sl_bin -n -D -f "$SYSLOG_CONF_RUNTIME" -l 6 -s 128 -b 1 ) </dev/null >/dev/null 2>&1 &
   fi
-  echo "$!"
+  _sl_pid=$!
+  # klogd stamps the kernel lines itself: the vendor one starts before the
+  # time zone is known, so kernel lines were hours apart from the others.
+  # Restart it with the current TZ (only when one is set).
+  if [ -n "${TZ:-}" ]; then
+    _kl_list() { ps 2>/dev/null | awk '/[k]logd( |$)/ { print $1 }'; }
+    # shellcheck disable=SC2046
+    kill $(_kl_list) >/dev/null 2>&1
+    ( trap '' HUP; exec /bin/busybox klogd -n ) </dev/null >/dev/null 2>&1 &
+  fi
+  echo "$_sl_pid"
 }
 
 # Critical event worth keeping across reboots: goes to syslog with a tag that
