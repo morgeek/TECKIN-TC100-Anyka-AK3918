@@ -505,6 +505,20 @@
             </div>
 
             <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Password</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-3">One password for the user <code>root</code>: web interface, RTSP streams, FTP and telnet. After the change, update the stream addresses in Frigate or your NVR, and the browser asks you to sign in again.</p>
+                    <form id="formPassword" action="cgi-bin/action.cgi?cmd=set_all_password" method="post" autocomplete="off">
+                        <div class="columns mb-0">
+                            <div class="column"><label class="label is-small" for="all_password">New password</label><input class="input is-small" id="all_password" name="password" type="password" minlength="6" maxlength="64" autocomplete="new-password" required></div>
+                            <div class="column"><label class="label is-small" for="all_password2">Repeat it</label><input class="input is-small" id="all_password2" type="password" autocomplete="new-password" required></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-warning is-small" type="submit">Change the password</button></div>
+                    </form>
+                </div>
+            </div>
+
+            <div class='card status_card mt-4'>
                 <header class='card-header'><p class='card-header-title'>LEDs and privacy</p></header>
                 <div class='card-content'>
                     <div class="columns">
@@ -1064,6 +1078,17 @@
                 run('rollback', 'Restore the files replaced by the last update and reboot the camera?', 'Rolling back.');
             });
             refresh();
+        })();
+
+        (function initPasswordForm() {
+            var a = document.getElementById('all_password'), b = document.getElementById('all_password2');
+            if (!a || !b) return;
+            function check() {
+                var bad = /["'\\$`%\s]/.test(a.value);
+                a.setCustomValidity(bad ? 'No spaces, quotes, %, $, ` or \\.' : '');
+                b.setCustomValidity(b.value && b.value !== a.value ? 'The two passwords differ.' : '');
+            }
+            a.addEventListener('input', check); b.addEventListener('input', check);
         })();
 
         (function initFlashInstall() {
