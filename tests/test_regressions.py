@@ -2218,20 +2218,19 @@ class WebUiSources(unittest.TestCase):
 
     def test_dash_endpoint_reads_proc_without_processes(self):
         # Polled every 5 s while the dashboard is open: shell built-ins only.
-        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
-        body = s[s.index('  dash)\n'):s.index('  dashinfo)\n')]
+        body = (ROOT / 'www/cgi-bin/dash.cgi').read_text()
+        self.assertNotIn('. /mnt/www/cgi-bin/func.cgi', body)
         self.assertEqual(body.count('$(') - body.count('$(('), 0)   # no command substitution (a fork)
         self.assertNotIn(' | ', body)                    # no pipeline
         for f in ('/proc/stat', '/proc/meminfo', '/proc/net/dev', '/proc/net/wireless', '/proc/net/tcp'):
             self.assertIn(f, body)
-        lines = '\n'.join(l for l in body.splitlines() if not l.strip().startswith('#'))
-        code = lines.split('\n', 1)[1].rsplit('    ;;', 1)[0]
+        code = body
         tmp = tempfile.mkdtemp()
         try:
             script = Path(tmp) / 'dash.sh'; script.write_text(code)
             r = subprocess.run(['busybox', 'ash', str(script)] if shutil.which('busybox') else ['sh', str(script)],
                                capture_output=True, text=True)
-            d = json.loads(r.stdout)
+            d = json.loads(r.stdout[r.stdout.index('{'):])   # after the CGI header
             self.assertEqual(len(d['cpu']), 7); self.assertEqual(len(d['mem']), 4); self.assertEqual(len(d['net']), 2)
         finally:
             shutil.rmtree(tmp)

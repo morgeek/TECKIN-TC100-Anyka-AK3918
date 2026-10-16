@@ -1,5 +1,5 @@
   // --- Home: Dashboard and Live views, dashboard polling and graphs ---
-  // state.cgi?cmd=dash returns raw counters (CPU ticks, bytes on the Wi-Fi
+  // dash.cgi returns raw counters (CPU ticks, bytes on the Wi-Fi
   // interface…); the rates are computed here, so the camera only reads a few
   // /proc files. Samples are kept in this page for DASH_WINDOW_MS and are
   // only taken while the dashboard is on screen.
@@ -88,7 +88,8 @@
       setText("dt_mem_sub", fmtKb(used) + " / " + fmtKb(d.mem[0]));
     }
     setText("dt_wifi", dashLast.wifi === null ? "–" : dashLast.wifi + "%");
-    setText("dt_wifi_sub", d.wifi && typeof d.wifi[1] === "number" ? d.wifi[1] + " dBm" : (d.iface || ""));
+    var lvl = d.wifi && typeof d.wifi[1] === "number" ? d.wifi[1] : null;
+    setText("dt_wifi_sub", lvl === null ? (d.iface || "") : lvl < 0 ? lvl + " dBm" : "strength " + lvl + "%");
     setText("dt_net", fmtRate(dashLast.tx));
     setText("dt_net_sub", "↓ " + fmtRate(dashLast.rx));
     setText("dt_up", fmtUptime(d.up));
@@ -166,7 +167,7 @@
     if (Date.now() - dashInfoTs > DASH_INFO_MS) refreshDashInfo();
     if (dashFetching) return;
     dashFetching = true;
-    fetch("cgi-bin/state.cgi?cmd=dash&_=" + Date.now(), { cache: "no-store" })
+    fetch("cgi-bin/dash.cgi?_=" + Date.now(), { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("dash " + r.status); return r.json(); })
       .then(function (d) {
         dashSample(d);

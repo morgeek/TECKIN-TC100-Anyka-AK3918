@@ -881,6 +881,10 @@ window.tc100I18nFr = {
   [
    "^-(\\d+) min$",
    "-$1 min"
+  ],
+  [
+   "^strength (\\d+)%$",
+   "puissance $1 %"
   ]
  ],
  "untranslated": [
