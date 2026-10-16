@@ -44,6 +44,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install squashfs-tools (flash image tests)
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
       - name: Python regressions
         run: python3 -m unittest discover -s tests -v
       - name: Frontend tests
@@ -58,9 +60,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install squashfs-tools
-        run: sudo apt-get update && sudo apt-get install -y squashfs-tools
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools zip
       - name: Build
         run: |
+          sh src/release/build-sd.sh
           sh src/release/build-update.sh
           sh src/release/build-code-package.sh
           sh scripts/flash-code.sh check dist/tc100-code-$(head -n 1 VERSION).bin
@@ -69,6 +72,7 @@ jobs:
         with:
           name: tc100-packages
           path: |
+            dist/tc100-sd-*.zip
             dist/tc100-update-*.tar
             dist/tc100-code-*.bin
       - name: Attach to the release (tags v*)
@@ -76,5 +80,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/tc100-sd-*.zip
             dist/tc100-update-*.tar
             dist/tc100-code-*.bin

@@ -13,9 +13,9 @@ for d in autorun.sh VERSION scripts controlscripts www sounds config; do
   [ -e "$src/$d" ] && cp -a "$src/$d" "$w/code/"
 done
 mksquashfs "$w/code" "$w/code.sqsh" -comp xz -b 131072 -all-root -noappend -no-xattrs -quiet >/dev/null
-size=$(stat -c %s "$w/code.sqsh")
+size=$(wc -c < "$w/code.sqsh" | tr -d ' ')
 [ "$size" -le "$max" ] || { echo "error: code image $size bytes, the zone holds $max" >&2; exit 1; }
-md5=$(md5sum "$w/code.sqsh" | cut -d' ' -f1)
+md5=$( (md5sum "$w/code.sqsh" 2>/dev/null || md5 -r "$w/code.sqsh") | cut -d' ' -f1)
 ver=$(head -n 1 "$src/VERSION" 2>/dev/null || true)
 printf 'TC100CODE 1\nsize %s\nmd5 %s\nversion %s\n' "$size" "$md5" "${ver:-unknown}" > "$w/hdr"
 dd if="$w/hdr" of="$w/hdr4k" bs=4096 count=1 conv=sync 2>/dev/null

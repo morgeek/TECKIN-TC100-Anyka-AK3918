@@ -1137,6 +1137,11 @@ echo "--------Starting Hacks--------" >> $LOGPATH
 _fw_version="unknown"; [ -r /mnt/VERSION ] && read -r _fw_version < /mnt/VERSION
 echo "Version: $_fw_version" >> $LOGPATH
 stop_cloud
+# Installing to flash from the card (tc100-flash/ folder, scripts/flash-install.sh):
+# before the watchdog and before anything uses /usr; an install reboots.
+if [ -d /mnt/tc100-flash ]; then
+    sh /mnt/scripts/flash-install.sh boot >> $LOGPATH 2>&1
+fi
 enable_hardware_watchdog
 init_network
 cache_camera_ip

@@ -1465,7 +1465,7 @@ class FlashUsrImage(unittest.TestCase):
             self.assertIn('[ "${TC100_FLASH:-0}" = 0 ];then', svc)
 
     def test_flash_script_checks_partition_and_reads_back(self):
-        t = (ROOT / 'src/flash/flash-usr.sh').read_text()
+        t = (ROOT / 'scripts/flash-usr.sh').read_text()
         self.assertIn('"C"$', t)
         self.assertIn('if=/dev/mtd6', t)       # verify from the raw flash, not the block cache
         self.assertIn('3891200', t)
@@ -1691,6 +1691,202 @@ class EventLogQueries(unittest.TestCase):
             self.assertEqual(q('get_recent_events 10'), ['a', 'b', 'c', 'd'])
             self.assertEqual(q('get_error_events 0 5'), ['b', 'c'])
             self.assertEqual(q('get_error_events 250 5'), ['c'])
+
+
+class FlashInstallFromCard(unittest.TestCase):
+    """scripts/flash-install.sh (install to flash from the SD card) on fake MTD files."""
+    TABLE = ('mtd0: 00800000 00001000 "spi0.0"\nmtd1: 00200000 00001000 "KERNEL"\nmtd2: 00001000 00001000 "MAC"\n'
+             'mtd3: 00001000 00001000 "ENV"\nmtd4: 00180000 00001000 "A"\nmtd5: 0007d000 00001000 "B"\n'
+             'mtd6: 003b6000 00001000 "C"\n')
+
+    @unittest.skipUnless(shutil.which('mksquashfs'), 'squashfs-tools')
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        hdr = bytes([0x27, 0x05, 0x19, 0x56]) + b'\0' * 8 + (0x15ac60).to_bytes(4, 'big') + b'\0' * 48
+        self.kernel = hdr + os.urandom(0x15ac60)
+        (d / 'mtd1').write_bytes(self.kernel + b'\xff' * (0x200000 - len(self.kernel)))
+        (d / 'mtd4').write_bytes(os.urandom(4096 * 8))
+        self.stock = os.urandom(3891200)
+        (d / 'mtd6').write_bytes(self.stock)
+        (d / 'proc_mtd').write_text(self.TABLE)
+        (d / 'proc').mkdir()
+        sc = d / 'scripts'; sc.mkdir()
+        for f in ('flash-code.sh', 'flashmode-once.sh'):
+            shutil.copy(ROOT / 'scripts' / f, sc / f)
+        # flash-usr.sh writes /dev/mtdblock6: here the fake mtd6, same checks.
+        (sc / 'flash-usr.sh').write_text(
+            '#!/bin/sh\n[ "$(md5sum "$1" | cut -d" " -f1)" = "$2" ] || exit 1\n'
+            'dd if="$1" of="%s/mtd6" bs=4096 conv=notrunc 2>/dev/null\n' % d)
+        card = self.card = d / 'card'
+        (card / 'config/autostart').mkdir(parents=True); (card / 'wifitest').mkdir()
+        (card / 'VERSION').write_text('2.0.0-test\n')
+        for n in ('boot.conf', 'mqtt.conf', 'boot.conf.dist', 'openssl.cnf', 'packages.lock', 'lighttpd.conf'):
+            (card / 'config' / n).write_text(n + '\n')
+        for n in ('recording', 'rtsp-h264'):
+            (card / 'config/autostart' / n).write_text('#!/bin/sh\n')
+        (card / 'wpa_supplicant.conf').write_text('network={}\n')
+        (card / 'tc100-flash').mkdir()
+        (d / 'jffs/tc100').mkdir(parents=True)
+        stub = d / 'stub'; stub.mkdir()
+        (stub / 'reboot').write_text('#!/bin/sh\ntouch "%s/rebooted"\n' % d); (stub / 'reboot').chmod(0o755)
+        self.env = dict(os.environ, FI_CARD=str(card), FI_PROC_MTD=str(d / 'proc_mtd'), FI_MTD=str(d / 'mtd'),
+                        FI_SCRIPTS=str(sc), FI_JFFS=str(d / 'jffs/tc100'), FI_PROC=str(d / 'proc'), FI_USR=str(d / 'usr'),
+                        FI_STOCK_USR_MD5=hashlib.md5(self.stock).hexdigest(), FI_NO_REBOOT='1',
+                        TC100_STORAGE_FILE=str(d / 'storage'), PATH='%s:%s' % (stub, os.environ['PATH']),
+                        FC_MTD_CHAR=str(d / 'mtd1'), FC_MTD_BLOCK=str(d / 'mtd1'), FC_PROC_MTD=str(d / 'proc_mtd'),
+                        FC_LOG=str(d / 'fc.log'), FC_PENDING=str(d / 'pending'), FC_HISTORY=str(d / 'hist'))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fi(self, *args):
+        return subprocess.run(['sh', str(ROOT / 'scripts/flash-install.sh'), *args], capture_output=True, text=True, env=self.env)
+
+    @property
+    def status(self):
+        return (self.card / 'tc100-flash/STATUS.txt').read_text()
+
+    def make_kit(self):
+        k = self.card / 'tc100-flash'
+        img = os.urandom(4096 * 800)
+        (k / 'usr.img').write_bytes(img)
+        (k / 'usr.img.md5').write_text(hashlib.md5(img).hexdigest() + '  usr.img\n')
+        stage = self.d / 'stage'
+        for sub in ('scripts', 'www', 'config'):
+            (stage / sub).mkdir(parents=True, exist_ok=True)
+        (stage / 'autorun.sh').write_text('#!/bin/sh\n'); (stage / 'VERSION').write_text('2.0.0-test\n')
+        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(k / 'code.bin')], check=True, capture_output=True)
+        return img
+
+    def test_prepare_then_install(self):
+        self.assertEqual(self.fi('status').stdout.strip(), 'empty')
+        self.fi('boot')
+        k = self.card / 'tc100-flash'
+        self.assertIn('prepare: DONE', self.status)
+        self.assertEqual((k / 'usr-stock.img').read_bytes(), self.stock)
+        self.assertIn('usr_md5=' + hashlib.md5(self.stock).hexdigest(), (k / 'camera.txt').read_text())
+        self.assertIn('firmware=2.0.0-test', (k / 'camera.txt').read_text())
+        self.assertEqual((self.d / 'mtd6').read_bytes(), self.stock)          # prepare only reads
+        self.assertEqual(self.fi('status').stdout.strip(), 'prepared')
+        img = self.make_kit()
+        self.assertEqual(self.fi('status').stdout.strip(), 'ready')
+        r = self.fi('boot')
+        self.assertIn('install: DONE', self.status, r.stdout + r.stderr)
+        mtd6 = (self.d / 'mtd6').read_bytes()
+        self.assertEqual(mtd6[:len(img)], img); self.assertEqual(len(mtd6), 3891200)
+        mtd1 = (self.d / 'mtd1').read_bytes()
+        self.assertEqual(mtd1[:len(self.kernel)], self.kernel)
+        self.assertEqual(mtd1[0x160000:0x16000b], b'TC100CODE 1')
+        j = self.d / 'jffs/tc100'
+        self.assertEqual(sorted(p.name for p in (j / 'config').iterdir() if p.is_file()), ['boot.conf', 'mqtt.conf'])
+        self.assertEqual(sorted(p.name for p in (j / 'config/autostart').iterdir()), ['button-actions', 'rtsp-h264'])
+        self.assertTrue((j / 'wpa_supplicant.conf').exists())
+        self.assertTrue(os.access(j / 'boot.sh', os.X_OK))
+        self.assertTrue((self.card / 'wifitest.off').is_dir()); self.assertFalse((self.card / 'wifitest').exists())
+        self.assertEqual(self.fi('status').stdout.strip(), 'installed')
+        # Back on the card after a confirmed test boot: reported once.
+        (j / 'log').mkdir(); (j / 'log/code-updates.log').write_text('confirmed 2.0.0-test\n')
+        self.fi('boot'); self.fi('boot')
+        self.assertEqual(self.status.count('test boot from flash worked'), 1)
+
+    def test_refusals_leave_the_flash_alone(self):
+        before = {n: (self.d / n).read_bytes() for n in ('mtd1', 'mtd6')}
+        (self.d / 'storage').write_text('flash\n')
+        self.fi('prepare'); self.assertIn('already running from flash', self.status)
+        (self.d / 'storage').unlink()
+        (self.d / 'proc_mtd').write_text(self.TABLE.replace('003b6000', '003c0000'))
+        self.fi('prepare'); self.assertIn('flash partitions are not', self.status)
+        (self.d / 'proc_mtd').write_text(self.TABLE)
+        env = self.env; self.env = dict(env, FI_STOCK_USR_MD5='0' * 32)
+        self.fi('prepare'); self.assertIn('is not the TC100 V1.1.41', self.status)
+        self.env = env
+        self.fi('prepare'); self.make_kit()
+        # Another camera's card: its /usr differs from the copy.
+        with open(self.d / 'mtd6', 'r+b') as f:
+            f.write(b'\0' * 16)
+        before['mtd6'] = (self.d / 'mtd6').read_bytes()
+        self.fi('install'); self.assertIn("another camera's card", self.status)
+        with open(self.d / 'mtd6', 'r+b') as f:
+            f.write(self.stock[:16])
+        before['mtd6'] = self.stock
+        # Unknown data in the code zone.
+        with open(self.d / 'mtd1', 'r+b') as f:
+            f.seek(0x1f0000); f.write(b'\x00')
+        self.fi('install'); self.assertIn('not empty', self.status)
+        with open(self.d / 'mtd1', 'r+b') as f:
+            f.seek(0x1f0000); f.write(b'\xff')
+        # Damaged image.
+        k = self.card / 'tc100-flash'; (k / 'usr.img.md5').write_text('0' * 32 + '  usr.img\n')
+        self.fi('install'); self.assertIn('damaged', self.status)
+        self.assertEqual({n: (self.d / n).read_bytes() for n in ('mtd1', 'mtd6')}, before)
+        self.assertFalse((self.d / 'jffs/tc100/config').exists())
+        self.assertFalse((self.d / 'rebooted').exists())
+
+    def cgi(self, method, cmd):
+        (self.d / 'csrf').write_text('ab12\n')
+        src = (ROOT / 'www/cgi-bin/flashinstall.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
+        env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, HTTP_X_CSRF_TOKEN='ab12',
+                   FI_SCRIPT=str(ROOT / 'scripts/flash-install.sh'), FI_RUNNING=str(self.d / 'running'))
+        r = subprocess.run(['sh', '-c', src], capture_output=True, env=env)
+        return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
+
+    def test_web_card_flow(self):
+        shutil.rmtree(self.card / 'tc100-flash')
+        self.assertEqual(self.cgi('GET', 'status')['state'], 'none')
+        self.assertFalse(self.cgi('POST', 'install')['ok'])
+        self.assertTrue(self.cgi('POST', 'prepare')['ok'])
+        for _ in range(100):
+            if not (self.d / 'running').exists():
+                break
+            time.sleep(0.1)
+        st = self.cgi('GET', 'status')
+        self.assertEqual(st['state'], 'prepared'); self.assertIn('prepare: DONE', st['log'])
+        self.assertFalse(self.cgi('POST', 'install')['ok'])
+        self.make_kit()
+        self.assertEqual(self.cgi('GET', 'status')['state'], 'ready')
+        (self.d / 'storage').write_text('flash\n')
+        self.assertEqual(self.cgi('GET', 'status')['state'], 'flash')
+
+    def test_install_refused_while_usr_is_in_use(self):
+        self.fi('prepare'); self.make_kit()
+        p = self.d / 'proc/4242'; p.mkdir()
+        (p / 'maps').write_text('b6f00000-b6f10000 r-xp 00000000 1f:06 12 %s/usr/lib/libakuio.so\n' % self.d)
+        (p / 'comm').write_text('v4l2rtspserver\n')
+        self.fi('install'); self.assertIn('programs use /usr: v4l2rtspserver', self.status)
+        self.assertEqual((self.d / 'mtd6').read_bytes(), self.stock)
+
+
+class FlashKitOnComputer(unittest.TestCase):
+    """src/flash/build-flash-kit.sh and stage-tc100.sh as run by a user on a computer."""
+
+    def test_kit_refuses_a_damaged_copy(self):
+        with tempfile.TemporaryDirectory() as t:
+            k = Path(t) / 'tc100-flash'; k.mkdir()
+            (k / 'usr-stock.img').write_bytes(b'x' * 4096)
+            (k / 'camera.txt').write_text('usr_md5=' + '0' * 32 + '\n')
+            r = subprocess.run(['sh', str(ROOT / 'src/flash/build-flash-kit.sh'), t], capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertTrue('does not match' in r.stderr or 'missing' in r.stderr, r.stderr)
+            self.assertFalse((k / 'usr.img').exists())
+
+    @unittest.skipUnless(shutil.which('git') and (ROOT / '.git').exists(), 'git checkout')
+    def test_stage_from_a_source_archive_matches_the_checkout(self):
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t); src = t / 'src'; src.mkdir()
+            arc = subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=tar', 'HEAD'], capture_output=True, check=True).stdout
+            subprocess.run(['tar', '-x', '-C', str(src)], input=arc, check=True)
+            # The archive is HEAD: stage the uncommitted scripts too.
+            for f in ('src/flash/stage-tc100.sh',):
+                shutil.copy(ROOT / f, src / f)
+            for f in (ROOT / 'src/flash/prebuilt').iterdir():
+                (src / 'src/flash/prebuilt').mkdir(parents=True, exist_ok=True); shutil.copy(f, src / 'src/flash/prebuilt' / f.name)
+            subprocess.run(['sh', str(src / 'src/flash/stage-tc100.sh'), str(t / 'a')], check=True, capture_output=True,
+                           env=dict(os.environ, GIT_DIR=str(t / 'nogit')))
+            names = sorted(str(p.relative_to(t / 'a')) for p in (t / 'a').rglob('*') if p.is_file())
+            self.assertIn('bin/lighttpd', names); self.assertIn('bin/curl', names); self.assertIn('autorun.sh', names)
+            self.assertFalse([n for n in names if re.match(r'(config/ssl/|bin/(openssl|monvifd|jq)$|lib/(libssl|libcrypto|libpcre2))', n)])
+            self.assertTrue(os.access(t / 'a/config/autostart', os.X_OK))
+            self.assertEqual((t / 'a/bin/lighttpd').read_bytes(), (ROOT / 'src/flash/prebuilt/lighttpd').read_bytes())
 
 
 class FlashCodeZone(unittest.TestCase):

@@ -92,7 +92,11 @@ mkdir -p tc100
 cp -a "$TC/." tc100/
 chmod -R 755 tc100/bin tc100/lib
 cd "$W"
-mksquashfs usr "$OUT" -comp xz -b 131072 -noappend -no-xattrs -quiet >/dev/null
-size=$(stat -c %s "$OUT")
+# Not root (a normal user on a computer): the files could not keep their
+# owners when extracted; they all belong to root on the camera anyway.
+ALLROOT=""; [ "$(id -u)" = 0 ] || ALLROOT="-all-root"
+mksquashfs usr "$OUT" -comp xz -b 131072 -noappend -no-xattrs $ALLROOT -quiet >/dev/null
+size=$(wc -c < "$OUT" | tr -d ' ')
 if [ "$size" -gt "$MAX" ]; then echo "error: $OUT is $size bytes, mtd6 holds $MAX" >&2; rm -f "$OUT"; exit 1; fi
-echo "$OUT: $size of $MAX bytes ($((MAX - size)) free), md5 $(md5sum "$OUT" | cut -d' ' -f1)"
+md5=$( (md5sum "$OUT" 2>/dev/null || md5 -r "$OUT") | cut -d' ' -f1)
+echo "$OUT: $size of $MAX bytes ($((MAX - size)) free), md5 $md5"

@@ -20,4 +20,6 @@ echo "sd hook restored: $(ls -d /mnt/wifitest 2>&1)" >> $L
     tail -n 10 /var/log/lighttpd-error.log 2>/dev/null; netstat -ltn 2>/dev/null; ps 2>/dev/null | head -n 60
   } > /etc/jffs2/tc100/flashmode-diag.txt 2>&1; sync
   case "$r" in no*) reboot ;; esac ) &
+# Card installs (scripts/flash-install.sh): a line in the card's status file.
+[ -d /mnt/tc100-flash ] && echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) test boot from flash started" >> /mnt/tc100-flash/STATUS.txt && sync
 exec /usr/tc100/scripts/flashboot.sh
