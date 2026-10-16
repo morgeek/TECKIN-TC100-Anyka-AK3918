@@ -203,9 +203,10 @@ Settings → **Update & backup** → *Firmware update*. The release has one file
 | The camera runs from | Upload | What happens |
 |---|---|---|
 | the **flash** (FLASH badge) | `tc100-code-<version>.bin` | written to the code area, read back, reboot; kept only if the camera comes back on the network, rolled back otherwise. "Roll back" returns to the code inside `/usr`. |
+| the **flash** (FLASH badge) | `tc100-system-<version>.tar` | the programs in `/usr` **and** the code, without SD card (see below). |
 | the **SD card** | `tc100-update-<version>.tar` | every file checked against its md5, only changed files replaced, the previous ones kept for "Roll back". |
 
-The binaries in `/usr` (RTSP server, web server, curl) only change with a new `/usr` image, built and installed with the same three steps.
+The programs in `/usr` (RTSP server, web server, curl, ONVIF) change with a **system package**: `src/flash/build-flash-kit.sh` writes `tc100-system-<version>.tar` next to the install kit, from the `usr-stock.img` saved at step 1 (it holds the vendor's programs, so it is never in a release). Upload it in Update & backup: the camera checks it (same original `/usr`, image intact, the files a boot needs), pauses the video, then stops every program that runs from `/usr` (Wi-Fi included), writes `/usr` and the code, reads them back and restarts — about 3 minutes without the camera. With an SD card carrying the firmware in the slot, the camera sets it aside for one boot so that the new system is what starts. If something cannot be stopped, nothing is written.
 
 Build them yourself: `sh src/release/build-code-package.sh` and `sh src/release/build-update.sh` (no cross toolchain needed). CI attaches all three files (`.zip`, `.tar`, `.bin`) to each `v*` release.
 
@@ -244,7 +245,9 @@ From flash, the card is mounted on `/mnt/sd` when needed. *Stop and eject the ca
 
 - **Wi-Fi**: `wifi.txt` on a card (`SSID=`, `PASSWORD=`), the wizard, or Settings → Network. In every case the new network comes first and the previous ones stay as fallbacks, so a typo does not take the camera off the network. An invalid `wifi.txt` becomes `wifi-invalid.txt` with the reason.
 - **Password**: `root` / `pass` on a new installation. A banner says so until you change it in Settings → System → Password.
-- **HTTPS** with an ECDSA certificate made by the camera (10 years). From flash, if HTTPS cannot start, the web page falls back to HTTP, and a rescue telnet opens on port 23 when no web server answers within a minute.
+- **HTTPS** with an ECDSA certificate made by the camera (10 years). From flash, if HTTPS cannot start, the page falls back to HTTP and an **HTTP** badge shows it in the top bar; HTTPS is tried again at the next restart.
+- **Rescue access**: when no web port answers, the web server is restarted once; if that does not help, a rescue telnet opens on port 23, and it closes again by itself once the web interface has been back for two minutes.
+- **SD card health**: kernel errors, a read-only card, and a write/read-back test after each boot and every day. A card that garbles writes shows "failing: replace it" under the live view and in Home Assistant ("SD Card Problem", "SD Card State").
 - **Offline by design**: the camera makes no outgoing connection except to your MQTT broker, NTP server and syslog server, if set. *Privacy Shield* (Settings → System → LEDs and privacy) stops every outgoing service at once.
 - **Recovery**: the SD card firmware always wins over the flash, and the vendor U-Boot (with its own SD card recovery) is untouched.
 
@@ -300,7 +303,7 @@ src/flash/          Flash images: build-flash-kit.sh, build-usr.sh, build-code.s
 src/release/        Release files: SD card zip, update .tar, code .bin
 src/tc100fix/       libtc100fix (RTSP server hooks, MP4 recorder)
 src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolchain
-src/webui/          i18n check, Bulma purge, screenshot tool
+src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
 docs/               API, known issues, screenshots
 ```
