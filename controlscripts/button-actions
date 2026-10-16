@@ -1,5 +1,6 @@
 #!/bin/sh
-# Reset button actions (scripts/button-watch.sh): held 8 s = reboot,
+# Reset button actions (scripts/button-watch.sh): held 3-7 s = rescue Wi-Fi
+# access point, held 8 s = reboot,
 # held 20 s = back to the built-in code (flash) and reboot.
 SERVICE_NAME="Reset button actions"
 PIDFILE="/var/run/button-watch.pid"
