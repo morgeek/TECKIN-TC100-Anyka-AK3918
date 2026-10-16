@@ -110,13 +110,6 @@ Full list: [CHANGELOG.md](CHANGELOG.md).
 | ![Dark, French](docs/screenshots/settings-dark-fr.png) Settings in French | ![Phone](docs/screenshots/dashboard-mobile.png) On a phone |
 | ![Live, light](docs/screenshots/live-view.png) Live view, light theme | ![Phone settings](docs/screenshots/settings-mobile.png) Settings on a phone |
 
-Setup wizard:
-
-| | | |
-|---|---|---|
-| ![Wi-Fi](docs/screenshots/wizard-1-wifi.png) | ![Frigate](docs/screenshots/wizard-4-frigate.png) | ![Recording](docs/screenshots/wizard-5-recording.png) |
-| ![Flash](docs/screenshots/wizard-6-flash.png) | ![Summary](docs/screenshots/wizard-7-summary.png) | |
-
 Remake them with `python3 src/webui/screenshots/shots.py docs/screenshots` (Playwright, canned answers, no camera needed).
 
 ---

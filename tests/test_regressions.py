@@ -203,13 +203,13 @@ class Regressions(unittest.TestCase):
 
     def test_tc100fix_preload_is_opt_in_and_scoped_to_rtsp_server(self):
         s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"', ': "${VENDOR_PRINT_LEVEL:=}"'):
+        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"', ': "${VENDOR_PRINT_LEVEL:=1}"'):
             self.assertIn(default, s)
         # The preload is set on the v4l2rtspserver command only, never exported.
         self.assertNotIn('export LD_PRELOAD', s)
         self.assertIn('env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
         conf = (ROOT / 'config/boot.conf.dist').read_text()
-        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=1', 'VENDOR_PRINT_LEVEL='):
+        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=1', 'VENDOR_PRINT_LEVEL=1'):
             self.assertRegex(conf, r'(?m)^' + re.escape(line) + r'$')
         lib = (ROOT / 'lib/libtc100fix.so').read_bytes()
         self.assertEqual(lib[:4], b'\x7fELF')
@@ -2372,6 +2372,11 @@ class CameraLogFindings(unittest.TestCase):
         a = (ROOT / 'autorun.sh').read_text()
         self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\nstart_syslog_forwarding\n'))
         self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\ninit_crond\n'))
+
+    def test_vendor_libraries_log_errors_only_by_default(self):
+        r = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn(': "${VENDOR_PRINT_LEVEL:=1}"', r)
+        self.assertIn('TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL', r)
 
     def test_no_false_boot_warnings_from_flash(self):
         a = (ROOT / 'autorun.sh').read_text()
