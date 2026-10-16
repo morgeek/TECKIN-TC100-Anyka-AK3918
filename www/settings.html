@@ -578,6 +578,18 @@
                     </div>
                 </div>
             </div>
+            <div class='card status_card mb-4' id="flashInstallCard" style="display:none">
+                <header class='card-header'><p class='card-header-title'>Install to flash (run without the SD card)</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-2">Puts this firmware into the camera's own memory, so that it works without the SD card (README, "Install to flash"). Three steps: <strong>1.</strong> the camera copies its original system partition to the card (nothing is written to the flash); <strong>2.</strong> on a computer, <code>src/flash/build-flash-kit.sh</code> turns that copy into the image to install; <strong>3.</strong> card back in, the camera installs it at boot, checks it, and restarts from its flash. The card keeps working as before until step 3 succeeds.</p>
+                    <p class="is-size-7 mb-2"><strong id="fiState">…</strong></p>
+                    <pre class="is-size-7 mb-2" id="fiLog" style="display:none;white-space:pre-wrap;max-height:10em;overflow:auto"></pre>
+                    <div class="buttons">
+                        <button class="button is-info is-small" type="button" id="btnFiPrepare" style="display:none">Step 1: copy the original system to the card</button>
+                        <button class="button is-warning is-small" type="button" id="btnFiInstall" style="display:none">Step 3: reboot and install</button>
+                    </div>
+                </div>
+            </div>
             <article class="message is-info is-small">
                 <div class="message-body">
                     <p><strong>Which one to use?</strong></p>
@@ -1050,6 +1062,59 @@
             });
             rb.addEventListener('click', function() {
                 run('rollback', 'Restore the files replaced by the last update and reboot the camera?', 'Rolling back.');
+            });
+            refresh();
+        })();
+
+        (function initFlashInstall() {
+            var box = document.getElementById('flashInstallCard');
+            var st = document.getElementById('fiState');
+            var log = document.getElementById('fiLog');
+            var prep = document.getElementById('btnFiPrepare');
+            var inst = document.getElementById('btnFiInstall');
+            if (!box) return;
+            var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+            function show(el, on) { el.style.display = on ? '' : 'none'; }
+            var text = {
+                none: 'Step 1 not done yet.',
+                empty: 'Step 1 not done yet.',
+                prepared: 'Step 1 done: take the card out and run src/flash/build-flash-kit.sh on a computer (step 2).',
+                ready: 'Step 2 done: the image to install is on the card. Step 3 reboots the camera to install it (about 2 minutes).',
+                installed: 'Installed. If the page showed the FLASH badge after the test boot: power off, take the card out, power on.'
+            };
+            function refresh() {
+                return fetch('cgi-bin/flashinstall.cgi?cmd=status', { cache: 'no-store' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (!d || !d.ok || d.state === 'flash') { show(box, false); return; }
+                        show(box, true);
+                        st.textContent = d.running ? 'Copying the original system to the card…' : text[d.state] || d.state;
+                        log.textContent = d.log || ''; show(log, !!d.log);
+                        show(prep, !d.running && (d.state === 'none' || d.state === 'empty'));
+                        show(inst, !d.running && d.state === 'ready');
+                        if (d.running) setTimeout(refresh, 4000);
+                    }).catch(function() { show(box, false); });
+            }
+            function post(cmd) {
+                prep.disabled = inst.disabled = true;
+                return cf('cgi-bin/flashinstall.cgi?cmd=' + cmd, { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        prep.disabled = inst.disabled = false;
+                        if (!d || !d.ok) throw new Error((d && (d.message || d.error)) || 'refused');
+                        return d;
+                    })
+                    .catch(function(e) { prep.disabled = inst.disabled = false; st.textContent = 'Error:' + ' ' + e.message; throw e; });
+            }
+            prep.addEventListener('click', function() {
+                post('prepare').then(function() { setTimeout(refresh, 1500); }, function() {});
+            });
+            inst.addEventListener('click', function() {
+                if (!confirm('Reboot the camera and install the firmware into its flash memory?\n\nDo not unplug it during the next 3 minutes.')) return;
+                post('install').then(function() {
+                    st.textContent = 'Rebooting to install. This takes about 2 minutes, then the camera restarts from its flash with the card still in.';
+                    show(inst, false);
+                }, function() {});
             });
             refresh();
         })();
