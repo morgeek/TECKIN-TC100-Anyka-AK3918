@@ -1,4 +1,5 @@
 <div id="settings_container">
+    <header class="page-head"><h1 class="page-title" id="settings_title">Picture</h1><small class="page-meta">Settings</small></header>
     <p id="settings_load_status" class="help mb-3" role="status">Loading current settings…</p>
     <div id="settings_warnings">
             <div id="sd_readonly_warning" style="display:none">
@@ -746,6 +747,8 @@
             var search = document.getElementById('settings_search');
             if (search && search.value) { search.value = ''; applySearch(''); }
             navLinks.forEach(function (t) { t.classList.toggle('is-active', t.dataset.tab === targetId); });
+            var title = document.getElementById('settings_title');
+            if (title && linkFor[targetId]) title.textContent = linkFor[targetId].querySelector('span').textContent;
             document.querySelectorAll('#tab-contents > .tab-content').forEach(function(content) {
                 content.classList.toggle('is-hidden', content.id !== targetId);
             });
@@ -767,6 +770,8 @@
             q = (q || '').trim().toLowerCase();
             var container = document.getElementById('settings_container');
             container.classList.toggle('is-searching', !!q);
+            var title = document.getElementById('settings_title');
+            if (title) title.textContent = q ? 'Search results' : (linkFor[currentTab] ? linkFor[currentTab].querySelector('span').textContent : '');
             var any = false;
             document.querySelectorAll('#tab-contents > .tab-content').forEach(function (tab) {
                 var hits = 0;
@@ -791,9 +796,17 @@
         var searchBox = document.getElementById('settings_search');
         if (searchBox) {
             var searchTimer = null;
+            var slotsAsked = false;
             searchBox.addEventListener('input', function () {
                 clearTimeout(searchTimer);
                 searchTimer = setTimeout(function () { applySearch(searchBox.value); }, 120);
+                // Network and backup cards load on demand: fetch them on the
+                // first search so they can be found too.
+                if (!slotsAsked) {
+                    slotsAsked = true;
+                    Promise.all([loadSlot('network_settings_slot'), loadSlot('backup_slot')])
+                        .then(function () { if (searchBox.value) applySearch(searchBox.value); });
+                }
             });
             searchBox.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') { searchBox.value = ''; applySearch(''); }
@@ -863,9 +876,9 @@
         // time their tab is opened.
         function loadSlot(id) {
             var slot = document.getElementById(id);
-            if (!slot || slot.dataset.loaded || !window.EliteUI || !window.EliteUI.loadInto) return;
+            if (!slot || slot.dataset.loaded || !window.EliteUI || !window.EliteUI.loadInto) return Promise.resolve();
             slot.dataset.loaded = '1';
-            window.EliteUI.loadInto(slot, slot.dataset.src);
+            return window.EliteUI.loadInto(slot, slot.dataset.src);
         }
 
         // Nearby networks, inside the Wi-Fi card: a click on a row fills the

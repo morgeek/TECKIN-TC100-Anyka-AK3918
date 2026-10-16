@@ -173,7 +173,7 @@ class Regressions(unittest.TestCase):
         cfg.mkdir()
         (cfg / 'boot.conf').write_text('SECURITY_HARDENING_MODE=0\n')
         (cfg / 'mqtt.conf').write_text('MQTT_ENABLE=1\nMQTT_HA_DISCOVERY_ENABLE=1\n')
-        code = function('www/cgi-bin/func.cgi', 'read_conf_value') + '\n'
+        code = function('www/cgi-bin/func.cgi', 'read_conf_value') + '\n' + function('www/cgi-bin/func.cgi', 'conf_get') + '\n'
         flags = function('www/cgi-bin/state.cgi', 'get_security_and_mqtt_flags')
         flags = flags.replace('/mnt/config', str(cfg)).replace('/tmp/mqtt_last_pub.status', str(self.base / 'missing-status'))
         code += flags + '\nget_security_and_mqtt_flags; printf "%s|%s" "$mqtt_enabled" "$mqtt_discovery"'
@@ -1589,6 +1589,11 @@ class FlashWebServer(unittest.TestCase):
         self.assertIn('"mod_mbedtls"', t); self.assertNotIn('"mod_openssl"', t)
         self.assertIn('"server.h2proto" => "disable"', t)
         self.assertIn('ssl.pemfile = "/mnt/config/lighttpd.pem"', t)
+        # ChaCha20 first, in mbedTLS names (OpenSSL names stop lighttpd: tried on a camera)
+        cs = re.search(r'"CipherString" => "([^"]+)"', t).group(1).split(':')
+        self.assertEqual(cs[0], 'TLS-ECDHE-ECDSA-WITH-CHACHA20-POLY1305-SHA256')
+        self.assertTrue(all(c.startswith('TLS-ECDHE-ECDSA-WITH-') for c in cs), cs)
+        self.assertIn('"Options" => "ServerPreference"', t)
 
     def test_flash_conf_needs_no_pcre(self):
         t = (ROOT / 'config/lighttpd.flash.conf.dist').read_text()
@@ -2159,6 +2164,7 @@ class UsrUpdateFromFlash(unittest.TestCase):
         src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
         env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
                    HTTP_X_CSRF_TOKEN='ab12', FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'fw'),
+                   FWU_JFFS_LOG=str(self.d / 'jffslog'),
                    UU_WORK=str(self.d / 'sysupd'), UU_SCRIPT=str(ROOT / 'scripts/usr-update.sh'))
         env.setdefault('FM', str(ROOT / 'scripts/flashmode-once.sh'))
         r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
@@ -2235,6 +2241,22 @@ class WebUiSources(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
+    def test_statusline_and_func_cgi_avoid_subshells(self):
+        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        body = s[s.index('  statusline)\n'):s.index('  integrationtest)\n')]
+        subshells = [l.strip() for l in body.splitlines() if '$(' in l.replace('$((', '')]
+        # only the one-time CSRF token creation and the rare non-hex token clean-up
+        self.assertEqual(len(subshells), 3, subshells)
+        f = (ROOT / 'www/cgi-bin/func.cgi').read_text()
+        self.assertIn('*%*|*+*) value="$(urldecode "${raw_value}")" ;;', f)
+        self.assertIn('/tmp/.tc100-timeout-ok', f)
+        # plain and encoded values still decode to the same thing
+        sh = ['busybox', 'ash'] if shutil.which('busybox') else ['sh']   # ${x//a/b}: ash, not dash
+        r = subprocess.run(sh + ['-c', '. ' + str(ROOT / 'www/cgi-bin/func.cgi') + '; printf "%s|%s|%s" "$F_cmd" "$F_a" "$F_b"'],
+                           env={'PATH': os.environ['PATH'], 'REQUEST_METHOD': 'GET',
+                                'QUERY_STRING': 'cmd=statusline&a=x%20y%26z&b=1+2'}, capture_output=True, text=True)
+        self.assertEqual(r.stdout.split('\n')[-1], 'statusline|x y&z|1 2')
+
     def test_home_views_and_settings_deep_links(self):
         js = (ROOT / 'www/scripts/index.bundle.min.js').read_text()
         self.assertIn('function showHome(view)', js)
@@ -2308,7 +2330,8 @@ class FlashCodeZone(unittest.TestCase):
         src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
         env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
                    HTTP_X_CSRF_TOKEN='ab12', TC100_STORAGE_FILE=str(self.d / 'storage'),
-                   FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'work'))
+                   FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'work'),
+                   FWU_JFFS_LOG=str(self.d / 'jffslog'))
         (self.d / 'storage').write_text('flash\n')
         r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
         return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
@@ -2326,6 +2349,8 @@ class FlashCodeZone(unittest.TestCase):
             time.sleep(0.1)
         self.assertTrue((self.d / 'rebooted').exists())
         self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
+        # planned restart recorded for reboot-tracker.sh (not "UNEXPECTED")
+        self.assertIn('|web: code update', (self.d / 'jffslog/.reboot-intent').read_text())
 
 
 class ForkLightLoops(unittest.TestCase):

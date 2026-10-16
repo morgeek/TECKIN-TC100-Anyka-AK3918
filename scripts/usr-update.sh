@@ -200,6 +200,8 @@ _uu_finish()
     cp "$D/install.log" "$JFFS/log/usr-update.log" 2>/dev/null
     sync
     if [ -n "$UU_NO_REBOOT" ]; then [ -n "$_feeder" ] && kill "$_feeder" 2>/dev/null; return 0; fi
+    # Planned restart, for scripts/reboot-tracker.sh at the next boot.
+    printf '%s|%s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "web: system update" > "$JFFS/log/.reboot-intent" 2>/dev/null; sync
     reboot -f
 }
 
