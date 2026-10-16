@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.1] — 2026-10-16
+
+### Added
+- **System update from the web page, without SD card or telnet** (flash mode): Settings → Update & backup accepts `tc100-system-<version>.tar` (made by `src/flash/build-flash-kit.sh` next to the install kit). It is unpacked in RAM (the video is paused), checked (same original `/usr`, image md5, squashfs with the files a boot needs, valid code package), then `scripts/usr-update.sh` runs from RAM with the rootfs shell only: it replaces the watchdog feeder, stops every program running from `/usr` (Wi-Fi included), writes `/usr` and reads it back (up to 5 times), writes the code zone, sets up a one-shot boot from flash when an SD card with the firmware hook is in the slot, and reboots. Nothing is written if a program cannot be stopped.
+- **SD card health** (`scripts/sd-health.sh`): kernel card/file-system errors, read-only remount, and a write/read-back test after each boot and daily. Shown under the live view ("failing: replace it", "read-only", "errors"), in Home Assistant ("SD Card Problem" now also covers garbled writes, new "SD Card State"), and logged as an event.
+- **Rescue access** (`scripts/web-guard.sh`, SD card and flash): when no web port answers, the web server is restarted once, then a rescue telnet opens on port 23; it is closed again once the web interface has been back for two minutes (a telnet started from Services is left alone). An HTTPS → HTTP fallback is shown as an "HTTP" badge in the top bar.
+
+### Changed
+- The update work directory on the card is `tc100-update/` instead of `update/`, a name the vendor `service.sh` reserves for reflashing the camera from the card (`update_check.sh`, when `wifitest/` is absent). An existing `update/` holding only our state files is moved at boot.
+- The install to flash records the fingerprint of the original `/usr` in the settings partition, so system packages can be matched to it.
+
+---
+
 ## [2.0.0] — 2026-10-16
 
 The firmware runs from the camera's flash memory: the SD card becomes optional.

@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import tarfile
 import tempfile
@@ -365,7 +366,7 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'diag').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 8)   # 6 sensors + 2 binary sensors
+        self.assertEqual(len(lines), 9)   # 7 sensors + 2 binary sensors
         for line in lines:
             topic, payload = line.split('\t', 1)
             d = json.loads(payload)
@@ -1165,7 +1166,7 @@ class FwUpdate(unittest.TestCase):
         # The SD card only receives what will actually be installed.
         r = self.run_fwu('verify', str(self.package()))
         self.assertTrue(json.loads(r.stdout)['ok'], r.stdout)
-        stage = self.root / 'update/stage'
+        stage = self.root / 'tc100-update/stage'
         got = sorted(str(p.relative_to(stage)) for p in stage.rglob('*') if p.is_file())
         self.assertEqual(got, ['MANIFEST', 'VERSION', 'config/autostart/00_system-config',
                                'scripts/new.sh', 'www/index.html'])
@@ -1186,13 +1187,13 @@ class FwUpdate(unittest.TestCase):
         # A write that comes out wrong (seen on the SD card under memory
         # pressure) must never be renamed into place.
         self.run_fwu('verify', str(self.package()))
-        (self.root / 'update/stage/scripts/new.sh').write_text('#!/bin/sh\necho damaged\n')
+        (self.root / 'tc100-update/stage/scripts/new.sh').write_text('#!/bin/sh\necho damaged\n')
         r = self.run_fwu('install', '--no-reboot')
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(self.read('VERSION'), '1.0\n')
         self.assertFalse((self.root / 'scripts/new.sh').exists())
         self.assertFalse(list(self.root.rglob('*.fwu')))
-        self.assertIn('damaged on write', (self.root / 'update/update.log').read_text())
+        self.assertIn('damaged on write', (self.root / 'tc100-update/update.log').read_text())
 
     def test_rejects_bad_packages(self):
         bad_md5 = self.package(manifest='%s  VERSION\n' % ('0' * 32))
@@ -1220,8 +1221,8 @@ class FwUpdate(unittest.TestCase):
     def test_status_survives_garbage_in_the_log(self):
         # The log of the 2026-10-13 FAT incident held file names made of
         # random bytes; update.cgi status then returned invalid JSON.
-        (self.root / 'update').mkdir(parents=True, exist_ok=True)
-        (self.root / 'update/update.log').write_bytes(b'ok\nrm: bad \x01\x1b name\x7f\n')
+        (self.root / 'tc100-update').mkdir(parents=True, exist_ok=True)
+        (self.root / 'tc100-update/update.log').write_bytes(b'ok\nrm: bad \x01\x1b name\x7f\n')
         info = json.loads(self.run_fwu('status').stdout)
         self.assertIn('bad ?? name?', info['log'])
 
@@ -1613,7 +1614,7 @@ class FlashWebServer(unittest.TestCase):
         self.assertLess(fl, sd)   # decided before the OpenSSL path
         block = ws[fl:sd]
         self.assertIn('*) http_server on ;;', block)
-        self.assertIn('telnetd -p 23', block)          # rescue when no web server
+        self.assertIn('start_web_guard', block)        # rescue when no web server (web-guard.sh)
         self.assertIn('exit 0', block)
 
     def test_flash_https_falls_back_to_http(self):
@@ -1986,6 +1987,207 @@ class PasswordsStayOffTheBrowser(unittest.TestCase):
             r = subprocess.run(['sh', '-c', 'case "$1" in %s) echo bad ;; *) echo ok ;; esac' % pattern, 'x', pw],
                                capture_output=True, text=True)
             self.assertEqual(r.stdout.strip(), 'ok' if ok else 'bad', pw)
+
+
+class WebGuardAndSdHealth(unittest.TestCase):
+    """scripts/web-guard.sh (rescue telnet) and scripts/sd-health.sh."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        (d / 'ports').write_text('')
+        (d / 'common.sh').write_text(
+            'port_listening() { grep -qx "$1" "%s/ports"; }\n'
+            'http_server() { echo restart >> "%s/restarts"; }\n' % (d, d))
+        (d / 'telnetd').write_text('#!/bin/sh\nexec sleep 300\n'); (d / 'telnetd').chmod(0o755)
+        self.env = dict(os.environ, WG_COMMON=str(d / 'common.sh'), WG_STATE=str(d / 'st'),
+                        WG_PIDFILE=str(d / 'rescue.pid'), WG_TELNETD=str(d / 'telnetd'),
+                        WG_RESTART='http_server', TC100_STORAGE_FILE=str(d / 'storage'))
+
+    def tearDown(self):
+        pid = self.d / 'rescue.pid'
+        if pid.exists():
+            subprocess.run(['kill', pid.read_text().strip()], capture_output=True)
+        self.tmp.cleanup()
+
+    def guard(self):
+        subprocess.run(['sh', str(ROOT / 'scripts/web-guard.sh'), 'once'], env=self.env, capture_output=True, timeout=10)
+
+    def rescue_alive(self):
+        p = self.d / 'rescue.pid'
+        return p.exists() and subprocess.run(['kill', '-0', p.read_text().strip()], capture_output=True).returncode == 0
+
+    def test_restart_then_rescue_telnet_then_closed_when_web_is_back(self):
+        self.guard()
+        self.assertEqual((self.d / 'restarts').read_text(), 'restart\n')
+        self.assertFalse(self.rescue_alive())
+        self.guard()
+        self.assertTrue(self.rescue_alive())
+        (self.d / 'ports').write_text('443\n')
+        self.guard(); self.assertTrue(self.rescue_alive())          # one good check is not enough
+        self.guard(); time.sleep(0.2); self.assertFalse(self.rescue_alive())
+        self.assertEqual((self.d / 'restarts').read_text(), 'restart\n')
+
+    def test_user_telnet_on_23_is_left_alone(self):
+        (self.d / 'ports').write_text('23\n')
+        self.guard(); self.guard()
+        self.assertFalse((self.d / 'rescue.pid').exists())
+
+    def sdh(self, *args, mounts='', dmesg='', storage='sd', dev='/nonexistent/mmcblk0'):
+        d = self.d
+        (d / 'mounts').write_text(mounts); (d / 'dmesg.txt').write_text(dmesg)
+        (d / 'storage').write_text(storage + '\n')
+        env = dict(self.env, SDH_OUT=str(d / 'sdh'), SDH_MOUNTS=str(d / 'mounts'), SDH_DEV=dev,
+                   SDH_DMESG='cat %s/dmesg.txt' % d, SDH_SD_MP=str(d / 'card'), SDH_FLASH_MP=str(d / 'card'))
+        r = subprocess.run(['sh', str(ROOT / 'scripts/sd-health.sh'), 'check', *args], env=env, capture_output=True, text=True)
+        return r.stdout.strip(), dict(l.split('=', 1) for l in (d / 'sdh').read_text().splitlines())
+
+    def test_sd_health_states(self):
+        (self.d / 'card').mkdir()
+        m = '/nonexistent/mmcblk0p1 %s vfat rw,noatime 0 0\n' % (self.d / 'card')
+        self.assertEqual(self.sdh()[0], 'none')
+        st, info = self.sdh('--test', mounts=m)
+        self.assertEqual((st, info['test']), ('ok', 'ok'))
+        self.assertFalse((self.d / 'card/.tc100-sdtest').exists())
+        bad = 'mmcblk0: timed out sending r/w cmd command, card status 0x400e00\n'
+        st, info = self.sdh(mounts=m, dmesg=bad * 3)
+        self.assertEqual((st, info['errors']), ('errors', '3'))
+        st, info = self.sdh(mounts=m)                                  # ring buffer rolled over
+        self.assertEqual((st, info['errors']), ('errors', '3'))
+        st, _ = self.sdh(mounts=m.replace('rw,', 'ro,'))
+        self.assertEqual(st, 'readonly')
+        st, _ = self.sdh(mounts='', storage='flash', dev='/dev/null')
+        self.assertEqual(st, 'none')
+
+
+class UsrUpdateFromFlash(unittest.TestCase):
+    """scripts/usr-update.sh: /usr + code zone from the web page in flash mode, on fake devices."""
+    STOCK = 'def1ea44addd7a73d613d8169b395447'
+
+    @unittest.skipUnless(shutil.which('mksquashfs'), 'squashfs-tools')
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        tree = d / 'tree'
+        for f in ('sbin/service.sh', 'tc100/scripts/flashboot.sh', 'tc100/bin/busybox', 'tc100/bin/lighttpd', 'tc100/bin/v4l2rtspserver'):
+            (tree / f).parent.mkdir(parents=True, exist_ok=True); (tree / f).write_text(f + '\n' + 'x' * 5000)
+        (tree / 'tc100/VERSION').write_text('9.9.9\n')
+        pkg = self.pkg = d / 'pkg'; pkg.mkdir()
+        subprocess.run(['mksquashfs', str(tree), str(pkg / 'usr.img'), '-noappend', '-quiet', '-all-root'], check=True, capture_output=True)
+        size = (pkg / 'usr.img').stat().st_size
+        with open(pkg / 'usr.img', 'ab') as f:
+            f.write(b'\0' * ((-size) % 4096))
+        self.img = (pkg / 'usr.img').read_bytes()
+        (pkg / 'usr.img.md5').write_text(hashlib.md5(self.img).hexdigest() + '  usr.img\n')
+        stage = d / 'stage'
+        for sub in ('scripts', 'www', 'config'):
+            (stage / sub).mkdir(parents=True)
+        (stage / 'autorun.sh').write_text('#!/bin/sh\n'); (stage / 'VERSION').write_text('9.9.9\n')
+        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(pkg / 'code.bin')], check=True, capture_output=True)
+        (pkg / 'camera.txt').write_text('usr_md5=%s\n' % self.STOCK)
+        (pkg / 'VERSION').write_text('9.9.9\n')
+        (d / 'mtd6').write_bytes(b'\x11' * 3891200)
+        hdr = os.urandom(0x15aca0)
+        (d / 'mtd1').write_bytes(hdr + b'\xff' * (0x200000 - len(hdr)))
+        (d / 'proc_mtd').write_text('mtd1: 00200000 00001000 "KERNEL"\nmtd6: 003b6000 00001000 "C"\n')
+        (d / 'storage').write_text('flash\n')
+        (d / 'proc').mkdir(); (d / 'jffs').mkdir()
+        self.env = dict(os.environ, UU_MTD=str(d / 'mtd'), UU_BLOCK6=str(d / 'mtd6'), UU_PROC=str(d / 'proc'),
+                        UU_PROC_MTD=str(d / 'proc_mtd'), UU_JFFS=str(d / 'jffs'), TC100_STORAGE_FILE=str(d / 'storage'),
+                        UU_WATCHDOG=str(d / 'watchdog'), UU_MAPDEV='1f:06', UU_CARD_DEV=str(d / 'nocard'),
+                        UU_FLASHCODE=str(ROOT / 'scripts/flash-code.sh'), UU_NO_MOUNT='1', UU_NO_REBOOT='1', UU_GRACE='0',
+                        FC_MTD_CHAR=str(d / 'mtd1'), FC_MTD_BLOCK=str(d / 'mtd1'), FC_PROC_MTD=str(d / 'proc_mtd'),
+                        FC_LOG=str(d / 'fc.log'), FC_PENDING=str(d / 'pending'), FC_HISTORY=str(d / 'hist'))
+        self.procs = []
+
+    def tearDown(self):
+        for p in self.procs:
+            p.kill(); p.wait()
+        self.tmp.cleanup()
+
+    def uu(self, *args):
+        return subprocess.run(['sh', str(ROOT / 'scripts/usr-update.sh'), *args], capture_output=True, text=True, env=self.env, timeout=120)
+
+    def fake_proc(self, comm, maps_dev, cmdline=''):
+        p = subprocess.Popen(['sleep', '300']); self.procs.append(p)
+        e = self.d / 'proc' / str(p.pid); e.mkdir()
+        (e / 'maps').write_text('00008000-00010000 r-xp 00000000 %s 12 /usr/x\n' % maps_dev)
+        (e / 'comm').write_text(comm + '\n'); (e / 'cmdline').write_text(cmdline)
+
+        def reap():                               # like /proc: the entry goes with the process
+            p.wait(); shutil.rmtree(e, ignore_errors=True)
+        threading.Thread(target=reap, daemon=True).start()
+        return p
+
+    def test_check_accepts_and_refuses(self):
+        self.assertEqual(self.uu('check', str(self.pkg)).stdout.strip(), 'ok 9.9.9')
+        (self.d / 'jffs/usr-stock.md5').write_text('0' * 32 + '\n')
+        self.assertIn('another original /usr', self.uu('check', str(self.pkg)).stdout)
+        (self.d / 'jffs/usr-stock.md5').unlink()
+        (self.d / 'storage').write_text('sd\n')
+        self.assertIn('only from flash', self.uu('check', str(self.pkg)).stdout)
+        (self.d / 'storage').write_text('flash\n')
+        (self.pkg / 'VERSION').write_text('1.0.0\n')
+        self.assertIn('code.bin', self.uu('check', str(self.pkg)).stdout)
+        (self.pkg / 'VERSION').write_text('9.9.9\n')
+        with open(self.pkg / 'usr.img', 'r+b') as f:
+            f.seek(100); f.write(b'zz')
+        self.assertIn('damaged', self.uu('check', str(self.pkg)).stdout)
+
+    def test_install_stops_usr_users_writes_and_keeps_the_watchdog_fed(self):
+        self.assertEqual(self.uu('check', str(self.pkg)).stdout.strip(), 'ok 9.9.9')
+        for f in ('flash-code.sh', 'flashmode-once.sh'):
+            shutil.copy(ROOT / 'scripts' / f, self.pkg / f)
+        users = [self.fake_proc('lighttpd', '1f:06'), self.fake_proc('v4l2rtspserver', '1f:06')]
+        feeder = self.fake_proc('busybox', '1f:06', 'busybox\0watchdog\0-t\0001\0')
+        rootfs = self.fake_proc('sh', '1f:04')
+        r = self.uu('install', str(self.pkg))
+        log = (self.pkg / 'install.log').read_text()
+        self.assertIn('DONE', log, r.stdout + r.stderr + log)
+        for p in users + [feeder]:
+            self.assertIsNotNone(p.poll(), log)
+        self.assertIsNone(rootfs.poll())
+        self.assertIn('watchdog feeder', log)
+        self.assertTrue((self.d / 'watchdog').exists())
+        mtd6 = (self.d / 'mtd6').read_bytes()
+        self.assertEqual(mtd6[:len(self.img)], self.img); self.assertEqual(len(mtd6), 3891200)
+        self.assertEqual((self.d / 'mtd1').read_bytes()[0x160000:0x16000b], b'TC100CODE 1')
+        self.assertIn('system 9.9.9 written', (self.d / 'jffs/log/code-updates.log').read_text())
+
+    def cgi(self, method, cmd, body=b''):
+        (self.d / 'csrf').write_text('ab12\n')
+        src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
+        env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
+                   HTTP_X_CSRF_TOKEN='ab12', FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'fw'),
+                   UU_WORK=str(self.d / 'sysupd'), UU_SCRIPT=str(ROOT / 'scripts/usr-update.sh'))
+        r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
+        return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
+
+    def test_web_upload_of_a_system_package(self):
+        tar = self.d / 'sys.tar'
+        with open(self.pkg / 'usr.img', 'ab') as f:            # > 640 KB, like a real image
+            f.write(b'\0' * 700 * 1024)
+        (self.pkg / 'usr.img.md5').write_text(hashlib.md5((self.pkg / 'usr.img').read_bytes()).hexdigest() + '  usr.img\n')
+        subprocess.run(['tar', '-cf', str(tar), '-C', str(self.pkg), 'usr.img', 'usr.img.md5', 'code.bin', 'camera.txt', 'VERSION'], check=True)
+        up = self.cgi('POST', 'upload', tar.read_bytes())
+        self.assertEqual((up['ok'], up['kind'], up['version']), (True, 'system', '9.9.9'), up)
+        st = self.cgi('GET', 'status')
+        self.assertEqual((st['state'], st['kind'], st['staged']), ('staged', 'system', '9.9.9'))
+        self.assertTrue(self.cgi('POST', 'discard')['ok'])
+        self.assertEqual(self.cgi('GET', 'status')['state'], 'idle')
+        (self.pkg / 'camera.txt').write_text('usr_md5=%s\n' % ('0' * 32))
+        subprocess.run(['tar', '-cf', str(tar), '-C', str(self.pkg), 'usr.img', 'usr.img.md5', 'code.bin', 'camera.txt', 'VERSION'], check=True)
+        bad = self.cgi('POST', 'upload', tar.read_bytes())
+        self.assertFalse(bad['ok']); self.assertIn('another original', bad['message'])
+        self.assertFalse((self.d / 'sysupd').exists())
+
+    def test_install_aborts_when_a_process_cannot_be_stopped(self):
+        self.uu('check', str(self.pkg))
+        for f in ('flash-code.sh', 'flashmode-once.sh'):
+            shutil.copy(ROOT / 'scripts' / f, self.pkg / f)
+        e = self.d / 'proc' / '999999'; e.mkdir()          # a pid kill cannot reach
+        (e / 'maps').write_text('0-1 r-xp 0 1f:06 1 /usr/x\n'); (e / 'comm').write_text('stuck\n')
+        self.uu('install', str(self.pkg))
+        self.assertIn('ABORT', (self.pkg / 'install.log').read_text())
+        self.assertEqual((self.d / 'mtd6').read_bytes()[:16], b'\x11' * 16)
 
 
 class FlashCodeZone(unittest.TestCase):

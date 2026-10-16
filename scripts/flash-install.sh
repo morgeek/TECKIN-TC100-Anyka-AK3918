@@ -172,6 +172,9 @@ fi_install()
     [ "${_fi_df:-0}" -ge 150 ] || [ -d "$JFFS/config" ] || { _fi_say "INSTALL REFUSED: not enough room in the settings partition (${_fi_df} KB)"; return 1; }
 
     _fi_say "install: checks passed, copying settings"
+    # The original /usr this camera's images are built from: system packages
+    # (scripts/usr-update.sh) must come from the same one.
+    mkdir -p "$JFFS" && echo "$_want" > "$JFFS/usr-stock.md5"
     fi_copy_settings || { _fi_say "INSTALL FAILED: could not copy the settings (nothing written to /usr)"; return 1; }
     _fi_say "install: writing /usr (about 30 s)…"
     if ! sh "$SCRIPTS/flash-usr.sh" "$K/usr.img" "$_img_md5"; then

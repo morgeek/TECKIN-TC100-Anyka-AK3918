@@ -923,6 +923,7 @@ wifi_rx_drop|Wi-Fi Dropped Packets|{{ value_json.diag.wifi_rx_drop }}|"stat_cla"
 tcp_paws_drop|Refused Connections|{{ value_json.diag.tcp_paws_drop }}|"stat_cla":"total_increasing","ent_cat":"diagnostic","ic":"mdi:lan-disconnect"
 sound_level|Sound Level|{{ value_json.diag.sound_db }}|"unit_of_meas":"dBFS","stat_cla":"measurement","ic":"mdi:volume-high"
 light_level|Light Level|{{ value_json.diag.light_level }}|"stat_cla":"measurement","ic":"mdi:brightness-5"
+sd_state|SD Card State|{{ value_json.diag.sd_state }}|"ent_cat":"diagnostic","ic":"mdi:sd"
 DIAG
   publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/sd_problem/config" \
     "$(printf '{"name":"%s SD Card Problem","uniq_id":"%s_sd_problem","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.sd_problem == 1 else \\"OFF\\" }}","dev_cla":"problem","ent_cat":"diagnostic","ic":"mdi:sd",%s,%s}' \
@@ -1355,8 +1356,22 @@ build_diag_payload()
   case "$_dg_fat" in ''|*[!0-9]*) _dg_fat=0 ;; esac
   _dg_sdprob=0
   { [ "$_dg_ro" = 1 ] || [ "$_dg_fat" -gt 0 ]; } && _dg_sdprob=1
-  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s}' \
-    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob")"
+  # scripts/sd-health.sh (web-guard.sh, every 10 min, write test daily) knows
+  # more: a card that garbles writes, the recording card in flash mode.
+  _dg_sdst=""
+  if [ -r /tmp/sd-health ]; then
+    while IFS='=' read -r _dg_k _dg_v; do
+      case "$_dg_k" in
+        state) _dg_sdst="$_dg_v" ;;
+        errors) case "$_dg_v" in ''|*[!0-9]*) ;; *) [ "$_dg_v" -gt "$_dg_fat" ] && _dg_fat="$_dg_v" ;; esac ;;
+        readonly) [ "$_dg_v" = 1 ] && _dg_ro=1 ;;
+      esac
+    done < /tmp/sd-health
+    case "$_dg_sdst" in failing|readonly|errors) _dg_sdprob=1 ;; esac
+  fi
+  case "$_dg_sdst" in *[!a-z]*) _dg_sdst="" ;; esac
+  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s"}' \
+    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob" "${_dg_sdst:-unknown}")"
 }
 
 build_health_payload()

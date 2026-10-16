@@ -6,6 +6,8 @@
 #   tc100-flash/usr.img (+ .md5)   the original /usr minus the cloud app,
 #                                  plus this firmware (src/flash/build-usr.sh)
 #   tc100-flash/code.bin           this firmware's code for the code zone
+#   tc100-flash/tc100-system-<v>.tar  both, for a camera already running
+#                                  from flash (Settings → Update & backup)
 #
 # Needs: squashfs-tools with xz (unsquashfs, mksquashfs), python3.
 #   Debian/Ubuntu/WSL: sudo apt install squashfs-tools python3
@@ -43,9 +45,18 @@ cp "$W/usr.img" "$K/usr.img.tmp" && mv -f "$K/usr.img.tmp" "$K/usr.img"
 echo "$(md5of "$K/usr.img")  usr.img" > "$K/usr.img.md5"
 cp "$W/code.bin" "$K/code.bin"
 rm -f "$K/usr.img.installed" "$K/.reported"
+# The same /usr and code as one file, for a camera that already runs from
+# flash: Settings → Update & backup takes it without the card.
+ver=$(head -n 1 "$root/VERSION")
+rm -f "$K"/tc100-system-*.tar
+cp "$root/VERSION" "$W/VERSION"; cp "$K/camera.txt" "$W/camera.txt"; cp "$K/usr.img.md5" "$W/usr.img.md5"
+(cd "$W" && COPYFILE_DISABLE=1 tar -cf "$K/tc100-system-$ver.tar" usr.img usr.img.md5 code.bin camera.txt VERSION)
 sync
 echo
 echo "Ready: $K/usr.img and code.bin ($(cat "$root/VERSION"))."
 echo "Eject the card, put it back in the camera and power it on: it installs"
 echo "itself (about 1 minute), restarts from its flash, and shows the FLASH badge"
 echo "in its web page. Then power it off, take the card out, power it on."
+echo
+echo "Already running from flash? Upload $K/tc100-system-$ver.tar"
+echo "in Settings > Update & backup instead (no card needed)."

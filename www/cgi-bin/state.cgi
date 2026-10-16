@@ -1096,7 +1096,16 @@ if [ -n "$F_cmd" ]; then
         [ -n "$_fl_url" ] && frigate_live="${_fl_url}/${_fl_cam:+#$_fl_cam}"
     fi
 
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\"}"
+    # SD card health (scripts/sd-health.sh) and HTTPS fallback (web-guard.sh).
+    sd_health=""
+    if [ -r /tmp/sd-health ]; then
+        while IFS='=' read -r _sh_k _sh_v; do [ "$_sh_k" = state ] && sd_health="$_sh_v"; done < /tmp/sd-health
+    fi
+    case "$sd_health" in *[!a-z]*) sd_health="" ;; esac
+    web_fallback=""; [ -r /tmp/web-fallback ] && read -r web_fallback < /tmp/web-fallback
+    case "$web_fallback" in http) ;; *) web_fallback="" ;; esac
+
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"web_fallback\":\"$web_fallback\"}"
     ;;
 
   integrationtest)

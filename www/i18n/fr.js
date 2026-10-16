@@ -1,9 +1,11 @@
 window.tc100I18nFr = {
  "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (lighttpd compresses and caches .js). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
  "strings": {
+  "(made by": "(créé par",
   "(not running)": "(arrêté)",
   "(optional)": "(facultatif)",
   "(running, not started at boot)": "(actif, non lancé au démarrage)",
+  ") also replaces the programs, without SD card.": ") remplace aussi les programmes, sans carte SD.",
   "). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept.": "). Il est vérifié fichier par fichier avant toute installation ; seuls les fichiers modifiés sont remplacés, les précédents sont gardés pour un retour arrière, et la caméra redémarre à la fin. Vos réglages, choix de démarrage et identifiants Wi-Fi sont conservés.",
   "). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept. Running from the flash memory (FLASH badge): upload a": "). Il est vérifié fichier par fichier avant toute installation ; seuls les fichiers modifiés sont remplacés, les précédents sont gardés pour un retour arrière, et la caméra redémarre à la fin. Vos réglages, choix de démarrage et identifiants Wi-Fi sont conservés. Si la caméra tourne depuis sa mémoire flash (badge FLASH) : envoyez un paquet de code",
   "); it is written to the flash, read back, and the camera reboots; \"Roll back\" returns to the code built into the firmware.": ") ; il est écrit dans la flash, relu, puis la caméra redémarre ; « Revenir en arrière » rétablit le code intégré au firmware.",
@@ -230,11 +232,14 @@ window.tc100I18nFr = {
   "Frigate address": "Adresse de Frigate",
   "Frigate and Home Assistant": "Frigate et Home Assistant",
   "Frigate live view": "Vue en direct Frigate",
+  "From flash, upload a code package (tc100-code-VERSION.bin, at most 640 KB) or a system package (tc100-system-VERSION.tar).": "Depuis la flash, envoyez un paquet de code (tc100-code-VERSION.bin, 640 Ko au plus) ou un paquet système (tc100-system-VERSION.tar).",
+  "From the flash memory, a system package": "Depuis la mémoire flash, un paquet système",
   "Front Activity LED": "LED d'activité en façade",
   "Full backup": "Sauvegarde complète",
   "Gateway": "Passerelle",
   "Green": "Vert",
   "HTTPS + HTTP": "HTTPS + HTTP",
+  "HTTPS could not start (certificate): this page is served over plain HTTP. It is tried again at the next restart.": "HTTPS n'a pas pu démarrer (certificat) : cette page est servie en HTTP simple. HTTPS sera réessayé au prochain redémarrage.",
   "HTTPS only": "HTTPS uniquement",
   "Hard Reboot": "Redémarrage forcé",
   "Health and network": "Santé et réseau",
@@ -274,10 +279,12 @@ window.tc100I18nFr = {
   "Initial setup": "Configuration initiale",
   "Initialize Timelapse": "Lancer le timelapse",
   "Install & reboot": "Installer et redémarrer",
+  "Install the system package and reboot the camera?\n\nThe camera stops its programs, Wi-Fi included, writes its flash memory and restarts: it is unreachable for about 3 minutes. Do not unplug it.": "Installer le paquet système et redémarrer la caméra ?\n\nLa caméra arrête ses programmes, Wi-Fi compris, écrit sa mémoire flash puis redémarre : elle est injoignable pendant environ 3 minutes. Ne la débranchez pas.",
   "Install to flash": "Installer en flash",
   "Install to flash (run without the SD card)": "Installer en flash (fonctionner sans carte SD)",
   "Installed version:": "Version installée :",
   "Installed. If the page showed the FLASH badge after the test boot: power off, take the card out, power on.": "Installé. Si la page a affiché le badge FLASH après le démarrage de test : débranchez, retirez la carte, rebranchez.",
+  "Installing the system package.": "Installation du paquet système.",
   "Integration profile": "Profil d'intégration",
   "Integrations": "Intégrations",
   "Interfaces": "Interfaces",
@@ -700,6 +707,8 @@ window.tc100I18nFr = {
   "connected": "connecté",
   "directory. Store this file somewhere safe — it contains passwords and credentials.": ". Rangez ce fichier en lieu sûr : il contient des mots de passe et identifiants.",
   "e.g., frigate-night, universal-h264": "ex. : frigate-nuit, universel-h264",
+  "errors": "erreurs",
+  "failing: replace it": "défaillante : à remplacer",
   "file to restore settings. The camera will keep a rollback snapshot in": "pour restaurer les réglages. La caméra garde un instantané de retour arrière dans",
   "file.": ".",
   "folder).": ").",
@@ -714,6 +723,8 @@ window.tc100I18nFr = {
   "on a computer,": "sur un ordinateur,",
   "package (": "(",
   "package (built by": "(créé par",
+  "read-only": "en lecture seule",
+  "recordings": "enregistrements",
   "sec": "s",
   "the camera copies its original system partition to the card (nothing is written to the flash);": "la caméra copie sa partition système d'origine sur la carte (rien n'est écrit dans la flash) ;",
   "turns that copy into the image to install;": "transforme cette copie en image à installer ;",
@@ -808,6 +819,14 @@ window.tc100I18nFr = {
   [
    "^(.+) \\(next restart\\)$",
    "$1 (au prochain redémarrage)"
+  ],
+  [
+   "^System package (\\S+) is valid: the programs in the flash memory \\(/usr\\) and the code will be replaced \\(installed: (.+)\\)\\. The video is paused until the install\\.$",
+   "Paquet système $1 valide : les programmes de la mémoire flash (/usr) et le code seront remplacés (installé : $2). La vidéo est en pause jusqu'à l'installation."
+  ],
+  [
+   "^Not a valid system package: (.+)$",
+   "Paquet système non valide : $1"
   ]
  ],
  "untranslated": [
@@ -825,6 +844,7 @@ window.tc100I18nFr = {
   "English",
   "FR",
   "Français",
+  "HTTP",
   "NetworkName",
   "TC100 ELITE",
   "UTC0",
