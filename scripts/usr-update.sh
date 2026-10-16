@@ -151,6 +151,11 @@ uu_install()
     # 4. Code zone (pending until the camera comes back with it).
     _c=$(sh "$D/flash-code.sh" write "$D/code.bin" 2>&1)
     _uu_log "code zone: $_c"
+    # Everything that matters is written: keep the log in flash before the
+    # card step (a failing card can hang the kernel in its driver until the
+    # hardware watchdog resets the camera — seen on a test camera).
+    _uu_log "/usr and code written; card step next"
+    cp "$D/install.log" "$JFFS/log/usr-update.log" 2>/dev/null; sync
     # 5. A card with the firmware hook would start instead: one boot from flash.
     uu_oneshot "$D/flashmode-once.sh" "$D/card"
     mkdir -p "$JFFS/log"
@@ -168,6 +173,14 @@ uu_oneshot()
     _once="$1"; _mp="${2:-/tmp/uu-card}"
     [ -b "${CARD_DEV}p1" ] || [ -b "$CARD_DEV" ] || return 0
     [ -s "$_once" ] || return 1
+    # Never mount a card known to misbehave (scripts/sd-health.sh, or card
+    # errors in the kernel log): its driver can block the whole system.
+    case "$(sed -n 's/^state=//p' "${SDH_OUT:-/tmp/sd-health}" 2>/dev/null)" in
+        failing|errors|readonly) [ -n "$D" ] && _uu_log "SD card unreliable: not mounted"; return 1 ;;
+    esac
+    if dmesg 2>/dev/null | grep -q -E 'mmcblk[0-9].*(timed out|command error)|get_card_status wait too long'; then
+        [ -n "$D" ] && _uu_log "SD card errors in the kernel log: not mounted"; return 1
+    fi
     mkdir -p "$_mp"
     mount "${CARD_DEV}p1" "$_mp" 2>/dev/null || mount "$CARD_DEV" "$_mp" 2>/dev/null || return 1
     _r=0
