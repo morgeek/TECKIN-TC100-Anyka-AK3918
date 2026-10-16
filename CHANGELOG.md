@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.0] — 2026-10-16
+
+The firmware runs from the camera's flash memory: the SD card becomes optional.
+
+### Added
+- **Install to flash from the SD card** (README "Step 3"), in three steps through a `tc100-flash/` folder on the card: the camera copies its original `/usr` to the card (`scripts/flash-install.sh prepare`, read-only for the flash); a computer turns it into `usr.img` + `code.bin` (`src/flash/build-flash-kit.sh`, Linux / macOS / WSL, prebuilt stripped binaries in `src/flash/prebuilt/` so no cross toolchain is needed); the camera installs both at boot before any video service runs, copies the settings, Wi-Fi and an ECDSA certificate into jffs2, reads everything back and does one test boot from flash with the card still in. Every check (partition table, kernel size, empty code area, fingerprint of the original `/usr`, image md5, no process using `/usr`, room in jffs2) refuses without writing anything and reports in `tc100-flash/STATUS.txt`. Also from Settings → Update & backup → *Install to flash* and from the wizard.
+- **Setup wizard** rewritten: language and Wi-Fi (kept network as fallback), profile, web access, Frigate and MQTT with Frigate's address, recording on the card, install to flash; all answers validated before anything is written; `wizard.cgi?info`.
+- Settings → System → **Password**: one password for web, RTSP, FTP and telnet; characters the writers cannot carry are refused.
+- Local recording on **exFAT** cards from flash (`rec-storage.sh`).
+- Release: CI also attaches the SD card zip (`tc100-sd-<version>.zip`). Screenshot tool `src/webui/screenshots/shots.py` (canned answers, test pattern) and `docs/screenshots/`.
+- README rewritten for 2.0 (possibilities, step-by-step guides, hardware, OpenIPC references); platform notes and the bring-up bug table moved to `docs/known-issues.md`.
+
+### Changed
+- Settings → Network Wi-Fi goes through `wifi-txt.sh` like `wifi.txt`: the new network first, the previous ones kept as fallbacks (a wrong password no longer takes the camera off the network).
+- `flash-usr.sh` and `flashmode-once.sh` moved from `src/flash/` to `scripts/` (they run on the camera and ship with it).
+- `src/flash/stage-tc100.sh`, `build-usr.sh` and `build-code.sh` work on a user's computer (no git checkout or root needed, macOS `md5`).
+
+### Fixed
+- Form drafts kept in the browser (`localStorage`, up to 60 min) included password fields (Wi-Fi, Telegram token). Password fields are no longer stored.
+- Example addresses and camera names from the test setup were replaced by neutral ones in the documentation and UI placeholders.
+
+---
+
 ## [1.8.4] — 2026-10-12
 
 ### Added
@@ -12,7 +35,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Rescue access point (`scripts/wifi-rescue.sh`) on hold: the vendor hostapd authenticates phones but no data reaches them on this driver, even with the station stopped.
 - Local backup recording (`REC_LOCAL=1`, `REC_SEGMENT_SEC`, `REC_RESERVE_MB`, `REC_STREAM`): `src/tc100fix/rec.c` hooks `ak_venc_open` / `ak_venc_request_stream` / `ak_venc_get_stream_ex` in the vendor RTSP server, queues each encoded frame (never blocking the encoder thread: frames are dropped and recording resumes at the next keyframe when the card is too slow) and a low-priority thread writes fragmented MP4 (H.264 `avc1` / H.265 `hvc1`, one fragment a second, new file at the first keyframe after `REC_SEGMENT_SEC` or when the parameter sets change). Refuses RAM and flash filesystems. `scripts/rec-storage.sh` (dir / eject / resume / status). Verified on camera 2: 1080p H.265 and 640×360 H.264 files decode cleanly with ffmpeg, 0 dropped frames; CPU cost measured per thread (writer, mmcqd, writeback): ~4.5 % main stream, ~0.8 % sub-stream.
 - Local recording only while the recorder is away (`REC_WHEN=offline`, default): the writer checks `/proc/net/tcp` every 2 s for an established RTSP connection from the recorder (`REC_CLIENT`, by default the host of the Frigate URL) whose data flows (send queue < 256 KB, no retransmission timeout — a client lost on the network stays "established" for minutes); in standby nothing is processed or written: the frame queue (1 MB, ~5 s) is trimmed by whole GOPs and becomes the pre-roll; recording starts `REC_OFFLINE_SEC` (5) after the stream stops flowing and ends `REC_POSTROLL_SEC` after it is back.
-- Flash `/usr` replacement, written from Linux without opening the camera (README "Flash /usr"): `src/flash/build-usr.sh` (vendor `/usr` minus the cloud app, SD card keeps priority in `service.sh`, `/usr/tc100` HTTP-only binaries, size check) and `src/flash/flash-usr.sh` (partition check, write, read-back through `/dev/mtd6`). HTTP-only builds: `src/curl/build.sh` (HTTP/MQTT/RTSP) and `NO_TLS=1 src/lighttpd/build.sh`. camera 2 runs from it since 2026-10-15.
+- Flash `/usr` replacement, written from Linux without opening the camera (README "Install to flash"): `src/flash/build-usr.sh` (vendor `/usr` minus the cloud app, SD card keeps priority in `service.sh`, `/usr/tc100` HTTP-only binaries, size check) and `scripts/flash-usr.sh` (partition check, write, read-back through `/dev/mtd6`). HTTP-only builds: `src/curl/build.sh` (HTTP/MQTT/RTSP) and `NO_TLS=1 src/lighttpd/build.sh`. camera 2 runs from it since 2026-10-15.
 - `src/release/build-sd.sh` builds the content of a new SD card (`dist/tc100-sd-<version>/`, and a zip), with `SD-CARD.txt` (formatting, bringing the settings over) and checks that no reflash file name or live configuration ends up on it. The boot hook `wifitest/wifi_test.sh` (the vendor `service.sh` sees `/mnt/wifitest`, skips the cloud app and runs it; it starts `autorun.sh`) was only on the cameras' cards and is now in the repository: a card made from git alone did not boot the firmware.
 
 ### Fixed
