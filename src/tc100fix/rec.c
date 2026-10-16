@@ -13,8 +13,9 @@
  * TC100FIX_REC_WHEN=offline     record only while the recorder is not receiving
  *                               the RTSP stream (always = all the time)
  * TC100FIX_REC_CLIENT=<ipv4>    the recorder (default: any remote client)
- * TC100FIX_REC_OFFLINE_SEC=10   start this long after the stream stops flowing
- *                               (the file starts at the keyframe before: pre-roll)
+ * TC100FIX_REC_OFFLINE_SEC=5    start this long after the stream stops flowing
+ *                               (pre-roll: the file starts with the frames still
+ *                               queued, ~5 s at 1.5 Mbit/s, ring 1 MB in this mode)
  * TC100FIX_REC_POSTROLL_SEC=30  keep recording this long after it is back
  * TC100FIX_REC_RING_KB=512      frame queue between the encoder thread and the
  *                               writer (frames are dropped, never waited for,
@@ -68,6 +69,7 @@ static unsigned char *q_buf;
 static size_t q_size, q_head, q_tail;   /* head: write, tail: read */
 static int q_gap;                       /* frames dropped before the next push */
 static unsigned long q_dropped, q_pushed;
+static uint64_t q_last_ts;               /* newest frame: the stream clock */
 static pthread_mutex_t q_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t q_cond = PTHREAD_COND_INITIALIZER;
 
@@ -100,6 +102,7 @@ static int q_push(const unsigned char *data, uint32_t len, uint64_t ts)
     } else if (q_tail - q_head <= need) {
         goto drop;
     }
+    q_last_ts = ts;
     h.len = len; h.gap = (uint32_t)q_gap; h.ts = ts;
     memcpy(q_buf + q_head, &h, sizeof(h));
     memcpy(q_buf + q_head + sizeof(h), data, len);
@@ -146,6 +149,47 @@ static int q_peek(struct qhdr *h, const unsigned char **data, int wait_ms)
     }
     pthread_mutex_unlock(&q_lock);
     return got;
+}
+
+/* Keyframe test on the first bytes only: the first NAL unit after an
+ * optional access unit delimiter is a parameter set or an IDR slice. */
+static int q_is_key(const unsigned char *b, uint32_t len)
+{
+    uint32_t i, lim = len < 256 ? len : 256;
+    for (i = 0; i + 3 < lim; i++) {
+        if (b[i] || b[i + 1] || b[i + 2] != 1) continue;
+        {
+            unsigned c = b[i + 3], t5 = c & 0x1f, t6 = (c >> 1) & 0x3f;
+            if ((c & 0x81) == 0 && t6 >= 32 && t6 <= 35) {       /* H.265 */
+                if (t6 == 35) { i += 3; continue; }              /* AUD */
+                return 1;
+            }
+            if ((c & 0x81) == 0 && t6 >= 16 && t6 <= 21) return 1;  /* H.265 IRAP */
+            if (t5 == 9) { i += 3; continue; }                    /* H.264 AUD */
+            return t5 == 5 || t5 == 7 || t5 == 8;
+        }
+    }
+    return 0;
+}
+
+/* Standby: drop the oldest frames, whole GOPs, until the queue holds at most
+ * <keep> bytes and starts at a keyframe. The queue is the pre-roll. */
+static void q_trim(size_t keep)
+{
+    struct qhdr h;
+    pthread_mutex_lock(&q_lock);
+    for (;;) {
+        size_t used = q_head >= q_tail ? q_head - q_tail : q_size - q_tail + q_head;
+        if (q_tail == q_head) break;
+        if (q_size - q_tail < sizeof(struct qhdr)) { q_tail = 0; continue; }
+        memcpy(&h, q_buf + q_tail, sizeof(h));
+        if (h.len == Q_WRAP) { q_tail = 0; continue; }
+        if (used <= keep && q_is_key(q_buf + q_tail + sizeof(h), h.len)) break;
+        q_tail += sizeof(h) + ((h.len + 7u) & ~7u);
+        if (q_tail >= q_size) q_tail = 0;
+        q_gap = 0;
+    }
+    pthread_mutex_unlock(&q_lock);
 }
 
 static void q_pop(const struct qhdr *h)
@@ -414,7 +458,7 @@ static unsigned r_segment_us_sec = 300, r_reserve_mb = 256;
 static int r_offline;                    /* 0: always record */
 static unsigned r_client;                /* /proc/net/tcp byte order, 0 = any */
 static unsigned r_rtsp_port = 554;
-static uint64_t r_offline_us = 10000000ULL, r_postroll_us = 30000000ULL;
+static uint64_t r_offline_us = 5000000ULL, r_postroll_us = 30000000ULL;
 static const char *r_tcp = "/proc/net/tcp";
 
 struct sample { uint32_t size; uint32_t key; uint64_t ts; };
@@ -432,9 +476,8 @@ static struct {
     unsigned long long bytes, files;
     char state[32];
     /* offline mode */
-    int want, watched, pre_ok;
+    int want, watched;
     uint64_t last_check, last_watched, watch_since;
-    unsigned char pre_ps[3][PS_MAX]; uint32_t pre_psn[3];
     uint64_t last_status, last_space, retry_at;
 } W = { .fd = -1 };
 
@@ -596,6 +639,7 @@ static void flush_frag(uint64_t next_ts)
 
 #ifdef REC_HOST_TEST
 static int host_finished(void);
+static int host_done(void);
 static time_t rec_time(uint64_t ts) { return (time_t)1760000000 + (time_t)(ts / 1000000ULL); }
 #else
 static time_t rec_time(uint64_t ts) { (void)ts; return time(NULL); }
@@ -711,10 +755,13 @@ static int rtsp_watched(void)
 }
 #endif
 
-/* Decide, on the stream clock, whether frames go to a file. */
-static void update_want(uint64_t ts)
+/* Decide, on the stream clock (the newest frame), whether frames go to a file. */
+static void update_want(void)
 {
+    uint64_t ts;
     if (!r_offline) { W.want = 1; return; }
+    pthread_mutex_lock(&q_lock); ts = q_last_ts; pthread_mutex_unlock(&q_lock);
+    if (!ts) return;
     if (!W.last_check) { W.last_check = ts; W.last_watched = ts; }   /* grace at start */
     if (ts - W.last_check >= 2000000ULL || W.last_check == ts) {
         W.last_check = ts;
@@ -739,7 +786,7 @@ static void append_sample(const struct nal *u, int n, int key, uint64_t ts)
         b32(&W.data, u[i].n); b_put(&W.data, u[i].p, u[i].n);
         size += 4 + u[i].n;
     }
-    if (W.data.err) { W.data.err = 0; W.data.n = 0; W.ns = 0; W.waiting_key = 1; W.pre_ok = 0; return; }
+    if (W.data.err) { W.data.err = 0; W.data.n = 0; W.ns = 0; W.waiting_key = 1; return; }
     if (!size) return;
     W.s[W.ns].size = (uint32_t)size; W.s[W.ns].key = (uint32_t)key; W.s[W.ns].ts = ts;
     W.ns++;
@@ -772,40 +819,6 @@ static void handle_frame(struct qhdr *h, const unsigned char *data)
         flush_frag(0);
         W.waiting_key = 1;
     }
-    update_want(h->ts);
-    if (!W.want) {
-        /* Standby: keep the frames since the last keyframe as pre-roll. */
-        if (W.fd >= 0) { flush_frag(h->ts); close_file(); }
-        set_state("standby");
-        W.waiting_key = 1;
-        if (key && sps && pps && (W.codec == C_H264 || vps) && sps->n <= PS_MAX && pps->n <= PS_MAX && (!vps || vps->n <= PS_MAX)) {
-            W.ns = 0; W.data.n = 0; W.pre_ok = 1;
-            W.pre_psn[0] = vps ? vps->n : 0; if (vps) memcpy(W.pre_ps[0], vps->p, vps->n);
-            W.pre_psn[1] = sps->n; memcpy(W.pre_ps[1], sps->p, sps->n);
-            W.pre_psn[2] = pps->n; memcpy(W.pre_ps[2], pps->p, pps->n);
-        }
-        if (!W.pre_ok || h->gap) { W.pre_ok = 0; W.ns = 0; W.data.n = 0; return; }
-        if (W.ns >= FRAG_MAX_SAMPLES || W.data.n > 768 * 1024) { W.pre_ok = 0; W.ns = 0; W.data.n = 0; return; }
-        append_sample(u, n, key, h->ts);
-        return;
-    }
-    if (W.fd < 0 && W.pre_ok && W.ns > 0 && !h->gap) {
-        /* Recording starts: the file begins with the pre-roll GOP. */
-        struct nal pv, ps_, pp;
-        uint64_t now = now_us();
-        pv.p = W.pre_ps[0]; pv.n = W.pre_psn[0]; ps_.p = W.pre_ps[1]; ps_.n = W.pre_psn[1];
-        pp.p = W.pre_ps[2]; pp.n = W.pre_psn[2];
-        W.pre_ok = 0;
-        memset(&W.vi, 0, sizeof(W.vi)); W.vi.chroma = 1;
-        if (now >= W.retry_at && (W.codec == C_H265 ? parse_sps265(&ps_, &W.vi) : parse_sps264(&ps_, &W.vi)) == 0
-            && open_file(W.codec == C_H265 ? &pv : NULL, &ps_, &pp, W.s[0].ts) == 0) {
-            W.waiting_key = 0;
-        } else {
-            if (W.fd >= 0) fail("open"); else close_file();
-            W.ns = 0; W.data.n = 0;
-        }
-    }
-    W.pre_ok = 0;
     if (W.waiting_key && !key) return;
 
     if (key && sps && pps && (W.codec == C_H264 || vps) && sps->n <= PS_MAX && pps->n <= PS_MAX && (!vps || vps->n <= PS_MAX)) {
@@ -848,7 +861,25 @@ static void *writer(void *arg)
     set_state("waiting");
     for (;;) {
         uint64_t now;
-        int got = q_peek(&h, &d, 1000);
+        int got;
+        update_want();
+        if (!W.want) {
+            /* Standby: nothing written, frames stay queued as pre-roll. */
+            if (W.fd >= 0) { flush_frag(0); close_file(); }
+            W.waiting_key = 1;
+            set_state("standby");
+            q_trim(q_size * 6 / 10);
+#ifdef REC_HOST_TEST
+            if (host_done()) { write_status(now_us()); return NULL; }
+            usleep(2000);
+#else
+            usleep(500000);
+#endif
+            now = now_us();
+            if (now - W.last_status >= 10000000ULL) { W.last_status = now; write_status(now); }
+            continue;
+        }
+        got = q_peek(&h, &d, 1000);
         if (got) {
             if (paused()) {
                 if (W.fd >= 0) { flush_frag(0); close_file(); }
@@ -899,6 +930,7 @@ static int rec_setup(void)
 #ifdef REC_HOST_TEST
     if ((v = getenv("REC_TEST_TCP"))) r_tcp = v;
 #endif
+    if (r_offline && !getenv("TC100FIX_REC_RING_KB")) ring = 1024;   /* ~5 s of pre-roll at 1.5 Mbit/s */
     q_size = ring * 1024;
     q_buf = malloc(q_size);
     if (!q_buf) return -1;
@@ -1024,6 +1056,8 @@ int ak_venc_get_stream_ex(void *user, unsigned char *buf, unsigned int size, uns
  * timestamps at <fps>; REC_TEST_DROP=n drops (as a full queue would) frame n. */
 static volatile int t_done;
 static uint64_t t_clock;
+static int host_done(void) { return t_done; }
+
 static int host_finished(void)
 {
     int empty;

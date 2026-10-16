@@ -1888,13 +1888,15 @@ class LocalRecording(unittest.TestCase):
                 return res
             # watched all along: nothing recorded
             self.assertEqual(run('0-100'), [])
-            # nobody watching: from 10 s (a keyframe) to the end
-            self.assertEqual(run(''), [720])
-            # away from 20 s to 40 s: starts at 30 s, ends 15 s after the
-            # recorder is back (+ the 2 s polling)
+            # nobody watching: the queued frames (pre-roll) go first, so the
+            # whole stream ends up in the file
+            self.assertEqual(run(''), [840])
+            # away from 20 s to 40 s: detected at 30 s, the file starts with
+            # the queued frames (back to ~20 s at this bitrate) and ends 15 s
+            # after the recorder is back (+ the 2 s polling)
             n = run('0-20,40-100')
             self.assertEqual(len(n), 1)
-            self.assertTrue(300 <= n[0] <= 360, n)
+            self.assertTrue(300 <= n[0] <= 480, n)
 
     def test_refuses_ram_and_flash_filesystems(self):
         src = (ROOT / 'src/tc100fix/rec.c').read_text()
