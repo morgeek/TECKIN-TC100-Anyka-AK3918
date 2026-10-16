@@ -189,7 +189,7 @@ start()
           _rec_client="${_rec_client#*://}"; _rec_client="${_rec_client%%[:/]*}"
           case "$_rec_client" in *[!0-9.]*) _rec_client="" ;; esac
         fi
-        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_REC_WHEN=${REC_WHEN:-offline} TC100FIX_REC_OFFLINE_SEC=${REC_OFFLINE_SEC:-10} TC100FIX_REC_POSTROLL_SEC=${REC_POSTROLL_SEC:-30}${_rec_client:+ TC100FIX_REC_CLIENT=$_rec_client}"
+        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_REC_WHEN=${REC_WHEN:-offline} TC100FIX_REC_OFFLINE_SEC=${REC_OFFLINE_SEC:-5} TC100FIX_REC_POSTROLL_SEC=${REC_POSTROLL_SEC:-30}${_rec_client:+ TC100FIX_REC_CLIENT=$_rec_client}"
       else
         echo "local recording: no usable card, not recording" >> "$LOGPATH"
       fi ;;
