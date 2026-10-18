@@ -26,6 +26,13 @@
  * 1124 bytes in ak_vpss_isp_set_3d_nr_attr, so the layout matches. Re-applied
  * after day/night ISP reloads like the exposure cap.
  *
+ * NR3D_STRENGTH=25..400 (percent, test): scales the noise-reduction strengths
+ * of every set: uvnr_k and ynr_k (spatial, 0..15), t_uv_k and t_y_k1
+ * (temporal, 0..127). The camera's sets have one word more than the SDK's
+ * after the 8 enables and a pad before md_th (mapped from the values read on
+ * a TC100: ynr_weight_tbl[17] at words 20..36), so these are at words 9, 11,
+ * 38 and 42. Empty or 100 = the ISP file's values.
+ *
  * MASK1..MASK4=x1,y1,x2,y2 (percent of the picture, 0..100) are hardware
  * privacy masks: the ISP paints the area before encoding, so it is gone from
  * the main and sub streams, the snapshots and what Frigate analyses, at no
@@ -59,6 +66,8 @@
 #define NR3D_SET_BYTES 112
 #define NR3D_TNR_Y 2       /* byte offsets inside one set */
 #define NR3D_TNR_UV 4
+/* strength words (byte offsets) and their maximum */
+static const struct { int off, max; } nr_k[4] = { { 18, 15 }, { 22, 127 }, { 76, 15 }, { 84, 127 } };
 #define MASKS 4
 #define RTSP_CONF_DEFAULT "/mnt/config/rtspserver.conf"
 
@@ -73,6 +82,7 @@ struct tune {
     int hz;                   /* 0 = leave, 50 or 60 */
     int exp_max_pct;          /* 0 = leave, 10..100 */
     int nr3d;                 /* -1 = leave, 0 = temporal NR off, 1 = original */
+    int nr3d_pct;             /* 0 = ISP file, else 25..400 % strength */
     int mask[MASKS][4];       /* x1, y1, x2, y2 in percent; x2 == 0: unused */
     int mask_color;           /* 0 black, 1 gray, 2 white */
 };
@@ -124,6 +134,8 @@ static void parse_conf(const char *path, struct tune *t)
             t->exp_max_pct = v ? clamp(v, 10, 100) : 0;
         if (!strcmp(line, "NR3D"))
             t->nr3d = v ? 1 : 0;
+        if (!strcmp(line, "NR3D_STRENGTH"))
+            t->nr3d_pct = v && v != 100 ? clamp(v, 25, 400) : 0;
         if (!strncmp(line, "MASK", 4) && line[4] >= '1' && line[4] <= '0' + MASKS && !line[5]) {
             int m = line[4] - '1', a[4];
             if (sscanf(eq + 1, "%d,%d,%d,%d", &a[0], &a[1], &a[2], &a[3]) == 4) {
@@ -260,8 +272,9 @@ static unsigned short nr_u16(const unsigned char *b, int set, int off)
     return v;
 }
 
-/* off: 1 = temporal NR off, 0 = original. Returns the get/set rc. */
-static int apply_nr3d(int off, FILE *st)
+/* off: 1 = temporal NR off; pct: strength (0 = ISP file); both unset = the
+ * original. Returns the get/set rc. */
+static int apply_nr3d(int off, int pct, FILE *st)
 {
     int k, rc = -1;
 
@@ -276,16 +289,30 @@ static int apply_nr3d(int off, FILE *st)
         nr_off_written = 0;
     }
     rc = 0;
-    if (off) {
+    if (off || pct) {
         unsigned short zero = 0;
         memcpy(nr_written, nr_orig, NR3D_BYTES);
         for (k = 0; k < NR3D_SETS; k++) {
-            memcpy(nr_written + 4 + k * NR3D_SET_BYTES + NR3D_TNR_Y, &zero, sizeof(zero));
-            memcpy(nr_written + 4 + k * NR3D_SET_BYTES + NR3D_TNR_UV, &zero, sizeof(zero));
+            unsigned char *set = nr_written + 4 + k * NR3D_SET_BYTES;
+            int j;
+            if (off) {
+                memcpy(set + NR3D_TNR_Y, &zero, sizeof(zero));
+                memcpy(set + NR3D_TNR_UV, &zero, sizeof(zero));
+            }
+            for (j = 0; pct && j < 4; j++) {
+                unsigned short v;
+                long nv;
+                memcpy(&v, set + nr_k[j].off, sizeof(v));
+                nv = ((long)v * pct + 50) / 100;
+                if (v && nv < 1) nv = 1;
+                if (nv > nr_k[j].max) nv = nr_k[j].max;
+                v = (unsigned short)nv;
+                memcpy(set + nr_k[j].off, &v, sizeof(v));
+            }
         }
         if (memcmp(nr_now, nr_written, NR3D_BYTES)) {
             rc = p_nr_set(vi_handle, nr_written);
-            fprintf(stderr, TAG "isp: 3D NR temporal off (rc=%d)\n", rc);
+            fprintf(stderr, TAG "isp: 3D NR %s, strength %d %% (rc=%d)\n", off ? "temporal off" : "on", pct ? pct : 100, rc);
         }
         nr_off_written = 1;
     } else if (nr_off_written) {
@@ -400,13 +427,13 @@ static void write_status(const struct tune *t, const int *rc, int exp_active)
     v = 0;
     if (p_effect_get)
         p_effect_get(vi_handle, EFFECT_HZ, &v);
-    fprintf(st, "POWER_HZ=%d\nEXPOSURE_MAX_PCT=%d\nNR3D=%d\n", v, t->exp_max_pct, t->nr3d);
+    fprintf(st, "POWER_HZ=%d\nEXPOSURE_MAX_PCT=%d\nNR3D=%d\nNR3D_STRENGTH=%d\n", v, t->exp_max_pct, t->nr3d, t->nr3d_pct ? t->nr3d_pct : 100);
     {
         int m, n = 0;
         for (m = 0; m < MASKS; m++) n += t->mask[m][2] > t->mask[m][0];
         fprintf(st, "MASKS=%d\nMASK_RC=%d\n", n, mask_rc);
     }
-    apply_nr3d(t->nr3d == 0, st);
+    apply_nr3d(t->nr3d == 0, t->nr3d_pct, st);
     report_wdr(st);
     if (exp_active) {
         apply_exposure(t->exp_max_pct, st);
@@ -459,8 +486,8 @@ static void *isp_thread(void *arg)
         } else {
             if (have.exp_max_pct)
                 apply_exposure(have.exp_max_pct, NULL);   /* survive day/night reloads */
-            if (have.nr3d == 0)
-                apply_nr3d(1, NULL);
+            if (have.nr3d == 0 || have.nr3d_pct)
+                apply_nr3d(have.nr3d == 0, have.nr3d_pct, NULL);
             if (mask_active)
                 apply_masks(0, have.mask_color);          /* lost on day/night reload? */
         }
