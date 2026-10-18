@@ -9,6 +9,8 @@ ISP_TUNE_CONF="${ISP_TUNE_CONF:-/mnt/config/isp_tune.conf}"
 ISP_TUNE_STATUS="${ISP_TUNE_STATUS:-/var/run/isp_tune.status}"
 ISP_TUNE_BOOT="${ISP_TUNE_BOOT:-/mnt/config/boot.conf}"
 ISP_TUNE_KEYS="BRIGHTNESS CONTRAST SATURATION SHARPNESS HUE POWER_HZ EXPOSURE_MAX_PCT"
+# Hardware privacy masks: MASK1..MASK4 = x1,y1,x2,y2 in percent, MASK_COLOR.
+ISP_MASK_KEYS="MASK1 MASK2 MASK3 MASK4 MASK_COLOR"
 
 # isp_tune_norm KEY VALUE -> prints the normalized value, returns 1 if invalid.
 isp_tune_norm()
@@ -32,6 +34,23 @@ isp_tune_norm()
       [ ${#_itn_v} -le 3 ] || return 1
       [ "$_itn_v" -ge 10 ] && [ "$_itn_v" -le 100 ] || return 1
       echo "$((_itn_v + 0))"
+      ;;
+    MASK1|MASK2|MASK3|MASK4)
+      [ -z "$_itn_v" ] && { echo ""; return 0; }
+      case "$_itn_v" in *[!0-9,]*) return 1 ;; esac
+      _itn_old_ifs="$IFS"; IFS=,
+      # shellcheck disable=SC2086
+      set -- $_itn_v
+      IFS="$_itn_old_ifs"
+      [ $# -eq 4 ] || return 1
+      for _itn_n in "$@"; do
+        [ -n "$_itn_n" ] && [ ${#_itn_n} -le 3 ] && [ "$_itn_n" -le 100 ] || return 1
+      done
+      [ "$(($3 + 0))" -gt "$(($1 + 0))" ] && [ "$(($4 + 0))" -gt "$(($2 + 0))" ] || return 1
+      echo "$(($1 + 0)),$(($2 + 0)),$(($3 + 0)),$(($4 + 0))"
+      ;;
+    MASK_COLOR)
+      case "$_itn_v" in ''|black|gray|white) echo "$_itn_v" ;; *) return 1 ;; esac
       ;;
     *) return 1 ;;
   esac
@@ -72,11 +91,14 @@ isp_tune_json()
     printf '%s"%s":%s' "$_itj_sep" "$_itj_k" "$(_isp_num "$(isp_tune_get "$_itj_k")")"
     _itj_sep=","
   done
+  for _itj_k in $ISP_MASK_KEYS; do
+    printf ',"%s":"%s"' "$_itj_k" "$(isp_tune_norm "$_itj_k" "$(isp_tune_get "$_itj_k")" 2>/dev/null)"
+  done
   printf '},"applied":'
   if [ -r "$ISP_TUNE_STATUS" ]; then
     printf '{'
     _itj_sep=""
-    for _itj_k in $ISP_TUNE_KEYS EXPOSURE_NOW EXPOSURE_ORIG; do
+    for _itj_k in $ISP_TUNE_KEYS EXPOSURE_NOW EXPOSURE_ORIG MASKS MASK_RC; do
       _itj_v="$(isp_tune_get "$_itj_k" "$ISP_TUNE_STATUS")"
       [ -n "$_itj_v" ] || continue
       printf '%s"%s":%s' "$_itj_sep" "$_itj_k" "$(_isp_num "$_itj_v")"

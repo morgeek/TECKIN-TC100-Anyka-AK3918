@@ -61,6 +61,10 @@
  *   The meter only sees audio while the encoder runs, i.e. while audio is
  *   served (rtsp-h26x serves it whenever sound detection is enabled).
  *
+ * TC100FIX_DAYNIGHT_HOLD_S=<s>, TC100FIX_DAYNIGHT_DWELL_S=<s>
+ *   Day/night switching with a hold time and a minimum interval, against
+ *   the dawn/dusk flapping caused by the IR lights (see below).
+ *
  * TC100FIX_PRINT_LEVEL=<0..9>
  *   The AnykaCameraManager constructor forces ak_print_set_level(3), which
  *   rewrites /var/log/ak_print_level for every vendor library. We substitute
@@ -334,6 +338,78 @@ int ak_ai_get_frame(void *handle, struct ak_frame *frame, long ms)
         sound_meter(frame);
     }
     return rc;
+}
+
+/* ------------------------------------------------------ day/night switching */
+
+/*
+ * TC100FIX_DAYNIGHT_HOLD_S=<s>  TC100FIX_DAYNIGHT_DWELL_S=<s>
+ *   AnykaDayNight::processAutoModeThread() asks the ISP which mode it wants
+ *   (ak_vpss_isp_get_auto_day_night_level(current): 1 = day, 0 = night) and
+ *   switches as soon as the answer differs. At dawn and dusk the infrared
+ *   lights feed back into the light measure: with the IR LEDs on the scene
+ *   looks bright enough for day, without them dark enough for night, so the
+ *   camera flipped 4 times in 50 s on a test camera (2026-10-18). Each switch
+ *   drops frames ("ak_vi_get_frame ... get frame failed", kernel ">50, sjf")
+ *   and changes the whole picture, which Frigate sees as motion.
+ *   A new mode is now reported only after the ISP has asked for it for HOLD
+ *   seconds without interruption, and never sooner than DWELL seconds after
+ *   the previous switch. The first decision after start is not delayed by
+ *   DWELL. 0 = vendor behaviour for that rule.
+ */
+static double mono_s(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + ts.tv_nsec / 1e9;
+}
+
+static int env_int(const char *name, int lo, int hi)
+{
+    const char *v = getenv(name);
+    int n = v ? atoi(v) : 0;
+    return (n >= lo && n <= hi) ? n : 0;
+}
+
+int ak_vpss_isp_get_auto_day_night_level(int current)
+{
+    static int (*real)(int);
+    static int hold_s = -1, dwell_s = 0;
+    static int want = -1;          /* mode the ISP keeps asking for */
+    static double want_since = 0;  /* since when, without interruption */
+    static double last_switch = 0; /* 0 = no switch yet in this process */
+    int r;
+    double now;
+
+    if (!real)
+        real = (int (*)(int))next_sym("ak_vpss_isp_get_auto_day_night_level");
+    if (!real)
+        return -1;
+    if (hold_s < 0) {
+        hold_s = env_int("TC100FIX_DAYNIGHT_HOLD_S", 1, 600);
+        dwell_s = env_int("TC100FIX_DAYNIGHT_DWELL_S", 1, 3600);
+        if (hold_s || dwell_s)
+            fprintf(stderr, TAG "day/night: switch after %d s of request, at least %d s apart\n", hold_s, dwell_s);
+    }
+    r = real(current);
+    if ((!hold_s && !dwell_s) || r < 0)
+        return r;
+    now = mono_s();
+    if (r == current) {
+        want = -1;                 /* request withdrawn: start over */
+        return r;
+    }
+    if (r != want) {
+        want = r;
+        want_since = now;
+    }
+    if (hold_s && now - want_since < hold_s)
+        return current;
+    if (dwell_s && last_switch > 0 && now - last_switch < dwell_s)
+        return current;
+    last_switch = now;
+    want = -1;
+    return r;
 }
 
 /* ---------------------------------------------------------------- logging */

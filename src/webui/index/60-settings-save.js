@@ -87,6 +87,7 @@
         });
         var hz = form.querySelector("#isp_power_hz");
         if (hz) hz.value = conf.POWER_HZ ? String(conf.POWER_HZ) : "";
+        initPrivacyMasks(form, conf);
         var status = form.querySelector("#isp_tune_applied");
         if (status) {
           var a = d.applied;
@@ -95,7 +96,8 @@
           else status.textContent = "Applied on the camera: brightness " + a.BRIGHTNESS + ", contrast " + a.CONTRAST +
             ", saturation " + a.SATURATION + ", sharpness " + a.SHARPNESS + ", hue " + a.HUE +
             (a.POWER_HZ ? ", " + a.POWER_HZ + " Hz" : "") +
-            (a.EXPOSURE_NOW ? ", exposure max " + a.EXPOSURE_NOW + (a.EXPOSURE_ORIG ? " / " + a.EXPOSURE_ORIG : "") : "") + ".";
+            (a.EXPOSURE_NOW ? ", exposure max " + a.EXPOSURE_NOW + (a.EXPOSURE_ORIG ? " / " + a.EXPOSURE_ORIG : "") : "") +
+            (a.MASKS ? ", " + a.MASKS + " privacy mask(s)" + (a.MASK_RC ? " (error " + a.MASK_RC + ")" : "") : "") + ".";
         }
       })
       .catch(function() {

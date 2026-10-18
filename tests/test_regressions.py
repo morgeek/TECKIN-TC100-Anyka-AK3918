@@ -207,7 +207,8 @@ class Regressions(unittest.TestCase):
             self.assertIn(default, s)
         # The preload is set on the v4l2rtspserver command only, never exported.
         self.assertNotIn('export LD_PRELOAD', s)
-        self.assertIn('env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
+        self.assertIn('env LD_PRELOAD=$TC100FIX_LIB $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
+        self.assertIn('TC100FIX_LIB=/mnt/lib/libtc100fix.so', s)
         conf = (ROOT / 'config/boot.conf.dist').read_text()
         for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=1', 'VENDOR_PRINT_LEVEL=1'):
             self.assertRegex(conf, r'(?m)^' + re.escape(line) + r'$')
@@ -251,10 +252,13 @@ class Regressions(unittest.TestCase):
             ({'VENDOR_PRINT_LEVEL': '12'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
             ({'RTSP_DAYNIGHT_POLL_MS': 'x'}, ''),
+            ({'RTSP_DAYNIGHT_HOLD_S': '10', 'RTSP_DAYNIGHT_DWELL_S': '120'},
+             'TC100FIX_DAYNIGHT_HOLD_S=10 TC100FIX_DAYNIGHT_DWELL_S=120'),
+            ({'RTSP_DAYNIGHT_DWELL_S': 'x'}, ''),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
-                    'RTSP_DAYNIGHT_POLL_MS': '0'}
+                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0'}
             vals.update(env)
             code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
@@ -293,10 +297,13 @@ class Regressions(unittest.TestCase):
         if not (sysroot and shutil.which('qemu-arm') and (fx / 'ispdriver').exists()):
             self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
         conf, status = self.base / 'isp_tune.conf', self.base / 'isp.status'
+        rtsp = self.base / 'rtspserver.conf'
+        rtsp.write_text('[0]\nwidth=1920\nheight=1080\n[1]\nwidth=352\nheight=200\n')
         out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
                               '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
                               '-E', 'TC100FIX_ISP_TUNE=%s' % conf, '-E', 'TC100FIX_ISP_STATUS=%s' % status,
-                              str(fx / 'ispdriver')], capture_output=True, timeout=60).stdout.decode()
+                              '-E', 'TC100FIX_RTSP_CONF=%s' % rtsp,
+                              str(fx / 'ispdriver')], capture_output=True, timeout=90).stdout.decode()
         start = out.split('--- after start')[1].split('--- after change')[0]
         self.assertIn('status: BRIGHTNESS=20', start)
         self.assertIn('status: SHARPNESS=50', start)          # 99 clamped to 50
@@ -309,6 +316,17 @@ class Regressions(unittest.TestCase):
         reset = out.split('--- after reset')[1]
         self.assertIn('status: EXPOSURE_MAX_PCT=0', reset)
         self.assertIn('status: EXPOSURE_NOW=1000', reset)     # original restored
+        # Privacy masks (percent -> pixels of each channel, even), MASK2 invalid (x2 < x1)
+        masks = out.split('--- after reset')[1].split('--- after masks')[0]
+        self.assertIn('vpss mask main0 0,0-960,540', masks)
+        self.assertIn('vpss mask sub2 316,160-350,198', masks)
+        self.assertNotIn('main1', masks)
+        self.assertIn('vpss mask_color type=0 y=128', masks)   # gray
+        self.assertIn('status: MASKS=2', out.split('--- after masks')[1])
+        lost = out.split('vpss masks lost')[1].split('--- after mask reload')[0]
+        self.assertIn('vpss mask main2 1728,864-1918,1078', lost)   # set again after an ISP reload
+        off = out.split('--- after mask reload')[1].split('--- after masks off')[0]
+        self.assertIn('vpss mask_set', off); self.assertNotIn('vpss mask main', off)   # cleared
 
     def test_isp_tune_helpers_validate_and_report(self):
         conf, boot, status = self.base / 'isp_tune.conf', self.base / 'boot.conf', self.base / 'status'
@@ -319,7 +337,10 @@ class Regressions(unittest.TestCase):
         lib = env + function('scripts/common_functions.sh', 'rewrite_config') + '\nsync() { :; }\n' + (ROOT / 'scripts/isp-tune.sh').read_text()
         for key, val, ok in [('BRIGHTNESS', '20', '20'), ('BRIGHTNESS', '-50', '-50'), ('BRIGHTNESS', '51', None),
                              ('BRIGHTNESS', '1x', None), ('HUE', '', '0'), ('POWER_HZ', '60', '60'), ('POWER_HZ', '55', None),
-                             ('EXPOSURE_MAX_PCT', '0', ''), ('EXPOSURE_MAX_PCT', '9', None), ('EXPOSURE_MAX_PCT', '40', '40')]:
+                             ('EXPOSURE_MAX_PCT', '0', ''), ('EXPOSURE_MAX_PCT', '9', None), ('EXPOSURE_MAX_PCT', '40', '40'),
+                             ('MASK1', '', ''), ('MASK2', '05,0,50,40', '5,0,50,40'), ('MASK3', '50,0,10,40', None),
+                             ('MASK4', '0,0,101,40', None), ('MASK1', '0,0,50', None), ('MASK1', '1,2,3,4;reboot', None),
+                             ('MASK_COLOR', 'white', 'white'), ('MASK_COLOR', 'mosaic', None)]:
             r = run(lib + '\nisp_tune_norm %s %s; echo "rc=$?"' % (key, shlex.quote(val)))
             out = r.stdout.decode().split('\n')
             if ok is None:
@@ -448,7 +469,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 27)
+        self.assertEqual(count, 29)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -1994,6 +2015,196 @@ class PasswordsStayOffTheBrowser(unittest.TestCase):
             self.assertEqual(r.stdout.strip(), 'ok' if ok else 'bad', pw)
 
 
+class LogForwarder(unittest.TestCase):
+    """src/logfwd/tc100-logfwd.c built for the host: filter, repeats, rate limit, rotation."""
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def setUp(self):
+        import socket
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        self.bin = d / 'logfwd'
+        subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-o', str(self.bin),
+                        str(ROOT / 'src/logfwd/tc100-logfwd.c')], check=True)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(('127.0.0.1', 0)); self.sock.settimeout(0.3)
+        self.log = d / 'messages'; self.log.write_text('')
+        self.proc = None
+
+    def tearDown(self):
+        if self.proc:
+            self.proc.terminate(); self.proc.wait(5)
+        self.sock.close(); self.tmp.cleanup()
+
+    def start(self, *extra):
+        port = self.sock.getsockname()[1]
+        self.proc = subprocess.Popen([str(self.bin), '-r', '127.0.0.1:%d' % port, '-f', str(self.log), '-b', *extra])
+        time.sleep(0.3)
+
+    def write(self, *lines):
+        with open(self.log, 'a') as f:
+            for l in lines:
+                f.write('Oct 18 09:10:%02d CAM %s\n' % (len(l) % 60, l))
+
+    def received(self, wait=1.0):
+        out, end = [], time.time() + wait
+        while time.time() < end:
+            try:
+                out.append(self.sock.recv(2048).decode())
+            except OSError:
+                pass
+        return out
+
+    def test_filter_repeats_and_pri(self):
+        self.start('-w', '2')
+        self.write('kern.info usb 1-1: new device', 'user.err tag: get frame failed',
+                   'authpriv.info login[123]: root login on pts/0')
+        for i in range(5):
+            self.write('kern.err >50, sjf:46191%02d, ul:10' % i)
+        got = self.received()
+        self.assertFalse(any('usb 1-1' in g for g in got))                 # info: not forwarded
+        self.assertIn('<11>', ''.join(got))                                 # user.err = 1*8+3
+        self.assertTrue(any(g.startswith('<86>') and 'root login' in g for g in got))   # authpriv.info kept
+        self.assertEqual(sum('sjf:' in g for g in got), 1)                 # digits ignored: one line
+        self.assertTrue(got[0].startswith('<') and ' CAM ' in got[0])
+        later = self.received(3.0)
+        self.assertTrue(any('repeated 4 times' in g and 'sjf:' in g for g in later), later)
+
+    def test_rate_limit(self):
+        self.start('-m', '3')
+        self.write(*['user.err tag: distinct message %s' % chr(65 + i) for i in range(6)])
+        self.assertEqual(len(self.received()), 3)
+
+    def test_follows_rotation_and_starts_at_the_end_without_b(self):
+        self.write('user.err tag: before start')
+        port = self.sock.getsockname()[1]
+        self.proc = subprocess.Popen([str(self.bin), '-r', '127.0.0.1:%d' % port, '-f', str(self.log)])
+        time.sleep(0.3)
+        self.write('user.err tag: first')
+        os.rename(self.log, str(self.log) + '.0')
+        with open(str(self.log) + '.0', 'a') as f:
+            f.write('Oct 18 09:10:59 CAM user.err tag: tail of the old file\n')
+        time.sleep(0.2)
+        self.log.write_text('Oct 18 09:11:00 CAM user.crit tag: after rotation\n')
+        got = ''.join(self.received(3.5))
+        self.assertNotIn('before start', got)
+        for m in ('first', 'tail of the old file', 'after rotation'):
+            self.assertIn(m, got)
+
+    def test_syslogd_start_uses_forwarder_and_falls_back(self):
+        c = (ROOT / 'scripts/common_functions.sh').read_text()
+        i = c.index('syslogd_start() {'); body = c[i:c.index('\n}\n', i)]
+        self.assertIn('tc100-logfwd', body)
+        self.assertIn('-R "$_sl_remote"', body)       # fallback without the binary
+        self.assertIn('bin/tc100-logfwd|', (ROOT / 'config/packages.lock.dist').read_text())
+        self.assertIn('tc100-logfwd', (ROOT / 'src/flash/build-code.sh').read_text())
+
+
+class WifiRescueFlash(unittest.TestCase):
+    """2.1.6: the rescue access point also works from flash (no vendor hostapd in /usr)."""
+
+    def test_hostapd_fallback_and_udhcpd_stop(self):
+        w = (ROOT / 'scripts/wifi-rescue.sh').read_text()
+        self.assertIn('for HOSTAPD in /usr/bin/hostapd /tmp/tc100code/bin/hostapd-rtw /mnt/bin/hostapd-rtw; do', w)
+        self.assertIn('udhcpd -f "$RUN/udhcpd.conf"', w)
+        self.assertIn('echo $! > "$RUN/udhcpd.pid"', w)
+        self.assertIn('for b in tc100-logfwd hostapd-rtw; do', (ROOT / 'src/flash/build-code.sh').read_text())
+        self.assertIn('COMMIT=44d73276cb59bf58c700b70f2237ffb440b94ec3', (ROOT / 'src/hostapd/build.sh').read_text())
+        self.assertIn('CONFIG_DRIVER_RTW=y', (ROOT / 'src/hostapd/hostapd.config').read_text())
+        self.assertNotIn('CONFIG_WPS', (ROOT / 'src/hostapd/hostapd.config').read_text())
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run(['sh', '-c', '. %s; echo "$HOSTAPD"' % (ROOT / 'scripts/wifi-rescue.sh')],
+                               capture_output=True, text=True, env=dict(os.environ, WR_HOSTAPD=d + '/h'))
+            self.assertEqual(r.stdout.strip(), d + '/h')
+
+
+class NetGuard(unittest.TestCase):
+    """scripts/net-guard.sh: reboot after a long network loss, with backoff."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        (d / 'boot.conf').write_text('NET_GUARD=1\nNET_GUARD_MIN=15\n')
+        (d / 'route').write_text('Kernel IP routing table\n0.0.0.0 192.0.2.1 0.0.0.0 UG 0 0 0 wlan0\n')
+        (d / 'ping').write_text('#!/bin/sh\necho "$@" >> %s/pings\n[ -f %s/net_ok ]\n' % (d, d)); (d / 'ping').chmod(0o755)
+        for n in ('reboot', 'killwd'):
+            (d / n).write_text('#!/bin/sh\necho %s >> %s/actions\n' % (n, d)); (d / n).chmod(0o755)
+        (d / 'tracker.sh').write_text('echo "$@" >> %s/intents\n' % d)
+        self.env = dict(os.environ, NG_BOOT_CONF=str(d / 'boot.conf'), NG_STATE=str(d / 'st'),
+                        NG_PERSIST=str(d / 'persist'), NG_WR_RUN=str(d / 'wr'), NG_ROUTE_FILE=str(d / 'route'),
+                        NG_PING=str(d / 'ping'), NG_REBOOT=str(d / 'reboot'), NG_KILLWD=str(d / 'killwd'),
+                        NG_TRACKER=str(d / 'tracker.sh'), NG_FORCE_S='0', NG_RETRY_S='0')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def once(self, up):
+        subprocess.run(['sh', str(ROOT / 'scripts/net-guard.sh'), 'once'], env=dict(self.env, NG_UPTIME=str(up)),
+                       capture_output=True, timeout=10)
+        time.sleep(0.1)
+
+    def actions(self):
+        p = self.d / 'actions'
+        return p.read_text().split() if p.exists() else []
+
+    def test_reboot_only_after_the_limit_then_backoff_then_reset(self):
+        self.once(100)                        # first failure: start counting
+        self.once(100 + 14 * 60)
+        self.assertEqual(self.actions(), [])
+        self.once(100 + 15 * 60)
+        self.assertEqual(sorted(self.actions()), ['killwd', 'reboot'])
+        self.assertEqual((self.d / 'persist').read_text().strip(), '1')
+        self.assertIn('no network for 900 s', (self.d / 'intents').read_text())
+        self.assertIn('192.0.2.1', (self.d / 'pings').read_text())
+        # Next boot: the limit is now 30 min.
+        shutil.rmtree(self.d / 'st'); (self.d / 'actions').unlink()
+        self.once(60); self.once(60 + 29 * 60)
+        self.assertEqual(self.actions(), [])
+        self.once(60 + 30 * 60)
+        self.assertIn('reboot', self.actions())
+        self.assertEqual((self.d / 'persist').read_text().strip(), '2')
+        # Network back for 10 min: count cleared.
+        shutil.rmtree(self.d / 'st'); (self.d / 'net_ok').write_text('')
+        self.once(60); self.assertTrue((self.d / 'persist').exists())
+        self.once(60 + 600); self.assertFalse((self.d / 'persist').exists())
+
+    def test_limit_capped_at_two_hours(self):
+        (self.d / 'persist').write_text('9\n')
+        r = subprocess.run(['sh', str(ROOT / 'scripts/net-guard.sh'), 'status'], env=dict(self.env, NG_UPTIME='10'),
+                           capture_output=True, text=True)
+        self.assertIn('limit_s=7200', r.stdout)
+
+    def test_short_outage_no_default_route_and_off_switch(self):
+        self.once(100); (self.d / 'net_ok').write_text('')
+        self.once(100 + 10 * 60); (self.d / 'net_ok').unlink()
+        self.once(100 + 20 * 60); self.once(100 + 30 * 60)
+        self.assertEqual(self.actions(), [])              # counting restarted at 20 min
+        (self.d / 'route').write_text('')                 # no default route = failure
+        self.once(100 + 36 * 60)
+        self.assertIn('reboot', self.actions())
+        (self.d / 'actions').unlink(); shutil.rmtree(self.d / 'st')
+        (self.d / 'boot.conf').write_text('NET_GUARD=0\n')
+        self.once(10); self.once(10 + 3 * 3600)
+        self.assertEqual(self.actions(), [])
+
+    def test_never_while_rescue_access_point_is_up(self):
+        (self.d / 'wr').mkdir()
+        sleeper = subprocess.Popen(['sleep', '30'])
+        try:
+            (self.d / 'wr/hostapd.pid').write_text(str(sleeper.pid))
+            self.once(100); self.once(100 + 3600)
+            self.assertEqual(self.actions(), [])
+        finally:
+            sleeper.kill(); sleeper.wait()
+
+    def test_web_guard_loop_calls_net_guard_and_webserver_off_still_starts_it(self):
+        wg = (ROOT / 'scripts/web-guard.sh').read_text()
+        self.assertIn('net-guard.sh}" once', wg)
+        ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
+        off = ws.index('if [ "$WEB_MODE" = "off" ]')
+        self.assertLess(ws.index('start_web_guard()'), off)
+        self.assertIn('start_web_guard', ws[off:off + 80])
+        self.assertIn('NET_GUARD=1', (ROOT / 'config/boot.conf.dist').read_text())
+
+
 class WebGuardAndSdHealth(unittest.TestCase):
     """scripts/web-guard.sh (rescue telnet) and scripts/sd-health.sh."""
 
@@ -2331,7 +2542,7 @@ class FlashCodeZone(unittest.TestCase):
         env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
                    HTTP_X_CSRF_TOKEN='ab12', TC100_STORAGE_FILE=str(self.d / 'storage'),
                    FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'work'),
-                   FWU_JFFS_LOG=str(self.d / 'jffslog'))
+                   FWU_JFFS_LOG=str(self.d / 'jffslog'), FC_INFO_SCRIPT=str(ROOT / 'scripts/flash-code.sh'))
         (self.d / 'storage').write_text('flash\n')
         r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
         return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
@@ -2352,6 +2563,32 @@ class FlashCodeZone(unittest.TestCase):
         # planned restart recorded for reboot-tracker.sh (not "UNEXPECTED")
         self.assertIn('|web: code update', (self.d / 'jffslog/.reboot-intent').read_text())
 
+
+    def test_build_identity_in_package_and_web_page(self):
+        stage = self.d / 'stage'
+        p2 = self.d / 'other.bin'
+        (stage / 'scripts/x.sh').write_text('echo y\n')
+        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(p2)], check=True, capture_output=True,
+                       env=dict(os.environ, BUILD_DATE='2026-10-18T09:40Z', BUILD_COMMIT='a30317e5c7'))
+        info = dict(l.split('=', 1) for l in self.fc('info', str(p2)).stdout.split())
+        self.assertEqual((info['version'], info['built'], info['commit']), ('9.9-test', '2026-10-18T09:40Z', 'a30317e5c7'))
+        # A package without the two new lines (before 2.1.5) still checks and installs.
+        old = self.d / 'old.bin'; raw = p2.read_bytes()
+        hdr = raw[:4096].split(b'\0', 1)[0].split(b'\n')
+        old.write_bytes(b'\n'.join(hdr[:4]).ljust(4095, b'\0') + b'\0' + raw[4096:])
+        self.assertEqual(self.fc('check', str(old)).stdout.split()[:2], ['ok', '9.9-test'])
+        self.assertEqual(self.fc('info', str(old)).stdout.count('built=\n'), 1)
+        # Installed: self.pkg. Upload of the same version, another build -> same_version 1.
+        self.fc('write', str(self.pkg))
+        (self.d / 'pending').unlink()
+        up = self.cgi('POST', 'upload', p2.read_bytes())
+        self.assertEqual((up['built'], up['commit'], up['same_version']), ('2026-10-18T09:40Z', 'a30317e5c7', 1))
+        self.assertNotEqual(up['md5'], up['current_md5'])
+        self.assertEqual(self.cgi('POST', 'upload', self.pkg.read_bytes())['same_version'], 2)
+        st = self.cgi('GET', 'status')
+        self.assertEqual(st['current'], '9.9-test'); self.assertTrue(st['current_built'])
+        h = (ROOT / 'www/settings.html').read_text()
+        self.assertIn('d.same_version === 1', h); self.assertIn('buildInfo(d.current_built, d.current_commit)', h)
 
 class CameraLogFindings(unittest.TestCase):
     """2026-10-16: what two cameras' logs showed (docs/known-issues.md)."""
@@ -3136,7 +3373,8 @@ class SdWear(unittest.TestCase):
         conf = function('scripts/common_functions.sh', 'syslogd_start')
         self.assertIn('*.notice;auth.*;authpriv.*', conf)
         self.assertEqual(conf.count('-l 6'), 2)
-        self.assertNotIn('/mnt', conf)
+        # nothing written under /mnt (the forwarder binary may be read from /mnt/bin)
+        self.assertNotIn('/mnt', conf.replace('/mnt/bin/tc100-logfwd', ''))
 
     def test_stability_samples_are_batched(self):
         with tempfile.TemporaryDirectory() as d:
