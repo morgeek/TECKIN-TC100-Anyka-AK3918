@@ -255,12 +255,15 @@ class Regressions(unittest.TestCase):
             ({'RTSP_DAYNIGHT_HOLD_S': '10', 'RTSP_DAYNIGHT_DWELL_S': '120'},
              'TC100FIX_DAYNIGHT_HOLD_S=10 TC100FIX_DAYNIGHT_DWELL_S=120'),
             ({'RTSP_DAYNIGHT_DWELL_S': 'x'}, ''),
+            ({'RTSP_LITE_PORT': '8554'}, 'TC100FIX_RTSP_PORT=8554'),
+            ({'RTSP_LITE_PORT': '554'}, ''),                  # never the main server's port
+            ({'RTSP_LITE_PORT': 'x'}, ''),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
-                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0'}
+                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': ''}
             vals.update(env)
-            code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
+            code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
 
     def test_tc100fix_behaviour_under_arm_emulation(self):
@@ -2281,6 +2284,94 @@ class SdCard(unittest.TestCase):
         self.assertIn('sd-card.sh}" tick', (ROOT / 'scripts/web-guard.sh').read_text())
         self.assertIn('id="sd_modal"', (ROOT / 'www/index.html').read_text())
         self.assertIn('sdCardPrompt(statusline);', (ROOT / 'src/webui/index/40-polling.js').read_text())
+
+
+class RtspLite(unittest.TestCase):
+    """src/tc100fix/rtsp.c built for the host: ffprobe/ffmpeg as clients."""
+
+    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe'), 'gcc and ffmpeg')
+    def setUp(self):
+        import socket
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        self.bin = d / 'rtsp-test'
+        subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-DRTSP_HOST_TEST', '-o', str(self.bin),
+                        str(ROOT / 'src/tc100fix/rtsp.c'), '-lpthread'], check=True)
+        s = socket.socket(); s.bind(('127.0.0.1', 0)); self.port = s.getsockname()[1]; s.close()
+        self.srv = None
+
+    def tearDown(self):
+        if self.srv:
+            self.srv.kill(); self.srv.wait()
+        self.tmp.cleanup()
+
+    def serve(self, codec):
+        src = self.d / ('in.' + codec)
+        enc = ['-c:v', 'libx265', '-x265-params', 'keyint=15:aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
+              ['-c:v', 'libx264', '-bf', '0', '-x264-params', 'keyint=15:aud=1']
+        subprocess.run(['ffmpeg', '-v', 'quiet', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-t', '3'] + enc +
+                       ['-bsf:v', ('hevc' if codec == 'hevc' else 'h264') + '_mp4toannexb', str(src)], check=True)
+        self.srv = subprocess.Popen([str(self.bin), str(src), '15', '20'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                    env=dict(os.environ, TC100FIX_RTSP_PORT=str(self.port), RTSP_TEST_CRED='admin:s3cret',
+                                             TC100FIX_RTSP_STATUS=str(self.d / 'status')))
+        time.sleep(0.8)
+
+    def frames(self, url, secs=4):
+        out = self.d / 'out.mp4'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-rtsp_transport', 'tcp', '-i', url, '-t', str(secs), '-c', 'copy', str(out)],
+                       capture_output=True, timeout=30)
+        r = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries',
+                            'stream=codec_name,nb_read_frames', '-of', 'csv=p=0', str(out)], capture_output=True, text=True)
+        return r.stdout.strip()
+
+    def test_h265_and_h264_with_digest(self):
+        for codec, name in (('hevc', 'hevc'), ('h264', 'h264')):
+            self.serve(codec)
+            got = self.frames('rtsp://admin:s3cret@127.0.0.1:%d/video0_unicast' % self.port)
+            c, n = got.split(',')
+            self.assertEqual(c, name)
+            self.assertGreaterEqual(int(n), 50)                  # 4 s at 15 fps, from the first keyframe
+            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://admin:nope@127.0.0.1:%d/video0' % self.port],
+                               capture_output=True, text=True, timeout=20)
+            self.assertIn('401', r.stderr)
+            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://admin:s3cret@127.0.0.1:%d/nothing' % self.port],
+                               capture_output=True, text=True, timeout=20)
+            self.assertIn('404', r.stderr)
+            self.srv.kill(); self.srv.wait(); self.srv = None
+
+    def test_slow_client_does_not_stall_the_others(self):
+        import socket, hashlib, re
+        self.serve('hevc')
+        s = socket.create_connection(('127.0.0.1', self.port)); s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        url = 'rtsp://127.0.0.1:%d/video0' % self.port
+        def req(m, u, extra='', n=[0]):
+            n[0] += 1
+            s.sendall(('%s %s RTSP/1.0\r\nCSeq: %d\r\n%s\r\n' % (m, u, n[0], extra)).encode())
+            data = b''
+            while b'\r\n\r\n' not in data:
+                data += s.recv(1)
+            h = data.decode(); m2 = re.search(r'Content-Length: (\d+)', h)
+            if m2:
+                left = int(m2.group(1))
+                while left:
+                    left -= len(s.recv(left))
+            return h
+        nonce = re.search(r'nonce="([^"]+)"', req('DESCRIBE', url)).group(1)
+        def auth(m, u):
+            ha1 = hashlib.md5(b'admin:TC100:s3cret').hexdigest(); ha2 = hashlib.md5(('%s:%s' % (m, u)).encode()).hexdigest()
+            return 'Authorization: Digest username="admin", realm="TC100", nonce="%s", uri="%s", response="%s"\r\n' % (
+                nonce, u, hashlib.md5(('%s:%s:%s' % (ha1, nonce, ha2)).encode()).hexdigest())
+        self.assertIn('200', req('DESCRIBE', url, auth('DESCRIBE', url)))
+        self.assertIn('461', req('SETUP', url + '/trackID=0', auth('SETUP', url) + 'Transport: RTP/AVP;unicast;client_port=5000-5001\r\n'))
+        h = req('SETUP', url + '/trackID=0', auth('SETUP', url) + 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n')
+        sess = re.search(r'Session: ([0-9A-F]+)', h).group(1)
+        self.assertIn('200', req('PLAY', url, auth('PLAY', url) + 'Session: %s\r\n' % sess))
+        # this client never reads again; another one must still get every frame
+        got = self.frames('rtsp://admin:s3cret@127.0.0.1:%d/video0' % self.port, 6)
+        self.assertGreaterEqual(int(got.split(',')[1]), 75)
+        time.sleep(10.5)
+        st = (self.d / 'status').read_text()
+        self.assertRegex(st, r'drops=[1-9]')
+        s.close()
 
 
 class NetGuard(unittest.TestCase):
