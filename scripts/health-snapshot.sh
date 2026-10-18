@@ -1,6 +1,7 @@
 #!/bin/sh
 # health-snapshot.sh — Background daemon that refreshes the health.cgi cache
-# every HEALTH_SNAPSHOT_INTERVAL_SECONDS (default 60).
+# every HEALTH_SNAPSHOT_INTERVAL_SECONDS (default 300; it runs ~15 service
+# probes, a CPU burst each time).
 # This makes health.cgi instant: it always reads a pre-built cache file instead
 # of running 15 blocking service probes per HTTP request.
 #
@@ -8,7 +9,7 @@
 
 CACHE_FILE="/tmp/health_snapshot.cache"
 HEALTH_CGI="/mnt/www/cgi-bin/health.cgi"
-INTERVAL="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-60}"
+INTERVAL="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-300}"
 PIDFILE="/var/run/health-snapshot.pid"
 STABILITY_FILE="${STABILITY_FILE:-/mnt/log/stability.csv}"
 STABILITY_SAMPLE_SECONDS="${STABILITY_SAMPLE_SECONDS:-300}"

@@ -249,6 +249,9 @@ class Regressions(unittest.TestCase):
             ({'RTSP_FPS_LOCK': '1'}, 'TC100FIX_FPS_LOCK=1'),
             ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '1'}, ''),
             ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '0'}, 'TC100FIX_MIC_OFF=1'),
+            # sound served, detector off: clean microphone unless RTSP_AEC=1
+            ({'RTSP_AEC': '0', 'RTSP_AUDIO': '1'}, 'TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1'),
+            ({'RTSP_AEC': '0', 'RTSP_AUDIO': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1'}, 'TC100FIX_MIC_OFF=1'),
             ({'VENDOR_PRINT_LEVEL': '1'}, 'TC100FIX_PRINT_LEVEL=1'),
             ({'VENDOR_PRINT_LEVEL': '12'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
@@ -272,7 +275,7 @@ class Regressions(unittest.TestCase):
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0 TC100FIX_RTSP_TALK=1'),
         ]
         for env, expected in cases:
-            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
+            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1', 'RTSP_AEC': '1',
                     'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
                     'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1',
                     'RTSP_SERVER': '', 'RTSP_PORT_NUM': '554', 'RTSP_PROC_IDLE_MS': '', 'RTSP_PROC_BUSY_MS': '', 'PORT': '-P 554', 'TEST_LIB': '/nonexistent'}
@@ -461,7 +464,7 @@ class Regressions(unittest.TestCase):
         self.assertIn('TC100FIX_SOUND_LEVEL=/var/run/sound_level', rtsp)
         # The meter needs the microphone: MIC_OFF must not be set when enabled.
         block = rtsp[rtsp.index('_sound_enable='):rtsp.index('VENDOR_PRINT_LEVEL', rtsp.index('_sound_enable='))]
-        self.assertRegex(block, r'if \[ "\$_sound_enable" = "1" \]; then\n\s*TC100FIX_ENV="\$TC100FIX_ENV TC100FIX_SOUND_LEVEL=[^"]*"\n\s*else')
+        self.assertRegex(block, r'if \[ "\$_sound_enable" = "1" \]; then\n\s*TC100FIX_ENV="\$TC100FIX_ENV TC100FIX_SOUND_LEVEL=[^"]*"\n\s*elif')
 
     def test_motion_form_fields_are_read(self):
         # Settings → Motion & Sound posts these names; conf_motiondetect read

@@ -18,6 +18,10 @@ NET_GUARD_MIN=15
 # Formatting is offered in the web page. SD_AUTOMOUNT=0: never mounted
 # automatically.
 SD_AUTOMOUNT=1
+# RTSP_AEC=1 keeps the vendor echo canceller and noise gate on the microphone
+# (they cost ~4 % CPU and silence everything below speech). Default 0: clean
+# microphone, as with sound detection.
+RTSP_AEC=0
 # Encoder poll of the video server (milliseconds): after a pass without new
 # frames it waits RTSP_PROC_IDLE_MS (vendor: 10, range 10-40), after one with
 # frames RTSP_PROC_BUSY_MS (vendor: 1, range 1-10). Longer = fewer wake-ups,
@@ -318,7 +322,7 @@ STORAGE_CLEANUP_DCIM_PATH=/mnt/DCIM
 
 # Health snapshot daemon: pre-builds the health.cgi cache every N seconds (min 10, max 300).
 # Lower values mean fresher health data at the cost of more CPU cycles per minute.
-HEALTH_SNAPSHOT_INTERVAL_SECONDS=60
+HEALTH_SNAPSHOT_INTERVAL_SECONDS=300
 
 # Syslog forwarding: stream logs to a remote syslog server at SYSLOG_HOST:SYSLOG_PORT.
 # Requires logger -n support in your busybox build.

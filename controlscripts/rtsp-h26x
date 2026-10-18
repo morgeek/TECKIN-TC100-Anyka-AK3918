@@ -157,9 +157,16 @@ start()
     _sound_enable="$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)"
     if [ "$_sound_enable" = "1" ]; then
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SOUND_LEVEL=/var/run/sound_level TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1"
-    else
+    elif [ "$RTSP_AUDIO" = "0" ]; then
       case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
-        [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
+        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
+      esac
+    else
+      # Sound served without the detector: the same clean microphone (the
+      # vendor echo canceller costs ~4 % CPU and its noise gate silences
+      # everything below speech). RTSP_AEC=1 keeps the vendor processing.
+      case "${RTSP_AEC:-0}" in 1|true|yes|on|enabled) ;; *)
+        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1" ;;
       esac
     fi
     case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
