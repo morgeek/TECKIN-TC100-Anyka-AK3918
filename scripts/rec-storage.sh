@@ -8,6 +8,7 @@
 #   rec-storage.sh eject    pause the recording, flush, unmount (flash mode):
 #                           the card can then be taken out
 #   rec-storage.sh resume   mount again and resume
+#   rec-storage.sh mount    mount the card (flash mode) without touching the recorder
 #   rec-storage.sh status   the recorder's status lines
 #
 # SD mode: the card is /mnt itself, recordings go to /mnt/records.
@@ -89,7 +90,8 @@ case "${0##*/}" in
             dir) rs_dir ;;
             eject) rs_eject ;;
             resume) rs_resume ;;
+            mount) if _flash; then _mount_card || exit 1; fi ;;
             status) cat "$STATUS" 2>/dev/null; [ -f "$STATUS.pause" ] && echo "paused=1" ;;
-            *) echo "usage: $0 dir | eject | resume | status" >&2; exit 2 ;;
+            *) echo "usage: $0 dir | eject | resume | mount | status" >&2; exit 2 ;;
         esac ;;
 esac

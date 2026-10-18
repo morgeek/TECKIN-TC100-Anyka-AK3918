@@ -12,6 +12,12 @@ ENABLE_WATCHDOG=1
 # is up. NET_GUARD=0 turns it off.
 NET_GUARD=1
 NET_GUARD_MIN=15
+# SD card when running from flash (scripts/sd-card.sh): a FAT32/exFAT card
+# without boot files and without card errors is mounted on /mnt/sd when it is
+# put in (checked every minute), for the local recording and the web page.
+# Formatting is offered in the web page. SD_AUTOMOUNT=0: never mounted
+# automatically.
+SD_AUTOMOUNT=1
 ENABLE_NTP=1
 # If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
 NTP_ONE_SHOT=0

@@ -2183,6 +2183,106 @@ class FlashMinify(unittest.TestCase):
         self.assertNotIn('icomoon.eot', (ROOT / 'www/icomoon/style.css').read_text())
 
 
+class SdCard(unittest.TestCase):
+    """scripts/sd-card.sh: the SD card from flash (detect, auto-mount, format, ask once)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        (d / 'sys/device').mkdir(parents=True)
+        (d / 'sys/size').write_text('124735488\n')                    # 60 GB
+        (d / 'sys/device/cid').write_text('27504853443634476016d90ea7016674\n')
+        (d / 'storage').write_text('flash\n')
+        (d / 'mounts').write_text('')
+        (d / 'boot.conf').write_text('SD_AUTOMOUNT=1\n')
+        (d / 'fixture').mkdir()
+        self.dev = d / 'mmcblk0'
+        bs = bytearray(512); bs[82:87] = b'FAT32'
+        (d / 'mmcblk0p1').write_bytes(bytes(bs)); self.dev.write_bytes(bytes(1024 * 1024))
+        bin_ = d / 'bin'; bin_.mkdir()
+        (bin_ / 'mount').write_text('#!/bin/sh\nfor a; do last="$a"; done\ncp -r %s/. "$last" 2>/dev/null\necho "mount $*" >> %s/log\n' % (d / 'fixture', d))
+        (bin_ / 'umount').write_text('#!/bin/sh\necho "umount $*" >> %s/log\nfor a; do last="$a"; done\nrm -rf "$last"/* 2>/dev/null\n' % d)
+        (bin_ / 'logger').write_text('#!/bin/sh\necho "logger $*" >> %s/log\n' % d)
+        for n in ('mount', 'umount', 'logger'):
+            (bin_ / n).chmod(0o755)
+        (d / 'rec.sh').write_text('echo "rec $*" >> %s/log\n[ "$1" = mount ] && echo "/dev/mmcblk0p1 %s vfat rw 0 0" >> %s/mounts\nexit 0\n'
+                                  % (d, d / 'sd', d))
+        (d / 'fdisk').write_text('#!/bin/sh\ncat > %s/fdisk.in\necho "fdisk $*" >> %s/log\n' % (d, d)); (d / 'fdisk').chmod(0o755)
+        (d / 'mkfs').write_text('#!/bin/sh\necho "mkfs $*" >> %s/log\n' % d); (d / 'mkfs').chmod(0o755)
+        (d / 'dmesg').write_text('#!/bin/sh\ncat %s/dmesg.txt 2>/dev/null\n' % d); (d / 'dmesg').chmod(0o755)
+        self.env = dict(os.environ, PATH='%s:%s' % (bin_, os.environ['PATH']), SDC_ANYFILE='1', SDC_SETTLE='0',
+                        SDC_BOOT_CONF=str(d / 'boot.conf'), SDC_ACK=str(d / 'ack'), SDC_OUT=str(d / 'state'),
+                        SDC_FMT=str(d / 'fmt'), SDC_DEV=str(self.dev), SDC_SYSBLOCK=str(d / 'sys'),
+                        REC_SD_MOUNT=str(d / 'sd'), SDC_PROBE=str(d / 'probe'), TC100_STORAGE_FILE=str(d / 'storage'),
+                        SDC_MOUNTS=str(d / 'mounts'), SDC_REC=str(d / 'rec.sh'), SDC_DMESG=str(d / 'dmesg'),
+                        SDC_FDISK=str(d / 'fdisk'), SDC_MKFS=str(d / 'mkfs'), SDC_BLOCKDEV='true')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_sd(self, *a):
+        return subprocess.run(['sh', str(ROOT / 'scripts/sd-card.sh'), *a], env=self.env, capture_output=True, text=True, timeout=30)
+
+    def state(self):
+        return dict(l.split('=', 1) for l in (self.d / 'state').read_text().splitlines())
+
+    def test_new_data_card_is_mounted_and_asked_once(self):
+        (self.d / 'fixture/clip.mp4').write_text('x')
+        self.run_sd('tick')
+        st = self.state()
+        self.assertEqual((st['present'], st['kind'], st['fs'], st['mounted'], st['prompt']), ('1', 'data', 'vfat', '1', '1'))
+        self.assertEqual(st['size_mb'], str(124735488 // 2048))
+        self.assertIn('rec mount', (self.d / 'log').read_text())
+        self.run_sd('ack', st['id'])
+        self.assertEqual(self.state()['prompt'], '0')
+        self.assertEqual(self.run_sd('inspect').stdout.count('prompt=0'), 1)
+        # taken out: lazy unmount, state cleared
+        self.dev.unlink(); self.run_sd('tick')
+        self.assertEqual(self.state()['present'], '0')
+        self.assertIn('umount -l', (self.d / 'log').read_text())
+
+    def test_kit_blank_and_failing_cards_are_not_mounted(self):
+        (self.d / 'fixture/wifitest').mkdir()
+        self.run_sd('tick')
+        self.assertEqual(self.state()['kind'], 'kit')
+        self.assertNotIn('rec mount', (self.d / 'log').read_text())
+        (self.d / 'mmcblk0p1').write_bytes(bytes(512)); (self.d / 'state').unlink()
+        self.run_sd('tick'); self.assertEqual(self.state()['kind'], 'blank')
+        (self.d / 'dmesg.txt').write_text('mmcblk0: timed out sending r/w cmd command, card status 0x400e00\n')
+        self.run_sd('inspect'); self.assertEqual(self.state()['kind'], 'errors')
+        self.assertIn('refused', self.run_sd('format').stdout)
+
+    def test_format_flow_and_refusals(self):
+        r = self.run_sd('format'); self.assertEqual(r.stdout.strip(), 'started')
+        for _ in range(100):
+            if 'state=running' not in (self.d / 'fmt').read_text():
+                break
+            time.sleep(0.1)
+        fmt = (self.d / 'fmt').read_text()
+        self.assertIn('state=done', fmt)
+        log = (self.d / 'log').read_text()
+        self.assertIn('rec eject', log)
+        self.assertIn('fdisk -u %s' % self.dev, log)
+        self.assertEqual((self.d / 'fdisk.in').read_text(), 'o\nn\np\n1\n8192\n\nt\nc\nw\n')
+        self.assertIn('mkfs -n TC100 %sp1' % self.dev, log)
+        self.assertLess(log.index('rec eject'), log.index('fdisk'))
+        self.assertIn('rec resume', log)
+        (self.d / 'storage').write_text('sd\n')
+        self.assertIn('runs from the SD card', self.run_sd('format').stdout)
+        (self.d / 'storage').write_text('flash\n'); self.dev.unlink()
+        self.assertIn('no card', self.run_sd('format').stdout)
+
+    def test_web_side(self):
+        a = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        for c in ('sd_card_info)', 'sd_card_format)', 'sd_card_mount)', 'sd_card_ack)'):
+            self.assertIn(c, a)
+        self.assertIn('local_rec_status|sd_card_info) ;;', a)          # only the read is CSRF-free
+        st = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        self.assertIn('\\"sd_prompt\\":\\"$sd_prompt\\"', st)
+        self.assertIn('sd-card.sh}" tick', (ROOT / 'scripts/web-guard.sh').read_text())
+        self.assertIn('id="sd_modal"', (ROOT / 'www/index.html').read_text())
+        self.assertIn('sdCardPrompt(statusline);', (ROOT / 'src/webui/index/40-polling.js').read_text())
+
+
 class NetGuard(unittest.TestCase):
     """scripts/net-guard.sh: reboot after a long network loss, with backoff."""
 
@@ -3036,7 +3136,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        self.assertIn('wifi_get_ssid|local_rec_status) ;;', text)     # read-only: no CSRF needed
+        self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info) ;;', text)     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)
