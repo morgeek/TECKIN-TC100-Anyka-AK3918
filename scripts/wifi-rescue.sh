@@ -25,7 +25,14 @@ CONF="${WR_BOOT_CONF:-/mnt/config/boot.conf}"
 RUN="${WR_RUN:-/tmp/wifi-rescue}"
 STA="${WR_STA:-wlan0}"
 AP="${WR_AP:-wlan1}"
-HOSTAPD="${WR_HOSTAPD:-/usr/bin/hostapd}"
+# The vendor hostapd (SD-card firmware), else the one built from source
+# (src/hostapd) that the code package carries: the flash /usr has none.
+HOSTAPD="${WR_HOSTAPD:-}"
+if [ -z "$HOSTAPD" ]; then
+    for HOSTAPD in /usr/bin/hostapd /tmp/tc100code/bin/hostapd-rtw /mnt/bin/hostapd-rtw; do
+        [ -x "$HOSTAPD" ] && break
+    done
+fi
 SYS_NET="${WR_SYS_NET:-/sys/class/net}"
 PROC_ARP="${WR_PROC_ARP:-/proc/net/arp}"
 STEP="${WR_STEP:-30}"
@@ -148,7 +155,10 @@ EOF
     sleep 2
     if ! wr_ap_up; then _wr_log "hostapd did not start"; return 1; fi
     ifconfig "$AP" "$AP_IP" netmask 255.255.255.0 up
-    udhcpd "$RUN/udhcpd.conf" >> "$RUN/log" 2>&1
+    # Foreground + $!: busybox udhcpd did not write its pidfile on a TC100,
+    # so stop-ap left it running.
+    udhcpd -f "$RUN/udhcpd.conf" >> "$RUN/log" 2>&1 &
+    echo $! > "$RUN/udhcpd.pid"
     date +%s > "$RUN/since"
     _wr_log "access point $(wr_ssid) up on channel $(sed -n 's/^channel=//p' "$RUN/hostapd.conf") (${1:-manual}), web at https://$AP_IP"
 }

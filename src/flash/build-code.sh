@@ -19,9 +19,13 @@ if [ -f "$src/lib/libtc100fix.so" ]; then
 fi
 # The filtered syslog forwarder (scripts/common_functions.sh syslogd_start
 # prefers /tmp/tc100code/bin): new in 2.1.5, so not in older /usr images.
-if [ -f "$src/bin/tc100-logfwd" ]; then
-  mkdir -p "$w/code/bin" && cp -a "$src/bin/tc100-logfwd" "$w/code/bin/"
-fi
+for b in tc100-logfwd hostapd-rtw; do
+  # hostapd-rtw: the Wi-Fi rescue access point (scripts/wifi-rescue.sh) on
+  # the flash /usr, which has no vendor hostapd.
+  if [ -f "$src/bin/$b" ]; then
+    mkdir -p "$w/code/bin" && cp -a "$src/bin/$b" "$w/code/bin/"
+  fi
+done
 mksquashfs "$w/code" "$w/code.sqsh" -comp xz -b 131072 -all-root -noappend -no-xattrs -quiet >/dev/null
 size=$(wc -c < "$w/code.sqsh" | tr -d ' ')
 [ "$size" -le "$max" ] || { echo "error: code image $size bytes, the zone holds $max" >&2; exit 1; }

@@ -469,7 +469,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 28)
+        self.assertEqual(count, 29)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -2097,6 +2097,24 @@ class LogForwarder(unittest.TestCase):
         self.assertIn('-R "$_sl_remote"', body)       # fallback without the binary
         self.assertIn('bin/tc100-logfwd|', (ROOT / 'config/packages.lock.dist').read_text())
         self.assertIn('tc100-logfwd', (ROOT / 'src/flash/build-code.sh').read_text())
+
+
+class WifiRescueFlash(unittest.TestCase):
+    """2.1.6: the rescue access point also works from flash (no vendor hostapd in /usr)."""
+
+    def test_hostapd_fallback_and_udhcpd_stop(self):
+        w = (ROOT / 'scripts/wifi-rescue.sh').read_text()
+        self.assertIn('for HOSTAPD in /usr/bin/hostapd /tmp/tc100code/bin/hostapd-rtw /mnt/bin/hostapd-rtw; do', w)
+        self.assertIn('udhcpd -f "$RUN/udhcpd.conf"', w)
+        self.assertIn('echo $! > "$RUN/udhcpd.pid"', w)
+        self.assertIn('for b in tc100-logfwd hostapd-rtw; do', (ROOT / 'src/flash/build-code.sh').read_text())
+        self.assertIn('COMMIT=44d73276cb59bf58c700b70f2237ffb440b94ec3', (ROOT / 'src/hostapd/build.sh').read_text())
+        self.assertIn('CONFIG_DRIVER_RTW=y', (ROOT / 'src/hostapd/hostapd.config').read_text())
+        self.assertNotIn('CONFIG_WPS', (ROOT / 'src/hostapd/hostapd.config').read_text())
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run(['sh', '-c', '. %s; echo "$HOSTAPD"' % (ROOT / 'scripts/wifi-rescue.sh')],
+                               capture_output=True, text=True, env=dict(os.environ, WR_HOSTAPD=d + '/h'))
+            self.assertEqual(r.stdout.strip(), d + '/h')
 
 
 class NetGuard(unittest.TestCase):
