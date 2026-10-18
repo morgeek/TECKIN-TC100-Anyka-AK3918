@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.4] — 2026-10-18
+
+### Fixed
+- **Day/night flapping at dawn and dusk.** The infrared lights feed back into the light measure (IR on: bright enough for day; IR off: dark enough for night), so a camera switched 4 times in 50 s at dawn. Each switch drops frames (`ak_vi_get_frame … get frame failed`, kernel `>50, sjf`, `set td ok`), changes the whole picture (seen as motion by Frigate) and sent a burst of error lines to the remote syslog. The automatic switch now waits until the ISP has asked for the new mode for `RTSP_DAYNIGHT_HOLD_S` (10 s) and happens at most every `RTSP_DAYNIGHT_DWELL_S` (120 s); 0 = vendor behaviour. Simulated: 3 minutes of flapping → 3 switches instead of ~12; a 3-second flash at night no longer switches.
+
+### Changed
+- A code package can now update the RTSP server fixes (`libtc100fix.so` in the code zone, preferred by `rtsp-h26x` over the copy in `/usr`): no system package needed for them.
+
+---
+
 ## [2.1.3] — 2026-10-17
 
 ### Changed

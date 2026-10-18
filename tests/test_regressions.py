@@ -207,7 +207,8 @@ class Regressions(unittest.TestCase):
             self.assertIn(default, s)
         # The preload is set on the v4l2rtspserver command only, never exported.
         self.assertNotIn('export LD_PRELOAD', s)
-        self.assertIn('env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
+        self.assertIn('env LD_PRELOAD=$TC100FIX_LIB $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
+        self.assertIn('TC100FIX_LIB=/mnt/lib/libtc100fix.so', s)
         conf = (ROOT / 'config/boot.conf.dist').read_text()
         for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=1', 'VENDOR_PRINT_LEVEL=1'):
             self.assertRegex(conf, r'(?m)^' + re.escape(line) + r'$')
@@ -251,10 +252,13 @@ class Regressions(unittest.TestCase):
             ({'VENDOR_PRINT_LEVEL': '12'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
             ({'RTSP_DAYNIGHT_POLL_MS': 'x'}, ''),
+            ({'RTSP_DAYNIGHT_HOLD_S': '10', 'RTSP_DAYNIGHT_DWELL_S': '120'},
+             'TC100FIX_DAYNIGHT_HOLD_S=10 TC100FIX_DAYNIGHT_DWELL_S=120'),
+            ({'RTSP_DAYNIGHT_DWELL_S': 'x'}, ''),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
-                    'RTSP_DAYNIGHT_POLL_MS': '0'}
+                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0'}
             vals.update(env)
             code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)

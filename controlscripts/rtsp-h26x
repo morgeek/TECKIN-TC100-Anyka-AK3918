@@ -146,6 +146,10 @@ start()
     # libtc100fix.so fixes the closed vendor v4l2rtspserver at run time; each
     # fix is enabled by an environment variable set here, for this process only.
     TC100FIX_ENV=""
+    # From flash, a code package can carry a newer libtc100fix.so than the
+    # one in /usr (code zone mounted on /tmp/tc100code): use it when present.
+    TC100FIX_LIB=/mnt/lib/libtc100fix.so
+    [ -f /tmp/tc100code/lib/libtc100fix.so ] && TC100FIX_LIB=/tmp/tc100code/lib/libtc100fix.so
     case "$RTSP_FPS_LOCK" in 1|true|yes|on|enabled) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_FPS_LOCK=1" ;; esac
     # Sound detection: level meter on the PCM the encoder pulls, microphone
     # without the vendor echo canceller / noise gate (they flatten everything
@@ -166,6 +170,12 @@ start()
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD=/var/run/od"
       [ "$TAMPER_DETECTION_RAW" = 1 ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD_RAW=1" ;;
     esac
+    # Day/night: switch only after HOLD s of steady request, and at least
+    # DWELL s after the previous switch (stops the dawn/dusk flapping). 0 = vendor.
+    : "${RTSP_DAYNIGHT_HOLD_S:=10}"
+    : "${RTSP_DAYNIGHT_DWELL_S:=120}"
+    case "$RTSP_DAYNIGHT_HOLD_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_HOLD_S=$RTSP_DAYNIGHT_HOLD_S" ;; esac
+    case "$RTSP_DAYNIGHT_DWELL_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_DWELL_S=$RTSP_DAYNIGHT_DWELL_S" ;; esac
     : "${RTSP_DAYNIGHT_POLL_MS:=500}"
     case "$RTSP_DAYNIGHT_POLL_MS" in
       ''|0|*[!0-9]*) ;;
@@ -196,11 +206,11 @@ start()
     esac
     # Overwrite "-U user:password" in the process's argv once it is parsed, so
     # ps / /proc/<pid>/cmdline do not show the RTSP password.
-    if [ -n "$CREDENTIAL" ] && [ -f /mnt/lib/libtc100fix.so ]; then
+    if [ -n "$CREDENTIAL" ] && [ -f "$TC100FIX_LIB" ]; then
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_HIDE_CREDENTIALS=1"
     fi
-    if [ -n "$TC100FIX_ENV" ] && [ ! -f /mnt/lib/libtc100fix.so ]; then
-      echo "tc100fix options set but /mnt/lib/libtc100fix.so is missing" >> "$LOGPATH"
+    if [ -n "$TC100FIX_ENV" ] && [ ! -f "$TC100FIX_LIB" ]; then
+      echo "tc100fix options set but $TC100FIX_LIB is missing" >> "$LOGPATH"
       TC100FIX_ENV=""
     fi
     echo "/mnt/bin/v4l2rtspserver  $STREAMS ${CREDENTIAL:+-U ***} $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
@@ -214,7 +224,7 @@ start()
       rtsp_wait_port_free "$RTSP_PORT_NUM" 45
       if [ -n "$TC100FIX_ENV" ]; then
         # shellcheck disable=SC2086
-        env LD_PRELOAD=/mnt/lib/libtc100fix.so $TC100FIX_ENV /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
+        env LD_PRELOAD=$TC100FIX_LIB $TC100FIX_ENV /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
       else
         /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
       fi
