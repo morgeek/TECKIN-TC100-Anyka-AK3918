@@ -29,7 +29,8 @@
  * MASK1..MASK4=x1,y1,x2,y2 (percent of the picture, 0..100) are hardware
  * privacy masks: the ISP paints the area before encoding, so it is gone from
  * the main and sub streams, the snapshots and what Frigate analyses, at no
- * CPU cost. MASK_COLOR = black (default), gray, white or mosaic. The camera's
+ * CPU cost. MASK_COLOR = black (default), gray or white (the SDK's mosaic
+ * type left the area black on a TC100, so it is not offered). The camera's
  * libplat_vpss copies 40 bytes for the main channel and the next 40 for the
  * sub channel (ak_vpss_mask_set_area: isp_set_main_mask_area(p),
  * isp_set_sub_mask_area(p + 40)), i.e. the SDK's struct vpss_mask_area_info:
@@ -73,7 +74,7 @@ struct tune {
     int exp_max_pct;          /* 0 = leave, 10..100 */
     int nr3d;                 /* -1 = leave, 0 = temporal NR off, 1 = original */
     int mask[MASKS][4];       /* x1, y1, x2, y2 in percent; x2 == 0: unused */
-    int mask_color;           /* 0 black, 1 gray, 2 white, 3 mosaic */
+    int mask_color;           /* 0 black, 1 gray, 2 white */
 };
 
 /* SDK layout (ak_vpss.h), checked against the camera's libplat_vpss. */
@@ -133,7 +134,7 @@ static void parse_conf(const char *path, struct tune *t)
         }
         if (!strcmp(line, "MASK_COLOR")) {
             const char *c = eq + 1;
-            t->mask_color = !strncmp(c, "gray", 4) ? 1 : !strncmp(c, "white", 5) ? 2 : !strncmp(c, "mosaic", 6) ? 3 : 0;
+            t->mask_color = !strncmp(c, "gray", 4) ? 1 : !strncmp(c, "white", 5) ? 2 : 0;
         }
     }
     fclose(f);
@@ -235,15 +236,11 @@ static int apply_masks(int force, int color)
     if (!force && p_mask_get(vi_handle, &now) == 0 && mask_same(&now, &mask_want))
         return 0;
     if (p_mask_color_set) {
-        /* Opaque (alpha 0) colour, or the hardware mosaic. */
+        /* Opaque colour (type 0, alpha 0). */
         static const unsigned char yuv[3][3] = { { 16, 128, 128 }, { 128, 128, 128 }, { 235, 128, 128 } };
         struct mask_color mc;
         memset(&mc, 0, sizeof(mc));
-        if (color == 3) {
-            mc.type = 1;                 /* VPSS_MASK_MOSAIC_VIDEO */
-        } else {
-            mc.y = yuv[color][0]; mc.u = yuv[color][1]; mc.v = yuv[color][2];
-        }
+        mc.y = yuv[color][0]; mc.u = yuv[color][1]; mc.v = yuv[color][2];
         p_mask_color_set(vi_handle, &mc);
     }
     rc = p_mask_set(vi_handle, &mask_want);
@@ -342,6 +339,38 @@ static void apply_exposure(int pct, FILE *st)
 
 static int mask_rc;
 
+/* Read-only look at the ISP's wide dynamic range (WDR) settings from the
+ * sensor file (AK_ISP_get_wdr_attr, libakispsdk). The ioctl copies the
+ * kernel's struct, whose size this build of the driver decides: the buffer is
+ * oversized and pre-filled so that the size actually written is measured
+ * (SDK header: 2 + 10 x 996 = 9962 bytes). Only reported, never written,
+ * until that layout is confirmed on a camera. */
+#define WDR_BUF 16384
+#define WDR_SDK_BYTES 9962
+#define WDR_SET_BYTES 996
+static void report_wdr(FILE *st)
+{
+    static unsigned char *buf;
+    int (*get)(void *) = (int (*)(void *))dlsym(RTLD_DEFAULT, "AK_ISP_get_wdr_attr");
+    int rc, n, k;
+    unsigned mode, man, link = 0;
+
+    if (!get) { fprintf(st, "WDR_RC=-2\n"); return; }
+    if (!buf && !(buf = malloc(WDR_BUF))) return;
+    memset(buf, 0xa5, WDR_BUF);
+    rc = get(buf);
+    for (n = WDR_BUF; n > 0 && buf[n - 1] == 0xa5; n--) ;
+    fprintf(st, "WDR_RC=%d\nWDR_BYTES=%d\n", rc, n);
+    if (rc != 0 || n > WDR_SDK_BYTES || n < WDR_SDK_BYTES - 64)
+        return;                          /* not the SDK layout: say nothing more */
+    mode = buf[0] | buf[1] << 8;
+    man = buf[2 + 4] | buf[2 + 5] << 8;  /* manual_wdr.wdr_enable */
+    for (k = 0; k < 9; k++)
+        if (buf[2 + (k + 1) * WDR_SET_BYTES + 4] | buf[2 + (k + 1) * WDR_SET_BYTES + 5])
+            link |= 1u << k;
+    fprintf(st, "WDR_MODE=%u\nWDR_MANUAL=%u\nWDR_LINK=0x%03x\n", mode, man, link);
+}
+
 static void write_status(const struct tune *t, const int *rc, int exp_active)
 {
     FILE *st = fopen(status_tmp, "w");
@@ -365,6 +394,7 @@ static void write_status(const struct tune *t, const int *rc, int exp_active)
         fprintf(st, "MASKS=%d\nMASK_RC=%d\n", n, mask_rc);
     }
     apply_nr3d(t->nr3d == 0, st);
+    report_wdr(st);
     if (exp_active) {
         apply_exposure(t->exp_max_pct, st);
     } else if (p_ae_get) {

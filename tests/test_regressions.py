@@ -340,7 +340,7 @@ class Regressions(unittest.TestCase):
                              ('EXPOSURE_MAX_PCT', '0', ''), ('EXPOSURE_MAX_PCT', '9', None), ('EXPOSURE_MAX_PCT', '40', '40'),
                              ('MASK1', '', ''), ('MASK2', '05,0,50,40', '5,0,50,40'), ('MASK3', '50,0,10,40', None),
                              ('MASK4', '0,0,101,40', None), ('MASK1', '0,0,50', None), ('MASK1', '1,2,3,4;reboot', None),
-                             ('MASK_COLOR', 'mosaic', 'mosaic'), ('MASK_COLOR', 'red', None)]:
+                             ('MASK_COLOR', 'white', 'white'), ('MASK_COLOR', 'mosaic', None)]:
             r = run(lib + '\nisp_tune_norm %s %s; echo "rc=$?"' % (key, shlex.quote(val)))
             out = r.stdout.decode().split('\n')
             if ok is None:

@@ -184,6 +184,8 @@ start()
     case "$ISP_TUNE" in 1|true|yes|on|enabled)
       install_config "$CONFIGPATH/isp_tune.conf"
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_ISP_TUNE=$CONFIGPATH/isp_tune.conf" ;;
+      # No tuning thread: what it reported last is no longer true.
+      *) rm -f /var/run/isp_tune.status ;;
     esac
     # Local backup recording: the encoder's frames copied into fragmented MP4
     # files on the card, no re-encoding (src/tc100fix/rec.c).
