@@ -45,6 +45,16 @@ if [ "${REQUEST_METHOD:-GET}" = "POST" ]; then
   fi
 fi
 
+# Never restart in the middle of an SD card format (scripts/sd-card.sh):
+# the card would be left without a file system.
+case "${REQUEST_METHOD:-GET}:$_cmd" in
+  POST:install|POST:rollback)
+    if [ "$(sed -n 's/^state=//p' "${SDC_FMT:-/tmp/sd-format}" 2>/dev/null)" = running ]; then
+      echo '{"ok":false,"error":"sd_format","message":"An SD card is being formatted: wait until it is done."}'
+      exit 0
+    fi ;;
+esac
+
 # Running from flash (scripts/flashboot.sh): updates are code packages
 # (src/flash/build-code.sh) written to the code zone of the flash by
 # scripts/flash-code.sh — staged in RAM (/tmp), never on /mnt. The binaries in

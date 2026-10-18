@@ -18,17 +18,20 @@
 #                             for this card: do not ask again
 #
 # State (/tmp/sd-card): present= id= size_mb= fs=vfat|exfat|none
-# kind=kit|data|empty|blank|errors|none mounted=0|1 free_mb= prompt=0|1
+# kind=kit|data|empty|blank|interrupted|errors|none mounted=0|1 free_mb= prompt=0|1
 #   kit     the SD-card firmware or install kit (wifitest/, firmware.sqfs...):
 #           never mounted (the vendor boot would start from it otherwise)
 #   data    a usable card with files     empty   a usable card, no files
 #   blank   no FAT32/exFAT file system (new card, other format)
 #   errors  the kernel logged card errors: mounting it can block the system
+#   interrupted  a format of this card did not finish (the camera restarted
+#           during it, /mnt/config/sd-format.pending): asked again
 
 CONF="${SDC_BOOT_CONF:-/mnt/config/boot.conf}"
 ACK="${SDC_ACK:-/mnt/config/sd-card.ack}"
 OUT="${SDC_OUT:-/tmp/sd-card}"
 FMT="${SDC_FMT:-/tmp/sd-format}"
+PENDING="${SDC_PENDING:-/mnt/config/sd-format.pending}"
 DEV="${SDC_DEV:-/dev/mmcblk0}"
 SYSB="${SDC_SYSBLOCK:-/sys/block/mmcblk0}"
 MNT="${REC_SD_MOUNT:-/mnt/sd}"
@@ -104,11 +107,18 @@ sdc_inspect()
             umount "$PROBE" 2>/dev/null
         fi
     fi
+    # A format of this very card that never finished: the file system is
+    # half written (or not at all). Say so and ask again, even if answered.
+    _intr=0
+    if [ "$_kind" != errors ] && [ "$(cat "$PENDING" 2>/dev/null)" = "$_id" ] &&
+       [ "$(sed -n 's/^state=//p' "$FMT" 2>/dev/null)" != running ] && ! _mounted; then
+        _kind=interrupted; _intr=1
+    fi
     _m=0; _mounted && _m=1
     if [ "$_m" = 1 ]; then
         _free="$(df -k "$MNT" 2>/dev/null | awk 'NR > 1 { print int($4 / 1024); exit }')"
     fi
-    _prompt=1; _acked "$_id" && _prompt=0
+    _prompt=1; _acked "$_id" && [ "$_intr" = 0 ] && _prompt=0
     {
         echo "present=1"; echo "id=$_id"; echo "size_mb=$_size"; echo "fs=$_fsn"; echo "kind=$_kind"
         echo "mounted=$_m"; echo "free_mb=$_free"; echo "prompt=$_prompt"
@@ -149,9 +159,10 @@ _fmt_state() { printf 'state=%s\nmsg=%s\nts=%s\n' "$1" "$2" "$(date +%s 2>/dev/n
 sdc_format_run()
 {
     _fmt_state running "Preparing"
+    _card_id > "$PENDING" 2>/dev/null; sync
     sh "$REC" eject >/dev/null 2>&1
     for _m in $(awk -v d="$DEV" 'index($1, d) == 1 { print $2 }' "$PROC_MOUNTS" 2>/dev/null); do
-        umount "$_m" 2>/dev/null || { _fmt_state error "The card is in use ($_m)"; return 1; }
+        umount "$_m" 2>/dev/null || { _fmt_state error "The card is in use ($_m)"; rm -f "$PENDING"; return 1; }
     done
     _fmt_state running "Writing the partition table"
     # Old partition table and file system signatures out of the way.
@@ -160,12 +171,13 @@ sdc_format_run()
     printf 'o\nn\np\n1\n8192\n\nt\nc\nw\n' | $FDISK -u "$DEV" >/dev/null 2>&1
     ${SDC_BLOCKDEV:-blockdev} --rereadpt "$DEV" 2>/dev/null
     _i=0; while ! _isblk "${DEV}p1" && [ $_i -lt 10 ]; do sleep 1; _i=$((_i + 1)); done
-    _isblk "${DEV}p1" || { _fmt_state error "No partition after writing the table"; return 1; }
+    _isblk "${DEV}p1" || { _fmt_state error "No partition after writing the table"; rm -f "$PENDING"; return 1; }
     _fmt_state running "Creating the file system (FAT32)"
     if ! $MKFS -n TC100 "${DEV}p1" >/dev/null 2>&1; then
-        _fmt_state error "mkfs.vfat failed"; return 1
+        _fmt_state error "mkfs.vfat failed"; rm -f "$PENDING"; return 1
     fi
     sync
+    rm -f "$PENDING"; sync
     sdc_inspect >/dev/null
     if sh "$REC" mount >/dev/null 2>&1; then
         mkdir -p "$MNT/records" 2>/dev/null
@@ -191,7 +203,8 @@ sdc_format()
 sdc_ack()
 {
     case "$1" in ''|*[!0-9a-zA-Z]*) return 1 ;; esac
-    _acked "$1" && return 0
+    [ "$(cat "$PENDING" 2>/dev/null)" = "$1" ] && rm -f "$PENDING"
+    _acked "$1" && { sed -i 's/^prompt=.*/prompt=0/' "$OUT" 2>/dev/null; return 0; }
     { [ -f "$ACK" ] && tail -n 7 "$ACK"; echo "$1"; } > "$ACK.tmp" && mv -f "$ACK.tmp" "$ACK"
     sed -i 's/^prompt=.*/prompt=0/' "$OUT" 2>/dev/null
 }

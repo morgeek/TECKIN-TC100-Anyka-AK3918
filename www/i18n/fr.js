@@ -308,6 +308,8 @@ window.tc100I18nFr = {
   "Remove all masks": "Supprimer tous les masques",
   "Remove this mask": "Supprimer ce masque",
   "Motion zones": "Zones de mouvement",
+  "Formatting this card did not finish (the camera restarted during it): the card cannot be used as it is. Format it again.": "Le formatage de cette carte ne s'est pas terminé (la caméra a redémarré pendant) : la carte n'est pas utilisable en l'état. Formatez-la à nouveau.",
+  "Formatting did not finish (the camera restarted during it): format the card again.": "Le formatage ne s'est pas terminé (la caméra a redémarré pendant) : formatez la carte à nouveau.",
   "Apply (restarts the stream)": "Appliquer (redémarre le flux)",
   "Lite (less CPU, two-way audio)": "Léger (moins de CPU, audio bidirectionnel)",
   "Lite server on port": "Serveur léger sur le port",
