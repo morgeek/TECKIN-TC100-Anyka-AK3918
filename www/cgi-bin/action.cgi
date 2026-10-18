@@ -1159,7 +1159,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;
     *) csrf_check ;;
   esac
   case "$F_cmd" in
@@ -1397,6 +1397,92 @@ if [ -n "$F_cmd" ]; then
         "$(json_escape "$(_lr_st state)")" "$(json_escape "$(_lr_st file)")" "$(json_escape "$(_lr_st files)")" \
         "$(json_escape "$(_lr_st free_mb)")" "$(json_escape "$(_lr_st rtsp_client)")" \
         "$(cat /tmp/tc100-storage 2>/dev/null || echo sd)"
+    ;;
+
+    # SD card from flash (scripts/sd-card.sh): state, format, mount, "do not ask again".
+    rtsp_server_info)
+      # RTSP server choice (boot.conf) and the lite server's own status
+      # (src/tc100fix/rtsp.c, /var/run/tc100rtsp, every 10 s).
+      _rs_cfg() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
+      _rs_v() { sed -n "s/^$1=\([^ ]*\).*/\1/p" /var/run/tc100rtsp 2>/dev/null | head -n 1; }
+      _rs_num() { case "$1" in ''|*[!0-9]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
+      _rs_server="$(_rs_cfg RTSP_SERVER)"; [ "$_rs_server" = lite ] || _rs_server=vendor
+      _rs_sub="$(_rs_cfg RTSP_SUBSTREAM)"; [ "$_rs_sub" = 0 ] || _rs_sub=1
+      _rs_talk="$(_rs_cfg RTSP_LITE_TALK)"; case "$_rs_talk" in 0|no|off|false) _rs_talk=0 ;; *) _rs_talk=1 ;; esac
+      _rs_fb=0; [ -e /tmp/rtsp-lite-fallback ] && _rs_fb=1
+      _rs_age=null
+      if [ -r /var/run/tc100rtsp ]; then
+        _rs_age=$(( $(date +%s) - $(date -r /var/run/tc100rtsp +%s 2>/dev/null || date +%s) ))
+      fi
+      _rs_drops=0
+      for _rs_d in $(sed -n 's/^client=.* drops=\([0-9]*\).*/\1/p' /var/run/tc100rtsp 2>/dev/null); do _rs_drops=$((_rs_drops + _rs_d)); done
+      printf '{"ok":true,"server":"%s","substream":%s,"talk":%s,"fallback":%s,"status_age":%s,"port":%s,"clients":%s,"drops":%s,"audio":"%s","talk_state":"%s"}\n' \
+        "$_rs_server" "$_rs_sub" "$_rs_talk" "$_rs_fb" "$_rs_age" "$(_rs_num "$(_rs_v port)")" "$(_rs_num "$(_rs_v clients)")" \
+        "$_rs_drops" "$(json_escape "$(_rs_v audio)")" "$(json_escape "$(_rs_v talk)")"
+    ;;
+
+    set_rtsp_server)
+      _rs_server="$(printf '%s' "${F_rtsp_server:-vendor}")"
+      case "$_rs_server" in lite|vendor) ;; *) _rs_server=vendor ;; esac
+      _rs_sub="$(normalize_bool "${F_rtsp_substream:-0}")"
+      _rs_talk="$(normalize_bool "${F_rtsp_talk:-0}")"
+      install_config /mnt/config/boot.conf
+      rewrite_config /mnt/config/boot.conf RTSP_SERVER "$_rs_server"
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$_rs_sub"
+      rewrite_config /mnt/config/boot.conf RTSP_LITE_TALK "$_rs_talk"
+      rm -f /tmp/rtsp-lite-fallback
+      schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
+      if wants_json_response; then
+        json_body_ok "RTSP server: $_rs_server, substream $_rs_sub, two-way audio $_rs_talk. The stream restarts."
+      else
+        echo "RTSP server: $_rs_server, substream $_rs_sub, two-way audio $_rs_talk. The stream restarts.<br/>"
+      fi
+    ;;
+
+    md_zones_info)
+      # Motion zones (src/tc100fix/md.c): the saved zones and what the
+      # detector got at its last start (/var/run/md_zones).
+      _mz_list=""
+      for _mz_k in 1 2 3 4; do
+        _mz_v="$(sed -n "s/^MDZ${_mz_k}=\"\{0,1\}\([0-9,]*\)\"\{0,1\}$/\1/p" /mnt/config/motion_zones.conf 2>/dev/null | tail -n 1)"
+        case "$_mz_v" in [0-9]*,[0-9]*,[0-9]*,[0-9]*) _mz_list="${_mz_list:+$_mz_list,}\"$_mz_v\"" ;; esac
+      done
+      _mz_on=0; grep -q '^mdenabled=1' /mnt/config/rtspserver.conf 2>/dev/null && _mz_on=1
+      _mz_st() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /var/run/md_zones 2>/dev/null | head -n 1; }
+      _mz_ign="$(_mz_st ignored)"; case "$_mz_ign" in ''|*[!0-9]*) _mz_ign=null ;; esac
+      printf '{"ok":true,"zones":[%s],"enabled":%s,"detector":{"grid":"%s","ignored":%s,"result":"%s"}}\n' \
+        "$_mz_list" "$_mz_on" "$(json_escape "$(_mz_st grid)")" "$_mz_ign" "$(json_escape "$(_mz_st result)")"
+    ;;
+
+    sd_card_info)
+      if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+        [ "$(sed -n 's/^state=//p' /tmp/sd-format 2>/dev/null)" = running ] || sh /mnt/scripts/sd-card.sh inspect >/dev/null 2>&1
+      fi
+      _sc_v() { sed -n "s/^$1=//p" "$2" 2>/dev/null | head -n 1; }
+      _sc_num() { case "$1" in ''|*[!0-9]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
+      _sc_rec="$(sed -n 's/^REC_LOCAL=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)"
+      printf '{"ok":true,"storage":"%s","present":%s,"id":"%s","size_mb":%s,"fs":"%s","kind":"%s","mounted":%s,"free_mb":%s,"prompt":%s,"health":"%s","rec_local":"%s","format_state":"%s","format_msg":"%s"}\n' \
+        "$(json_escape "$(cat /tmp/tc100-storage 2>/dev/null || echo sd)")" \
+        "$(_sc_num "$(_sc_v present /tmp/sd-card)")" "$(json_escape "$(_sc_v id /tmp/sd-card)")" \
+        "$(_sc_num "$(_sc_v size_mb /tmp/sd-card)")" "$(json_escape "$(_sc_v fs /tmp/sd-card)")" \
+        "$(json_escape "$(_sc_v kind /tmp/sd-card)")" "$(_sc_num "$(_sc_v mounted /tmp/sd-card)")" \
+        "$(_sc_num "$(_sc_v free_mb /tmp/sd-card)")" "$(_sc_num "$(_sc_v prompt /tmp/sd-card)")" \
+        "$(json_escape "$(_sc_v state /tmp/sd-health)")" "$(json_escape "$_sc_rec")" \
+        "$(json_escape "$(_sc_v state /tmp/sd-format)")" "$(json_escape "$(_sc_v msg /tmp/sd-format)")"
+    ;;
+
+    sd_card_format)
+      _sc_out="$(sh /mnt/scripts/sd-card.sh format 2>&1)"
+      case "$_sc_out" in started*) json_body_ok "Formatting the SD card…" ;; *) json_body_err "SD_FORMAT" "$_sc_out" ;; esac
+    ;;
+
+    sd_card_mount)
+      if sh /mnt/scripts/sd-card.sh mount >/dev/null 2>&1; then sh /mnt/scripts/sd-card.sh inspect >/dev/null 2>&1; json_body_ok "SD card mounted on /mnt/sd"
+      else json_body_err "SD_MOUNT" "This card cannot be mounted (boot files, card errors or no FAT32/exFAT file system)"; fi
+    ;;
+
+    sd_card_ack)
+      if sh /mnt/scripts/sd-card.sh ack "${F_id}" >/dev/null 2>&1; then json_body_ok "ok"; else json_body_err "SD_ACK" "bad id"; fi
     ;;
 
     local_rec_eject|local_rec_resume)
@@ -3152,6 +3238,26 @@ if [ -n "$F_cmd" ]; then
       sound_enable="$(normalize_bool "${F_sound_det_enable:-0}")"
       sound_threshold="$(sound_threshold_db "${F_sound_det_threshold}" -24)"
       apply_sound_detection "$sound_enable" "$sound_threshold"
+      # Motion zones (pages from 2.1.9 send md_zone_form): areas the motion
+      # detection ignores, read by the video server when the detector starts,
+      # so a running detector is restarted to take them.
+      if [ -n "${F_md_zone_form:-}" ]; then
+        _mz_new=""; _mz_n=0
+        for _mz_v in "${F_md_zone1:-}" "${F_md_zone2:-}" "${F_md_zone3:-}" "${F_md_zone4:-}"; do
+          case "$_mz_v" in ''|*[!0-9,]*) continue ;; esac
+          printf '%s' "$_mz_v" | grep -Eq '^[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3}$' || continue
+          _mz_n=$((_mz_n + 1)); _mz_new="${_mz_new}MDZ${_mz_n}=\"${_mz_v}\"
+"
+        done
+        if [ "$(printf '%s' "$_mz_new")" != "$(cat /mnt/config/motion_zones.conf 2>/dev/null)" ]; then
+          if [ -n "$_mz_new" ]; then printf '%s' "$_mz_new" > /mnt/config/motion_zones.conf.tmp && mv -f /mnt/config/motion_zones.conf.tmp /mnt/config/motion_zones.conf
+          else rm -f /mnt/config/motion_zones.conf; fi
+          if [ -n "$(/mnt/controlscripts/motion-detection status 2>/dev/null)" ]; then
+            ( /mnt/controlscripts/motion-detection stop; /mnt/controlscripts/motion-detection start ) </dev/null >/dev/null 2>&1 &
+          fi
+        fi
+        echo "Motion zones: ${_mz_n}<BR>"
+      fi
 
       echo "Motion red led blink set to ${motion_led}<BR>"
       echo "Motion sensitivity set to ${mdsens}<BR>"

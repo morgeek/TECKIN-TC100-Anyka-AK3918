@@ -28,7 +28,8 @@
  *
  * Hooks: ak_venc_open (encoder size), ak_venc_request_stream (stream ->
  * encoder), ak_venc_get_stream_ex (frames). With TC100FIX_REC_DIR unset they
- * only forward the call.
+ * only forward the call. The same frames feed the RTSP lite server (rtsp.c)
+ * when TC100FIX_RTSP_PORT is set.
  *
  * REC_HOST_TEST builds a host program that feeds an Annex-B file through the
  * same path (tests/test_regressions.py).
@@ -942,8 +943,15 @@ static int rec_setup(void)
 
 struct enc_info { void *enc; unsigned long w, h; };
 static struct enc_info encs[4];
-static struct { void *user, *enc; } users[4];
+/* still = this handle gave a frame without a start code (a JPEG): the
+ * snapshot encoder. It can be as large as the main stream, so its size alone
+ * does not tell it apart; its frames must never reach the recording or the
+ * RTSP lite server (seen 2026-10-18: one JPEG a second cut into fake NAL
+ * units on video0, the decoder lost the frame each time). */
+static struct { void *user, *enc; int still; } users[4];
 static void *rec_user;
+static int rtsp_on = -1;
+static void *rtsp_users[2];             /* RTSP lite: main, sub request handles */
 static int rec_state;                   /* 0 unknown, 1 enabled, -1 disabled */
 static pthread_mutex_t h_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -980,8 +988,9 @@ void *ak_venc_request_stream(void *vi, void *enc)
     if (r) {
         pthread_mutex_lock(&h_lock);
         for (i = 0; i < 4; i++)
-            if (!users[i].user) { users[i].user = r; users[i].enc = enc; break; }
+            if (!users[i].user) { users[i].user = r; users[i].enc = enc; users[i].still = 0; break; }
         rec_user = NULL;                /* choose again on the next frame */
+        rtsp_users[0] = rtsp_users[1] = NULL;
         pthread_mutex_unlock(&h_lock);
     }
     return r;
@@ -993,9 +1002,10 @@ static void choose_user(void)
     unsigned long best = 0, worst = ~0UL;
     const char *s = getenv("TC100FIX_REC_STREAM");
     if (s && !strcmp(s, "sub")) sub = 1;
-    rec_user = users[0].user;
+    rec_user = NULL;
+    for (i = 0; i < 4; i++) if (users[i].user && !users[i].still) { rec_user = users[i].user; break; }
     for (i = 0; i < 4; i++) {
-        if (!users[i].user) continue;
+        if (!users[i].user || users[i].still) continue;
         for (j = 0; j < 4; j++)
             if (encs[j].enc == users[i].enc && encs[j].w <= 4096 && encs[j].h <= 4096) {
                 unsigned long a = encs[j].w * encs[j].h;
@@ -1010,6 +1020,33 @@ static void choose_user(void)
                     fprintf(stderr, TAG "recording the %lux%lu encoder output\n", encs[i].w, encs[i].h);
 }
 
+/* RTSP lite (rtsp.c): which stream a request handle is, 0 = the largest
+ * encoder (main), 1 = the other one; -1 while unknown. */
+void tc100fix_rtsp_frame(int si, const unsigned char *d, unsigned int len);
+
+static int stream_of(void *user)
+{
+    int i, j, k;
+    unsigned long area[4] = { 0, 0, 0, 0 }, best = 0;
+    if (user == rtsp_users[0]) return 0;
+    if (user == rtsp_users[1]) return 1;
+    pthread_mutex_lock(&h_lock);
+    for (i = 0; i < 4; i++)
+        for (j = 0; j < 4; j++)
+            if (users[i].user && !users[i].still && encs[j].enc && encs[j].enc == users[i].enc &&
+                encs[j].w <= 4096 && encs[j].h <= 4096)
+                area[i] = encs[j].w * encs[j].h;
+    for (i = 0; i < 4; i++) if (area[i] > best) best = area[i];
+    k = -1;
+    for (i = 0; i < 4; i++) {
+        if (users[i].user != user || !area[i]) continue;
+        k = area[i] == best ? 0 : 1;
+        rtsp_users[k] = user;
+    }
+    pthread_mutex_unlock(&h_lock);
+    return k;
+}
+
 int ak_venc_get_stream_ex(void *user, unsigned char *buf, unsigned int size, unsigned int *len)
 {
     static int (*real)(void *, unsigned char *, unsigned int, unsigned int *);
@@ -1017,7 +1054,26 @@ int ak_venc_get_stream_ex(void *user, unsigned char *buf, unsigned int size, uns
     if (!real) real = (int (*)(void *, unsigned char *, unsigned int, unsigned int *))dlsym(RTLD_NEXT, "ak_venc_get_stream_ex");
     if (!real) return -1;
     r = real(user, buf, size, len);
-    if (r != 0 || rec_state < 0 || !buf || !len || !*len || *len > size)
+    if (r != 0 || !buf || !len || !*len || *len > size)
+        return r;
+    /* H.264/H.265 frames start with an Annex B start code; anything else
+     * (the JPEG snapshots, FF D8) comes from the still-picture encoder. */
+    if (*len < 4 || buf[0] || buf[1] || (buf[2] != 1 && (buf[2] || buf[3] != 1))) {
+        int i;
+        pthread_mutex_lock(&h_lock);
+        for (i = 0; i < 4; i++)
+            if (users[i].user == user && !users[i].still) {
+                users[i].still = 1;
+                if (rec_user == user) rec_user = NULL;
+                if (rtsp_users[0] == user) rtsp_users[0] = NULL;
+                if (rtsp_users[1] == user) rtsp_users[1] = NULL;
+            }
+        pthread_mutex_unlock(&h_lock);
+        return r;
+    }
+    if (rtsp_on < 0) rtsp_on = getenv("TC100FIX_RTSP_PORT") ? 1 : 0;
+    if (rtsp_on) tc100fix_rtsp_frame(stream_of(user), buf, *len);
+    if (rec_state < 0)
         return r;
     if (rec_state == 0) {
         pthread_mutex_lock(&h_lock);

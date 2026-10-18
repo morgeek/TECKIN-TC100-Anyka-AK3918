@@ -5,6 +5,70 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.9] — 2026-10-18
+
+A lighter RTSP server, sound both ways, motion zones.
+
+### Added
+- **Lite RTSP server** (`src/tc100fix/rtsp.c`, inside the video process). It sends the frames the SoC encoders already produce, without decoding or re-encoding them, and does not change the vendor server.
+  - **Settings → Video → RTSP server**:
+    - *Original* (live555) or *Lite* on the RTSP port (`RTSP_SERVER=lite`). The addresses (`/video0`, `/video0_unicast`, `/video1`…) and the password stay the same, so recorders see no difference.
+    - The vendor server keeps running for the encoders, on `RTSP_VENDOR_PORT` (8555), with no client.
+    - If the lite server has not opened the port 30 s after a start, the vendor server takes it back until the next reboot.
+  - **What it sends**:
+    - H.265/H.264 video and the G.711 sound (trackID=1), with both timestamps on the same clock.
+    - RTP over the RTSP TCP connection (UDP is refused, and clients fall back to TCP).
+    - RTCP sender reports.
+    - HTTP Digest authentication: the main account, plus `RTSP_LITE_USER`/`RTSP_LITE_PASS` as a second account.
+  - **Fast start**: the frames since the last keyframe are kept (`RTSP_LITE_FASTSTART=1`). A new client gets a picture in about 1 s instead of waiting for the next keyframe.
+  - **Slow clients**: a client that cannot keep up skips to the next keyframe. The others are not slowed down.
+  - **Measured on a TC100** with Frigate as the only client:
+    - the vendor server's RTSP thread went from 15.4 % to 1.8 % CPU, and the lite server uses 6–7 %;
+    - 0 decode errors, 16 fps, 25 audio frames per second.
+- **Two-way audio** (`RTSP_LITE_TALK=1`, lite server). A client that asks for the ONVIF backchannel gets a send-only audio track; go2rtc does this, so it works from the microphone button of Home Assistant and go2rtc.
+  - The G.711 it sends is played on the speaker through `libplat_ao`, opened only while someone talks.
+  - The volume is the push-to-talk volume, one talker at a time.
+- **Motion zones** (Settings → Detection): up to 4 areas that the camera's own motion detection ignores (MQTT event, picture on motion).
+  - The cells of the SoC detector grid (32×24) inside a zone get sensitivity 1, which the library treats as "never" (`src/tc100fix/md.c`).
+  - The zones are applied when the detector starts or restarts. Frigate keeps its own zones.
+- **Secondary stream on/off** in the same card (`RTSP_SUBSTREAM`).
+- Home Assistant diagnostics: *RTSP Clients* and *RTSP Skipped Frames* of the lite server.
+
+### Changed
+- **The camera's own motion detection is off by default** (`mdenabled=0` in `rtspserver.conf.dist`): Frigate does the detection. It saves the detector's work in the video process. Turn it on in Services when its MQTT events or pictures on motion are used. Cameras already set up keep their setting.
+- `NR3D_STRENGTH` (test, `isp_tune.conf`): scales the 3D noise-reduction strengths, mapped on the camera's 112-byte sets. Not in the web page yet.
+
+### Fixed
+- **SD card format interrupted by a restart.** A code update rebooted a camera while it was formatting its card: the new partition table was written, but there was no file system, and the card then only showed as "no readable file system".
+  - Code updates are now refused while a format runs.
+  - A format that did not finish is remembered (`/mnt/config/sd-format.pending`). The card is then shown as *formatting did not finish* and the question is asked again.
+- The frame tap of the local recording and of the lite server could take the JPEG snapshot encoder for the main stream. Both encoders have the same size, and one JPEG a second ended up as broken video. Only frames with an H.264/H.265 start code are used now.
+
+---
+
+## [2.1.8] — 2026-10-18
+
+### Added
+- **SD card from flash** (`scripts/sd-card.sh`, checked every minute by `web-guard.sh`):
+  - a card put in is recognised: firmware/install kit (boot files: never mounted, since the vendor boot would start from it), card with files, empty card, card without a readable file system, or card with errors;
+  - a usable card (FAT32/exFAT, no boot files, no card errors in the kernel log) is mounted on `/mnt/sd` automatically (`SD_AUTOMOUNT=1`), ready for the local backup recording; a card taken out is released;
+  - the web page asks once per card: **"SD card inserted: what do you want to do?"** — set up recording, format the card, or leave it as it is (the answer is kept per card in the persistent config);
+  - **formatting from the camera**, only when it runs from flash (never the card it boots from): recording paused and card released, one FAT32 partition from 4 MB (erase-block aligned), label TC100, then mounted again. Refused for a card that reports errors. Runs in the background; the page follows it.
+  - Settings → Recording shows the card and its state, with "Mount the card" and "Format or set up…".
+
+---
+
+## [2.1.7] — 2026-10-18
+
+Flash space.
+
+### Changed
+- **Code zone 487 KB → about 405 KB of its 640 KB.** Packages and system images are now built from a shrunk copy of the code (`src/flash/minify.sh`, called by `stage-tc100.sh`): comments and indentation removed from the shell scripts and CGIs by `shfmt -mn` (a real shell parser, so here-documents and strings are untouched), web scripts and stylesheets minified by `esbuild` (checked with `node --check`). The repository stays the readable source; without the tools nothing changes; `MINIFY=0` turns it off.
+- Shell scripts are only minified when the camera's own shell is available to check them (`CAMERA_SH`, the vendor busybox 1.24.1 ash run with qemu), and a file it refuses keeps its source. A first build checked with a newer busybox booted a test camera without network: the old ash misparsed the minified `autorun.sh` where its 8 KB read buffer ended inside `;then`. The camera rolled back to its built-in code by itself (no confirmation within 5 min), as designed. A test now parses every script with the vendor ash when `TC100_ROOTFS` points to an extracted rootfs.
+- Removed from the camera: the icon font's `.eot`, `.ttf` and `.svg` copies (only the WOFF is used by current browsers) and the host-side Python helper that was copied with the scripts.
+
+---
+
 ## [2.1.6] — 2026-10-18
 
 Hardware features that cost no CPU.

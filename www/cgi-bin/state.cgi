@@ -1119,10 +1119,22 @@ if [ -n "$F_cmd" ]; then
         while IFS='=' read -r _sh_k _sh_v; do [ "$_sh_k" = state ] && sd_health="$_sh_v"; done < /tmp/sd-health
     fi
     case "$sd_health" in *[!a-z]*) sd_health="" ;; esac
+    # SD card from flash (scripts/sd-card.sh): what it is, and whether the
+    # web page should ask what to do with it (sd_prompt = the card's id).
+    sd_card=""; sd_prompt=""
+    if [ -r /tmp/sd-card ]; then
+        _sc_p=0; _sc_id=""
+        while IFS='=' read -r _sc_k _sc_v; do
+            case "$_sc_k" in kind) sd_card="$_sc_v" ;; prompt) _sc_p="$_sc_v" ;; id) _sc_id="$_sc_v" ;; esac
+        done < /tmp/sd-card
+        [ "$_sc_p" = 1 ] && sd_prompt="$_sc_id"
+    fi
+    case "$sd_card" in *[!a-z]*) sd_card="" ;; esac
+    case "$sd_prompt" in *[!0-9a-zA-Z]*) sd_prompt="" ;; esac
     web_fallback=""; [ -r /tmp/web-fallback ] && read -r web_fallback < /tmp/web-fallback
     case "$web_fallback" in http) ;; *) web_fallback="" ;; esac
 
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"web_fallback\":\"$web_fallback\"}"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\"}"
     ;;
 
   integrationtest)

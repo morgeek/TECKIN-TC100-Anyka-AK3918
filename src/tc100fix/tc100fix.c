@@ -441,10 +441,21 @@ int ak_print_set_level(int level, int arg)
  */
 #define DAYNIGHT_SLEEP_RET ((void *)0x37d3c)
 
+/*
+ * TC100FIX_PROC_IDLE_MS=<ms>, TC100FIX_PROC_BUSY_MS=<ms>
+ *   AnykaCameraManager::processThread() pulls every encoder, then sleeps
+ *   ak_sleep_ms(1) when it got data and ak_sleep_ms(10) when not: about a
+ *   hundred wake-ups a second, each also redrawing the OSD and polling the
+ *   motion detector. Stretching the two sleeps (return address 0x33420 in
+ *   the same binary) wakes it less; frames wait at most that long in the
+ *   encoder's own buffer. Ranges: idle 10-40 ms, busy 1-10 ms.
+ */
+#define PROC_SLEEP_RET ((void *)0x33420)
+
 void ak_sleep_ms(int ms)
 {
     static void (*real)(int);
-    static int poll_ms = -1;
+    static int poll_ms = -1, idle_ms = -1, busy_ms = -1;
 
     if (!real)
         real = (void (*)(int))next_sym("ak_sleep_ms");
@@ -455,8 +466,20 @@ void ak_sleep_ms(int ms)
         if (poll_ms)
             fprintf(stderr, TAG "day/night poll every %d ms\n", poll_ms);
     }
+    if (idle_ms < 0) {
+        const char *v = getenv("TC100FIX_PROC_IDLE_MS"), *b = getenv("TC100FIX_PROC_BUSY_MS");
+        int i = v ? atoi(v) : 0, k = b ? atoi(b) : 0;
+        idle_ms = (i >= 10 && i <= 40) ? i : 0;
+        busy_ms = (k >= 1 && k <= 10) ? k : 0;
+        if (idle_ms || busy_ms)
+            fprintf(stderr, TAG "encoder poll: idle %d ms, busy %d ms\n", idle_ms ? idle_ms : 10, busy_ms ? busy_ms : 1);
+    }
     if (poll_ms && ms == 100 && __builtin_return_address(0) == DAYNIGHT_SLEEP_RET)
         ms = poll_ms;
+    else if ((idle_ms || busy_ms) && __builtin_return_address(0) == PROC_SLEEP_RET) {
+        if (ms == 10 && idle_ms) ms = idle_ms;
+        else if (ms == 1 && busy_ms) ms = busy_ms;
+    }
     if (real)
         real(ms);
     else

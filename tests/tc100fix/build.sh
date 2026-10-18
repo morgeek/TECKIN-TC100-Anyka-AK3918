@@ -7,3 +7,5 @@ here=$(cd "$(dirname "$0")" && pwd)
 "${CROSS}gcc" -march=armv5te -Os -o "$here/driver" "$here/driver.c" -L"$here" -lfakevendor
 "${CROSS}gcc" -march=armv5te -Os -fPIC -shared -o "$here/libplat_vpss.so" "$here/fakevpss.c"
 "${CROSS}gcc" -march=armv5te -Os -o "$here/ispdriver" "$here/ispdriver.c" -L"$here" -lfakevendor -lplat_vpss
+"${CROSS}gcc" -march=armv5te -Os -fPIC -shared -o "$here/libmpi_md.so" "$here/fakemd.c"
+"${CROSS}gcc" -march=armv5te -Os -o "$here/mddriver" "$here/mddriver.c" -L"$here" -lmpi_md

@@ -2,6 +2,14 @@
 
 Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGELOG.md).
 
+## Lite RTSP server (2.1.9)
+
+- **TCP only.** RTP goes over the RTSP connection; a client asking for UDP gets 461 and retries over TCP (go2rtc, ffmpeg, Frigate, VLC do).
+- **The vendor server still runs**, on `RTSP_VENDOR_PORT` (8555), because it drives the encoders, the day/night switch, the OSD and the motion detection. Nothing should connect to it.
+- **Fallback.** If the lite server has not opened the RTSP port within 30 s of a start, `rtsp-h26x` gives the port back to the vendor server until the next reboot (`/tmp/rtsp-lite-fallback`; saving the RTSP server card clears it).
+- **Two-way audio** plays only G.711 8 kHz (what go2rtc sends). The push-to-talk of the web page still pauses the stream while it plays.
+- **Status:** `/var/run/tc100rtsp` (every 10 s): clients, skipped frames per client, sound, talk.
+
 ## Remote syslog (2.1.5)
 
 BusyBox `syslogd -R` forwards every message it receives *before* applying its

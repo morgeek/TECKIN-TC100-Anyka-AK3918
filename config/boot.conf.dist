@@ -12,6 +12,49 @@ ENABLE_WATCHDOG=1
 # is up. NET_GUARD=0 turns it off.
 NET_GUARD=1
 NET_GUARD_MIN=15
+# SD card when running from flash (scripts/sd-card.sh): a FAT32/exFAT card
+# without boot files and without card errors is mounted on /mnt/sd when it is
+# put in (checked every minute), for the local recording and the web page.
+# Formatting is offered in the web page. SD_AUTOMOUNT=0: never mounted
+# automatically.
+SD_AUTOMOUNT=1
+# Encoder poll of the video server (milliseconds): after a pass without new
+# frames it waits RTSP_PROC_IDLE_MS (vendor: 10, range 10-40), after one with
+# frames RTSP_PROC_BUSY_MS (vendor: 1, range 1-10). Longer = fewer wake-ups,
+# frames wait at most that long. Empty = the vendor's values. Measured on a
+# TC100 (night, Frigate on the lite server): the video process uses 18-20 %
+# CPU either way (20/1, 20/5, 40/10): no gain worth the delay, so off.
+RTSP_PROC_IDLE_MS=
+RTSP_PROC_BUSY_MS=
+# RTSP server on the RTSP port (PORT of rtspserver.conf, 554):
+#   vendor  the original server (live555)
+#   lite    the lighter server of libtc100fix (src/tc100fix/rtsp.c): same
+#           URLs (/video0, /video0_unicast, /video1...), same account, video
+#           and G.711 sound, two-way audio. The vendor server keeps running
+#           for the encoders, on RTSP_VENDOR_PORT (no client expected).
+#           If the lite server does not open the port within 30 s of a start,
+#           the vendor server takes it back until the next reboot.
+RTSP_SERVER=vendor
+RTSP_VENDOR_PORT=8555
+# RTSP lite (test): a second RTSP server inside the video process, sending
+# the same encoded video with less overhead, on this port (e.g. 8554):
+# rtsp://<camera>:<port>/video0 and /video1, same user and password as the
+# main server (RTSP_LITE_USER / RTSP_LITE_PASS, when both are set, are a
+# second account: letters, digits, . _ - only), TCP only, with the G.711 sound when the
+# main server has it. Empty or 0 = off. The main server (PORT in
+# rtspserver.conf) is not changed.
+# RTSP_LITE_FASTSTART=1: a new client gets the picture at once (the frames
+# since the last keyframe are kept, about 640 KB of memory); 0 = it waits
+# for the next keyframe (up to 2 s on video0, 4 s on video1).
+RTSP_LITE_PORT=
+RTSP_LITE_USER=
+RTSP_LITE_PASS=
+RTSP_LITE_FASTSTART=1
+# RTSP_LITE_TALK=1: two-way audio. A client asking for the ONVIF backchannel
+# (go2rtc does, e.g. the microphone button of Home Assistant or go2rtc's web
+# page) can play its sound on the camera speaker, volume as the push-to-talk.
+# Only with the RTSP password. 0 = off.
+RTSP_LITE_TALK=1
 ENABLE_NTP=1
 # If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
 NTP_ONE_SHOT=0

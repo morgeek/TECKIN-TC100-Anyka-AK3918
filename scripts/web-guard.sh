@@ -95,6 +95,8 @@ case "${0##*/}" in
                      wg_once
                      # Network loss with the rest of the system running (net-guard.sh).
                      sh "${WG_NETGUARD:-/mnt/scripts/net-guard.sh}" once </dev/null >/dev/null 2>&1
+                     # SD card put in or taken out (flash mode): sd-card.sh.
+                     sh "${WG_SDCARD:-/mnt/scripts/sd-card.sh}" tick </dev/null >/dev/null 2>&1
                      if [ $((_i % 10)) -eq 0 ]; then
                          _last=$(sed -n 's/^test_ts=//p' /tmp/sd-health 2>/dev/null); _now=$(date +%s)
                          _up=$(cut -d. -f1 /proc/uptime)
