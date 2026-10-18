@@ -50,7 +50,7 @@ isp_tune_norm()
       echo "$(($1 + 0)),$(($2 + 0)),$(($3 + 0)),$(($4 + 0))"
       ;;
     MASK_COLOR)
-      case "$_itn_v" in ''|black|gray|white|mosaic) echo "$_itn_v" ;; *) return 1 ;; esac
+      case "$_itn_v" in ''|black|gray|white) echo "$_itn_v" ;; *) return 1 ;; esac
       ;;
     *) return 1 ;;
   esac

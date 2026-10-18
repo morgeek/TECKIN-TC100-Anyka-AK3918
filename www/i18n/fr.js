@@ -277,7 +277,6 @@ window.tc100I18nFr = {
   "Drag on the picture to hide up to 4 areas (a neighbour's window, a street). The camera paints them before encoding: they are gone from the stream, the snapshots, the recordings and what Frigate sees, at no CPU cost. Saving a mask switches live tuning on.": "Tracez sur l'image jusqu'à 4 zones à masquer (la fenêtre d'un voisin, une rue). La caméra les peint avant l'encodage : elles disparaissent du flux, des instantanés, des enregistrements et de ce que voit Frigate, sans coût processeur. Enregistrer un masque active le réglage en direct.",
   "Grey": "Gris",
   "Mask colour": "Couleur du masque",
-  "Mosaic": "Mosaïque",
   "Privacy masks": "Masques de confidentialité",
   "Refresh picture": "Actualiser l'image",
   "Remove all masks": "Supprimer tous les masques",
