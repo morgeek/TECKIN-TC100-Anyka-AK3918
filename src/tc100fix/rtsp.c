@@ -44,6 +44,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/prctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -668,6 +669,7 @@ static void *server(void *arg)
 {
     int ls = (int)(intptr_t)arg, i;
     uint64_t last_status = 0;
+    prctl(PR_SET_NAME, "rtsp_lite", 0, 0, 0);     /* visible in top -H, /proc/.../comm */
     for (i = 0; i < MAX_CLIENTS; i++) C[i].fd = -1;
     for (;;) {
         fd_set rf, wf;
