@@ -12,6 +12,11 @@ mkdir "$w/code"
 for d in autorun.sh VERSION scripts controlscripts www sounds config; do
   [ -e "$src/$d" ] && cp -a "$src/$d" "$w/code/"
 done
+# The RTSP server fixes, so that a code package can update them without a
+# system package (controlscripts/rtsp-h26x prefers this copy).
+if [ -f "$src/lib/libtc100fix.so" ]; then
+  mkdir -p "$w/code/lib" && cp -a "$src/lib/libtc100fix.so" "$w/code/lib/"
+fi
 mksquashfs "$w/code" "$w/code.sqsh" -comp xz -b 131072 -all-root -noappend -no-xattrs -quiet >/dev/null
 size=$(wc -c < "$w/code.sqsh" | tr -d ' ')
 [ "$size" -le "$max" ] || { echo "error: code image $size bytes, the zone holds $max" >&2; exit 1; }
