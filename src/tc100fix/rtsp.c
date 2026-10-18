@@ -8,6 +8,9 @@
  * TC100FIX_RTSP_PORT=8554       enable, on this TCP port (unset = off)
  * TC100FIX_RTSP_CLIENTS=3       at most this many playing clients
  * TC100FIX_RTSP_STATUS=<path>   status (default /var/run/tc100rtsp), every 10 s
+ * TC100FIX_RTSP_FASTSTART=1     keep the frames since the last keyframe and
+ *                               send them to a new client at once (0 = off:
+ *                               a new client waits for the next keyframe)
  *
  * URLs: rtsp://<camera>:<port>/video0 (main encoder) and /video1 (secondary),
  * also /video0_unicast and /video1_unicast like the vendor server.
@@ -16,6 +19,11 @@
  * server ("-U user:pass", read from the command line when the library is
  * loaded, before tc100fix hides it). No credentials at all = no
  * authentication, as with the vendor server.
+ *
+ * Audio: the vendor server's G.711 encoder output (A-law or u-law, 8 or
+ * 16 kHz, from ak_aenc_get_stream) as a second track (trackID=1), when the
+ * encoder runs (RTSP_AUDIO=1 or sound detection). Timestamps of both tracks
+ * come from the same monotonic clock, so they stay in sync.
  *
  * Transport: TCP interleaved only (go2rtc, ffmpeg and Frigate use it by
  * default over Wi-Fi); a SETUP asking for UDP gets 461, clients then retry
@@ -57,7 +65,10 @@
 #define OUTBUF (256 * 1024)
 #define RING (768 * 1024)
 #define RTP_MAX 1400
-#define STREAMS 2
+#define STREAMS 2            /* video streams; ring stream id 2 = audio */
+#define A_ID 2
+#define GOP_MAIN (512 * 1024)
+#define GOP_SUB (128 * 1024)
 #define PS_MAX 256
 
 enum { C_NONE, C_H264, C_H265 };
@@ -226,15 +237,15 @@ static int scan_frame(int si, const unsigned char *b, long n)
 /* ---------------------------------------------------------------- ring */
 /* Frames from the encoder thread to the server thread. */
 
-struct fhdr { uint32_t len; uint16_t stream, key; uint64_t ts; };
+struct fhdr { uint32_t len; uint16_t stream, key; uint32_t no; uint32_t pad; uint64_t ts; };
 static unsigned char *ring;
 static size_t r_head, r_tail;
 static pthread_mutex_t r_lock = PTHREAD_MUTEX_INITIALIZER;
 static int wake_fd[2] = { -1, -1 };
-static volatile int any_playing[STREAMS];
+static volatile int any_playing[STREAMS], any_audio;
 static unsigned long r_dropped;
 
-static void ring_push(int si, const unsigned char *d, uint32_t len, int key, uint64_t ts)
+static void ring_push(int si, const unsigned char *d, uint32_t len, int key, uint64_t ts, uint32_t no)
 {
     size_t need = sizeof(struct fhdr) + ((len + 7u) & ~7u), freeb;
     struct fhdr h;
@@ -246,7 +257,7 @@ static void ring_push(int si, const unsigned char *d, uint32_t len, int key, uin
         if (RING - r_head >= sizeof(h)) { h.len = 0xffffffffu; memcpy(ring + r_head, &h, sizeof(h)); }
         r_head = 0;
     }
-    h.len = len; h.stream = (uint16_t)si; h.key = (uint16_t)key; h.ts = ts;
+    h.len = len; h.stream = (uint16_t)si; h.key = (uint16_t)key; h.no = no; h.pad = 0; h.ts = ts;
     memcpy(ring + r_head, &h, sizeof(h));
     memcpy(ring + r_head + sizeof(h), d, len);
     r_head += need;
@@ -278,6 +289,44 @@ static void ring_pop(const struct fhdr *h)
     pthread_mutex_unlock(&r_lock);
 }
 
+/* ----------------------------------------------------------- GOP cache */
+/* The frames since the last keyframe, per video stream (fast start). Written
+ * by the encoder thread, read by the server thread; a GOP larger than the
+ * buffer leaves the cache invalid until the next keyframe. */
+
+struct gop { unsigned char *buf; size_t cap, n; int ok; };
+static struct gop G[STREAMS];
+static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static size_t frame_room(uint32_t len) { return sizeof(struct fhdr) + ((len + 7u) & ~7u); }
+
+static void gop_add(int si, const unsigned char *d, uint32_t len, int key, uint64_t ts, uint32_t no)
+{
+    struct gop *g = &G[si];
+    struct fhdr h;
+    if (!g->buf) return;
+    pthread_mutex_lock(&g_lock);
+    if (key) { g->n = 0; g->ok = 1; }
+    if (g->ok) {
+        if (g->n + frame_room(len) > g->cap) g->ok = 0;
+        else {
+            h.len = len; h.stream = (uint16_t)si; h.key = (uint16_t)key; h.no = no; h.pad = 0; h.ts = ts;
+            memcpy(g->buf + g->n, &h, sizeof(h));
+            memcpy(g->buf + g->n + sizeof(h), d, len);
+            g->n += frame_room(len);
+        }
+    }
+    pthread_mutex_unlock(&g_lock);
+}
+
+/* ---------------------------------------------------------------- audio */
+
+static int a_pt = -1;              /* RTP payload type: 8 PCMA, 0 PCMU; -1 none */
+static unsigned a_rate;
+static const void *a_handle;       /* the one encoder handle taken (audio0) */
+static uint64_t a_last_us, a_next_us;
+static unsigned long a_frames;
+
 /* ------------------------------------------------------------- clients */
 
 struct client {
@@ -285,8 +334,14 @@ struct client {
     char in[INBUF]; int in_n;
     unsigned char *out; size_t out_head, out_tail;
     int stream, playing, wait_key, ch;               /* ch: RTP interleaved channel */
+    int v_on, replay;                                /* video set up; GOP replay pending */
+    uint32_t last_no;                                /* last video frame number sent */
     uint16_t seq; uint32_t ssrc, rtp_ts;
     uint64_t sr_last, sent_octets, sent_pkts, opened;
+    int a_on, a_ch;                                  /* audio track set up, its channel */
+    uint16_t a_seq; uint32_t a_ssrc;
+    uint64_t a_sr_last, a_octets, a_pkts;
+    unsigned long a_drops;
     char session[17];
     unsigned long drops;
     uint32_t addr;
@@ -352,27 +407,47 @@ static void reply(struct client *c, int code, const char *reason, int cseq, cons
 
 /* ------------------------------------------------------------- RTP out */
 
-static void rtp_hdr(unsigned char *p, struct client *c, int marker)
+static void rtp_hdr(unsigned char *p, int pt, int marker, uint16_t seq, uint32_t ts, uint32_t ssrc)
 {
-    p[0] = 0x80; p[1] = (unsigned char)(96 | (marker ? 0x80 : 0));
-    p[2] = (unsigned char)(c->seq >> 8); p[3] = (unsigned char)c->seq; c->seq++;
-    p[4] = (unsigned char)(c->rtp_ts >> 24); p[5] = (unsigned char)(c->rtp_ts >> 16);
-    p[6] = (unsigned char)(c->rtp_ts >> 8); p[7] = (unsigned char)c->rtp_ts;
-    p[8] = (unsigned char)(c->ssrc >> 24); p[9] = (unsigned char)(c->ssrc >> 16);
-    p[10] = (unsigned char)(c->ssrc >> 8); p[11] = (unsigned char)c->ssrc;
+    p[0] = 0x80; p[1] = (unsigned char)(pt | (marker ? 0x80 : 0));
+    p[2] = (unsigned char)(seq >> 8); p[3] = (unsigned char)seq;
+    p[4] = (unsigned char)(ts >> 24); p[5] = (unsigned char)(ts >> 16);
+    p[6] = (unsigned char)(ts >> 8); p[7] = (unsigned char)ts;
+    p[8] = (unsigned char)(ssrc >> 24); p[9] = (unsigned char)(ssrc >> 16);
+    p[10] = (unsigned char)(ssrc >> 8); p[11] = (unsigned char)ssrc;
 }
 
-/* One RTP packet = "$" ch len16 | RTP header | payload header(s) | data. */
+/* One video RTP packet = "$" ch len16 | RTP header | payload header(s) | data. */
 static int put_packet(struct client *c, const unsigned char *ph, int phn, const unsigned char *d, long n, int marker)
 {
     unsigned char f[4 + 12 + 3];
     long plen = 12 + phn + n;
     f[0] = '$'; f[1] = (unsigned char)c->ch; f[2] = (unsigned char)(plen >> 8); f[3] = (unsigned char)plen;
-    rtp_hdr(f + 4, c, marker);
+    rtp_hdr(f + 4, 96, marker, c->seq++, c->rtp_ts, c->ssrc);
     memcpy(f + 16, ph, (size_t)phn);
     if (out_put(c, f, (size_t)(16 + phn)) || out_put(c, d, (size_t)n)) return -1;
     c->sent_pkts++; c->sent_octets += (uint64_t)(phn + n);
     return 0;
+}
+
+/* RTCP sender report on channel ch: NTP = wall clock now, RTP = the same
+ * instant on the track's clock (monotonic microseconds * clock / 10^6). */
+static void put_sr(struct client *c, int ch, uint32_t ssrc, unsigned clock, uint64_t pkts, uint64_t octets)
+{
+    unsigned char sr[4 + 28];
+    struct timeval tv;
+    uint32_t ntp_s, ntp_f, rtp = (uint32_t)(mono_us() * clock / 1000000ULL);
+    gettimeofday(&tv, NULL);
+    ntp_s = (uint32_t)tv.tv_sec + 2208988800u;
+    ntp_f = (uint32_t)(((uint64_t)tv.tv_usec << 32) / 1000000ULL);
+    sr[0] = '$'; sr[1] = (unsigned char)(ch + 1); sr[2] = 0; sr[3] = 28;
+    sr[4] = 0x80; sr[5] = 200; sr[6] = 0; sr[7] = 6;
+#define PUT32(o, v) do { sr[o] = (unsigned char)((v) >> 24); sr[o + 1] = (unsigned char)((v) >> 16); \
+                         sr[o + 2] = (unsigned char)((v) >> 8); sr[o + 3] = (unsigned char)(v); } while (0)
+    PUT32(8, ssrc); PUT32(12, ntp_s); PUT32(16, ntp_f); PUT32(20, rtp);
+    PUT32(24, (uint32_t)pkts); PUT32(28, (uint32_t)octets);
+#undef PUT32
+    out_put(c, sr, sizeof(sr));
 }
 
 static int send_nal(struct client *c, int codec, const unsigned char *nal, long len, int last)
@@ -408,9 +483,13 @@ static void send_frame(struct client *c, const struct fhdr *h, const unsigned ch
     long len = 0, nlen = 0, pos, npos;
     int codec = S[h->stream].codec;
     size_t need = h->len + (h->len / RTP_MAX + 8) * 20 + 64;
+    if (!c->v_on) return;
+    if (c->last_no && (int32_t)(h->no - c->last_no) <= 0) return;      /* already sent (GOP replay) */
+    if (c->last_no && h->no != c->last_no + 1) c->wait_key = 1;          /* a frame is missing */
     if (c->wait_key && !h->key) return;
     if (out_free(c) < need) { c->wait_key = 1; c->drops++; return; }
     c->wait_key = 0;
+    c->last_no = h->no;
     c->rtp_ts = (uint32_t)(h->ts * 9 / 100);         /* microseconds -> 90 kHz */
     pos = next_nal(d, h->len, 0, &nal, &len);
     while (pos >= 0) {
@@ -422,24 +501,53 @@ static void send_frame(struct client *c, const struct fhdr *h, const unsigned ch
         }
         pos = npos; nal = nn; len = nlen;
     }
-    /* RTCP sender report every 5 s (NTP from the wall clock, same RTP clock). */
+    /* RTCP sender report every 5 s */
     if (h->ts - c->sr_last >= 5000000ULL) {
-        unsigned char sr[4 + 28];
-        struct timeval tv;
-        uint32_t ntp_s, ntp_f;
         c->sr_last = h->ts;
-        gettimeofday(&tv, NULL);
-        ntp_s = (uint32_t)tv.tv_sec + 2208988800u;
-        ntp_f = (uint32_t)(((uint64_t)tv.tv_usec << 32) / 1000000ULL);
-        sr[0] = '$'; sr[1] = (unsigned char)(c->ch + 1); sr[2] = 0; sr[3] = 28;
-        sr[4] = 0x80; sr[5] = 200; sr[6] = 0; sr[7] = 6;
-#define PUT32(o, v) do { sr[o] = (unsigned char)((v) >> 24); sr[o + 1] = (unsigned char)((v) >> 16); \
-                         sr[o + 2] = (unsigned char)((v) >> 8); sr[o + 3] = (unsigned char)(v); } while (0)
-        PUT32(8, c->ssrc); PUT32(12, ntp_s); PUT32(16, ntp_f); PUT32(20, c->rtp_ts);
-        PUT32(24, (uint32_t)c->sent_pkts); PUT32(28, (uint32_t)c->sent_octets);
-#undef PUT32
-        out_put(c, sr, sizeof(sr));
+        put_sr(c, c->ch, c->ssrc, 90000, c->sent_pkts, c->sent_octets);
     }
+}
+
+/* G.711 audio: one frame from the encoder, cut at RTP_MAX bytes. */
+static void send_audio(struct client *c, const struct fhdr *h, const unsigned char *d)
+{
+    uint32_t off = 0, ts = (uint32_t)(h->ts * a_rate / 1000000ULL);
+    if (!c->a_on || a_pt < 0) return;
+    if (out_free(c) < h->len + (h->len / RTP_MAX + 2) * 16 + 64) { c->a_drops++; return; }
+    while (off < h->len) {
+        uint32_t n = h->len - off > RTP_MAX ? RTP_MAX : h->len - off;
+        unsigned char f[16];
+        f[0] = '$'; f[1] = (unsigned char)c->a_ch; f[2] = (unsigned char)((12 + n) >> 8); f[3] = (unsigned char)(12 + n);
+        rtp_hdr(f + 4, a_pt, off == 0, c->a_seq++, ts + off, c->a_ssrc);
+        if (out_put(c, f, sizeof(f)) || out_put(c, d + off, n)) { c->a_drops++; return; }
+        c->a_pkts++; c->a_octets += n; off += n;
+    }
+    if (h->ts - c->a_sr_last >= 5000000ULL) {
+        c->a_sr_last = h->ts;
+        put_sr(c, c->a_ch, c->a_ssrc, a_rate, c->a_pkts, c->a_octets);
+    }
+}
+
+/* Fast start: the cached frames since the last keyframe, as far as the
+ * output buffer takes them; the rest on the next turn of the loop. */
+static void gop_replay(struct client *c)
+{
+    struct gop *g = &G[c->stream];
+    size_t off = 0;
+    pthread_mutex_lock(&g_lock);
+    if (!g->buf || !g->ok) { c->replay = 0; c->wait_key = 1; pthread_mutex_unlock(&g_lock); return; }
+    while (off < g->n) {
+        struct fhdr h;
+        memcpy(&h, g->buf + off, sizeof(h));
+        if (!c->last_no || (int32_t)(h.no - c->last_no) > 0) {
+            if (out_free(c) < h.len + (h.len / RTP_MAX + 8) * 20 + 64 + 4096) break;
+            send_frame(c, &h, g->buf + off + sizeof(h));
+            if (c->wait_key) break;
+        }
+        off += frame_room(h.len);
+    }
+    if (off >= g->n || c->wait_key) c->replay = 0;
+    pthread_mutex_unlock(&g_lock);
 }
 
 /* -------------------------------------------------------------- RTSP */
@@ -509,6 +617,9 @@ static int url_stream(const char *url)
     return -1;
 }
 
+/* An audio track is offered while the encoder has delivered in the last 3 s. */
+static int audio_live(void) { return a_pt >= 0 && a_rate && a_last_us && mono_us() - a_last_us < 3000000ULL; }
+
 static void sdp(char *out, size_t cap, int si, const char *myip)
 {
     struct stream *s = &S[si];
@@ -530,6 +641,11 @@ static void sdp(char *out, size_t cap, int si, const char *myip)
     snprintf(out, cap, "v=0\r\no=- %u 1 IN IP4 %s\r\ns=TC100\r\nc=IN IP4 0.0.0.0\r\nt=0 0\r\na=control:*\r\n"
              "m=video 0 RTP/AVP 96\r\na=rtpmap:96 %s/90000\r\n%sa=control:trackID=0\r\n",
              (unsigned)rnd32(), myip, s->codec == C_H265 ? "H265" : "H264", fmtp);
+    if (audio_live()) {
+        size_t l = strlen(out);
+        snprintf(out + l, cap - l, "m=audio 0 RTP/AVP %d\r\na=rtpmap:%d %s/%u\r\na=control:trackID=1\r\n",
+                 a_pt, a_pt, a_pt == 8 ? "PCMA" : "PCMU", a_rate);
+    }
     pthread_mutex_unlock(&s_lock);
 }
 
@@ -568,19 +684,22 @@ static void handle_request(struct client *c, char *req)
     }
     if (!strcmp(method, "SETUP")) {
         char tr[256];
-        int a = 0, b = 1, si = url_stream(url);
+        int audio = strstr(url, "trackID=1") != NULL, si = url_stream(url), a, b = 1;
+        uint32_t ssrc;
+        if (audio && !audio_live()) { reply(c, 404, "Not Found", cseq, NULL, NULL); return; }
         if (si >= 0) c->stream = si;
         if (!hdr_get(req, "Transport", tr, sizeof(tr)) || !strstr(tr, "TCP")) {
             reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return;
         }
+        a = audio ? 2 : 0;
         if (strstr(tr, "interleaved=")) sscanf(strstr(tr, "interleaved=") + 12, "%d-%d", &a, &b);
-        if (a < 0 || a > 250) a = 0;
-        c->ch = a;
-        c->ssrc = rnd32();
-        c->seq = (uint16_t)rnd32();
-        snprintf(c->session, sizeof(c->session), "%08X%08X", rnd32(), rnd32());
+        if (a < 0 || a > 250) a = audio ? 2 : 0;
+        ssrc = rnd32();
+        if (audio) { c->a_on = 1; c->a_ch = a; c->a_ssrc = ssrc; c->a_seq = (uint16_t)rnd32(); }
+        else { c->v_on = 1; c->ch = a; c->ssrc = ssrc; c->seq = (uint16_t)rnd32(); }
+        if (!c->session[0]) snprintf(c->session, sizeof(c->session), "%08X%08X", rnd32(), rnd32());
         snprintf(extra, sizeof(extra), "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d;ssrc=%08X\r\nSession: %s;timeout=60\r\n",
-                 a, a + 1, (unsigned)c->ssrc, c->session);
+                 a, a + 1, (unsigned)ssrc, c->session);
         reply(c, 200, "OK", cseq, extra, NULL);
         return;
     }
@@ -589,8 +708,12 @@ static void handle_request(struct client *c, char *req)
         if (!c->session[0]) { reply(c, 455, "Method Not Valid In This State", cseq, NULL, NULL); return; }
         for (i = 0; i < MAX_CLIENTS; i++) if (C[i].fd >= 0 && C[i].playing) n++;
         if (!c->playing && n >= max_clients) { reply(c, 453, "Not Enough Bandwidth", cseq, NULL, NULL); return; }
-        c->playing = 1; c->wait_key = 1;
-        any_playing[c->stream] = 1;
+        if (!c->playing) {
+            c->playing = 1; c->wait_key = 1; c->last_no = 0;
+            if (c->v_on && G[c->stream].buf) { c->replay = 1; c->wait_key = 0; }
+        }
+        if (c->v_on) any_playing[c->stream] = 1;
+        if (c->a_on) any_audio = 1;
         snprintf(extra, sizeof(extra), "Session: %s\r\nRange: npt=0.000-\r\n", c->session);
         reply(c, 200, "OK", cseq, extra, NULL);
         fprintf(stderr, TAG "client %u.%u.%u.%u plays video%d\n", c->addr & 255, (c->addr >> 8) & 255,
@@ -656,11 +779,13 @@ static void write_status(void)
     for (i = 0; i < MAX_CLIENTS; i++) if (C[i].fd >= 0 && C[i].playing) n++;
     fprintf(f, "port=%d\nclients=%d\nbytes=%llu\nring_dropped=%lu\n", lport, n, total_bytes, r_dropped);
     for (i = 0; i < STREAMS; i++)
-        fprintf(f, "video%d=%s frames=%lu\n", i, S[i].codec == C_H265 ? "h265" : S[i].codec == C_H264 ? "h264" : "none", S[i].frames);
+        fprintf(f, "video%d=%s frames=%lu gop_cache=%s\n", i, S[i].codec == C_H265 ? "h265" : S[i].codec == C_H264 ? "h264" : "none",
+                S[i].frames, !G[i].buf ? "off" : G[i].ok ? "ok" : S[i].frames ? "too-large" : "empty");
+    fprintf(f, "audio=%s frames=%lu\n", !audio_live() ? "none" : a_pt == 8 ? "pcma" : "pcmu", a_frames);
     for (i = 0; i < MAX_CLIENTS; i++)
         if (C[i].fd >= 0 && C[i].playing)
-            fprintf(f, "client=%u.%u.%u.%u video%d drops=%lu\n", C[i].addr & 255, (C[i].addr >> 8) & 255,
-                    (C[i].addr >> 16) & 255, C[i].addr >> 24, C[i].stream, C[i].drops);
+            fprintf(f, "client=%u.%u.%u.%u video%d%s drops=%lu audio_drops=%lu\n", C[i].addr & 255, (C[i].addr >> 8) & 255,
+                    (C[i].addr >> 16) & 255, C[i].addr >> 24, C[i].stream, C[i].a_on ? "+audio" : "", C[i].drops, C[i].a_drops);
     fclose(f);
     rename(tmp, status_path);
 }
@@ -674,7 +799,7 @@ static void *server(void *arg)
     for (;;) {
         fd_set rf, wf;
         struct timeval tv = { 1, 0 };
-        int mx = ls > wake_fd[0] ? ls : wake_fd[0], playing[STREAMS] = { 0, 0 };
+        int mx = ls > wake_fd[0] ? ls : wake_fd[0], playing[STREAMS] = { 0, 0 }, aplay = 0;
         struct fhdr h;
         const unsigned char *d = NULL;
         uint64_t now;
@@ -686,9 +811,10 @@ static void *server(void *arg)
             FD_SET(C[i].fd, &rf);
             if (C[i].out && C[i].out_tail > C[i].out_head) FD_SET(C[i].fd, &wf);
             if (C[i].fd > mx) mx = C[i].fd;
-            if (C[i].playing) playing[C[i].stream] = 1;
+            if (C[i].playing && C[i].v_on) playing[C[i].stream] = 1;
+            if (C[i].playing && C[i].a_on) aplay = 1;
         }
-        any_playing[0] = playing[0]; any_playing[1] = playing[1];
+        any_playing[0] = playing[0]; any_playing[1] = playing[1]; any_audio = aplay;
         if (select(mx + 1, &rf, &wf, NULL, &tv) < 0) { if (errno != EINTR) usleep(100000); continue; }
         if (FD_ISSET(wake_fd[0], &rf)) { char b[64]; if (read(wake_fd[0], b, sizeof(b))) {} }
         if (FD_ISSET(ls, &rf)) {
@@ -716,11 +842,15 @@ static void *server(void *arg)
             if (C[i].fd >= 0 && !C[i].playing && mono_us() - C[i].opened > 30000000ULL) client_close(&C[i]);
         }
         while (ring_peek(&h, &d)) {
-            if (h.stream < STREAMS)
-                for (i = 0; i < MAX_CLIENTS; i++)
-                    if (C[i].fd >= 0 && C[i].playing && C[i].stream == h.stream) send_frame(&C[i], &h, d);
+            for (i = 0; i < MAX_CLIENTS; i++) {
+                if (C[i].fd < 0 || !C[i].playing) continue;
+                if (h.stream == A_ID) send_audio(&C[i], &h, d);
+                else if (h.stream < STREAMS && C[i].stream == h.stream && !C[i].replay) send_frame(&C[i], &h, d);
+            }
             ring_pop(&h);
         }
+        for (i = 0; i < MAX_CLIENTS; i++)
+            if (C[i].fd >= 0 && C[i].playing && C[i].replay) gop_replay(&C[i]);
         for (i = 0; i < MAX_CLIENTS; i++) if (C[i].fd >= 0) out_flush(&C[i]);
         now = mono_us();
         if (now - last_status >= 10000000ULL) { last_status = now; write_status(); }
@@ -784,6 +914,12 @@ static int rtsp_start(void)
     if ((v = getenv("TC100FIX_RTSP_STATUS")) && v[0]) status_path = v;
     snprintf(nonce, sizeof(nonce), "%08x%08x%08x%08x", rnd32(), rnd32(), rnd32(), rnd32());
     if (!(ring = malloc(RING))) return -1;
+    if (!(v = getenv("TC100FIX_RTSP_FASTSTART")) || strcmp(v, "0")) {
+        G[0].cap = GOP_MAIN; G[1].cap = GOP_SUB;
+        if (!(G[0].buf = malloc(G[0].cap)) || !(G[1].buf = malloc(G[1].cap))) {
+            free(G[0].buf); G[0].buf = NULL; G[1].buf = NULL;
+        }
+    }
     if (pipe(wake_fd)) return -1;
     fcntl(wake_fd[0], F_SETFL, O_NONBLOCK); fcntl(wake_fd[1], F_SETFL, O_NONBLOCK);
     fcntl(wake_fd[0], F_SETFD, FD_CLOEXEC); fcntl(wake_fd[1], F_SETFD, FD_CLOEXEC);
@@ -818,10 +954,76 @@ void tc100fix_rtsp_frame(int si, const unsigned char *d, unsigned int len)
         pthread_mutex_unlock(&once);
         if (rtsp_state < 0) return;
     }
-    key = scan_frame(si, d, (long)len);
-    S[si].frames++;
-    if (any_playing[si]) ring_push(si, d, len, key, mono_us());
+    {
+        uint64_t now = mono_us();
+        uint32_t no;
+        key = scan_frame(si, d, (long)len);
+        no = (uint32_t)++S[si].frames;
+        if (!no) no = (uint32_t)++S[si].frames;        /* 0 means "nothing sent yet" */
+        gop_add(si, d, len, key, now, no);
+        if (any_playing[si]) ring_push(si, d, len, key, now, no);
+    }
 }
+
+/* From the audio encoder hook: one G.711 frame. Timestamps follow the
+ * sample count, re-anchored on the clock when they drift by over 150 ms. */
+void tc100fix_rtsp_audio(const void *handle, const unsigned char *d, unsigned int len)
+{
+    uint64_t now;
+    if (rtsp_state <= 0 || a_pt < 0 || !a_rate || !d || !len || len > 65536) return;
+    if (!a_handle) a_handle = handle;
+    if (handle != a_handle) return;
+    now = mono_us();
+    if (!a_next_us || a_next_us + 150000ULL < now || a_next_us > now + 150000ULL) a_next_us = now;
+    a_last_us = now; a_frames++;
+    if (any_audio) ring_push(A_ID, d, len, 0, a_next_us, 0);
+    a_next_us += (uint64_t)len * 1000000ULL / a_rate;
+}
+
+#ifndef RTSP_HOST_TEST
+#include <dlfcn.h>
+/* Audio encoder hooks. ak_aenc_open(struct audio_param *): word 0 is the
+ * codec (17 A-law, 18 u-law), one of the next words the sample rate.
+ * ak_aenc_get_stream(handle, list head): a list of entries whose list node
+ * is at offset 24 and which start with { data pointer, length } (layout read
+ * from AnykaAudioEncoder::readNewFrameData in the vendor server). */
+void *ak_aenc_open(const void *param)
+{
+    static void *(*real)(const void *);
+    void *r;
+    if (!real) real = (void *(*)(const void *))dlsym(RTLD_NEXT, "ak_aenc_open");
+    if (!real) return NULL;
+    r = real(param);
+    if (r && param && getenv("TC100FIX_RTSP_PORT")) {
+        const unsigned int *w = param;
+        int i, pt = w[0] == 17 ? 8 : w[0] == 18 ? 0 : -1;
+        unsigned rate = 0;
+        for (i = 1; i < 4; i++) if (w[i] == 8000 || w[i] == 16000) { rate = w[i]; break; }
+        fprintf(stderr, TAG "audio encoder: type %u, %u %u %u -> %s\n", w[0], w[1], w[2], w[3],
+                pt < 0 || !rate ? "no audio track" : pt == 8 ? "PCMA" : "PCMU");
+        if (pt >= 0 && rate && a_pt < 0) { a_rate = rate; a_pt = pt; }
+    }
+    return r;
+}
+
+int ak_aenc_get_stream(void *handle, void *head)
+{
+    static int (*real)(void *, void *);
+    struct lnode { struct lnode *next, *prev; } *n;
+    int r, k = 0;
+    if (!real) real = (int (*)(void *, void *))dlsym(RTLD_NEXT, "ak_aenc_get_stream");
+    if (!real) return -1;
+    r = real(handle, head);
+    if (r != 0 || !head || a_pt < 0 || rtsp_state <= 0) return r;
+    for (n = ((struct lnode *)head)->next; n && n != head && k < 64; n = n->next, k++) {
+        const unsigned char *e = (const unsigned char *)n - 24;
+        const unsigned char *data; unsigned int len;
+        memcpy(&data, e, sizeof(data)); memcpy(&len, e + 4, sizeof(len));
+        if (data && len) tc100fix_rtsp_audio(handle, data, len);
+    }
+    return r;
+}
+#endif
 
 #ifdef RTSP_HOST_TEST
 /* TC100FIX_RTSP_PORT=n [RTSP_TEST_CRED=user:pass] rtsp-test <annexb> <fps> [<seconds>]:
@@ -841,6 +1043,7 @@ int main(int argc, char **argv)
         snprintf(cred_pass, sizeof(cred_pass), "%s", strchr(cr, ':') + 1);
     }
     fps = atoi(argv[2]); secs = argc > 3 ? atof(argv[3]) : 20;
+    if (getenv("RTSP_TEST_AUDIO")) { a_pt = 8; a_rate = 8000; }   /* an A-law tone with each frame */
     if (!(f = fopen(argv[1], "rb"))) return 2;
     fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET);
     all = malloc((size_t)n + 4);
@@ -859,6 +1062,13 @@ int main(int argc, char **argv)
                 long s = (aud && i > 0 && all[i - 1] == 0) ? i - 1 : i;
                 if (start >= 0) {
                     tc100fix_rtsp_frame(0, all + start, (unsigned)(s - start));
+                    if (a_pt >= 0) {
+                        static unsigned char pcm[8000];
+                        static unsigned ph;
+                        unsigned k, an = 8000 / (unsigned)fps;
+                        for (k = 0; k < an; k++, ph++) pcm[k] = (unsigned char)((ph / 10) & 1 ? 0xa5 : 0x25) ^ 0x55;
+                        tc100fix_rtsp_audio((void *)1, pcm, an);
+                    }
                     usleep(1000000 / fps);
                 }
                 start = s;
