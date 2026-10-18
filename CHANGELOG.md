@@ -10,7 +10,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Flash space.
 
 ### Changed
-- **Code zone 487 KB → about 400 KB of its 640 KB.** Packages and system images are now built from a shrunk copy of the code (`src/flash/minify.sh`, called by `stage-tc100.sh`): comments and indentation removed from the shell scripts and CGIs by `shfmt -mn` (a real shell parser, so here-documents and strings are untouched), web scripts and stylesheets minified by `esbuild`. Each file is checked afterwards (`busybox sh -n`, `node --check`) and keeps its source if the check fails. The repository stays the readable source; without the two tools nothing changes. `MINIFY=0` turns it off.
+- **Code zone 487 KB → about 405 KB of its 640 KB.** Packages and system images are now built from a shrunk copy of the code (`src/flash/minify.sh`, called by `stage-tc100.sh`): comments and indentation removed from the shell scripts and CGIs by `shfmt -mn` (a real shell parser, so here-documents and strings are untouched), web scripts and stylesheets minified by `esbuild` (checked with `node --check`). The repository stays the readable source; without the tools nothing changes; `MINIFY=0` turns it off.
+- Shell scripts are only minified when the camera's own shell is available to check them (`CAMERA_SH`, the vendor busybox 1.24.1 ash run with qemu), and a file it refuses keeps its source. A first build checked with a newer busybox booted a test camera without network: the old ash misparsed the minified `autorun.sh` where its 8 KB read buffer ended inside `;then`. The camera rolled back to its built-in code by itself (no confirmation within 5 min), as designed. A test now parses every script with the vendor ash when `TC100_ROOTFS` points to an extracted rootfs.
 - Removed from the camera: the icon font's `.eot`, `.ttf` and `.svg` copies (only the WOFF is used by current browsers) and the host-side Python helper that was copied with the scripts.
 
 ---
