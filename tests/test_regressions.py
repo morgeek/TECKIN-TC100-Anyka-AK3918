@@ -2329,7 +2329,7 @@ class RtspLite(unittest.TestCase):
         subprocess.run(['ffmpeg', '-v', 'quiet', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-t', '3'] + enc +
                        ['-bsf:v', ('hevc' if codec == 'hevc' else 'h264') + '_mp4toannexb', str(src)], check=True)
         self.srv = subprocess.Popen([str(self.bin), str(src), '15', '20'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                    env=dict(os.environ, TC100FIX_RTSP_PORT=str(self.port), RTSP_TEST_CRED='admin:s3cret',
+                                    env=dict(os.environ, TC100FIX_RTSP_PORT=str(self.port), RTSP_TEST_CRED='admin:s3cret', RTSP_TEST_CRED2='extra:0ther',
                                              TC100FIX_RTSP_STATUS=str(self.d / 'status'),
                                              **({'RTSP_TEST_AUDIO': '1'} if audio else {})))
         time.sleep(0.8)
@@ -2349,6 +2349,9 @@ class RtspLite(unittest.TestCase):
             c, n = got.split(',')
             self.assertEqual(c, name)
             self.assertGreaterEqual(int(n), 50)                  # 4 s at 15 fps, from the first keyframe
+            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://extra:0ther@127.0.0.1:%d/video0' % self.port],
+                               capture_output=True, text=True, timeout=20)
+            self.assertEqual(r.returncode, 0, r.stderr)               # the second account
             r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://admin:nope@127.0.0.1:%d/video0' % self.port],
                                capture_output=True, text=True, timeout=20)
             self.assertIn('401', r.stderr)

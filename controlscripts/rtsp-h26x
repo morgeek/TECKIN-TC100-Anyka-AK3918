@@ -188,7 +188,7 @@ start()
       *) if [ "$RTSP_LITE_PORT" != "$(read_config rtspserver.conf PORT 2>/dev/null)" ]; then
            TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_PORT=$RTSP_LITE_PORT"
            case "$RTSP_LITE_FASTSTART" in 0|no|off|false) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_FASTSTART=0" ;; esac
-           # Its own account when both are set (letters, digits, . _ - only).
+           # A second account when both are set (letters, digits, . _ - only).
            case "$RTSP_LITE_USER$RTSP_LITE_PASS" in *[!A-Za-z0-9._-]*) ;; *)
              [ -n "$RTSP_LITE_USER" ] && [ -n "$RTSP_LITE_PASS" ] &&
                TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_USER=$RTSP_LITE_USER TC100FIX_RTSP_PASS=$RTSP_LITE_PASS" ;;
