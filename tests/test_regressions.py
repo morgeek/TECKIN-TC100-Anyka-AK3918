@@ -258,10 +258,14 @@ class Regressions(unittest.TestCase):
             ({'RTSP_LITE_PORT': '8554'}, 'TC100FIX_RTSP_PORT=8554'),
             ({'RTSP_LITE_PORT': '554'}, ''),                  # never the main server's port
             ({'RTSP_LITE_PORT': 'x'}, ''),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'p4ss'},
+             'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_USER=cam TC100FIX_RTSP_PASS=p4ss'),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'a b'}, 'TC100FIX_RTSP_PORT=8554'),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
-                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': ''}
+                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
+                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': ''}
             vals.update(env)
             code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
