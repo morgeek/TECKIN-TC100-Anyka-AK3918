@@ -33,6 +33,9 @@ A lighter RTSP server, sound both ways, motion zones.
   - The zones are applied when the detector starts or restarts. Frigate keeps its own zones.
 - **Secondary stream on/off** in the same card (`RTSP_SUBSTREAM`).
 - Home Assistant diagnostics: *RTSP Clients* and *RTSP Skipped Frames* of the lite server.
+
+### Changed
+- **The camera's own motion detection is off by default** (`mdenabled=0` in `rtspserver.conf.dist`): Frigate does the detection. It saves the detector's work in the video process. Turn it on in Services when its MQTT events or pictures on motion are used. Cameras already set up keep their setting.
 - `NR3D_STRENGTH` (test, `isp_tune.conf`): scales the 3D noise-reduction strengths, mapped on the camera's 112-byte sets. Not in the web page yet.
 
 ### Fixed

@@ -25,6 +25,7 @@ grew from there.
 ## Contents
 
 - [What you can do](#what-you-can-do)
+- [What's new in 2.1.9](#whats-new-in-219)
 - [What's new in 2.1](#whats-new-in-21)
 - [What's new in 2.0](#whats-new-in-20)
 - [Screenshots](#screenshots)
@@ -45,7 +46,9 @@ grew from there.
 ## What you can do
 
 **Video**
-- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`). ONVIF (discovery and profiles, port 8081) in both modes: off by default, Services → Services → onvif.
+- Two RTSP streams: main up to 1080p H.264 / H.265, and a sub-stream for detection (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`), which can be turned off when no recorder uses it. ONVIF (discovery and profiles, port 8081) in both modes: off by default, Services → Services → onvif.
+- A choice of RTSP server (Settings → Video): the original one, or a **lite server** that sends the same streams for about 8 points less CPU, with the sound and two-way audio.
+- **Privacy masks**: up to 4 areas painted out by the image processor before encoding, so they are absent from every stream, snapshot and recording.
 - Presets for Frigate (light, balanced, quality), live image tuning (brightness, contrast, sharpness, saturation, anti-flicker, exposure cap) with no stream restart, a fixed frame rate, day / night with the IR LEDs and the IR filter, flip and on-screen text.
 - Still JPEG at `cgi-bin/currentpic.cgi`, cached so that Home Assistant polling costs nothing.
 
@@ -59,6 +62,10 @@ grew from there.
 
 **Audio**
 - Listen live, talk through the speaker (push-to-talk from the browser), sound detection with a level in dBFS.
+- **Two-way audio from Home Assistant or go2rtc** (lite server): their microphone button plays your voice on the camera's speaker.
+
+**Detection**
+- The camera's own motion detection (MQTT event, picture on motion) is **off by default**: Frigate does the detection. When it is on, **motion zones** tell it which areas to ignore.
 
 **Running it**
 - Runs from the **flash memory** (2.0) or from the **SD card**.
@@ -73,6 +80,27 @@ grew from there.
 - No cloud, no outgoing connection, unless you turn on the GitHub release check (`UPDATE_CHECK=1`). HTTPS with a local certificate, CSRF protection, a "Privacy shield" switch that stops every outgoing service.
 
 ---
+
+## What's new in 2.1.9
+
+Since 2.1.3, with both test cameras running it:
+
+- **Lite RTSP server** (Settings → Video → RTSP server). It runs inside the video process and sends the frames the encoders already produce. It serves the same addresses with the same password, so recorders see no difference.
+  - With Frigate, the video server's network part went from 15–19 % to about 2 % CPU, and the lite server uses 7–8 %.
+  - Two-way audio for go2rtc / Home Assistant.
+  - A picture in about 1 s for a new client.
+  - If it does not start, the original server takes the port back.
+- **Motion zones**, and the camera's motion detection off by default.
+- **Privacy masks** painted by the image processor.
+- **SD card from flash**: a card put in is recognised and mounted for recordings, and the web page asks what to do with it, including formatting it from the camera. An interrupted format is detected and offered again.
+- **Reliability**:
+  - a network guard that reboots after a long network loss, with backoff;
+  - a filtered syslog forwarder;
+  - a Wi-Fi rescue access point that works from flash;
+  - day/night switching with a hold, so it no longer flickers at dusk.
+- **Smaller code**: minified scripts, checked with the camera's own shell. About 430 KB of the 640 KB code area.
+
+Details: [CHANGELOG.md](CHANGELOG.md).
 
 ## What's new in 2.1
 
@@ -233,6 +261,7 @@ Build them yourself: `sh src/release/build-code-package.sh` and `sh src/release/
 4. Frigate: Live view → More tools → Diagnostics gives a configuration to paste (go2rtc restream; `state.cgi?cmd=frigateyaml&redact=1` without the password). Streams:
    - main (recording): `rtsp://root:PASSWORD@CAMERA-IP:554/video0_unicast`
    - sub (detection): `rtsp://root:PASSWORD@CAMERA-IP:554/video1_unicast`
+   - The same addresses work with either RTSP server. With the lite server, go2rtc also gets the speaker: two-way audio from Home Assistant's or go2rtc's microphone button.
 5. Still image in Home Assistant: a *Generic Camera* with `https://CAMERA-IP/cgi-bin/currentpic.cgi`, basic auth, SSL verification off.
 
 Home Assistant can drive the camera (LEDs, day / night, profile, snapshot, motion) by publishing on `<topic>/command`. Results come back on `<topic>/command/result`. More: [docs/api.md](docs/api.md).
@@ -318,7 +347,9 @@ Other projects this builds on: see [Where it comes from](#where-it-comes-from).
 - **From the SD card**: the vendor's `service.sh` runs `/mnt/wifitest/wifi_test.sh` when that folder exists (a factory test hook) instead of the cloud app. It starts `autorun.sh`, which runs the firmware from a read-only, checksummed image on the card (`firmware.sqfs`), with the plain files as a fallback.
 - **From flash**: the rebuilt `/usr` has the same `service.sh`, changed only where the cloud app started. With `/mnt/wifitest` on a card, the SD firmware starts as above. Without it, `scripts/flashboot.sh` rebuilds the same layout (`/mnt` in RAM, settings in jffs2, code from the code area or from `/usr/tc100`), then runs `autorun.sh`.
 - **Code area**: a 4 KB header (`TC100CODE 1`, size, md5, version) and a squashfs. It is "pending" until the camera comes back with it, and a second boot without that confirmation returns to the code inside `/usr` (`scripts/flash-code.sh`).
-- **RTSP server fixes**: `lib/libtc100fix.so` is preloaded into the vendor-API RTSP server. It adds a fixed frame rate, G.711 audio, a microphone off when unused, live ISP tuning, the light-level statistics, and the MP4 recorder (`src/tc100fix/rec.c`).
+- **RTSP server fixes**: `lib/libtc100fix.so` is preloaded into the vendor-API RTSP server. It adds a fixed frame rate, G.711 audio, a microphone off when unused, live ISP tuning and privacy masks, the light-level statistics, motion zones (`md.c`), the MP4 recorder (`rec.c`) and the lite RTSP server (`rtsp.c`).
+  - The vendor program still drives the sensor, the encoders, day/night and the on-screen text, so it keeps running.
+  - With the lite server it only listens on a spare port (`RTSP_VENDOR_PORT`).
 - **MQTT**: forged in shell and sent through `nc`, because the platform's curl cannot publish MQTT. One persistent connection.
 - Platform notes (missing `tr`, old busybox `timeout`…) and the bugs fixed during the bring-up: [docs/known-issues.md](docs/known-issues.md). HTTP API: [docs/api.md](docs/api.md).
 
@@ -338,7 +369,7 @@ wifitest/           The SD card boot hook
 sounds/             Audio clips
 src/flash/          Flash images: build-flash-kit.sh, build-usr.sh, build-code.sh, stage-tc100.sh, prebuilt/
 src/release/        Release files: SD card zip, update .tar, code .bin
-src/tc100fix/       libtc100fix (RTSP server hooks, MP4 recorder)
+src/tc100fix/       libtc100fix (vendor server hooks, lite RTSP server, MP4 recorder, ISP tuning, motion zones)
 src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolchain
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
