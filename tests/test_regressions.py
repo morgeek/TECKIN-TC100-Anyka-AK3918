@@ -2120,7 +2120,7 @@ class WifiRescueFlash(unittest.TestCase):
 class FlashMinify(unittest.TestCase):
     """src/flash/minify.sh: a file whose minified form does not pass the syntax check keeps its source."""
 
-    def run_minify(self, sh_out, js_out):
+    def run_minify(self, sh_out, js_out, camera_sh='sh'):
         d = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, d)
         st = d / 'st'
         (st / 'scripts').mkdir(parents=True); (st / 'www/scripts').mkdir(parents=True); (st / 'www/css').mkdir()
@@ -2134,7 +2134,7 @@ class FlashMinify(unittest.TestCase):
         for t in ('shfmt', 'esbuild'):
             (tools / t).chmod(0o755)
         r = subprocess.run(['sh', str(ROOT / 'src/flash/minify.sh'), str(st)], capture_output=True, text=True,
-                           env=dict(os.environ, SHFMT=str(tools / 'shfmt'), ESBUILD=str(tools / 'esbuild')))
+                           env=dict(os.environ, SHFMT=str(tools / 'shfmt'), ESBUILD=str(tools / 'esbuild'), CAMERA_SH=camera_sh))
         return st, r
 
     def test_good_output_replaces_bad_output_is_refused(self):
@@ -2148,6 +2148,33 @@ class FlashMinify(unittest.TestCase):
         if shutil.which('node'):
             self.assertIn('// c', (st / 'www/scripts/x.js').read_text())
         self.assertIn('kept', r.stdout)
+
+    def test_shell_left_alone_without_the_camera_shell(self):
+        st, r = self.run_minify('f(){ echo a;}\n', 'function keepMe(a){return a+1}\n', camera_sh='')
+        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
+        self.assertIn('CAMERA_SH not set', r.stderr)
+        # a check that fails (the camera's old ash refusing the file) keeps the source
+        st, r = self.run_minify('f(){ echo a;}\n', 'x', camera_sh='false')
+        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
+
+    def test_all_shell_files_parse_with_the_vendor_ash(self):
+        # 2.1.7: busybox 1.24.1 ash (the camera's /bin/sh in flash mode) misparsed a
+        # file at an 8 KB read-buffer boundary that newer busybox accepts. With the
+        # vendor rootfs (TC100_ROOTFS) and qemu-arm, every script is checked with it.
+        rootfs = os.environ.get('TC100_ROOTFS')
+        if not (rootfs and shutil.which('qemu-arm') and Path(rootfs, 'bin/busybox').exists()):
+            self.skipTest('TC100_ROOTFS (vendor rootfs) and qemu-arm needed')
+        files = subprocess.run(['git', 'ls-files', 'autorun.sh', 'scripts', 'controlscripts', 'config/autostart', 'www/cgi-bin'],
+                               cwd=ROOT, capture_output=True, text=True).stdout.split()
+        bad = []
+        for f in files:
+            p = ROOT / f
+            if not (f.endswith(('.sh', '.cgi')) or f == 'autorun.sh' or p.read_bytes()[:12].startswith(b'#!/bin/')):
+                continue
+            r = subprocess.run(['qemu-arm', '-L', rootfs, rootfs + '/bin/busybox', 'sh', '-n', str(p)], capture_output=True)
+            if r.returncode:
+                bad.append(f)
+        self.assertEqual(bad, [])
 
     def test_stage_calls_it_and_can_skip_it(self):
         s = (ROOT / 'src/flash/stage-tc100.sh').read_text()
