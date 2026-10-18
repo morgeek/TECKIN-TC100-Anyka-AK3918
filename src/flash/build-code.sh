@@ -19,7 +19,7 @@ if [ -f "$src/lib/libtc100fix.so" ]; then
 fi
 # The filtered syslog forwarder (scripts/common_functions.sh syslogd_start
 # prefers /tmp/tc100code/bin): new in 2.1.5, so not in older /usr images.
-for b in tc100-logfwd hostapd-rtw; do
+for b in tc100-logfwd hostapd-rtw tc100-button; do
   # hostapd-rtw: the Wi-Fi rescue access point (scripts/wifi-rescue.sh) on
   # the flash /usr, which has no vendor hostapd.
   if [ -f "$src/bin/$b" ]; then

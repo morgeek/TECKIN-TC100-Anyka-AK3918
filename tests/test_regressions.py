@@ -491,7 +491,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 29)
+        self.assertEqual(count, 30)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -2129,7 +2129,7 @@ class WifiRescueFlash(unittest.TestCase):
         self.assertIn('for HOSTAPD in /usr/bin/hostapd /tmp/tc100code/bin/hostapd-rtw /mnt/bin/hostapd-rtw; do', w)
         self.assertIn('udhcpd -f "$RUN/udhcpd.conf"', w)
         self.assertIn('echo $! > "$RUN/udhcpd.pid"', w)
-        self.assertIn('for b in tc100-logfwd hostapd-rtw; do', (ROOT / 'src/flash/build-code.sh').read_text())
+        self.assertIn('for b in tc100-logfwd hostapd-rtw tc100-button; do', (ROOT / 'src/flash/build-code.sh').read_text())
         self.assertIn('COMMIT=44d73276cb59bf58c700b70f2237ffb440b94ec3', (ROOT / 'src/hostapd/build.sh').read_text())
         self.assertIn('CONFIG_DRIVER_RTW=y', (ROOT / 'src/hostapd/hostapd.config').read_text())
         self.assertNotIn('CONFIG_WPS', (ROOT / 'src/hostapd/hostapd.config').read_text())
@@ -3173,7 +3173,7 @@ class ForkLightLoops(unittest.TestCase):
 class ResetButton(unittest.TestCase):
     """scripts/button-watch.sh fed with struct input_event records through a FIFO."""
 
-    def run_events(self, holds, storage='flash'):
+    def run_events(self, holds, storage='flash', cmd=None):
         import struct
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
@@ -3189,7 +3189,7 @@ class ResetButton(unittest.TestCase):
                 (d / name).write_text('#!/bin/sh\n%s >> "%s/calls"\n' % (line, d)); (d / name).chmod(0o755)
             env = dict(os.environ, BUTTON_DEV=str(d / 'ev'), BUTTON_FLASH_CODE=str(d / 'fc.sh'),
                        BUTTON_REBOOT_CMD=str(d / 'reboot'), TC100_STORAGE_FILE=str(d / 'storage'))
-            p = subprocess.Popen(['sh', str(ROOT / 'scripts/button-watch.sh')], env=env)
+            p = subprocess.Popen(cmd or ['sh', str(ROOT / 'scripts/button-watch.sh')], env=env)
             with open(d / 'ev', 'wb') as w:
                 w.write(data); w.flush(); time.sleep(1.5)
             p.wait(timeout=10)
@@ -3200,6 +3200,21 @@ class ResetButton(unittest.TestCase):
         self.assertEqual(self.run_events([9]), ['reboot'])
         self.assertEqual(self.run_events([21]), ['fc clear', 'reboot'])
         self.assertEqual(self.run_events([21], storage='sd'), ['reboot'])
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def test_c_helper_same_rules(self):
+        # src/button/tc100-button.c: the same rules without the dd | od shell loop.
+        with tempfile.TemporaryDirectory() as d:
+            exe = Path(d) / 'tc100-button'
+            subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-o', str(exe),
+                            str(ROOT / 'src/button/tc100-button.c')], check=True)
+            for holds, storage, want in (([3], 'flash', []), ([9], 'flash', ['reboot']),
+                                         ([21], 'flash', ['fc clear', 'reboot']), ([21], 'sd', ['reboot']),
+                                         ([2, 9], 'flash', ['reboot'])):
+                self.assertEqual(self.run_events(holds, storage, cmd=[str(exe)]), want, (holds, storage))
+        ctl = (ROOT / 'controlscripts/button-actions').read_text()
+        self.assertIn('tc100-button', ctl)
+        self.assertIn('button-watch.sh', ctl)                  # fallback kept
 
 
 class LocalRecording(unittest.TestCase):
