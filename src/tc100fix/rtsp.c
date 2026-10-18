@@ -14,11 +14,11 @@
  *
  * URLs: rtsp://<camera>:<port>/video0 (main encoder) and /video1 (secondary),
  * also /video0_unicast and /video1_unicast like the vendor server.
- * Authentication: HTTP Digest (MD5) with TC100FIX_RTSP_USER/TC100FIX_RTSP_PASS
- * when both are set, otherwise the user and password given to the vendor
- * server ("-U user:pass", read from the command line when the library is
- * loaded, before tc100fix hides it). No credentials at all = no
- * authentication, as with the vendor server.
+ * Authentication: HTTP Digest (MD5) with the user and password given to the
+ * vendor server ("-U user:pass", read from the command line when the library
+ * is loaded, before tc100fix hides it), and also TC100FIX_RTSP_USER /
+ * TC100FIX_RTSP_PASS when both are set (a second account). No credentials at
+ * all = no authentication, as with the vendor server.
  *
  * Audio: the vendor server's G.711 encoder output (A-law or u-law, 8 or
  * 16 kHz, from ak_aenc_get_stream) as a second track (trackID=1), when the
@@ -349,7 +349,8 @@ struct client {
 static struct client C[MAX_CLIENTS];
 static int max_clients = 3;
 static int lport;
-static char cred_user[64], cred_pass[64];
+static char cred_user[64], cred_pass[64];      /* the vendor server's account */
+static char cred2_user[64], cred2_pass[64];    /* RTSP_LITE_USER/PASS, also accepted */
 static char nonce[33];
 static const char *status_path = "/var/run/tc100rtsp";
 static unsigned long long total_bytes;
@@ -594,13 +595,15 @@ static int param_get(const char *h, const char *key, char *out, size_t cap)
 static int authorized(const char *req, const char *method)
 {
     char a[512], user[64], uri[256], resp[40], rnonce[40], ha1[33], ha2[33], want[33];
-    if (!cred_user[0]) return 1;
+    if (!cred_user[0] && !cred2_user[0]) return 1;
     if (!hdr_get(req, "Authorization", a, sizeof(a)) || strncasecmp(a, "Digest ", 7)) return 0;
     if (!param_get(a, "username", user, sizeof(user)) || !param_get(a, "uri", uri, sizeof(uri)) ||
         !param_get(a, "response", resp, sizeof(resp)) || !param_get(a, "nonce", rnonce, sizeof(rnonce)))
         return 0;
-    if (strcmp(user, cred_user) || strcmp(rnonce, nonce)) return 0;
-    md5_hex3(ha1, cred_user, "TC100", cred_pass);
+    if (strcmp(rnonce, nonce)) return 0;
+    if (cred_user[0] && !strcmp(user, cred_user)) md5_hex3(ha1, cred_user, "TC100", cred_pass);
+    else if (cred2_user[0] && !strcmp(user, cred2_user)) md5_hex3(ha1, cred2_user, "TC100", cred2_pass);
+    else return 0;
     md5_hex3(ha2, method, uri, NULL);
     md5_hex3(want, ha1, nonce, ha2);
     return !strcasecmp(want, resp);
@@ -892,11 +895,11 @@ __attribute__((constructor)) static void rtsp_ctor(void)
 {
     const char *u = getenv("TC100FIX_RTSP_USER"), *p = getenv("TC100FIX_RTSP_PASS");
     if (!getenv("TC100FIX_RTSP_PORT")) return;
-    /* Its own account (RTSP_LITE_USER/RTSP_LITE_PASS), else the main server's. */
-    if (u && p && u[0] && p[0] && strlen(u) < sizeof(cred_user) && strlen(p) < sizeof(cred_pass)) {
-        strcpy(cred_user, u); strcpy(cred_pass, p);
-    } else
-        read_cred();
+    /* The main server's account, and RTSP_LITE_USER/RTSP_LITE_PASS as a second one. */
+    read_cred();
+    if (u && p && u[0] && p[0] && strlen(u) < sizeof(cred2_user) && strlen(p) < sizeof(cred2_pass)) {
+        strcpy(cred2_user, u); strcpy(cred2_pass, p);
+    }
 }
 #endif
 
@@ -938,7 +941,7 @@ static int rtsp_start(void)
     pthread_attr_setstacksize(&at, 64 * 1024);
     if (pthread_create(&th, &at, server, (void *)(intptr_t)ls)) { close(ls); pthread_attr_destroy(&at); return -1; }
     pthread_attr_destroy(&at);
-    fprintf(stderr, TAG "serving on port %d (%s)\n", lport, cred_user[0] ? "digest authentication" : "no authentication");
+    fprintf(stderr, TAG "serving on port %d (%s)\n", lport, cred_user[0] || cred2_user[0] ? "digest authentication" : "no authentication");
     return 0;
 }
 
@@ -1041,6 +1044,10 @@ int main(int argc, char **argv)
     if (cr && strchr(cr, ':')) {
         snprintf(cred_user, sizeof(cred_user), "%.*s", (int)(strchr(cr, ':') - cr), cr);
         snprintf(cred_pass, sizeof(cred_pass), "%s", strchr(cr, ':') + 1);
+    }
+    if ((cr = getenv("RTSP_TEST_CRED2")) && strchr(cr, ':')) {
+        snprintf(cred2_user, sizeof(cred2_user), "%.*s", (int)(strchr(cr, ':') - cr), cr);
+        snprintf(cred2_pass, sizeof(cred2_pass), "%s", strchr(cr, ':') + 1);
     }
     fps = atoi(argv[2]); secs = argc > 3 ? atof(argv[3]) : 20;
     if (getenv("RTSP_TEST_AUDIO")) { a_pt = 8; a_rate = 8000; }   /* an A-law tone with each frame */

@@ -21,8 +21,8 @@ SD_AUTOMOUNT=1
 # RTSP lite (test): a second RTSP server inside the video process, sending
 # the same encoded video with less overhead, on this port (e.g. 8554):
 # rtsp://<camera>:<port>/video0 and /video1, same user and password as the
-# main server (or RTSP_LITE_USER / RTSP_LITE_PASS when both are set:
-# letters, digits, . _ - only), TCP only, with the G.711 sound when the
+# main server (RTSP_LITE_USER / RTSP_LITE_PASS, when both are set, are a
+# second account: letters, digits, . _ - only), TCP only, with the G.711 sound when the
 # main server has it. Empty or 0 = off. The main server (PORT in
 # rtspserver.conf) is not changed.
 # RTSP_LITE_FASTSTART=1: a new client gets the picture at once (the frames
