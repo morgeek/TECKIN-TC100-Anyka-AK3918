@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.7] — 2026-10-18
+
+Flash space.
+
+### Changed
+- **Code zone 487 KB → about 400 KB of its 640 KB.** Packages and system images are now built from a shrunk copy of the code (`src/flash/minify.sh`, called by `stage-tc100.sh`): comments and indentation removed from the shell scripts and CGIs by `shfmt -mn` (a real shell parser, so here-documents and strings are untouched), web scripts and stylesheets minified by `esbuild`. Each file is checked afterwards (`busybox sh -n`, `node --check`) and keeps its source if the check fails. The repository stays the readable source; without the two tools nothing changes. `MINIFY=0` turns it off.
+- Removed from the camera: the icon font's `.eot`, `.ttf` and `.svg` copies (only the WOFF is used by current browsers) and the host-side Python helper that was copied with the scripts.
+
+---
+
 ## [2.1.6] — 2026-10-18
 
 Hardware features that cost no CPU.
