@@ -57,6 +57,12 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
   UU="${UU_SCRIPT:-/mnt/scripts/usr-update.sh}"
   _fz="$(sh "$FC" status 2>/dev/null)"
   case "$_fz" in "valid "*) _cur="${_fz#valid }" ;; *) _cur="$(cat /usr/tc100/VERSION 2>/dev/null) (built in)" ;; esac
+  # Build identity (flash-code.sh info, code zone copy: the one in /usr may
+  # predate it). Values are checked by the header parser: no quoting needed.
+  FCI="${FC_INFO_SCRIPT:-/mnt/scripts/flash-code.sh}"
+  _fi() { sh "$FCI" info $1 2>/dev/null | sed -n "s/^$2=//p"; }
+  _cur_md5=""; _cur_built=""; _cur_commit=""
+  case "$_fz" in "valid "*) _cur_md5="$(_fi "" md5)"; _cur_built="$(_fi "" built)"; _cur_commit="$(_fi "" commit)" ;; esac
   case "${REQUEST_METHOD:-GET}:$_cmd" in
     GET:status|GET:)
       _st=idle; _staged=""; _kind=""
@@ -65,12 +71,13 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
         _st=staged; _kind=system; read -r _staged _r < "$SW/VERSION"
       elif [ -f "$FW/code.bin" ] && _chk="$(sh "$FC" check "$FW/code.bin")"; then
         _st=staged; _kind=code; set -- $_chk; _staged="$2"
+        _s_md5="$(_fi "$FW/code.bin" md5)"; _s_built="$(_fi "$FW/code.bin" built)"; _s_commit="$(_fi "$FW/code.bin" commit)"
       fi
       _rb=""; case "$_fz" in "valid "*) _rb="built-in code" ;; esac
       # Update history (installs, confirmations, automatic rollbacks), JSON-escaped.
       _log="$(tail -n 6 "${FC_HISTORY:-/etc/jffs2/tc100/log/code-updates.log}" 2>/dev/null | awk '{ gsub(/[\\"]/, ""); printf "%s\\n", $0 }')"
-      printf '{"ok":true,"storage":"flash","state":"%s","kind":"%s","current":"%s","staged":"%s","rollback_to":"%s","log":"%s"}\n' \
-        "$_st" "$_kind" "$_cur" "$_staged" "$_rb" "$_log" ;;
+      printf '{"ok":true,"storage":"flash","state":"%s","kind":"%s","current":"%s","current_md5":"%s","current_built":"%s","current_commit":"%s","staged":"%s","staged_md5":"%s","staged_built":"%s","staged_commit":"%s","rollback_to":"%s","log":"%s"}\n' \
+        "$_st" "$_kind" "$_cur" "$_cur_md5" "$_cur_built" "$_cur_commit" "$_staged" "${_s_md5:-}" "${_s_built:-}" "${_s_commit:-}" "$_rb" "$_log" ;;
     POST:upload)
       _cl="${CONTENT_LENGTH:-0}"
       case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
@@ -109,7 +116,13 @@ if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ];
       head -c "$_cl" > "$FW/code.bin" 2>/dev/null
       if _chk="$(sh "$FC" check "$FW/code.bin")"; then
         set -- $_chk
-        printf '{"ok":true,"kind":"code","version":"%s","current":"%s","changed":1,"files":1}\n' "$2" "$_cur"
+        _p_md5="$(_fi "$FW/code.bin" md5)"
+        # Same version as the running code but another build: worth a look
+        # before installing (an older file with the same name, 2026-10-18).
+        _same=0; [ "$2" = "$_cur" ] && [ -n "$_cur_md5" ] && [ "$_p_md5" != "$_cur_md5" ] && _same=1
+        [ "$2" = "$_cur" ] && [ "$_p_md5" = "$_cur_md5" ] && _same=2
+        printf '{"ok":true,"kind":"code","version":"%s","current":"%s","md5":"%s","built":"%s","commit":"%s","current_md5":"%s","current_built":"%s","current_commit":"%s","same_version":%s,"changed":1,"files":1}\n' \
+          "$2" "$_cur" "$_p_md5" "$(_fi "$FW/code.bin" built)" "$(_fi "$FW/code.bin" commit)" "$_cur_md5" "$_cur_built" "$_cur_commit" "$_same"
       else
         rm -f "$FW/code.bin"
         printf '{"ok":false,"error":"invalid_package","message":"Not a valid code package: %s."}\n' "$_chk"

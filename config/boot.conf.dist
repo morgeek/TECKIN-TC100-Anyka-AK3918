@@ -4,6 +4,14 @@ LIGHTWEIGHT_MODE=0
 
 # Service toggles (1=enable, 0=disable)
 ENABLE_WATCHDOG=1
+# Network guard (scripts/net-guard.sh, checked every minute by web-guard.sh):
+# reboot when the default gateway has not answered for NET_GUARD_MIN minutes
+# while the rest of the system runs (the hardware watchdog does not catch
+# that). After such a reboot the next limit doubles, up to 2 h, until the
+# network has been back for 10 min. Never while the Wi-Fi rescue access point
+# is up. NET_GUARD=0 turns it off.
+NET_GUARD=1
+NET_GUARD_MIN=15
 ENABLE_NTP=1
 # If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
 NTP_ONE_SHOT=0
@@ -156,6 +164,12 @@ RTSP_MIC_OFF_WHEN_NO_AUDIO=1
 VENDOR_PRINT_LEVEL=1
 ISP_TUNE=0
 RTSP_DAYNIGHT_POLL_MS=500
+# Day/night switching (automatic mode): switch only after the ISP has asked for
+# the new mode for RTSP_DAYNIGHT_HOLD_S seconds, and at most every
+# RTSP_DAYNIGHT_DWELL_S seconds. Stops the dawn/dusk flapping caused by the IR
+# lights feeding back into the light measure. 0 = vendor behaviour.
+RTSP_DAYNIGHT_HOLD_S=10
+RTSP_DAYNIGHT_DWELL_S=120
 # TAMPER_DETECTION=1: sample the ISP sharpness/histogram statistics every 2 s
 # into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
 # default until the thresholds are calibrated on hardware.

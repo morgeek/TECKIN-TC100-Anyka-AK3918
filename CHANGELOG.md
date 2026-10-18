@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.6] — 2026-10-18
+
+Hardware features that cost no CPU.
+
+### Added
+- **Privacy masks** (Settings → Image): drag up to 4 rectangles on the camera picture. The ISP paints them (black, grey or white) before encoding, so they are gone from both streams, the snapshots, the recordings and what Frigate analyses, at no CPU cost (`ak_vpss_mask_set_area`, struct checked against the camera's library). Stored as `MASK1..MASK4=x1,y1,x2,y2` in percent in `isp_tune.conf`, set again if a day/night ISP reload drops them. Saving a mask switches live tuning on. Checked on a camera: the masked area is exactly where it was drawn on the 1080p snapshot. (The SDK's "mosaic" type left the area black, so it is not offered.)
+- **Wi-Fi rescue access point from flash.** The flash `/usr` has no vendor `hostapd`, so the rescue access point (`WIFI_RESCUE`) could not start there. The code package now carries `hostapd-rtw`, built from Realtek's hostapd 0.8.x_rtw source for the RTL8188FU's `rtl871xdrv` interface (`src/hostapd`, WPA2-PSK only, no WPS/EAP/RADIUS, 190 KB). Checked on a camera: access point up in Master mode on `wlan1` while the station link kept working, then stopped.
+
+### Fixed
+- The rescue access point's DHCP server kept running after the access point stopped (busybox `udhcpd` did not write its pidfile): it now runs in the foreground of a background job whose PID is recorded.
+- The image-tuning status of the web page and MQTT is removed when tuning is switched off, instead of showing the last values.
+
+### Notes
+- WDR (wide dynamic range) is already on: the sensor's ISP file runs it in gain-linked mode for 8 of its 9 gain levels (read on a camera; the status file now reports `WDR_MODE/WDR_MANUAL/WDR_LINK`). Nothing to switch on.
+- Wi-Fi transmit power cannot be lowered at run time with this driver build (`tx_power_offset` and `tx_gain_offset` are accepted but change nothing measurable); a camera too close to its access point is better moved by a couple of metres.
+
+---
+
+## [2.1.5] — 2026-10-18
+
+Reliability.
+
+### Added
+- **Network guard** (`scripts/net-guard.sh`, checked every minute by `web-guard.sh`): when the default gateway has not answered for `NET_GUARD_MIN` minutes (15) while the rest of the system runs, the camera reboots. The hardware watchdog does not catch that case (its feeder keeps running): a test camera stayed off the network for over 20 minutes until it was unplugged. If the reboot itself hangs, the watchdog feeder is stopped after 2 min so the hardware resets the camera. After such a reboot the next limit doubles (15 → 30 → 60 → 120 min) until the network has been back for 10 min, so a router switched off for the night costs a few reboots. Never while the Wi-Fi rescue access point is up. `NET_GUARD=0` turns it off.
+- **Build identity in code packages**: the header now carries the build date and the git commit (`flash-code.sh info`). Settings → Firmware update shows them for the installed code and for an uploaded package, and warns when a package has the same version as the installed code but another build (an older file with the same name was nearly installed). Older packages and the `/usr` copy of `flash-code.sh` still read the new header.
+
+### Fixed
+- **Remote syslog got everything.** BusyBox `syslogd -R` sends every message to the remote host before its own filters (they only apply to the local file), so the remote server also received kernel and daemon info/debug lines, and bursts line by line. A small forwarder (`tc100-logfwd`, 10 KB, `src/logfwd`) now follows the filtered local log instead: notice and above plus logins; the same message (numbers ignored) at most once a minute with a "repeated N times" line after; at most 60 lines a minute. It ships in the code package; without it (older system image) the camera falls back to `syslogd -R`.
+
+---
+
+## [2.1.4] — 2026-10-18
+
+### Fixed
+- **Day/night flapping at dawn and dusk.** The infrared lights feed back into the light measure (IR on: bright enough for day; IR off: dark enough for night), so a camera switched 4 times in 50 s at dawn. Each switch drops frames (`ak_vi_get_frame … get frame failed`, kernel `>50, sjf`, `set td ok`), changes the whole picture (seen as motion by Frigate) and sent a burst of error lines to the remote syslog. The automatic switch now waits until the ISP has asked for the new mode for `RTSP_DAYNIGHT_HOLD_S` (10 s) and happens at most every `RTSP_DAYNIGHT_DWELL_S` (120 s); 0 = vendor behaviour. Simulated: 3 minutes of flapping → 3 switches instead of ~12; a 3-second flash at night no longer switches.
+
+### Changed
+- A code package can now update the RTSP server fixes (`libtc100fix.so` in the code zone, preferred by `rtsp-h26x` over the copy in `/usr`): no system package needed for them.
+
+---
+
 ## [2.1.3] — 2026-10-17
 
 ### Changed

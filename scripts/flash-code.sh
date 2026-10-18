@@ -18,6 +18,8 @@
 #
 #   flash-code.sh status            valid <version> | none | bad <reason>
 #   flash-code.sh check <file>      verify a code package (header + md5 + size)
+#   flash-code.sh info [file]       version, size, md5, build date and commit of
+#                                   a package, or of the zone without a file
 #   flash-code.sh write <file>      write it to the zone, read it back (3 tries);
 #                                   refuses unless mtd1 is the 2 MB "KERNEL"
 #                                   partition, and checks that the kernel area
@@ -49,14 +51,16 @@ _fc_log() { mkdir -p "${LOG%/*}" 2>/dev/null; echo "$(date '+%Y-%m-%d %H:%M:%S' 
 # _fc_header <source> <skip-blocks> -> sets FC_SIZE FC_MD5 FC_VERSION, 0 if well-formed
 _fc_header()
 {
-    FC_SIZE=""; FC_MD5=""; FC_VERSION=""
+    FC_SIZE=""; FC_MD5=""; FC_VERSION=""; FC_BUILT=""; FC_COMMIT=""
     # The text ends with a newline, then zero padding: head stops before it
-    # (no tr on the camera).
-    _h="$(dd if="$1" bs=$BS skip="$2" count=1 2>/dev/null | head -n 4)" || return 1
+    # (no tr on the camera). Lines 5-6 (built, commit) exist since 2.1.5.
+    _h="$(dd if="$1" bs=$BS skip="$2" count=1 2>/dev/null | head -n 6)" || return 1
     [ "$(printf '%s\n' "$_h" | sed -n 1p)" = "TC100CODE 1" ] || return 1
     FC_SIZE="$(printf '%s\n' "$_h" | sed -n 's/^size \([0-9][0-9]*\)$/\1/p')"
     FC_MD5="$(printf '%s\n' "$_h" | sed -n 's/^md5 \([0-9a-f]\{32\}\)$/\1/p')"
     FC_VERSION="$(printf '%s\n' "$_h" | sed -n 's/^version \([A-Za-z0-9._-]\{1,40\}\)$/\1/p')"
+    FC_BUILT="$(printf '%s\n' "$_h" | sed -n 's/^built \([0-9TZ:-]\{10,20\}\)$/\1/p')"
+    FC_COMMIT="$(printf '%s\n' "$_h" | sed -n 's/^commit \([0-9a-f]\{7,40\}\(+dirty\)\{0,1\}\)$/\1/p')"
     [ -n "$FC_SIZE" ] && [ -n "$FC_MD5" ] && [ "$FC_SIZE" -gt 0 ] && [ "$FC_SIZE" -le "$DATA_MAX" ]
 }
 
@@ -113,7 +117,7 @@ fc_write()
     _fc_log "write ok ($FC_VERSION)"
     mkdir -p "${PENDING%/*}" "${HISTORY%/*}" 2>/dev/null
     echo "$FC_VERSION 0" > "$PENDING"
-    fc_history "installed $FC_VERSION (pending confirmation)"
+    fc_history "installed $FC_VERSION${FC_COMMIT:+ ($FC_COMMIT, built $FC_BUILT)} (pending confirmation)"
     sync
     echo "ok $FC_VERSION"
 }
@@ -126,6 +130,15 @@ fc_history()
     if [ "$(wc -l < "$HISTORY" 2>/dev/null)" -gt 40 ] 2>/dev/null; then
         tail -n 40 "$HISTORY" > "$HISTORY.tmp" && mv -f "$HISTORY.tmp" "$HISTORY"
     fi
+}
+
+# fc_info [file]: what a package (or, without a file, the code zone) holds,
+# one key=value per line. Empty built/commit: a package from before 2.1.5.
+fc_info()
+{
+    if [ -n "$1" ]; then _fc_header "$1" 0 || { echo "error=not a code package"; return 1; }
+    else _fc_header "$MTD_CHAR" "$ZONE_BLOCK" || { echo "error=no code in the zone"; return 1; }; fi
+    printf 'version=%s\nsize=%s\nmd5=%s\nbuilt=%s\ncommit=%s\n' "$FC_VERSION" "$FC_SIZE" "$FC_MD5" "$FC_BUILT" "$FC_COMMIT"
 }
 
 fc_clear()
@@ -161,10 +174,11 @@ case "${0##*/}" in
         case "$1" in
             status) fc_status ;;
             check) fc_check "$2" ;;
+            info) fc_info "$2" ;;
             write) fc_write "$2" ;;
             mount) fc_mount "$1" "$2" ;;
             clear) fc_clear ;;
             history) cat "$HISTORY" 2>/dev/null ;;
-            *) echo "usage: $0 status | check <file> | write <file> | mount <dir> | clear" >&2; exit 2 ;;
+            *) echo "usage: $0 status | check <file> | info [file] | write <file> | mount <dir> | clear" >&2; exit 2 ;;
         esac ;;
 esac

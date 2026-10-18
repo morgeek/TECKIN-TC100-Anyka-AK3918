@@ -26,6 +26,19 @@
  * 1124 bytes in ak_vpss_isp_set_3d_nr_attr, so the layout matches. Re-applied
  * after day/night ISP reloads like the exposure cap.
  *
+ * MASK1..MASK4=x1,y1,x2,y2 (percent of the picture, 0..100) are hardware
+ * privacy masks: the ISP paints the area before encoding, so it is gone from
+ * the main and sub streams, the snapshots and what Frigate analyses, at no
+ * CPU cost. MASK_COLOR = black (default), gray or white (the SDK's mosaic
+ * type left the area black on a TC100, so it is not offered). The camera's
+ * libplat_vpss copies 40 bytes for the main channel and the next 40 for the
+ * sub channel (ak_vpss_mask_set_area: isp_set_main_mask_area(p),
+ * isp_set_sub_mask_area(p + 40)), i.e. the SDK's struct vpss_mask_area_info:
+ * 2 x 4 x {u16 x1, x2, y1, y2; u8 enable; pad} = 80 bytes. Pixel coordinates
+ * of each channel come from rtspserver.conf ([0] and [1] width/height,
+ * TC100FIX_RTSP_CONF overrides the path). Checked every poll and set again
+ * when the ISP lost them (day/night reload).
+ *
  * State is written to /var/run/isp_tune.status (TC100FIX_ISP_STATUS overrides)
  * for the web UI and MQTT.
  */
@@ -46,6 +59,8 @@
 #define NR3D_SET_BYTES 112
 #define NR3D_TNR_Y 2       /* byte offsets inside one set */
 #define NR3D_TNR_UV 4
+#define MASKS 4
+#define RTSP_CONF_DEFAULT "/mnt/config/rtspserver.conf"
 
 enum { E_HUE, E_BRIGHTNESS, E_SATURATION, E_CONTRAST, E_SHARPNESS, E_COUNT };
 static const char *const effect_key[E_COUNT] = {
@@ -58,7 +73,14 @@ struct tune {
     int hz;                   /* 0 = leave, 50 or 60 */
     int exp_max_pct;          /* 0 = leave, 10..100 */
     int nr3d;                 /* -1 = leave, 0 = temporal NR off, 1 = original */
+    int mask[MASKS][4];       /* x1, y1, x2, y2 in percent; x2 == 0: unused */
+    int mask_color;           /* 0 black, 1 gray, 2 white */
 };
+
+/* SDK layout (ak_vpss.h), checked against the camera's libplat_vpss. */
+struct mask_area { unsigned short x1, x2, y1, y2; unsigned char enable, pad; };
+struct mask_info { struct mask_area main_m[MASKS], sub_m[MASKS]; };
+struct mask_color { unsigned char type, alpha, y, u, v; };
 
 static void *vi_handle;
 static const char *conf_path;
@@ -69,6 +91,9 @@ static int (*p_ae_get)(void *, unsigned long *);
 static int (*p_ae_set)(void *, const unsigned long *);
 static int (*p_nr_get)(void *, void *);
 static int (*p_nr_set)(void *, const void *);
+static int (*p_mask_set)(void *, const struct mask_info *);
+static int (*p_mask_get)(void *, struct mask_info *);
+static int (*p_mask_color_set)(void *, const struct mask_color *);
 
 static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -99,6 +124,18 @@ static void parse_conf(const char *path, struct tune *t)
             t->exp_max_pct = v ? clamp(v, 10, 100) : 0;
         if (!strcmp(line, "NR3D"))
             t->nr3d = v ? 1 : 0;
+        if (!strncmp(line, "MASK", 4) && line[4] >= '1' && line[4] <= '0' + MASKS && !line[5]) {
+            int m = line[4] - '1', a[4];
+            if (sscanf(eq + 1, "%d,%d,%d,%d", &a[0], &a[1], &a[2], &a[3]) == 4) {
+                for (i = 0; i < 4; i++) a[i] = clamp(a[i], 0, 100);
+                if (a[2] > a[0] && a[3] > a[1])
+                    memcpy(t->mask[m], a, sizeof(a));
+            }
+        }
+        if (!strcmp(line, "MASK_COLOR")) {
+            const char *c = eq + 1;
+            t->mask_color = !strncmp(c, "gray", 4) ? 1 : !strncmp(c, "white", 5) ? 2 : 0;
+        }
     }
     fclose(f);
 }
@@ -116,6 +153,100 @@ static void resolve(void)
     p_ae_set = (int (*)(void *, const unsigned long *))dlsym(vpss, "ak_vpss_isp_set_ae_attr");
     p_nr_get = (int (*)(void *, void *))dlsym(vpss, "ak_vpss_isp_get_3d_nr_attr");
     p_nr_set = (int (*)(void *, const void *))dlsym(vpss, "ak_vpss_isp_set_3d_nr_attr");
+    p_mask_set = (int (*)(void *, const struct mask_info *))dlsym(vpss, "ak_vpss_mask_set_area");
+    p_mask_get = (int (*)(void *, struct mask_info *))dlsym(vpss, "ak_vpss_mask_get_area");
+    p_mask_color_set = (int (*)(void *, const struct mask_color *))dlsym(vpss, "ak_vpss_mask_set_color");
+}
+
+/* Width and height of channel [0] and [1] from rtspserver.conf. */
+static void channel_sizes(int wh[2][2])
+{
+    const char *path = getenv("TC100FIX_RTSP_CONF") ? getenv("TC100FIX_RTSP_CONF") : RTSP_CONF_DEFAULT;
+    char line[96];
+    int ch = -1;
+    FILE *f = fopen(path, "r");
+
+    wh[0][0] = 1920; wh[0][1] = 1080; wh[1][0] = 352; wh[1][1] = 200;
+    if (!f)
+        return;
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '[') { ch = (line[1] == '0' || line[1] == '1') ? line[1] - '0' : -1; continue; }
+        if (ch < 0) continue;
+        if (!strncmp(line, "width=", 6) && atoi(line + 6) > 0) wh[ch][0] = atoi(line + 6);
+        if (!strncmp(line, "height=", 7) && atoi(line + 7) > 0) wh[ch][1] = atoi(line + 7);
+    }
+    fclose(f);
+}
+
+static struct mask_info mask_want;
+static int mask_active;
+
+/* Build the wanted areas (even pixel coordinates). */
+static void mask_build(const struct tune *t)
+{
+    int wh[2][2], m, c;
+
+    memset(&mask_want, 0, sizeof(mask_want));
+    mask_active = 0;
+    channel_sizes(wh);
+    for (m = 0; m < MASKS; m++) {
+        if (t->mask[m][2] <= t->mask[m][0])
+            continue;
+        for (c = 0; c < 2; c++) {
+            struct mask_area *a = c ? &mask_want.sub_m[m] : &mask_want.main_m[m];
+            a->x1 = (unsigned short)((wh[c][0] * t->mask[m][0] / 100) & ~1);
+            a->x2 = (unsigned short)((wh[c][0] * t->mask[m][2] / 100) & ~1);
+            a->y1 = (unsigned short)((wh[c][1] * t->mask[m][1] / 100) & ~1);
+            a->y2 = (unsigned short)((wh[c][1] * t->mask[m][3] / 100) & ~1);
+            if (a->x2 >= wh[c][0]) a->x2 = (unsigned short)((wh[c][0] - 1) & ~1);
+            if (a->y2 >= wh[c][1]) a->y2 = (unsigned short)((wh[c][1] - 1) & ~1);
+            a->enable = 1;
+        }
+        mask_active = 1;
+    }
+}
+
+static int mask_same(const struct mask_info *a, const struct mask_info *b)
+{
+    int m;
+    for (m = 0; m < MASKS; m++) {
+        const struct mask_area *p[2] = { &a->main_m[m], &a->sub_m[m] }, *q[2] = { &b->main_m[m], &b->sub_m[m] };
+        int c;
+        for (c = 0; c < 2; c++) {
+            if (!!p[c]->enable != !!q[c]->enable) return 0;
+            if (p[c]->enable && (p[c]->x1 != q[c]->x1 || p[c]->x2 != q[c]->x2 ||
+                                 p[c]->y1 != q[c]->y1 || p[c]->y2 != q[c]->y2)) return 0;
+        }
+    }
+    return 1;
+}
+
+/* force: after a config change. Otherwise only when the ISP lost them.
+ * Returns the set rc (0 when nothing had to be done). */
+static int mask_written;
+static int apply_masks(int force, int color)
+{
+    struct mask_info now;
+    int rc = 0;
+
+    if (!p_mask_set || !p_mask_get)
+        return -1;
+    if (!mask_active && !mask_written)
+        return 0;                        /* never touched: leave the vendor's state */
+    if (!force && p_mask_get(vi_handle, &now) == 0 && mask_same(&now, &mask_want))
+        return 0;
+    if (p_mask_color_set) {
+        /* Opaque colour (type 0, alpha 0). */
+        static const unsigned char yuv[3][3] = { { 16, 128, 128 }, { 128, 128, 128 }, { 235, 128, 128 } };
+        struct mask_color mc;
+        memset(&mc, 0, sizeof(mc));
+        mc.y = yuv[color][0]; mc.u = yuv[color][1]; mc.v = yuv[color][2];
+        p_mask_color_set(vi_handle, &mc);
+    }
+    rc = p_mask_set(vi_handle, &mask_want);
+    mask_written = mask_active;
+    fprintf(stderr, TAG "isp: privacy masks %s (rc=%d)\n", mask_active ? "set" : "cleared", rc);
+    return rc;
 }
 
 /* 3D NR state: original attributes of the current ISP mode, and ours. */
@@ -206,6 +337,40 @@ static void apply_exposure(int pct, FILE *st)
     if (st) fprintf(st, "EXPOSURE_ORIG=%lu\nEXPOSURE_NOW=%lu\n", exp_orig, ae[0]);
 }
 
+static int mask_rc;
+
+/* Read-only look at the ISP's wide dynamic range (WDR) settings from the
+ * sensor file (AK_ISP_get_wdr_attr, libakispsdk). The ioctl copies the
+ * kernel's struct, whose size this build of the driver decides: the buffer is
+ * oversized and pre-filled so that the size actually written is measured
+ * (SDK header: 2 + 10 x 996 = 9962 bytes). Only reported, never written,
+ * until that layout is confirmed on a camera. */
+#define WDR_BUF 16384
+#define WDR_SDK_BYTES 9962
+#define WDR_SET_BYTES 996
+static void report_wdr(FILE *st)
+{
+    static unsigned char *buf;
+    int (*get)(void *) = (int (*)(void *))dlsym(RTLD_DEFAULT, "AK_ISP_get_wdr_attr");
+    int rc, n, k;
+    unsigned mode, man, link = 0;
+
+    if (!get) { fprintf(st, "WDR_RC=-2\n"); return; }
+    if (!buf && !(buf = malloc(WDR_BUF))) return;
+    memset(buf, 0xa5, WDR_BUF);
+    rc = get(buf);
+    for (n = WDR_BUF; n > 0 && buf[n - 1] == 0xa5; n--) ;
+    fprintf(st, "WDR_RC=%d\nWDR_BYTES=%d\n", rc, n);
+    if (rc != 0 || n > WDR_SDK_BYTES || n < WDR_SDK_BYTES - 64)
+        return;                          /* not the SDK layout: say nothing more */
+    mode = buf[0] | buf[1] << 8;
+    man = buf[2 + 4] | buf[2 + 5] << 8;  /* manual_wdr.wdr_enable */
+    for (k = 0; k < 9; k++)
+        if (buf[2 + (k + 1) * WDR_SET_BYTES + 4] | buf[2 + (k + 1) * WDR_SET_BYTES + 5])
+            link |= 1u << k;
+    fprintf(st, "WDR_MODE=%u\nWDR_MANUAL=%u\nWDR_LINK=0x%03x\n", mode, man, link);
+}
+
 static void write_status(const struct tune *t, const int *rc, int exp_active)
 {
     FILE *st = fopen(status_tmp, "w");
@@ -223,7 +388,13 @@ static void write_status(const struct tune *t, const int *rc, int exp_active)
     if (p_effect_get)
         p_effect_get(vi_handle, EFFECT_HZ, &v);
     fprintf(st, "POWER_HZ=%d\nEXPOSURE_MAX_PCT=%d\nNR3D=%d\n", v, t->exp_max_pct, t->nr3d);
+    {
+        int m, n = 0;
+        for (m = 0; m < MASKS; m++) n += t->mask[m][2] > t->mask[m][0];
+        fprintf(st, "MASKS=%d\nMASK_RC=%d\n", n, mask_rc);
+    }
     apply_nr3d(t->nr3d == 0, st);
+    report_wdr(st);
     if (exp_active) {
         apply_exposure(t->exp_max_pct, st);
     } else if (p_ae_get) {
@@ -266,6 +437,8 @@ static void *isp_thread(void *arg)
             /* Leaving the cap: restore the original once. */
             if (have.exp_max_pct && !want.exp_max_pct)
                 apply_exposure(0, NULL);
+            mask_build(&want);
+            mask_rc = apply_masks(1, want.mask_color);
             /* write_status applies NR3D (off, or restore if we changed it). */
             have = want;
             write_status(&have, rc, have.exp_max_pct != 0);
@@ -275,6 +448,8 @@ static void *isp_thread(void *arg)
                 apply_exposure(have.exp_max_pct, NULL);   /* survive day/night reloads */
             if (have.nr3d == 0)
                 apply_nr3d(1, NULL);
+            if (mask_active)
+                apply_masks(0, have.mask_color);          /* lost on day/night reload? */
         }
         sleep(2);
     }
