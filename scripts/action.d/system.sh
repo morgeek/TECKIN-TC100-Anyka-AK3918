@@ -198,7 +198,7 @@
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
       echo "Service trimming enabled. Non-essential services will stop; reboot for full effect.<br/>"
 
-      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
+      for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode network-monitor; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
         fi

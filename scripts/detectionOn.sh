@@ -16,41 +16,12 @@ if [ "$motion_trigger_led" = true ] ; then
     red_led_blink 4 &
 fi
 
-# Save a snapshot
-if [ "$save_snapshot" = true ] ; then
-	pattern="${save_file_date_pattern:-+%d-%m-%Y_%H.%M.%S}"
-	filename=$(date $pattern).jpg
-	if [ ! -d "$save_dir" ]; then
-		mkdir -p "$save_dir"
-	fi
-	# Limit the number of snapshots without backgrounding extra processes.
-	if [ "$(ls -1 "$save_dir" 2>/dev/null | wc -l)" -ge "$max_snapshots" ]; then
-		oldest_file="$(ls -1tr "$save_dir" 2>/dev/null | awk 'NR==1{print $1; exit}')"
-		if [ -n "$oldest_file" ]; then
-			rm -f "$save_dir/$oldest_file"
-		fi
-	fi
-	snapshot_path="$save_dir/$filename"
-	if ! /mnt/bin/getimage > "$snapshot_path" 2>/dev/null; then
-		snapshot_path=""
-	fi
-fi
-
-# Send emails ...
-if [ "$sendemail" = true ] ; then
-    /mnt/scripts/sendPictureMail.sh&
-fi
-
 # Send a telegram message
 if [ "$send_telegram" = true ]; then
-	if [ "$save_snapshot" = true ] ; then
-		/mnt/bin/telegram p "$snapshot_path"
-	else
-		tg_tmp="/tmp/telegram_image.$$.jpg"
-		/mnt/bin/getimage > "$tg_tmp"
-		/mnt/bin/telegram p "$tg_tmp"
-		rm -f "$tg_tmp"
-	fi
+	tg_tmp="/tmp/telegram_image.$$.jpg"
+	/mnt/bin/getimage > "$tg_tmp"
+	/mnt/bin/telegram p "$tg_tmp"
+	rm -f "$tg_tmp"
 fi
 
 # Persist motion event for local API + optional MQTT publish.

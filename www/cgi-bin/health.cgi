@@ -105,7 +105,7 @@ _loadavg=""; read -r _loadavg _ < /proc/loadavg 2>/dev/null || true
 _uptime_sec="${_up%.*}"
 
 # Build service list: start with known core services, then add any extras from autostart/.
-_core_svcs="rtsp-h26x onvif recording motion-detection motion-snapshot sound-detection mqtt-bridge network-monitor auto-night-detection memory-guard timelapse ftp-server telnet-server syslog-forward telegram-bot"
+_core_svcs="rtsp-h26x onvif motion-detection sound-detection mqtt-bridge network-monitor auto-night-detection memory-guard ftp-server telnet-server syslog-forward telegram-bot"
 _extra_svcs=""
 if [ -d /mnt/config/autostart ]; then
   for _as_f in /mnt/config/autostart/*; do

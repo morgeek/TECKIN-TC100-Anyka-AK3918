@@ -958,28 +958,6 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=motion_detect
 
 ---
 
-### cmd=motion_detection_mail_on / cmd=motion_detection_mail_off
-
-Enables or disables email notification on motion events (writes `sendemail` to `motion.conf`).
-
-```sh
-curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=motion_detection_mail_on" \
-  -H "X-CSRF-Token: <token>"
-```
-
----
-
-### cmd=motion_detection_snapshot_on / cmd=motion_detection_snapshot_off
-
-Enables or disables saving JPEG snapshots on motion events (writes `save_snapshot` to `motion.conf`).
-
-```sh
-curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=motion_detection_snapshot_on" \
-  -H "X-CSRF-Token: <token>"
-```
-
----
-
 ### cmd=conf_motiondetect
 
 Sets motion detection sensitivity and optional LED blink on motion.
@@ -1194,56 +1172,6 @@ Activates Privacy Shield: immediately stops Telegram bot, syslog-forward, mqtt-b
 ```sh
 curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=enable_privacy_shield" \
   -H "X-CSRF-Token: <token>"
-```
-
----
-
-### cmd=conf_timelapse
-
-Configures timelapse capture interval and duration.
-
-**Parameters:**
-
-| Parameter | Description |
-|---|---|
-| `tlinterval` | Capture interval in seconds (numeric) |
-| `tlduration` | Total capture duration in minutes (numeric) |
-
-**Response:** HTML
-
-```sh
-curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
-  -H "X-CSRF-Token: <token>" \
-  --data-urlencode "cmd=conf_timelapse" \
-  --data-urlencode "tlinterval=5" \
-  --data-urlencode "tlduration=60"
-```
-
----
-
-### cmd=conf_recording
-
-Configures motion-triggered recording behavior.
-
-**Parameters:**
-
-| Parameter | Description |
-|---|---|
-| `motion_act` | `1`/`0` — trigger recording on motion |
-| `postrec` | Post-event recording duration (seconds) |
-| `maxduration` | Maximum clip file duration (seconds) |
-| `diskspace` | Reserved free disk space (MB) before stopping |
-
-**Response:** HTML
-
-```sh
-curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
-  -H "X-CSRF-Token: <token>" \
-  --data-urlencode "cmd=conf_recording" \
-  --data-urlencode "motion_act=1" \
-  --data-urlencode "postrec=10" \
-  --data-urlencode "maxduration=300" \
-  --data-urlencode "diskspace=500"
 ```
 
 ---
@@ -1579,15 +1507,12 @@ Returns a JSON health summary for all services, cached for the configured snapsh
   "services": {
     "rtsp-h26x": "running",
     "onvif": "running",
-    "recording": "stopped",
     "motion-detection": "running",
-    "motion-snapshot": "stopped",
     "sound-detection": "stopped",
     "mqtt-bridge": "running",
     "network-monitor": "running",
     "auto-night-detection": "running",
     "memory-guard": "running",
-    "timelapse": "stopped",
     "ftp-server": "running",
     "telnet-server": "running",
     "syslog-forward": "stopped",
@@ -1967,31 +1892,6 @@ curl -k -X POST https://root:pass@192.168.1.50/cgi-bin/upload_audio.cgi \
 
 ---
 
-## GET /cgi-bin/audio_stream.cgi
-
-Streams live microphone audio as WAV.
-
-- Method: `GET` only
-- Response: `audio/wav` — WAV header followed by raw PCM (16 kHz, mono, 16-bit)
-- Maximum 2 concurrent clients; 300 s per-session timeout
-- Uses `arecord` internally
-
-**Error codes (plain text, no WAV header):**
-
-| Code | Meaning |
-|---|---|
-| `METHOD_NOT_ALLOWED` | Not a GET |
-| `AUDIO_CAPTURE_UNAVAILABLE` | `arecord` not available |
-| `TOO_MANY_CLIENTS` | 2 sessions already active |
-| `UNABLE_TO_CREATE_SESSION` | Session slot allocation failed |
-| `FIFO_CREATION_FAILED` | Internal FIFO pipe error |
-
-```sh
-curl http://root:pass@192.168.1.50/cgi-bin/audio_stream.cgi -o stream.wav
-```
-
----
-
 ## GET /cgi-bin/configbackup.cgi
 
 ### cmd=download
@@ -2146,7 +2046,7 @@ In-browser editor for individual config files.
 
 Returns the file content as JSON.
 
-**Allowed files:** `boot.conf`, `mqtt.conf`, `rtspserver.conf`, `recording.conf`, `onvif.conf`, `hostname.conf`, `ntp_srv.conf`, `timezone.conf`, `telegram.conf`, `netmon.conf`, `dns.conf`, `motion.conf`, `timelapse.conf`, `pttvolume.conf`
+**Allowed files:** `boot.conf`, `mqtt.conf`, `rtspserver.conf`, `recording.conf`, `onvif.conf`, `hostname.conf`, `ntp_srv.conf`, `timezone.conf`, `telegram.conf`, `netmon.conf`, `dns.conf`, `motion.conf`, `pttvolume.conf`
 
 **Response:**
 ```json

@@ -512,28 +512,6 @@ motion_detection(){
   esac
 }
 
-# Control the motion detection mail function
-motion_send_mail(){
-  case "$1" in
-  on)
-    rewrite_config /mnt/config/motion.conf sendemail "true"
-    ;;
-  off)
-    rewrite_config /mnt/config/motion.conf sendemail "false"
-    ;;
-  status)
-    status=`awk '/sendemail/' /mnt/config/motion.conf |cut -f2 -d \=`
-    case $status in
-      false)
-        echo "OFF"
-        ;;
-      true)
-        echo "ON"
-        ;;
-    esac
-  esac
-}
-
 black_white()
 {
   case "$1" in
@@ -896,9 +874,6 @@ binary_version() {
     openssl)
       v="$(run_strings "$path" | grep -m1 -E 'OpenSSL [0-9]')"
       ;;
-    ffmpeg-min-recorder)
-      v="$(run_strings "$path" | grep -m1 -E 'version [0-9]+\.[0-9]+\.[0-9]+')"
-      ;;
     monvifd)
       v="$(run_strings "$path" | grep -m1 'Micro ONVIF discovery service')"
       ;;
@@ -930,7 +905,7 @@ binary_version() {
 }
 
 build_binary_versions_block() {
-  for n in busybox curl ffmpeg-min-recorder getflag getimage jq lighttpd min-recorder-list monvifd openssl rwconf setconf telegram v4l2rtspserver; do
+  for n in busybox curl getflag getimage jq lighttpd min-recorder-list monvifd openssl rwconf setconf telegram v4l2rtspserver; do
     ver="$(binary_version "$n")"
     printf '%-20s %s\n' "$n" "$ver"
   done

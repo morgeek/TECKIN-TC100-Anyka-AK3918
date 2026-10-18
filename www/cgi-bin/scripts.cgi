@@ -192,9 +192,9 @@ parse_script_capabilities() {
 # memory-guard / cpu-scaler add "disabled" when their boot.conf key is off.
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
-SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection onvif recording wifi-rescue motion-detection motion-snapshot motion-mail sound-detection telegram-bot timelapse"
+SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection onvif wifi-rescue motion-detection sound-detection telegram-bot"
 SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard cpu-scaler health-snapshot button-actions ftp-server telnet-server syslog-forward"
-FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif recording rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server timelapse memory-guard cpu-scaler wifi-rescue "
+FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server memory-guard cpu-scaler wifi-rescue "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
 # (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID
@@ -246,8 +246,6 @@ fast_toggle_state() {
     night-mode)
       [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] && [ "$(read_first /var/run/ircut)" = 0 ] \
         && [ "$(read_first /var/run/vday)" = 0 ] && _ft_on=1 ;;
-    motion-mail)     [ "$(kv_value /mnt/config/motion.conf sendemail)" = true ] && _ft_on=1 ;;
-    motion-snapshot) [ "$(kv_value /mnt/config/motion.conf save_snapshot)" = true ] && _ft_on=1 ;;
     auto-night-detection) [ "$(/mnt/bin/setconf -g n 2>/dev/null)" = 2 ] && _ft_on=1 ;;
     motion-detection)
       if [ "$(/mnt/bin/setconf -g p 2>/dev/null)" != 0 ]; then
@@ -321,10 +319,10 @@ fast_pidfile_state() {
 
 service_impact_level_for() {
   case "$1" in
-    rtsp-h26x|recording|motion-detection|timelapse)
+    rtsp-h26x|motion-detection)
       echo "heavy"
       ;;
-    onvif|mqtt-bridge|motion-mail|motion-snapshot|telegram-bot|auto-night-detection|network-monitor)
+    onvif|mqtt-bridge|telegram-bot|auto-night-detection|network-monitor)
       echo "med"
       ;;
     *)
@@ -338,14 +336,8 @@ service_impact_hint_for() {
     rtsp-h26x)
       echo "Continuous video encode and streaming load."
       ;;
-    recording)
-      echo "Video writing and rotation can be RAM and IO intensive."
-      ;;
     motion-detection)
       echo "Continuous detection loop uses CPU while active."
-      ;;
-    timelapse)
-      echo "Repeated capture and encoding over long periods."
       ;;
     onvif)
       echo "Adds network discovery and ONVIF control workload."
@@ -353,7 +345,7 @@ service_impact_hint_for() {
     mqtt-bridge)
       echo "Low-to-medium network polling and publish workload."
       ;;
-    motion-mail|motion-snapshot|telegram-bot)
+    telegram-bot)
       echo "Triggered network tasks can spike CPU and RAM briefly."
       ;;
     auto-night-detection|network-monitor)
@@ -449,7 +441,7 @@ generate_allstates_payload() {
         state="timeout"
       elif [ "$status_rc" -eq 1 ]; then
         # Most controlscripts' status() returns 1 when the daemon is not
-        # running (onvif, timelapse, sound-detection, ...): that is "stopped",
+        # running (onvif, sound-detection, ...): that is "stopped",
         # not a failure. Other codes (2 = shell error, 127 = missing command)
         # remain "error".
         state="stopped"

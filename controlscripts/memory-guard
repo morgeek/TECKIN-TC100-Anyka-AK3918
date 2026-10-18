@@ -73,7 +73,7 @@ load_config()
     MEM_GUARD_COOLDOWN_SECONDS="$(sanitize_positive_int "${MEM_GUARD_COOLDOWN_SECONDS:-120}" 120)"
     : "${MEM_GUARD_DROP_CACHES:=1}"
     : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection}"
-    : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
+    : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server motion-detection}"
     : "${MEM_GUARD_EMERGENCY_SERVICES:=}"
 
     [ "$MEM_GUARD_INTERVAL_SECONDS" -lt 5 ] && MEM_GUARD_INTERVAL_SECONDS=5
@@ -92,7 +92,7 @@ load_config()
     : "${MEM_WATCHDOG_ENABLE:=0}"
     : "${MEM_WATCHDOG_INTERVAL_SECONDS:=40}"
     : "${MEM_WATCHDOG_MAX_RETRIES:=3}"
-    : "${MEM_WATCHDOG_SERVICES:=web-server rtsp-h26x recording onvif}"
+    : "${MEM_WATCHDOG_SERVICES:=web-server rtsp-h26x onvif}"
 
     [ "$MEM_WATCHDOG_INTERVAL_SECONDS" -lt 10 ] && MEM_WATCHDOG_INTERVAL_SECONDS=10
     [ "$MEM_WATCHDOG_MAX_RETRIES" -lt 1 ] && MEM_WATCHDOG_MAX_RETRIES=1

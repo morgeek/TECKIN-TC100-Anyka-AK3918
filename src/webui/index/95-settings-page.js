@@ -65,7 +65,6 @@
             var rsch = sys.reboot_schedule || {};
             var mguard = sys.mem_guard || {};
             var bootCfg = res.boot || {};
-            var timelapseCfg = res.timelapse || {};
 
             setVal('video_size0', (vmain.width || 1920) + 'x' + (vmain.height || 1080));
             setVal('video_codec0', vmain.codec);
@@ -151,9 +150,6 @@
             setVal('reboot_schedule_min', rsch.min);
             setVal('reboot_schedule_dow', rsch.dow);
 
-            // 7. Timelapse Studio
-            setVal('tlinterval', timelapseCfg.interval);
-            setVal('tlduration', timelapseCfg.duration);
 
             // 8. Telegram & Syslog
             setVal('telegram_enable', tel.enabled);

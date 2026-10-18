@@ -267,7 +267,6 @@
                 <div class='card-content'>
                     <p class="help mb-3">Switched on or off at once, and kept for the next boots.</p>
                     <div class="field svc-toggle-field"><input class="switch is-small svc-toggle" id="svc_motion-detection" type="checkbox" data-service="motion-detection" disabled><label for="svc_motion-detection">Motion detection (MQTT event)</label> <small class="svc-toggle-state"></small></div>
-                    <div class="field svc-toggle-field needs-sd"><input class="switch is-small svc-toggle" id="svc_motion-snapshot" type="checkbox" data-service="motion-snapshot" disabled><label for="svc_motion-snapshot">Save a picture on motion</label> <small class="svc-toggle-state"></small></div>
                 </div>
             </div>
             <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
@@ -348,32 +347,6 @@
                     <p class="help">Eject before taking the card out: recording pauses, the files are closed and the card is released.</p>
                 </div>
             </div>
-            <form id="formTimelapse" action="cgi-bin/action.cgi?cmd=conf_timelapse" method="post" class="mt-4">
-                <div class='card status_card needs-sd'>
-                    <header class='card-header'><p class='card-header-title'>Timelapse</p></header>
-                    <div class='card-content'>
-                        <div class="field svc-toggle-field"><input class="switch is-small svc-toggle" id="svc_timelapse" type="checkbox" data-service="timelapse" disabled><label for="svc_timelapse">Timelapse capture running</label> <small class="svc-toggle-state"></small></div>
-                        <div class="columns">
-                            <div class="column is-half">
-                                <label class="label is-small">Capture Interval (s)</label>
-                                <div class="field has-addons">
-                                    <div class="control is-expanded"><input class="input is-small" name="tlinterval" id="tlinterval" type="number" placeholder="10"></div>
-                                    <div class="control"><a class="button is-small is-static">sec</a></div>
-                                </div>
-                            </div>
-                            <div class="column is-half">
-                                <label class="label is-small">Total Duration (min)</label>
-                                <div class="field has-addons">
-                                    <div class="control is-expanded"><input class="input is-small" name="tlduration" id="tlduration" type="number" placeholder="0"></div>
-                                    <div class="control"><a class="button is-small is-static">min</a></div>
-                                </div>
-                                <p class="help">0 for unlimited capture</p>
-                            </div>
-                        </div>
-                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Initialize Timelapse</button></div>
-                    </div>
-                </div>
-            </form>
         </div>
 
 

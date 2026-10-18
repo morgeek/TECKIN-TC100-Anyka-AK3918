@@ -15,12 +15,10 @@
 #   rtsp-h26x             — RTSP H.264/H.265 stream server
 #   motion-detection      — firmware motion detection + event monitor
 #   sound-detection       — audio level monitor and MQTT event publisher
-#   recording             — continuous / motion-activated SD card recording
-#   timelapse             — periodic snapshot timelapse recorder
 #   ftp-server            — BusyBox FTP server on /
 #   telnet-server         — BusyBox telnetd shell access
 #   telegram-bot          — Telegram bot command listener
 #   mqtt-bridge           — MQTT command-to-controlscript bridge
 #   network-monitor       — connectivity watchdog / auto-reconnect
 #   memory-guard          — low-memory process reaper
-ENABLED_CAM_CONTROL_SWITCHES="auto-night-detection night-mode front-led rtsp-h26x motion-detection recording ftp-server telnet-server"
+ENABLED_CAM_CONTROL_SWITCHES="auto-night-detection night-mode front-led rtsp-h26x motion-detection ftp-server telnet-server"

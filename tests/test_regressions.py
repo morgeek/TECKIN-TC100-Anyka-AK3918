@@ -501,6 +501,17 @@ class Regressions(unittest.TestCase):
                 if 'tcp_tw_recycle' in line and not line.lstrip().startswith('#'):
                     self.assertRegex(line, r'echo 0 > /proc/sys/net/ipv4/tcp_tw_recycle', str(p))
 
+    def test_removed_features_stay_removed(self):
+        # Removed in 2.1.9 (unused with Frigate, or needing internet): the old
+        # ffmpeg recorder, timelapse, motion mail and snapshots, ONVIF event
+        # push, the non-functional audio_stream.cgi.
+        for rel in ('controlscripts/recording', 'controlscripts/timelapse', 'controlscripts/motion-mail',
+                    'controlscripts/motion-snapshot', 'scripts/timelapse.sh', 'scripts/sendPictureMail.sh',
+                    'scripts/onvif-notify.sh', 'www/cgi-bin/audio_stream.cgi', 'bin/ffmpeg-min-recorder'):
+            self.assertFalse((ROOT / rel).exists(), rel)
+        self.assertNotIn('onvif-notify', (ROOT / 'scripts/motion-event.sh').read_text())
+        self.assertNotIn('sendPictureMail', (ROOT / 'scripts/detectionOn.sh').read_text())
+
     def test_bundled_binaries_unchanged(self):
         count = 0
         for line in (ROOT / 'config/packages.lock.dist').read_text().splitlines():
@@ -508,7 +519,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 30)
+        self.assertEqual(count, 29)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -594,8 +605,7 @@ class Regressions(unittest.TestCase):
 
     def test_date_formatters(self):
         for path, name, pattern in [
-            ('www/cgi-bin/configbackup.cgi', '_format_backup_tag', rb'\d{8}-\d{6}\n'),
-            ('scripts/timelapse.sh', '_format_datetime', rb'\d{4}-\d\d-\d\d_\d{6}\n')]:
+            ('www/cgi-bin/configbackup.cgi', '_format_backup_tag', rb'\d{8}-\d{6}\n')]:
             r = run(function(path, name) + '\n' + name + ' 1788973200')
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertRegex(r.stdout, pattern)
@@ -3460,12 +3470,12 @@ class CameraPanel(unittest.TestCase):
                        AUTOSTART_DIR=str(d))
             html = subprocess.run(['sh', '-c', src], capture_output=True, env=env, timeout=30).stdout.decode()
             rows = re.findall(r"<tr data-script-name='([^']+)'", html)
-            for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection', 'onvif', 'recording'):
+            for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection', 'onvif'):
                 self.assertNotIn(hidden, rows)
             system = html.split("data-group='system'")[1].split("data-group='features'")[0]
             self.assertIn("data-script-name='rtsp-h26x'", system)
             self.assertIn("data-script-name='mqtt-bridge'", system)
-            for feature in ('motion-detection', 'sound-detection', 'timelapse', 'telegram-bot'):
+            for feature in ('motion-detection', 'sound-detection', 'telegram-bot'):
                 self.assertNotIn(feature, rows)   # switched in their Settings tab
             self.assertNotIn('Camera Controls', html)
 
@@ -3563,7 +3573,7 @@ class SettingsLayout(unittest.TestCase):
         self.assertIn('id="formDayNight"', tab('tab-daynight')); self.assertIn('data-cam-panel', tab('tab-daynight'))
         self.assertIn('id="formAudioAdvanced"', tab('tab-audio'))
         self.assertIn('data-service="motion-detection"', tab('tab-detect'))
-        self.assertIn('id="formLocalRec"', tab('tab-record')); self.assertIn('id="formTimelapse"', tab('tab-record'))
+        self.assertIn('id="formLocalRec"', tab('tab-record'))
         self.assertIn('id="fwuFile"', tab('tab-backup')); self.assertNotIn('id="fwuFile"', tab('tab-system'))
         for t in tabs:
             self.assertEqual(html.count('id="%s"' % t), 1, t)
@@ -3572,7 +3582,7 @@ class SettingsLayout(unittest.TestCase):
         self.assertEqual(dup, [])
         # every form that existed before the move is still there
         for form in ('formVideoAdvanced', 'formVideoSub', 'formAudioAdvanced', 'formISP', 'formIspTune', 'formMQTT',
-                     'formFrigateLive', 'formDetect', 'formTimelapse', 'formTelegram', 'formSyslog', 'formNetwork',
+                     'formFrigateLive', 'formDetect', 'formTelegram', 'formSyslog', 'formNetwork',
                      'formTime', 'formTuning', 'formLeds', 'formRebootSchedule', 'preset_dropdown', 'fwuFile'):
             self.assertIn('id="%s"' % form, html)
         self.assertIn('network.cgi?part=settings', html)

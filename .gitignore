@@ -5,7 +5,6 @@
 # the camera seeds live copies from .dist at boot via install_config.
 config/mqtt.conf
 config/user.pwd
-config/timelapse.conf
 wpa_supplicant.conf
 # Last-known-good snapshots and corruption quarantine written by the camera
 config/.lkg/

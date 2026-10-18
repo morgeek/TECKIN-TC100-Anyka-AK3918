@@ -49,6 +49,16 @@ A lighter RTSP server, sound both ways, motion zones.
 - **The camera's own motion detection is off by default** (`mdenabled=0` in `rtspserver.conf.dist`): Frigate does the detection. It saves the detector's work in the video process. Turn it on in Services when its MQTT events or pictures on motion are used. Cameras already set up keep their setting.
 - `NR3D_STRENGTH` (test, `isp_tune.conf`): scales the 3D noise-reduction strengths, mapped on the camera's 112-byte sets. Not in the web page yet.
 
+### Removed
+- Features unused with Frigate, or that need internet, while the camera stays offline:
+  - the old recorder (`controlscripts/recording`, `bin/ffmpeg-min-recorder`), replaced by the local backup recording;
+  - timelapse;
+  - motion mail and motion snapshots (`sendPictureMail.sh`, `motion-mail`, `motion-snapshot`);
+  - ONVIF event push (`onvif-notify.sh`). The ONVIF service itself stays;
+  - `audio_stream.cgi`, which did not work. The lite RTSP server carries the sound.
+
+  Telegram stays in the code, off and hidden in flash mode.
+
 ### Fixed
 - **SD card format interrupted by a restart.** A code update rebooted a camera while it was formatting its card: the new partition table was written, but there was no file system, and the card then only showed as "no readable file system".
   - Code updates are now refused while a format runs.

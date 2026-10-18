@@ -1682,7 +1682,7 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
       ensure_low_cpu_runtime_tuning
-      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
+      for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode network-monitor; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
         fi

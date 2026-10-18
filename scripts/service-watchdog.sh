@@ -134,7 +134,7 @@ recover_service()
 _wd_graceful_shutdown() {
   # Stop services that may be mid-write before rebooting.
   sync 2>/dev/null || true
-  for _svc in recording mqtt-bridge rtsp-h26x; do
+  for _svc in mqtt-bridge rtsp-h26x; do
     [ -x "/mnt/controlscripts/$_svc" ] && \
       /mnt/controlscripts/"$_svc" stop >/dev/null 2>&1 || true
   done

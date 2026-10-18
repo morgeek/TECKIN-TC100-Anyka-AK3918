@@ -132,13 +132,6 @@ if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
   /mnt/scripts/mqtt-bridge.sh publish "$@" >/dev/null 2>&1 || true
 fi
 
-if [ -x /mnt/scripts/onvif-notify.sh ]; then
-  case "$event_type" in
-    motion_on|motion_off)
-      /mnt/scripts/onvif-notify.sh "$event_type" "$ts_utc" >/dev/null 2>&1 || true
-      ;;
-  esac
-fi
 
 # Telegram snapshot on motion_on — opt-in via TELEGRAM_MOTION_SNAPSHOT=1 in telegram.conf
 if [ "$event_type" = "motion_on" ] && \
