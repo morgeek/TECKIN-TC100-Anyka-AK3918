@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.5] — 2026-10-18
+
+Reliability.
+
+### Added
+- **Network guard** (`scripts/net-guard.sh`, checked every minute by `web-guard.sh`): when the default gateway has not answered for `NET_GUARD_MIN` minutes (15) while the rest of the system runs, the camera reboots. The hardware watchdog does not catch that case (its feeder keeps running): a test camera stayed off the network for over 20 minutes until it was unplugged. If the reboot itself hangs, the watchdog feeder is stopped after 2 min so the hardware resets the camera. After such a reboot the next limit doubles (15 → 30 → 60 → 120 min) until the network has been back for 10 min, so a router switched off for the night costs a few reboots. Never while the Wi-Fi rescue access point is up. `NET_GUARD=0` turns it off.
+- **Build identity in code packages**: the header now carries the build date and the git commit (`flash-code.sh info`). Settings → Firmware update shows them for the installed code and for an uploaded package, and warns when a package has the same version as the installed code but another build (an older file with the same name was nearly installed). Older packages and the `/usr` copy of `flash-code.sh` still read the new header.
+
+### Fixed
+- **Remote syslog got everything.** BusyBox `syslogd -R` sends every message to the remote host before its own filters (they only apply to the local file), so the remote server also received kernel and daemon info/debug lines, and bursts line by line. A small forwarder (`tc100-logfwd`, 10 KB, `src/logfwd`) now follows the filtered local log instead: notice and above plus logins; the same message (numbers ignored) at most once a minute with a "repeated N times" line after; at most 60 lines a minute. It ships in the code package; without it (older system image) the camera falls back to `syslogd -R`.
+
+---
+
 ## [2.1.4] — 2026-10-18
 
 ### Fixed

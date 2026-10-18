@@ -93,6 +93,8 @@ case "${0##*/}" in
             run) sleep "${WG_FIRST:-60}"; _i=0
                  while :; do
                      wg_once
+                     # Network loss with the rest of the system running (net-guard.sh).
+                     sh "${WG_NETGUARD:-/mnt/scripts/net-guard.sh}" once </dev/null >/dev/null 2>&1
                      if [ $((_i % 10)) -eq 0 ]; then
                          _last=$(sed -n 's/^test_ts=//p' /tmp/sd-health 2>/dev/null); _now=$(date +%s)
                          _up=$(cut -d. -f1 /proc/uptime)

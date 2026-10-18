@@ -2,6 +2,22 @@
 
 Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGELOG.md).
 
+## Remote syslog (2.1.5)
+
+BusyBox `syslogd -R` forwards every message it receives *before* applying its
+own `-l` level and `-f` rules, which only filter the local file
+(sysklogd/syslogd.c). With remote syslog on, a NAS therefore received the
+kernel and daemon info/debug lines as well, and each burst line by line. From
+2.1.5 syslogd only writes the local log (`/var/log/messages`, notice and above
+plus logins) and `tc100-logfwd` forwards that file: one copy of a repeated
+message per minute (numbers ignored, so `sjf:4619178` and `sjf:4619188` are one
+message) followed by "last message repeated N times", and 60 lines a minute at
+most.
+
+A NAS rule that sends an e-mail for each received error doubles every camera
+error with its own "Failed to send email" entry when its mail settings are
+wrong (Synology Log Center: check the notification rule and the SMTP account).
+
 ## Reading the camera logs (2.1.2)
 
 Logs of two cameras over a day (2026-10-16) showed that almost every line marked
