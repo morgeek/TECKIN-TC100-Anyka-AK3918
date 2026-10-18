@@ -11,9 +11,10 @@
  *
  * URLs: rtsp://<camera>:<port>/video0 (main encoder) and /video1 (secondary),
  * also /video0_unicast and /video1_unicast like the vendor server.
- * Authentication: HTTP Digest (MD5) with the user and password given to the
- * vendor server ("-U user:pass", read from the command line when the library
- * is loaded, before tc100fix hides it). No credentials there = no
+ * Authentication: HTTP Digest (MD5) with TC100FIX_RTSP_USER/TC100FIX_RTSP_PASS
+ * when both are set, otherwise the user and password given to the vendor
+ * server ("-U user:pass", read from the command line when the library is
+ * loaded, before tc100fix hides it). No credentials at all = no
  * authentication, as with the vendor server.
  *
  * Transport: TCP interleaved only (go2rtc, ffmpeg and Frigate use it by
@@ -757,7 +758,13 @@ static void read_cred(void)
 
 __attribute__((constructor)) static void rtsp_ctor(void)
 {
-    if (getenv("TC100FIX_RTSP_PORT")) read_cred();
+    const char *u = getenv("TC100FIX_RTSP_USER"), *p = getenv("TC100FIX_RTSP_PASS");
+    if (!getenv("TC100FIX_RTSP_PORT")) return;
+    /* Its own account (RTSP_LITE_USER/RTSP_LITE_PASS), else the main server's. */
+    if (u && p && u[0] && p[0] && strlen(u) < sizeof(cred_user) && strlen(p) < sizeof(cred_pass)) {
+        strcpy(cred_user, u); strcpy(cred_pass, p);
+    } else
+        read_cred();
 }
 #endif
 

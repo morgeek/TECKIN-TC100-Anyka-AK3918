@@ -185,8 +185,14 @@ start()
     # the same process, fed by the encoder output; off unless a port is set.
     case "$RTSP_LITE_PORT" in
       ''|0|*[!0-9]*) ;;
-      *) [ "$RTSP_LITE_PORT" != "$(read_config rtspserver.conf PORT 2>/dev/null)" ] &&
-           TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_PORT=$RTSP_LITE_PORT" ;;
+      *) if [ "$RTSP_LITE_PORT" != "$(read_config rtspserver.conf PORT 2>/dev/null)" ]; then
+           TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_PORT=$RTSP_LITE_PORT"
+           # Its own account when both are set (letters, digits, . _ - only).
+           case "$RTSP_LITE_USER$RTSP_LITE_PASS" in *[!A-Za-z0-9._-]*) ;; *)
+             [ -n "$RTSP_LITE_USER" ] && [ -n "$RTSP_LITE_PASS" ] &&
+               TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_USER=$RTSP_LITE_USER TC100FIX_RTSP_PASS=$RTSP_LITE_PASS" ;;
+           esac
+         fi ;;
     esac
     case "$ISP_TUNE" in 1|true|yes|on|enabled)
       install_config "$CONFIGPATH/isp_tune.conf"
