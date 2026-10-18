@@ -28,6 +28,23 @@ def function(path, name):
         raise AssertionError((path, name))
     return match.group(0)
 
+def action_cgi_text():
+    """action.cgi and its command files (scripts/action.d), as one text."""
+    parts = [(ROOT / 'www/cgi-bin/action.cgi').read_text()]
+    parts += [f.read_text() for f in sorted((ROOT / 'scripts/action.d').glob('*.sh'))]
+    return '\n'.join(parts)
+
+def action_arm(name):
+    """The text of one action.cgi command arm, up to the next arm."""
+    for f in sorted((ROOT / 'scripts/action.d').glob('*.sh')):
+        lines = f.read_text().split('\n')
+        heads = [i for i, l in enumerate(lines) if re.match(r'^ {4,5}[^ #()][^()]*\)\s*$', l)]
+        for k, i in enumerate(heads):
+            if name in lines[i].strip()[:-1].split('|'):
+                end = heads[k + 1] if k + 1 < len(heads) else len(lines)
+                return '\n'.join(lines[i:end])
+    raise AssertionError(name)
+
 def run(code, data=None, env=None, timeout=8):
     return subprocess.run(['/bin/bash', '-c', code], input=data,
                           capture_output=True, timeout=timeout, env=env)
@@ -105,11 +122,8 @@ class Regressions(unittest.TestCase):
                 self.assertEqual(result['restart'], 'verified')
 
     def test_video_audio_write_failure_never_reports_success(self):
-        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        for command, following in [('set_video_params', 'conf_audioin'), ('conf_audioin', 'isp_pro')]:
-            a = source.index('    ' + command + ')')
-            b = source.index('    ' + following + ')', a)
-            block = source[a:b].replace('/mnt/bin/rwconf', 'rwconf')
+        for command in ('set_video_params', 'conf_audioin'):
+            block = action_arm(command).replace('/mnt/bin/rwconf', 'rwconf')
             code = function('www/cgi-bin/action.cgi', 'sanitize_int_range') + '\n'
             code += 'rwconf() { return 1; }; wants_json_response() { return 0; }; schedule_rtsp_restart() { echo RESTART; };\n'
             code += '''json_body_err() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }; json_body_ok() { echo SUCCESS; };\n'''
@@ -438,7 +452,7 @@ class Regressions(unittest.TestCase):
         self.assertEqual(run(code).returncode, 0)
 
     def test_audio_write_targets_audio_not_video(self):
-        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        source = action_cgi_text()
         a = source.index('    conf_audioin)'); b = source.index('    isp_pro)', a)
         block = source[a:b].replace('/mnt/bin/rwconf', 'rwconf')
         args = self.base / 'rwconf-args'
@@ -472,7 +486,7 @@ class Regressions(unittest.TestCase):
         html = (ROOT / 'www/settings.html').read_text()
         form = html[html.index('id="formDetect"'):html.index('</form>', html.index('id="formDetect"'))]
         names = set(re.findall(r'name="([^"]+)"', form))
-        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        cgi = action_cgi_text()
         handler = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
         for n in names:
             self.assertIn('F_' + n, handler, n)
@@ -772,7 +786,7 @@ class Regressions(unittest.TestCase):
         self.assertIn('50afb76d22a1341366306dccffd2d671', patcher)
 
     def test_stream_profile_health_uses_raw_rtsp_describe(self):
-        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        source = action_cgi_text()
         start = source.index('rtsp_strict_describe_check() {')
         end = source.index('AUTO_STREAM_SELFTEST_BLOCKING_FAIL=', start)
         probe = source[start:end]
@@ -1724,7 +1738,7 @@ class JsonFlat(unittest.TestCase):
 
     def test_no_jq_left_in_flash_paths(self):
         for rel in ('www/cgi-bin/config_exchange.cgi', 'www/cgi-bin/action.cgi', 'scripts/event-logger.sh', 'scripts/mqtt-bridge.sh'):
-            text = (ROOT / rel).read_text()
+            text = action_cgi_text() if rel.endswith('action.cgi') else (ROOT / rel).read_text()
             self.assertNotRegex(text, r'(/mnt/bin/jq|JQ_BIN|command -v jq)', rel)
         self.assertIn('jq|', (ROOT / 'src/flash/stage-tc100.sh').read_text())
 
@@ -2030,7 +2044,7 @@ class PasswordsStayOffTheBrowser(unittest.TestCase):
         self.assertIn("field.type !== 'password'", restore)
 
     def test_password_command_refuses_unsafe_characters(self):
-        src = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        src = action_cgi_text()
         block = src[src.index('    set_all_password)'):src.index('all_password "$password"')]
         pattern = re.search(r'\n        (\*\[.*?\]\*)\|', block).group(1)
         for pw, ok in (('Good-pass1', True), ('a b', False), ('a"b', False), ("a'b", False), ('a$b', False),
@@ -2325,7 +2339,7 @@ class SdCard(unittest.TestCase):
         self.assertIn('no card', self.run_sd('format').stdout)
 
     def test_web_side(self):
-        a = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        a = action_cgi_text()
         for c in ('sd_card_info)', 'sd_card_format)', 'sd_card_mount)', 'sd_card_ack)'):
             self.assertIn(c, a)
         self.assertIn('local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', a)          # only the read is CSRF-free
@@ -2343,7 +2357,7 @@ class RtspServerChoice(unittest.TestCase):
         import json
         html = (ROOT / 'www/settings.html').read_text()
         form = html[html.index('id="formRtspServer"'):html.index('</form>', html.index('id="formRtspServer"'))]
-        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        cgi = action_cgi_text()
         h = cgi[cgi.index('    set_rtsp_server)'):cgi.index('    ;;', cgi.index('    set_rtsp_server)'))]
         for n in set(re.findall(r'name="([^"]+)"', form)):
             self.assertIn('F_' + n, h, n)
@@ -2417,7 +2431,7 @@ class MotionZones(unittest.TestCase):
         self.assertIn('sensitivity=70', vendor)
 
     def run_cgi_block(self, fields, running=True):
-        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        cgi = action_cgi_text()
         h = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
         block = h[h.index('      if [ -n "${F_md_zone_form:-}" ]; then'):]
         info = cgi[cgi.index('    md_zones_info)') + len('    md_zones_info)'):cgi.index('    ;;', cgi.index('    md_zones_info)'))]
@@ -3380,7 +3394,7 @@ class WifiTxt(unittest.TestCase):
         self.assertIn('wifi-txt.sh" apply "$M/wifi.txt" "$P/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
         self.assertIn('ln -s "$P/wpa_supplicant.conf" "$M/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
         self.assertIn('wifi-txt.sh apply /mnt/wifi.txt "$WIFI_CONFIG"', (ROOT / 'autorun.sh').read_text())
-        self.assertIn('_wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf', (ROOT / 'www/cgi-bin/action.cgi').read_text())
+        self.assertIn('_wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf', action_cgi_text())
 
 
 class CameraPanel(unittest.TestCase):
@@ -3477,15 +3491,15 @@ class SettingsByUse(unittest.TestCase):
     """isp_pro split between Image and Day/night; local recording commands."""
 
     def test_isp_pro_writes_only_what_was_posted(self):
-        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        block = text[text.index('    isp_pro)'):text.index('    set_local_recording)')]
+        text = action_cgi_text()
+        block = action_arm('isp_pro')
         self.assertIn('if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then', block)
         self.assertIn('if [ -n "${F_imageFlip}" ]; then', block)
         self.assertLess(block.index('if [ -n "${F_daynightlum}'), block.index('setconf -k a'))
         self.assertLess(block.index('if [ -n "${F_imageFlip}" ]'), block.index('setconf -k f'))
 
     def test_local_recording_commands(self):
-        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        text = action_cgi_text()
         self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', text)     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
@@ -3583,15 +3597,15 @@ class FrigateLiveAndSyslog(unittest.TestCase):
     """Settings: Frigate live link and remote syslog host, both written to sourced/parsed config."""
 
     def test_syslog_host_is_validated(self):
-        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        block = text[text.index('    set_syslog_config)'):text.index('    set_frigate_live)')]
+        text = action_cgi_text()
+        block = action_arm('set_syslog_config')
         self.assertIn('*[!A-Za-z0-9.:-]*)', block)
         self.assertLess(block.index('syslog_err'), block.index('rewrite_config'))
 
     def test_frigate_live_link_in_statusline(self):
         state = (ROOT / 'www/cgi-bin/state.cgi').read_text()
         self.assertIn('\\"frigate_live\\":\\"$frigate_live\\"', state)
-        action = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        action = action_cgi_text()
         self.assertIn('/mnt/config/frigate_live.conf', action)
         self.assertIn('id="live_frigate"', (ROOT / 'www/index.html').read_text())
 
@@ -3813,6 +3827,67 @@ class ServicesAndStatus(unittest.TestCase):
                 self.assertEqual(r.stdout.decode().strip('\n'), want, body)
         s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
         self.assertIn('\\"wifi_qual\\":$wifi_qual_json', s)
+
+class ActionCommandFiles(unittest.TestCase):
+    """action.cgi only reads the file of the requested command (scripts/action.d)."""
+
+    ARM = re.compile(r'^ {4,5}([^ #()\n][^()\n]*)\)[ \t]*$', re.M)
+
+    def routes(self):
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        block = cgi[cgi.index('Each command lives in scripts/action.d'):]
+        block = block[:block.index('  fi\n')]
+        out = {}
+        for pats, group in re.findall(r'^    ([^ *][^)]*)\)\n      _action_group=([a-z]+) ;;$', block, re.M):
+            for p in pats.split('|'):
+                self.assertNotIn(p, out, p)
+                out[p] = group
+        return out
+
+    def test_every_command_is_routed_to_the_file_that_has_it(self):
+        routes = self.routes()
+        found = {}
+        for f in sorted((ROOT / 'scripts/action.d').glob('*.sh')):
+            for pats in self.ARM.findall(f.read_text()):
+                for p in pats.split('|'):
+                    self.assertNotIn(p, found, p)
+                    found[p] = f.stem
+        self.assertEqual(found, routes)
+        self.assertGreater(len(routes), 80)
+
+    def test_no_command_left_in_action_cgi(self):
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        main = cgi[cgi.index('if [ -n "$F_cmd" ]; then'):]
+        # only the routing patterns are left: each one is followed by its group
+        self.assertEqual(len(self.ARM.findall(main)), main.count('      _action_group='))
+        self.assertNotIn('    showlog)\n      if', main)
+        self.assertIn('. "/mnt/scripts/action.d/$_action_group.sh"', main)
+        # the checks run before any command file is read
+        self.assertLess(main.index('csrf_check'), main.index('_action_group='))
+
+    def test_files_parse_with_the_camera_shell(self):
+        for f in sorted((ROOT / 'scripts/action.d').glob('*.sh')):
+            r = subprocess.run(['sh', '-n', str(f)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, (f.name, r.stderr))
+
+    @unittest.skipUnless(shutil.which('busybox'), 'busybox')
+    def test_read_commands_answer_through_their_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            mnt = Path(d) / 'mnt'
+            shutil.copytree(ROOT / 'www', mnt / 'www')
+            shutil.copytree(ROOT / 'scripts', mnt / 'scripts')
+            (mnt / 'config').mkdir()
+            (mnt / 'config/pttvolume.conf').write_text('55\n')
+            cgi = mnt / 'www/cgi-bin/action.cgi'
+            cgi.write_text(cgi.read_text().replace('/mnt/', str(mnt) + '/'))
+            def get(q):
+                env = dict(os.environ, REQUEST_METHOD='GET', QUERY_STRING=q, REMOTE_ADDR='127.0.0.%d' % (len(q) % 200 + 2))
+                return subprocess.run(['busybox', 'sh', str(cgi)], cwd=d, env=env, capture_output=True,
+                                      text=True, timeout=20).stdout
+            self.assertIn('"message":"55"', get('cmd=get_ptt_vol&format=json'))
+            self.assertIn('"zones":[]', get('cmd=md_zones_info&format=json'))
+            self.assertIn('"ssid"', get('cmd=wifi_get_ssid&format=json'))
+
 
 if __name__ == '__main__':
     unittest.main()

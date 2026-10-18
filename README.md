@@ -363,6 +363,7 @@ VERSION             Firmware version
 bin/ lib/           ARM binaries and libraries (SD card mode)
 www/                Web interface; www/cgi-bin/ are shell CGIs
 scripts/            Daemons and tools (flash-install.sh, flash-code.sh, flashboot.sh, wifi-txt.sh, rec-storage.sh…)
+  action.d/         The web commands of www/cgi-bin/action.cgi, one file per group
 controlscripts/     Services, started and stopped from the web page
 config/             Templates (*.dist) and boot scripts (config/autostart/)
 wifitest/           The SD card boot hook
