@@ -53,6 +53,16 @@
                             <div class="column is-half"><label class="label is-small" for="isp_power_hz">Mains frequency (anti-flicker)</label><div class="select is-small is-fullwidth"><select name="isp_power_hz" id="isp_power_hz"><option value="">Unchanged</option><option value="50">50 Hz (Europe)</option><option value="60">60 Hz</option></select></div></div>
                             <div class="column is-half"><label class="label is-small" for="isp_exposure_max_pct">Exposure time cap <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" id="isp_exposure_max_pct_out">off</output></label><input name="isp_exposure_max_pct" id="isp_exposure_max_pct" type="range" min="0" max="100" step="5" value="0" style="width:100%"><p class="help">Limits motion blur at night (image gets darker). 0 = no cap; otherwise 10–100 % of the sensor value.</p></div>
                         </div>
+                        <div class="is-divider" data-content="Privacy masks"></div>
+                        <p class="help mb-2">Drag on the picture to hide up to 4 areas (a neighbour's window, a street). The camera paints them before encoding: they are gone from the stream, the snapshots, the recordings and what Frigate sees, at no CPU cost. Saving a mask switches live tuning on.</p>
+                        <div class="mask-editor" id="mask_editor"><img id="mask_preview" alt="Current camera picture" draggable="false"><div class="mask-layer" id="mask_layer"></div></div>
+                        <input type="hidden" name="isp_mask_form" value="1"><input type="hidden" name="isp_mask1"><input type="hidden" name="isp_mask2"><input type="hidden" name="isp_mask3"><input type="hidden" name="isp_mask4">
+                        <div class="field is-grouped is-grouped-multiline mt-2">
+                            <div class="control"><div class="select is-small"><select name="isp_mask_color" id="isp_mask_color" aria-label="Mask colour"><option value="black">Black</option><option value="gray">Grey</option><option value="white">White</option><option value="mosaic">Mosaic</option></select></div></div>
+                            <div class="control"><button class="button is-small is-light" type="button" id="mask_clear">Remove all masks</button></div>
+                            <div class="control"><button class="button is-small is-light" type="button" id="mask_reload">Refresh picture</button></div>
+                            <div class="control"><span class="tag is-light" id="mask_count">0 / 4</span></div>
+                        </div>
                         <p class="help" id="isp_tune_applied" role="status"></p>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply image tuning</button></div>
                     </div>

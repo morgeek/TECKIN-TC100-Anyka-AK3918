@@ -16,3 +16,9 @@ EXPOSURE_MAX_PCT=
 # frame rate unchanged, bitrate +39 % (the encoder spends it on noise) —
 # leave it on unless testing.
 #NR3D=0
+# Hardware privacy masks, drawn in Settings → Image: up to 4 areas,
+# x1,y1,x2,y2 in percent of the picture (0,0 = top left). Painted by the ISP
+# before encoding (streams, snapshots, recordings, Frigate), no CPU cost.
+# MASK_COLOR: black, gray, white or mosaic.
+#MASK1=0,0,25,30
+MASK_COLOR=black
