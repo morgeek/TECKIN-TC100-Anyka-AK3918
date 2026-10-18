@@ -252,6 +252,8 @@ class Regressions(unittest.TestCase):
             ({'VENDOR_PRINT_LEVEL': '1'}, 'TC100FIX_PRINT_LEVEL=1'),
             ({'VENDOR_PRINT_LEVEL': '12'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
+            ({'RTSP_PROC_IDLE_MS': '20', 'RTSP_PROC_BUSY_MS': '5'}, 'TC100FIX_PROC_IDLE_MS=20 TC100FIX_PROC_BUSY_MS=5'),
+            ({'RTSP_PROC_IDLE_MS': 'x'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': 'x'}, ''),
             ({'RTSP_DAYNIGHT_HOLD_S': '10', 'RTSP_DAYNIGHT_DWELL_S': '120'},
              'TC100FIX_DAYNIGHT_HOLD_S=10 TC100FIX_DAYNIGHT_DWELL_S=120'),
@@ -273,7 +275,7 @@ class Regressions(unittest.TestCase):
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
                     'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
                     'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1',
-                    'RTSP_SERVER': '', 'RTSP_PORT_NUM': '554', 'PORT': '-P 554', 'TEST_LIB': '/nonexistent'}
+                    'RTSP_SERVER': '', 'RTSP_PORT_NUM': '554', 'RTSP_PROC_IDLE_MS': '', 'RTSP_PROC_BUSY_MS': '', 'PORT': '-P 554', 'TEST_LIB': '/nonexistent'}
             vals.update(env)
             code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             if 'RTSP_SERVER' in env:

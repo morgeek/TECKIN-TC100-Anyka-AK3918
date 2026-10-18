@@ -177,6 +177,9 @@ start()
     case "$RTSP_DAYNIGHT_HOLD_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_HOLD_S=$RTSP_DAYNIGHT_HOLD_S" ;; esac
     case "$RTSP_DAYNIGHT_DWELL_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_DWELL_S=$RTSP_DAYNIGHT_DWELL_S" ;; esac
     : "${RTSP_DAYNIGHT_POLL_MS:=500}"
+    # Encoder poll of the vendor processThread (libtc100fix: ak_sleep_ms).
+    case "$RTSP_PROC_IDLE_MS" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PROC_IDLE_MS=$RTSP_PROC_IDLE_MS" ;; esac
+    case "$RTSP_PROC_BUSY_MS" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PROC_BUSY_MS=$RTSP_PROC_BUSY_MS" ;; esac
     case "$RTSP_DAYNIGHT_POLL_MS" in
       ''|0|*[!0-9]*) ;;
       *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_POLL_MS=$RTSP_DAYNIGHT_POLL_MS" ;;
