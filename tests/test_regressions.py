@@ -243,6 +243,7 @@ class Regressions(unittest.TestCase):
         # Extract the env-building block of rtsp-h26x and run it with each option.
         s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
         block = s[s.index('    TC100FIX_ENV=""'):s.index('    if [ -n "$TC100FIX_ENV" ] && [ ! -f')]
+        block = block.replace('TC100FIX_LIB=/mnt/lib/libtc100fix.so', 'TC100FIX_LIB="$TEST_LIB"')
         cases = [
             ({}, ''),
             ({'RTSP_FPS_LOCK': '1'}, 'TC100FIX_FPS_LOCK=1'),
@@ -262,14 +263,21 @@ class Regressions(unittest.TestCase):
              'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1 TC100FIX_RTSP_USER=cam TC100FIX_RTSP_PASS=p4ss'),
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'a b'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1'),
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_TALK': '0'}, 'TC100FIX_RTSP_PORT=8554'),
+            # RTSP_SERVER=lite: the lite server takes the RTSP port, the vendor one moves
+            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/bin/sh'}, 'TC100FIX_RTSP_PORT=554 TC100FIX_RTSP_TALK=1 PORT=-P 8555'),
+            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/bin/sh', 'RTSP_VENDOR_PORT': '554'}, 'TC100FIX_RTSP_PORT=554 TC100FIX_RTSP_TALK=1 PORT=-P 8555'),
+            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/nonexistent'}, 'PORT=-P 554'),     # no library: vendor server stays
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0 TC100FIX_RTSP_TALK=1'),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
                     'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
-                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1'}
+                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1',
+                    'RTSP_SERVER': '', 'RTSP_PORT_NUM': '554', 'PORT': '-P 554', 'TEST_LIB': '/nonexistent'}
             vals.update(env)
             code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
+            if 'RTSP_SERVER' in env:
+                code += '; printf " PORT=%s" "$PORT"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
 
     def test_tc100fix_behaviour_under_arm_emulation(self):
