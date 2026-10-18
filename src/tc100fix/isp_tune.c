@@ -305,6 +305,19 @@ static int apply_nr3d(int off, FILE *st)
                 (unsigned)(nr_now[0] | nr_now[1] << 8),
                 (unsigned)nr_u16(nr_now, 0, NR3D_TNR_Y), (unsigned)nr_u16(nr_now, 0, NR3D_TNR_UV),
                 (unsigned)nr_u16(nr_orig, 0, NR3D_TNR_Y), rc);
+        /* Raw values of the manual set and of three gain-linked sets (low,
+         * middle, highest gain = darkest), 16-bit words, to map the camera's
+         * layout (112-byte sets, the SDK's are 108). Read-only. */
+        {
+            static const int show[4] = { 0, 1, 5, 9 };
+            int j, w;
+            for (j = 0; j < 4; j++) {
+                fprintf(st, "NR3D_SET%d=", show[j]);
+                for (w = 0; w < NR3D_SET_BYTES / 2; w++)
+                    fprintf(st, "%s%u", w ? "," : "", (unsigned)nr_u16(nr_now, show[j], w * 2));
+                fputc('\n', st);
+            }
+        }
     }
     return rc;
 }
