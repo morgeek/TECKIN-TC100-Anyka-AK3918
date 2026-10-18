@@ -21,7 +21,9 @@ SD_AUTOMOUNT=1
 # Encoder poll of the video server (milliseconds): after a pass without new
 # frames it waits RTSP_PROC_IDLE_MS (vendor: 10, range 10-40), after one with
 # frames RTSP_PROC_BUSY_MS (vendor: 1, range 1-10). Longer = fewer wake-ups,
-# frames wait at most that long. Empty = the vendor's values.
+# frames wait at most that long. Empty = the vendor's values. Measured on a
+# TC100 (night, Frigate on the lite server): the video process uses 18-20 %
+# CPU either way (20/1, 20/5, 40/10): no gain worth the delay, so off.
 RTSP_PROC_IDLE_MS=
 RTSP_PROC_BUSY_MS=
 # RTSP server on the RTSP port (PORT of rtspserver.conf, 554):
