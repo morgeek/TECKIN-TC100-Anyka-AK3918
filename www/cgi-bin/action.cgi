@@ -1159,7 +1159,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;
     *) csrf_check ;;
   esac
   case "$F_cmd" in
@@ -1400,6 +1400,45 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     # SD card from flash (scripts/sd-card.sh): state, format, mount, "do not ask again".
+    rtsp_server_info)
+      # RTSP server choice (boot.conf) and the lite server's own status
+      # (src/tc100fix/rtsp.c, /var/run/tc100rtsp, every 10 s).
+      _rs_cfg() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
+      _rs_v() { sed -n "s/^$1=\([^ ]*\).*/\1/p" /var/run/tc100rtsp 2>/dev/null | head -n 1; }
+      _rs_num() { case "$1" in ''|*[!0-9]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
+      _rs_server="$(_rs_cfg RTSP_SERVER)"; [ "$_rs_server" = lite ] || _rs_server=vendor
+      _rs_sub="$(_rs_cfg RTSP_SUBSTREAM)"; [ "$_rs_sub" = 0 ] || _rs_sub=1
+      _rs_talk="$(_rs_cfg RTSP_LITE_TALK)"; case "$_rs_talk" in 0|no|off|false) _rs_talk=0 ;; *) _rs_talk=1 ;; esac
+      _rs_fb=0; [ -e /tmp/rtsp-lite-fallback ] && _rs_fb=1
+      _rs_age=null
+      if [ -r /var/run/tc100rtsp ]; then
+        _rs_age=$(( $(date +%s) - $(date -r /var/run/tc100rtsp +%s 2>/dev/null || date +%s) ))
+      fi
+      _rs_drops=0
+      for _rs_d in $(sed -n 's/^client=.* drops=\([0-9]*\).*/\1/p' /var/run/tc100rtsp 2>/dev/null); do _rs_drops=$((_rs_drops + _rs_d)); done
+      printf '{"ok":true,"server":"%s","substream":%s,"talk":%s,"fallback":%s,"status_age":%s,"port":%s,"clients":%s,"drops":%s,"audio":"%s","talk_state":"%s"}\n' \
+        "$_rs_server" "$_rs_sub" "$_rs_talk" "$_rs_fb" "$_rs_age" "$(_rs_num "$(_rs_v port)")" "$(_rs_num "$(_rs_v clients)")" \
+        "$_rs_drops" "$(json_escape "$(_rs_v audio)")" "$(json_escape "$(_rs_v talk)")"
+    ;;
+
+    set_rtsp_server)
+      _rs_server="$(printf '%s' "${F_rtsp_server:-vendor}")"
+      case "$_rs_server" in lite|vendor) ;; *) _rs_server=vendor ;; esac
+      _rs_sub="$(normalize_bool "${F_rtsp_substream:-0}")"
+      _rs_talk="$(normalize_bool "${F_rtsp_talk:-0}")"
+      install_config /mnt/config/boot.conf
+      rewrite_config /mnt/config/boot.conf RTSP_SERVER "$_rs_server"
+      rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$_rs_sub"
+      rewrite_config /mnt/config/boot.conf RTSP_LITE_TALK "$_rs_talk"
+      rm -f /tmp/rtsp-lite-fallback
+      schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
+      if wants_json_response; then
+        json_body_ok "RTSP server: $_rs_server, substream $_rs_sub, two-way audio $_rs_talk. The stream restarts."
+      else
+        echo "RTSP server: $_rs_server, substream $_rs_sub, two-way audio $_rs_talk. The stream restarts.<br/>"
+      fi
+    ;;
+
     md_zones_info)
       # Motion zones (src/tc100fix/md.c): the saved zones and what the
       # detector got at its last start (/var/run/md_zones).

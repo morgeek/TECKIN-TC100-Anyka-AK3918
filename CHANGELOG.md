@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.9] — 2026-10-18
+
+A lighter RTSP server, sound both ways, motion zones.
+
+### Added
+- **Lite RTSP server** (`src/tc100fix/rtsp.c`, inside the video process). It sends the frames the SoC encoders already produce, without decoding or re-encoding them, and does not change the vendor server.
+  - **Settings → Video → RTSP server**:
+    - *Original* (live555) or *Lite* on the RTSP port (`RTSP_SERVER=lite`). The addresses (`/video0`, `/video0_unicast`, `/video1`…) and the password stay the same, so recorders see no difference.
+    - The vendor server keeps running for the encoders, on `RTSP_VENDOR_PORT` (8555), with no client.
+    - If the lite server has not opened the port 30 s after a start, the vendor server takes it back until the next reboot.
+  - **What it sends**:
+    - H.265/H.264 video and the G.711 sound (trackID=1), with both timestamps on the same clock.
+    - RTP over the RTSP TCP connection (UDP is refused, and clients fall back to TCP).
+    - RTCP sender reports.
+    - HTTP Digest authentication: the main account, plus `RTSP_LITE_USER`/`RTSP_LITE_PASS` as a second account.
+  - **Fast start**: the frames since the last keyframe are kept (`RTSP_LITE_FASTSTART=1`). A new client gets a picture in about 1 s instead of waiting for the next keyframe.
+  - **Slow clients**: a client that cannot keep up skips to the next keyframe. The others are not slowed down.
+  - **Measured on a TC100** with Frigate as the only client:
+    - the vendor server's RTSP thread went from 15.4 % to 1.8 % CPU, and the lite server uses 6–7 %;
+    - 0 decode errors, 16 fps, 25 audio frames per second.
+- **Two-way audio** (`RTSP_LITE_TALK=1`, lite server). A client that asks for the ONVIF backchannel gets a send-only audio track; go2rtc does this, so it works from the microphone button of Home Assistant and go2rtc.
+  - The G.711 it sends is played on the speaker through `libplat_ao`, opened only while someone talks.
+  - The volume is the push-to-talk volume, one talker at a time.
+- **Motion zones** (Settings → Detection): up to 4 areas that the camera's own motion detection ignores (MQTT event, picture on motion).
+  - The cells of the SoC detector grid (32×24) inside a zone get sensitivity 1, which the library treats as "never" (`src/tc100fix/md.c`).
+  - The zones are applied when the detector starts or restarts. Frigate keeps its own zones.
+- **Secondary stream on/off** in the same card (`RTSP_SUBSTREAM`).
+- Home Assistant diagnostics: *RTSP Clients* and *RTSP Skipped Frames* of the lite server.
+- `NR3D_STRENGTH` (test, `isp_tune.conf`): scales the 3D noise-reduction strengths, mapped on the camera's 112-byte sets. Not in the web page yet.
+
+### Fixed
+- The frame tap of the local recording and of the lite server could take the JPEG snapshot encoder for the main stream. Both encoders have the same size, and one JPEG a second ended up as broken video. Only frames with an H.264/H.265 start code are used now.
+
+---
+
 ## [2.1.8] — 2026-10-18
 
 ### Added

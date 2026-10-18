@@ -132,6 +132,28 @@
                     </div>
                 </div>
             </div>
+            <form id="formRtspServer" action="cgi-bin/action.cgi?cmd=set_rtsp_server" method="post">
+                <div class='card status_card mb-4'>
+                    <header class='card-header'><p class='card-header-title'>RTSP server</p></header>
+                    <div class='card-content'>
+                        <div class="columns">
+                            <div class="column is-half">
+                                <label class="label is-small" for="rtsp_server">Server on the RTSP port</label>
+                                <div class="select is-small is-fullwidth"><select name="rtsp_server" id="rtsp_server"><option value="vendor">Original (live555)</option><option value="lite">Lite (less CPU, two-way audio)</option></select></div>
+                                <p class="help">Same addresses and password either way (rtsp://camera:554/video0_unicast…): recorders see no difference. The lite server uses about 8 % less CPU. If it does not start, the original one takes the port back until the next reboot.</p>
+                            </div>
+                            <div class="column is-half">
+                                <div class="field"><input class="switch is-small" id="rtsp_substream" name="rtsp_substream" type="checkbox"><label for="rtsp_substream">Secondary stream (video1)</label></div>
+                                <p class="help">Turn off only if no recorder uses video1 (e.g. Frigate detection on the substream): saves its encoding.</p>
+                                <div class="field mt-2"><input class="switch is-small" id="rtsp_talk" name="rtsp_talk" type="checkbox"><label for="rtsp_talk">Two-way audio (lite server)</label></div>
+                                <p class="help">go2rtc / Home Assistant can play sound on the speaker through the stream (password required).</p>
+                            </div>
+                        </div>
+                        <p class="help" id="rtsp_server_status" role="status"></p>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply (restarts the stream)</button></div>
+                    </div>
+                </div>
+            </form>
 
             <form id="formVideoAdvanced" action="cgi-bin/action.cgi?cmd=set_video_params" method="post" class="mt-4">
                 <input type="hidden" name="stream" value="0">

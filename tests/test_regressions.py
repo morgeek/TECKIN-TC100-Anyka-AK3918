@@ -404,7 +404,7 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'diag').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 9)   # 7 sensors + 2 binary sensors
+        self.assertEqual(len(lines), 11)   # 9 sensors + 2 binary sensors
         for line in lines:
             topic, payload = line.split('\t', 1)
             d = json.loads(payload)
@@ -2292,12 +2292,41 @@ class SdCard(unittest.TestCase):
         a = (ROOT / 'www/cgi-bin/action.cgi').read_text()
         for c in ('sd_card_info)', 'sd_card_format)', 'sd_card_mount)', 'sd_card_ack)'):
             self.assertIn(c, a)
-        self.assertIn('local_rec_status|sd_card_info|md_zones_info) ;;', a)          # only the read is CSRF-free
+        self.assertIn('local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', a)          # only the read is CSRF-free
         st = (ROOT / 'www/cgi-bin/state.cgi').read_text()
         self.assertIn('\\"sd_prompt\\":\\"$sd_prompt\\"', st)
         self.assertIn('sd-card.sh}" tick', (ROOT / 'scripts/web-guard.sh').read_text())
         self.assertIn('id="sd_modal"', (ROOT / 'www/index.html').read_text())
         self.assertIn('sdCardPrompt(statusline);', (ROOT / 'src/webui/index/40-polling.js').read_text())
+
+
+class RtspServerChoice(unittest.TestCase):
+    """Settings → Video → RTSP server: action.cgi set_rtsp_server / rtsp_server_info."""
+
+    def test_form_fields_are_read_and_info_parses(self):
+        import json
+        html = (ROOT / 'www/settings.html').read_text()
+        form = html[html.index('id="formRtspServer"'):html.index('</form>', html.index('id="formRtspServer"'))]
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        h = cgi[cgi.index('    set_rtsp_server)'):cgi.index('    ;;', cgi.index('    set_rtsp_server)'))]
+        for n in set(re.findall(r'name="([^"]+)"', form)):
+            self.assertIn('F_' + n, h, n)
+        for k in ('RTSP_SERVER', 'RTSP_SUBSTREAM', 'RTSP_LITE_TALK'):
+            self.assertIn('rewrite_config /mnt/config/boot.conf %s' % k, h)
+        self.assertIn('rm -f /tmp/rtsp-lite-fallback', h)
+        info = cgi[cgi.index('    rtsp_server_info)') + len('    rtsp_server_info)'):cgi.index('    ;;', cgi.index('    rtsp_server_info)'))]
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'boot.conf').write_text('RTSP_SERVER=lite\nRTSP_SUBSTREAM=0\n')
+            (d / 'st').write_text('port=554\nclients=2\nbytes=1\naudio=pcma frames=9\ntalk=idle packets=0 sessions=0 errors=0\n'
+                                  'client=192.0.2.5 video0+audio drops=3 audio_drops=0\nclient=192.0.2.6 video1 drops=4 audio_drops=0\n')
+            code = 'json_escape() { printf "%s" "$1"; }\n' + info.replace('/mnt/config/boot.conf', str(d / 'boot.conf')) \
+                .replace('/var/run/tc100rtsp', str(d / 'st')).replace('/tmp/rtsp-lite-fallback', str(d / 'fb'))
+            r = subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=10)
+            j = json.loads(r.stdout)
+        self.assertEqual((j['server'], j['substream'], j['talk'], j['fallback']), ('lite', 0, 1, 0))
+        self.assertEqual((j['port'], j['clients'], j['drops'], j['audio'], j['talk_state']), (554, 2, 7, 'pcma', 'idle'))
+        self.assertLessEqual(j['status_age'], 5)
 
 
 class MotionZones(unittest.TestCase):
@@ -3385,7 +3414,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info) ;;', text)     # read-only: no CSRF needed
+        self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', text)     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)

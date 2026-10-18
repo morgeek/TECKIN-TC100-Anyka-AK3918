@@ -308,6 +308,21 @@ window.tc100I18nFr = {
   "Remove all masks": "Supprimer tous les masques",
   "Remove this mask": "Supprimer ce masque",
   "Motion zones": "Zones de mouvement",
+  "Apply (restarts the stream)": "Appliquer (redémarre le flux)",
+  "Lite (less CPU, two-way audio)": "Léger (moins de CPU, audio bidirectionnel)",
+  "Lite server on port": "Serveur léger sur le port",
+  "Lite server: no status yet.": "Serveur léger : pas encore d'état.",
+  "Original (live555)": "Original (live555)",
+  "RTSP server": "Serveur RTSP",
+  "RTSP server state could not be read.": "L'état du serveur RTSP n'a pas pu être lu.",
+  "Same addresses and password either way (rtsp://camera:554/video0_unicast…): recorders see no difference. The lite server uses about 8 % less CPU. If it does not start, the original one takes the port back until the next reboot.": "Mêmes adresses et même mot de passe dans les deux cas (rtsp://camera:554/video0_unicast…) : les enregistreurs ne voient aucune différence. Le serveur léger utilise environ 8 % de CPU en moins. S'il ne démarre pas, l'original reprend le port jusqu'au prochain redémarrage.",
+  "Secondary stream (video1)": "Flux secondaire (video1)",
+  "Server on the RTSP port": "Serveur sur le port RTSP",
+  "The lite server did not start: the original server has the port until the next reboot.": "Le serveur léger n'a pas démarré : le serveur original a le port jusqu'au prochain redémarrage.",
+  "The original server is in use.": "Le serveur original est utilisé.",
+  "Turn off only if no recorder uses video1 (e.g. Frigate detection on the substream): saves its encoding.": "À couper seulement si aucun enregistreur n'utilise video1 (par ex. la détection Frigate sur le flux secondaire) : économise son encodage.",
+  "Two-way audio (lite server)": "Audio bidirectionnel (serveur léger)",
+  "go2rtc / Home Assistant can play sound on the speaker through the stream (password required).": "go2rtc / Home Assistant peuvent jouer du son sur le haut-parleur via le flux (mot de passe requis).",
   "Remove all zones": "Supprimer toutes les zones",
   "Remove this zone": "Supprimer cette zone",
   "Motion zones could not be read.": "Les zones de mouvement n'ont pas pu être lues.",
@@ -881,6 +896,10 @@ window.tc100I18nFr = {
   [
    "^(\\d+) service issue\\(s\\)$",
    "$1 problème(s) de service"
+  ],
+  [
+   "^Lite server on port (\\d+): (\\d+) client\\(s\\), (\\d+) frame\\(s\\) skipped(.*)\\.$",
+   "Serveur léger sur le port $1 : $2 client(s), $3 image(s) sautée(s)$4."
   ],
   [
    "^Applied: (\\d+) of the (\\d+) × (\\d+) detection cells ignored\\.$",
