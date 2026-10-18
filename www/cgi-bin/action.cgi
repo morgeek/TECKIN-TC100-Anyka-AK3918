@@ -1159,7 +1159,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|local_rec_status|sd_card_info) ;;
     *) csrf_check ;;
   esac
   case "$F_cmd" in
@@ -1397,6 +1397,38 @@ if [ -n "$F_cmd" ]; then
         "$(json_escape "$(_lr_st state)")" "$(json_escape "$(_lr_st file)")" "$(json_escape "$(_lr_st files)")" \
         "$(json_escape "$(_lr_st free_mb)")" "$(json_escape "$(_lr_st rtsp_client)")" \
         "$(cat /tmp/tc100-storage 2>/dev/null || echo sd)"
+    ;;
+
+    # SD card from flash (scripts/sd-card.sh): state, format, mount, "do not ask again".
+    sd_card_info)
+      if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+        [ "$(sed -n 's/^state=//p' /tmp/sd-format 2>/dev/null)" = running ] || sh /mnt/scripts/sd-card.sh inspect >/dev/null 2>&1
+      fi
+      _sc_v() { sed -n "s/^$1=//p" "$2" 2>/dev/null | head -n 1; }
+      _sc_num() { case "$1" in ''|*[!0-9]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
+      _sc_rec="$(sed -n 's/^REC_LOCAL=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)"
+      printf '{"ok":true,"storage":"%s","present":%s,"id":"%s","size_mb":%s,"fs":"%s","kind":"%s","mounted":%s,"free_mb":%s,"prompt":%s,"health":"%s","rec_local":"%s","format_state":"%s","format_msg":"%s"}\n' \
+        "$(json_escape "$(cat /tmp/tc100-storage 2>/dev/null || echo sd)")" \
+        "$(_sc_num "$(_sc_v present /tmp/sd-card)")" "$(json_escape "$(_sc_v id /tmp/sd-card)")" \
+        "$(_sc_num "$(_sc_v size_mb /tmp/sd-card)")" "$(json_escape "$(_sc_v fs /tmp/sd-card)")" \
+        "$(json_escape "$(_sc_v kind /tmp/sd-card)")" "$(_sc_num "$(_sc_v mounted /tmp/sd-card)")" \
+        "$(_sc_num "$(_sc_v free_mb /tmp/sd-card)")" "$(_sc_num "$(_sc_v prompt /tmp/sd-card)")" \
+        "$(json_escape "$(_sc_v state /tmp/sd-health)")" "$(json_escape "$_sc_rec")" \
+        "$(json_escape "$(_sc_v state /tmp/sd-format)")" "$(json_escape "$(_sc_v msg /tmp/sd-format)")"
+    ;;
+
+    sd_card_format)
+      _sc_out="$(sh /mnt/scripts/sd-card.sh format 2>&1)"
+      case "$_sc_out" in started*) json_body_ok "Formatting the SD card…" ;; *) json_body_err "SD_FORMAT" "$_sc_out" ;; esac
+    ;;
+
+    sd_card_mount)
+      if sh /mnt/scripts/sd-card.sh mount >/dev/null 2>&1; then sh /mnt/scripts/sd-card.sh inspect >/dev/null 2>&1; json_body_ok "SD card mounted on /mnt/sd"
+      else json_body_err "SD_MOUNT" "This card cannot be mounted (boot files, card errors or no FAT32/exFAT file system)"; fi
+    ;;
+
+    sd_card_ack)
+      if sh /mnt/scripts/sd-card.sh ack "${F_id}" >/dev/null 2>&1; then json_body_ok "ok"; else json_body_err "SD_ACK" "bad id"; fi
     ;;
 
     local_rec_eject|local_rec_resume)

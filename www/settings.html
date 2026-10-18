@@ -266,6 +266,27 @@
 
         <!-- Recording -->
         <div class="tab-content is-hidden" id="tab-record">
+            <div class='card status_card mb-4' id="sd_card_box">
+                <header class='card-header'><p class='card-header-title'>SD card</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 sd-summary" id="sd_card_summary" data-kind="">
+                        <span data-kind="sdmode">The camera runs from the SD card: the card is managed by the SD-card firmware.</span>
+                        <span data-kind="none">No card in the camera.</span>
+                        <span data-kind="kit">Firmware or install kit card: not used, the camera would start from it after a power cut.</span>
+                        <span data-kind="data">Card with files.</span>
+                        <span data-kind="empty">Empty card.</span>
+                        <span data-kind="blank">Card without a readable file system: format it to use it.</span>
+                        <span data-kind="errors">The card reports errors: replace it.</span>
+                        <span data-mounted="1">Mounted on /mnt/sd.</span>
+                        <span id="sd_card_size"></span>
+                    </p>
+                    <div class="buttons mt-2">
+                        <button class="button is-small" type="button" id="btnSdMount">Mount the card</button>
+                        <button class="button is-small" type="button" id="btnSdOptions">Format or set up…</button>
+                    </div>
+                    <p class="help">From the flash memory a card put in is checked every minute and mounted when it can be used. Formatting erases the whole card (FAT32).</p>
+                </div>
+            </div>
             <form id="formLocalRec" action="cgi-bin/action.cgi?cmd=set_local_recording" method="post">
                 <div class='card status_card'>
                     <header class='card-header'><p class='card-header-title'>Local backup recording</p></header>
@@ -866,6 +887,38 @@
                 })
                 .catch(function () { if (text) text.textContent = 'Status unavailable.'; });
         }
+        // Settings → Recording: the SD card (action.cgi sd_card_info / sd_card_mount,
+        // the question box of index.html for formatting).
+        function loadSdCard() {
+            var box = document.getElementById('sd_card_summary');
+            if (!box) return;
+            fetch('cgi-bin/action.cgi?cmd=sd_card_info&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var kind = d.storage !== 'flash' ? 'sdmode' : (d.present ? (d.kind || 'blank') : 'none');
+                    box.setAttribute('data-kind', kind);
+                    box.setAttribute('data-mounted', d.mounted ? '1' : '0');
+                    var size = document.getElementById('sd_card_size');
+                    if (size) size.textContent = d.size_mb ? '(' + (d.size_mb / 1024).toFixed(1) + ' GB' + (d.mounted && d.free_mb !== null ? ', ' + (d.free_mb / 1024).toFixed(1) + ' GB ' + (window.tc100SdFreeWord ? window.tc100SdFreeWord() : 'free') : '') + ')' : '';
+                    var mount = document.getElementById('btnSdMount'), opts = document.getElementById('btnSdOptions');
+                    if (mount) mount.style.display = (kind === 'data' || kind === 'empty') && !d.mounted ? '' : 'none';
+                    if (opts) opts.style.display = d.storage === 'flash' && d.present && kind !== 'errors' ? '' : 'none';
+                })
+                .catch(function () {});
+        }
+        (function initSdCard() {
+            var mount = document.getElementById('btnSdMount'), opts = document.getElementById('btnSdOptions');
+            if (mount) mount.addEventListener('click', function () {
+                mount.classList.add('is-loading');
+                EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_mount&format=json', { method: 'POST' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { if (window.showResult) window.showResult(d.ok ? d.message : (d.message || d.error), d.ok ? 'is-success' : 'is-danger'); })
+                    .catch(function () {})
+                    .finally(function () { mount.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
+            });
+            if (opts) opts.addEventListener('click', function () { if (window.tc100OpenSdModal) window.tc100OpenSdModal(); });
+            loadSdCard();
+        })();
         ['btnRecEject', 'btnRecResume'].forEach(function (id) {
             var btn = document.getElementById(id);
             if (!btn) return;

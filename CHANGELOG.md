@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.8] — 2026-10-18
+
+### Added
+- **SD card from flash** (`scripts/sd-card.sh`, checked every minute by `web-guard.sh`):
+  - a card put in is recognised: firmware/install kit (boot files: never mounted, since the vendor boot would start from it), card with files, empty card, card without a readable file system, or card with errors;
+  - a usable card (FAT32/exFAT, no boot files, no card errors in the kernel log) is mounted on `/mnt/sd` automatically (`SD_AUTOMOUNT=1`), ready for the local backup recording; a card taken out is released;
+  - the web page asks once per card: **"SD card inserted: what do you want to do?"** — set up recording, format the card, or leave it as it is (the answer is kept per card in the persistent config);
+  - **formatting from the camera**, only when it runs from flash (never the card it boots from): recording paused and card released, one FAT32 partition from 4 MB (erase-block aligned), label TC100, then mounted again. Refused for a card that reports errors. Runs in the background; the page follows it.
+  - Settings → Recording shows the card and its state, with "Mount the card" and "Format or set up…".
+
+---
+
 ## [2.1.7] — 2026-10-18
 
 Flash space.
