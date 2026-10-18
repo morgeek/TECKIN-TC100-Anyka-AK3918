@@ -62,7 +62,7 @@ grew from there.
 
 **Audio**
 - Listen live, talk through the speaker (push-to-talk from the browser), sound detection with a level in dBFS.
-- **Two-way audio from Home Assistant or go2rtc** (lite server): their microphone button plays your voice on the camera's speaker.
+- **Two-way audio from Home Assistant, Frigate or go2rtc** (lite server): their microphone button plays your voice on the camera's speaker. Setup: [docs/two-way-audio.md](docs/two-way-audio.md).
 
 **Detection**
 - The camera's own motion detection (MQTT event, picture on motion) is **off by default**: Frigate does the detection. When it is on, **motion zones** tell it which areas to ignore.
@@ -261,7 +261,7 @@ Build them yourself: `sh src/release/build-code-package.sh` and `sh src/release/
 4. Frigate: Live view → More tools → Diagnostics gives a configuration to paste (go2rtc restream; `state.cgi?cmd=frigateyaml&redact=1` without the password). Streams:
    - main (recording): `rtsp://root:PASSWORD@CAMERA-IP:554/video0_unicast`
    - sub (detection): `rtsp://root:PASSWORD@CAMERA-IP:554/video1_unicast`
-   - The same addresses work with either RTSP server. With the lite server, go2rtc also gets the speaker: two-way audio from Home Assistant's or go2rtc's microphone button.
+   - The same addresses work with either RTSP server. With the lite server, go2rtc also gets the speaker: two-way audio from Home Assistant's, Frigate's or go2rtc's microphone button ([docs/two-way-audio.md](docs/two-way-audio.md)).
 5. Still image in Home Assistant: a *Generic Camera* with `https://CAMERA-IP/cgi-bin/currentpic.cgi`, basic auth, SSL verification off.
 
 Home Assistant can drive the camera (LEDs, day / night, profile, snapshot, motion) by publishing on `<topic>/command`. Results come back on `<topic>/command/result`. More: [docs/api.md](docs/api.md).
