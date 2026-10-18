@@ -2231,7 +2231,8 @@ class SdCard(unittest.TestCase):
                         SDC_FMT=str(d / 'fmt'), SDC_DEV=str(self.dev), SDC_SYSBLOCK=str(d / 'sys'),
                         REC_SD_MOUNT=str(d / 'sd'), SDC_PROBE=str(d / 'probe'), TC100_STORAGE_FILE=str(d / 'storage'),
                         SDC_MOUNTS=str(d / 'mounts'), SDC_REC=str(d / 'rec.sh'), SDC_DMESG=str(d / 'dmesg'),
-                        SDC_FDISK=str(d / 'fdisk'), SDC_MKFS=str(d / 'mkfs'), SDC_BLOCKDEV='true')
+                        SDC_FDISK=str(d / 'fdisk'), SDC_MKFS=str(d / 'mkfs'), SDC_BLOCKDEV='true',
+                        SDC_PENDING=str(d / 'pending'))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -2267,6 +2268,33 @@ class SdCard(unittest.TestCase):
         (self.d / 'dmesg.txt').write_text('mmcblk0: timed out sending r/w cmd command, card status 0x400e00\n')
         self.run_sd('inspect'); self.assertEqual(self.state()['kind'], 'errors')
         self.assertIn('refused', self.run_sd('format').stdout)
+
+    def test_interrupted_format_is_reported_and_asked_again(self):
+        # The camera restarted during a format (seen 2026-10-18: a code update
+        # rebooted it while mkfs ran): table written, no file system.
+        (self.d / 'mmcblk0p1').write_bytes(bytes(512))
+        cid = '27504853443634476016d90ea7016674'
+        (self.d / 'pending').write_text(cid + '\n'); (self.d / 'ack').write_text(cid + '\n')
+        self.run_sd('tick')
+        st = self.state()
+        self.assertEqual((st['kind'], st['prompt'], st['mounted']), ('interrupted', '1', '0'))
+        self.run_sd('ack', cid)                                    # "leave it as it is"
+        self.assertFalse((self.d / 'pending').exists())
+        self.assertEqual(self.state()['prompt'], '0')
+        self.assertEqual(self.state()['kind'], 'interrupted')      # until inspected again
+        self.run_sd('inspect'); self.assertEqual(self.state()['kind'], 'blank')
+        # a finished format leaves no marker
+        self.run_sd('format')
+        for _ in range(100):
+            if 'state=running' not in (self.d / 'fmt').read_text():
+                break
+            time.sleep(0.1)
+        self.assertFalse((self.d / 'pending').exists())
+
+    def test_no_code_update_during_a_format(self):
+        u = (ROOT / 'www/cgi-bin/update.cgi').read_text()
+        guard = u.index('POST:install|POST:rollback)\n    if [ "$(sed -n \'s/^state=//p\' "${SDC_FMT:-/tmp/sd-format}"')
+        self.assertLess(guard, u.index('if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]'))
 
     def test_format_flow_and_refusals(self):
         r = self.run_sd('format'); self.assertEqual(r.stdout.strip(), 'started')

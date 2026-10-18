@@ -36,6 +36,9 @@ A lighter RTSP server, sound both ways, motion zones.
 - `NR3D_STRENGTH` (test, `isp_tune.conf`): scales the 3D noise-reduction strengths, mapped on the camera's 112-byte sets. Not in the web page yet.
 
 ### Fixed
+- **SD card format interrupted by a restart.** A code update rebooted a camera while it was formatting its card: the new partition table was written, but there was no file system, and the card then only showed as "no readable file system".
+  - Code updates are now refused while a format runs.
+  - A format that did not finish is remembered (`/mnt/config/sd-format.pending`). The card is then shown as *formatting did not finish* and the question is asked again.
 - The frame tap of the local recording and of the lite server could take the JPEG snapshot encoder for the main stream. Both encoders have the same size, and one JPEG a second ended up as broken video. Only frames with an H.264/H.265 start code are used now.
 
 ---
