@@ -1047,6 +1047,32 @@ static int stream_of(void *user)
     return k;
 }
 
+/* TC100FIX_SNAPSHOT=<path>: the last JPEG of the still-picture encoder (one
+ * a second, made anyway by the vendor server) written there, replaced
+ * atomically, so currentpic.cgi can serve it without starting getimage. */
+static void snap_write(const unsigned char *d, unsigned int n)
+{
+    static const char *path;
+    static int init;
+    static char tmp[200];
+    int fd;
+    if (!init) {
+        init = 1;
+        path = getenv("TC100FIX_SNAPSHOT");
+        if (path && (!path[0] || strlen(path) > sizeof(tmp) - 8)) path = NULL;
+        if (path) snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    }
+    if (!path || n < 1024 || d[0] != 0xff || d[1] != 0xd8) return;
+    if ((fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0) return;
+    while (n) {
+        ssize_t w = write(fd, d, n);
+        if (w <= 0) { close(fd); unlink(tmp); return; }
+        d += w; n -= (unsigned int)w;
+    }
+    close(fd);
+    rename(tmp, path);
+}
+
 int ak_venc_get_stream_ex(void *user, unsigned char *buf, unsigned int size, unsigned int *len)
 {
     static int (*real)(void *, unsigned char *, unsigned int, unsigned int *);
@@ -1069,6 +1095,7 @@ int ak_venc_get_stream_ex(void *user, unsigned char *buf, unsigned int size, uns
                 if (rtsp_users[1] == user) rtsp_users[1] = NULL;
             }
         pthread_mutex_unlock(&h_lock);
+        snap_write(buf, *len);
         return r;
     }
     if (rtsp_on < 0) rtsp_on = getenv("TC100FIX_RTSP_PORT") ? 1 : 0;

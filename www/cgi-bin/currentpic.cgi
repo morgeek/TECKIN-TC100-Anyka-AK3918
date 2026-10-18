@@ -39,6 +39,19 @@ esac
 
 _read_ts
 
+# The video server writes the still-picture encoder's last JPEG (one a
+# second) to /tmp/snapshot.jpg (libtc100fix, TC100FIX_SNAPSHOT): when it is
+# recent, serve it as it is, without starting getimage.
+SNAP_FILE="${CURRENTPIC_SNAPSHOT:-/tmp/snapshot.jpg}"
+if [ -s "$SNAP_FILE" ] && [ "$now_ts" -gt 0 ]; then
+  snap_ts="$(date -r "$SNAP_FILE" +%s 2>/dev/null)"
+  case "$snap_ts" in ''|*[!0-9]*) snap_ts=0 ;; esac
+  if [ "$snap_ts" -gt 0 ] && [ $((now_ts - snap_ts)) -le 3 ] && [ $((now_ts - snap_ts)) -ge -3 ]; then
+    cat "$SNAP_FILE"
+    exit 0
+  fi
+fi
+
 cache_fresh=0
 if [ -f "$CACHE_FILE" ] && [ -f "$CACHE_META_FILE" ] && [ "$CACHE_TTL_SECONDS" -gt 0 ] && [ "$now_ts" -gt 0 ]; then
   read -r cache_ts < "$CACHE_META_FILE"

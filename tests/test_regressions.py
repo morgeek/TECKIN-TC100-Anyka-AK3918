@@ -406,13 +406,16 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'diag').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 11)   # 9 sensors + 2 binary sensors
+        self.assertEqual(len(lines), 14)   # 11 sensors + 3 binary sensors
         for line in lines:
             topic, payload = line.split('\t', 1)
             d = json.loads(payload)
             self.assertEqual(d['stat_t'], 'cam/x/health', topic)
             self.assertIn('value_json.diag.', d['val_tpl'])
             self.assertEqual(d['dev']['ids'], ['cam_x'])
+        ur = json.loads([l for l in lines if 'unexpected_restart/' in l][0].split('\t', 1)[1])
+        self.assertEqual(ur['val_tpl'], '{{ "ON" if value_json.diag.last_boot == "unexpected" else "OFF" }}')
+        self.assertEqual(ur['dev_cla'], 'problem')
         sd = json.loads([l for l in lines if 'sd_problem' in l][0].split('\t', 1)[1])
         self.assertEqual(sd['val_tpl'], '{{ "ON" if value_json.diag.sd_problem == 1 else "OFF" }}')
 
@@ -420,7 +423,7 @@ class Regressions(unittest.TestCase):
         fn = function('scripts/mqtt-bridge.sh', 'build_diag_payload')
         r = run(fn + '\nnow_ts=$(date +%s); build_diag_payload; printf "%s" "$diag_payload"')
         d = json.loads(r.stdout)
-        for k in ('wifi_rssi_dbm', 'mem_available_kb', 'sound_db', 'light_level', 'sd_problem'):
+        for k in ('wifi_rssi_dbm', 'mem_available_kb', 'sound_db', 'light_level', 'sd_problem', 'last_boot', 'unexpected_restarts', 'rtsp_clients'):
             self.assertIn(k, d)
         self.assertIsInstance(d['mem_available_kb'], int)
 
@@ -2357,6 +2360,27 @@ class RtspServerChoice(unittest.TestCase):
         self.assertEqual((j['server'], j['substream'], j['talk'], j['fallback']), ('lite', 0, 1, 0))
         self.assertEqual((j['port'], j['clients'], j['drops'], j['audio'], j['talk_state']), (554, 2, 7, 'pcma', 'idle'))
         self.assertLessEqual(j['status_age'], 5)
+
+
+class SnapshotFile(unittest.TestCase):
+    """The still JPEG kept by libtc100fix (rec.c snap_write) and served by currentpic.cgi."""
+
+    def test_currentpic_serves_a_recent_snapshot_without_getimage(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            snap = d / 'snap.jpg'; snap.write_bytes(b'\xff\xd8JPEGDATA')
+            cgi = (ROOT / 'www/cgi-bin/currentpic.cgi').read_text().replace('/mnt/bin/getimage', str(d / 'getimage'))
+            (d / 'getimage').write_text('#!/bin/sh\necho getimage-called\n'); (d / 'getimage').chmod(0o755)
+            env = dict(os.environ, CURRENTPIC_SNAPSHOT=str(snap))
+            r = subprocess.run(['sh', '-c', cgi], capture_output=True, env=env, timeout=20)
+            self.assertTrue(r.stdout.endswith(b'\xff\xd8JPEGDATA'))
+            os.utime(snap, (time.time() - 60, time.time() - 60))           # stale: the old path
+            r = subprocess.run(['sh', '-c', cgi], capture_output=True, env=env, timeout=20, cwd=str(d))
+            self.assertNotIn(b'JPEGDATA', r.stdout)
+        rec = (ROOT / 'src/tc100fix/rec.c').read_text()
+        hook = rec[rec.index('int ak_venc_get_stream_ex('):]
+        self.assertLess(hook.index('snap_write(buf, *len);'), hook.index('tc100fix_rtsp_frame('))
+        self.assertIn('rename(tmp, path);', rec)
 
 
 class MotionZones(unittest.TestCase):

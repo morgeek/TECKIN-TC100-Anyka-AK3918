@@ -32,7 +32,12 @@ A lighter RTSP server, sound both ways, motion zones.
   - The cells of the SoC detector grid (32×24) inside a zone get sensitivity 1, which the library treats as "never" (`src/tc100fix/md.c`).
   - The zones are applied when the detector starts or restarts. Frigate keeps its own zones.
 - **Secondary stream on/off** in the same card (`RTSP_SUBSTREAM`).
-- Home Assistant diagnostics: *RTSP Clients* and *RTSP Skipped Frames* of the lite server.
+- Home Assistant diagnostics:
+  - *RTSP Clients* and *RTSP Skipped Frames* of the lite server;
+  - *Last Restart Cause* (requested / unexpected);
+  - *Unexpected Restarts (history)*;
+  - an *Unexpected Restart* problem sensor, which turns on after a restart nobody asked for (hardware watchdog, power loss, crash). An automation can notify on it.
+- **Snapshots without a helper program.** The video server already encodes one JPEG a second. libtc100fix now keeps the last one in `/tmp/snapshot.jpg`, and `currentpic.cgi` serves it directly while it is under 3 s old. The web page and Home Assistant get the picture at once, without starting `getimage` for each request. `getimage` remains the fallback.
 
 ### Changed
 - **The camera's own motion detection is off by default** (`mdenabled=0` in `rtspserver.conf.dist`): Frigate does the detection. It saves the detector's work in the video process. Turn it on in Services when its MQTT events or pictures on motion are used. Cameras already set up keep their setting.

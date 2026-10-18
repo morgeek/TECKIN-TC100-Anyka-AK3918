@@ -50,10 +50,10 @@ grew from there.
 - A choice of RTSP server (Settings → Video): the original one, or a **lite server** that sends the same streams for about 8 points less CPU, with the sound and two-way audio.
 - **Privacy masks**: up to 4 areas painted out by the image processor before encoding, so they are absent from every stream, snapshot and recording.
 - Presets for Frigate (light, balanced, quality), live image tuning (brightness, contrast, sharpness, saturation, anti-flicker, exposure cap) with no stream restart, a fixed frame rate, day / night with the IR LEDs and the IR filter, flip and on-screen text.
-- Still JPEG at `cgi-bin/currentpic.cgi`, cached so that Home Assistant polling costs nothing.
+- Still JPEG at `cgi-bin/currentpic.cgi`: the last picture the camera already encodes (one a second), served as it is, so Home Assistant polling costs nothing.
 
 **Home Assistant, Frigate, NVRs**
-- MQTT with Home Assistant discovery: about 25 entities (Wi-Fi signal, memory, light level, sound level, night mode, SD card, LEDs, profile…), commands from Home Assistant, availability.
+- MQTT with Home Assistant discovery: about 30 entities (Wi-Fi signal, memory, light level, sound level, night mode, SD card, RTSP clients, LEDs, profile…), commands from Home Assistant, availability. An *Unexpected Restart* sensor turns on after a restart nobody asked for (watchdog, power loss), ready for a notification.
 - A Frigate configuration ready to paste (Live view → More tools → Diagnostics, or `state.cgi?cmd=frigateyaml`), and a button that opens the camera in Frigate's smooth live view.
 - Any RTSP NVR works: Blue Iris, Synology Surveillance Station, iSpy, go2rtc…
 
