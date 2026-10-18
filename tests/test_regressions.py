@@ -261,11 +261,12 @@ class Regressions(unittest.TestCase):
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'p4ss'},
              'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_USER=cam TC100FIX_RTSP_PASS=p4ss'),
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'a b'}, 'TC100FIX_RTSP_PORT=8554'),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0'),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
                     'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
-                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': ''}
+                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1'}
             vals.update(env)
             code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
@@ -2321,15 +2322,16 @@ class RtspLite(unittest.TestCase):
             self.srv.kill(); self.srv.wait()
         self.tmp.cleanup()
 
-    def serve(self, codec):
+    def serve(self, codec, audio=False):
         src = self.d / ('in.' + codec)
-        enc = ['-c:v', 'libx265', '-x265-params', 'keyint=15:aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
+        enc = ['-c:v', 'libx265', '-x265-params', ('keyint=30' if audio else 'keyint=15') + ':aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
               ['-c:v', 'libx264', '-bf', '0', '-x264-params', 'keyint=15:aud=1']
         subprocess.run(['ffmpeg', '-v', 'quiet', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-t', '3'] + enc +
                        ['-bsf:v', ('hevc' if codec == 'hevc' else 'h264') + '_mp4toannexb', str(src)], check=True)
         self.srv = subprocess.Popen([str(self.bin), str(src), '15', '20'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                     env=dict(os.environ, TC100FIX_RTSP_PORT=str(self.port), RTSP_TEST_CRED='admin:s3cret',
-                                             TC100FIX_RTSP_STATUS=str(self.d / 'status')))
+                                             TC100FIX_RTSP_STATUS=str(self.d / 'status'),
+                                             **({'RTSP_TEST_AUDIO': '1'} if audio else {})))
         time.sleep(0.8)
 
     def frames(self, url, secs=4):
@@ -2354,6 +2356,27 @@ class RtspLite(unittest.TestCase):
                                capture_output=True, text=True, timeout=20)
             self.assertIn('404', r.stderr)
             self.srv.kill(); self.srv.wait(); self.srv = None
+
+    def test_audio_track_and_fast_start(self):
+        self.serve('hevc', audio=True)
+        url = 'rtsp://admin:s3cret@127.0.0.1:%d/video0' % self.port
+        r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', '-show_entries', 'stream=codec_name,sample_rate',
+                            '-of', 'csv=p=0', url], capture_output=True, text=True, timeout=20)
+        self.assertEqual(r.stdout.split(), ['hevc', 'pcm_alaw,8000'])
+        out = self.d / 'av.crc'
+        r = subprocess.run(['ffmpeg', '-v', 'error', '-rtsp_transport', 'tcp', '-i', url, '-t', '4', '-f', 'framecrc', str(out)],
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.stderr, '')
+        lines = out.read_text().splitlines()
+        self.assertGreaterEqual(sum(l.startswith('0,') for l in lines), 50)
+        self.assertGreaterEqual(sum(l.startswith('1,') for l in lines), 30)
+        # the GOP cache: a new client gets a picture without waiting for the next keyframe (every 2 s here)
+        for _ in range(3):
+            t0 = time.time()
+            subprocess.run(['ffmpeg', '-v', 'quiet', '-rtsp_transport', 'tcp', '-i', url, '-frames:v', '1', '-f', 'null', '-'],
+                           timeout=20, check=True)
+            self.assertLess(time.time() - t0, 1.5)
+            time.sleep(0.4)
 
     def test_slow_client_does_not_stall_the_others(self):
         import socket, hashlib, re
