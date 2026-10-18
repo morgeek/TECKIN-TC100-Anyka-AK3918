@@ -5,10 +5,4 @@
 # Configure how to deal with motion events:
 
 motion_trigger_led=true
-max_snapshots=20
-# Save the image locally
-save_snapshot=false
-sendemail=false
 send_telegram=false
-save_dir=/mnt/motion/stills
-save_file_date_pattern="+%d-%m-%Y_%H.%M.%S"

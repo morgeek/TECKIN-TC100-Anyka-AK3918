@@ -264,7 +264,7 @@
     if (typeof st.wifi_qual === "number") put("rd_wifi", st.wifi_qual + " %", st.wifi_qual < 40);
     var sb = byId("storage_badge");
     if (sb) sb.hidden = st.storage !== "flash";
-    // Hide what needs an SD card (recordings, timelapse, Telegram) in flash mode.
+    // Hide what needs an SD card (recordings, Telegram) in flash mode.
     document.documentElement.classList.toggle("storage-flash", st.storage === "flash");
     // SD card problems first (scripts/sd-health.sh): a card that garbles
     // writes keeps working for reads, so this is the only early warning.

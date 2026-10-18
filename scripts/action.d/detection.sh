@@ -71,19 +71,4 @@
       echo "Sound detection: enable=${sound_enable} threshold=${sound_threshold} dBFS<BR>"
     ;;
 
-     motion_detection_mail_on)
-         rewrite_config /mnt/config/motion.conf sendemail "true"
-         ;;
-
-     motion_detection_mail_off)
-          rewrite_config /mnt/config/motion.conf sendemail "false"
-          ;;
-
-     motion_detection_snapshot_on)
-          rewrite_config /mnt/config/motion.conf save_snapshot "true"
-          ;;
-
-     motion_detection_snapshot_off)
-          rewrite_config /mnt/config/motion.conf save_snapshot "false"
-          ;;
   esac

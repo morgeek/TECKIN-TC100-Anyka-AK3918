@@ -145,7 +145,7 @@ MEM_GUARD_DROP_CACHES=0
 
 # List of services to stop based on stage (soft, critical, emergency)
 MEM_GUARD_SOFT_SERVICES="network-monitor auto-night-detection"
-MEM_GUARD_CRITICAL_SERVICES="ftp-server telnet-server timelapse recording motion-detection"
+MEM_GUARD_CRITICAL_SERVICES="ftp-server telnet-server motion-detection"
 MEM_GUARD_EMERGENCY_SERVICES=""
 
 # Service Watchdog: RESTARTS hung or crashed services (requires MEM_GUARD_ENABLE=1)

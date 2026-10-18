@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# action.cgi commands: SD card, local recording, timelapse.
+# action.cgi commands: SD card, local recording.
 # Sourced by www/cgi-bin/action.cgi after its checks (rate limit, CSRF,
 # audit log) and helpers; F_* are the request fields. Only the file of the
 # requested command is read, so a request parses this file, not all of them.
@@ -84,47 +84,4 @@
     ;;
 
 
-    conf_timelapse)
-      tlinterval=$(printf '%s' "${F_tlinterval}")
-      tlinterval=$(echo "$tlinterval" | sed "s/[^0-9\.]//g")
-      if [ "$tlinterval" ]; then
-        rewrite_config /mnt/config/timelapse.conf TIMELAPSE_INTERVAL "$tlinterval"
-        echo "Timelapse interval set to $tlinterval seconds."
-      else
-        echo "Invalid timelapse interval"
-      fi
-      tlduration=$(printf '%s' "${F_tlduration}")
-      tlduration=$(echo "$tlduration" | sed "s/[^0-9\.]//g")
-      if [ "$tlduration" ]; then
-        rewrite_config /mnt/config/timelapse.conf TIMELAPSE_DURATION "$tlduration"
-        echo "Timelapse duration set to $tlduration minutes."
-      else
-        echo "Invalid timelapse duration"
-      fi
-    ;;
-
-    conf_recording)
-      # SECURITY: recording.conf is sourced as root by controlscripts/recording
-      # (`. $CONFIGPATH/recording.conf`). These four values MUST be validated to
-      # bare bool/integers before being written, otherwise a newline or backtick
-      # in the POST body lands in the sourced file and executes as root. The
-      # sibling conf_dns/conf_static_ip handlers already validate; this one did
-      # not. normalize_bool/sanitize_int_range strip anything non-numeric.
-      motion_act="$(normalize_bool "${F_motion_act}")"
-      postrec="$(sanitize_int_range "${F_postrec}" 0 3600 8)"
-      maxduration="$(sanitize_int_range "${F_maxduration}" 1 3600 60)"
-      diskspace="$(sanitize_int_range "${F_diskspace}" 0 1000000 512)"
-
-      echo "Motion activated recording set to $motion_act.<BR>"
-      echo "Postrecord set to $postrec seconds.<BR>"
-      echo "Max file duration set to $maxduration seconds.<BR>"
-      echo "Reserved free disk space set to $diskspace Megabytes.<BR>"
-
-      echo "rec_motion_activated=$motion_act" > /mnt/config/recording.conf
-      echo "rec_postrecord_sec=$postrec" >> /mnt/config/recording.conf
-      echo "rec_file_duration_sec=$maxduration" >> /mnt/config/recording.conf
-      echo "rec_reserverd_disk_mb=$diskspace" >> /mnt/config/recording.conf
-
-      restart_service_if_need /mnt/controlscripts/recording
-    ;;
   esac

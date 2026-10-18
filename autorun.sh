@@ -43,7 +43,7 @@ install_config_cached $CONFIGPATH/packages.lock
 # Shell-sourced configs that get a syntax check at boot and a last-known-good
 # snapshot once boot completes (see verify_or_restore_conf / snapshot_lkg_configs).
 LKG_DIR="$CONFIGPATH/.lkg"
-LKG_CONFIGS="boot.conf mqtt.conf netmon.conf telegram.conf timelapse.conf sound_detection.conf sendmail.conf motion.conf service_trim.conf"
+LKG_CONFIGS="boot.conf mqtt.conf netmon.conf telegram.conf sound_detection.conf motion.conf service_trim.conf"
 
 # verify_or_restore_conf — if a sourceable config no longer parses (power cut
 # mid-write, FAT corruption), quarantine it and restore the last-known-good
@@ -303,7 +303,7 @@ load_boot_config()
     : "${MEM_GUARD_COOLDOWN_SECONDS:=120}"
     : "${MEM_GUARD_DROP_CACHES:=1}"
     : "${MEM_GUARD_SOFT_SERVICES:=network-monitor auto-night-detection}"
-    : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server timelapse recording motion-detection}"
+    : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server motion-detection}"
     : "${STORAGE_CLEANUP_ENABLE:=0}"
     : "${STORAGE_CLEANUP_THRESHOLD:=90}"
     : "${STORAGE_CLEANUP_TARGET:=85}"
@@ -351,7 +351,7 @@ load_boot_config()
     fi
 
     if [ "$INTEGRATION_PROFILE" = "frigate_ha" ] && [ -z "$AUTOSTART_ALLOWLIST" ]; then
-        _frigate_ha_denylist="telegram-bot timelapse syslog-forward sound-detection ftp-server telnet-server recording motion-mail"
+        _frigate_ha_denylist="telegram-bot syslog-forward sound-detection ftp-server telnet-server"
         for _svc in $_frigate_ha_denylist; do
             list_contains "$_svc" $AUTOSTART_DENYLIST || AUTOSTART_DENYLIST="${AUTOSTART_DENYLIST:+$AUTOSTART_DENYLIST }$_svc"
         done
