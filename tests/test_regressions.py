@@ -2283,12 +2283,78 @@ class SdCard(unittest.TestCase):
         a = (ROOT / 'www/cgi-bin/action.cgi').read_text()
         for c in ('sd_card_info)', 'sd_card_format)', 'sd_card_mount)', 'sd_card_ack)'):
             self.assertIn(c, a)
-        self.assertIn('local_rec_status|sd_card_info) ;;', a)          # only the read is CSRF-free
+        self.assertIn('local_rec_status|sd_card_info|md_zones_info) ;;', a)          # only the read is CSRF-free
         st = (ROOT / 'www/cgi-bin/state.cgi').read_text()
         self.assertIn('\\"sd_prompt\\":\\"$sd_prompt\\"', st)
         self.assertIn('sd-card.sh}" tick', (ROOT / 'scripts/web-guard.sh').read_text())
         self.assertIn('id="sd_modal"', (ROOT / 'www/index.html').read_text())
         self.assertIn('sdCardPrompt(statusline);', (ROOT / 'src/webui/index/40-polling.js').read_text())
+
+
+class MotionZones(unittest.TestCase):
+    """src/tc100fix/md.c (zones the vendor motion detection ignores) and its CGI."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.d = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_hooks_under_arm_emulation(self):
+        sysroot = os.environ.get('TC100_SYSROOT')
+        fx = ROOT / 'tests/tc100fix'
+        if not (sysroot and shutil.which('qemu-arm') and (fx / 'mddriver').exists()):
+            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
+        out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
+                              '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
+                              '-E', 'TC100FIX_MDZ=%s' % (self.d / 'z'), '-E', 'TC100FIX_MDZ_STATUS=%s' % (self.d / 's'),
+                              str(fx / 'mddriver')], capture_output=True, timeout=60).stdout.decode()
+        none, zones, vendor = out.split('--- no zones')[1].split('--- zones')[0], \
+            out.split('--- zones')[1].split('--- vendor area')[0], out.split('--- vendor area')[1]
+        self.assertIn('md global 60', none)                          # no zones: the vendor call as it was
+        self.assertIn('result=global', none)
+        self.assertIn('md area 16x12 off=48', zones)                 # 0-50 % x 0-25 % + 75-100 % x 50-100 %
+        self.assertIn('md row  0 ........XXXXXXXX', zones)
+        self.assertIn('md row 11 XXXXXXXXXXXX....', zones)
+        self.assertIn('ignored=48 result=area', zones)               # MDZ3 (x2 < x1) left out
+        self.assertIn('md row  0 ................', vendor)          # vendor rectangle AND zones
+        self.assertIn('md row  5 XXXXXXXX........', vendor)
+        self.assertIn('sensitivity=70', vendor)
+
+    def run_cgi_block(self, fields, running=True):
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        h = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
+        block = h[h.index('      if [ -n "${F_md_zone_form:-}" ]; then'):]
+        info = cgi[cgi.index('    md_zones_info)') + len('    md_zones_info)'):cgi.index('    ;;', cgi.index('    md_zones_info)'))]
+        d = self.d
+        (d / 'md').write_text('#!/bin/sh\necho "$1" >> %s/md.calls\n[ "$1" = status ] && %s\nexit 0\n' % (d, 'echo "PID: 1"' if running else ':'))
+        (d / 'md').chmod(0o755)
+        (d / 'rtspserver.conf').write_text('mdenabled=1\n')
+        (d / 'md_zones').write_text('starts=2 grid=32x24 sensitivity=60 ignored=96 result=area\n')
+        code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in fields.items())
+        code += 'json_escape() { printf "%s" "$1"; }\n'
+        code += (block + '\nwait\n' + info).replace('/mnt/config', str(d)).replace('/mnt/controlscripts/motion-detection', str(d / 'md')) \
+                                     .replace('/var/run/md_zones', str(d / 'md_zones'))
+        return subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=20)
+
+    def test_cgi_saves_valid_zones_and_restarts_a_running_detector(self):
+        import json
+        r = self.run_cgi_block({'F_md_zone_form': '1', 'F_md_zone1': '0,0,50,25', 'F_md_zone2': 'x;rm -rf /',
+                                'F_md_zone3': '', 'F_md_zone4': '10,10,20,20'})
+        self.assertEqual((self.d / 'motion_zones.conf').read_text(), 'MDZ1="0,0,50,25"\nMDZ2="10,10,20,20"\n')
+        self.assertIn('Motion zones: 2', r.stdout)
+        self.assertEqual((self.d / 'md.calls').read_text().split(), ['status', 'stop', 'start'])
+        info = json.loads(r.stdout.splitlines()[-1])
+        self.assertEqual(info['zones'], ['0,0,50,25', '10,10,20,20'])
+        self.assertEqual(info['enabled'], 1)
+        self.assertEqual(info['detector'], {'grid': '32x24', 'ignored': 96, 'result': 'area'})
+        # same zones again: nothing rewritten, detector left alone
+        (self.d / 'md.calls').unlink()
+        self.run_cgi_block({'F_md_zone_form': '1', 'F_md_zone1': '0,0,50,25', 'F_md_zone2': '10,10,20,20'})
+        self.assertFalse((self.d / 'md.calls').exists())
+        # all removed: the file goes
+        self.run_cgi_block({'F_md_zone_form': '1'}, running=False)
+        self.assertFalse((self.d / 'motion_zones.conf').exists())
 
 
 class RtspLiteSource(unittest.TestCase):
@@ -3270,7 +3336,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info) ;;', text)     # read-only: no CSRF needed
+        self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info) ;;', text)     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)
