@@ -18,6 +18,16 @@ NET_GUARD_MIN=15
 # Formatting is offered in the web page. SD_AUTOMOUNT=0: never mounted
 # automatically.
 SD_AUTOMOUNT=1
+# RTSP server on the RTSP port (PORT of rtspserver.conf, 554):
+#   vendor  the original server (live555)
+#   lite    the lighter server of libtc100fix (src/tc100fix/rtsp.c): same
+#           URLs (/video0, /video0_unicast, /video1...), same account, video
+#           and G.711 sound, two-way audio. The vendor server keeps running
+#           for the encoders, on RTSP_VENDOR_PORT (no client expected).
+#           If the lite server does not open the port within 30 s of a start,
+#           the vendor server takes it back until the next reboot.
+RTSP_SERVER=vendor
+RTSP_VENDOR_PORT=8555
 # RTSP lite (test): a second RTSP server inside the video process, sending
 # the same encoded video with less overhead, on this port (e.g. 8554):
 # rtsp://<camera>:<port>/video0 and /video1, same user and password as the
