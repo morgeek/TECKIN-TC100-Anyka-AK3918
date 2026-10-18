@@ -224,6 +224,8 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
 .mask-layer { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
 .mask-box { position: absolute; background: rgba(0, 0, 0, .55); outline: 2px solid var(--v2-accent, #3b82f6); outline-offset: -2px; }
 .mask-box.is-draft { background: rgba(59, 130, 246, .25); outline-style: dashed; }
+.mask-box.is-zone { background: rgba(234, 179, 8, .28); outline-color: #eab308; }
+.mask-box.is-zone.is-draft { background: rgba(234, 179, 8, .18); }
 .mask-del { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .7); color: #fff; font-size: 15px; line-height: 22px; cursor: pointer; }
 
 /* SD card question (index.html #sd_modal) */

@@ -307,6 +307,13 @@ window.tc100I18nFr = {
   "Refresh picture": "Actualiser l'image",
   "Remove all masks": "Supprimer tous les masques",
   "Remove this mask": "Supprimer ce masque",
+  "Motion zones": "Zones de mouvement",
+  "Remove all zones": "Supprimer toutes les zones",
+  "Remove this zone": "Supprimer cette zone",
+  "Motion zones could not be read.": "Les zones de mouvement n'ont pas pu être lues.",
+  "Applied:": "Appliqué :",
+  "The camera's motion detection is off (Services): zones apply when it is on.": "La détection de mouvement de la caméra est coupée (Services) : les zones s'appliquent quand elle est active.",
+  "Drag on the picture to mark up to 4 areas the camera's motion detection ignores (a tree, a road, a TV). This is the camera's own detection (MQTT event, picture on motion); Frigate has its own zones and masks.": "Faites glisser sur l'image pour marquer jusqu'à 4 zones que la détection de mouvement de la caméra ignore (un arbre, une route, une télé). Il s'agit de la détection propre à la caméra (événement MQTT, photo sur mouvement) ; Frigate a ses propres zones et masques.",
   "Impact": "Impact",
   "Import": "Importer",
   "Import File": "Importer un fichier",
@@ -874,6 +881,10 @@ window.tc100I18nFr = {
   [
    "^(\\d+) service issue\\(s\\)$",
    "$1 problème(s) de service"
+  ],
+  [
+   "^Applied: (\\d+) of the (\\d+) × (\\d+) detection cells ignored\\.$",
+   "Appliqué : $1 des $2 × $3 cellules de détection ignorées."
   ],
   [
    "^Applied on the camera: brightness (.+?), contrast (.+?), saturation (.+?), sharpness (.+?), hue (.+)$",

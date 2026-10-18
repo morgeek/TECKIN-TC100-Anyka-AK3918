@@ -257,6 +257,16 @@
                             <div class="column is-half"><label class="label is-small">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
                         </div>
                         <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
+                        <div class="is-divider" data-content="Motion zones"></div>
+                        <p class="help mb-2">Drag on the picture to mark up to 4 areas the camera's motion detection ignores (a tree, a road, a TV). This is the camera's own detection (MQTT event, picture on motion); Frigate has its own zones and masks.</p>
+                        <div class="mask-editor" id="mdz_editor"><img id="mdz_preview" alt="Current camera picture" draggable="false"><div class="mask-layer" id="mdz_layer"></div></div>
+                        <input type="hidden" name="md_zone_form" value="1"><input type="hidden" name="md_zone1"><input type="hidden" name="md_zone2"><input type="hidden" name="md_zone3"><input type="hidden" name="md_zone4">
+                        <div class="field is-grouped is-grouped-multiline mt-2">
+                            <div class="control"><button class="button is-small is-light" type="button" id="mdz_clear">Remove all zones</button></div>
+                            <div class="control"><button class="button is-small is-light" type="button" id="mdz_reload">Refresh picture</button></div>
+                            <div class="control"><span class="tag is-light" id="mdz_count">0 / 4</span></div>
+                        </div>
+                        <p class="help" id="mdz_status" role="status"></p>
                         <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; restarts the RTSP stream when switched)</label></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
                     </div>
