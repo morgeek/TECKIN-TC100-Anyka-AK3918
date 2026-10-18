@@ -123,6 +123,8 @@
             setVal('sound_det_threshold', svc.sound_det_threshold);
             setVal('sound_det_enable', svc.sound_det_enable);
             setVal('motion_led', svc.motion_led);
+            initMotionZones(document.getElementById('formDetect'));
+            initRtspServer(document.getElementById('formRtspServer'));
 
             setVal('motion_activated', rec.motion_activated);
             setVal('postrec', rec.postrec);

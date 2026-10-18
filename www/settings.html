@@ -132,6 +132,28 @@
                     </div>
                 </div>
             </div>
+            <form id="formRtspServer" action="cgi-bin/action.cgi?cmd=set_rtsp_server" method="post">
+                <div class='card status_card mb-4'>
+                    <header class='card-header'><p class='card-header-title'>RTSP server</p></header>
+                    <div class='card-content'>
+                        <div class="columns">
+                            <div class="column is-half">
+                                <label class="label is-small" for="rtsp_server">Server on the RTSP port</label>
+                                <div class="select is-small is-fullwidth"><select name="rtsp_server" id="rtsp_server"><option value="vendor">Original (live555)</option><option value="lite">Lite (less CPU, two-way audio)</option></select></div>
+                                <p class="help">Same addresses and password either way (rtsp://camera:554/video0_unicast…): recorders see no difference. The lite server uses about 8 % less CPU. If it does not start, the original one takes the port back until the next reboot.</p>
+                            </div>
+                            <div class="column is-half">
+                                <div class="field"><input class="switch is-small" id="rtsp_substream" name="rtsp_substream" type="checkbox"><label for="rtsp_substream">Secondary stream (video1)</label></div>
+                                <p class="help">Turn off only if no recorder uses video1 (e.g. Frigate detection on the substream): saves its encoding.</p>
+                                <div class="field mt-2"><input class="switch is-small" id="rtsp_talk" name="rtsp_talk" type="checkbox"><label for="rtsp_talk">Two-way audio (lite server)</label></div>
+                                <p class="help">go2rtc / Home Assistant can play sound on the speaker through the stream (password required).</p>
+                            </div>
+                        </div>
+                        <p class="help" id="rtsp_server_status" role="status"></p>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply (restarts the stream)</button></div>
+                    </div>
+                </div>
+            </form>
 
             <form id="formVideoAdvanced" action="cgi-bin/action.cgi?cmd=set_video_params" method="post" class="mt-4">
                 <input type="hidden" name="stream" value="0">
@@ -257,6 +279,16 @@
                             <div class="column is-half"><label class="label is-small">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
                         </div>
                         <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
+                        <div class="is-divider" data-content="Motion zones"></div>
+                        <p class="help mb-2">Drag on the picture to mark up to 4 areas the camera's motion detection ignores (a tree, a road, a TV). This is the camera's own detection (MQTT event, picture on motion); Frigate has its own zones and masks.</p>
+                        <div class="mask-editor" id="mdz_editor"><img id="mdz_preview" alt="Current camera picture" draggable="false"><div class="mask-layer" id="mdz_layer"></div></div>
+                        <input type="hidden" name="md_zone_form" value="1"><input type="hidden" name="md_zone1"><input type="hidden" name="md_zone2"><input type="hidden" name="md_zone3"><input type="hidden" name="md_zone4">
+                        <div class="field is-grouped is-grouped-multiline mt-2">
+                            <div class="control"><button class="button is-small is-light" type="button" id="mdz_clear">Remove all zones</button></div>
+                            <div class="control"><button class="button is-small is-light" type="button" id="mdz_reload">Refresh picture</button></div>
+                            <div class="control"><span class="tag is-light" id="mdz_count">0 / 4</span></div>
+                        </div>
+                        <p class="help" id="mdz_status" role="status"></p>
                         <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; restarts the RTSP stream when switched)</label></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
                     </div>
@@ -266,6 +298,28 @@
 
         <!-- Recording -->
         <div class="tab-content is-hidden" id="tab-record">
+            <div class='card status_card mb-4' id="sd_card_box">
+                <header class='card-header'><p class='card-header-title'>SD card</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 sd-summary" id="sd_card_summary" data-kind="">
+                        <span data-kind="sdmode">The camera runs from the SD card: the card is managed by the SD-card firmware.</span>
+                        <span data-kind="none">No card in the camera.</span>
+                        <span data-kind="kit">Firmware or install kit card: not used, the camera would start from it after a power cut.</span>
+                        <span data-kind="data">Card with files.</span>
+                        <span data-kind="empty">Empty card.</span>
+                        <span data-kind="blank">Card without a readable file system: format it to use it.</span>
+                        <span data-kind="interrupted">Formatting did not finish (the camera restarted during it): format the card again.</span>
+                        <span data-kind="errors">The card reports errors: replace it.</span>
+                        <span data-mounted="1">Mounted on /mnt/sd.</span>
+                        <span id="sd_card_size"></span>
+                    </p>
+                    <div class="buttons mt-2">
+                        <button class="button is-small" type="button" id="btnSdMount">Mount the card</button>
+                        <button class="button is-small" type="button" id="btnSdOptions">Format or set up…</button>
+                    </div>
+                    <p class="help">From the flash memory a card put in is checked every minute and mounted when it can be used. Formatting erases the whole card (FAT32).</p>
+                </div>
+            </div>
             <form id="formLocalRec" action="cgi-bin/action.cgi?cmd=set_local_recording" method="post">
                 <div class='card status_card'>
                     <header class='card-header'><p class='card-header-title'>Local backup recording</p></header>
@@ -866,6 +920,38 @@
                 })
                 .catch(function () { if (text) text.textContent = 'Status unavailable.'; });
         }
+        // Settings → Recording: the SD card (action.cgi sd_card_info / sd_card_mount,
+        // the question box of index.html for formatting).
+        function loadSdCard() {
+            var box = document.getElementById('sd_card_summary');
+            if (!box) return;
+            fetch('cgi-bin/action.cgi?cmd=sd_card_info&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var kind = d.storage !== 'flash' ? 'sdmode' : (d.present ? (d.kind || 'blank') : 'none');
+                    box.setAttribute('data-kind', kind);
+                    box.setAttribute('data-mounted', d.mounted ? '1' : '0');
+                    var size = document.getElementById('sd_card_size');
+                    if (size) size.textContent = d.size_mb ? '(' + (d.size_mb / 1024).toFixed(1) + ' GB' + (d.mounted && d.free_mb !== null ? ', ' + (d.free_mb / 1024).toFixed(1) + ' GB ' + (window.tc100SdFreeWord ? window.tc100SdFreeWord() : 'free') : '') + ')' : '';
+                    var mount = document.getElementById('btnSdMount'), opts = document.getElementById('btnSdOptions');
+                    if (mount) mount.style.display = (kind === 'data' || kind === 'empty') && !d.mounted ? '' : 'none';
+                    if (opts) opts.style.display = d.storage === 'flash' && d.present && kind !== 'errors' ? '' : 'none';
+                })
+                .catch(function () {});
+        }
+        (function initSdCard() {
+            var mount = document.getElementById('btnSdMount'), opts = document.getElementById('btnSdOptions');
+            if (mount) mount.addEventListener('click', function () {
+                mount.classList.add('is-loading');
+                EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_mount&format=json', { method: 'POST' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { if (window.showResult) window.showResult(d.ok ? d.message : (d.message || d.error), d.ok ? 'is-success' : 'is-danger'); })
+                    .catch(function () {})
+                    .finally(function () { mount.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
+            });
+            if (opts) opts.addEventListener('click', function () { if (window.tc100OpenSdModal) window.tc100OpenSdModal(); });
+            loadSdCard();
+        })();
         ['btnRecEject', 'btnRecResume'].forEach(function (id) {
             var btn = document.getElementById(id);
             if (!btn) return;

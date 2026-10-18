@@ -114,6 +114,7 @@
           lastStatuslineTs = Date.now();
           if (dashboardStatusRenderer) dashboardStatusRenderer(statusline);
           renderReadings(statusline);
+          sdCardPrompt(statusline);
           sysUsageConsecErrors = 0;
           sysUsageLastSuccessTs = Date.now();
           updateStaleBanner(false);

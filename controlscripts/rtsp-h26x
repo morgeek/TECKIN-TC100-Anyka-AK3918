@@ -177,10 +177,47 @@ start()
     case "$RTSP_DAYNIGHT_HOLD_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_HOLD_S=$RTSP_DAYNIGHT_HOLD_S" ;; esac
     case "$RTSP_DAYNIGHT_DWELL_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_DWELL_S=$RTSP_DAYNIGHT_DWELL_S" ;; esac
     : "${RTSP_DAYNIGHT_POLL_MS:=500}"
+    # Encoder poll of the vendor processThread (libtc100fix: ak_sleep_ms).
+    case "$RTSP_PROC_IDLE_MS" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PROC_IDLE_MS=$RTSP_PROC_IDLE_MS" ;; esac
+    case "$RTSP_PROC_BUSY_MS" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PROC_BUSY_MS=$RTSP_PROC_BUSY_MS" ;; esac
     case "$RTSP_DAYNIGHT_POLL_MS" in
       ''|0|*[!0-9]*) ;;
       *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_POLL_MS=$RTSP_DAYNIGHT_POLL_MS" ;;
     esac
+    # RTSP lite (src/tc100fix/rtsp.c): a lighter RTSP server inside the same
+    # process, fed by the encoder output.
+    #   RTSP_SERVER=lite   it serves the RTSP port (PORT of rtspserver.conf,
+    #                      what Frigate, ONVIF and the web page use); the
+    #                      vendor server moves to RTSP_VENDOR_PORT (8555)
+    #   RTSP_LITE_PORT=n   (vendor mode) a second server on port n
+    _lite_port=""; LITE_MAIN=0
+    case "$RTSP_SERVER" in
+      lite)
+        if [ -f "$TC100FIX_LIB" ] && [ ! -e /tmp/rtsp-lite-fallback ]; then
+          _vport="${RTSP_VENDOR_PORT:-8555}"
+          case "$_vport" in ''|0|*[!0-9]*) _vport=8555 ;; esac
+          [ "$_vport" = "$RTSP_PORT_NUM" ] && _vport=8555
+          [ "$_vport" = "$RTSP_PORT_NUM" ] && _vport=8556
+          _lite_port="$RTSP_PORT_NUM"; LITE_MAIN=1
+          PORT="-P $_vport"
+        fi ;;
+    esac
+    if [ -z "$_lite_port" ]; then
+      case "$RTSP_LITE_PORT" in
+        ''|0|*[!0-9]*) ;;
+        *) [ "$RTSP_LITE_PORT" != "$(read_config rtspserver.conf PORT 2>/dev/null)" ] && _lite_port="$RTSP_LITE_PORT" ;;
+      esac
+    fi
+    if [ -n "$_lite_port" ]; then
+      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_PORT=$_lite_port"
+      case "$RTSP_LITE_FASTSTART" in 0|no|off|false) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_FASTSTART=0" ;; esac
+      case "${RTSP_LITE_TALK:-1}" in 1|yes|on|true) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_TALK=1" ;; esac
+      # A second account when both are set (letters, digits, . _ - only).
+      case "$RTSP_LITE_USER$RTSP_LITE_PASS" in *[!A-Za-z0-9._-]*) ;; *)
+        [ -n "$RTSP_LITE_USER" ] && [ -n "$RTSP_LITE_PASS" ] &&
+          TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_USER=$RTSP_LITE_USER TC100FIX_RTSP_PASS=$RTSP_LITE_PASS" ;;
+      esac
+    fi
     case "$ISP_TUNE" in 1|true|yes|on|enabled)
       install_config "$CONFIGPATH/isp_tune.conf"
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_ISP_TUNE=$CONFIGPATH/isp_tune.conf" ;;
@@ -237,6 +274,22 @@ start()
       echo "v4l2rtspserver exited at start (attempt $_rtsp_try), retrying" >> "$LOGPATH"
       tc100_log_event "rtsp: v4l2rtspserver exited at start (attempt $_rtsp_try)"
     done
+    # RTSP_SERVER=lite: the lite server opens the RTSP port with the first
+    # encoded frame. If it has not after 30 s, go back to the vendor server
+    # on that port until the next reboot (/tmp/rtsp-lite-fallback).
+    if [ "$LITE_MAIN" = 1 ]; then
+      _lw=0
+      while [ $_lw -lt 30 ] && ! port_listening "$RTSP_PORT_NUM"; do sleep 1; _lw=$((_lw + 1)); done
+      if ! port_listening "$RTSP_PORT_NUM"; then
+        echo "RTSP lite not listening on $RTSP_PORT_NUM: back to the vendor server" >> "$LOGPATH"
+        tc100_log_event "rtsp: lite server not listening, back to the vendor server"
+        : > /tmp/rtsp-lite-fallback
+        kill "$_rtsp_pid" 2>/dev/null; sleep 2; kill -9 "$_rtsp_pid" 2>/dev/null
+        rm -f "$PIDFILE"
+        start
+        return
+      fi
+    fi
 
     ## Watchdog
     if ! checkpid "$WATCHDOG_PIDFILE"; then

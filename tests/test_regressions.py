@@ -243,6 +243,7 @@ class Regressions(unittest.TestCase):
         # Extract the env-building block of rtsp-h26x and run it with each option.
         s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
         block = s[s.index('    TC100FIX_ENV=""'):s.index('    if [ -n "$TC100FIX_ENV" ] && [ ! -f')]
+        block = block.replace('TC100FIX_LIB=/mnt/lib/libtc100fix.so', 'TC100FIX_LIB="$TEST_LIB"')
         cases = [
             ({}, ''),
             ({'RTSP_FPS_LOCK': '1'}, 'TC100FIX_FPS_LOCK=1'),
@@ -251,16 +252,34 @@ class Regressions(unittest.TestCase):
             ({'VENDOR_PRINT_LEVEL': '1'}, 'TC100FIX_PRINT_LEVEL=1'),
             ({'VENDOR_PRINT_LEVEL': '12'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
+            ({'RTSP_PROC_IDLE_MS': '20', 'RTSP_PROC_BUSY_MS': '5'}, 'TC100FIX_PROC_IDLE_MS=20 TC100FIX_PROC_BUSY_MS=5'),
+            ({'RTSP_PROC_IDLE_MS': 'x'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': 'x'}, ''),
             ({'RTSP_DAYNIGHT_HOLD_S': '10', 'RTSP_DAYNIGHT_DWELL_S': '120'},
              'TC100FIX_DAYNIGHT_HOLD_S=10 TC100FIX_DAYNIGHT_DWELL_S=120'),
             ({'RTSP_DAYNIGHT_DWELL_S': 'x'}, ''),
+            ({'RTSP_LITE_PORT': '8554'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1'),
+            ({'RTSP_LITE_PORT': '554'}, ''),                  # never the main server's port
+            ({'RTSP_LITE_PORT': 'x'}, ''),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'p4ss'},
+             'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1 TC100FIX_RTSP_USER=cam TC100FIX_RTSP_PASS=p4ss'),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'a b'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1'),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_TALK': '0'}, 'TC100FIX_RTSP_PORT=8554'),
+            # RTSP_SERVER=lite: the lite server takes the RTSP port, the vendor one moves
+            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/bin/sh'}, 'TC100FIX_RTSP_PORT=554 TC100FIX_RTSP_TALK=1 PORT=-P 8555'),
+            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/bin/sh', 'RTSP_VENDOR_PORT': '554'}, 'TC100FIX_RTSP_PORT=554 TC100FIX_RTSP_TALK=1 PORT=-P 8555'),
+            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/nonexistent'}, 'PORT=-P 554'),     # no library: vendor server stays
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0 TC100FIX_RTSP_TALK=1'),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
-                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0'}
+                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
+                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1',
+                    'RTSP_SERVER': '', 'RTSP_PORT_NUM': '554', 'RTSP_PROC_IDLE_MS': '', 'RTSP_PROC_BUSY_MS': '', 'PORT': '-P 554', 'TEST_LIB': '/nonexistent'}
             vals.update(env)
-            code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
+            code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
+            if 'RTSP_SERVER' in env:
+                code += '; printf " PORT=%s" "$PORT"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
 
     def test_tc100fix_behaviour_under_arm_emulation(self):
@@ -387,7 +406,7 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'diag').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 9)   # 7 sensors + 2 binary sensors
+        self.assertEqual(len(lines), 11)   # 9 sensors + 2 binary sensors
         for line in lines:
             topic, payload = line.split('\t', 1)
             d = json.loads(payload)
@@ -2117,6 +2136,461 @@ class WifiRescueFlash(unittest.TestCase):
             self.assertEqual(r.stdout.strip(), d + '/h')
 
 
+class FlashMinify(unittest.TestCase):
+    """src/flash/minify.sh: a file whose minified form does not pass the syntax check keeps its source."""
+
+    def run_minify(self, sh_out, js_out, camera_sh='sh'):
+        d = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, d)
+        st = d / 'st'
+        (st / 'scripts').mkdir(parents=True); (st / 'www/scripts').mkdir(parents=True); (st / 'www/css').mkdir()
+        (st / 'autorun.sh').write_text('#!/bin/sh\n# comment\necho hi\n')
+        (st / 'scripts/a.sh').write_text('# lib\nf() {\n  echo a\n}\n')
+        (st / 'www/scripts/x.js').write_text('// c\nfunction keepMe(a) { return a + 1; }\n')
+        (st / 'www/css/bulma.min.css').write_text('a{b:c}\n')
+        tools = d / 'tools'; tools.mkdir()
+        (tools / 'shfmt').write_text('#!/bin/sh\nprintf %%s %s\n' % shlex.quote(sh_out))
+        (tools / 'esbuild').write_text('#!/bin/sh\ncase "$*" in *.css*) echo BROKEN-CSS ;; *) printf %%s %s ;; esac\n' % shlex.quote(js_out))
+        for t in ('shfmt', 'esbuild'):
+            (tools / t).chmod(0o755)
+        r = subprocess.run(['sh', str(ROOT / 'src/flash/minify.sh'), str(st)], capture_output=True, text=True,
+                           env=dict(os.environ, SHFMT=str(tools / 'shfmt'), ESBUILD=str(tools / 'esbuild'), CAMERA_SH=camera_sh))
+        return st, r
+
+    def test_good_output_replaces_bad_output_is_refused(self):
+        st, r = self.run_minify('f(){ echo a;}\n', 'function keepMe(a){return a+1}\n')
+        self.assertEqual((st / 'scripts/a.sh').read_text(), 'f(){ echo a;}\n')
+        self.assertTrue((st / 'autorun.sh').read_text().startswith('#!/bin/sh\n'))       # interpreter line kept
+        self.assertEqual((st / 'www/scripts/x.js').read_text(), 'function keepMe(a){return a+1}\n')
+        self.assertEqual((st / 'www/css/bulma.min.css').read_text(), 'a{b:c}\n')           # *.min.css untouched
+        st, r = self.run_minify('if then fi (\n', 'function (( {\n')
+        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
+        if shutil.which('node'):
+            self.assertIn('// c', (st / 'www/scripts/x.js').read_text())
+        self.assertIn('kept', r.stdout)
+
+    def test_shell_left_alone_without_the_camera_shell(self):
+        st, r = self.run_minify('f(){ echo a;}\n', 'function keepMe(a){return a+1}\n', camera_sh='')
+        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
+        self.assertIn('CAMERA_SH not set', r.stderr)
+        # a check that fails (the camera's old ash refusing the file) keeps the source
+        st, r = self.run_minify('f(){ echo a;}\n', 'x', camera_sh='false')
+        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
+
+    def test_all_shell_files_parse_with_the_vendor_ash(self):
+        # 2.1.7: busybox 1.24.1 ash (the camera's /bin/sh in flash mode) misparsed a
+        # file at an 8 KB read-buffer boundary that newer busybox accepts. With the
+        # vendor rootfs (TC100_ROOTFS) and qemu-arm, every script is checked with it.
+        rootfs = os.environ.get('TC100_ROOTFS')
+        if not (rootfs and shutil.which('qemu-arm') and Path(rootfs, 'bin/busybox').exists()):
+            self.skipTest('TC100_ROOTFS (vendor rootfs) and qemu-arm needed')
+        files = subprocess.run(['git', 'ls-files', 'autorun.sh', 'scripts', 'controlscripts', 'config/autostart', 'www/cgi-bin'],
+                               cwd=ROOT, capture_output=True, text=True).stdout.split()
+        bad = []
+        for f in files:
+            p = ROOT / f
+            if not (f.endswith(('.sh', '.cgi')) or f == 'autorun.sh' or p.read_bytes()[:12].startswith(b'#!/bin/')):
+                continue
+            r = subprocess.run(['qemu-arm', '-L', rootfs, rootfs + '/bin/busybox', 'sh', '-n', str(p)], capture_output=True)
+            if r.returncode:
+                bad.append(f)
+        self.assertEqual(bad, [])
+
+    def test_stage_calls_it_and_can_skip_it(self):
+        s = (ROOT / 'src/flash/stage-tc100.sh').read_text()
+        self.assertIn('[ "${MINIFY:-1}" = 0 ] ||', s)
+        self.assertIn("'\\.py$|^config/ssl/", s)                # host tools (generate_sounds.py) stay out
+        self.assertNotIn('icomoon.eot', (ROOT / 'www/icomoon/style.css').read_text())
+
+
+class SdCard(unittest.TestCase):
+    """scripts/sd-card.sh: the SD card from flash (detect, auto-mount, format, ask once)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        (d / 'sys/device').mkdir(parents=True)
+        (d / 'sys/size').write_text('124735488\n')                    # 60 GB
+        (d / 'sys/device/cid').write_text('27504853443634476016d90ea7016674\n')
+        (d / 'storage').write_text('flash\n')
+        (d / 'mounts').write_text('')
+        (d / 'boot.conf').write_text('SD_AUTOMOUNT=1\n')
+        (d / 'fixture').mkdir()
+        self.dev = d / 'mmcblk0'
+        bs = bytearray(512); bs[82:87] = b'FAT32'
+        (d / 'mmcblk0p1').write_bytes(bytes(bs)); self.dev.write_bytes(bytes(1024 * 1024))
+        bin_ = d / 'bin'; bin_.mkdir()
+        (bin_ / 'mount').write_text('#!/bin/sh\nfor a; do last="$a"; done\ncp -r %s/. "$last" 2>/dev/null\necho "mount $*" >> %s/log\n' % (d / 'fixture', d))
+        (bin_ / 'umount').write_text('#!/bin/sh\necho "umount $*" >> %s/log\nfor a; do last="$a"; done\nrm -rf "$last"/* 2>/dev/null\n' % d)
+        (bin_ / 'logger').write_text('#!/bin/sh\necho "logger $*" >> %s/log\n' % d)
+        for n in ('mount', 'umount', 'logger'):
+            (bin_ / n).chmod(0o755)
+        (d / 'rec.sh').write_text('echo "rec $*" >> %s/log\n[ "$1" = mount ] && echo "/dev/mmcblk0p1 %s vfat rw 0 0" >> %s/mounts\nexit 0\n'
+                                  % (d, d / 'sd', d))
+        (d / 'fdisk').write_text('#!/bin/sh\ncat > %s/fdisk.in\necho "fdisk $*" >> %s/log\n' % (d, d)); (d / 'fdisk').chmod(0o755)
+        (d / 'mkfs').write_text('#!/bin/sh\necho "mkfs $*" >> %s/log\n' % d); (d / 'mkfs').chmod(0o755)
+        (d / 'dmesg').write_text('#!/bin/sh\ncat %s/dmesg.txt 2>/dev/null\n' % d); (d / 'dmesg').chmod(0o755)
+        self.env = dict(os.environ, PATH='%s:%s' % (bin_, os.environ['PATH']), SDC_ANYFILE='1', SDC_SETTLE='0',
+                        SDC_BOOT_CONF=str(d / 'boot.conf'), SDC_ACK=str(d / 'ack'), SDC_OUT=str(d / 'state'),
+                        SDC_FMT=str(d / 'fmt'), SDC_DEV=str(self.dev), SDC_SYSBLOCK=str(d / 'sys'),
+                        REC_SD_MOUNT=str(d / 'sd'), SDC_PROBE=str(d / 'probe'), TC100_STORAGE_FILE=str(d / 'storage'),
+                        SDC_MOUNTS=str(d / 'mounts'), SDC_REC=str(d / 'rec.sh'), SDC_DMESG=str(d / 'dmesg'),
+                        SDC_FDISK=str(d / 'fdisk'), SDC_MKFS=str(d / 'mkfs'), SDC_BLOCKDEV='true',
+                        SDC_PENDING=str(d / 'pending'))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_sd(self, *a):
+        return subprocess.run(['sh', str(ROOT / 'scripts/sd-card.sh'), *a], env=self.env, capture_output=True, text=True, timeout=30)
+
+    def state(self):
+        return dict(l.split('=', 1) for l in (self.d / 'state').read_text().splitlines())
+
+    def test_new_data_card_is_mounted_and_asked_once(self):
+        (self.d / 'fixture/clip.mp4').write_text('x')
+        self.run_sd('tick')
+        st = self.state()
+        self.assertEqual((st['present'], st['kind'], st['fs'], st['mounted'], st['prompt']), ('1', 'data', 'vfat', '1', '1'))
+        self.assertEqual(st['size_mb'], str(124735488 // 2048))
+        self.assertIn('rec mount', (self.d / 'log').read_text())
+        self.run_sd('ack', st['id'])
+        self.assertEqual(self.state()['prompt'], '0')
+        self.assertEqual(self.run_sd('inspect').stdout.count('prompt=0'), 1)
+        # taken out: lazy unmount, state cleared
+        self.dev.unlink(); self.run_sd('tick')
+        self.assertEqual(self.state()['present'], '0')
+        self.assertIn('umount -l', (self.d / 'log').read_text())
+
+    def test_kit_blank_and_failing_cards_are_not_mounted(self):
+        (self.d / 'fixture/wifitest').mkdir()
+        self.run_sd('tick')
+        self.assertEqual(self.state()['kind'], 'kit')
+        self.assertNotIn('rec mount', (self.d / 'log').read_text())
+        (self.d / 'mmcblk0p1').write_bytes(bytes(512)); (self.d / 'state').unlink()
+        self.run_sd('tick'); self.assertEqual(self.state()['kind'], 'blank')
+        (self.d / 'dmesg.txt').write_text('mmcblk0: timed out sending r/w cmd command, card status 0x400e00\n')
+        self.run_sd('inspect'); self.assertEqual(self.state()['kind'], 'errors')
+        self.assertIn('refused', self.run_sd('format').stdout)
+
+    def test_interrupted_format_is_reported_and_asked_again(self):
+        # The camera restarted during a format (seen 2026-10-18: a code update
+        # rebooted it while mkfs ran): table written, no file system.
+        (self.d / 'mmcblk0p1').write_bytes(bytes(512))
+        cid = '27504853443634476016d90ea7016674'
+        (self.d / 'pending').write_text(cid + '\n'); (self.d / 'ack').write_text(cid + '\n')
+        self.run_sd('tick')
+        st = self.state()
+        self.assertEqual((st['kind'], st['prompt'], st['mounted']), ('interrupted', '1', '0'))
+        self.run_sd('ack', cid)                                    # "leave it as it is"
+        self.assertFalse((self.d / 'pending').exists())
+        self.assertEqual(self.state()['prompt'], '0')
+        self.assertEqual(self.state()['kind'], 'interrupted')      # until inspected again
+        self.run_sd('inspect'); self.assertEqual(self.state()['kind'], 'blank')
+        # a finished format leaves no marker
+        self.run_sd('format')
+        for _ in range(100):
+            if 'state=running' not in (self.d / 'fmt').read_text():
+                break
+            time.sleep(0.1)
+        self.assertFalse((self.d / 'pending').exists())
+
+    def test_no_code_update_during_a_format(self):
+        u = (ROOT / 'www/cgi-bin/update.cgi').read_text()
+        guard = u.index('POST:install|POST:rollback)\n    if [ "$(sed -n \'s/^state=//p\' "${SDC_FMT:-/tmp/sd-format}"')
+        self.assertLess(guard, u.index('if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]'))
+
+    def test_format_flow_and_refusals(self):
+        r = self.run_sd('format'); self.assertEqual(r.stdout.strip(), 'started')
+        for _ in range(100):
+            if 'state=running' not in (self.d / 'fmt').read_text():
+                break
+            time.sleep(0.1)
+        fmt = (self.d / 'fmt').read_text()
+        self.assertIn('state=done', fmt)
+        log = (self.d / 'log').read_text()
+        self.assertIn('rec eject', log)
+        self.assertIn('fdisk -u %s' % self.dev, log)
+        self.assertEqual((self.d / 'fdisk.in').read_text(), 'o\nn\np\n1\n8192\n\nt\nc\nw\n')
+        self.assertIn('mkfs -n TC100 %sp1' % self.dev, log)
+        self.assertLess(log.index('rec eject'), log.index('fdisk'))
+        self.assertIn('rec resume', log)
+        (self.d / 'storage').write_text('sd\n')
+        self.assertIn('runs from the SD card', self.run_sd('format').stdout)
+        (self.d / 'storage').write_text('flash\n'); self.dev.unlink()
+        self.assertIn('no card', self.run_sd('format').stdout)
+
+    def test_web_side(self):
+        a = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        for c in ('sd_card_info)', 'sd_card_format)', 'sd_card_mount)', 'sd_card_ack)'):
+            self.assertIn(c, a)
+        self.assertIn('local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', a)          # only the read is CSRF-free
+        st = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        self.assertIn('\\"sd_prompt\\":\\"$sd_prompt\\"', st)
+        self.assertIn('sd-card.sh}" tick', (ROOT / 'scripts/web-guard.sh').read_text())
+        self.assertIn('id="sd_modal"', (ROOT / 'www/index.html').read_text())
+        self.assertIn('sdCardPrompt(statusline);', (ROOT / 'src/webui/index/40-polling.js').read_text())
+
+
+class RtspServerChoice(unittest.TestCase):
+    """Settings → Video → RTSP server: action.cgi set_rtsp_server / rtsp_server_info."""
+
+    def test_form_fields_are_read_and_info_parses(self):
+        import json
+        html = (ROOT / 'www/settings.html').read_text()
+        form = html[html.index('id="formRtspServer"'):html.index('</form>', html.index('id="formRtspServer"'))]
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        h = cgi[cgi.index('    set_rtsp_server)'):cgi.index('    ;;', cgi.index('    set_rtsp_server)'))]
+        for n in set(re.findall(r'name="([^"]+)"', form)):
+            self.assertIn('F_' + n, h, n)
+        for k in ('RTSP_SERVER', 'RTSP_SUBSTREAM', 'RTSP_LITE_TALK'):
+            self.assertIn('rewrite_config /mnt/config/boot.conf %s' % k, h)
+        self.assertIn('rm -f /tmp/rtsp-lite-fallback', h)
+        info = cgi[cgi.index('    rtsp_server_info)') + len('    rtsp_server_info)'):cgi.index('    ;;', cgi.index('    rtsp_server_info)'))]
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'boot.conf').write_text('RTSP_SERVER=lite\nRTSP_SUBSTREAM=0\n')
+            (d / 'st').write_text('port=554\nclients=2\nbytes=1\naudio=pcma frames=9\ntalk=idle packets=0 sessions=0 errors=0\n'
+                                  'client=192.0.2.5 video0+audio drops=3 audio_drops=0\nclient=192.0.2.6 video1 drops=4 audio_drops=0\n')
+            code = 'json_escape() { printf "%s" "$1"; }\n' + info.replace('/mnt/config/boot.conf', str(d / 'boot.conf')) \
+                .replace('/var/run/tc100rtsp', str(d / 'st')).replace('/tmp/rtsp-lite-fallback', str(d / 'fb'))
+            r = subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=10)
+            j = json.loads(r.stdout)
+        self.assertEqual((j['server'], j['substream'], j['talk'], j['fallback']), ('lite', 0, 1, 0))
+        self.assertEqual((j['port'], j['clients'], j['drops'], j['audio'], j['talk_state']), (554, 2, 7, 'pcma', 'idle'))
+        self.assertLessEqual(j['status_age'], 5)
+
+
+class MotionZones(unittest.TestCase):
+    """src/tc100fix/md.c (zones the vendor motion detection ignores) and its CGI."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.d = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_hooks_under_arm_emulation(self):
+        sysroot = os.environ.get('TC100_SYSROOT')
+        fx = ROOT / 'tests/tc100fix'
+        if not (sysroot and shutil.which('qemu-arm') and (fx / 'mddriver').exists()):
+            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
+        out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
+                              '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
+                              '-E', 'TC100FIX_MDZ=%s' % (self.d / 'z'), '-E', 'TC100FIX_MDZ_STATUS=%s' % (self.d / 's'),
+                              str(fx / 'mddriver')], capture_output=True, timeout=60).stdout.decode()
+        none, zones, vendor = out.split('--- no zones')[1].split('--- zones')[0], \
+            out.split('--- zones')[1].split('--- vendor area')[0], out.split('--- vendor area')[1]
+        self.assertIn('md global 60', none)                          # no zones: the vendor call as it was
+        self.assertIn('result=global', none)
+        self.assertIn('md area 16x12 off=48', zones)                 # 0-50 % x 0-25 % + 75-100 % x 50-100 %
+        self.assertIn('md row  0 ........XXXXXXXX', zones)
+        self.assertIn('md row 11 XXXXXXXXXXXX....', zones)
+        self.assertIn('ignored=48 result=area', zones)               # MDZ3 (x2 < x1) left out
+        self.assertIn('md row  0 ................', vendor)          # vendor rectangle AND zones
+        self.assertIn('md row  5 XXXXXXXX........', vendor)
+        self.assertIn('sensitivity=70', vendor)
+
+    def run_cgi_block(self, fields, running=True):
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        h = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
+        block = h[h.index('      if [ -n "${F_md_zone_form:-}" ]; then'):]
+        info = cgi[cgi.index('    md_zones_info)') + len('    md_zones_info)'):cgi.index('    ;;', cgi.index('    md_zones_info)'))]
+        d = self.d
+        (d / 'md').write_text('#!/bin/sh\necho "$1" >> %s/md.calls\n[ "$1" = status ] && %s\nexit 0\n' % (d, 'echo "PID: 1"' if running else ':'))
+        (d / 'md').chmod(0o755)
+        (d / 'rtspserver.conf').write_text('mdenabled=1\n')
+        (d / 'md_zones').write_text('starts=2 grid=32x24 sensitivity=60 ignored=96 result=area\n')
+        code = ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in fields.items())
+        code += 'json_escape() { printf "%s" "$1"; }\n'
+        code += (block + '\nwait\n' + info).replace('/mnt/config', str(d)).replace('/mnt/controlscripts/motion-detection', str(d / 'md')) \
+                                     .replace('/var/run/md_zones', str(d / 'md_zones'))
+        return subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=20)
+
+    def test_cgi_saves_valid_zones_and_restarts_a_running_detector(self):
+        import json
+        r = self.run_cgi_block({'F_md_zone_form': '1', 'F_md_zone1': '0,0,50,25', 'F_md_zone2': 'x;rm -rf /',
+                                'F_md_zone3': '', 'F_md_zone4': '10,10,20,20'})
+        self.assertEqual((self.d / 'motion_zones.conf').read_text(), 'MDZ1="0,0,50,25"\nMDZ2="10,10,20,20"\n')
+        self.assertIn('Motion zones: 2', r.stdout)
+        self.assertEqual((self.d / 'md.calls').read_text().split(), ['status', 'stop', 'start'])
+        info = json.loads(r.stdout.splitlines()[-1])
+        self.assertEqual(info['zones'], ['0,0,50,25', '10,10,20,20'])
+        self.assertEqual(info['enabled'], 1)
+        self.assertEqual(info['detector'], {'grid': '32x24', 'ignored': 96, 'result': 'area'})
+        # same zones again: nothing rewritten, detector left alone
+        (self.d / 'md.calls').unlink()
+        self.run_cgi_block({'F_md_zone_form': '1', 'F_md_zone1': '0,0,50,25', 'F_md_zone2': '10,10,20,20'})
+        self.assertFalse((self.d / 'md.calls').exists())
+        # all removed: the file goes
+        self.run_cgi_block({'F_md_zone_form': '1'}, running=False)
+        self.assertFalse((self.d / 'motion_zones.conf').exists())
+
+
+class RtspLiteSource(unittest.TestCase):
+    """The frame tap in rec.c: only H.264/H.265 frames reach RTSP lite and the recording."""
+
+    def test_snapshot_encoder_is_left_out(self):
+        rec = (ROOT / 'src/tc100fix/rec.c').read_text()
+        hook = rec[rec.index('int ak_venc_get_stream_ex('):]
+        # the start-code check runs before the RTSP tap and the recording
+        self.assertLess(hook.index('buf[0] || buf[1]'), hook.index('tc100fix_rtsp_frame('))
+        self.assertIn('users[i].still = 1;', hook)
+        self.assertIn('!users[i].still && encs[j].enc', rec)                 # stream_of
+        self.assertIn('if (!users[i].user || users[i].still) continue;', rec)  # choose_user
+
+
+class RtspLite(unittest.TestCase):
+    """src/tc100fix/rtsp.c built for the host: ffprobe/ffmpeg as clients."""
+
+    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe'), 'gcc and ffmpeg')
+    def setUp(self):
+        import socket
+        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
+        self.bin = d / 'rtsp-test'
+        subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-DRTSP_HOST_TEST', '-o', str(self.bin),
+                        str(ROOT / 'src/tc100fix/rtsp.c'), '-lpthread', '-ldl'], check=True)
+        s = socket.socket(); s.bind(('127.0.0.1', 0)); self.port = s.getsockname()[1]; s.close()
+        self.srv = None
+
+    def tearDown(self):
+        if self.srv:
+            self.srv.kill(); self.srv.wait()
+        self.tmp.cleanup()
+
+    def serve(self, codec, audio=False, extra=None):
+        src = self.d / ('in.' + codec)
+        enc = ['-c:v', 'libx265', '-x265-params', ('keyint=60' if audio else 'keyint=15') + ':aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
+              ['-c:v', 'libx264', '-bf', '0', '-x264-params', 'keyint=15:aud=1']
+        subprocess.run(['ffmpeg', '-v', 'quiet', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-t', '3'] + enc +
+                       ['-bsf:v', ('hevc' if codec == 'hevc' else 'h264') + '_mp4toannexb', str(src)], check=True)
+        self.srv = subprocess.Popen([str(self.bin), str(src), '15', '20'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                    env=dict(os.environ, TC100FIX_RTSP_PORT=str(self.port), RTSP_TEST_CRED='admin:s3cret', RTSP_TEST_CRED2='extra:0ther',
+                                             TC100FIX_RTSP_STATUS=str(self.d / 'status'),
+                                             **({'RTSP_TEST_AUDIO': '1'} if audio else {}), **(extra or {})))
+        time.sleep(0.8)
+
+    def frames(self, url, secs=4):
+        out = self.d / 'out.mp4'
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-rtsp_transport', 'tcp', '-i', url, '-t', str(secs), '-c', 'copy', str(out)],
+                       capture_output=True, timeout=30)
+        r = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries',
+                            'stream=codec_name,nb_read_frames', '-of', 'csv=p=0', str(out)], capture_output=True, text=True)
+        return r.stdout.strip()
+
+    def test_h265_and_h264_with_digest(self):
+        for codec, name in (('hevc', 'hevc'), ('h264', 'h264')):
+            self.serve(codec)
+            got = self.frames('rtsp://admin:s3cret@127.0.0.1:%d/video0_unicast' % self.port)
+            c, n = got.split(',')
+            self.assertEqual(c, name)
+            self.assertGreaterEqual(int(n), 50)                  # 4 s at 15 fps, from the first keyframe
+            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://extra:0ther@127.0.0.1:%d/video0' % self.port],
+                               capture_output=True, text=True, timeout=20)
+            self.assertEqual(r.returncode, 0, r.stderr)               # the second account
+            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://admin:nope@127.0.0.1:%d/video0' % self.port],
+                               capture_output=True, text=True, timeout=20)
+            self.assertIn('401', r.stderr)
+            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://admin:s3cret@127.0.0.1:%d/nothing' % self.port],
+                               capture_output=True, text=True, timeout=20)
+            self.assertIn('404', r.stderr)
+            self.srv.kill(); self.srv.wait(); self.srv = None
+
+    def test_audio_track_and_fast_start(self):
+        self.serve('hevc', audio=True)
+        url = 'rtsp://admin:s3cret@127.0.0.1:%d/video0' % self.port
+        r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', '-show_entries', 'stream=codec_name,sample_rate',
+                            '-of', 'csv=p=0', url], capture_output=True, text=True, timeout=20)
+        self.assertEqual(r.stdout.split(), ['hevc', 'pcm_alaw,8000'])
+        out = self.d / 'av.crc'
+        r = subprocess.run(['ffmpeg', '-v', 'error', '-rtsp_transport', 'tcp', '-i', url, '-t', '4', '-f', 'framecrc', str(out)],
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.stderr, '')
+        lines = out.read_text().splitlines()
+        self.assertGreaterEqual(sum(l.startswith('0,') for l in lines), 50)
+        self.assertGreaterEqual(sum(l.startswith('1,') for l in lines), 30)
+        # the GOP cache: a new client gets a picture without waiting for the next keyframe (every 4 s here)
+        for _ in range(3):
+            t0 = time.time()
+            subprocess.run(['ffmpeg', '-v', 'quiet', '-rtsp_transport', 'tcp', '-i', url, '-frames:v', '1', '-f', 'null', '-'],
+                           timeout=20, check=True)
+            self.assertLess(time.time() - t0, 2.0)
+            time.sleep(0.4)
+
+    def test_talk_backchannel_plays_g711(self):
+        import socket, re, struct
+        out = self.d / 'talk.raw'
+        self.serve('hevc', extra={'TC100FIX_RTSP_TALK': '1', 'RTSP_TEST_TALK_OUT': str(out)})
+        url = 'rtsp://127.0.0.1:%d/video0' % self.port
+        s = socket.create_connection(('127.0.0.1', self.port)); n = [0]
+        def req(m, u, extra=''):
+            n[0] += 1
+            s.sendall(('%s %s RTSP/1.0\r\nCSeq: %d\r\n%s\r\n' % (m, u, n[0], extra)).encode())
+            data = b''
+            while b'\r\n\r\n' not in data:
+                data += s.recv(1)
+            h = data.decode(); m2 = re.search(r'Content-Length: (\d+)', h); body = b''
+            if m2:
+                while len(body) < int(m2.group(1)):
+                    body += s.recv(int(m2.group(1)) - len(body))
+            return h, body.decode()
+        nonce = re.search(r'nonce="([^"]+)"', req('DESCRIBE', url)[0]).group(1)
+        def auth(m, u):
+            ha1 = hashlib.md5(b'admin:TC100:s3cret').hexdigest(); ha2 = hashlib.md5(('%s:%s' % (m, u)).encode()).hexdigest()
+            return 'Authorization: Digest username="admin", realm="TC100", nonce="%s", uri="%s", response="%s"\r\n' % (
+                nonce, u, hashlib.md5(('%s:%s:%s' % (ha1, nonce, ha2)).encode()).hexdigest())
+        import hashlib
+        self.assertNotIn('sendonly', req('DESCRIBE', url, auth('DESCRIBE', url))[1])        # not without asking
+        h, body = req('DESCRIBE', url, auth('DESCRIBE', url) + 'Require: www.onvif.org/ver20/backchannel\r\n')
+        self.assertIn('a=control:trackID=2\r\na=sendonly', body)
+        h, _ = req('SETUP', url + '/trackID=2', auth('SETUP', url) + 'Transport: RTP/AVP/TCP;unicast;interleaved=4-5\r\n')
+        sess = re.search(r'Session: ([0-9A-F]+)', h).group(1)
+        self.assertIn('200', req('PLAY', url, auth('PLAY', url) + 'Session: %s\r\n' % sess)[0])
+        for i in range(25):                                   # 0.5 s of A-law 0xd5 (+8) and u-law 0xff (0)
+            pkt = struct.pack('!BBHII', 0x80, 8 if i % 2 == 0 else 0, i, i * 160, 7) + bytes([0xd5 if i % 2 == 0 else 0xff]) * 160
+            s.sendall(b'$\x04' + struct.pack('!H', len(pkt)) + pkt)
+            time.sleep(0.02)
+        time.sleep(1)
+        data = out.read_bytes()
+        v = struct.unpack('<%dh' % (len(data) // 2), data)
+        self.assertEqual(len(v), 25 * 160)
+        self.assertEqual(set(v), {8, 0})
+        s.close()
+
+    def test_slow_client_does_not_stall_the_others(self):
+        import socket, hashlib, re
+        self.serve('hevc')
+        s = socket.create_connection(('127.0.0.1', self.port)); s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        url = 'rtsp://127.0.0.1:%d/video0' % self.port
+        def req(m, u, extra='', n=[0]):
+            n[0] += 1
+            s.sendall(('%s %s RTSP/1.0\r\nCSeq: %d\r\n%s\r\n' % (m, u, n[0], extra)).encode())
+            data = b''
+            while b'\r\n\r\n' not in data:
+                data += s.recv(1)
+            h = data.decode(); m2 = re.search(r'Content-Length: (\d+)', h)
+            if m2:
+                left = int(m2.group(1))
+                while left:
+                    left -= len(s.recv(left))
+            return h
+        nonce = re.search(r'nonce="([^"]+)"', req('DESCRIBE', url)).group(1)
+        def auth(m, u):
+            ha1 = hashlib.md5(b'admin:TC100:s3cret').hexdigest(); ha2 = hashlib.md5(('%s:%s' % (m, u)).encode()).hexdigest()
+            return 'Authorization: Digest username="admin", realm="TC100", nonce="%s", uri="%s", response="%s"\r\n' % (
+                nonce, u, hashlib.md5(('%s:%s:%s' % (ha1, nonce, ha2)).encode()).hexdigest())
+        self.assertIn('200', req('DESCRIBE', url, auth('DESCRIBE', url)))
+        self.assertIn('461', req('SETUP', url + '/trackID=0', auth('SETUP', url) + 'Transport: RTP/AVP;unicast;client_port=5000-5001\r\n'))
+        h = req('SETUP', url + '/trackID=0', auth('SETUP', url) + 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n')
+        sess = re.search(r'Session: ([0-9A-F]+)', h).group(1)
+        self.assertIn('200', req('PLAY', url, auth('PLAY', url) + 'Session: %s\r\n' % sess))
+        # this client never reads again; another one must still get every frame
+        got = self.frames('rtsp://admin:s3cret@127.0.0.1:%d/video0' % self.port, 6)
+        self.assertGreaterEqual(int(got.split(',')[1]), 75)
+        time.sleep(10.5)
+        st = (self.d / 'status').read_text()
+        self.assertRegex(st, r'drops=[1-9]')
+        s.close()
+
+
 class NetGuard(unittest.TestCase):
     """scripts/net-guard.sh: reboot after a long network loss, with backoff."""
 
@@ -2970,7 +3444,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        self.assertIn('wifi_get_ssid|local_rec_status) ;;', text)     # read-only: no CSRF needed
+        self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', text)     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)
