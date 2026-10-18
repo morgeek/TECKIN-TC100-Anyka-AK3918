@@ -1425,6 +1425,14 @@ if [ -n "$F_cmd" ]; then
         esac
         isp_tune_norm "$_it_k" "$_it_in" >/dev/null || _it_bad="$_it_bad $_it_k"
       done
+      for _it_k in $ISP_MASK_KEYS; do
+        case "$_it_k" in
+          MASK1) _it_in="$F_isp_mask1" ;; MASK2) _it_in="$F_isp_mask2" ;;
+          MASK3) _it_in="$F_isp_mask3" ;; MASK4) _it_in="$F_isp_mask4" ;;
+          MASK_COLOR) _it_in="$F_isp_mask_color" ;;
+        esac
+        isp_tune_norm "$_it_k" "$_it_in" >/dev/null || _it_bad="$_it_bad $_it_k"
+      done
       if [ -n "$_it_bad" ]; then
         if wants_json_response; then json_body_err "INVALID_VALUE" "Invalid value for:$_it_bad"; else echo "Invalid value for:$_it_bad<br/>"; fi
         exit 0
@@ -1436,7 +1444,21 @@ if [ -n "$F_cmd" ]; then
       isp_tune_set HUE "$F_isp_hue"
       isp_tune_set POWER_HZ "$F_isp_power_hz"
       isp_tune_set EXPOSURE_MAX_PCT "$F_isp_exposure_max_pct"
+      _it_masks=0
+      for _it_k in $ISP_MASK_KEYS; do
+        case "$_it_k" in
+          MASK1) _it_in="$F_isp_mask1" ;; MASK2) _it_in="$F_isp_mask2" ;;
+          MASK3) _it_in="$F_isp_mask3" ;; MASK4) _it_in="$F_isp_mask4" ;;
+          MASK_COLOR) _it_in="$F_isp_mask_color" ;;
+        esac
+        # Old pages (no mask fields): leave the masks as they are.
+        [ -n "${F_isp_mask_form:-}" ] || continue
+        isp_tune_set "$_it_k" "$_it_in" || continue
+        case "$_it_k" in MASK[1-4]) [ -n "$_it_in" ] && _it_masks=1 ;; esac
+      done
       _it_want="$(normalize_bool "${F_isp_enable}")"
+      # The masks are applied by the tuning thread: drawing one switches it on.
+      [ "$_it_masks" = 1 ] && _it_want=1
       _it_msg="Image settings saved; applied within a few seconds."
       if [ "$_it_want" != "$(isp_tune_enabled)" ]; then
         install_config /mnt/config/boot.conf

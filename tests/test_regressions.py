@@ -297,10 +297,13 @@ class Regressions(unittest.TestCase):
         if not (sysroot and shutil.which('qemu-arm') and (fx / 'ispdriver').exists()):
             self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
         conf, status = self.base / 'isp_tune.conf', self.base / 'isp.status'
+        rtsp = self.base / 'rtspserver.conf'
+        rtsp.write_text('[0]\nwidth=1920\nheight=1080\n[1]\nwidth=352\nheight=200\n')
         out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
                               '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
                               '-E', 'TC100FIX_ISP_TUNE=%s' % conf, '-E', 'TC100FIX_ISP_STATUS=%s' % status,
-                              str(fx / 'ispdriver')], capture_output=True, timeout=60).stdout.decode()
+                              '-E', 'TC100FIX_RTSP_CONF=%s' % rtsp,
+                              str(fx / 'ispdriver')], capture_output=True, timeout=90).stdout.decode()
         start = out.split('--- after start')[1].split('--- after change')[0]
         self.assertIn('status: BRIGHTNESS=20', start)
         self.assertIn('status: SHARPNESS=50', start)          # 99 clamped to 50
@@ -313,6 +316,17 @@ class Regressions(unittest.TestCase):
         reset = out.split('--- after reset')[1]
         self.assertIn('status: EXPOSURE_MAX_PCT=0', reset)
         self.assertIn('status: EXPOSURE_NOW=1000', reset)     # original restored
+        # Privacy masks (percent -> pixels of each channel, even), MASK2 invalid (x2 < x1)
+        masks = out.split('--- after reset')[1].split('--- after masks')[0]
+        self.assertIn('vpss mask main0 0,0-960,540', masks)
+        self.assertIn('vpss mask sub2 316,160-350,198', masks)
+        self.assertNotIn('main1', masks)
+        self.assertIn('vpss mask_color type=0 y=128', masks)   # gray
+        self.assertIn('status: MASKS=2', out.split('--- after masks')[1])
+        lost = out.split('vpss masks lost')[1].split('--- after mask reload')[0]
+        self.assertIn('vpss mask main2 1728,864-1918,1078', lost)   # set again after an ISP reload
+        off = out.split('--- after mask reload')[1].split('--- after masks off')[0]
+        self.assertIn('vpss mask_set', off); self.assertNotIn('vpss mask main', off)   # cleared
 
     def test_isp_tune_helpers_validate_and_report(self):
         conf, boot, status = self.base / 'isp_tune.conf', self.base / 'boot.conf', self.base / 'status'
@@ -323,7 +337,10 @@ class Regressions(unittest.TestCase):
         lib = env + function('scripts/common_functions.sh', 'rewrite_config') + '\nsync() { :; }\n' + (ROOT / 'scripts/isp-tune.sh').read_text()
         for key, val, ok in [('BRIGHTNESS', '20', '20'), ('BRIGHTNESS', '-50', '-50'), ('BRIGHTNESS', '51', None),
                              ('BRIGHTNESS', '1x', None), ('HUE', '', '0'), ('POWER_HZ', '60', '60'), ('POWER_HZ', '55', None),
-                             ('EXPOSURE_MAX_PCT', '0', ''), ('EXPOSURE_MAX_PCT', '9', None), ('EXPOSURE_MAX_PCT', '40', '40')]:
+                             ('EXPOSURE_MAX_PCT', '0', ''), ('EXPOSURE_MAX_PCT', '9', None), ('EXPOSURE_MAX_PCT', '40', '40'),
+                             ('MASK1', '', ''), ('MASK2', '05,0,50,40', '5,0,50,40'), ('MASK3', '50,0,10,40', None),
+                             ('MASK4', '0,0,101,40', None), ('MASK1', '0,0,50', None), ('MASK1', '1,2,3,4;reboot', None),
+                             ('MASK_COLOR', 'mosaic', 'mosaic'), ('MASK_COLOR', 'red', None)]:
             r = run(lib + '\nisp_tune_norm %s %s; echo "rc=$?"' % (key, shlex.quote(val)))
             out = r.stdout.decode().split('\n')
             if ok is None:
