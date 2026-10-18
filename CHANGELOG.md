@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.1.6] — 2026-10-18
+
+Hardware features that cost no CPU.
+
+### Added
+- **Privacy masks** (Settings → Image): drag up to 4 rectangles on the camera picture. The ISP paints them (black, grey or white) before encoding, so they are gone from both streams, the snapshots, the recordings and what Frigate analyses, at no CPU cost (`ak_vpss_mask_set_area`, struct checked against the camera's library). Stored as `MASK1..MASK4=x1,y1,x2,y2` in percent in `isp_tune.conf`, set again if a day/night ISP reload drops them. Saving a mask switches live tuning on. Checked on a camera: the masked area is exactly where it was drawn on the 1080p snapshot. (The SDK's "mosaic" type left the area black, so it is not offered.)
+- **Wi-Fi rescue access point from flash.** The flash `/usr` has no vendor `hostapd`, so the rescue access point (`WIFI_RESCUE`) could not start there. The code package now carries `hostapd-rtw`, built from Realtek's hostapd 0.8.x_rtw source for the RTL8188FU's `rtl871xdrv` interface (`src/hostapd`, WPA2-PSK only, no WPS/EAP/RADIUS, 190 KB). Checked on a camera: access point up in Master mode on `wlan1` while the station link kept working, then stopped.
+
+### Fixed
+- The rescue access point's DHCP server kept running after the access point stopped (busybox `udhcpd` did not write its pidfile): it now runs in the foreground of a background job whose PID is recorded.
+- The image-tuning status of the web page and MQTT is removed when tuning is switched off, instead of showing the last values.
+
+### Notes
+- WDR (wide dynamic range) is already on: the sensor's ISP file runs it in gain-linked mode for 8 of its 9 gain levels (read on a camera; the status file now reports `WDR_MODE/WDR_MANUAL/WDR_LINK`). Nothing to switch on.
+- Wi-Fi transmit power cannot be lowered at run time with this driver build (`tx_power_offset` and `tx_gain_offset` are accepted but change nothing measurable); a camera too close to its access point is better moved by a couple of metres.
+
+---
+
 ## [2.1.5] — 2026-10-18
 
 Reliability.
