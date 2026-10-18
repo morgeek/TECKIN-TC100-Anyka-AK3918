@@ -252,6 +252,8 @@ start()
       echo "tc100fix options set but $TC100FIX_LIB is missing" >> "$LOGPATH"
       TC100FIX_ENV=""
     fi
+    # The last still picture for currentpic.cgi (libtc100fix rec.c).
+    [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SNAPSHOT=/tmp/snapshot.jpg"
     echo "/mnt/bin/v4l2rtspserver  $STREAMS ${CREDENTIAL:+-U ***} $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
     # A quick restart while the previous server's client sockets on the RTSP
     # port are still closing makes the bind fail; the server then exits at once
