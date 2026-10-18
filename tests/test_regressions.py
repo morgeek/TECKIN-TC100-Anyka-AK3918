@@ -2290,6 +2290,19 @@ class SdCard(unittest.TestCase):
         self.assertIn('sdCardPrompt(statusline);', (ROOT / 'src/webui/index/40-polling.js').read_text())
 
 
+class RtspLiteSource(unittest.TestCase):
+    """The frame tap in rec.c: only H.264/H.265 frames reach RTSP lite and the recording."""
+
+    def test_snapshot_encoder_is_left_out(self):
+        rec = (ROOT / 'src/tc100fix/rec.c').read_text()
+        hook = rec[rec.index('int ak_venc_get_stream_ex('):]
+        # the start-code check runs before the RTSP tap and the recording
+        self.assertLess(hook.index('buf[0] || buf[1]'), hook.index('tc100fix_rtsp_frame('))
+        self.assertIn('users[i].still = 1;', hook)
+        self.assertIn('!users[i].still && encs[j].enc', rec)                 # stream_of
+        self.assertIn('if (!users[i].user || users[i].still) continue;', rec)  # choose_user
+
+
 class RtspLite(unittest.TestCase):
     """src/tc100fix/rtsp.c built for the host: ffprobe/ffmpeg as clients."""
 
