@@ -17,12 +17,27 @@ done
 if [ -f "$src/lib/libtc100fix.so" ]; then
   mkdir -p "$w/code/lib" && cp -a "$src/lib/libtc100fix.so" "$w/code/lib/"
 fi
+# The filtered syslog forwarder (scripts/common_functions.sh syslogd_start
+# prefers /tmp/tc100code/bin): new in 2.1.5, so not in older /usr images.
+if [ -f "$src/bin/tc100-logfwd" ]; then
+  mkdir -p "$w/code/bin" && cp -a "$src/bin/tc100-logfwd" "$w/code/bin/"
+fi
 mksquashfs "$w/code" "$w/code.sqsh" -comp xz -b 131072 -all-root -noappend -no-xattrs -quiet >/dev/null
 size=$(wc -c < "$w/code.sqsh" | tr -d ' ')
 [ "$size" -le "$max" ] || { echo "error: code image $size bytes, the zone holds $max" >&2; exit 1; }
 md5=$( (md5sum "$w/code.sqsh" 2>/dev/null || md5 -r "$w/code.sqsh") | cut -d' ' -f1)
 ver=$(head -n 1 "$src/VERSION" 2>/dev/null || true)
-printf 'TC100CODE 1\nsize %s\nmd5 %s\nversion %s\n' "$size" "$md5" "${ver:-unknown}" > "$w/hdr"
+# Build identity, shown by the web page before installing: two packages with
+# the same version can then be told apart (BUILD_COMMIT / BUILD_DATE override).
+built=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%MZ)}
+commit=${BUILD_COMMIT:-}
+if [ -z "$commit" ]; then
+  repo=$(cd "$(dirname "$0")/../.." && pwd)
+  commit=$(git -C "$repo" rev-parse --short=10 HEAD 2>/dev/null || true)
+  [ -n "$commit" ] && [ -n "$(git -C "$repo" status --porcelain --untracked-files=no 2>/dev/null)" ] && commit="$commit+dirty"
+fi
+printf 'TC100CODE 1\nsize %s\nmd5 %s\nversion %s\nbuilt %s\n' "$size" "$md5" "${ver:-unknown}" "$built" > "$w/hdr"
+[ -n "$commit" ] && printf 'commit %s\n' "$commit" >> "$w/hdr"
 dd if="$w/hdr" of="$w/hdr4k" bs=4096 count=1 conv=sync 2>/dev/null
 cat "$w/hdr4k" "$w/code.sqsh" > "$out"
-echo "$out: code ${ver:-unknown}, $size bytes (zone: $max), md5 $md5"
+echo "$out: code ${ver:-unknown}, $size bytes (zone: $max), md5 $md5, built $built${commit:+, commit $commit}"

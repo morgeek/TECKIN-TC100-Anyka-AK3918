@@ -14,10 +14,6 @@ if [ -f "$BOOT_CONFIG" ]; then
     ULTRALITE_HTTP_PORT="${ULTRALITE_HTTP_PORT:-80}"
 fi
 
-if [ "$WEB_MODE" = "off" ]; then
-    exit 0
-fi
-
 # Last resort when the web interface does not come up (or stops): one restart,
 # then a rescue telnet on port 23, closed again once the web is back
 # (scripts/web-guard.sh), so the camera can be repaired without opening it.
@@ -27,6 +23,13 @@ start_web_guard()
     sh /mnt/scripts/web-guard.sh run </dev/null >/dev/null 2>&1 &
     echo $! > /var/run/web-guard.pid
 }
+
+# No web server at all: web-guard.sh still runs for the network check
+# (net-guard.sh); its web part does nothing in this mode.
+if [ "$WEB_MODE" = "off" ]; then
+    start_web_guard
+    exit 0
+fi
 
 # lighttpd refuses to start if deflate.cache-dir is missing (tmpfs, gone each boot)
 mkdir -p /tmp/lighttpd-deflate 2>/dev/null

@@ -988,12 +988,32 @@ syslogd_start() {
   _sl_bin=/tmp/bin/syslogd
   mkdir -p /tmp/bin 2>/dev/null
   [ -x "$_sl_bin" ] || ln -sf /bin/busybox "$_sl_bin" 2>/dev/null || _sl_bin="/bin/busybox syslogd"
-  if [ -n "$_sl_remote" ]; then
+  # Remote host: busybox "syslogd -R" sends EVERY message (its -l and -f
+  # filters only apply to the local file), so the remote server also got the
+  # kernel/daemon info and debug lines. tc100-logfwd follows the filtered
+  # local file instead and limits repeats and bursts (src/logfwd). Without
+  # the binary (older /usr), -R as before.
+  _sl_fwd=""
+  for _f in /tmp/tc100code/bin/tc100-logfwd /mnt/bin/tc100-logfwd; do
+    [ -x "$_f" ] && { _sl_fwd="$_f"; break; }
+  done
+  _fwd_list() { ps 2>/dev/null | awk '/[t]c100-logfwd( |$)/ { print $1 }'; }
+  # shellcheck disable=SC2046
+  kill $(_fwd_list) >/dev/null 2>&1
+  if [ -n "$_sl_remote" ] && [ -z "$_sl_fwd" ]; then
     ( trap '' HUP; exec $_sl_bin -n -D -f "$SYSLOG_CONF_RUNTIME" -l 6 -s 128 -b 1 -R "$_sl_remote" -L ) </dev/null >/dev/null 2>&1 &
   else
     ( trap '' HUP; exec $_sl_bin -n -D -f "$SYSLOG_CONF_RUNTIME" -l 6 -s 128 -b 1 ) </dev/null >/dev/null 2>&1 &
   fi
   _sl_pid=$!
+  if [ -n "$_sl_remote" ] && [ -n "$_sl_fwd" ]; then
+    # -b: from the start of the log, so the boot messages also reach the
+    # remote host (the file is new at each boot: tmpfs). Later restarts
+    # would resend it: only when the log is young (first 10 min).
+    _fwd_b=""; [ "$(cut -d. -f1 /proc/uptime 2>/dev/null)" -lt 600 ] 2>/dev/null && _fwd_b=-b
+    ( trap '' HUP; exec "$_sl_fwd" -r "$_sl_remote" -f /var/log/messages $_fwd_b ) </dev/null >/dev/null 2>&1 &
+    _sl_pid=$!
+  fi
   # klogd stamps the kernel lines itself: the vendor one starts before the
   # time zone is known, so kernel lines were hours apart from the others.
   # Restart it with the current TZ (only when one is set).

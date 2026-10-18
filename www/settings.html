@@ -1058,20 +1058,27 @@
             if (!file || !up) return;
             var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
             var stagedKind = '';
+            var stagedSame = 0;
 
             // Bulma's display rules on .button/.progress override [hidden].
             function show(el, on) { el.style.display = on ? '' : 'none'; }
             function say(text) { status.textContent = text; }
+            // "· built 2026-10-18T09:40Z · a30317e5c7": tells two packages of
+            // the same version apart (src/flash/build-code.sh, since 2.1.5).
+            function buildInfo(built, commit) {
+                return (built ? ' · built ' + built : '') + (commit ? ' · ' + commit : '');
+            }
             function refresh() {
                 return fetch('cgi-bin/update.cgi?cmd=status', { cache: 'no-store' })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
-                        cur.textContent = d.current || '?';
+                        cur.textContent = (d.current || '?') + buildInfo(d.current_built, d.current_commit);
                         show(rb, !!d.rollback_to);
                         if (d.rollback_to) rb.textContent = 'Roll back to ' + d.rollback_to;
                         show(inst, d.state === 'staged');
                         stagedKind = d.kind || '';
                         if (d.state === 'staged') inst.textContent = 'Install ' + d.staged + ' & reboot';
+                        stagedSame = 0;
                         return d;
                     }).catch(function() {});
             }
@@ -1128,8 +1135,12 @@
                             say('System package ' + d.version + ' is valid: the programs in the flash memory (/usr) and the code will be replaced (installed: ' + d.current + '). The video is paused until the install.');
                             refresh();
                         } else if (d && d.ok && d.kind === 'code') {
-                            say('Code package ' + d.version + ' is valid; it will be written to the flash memory (installed: ' + d.current + ').');
-                            refresh();
+                            var msg = 'Code package ' + d.version + buildInfo(d.built, d.commit) + ' (md5 ' + (d.md5 || '?').slice(0, 8) +
+                                ') is valid; it will be written to the flash memory (installed: ' + d.current + buildInfo(d.current_built, d.current_commit) + ').';
+                            if (d.same_version === 2) msg += ' This is exactly the code already installed.';
+                            else if (d.same_version === 1) msg += ' Warning: same version as the installed code but a different build — check that this is the file you meant.';
+                            say(msg);
+                            refresh().then(function() { stagedSame = d.same_version || 0; });
                         } else if (d && d.ok) {
                             say('Package ' + d.version + ' is valid: ' + d.changed + ' of ' + d.files + ' files differ from the installed ' + d.current + '.');
                             refresh();
@@ -1148,7 +1159,8 @@
                     run('install', 'Install the system package and reboot the camera?\n\nThe camera stops its programs, Wi-Fi included, writes its flash memory and restarts: it is unreachable for about 3 minutes. Do not unplug it.', 'Installing the system package.');
                     return;
                 }
-                run('install', 'Install the uploaded firmware and reboot the camera?\n\nThe replaced files are kept for a rollback.', 'Installing.');
+                run('install', (stagedSame === 1 ? 'This package has the same version as the installed code but is a different build.\n\n' : '') +
+                    'Install the uploaded firmware and reboot the camera?\n\nThe replaced files are kept for a rollback.', 'Installing.');
             });
             rb.addEventListener('click', function() {
                 run('rollback', 'Restore the files replaced by the last update and reboot the camera?', 'Rolling back.');

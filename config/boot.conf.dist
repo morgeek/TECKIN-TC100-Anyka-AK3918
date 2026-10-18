@@ -4,6 +4,14 @@ LIGHTWEIGHT_MODE=0
 
 # Service toggles (1=enable, 0=disable)
 ENABLE_WATCHDOG=1
+# Network guard (scripts/net-guard.sh, checked every minute by web-guard.sh):
+# reboot when the default gateway has not answered for NET_GUARD_MIN minutes
+# while the rest of the system runs (the hardware watchdog does not catch
+# that). After such a reboot the next limit doubles, up to 2 h, until the
+# network has been back for 10 min. Never while the Wi-Fi rescue access point
+# is up. NET_GUARD=0 turns it off.
+NET_GUARD=1
+NET_GUARD_MIN=15
 ENABLE_NTP=1
 # If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
 NTP_ONE_SHOT=0
