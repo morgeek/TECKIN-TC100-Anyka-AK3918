@@ -18,6 +18,12 @@ NET_GUARD_MIN=15
 # Formatting is offered in the web page. SD_AUTOMOUNT=0: never mounted
 # automatically.
 SD_AUTOMOUNT=1
+# RTSP lite (test): a second RTSP server inside the video process, sending
+# the same encoded video with less overhead, on this port (e.g. 8554):
+# rtsp://<camera>:<port>/video0 and /video1, same user and password as the
+# main server, TCP only, no audio yet. Empty or 0 = off. The main server
+# (PORT in rtspserver.conf) is not changed.
+RTSP_LITE_PORT=
 ENABLE_NTP=1
 # If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
 NTP_ONE_SHOT=0

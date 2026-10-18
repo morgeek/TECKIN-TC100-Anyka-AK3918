@@ -181,6 +181,13 @@ start()
       ''|0|*[!0-9]*) ;;
       *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_POLL_MS=$RTSP_DAYNIGHT_POLL_MS" ;;
     esac
+    # RTSP lite (src/tc100fix/rtsp.c): a second, lighter RTSP server inside
+    # the same process, fed by the encoder output; off unless a port is set.
+    case "$RTSP_LITE_PORT" in
+      ''|0|*[!0-9]*) ;;
+      *) [ "$RTSP_LITE_PORT" != "$(read_config rtspserver.conf PORT 2>/dev/null)" ] &&
+           TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_PORT=$RTSP_LITE_PORT" ;;
+    esac
     case "$ISP_TUNE" in 1|true|yes|on|enabled)
       install_config "$CONFIGPATH/isp_tune.conf"
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_ISP_TUNE=$CONFIGPATH/isp_tune.conf" ;;
