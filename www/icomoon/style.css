@@ -1,10 +1,8 @@
 @font-face {
   font-family: 'icomoon';
-  src:  url('fonts/icomoon.eot?5xq5gk');
-  src:  url('fonts/icomoon.eot?5xq5gk#iefix') format('embedded-opentype'),
-    url('fonts/icomoon.ttf?5xq5gk') format('truetype'),
-    url('fonts/icomoon.woff?5xq5gk') format('woff'),
-    url('fonts/icomoon.svg?5xq5gk#icomoon') format('svg');
+  /* WOFF only: every browser in use reads it (the .eot/.ttf/.svg copies
+     were for Internet Explorer and old Safari, and took flash space). */
+  src:  url('fonts/icomoon.woff?5xq5gk') format('woff');
   font-weight: normal;
   font-style: normal;
   font-display: block;

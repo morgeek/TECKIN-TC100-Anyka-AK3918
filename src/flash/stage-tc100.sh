@@ -30,7 +30,7 @@ list() {
   fi
 }
 list |
-  grep -v -E '^config/ssl/|^bin/(openssl|telegram|jq|ffmpeg-min-recorder|min-recorder-list|curl|lighttpd)$|^lib/(libssl|libcrypto|libcurl|libjq|libiconv|libpcre2)' |
+  grep -v -E '\.py$|^config/ssl/|^bin/(openssl|telegram|jq|ffmpeg-min-recorder|min-recorder-list|curl|lighttpd)$|^lib/(libssl|libcrypto|libcurl|libjq|libiconv|libpcre2)' |
 while IFS= read -r f; do
   mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"
 done
@@ -46,6 +46,9 @@ else
     case "${f##*/}" in lib*) cp "$f" "$out/lib/${f##*/}" ;; *) cp "$f" "$out/bin/${f##*/}" ;; esac
   done
 fi
+# Flash space: comments out of the scripts, web scripts minified, when shfmt
+# and esbuild are installed (src/flash/minify.sh). MINIFY=0 keeps the sources.
+[ "${MINIFY:-1}" = 0 ] || [ ! -f "$root/src/flash/minify.sh" ] || sh "$root/src/flash/minify.sh" "$out" >&2
 # autorun.sh runs autostart entries directly: they must be executable (on the
 # SD card FAT makes every file executable, in a squashfs only the mode counts).
 chmod -R 755 "$out/bin" "$out/lib" "$out/scripts" "$out/controlscripts" "$out/autorun.sh" "$out/config/autostart"

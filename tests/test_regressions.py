@@ -2117,6 +2117,45 @@ class WifiRescueFlash(unittest.TestCase):
             self.assertEqual(r.stdout.strip(), d + '/h')
 
 
+class FlashMinify(unittest.TestCase):
+    """src/flash/minify.sh: a file whose minified form does not pass the syntax check keeps its source."""
+
+    def run_minify(self, sh_out, js_out):
+        d = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, d)
+        st = d / 'st'
+        (st / 'scripts').mkdir(parents=True); (st / 'www/scripts').mkdir(parents=True); (st / 'www/css').mkdir()
+        (st / 'autorun.sh').write_text('#!/bin/sh\n# comment\necho hi\n')
+        (st / 'scripts/a.sh').write_text('# lib\nf() {\n  echo a\n}\n')
+        (st / 'www/scripts/x.js').write_text('// c\nfunction keepMe(a) { return a + 1; }\n')
+        (st / 'www/css/bulma.min.css').write_text('a{b:c}\n')
+        tools = d / 'tools'; tools.mkdir()
+        (tools / 'shfmt').write_text('#!/bin/sh\nprintf %%s %s\n' % shlex.quote(sh_out))
+        (tools / 'esbuild').write_text('#!/bin/sh\ncase "$*" in *.css*) echo BROKEN-CSS ;; *) printf %%s %s ;; esac\n' % shlex.quote(js_out))
+        for t in ('shfmt', 'esbuild'):
+            (tools / t).chmod(0o755)
+        r = subprocess.run(['sh', str(ROOT / 'src/flash/minify.sh'), str(st)], capture_output=True, text=True,
+                           env=dict(os.environ, SHFMT=str(tools / 'shfmt'), ESBUILD=str(tools / 'esbuild')))
+        return st, r
+
+    def test_good_output_replaces_bad_output_is_refused(self):
+        st, r = self.run_minify('f(){ echo a;}\n', 'function keepMe(a){return a+1}\n')
+        self.assertEqual((st / 'scripts/a.sh').read_text(), 'f(){ echo a;}\n')
+        self.assertTrue((st / 'autorun.sh').read_text().startswith('#!/bin/sh\n'))       # interpreter line kept
+        self.assertEqual((st / 'www/scripts/x.js').read_text(), 'function keepMe(a){return a+1}\n')
+        self.assertEqual((st / 'www/css/bulma.min.css').read_text(), 'a{b:c}\n')           # *.min.css untouched
+        st, r = self.run_minify('if then fi (\n', 'function (( {\n')
+        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
+        if shutil.which('node'):
+            self.assertIn('// c', (st / 'www/scripts/x.js').read_text())
+        self.assertIn('kept', r.stdout)
+
+    def test_stage_calls_it_and_can_skip_it(self):
+        s = (ROOT / 'src/flash/stage-tc100.sh').read_text()
+        self.assertIn('[ "${MINIFY:-1}" = 0 ] ||', s)
+        self.assertIn("'\\.py$|^config/ssl/", s)                # host tools (generate_sounds.py) stay out
+        self.assertNotIn('icomoon.eot', (ROOT / 'www/icomoon/style.css').read_text())
+
+
 class NetGuard(unittest.TestCase):
     """scripts/net-guard.sh: reboot after a long network loss, with backoff."""
 
