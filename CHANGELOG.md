@@ -45,6 +45,7 @@ A lighter RTSP server, sound both ways, motion zones.
   - `RTSP_AEC=1` keeps them.
 - **Health snapshot every 5 minutes** instead of every minute (`HEALTH_SNAPSHOT_INTERVAL_SECONDS=300`). Each run probes about 15 services. The Diagnostics page and `health.cgi` follow the new cadence.
 - **Less memory.** The video process gives back 384 KB: the lite server's frame ring holds only the frames in transit, now 384 KB instead of 768 KB. The reset button is watched by `tc100-button`, a small C program in the code zone (`src/button`). It is one blocked process instead of a shell loop with a `dd | od` pipeline, which held four processes and about 230 KB. The rules are the same, and `scripts/button-watch.sh` stays as the fallback.
+- **Faster web requests.** `action.cgi` keeps its checks and helpers, and its 89 commands moved to `scripts/action.d/<group>.sh` (video, stream, audio, storage, detection, hardware, system, network, integrations, setup, logs). A request reads only its group's file: the shell parsed the whole 115 KB file on each request, about 0.3 s on the camera. The commands themselves are unchanged.
 - **The camera's own motion detection is off by default** (`mdenabled=0` in `rtspserver.conf.dist`): Frigate does the detection. It saves the detector's work in the video process. Turn it on in Services when its MQTT events or pictures on motion are used. Cameras already set up keep their setting.
 - `NR3D_STRENGTH` (test, `isp_tune.conf`): scales the 3D noise-reduction strengths, mapped on the camera's 112-byte sets. Not in the web page yet.
 
