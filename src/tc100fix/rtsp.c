@@ -25,6 +25,13 @@
  * encoder runs (RTSP_AUDIO=1 or sound detection). Timestamps of both tracks
  * come from the same monotonic clock, so they stay in sync.
  *
+ * Talk (two-way audio, TC100FIX_RTSP_TALK=1): a client that asks for the
+ * ONVIF backchannel ("Require: www.onvif.org/ver20/backchannel", as go2rtc
+ * does) gets a third track (trackID=2, a=sendonly, G.711 8 kHz); the RTP it
+ * sends on that channel is decoded and played on the speaker (libplat_ao,
+ * opened while someone talks, volume from /mnt/config/pttvolume.conf). One
+ * talker at a time.
+ *
  * Transport: TCP interleaved only (go2rtc, ffmpeg and Frigate use it by
  * default over Wi-Fi); a SETUP asking for UDP gets 461, clients then retry
  * with TCP. RTP payloads: RFC 7798 (H.265) and RFC 6184 (H.264), with
@@ -41,6 +48,7 @@
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -327,6 +335,181 @@ static const void *a_handle;       /* the one encoder handle taken (audio0) */
 static uint64_t a_last_us, a_next_us;
 static unsigned long a_frames;
 
+/* ---------------------------------------------------------------- talk */
+/* Backchannel audio from a client to the speaker: G.711 decoded to 16-bit
+ * PCM into a 4 s queue, played by its own thread. */
+
+#define TALK_RATE 8000
+#define TALK_QUEUE (TALK_RATE * 4)
+static int talk_on;
+static short *t_q;
+static size_t t_head, t_tail;
+static pthread_mutex_t t_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t t_cond = PTHREAD_COND_INITIALIZER;
+static volatile int talk_owner = -1;   /* client index talking */
+static volatile uint64_t talk_last_us;
+static unsigned long talk_pkts, talk_sessions, talk_errors;
+
+static short g711_alaw(unsigned char a)
+{
+    int t, seg;
+    a ^= 0x55;
+    t = (a & 0x0f) << 4;
+    seg = (a & 0x70) >> 4;
+    if (seg == 0) t += 8;
+    else if (seg == 1) t += 0x108;
+    else { t += 0x108; t <<= seg - 1; }
+    return (short)((a & 0x80) ? t : -t);
+}
+
+static short g711_ulaw(unsigned char u)
+{
+    int t;
+    u = (unsigned char)~u;
+    t = ((u & 0x0f) << 3) + 0x84;
+    t <<= (u & 0x70) >> 4;
+    return (short)((u & 0x80) ? (0x84 - t) : (t - 0x84));
+}
+
+static void talk_push(const unsigned char *p, int n, int pt)
+{
+    int i;
+    pthread_mutex_lock(&t_lock);
+    for (i = 0; i < n; i++) {
+        size_t next = (t_head + 1) % TALK_QUEUE;
+        if (next == t_tail) break;                     /* full: drop the rest */
+        t_q[t_head] = pt == 8 ? g711_alaw(p[i]) : g711_ulaw(p[i]);
+        t_head = next;
+    }
+    talk_pkts++;
+    talk_last_us = mono_us();
+    pthread_cond_signal(&t_cond);
+    pthread_mutex_unlock(&t_lock);
+}
+
+/* Speaker output: libplat_ao on the camera (struct pcm_param of the SDK:
+ * sample_rate, sample_bits, channel_num), a file in the host test. */
+struct pcm_param_s { unsigned int rate, bits, channels; };
+static void *(*ao_open)(const struct pcm_param_s *);
+static int (*ao_send)(void *, unsigned char *, int, long);
+static int (*ao_close)(void *);
+static int (*ao_speaker)(void *, int);
+static int (*ao_resample)(void *, int);
+static int (*ao_dac)(void *, int);
+static int (*ao_end)(void *);
+
+#ifdef RTSP_HOST_TEST
+static void *host_open(const struct pcm_param_s *p)
+{
+    const char *path = getenv("RTSP_TEST_TALK_OUT");
+    (void)p;
+    return path ? (void *)fopen(path, "ab") : NULL;
+}
+static int host_send(void *h, unsigned char *d, int n, long ms) { int w; (void)ms; w = (int)fwrite(d, 1, (size_t)n, (FILE *)h); fflush((FILE *)h); return w; }
+static int host_close(void *h) { return fclose((FILE *)h); }
+#endif
+
+static int talk_volume(void)
+{
+    char b[16] = "";
+    int v = 90;
+    FILE *f = fopen("/mnt/config/pttvolume.conf", "r");
+    if (f) { if (fgets(b, sizeof(b), f)) v = atoi(b); fclose(f); }
+    if (v < 0) v = 0;
+    if (v > 100) v = 100;
+    return (v * 6 + 50) / 100;                          /* as the push-to-talk */
+}
+
+static void *talk_thread(void *arg)
+{
+    void *h = NULL;
+    short buf[640];
+    (void)arg;
+    prctl(PR_SET_NAME, "rtsp_talk", 0, 0, 0);
+    for (;;) {
+        size_t n = 0;
+        pthread_mutex_lock(&t_lock);
+        if (t_head == t_tail) {
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += 300000000L;
+            if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+            pthread_cond_timedwait(&t_cond, &t_lock, &ts);
+        }
+        while (t_head != t_tail && n < sizeof(buf) / sizeof(buf[0])) { buf[n++] = t_q[t_tail]; t_tail = (t_tail + 1) % TALK_QUEUE; }
+        pthread_mutex_unlock(&t_lock);
+        if (!n) {
+            if (h && mono_us() - talk_last_us > 1500000ULL) {       /* nobody talks any more */
+                if (ao_end) ao_end(h);
+                usleep(300000);
+                if (ao_speaker) ao_speaker(h, 0);
+                ao_close(h); h = NULL;
+                talk_owner = -1;
+            }
+            continue;
+        }
+        if (!h) {
+            struct pcm_param_s pp = { TALK_RATE, 16, 1 };
+            if (!ao_open || !ao_send || !ao_close || !(h = ao_open(&pp))) {
+                talk_errors++; usleep(500000); continue;      /* this data is dropped */
+            }
+            if (ao_resample) ao_resample(h, 1);
+            if (ao_dac) ao_dac(h, talk_volume());
+            if (ao_speaker) ao_speaker(h, 1);
+            talk_sessions++;
+        }
+        {
+            unsigned char *d = (unsigned char *)buf;
+            int left = (int)(n * 2), tries = 0;
+            while (left > 0 && tries < 50) {
+                int w = ao_send(h, d, left, 0);
+                if (w < 0) { talk_errors++; break; }
+                if (w == 0) { usleep(10000); tries++; continue; }
+                d += w; left -= w;
+            }
+        }
+    }
+    return NULL;
+}
+
+static void talk_start(void)
+{
+    pthread_t th;
+    pthread_attr_t at;
+    if (!(t_q = malloc(sizeof(short) * TALK_QUEUE))) { talk_on = 0; return; }
+#ifdef RTSP_HOST_TEST
+    ao_open = host_open; ao_send = host_send; ao_close = host_close;
+#else
+    ao_open = (void *(*)(const struct pcm_param_s *))dlsym(RTLD_DEFAULT, "ak_ao_open");
+    ao_send = (int (*)(void *, unsigned char *, int, long))dlsym(RTLD_DEFAULT, "ak_ao_send_frame");
+    ao_close = (int (*)(void *))dlsym(RTLD_DEFAULT, "ak_ao_close");
+    ao_speaker = (int (*)(void *, int))dlsym(RTLD_DEFAULT, "ak_ao_enable_speaker");
+    ao_resample = (int (*)(void *, int))dlsym(RTLD_DEFAULT, "ak_ao_set_resample");
+    ao_dac = (int (*)(void *, int))dlsym(RTLD_DEFAULT, "ak_ao_set_dac_volume");
+    ao_end = (int (*)(void *))dlsym(RTLD_DEFAULT, "ak_ao_notice_frame_end");
+#endif
+    pthread_attr_init(&at);
+    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&at, 64 * 1024);
+    if (pthread_create(&th, &at, talk_thread, NULL)) talk_on = 0;
+    pthread_attr_destroy(&at);
+}
+
+/* One interleaved RTP packet from a client on its backchannel. */
+static void talk_rtp(int idx, const unsigned char *p, int n)
+{
+    int off = 12, pt;
+    if (!talk_on || n < 12 || (p[0] & 0xc0) != 0x80) return;
+    if (talk_owner >= 0 && talk_owner != idx && mono_us() - talk_last_us < 3000000ULL) return;  /* someone else talks */
+    talk_owner = idx;
+    off += (p[0] & 0x0f) * 4;
+    if ((p[0] & 0x10) && n >= off + 4) off += 4 + ((p[off + 2] << 8 | p[off + 3]) * 4);
+    pt = p[1] & 0x7f;
+    if ((pt != 8 && pt != 0) || n <= off) return;
+    if (p[0] & 0x20) n -= p[n - 1];                      /* padding */
+    if (n > off) talk_push(p + off, n - off, pt);
+}
+
 /* ------------------------------------------------------------- clients */
 
 struct client {
@@ -339,6 +522,7 @@ struct client {
     uint16_t seq; uint32_t ssrc, rtp_ts;
     uint64_t sr_last, sent_octets, sent_pkts, opened;
     int a_on, a_ch;                                  /* audio track set up, its channel */
+    int b_on, b_ch;                                  /* backchannel (talk) set up, its channel */
     uint16_t a_seq; uint32_t a_ssrc;
     uint64_t a_sr_last, a_octets, a_pkts;
     unsigned long a_drops;
@@ -357,6 +541,7 @@ static unsigned long long total_bytes;
 
 static void client_close(struct client *c)
 {
+    if (talk_owner == (int)(c - C)) talk_owner = -1;
     if (c->fd >= 0) close(c->fd);
     free(c->out);
     memset(c, 0, sizeof(*c));
@@ -623,7 +808,7 @@ static int url_stream(const char *url)
 /* An audio track is offered while the encoder has delivered in the last 3 s. */
 static int audio_live(void) { return a_pt >= 0 && a_rate && a_last_us && mono_us() - a_last_us < 3000000ULL; }
 
-static void sdp(char *out, size_t cap, int si, const char *myip)
+static void sdp(char *out, size_t cap, int si, const char *myip, int back)
 {
     struct stream *s = &S[si];
     char a[400], b[400], c[400], fmtp[1300];
@@ -648,6 +833,11 @@ static void sdp(char *out, size_t cap, int si, const char *myip)
         size_t l = strlen(out);
         snprintf(out + l, cap - l, "m=audio 0 RTP/AVP %d\r\na=rtpmap:%d %s/%u\r\na=control:trackID=1\r\n",
                  a_pt, a_pt, a_pt == 8 ? "PCMA" : "PCMU", a_rate);
+    }
+    if (back && talk_on) {
+        size_t l = strlen(out);
+        snprintf(out + l, cap - l, "m=audio 0 RTP/AVP 8 0\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:0 PCMU/8000\r\n"
+                 "a=control:trackID=2\r\na=sendonly\r\n");
     }
     pthread_mutex_unlock(&s_lock);
 }
@@ -680,25 +870,31 @@ static void handle_request(struct client *c, char *req)
         for (i = 0; i < 30 && S[si].codec == C_NONE; i++) usleep(100000);   /* first frames after start */
         if (S[si].codec == C_NONE) { reply(c, 503, "Service Unavailable", cseq, NULL, NULL); return; }
         c->stream = si;
-        sdp(body, sizeof(body), si, myip);
+        {
+            char rq[128] = "";
+            hdr_get(req, "Require", rq, sizeof(rq));
+            sdp(body, sizeof(body), si, myip, strstr(rq, "backchannel") != NULL);
+        }
         snprintf(extra, sizeof(extra), "Content-Base: %s/\r\nContent-Type: application/sdp\r\n", url);
         reply(c, 200, "OK", cseq, extra, body);
         return;
     }
     if (!strcmp(method, "SETUP")) {
         char tr[256];
-        int audio = strstr(url, "trackID=1") != NULL, si = url_stream(url), a, b = 1;
+        int audio = strstr(url, "trackID=1") != NULL, back = strstr(url, "trackID=2") != NULL;
+        int si = url_stream(url), a, b = 1;
         uint32_t ssrc;
-        if (audio && !audio_live()) { reply(c, 404, "Not Found", cseq, NULL, NULL); return; }
+        if ((audio && !audio_live()) || (back && !talk_on)) { reply(c, 404, "Not Found", cseq, NULL, NULL); return; }
         if (si >= 0) c->stream = si;
         if (!hdr_get(req, "Transport", tr, sizeof(tr)) || !strstr(tr, "TCP")) {
             reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return;
         }
-        a = audio ? 2 : 0;
+        a = back ? 4 : audio ? 2 : 0;
         if (strstr(tr, "interleaved=")) sscanf(strstr(tr, "interleaved=") + 12, "%d-%d", &a, &b);
-        if (a < 0 || a > 250) a = audio ? 2 : 0;
+        if (a < 0 || a > 250) a = back ? 4 : audio ? 2 : 0;
         ssrc = rnd32();
-        if (audio) { c->a_on = 1; c->a_ch = a; c->a_ssrc = ssrc; c->a_seq = (uint16_t)rnd32(); }
+        if (back) { c->b_on = 1; c->b_ch = a; }
+        else if (audio) { c->a_on = 1; c->a_ch = a; c->a_ssrc = ssrc; c->a_seq = (uint16_t)rnd32(); }
         else { c->v_on = 1; c->ch = a; c->ssrc = ssrc; c->seq = (uint16_t)rnd32(); }
         if (!c->session[0]) snprintf(c->session, sizeof(c->session), "%08X%08X", rnd32(), rnd32());
         snprintf(extra, sizeof(extra), "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d;ssrc=%08X\r\nSession: %s;timeout=60\r\n",
@@ -756,6 +952,8 @@ static void client_read(struct client *c)
             n = 4 + ((unsigned char)c->in[2] << 8 | (unsigned char)c->in[3]);
             if (n > INBUF - 1) { client_close(c); return; }
             if (c->in_n < n) break;
+            if (c->b_on && c->playing && (unsigned char)c->in[1] == c->b_ch)
+                talk_rtp((int)(c - C), (const unsigned char *)c->in + 4, n - 4);
             memmove(c->in, c->in + n, (size_t)(c->in_n - n)); c->in_n -= n;
             continue;
         }
@@ -785,10 +983,13 @@ static void write_status(void)
         fprintf(f, "video%d=%s frames=%lu gop_cache=%s\n", i, S[i].codec == C_H265 ? "h265" : S[i].codec == C_H264 ? "h264" : "none",
                 S[i].frames, !G[i].buf ? "off" : G[i].ok ? "ok" : S[i].frames ? "too-large" : "empty");
     fprintf(f, "audio=%s frames=%lu\n", !audio_live() ? "none" : a_pt == 8 ? "pcma" : "pcmu", a_frames);
+    fprintf(f, "talk=%s packets=%lu sessions=%lu errors=%lu\n", !talk_on ? "off" : talk_owner >= 0 ? "playing" : "idle",
+            talk_pkts, talk_sessions, talk_errors);
     for (i = 0; i < MAX_CLIENTS; i++)
         if (C[i].fd >= 0 && C[i].playing)
             fprintf(f, "client=%u.%u.%u.%u video%d%s drops=%lu audio_drops=%lu\n", C[i].addr & 255, (C[i].addr >> 8) & 255,
-                    (C[i].addr >> 16) & 255, C[i].addr >> 24, C[i].stream, C[i].a_on ? "+audio" : "", C[i].drops, C[i].a_drops);
+                    (C[i].addr >> 16) & 255, C[i].addr >> 24, C[i].stream,
+                    C[i].a_on ? (C[i].b_on ? "+audio+talk" : "+audio") : C[i].b_on ? "+talk" : "", C[i].drops, C[i].a_drops);
     fclose(f);
     rename(tmp, status_path);
 }
@@ -917,6 +1118,7 @@ static int rtsp_start(void)
     if ((v = getenv("TC100FIX_RTSP_STATUS")) && v[0]) status_path = v;
     snprintf(nonce, sizeof(nonce), "%08x%08x%08x%08x", rnd32(), rnd32(), rnd32(), rnd32());
     if (!(ring = malloc(RING))) return -1;
+    if ((v = getenv("TC100FIX_RTSP_TALK")) && !strcmp(v, "1")) { talk_on = 1; talk_start(); }
     if (!(v = getenv("TC100FIX_RTSP_FASTSTART")) || strcmp(v, "0")) {
         G[0].cap = GOP_MAIN; G[1].cap = GOP_SUB;
         if (!(G[0].buf = malloc(G[0].cap)) || !(G[1].buf = malloc(G[1].cap))) {
@@ -984,7 +1186,6 @@ void tc100fix_rtsp_audio(const void *handle, const unsigned char *d, unsigned in
 }
 
 #ifndef RTSP_HOST_TEST
-#include <dlfcn.h>
 /* Audio encoder hooks. ak_aenc_open(struct audio_param *): word 0 is the
  * codec (17 A-law, 18 u-law), one of the next words the sample rate.
  * ak_aenc_get_stream(handle, list head): a list of entries whose list node

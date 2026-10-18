@@ -255,18 +255,19 @@ class Regressions(unittest.TestCase):
             ({'RTSP_DAYNIGHT_HOLD_S': '10', 'RTSP_DAYNIGHT_DWELL_S': '120'},
              'TC100FIX_DAYNIGHT_HOLD_S=10 TC100FIX_DAYNIGHT_DWELL_S=120'),
             ({'RTSP_DAYNIGHT_DWELL_S': 'x'}, ''),
-            ({'RTSP_LITE_PORT': '8554'}, 'TC100FIX_RTSP_PORT=8554'),
+            ({'RTSP_LITE_PORT': '8554'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1'),
             ({'RTSP_LITE_PORT': '554'}, ''),                  # never the main server's port
             ({'RTSP_LITE_PORT': 'x'}, ''),
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'p4ss'},
-             'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_USER=cam TC100FIX_RTSP_PASS=p4ss'),
-            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'a b'}, 'TC100FIX_RTSP_PORT=8554'),
-            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0'),
+             'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1 TC100FIX_RTSP_USER=cam TC100FIX_RTSP_PASS=p4ss'),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'a b'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1'),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_TALK': '0'}, 'TC100FIX_RTSP_PORT=8554'),
+            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0 TC100FIX_RTSP_TALK=1'),
         ]
         for env, expected in cases:
             vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
                     'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
-                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1'}
+                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1'}
             vals.update(env)
             code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
             self.assertEqual(run(code).stdout.decode().strip(), expected, env)
@@ -2379,7 +2380,7 @@ class RtspLite(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
         self.bin = d / 'rtsp-test'
         subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-DRTSP_HOST_TEST', '-o', str(self.bin),
-                        str(ROOT / 'src/tc100fix/rtsp.c'), '-lpthread'], check=True)
+                        str(ROOT / 'src/tc100fix/rtsp.c'), '-lpthread', '-ldl'], check=True)
         s = socket.socket(); s.bind(('127.0.0.1', 0)); self.port = s.getsockname()[1]; s.close()
         self.srv = None
 
@@ -2388,7 +2389,7 @@ class RtspLite(unittest.TestCase):
             self.srv.kill(); self.srv.wait()
         self.tmp.cleanup()
 
-    def serve(self, codec, audio=False):
+    def serve(self, codec, audio=False, extra=None):
         src = self.d / ('in.' + codec)
         enc = ['-c:v', 'libx265', '-x265-params', ('keyint=60' if audio else 'keyint=15') + ':aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
               ['-c:v', 'libx264', '-bf', '0', '-x264-params', 'keyint=15:aud=1']
@@ -2397,7 +2398,7 @@ class RtspLite(unittest.TestCase):
         self.srv = subprocess.Popen([str(self.bin), str(src), '15', '20'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                     env=dict(os.environ, TC100FIX_RTSP_PORT=str(self.port), RTSP_TEST_CRED='admin:s3cret', RTSP_TEST_CRED2='extra:0ther',
                                              TC100FIX_RTSP_STATUS=str(self.d / 'status'),
-                                             **({'RTSP_TEST_AUDIO': '1'} if audio else {})))
+                                             **({'RTSP_TEST_AUDIO': '1'} if audio else {}), **(extra or {})))
         time.sleep(0.8)
 
     def frames(self, url, secs=4):
@@ -2446,6 +2447,46 @@ class RtspLite(unittest.TestCase):
                            timeout=20, check=True)
             self.assertLess(time.time() - t0, 2.0)
             time.sleep(0.4)
+
+    def test_talk_backchannel_plays_g711(self):
+        import socket, re, struct
+        out = self.d / 'talk.raw'
+        self.serve('hevc', extra={'TC100FIX_RTSP_TALK': '1', 'RTSP_TEST_TALK_OUT': str(out)})
+        url = 'rtsp://127.0.0.1:%d/video0' % self.port
+        s = socket.create_connection(('127.0.0.1', self.port)); n = [0]
+        def req(m, u, extra=''):
+            n[0] += 1
+            s.sendall(('%s %s RTSP/1.0\r\nCSeq: %d\r\n%s\r\n' % (m, u, n[0], extra)).encode())
+            data = b''
+            while b'\r\n\r\n' not in data:
+                data += s.recv(1)
+            h = data.decode(); m2 = re.search(r'Content-Length: (\d+)', h); body = b''
+            if m2:
+                while len(body) < int(m2.group(1)):
+                    body += s.recv(int(m2.group(1)) - len(body))
+            return h, body.decode()
+        nonce = re.search(r'nonce="([^"]+)"', req('DESCRIBE', url)[0]).group(1)
+        def auth(m, u):
+            ha1 = hashlib.md5(b'admin:TC100:s3cret').hexdigest(); ha2 = hashlib.md5(('%s:%s' % (m, u)).encode()).hexdigest()
+            return 'Authorization: Digest username="admin", realm="TC100", nonce="%s", uri="%s", response="%s"\r\n' % (
+                nonce, u, hashlib.md5(('%s:%s:%s' % (ha1, nonce, ha2)).encode()).hexdigest())
+        import hashlib
+        self.assertNotIn('sendonly', req('DESCRIBE', url, auth('DESCRIBE', url))[1])        # not without asking
+        h, body = req('DESCRIBE', url, auth('DESCRIBE', url) + 'Require: www.onvif.org/ver20/backchannel\r\n')
+        self.assertIn('a=control:trackID=2\r\na=sendonly', body)
+        h, _ = req('SETUP', url + '/trackID=2', auth('SETUP', url) + 'Transport: RTP/AVP/TCP;unicast;interleaved=4-5\r\n')
+        sess = re.search(r'Session: ([0-9A-F]+)', h).group(1)
+        self.assertIn('200', req('PLAY', url, auth('PLAY', url) + 'Session: %s\r\n' % sess)[0])
+        for i in range(25):                                   # 0.5 s of A-law 0xd5 (+8) and u-law 0xff (0)
+            pkt = struct.pack('!BBHII', 0x80, 8 if i % 2 == 0 else 0, i, i * 160, 7) + bytes([0xd5 if i % 2 == 0 else 0xff]) * 160
+            s.sendall(b'$\x04' + struct.pack('!H', len(pkt)) + pkt)
+            time.sleep(0.02)
+        time.sleep(1)
+        data = out.read_bytes()
+        v = struct.unpack('<%dh' % (len(data) // 2), data)
+        self.assertEqual(len(v), 25 * 160)
+        self.assertEqual(set(v), {8, 0})
+        s.close()
 
     def test_slow_client_does_not_stall_the_others(self):
         import socket, hashlib, re

@@ -32,6 +32,11 @@ RTSP_LITE_PORT=
 RTSP_LITE_USER=
 RTSP_LITE_PASS=
 RTSP_LITE_FASTSTART=1
+# RTSP_LITE_TALK=1: two-way audio. A client asking for the ONVIF backchannel
+# (go2rtc does, e.g. the microphone button of Home Assistant or go2rtc's web
+# page) can play its sound on the camera speaker, volume as the push-to-talk.
+# Only with the RTSP password. 0 = off.
+RTSP_LITE_TALK=1
 ENABLE_NTP=1
 # If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
 NTP_ONE_SHOT=0
