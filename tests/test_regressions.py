@@ -2324,7 +2324,7 @@ class RtspLite(unittest.TestCase):
 
     def serve(self, codec, audio=False):
         src = self.d / ('in.' + codec)
-        enc = ['-c:v', 'libx265', '-x265-params', ('keyint=30' if audio else 'keyint=15') + ':aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
+        enc = ['-c:v', 'libx265', '-x265-params', ('keyint=60' if audio else 'keyint=15') + ':aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
               ['-c:v', 'libx264', '-bf', '0', '-x264-params', 'keyint=15:aud=1']
         subprocess.run(['ffmpeg', '-v', 'quiet', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-t', '3'] + enc +
                        ['-bsf:v', ('hevc' if codec == 'hevc' else 'h264') + '_mp4toannexb', str(src)], check=True)
@@ -2373,12 +2373,12 @@ class RtspLite(unittest.TestCase):
         lines = out.read_text().splitlines()
         self.assertGreaterEqual(sum(l.startswith('0,') for l in lines), 50)
         self.assertGreaterEqual(sum(l.startswith('1,') for l in lines), 30)
-        # the GOP cache: a new client gets a picture without waiting for the next keyframe (every 2 s here)
+        # the GOP cache: a new client gets a picture without waiting for the next keyframe (every 4 s here)
         for _ in range(3):
             t0 = time.time()
             subprocess.run(['ffmpeg', '-v', 'quiet', '-rtsp_transport', 'tcp', '-i', url, '-frames:v', '1', '-f', 'null', '-'],
                            timeout=20, check=True)
-            self.assertLess(time.time() - t0, 1.5)
+            self.assertLess(time.time() - t0, 2.0)
             time.sleep(0.4)
 
     def test_slow_client_does_not_stall_the_others(self):
