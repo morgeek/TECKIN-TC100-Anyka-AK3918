@@ -80,11 +80,11 @@ case "$WEB_MODE" in
             chmod 400 "$_cert"
         fi
         install_config "$CONFIGPATH/lighttpd.conf"
-        /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.conf"
+        _hs_run "$CONFIGPATH/lighttpd.conf"
         ;;
     http)
         install_config "$CONFIGPATH/lighttpd.http.conf"
-        /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.http.conf"
+        _hs_run "$CONFIGPATH/lighttpd.http.conf"
         ;;
     ultra-lite|ultralite)
         # Ultra-lite mode uses busybox httpd for minimal CPU/memory usage.
@@ -94,7 +94,7 @@ case "$WEB_MODE" in
     *)
         # Fallback to full mode for unknown values.
         install_config "$CONFIGPATH/lighttpd.conf"
-        /mnt/bin/lighttpd -f "$CONFIGPATH/lighttpd.conf"
+        _hs_run "$CONFIGPATH/lighttpd.conf"
         ;;
 esac
 start_web_guard

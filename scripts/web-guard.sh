@@ -50,7 +50,9 @@ _wg_rescue_start()
     _wg_rescue_running && return 0
     # Port 23 may already be the user's telnet-server: then nothing to do.
     port_listening 23 && return 0
-    ${WG_TELNETD:-telnetd} -p 23 -F </dev/null >/dev/null 2>&1 &
+    if [ -n "${WG_TELNETD:-}" ]; then "$WG_TELNETD" -p 23 -F </dev/null >/dev/null 2>&1 &
+    else netacl_exec rescue-telnet telnetd -p 23 -F </dev/null >/dev/null 2>&1 &   # LAN only
+    fi
     echo $! > "$PIDF"
     logger -t tc100-event -p user.err "web interface down: rescue telnet opened on port 23" 2>/dev/null
 }

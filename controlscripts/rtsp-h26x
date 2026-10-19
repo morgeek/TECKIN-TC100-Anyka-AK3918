@@ -261,6 +261,17 @@ start()
     fi
     # The last still picture for currentpic.cgi (libtc100fix rec.c).
     [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SNAPSHOT=/tmp/snapshot.jpg"
+    # LAN only (src/netacl, built into libtc100fix): both RTSP servers refuse
+    # connections from outside the allowed networks (NET_LAN_ONLY), and the
+    # vendor server behind the lite one listens on 127.0.0.1 only
+    # (RTSP_VENDOR_LOCAL=0 to reach it from the network).
+    if [ -f "$TC100FIX_LIB" ]; then
+      _acl="$(netacl_allow_list)"
+      [ -n "$_acl" ] && TC100FIX_ENV="$TC100FIX_ENV TC100_NET_ALLOW=${_acl// /,} TC100_NET_STATUS=/var/run/netacl.rtsp"
+      if [ "$LITE_MAIN" = 1 ]; then
+        case "${RTSP_VENDOR_LOCAL:-1}" in 1|yes|on|true) TC100FIX_ENV="$TC100FIX_ENV TC100_NET_LOCAL_PORTS=$_vport" ;; esac
+      fi
+    fi
     echo "/mnt/bin/v4l2rtspserver  $STREAMS ${CREDENTIAL:+-U ***} $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
     # A quick restart while the previous server's client sockets on the RTSP
     # port are still closing makes the bind fail; the server then exits at once
