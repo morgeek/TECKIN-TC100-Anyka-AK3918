@@ -32,11 +32,41 @@ A lighter RTSP server, sound both ways, motion zones.
   - The cells of the SoC detector grid (32×24) inside a zone get sensitivity 1, which the library treats as "never" (`src/tc100fix/md.c`).
   - The zones are applied when the detector starts or restarts. Frigate keeps its own zones.
 - **Secondary stream on/off** in the same card (`RTSP_SUBSTREAM`).
-- Home Assistant diagnostics: *RTSP Clients* and *RTSP Skipped Frames* of the lite server.
+- Home Assistant diagnostics:
+  - *RTSP Clients* and *RTSP Skipped Frames* of the lite server;
+  - *Last Restart Cause* (requested / unexpected);
+  - *Unexpected Restarts (history)*;
+  - an *Unexpected Restart* problem sensor, which turns on after a restart nobody asked for (hardware watchdog, power loss, crash). An automation can notify on it.
+- **Snapshots without a helper program.** The video server already encodes one JPEG a second. libtc100fix now keeps the last one in `/tmp/snapshot.jpg`, and `currentpic.cgi` serves it directly while it is under 3 s old. The web page and Home Assistant get the picture at once, without starting `getimage` for each request. `getimage` remains the fallback.
 
 ### Changed
+- **Clean microphone without sound detection.**
+  - The vendor echo canceller and noise gate are now off whenever the sound is served, not only with sound detection. They cost about 4 % CPU and silenced everything below speech level.
+  - `RTSP_AEC=1` keeps them.
+- **Health snapshot every 5 minutes** instead of every minute (`HEALTH_SNAPSHOT_INTERVAL_SECONDS=300`). Each run probes about 15 services. The Diagnostics page and `health.cgi` follow the new cadence.
+- **Less memory.** The reset button is watched by `tc100-button`, a small C program in the code zone (`src/button`). It is one blocked process instead of a shell loop with a `dd | od` pipeline, which held four processes and about 230 KB. The rules are the same, and `scripts/button-watch.sh` stays as the fallback.
+- **Faster web requests.** `action.cgi` keeps its checks and helpers, and its 89 commands moved to `scripts/action.d/<group>.sh` (video, stream, audio, storage, detection, hardware, system, network, integrations, setup, logs). A request reads only its group's file: the shell parsed the whole 115 KB file on each request, about 0.3 s on the camera. The commands themselves are unchanged.
 - **The camera's own motion detection is off by default** (`mdenabled=0` in `rtspserver.conf.dist`): Frigate does the detection. It saves the detector's work in the video process. Turn it on in Services when its MQTT events or pictures on motion are used. Cameras already set up keep their setting.
 - `NR3D_STRENGTH` (test, `isp_tune.conf`): scales the 3D noise-reduction strengths, mapped on the camera's 112-byte sets. Not in the web page yet.
+
+### Security
+- **Local network only by default** (`NET_LAN_ONLY=1`). Connections from outside the private networks (10/8, 172.16/12, 192.168/16, link-local, 100.64/10 for Tailscale) are closed at once by the web server, telnet, FTP and both RTSP servers. A port forwarded by the router by mistake no longer reaches the password prompt.
+  - The kernel has no packet filter, so the check is a small library on `accept()` (`src/netacl`): `lib/libnetacl.so` for lighttpd, telnetd and ftpd, and the same code is built into `libtc100fix` for the video process.
+  - `NET_ALLOW_EXTRA` adds networks (a VPN).
+  - An empty or unreadable list, or a missing library, means no filter. If lighttpd does not come up with the filter, it is started again without it.
+- **RTSP**: the original server behind the lite one listens on 127.0.0.1 only (`RTSP_VENDOR_LOCAL=1`). The lite server refuses an address outside the local network for 15 min after 5 wrong passwords. The local network is never refused.
+- **Telnet and FTP** started from the web page stop by themselves after 15 min (`REMOTE_SHELL_TIMEOUT_MIN`). FTP is no longer started at boot by default.
+- **Emergency telnet (port 9527)**: only when the web interface is not up 2 min after a boot (`EMERGENCY_TELNET=auto`), instead of 60 s at every boot.
+
+### Removed
+- Features unused with Frigate, or that need internet, while the camera stays offline:
+  - the old recorder (`controlscripts/recording`, `bin/ffmpeg-min-recorder`), replaced by the local backup recording;
+  - timelapse;
+  - motion mail and motion snapshots (`sendPictureMail.sh`, `motion-mail`, `motion-snapshot`);
+  - ONVIF event push (`onvif-notify.sh`). The ONVIF service itself stays;
+  - `audio_stream.cgi`, which did not work. The lite RTSP server carries the sound.
+
+  Telegram stays in the code, off and hidden in flash mode.
 
 ### Fixed
 - **SD card format interrupted by a restart.** A code update rebooted a camera while it was formatting its card: the new partition table was written, but there was no file system, and the card then only showed as "no readable file system".

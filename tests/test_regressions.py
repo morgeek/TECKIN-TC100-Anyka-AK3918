@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -27,6 +28,23 @@ def function(path, name):
     if not match:
         raise AssertionError((path, name))
     return match.group(0)
+
+def action_cgi_text():
+    """action.cgi and its command files (scripts/action.d), as one text."""
+    parts = [(ROOT / 'www/cgi-bin/action.cgi').read_text()]
+    parts += [f.read_text() for f in sorted((ROOT / 'scripts/action.d').glob('*.sh'))]
+    return '\n'.join(parts)
+
+def action_arm(name):
+    """The text of one action.cgi command arm, up to the next arm."""
+    for f in sorted((ROOT / 'scripts/action.d').glob('*.sh')):
+        lines = f.read_text().split('\n')
+        heads = [i for i, l in enumerate(lines) if re.match(r'^ {4,5}[^ #()][^()]*\)\s*$', l)]
+        for k, i in enumerate(heads):
+            if name in lines[i].strip()[:-1].split('|'):
+                end = heads[k + 1] if k + 1 < len(heads) else len(lines)
+                return '\n'.join(lines[i:end])
+    raise AssertionError(name)
 
 def run(code, data=None, env=None, timeout=8):
     return subprocess.run(['/bin/bash', '-c', code], input=data,
@@ -105,11 +123,8 @@ class Regressions(unittest.TestCase):
                 self.assertEqual(result['restart'], 'verified')
 
     def test_video_audio_write_failure_never_reports_success(self):
-        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        for command, following in [('set_video_params', 'conf_audioin'), ('conf_audioin', 'isp_pro')]:
-            a = source.index('    ' + command + ')')
-            b = source.index('    ' + following + ')', a)
-            block = source[a:b].replace('/mnt/bin/rwconf', 'rwconf')
+        for command in ('set_video_params', 'conf_audioin'):
+            block = action_arm(command).replace('/mnt/bin/rwconf', 'rwconf')
             code = function('www/cgi-bin/action.cgi', 'sanitize_int_range') + '\n'
             code += 'rwconf() { return 1; }; wants_json_response() { return 0; }; schedule_rtsp_restart() { echo RESTART; };\n'
             code += '''json_body_err() { printf '{"ok":false,"error":"%s"}\\n' "$1"; }; json_body_ok() { echo SUCCESS; };\n'''
@@ -249,6 +264,9 @@ class Regressions(unittest.TestCase):
             ({'RTSP_FPS_LOCK': '1'}, 'TC100FIX_FPS_LOCK=1'),
             ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '1'}, ''),
             ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '0'}, 'TC100FIX_MIC_OFF=1'),
+            # sound served, detector off: clean microphone unless RTSP_AEC=1
+            ({'RTSP_AEC': '0', 'RTSP_AUDIO': '1'}, 'TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1'),
+            ({'RTSP_AEC': '0', 'RTSP_AUDIO': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1'}, 'TC100FIX_MIC_OFF=1'),
             ({'VENDOR_PRINT_LEVEL': '1'}, 'TC100FIX_PRINT_LEVEL=1'),
             ({'VENDOR_PRINT_LEVEL': '12'}, ''),
             ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
@@ -272,7 +290,7 @@ class Regressions(unittest.TestCase):
             ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0 TC100FIX_RTSP_TALK=1'),
         ]
         for env, expected in cases:
-            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1',
+            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1', 'RTSP_AEC': '1',
                     'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
                     'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1',
                     'RTSP_SERVER': '', 'RTSP_PORT_NUM': '554', 'RTSP_PROC_IDLE_MS': '', 'RTSP_PROC_BUSY_MS': '', 'PORT': '-P 554', 'TEST_LIB': '/nonexistent'}
@@ -406,13 +424,16 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'diag').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 11)   # 9 sensors + 2 binary sensors
+        self.assertEqual(len(lines), 14)   # 11 sensors + 3 binary sensors
         for line in lines:
             topic, payload = line.split('\t', 1)
             d = json.loads(payload)
             self.assertEqual(d['stat_t'], 'cam/x/health', topic)
             self.assertIn('value_json.diag.', d['val_tpl'])
             self.assertEqual(d['dev']['ids'], ['cam_x'])
+        ur = json.loads([l for l in lines if 'unexpected_restart/' in l][0].split('\t', 1)[1])
+        self.assertEqual(ur['val_tpl'], '{{ "ON" if value_json.diag.last_boot == "unexpected" else "OFF" }}')
+        self.assertEqual(ur['dev_cla'], 'problem')
         sd = json.loads([l for l in lines if 'sd_problem' in l][0].split('\t', 1)[1])
         self.assertEqual(sd['val_tpl'], '{{ "ON" if value_json.diag.sd_problem == 1 else "OFF" }}')
 
@@ -420,7 +441,7 @@ class Regressions(unittest.TestCase):
         fn = function('scripts/mqtt-bridge.sh', 'build_diag_payload')
         r = run(fn + '\nnow_ts=$(date +%s); build_diag_payload; printf "%s" "$diag_payload"')
         d = json.loads(r.stdout)
-        for k in ('wifi_rssi_dbm', 'mem_available_kb', 'sound_db', 'light_level', 'sd_problem'):
+        for k in ('wifi_rssi_dbm', 'mem_available_kb', 'sound_db', 'light_level', 'sd_problem', 'last_boot', 'unexpected_restarts', 'rtsp_clients'):
             self.assertIn(k, d)
         self.assertIsInstance(d['mem_available_kb'], int)
 
@@ -432,7 +453,7 @@ class Regressions(unittest.TestCase):
         self.assertEqual(run(code).returncode, 0)
 
     def test_audio_write_targets_audio_not_video(self):
-        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        source = action_cgi_text()
         a = source.index('    conf_audioin)'); b = source.index('    isp_pro)', a)
         block = source[a:b].replace('/mnt/bin/rwconf', 'rwconf')
         args = self.base / 'rwconf-args'
@@ -458,7 +479,7 @@ class Regressions(unittest.TestCase):
         self.assertIn('TC100FIX_SOUND_LEVEL=/var/run/sound_level', rtsp)
         # The meter needs the microphone: MIC_OFF must not be set when enabled.
         block = rtsp[rtsp.index('_sound_enable='):rtsp.index('VENDOR_PRINT_LEVEL', rtsp.index('_sound_enable='))]
-        self.assertRegex(block, r'if \[ "\$_sound_enable" = "1" \]; then\n\s*TC100FIX_ENV="\$TC100FIX_ENV TC100FIX_SOUND_LEVEL=[^"]*"\n\s*else')
+        self.assertRegex(block, r'if \[ "\$_sound_enable" = "1" \]; then\n\s*TC100FIX_ENV="\$TC100FIX_ENV TC100FIX_SOUND_LEVEL=[^"]*"\n\s*elif')
 
     def test_motion_form_fields_are_read(self):
         # Settings → Motion & Sound posts these names; conf_motiondetect read
@@ -466,7 +487,7 @@ class Regressions(unittest.TestCase):
         html = (ROOT / 'www/settings.html').read_text()
         form = html[html.index('id="formDetect"'):html.index('</form>', html.index('id="formDetect"'))]
         names = set(re.findall(r'name="([^"]+)"', form))
-        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        cgi = action_cgi_text()
         handler = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
         for n in names:
             self.assertIn('F_' + n, handler, n)
@@ -481,6 +502,17 @@ class Regressions(unittest.TestCase):
                 if 'tcp_tw_recycle' in line and not line.lstrip().startswith('#'):
                     self.assertRegex(line, r'echo 0 > /proc/sys/net/ipv4/tcp_tw_recycle', str(p))
 
+    def test_removed_features_stay_removed(self):
+        # Removed in 2.1.9 (unused with Frigate, or needing internet): the old
+        # ffmpeg recorder, timelapse, motion mail and snapshots, ONVIF event
+        # push, the non-functional audio_stream.cgi.
+        for rel in ('controlscripts/recording', 'controlscripts/timelapse', 'controlscripts/motion-mail',
+                    'controlscripts/motion-snapshot', 'scripts/timelapse.sh', 'scripts/sendPictureMail.sh',
+                    'scripts/onvif-notify.sh', 'www/cgi-bin/audio_stream.cgi', 'bin/ffmpeg-min-recorder'):
+            self.assertFalse((ROOT / rel).exists(), rel)
+        self.assertNotIn('onvif-notify', (ROOT / 'scripts/motion-event.sh').read_text())
+        self.assertNotIn('sendPictureMail', (ROOT / 'scripts/detectionOn.sh').read_text())
+
     def test_bundled_binaries_unchanged(self):
         count = 0
         for line in (ROOT / 'config/packages.lock.dist').read_text().splitlines():
@@ -488,7 +520,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 29)
+        self.assertEqual(count, 30)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -574,8 +606,7 @@ class Regressions(unittest.TestCase):
 
     def test_date_formatters(self):
         for path, name, pattern in [
-            ('www/cgi-bin/configbackup.cgi', '_format_backup_tag', rb'\d{8}-\d{6}\n'),
-            ('scripts/timelapse.sh', '_format_datetime', rb'\d{4}-\d\d-\d\d_\d{6}\n')]:
+            ('www/cgi-bin/configbackup.cgi', '_format_backup_tag', rb'\d{8}-\d{6}\n')]:
             r = run(function(path, name) + '\n' + name + ' 1788973200')
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertRegex(r.stdout, pattern)
@@ -766,7 +797,7 @@ class Regressions(unittest.TestCase):
         self.assertIn('50afb76d22a1341366306dccffd2d671', patcher)
 
     def test_stream_profile_health_uses_raw_rtsp_describe(self):
-        source = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        source = action_cgi_text()
         start = source.index('rtsp_strict_describe_check() {')
         end = source.index('AUTO_STREAM_SELFTEST_BLOCKING_FAIL=', start)
         probe = source[start:end]
@@ -1649,9 +1680,9 @@ class FlashWebServer(unittest.TestCase):
         fn = cf[cf.index('_http_server_lighttpd(){'):cf.index('# Control the http server')]
         flash = fn[fn.index('/tmp/tc100-storage'):fn.index('install_config "$_hs_conf"')]
         # from flash: only the flash templates, HTTPS first, plain HTTP if it does not listen
-        self.assertIn('-f /mnt/config/lighttpd.flash.conf.dist', flash)
+        self.assertIn('_hs_run /mnt/config/lighttpd.flash.conf.dist', flash)
         self.assertIn('_hs_http=/mnt/config/lighttpd.flash-http.conf.dist', flash)
-        self.assertLess(flash.index('port_listening 443'), flash.index('-f "$_hs_http"'))
+        self.assertLess(flash.index('port_listening 443'), flash.index('_hs_run "$_hs_http"'))
         self.assertNotIn('install_config', flash)
         ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
         fl = ws.index('if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then')
@@ -1671,8 +1702,10 @@ class FlashWebServer(unittest.TestCase):
             (d / 'pem').write_text('x\n')
             fn2 = (fn.replace('/tmp/tc100-storage', str(d / 'storage')).replace('/mnt/config/lighttpd.pem', str(d / 'pem'))
                      .replace('/mnt/bin/lighttpd', 'echo lighttpd').replace('sleep 1', ':'))
+            hs = function('scripts/common_functions.sh', '_hs_run').replace('/mnt/bin/lighttpd', 'echo lighttpd')
             script = ('port_listening() { return 1; }\nlogger() { :; }\nkillall() { echo killall "$@"; }\n'
-                      + fn2 + '\nWEB_MODE=full; _http_server_lighttpd\n')
+                      'netacl_lib() { return 1; }\nnetacl_allow_list() { :; }\nnetacl_exec() { shift; "$@"; }\n'
+                      + hs + '\n' + fn2 + '\nWEB_MODE=full; _http_server_lighttpd\n')
             out = subprocess.run(['sh', '-c', script], capture_output=True, text=True).stdout.split('\n')
             self.assertEqual([l for l in out if l], ['lighttpd -f /mnt/config/lighttpd.flash.conf.dist', 'killall lighttpd',
                                                      'lighttpd -f /mnt/config/lighttpd.flash-http.conf.dist'])
@@ -1718,7 +1751,7 @@ class JsonFlat(unittest.TestCase):
 
     def test_no_jq_left_in_flash_paths(self):
         for rel in ('www/cgi-bin/config_exchange.cgi', 'www/cgi-bin/action.cgi', 'scripts/event-logger.sh', 'scripts/mqtt-bridge.sh'):
-            text = (ROOT / rel).read_text()
+            text = action_cgi_text() if rel.endswith('action.cgi') else (ROOT / rel).read_text()
             self.assertNotRegex(text, r'(/mnt/bin/jq|JQ_BIN|command -v jq)', rel)
         self.assertIn('jq|', (ROOT / 'src/flash/stage-tc100.sh').read_text())
 
@@ -2024,7 +2057,7 @@ class PasswordsStayOffTheBrowser(unittest.TestCase):
         self.assertIn("field.type !== 'password'", restore)
 
     def test_password_command_refuses_unsafe_characters(self):
-        src = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        src = action_cgi_text()
         block = src[src.index('    set_all_password)'):src.index('all_password "$password"')]
         pattern = re.search(r'\n        (\*\[.*?\]\*)\|', block).group(1)
         for pw, ok in (('Good-pass1', True), ('a b', False), ('a"b', False), ("a'b", False), ('a$b', False),
@@ -2126,7 +2159,7 @@ class WifiRescueFlash(unittest.TestCase):
         self.assertIn('for HOSTAPD in /usr/bin/hostapd /tmp/tc100code/bin/hostapd-rtw /mnt/bin/hostapd-rtw; do', w)
         self.assertIn('udhcpd -f "$RUN/udhcpd.conf"', w)
         self.assertIn('echo $! > "$RUN/udhcpd.pid"', w)
-        self.assertIn('for b in tc100-logfwd hostapd-rtw; do', (ROOT / 'src/flash/build-code.sh').read_text())
+        self.assertIn('for b in tc100-logfwd hostapd-rtw tc100-button; do', (ROOT / 'src/flash/build-code.sh').read_text())
         self.assertIn('COMMIT=44d73276cb59bf58c700b70f2237ffb440b94ec3', (ROOT / 'src/hostapd/build.sh').read_text())
         self.assertIn('CONFIG_DRIVER_RTW=y', (ROOT / 'src/hostapd/hostapd.config').read_text())
         self.assertNotIn('CONFIG_WPS', (ROOT / 'src/hostapd/hostapd.config').read_text())
@@ -2319,7 +2352,7 @@ class SdCard(unittest.TestCase):
         self.assertIn('no card', self.run_sd('format').stdout)
 
     def test_web_side(self):
-        a = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        a = action_cgi_text()
         for c in ('sd_card_info)', 'sd_card_format)', 'sd_card_mount)', 'sd_card_ack)'):
             self.assertIn(c, a)
         self.assertIn('local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', a)          # only the read is CSRF-free
@@ -2337,7 +2370,7 @@ class RtspServerChoice(unittest.TestCase):
         import json
         html = (ROOT / 'www/settings.html').read_text()
         form = html[html.index('id="formRtspServer"'):html.index('</form>', html.index('id="formRtspServer"'))]
-        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        cgi = action_cgi_text()
         h = cgi[cgi.index('    set_rtsp_server)'):cgi.index('    ;;', cgi.index('    set_rtsp_server)'))]
         for n in set(re.findall(r'name="([^"]+)"', form)):
             self.assertIn('F_' + n, h, n)
@@ -2357,6 +2390,27 @@ class RtspServerChoice(unittest.TestCase):
         self.assertEqual((j['server'], j['substream'], j['talk'], j['fallback']), ('lite', 0, 1, 0))
         self.assertEqual((j['port'], j['clients'], j['drops'], j['audio'], j['talk_state']), (554, 2, 7, 'pcma', 'idle'))
         self.assertLessEqual(j['status_age'], 5)
+
+
+class SnapshotFile(unittest.TestCase):
+    """The still JPEG kept by libtc100fix (rec.c snap_write) and served by currentpic.cgi."""
+
+    def test_currentpic_serves_a_recent_snapshot_without_getimage(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            snap = d / 'snap.jpg'; snap.write_bytes(b'\xff\xd8JPEGDATA')
+            cgi = (ROOT / 'www/cgi-bin/currentpic.cgi').read_text().replace('/mnt/bin/getimage', str(d / 'getimage'))
+            (d / 'getimage').write_text('#!/bin/sh\necho getimage-called\n'); (d / 'getimage').chmod(0o755)
+            env = dict(os.environ, CURRENTPIC_SNAPSHOT=str(snap))
+            r = subprocess.run(['sh', '-c', cgi], capture_output=True, env=env, timeout=20)
+            self.assertTrue(r.stdout.endswith(b'\xff\xd8JPEGDATA'))
+            os.utime(snap, (time.time() - 60, time.time() - 60))           # stale: the old path
+            r = subprocess.run(['sh', '-c', cgi], capture_output=True, env=env, timeout=20, cwd=str(d))
+            self.assertNotIn(b'JPEGDATA', r.stdout)
+        rec = (ROOT / 'src/tc100fix/rec.c').read_text()
+        hook = rec[rec.index('int ak_venc_get_stream_ex('):]
+        self.assertLess(hook.index('snap_write(buf, *len);'), hook.index('tc100fix_rtsp_frame('))
+        self.assertIn('rename(tmp, path);', rec)
 
 
 class MotionZones(unittest.TestCase):
@@ -2390,7 +2444,7 @@ class MotionZones(unittest.TestCase):
         self.assertIn('sensitivity=70', vendor)
 
     def run_cgi_block(self, fields, running=True):
-        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        cgi = action_cgi_text()
         h = cgi[cgi.index('    conf_motiondetect)'):cgi.index('    ;;', cgi.index('    conf_motiondetect)'))]
         block = h[h.index('      if [ -n "${F_md_zone_form:-}" ]; then'):]
         info = cgi[cgi.index('    md_zones_info)') + len('    md_zones_info)'):cgi.index('    ;;', cgi.index('    md_zones_info)'))]
@@ -2447,7 +2501,8 @@ class RtspLite(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
         self.bin = d / 'rtsp-test'
         subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-DRTSP_HOST_TEST', '-o', str(self.bin),
-                        str(ROOT / 'src/tc100fix/rtsp.c'), '-lpthread', '-ldl'], check=True)
+                        str(ROOT / 'src/tc100fix/rtsp.c'), str(ROOT / 'src/netacl/netacl.c'), '-DNETACL_IN_TC100FIX',
+                        '-I' + str(ROOT / 'src/netacl'), '-lpthread', '-ldl'], check=True)
         s = socket.socket(); s.bind(('127.0.0.1', 0)); self.port = s.getsockname()[1]; s.close()
         self.srv = None
 
@@ -3149,7 +3204,7 @@ class ForkLightLoops(unittest.TestCase):
 class ResetButton(unittest.TestCase):
     """scripts/button-watch.sh fed with struct input_event records through a FIFO."""
 
-    def run_events(self, holds, storage='flash'):
+    def run_events(self, holds, storage='flash', cmd=None):
         import struct
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
@@ -3165,7 +3220,7 @@ class ResetButton(unittest.TestCase):
                 (d / name).write_text('#!/bin/sh\n%s >> "%s/calls"\n' % (line, d)); (d / name).chmod(0o755)
             env = dict(os.environ, BUTTON_DEV=str(d / 'ev'), BUTTON_FLASH_CODE=str(d / 'fc.sh'),
                        BUTTON_REBOOT_CMD=str(d / 'reboot'), TC100_STORAGE_FILE=str(d / 'storage'))
-            p = subprocess.Popen(['sh', str(ROOT / 'scripts/button-watch.sh')], env=env)
+            p = subprocess.Popen(cmd or ['sh', str(ROOT / 'scripts/button-watch.sh')], env=env)
             with open(d / 'ev', 'wb') as w:
                 w.write(data); w.flush(); time.sleep(1.5)
             p.wait(timeout=10)
@@ -3176,6 +3231,21 @@ class ResetButton(unittest.TestCase):
         self.assertEqual(self.run_events([9]), ['reboot'])
         self.assertEqual(self.run_events([21]), ['fc clear', 'reboot'])
         self.assertEqual(self.run_events([21], storage='sd'), ['reboot'])
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def test_c_helper_same_rules(self):
+        # src/button/tc100-button.c: the same rules without the dd | od shell loop.
+        with tempfile.TemporaryDirectory() as d:
+            exe = Path(d) / 'tc100-button'
+            subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-o', str(exe),
+                            str(ROOT / 'src/button/tc100-button.c')], check=True)
+            for holds, storage, want in (([3], 'flash', []), ([9], 'flash', ['reboot']),
+                                         ([21], 'flash', ['fc clear', 'reboot']), ([21], 'sd', ['reboot']),
+                                         ([2, 9], 'flash', ['reboot'])):
+                self.assertEqual(self.run_events(holds, storage, cmd=[str(exe)]), want, (holds, storage))
+        ctl = (ROOT / 'controlscripts/button-actions').read_text()
+        self.assertIn('tc100-button', ctl)
+        self.assertIn('button-watch.sh', ctl)                  # fallback kept
 
 
 class LocalRecording(unittest.TestCase):
@@ -3338,7 +3408,7 @@ class WifiTxt(unittest.TestCase):
         self.assertIn('wifi-txt.sh" apply "$M/wifi.txt" "$P/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
         self.assertIn('ln -s "$P/wpa_supplicant.conf" "$M/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
         self.assertIn('wifi-txt.sh apply /mnt/wifi.txt "$WIFI_CONFIG"', (ROOT / 'autorun.sh').read_text())
-        self.assertIn('_wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf', (ROOT / 'www/cgi-bin/action.cgi').read_text())
+        self.assertIn('_wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf', action_cgi_text())
 
 
 class CameraPanel(unittest.TestCase):
@@ -3404,12 +3474,12 @@ class CameraPanel(unittest.TestCase):
                        AUTOSTART_DIR=str(d))
             html = subprocess.run(['sh', '-c', src], capture_output=True, env=env, timeout=30).stdout.decode()
             rows = re.findall(r"<tr data-script-name='([^']+)'", html)
-            for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection', 'onvif', 'recording'):
+            for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection', 'onvif'):
                 self.assertNotIn(hidden, rows)
             system = html.split("data-group='system'")[1].split("data-group='features'")[0]
             self.assertIn("data-script-name='rtsp-h26x'", system)
             self.assertIn("data-script-name='mqtt-bridge'", system)
-            for feature in ('motion-detection', 'sound-detection', 'timelapse', 'telegram-bot'):
+            for feature in ('motion-detection', 'sound-detection', 'telegram-bot'):
                 self.assertNotIn(feature, rows)   # switched in their Settings tab
             self.assertNotIn('Camera Controls', html)
 
@@ -3435,15 +3505,15 @@ class SettingsByUse(unittest.TestCase):
     """isp_pro split between Image and Day/night; local recording commands."""
 
     def test_isp_pro_writes_only_what_was_posted(self):
-        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        block = text[text.index('    isp_pro)'):text.index('    set_local_recording)')]
+        text = action_cgi_text()
+        block = action_arm('isp_pro')
         self.assertIn('if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then', block)
         self.assertIn('if [ -n "${F_imageFlip}" ]; then', block)
         self.assertLess(block.index('if [ -n "${F_daynightlum}'), block.index('setconf -k a'))
         self.assertLess(block.index('if [ -n "${F_imageFlip}" ]'), block.index('setconf -k f'))
 
     def test_local_recording_commands(self):
-        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        text = action_cgi_text()
         self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', text)     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
@@ -3507,7 +3577,7 @@ class SettingsLayout(unittest.TestCase):
         self.assertIn('id="formDayNight"', tab('tab-daynight')); self.assertIn('data-cam-panel', tab('tab-daynight'))
         self.assertIn('id="formAudioAdvanced"', tab('tab-audio'))
         self.assertIn('data-service="motion-detection"', tab('tab-detect'))
-        self.assertIn('id="formLocalRec"', tab('tab-record')); self.assertIn('id="formTimelapse"', tab('tab-record'))
+        self.assertIn('id="formLocalRec"', tab('tab-record'))
         self.assertIn('id="fwuFile"', tab('tab-backup')); self.assertNotIn('id="fwuFile"', tab('tab-system'))
         for t in tabs:
             self.assertEqual(html.count('id="%s"' % t), 1, t)
@@ -3516,7 +3586,7 @@ class SettingsLayout(unittest.TestCase):
         self.assertEqual(dup, [])
         # every form that existed before the move is still there
         for form in ('formVideoAdvanced', 'formVideoSub', 'formAudioAdvanced', 'formISP', 'formIspTune', 'formMQTT',
-                     'formFrigateLive', 'formDetect', 'formTimelapse', 'formTelegram', 'formSyslog', 'formNetwork',
+                     'formFrigateLive', 'formDetect', 'formTelegram', 'formSyslog', 'formNetwork',
                      'formTime', 'formTuning', 'formLeds', 'formRebootSchedule', 'preset_dropdown', 'fwuFile'):
             self.assertIn('id="%s"' % form, html)
         self.assertIn('network.cgi?part=settings', html)
@@ -3541,15 +3611,15 @@ class FrigateLiveAndSyslog(unittest.TestCase):
     """Settings: Frigate live link and remote syslog host, both written to sourced/parsed config."""
 
     def test_syslog_host_is_validated(self):
-        text = (ROOT / 'www/cgi-bin/action.cgi').read_text()
-        block = text[text.index('    set_syslog_config)'):text.index('    set_frigate_live)')]
+        text = action_cgi_text()
+        block = action_arm('set_syslog_config')
         self.assertIn('*[!A-Za-z0-9.:-]*)', block)
         self.assertLess(block.index('syslog_err'), block.index('rewrite_config'))
 
     def test_frigate_live_link_in_statusline(self):
         state = (ROOT / 'www/cgi-bin/state.cgi').read_text()
         self.assertIn('\\"frigate_live\\":\\"$frigate_live\\"', state)
-        action = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        action = action_cgi_text()
         self.assertIn('/mnt/config/frigate_live.conf', action)
         self.assertIn('id="live_frigate"', (ROOT / 'www/index.html').read_text())
 
@@ -3771,6 +3841,232 @@ class ServicesAndStatus(unittest.TestCase):
                 self.assertEqual(r.stdout.decode().strip('\n'), want, body)
         s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
         self.assertIn('\\"wifi_qual\\":$wifi_qual_json', s)
+
+class ActionCommandFiles(unittest.TestCase):
+    """action.cgi only reads the file of the requested command (scripts/action.d)."""
+
+    ARM = re.compile(r'^ {4,5}([^ #()\n][^()\n]*)\)[ \t]*$', re.M)
+
+    def routes(self):
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        block = cgi[cgi.index('Each command lives in scripts/action.d'):]
+        block = block[:block.index('  fi\n')]
+        out = {}
+        for pats, group in re.findall(r'^    ([^ *][^)]*)\)\n      _action_group=([a-z]+) ;;$', block, re.M):
+            for p in pats.split('|'):
+                self.assertNotIn(p, out, p)
+                out[p] = group
+        return out
+
+    def test_every_command_is_routed_to_the_file_that_has_it(self):
+        routes = self.routes()
+        found = {}
+        for f in sorted((ROOT / 'scripts/action.d').glob('*.sh')):
+            for pats in self.ARM.findall(f.read_text()):
+                for p in pats.split('|'):
+                    self.assertNotIn(p, found, p)
+                    found[p] = f.stem
+        self.assertEqual(found, routes)
+        self.assertGreater(len(routes), 80)
+
+    def test_no_command_left_in_action_cgi(self):
+        cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        main = cgi[cgi.index('if [ -n "$F_cmd" ]; then'):]
+        # only the routing patterns are left: each one is followed by its group
+        self.assertEqual(len(self.ARM.findall(main)), main.count('      _action_group='))
+        self.assertNotIn('    showlog)\n      if', main)
+        self.assertIn('. "/mnt/scripts/action.d/$_action_group.sh"', main)
+        # the checks run before any command file is read
+        self.assertLess(main.index('csrf_check'), main.index('_action_group='))
+
+    def test_files_parse_with_the_camera_shell(self):
+        for f in sorted((ROOT / 'scripts/action.d').glob('*.sh')):
+            r = subprocess.run(['sh', '-n', str(f)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, (f.name, r.stderr))
+
+    @unittest.skipUnless(shutil.which('busybox'), 'busybox')
+    def test_read_commands_answer_through_their_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            mnt = Path(d) / 'mnt'
+            shutil.copytree(ROOT / 'www', mnt / 'www')
+            shutil.copytree(ROOT / 'scripts', mnt / 'scripts')
+            (mnt / 'config').mkdir()
+            (mnt / 'config/pttvolume.conf').write_text('55\n')
+            cgi = mnt / 'www/cgi-bin/action.cgi'
+            cgi.write_text(cgi.read_text().replace('/mnt/', str(mnt) + '/'))
+            def get(q):
+                env = dict(os.environ, REQUEST_METHOD='GET', QUERY_STRING=q, REMOTE_ADDR='127.0.0.%d' % (len(q) % 200 + 2))
+                return subprocess.run(['busybox', 'sh', str(cgi)], cwd=d, env=env, capture_output=True,
+                                      text=True, timeout=20).stdout
+            self.assertIn('"message":"55"', get('cmd=get_ptt_vol&format=json'))
+            self.assertIn('"zones":[]', get('cmd=md_zones_info&format=json'))
+            self.assertIn('"ssid"', get('cmd=wifi_get_ssid&format=json'))
+
+
+class NetworkAccessFilter(unittest.TestCase):
+    """LAN-only access: src/netacl (accept/bind filter) and its shell side."""
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def test_filter_refuses_outside_the_list_and_never_locks_out(self):
+        import socket
+        with tempfile.TemporaryDirectory() as d:
+            lib = Path(d) / 'netacl.so'
+            subprocess.run(['gcc', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror', '-o', str(lib),
+                            str(ROOT / 'src/netacl/netacl.c'), '-ldl'], check=True)
+            srv = Path(d) / 'srv.py'
+            srv.write_text(
+                'import socket, sys, os\n'
+                's = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n'
+                's.bind(("0.0.0.0", 0)); s.listen(4); print(s.getsockname()[1], int("LD_PRELOAD" in os.environ), flush=True)\n'
+                'b = socket.socket(); b.bind(("0.0.0.0", int(sys.argv[1]))); print(b.getsockname()[0], flush=True)\n'
+                'while True:\n'
+                '    try: c, a = s.accept(); break\n'
+                '    except ConnectionAbortedError: pass\n'
+                'print("accepted", a[0], flush=True)\n')
+            try:
+                me = socket.gethostbyname(socket.gethostname())
+            except OSError:
+                me = ''
+            if not me or me.startswith('127.'):
+                probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    probe.connect(('192.0.2.1', 9)); me = probe.getsockname()[0]
+                except OSError:
+                    self.skipTest('no non-loopback address')
+                finally:
+                    probe.close()
+            def run(allow, local_ports=''):
+                free = socket.socket(); free.bind(('127.0.0.1', 0)); lp = free.getsockname()[1]; free.close()
+                env = dict(os.environ, LD_PRELOAD=str(lib), TC100_NET_ALLOW=allow,
+                           TC100_NET_LOCAL_PORTS=local_ports.replace('PORT', str(lp)), TC100_NET_STATUS=str(Path(d) / 'st'))
+                pr = subprocess.Popen([sys.executable, str(srv), str(lp)], env=env, stdout=subprocess.PIPE, text=True)
+                port, preload = pr.stdout.readline().split()
+                bound = pr.stdout.readline().strip()
+                for host in (me, '127.0.0.1'):
+                    try:
+                        socket.create_connection((host, int(port)), timeout=2).close()
+                    except OSError:
+                        pass
+                out = pr.stdout.readline().strip()
+                pr.kill(); pr.wait(); pr.stdout.close()
+                return out, preload, bound
+            self.assertEqual(run('')[0], 'accepted ' + me)                  # no list: no filter
+            self.assertEqual(run('not-a-network')[0], 'accepted ' + me)     # unreadable list: no filter
+            self.assertEqual(run(me + '/32')[0], 'accepted ' + me)
+            out, preload, _ = run('203.0.113.0/24')                         # outside: refused, loopback still in
+            self.assertEqual(out, 'accepted 127.0.0.1')
+            self.assertEqual(preload, '0')                                  # not passed on to children
+            self.assertIn('refused=1 last=' + me, (Path(d) / 'st').read_text())
+            self.assertEqual(run('', 'PORT')[2], '127.0.0.1')               # local-only port
+            self.assertEqual(run('', '1')[2], '0.0.0.0')
+
+    def test_allow_list_from_boot_conf(self):
+        with tempfile.TemporaryDirectory() as d:
+            conf = Path(d) / 'boot.conf'
+            code = function('scripts/common_functions.sh', 'read_kv_config_value') + '\n'
+            code += function('scripts/common_functions.sh', 'netacl_allow_list').replace('/mnt/config/boot.conf', str(conf)) + '\n'
+            code += 'NETACL_PRIVATE="10.0.0.0/8 192.168.0.0/16"\nnetacl_allow_list'
+            conf.write_text('X=1\n')
+            self.assertEqual(run(code).stdout, b'10.0.0.0/8 192.168.0.0/16')    # on by default
+            conf.write_text('NET_LAN_ONLY=0\n')
+            self.assertEqual(run(code).stdout, b'')
+            conf.write_text('NET_LAN_ONLY=1\nNET_ALLOW_EXTRA="203.0.113.7/32 198.51.100.0/24"\n')
+            self.assertEqual(run(code).stdout, b'10.0.0.0/8 192.168.0.0/16 203.0.113.7/32 198.51.100.0/24')
+
+    def test_wired_into_every_server(self):
+        cf = (ROOT / 'scripts/common_functions.sh').read_text()
+        hs = function('scripts/common_functions.sh', '_hs_run')
+        self.assertIn('netacl_exec web /mnt/bin/lighttpd', hs)
+        self.assertIn('started without it', hs)                             # never costs the web interface
+        lf = function('scripts/common_functions.sh', '_http_server_lighttpd')
+        self.assertNotIn('/mnt/bin/lighttpd -f', lf)
+        self.assertIn('netacl_exec telnet telnetd', (ROOT / 'controlscripts/telnet-server').read_text())
+        self.assertIn('netacl_exec ftp /mnt/bin/busybox tcpsvd', (ROOT / 'controlscripts/ftp-server').read_text())
+        for svc in ('telnet-server', 'ftp-server'):
+            self.assertIn('service_autoclose ' + svc, (ROOT / 'controlscripts' / svc).read_text())
+        rt = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('TC100_NET_ALLOW=${_acl// /,}', rt)
+        self.assertIn('TC100_NET_LOCAL_PORTS=$_vport', rt)
+        self.assertIn('netacl.c', (ROOT / 'src/tc100fix/build.sh').read_text())
+        self.assertIn('libnetacl.so', (ROOT / 'src/flash/build-code.sh').read_text())
+        self.assertFalse((ROOT / 'config/autostart/ftp-server').exists())
+        et = (ROOT / 'config/autostart/01_system-emergency-telnet').read_text()
+        self.assertLess(et.index('sleep 120'), et.index('netacl_exec emergency-telnet'))
+        self.assertIn('NETACL_PRIVATE="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10"', cf)
+
+    def test_autoclose_stops_the_service(self):
+        with tempfile.TemporaryDirectory() as d:
+            conf = Path(d) / 'boot.conf'; conf.write_text('REMOTE_SHELL_TIMEOUT_MIN=0\n')
+            code = function('scripts/common_functions.sh', 'read_kv_config_value') + '\n'
+            code += function('scripts/common_functions.sh', 'service_autoclose').replace('/mnt/config/boot.conf', str(conf)).replace('/var/run/', d + '/') + '\n'
+            code += 'service_autoclose x; ls ' + d
+            self.assertNotIn(b'x.autoclose', run(code).stdout)                 # 0 = never
+            conf.write_text('REMOTE_SHELL_TIMEOUT_MIN=15\n')
+            code2 = code.replace('ls ' + d, 'cat ' + d + '/x.autoclose; kill $(cat ' + d + '/x.autoclose)')
+            self.assertRegex(run(code2).stdout, rb'^\d+')
+
+    def test_web_server_restarts_without_the_filter_if_it_does_not_come_up(self):
+        hs = function('scripts/common_functions.sh', '_hs_run').replace('/mnt/bin/lighttpd', 'echo lighttpd').replace('sleep 1', ':')
+        stubs = ('logger() { :; }\nkillall() { echo killall "$@"; }\nnetacl_lib() { echo /x.so; }\n'
+                 'netacl_allow_list() { echo 10.0.0.0/8; }\nnetacl_exec() { shift; echo filtered; "$@"; }\n')
+        out = run(stubs + 'port_listening() { return 1; }\n' + hs + '\n_hs_run c.conf').stdout.decode().split()
+        self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf killall lighttpd lighttpd -f c.conf')
+        out = run(stubs + 'port_listening() { return 0; }\n' + hs + '\n_hs_run c.conf').stdout.decode().split()
+        self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf')
+
+    def test_lite_server_ban_spares_the_local_network(self):
+        c = (ROOT / 'src/tc100fix/rtsp.c').read_text()
+        fn = c[c.index('static void login_result'):]
+        fn = fn[:fn.index('\n}\n')]
+        self.assertLess(fn.index('netacl_is_private(a)) return'), fn.index('BAN_US'))
+        self.assertIn('if (login_banned(a.sin_addr.s_addr)) { close(fd); login_refused++; }', c)
+
+
+class VendorEncoderTrace(unittest.TestCase):
+    """src/tc100fix/venctrace.c: the vendor encoder's hardware callbacks recorded, unchanged."""
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def test_records_registers_dma_irq_and_frames(self):
+        src = ROOT / 'tests/venctrace'
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            run_ = lambda *a: subprocess.run(list(a), check=True, cwd=d)
+            run_('gcc', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror', '-o', 'vt.so', str(ROOT / 'src/tc100fix/venctrace.c'), '-ldl', '-lpthread')
+            run_('gcc', '-shared', '-fPIC', '-o', 'libfakeakv.so', str(src / 'fakeakv.c'))
+            run_('gcc', '-shared', '-fPIC', '-o', 'libstub.so', str(src / 'stub.c'))
+            run_('gcc', '-o', 'main', str(src / 'main.c'), '-L.', '-lfakeakv', '-lstub')
+            env = dict(os.environ, LD_LIBRARY_PATH=str(d), LD_PRELOAD=str(d / 'vt.so'),
+                       TC100FIX_VENC_TRACE=str(d / 'out'), TC100FIX_VENC_TRACE_FRAMES='1')
+            subprocess.run([str(d / 'main')], env=env, check=True)
+            t = (d / 'out.trc').read_bytes()
+            self.assertEqual(t[:8], b'TC100VTR')
+            recs = [struct.unpack('<IHHII', t[i:i + 16]) for i in range(16, len(t), 16)]
+            kinds = [(r[1], r[2], r[3], r[4]) for r in recs]
+            heads, i = [], 0
+            while i < len(recs):
+                r = recs[i]; heads.append((r[1], r[2], r[3], r[4]))
+                if r[1] == 9:                                   # blob: payload follows
+                    payload = t[16 + (i + 1) * 16: 16 + (i + 1) * 16 + r[4]]
+                    self.assertEqual(payload, b'\xab' * 0x400)
+                    i += (r[4] + 15) // 16
+                i += 1
+            self.assertEqual(heads, [(8, 0, 6, 0), (2, 0, 0x20020010, 0x1234), (1, 0, 0x20020014, 1),
+                                     (3, 0, 4096, 0x81001000), (9, 0, 0x81001020, 0x400), (2, 0, 0x20028080, 0x81001020),
+                                     (5, 0, 7, 0), (5, 1, 7, 0), (9, 1, 0x81001020, 0x400),
+                                     (4, 0, 0x81001000, 0), (7, 0, 0, 6)])
+            self.assertEqual((d / 'out.es').read_bytes(), bytes([0, 0, 0, 1, 0x40, 1]))
+            # off: nothing written, the encoder gets its own table
+            env.pop('TC100FIX_VENC_TRACE')
+            (d / 'out.trc').unlink()
+            subprocess.run([str(d / 'main')], env=env, check=True)
+            self.assertFalse((d / 'out.trc').exists())
+
+    def test_wired_in_safely(self):
+        rt = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('/tmp/*[!A-Za-z0-9/_.-]*|/tmp/*..*) ;;', rt)
+        self.assertIn('venctrace.c', (ROOT / 'src/tc100fix/build.sh').read_text())
+        self.assertIn('tc100fix_venctrace_frame(buf, *len', (ROOT / 'src/tc100fix/rec.c').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()

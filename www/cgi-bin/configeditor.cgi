@@ -18,7 +18,7 @@ is_allowed_file() {
   case "$1" in
     boot.conf|mqtt.conf|rtspserver.conf|recording.conf|onvif.conf|\
     hostname.conf|ntp_srv.conf|timezone.conf|telegram.conf|\
-    netmon.conf|dns.conf|motion.conf|timelapse.conf|pttvolume.conf)
+    netmon.conf|dns.conf|motion.conf|pttvolume.conf)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -105,7 +105,7 @@ case "${F_cmd:-read}" in
     fi
     # Only these files use shell assignments; RTSP/ONVIF and one-line files do not.
     case "$_file" in
-      boot.conf|mqtt.conf|recording.conf|telegram.conf|netmon.conf|dns.conf|motion.conf|timelapse.conf)
+      boot.conf|mqtt.conf|recording.conf|telegram.conf|netmon.conf|dns.conf|motion.conf)
         if ! sh -n "$_tmp" 2>/dev/null; then
           printf '{"ok":false,"error":"Invalid configuration syntax; original preserved"}\n'
           exit 0

@@ -372,6 +372,19 @@ ir_cut(){
 # script without LD_LIBRARY_PATH it exits at once ("can't load library
 # 'libpcre2-8.so.0'"), so a web-server restart used to leave the camera with
 # no web UI until the next reboot. WEB_MODE=http uses the plain-HTTP config.
+# _hs_run CONF: lighttpd with the LAN-only filter; started again without it
+# when port 80 does not listen within 5 s (the filter must never cost the
+# web interface).
+_hs_run(){
+  ( export LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib"; netacl_exec web /mnt/bin/lighttpd -f "$1" )
+  [ -n "$(netacl_lib)" ] && [ -n "$(netacl_allow_list)" ] || return 0
+  _hs_w=0
+  while [ $_hs_w -lt 5 ]; do port_listening 80 && return 0; sleep 1; _hs_w=$((_hs_w + 1)); done
+  logger -t tc100-event -p user.err "web server: did not start with the LAN filter, started without it" 2>/dev/null
+  killall lighttpd 2>/dev/null; sleep 1
+  LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$1"
+}
+
 _http_server_lighttpd(){
   _hs_conf=/mnt/config/lighttpd.conf
   [ "$WEB_MODE" = "http" ] && _hs_conf=/mnt/config/lighttpd.http.conf
@@ -384,7 +397,7 @@ _http_server_lighttpd(){
   if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
     _hs_http=/mnt/config/lighttpd.flash-http.conf.dist
     if [ "$_hs_conf" = /mnt/config/lighttpd.conf ] && [ -s /mnt/config/lighttpd.pem ]; then
-      LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f /mnt/config/lighttpd.flash.conf.dist
+      _hs_run /mnt/config/lighttpd.flash.conf.dist
       _hs_i=0
       while [ $_hs_i -lt 5 ]; do
         sleep 1; _hs_i=$((_hs_i + 1))
@@ -393,11 +406,11 @@ _http_server_lighttpd(){
       logger -t tc100-event -p user.err "web server: HTTPS did not start (certificate?), falling back to HTTP" 2>/dev/null
       killall lighttpd 2>/dev/null; sleep 1
     fi
-    LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$_hs_http"
+    _hs_run "$_hs_http"
     return
   fi
   install_config "$_hs_conf"
-  LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$_hs_conf"
+  _hs_run "$_hs_conf"
 }
 
 # Control the http server
@@ -512,28 +525,6 @@ motion_detection(){
   esac
 }
 
-# Control the motion detection mail function
-motion_send_mail(){
-  case "$1" in
-  on)
-    rewrite_config /mnt/config/motion.conf sendemail "true"
-    ;;
-  off)
-    rewrite_config /mnt/config/motion.conf sendemail "false"
-    ;;
-  status)
-    status=`awk '/sendemail/' /mnt/config/motion.conf |cut -f2 -d \=`
-    case $status in
-      false)
-        echo "OFF"
-        ;;
-      true)
-        echo "ON"
-        ;;
-    esac
-  esac
-}
-
 black_white()
 {
   case "$1" in
@@ -613,6 +604,54 @@ port_listening() {
     done < "$_pl_f"
   done
   return 1
+}
+
+# LAN-only access (src/netacl, lib/libnetacl.so): the kernel has no packet
+# filter, so lighttpd, telnetd, the FTP server and the RTSP servers close a
+# connection from outside the allowed networks themselves.
+#   boot.conf NET_LAN_ONLY=1 (default)  private networks only: 10/8, 172.16/12,
+#             192.168/16, link-local and 100.64/10 (Tailscale, CGNAT)
+#             NET_LAN_ONLY=0            no filter
+#             NET_ALLOW_EXTRA="a.b.c.d/n ..."  more networks (a VPN, an office)
+# Nothing in the list, a missing library or an unreadable entry: no filter,
+# never a camera its owner cannot reach.
+NETACL_PRIVATE="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10"
+netacl_allow_list() {
+  _na_on="$(read_kv_config_value /mnt/config/boot.conf NET_LAN_ONLY 1)"
+  case "$_na_on" in 0|false|no|off|disabled|'"0"') return 0 ;; esac
+  _na_extra="$(read_kv_config_value /mnt/config/boot.conf NET_ALLOW_EXTRA "")"
+  _na_extra="${_na_extra#\"}"; _na_extra="${_na_extra%\"}"
+  printf '%s' "$NETACL_PRIVATE${_na_extra:+ $_na_extra}"
+}
+netacl_lib() {
+  for _nl in /tmp/tc100code/lib/libnetacl.so /mnt/lib/libnetacl.so; do
+    [ -f "$_nl" ] && { printf '%s' "$_nl"; return 0; }
+  done
+  return 1
+}
+# netacl_exec NAME CMD...: exec CMD with the filter (status in
+# /var/run/netacl.NAME). It REPLACES the calling shell: run it in a subshell
+# or in the background ( netacl_exec web lighttpd ... ) / netacl_exec ftp ... &
+netacl_exec() {
+  _ne_name="$1"; shift
+  _ne_lib="$(netacl_lib)"; _ne_allow="$(netacl_allow_list)"
+  if [ -n "$_ne_lib" ] && [ -n "$_ne_allow" ]; then
+    LD_PRELOAD="$_ne_lib" TC100_NET_ALLOW="$_ne_allow" TC100_NET_STATUS="/var/run/netacl.$_ne_name" exec "$@"
+  fi
+  exec "$@"
+}
+
+# service_autoclose NAME: stop /mnt/controlscripts/NAME after
+# REMOTE_SHELL_TIMEOUT_MIN minutes (boot.conf, default 15, 0 = never). For
+# telnet and FTP, which send passwords in clear: open for a repair, not forever.
+service_autoclose() {
+  _sa_min="$(read_kv_config_value /mnt/config/boot.conf REMOTE_SHELL_TIMEOUT_MIN 15)"
+  _sa_pf="/var/run/$1.autoclose"
+  [ -s "$_sa_pf" ] && kill "$(cat "$_sa_pf")" 2>/dev/null
+  rm -f "$_sa_pf"
+  case "$_sa_min" in ''|0|*[!0-9]*) return 0 ;; esac
+  ( ( sleep $((_sa_min * 60)); rm -f "$_sa_pf"; /mnt/controlscripts/"$1" stop ) </dev/null >/dev/null 2>&1 &
+    echo $! > "$_sa_pf" )
 }
 
 # Reboot the System
@@ -896,9 +935,6 @@ binary_version() {
     openssl)
       v="$(run_strings "$path" | grep -m1 -E 'OpenSSL [0-9]')"
       ;;
-    ffmpeg-min-recorder)
-      v="$(run_strings "$path" | grep -m1 -E 'version [0-9]+\.[0-9]+\.[0-9]+')"
-      ;;
     monvifd)
       v="$(run_strings "$path" | grep -m1 'Micro ONVIF discovery service')"
       ;;
@@ -930,7 +966,7 @@ binary_version() {
 }
 
 build_binary_versions_block() {
-  for n in busybox curl ffmpeg-min-recorder getflag getimage jq lighttpd min-recorder-list monvifd openssl rwconf setconf telegram v4l2rtspserver; do
+  for n in busybox curl getflag getimage jq lighttpd min-recorder-list monvifd openssl rwconf setconf telegram v4l2rtspserver; do
     ver="$(binary_version "$n")"
     printf '%-20s %s\n' "$n" "$ver"
   done

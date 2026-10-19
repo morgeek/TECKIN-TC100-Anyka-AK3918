@@ -157,9 +157,16 @@ start()
     _sound_enable="$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)"
     if [ "$_sound_enable" = "1" ]; then
       TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SOUND_LEVEL=/var/run/sound_level TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1"
-    else
+    elif [ "$RTSP_AUDIO" = "0" ]; then
       case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
-        [ "$RTSP_AUDIO" = "0" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
+        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
+      esac
+    else
+      # Sound served without the detector: the same clean microphone (the
+      # vendor echo canceller costs ~4 % CPU and its noise gate silences
+      # everything below speech). RTSP_AEC=1 keeps the vendor processing.
+      case "${RTSP_AEC:-0}" in 1|true|yes|on|enabled) ;; *)
+        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1" ;;
       esac
     fi
     case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
@@ -251,6 +258,26 @@ start()
     if [ -n "$TC100FIX_ENV" ] && [ ! -f "$TC100FIX_LIB" ]; then
       echo "tc100fix options set but $TC100FIX_LIB is missing" >> "$LOGPATH"
       TC100FIX_ENV=""
+    fi
+    # The last still picture for currentpic.cgi (libtc100fix rec.c).
+    [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SNAPSHOT=/tmp/snapshot.jpg"
+    # Study tool for a free H.265 encoder (src/tc100fix/venctrace.c): with
+    # VENC_TRACE=/tmp/<name> in boot.conf, the vendor encoder's register
+    # accesses and first frames are recorded to /tmp/<name>.trc / .es.
+    case "$VENC_TRACE" in
+      /tmp/*[!A-Za-z0-9/_.-]*|/tmp/*..*) ;;
+      /tmp/?*) [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_VENC_TRACE=$VENC_TRACE" ;;
+    esac
+    # LAN only (src/netacl, built into libtc100fix): both RTSP servers refuse
+    # connections from outside the allowed networks (NET_LAN_ONLY), and the
+    # vendor server behind the lite one listens on 127.0.0.1 only
+    # (RTSP_VENDOR_LOCAL=0 to reach it from the network).
+    if [ -f "$TC100FIX_LIB" ]; then
+      _acl="$(netacl_allow_list)"
+      [ -n "$_acl" ] && TC100FIX_ENV="$TC100FIX_ENV TC100_NET_ALLOW=${_acl// /,} TC100_NET_STATUS=/var/run/netacl.rtsp"
+      if [ "$LITE_MAIN" = 1 ]; then
+        case "${RTSP_VENDOR_LOCAL:-1}" in 1|yes|on|true) TC100FIX_ENV="$TC100FIX_ENV TC100_NET_LOCAL_PORTS=$_vport" ;; esac
+      fi
     fi
     echo "/mnt/bin/v4l2rtspserver  $STREAMS ${CREDENTIAL:+-U ***} $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
     # A quick restart while the previous server's client sockets on the RTSP
