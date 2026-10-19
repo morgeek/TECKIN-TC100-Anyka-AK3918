@@ -1,0 +1,54 @@
+name: Build RTL8188FU Driver for OpenIPC Linux 4.4
+
+on:
+  push:
+    branches: [ OPENIPC ]
+  workflow_dispatch:
+
+jobs:
+  build-driver:
+    name: Compile 8188fu.ko (Anyka AK3918EV300)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev
+
+      - name: Download & Extract OpenIPC Toolchain
+        run: |
+          curl -LO https://github.com/OpenIPC/firmware/releases/download/toolchain/toolchain.anyka-ak3918ev300.tgz
+          mkdir -p toolchain
+          tar -xzf toolchain.anyka-ak3918ev300.tgz -C toolchain --strip-components=1
+          echo "$PWD/toolchain/bin" >> $GITHUB_PATH
+
+      - name: Clone & Prepare OpenIPC Linux 4.4 Kernel
+        run: |
+          git clone --depth 1 -b anyka-ak3918ev300-4.4 https://github.com/OpenIPC/linux.git
+          curl -s https://raw.githubusercontent.com/OpenIPC/firmware/master/br-ext-chip-anyka/board/ak3918ev300/ak3918ev300.generic.config > linux/.config
+          cd linux
+          make ARCH=arm CROSS_COMPILE=arm-openipc-linux-musleabi- olddefconfig
+          make ARCH=arm CROSS_COMPILE=arm-openipc-linux-musleabi- modules_prepare
+
+      - name: Clone & Compile RTL8188FU Wireless Driver
+        run: |
+          git clone --depth 1 -b rtl8188fu https://github.com/OpenIPC/realtek-wlan.git
+          cd realtek-wlan
+          make ARCH=arm CROSS_COMPILE=arm-openipc-linux-musleabi- KSRC=$PWD/../linux modules
+          arm-openipc-linux-musleabi-strip --strip-debug 8188fu.ko
+          ls -lh 8188fu.ko
+
+      - name: Package Driver Artifact
+        run: |
+          mkdir -p output
+          cp realtek-wlan/8188fu.ko output/
+          gzip -k output/8188fu.ko
+
+      - name: Upload 8188fu Kernel Module Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtl8188fu-openipc-ak3918ev300
+          path: output/

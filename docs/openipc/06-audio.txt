@@ -1,0 +1,5 @@
+=== ALSA CARDS ===
+root@openipc-ak3918ev300:~# cat /proc/asound/cards 2>/dev/null
+echo "=== AUDIO KERNEL LOGS ==="
+dmesg | grep -i -E "sound|audio|akpcm|adda|codec"
+; echo
