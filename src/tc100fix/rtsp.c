@@ -38,7 +38,7 @@
  * fragmentation units for NAL units over 1400 bytes; RTCP sender reports
  * every 5 s on the odd channel.
  *
- * The encoder thread never waits: a frame is copied into a 384 KB ring and the
+ * The encoder thread never waits: a frame is copied into a 768 KB ring and the
  * server thread sends it. A client whose connection cannot take a frame
  * (its 256 KB output buffer would overflow) skips frames until the next
  * keyframe instead of falling behind.
@@ -71,7 +71,7 @@
 #define MAX_CLIENTS 4
 #define INBUF 4096
 #define OUTBUF (256 * 1024)
-#define RING (384 * 1024)    /* frames in transit only: a keyframe is at most ~220 KB */
+#define RING (768 * 1024)    /* 384 KB dropped frames at night (2.1.9 test: 466 in 9 h on a camera) */
 #define RTP_MAX 1400
 #define STREAMS 2            /* video streams; ring stream id 2 = audio */
 #define A_ID 2
