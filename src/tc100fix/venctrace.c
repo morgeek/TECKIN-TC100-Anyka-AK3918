@@ -16,6 +16,9 @@
  *   TC100FIX_VENC_TRACE_KB=2048       record buffer; when full, both files
  *                                     are written once and recording stops
  *   TC100FIX_VENC_TRACE_FRAMES=90     frames kept in venc.es (1 MB at most)
+ * Recording stops at the first of: record buffer full, that many frames, or
+ * 1 MB of frames. <base>.status says where it is: "recs=N frames=M state=S"
+ * (S: 1 recording, 2 written), rewritten every 4096 records.
  *
  * venc.trc: a 16-byte header "TC100VTR" + version + record size, then
  * records of 16 bytes, little endian:
@@ -91,6 +94,19 @@ static void vt_write_files(void)
     free(es); es = NULL;
 }
 
+static void vt_status(void)
+{
+    const char *base = getenv("TC100FIX_VENC_TRACE");
+    char path[200];
+    FILE *f;
+    if (!base || strlen(base) > 180) return;
+    snprintf(path, sizeof(path), "%s.status", base);
+    if ((f = fopen(path, "w"))) {
+        fprintf(f, "recs=%lu frames=%u es=%lu state=%d\n", (unsigned long)n_recs, es_frames, (unsigned long)es_len, vt_state);
+        fclose(f);
+    }
+}
+
 static void vt_add(uint16_t type, uint16_t aux, uint32_t a, uint32_t b)
 {
     if (vt_state != 1) return;
@@ -101,7 +117,8 @@ static void vt_add(uint16_t type, uint16_t aux, uint32_t a, uint32_t b)
         recs[n_recs].t = (uint32_t)(now - t0);
         recs[n_recs].type = type; recs[n_recs].aux = aux;
         recs[n_recs].a = a; recs[n_recs].b = b;
-        if (++n_recs == max_recs) { vt_state = 2; vt_write_files(); }
+        if (++n_recs == max_recs) { vt_state = 2; vt_write_files(); vt_status(); }
+        else if (!(n_recs & 4095)) vt_status();
     }
     pthread_mutex_unlock(&vt_lock);
 }
@@ -146,14 +163,19 @@ void tc100fix_venctrace_frame(const unsigned char *buf, unsigned int len, int jp
 {
     if (vt_state != 1 || !es) return;
     pthread_mutex_lock(&vt_lock);
-    if (vt_state == 1 && es_frames < es_max_frames && es_len + len <= es_max) {
+    if (vt_state == 1 && es_len + len > es_max) {                /* frames full: write and stop */
+        vt_state = 2; vt_write_files(); vt_status();
+        pthread_mutex_unlock(&vt_lock);
+        return;
+    }
+    if (vt_state == 1 && es_frames < es_max_frames) {
         memcpy(es + es_len, buf, len);
         es_len += len;
         pthread_mutex_unlock(&vt_lock);
         vt_add(VT_FRAME, (uint16_t)jpeg, es_frames++, len);
         if (es_frames >= es_max_frames) {                 /* enough: write and stop */
             pthread_mutex_lock(&vt_lock);
-            if (vt_state == 1) { vt_state = 2; vt_write_files(); }
+            if (vt_state == 1) { vt_state = 2; vt_write_files(); vt_status(); }
             pthread_mutex_unlock(&vt_lock);
         }
         return;
@@ -186,6 +208,7 @@ int AKV_Encoder_Init(void *table)
     copy[10] = (void *)w_reset; copy[19] = (void *)w_irq;
     vt_state = 1;
     vt_add(VT_INIT, 0, 6, 0);
+    vt_status();
     /* AKV_Encoder_Init copies the table, so a local copy is enough. */
     return real(copy);
 }
