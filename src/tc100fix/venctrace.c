@@ -35,7 +35,11 @@
  *                 records are that DMA memory as it was. aux 0 = when its
  *                 address was written to the command-list register (0x8080),
  *                 aux 1 = after the interrupt that followed (the core writes
- *                 its status back into it)
+ *                 its status back into it), aux 2 = the JPEG table buffer
+ *                 (register 0x83d8) at the first JPEG start, aux 3 = the
+ *                 first 2 KB of the JPEG output buffer (0x83dc) then
+ * At the first JPEG start the source picture is also saved, read from
+ * /dev/mem: <base>.yuv = Y (stride x height, 0x83d0) then UV (0x83d4).
  * venc.es: the frames one after the other (Annex B, JPEG frames too), so
  * the records can be matched with the stream the core produced.
  */
@@ -48,12 +52,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #define VT_NCB 22                      /* callbacks in the table (0x58 bytes) */
 enum { VT_READ = 1, VT_WRITE, VT_ALLOC, VT_FREE, VT_IRQ, VT_RESET, VT_FRAME, VT_INIT, VT_BLOB };
 #define VT_CMDLIST_REG 0x8080u            /* low 16 bits: command list address */
 #define VT_BLOB_MAX 0x400u
+#define VT_JPEG_TABLES_MAX 0x6400u
+static uint32_t jreg[16];                 /* last values of 0x83c0..0x83fc */
+static int jpeg_done;
 #define VT_MAPS 64
 static struct { uint32_t paddr, size; const unsigned char *vaddr; } maps[VT_MAPS];
 static uint32_t last_cmd;
@@ -135,13 +143,13 @@ static void vt_add(uint16_t type, uint16_t aux, uint32_t a, uint32_t b)
 
 /* The wrapped callbacks: index in the table, then what it does. */
 /* DMA memory at paddr copied into the records (lock held). */
-static void vt_blob_locked(uint32_t paddr, uint16_t aux)
+static void vt_blob_locked(uint32_t paddr, uint16_t aux, uint32_t max)
 {
     int i;
     for (i = 0; i < VT_MAPS; i++) {
         if (maps[i].vaddr && paddr >= maps[i].paddr && paddr < maps[i].paddr + maps[i].size) {
             uint32_t len = maps[i].paddr + maps[i].size - paddr, nrec;
-            if (len > VT_BLOB_MAX) len = VT_BLOB_MAX;
+            if (len > max) len = max;
             nrec = (len + 15) / 16;
             if (n_recs + 1 + nrec >= max_recs) return;
             recs[n_recs].t = (uint32_t)(vt_us() - t0); recs[n_recs].type = VT_BLOB; recs[n_recs].aux = aux;
@@ -159,8 +167,33 @@ static void vt_blob(uint32_t paddr, uint16_t aux)
 {
     if (vt_state != 1) return;
     pthread_mutex_lock(&vt_lock);
-    if (vt_state == 1) vt_blob_locked(paddr, aux);
+    if (vt_state == 1) vt_blob_locked(paddr, aux, aux == 2 ? VT_JPEG_TABLES_MAX : aux == 3 ? 0x800u : VT_BLOB_MAX);
     pthread_mutex_unlock(&vt_lock);
+}
+
+/* The source picture of the first JPEG, from physical memory. */
+static void vt_save_yuv(void)
+{
+    const char *base = getenv("TC100FIX_VENC_TRACE");
+    uint32_t stride = jreg[3] & 0xffffu, h = (jreg[1] & 0xffffu) + 1, sz[2], pa[2];
+    char path[200];
+    int fd, k;
+    FILE *f;
+    if (!base || strlen(base) > 180 || !stride || stride > 4096 || h > 4096) return;
+    sz[0] = stride * h; sz[1] = stride * h / 2; pa[0] = jreg[4]; pa[1] = jreg[5];
+    if ((fd = open("/dev/mem", O_RDONLY | O_SYNC)) < 0) return;
+    snprintf(path, sizeof(path), "%s.yuv", base);
+    if ((f = fopen(path, "wb"))) {
+        for (k = 0; k < 2; k++) {
+            uint32_t page = pa[k] & ~0xfffu, off = pa[k] - page;
+            void *m = mmap(NULL, sz[k] + off, PROT_READ, MAP_SHARED, fd, (off_t)page);
+            if (m == MAP_FAILED) break;
+            fwrite((const unsigned char *)m + off, 1, sz[k], f);
+            munmap(m, sz[k] + off);
+        }
+        fclose(f);
+    }
+    close(fd);
 }
 
 static uint32_t w_read(uint32_t reg)                      /* 3 */
@@ -172,6 +205,13 @@ static uint32_t w_read(uint32_t reg)                      /* 3 */
 static void w_write(uint32_t reg, uint32_t val)           /* 4 */
 {
     if ((reg & 0xffffu) == VT_CMDLIST_REG) { vt_blob(val, 0); last_cmd = val; }
+    if ((reg & 0xffc0u) == 0x83c0u) jreg[(reg & 0x3fu) >> 2] = val;
+    if ((reg & 0xffffu) == 0x8084u && val == 0x10u && !jpeg_done && vt_state == 1) {   /* first JPEG start */
+        jpeg_done = 1;
+        vt_blob(jreg[6], 2);
+        vt_blob(jreg[7], 3);
+        vt_save_yuv();
+    }
     ((void (*)(uint32_t, uint32_t))real_cb[4])(reg, val);
     vt_add(VT_WRITE, 0, reg, val);
 }
