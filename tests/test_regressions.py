@@ -4042,8 +4042,17 @@ class VendorEncoderTrace(unittest.TestCase):
             self.assertEqual(t[:8], b'TC100VTR')
             recs = [struct.unpack('<IHHII', t[i:i + 16]) for i in range(16, len(t), 16)]
             kinds = [(r[1], r[2], r[3], r[4]) for r in recs]
-            self.assertEqual(kinds, [(8, 0, 6, 0), (2, 0, 0x20020010, 0x1234), (1, 0, 0x20020014, 1),
-                                     (3, 0, 4096, 0x81001000), (5, 0, 7, 0), (5, 1, 7, 0),
+            heads, i = [], 0
+            while i < len(recs):
+                r = recs[i]; heads.append((r[1], r[2], r[3], r[4]))
+                if r[1] == 9:                                   # blob: payload follows
+                    payload = t[16 + (i + 1) * 16: 16 + (i + 1) * 16 + r[4]]
+                    self.assertEqual(payload, b'\xab' * 0x400)
+                    i += (r[4] + 15) // 16
+                i += 1
+            self.assertEqual(heads, [(8, 0, 6, 0), (2, 0, 0x20020010, 0x1234), (1, 0, 0x20020014, 1),
+                                     (3, 0, 4096, 0x81001000), (9, 0, 0x81001020, 0x400), (2, 0, 0x20028080, 0x81001020),
+                                     (5, 0, 7, 0), (5, 1, 7, 0), (9, 1, 0x81001020, 0x400),
                                      (4, 0, 0x81001000, 0), (7, 0, 0, 6)])
             self.assertEqual((d / 'out.es').read_bytes(), bytes([0, 0, 0, 1, 0x40, 1]))
             # off: nothing written, the encoder gets its own table

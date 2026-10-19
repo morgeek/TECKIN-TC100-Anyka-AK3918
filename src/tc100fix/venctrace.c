@@ -31,6 +31,11 @@
  *        6 reset  akuio_reset_video, a = argument
  *        7 frame  a = frame number in venc.es, b = its length; aux 1 = JPEG
  *        8 init   a = number of callbacks wrapped
+ *        9 blob   a = physical address, b = length: the next ceil(b/16)
+ *                 records are that DMA memory as it was. aux 0 = when its
+ *                 address was written to the command-list register (0x8080),
+ *                 aux 1 = after the interrupt that followed (the core writes
+ *                 its status back into it)
  * venc.es: the frames one after the other (Annex B, JPEG frames too), so
  * the records can be matched with the stream the core produced.
  */
@@ -46,7 +51,12 @@
 #include <unistd.h>
 
 #define VT_NCB 22                      /* callbacks in the table (0x58 bytes) */
-enum { VT_READ = 1, VT_WRITE, VT_ALLOC, VT_FREE, VT_IRQ, VT_RESET, VT_FRAME, VT_INIT };
+enum { VT_READ = 1, VT_WRITE, VT_ALLOC, VT_FREE, VT_IRQ, VT_RESET, VT_FRAME, VT_INIT, VT_BLOB };
+#define VT_CMDLIST_REG 0x8080u            /* low 16 bits: command list address */
+#define VT_BLOB_MAX 0x400u
+#define VT_MAPS 64
+static struct { uint32_t paddr, size; const unsigned char *vaddr; } maps[VT_MAPS];
+static uint32_t last_cmd;
 
 struct vt_rec { uint32_t t; uint16_t type, aux; uint32_t a, b; };
 
@@ -124,6 +134,35 @@ static void vt_add(uint16_t type, uint16_t aux, uint32_t a, uint32_t b)
 }
 
 /* The wrapped callbacks: index in the table, then what it does. */
+/* DMA memory at paddr copied into the records (lock held). */
+static void vt_blob_locked(uint32_t paddr, uint16_t aux)
+{
+    int i;
+    for (i = 0; i < VT_MAPS; i++) {
+        if (maps[i].vaddr && paddr >= maps[i].paddr && paddr < maps[i].paddr + maps[i].size) {
+            uint32_t len = maps[i].paddr + maps[i].size - paddr, nrec;
+            if (len > VT_BLOB_MAX) len = VT_BLOB_MAX;
+            nrec = (len + 15) / 16;
+            if (n_recs + 1 + nrec >= max_recs) return;
+            recs[n_recs].t = (uint32_t)(vt_us() - t0); recs[n_recs].type = VT_BLOB; recs[n_recs].aux = aux;
+            recs[n_recs].a = paddr; recs[n_recs].b = len;
+            n_recs++;
+            memset(&recs[n_recs], 0, nrec * 16);
+            memcpy(&recs[n_recs], maps[i].vaddr + (paddr - maps[i].paddr), len);
+            n_recs += nrec;
+            return;
+        }
+    }
+}
+
+static void vt_blob(uint32_t paddr, uint16_t aux)
+{
+    if (vt_state != 1) return;
+    pthread_mutex_lock(&vt_lock);
+    if (vt_state == 1) vt_blob_locked(paddr, aux);
+    pthread_mutex_unlock(&vt_lock);
+}
+
 static uint32_t w_read(uint32_t reg)                      /* 3 */
 {
     uint32_t v = (uint32_t)(uintptr_t)((uint32_t (*)(uint32_t))real_cb[3])(reg);
@@ -132,6 +171,7 @@ static uint32_t w_read(uint32_t reg)                      /* 3 */
 }
 static void w_write(uint32_t reg, uint32_t val)           /* 4 */
 {
+    if ((reg & 0xffffu) == VT_CMDLIST_REG) { vt_blob(val, 0); last_cmd = val; }
     ((void (*)(uint32_t, uint32_t))real_cb[4])(reg, val);
     vt_add(VT_WRITE, 0, reg, val);
 }
@@ -139,11 +179,25 @@ static void *w_alloc(uint32_t size, uint32_t arg)         /* 5: {vaddr, paddr, s
 {
     uint32_t *d = ((uint32_t *(*)(uint32_t, uint32_t))real_cb[5])(size, arg);
     vt_add(VT_ALLOC, 0, size, d ? d[1] : 0);
+    if (d && d[0]) {
+        int i;
+        pthread_mutex_lock(&vt_lock);
+        for (i = 0; i < VT_MAPS; i++)
+            if (!maps[i].vaddr) { maps[i].vaddr = (const unsigned char *)(uintptr_t)d[0]; maps[i].paddr = d[1]; maps[i].size = size; break; }
+        pthread_mutex_unlock(&vt_lock);
+    }
     return d;
 }
 static int w_free(uint32_t *d)                            /* 6 */
 {
     vt_add(VT_FREE, 0, d ? d[1] : 0, 0);
+    if (d) {
+        int i;
+        pthread_mutex_lock(&vt_lock);
+        for (i = 0; i < VT_MAPS; i++)
+            if (maps[i].vaddr && maps[i].paddr == d[1]) maps[i].vaddr = NULL;
+        pthread_mutex_unlock(&vt_lock);
+    }
     return ((int (*)(uint32_t *))real_cb[6])(d);
 }
 static void w_reset(uint32_t arg)                         /* 10 */
@@ -156,6 +210,7 @@ static void w_irq(uint32_t arg)                           /* 19 */
     vt_add(VT_IRQ, 0, arg, 0);
     ((void (*)(uint32_t))real_cb[19])(arg);
     vt_add(VT_IRQ, 1, arg, 0);
+    if (last_cmd) { vt_blob(last_cmd, 1); last_cmd = 0; }
 }
 
 /* Called by rec.c for every frame the encoder hands out. */
