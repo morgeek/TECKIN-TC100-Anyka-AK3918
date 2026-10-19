@@ -7,6 +7,7 @@ void fake_encode(void) {
     ((void (*)(uint32_t, uint32_t))cb[4])(0x20020010, 0x1234);
     v = ((uint32_t (*)(uint32_t))cb[3])(0x20020014);
     d = ((uint32_t *(*)(uint32_t, uint32_t))cb[5])(4096, 0);
+    ((void (*)(uint32_t, uint32_t))cb[4])(0x20028080, d[1] + 0x20);   /* command list */
     ((void (*)(uint32_t))cb[19])(7);
     ((int (*)(uint32_t *))cb[6])(d);
     (void)v;
