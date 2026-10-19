@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -4019,6 +4020,43 @@ class NetworkAccessFilter(unittest.TestCase):
         fn = fn[:fn.index('\n}\n')]
         self.assertLess(fn.index('netacl_is_private(a)) return'), fn.index('BAN_US'))
         self.assertIn('if (login_banned(a.sin_addr.s_addr)) { close(fd); login_refused++; }', c)
+
+
+class VendorEncoderTrace(unittest.TestCase):
+    """src/tc100fix/venctrace.c: the vendor encoder's hardware callbacks recorded, unchanged."""
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def test_records_registers_dma_irq_and_frames(self):
+        src = ROOT / 'tests/venctrace'
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            run_ = lambda *a: subprocess.run(list(a), check=True, cwd=d)
+            run_('gcc', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror', '-o', 'vt.so', str(ROOT / 'src/tc100fix/venctrace.c'), '-ldl', '-lpthread')
+            run_('gcc', '-shared', '-fPIC', '-o', 'libfakeakv.so', str(src / 'fakeakv.c'))
+            run_('gcc', '-shared', '-fPIC', '-o', 'libstub.so', str(src / 'stub.c'))
+            run_('gcc', '-o', 'main', str(src / 'main.c'), '-L.', '-lfakeakv', '-lstub')
+            env = dict(os.environ, LD_LIBRARY_PATH=str(d), LD_PRELOAD=str(d / 'vt.so'),
+                       TC100FIX_VENC_TRACE=str(d / 'out'), TC100FIX_VENC_TRACE_FRAMES='1')
+            subprocess.run([str(d / 'main')], env=env, check=True)
+            t = (d / 'out.trc').read_bytes()
+            self.assertEqual(t[:8], b'TC100VTR')
+            recs = [struct.unpack('<IHHII', t[i:i + 16]) for i in range(16, len(t), 16)]
+            kinds = [(r[1], r[2], r[3], r[4]) for r in recs]
+            self.assertEqual(kinds, [(8, 0, 6, 0), (2, 0, 0x20020010, 0x1234), (1, 0, 0x20020014, 1),
+                                     (3, 0, 4096, 0x81001000), (5, 0, 7, 0), (5, 1, 7, 0),
+                                     (4, 0, 0x81001000, 0), (7, 0, 0, 6)])
+            self.assertEqual((d / 'out.es').read_bytes(), bytes([0, 0, 0, 1, 0x40, 1]))
+            # off: nothing written, the encoder gets its own table
+            env.pop('TC100FIX_VENC_TRACE')
+            (d / 'out.trc').unlink()
+            subprocess.run([str(d / 'main')], env=env, check=True)
+            self.assertFalse((d / 'out.trc').exists())
+
+    def test_wired_in_safely(self):
+        rt = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('/tmp/*[!A-Za-z0-9/_.-]*|/tmp/*..*) ;;', rt)
+        self.assertIn('venctrace.c', (ROOT / 'src/tc100fix/build.sh').read_text())
+        self.assertIn('tc100fix_venctrace_frame(buf, *len', (ROOT / 'src/tc100fix/rec.c').read_text())
 
 
 if __name__ == '__main__':

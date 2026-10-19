@@ -261,6 +261,13 @@ start()
     fi
     # The last still picture for currentpic.cgi (libtc100fix rec.c).
     [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SNAPSHOT=/tmp/snapshot.jpg"
+    # Study tool for a free H.265 encoder (src/tc100fix/venctrace.c): with
+    # VENC_TRACE=/tmp/<name> in boot.conf, the vendor encoder's register
+    # accesses and first frames are recorded to /tmp/<name>.trc / .es.
+    case "$VENC_TRACE" in
+      /tmp/*[!A-Za-z0-9/_.-]*|/tmp/*..*) ;;
+      /tmp/?*) [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_VENC_TRACE=$VENC_TRACE" ;;
+    esac
     # LAN only (src/netacl, built into libtc100fix): both RTSP servers refuse
     # connections from outside the allowed networks (NET_LAN_ONLY), and the
     # vendor server behind the lite one listens on 127.0.0.1 only
