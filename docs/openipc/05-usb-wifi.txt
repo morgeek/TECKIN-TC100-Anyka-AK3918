@@ -1,0 +1,63 @@
+=== LSUSB ===
+root@openipc-ak3918ev300:~# lsusb
+uct)"
+    echo "  Manufacturer = $(cat $d/manufacturer 2>/dev/null)"
+    echo "  Product      = $(cat $d/product 2>/dev/null)"
+    echo "  Speed        = $(cat $d/speed 2>/dev/null) Mbps"
+    Bus 001 Device 002: ID 0bda:f179
+Bus 001 Device 001: ID 1d6b:0002
+echo "  MaxPower     = $(cat $d/bMaxPower 2>/dev/null)"
+    echo "  Driver   $(readlink $d/driver 2>/dev/null)"
+  fi
+done
+echo ""
+echo "=== USB & WIFI KERNEL LOGS ==="
+dmesg | grep -i -E "usb|8188|wroot@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== USB DEVICES SYSFS ==="
+=== USB DEVICES SYSFS ===
+root@openipc-ak3918ev300:~# for d in /sys/bus/usb/devices/*; do
+>   if [ -f "$d/idVendor" ]; then
+>     echo "Device $(basename $d):"
+>     echo "  VID:PID      = $(cat $d/idVendor):$(cat $d/idProduct)"
+>     echo "  Manufacturer = $(cat $d/manufacturer 2>/dev/null)"
+>     echo "  Product      = $(cat $d/product 2>/dev/null)"
+>     echo "  Speed        = $(cat $d/speed 2>/dev/null) Mbps"
+>     echo "  MaxPower     = $(cat $d/bMaxPower 2>/dev/null)"
+>     echo "  Driver   $(readlink $d/driver 2>/dev/null)"
+>   fi
+> done
+Device 1-1:
+  VID:PID      = 0bda:f179
+  Manufacturer = Realtek
+  Product      = 802.11n
+  Speed        = 480 Mbps
+  MaxPower     = 500mA
+  Driver   ../../../../../../bus/usb/drivers/usb
+Device usb1:
+  VID:PID      = 1d6b:0002
+  Manufacturer = Linux 4.4.302 usb-host
+  Product      = Anyka usb host controller
+  Speed        = 480 Mbps
+  MaxPower     = 0mA
+  Driver   ../../../../../bus/usb/drivers/usb
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== USB & WIFI KERNEL LOGS ==="
+=== USB & WIFI KERNEL LOGS ===
+root@openipc-ak3918ev300:~# dmesg | grep -i -E "usb|8188|wlan|otg"
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+usbcore: registered new interface driver cdc_wdm
+usb-host 20200000.usb: Anyka usb host controller
+usb-host 20200000.usb: new USB bus registered, assigned bus number 1
+usb-host 20200000.usb: irq 18, io mem 0x20200000
+hub 1-0:1.0: USB hub found
+Usb otg-hs controller driver initialized
+usb 1-1: new high-speed USB device number 2 using usb-host
+r8188eu: module is from the staging directory, the quality is unknown, you have been warned.
+usbcore: registered new interface driver r8188eu
+Chip Version Info: CHIP_8188E_Normal_Chip_TSMC_B_CUT_1T1R_RomVer(0)
+IPv6: ADDRCONF(NETDEV_UP): wlan0: link is not ready
+root@openipc-ak3918ev300:~# ; echo

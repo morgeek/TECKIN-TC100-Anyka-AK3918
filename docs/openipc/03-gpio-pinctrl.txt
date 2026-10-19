@@ -1,0 +1,16 @@
+=== DEBUG GPIO ===
+root@openipc-ak3918ev300:~# cat /sys/kernel/debug/gpio
+CTRL PINMUX-FUNCTIONS ==="
+cat /sys/kernel/debug/pinctrl/20170000.gpio/pinmux-functions 2>/dev/null
+echo ""
+echo "=== DT GPIO ASSIGNMENTS ==="
+for f in /sys/firmware/devicetree/base/leds/ir_leGPIOs 0-85, platform/20170000.gpio, ak-pinctrl:
+ gpio-49  (                    |ak_sensor           ) in  hi    d/gpios          /sys/firmware/devicetree/base/soc/i2c0@20150000/camera@0x30��ɕ��base/soc/i2c0@20150000/camera@0x30/pwdn-gpio          /sys/firmware/devicetree/base/soc/adc_dac@20110000/speak-gpios          /sys/firmware/devicetree/base/soc/adc_dac@20110000/speak-gpios-en; do
+  if [ -f "$f" ]; then
+    echo "--- $
+ gpio-79  (                    |ak39-codec-spk      ) out lo    
+(basename $f) ($f) ---"
+    hexdump -C "$f"
+  fi
+done
+; echo
