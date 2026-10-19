@@ -1023,6 +1023,7 @@ static void choose_user(void)
 /* RTSP lite (rtsp.c): which stream a request handle is, 0 = the largest
  * encoder (main), 1 = the other one; -1 while unknown. */
 void tc100fix_rtsp_frame(int si, const unsigned char *d, unsigned int len);
+void tc100fix_venctrace_frame(const unsigned char *buf, unsigned int len, int jpeg);
 
 static int stream_of(void *user)
 {
@@ -1082,6 +1083,7 @@ int ak_venc_get_stream_ex(void *user, unsigned char *buf, unsigned int size, uns
     r = real(user, buf, size, len);
     if (r != 0 || !buf || !len || !*len || *len > size)
         return r;
+    tc100fix_venctrace_frame(buf, *len, *len >= 2 && buf[0] == 0xff && buf[1] == 0xd8);
     /* H.264/H.265 frames start with an Annex B start code; anything else
      * (the JPEG snapshots, FF D8) comes from the still-picture encoder. */
     if (*len < 4 || buf[0] || buf[1] || (buf[2] != 1 && (buf[2] || buf[3] != 1))) {

@@ -13,7 +13,7 @@ root=$(cd "$here/../.." && pwd)
 
 "${CROSS}gcc" -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft -Os \
     -fPIC -shared -Wall -Wextra -Werror \
-    -o "$root/lib/libtc100fix.so" "$here/tc100fix.c" "$here/isp_tune.c" "$here/od.c" "$here/rec.c" "$here/rtsp.c" "$here/md.c" \
+    -o "$root/lib/libtc100fix.so" "$here/tc100fix.c" "$here/isp_tune.c" "$here/od.c" "$here/rec.c" "$here/rtsp.c" "$here/md.c" "$here/venctrace.c" \
     "$root/src/netacl/netacl.c" -DNETACL_IN_TC100FIX -I"$root/src/netacl" -ldl -lpthread -lm -lrt
 "${CROSS}strip" --strip-unneeded "$root/lib/libtc100fix.so"
 md5sum "$root/lib/libtc100fix.so"
