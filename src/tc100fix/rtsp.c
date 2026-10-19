@@ -66,12 +66,13 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#include "netacl.h"
 
 #define TAG "[tc100fix] rtsp: "
 #define MAX_CLIENTS 4
 #define INBUF 4096
 #define OUTBUF (256 * 1024)
-#define RING (768 * 1024)
+#define RING (768 * 1024)    /* 384 KB dropped frames at night (2.1.9 test: 466 in 9 h on a camera) */
 #define RTP_MAX 1400
 #define STREAMS 2            /* video streams; ring stream id 2 = audio */
 #define A_ID 2
@@ -777,21 +778,64 @@ static int param_get(const char *h, const char *key, char *out, size_t cap)
     return 0;
 }
 
+/* 1: allowed; 0: wrong user or password (answered to our nonce); -1: no
+ * credentials yet, or for an old nonce (the normal first exchange). */
 static int authorized(const char *req, const char *method)
 {
     char a[512], user[64], uri[256], resp[40], rnonce[40], ha1[33], ha2[33], want[33];
     if (!cred_user[0] && !cred2_user[0]) return 1;
-    if (!hdr_get(req, "Authorization", a, sizeof(a)) || strncasecmp(a, "Digest ", 7)) return 0;
+    if (!hdr_get(req, "Authorization", a, sizeof(a)) || strncasecmp(a, "Digest ", 7)) return -1;
     if (!param_get(a, "username", user, sizeof(user)) || !param_get(a, "uri", uri, sizeof(uri)) ||
         !param_get(a, "response", resp, sizeof(resp)) || !param_get(a, "nonce", rnonce, sizeof(rnonce)))
-        return 0;
-    if (strcmp(rnonce, nonce)) return 0;
+        return -1;
+    if (strcmp(rnonce, nonce)) return -1;
     if (cred_user[0] && !strcmp(user, cred_user)) md5_hex3(ha1, cred_user, "TC100", cred_pass);
     else if (cred2_user[0] && !strcmp(user, cred2_user)) md5_hex3(ha1, cred2_user, "TC100", cred2_pass);
     else return 0;
     md5_hex3(ha2, method, uri, NULL);
     md5_hex3(want, ha1, nonce, ha2);
     return !strcasecmp(want, resp);
+}
+
+/* Password guessing: an address outside the private networks (netacl.c)
+ * that sends 5 wrong passwords in a row is refused for 15 minutes. The local
+ * network is never refused: a camera client with an old password must not
+ * lock its owner out. */
+#define BAN_SLOTS 16
+#define BAN_FAILS 5
+#define BAN_US (15ULL * 60 * 1000000)
+static struct { uint32_t addr; unsigned fails; uint64_t until; } ban[BAN_SLOTS];
+static unsigned ban_next;
+static unsigned long login_failures, login_refused;
+
+static int ban_slot(uint32_t a, int create)
+{
+    unsigned i;
+    for (i = 0; i < BAN_SLOTS; i++) if (ban[i].addr == a) return (int)i;
+    if (!create) return -1;
+    for (i = 0; i < BAN_SLOTS; i++) if (!ban[i].addr) break;
+    if (i == BAN_SLOTS) i = ban_next++ % BAN_SLOTS;          /* full: reuse the oldest one */
+    ban[i].addr = a; ban[i].fails = 0; ban[i].until = 0;
+    return (int)i;
+}
+
+static int login_banned(uint32_t a)
+{
+    int i = ban_slot(a, 0);
+    if (i < 0 || !ban[i].until) return 0;
+    if (mono_us() < ban[i].until) return 1;
+    ban[i].until = 0; ban[i].fails = 0;
+    return 0;
+}
+
+static void login_result(uint32_t a, int ok)
+{
+    int i;
+    if (ok) { if ((i = ban_slot(a, 0)) >= 0) { ban[i].fails = 0; ban[i].until = 0; } return; }
+    login_failures++;
+    if (netacl_is_private(a)) return;
+    i = ban_slot(a, 1);
+    if (++ban[i].fails >= BAN_FAILS) ban[i].until = mono_us() + BAN_US;
 }
 
 /* "/video0", "/video0_unicast", "/video1"... at the end of the URL path -> stream or -1 */
@@ -858,11 +902,15 @@ static void handle_request(struct client *c, char *req)
         reply(c, 200, "OK", cseq, "Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, GET_PARAMETER, SET_PARAMETER\r\n", NULL);
         return;
     }
-    if (strcmp(method, "TEARDOWN") && strcmp(method, "GET_PARAMETER") && strcmp(method, "SET_PARAMETER") &&
-        !authorized(req, method)) {
-        snprintf(extra, sizeof(extra), "WWW-Authenticate: Digest realm=\"TC100\", nonce=\"%s\"\r\n", nonce);
-        reply(c, 401, "Unauthorized", cseq, extra, NULL);
-        return;
+    if (strcmp(method, "TEARDOWN") && strcmp(method, "GET_PARAMETER") && strcmp(method, "SET_PARAMETER")) {
+        int au = authorized(req, method);
+        if (au >= 0) login_result(c->addr, au);
+        if (au != 1) {
+            if (login_banned(c->addr)) { client_close(c); return; }
+            snprintf(extra, sizeof(extra), "WWW-Authenticate: Digest realm=\"TC100\", nonce=\"%s\"\r\n", nonce);
+            reply(c, 401, "Unauthorized", cseq, extra, NULL);
+            return;
+        }
     }
     if (!strcmp(method, "DESCRIBE")) {
         int si = url_stream(url), i;
@@ -978,7 +1026,8 @@ static void write_status(void)
     snprintf(tmp, sizeof(tmp), "%s.tmp", status_path);
     if (!(f = fopen(tmp, "w"))) return;
     for (i = 0; i < MAX_CLIENTS; i++) if (C[i].fd >= 0 && C[i].playing) n++;
-    fprintf(f, "port=%d\nclients=%d\nbytes=%llu\nring_dropped=%lu\n", lport, n, total_bytes, r_dropped);
+    fprintf(f, "port=%d\nclients=%d\nbytes=%llu\nring_dropped=%lu\nlogin_failures=%lu\nlogin_refused=%lu\n",
+            lport, n, total_bytes, r_dropped, login_failures, login_refused);
     for (i = 0; i < STREAMS; i++)
         fprintf(f, "video%d=%s frames=%lu gop_cache=%s\n", i, S[i].codec == C_H265 ? "h265" : S[i].codec == C_H264 ? "h264" : "none",
                 S[i].frames, !G[i].buf ? "off" : G[i].ok ? "ok" : S[i].frames ? "too-large" : "empty");
@@ -1027,7 +1076,8 @@ static void *server(void *arg)
             int fd = accept(ls, (struct sockaddr *)&a, &al);
             if (fd >= 0) {
                 for (i = 0; i < MAX_CLIENTS && C[i].fd >= 0; i++) ;
-                if (i == MAX_CLIENTS) close(fd);
+                if (login_banned(a.sin_addr.s_addr)) { close(fd); login_refused++; }
+                else if (i == MAX_CLIENTS) close(fd);
                 else {
                     int one = 1, sb = 128 * 1024;
                     memset(&C[i], 0, sizeof(C[i]));

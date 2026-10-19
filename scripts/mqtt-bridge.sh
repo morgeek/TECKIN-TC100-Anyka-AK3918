@@ -926,9 +926,14 @@ light_level|Light Level|{{ value_json.diag.light_level }}|"stat_cla":"measuremen
 sd_state|SD Card State|{{ value_json.diag.sd_state }}|"ent_cat":"diagnostic","ic":"mdi:sd"
 rtsp_clients|RTSP Clients|{{ value_json.diag.rtsp_clients }}|"stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:cctv"
 rtsp_drops|RTSP Skipped Frames|{{ value_json.diag.rtsp_drops }}|"stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:video-off"
+last_boot|Last Restart Cause|{{ value_json.diag.last_boot }}|"ent_cat":"diagnostic","ic":"mdi:restart"
+unexpected_restarts|Unexpected Restarts (history)|{{ value_json.diag.unexpected_restarts }}|"stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:restart-alert"
 DIAG
   publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/sd_problem/config" \
     "$(printf '{"name":"%s SD Card Problem","uniq_id":"%s_sd_problem","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.sd_problem == 1 else \\"OFF\\" }}","dev_cla":"problem","ent_cat":"diagnostic","ic":"mdi:sd",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
+  publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/unexpected_restart/config" \
+    "$(printf '{"name":"%s Unexpected Restart","uniq_id":"%s_unexpected_restart","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.last_boot == \\"unexpected\\" else \\"OFF\\" }}","dev_cla":"problem","ent_cat":"diagnostic","ic":"mdi:restart-alert",%s,%s}' \
       "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
   publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/night_mode/config" \
     "$(printf '{"name":"%s Night Mode","uniq_id":"%s_night_mode","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.day_mode == 0 else \\"OFF\\" }}","ic":"mdi:weather-night",%s,%s}' \
@@ -1385,8 +1390,21 @@ build_diag_payload()
       esac
     done < /var/run/tc100rtsp
   fi
-  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s","rtsp_clients":%s,"rtsp_drops":%s}' \
-    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob" "${_dg_sdst:-unknown}" "$_dg_rc" "$_dg_rd")"
+  # Why the camera last started (scripts/reboot-tracker.sh, written at boot)
+  # and how many unexpected restarts the kept history holds.
+  _dg_boot=unknown
+  case "$(cat /tmp/last-reboot-reason 2>/dev/null)" in
+    requested*) _dg_boot=requested ;; UNEXPECTED*) _dg_boot=unexpected ;;
+  esac
+  _dg_unexp=null
+  for _dg_h in /etc/jffs2/tc100/log/reboot-history.log /mnt/log/reboot-history.log; do
+    [ -r "$_dg_h" ] || continue
+    _dg_unexp="$(grep -c UNEXPECTED "$_dg_h" 2>/dev/null)"
+    case "$_dg_unexp" in ''|*[!0-9]*) _dg_unexp=null ;; esac
+    break
+  done
+  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s","rtsp_clients":%s,"rtsp_drops":%s,"last_boot":"%s","unexpected_restarts":%s}' \
+    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob" "${_dg_sdst:-unknown}" "$_dg_rc" "$_dg_rd" "$_dg_boot" "$_dg_unexp")"
 }
 
 build_health_payload()
@@ -1664,7 +1682,7 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
       ensure_low_cpu_runtime_tuning
-      for svc in ftp-server telnet-server motion-detection recording timelapse auto-night-detection front-led night-mode network-monitor; do
+      for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode network-monitor; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
         fi

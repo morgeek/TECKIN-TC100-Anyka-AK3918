@@ -50,10 +50,10 @@ grew from there.
 - A choice of RTSP server (Settings → Video): the original one, or a **lite server** that sends the same streams for about 8 points less CPU, with the sound and two-way audio.
 - **Privacy masks**: up to 4 areas painted out by the image processor before encoding, so they are absent from every stream, snapshot and recording.
 - Presets for Frigate (light, balanced, quality), live image tuning (brightness, contrast, sharpness, saturation, anti-flicker, exposure cap) with no stream restart, a fixed frame rate, day / night with the IR LEDs and the IR filter, flip and on-screen text.
-- Still JPEG at `cgi-bin/currentpic.cgi`, cached so that Home Assistant polling costs nothing.
+- Still JPEG at `cgi-bin/currentpic.cgi`: the last picture the camera already encodes (one a second), served as it is, so Home Assistant polling costs nothing.
 
 **Home Assistant, Frigate, NVRs**
-- MQTT with Home Assistant discovery: about 25 entities (Wi-Fi signal, memory, light level, sound level, night mode, SD card, LEDs, profile…), commands from Home Assistant, availability.
+- MQTT with Home Assistant discovery: about 30 entities (Wi-Fi signal, memory, light level, sound level, night mode, SD card, RTSP clients, LEDs, profile…), commands from Home Assistant, availability. An *Unexpected Restart* sensor turns on after a restart nobody asked for (watchdog, power loss), ready for a notification.
 - A Frigate configuration ready to paste (Live view → More tools → Diagnostics, or `state.cgi?cmd=frigateyaml`), and a button that opens the camera in Frigate's smooth live view.
 - Any RTSP NVR works: Blue Iris, Synology Surveillance Station, iSpy, go2rtc…
 
@@ -62,7 +62,7 @@ grew from there.
 
 **Audio**
 - Listen live, talk through the speaker (push-to-talk from the browser), sound detection with a level in dBFS.
-- **Two-way audio from Home Assistant or go2rtc** (lite server): their microphone button plays your voice on the camera's speaker.
+- **Two-way audio from Home Assistant, Frigate or go2rtc** (lite server): their microphone button plays your voice on the camera's speaker. Setup: [docs/two-way-audio.md](docs/two-way-audio.md).
 
 **Detection**
 - The camera's own motion detection (MQTT event, picture on motion) is **off by default**: Frigate does the detection. When it is on, **motion zones** tell it which areas to ignore.
@@ -98,6 +98,7 @@ Since 2.1.3, with both test cameras running it:
   - a filtered syslog forwarder;
   - a Wi-Fi rescue access point that works from flash;
   - day/night switching with a hold, so it no longer flickers at dusk.
+- **Local network only by default**: the web page, RTSP, telnet and FTP refuse connections from outside the private networks. A port forwarded by mistake is not enough to reach the camera. Telnet and FTP close by themselves after 15 min. The emergency telnet only opens when the web page is down.
 - **Smaller code**: minified scripts, checked with the camera's own shell. About 430 KB of the 640 KB code area.
 
 Details: [CHANGELOG.md](CHANGELOG.md).
@@ -261,7 +262,7 @@ Build them yourself: `sh src/release/build-code-package.sh` and `sh src/release/
 4. Frigate: Live view → More tools → Diagnostics gives a configuration to paste (go2rtc restream; `state.cgi?cmd=frigateyaml&redact=1` without the password). Streams:
    - main (recording): `rtsp://root:PASSWORD@CAMERA-IP:554/video0_unicast`
    - sub (detection): `rtsp://root:PASSWORD@CAMERA-IP:554/video1_unicast`
-   - The same addresses work with either RTSP server. With the lite server, go2rtc also gets the speaker: two-way audio from Home Assistant's or go2rtc's microphone button.
+   - The same addresses work with either RTSP server. With the lite server, go2rtc also gets the speaker: two-way audio from Home Assistant's, Frigate's or go2rtc's microphone button ([docs/two-way-audio.md](docs/two-way-audio.md)).
 5. Still image in Home Assistant: a *Generic Camera* with `https://CAMERA-IP/cgi-bin/currentpic.cgi`, basic auth, SSL verification off.
 
 Home Assistant can drive the camera (LEDs, day / night, profile, snapshot, motion) by publishing on `<topic>/command`. Results come back on `<topic>/command/result`. More: [docs/api.md](docs/api.md).
@@ -363,6 +364,7 @@ VERSION             Firmware version
 bin/ lib/           ARM binaries and libraries (SD card mode)
 www/                Web interface; www/cgi-bin/ are shell CGIs
 scripts/            Daemons and tools (flash-install.sh, flash-code.sh, flashboot.sh, wifi-txt.sh, rec-storage.sh…)
+  action.d/         The web commands of www/cgi-bin/action.cgi, one file per group
 controlscripts/     Services, started and stopped from the web page
 config/             Templates (*.dist) and boot scripts (config/autostart/)
 wifitest/           The SD card boot hook
@@ -370,6 +372,7 @@ sounds/             Audio clips
 src/flash/          Flash images: build-flash-kit.sh, build-usr.sh, build-code.sh, stage-tc100.sh, prebuilt/
 src/release/        Release files: SD card zip, update .tar, code .bin
 src/tc100fix/       libtc100fix (vendor server hooks, lite RTSP server, MP4 recorder, ISP tuning, motion zones)
+src/netacl/         libnetacl: local-network-only filter on accept() for the web server, telnet, FTP and RTSP
 src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolchain
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js

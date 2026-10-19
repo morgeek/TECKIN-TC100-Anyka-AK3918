@@ -30,10 +30,10 @@ LIGHTTPD_BIN="${LIGHTTPD_BIN:-/mnt/bin/lighttpd}"
 
 # Shell-style configs (sourced by scripts). INI-style files with [sections]
 # (rtspserver.conf) are not handled: appending would land in the last section.
-# Left out on purpose: sendmail.conf / telegram.conf (their defaults are
+# Left out on purpose: telegram.conf (its defaults are
 # credential placeholders) and webcontrols.conf (an absent key means "show
 # every switch"; the default list would hide some).
-MIGRATE_KV_CONFIGS="boot.conf mqtt.conf netmon.conf motion.conf recording.conf onvif.conf onvif_events.conf sound_detection.conf timelapse.conf service_trim.conf ftp.conf telnetd.conf dns.conf network.conf isp_tune.conf"
+MIGRATE_KV_CONFIGS="boot.conf mqtt.conf netmon.conf motion.conf recording.conf onvif.conf sound_detection.conf service_trim.conf ftp.conf telnetd.conf dns.conf network.conf isp_tune.conf"
 MIGRATE_HTTPD_CONFIGS="lighttpd.conf lighttpd.http.conf"
 # From flash, lighttpd runs on lighttpd.flash*.conf.dist (code zone, not
 # edited) and the bundled lighttpd (mbedTLS) rejects the SD-card config, which
@@ -46,7 +46,7 @@ MIGRATE_HTTPD_CONFIGS="lighttpd.conf lighttpd.http.conf"
 # Format: file:KEY=value (one per line). tests/test_regressions.py checks that
 # every divergence between a .dist and the code defaults is listed here.
 MIGRATE_KEEP_BEHAVIOUR='boot.conf:MEM_WATCHDOG_ENABLE=0
-boot.conf:MEM_WATCHDOG_SERVICES="web-server rtsp-h26x recording onvif"
+boot.conf:MEM_WATCHDOG_SERVICES="web-server rtsp-h26x onvif"
 boot.conf:MEM_GUARD_DROP_CACHES=1
 mqtt.conf:MQTT_HOST=
 mqtt.conf:MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=180

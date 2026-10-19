@@ -1599,7 +1599,6 @@ EOF_DF
     load_conf_file /mnt/config/sound_detection.conf
     if [ "$_iprofile" != "frigate_ha" ]; then
       load_conf_file /mnt/config/recording.conf
-      load_conf_file /mnt/config/timelapse.conf
       load_conf_file /mnt/config/telegram.conf
     fi
     

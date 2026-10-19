@@ -35,10 +35,12 @@ start()
     echo "A ftp server is already running, please stop it or reboot"
   else
     stop
-    /mnt/bin/busybox tcpsvd 0 $PORT /mnt/bin/busybox ftpd -w -t 600 / </dev/null >/dev/null 2>&1 &
+    # LAN only (netacl_exec), closed again after REMOTE_SHELL_TIMEOUT_MIN.
+    netacl_exec ftp /mnt/bin/busybox tcpsvd 0 $PORT /mnt/bin/busybox ftpd -w -t 600 / </dev/null >/dev/null 2>&1 &
     # $! is tcpsvd itself (it stays in the foreground); ps|awk also matched
     # ftpd session children and wrote several PIDs.
     echo "$!" > "$PIDFILE"
+    service_autoclose ftp-server
     sleep 1
   fi
 }
@@ -50,6 +52,8 @@ stop()
     rm "$PIDFILE" 1> /dev/null 2>&1
   fi
   ps|awk '/[f]tpd/ {print $1}' | while read OLDPID; do kill -9 $OLDPID; done;
+  [ -s /var/run/ftp-server.autoclose ] && kill "$(cat /var/run/ftp-server.autoclose)" 2>/dev/null
+  rm -f /var/run/ftp-server.autoclose
 }
 
 health()

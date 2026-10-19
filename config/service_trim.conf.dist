@@ -20,6 +20,5 @@ SERVICE_TRIM=0
 # Add further entries as needed, e.g.:
 #   rtsp-h26x         — RTSP stream (required for recording / ONVIF)
 #   onvif             — ONVIF discovery and PTZ control
-#   recording         — SD card recording
 #   mqtt-bridge       — MQTT integration
 SERVICE_TRIM_ALLOWLIST="00_system-config 02_system-webserver rtsp-h26x onvif"
