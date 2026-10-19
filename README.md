@@ -98,6 +98,7 @@ Since 2.1.3, with both test cameras running it:
   - a filtered syslog forwarder;
   - a Wi-Fi rescue access point that works from flash;
   - day/night switching with a hold, so it no longer flickers at dusk.
+- **Local network only by default**: the web page, RTSP, telnet and FTP refuse connections from outside the private networks. A port forwarded by mistake is not enough to reach the camera. Telnet and FTP close by themselves after 15 min. The emergency telnet only opens when the web page is down.
 - **Smaller code**: minified scripts, checked with the camera's own shell. About 430 KB of the 640 KB code area.
 
 Details: [CHANGELOG.md](CHANGELOG.md).
@@ -371,6 +372,7 @@ sounds/             Audio clips
 src/flash/          Flash images: build-flash-kit.sh, build-usr.sh, build-code.sh, stage-tc100.sh, prebuilt/
 src/release/        Release files: SD card zip, update .tar, code .bin
 src/tc100fix/       libtc100fix (vendor server hooks, lite RTSP server, MP4 recorder, ISP tuning, motion zones)
+src/netacl/         libnetacl: local-network-only filter on accept() for the web server, telnet, FTP and RTSP
 src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolchain
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js

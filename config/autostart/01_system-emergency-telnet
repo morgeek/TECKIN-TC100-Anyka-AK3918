@@ -1,6 +1,28 @@
 #!/bin/sh
-WAIT_TIMEOUT_SECONDS=60
+# Emergency telnet on port 9527. EMERGENCY_TELNET in boot.conf:
+#   auto (default)  only if the web interface is not up 2 minutes after the
+#                   boot; then it stays open (LAN only) until the next boot
+#   always          60 s at every boot, as before 2.1.9
+#   off             never (web-guard.sh still opens a rescue telnet on port
+#                   23 when the web interface is down)
+# A telnet open 60 s at every boot was the camera's weakest point once
+# reachable from outside: passwords in clear, at a predictable moment.
+. /mnt/scripts/common_functions.sh
 
-telnetd -p9527
+_mode="$(read_kv_config_value /mnt/config/boot.conf EMERGENCY_TELNET auto)"
+case "$_mode" in
+  off|0|false|no|disabled) exit 0 ;;
+  always|1|true|yes|on)
+    telnetd -p9527
+    (sleep 60; (ps|awk '/[p]9527/ {print $1}' | while read PID; do kill -9 $PID; done;)) &
+    exit 0 ;;
+esac
 
-(sleep $WAIT_TIMEOUT_SECONDS; (ps|awk '/[p]9527/ {print $1}' | while read PID; do kill -9 $PID; done;)) &
+( (
+  sleep 120
+  if ! port_listening 80 && ! port_listening 443; then
+    logger -t tc100-event -p user.err "web interface not up 2 min after boot: emergency telnet on port 9527" 2>/dev/null
+    netacl_exec emergency-telnet telnetd -p9527
+  fi
+) </dev/null >/dev/null 2>&1 & )
+exit 0

@@ -14,9 +14,12 @@ for d in autorun.sh VERSION scripts controlscripts www sounds config; do
 done
 # The RTSP server fixes, so that a code package can update them without a
 # system package (controlscripts/rtsp-h26x prefers this copy).
-if [ -f "$src/lib/libtc100fix.so" ]; then
-  mkdir -p "$w/code/lib" && cp -a "$src/lib/libtc100fix.so" "$w/code/lib/"
-fi
+for l in libtc100fix.so libnetacl.so; do
+  # libnetacl.so: LAN-only filter for lighttpd, telnetd and ftpd (src/netacl)
+  if [ -f "$src/lib/$l" ]; then
+    mkdir -p "$w/code/lib" && cp -a "$src/lib/$l" "$w/code/lib/"
+  fi
+done
 # The filtered syslog forwarder (scripts/common_functions.sh syslogd_start
 # prefers /tmp/tc100code/bin): new in 2.1.5, so not in older /usr images.
 for b in tc100-logfwd hostapd-rtw tc100-button; do

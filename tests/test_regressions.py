@@ -519,7 +519,7 @@ class Regressions(unittest.TestCase):
                 name, digest = line.split('|')
                 self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
                 count += 1
-        self.assertEqual(count, 29)
+        self.assertEqual(count, 30)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -1679,9 +1679,9 @@ class FlashWebServer(unittest.TestCase):
         fn = cf[cf.index('_http_server_lighttpd(){'):cf.index('# Control the http server')]
         flash = fn[fn.index('/tmp/tc100-storage'):fn.index('install_config "$_hs_conf"')]
         # from flash: only the flash templates, HTTPS first, plain HTTP if it does not listen
-        self.assertIn('-f /mnt/config/lighttpd.flash.conf.dist', flash)
+        self.assertIn('_hs_run /mnt/config/lighttpd.flash.conf.dist', flash)
         self.assertIn('_hs_http=/mnt/config/lighttpd.flash-http.conf.dist', flash)
-        self.assertLess(flash.index('port_listening 443'), flash.index('-f "$_hs_http"'))
+        self.assertLess(flash.index('port_listening 443'), flash.index('_hs_run "$_hs_http"'))
         self.assertNotIn('install_config', flash)
         ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
         fl = ws.index('if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then')
@@ -1701,8 +1701,10 @@ class FlashWebServer(unittest.TestCase):
             (d / 'pem').write_text('x\n')
             fn2 = (fn.replace('/tmp/tc100-storage', str(d / 'storage')).replace('/mnt/config/lighttpd.pem', str(d / 'pem'))
                      .replace('/mnt/bin/lighttpd', 'echo lighttpd').replace('sleep 1', ':'))
+            hs = function('scripts/common_functions.sh', '_hs_run').replace('/mnt/bin/lighttpd', 'echo lighttpd')
             script = ('port_listening() { return 1; }\nlogger() { :; }\nkillall() { echo killall "$@"; }\n'
-                      + fn2 + '\nWEB_MODE=full; _http_server_lighttpd\n')
+                      'netacl_lib() { return 1; }\nnetacl_allow_list() { :; }\nnetacl_exec() { shift; "$@"; }\n'
+                      + hs + '\n' + fn2 + '\nWEB_MODE=full; _http_server_lighttpd\n')
             out = subprocess.run(['sh', '-c', script], capture_output=True, text=True).stdout.split('\n')
             self.assertEqual([l for l in out if l], ['lighttpd -f /mnt/config/lighttpd.flash.conf.dist', 'killall lighttpd',
                                                      'lighttpd -f /mnt/config/lighttpd.flash-http.conf.dist'])
@@ -2498,7 +2500,8 @@ class RtspLite(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
         self.bin = d / 'rtsp-test'
         subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-DRTSP_HOST_TEST', '-o', str(self.bin),
-                        str(ROOT / 'src/tc100fix/rtsp.c'), '-lpthread', '-ldl'], check=True)
+                        str(ROOT / 'src/tc100fix/rtsp.c'), str(ROOT / 'src/netacl/netacl.c'), '-DNETACL_IN_TC100FIX',
+                        '-I' + str(ROOT / 'src/netacl'), '-lpthread', '-ldl'], check=True)
         s = socket.socket(); s.bind(('127.0.0.1', 0)); self.port = s.getsockname()[1]; s.close()
         self.srv = None
 
@@ -3897,6 +3900,125 @@ class ActionCommandFiles(unittest.TestCase):
             self.assertIn('"message":"55"', get('cmd=get_ptt_vol&format=json'))
             self.assertIn('"zones":[]', get('cmd=md_zones_info&format=json'))
             self.assertIn('"ssid"', get('cmd=wifi_get_ssid&format=json'))
+
+
+class NetworkAccessFilter(unittest.TestCase):
+    """LAN-only access: src/netacl (accept/bind filter) and its shell side."""
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def test_filter_refuses_outside_the_list_and_never_locks_out(self):
+        import socket
+        with tempfile.TemporaryDirectory() as d:
+            lib = Path(d) / 'netacl.so'
+            subprocess.run(['gcc', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror', '-o', str(lib),
+                            str(ROOT / 'src/netacl/netacl.c'), '-ldl'], check=True)
+            srv = Path(d) / 'srv.py'
+            srv.write_text(
+                'import socket, sys, os\n'
+                's = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n'
+                's.bind(("0.0.0.0", 0)); s.listen(4); print(s.getsockname()[1], int("LD_PRELOAD" in os.environ), flush=True)\n'
+                'b = socket.socket(); b.bind(("0.0.0.0", int(sys.argv[1]))); print(b.getsockname()[0], flush=True)\n'
+                'while True:\n'
+                '    try: c, a = s.accept(); break\n'
+                '    except ConnectionAbortedError: pass\n'
+                'print("accepted", a[0], flush=True)\n')
+            try:
+                me = socket.gethostbyname(socket.gethostname())
+            except OSError:
+                me = ''
+            if not me or me.startswith('127.'):
+                probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    probe.connect(('192.0.2.1', 9)); me = probe.getsockname()[0]
+                except OSError:
+                    self.skipTest('no non-loopback address')
+                finally:
+                    probe.close()
+            def run(allow, local_ports=''):
+                free = socket.socket(); free.bind(('127.0.0.1', 0)); lp = free.getsockname()[1]; free.close()
+                env = dict(os.environ, LD_PRELOAD=str(lib), TC100_NET_ALLOW=allow,
+                           TC100_NET_LOCAL_PORTS=local_ports.replace('PORT', str(lp)), TC100_NET_STATUS=str(Path(d) / 'st'))
+                pr = subprocess.Popen([sys.executable, str(srv), str(lp)], env=env, stdout=subprocess.PIPE, text=True)
+                port, preload = pr.stdout.readline().split()
+                bound = pr.stdout.readline().strip()
+                for host in (me, '127.0.0.1'):
+                    try:
+                        socket.create_connection((host, int(port)), timeout=2).close()
+                    except OSError:
+                        pass
+                out = pr.stdout.readline().strip()
+                pr.kill(); pr.wait(); pr.stdout.close()
+                return out, preload, bound
+            self.assertEqual(run('')[0], 'accepted ' + me)                  # no list: no filter
+            self.assertEqual(run('not-a-network')[0], 'accepted ' + me)     # unreadable list: no filter
+            self.assertEqual(run(me + '/32')[0], 'accepted ' + me)
+            out, preload, _ = run('203.0.113.0/24')                         # outside: refused, loopback still in
+            self.assertEqual(out, 'accepted 127.0.0.1')
+            self.assertEqual(preload, '0')                                  # not passed on to children
+            self.assertIn('refused=1 last=' + me, (Path(d) / 'st').read_text())
+            self.assertEqual(run('', 'PORT')[2], '127.0.0.1')               # local-only port
+            self.assertEqual(run('', '1')[2], '0.0.0.0')
+
+    def test_allow_list_from_boot_conf(self):
+        with tempfile.TemporaryDirectory() as d:
+            conf = Path(d) / 'boot.conf'
+            code = function('scripts/common_functions.sh', 'read_kv_config_value') + '\n'
+            code += function('scripts/common_functions.sh', 'netacl_allow_list').replace('/mnt/config/boot.conf', str(conf)) + '\n'
+            code += 'NETACL_PRIVATE="10.0.0.0/8 192.168.0.0/16"\nnetacl_allow_list'
+            conf.write_text('X=1\n')
+            self.assertEqual(run(code).stdout, b'10.0.0.0/8 192.168.0.0/16')    # on by default
+            conf.write_text('NET_LAN_ONLY=0\n')
+            self.assertEqual(run(code).stdout, b'')
+            conf.write_text('NET_LAN_ONLY=1\nNET_ALLOW_EXTRA="203.0.113.7/32 198.51.100.0/24"\n')
+            self.assertEqual(run(code).stdout, b'10.0.0.0/8 192.168.0.0/16 203.0.113.7/32 198.51.100.0/24')
+
+    def test_wired_into_every_server(self):
+        cf = (ROOT / 'scripts/common_functions.sh').read_text()
+        hs = function('scripts/common_functions.sh', '_hs_run')
+        self.assertIn('netacl_exec web /mnt/bin/lighttpd', hs)
+        self.assertIn('started without it', hs)                             # never costs the web interface
+        lf = function('scripts/common_functions.sh', '_http_server_lighttpd')
+        self.assertNotIn('/mnt/bin/lighttpd -f', lf)
+        self.assertIn('netacl_exec telnet telnetd', (ROOT / 'controlscripts/telnet-server').read_text())
+        self.assertIn('netacl_exec ftp /mnt/bin/busybox tcpsvd', (ROOT / 'controlscripts/ftp-server').read_text())
+        for svc in ('telnet-server', 'ftp-server'):
+            self.assertIn('service_autoclose ' + svc, (ROOT / 'controlscripts' / svc).read_text())
+        rt = (ROOT / 'controlscripts/rtsp-h26x').read_text()
+        self.assertIn('TC100_NET_ALLOW=${_acl// /,}', rt)
+        self.assertIn('TC100_NET_LOCAL_PORTS=$_vport', rt)
+        self.assertIn('netacl.c', (ROOT / 'src/tc100fix/build.sh').read_text())
+        self.assertIn('libnetacl.so', (ROOT / 'src/flash/build-code.sh').read_text())
+        self.assertFalse((ROOT / 'config/autostart/ftp-server').exists())
+        et = (ROOT / 'config/autostart/01_system-emergency-telnet').read_text()
+        self.assertLess(et.index('sleep 120'), et.index('netacl_exec emergency-telnet'))
+        self.assertIn('NETACL_PRIVATE="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10"', cf)
+
+    def test_autoclose_stops_the_service(self):
+        with tempfile.TemporaryDirectory() as d:
+            conf = Path(d) / 'boot.conf'; conf.write_text('REMOTE_SHELL_TIMEOUT_MIN=0\n')
+            code = function('scripts/common_functions.sh', 'read_kv_config_value') + '\n'
+            code += function('scripts/common_functions.sh', 'service_autoclose').replace('/mnt/config/boot.conf', str(conf)).replace('/var/run/', d + '/') + '\n'
+            code += 'service_autoclose x; ls ' + d
+            self.assertNotIn(b'x.autoclose', run(code).stdout)                 # 0 = never
+            conf.write_text('REMOTE_SHELL_TIMEOUT_MIN=15\n')
+            code2 = code.replace('ls ' + d, 'cat ' + d + '/x.autoclose; kill $(cat ' + d + '/x.autoclose)')
+            self.assertRegex(run(code2).stdout, rb'^\d+')
+
+    def test_web_server_restarts_without_the_filter_if_it_does_not_come_up(self):
+        hs = function('scripts/common_functions.sh', '_hs_run').replace('/mnt/bin/lighttpd', 'echo lighttpd').replace('sleep 1', ':')
+        stubs = ('logger() { :; }\nkillall() { echo killall "$@"; }\nnetacl_lib() { echo /x.so; }\n'
+                 'netacl_allow_list() { echo 10.0.0.0/8; }\nnetacl_exec() { shift; echo filtered; "$@"; }\n')
+        out = run(stubs + 'port_listening() { return 1; }\n' + hs + '\n_hs_run c.conf').stdout.decode().split()
+        self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf killall lighttpd lighttpd -f c.conf')
+        out = run(stubs + 'port_listening() { return 0; }\n' + hs + '\n_hs_run c.conf').stdout.decode().split()
+        self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf')
+
+    def test_lite_server_ban_spares_the_local_network(self):
+        c = (ROOT / 'src/tc100fix/rtsp.c').read_text()
+        fn = c[c.index('static void login_result'):]
+        fn = fn[:fn.index('\n}\n')]
+        self.assertLess(fn.index('netacl_is_private(a)) return'), fn.index('BAN_US'))
+        self.assertIn('if (login_banned(a.sin_addr.s_addr)) { close(fd); login_refused++; }', c)
 
 
 if __name__ == '__main__':
