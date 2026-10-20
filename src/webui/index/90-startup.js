@@ -145,6 +145,37 @@
     }
     setLiveToggleButtonState();
 
+    var liveFlip = byId("live_flip");
+    if (liveFlip) {
+      liveFlip.addEventListener("click", function () {
+        liveFlip.classList.add("is-loading");
+        fetch("cgi-bin/camcontrols.cgi?cmd=panel", { cache: "no-store" })
+          .then(function (r) { return r.json(); })
+          .then(function (st) {
+            var nextOn = (st && st.flip === 1) ? 0 : 1;
+            return csrfFetch("cgi-bin/camcontrols.cgi", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: "cmd=set&control=flip&on=" + nextOn
+            }).then(function (r) { return r.json(); });
+          })
+          .then(function (st) {
+            if (st && st.ok) {
+              liveFlip.classList.toggle("is-info", st.flip === 1);
+              liveFlip.setAttribute("aria-pressed", st.flip === 1 ? "true" : "false");
+              refreshLiveImage();
+              showResult(st.flip === 1 ? "Image rotated 180°" : "Image set to normal", "is-success");
+            }
+          })
+          .catch(function (err) {
+            showResult("Flip failed: " + err.message, "is-danger");
+          })
+          .finally(function () {
+            liveFlip.classList.remove("is-loading");
+          });
+      });
+    }
+
     statusRefreshButton = byId("status_refresh");
     statusUpdatedLabel = byId("status_updated");
     if (statusRefreshButton) {
