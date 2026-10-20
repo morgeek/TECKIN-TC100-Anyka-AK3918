@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.0] — 2026-10-20
+
+"Le Meilleur des 2 Mondes" — OpenIPC hardware discovery & Linux 4.4 kernel enablement merged with Morgeek's high-performance userland.
+
+### Added & OpenIPC Upstream Breakthrough
+- **Linux 4.4 Kernel & RTL8188FU Driver Build**:
+  - Automated build workflow (`.github/workflows/build-wifi-driver.yml`) compiling the dedicated `8188fu.ko` wireless driver for OpenIPC Linux 4.4.302-ak3918ev300 (ARMv5TEJ).
+  - Embeds Realtek firmware directly in C (`hal8188f_fw.c`), solving the OpenIPC RF PLL failure where standard `r8188eu.ko` failed to lock radio frequencies on device `0bda:f179`.
+  - Artifacts packaged and verified in `docs/openipc/8188fu.ko` and ready for upstream OpenIPC firmware tree.
+- **Hardware Reverse-Engineering & Device Tree**:
+  - Complete 2,257-line clean Device Tree source (`docs/openipc/devicetree.dts`) extracted via physical Raspberry Pi Pico 2 UART probe from the live camera.
+  - Pinout, memory regions (24MB CMA capture pool at `0x81400000`), clocks (400 MHz CPU, 200 MHz DDR2, 320 MHz VCLK), and sensor SOI JX-F23 (`0xf23`) on I2C `0x40` fully documented.
+- **Hardware Speaker Gate Control (GPIO 79)**:
+  - Discovered and mapped GPIO 79 (`speak-gpios` in DT / `/sys/user-gpio/spk_gpio`).
+  - Added automatic amplifier power-down (`speaker_amp off`) on boot and idle in `autorun.sh` and `common_functions.sh`, completely eliminating background speaker hiss and reducing power consumption.
+  - Dynamically unmuted during two-way talkback and audio alerts.
+- **SDXC High-Speed Stability (MMC 25 MHz Fix)**:
+  - Identified root cause of `akmci CMD18: -84 (-EILSEQ)` data corruption on 64GB+ cards running at 50 MHz high speed.
+  - Capped bus frequency to 25 MHz in Device Tree and drivers for 100% reliable continuous recording.
+- **Reset Button Pinout Correction**:
+  - Mapped active-low reset button to GPIO 10, resolving OpenIPC's kernel hang when probing GPIO 84 `gpiokeys`.
+- **OpenIPC Upstream Package**:
+  - Full diagnostic suite and contribution report submitted to OpenIPC Issue #2639 to advance Anyka AK3918EV300 community mainline support.
+
+---
+
 ## [2.1.9] — 2026-10-18
 
 A lighter RTSP server, sound both ways, motion zones.
