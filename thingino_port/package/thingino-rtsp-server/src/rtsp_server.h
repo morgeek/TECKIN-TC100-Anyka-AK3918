@@ -104,7 +104,7 @@ rtsp_method_t rtsp_parse_method(const char *method_str);
 const char* rtsp_method_to_string(rtsp_method_t method);
 const char* rtsp_status_to_string(rtsp_status_t status);
 int rtsp_parse_request(const char *request, char *method, char *uri, char *version);
-int rtsp_send_response(int client_fd, rtsp_status_t status, const char *headers, const char *body);
+int rtsp_send_response(int client_fd, int cseq, rtsp_status_t status, const char *headers, const char *body);
 
 // RTP/RTCP utilities
 int rtp_create_socket(int port);

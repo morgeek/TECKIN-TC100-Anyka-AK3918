@@ -126,18 +126,20 @@ int rtsp_parse_request(const char *request, char *method, char *uri, char *versi
 }
 
 // Send RTSP response
-int rtsp_send_response(int client_fd, rtsp_status_t status, const char *headers, const char *body) {
+int rtsp_send_response(int client_fd, int cseq, rtsp_status_t status, const char *headers, const char *body) {
     char response[RTSP_BUFFER_SIZE];
     int len;
 
     len = snprintf(response, sizeof(response),
         "%s %d %s\r\n"
+        "CSeq: %d\r\n"
         "Server: Thingino-RTSP/1.0\r\n"
         "Date: %s\r\n"
         "%s"
         "\r\n"
         "%s",
         RTSP_VERSION, status, rtsp_status_to_string(status),
+        cseq,
         "Thu, 01 Jan 1970 00:00:00 GMT", // TODO: Real date
         headers ? headers : "",
         body ? body : ""
@@ -189,6 +191,7 @@ int rtsp_server_start(rtsp_server_t *server) {
 
     server->running = 1;
     printf("RTSP server started on port %d\n", server->port);
+    start_streaming_thread(server);
 
     return 0;
 }
@@ -200,6 +203,7 @@ void rtsp_server_stop(rtsp_server_t *server) {
     }
 
     server->running = 0;
+    stop_streaming_thread(server);
 
     // Close client connections
     for (int i = 0; i < RTSP_MAX_CLIENTS; i++) {
@@ -305,12 +309,19 @@ int rtsp_server_run(rtsp_server_t *server) {
 
                     // Basic RTSP request handling
                     char method[64], uri[256], version[64];
+                    int cseq = 0;
+                    char *cseq_str = strstr(buffer, "CSeq:");
+                    if (!cseq_str) cseq_str = strstr(buffer, "cseq:");
+                    if (cseq_str) {
+                        cseq = atoi(cseq_str + 5);
+                    }
+
                     if (rtsp_parse_request(buffer, method, uri, version) == 3) {
                         rtsp_method_t rtsp_method = rtsp_parse_method(method);
 
                         switch (rtsp_method) {
                             case RTSP_METHOD_OPTIONS:
-                                rtsp_send_response(server->clients[i].socket_fd, RTSP_STATUS_OK,
+                                rtsp_send_response(server->clients[i].socket_fd, cseq, RTSP_STATUS_OK,
                                     "Public: OPTIONS, DESCRIBE, SETUP, PLAY, PAUSE, TEARDOWN\r\n", NULL);
                                 break;
                             case RTSP_METHOD_DESCRIBE:
@@ -335,9 +346,9 @@ int rtsp_server_run(rtsp_server_t *server) {
                                         snprintf(headers, sizeof(headers),
                                             "Content-Type: application/sdp\r\n"
                                             "Content-Length: %d\r\n", (int)strlen(sdp_buffer));
-                                        rtsp_send_response(server->clients[i].socket_fd, RTSP_STATUS_OK, headers, sdp_buffer);
+                                        rtsp_send_response(server->clients[i].socket_fd, cseq, RTSP_STATUS_OK, headers, sdp_buffer);
                                     } else {
-                                        rtsp_send_response(server->clients[i].socket_fd, RTSP_STATUS_INTERNAL_ERROR, NULL, NULL);
+                                        rtsp_send_response(server->clients[i].socket_fd, cseq, RTSP_STATUS_INTERNAL_ERROR, NULL, NULL);
                                     }
                                 }
                                 break;
@@ -376,6 +387,9 @@ int rtsp_server_run(rtsp_server_t *server) {
                                     char headers[512];
                                     if (use_tcp) {
                                         // TCP interleaved transport
+                                        server->clients[i].rtp_socket = server->clients[i].socket_fd;
+                                        server->clients[i].rtp_port = interleaved_rtp;
+                                        server->clients[i].rtp_addr.sin_family = 0;
                                         snprintf(headers, sizeof(headers),
                                             "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\n"
                                             "Session: %s\r\n",
@@ -383,6 +397,10 @@ int rtsp_server_run(rtsp_server_t *server) {
                                         printf("Server Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\n", interleaved_rtp, interleaved_rtcp);
                                     } else {
                                         // UDP transport
+                                        server->clients[i].rtp_socket = rtp_create_socket(0);
+                                        server->clients[i].rtp_addr.sin_family = AF_INET;
+                                        server->clients[i].rtp_addr.sin_port = htons(client_rtp_port);
+                                        server->clients[i].rtp_addr.sin_addr = server->clients[i].addr.sin_addr;
                                         snprintf(headers, sizeof(headers),
                                             "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\n"
                                             "Session: %s\r\n",
@@ -391,26 +409,27 @@ int rtsp_server_run(rtsp_server_t *server) {
                                                client_rtp_port, client_rtcp_port, client_rtp_port, client_rtcp_port);
                                     }
 
-                                    rtsp_send_response(server->clients[i].socket_fd, RTSP_STATUS_OK, headers, NULL);
+                                    rtsp_send_response(server->clients[i].socket_fd, cseq, RTSP_STATUS_OK, headers, NULL);
                                 }
                                 break;
                             case RTSP_METHOD_PLAY:
                                 {
+                                    server->clients[i].streaming = 1;
                                     char headers[256];
                                     snprintf(headers, sizeof(headers),
                                         "Session: %s\r\n"
                                         "Range: npt=0.000-\r\n",
                                         server->clients[i].session_id);
 
-                                    rtsp_send_response(server->clients[i].socket_fd, RTSP_STATUS_OK, headers, NULL);
+                                    rtsp_send_response(server->clients[i].socket_fd, cseq, RTSP_STATUS_OK, headers, NULL);
                                 }
                                 break;
                             default:
-                                rtsp_send_response(server->clients[i].socket_fd, RTSP_STATUS_NOT_IMPLEMENTED, NULL, NULL);
+                                rtsp_send_response(server->clients[i].socket_fd, cseq, RTSP_STATUS_NOT_IMPLEMENTED, NULL, NULL);
                                 break;
                         }
                     } else {
-                        rtsp_send_response(server->clients[i].socket_fd, RTSP_STATUS_BAD_REQUEST, NULL, NULL);
+                        rtsp_send_response(server->clients[i].socket_fd, cseq, RTSP_STATUS_BAD_REQUEST, NULL, NULL);
                     }
                 }
             }
