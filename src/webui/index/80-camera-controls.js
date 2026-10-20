@@ -26,6 +26,11 @@
       if (status) status.textContent = st.mode === "custom" ? "Manual settings" : "";
       panel.classList.remove("is-unavailable");
     });
+    var liveFlip = byId("live_flip");
+    if (liveFlip && st.flip !== undefined) {
+      liveFlip.classList.toggle("is-info", st.flip === 1);
+      liveFlip.setAttribute("aria-pressed", st.flip === 1 ? "true" : "false");
+    }
   }
   function camPanelFailed() {
     camPanels().forEach(function (panel) {

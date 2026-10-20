@@ -1023,9 +1023,11 @@ DIAG
       "$(printf '{"name":"%s Anti-flicker","uniq_id":"%s_isp_power_hz","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","options":["unchanged","50","60"],"ent_cat":"config","avty_t":"%s","ic":"mdi:sine-wave","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
         "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_hz_tpl_json" "$cmd_json" "$isp_hz_cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
     isp_en_tpl_json="$(json_escape "{{ 'ON' if value_json.enabled == 1 else 'OFF' }}")"
+    isp_pl_on_json="$(json_escape "{\"cmd\":\"isp_tune\",\"value\":\"on\"}")"
+    isp_pl_off_json="$(json_escape "{\"cmd\":\"isp_tune\",\"value\":\"off\"}")"
     publish_discovery_config "${discovery_prefix}/switch/${node_id}/isp_tune/config" \
-      "$(printf '{"name":"%s Image Tuning","uniq_id":"%s_isp_tune","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","pl_on":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"on\\"}","pl_off":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"off\\"}","ent_cat":"config","avty_t":"%s","ic":"mdi:tune","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
-        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_en_tpl_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+      "$(printf '{"name":"%s Image Tuning","uniq_id":"%s_isp_tune","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","pl_on":"%s","pl_off":"%s","ent_cat":"config","avty_t":"%s","ic":"mdi:tune","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_en_tpl_json" "$cmd_json" "$isp_pl_on_json" "$isp_pl_off_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   fi
 
   # Maintenance Entities (Buttons/Select)

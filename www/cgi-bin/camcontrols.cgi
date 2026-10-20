@@ -35,23 +35,35 @@ panel_json() {
   _bw=0;    [ "$(_panel_first "$PANEL_RUN/vday")" = 0 ] && _bw=1
   _blue=0;  [ "$(_panel_first "$PANEL_SYS/class/leds/blue_led/brightness")" = 1 ] && _blue=1
   _red=0;   [ "$(_panel_first "$PANEL_SYS/class/leds/red_led/brightness")" = 1 ] && _red=1
+  _flip=0;  [ "$("$PANEL_SETCONF" -g f 2>/dev/null)" = 3 ] && _flip=1
   if [ "$("$PANEL_SETCONF" -g n 2>/dev/null)" = 2 ]; then _mode=auto
   elif [ "$_irled$_ircut$_bw" = 101 ]; then _mode=night
   elif [ "$_irled$_ircut$_bw" = 010 ]; then _mode=day
   else _mode=custom; fi
-  printf '{"ok":true,"mode":"%s","ir-led":%s,"ir-cut":%s,"black-white":%s,"front-led":%s,"red-led":%s}\n' \
-    "$_mode" "$_irled" "$_ircut" "$_bw" "$_blue" "$_red"
+  printf '{"ok":true,"mode":"%s","ir-led":%s,"ir-cut":%s,"black-white":%s,"front-led":%s,"red-led":%s,"flip":%s}\n' \
+    "$_mode" "$_irled" "$_ircut" "$_bw" "$_blue" "$_red" "$_flip"
 }
 case "${F_cmd:-}" in
   panel|set|mode)
     printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
     case "$F_cmd" in
       set)
-        case "$F_control" in ir-led|ir-cut|black-white|front-led|red-led) ;; *)
-          echo '{"ok":false,"error":"unknown control"}'; exit 0 ;;
-        esac
-        case "$F_on" in 1) _act=start ;; 0) _act=stop ;; *) echo '{"ok":false,"error":"on must be 0 or 1"}'; exit 0 ;; esac
-        sh "$SCRIPT_HOME/$F_control" "$_act" </dev/null >/dev/null 2>&1 ;;
+        case "$F_control" in
+          flip)
+            case "$F_on" in
+              1) _fval=3 ;;
+              0) _fval=0 ;;
+              *) echo '{"ok":false,"error":"on must be 0 or 1"}'; exit 0 ;;
+            esac
+            /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " imageflip "$_fval" >/dev/null 2>&1
+            "$PANEL_SETCONF" -k f -v "$_fval" >/dev/null 2>&1
+            ;;
+          ir-led|ir-cut|black-white|front-led|red-led)
+            case "$F_on" in 1) _act=start ;; 0) _act=stop ;; *) echo '{"ok":false,"error":"on must be 0 or 1"}'; exit 0 ;; esac
+            sh "$SCRIPT_HOME/$F_control" "$_act" </dev/null >/dev/null 2>&1 ;;
+          *)
+            echo '{"ok":false,"error":"unknown control"}'; exit 0 ;;
+        esac ;;
       mode)
         case "$F_value" in
           auto)  sh "$SCRIPT_HOME/auto-night-detection" start </dev/null >/dev/null 2>&1 ;;

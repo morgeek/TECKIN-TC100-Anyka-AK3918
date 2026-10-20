@@ -129,6 +129,18 @@
                                 <p class="help">The light profile uses two AK3918-compatible H.265 streams: 720p/12 fps main and 360p/8 fps substream for Frigate detection, without audio.</p>
                             </form>
                         </div>
+                        <div class="column">
+                            <form action="cgi-bin/action.cgi?cmd=image-flip" method="post" id="formVideoFlip">
+                                <label class="label is-small">Orientation</label>
+                                <div class="field has-addons">
+                                    <div class="control is-expanded">
+                                        <div class="select is-small is-fullwidth"><select name="flipValue" id="video_flip_select"><option value="0">Normal</option><option value="1">Flip</option><option value="2">Mirror</option><option value="3">Flip &amp; Mirror (180°)</option></select></div>
+                                    </div>
+                                    <div class="control"><button type="submit" class="button is-primary is-small">Apply</button></div>
+                                </div>
+                                <p class="help">Rotate 180° for ceiling mount.</p>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>

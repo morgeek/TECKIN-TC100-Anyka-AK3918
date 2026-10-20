@@ -1331,6 +1331,7 @@ if [ -n "$F_cmd" ]; then
         backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
         edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
         imageflip=$(sanitize_int_range "${F_imageFlip}" 0 3 0)
+        _prev_flip=$(/mnt/bin/rwconf /mnt/config/rtspserver.conf r " " imageflip 2>/dev/null || echo 0)
         /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
             " " osdenabled "$osdenabled" \
             " " osdtext "$osdtext" \
@@ -1352,6 +1353,9 @@ if [ -n "$F_cmd" ]; then
         /mnt/bin/setconf -k x -v "$osdx0"
         /mnt/bin/setconf -k y -v "$osdy0"
         /mnt/bin/setconf -k f -v "$imageflip"
+        if [ "$imageflip" != "$_prev_flip" ]; then
+          schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
+        fi
       fi
 
       if wants_json_response; then
@@ -1951,8 +1955,18 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     image-flip)
-      /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " imageflip ${F_flipValue}
-      /mnt/bin/setconf -k f -v ${F_flipValue}
+      flip=$(sanitize_int_range "${F_flipValue:-${F_value}}" 0 3 0)
+      _prev_flip=$(/mnt/bin/rwconf /mnt/config/rtspserver.conf r " " imageflip 2>/dev/null || echo 0)
+      /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " imageflip "$flip"
+      /mnt/bin/setconf -k f -v "$flip"
+      if [ "$flip" != "$_prev_flip" ]; then
+        schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
+      fi
+      if wants_json_response; then
+        json_body_ok "Image rotation set to $flip."
+      else
+        echo "Image rotation set to $flip.<br/>"
+      fi
     ;;
 
     rtsp-log-on)
