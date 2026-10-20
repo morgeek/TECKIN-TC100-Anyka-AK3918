@@ -1,0 +1,15 @@
+#!/bin/sh
+BOUNDARY="thinginoframe"
+printf "Content-Type: multipart/x-mixed-replace; boundary=%s\r\n\r\n" "$BOUNDARY"
+IMG="/tmp/frame_ch0.jpg"
+[ -f "$IMG" ] || exit 0
+
+while true; do
+    printf -- "--%s\r\n" "$BOUNDARY"
+    printf "Content-Type: image/jpeg\r\n"
+    LEN=$(wc -c < "$IMG" | tr -d ' ')
+    printf "Content-Length: %s\r\n\r\n" "$LEN"
+    cat "$IMG"
+    printf "\r\n"
+    usleep 100000 2>/dev/null || sleep 1
+done
