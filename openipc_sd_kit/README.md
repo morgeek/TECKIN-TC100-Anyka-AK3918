@@ -37,7 +37,7 @@ The camera uses a non-destructive dual-boot configuration stored in U-Boot envir
 3. In U-Boot, configure the dual-boot variables:
    ```text
    setenv sdload 'fatload mmc 0 0x82000000 tc100test/oipc.img; fatload mmc 0 0x80900000 tc100test/oipcrd.gz'
-   setenv sdboot 'setenv bootargs console=ttySAK0,115200n8 mem=64M root=/dev/ram0 rdinit=/init initrd=0x80900000,4590308 mtdparts=spi0.0:8192k(all)ro initcall_blacklist=gpio_keys_init panic=10 loglevel=7; bootm 0x82000000'
+   setenv sdboot 'setenv bootargs console=ttySAK0,115200n8 mem=64M root=/dev/ram0 rdinit=/init initrd=0x80900000,6921241 mtdparts=spi0.0:8192k(all)ro initcall_blacklist=gpio_keys_init panic=10 loglevel=7; bootm 0x82000000'
    setenv bootcmd 'run sdload sdboot; run boot_normal'
    ```
 4. Save to flash:
