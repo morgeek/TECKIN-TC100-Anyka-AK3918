@@ -752,6 +752,10 @@ initialize_gpio()
 {
     ir_led off
     ir_cut on
+    # Speaker amplifier gate (GPIO 79): mute power amp at boot to silence idle hiss
+    if [ -w /sys/user-gpio/spk_gpio ]; then
+        echo 0 > /sys/user-gpio/spk_gpio 2>/dev/null || true
+    fi
     # Apply the CONFIGURED LED intent, not a hardcoded off. boot.conf is already
     # sourced by load_boot_config() above, and FRONT_LED/RED_LED default to 0 in
     # boot.conf.dist, so behaviour is unchanged out of the box — but a camera

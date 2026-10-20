@@ -317,6 +317,26 @@ front_led(){
   led "$1" blue_led
 }
 
+# Control speaker amplifier gate (GPIO 79) to eliminate idle hiss
+speaker_amp(){
+  case "$1" in
+    on|1)
+      [ -w /sys/user-gpio/spk_gpio ] && echo 1 > /sys/user-gpio/spk_gpio 2>/dev/null
+      ;;
+    off|0)
+      [ -w /sys/user-gpio/spk_gpio ] && echo 0 > /sys/user-gpio/spk_gpio 2>/dev/null
+      ;;
+    status)
+      if [ -r /sys/user-gpio/spk_gpio ]; then
+        st=$(cat /sys/user-gpio/spk_gpio 2>/dev/null)
+        [ "$st" = "1" ] && echo "ON" || echo "OFF"
+      else
+        echo "UNKNOWN"
+      fi
+      ;;
+  esac
+}
+
 # Control the red led
 red_led(){
   led "$1" red_led
