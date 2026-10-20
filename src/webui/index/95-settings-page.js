@@ -107,6 +107,14 @@
             setVal('osdx0', osd.x0);
             setVal('osdy0', osd.y0);
             setVal('imageFlip', vid.flip);
+            setVal('video_flip_select', vid.flip);
+            var vFlip = byId('video_flip_select');
+            var iFlip = byId('imageFlip');
+            if (vFlip && iFlip && !vFlip.dataset.syncBound) {
+                vFlip.dataset.syncBound = '1';
+                vFlip.addEventListener('change', function() { iFlip.value = vFlip.value; });
+                iFlip.addEventListener('change', function() { vFlip.value = iFlip.value; });
+            }
 
             // 3b. Live image tuning (separate endpoint; values applied by libtc100fix)
             loadIspTune(dash);
