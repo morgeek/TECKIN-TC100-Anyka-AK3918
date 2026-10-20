@@ -6,10 +6,8 @@ IMG="/tmp/frame_ch0.jpg"
 
 while true; do
     printf -- "--%s\r\n" "$BOUNDARY"
-    printf "Content-Type: image/jpeg\r\n"
-    LEN=$(wc -c < "$IMG" | tr -d ' ')
-    printf "Content-Length: %s\r\n\r\n" "$LEN"
+    printf "Content-Type: image/jpeg\r\n\r\n"
     cat "$IMG"
     printf "\r\n"
-    usleep 100000 2>/dev/null || sleep 1
+    sleep 1
 done
