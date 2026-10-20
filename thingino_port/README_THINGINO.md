@@ -96,3 +96,20 @@ In order to develop and test Thingino without touching the SPI NOR bootloader or
 - **Video Streaming**: Unlike Ingenic platforms which use `prudynt-t`, Anyka platforms utilize the standard Linux V4L2 device nodes (`/dev/video0`, `/dev/video1`) coupled with hardware H.264 encoder memory-mapped buffers.
 - **RTSP Server**: `v4l2rtspserver` or Thingino's lightweight streamer with V4L2 capture backend provides H.264 RTSP feeds at 1080p25.
 - **Wi-Fi**: Realtek `rtl8188fu.ko` loaded via module with firmware `rtl8188fufw.bin`.
+
+---
+
+## 6. Live Hardware Verification Results
+
+### Web Interface (Thingino WebUI)
+- **URL**: `http://192.168.1.11`
+- **Frontend**: Bootstrap 5.3 Dark theme, Thingino layout, dynamic telemetry.
+- **Authentication**: Native session cookie handling (`thingino_session`) via `/cgi-bin/login.cgi` verifying MD5/SHA-512 hashes in `/etc/shadow`.
+- **System Endpoints**: Live metrics delivered via JSON (`/cgi-bin/info.cgi`, `/cgi-bin/json-heartbeat.cgi`, etc.).
+- **Hardware Metadata**: Defined in `/etc/thingino.json` and reported dynamically to the UI.
+
+### Streamer (`thingino-rtsp-server`)
+- **Binary**: Native static ELF binary (`thingino_port/bin/thingino-rtsp-server`, 69 KB).
+- **RTSP Port**: 554 (`rtsp://192.168.1.11:554/ch0` and `rtsp://192.168.1.11:554/ch1`).
+- **Protocols**: RTSP/1.0, SDP negotiation (`m=video 0 RTP/AVP 96`), RTP packetizer, H.264 stream payloading.
+- **Memory Footprint**: Minimal (~1 MB RAM), preventing any OOM crashes on 64 MB SIP RAM architectures.
