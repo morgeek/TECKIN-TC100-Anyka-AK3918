@@ -18,6 +18,9 @@ RTSP_SERVICE="/mnt/controlscripts/rtsp-h26x"
 
 # Anyka native audio output binary: ak_ao_demo <rate> <channels> <pcm_file> <volume 0-6>
 AUDIOPLAY_BIN="/mnt/bin/ak_ao_ptt"
+for _ab in /tmp/bin/ak_ao_ptt /mnt/bin/ak_ao_ptt; do
+    [ -x "$_ab" ] && AUDIOPLAY_BIN="$_ab" && break
+done
 
 # Map UI volume (0-100) to ak_ao_demo scale (0-6).
 # Caller guarantees $1 is already clamped to 0-100.
@@ -185,6 +188,9 @@ if [ -x "$RTSP_SERVICE" ] && "$RTSP_SERVICE" status >/dev/null 2>&1; then
     sleep 1
 fi
 
+# Enable speaker amplifier power gate (GPIO 79)
+[ -w /sys/user-gpio/spk_gpio ] && echo 1 > /sys/user-gpio/spk_gpio 2>/dev/null || true
+
 "$AUDIOPLAY_BIN" 8000 1 "$pcm_file" "$vol_ak" >/dev/null 2>&1 &
 playback_pid="$!"
 playback_started=1
@@ -204,6 +210,8 @@ esac
         _cl_loops=$(expr "$_cl_loops" + 1)
     done
     sleep "$PLAYBACK_CLEANUP_DELAY_SECONDS"
+    # Mute speaker amplifier power gate (GPIO 79) to eliminate idle hiss
+    [ -w /sys/user-gpio/spk_gpio ] && echo 0 > /sys/user-gpio/spk_gpio 2>/dev/null || true
     if [ "$rtsp_was_running" = "1" ] && [ -x "$RTSP_SERVICE" ]; then
         "$RTSP_SERVICE" start >/dev/null 2>&1 || true
     fi

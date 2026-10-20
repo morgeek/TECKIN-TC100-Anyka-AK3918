@@ -279,6 +279,9 @@ security_hardening_enabled() {
 PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
 PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
 PTT_PCM_PLAYBACK_BIN="/mnt/bin/ak_ao_ptt"
+for _pb in /tmp/bin/ak_ao_ptt /mnt/bin/ak_ao_ptt; do
+  [ -x "$_pb" ] && PTT_PCM_PLAYBACK_BIN="$_pb" && break
+done
 PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
 
 ptt_backend_status() {
@@ -357,7 +360,14 @@ play_audio_test_source() {
         return 1
       fi
       ak_volume="$(ptt_volume_to_ak "$audio_volume")"
+      [ -w /sys/user-gpio/spk_gpio ] && echo 1 > /sys/user-gpio/spk_gpio 2>/dev/null || true
       /mnt/bin/busybox nohup "$PTT_PCM_PLAYBACK_BIN" 8000 1 "$audio_source" "$ak_volume" > /dev/null 2>&1 &
+      _play_pid="$!"
+      (
+        while kill -0 "$_play_pid" 2>/dev/null; do sleep 1; done
+        sleep 1
+        [ -w /sys/user-gpio/spk_gpio ] && echo 0 > /sys/user-gpio/spk_gpio 2>/dev/null || true
+      ) >/dev/null 2>&1 &
       if wants_json_response; then
         json_body_ok "Playing $audio_source at volume $audio_volume (PCM)"
       else
