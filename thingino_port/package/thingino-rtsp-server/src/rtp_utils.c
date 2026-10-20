@@ -43,14 +43,24 @@ int rtp_create_socket(int port) {
 
 // Send RTP packet
 int rtp_send_packet(int socket_fd, struct sockaddr_in *addr, uint8_t *data, size_t len) {
-    if (socket_fd < 0 || !addr || !data || len == 0) {
+    if (socket_fd < 0 || !data || len == 0) {
         return -1;
+    }
+
+    if (!addr || addr->sin_family == 0) {
+        // TCP interleaved mode
+        uint8_t tcp_hdr[4];
+        tcp_hdr[0] = '$';
+        tcp_hdr[1] = 0; // channel 0
+        tcp_hdr[2] = (len >> 8) & 0xFF;
+        tcp_hdr[3] = len & 0xFF;
+        if (send(socket_fd, tcp_hdr, 4, MSG_NOSIGNAL) < 0) return -1;
+        ssize_t sent = send(socket_fd, data, len, MSG_NOSIGNAL);
+        return (int)sent;
     }
 
     ssize_t sent = sendto(socket_fd, data, len, 0, (struct sockaddr*)addr, sizeof(*addr));
     if (sent < 0) {
-        printf("RTP sendto failed: socket=%d, addr=%s:%d, len=%zu, error=%s\n",
-               socket_fd, inet_ntoa(addr->sin_addr), ntohs(addr->sin_port), len, strerror(errno));
         return -1;
     }
 
