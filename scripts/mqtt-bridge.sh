@@ -3,12 +3,13 @@
 . /mnt/scripts/event-logger.sh
 
 CONFIG_FILE="/mnt/config/mqtt.conf"
-LOGPATH="/tmp/log/mqtt-bridge.log"
+mkdir -p /tmp/logs
+LOGPATH="/tmp/logs/mqtt-bridge.log"
 STATE_FILE="/tmp/mqtt-bridge.state"
 HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
 NETWORK_STATE_FILE="/tmp/network-monitor.state"
 NETWORK_STATE_MAX_AGE_SECONDS=900
-CURL_BIN="/mnt/bin/curl"
+CURL_BIN="$(command -v /usr/bin/curl 2>/dev/null || echo /mnt/bin/curl)"
 JSONFLAT="${JSONFLAT:-/mnt/scripts/jsonflat.awk}"
 LOCAL_STATE_CGI="/mnt/www/cgi-bin/state.cgi"
 INTEGRATION_MANIFEST_STATE_FILE="/tmp/mqtt-bridge.integration-manifest.state"
@@ -98,7 +99,7 @@ is_truthy_local()
 log_msg()
 {
   if [ ! -d /tmp/log ]; then
-    mkdir -p /tmp/log >/dev/null 2>&1 || true
+    mkdir -p /tmp/logs >/dev/null 2>&1 || true
   fi
   # Rotate at 64 KB, keep last 100 lines. This log lives on tmpfs (RAM); without
   # rotation it grew unbounded — the only daemon log that wasn't capped.

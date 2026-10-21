@@ -1,37 +1,62 @@
 #!/bin/sh
 SERVICE_NAME="Auto Night Detection"
+PIDFILE="/var/run/auto-night-detection.pid"
 
 status()
 {
-  state=$(/mnt/bin/setconf -g n)
-  if [ "$state" = "2" ]; then
-    echo "PID: OK" 
+  if [ -f "$PIDFILE" ]; then
+    _pid="$(cat "$PIDFILE" 2>/dev/null)"
+    if [ -n "$_pid" ] && kill -0 "$_pid" >/dev/null 2>&1; then
+      echo "PID: $_pid"
+      return 0
+    fi
   fi
+  return 1
 }
 
 start()
 {
-  /mnt/bin/setconf -k n -v 2
-  /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2
+  if ! status >/dev/null 2>&1; then
+    /mnt/scripts/auto-night-daemon.sh &
+  fi
+  /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2 2>/dev/null || true
+  echo "Auto Night Detection started"
 }
 
 stop()
 {
-  /mnt/bin/setconf -k n -v 3
-  /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3
+  if [ -f "$PIDFILE" ]; then
+    _pid="$(cat "$PIDFILE" 2>/dev/null)"
+    [ -n "$_pid" ] && kill "$_pid" 2>/dev/null || true
+    rm -f "$PIDFILE" 2>/dev/null || true
+  fi
+  /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3 2>/dev/null || true
+  echo "Auto Night Detection stopped"
 }
 
 health()
 {
-  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+  if status >/dev/null 2>&1; then
+    echo "ok: running"
+  else
+    echo "warn: stopped"
+  fi
 }
 
-if [ $# -eq 0 ]; then
-  start
-else
-  case $1 in start|stop|status|health)
-    $1
+case "$1" in
+  start)
+    start
     ;;
-  esac
-fi
-
+  stop)
+    stop
+    ;;
+  status)
+    status
+    ;;
+  health)
+    health
+    ;;
+  *)
+    start
+    ;;
+esac

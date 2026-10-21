@@ -346,43 +346,67 @@ red_led(){
 ir_led(){
   case "$1" in
   on)
-    /mnt/bin/setconf -k g -v 1
+    if [ -w /sys/class/leds/ir/brightness ]; then
+      echo 1 > /sys/class/leds/ir/brightness
+    else
+      /mnt/bin/setconf -k g -v 1 2>/dev/null || true
+    fi
     ;;
   off)
-    /mnt/bin/setconf -k g -v 0
+    if [ -w /sys/class/leds/ir/brightness ]; then
+      echo 0 > /sys/class/leds/ir/brightness
+    else
+      /mnt/bin/setconf -k g -v 0 2>/dev/null || true
+    fi
     ;;
   status)
-    status=$(cat /sys/user-gpio/ir-led)
+    if [ -r /sys/class/leds/ir/brightness ]; then
+      status=$(cat /sys/class/leds/ir/brightness)
+    else
+      status=$(cat /sys/user-gpio/ir-led 2>/dev/null || echo 0)
+    fi
     case $status in
-      0)
-        echo "OFF"
-        ;;
-      1)
-        echo "ON"
-      ;;
+      0) echo "OFF" ;;
+      *) echo "ON" ;;
     esac
+    ;;
   esac
 }
 
 # Control the infrared filter
 ir_cut(){
+  [ ! -d /sys/class/gpio/gpio592 ] && { echo 592 > /sys/class/gpio/export 2>/dev/null; echo out > /sys/class/gpio/gpio592/direction 2>/dev/null; }
+  [ ! -d /sys/class/gpio/gpio593 ] && { echo 593 > /sys/class/gpio/export 2>/dev/null; echo out > /sys/class/gpio/gpio593/direction 2>/dev/null; }
   case "$1" in
   on)
-    /mnt/bin/setconf -k e -v 1
+    if [ -d /sys/class/gpio/gpio593 ]; then
+      echo 0 > /sys/class/gpio/gpio592/value 2>/dev/null || true
+      echo 1 > /sys/class/gpio/gpio593/value 2>/dev/null || true
+      usleep 50000 2>/dev/null || sleep 0.05
+      echo 0 > /sys/class/gpio/gpio593/value 2>/dev/null || true
+    else
+      /mnt/bin/setconf -k e -v 1 2>/dev/null || true
+    fi
+    echo 1 > /var/run/ircut
     ;;
   off)
-    /mnt/bin/setconf -k e -v 0
+    if [ -d /sys/class/gpio/gpio592 ]; then
+      echo 0 > /sys/class/gpio/gpio593/value 2>/dev/null || true
+      echo 1 > /sys/class/gpio/gpio592/value 2>/dev/null || true
+      usleep 50000 2>/dev/null || sleep 0.05
+      echo 0 > /sys/class/gpio/gpio592/value 2>/dev/null || true
+    else
+      /mnt/bin/setconf -k e -v 0 2>/dev/null || true
+    fi
+    echo 0 > /var/run/ircut
     ;;
   status)
-    status=$(cat /var/run/ircut)
+    status=$(cat /var/run/ircut 2>/dev/null || echo 1)
     case $status in
-      1)
-        echo "ON"
-        ;;
-      0)
-        echo "OFF"
-      ;;
+      1) echo "ON" ;;
+      0) echo "OFF" ;;
     esac
+    ;;
   esac
 }
 

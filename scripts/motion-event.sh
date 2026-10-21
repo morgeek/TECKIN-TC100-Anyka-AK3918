@@ -1,6 +1,6 @@
 #!/bin/sh
 
-EVENT_LOG="/tmp/log/motion-events.log"
+EVENT_LOG="/tmp/logs/motion-events.log"
 LATEST_SNAPSHOT_FILE="/tmp/motion-last-snapshot.path"
 MAX_EVENTS=400
 LOCK_DIR="/tmp/motion_event.lock"

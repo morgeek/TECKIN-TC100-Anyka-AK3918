@@ -4,11 +4,11 @@
 
 . /mnt/scripts/common_functions.sh
 
-NIGHTMODE_LOG="/tmp/log/nightmode.log"
+NIGHTMODE_LOG="/tmp/logs/nightmode.log"
 NIGHTMODE_MAX_LOG_BYTES=32768
 
 log_nightmode() {
-  [ -d /tmp/log ] || mkdir -p /tmp/log >/dev/null 2>&1 || true
+  [ -d /tmp/log ] || mkdir -p /tmp/logs >/dev/null 2>&1 || true
   # Rotate log if too large
   if [ -f "$NIGHTMODE_LOG" ]; then
     _sz="$(wc -c < "$NIGHTMODE_LOG" 2>/dev/null)"

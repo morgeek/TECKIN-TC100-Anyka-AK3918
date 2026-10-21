@@ -44,11 +44,16 @@ install_config $CONFIGPATH/rtspserver.conf
 
 status()
 {
+  for p in $(pidof thingino-rtsp-server v4l2rtspserver 2>/dev/null); do
+    echo "PID: $p"
+    return 0
+  done
   pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ "$pid" ]; then
-    # Prints PID: $pid if exists and returns 0(no error) else returns 1(error condition)
-    kill -0 "$pid" >/dev/null && echo "PID: $pid" || return 1
+  if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+    echo "PID: $pid"
+    return 0
   fi
+  return 1
 }
 
 # Wait (max $2 s) until no socket uses TCP port $1, local or remote side.
