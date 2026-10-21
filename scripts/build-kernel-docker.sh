@@ -25,7 +25,7 @@ cp "$ROOT_DIR/patches/kernel-6.6/defconfig_cma" .config
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
 
 echo "[+] Compiling kernel..."
-make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 4)" zImage anyka/ak3918ev300-tc100.dtb
+make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 4)" zImage dtbs
 
 echo "[+] Creating bootable uImage (oipc.img)..."
 cat arch/arm/boot/zImage arch/arm/boot/dts/anyka/ak3918ev300-tc100.dtb > arch/arm/boot/zImage-dtb

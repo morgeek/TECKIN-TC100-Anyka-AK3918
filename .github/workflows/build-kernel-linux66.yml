@@ -43,13 +43,18 @@ jobs:
       - name: Compile zImage and Device Tree
         run: |
           cd linux-src
-          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage anyka/ak3918ev300-tc100.dtb
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs 2>&1 | tee ../build.log
+
+      - name: Show Build Errors on Failure
+        if: failure()
+        run: |
+          tail -n 120 build.log || true
 
       - name: Append DTB & Generate uImage (oipc.img)
         run: |
           cd linux-src
           cat arch/arm/boot/zImage arch/arm/boot/dts/anyka/ak3918ev300-tc100.dtb > arch/arm/boot/zImage-dtb
-          mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 True V3 CMA16" -d arch/arm/boot/zImage-dtb oipc.img
+          mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 True V3 CMA16+ALSA" -d arch/arm/boot/zImage-dtb oipc.img
           ls -lh oipc.img
           mkdir -p ../output
           cp oipc.img ../output/
