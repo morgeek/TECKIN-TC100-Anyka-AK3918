@@ -28,8 +28,9 @@ echo "[+] Compiling kernel..."
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 4)" zImage dtbs
 
 echo "[+] Creating bootable uImage (oipc.img)..."
-cat arch/arm/boot/zImage arch/arm/boot/dts/anyka/ak3918ev300-tc100.dtb > arch/arm/boot/zImage-dtb
-mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 True V3 CMA16" -d arch/arm/boot/zImage-dtb "$ROOT_DIR/oipc.img"
+DTB_PATH=$(find arch/arm/boot/ -name "*tc100*.dtb" | head -n 1)
+cat arch/arm/boot/zImage "$DTB_PATH" > arch/arm/boot/zImage-dtb
+mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 True V3 CMA16+ALSA" -d arch/arm/boot/zImage-dtb "$ROOT_DIR/oipc.img"
 
 echo "[✓] Kernel build complete: $ROOT_DIR/oipc.img"
 ls -lh "$ROOT_DIR/oipc.img"
