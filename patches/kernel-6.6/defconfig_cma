@@ -1844,7 +1844,11 @@ CONFIG_DUMMY_CONSOLE=y
 # end of Console display driver support
 # end of Graphics support
 
-# CONFIG_SOUND is not set
+CONFIG_SOUND=y
+CONFIG_SND=y
+CONFIG_SND_ARM=y
+CONFIG_SND_AK_PCM=y
+CONFIG_CODEC_AK39=y
 # CONFIG_HID_SUPPORT is not set
 CONFIG_USB_OHCI_LITTLE_ENDIAN=y
 CONFIG_USB_SUPPORT=y
