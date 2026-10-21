@@ -1,6 +1,7 @@
+import os
 import time
 
-in_path = "~/Downloads/tc100-fix/uart-in.txt"
+in_path = os.path.expanduser("~/Downloads/tc100-fix/uart-in.txt")
 
 commands = [
     "setenv sdload 'fatload mmc 0 0x82000000 tc100test/oipc.img; fatload mmc 0 0x80900000 tc100test/oipcrd.gz'",

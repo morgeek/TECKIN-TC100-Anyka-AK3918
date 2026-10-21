@@ -1,7 +1,7 @@
 import os, sys, time, termios, tty, select, glob
 
-log_path = "~/Downloads/tc100-fix/uart.log"
-in_path = "~/Downloads/tc100-fix/uart-in.txt"
+log_path = os.path.expanduser("~/Downloads/tc100-fix/uart.log")
+in_path = os.path.expanduser("~/Downloads/tc100-fix/uart-in.txt")
 
 def run_bridge():
     while True:
