@@ -10,20 +10,15 @@ mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 if [ ! -d linux-src ]; then
-  echo "[+] Cloning Linux 6.6.y stable tree..."
-  git clone --depth 1 -b linux-6.6.y https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src
+  echo "[+] Cloning Linux 6.6 stable tree (Tag v6.6)..."
+  git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src
 fi
 
 cd linux-src
 git checkout -f
 
-echo "[+] Applying Anyka hardware patches..."
-patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step1.patch"
-patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step2.patch"
-patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step3.patch"
-patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step4.patch"
-patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step5-cma.patch"
-patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step6-audio.patch"
+echo "[+] Applying Unified Anyka hardware, CMA 16MB & ALSA audio patch..."
+patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch"
 
 echo "[+] Configuring CMA in kernel..."
 cp "$ROOT_DIR/patches/kernel-6.6/defconfig_cma" .config
