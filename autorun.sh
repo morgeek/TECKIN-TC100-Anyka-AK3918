@@ -5,6 +5,10 @@ hostname IPCAM2; echo "IPCAM2" > /etc/hostname
 
 mkdir -p /tmp/logs /var/run
 
+# 0. Start Hardware Watchdog keeper (feed every 15s, 60s timeout)
+killall watchdog 2>/dev/null
+watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
+
 # 1. Setup /mnt symlinks
 for d in bin config controlscripts lib scripts www; do
   [ -d /mnt/sd/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
