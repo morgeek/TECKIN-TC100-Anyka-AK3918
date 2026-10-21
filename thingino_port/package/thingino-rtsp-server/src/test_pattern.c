@@ -8,250 +8,164 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <time.h>
-#include <math.h>
+#include <sys/stat.h>
 
-// Simple test pattern generator (RGB24 format)
-int generate_test_pattern_frame(uint8_t *buffer, size_t buffer_size, int width, int height, uint32_t frame_number) {
-    if (!buffer || buffer_size < (size_t)(width * height * 3)) {
-        return -1;
-    }
+#define MAX_JPEG_BUF (128 * 1024)
+#define MAX_PAYLOAD_SIZE 1400
 
-    // Generate colorful test pattern
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int offset = (y * width + x) * 3;
-
-            // Create moving color bars with animation
-            int bar_width = width / 8;
-            int bar_index = (x + frame_number / 10) / bar_width % 8;
-            int time_offset = frame_number / 25; // 1 second cycles at 25fps
-
-            uint8_t r, g, b;
-
-            switch (bar_index) {
-                case 0: r = 255; g = 255; b = 255; break; // White
-                case 1: r = 255; g = 255; b = 0;   break; // Yellow
-                case 2: r = 0;   g = 255; b = 255; break; // Cyan
-                case 3: r = 0;   g = 255; b = 0;   break; // Green
-                case 4: r = 255; g = 0;   b = 255; break; // Magenta
-                case 5: r = 255; g = 0;   b = 0;   break; // Red
-                case 6: r = 0;   g = 0;   b = 255; break; // Blue
-                case 7: r = 0;   g = 0;   b = 0;   break; // Black
-                default: r = 128; g = 128; b = 128; break; // Gray
-            }
-
-            // Add some animation
-            if (y < height / 4) {
-                // Top quarter: pulsing brightness
-                float pulse = (sin(time_offset * 0.5) + 1.0) * 0.5;
-                r = (uint8_t)(r * pulse);
-                g = (uint8_t)(g * pulse);
-                b = (uint8_t)(b * pulse);
-            } else if (y > height * 3 / 4) {
-                // Bottom quarter: moving gradient
-                int gradient = (x + time_offset * 5) % 256;
-                r = gradient;
-                g = 255 - gradient;
-                b = (gradient + 128) % 256;
-            }
-
-            buffer[offset] = r;
-            buffer[offset + 1] = g;
-            buffer[offset + 2] = b;
+static void get_jpeg_dimensions(const uint8_t *data, int len, int *w, int *h) {
+    *w = 640;
+    *h = 360;
+    for (int i = 0; i < len - 9; i++) {
+        if (data[i] == 0xFF && (data[i+1] == 0xC0 || data[i+1] == 0xC2)) {
+            *h = (data[i+5] << 8) | data[i+6];
+            *w = (data[i+7] << 8) | data[i+8];
+            return;
         }
     }
-
-    return width * height * 3;
 }
 
-// Create a minimal JPEG header for test pattern
-int create_simple_jpeg(uint8_t *rgb_data, int width, int height, uint8_t *jpeg_buffer, size_t jpeg_buffer_size) {
-    if (!rgb_data || !jpeg_buffer || jpeg_buffer_size < 1000) {
-        return -1;
-    }
-
-    // Simple JPEG header for RGB data (minimal but valid)
-    uint8_t jpeg_header[] = {
-        0xFF, 0xD8,                     // SOI (Start of Image)
-        0xFF, 0xE0,                     // APP0
-        0x00, 0x10,                     // Length
-        'J', 'F', 'I', 'F', 0x00,       // JFIF identifier
-        0x01, 0x01,                     // Version
-        0x01,                           // Units (1 = pixels per inch)
-        0x00, 0x48, 0x00, 0x48,         // X and Y density (72 DPI)
-        0x00, 0x00,                     // Thumbnail width/height (none)
-
-        0xFF, 0xC0,                     // SOF0 (Start of Frame)
-        0x00, 0x11,                     // Length
-        0x08,                           // Precision (8 bits)
-        (height >> 8) & 0xFF, height & 0xFF,  // Height
-        (width >> 8) & 0xFF, width & 0xFF,    // Width
-        0x03,                           // Number of components (RGB)
-        0x01, 0x11, 0x00,               // Component 1 (R)
-        0x02, 0x11, 0x01,               // Component 2 (G)
-        0x03, 0x11, 0x02,               // Component 3 (B)
-
-        0xFF, 0xDA,                     // SOS (Start of Scan)
-        0x00, 0x0C,                     // Length
-        0x03,                           // Number of components
-        0x01, 0x00,                     // Component 1
-        0x02, 0x11,                     // Component 2
-        0x03, 0x11,                     // Component 3
-        0x00, 0x3F, 0x00                // Spectral selection
-    };
-
-    // Copy header
-    memcpy(jpeg_buffer, jpeg_header, sizeof(jpeg_header));
-    int offset = sizeof(jpeg_header);
-
-    // Add compressed RGB data (very simple compression - just copy every 4th pixel)
-    int compressed_size = 0;
-    for (int i = 0; i < width * height * 3; i += 12) { // Sample every 4th pixel
-        if (offset + 3 < jpeg_buffer_size - 10) {
-            jpeg_buffer[offset++] = rgb_data[i];     // R
-            jpeg_buffer[offset++] = rgb_data[i+1];   // G
-            jpeg_buffer[offset++] = rgb_data[i+2];   // B
-            compressed_size += 3;
-        }
-    }
-
-    // Add EOI (End of Image)
-    jpeg_buffer[offset++] = 0xFF;
-    jpeg_buffer[offset++] = 0xD9;
-
-    return offset;
-}
-
-// Streaming thread function
+// Optical Live Streamer Thread (RFC 2435 RTP JPEG)
 void* streaming_thread_func(void *arg) {
     rtsp_server_t *server = (rtsp_server_t*)arg;
-    uint8_t *frame_buffer = malloc(640 * 360 * 3); // RGB24 buffer
-    uint8_t *jpeg_buffer = malloc(640 * 360 * 3 + 1000); // JPEG buffer
+    uint8_t *jpeg_buffer = (uint8_t*)malloc(MAX_JPEG_BUF);
     uint32_t frame_number = 0;
+    time_t last_mtime = 0;
 
-    if (!frame_buffer || !jpeg_buffer) {
-        printf("Failed to allocate frame buffers\n");
-        free(frame_buffer);
-        free(jpeg_buffer);
+    if (!jpeg_buffer) {
+        printf("Failed to allocate JPEG streaming buffer\n");
         return NULL;
     }
 
-    printf("Streaming thread started\n");
+    printf("[thingino-rtsp] Optical streaming thread active (RFC 2435 JPEG)\n");
 
     while (server->streaming_active) {
-        // Generate test pattern frame
-        int frame_size = generate_test_pattern_frame(frame_buffer, 640 * 360 * 3, 640, 360, frame_number);
-        if (frame_size <= 0) {
+        // 1. Check if any client is actively streaming
+        int active_clients = 0;
+        for (int i = 0; i < RTSP_MAX_CLIENTS; i++) {
+            if (server->clients[i].active && server->clients[i].streaming && server->clients[i].rtp_socket >= 0) {
+                active_clients++;
+            }
+        }
+
+        if (active_clients == 0) {
+            usleep(100000); // 100ms idle sleep
             continue;
         }
 
-        // Create a simple MPEG-2 TS packet with test pattern
-        // This creates a minimal transport stream that FFmpeg can decode
-        uint8_t ts_packet[188]; // Standard TS packet size
-        memset(ts_packet, 0, sizeof(ts_packet));
-
-        // TS Header
-        ts_packet[0] = 0x47;  // Sync byte
-        ts_packet[1] = 0x40;  // Transport Error Indicator=0, Payload Unit Start=1, Priority=0, PID high bits
-        ts_packet[2] = 0x00;  // PID low bits (PID=0 for PAT)
-        ts_packet[3] = 0x10;  // Scrambling=00, Adaptation=01, Continuity=0
-
-        // Simple payload - create a colorful pattern that changes each frame
-        for (int i = 4; i < 188; i++) {
-            // Create a simple animated pattern
-            int pattern = (frame_number + i) % 256;
-            if (i % 3 == 0) ts_packet[i] = pattern;           // Red channel
-            else if (i % 3 == 1) ts_packet[i] = 255 - pattern; // Green channel
-            else ts_packet[i] = (pattern * 2) % 256;          // Blue channel
+        // 2. Read live optical frame from /tmp/stream.jpg
+        struct stat st;
+        const char *stream_path = "/tmp/stream.jpg";
+        if (stat(stream_path, &st) < 0 || st.st_size < 100 || st.st_size > MAX_JPEG_BUF) {
+            stream_path = "/tmp/currentpic.cache.jpg";
+            if (stat(stream_path, &st) < 0 || st.st_size < 100 || st.st_size > MAX_JPEG_BUF) {
+                usleep(50000);
+                continue;
+            }
         }
 
-        // Copy the TS packet multiple times to make it more visible
-        int ts_size = 0;
-        for (int copy = 0; copy < 10 && ts_size + 188 < 640 * 360 * 3 + 1000; copy++) {
-            memcpy(jpeg_buffer + ts_size, ts_packet, 188);
-            ts_size += 188;
+        // If file hasn't changed and not first frame, wait briefly
+        if (st.st_mtime == last_mtime && frame_number > 0) {
+            usleep(40000); // 40ms (~25 FPS check)
+            continue;
+        }
+        last_mtime = st.st_mtime;
+
+        FILE *fp = fopen(stream_path, "rb");
+        if (!fp) {
+            usleep(50000);
+            continue;
+        }
+        size_t file_size = fread(jpeg_buffer, 1, MAX_JPEG_BUF, fp);
+        fclose(fp);
+
+        if (file_size < 100) {
+            usleep(50000);
+            continue;
         }
 
-        int rgb_size = ts_size;
+        int width = 640, height = 360;
+        get_jpeg_dimensions(jpeg_buffer, (int)file_size, &width, &height);
 
-        // Send to all active streaming clients
+        // Calculate 90kHz timestamp for video
+        struct timespec ts_now;
+        clock_gettime(CLOCK_MONOTONIC, &ts_now);
+        uint32_t timestamp = (uint32_t)((ts_now.tv_sec * 90000) + (ts_now.tv_nsec * 9 / 100000));
+
+        // 3. Send RFC 2435 RTP packets to all active streaming clients
         for (int i = 0; i < RTSP_MAX_CLIENTS; i++) {
             if (server->clients[i].active && server->clients[i].streaming && server->clients[i].rtp_socket >= 0) {
-                // Calculate timestamp (90kHz clock for video)
-                uint32_t timestamp = frame_number * 90000 / 25; // 25fps
+                size_t offset = 0;
 
-                // Send RTP packets (split large payload into multiple packets)
-                int max_payload_size = 1400; // Leave room for RTP header and network headers
-                int offset = 0;
-                int packets_sent = 0;
-
-                while (offset < rgb_size) {
-                    int chunk_size = (rgb_size - offset > max_payload_size) ? max_payload_size : (rgb_size - offset);
-
-                    int sent = rtp_send_data(
-                        server->clients[i].rtp_socket,
-                        &server->clients[i].rtp_addr,
-                        96, // H.264 payload type
-                        server->clients[i].rtp_sequence++,
-                        timestamp,
-                        server->clients[i].rtp_ssrc,
-                        jpeg_buffer + offset,
-                        chunk_size
-                    );
-
-                    if (sent < 0) {
-                        printf("Failed to send RTP packet %d to client %d (addr: %s:%d)\n",
-                               packets_sent, i, inet_ntoa(server->clients[i].rtp_addr.sin_addr),
-                               ntohs(server->clients[i].rtp_addr.sin_port));
-                        break;
+                while (offset < file_size) {
+                    size_t chunk_size = file_size - offset;
+                    if (chunk_size > MAX_PAYLOAD_SIZE) {
+                        chunk_size = MAX_PAYLOAD_SIZE;
                     }
 
-                    offset += chunk_size;
-                    packets_sent++;
-                }
+                    int is_last = (offset + chunk_size >= file_size);
 
-                // Only print success message occasionally to avoid spam
-                if (packets_sent > 0 && frame_number % 100 == 0) {
-                    printf("Sent %d MPEG-TS RTP packets to client %d (total size: %d)\n",
-                           packets_sent, i, rgb_size);
+                    // Build RTP Packet (12 bytes RTP header + 8 bytes RFC 2435 JPEG header + payload)
+                    uint8_t packet[1500];
+
+                    // RTP Header
+                    packet[0] = 0x80; // V=2, P=0, X=0, CC=0
+                    packet[1] = (is_last ? 0x80 : 0x00) | 26; // Marker bit on last fragment, Payload Type 26 (JPEG)
+                    uint16_t seq = server->clients[i].rtp_sequence++;
+                    packet[2] = (seq >> 8) & 0xFF;
+                    packet[3] = seq & 0xFF;
+                    packet[4] = (timestamp >> 24) & 0xFF;
+                    packet[5] = (timestamp >> 16) & 0xFF;
+                    packet[6] = (timestamp >> 8) & 0xFF;
+                    packet[7] = timestamp & 0xFF;
+                    uint32_t ssrc = server->clients[i].rtp_ssrc;
+                    packet[8] = (ssrc >> 24) & 0xFF;
+                    packet[9] = (ssrc >> 16) & 0xFF;
+                    packet[10] = (ssrc >> 8) & 0xFF;
+                    packet[11] = ssrc & 0xFF;
+
+                    // RFC 2435 JPEG Header (8 bytes)
+                    packet[12] = 0; // Type-specific
+                    packet[13] = (offset >> 16) & 0xFF; // Fragment offset high
+                    packet[14] = (offset >> 8) & 0xFF;  // Fragment offset mid
+                    packet[15] = offset & 0xFF;         // Fragment offset low
+                    packet[16] = 1; // Type: 1 (YUV 4:2:2)
+                    packet[17] = 65; // Q factor (1-99)
+                    packet[18] = (uint8_t)(width / 8);  // Width / 8
+                    packet[19] = (uint8_t)(height / 8); // Height / 8
+
+                    // Copy JPEG payload chunk
+                    memcpy(packet + 20, jpeg_buffer + offset, chunk_size);
+
+                    rtp_send_packet(server->clients[i].rtp_socket, &server->clients[i].rtp_addr,
+                                    packet, 20 + chunk_size);
+
+                    offset += chunk_size;
                 }
             }
         }
 
         frame_number++;
-
-        // Sleep for frame rate (25fps = 40ms per frame)
-        usleep(40000);
+        usleep(40000); // 40ms interval
     }
 
-    printf("Streaming thread stopped\n");
-    free(frame_buffer);
+    printf("[thingino-rtsp] Streaming thread stopped\n");
     free(jpeg_buffer);
     return NULL;
 }
 
-// Start streaming thread
 int start_streaming_thread(rtsp_server_t *server) {
-    if (!server || server->streaming_active) {
-        return -1;
-    }
-
+    if (!server || server->streaming_active) return -1;
     server->streaming_active = 1;
-
     if (pthread_create(&server->streaming_thread, NULL, streaming_thread_func, server) != 0) {
         server->streaming_active = 0;
         return -1;
     }
-
     return 0;
 }
 
-// Stop streaming thread
 void stop_streaming_thread(rtsp_server_t *server) {
-    if (!server || !server->streaming_active) {
-        return;
-    }
-
+    if (!server || !server->streaming_active) return;
     server->streaming_active = 0;
     pthread_join(server->streaming_thread, NULL);
 }

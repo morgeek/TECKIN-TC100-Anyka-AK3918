@@ -19,9 +19,11 @@ while true; do
   DN_MODE=$(/mnt/bin/rwconf /mnt/config/rtspserver.conf r " " daynight 2>/dev/null || echo 2)
   [ "$DN_MODE" != "2" ] && continue
 
-  # Read luminance from snapshot cache
+  # Read luminance directly from real-time streamer or cache
   LUMA=50
-  if [ -f /tmp/currentpic.cache.jpg ]; then
+  if [ -f /tmp/cam_luma ]; then
+    read -r LUMA < /tmp/cam_luma
+  elif [ -f /tmp/currentpic.cache.jpg ]; then
     LUMA=$(hexdump -n 512 -v -e '1/1 "%d\n"' /tmp/currentpic.cache.jpg 2>/dev/null | awk '{s+=$1} END {if (NR>0) print int(s/NR); else print 50}')
   fi
 
