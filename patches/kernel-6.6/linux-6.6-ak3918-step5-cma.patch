@@ -10,7 +10,7 @@
 -			reg = <0x82400000 0x1c00000>;
 -			no-map;
 +		/* 16MB CMA Pool: guaranteed contiguous DMA memory for ISP and V4L2 */
-+		linux,cma {
++		capture_pool: linux,cma {
 +			compatible = "shared-dma-pool", "linux,cma";
 +			reusable;
 +			size = <0x1000000>;
