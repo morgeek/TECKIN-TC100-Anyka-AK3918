@@ -31226,7 +31226,6 @@ index 000000000..7f205580e
 +					int substreams)
 +{
 +	struct snd_pcm *pcm;
-+	struct snd_pcm_substream *substream;
 +	int err;
 +	err = snd_pcm_new(akpcm->card, "akpcm PCM", device,
 +			       substreams, substreams, &pcm);
@@ -31650,5 +31649,4 @@ index 000000000..7f205580e
 +MODULE_AUTHOR("Anyka, Inc.");
 +MODULE_DESCRIPTION("akpcm soundcard");
 +MODULE_LICENSE("GPL");
-+MODULE_SUPPORTED_DEVICE("{{ALSA,akpcm soundcard}}");
 +

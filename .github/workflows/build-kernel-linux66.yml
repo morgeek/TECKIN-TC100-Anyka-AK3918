@@ -42,10 +42,9 @@ jobs:
 
       - name: Compile zImage and Device Tree
         run: |
+          set -eo pipefail
           cd linux-src
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs 2>&1 | tee ../build.log
-          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- anyka/ak3918ev300-tc100.dtb || true
-          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- ak3918ev300-tc100.dtb || true
 
       - name: Show Build Errors on Failure
         if: failure()
