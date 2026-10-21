@@ -1,0 +1,210 @@
+diff --git a/drivers/media/platform/soc_camera/plat-anyka/ak_camera.c b/drivers/media/platform/soc_camera/plat-anyka/ak_camera.c
+index 28d04270..e7b9de69 100644
+--- a/drivers/media/platform/soc_camera/plat-anyka/ak_camera.c
++++ b/drivers/media/platform/soc_camera/plat-anyka/ak_camera.c
+@@ -39,6 +39,14 @@
+ #include <plat-anyka/ak_camera.h>
+ #include <plat-anyka/ak_sensor.h>
+ #include <mach-anyka/ispdrv_interface.h>
++#include <plat-anyka/ak_isp_lifecycle.h>
++
++/* TC100: bring the ISP core up from the capture side when nobody opened
++ * /dev/isp_char first (akisp_open refuses until a capture user exists). */
++static int tc100_isp_set_style(void *context, unsigned int style)
++{
++	return 0;
++}
+ 
+ //#define CAMIF_DEBUG
+ #ifdef CAMIF_DEBUG
+@@ -1277,7 +1285,7 @@ static int mipi_thssettle_to_time(int thssettle, int mbps)
+ }
+ 
+ /* Move the IP's THS-SETTLE into the window the D-PHY spec allows. */
+-static int mipi_thssettle_init(int base, int mbps)
++static int __maybe_unused mipi_thssettle_init(int base, int mbps)
+ {
+ 	int ui = 1000 * 100 / mbps;
+ 	int min = 85 + 6 * ui / 100, max = 145 + 10 * ui / 100;
+@@ -1313,9 +1321,10 @@ static int mipi_ip_initiation(struct ak_camera_dev *pcdev,
+ 	sensor_cb->sensor_get_parameter_func(GET_MIPI_MHZ, &mipi_mhz);
+ 	sensor_cb->sensor_get_parameter_func(GET_MIPI_LANE, &mipi_lane);
+ 
++	/* As the vendor akcamera.ko: index from the rate table, no window fit. */
+ 	thssettle = mipi_mhz_to_thssettle(mipi_mhz);
+-	if (thssettle >= 0)
+-		thssettle = mipi_thssettle_init(thssettle, mipi_mhz);
++	pr_info("%s: %d lane(s), %d Mbps, thssettle %d\n", __func__,
++		mipi_lane, mipi_mhz, thssettle);
+ 	if (thssettle < 0) {
+ 		pr_err("%s: no THS-SETTLE for %d MHz\n", __func__, mipi_mhz);
+ 		return -EINVAL;
+@@ -1399,6 +1408,13 @@ static int set_sensor_interface(struct ak_camera_dev *pcdev,
+ 		return 0;
+ 	}
+ 
++	/*
++	 * TC100 / AK3918EV300: the EV330 "mipi0_*lane" pin groups (pins 70-75)
++	 * set SHAREPIN_CON2 bits 19-24, which the vendor 3.4 kernel leaves at 0
++	 * on this chip (its MIPI group 23 writes nothing). With them set the
++	 * ISP never sees a frame; with them clear, frames come in.
++	 */
++	REG32(AK_VA_SYSCTRL + 0x78) &= ~0x01F80000;
+ 	ak_set_cis_pclk(75);			/* internal CIS pclk */
+ 	REG32(AK_SHAREPIN_CON1) |= (1 << 30) | (1 << 4);	/* pclk -> cis2_sclk */
+ 	ak_mipi_soft_reset();
+@@ -1513,6 +1529,14 @@ static int ak_camera_add_device(struct soc_camera_device *icd)
+ 
+ 	running_mclk = sensor_mclk;
+ 	set_sensor_cis_sclk(running_mclk);
++	/* vendor akcamera.ko: ak_soft_reset(19) = camera/ISP, after the sclk */
++	/* only before the ISP core is brought up: a reset afterwards wipes
++	 * the registers ak_isp_prepare() loaded, and a second open gets no frame */
++	if (!ispdrv_is_ready()) {
++		REG32(MODULE_RESET_CON1) |= 1 << 19;
++		mdelay(1);
++		REG32(MODULE_RESET_CON1) &= ~(1 << 19);
++	}
+ 
+ 	/********** config sensor module **********/
+ 	ret = v4l2_subdev_call(sd, core, init, 0);
+@@ -1591,6 +1615,8 @@ err_isp_clk:
+  * @param [in] *icd: soc_camera_device information structure,
+  * akcamera depends on the soc driver.
+  */
++static int tc100_isp_owned;
++
+ static void ak_camera_remove_device(struct soc_camera_device *icd)
+ {
+ 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
+@@ -1606,6 +1632,15 @@ static void ak_camera_remove_device(struct soc_camera_device *icd)
+ 	BUG_ON(icd != pcdev->icd);
+ 
+ 	ak_camera_stop_streaming(pcdev);
++	/*
++	 * Give back the ISP core this host brought up: the sensor is reset
++	 * just below, and only a fresh ak_isp_prepare() writes its tuning
++	 * register list again. Without it the next open streams nothing.
++	 */
++	if (tc100_isp_owned) {
++		tc100_isp_owned = 0;
++		ak_isp_release();
++	}
+ 	v4l2_subdev_call(sd, core, reset, 0);
+ 
+ 	mdelay(500);
+@@ -1829,8 +1864,16 @@ static int ak_camera_set_fmt(struct soc_camera_device *icd,
+ 	 * is still probed at boot.
+ 	 */
+ 	if (!ispdrv_is_ready()) {
+-		dev_err(icd->parent, "ISP core is down - open /dev/isp_char first\n");
+-		return -ENODEV;
++		ret = ak_isp_acquire(tc100_isp_set_style, NULL);
++		if (!ret) {
++			tc100_isp_owned = 1;
++			ret = ak_isp_prepare(icd->parent);
++		}
++		dev_info(icd->parent, "ISP core brought up from capture: %d\n", ret);
++		if (ret || !ispdrv_is_ready()) {
++			dev_err(icd->parent, "ISP core is down - open /dev/isp_char first\n");
++			return ret ? ret : -ENODEV;
++		}
+ 	}
+ 
+ 	xlate = soc_camera_xlate_by_fourcc(icd, pix->pixelformat);
+diff --git a/drivers/media/platform/soc_camera/plat-anyka/sensor_f22_f23_f28_f35_f37.c b/drivers/media/platform/soc_camera/plat-anyka/sensor_f22_f23_f28_f35_f37.c
+index e2dfb373..24f9e2ea 100755
+--- a/drivers/media/platform/soc_camera/plat-anyka/sensor_f22_f23_f28_f35_f37.c
++++ b/drivers/media/platform/soc_camera/plat-anyka/sensor_f22_f23_f28_f35_f37.c
+@@ -46,7 +46,7 @@ static  u32 SENSOR_ID =         0;
+ static struct ak_sensor_parameter sensor_parameter[] = 
+ {
+     {0x0f22, 0x0f22, 24, MIPI_INTERFACE, 192, 2, 43200000},
+-    {0x0f23, 0x0f23, 24, MIPI_INTERFACE, 192, 1, 43200000},
++    {0x0f23, 0x0f23, 24, MIPI_INTERFACE, 768, 2, 43200000},
+     {0X0f28, 0X0f28, 24, MIPI_INTERFACE, 192, 1, 43200000},
+     {0x0f35, 0x0f35, 24, MIPI_INTERFACE, 192, 2, 43200000},
+     {0X0f37, 0x0f37, 24, MIPI_INTERFACE, 720, 1, 43200000},
+@@ -100,8 +100,14 @@ static int f22_init(const AK_ISP_SENSOR_INIT_PARA *para)
+ //ak_sensor_print("before w reg:0x%.x, val:0x%.x, to write:0x%.x\n", preg_info->reg_addr, value, preg_info->value);
+ 		if (preg_info->reg_addr == 0xffff)
+ 			ak_sensor_mdelay(preg_info->value);
+-		else
++		else {
+ 			f22_sensor_write_register(preg_info->reg_addr, preg_info->value);
++			/* TC100: the soft reset in 0x12 needs time before the
++			 * sensor answers again; without it the rest of the
++			 * list is lost. */
++			if (preg_info->reg_addr == 0x12)
++				ak_sensor_mdelay(10);
++		}
+ //value=f22_sensor_read_register(preg_info->reg_addr);
+ //ak_sensor_print("after w reg:0x%.x, val:0x%.x\n", preg_info->reg_addr, value);
+ 		preg_info++;
+diff --git a/drivers/misc/ak_isp_char.c b/drivers/misc/ak_isp_char.c
+index fd22282a..a144563f 100755
+--- a/drivers/misc/ak_isp_char.c
++++ b/drivers/misc/ak_isp_char.c
+@@ -3267,8 +3267,14 @@ int ak_isp_prepare(struct device *dev)
+ 	}
+ 	if (!priv->tuning.firmware) {
+ 		ret = ak_isp_tuning_load(dev, tuning_firmware, sensor_id, &priv->tuning);
+-		if (ret)
++		if (ret) {
++			/* TC100: no usable tuning; run on the ISP defaults */
++			dev_warn(dev, "ISP tuning not loaded (%d), using defaults\n", ret);
++			priv->tuning_style = 0;
++			priv->prepared = true;
++			ret = 0;
+ 			goto out;
++		}
+ 	}
+ 	ret = ak_isp_tuning_apply(&priv->tuning, 0, priv->sensor_cb, true);
+ 	if (!ret) {
+diff --git a/drivers/misc/ak_isp_tuning.c b/drivers/misc/ak_isp_tuning.c
+index 69c6ceca..9dc82a0e 100644
+--- a/drivers/misc/ak_isp_tuning.c
++++ b/drivers/misc/ak_isp_tuning.c
+@@ -73,7 +73,7 @@ static const struct tuning_module {
+ 	{ 192, { W(lsc, AK_ISP_LSC_ATTR, 4) } },
+ 	{ 876, { W(raw_lut, AK_ISP_RAW_LUT_ATTR, 4) } },
+ 	{ 2268, { W(nr1, AK_ISP_NR1_ATTR, 4), W(nr2, AK_ISP_NR2_ATTR, 0x6fa) } },
+-	{ 1088, { W(nr3d, AK_ISP_3D_NR_ATTR, 4) } },
++	{ 1128, { W(nr3d, AK_ISP_3D_NR_ATTR, 4) } },
+ 	{ 86, { W(gb, AK_ISP_GB_ATTR, 4) } },
+ 	{ 22, { W(demo, AK_ISP_DEMO_ATTR, 4) } },
+ 	{ 876, { W(rgb_gamma, AK_ISP_RGB_GAMMA_ATTR, 4) } },
+@@ -93,7 +93,7 @@ static const struct tuning_module {
+ 	{ 240, { W(raw_hist, AK_ISP_RAW_HIST_ATTR, 4), W(rgb_hist, AK_ISP_RGB_HIST_ATTR, 6),
+ 		 W(y_hist, AK_ISP_YUV_HIST_ATTR, 8), W(exposure, AK_ISP_EXP_TYPE, 0xa),
+ 		 W(frame_rate, AK_ISP_FRAME_RATE_ATTR, 0xc), W(ae, AK_ISP_AE_ATTR, 0x24) } },
+-	{ 30, { W(misc, AK_ISP_MISC_ATTR, 4) } },
++	{ 38, { W(misc, AK_ISP_MISC_ATTR, 4) } },
+ 	{ 306, { W(y_gamma, AK_ISP_Y_GAMMA_ATTR, 4) } },
+ 	{ 996, { W(hue, AK_ISP_HUE_ATTR, 4) } },
+ };
+@@ -104,10 +104,13 @@ static int validate_style(const u8 *data, unsigned int size,
+ 	unsigned int offset = STYLE_HEADER_SIZE;
+ 	unsigned int i, w, payload;
+ 
+-	if (get_unaligned_le32(data) != count ||
++	/* TC100: vendor 4.003 files (struct layout of this tree); the header
++	 * style count may exceed the styles actually stored. */
++	if (get_unaligned_le32(data) < count ||
+ 	    get_unaligned_le32(data + 0x14) != sensor_id ||
+ 	    get_unaligned_le32(data + 0x24) != size ||
+-	    memcmp(data + 4, "3.05_032401", sizeof("3.05_032401")))
++	    (memcmp(data + 4, "3.05_032401", sizeof("3.05_032401")) &&
++	     memcmp(data + 4, "4.003", 5)))
+ 		return -EINVAL;
+ 	for (i = 0; i < ARRAY_SIZE(modules); i++) {
+ 		if (size - offset < modules[i].size ||
+@@ -148,6 +151,8 @@ int ak_isp_tuning_load(struct device *dev, const char *name,
+ 	}
+ 	count = get_unaligned_le32(firmware->data);
+ 	size = get_unaligned_le32(firmware->data + 0x24);
++	if (size >= STYLE_HEADER_SIZE && size <= firmware->size && !(firmware->size % size))
++		count = firmware->size / size;
+ 	if (!count || size < STYLE_HEADER_SIZE || size > firmware->size ||
+ 	    count != firmware->size / size || firmware->size % size) {
+ 		ret = -EINVAL;
