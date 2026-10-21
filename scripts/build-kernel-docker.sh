@@ -21,6 +21,8 @@ echo "[+] Applying Unified Anyka hardware, CMA 16MB & ALSA audio patch..."
 patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch"
 
 echo "[+] Configuring CMA in kernel..."
+mkdir -p firmware/rtlwifi
+cp -r "$ROOT_DIR/patches/kernel-6.6/firmware/"* firmware/ 2>/dev/null || true
 cp "$ROOT_DIR/patches/kernel-6.6/defconfig_cma" .config
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
 
