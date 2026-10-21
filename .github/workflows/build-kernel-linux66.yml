@@ -22,25 +22,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison
 
-      - name: Clone Linux 6.6.y Stable Tree
+      - name: Clone Linux 6.6 Stable Tree (Tag v6.6)
         run: |
-          git clone --depth 1 -b linux-6.6.y https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src
+          git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src
 
-      - name: Apply Anyka AK3918 Hardware & CMA Patches
+      - name: Apply Anyka AK3918 Hardware, CMA 16MB & ALSA Audio Patches
         run: |
           cd linux-src
-          echo "[+] Applying Step 1: Base Anyka SoC Support..."
-          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step1.patch
-          echo "[+] Applying Step 2: System Control & Restart..."
-          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step2.patch
-          echo "[+] Applying Step 3: Clock, Timer & Peripherals..."
-          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step3.patch
-          echo "[+] Applying Step 4: Video Input V4L2 & JX-F23 MIPI..."
-          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step4.patch
-          echo "[+] Applying Step 5: 16MB CMA Reservation in DTS..."
-          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step5-cma.patch
-          echo "[+] Applying Step 6: ALSA Audio (ak_pcm & ak39_codec) + Codec DTS..."
-          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step6-audio.patch
+          echo "[+] Applying Unified Anyka AK3918 V3 Patch (CMA 16MB + ALSA Audio)..."
+          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch
 
       - name: Configure Kernel with CMA and ALSA
         run: |
