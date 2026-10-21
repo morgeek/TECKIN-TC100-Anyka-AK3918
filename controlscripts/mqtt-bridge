@@ -37,7 +37,7 @@ start()
   fi
 
   rm -f "$PIDFILE" >/dev/null 2>&1 || true
-  /mnt/bin/busybox nohup /mnt/scripts/mqtt-bridge.sh run >/dev/null 2>&1 &
+  nohup /bin/sh /mnt/scripts/mqtt-bridge.sh run >/dev/null 2>&1 &
   echo "$!" > "$PIDFILE"
   echo "MQTT bridge started"
 
