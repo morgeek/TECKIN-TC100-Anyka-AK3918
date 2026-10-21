@@ -20,7 +20,7 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison
+          sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison device-tree-compiler
 
       - name: Clone Linux 6.6 Stable Tree (Tag v6.6)
         run: |
@@ -44,6 +44,8 @@ jobs:
         run: |
           cd linux-src
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs 2>&1 | tee ../build.log
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- anyka/ak3918ev300-tc100.dtb || true
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- ak3918ev300-tc100.dtb || true
 
       - name: Show Build Errors on Failure
         if: failure()
@@ -53,14 +55,17 @@ jobs:
       - name: Append DTB & Generate uImage (oipc.img)
         run: |
           cd linux-src
-          echo "[+] Locating compiled DTB files:"
-          find arch/arm/boot/ -name "*.dtb"
-          DTB_PATH=$(find arch/arm/boot/dts -name "*tc100*.dtb" | head -n 1)
-          if [ -z "$DTB_PATH" ]; then
-            echo "[-] Error: TC100 DTB not found!"
-            exit 1
+          echo "[+] Locating compiled DTB files in arch/arm/boot/:"
+          find arch/arm/boot/ -name "*.dtb" || true
+          DTB_PATH=$(find arch/arm/boot/ -name "*tc100*.dtb" | head -n 1)
+          if [ -z "$DTB_PATH" ] || [ ! -f "$DTB_PATH" ]; then
+            echo "[!] Building DTB directly via dtc..."
+            mkdir -p arch/arm/boot/dts/anyka
+            dtc -I dts -O dtb -o arch/arm/boot/dts/anyka/ak3918ev300-tc100.dtb arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+            DTB_PATH="arch/arm/boot/dts/anyka/ak3918ev300-tc100.dtb"
           fi
-          echo "[+] Found TC100 DTB at: $DTB_PATH"
+          echo "[+] Selected DTB: $DTB_PATH"
+          ls -lh "$DTB_PATH"
           cat arch/arm/boot/zImage "$DTB_PATH" > arch/arm/boot/zImage-dtb
           mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 True V3 CMA16+ALSA" -d arch/arm/boot/zImage-dtb oipc.img
           ls -lh oipc.img
