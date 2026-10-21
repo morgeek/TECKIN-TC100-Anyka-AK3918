@@ -35,6 +35,11 @@ jobs:
       - name: Configure Kernel with CMA and ALSA
         run: |
           cd linux-src
+          mkdir -p firmware/rtlwifi
+          cp -r ../patches/kernel-6.6/firmware/* firmware/ 2>/dev/null || true
+          if [ ! -f firmware/rtlwifi/rtl8188fufw.bin ]; then
+            curl -s -L "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin" -o firmware/rtlwifi/rtl8188fufw.bin
+          fi
           cp ../patches/kernel-6.6/defconfig_cma .config
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
           echo "[+] Validating CMA & Audio Configuration in .config:"
