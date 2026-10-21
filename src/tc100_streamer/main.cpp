@@ -11,7 +11,7 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <linux/videodev2.h>
-#include "/tmp/jpge.h"
+#include "jpge.h"
 
 #define MAIN_W 1920
 #define MAIN_H 1080
@@ -62,7 +62,7 @@ struct buffer {
 };
 
 int main(int argc, char **argv) {
-    const char *dev_name = argc > 1 ? argv[1] : "/dev/video0";
+    const char *dev_name = argc > 1 && argv[1][0] != '-' ? argv[1] : "/dev/video0";
     int daemonize = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0) daemonize = 1;
@@ -85,10 +85,16 @@ int main(int argc, char **argv) {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    printf("[tc100_streamer] Opening %s...\n", dev_name);
-    int fd = open(dev_name, O_RDWR | O_NONBLOCK, 0);
+    // Wait for device node to be created by mdev/udev if booting
+    int fd = -1;
+    for (int retry = 0; retry < 50 && g_running; retry++) {
+        fd = open(dev_name, O_RDWR | O_NONBLOCK, 0);
+        if (fd >= 0) break;
+        usleep(100000); // 100ms
+    }
+
     if (fd < 0) {
-        fprintf(stderr, "[-] open failed: %s (errno %d)\n", strerror(errno), errno);
+        fprintf(stderr, "[-] open %s failed: %s (errno %d)\n", dev_name, strerror(errno), errno);
         return 1;
     }
 
@@ -142,13 +148,12 @@ int main(int argc, char **argv) {
         perror("VIDIOC_STREAMON");
         return 1;
     }
-    printf("[+] V4L2 capture active: 1080p @ 25 FPS (double-buffered)\n");
 
     // Write PID file
     FILE *pfp = fopen("/var/run/tc100_streamer.pid", "w");
     if (pfp) { fprintf(pfp, "%d\n", getpid()); fclose(pfp); }
 
-    // Preallocate encoding buffers with minimal RAM overhead (6.2MB + 691KB + 128KB + 512KB)
+    // Preallocate encoding buffers
     unsigned char *sub_rgb = (unsigned char*)malloc(SUB_W * SUB_H * 3);
     unsigned char *sub_jpg = (unsigned char*)malloc(128 * 1024);
     unsigned char *main_rgb = (unsigned char*)malloc(MAIN_W * MAIN_H * 3);
@@ -165,7 +170,6 @@ int main(int argc, char **argv) {
     struct timespec last_snap_time = {0, 0};
     struct timespec last_stream_time = {0, 0};
     struct timespec last_luma_time = {0, 0};
-    uint32_t frame_count = 0;
 
     while (g_running) {
         fd_set fds;
@@ -183,7 +187,6 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        frame_count++;
         const unsigned char *raw_data = (const unsigned char*)buffers[buf.index].start;
 
         struct timespec now;
@@ -193,7 +196,6 @@ int main(int argc, char **argv) {
         double elapsed_luma = (now.tv_sec - last_luma_time.tv_sec) + (now.tv_nsec - last_luma_time.tv_nsec) / 1e9;
         if (elapsed_luma >= 0.5) {
             last_luma_time = now;
-            // Sample Y plane of sub-stream at offset MAIN_W*MAIN_H*3/2
             const unsigned char *sub_y = raw_data + (MAIN_W * MAIN_H * 3 / 2);
             uint32_t sum = 0;
             int samples = 0;
@@ -228,7 +230,6 @@ int main(int argc, char **argv) {
                     fclose(sfp);
                     rename("/tmp/stream.jpg.tmp", "/tmp/stream.jpg");
                 }
-                // Also update /tmp/frame_ch0.jpg for ch0.mjpg
                 FILE *ffp = fopen("/tmp/frame_ch0.jpg.tmp", "wb");
                 if (ffp) {
                     fwrite(sub_jpg, 1, sub_jpg_size, ffp);
@@ -276,6 +277,5 @@ int main(int argc, char **argv) {
     free(sub_rgb); free(sub_jpg); free(main_rgb); free(main_jpg);
     close(fd);
     unlink("/var/run/tc100_streamer.pid");
-    printf("[tc100_streamer] Terminated cleanly.\n");
     return 0;
 }

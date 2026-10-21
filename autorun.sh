@@ -23,10 +23,19 @@ done
 ln -sfn /tmp/currentpic.cache.jpg /tmp/www/ch0.jpg
 ln -sfn /tmp/stream.jpg /tmp/frame_ch0.jpg
 
-# 4. Start Hardware V4L2 Optical Streamer (allocates MMAP buffers at boot)
+# 4. Wait for /dev/video0 and start Hardware V4L2 Optical Streamer
+for i in $(seq 1 25); do
+  [ -c /dev/video0 ] && break
+  sleep 0.2
+done
+
+killall -9 tc100_streamer 2>/dev/null
 if [ -x /mnt/sd/bin/tc100_streamer ]; then
   /mnt/sd/bin/tc100_streamer -d
   echo "[tc100-v3] Hardware V4L2 optical streamer active" > /dev/console
+elif [ -x /mnt/sd/tc100test/tc100_streamer ]; then
+  /mnt/sd/tc100test/tc100_streamer -d
+  echo "[tc100-v3] Hardware V4L2 optical streamer active (tc100test)" > /dev/console
 fi
 
 # 5. Seed initial snapshot cache if missing
@@ -40,8 +49,9 @@ killall httpd 2>/dev/null
 /usr/sbin/httpd -p 80 -h /tmp/www
 echo "[tc100-v3] WebUI active on http://192.168.1.11/" > /dev/console
 
-# 7. Start RTSP Server on port 554 with root:pass
-killall thingino-rtsp-server 2>/dev/null
+# 7. Start RTSP Server on port 554 with root:pass (RFC 2435 JPEG stream)
+killall -9 thingino-rtsp-server 2>/dev/null
+sleep 0.5
 if [ -x /mnt/sd/tc100test/thingino-rtsp-server ]; then
   /mnt/sd/tc100test/thingino-rtsp-server -p 554 -u root -P pass -d
   echo "[tc100-v3] RTSP stream active on rtsp://root:pass@192.168.1.11:554/ch0" > /dev/console

@@ -1,0 +1,745 @@
+diff --git a/arch/arm/boot/dts/anyka/Makefile b/arch/arm/boot/dts/anyka/Makefile
+new file mode 100644
+index 000000000..f85695951
+--- /dev/null
++++ b/arch/arm/boot/dts/anyka/Makefile
+@@ -0,0 +1 @@
++dtb-$(CONFIG_ARCH_ANYKA) += ak3918ev300-tc100.dtb
+diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+new file mode 100644
+index 000000000..bf6def751
+--- /dev/null
++++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+@@ -0,0 +1,61 @@
++// SPDX-License-Identifier: GPL-2.0
++/dts-v1/;
++/ {
++	model = "TECKIN TC100 (Anyka AK3918EV300)";
++	compatible = "teckin,tc100", "anyka,ak3918ev300";
++	#address-cells = <1>;
++	#size-cells = <1>;
++	interrupt-parent = <&intc>;
++
++	aliases {
++		serial0 = &uart0;
++	};
++
++	chosen {
++		bootargs = "console=ttySAK0,115200 earlyprintk";
++		stdout-path = "serial0:115200n8";
++	};
++
++	memory@80000000 {
++		device_type = "memory";
++		reg = <0x80000000 0x4000000>;
++	};
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++		cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,arm926ej-s";
++			reg = <0>;
++		};
++	};
++
++	intc: interrupt-controller@8000000 {
++		compatible = "anyka,ak3918ev300-intc";
++		reg = <0x08000000 0x100>;
++		interrupt-controller;
++		#interrupt-cells = <1>;
++	};
++
++	sysintc: interrupt-controller@8000030 {
++		compatible = "anyka,ak3918ev300-sysintc";
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupts = <3>;
++	};
++
++	timer@80000b4 {
++		compatible = "anyka,ak3918ev300-timer";
++		reg = <0x08000000 0x100>;
++		interrupt-parent = <&sysintc>;
++		interrupts = <5>;
++		clock-frequency = <12000000>;
++	};
++
++	uart0: serial@20130000 {
++		compatible = "anyka,ak3918ev300-uart";
++		reg = <0x20130000 0x100>, <0x20140000 0x100>, <0x48001000 0x80>;
++		interrupts = <10>;
++	};
++};
+diff --git a/arch/arm/mach-anyka/Kconfig b/arch/arm/mach-anyka/Kconfig
+new file mode 100644
+index 000000000..14e9f5366
+--- /dev/null
++++ b/arch/arm/mach-anyka/Kconfig
+@@ -0,0 +1,12 @@
++# SPDX-License-Identifier: GPL-2.0-only
++menuconfig ARCH_ANYKA
++	bool "Anyka AK39 family (AK3918EV300)"
++	depends on ARCH_MULTI_V5
++	select CPU_ARM926T
++	select GENERIC_IRQ_CHIP
++	select IRQ_DOMAIN
++	select TIMER_OF
++	select AK39_INTC
++	select AK39_TIMER
++	help
++	  Support for Anyka AK3918EV300 IP camera SoCs (ARM926EJ-S).
+diff --git a/arch/arm/mach-anyka/Makefile b/arch/arm/mach-anyka/Makefile
+new file mode 100644
+index 000000000..d6b8fb0f3
+--- /dev/null
++++ b/arch/arm/mach-anyka/Makefile
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: GPL-2.0-only
++obj-y += anyka.o
+diff --git a/arch/arm/mach-anyka/anyka.c b/arch/arm/mach-anyka/anyka.c
+new file mode 100644
+index 000000000..3ee7037db
+--- /dev/null
++++ b/arch/arm/mach-anyka/anyka.c
+@@ -0,0 +1,14 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Anyka AK3918EV300 device tree board support.
++ */
++#include <asm/mach/arch.h>
++
++static const char * const anyka_dt_compat[] __initconst = {
++	"anyka,ak3918ev300",
++	NULL
++};
++
++DT_MACHINE_START(ANYKA_DT, "Anyka AK3918EV300")
++	.dt_compat	= anyka_dt_compat,
++MACHINE_END
+diff --git a/drivers/clocksource/timer-ak39.c b/drivers/clocksource/timer-ak39.c
+new file mode 100644
+index 000000000..938325ead
+--- /dev/null
++++ b/drivers/clocksource/timer-ak39.c
+@@ -0,0 +1,129 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Anyka AK3918EV300 system timers (SYSCTRL 0xB4..0xD8, five timers, 12 MHz).
++ * Timer 0 is the clock event (system interrupt 5), timer 4 a free-running
++ * down-counter used as clocksource and sched_clock.
++ * Register use from the vendor/OpenIPC 4.4 driver (drivers/clocksource/ak_timer.c).
++ */
++#include <linux/clockchips.h>
++#include <linux/clocksource.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/irq.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_irq.h>
++#include <linux/sched_clock.h>
++
++#define AK39_TIMER(n)		(0xb4 + (n) * 8)	/* CTRL1, CTRL2 at +4 */
++#define CE			AK39_TIMER(0)
++#define CS			AK39_TIMER(4)
++
++#define TIMER_CLEAR		BIT(30)
++#define TIMER_FEED		BIT(29)
++#define TIMER_ENABLE		BIT(28)
++#define TIMER_STATUS		BIT(27)
++#define TIMER_READ_SEL		BIT(26)
++#define MODE_RELOAD		(0 << 24)
++#define MODE_ONESHOT		(1 << 24)
++
++static void __iomem *base;
++static u32 rate = 12000000;
++
++static u64 notrace ak39_read(void)
++{
++	unsigned long flags;
++	u32 c2, v;
++
++	local_irq_save(flags);
++	c2 = readl_relaxed(base + CS + 4);
++	writel_relaxed(c2 | TIMER_READ_SEL, base + CS + 4);
++	v = readl_relaxed(base + CS);
++	writel_relaxed(c2 & ~TIMER_READ_SEL, base + CS + 4);
++	local_irq_restore(flags);
++	return ~v;
++}
++
++static u64 ak39_cs_read(struct clocksource *cs)
++{
++	return ak39_read();
++}
++
++static struct clocksource ak39_cs = {
++	.name	= "ak39-timer",
++	.rating	= 200,
++	.read	= ak39_cs_read,
++	.mask	= CLOCKSOURCE_MASK(32),
++	.flags	= CLOCK_SOURCE_IS_CONTINUOUS,
++};
++
++static int ak39_periodic(struct clock_event_device *evt)
++{
++	writel_relaxed(DIV_ROUND_CLOSEST(rate, HZ) - 1, base + CE);
++	writel_relaxed(MODE_RELOAD | TIMER_ENABLE | TIMER_FEED, base + CE + 4);
++	return 0;
++}
++
++static int ak39_next(unsigned long next, struct clock_event_device *evt)
++{
++	writel_relaxed(next, base + CE);
++	writel_relaxed(MODE_ONESHOT | TIMER_ENABLE | TIMER_FEED, base + CE + 4);
++	return 0;
++}
++
++static int ak39_shutdown(struct clock_event_device *evt)
++{
++	writel_relaxed(0, base + CE + 4);
++	return 0;
++}
++
++static struct clock_event_device ak39_ced = {
++	.name			= "ak39-timer0",
++	.features		= CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT,
++	.rating			= 200,
++	.set_next_event		= ak39_next,
++	.set_state_periodic	= ak39_periodic,
++	.set_state_oneshot	= ak39_shutdown,
++	.set_state_shutdown	= ak39_shutdown,
++	.tick_resume		= ak39_shutdown,
++};
++
++static irqreturn_t ak39_timer_irq(int irq, void *dev_id)
++{
++	struct clock_event_device *evt = dev_id;
++	u32 c2 = readl_relaxed(base + CE + 4);
++
++	if (!(c2 & TIMER_STATUS))
++		return IRQ_NONE;
++	writel_relaxed(c2 | TIMER_CLEAR, base + CE + 4);
++	evt->event_handler(evt);
++	return IRQ_HANDLED;
++}
++
++static int __init ak39_timer_init(struct device_node *node)
++{
++	int irq, ret;
++
++	base = of_iomap(node, 0);
++	if (!base)
++		return -ENOMEM;
++	of_property_read_u32(node, "clock-frequency", &rate);
++	irq = irq_of_parse_and_map(node, 0);
++	if (!irq)
++		return -EINVAL;
++
++	/* timer 4: free-running down-counter */
++	writel_relaxed(0xffffffff, base + CS);
++	writel_relaxed(MODE_RELOAD | TIMER_ENABLE | TIMER_FEED, base + CS + 4);
++	sched_clock_register(ak39_read, 32, rate);
++	clocksource_register_hz(&ak39_cs, rate);
++
++	ret = request_irq(irq, ak39_timer_irq, IRQF_TIMER | IRQF_IRQPOLL,
++			  "ak39-timer0", &ak39_ced);
++	if (ret)
++		return ret;
++	ak39_ced.cpumask = cpu_possible_mask;
++	clockevents_config_and_register(&ak39_ced, rate, 16, 0xffffffff);
++	return 0;
++}
++TIMER_OF_DECLARE(ak39_timer, "anyka,ak3918ev300-timer", ak39_timer_init);
+diff --git a/drivers/irqchip/irq-ak39.c b/drivers/irqchip/irq-ak39.c
+new file mode 100644
+index 000000000..076bff093
+--- /dev/null
++++ b/drivers/irqchip/irq-ak39.c
+@@ -0,0 +1,162 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Anyka AK39 (AK3918EV300) interrupt controller.
++ *
++ * Module interrupts: status at SYSCTRL+0x4C, enable mask at +0x24, one bit
++ * per line (bit n = hwirq n). Line 3 is the system-control cascade, whose
++ * own interrupts (timers, RTC, GPIO...) have status at +0x30 and mask at
++ * +0x2C, bit n = hwirq n of the second domain.
++ *
++ * Register layout from the vendor/OpenIPC 4.4 driver (drivers/irqchip/ak_irq.c).
++ */
++#include <linux/io.h>
++#include <linux/irq.h>
++#include <linux/irqchip.h>
++#include <linux/irqchip/chained_irq.h>
++#include <linux/irqdomain.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_irq.h>
++#include <asm/exception.h>
++
++#define AK39_IRQ_MASK		0x24
++#define AK39_FIQ_MASK		0x28
++#define AK39_SYS_MASK		0x2c
++#define AK39_SYS_STATUS		0x30
++#define AK39_INT_STATUS		0x4c
++
++#define AK39_NR_IRQS		32
++#define AK39_NR_SYS_IRQS	11
++
++static void __iomem *ak39_base;
++static struct irq_domain *ak39_domain;
++static struct irq_domain *ak39_sys_domain;
++
++static void ak39_rmw(unsigned int reg, u32 clear, u32 set)
++{
++	unsigned long flags;
++	u32 v;
++
++	local_irq_save(flags);
++	v = readl_relaxed(ak39_base + reg);
++	writel_relaxed((v & ~clear) | set, ak39_base + reg);
++	local_irq_restore(flags);
++}
++
++static void ak39_mask(struct irq_data *d)
++{
++	ak39_rmw(AK39_IRQ_MASK, BIT(d->hwirq), 0);
++}
++
++static void ak39_unmask(struct irq_data *d)
++{
++	ak39_rmw(AK39_IRQ_MASK, 0, BIT(d->hwirq));
++}
++
++static struct irq_chip ak39_chip = {
++	.name		= "ak39-intc",
++	.irq_mask	= ak39_mask,
++	.irq_unmask	= ak39_unmask,
++};
++
++static void ak39_sys_mask(struct irq_data *d)
++{
++	ak39_rmw(AK39_SYS_MASK, BIT(d->hwirq), 0);
++}
++
++static void ak39_sys_unmask(struct irq_data *d)
++{
++	ak39_rmw(AK39_SYS_MASK, 0, BIT(d->hwirq));
++}
++
++static struct irq_chip ak39_sys_chip = {
++	.name		= "ak39-sysirq",
++	.irq_mask	= ak39_sys_mask,
++	.irq_unmask	= ak39_sys_unmask,
++};
++
++static void __exception_irq_entry ak39_handle_irq(struct pt_regs *regs)
++{
++	u32 pending;
++
++	for (;;) {
++		pending = readl_relaxed(ak39_base + AK39_INT_STATUS) &
++			  readl_relaxed(ak39_base + AK39_IRQ_MASK);
++		if (!pending)
++			break;
++		generic_handle_domain_irq(ak39_domain, __ffs(pending));
++	}
++}
++
++static void ak39_sys_cascade(struct irq_desc *desc)
++{
++	struct irq_chip *chip = irq_desc_get_chip(desc);
++	u32 pending;
++
++	chained_irq_enter(chip, desc);
++	pending = readl_relaxed(ak39_base + AK39_SYS_STATUS) &
++		  readl_relaxed(ak39_base + AK39_SYS_MASK) &
++		  GENMASK(AK39_NR_SYS_IRQS - 1, 0);
++	while (pending) {
++		unsigned int bit = __ffs(pending);
++
++		pending &= ~BIT(bit);
++		generic_handle_domain_irq(ak39_sys_domain, bit);
++	}
++	chained_irq_exit(chip, desc);
++}
++
++static int ak39_map(struct irq_domain *d, unsigned int virq, irq_hw_number_t hw)
++{
++	irq_set_chip_and_handler(virq, d == ak39_sys_domain ? &ak39_sys_chip : &ak39_chip,
++				 handle_level_irq);
++	irq_set_probe(virq);
++	return 0;
++}
++
++static const struct irq_domain_ops ak39_domain_ops = {
++	.map	= ak39_map,
++	.xlate	= irq_domain_xlate_onecell,
++};
++
++static int __init ak39_intc_init(struct device_node *node,
++				 struct device_node *parent)
++{
++	ak39_base = of_iomap(node, 0);
++	if (!ak39_base)
++		return -ENOMEM;
++
++	/* everything off, stale status read away */
++	writel_relaxed(0, ak39_base + AK39_IRQ_MASK);
++	writel_relaxed(0, ak39_base + AK39_FIQ_MASK);
++	writel_relaxed(0, ak39_base + AK39_SYS_MASK);
++	readl_relaxed(ak39_base + AK39_INT_STATUS);
++	readl_relaxed(ak39_base + AK39_SYS_STATUS);
++
++	ak39_domain = irq_domain_add_linear(node, AK39_NR_IRQS,
++					    &ak39_domain_ops, NULL);
++	if (!ak39_domain)
++		return -ENOMEM;
++	set_handle_irq(ak39_handle_irq);
++	return 0;
++}
++IRQCHIP_DECLARE(ak39_intc, "anyka,ak3918ev300-intc", ak39_intc_init);
++
++static int __init ak39_sysintc_init(struct device_node *node,
++				    struct device_node *parent)
++{
++	int irq;
++
++	if (!ak39_base)
++		return -EPROBE_DEFER;
++	ak39_sys_domain = irq_domain_add_linear(node, AK39_NR_SYS_IRQS,
++						&ak39_domain_ops, NULL);
++	if (!ak39_sys_domain)
++		return -ENOMEM;
++	irq = irq_of_parse_and_map(node, 0);
++	if (!irq)
++		return -EINVAL;
++	irq_set_chained_handler(irq, ak39_sys_cascade);
++	return 0;
++}
++IRQCHIP_DECLARE(ak39_sysintc, "anyka,ak3918ev300-sysintc", ak39_sysintc_init);
+diff --git a/drivers/tty/serial/ak39_uart.c b/drivers/tty/serial/ak39_uart.c
+new file mode 100644
+index 000000000..c124b0547
+--- /dev/null
++++ b/drivers/tty/serial/ak39_uart.c
+@@ -0,0 +1,205 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Anyka AK3918EV300 UART, first version: polled transmit (console + tty),
++ * no receive yet. The line settings left by the boot loader are kept.
++ *
++ * The AK39 UART sends from a 128-byte buffer in the on-chip L2 memory:
++ * write the bytes there, write the "buffer full" marker at +0x3C, then set
++ * the byte count and the start bit in CONF2 and wait for TX end.
++ * Sequence from the vendor/OpenIPC 4.4 driver (drivers/tty/serial/ak_uart.c).
++ *
++ * reg[0] UART registers, reg[1] L2 controller, reg[2] this UART's L2 TX buffer.
++ */
++#include <linux/console.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/serial_core.h>
++#include <linux/tty.h>
++#include <linux/tty_flip.h>
++
++#define UART_CONF1		0x00
++#define UART_CONF2		0x04
++#define BUF_THRESHOLD		0x0c
++#define CONF1_TX_STA_CLR	BIT(28)
++#define CONF2_INT_MASK		0x3fe00000
++#define CONF2_TX_END		BIT(19)
++#define L2_BUF_STATUS		0x8c
++
++struct ak39_uart {
++	struct uart_port port;
++	void __iomem *l2ctrl;
++	void __iomem *txbuf;
++};
++
++static struct ak39_uart *ak39_ports[2];
++
++static void ak39_putc(struct ak39_uart *u, unsigned char c)
++{
++	void __iomem *b = u->port.membase;
++	u32 v;
++	int timeout = 100000;
++
++	writel_relaxed(readl_relaxed(b + UART_CONF1) | CONF1_TX_STA_CLR, b + UART_CONF1);
++	v = readl_relaxed(u->l2ctrl + L2_BUF_STATUS);
++	writel_relaxed(v | BIT(16 + u->port.line * 2), u->l2ctrl + L2_BUF_STATUS);
++	writel_relaxed(c, u->txbuf);
++	writel_relaxed(0, u->txbuf + 0x3c);
++	writel_relaxed(readl_relaxed(b + BUF_THRESHOLD) | BIT(11), b + BUF_THRESHOLD);
++	v = readl_relaxed(b + UART_CONF2) & CONF2_INT_MASK;
++	writel_relaxed(v | BIT(4) | BIT(16), b + UART_CONF2);
++	while (!(readl_relaxed(b + UART_CONF2) & CONF2_TX_END) && --timeout)
++		cpu_relax();
++}
++
++static unsigned int ak39_tx_empty(struct uart_port *port) { return TIOCSER_TEMT; }
++static void ak39_set_mctrl(struct uart_port *port, unsigned int mctrl) { }
++static unsigned int ak39_get_mctrl(struct uart_port *port)
++{
++	return TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
++}
++static void ak39_stop_tx(struct uart_port *port) { }
++static void ak39_stop_rx(struct uart_port *port) { }
++
++static void ak39_start_tx(struct uart_port *port)
++{
++	struct ak39_uart *u = container_of(port, struct ak39_uart, port);
++	struct circ_buf *xmit = &port->state->xmit;
++
++	while (!uart_circ_empty(xmit)) {
++		ak39_putc(u, xmit->buf[xmit->tail]);
++		uart_xmit_advance(port, 1);
++	}
++	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
++		uart_write_wakeup(port);
++}
++
++static int ak39_startup(struct uart_port *port) { return 0; }
++static void ak39_shutdown(struct uart_port *port) { }
++static void ak39_set_termios(struct uart_port *port, struct ktermios *new,
++			     const struct ktermios *old)
++{
++	/* keep the boot loader's 115200 8N1 for now */
++	tty_termios_copy_hw(new, old ? old : new);
++	tty_termios_encode_baud_rate(new, 115200, 115200);
++}
++static const char *ak39_type(struct uart_port *port) { return "AK39"; }
++static void ak39_config_port(struct uart_port *port, int flags)
++{
++	port->type = PORT_UNKNOWN + 1;
++}
++
++static const struct uart_ops ak39_ops = {
++	.tx_empty	= ak39_tx_empty,
++	.set_mctrl	= ak39_set_mctrl,
++	.get_mctrl	= ak39_get_mctrl,
++	.stop_tx	= ak39_stop_tx,
++	.start_tx	= ak39_start_tx,
++	.stop_rx	= ak39_stop_rx,
++	.startup	= ak39_startup,
++	.shutdown	= ak39_shutdown,
++	.set_termios	= ak39_set_termios,
++	.type		= ak39_type,
++	.config_port	= ak39_config_port,
++};
++
++static void ak39_console_putchar(struct uart_port *port, unsigned char ch)
++{
++	ak39_putc(container_of(port, struct ak39_uart, port), ch);
++}
++
++static void ak39_console_write(struct console *co, const char *s, unsigned int n)
++{
++	struct ak39_uart *u = ak39_ports[co->index];
++
++	if (u)
++		uart_console_write(&u->port, s, n, ak39_console_putchar);
++}
++
++static struct uart_driver ak39_driver;
++
++static struct console ak39_console = {
++	.name	= "ttySAK",
++	.write	= ak39_console_write,
++	.device	= uart_console_device,
++	.flags	= CON_PRINTBUFFER,
++	.index	= -1,
++	.data	= &ak39_driver,
++};
++
++static struct uart_driver ak39_driver = {
++	.owner		= THIS_MODULE,
++	.driver_name	= "ak39-uart",
++	.dev_name	= "ttySAK",
++	.major		= 204,
++	.minor		= 64,
++	.nr		= 2,
++	.cons		= &ak39_console,
++};
++
++static int ak39_uart_probe(struct platform_device *pdev)
++{
++	struct ak39_uart *u;
++	struct resource *res;
++	int id, ret;
++
++	id = of_alias_get_id(pdev->dev.of_node, "serial");
++	if (id < 0)
++		id = 0;
++	if (id >= ARRAY_SIZE(ak39_ports))
++		return -EINVAL;
++	u = devm_kzalloc(&pdev->dev, sizeof(*u), GFP_KERNEL);
++	if (!u)
++		return -ENOMEM;
++	u->port.membase = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
++	if (IS_ERR(u->port.membase))
++		return PTR_ERR(u->port.membase);
++	u->port.mapbase = res->start;
++	u->l2ctrl = devm_ioremap(&pdev->dev,
++				 platform_get_resource(pdev, IORESOURCE_MEM, 1)->start, 0x100);
++	u->txbuf = devm_ioremap(&pdev->dev,
++				platform_get_resource(pdev, IORESOURCE_MEM, 2)->start, 0x80);
++	if (!u->l2ctrl || !u->txbuf)
++		return -ENOMEM;
++	u->port.dev = &pdev->dev;
++	u->port.ops = &ak39_ops;
++	u->port.line = id;
++	u->port.iotype = UPIO_MEM;
++	u->port.flags = UPF_BOOT_AUTOCONF;
++	u->port.uartclk = 115200 * 16;
++	u->port.fifosize = 1;
++	u->port.has_sysrq = 0;
++	ak39_ports[id] = u;
++	ret = uart_add_one_port(&ak39_driver, &u->port);
++	if (ret)
++		ak39_ports[id] = NULL;
++	return ret;
++}
++
++static const struct of_device_id ak39_uart_of_match[] = {
++	{ .compatible = "anyka,ak3918ev300-uart" },
++	{ }
++};
++
++static struct platform_driver ak39_uart_platform = {
++	.probe	= ak39_uart_probe,
++	.driver	= {
++		.name		= "ak39-uart",
++		.of_match_table	= ak39_uart_of_match,
++	},
++};
++
++static int __init ak39_uart_init(void)
++{
++	int ret = uart_register_driver(&ak39_driver);
++
++	if (ret)
++		return ret;
++	ret = platform_driver_register(&ak39_uart_platform);
++	if (ret)
++		uart_unregister_driver(&ak39_driver);
++	return ret;
++}
++module_init(ak39_uart_init);
++MODULE_LICENSE("GPL");
+diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
+index 9557808e8..c00bfb886 100644
+--- a/arch/arm/Kconfig
++++ b/arch/arm/Kconfig
+@@ -430,6 +430,8 @@ source "arch/arm/mach-artpec/Kconfig"
+ 
+ source "arch/arm/mach-asm9260/Kconfig"
+ 
++source "arch/arm/mach-anyka/Kconfig"
++
+ source "arch/arm/mach-aspeed/Kconfig"
+ 
+ source "arch/arm/mach-at91/Kconfig"
+diff --git a/arch/arm/Makefile b/arch/arm/Makefile
+index 547e5856e..378ce3ee4 100644
+--- a/arch/arm/Makefile
++++ b/arch/arm/Makefile
+@@ -170,6 +170,7 @@ machine-$(CONFIG_ARCH_ACTIONS)		+= actions
+ machine-$(CONFIG_ARCH_AIROHA)		+= airoha
+ machine-$(CONFIG_ARCH_ALPINE)		+= alpine
+ machine-$(CONFIG_ARCH_ARTPEC)		+= artpec
++machine-$(CONFIG_ARCH_ANYKA)		+= anyka
+ machine-$(CONFIG_ARCH_ASPEED)           += aspeed
+ machine-$(CONFIG_ARCH_AT91)		+= at91
+ machine-$(CONFIG_ARCH_AXXIA)		+= axxia
+diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
+index efe38eb25..64b87182f 100644
+--- a/arch/arm/boot/dts/Makefile
++++ b/arch/arm/boot/dts/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ subdir-y += actions
++subdir-y += anyka
+ subdir-y += airoha
+ subdir-y += allwinner
+ subdir-y += alphascale
+diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
+index 0ba0dc4ec..3f4606ee9 100644
+--- a/drivers/clocksource/Kconfig
++++ b/drivers/clocksource/Kconfig
+@@ -32,6 +32,11 @@ config CLKBLD_I8253
+ config CLKSRC_MMIO
+ 	bool
+ 
++config AK39_TIMER
++	bool
++	select TIMER_OF
++	select CLKSRC_MMIO
++
+ config BCM2835_TIMER
+ 	bool "BCM2835 timer driver" if COMPILE_TEST
+ 	select CLKSRC_MMIO
+diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
+index 368c3461d..767df10a4 100644
+--- a/drivers/clocksource/Makefile
++++ b/drivers/clocksource/Makefile
+@@ -89,3 +89,4 @@ obj-$(CONFIG_MSC313E_TIMER)		+= timer-msc313e.o
+ obj-$(CONFIG_GOLDFISH_TIMER)		+= timer-goldfish.o
+ obj-$(CONFIG_GXP_TIMER)			+= timer-gxp.o
+ obj-$(CONFIG_CLKSRC_LOONGSON1_PWM)	+= timer-loongson1-pwm.o
++obj-$(CONFIG_AK39_TIMER)		+= timer-ak39.o
+diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
+index f7149d0f3..d481c1b8b 100644
+--- a/drivers/irqchip/Kconfig
++++ b/drivers/irqchip/Kconfig
+@@ -5,6 +5,10 @@ config IRQCHIP
+ 	def_bool y
+ 	depends on (OF_IRQ || ACPI_GENERIC_GSI)
+ 
++config AK39_INTC
++	bool
++	select IRQ_DOMAIN
++
+ config ARM_GIC
+ 	bool
+ 	depends on OF
+diff --git a/drivers/irqchip/Makefile b/drivers/irqchip/Makefile
+index ffd945fe7..bafa50f49 100644
+--- a/drivers/irqchip/Makefile
++++ b/drivers/irqchip/Makefile
+@@ -120,3 +120,4 @@ obj-$(CONFIG_IRQ_IDT3243X)		+= irq-idt3243x.o
+ obj-$(CONFIG_APPLE_AIC)			+= irq-apple-aic.o
+ obj-$(CONFIG_MCHP_EIC)			+= irq-mchp-eic.o
+ obj-$(CONFIG_SUNPLUS_SP7021_INTC)	+= irq-sp7021-intc.o
++obj-$(CONFIG_AK39_INTC)			+= irq-ak39.o
+diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
+index bdc568a4a..85c16698b 100644
+--- a/drivers/tty/serial/Kconfig
++++ b/drivers/tty/serial/Kconfig
+@@ -1578,6 +1578,12 @@ config SERIAL_NUVOTON_MA35D1_CONSOLE
+ 	  but you can alter that using a kernel command line option such as
+ 	  "console=ttyNVTx".
+ 
++config SERIAL_AK39
++	bool "Anyka AK39 UART (polled TX)"
++	depends on ARCH_ANYKA || COMPILE_TEST
++	select SERIAL_CORE
++	select SERIAL_CORE_CONSOLE
++
+ endmenu
+ 
+ config SERIAL_MCTRL_GPIO
+diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
+index 138abbc89..830437b8b 100644
+--- a/drivers/tty/serial/Makefile
++++ b/drivers/tty/serial/Makefile
+@@ -95,3 +95,4 @@ obj-$(CONFIG_SERIAL_MCTRL_GPIO)	+= serial_mctrl_gpio.o
+ obj-$(CONFIG_SERIAL_KGDB_NMI) += kgdb_nmi.o
+ obj-$(CONFIG_KGDB_SERIAL_CONSOLE) += kgdboc.o
+ obj-$(CONFIG_SERIAL_NUVOTON_MA35D1) += ma35d1_serial.o
++obj-$(CONFIG_SERIAL_AK39)	+= ak39_uart.o
