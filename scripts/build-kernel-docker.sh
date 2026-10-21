@@ -23,6 +23,7 @@ patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step2.patch"
 patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step3.patch"
 patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step4.patch"
 patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step5-cma.patch"
+patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-step6-audio.patch"
 
 echo "[+] Configuring CMA in kernel..."
 cp "$ROOT_DIR/patches/kernel-6.6/defconfig_cma" .config

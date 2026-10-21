@@ -39,14 +39,16 @@ jobs:
           patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step4.patch
           echo "[+] Applying Step 5: 16MB CMA Reservation in DTS..."
           patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step5-cma.patch
+          echo "[+] Applying Step 6: ALSA Audio (ak_pcm & ak39_codec) + Codec DTS..."
+          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-step6-audio.patch
 
-      - name: Configure Kernel with CMA
+      - name: Configure Kernel with CMA and ALSA
         run: |
           cd linux-src
           cp ../patches/kernel-6.6/defconfig_cma .config
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
-          echo "[+] Validating CMA Configuration in .config:"
-          grep -E "CONFIG_CMA|CONFIG_DMA_CMA" .config
+          echo "[+] Validating CMA & Audio Configuration in .config:"
+          grep -E "CONFIG_CMA|CONFIG_DMA_CMA|CONFIG_SOUND|CONFIG_SND_AK_PCM|CONFIG_CODEC_AK39" .config
 
       - name: Compile zImage and Device Tree
         run: |
