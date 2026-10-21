@@ -30110,7 +30110,7 @@ new file mode 100644
 index 000000000..7f205580e
 --- /dev/null
 +++ b/sound/arm/ak_pcm.c
-@@ -0,0 +1,1541 @@
+@@ -0,0 +1,1539 @@
 +/*
 + *  akpcm soundcard
 + *  Copyright (c) by Anyka, Inc.
