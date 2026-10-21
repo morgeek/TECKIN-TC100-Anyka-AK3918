@@ -1,6 +1,7 @@
 #!/bin/sh
 # TC100 V3 Startup Script for Linux 6.6 LTS
-echo "[tc100-v3] Starting V3 Services..." > /dev/console
+echo "[tc100-v3] Starting V3 Services for IPCAM2..." > /dev/console
+hostname IPCAM2; echo "IPCAM2" > /etc/hostname
 
 mkdir -p /tmp/logs /var/run
 
