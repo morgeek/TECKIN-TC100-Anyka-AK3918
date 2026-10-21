@@ -76,11 +76,11 @@ index 000000000..20cf4acf6
 +		#size-cells = <1>;
 +		ranges;
 +
-+		/* 16MB CMA Pool: guaranteed contiguous DMA memory for ISP and V4L2 */
++		/* 28MB CMA Pool: guaranteed contiguous DMA memory for ISP and V4L2 (reusable) */
 +		capture_pool: linux,cma {
 +			compatible = "shared-dma-pool", "linux,cma";
 +			reusable;
-+			size = <0x1000000>;
++			size = <0x1c00000>;
 +			alloc-ranges = <0x80000000 0x4000000>;
 +			linux,cma-default;
 +		};
@@ -30110,7 +30110,7 @@ new file mode 100644
 index 000000000..7f205580e
 --- /dev/null
 +++ b/sound/arm/ak_pcm.c
-@@ -0,0 +1,1539 @@
+@@ -0,0 +1,1540 @@
 +/*
 + *  akpcm soundcard
 + *  Copyright (c) by Anyka, Inc.
@@ -30648,7 +30648,7 @@ index 000000000..7f205580e
 +	
 +	void *vdst_addr0 = akpcm->pp_buf_addr[0];
 +	void *vdst_addr1 = akpcm->pp_buf_addr[1];
-+	void *pdst_addr0 = (void *)virt_to_phys(vdst_addr0);
++	void *pdst_addr0 = vdst_addr0 ? (void *)virt_to_phys(vdst_addr0) : NULL;
 +
 +	switch (cmd) {
 +	case SNDRV_PCM_TRIGGER_START:
@@ -31439,6 +31439,7 @@ index 000000000..7f205580e
 +	dev_id = devptr->id;
 +	if (dev_id < 0)
 +		dev_id = 0;
++	dma_coerce_mask_and_coherent(&devptr->dev, DMA_BIT_MASK(32));
 +	err = snd_card_new(&devptr->dev, dev_id, NULL, THIS_MODULE,
 +			    sizeof(struct snd_akpcm), &card);
 +	if (err < 0)
