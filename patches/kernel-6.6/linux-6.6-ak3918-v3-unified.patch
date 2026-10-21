@@ -39,8 +39,9 @@ new file mode 100644
 index 000000000..f85695951
 --- /dev/null
 +++ b/arch/arm/boot/dts/anyka/Makefile
-@@ -0,0 +1 @@
+@@ -0,0 +1,2 @@
 +dtb-$(CONFIG_ARCH_ANYKA) += ak3918ev300-tc100.dtb
++dtb-y += ak3918ev300-tc100.dtb
 diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 new file mode 100644
 index 000000000..20cf4acf6
