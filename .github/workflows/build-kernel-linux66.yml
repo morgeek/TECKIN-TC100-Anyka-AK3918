@@ -117,7 +117,7 @@ jobs:
           3. From the stock U-Boot prompt, check the md5 of oipc.img on the card, then:
                fatload mmc 0 0x82000000 tc100test/oipc.img
                fatload mmc 0 0x81000000 tc100test/oipcrd66.gz
-               setenv bootargs console=ttySAK0,115200n8 mem=64M root=/dev/ram0 rdinit=/init initrd=0x81000000,$(wc -c < $P/oipcrd66.gz) panic=0 loglevel=7
+               setenv bootargs console=ttySAK0,115200n8 mem=64M cma=18M root=/dev/ram0 rdinit=/init initrd=0x81000000,$(wc -c < $P/oipcrd66.gz) panic=0 loglevel=7
                bootm 0x82000000
           4. About 40 s after boot the log tc100test/selftest-1.log is on the card.
           EOF
