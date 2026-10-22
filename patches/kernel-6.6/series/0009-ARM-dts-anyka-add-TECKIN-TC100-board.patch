@@ -1,0 +1,256 @@
+From 22758bf5895aa42138f88e93c35c175b92121e6a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 10:09:17 +0200
+Subject: [PATCH 9/9] ARM: dts: anyka: add TECKIN TC100 board
+
+Device tree for the TC100, including the 28 MiB CMA pool and the encoder nodes.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
+---
+ arch/arm/boot/dts/Makefile                    |   1 +
+ arch/arm/boot/dts/anyka/Makefile              |   2 +
+ arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts | 211 ++++++++++++++++++
+ 3 files changed, 214 insertions(+)
+ create mode 100644 arch/arm/boot/dts/anyka/Makefile
+ create mode 100644 arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+
+diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
+index efe38eb25..64b87182f 100644
+--- a/arch/arm/boot/dts/Makefile
++++ b/arch/arm/boot/dts/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ subdir-y += actions
++subdir-y += anyka
+ subdir-y += airoha
+ subdir-y += allwinner
+ subdir-y += alphascale
+diff --git a/arch/arm/boot/dts/anyka/Makefile b/arch/arm/boot/dts/anyka/Makefile
+new file mode 100644
+index 000000000..3abfe2c11
+--- /dev/null
++++ b/arch/arm/boot/dts/anyka/Makefile
+@@ -0,0 +1,2 @@
++dtb-$(CONFIG_ARCH_ANYKA) += ak3918ev300-tc100.dtb
++dtb-y += ak3918ev300-tc100.dtb
+diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+new file mode 100644
+index 000000000..28580fca8
+--- /dev/null
++++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+@@ -0,0 +1,211 @@
++// SPDX-License-Identifier: GPL-2.0
++/dts-v1/;
++/ {
++	model = "TECKIN TC100 (Anyka AK3918EV300)";
++	compatible = "teckin,tc100", "anyka,ak3918ev300";
++	#address-cells = <1>;
++	#size-cells = <1>;
++	interrupt-parent = <&intc>;
++
++	aliases {
++		serial0 = &uart0;
++	};
++
++	chosen {
++		bootargs = "console=ttySAK0,115200 earlyprintk";
++		stdout-path = "serial0:115200n8";
++	};
++
++	memory@80000000 {
++		device_type = "memory";
++		reg = <0x80000000 0x4000000>;
++	};
++
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		/* 28MB CMA Pool: guaranteed contiguous DMA memory for ISP and V4L2 (reusable) */
++		capture_pool: linux,cma {
++			compatible = "shared-dma-pool", "linux,cma";
++			reusable;
++			size = <0x1c00000>;
++			alloc-ranges = <0x80000000 0x4000000>;
++			linux,cma-default;
++		};
++
++		/* video encoder: reference frames, streams, command lists
++		 * (12 MiB, between the test initramfs and the CMA pool) */
++		venc_pool: venc@81800000 {
++			compatible = "shared-dma-pool";
++			reg = <0x81800000 0xc00000>;
++			no-map;
++		};
++	};
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++		cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,arm926ej-s";
++			reg = <0>;
++		};
++	};
++
++	intc: interrupt-controller@8000000 {
++		compatible = "anyka,ak3918ev300-intc";
++		reg = <0x08000000 0x100>;
++		interrupt-controller;
++		#interrupt-cells = <1>;
++	};
++
++	sysintc: interrupt-controller@8000030 {
++		compatible = "anyka,ak3918ev300-sysintc";
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupts = <3>;
++	};
++
++	timer@80000b4 {
++		compatible = "anyka,ak3918ev300-timer";
++		reg = <0x08000000 0x100>;
++		interrupt-parent = <&sysintc>;
++		interrupts = <5>;
++		clock-frequency = <12000000>;
++	};
++
++	asic_clk: asic-clk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <160000000>;
++	};
++
++	l2: l2@20140000 {
++		compatible = "anyka,ak3918ev300-l2";
++		reg = <0x20140000 0x100>, <0x48000000 0x2000>, <0x08000000 0x100>;
++		interrupts = <12>;
++	};
++
++	mmc0: mmc@20100000 {
++		compatible = "anyka,ak3918ev300-mmc0";
++		reg = <0x20100000 0x8000>;
++		interrupts = <4>;
++		clocks = <&asic_clk>;
++		bus-width = <1>;
++		max-frequency = <25000000>;
++		cap-sd-highspeed;
++		broken-cd;
++	};
++
++	usb: usb@20200000 {
++		compatible = "anyka,ak3918ev300-usb";
++		reg = <0x20200000 0x10000>;
++		interrupts = <18>, <19>;
++		clocks = <&asic_clk>;
++	};
++
++	gpio0: gpio@20170000 {
++		compatible = "anyka,ak3918ev300-gpio";
++		reg = <0x20170018 4>, <0x2017000c 4>, <0x20170000 4>;
++		reg-names = "dat", "set", "dirout";
++		gpio-controller;
++		#gpio-cells = <2>;
++		ngpios = <32>;
++	};
++
++	gpio1: gpio@20170004 {
++		compatible = "anyka,ak3918ev300-gpio";
++		reg = <0x2017001c 4>, <0x20170010 4>, <0x20170004 4>;
++		reg-names = "dat", "set", "dirout";
++		gpio-controller;
++		#gpio-cells = <2>;
++		ngpios = <32>;
++	};
++
++	gpio2: gpio@20170008 {
++		compatible = "anyka,ak3918ev300-gpio";
++		reg = <0x20170020 4>, <0x20170014 4>, <0x20170008 4>;
++		reg-names = "dat", "set", "dirout";
++		gpio-controller;
++		#gpio-cells = <2>;
++		ngpios = <22>;
++	};
++
++	watchdog@80000e4 {
++		compatible = "anyka,ak3918ev300-wdt";
++		reg = <0x080000e4 0x8>;
++	};
++
++	/*
++	 * TC100 board GPIOs, from the stock 3.4 kernel's board table:
++	 * IR-cut A 81 / B 80, IR LEDs 19, speaker amp 14, red LED 47,
++	 * blue LED 15, reset button 10 (active low).
++	 */
++	leds {
++		compatible = "gpio-leds";
++		led-red {
++			label = "red";
++			gpios = <&gpio1 15 0>;
++			default-state = "off";
++		};
++		led-blue {
++			label = "blue";
++			gpios = <&gpio0 15 0>;
++			default-state = "on";
++		};
++		led-ir {
++			label = "ir";
++			gpios = <&gpio0 19 0>;
++			default-state = "off";
++		};
++	};
++
++	i2c0: i2c@20150000 {
++		compatible = "anyka,ak3918ev300-i2c";
++		reg = <0x20150000 0x100>;
++		interrupts = <13>;
++		clocks = <&asic_clk>;
++		clock-frequency = <100000>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++	};
++
++	vi: video-input@20000000 {
++		compatible = "anyka,ak3918ev300-vi";
++		reg = <0x08000000 0x100>, <0x20400000 0x100>;
++		interrupts = <1>;
++		memory-region = <&capture_pool>;
++		i2c-bus = <&i2c0>;
++		mclk-mhz = <24>;
++		/* OR-ed into SYSCTRL 0x74/0x78/0x7c/0x80 at stream start: what
++		 * the 4.4 kernel had set for the sensor pads and I2C pins */
++		anyka,sharepin-or = <0x40000710 0x0 0x01450525 0x100>;
++	};
++
++	/* Allegro DVT encoder (H.264 / H.265 / JPEG), driven from user space */
++	venc: video-encoder@20020000 {
++		compatible = "anyka,ak3918ev300-venc";
++		reg = <0x20020000 0x10000>;
++		interrupts = <2>;
++		memory-region = <&venc_pool>;
++		anyka,pool-size = <0xc00000>;
++	};
++
++	uart0: serial@20130000 {
++		compatible = "anyka,ak3918ev300-uart";
++		reg = <0x20130000 0x100>, <0x20140000 0x100>, <0x48001000 0x80>;
++		interrupts = <10>;
++	};
++
++	adc_dac: codec@20110000 {
++		compatible = "anyka,ak39ev330-adc-dac";
++		reg = <0x08000000 0x100>,
++		      <0x20110000 0x8008>;
++		interrupts = <6>, <7>;
++		speak-gpios = <&gpio0 14 0>;
++		speak-gpios-en = <1>;
++		status = "okay";
++	};
++};
+-- 
+2.43.0
+

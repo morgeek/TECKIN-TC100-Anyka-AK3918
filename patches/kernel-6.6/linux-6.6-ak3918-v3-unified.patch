@@ -36,7 +36,7 @@ index efe38eb25..64b87182f 100644
  subdir-y += alphascale
 diff --git a/arch/arm/boot/dts/anyka/Makefile b/arch/arm/boot/dts/anyka/Makefile
 new file mode 100644
-index 000000000..f85695951
+index 000000000..3abfe2c11
 --- /dev/null
 +++ b/arch/arm/boot/dts/anyka/Makefile
 @@ -0,0 +1,2 @@
@@ -44,10 +44,10 @@ index 000000000..f85695951
 +dtb-y += ak3918ev300-tc100.dtb
 diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 new file mode 100644
-index 000000000..20cf4acf6
+index 000000000..28580fca8
 --- /dev/null
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -0,0 +1,194 @@
+@@ -0,0 +1,211 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/dts-v1/;
 +/ {
@@ -83,6 +83,14 @@ index 000000000..20cf4acf6
 +			size = <0x1c00000>;
 +			alloc-ranges = <0x80000000 0x4000000>;
 +			linux,cma-default;
++		};
++
++		/* video encoder: reference frames, streams, command lists
++		 * (12 MiB, between the test initramfs and the CMA pool) */
++		venc_pool: venc@81800000 {
++			compatible = "shared-dma-pool";
++			reg = <0x81800000 0xc00000>;
++			no-map;
 +		};
 +	};
 +
@@ -224,6 +232,15 @@ index 000000000..20cf4acf6
 +		/* OR-ed into SYSCTRL 0x74/0x78/0x7c/0x80 at stream start: what
 +		 * the 4.4 kernel had set for the sensor pads and I2C pins */
 +		anyka,sharepin-or = <0x40000710 0x0 0x01450525 0x100>;
++	};
++
++	/* Allegro DVT encoder (H.264 / H.265 / JPEG), driven from user space */
++	venc: video-encoder@20020000 {
++		compatible = "anyka,ak3918ev300-venc";
++		reg = <0x20020000 0x10000>;
++		interrupts = <2>;
++		memory-region = <&venc_pool>;
++		anyka,pool-size = <0xc00000>;
 +	};
 +
 +	uart0: serial@20130000 {
@@ -17791,6 +17808,372 @@ index 000000000..4ea1c7584
 +
 +	return 0;
 +}
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index cadd4a820..9db429ab2 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -579,4 +579,12 @@ source "drivers/misc/cardreader/Kconfig"
+ source "drivers/misc/uacce/Kconfig"
+ source "drivers/misc/pvpanic/Kconfig"
+ source "drivers/misc/mchp_pci1xxxx/Kconfig"
++config AK39_VENC
++	tristate "Anyka AK3918EV300 video encoder access"
++	depends on ARCH_ANYKA && OF
++	help
++	  Maps the register window of the Allegro DVT encoder, waits for its
++	  interrupt and provides a physically contiguous DMA pool to user
++	  space (/dev/uio0). The encoder itself is driven from user space.
++
+ endmenu
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index f2a4d1ff6..0567055c7 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -67,3 +67,4 @@ obj-$(CONFIG_TMR_MANAGER)      += xilinx_tmr_manager.o
+ obj-$(CONFIG_TMR_INJECT)	+= xilinx_tmr_inject.o
+ obj-$(CONFIG_TPS6594_ESM)	+= tps6594-esm.o
+ obj-$(CONFIG_TPS6594_PFSM)	+= tps6594-pfsm.o
++obj-$(CONFIG_AK39_VENC)	+= ak39_venc.o
+diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
+new file mode 100644
+index 000000000..9b87d024e
+--- /dev/null
++++ b/drivers/misc/ak39_venc.c
+@@ -0,0 +1,334 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Anyka AK3918EV300 video encoder access (Allegro DVT core, H.264/H.265/JPEG)
++ *
++ * The encoder is driven from user space (the control software computes the
++ * command lists and writes the registers itself), so this driver only:
++ *   - maps the register window (0x20020000, 64 KiB) into the process,
++ *   - waits for the encoder interrupt (level, masked until the next wait),
++ *   - maps a physically contiguous DMA pool and tells user space its address,
++ *   - gates the clock and pulses the soft reset of the core.
++ *
++ * It replaces the vendor "uio_vcodec" + /dev/ion pair, which are not in
++ * mainline. The interface is /dev/uio0 so that a vendor-compatible libakuio
++ * can be used unchanged (see AKUIO_* in uapi/linux/ak39_venc.h).
++ */
++#include <linux/completion.h>
++#include <linux/delay.h>
++#include <linux/dma-mapping.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/miscdevice.h>
++#include <linux/mm.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/platform_device.h>
++#include <linux/spinlock.h>
++#include <linux/soc/anyka/ak_l2.h>
++#include <uapi/linux/ak39_venc.h>
++
++#define AK_PA_SYSCTRL	0x08000000
++#define SYSCTRL_CLKGATE	0x1c	/* 1 = gated */
++#define SYSCTRL_SOFTRST	0x20
++#define VENC_BIT	BIT(18)	/* same bit in both registers */
++
++struct ak39_venc {
++	struct miscdevice misc;
++	struct device *dev;
++	void __iomem *regs;		/* kept for sanity, not used */
++	phys_addr_t regs_phys;
++	size_t regs_size;
++	int irq;
++	struct completion irq_done;
++	bool irq_armed;
++	spinlock_t lock;
++	struct mutex pool_lock;
++	void *pool_virt;
++	dma_addr_t pool_dma;
++	size_t pool_size;
++	int open_count;
++};
++
++static DEFINE_SPINLOCK(sysctrl_lock);
++
++static void sysctrl_update(u32 reg, u32 mask, u32 val)
++{
++	unsigned long flags;
++	u32 v;
++
++	spin_lock_irqsave(&sysctrl_lock, flags);
++	v = readl(ak_sysctrl_base + reg);
++	v = (v & ~mask) | (val & mask);
++	writel(v, ak_sysctrl_base + reg);
++	spin_unlock_irqrestore(&sysctrl_lock, flags);
++}
++
++/* 1 asserts the reset, 0 releases it (as for the ISP and MIPI blocks) */
++static void venc_soft_reset(void)
++{
++	sysctrl_update(SYSCTRL_SOFTRST, VENC_BIT, VENC_BIT);
++	usleep_range(100, 200);
++	sysctrl_update(SYSCTRL_SOFTRST, VENC_BIT, 0);
++}
++
++static irqreturn_t ak39_venc_irq(int irq, void *data)
++{
++	struct ak39_venc *v = data;
++
++	/* the line is level triggered and cleared by the user-space driver */
++	disable_irq_nosync(irq);
++	spin_lock(&v->lock);
++	v->irq_armed = false;
++	spin_unlock(&v->lock);
++	complete(&v->irq_done);
++	return IRQ_HANDLED;
++}
++
++static inline struct ak39_venc *to_venc(struct file *f)
++{
++	return container_of(f->private_data, struct ak39_venc, misc);
++}
++
++static int ak39_venc_open(struct inode *inode, struct file *f)
++{
++	struct ak39_venc *v = to_venc(f);
++
++	mutex_lock(&v->pool_lock);
++	if (!v->open_count++) {
++		/* the core must be clocked and reset before any access */
++		sysctrl_update(SYSCTRL_CLKGATE, VENC_BIT, 0);
++		venc_soft_reset();
++		reinit_completion(&v->irq_done);
++		v->irq_armed = false;
++	}
++	mutex_unlock(&v->pool_lock);
++	return 0;
++}
++
++static int ak39_venc_release(struct inode *inode, struct file *f)
++{
++	struct ak39_venc *v = to_venc(f);
++	unsigned long flags;
++
++	mutex_lock(&v->pool_lock);
++	if (!--v->open_count) {
++		spin_lock_irqsave(&v->lock, flags);
++		if (v->irq_armed) {
++			v->irq_armed = false;
++			spin_unlock_irqrestore(&v->lock, flags);
++			disable_irq(v->irq);
++		} else {
++			spin_unlock_irqrestore(&v->lock, flags);
++		}
++		/* stop the core and gate its clock */
++		venc_soft_reset();
++		sysctrl_update(SYSCTRL_CLKGATE, VENC_BIT, VENC_BIT);
++	}
++	mutex_unlock(&v->pool_lock);
++	return 0;
++}
++
++static int ak39_venc_wait_irq(struct ak39_venc *v)
++{
++	unsigned long flags;
++	long left;
++
++	spin_lock_irqsave(&v->lock, flags);
++	if (!v->irq_armed) {
++		v->irq_armed = true;
++		reinit_completion(&v->irq_done);
++		spin_unlock_irqrestore(&v->lock, flags);
++		enable_irq(v->irq);
++	} else {
++		spin_unlock_irqrestore(&v->lock, flags);
++	}
++	left = wait_for_completion_interruptible_timeout(&v->irq_done,
++							 msecs_to_jiffies(2000));
++	if (left > 0)
++		return 0;
++	/* leave the line masked so a stuck core cannot storm */
++	spin_lock_irqsave(&v->lock, flags);
++	if (v->irq_armed) {
++		v->irq_armed = false;
++		spin_unlock_irqrestore(&v->lock, flags);
++		disable_irq(v->irq);
++	} else {
++		spin_unlock_irqrestore(&v->lock, flags);
++	}
++	return left ? -ERESTARTSYS : -ETIMEDOUT;
++}
++
++static long ak39_venc_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
++{
++	struct ak39_venc *v = to_venc(f);
++
++	switch (cmd) {
++	case AKUIO_SYSREG_WRITE: {
++		struct akuio_sysreg_write_t w;
++		u32 reg;
++
++		if (copy_from_user(&w, (void __user *)arg, sizeof(w)))
++			return -EFAULT;
++		/* only the clock gate and soft reset registers, only our bit */
++		if (w.paddr == AK_PA_SYSCTRL + SYSCTRL_CLKGATE ||
++		    w.paddr == AK_PA_SYSCTRL + SYSCTRL_SOFTRST) {
++			reg = w.paddr - AK_PA_SYSCTRL;
++			sysctrl_update(reg, w.mask & VENC_BIT, w.val);
++			return 0;
++		}
++		return -EPERM;
++	}
++	case AKUIO_WAIT_IRQ:
++		return ak39_venc_wait_irq(v);
++	case AKUIO_VIDEO_RESET:
++		venc_soft_reset();
++		return 0;
++	case AK39_VENC_POOL_INFO: {
++		struct ak39_venc_pool_info info = {
++			.paddr = v->pool_dma,
++			.size = v->pool_size,
++			.regs_paddr = v->regs_phys,
++			.regs_size = v->regs_size,
++		};
++
++		if (copy_to_user((void __user *)arg, &info, sizeof(info)))
++			return -EFAULT;
++		return 0;
++	}
++	default:
++		return -ENOTTY;
++	}
++}
++
++static int ak39_venc_mmap(struct file *f, struct vm_area_struct *vma)
++{
++	struct ak39_venc *v = to_venc(f);
++	unsigned long off = vma->vm_pgoff << PAGE_SHIFT;
++	unsigned long len = vma->vm_end - vma->vm_start;
++
++	if (!(vma->vm_flags & VM_SHARED))
++		return -EINVAL;
++
++	if (off >= AK39_VENC_MMAP_POOL) {
++		off -= AK39_VENC_MMAP_POOL;
++		if (!v->pool_virt || off + len > v->pool_size)
++			return -EINVAL;
++		/* the pool is write-combined: the core and the CPU agree */
++		vma->vm_pgoff = off >> PAGE_SHIFT;
++		return dma_mmap_wc(v->dev, vma, v->pool_virt, v->pool_dma,
++				   v->pool_size);
++	}
++
++	if (off + len > PAGE_ALIGN(v->regs_size))
++		return -EINVAL;
++	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
++	return io_remap_pfn_range(vma, vma->vm_start,
++				  (v->regs_phys + off) >> PAGE_SHIFT, len,
++				  vma->vm_page_prot);
++}
++
++static const struct file_operations ak39_venc_fops = {
++	.owner		= THIS_MODULE,
++	.open		= ak39_venc_open,
++	.release	= ak39_venc_release,
++	.unlocked_ioctl	= ak39_venc_ioctl,
++	.compat_ioctl	= compat_ptr_ioctl,
++	.mmap		= ak39_venc_mmap,
++	.llseek		= noop_llseek,
++};
++
++static int ak39_venc_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct ak39_venc *v;
++	struct resource *res;
++	u32 size = SZ_8M;
++	int ret;
++
++	if (!ak_sysctrl_base)
++		return -EPROBE_DEFER;
++
++	v = devm_kzalloc(dev, sizeof(*v), GFP_KERNEL);
++	if (!v)
++		return -ENOMEM;
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res)
++		return -ENODEV;
++	v->regs_phys = res->start;
++	v->regs_size = resource_size(res);
++	v->dev = dev;
++	spin_lock_init(&v->lock);
++	mutex_init(&v->pool_lock);
++	init_completion(&v->irq_done);
++
++	v->irq = platform_get_irq(pdev, 0);
++	if (v->irq < 0)
++		return v->irq;
++	irq_set_status_flags(v->irq, IRQ_NOAUTOEN);
++	ret = devm_request_irq(dev, v->irq, ak39_venc_irq, 0, "ak39-venc", v);
++	if (ret)
++		return ret;
++
++	/* a reserved region (memory-region), else the default pool */
++	ret = of_reserved_mem_device_init(dev);
++	if (ret && ret != -ENODEV)
++		return ret;
++	ret = dma_coerce_mask_and_coherent(dev, DMA_BIT_MASK(32));
++	if (ret)
++		return ret;
++	of_property_read_u32(dev->of_node, "anyka,pool-size", &size);
++	v->pool_size = PAGE_ALIGN(size);
++	v->pool_virt = dma_alloc_wc(dev, v->pool_size, &v->pool_dma, GFP_KERNEL);
++	if (!v->pool_virt) {
++		dev_err(dev, "cannot allocate the %zu byte pool\n", v->pool_size);
++		return -ENOMEM;
++	}
++
++	/* clock gated until the device is opened */
++	sysctrl_update(SYSCTRL_CLKGATE, VENC_BIT, VENC_BIT);
++
++	v->misc.minor = MISC_DYNAMIC_MINOR;
++	v->misc.name = "uio0";
++	v->misc.fops = &ak39_venc_fops;
++	v->misc.mode = 0660;
++	ret = misc_register(&v->misc);
++	if (ret) {
++		dma_free_wc(dev, v->pool_size, v->pool_virt, v->pool_dma);
++		return ret;
++	}
++	platform_set_drvdata(pdev, v);
++	dev_info(dev, "video encoder: regs %pa+%zx irq %d, pool %zu KiB at %pad\n",
++		 &v->regs_phys, v->regs_size, v->irq, v->pool_size >> 10,
++		 &v->pool_dma);
++	return 0;
++}
++
++static void ak39_venc_remove(struct platform_device *pdev)
++{
++	struct ak39_venc *v = platform_get_drvdata(pdev);
++
++	misc_deregister(&v->misc);
++	dma_free_wc(v->dev, v->pool_size, v->pool_virt, v->pool_dma);
++}
++
++static const struct of_device_id ak39_venc_of_match[] = {
++	{ .compatible = "anyka,ak3918ev300-venc" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ak39_venc_of_match);
++
++static struct platform_driver ak39_venc_driver = {
++	.probe = ak39_venc_probe,
++	.remove_new = ak39_venc_remove,
++	.driver = {
++		.name = "ak39-venc",
++		.of_match_table = ak39_venc_of_match,
++	},
++};
++module_platform_driver(ak39_venc_driver);
++
++MODULE_DESCRIPTION("Anyka AK3918EV300 video encoder access (user-space driven)");
++MODULE_LICENSE("GPL");
 diff --git a/drivers/mmc/host/Kconfig b/drivers/mmc/host/Kconfig
 index 554e67103..6343bed7b 100644
 --- a/drivers/mmc/host/Kconfig
@@ -27686,6 +28069,49 @@ index 000000000..3ddd9cc58
 +void ak_codec_ctl_event(unsigned int iface, unsigned int event, const char* ctl_name);
 +
 +#endif
+diff --git a/include/uapi/linux/ak39_venc.h b/include/uapi/linux/ak39_venc.h
+new file mode 100644
+index 000000000..4d2e00a6e
+--- /dev/null
++++ b/include/uapi/linux/ak39_venc.h
+@@ -0,0 +1,37 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++/*
++ * User API of the Anyka AK3918EV300 video encoder window (/dev/uio0).
++ *
++ * The ioctl numbers of WAIT_IRQ (101) and SYSREG_WRITE (100) are those of
++ * the vendor "akuio" driver, so a vendor-compatible libakuio keeps working;
++ * the pool calls are new.
++ */
++#ifndef _UAPI_LINUX_AK39_VENC_H
++#define _UAPI_LINUX_AK39_VENC_H
++
++#include <linux/ioctl.h>
++#include <linux/types.h>
++
++/* mmap() offsets (bytes) */
++#define AK39_VENC_MMAP_REGS	0x00000000UL	/* the register window */
++#define AK39_VENC_MMAP_POOL	0x10000000UL	/* the DMA pool */
++
++struct akuio_sysreg_write_t {
++	__u32 paddr;	/* physical address of a SYSCTRL register */
++	__u32 val;
++	__u32 mask;
++};
++
++struct ak39_venc_pool_info {
++	__u32 paddr;	/* physical address of the pool */
++	__u32 size;	/* bytes */
++	__u32 regs_paddr;	/* physical address of the register window */
++	__u32 regs_size;
++};
++
++#define AKUIO_SYSREG_WRITE	_IOW('U', 100, struct akuio_sysreg_write_t)
++#define AKUIO_WAIT_IRQ		_IOR('U', 101, int)
++#define AKUIO_VIDEO_RESET	_IOR('U', 105, int)
++#define AK39_VENC_POOL_INFO	_IOR('U', 110, struct ak39_venc_pool_info)
++
++#endif
 diff --git a/sound/arm/Kconfig b/sound/arm/Kconfig
 index dea2c661b..4e4650202 100644
 --- a/sound/arm/Kconfig
@@ -27724,7 +28150,7 @@ index 34c769489..980f43b2a 100644
 +snd-codec-ak39-objs		:= ak39_codec.o
 diff --git a/sound/arm/ak39_codec.c b/sound/arm/ak39_codec.c
 new file mode 100644
-index 000000000..d2485be86
+index 000000000..66bdc52da
 --- /dev/null
 +++ b/sound/arm/ak39_codec.c
 @@ -0,0 +1,2208 @@
@@ -30107,7 +30533,7 @@ index 000000000..711011eb1
 +#endif
 diff --git a/sound/arm/ak_pcm.c b/sound/arm/ak_pcm.c
 new file mode 100644
-index 000000000..7f205580e
+index 000000000..7a9cdec59
 --- /dev/null
 +++ b/sound/arm/ak_pcm.c
 @@ -0,0 +1,1539 @@

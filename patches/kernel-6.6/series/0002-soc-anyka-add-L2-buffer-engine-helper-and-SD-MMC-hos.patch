@@ -1,0 +1,3503 @@
+From f56a6385b511d8c80b49f917d1cc72b40d6a9d57 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 10:09:14 +0200
+Subject: [PATCH 2/9] soc: anyka: add L2 buffer engine helper and SD/MMC host
+
+The L2 buffer engine is shared between MMC, USB and the camera interface.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
+---
+ drivers/mmc/host/Kconfig        |    7 +
+ drivers/mmc/host/Makefile       |    2 +
+ drivers/mmc/host/akmci-compat.h |   81 ++
+ drivers/mmc/host/akmci-core.c   |  926 +++++++++++++++++++++
+ drivers/mmc/host/akmci-of.c     |  412 ++++++++++
+ drivers/mmc/host/akmci.h        |  284 +++++++
+ drivers/soc/Makefile            |    1 +
+ drivers/soc/anyka/Makefile      |    1 +
+ drivers/soc/anyka/ak_l2.c       | 1334 +++++++++++++++++++++++++++++++
+ include/linux/soc/anyka/ak_l2.h |  357 +++++++++
+ 10 files changed, 3405 insertions(+)
+ create mode 100644 drivers/mmc/host/akmci-compat.h
+ create mode 100644 drivers/mmc/host/akmci-core.c
+ create mode 100644 drivers/mmc/host/akmci-of.c
+ create mode 100644 drivers/mmc/host/akmci.h
+ create mode 100644 drivers/soc/anyka/Makefile
+ create mode 100644 drivers/soc/anyka/ak_l2.c
+ create mode 100644 include/linux/soc/anyka/ak_l2.h
+
+diff --git a/drivers/mmc/host/Kconfig b/drivers/mmc/host/Kconfig
+index 554e67103..6343bed7b 100644
+--- a/drivers/mmc/host/Kconfig
++++ b/drivers/mmc/host/Kconfig
+@@ -1069,3 +1069,10 @@ config MMC_LITEX
+ 	  module will be called litex_mmc.
+ 
+ 	  If unsure, say N.
++
++config MMC_AKMCI
++	tristate "Anyka AK39 MCI/SD host"
++	depends on ARCH_ANYKA
++	help
++	  SD/MMC host of the Anyka AK3918EV300 (TECKIN TC100), through the
++	  on-chip L2 buffer engine.
+diff --git a/drivers/mmc/host/Makefile b/drivers/mmc/host/Makefile
+index a693fa3d3..cdc97c477 100644
+--- a/drivers/mmc/host/Makefile
++++ b/drivers/mmc/host/Makefile
+@@ -108,3 +108,5 @@ endif
+ 
+ obj-$(CONFIG_MMC_SDHCI_XENON)	+= sdhci-xenon-driver.o
+ sdhci-xenon-driver-y		+= sdhci-xenon.o sdhci-xenon-phy.o
++obj-$(CONFIG_MMC_AKMCI)	+= akmci.o
++akmci-y := akmci-core.o akmci-of.o
+diff --git a/drivers/mmc/host/akmci-compat.h b/drivers/mmc/host/akmci-compat.h
+new file mode 100644
+index 000000000..55795f31f
+--- /dev/null
++++ b/drivers/mmc/host/akmci-compat.h
+@@ -0,0 +1,81 @@
++/*
++ * akmci-compat.h - kernel-version shims for the Anyka MCI host driver
++ *
++ * Copyright (C) 2026 Alex Zhang <alex@osqdu.org>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ *
++ * This is the only file in the driver permitted to test LINUX_VERSION_CODE.
++ * akmci-core.c and akmci.h are byte-identical on every tree; everything that
++ * differs between kernels is either named here or lives in the per-tree probe
++ * glue (resource claiming, clocks, GPIO, power management, L2 backend).
++ */
++#ifndef __DRIVERS_MMC_HOST_AKMCI_COMPAT_H__
++#define __DRIVERS_MMC_HOST_AKMCI_COMPAT_H__
++
++#include <linux/device.h>
++#include <linux/mmc/host.h>
++#include <linux/ratelimit.h>
++#include <linux/timer.h>
++#include <linux/version.h>
++
++/*
++ * Host claim callbacks. struct mmc_host_ops carried .enable/.disable until
++ * v3.11 removed them. The core's ops table is one piece of text on every tree,
++ * so the two slots are contributed from here and are empty everywhere: the
++ * driver has never had per-claim work to do, and the 3.4 vendor bodies were
++ * a debug print each.
++ */
++#define AKMCI_MMC_OPS_CLAIM_HOOKS	/* nothing on any supported tree */
++
++/*
++ * Timer setup. 3.4 and 4.4 both take a callback of void(*)(unsigned long) and
++ * stash the argument in the timer; v4.15 replaced that with timer_setup() and
++ * container_of on the timer itself.
++ */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
++typedef unsigned long akmci_timer_arg_t;
++#define akmci_timer_setup(t, fn, host)					\
++	setup_timer((t), (fn), (unsigned long)(host))
++#define akmci_timer_host(arg, member)					\
++	((struct akmci_host *)(arg))
++#else
++typedef struct timer_list *akmci_timer_arg_t;
++#define akmci_timer_setup(t, fn, host)					\
++	timer_setup((t), (fn), 0)
++#define akmci_timer_host(arg, member)					\
++	container_of((arg), struct akmci_host, member)
++#endif
++
++/*
++ * Rate-limited device errors. v3.6 added the dev_*_ratelimited family; 3.4 has
++ * only the unlimited dev_err(). Every error the driver can emit from the I/O
++ * path goes through this, because a flood would land in the log on the very
++ * card the driver is failing to write.
++ */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 6, 0)
++#define akmci_err_ratelimited(dev, fmt, ...)				\
++({									\
++	static DEFINE_RATELIMIT_STATE(_akmci_rs,			\
++				      DEFAULT_RATELIMIT_INTERVAL,	\
++				      DEFAULT_RATELIMIT_BURST);		\
++									\
++	if (__ratelimit(&_akmci_rs))					\
++		dev_err(dev, fmt, ##__VA_ARGS__);			\
++})
++#else
++#define akmci_err_ratelimited(dev, fmt, ...)				\
++	dev_err_ratelimited(dev, fmt, ##__VA_ARGS__)
++#endif
++
++/* Settle time before the core is told the slot occupancy changed. */
++#define AKMCI_DETECT_DELAY		msecs_to_jiffies(50)
++
++/* v4.13 removed stream transfers (MMC_DATA_STREAM); nothing sets it. */
++#ifndef MMC_DATA_STREAM
++#define MMC_DATA_STREAM		0
++#endif
++
++#endif /* __DRIVERS_MMC_HOST_AKMCI_COMPAT_H__ */
+diff --git a/drivers/mmc/host/akmci-core.c b/drivers/mmc/host/akmci-core.c
+new file mode 100644
+index 000000000..85485f8b9
+--- /dev/null
++++ b/drivers/mmc/host/akmci-core.c
+@@ -0,0 +1,926 @@
++/*
++ * akmci-core.c - Anyka AK39 MCI host controller, request engine
++ *
++ * Copyright (C) 2010 Anyka, Ltd, All Rights Reserved.
++ * Copyright (C) 2026 Alex Zhang <alex@osqdu.org>
++ *
++ * Request sequencing, error handling and completion discipline follow
++ * drivers/mmc/host/mmci.c (ARM PrimeCell PL180), from which this controller's
++ * programming model is descended. The register vocabulary is Anyka's own and
++ * the transfer path is the SoC's shared L2 buffer pool, not a PL180 FIFO.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ */
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/dma-mapping.h>
++#include <linux/err.h>
++#include <linux/highmem.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/kernel.h>
++#include <linux/mmc/host.h>
++#include <linux/ratelimit.h>
++#include <linux/scatterlist.h>
++#include <linux/spinlock.h>
++#include <linux/timer.h>
++
++#include <asm/cacheflush.h>
++
++#include "akmci.h"
++
++#define BOTH_DIR	(MMC_DATA_WRITE | MMC_DATA_READ)
++
++static const char *const akmci_xfer_desc[] = {
++	[AKMCI_XFER_DMA] = "l2dma",
++	[AKMCI_XFER_PIO] = "l2pio",
++};
++
++static const char *const akmci_cd_desc[] = {
++	[AKMCI_CD_ALWAYS] = "always present",
++	[AKMCI_CD_GPIO]   = "gpio",
++	[AKMCI_CD_HOOK]   = "board hook",
++};
++
++static void akmci_enable_imask(struct akmci_host *host, u32 imask)
++{
++	u32 newmask = readl(host->base + MCI_MASK_REG);
++
++	writel(newmask | imask, host->base + MCI_MASK_REG);
++}
++
++static void akmci_disable_imask(struct akmci_host *host, u32 imask)
++{
++	u32 newmask = readl(host->base + MCI_MASK_REG);
++
++	writel(newmask & ~imask, host->base + MCI_MASK_REG);
++}
++
++static void akmci_clear_imask(struct akmci_host *host)
++{
++	u32 mask = readl(host->base + MCI_MASK_REG);
++
++	/* The SDIO interrupt is not part of a request and must survive. */
++	writel(mask & MCI_SDIOINTMASK, host->base + MCI_MASK_REG);
++}
++
++/*
++ * Take one L2 common buffer. The pool is shared with SPI, USB and audio, so
++ * acquisition is bounded: a busy pool fails the request rather than parking
++ * the block queue in an uninterruptible sleep.
++ */
++static int akmci_l2_acquire(struct akmci_host *host)
++{
++	unsigned int waited = 0;
++	u8 id = AKMCI_L2BUF_NONE;
++	int ret;
++
++	for (;;) {
++		ret = host->l2->buf_get(host, &id);
++		if (ret == 0 && id != AKMCI_L2BUF_NONE) {
++			host->l2buf_id = id;
++			host->l2_dma_active = 0;
++			return 0;
++		}
++
++		if (waited >= MCI_L2_ACQUIRE_US)
++			break;
++
++		if (in_interrupt() || irqs_disabled())
++			udelay(MCI_L2_ACQUIRE_STEP_US);
++		else
++			usleep_range(MCI_L2_ACQUIRE_STEP_US,
++				     2 * MCI_L2_ACQUIRE_STEP_US);
++		waited += MCI_L2_ACQUIRE_STEP_US;
++	}
++
++	akmci_err_ratelimited(host->dev, "no L2 buffer available\n");
++	return -EIO;
++}
++
++static void akmci_l2_release(struct akmci_host *host)
++{
++	if (host->l2buf_id == AKMCI_L2BUF_NONE)
++		return;
++
++	host->l2->buf_put(host);
++	host->l2buf_id = AKMCI_L2BUF_NONE;
++	host->l2_dma_active = 0;
++}
++
++static int akmci_l2_wait(struct akmci_host *host)
++{
++	int ret;
++
++	if (!host->l2_dma_active)
++		return 0;
++
++	ret = host->l2->wait(host);
++	host->l2_dma_active = 0;
++
++	return ret;
++}
++
++/*
++ * Hand the next chunk to the L2 buffer. One chunk is at most one block, which
++ * is what the controller consumes between DATABLOCKEND interrupts.
++ */
++static int akmci_l2xfer(struct akmci_host *host)
++{
++	struct mmc_data *data = host->data;
++	unsigned int sg_remain;
++	unsigned int xferlen;
++	int to_card;
++	int ret;
++
++	if (data == NULL || host->sg_ptr == NULL || host->size == 0)
++		return -EIO;
++
++	to_card = !!(data->flags & MMC_DATA_WRITE);
++
++	while (host->sg_off >= host->sg_ptr->length) {
++		if (host->sg_len <= 1)
++			return -EIO;
++
++		host->sg_ptr = sg_next(host->sg_ptr);
++		if (host->sg_ptr == NULL)
++			return -EIO;
++
++		host->sg_len--;
++		host->sg_off = 0;
++	}
++
++	sg_remain = host->sg_ptr->length - host->sg_off;
++	xferlen = min3(sg_remain, (unsigned int)data->blksz, host->size);
++	if (xferlen == 0)
++		return -EIO;
++
++	if (host->dma_mapped && xferlen >= MCI_L2_DMA_ALIGN) {
++		ret = host->l2->xfer_dma(host,
++					 sg_dma_address(host->sg_ptr) + host->sg_off,
++					 xferlen, to_card);
++		if (ret == 0)
++			host->l2_dma_active = 1;
++	} else {
++		ret = host->l2->xfer_cpu(host,
++					 sg_virt(host->sg_ptr) + host->sg_off,
++					 xferlen, to_card);
++	}
++
++	if (ret)
++		return ret;
++
++	host->sg_off += xferlen;
++	host->data_xfered += xferlen;
++	host->size -= xferlen;
++
++	return 0;
++}
++
++static void akmci_stop_data(struct akmci_host *host)
++{
++	struct mmc_data *data = host->data;
++
++	writel(0, host->base + MCI_DMACTRL_REG);
++	writel(0, host->base + MCI_DATACTRL_REG);
++
++	akmci_disable_imask(host, MCI_DATAIRQMASKS | MCI_FIFOFULLMASK |
++				  MCI_FIFOEMPTYMASK);
++
++	if (data != NULL && host->dma_mapped) {
++		enum dma_data_direction ddir = (data->flags & MMC_DATA_WRITE) ?
++				DMA_TO_DEVICE : DMA_FROM_DEVICE;
++
++		dma_sync_sg_for_cpu(host->dev, data->sg, data->sg_len, ddir);
++		dma_unmap_sg(host->dev, data->sg, data->sg_len, ddir);
++	}
++	host->dma_mapped = 0;
++
++	host->sg_ptr = NULL;
++	host->sg_len = 0;
++	host->sg_off = 0;
++
++	host->data = NULL;
++}
++
++/*
++ * Complete a request exactly once. Everything the request owns - the data
++ * phase, the L2 buffer, the watchdog, the controller state - is released here
++ * whatever went wrong, and the byte count handed back is all or nothing.
++ */
++static void akmci_request_end(struct akmci_host *host, struct mmc_request *mrq)
++{
++	if (WARN_ON_ONCE(mrq == NULL || host->mrq != mrq))
++		return;
++
++	writel(0, host->base + MCI_COMMAND_REG);
++
++	del_timer(&host->req_timer);
++
++	if (host->data != NULL) {
++		if (host->data->error == 0)
++			host->data->error = -EIO;
++		akmci_stop_data(host);
++	}
++
++	host->mrq = NULL;
++	host->cmd = NULL;
++
++	if (host->data_err_flag > 0) {
++		host->l2->reset(host);
++
++		writel(MCI_ENABLE | MCI_FAIL_TRIGGER, host->base + MCI_CLK_REG);
++		writel(readl(host->base + MCI_CLK_REG) | host->clkreg,
++		       host->base + MCI_CLK_REG);
++		mdelay(10);
++	}
++
++	akmci_l2_release(host);
++
++	if (mrq->data) {
++		unsigned int len = mrq->data->blksz * mrq->data->blocks;
++
++		if (mrq->data->error == 0 && host->data_xfered != len)
++			mrq->data->error = -EIO;
++
++		if (mrq->data->error || mrq->cmd->error)
++			mrq->data->bytes_xfered = 0;
++		else
++			mrq->data->bytes_xfered = len;
++	}
++
++	/* mmc_request_done() may re-enter the driver, so drop the lock. */
++	spin_unlock(&host->lock);
++	mmc_request_done(host->mmc, mrq);
++	spin_lock(&host->lock);
++}
++
++/*
++ * Complete a request that never reached the controller. host->mrq was never
++ * published, so a stray interrupt cannot race with this.
++ */
++static void akmci_fail_request(struct akmci_host *host,
++			       struct mmc_request *mrq, int err)
++{
++	if (mrq->cmd)
++		mrq->cmd->error = err;
++	if (mrq->data) {
++		mrq->data->error = err;
++		mrq->data->bytes_xfered = 0;
++	}
++	if (mrq->stop)
++		mrq->stop->error = err;
++
++	mmc_request_done(host->mmc, mrq);
++}
++
++static int akmci_start_data(struct akmci_host *host, struct mmc_data *data)
++{
++	unsigned int datactrl, dmacon;
++	unsigned int size;
++
++	if ((data->flags & BOTH_DIR) == BOTH_DIR ||
++	    (data->flags & BOTH_DIR) == 0) {
++		akmci_err_ratelimited(host->dev, "bad data direction 0x%08x\n",
++				    data->flags);
++		return -EINVAL;
++	}
++
++	size = data->blksz * data->blocks;
++	if (data->blksz == 0 || data->blocks == 0 ||
++	    data->blksz > MAX_MCI_BLOCK_SIZE ||
++	    size > MAX_MCI_REQ_SIZE ||
++	    data->sg == NULL || data->sg_len == 0) {
++		akmci_err_ratelimited(host->dev,
++				    "bad data shape blksz=%u blocks=%u sg_len=%u\n",
++				    data->blksz, data->blocks, data->sg_len);
++		return -EINVAL;
++	}
++
++	/*
++	 * MCI_STATUS is read-to-clear. Draining it here discards anything
++	 * latched by the command phase, so the first status word the data
++	 * phase sees describes the data phase.
++	 */
++	if (readl(host->base + MCI_STATUS_REG) & MCI_SDIOINT)
++		mmc_signal_sdio_irq(host->mmc);
++
++	host->data = data;
++	host->size = size;
++	host->data_xfered = 0;
++
++	host->sg_len = data->sg_len;
++	host->sg_ptr = data->sg;
++	host->sg_off = 0;
++
++	/*
++	 * The L2 engine only moves whole 64-byte shots, so short control
++	 * transfers go through the CPU path and are never mapped for DMA.
++	 */
++	if (host->cfg.xfer_kind == AKMCI_XFER_DMA &&
++	    data->blksz >= MCI_L2_DMA_ALIGN) {
++		enum dma_data_direction ddir = (data->flags & MMC_DATA_WRITE) ?
++				DMA_TO_DEVICE : DMA_FROM_DEVICE;
++
++		if (dma_map_sg(host->dev, data->sg, data->sg_len, ddir) == 0) {
++			akmci_err_ratelimited(host->dev,
++					    "failed to map the request sg list\n");
++			host->data = NULL;
++			return -EIO;
++		}
++		host->dma_mapped = 1;
++	}
++
++	writel(TRANS_DATA_TIMEOUT, host->base + MCI_DATATIMER_REG);
++	writel(host->size, host->base + MCI_DATALENGTH_REG);
++
++	dmacon = MCI_DMA_BUFEN | MCI_DMA_SIZE(MCI_L2FIFO_SIZE / 4);
++	if (host->cfg.xfer_kind == AKMCI_XFER_DMA)
++		dmacon |= MCI_DMA_EN;
++	writel(dmacon, host->base + MCI_DMACTRL_REG);
++
++	akmci_enable_imask(host, MCI_DATAIRQMASKS);
++
++	datactrl = MCI_DPSM_ENABLE;
++
++	switch (host->bus_width) {
++	case MMC_BUS_WIDTH_8:
++		datactrl |= MCI_DPSM_BUSMODE(2);
++		break;
++	case MMC_BUS_WIDTH_4:
++		datactrl |= MCI_DPSM_BUSMODE(1);
++		break;
++	case MMC_BUS_WIDTH_1:
++	default:
++		datactrl |= MCI_DPSM_BUSMODE(0);
++		break;
++	}
++
++	if (data->flags & MMC_DATA_STREAM)
++		datactrl |= MCI_DPSM_STREAM;
++	else
++		datactrl |= MCI_DPSM_BLOCKSIZE(data->blksz);
++
++	if (data->flags & MMC_DATA_READ)
++		datactrl |= MCI_DPSM_DIRECTION;
++
++	writel(datactrl, host->base + MCI_DATACTRL_REG);
++
++	if (data->flags & MMC_DATA_WRITE) {
++		if (akmci_l2xfer(host)) {
++			akmci_stop_data(host);
++			return -EIO;
++		}
++	}
++
++	return 0;
++}
++
++static void akmci_start_command(struct akmci_host *host,
++				struct mmc_command *cmd)
++{
++	unsigned int ccon;
++
++	writel(cmd->arg, host->base + MCI_ARGUMENT_REG);
++	akmci_enable_imask(host, MCI_CMDIRQMASKS);
++
++	ccon = MCI_CPSM_CMD(cmd->opcode) | MCI_CPSM_ENABLE;
++	if (cmd->flags & MMC_RSP_PRESENT) {
++		ccon |= MCI_CPSM_RESPONSE;
++		if (cmd->flags & MMC_RSP_136)
++			ccon |= MCI_CPSM_LONGRSP;
++	}
++
++	if (cmd->data)
++		ccon |= MCI_CPSM_WITHDATA;
++
++	host->cmd = cmd;
++
++	writel(ccon, host->base + MCI_COMMAND_REG);
++}
++
++static void akmci_report_data_err(struct akmci_host *host,
++				  struct mmc_data *data, const char *err)
++{
++	akmci_err_ratelimited(host->dev, "data %s: %s, %u of %u bytes left\n",
++			    (data->flags & MMC_DATA_READ) ? "read" : "write",
++			    err, host->size, data->blksz * data->blocks);
++}
++
++static u8 akmci_probe_l2(struct akmci_host *host)
++{
++	if (host->l2->buf_status == NULL ||
++	    host->l2buf_id == AKMCI_L2BUF_NONE)
++		return 0;
++
++	return host->l2->buf_status(host);
++}
++
++int akmci_probe_format(struct akmci_host *host, char *buf, size_t len)
++{
++	struct akmci_probe *p = &host->probe;
++
++	return snprintf(buf, len,
++			"blockend %u\nblockend_active %u\n"
++			"dataend %u\ndataend_nofinish %u\n"
++			"cnt_midblock %u\n"
++			"wr_dirty %u\nwr_dirty_max %u\n"
++			"rd_end_dirty %u\nrd_end_max %u\n",
++			p->blockend, p->blockend_active,
++			p->dataend, p->dataend_nofinish,
++			p->cnt_midblock,
++			p->wr_dirty, p->wr_dirty_max,
++			p->rd_end_dirty, p->rd_end_max);
++}
++
++static void akmci_data_irq(struct akmci_host *host, struct mmc_data *data,
++			   unsigned int status)
++{
++	const unsigned int hw = status;
++
++	if (status & MCI_DATABLOCKEND) {
++		u32 cnt = readl(host->base + MCI_DATACNT_REG);
++
++		host->probe.blockend++;
++		if (hw & (MCI_TXACTIVE | MCI_RXACTIVE))
++			host->probe.blockend_active++;
++		if (data->blksz && (cnt % data->blksz) != 0)
++			host->probe.cnt_midblock++;
++
++		if (akmci_l2_wait(host)) {
++			data->error = -EIO;
++			akmci_report_data_err(host, data, "l2 transfer stalled");
++			status |= MCI_DATAEND;
++			host->data_err_flag = 1;
++		} else {
++			if (data->flags & MMC_DATA_WRITE) {
++				u8 occ = akmci_probe_l2(host);
++
++				if (occ) {
++					host->probe.wr_dirty++;
++					if (occ > host->probe.wr_dirty_max)
++						host->probe.wr_dirty_max = occ;
++				}
++			}
++
++			if (data->flags & MMC_DATA_WRITE)
++				host->l2->clr_status(host);
++
++			if (host->size > 0 && akmci_l2xfer(host)) {
++				data->error = -EIO;
++				akmci_report_data_err(host, data,
++						      "scatterlist exhausted");
++				status |= MCI_DATAEND;
++				host->data_err_flag = 1;
++			}
++		}
++	}
++
++	if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_STARTBIT_ERR)) {
++		if (status & MCI_DATACRCFAIL) {
++			data->error = -EILSEQ;
++			akmci_report_data_err(host, data, "crc failure");
++		} else if (status & MCI_DATATIMEOUT) {
++			data->error = -ETIMEDOUT;
++			akmci_report_data_err(host, data, "transfer timeout");
++		} else {
++			data->error = -EIO;
++			akmci_report_data_err(host, data, "start bit error");
++		}
++
++		status |= MCI_DATAEND;
++		host->data_err_flag = 1;
++
++		if (host->sg_ptr && (data->flags & MMC_DATA_READ))
++			flush_dcache_page(sg_page(host->sg_ptr));
++	}
++
++	if (status & MCI_DATAEND) {
++		if (hw & MCI_DATAEND) {
++			host->probe.dataend++;
++			if (!(hw & MCI_DATATRANS_FINISH))
++				host->probe.dataend_nofinish++;
++		}
++
++		if (!data->error && akmci_l2_wait(host)) {
++			data->error = -EIO;
++			host->data_err_flag = 1;
++		}
++
++		if (!data->error && (data->flags & MMC_DATA_READ)) {
++			u8 occ = akmci_probe_l2(host);
++
++			if (occ) {
++				host->probe.rd_end_dirty++;
++				if (occ > host->probe.rd_end_max)
++					host->probe.rd_end_max = occ;
++			}
++		}
++
++		if (!data->error)
++			host->data_err_flag = 0;
++
++		akmci_stop_data(host);
++
++		if (!data->stop)
++			akmci_request_end(host, data->mrq);
++		else
++			akmci_start_command(host, data->stop);
++	}
++}
++
++static void akmci_cmd_irq(struct akmci_host *host, struct mmc_command *cmd,
++			  unsigned int status)
++{
++	host->cmd = NULL;
++
++	cmd->resp[0] = readl(host->base + MCI_RESPONSE0_REG);
++	cmd->resp[1] = readl(host->base + MCI_RESPONSE1_REG);
++	cmd->resp[2] = readl(host->base + MCI_RESPONSE2_REG);
++	cmd->resp[3] = readl(host->base + MCI_RESPONSE3_REG);
++
++	if (status & MCI_RESPTIMEOUT)
++		cmd->error = -ETIMEDOUT;
++	else if ((status & MCI_RESPCRCFAIL) && (cmd->flags & MMC_RSP_CRC))
++		cmd->error = -EILSEQ;
++
++	akmci_disable_imask(host, MCI_CMDIRQMASKS);
++
++	if (!cmd->data || cmd->error) {
++		if (host->data != NULL) {
++			if (host->data->error == 0)
++				host->data->error = cmd->error ? : -EIO;
++			host->data_err_flag = 1;
++			akmci_stop_data(host);
++		}
++		akmci_request_end(host, cmd->mrq);
++	} else if (!(cmd->data->flags & MMC_DATA_READ)) {
++		int ret = akmci_start_data(host, cmd->data);
++
++		if (ret) {
++			cmd->data->error = ret;
++			host->data_err_flag = 1;
++			akmci_request_end(host, cmd->mrq);
++		}
++	}
++}
++
++/*
++ * MCI_STATUS is cleared by being read, so one read is the only report the
++ * driver ever gets for the events it names. Serving both phases from that one
++ * word is what allowed a DATAEND latched before the data phase existed to
++ * complete a request while its pages were still being transferred; the data
++ * bits are therefore dropped whenever they cannot belong to the live data
++ * phase.
++ */
++irqreturn_t akmci_irq(int irq, void *dev_id)
++{
++	struct akmci_host *host = dev_id;
++	u32 status;
++
++	spin_lock(&host->lock);
++
++	status = readl(host->base + MCI_STATUS_REG);
++
++	if (status & MCI_SDIOINT) {
++		mmc_signal_sdio_irq(host->mmc);
++		status |= readl(host->base + MCI_STATUS_REG);
++	}
++
++	if (host->data == NULL)
++		status &= ~MCI_DATAIRQSTATUS;
++
++	if ((status & MCI_CMDIRQSTATUS) && host->cmd) {
++		struct mmc_data *data = host->data;
++
++		akmci_cmd_irq(host, host->cmd, status);
++
++		if (host->data != data)
++			status &= ~MCI_DATAIRQSTATUS;
++	}
++
++	if ((status & MCI_DATAIRQSTATUS) && host->data)
++		akmci_data_irq(host, host->data, status);
++
++	spin_unlock(&host->lock);
++
++	return IRQ_HANDLED;
++}
++
++/*
++ * Recover a request the controller stopped reporting progress for. Without
++ * this a lost interrupt or an L2 peer that never releases the bus parks the
++ * block queue for ever.
++ */
++static void akmci_req_timeout(akmci_timer_arg_t arg)
++{
++	struct akmci_host *host = akmci_timer_host(arg, req_timer);
++	struct mmc_request *mrq;
++	unsigned long flags;
++
++	spin_lock_irqsave(&host->lock, flags);
++
++	mrq = host->mrq;
++	if (mrq != NULL) {
++		akmci_err_ratelimited(host->dev,
++				    "request timed out (cmd %u, %u bytes left)\n",
++				    mrq->cmd ? mrq->cmd->opcode : 0, host->size);
++
++		akmci_clear_imask(host);
++
++		if (host->data != NULL && host->data->error == 0)
++			host->data->error = -ETIMEDOUT;
++		if (host->cmd != NULL && host->cmd->error == 0)
++			host->cmd->error = -ETIMEDOUT;
++		if (mrq->cmd != NULL && mrq->cmd->error == 0)
++			mrq->cmd->error = -ETIMEDOUT;
++
++		host->data_err_flag = 1;
++		akmci_request_end(host, mrq);
++	}
++
++	spin_unlock_irqrestore(&host->lock, flags);
++}
++
++static int akmci_card_present(struct mmc_host *mmc)
++{
++	struct akmci_host *host = mmc_priv(mmc);
++
++	switch (host->cfg.cd_kind) {
++	case AKMCI_CD_GPIO:
++		if (host->cfg.gpio_cd < 0 || host->cfg.gpio_get == NULL)
++			return 1;
++		return host->cfg.gpio_get(host->cfg.gpio_cd) == 0;
++	case AKMCI_CD_HOOK:
++		if (host->cfg.card_present == NULL)
++			return 1;
++		return host->cfg.card_present(host);
++	case AKMCI_CD_ALWAYS:
++	default:
++		return 1;
++	}
++}
++
++static void akmci_request(struct mmc_host *mmc, struct mmc_request *mrq)
++{
++	struct akmci_host *host = mmc_priv(mmc);
++	struct mmc_data *data;
++	unsigned long flags;
++	int ret;
++
++	if (akmci_card_present(mmc) == 0) {
++		dev_dbg(host->dev, "no medium present\n");
++		akmci_fail_request(host, mrq, -ENOMEDIUM);
++		return;
++	}
++
++	host->data_err_flag = 0;
++	host->data_xfered = 0;
++
++	data = mrq->data ? mrq->data : (mrq->cmd ? mrq->cmd->data : NULL);
++	if (data != NULL) {
++		ret = akmci_l2_acquire(host);
++		if (ret) {
++			akmci_fail_request(host, mrq, ret);
++			return;
++		}
++	}
++
++	spin_lock_irqsave(&host->lock, flags);
++
++	host->mrq = mrq;
++	mod_timer(&host->req_timer, jiffies + MCI_REQ_TIMEOUT);
++
++	ret = 0;
++	if (mrq->data && (mrq->data->flags & MMC_DATA_READ))
++		ret = akmci_start_data(host, mrq->data);
++
++	if (ret) {
++		mrq->cmd->error = ret;
++		mrq->data->error = ret;
++		host->data_err_flag = 1;
++		akmci_request_end(host, mrq);
++	} else {
++		akmci_start_command(host, mrq->cmd);
++	}
++
++	spin_unlock_irqrestore(&host->lock, flags);
++}
++
++/*
++ * The bus clock is asic_clk / ((DIVH + 1) * (DIVL + 1)). The vendor splits the
++ * requested divisor additively, which under-clocks the bus; the split is kept
++ * because it is what this board has been characterised at, and only the
++ * out-of-range cases are clamped.
++ */
++static void akmci_set_clk(struct akmci_host *host, struct mmc_ios *ios)
++{
++	u32 clk, div;
++	u32 clk_div_h, clk_div_l;
++
++	if (ios->clock == 0) {
++		clk = readl(host->base + MCI_CLK_REG);
++		clk &= ~MCI_CLK_ENABLE;
++		writel(clk, host->base + MCI_CLK_REG);
++
++		host->bus_clock = 0;
++		host->clkreg = clk;
++		return;
++	}
++
++	clk = readl(host->base + MCI_CLK_REG);
++	clk |= MCI_CLK_ENABLE;
++	clk &= ~MCI_CLK_DIV_MASK;
++
++	div = host->asic_clk / ios->clock;
++	if (host->asic_clk % ios->clock)
++		div += 1;
++
++	if (div < 2)
++		div = 2;
++	div -= 2;
++
++	clk_div_h = div / 2;
++	clk_div_l = div - clk_div_h;
++
++	if (clk_div_h > 255)
++		clk_div_h = 255;
++	if (clk_div_l > 255)
++		clk_div_l = 255;
++
++	clk |= MMC_CLK_DIVL(clk_div_l) | MMC_CLK_DIVH(clk_div_h);
++	writel(clk, host->base + MCI_CLK_REG);
++
++	host->bus_clock = host->asic_clk / ((clk_div_h + 1) * (clk_div_l + 1));
++	host->clkreg = clk;
++}
++
++static void akmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
++{
++	struct akmci_host *host = mmc_priv(mmc);
++
++	host->bus_mode = ios->bus_mode;
++	host->bus_width = ios->bus_width;
++
++	if (ios->clock != host->bus_clock)
++		akmci_set_clk(host, ios);
++}
++
++static int akmci_get_ro(struct mmc_host *mmc)
++{
++	struct akmci_host *host = mmc_priv(mmc);
++
++	if (host->cfg.gpio_wp < 0 || host->cfg.gpio_get == NULL)
++		return 0;
++
++	return host->cfg.gpio_get(host->cfg.gpio_wp) == 0;
++}
++
++static void akmci_enable_sdio_irq(struct mmc_host *mmc, int enable)
++{
++	struct akmci_host *host = mmc_priv(mmc);
++	unsigned long flags;
++	unsigned int reg1, reg2;
++
++	if (host->cfg.dev_kind != AKMCI_DEV_SDIO)
++		return;
++
++	spin_lock_irqsave(&host->lock, flags);
++
++	reg1 = readl(host->base + MCI_MASK_REG);
++	reg2 = readl(host->base + SDIO_INTRCTR_REG);
++
++	if (enable) {
++		reg1 |= SDIO_INTR_ENABLE;
++		reg2 |= SDIO_INTR_CTR_ENABLE;
++	} else {
++		reg1 &= ~SDIO_INTR_ENABLE;
++		reg2 &= ~SDIO_INTR_CTR_ENABLE;
++	}
++
++	writel(reg2, host->base + SDIO_INTRCTR_REG);
++	writel(reg1, host->base + MCI_MASK_REG);
++
++	spin_unlock_irqrestore(&host->lock, flags);
++}
++
++static struct mmc_host_ops akmci_ops = {
++	AKMCI_MMC_OPS_CLAIM_HOOKS
++	.request	 = akmci_request,
++	.set_ios	 = akmci_set_ios,
++	.get_ro		 = akmci_get_ro,
++	.get_cd		 = akmci_card_present,
++	.enable_sdio_irq = akmci_enable_sdio_irq,
++};
++
++void akmci_card_event(struct akmci_host *host)
++{
++	mmc_detect_change(host->mmc, AKMCI_DETECT_DELAY);
++}
++
++struct akmci_host *akmci_host_alloc(struct device *dev)
++{
++	struct akmci_host *host;
++	struct mmc_host *mmc;
++
++	mmc = mmc_alloc_host(sizeof(struct akmci_host), dev);
++	if (!mmc)
++		return NULL;
++
++	host = mmc_priv(mmc);
++	host->mmc = mmc;
++	host->dev = dev;
++
++	spin_lock_init(&host->lock);
++
++	host->l2buf_id = AKMCI_L2BUF_NONE;
++	host->cfg.gpio_cd = -ENOSYS;
++	host->cfg.gpio_wp = -ENOSYS;
++
++	akmci_timer_setup(&host->req_timer, akmci_req_timeout, host);
++
++	return host;
++}
++
++void akmci_host_free(struct akmci_host *host)
++{
++	mmc_free_host(host->mmc);
++}
++
++/*
++ * Queue limits. Every byte the card sees passes through a single 512-byte L2
++ * buffer, and the data length register is sixteen bits wide, so the block
++ * layer is told 512-byte blocks, 127 of them, and one segment: a segment that
++ * ended mid-block would leave the controller waiting for a block the driver
++ * could not finish assembling.
++ */
++static void akmci_init_limits(struct akmci_host *host)
++{
++	struct mmc_host *mmc = host->mmc;
++	struct akmci_board_cfg *cfg = &host->cfg;
++
++	mmc->ops = &akmci_ops;
++	mmc->ocr_avail = MMC_VDD_32_33 | MMC_VDD_33_34;
++
++	mmc->caps = 0;
++	if (cfg->data_lines == 4 || cfg->data_lines == 8)
++		mmc->caps |= MMC_CAP_4_BIT_DATA;
++	if (cfg->dev_kind == AKMCI_DEV_SDIO)
++		mmc->caps |= MMC_CAP_SDIO_IRQ;
++	if (cfg->cap_highspeed)
++		mmc->caps |= MMC_CAP_SD_HIGHSPEED | MMC_CAP_MMC_HIGHSPEED;
++	mmc->caps |= cfg->extra_caps;
++
++	mmc->f_min = host->asic_clk / (255 + 1 + 255 + 1);
++	mmc->f_max = host->asic_clk / (0 + 1 + 0 + 1);
++	if (cfg->max_speed_hz && mmc->f_max > cfg->max_speed_hz)
++		mmc->f_max = cfg->max_speed_hz;
++
++	mmc->max_segs = 1;
++	mmc->max_blk_size = MAX_MCI_BLOCK_SIZE;
++	mmc->max_blk_count = MAX_MCI_BLOCK_COUNT;
++	mmc->max_req_size = MAX_MCI_REQ_SIZE;
++	mmc->max_seg_size = MAX_MCI_REQ_SIZE;
++}
++
++int akmci_host_add(struct akmci_host *host)
++{
++	int ret;
++
++	if (WARN_ON(host->base == NULL || host->l2 == NULL ||
++		    host->asic_clk == 0))
++		return -EINVAL;
++
++	akmci_init_limits(host);
++
++	writel(MCI_ENABLE | MCI_FAIL_TRIGGER, host->base + MCI_CLK_REG);
++	akmci_clear_imask(host);
++
++	ret = mmc_add_host(host->mmc);
++	if (ret)
++		return ret;
++
++	dev_info(host->dev, "%s: %s transfer, %u-bit bus, card detect: %s\n",
++		 mmc_hostname(host->mmc),
++		 akmci_xfer_desc[host->cfg.xfer_kind],
++		 host->cfg.data_lines,
++		 akmci_cd_desc[host->cfg.cd_kind]);
++
++	return 0;
++}
++
++void akmci_host_del(struct akmci_host *host)
++{
++	unsigned long flags;
++
++	mmc_remove_host(host->mmc);
++
++	spin_lock_irqsave(&host->lock, flags);
++	akmci_clear_imask(host);
++	spin_unlock_irqrestore(&host->lock, flags);
++
++	del_timer_sync(&host->req_timer);
++	akmci_l2_release(host);
++}
+diff --git a/drivers/mmc/host/akmci-of.c b/drivers/mmc/host/akmci-of.c
+new file mode 100644
+index 000000000..4cd0f4285
+--- /dev/null
++++ b/drivers/mmc/host/akmci-of.c
+@@ -0,0 +1,412 @@
++/*
++ * akmci-of.c - Anyka AK39 MCI host, device-tree glue (Linux 6.6 port of the 4.4 glue)
++ *
++ * Copyright (C) 2010 Anyka, Ltd, All Rights Reserved.
++ * Copyright (C) 2026 Alex Zhang <alex@osqdu.org>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ */
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/err.h>
++#include <linux/gpio.h>
++#include <linux/gpio/consumer.h>
++#include <linux/init.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/ioport.h>
++#include <linux/irq.h>
++#include <linux/mmc/host.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_device.h>
++#include <linux/platform_device.h>
++#include <linux/slab.h>
++#include <linux/timer.h>
++
++#include <linux/soc/anyka/ak_l2.h>
++
++#define AK_FALSE	false
++
++#include "akmci.h"
++
++#define DRIVER_NAME		"akmci"
++
++/*
++ * Module soft reset. 3.4 reached this through ak_soft_reset(); the 4.4 port
++ * has no reset controller, and the only in-tree path that pulses the bit is
++ * the gate clock's enable op, which sleeps and so cannot run from the data
++ * interrupt. The register is the same one 3.4 wrote, with the same bit
++ * numbering, and ak_top_wdt.c already reaches it this way.
++ */
++#define MODULE_RESET_CON1	(AK_VA_SYSCTRL + 0x20)
++#define AK_SRESET_MMC0		1
++#define AK_SRESET_MMC1		2
++
++struct akmci_of {
++	struct akmci_host	*host;
++	struct platform_device	*pdev;
++	struct resource		*mem;
++	struct clk		*clk;
++	int			mci_mode;
++	int			irq_mci;
++	int			irq_cd;
++	int			irq_cd_type;
++	int			has_cd_irq;
++	struct timer_list	detect_timer;
++};
++
++static inline struct akmci_of *to_of(struct akmci_host *host)
++{
++	return host->glue;
++}
++
++static inline l2_device_t akmci_of_l2_dev(struct akmci_host *host)
++{
++	return to_of(host)->mci_mode == AKMCI_DEV_MMC ? ADDR_MMC0 : ADDR_MMC1;
++}
++
++/* ------------------------------------------------------------ L2 backend -- */
++
++static int akmci_of_buf_get(struct akmci_host *host, u8 *buf_id)
++{
++	u8 id = l2_alloc_nowait(akmci_of_l2_dev(host));
++
++	if (id == BUF_NULL)
++		return -EBUSY;
++
++	*buf_id = id;
++	return 0;
++}
++
++static void akmci_of_buf_put(struct akmci_host *host)
++{
++	l2_free(akmci_of_l2_dev(host));
++}
++
++static int akmci_of_xfer_dma(struct akmci_host *host, dma_addr_t phys,
++			     unsigned int len, int to_card)
++{
++	if (host->l2buf_id == AKMCI_L2BUF_NONE)
++		return -EIO;
++
++	return l2_combuf_dma((unsigned long)phys, host->l2buf_id, len,
++			     to_card ? MEM2BUF : BUF2MEM, AK_FALSE);
++}
++
++static int akmci_of_xfer_cpu(struct akmci_host *host, void *virt,
++			     unsigned int len, int to_card)
++{
++	if (host->l2buf_id == AKMCI_L2BUF_NONE)
++		return -EIO;
++
++	return l2_combuf_cpu((unsigned long)virt, host->l2buf_id, len,
++			     to_card ? MEM2BUF : BUF2MEM);
++}
++
++static int akmci_of_wait(struct akmci_host *host)
++{
++	if (host->l2buf_id == AKMCI_L2BUF_NONE)
++		return -EIO;
++
++	return l2_combuf_wait_dma_finish(host->l2buf_id) == AK_FALSE ?
++			-ETIMEDOUT : 0;
++}
++
++static void akmci_of_clr_status(struct akmci_host *host)
++{
++	if (host->l2buf_id != AKMCI_L2BUF_NONE)
++		l2_clr_status(host->l2buf_id);
++}
++
++static u8 akmci_of_buf_status(struct akmci_host *host)
++{
++	return l2_get_status(host->l2buf_id);
++}
++
++static void akmci_of_reset(struct akmci_host *host)
++{
++	unsigned int bit = to_of(host)->mci_mode == AKMCI_DEV_MMC ?
++			AK_SRESET_MMC0 : AK_SRESET_MMC1;
++	unsigned long flags;
++	u32 val;
++
++	local_irq_save(flags);
++	val = __raw_readl(MODULE_RESET_CON1);
++	__raw_writel(val | (1u << bit), MODULE_RESET_CON1);
++	local_irq_restore(flags);
++
++	mdelay(5);
++
++	local_irq_save(flags);
++	val = __raw_readl(MODULE_RESET_CON1);
++	__raw_writel(val & ~(1u << bit), MODULE_RESET_CON1);
++	local_irq_restore(flags);
++}
++
++static const struct akmci_l2_ops akmci_of_l2_ops = {
++	.buf_get	= akmci_of_buf_get,
++	.buf_put	= akmci_of_buf_put,
++	.xfer_dma	= akmci_of_xfer_dma,
++	.xfer_cpu	= akmci_of_xfer_cpu,
++	.wait		= akmci_of_wait,
++	.clr_status	= akmci_of_clr_status,
++	.reset		= akmci_of_reset,
++	.buf_status	= akmci_of_buf_status,
++};
++
++static ssize_t probe_stats_show(struct device *dev,
++				struct device_attribute *attr, char *buf)
++{
++	struct akmci_host *host = dev_get_drvdata(dev);
++	unsigned long flags;
++	int n;
++
++	spin_lock_irqsave(&host->lock, flags);
++	n = akmci_probe_format(host, buf, PAGE_SIZE);
++	spin_unlock_irqrestore(&host->lock, flags);
++
++	return n;
++}
++static DEVICE_ATTR(probe_stats, 0444, probe_stats_show, NULL);
++
++/* -------------------------------------------------------------- board io -- */
++
++static int akmci_of_gpio_get(int gpio)
++{
++	return gpio_get_value(gpio);	/* unused: no cd/wp GPIO on 6.6 yet */
++}
++
++
++/* ----------------------------------------------------------------- probe -- */
++
++static const struct of_device_id akmci_of_match[] = {
++	{ .compatible = "anyka,ak3918ev300-mmc0", .data = (void *)AKMCI_DEV_MMC },
++	{ .compatible = "anyka,ak3918ev200-mmc0", .data = (void *)AKMCI_DEV_MMC },
++	{ .compatible = "anyka,ak3918ev200-mmc1", .data = (void *)AKMCI_DEV_SDIO },
++	{ .compatible = "anyka,ak39ev330-mmc0",   .data = (void *)AKMCI_DEV_MMC },
++	{ .compatible = "anyka,ak39ev330-mmc1",   .data = (void *)AKMCI_DEV_SDIO },
++	{ },
++};
++MODULE_DEVICE_TABLE(of, akmci_of_match);
++
++static void akmci_of_read_cfg(struct akmci_host *host, struct device_node *np,
++			      int dev_kind)
++{
++	struct akmci_board_cfg *cfg = &host->cfg;
++	u32 val;
++
++	cfg->dev_kind = dev_kind;
++	cfg->xfer_kind = AKMCI_XFER_DMA;
++	cfg->gpio_get = akmci_of_gpio_get;
++
++	cfg->data_lines = 4;
++	if (!of_property_read_u32(np, "bus-width", &val))
++		cfg->data_lines = val;
++
++	cfg->max_speed_hz = 25 * 1000 * 1000;
++	if (!of_property_read_u32(np, "max-frequency", &val))
++		cfg->max_speed_hz = val;
++
++	cfg->cap_highspeed = of_property_read_bool(np, "cap-sd-highspeed") ||
++			     of_property_read_bool(np, "cap-mmc-highspeed");
++
++	if (of_property_read_bool(np, "non-removable"))
++		cfg->extra_caps |= MMC_CAP_NONREMOVABLE;
++
++	/* 6.6: no GPIO driver yet, the card is assumed present */
++	cfg->cd_kind = AKMCI_CD_ALWAYS;
++}
++
++static int akmci_of_probe(struct platform_device *pdev)
++{
++	struct device_node *np = pdev->dev.of_node;
++	const struct of_device_id *match;
++	struct akmci_host *host;
++	struct akmci_of *ofd;
++	struct resource *res;
++	int ret;
++
++	match = of_match_device(akmci_of_match, &pdev->dev);
++	if (!np || !match) {
++		dev_err(&pdev->dev, "no device tree node\n");
++		return -EINVAL;
++	}
++
++	ofd = devm_kzalloc(&pdev->dev, sizeof(*ofd), GFP_KERNEL);
++	if (!ofd)
++		return -ENOMEM;
++
++	host = akmci_host_alloc(&pdev->dev);
++	if (!host)
++		return -ENOMEM;
++
++	host->glue = ofd;
++	host->l2 = &akmci_of_l2_ops;
++	ofd->host = host;
++	ofd->pdev = pdev;
++	ofd->mci_mode = (int)(uintptr_t)match->data;
++	ofd->irq_cd_type = IRQ_TYPE_LEVEL_LOW;
++
++	akmci_of_read_cfg(host, np, ofd->mci_mode);
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res) {
++		ret = -ENOENT;
++		goto err_free_host;
++	}
++
++	ofd->mem = request_mem_region(res->start, resource_size(res),
++				      pdev->name);
++	if (!ofd->mem) {
++		dev_err(&pdev->dev, "failed to request io memory region\n");
++		ret = -ENOENT;
++		goto err_free_host;
++	}
++
++	host->base = ioremap(ofd->mem->start, resource_size(ofd->mem));
++	if (!host->base) {
++		dev_err(&pdev->dev, "failed to ioremap io memory region\n");
++		ret = -EINVAL;
++		goto err_release_mem;
++	}
++
++	ofd->irq_mci = platform_get_irq(pdev, 0);
++	if (ofd->irq_mci <= 0) {
++		dev_err(&pdev->dev, "failed to get interrupt resource\n");
++		ret = -EINVAL;
++		goto err_unmap;
++	}
++
++	ret = request_irq(ofd->irq_mci, akmci_irq, 0, pdev->name, host);
++	if (ret) {
++		dev_err(&pdev->dev, "failed to request mci interrupt\n");
++		goto err_unmap;
++	}
++
++	ofd->clk = clk_get(&pdev->dev, NULL);
++	if (IS_ERR(ofd->clk)) {
++		dev_err(&pdev->dev, "failed to find clock source\n");
++		ret = PTR_ERR(ofd->clk);
++		ofd->clk = NULL;
++		goto err_free_irq;
++	}
++
++	ret = clk_prepare_enable(ofd->clk);
++	if (ret) {
++		dev_err(&pdev->dev, "failed to enable clock source\n");
++		goto err_put_clk;
++	}
++
++	host->asic_clk = clk_get_rate(ofd->clk);
++
++	akmci_of_reset(host);
++
++
++	platform_set_drvdata(pdev, host);
++
++	ret = akmci_host_add(host);
++	if (ret)
++		goto err_free_cd;
++
++	if (device_create_file(&pdev->dev, &dev_attr_probe_stats))
++		dev_warn(&pdev->dev, "no probe_stats attribute\n");
++
++	return 0;
++
++err_free_cd:
++err_disable_clk:
++	clk_disable_unprepare(ofd->clk);
++err_put_clk:
++	clk_put(ofd->clk);
++err_free_irq:
++	free_irq(ofd->irq_mci, host);
++err_unmap:
++	iounmap(host->base);
++err_release_mem:
++	release_mem_region(ofd->mem->start, resource_size(ofd->mem));
++err_free_host:
++	akmci_host_free(host);
++	return ret;
++}
++
++static void akmci_of_remove(struct platform_device *pdev)
++{
++	struct akmci_host *host = platform_get_drvdata(pdev);
++	struct akmci_of *ofd = to_of(host);
++
++	device_remove_file(&pdev->dev, &dev_attr_probe_stats);
++
++	akmci_host_del(host);
++
++	free_irq(ofd->irq_mci, host);
++
++	clk_disable_unprepare(ofd->clk);
++	clk_put(ofd->clk);
++
++	iounmap(host->base);
++	release_mem_region(ofd->mem->start, resource_size(ofd->mem));
++
++	akmci_host_free(host);
++}
++
++#ifdef CONFIG_PM
++static int akmci_of_suspend(struct device *dev)
++{
++	struct akmci_host *host = dev_get_drvdata(dev);
++
++	if (host && !mmc_card_keep_power(host->mmc))
++		clk_disable_unprepare(to_of(host)->clk);
++
++	return 0;
++}
++
++static int akmci_of_resume(struct device *dev)
++{
++	struct akmci_host *host = dev_get_drvdata(dev);
++
++	if (host && !mmc_card_keep_power(host->mmc))
++		return clk_prepare_enable(to_of(host)->clk);
++
++	return 0;
++}
++
++static struct dev_pm_ops akmci_of_pm = {
++	.suspend	= akmci_of_suspend,
++	.resume		= akmci_of_resume,
++};
++
++#define akmci_of_pm_ops		(&akmci_of_pm)
++#else
++#define akmci_of_pm_ops		NULL
++#endif
++
++static struct platform_driver akmci_of_driver = {
++	.probe		= akmci_of_probe,
++	.remove_new	= akmci_of_remove,
++	.driver		= {
++		.name		= DRIVER_NAME,
++		.pm		= akmci_of_pm_ops,
++		.of_match_table	= akmci_of_match,
++	},
++};
++
++static int __init akmci_of_init(void)
++{
++	return platform_driver_register(&akmci_of_driver);
++}
++
++static void __exit akmci_of_exit(void)
++{
++	platform_driver_unregister(&akmci_of_driver);
++}
++
++module_init(akmci_of_init);
++module_exit(akmci_of_exit);
++
++MODULE_DESCRIPTION("Anyka MCI Interface driver");
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Anyka");
+diff --git a/drivers/mmc/host/akmci.h b/drivers/mmc/host/akmci.h
+new file mode 100644
+index 000000000..912fd487a
+--- /dev/null
++++ b/drivers/mmc/host/akmci.h
+@@ -0,0 +1,284 @@
++/*
++ * akmci.h - Anyka AK39 MCI host controller, private definitions
++ *
++ * Copyright (C) 2010 Anyka, Ltd, All Rights Reserved.
++ * Copyright (C) 2026 Alex Zhang <alex@osqdu.org>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ */
++#ifndef __DRIVERS_MMC_HOST_AKMCI_H__
++#define __DRIVERS_MMC_HOST_AKMCI_H__
++
++#include <linux/dma-mapping.h>
++#include <linux/interrupt.h>
++#include <linux/scatterlist.h>
++#include <linux/spinlock.h>
++#include <linux/timer.h>
++#include <linux/types.h>
++
++#include "akmci-compat.h"
++
++struct device;
++struct mmc_host;
++struct mmc_request;
++struct mmc_command;
++struct mmc_data;
++
++/*
++ * Register map. The block is PL180-inspired but not PL180-compatible: 0x038 is
++ * a mask register rather than PL180's write-1-to-clear, 0x03c drives the L2
++ * engine rather than PL180's MASK0, status bits are renumbered from bit 3 up,
++ * and status is cleared by reading it.
++ */
++#define MCI_CLK_REG			0x004
++#define MMC_CLK_DIVL(x)			((x) & 0xff)
++#define MMC_CLK_DIVH(x)			(((x) & 0xff) << 8)
++#define MCI_CLK_DIV_MASK		0xffff
++#define MCI_CLK_ENABLE			(1 << 16)
++#define MCI_CLK_PWRSAVE			(1 << 17)
++#define MCI_FAIL_TRIGGER		(1 << 19)
++#define MCI_ENABLE			(1 << 20)
++
++#define MCI_ARGUMENT_REG		0x008
++
++#define MCI_COMMAND_REG			0x00c
++#define MCI_CPSM_ENABLE			(1 << 0)
++#define MCI_CPSM_CMD(x)			(((x) & 0x3f) << 1)
++#define MCI_CPSM_RESPONSE		(1 << 7)
++#define MCI_CPSM_LONGRSP		(1 << 8)
++#define MCI_CPSM_PENDING		(1 << 9)
++#define MCI_CPSM_RSPCRC_NOCHK		(1 << 10)
++#define MCI_CPSM_WITHDATA		(1 << 11)
++
++#define MCI_RESPCMD_REG			0x010
++#define MCI_RESPONSE0_REG		0x014
++#define MCI_RESPONSE1_REG		0x018
++#define MCI_RESPONSE2_REG		0x01c
++#define MCI_RESPONSE3_REG		0x020
++#define MCI_DATATIMER_REG		0x024
++#define MCI_DATALENGTH_REG		0x028
++
++#define MCI_DATACTRL_REG		0x02c
++#define MCI_DPSM_ENABLE			(1 << 0)
++#define MCI_DPSM_DIRECTION		(1 << 1)
++#define MCI_DPSM_STREAM			(1 << 2)
++#define MCI_DPSM_BUSMODE(x)		(((x) & 0x3) << 3)
++#define MCI_DPSM_BLOCKSIZE(x)		(((x) & 0xfff) << 16)
++
++#define MCI_DATACNT_REG			0x030
++
++#define MCI_STATUS_REG			0x034
++#define MCI_RESPCRCFAIL			(1 << 0)
++#define MCI_DATACRCFAIL			(1 << 1)
++#define MCI_RESPTIMEOUT			(1 << 2)
++#define MCI_DATATIMEOUT			(1 << 3)
++#define MCI_RESPEND			(1 << 4)
++#define MCI_CMDSENT			(1 << 5)
++#define MCI_DATAEND			(1 << 6)
++#define MCI_DATABLOCKEND		(1 << 7)
++#define MCI_STARTBIT_ERR		(1 << 8)
++#define MCI_CMDACTIVE			(1 << 9)
++#define MCI_TXACTIVE			(1 << 10)
++#define MCI_RXACTIVE			(1 << 11)
++#define MCI_FIFOFULL			(1 << 12)
++#define MCI_FIFOEMPTY			(1 << 13)
++#define MCI_FIFOHALFFULL		(1 << 14)
++#define MCI_FIFOHALFEMPTY		(1 << 15)
++#define MCI_DATATRANS_FINISH		(1 << 16)
++#define MCI_SDIOINT			(1 << 17)
++
++#define MCI_MASK_REG			0x038
++#define MCI_RESPCRCFAILMASK		(1 << 0)
++#define MCI_DATACRCFAILMASK		(1 << 1)
++#define MCI_RESPTIMEOUTMASK		(1 << 2)
++#define MCI_DATATIMEOUTMASK		(1 << 3)
++#define MCI_RESPENDMASK			(1 << 4)
++#define MCI_CMDSENTMASK			(1 << 5)
++#define MCI_DATAENDMASK			(1 << 6)
++#define MCI_DATABLOCKENDMASK		(1 << 7)
++#define MCI_STARTBIT_ERRMASK		(1 << 8)
++#define MCI_CMDACTIVEMASK		(1 << 9)
++#define MCI_TXACTIVEMASK		(1 << 10)
++#define MCI_RXACTIVEMASK		(1 << 11)
++#define MCI_FIFOFULLMASK		(1 << 12)
++#define MCI_FIFOEMPTYMASK		(1 << 13)
++#define MCI_FIFOHALFFULLMASK		(1 << 14)
++#define MCI_FIFOHALFEMPTYMASK		(1 << 15)
++#define MCI_DATATRANS_FINISHMASK	(1 << 16)
++#define MCI_SDIOINTMASK			(1 << 17)
++
++#define MCI_DMACTRL_REG			0x03c
++#define MCI_DMA_BUFEN			(1 << 0)
++#define MCI_DMA_ADDR(x)			(((x) & 0x7fff) << 1)
++#define MCI_DMA_EN			(1 << 16)
++#define MCI_DMA_SIZE(x)			(((x) & 0x7fff) << 17)
++
++#define MCI_FIFO_REG			0x040
++
++#define SDIO_INTRCTR_REG		0x000
++#define SDIO_INTR_CTR_ENABLE		(1 << 8)
++#define SDIO_INTR_ENABLE		(1 << 17)
++
++#define MCI_CMDIRQMASKS							\
++	(MCI_CMDSENTMASK | MCI_RESPENDMASK |				\
++	 MCI_RESPCRCFAILMASK | MCI_RESPTIMEOUTMASK)
++
++#define MCI_DATAIRQMASKS						\
++	(MCI_DATAENDMASK | MCI_DATABLOCKENDMASK |			\
++	 MCI_DATACRCFAILMASK | MCI_DATATIMEOUTMASK)
++
++#define MCI_CMDIRQSTATUS						\
++	(MCI_CMDSENT | MCI_RESPEND | MCI_RESPCRCFAIL | MCI_RESPTIMEOUT)
++
++#define MCI_DATAIRQSTATUS						\
++	(MCI_DATAEND | MCI_DATABLOCKEND | MCI_DATACRCFAIL |		\
++	 MCI_DATATIMEOUT | MCI_STARTBIT_ERR)
++
++/* The inner FIFO is four bytes wide and is not the transfer path. */
++#define MCI_FIFOSIZE			4
++
++/* One L2 common buffer is 512 bytes; that is the whole transfer window. */
++#define MCI_L2FIFO_SIZE			512
++#define MCI_L2_DMA_ALIGN		512
++
++/*
++ * MCI_DATALENGTH_REG is sixteen bits wide. 65536 wraps to zero, so the largest
++ * expressible request is 65535 bytes, which is 127 whole 512-byte blocks.
++ */
++#define MAX_MCI_BLOCK_SIZE		512
++#define MAX_MCI_BLOCK_COUNT		(65535 / MAX_MCI_BLOCK_SIZE)
++#define MAX_MCI_REQ_SIZE		(MAX_MCI_BLOCK_COUNT * MAX_MCI_BLOCK_SIZE)
++
++/*
++ * The data timer counts the controller's own clock and the vendor value leaves
++ * it effectively disabled, so the software watchdog is what bounds a request.
++ */
++#define TRANS_DATA_TIMEOUT		0xffffffff
++#define MCI_REQ_TIMEOUT			(5 * HZ)
++
++/* Budget for acquiring an L2 common buffer before the request is failed. */
++#define MCI_L2_ACQUIRE_US		200000
++#define MCI_L2_ACQUIRE_STEP_US		100
++
++/* Invalid L2 buffer id, mirroring the L2 core's own BUF_NULL. */
++#define AKMCI_L2BUF_NONE		0xff
++
++enum akmci_dev_kind {
++	AKMCI_DEV_MMC = 0,		/* MMC/SD controller instance */
++	AKMCI_DEV_SDIO,			/* SDIO controller instance */
++};
++
++enum akmci_cd_kind {
++	AKMCI_CD_ALWAYS = 0,		/* no usable detect pin; card assumed in */
++	AKMCI_CD_GPIO,			/* poll a GPIO the glue has claimed */
++	AKMCI_CD_HOOK,			/* glue answers through cfg.card_present */
++};
++
++enum akmci_xfer_kind {
++	AKMCI_XFER_DMA = 0,		/* L2 buffer filled by the L2 DMA engine */
++	AKMCI_XFER_PIO,			/* L2 buffer filled by the CPU */
++};
++
++struct akmci_host;
++
++/*
++ * The L2 backend. The controller never touches system memory itself: every
++ * block passes through one 512-byte buffer out of the SoC's shared L2 pool,
++ * which is also used by SPI, USB and audio. Each call reports failure so the
++ * host can fail the request instead of charging bytes the card never saw.
++ */
++struct akmci_l2_ops {
++	int  (*buf_get)(struct akmci_host *host, u8 *buf_id);
++	void (*buf_put)(struct akmci_host *host);
++	int  (*xfer_dma)(struct akmci_host *host, dma_addr_t phys,
++			 unsigned int len, int to_card);
++	int  (*xfer_cpu)(struct akmci_host *host, void *virt,
++			 unsigned int len, int to_card);
++	int  (*wait)(struct akmci_host *host);
++	void (*clr_status)(struct akmci_host *host);
++	void (*reset)(struct akmci_host *host);
++	u8   (*buf_status)(struct akmci_host *host);
++};
++
++/*
++ * Diagnostic counters. This is not a shipping feature: it exists to answer
++ * three register-semantics questions that source cannot settle, and it is
++ * removed once they are answered.
++ */
++struct akmci_probe {
++	unsigned int	blockend;	/* DATABLOCKEND interrupts */
++	unsigned int	blockend_active;/* ... with TX/RXACTIVE still set */
++	unsigned int	dataend;	/* DATAEND interrupts, hardware ones */
++	unsigned int	dataend_nofinish;/* ... without DATATRANS_FINISH */
++	unsigned int	cnt_midblock;	/* DATACNT not on a block boundary */
++	unsigned int	wr_dirty;	/* write: L2 not empty before refill */
++	unsigned int	wr_dirty_max;	/* worst such occupancy, 64B groups */
++	unsigned int	rd_end_dirty;	/* read: L2 not empty at DATAEND */
++	unsigned int	rd_end_max;
++};
++
++struct akmci_board_cfg {
++	int		dev_kind;	/* enum akmci_dev_kind */
++	int		cd_kind;	/* enum akmci_cd_kind */
++	int		xfer_kind;	/* enum akmci_xfer_kind */
++	int		data_lines;	/* 1 or 4 */
++	int		cap_highspeed;
++	u32		max_speed_hz;
++	u32		extra_caps;
++	int		gpio_cd;	/* claimed by the glue, or -ENOSYS */
++	int		gpio_wp;	/* claimed by the glue, or -ENOSYS */
++	int		(*gpio_get)(int gpio);
++	int		(*card_present)(struct akmci_host *host);
++};
++
++struct akmci_host {
++	struct device		*dev;
++	struct mmc_host		*mmc;
++	void __iomem		*base;
++	unsigned long		asic_clk;
++
++	struct akmci_board_cfg	cfg;
++	const struct akmci_l2_ops *l2;
++	void			*glue;
++
++	spinlock_t		lock;
++	struct mmc_request	*mrq;
++	struct mmc_command	*cmd;
++	struct mmc_data		*data;
++
++	unsigned char		bus_mode;
++	unsigned char		bus_width;
++	unsigned long		bus_clock;
++	unsigned long		clkreg;
++
++	unsigned int		size;
++	unsigned int		data_xfered;
++	struct scatterlist	*sg_ptr;
++	unsigned int		sg_len;
++	unsigned int		sg_off;
++
++	int			dma_mapped;
++	int			l2_dma_active;
++	int			data_err_flag;
++	u8			l2buf_id;
++
++	struct akmci_probe	probe;
++
++	struct timer_list	req_timer;
++};
++
++/*
++ * Glue contract. The glue allocates the host, fills in base, asic_clk, cfg,
++ * l2 and dev, then adds it. akmci_irq() is the controller interrupt handler.
++ */
++struct akmci_host *akmci_host_alloc(struct device *dev);
++void akmci_host_free(struct akmci_host *host);
++int akmci_host_add(struct akmci_host *host);
++void akmci_host_del(struct akmci_host *host);
++irqreturn_t akmci_irq(int irq, void *dev_id);
++void akmci_card_event(struct akmci_host *host);
++int akmci_probe_format(struct akmci_host *host, char *buf, size_t len);
++
++#endif /* __DRIVERS_MMC_HOST_AKMCI_H__ */
+diff --git a/drivers/soc/Makefile b/drivers/soc/Makefile
+index 0706a27d1..87bc9009f 100644
+--- a/drivers/soc/Makefile
++++ b/drivers/soc/Makefile
+@@ -35,3 +35,4 @@ obj-y				+= ti/
+ obj-$(CONFIG_ARCH_U8500)	+= ux500/
+ obj-$(CONFIG_PLAT_VERSATILE)	+= versatile/
+ obj-y				+= xilinx/
++obj-$(CONFIG_ARCH_ANYKA)	+= anyka/
+diff --git a/drivers/soc/anyka/Makefile b/drivers/soc/anyka/Makefile
+new file mode 100644
+index 000000000..484a08ae0
+--- /dev/null
++++ b/drivers/soc/anyka/Makefile
+@@ -0,0 +1 @@
++obj-y	+= ak_l2.o
+diff --git a/drivers/soc/anyka/ak_l2.c b/drivers/soc/anyka/ak_l2.c
+new file mode 100644
+index 000000000..ab692d7c7
+--- /dev/null
++++ b/drivers/soc/anyka/ak_l2.c
+@@ -0,0 +1,1334 @@
++/*
++ * /linux/arch/arm/mach-anycloud/ak_l2.c
++ *
++ * Copyright (C) 2020 Anyka(Guangzhou) Microelectronics Technology Co., Ltd.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++
++
++#include <linux/module.h>
++#include <linux/ioport.h>
++#include <linux/delay.h>
++#include <linux/interrupt.h>
++#include <linux/dma-mapping.h>
++#include <linux/clk.h>
++#include <linux/err.h>
++#include <linux/stddef.h>
++#include <linux/irq.h>
++#include <linux/ratelimit.h>
++#include <linux/sched.h>
++ 
++#include <asm/dma.h>
++#include <linux/sizes.h>
++
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_irq.h>
++#include <linux/slab.h>
++#include <linux/soc/anyka/ak_l2.h>
++
++#define L2_DEBUG		1
++
++extern struct raw_notifier_head netdev_chain;
++
++#define vL2DMA_ADDRBUF0         (AK_VA_L2CTRL + 0x00)
++#define vL2DMA_CONBUF0          (AK_VA_L2CTRL + 0x40)
++
++#define L2_DMA_ADDR				(AK_VA_L2CTRL + 0x00)
++#define L2_DMA_CON				(AK_VA_L2CTRL + 0x40)
++#define L2_DMAREQ				(AK_VA_L2CTRL + 0x80)
++#define L2_FRACDMAADDR			(AK_VA_L2CTRL + 0x84)
++#define L2_CONBUF0_7			(AK_VA_L2CTRL + 0x88)  
++#define L2_CONBUF8_15			(AK_VA_L2CTRL + 0x8C) 
++#define L2_BUFASSIGN1			(AK_VA_L2CTRL + 0x90) 
++#define L2_BUFASSIGN2			(AK_VA_L2CTRL + 0x94) 
++#define L2_LDMACON				(AK_VA_L2CTRL + 0x98) 
++#define L2_BUFINTEN				(AK_VA_L2CTRL + 0x9C) 
++#define L2_BUFSTAT1				(AK_VA_L2CTRL + 0xA0) 
++#define L2_BUFSTAT2				(AK_VA_L2CTRL + 0xA8) 
++
++/*************************** L2 MEMORY CONTROL *********************/
++#define rL2_DMAREQ              (AK_VA_L2CTRL + 0x80)
++#define rL2_FRACDMAADDR         (AK_VA_L2CTRL + 0x84)
++#define rL2_CONBUF0_7           (AK_VA_L2CTRL + 0x88)  
++#define rL2_CONBUF8_15          (AK_VA_L2CTRL + 0x8C) 
++#define rL2_BUFASSIGN1          (AK_VA_L2CTRL + 0x90) 
++#define rL2_BUFASSIGN2          (AK_VA_L2CTRL + 0x94) 
++#define rL2_LDMACON             (AK_VA_L2CTRL + 0x98) 
++#define rL2_BUFINTEN            (AK_VA_L2CTRL + 0x9C) 
++#define rL2_BUFSTAT1            (AK_VA_L2CTRL + 0xA0) 
++#define rL2_BUFSTAT2			(AK_VA_L2CTRL + 0xA8) 
++
++/*************************** L2 MEMORY BUFFER **********************/
++#define rL2_ADDRBUF0            (AK_VA_L2MEM + 0x0000)
++#define rL2_ADDRBUF1            (AK_VA_L2MEM + 0x0200)
++#define rL2_ADDRBUF2            (AK_VA_L2MEM + 0x0400)
++#define rL2_ADDRBUF3            (AK_VA_L2MEM + 0x0600)
++#define rL2_ADDRBUF4            (AK_VA_L2MEM + 0x0800)
++#define rL2_ADDRBUF5            (AK_VA_L2MEM + 0x0A00)
++#define rL2_ADDRBUF6            (AK_VA_L2MEM + 0x0C00)
++#define rL2_ADDRBUF7            (AK_VA_L2MEM + 0x0E00)
++
++#define	write_ramb(v, p)		(*(volatile unsigned char *)(p) = (v))
++#define write_ramw(v, p)		(*(volatile unsigned short *)(p) = (v))
++#define write_raml(v, p)		(*(volatile unsigned long *)(p) = (v))
++
++#define read_ramb(p)			(*(volatile unsigned char *)(p))
++#define read_ramw(p)			(*(volatile unsigned short *)(p))
++#define read_raml(p)			(*(volatile unsigned long *)(p))
++
++
++static l2_buffer_info_t l2_buffer_info[L2_COMMON_BUFFER_NUM];
++static l2_dma_info_t l2_dma_info[L2_COMMON_BUFFER_NUM + L2_UART_BUFFER_NUM];
++static bool l2_frac_started = false;	/* L2 fraction DMA start flag */
++
++static l2_device_info_t l2_device_info[] = {
++	{ ADDR_USB_EP1,		BUF_NULL },
++	{ ADDR_USB_EP2,		BUF_NULL },
++	{ ADDR_USB_EP3,		BUF_NULL },
++	{ ADDR_RESERVED0,	BUF_NULL },
++	{ ADDR_MMC0,		BUF_NULL },
++	{ ADDR_MMC1,		BUF_NULL },
++#if defined(CONFIG_MACH_AK37D)
++	{ ADDR_MMC2,		BUF_NULL },
++#elif 1
++	{ ADDR_RESERVED1,	BUF_NULL },
++#else
++#error "ak_l2: no L2 device table layout for this machine"
++#endif
++	{ ADDR_SPI0_RX,		BUF_NULL },
++	{ ADDR_SPI0_TX,		BUF_NULL },
++	{ ADDR_DAC,			BUF_NULL },
++	{ ADDR_SPI1_RX,		BUF_NULL },
++	{ ADDR_SPI1_TX,		BUF_NULL },
++	{ ADDR_GPS,			BUF_NULL },
++	{ ADDR_PCM_TX,		BUF_NULL },
++	{ ADDR_ADC,			BUF_NULL },
++	{ ADDR_USB_EP4, 	BUF_NULL },
++	{ ADDR_RESERVED2, 	BUF_NULL },
++};
++
++static int l2_wait = 0;
++static wait_queue_head_t l2_wq;
++
++static void l2_combuf_ctrl(u8 id, bool enable);
++static void l2_select_combuf(l2_device_t device, u8 id);
++static void l2_assert_combuf_id(u8 id);
++static void l2_assert_buf_id(u8 id);
++static void l2_clear_dma(u8 id);
++static void l2_frac_dma(unsigned long ram_addr, u8 id, u8 frac_offset,
++	unsigned int bytes, l2_dma_transfer_direction_t direction, bool intr_enable);
++static void l2_get_addr(u8 id, void __iomem ** bufaddr);
++static bool l2_get_dma_param(unsigned int bytes, unsigned int *low, unsigned int *high);
++static int l2_dma(unsigned long ram_addr, u8 id, unsigned int bytes,
++		l2_dma_transfer_direction_t direction, bool intr_enable);
++static bool l2_wait_dma_finish(u8 id);
++static void l2_cpu(unsigned long ram_addr, u8 id,
++	unsigned long buf_offset, unsigned int bytes, l2_dma_transfer_direction_t direction);
++static irqreturn_t l2_interrupt_handler(int irq, void *dev_id);
++
++#ifdef L2_DEBUG
++#define L2_PRINT_FUNCLINES() do { pr_debug("%s(): line: %d\n", __func__, __LINE__); } while (0)
++
++
++void l2_dump_registers(void)
++{
++	pr_debug("ANYKA L2 Register Dumping Begin:\n");
++	pr_debug("  rL2_DMAREQ(C080)        = 0x%08X, rL2_FRACDMAADDR(C084)     = 0x%0X\n",__raw_readl(rL2_DMAREQ), __raw_readl(rL2_FRACDMAADDR));
++	pr_debug("  rL2_CONBUF0_7(C088) = 0x%08X, rL2_CONBUF8_15(C08C) = 0x%0X\n",__raw_readl(rL2_CONBUF0_7), __raw_readl(rL2_CONBUF8_15));
++	pr_debug("  rL2_BUFASSIGN1(C090)    = 0x%08X, rL2_BUFINTEN(C09C)  = 0x%0X\n",__raw_readl(rL2_BUFASSIGN1), __raw_readl(rL2_BUFINTEN));
++	pr_debug("  rL2_BUFSTAT1(C0A0)      = 0x%08X, rL2_BUFSTAT2(C0A8)    = 0x%0X\n",__raw_readl(rL2_BUFSTAT1), __raw_readl(rL2_BUFSTAT2));
++	pr_debug("ANYKA L2 Register Dumping End.\n");
++}
++
++static inline void l2_print_array(const char *name, unsigned char *array, int len)
++{
++	int i;
++
++	pr_debug("%s[%d] = {\n ", name, len);
++	for (i = 0; i < len; i++) {
++		pr_info(" 0x%02X,", array[i]);
++		if (i % 16 == 15)
++			printk("\n ");
++	}
++	pr_debug("};\n");
++
++}
++
++#else
++#define L2_PRINT_FUNCLINES() do { } while (0)
++
++static inline void l2_dump_registers(void)
++{
++}
++static inline void l2_print_array(const char *name, unsigned int *array, int len)
++{
++}
++#endif
++
++/**
++ * l2_assert_buf_id - Assert a L2 buffer ID is valid
++ *  @id:		L2 buffer ID
++ *
++ *  NOTE: Assert only L2 common buffer and UART buffer, USB buffer is not checked.
++ *            Since this function is called internally by other L2 API, invalid id will cause
++ *            linux kernel to oops for bug tracking.
++ */
++static void l2_assert_buf_id(u8 id)
++{
++	if (id >= L2_COMMON_BUFFER_NUM + L2_UART_BUFFER_NUM)
++		BUG();
++}
++
++/**
++ * l2_assert_combuf_id - Assert a L2 common buffer ID is valid
++ *  @id:		L2 buffer ID
++ *
++ *  NOTE: Assert only L2 common buffer, UART & USB buffer is not checked.
++ *            Since this function is called internally by other L2 API, invalid id will cause
++ *            linux kernel to oops for bug tracking.
++ */
++static void l2_assert_combuf_id(u8 id)
++{
++	if (id >= L2_COMMON_BUFFER_NUM)
++		BUG();
++}
++
++/**
++ * l2_combuf_ctrl - L2 buffer enable/disable
++ *  @id:		L2 buffer ID
++ *  @enable:	true to enable L2 buffer, false to disable L2 buffer 
++ */
++static void l2_combuf_ctrl(u8 id, bool enable)
++{
++	unsigned long regval;
++	unsigned long flags;
++
++	l2_assert_buf_id(id);
++
++	local_irq_save(flags);
++	
++	regval = __raw_readl(rL2_CONBUF0_7);
++	if (enable) {
++		/* Enable L2 buffer & L2 Buffer DMA */
++		regval |= (1 << (id + L2_COMMON_BUF_CFG_BUF_DMA_VLD_START)) |
++			(1 << (id + L2_COMMON_BUF_CFG_BUF_VLD_START));
++	} else {
++		/* Disable L2 buffer & L2 Buffer DMA */
++		regval &= ~((1 << (id + L2_COMMON_BUF_CFG_BUF_DMA_VLD_START)) |
++			(1 << (id + L2_COMMON_BUF_CFG_BUF_VLD_START)));
++	}
++	__raw_writel(regval, rL2_CONBUF0_7);
++
++	local_irq_restore(flags);
++
++}
++
++/**
++ * l2_select_combuf - Select a L2 buffer for given device
++ *  @device:	Device which need to assign a L2 buffer
++ *  @id:		L2 buffer ID
++ */
++static void l2_select_combuf(l2_device_t device, u8 id)
++{
++	unsigned long regval;
++	unsigned long bits_offset;
++	
++	l2_assert_combuf_id(id);
++
++	if ((u8)device < 10) {
++		/*
++		 * USB Bulkout ~ DAC (Device 0 ~ 9) is controlled by Buffer Assignment Register 1
++		 */
++		regval = __raw_readl(rL2_BUFASSIGN1);
++		bits_offset = (u8)device * 3;
++		regval &= ~(0x7 << bits_offset);
++		regval |= ((id & 0x7) << bits_offset);
++		__raw_writel(regval, rL2_BUFASSIGN1);
++		
++	} else {
++		/*
++		 * SPI2 Rx ~ ADC (Device 10 ~ 14) is controlled by Buffer Assignment Register 2
++		 */
++		regval = __raw_readl(rL2_BUFASSIGN2);
++		bits_offset = ((u8)device - 10) * 3;
++		regval &= ~(0x7 << bits_offset);
++		regval |= ((id & 0x7) << bits_offset);
++		__raw_writel(regval, rL2_BUFASSIGN2);
++	}
++
++}
++
++
++/**
++ * l2_deselect_combuf - deselect a L2 buffer for given device
++ *  @device:	Device which need to assign a L2 buffer
++ *  @id:		L2 buffer ID
++ *
++ * note: buffer 0 is reserved for softuse, no hardware is assigned
++ *          so when free a l2 buffer, select to this device use buffer 0 as deselect
++ */
++static void l2_deselect_combuf(l2_device_t device, u8 id)
++{
++	unsigned long regval;
++	unsigned long bits_offset;
++	
++	l2_assert_combuf_id(id);
++
++	if ((u8)device < 10) {
++		/*
++		 * USB Bulkout ~ DAC (Device 0 ~ 9) is controlled by Buffer Assignment Register 1
++		 */
++		regval = __raw_readl(rL2_BUFASSIGN1);
++		bits_offset = (u8)device * 3;
++		regval &= ~(0x7 << bits_offset);
++		__raw_writel(regval, rL2_BUFASSIGN1);
++	} else {
++		/*
++		 * SPI2 Rx ~ ADC (Device 10 ~ 14) is controlled by Buffer Assignment Register 2
++		 */
++		regval = __raw_readl(rL2_BUFASSIGN2);
++		bits_offset = ((u8)device - 10) * 3;
++		regval &= ~(0x7 << bits_offset);
++		__raw_writel(regval, rL2_BUFASSIGN2);
++	}
++
++}
++
++/**
++ * l2_clear_dma - Clear L2 buffer DMA status
++ *  @id:		L2 buffer ID which need to clear DMA status
++ */
++static void l2_clear_dma(u8 id)
++{
++	bool dmapending;
++	u8 status;
++
++	dmapending = __raw_readl(rL2_DMAREQ) & (1 << (id + L2_DMA_REQ_BUF_START));
++	status = l2_get_status(id);
++
++	if (status == 0) {
++		return ;	/* NO DMA request, so do nothing */
++	}
++	
++	if(l2_dma_info[id].direction == BUF2MEM) {
++		pr_info("l2r:[%d]..", id);
++		while (dmapending) {
++			l2_set_status(id, 8);
++			dmapending = __raw_readl(rL2_DMAREQ) & (1 << (id + L2_DMA_REQ_BUF_START));
++		}
++		pr_err("done\n");
++	} else {
++		/*
++		 * Wait until DMA request of this L2 buffer is finished.
++		 */
++		pr_info("l2t:[%d]..", id);
++		while (dmapending) {
++			l2_clr_status(id);
++			dmapending = __raw_readl(rL2_DMAREQ) & (1 << (id + L2_DMA_REQ_BUF_START));
++		}
++		pr_info("done\n");
++	}
++}
++
++/**
++ * l2_frac_dma - Start data tranferring between memory and l2 common buffer in fraction DMA mode
++ *  @ram_addr:		External RAM address(Physical)
++ *  @id:		L2 buffer ID involved in DMA transfer
++ *  @frac_offset:	The region offset between buffer start address and transfer start address
++ *  @bytes:		Data transfer size
++ *  @direction:		Data transfer direction between L2 memory and external RAM 
++ *  @intr_enable:	Open interrupt for this L2 buffer or not
++ *
++ *  NOTE: Data transfer size should be 1~64Bytes, frac_offset should be 0~7 (*64Bytes)
++ */
++static void l2_frac_dma(unsigned long ram_addr, u8 id, u8 frac_offset,
++	unsigned int bytes, l2_dma_transfer_direction_t direction,	bool intr_enable)
++{
++	u32 bufaddr;
++	u32 highaddr;
++	unsigned long regval;
++	unsigned long flags;
++
++	pr_debug("%s(): ram_addr=0x%08X, l2 buffer id=%d, frac_offset=%d, bytes=%d, direction=%s, intr_enable=%d.\n",
++		__func__, (unsigned int)ram_addr, id, frac_offset, bytes, (direction == BUF2MEM)?"BUF2MEM":"MEM2BUF", intr_enable);
++
++
++	if (bytes == 0) {
++		pr_err("l2: no need to start fraction dma transfer: bytes=0.\n");
++		return ;
++	}
++
++	local_irq_save(flags);
++
++	/*
++	 * Set fraction external RAM address.
++	 */
++	highaddr = (ram_addr << 2) & 0xC0000000;
++	 
++	regval = __raw_readl(rL2_FRACDMAADDR);
++	regval &= ~(L2_FRAC_DMA_LOW_ADDR_MASK | (3<<30)); //modified by anyka chenyingyu
++	regval |= (ram_addr & L2_FRAC_DMA_LOW_ADDR_MASK) | highaddr;
++	__raw_writel(regval, rL2_FRACDMAADDR);
++
++	/* Set fraction DMA address */
++	bufaddr = (id < L2_COMMON_BUFFER_NUM) ? ((id & 0x7) << 3) | (frac_offset & 0x7) :
++		(0x40 + ((id - L2_COMMON_BUFFER_NUM) << 1)) | (frac_offset & 0x1);
++
++	/* Clear other fraction DMA request and info */
++	regval = __raw_readl(rL2_DMAREQ);
++	regval &= ~(L2_DMA_REQ_FRAC_DMA_LEN_MASK | L2_DMA_REQ_FRAC_DMA_L2_ADDR_MASK |
++		L2_DMA_REQ_FRAC_DMA_REQ | L2_DMA_REQ_BUF_REQ_MASK);
++
++	switch (direction) {
++	case MEM2BUF:
++		if (bytes & 0x1)
++			bytes = bytes + 1;	/* Round to even number when read data from external ram */
++		regval |= L2_DMA_REQ_FRAC_DMA_REQ | L2_DMA_REQ_FRAC_DMA_DIR_WR |
++			(bufaddr << L2_DMA_REQ_FRAC_DMA_L2_ADDR_START) |
++			((bytes - 1) << L2_DMA_REQ_FRAC_DMA_LEN_START);
++		__raw_writel(regval, rL2_DMAREQ);
++		break;
++	case BUF2MEM:
++		regval &= ~(L2_DMA_REQ_FRAC_DMA_DIR_WR);
++		regval |= L2_DMA_REQ_FRAC_DMA_REQ |
++			(bufaddr << L2_DMA_REQ_FRAC_DMA_L2_ADDR_START) |
++			((bytes - 1) << L2_DMA_REQ_FRAC_DMA_LEN_START);
++		__raw_writel(regval, rL2_DMAREQ);
++		break;
++	default:
++		BUG();
++	}
++
++	if (intr_enable) {
++		regval = __raw_readl(rL2_BUFINTEN);
++		regval |= L2_DMA_INTR_ENABLE_FRAC_INTR_EN;
++		__raw_writel(regval, rL2_BUFINTEN);
++	}
++
++	local_irq_restore(flags);
++}
++
++/**
++ * l2_get_addr - Get L2 memory start address for given L2 buffer
++ *  @id:		L2 buffer ID
++ *  Return L2 memory start address(Logical/Virtual) (NOT physical address)
++ */
++static void l2_get_addr(u8 id, void __iomem ** bufaddr)
++{
++	if (id < L2_UART_BUFFER_INDEX) {	/* L2 common buffer */
++		*bufaddr = AK_VA_L2MEM + L2_COMMON_BUFFER_OFFSET +
++			id * L2_COMMON_BUFFER_LEN;
++
++	} else if (id < L2_USB_HOST_BUFFER_INDEX) {	/* UART L2 buffer */
++		*bufaddr = AK_VA_L2MEM + L2_UART_BUFFER_OFFSET + 
++			(id - L2_COMMON_BUFFER_NUM) * L2_UART_BUFFER_LEN;
++	} else {
++		pr_err("l2: invalid buffer id %d.\n", (int)id);
++	}
++}
++/**
++ * l2_get_dma_param - Calculate l2 buffer big loop/small loop counter value
++ *  @bytes:		L2 buffer ID
++ *  @low:			CNT_cfg (bit[7:0] of DMA Operation Times Configuration Register)
++ *  @high:		CNT_cfg_H (bit[23:16] of DMA Operation Times Configuration Register)
++ *  Return true when correct counter value (high/low) is found, else return false.
++ *
++ *  NOTE: Use a simplified calculation method for L2 buffer 0~7 and 8~15 for bytes > 8KB
++ */
++static bool l2_get_dma_param(unsigned int bytes, unsigned int *low, unsigned int *high)
++{
++	unsigned int factor;
++	unsigned int dma_times = bytes / DMA_ONE_SHOT_LEN;
++
++	if (bytes <= 8 * 1024) {
++		*low = dma_times;
++		*high = 0;
++
++		return true;
++	} else if (dma_times & 0x7) {
++		pr_err("l2: Invalid L2 DMA buffer size(%u).\n", bytes);
++		return false;
++	}
++
++	factor = 16 * 8;
++
++	while (factor > 0) {
++		if ((dma_times % factor) == 0) {
++			*low = factor;
++			*high = dma_times / factor - 1;
++
++			return (*high < 0xFF) ? true : false;
++		}
++
++		factor -= 8;
++	}
++	
++	return false;
++}
++
++
++/**
++ * l2_dma - Start data tranferring between memory and l2 buffer in DMA mode
++ *  @ram_addr:		External RAM address(Physical)
++ *  @id:		L2 buffer ID involved in DMA transfer
++ *  @bytes:		Data transfer size
++ *  @direction:		Data transfer direction between L2 memory and external RAM 
++ *  @intr_enable:	Open interrupt for this L2 buffer or not
++ */
++static int l2_dma(unsigned long ram_addr, u8 id, unsigned int bytes,
++	l2_dma_transfer_direction_t direction, bool intr_enable)
++{
++	unsigned long regval;
++	unsigned long flags;
++	unsigned int cnt_low;
++	unsigned int cnt_high;
++
++	pr_debug("%s(): ram_addr=0x%0X, id=%d, bytes=%d, direction=%d, intr_enable=%d.\n",
++		__func__, (unsigned int)ram_addr, id, bytes, direction, intr_enable);
++
++	if (bytes == 0) {
++		pr_err("l2: no need to start dma transfer: bytes=0.\n");
++		return -EINVAL;
++	}
++
++	if (!l2_get_dma_param(bytes, &cnt_low, &cnt_high)) {
++		pr_err("l2: L2 DMA buffer size error: bytes=%d.\n", bytes);
++		return -EINVAL;
++	}
++	
++	if (l2_dma_info[id].dma_start || l2_dma_info[id].dma_frac_start) {
++		pr_err("l2: unable to start dma, dma NOT finished, buf id=%d.\n", (int)id);
++		return -EBUSY;
++	}
++
++	l2_dma_info[id].dma_op_times = bytes / DMA_ONE_SHOT_LEN;
++	l2_dma_info[id].dma_frac_data_len = bytes % DMA_ONE_SHOT_LEN;
++	l2_dma_info[id].dma_addr = (void *)ram_addr;
++	l2_dma_info[id].direction = direction;
++	l2_dma_info[id].intr_enable = intr_enable;
++	l2_dma_info[id].need_frac = false;
++
++	if (l2_dma_info[id].dma_frac_data_len > 0) {
++		l2_dma_info[id].need_frac = true;
++		l2_dma_info[id].dma_frac_addr = (void *)(u8 *)l2_dma_info[id].dma_addr +
++			l2_dma_info[id].dma_op_times* DMA_ONE_SHOT_LEN;
++		l2_dma_info[id].dma_frac_offset = l2_dma_info[id].dma_op_times;
++	}
++
++	if (l2_dma_info[id].dma_op_times== 0) {
++		/*
++		 * If DMA transfer size < 64, we start fraction DMA immediately.
++		 */
++		 
++		l2_dma_info[id].dma_start = false;
++		l2_dma_info[id].dma_frac_start = true;
++
++		l2_frac_dma((unsigned long)l2_dma_info[id].dma_frac_addr, id,
++			l2_dma_info[id].dma_frac_offset, l2_dma_info[id].dma_frac_data_len,
++			l2_dma_info[id].direction, intr_enable);
++		return 0;
++	}
++	l2_dma_info[id].dma_start = true;
++
++	local_irq_save(flags);
++
++	//asm("MMU_Clean_Invalidate_Dcache:\n" "mrc  p15,0,r15,c7,c14,3\n" "bne MMU_Clean_Invalidate_Dcache");
++
++	/*
++	 * Set address of external RAM
++	 */
++	regval = (unsigned long)l2_dma_info[id].dma_addr;
++	__raw_writel(regval, vL2DMA_ADDRBUF0 + id * 4);
++
++	/*
++	 * Set DMA operation times
++	 */
++	regval = (cnt_high << 16) | (cnt_low & 0xFF);
++	__raw_writel(regval, vL2DMA_CONBUF0 + id * 4);
++
++	/*
++	 * Set DMA direction for L2 common buffer
++	 */
++	if (id < L2_COMMON_BUFFER_NUM) {
++		regval = __raw_readl(rL2_CONBUF0_7);
++		
++		if (l2_dma_info[id].direction == MEM2BUF) {
++			regval |= (1 << (id + L2_COMMON_BUF_CFG_BUF_DIR_START));;
++		} else {
++			regval &= ~(1 << (id + L2_COMMON_BUF_CFG_BUF_DIR_START)); 
++		}
++		__raw_writel(regval, rL2_CONBUF0_7);
++	}
++
++	
++	/*
++	 * Start buffer DMA request
++	 */
++	regval = __raw_readl(rL2_DMAREQ);	
++	regval &= ~(L2_DMA_REQ_FRAC_DMA_REQ | L2_DMA_REQ_BUF_REQ_MASK);
++	if (id < L2_COMMON_BUFFER_NUM) {
++		regval |= (1 << (id + L2_DMA_REQ_BUF_START));
++	} else {
++		regval |= (1 << ((id - L2_UART_BUF_START_ID + L2_UART_BUF_CFG_BUF_START)));
++	}
++	__raw_writel(regval, rL2_DMAREQ);
++
++	
++	/*
++	 * Enable DMA interrupt now
++	 */
++	if (intr_enable) {
++		regval = __raw_readl(rL2_BUFINTEN);
++		if (id < L2_COMMON_BUFFER_NUM) {
++			regval |= 1 << (id + L2_DMA_INTR_ENABLE_BUF_START);
++		} else {
++			regval |= 1 << (id - L2_COMMON_BUFFER_NUM + L2_DMA_INTR_ENABLE_UART_BUF_START);
++		}
++		__raw_writel(regval, rL2_BUFINTEN);
++	}
++
++	local_irq_restore(flags);
++
++	return 0;
++}
++
++/**
++ * l2_wait_dma_finish - Wait for L2 DMA to finish
++ *  @id:	L2 buffer ID involved in DMA transfer
++ *  Return true: DMA transfer finished successfully.
++ *            false: DMA transfer failed.
++ *  NOTE: DMA transfer is started by l2_dma.
++ */
++static bool l2_wait_dma_finish(u8 id)
++{
++	unsigned int timeout;
++	unsigned long dmareq;
++	unsigned long dma_bit;
++	const unsigned int max_wait_time = L2_MAX_DMA_WAIT_TIME;
++
++	timeout = 0;
++	if (l2_dma_info[id].dma_start) {
++		dma_bit = (id < L2_COMMON_BUFFER_NUM) ? (1 << (id + L2_DMA_REQ_BUF_START)) :
++			(1 << (id - L2_COMMON_BUFFER_NUM + L2_DMA_REQ_UART_BUF_REQ_START));
++		do {
++			dmareq = __raw_readl(rL2_DMAREQ);
++		} while((dmareq & dma_bit) && timeout++ < max_wait_time);
++
++		l2_dma_info[id].dma_start = false;
++		pr_debug("l2: dma_bit=%lx,buf id=%d, status=%d\n", dma_bit, id, l2_get_status(id));
++		if (timeout >= max_wait_time) {
++			pr_err("l2: wait dma timeout, buf id=%d, status=%d.\n", id, l2_get_status(id));
++			l2_clear_dma(id);
++			__raw_writel(0x0, vL2DMA_CONBUF0 + id * 4);
++			return false;
++		}
++
++		/*
++		 * If fraction DMA  is NOT need, then everything is done.
++		 */
++		if (!l2_dma_info[id].need_frac) {
++			return true;
++		}	
++
++
++		/*
++		 * Start fraction DMA here for remain bytes transfer (<64Bytes).
++		 */
++		l2_dma_info[id].dma_frac_start = true;
++		l2_frac_dma((unsigned long)l2_dma_info[id].dma_frac_addr, id,
++			l2_dma_info[id].dma_frac_offset, l2_dma_info[id].dma_frac_data_len,
++			l2_dma_info[id].direction, false);
++
++	}
++
++	/*
++	 * Fraction DMA handling starts here.
++	 */
++	if (l2_dma_info[id].dma_frac_start) {
++		timeout = 0;
++		do {
++			dmareq = __raw_readl(rL2_DMAREQ);
++		} while((dmareq & L2_DMA_REQ_FRAC_DMA_REQ) && (timeout++ < max_wait_time));
++
++		l2_dma_info[id].dma_frac_start = false;
++
++		if (timeout >= max_wait_time) {
++			pr_err("l2:wait frac dma timeout, buf id=%d, status=%d.\n", id, l2_get_status(id));
++			return false;
++		}
++
++		if ((l2_dma_info[id].direction == MEM2BUF) && 
++			(l2_dma_info[id].dma_frac_data_len < 60)) {
++
++			void __iomem * bufaddr;
++
++			l2_get_addr(id, &bufaddr);
++			__raw_writel(0, bufaddr + (l2_dma_info[id].dma_frac_offset & 0x1FF) + 60);
++		}
++	}
++
++	return true;
++}
++
++/**
++ * l2_interrupt_handler - L2 memory interrupt handler
++ *  @irq:	IRQ number for L2 memory (Must be IRQ_L2MEM)
++ *  @dev_id:	Device specific information used by interrupt handler
++ *
++ *  NOTE: Only shared IRQ need to check @irq & @dev_id.
++ *            No need to check them here since L2 memory IRQ is NOT shared IRQ.
++ */
++static irqreturn_t l2_interrupt_handler(int irq, void *dev_id)
++{
++	unsigned long regval;
++	int i = 0;
++	//printk("enter %s\n", __FUNCTION__);
++	regval = __raw_readl(rL2_DMAREQ);
++
++	for (i = 0; i < L2_COMMON_BUFFER_NUM; i++) {
++		unsigned long dmapending = regval & (1 << ( i + L2_DMA_REQ_BUF_START));
++
++		if (l2_dma_info[i].dma_start && !dmapending) {
++			if (!l2_frac_started && l2_dma_info[i].need_frac) {
++				l2_dma_info[i].dma_frac_start = true;
++				l2_dma_info[i].dma_start = false;
++
++				l2_frac_dma((unsigned long)l2_dma_info[i].dma_frac_addr, i,
++					l2_dma_info[i].dma_frac_offset, l2_dma_info[i].dma_frac_data_len,
++					l2_dma_info[i].direction, true);
++
++				l2_frac_started = true;
++			} else {
++				/* DMA has finished */
++				unsigned long regval;
++
++				regval = __raw_readl(rL2_BUFINTEN);
++				regval &= ~(1 << (i + L2_DMA_INTR_ENABLE_BUF_START));
++				//rL2_BUFINTEN = regval;
++				__raw_writel(regval, rL2_BUFINTEN);
++
++				l2_dma_info[i].dma_start = false;
++
++				if (l2_dma_info[i].callback_func != NULL)
++					l2_dma_info[i].callback_func(l2_dma_info[i].data);
++				
++			}
++		}
++
++		if (l2_dma_info[i].dma_frac_start) {
++			unsigned long frac_dmapending = regval & L2_DMA_REQ_FRAC_DMA_REQ;
++			if (l2_frac_started && !frac_dmapending) {
++				l2_frac_started = false;
++
++				switch (l2_dma_info[i].direction) {
++				case MEM2BUF:
++					if (l2_dma_info[i].dma_frac_data_len <= 60)
++						__raw_writel(0x0, AK_VA_L2MEM + i * 512 + 0x1FC);
++					break;
++				case BUF2MEM:
++					if (l2_dma_info[i].dma_frac_data_len <= 512 - 4)
++						l2_clear_dma(i);
++					break;
++				default:
++					BUG();
++				}
++				l2_dma_info[i].dma_frac_start = false;
++
++				if (l2_dma_info[i].callback_func != NULL)
++					l2_dma_info[i].callback_func(l2_dma_info[i].data);
++				
++			}
++		}
++		
++	}
++
++	return IRQ_HANDLED;
++}
++
++/**
++ * l2_cpu - Transfer data between memory and l2 buffer in CPU mode
++ *  @ram_addr:		External RAM address(Physical)
++ *  @id:		L2 buffer ID
++ *  @buf_offset:	The buffer offset
++ *  @bytes:		Data transfer size
++ *  @direction:		Data transfer direction between L2 memory and external RAM 
++ */
++static void l2_cpu(unsigned long ram_addr, u8 id,
++	unsigned long buf_offset, unsigned int bytes, l2_dma_transfer_direction_t direction)
++{
++	int i;
++	int j;
++	unsigned long trans_no;
++	unsigned long frac_no;
++	unsigned long buf_count;
++	unsigned long buf_remain;
++	unsigned long temp_ram;
++	unsigned long temp_buf;
++	void __iomem * bufaddr;
++	
++	/*
++	 * L2 buffer caller MUST guarantee L2 buffer offset is 4-byte aligned
++	 */
++	if (unlikely(buf_offset % 4))
++		BUG();
++	l2_get_addr(id, &bufaddr);
++	if (bufaddr == NULL) {
++		return ;
++	}
++	bufaddr += buf_offset;
++	trans_no = bytes / 4;
++	frac_no = bytes % 4;
++	
++	buf_count = (buf_offset + bytes) / L2_BUF_STATUS_MULTIPLY_RATIO;
++	buf_remain = (buf_offset + bytes) % L2_BUF_STATUS_MULTIPLY_RATIO;
++
++	switch (direction) {
++	case MEM2BUF:
++		if (ram_addr % 4) {
++			for (i = 0; i < trans_no; i++) {
++				temp_ram = 0;
++				for (j = 0; j < 4; j++)
++					temp_ram |= ((read_ramb(ram_addr + i*4 + j))<<(j*8));
++				__raw_writel(temp_ram, (bufaddr + i * 4));
++			}
++			if (frac_no) {
++				temp_ram = 0;
++				for (j = 0; j < frac_no; j++)
++					temp_ram |= ((read_ramb(ram_addr + trans_no*4 + j))<<(j*8));
++				__raw_writel(temp_ram, (bufaddr + trans_no * 4));
++			}
++		} else {
++			for (i = 0; i < trans_no; i++)
++				__raw_writel(read_raml(ram_addr + i*4), (bufaddr + i*4));
++			if (frac_no)
++				__raw_writel(read_raml(ram_addr + trans_no*4), (bufaddr + trans_no*4));
++		}
++		
++		/*
++		 * If we do NOT write data to L2 in multiple of 64Bytes, we must write something to the 4Bytes in 64Bytes-
++		 * boundary so that CPU knows writing ends..
++		 */
++		if ((buf_remain > 0) && (buf_remain <= L2_BUF_STATUS_MULTIPLY_RATIO - 4))
++			__raw_writel(0, (bufaddr - buf_offset + buf_count*L2_BUF_STATUS_MULTIPLY_RATIO + L2_BUF_STATUS_MULTIPLY_RATIO - 4));
++		break;
++	case BUF2MEM:
++		if (ram_addr % 4) {
++			for (i = 0; i < trans_no; i++) {
++				temp_buf = __raw_readl(bufaddr + i * 4);	
++				for (j = 0; j < 4; j++)
++					write_ramb((u8)((temp_buf>>j*8) & 0xFF), (ram_addr + i*4 + j));
++			}
++			if (frac_no) {
++				temp_buf = __raw_readl(bufaddr+trans_no*4);
++				for (j = 0; j < frac_no; j++)
++					write_ramb((u8)((temp_buf>>j*8) & 0xFF), (ram_addr + trans_no*4 + j));
++			}
++		} else {
++			for (i = 0; i < trans_no; i++)
++			{
++				write_raml(__raw_readl(bufaddr+i*4), (ram_addr+i*4));
++			}
++			
++			if (frac_no) {
++				temp_buf = __raw_readl(bufaddr+trans_no*4);
++				temp_ram = read_raml(ram_addr+trans_no*4);
++				temp_buf &= ((1<<(frac_no*8+1))-1);
++				temp_ram &= ~((1<<(frac_no*8+1))-1);
++				temp_ram |= temp_buf;
++				write_raml(temp_ram, (ram_addr+trans_no*4));
++			}
++		}
++		
++		/*
++		 * If we do NOT read data from L2 in multiple of 64Bytes, we must read the 4Bytes in 64Bytes-
++		 * boundary so that CPU knows reading ends..
++		 */
++		if ((buf_remain > 0) && (buf_remain <= L2_BUF_STATUS_MULTIPLY_RATIO - 4))
++			temp_buf = __raw_readl(bufaddr-buf_offset+buf_count*L2_BUF_STATUS_MULTIPLY_RATIO+L2_BUF_STATUS_MULTIPLY_RATIO - 4);
++		break;
++	default:
++		BUG();
++	}
++
++}
++
++/**
++ * l2_init - Initialize linux kernel L2 memory support
++ */
++static int ak_l2_irq;
++void __iomem *ak_l2ctrl_base;
++void __iomem *ak_l2mem_base;
++void __iomem *ak_sysctrl_base;
++
++void __init l2_init(void)
++{
++	int i;
++	int retval;
++
++	/*
++	 * Enable L2 controller working clock
++	 */
++	l2_enable_clock(true);
++
++	/*
++	 * Initialize all L2 common buffer status to IDLE(could be allocated)
++	 */
++	for (i = 0; i < L2_COMMON_BUFFER_NUM; i++) {
++		l2_buffer_info[i].id = (u8)i;
++		l2_buffer_info[i].usable = L2_STAT_IDLE;
++		l2_buffer_info[i].used_time = 0;
++	}
++
++	/* L2 Memory Register initializations */
++	//rL2_DMAREQ = L2_DMA_REQ_EN;
++	__raw_writel(L2_DMA_REQ_EN, rL2_DMAREQ);
++	__raw_writel(L2_FRAC_DMA_AHB_FLAG_EN | L2_FRAC_DMA_LDMA_FLAG_EN, rL2_FRACDMAADDR);
++	__raw_writel(0x0, rL2_CONBUF0_7);
++	/* 6.6: leave the UART buffer config (rL2_CONBUF8_15) as the boot loader
++	 * set it; the console's TX/RX rings live there and are already running. */
++	__raw_writel(0x0,rL2_BUFASSIGN1);
++	__raw_writel(0x0,rL2_BUFASSIGN2);
++
++	/* Initialize L2 DMA information status */
++	memset(l2_dma_info, 0, ARRAY_SIZE(l2_dma_info));
++
++	/* Initialize global L2 fraction DMA start flag */
++	l2_frac_started = false;
++
++	init_waitqueue_head(&l2_wq);
++
++	/* L2 Memory Interrupt handler registered */
++	if ((retval = request_irq(ak_l2_irq, &l2_interrupt_handler, 0/*IRQF_DISABLED*/, "l2", NULL)) < 0)
++		pr_err("l2: failed to request_irq, irq number: %d, retval=%d.\n", ak_l2_irq, retval);
++
++	pr_info("On-chip L2 memory initialized\n");
++}
++
++/**
++ * __l2_alloc - Allocate a common L2 buffer for given device
++ *  @device:	Device ID which need common L2 buffer
++ *  Return L2 buffer ID (0 ~ 7)
++ *
++ *  Only common L2 buffers(ID 0 ~ 7) could be allocated by __l2_alloc.
++ *  Other L2 buffers (UART/USB used) is handled by corresponding devices directly.
++ */
++static u8 __l2_alloc(l2_device_t device, bool need_wait)
++{
++	int i;
++	u16 used_times = MAX_L2_BUFFER_USED_TIMES;
++	u8 id = BUF_NULL;
++	u8 first_id = BUF_NULL;
++	unsigned long flags;
++	bool l2_allocated = false;
++#if defined(CONFIG_MACH_AK37D)
++	if (unlikely(device == ADDR_RESERVED0))
++#elif 1
++	if (unlikely((device == ADDR_RESERVED0) || (device == ADDR_RESERVED1) || (device == ADDR_RESERVED2)))
++#else
++#error "ak_l2: no L2 reserved-device list for this machine"
++#endif
++	{
++		pr_err("l2: unable to allocate l2 buffer for reserved device.\n");
++		return BUF_NULL;
++	}
++
++	if (unlikely(l2_device_info[(u8)device].id != BUF_NULL)) {
++		pr_err("l2: device %d already have a l2 buffer %d\n",
++			(int)(u8)device, (int)(u8)l2_device_info[(u8)device].id);
++		
++		return l2_device_info[(u8)device].id;
++	}
++
++	do {
++		local_irq_save(flags);
++
++		l2_allocated = false;
++
++		for (i = 1; i < L2_COMMON_BUFFER_NUM; i++) {
++			if (l2_buffer_info[i].usable == L2_STAT_IDLE) {
++				if (first_id == BUF_NULL) {
++					first_id = l2_buffer_info[i].id;
++					used_times = l2_buffer_info[i].used_time;
++					id = first_id;
++				}
++				if (l2_buffer_info[i].used_time < used_times) {
++					used_times = l2_buffer_info[i].used_time;
++					id = l2_buffer_info[i].id;
++				}
++			}
++		}
++
++		if (unlikely(first_id == BUF_NULL)) {
++			if(!need_wait) {
++				local_irq_restore(flags);
++				return BUF_NULL;
++			}
++			local_irq_restore(flags);
++			l2_wait = 0;
++			wait_event(l2_wq, l2_wait);
++		} else {
++			l2_allocated = true;
++		}
++	} while (!l2_allocated);
++
++	/*
++	 * Got a L2 buffer successfully...
++	 */
++	l2_buffer_info[id].usable = L2_STAT_USED;
++	l2_buffer_info[id].used_time++;
++	if (l2_buffer_info[id].used_time == 0) {
++		/*
++		 * In case when the new allocated L2 buffer has been used MAX_L2_BUFFER_USED_TIMES,
++		 * we just clear all L2 buffer used times as a simpfied method of balancing 8 L2 buffer usage.
++		 */
++		for (i = 0; i < L2_COMMON_BUFFER_NUM; i++)
++			l2_buffer_info[i].used_time = 0;
++	}
++
++	/* Enable L2 buffer */
++	l2_combuf_ctrl(id, true);
++
++	/* Change device info */
++	l2_device_info[device].id = id;
++
++	/* Select L2 common buffer for device */
++	l2_select_combuf(device, id);
++
++	local_irq_restore(flags);
++
++	/* Clear L2 buffer status */
++	l2_clr_status(id);
++	return id;
++}
++
++u8 l2_alloc(l2_device_t device)
++{
++		return __l2_alloc(device, true);
++}
++EXPORT_SYMBOL(l2_alloc);
++
++u8 l2_alloc_nowait(l2_device_t device)
++{
++		return __l2_alloc(device, false);
++}
++EXPORT_SYMBOL(l2_alloc_nowait);
++
++/**
++ * l2_free - Free L2 common buffer for given device
++ *  @device:	Device ID which need common L2 buffer
++ *  Return L2 buffer ID (0 ~ 7)
++ *
++ *  Only common L2 buffers(ID 0 ~ 7) could be allocated by l2_alloc.
++ *  Other L2 buffers (UART/USB used) is handled by corresponding devices directly.
++ *  NOTE: Return the previous L2 buffer ID if a L2 buffer has been allocated to the device.
++ *            This means one device could get only one L2 buffer maximum.
++ */
++void l2_free(l2_device_t device)
++{
++	u8 id;
++	unsigned long regval;
++	unsigned long flags;
++	id = l2_device_info[(u8)device].id;
++	if (unlikely(id == BUF_NULL)) {
++		pr_err("l2: trying to free invalid buffer id %d\n", (int)id);
++		return ;
++	}
++	
++	l2_clear_dma(id);
++
++	local_irq_save(flags);
++
++	/*
++	 * Disable DMA interrupt of this L2 buffer.
++	 */
++	regval = __raw_readl(rL2_BUFINTEN);
++	regval &= ~(1 << (id + L2_DMA_INTR_ENABLE_BUF_START));
++	//rL2_BUFINTEN = regval;
++	__raw_writel(regval, rL2_BUFINTEN);
++
++	/* Set DMA count to 0 */
++	__raw_writel(0x0, vL2DMA_CONBUF0 + id * 4);
++
++	/* Disable this L2 buffer */
++	l2_combuf_ctrl(id, false);
++	l2_deselect_combuf(device, id);
++
++	/* Clear DMA & DMA fraction flags */
++	if (l2_dma_info[id].dma_start || l2_dma_info[id].dma_frac_start) {
++		l2_dma_info[id].dma_start = false;
++		l2_dma_info[id].dma_frac_start = false;
++	}
++
++	l2_dma_info[id].callback_func = NULL;
++	l2_dma_info[id].data = 0;
++
++	l2_device_info[(u8)device].id = BUF_NULL;
++	l2_buffer_info[id].usable = L2_STAT_IDLE;
++
++	l2_wait = 1;
++	wake_up(&l2_wq);
++
++	local_irq_restore(flags);
++
++}
++EXPORT_SYMBOL(l2_free);
++
++/**
++ * l2_set_dma_callback - Set callback function when L2 DMA/fraction DMA interrupt handler is done
++ *  @id:	L2 buffer ID
++ *  @func:	Callback function
++ *  Return true(Always)
++ *  
++ *  NOTE: Caller MUST guarantee that L2 buffer ID is valid. And since the callback function is called
++ *  in interrupt handler, it MUST NOT call any functions which may sleep.
++ */
++bool l2_set_dma_callback(u8 id, l2_callback_func_t func, unsigned long data)
++{
++	if (unlikely(id >= L2_COMMON_BUFFER_NUM)) {
++		pr_err("l2: Set dma callback, invalid buf id[%d].\n", id);
++		return false;
++	}
++
++	if (unlikely(l2_dma_info[id].dma_start || l2_dma_info[id].dma_frac_start)) {
++		pr_err("l2: Set dma callback, dma not finished.\n");
++		return false;
++	}
++
++	l2_dma_info[id].callback_func = func;
++	l2_dma_info[id].data = data;
++
++	return true;
++}
++EXPORT_SYMBOL(l2_set_dma_callback);
++
++/**
++ * l2_combuf_dma - Start data tranferring between memory and l2 common buffer in DMA mode
++ *  @ram_addr:		External RAM address(Physical)
++ *  @id:		L2 buffer ID involved in DMA transfer
++ *  @bytes:		Data transfer size
++ *  @direction:		Data transfer direction between L2 memory and external RAM 
++ *  @intr_enable:	Open interrupt for this L2 buffer or not
++ */
++int l2_combuf_dma(unsigned long ram_addr, u8 id, unsigned int bytes, l2_dma_transfer_direction_t direction, bool intr_enable)
++{
++	if (unlikely(id >= L2_COMMON_BUFFER_NUM)) {
++		pr_err("l2: begin common buffer dma, error buf id=[%d].\n", id);
++		return -EINVAL;
++	}
++
++	return l2_dma(ram_addr, id, bytes, direction, intr_enable);
++}
++EXPORT_SYMBOL(l2_combuf_dma);
++
++/**
++ * l2_combuf_wait_dma_finish - Wait for L2 DMA to finish
++ *  @id:	L2 buffer ID involved in DMA transfer
++ *  Return true: DMA transfer finished successfully.
++ *            false: DMA transfer failed.
++ *  NOTE: DMA transfer is started by l2_combuf_dma.
++ */
++bool l2_combuf_wait_dma_finish(u8 id)
++{
++	if (unlikely(id >= L2_COMMON_BUFFER_NUM)) {
++		pr_err("l2: begin common buffer dma, error buf id=[%d].\n", id);
++		return false;
++	}
++	return l2_wait_dma_finish(id);
++}
++EXPORT_SYMBOL(l2_combuf_wait_dma_finish);
++
++/**
++ * l2_combuf_cpu - Transfer data between memory and l2 common buffer in CPU mode
++ *  @ram_addr:	External RAM address(Physical)
++ *  @id:	L2 buffer ID
++ *  @bytes:	Data transfer size
++ *  @direction:	Data transfer direction between L2 memory and external RAM
++ *
++ *  NOTE: According to XuChang, if one transfer data from Peripheral --> L2 Buffer --> RAM, 
++ *            special care need to be taken when data size is NOT multiple of 64Bytes.
++ *            Pheripheral driver must check hardware signals to confirm data has been transfer from
++ *            peripheral to L2 buffer since L2 do NOT provide some mechanism to confirm data has
++ *            been in L2 Buffer. Driver can and only can call l2_combuf_cpu() to copy data from L2
++ *            Buffer --> RAM after checking hardware signals.
++ *            As to 64Bytes * n size data, L2 could check Buffer Status Status Counter to confirm that
++ *            Data has been transfer from peripheral to L2 buffer, so no hardware signals checking needed.
++ */
++int l2_combuf_cpu(unsigned long ram_addr, u8 id,
++	unsigned int bytes, l2_dma_transfer_direction_t direction)
++{
++	int i;
++	int loop;
++	int remain;
++	unsigned int timeout;
++
++	loop = bytes / L2_BUF_STATUS_MULTIPLY_RATIO;
++	remain = bytes % L2_BUF_STATUS_MULTIPLY_RATIO;
++
++	switch (direction) {
++	case MEM2BUF:
++		for (i = 0; i < loop; i++) {
++
++			timeout = L2_MAX_CPU_WAIT_TIME;
++			while (l2_get_status(id) == (L2_BUFFER_SIZE / L2_BUF_STATUS_MULTIPLY_RATIO)) {
++				/* Waiting for L2 buffer to NOT full(means writable) */
++				if (--timeout == 0) {
++					printk_ratelimited("l2: cpu write wait timeout, buf id=%d.\n", id);
++					return -ETIMEDOUT;
++				}
++			}
++
++			l2_cpu(ram_addr + i * L2_BUF_STATUS_MULTIPLY_RATIO, id,
++				(i % 8) * L2_BUF_STATUS_MULTIPLY_RATIO, L2_BUF_STATUS_MULTIPLY_RATIO, direction);
++		}
++		if (remain > 0) {
++			timeout = L2_MAX_CPU_WAIT_TIME;
++			while (l2_get_status(id) > 0) {
++				/* Waiting for L2 buffer to empty */
++				if (--timeout == 0) {
++					printk_ratelimited("l2: cpu drain wait timeout, buf id=%d.\n", id);
++					return -ETIMEDOUT;
++				}
++			}
++
++			l2_cpu(ram_addr + loop * L2_BUF_STATUS_MULTIPLY_RATIO, id,
++				(loop % 8) * L2_BUF_STATUS_MULTIPLY_RATIO, remain, direction);
++		}
++		break;
++	case BUF2MEM:
++		for (i = 0; i < loop; i++) {
++			timeout = L2_MAX_CPU_WAIT_TIME;
++			while (l2_get_status(id) == 0) {
++				/* Waiting for L2 buffer to be not empty (means readable) */
++				if (--timeout == 0) {
++					printk_ratelimited("l2: cpu read wait timeout, buf id=%d.\n", id);
++					return -ETIMEDOUT;
++				}
++			}
++
++			l2_cpu(ram_addr + i * L2_BUF_STATUS_MULTIPLY_RATIO, id,
++				(i % 8) * L2_BUF_STATUS_MULTIPLY_RATIO, L2_BUF_STATUS_MULTIPLY_RATIO, direction);
++
++		}
++		if (remain > 0) {
++			l2_cpu(ram_addr + loop * L2_BUF_STATUS_MULTIPLY_RATIO, id,
++				(loop % 8) * L2_BUF_STATUS_MULTIPLY_RATIO, remain, direction);
++		}
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL(l2_combuf_cpu);
++
++/**
++ * l2_get_status - Get L2 buffer status
++ *  @id:	L2 buffer ID
++ */
++u8 l2_get_status(u8 id)
++{
++	l2_assert_buf_id(id);
++
++	return (id < L2_COMMON_BUFFER_NUM) ? (__raw_readl(rL2_BUFSTAT1) >> (id * 4)) & 0xF :
++		(__raw_readl(rL2_BUFSTAT2) >> ((id - L2_UART_BUF_START_ID) << 1)) & 0x3;
++}
++EXPORT_SYMBOL(l2_get_status);
++
++/**
++ * l2_clr_status - Clear L2 buffer status
++ *  @id:	L2 buffer ID
++ */
++void l2_clr_status(u8 id)
++{
++	unsigned long flags;
++
++	l2_assert_buf_id(id);
++	
++	local_irq_save(flags);
++
++	if (id < L2_COMMON_BUFFER_NUM) {
++		__raw_writel(__raw_readl(rL2_CONBUF0_7) | (1 << (id + L2_COMMON_BUF_CFG_BUF_CLR_START)), rL2_CONBUF0_7);
++	} else {
++		__raw_writel(__raw_readl(rL2_CONBUF8_15) | (1 << (id - L2_UART_BUF_START_ID + L2_UART_BUF_CFG_BUF_START)), rL2_CONBUF8_15);
++	}
++
++	local_irq_restore(flags);
++
++}
++EXPORT_SYMBOL(l2_clr_status);
++
++/**
++ * l2_set_status - Clear L2 buffer status
++ *  @id:	L2 buffer ID
++ *  @status:	Status to be set (0 ~ 8)
++ */
++void l2_set_status(u8 id, u8 status)
++{
++	unsigned long regval;
++	unsigned long flags;
++	
++	l2_assert_buf_id(id);
++
++	if ((id >= L2_COMMON_BUFFER_NUM) || status > MAX_L2_DMA_STATUS_VALUE)
++		BUG();
++
++	local_irq_save(flags);
++
++	/*
++	 * Enable CPU-controlled buffer function and set L2 buffer `id' status
++	 * status = current number of data in the CPU controlled buffer.
++	 */
++	regval = __raw_readl(rL2_CONBUF8_15);
++	regval &= ~(L2_UART_BUF_CFG_CPU_BUF_NUM_MASK | L2_UART_BUF_CFG_CPU_BUF_SEL_EN |
++		L2_UART_BUF_CFG_CPU_BUF_SEL_MASK);
++	regval |= (id << L2_UART_BUF_CFG_CPU_BUF_SEL_START) | L2_UART_BUF_CFG_CPU_BUF_SEL_EN |
++		(status << L2_UART_BUF_CFG_CPU_BUF_NUM_START);
++	__raw_writel(regval, rL2_CONBUF8_15);
++
++	/*
++	* Disable CPU-controlled buffer function
++	*/
++	regval = __raw_readl(rL2_CONBUF8_15);
++	regval &= ~(L2_UART_BUF_CFG_CPU_BUF_NUM_MASK | L2_UART_BUF_CFG_CPU_BUF_SEL_EN |
++		L2_UART_BUF_CFG_CPU_BUF_SEL_MASK);
++	__raw_writel(regval, rL2_CONBUF8_15);
++
++	local_irq_restore(flags);
++
++}
++EXPORT_SYMBOL(l2_set_status);
++
++
++/* Linux 6.6: map the L2 controller/memory from the DT and start the engine
++ * before the MMC and USB host drivers probe. */
++static int __init ak_l2_setup(void)
++{
++	struct device_node *np;
++
++	np = of_find_compatible_node(NULL, NULL, "anyka,ak3918ev300-l2");
++	if (!np)
++		return 0;
++	ak_l2ctrl_base = of_iomap(np, 0);
++	ak_l2mem_base = of_iomap(np, 1);
++	ak_sysctrl_base = of_iomap(np, 2);
++	ak_l2_irq = irq_of_parse_and_map(np, 0);
++	of_node_put(np);
++	if (!ak_l2ctrl_base || !ak_l2mem_base || !ak_sysctrl_base || !ak_l2_irq) {
++		pr_err("ak_l2: bad device tree node\n");
++		return -ENODEV;
++	}
++	l2_init();
++	return 0;
++}
++arch_initcall(ak_l2_setup);
+diff --git a/include/linux/soc/anyka/ak_l2.h b/include/linux/soc/anyka/ak_l2.h
+new file mode 100644
+index 000000000..2112c6dd4
+--- /dev/null
++++ b/include/linux/soc/anyka/ak_l2.h
+@@ -0,0 +1,357 @@
++/*
++ * AK3918AV130 keeps the vendor's own copy of this header, from the
++ * AnyCloud39AV130 SDK, in mach/av130/: its register map and IRQ layout
++ * share nothing with EV200/EV330 beyond the names.
++ */
++/*
++ * linux/arch/arm/mach-anycloud/include/mach/ak_l2_inter.h
++ *
++ * Copyright (C) 2020 Anyka(Guangzhou) Microelectronics Technology Co., Ltd.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++
++
++#ifndef __ASM_ARCH_L2_INNER_H__
++#define __ASM_ARCH_L2_INNER_H__
++
++#include <linux/types.h>
++#include <linux/compiler.h>
++
++/* Linux 6.6 port: the fixed 4.4 virtual mappings become pointers set by
++ * ak_l2_setup() (drivers/soc/anyka/ak_l2.c) from the device tree. */
++extern void __iomem *ak_l2ctrl_base;
++extern void __iomem *ak_l2mem_base;
++extern void __iomem *ak_sysctrl_base;
++#define AK_VA_L2CTRL	ak_l2ctrl_base
++#define AK_VA_L2MEM	ak_l2mem_base
++#define AK_VA_SYSCTRL	ak_sysctrl_base
++
++#undef REG32
++#define REG32(_reg)		(*(volatile unsigned long *)(_reg))
++
++#undef REG16 
++#define REG16(_reg)		(*(volatile unsigned short *)(_reg))
++
++/*
++ * ANYKA L2 Control Register List and Bit map definition
++ * TODO: Add all register bit maps and move all to map.h in the future.
++*/
++#define L2_DMA_REQ_BUF_START			24
++#define L2_DMA_REQ_BUF_REQ_MASK			(0xFFFF << 16)
++#define L2_DMA_REQ_UART_BUF_REQ_START	16
++#define L2_DMA_REQ_FRAC_DMA_LEN_START	10
++#define L2_DMA_REQ_FRAC_DMA_LEN_MASK	(0x3F << L2_DMA_REQ_FRAC_DMA_LEN_START)
++#define L2_DMA_REQ_FRAC_DMA_REQ			(1 << 9)
++#define L2_DMA_REQ_FRAC_DMA_DIR_WR		(1 << 8)
++#define L2_DMA_REQ_FRAC_DMA_L2_ADDR_START	1
++#define L2_DMA_REQ_FRAC_DMA_L2_ADDR_MASK	(0x7F << L2_DMA_REQ_FRAC_DMA_L2_ADDR_START)
++#define L2_DMA_REQ_EN					(1 << 0)
++
++#define L2_FRAC_DMA_AHB_FLAG_EN			(1 << 29)
++#define L2_FRAC_DMA_LDMA_FLAG_EN		(1 << 28)
++
++#define L2_FRAC_DMA_LOW_ADDR_MASK		(0xFFFFFFF << 0)
++
++#define L2_COMMON_BUF_CFG_BUF7_CLR		(1 << 31)
++#define L2_COMMON_BUF_CFG_BUF6_CLR		(1 << 30)
++#define L2_COMMON_BUF_CFG_BUF5_CLR		(1 << 29)
++#define L2_COMMON_BUF_CFG_BUF4_CLR		(1 << 28)
++#define L2_COMMON_BUF_CFG_BUF3_CLR		(1 << 27)
++#define L2_COMMON_BUF_CFG_BUF2_CLR		(1 << 26)
++#define L2_COMMON_BUF_CFG_BUF1_CLR		(1 << 25)
++#define L2_COMMON_BUF_CFG_BUF0_CLR		(1 << 24)
++#define L2_COMMON_BUF_CFG_BUF_CLR_START	24
++#define L2_COMMON_BUF_CFG_BUF0_7_CLR_MASK	(0xFF << L2_COMMON_BUF_CFG_BUF_START)
++#define L2_COMMON_BUF_CFG_BUF_VLD_START	16
++#define L2_COMMON_BUF_CFG_BUF0_7_VLD_MASK	(0xFF << L2_COMMON_BUF_CFG_BUF_VLD_START
++#define L2_COMMON_BUF_CFG_BUF_DMA_VLD_START	0
++#define L2_COMMON_BUF_CFG_BUF_DIR_START	8
++
++#define L2_UART_BUF_CFG_BUF_START		16
++
++#define L2_UART_BUF_CFG_UART_EN_MASK	(0xF << 28)
++#define L2_UART_BUF_CFG_UART_CLR_MASK	(0xFF << 16)
++#define L2_UART_BUF_CFG_CPU_BUF_SEL_EN	(1 << 3)
++#define L2_UART_BUF_CFG_CPU_BUF_NUM_START	4
++#define L2_UART_BUF_CFG_CPU_BUF_NUM_MASK	(0xF << L2_UART_BUF_CFG_CPU_BUF_NUM_START)
++#define L2_UART_BUF_CFG_CPU_BUF_SEL_START	0
++#define L2_UART_BUF_CFG_CPU_BUF_SEL_MASK	(0x7 << L2_UART_BUF_CFG_CPU_BUF_SEL_START)
++
++#define L2_DMA_INTR_ENABLE_BUF_START	9
++#define L2_DMA_INTR_ENABLE_UART_BUF_START	1
++#define L2_DMA_INTR_ENABLE_FRAC_INTR_EN	(1 << 0)
++
++/*
++ * ANYKA L2 buffer size(buffer 0 to buffer 7), all 512Bytes.
++ * NOTE: L2 buffer 8 to 15 dedicate to UART 1 to 4 &  USB 2.0 Controller, 
++ *           and the corresponding L2 buffer size could be 64, 128 and 256 Bytes.
++ * See ANYKA Programmer's Guide for details (ANYKA preferably).
++ */
++#define L2_BUFFER_SIZE			512
++
++/*
++  * ANYKA L2 DMA waiting times in loop
++  * TODO: Must be change to waiting time based on CPU frequency when frequency APIs are done.
++  */
++#define L2_MAX_DMA_WAIT_TIME	50 * 1000000UL
++
++/*
++ * Poll limit for the CPU-mode buffer status waits in l2_combuf_cpu().
++ */
++#define L2_MAX_CPU_WAIT_TIME	1000000U
++
++/*
++ * ANYKA DMA size in bytes per transfer (Always 64Bytes)
++ * L2 DMA transfer follows this definition.
++ */
++#define DMA_ONE_SHOT_LEN		64
++
++/*
++ * ANYKA L2 Buffer Status Multiply Ratio(64)
++ * Buffer Status Register 1 & 2: The number of data = Bufn_sta * L2_BUF_STATUS_MULTIPLY_RATIO
++ */
++#define L2_BUF_STATUS_MULTIPLY_RATIO	64
++
++/*
++ * L2 Buffer ID Assignment:
++ * 0 - 7: L2 common buffer, could be used by different peripherals
++ * 8 - 15: Dedicate L2 buffer for UART
++ * 16 - 18: Dedicate L2 buffer for USB
++ */
++#define L2_COMMON_BUFFER_NUM	8
++#define L2_UART_BUFFER_NUM		4
++
++#define L2_UART_BUFFER_INDEX	L2_COMMON_BUFFER_NUM
++#define L2_USB_HOST_BUFFER_INDEX	(L2_UART_BUFFER_INDEX + L2_UART_BUFFER_NUM)
++
++
++#define L2_COMMON_BUFFER_LEN	512
++#define L2_UART_BUFFER_LEN		128
++
++#define L2_COMMON_BUFFER_OFFSET		0
++#define L2_UART_BUFFER_OFFSET		(L2_COMMON_BUFFER_LEN * L2_COMMON_BUFFER_NUM)
++
++/*
++ * L2 controller working clock define
++ */
++#define L2_CLOCK_EN				(0x1 << 9)
++#define L2_CLOCK_REG			(AK_VA_SYSCTRL + 0x1C)
++
++/*
++ * L2 device list which may use L2 memory.
++ * The devices are defined according to L2 Buffer Assignement 1 & 2 register bit sequence.
++ */
++typedef enum {
++	ADDR_USB_EP1 = 0,		/* USB 2.0 HS Controller: Endpoint 1 */
++	ADDR_USB_EP2,			/* USB 2.0 HS Controller: Endpoint 2 */
++	ADDR_USB_EP3,			/* USB 2.0 HS Controller: Endpoint 3 */
++	ADDR_RESERVED0,			/* Reserved */
++	ADDR_MMC0,				/* MMC0 interface */
++	ADDR_MMC1,				/* MMC1 interface */
++	ADDR_RESERVED1,
++	ADDR_SPI0_RX = 7,		/* Rx buffer of SPI0 Controller */
++	ADDR_SPI0_TX,			/* Tx buffer of SPI0 Controller */
++	ADDR_DAC,				/* DAC control module */	
++	ADDR_SPI1_RX,			/* Rx buffer of SPI1 Controller */
++	ADDR_SPI1_TX,			/* Tx buffer of SPI1 Controller */
++	ADDR_GPS,				/* GPS interface */
++	ADDR_PCM_TX,			/* Tx buffer of PCM Controller */
++	ADDR_ADC,				/* ADC2 */
++	ADDR_USB_EP4,			/* USB 2.0 HS Controller: Endpoint 4 */
++	ADDR_RESERVED2,
++} l2_device_t;
++
++
++#define BUF_NULL					0xFF	/* Invalid L2 buffer ID */
++#define L2_UART_BUF_START_ID		L2_COMMON_BUFFER_NUM	/* UART used buffer ID from 8 */
++
++/*
++ * Maximum L2 DMA status value (The value in CPU-Controlled Buffer and Buffer8 ~ Buffer15 Configuration Register)
++ * The maximum DMA transfer bytes = MAX_L2_DMA_STATUS_VALUE * 64
++ */
++#define MAX_L2_DMA_STATUS_VALUE		0x8
++#define MAX_L2_BUFFER_USED_TIMES	0xFFFF
++
++/*
++ * Data transfer direction between L2 memory and external RAM
++ */
++typedef enum {
++	BUF2MEM = 0,	/* Data transfer from L2 buffer to external RAM */
++	MEM2BUF,	/* Data transfer from external RAM to L2 buffer */
++} l2_dma_transfer_direction_t;
++
++/*
++ * Callback function when L2 DMA/fraction DMA interrupt handler is done
++ */
++typedef void (*l2_callback_func_t)(unsigned long data);
++
++/*
++ * L2 buffer status
++ */
++typedef enum {
++	L2_STAT_USED = 0,	/* Current L2 buffer is used by some device */
++	L2_STAT_IDLE,		/* Current L2 buffer is NOT used by some device, thus could be allocated */
++} l2_buffer_status_t;
++
++/*
++ * L2 buffer information
++ */
++typedef struct {
++	u8 id;				/* L2 buffer ID (0~17) */
++	l2_buffer_status_t usable;	/* L2 buffer status(used or idle) */
++	u16 used_time;			/* Counter on L2 buffer used times */
++} l2_buffer_info_t;
++
++/*
++ * Information on device which use L2 memory
++ */
++typedef struct {
++	l2_device_t device;	/* Device ID */
++	u8 id;				/* TODO: Remove id in the future since array index already represent buffer id */
++} l2_device_info_t;
++
++/*
++ * L2 DMA usage information (including DMA/fraction DMA/external RAM/Callback function)
++ */
++typedef struct {
++	bool dma_start;
++	bool intr_enable;
++	l2_dma_transfer_direction_t direction;
++	void *dma_addr;
++	u32  dma_op_times;
++	bool need_frac;
++	bool dma_frac_start;
++	void *dma_frac_addr;
++	u32  dma_frac_offset;
++	u32  dma_frac_data_len;
++	l2_callback_func_t callback_func;
++	unsigned long data;
++} l2_dma_info_t;
++
++/**
++ * l2_init - Initialize linux kernel L2 memory support
++ */
++void l2_init(void);
++
++/**
++ * l2_alloc - Allocate a common L2 buffer for given device
++ *  @device:	Device ID which need common L2 buffer
++ *  Return L2 buffer ID (0 ~ 7)
++ *
++ *  Only common L2 buffers(ID 0 ~ 7) could be allocated by l2_alloc.
++ *  Other L2 buffers (UART/USB used) is handled by corresponding devices directly.
++ */
++u8 l2_alloc(l2_device_t device);
++
++/**
++ * l2_alloc_nowait - Allocate a common L2 buffer for given device
++ *  @device:	Device ID which need common L2 buffer
++ *  Return L2 buffer ID (0 ~ 7)
++ *
++ *  Only common L2 buffers(ID 0 ~ 7) could be allocated by l2_alloc_nowait.
++ *  Other L2 buffers (UART/USB used) is handled by corresponding devices directly.
++ *  return BUF_NULL immediately if no buf was alloc .
++ */
++u8 l2_alloc_nowait(l2_device_t device);
++
++/**
++ * l2_free - Free L2 common buffer for given device
++ *  @device:	Device ID which need common L2 buffer
++ *  Return L2 buffer ID (0 ~ 7)
++ *
++ *  Only common L2 buffers(ID 0 ~ 7) could be allocated by l2_alloc.
++ *  Other L2 buffers (UART/USB used) is handled by corresponding devices directly.
++ *  NOTE: Return the previous L2 buffer ID if a L2 buffer has been allocated to the device.
++ *            This means one device could get only one L2 buffer maximum.
++ */
++void l2_free(l2_device_t device);
++
++/**
++ * l2_set_dma_callback - Set callback function when L2 DMA/fraction DMA interrupt handler is done
++ *  @id:		L2 buffer ID
++ *  @func:	Callback function
++ *  @data:	Arguments used by callback function
++ *  Return true(Always)
++ *  
++ *  NOTE: Caller MUST guarantee that L2 buffer ID is valid. And since the callback function is called
++ *  in interrupt handler, it MUST NOT call any functions which may sleep.
++ */
++bool l2_set_dma_callback(u8 id, l2_callback_func_t func, unsigned long data);
++
++/**
++ * l2_combuf_dma - Start data tranferring between memory and l2 common buffer in DMA mode
++ *  @ram_addr:		External RAM address(Physical)
++ *  @id:			L2 buffer ID involved in DMA transfer
++ *  @bytes:		Data transfer size
++ *  @direction:		Data transfer direction between L2 memory and external RAM 
++ *  @intr_enable:		Open interrupt for this L2 buffer or not
++ */
++int l2_combuf_dma(unsigned long ram_addr, u8 id, unsigned int bytes, l2_dma_transfer_direction_t direction, bool intr_enable);
++
++/**
++ * l2_combuf_wait_dma_finish - Wait for L2 DMA finish
++ *  @id:	L2 buffer ID involved in DMA transfer
++ *  Return true: DMA transfer finished successfully.
++ *            false: DMA transfer failed.
++ *  NOTE: DMA transfer is started by l2_combuf_dma.
++ */
++bool l2_combuf_wait_dma_finish(u8 id);
++
++/**
++ * l2_combuf_cpu - Transfer data between memory and l2 common buffer in CPU mode
++ *  @ram_addr:	External RAM address(Physical)
++ *  @id:	L2 buffer ID
++ *  @bytes:	Data transfer size
++ *  @direction:	Data transfer direction between L2 memory and external RAM
++ *
++ *  NOTE: According to XuChang, if one transfer data from Peripheral --> L2 Buffer --> RAM, 
++ *            special care need to be taken when data size is NOT multiple of 64Bytes.
++ *            Pheripheral driver must check hardware signals to confirm data has been transfer from
++ *            peripheral to L2 buffer since L2 do NOT provide some mechanism to confirm data has
++ *            been in L2 Buffer. Driver can and only can call l2_combuf_cpu() to copy data from L2
++ *            Buffer --> RAM after checking hardware signals.
++ *            As to 64Bytes * n size data, L2 could check Buffer Status Status Counter to confirm that
++ *            Data has been transfer from peripheral to L2 buffer, so no hardware signals checking needed.
++ */
++int l2_combuf_cpu(unsigned long ram_addr, u8 id, unsigned int bytes, l2_dma_transfer_direction_t direction);
++
++/**
++ * l2_get_status - Get L2 buffer status
++ *  @id:	L2 buffer ID
++ */
++u8 l2_get_status(u8 id);
++
++/**
++ * l2_clr_status - Clear L2 buffer status
++ *  @id:	L2 buffer ID
++ */
++void l2_clr_status(u8 id);
++
++/**
++ * l2_set_status - Clear L2 buffer status
++ *  @id:	L2 buffer ID
++ *  @status:	Status to be set (0 ~ 8)
++ */
++void l2_set_status(u8 id, u8 status);
++
++static inline void l2_enable_clock(int enable)
++{
++	if (enable)
++		REG32(L2_CLOCK_REG) &= ~L2_CLOCK_EN;
++	else
++		REG32(L2_CLOCK_REG) |= L2_CLOCK_EN;
++	return;
++}
++
++#endif	/* __ASM_ARCH_L2_INNER_H__ */
++
++ /* CONFIG_MACH_AK3918AV130 */
+-- 
+2.43.0
+

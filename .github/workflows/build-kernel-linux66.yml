@@ -2,7 +2,7 @@ name: Build Linux 6.6 LTS Kernel with CMA 16MB for TECKIN TC100
 
 on:
   push:
-    branches: [ v3-linux66 ]
+    branches: [ v3-linux66, v3-on-main ]
     paths:
       - 'patches/kernel-6.6/**'
       - '.github/workflows/build-kernel-linux66.yml'
@@ -29,8 +29,9 @@ jobs:
       - name: Apply Anyka AK3918 Hardware, CMA 16MB & ALSA Audio Patches
         run: |
           cd linux-src
-          echo "[+] Applying Unified Anyka AK3918 V3 Patch (CMA 16MB + ALSA Audio)..."
-          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch
+          echo "[+] Applying the Anyka AK3918 patch series (per subsystem)..."
+          git config user.email ci@example.invalid && git config user.name ci
+          git am --whitespace=nowarn ../patches/kernel-6.6/series/*.patch
 
       - name: Configure Kernel with CMA and ALSA
         run: |
