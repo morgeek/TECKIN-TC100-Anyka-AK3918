@@ -1,7 +1,7 @@
 import time, os, sys
 
-in_path = "/Users/keegrom/Downloads/tc100-fix/uart-in.txt"
-log_path = "/Users/keegrom/Downloads/tc100-fix/uart.log"
+in_path = os.path.join(os.environ.get("TC100_WORK", "."), "uart-in.txt")
+log_path = os.path.join(os.environ.get("TC100_WORK", "."), "uart.log")
 
 print("Envoi de la commande reboot a Linux...")
 with open(in_path, "a") as f:

@@ -1,7 +1,7 @@
 import os
 
-patch_path = '/Users/keegrom/Developer/TECKIN-TC100-Anyka-AK3918/patches/kernel-6.6/linux-6.6-ak3918-step6-audio.patch'
-audio_dir = '/Users/keegrom/Developer/TECKIN-TC100-Anyka-AK3918/patches/kernel-6.6/audio'
+patch_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'patches/kernel-6.6/linux-6.6-ak3918-step6-audio.patch')
+audio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'patches/kernel-6.6/audio')
 
 def file_to_patch(src_path, dst_path):
     with open(src_path, 'r', errors='ignore') as f:

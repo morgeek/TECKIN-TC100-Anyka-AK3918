@@ -1,7 +1,7 @@
 import os, sys, time, termios, tty, select, glob
 
-log_path = "/Users/keegrom/Downloads/tc100-fix/uart.log"
-in_path = "/Users/keegrom/Downloads/tc100-fix/uart-in.txt"
+log_path = os.path.join(os.environ.get("TC100_WORK", "."), "uart.log")
+in_path = os.path.join(os.environ.get("TC100_WORK", "."), "uart-in.txt")
 
 def run_bridge():
     while True:

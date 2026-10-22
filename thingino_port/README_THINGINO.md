@@ -107,7 +107,7 @@ Thingino WebUI previews streams via HTTP multipart MJPEG and JPEG snapshots rath
 ## 6. Live Hardware Verification Results
 
 ### Web Interface (Thingino WebUI)
-- **URL**: `http://192.168.1.11`
+- **URL**: `http://<camera-ip>`
 - **Frontend**: Bootstrap 5.3 Dark theme, Thingino layout, dynamic live view and controls.
 - **Authentication**: Native session cookie handling (`thingino_session`) via `/cgi-bin/login.cgi` verifying MD5/SHA-512 hashes in `/etc/shadow`.
 - **System Endpoints**: Live metrics delivered via JSON (`/cgi-bin/info.cgi`, `/cgi-bin/json-heartbeat.cgi`, `/cgi-bin/api-key.cgi`).
@@ -115,6 +115,6 @@ Thingino WebUI previews streams via HTTP multipart MJPEG and JPEG snapshots rath
 
 ### Streamer (`thingino-rtsp-server`)
 - **Binary**: Native static ELF binary (`thingino_port/bin/thingino-rtsp-server`, ~82 KB).
-- **RTSP Port**: 554 (`rtsp://192.168.1.11:554/ch0` and `rtsp://192.168.1.11:554/ch1`).
+- **RTSP Port**: 554 (`rtsp://<camera-ip>:554/ch0` and `rtsp://<camera-ip>:554/ch1`).
 - **Protocols**: RTSP/1.0, RFC 2326 compliant CSeq tracking, SDP negotiation (`m=video 0 RTP/AVP 96`), RTP packetizer, TCP interleaved + UDP streaming.
 - **Memory Footprint**: Minimal (~1 MB RAM), preventing any OOM crashes on 64 MB SIP RAM architectures.

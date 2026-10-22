@@ -1,4 +1,4 @@
-name: Build Linux 6.6 LTS Kernel with CMA 16MB for TECKIN TC100 (IPCAM2)
+name: Build Linux 6.6 LTS Kernel with CMA 16MB for TECKIN TC100
 
 on:
   push:

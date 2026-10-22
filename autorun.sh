@@ -1,7 +1,7 @@
 #!/bin/sh
 # TC100 V3 Startup Script for Linux 6.6 LTS
-echo "[tc100-v3] Starting V3 Services for IPCAM2..." > /dev/console
-hostname IPCAM2; echo "IPCAM2" > /etc/hostname
+echo "[tc100-v3] Starting V3 services..." > /dev/console
+hostname tc100; echo "tc100" > /etc/hostname
 
 mkdir -p /tmp/logs /var/run
 
@@ -52,14 +52,14 @@ fi
 # 6. Start Web Server on port 80
 killall httpd 2>/dev/null
 /usr/sbin/httpd -p 80 -h /tmp/www
-echo "[tc100-v3] WebUI active on http://192.168.1.11/" > /dev/console
+echo "[tc100-v3] WebUI active on port 80" > /dev/console
 
-# 7. Start RTSP Server on port 554 with root:pass (RFC 2435 JPEG stream)
+# 7. Start RTSP Server on port 554 (RFC 2435 JPEG stream)
 killall -9 thingino-rtsp-server 2>/dev/null
 sleep 0.5
 if [ -x /mnt/sd/tc100test/thingino-rtsp-server ]; then
   /mnt/sd/tc100test/thingino-rtsp-server -p 554 -u root -P pass -d
-  echo "[tc100-v3] RTSP stream active on rtsp://root:pass@192.168.1.11:554/ch0" > /dev/console
+  echo "[tc100-v3] RTSP stream active on port 554 (path /ch0)" > /dev/console
 fi
 
 # 8. Start ONVIF Discovery (monvifd)

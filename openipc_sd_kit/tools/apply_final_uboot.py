@@ -1,6 +1,6 @@
-import time
+import os, time
 
-in_path = "/Users/keegrom/Downloads/tc100-fix/uart-in.txt"
+in_path = os.path.join(os.environ.get("TC100_WORK", "."), "uart-in.txt")
 
 commands = [
     "setenv sdload 'fatload mmc 0 0x82000000 tc100test/oipc.img; fatload mmc 0 0x80900000 tc100test/oipcrd.gz'",
