@@ -894,8 +894,15 @@ int main(int argc, char **argv)
 	pa.width = W; pa.height = H; pa.qpmin = qmin; pa.qpmax = qmax;
 	pa.fps = fps; pa.gop = fps * 2; pa.kbps = kbps;
 	if (hevc) { pa.codec = 2; pa.profile = 3; }
-	void *enc = p_open(&pa);
+	/* H.265 as the very first use of the encoder after power-up corrupts kernel memory (seen on 6.6: oops within
+	 * seconds, repeatable); after one H.264 session it is stable. So an H.265 server first runs one H.264 frame. */
+	int prime = hevc && !getenv("NO_PRIME");
+	struct venc_param p0 = pa;
+
+	if (prime) { p0.codec = 0; p0.profile = 0; }
+	void *enc = p_open(prime ? &p0 : &pa);
 	if (!enc) { LOG("ak_venc_open failed\n"); return 1; }
+	{ unsigned long (*gf)(void) = dlsym(RTLD_DEFAULT, "akuio_get_free_pmem"); LOG("encoder open, pool free %lu\n", gf ? gf() : 0UL); }
 
 	/* network */
 	int ls = socket(AF_INET, SOCK_STREAM, 0), one = 1;
@@ -974,6 +981,19 @@ int main(int argc, char **argv)
 			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP;
 			if (ioctl(fd, VIDIOC_DQBUF, &b) < 0) continue;
 			ncap++;
+			if (prime) {
+				struct video_stream ps;
+
+				memcpy(pf, vb[b.index], flen);
+				ioctl(fd, VIDIOC_QBUF, &b);
+				memset(&ps, 0, sizeof ps);
+				if (!p_send(enc, pf, flen, &ps) && ps.data) p_release(enc, &ps);
+				p_close(enc);
+				enc = p_open(&pa);
+				if (!enc) { LOG("ak_venc_open failed\n"); break; }
+				prime = 0;
+				continue;
+			}
 			/* encode while someone watches, and until the parameter sets are known.
 			 * Idle: the encoder state moves on without a viewer, so the next viewer gets a new encoder:
 			 * its first frame is an IDR. */

@@ -422,6 +422,25 @@ void akuio_wait_irq(unsigned long arg)
 	int *res = arg ? (int *)arg : &dummy;
 	uint32_t st = 0;
 
+	if (getenv("AKUIO_STRAY")) {	/* debug: address-looking words of the small blocks (command lists) that point outside the pool */
+		static int shown;
+		struct blk *bk;
+
+		for (bk = blocks; bk && shown < 40; bk = bk->next) {
+			uint32_t k;
+
+			if (!bk->used || bk->size > 4096)
+				continue;
+			for (k = 0; k + 4 <= bk->size && shown < 40; k += 4) {
+				uint32_t w = *(uint32_t *)(void *)(pool + bk->off + k);
+
+				if (w >= 0x80000000u && w < 0x90000000u && (w < info.paddr || w >= info.paddr + info.size)) {
+					fprintf(stderr, "STRAY word %08x in block @%x+%x (size %u)\n", w, bk->off, k, bk->size);
+					shown++;
+				}
+			}
+		}
+	}
 	{
 		static int n;
 		const char *pre = getenv("AKUIO_DUMP");
