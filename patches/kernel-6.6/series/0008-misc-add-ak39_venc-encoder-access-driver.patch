@@ -1,7 +1,7 @@
-From cbdf5bb9d11bba248f93b6071dc685e907f3281a Mon Sep 17 00:00:00 2001
+From ad1c810304ce034de6fa9695df0799524086fcb0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:17 +0200
-Subject: [PATCH 8/9] misc: add ak39_venc encoder access driver
+Subject: [PATCH] misc: add ak39_venc encoder access driver
 
 Maps the Allegro DVT encoder register window, waits for its interrupt and exports a physically contiguous pool as /dev/uio0 so the vendor encoder libraries can run on 6.6.
 
@@ -10,9 +10,9 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
 ---
  drivers/misc/Kconfig           |   8 +
  drivers/misc/Makefile          |   1 +
- drivers/misc/ak39_venc.c       | 334 +++++++++++++++++++++++++++++++++
+ drivers/misc/ak39_venc.c       | 367 +++++++++++++++++++++++++++++++++
  include/uapi/linux/ak39_venc.h |  37 ++++
- 4 files changed, 380 insertions(+)
+ 4 files changed, 413 insertions(+)
  create mode 100644 drivers/misc/ak39_venc.c
  create mode 100644 include/uapi/linux/ak39_venc.h
 
@@ -44,10 +44,10 @@ index f2a4d1ff6..0567055c7 100644
 +obj-$(CONFIG_AK39_VENC)	+= ak39_venc.o
 diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
 new file mode 100644
-index 000000000..9b87d024e
+index 000000000..4078d4db5
 --- /dev/null
 +++ b/drivers/misc/ak39_venc.c
-@@ -0,0 +1,334 @@
+@@ -0,0 +1,367 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Anyka AK3918EV300 video encoder access (Allegro DVT core, H.264/H.265/JPEG)
@@ -73,7 +73,7 @@ index 000000000..9b87d024e
 +#include <linux/module.h>
 +#include <linux/mutex.h>
 +#include <linux/of.h>
-+#include <linux/of_reserved_mem.h>
++#include <linux/of_address.h>
 +#include <linux/platform_device.h>
 +#include <linux/spinlock.h>
 +#include <linux/soc/anyka/ak_l2.h>
@@ -98,6 +98,7 @@ index 000000000..9b87d024e
 +	void *pool_virt;
 +	dma_addr_t pool_dma;
 +	size_t pool_size;
++	bool pool_reserved;	/* memremap()ed no-map region, not dma_alloc */
 +	int open_count;
 +};
 +
@@ -266,6 +267,12 @@ index 000000000..9b87d024e
 +		if (!v->pool_virt || off + len > v->pool_size)
 +			return -EINVAL;
 +		/* the pool is write-combined: the core and the CPU agree */
++		if (v->pool_reserved) {
++			vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
++			return io_remap_pfn_range(vma, vma->vm_start,
++					(v->pool_dma + off) >> PAGE_SHIFT, len,
++					vma->vm_page_prot);
++		}
 +		vma->vm_pgoff = off >> PAGE_SHIFT;
 +		return dma_mmap_wc(v->dev, vma, v->pool_virt, v->pool_dma,
 +				   v->pool_size);
@@ -289,11 +296,20 @@ index 000000000..9b87d024e
 +	.llseek		= noop_llseek,
 +};
 +
++static void ak39_venc_pool_free(struct ak39_venc *v)
++{
++	if (v->pool_reserved)
++		memunmap(v->pool_virt);
++	else
++		dma_free_wc(v->dev, v->pool_size, v->pool_virt, v->pool_dma);
++}
++
 +static int ak39_venc_probe(struct platform_device *pdev)
 +{
 +	struct device *dev = &pdev->dev;
 +	struct ak39_venc *v;
 +	struct resource *res;
++	struct device_node *np;
 +	u32 size = SZ_8M;
 +	int ret;
 +
@@ -322,18 +338,35 @@ index 000000000..9b87d024e
 +	if (ret)
 +		return ret;
 +
-+	/* a reserved region (memory-region), else the default pool */
-+	ret = of_reserved_mem_device_init(dev);
-+	if (ret && ret != -ENODEV)
-+		return ret;
 +	ret = dma_coerce_mask_and_coherent(dev, DMA_BIT_MASK(32));
 +	if (ret)
 +		return ret;
 +	of_property_read_u32(dev->of_node, "anyka,pool-size", &size);
-+	v->pool_size = PAGE_ALIGN(size);
-+	v->pool_virt = dma_alloc_wc(dev, v->pool_size, &v->pool_dma, GFP_KERNEL);
++
++	/*
++	 * A reserved (no-map) region is mapped as it is: the DMA coherent
++	 * allocator would round a 12 MiB request up to 16 MiB and fail.
++	 * Without a memory-region the default DMA pool is used.
++	 */
++	np = of_parse_phandle(dev->of_node, "memory-region", 0);
++	if (np) {
++		struct resource rr;
++
++		ret = of_address_to_resource(np, 0, &rr);
++		of_node_put(np);
++		if (ret)
++			return ret;
++		v->pool_size = resource_size(&rr);
++		v->pool_dma = rr.start;
++		v->pool_virt = memremap(rr.start, v->pool_size, MEMREMAP_WC);
++		v->pool_reserved = true;
++	} else {
++		v->pool_size = PAGE_ALIGN(size);
++		v->pool_virt = dma_alloc_wc(dev, v->pool_size, &v->pool_dma,
++					    GFP_KERNEL);
++	}
 +	if (!v->pool_virt) {
-+		dev_err(dev, "cannot allocate the %zu byte pool\n", v->pool_size);
++		dev_err(dev, "cannot map the %zu byte pool\n", v->pool_size);
 +		return -ENOMEM;
 +	}
 +
@@ -346,7 +379,7 @@ index 000000000..9b87d024e
 +	v->misc.mode = 0660;
 +	ret = misc_register(&v->misc);
 +	if (ret) {
-+		dma_free_wc(dev, v->pool_size, v->pool_virt, v->pool_dma);
++		ak39_venc_pool_free(v);
 +		return ret;
 +	}
 +	platform_set_drvdata(pdev, v);
@@ -361,7 +394,7 @@ index 000000000..9b87d024e
 +	struct ak39_venc *v = platform_get_drvdata(pdev);
 +
 +	misc_deregister(&v->misc);
-+	dma_free_wc(v->dev, v->pool_size, v->pool_virt, v->pool_dma);
++	ak39_venc_pool_free(v);
 +}
 +
 +static const struct of_device_id ak39_venc_of_match[] = {
@@ -425,6 +458,3 @@ index 000000000..4d2e00a6e
 +#define AK39_VENC_POOL_INFO	_IOR('U', 110, struct ak39_venc_pool_info)
 +
 +#endif
--- 
-2.43.0
-

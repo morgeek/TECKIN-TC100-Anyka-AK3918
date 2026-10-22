@@ -19,6 +19,8 @@ mkdir "$W/rd"; cd "$W/rd"
 gzip -dc "$IN" | cpio -id --quiet
 install -m 755 "$HERE/S39tc100-linux66" etc/init.d/S39tc100
 rm -rf lib/modules/4.4.302
+# the serial console is started by S39tc100 (login prompt, or a shell if tc100test/consoleshell exists)
+sed -i '/ttySAK0/d' etc/inittab
 sed -i 's|^root:[^:]*:|root:*:|' etc/shadow
 if grep -qE '^(psk|ssid)=' etc/wpa_supplicant.conf 2>/dev/null; then : > etc/wpa_supplicant.conf; fi
 grep -v '^#' "$HERE/rootfs-prune.txt" | grep -v '^$' | while read -r p; do rm -rf "./$p"; done
