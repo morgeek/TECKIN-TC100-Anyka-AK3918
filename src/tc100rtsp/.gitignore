@@ -1,0 +1,5 @@
+*.o
+libc.so.0
+libdl.so.0
+tc100_rtsp
+stubs.c
