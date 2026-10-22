@@ -1,0 +1,68 @@
+From 4d997fbdc4ee2f2c34f5dcc972d4aae6e134fe2e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 10:09:15 +0200
+Subject: [PATCH 4/9] wifi: rtl8xxxu: AK3918 fixes for RTL8188FU (64-byte
+ writes)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
+---
+ .../realtek/rtl8xxxu/rtl8xxxu_8188f.c         |  2 +-
+ .../wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 21 +++++++++++++------
+ 2 files changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
+index 1e1c8fa19..66db531e1 100644
+--- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
+@@ -1736,7 +1736,7 @@ struct rtl8xxxu_fileops rtl8188fu_fops = {
+ 	.fill_txdesc = rtl8xxxu_fill_txdesc_v2,
+ 	.set_crystal_cap = rtl8188f_set_crystal_cap,
+ 	.cck_rssi = rtl8188f_cck_rssi,
+-	.writeN_block_size = 128,
++	.writeN_block_size = 64,	/* Anyka AK39 host: one EP0 packet per transfer */
+ 	.rx_desc_size = sizeof(struct rtl8xxxu_rxdesc24),
+ 	.tx_desc_size = sizeof(struct rtl8xxxu_txdesc40),
+ 	.has_s0s1 = 1,
+diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+index 5d102a124..a1af92238 100644
+--- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+@@ -877,10 +877,19 @@ rtl8xxxu_writeN(struct rtl8xxxu_priv *priv, u16 addr, u8 *buf, u16 len)
+ 	remainder = len % blocksize;
+ 
+ 	for (i = 0; i < count; i++) {
+-		ret = usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
+-				      REALTEK_USB_CMD_REQ, REALTEK_USB_WRITE,
+-				      addr, 0, buf, blocksize,
+-				      RTW_USB_CONTROL_MSG_TIMEOUT);
++		int try;
++
++		/* Anyka AK39 host: an EP0 OUT transfer occasionally fails once;
++		 * the vendor driver retries, so do the same. */
++		for (try = 0; try < 4; try++) {
++			ret = usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
++					      REALTEK_USB_CMD_REQ, REALTEK_USB_WRITE,
++					      addr, 0, buf, blocksize,
++					      RTW_USB_CONTROL_MSG_TIMEOUT);
++			if (ret == blocksize)
++				break;
++			dev_info(&udev->dev, "writeN retry addr %04x ret %d\n", addr, ret);
++		}
+ 		if (ret != blocksize)
+ 			goto write_error;
+ 
+@@ -901,8 +910,8 @@ rtl8xxxu_writeN(struct rtl8xxxu_priv *priv, u16 addr, u8 *buf, u16 len)
+ 
+ write_error:
+ 	dev_info(&udev->dev,
+-		 "%s: Failed to write block at addr: %04x size: %04x\n",
+-		 __func__, addr, blocksize);
++		 "%s: Failed to write block at addr: %04x size: %04x (ret %d)\n",
++		 __func__, addr, blocksize, ret);
+ 	return -EAGAIN;
+ }
+ 
+-- 
+2.43.0
+
