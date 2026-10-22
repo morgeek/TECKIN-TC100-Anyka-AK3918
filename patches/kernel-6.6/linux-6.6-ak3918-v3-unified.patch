@@ -30783,7 +30783,7 @@ index 000000000..7f205580e
 +
 +	if(test_bit(1,&akpcm->playbackStrmDMARunning))
 +	{
-+		wait_for_completion(&(akpcm->playbackHWDMA_completion));
++		wait_for_completion_timeout(&(akpcm->playbackHWDMA_completion), msecs_to_jiffies(500));
 +	}
 +	akpcm->PlaybackCurrPos = 0;
 +
@@ -30805,13 +30805,13 @@ index 000000000..7f205580e
 +			if(akpcm->pp_buf_addr[0])
 +				kfree(akpcm->pp_buf_addr[0]);				
 +
-+			akpcm->pp_buf_addr[0] = kmalloc(akpcm->optimal_period_bytes * 2, GFP_KERNEL);
++			akpcm->pp_buf_addr[0] = kzalloc(akpcm->optimal_period_bytes * 2, GFP_KERNEL | GFP_DMA);
 +
 +			printk(KERN_ERR"Pingpong Buffer Warning: Reallocate memory[old=%d, new=%d]\n", 
 +					last_period_bytes, akpcm->optimal_period_bytes);
 +		} else {
 +			if (akpcm->pp_buf_addr[0] == NULL)
-+				akpcm->pp_buf_addr[0] = kmalloc(akpcm->optimal_period_bytes * 2, GFP_KERNEL);
++				akpcm->pp_buf_addr[0] = kzalloc(akpcm->optimal_period_bytes * 2, GFP_KERNEL | GFP_DMA);
 +		}
 +
 +		/* Decide whether to start Pingpong Buffer */		
@@ -31003,7 +31003,7 @@ index 000000000..7f205580e
 +	
 +	if(test_bit(1,&akpcm->playbackStrmDMARunning))
 +	{
-+		wait_for_completion(&(akpcm->playbackHWDMA_completion));
++		wait_for_completion_timeout(&(akpcm->playbackHWDMA_completion), msecs_to_jiffies(500));
 +	}
 +	if(BUF_NULL!=akpcm->L2BufID_For_DAC)
 +	{
@@ -31037,7 +31037,7 @@ index 000000000..7f205580e
 +	
 +	if(test_bit(1,&akpcm->captureStrmDMARunning))
 +	{
-+		wait_for_completion(&(akpcm->captureHWDMA_completion));
++		wait_for_completion_timeout(&(akpcm->captureHWDMA_completion), msecs_to_jiffies(500));
 +	}
 +	if(BUF_NULL!=akpcm->L2BufID_For_ADC23)
 +	{
@@ -31195,12 +31195,12 @@ index 000000000..7f205580e
 +	struct snd_akpcm *akpcm = in_akpcm;
 +	if(test_bit(1,&akpcm->playbackStrmDMARunning))
 +	{
-+		wait_for_completion(&(akpcm->playbackHWDMA_completion));
++		wait_for_completion_timeout(&(akpcm->playbackHWDMA_completion), msecs_to_jiffies(500));
 +	}
 +	
 +	if(test_bit(1,&akpcm->captureStrmDMARunning))
 +	{
-+		wait_for_completion(&(akpcm->captureHWDMA_completion));
++		wait_for_completion_timeout(&(akpcm->captureHWDMA_completion), msecs_to_jiffies(500));
 +	}
 +
 +	//close analog module
