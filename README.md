@@ -328,6 +328,8 @@ Other projects this builds on: see [Where it comes from](#where-it-comes-from).
 
 ## Where it comes from
 
+Full list of projects and licences: [CREDITS.md](CREDITS.md).
+
 - **The original hack.** This project began in February 2026 as a copy of
   [TECKIN-TC100-Anyka-AK3918-camera-hacks](https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks)
   by **ThatUsernameAlreadyExist**: an SD card that takes over the camera through
