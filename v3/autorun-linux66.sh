@@ -58,7 +58,20 @@ echo "[tc100-v3] WebUI active on port 80" > /dev/console
 killall -9 thingino-rtsp-server 2>/dev/null
 sleep 0.5
 if [ -x /mnt/sd/tc100test/thingino-rtsp-server ]; then
-  /mnt/sd/tc100test/thingino-rtsp-server -p 554 -u root -P pass -d
+  # One password for the whole camera, as in the main firmware: config/user.pwd
+  # (seeded from the .dist template, never in git). It goes through a private
+  # config file, not the command line, so it does not show in `ps`.
+  PWD_FILE=/mnt/sd/config/user.pwd
+  [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
+  RTSP_CONF=/tmp/rtsp-server.conf
+  ( umask 077
+    { echo "port=554"
+      if [ -s "$PWD_FILE" ]; then
+        echo "username=${RTSP_USER:-root}"
+        echo "password=$(head -n 1 "$PWD_FILE")"
+      fi
+    } > "$RTSP_CONF" )
+  /mnt/sd/tc100test/thingino-rtsp-server -c "$RTSP_CONF" -d
   echo "[tc100-v3] RTSP stream active on port 554 (path /ch0)" > /dev/console
 fi
 

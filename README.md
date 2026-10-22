@@ -8,10 +8,14 @@ the browser. Nothing needs the internet, and no vendor file is published.
 
 Since **2.0** it runs **from the camera's own flash memory**, with no SD card
 at all: the card becomes optional, for recordings only. The SD card mode of
-earlier versions is still there and is the way in. **2.1** brings a new web
-interface inspired by [OpenIPC's](https://openipc.org/web-interface): a
-dashboard with live graphs, settings in a sidebar with a search box, and a
-dark theme.
+earlier versions is still there and is the way in. The web interface is laid
+out after [OpenIPC's](https://openipc.org/web-interface): a dashboard with live
+graphs, settings in a sidebar with a search box, and a dark theme.
+
+**3.0** is the next major version, in progress: the same firmware on a free,
+recent kernel (Linux 6.6) instead of the vendor's 3.4, with a free video
+encoder to follow. It is experimental and not released: see
+[Linux 6.6 and the 3.0 work](#whats-new-in-30).
 
 It started from [the original TC100 SD-card hack](#where-it-comes-from) and
 grew from there.
@@ -25,8 +29,7 @@ grew from there.
 ## Contents
 
 - [What you can do](#what-you-can-do)
-- [What's new in 2.1.9](#whats-new-in-219)
-- [What's new in 2.1](#whats-new-in-21)
+- [What's new in 3.0 (in progress)](#whats-new-in-30)
 - [What's new in 2.0](#whats-new-in-20)
 - [Screenshots](#screenshots)
 - [Step 1: run from the SD card](#step-1-run-from-the-sd-card)
@@ -81,42 +84,34 @@ grew from there.
 
 ---
 
-## What's new in 2.1.9
+## What's new in 3.0
 
-Since 2.1.3, with both test cameras running it:
+**In progress, experimental, not released.** The goal: this firmware on Linux 6.6 with
+free parts instead of the vendor's, and H.264 / H.265. Everything below was tested from
+RAM through the stock U-Boot with the flash untouched; the 2.x firmware above is
+unaffected and remains the one to use.
 
-- **Lite RTSP server** (Settings → Video → RTSP server). It runs inside the video process and sends the frames the encoders already produce. It serves the same addresses with the same password, so recorders see no difference.
-  - With Frigate, the video server's network part went from 15–19 % to about 2 % CPU, and the lite server uses 7–8 %.
-  - Two-way audio for go2rtc / Home Assistant.
-  - A picture in about 1 s for a new client.
-  - If it does not start, the original server takes the port back.
-- **Motion zones**, and the camera's motion detection off by default.
-- **Privacy masks** painted by the image processor.
-- **SD card from flash**: a card put in is recognised and mounted for recordings, and the web page asks what to do with it, including formatting it from the camera. An interrupted format is detected and offered again.
-- **Reliability**:
-  - a network guard that reboots after a long network loss, with backoff;
-  - a filtered syslog forwarder;
-  - a Wi-Fi rescue access point that works from flash;
-  - day/night switching with a hold, so it no longer flickers at dusk.
-- **Local network only by default**: the web page, RTSP, telnet and FTP refuse connections from outside the private networks. A port forwarded by mistake is not enough to reach the camera. Telnet and FTP close by themselves after 15 min. The emergency telnet only opens when the web page is down.
-- **Smaller code**: minified scripts, checked with the camera's own shell. About 430 KB of the 640 KB code area.
+- **Linux 6.6 port** of the AK3918EV300 as a series of 9 patches on the `v6.6` tag
+  ([patches/kernel-6.6/series](patches/kernel-6.6/series/README.md)): CPU, interrupts, timer,
+  console, SD card, USB host, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio and
+  **video** (V4L2 driver for the JX-F23 sensor and the ISP, 1080p NV12 at 25 fps).
+  CI builds the kernel image on every push.
+- **Video encoder access**: `ak39_venc` (kernel) and `libakuio` (user space, a free replacement
+  for the vendor library) are meant to let the vendor encoder run on 6.6, as a first step
+  towards a free H.264 / H.265 / JPEG encoder. Written and compiled, **not yet run on the camera**.
+- **V3 user space on 6.6**: `v3/autorun-linux66.sh` and `v3/build-rootfs66.sh` (boot script,
+  initramfs, one password for the camera, no credentials baked in).
+- Also in the repository for the same effort: an OpenIPC SD boot kit (`openipc_sd_kit/`) and a
+  Thingino board port (`thingino_port/`).
 
-Details: [CHANGELOG.md](CHANGELOG.md).
-
-## What's new in 2.1
-
-- **A new web interface**, laid out after [OpenIPC's](https://openipc.org/web-interface): a top bar with the camera name, *Dashboard*, *Live*, *Recordings* and the *Camera*, *Services* and *System* menus; dark theme by default (light one click away), in French or English.
-- **Dashboard**: CPU, memory, Wi-Fi signal, network and uptime tiles with small graphs, network and CPU/memory graphs over the last five minutes, a snapshot, the streams, the device and the storage. The figures come from a tiny CGI that reads a few `/proc` files every 5 s while the dashboard is open, at no measurable CPU cost; the history stays in the browser.
-- **Settings in a sidebar** grouped by use (Image, Video & audio, Events, Network & integrations, System) with a **search box** across every section; each section also opens straight from the menus.
-- **Faster and lighter**: the status poll answers in half the time, HTTPS uses ChaCha20 (this CPU has no AES instructions: about half the CPU to serve a page).
-- **Logs that tell faults from noise**: the vendor drivers print their start-up chatter at "error" or "emergency" priority; the Logs page now shows it as "Vendor" and keeps real faults (SD card timeouts, out of memory…) as errors. The reboot history names a failing SD card as the likely cause of a sudden restart. One clock for every log line (time zone fixed). See [docs/known-issues.md](docs/known-issues.md#reading-the-camera-logs-212).
+Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
 
 ## What's new in 2.0
 
 - **Runs without an SD card.** The firmware is installed into the camera's flash memory, from the card, in three guided steps (below). The vendor's U-Boot, kernel and root file system are not touched. Only the `/usr` partition is replaced (cloud app removed, firmware added), and the code goes into the free end of the kernel partition.
 - **Updates from flash** with a small code package (`tc100-code-<version>.bin`, about 350 KB): written, read back, kept only if the camera comes back on the network, rolled back automatically otherwise.
 - **Recording on the SD card** when Frigate stops receiving the video (or always), with pre- and post-roll.
-- **New interface**: settings grouped by use (Image, Video, Day/night, Audio, Detection, Recording, Integrations, Network, System, Update & backup), camera controls under the live image (reworked again in 2.1).
+- **New interface**: settings grouped by use (Image, Video, Day/night, Audio, Detection, Recording, Integrations, Network, System, Update & backup), camera controls under the live image.
 - **New wizard**: language and Wi-Fi, profile, web access, Frigate and MQTT, recording, install to flash.
 - **Wi-Fi from a text file** (`wifi.txt`), and a fallback network kept on every change.
 - Password card, exFAT cards for recording, HTTP fallback and a rescue telnet when the web server cannot start from flash.
@@ -315,6 +310,8 @@ Flash layout: U-Boot, `KERNEL` 2 MB (kernel ends before 0x15b000; this firmware'
 - The flash-mode design follows OpenIPC's approach: a small read-only system, settings in a separate jffs2 partition, and nothing that needs the cloud.
 - Anyone porting OpenIPC to the AK3918EV300 can reuse what is documented here: `src/tc100fix` (the vendor encoder and ISP API, run-time hooks), `src/flash` (rebuilding `/usr` from the camera's own files) and `scripts/flash-code.sh` (using the free end of the kernel partition).
 
+The Linux 6.6 port, the OpenIPC boot kit and the Thingino port are described in [docs/linux-port](docs/linux-port/README.md).
+
 Other projects this builds on: see [Where it comes from](#where-it-comes-from).
 
 ---
@@ -333,14 +330,14 @@ Other projects this builds on: see [Where it comes from](#where-it-comes-from).
 - **OpenIPC.** [OpenIPC](https://openipc.org) is the reference open firmware for
   IP cameras, and the model for where this project went: the flash-mode design
   (a small read-only system, settings in their own partition, nothing that needs
-  the cloud) and, in 2.1, the layout of the web interface
+  the cloud) and the layout of the web interface
   ([OpenIPC web interface](https://openipc.org/web-interface)). This camera is not
   supported by OpenIPC; what was learnt about it is shared with them (see
   [The hardware, and OpenIPC](#the-hardware-and-openipc)).
 - **From there to here**: Home Assistant and Frigate integration, a fixed frame
   rate and live image tuning inside the RTSP server, push-to-talk, recording when
   Frigate is down, updates from the browser with rollback, then the install to
-  flash that removes the need for the SD card (2.0), and the new interface (2.1).
+  flash that removes the need for the SD card (2.0), and the new interface.
   The whole history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
@@ -376,7 +373,12 @@ src/netacl/         libnetacl: local-network-only filter on accept() for the web
 src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolchain
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
-docs/               API, known issues, screenshots
+docs/               API, known issues, screenshots; docs/linux-port: Linux 6.6 port, OpenIPC and Thingino notes
+patches/kernel-6.6/ Linux 6.6 patch series (series/), unified patch, kernel config
+src/libakuio/       Free replacement for the vendor encoder-memory library (3.0, experimental)
+v3/                 Linux 6.6 user space: autorun, initramfs build script
+openipc_sd_kit/     OpenIPC SD boot kit (Linux 4.4, RAM only)
+thingino_port/      Thingino board support for the TC100
 ```
 
 Live configuration with secrets (`config/mqtt.conf`, `config/user.pwd`, `wpa_supplicant.conf`, certificates) is never in git; only the `*.dist` templates are.
