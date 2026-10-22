@@ -31,3 +31,17 @@ The vendor media libraries (`libakv_encode`, `libmpi_venc`, ...; about 0.85 MB, 
 - Writable state (Wi-Fi, passwords, logs, recordings) stays on the SD card.
 
 The slim kernel was compiled but not booted. Without KALLSYMS an oops shows addresses only; resolve them with `System.map` from the CI build. CI now refuses a kernel that does not fit the region (`scripts/flash_budget.py --kernel output/oipc.img`).
+
+## Reading the flash from Linux 6.6 (2026-10-22, not yet run on the camera)
+
+Series patch 0010 adds `drivers/spi/spi-ak39.c` (controller at 0x20120000, polled PIO, keeps the divider
+left by U-Boot, no DMA, no interrupt) and describes the NOR flash with the stock partitions in the DT, all
+`read-only`: boot (U-Boot + table), kernel, mac, env, rootfs (A+B+C merged), tail. Kernel config adds
+MTD, SPI NOR, `MTD_BLOCK_RO` (no write path at all). The kernel grows by about 40 KB (1.89 MB, free
+in the 2 MiB region: 204 KB).
+
+Test (RAM boot, nothing written): `selftest66.sh` prints `/proc/mtd`, the dmesg lines of the controller and
+the md5 of the first 0x39000 bytes, which must equal the same range of a flash dump. Then
+`root=/dev/mtdblock4 rootfstype=squashfs` can mount the rootfs partition. Writing stays out of scope for now.
+Risks to check on the first run: the SPI clock gate (assumed left on by U-Boot), the half-full FIFO
+polling at the inherited divider (RX overrun would show as wrong md5), CS handling.
