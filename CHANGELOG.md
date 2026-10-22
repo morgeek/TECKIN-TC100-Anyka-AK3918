@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## Non publié
+- Générateur de liste de commandes H.265 (`src/h265enc`) validé hors caméra sur 40 trames enregistrées.
+- Auto-test Linux 6.6 (`v3/selftest66.sh`) et paquet de test produit par le CI.
+
 ## [Unreleased] — 3.0 work (Linux 6.6)
 
 Not part of any release; the 2.x firmware is unchanged. See [docs/linux-port](docs/linux-port/README.md).

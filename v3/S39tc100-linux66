@@ -50,7 +50,14 @@ for a in /mnt/sd/v3/autorun-linux66.sh /mnt/sd/autorun-linux66.sh /mnt/sd/tc100t
   if [ -f "$a" ]; then log "starting $a"; /bin/sh "$a" & break; fi
 done
 
-# 5. Optional hardware report (touch tc100test/diag on the card)
+# 5. One-shot self-test (touch tc100test/selftest on the card); log in tc100test/selftest-<n>.log
+if [ -f /mnt/sd/tc100test/selftest ]; then
+  for t in /mnt/sd/tc100test/selftest66.sh /mnt/sd/v3/selftest66.sh; do
+    [ -f "$t" ] && { ( sleep 20; /bin/sh "$t" ) & break; }
+  done
+fi
+
+# 6. Optional hardware report (touch tc100test/diag on the card)
 [ -f /mnt/sd/tc100test/diag ] && (
   sleep 25
   echo "===TC100DIAG BEGIN===" > $C
