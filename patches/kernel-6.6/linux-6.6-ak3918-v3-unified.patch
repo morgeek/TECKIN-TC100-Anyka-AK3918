@@ -28842,7 +28842,7 @@ index 000000000..d2485be86
 +
 +	REG32(codec->analog_ctrl_base + MULTIPLE_FUN_CTRL_REG1) &= (~(IN_DAAD_EN));// tdisable internal DAC/ADC
 +	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) &= (~(DAC_CLK_EN|DAC_DIV_VLD));// disable DAC CLK
-+	REG32(codec->analog_ctrl_base + DAC_CONFIG_REG) &= (~DAC_CTRL_EN);// to disable DACs
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) &= (~DAC_CTRL_EN);// to disable DACs
 +}
 +
 +/**
@@ -28862,7 +28862,7 @@ index 000000000..d2485be86
 +
 +	//disable HCLK, and disable DAC interface
 +	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) &= ~(DAC_HCLK_EN);
-+	REG32(codec->analog_ctrl_base + DAC_CONFIG_REG) &= ~(DAC_CTRL_EN);
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) &= ~(DAC_CTRL_EN);
 +
 +	set_dac_highspeed(codec, samplerate);
 +	
@@ -28891,7 +28891,7 @@ index 000000000..d2485be86
 +
 +	//enable HCLK, and enable DAC interface
 +    REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) |= (DAC_HCLK_EN);
-+	REG32(codec->analog_ctrl_base + DAC_CONFIG_REG) |= (DAC_CTRL_EN);
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) |= (DAC_CTRL_EN);
 +
 +	return out_sr;
 +}
