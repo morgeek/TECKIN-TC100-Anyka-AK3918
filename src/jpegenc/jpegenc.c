@@ -290,6 +290,11 @@ int main(int argc, char **argv)
 		size_t hl, n;
 		char name[1024];
 
+		if (getenv("JPEGENC_SENTINEL")) {	/* debug: which bytes does the core really write? */
+			memset(pool + TABLES_SIZE, 0xa5, stream_size - TABLES_SIZE);
+			printf("sentinel 0xa5 in the stream buffer; status before: %08x %08x\n",
+			       RD(R_STAT), RD(R_JPEG_STATUS + 4));
+		}
 		hw_init();
 		hw_encode(c);
 		if (ioctl(fd, AKUIO_WAIT_IRQ, &(int){ 0 }) < 0) { perror("wait irq"); return 1; }
@@ -298,6 +303,13 @@ int main(int argc, char **argv)
 		WR(R_IRQ_EN, 0x1000007); WR(0x822c, 0);
 		WR(R_CLK, (RD(R_CLK) & 0xffff7fff) | 0xe00);
 		printf("status words: %08x %08x %08x\n", st[0], st[1], st[2]);
+		if (getenv("JPEGENC_SENTINEL")) {
+			size_t k, last = 0, cnt = 0;
+
+			for (k = TABLES_SIZE; k < stream_size; k++)
+				if (pool[k] != 0xa5) { cnt++; last = k; }
+			printf("bytes changed by the core: %zu, last at +0x%zx\n", cnt, last);
+		}
 		n = st[1];
 		if (n == 0 || n > stream_size - TABLES_SIZE) { fprintf(stderr, "bad length %zu\n", n); return 1; }
 		buf = pool + TABLES_SIZE;
