@@ -44,10 +44,10 @@ index 000000000..3abfe2c11
 +dtb-y += ak3918ev300-tc100.dtb
 diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 new file mode 100644
-index 000000000..28580fca8
+index 000000000..454808235
 --- /dev/null
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,262 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/dts-v1/;
 +/ {
@@ -136,6 +136,57 @@ index 000000000..28580fca8
 +		compatible = "anyka,ak3918ev300-l2";
 +		reg = <0x20140000 0x100>, <0x48000000 0x2000>, <0x08000000 0x100>;
 +		interrupts = <12>;
++	};
++
++	/* SPI NOR flash (8 MiB, XM25QH64A): read-only, partitions of the stock table */
++	spi0: spi@20120000 {
++		compatible = "anyka,ak3918ev300-spi";
++		reg = <0x20120000 0x1000>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		flash@0 {
++			compatible = "jedec,spi-nor";
++			reg = <0>;
++			spi-max-frequency = <25000000>;
++
++			partitions {
++				compatible = "fixed-partitions";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				partition@0 {
++					label = "boot";		/* U-Boot and the partition table */
++					reg = <0x000000 0x039000>;
++					read-only;
++				};
++				partition@39000 {
++					label = "kernel";
++					reg = <0x039000 0x200000>;
++					read-only;
++				};
++				partition@239000 {
++					label = "mac";
++					reg = <0x239000 0x001000>;
++					read-only;
++				};
++				partition@23a000 {
++					label = "env";
++					reg = <0x23a000 0x001000>;
++					read-only;
++				};
++				partition@23b000 {
++					label = "rootfs";	/* stock A + B + C merged */
++					reg = <0x23b000 0x5b3000>;
++					read-only;
++				};
++				partition@7ee000 {
++					label = "tail";
++					reg = <0x7ee000 0x012000>;
++					read-only;
++				};
++			};
++		};
 +	};
 +
 +	mmc0: mmc@20100000 {
@@ -21391,6 +21442,271 @@ index 000000000..ab692d7c7
 +	return 0;
 +}
 +arch_initcall(ak_l2_setup);
+diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
+index 2c21d5b96..39c335b59 100644
+--- a/drivers/spi/Kconfig
++++ b/drivers/spi/Kconfig
+@@ -57,6 +57,13 @@ config SPI_MEM
+ 
+ comment "SPI Master Controller Drivers"
+ 
++config SPI_AK39
++	tristate "Anyka AK3918EV300 SPI controller (polled PIO)"
++	depends on ARCH_ANYKA || COMPILE_TEST
++	help
++	  Controller of the SPI NOR flash of the Anyka AK3918EV300 cameras.
++	  Polled PIO only, enough to read the flash.
++
+ config SPI_ALTERA
+ 	tristate "Altera SPI Controller platform driver"
+ 	select SPI_ALTERA_CORE
+diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
+index 6af54842b..ae176935c 100644
+--- a/drivers/spi/Makefile
++++ b/drivers/spi/Makefile
+@@ -14,6 +14,7 @@ obj-$(CONFIG_SPI_SPIDEV)		+= spidev.o
+ obj-$(CONFIG_SPI_LOOPBACK_TEST)		+= spi-loopback-test.o
+ 
+ # SPI master controller drivers (bus)
++obj-$(CONFIG_SPI_AK39)			+= spi-ak39.o
+ obj-$(CONFIG_SPI_ALTERA)		+= spi-altera-platform.o
+ obj-$(CONFIG_SPI_ALTERA_CORE)		+= spi-altera-core.o
+ obj-$(CONFIG_SPI_ALTERA_DFL)		+= spi-altera-dfl.o
+diff --git a/drivers/spi/spi-ak39.c b/drivers/spi/spi-ak39.c
+new file mode 100644
+index 000000000..5d6e8f26e
+--- /dev/null
++++ b/drivers/spi/spi-ak39.c
+@@ -0,0 +1,229 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * SPI controller of the Anyka AK3918EV300 (AK39 family), polled PIO only.
++ *
++ * Written for reading the SPI NOR flash that holds U-Boot, the kernel and the
++ * root filesystem; no interrupts, no DMA. The register layout and the PIO
++ * sequence follow the vendor driver (spi-anyka.c, GPL-2.0); the clock divider
++ * left by the boot loader is kept, since the flash was just read through it.
++ *
++ * The controller drives the chip select itself (SPICON bit 5), there is no
++ * chip-select GPIO.
++ */
++#include <linux/bitfield.h>
++#include <linux/bits.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/spi/spi.h>
++
++#define SPICON		0x00
++#define  CON_CLKDIV	GENMASK(15, 8)
++#define  CON_EN		BIT(6)
++#define  CON_CS		BIT(5)
++#define  CON_MS		BIT(4)
++#define  CON_CPHA	BIT(3)
++#define  CON_CPOL	BIT(2)
++#define  CON_ARRM	BIT(1)
++#define  CON_TGDM	BIT(0)
++#define  CON_WIRE	GENMASK(17, 16)
++#define SPISTA		0x04
++#define  STA_TRANSF	BIT(8)
++#define  STA_RXHFULL	BIT(6)
++#define  STA_RXFULL	BIT(5)
++#define  STA_TXHEMP	BIT(2)
++#define SPIINT		0x08
++#define SPICNT		0x0c
++#define SPIEXTX		0x10
++#define SPIEXRX		0x14
++#define SPIOUT		0x18
++#define SPIIN		0x1c
++
++#define AK39_SPI_MAX	1024		/* bytes per burst */
++#define AK39_SPI_TIMEOUT_US 200000
++
++struct ak39_spi {
++	void __iomem *regs;
++	u32 con;			/* SPICON without the chip-select bit */
++	bool cs;			/* chip select asserted */
++};
++
++static u32 ak39_con(struct ak39_spi *s, u32 mode)
++{
++	return s->con | mode | (s->cs ? CON_CS : 0);
++}
++
++static int ak39_wait(struct ak39_spi *s, u32 mask, bool set)
++{
++	u32 v;
++	int i;
++
++	for (i = 0; i < AK39_SPI_TIMEOUT_US / 2; i++) {
++		v = readl(s->regs + SPISTA);
++		if (!!(v & mask) == set)
++			return 0;
++		udelay(2);
++	}
++	return -ETIMEDOUT;
++}
++
++static int ak39_tx(struct ak39_spi *s, const u8 *buf, unsigned int len)
++{
++	unsigned int i, n;
++	u32 v;
++	int ret;
++
++	writel(ak39_con(s, CON_ARRM), s->regs + SPICON);
++	writel(0, s->regs + SPIEXTX);
++	writel(len, s->regs + SPICNT);
++	for (i = 0; i < len; i += 4) {
++		ret = ak39_wait(s, STA_TXHEMP, true);
++		if (ret)
++			return ret;
++		n = min(len - i, 4u);
++		v = 0;
++		memcpy(&v, buf + i, n);
++		writel(le32_to_cpu(v), s->regs + SPIOUT);
++	}
++	return ak39_wait(s, STA_TRANSF, true);
++}
++
++static void ak39_put(u8 *buf, u32 v, unsigned int n)
++{
++	v = cpu_to_le32(v);
++	memcpy(buf, &v, n);
++}
++
++static int ak39_rx(struct ak39_spi *s, u8 *buf, unsigned int len)
++{
++	unsigned int got = 0;
++	u32 st;
++	int i;
++
++	writel(ak39_con(s, CON_TGDM), s->regs + SPICON);
++	writel(0, s->regs + SPIEXRX);
++	writel(len, s->regs + SPICNT);
++	for (i = 0; i < AK39_SPI_TIMEOUT_US; i++) {
++		st = readl(s->regs + SPISTA);
++		if (st & STA_TRANSF) {
++			if (st & STA_RXFULL) {
++				ak39_put(buf + got, readl(s->regs + SPIIN), min(len - got, 4u));
++				got += min(len - got, 4u);
++				ak39_put(buf + got, readl(s->regs + SPIIN), min(len - got, 4u));
++				got += min(len - got, 4u);
++			} else if (st & STA_RXHFULL) {
++				ak39_put(buf + got, readl(s->regs + SPIIN), min(len - got, 4u));
++				got += min(len - got, 4u);
++			}
++			if (got < len) {
++				ak39_put(buf + got, readl(s->regs + SPIIN), min(len - got, 4u));
++				got += min(len - got, 4u);
++			}
++			return got == len ? 0 : -EIO;
++		}
++		if (st & STA_RXHFULL) {
++			ak39_put(buf + got, readl(s->regs + SPIIN), min(len - got, 4u));
++			got += min(len - got, 4u);
++			i = 0;
++		}
++	}
++	return -ETIMEDOUT;
++}
++
++static void ak39_set_cs(struct spi_device *spi, bool level)
++{
++	struct ak39_spi *s = spi_controller_get_devdata(spi->controller);
++
++	/* level is the line level the core wants: selected when it equals the CS polarity */
++	s->cs = (level == !!(spi->mode & SPI_CS_HIGH));
++	writel(ak39_con(s, 0), s->regs + SPICON);
++	ndelay(200);
++}
++
++static int ak39_transfer_one(struct spi_controller *ctlr,
++			     struct spi_device *spi, struct spi_transfer *t)
++{
++	struct ak39_spi *s = spi_controller_get_devdata(ctlr);
++	unsigned int off = 0, n;
++	int ret = 0;
++
++	if (t->tx_buf && t->rx_buf)
++		return -EOPNOTSUPP;	/* full duplex is not needed for flash */
++	if (t->tx_nbits > SPI_NBITS_SINGLE || t->rx_nbits > SPI_NBITS_SINGLE)
++		return -EOPNOTSUPP;
++
++	while (off < t->len && !ret) {
++		n = min_t(unsigned int, t->len - off, AK39_SPI_MAX);
++		if (t->tx_buf)
++			ret = ak39_tx(s, t->tx_buf + off, n);
++		else
++			ret = ak39_rx(s, t->rx_buf + off, n);
++		off += n;
++	}
++	writel(ak39_con(s, 0), s->regs + SPICON);
++	return ret;
++}
++
++static size_t ak39_max_size(struct spi_device *spi)
++{
++	return AK39_SPI_MAX * 4;
++}
++
++static int ak39_spi_probe(struct platform_device *pdev)
++{
++	struct spi_controller *ctlr;
++	struct ak39_spi *s;
++	int ret;
++
++	ctlr = devm_spi_alloc_host(&pdev->dev, sizeof(*s));
++	if (!ctlr)
++		return -ENOMEM;
++	s = spi_controller_get_devdata(ctlr);
++	s->regs = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(s->regs))
++		return PTR_ERR(s->regs);
++
++	/* keep the divider and the mode the boot loader used for the flash */
++	s->con = readl(s->regs + SPICON);
++	s->con |= CON_EN | CON_MS;
++	s->con &= ~(CON_CS | CON_ARRM | CON_TGDM | CON_WIRE);
++	writel(ak39_con(s, 0), s->regs + SPICON);
++	writel(0, s->regs + SPIINT);
++
++	ctlr->dev.of_node = pdev->dev.of_node;
++	ctlr->bus_num = -1;
++	ctlr->num_chipselect = 1;
++	ctlr->mode_bits = SPI_CPOL | SPI_CPHA;
++	ctlr->bits_per_word_mask = SPI_BPW_MASK(8);
++	ctlr->max_transfer_size = ak39_max_size;
++	ctlr->max_message_size = ak39_max_size;
++	ctlr->set_cs = ak39_set_cs;
++	ctlr->transfer_one = ak39_transfer_one;
++
++	ret = devm_spi_register_controller(&pdev->dev, ctlr);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret, "cannot register the controller\n");
++	dev_info(&pdev->dev, "SPI controller, SPICON %08x (divider %u), polled PIO\n",
++		 s->con, (unsigned int)FIELD_GET(CON_CLKDIV, s->con));
++	return 0;
++}
++
++static const struct of_device_id ak39_spi_of_match[] = {
++	{ .compatible = "anyka,ak3918ev300-spi" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ak39_spi_of_match);
++
++static struct platform_driver ak39_spi_driver = {
++	.probe = ak39_spi_probe,
++	.driver = {
++		.name = "ak39-spi",
++		.of_match_table = ak39_spi_of_match,
++	},
++};
++module_platform_driver(ak39_spi_driver);
++
++MODULE_DESCRIPTION("Anyka AK3918EV300 SPI controller (polled PIO)");
++MODULE_LICENSE("GPL");
 diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
 index bdc568a4a..85c16698b 100644
 --- a/drivers/tty/serial/Kconfig

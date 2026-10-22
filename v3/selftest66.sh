@@ -43,6 +43,13 @@ if [ -c /dev/video0 ]; then
   else res video "SKIPPED (no tc100_streamer)"; fi
 else res video "FAILED (no /dev/video0)"; fi
 
+# --- flash (read-only SPI NOR through the mtd layer)
+sec flash; run 'cat /proc/mtd; dmesg | grep -iE "spi|nor|mtd" | tail -8'
+if [ -b /dev/mtdblock0 ]; then
+  run 'dd if=/dev/mtdblock0 bs=4096 count=57 2>/dev/null | md5sum; dd if=/dev/mtdblock0 bs=4096 count=1 2>/dev/null | od -An -tx1 | head -2'
+  res flash "mtd present (compare the md5 with a dump of the first 0x39000 bytes)"
+else res flash "FAILED (no /dev/mtdblock0: SPI controller or flash not detected)"; fi
+
 # --- audio
 sec audio; run 'cat /proc/asound/cards; aplay -l; arecord -l'
 if [ -e /proc/asound/cards ] && grep -q '[0-9]' /proc/asound/cards 2>/dev/null; then res audio "card present"; else res audio "FAILED (no sound card)"; fi
