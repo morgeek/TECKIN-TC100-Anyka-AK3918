@@ -159,3 +159,34 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 - `ak39_vi` has a private ioctl `AK39_VI_G_PHYS` (`include/uapi/linux/ak39_vi.h`): given a buffer index it returns the physical address of the Y and UV planes and the size, so the encoder can read a captured frame in place. Compiles; not run on the camera. It is in patch 0006 of the series.
 - `tests/check_akuio_symbols.py VENDOR_LIB_DIR` checks that every `akuio_*` symbol imported by the vendor libraries (`libmpi_venc`, `libplat_vi`, `libplat_venc_cb`, `libmpi_osd`) is exported by the free `libakuio`: all of them are. A run under qemu was not done: the vendor libraries need uClibc and the free library is built for glibc.
 - The old `linux-6.6-ak3918-step*.patch` files are removed; the series in `patches/kernel-6.6/series/` is the only source.
+
+## First boot of the slim 6.6 kernel with the Buildroot base (2026-10-22)
+
+Booted from RAM (U-Boot `bootm`, nothing written to flash) with `oipc.img` (1.8 MB) and the
+test initramfs built from `v3/buildroot`:
+
+| Check | Result |
+|---|---|
+| Kernel, DT, serial console, SD card (FAT), USB host | ok |
+| Wi-Fi RTL8188FU (`rtl8xxxu`), WPA2, DHCP (`udhcpc`) | ok, the gateway answers |
+| Sensor F23 over MIPI, `/dev/video0` | registered, streamer starts |
+| Audio codec (`akpcm`) | card present |
+| Encoder access `/dev/uio0` (`ak39_venc`) | ok after the pool fix below |
+| Hardware JPEG (`jpegenc --run`) | the core answers (IRQ, length, EOI) but the stream is **not yet valid**: see below |
+
+**RAM budget.** With the 28 MiB CMA pool and the 12 MiB encoder pool only about 15 MB are left for
+Linux (`Memory: 16480K/65536K available`). The unpacked initramfs must stay below ~7 MB (a first
+8.5 MB image ended in an out-of-memory panic while unpacking), so `v3/initramfs-prune.txt` strips
+curl, jq, mbedtls, ncurses, `iw` and friends from the **RAM test image only**; the flash squashfs
+keeps them. Do not prune `usr/share/udhcpc` (no DHCP without it) or `usr/share/alsa/alsa.conf`.
+
+**Encoder pool.** The 12 MiB `no-map` region cannot come from `dma_alloc_wc()` (the allocator rounds
+the request up to 16 MiB, bigger than the region). `ak39_venc` now `memremap()`s the reserved region
+(write-combined) and maps it to user space the same way.
+
+**JPEG stream, open.** The core raises the interrupt, reports 12 906 bytes and the header skeleton
+and EOI are present, but the same length and the same all-zero scan data come out for a black frame
+and for random noise, and the DQT/DHT segments of the header are still placeholders. The core is not
+encoding the input yet: next steps are to check the interrupt really is the encoder's (not a stale
+one), the clock/reset bits before `R_START`, and the input addresses (a `JPEGENC_SENTINEL=1` run of
+`jpegenc` fills the output buffer with `0xa5` and reports which bytes the core changed).
