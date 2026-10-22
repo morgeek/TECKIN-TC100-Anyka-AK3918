@@ -3,11 +3,6 @@ name: Build base root filesystem (Buildroot, musl)
 # Our own replacement for the OpenIPC root filesystem: Buildroot 2024.02 LTS,
 # external tree v3/buildroot, BusyBox, dropbear, wpa_supplicant, curl, jq, alsa-utils.
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'v3/buildroot/**'
-      - '.github/workflows/build-base-rootfs.yml'
   workflow_dispatch:
   workflow_call:
 
