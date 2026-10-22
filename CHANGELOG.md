@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.0-rc1] — 2026-10-22
+
+### True V3 Linux 6.6 LTS Kernel Architecture & Drivers (Mainline Breakthrough)
+- **Linux 6.6 LTS Mainline Kernel Port**:
+  - Full modern Linux 6.6.0 tree ported to Anyka AK3918EV300 (ARM926EJ-S @ 160-400 MHz).
+  - 31,650-line unified patch applied cleanly via CI pipeline (`patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch`).
+  - Automated GitHub Actions build workflow (`.github/workflows/build-kernel-linux66.yml`) packaging `oipc.img` uImage.
+- **Video Subsystem & CMA 28MB Pool**:
+  - Mainline V4L2 and Anyka VI/ISP pipeline operational with JXF23 MIPI 2-lane 1080p sensor.
+  - Dedicated Contiguous Memory Allocator (CMA) pool expanded to 28MB (`0x81000000`) for full 1080p framebuffers.
+- **ALSA Audio Subsystem & Hardware DAC Stability**:
+  - Full ALSA sound card driver (`ak_pcm` + `ak39_codec`) exposing playback and capture streams.
+  - Fixed vendor memory corruption bug: redirected `DAC_CONFIG_REG` writes to `adda_cfg_base` (offset `0x20110000`) instead of polluting master clock control register `analog_ctrl_base` (`0x08000000`).
+  - Added DMA memory coherency mask `DMA_BIT_MASK(32)`, `GFP_DMA` allocations, and timeout safeguards (500ms) on DMA completion events.
+  - Bypassed buggy async pingpong tasklet to ensure direct, interrupt-safe DMA streaming.
+- **Memory Optimization (ZRAM Swap 16MB)**:
+  - Enabled built-in compressed swap via ZRAM (`CONFIG_ZRAM=y`, `CONFIG_ZSMALLOC=y`, LZ4 compression) under `CONFIG_BLK_DEV=y` to prevent out-of-memory lockups on 64MB RAM.
+- **Hardware Watchdog Protection**:
+  - Automated hardware watchdog keeper (`watchdog /dev/watchdog`) in `autorun.sh` ensuring self-recovery.
+
+---
+
 ## [3.0.0] — 2026-10-20
 
 "Le Meilleur des 2 Mondes" — OpenIPC hardware discovery & Linux 4.4 kernel enablement merged with Morgeek's high-performance userland.
