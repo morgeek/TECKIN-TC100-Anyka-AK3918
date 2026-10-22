@@ -1,11 +1,11 @@
-/* tc100_rtsp: RTSP/H.264 server for the TECKIN TC100 on Linux 6.6.
+/* tc100_rtsp: RTSP/H.264 or H.265 server for the TECKIN TC100 on Linux 6.6.
  *
  * Capture (V4L2, 1080p NV12) -> vendor H.264 encoder control library on the free libakuio + ak39_venc driver
  * (see src/venctest) -> RTP (RFC 6184, packetization-mode 1, FU-A) over RTSP: TCP interleaved or UDP unicast.
  * One process, one thread: a select() loop serves the V4L2 device, the listening socket and the clients.
  * The GOP being encoded is cached so that a new client starts immediately on the last IDR frame.
  *
- * usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-q QMIN] [-Q QMAX] [-d VIDEODEV] [-L LIBDIR] [-A libakuio.so]
+ * usage: tc100_rtsp [-c h264|h265] [-p PORT] [-b KBPS] [-f FPS] [-q QMIN] [-Q QMAX] [-d VIDEODEV] [-L LIBDIR] [-A libakuio.so]
  *            [-u USER] [-w PASSWORD_FILE]   (Digest or Basic when the file holds a password)
  */
 #define _GNU_SOURCE
@@ -179,7 +179,12 @@ static int num(const char *s)
 }
 
 /* ---- H.264 bit stream bookkeeping ---- */
-static unsigned char sps[128], pps[64];
+static unsigned char sps[128], pps[64], vps[64];
+static int vps_len;
+static int hevc;		/* -c h265: RFC 7798 packetization, VPS/SPS/PPS */
+static char sprop_v[100];
+#define NT(b) (hevc ? ((b) >> 1) & 63 : (b) & 31)
+#define HAVE_PS (sps_len && pps_len && (!hevc || vps_len))
 static int sps_len, pps_len;
 static char sprop[400], plid[8];
 
@@ -236,20 +241,31 @@ static void learn_params(const unsigned char *d, int n)
 	int pos = 0, l, s;
 
 	while ((s = next_nal(d, n, pos, &l)) >= 0) {
-		int t = d[s] & 31;
+		int t = NT(d[s]);
 
-		if (t == 7 && l < (int)sizeof sps) { memcpy(sps, d + s, l); sps_len = l; }
-		if (t == 8 && l < (int)sizeof pps) { memcpy(pps, d + s, l); pps_len = l; }
+		if (hevc) {
+			if (t == 32 && l < (int)sizeof vps) { memcpy(vps, d + s, l); vps_len = l; }
+			if (t == 33 && l < (int)sizeof sps) { memcpy(sps, d + s, l); sps_len = l; }
+			if (t == 34 && l < (int)sizeof pps) { memcpy(pps, d + s, l); pps_len = l; }
+		} else {
+			if (t == 7 && l < (int)sizeof sps) { memcpy(sps, d + s, l); sps_len = l; }
+			if (t == 8 && l < (int)sizeof pps) { memcpy(pps, d + s, l); pps_len = l; }
+		}
 		pos = s + l;
 	}
-	if (sps_len > 3 && pps_len) {
+	if (!HAVE_PS) return;
+	{
 		char a[200], c[100];
-		int k = b64(a, sps, sps_len);
 
-		(void)k;
+		b64(a, sps, sps_len);
 		b64(c, pps, pps_len);
-		snprintf(sprop, sizeof sprop, "%s,%s", a, c);
-		snprintf(plid, sizeof plid, "%02x%02x%02x", sps[1], sps[2], sps[3]);
+		if (hevc) {
+			b64(sprop_v, vps, vps_len);
+			snprintf(sprop, sizeof sprop, "sprop-vps=%s;sprop-sps=%s;sprop-pps=%s", sprop_v, a, c);
+		} else if (sps_len > 3) {
+			snprintf(sprop, sizeof sprop, "%s,%s", a, c);
+			snprintf(plid, sizeof plid, "%02x%02x%02x", sps[1], sps[2], sps[3]);
+		}
 	}
 }
 
@@ -527,27 +543,40 @@ static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char 
 	return rtp_out(c, h, pl, n);
 }
 
-/* one NAL unit as one packet or FU-A fragments */
+/* one NAL unit as one packet or FU fragments (FU-A for H.264, RFC 7798 FU for H.265) */
 static int send_nal(struct cli *c, uint32_t ts, const unsigned char *nal, int len, int last)
 {
 	if (len <= RTP_PAYLOAD)
 		return send_pkt(c, ts, last, nal, len);
 	{
-		unsigned char fu[RTP_PAYLOAD + 2];
-		int off = 1, first = 1;
+		unsigned char fu[RTP_PAYLOAD + 3];
+		int hl = hevc ? 2 : 1, ph = hevc ? 3 : 2, off = hl, first = 1;
 
 		while (off < len) {
-			int n = len - off > RTP_PAYLOAD - 2 ? RTP_PAYLOAD - 2 : len - off;
+			int n = len - off > RTP_PAYLOAD - ph ? RTP_PAYLOAD - ph : len - off;
 			int end = off + n >= len;
 
-			fu[0] = (nal[0] & 0xe0) | 28;
-			fu[1] = (first ? 0x80 : 0) | (end ? 0x40 : 0) | (nal[0] & 31);
-			memcpy(fu + 2, nal + off, n);
-			if (send_pkt(c, ts, last && end, fu, n + 2)) return -1;
+			if (hevc) {
+				fu[0] = (nal[0] & 0x81) | (49 << 1);
+				fu[1] = nal[1];
+				fu[2] = (first ? 0x80 : 0) | (end ? 0x40 : 0) | ((nal[0] >> 1) & 63);
+			} else {
+				fu[0] = (nal[0] & 0xe0) | 28;
+				fu[1] = (first ? 0x80 : 0) | (end ? 0x40 : 0) | (nal[0] & 31);
+			}
+			memcpy(fu + ph, nal + off, n);
+			if (send_pkt(c, ts, last && end, fu, n + ph)) return -1;
 			off += n; first = 0;
 		}
 	}
 	return 0;
+}
+
+/* VPS (H.265), SPS and PPS in band */
+static int send_ps(struct cli *c, uint32_t ts)
+{
+	if (hevc && send_nal(c, ts, vps, vps_len, 0)) return -1;
+	return send_nal(c, ts, sps, sps_len, 0) || send_nal(c, ts, pps, pps_len, 0);
 }
 
 static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts)
@@ -557,10 +586,10 @@ static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts)
 	int k = 0, i;
 
 	while (k < 16 && (s = next_nal(d, n, pos, &l)) >= 0) {
-		int t = d[s] & 31;
+		int t = NT(d[s]);
 
 		pos = s + l;
-		if (t == 9) continue;		/* access unit delimiter */
+		if (t == (hevc ? 35 : 9)) continue;		/* access unit delimiter */
 		nl[k].s = s; nl[k].l = l; k++;
 	}
 	for (i = 0; i < k; i++)
@@ -584,8 +613,8 @@ static void bcast(const unsigned char *d, int n, uint32_t ts, int idr)
 			continue;
 		}
 		c->wait_idr = 0;
-		if (idr && sps_len && pps_len) {	/* parameter sets in band before every IDR that lacks them */
-			if (send_nal(c, ts, sps, sps_len, 0) || send_nal(c, ts, pps, pps_len, 0)) { cli_close(c); continue; }
+		if (idr && HAVE_PS) {	/* parameter sets in band before every IDR that lacks them */
+			if (send_ps(c, ts)) { cli_close(c); continue; }
 		}
 		if (send_frame(c, d, n, ts) || (c->tcp && qflush(c))) cli_close(c);
 	}
@@ -629,7 +658,7 @@ static void play_burst(struct cli *c)
 
 	for (int i = 0; i < ncache; i++) need += frame_need(cache[i].len);
 	if (cache_ok && ncache && (!c->tcp || qfree(c) > need)) {
-		if (sps_len && pps_len && (send_nal(c, cache[0].ts, sps, sps_len, 0) || send_nal(c, cache[0].ts, pps, pps_len, 0))) { cli_close(c); return; }
+		if (HAVE_PS && send_ps(c, cache[0].ts)) { cli_close(c); return; }
 		for (int i = 0; i < ncache; i++)
 			if (send_frame(c, cache[i].d, cache[i].len, cache[i].ts)) { cli_close(c); return; }
 		if (c->tcp && qflush(c)) { cli_close(c); return; }
@@ -671,15 +700,17 @@ static void handle(struct cli *c, char *req, int cseq_default)
 	if (!strcmp(m, "OPTIONS")) {
 		reply(c, 200, "OK", cseq, "Public: OPTIONS, DESCRIBE, SETUP, PLAY, PAUSE, TEARDOWN, GET_PARAMETER\r\n", NULL);
 	} else if (!strcmp(m, "DESCRIBE")) {
-		char sdp[1024], base[300];
+		char sdp[1024], base[300], fm[600];
 
-		if (!sps_len || !pps_len) { reply(c, 503, "Service Unavailable", cseq, NULL, NULL); return; }
+		if (!HAVE_PS) { reply(c, 503, "Service Unavailable", cseq, NULL, NULL); return; }
+		if (hevc) snprintf(fm, sizeof fm, "%s", sprop);
+		else snprintf(fm, sizeof fm, "packetization-mode=1;profile-level-id=%s;sprop-parameter-sets=%s", plid, sprop);
 		snprintf(base, sizeof base, "Content-Base: %s%s\r\n", url, url[strlen(url) - 1] == '/' ? "" : "/");
 		snprintf(sdp, sizeof sdp,
 			 "v=0\r\no=- 1 1 IN IP4 %s\r\ns=TC100\r\nc=IN IP4 0.0.0.0\r\nt=0 0\r\na=control:*\r\n"
-			 "m=video 0 RTP/AVP 96\r\na=rtpmap:96 H264/90000\r\n"
-			 "a=fmtp:96 packetization-mode=1;profile-level-id=%s;sprop-parameter-sets=%s\r\na=control:track1\r\n",
-			 host, plid, sprop);
+			 "m=video 0 RTP/AVP 96\r\na=rtpmap:96 %s/90000\r\n"
+			 "a=fmtp:96 %s\r\na=control:track1\r\n",
+			 host, hevc ? "H265" : "H264", fm);
 		reply(c, 200, "OK", cseq, base, sdp);
 	} else if (!strcmp(m, "SETUP")) {
 		char tr[300];
@@ -772,6 +803,7 @@ int main(int argc, char **argv)
 		const char *a = argv[o], *v = argv[o + 1];
 
 		if (!strcmp(a, "-p")) port = num(v);
+		else if (!strcmp(a, "-c")) hevc = !strcmp(v, "h265");
 		else if (!strcmp(a, "-b")) kbps = num(v);
 		else if (!strcmp(a, "-f")) fps = num(v);
 		else if (!strcmp(a, "-q")) qmin = num(v);
@@ -781,7 +813,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "-w")) pwfile = v;
 		else if (!strcmp(a, "-L")) dir = v;
 		else if (!strcmp(a, "-A")) akuio = v;
-		else { LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-q QMIN] [-Q QMAX] [-d DEV] [-L LIBDIR] [-A libakuio.so]\n"); return 2; }
+		else { LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-c h264|h265] [-q QMIN] [-Q QMAX] [-d DEV] [-L LIBDIR] [-A libakuio.so]\n"); return 2; }
 	}
 	if (pwfile) {	/* first line of the file is the password; an empty or missing file leaves the stream open */
 		FILE *pf = fopen(pwfile, "r");
@@ -861,6 +893,7 @@ int main(int argc, char **argv)
 	memset(&pa, 0, sizeof pa);
 	pa.width = W; pa.height = H; pa.qpmin = qmin; pa.qpmax = qmax;
 	pa.fps = fps; pa.gop = fps * 2; pa.kbps = kbps;
+	if (hevc) { pa.codec = 2; pa.profile = 3; }
 	void *enc = p_open(&pa);
 	if (!enc) { LOG("ak_venc_open failed\n"); return 1; }
 
@@ -944,7 +977,7 @@ int main(int argc, char **argv)
 			/* encode while someone watches, and until the parameter sets are known.
 			 * Idle: the encoder state moves on without a viewer, so the next viewer gets a new encoder:
 			 * its first frame is an IDR. */
-			if (active && !nplay && sps_len && pps_len) {
+			if (active && !nplay && HAVE_PS) {
 				active = 0;
 				cache_reset();
 			} else if (!active && nplay) {
@@ -987,7 +1020,7 @@ int main(int argc, char **argv)
 						int pos = 0, l, s;
 
 						while ((s = next_nal(st.data, st.len, pos, &l)) >= 0) {
-							if ((st.data[s] & 31) == 5) idr = 1;
+							{ int t = NT(st.data[s]); if (hevc ? (t >= 16 && t <= 21) : t == 5) idr = 1; }
 							pos = s + l;
 						}
 					}
