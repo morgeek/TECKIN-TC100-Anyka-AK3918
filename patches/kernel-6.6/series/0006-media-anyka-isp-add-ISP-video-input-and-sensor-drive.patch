@@ -10013,7 +10013,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,819 @@
+@@ -0,0 +1,818 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10511,7 +10511,6 @@ index 000000000..42f5fa12c
 +			 vi->width, vi->height, ret);
 +	}
 +	ispdrv_vo_set_main_channel_scale(vi->width, vi->height);
-+	ispdrv_vo_set_sub_channel_scale(SUB_W, SUB_H);
 +
 +	for (i = 0; i < NUM_SLOTS; i++)
 +		ispdrv_vo_disable_buffer(BUFFER_ONE + i);
