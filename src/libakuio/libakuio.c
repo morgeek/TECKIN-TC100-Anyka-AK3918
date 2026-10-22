@@ -30,6 +30,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include "ak39_venc.h"
@@ -233,6 +234,8 @@ unsigned long akuio_alloc_pmem(int size)
 	b->used = 1;
 	used_bytes += b->size;
 	DBG("A %u @%x used %u\n", need, b->off, used_bytes);
+	if (!getenv("AKUIO_NOZERO"))	/* the pool keeps the previous process' data: hand out zeroed memory */
+		memset(pool + b->off, 0, need);
 	pthread_mutex_unlock(&lock);
 	return (unsigned long)(pool + b->off);
 }
@@ -382,6 +385,35 @@ static void irqdbg(const char *tag)
 	n = snprintf(b, sizeof b, "IRQDBG %s st4c=%08x mask24=%08x r10=%08x r14=%08x r1c=%08x\n", tag,
 		     sysc[0x4c / 4], sysc[0x24 / 4], r10, r14, r1c);
 	(void)!write(2, b, n);
+	if (regs && getenv("AKUIO_REGDUMP")) {
+		int i;
+
+		n = snprintf(b, sizeof b, "REGS %s", tag);
+		for (i = 0; i < 16; i++)
+			n += snprintf(b + n, sizeof b - n, " %08x", *(volatile uint32_t *)(regs + 0x8000 + 4 * i));
+		b[n++] = 10;
+		(void)!write(2, b, n);
+	}
+}
+
+/* experiment: called by the register-trace hook just before the encoder start register is written */
+void akuio_fixqp(uint32_t list_paddr)
+{
+	uint32_t *l, qp, pp;
+	uint8_t *par;
+
+	if (!pool || list_paddr < info.paddr || list_paddr - info.paddr + 0x100 > info.size)
+		return;
+	l = (uint32_t *)(void *)(pool + (list_paddr - info.paddr));
+	qp = (l[3] >> 16) & 0xff;
+	pp = l[0x8c / 4];
+	if (pp < info.paddr || pp - info.paddr + 64 > info.size)
+		return;
+	par = pool + (pp - info.paddr);
+	if (getenv("AKUIO_DEBUG"))
+		fprintf(stderr, "fixqp list=%08x qp=%u param[19]=%u\n", list_paddr, qp, par[19]);
+	if (par[19] == 36 || par[19] == qp)
+		par[19] = (uint8_t)qp;
 }
 
 void akuio_wait_irq(unsigned long arg)
@@ -414,7 +446,9 @@ void akuio_wait_irq(unsigned long arg)
 			}
 		}
 	}
+	struct timeval t0, t1;
 	if (getenv("AKUIO_IRQDBG")) irqdbg("pre ");
+	gettimeofday(&t0, NULL);
 	if (ioctl(fd, AKUIO_WAIT_IRQ, (unsigned long)res) < 0) {
 		if (getenv("AKUIO_IRQDBG")) irqdbg("FAIL");
 		ERR("akuio_wait_irq: ioctl AKUIO_WAIT_IRQ error: %s\n",
@@ -436,7 +470,15 @@ void akuio_wait_irq(unsigned long arg)
 	    IRQ_STATUS_REG - info.regs_paddr < regs_len)
 		st = *(volatile uint32_t *)(regs + IRQ_STATUS_REG - info.regs_paddr);
 	*res = st ? __builtin_ctz(st) : 0;
-	if (getenv("AKUIO_IRQDBG")) irqdbg("post");
+	if (getenv("AKUIO_IRQDBG")) {
+		char tb[64];
+		int tn;
+
+		gettimeofday(&t1, NULL);
+		tn = snprintf(tb, sizeof tb, "IRQDBG waited %ld us\n", (t1.tv_sec - t0.tv_sec) * 1000000L + (t1.tv_usec - t0.tv_usec));
+		(void)!write(2, tb, tn);
+		irqdbg("post");
+	}
 	if (dbg) {
 		char b[] = "irq st=00000000 idx=00\n";
 		for (int i = 0; i < 8; i++) b[7 + i] = "0123456789abcdef"[(st >> (28 - 4 * i)) & 15];
