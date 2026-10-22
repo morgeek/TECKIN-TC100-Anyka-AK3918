@@ -1,15 +1,15 @@
 #!/bin/sh
 # Build the squashfs (xz) root filesystem for the flash image of the Linux 6.6 firmware.
-# Same base as build-rootfs66.sh (OpenIPC musl userland), then:
+# Same base as build-rootfs66.sh (our Buildroot musl userland), then:
 #   - removes what v3/rootfs-prune.txt lists (OpenIPC web UI, UBI/NAND tools, ...)
 #   - adds the V3 payload: www, scripts, controlscripts, config skeleton (never user.pwd/credentials)
 #   - squashfs, xz, 128 KiB blocks, no xattrs
 # The result is loaded to RAM by U-Boot as an initrd (root=/dev/ram0 rootfstype=squashfs), so only
 # the compressed image sits in RAM.  Needs root (device nodes), cpio, gzip, mksquashfs.
-# Usage: v3/build-flash-rootfs66.sh [in.gz] [out.sqsh]
+# Usage: v3/build-flash-rootfs66.sh in.cpio.gz [out.sqsh]
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$HERE/..
-IN=${1:-$REPO/openipc_sd_kit/tc100test/oipcrd.gz}
+IN=${1:?usage: build-flash-rootfs66.sh BASE-rootfs.cpio.gz [out.sqsh]}
 OUT=${2:-rootfs66.sqsh}
 case "$IN" in /*) ;; *) IN=$PWD/$IN ;; esac
 case "$OUT" in /*) ;; *) OUT=$PWD/$OUT ;; esac

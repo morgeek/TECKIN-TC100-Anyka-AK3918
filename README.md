@@ -111,7 +111,7 @@ Nothing of the encoder work has run on the camera yet.
 - **V3 user space on 6.6**: `v3/autorun-linux66.sh`, `v3/build-rootfs66.sh` (initramfs) and
   `v3/build-flash-rootfs66.sh` (flash root), one password for the camera, no credentials baked in,
   and an opt-in self-test (`v3/selftest66.sh`).
-- Also in the repository for the same effort: an OpenIPC SD boot kit (`openipc_sd_kit/`) and a
+- Also in the repository for the same effort: an OpenIPC SD boot kit (`contrib/openipc_sd_kit/`) and a
   Thingino board port (`thingino_port/`, with the verified pin numbers).
 
 Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
@@ -391,7 +391,8 @@ src/libakuio/       Free replacement for the vendor encoder-memory library (3.0,
 src/jpegenc/        Hardware JPEG encoder tool and tables (3.0, experimental)
 src/h265enc/        H.265 command-list generator and register-sequence model (3.0, experimental)
 v3/                 Linux 6.6 user space: autorun, initramfs and flash root builders, self-test
-openipc_sd_kit/     OpenIPC SD boot kit (Linux 4.4, RAM only)
+contrib/             Not used by the build: OpenIPC SD boot kit (Linux 4.4, RAM only)
+v3/buildroot/       Our base root filesystem (Buildroot, musl)
 thingino_port/      Thingino board support for the TC100
 ```
 
