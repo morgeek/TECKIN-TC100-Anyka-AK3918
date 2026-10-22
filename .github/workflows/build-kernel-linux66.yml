@@ -2,7 +2,7 @@ name: Build Linux 6.6 LTS Kernel with CMA 16MB for TECKIN TC100
 
 on:
   push:
-    branches: [ v3-linux66, v3-on-main ]
+    branches: [ main, v3-linux66, v3-on-main ]
     paths:
       - 'patches/kernel-6.6/**'
       - '.github/workflows/build-kernel-linux66.yml'
@@ -77,6 +77,32 @@ jobs:
           mkdir -p ../output
           cp oipc.img ../output/
           md5sum ../output/oipc.img > ../output/oipc.img.md5
+
+      - name: Build the test pack (initramfs, jpegenc, libakuio, self-test)
+        run: |
+          set -e
+          P=output/tc100test
+          mkdir -p $P
+          cp output/oipc.img $P/
+          sudo sh v3/build-rootfs66.sh openipc_sd_kit/tc100test/oipcrd.gz $P/oipcrd66.gz
+          arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o $P/jpegenc
+          make -C src/libakuio CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/libakuio/libakuio.so $P/
+          cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
+          cp openipc_sd_kit/tc100test/isp_f23_mipi_2lane.conf $P/ 2>/dev/null || true
+          cat > $P/README-TEST.txt <<EOF
+          RAM-only test of the Linux 6.6 image (nothing is written to flash).
+          1. Copy this folder (tc100test) to the SD card (FAT32), never to the card root.
+             Also put wpa_supplicant.conf (your Wi-Fi) in it, and a config/user.pwd on the card root if you want remote login.
+          2. Create the empty files tc100test/selftest (and tc100test/selftest-jpeg for the hardware JPEG test).
+          3. From the stock U-Boot prompt, check the md5 of oipc.img on the card, then:
+               fatload mmc 0 0x82000000 tc100test/oipc.img
+               fatload mmc 0 0x81000000 tc100test/oipcrd66.gz
+               setenv bootargs console=ttySAK0,115200n8 mem=64M root=/dev/ram0 rdinit=/init initrd=0x81000000,$(wc -c < $P/oipcrd66.gz) panic=0 loglevel=7
+               bootm 0x82000000
+          4. About 40 s after boot the log tc100test/selftest-1.log is on the card.
+          EOF
+          (cd $P && md5sum * > md5sums.txt)
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4

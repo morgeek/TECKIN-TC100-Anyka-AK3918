@@ -145,3 +145,11 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 - Capture buffers for the vendor encoder: expose the physical address of a vb2-dma-contig buffer (or share the pool between `ak39_vi` and `ak39_venc`).
 - SPI NOR driver, to boot without the SD card.
 - Make the Thingino config use the verified hardware values.
+
+## H.265 : liste de commandes et auto-test (2026-10-22)
+
+- `src/h265enc/cmdlist.py` décode/encode la liste de commandes de 112 mots de l'encodeur H.265 et la régénère : sur les 40 trames enregistrées, 0 mot différent (`python3 src/h265enc/cmdlist.py`).
+- `src/h265enc/hwseq.py` modélise la séquence d'écriture des registres (horloge H.265 `v | 0x8e00`) et la compare aux traces : 34/34 et 40/41 cycles.
+- Inconnues restantes : source de la taille d'image/de flux ; adresses physiques des tampons V4L2 (ioctl `ak39_vi` à écrire).
+- `v3/selftest66.sh` : auto-test lancé au démarrage si `tc100test/selftest` existe sur la SD (Wi-Fi, vidéo, audio, uio0 ; JPEG matériel si `tc100test/selftest-jpeg`). Journal : `tc100test/selftest-N.log`.
+- Le CI (`build-kernel-linux66.yml`) produit désormais le dossier `tc100test/` prêt à copier (oipc.img, oipcrd66.gz, jpegenc, libakuio.so, selftest66.sh, README-TEST.txt, md5sums.txt). Non testé sur caméra.
