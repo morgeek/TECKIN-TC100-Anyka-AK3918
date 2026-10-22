@@ -38,7 +38,7 @@ jobs:
       - name: Size of the root filesystem
         run: |
           ls -l br-out/images/rootfs.cpio.gz
-          mkdir t && cd t && gzip -dc ../br-out/images/rootfs.cpio.gz | cpio -id --quiet && du -sk . && du -sk usr/* lib/* | sort -rn | head -8
+          mkdir t && cd t && gzip -dc ../br-out/images/rootfs.cpio.gz | sudo cpio -id --quiet && sudo du -sk . && sudo du -ak . | sort -rn | head -25
 
       - uses: actions/upload-artifact@v4
         with:
