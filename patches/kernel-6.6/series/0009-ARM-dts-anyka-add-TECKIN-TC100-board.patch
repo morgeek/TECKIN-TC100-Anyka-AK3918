@@ -1,4 +1,4 @@
-From 22758bf5895aa42138f88e93c35c175b92121e6a Mon Sep 17 00:00:00 2001
+From ce74fea322b38bffa53b06997175ddbb957cf490 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:17 +0200
 Subject: [PATCH 9/9] ARM: dts: anyka: add TECKIN TC100 board

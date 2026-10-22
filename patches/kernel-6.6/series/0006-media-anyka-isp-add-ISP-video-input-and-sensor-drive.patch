@@ -1,4 +1,4 @@
-From add7bc6b95d4251e3ad032ce9e0df75efce9e036 Mon Sep 17 00:00:00 2001
+From e1a84bff1323bf7d1da5e1422a355fb9f5f9636b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:16 +0200
 Subject: [PATCH 6/9] media: anyka-isp: add ISP, video input and sensor drivers
@@ -17,7 +17,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  .../media/platform/anyka-isp/ak39_isp2_3a.c   | 3090 +++++++++++
  .../media/platform/anyka-isp/ak39_isp2_3a.h   |   67 +
  .../media/platform/anyka-isp/ak39_isp2_reg.h  | 1393 +++++
- drivers/media/platform/anyka-isp/ak39_vi.c    |  794 +++
+ drivers/media/platform/anyka-isp/ak39_vi.c    |  818 +++
  .../media/platform/anyka-isp/ak_isp_char.c    | 3472 ++++++++++++
  .../media/platform/anyka-isp/ak_isp_char.h    |  286 +
  .../media/platform/anyka-isp/ak_isp_tuning.c  |  233 +
@@ -37,7 +37,8 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  include/plat-anyka/anyka_types.h              |   71 +
  include/plat-anyka/cam_com_sensor.h           |  260 +
  include/plat-anyka/wrap_sensor.h              |  138 +
- 29 files changed, 18311 insertions(+)
+ include/uapi/linux/ak39_vi.h                  |   26 +
+ 30 files changed, 18361 insertions(+)
  create mode 100644 drivers/media/platform/anyka-isp/Kconfig
  create mode 100644 drivers/media/platform/anyka-isp/Makefile
  create mode 100644 drivers/media/platform/anyka-isp/ak39_isp2.c
@@ -65,6 +66,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  create mode 100644 include/plat-anyka/anyka_types.h
  create mode 100644 include/plat-anyka/cam_com_sensor.h
  create mode 100644 include/plat-anyka/wrap_sensor.h
+ create mode 100644 include/uapi/linux/ak39_vi.h
 
 diff --git a/drivers/media/platform/Kconfig b/drivers/media/platform/Kconfig
 index ee579916f..c54271fe7 100644
@@ -10008,10 +10010,10 @@ index 000000000..105e214dc
 +#endif
 diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
 new file mode 100644
-index 000000000..d269ad364
+index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,794 @@
+@@ -0,0 +1,818 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10063,6 +10065,7 @@ index 000000000..d269ad364
 +#include <plat-anyka/ak_sensor_i2c.h>
 +#include <plat-anyka/ak_isp_lifecycle.h>
 +#include <mach-anyka/ispdrv_interface.h>
++#include <uapi/linux/ak39_vi.h>
 +
 +#define DRV_NAME	"ak39-vi"
 +#define NUM_SLOTS	4
@@ -10638,7 +10641,30 @@ index 000000000..d269ad364
 +	return i ? -EINVAL : 0;
 +}
 +
++static long vi_default(struct file *f, void *p, bool valid_prio,
++		       unsigned int cmd, void *arg)
++{
++	struct ak39_vi *vi = video_drvdata(f);
++	struct ak39_vi_phys *ph = arg;
++	struct vb2_buffer *vb;
++	dma_addr_t y;
++
++	if (cmd != AK39_VI_G_PHYS)
++		return -ENOTTY;
++	if (ph->index >= vi->q.num_buffers)
++		return -EINVAL;
++	vb = vi->q.bufs[ph->index];
++	y = vb2_dma_contig_plane_dma_addr(vb, 0);
++	if (!y || y > U32_MAX)
++		return -EFAULT;
++	ph->phys_y = y;
++	ph->phys_uv = y + vi->width * vi->height;
++	ph->size = vb2_plane_size(vb, 0);
++	return 0;
++}
++
 +static const struct v4l2_ioctl_ops vi_ioctl_ops = {
++	.vidioc_default			= vi_default,
 +	.vidioc_querycap		= querycap,
 +	.vidioc_enum_fmt_vid_cap	= enum_fmt,
 +	.vidioc_g_fmt_vid_cap		= g_fmt,
@@ -18559,6 +18585,38 @@ index 000000000..8ddfc29b7
 +{
 +	return gpio_is_valid(pin) ? gpio_get_value(pin) : 0;
 +}
++
++#endif
+diff --git a/include/uapi/linux/ak39_vi.h b/include/uapi/linux/ak39_vi.h
+new file mode 100644
+index 000000000..325264cb3
+--- /dev/null
++++ b/include/uapi/linux/ak39_vi.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#ifndef _UAPI_LINUX_AK39_VI_H
++#define _UAPI_LINUX_AK39_VI_H
++
++#include <linux/types.h>
++#include <linux/videodev2.h>
++
++/*
++ * Physical addresses of a capture buffer, so that the hardware encoder
++ * (see ak39_venc.h) can read the frame without a copy.  The buffer must
++ * have been allocated (VIDIOC_REQBUFS) and the format set.
++ *   in : index  = V4L2 buffer index
++ *   out: phys_y = physical address of the luma plane
++ *        phys_uv = physical address of the chroma plane (NV12: phys_y + w*h)
++ *        size    = size of the buffer in bytes
++ */
++struct ak39_vi_phys {
++	__u32 index;
++	__u32 phys_y;
++	__u32 phys_uv;
++	__u32 size;
++};
++
++#define AK39_VI_G_PHYS	_IOWR('V', BASE_VIDIOC_PRIVATE + 0, struct ak39_vi_phys)
 +
 +#endif
 -- 

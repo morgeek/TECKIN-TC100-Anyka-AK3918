@@ -136,7 +136,7 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 
 - `thingino-rtsp-server` (static ELF, about 80 KB, about 1 MB of RAM): RTSP/1.0 with CSeq tracking, SDP, RTP over TCP interleaved and UDP, RFC 2435 JPEG streams. It is the RTSP server that V3 on 6.6 uses (`v3/autorun-linux66.sh`). Options: `-p port`, `-u user -P password` or `-c config` with `port=`, `username=`, `password=`.
 - The Thingino WebUI previews through multipart MJPEG (`cgi-bin/ch0.mjpg`) and JPEG snapshots (`cgi-bin/ch0.jpg`); RTSP paths are `/ch0` and `/ch1`.
-- **The camera config still carries numbers from a first guess** (16 MB flash, GPIO numbers from the generic device tree, a 24 MB ISP window). Replace them with the verified values of this page before using it.
+- The camera config (`thingino.json`, defconfig) now carries the verified values: GPIO table above (IR LEDs 19, IR-cut 81/80, LEDs 15/47, button 10, speaker 14, not tested), sensor at I2C 0x40, 28 MiB ISP window, 8 MB flash. The boot offsets (`uboot_env_offset`) are still unverified.
 - The same RAM-placement rule applies: a root file system loaded inside the ISP pool is wiped during early boot.
 
 ## Open items
@@ -153,3 +153,9 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 - Inconnues restantes : source de la taille d'image/de flux ; adresses physiques des tampons V4L2 (ioctl `ak39_vi` à écrire).
 - `v3/selftest66.sh` : auto-test lancé au démarrage si `tc100test/selftest` existe sur la SD (Wi-Fi, vidéo, audio, uio0 ; JPEG matériel si `tc100test/selftest-jpeg`). Journal : `tc100test/selftest-N.log`.
 - Le CI (`build-kernel-linux66.yml`) produit désormais le dossier `tc100test/` prêt à copier (oipc.img, oipcrd66.gz, jpegenc, libakuio.so, selftest66.sh, README-TEST.txt, md5sums.txt). Non testé sur caméra.
+
+## Encoder access without copies (2026-10-22)
+
+- `ak39_vi` has a private ioctl `AK39_VI_G_PHYS` (`include/uapi/linux/ak39_vi.h`): given a buffer index it returns the physical address of the Y and UV planes and the size, so the encoder can read a captured frame in place. Compiles; not run on the camera. It is in patch 0006 of the series.
+- `tests/check_akuio_symbols.py VENDOR_LIB_DIR` checks that every `akuio_*` symbol imported by the vendor libraries (`libmpi_venc`, `libplat_vi`, `libplat_venc_cb`, `libmpi_osd`) is exported by the free `libakuio`: all of them are. A run under qemu was not done: the vendor libraries need uClibc and the free library is built for glibc.
+- The old `linux-6.6-ak3918-step*.patch` files are removed; the series in `patches/kernel-6.6/series/` is the only source.
