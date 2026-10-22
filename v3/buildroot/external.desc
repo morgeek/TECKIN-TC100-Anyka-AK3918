@@ -1,0 +1,2 @@
+name: TC100
+desc: TECKIN TC100 base root filesystem (musl, BusyBox)
