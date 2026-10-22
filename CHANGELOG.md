@@ -428,7 +428,7 @@ The firmware runs from the camera's flash memory: the SD card becomes optional.
 - 27 host regression tests and 14 Chrome interaction checks using simulated CGI
   responses. Mobile (390 px), desktop (1280 px), light and dark views inspected.
 - Hardware behavior and CPU/RAM gains remain pending. No new background polling
-  or frontend dependency. See [the rc2 trial guide](docs/essai-1.8.3-rc2.md).
+  or frontend dependency. See the rc2 trial guide (removed from the tree, see git history).
 
 ## [1.8.3-rc1] — 2026-09-09 (device trial pending)
 
@@ -457,7 +457,7 @@ The firmware runs from the camera's flash memory: the SD card becomes optional.
 ### Validation
 - Host regression tests, syntax checks and existing binary hashes checked.
   ARM/BusyBox compatibility and resource gains still require the camera trial.
-- French trial and rollback procedure: [docs/essai-1.8.3-rc1.md](docs/essai-1.8.3-rc1.md).
+- French trial and rollback procedure: docs/essai-1.8.3-rc1.md (removed from the tree, see git history).
 
 ## [1.8.2] — 2026-08-13
 
