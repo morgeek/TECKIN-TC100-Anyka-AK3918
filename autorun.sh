@@ -9,6 +9,16 @@ mkdir -p /tmp/logs /var/run
 killall watchdog 2>/dev/null
 watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
 
+# 0b. Initialize 16MB compressed ZRAM swap
+if [ -e /sys/block/zram0/disksize ]; then
+  echo 16M > /sys/block/zram0/disksize 2>/dev/null
+  if [ -f /mnt/sd/config/swap_header_16m.bin ]; then
+    dd if=/mnt/sd/config/swap_header_16m.bin of=/dev/zram0 bs=4096 count=1 conv=notrunc >/dev/null 2>&1
+    /mnt/sd/bin/swapon_zram >/dev/null 2>&1
+    echo '[tc100-v3] ZRAM 16MB Swap initialized' > /dev/console
+  fi
+fi
+
 # 1. Setup /mnt symlinks
 for d in bin config controlscripts lib scripts www; do
   [ -d /mnt/sd/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
