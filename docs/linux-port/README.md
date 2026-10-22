@@ -184,9 +184,16 @@ keeps them. Do not prune `usr/share/udhcpc` (no DHCP without it) or `usr/share/a
 the request up to 16 MiB, bigger than the region). `ak39_venc` now `memremap()`s the reserved region
 (write-combined) and maps it to user space the same way.
 
-**JPEG stream, open.** The core raises the interrupt, reports 12 906 bytes and the header skeleton
-and EOI are present, but the same length and the same all-zero scan data come out for a black frame
-and for random noise, and the DQT/DHT segments of the header are still placeholders. The core is not
-encoding the input yet: next steps are to check the interrupt really is the encoder's (not a stale
-one), the clock/reset bits before `R_START`, and the input addresses (a `JPEGENC_SENTINEL=1` run of
-`jpegenc` fills the output buffer with `0xa5` and reports which bytes the core changed).
+**JPEG stream, open (updated after the second boot).** The first runs reported the same 12 906 bytes
+for every input: that was a stale length register read after an IRQ that was already pending.
+With the output buffer pre-filled with 0xa5 (`JPEGENC_SENTINEL=1`) the core is seen to write
+the stream: a real 1080p NV12 frame gives 133 509 bytes, a black frame 41 468 bytes
+(8160 identical 5-byte MCUs, EOI at the end), random noise fills the whole buffer (no EOI).
+So the core encodes. What is not right yet: the 664-byte header it writes has the right SOI, JFIF,
+SOF0 (1920x1080, 4:2:0) and SOS, but its DQT and DHT segments hold the core's own table words, and
+the scan of a real frame decodes to garbage after the first third (with the software header
+substituted, 623 bytes at quality 35, the file decodes to a striped picture). The black-frame scan
+is 40 bits per MCU, not the 32 that the standard tables would give, so either the core does not
+use the tables as assumed, or the input planes are read differently (stride, UV offset). Next: a
+vendor-encoded reference of a flat frame to compare the scan bit for bit, and a frame with a
+known gradient to see where the picture breaks.
