@@ -36,6 +36,9 @@
 
 #define UNIT 32u
 
+static int dbg = -1;
+#define DBG(...) do { if (dbg < 0) dbg = getenv("AKUIO_DEBUG") != NULL; if (dbg) ERR(__VA_ARGS__); } while (0)
+
 struct blk {			/* a free or used extent of the pool */
 	uint32_t off, size;
 	struct blk *next;	/* kept sorted by offset */
@@ -100,6 +103,22 @@ int akuio_pmem_init(void)
 		ERR("map pool error: %s\n", strerror(errno));
 		goto fail_close;
 	}
+	if (getenv("AKUIO_UC")) {
+		/* /dev/mem maps a no-map region uncached and unbuffered */
+		int mf = open("/dev/mem", O_RDWR | O_SYNC | O_CLOEXEC);
+		void *u = mf < 0 ? MAP_FAILED :
+			mmap(NULL, info.size, PROT_READ | PROT_WRITE, MAP_SHARED, mf, info.paddr);
+
+		if (mf >= 0)
+			close(mf);
+		if (u != MAP_FAILED) {
+			munmap(p, info.size);
+			p = u;
+			ERR("pool mapped uncached through /dev/mem\n");
+		} else {
+			ERR("uncached pool mapping failed: %s\n", strerror(errno));
+		}
+	}
 	pool = p;
 	blocks = calloc(1, sizeof(*blocks));
 	if (!blocks) {
@@ -160,10 +179,40 @@ unsigned long akuio_alloc_pmem(int size)
 		pthread_mutex_unlock(&lock);
 		return 0;
 	}
-	for (b = blocks; b; b = b->next)
-		if (!b->used && b->size >= need)
+	{
+		static uint32_t align = ~0u;
+
+		if (align == ~0u) {
+			const char *e = getenv("AKUIO_ALIGN");
+
+			align = e ? (uint32_t)atoi(e) : UNIT;
+			if (align < UNIT)
+				align = UNIT;
+		}
+		for (b = blocks; b; b = b->next) {
+			uint32_t a, pad;
+
+			if (b->used)
+				continue;
+			a = (b->off + align - 1) & ~(align - 1);
+			pad = a - b->off;
+			if (b->size < pad + need)
+				continue;
+			if (pad) {		/* split the leading padding off */
+				rest = calloc(1, sizeof(*rest));
+				if (!rest)
+					break;
+				rest->off = a;
+				rest->size = b->size - pad;
+				rest->next = b->next;
+				b->next = rest;
+				b->size = pad;
+				b = rest;
+			}
 			break;
-	if (!b) {
+		}
+	}
+	if (!b || b->used || b->size < need) {
 		pthread_mutex_unlock(&lock);
 		ERR("no space for allocating %ubytes of pmem\n", need);
 		return 0;
@@ -183,6 +232,7 @@ unsigned long akuio_alloc_pmem(int size)
 	}
 	b->used = 1;
 	used_bytes += b->size;
+	DBG("A %u @%x used %u\n", need, b->off, used_bytes);
 	pthread_mutex_unlock(&lock);
 	return (unsigned long)(pool + b->off);
 }
@@ -207,6 +257,7 @@ void akuio_free_pmem(unsigned long vaddr)
 	}
 	b->used = 0;
 	used_bytes -= b->size;
+	DBG("F @%x size %u used %u\n", b->off, b->size, used_bytes);
 	if (b->next && !b->next->used) {	/* merge with the next */
 		struct blk *n = b->next;
 
@@ -296,13 +347,102 @@ void akuio_unmap_regs(unsigned long vaddr, size_t len)
 	pthread_mutex_unlock(&lock);
 }
 
+/*
+ * The encoder library passes a pointer to an int preset to -1 and expects
+ * the index of the interrupt that fired (a bit number of the status
+ * register 0x20028014: 4 bits per core, 18 for the JPEG core).  The vendor
+ * kernel driver returned it; ours only waits, so it is derived here from
+ * the status register.
+ */
+#define IRQ_STATUS_REG	0x20028014u
+
+static volatile uint32_t *sysc;
+
+static void irqdbg(const char *tag)
+{
+	char b[160];
+	uint32_t r10 = 0, r14 = 0, r1c = 0;
+	int n;
+
+	if (!sysc) {
+		int mf = open("/dev/mem", O_RDONLY | O_SYNC | O_CLOEXEC);
+		void *m = mf < 0 ? MAP_FAILED : mmap(NULL, 4096, PROT_READ, MAP_SHARED, mf, 0x08000000);
+
+		if (mf >= 0)
+			close(mf);
+		if (m == MAP_FAILED)
+			return;
+		sysc = m;
+	}
+	if (regs) {
+		r10 = *(volatile uint32_t *)(regs + 0x8010);
+		r14 = *(volatile uint32_t *)(regs + 0x8014);
+		r1c = *(volatile uint32_t *)(regs + 0x801c);
+	}
+	n = snprintf(b, sizeof b, "IRQDBG %s st4c=%08x mask24=%08x r10=%08x r14=%08x r1c=%08x\n", tag,
+		     sysc[0x4c / 4], sysc[0x24 / 4], r10, r14, r1c);
+	(void)!write(2, b, n);
+}
+
 void akuio_wait_irq(unsigned long arg)
 {
 	int dummy = 0;
+	int *res = arg ? (int *)arg : &dummy;
+	uint32_t st = 0;
 
-	if (ioctl(fd, AKUIO_WAIT_IRQ, arg ? arg : (unsigned long)&dummy) < 0)
+	{
+		static int n;
+		const char *pre = getenv("AKUIO_DUMP");
+
+		if (pre) {	/* snapshot of the small pool blocks (command lists, tables) */
+			char name[96];
+			struct blk *bk;
+			int of;
+
+			snprintf(name, sizeof name, "%s.%d", pre, n++);
+			of = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			if (of >= 0) {
+				for (bk = blocks; bk; bk = bk->next) {
+					uint32_t hd[2] = { bk->off, bk->size };
+
+					if (!bk->used || bk->size > 30000)
+						continue;
+					(void)!write(of, hd, sizeof hd);
+					(void)!write(of, pool + bk->off, bk->size);
+				}
+				close(of);
+			}
+		}
+	}
+	if (getenv("AKUIO_IRQDBG")) irqdbg("pre ");
+	if (ioctl(fd, AKUIO_WAIT_IRQ, (unsigned long)res) < 0) {
+		if (getenv("AKUIO_IRQDBG")) irqdbg("FAIL");
 		ERR("akuio_wait_irq: ioctl AKUIO_WAIT_IRQ error: %s\n",
 		    strerror(errno));
+		return;
+	}
+	{
+		static int dly = -1;
+
+		if (dly < 0) {
+			const char *e = getenv("AKUIO_DELAY_US");
+
+			dly = e ? atoi(e) : 0;
+		}
+		if (dly)
+			usleep(dly);
+	}
+	if (regs && IRQ_STATUS_REG >= info.regs_paddr &&
+	    IRQ_STATUS_REG - info.regs_paddr < regs_len)
+		st = *(volatile uint32_t *)(regs + IRQ_STATUS_REG - info.regs_paddr);
+	*res = st ? __builtin_ctz(st) : 0;
+	if (getenv("AKUIO_IRQDBG")) irqdbg("post");
+	if (dbg) {
+		char b[] = "irq st=00000000 idx=00\n";
+		for (int i = 0; i < 8; i++) b[7 + i] = "0123456789abcdef"[(st >> (28 - 4 * i)) & 15];
+		b[20] = '0' + *res / 10; b[21] = '0' + *res % 10;
+		(void)!write(2, b, sizeof b - 1);
+	}
 }
 
 void akuio_reset_video(void)
