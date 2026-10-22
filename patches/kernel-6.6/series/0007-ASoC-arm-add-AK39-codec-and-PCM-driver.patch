@@ -1,4 +1,4 @@
-From b9ec3b6ad17b58f6ef3937c7e49af15dd056ed02 Mon Sep 17 00:00:00 2001
+From 7137df42e7131c7980d0b85fbfc67e4b607fbd29 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:16 +0200
 Subject: [PATCH 7/9] ASoC: arm: add AK39 codec and PCM driver

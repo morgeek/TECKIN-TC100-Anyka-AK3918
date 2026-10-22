@@ -1,4 +1,4 @@
-From 144582b683f92d500c92ea504059f82f80975640 Mon Sep 17 00:00:00 2001
+From cbdf5bb9d11bba248f93b6071dc685e907f3281a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:17 +0200
 Subject: [PATCH 8/9] misc: add ak39_venc encoder access driver
