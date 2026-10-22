@@ -17,6 +17,15 @@ for i in 1 2 3 4 5; do
 done
 mountpoint -q /mnt/sd && log "SD card mounted" || log "no SD card: V3 services not started"
 
+# 1b. Serial console: a login prompt, or a root shell if tc100test/consoleshell exists on the card
+#     (physical access to the UART pads only; for bring-up, remove the file afterwards)
+if [ -f /mnt/sd/tc100test/consoleshell ]; then
+  log "console shell enabled (tc100test/consoleshell)"
+  ( while :; do setsid -c /bin/sh </dev/ttySAK0 >/dev/ttySAK0 2>&1; sleep 1; done ) &
+else
+  ( while :; do /sbin/getty -L ttySAK0 115200 vt100; sleep 1; done ) &
+fi
+
 # 2. One password for the camera (config/user.pwd); without it, remote login stays closed
 PW=
 [ -s /mnt/sd/config/user.pwd ] && PW=$(head -n 1 /mnt/sd/config/user.pwd)

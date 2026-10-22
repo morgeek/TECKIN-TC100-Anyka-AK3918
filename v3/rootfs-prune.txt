@@ -29,4 +29,9 @@ usr/bin/tftp
 usr/bin/traceroute
 usr/bin/traceroute6
 usr/bin/tree
-usr/share
+usr/share/alsa/cards
+usr/share/alsa/ucm
+usr/share/alsa/ucm2
+usr/share/alsa/topology
+usr/share/ca-certificates
+usr/share/terminfo

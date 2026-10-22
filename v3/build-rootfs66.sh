@@ -18,6 +18,10 @@ mkdir "$W/rd"; cd "$W/rd"
 gzip -dc "$IN" | cpio -id --quiet
 install -m 755 "$HERE/S39tc100-linux66" etc/init.d/S39tc100
 rm -rf lib/modules/4.4.302
+# RAM-only: drop what the self-test does not need (see initramfs-prune.txt)
+grep -vE '^(#|$)' "$HERE/initramfs-prune.txt" | while read -r f; do rm -rf "./$f"; done
+# the serial console is started by S39tc100 (login prompt, or a shell if tc100test/consoleshell exists)
+sed -i '/ttySAK0/d' etc/inittab
 # default password of the OpenIPC image: lock it, S39tc100 sets the real one
 sed -i 's|^root:[^:]*:|root:*:|' etc/shadow
 # no credentials of any kind may be baked in
