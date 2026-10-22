@@ -184,16 +184,12 @@ keeps them. Do not prune `usr/share/udhcpc` (no DHCP without it) or `usr/share/a
 the request up to 16 MiB, bigger than the region). `ak39_venc` now `memremap()`s the reserved region
 (write-combined) and maps it to user space the same way.
 
-**JPEG stream, open (updated after the second boot).** The first runs reported the same 12 906 bytes
-for every input: that was a stale length register read after an IRQ that was already pending.
-With the output buffer pre-filled with 0xa5 (`JPEGENC_SENTINEL=1`) the core is seen to write
-the stream: a real 1080p NV12 frame gives 133 509 bytes, a black frame 41 468 bytes
-(8160 identical 5-byte MCUs, EOI at the end), random noise fills the whole buffer (no EOI).
-So the core encodes. What is not right yet: the 664-byte header it writes has the right SOI, JFIF,
-SOF0 (1920x1080, 4:2:0) and SOS, but its DQT and DHT segments hold the core's own table words, and
-the scan of a real frame decodes to garbage after the first third (with the software header
-substituted, 623 bytes at quality 35, the file decodes to a striped picture). The black-frame scan
-is 40 bits per MCU, not the 32 that the standard tables would give, so either the core does not
-use the tables as assumed, or the input planes are read differently (stride, UV offset). Next: a
-vendor-encoded reference of a flat frame to compare the scan bit for bit, and a frame with a
-known gradient to see where the picture breaks.
+**JPEG: the hardware core now produces valid pictures.** The table block (quantisation, reciprocals,
+Huffman words) belongs in the *table buffer*, control word 6 (register 0x3d8), and not at the start of
+the output buffer (word 7, 0x3dc) as first assumed. With the block in the wrong place the core read
+nothing and fell back to whatever its internal RAM held: a header with junk DQT/DHT bodies and a
+40-bit-per-MCU scan (zeroing the block changed nothing, which is how this was found). With the block
+at word 6 the core writes a complete, standard JFIF file by itself: the DQT are the quality-35 tables,
+the DHT the standard ones, a grey frame gives the textbook `28 a2 8a 00` scan, and a real 1920x1080
+frame decodes to the picture (116 KB at quality 35, no software header needed). Free JPEG
+encoding on the hardware core works from user space (`src/jpegenc`, `/dev/uio0`).

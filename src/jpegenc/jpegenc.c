@@ -250,7 +250,10 @@ int main(int argc, char **argv)
 		if (!pool) return 1;
 	}
 
-	build_tables(pool, quality);
+	/* the vendor trace shows control word 6 (0x3d8) is the "JPEG table buffer": the table block goes there,
+	 * not at the start of the output buffer (word 7, 0x3dc) as first assumed */
+	build_tables(getenv("JPEGENC_OLDLAYOUT") ? pool : pool + aux_off, quality);
+	if (getenv("JPEGENC_NOTABLES")) memset(pool + aux_off, 0, TABLES_SIZE);	/* debug: does the core read the block at all? */
 	memcpy(pool + y_off, src, ysz);
 	memcpy(pool + uv_off, src + ysz, ysz / 2);
 
@@ -309,6 +312,10 @@ int main(int argc, char **argv)
 			for (k = TABLES_SIZE; k < stream_size; k++)
 				if (pool[k] != 0xa5) { cnt++; last = k; }
 			printf("bytes changed by the core: %zu, last at +0x%zx\n", cnt, last);
+		}
+		if (getenv("JPEGENC_DUMPTAB")) {	/* debug: the table block after the run */
+			snprintf(name, sizeof name, "%s.tab", out);
+			f = fopen(name, "wb"); fwrite(pool + aux_off, 1, TABLES_SIZE, f); fclose(f);
 		}
 		n = st[1];
 		if (n == 0 || n > stream_size - TABLES_SIZE) { fprintf(stderr, "bad length %zu\n", n); return 1; }
