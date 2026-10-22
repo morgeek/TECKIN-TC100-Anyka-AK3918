@@ -51,6 +51,18 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/ui
   killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
   ( cd /tmp && LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
       -u "${RTSP_USER:-root}" -w "$PWD_FILE" >/tmp/logs/tc100_rtsp.log 2>&1 ) &
+  # the vendor services (recording, ONVIF...) read codec and credentials from rtspserver.conf: keep it in step with
+  # what tc100_rtsp serves (H.264, the camera password)
+  if [ -x /mnt/bin/rwconf ] && [ -d /mnt/config ]; then
+    RC=/mnt/config/rtspserver.conf
+    export LD_LIBRARY_PATH=/mnt/sd/lib
+    /mnt/bin/rwconf $RC w 0 codec 1
+    if [ -s "$PWD_FILE" ]; then
+      /mnt/bin/rwconf $RC w " " USERNAME "${RTSP_USER:-root}"
+      /mnt/bin/rwconf $RC w " " USERPASSWORD "$(head -n 1 "$PWD_FILE")"
+    fi
+    unset LD_LIBRARY_PATH
+  fi
   NEWRTSP=1
   echo "[tc100-v3] free H.264 RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
 fi
