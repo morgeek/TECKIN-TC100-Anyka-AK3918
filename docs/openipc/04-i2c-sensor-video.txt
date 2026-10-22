@@ -1,0 +1,14 @@
+=== SENSOR & VIDEO LOGS ===
+000.isp: assigned reserved memory node dma_reserved@0x81400000
+ak_camera 20000000.isp: capture pool at 0x81400000, 24576 KiB
+soc-camera-pdrv soc-camera-pdrv.0: Probing soc-camera-pdrv.0
+gc1084: chip id 0xffff, expected 0x1084
+bf3703_probe_id id:0xffff
+f22_set_power_on
+aksensor 0-0030: probe_sensors Probing Sensor ID: 0xf23
+f22_set_power_on
+ak_camera 20000000.isp: AK Camera driver attached to camera 0
+ak_camera 20000000.isp: AK Camera driver detached from camera 0
+ak_camera 20000000.isp: AK Camera driver loaded
+initcall ak_camera_init+0x0/0x20 returned 0 after 769259 usecs
+calling  ak_wdt_init+

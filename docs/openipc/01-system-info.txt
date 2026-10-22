@@ -1,0 +1,142 @@
+=== UNAME ===
+root@openipc-ak3918ev300:~# uname -a
+cho "=== CPUINFO ==="
+cat /proc/cpuinfo
+echo ""
+echo "=== MEMINFO ==="
+cat /proc/meminfo
+echo ""Linux openipc-ak3918ev300 4.4.302 #1 Mon Oct 19 18:37:18 UTC 2026 armv5tejl GNU/Linux
+echo "=== MTD ==="
+cat /proc/mtd
+echo ""
+echo "=== IOMEM ==="
+cat /proc/iomem
+echo ""
+echo "=== INTERRUPTS ==="
+cat /proc/interrupts
+echo ""
+echo "=== LOADED MODULES ==="
+cat /proc/modules
+; echo __M
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== VERSION ==="
+=== VERSION ===
+_179U)root@openipc-ak3918ev300:~# cat /proc/version
+Linux version 4.4.302 (runner@runnervm8k3b6) (buildroot-gcc-13.3.0) #1 Mon Oct 19 18:37:18 UTC 2026
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== CMDLINE ==="
+=== CMDLINE ===
+root@openipc-ak3918ev300:~# cat /proc/cmdline
+console=ttySAK0,115200n8 mem=64M root=/dev/ram0 rdinit=/init initrd=0x80900000,3491008 mtdparts=spi0.0:8192k(all)ro initcall_blacklist=gpio_keys_init panic=0 loglevel=7
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== CPUINFO ==="
+=== CPUINFO ===
+root@openipc-ak3918ev300:~# cat /proc/cpuinfo
+processor	: 0
+model name	: ARM926EJ-S rev 5 (v5l)
+BogoMIPS	: 199.06
+Features	: swp half fastmult edsp java 
+CPU implementer	: 0x41
+CPU architecture: 5TEJ
+CPU variant	: 0x0
+CPU part	: 0x926
+CPU revision	: 5
+
+Hardware	: CLOUD39EV3_AK3918EV300_MNBD
+Revision	: 0000
+Serial		: 0000000000000000
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== MEMINFO ==="
+=== MEMINFO ===
+root@openipc-ak3918ev300:~# cat /proc/meminfo
+MemTotal:          35756 kB
+MemFree:            2168 kB
+MemAvailable:       3488 kB
+Buffers:               0 kB
+Cached:             9804 kB
+SwapCached:            0 kB
+Active:             1048 kB
+Inactive:            576 kB
+Active(anon):        496 kB
+Inactive(anon):       84 kB
+Active(file):        552 kB
+Inactive(file):      492 kB
+Unevictable:        8676 kB
+Mlocked:               0 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+Dirty:                 0 kB
+Writeback:             0 kB
+AnonPages:           516 kB
+Mapped:             2252 kB
+Shmem:                84 kB
+Slab:               5428 kB
+SReclaimable:       2760 kB
+SUnreclaim:         2668 kB
+KernelStack:         344 kB
+PageTables:          172 kB
+NFS_Unstable:          0 kB
+Bounce:                0 kB
+WritebackTmp:          0 kB
+CommitLimit:       17876 kB
+Committed_AS:       1984 kB
+VmallocTotal:     966656 kB
+VmallocUsed:           0 kB
+VmallocChunk:          0 kB
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== MTD ==="
+=== MTD ===
+root@openipc-ak3918ev300:~# cat /proc/mtd
+dev:    size   erasesize  name
+mtd0: 00800000 00001000 "all"
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== IOMEM ==="
+=== IOMEM ===
+root@openipc-ak3918ev300:~# cat /proc/iomem
+20020000-2002ffff : /soc/video-encoder@20020000
+20100000-20107ffe : 20100000.mmc0
+20108000-2010fffe : 20108000.mmc1
+20120000-20127ffe : 20120000.spi0
+20130000-20137ffe : /soc/uart0@20130000
+20150000-2015fffe : 20150000.i2c0
+20170000-2017fffe : /soc/gpio@20170000
+20300000-20301ffe : 20300000.ethernet
+20400000-20400fff : /soc/gpio@20170000
+80000000-813fffff : System RAM
+  80008000-8041fc73 : Kernel code
+  80446000-80496e57 : Kernel data
+82c00000-83ffffff : System RAM
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== INTERRUPTS ==="
+=== INTERRUPTS ===
+root@openipc-ak3918ev300:~# cat /proc/interrupts
+           CPU0       
+  1:          0  module-irq   1 Edge      ak_camera
+  4:        237  module-irq   4 Edge      20100000.mmc0
+  5:         13  module-irq   5 Edge      20108000.mmc1
+  8:          5  module-irq   8 Edge      20120000.spi0
+ 10:       1630  module-irq  10 Edge      20130000.uart0
+ 12:          0  module-irq  12 Edge      l2
+ 16:       5747  module-irq  16 Edge      eth0
+ 18:     109412  module-irq  18 Edge      usb-host:usb1
+ 29:      59143  sysctrl-irq  29 Edge      ak_ce_timer irq
+ 32:          0  sysctrl-irq  32 Edge      ak-rtc alarm
+Err:          0
+root@openipc-ak3918ev300:~# echo ""
+
+root@openipc-ak3918ev300:~# echo "=== LOADED MODULES ==="
+=== LOADED MODULES ===
+root@openipc-ak3918ev300:~# cat /proc/modules
+r8188eu 376403 0 - Live 0xbf05b000 (C)
+cfg80211 200907 1 r8188eu, Live 0xbf01d000
+otg_hs 14623 0 - Live 0xbf016000
+vfat 7989 0 - Live 0xbf011000
+fat 46871 1 vfat, Live 0xbf000000
+root@openipc-ak3918ev300:~# ; echo

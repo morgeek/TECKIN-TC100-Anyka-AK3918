@@ -1,0 +1,84 @@
+name: Build Linux 6.6 LTS Kernel with CMA 16MB for TECKIN TC100
+
+on:
+  push:
+    branches: [ v3-linux66 ]
+    paths:
+      - 'patches/kernel-6.6/**'
+      - '.github/workflows/build-kernel-linux66.yml'
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    name: Compile Linux 6.6 + Anyka AK3918 + CMA 16MB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison device-tree-compiler
+
+      - name: Clone Linux 6.6 Stable Tree (Tag v6.6)
+        run: |
+          git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src
+
+      - name: Apply Anyka AK3918 Hardware, CMA 16MB & ALSA Audio Patches
+        run: |
+          cd linux-src
+          echo "[+] Applying Unified Anyka AK3918 V3 Patch (CMA 16MB + ALSA Audio)..."
+          patch -p1 < ../patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch
+
+      - name: Configure Kernel with CMA and ALSA
+        run: |
+          cd linux-src
+          mkdir -p firmware/rtlwifi
+          cp -r ../patches/kernel-6.6/firmware/* firmware/ 2>/dev/null || true
+          if [ ! -f firmware/rtlwifi/rtl8188fufw.bin ]; then
+            curl -s -L "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin" -o firmware/rtlwifi/rtl8188fufw.bin
+          fi
+          cp ../patches/kernel-6.6/defconfig_cma .config
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
+          echo "[+] Validating CMA & Audio Configuration in .config:"
+          grep -E "CONFIG_CMA|CONFIG_SOUND|CONFIG_SND_AK_PCM|CONFIG_CODEC_AK39|CONFIG_ZRAM|CONFIG_ZSMALLOC|CONFIG_BLK_DEV" .config
+
+      - name: Compile zImage and Device Tree
+        run: |
+          set -eo pipefail
+          cd linux-src
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs 2>&1 | tee ../build.log
+
+      - name: Show Build Errors on Failure
+        if: failure()
+        run: |
+          tail -n 120 build.log || true
+
+      - name: Append DTB & Generate uImage (oipc.img)
+        run: |
+          cd linux-src
+          echo "[+] Locating compiled DTB files in arch/arm/boot/:"
+          find arch/arm/boot/ -name "*.dtb" || true
+          DTB_PATH=$(find arch/arm/boot/ -name "*tc100*.dtb" | head -n 1)
+          if [ -z "$DTB_PATH" ] || [ ! -f "$DTB_PATH" ]; then
+            echo "[!] Building DTB directly via dtc..."
+            mkdir -p arch/arm/boot/dts/anyka
+            dtc -I dts -O dtb -o arch/arm/boot/dts/anyka/ak3918ev300-tc100.dtb arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+            DTB_PATH="arch/arm/boot/dts/anyka/ak3918ev300-tc100.dtb"
+          fi
+          echo "[+] Selected DTB: $DTB_PATH"
+          ls -lh "$DTB_PATH"
+          cat arch/arm/boot/zImage "$DTB_PATH" > arch/arm/boot/zImage-dtb
+          mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 True V3 CMA16+ALSA" -d arch/arm/boot/zImage-dtb oipc.img
+          ls -lh oipc.img
+          mkdir -p ../output
+          cp oipc.img ../output/
+          md5sum ../output/oipc.img > ../output/oipc.img.md5
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tc100-linux66-cma16-kernel
+          path: output/

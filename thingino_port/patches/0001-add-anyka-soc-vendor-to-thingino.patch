@@ -1,0 +1,27 @@
+--- a/Config.soc.in
++++ b/Config.soc.in
+@@ -10,6 +10,9 @@ choice
+ config BR2_SOC_VENDOR_INGENIC
+ 	bool "Ingenic"
+ 
++config BR2_SOC_VENDOR_ANYKA
++	bool "Anyka"
++
+ config BR2_SOC_VENDOR_SIGMASTAR
+ 	bool "SigmaStar"
+ 
+@@ -32,6 +35,16 @@ config BR2_INGENIC_SOC_MODEL
+ 
+ 	  Leave empty to use legacy BR2_SOC_INGENIC_* variables (for backward compatibility).
+ 
++config BR2_ANYKA_SOC_MODEL
++	string "SoC Model"
++	depends on BR2_SOC_VENDOR_ANYKA
++	default ""
++	help
++	  Enter the Anyka SoC model name (e.g., ak3918ev300, ak3918av130, ak3918v200).
++	  Supported models: ak3918ev300, ak3918av130, ak3918v200.
++
+ config BR2_SIGMASTAR_SOC_MODEL
+ 	string "SoC Model"
+ 	depends on BR2_SOC_VENDOR_SIGMASTAR

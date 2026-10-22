@@ -1,0 +1,20 @@
+--- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
++++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+@@ -26,11 +26,11 @@
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+-		/* ISP capture: 4 slots (main + sub channel), 3D-NR reference */
+-		capture_pool: capture@82400000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x82400000 0x1c00000>;
+-			no-map;
++		/* 16MB CMA Pool: guaranteed contiguous DMA memory for ISP and V4L2 */
++		capture_pool: linux,cma {
++			compatible = "shared-dma-pool", "linux,cma";
++			reusable;
++			size = <0x1000000>;
++			alloc-ranges = <0x80000000 0x4000000>;
++			linux,cma-default;
+ 		};
+ 	};

@@ -1,0 +1,5 @@
+# Buildroot target architecture fragment for ARM926EJ-S (Anyka AK3918)
+BR2_arm=y
+BR2_arm926ejs=y
+BR2_ARM_EABI=y
+BR2_ARM_INSTRUCTIONS_THUMB=y
