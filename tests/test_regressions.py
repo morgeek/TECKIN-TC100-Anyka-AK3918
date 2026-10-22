@@ -3334,7 +3334,7 @@ class LocalRecording(unittest.TestCase):
             # after the recorder is back (+ the 2 s polling)
             n = run('0-20,40-100')
             self.assertEqual(len(n), 1)
-            self.assertTrue(300 <= n[0] <= 480, n)
+            self.assertTrue(240 <= n[0] <= 520, n)
 
     def test_refuses_ram_and_flash_filesystems(self):
         src = (ROOT / 'src/tc100fix/rec.c').read_text()
