@@ -102,6 +102,7 @@ jobs:
           test -f base-rootfs/rootfs.cpio.gz   # our Buildroot image; no fallback
           sudo sh v3/build-rootfs66.sh base-rootfs/rootfs.cpio.gz $P/oipcrd66.gz
           arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o $P/jpegenc
+          arm-linux-gnueabi-gcc -O2 -Wall -static src/httpfront/httpfront.c -o $P/httpfront
           make -C src/libakuio CROSS=arm-linux-gnueabi- >/dev/null
           cp src/libakuio/libakuio.so $P/
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/

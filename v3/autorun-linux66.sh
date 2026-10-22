@@ -50,8 +50,13 @@ fi
 [ -f /tmp/currentpic.cache.jpg ] && date +%s > /tmp/currentpic.cache.ts
 
 # 6. Start Web Server on port 80
-killall httpd 2>/dev/null
-/usr/sbin/httpd -p 80 -h /tmp/www
+killall httpd httpfront 2>/dev/null
+# the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
+if [ -x /mnt/sd/tc100test/httpfront ]; then
+  /mnt/sd/tc100test/httpfront -p 80 -h /tmp/www &
+else
+  /usr/sbin/httpd -p 80 -h /tmp/www
+fi
 echo "[tc100-v3] WebUI active on port 80" > /dev/console
 
 # 7. Start RTSP Server on port 554 (RFC 2435 JPEG stream)
