@@ -470,6 +470,23 @@ void akuio_wait_irq(unsigned long arg)
 	    IRQ_STATUS_REG - info.regs_paddr < regs_len)
 		st = *(volatile uint32_t *)(regs + IRQ_STATUS_REG - info.regs_paddr);
 	*res = st ? __builtin_ctz(st) : 0;
+	if (regs) {			/* clear the sticky status (0x20028018) so the next frame's wait blocks */
+		static int clr = -1;
+		volatile uint32_t *s18 = (volatile uint32_t *)(regs + 0x8018);
+
+		if (clr < 0) {
+			const char *e = getenv("AKUIO_CLR");
+
+			clr = e ? atoi(e) : 1;	/* default: write-1-to-clear */
+		}
+		if (clr) {
+			uint32_t b4 = *s18;
+
+			*s18 = clr == 1 ? b4 : clr == 2 ? 0 : 0xffffffffu;
+			if (getenv("AKUIO_IRQDBG"))
+				fprintf(stderr, "CLR mode %d: 0x18 %08x -> %08x\n", clr, b4, *s18);
+		}
+	}
 	if (getenv("AKUIO_IRQDBG")) {
 		char tb[64];
 		int tn;
