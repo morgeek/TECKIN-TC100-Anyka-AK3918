@@ -51,5 +51,5 @@ The camera uses a non-destructive dual-boot configuration stored in U-Boot envir
    sf write 0x83000000 0x23a000 0x1000
    ```
 5. Reboot with `reset`. The camera will boot OpenIPC and connect to your Wi-Fi automatically.
-   - Web Interface: `http://192.168.1.11`
-   - SSH (Dropbear): `ssh root@192.168.1.11` (port 22)
+   - Web Interface: `http://<camera-ip>`
+   - SSH (Dropbear): `ssh root@<camera-ip>` (port 22)

@@ -3106,7 +3106,7 @@ class CameraLogFindings(unittest.TestCase):
         lines = ['Oct 16 18:35:10 anyka kern.err kernel: reg0x40, read:0x89',
                  'Oct 16 18:35:12 anyka user.emerg syslog:  group_type=1, index=589, ts=37040, enc_ts=36812',
                  'Oct 16 18:35:10 anyka user.err syslog:  [ak_cmd_register_module:741] no server was register, can not register module',
-                 'Oct 16 18:45:25 IPCAMERA1 user.emerg syslog:  [wait_move_stable:193] not stable',
+                 'Oct 16 18:45:25 camera user.emerg syslog:  [wait_move_stable:193] not stable',
                  'Jan  1 00:00:15 anyka kern.warn kernel: RTW: module init start',
                  'Oct 16 11:56:44 cam kern.err kernel: mmcblk0: timed out sending r/w cmd command, card status 0x400e00',
                  'Oct 16 11:56:44 cam kern.warn kernel: mmc0: data(write) req failed (CMD25): -110, retrying(1)...',

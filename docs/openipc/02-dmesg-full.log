@@ -378,13 +378,13 @@ ak_camera_set_parm pcid:1, ch2w:640, ch2h:360
 
 Password: 
 Login incorrect
-IPCAMERA2 login: setenv bootargs 'console=ttySAK0,115200n8 mem=64M root=/dev/ram0
+camera login: setenv bootargs 'console=ttySAK0,115200n8 mem=64M root=/dev/ram0
 
-IPCAMERA2 login: bootm 0&&&fC�Password: 
+camera login: bootm 0&&&fC�Password: 
 
 Login timed out after 60 secon
 
-IPCAMERA2 login:                                                    �           
+camera login:                                                    �           
 
 U-Boot 2013.10.0-AK_V3.0.05 (Aug 10 2020 - 03:27:13)
 
