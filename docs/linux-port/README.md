@@ -101,7 +101,7 @@ Tracing tool: `libtc100fix` records the vendor encoder's hardware accesses (`VEN
 
 - `v3/S39tc100-linux66`: the boot script of the initramfs. It mounts the SD card, sets the root password from `config/user.pwd` (without that file, root login stays disabled), brings Wi-Fi up from `config/wpa_supplicant.conf` on the card, then runs `v3/autorun-linux66.sh` from the card. An optional hardware report runs when `tc100test/diag` exists.
 - `v3/autorun-linux66.sh`: V3 services (watchdog keeper, web server, `tc100_streamer`, the RTSP server on port 554, ONVIF, day/night, MQTT bridge, motion, recording). The RTSP login is the camera password from `config/user.pwd`, passed through a private config file, never on the command line and never in git.
-- `v3/build-rootfs66.sh [in] [out]`: builds the 6.6 initramfs from the OpenIPC one in `openipc_sd_kit/` (replaces the boot script, drops the 4.4 modules, locks the image's default root password). About 3 MB instead of 6.9 MB. Needs root.
+- `v3/build-rootfs66.sh [in] [out]`: builds the 6.6 initramfs from our Buildroot base (`v3/buildroot/`, built by CI) (replaces the boot script, drops the 4.4 modules, locks the image's default root password). About 3 MB instead of 6.9 MB. Needs root.
 - Video path of V3: `tc100_streamer` reads NV12 from `/dev/video0` and produces JPEG/MJPEG in software; the hardware encoders replace it as the work above progresses.
 
 ## Test loop (no flash writes, no SD swap)
@@ -128,7 +128,7 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 - The generic `r8188eu` driver binds the RTL8188FU but the radio never locks (0 scan results); the dedicated `8188fu` driver (workflow `build-wifi-driver.yml`, `docs/openipc/8188fu.ko.gz`) works on 4.4. On 6.6 the mainline `rtl8xxxu` does it.
 - Audio: ALSA driver `akpcm` registers; speaker amplifier gate on GPIO 14 (the report said 79, see the warning above).
 
-**The SD boot kit** (`openipc_sd_kit/`): `tc100test/oipc.img` (Linux 4.4 uImage), `oipcrd.gz` (musl initramfs, loaded at 0x80900000 so that the ISP's 24 MiB pool at 0x81400000 is not overwritten), `uEnv.txt`, and the tools used over the serial bridge. Its README describes a persistent dual boot written into U-Boot's environment; **for tests the RAM-only loop above is enough and writes nothing**. If you do write the environment, keep the stock `boot_normal` fallback and the SD recovery of the stock U-Boot in mind. No Wi-Fi credentials are in the initramfs: they come from `tc100test/wpa_supplicant.conf` on the card.
+**The SD boot kit** (`contrib/openipc_sd_kit/`, historical, no longer used by the build): `tc100test/oipc.img` (Linux 4.4 uImage), `oipcrd.gz` (musl initramfs, loaded at 0x80900000 so that the ISP's 24 MiB pool at 0x81400000 is not overwritten), `uEnv.txt`, and the tools used over the serial bridge. Its README describes a persistent dual boot written into U-Boot's environment; **for tests the RAM-only loop above is enough and writes nothing**. If you do write the environment, keep the stock `boot_normal` fallback and the SD recovery of the stock U-Boot in mind. No Wi-Fi credentials are in the initramfs: they come from `tc100test/wpa_supplicant.conf` on the card.
 
 ## Thingino
 
