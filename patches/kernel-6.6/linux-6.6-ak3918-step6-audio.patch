@@ -1,0 +1,4035 @@
+diff --git a/include/sound/ak_pcm.h b/include/sound/ak_pcm.h
+new file mode 100644
+--- /dev/null
++++ b/include/sound/ak_pcm.h
+@@ -0,0 +1,54 @@
++#ifndef _AK_PCM_H
++#define _AK_PCM_H
++
++#include <linux/types.h>
++#include <sound/core.h>
++#include <sound/pcm.h>
++
++
++struct ak_codec_dai;
++
++struct ak_codec_ops {
++	void (*dac_init) (struct ak_codec_dai *dai);
++	void (*dac_exit) (struct ak_codec_dai *dai);
++
++	void (*adc_init) (struct ak_codec_dai *dai);
++	void (*adc_exit) (struct ak_codec_dai *dai);
++
++	unsigned long (*set_dac_samplerate)(struct ak_codec_dai *dai, unsigned int rate);
++	unsigned long (*set_adc_samplerate)(struct ak_codec_dai *dai, unsigned int rate);
++
++	void (*set_dac_channels)(struct ak_codec_dai *dai, unsigned int channels);
++	void (*set_adc_channels)(struct ak_codec_dai *dai, unsigned int channels);
++
++	void (*playback_start)(struct ak_codec_dai *dai);
++	void (*playback_end)(struct ak_codec_dai *dai);
++
++	/* The power amplifier gate alone, with no codec or route side effects. */
++	void (*speaker_enable)(struct ak_codec_dai *dai, bool on);
++
++	void (*capture_start)(struct ak_codec_dai *dai);
++	void (*capture_end)(struct ak_codec_dai *dai);
++
++	void (*start_to_play) (struct ak_codec_dai *dai, unsigned int channels, unsigned int rate);
++};
++
++struct ak_proc_entry {
++	const char *name;
++	void (*cb)(struct snd_info_entry *, struct snd_info_buffer *);
++};
++
++struct ak_codec_dai {
++	int num_kcontrols;
++	struct snd_kcontrol_new *kcontrols;
++	int num_pentries;
++	void *entries_private;
++	struct ak_proc_entry *pentries;
++	struct ak_codec_ops *ops;
++
++};
++
++int ak_codec_register(struct ak_codec_dai *dai);
++void ak_codec_ctl_event(unsigned int iface, unsigned int event, const char* ctl_name);
++
++#endif
+diff --git a/sound/arm/ak_codec.h b/sound/arm/ak_codec.h
+new file mode 100644
+--- /dev/null
++++ b/sound/arm/ak_codec.h
+@@ -0,0 +1,163 @@
++#ifndef AK39_CODEC_H
++#define AK39_CODEC_H
++
++#include <linux/delay.h>
++#include <sound/asound.h>
++
++#define REG32(_reg)	(*(volatile unsigned long *)(_reg))
++
++//pAddress0800   0x08000000-0x080000FF
++#define CPUPLLCHN_CLOCK_CTRL_REG	0x0004
++
++#define CLOCK_CTRL_REG				0x000C
++#define HIGHSPEED_CLOCK_CTRL_REG	0x0010
++#define CLOCK_GATE_CTRL_REG			0x001c
++#define SOFT_RST_CTRL_REG			0x0020
++#define MULTIPLE_FUN_CTRL_REG1		0x0058
++#define FADEOUT_CTRL_REG			0x0070
++
++#define ADC1_CONF_REG1				0x0098
++
++#define ANALOG_CTRL_REG1			0x009c
++#define ANALOG_CTRL_REG2			0x00A0
++#define ANALOG_CTRL_REG3			0x00A4
++
++//pAddress2011 0x2011000-0x20118008
++#define DAC_CONFIG_REG              0x0000
++#define I2S_CONFIG_REG              0x0004
++#define CPU_DATA_REG                0x0008
++
++#define ADC2_CONFIG_REG             0x8000
++#define ADC2_DATA_REG				0x8004
++
++//ADC2_CONFIG_REG(0x20118000)
++#define WORD_LENGTH_MASK (0XF << 8)
++#define I2S_EN           (1 << 4)
++#define CH_POLARITY_SEL  (1 << 3)
++#define HOST_RD_INT_EN   (1 << 2)
++#define ADC2MODE_L2_EN   (1 << 1)
++#define ADC2_CTRL_EN     (1 <<0)
++
++//CLOCK_CTRL_REG(0x08000004)
++#define ASIC_FREQ_ADJ      		(1 << 28)
++
++//CLOCK_CTRL_REG(0x0800000C)
++#define DAC_DIV_VLD				(1 << 29)
++#define DAC_CLK_EN      		(1 << 28)
++#define MASK_DAC_DIV_FRAC		(0xFFF << 12)
++#define DAC_DIV_FRAC(val)		(((val)&0xFFF) << 12)
++#define MASK_DAC_DIV_INT		(0xFF << 4)
++#define DAC_DIV_INT(val)		(((val)&0xFF) << 4)
++
++//HIGHSPEED_CLOCK_CTRL_REG(0x0800 0010) -- ADC2_HCLK_DIV is 6 bits and
++//ADC2_DIV is 8; the two dividers in this register are not the same width.
++#define ADC2_HSDIV_VLD		(1 << 29)
++#define ADC2_HCLK_EN		(1 << 28)
++#define MASK_ADC2_HCLK_DIV	(0x3F << 20)
++#define ADC2_HCLK_DIV(val)	(((val)&0x3F)<<20)
++#define DAC_HSDIV_VLD		(1 << 19)
++#define DAC_HCLK_EN			(1 << 18)
++#define MASK_DAC_HCLK_DIV	(0xFF << 10)
++#define DAC_HCLK_DIV(val)	(((val)&0xFF)<<10)
++#define ADC2_DIV_VLD	(1 << 9)
++#define ADC2_CLK_EN		(1 << 8)
++#define MASK_ADC2_DIV	(0xFF << 0)
++#define ADC2_DIV(val)	((val)&0xFF)
++
++
++//SOFT_RST_CTRL_REG(0x08000020)
++#define DAC_SOFT_RST	((1 << 26)|(1 << 28))
++#define ADC2_SOFT_RST	((1 << 27)|(1 << 29))
++
++
++//MULTIPLE_FUN_CTRL_REG1(0x08000058)
++#define IN_DAAD_EN      (1 << 25) //ENABLE INTERNAL DAC ADC via i2s
++
++//FADEOUT_CTRL_REG(0x0080 0070)
++#define OSR_MASK       (0x7 << 0)
++#define OSR(value)     (((value)&0x7) << 0)
++#define ADC2_OSR_BIT		31
++#define DAC_FILTER_EN	(1<<3)
++
++//ADC_CONF_REG1(0x0080 0098)
++#define SEL_VREF 		(1<< 23)
++
++//ANALOG_CTRL_REG1(0x0080 009c)
++#define MASK_DISCHG_HP		(0x7 << 29)
++#define DISCHG_HP(val)		(((val)&0x7) << 29)
++#define MASK_PD_HP_CTRL		(0xF << 25)
++#define PD_HP_CTRL(val)		(((val)&0xF) << 25)
++#define PD2_HP         	(1 << 24)
++#define PD1_HP         	(1 << 23)
++#define MASK_HP_GAIN	(0x1F << 18)
++#define HP_GAIN(val)	(((val)&0x1F)<<18)
++#define PRE_EN         (1 << 17)
++#define HP_IN_SHIFT    14
++#define MASK_HP_IN     (0x7 << HP_IN_SHIFT)
++#define RST_DAC        (1 << 13)
++#define PD_OP          (1 << 12)
++#define PD_CK          (1 << 11)
++#define MASK_DIS_CHG_VCM2	(0x1F << 6)
++#define DIS_CHG_VCM2(val)	(((val)&0x1F) << 6)
++#define EN_VP2V5       (1 << 5)
++#define PON_VP         (1 << 4)
++#define PL_VCM3        (1 << 2)  //pull down to ground.
++#define PD_VCM3        (1 << 1)  // power off
++#define PD_BIAS			(1 << 0)
++
++//ANALOG_CTRL_REG2(0x0080 00A0)
++#define MASK_PD_LINEIN	(0x3 << 19)
++#define PD_LINEIN_RUN	(0x1 << 20)
++#define PD_MIC			(1 << 21)
++#define PD_S2D			(1 << 27)
++#define ADC_LIM        (1 << 28)
++#define MIC_GAINBST    (1 << 18)
++#define MIC_GAIN_SHIFT 15
++#define MASK_MIC_GAIN  (0x7 << MIC_GAIN_SHIFT)
++#define PD_ADC2          (1 << 26)
++#define ADC_IN_SHIFT     29
++#define MASK_ADC_IN      (0x7 << ADC_IN_SHIFT)
++#define ADC_IN_DAC       (0b001)
++#define ADC_IN_LINEIN    (0b010)
++#define ADC_IN_MIC       (0b100)
++
++//ANALOG_CTRL_REG3(0x0080 00A4)
++
++//DAC_CONFIG_REG(0x2011000)
++#define ARM_INT        (1 << 3)  //ARM interrupt enable
++#define MUTE           (1 << 2)  // repeat to sent the Last data to DAC
++#define FORMAT         (1 << 4)    //  1 is used memeory saving format.
++#define L2_EN          (1 << 1)
++#define DAC_CTRL_EN    (1 << 0)
++
++//I2S_CONFIG_REG(0x20110004)
++#define LR_CLK          (1 << 6)
++#define POLARITY_SEL    (1 << 5)
++#define I2S_CONFIG_WORDLENGTH_MASK              (0x1F << 0)
++
++/////////////HP_IN  ADC23_IN
++#define SOURCE_DAC           (0b100)
++#define SOURCE_LINEIN        (0b010)
++#define SOURCE_MIC           (0b001)
++#define SIGNAL_SRC_MUTE      0
++#define SIGNAL_SRC_MAX       (SOURCE_DAC|SOURCE_LINEIN|SOURCE_MIC)
++
++#define SOURCE_DAC_MASK           (0b100)
++#define SOURCE_LINEIN_MASK        (0b010)
++#define SOURCE_MIC_MASK           (0b001)
++#define SOURCE_MIXED_ALL_MASK 	   (SOURCE_DAC_MASK|SOURCE_LINEIN_MASK|SOURCE_MIC_MASK)
++
++
++#define HEADPHONE_GAIN_MIN    0
++#define HEADPHONE_GAIN_MAX    5
++#define LINEIN_GAIN_MIN       0
++#define LINEIN_GAIN_MAX       15
++#define MIC_GAIN_MIN          0
++#define MIC_GAIN_MAX          7
++
++
++#define PLAYMODE_AUTO_SWITCH 	(0) /*hp & sp switch*/
++#define PLAYMODE_HP 		  		(1)
++#define PLAYMODE_SPEAKER 		(2)
++
++#endif
+diff --git a/sound/arm/ak_pcm.c b/sound/arm/ak_pcm.c
+new file mode 100644
+--- /dev/null
++++ b/sound/arm/ak_pcm.c
+@@ -0,0 +1,1541 @@
++/*
++ *  akpcm soundcard
++ *  Copyright (c) by Anyka, Inc.
++ *
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU General Public License as published by
++ *   the Free Software Foundation; either version 2 of the License, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
++ *
++ */
++
++#include <linux/init.h>
++#include <linux/err.h>
++#include <linux/platform_device.h>
++#include <linux/jiffies.h>
++#include <linux/slab.h>
++#include <linux/time.h>
++#include <linux/wait.h>
++#include <linux/hrtimer.h>
++#include <linux/workqueue.h>
++#include <linux/export.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/completion.h>
++#include <linux/irq.h>
++#include <linux/workqueue.h>
++#include <asm/bitops.h>
++#include <linux/atomic.h>
++#include <sound/core.h>
++#include <sound/control.h>
++#include <sound/tlv.h>
++#include <sound/pcm.h>
++#include <sound/rawmidi.h>
++#include <sound/info.h>
++#include <sound/initval.h>
++#include <linux/cpufreq.h>
++//#include <linux/anyka_cpufreq.h>
++
++#include <linux/soc/anyka/ak_l2.h>
++#include <sound/ak_pcm.h>
++#include <linux/vmalloc.h>
++#include <linux/dma-mapping.h>
++#include <linux/reboot.h>
++
++//#define CONFIG_PCM_DUMP              1
++#define AK_PCM_DELAY_CLOSE_DAC
++
++unsigned long playback_statu;
++
++struct snd_akpcm {
++	struct snd_card *card;
++	struct snd_pcm *pcm;
++	spinlock_t mixer_lock;
++	struct snd_pcm_substream *playbacksubstrm;
++	struct snd_pcm_substream *capturesubstrm;
++	struct completion playbackHWDMA_completion;
++	struct completion captureHWDMA_completion;
++	u8   L2BufID_For_DAC;
++	u8   L2BufID_For_ADC23;
++	snd_pcm_uframes_t PlaybackCurrPos;
++	snd_pcm_uframes_t CaptureCurrPos;
++	unsigned long   playbackStrmDMARunning;//bit[0]:strm state(running or not). bit[1]:DMA state(running or finished). bit[2]:strm state(suspend in frequest changed).
++	unsigned long   captureStrmDMARunning;//bit[0]:strm state(running or not). bit[1]:DMA state(running or finished)
++
++	struct tasklet_struct	fetch_tasklet;
++	void *	pp_buf_addr[2];	//Pingpong Buffer address
++	int		playing_idx;
++	snd_pcm_uframes_t optimal_period_size;	
++	int 		optimal_period_bytes;
++	bool		use_optimal_period;
++
++	struct timer_list stopoutput_work_timer;
++	struct tasklet_struct	close_dac;
++
++	struct ak_codec_dai *dai;
++	struct ak_codec_ops *ops;
++
++#ifdef CONFIG_CPU_FREQ
++	struct notifier_block	freq_transition;
++#endif
++
++#ifdef CONFIG_PCM_DUMP
++	void*				pcmDumpDataBuffer;
++	bool				enableDump;
++	unsigned long		pcmDumpSize;
++	struct   timespec64    pcmDumpTime;
++#endif
++
++	struct delayed_work ds_work; //delay start work
++};
++
++struct ak_timeval {
++	long tv_sec;
++	long tv_usec;
++};
++
++struct captureSync {
++	unsigned long long adcCapture_bytes;
++	struct ak_timeval tv;
++	unsigned int rate;
++	unsigned int frame_bits;
++};
++
++static inline void ak_gettimeofday(struct ak_timeval *tv)
++{
++	struct timespec64 ts;
++	ktime_get_real_ts64(&ts);
++	tv->tv_sec = ts.tv_sec;
++	tv->tv_usec = ts.tv_nsec / NSEC_PER_USEC;
++}
++
++struct captureSync capSync;
++
++static unsigned long long dac_clock;
++
++
++/*************
++ * PCM interface
++ *************/
++#define USE_FORMATS 		(SNDRV_PCM_FMTBIT_U8 | SNDRV_PCM_FMTBIT_S16_LE)
++#define USE_RATE			(SNDRV_PCM_RATE_CONTINUOUS | SNDRV_PCM_RATE_8000_96000)
++
++#define CAPTURE_USE_RATE_MIN		5500
++#define CAPTURE_USE_RATE_MAX		96000
++
++#define PLAYBACK_USE_RATE_MIN		5500
++#define PLAYBACK_USE_RATE_MAX		192000
++
++#define CAPTURE_USE_CHANNELS_MIN 	1
++#define CAPTURE_USE_CHANNELS_MAX 	1
++
++#define PLAYBACK_USE_CHANNELS_MIN 	2
++#define PLAYBACK_USE_CHANNELS_MAX 	2
++
++#define akpcm_playback_buf_bytes_max     (64*1024)
++#define akpcm_playback_period_bytes_min  512
++
++/* l2_combuf_dma() moves one period per L2 common buffer, which is 512 bytes. */
++#define akpcm_playback_period_bytes_max  512
++
++#define akpcm_playback_period_aligned		128
++#define akpcm_playback_periods_min       4
++
++#define akpcm_playback_periods_max       2048
++
++#define DELAY_TIME_FOR_CLOSING_DAC		(HZ * 30)
++
++
++#define akpcm_capture_buf_bytes_max      (64*1024)
++#define akpcm_capture_period_bytes_min   512
++#define akpcm_capture_periods_min        4
++#define akpcm_capture_periods_max        64
++
++#ifdef CONFIG_PCM_DUMP
++#define akpcm_dump_data_size           (2*1024*1024)
++#endif
++
++
++ static DEFINE_MUTEX(reboot_lock);
++ static struct snd_akpcm *reboot_info = NULL;
++
++ /**
++ * @brief   tell camera driver the audio capture samples for AV sync 
++ * @author  
++ * @date   
++ * @input   void
++ * @output  void *
++ * @return  void
++ */
++void *getRecordSyncSamples(void)
++{
++	return &capSync;
++}
++EXPORT_SYMBOL(getRecordSyncSamples);
++
++/* return the dac_clock */
++unsigned long long getPlaybackEclapseTime(void)
++{
++	return dac_clock;
++}
++EXPORT_SYMBOL(getPlaybackEclapseTime);
++
++void ak_close_dac_timer(struct timer_list *t)
++{
++	struct snd_akpcm *akpcm = from_timer(akpcm, t, stopoutput_work_timer);
++
++	if (akpcm->ops && akpcm->ops->playback_end) {
++		akpcm->ops->playback_end(akpcm->dai);
++	}
++}
++
++
++/**
++ * @brief  create new mixer interface
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static struct snd_card *cur_card;
++static struct snd_pcm *cur_pcm;
++static struct ak_codec_dai *cur_codec;
++int ak_codec_register(struct ak_codec_dai *dai)
++{
++	int i, err;
++	struct snd_akpcm *akpcm;
++	struct snd_info_entry *entry;
++
++	if (!dai)
++		return -1;
++
++	if (!dai->ops)
++		return -1;
++
++	if (!cur_card || !cur_pcm) {
++		pr_info("akpcm: waiting for card/pcm initialization (deferring probe)\n");
++		return -EPROBE_DEFER;
++	}
++
++	akpcm = cur_card->private_data;
++
++	if (cur_codec) {
++		printk("AK PCM: some codec has registered first(failed)\n");
++		return -1;
++	} else {
++		cur_codec = dai;
++		akpcm->dai = dai;
++		akpcm->ops = dai->ops;
++	}
++
++	strcpy(cur_card->mixername, "akpcm Mixer");
++
++	for (i = 0; i < dai->num_kcontrols; i++) {
++		err = snd_ctl_add(cur_card, snd_ctl_new1(&dai->kcontrols[i], dai));
++		if (err < 0)
++			return err;
++	}
++
++	// register a proc file to tell user whether the chip DAC module has been fixed
++	for (i = 0; i < dai->num_pentries; i++) {
++		snd_card_proc_new (cur_card, dai->pentries[i].name, &entry);
++		snd_info_set_text_ops(entry, dai->entries_private, dai->pentries[i].cb);
++	}
++	
++	return 0;
++}
++EXPORT_SYMBOL(ak_codec_register);
++
++void ak_codec_ctl_event(unsigned int iface, unsigned int event, const char* ctl_name)
++{
++	struct snd_ctl_elem_id elem_id;
++	struct snd_kcontrol *ctl_switch;
++
++	if (!cur_card)
++		return;
++
++	/* find the corresponding switch control */	
++	memset(&elem_id, 0, sizeof(elem_id));
++	elem_id.iface = iface;
++
++	strcpy(elem_id.name, ctl_name);
++
++	ctl_switch = snd_ctl_find_id(cur_card, &elem_id);
++
++	if (ctl_switch)
++	    snd_ctl_notify(cur_card, event, &ctl_switch->id);
++}
++EXPORT_SYMBOL(ak_codec_ctl_event);
++
++void alsabuf_to_ppbuf(struct tasklet_struct *t)
++{
++	struct snd_akpcm *akpcm = from_tasklet(akpcm, t, fetch_tasklet);
++	struct snd_pcm_substream *substream = akpcm->playbacksubstrm;
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	void *vaddr = runtime->dma_area;	
++	snd_pcm_uframes_t avail;	
++	int bytespersample = frames_to_bytes(runtime, 1);
++	int buffer_bytes = frames_to_bytes(runtime,runtime->buffer_size);
++	int period_bytes = akpcm->optimal_period_bytes;
++	int pend_bytes;
++	int dst_pos, cur_pos;
++	void *dst_addr = NULL;
++
++	if (akpcm->playing_idx == 1)
++		dst_addr = akpcm->pp_buf_addr[0];
++	else
++		dst_addr = akpcm->pp_buf_addr[1];
++	
++	akpcm->PlaybackCurrPos += period_bytes;
++	if(akpcm->PlaybackCurrPos >= buffer_bytes)
++	{
++		akpcm->PlaybackCurrPos = akpcm->PlaybackCurrPos - buffer_bytes;
++	}
++
++	avail = snd_pcm_playback_avail(runtime) + akpcm->optimal_period_size;
++	pend_bytes = (runtime->buffer_size - avail) * bytespersample;
++
++	if (avail >= runtime->stop_threshold) {
++		printk("optimal=%u, original=%u, left=%u\n", (unsigned int)akpcm->optimal_period_size, 
++			(unsigned int)runtime->period_size, (unsigned int)(runtime->buffer_size - snd_pcm_playback_avail(runtime)));
++		return;
++	}
++
++	dst_pos = akpcm->PlaybackCurrPos + period_bytes;
++	cur_pos = akpcm->PlaybackCurrPos;
++	if (dst_pos > buffer_bytes) {
++		memcpy(dst_addr, vaddr + cur_pos, (buffer_bytes - cur_pos));
++		memcpy(dst_addr + (buffer_bytes - cur_pos), vaddr, dst_pos - buffer_bytes);
++	} else {
++		memcpy(dst_addr, vaddr + cur_pos, period_bytes);
++	}
++
++	if (pend_bytes < period_bytes)
++		memset(dst_addr + pend_bytes, 0, period_bytes - pend_bytes);
++}
++
++
++/* from the previous interrupt hanlder */
++void dac_exit_tasklet(struct tasklet_struct *t)
++{
++	struct snd_akpcm *akpcm = from_tasklet(akpcm, t, close_dac);
++
++	if (akpcm->ops->dac_exit)
++		akpcm->ops->dac_exit(akpcm->dai);
++}
++
++void akpcm_playback_interrupt_optimize(unsigned long data)
++{
++	struct snd_akpcm *akpcm = (struct snd_akpcm *)data;
++	struct snd_pcm_substream *substream = akpcm->playbacksubstrm;
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	u8 id = akpcm->L2BufID_For_DAC;
++	int bytespersample = frames_to_bytes(runtime, 1);
++	void *pdst_addr;
++
++	snd_pcm_period_elapsed(substream);
++
++	dac_clock += akpcm->optimal_period_bytes / bytespersample  * 1000000 / runtime->rate;
++
++	if(test_bit(0,&playback_statu) 
++		&& snd_pcm_playback_avail(runtime) < runtime->stop_threshold)//output stream is running
++	{
++		if (akpcm->playing_idx == 0)
++			akpcm->playing_idx = 1;
++		else 
++			akpcm->playing_idx = 0;
++		
++		pdst_addr = (void *)virt_to_phys(akpcm->pp_buf_addr[akpcm->playing_idx]);		
++		l2_combuf_dma((unsigned long)pdst_addr, id, akpcm->optimal_period_bytes, 
++			(l2_dma_transfer_direction_t)MEM2BUF,1);
++
++		tasklet_schedule(&akpcm->fetch_tasklet);
++	}
++	else //output strm has been stopped
++	{
++		printk("output stream stopped\n");
++		clear_bit(1,&akpcm->playbackStrmDMARunning); //DMA has finished
++		complete(&(akpcm->playbackHWDMA_completion));
++
++#if defined(AK_PCM_DELAY_CLOSE_DAC)		
++		/* delay to close output channel */
++		akpcm->stopoutput_work_timer.expires = jiffies + DELAY_TIME_FOR_CLOSING_DAC;
++		add_timer(&akpcm->stopoutput_work_timer);
++
++		//close the dac in order to eliminate the noise caused by interrupt of 
++		// DAC data transfer	
++		tasklet_schedule(&akpcm->close_dac);
++#endif		
++	}
++}
++
++
++/**
++ * @brief  DMA transfer for playback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++void akpcm_playback_interrupt(unsigned long data)
++{
++	struct snd_akpcm *akpcm = (struct snd_akpcm *)data;
++	struct snd_pcm_substream *substream = akpcm->playbacksubstrm;
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	dma_addr_t paddr = runtime->dma_addr;
++	void *vaddr = runtime->dma_area;	
++
++	u8 id = akpcm->L2BufID_For_DAC;
++	unsigned long period_bytes = 0;
++	unsigned long buffer_bytes = 0;
++	int bytespersample = frames_to_bytes(runtime, 1);
++	snd_pcm_uframes_t avail;
++	unsigned long pend_bytes;
++
++	period_bytes = frames_to_bytes(runtime,runtime->period_size);
++	buffer_bytes = frames_to_bytes(runtime,runtime->buffer_size);
++	akpcm->PlaybackCurrPos += period_bytes;
++	if(akpcm->PlaybackCurrPos >= buffer_bytes)
++	{
++		akpcm->PlaybackCurrPos = 0;
++	}
++	snd_pcm_period_elapsed(substream);
++
++	dac_clock += period_bytes / bytespersample  * 1000000 / runtime->rate;
++	avail = snd_pcm_playback_avail(runtime);
++	pend_bytes = (runtime->buffer_size - avail) * bytespersample;
++#if 0
++	int i;
++	unsigned short s;
++
++	printk("_________________\n");
++	for (i=0; i<64; i++)
++	{
++		s = *(unsigned short *)__va(paddr+akpcm->CaptureCurrPos+i*2);
++		if (s < 0x8000)
++			printk("%d\n", s);
++		else
++			printk("-%d\n", (unsigned short)(~s+1));
++	}
++	printk("_________________\n");
++#endif
++
++
++	if(test_bit(0,&playback_statu) && avail < runtime->stop_threshold)//output stream is running
++	{
++		//printk(KERN_ERR "begin next dma");
++		if (pend_bytes < period_bytes)
++			memset(vaddr+akpcm->PlaybackCurrPos + pend_bytes, 0, period_bytes - pend_bytes);
++
++		l2_combuf_dma(paddr+akpcm->PlaybackCurrPos, id, period_bytes, 
++			(l2_dma_transfer_direction_t)MEM2BUF,1);
++		
++#ifdef CONFIG_PCM_DUMP
++		if(akpcm->enableDump){
++			unsigned char *pcmDump_dma_area=runtime->dma_area;
++			if((akpcm->pcmDumpSize+akpcm_playback_period_bytes_min)<=akpcm_dump_data_size){
++				//printk(KERN_ERR "akpcm->dumpsize=%d,akpcm->PlaybackCurrPos=%d \n",akpcm->dumpsize,akpcm->PlaybackCurrPos);
++				memcpy(akpcm->pcmDumpDataBuffer+akpcm->pcmDumpSize,pcmDump_dma_area+akpcm->PlaybackCurrPos,akpcm_playback_period_bytes_min);
++				akpcm->pcmDumpSize+=akpcm_playback_period_bytes_min;
++			}else{
++				printk(KERN_ERR "akpcm->enableDump false\n");
++				akpcm->enableDump=false;
++			}
++		}
++#endif
++		
++	}
++	else //output strm has been stopped
++	{
++		printk("output stream stopped\n");
++		clear_bit(1,&akpcm->playbackStrmDMARunning); //DMA has finished
++		complete(&(akpcm->playbackHWDMA_completion));
++
++#if defined(AK_PCM_DELAY_CLOSE_DAC)		
++		/* delay to close output channel */
++		akpcm->stopoutput_work_timer.expires = jiffies + DELAY_TIME_FOR_CLOSING_DAC;
++		add_timer(&akpcm->stopoutput_work_timer);
++
++		//close the dac in order to eliminate the noise caused by interrupt of 
++		// DAC data transfer	
++		tasklet_schedule(&akpcm->close_dac);
++#endif
++	}
++}
++
++/**
++ * @brief  DMA transfer for capture
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++void akpcm_capture_interrupt(unsigned long data)
++{
++	struct snd_akpcm *akpcm = (struct snd_akpcm *)data;
++	struct snd_pcm_substream *substream = akpcm->capturesubstrm;
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	dma_addr_t paddr = runtime->dma_addr;
++	u8 id = akpcm->L2BufID_For_ADC23;
++	
++	unsigned long period_bytes = 0;
++	unsigned long buffer_bytes = 0;
++
++	period_bytes = frames_to_bytes(runtime,runtime->period_size);
++	buffer_bytes = frames_to_bytes(runtime,runtime->buffer_size);
++	ak_gettimeofday(&capSync.tv);
++	capSync.adcCapture_bytes += period_bytes;
++	akpcm->CaptureCurrPos += period_bytes;
++	if(akpcm->CaptureCurrPos >= buffer_bytes)
++	{
++		akpcm->CaptureCurrPos = 0;
++	}
++
++	snd_pcm_period_elapsed(substream);
++
++	if(test_bit(0,&akpcm->captureStrmDMARunning)) //input stream is running
++	{
++		l2_combuf_dma(paddr+akpcm->CaptureCurrPos, id, akpcm_capture_period_bytes_min,
++		(l2_dma_transfer_direction_t)BUF2MEM,1);
++	}
++	else  //input stream has been stopped
++	{
++		printk("input stream stopped\n");
++		clear_bit(1,&akpcm->captureStrmDMARunning);
++		complete(&(akpcm->captureHWDMA_completion));
++
++		/* FIXME */
++		if (akpcm->ops->adc_exit)
++			akpcm->ops->adc_exit(akpcm->dai);
++	}
++}
++
++/**
++ * @brief  trigger callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_playback_trigger(struct snd_pcm_substream *substream, int cmd)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	dma_addr_t paddr = runtime->dma_addr;
++	void *vaddr = runtime->dma_area;	
++	snd_pcm_uframes_t avail;	
++	int avail_bytes, pend_bytes, period_bytes;
++	int start_pos0, start_pos1;
++	int bytespersample = frames_to_bytes(runtime, 1);
++	
++	void *vdst_addr0 = akpcm->pp_buf_addr[0];
++	void *vdst_addr1 = akpcm->pp_buf_addr[1];
++	void *pdst_addr0 = (void *)virt_to_phys(vdst_addr0);
++
++	switch (cmd) {
++	case SNDRV_PCM_TRIGGER_START:
++	case SNDRV_PCM_TRIGGER_RESUME:
++	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
++	{
++		u8 id = akpcm->L2BufID_For_DAC;
++
++#if defined(AK_PCM_DELAY_CLOSE_DAC)
++		del_timer(&akpcm->stopoutput_work_timer);
++#endif
++		set_bit(0,&playback_statu);  //set bit to inform that playback stream is running
++		set_bit(1,&akpcm->playbackStrmDMARunning);   //set bit to inform that DMA is working
++		init_completion(&(akpcm->playbackHWDMA_completion));
++
++		if (akpcm->use_optimal_period) {
++			avail = snd_pcm_playback_avail(runtime);
++			avail_bytes  = avail * bytespersample;
++			pend_bytes = (runtime->buffer_size - avail) * bytespersample;
++			period_bytes = akpcm->optimal_period_bytes;
++			start_pos0 = akpcm->PlaybackCurrPos;
++			start_pos1 = akpcm->PlaybackCurrPos + period_bytes;
++
++			if (pend_bytes >= 2 * period_bytes) {
++				memcpy(vdst_addr0, vaddr + start_pos0, period_bytes);
++				memcpy(vdst_addr1, vaddr + start_pos1, period_bytes);
++			} else if (pend_bytes > period_bytes) {
++				memcpy(vdst_addr0, vaddr + start_pos0, period_bytes);
++				memcpy(vdst_addr1, vaddr + start_pos1, period_bytes);
++				memset(vdst_addr1 + pend_bytes - period_bytes, 0, 2 * period_bytes - pend_bytes);
++			} else {
++				memcpy(vdst_addr0, vaddr + start_pos0, period_bytes);
++				memset(vdst_addr0 + pend_bytes, 0, period_bytes - pend_bytes);
++				memset(vdst_addr1, 0, period_bytes);
++			}
++
++			akpcm->playing_idx = 0;
++			akpcm->PlaybackCurrPos += period_bytes;
++			l2_clr_status(id);
++			l2_combuf_dma((unsigned long)pdst_addr0, id, period_bytes, 
++				(l2_dma_transfer_direction_t)MEM2BUF,1);//start dma
++		}else {
++			l2_clr_status(id);
++			l2_combuf_dma(paddr + akpcm->PlaybackCurrPos, id, frames_to_bytes(runtime,runtime->period_size), 
++				(l2_dma_transfer_direction_t)MEM2BUF,1);//start dma
++
++		}
++
++#ifdef CONFIG_PCM_DUMP
++		if(akpcm->enableDump){
++			unsigned char *pcmDump_dma_area=runtime->dma_area;
++			if((akpcm->pcmDumpSize+akpcm_playback_period_bytes_min)<=akpcm_dump_data_size){
++				//printk(KERN_ERR "akpcm->dumpsize=%d,akpcm->PlaybackCurrPos=%d \n",akpcm->dumpsize,akpcm->PlaybackCurrPos);
++				memcpy(akpcm->pcmDumpDataBuffer+akpcm->pcmDumpSize,pcmDump_dma_area+akpcm->PlaybackCurrPos,akpcm_playback_period_bytes_min);
++				akpcm->pcmDumpSize+=akpcm_playback_period_bytes_min;
++			}else{
++				printk(KERN_ERR "akpcm->enableDump false\n");
++				akpcm->enableDump=false;
++			}
++		}
++#endif
++		return 0;
++	}
++	case SNDRV_PCM_TRIGGER_STOP:
++		clear_bit(0,&playback_statu); //stop playback stream
++		if (akpcm->ops->speaker_enable)
++			akpcm->ops->speaker_enable(akpcm->dai, false);
++		return 0;
++	case SNDRV_PCM_TRIGGER_SUSPEND:
++	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
++		clear_bit(0,&playback_statu); //stop playback stream
++		return 0;
++	}
++	return -EINVAL;
++}
++
++/**
++ * @brief  trigger callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_capture_trigger(struct snd_pcm_substream *substream, int cmd)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	//struct snd_pcm_runtime *runtime = substream->runtime;
++
++	switch (cmd) {
++	case SNDRV_PCM_TRIGGER_START:
++	case SNDRV_PCM_TRIGGER_RESUME:
++	{
++		schedule_delayed_work(&akpcm->ds_work, msecs_to_jiffies(300));
++		return 0;	
++	}
++	case SNDRV_PCM_TRIGGER_STOP:
++	case SNDRV_PCM_TRIGGER_SUSPEND:
++		clear_bit(0,&akpcm->captureStrmDMARunning); //stop capture stream
++		return 0;		
++	}
++	return -EINVAL;
++}
++
++static void delay_start_work(struct work_struct *work) 
++{
++	struct snd_akpcm *akpcm = container_of(work, struct snd_akpcm, ds_work.work);
++	struct snd_pcm_substream *substream = akpcm->capturesubstrm;
++	struct snd_pcm_runtime *runtime = substream->runtime;
++
++	dma_addr_t paddr = runtime->dma_addr;
++	u8 id = akpcm->L2BufID_For_ADC23;
++	set_bit(0,&akpcm->captureStrmDMARunning);  //set bit to inform that capture stream is running
++	set_bit(1,&akpcm->captureStrmDMARunning);  //set bit to inform that DMA is working
++	init_completion(&(akpcm->captureHWDMA_completion));
++	l2_clr_status(id);		
++	l2_combuf_dma(paddr, id, akpcm_capture_period_bytes_min, 
++			(l2_dma_transfer_direction_t)BUF2MEM,1); //start dma
++
++}
++
++/**
++ * @brief  prepare callback,open DAC, power on hp/speaker
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_playback_prepare(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	int bytespersample = frames_to_bytes(runtime, 1);
++	int last_period_bytes = akpcm->optimal_period_bytes;
++
++	if(test_bit(1,&akpcm->playbackStrmDMARunning))
++	{
++		wait_for_completion(&(akpcm->playbackHWDMA_completion));
++	}
++	akpcm->PlaybackCurrPos = 0;
++
++	if (((runtime->period_size % akpcm_playback_period_aligned) != 0) || 
++		((runtime->buffer_size % runtime->period_size) != 0)) {
++
++		/*Calculate the optimal period size depending on the aligned period size*/
++		if (runtime->period_size % akpcm_playback_period_aligned == 0) {
++			//Doesn't need changed the original period_size
++			akpcm->optimal_period_size = runtime->period_size; 
++		} else {
++			akpcm->optimal_period_size = runtime->period_size + akpcm_playback_period_aligned
++					- (runtime->period_size % akpcm_playback_period_aligned);
++		}
++		akpcm->optimal_period_bytes = akpcm->optimal_period_size * bytespersample;
++
++		/* Allocate or reallocate contigous for Pingpong Buffer */
++		if ((last_period_bytes != 0) && (last_period_bytes != akpcm->optimal_period_bytes)) {
++			if(akpcm->pp_buf_addr[0])
++				kfree(akpcm->pp_buf_addr[0]);				
++
++			akpcm->pp_buf_addr[0] = kmalloc(akpcm->optimal_period_bytes * 2, GFP_KERNEL);
++
++			printk(KERN_ERR"Pingpong Buffer Warning: Reallocate memory[old=%d, new=%d]\n", 
++					last_period_bytes, akpcm->optimal_period_bytes);
++		} else {
++			if (akpcm->pp_buf_addr[0] == NULL)
++				akpcm->pp_buf_addr[0] = kmalloc(akpcm->optimal_period_bytes * 2, GFP_KERNEL);
++		}
++
++		/* Decide whether to start Pingpong Buffer */		
++		if (akpcm->pp_buf_addr[0] == NULL) {
++			printk(KERN_ERR"Pingpong Buffer Warning: allocate memory failed!\n");
++			akpcm->optimal_period_size = 0;
++			akpcm->optimal_period_bytes = 0;
++			akpcm->use_optimal_period = false;
++		} else {
++			akpcm->pp_buf_addr[1] = akpcm->pp_buf_addr[0] + akpcm->optimal_period_bytes;
++			akpcm->use_optimal_period = true;
++		}
++	} else {
++		akpcm->optimal_period_size = 0;
++		akpcm->optimal_period_bytes = 0;
++		akpcm->use_optimal_period = false;
++	}
++
++	if (akpcm->use_optimal_period) {
++		l2_set_dma_callback(akpcm->L2BufID_For_DAC, akpcm_playback_interrupt_optimize,(unsigned long)akpcm);
++	}else
++		l2_set_dma_callback(akpcm->L2BufID_For_DAC, akpcm_playback_interrupt,(unsigned long)akpcm);
++
++	/* FIXME */
++	if (akpcm->ops->start_to_play) {
++		akpcm->ops->start_to_play(akpcm->dai, runtime->channels, runtime->rate);
++	}
++
++	return 0;
++}
++
++/**
++ * @brief  prepare callback,open ADC23, power on mic
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_capture_prepare(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++
++	l2_set_dma_callback(akpcm->L2BufID_For_ADC23,akpcm_capture_interrupt,(unsigned long)akpcm);
++	ak_gettimeofday(&capSync.tv);
++	capSync.adcCapture_bytes = 0;
++	capSync.frame_bits = runtime->frame_bits;
++	capSync.rate = runtime->rate;
++	
++	akpcm->CaptureCurrPos = 0;
++	if (akpcm->ops->set_adc_samplerate)
++		capSync.rate = akpcm->ops->set_adc_samplerate(akpcm->dai, runtime->rate);
++
++	printk(KERN_INFO "akpcm: capture requested %u Hz, adc achieves %u Hz\n",
++	       runtime->rate, capSync.rate);
++
++	if (akpcm->ops->set_adc_channels)
++		akpcm->ops->set_adc_channels(akpcm->dai, runtime->channels);
++
++	if (akpcm->ops->adc_init)
++		akpcm->ops->adc_init(akpcm->dai);
++
++	if (akpcm->ops->capture_start)
++		akpcm->ops->capture_start(akpcm->dai);
++
++
++	return 0;
++}
++
++/**
++ * @brief  pointer callback,updata ringbuffer pointer
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static snd_pcm_uframes_t akpcm_playback_pointer(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	return(bytes_to_frames(runtime,akpcm->PlaybackCurrPos)); //updata ringbuffer pointer	
++}
++
++/**
++ * @brief  pointer callback, updata ringbuffer pointer
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static snd_pcm_uframes_t akpcm_capture_pointer(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	return(bytes_to_frames(runtime,akpcm->CaptureCurrPos)); //updata ringbuffer pointer
++}
++
++static struct snd_pcm_hardware akpcm_playback_hardware = {
++	.info =			(SNDRV_PCM_INFO_MMAP |
++				 SNDRV_PCM_INFO_INTERLEAVED |
++				 SNDRV_PCM_INFO_BLOCK_TRANSFER |
++				 SNDRV_PCM_INFO_RESUME | 
++				 SNDRV_PCM_INFO_PAUSE |
++				 SNDRV_PCM_INFO_MMAP_VALID),
++	.formats =		USE_FORMATS,
++	.rates =		USE_RATE,
++	.rate_min =		PLAYBACK_USE_RATE_MIN,
++	.rate_max =		PLAYBACK_USE_RATE_MAX,
++	.channels_min =		PLAYBACK_USE_CHANNELS_MIN,
++	.channels_max =		PLAYBACK_USE_CHANNELS_MAX,
++	.buffer_bytes_max =	akpcm_playback_buf_bytes_max,
++	.period_bytes_min =	akpcm_playback_period_bytes_min,
++	.period_bytes_max =	akpcm_playback_period_bytes_max,
++	.periods_min =		akpcm_playback_periods_min,
++	.periods_max =		akpcm_playback_periods_max,
++	.fifo_size =		0,
++};
++
++static struct snd_pcm_hardware akpcm_capture_hardware = {
++	.info =			(SNDRV_PCM_INFO_MMAP |
++				 SNDRV_PCM_INFO_INTERLEAVED |
++				 SNDRV_PCM_INFO_BLOCK_TRANSFER |
++				 SNDRV_PCM_INFO_RESUME |
++				 SNDRV_PCM_INFO_MMAP_VALID),
++	.formats =		USE_FORMATS,
++	.rates =		USE_RATE,
++	.rate_min =		CAPTURE_USE_RATE_MIN,
++	.rate_max =		CAPTURE_USE_RATE_MAX,
++	.channels_min =		CAPTURE_USE_CHANNELS_MIN,
++	.channels_max =		CAPTURE_USE_CHANNELS_MAX,
++	.buffer_bytes_max =	akpcm_capture_buf_bytes_max,
++	.period_bytes_min =	akpcm_capture_period_bytes_min,
++	.period_bytes_max =	akpcm_capture_period_bytes_min,
++	.periods_min =		akpcm_capture_periods_min,
++	.periods_max =		akpcm_capture_periods_max,
++	.fifo_size =		0,
++};
++
++/**
++ * @brief  hw_params callback, malloc ringbuffer
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_playback_hw_params(struct snd_pcm_substream *substream,
++			       struct snd_pcm_hw_params *hw_params)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	if(BUF_NULL==akpcm->L2BufID_For_DAC)
++	{
++		akpcm->L2BufID_For_DAC = l2_alloc((l2_device_t)ADDR_DAC); //alloc l2 buffer for DAC	
++		if(BUF_NULL==akpcm->L2BufID_For_DAC)
++		{
++			printk(KERN_ERR "alloc L2 buffer for DAC error!");
++			return -ENOMEM;
++		}
++	}
++	return 0;
++}
++
++/**
++ * @brief  hw_params callback, malloc ringbuffer
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_capture_hw_params(struct snd_pcm_substream *substream,
++			       struct snd_pcm_hw_params *hw_params)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	if(BUF_NULL==akpcm->L2BufID_For_ADC23)
++	{
++		akpcm->L2BufID_For_ADC23 = l2_alloc((l2_device_t)ADDR_ADC); //alloc l2 buffer for ADC23	
++		if(BUF_NULL==akpcm->L2BufID_For_ADC23)
++		{
++			printk(KERN_ERR "alloc L2 buffer for DAC error!");
++			return -ENOMEM;
++		}
++	}
++	return 0;
++}
++
++/**
++ * @brief  hw_free callback, free ringbuffer
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_playback_hw_free(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	
++	if(test_bit(1,&akpcm->playbackStrmDMARunning))
++	{
++		wait_for_completion(&(akpcm->playbackHWDMA_completion));
++	}
++	if(BUF_NULL!=akpcm->L2BufID_For_DAC)
++	{
++		if (akpcm->ops->speaker_enable)
++			akpcm->ops->speaker_enable(akpcm->dai, false);
++		/* FIXME */
++#if !defined(AK_PCM_DELAY_CLOSE_DAC)
++		if (akpcm->ops->playback_end) {
++			akpcm->ops->playback_end(akpcm->dai);
++		}
++#endif
++		if (akpcm->ops->dac_exit) {
++			akpcm->ops->dac_exit(akpcm->dai);
++		}
++
++		l2_free((l2_device_t)ADDR_DAC);
++		akpcm->L2BufID_For_DAC = BUF_NULL;
++	}
++	return 0;
++}
++
++/**
++ * @brief  hw_free callback, free ringbuffer
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_capture_hw_free(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	
++	if(test_bit(1,&akpcm->captureStrmDMARunning))
++	{
++		wait_for_completion(&(akpcm->captureHWDMA_completion));
++	}
++	if(BUF_NULL!=akpcm->L2BufID_For_ADC23)
++	{
++		/* FIXME */
++		if (akpcm->ops->adc_exit)
++			akpcm->ops->adc_exit(akpcm->dai);
++		if (akpcm->ops->capture_end)
++			akpcm->ops->capture_end(akpcm->dai);
++
++		l2_free((l2_device_t)ADDR_ADC);
++		akpcm->L2BufID_For_ADC23 = BUF_NULL;
++	}
++	return 0;
++}
++
++/**
++ * @brief  open callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_playback_open(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++
++	akpcm->playbacksubstrm = substream;
++	runtime->hw = akpcm_playback_hardware;
++	dac_clock = 0;
++
++	if (akpcm->pp_buf_addr[0]) {
++		printk(KERN_ERR"akpcm_playback_open==>pp_buf_addr[0]=0x%08x, memory leak happened\n", (unsigned int)akpcm->pp_buf_addr[0]);
++	} else {
++		akpcm->pp_buf_addr[0] = NULL;
++		akpcm->pp_buf_addr[1] = NULL;
++	}
++	akpcm->optimal_period_size = 0;
++	akpcm->optimal_period_bytes = 0;
++
++	return 0;
++}
++
++/**
++ * @brief  open callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_capture_open(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	struct snd_pcm_runtime *runtime = substream->runtime;
++	
++	akpcm->capturesubstrm = substream;
++	runtime->hw = akpcm_capture_hardware;	
++	akpcm->CaptureCurrPos = 0;
++
++	return 0;
++}
++
++/**
++ * @brief  close callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_playback_close(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++
++	akpcm->playbacksubstrm=NULL;
++	dac_clock = 0;
++
++	if (akpcm->pp_buf_addr[0] != NULL) {
++		kfree(akpcm->pp_buf_addr[0]);
++		akpcm->pp_buf_addr[0] = NULL;
++		akpcm->pp_buf_addr[1] = NULL;
++	}
++
++	return 0;
++}
++
++/**
++ * @brief  close callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_capture_close(struct snd_pcm_substream *substream)
++{
++	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
++	capSync.adcCapture_bytes = 0;
++	akpcm->capturesubstrm=NULL;
++	return 0;
++}
++
++/**
++ * @brief  mmap callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int akpcm_pcm_mmap(struct snd_pcm_substream *substream,
++	struct vm_area_struct *vma)
++{
++	return remap_pfn_range(vma, vma->vm_start,
++		       substream->dma_buffer.addr >> PAGE_SHIFT,
++		       vma->vm_end - vma->vm_start, vma->vm_page_prot);
++}
++
++
++static struct snd_pcm_ops akpcm_playback_ops = {
++	.open =		akpcm_playback_open,
++	.close =	akpcm_playback_close,
++	.hw_params =	akpcm_playback_hw_params,
++	.hw_free =	akpcm_playback_hw_free,
++	.prepare =	akpcm_playback_prepare,
++	.trigger =	akpcm_playback_trigger,
++	.pointer =	akpcm_playback_pointer,
++	.mmap =		snd_pcm_lib_default_mmap,
++};
++
++static struct snd_pcm_ops akpcm_capture_ops = {
++	.open =		akpcm_capture_open,
++	.close =	akpcm_capture_close,
++	.hw_params =	akpcm_capture_hw_params,
++	.hw_free =	akpcm_capture_hw_free,
++	.prepare =	akpcm_capture_prepare,
++	.trigger =	akpcm_capture_trigger,
++	.pointer =	akpcm_capture_pointer,
++	.mmap =		snd_pcm_lib_default_mmap,
++};
++
++
++static inline int akpcm_cpufreq_register(struct snd_akpcm *akpcm)
++{
++	return 0;
++}
++
++static inline void akpcm_cpufreq_deregister(struct snd_akpcm *akpcm)
++{
++}
++
++/**
++ * @brief     Shutdown all ak ad/da modules
++ * @author    Cheng JunYi
++ * @date      2011-09-27
++ * @parm      [in]  in_akpcm :  the private data struct of akpcm driver
++ * @return    void
++ * @retval
++ */
++static inline void akpcm_close(struct snd_akpcm *in_akpcm)
++{
++
++	struct snd_akpcm *akpcm = in_akpcm;
++	if(test_bit(1,&akpcm->playbackStrmDMARunning))
++	{
++		wait_for_completion(&(akpcm->playbackHWDMA_completion));
++	}
++	
++	if(test_bit(1,&akpcm->captureStrmDMARunning))
++	{
++		wait_for_completion(&(akpcm->captureHWDMA_completion));
++	}
++
++	//close analog module
++	/* FIXME */
++	if (akpcm->ops->dac_exit)
++		akpcm->ops->dac_exit(akpcm->dai);
++	if (akpcm->ops->playback_end)
++		akpcm->ops->playback_end(akpcm->dai);
++	if (akpcm->ops->adc_exit)
++		akpcm->ops->adc_exit(akpcm->dai);
++	if (akpcm->ops->capture_end)
++		akpcm->ops->capture_end(akpcm->dai);
++}
++
++
++/**
++ * @brief  create new card
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int snd_card_akpcm_pcm(struct snd_akpcm *akpcm, int device,
++					int substreams)
++{
++	struct snd_pcm *pcm;
++	struct snd_pcm_substream *substream;
++	int err;
++	err = snd_pcm_new(akpcm->card, "akpcm PCM", device,
++			       substreams, substreams, &pcm);
++	if (err < 0)
++		return err;
++	akpcm->pcm = pcm;
++	cur_pcm = pcm;
++
++	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &akpcm_playback_ops); //register callbacks
++	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &akpcm_capture_ops);//register callbacks
++	pcm->private_data = akpcm;
++	pcm->info_flags = 0;
++	strcpy(pcm->name, "akpcm PCM");
++	
++	snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_DEV, akpcm->card->dev, 
++			akpcm_playback_buf_bytes_max, akpcm_playback_buf_bytes_max);
++	return 0;
++}
++
++/**************
++ * proc interface
++ **************/
++#ifdef CONFIG_PCM_DUMP
++
++/**
++ * @brief     Dump the ak ad/da registers to the proc file
++ * @author    Cheng JunYi
++ * @date      2011-08-04
++ * @parm      [in]  entry :  snd handle of akpcm driver
++ * @parm      [in]  buffer :  buffer of the proc file
++ * @return    void
++ * @retval
++ */
++static void akpcm_registers_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
++{
++
++	//snd_iprintf(buffer,"ADC23 clock Register2          =0x%lu\n",REG32(RegAddr.pAddress0800 + CLK_DIV_REG2));
++	
++	//snd_iprintf(buffer,"Multi-func Control Register1   =0x%lu\n",REG32(RegAddr.pAddress0800 + MULTIPLE_FUN_CTRL_REG1));
++		
++	//snd_iprintf(buffer,"Analog Control Register1       =0x%lu\n",REG32(RegAddr.pAddress0800 + ANALOG_CTRL_REG1_READ));
++	//snd_iprintf(buffer,"Analog Control Register2       =0x%lu\n",REG32(RegAddr.pAddress0800 + ANALOG_CTRL_REG2_READ));
++	//snd_iprintf(buffer,"Analog Control Register3       =0x%lu\n",REG32(RegAddr.pAddress0800 + ANALOG_CTRL_REG3));
++	//snd_iprintf(buffer,"Analog Control Register4       =0x%lu\n",REG32(RegAddr.pAddress0800 + ANALOG_CTRL_REG4));
++
++	//snd_iprintf(buffer,"ADC2 configuration Register    =0x%lu\n",REG32(RegAddr.pAddress2002D + ADC2MODE_CFG_REG));
++	//snd_iprintf(buffer,"ADC2 Data Register             =0x%lu\n",REG32(RegAddr.pAddress2002D + I2S_CONFIG_REG));
++	
++	//snd_iprintf(buffer,"DAC configuration Register     =0x%lu\n",REG32(RegAddr.pAddress2002E + DAC_CONFIG_REG));
++	//snd_iprintf(buffer,"CPU Data Register              =0x%lu\n",REG32(RegAddr.pAddress2002E + CPU_DATA_REG));
++	
++}
++
++
++/**
++ * @brief     Handle the write operation of proc file /proc/asound/card0/pcm-dumpctrl
++ *            Start or stop dump data to the pcm-dumpdata file
++ * @author    Cheng JunYi
++ * @date      2011-08-04
++ * @parm      [in]  entry :  snd handle of akpcm driver
++ * @parm      [in]  buffer :  "open" means start dump pcm data to /proc/asound/card0/pcm-dumpdata;
++                              "close" means stop dump pcm data to /proc/asound/card0/pcm-dumpdata
++ * @return    void
++ * @retval
++ */
++void akpcm_dumpctrl_write(struct snd_info_entry *entry,
++		  struct snd_info_buffer *buffer)
++{
++	char line[256];
++	char str[256];
++	struct snd_akpcm *akpcm=entry->private_data;
++	snd_info_get_line(buffer, line, 256);
++	snd_info_get_str(str, line, 256);
++
++	if(strncmp("open", str, strlen("open"))==0){
++		
++		memset(akpcm->pcmDumpDataBuffer,0,akpcm_dump_data_size);
++		akpcm->pcmDumpSize=0;
++		akpcm->enableDump=true;
++		ktime_get_real_ts64(&akpcm->pcmDumpTime);
++		printk(KERN_ERR "akpcm->enableDump true\n");
++
++	}else if(strncmp("close", str, strlen("close"))==0){
++	
++		akpcm->enableDump=false;
++		akpcm->pcmDumpSize=0;
++		printk(KERN_ERR "akpcm->enableDump false\n");
++
++	}
++}
++
++
++/**
++ * @brief     Handle the read operation of proc file /proc/asound/card0/pcm-dumpctrl
++ *            Show the last dump time
++ * @author    Cheng JunYi
++ * @date      2011-08-04
++ * @parm      [in]  entry :  snd handle of akpcm driver
++ * @parm      [in]  buffer :  buffer of the proc file, will return the last dump time
++ * @return    void
++ * @retval
++ */
++static void akpcm_dumpctrl_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
++{
++	
++	struct snd_akpcm *akpcm=entry->private_data;
++	struct tm  tm_result;
++
++	time_to_tm(akpcm->pcmDumpTime.tv_sec,0,&tm_result);
++	snd_iprintf(buffer, "last dump timestamp: %lu-%02d-%02d %02d:%02d:%02d UTC\n",tm_result.tm_year + 1900, tm_result.tm_mon + 1, tm_result.tm_mday, tm_result.tm_hour,tm_result.tm_min,tm_result.tm_sec);
++	
++}
++
++
++/**
++ * @brief     Handle the read operation of proc file /proc/asound/card0/pcm-dumpdata
++ *            Return the pcm data to application
++ * @author    Cheng JunYi
++ * @date      2011-08-04
++ * @parm      [in]  entry :  snd handle of akpcm driver
++ * @parm      [in]  buffer :  buffer of the proc file, will return the pcm data
++ * @return    void
++ * @retval
++ */
++static long akpcm_dumpdata_read(struct snd_info_entry *entry,
++				void *file_private_data,
++				struct file *file, char __user *buf,
++				unsigned long count, unsigned long pos)
++{
++	
++	long size;
++	
++	struct snd_akpcm *akpcm=entry->private_data;
++
++	size = count;
++	if (pos + size > akpcm_dump_data_size)
++		size = akpcm_dump_data_size - pos;
++		
++	if (size > 0) {
++		if (copy_to_user(buf,akpcm->pcmDumpDataBuffer+pos,size))
++			return -EFAULT;
++	}
++			
++	return size;
++}
++
++
++static struct snd_info_entry_ops akpcm_dumpdata_proc_ops = {
++	.read = akpcm_dumpdata_read,
++};
++
++#endif
++
++
++/**
++ * @brief     Handle the reboot event
++ * @author    Cheng JunYi
++ * @date      2011-09-27
++ * @parm      [in]  nb :  the nitifier_block data struct
++ * @parm      [in]  code :  message
++ * @parm      [in]  unused :  argument, unused
++ * @return    int :  handle successful or not
++ * @retval    NOTIFY_DONE :  handle successful
++ */
++static int akpcm_reboot_notify(struct notifier_block *nb,
++			       unsigned long code, void *unused)
++{
++	struct snd_akpcm *akpcm;
++
++	printk(KERN_ERR "akpcm_reboot_notify \n");
++
++	mutex_lock(&reboot_lock);
++
++	if (!reboot_info)
++		goto out;
++	
++	akpcm = reboot_info;
++	akpcm_close(akpcm);
++
++ out:
++ 	printk(KERN_ERR "akpcm_reboot_notify out\n");
++	mutex_unlock(&reboot_lock);
++	
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block akpcm_reboot_notifier = {
++	.notifier_call = akpcm_reboot_notify,
++};
++
++
++/**
++ * @brief     Init the device which was probed, and register a snd device
++ * @author    Cheng MingJuan
++ * @date      2010-11-20
++ * @parm      [in]  pdev :  the device definition
++ * @return    int :  if init successful return 0, otherwise, return negative
++ * @retval     0 :  successful
++ * @retval    <0 :  failed
++ */
++static int snd_akpcm_probe(struct platform_device *devptr)
++{
++	struct snd_card *card;
++	struct snd_akpcm *akpcm;
++	//struct snd_info_entry *entry;
++	int dev_id, err;
++
++	memset(&capSync, 0, sizeof(capSync));
++	//get analog control registers
++
++	dev_id = devptr->id;
++	if (dev_id < 0)
++		dev_id = 0;
++	err = snd_card_new(&devptr->dev, dev_id, NULL, THIS_MODULE,
++			    sizeof(struct snd_akpcm), &card);
++	if (err < 0)
++		return err;
++
++	akpcm = card->private_data;
++	akpcm->card = card;
++	cur_card = card;
++	
++	//init l2 buf for audio
++	akpcm->L2BufID_For_DAC = BUF_NULL;
++	akpcm->L2BufID_For_ADC23 = BUF_NULL;
++
++	err = snd_card_akpcm_pcm(akpcm, 0, 1);
++	if (err < 0)
++		goto __out_free_card;
++
++	//init timer to stop output channel
++	timer_setup(&akpcm->stopoutput_work_timer, ak_close_dac_timer, 0);
++
++	tasklet_setup(&akpcm->fetch_tasklet, alsabuf_to_ppbuf);
++	akpcm->pp_buf_addr[0] = NULL;
++
++	tasklet_setup(&akpcm->close_dac, dac_exit_tasklet);
++
++	INIT_DELAYED_WORK(&akpcm->ds_work, delay_start_work);	
++
++	clear_bit(0,&playback_statu);
++	clear_bit(1,&akpcm->playbackStrmDMARunning);
++	clear_bit(0,&akpcm->captureStrmDMARunning);
++	clear_bit(1,&akpcm->captureStrmDMARunning);
++
++#ifdef CONFIG_PCM_DUMP
++	
++	snd_card_proc_new (akpcm->card, "registers", &entry);
++	snd_info_set_text_ops(entry, akpcm, akpcm_registers_read);
++
++	akpcm->pcmDumpDataBuffer = vmalloc(akpcm_dump_data_size);
++	if (!akpcm->pcmDumpDataBuffer)
++		return -ENOMEM;
++
++	memset(akpcm->pcmDumpDataBuffer, 0, akpcm_dump_data_size);
++	
++	snd_card_proc_new (akpcm->card, "pcm-dumpctrl", &entry);
++	entry->private_data = akpcm;
++	entry->mode = S_IFREG | S_IRUGO | S_IWUSR;
++	entry->c.text.write = akpcm_dumpctrl_write;
++	snd_info_set_text_ops(entry, akpcm, akpcm_dumpctrl_read);
++
++	if (! snd_card_proc_new(akpcm->card, "pcm-dumpdata", &entry)) {
++		entry->content = SNDRV_INFO_CONTENT_DATA;
++		entry->private_data = akpcm;
++		entry->c.ops = &akpcm_dumpdata_proc_ops;
++		entry->size = akpcm_dump_data_size;
++		entry->mode = S_IFREG|S_IRUGO;
++	}
++	
++#endif
++
++	strcpy(card->driver, "akpcm");
++	strcpy(card->shortname, "Ak AD/DA");
++	sprintf(card->longname, "Ak ADC DAC pcm input & output module %i", dev_id + 1);
++
++	err = akpcm_cpufreq_register(akpcm);
++	if (err < 0) {
++		printk(KERN_ERR "Failed to register cpufreq\n");
++	}
++
++	mutex_lock(&reboot_lock);
++	reboot_info = akpcm;
++	mutex_unlock(&reboot_lock);
++
++	err = snd_card_register(card);
++	if (err == 0) {
++		platform_set_drvdata(devptr, card);
++		return 0;
++	}
++
++__out_free_card:
++	snd_card_free(card);
++	
++	return err;
++}
++
++/**
++ * @brief     De-init the device which will be removed, and unregister the snd device
++ * @author    Cheng MingJuan
++ * @date      2010-11-22
++ * @parm      [in]  pdev :  the device definition
++ * @return    int :  if handle successful return 0, otherwise, return negative
++ * @retval     0 :  successful
++ * @retval    <0 :  failed
++ */
++static void snd_akpcm_remove(struct platform_device *devptr)
++{
++	struct snd_card *card = platform_get_drvdata(devptr);
++	struct snd_akpcm *akpcm = card->private_data;
++
++	akpcm_close(akpcm);
++
++	akpcm_cpufreq_deregister(akpcm);
++
++	del_timer_sync(&akpcm->stopoutput_work_timer);
++
++	snd_card_free(card);
++	platform_set_drvdata(devptr, NULL);
++}
++
++#ifdef CONFIG_PM
++/**
++ * @brief  suspend callback
++ * @author  Cheng Mingjuan
++ * @revisor  Wu Daochao(2012-09-24)
++ * @date   
++ * @return void
++ */
++static int snd_ak_suspend(struct platform_device *pdev, pm_message_t msg)
++{
++	struct snd_card *card = platform_get_drvdata(pdev);
++	struct snd_akpcm *akpcm = card->private_data;
++
++	/* FIXME */
++	akpcm_close(akpcm);
++
++	return 0;
++}
++
++/**
++ * @brief  resume callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int snd_ak_resume(struct platform_device *pdev)
++{
++	return 0;
++}
++#else
++#define snd_ak_suspend NULL
++#define snd_ak_resume NULL
++#endif
++
++
++#define SND_AKPCM_DRIVER	"snd_akpcm"
++
++static struct platform_driver snd_akpcm_driver = {
++	.probe		= snd_akpcm_probe,
++	.remove_new	= snd_akpcm_remove,
++	.suspend	= snd_ak_suspend,
++	.resume		= snd_ak_resume,
++	.driver		= {
++		.name	= SND_AKPCM_DRIVER
++	},
++};
++
++/**
++ * @brief  register driver
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static u64 snd_akpcm_dma_mask = DMA_BIT_MASK(32);
++
++static struct platform_device snd_akpcm_device = {
++	.name	= SND_AKPCM_DRIVER,
++	.id	= 0,
++	.dev	= {
++		.dma_mask	   = &snd_akpcm_dma_mask,
++		.coherent_dma_mask = DMA_BIT_MASK(32),
++	},
++};
++
++static int __init alsa_card_akpcm_init(void)
++{
++	int err;
++
++	err = platform_device_register(&snd_akpcm_device);
++	if (err < 0)
++		return err;
++
++	err = platform_driver_register(&snd_akpcm_driver);
++	if (err < 0) {
++		platform_device_unregister(&snd_akpcm_device);
++		return err;
++	}
++
++	register_reboot_notifier(&akpcm_reboot_notifier);
++
++	return 0;
++}
++
++/**
++ * @brief  unregister driver
++ * @author  Cheng Mingjuan
++ * @date
++ * @return void
++ */
++static void __exit alsa_card_akpcm_exit(void)
++{
++	platform_driver_unregister(&snd_akpcm_driver);
++	platform_device_unregister(&snd_akpcm_device);
++	unregister_reboot_notifier(&akpcm_reboot_notifier);
++}
++
++module_init(alsa_card_akpcm_init);
++module_exit(alsa_card_akpcm_exit);
++
++MODULE_AUTHOR("Anyka, Inc.");
++MODULE_DESCRIPTION("akpcm soundcard");
++MODULE_LICENSE("GPL");
++MODULE_SUPPORTED_DEVICE("{{ALSA,akpcm soundcard}}");
++
+diff --git a/sound/arm/ak39_codec.c b/sound/arm/ak39_codec.c
+new file mode 100644
+--- /dev/null
++++ b/sound/arm/ak39_codec.c
+@@ -0,0 +1,2208 @@
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/err.h>
++#include <linux/platform_device.h>
++#include <linux/jiffies.h>
++#include <linux/slab.h>
++#include <linux/time.h>
++#include <linux/wait.h>
++#include <linux/hrtimer.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/completion.h>
++#include <linux/irq.h>
++#include <linux/workqueue.h>
++#include <asm/bitops.h>
++#include <sound/control.h>
++#include <sound/info.h>
++#include <linux/cpufreq.h>
++#include <linux/interrupt.h>
++#include <sound/ak_pcm.h>
++
++
++#include <linux/vmalloc.h>
++#include <linux/of.h>
++#include <linux/of_gpio.h>
++#include <linux/gpio.h>
++#include <linux/clk.h>
++
++#include "ak_codec.h"
++
++
++//#define SND_CODEC_DBG
++
++#ifdef SND_CODEC_DBG
++#ifdef __KERNEL__
++#define PDEBUG(fmt, args...) 	printk(KERN_INFO "ak39 codec:" fmt, ##args)
++#else
++#define PDEBUG(fmt, args...) 	fprintf(stderr, "%s %d:" fmt,__FILE__, __LINE__, ## args)
++#endif
++#else
++#define PDEBUG(fmt, args...) 
++#endif
++
++
++enum mixer_vol_port {
++	MIXER_PORT_HP_VOL = 0,
++	MIXER_PORT_LINEIN_VOL,
++	MIXER_PORT_MIC_VOL,
++	MIXER_PORT_VOL_COUNT,
++};
++
++
++enum mixer_dst_port {
++	MIXER_ADDR_DST_HP = 0,
++	MIXER_ADDR_DST_ADC2,
++	MIXER_DST_COUNT,
++};
++
++enum mixer_detect_port {
++	MIXER_ADDR_HPDET = 0,
++	MIXER_ADDR_MICDET,
++	MIXER_ADDR_LINEINDET,
++	MIXER_SWITCH_COUNT,
++};
++
++
++enum mixer_outmode {
++	MIXER_ADDR_OUTMODE_DAC = 0, 
++	MIXER_OUTMODE_COUNT,
++};
++
++enum mixer_chnl_duration {
++	MIXER_ADDR_PLAY_DURATION = 0,
++	MIXER_DURATION_COUNT,
++};
++
++#define MAX_DACCLK 24000000
++
++#define HEADPHONE_DEFAULT_VOL           (HEADPHONE_GAIN_MAX - 2)
++#define LINEIN_DEFAULT_VOL               10
++#define MIC_DEFAULT_VOL                  6
++
++#define PLAYMODE_STATUS_HP 			(1)
++#define PLAYMODE_STATUS_SPEAKER 	(2)
++
++#define OUTMODE_AUTO 			(0)
++#define OUTMODE_HP 				(1)
++#define OUTMODE_LINEOUT 		(2)
++#define OUTMODE_MIN             OUTMODE_AUTO
++#define OUTMODE_MAX             OUTMODE_HP
++
++#define CHNLDURATION_CONSTANT        0
++#define CHNLDURATION_EVEROPEN        1
++#define CHNLDURATION_MIN             CHNLDURATION_CONSTANT
++#define CHNLDURATION_MAX             CHNLDURATION_EVEROPEN
++
++struct ak39_codec {
++	struct ak_codec_dai dai;
++	void __iomem  *analog_ctrl_base;
++	void __iomem  *adda_cfg_base;
++	struct delayed_work d_work;
++
++	int mixer_volume[MIXER_PORT_VOL_COUNT];
++	int mixer_route[MIXER_DST_COUNT];
++	int mixer_switch[MIXER_SWITCH_COUNT];
++	int mixer_outmode[MIXER_OUTMODE_COUNT];
++	int mixer_ch_duration[MIXER_DURATION_COUNT];
++
++	int hpdet_gpio;
++	int spkrshdn_gpio;
++	int hpmute_gpio;
++	int spk_gpios_en;	/* active level of spkrshdn_gpio ("on") */
++
++	struct clk *sdadc_gclk;
++	struct clk *sdadc_clk;
++	struct clk *sdadchs_clk;
++	struct clk *sddac_gclk;
++	struct clk *sddac_clk;
++	struct clk *sddachs_clk;
++
++	int hp_det_irq;
++	int irq_hp_on_type;
++	int hp_on_value;
++	int playmode;
++	int hpmute_en_val;
++
++	unsigned 	used_hp_mute:1; // whether to use hardware de-pipa or not
++	unsigned 	outputing:1;
++	unsigned 	dac_state:1;
++	unsigned 	adc2_state:1;
++};
++
++struct ak39_volume_info
++{
++	int vol_default;
++	int vol_min;
++	int vol_max;
++};
++
++
++#define VOL_INFO_DEFAULT 	0
++#define VOL_INFO_MIN		1
++#define VOL_INFO_MAX 		2
++
++static struct ak39_volume_info vol_info[MIXER_PORT_VOL_COUNT] = {
++	[MIXER_PORT_HP_VOL] = {
++		.vol_default = HEADPHONE_DEFAULT_VOL,
++		.vol_min = HEADPHONE_GAIN_MIN,
++		.vol_max = HEADPHONE_GAIN_MAX,
++	},
++	[MIXER_PORT_LINEIN_VOL] = {
++		.vol_default = LINEIN_DEFAULT_VOL,
++		.vol_min = LINEIN_GAIN_MIN,
++		.vol_max = LINEIN_GAIN_MAX,
++	},
++	[MIXER_PORT_MIC_VOL] = {
++		.vol_default = MIC_DEFAULT_VOL,
++		.vol_min = MIC_GAIN_MIN,
++		.vol_max = MIC_GAIN_MAX,
++	}
++
++};
++
++static int default_route[MIXER_DST_COUNT] = {
++	[MIXER_ADDR_DST_HP] = SOURCE_DAC,
++   	[MIXER_ADDR_DST_ADC2] = SOURCE_LINEIN,
++};
++
++extern unsigned long playback_statu;
++
++#if 0
++static void dump_codec_reg(struct ak39_codec *codec) 
++{
++	u32 reg_val;
++
++	reg_val = REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG);
++	printk("\nCLOCK_CTRL_REG(0x0800%04x):%08x.\n", CLOCK_CTRL_REG, reg_val);
++
++	reg_val = REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG);
++	printk("HIGHSPEED_CLOCK_CTRL_REG(0x0800%04x):%08x.\n", HIGHSPEED_CLOCK_CTRL_REG, reg_val);
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	printk("\nANALOG_CTRL_REG1(0x0800%04x):%08x.\n", ANALOG_CTRL_REG1, reg_val);
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2);
++	printk("ANALOG_CTRL_REG2(0x0800%04x):%08x.\n", ANALOG_CTRL_REG2, reg_val);
++	
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG3);
++	printk("ANALOG_CTRL_REG3(0x0800%04x):%08x.\n", ANALOG_CTRL_REG3, reg_val);
++
++	reg_val = REG32(codec->adda_cfg_base + ADC2_CONFIG_REG);
++	printk("ADC2_CONFIG_REG(0x2011%04x):%08x.\n", ADC2_CONFIG_REG, reg_val);
++
++	reg_val = REG32(codec->adda_cfg_base + ADC2_DATA_REG);
++	printk("ADC2_DATA_REG(0x2011%04x):%08x.\n", ADC2_DATA_REG, reg_val);
++
++	reg_val = REG32(codec->adda_cfg_base + DAC_CONFIG_REG);
++	printk("DAC_CONFIG_REG(0x2011%04x):%08x.\n", DAC_CONFIG_REG, reg_val);
++
++	reg_val = REG32(codec->analog_ctrl_base + ADC1_CONF_REG1);
++	printk("ADC1_CONF_REG1:(0x0800%04x):%08x.\n", ADC1_CONF_REG1, reg_val);
++}
++#endif
++static inline struct ak39_codec *to_ak39_codec(struct ak_codec_dai *dai)
++{
++	return dai ? container_of(dai, struct ak39_codec, dai): NULL;
++}
++
++
++static inline void pd_ref_enable(struct ak39_codec *codec) 
++{
++	u32 reg_val;
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	reg_val &= ~PD_BIAS;     //power on codec
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++}
++
++static inline void pd_ref_disable(struct ak39_codec *codec) 
++{
++	u32 reg_val;
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	reg_val |= PD_BIAS;     //power off codec
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++}
++
++#if 0
++static void SetHpDisChgCur(unsigned long value)
++{
++	int reg_val;
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	reg_val &= ~(0x7 << 29);
++	reg_val |= (value << 29);
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++}
++
++
++static void set_cur_pmos(struct ak39_codec *codec, unsigned long value)
++{
++	int reg_val;
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	reg_val &= ~(0xf << 25);
++	reg_val |= (value << 25);
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++}
++#endif
++
++static void set_cur_vcm2_dischg(struct ak39_codec *codec, unsigned long value)
++{
++	int reg_val;
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	reg_val &= ~MASK_DIS_CHG_VCM2;
++	reg_val |= DIS_CHG_VCM2(value);
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++}
++
++/**
++ * @brief  select HP in signal
++ * @author 
++ * @date   
++ * @param[in]  (HP_In_Signal)signal: signal desired
++ * @return  void
++ */
++void ak39_set_hp_in(struct ak39_codec *codec, unsigned long signal)
++{
++	unsigned long reg_val;
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++    reg_val &= ~MASK_HP_IN;
++    reg_val |= ((signal&0x7) << HP_IN_SHIFT);
++    REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++}
++
++
++/**
++ * @brief      set ADC2 source
++ * @author 
++ * @date   
++ * @param[in]    signal:  DAC|LINEIN|MIC
++ * @return  void
++ */
++static unsigned long adc2_in_field(unsigned long signal)
++{
++	unsigned long field = 0;
++
++	if (signal & SOURCE_DAC)
++		field |= ADC_IN_DAC;
++	if (signal & SOURCE_LINEIN)
++		field |= ADC_IN_LINEIN;
++	if (signal & SOURCE_MIC)
++		field |= ADC_IN_MIC;
++
++	return field;
++}
++
++void ak39_set_adc2_in(struct ak39_codec *codec, unsigned long signal)
++{
++	unsigned long reg_val;
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2);
++	reg_val &= ~MASK_ADC_IN;
++	reg_val |= (adc2_in_field(signal) << ADC_IN_SHIFT);
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) = reg_val;
++}
++
++
++/**
++ * @brief  set HP gain
++ * @author 
++ * @date   
++ * @param[in]  x: (0.x)times
++ * @return  void
++ */
++void ak39_set_hp_gain(struct ak39_codec *codec, unsigned long gain)
++{
++    unsigned long reg_value;
++    unsigned long gain_table[6] = {0x0, 0x18, 0x14, 0x12, 0x11, 0x10};
++
++    reg_value = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++    reg_value &= ~MASK_HP_GAIN;
++    reg_value |= HP_GAIN(gain_table[gain]);
++    REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_value;
++}
++
++/**
++ * @brief      set mic gain
++ * @author 
++ * @date   
++ * @param[in]    gain: 0~7
++ * @return  void
++ */
++void ak39_set_mic_gain(struct ak39_codec *codec, unsigned long gain)
++{
++	unsigned long reg_val = 0;
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2);
++	reg_val &= ~MASK_MIC_GAIN;
++	reg_val |= ((gain&0x7) << MIC_GAIN_SHIFT);
++	reg_val |= MIC_GAINBST;
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) = reg_val;
++}
++
++/**
++ * @brief      set linein gain
++ * @author 
++ * @date   
++ * @param[in]    gain: 0~15
++ * @return  void
++ */
++void ak39_set_linein_gain(struct ak39_codec *codec, unsigned long gain)
++{
++	unsigned long reg_val = 0;
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2);
++	reg_val &= ~(0xF<<6);
++	reg_val |= ((gain&0xF)<<6);
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) = reg_val;
++}
++
++enum depipa_noise_ctrl {
++	DEPIPA_NOISE_NOT_USE,
++	DEPIPA_NOISE_USE_3KOHM_RESISTOR,
++	DEPIPA_NOISE_USE_1KOHM_RESISTOR,
++	DEPIPA_NOISE_USE_MAX_RESISTOR,
++};
++
++static void set_bit_depipa_noise_ctrl(struct ak39_codec *codec, int mode)
++{
++	unsigned long reg_val = 0;
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++
++	/* Only PRE_EN exists here; bit 16 belongs to HP_IN. */
++	if(mode == DEPIPA_NOISE_NOT_USE)
++		reg_val &= ~(PRE_EN);
++	else
++		reg_val |= (PRE_EN);
++
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++}
++
++
++static void ak39_set_vcm_ref_power(struct ak39_codec *codec, bool bOn)
++{
++	unsigned long reg_val;
++	if(bOn)
++	{
++		//add power control here for MIC-to-Lineout channel
++		//power on REF
++		reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++		reg_val &= ~(PD_BIAS | PL_VCM3 );
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++
++		//power on vcm3
++	    reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	    reg_val &= ~(PD_VCM3);
++	    REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++	}
++	else
++	{
++		//power off vcm3
++	    reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	    reg_val |= (PD_VCM3);
++	    REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++
++	    //power off codec
++	    reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	    reg_val |= (PD_BIAS | PL_VCM3);
++	    REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++	}
++}
++
++
++/**
++ * @brief   power on HP
++ * @author 
++ * @date   
++ * @param[in] bool poweron or poweroff
++ * @         [in] bool use delay to de-pipa or not
++ * @return  void
++ */
++void ak39_set_hp_power(struct ak39_codec *codec, bool bOn, bool soft_de_pipa)
++{
++	int reg_value;
++
++	printk("ak39_set_hp_power %d,soft_de_pipa=%d\n",bOn,soft_de_pipa);
++	if(bOn)
++	{
++		set_bit_depipa_noise_ctrl(codec, DEPIPA_NOISE_USE_MAX_RESISTOR);
++					
++		mdelay(10);
++
++		pd_ref_enable(codec);
++
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) |= MASK_DISCHG_HP;
++
++		mdelay(20);
++		reg_value = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++		reg_value &= ~(PD1_HP);
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_value;
++		
++		mdelay(10);
++		
++		reg_value = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++		reg_value &= ~(PD2_HP);
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_value;
++
++		ak39_set_vcm_ref_power(codec, 1);
++		
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) &= ~MASK_DIS_CHG_VCM2;
++		mdelay(100);
++		
++		set_bit_depipa_noise_ctrl(codec, DEPIPA_NOISE_NOT_USE);
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) &= ~(RST_DAC);
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) &= ~MASK_DISCHG_HP;
++	}
++	else
++	{
++		set_bit_depipa_noise_ctrl(codec, DEPIPA_NOISE_USE_3KOHM_RESISTOR);
++
++		if (!codec->adc2_state) {
++			//off mute
++			REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) &= ~MASK_HP_IN;
++
++			ak39_set_vcm_ref_power(codec, 0);
++			set_cur_vcm2_dischg(codec, 0x1f);
++			mdelay(50);
++		}
++
++		//power off hp
++		reg_value = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++		reg_value |= ((PD2_HP));
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_value;
++
++		//power off hp
++		reg_value = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++		reg_value |= (PD1_HP);
++		REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_value;
++	}
++}
++
++
++/**
++ * @brief      set linein interface power
++ * @author 
++ * @date   
++ * @param[in]    bTrue: 1-power on; 0-power off 
++ * @return  void
++ */
++static void ak39_set_linein_power(struct ak39_codec *codec, bool bOn)
++{
++	unsigned long reg_val;
++
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2);
++	reg_val &= ~MASK_PD_LINEIN;
++	reg_val |= bOn ? PD_LINEIN_RUN : MASK_PD_LINEIN;
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) = reg_val;
++}
++
++/**
++ * @brief      set DAC to lineout
++ * @author 
++ * @date   
++ * @param[in]    bTrue: 1-connet DACto lineout; 0-disconnect 
++ * @return  void
++ */
++static void ak39_set_mic_power(struct ak39_codec *codec, bool bOn)
++{
++ 	unsigned long reg_val = 0;
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2);
++	if(bOn)
++		reg_val &= ~PD_MIC;
++	else
++		reg_val |= PD_MIC;
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) = reg_val;
++}
++
++static void ak39_set_sel_vref(struct ak39_codec *codec, bool bOn) 
++{
++	unsigned long reg_val;
++	reg_val = REG32(codec->analog_ctrl_base + ADC1_CONF_REG1);
++	if(bOn)
++		reg_val |= SEL_VREF;
++	else	
++		reg_val &= ~SEL_VREF;
++
++	REG32(codec->analog_ctrl_base + ADC1_CONF_REG1) = reg_val;
++}
++
++
++/*
++ * ASIC PLL rate, SYSCTRL+0x08 (AK_PA_SYSCTRL, the same block
++ * codec->analog_ctrl_base maps) -- feeds the DAC/ADC2 high-speed
++ * clock dividers this file programs directly.
++ */
++static unsigned long ak39_codec_get_asic_pll_clk(struct ak39_codec *codec)
++{
++	unsigned long pll_m, pll_n, pll_od;
++	unsigned long asic_pll_clk;
++	unsigned long regval;
++
++	regval = REG32(codec->analog_ctrl_base + 0x08);
++	pll_od = (regval & (0x3 << 12)) >> 12;
++	pll_n = (regval & (0xf << 8)) >> 8;
++	pll_m = regval & 0xff;
++
++	asic_pll_clk = (12 * pll_m) / (pll_n * (1 << pll_od)); // clk unit: MHz
++
++	if ((pll_od >= 1) && (pll_n >= 2) && (pll_n <= 6) &&
++	    (pll_m >= 84) && (pll_m <= 254))
++		return asic_pll_clk * 1000000;
++
++	panic("asic pll clk: %ld(Mhz) is unusable\n", asic_pll_clk);
++}
++
++static void set_dac_highspeed(struct ak39_codec *codec,
++	   	unsigned long sample_rate)
++{
++	static unsigned long rate_list[] =
++   				{8000, 16000, 24000, 48000, 96000};
++	static unsigned long dac_hclk[sizeof(rate_list)/sizeof(rate_list[0])] = 
++	{6, 12, 18, 36, 72};
++
++	unsigned long        reg_value;
++	unsigned long        pllclk;
++	unsigned long        hclk_div;
++	unsigned long        hclk;
++	unsigned long        i;
++
++	pllclk = ak39_codec_get_asic_pll_clk(codec);
++	pllclk /= 1000000;
++
++	printk("seths sr %lu,pll %lu\n",sample_rate,pllclk);
++	for(i=0; i < sizeof(rate_list)/sizeof(rate_list[0]); ++i)
++	{
++		if(sample_rate <= rate_list[i])
++		{
++			break;
++		}
++	} 
++
++	if(sizeof(rate_list)/sizeof(rate_list[0]) == i)
++	{
++		hclk = dac_hclk[i-1];
++	}
++	else
++	{
++		hclk = dac_hclk[i];
++	}
++
++	hclk_div = pllclk / hclk;  
++	//04V 3771 chip: when the divider of the DAC CLK is even number,
++	//the DAC MODULE is more steady
++	hclk_div &= ~1;
++
++	if(0 != hclk_div)
++	{
++		hclk_div = hclk_div - 1;
++	}   
++
++	reg_value = REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG);
++	reg_value &= ~(MASK_DAC_HCLK_DIV);
++	reg_value |= DAC_HSDIV_VLD | DAC_HCLK_DIV(hclk_div);
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) = reg_value;
++
++	i = 0;
++	while(REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) & (DAC_HSDIV_VLD))
++	{
++		++i;
++		if(i > 100000)
++		{
++			printk("set high speed clk reg fail\n");
++			return ;
++		}
++	}    
++}
++
++static void set_adc_highspeed(struct ak39_codec *codec,
++	   	unsigned long sample_rate)
++{
++	unsigned long        reg_value;
++	unsigned long        pllclk;
++	unsigned long        hclk_div;
++	unsigned long        hclk;
++	unsigned long        i;
++
++	pllclk = ak39_codec_get_asic_pll_clk(codec);
++	for (i=1; i<=0x40; i++)
++	{
++		hclk = pllclk/i;
++		if ((hclk<=62000000)&&(hclk>=28000000))
++		{
++			break;
++		}
++	}
++	hclk_div = i-1;
++
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= ~(1<<29);
++
++	i = 0;
++	while(REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) & (ADC2_HSDIV_VLD))
++	{
++		++i;
++		if(i > 100000)
++		{
++			printk("adc set high speed clk reg fail\n");
++			return ;
++		}
++	}  	
++
++	reg_value = REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG);
++	reg_value &= ~(MASK_ADC2_HCLK_DIV);
++	reg_value |= ADC2_HSDIV_VLD | ADC2_HCLK_DIV(hclk_div);
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) = reg_value;
++
++	i = 0;
++	while(REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) & (ADC2_HSDIV_VLD))
++	{
++		++i;
++		if(i > 100000)
++		{
++			printk("adc set high speed clk reg fail\n");
++			return ;
++		}
++	}   
++
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) |= (1<<29);
++}
++
++/**
++ * @brief      set ADC2 mode and clk_div
++ * @author 
++ * @date   
++ * @param[in]    des_sr: desired rate to be set
++ * @param[out]  mode_sel: reg(0x08000064) bit[12]
++ * @param[out]  mclkdiv: reg(0x08000008) bit[11:4]
++ * @return  void
++ */
++static unsigned long get_adc2_osr_div(struct ak39_codec *codec, unsigned char *mode_sel,
++	   	unsigned char *mclkdiv, unsigned long des_sr)
++{
++	unsigned short k, max_div;
++    unsigned short OSR_value=256;
++    unsigned long SR_save, out_sr=0;
++    signed long a, b;
++	unsigned long clk168m;
++	
++	clk168m = ak39_codec_get_asic_pll_clk(codec);
++    max_div = 0x100;
++    SR_save = 0;
++    *mode_sel = 0;
++    *mclkdiv = 0;
++
++    OSR_value = 256;
++    *mode_sel = 1;
++
++    for(k=0; k<max_div; k++) //DIV
++    {
++        out_sr = clk168m/(k+1)/OSR_value;
++        a = out_sr - des_sr;
++        a = (a>0)? a : (-a);
++        b = SR_save - des_sr;
++        b = (b>0)? b : (-b);
++        if (a<b)
++        {
++            SR_save = out_sr;
++            *mclkdiv = k;
++        }
++    }
++
++	return SR_save;
++}
++
++/**
++ * @brief   Get OSR and DACDIV refer to appointed PLL and sample rate
++ * @author  
++ * @date   
++ * @input   des_sr: destination sample rate
++ * @output  osrindex: OSR index
++ * @output  mclkdiv: mclk div
++ * @return  the achieved sample rate
++ */
++static unsigned long get_dac_osv_div(struct ak39_codec *codec, unsigned char *osrindex,
++	   	unsigned char *mclkdiv, unsigned long des_sr)
++{
++    const unsigned short OSR_table[8] = 
++        {256, 272, 264, 248, 240, 136, 128, 120};
++
++    unsigned long j;
++    unsigned long max_div;
++    long k;
++    unsigned long SR_save, out_sr=0;
++    long a;
++    long b;
++    unsigned long clk168m;
++
++	unsigned long perfect_pll;
++
++	clk168m = ak39_codec_get_asic_pll_clk(codec); 
++
++    max_div = 0x100;
++    SR_save = 0;
++    *osrindex = 0;
++    *mclkdiv = 0xff;
++    for(j=0; j<8; j++) //OSR index
++    {
++        for(k=max_div-1; k>=0; k--) //DAC_DIV value
++        {
++            out_sr = clk168m/(k+1);
++            if (out_sr > MAX_DACCLK)
++                break;
++            out_sr = out_sr/OSR_table[j];
++            a = out_sr-des_sr;
++            a = (a>0)? a : (-a);
++            b = SR_save-des_sr;
++            b = (b>0)? b : (-b);
++            if (a<b)
++            {
++                SR_save = out_sr;
++                *mclkdiv = k;
++                *osrindex = j;
++				perfect_pll = OSR_table[j]*des_sr *(k + 1);
++			}
++		}
++	}
++	//WARN(1, "111");
++	printk("perfect asic pll clk is:%lu, actual sample rate is %lu.\n", perfect_pll, SR_save);
++
++	return SR_save;
++}
++
++
++/**
++ *repair the volume range.
++ *
++ * */
++static inline int volume_repair_range(int port, int vol)
++{
++	if(vol < vol_info[port].vol_min)
++		vol = vol_info[port].vol_min;
++	else if(vol > vol_info[port].vol_max)
++		vol = vol_info[port].vol_max;
++
++	return vol;
++}
++
++static inline int get_volume_info(int port, int type) 
++{
++	int vol;
++
++	switch(type){
++		case VOL_INFO_DEFAULT:
++			vol = vol_info[port].vol_default;
++			break;
++		case VOL_INFO_MIN:
++			vol = vol_info[port].vol_min;
++			break;
++		case VOL_INFO_MAX:
++			vol = vol_info[port].vol_max;
++			break;
++		default:
++			vol = 0;
++			break;
++	}
++	return vol;
++}
++
++
++/*
++ *set mixer volume by port,
++ *return old volume;
++ *
++ * */
++static inline int set_mixer_volume(struct ak39_codec *codec,
++		int port, int volume)
++{
++	int old_vol;
++
++	old_vol = codec->mixer_volume[port];
++	codec->mixer_volume[port] = volume;
++
++	return old_vol;
++}
++
++static inline int get_mixer_volume(struct ak39_codec *codec,
++		int port)
++{
++	return codec->mixer_volume[port];
++}
++
++/**
++ * @brief   set hp/linein/mic gain
++ * @author lixinhai 
++ * @date  2013-08-02 
++ * @input  codec: handle. 
++ * @input  port: control port:hp, linein or mic.
++ * @input  gain: gain value. 
++ * @return  void
++ */
++static void ak39_set_gain(struct ak39_codec *codec, int port, int gain)
++{
++	switch(port) {
++		case MIXER_PORT_HP_VOL:
++			ak39_set_hp_gain(codec, gain);
++			break;
++		case MIXER_PORT_LINEIN_VOL:
++			ak39_set_linein_gain(codec, gain);
++			break;
++		case MIXER_PORT_MIC_VOL:
++			ak39_set_mic_gain(codec, gain);
++			break;
++	}
++}
++
++/**
++ * @brief   set playback mode: headphone or speaker
++ * @author lixinhai 
++ * @date   2013-08-02 
++ * @input  codec: handle. 
++ * @input  plug_in: headphone is plug in.
++ * @return  void
++ */
++static inline void set_playmode_switch(struct ak39_codec *codec,
++		int plug_in)
++{
++	if(codec->playmode != PLAYMODE_AUTO_SWITCH)
++		return;
++
++	if(plug_in)
++		codec->mixer_switch[MIXER_ADDR_HPDET] = PLAYMODE_STATUS_HP;
++	else
++		codec->mixer_switch[MIXER_ADDR_HPDET] = PLAYMODE_STATUS_SPEAKER;
++}
++
++/**
++ * @brief   get playback mode: headphone or speaker
++ * @author lixinhai 
++ * @date   2013-08-02 
++ * @input  codec: handle. 
++ * @return  void
++ */
++static int ak39_codec_get_playmode(struct ak39_codec *codec)
++{
++	if(codec->playmode == PLAYMODE_HP) {
++		return PLAYMODE_STATUS_HP;
++	} else if(codec->playmode == PLAYMODE_SPEAKER)
++		return PLAYMODE_STATUS_SPEAKER;	
++	else
++		return codec->mixer_switch[MIXER_ADDR_HPDET];
++}
++
++/**
++ * @brief  set route source on destation. 
++ * @author lixinhai 
++ * @date   2013-08-02 
++ * @input  codec: handle. 
++ * @input  dst: destation
++ * @input  src: source
++ * @input  src_mask: source mask.
++ * @return new destation of route.
++ */
++static inline int set_route_src_on_dst(struct ak39_codec *codec, 
++		int dst, int src, int src_mask)
++{
++	codec->mixer_route[dst] &= ~src_mask;
++	codec->mixer_route[dst] |= src;
++
++	PDEBUG("%s: destion:%d, src:%d, src_mask:%d, mixer source:%d.\n", 
++			__func__, dst, src, src_mask, codec->mixer_route[dst]);
++	return codec->mixer_route[dst];
++}
++
++static inline int get_route_src_on_dst(struct ak39_codec *codec, 
++		int dst, int src_mask)
++{
++	return codec->mixer_route[dst] & src_mask;
++}
++
++
++static inline int check_route_src_on_dst(struct ak39_codec *codec, 
++		int dst, int src)
++{
++	return !!(codec->mixer_route[dst] & src);
++}
++
++static int calc_route_src_status(struct ak39_codec *codec, int dst, int src, int src_mask)
++{
++	int i;
++	int status = 0;
++
++	for(i=0; i<MIXER_DST_COUNT; i++) {
++		if(i == dst)
++			status |= codec->mixer_route[i] & (src & src_mask);
++		else
++			status |= codec->mixer_route[i] & src_mask;
++	}	
++
++	return !!status;
++}
++
++
++/**
++ * @brief      set input device power
++ * @author 
++ * @date   
++ * @param[in]      src: DAC|LINEIN|MIC  
++ *                       addr:route No.  
++ *                       CurSrc:all three route's current src
++ * @return  void
++ */
++static void ak39_set_src_power(struct ak39_codec *codec, int dst, int src)
++{
++	int s_dac, s_linein, s_mic, s_src;
++
++	s_dac = calc_route_src_status(codec, dst, src, SOURCE_DAC);
++	s_linein = calc_route_src_status(codec, dst, src, SOURCE_LINEIN);
++	s_mic = calc_route_src_status(codec, dst, src, SOURCE_MIC);
++
++
++	s_src = s_dac|s_linein|s_mic;
++
++	PDEBUG("%s: src:%d, s_dac:%d, s_linein:%d, s_mic:%d.\n",
++		   	__func__, src, s_dac, s_linein, s_mic);
++
++	ak39_set_sel_vref(codec, s_src);
++	ak39_set_vcm_ref_power(codec, s_src);
++	
++	//set DAC power in PCM interface function: codec_playback_prepare()
++	ak39_set_linein_power(codec, s_linein);
++	ak39_set_mic_power(codec, s_mic);
++}
++
++
++static int ak39_codec_stream_control(struct ak39_codec *codec,
++		int dst, int running)
++{
++	int src;
++
++	src = get_route_src_on_dst(codec, dst, SOURCE_MIXED_ALL_MASK);       
++	PDEBUG("%s: dst:%d, src:%d, status:%s.\n",
++		   	__func__, dst, src, running ? "running":"stop");
++
++	if(!running)
++		src = 0;
++	
++	switch(dst) {
++		case MIXER_ADDR_DST_HP:
++			if(codec->used_hp_mute)
++				gpio_set_value(codec->hpmute_gpio, codec->hpmute_en_val);
++
++			ak39_set_hp_power(codec, !!src, !codec->used_hp_mute);
++
++			if(codec->used_hp_mute) {
++				int dis_val;
++
++				dis_val = (codec->hpmute_en_val == 1) ? 0 : 1;
++				gpio_set_value(codec->hpmute_gpio, dis_val);
++			}
++			ak39_set_hp_in(codec, src);
++			ak39_set_src_power(codec, dst, src);
++
++			break;
++		case MIXER_ADDR_DST_ADC2:
++			ak39_set_adc2_in(codec, src);
++			ak39_set_src_power(codec, dst, src);
++			//dump_codec_reg(codec);
++			break;
++		default:
++			break;
++	}
++
++	return 0;
++}
++
++
++/**
++ * @brief  open a dac device 
++ * @author 
++ * @date   
++ * @return void
++ */
++void ak39_codec_dac_open(struct ak_codec_dai *dai)
++{
++	int reg_value;
++	int i;
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	if(codec->dac_state)
++		return;
++
++	codec->dac_state = 1;
++
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= ~(1<<4);
++	REG32(codec->analog_ctrl_base + CLOCK_GATE_CTRL_REG) &= ~(1<<4);
++
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) |= MUTE;
++
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) &= ~DAC_CTRL_EN;
++	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) &= ~DAC_CLK_EN;
++
++	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) |= DAC_DIV_VLD;
++	i = 0;
++	while(REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) & (DAC_DIV_VLD))
++	{
++		++i;
++		if(i > 100000)
++		{
++			printk("set da clk reg fail\n");
++			return ;
++		}
++	}   
++
++	// to enable DAC CLK
++	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) |= DAC_CLK_EN;
++
++	//soft reset DAC
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= ~(DAC_SOFT_RST);
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) |= DAC_SOFT_RST;
++
++	//to enable internal dac/adc via i2s
++	REG32(codec->analog_ctrl_base + MULTIPLE_FUN_CTRL_REG1) |= IN_DAAD_EN;
++
++	//set default dac div and osr, for de pipa noise
++
++	//I2S config reg
++	REG32(codec->adda_cfg_base + I2S_CONFIG_REG) &= (~I2S_CONFIG_WORDLENGTH_MASK);
++	REG32(codec->adda_cfg_base + I2S_CONFIG_REG) |= (16<<0);
++
++	//config I2S interface DAC
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) |= DAC_CTRL_EN;
++
++	//enable accept data from l2
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) |= L2_EN;
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) |= FORMAT;
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) &= ~ARM_INT;
++	REG32(codec->adda_cfg_base + I2S_CONFIG_REG) &= ~POLARITY_SEL; 
++
++	REG32(codec->analog_ctrl_base + FADEOUT_CTRL_REG) |= DAC_FILTER_EN;
++
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) &= ~MUTE;
++
++
++	reg_value = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++	reg_value &= ~( PD_OP | PD_CK);
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_value;
++}
++
++
++/**
++ * @brief   Close a dac device
++ * @author  
++ * @date   
++ * @return  void
++ */
++void ak39_codec_dac_close(struct ak_codec_dai *dai)
++{
++	int reg_val;
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	if(!codec->dac_state)
++		return;
++
++	codec->dac_state = 0;
++	REG32(codec->adda_cfg_base + DAC_CONFIG_REG) &= (~L2_EN);
++
++	// to power off DACs/DAC clock
++	reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);   
++	reg_val |= (PD_OP);
++	reg_val |= (PD_CK);
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++
++	mdelay(5);
++
++	REG32(codec->analog_ctrl_base + MULTIPLE_FUN_CTRL_REG1) &= (~(IN_DAAD_EN));// tdisable internal DAC/ADC
++	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) &= (~(DAC_CLK_EN|DAC_DIV_VLD));// disable DAC CLK
++	REG32(codec->analog_ctrl_base + DAC_CONFIG_REG) &= (~DAC_CTRL_EN);// to disable DACs
++}
++
++/**
++ * @brief   Set sample rate
++ * @author 
++ * @date   
++ * @param[in]  samplerate: desired sample rate
++ * @return  the sample rate the DAC divider search actually achieved
++ */
++unsigned long ak39_codec_set_dac_samplerate(struct ak_codec_dai *dai, unsigned int samplerate)
++{
++	unsigned char osr, mclkdiv;
++	unsigned long out_sr;
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	out_sr = get_dac_osv_div(codec, &osr, &mclkdiv, samplerate);
++
++	//disable HCLK, and disable DAC interface
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) &= ~(DAC_HCLK_EN);
++	REG32(codec->analog_ctrl_base + DAC_CONFIG_REG) &= ~(DAC_CTRL_EN);
++
++	set_dac_highspeed(codec, samplerate);
++	
++	 // NOTE: should reset DAC!!!
++    REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= (~DAC_SOFT_RST);
++	mdelay(5);
++
++    //set OSR
++    REG32(codec->analog_ctrl_base + FADEOUT_CTRL_REG) &= (~OSR_MASK);
++    REG32(codec->analog_ctrl_base + FADEOUT_CTRL_REG) |= (OSR(osr));
++	mdelay(2);
++
++    //set DIV
++    REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) &= (~(MASK_DAC_DIV_INT));
++    REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) |= (DAC_DIV_INT(mclkdiv));
++
++	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) &= (~(MASK_DAC_DIV_FRAC));
++	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) |= (DAC_DIV_VLD);
++	mdelay(2);	
++
++    //to reset dac
++    REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) |= DAC_SOFT_RST;
++
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= (~DAC_SOFT_RST);
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) |= DAC_SOFT_RST;
++
++	//enable HCLK, and enable DAC interface
++    REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) |= (DAC_HCLK_EN);
++	REG32(codec->analog_ctrl_base + DAC_CONFIG_REG) |= (DAC_CTRL_EN);
++
++	return out_sr;
++}
++
++/**
++ * @brief   Set DAC channels: mono,stereo
++ * @author 
++ * @date   
++ * @param[in]  bool mono: true-mono, false-stereo
++ * @return  void
++ */
++void ak39_codec_set_dac_channels(struct ak_codec_dai *dai, unsigned int chnl)
++{
++
++}
++
++
++/**
++ * @brief  open ADC2
++ * @author 
++ * @date   
++ * @param[in]  void
++ * @return  void
++ */
++void ak39_codec_adc2_open(struct ak_codec_dai *dai)
++{
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	//unsigned long i;
++	if(codec->adc2_state)
++		return;
++
++	codec->adc2_state = 1;
++
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= ~(1<<3);
++	REG32(codec->analog_ctrl_base + CLOCK_GATE_CTRL_REG) &= ~(1<<3);
++
++	// soft reset ADC2 controller
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) |= (ADC2_SOFT_RST);
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= ~(ADC2_SOFT_RST);
++
++//	set_cur_pmos(codec, 0x0);  //must be set to 0 when ADC2 is working
++
++	REG32(codec->analog_ctrl_base + MULTIPLE_FUN_CTRL_REG1) |= IN_DAAD_EN; //enable internal
++
++	//disable vcm2 discharge
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) &= ~MASK_DIS_CHG_VCM2;
++
++	//PowerOn Vcm3
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) &= ~PD_VCM3;
++
++	//SetVcmNormal
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) &= ~PL_VCM3;
++
++	//EnableAdc2Limit
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) |= ADC_LIM;
++
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) &= ~HOST_RD_INT_EN;
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) |= CH_POLARITY_SEL;//Receive the left channel data when the lrclk is high
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) &= ~I2S_EN;        //Internal ADC MODE
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) &= ~WORD_LENGTH_MASK;
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) |= (0xF << 8);     //WORD LENGTH IS 16 BIT
++
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) |= (ADC2_SOFT_RST);
++
++	//Enable adc controller
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) |= ADC2_CTRL_EN;
++
++	//Enable l2
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) |= ADC2MODE_L2_EN;
++
++	//Power on adc2 conversion
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) &= ~PD_S2D;
++
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) &= ~PD_ADC2;
++
++	mdelay(1);
++	pd_ref_enable(codec);
++}
++
++/**
++ * @brief      close ADC2
++ * @author 
++ * @date   
++ * @param[in]    void 
++ * @return  void
++ */
++void ak39_codec_adc2_close(struct ak_codec_dai *dai)
++{
++	unsigned long reg_val;
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	if(!codec->adc2_state)
++		return;
++
++	codec->adc2_state = 0;
++
++	//disable l2
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) &= ~ADC2MODE_L2_EN;
++
++	//disable adc2 clk
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) &= ~ADC2_CLK_EN;
++
++	//disable ADC2 interface
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) &= ~ADC2_CTRL_EN;
++
++	//Power off adc2
++	REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG2) |= PD_ADC2;
++
++	if((SOURCE_LINEIN << HP_IN_SHIFT) !=
++	   (REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) & (SOURCE_LINEIN << HP_IN_SHIFT)))
++	{
++		if(!(REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) & DAC_CLK_EN))
++		{
++			reg_val = REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1);
++			reg_val |= PD_VCM3;
++			reg_val |= PL_VCM3;
++			REG32(codec->analog_ctrl_base + ANALOG_CTRL_REG1) = reg_val;
++			pd_ref_disable(codec);
++
++		}
++	}
++	REG32(codec->analog_ctrl_base + CLOCK_CTRL_REG) |= (DAC_DIV_VLD);     //inhabit adc2 clock
++
++}
++
++/**
++ * @brief      set ADC2 sample rate
++ * @author 
++ * @date   
++ * @param[in]    samplerate:  desired rate to be set
++ * @return  void
++ */
++unsigned long ak39_codec_set_adc2_samplerate(struct ak_codec_dai *dai,
++	   		unsigned int  samplerate)
++{
++	unsigned char mode_sel = 0;
++    unsigned char save_div = 0;
++	unsigned long out_sr = 0;
++	unsigned long i = 0;
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	//disable HCLK, and disable ADC interface
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) &= ~(ADC2_CTRL_EN);
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) &= ~(ADC2_HCLK_EN);
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) &= ~(ADC2_CLK_EN);
++
++	set_adc_highspeed(codec, samplerate);		
++	
++	out_sr = get_adc2_osr_div(codec, &mode_sel, &save_div, samplerate);
++
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) &= ~(1<<27); //reset adc from adc clk
++	i = 0;
++    while(REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) & (ADC2_DIV_VLD))
++    {
++        ++i;
++        if(i > 100000)
++        {
++            printk("adc set sr fail\n");
++            return 0;
++        }
++    } 
++    REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) &= ~(MASK_ADC2_DIV);
++    REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) |= ADC2_DIV(save_div);
++
++    REG32(codec->analog_ctrl_base + FADEOUT_CTRL_REG) &= ~(1<<ADC2_OSR_BIT);
++    REG32(codec->analog_ctrl_base + FADEOUT_CTRL_REG) |= (mode_sel << ADC2_OSR_BIT);
++
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) |= (ADC2_DIV_VLD);
++	i = 0;
++    while(REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) & (ADC2_DIV_VLD))
++    {
++        ++i;
++        if(i > 100000)
++        {
++            printk("adc set clk reg fail\n");
++            return 0;
++        }
++    } 
++	REG32(codec->analog_ctrl_base + SOFT_RST_CTRL_REG) |= (1<<27); //release the reset adc from adc clk
++
++	
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) |= (ADC2_CLK_EN);//enable ADC2 Clock 
++	REG32(codec->analog_ctrl_base + HIGHSPEED_CLOCK_CTRL_REG) |= (ADC2_HCLK_EN);//enable ADC2 Clock 
++	REG32(codec->adda_cfg_base + ADC2_CONFIG_REG) |= (ADC2_CTRL_EN);
++	return out_sr;
++}
++
++
++/**
++ * @brief      set ADC23 channel
++ * @author 
++ * @date   
++ * @param[in]    chnl: 1-mono; 2-stereo
++ * @return  void
++ */
++void ak39_codec_set_adc2_channels(struct ak_codec_dai *dai, unsigned int chnl)
++{
++
++}
++
++
++/**
++ * @brief   cfg shutdown speaker GPIO
++ * @author 
++ * @date   
++ * @param[in]  bOn: 1-power on; 0-power off
++ * @return  void
++ */
++void ak39_codec_speak_on(struct ak39_codec *codec, bool bOn)
++{
++	if (!gpio_is_valid(codec->spkrshdn_gpio))
++		return;
++
++	gpio_set_value(codec->spkrshdn_gpio,
++		       bOn ? codec->spk_gpios_en : !codec->spk_gpios_en);
++}
++
++
++static void ak39_codec_speaker_enable(struct ak_codec_dai *dai, bool on)
++{
++	ak39_codec_speak_on(to_ak39_codec(dai), on);
++}
++
++
++/**
++ * @brief  when playback start, ak39_codec_playback_start must be called to start output channel
++ * @author  Cheng JunYi
++ * @revisor	Wu Daochao(2012-08-23)
++ * @date   
++ * @return void
++ */
++static void ak39_codec_playback_start(struct ak_codec_dai *dai)
++{
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	ak39_codec_speak_on(codec, true);
++
++	if(codec->mixer_ch_duration[MIXER_ADDR_PLAY_DURATION] == CHNLDURATION_EVEROPEN)
++		return;
++
++	ak39_codec_get_playmode(codec);
++	ak39_codec_stream_control(codec, MIXER_ADDR_DST_HP, 1);
++
++	codec->outputing = true;
++	
++}
++
++void ak39_start_to_play(struct ak_codec_dai *dai, 
++		unsigned int channels, unsigned int samplerate)
++{
++	ak39_codec_set_dac_samplerate(dai, samplerate);
++	ak39_codec_set_dac_channels(dai, channels);
++	ak39_codec_dac_open(dai);
++	ak39_codec_playback_start(dai);
++}
++
++
++static void ak39_codec_playback_stop(struct ak_codec_dai *dai)
++{
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	ak39_codec_speak_on(codec, false);
++
++	//if we want to open some channel for ever, return
++	if(codec->mixer_ch_duration[MIXER_ADDR_PLAY_DURATION] == CHNLDURATION_EVEROPEN)
++		return;
++
++	/*close the dac output*/
++	ak39_codec_stream_control(codec, MIXER_ADDR_DST_HP, 0);
++	codec->outputing = false;
++}
++
++
++static void ak39_codec_capture_start(struct ak_codec_dai *dai)
++{
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	ak39_codec_stream_control(codec, MIXER_ADDR_DST_ADC2, 1);
++}
++
++static void ak39_codec_capture_stop(struct ak_codec_dai *dai)
++{
++	struct ak39_codec *codec = to_ak39_codec(dai);
++
++	ak39_codec_stream_control(codec, MIXER_ADDR_DST_ADC2, 0);
++}
++
++/**********************HPDet switch**************************/
++
++static int set_hpdet_status(struct ak39_codec *codec)
++{
++	int plug_in = 0;
++	int irq_type;
++
++	if(gpio_get_value(codec->hpdet_gpio) == codec->hp_on_value)
++	{
++		//hp is plugged in
++		plug_in = 1;
++		irq_type = (codec->irq_hp_on_type == IRQ_TYPE_LEVEL_LOW) ?
++					IRQ_TYPE_LEVEL_HIGH:IRQ_TYPE_LEVEL_LOW;
++	}
++	else
++	{
++		//hp is pulled out
++		plug_in = 0;
++		irq_type = codec->irq_hp_on_type;
++	}
++
++	printk("detect the headphone plug %s.\n", plug_in ? "on":"out");
++	irq_set_irq_type(codec->hp_det_irq, irq_type);
++
++	set_playmode_switch(codec, plug_in);
++
++	ak39_codec_speak_on(codec, !plug_in);
++	return 0;
++}
++
++
++/**
++ * @brief  when hp state is changed,schedule hp_det_worker to config output \
++               channel to speaker or not
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static void hp_det_worker(struct work_struct *work)
++{
++	struct ak39_codec *codec = container_of(work, struct ak39_codec,d_work.work);
++
++	set_hpdet_status(codec);
++
++	ak_codec_ctl_event(SNDRV_CTL_ELEM_IFACE_HWDEP,
++		   	SNDRV_CTL_EVENT_MASK_VALUE, "HPDet switch");
++
++	enable_irq(codec->hp_det_irq);
++}
++
++/**
++ * @brief  hp det
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static irqreturn_t ak39_codec_hpdet_irq(int irq, void *dev_id)
++{
++	struct ak39_codec *codec = dev_id;
++	
++	disable_irq_nosync(irq);
++
++	schedule_delayed_work(&codec->d_work, msecs_to_jiffies(100));
++	return IRQ_HANDLED;
++}
++
++
++/**************
++ * mixer interface
++ **************/
++
++
++/***********************config channel duration*******************************/
++#define AK39PCM_OUTPUTCHNL_DURATION(xname, xindex, addr) \
++{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
++  .access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
++  .name = xname, .index = xindex, \
++  .info = codec_ChnlDuration_info, \
++  .get = codec_ChnlDuration_get, \
++  .put = codec_ChnlDuration_put, \
++  .private_value = addr \
++}
++
++/**
++ * @brief  info callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_ChnlDuration_info(struct snd_kcontrol *kcontrol,
++				 struct snd_ctl_elem_info *uinfo)
++{
++	int addr = kcontrol->private_value;
++	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
++	uinfo->count = 1;
++	if(MIXER_ADDR_PLAY_DURATION == addr)
++	{
++		uinfo->value.integer.min = CHNLDURATION_MIN;
++		uinfo->value.integer.max = CHNLDURATION_MAX;
++	}
++	else
++	{
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++/**
++ * @brief  get callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_ChnlDuration_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	struct ak_codec_dai *dai = snd_kcontrol_chip(kcontrol);
++	struct ak39_codec *codec = container_of(dai, struct ak39_codec, dai);
++
++	int addr = kcontrol->private_value;
++	if(addr != MIXER_ADDR_PLAY_DURATION)
++	{
++		return -EINVAL;
++	}
++
++	ucontrol->value.integer.value[0] = codec->mixer_ch_duration[addr];
++	return 0;
++}
++
++/**
++ * @brief  put callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_ChnlDuration_put(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	struct ak_codec_dai *dai = snd_kcontrol_chip(kcontrol);
++	struct ak39_codec *codec = container_of(dai, struct ak39_codec, dai);
++
++	int addr = kcontrol->private_value;
++	int duration = ucontrol->value.integer.value[0];
++
++	printk("ak39 codec: ChnlDuration_put duration=%d\n",duration);
++	if(duration == codec->mixer_ch_duration[MIXER_ADDR_PLAY_DURATION]){
++		return 0;
++	}
++	if(addr != MIXER_ADDR_PLAY_DURATION)	{
++		return -EINVAL;
++	}
++	if((duration > CHNLDURATION_MAX)||(duration < CHNLDURATION_MIN)) {
++		return -EINVAL;
++	}
++
++	codec->mixer_ch_duration[MIXER_ADDR_PLAY_DURATION] = duration;
++	if((duration == CHNLDURATION_CONSTANT) &&
++	  		(!test_bit(0, &playback_statu))) {
++		ak39_codec_playback_stop(dai);
++	}
++
++	return 0;
++}
++
++/*********************select fixed output channel**********************************/
++#define AK39PCM_DAC_OUT_MODE(xname, xindex, addr) \
++{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
++  .access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
++  .name = xname, .index = xindex, \
++  .info = codec_dac_outmode_info, \
++  .get = codec_dac_outmode_get, \
++  .put = codec_dac_outmode_put, \
++  .private_value = addr \
++}
++
++/**
++ * @brief  info callback. 
++ * becsuse of arch-ak39 has dac output only,
++ * this interface is not used.
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_dac_outmode_info(struct snd_kcontrol *kcontrol,
++				 struct snd_ctl_elem_info *uinfo)
++{
++	int addr = kcontrol->private_value;
++	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
++	uinfo->count = 1;
++	if(MIXER_ADDR_OUTMODE_DAC == addr)
++	{
++		uinfo->value.integer.min = OUTMODE_MIN;
++		uinfo->value.integer.max = OUTMODE_MAX;
++	}
++	else
++	{
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++/**
++ * @brief  get callback
++ * becsuse of arch-ak39 has dac output only,
++ * this interface is not used.
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_dac_outmode_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	int addr = kcontrol->private_value;
++
++	if(addr != MIXER_ADDR_OUTMODE_DAC)
++	{
++		return -EINVAL;
++	}
++
++	ucontrol->value.integer.value[0] = OUTMODE_HP;
++	return 0;
++}
++
++/**
++ * @brief  put callback
++ * becsuse of arch-ak39 has dac output only,
++ * this interface is not used.
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_dac_outmode_put(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	printk("ak39 platform not support out mode setting.\n");
++	return 0;
++}
++
++/**********************hp detect (read-only)****************************/
++#define AK39PCM_SWITCH(xname, xindex, addr) \
++{ .iface = SNDRV_CTL_ELEM_IFACE_HWDEP, \
++  .access = SNDRV_CTL_ELEM_ACCESS_READ, \
++  .name = xname, .index = xindex, \
++  .info = codec_switch_info, \
++  .get = codec_switch_get, \
++  .private_value = addr \
++}
++
++/**
++ * @brief  info callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_switch_info(struct snd_kcontrol *kcontrol,
++				 struct snd_ctl_elem_info *uinfo)
++{
++	int addr = kcontrol->private_value;
++	if(MIXER_ADDR_HPDET != addr)
++	{
++		return -EINVAL;
++	}
++
++	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
++	uinfo->count = 1;
++	uinfo->value.integer.min = 0;
++	uinfo->value.integer.max = 1;		
++	return 0;
++}
++
++/**
++ * @brief  get callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_switch_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	struct ak_codec_dai *dai = snd_kcontrol_chip(kcontrol);
++	struct ak39_codec *codec = container_of(dai, struct ak39_codec, dai);
++
++	int addr = kcontrol->private_value;
++	if(MIXER_ADDR_HPDET != addr)
++	{
++		return -EINVAL;
++	}
++
++	ucontrol->value.integer.value[0] = codec->mixer_switch[addr];
++	PDEBUG("%s enter, value:%lu.\n", __func__, ucontrol->value.integer.value[0]);
++	return 0;
++}
++
++/***************************VOLUME*********************/
++#define AK39PCM_VOLUME(xname, xindex, addr) \
++{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
++  .access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
++  .name = xname, .index = xindex, \
++  .info = codec_volume_info, \
++  .get = codec_volume_get, \
++  .put = codec_volume_put, \
++  .private_value = addr \
++}
++
++/**
++ * @brief  info callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_volume_info(struct snd_kcontrol *kcontrol,
++				 struct snd_ctl_elem_info *uinfo)
++{
++	int port = kcontrol->private_value;
++	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
++	uinfo->count = 1;
++
++
++	if(port < 0 || port >= MIXER_PORT_VOL_COUNT) {
++		printk(KERN_ERR "%s port %d is invaild.\n", __func__, port);
++		return -EINVAL;
++	}
++	uinfo->value.integer.min = get_volume_info(port, VOL_INFO_MIN);
++	uinfo->value.integer.max = get_volume_info(port, VOL_INFO_MAX);
++
++	return 0;
++}
++
++/**
++ * @brief  get callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_volume_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	struct ak_codec_dai *dai = snd_kcontrol_chip(kcontrol);
++	struct ak39_codec *codec = container_of(dai, struct ak39_codec, dai);
++
++	int port = kcontrol->private_value;
++	if(port < 0 || port >= MIXER_PORT_VOL_COUNT) {
++		printk(KERN_ERR "%s port %d is invaild.\n", __func__, port);
++		return -EINVAL;
++	}
++
++	ucontrol->value.integer.value[0] = get_mixer_volume(codec, port);
++	PDEBUG("%s enter, port:%d, volume:%lu.\n",
++		   	__func__, port, ucontrol->value.integer.value[0]);
++	return 0;
++}
++
++/**
++ * @brief  put callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_volume_put(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	struct ak_codec_dai *dai = snd_kcontrol_chip(kcontrol);
++	struct ak39_codec *codec = container_of(dai, struct ak39_codec, dai);
++
++	int port = kcontrol->private_value;
++	int vol, old_vol;
++	int change = 0;
++
++	vol = ucontrol->value.integer.value[0];
++
++	PDEBUG("%s enter, port:%d, volume:%d.\n", __func__, port, vol);
++	vol = volume_repair_range(port, vol);
++
++	old_vol = set_mixer_volume(codec, port, vol);
++	if(vol != old_vol) {
++		change = 1;
++		ak39_set_gain(codec, port, vol);
++	}
++
++	return change;
++}
++
++/***************************ROUTE**************************/
++#define AK39PCM_ROUTE(xname, xindex, addr) \
++{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
++  .access = SNDRV_CTL_ELEM_ACCESS_READWRITE, \
++  .name = xname, \
++  .index = xindex, \
++  .info = codec_route_info, \
++  .get = codec_route_get, \
++  .put = codec_route_put, \
++  .private_value = addr \
++}
++
++/**
++ * @brief  info callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_route_info(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_info *uinfo)
++{
++	int addr = kcontrol->private_value;
++
++	if(addr >= MIXER_DST_COUNT)
++	{
++		return -EINVAL;
++	}
++	
++	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
++	uinfo->count = 1;
++	uinfo->value.integer.min = 0;
++	uinfo->value.integer.max = SIGNAL_SRC_MAX;
++
++	PDEBUG("%s enter, min:0, max:%d.\n", __func__, SIGNAL_SRC_MAX);
++	return 0;
++}
++
++/**
++ * @brief  get callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++static int codec_route_get(struct snd_kcontrol *kcontrol,
++				struct snd_ctl_elem_value *ucontrol)
++{
++	struct ak_codec_dai *dai = snd_kcontrol_chip(kcontrol);
++	struct ak39_codec *codec = container_of(dai, struct ak39_codec, dai);
++	int dst = kcontrol->private_value;
++
++	if(dst >= MIXER_DST_COUNT)
++	{
++		return -EINVAL;
++	}
++
++	ucontrol->value.integer.value[0] = get_route_src_on_dst(codec, dst, SOURCE_MIXED_ALL_MASK);
++	PDEBUG("%s enter, value:%lu.\n", __func__, ucontrol->value.integer.value[0]);
++	return 0;
++}
++
++/**
++ * @brief  put callback
++ * @author  Cheng Mingjuan
++ * @date   
++ * @return void
++ */
++/*application has to call this callback with params value=0 to power down input&output devices*/
++static int codec_route_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
++{
++	struct ak_codec_dai *dai = snd_kcontrol_chip(kcontrol);
++	struct ak39_codec *codec = container_of(dai, struct ak39_codec, dai);
++	int change = 1;
++	unsigned long dst = kcontrol->private_value;
++	int src = 0;
++
++	src = ucontrol->value.integer.value[0];
++	PDEBUG("%s:set route: dst:%lu, src:%d.\n", __func__, dst, src);
++
++	if((src < SIGNAL_SRC_MUTE) || (src > SIGNAL_SRC_MAX))
++		return -EINVAL;
++
++	if(dst == MIXER_ADDR_DST_HP) {
++		int plug_in = 0;
++
++		if(codec->playmode == PLAYMODE_HP)
++			plug_in = 1;
++		else if(codec->playmode == PLAYMODE_SPEAKER)
++			plug_in = 0;
++
++		set_playmode_switch(codec, plug_in);
++
++		/*power on the speaker when headphone plug out.*/
++		ak39_codec_speak_on(codec, !plug_in); 
++
++	}else if(dst == MIXER_ADDR_DST_ADC2) {
++	}
++
++	if(get_route_src_on_dst(codec, dst, SOURCE_MIXED_ALL_MASK) == src) {
++		change = 0;
++	}
++	set_route_src_on_dst(codec, dst, src, SOURCE_MIXED_ALL_MASK);
++
++	return change;
++}
++
++static struct ak_proc_entry codec_pentries[] = {
++};
++
++static struct snd_kcontrol_new codec_controls[] = {
++	AK39PCM_VOLUME("Headphone Playback Volume", 0, MIXER_PORT_HP_VOL),
++	AK39PCM_VOLUME("LineIn Capture Volume", 0, MIXER_PORT_LINEIN_VOL),
++	AK39PCM_VOLUME("Mic Capture Volume", 0, MIXER_PORT_MIC_VOL),
++	AK39PCM_ROUTE("Headphone Playback Route", 0, MIXER_ADDR_DST_HP),
++	AK39PCM_ROUTE("ADC Capture Route", 0, MIXER_ADDR_DST_ADC2),
++	/*AK39PCM_ROUTE("LineIn Capture Route", 0, MIXER_ADDR_LINEINSRC),*/
++	AK39PCM_SWITCH("HPDet switch", 0, MIXER_ADDR_HPDET),
++	AK39PCM_DAC_OUT_MODE("DAC out mode", 0, MIXER_ADDR_OUTMODE_DAC),
++	AK39PCM_OUTPUTCHNL_DURATION("duration of output channel", 0, MIXER_ADDR_PLAY_DURATION),
++};
++
++struct ak_codec_ops ak39_codec_ops = {
++	.dac_init		= ak39_codec_dac_open,
++	.dac_exit		= ak39_codec_dac_close,
++	.adc_init		= ak39_codec_adc2_open,
++	.adc_exit		= ak39_codec_adc2_close,
++	.set_dac_samplerate	= ak39_codec_set_dac_samplerate,
++	.set_adc_samplerate	= ak39_codec_set_adc2_samplerate,
++	.set_dac_channels	= ak39_codec_set_dac_channels,
++	.set_adc_channels	= ak39_codec_set_adc2_channels,
++	.playback_start		= ak39_codec_playback_start,
++	.playback_end		= ak39_codec_playback_stop,
++	.speaker_enable		= ak39_codec_speaker_enable,
++	.capture_start		= ak39_codec_capture_start,
++	.capture_end		= ak39_codec_capture_stop,
++	.start_to_play		= ak39_start_to_play,
++};
++
++
++static struct clk *ak39_codec_get_clk(struct device *dev, const char *name)
++{
++	struct clk *clk = devm_clk_get_optional(dev, name);
++
++	if (!IS_ERR_OR_NULL(clk)) {
++		clk_prepare_enable(clk);
++		return clk;
++	}
++	return NULL;
++}
++
++static int ak39_codec_probe(struct platform_device *pdev)
++{
++	struct device_node *np = pdev->dev.of_node;
++	int err = 0;
++	int i;
++	struct ak39_codec *codec;
++	struct resource *res;
++
++	codec = kzalloc(sizeof(*codec), GFP_KERNEL);
++	if (!codec)
++		return -ENOMEM;
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res) {
++		dev_err(&pdev->dev, "no memory resource for analog_ctrl_res\n");
++		err = -ENXIO;
++		goto out_free_codec;
++	}
++
++	codec->analog_ctrl_base = ioremap(res->start, resource_size(res));
++	if (!codec->analog_ctrl_base) {
++		dev_err(&pdev->dev, "could not remap analog_ctrl_res memory\n");
++		err = -ENXIO;
++		goto out_free_codec;
++	}
++
++	/* ADC2/DAC digital block */
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++	if (!res) {
++		dev_err(&pdev->dev, "no memory resource for adda_cfg_res\n");
++		err = -ENXIO;
++		goto out_unremap_analog;
++	}
++	codec->adda_cfg_base = ioremap(res->start, resource_size(res));
++	if (!codec->adda_cfg_base) {
++		dev_err(&pdev->dev, "could not remap adda_cfg_res memory\n");
++		err = -ENXIO;
++		goto out_unremap_analog;
++	}
++
++	codec->sdadc_gclk = ak39_codec_get_clk(&pdev->dev, "sdadc_gclk");
++	codec->sdadc_clk = ak39_codec_get_clk(&pdev->dev, "sdadc_clk");
++	codec->sdadchs_clk = ak39_codec_get_clk(&pdev->dev, "sdadchs_clk");
++	codec->sddac_gclk = ak39_codec_get_clk(&pdev->dev, "sddac_gclk");
++	codec->sddac_clk = ak39_codec_get_clk(&pdev->dev, "sddac_clk");
++	codec->sddachs_clk = ak39_codec_get_clk(&pdev->dev, "sddachs_clk");
++
++	for(i=0; i<MIXER_PORT_VOL_COUNT; i++) {
++		set_mixer_volume(codec, i, get_volume_info(i, VOL_INFO_DEFAULT));
++		ak39_set_gain(codec, i, get_mixer_volume(codec, i));
++	}
++
++	for(i=0; i<MIXER_DST_COUNT; i++) {
++		set_route_src_on_dst(codec, i, default_route[i], SOURCE_MIXED_ALL_MASK);
++	}
++
++	/*only a hp output at arch-ak39*/
++	codec->mixer_outmode[MIXER_ADDR_OUTMODE_DAC] = OUTMODE_HP;
++	codec->mixer_ch_duration[MIXER_ADDR_PLAY_DURATION] = CHNLDURATION_CONSTANT;
++
++	/*FIXME:can add the code for worker vaild when switch auto mode*/
++	INIT_DELAYED_WORK(&codec->d_work, hp_det_worker);
++
++	codec->playmode = PLAYMODE_AUTO_SWITCH;
++	of_property_read_u32(np, "anyka,playback-mode", (u32 *)&codec->playmode);
++
++	/* speaker shutdown/enable gpio -- optional, board-dependent */
++	codec->spkrshdn_gpio = of_get_named_gpio(np, "speak-gpios", 0);
++	codec->spk_gpios_en = 1;
++	of_property_read_u32(np, "speak-gpios-en", (u32 *)&codec->spk_gpios_en);
++	if (gpio_is_valid(codec->spkrshdn_gpio)) {
++		err = gpio_request_one(codec->spkrshdn_gpio,
++				codec->spk_gpios_en ? GPIOF_OUT_INIT_LOW
++						     : GPIOF_OUT_INIT_HIGH,
++				"ak39-codec-spk");
++		if (err) {
++			dev_err(&pdev->dev, "failed to request speak-gpios\n");
++			goto out_unremap_adda;
++		}
++	}
++
++	/* headphone detect gpio -- optional, board-dependent */
++	codec->hpdet_gpio = of_get_named_gpio(np, "hpdet-gpios", 0);
++	codec->hp_on_value = 0;
++	of_property_read_u32(np, "hpdet-active-level", (u32 *)&codec->hp_on_value);
++
++	if (gpio_is_valid(codec->hpdet_gpio)) {
++		err = gpio_request_one(codec->hpdet_gpio, GPIOF_IN,
++					"ak39-codec-hpdet");
++		if (err) {
++			dev_err(&pdev->dev, "failed to request hpdet-gpios\n");
++			goto out_free_spk_gpio;
++		}
++
++		codec->hp_det_irq = gpio_to_irq(codec->hpdet_gpio);
++
++		if(0 == codec->hp_on_value)
++			codec->irq_hp_on_type = IRQ_TYPE_LEVEL_LOW;
++		else
++			codec->irq_hp_on_type = IRQ_TYPE_LEVEL_HIGH;
++
++		set_hpdet_status(codec);
++		err = request_irq(codec->hp_det_irq, ak39_codec_hpdet_irq,
++			   	0, pdev->name, codec);
++		if(err)
++		{
++			dev_err(&pdev->dev, "request irq error!\n");
++			goto out_free_hpdet_gpio;
++		}
++	}
++
++	codec->dai.ops = &ak39_codec_ops;
++	codec->dai.num_kcontrols = ARRAY_SIZE(codec_controls);
++	codec->dai.kcontrols = codec_controls;
++	codec->dai.num_pentries = ARRAY_SIZE(codec_pentries);
++	codec->dai.pentries = codec_pentries;
++	codec->dai.entries_private = codec;
++
++	err = ak_codec_register(&codec->dai);
++	if (err) {
++		goto out_free_irq;
++	}
++
++	/* headphone de-pipa mute gpio -- optional, board-dependent */
++	codec->hpmute_gpio = of_get_named_gpio(np, "hpmute-gpios", 0);
++	codec->hpmute_en_val = 1;
++	of_property_read_u32(np, "hpmute-active-level", (u32 *)&codec->hpmute_en_val);
++	codec->used_hp_mute = gpio_is_valid(codec->hpmute_gpio);
++
++	if(codec->used_hp_mute){
++		err = gpio_request_one(codec->hpmute_gpio,
++				codec->hpmute_en_val ? GPIOF_OUT_INIT_LOW
++						      : GPIOF_OUT_INIT_HIGH,
++				"ak39-codec-hpmute");
++		if (err) {
++			dev_err(&pdev->dev, "failed to request hpmute-gpios\n");
++			goto out_free_irq;
++		}
++	}
++
++	codec->outputing = false;
++
++	platform_set_drvdata(pdev, codec);
++	return 0;
++
++out_free_irq:
++	if (gpio_is_valid(codec->hpdet_gpio))
++		free_irq(codec->hp_det_irq, codec);
++out_free_hpdet_gpio:
++	if (gpio_is_valid(codec->hpdet_gpio))
++		gpio_free(codec->hpdet_gpio);
++out_free_spk_gpio:
++	if (gpio_is_valid(codec->spkrshdn_gpio))
++		gpio_free(codec->spkrshdn_gpio);
++out_unremap_adda:
++	iounmap(codec->adda_cfg_base);
++out_unremap_analog:
++	iounmap(codec->analog_ctrl_base);
++out_free_codec:
++	kfree(codec);
++	return err;
++}
++
++static void ak39_codec_remove(struct platform_device *pdev)
++{
++	struct ak39_codec *codec = platform_get_drvdata(pdev);
++
++	if (!codec)
++		return;
++
++	if (gpio_is_valid(codec->hpdet_gpio)) {
++		free_irq(codec->hp_det_irq, codec);
++		gpio_free(codec->hpdet_gpio);
++	}
++	if (codec->used_hp_mute)
++		gpio_free(codec->hpmute_gpio);
++	if (gpio_is_valid(codec->spkrshdn_gpio))
++		gpio_free(codec->spkrshdn_gpio);
++
++	/*FIXME:can add the code for worker vaild when switch auto mode*/
++	cancel_delayed_work_sync(&codec->d_work);
++
++	if (codec->sdadc_gclk)
++		clk_disable_unprepare(codec->sdadc_gclk);
++	if (codec->sdadc_clk)
++		clk_disable_unprepare(codec->sdadc_clk);
++	if (codec->sdadchs_clk)
++		clk_disable_unprepare(codec->sdadchs_clk);
++	if (codec->sddac_gclk)
++		clk_disable_unprepare(codec->sddac_gclk);
++	if (codec->sddac_clk)
++		clk_disable_unprepare(codec->sddac_clk);
++	if (codec->sddachs_clk)
++		clk_disable_unprepare(codec->sddachs_clk);
++
++	iounmap(codec->analog_ctrl_base);
++	iounmap(codec->adda_cfg_base);
++
++	platform_set_drvdata(pdev, NULL);
++	kfree(codec);
++}
++
++static const struct of_device_id ak39_codec_of_match[] = {
++	{ .compatible = "anyka,ak39ev330-adc-dac" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ak39_codec_of_match);
++
++static struct platform_driver ak39_codec_driver = {
++	.driver	= {
++		.owner		= THIS_MODULE,
++		.name		= "ak39-codec",
++		.of_match_table	= ak39_codec_of_match,
++	},
++	.probe		= ak39_codec_probe,
++	.remove_new	= ak39_codec_remove,
++};
++module_platform_driver(ak39_codec_driver);
++
++MODULE_AUTHOR("anyka");
++MODULE_DESCRIPTION("ak39 codec Driver");
++MODULE_LICENSE("GPL");
++
+diff --git a/sound/arm/Kconfig b/sound/arm/Kconfig
+--- a/sound/arm/Kconfig
++++ b/sound/arm/Kconfig
+@@ -29,4 +29,15 @@ config SND_PXA2XX_AC97
+ 	  Say Y or M if you want to support any AC97 codec attached to
+ 	  the PXA2xx AC97 interface.
+ 
++config SND_AK_PCM
++	tristate "Anyka ADC/DAC sound driver"
++	select SND_PCM
++	help
++	  ALSA sound driver for the AK ADC/DAC.
++
++config CODEC_AK39
++	bool "AK39 internal codec"
++	depends on SND_AK_PCM
++	default y
++
+ endif	# SND_ARM
+diff --git a/sound/arm/Makefile b/sound/arm/Makefile
+--- a/sound/arm/Makefile
++++ b/sound/arm/Makefile
+@@ -11,3 +11,9 @@ snd-pxa2xx-lib-$(CONFIG_SND_PXA2XX_LIB_AC97)	+= pxa2xx-ac97-lib.o
+ 
+ obj-$(CONFIG_SND_PXA2XX_AC97)	+= snd-pxa2xx-ac97.o
+ snd-pxa2xx-ac97-objs		:= pxa2xx-ac97.o
++
++obj-$(CONFIG_SND_AK_PCM)	+= snd-akpcm.o
++snd-akpcm-objs			:= ak_pcm.o
++
++obj-$(CONFIG_CODEC_AK39)	+= snd-codec-ak39.o
++snd-codec-ak39-objs		:= ak39_codec.o
+diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+--- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
++++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+@@ -169,4 +169,14 @@ vi: video-input@20000000 {
+ 		anyka,sharepin-or = <0x40000710 0x0 0x01450525 0x100>;
+ 	};
++
++	adc_dac: codec@20110000 {
++		compatible = "anyka,ak39ev330-adc-dac";
++		reg = <0x08000000 0x100>,
++		      <0x20110000 0x8008>;
++		interrupts = <6>, <7>;
++		speak-gpios = <&gpio0 14 0>;
++		speak-gpios-en = <1>;
++		status = "okay";
++	};
+ };

@@ -1,0 +1,5 @@
+#!/bin/sh
+printf "Content-Type: image/jpeg\r\n\r\n"
+if [ -f /tmp/frame_ch0.jpg ]; then
+    cat /tmp/frame_ch0.jpg
+fi

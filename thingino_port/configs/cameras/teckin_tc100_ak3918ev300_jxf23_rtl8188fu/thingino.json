@@ -1,0 +1,31 @@
+{
+  "gpio": {
+    "button_reset": 84,
+    "ircut": "2 3",
+    "ir_led": 5,
+    "speaker": {
+      "pin": 79,
+      "active_low": false
+    },
+    "blue_led": 25,
+    "red_led": 26,
+    "wlan": {
+      "type": "usb",
+      "driver": "rtl8188fu"
+    }
+  },
+  "sensor": {
+    "model": "jxf23",
+    "id": "0xf23",
+    "interface": "mipi",
+    "i2c_addr": "0x30",
+    "isp_dma_pool_mb": 24
+  },
+  "boot": {
+    "uboot_env_offset": "0x23a000",
+    "uboot_env_size": "0x1000",
+    "dual_boot_sd": true,
+    "kernel_load_addr": "0x82000000",
+    "ramdisk_load_addr": "0x80900000"
+  }
+}
