@@ -52,9 +52,12 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/ui
   RTSP_CODEC=${RTSP_CODEC:-$(head -n 1 /mnt/sd/config/rtsp.codec 2>/dev/null)}
   [ "$RTSP_CODEC" = h264 ] || RTSP_CODEC=h265
   [ "$RTSP_CODEC" = h265 ] && CODEC_NUM=2 || CODEC_NUM=1
+  RTSP_LOG=/tmp/logs/tc100_rtsp.log
+  [ -f /mnt/sd/config/rtsp.debug ] && RTSP_LOG=/dev/console	# encoder messages on the serial console
   killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
-  ( cd /tmp && LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -c "$RTSP_CODEC" -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
-      -u "${RTSP_USER:-root}" -w "$PWD_FILE" >/tmp/logs/tc100_rtsp.log 2>&1 ) &
+  ( cd /tmp && { set -a; [ -f /mnt/sd/config/rtsp.env ] && . /mnt/sd/config/rtsp.env; set +a; }  # debug variables (AKUIO_*, RTSP_DEBUG)
+    LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -c "$RTSP_CODEC" -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
+      -u "${RTSP_USER:-root}" -w "$PWD_FILE" >"$RTSP_LOG" 2>&1 ) &
   # the vendor services (recording, ONVIF...) read codec and credentials from rtspserver.conf: keep it in step with
   # what tc100_rtsp serves (H.264, the camera password)
   if [ -x /mnt/bin/rwconf ] && [ -d /mnt/config ]; then
