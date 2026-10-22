@@ -105,6 +105,8 @@ jobs:
           arm-linux-gnueabi-gcc -O2 -Wall -static src/httpfront/httpfront.c -o $P/httpfront
           make -C src/libakuio CROSS=arm-linux-gnueabi- >/dev/null
           cp src/libakuio/libakuio.so $P/
+          make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/tc100rtsp/tc100_rtsp $P/
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
           cp config/isp_f23_mipi_2lane.conf $P/
           cat > $P/README-TEST.txt <<EOF
