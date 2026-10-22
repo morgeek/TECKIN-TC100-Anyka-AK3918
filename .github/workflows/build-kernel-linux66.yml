@@ -43,7 +43,7 @@ jobs:
           cp ../patches/kernel-6.6/defconfig_cma .config
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
           echo "[+] Validating CMA & Audio Configuration in .config:"
-          grep -E "CONFIG_CMA|CONFIG_DMA_CMA|CONFIG_SOUND|CONFIG_SND_AK_PCM|CONFIG_CODEC_AK39" .config
+          grep -E "CONFIG_CMA|CONFIG_SOUND|CONFIG_SND_AK_PCM|CONFIG_CODEC_AK39|CONFIG_ZRAM|CONFIG_ZSMALLOC|CONFIG_BLK_DEV" .config
 
       - name: Compile zImage and Device Tree
         run: |
