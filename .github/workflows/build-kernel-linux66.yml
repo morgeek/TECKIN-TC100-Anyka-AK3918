@@ -78,6 +78,9 @@ jobs:
           cp oipc.img ../output/
           md5sum ../output/oipc.img > ../output/oipc.img.md5
 
+      - name: Flash budget gate (kernel must fit the 2 MiB KERNEL region)
+        run: python3 scripts/flash_budget.py --kernel output/oipc.img
+
       - name: Build the test pack (initramfs, jpegenc, libakuio, self-test)
         run: |
           set -e
