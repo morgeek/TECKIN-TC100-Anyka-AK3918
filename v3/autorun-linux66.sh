@@ -34,7 +34,7 @@ for i in $(seq 1 25); do
   sleep 0.2
 done
 
-# 4a. Free hardware encoder stack (tc100_rtsp): H.264 over RTSP and the web UI pictures (stream.jpg, currentpic,
+# 4a. Free hardware encoder stack (tc100_rtsp): H.265/H.264 over RTSP and the web UI pictures (stream.jpg, currentpic,
 #     cam_luma) from the hardware JPEG engine, one process. Needs the vendor encoder libraries in /mnt/sd/lib and
 #     /dev/uio0 (ak39_venc driver); without them the older tc100_streamer + thingino-rtsp-server path below is used.
 NEWRTSP=0
@@ -48,15 +48,19 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/ui
   cp $TB/libakuio.so /tmp/libakuio.so; cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
   PWD_FILE=/mnt/sd/config/user.pwd
   [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
+  # codec: H.265 like the original firmware; "h264" in config/rtsp.codec (or RTSP_CODEC) selects H.264
+  RTSP_CODEC=${RTSP_CODEC:-$(head -n 1 /mnt/sd/config/rtsp.codec 2>/dev/null)}
+  [ "$RTSP_CODEC" = h264 ] || RTSP_CODEC=h265
+  [ "$RTSP_CODEC" = h265 ] && CODEC_NUM=2 || CODEC_NUM=1
   killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
-  ( cd /tmp && LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
+  ( cd /tmp && LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -c "$RTSP_CODEC" -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
       -u "${RTSP_USER:-root}" -w "$PWD_FILE" >/tmp/logs/tc100_rtsp.log 2>&1 ) &
   # the vendor services (recording, ONVIF...) read codec and credentials from rtspserver.conf: keep it in step with
   # what tc100_rtsp serves (H.264, the camera password)
   if [ -x /mnt/bin/rwconf ] && [ -d /mnt/config ]; then
     RC=/mnt/config/rtspserver.conf
     export LD_LIBRARY_PATH=/mnt/sd/lib
-    /mnt/bin/rwconf $RC w 0 codec 1
+    /mnt/bin/rwconf $RC w 0 codec $CODEC_NUM
     if [ -s "$PWD_FILE" ]; then
       /mnt/bin/rwconf $RC w " " USERNAME "${RTSP_USER:-root}"
       /mnt/bin/rwconf $RC w " " USERPASSWORD "$(head -n 1 "$PWD_FILE")"
@@ -64,7 +68,7 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/ui
     unset LD_LIBRARY_PATH
   fi
   NEWRTSP=1
-  echo "[tc100-v3] free H.264 RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
+  echo "[tc100-v3] free $RTSP_CODEC RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
 fi
 
 killall -9 tc100_streamer 2>/dev/null
