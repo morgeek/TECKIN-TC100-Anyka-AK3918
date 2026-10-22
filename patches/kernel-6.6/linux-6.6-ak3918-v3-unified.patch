@@ -30787,8 +30787,7 @@ index 000000000..7f205580e
 +	}
 +	akpcm->PlaybackCurrPos = 0;
 +
-+	if (((runtime->period_size % akpcm_playback_period_aligned) != 0) || 
-+		((runtime->buffer_size % runtime->period_size) != 0)) {
++	if (0) {
 +
 +		/*Calculate the optimal period size depending on the aligned period size*/
 +		if (runtime->period_size % akpcm_playback_period_aligned == 0) {
