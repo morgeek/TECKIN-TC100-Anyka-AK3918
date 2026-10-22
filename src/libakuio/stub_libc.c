@@ -5,7 +5,9 @@ void fprintf(void) {}
 void free(void) {}
 void fwrite(void) {}
 void getenv(void) {}
+void gettimeofday(void) {}
 void ioctl(void) {}
+void memset(void) {}
 void mmap(void) {}
 void munmap(void) {}
 void open(void) {}
