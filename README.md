@@ -90,29 +90,55 @@ grew from there.
 tuned as far as it goes, with no cloud and no vendor binary. That means this firmware on
 Linux 6.6 with free drivers, a free video encoder (JPEG, H.264, H.265) and a root filesystem
 that fits the 8 MB flash. The 2.x firmware above is unaffected and remains the one to use.
-Nothing of the encoder work has run on the camera yet.
+The kernel and system now boot on the camera from RAM; the encoder is still being debugged.
 
-- **Linux 6.6 port** of the AK3918EV300 as a series of 9 patches on the `v6.6` tag
+- **Linux 6.6 port** of the AK3918EV300 as a series of 10 patches on the `v6.6` tag
   ([patches/kernel-6.6/series](patches/kernel-6.6/series/README.md)): CPU, interrupts, timer,
   console, SD card, USB host, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio and
   **video** (V4L2 driver for the JX-F23 sensor and the ISP, 1080p NV12 at 25 fps; a private
   ioctl returns the physical address of capture buffers for zero-copy encoding). Tested from
   RAM through the stock U-Boot with the flash untouched. CI builds the kernel and a ready-to-copy
-  test folder (`tc100test/`: image, initramfs, self-test) on every push.
+  test folder (`tc100test/`: image, initramfs, self-test) on every push. First boot done:
+  Wi-Fi, SD, audio, video input, V3 services and `/dev/uio0` come up on Linux 6.6 with our own
+  Buildroot base (`v3/buildroot`, no OpenIPC image).
 - **Free video encoder** (`src/jpegenc`, `src/h265enc`, `src/libakuio`, kernel driver `ak39_venc`):
   the hardware JPEG engine is decoded (register sequence, quantisation tables, stream layout,
   checked against the vendor library), and the H.265 command-list generator reproduces 40
   recorded frames word for word. A free `libakuio` lets the vendor libraries run on 6.6 as a
-  stop-gap. All checked off-camera only; **not yet run on the camera**.
+  stop-gap. `/dev/uio0` works on the camera; the hardware JPEG core answers but does not produce
+  a valid picture yet (being debugged).
 - **Fits the flash**: a slim kernel (1.84 MB for a 2 MB region) and a squashfs root (2.65 MB for
   5.7 MB), with a size check that refuses images that do not fit
-  ([budget](docs/linux-port/flash-budget.md)). One gap: the 6.6 kernel has no driver for the
-  flash controller yet, so it cannot read its own root from flash.
+  ([budget](docs/linux-port/flash-budget.md)). The 6.6 kernel now has a read-only SPI NOR
+  driver (written, compiled, not yet run on the camera); writing is the next step.
 - **V3 user space on 6.6**: `v3/autorun-linux66.sh`, `v3/build-rootfs66.sh` (initramfs) and
   `v3/build-flash-rootfs66.sh` (flash root), one password for the camera, no credentials baked in,
   and an opt-in self-test (`v3/selftest66.sh`).
 - Also in the repository for the same effort: an OpenIPC SD boot kit (`contrib/openipc_sd_kit/`) and a
   Thingino board port (`thingino_port/`, with the verified pin numbers).
+
+### Planned install of 3.0 (simple, and without bricking the camera)
+
+Nothing below is released; the steps marked *(not built yet)* are the plan.
+
+1. **Try it from the SD card, nothing is written.** Copy the `tc100test/` folder from the CI artifact to
+   the card (FAT32), add your `wpa_supplicant.conf`, and boot it through the stock U-Boot hook
+   (`contrib/openipc_sd_kit/`). Remove the card and the camera is back on its old system.
+2. **Check that it really works** with the opt-in self-test (`tc100test/selftest`): Wi-Fi, video,
+   audio, encoder, flash read. Install only if every line is OK.
+3. **Install to flash from the running system** *(not built yet)*: `v3/flash-update66.sh`
+   (written, not tested on hardware) is the tool. It
+   - only touches the kernel and rootfs partitions; U-Boot, partition table, MAC and ENV are never written,
+   - refuses an image that does not fit or whose md5 differs,
+   - saves the current partition to the SD card first,
+   - writes with `flashcp`, reads the flash back and compares, and tells you how to restore on any difference,
+   - is a dry run unless you add `--write`.
+4. **Safety net.** The SD hook in U-Boot stays the way back: a camera whose flash content is bad still
+   starts U-Boot (never overwritten), and an SD card with the test folder boots it from RAM so the
+   backup can be written back. The rootfs is written before the kernel, and a power cut during the write
+   is covered only by that SD recovery, since 8 MB leaves no room for two copies.
+5. Before the first real write: a full dump of the 8 MB flash, a stable power supply, and a test of the
+   write path on the harmless `tail` partition.
 
 Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
 
