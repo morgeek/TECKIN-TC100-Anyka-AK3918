@@ -1,0 +1,51 @@
+name: Build base root filesystem (Buildroot, musl)
+
+# Our own replacement for the OpenIPC root filesystem: Buildroot 2024.02 LTS,
+# external tree v3/buildroot, BusyBox, dropbear, wpa_supplicant, curl, jq, alsa-utils.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'v3/buildroot/**'
+      - '.github/workflows/build-base-rootfs.yml'
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  base-rootfs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cpio unzip rsync bc file wget libncurses-dev
+
+      - name: Fetch Buildroot 2024.02.9
+        run: git clone --depth 1 --branch 2024.02.9 https://github.com/buildroot/buildroot.git buildroot-src
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: buildroot-dl-2024.02.9-${{ hashFiles('v3/buildroot/configs/**') }}
+          restore-keys: buildroot-dl-2024.02.9-
+
+      - name: Build
+        run: |
+          set -e
+          mkdir -p dl
+          make -C buildroot-src BR2_EXTERNAL=$PWD/v3/buildroot BR2_DL_DIR=$PWD/dl O=$PWD/br-out tc100_defconfig
+          make -C buildroot-src BR2_EXTERNAL=$PWD/v3/buildroot BR2_DL_DIR=$PWD/dl O=$PWD/br-out -j$(nproc)
+          ls -l br-out/images/
+
+      - name: Size of the root filesystem
+        run: |
+          ls -l br-out/images/rootfs.cpio.gz
+          mkdir t && cd t && gzip -dc ../br-out/images/rootfs.cpio.gz | cpio -id --quiet && du -sk . && du -sk usr/* lib/* | sort -rn | head -8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tc100-base-rootfs
+          path: br-out/images/rootfs.cpio.gz

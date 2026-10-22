@@ -5,12 +5,19 @@ on:
     branches: [ main, v3-linux66, v3-on-main ]
     paths:
       - 'patches/kernel-6.6/**'
+      - 'v3/**'
       - '.github/workflows/build-kernel-linux66.yml'
   workflow_dispatch:
 
 jobs:
+  base:
+    name: Base root filesystem (Buildroot)
+    uses: ./.github/workflows/build-base-rootfs.yml
+
   build-kernel:
     name: Compile Linux 6.6 + Anyka AK3918 + CMA 16MB
+    needs: base
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
 
     steps:
@@ -81,13 +88,23 @@ jobs:
       - name: Flash budget gate (kernel must fit the 2 MiB KERNEL region)
         run: python3 scripts/flash_budget.py --kernel output/oipc.img
 
+      - name: Get our base root filesystem
+        id: base
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: tc100-base-rootfs
+          path: base-rootfs
+
       - name: Build the test pack (initramfs, jpegenc, libakuio, self-test)
         run: |
           set -e
           P=output/tc100test
           mkdir -p $P
           cp output/oipc.img $P/
-          sudo sh v3/build-rootfs66.sh openipc_sd_kit/tc100test/oipcrd.gz $P/oipcrd66.gz
+          if [ -f base-rootfs/rootfs.cpio.gz ]; then BASE=base-rootfs/rootfs.cpio.gz; echo "base: our Buildroot image"
+          else BASE=openipc_sd_kit/tc100test/oipcrd.gz; echo "base: OpenIPC image (fallback)"; fi
+          sudo sh v3/build-rootfs66.sh $BASE $P/oipcrd66.gz
           arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o $P/jpegenc
           make -C src/libakuio CROSS=arm-linux-gnueabi- >/dev/null
           cp src/libakuio/libakuio.so $P/
