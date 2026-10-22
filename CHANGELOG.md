@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] — 3.0 work (Linux 6.6)
+
+Not part of any release; the 2.x firmware is unchanged. See [docs/linux-port](docs/linux-port/README.md).
+
+- Linux 6.6 port of the AK3918EV300 as a 9-patch series (`patches/kernel-6.6/series`), built by CI: console, SD card, USB, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio, V4L2 video for the JX-F23.
+- `ak39_venc` kernel driver and `libakuio` (free replacement of the vendor library) to reach the video encoder from user space.
+- `src/jpegenc`: JPEG on the hardware JPEG core, tables and layout verified offline.
+- `v3/`: 6.6 boot script, initramfs builder and autorun; the RTSP login now comes from `config/user.pwd`.
+- OpenIPC SD boot kit and Thingino board port added under `openipc_sd_kit/` and `thingino_port/`.
+
+---
+
 ## [2.1.9] — 2026-10-18
 
 A lighter RTSP server, sound both ways, motion zones.
