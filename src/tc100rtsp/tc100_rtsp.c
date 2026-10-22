@@ -29,8 +29,13 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "../libakuio/ak39_venc.h"
+#include "jpeg_hw.h"
+
 #define W 1920
 #define H 1080
+#define SW 640		/* sub-stream, stored in the V4L2 buffer after the main picture */
+#define SH 360
 #define MAXCLI 4
 #define RTP_PAYLOAD 1400
 #define CACHE_MAX (1536 * 1024)
@@ -59,6 +64,97 @@ static int (*p_pinit)(void);
 static volatile int run = 1;
 
 static void on_sig(int s) { (void)s; run = 0; }
+
+/* ---- web UI pictures from the hardware JPEG engine (same files as tc100_streamer) ---- */
+#define JSTREAM 0x7e900
+static int (*p_v2p)(unsigned long);
+static void (*p_wait)(unsigned long);
+static uint8_t *jbuf;
+static uint32_t jpaddr;
+static int jpeg_ok, jpeg_inited;
+
+static int jpeg_init(void)
+{
+	const char *dv = getenv("AKUIO_DEV") ? getenv("AKUIO_DEV") : "/dev/uio0";
+	struct ak39_venc_pool_info info;
+	int fd = open(dv, O_RDWR | O_SYNC);
+
+	if (fd < 0 || ioctl(fd, AK39_VENC_POOL_INFO, &info) < 0) return -1;
+	regs = mmap(NULL, info.regs_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, AK39_VENC_MMAP_REGS);
+	if (regs == MAP_FAILED) { regs = NULL; return -1; }
+	p_v2p = dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
+	p_wait = dlsym(RTLD_DEFAULT, "akuio_wait_irq");
+	jbuf = (uint8_t *)p_alloc(JSTREAM + AUX_SIZE);
+	if (!p_v2p || !p_wait || !jbuf) return -1;
+	jpaddr = (uint32_t)p_v2p((unsigned long)jbuf);
+	return jpaddr ? 0 : -1;
+}
+
+/* encode one NV12 picture (physical addresses) -> jbuf + TABLES_SIZE, returns the length or 0 */
+static uint32_t jpeg_run(uint32_t y, uint32_t uv, int w, int h, int q)
+{
+	uint32_t c[11], st[3];
+
+	build_tables(jbuf + JSTREAM, q);
+	ctrl_words(c, w, h, y, uv, jpaddr + JSTREAM, jpaddr, JSTREAM);
+	{ FILE *df = w < 1000 ? fopen("/tmp/c2", "r") : NULL; unsigned v;	/* debug: control word 2 override */
+	  if (df) { if (fscanf(df, "%x", &v) == 1) c[2] = v; fclose(df); } }
+	if (!jpeg_inited) { hw_init(); jpeg_inited = 1; }
+	hw_encode(c);
+	p_wait(0);
+	st[0] = RD(R_JPEG_STATUS); st[1] = RD(R_JPEG_STATUS + 4); st[2] = RD(R_JPEG_STATUS + 8);
+	(void)RD(R_STAT); (void)RD(R_ACK); WR(R_ACK, 0x10001);
+	WR(R_IRQ_EN, 0x1000007); WR(0x822c, 0);
+	WR(R_CLK, (RD(R_CLK) & 0xffff7fff) | 0xe00);
+	if (getenv("RTSP_DEBUG")) LOG("JPEG %dx%d status %08x %08x %08x\n", w, h, st[0], st[1], st[2]);
+	if (st[1] < 4 || st[1] > JSTREAM - TABLES_SIZE || jbuf[TABLES_SIZE] != 0xff || jbuf[TABLES_SIZE + 1] != 0xd8) return 0;
+	return st[1];
+}
+
+static void wfile(const char *name, const void *d, size_t n)
+{
+	char tmp[96];
+	int f;
+
+	snprintf(tmp, sizeof tmp, "%s.tmp", name);
+	f = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (f < 0) return;
+	if (write(f, d, n) == (ssize_t)n) { close(f); rename(tmp, name); }
+	else { close(f); unlink(tmp); }
+}
+
+/* The 6.6 ISP driver does not fill the sub-channel of the V4L2 buffer: make the 640x360 picture from the main one
+ * (3x3 decimation, a 3-sample average along the line). */
+static void sub_scale(const unsigned char *src, unsigned char *dst)
+{
+	const unsigned char *uv = src + W * H;
+	unsigned char *duv = dst + SW * SH;
+
+	for (int y = 0; y < SH; y++) {
+		const unsigned char *r = src + (3 * y + 1) * W;
+		unsigned char *o = dst + y * SW;
+
+		for (int x = 0; x < SW; x++)
+			o[x] = (r[3 * x] + r[3 * x + 1] + r[3 * x + 2]) / 3;
+	}
+	for (int y = 0; y < SH / 2; y++) {
+		const unsigned char *r = uv + (3 * y + 1) * W;
+		unsigned char *o = duv + y * SW;
+
+		for (int x = 0; x < SW / 2; x++) {
+			o[2 * x] = r[(3 * x + 1) * 2];
+			o[2 * x + 1] = r[(3 * x + 1) * 2 + 1];
+		}
+	}
+}
+
+static double now_s(void)
+{
+	struct timespec t;
+
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return t.tv_sec + t.tv_nsec / 1e9;
+}
 
 static void *ld(const char *dir, const char *name, int must)
 {
@@ -754,8 +850,11 @@ int main(int argc, char **argv)
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
 
-	unsigned int flen = W * H * 3 / 2;
-	unsigned char *pf = (unsigned char *)p_alloc(flen);
+	unsigned int flen = W * H * 3 / 2, ftot = flen + SW * SH * 3 / 2;
+	unsigned char *pf = (unsigned char *)p_alloc(ftot);
+	double t_luma = 0, t_str = 0, t_snap = 0;
+	if (!getenv("NO_JPEG")) jpeg_ok = jpeg_init() == 0;
+	LOG("web pictures: hardware JPEG %s\n", jpeg_ok ? "on" : "off");
 	if (!pf) { LOG("no DMA memory for the frame\n"); return 1; }
 
 	struct venc_param pa;
@@ -856,9 +955,26 @@ int main(int argc, char **argv)
 				cache_reset();
 				for (i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].playing) cl[i].wait_idr = 1;
 			}
+			double tn = now_s();
+			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= 0.25;
+			int d_snap = jpeg_ok && (tn - t_snap >= 2.0 || !access("/tmp/snapshot_request", F_OK));
+
+			if (d_luma) {	/* mean of the sub-stream luma samples, like tc100_streamer */
+				const unsigned char *sy = vb[b.index];	/* main luma at sub-stream coordinates x3 */
+				unsigned sum = 0, ns = 0;
+				char lb[16];
+				int ln;
+
+				for (int y = 10; y < SH - 10; y += 16)
+					for (int x = 10; x < SW - 10; x += 16) { sum += sy[(y * 3) * W + x * 3]; ns++; }
+				ln = snprintf(lb, sizeof lb, "%u\n", ns ? sum / ns : 50);
+				wfile("/tmp/cam_luma", lb, ln);
+				t_luma = tn;
+			}
+			if (active || d_snap) memcpy(pf, vb[b.index], flen);
+			if (d_str) sub_scale(vb[b.index], pf + flen);
+			ioctl(fd, VIDIOC_QBUF, &b);
 			if (active) {
-				memcpy(pf, vb[b.index], flen);
-				ioctl(fd, VIDIOC_QBUF, &b);
 				clock_gettime(CLOCK_MONOTONIC, &t1);
 				ts = (uint32_t)(((t1.tv_sec - t0.tv_sec) * 1000000ULL + (t1.tv_nsec - t0.tv_nsec) / 1000) * 9 / 100);
 				memset(&st, 0, sizeof st);
@@ -887,8 +1003,26 @@ int main(int argc, char **argv)
 					nfr++;
 					p_release(enc, &st);
 				}
-			} else {
-				ioctl(fd, VIDIOC_QBUF, &b);
+			}
+			if (d_str || d_snap) {
+				uint32_t py = (uint32_t)p_v2p((unsigned long)pf), n;
+
+				if (d_str && !access("/tmp/dump_sub", F_OK)) { unlink("/tmp/dump_sub"); wfile("/tmp/sub.nv12", pf + flen, SW * SH * 3 / 2); }
+					if (d_str && (n = jpeg_run(py + flen, py + flen + SW * SH, SW, SH, 40))) {
+					wfile("/tmp/stream.jpg", jbuf + TABLES_SIZE, n);
+					wfile("/tmp/frame_ch0.jpg", jbuf + TABLES_SIZE, n);
+					t_str = tn;
+				}
+				if (d_snap) {
+					unlink("/tmp/snapshot_request");
+					if ((n = jpeg_run(py, py + W * H, W, H, 35))) {
+						char ts[24];
+
+						wfile("/tmp/currentpic.cache.jpg", jbuf + TABLES_SIZE, n);
+						wfile("/tmp/currentpic.cache.ts", ts, snprintf(ts, sizeof ts, "%ld\n", (long)time(NULL)));
+					}
+					t_snap = tn;
+				}
 			}
 		}
 	}

@@ -4,7 +4,7 @@
 # The imports then resolve by name against the real uClibc at run time.
 CROSS ?= arm-linux-gnueabi-
 SYSROOT ?= /usr/arm-linux-gnueabi
-CFLAGS ?= -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mfloat-abi=soft \
+CFLAGS ?= -I../jpegenc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mfloat-abi=soft \
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
 
 all: tc100_rtsp
