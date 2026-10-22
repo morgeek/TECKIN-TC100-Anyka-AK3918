@@ -34,8 +34,31 @@ for i in $(seq 1 25); do
   sleep 0.2
 done
 
+# 4a. Free hardware encoder stack (tc100_rtsp): H.264 over RTSP and the web UI pictures (stream.jpg, currentpic,
+#     cam_luma) from the hardware JPEG engine, one process. Needs the vendor encoder libraries in /mnt/sd/lib and
+#     /dev/uio0 (ak39_venc driver); without them the older tc100_streamer + thingino-rtsp-server path below is used.
+NEWRTSP=0
+TB=/mnt/sd/tc100test
+if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
+  mkdir -p /lib/firmware/anyka
+  for f in $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/sd/config/isp.conf; do
+    [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
+  done
+  ln -sf /mnt/sd/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
+  cp $TB/libakuio.so /tmp/libakuio.so; cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
+  PWD_FILE=/mnt/sd/config/user.pwd
+  [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
+  killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
+  ( cd /tmp && LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
+      -u "${RTSP_USER:-root}" -w "$PWD_FILE" >/tmp/logs/tc100_rtsp.log 2>&1 ) &
+  NEWRTSP=1
+  echo "[tc100-v3] free H.264 RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
+fi
+
 killall -9 tc100_streamer 2>/dev/null
-if [ -x /mnt/sd/bin/tc100_streamer ]; then
+if [ "$NEWRTSP" = 1 ]; then
+  :
+elif [ -x /mnt/sd/bin/tc100_streamer ]; then
   /mnt/sd/bin/tc100_streamer -d
   echo "[tc100-v3] Hardware V4L2 optical streamer active" > /dev/console
 elif [ -x /mnt/sd/tc100test/tc100_streamer ]; then
@@ -60,9 +83,11 @@ fi
 echo "[tc100-v3] WebUI active on port 80" > /dev/console
 
 # 7. Start RTSP Server on port 554 (RFC 2435 JPEG stream)
-killall -9 thingino-rtsp-server 2>/dev/null
+[ "$NEWRTSP" = 1 ] || killall -9 thingino-rtsp-server 2>/dev/null
 sleep 0.5
-if [ -x /mnt/sd/tc100test/thingino-rtsp-server ]; then
+if [ "$NEWRTSP" = 1 ]; then
+  :
+elif [ -x /mnt/sd/tc100test/thingino-rtsp-server ]; then
   # One password for the whole camera, as in the main firmware: config/user.pwd
   # (seeded from the .dist template, never in git). It goes through a private
   # config file, not the command line, so it does not show in `ps`.
