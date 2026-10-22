@@ -1,0 +1,32 @@
+# Files and directories removed from the OpenIPC root filesystem for the flash image
+# (relative to /, one per line).  Nothing here is used by the V3 services; see
+# docs/linux-port/flash-budget.md.
+var/www
+usr/sbin/ubiattach
+usr/sbin/ubidetach
+usr/sbin/ubimkvol
+usr/sbin/ubirename
+usr/sbin/ubirmvol
+usr/sbin/ubirsvol
+usr/sbin/ubiupdatevol
+usr/sbin/nanddump
+usr/sbin/nandwrite
+usr/sbin/vtund
+usr/sbin/tunnel
+usr/sbin/telegram
+usr/sbin/openipc-claim
+usr/sbin/crashlog-send
+usr/sbin/motion-notify.sh
+usr/sbin/updatewebui
+usr/sbin/sysupgrade
+usr/sbin/fw-autoupdate
+usr/bin/camhi-motor
+usr/bin/i2c-motor
+usr/bin/ingenic-motor
+usr/bin/xm-kmotor
+usr/bin/ntfy.sh
+usr/bin/tftp
+usr/bin/traceroute
+usr/bin/traceroute6
+usr/bin/tree
+usr/share
