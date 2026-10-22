@@ -14,7 +14,7 @@ graphs, settings in a sidebar with a search box, and a dark theme.
 
 **3.0** is the next major version, in progress: the same firmware on a free,
 recent kernel (Linux 6.6) instead of the vendor's 3.4, with a free video
-encoder to follow. It is experimental and not released: see
+encoder, aiming at full control of the hardware and no cloud. It is experimental and not released: see
 [Linux 6.6 and the 3.0 work](#whats-new-in-30).
 
 It started from [the original TC100 SD-card hack](#where-it-comes-from) and
@@ -86,23 +86,33 @@ grew from there.
 
 ## What's new in 3.0
 
-**In progress, experimental, not released.** The goal: this firmware on Linux 6.6 with
-free parts instead of the vendor's, and H.264 / H.265. Everything below was tested from
-RAM through the stock U-Boot with the flash untouched; the 2.x firmware above is
-unaffected and remains the one to use.
+**In progress, experimental, not released.** The goal: full control of the camera's hardware,
+tuned as far as it goes, with no cloud and no vendor binary. That means this firmware on
+Linux 6.6 with free drivers, a free video encoder (JPEG, H.264, H.265) and a root filesystem
+that fits the 8 MB flash. The 2.x firmware above is unaffected and remains the one to use.
+Nothing of the encoder work has run on the camera yet.
 
 - **Linux 6.6 port** of the AK3918EV300 as a series of 9 patches on the `v6.6` tag
   ([patches/kernel-6.6/series](patches/kernel-6.6/series/README.md)): CPU, interrupts, timer,
   console, SD card, USB host, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio and
-  **video** (V4L2 driver for the JX-F23 sensor and the ISP, 1080p NV12 at 25 fps).
-  CI builds the kernel image on every push.
-- **Video encoder access**: `ak39_venc` (kernel) and `libakuio` (user space, a free replacement
-  for the vendor library) are meant to let the vendor encoder run on 6.6, as a first step
-  towards a free H.264 / H.265 / JPEG encoder. Written and compiled, **not yet run on the camera**.
-- **V3 user space on 6.6**: `v3/autorun-linux66.sh` and `v3/build-rootfs66.sh` (boot script,
-  initramfs, one password for the camera, no credentials baked in).
+  **video** (V4L2 driver for the JX-F23 sensor and the ISP, 1080p NV12 at 25 fps; a private
+  ioctl returns the physical address of capture buffers for zero-copy encoding). Tested from
+  RAM through the stock U-Boot with the flash untouched. CI builds the kernel and a ready-to-copy
+  test folder (`tc100test/`: image, initramfs, self-test) on every push.
+- **Free video encoder** (`src/jpegenc`, `src/h265enc`, `src/libakuio`, kernel driver `ak39_venc`):
+  the hardware JPEG engine is decoded (register sequence, quantisation tables, stream layout,
+  checked against the vendor library), and the H.265 command-list generator reproduces 40
+  recorded frames word for word. A free `libakuio` lets the vendor libraries run on 6.6 as a
+  stop-gap. All checked off-camera only; **not yet run on the camera**.
+- **Fits the flash**: a slim kernel (1.84 MB for a 2 MB region) and a squashfs root (2.65 MB for
+  5.7 MB), with a size check that refuses images that do not fit
+  ([budget](docs/linux-port/flash-budget.md)). One gap: the 6.6 kernel has no driver for the
+  flash controller yet, so it cannot read its own root from flash.
+- **V3 user space on 6.6**: `v3/autorun-linux66.sh`, `v3/build-rootfs66.sh` (initramfs) and
+  `v3/build-flash-rootfs66.sh` (flash root), one password for the camera, no credentials baked in,
+  and an opt-in self-test (`v3/selftest66.sh`).
 - Also in the repository for the same effort: an OpenIPC SD boot kit (`openipc_sd_kit/`) and a
-  Thingino board port (`thingino_port/`).
+  Thingino board port (`thingino_port/`, with the verified pin numbers).
 
 Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
 
@@ -360,7 +370,7 @@ autorun.sh          Boot entry point (SD card and flash)
 VERSION             Firmware version
 bin/ lib/           ARM binaries and libraries (SD card mode)
 www/                Web interface; www/cgi-bin/ are shell CGIs
-scripts/            Daemons and tools (flash-install.sh, flash-code.sh, flashboot.sh, wifi-txt.sh, rec-storage.sh…)
+scripts/            Daemons and tools (flash_budget.py, flash-install.sh, flash-code.sh, flashboot.sh, wifi-txt.sh, rec-storage.sh…)
   action.d/         The web commands of www/cgi-bin/action.cgi, one file per group
 controlscripts/     Services, started and stopped from the web page
 config/             Templates (*.dist) and boot scripts (config/autostart/)
@@ -373,10 +383,12 @@ src/netacl/         libnetacl: local-network-only filter on accept() for the web
 src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolchain
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
-docs/               API, known issues, screenshots; docs/linux-port: Linux 6.6 port, OpenIPC and Thingino notes
-patches/kernel-6.6/ Linux 6.6 patch series (series/), unified patch, kernel config
+docs/               API, known issues, screenshots; docs/linux-port: Linux 6.6 port, flash budget, OpenIPC and Thingino notes
+patches/kernel-6.6/ Linux 6.6 patch series (series/), unified patch, slim kernel config
 src/libakuio/       Free replacement for the vendor encoder-memory library (3.0, experimental)
-v3/                 Linux 6.6 user space: autorun, initramfs build script
+src/jpegenc/        Hardware JPEG encoder tool and tables (3.0, experimental)
+src/h265enc/        H.265 command-list generator and register-sequence model (3.0, experimental)
+v3/                 Linux 6.6 user space: autorun, initramfs and flash root builders, self-test
 openipc_sd_kit/     OpenIPC SD boot kit (Linux 4.4, RAM only)
 thingino_port/      Thingino board support for the TC100
 ```
