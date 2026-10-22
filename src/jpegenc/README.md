@@ -5,7 +5,7 @@ by registers, much simpler than the H.264 / H.265 path (which needs a DMA comman
 `jpegenc` programs it from user space, through the `ak39_venc` kernel driver (`/dev/uio0`),
 with no vendor library. It is the first brick of a free encoder.
 
-**Status: not run on hardware.** Everything that can be checked without the camera is:
+**Status: works on the camera (RAM-booted Linux 6.6): 1920x1080 NV12 in, a complete standard JPEG out.** The table block goes in the table buffer (control word 6); see the note below. Checked without the camera:
 
 | What | How it was checked |
 |---|---|
@@ -18,7 +18,7 @@ with no vendor library. It is the first brick of a free encoder.
 
 ## How the core is driven
 
-1. `build_tables()`: at the start of the stream buffer, a 0x800-byte block:
+1. `build_tables()`: at the start of the *table buffer* (control word 6, the 0x6400-byte area after the stream buffer; putting it at the start of the output buffer makes the core ignore it), a 0x800-byte block:
    - `0x000` luma quantisation table (zigzag order, bytes), `0x040` chroma;
    - `0x080` luma reciprocals, `0x100` chroma: 16 bit, `(0x10000 + q/2) / q - 1` at index zigzag[i];
    - `0x180` 14 constant words, `0x1b8` 4 constant words;
