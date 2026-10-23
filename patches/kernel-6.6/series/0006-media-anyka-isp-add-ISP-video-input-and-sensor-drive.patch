@@ -10020,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,820 @@
+@@ -0,0 +1,831 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10078,6 +10078,11 @@ index 000000000..42f5fa12c
 +#define NUM_SLOTS	4
 +#define SUB_W		640
 +#define SUB_H		360
++
++/* ak39_vi.sub_channel=1 on the kernel command line: program the 640x360 sub channel at stream start */
++static int sub_channel;
++module_param(sub_channel, int, 0444);
++MODULE_PARM_DESC(sub_channel, "program the ISP sub channel (640x360) at stream start");
 +
 +/* SYSCTRL */
 +#define SYS_PERI_CTRL1	0x14
@@ -10520,6 +10525,8 @@ index 000000000..42f5fa12c
 +			 vi->width, vi->height, ret);
 +	}
 +	ispdrv_vo_set_main_channel_scale(vi->width, vi->height);
++	if (sub_channel)
++		ispdrv_vo_set_sub_channel_scale(SUB_W, SUB_H);
 +
 +	for (i = 0; i < NUM_SLOTS; i++)
 +		ispdrv_vo_disable_buffer(BUFFER_ONE + i);
@@ -10544,10 +10551,14 @@ index 000000000..42f5fa12c
 +static void stop_streaming(struct vb2_queue *q)
 +{
 +	struct ak39_vi *vi = vb2_get_drv_priv(q);
++	int i;
 +
 +	disable_irq(vi->irq);
 +	ispdrv_set_isp_pause();
 +	ispdrv_vi_stop_capturing();
++	/* no slot may keep a buffer address once vb2 can free the buffers */
++	for (i = 0; i < NUM_SLOTS; i++)
++		ispdrv_vo_disable_buffer(BUFFER_ONE + i);
 +	ispdrv_vo_clear_irq_status(0xffff);
 +	cancel_delayed_work_sync(&vi->ae_work);
 +	cancel_delayed_work_sync(&vi->awb_work);
