@@ -58,14 +58,14 @@ The port is a series of 9 patches on the `v6.6` tag, in `patches/kernel-6.6/seri
 
 ```
 git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-cd linux && git am ../patches/kernel-6.6/series/*.patch     # same tree as patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch
+cd linux && git am ../patches/kernel-6.6/series/*.patch
 cp ../patches/kernel-6.6/defconfig_cma .config && make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs
 ```
 
 CI (`.github/workflows/build-kernel-linux66.yml`) does this on every push and publishes `oipc.img` (zImage + DTB as a uImage, load and entry 0x80008000). The RTL8188FU firmware must be in `firmware/rtlwifi/` of the kernel tree (from linux-firmware; `patches/kernel-6.6/firmware/` has a copy). The vendor ISP tuning file `/lib/firmware/anyka/isp.conf` (the stock `isp_f23_mipi2lane.conf`) must be on the root filesystem before streaming.
 
-The older single patch (`linux-6.6-ak3918.patch`, 74 files, tested up to video) and its config stay here as the reference of the first tested state. The sources in `drivers/media/platform/anyka-isp`, `drivers/usb/host/anyka`, `drivers/mmc/host/akmci*` and `include/plat-anyka` derive from the vendor's GPL kernel sources (via OpenIPC/linux) and keep their copyright headers. `git apply` warns about whitespace in them; that is harmless.
+The sources in `drivers/media/platform/anyka-isp`, `drivers/usb/host/anyka`, `drivers/mmc/host/akmci*` and `include/plat-anyka` derive from the vendor's GPL kernel sources (via OpenIPC/linux) and keep their copyright headers. `git apply` warns about whitespace in them; that is harmless.
 
 ### The video driver (`drivers/media/platform/anyka-isp/`)
 

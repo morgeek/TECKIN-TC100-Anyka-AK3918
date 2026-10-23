@@ -17,8 +17,8 @@ fi
 cd linux-src
 git checkout -f
 
-echo "[+] Applying Unified Anyka hardware, CMA 16MB & ALSA audio patch..."
-patch -p1 < "$ROOT_DIR/patches/kernel-6.6/linux-6.6-ak3918-v3-unified.patch"
+echo "[+] Applying the Anyka AK3918 patch series..."
+git -c user.name=build -c user.email=build@localhost am --whitespace=nowarn "$ROOT_DIR"/patches/kernel-6.6/series/*.patch
 
 echo "[+] Configuring CMA in kernel..."
 mkdir -p firmware/rtlwifi
