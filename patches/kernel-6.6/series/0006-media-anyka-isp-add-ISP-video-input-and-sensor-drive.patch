@@ -10020,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,907 @@
+@@ -0,0 +1,909 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10399,6 +10399,8 @@ index 000000000..42f5fa12c
 +}
 +
 +/* ---------------------------------------------------------------- irq -- */
++
++static void guard_check(struct ak39_vi *vi, struct vb2_buffer *vb);
 +
 +static irqreturn_t vi_irq(int irq, void *data)
 +{
