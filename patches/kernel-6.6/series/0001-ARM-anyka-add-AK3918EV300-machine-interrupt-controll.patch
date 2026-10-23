@@ -87,7 +87,7 @@ new file mode 100644
 index 000000000..de68cce9f
 --- /dev/null
 +++ b/arch/arm/mach-anyka/anyka.c
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,143 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 device tree board support.
@@ -165,31 +165,56 @@ index 000000000..de68cce9f
 +#define AK39_CORE_PLL		0x08
 +#define AK39_CPU_PLL		0x04
 +#define AK39_CORE_PLL_640	0x010203a0
-+#define AK39_ASIC_HZ		160000000
 +#define AK39_UART0		0x20130000
++
++/*
++ * ak_core_pll=<value> on the command line overrides the SYSCTRL 0x08 value
++ * (default 640 MHz). 0x010213f0 = 480 MHz (the stock 3.4 setting, ASIC
++ * 120 MHz) and 0x010213c8 = 400 MHz (the boot loader's own, no ISP lines).
++ * Used to check that the random memory corruption is not a clock-speed
++ * problem.
++ */
++static unsigned int ak_core_pll = AK39_CORE_PLL_640;
++static int __init ak_core_pll_setup(char *str)
++{
++	return kstrtouint(str, 0, &ak_core_pll) == 0;
++}
++__setup("ak_core_pll=", ak_core_pll_setup);
++
++/* PLL = 12 MHz * m / (n << od); vclk = PLL >> shift; ASIC = vclk / 2 */
++static u32 ak39_asic_hz(u32 v)
++{
++	u32 m = v & 0xff, n = (v >> 8) & 0xf, od = (v >> 12) & 3;
++	u32 sh = (v >> 17) & 7;
++
++	if (!m || !n)
++		return 0;
++	return (12000000u * m / (n << od) >> sh) / 2;
++}
 +
 +static int __init anyka_core_pll(void)
 +{
 +	void __iomem *sys = ioremap(AK39_SYSCTRL, 0x100);
 +	void __iomem *uart = ioremap(AK39_UART0, 0x10);
-+	u32 div = AK39_ASIC_HZ / 115200 - 1, v;
++	u32 pll = ak_core_pll, asic = ak39_asic_hz(pll), div, v;
 +	unsigned long flags;
 +
-+	if (!sys || !uart)
++	if (!sys || !uart || !asic)
 +		return 0;
-+	if ((readl(sys + AK39_CORE_PLL) & 0x3fff) != (AK39_CORE_PLL_640 & 0x3fff)) {
++	div = asic / 115200 - 1;
++	if ((readl(sys + AK39_CORE_PLL) & 0x3fff) != (pll & 0x3fff)) {
 +		local_irq_save(flags);
-+		writel(AK39_CORE_PLL_640 | BIT(23), sys + AK39_CORE_PLL);
++		writel(pll | BIT(23), sys + AK39_CORE_PLL);
 +		writel(readl(sys + AK39_CPU_PLL) | BIT(28), sys + AK39_CPU_PLL);
 +		udelay(100);
 +		v = readl(uart) & ~(0xffff | BIT(22));
 +		v |= div | BIT(28) | BIT(29);
-+		if (AK39_ASIC_HZ % 115200)
++		if (asic % 115200)
 +			v |= BIT(22);
 +		writel(v, uart);
 +		local_irq_restore(flags);
-+		pr_info("anyka: core PLL 640 MHz (ASIC 160 MHz), SYSCTRL 0x08 = %08x\n",
-+			readl(sys + AK39_CORE_PLL));
++		pr_info("anyka: core PLL set, ASIC %u Hz, SYSCTRL 0x08 = %08x\n",
++			asic, readl(sys + AK39_CORE_PLL));
 +	}
 +	iounmap(uart);
 +	iounmap(sys);
