@@ -132,7 +132,7 @@ index 000000000..28580fca8
 +	asic_clk: asic-clk {
 +		compatible = "fixed-clock";
 +		#clock-cells = <0>;
-+		clock-frequency = <160000000>;
++		clock-frequency = <120000000>;
 +	};
 +
 +	l2: l2@20140000 {
