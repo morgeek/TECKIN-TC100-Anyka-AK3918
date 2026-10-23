@@ -465,6 +465,28 @@ void akuio_wait_irq(unsigned long arg)
 			}
 		}
 	}
+	if (regs && getenv("AKUIO_REGSCAN")) {	/* debug: DRAM-looking register values outside the pool (a DMA target the kernel does not own) */
+		static uint32_t seen_o[64], seen_v[64];
+		static int nseen;
+		uint32_t o;
+
+		for (o = 0; o < 0x400 && o + 4 <= regs_len - 0x8000; o += 4) {
+			uint32_t w = *(volatile uint32_t *)(regs + 0x8000 + o);
+			int k;
+
+			if (w < 0x80000000u || w >= 0x84000000u || (w >= info.paddr && w < info.paddr + info.size))
+				continue;
+			for (k = 0; k < nseen; k++)
+				if (seen_o[k] == o && seen_v[k] == w)
+					break;
+			if (k == nseen && nseen < 64) {
+				seen_o[nseen] = o;
+				seen_v[nseen++] = w;
+				fprintf(stderr, "REGSCAN reg 0x%04x = %08x outside the pool (%08x..%08x)\n", 0x8000 + o, w,
+					info.paddr, info.paddr + (uint32_t)info.size);
+			}
+		}
+	}
 	struct timeval t0, t1;
 	if (getenv("AKUIO_IRQDBG")) irqdbg("pre ");
 	gettimeofday(&t0, NULL);
