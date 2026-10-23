@@ -47,7 +47,7 @@ new file mode 100644
 index 000000000..4078d4db5
 --- /dev/null
 +++ b/drivers/misc/ak39_venc.c
-@@ -0,0 +1,367 @@
+@@ -0,0 +1,443 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Anyka AK3918EV300 video encoder access (Allegro DVT core, H.264/H.265/JPEG)
@@ -76,6 +76,8 @@ index 000000000..4078d4db5
 +#include <linux/of_address.h>
 +#include <linux/platform_device.h>
 +#include <linux/spinlock.h>
++#include <linux/string.h>
++#include <linux/workqueue.h>
 +#include <linux/soc/anyka/ak_l2.h>
 +#include <uapi/linux/ak39_venc.h>
 +
@@ -100,9 +102,57 @@ index 000000000..4078d4db5
 +	size_t pool_size;
 +	bool pool_reserved;	/* memremap()ed no-map region, not dma_alloc */
 +	int open_count;
++
++	/* guard zones around the pool (0 = below, 1 = above), filled with GUARD_PAT */
++	void *guard_virt[2];
++	size_t guard_size[2];
++	struct delayed_work guard_work;
++	unsigned int guard_runs;
 +};
 +
 +static DEFINE_SPINLOCK(sysctrl_lock);
++
++static bool guard = true;
++module_param(guard, bool, 0444);
++MODULE_PARM_DESC(guard, "watch the reserved guard zones around the encoder pool for stray DMA writes");
++
++#define GUARD_PAT	0xA5
++#define GUARD_NEAR	SZ_64K
++
++/*
++ * The encoder is programmed from user space with physical addresses; a write
++ * past either end of the pool would land in ordinary kernel memory. Two
++ * reserved zones touch the pool and are filled with a pattern: the adjacent
++ * 64 KiB are checked every 2 s and the whole zones every 30 s.
++ */
++static void ak39_venc_guard_work(struct work_struct *w)
++{
++	struct ak39_venc *v = container_of(w, struct ak39_venc, guard_work.work);
++	bool full = !(v->guard_runs++ % 15);
++	int g;
++
++	for (g = 0; g < 2; g++) {
++		u8 *z = v->guard_virt[g], *bad, *last;
++		size_t sz = v->guard_size[g], len, k;
++
++		if (!z)
++			continue;
++		len = full ? sz : min_t(size_t, sz, GUARD_NEAR);
++		/* zone 0 ends where the pool starts, zone 1 starts where it ends */
++		bad = memchr_inv(g ? z : z + sz - len, GUARD_PAT, len);
++		if (!bad)
++			continue;
++		for (k = sz; k > 0 && z[k - 1] == GUARD_PAT; k--)
++			;
++		last = z + k - 1;
++		if (g)
++			dev_err(v->dev, "GUARD: stray write ABOVE the pool, up to %zu bytes past its end\n", (size_t)(last - z) + 1);
++		else
++			dev_err(v->dev, "GUARD: stray write BELOW the pool, down to %zu bytes before its start\n", sz - (size_t)(bad - z));
++		memset(z, GUARD_PAT, sz);
++	}
++	schedule_delayed_work(&v->guard_work, 2 * HZ);
++}
 +
 +static void sysctrl_update(u32 reg, u32 mask, u32 val)
 +{
@@ -329,6 +379,7 @@ index 000000000..4078d4db5
 +	spin_lock_init(&v->lock);
 +	mutex_init(&v->pool_lock);
 +	init_completion(&v->irq_done);
++	INIT_DELAYED_WORK(&v->guard_work, ak39_venc_guard_work);
 +
 +	v->irq = platform_get_irq(pdev, 0);
 +	if (v->irq < 0)
@@ -360,6 +411,30 @@ index 000000000..4078d4db5
 +		v->pool_dma = rr.start;
 +		v->pool_virt = memremap(rr.start, v->pool_size, MEMREMAP_WC);
 +		v->pool_reserved = true;
++		/* optional guard zones: memory-region entries 1 (below) and 2 (above) */
++		if (guard) {
++			int g;
++
++			for (g = 0; g < 2; g++) {
++				struct device_node *gn = of_parse_phandle(dev->of_node, "memory-region", 1 + g);
++				struct resource gr;
++
++				if (!gn)
++					continue;
++				if (!of_address_to_resource(gn, 0, &gr)) {
++					v->guard_virt[g] = memremap(gr.start, resource_size(&gr), MEMREMAP_WC);
++					v->guard_size[g] = resource_size(&gr);
++					if (v->guard_virt[g])
++						memset(v->guard_virt[g], GUARD_PAT, v->guard_size[g]);
++				}
++				of_node_put(gn);
++			}
++			if (v->guard_virt[0] || v->guard_virt[1]) {
++				schedule_delayed_work(&v->guard_work, 2 * HZ);
++				dev_info(dev, "guard zones: %zu KiB below, %zu KiB above the pool\n",
++					 v->guard_size[0] >> 10, v->guard_size[1] >> 10);
++			}
++		}
 +	} else {
 +		v->pool_size = PAGE_ALIGN(size);
 +		v->pool_virt = dma_alloc_wc(dev, v->pool_size, &v->pool_dma,
@@ -393,6 +468,7 @@ index 000000000..4078d4db5
 +{
 +	struct ak39_venc *v = platform_get_drvdata(pdev);
 +
++	cancel_delayed_work_sync(&v->guard_work);
 +	misc_deregister(&v->misc);
 +	ak39_venc_pool_free(v);
 +}
