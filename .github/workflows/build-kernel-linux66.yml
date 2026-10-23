@@ -128,3 +128,15 @@ jobs:
         with:
           name: tc100-linux66-cma16-kernel
           path: output/
+
+      - name: Pack kernel symbols (to decode Oops traces)
+        run: |
+          mkdir -p symbols
+          cp linux-src/System.map linux-src/.config symbols/
+          gzip -c linux-src/vmlinux > symbols/vmlinux.gz
+
+      - name: Upload kernel symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: tc100-linux66-symbols
+          path: symbols/
