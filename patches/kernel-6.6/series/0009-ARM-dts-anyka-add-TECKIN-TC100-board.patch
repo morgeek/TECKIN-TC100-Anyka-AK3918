@@ -39,7 +39,7 @@ new file mode 100644
 index 000000000..28580fca8
 --- /dev/null
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,222 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/dts-v1/;
 +/ {
@@ -79,6 +79,17 @@ index 000000000..28580fca8
 +
 +		/* video encoder: reference frames, streams, command lists
 +		 * (12 MiB, between the test initramfs and the CMA pool) */
++		/* guard zones touching the encoder pool, watched by ak39_venc (a stray encoder write lands here, not in the kernel) */
++		venc_guard_lo: venc-guard@81700000 {
++			reg = <0x81700000 0x100000>;
++			no-map;
++		};
++
++		venc_guard_hi: venc-guard@82400000 {
++			reg = <0x82400000 0x100000>;
++			no-map;
++		};
++
 +		venc_pool: venc@81800000 {
 +			compatible = "shared-dma-pool";
 +			reg = <0x81800000 0xc00000>;
@@ -231,7 +242,7 @@ index 000000000..28580fca8
 +		compatible = "anyka,ak3918ev300-venc";
 +		reg = <0x20020000 0x10000>;
 +		interrupts = <2>;
-+		memory-region = <&venc_pool>;
++		memory-region = <&venc_pool>, <&venc_guard_lo>, <&venc_guard_hi>;
 +		anyka,pool-size = <0xc00000>;
 +	};
 +
