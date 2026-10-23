@@ -120,7 +120,7 @@ new file mode 100644
 index 000000000..97f00ee92
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.c
-@@ -0,0 +1,4936 @@
+@@ -0,0 +1,4942 @@
 +#include <linux/kernel.h>
 +#include <linux/errno.h>
 +#include <linux/string.h>
@@ -2914,7 +2914,7 @@ index 000000000..97f00ee92
 +    	|   (LOW_BITS(_3d_nr->uv_2dnr_enable, 1) <<TNR_UV_2DNR_EN);
 +
 +
-+    if (isp->_3dnr_reset) {
++    if (isp->_3dnr_reset || isp->_3dnr_noref) {
 +		CLEAR_BITS(cmd, TNR_UV_EN, 1);
 +		CLEAR_BITS(cmd, TNR_Y_EN, 1);
 +	}
@@ -4984,6 +4984,12 @@ index 000000000..97f00ee92
 +		infos[i] = NULL;
 +}
 +
++void ak_isp_set_3d_nr_noref(int noref)
++{
++	isp->_3dnr_noref = noref;
++	isp->linkage_para_update_flag = 1;
++}
++
 +int ak_isp_set_td()
 +{
 +	isp->_3dnr_reset = 1;
@@ -5062,7 +5068,7 @@ new file mode 100644
 index 000000000..ec66106c8
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.h
-@@ -0,0 +1,377 @@
+@@ -0,0 +1,378 @@
 +#ifndef _AK39_ISP2_H
 +#define _AK39_ISP2_H
 +
@@ -5295,6 +5301,7 @@ index 000000000..ec66106c8
 +	volatile int pause_flag;	//require irq to stop isp
 +
 +	int _3dnr_reset;
++	int _3dnr_noref;	/* no reference frame: keep 3D-NR off */
 +}AK_ISP_STRUCT;
 +/***************************************************************************
 +        
@@ -10013,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,818 @@
+@@ -0,0 +1,820 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10341,10 +10348,12 @@ index 000000000..42f5fa12c
 +						&vi->ref_uv_dma, GFP_KERNEL);
 +		if (!vi->ref_y || !vi->ref_uv) {
 +			free_ref(vi);
-+			dev_warn(vi->dev, "no memory for the 3D-NR reference frame\n");
++			ispdrv_vp_3d_nr_noref(1);
++			dev_warn(vi->dev, "no memory for the 3D-NR reference frame, 3D-NR disabled\n");
 +			return;
 +		}
 +	}
++	ispdrv_vp_3d_nr_noref(0);
 +	ref.yaddr_3d = vi->ref_y_dma;
 +	ref.ysize_3d = vi->ref_y_bytes;
 +	ref.uaddr_3d = vi->ref_uv_dma;
@@ -15306,7 +15315,7 @@ new file mode 100644
 index 000000000..e81040baf
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ispdrv_interface.c
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,190 @@
 +#include <linux/module.h>
 +
 +#include <mach-anyka/ispdrv_interface.h>
@@ -15491,6 +15500,12 @@ index 000000000..e81040baf
 +	return ak_isp_vp_set_3d_nr_ref_addr(ref);
 +}
 +EXPORT_SYMBOL(ispdrv_vp_set_3d_nr_ref_addr);
++
++void ispdrv_vp_3d_nr_noref(int noref)
++{
++	ak_isp_set_3d_nr_noref(noref);
++}
++EXPORT_SYMBOL(ispdrv_vp_3d_nr_noref);
 diff --git a/drivers/media/platform/anyka-isp/sensor_f22_f23_f28_f35_f37.c b/drivers/media/platform/anyka-isp/sensor_f22_f23_f28_f35_f37.c
 new file mode 100644
 index 000000000..4ea1c7584
@@ -16185,7 +16200,7 @@ new file mode 100644
 index 000000000..194c4f812
 --- /dev/null
 +++ b/include/mach-anyka/ispdrv_interface.h
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,85 @@
 +#ifndef __ISPDRV_INTERFACE__
 +#define __ISPDRV_INTERFACE__
 +
@@ -16268,6 +16283,7 @@ index 000000000..194c4f812
 +int ispdrv_vo_get_inputdataw(void);
 +
 +int ispdrv_vp_set_3d_nr_ref_addr(AK_ISP_3D_NR_REF_ATTR *ref);
++void ispdrv_vp_3d_nr_noref(int noref);
 +
 +#endif
 diff --git a/include/plat-anyka/ak_camera.h b/include/plat-anyka/ak_camera.h
@@ -16389,7 +16405,7 @@ new file mode 100644
 index 000000000..8b464cbcf
 --- /dev/null
 +++ b/include/plat-anyka/ak_isp_drv.h
-@@ -0,0 +1,1506 @@
+@@ -0,0 +1,1507 @@
 +#ifndef _AK_ISP_DRV_H_
 +#define _AK_ISP_DRV_H_
 +
@@ -17461,6 +17477,7 @@ index 000000000..8b464cbcf
 + * @param [in] *p_ref: 3d noise remove referenc param
 + */
 +int ak_isp_vp_set_3d_nr_ref_addr(AK_ISP_3D_NR_REF_ATTR *p_ref);
++void ak_isp_set_3d_nr_noref(int noref);
 +
 +/**
 + * @brief: get 3d noise remove reference param
