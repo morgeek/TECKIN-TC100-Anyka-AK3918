@@ -2703,7 +2703,7 @@ index 000000000..ab692d7c7
 +	__raw_writel(0x0,rL2_BUFASSIGN2);
 +
 +	/* Initialize L2 DMA information status */
-+	memset(l2_dma_info, 0, ARRAY_SIZE(l2_dma_info));
++	memset(l2_dma_info, 0, sizeof(l2_dma_info));
 +
 +	/* Initialize global L2 fraction DMA start flag */
 +	l2_frac_started = false;
