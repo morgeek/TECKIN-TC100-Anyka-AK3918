@@ -10020,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,831 @@
+@@ -0,0 +1,907 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10081,6 +10081,9 @@ index 000000000..42f5fa12c
 +
 +/* ak39_vi.sub_channel=1 on the kernel command line: program the 640x360 sub channel at stream start */
 +static int sub_channel;
++static int guard;
++module_param(guard, int, 0444);
++MODULE_PARM_DESC(guard, "debug: fill the buffer tails with 0xA5 and report ISP writes past the main frame");
 +module_param(sub_channel, int, 0444);
 +MODULE_PARM_DESC(sub_channel, "program the ISP sub channel (640x360) at stream start");
 +
@@ -10100,6 +10103,7 @@ index 000000000..42f5fa12c
 +struct ak39_vi_buf {
 +	struct vb2_v4l2_buffer vb;
 +	struct list_head list;
++	bool primed, tripped;	/* guard mode */
 +};
 +
 +struct ak39_vi {
@@ -10128,7 +10132,8 @@ index 000000000..42f5fa12c
 +	dma_addr_t ref_y_dma, ref_uv_dma;
 +	size_t ref_y_bytes, ref_uv_bytes;
 +
-+	struct delayed_work ae_work, awb_work;
++	struct delayed_work ae_work, awb_work, guard_work;
++	size_t guard_last[4];
 +	unsigned long irq_jiffies;
 +	u32 frames, lost;
 +};
@@ -10418,6 +10423,7 @@ index 000000000..42f5fa12c
 +	 */
 +	if (head && id >= 0 && (id & 0x7f) == head->vb.vb2_buf.index &&
 +	    !list_is_singular(&vi->active)) {
++		guard_check(vi, &head->vb.vb2_buf);
 +		list_del(&head->list);
 +		ispdrv_vo_disable_buffer(BUFFER_ONE + head->vb.vb2_buf.index);
 +		head->vb.vb2_buf.timestamp = ktime_get_ns();
@@ -10436,6 +10442,69 @@ index 000000000..42f5fa12c
 +	schedule_delayed_work(&vi->ae_work, 0);
 +	ispdrv_vo_clear_irq_status(0xffff);
 +	return IRQ_HANDLED;
++}
++
++/* ------------------------------------------------- guard (debug) -- */
++
++/*
++ * ak39_vi.guard=1: the part of each buffer past the main frame (sub-channel
++ * area + 4 KiB slack) is filled with 0xA5 once; the slack is checked every
++ * frame (an ISP write past the buffer end shows up as a GUARD error) and a
++ * work item reports how far into that tail the ISP has written.
++ */
++#define GUARD_PAT	0xA5
++#define GUARD_SLACK	4096
++
++static void guard_prime(struct ak39_vi *vi, struct vb2_buffer *vb)
++{
++	struct ak39_vi_buf *b = to_vi_buf(to_vb2_v4l2_buffer(vb));
++	u8 *p = vb2_plane_vaddr(vb, 0);
++
++	if (!guard || b->primed || !p || vb2_plane_size(vb, 0) <= vi->sizeimage)
++		return;
++	memset(p + vi->sizeimage, GUARD_PAT, vb2_plane_size(vb, 0) - vi->sizeimage);
++	b->primed = true;
++}
++
++static void guard_check(struct ak39_vi *vi, struct vb2_buffer *vb)
++{
++	struct ak39_vi_buf *b = to_vi_buf(to_vb2_v4l2_buffer(vb));
++	u8 *p = vb2_plane_vaddr(vb, 0), *bad;
++	size_t len = vb2_plane_size(vb, 0);
++
++	if (!guard || !b->primed || b->tripped || !p || len < GUARD_SLACK)
++		return;
++	bad = memchr_inv(p + len - GUARD_SLACK, GUARD_PAT, GUARD_SLACK);
++	if (bad) {
++		b->tripped = true;
++		dev_err(vi->dev, "GUARD: ISP wrote past the end of buffer %u (+%zu in the slack)\n",
++			vb->index, (size_t)(bad - (p + len - GUARD_SLACK)));
++	}
++}
++
++static void guard_work_fn(struct work_struct *w)
++{
++	struct ak39_vi *vi = container_of(w, struct ak39_vi, guard_work.work);
++	unsigned int i;
++
++	for (i = 0; i < vi->q.num_buffers && i < 4; i++) {
++		struct vb2_buffer *vb = vi->q.bufs[i];
++		u8 *p = vb ? vb2_plane_vaddr(vb, 0) : NULL;
++		size_t n, k;
++
++		if (!p || vb2_plane_size(vb, 0) <= vi->sizeimage)
++			continue;
++		n = vb2_plane_size(vb, 0) - vi->sizeimage;
++		p += vi->sizeimage;
++		for (k = n; k > 0 && p[k - 1] == GUARD_PAT; k--)
++			;
++		if (k != vi->guard_last[i]) {
++			vi->guard_last[i] = k;
++			dev_info(vi->dev, "GUARD: buffer %u tail written up to +%zu of %zu (sub area %u, slack %u)\n",
++				 i, k, n, SUB_W * SUB_H * 3 / 2, GUARD_SLACK);
++		}
++	}
++	schedule_delayed_work(&vi->guard_work, 5 * HZ);
 +}
 +
 +/* ---------------------------------------------------------------- vb2 -- */
@@ -10463,6 +10532,7 @@ index 000000000..42f5fa12c
 +		return -EINVAL;
 +	if (vb2_plane_size(vb, 0) < vi->sizeimage)
 +		return -EINVAL;
++	guard_prime(vi, vb);
 +	return 0;
 +}
 +
@@ -10534,6 +10604,10 @@ index 000000000..42f5fa12c
 +		arm_slot(vi, &b->vb.vb2_buf);
 +
 +	vi->seq = 0;
++	if (guard) {
++		memset(vi->guard_last, 0xff, sizeof(vi->guard_last));
++		schedule_delayed_work(&vi->guard_work, 2 * HZ);
++	}
 +	vi->frames = vi->lost = 0;
 +	ispdrv_vi_apply_mode(ISP_RGB_VIDEO_OUT);
 +	ispdrv_vo_enable_irq_status(1);
@@ -10560,6 +10634,7 @@ index 000000000..42f5fa12c
 +	for (i = 0; i < NUM_SLOTS; i++)
 +		ispdrv_vo_disable_buffer(BUFFER_ONE + i);
 +	ispdrv_vo_clear_irq_status(0xffff);
++	cancel_delayed_work_sync(&vi->guard_work);
 +	cancel_delayed_work_sync(&vi->ae_work);
 +	cancel_delayed_work_sync(&vi->awb_work);
 +	vi_power_down(vi);
@@ -10730,6 +10805,7 @@ index 000000000..42f5fa12c
 +	INIT_LIST_HEAD(&vi->active);
 +	INIT_DELAYED_WORK(&vi->ae_work, ae_work);
 +	INIT_DELAYED_WORK(&vi->awb_work, awb_work);
++	INIT_DELAYED_WORK(&vi->guard_work, guard_work_fn);
 +	vi->width = 1920;
 +	vi->height = 1080;
 +	vi->sizeimage = 1920 * 1080 * 3 / 2;
