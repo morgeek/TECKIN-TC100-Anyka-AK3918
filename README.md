@@ -412,7 +412,7 @@ src/curl, src/lighttpd, src/wpa_supplicant   Builds with the Anyka uClibc toolch
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
 docs/               API, known issues, screenshots; docs/linux-port: Linux 6.6 port, flash budget, OpenIPC and Thingino notes
-patches/kernel-6.6/ Linux 6.6 patch series (series/), unified patch, slim kernel config
+patches/kernel-6.6/ Linux 6.6 patch series (series/), kernel config
 src/libakuio/       Free replacement for the vendor encoder-memory library (3.0, experimental)
 src/jpegenc/        Hardware JPEG encoder tool and tables (3.0, experimental)
 src/h265enc/        H.265 command-list generator and register-sequence model (3.0, experimental)
