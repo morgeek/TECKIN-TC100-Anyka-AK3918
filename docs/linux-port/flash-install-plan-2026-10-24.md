@@ -35,3 +35,26 @@ Goal: boot without the SD card (SD becomes video storage only), flash keeps a wa
 - `flashw kernel|boot`: refused by the allow-list; `dd` to /dev/mtd1: permission denied (read-only partition).
 - After erasing `tail` again, md5 of mtd0..mtd5 identical to the dump taken before the tests (flash-md5-before/after.txt).
 - Next: tiny initramfs + squashfs (build-slim-stack.sh, 3.2 MiB), boot it from RAM, then from flash.
+
+## Update — flash install done and booting (2026-10-24, evening)
+
+Final SPI NOR layout (8 MiB, 4 KiB erase): `boot` 0x0/0x39000 (RO), `kernel` 0x39000/2 MiB, `mac` (RO), `env` 0x23a000/4 KiB (RO), `initrd` 0x23b000/2 MiB, `stack` 0x43b000/0x3b3000, `cfga` 0x7ee000/36 KiB, `cfgb` 0x7f7000/36 KiB.
+(`CONFIG_MTD_SPI_NOR_USE_4K_SECTORS=y` is required, otherwise unaligned partitions are forced read-only.)
+
+Written with `flashw` (flashcp + read-back compare + md5), U-Boot, boot and mac never touched:
+- `stack` = slim xz squashfs (3.2 MiB, `build-slim-stack.sh`, ships `*.dist` + static config parts); read back md5 = file md5.
+- `kernel` = `c66.img` (1,889,091 B), `initrd` = `c66rd.gz` (xz, **dict=2 MiB**, zero-padded to 2,012,654 B so `initrd=0x81000000,2012654` stays exact). A 64 MiB xz dictionary makes the kernel panic ("XZ decompressor ran out of memory").
+- Settings: `cfg-persist` A/B slots. Shipped static files (cacert, openssl.cnf, swap header, autostart/0*) are not saved (they live in the squashfs); a slot is ~10 KB. Wi-Fi (`wpa_supplicant.conf`) is part of the saved settings; round trip tested (save → restore into a temp dir → identical). Secrets stay in flash only, never in the repo.
+- U-Boot env (only variables added, ENV partition rewritten with the usual setenv/`env export`/`sf erase/write`/`cmp.b` method):
+```
+flashload=sf probe 0:0 20000000 0; sf read 0x82000000 0x39000 0x1ce000; sf read 0x81000000 0x23b000 0x1ec000
+flashboot=run flashload; setenv bootargs console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init initrd=0x81000000,2012654 flashroot=1; bootm 0x82000000
+bootcmd=run sdload sdboot; run flashboot; run boot_normal
+```
+Boot order: SD kernel if `tc100test/c66.img` exists (recovery/dev), else flash. To go back to SD-only boot rename `tc100test/c66.img.sdbak` to `c66.img`.
+
+Findings:
+- The kernel only enumerates the SD card when U-Boot initialised it first (what `sdload` does when a card is present). Calling `flashboot` directly from the prompt gives "no SD card" in Linux; through `bootcmd` it works.
+- Flash reads/verification of 3 MiB take minutes while the streamer runs (polled PIO SPI); `flashw` is slow but correct. The serial shell is blocked meanwhile.
+- No SD console shell in flash mode unless `tc100test/consoleshell` exists on the card (otherwise a getty login).
+- Verified: kernel+initramfs+user space from flash, web UI (302), RTSP 554, Wi-Fi from the flash settings, SD kept as video storage.
