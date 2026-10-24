@@ -13,13 +13,33 @@ for i in 1 2 3 4 5; do
   for d in /dev/mmcblk0p1 /dev/mmcblk0; do
     [ -b $d ] && mount -t vfat -o rw,noatime $d /mnt/sd 2>/dev/null && break 2
   done
+  [ -b /dev/mmcblk0 ] || break    # no card slot content: do not wait
   sleep 1
 done
-mountpoint -q /mnt/sd && log "SD card mounted" || log "no SD card: V3 services not started"
+mountpoint -q /mnt/sd && log "SD card mounted" || log "no SD card"
+
+# 1a. Flash mode: the user space comes from the SPI flash (squashfs in the "stack" partition), the card is optional.
+#     Switches: flashroot=1 on the kernel command line (U-Boot flash boot), or tc100test/flashmode on the card (test).
+FM=0
+grep -q 'flashroot=1' /proc/cmdline && FM=1
+[ -f /mnt/sd/tc100test/flashmode ] && FM=1
+CFGD=/mnt/sd/config
+if [ $FM = 1 ]; then
+  for d in /sys/class/mtd/mtd[0-9]*; do
+    case $d in *ro) continue;; esac
+    [ "$(cat $d/name)" = stack ] && { SM=${d##*/}; break; }
+  done
+  mkdir -p /rom
+  if [ -n "$SM" ] && mount -t squashfs -o ro /dev/mtdblock${SM#mtd} /rom 2>/dev/null && [ -f /rom/v3/linux66-sd/flashmode-prep.sh ]; then
+    /bin/sh /rom/v3/linux66-sd/flashmode-prep.sh && CFGD=/mnt/config || { log "flash mode failed"; FM=0; }
+  else
+    log "cannot mount the user space from flash"; FM=0
+  fi
+fi
 
 # 1b. Serial console: a login prompt, or a root shell if tc100test/consoleshell exists on the card
 #     (physical access to the UART pads only; for bring-up, remove the file afterwards)
-if [ -f /mnt/sd/tc100test/consoleshell ]; then
+if [ -f /mnt/sd/tc100test/consoleshell ] || [ -f /mnt/tc100test/consoleshell ]; then
   log "console shell enabled (tc100test/consoleshell)"
   ( while :; do setsid -c /bin/sh </dev/ttySAK0 >/dev/ttySAK0 2>&1; sleep 1; done ) &
 else
@@ -28,7 +48,7 @@ fi
 
 # 2. One password for the camera (config/user.pwd); without it, remote login stays closed
 PW=
-[ -s /mnt/sd/config/user.pwd ] && PW=$(head -n 1 /mnt/sd/config/user.pwd)
+[ -s $CFGD/user.pwd ] && PW=$(head -n 1 $CFGD/user.pwd)
 if [ -n "$PW" ]; then
   echo "root:$PW" | chpasswd -m 2>/dev/null
 else
@@ -38,7 +58,7 @@ fi
 unset PW
 
 # 3. Wi-Fi
-for f in /mnt/sd/config/wpa_supplicant.conf /mnt/sd/wpa_supplicant.conf /mnt/sd/tc100test/wpa_supplicant.conf; do
+for f in $CFGD/wpa_supplicant.conf /mnt/sd/wpa_supplicant.conf /mnt/sd/tc100test/wpa_supplicant.conf; do
   [ -f "$f" ] && { cp "$f" /etc/wpa_supplicant.conf; chmod 600 /etc/wpa_supplicant.conf; log "Wi-Fi settings from the SD card"; break; }
 done
 for i in 1 2 3 4 5 6 7 8 9 10; do ip link show wlan0 >/dev/null 2>&1 && break; sleep 1; done
@@ -55,7 +75,7 @@ else
 fi
 
 # 4. V3 services
-for a in /mnt/sd/v3/autorun-linux66.sh /mnt/sd/autorun-linux66.sh /mnt/sd/tc100test/autorun.sh; do
+for a in /mnt/v3/autorun-linux66.sh /mnt/sd/v3/autorun-linux66.sh /mnt/sd/autorun-linux66.sh /mnt/sd/tc100test/autorun.sh; do
   if [ -f "$a" ]; then log "starting $a"; /bin/sh "$a" & break; fi
 done
 
