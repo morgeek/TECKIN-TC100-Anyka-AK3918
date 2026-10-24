@@ -567,6 +567,8 @@ load_lum_awb() {
 
   if [ -r /var/run/lum ]; then
     read -r lum_value < /var/run/lum
+  elif [ -r /tmp/cam_luma ]; then
+    read -r lum_value < /tmp/cam_luma
   fi
   if [ -r /var/run/awb ]; then
     read -r awb_value < /var/run/awb
@@ -782,7 +784,10 @@ read_power_telemetry() {
 
     power_estimated_mw=$((power_estimate_base_mw + (cpu_for_power * power_estimate_cpu_scale_mw / 100)))
     ir_led_state=0
-    if [ -r /sys/user-gpio/ir-led ]; then
+    if [ -r /sys/class/leds/ir/brightness ]; then
+      read -r ir_led_raw < /sys/class/leds/ir/brightness
+      ir_led_state="$(sanitize_int "$ir_led_raw" 0)"
+    elif [ -r /sys/user-gpio/ir-led ]; then
       read -r ir_led_raw < /sys/user-gpio/ir-led
       ir_led_state="$(sanitize_int "$ir_led_raw" 0)"
     fi
@@ -1706,10 +1711,16 @@ EOF_DF
     if [ -r /sys/class/leds/blue_led/brightness ]; then
       read -r _led_raw < /sys/class/leds/blue_led/brightness 2>/dev/null
       [ "$_led_raw" = "1" ] && front_led_state=1
+    elif [ -r /sys/class/leds/blue/brightness ]; then
+      read -r _led_raw < /sys/class/leds/blue/brightness 2>/dev/null
+      [ "$_led_raw" = "1" ] && front_led_state=1
     fi
     red_led_state=0
     if [ -r /sys/class/leds/red_led/brightness ]; then
       read -r _led_raw < /sys/class/leds/red_led/brightness 2>/dev/null
+      [ "$_led_raw" = "1" ] && red_led_state=1
+    elif [ -r /sys/class/leds/red/brightness ]; then
+      read -r _led_raw < /sys/class/leds/red/brightness 2>/dev/null
       [ "$_led_raw" = "1" ] && red_led_state=1
     fi
     syslog_enabled="$(truthy_flag "$(get_cfg SYSLOG_ENABLE 0)")"

@@ -292,15 +292,31 @@ publish_mqtt_event() {
 
 # Control the led
 led(){
+  _led_node="$2"
+  if [ ! -e "/sys/class/leds/$_led_node/brightness" ] && [ -e "/sys/class/leds/${_led_node%_led}/brightness" ]; then
+    _led_node="${_led_node%_led}"
+  fi
   case "$1" in
   on)
-    echo 1 > /sys/class/leds/$2/brightness
+    if [ -w "/sys/class/leds/$_led_node/brightness" ]; then
+      echo 1 > "/sys/class/leds/$_led_node/brightness"
+    else
+      echo 1 > /sys/class/leds/$2/brightness
+    fi
     ;;
   off)
-    echo 0 > /sys/class/leds/$2/brightness
+    if [ -w "/sys/class/leds/$_led_node/brightness" ]; then
+      echo 0 > "/sys/class/leds/$_led_node/brightness"
+    else
+      echo 0 > /sys/class/leds/$2/brightness
+    fi
     ;;
   status)
-    status=$(cat /sys/class/leds/$2/brightness)
+    if [ -r "/sys/class/leds/$_led_node/brightness" ]; then
+      status=$(cat "/sys/class/leds/$_led_node/brightness")
+    else
+      status=$(cat /sys/class/leds/$2/brightness)
+    fi
     case $status in
       1)
         echo "ON"
@@ -332,7 +348,11 @@ ir_led(){
     /mnt/bin/setconf -k g -v 0
     ;;
   status)
-    status=$(cat /sys/user-gpio/ir-led)
+    if [ -r /sys/class/leds/ir/brightness ]; then
+      status=$(cat /sys/class/leds/ir/brightness)
+    else
+      status=$(cat /sys/user-gpio/ir-led)
+    fi
     case $status in
       0)
         echo "OFF"
@@ -354,7 +374,11 @@ ir_cut(){
     /mnt/bin/setconf -k e -v 0
     ;;
   status)
-    status=$(cat /var/run/ircut)
+    if [ -r /var/run/ircut ]; then
+      status=$(cat /var/run/ircut)
+    else
+      status=1
+    fi
     case $status in
       1)
         echo "ON"
@@ -535,7 +559,11 @@ black_white()
     /mnt/bin/setconf -k v -v 1
     ;;
   status)
-    status=$(cat /var/run/vday)
+    if [ -r /var/run/vday ]; then
+      status=$(cat /var/run/vday)
+    else
+      status=1
+    fi
     case $status in
       0)
         echo "ON"

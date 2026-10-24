@@ -7,12 +7,26 @@
 k=; v=; g=
 while [ $# -gt 0 ]; do case "$1" in -k) k="$2"; shift 2 ;; -v) v="$2"; shift 2 ;; -g) g="$2"; shift 2 ;; *) shift ;; esac; done
 if [ -n "$g" ]; then
-  case "$g" in p) [ -e /tmp/tc100_md ] && echo 1 || echo 0 ;; v) cat /var/run/vday 2>/dev/null || echo 1 ;; *) echo 0 ;; esac
+  case "$g" in
+    p) [ -e /tmp/tc100_md ] && echo 1 || echo 0 ;;
+    v) cat /var/run/vday 2>/dev/null || echo 1 ;;
+    e) cat /var/run/ircut 2>/dev/null || echo 1 ;;
+    n)
+      if [ -f /var/run/auto-night-detection.pid ] && kill -0 "$(cat /var/run/auto-night-detection.pid 2>/dev/null)" 2>/dev/null; then
+        echo 2
+      else
+        echo 3
+      fi
+      ;;
+    *) echo 0 ;;
+  esac
   exit 0
 fi
 case "$k" in
   v) mkdir -p /var/run
      if [ "$v" = 0 ]; then : > /tmp/tc100_bw; echo 0 > /var/run/vday; else rm -f /tmp/tc100_bw; echo 1 > /var/run/vday; fi ;;
+  e) mkdir -p /var/run
+     echo "${v:-1}" > /var/run/ircut ;;
   p) case "$v" in 1) : > /tmp/tc100_md ;; *) rm -f /tmp/tc100_md; echo 0 > /tmp/rec_control ;; esac ;;
   m) echo "$v" > /tmp/tc100_md_sens ;;
   g) [ -w /sys/class/leds/ir/brightness ] && echo "${v:-0}" > /sys/class/leds/ir/brightness ;;
