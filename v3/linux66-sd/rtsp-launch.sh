@@ -4,7 +4,7 @@
 # (Services page, "Apply" buttons).
 TB=/mnt/sd/tc100test; CONF=/mnt/config/rtspserver.conf; PWD_FILE=/mnt/sd/config/user.pwd
 [ -f $TB/tc100_rtsp ] || exit 1
-[ -x /tmp/tc100_rtsp ] || { cp $TB/tc100_rtsp /tmp/tc100_rtsp && chmod +x /tmp/tc100_rtsp; }
+cmp -s $TB/tc100_rtsp /tmp/tc100_rtsp 2>/dev/null || { killall -9 tc100_rtsp 2>/dev/null; cp $TB/tc100_rtsp /tmp/tc100_rtsp && chmod +x /tmp/tc100_rtsp; }
 [ -f /tmp/libakuio.so ] || cp $TB/libakuio.so /tmp/libakuio.so
 [ -e /lib/ld-uClibc.so.0 ] || ln -sf /mnt/sd/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
 CODEC=h265; KBPS=${RTSP_KBPS:-1500}; PORT=554
@@ -19,6 +19,8 @@ V=$(LD_LIBRARY_PATH=/mnt/sd/lib /mnt/bin/rwconf $CONF r " " volume 2>/dev/null)
 case "$V" in ''|*[!0-9]*) ;; *) LD_LIBRARY_PATH=/mnt/sd/lib /mnt/bin/tinymix -D 0 set "LineIn Capture Volume" "$V" >/dev/null 2>&1 ;; esac
 killall -9 tc100_rtsp 2>/dev/null
 w=0; while netstat -tan 2>/dev/null | grep -q ":$PORT .*LISTEN" && [ $w -lt 8 ]; do sleep 1; w=$((w+1)); done
+# time zone for the clock overlay (first non-comment line of config/timezone.conf, POSIX TZ string)
+TZV=$(grep -v '^#' /mnt/config/timezone.conf 2>/dev/null | grep -v '^$' | head -n 1); [ -n "$TZV" ] && export TZ="$TZV"
 RTSP_LOG=/tmp/logs/tc100_rtsp.log; mkdir -p /tmp/logs
 [ -f /mnt/sd/config/rtsp.debug ] && RTSP_LOG=/dev/console
 ( cd /tmp && { set -a; [ -f /mnt/sd/config/rtsp.env ] && . /mnt/sd/config/rtsp.env; set +a; }

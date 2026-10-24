@@ -156,6 +156,204 @@ static double now_s(void)
 	return t.tv_sec + t.tv_nsec / 1e9;
 }
 
+static int atoi_(const char *s)	/* no atoi/strtol: they pull C2x symbols the camera's uClibc does not have */
+{
+	int n = 0, neg = 0;
+
+	if (*s == '-') { neg = 1; s++; }
+	while (*s >= '0' && *s <= '9') n = n * 10 + (*s++ - '0');
+	return neg ? -n : n;
+}
+
+static void sscanf_4(const char *s, int *o)	/* "x1,y1,x2,y2" */
+{
+	int i;
+
+	for (i = 0; i < 4; i++) { o[i] = atoi_(s); while (*s && *s != ',') s++; if (*s == ',') s++; }
+}
+
+/* ---- picture post-processing, done while the frame is copied to the encoder buffer ----------------------------
+ * - live image tuning (Image page: brightness, contrast, saturation, hue) from config/isp_tune.conf when ISP_TUNE=1
+ *   in boot.conf (sharpness needs a filter and is not done)
+ * - grey-world white balance of the colour cast the ISP leaves (off when config/awb.off exists)
+ * - privacy masks (isp_tune.conf MASK1..4 = x1,y1,x2,y2 in percent, MASK_COLOR) and the clock overlay
+ *   (rtspserver.conf osdenabled / osdtext / [0] osdx osdy osdfontsize): burned in before the encoder, like the vendor ISP */
+static unsigned char ylut[256], ulut[256], vlut[256];
+static int p_ytune, p_hue, p_tune, p_bri, p_con, p_sat, p_mask[4][4], p_mcol = 16, p_osd, p_osdx = 20, p_osdy = 24, p_osdsz = 32;
+static int p_awb = 1, p_du, p_dv;
+static char p_fmt[64] = "%H:%M:%S %d.%m.%Y";
+static time_t p_mt[3];
+static double p_chk;
+
+static int clampi(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+static int cfg_get(const char *file, const char *sec, const char *key, char *out, int n)
+{
+	FILE *f = fopen(file, "r");
+	char ln[200], cur[16] = "";
+	int kl = (int)strlen(key), found = 0;
+
+	if (!f) return 0;
+	while (fgets(ln, sizeof ln, f)) {
+		char *e = ln + strlen(ln);
+
+		while (e > ln && (e[-1] == '\n' || e[-1] == '\r')) *--e = 0;
+		if (ln[0] == '[') { snprintf(cur, sizeof cur, "%s", ln + 1); { char *r = strchr(cur, ']'); if (r) *r = 0; } continue; }
+		if (strcmp(cur, sec)) continue;
+		if (!strncmp(ln, key, kl) && ln[kl] == '=') {
+			char *v = ln + kl + 1;
+
+			if (*v == '"') { v++; { char *q = strrchr(v, '"'); if (q) *q = 0; } }
+			snprintf(out, n, "%s", v); found = 1; break;
+		}
+	}
+	fclose(f);
+	return found;
+}
+
+static void post_luts(void)
+{
+	int i;
+	int cf = 100 + p_con * 2, sf = 100 + p_sat * 2;
+
+	p_ytune = p_tune && (p_bri || p_con);
+	for (i = 0; i < 256; i++) {
+		ylut[i] = (unsigned char)(p_ytune ? clampi((i - 128) * cf / 100 + 128 + p_bri * 2) : i);
+		ulut[i] = (unsigned char)clampi(128 + (i - 128) * (p_tune ? sf : 100) / 100 - p_du);
+		vlut[i] = (unsigned char)clampi(128 + (i - 128) * (p_tune ? sf : 100) / 100 - p_dv);
+	}
+}
+
+static void post_reload(double tn)
+{
+	static const char *fn[3] = { "/mnt/config/boot.conf", "/mnt/config/isp_tune.conf", "/mnt/config/rtspserver.conf" };
+	struct stat sb;
+	int i, ch = 0;
+	char v[80];
+
+	if (tn - p_chk < 2.0) return;
+	p_chk = tn;
+	for (i = 0; i < 3; i++) { time_t m = stat(fn[i], &sb) ? 0 : sb.st_mtime; if (m != p_mt[i]) { p_mt[i] = m; ch = 1; } }
+	{ int a = access("/mnt/config/awb.off", F_OK) ? 1 : 0; if (a != p_awb) { p_awb = a; if (!a) p_du = p_dv = 0; ch = 1; } }
+	if (!ch) return;
+	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && (v[0] == '1' || !strcmp(v, "true") || !strcmp(v, "yes") || !strcmp(v, "on"));
+	p_bri = p_con = p_sat = p_hue = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
+	if (p_tune) {
+		if (cfg_get(fn[1], "", "BRIGHTNESS", v, sizeof v)) p_bri = atoi_(v);
+		if (cfg_get(fn[1], "", "CONTRAST", v, sizeof v)) p_con = atoi_(v);
+		if (cfg_get(fn[1], "", "SATURATION", v, sizeof v)) p_sat = atoi_(v);
+		if (cfg_get(fn[1], "", "HUE", v, sizeof v)) p_hue = atoi_(v);
+		for (i = 0; i < 4; i++) {
+			char k[8];
+
+			snprintf(k, sizeof k, "MASK%d", i + 1);
+			if (cfg_get(fn[1], "", k, v, sizeof v)) sscanf_4(v, p_mask[i]);
+		}
+		if (cfg_get(fn[1], "", "MASK_COLOR", v, sizeof v)) p_mcol = !strcmp(v, "white") ? 235 : !strcmp(v, "gray") ? 128 : 16;
+	}
+	p_osd = cfg_get(fn[2], "", "osdenabled", v, sizeof v) && v[0] == '1';
+	if (cfg_get(fn[2], "", "osdtext", v, sizeof v) && v[0]) snprintf(p_fmt, sizeof p_fmt, "%s", v);
+	if (cfg_get(fn[2], "0", "osdx", v, sizeof v)) p_osdx = atoi_(v);
+	if (cfg_get(fn[2], "0", "osdy", v, sizeof v)) p_osdy = atoi_(v);
+	if (cfg_get(fn[2], "0", "osdfontsize", v, sizeof v)) p_osdsz = atoi_(v);
+	if (p_osdsz < 8) p_osdsz = 8;
+	p_hue = p_tune ? p_hue : 0;
+	post_luts();
+}
+
+/* hue: rotate (U,V) by p_hue * 0.6 degrees, fixed point */
+static void hue_pair(unsigned char *u, unsigned char *v)
+{
+	static const int cs[] = { 256, 255, 253, 249, 244, 237, 230, 221 };	/* cos/sin of 0..~21 degrees (x256), index = |hue|*7/50 */
+	static const int sn[] = { 0, 24, 48, 71, 94, 115, 135, 154 };
+	int k = (p_hue < 0 ? -p_hue : p_hue) * 7 / 50, c = cs[k], s = p_hue < 0 ? -sn[k] : sn[k];
+	int a = *u - 128, b = *v - 128;
+
+	*u = (unsigned char)clampi(128 + (a * c - b * s) / 256);
+	*v = (unsigned char)clampi(128 + (a * s + b * c) / 256);
+}
+
+static void post_awb_sample(const unsigned char *uv)
+{
+	long su = 0, sv = 0; int n = 0, i;
+
+	if (!p_awb) return;
+	for (i = 0; i < W * H / 2 - 2; i += 64) { su += uv[i]; sv += uv[i + 1]; n++; }	/* even i: U, i+1: V */
+	if (!n) return;
+	{
+		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, ou = p_du, ov = p_dv;
+
+		if (tu > 85) tu = 85; if (tu < -85) tu = -85; if (tv > 85) tv = 85; if (tv < -85) tv = -85;
+		p_du += (tu - p_du + (tu > p_du ? 2 : -2)) / 4; p_dv += (tv - p_dv + (tv > p_dv ? 2 : -2)) / 4;
+		if (p_du != ou || p_dv != ov) post_luts();
+	}
+}
+
+static void post_copy(unsigned char *dst, const unsigned char *src)
+{
+	int i, n = W * H / 2;
+
+	if (p_ytune) for (i = 0; i < W * H; i++) dst[i] = ylut[src[i]]; else memcpy(dst, src, W * H);
+	src += W * H; dst += W * H;
+	if (p_hue) { for (i = 0; i < n; i += 2) { dst[i] = ulut[src[i]]; dst[i + 1] = vlut[src[i + 1]]; hue_pair(&dst[i], &dst[i + 1]); } }
+	else if (p_awb || p_tune) for (i = 0; i < n; i += 2) { dst[i] = ulut[src[i]]; dst[i + 1] = vlut[src[i + 1]]; }
+	else memcpy(dst, src, n);
+}
+
+static void post_sub(unsigned char *p)	/* in place, SW x SH */
+{
+	int i, n = SW * SH / 2;
+
+	if (p_ytune) for (i = 0; i < SW * SH; i++) p[i] = ylut[p[i]];
+	p += SW * SH;
+	if (p_awb || p_tune) for (i = 0; i < n; i += 2) { p[i] = ulut[p[i]]; p[i + 1] = vlut[p[i + 1]]; if (p_hue) hue_pair(&p[i], &p[i + 1]); }
+}
+
+static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2, int col)
+{
+	int x, yy;
+
+	x1 &= ~1; y1 &= ~1; x2 &= ~1; y2 &= ~1;
+	if (x1 < 0) x1 = 0; if (y1 < 0) y1 = 0; if (x2 > w) x2 = w; if (y2 > h) y2 = h;
+	for (yy = y1; yy < y2; yy++) memset(y + yy * w + x1, col, x2 > x1 ? x2 - x1 : 0);
+	for (yy = y1 / 2; yy < y2 / 2; yy++) { unsigned char *r = y + w * h + yy * w; for (x = x1; x < x2; x += 2) { r[x] = 128; r[x + 1] = 128; } }
+}
+
+static const unsigned char font57[14][5] = {
+	{0x3E,0x51,0x49,0x45,0x3E},{0x00,0x42,0x7F,0x40,0x00},{0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4B,0x31},
+	{0x18,0x14,0x12,0x7F,0x10},{0x27,0x45,0x45,0x45,0x39},{0x3C,0x4A,0x49,0x49,0x30},{0x01,0x71,0x09,0x05,0x03},
+	{0x36,0x49,0x49,0x49,0x36},{0x06,0x49,0x49,0x29,0x1E},{0x00,0x36,0x36,0x00,0x00},{0x00,0x60,0x60,0x00,0x00},
+	{0x08,0x08,0x08,0x08,0x08},{0x20,0x10,0x08,0x04,0x02} };
+
+static void post_overlay(unsigned char *p, int w, int h, int main_pic)
+{
+	int i;
+
+	for (i = 0; i < 4; i++)
+		if (p_mask[i][2] > p_mask[i][0] && p_mask[i][3] > p_mask[i][1])
+			fill(p, w, h, p_mask[i][0] * w / 100, p_mask[i][1] * h / 100, p_mask[i][2] * w / 100, p_mask[i][3] * h / 100, p_mcol);
+	if (main_pic && p_osd) {
+		char t[64]; time_t now = time(NULL); struct tm *tm = localtime(&now);
+		int sc = p_osdsz / 8 ? p_osdsz / 8 : 1, x = p_osdx, y = p_osdy, n, c, r, k;
+
+		if (!tm || !strftime(t, sizeof t, p_fmt, tm)) return;
+		n = (int)strlen(t);
+		fill(p, w, h, x - 2 * sc, y - 2 * sc, x + n * 6 * sc + 2 * sc, y + 9 * sc, 16);
+		for (i = 0; i < n; i++) {
+			const char *g = "0123456789:.-/"; const char *q = strchr(g, t[i]);
+
+			if (!q || !t[i]) continue;
+			k = (int)(q - g);
+			for (c = 0; c < 5; c++) for (r = 0; r < 7; r++) if (font57[k][c] & (1 << r)) {
+				int xx = x + (i * 6 + c) * sc, yy = y + r * sc, a, b;
+
+				if (xx + sc > w || yy + sc > h) continue;
+				for (b = 0; b < sc; b++) for (a = 0; a < sc; a++) p[(yy + b) * w + xx + a] = 235;
+			}
+		}
+	}
+}
+
 static void *ld(const char *dir, const char *name, int must)
 {
 	char p[300];
@@ -1162,8 +1360,10 @@ int main(int argc, char **argv)
 					} else mdhave = 0;
 				}
 			}
-			if (active || d_snap) { memcpy(pf, vb[b.index], flen); if (bw) memset(pf + W * H, 128, W * H / 2); }
-			if (d_str) { sub_scale(vb[b.index], pf + flen); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
+			post_reload(tn);
+			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H); } }
+			if (active || d_snap) { post_copy(pf, vb[b.index]); post_overlay(pf, W, H, 1); if (bw) memset(pf + W * H, 128, W * H / 2); }
+			if (d_str) { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
 			ioctl(fd, VIDIOC_QBUF, &b);
 			if (active) {
 				clock_gettime(CLOCK_MONOTONIC, &t1);
