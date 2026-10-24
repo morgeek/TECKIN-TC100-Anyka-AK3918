@@ -27,3 +27,11 @@ Goal: boot without the SD card (SD becomes video storage only), flash keeps a wa
 2. Prune and build the squashfs + tiny initramfs; boot it from RAM first (SD), then from flash partitions via `sf read` in U-Boot (RAM only).
 3. Write kernel + rootfs from Linux with `flashw`, power-cycle with and without the SD card.
 4. Keep the case open (UART available) for about a week of use; then close it.
+
+## Result of step 1 (2026-10-24, kernel built from a93e985)
+- The 72 KiB `tail` was forced read-only by the MTD core because the NOR used 64 KiB erase blocks (partition not 64 KiB aligned). Fix: `CONFIG_MTD_SPI_NOR_USE_4K_SECTORS=y` (erasesize now 4096).
+- Flags after the fix: boot/kernel/mac/env/rootfs 0x800 (read-only), tail 0xc00 (writable).
+- `flashw tail <file>`: 4 KiB, 64 KiB and 72 KiB random files, erase + write + verify (flashcp) + md5 read-back = OK each time, the camera kept streaming.
+- `flashw kernel|boot`: refused by the allow-list; `dd` to /dev/mtd1: permission denied (read-only partition).
+- After erasing `tail` again, md5 of mtd0..mtd5 identical to the dump taken before the tests (flash-md5-before/after.txt).
+- Next: tiny initramfs + squashfs (build-slim-stack.sh, 3.2 MiB), boot it from RAM, then from flash.
