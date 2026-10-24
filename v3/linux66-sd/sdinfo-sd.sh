@@ -7,6 +7,6 @@ size=$(( $(cat $S/size) / 2048 ))
 id=$(cat $S/device/cid 2>/dev/null); [ -n "$id" ] || id="size$(cat $S/size)"
 m=0; free=""
 if grep -q ' /mnt vfat \| /mnt/sd vfat ' /proc/mounts; then
-  m=1; free=$(df -k /mnt 2>/dev/null | awk 'NR>1{print int($4/1024); exit}')
+  m=1; free=$(df -k /mnt/sd 2>/dev/null | awk 'NR>1{print int($4/1024); exit}')
 fi
 printf 'present=1\nid=%s\nsize_mb=%s\nfs=vfat\nkind=data\nmounted=%s\nfree_mb=%s\nprompt=0\n' "$id" "$size" "$m" "$free" > /tmp/sd-card.tmp && mv -f /tmp/sd-card.tmp /tmp/sd-card

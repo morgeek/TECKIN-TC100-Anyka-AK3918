@@ -1,0 +1,74 @@
+#!/bin/sh
+# cfg-persist restore|save|daemon|status   keep the user settings (config/) in the SPI flash, no SD card needed
+#   Two slots, the flash partitions "cfga" and "cfgb" (36 KiB each, written one at a time: a power cut during a save
+#   leaves the other slot intact). A slot = one text line "TC1CFG <seq> <bytes> <md5>" then a gzip'ed tar of the
+#   settings that differ from the shipped defaults (*.dist twins and unchanged files are not stored).
+#   Saves only when something changed (checked every 30 s), so the flash is written rarely.
+CFG=${CFG:-/mnt/sd/config}
+SLOT_MAX=36000
+find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
+log() { echo "[cfg-persist] $*" > /dev/console 2>/dev/null; }
+
+# list of files to store (relative to the parent of $CFG)
+list() {
+  cd "$(dirname $CFG)" || return 1; b=$(basename $CFG)
+  find $b -type f | sort | while read f; do
+    case "$f" in *.dist|*.pid|*.tmp|*.lock) continue;; esac
+    [ -f "$f.dist" ] && cmp -s "$f" "$f.dist" && continue
+    echo "$f"
+  done
+}
+signature() { cd "$(dirname $CFG)" || return 1; list | while read f; do md5sum "$f"; done | md5sum | cut -d' ' -f1; }
+
+# slot header -> "seq len md5" or nothing when the slot is empty/corrupt
+slot_info() {
+  m=$(find_mtd "$1") || return 1
+  h=$(dd if=/dev/${m}ro bs=96 count=1 2>/dev/null | head -n 1 | tr -d '\000\377')
+  set -- $h; [ "$1" = TC1CFG ] && echo "$2 $3 $4"
+}
+slot_data() {  # name -> payload on stdout (after the header line)
+  m=$(find_mtd "$1"); n=$(slot_info "$1"); set -- $n
+  hl=$(dd if=/dev/${m}ro bs=96 count=1 2>/dev/null | head -n 1 | wc -c)
+  dd if=/dev/${m}ro bs=1 skip=$hl count=$2 2>/dev/null
+}
+slot_valid() {
+  n=$(slot_info "$1") || return 1; [ -n "$n" ] || return 1; set -- $n
+  [ "$(slot_data $SLOT | md5sum | cut -d' ' -f1)" = "$3" ]
+}
+best() {  # prints the name of the valid slot with the highest seq, with its seq
+  bn=; bs=-1
+  for s in cfga cfgb; do
+    SLOT=$s; slot_valid $s || continue
+    q=$(slot_info $s | cut -d' ' -f1); [ "$q" -gt "$bs" ] && { bs=$q; bn=$s; }
+  done
+  [ -n "$bn" ] && echo "$bn $bs"
+}
+
+case "$1" in
+restore)
+  set -- $(best); [ -n "$1" ] || { log "no saved settings (defaults used)"; exit 1; }
+  mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && log "settings restored from slot $1 (seq $2)" ;;
+save)
+  S=$(signature); T=/tmp/cfgsave.$$; cd "$(dirname $CFG)" || exit 1
+  list > $T.list; [ -s $T.list ] || { log "nothing to save"; rm -f $T.*; exit 0; }
+  tar cf - -T $T.list | gzip -9 > $T.tgz
+  sz=$(wc -c < $T.tgz); [ "$sz" -le $SLOT_MAX ] || { log "settings too big for a slot ($sz bytes)"; rm -f $T.*; exit 2; }
+  set -- $(best); cur=$1; seq=${2:--1}; new=$((seq+1)); if [ "$cur" = cfga ]; then tgt=cfgb; else tgt=cfga; fi
+  md=$(md5sum < $T.tgz | cut -d' ' -f1)
+  { printf 'TC1CFG %s %s %s\n' $new $sz $md; cat $T.tgz; } > $T.slot
+  m=$(find_mtd $tgt) || { log "no flash slot $tgt"; rm -f $T.*; exit 3; }
+  [ $(( $(cat /sys/class/mtd/$m/flags) & 1024 )) -ne 0 ] || { log "slot $tgt is read-only"; rm -f $T.*; exit 3; }
+  PATH=$PATH:/usr/sbin flashcp $T.slot /dev/$m && log "settings saved to slot $tgt (seq $new, $sz bytes)"
+  echo $S > /tmp/cfg-persist.sig; rm -f $T.* ;;
+daemon)
+  [ -f /tmp/cfg-persist.sig ] || signature > /tmp/cfg-persist.sig
+  last=; while sleep 30; do
+    s=$(signature)
+    if [ "$s" != "$(cat /tmp/cfg-persist.sig)" ]; then
+      if [ "$s" = "$last" ]; then sh $0 save; last=; else last=$s; fi   # saved once the change is stable for 30 s
+    fi
+  done ;;
+status)
+  for s in cfga cfgb; do echo "$s: $(slot_info $s || echo empty)"; done; best ;;
+*) echo "usage: cfg-persist restore|save|daemon|status"; exit 1 ;;
+esac

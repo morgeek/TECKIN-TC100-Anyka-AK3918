@@ -15,9 +15,11 @@ echo 1024 > /proc/sys/vm/min_free_kbytes 2>/dev/null
 killall watchdog 2>/dev/null
 watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
 
-# 0b. The user space (web pages, scripts, status checks) expects the card at /mnt: mount it there and keep
-#     /mnt/sd as an alias (the card has an empty "sd" folder for that second mount)
-if ! grep -q ' /mnt vfat ' /proc/mounts && [ -b /dev/mmcblk0p1 ]; then
+# 0b. The user space (web pages, scripts, status checks) expects its files under /mnt. SD mode: the card is mounted
+#     there and /mnt/sd is an alias (the card has an empty "sd" folder for that second mount). Flash mode
+#     (/tmp/flashmode, set by flashmode-prep.sh): /mnt already holds the user space from the SPI flash and the card,
+#     if any, is the video storage at /mnt/sd: nothing to mount.
+if [ ! -f /tmp/flashmode ] && ! grep -q ' /mnt vfat ' /proc/mounts && [ -b /dev/mmcblk0p1 ]; then
   mkdir -p /mnt/sd/sd
   mount -t vfat -o rw,noatime /dev/mmcblk0p1 /mnt && mount -t vfat -o rw,noatime /dev/mmcblk0p1 /mnt/sd
 fi
@@ -29,13 +31,13 @@ done
 
 # 2. Populate shared uClibc libraries into /lib with execute permissions
 for lib in libpthread.so.0 libdl.so.0 libm.so.0 libstdc++.so.6 libgcc_s.so.1 libcrypt.so.0 librt.so.0 libwolfmqtt.so.5 libzbar.so.0; do
-  [ ! -f /lib/$lib ] && [ -f /mnt/sd/lib/$lib ] && cp /mnt/sd/lib/$lib /lib/
+  [ ! -f /lib/$lib ] && [ -f /mnt/lib/$lib ] && cp /mnt/lib/$lib /lib/
 done
 chmod +x /lib/ld* /lib/lib* 2>/dev/null || true
 
 # 3. Setup WebUI document root in RAM
 mkdir -p /tmp/www
-for f in /mnt/sd/www/*; do
+for f in /mnt/www/*; do
   ln -sfn "$f" /tmp/www/$(basename "$f")
 done
 ln -sfn /tmp/currentpic.cache.jpg /tmp/www/ch0.jpg
@@ -48,27 +50,27 @@ for i in $(seq 1 25); do
 done
 
 # 4a. Free hardware encoder stack (tc100_rtsp): H.265/H.264 over RTSP and the web UI pictures (stream.jpg, currentpic,
-#     cam_luma) from the hardware JPEG engine, one process. Needs the vendor encoder libraries in /mnt/sd/lib and
+#     cam_luma) from the hardware JPEG engine, one process. Needs the vendor encoder libraries in /mnt/lib and
 #     /dev/uio0 (ak39_venc driver); without them the older tc100_streamer + thingino-rtsp-server path below is used.
 NEWRTSP=0
-TB=/mnt/sd/tc100test
-if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
+TB=/mnt/tc100test
+if [ -x $TB/tc100_rtsp ] && [ -f /mnt/lib/libmpi_venc_ex.so ] && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
   mkdir -p /lib/firmware/anyka
-  for f in $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/sd/config/isp.conf; do
+  for f in $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
     [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
   done
-  ln -sf /mnt/sd/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
+  ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
   cp $TB/libakuio.so /tmp/libakuio.so; cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
-  PWD_FILE=/mnt/sd/config/user.pwd
+  PWD_FILE=/mnt/config/user.pwd
   [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
   # The vendor services (recording, ONVIF...) and the web UI read codec, bit rate and credentials from rtspserver.conf.
   # config/rtsp.codec (h264|h265), if present, seeds the codec there; otherwise what the web UI saved is kept
   # (default H.265 like the original firmware). rtsp-launch.sh then starts tc100_rtsp from that file.
   if [ -x /mnt/bin/rwconf ] && [ -d /mnt/config ]; then
     RC=/mnt/config/rtspserver.conf
-    export LD_LIBRARY_PATH=/mnt/sd/lib
-    [ -f /mnt/sd/config/rtsp.codec ] && {
-      [ "$(head -n 1 /mnt/sd/config/rtsp.codec)" = h264 ] && CODEC_NUM=1 || CODEC_NUM=2
+    export LD_LIBRARY_PATH=/mnt/lib
+    [ -f /mnt/config/rtsp.codec ] && {
+      [ "$(head -n 1 /mnt/config/rtsp.codec)" = h264 ] && CODEC_NUM=1 || CODEC_NUM=2
       /mnt/bin/rwconf $RC w 0 codec $CODEC_NUM
     }
     if [ -s "$PWD_FILE" ]; then
@@ -80,9 +82,9 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/ui
   killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
   if [ -f $TB/rtsp-launch.sh ]; then sh $TB/rtsp-launch.sh; else
   RTSP_LOG=/tmp/logs/tc100_rtsp.log
-  [ -f /mnt/sd/config/rtsp.debug ] && RTSP_LOG=/dev/console	# encoder messages on the serial console
-  ( cd /tmp && { set -a; [ -f /mnt/sd/config/rtsp.env ] && . /mnt/sd/config/rtsp.env; set +a; }  # debug variables (AKUIO_*, RTSP_DEBUG)
-    LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -c h265 -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
+  [ -f /mnt/config/rtsp.debug ] && RTSP_LOG=/dev/console	# encoder messages on the serial console
+  ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }  # debug variables (AKUIO_*, RTSP_DEBUG)
+    LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -c h265 -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
       -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "${RTSP_AUDIO:-1}" >"$RTSP_LOG" 2>&1 ) &
   fi
   NEWRTSP=1
@@ -92,25 +94,25 @@ fi
 killall -9 tc100_streamer 2>/dev/null
 if [ "$NEWRTSP" = 1 ]; then
   :
-elif [ -x /mnt/sd/bin/tc100_streamer ]; then
-  /mnt/sd/bin/tc100_streamer -d
+elif [ -x /mnt/bin/tc100_streamer ]; then
+  /mnt/bin/tc100_streamer -d
   echo "[tc100-v3] Hardware V4L2 optical streamer active" > /dev/console
-elif [ -x /mnt/sd/tc100test/tc100_streamer ]; then
-  /mnt/sd/tc100test/tc100_streamer -d
+elif [ -x /mnt/tc100test/tc100_streamer ]; then
+  /mnt/tc100test/tc100_streamer -d
   echo "[tc100-v3] Hardware V4L2 optical streamer active (tc100test)" > /dev/console
 fi
 
 # 5. Seed initial snapshot cache if missing
-if [ ! -f /tmp/currentpic.cache.jpg ] && [ -f /mnt/sd/tc100test/tc100-linux66-color-frame.jpg ]; then
-  cp /mnt/sd/tc100test/tc100-linux66-color-frame.jpg /tmp/currentpic.cache.jpg
+if [ ! -f /tmp/currentpic.cache.jpg ] && [ -f /mnt/tc100test/tc100-linux66-color-frame.jpg ]; then
+  cp /mnt/tc100test/tc100-linux66-color-frame.jpg /tmp/currentpic.cache.jpg
 fi
 [ -f /tmp/currentpic.cache.jpg ] && date +%s > /tmp/currentpic.cache.ts
 
 # 6. Start Web Server on port 80
 killall httpd httpfront 2>/dev/null
 # the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
-if [ -x /mnt/sd/tc100test/httpfront ]; then
-  /mnt/sd/tc100test/httpfront -p 80 -h /tmp/www &
+if [ -x /mnt/tc100test/httpfront ]; then
+  /mnt/tc100test/httpfront -p 80 -h /tmp/www &
 else
   /usr/sbin/httpd -p 80 -h /tmp/www
 fi
@@ -121,11 +123,11 @@ echo "[tc100-v3] WebUI active on port 80" > /dev/console
 sleep 0.5
 if [ "$NEWRTSP" = 1 ]; then
   :
-elif [ -x /mnt/sd/tc100test/thingino-rtsp-server ]; then
+elif [ -x /mnt/tc100test/thingino-rtsp-server ]; then
   # One password for the whole camera, as in the main firmware: config/user.pwd
   # (seeded from the .dist template, never in git). It goes through a private
   # config file, not the command line, so it does not show in `ps`.
-  PWD_FILE=/mnt/sd/config/user.pwd
+  PWD_FILE=/mnt/config/user.pwd
   [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
   RTSP_CONF=/tmp/rtsp-server.conf
   ( umask 077
@@ -135,37 +137,37 @@ elif [ -x /mnt/sd/tc100test/thingino-rtsp-server ]; then
         echo "password=$(head -n 1 "$PWD_FILE")"
       fi
     } > "$RTSP_CONF" )
-  /mnt/sd/tc100test/thingino-rtsp-server -c "$RTSP_CONF" -d
+  /mnt/tc100test/thingino-rtsp-server -c "$RTSP_CONF" -d
   echo "[tc100-v3] RTSP stream active on port 554 (path /ch0)" > /dev/console
 fi
 
 # 8. Start ONVIF Discovery (monvifd)
-if [ -x /mnt/sd/controlscripts/onvif ]; then
-  /mnt/sd/controlscripts/onvif restart >/dev/null 2>&1
+if [ -x /mnt/controlscripts/onvif ]; then
+  /mnt/controlscripts/onvif restart >/dev/null 2>&1
   echo "[tc100-v3] ONVIF service active on port 8081 & WS-Discovery UDP 3702" > /dev/console
 fi
 
 # 9. Start Auto Day/Night Detection
-if [ -x /mnt/sd/controlscripts/auto-night-detection ]; then
-  /mnt/sd/controlscripts/auto-night-detection start >/dev/null 2>&1
+if [ -x /mnt/controlscripts/auto-night-detection ]; then
+  /mnt/controlscripts/auto-night-detection start >/dev/null 2>&1
   echo "[tc100-v3] Auto Day/Night detection active" > /dev/console
 fi
 
 # 10. Start MQTT Bridge
-if [ -x /mnt/sd/controlscripts/mqtt-bridge ]; then
-  /mnt/sd/controlscripts/mqtt-bridge start >/dev/null 2>&1
+if [ -x /mnt/controlscripts/mqtt-bridge ]; then
+  /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1
   echo "[tc100-v3] MQTT bridge service launched" > /dev/console
 fi
 
 # 11. Start Motion Detection
-if [ -x /mnt/sd/controlscripts/motion-detection ]; then
-  /mnt/sd/controlscripts/motion-detection start >/dev/null 2>&1
+if [ -x /mnt/controlscripts/motion-detection ]; then
+  /mnt/controlscripts/motion-detection start >/dev/null 2>&1
   echo "[tc100-v3] Motion detection service active" > /dev/console
 fi
 
 # 12. Start Recording (if enabled)
-if [ -x /mnt/sd/controlscripts/recording ]; then
-  /mnt/sd/controlscripts/recording start >/dev/null 2>&1
+if [ -x /mnt/controlscripts/recording ]; then
+  /mnt/controlscripts/recording start >/dev/null 2>&1
   echo "[tc100-v3] Recording service launched" > /dev/console
 fi
 
