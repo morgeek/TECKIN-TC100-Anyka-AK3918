@@ -1,0 +1,19 @@
+#!/bin/sh
+# SD-boot (Linux 6.6) stack: the vendor RTSP server is replaced by tc100_rtsp. This keeps the control-script
+# interface (start|stop|restart|status|health) so the web UI (Services, Flux vidéo "Apply") and the watchdog work.
+# Install as /mnt/controlscripts/rtsp-h26x (keep the vendor script OUTSIDE controlscripts/: the Services page lists it
+# and it needs the vendor libraries, it would fight for the encoder).
+SERVICE_NAME="RTSP server (tc100_rtsp)"
+status() { for p in $(pidof tc100_rtsp 2>/dev/null); do echo "PID: $p"; return 0; done; return 1; }
+start() { [ -n "$(status)" ] && { echo "already running"; return 0; }; sh /mnt/sd/tc100test/rtsp-launch.sh; }
+stop() { killall tc100_rtsp 2>/dev/null; sleep 1; killall -9 tc100_rtsp 2>/dev/null; return 0; }
+health() {
+  [ -n "$(status)" ] || return 1
+  r=$(printf 'DESCRIBE rtsp://127.0.0.1:554/video0_unicast RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n' | nc -w 3 127.0.0.1 554 2>/dev/null)
+  case "$r" in *'RTSP/1.0 401'*|*'RTSP/1.0 200 OK'*) echo HEALTHY; return 0 ;; esac
+  return 1
+}
+case "${1:-start}" in
+  start) start ;; stop) stop ;; restart) stop; sleep 1; start ;; status) status ;; health) health ;;
+  *) echo "Usage: $0 {start|stop|status|restart|health}" >&2; exit 1 ;;
+esac

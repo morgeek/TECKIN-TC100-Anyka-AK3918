@@ -5,6 +5,12 @@ hostname tc100; echo "tc100" > /etc/hostname
 
 mkdir -p /tmp/logs /var/run
 
+# 0a. Memory watermarks. With 45 MB of usable RAM the kernel's default "watermark boost" (4 MB) and the 4 MB
+#     high-order atomic reserve made the OOM killer fire with ~6 MB still free, killing small daemons (mqtt bridge,
+#     auto day/night) when the web UI started several CGI processes at once.
+echo 0 > /proc/sys/vm/watermark_boost_factor 2>/dev/null
+echo 1024 > /proc/sys/vm/min_free_kbytes 2>/dev/null
+
 # 0. Start Hardware Watchdog keeper (feed every 15s, 60s timeout)
 killall watchdog 2>/dev/null
 watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
@@ -55,27 +61,29 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/sd/lib/libmpi_venc_ex.so ] && [ -c /dev/ui
   cp $TB/libakuio.so /tmp/libakuio.so; cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
   PWD_FILE=/mnt/sd/config/user.pwd
   [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
-  # codec: H.265 like the original firmware; "h264" in config/rtsp.codec (or RTSP_CODEC) selects H.264
-  RTSP_CODEC=${RTSP_CODEC:-$(head -n 1 /mnt/sd/config/rtsp.codec 2>/dev/null)}
-  [ "$RTSP_CODEC" = h264 ] || RTSP_CODEC=h265
-  [ "$RTSP_CODEC" = h265 ] && CODEC_NUM=2 || CODEC_NUM=1
-  RTSP_LOG=/tmp/logs/tc100_rtsp.log
-  [ -f /mnt/sd/config/rtsp.debug ] && RTSP_LOG=/dev/console	# encoder messages on the serial console
-  killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
-  ( cd /tmp && { set -a; [ -f /mnt/sd/config/rtsp.env ] && . /mnt/sd/config/rtsp.env; set +a; }  # debug variables (AKUIO_*, RTSP_DEBUG)
-    LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -c "$RTSP_CODEC" -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
-      -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "${RTSP_AUDIO:-1}" >"$RTSP_LOG" 2>&1 ) &
-  # the vendor services (recording, ONVIF...) read codec and credentials from rtspserver.conf: keep it in step with
-  # what tc100_rtsp serves (H.264, the camera password)
+  # The vendor services (recording, ONVIF...) and the web UI read codec, bit rate and credentials from rtspserver.conf.
+  # config/rtsp.codec (h264|h265), if present, seeds the codec there; otherwise what the web UI saved is kept
+  # (default H.265 like the original firmware). rtsp-launch.sh then starts tc100_rtsp from that file.
   if [ -x /mnt/bin/rwconf ] && [ -d /mnt/config ]; then
     RC=/mnt/config/rtspserver.conf
     export LD_LIBRARY_PATH=/mnt/sd/lib
-    /mnt/bin/rwconf $RC w 0 codec $CODEC_NUM
+    [ -f /mnt/sd/config/rtsp.codec ] && {
+      [ "$(head -n 1 /mnt/sd/config/rtsp.codec)" = h264 ] && CODEC_NUM=1 || CODEC_NUM=2
+      /mnt/bin/rwconf $RC w 0 codec $CODEC_NUM
+    }
     if [ -s "$PWD_FILE" ]; then
       /mnt/bin/rwconf $RC w " " USERNAME "${RTSP_USER:-root}"
       /mnt/bin/rwconf $RC w " " USERPASSWORD "$(head -n 1 "$PWD_FILE")"
     fi
     unset LD_LIBRARY_PATH
+  fi
+  killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
+  if [ -f $TB/rtsp-launch.sh ]; then sh $TB/rtsp-launch.sh; else
+  RTSP_LOG=/tmp/logs/tc100_rtsp.log
+  [ -f /mnt/sd/config/rtsp.debug ] && RTSP_LOG=/dev/console	# encoder messages on the serial console
+  ( cd /tmp && { set -a; [ -f /mnt/sd/config/rtsp.env ] && . /mnt/sd/config/rtsp.env; set +a; }  # debug variables (AKUIO_*, RTSP_DEBUG)
+    LD_LIBRARY_PATH=/mnt/sd/lib exec /tmp/tc100_rtsp -c h265 -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
+      -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "${RTSP_AUDIO:-1}" >"$RTSP_LOG" 2>&1 ) &
   fi
   NEWRTSP=1
   echo "[tc100-v3] free $RTSP_CODEC RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
