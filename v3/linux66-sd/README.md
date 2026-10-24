@@ -22,3 +22,13 @@ resolution/fps of the Flux vidéo page (tc100_rtsp is 1080p, 15 fps nominal).
 
 Also: `www/settings.html` of the card: `cmd=wifi_get_ssid&_=` -> `cmd=wifi_get_ssid&format=json&_=` (the CGI appends `<hr/>` to
 non-JSON requests, which broke `r.json()` and showed "Read error" under Réseau).
+
+## Added 2026-10-24 (afternoon)
+- `setconf` -> `/mnt/bin/setconf` (vendor one kept as `tc100test/setconf.vendor`): black and white (chroma zeroed in
+  tc100_rtsp), IR LED, motion detection on/off + sensitivity. tc100_rtsp now samples a 64x36 luma grid 4x/s and writes
+  `/tmp/rec_control` ("1"/"0\n", 8 s hold) like the vendor server: the recorder (`ffmpeg-min-recorder`, mkv with
+  audio into `/mnt/DCIM`), the detection monitor (MQTT event, LED, snapshot) and the MQTT bridge all read it.
+- tc100_rtsp makes the web pictures less often when nobody reads them (atime of `/tmp/stream.jpg`, `/tmp/currentpic.cache.jpg`).
+- autorun: `ntpd` clock sync (the SoC starts in 1970), services ticked in the UI (`config/autostart/*`) are started at boot,
+  `/mnt/VERSION` = `2.1.9-linux66`, `#btnSdOptions` (format) hidden by a `<style>` line in the card's `www/settings.html`.
+- Never run `controlscripts/<x> start | tail`: the daemon keeps the pipe open and the serial shell hangs.
