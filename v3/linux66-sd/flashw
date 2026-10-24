@@ -1,0 +1,26 @@
+#!/bin/sh
+# flashw <partition-name> <file>   write a file into one SPI flash partition, safely
+#   - only partitions of the allow-list (default: tail rootfs; add with FLASHW_ALLOW="tail rootfs kernel")
+#   - boot, mac (and env, kernel unless allowed) are never touched
+#   - the partition must be writable in the device tree, the file must fit
+#   - erase + write + read-back compare + md5 are done by flashcp, then checked again here
+#   flashw -r <partition> <out-file>   read a partition into a file (always allowed)
+ALLOW="${FLASHW_ALLOW:-tail rootfs}"
+find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
+if [ "$1" = -r ]; then
+  m=$(find_mtd "$2") || { echo "unknown partition $2"; exit 1; }
+  dd if=/dev/${m}ro of="$3" bs=4096 2>/dev/null; md5sum "$3"; exit 0
+fi
+P="$1"; F="$2"
+[ -n "$P" ] && [ -f "$F" ] || { echo "usage: flashw <partition> <file> | flashw -r <partition> <out>"; exit 1; }
+case " $ALLOW " in *" $P "*) ;; *) echo "flashw: partition '$P' is not in the allow-list ($ALLOW)"; exit 2;; esac
+case "$P" in boot|mac) echo "flashw: '$P' is never written"; exit 2;; esac
+m=$(find_mtd "$P") || { echo "unknown partition $P"; exit 1; }
+fl=$(cat /sys/class/mtd/$m/flags); [ $((fl & 0x400)) -ne 0 ] || { echo "flashw: $P is read-only in the device tree (flags $fl)"; exit 3; }
+sz=$(cat /sys/class/mtd/$m/size); fs=$(wc -c < "$F")
+[ "$fs" -le "$sz" ] || { echo "flashw: file $fs bytes does not fit $P ($sz)"; exit 4; }
+want=$(md5sum < "$F" | cut -d' ' -f1)
+echo "flashw: $F ($fs bytes, md5 $want) -> $P (/dev/$m, $sz bytes)"
+flashcp -v "$F" /dev/$m || { echo "flashw: flashcp failed"; exit 5; }
+got=$(dd if=/dev/${m}ro bs=1 count=$fs 2>/dev/null | md5sum | cut -d' ' -f1)
+[ "$got" = "$want" ] && echo "flashw: OK, read-back md5 $got" || { echo "flashw: MISMATCH read-back $got"; exit 6; }
