@@ -19,3 +19,6 @@ One-time `sed` patches of the card's CGIs (card is mounted twice, at `/mnt` and 
 Not available on this stack (they live in the vendor RTSP server / ISP daemon): live image tuning, privacy masks,
 black-and-white switch (`setconf`), motion detection inside the stream, local MP4 backup recording (REC_LOCAL),
 resolution/fps of the Flux vidéo page (tc100_rtsp is 1080p, 15 fps nominal).
+
+Also: `www/settings.html` of the card: `cmd=wifi_get_ssid&_=` -> `cmd=wifi_get_ssid&format=json&_=` (the CGI appends `<hr/>` to
+non-JSON requests, which broke `r.json()` and showed "Read error" under Réseau).
