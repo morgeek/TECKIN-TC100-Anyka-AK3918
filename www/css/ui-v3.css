@@ -125,6 +125,32 @@ a { color: var(--v2-accent); }
 .dash-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--v2-hover); overflow: hidden; }
 .dash-bar i { display: block; height: 100%; width: 0; background: var(--v3-s0); border-radius: 3px; transition: width 300ms ease; }
 .dash-bar.is-high i { background: var(--v2-warn); }
+.dash-flash-bar { grid-column: 1 / -1; display: flex; gap: 2px; height: 10px; border-radius: 4px; overflow: hidden; background: var(--v2-hover); padding: 1px; }
+.dash-fseg { position: relative; height: 100%; background: rgba(128, 128, 128, 0.22); border-radius: 2px; overflow: hidden; }
+.dash-fseg i { display: block; height: 100%; background: var(--fseg-c, var(--v3-s0)); border-radius: 2px; }
+.dash-flash-leg { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.25rem 0.65rem; font-size: 0.72rem; color: var(--v2-muted); margin-top: 0.1rem; }
+.dash-flash-leg span { display: inline-flex; align-items: center; gap: 0.28rem; }
+.dash-flash-leg i { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 2px; }
+.dash-flash-leg small { opacity: 0.8; font-variant-numeric: tabular-nums; }
+
+/* SPI Flash visual layout in Diagnostics -> Storage (disk.cgi) */
+.flash-map-bar { display: flex; gap: 2px; height: 26px; border-radius: 6px; overflow: hidden; background: var(--v2-hover); padding: 2px; }
+.flash-seg { display: flex; align-items: center; justify-content: center; min-width: 6px; border-radius: 4px; color: #fff; font: 700 0.68rem/1 var(--v2-mono); overflow: hidden; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); }
+.flash-seg-label { padding: 0 3px; overflow: hidden; text-overflow: ellipsis; }
+.flash-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; margin-top: 0.55rem; font-size: 0.78rem; color: var(--v2-ink); }
+.flash-leg-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+.flash-leg-item i, .flash-dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; vertical-align: middle; }
+.flash-dot { margin-right: 0.4rem; }
+.flash-leg-item small { color: var(--v2-muted); font-variant-numeric: tabular-nums; }
+.flash-table { font-size: 0.82rem; background: transparent !important; }
+.flash-table th, .flash-table td { vertical-align: middle !important; white-space: nowrap; color: var(--v2-ink); border-color: var(--v2-rule) !important; }
+.flash-table td.num { font-variant-numeric: tabular-nums; font-family: var(--v2-mono); font-size: 0.78rem; }
+.flash-mode-badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 4px; font: 600 0.68rem/1.2 var(--v2-mono); background: var(--v2-hover); color: var(--v2-muted); }
+.flash-mode-badge.is-RW { background: rgba(16, 185, 129, 0.16); color: var(--v2-ok); }
+.flash-bar-cell { min-width: 120px; }
+.flash-part-bar { display: inline-block; width: 72px; height: 8px; border-radius: 4px; background: var(--v2-hover); overflow: hidden; vertical-align: middle; margin-right: 0.4rem; }
+.flash-part-fill { height: 100%; border-radius: 4px; }
+.flash-pct-txt { font: 600 0.74rem/1 var(--v2-mono); color: var(--v2-muted); font-variant-numeric: tabular-nums; }
 .dash-pill { font-size: 0.72rem; font-weight: 650; padding: 0.15rem 0.55rem; border-radius: 1rem; background: var(--v2-hover); color: var(--v2-muted); }
 .dash-pill.is-ok { color: var(--v2-ok); }
 .dash-pill.is-warn { color: var(--v2-warn); }

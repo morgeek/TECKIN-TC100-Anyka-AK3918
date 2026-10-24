@@ -931,6 +931,9 @@ get_sd_usage() {
   if [ -r /tmp/tc100-storage ]; then
     read -r storage_json < /tmp/tc100-storage
     case "$storage_json" in flash) return 0 ;; *) storage_json=sd ;; esac
+  elif [ -f /tmp/flashmode ]; then
+    storage_json=flash
+    return 0
   fi
 
   # df output: Filesystem 1K-blocks Used Available Use% Mounted
@@ -1566,18 +1569,79 @@ if [ -n "$F_cmd" ]; then
       case "$_t$_u" in ''|*[!0-9]*) continue ;; esac
       case "$_mp" in
         /etc/jffs2) _di_jt=$_t; _di_ju=$_u ;;
-        "$_di_sdmp") _di_st=$_t; _di_su=$_u ;;
+        "$_di_sdmp")
+          if [ "$_mp" = "/mnt/sd" ] && [ "$_fs" = "tmpfs" ]; then continue; fi
+          _di_st=$_t; _di_su=$_u ;;
       esac
     done <<EOF_DF
 $(df -k 2>/dev/null)
 EOF_DF
+    # Linux 6.6 flash mode uses cfga/cfgb (36 KB each) instead of /etc/jffs2
+    if [ "$_di_jt" -eq 0 ] && [ -f /tmp/flashmode ]; then
+      for _dm in /sys/class/mtd/mtd[0-9]*; do
+        case "$_dm" in *ro) continue ;; esac
+        [ "$(cat "$_dm/name" 2>/dev/null)" = "cfga" ] || continue
+        _csz="$(cat "$_dm/size" 2>/dev/null)"
+        case "$_csz" in [0-9]*) _di_jt=$(( _csz / 1024 )) ;; esac
+        _chdr="$(dd if=/dev/${_dm##*/}ro bs=1 count=64 2>/dev/null | tr '\000\377' '  ')"
+        _clen="$(printf '%s' "$_chdr" | awk '$1=="TC1CFG"{print int(($3+64+1023)/1024); exit}')"
+        case "$_clen" in [0-9]*) _di_ju="$_clen" ;; esac
+        break
+      done
+    fi
+    # Detailed SPI flash breakdown for the Dashboard Storage card (in KB)
+    _di_flash_json="null"
+    if [ -d /sys/class/mtd/mtd0 ]; then
+      _fp_list=""
+      _ftot_kb=0
+      _fused_kb=0
+      for _dm in /sys/class/mtd/mtd[0-9]*; do
+        case "$_dm" in *ro) continue ;; esac
+        [ -r "$_dm/size" ] || continue
+        _m="${_dm##*/}"
+        _nm="$(cat "$_dm/name" 2>/dev/null)"
+        _sz="$(cat "$_dm/size" 2>/dev/null)"
+        case "$_sz" in ''|*[!0-9]*) continue ;; esac
+        _used="$_sz"
+        case "$_nm" in
+          kernel)
+            _khex="$(dd if=/dev/${_m}ro bs=1 skip=12 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+            case "$_khex" in [0-9a-fA-F][0-9a-fA-F]*) _ksz=$(( 0x$_khex + 64 )); [ "$_ksz" -gt 64 ] && [ "$_ksz" -le "$_sz" ] && _used="$_ksz" ;; esac
+            ;;
+          initrd)
+            _icmd="$(sed -n 's/.*initrd=0x[0-9a-fA-F]*,\([0-9][0-9]*\).*/\1/p' /proc/cmdline 2>/dev/null)"
+            case "$_icmd" in [0-9]*) [ "$_icmd" -gt 0 ] && [ "$_icmd" -le "$_sz" ] && _used="$_icmd" ;; esac
+            ;;
+          stack)
+            _shex="$(dd if=/dev/${_m}ro bs=1 skip=40 count=4 2>/dev/null | od -An -tx1 | awk '{print $4$3$2$1}')"
+            case "$_shex" in [0-9a-fA-F][0-9a-fA-F]*) _ssz=$(( (0x$_shex + 4095) / 4096 * 4096 )); [ "$_ssz" -gt 0 ] && [ "$_ssz" -le "$_sz" ] && _used="$_ssz" ;; esac
+            ;;
+          cfga|cfgb)
+            _chdr="$(dd if=/dev/${_m}ro bs=1 count=64 2>/dev/null | tr '\000\377' '  ')"
+            _clen="$(printf '%s' "$_chdr" | awk '$1=="TC1CFG"{print $3+64; exit}')"
+            case "$_clen" in [0-9]*) [ "$_clen" -gt 0 ] && [ "$_clen" -le "$_sz" ] && _used="$_clen" ;; *) _used=0 ;; esac
+            ;;
+        esac
+        _sz_kb=$(( _sz / 1024 ))
+        _us_kb=$(( (_used + 512) / 1024 ))
+        [ "$_us_kb" -gt "$_sz_kb" ] && _us_kb="$_sz_kb"
+        _ftot_kb=$(( _ftot_kb + _sz_kb ))
+        _fused_kb=$(( _fused_kb + _us_kb ))
+        _item="$(printf '{"name":"%s","size_kb":%d,"used_kb":%d}' "$(json_escape "$_nm")" "$_sz_kb" "$_us_kb")"
+        _fp_list="${_fp_list:+${_fp_list},}${_item}"
+      done
+      _di_flash_json="$(printf '{"total_kb":%d,"used_kb":%d,"parts":[%s]}' "$_ftot_kb" "$_fused_kb" "$_fp_list")"
+    fi
     _di_ssid=""
-    command -v wpa_cli >/dev/null 2>&1 && _di_ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk -F= '$1 == "ssid" { print $2; exit }')"
-    printf '{"hostname":"%s","ip":"%s","mac":"%s","kernel":"%s","firmware":"%s","storage":"%s","soc":"Anyka AK3918EV300","sensor":"SOI JXF23","wifi_chip":"Realtek RTL8188FU","ssid":"%s","rtsp_port":%s,"main":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"sub":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"jffs":[%s,%s],"sd":[%s,%s]}\n' \
+    if command -v wpa_cli >/dev/null 2>&1; then
+      _di_ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk -F= '$1 == "ssid" { print $2; exit }')"
+    fi
+    [ -z "$_di_ssid" ] && [ -r /etc/wpa_supplicant.conf ] && _di_ssid="$(sed -n 's/^[[:space:]]*ssid="\([^"]*\)".*/\1/p' /etc/wpa_supplicant.conf 2>/dev/null | head -n 1)"
+    printf '{"hostname":"%s","ip":"%s","mac":"%s","kernel":"%s","firmware":"%s","storage":"%s","soc":"Anyka AK3918EV300","sensor":"SOI JXF23","wifi_chip":"Realtek RTL8188FU","ssid":"%s","rtsp_port":%s,"main":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"sub":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"jffs":[%s,%s],"sd":[%s,%s],"flash":%s}\n' \
       "$(json_escape "$_di_host")" "$(json_escape "$primary_ip")" "$(json_escape "$_di_mac")" "$(json_escape "$_di_kern")" \
       "$(json_escape "$_di_ver")" "${storage_json:-sd}" "$(json_escape "$_di_ssid")" "$rtsp_port" \
       "$codec0_name" "$width0" "$height0" "$fps0" "$bps0" "$codec1_name" "$width1" "$height1" "$fps1" "$bps1" \
-      "$_di_jt" "$_di_ju" "$_di_st" "$_di_su"
+      "$_di_jt" "$_di_ju" "$_di_st" "$_di_su" "$_di_flash_json"
     ;;
 
   fullconfig)
