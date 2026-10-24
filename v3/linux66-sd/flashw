@@ -22,5 +22,5 @@ sz=$(cat /sys/class/mtd/$m/size); fs=$(wc -c < "$F")
 want=$(md5sum < "$F" | cut -d' ' -f1)
 echo "flashw: $F ($fs bytes, md5 $want) -> $P (/dev/$m, $sz bytes)"
 flashcp -v "$F" /dev/$m || { echo "flashw: flashcp failed"; exit 5; }
-got=$(dd if=/dev/${m}ro bs=1 count=$fs 2>/dev/null | md5sum | cut -d' ' -f1)
+got=$(head -c $fs /dev/${m}ro 2>/dev/null | md5sum | cut -d' ' -f1)
 [ "$got" = "$want" ] && echo "flashw: OK, read-back md5 $got" || { echo "flashw: MISMATCH read-back $got"; exit 6; }

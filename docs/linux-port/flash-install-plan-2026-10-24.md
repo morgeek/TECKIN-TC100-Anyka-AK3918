@@ -63,8 +63,10 @@ Findings:
 - First SD-less run: after the card was pulled **while running**, the dashboard stayed up but `/cgi-bin/currentpic.cgi` returned 0 bytes. A clean cold boot without SD has not yet been observed with a console. Plan: `DEV_CONSOLE=1 sh v3/linux66-sd/build-slim-stack.sh` builds a stack with `tc100test/consoleshell` (serial root shell in flash mode), write it with `FLASHW_ALLOW=stack flashw stack <file>`, cold-boot without SD, debug, then rebuild the stack without the flag.
 - The Mac UART daemon dies at every power cut (Pico must be re-plugged).
 
-### Status at 17:10 (2026-10-24)
-- Flash now holds kernel, initrd, stack (currently the **dev** stack with `tc100test/consoleshell`, md5 de83a4ee…), cfga/cfgb and the U-Boot env with `flashboot`; the SD kernel is renamed `tc100test/c66.img.sdbak` (rename back to boot from SD).
-- Cold boot without SD: web UI answers but `tc100_rtsp` reports `STAT cap 0` (no frames), image black, dashboard device/stream info empty. An earlier boot with the card inserted hot (card unseen by the kernel, but probed by U-Boot) worked fully. Hypothesis to test: something U-Boot's `sdload` does when a card is present (mmc init) matters for capture, or something in flash mode needs the card. Needs the serial shell (dev stack provides it) to compare `dmesg`/`/tmp/logs/tc100_rtsp.log` with and without card.
-- The Pico/UART daemon on the Mac drops at every camera power cut.
-- Release stack (without consoleshell) must be rebuilt and rewritten once the SD-less issue is fixed: `sh v3/linux66-sd/build-slim-stack.sh <sd-stack.tar> out.sqfs`.
+### Status at 18:25 (2026-10-24) — SD-less Flash Boot & Video Capture Verified
+- Root cause of `STAT cap 0` in SD-less flash mode (`flashroot=1`): `build-slim-stack.sh` did not package `config/isp_f23_mipi_2lane.conf`, so `ak39-vi` failed with `Direct firmware load for anyka/isp.conf failed with error -2` and never sent the I2C init sequence to the SOI JX-F23 sensor.
+- Fixed in `v3/linux66-sd/build-slim-stack.sh`, `v3/autorun-linux66.sh`, and `v3/linux66-sd/cfg-persist` (excludes static `isp_f23_*` / `isp.conf` from the 36 KiB `cfga`/`cfgb` settings slots).
+- Rebuilt the SquashFS `stack` (`3,244,032` bytes), wrote it to `/dev/mtd5` with `flashw stack`, verified read-back MD5, and cold-booted **without the SD card**:
+  - `ak39-vi` loads `/lib/firmware/anyka/isp.conf` cleanly (`power up: 0`, `crop 0,0 1920x1080: 0`, no `-2` error, no `Div ERROR 000!`).
+  - `tc100_rtsp` opens H.265 1080p encoder (`[ak_venc_open:2013] Video encoder open success`) and streams live I/P frames + audio.
+  - `/cgi-bin/currentpic.cgi` returns valid 1920x1080 JPEG snapshots (`~68 KB`) and all 7 services (`rtsp-h26x`, `onvif`, `recording`, `motion-detection`, `mqtt-bridge`, `auto-night-detection`, `ftp-server`, `health-snapshot`) run with `0` restarts.
