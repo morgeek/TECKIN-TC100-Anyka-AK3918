@@ -1312,10 +1312,10 @@
                     cf('cgi-bin/action.cgi?cmd=refresh_ha_discovery', { method: 'POST' })
                         .then(function(res) { return res.json(); })
                         .then(function(data) {
-                            if (data.status === 'success') {
+                            if (data && (data.ok === true || data.status === 'success')) {
                                 alert('Home Assistant Discovery refresh triggered successfully.');
                             } else {
-                                alert('Refresh failed: ' + (data.message || 'Unknown error'));
+                                alert('Refresh failed: ' + ((data && (data.error || data.message)) || 'Unknown error'));
                             }
                         })
                         .catch(function(e) {

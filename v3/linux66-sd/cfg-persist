@@ -5,6 +5,7 @@
 #   settings that differ from the shipped defaults (*.dist twins and unchanged files are not stored).
 #   Saves only when something changed (checked every 30 s), so the flash is written rarely.
 CFG=${CFG:-/mnt/sd/config}
+[ -d "$CFG" ] || [ ! -d /mnt/config ] || CFG=/mnt/config
 SLOT_MAX=36000
 find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
 log() { echo "[cfg-persist] $*" > /dev/console 2>/dev/null; }

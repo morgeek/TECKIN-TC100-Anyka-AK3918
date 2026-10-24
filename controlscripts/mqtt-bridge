@@ -37,7 +37,7 @@ start()
   fi
 
   rm -f "$PIDFILE" >/dev/null 2>&1 || true
-  /mnt/bin/busybox nohup /mnt/scripts/mqtt-bridge.sh run >/dev/null 2>&1 &
+  run_busybox nohup /mnt/scripts/mqtt-bridge.sh run >/dev/null 2>&1 &
   echo "$!" > "$PIDFILE"
   echo "MQTT bridge started"
 
@@ -58,6 +58,15 @@ stop()
   else
     rm -f "$PIDFILE" 2>/dev/null || true
     echo "MQTT bridge is not running"
+  fi
+  # Ensure no orphan listener subshells remain if the parent was SIGKILLed
+  _mb_orphans="$(ps 2>/dev/null | awk '/\/scripts\/mqtt-bridge\.sh run/ { print $1 }')"
+  if [ -n "$_mb_orphans" ]; then
+    # shellcheck disable=SC2086
+    kill -TERM $_mb_orphans 2>/dev/null || true
+    sleep 1
+    # shellcheck disable=SC2086
+    kill -9 $_mb_orphans 2>/dev/null || true
   fi
 }
 

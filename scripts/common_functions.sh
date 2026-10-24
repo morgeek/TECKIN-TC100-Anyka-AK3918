@@ -276,7 +276,7 @@ read_kv_config_value()
 
   if [ -r "$conf_path" ]; then
     conf_value="$(awk -F= -v key="$conf_key" '
-      $0 !~ /^[[:space:]]*#/ && $1 == key {print $2; exit}
+      $0 !~ /^[[:space:]]*#/ && $1 == key {print substr($0, index($0, "=") + 1); exit}
     ' "$conf_path" 2>/dev/null)"
   fi
   [ -n "$conf_value" ] || conf_value="$conf_default"

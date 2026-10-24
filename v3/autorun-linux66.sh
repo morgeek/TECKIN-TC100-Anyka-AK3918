@@ -29,11 +29,18 @@ for d in bin config controlscripts lib scripts www; do
   [ -d /mnt/sd/$d ] && [ ! -d /mnt/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
 done
 
-# 2. Populate shared uClibc libraries into /lib with execute permissions
-for lib in libpthread.so.0 libdl.so.0 libm.so.0 libstdc++.so.6 libgcc_s.so.1 libcrypt.so.0 librt.so.0 libwolfmqtt.so.5 libzbar.so.0; do
-  [ ! -f /lib/$lib ] && [ -f /mnt/lib/$lib ] && cp /mnt/lib/$lib /lib/
+# 2. Populate shared uClibc libraries into /lib (symlinks in flashmode to save ~1.8 MB RAM)
+for f in /mnt/lib/*.so*; do
+  [ -e "$f" ] || continue
+  b="${f##*/}"
+  if [ ! -e "/lib/$b" ]; then
+    if [ -f /tmp/flashmode ]; then
+      ln -sf "$f" "/lib/$b"
+    else
+      cp "$f" "/lib/$b" && chmod +x "/lib/$b" 2>/dev/null || true
+    fi
+  fi
 done
-chmod +x /lib/ld* /lib/lib* 2>/dev/null || true
 
 # 3. Setup WebUI document root in RAM
 mkdir -p /tmp/www

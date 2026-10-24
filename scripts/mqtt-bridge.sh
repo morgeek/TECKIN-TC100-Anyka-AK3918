@@ -1518,7 +1518,7 @@ build_health_payload()
 publish_health()
 {
   payload="$(build_health_payload)"
-  mqtt_publish_topic_suffix "health" "$payload" 0
+  mqtt_publish_topic_suffix "health" "$payload" 1
   mqtt_publish_topic_suffix "motion/state" "$motion_state_payload" 1 >/dev/null 2>&1 || true
   mqtt_publish_topic_suffix "network/state" "$network_state_payload" 1 >/dev/null 2>&1 || true
   publish_isp_state
@@ -2761,9 +2761,22 @@ command_mode()
   handle_command_payload "$cmd_payload" "$cmd_source"
 }
 
+discovery_mode()
+{
+  load_config
+  if ! mqtt_enabled; then exit 0; fi
+  publish_availability online
+  publish_integration_manifest force >/dev/null 2>&1 || true
+  publish_homeassistant_discovery
+  publish_health >/dev/null 2>&1 || true
+}
+
 case "$1" in
   run|daemon|"")
     run_loop
+    ;;
+  discovery)
+    discovery_mode
     ;;
   publish)
     shift
@@ -2773,7 +2786,7 @@ case "$1" in
     command_mode "$2" "$3"
     ;;
   *)
-    echo "Usage: $0 [run|publish <topic_suffix> <payload> [retain]|command <payload> [source]]"
+    echo "Usage: $0 [run|discovery|publish <topic_suffix> <payload> [retain]|command <payload> [source]]"
     exit 1
     ;;
 esac
