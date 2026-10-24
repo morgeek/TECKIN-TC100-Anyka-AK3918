@@ -13,7 +13,7 @@ log() { echo "[cfg-persist] $*" > /dev/console 2>/dev/null; }
 list() {
   cd "$(dirname $CFG)" || return 1; b=$(basename $CFG)
   find $b -type f | sort | while read f; do
-    case "$f" in *.dist|*.pid|*.tmp|*.lock) continue;; esac
+    case "$f" in *.dist|*.pid|*.tmp|*.lock|*/ssl/cacert/*|*/ssl/*.sh|*/openssl.cnf|*/swap_header*|*/autostart/0*|*/presets/*.json.dist) continue;; esac   # shipped static files live in the read-only stack
     [ -f "$f.dist" ] && cmp -s "$f" "$f.dist" && continue
     echo "$f"
   done
