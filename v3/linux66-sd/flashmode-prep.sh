@@ -13,7 +13,12 @@ mount -t tmpfs -o size=6m,mode=755 tmpfs /mnt || { log "cannot create /mnt"; exi
 for d in bin lib scripts controlscripts www v3 tc100test; do [ -e $R/$d ] && ln -s $R/$d /mnt/$d; done
 cp $R/VERSION /mnt/VERSION 2>/dev/null
 mkdir -p /mnt/config; cp -a $R/config/. /mnt/config/ 2>/dev/null
-[ -f /mnt/config/boot.conf ] || { [ -f /mnt/config/boot.conf.dist ] && cp /mnt/config/boot.conf.dist /mnt/config/boot.conf; }
+# defaults: every shipped *.dist becomes the live file until the user changes it (the web server variants stay unused)
+for f in /mnt/config/*.dist; do
+  b=${f%.dist}; case "$b" in */lighttpd*) continue;; esac
+  [ -e "$b" ] || cp "$f" "$b"
+done
+mkdir -p /mnt/config/autostart /mnt/config/presets
 CFG=/mnt/config sh $R/v3/linux66-sd/cfg-persist restore
 ( CFG=/mnt/config exec sh $R/v3/linux66-sd/cfg-persist daemon ) </dev/null >/dev/null 2>&1 &
 mkdir -p /mnt/sd
