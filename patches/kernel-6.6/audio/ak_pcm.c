@@ -632,6 +632,7 @@ static int akpcm_capture_trigger(struct snd_pcm_substream *substream, int cmd)
 	}
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
+		cancel_delayed_work(&akpcm->ds_work);	/* a start still pending must not run after the stop */
 		clear_bit(0,&akpcm->captureStrmDMARunning); //stop capture stream
 		return 0;		
 	}
@@ -641,11 +642,15 @@ static int akpcm_capture_trigger(struct snd_pcm_substream *substream, int cmd)
 static void delay_start_work(struct work_struct *work) 
 {
 	struct snd_akpcm *akpcm = container_of(work, struct snd_akpcm, ds_work.work);
-	struct snd_pcm_substream *substream = akpcm->capturesubstrm;
-	struct snd_pcm_runtime *runtime = substream->runtime;
-
-	dma_addr_t paddr = runtime->dma_addr;
+	struct snd_pcm_substream *substream = READ_ONCE(akpcm->capturesubstrm);
+	struct snd_pcm_runtime *runtime = substream ? substream->runtime : NULL;
+	dma_addr_t paddr;
 	u8 id = akpcm->L2BufID_For_ADC23;
+
+	/* the stream can be stopped or closed within the 300 ms start delay */
+	if (!runtime)
+		return;
+	paddr = runtime->dma_addr;
 	set_bit(0,&akpcm->captureStrmDMARunning);  //set bit to inform that capture stream is running
 	set_bit(1,&akpcm->captureStrmDMARunning);  //set bit to inform that DMA is working
 	init_completion(&(akpcm->captureHWDMA_completion));
@@ -1017,6 +1022,7 @@ static int akpcm_capture_close(struct snd_pcm_substream *substream)
 {
 	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
 	capSync.adcCapture_bytes = 0;
+	cancel_delayed_work_sync(&akpcm->ds_work);
 	akpcm->capturesubstrm=NULL;
 	return 0;
 }

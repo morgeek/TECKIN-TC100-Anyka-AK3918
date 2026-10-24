@@ -449,6 +449,9 @@ struct cli {
 	int ch;				/* RTP channel when interleaved */
 	struct sockaddr_in udp;		/* client RTP address */
 	uint16_t seq;
+	int a_ok, a_ch;			/* audio track set up, its interleaved channel */
+	struct sockaddr_in a_udp;	/* client audio RTP address */
+	uint16_t a_seq;
 	char sess[16];
 	char nonce[24];
 	char buf[4096];
@@ -530,6 +533,80 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 		return qsend(c, pk, 16 + n);
 	}
 	return sendto(udpfd, pk + 4, 12 + n, 0, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? -1 : 0;
+}
+
+/* ---- audio: microphone (ALSA, via arecord) -> G.711 A-law -> RTP PT 8, 8 kHz mono, 20 ms per packet ---- */
+static int audio_on;
+static FILE *aud_f;
+static int aud_fd = -1;
+static time_t aud_retry;
+static uint32_t aud_ts = 0x1234;
+static unsigned char aud_buf[160 * 2];
+static int aud_n;
+
+static unsigned char alaw(int s)
+{
+	int mask = 0xD5, e, m;
+
+	if (s < 0) { mask = 0x55; s = -s - 1; }
+	if (s > 32767) s = 32767;
+	if (s < 256) return ((s >> 4) ^ mask) & 0xff;
+	for (e = 1; e < 7 && s >= (512 << (e - 1)); e++) ;
+	m = (s >> (e + 3)) & 0x0f;
+	return (((e << 4) | m) ^ mask) & 0xff;
+}
+
+static void aud_open(void)
+{
+	aud_retry = time(NULL) + 5;
+	aud_f = popen("exec arecord -q -D hw:0,0 -f S16_LE -r 8000 -c 1 -t raw -F 32000 -B 128000 2>/dev/null", "r");
+	if (!aud_f) { LOG("audio: arecord failed\n"); return; }
+	aud_fd = fileno(aud_f);
+	fcntl(aud_fd, F_SETFL, fcntl(aud_fd, F_GETFL) | O_NONBLOCK);
+	aud_n = 0;
+}
+
+static void aud_send(const unsigned char *pl, int n)
+{
+	for (int i = 0; i < MAXCLI; i++) {
+		struct cli *c = &cl[i];
+		unsigned char pk[4 + 12 + 160];
+
+		if (c->fd < 0 || !c->playing || !c->a_ok) continue;
+		pk[4] = 0x80; pk[5] = 8;
+		pk[6] = c->a_seq >> 8; pk[7] = c->a_seq & 255; c->a_seq++;
+		pk[8] = aud_ts >> 24; pk[9] = aud_ts >> 16; pk[10] = aud_ts >> 8; pk[11] = aud_ts;
+		pk[12] = (SSRC + 1) >> 24; pk[13] = (SSRC + 1) >> 16; pk[14] = (SSRC + 1) >> 8; pk[15] = (SSRC + 1);
+		memcpy(pk + 16, pl, n);
+		if (c->tcp) {
+			if (qfree(c) < 4096) continue;	/* congested: audio is dropped before video is */
+			pk[0] = '$'; pk[1] = c->a_ch; pk[2] = (12 + n) >> 8; pk[3] = (12 + n) & 255;
+			if (qsend(c, pk, 16 + n) || qflush(c)) cli_close(c);
+		} else {
+			sendto(udpfd, pk + 4, 12 + n, 0, (struct sockaddr *)&c->a_udp, sizeof c->a_udp);
+		}
+	}
+	aud_ts += n;
+}
+
+static void aud_pump(void)
+{
+	unsigned char raw[1024];
+	int r;
+
+	while ((r = read(aud_fd, raw, sizeof raw)) > 0) {
+		static int odd = -1;
+
+		for (int i = 0; i < r; i++) {
+			if (odd < 0) { odd = raw[i]; continue; }
+			aud_buf[aud_n++] = alaw((int16_t)(odd | (raw[i] << 8)));
+			odd = -1;
+			if (aud_n == 160) { aud_send(aud_buf, 160); aud_n = 0; }
+		}
+	}
+	if (r == 0 || (r < 0 && errno != EAGAIN && errno != EINTR)) {
+		pclose(aud_f); aud_f = NULL; aud_fd = -1;
+	}
 }
 
 static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char *pl, int n)
@@ -700,7 +777,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 	if (!strcmp(m, "OPTIONS")) {
 		reply(c, 200, "OK", cseq, "Public: OPTIONS, DESCRIBE, SETUP, PLAY, PAUSE, TEARDOWN, GET_PARAMETER\r\n", NULL);
 	} else if (!strcmp(m, "DESCRIBE")) {
-		char sdp[1024], base[300], fm[600];
+		char sdp[1536], base[300], fm[600];
 
 		if (!HAVE_PS) { reply(c, 503, "Service Unavailable", cseq, NULL, NULL); return; }
 		if (hevc) snprintf(fm, sizeof fm, "%s", sprop);
@@ -711,12 +788,34 @@ static void handle(struct cli *c, char *req, int cseq_default)
 			 "m=video 0 RTP/AVP 96\r\na=rtpmap:96 %s/90000\r\n"
 			 "a=fmtp:96 %s\r\na=control:track1\r\n",
 			 host, hevc ? "H265" : "H264", fm);
+		if (audio_on) strncat(sdp, "m=audio 0 RTP/AVP 8\r\na=rtpmap:8 PCMA/8000\r\na=control:track2\r\n", sizeof sdp - strlen(sdp) - 1);
 		reply(c, 200, "OK", cseq, base, sdp);
 	} else if (!strcmp(m, "SETUP")) {
 		char tr[300];
 
 		if (!hdr(req, "Transport", tr, sizeof tr)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
-		snprintf(c->sess, sizeof c->sess, "%08x", (unsigned)(time(NULL) ^ (c - cl) * 7919));
+		if (!c->sess[0]) snprintf(c->sess, sizeof c->sess, "%08x", (unsigned)(time(NULL) ^ (c - cl) * 7919));
+		if (audio_on && strstr(url, "track2")) {	/* audio track */
+			if (strstr(tr, "TCP")) {
+				char *q = strstr(tr, "interleaved=");
+
+				c->tcp = 1; c->a_ch = q ? num(q + 12) : 2;
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=60\r\n", c->a_ch, c->a_ch + 1, c->sess);
+			} else {
+				char *q = strstr(tr, "client_port=");
+				struct sockaddr_in pe;
+				socklen_t pl = sizeof pe;
+
+				if (!q || getpeername(c->fd, (struct sockaddr *)&pe, &pl)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
+				c->tcp = 0; c->a_udp = pe; c->a_udp.sin_port = htons(num(q + 12));
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=60\r\n",
+					 num(q + 12), num(q + 12) + 1, srv_rtp, srv_rtp + 1, c->sess);
+			}
+			c->a_seq = (uint16_t)(time(NULL) * 17);
+			c->a_ok = 1;
+			reply(c, 200, "OK", cseq, ex, NULL);
+			return;
+		}
 		if (strstr(tr, "TCP")) {
 			char *q = strstr(tr, "interleaved=");
 
@@ -813,7 +912,8 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "-w")) pwfile = v;
 		else if (!strcmp(a, "-L")) dir = v;
 		else if (!strcmp(a, "-A")) akuio = v;
-		else { LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-c h264|h265] [-q QMIN] [-Q QMAX] [-d DEV] [-L LIBDIR] [-A libakuio.so]\n"); return 2; }
+		else if (!strcmp(a, "-a")) audio_on = num(v) != 0;
+		else { LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-c h264|h265] [-q QMIN] [-Q QMAX] [-d DEV] [-L LIBDIR] [-A libakuio.so] [-a 0|1 audio]\n"); return 2; }
 	}
 	if (pwfile) {	/* first line of the file is the password; an empty or missing file leaves the stream open */
 		FILE *pf = fopen(pwfile, "r");
@@ -931,6 +1031,8 @@ int main(int argc, char **argv)
 		int mx = fd > ls ? fd : ls, i, nplay = 0;
 
 		FD_ZERO(&fs); FD_ZERO(&ws); FD_SET(fd, &fs); FD_SET(ls, &fs);
+		if (audio_on && !aud_f && time(NULL) >= aud_retry) aud_open();
+		if (aud_fd >= 0) { FD_SET(aud_fd, &fs); if (aud_fd > mx) mx = aud_fd; }
 		for (i = 0; i < MAXCLI; i++)
 			if (cl[i].fd >= 0) {
 				FD_SET(cl[i].fd, &fs);
@@ -948,6 +1050,7 @@ int main(int argc, char **argv)
 			}
 		}
 
+		if (aud_fd >= 0 && FD_ISSET(aud_fd, &fs)) aud_pump();
 		if (FD_ISSET(ls, &fs)) {
 			int s = accept(ls, NULL, NULL);
 
