@@ -1,0 +1,21 @@
+#!/bin/sh
+# SD-boot (Linux 6.6) stack: the vendor setconf talks to the vendor ISP daemon, which is not running here.
+# Same interface (-k key -v value, -g key); the keys with an effect on this stack are handled, the others accepted.
+#   v  black and white   0 = on (tc100_rtsp zeroes the chroma while /tmp/tc100_bw exists), 1 = off
+#   g  IR LED            e  IR cut filter
+#   p  motion detection 1 = on, -0 = off (tc100_rtsp watches /tmp/tc100_md)   m  its sensitivity 1-100
+k=; v=; g=
+while [ $# -gt 0 ]; do case "$1" in -k) k="$2"; shift 2 ;; -v) v="$2"; shift 2 ;; -g) g="$2"; shift 2 ;; *) shift ;; esac; done
+if [ -n "$g" ]; then
+  case "$g" in p) [ -e /tmp/tc100_md ] && echo 1 || echo 0 ;; v) cat /var/run/vday 2>/dev/null || echo 1 ;; *) echo 0 ;; esac
+  exit 0
+fi
+case "$k" in
+  v) mkdir -p /var/run
+     if [ "$v" = 0 ]; then : > /tmp/tc100_bw; echo 0 > /var/run/vday; else rm -f /tmp/tc100_bw; echo 1 > /var/run/vday; fi ;;
+  p) case "$v" in 1) : > /tmp/tc100_md ;; *) rm -f /tmp/tc100_md; echo 0 > /tmp/rec_control ;; esac ;;
+  m) echo "$v" > /tmp/tc100_md_sens ;;
+  g) [ -w /sys/class/leds/ir/brightness ] && echo "${v:-0}" > /sys/class/leds/ir/brightness ;;
+  *) : ;;
+esac
+exit 0

@@ -169,6 +169,23 @@ if [ -x /mnt/sd/controlscripts/recording ]; then
   echo "[tc100-v3] Recording service launched" > /dev/console
 fi
 
+# 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be
+#      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
+#      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
+( S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
+  n=0; while [ $n -lt 60 ]; do ntpd -n -q -p "$S" </dev/null >/dev/null 2>&1 && break; n=$((n+1)); sleep 10; done
+  while sleep 3600; do ntpd -n -q -p "$S" </dev/null >/dev/null 2>&1; done ) &
+
+# 12b. Services switched on in the web UI (Services page, "Démarrage" toggle = file in config/autostart).
+#      Started detached, one after the other. Left out: the ones started above, the system entries (numbered), and
+#      cpu-scaler (it scales the vendor RTSP server's frame rate; nothing to scale here).
+for f in /mnt/config/autostart/*; do
+  n=${f##*/}
+  case "$n" in [0-9]*|\*|cpu-scaler|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording) continue ;; esac
+  [ -x /mnt/controlscripts/$n ] && sh /mnt/controlscripts/$n start </dev/null >/dev/null 2>&1 &
+  sleep 1
+done
+
 echo "[tc100-v3] All services initialized successfully." > /dev/console
 
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may

@@ -1112,8 +1112,18 @@ int main(int argc, char **argv)
 				for (i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].playing) cl[i].wait_idr = 1;
 			}
 			double tn = now_s();
-			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= 0.25;
-			int d_snap = jpeg_ok && (tn - t_snap >= 2.0 || !access("/tmp/snapshot_request", F_OK));
+			/* the web pictures are only made often while somebody reads them (a read after a write moves atime) */
+			double str_iv = 2.0, snap_iv = 10.0;
+			static time_t bw_chk = 0; static int bw = 0;
+			{
+				struct stat sb; time_t nw = time(NULL);
+
+				if (!stat("/tmp/stream.jpg", &sb) && nw - sb.st_atime < 4) str_iv = 0.25;
+				if (!stat("/tmp/currentpic.cache.jpg", &sb) && nw - sb.st_atime < 10) snap_iv = 2.0;
+				if (nw != bw_chk) { bw_chk = nw; bw = !access("/tmp/tc100_bw", F_OK); }	/* black and white switch */
+			}
+			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= str_iv;
+			int d_snap = jpeg_ok && (tn - t_snap >= snap_iv || !access("/tmp/snapshot_request", F_OK));
 
 			if (d_luma) {	/* mean of the sub-stream luma samples, like tc100_streamer */
 				const unsigned char *sy = vb[b.index];	/* main luma at sub-stream coordinates x3 */
@@ -1127,8 +1137,33 @@ int main(int argc, char **argv)
 				wfile("/tmp/cam_luma", lb, ln);
 				t_luma = tn;
 			}
-			if (active || d_snap) memcpy(pf, vb[b.index], flen);
-			if (d_str) sub_scale(vb[b.index], pf + flen);
+			/* motion detection (setconf -k p 1 creates /tmp/tc100_md, -k m N the sensitivity 1-100): 4 times a second the
+			 * luma of a 64x36 grid is compared with the previous sample; /tmp/rec_control gets "1" on motion and "0" 8 s
+			 * after it stopped, which is what the recorder, the detection monitor (MQTT event, snapshot, LED) read */
+			{
+				static double t_md, t_mdlast; static unsigned char mdp[64 * 36]; static int mdhave, mdhits, mdon;
+
+				if (tn - t_md >= 0.25) {
+					t_md = tn;
+					if (!access("/tmp/tc100_md", F_OK)) {
+						unsigned char cur[64 * 36]; const unsigned char *sy = vb[b.index]; int x, y, n = 0, chg = 0, sens = 60;
+						char sb[8]; FILE *sf = fopen("/tmp/tc100_md_sens", "r");
+
+						if (sf) { if (fgets(sb, sizeof sb, sf)) sens = (int)num(sb); fclose(sf); }
+						if (sens < 1) sens = 1; if (sens > 100) sens = 100;
+						for (y = 0; y < 36; y++) for (x = 0; x < 64; x++) cur[n++] = sy[(y * 30 + 15) * W + x * 30 + 15];
+						if (mdhave) {
+							for (n = 0; n < 64 * 36; n++) { int d = cur[n] - mdp[n]; if (d < 0) d = -d; if (d > 20) chg++; }
+							if (chg * 1000 > (int)(64 * 36) * (5 + (100 - sens) * 1)) mdhits++; else mdhits = 0;
+							if (mdhits >= 2) { t_mdlast = tn; if (!mdon) { mdon = 1; wfile("/tmp/rec_control", "1\n", 2); } }
+						}
+						memcpy(mdp, cur, sizeof mdp); mdhave = 1;
+						if (mdon && tn - t_mdlast > 8.0) { mdon = 0; wfile("/tmp/rec_control", "0\n", 2); }
+					} else mdhave = 0;
+				}
+			}
+			if (active || d_snap) { memcpy(pf, vb[b.index], flen); if (bw) memset(pf + W * H, 128, W * H / 2); }
+			if (d_str) { sub_scale(vb[b.index], pf + flen); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
 			ioctl(fd, VIDIOC_QBUF, &b);
 			if (active) {
 				clock_gettime(CLOCK_MONOTONIC, &t1);
