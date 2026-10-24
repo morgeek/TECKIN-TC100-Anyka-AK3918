@@ -18,5 +18,6 @@ for l in ld-uClibc-0.9.33.2.so libc.so.0 libuClibc-0.9.33.2.so libdl.so.0 libm.s
          libplat_thread.so libplat_venc_cb.so libwolfmqtt.so.5 libzbar.so.0 libtc100fix.so; do cp -a lib/$l $O/lib/; done
 ln -sf libstdc++.so.6.0.19 $O/lib/libstdc++.so.6
 cp -a tc100test/tc100_rtsp tc100test/libakuio.so tc100test/httpfront tc100test/rtsp-launch.sh $O/tc100test/
+[ -n "$DEV_CONSOLE" ] && touch $O/tc100test/consoleshell   # development builds: root shell on the serial console
 mksquashfs $O "$OUT" -comp xz -b 256K -noappend -quiet
 ls -l "$OUT"

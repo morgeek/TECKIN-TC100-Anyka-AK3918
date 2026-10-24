@@ -58,3 +58,7 @@ Findings:
 - Flash reads/verification of 3 MiB take minutes while the streamer runs (polled PIO SPI); `flashw` is slow but correct. The serial shell is blocked meanwhile.
 - No SD console shell in flash mode unless `tc100test/consoleshell` exists on the card (otherwise a getty login).
 - Verified: kernel+initramfs+user space from flash, web UI (302), RTSP 554, Wi-Fi from the flash settings, SD kept as video storage.
+
+### Open point (end of 2026-10-24)
+- First SD-less run: after the card was pulled **while running**, the dashboard stayed up but `/cgi-bin/currentpic.cgi` returned 0 bytes. A clean cold boot without SD has not yet been observed with a console. Plan: `DEV_CONSOLE=1 sh v3/linux66-sd/build-slim-stack.sh` builds a stack with `tc100test/consoleshell` (serial root shell in flash mode), write it with `FLASHW_ALLOW=stack flashw stack <file>`, cold-boot without SD, debug, then rebuild the stack without the flag.
+- The Mac UART daemon dies at every power cut (Pico must be re-plugged).
