@@ -44,7 +44,7 @@ start()
   ## Watchdog — only when the bridge is enabled in config; a disabled bridge
   ## exits by design and a watchdog would restart-loop it forever.
   if bridge_enabled_in_config && ! checkpid "$WATCHDOG_PIDFILE"; then
-    /mnt/scripts/service-watchdog.sh /mnt/controlscripts/mqtt-bridge 0 status &
+    /mnt/scripts/service-watchdog.sh /mnt/controlscripts/mqtt-bridge 0 status </dev/null >/dev/null 2>&1 &
     echo "$!" > "$WATCHDOG_PIDFILE"
   fi
 }

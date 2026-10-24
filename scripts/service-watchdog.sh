@@ -106,6 +106,23 @@ service_is_healthy()
     SERVICE_TO_MONITOR=$1
     CHECK_MODE=$2
 
+    if [ "$CHECK_MODE" != "health" ]; then
+        _wd_pf=""
+        case "${SERVICE_TO_MONITOR##*/}" in
+            onvif)       _wd_pf="/var/run/onvif.pid" ;;
+            mqtt-bridge) _wd_pf="/var/run/mqtt-bridge.pid" ;;
+            rtsp-h26x)   _wd_pf="/var/run/v4l2rtspserver.pid" ;;
+        esac
+        if [ -n "$_wd_pf" ]; then
+            _wd_pid=""
+            [ -r "$_wd_pf" ] && read -r _wd_pid _ < "$_wd_pf" 2>/dev/null
+            case "$_wd_pid" in
+                ''|*[!0-9]*) return 1 ;;
+                *) kill -0 "$_wd_pid" 2>/dev/null && return 0 || return 1 ;;
+            esac
+        fi
+    fi
+
     service_status="$("$SERVICE_TO_MONITOR" status 2>/dev/null)"
     if [ -z "$service_status" ]; then
         return 1

@@ -29,7 +29,7 @@ start()
 
   ## Motion detection monitor
   if ! checkpid "$MONITOR_PIDFILE"; then
-    /mnt/scripts/detection-monitor.sh &
+    /mnt/scripts/detection-monitor.sh </dev/null >/dev/null 2>&1 &
     echo "$!" > "$MONITOR_PIDFILE"
   fi
 }

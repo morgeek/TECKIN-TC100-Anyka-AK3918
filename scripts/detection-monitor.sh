@@ -20,10 +20,19 @@ monitor_motion_detection()
     while :
     do
         sleep $MONITOR_TIMEOUT_SECONDS
-        NEW_MOTION_FLAG="$(/mnt/bin/getflag /tmp/rec_control 2>/dev/null)"
+        NEW_MOTION_FLAG=""
+        if [ -r /tmp/rec_control ]; then
+            read -r NEW_MOTION_FLAG < /tmp/rec_control 2>/dev/null
+        fi
         case "$NEW_MOTION_FLAG" in
             0|1) ;;
-            *) NEW_MOTION_FLAG=$LAST_MOTION_FLAG ;;
+            *)
+                NEW_MOTION_FLAG="$(/mnt/bin/getflag /tmp/rec_control 2>/dev/null)"
+                case "$NEW_MOTION_FLAG" in
+                    0|1) ;;
+                    *) NEW_MOTION_FLAG=$LAST_MOTION_FLAG ;;
+                esac
+                ;;
         esac
 
         if [ $NEW_MOTION_FLAG -ne $LAST_MOTION_FLAG ]; then

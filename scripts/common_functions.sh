@@ -14,7 +14,14 @@ fi
 # timeout(1) shim — see func.cgi for the full story. /bin/timeout is the old
 # busybox variant expecting `-t SECS`, so `timeout SECS CMD` silently fails to
 # run CMD at all. Route through busybox, whose applet takes the modern form.
-if ! timeout 1 true >/dev/null 2>&1; then
+_to_ok=""
+[ -r /tmp/.tc100-timeout-ok ] && read -r _to_ok < /tmp/.tc100-timeout-ok
+case "$_to_ok" in
+  0|1) ;;
+  *) if timeout 1 true >/dev/null 2>&1; then _to_ok=1; else _to_ok=0; fi
+     echo "$_to_ok" > /tmp/.tc100-timeout-ok 2>/dev/null ;;
+esac
+if [ "$_to_ok" = 0 ]; then
     # The busybox applet only finds CMD when it is given as a path ("timeout 5
     # ifconfig" failed with "can't execute 'ifconfig'", which is why the
     # Network page showed no IP and no gateway), so resolve bare names first.
