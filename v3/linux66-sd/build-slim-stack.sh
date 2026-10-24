@@ -12,7 +12,8 @@ cp -a www scripts controlscripts v3 VERSION $O/
 mkdir -p $O/config; cp -a config/*.dist $O/config/    # defaults; settings and credentials live in the flash slots (cfg-persist)
 cp -a config/autostart config/openssl.cnf config/swap_header_16m.bin config/isp_f23_mipi_2lane.conf $O/config/ 2>/dev/null   # static parts of the config
 [ -f "$O/config/isp_f23_mipi_2lane.conf" ] || cp -a tc100test/isp_f23_mipi*lane.conf "$O/config/isp_f23_mipi_2lane.conf" 2>/dev/null || true
-find $O \( -name '*.bak*' -o -name '*bak' -o -name '*.orig' -o -name '*.vendor' \) | xargs rm -f
+find $O \( -name '*.bak*' -o -name '*bak' -o -name '*.orig' -o -name '*.vendor' -o -name 'put.sh' \) | xargs rm -f
+rm -f $O/config/autostart/ftp-server
 for b in busybox ffmpeg-min-recorder getflag getimage jq min-recorder-list monvifd rwconf setconf swapon_zram tc100-logfwd telegram tinymix wpa_supplicant; do cp -a bin/$b $O/bin/; done
 for l in ld-uClibc-0.9.33.2.so libc.so.0 libuClibc-0.9.33.2.so libdl.so.0 libm.so.0 libpthread.so.0 librt.so.0 libgcc_s.so.1 \
          libcrypt.so.0 libstdc++.so.6.0.19 libakv_encode.so libmpi_venc_ex.so libplat_common.so libplat_drv.so libplat_ipcsrv.so \

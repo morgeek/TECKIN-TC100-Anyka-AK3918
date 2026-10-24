@@ -165,8 +165,8 @@ if [ -x /mnt/controlscripts/motion-detection ]; then
   echo "[tc100-v3] Motion detection service active" > /dev/console
 fi
 
-# 12. Start Recording (if enabled)
-if [ -x /mnt/controlscripts/recording ]; then
+# 12. Start Recording (if enabled and SD card is mounted for video storage)
+if [ -x /mnt/controlscripts/recording ] && grep -qE ' (/mnt/sd|/mnt) vfat ' /proc/mounts; then
   /mnt/controlscripts/recording start >/dev/null 2>&1
   echo "[tc100-v3] Recording service launched" > /dev/console
 fi
@@ -176,7 +176,7 @@ fi
 #      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
 ( S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
   n=0; while [ $n -lt 60 ]; do ntpd -n -q -p "$S" </dev/null >/dev/null 2>&1 && break; n=$((n+1)); sleep 10; done
-  while sleep 3600; do ntpd -n -q -p "$S" </dev/null >/dev/null 2>&1; done ) &
+  while sleep 3600; do ntpd -n -q -p "$S" </dev/null >/dev/null 2>&1; done ) </dev/null >/dev/null 2>&1 &
 
 # 12b. Services switched on in the web UI (Services page, "Démarrage" toggle = file in config/autostart).
 #      Started detached, one after the other. Left out: the ones started above, the system entries (numbered), and
@@ -195,4 +195,4 @@ echo "[tc100-v3] All services initialized successfully." > /dev/console
 ( sleep 30
   for p in tc100_rtsp httpfront lighttpd monvifd ffmpeg-min-recorder; do
     for pid in $(pidof $p 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
-  done ) &
+  done ) </dev/null >/dev/null 2>&1 &
