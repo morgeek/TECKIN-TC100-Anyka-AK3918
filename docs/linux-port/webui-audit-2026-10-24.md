@@ -30,3 +30,9 @@ IR LED (sysfs `leds/ir`), IR-cut (gpio 592/593 pulse, status toggles), image pre
 ## Open measurements
 - tc100_rtsp: one thread, ~50 % CPU in user mode (10 s sample), ~10 fps encoded for 16 configured; recorder adds ~14 %. Whole SoC at ~100 % busy. Candidates: 3 MB frame memcpy per frame from the V4L2 buffer, JPEG snapshot every 2 s even with nobody watching, STAT/encoder prints on the UART (rtsp.debug present). Needs a profile build.
 - Still to review: Enregistrement, Réseau, Intégrations (needs the user's MQTT password), Système, Mise à jour, Diagnostic, Journaux, Éditeur, wizard.
+
+## Update (later, same day)
+Wired since the first audit: B/W (chroma neutralised in tc100_rtsp), motion detection → /tmp/rec_control → recording, NTP loop, autostart toggles (autorun step 12b), timezone in the launcher, version display, hidden format button.
+New: in-encoder post-processing in tc100_rtsp (grey-world white balance, clamp ±85, off with `config/awb.off`; brightness/contrast/saturation/hue tuning from isp_tune.conf; privacy masks; clock OSD). Visually checked on currentpic.cgi: the yellow-green cast is largely removed, clock shown; greys can lean slightly blue. CPU: tc100_rtsp ~50-53 %, unchanged order of magnitude.
+Launcher fix: rtsp-launch.sh now replaces /tmp/tc100_rtsp when the SD binary differs.
+Still open: UI day/night thresholds → daemon, motion zones, flux resolution/fps, sharpness, Mise à jour/Diagnostic/Journaux/Éditeur/wizard review.
