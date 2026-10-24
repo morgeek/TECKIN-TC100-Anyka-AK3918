@@ -19,7 +19,7 @@ diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/a
 index 28580fca8..454808235 100644
 --- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -88,6 +88,59 @@ l2: l2@20140000 {
+@@ -88,6 +88,62 @@ l2: l2@20140000 {
  		interrupts = <12>;
  	};
  
@@ -68,9 +68,12 @@ index 28580fca8..454808235 100644
 +					reg = <0x43b000 0x3b3000>;
 +				};
 +				partition@7ee000 {
-+					label = "tail";
-+					reg = <0x7ee000 0x012000>;
-+					/* writable: 72 KiB test area, erased (0xFF) in the stock image */
++					label = "cfga";		/* settings, slot A (36 KiB), erased (0xFF) in the stock image */
++					reg = <0x7ee000 0x009000>;
++				};
++				partition@7f7000 {
++					label = "cfgb";		/* settings, slot B (36 KiB) */
++					reg = <0x7f7000 0x009000>;
 +				};
 +			};
 +		};
