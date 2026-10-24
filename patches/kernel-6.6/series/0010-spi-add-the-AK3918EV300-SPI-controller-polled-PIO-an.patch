@@ -68,7 +68,7 @@ index 28580fca8..454808235 100644
 +				partition@7ee000 {
 +					label = "tail";
 +					reg = <0x7ee000 0x012000>;
-+					read-only;
++					/* writable: 72 KiB test area, erased (0xFF) in the stock image */
 +				};
 +			};
 +		};
