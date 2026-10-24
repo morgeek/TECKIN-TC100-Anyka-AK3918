@@ -9,9 +9,16 @@ mkdir -p /tmp/logs /var/run
 killall watchdog 2>/dev/null
 watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
 
-# 1. Setup /mnt symlinks
+# 0b. The user space (web pages, scripts, status checks) expects the card at /mnt: mount it there and keep
+#     /mnt/sd as an alias (the card has an empty "sd" folder for that second mount)
+if ! grep -q ' /mnt vfat ' /proc/mounts && [ -b /dev/mmcblk0p1 ]; then
+  mkdir -p /mnt/sd/sd
+  mount -t vfat -o rw,noatime /dev/mmcblk0p1 /mnt && mount -t vfat -o rw,noatime /dev/mmcblk0p1 /mnt/sd
+fi
+
+# 1. Setup /mnt symlinks (only when the card is not mounted at /mnt itself)
 for d in bin config controlscripts lib scripts www; do
-  [ -d /mnt/sd/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
+  [ -d /mnt/sd/$d ] && [ ! -d /mnt/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
 done
 
 # 2. Populate shared uClibc libraries into /lib with execute permissions
@@ -155,3 +162,10 @@ if [ -x /mnt/sd/controlscripts/recording ]; then
 fi
 
 echo "[tc100-v3] All services initialized successfully." > /dev/console
+
+# 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
+#     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).
+( sleep 30
+  for p in tc100_rtsp httpfront lighttpd monvifd ffmpeg-min-recorder; do
+    for pid in $(pidof $p 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
+  done ) &
