@@ -64,9 +64,21 @@ save)
 daemon)
   [ -f /tmp/cfg-persist.sig ] || signature > /tmp/cfg-persist.sig
   last=; while sleep 30; do
+    if [ -z "$last" ]; then
+      changed=0
+      for f in "$CFG"/* "$CFG"/autostart/* "$CFG"/presets/*; do
+        [ -f "$f" ] || continue
+        case "$f" in *.dist|*.pid|*.tmp|*.lock) continue ;; esac
+        if [ "$f" -nt /tmp/cfg-persist.sig ]; then changed=1; break; fi
+      done
+      [ "$changed" = 1 ] || continue
+    fi
     s=$(signature)
     if [ "$s" != "$(cat /tmp/cfg-persist.sig)" ]; then
       if [ "$s" = "$last" ]; then sh $0 save; last=; else last=$s; fi   # saved once the change is stable for 30 s
+    else
+      touch /tmp/cfg-persist.sig 2>/dev/null || true
+      last=
     fi
   done ;;
 status)

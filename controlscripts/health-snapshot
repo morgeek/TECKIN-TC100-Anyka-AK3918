@@ -12,7 +12,7 @@ status() {
 start() {
   if [ -n "$(status)" ]; then return 0; fi
   HEALTH_SNAPSHOT_INTERVAL_SECONDS="$(read_kv_config_value /mnt/config/boot.conf HEALTH_SNAPSHOT_INTERVAL_SECONDS 300)" \
-    /mnt/scripts/health-snapshot.sh &
+    /mnt/scripts/health-snapshot.sh </dev/null >/dev/null 2>&1 &
   echo "$!" > "$PIDFILE"
 }
 

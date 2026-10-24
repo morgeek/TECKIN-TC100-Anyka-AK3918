@@ -33,6 +33,12 @@ probe_service_fast() {
     telegram-bot)    _pf_file="/var/run/telegram-bot.pid" ;;
     cpu-scaler)      _pf_file="/var/run/cpu-scaler.pid" ;;
     health-snapshot) _pf_file="/var/run/health-snapshot.pid" ;;
+    button-actions)  _pf_file="/var/run/button-watch.pid" ;;
+    wifi-rescue)     _pf_file="/var/run/wifi-rescue.pid" ;;
+    auto-night-detection)
+      [ -f /var/run/auto-night-detection.pid ] && _pf_file="/var/run/auto-night-detection.pid" ;;
+    motion-detection)
+      [ -e /tmp/tc100_md ] && _pf_file="/var/run/detection-monitor.pid" ;;
   esac
 
   if [ -n "$_pf_file" ]; then

@@ -183,9 +183,8 @@ fi
 # 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be
 #      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
 #      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
-( S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
-  n=0; while [ $n -lt 60 ]; do ntpd -n -q -p "$S" </dev/null >/dev/null 2>&1 && break; n=$((n+1)); sleep 10; done
-  while sleep 3600; do ntpd -n -q -p "$S" </dev/null >/dev/null 2>&1; done ) </dev/null >/dev/null 2>&1 &
+S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
+ntpd -p "$S" </dev/null >/dev/null 2>&1 &
 
 # 12b. Services switched on in the web UI (Services page, "Démarrage" toggle = file in config/autostart).
 #      Started detached, one after the other. Left out: the ones started above, the system entries (numbered), and
@@ -197,11 +196,10 @@ for f in /mnt/config/autostart/*; do
   sleep 1
 done
 
-echo "[tc100-v3] All services initialized successfully." > /dev/console
-
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).
-( sleep 30
-  for p in tc100_rtsp httpfront lighttpd monvifd ffmpeg-min-recorder; do
-    for pid in $(pidof $p 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
-  done ) </dev/null >/dev/null 2>&1 &
+for p in tc100_rtsp httpfront lighttpd monvifd ffmpeg-min-recorder; do
+  for pid in $(pidof $p 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
+done
+
+echo "[tc100-v3] All services initialized successfully." > /dev/console

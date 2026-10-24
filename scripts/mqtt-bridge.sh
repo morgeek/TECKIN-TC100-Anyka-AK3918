@@ -1553,12 +1553,22 @@ build_health_payload()
   fi
 
   motion_active=0
-  if [ -x /mnt/bin/getflag ] && [ -f /tmp/rec_control ]; then
-    motion_active="$(/mnt/bin/getflag /tmp/rec_control 2>/dev/null)"
-    case "$motion_active" in
-      ''|*[!0-9]*) motion_active=0 ;;
-    esac
+  if [ -r /tmp/rec_control ]; then
+    read -r motion_active < /tmp/rec_control 2>/dev/null
   fi
+  case "$motion_active" in
+    0|1) ;;
+    *)
+      if [ -x /mnt/bin/getflag ] && [ -f /tmp/rec_control ]; then
+        motion_active="$(/mnt/bin/getflag /tmp/rec_control 2>/dev/null)"
+        case "$motion_active" in
+          ''|*[!0-9]*) motion_active=0 ;;
+        esac
+      else
+        motion_active=0
+      fi
+      ;;
+  esac
   case "$motion_active" in
     1) motion_state_payload="ON" ;;
     *) motion_state_payload="OFF" ;;
