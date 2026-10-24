@@ -21,11 +21,11 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | GPIO (3 banks), LEDs, IR LEDs, IR-cut | works |
 | I2C (`i2c-ak39`) | works: JX-F23 answers (id 0x0F23) |
 | Video: V4L2 / vb2-dma-contig driver `ak39_vi` + the 4.4 ISP core | works: 1920x1080 NV12, 25 fps, real colours, AE running |
-| Audio (`ak39_codec`, `ak_pcm`), swap in ZRAM, 28 MB CMA pool | built by CI; **not yet tested on the camera** (image `v3a.img`) |
-| Encoder access (`ak39_venc` + `libakuio`) | written and compiled; **not yet run on the camera** |
-| Hardware JPEG (`src/jpegenc`) | tables and layout verified offline; **not yet run on the camera** |
-| H.264 / H.265 | not done (Allegro DVT core, see below) |
-| V3 user space on 6.6 (`v3/`) | boot script and initramfs builder written; **not yet run on the camera** |
+| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA; G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker not tested on 6.6 |
+| Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
+| Hardware JPEG (`src/jpegenc`) | works (web UI pictures) |
+| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz (see the Project notes) |
+| V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge (Home Assistant entities to be confirmed) |
 | SPI NOR (boot without the SD card) | not done |
 
 ## Hardware facts (verified on the board)
