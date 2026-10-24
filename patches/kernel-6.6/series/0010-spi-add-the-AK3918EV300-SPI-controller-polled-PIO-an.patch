@@ -19,7 +19,7 @@ diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/a
 index 28580fca8..454808235 100644
 --- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -88,6 +88,57 @@ l2: l2@20140000 {
+@@ -88,6 +88,59 @@ l2: l2@20140000 {
  		interrupts = <12>;
  	};
  
@@ -48,7 +48,6 @@ index 28580fca8..454808235 100644
 +				partition@39000 {
 +					label = "kernel";
 +					reg = <0x039000 0x200000>;
-+					read-only;
 +				};
 +				partition@239000 {
 +					label = "mac";
@@ -61,9 +60,12 @@ index 28580fca8..454808235 100644
 +					read-only;
 +				};
 +				partition@23b000 {
-+					label = "rootfs";	/* stock A + B + C merged */
-+					reg = <0x23b000 0x5b3000>;
-+					read-only;
++					label = "initrd";	/* stock A + B: initramfs (cpio.gz), 2 MiB */
++					reg = <0x23b000 0x200000>;
++				};
++				partition@43b000 {
++					label = "stack";	/* stock C: squashfs (xz) of the user space, 3.7 MiB */
++					reg = <0x43b000 0x3b3000>;
 +				};
 +				partition@7ee000 {
 +					label = "tail";
