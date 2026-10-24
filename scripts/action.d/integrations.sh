@@ -32,25 +32,27 @@
       mqtt_host=$(printf '%s' "${F_mqtt_host}")
       mqtt_port=$(sanitize_int_range "${F_mqtt_port}" 1 65535 1883)
       mqtt_user=$(printf '%s' "${F_mqtt_user}")
-      mqtt_password=$(printf '%s' "${F_mqtt_password}")
-      mqtt_client_id=$(printf '%s' "${F_mqtt_client_id}")
+      # The settings form only posts the fields it shows: a missing or empty password keeps the saved one
+      mqtt_password="${F_mqtt_password:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_PASSWORD "")}"
+      mqtt_client_id="${F_mqtt_client_id:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)}"
       mqtt_topic_root=$(printf '%s' "${F_mqtt_topic_root}")
-      mqtt_topic_command=$(printf '%s' "${F_mqtt_topic_command}")
-      mqtt_qos=$(sanitize_int_range "${F_mqtt_qos}" 0 2 0)
-      mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds}" 10 86400 120)
+      mqtt_topic_command="${F_mqtt_topic_command:-}"
+      mqtt_qos=$(sanitize_int_range "${F_mqtt_qos:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_QOS 0)}" 0 2 0)
+      mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS 120)}" 10 86400 120)
       mqtt_health_slow_cache_ttl_seconds=$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180)" 10 86400 180)
-      mqtt_command_wait_seconds=$(sanitize_int_range "${F_mqtt_command_wait_seconds}" 3 120 12)
-      mqtt_command_repeat_window_seconds=$(sanitize_int_range "${F_mqtt_command_repeat_window_seconds}" 0 600 20)
+      mqtt_command_wait_seconds=$(sanitize_int_range "${F_mqtt_command_wait_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_COMMAND_WAIT_SECONDS 12)}" 3 120 12)
+      mqtt_command_repeat_window_seconds=$(sanitize_int_range "${F_mqtt_command_repeat_window_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_COMMAND_REPEAT_WINDOW_SECONDS 20)}" 0 600 20)
       mqtt_subscribe_backoff_initial_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_initial_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS 2)}" 1 60 2)
       mqtt_subscribe_backoff_max_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_max_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS 20)}" 1 600 20)
       mqtt_subscribe_backoff_multiplier=$(sanitize_int_range "${F_mqtt_subscribe_backoff_multiplier:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER 2)}" 1 5 2)
-      mqtt_ha_discovery_enable=$(normalize_bool "${F_mqtt_ha_discovery_enable}")
-      mqtt_ha_discovery_prefix=$(printf '%s' "${F_mqtt_ha_discovery_prefix}")
-      power_estimate_enable=$(normalize_bool "${F_power_estimate_enable}")
-      power_estimate_base_mw=$(sanitize_int_range "${F_power_estimate_base_mw}" 500 10000 1700)
-      power_estimate_cpu_scale_mw=$(sanitize_int_range "${F_power_estimate_cpu_scale_mw}" 0 5000 500)
-      power_estimate_ir_led_mw=$(sanitize_int_range "${F_power_estimate_ir_led_mw}" 0 5000 700)
-      power_sensor_path=$(printf '%s' "${F_power_sensor_path}")
+      # the settings form names the checkbox mqtt_discovery
+      mqtt_ha_discovery_enable=$(normalize_bool "${F_mqtt_ha_discovery_enable:-$F_mqtt_discovery}")
+      mqtt_ha_discovery_prefix="${F_mqtt_ha_discovery_prefix:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_PREFIX homeassistant)}"
+      power_estimate_enable=$(normalize_bool "${F_power_estimate_enable:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_ENABLE 0)}")
+      power_estimate_base_mw=$(sanitize_int_range "${F_power_estimate_base_mw:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_BASE_MW 1700)}" 500 10000 1700)
+      power_estimate_cpu_scale_mw=$(sanitize_int_range "${F_power_estimate_cpu_scale_mw:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_CPU_SCALE_MW 500)}" 0 5000 500)
+      power_estimate_ir_led_mw=$(sanitize_int_range "${F_power_estimate_ir_led_mw:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_IR_LED_MW 700)}" 0 5000 700)
+      power_sensor_path="${F_power_sensor_path:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_SENSOR_PATH auto)}"
 
       case "$mqtt_host" in
         ''|*[!A-Za-z0-9._:-]*)
