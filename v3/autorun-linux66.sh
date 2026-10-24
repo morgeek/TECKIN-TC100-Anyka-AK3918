@@ -4,6 +4,8 @@ echo "[tc100-v3] Starting V3 services..." > /dev/console
 hostname tc100; echo "tc100" > /etc/hostname
 
 mkdir -p /tmp/logs /var/run
+[ -f /var/run/vday ] || echo 1 > /var/run/vday
+[ -f /var/run/ircut ] || echo 1 > /var/run/ircut
 
 # 0a. Memory watermarks. With 45 MB of usable RAM the kernel's default "watermark boost" (4 MB) and the 4 MB
 #     high-order atomic reserve made the OOM killer fire with ~6 MB still free, killing small daemons (mqtt bridge,

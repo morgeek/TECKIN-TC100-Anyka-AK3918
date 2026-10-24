@@ -771,30 +771,30 @@ read_power_telemetry()
     power_voltage_mv=$((power_sensor_raw / 1000))
   fi
 
-  power_estimated_mw=0
+  power_estimated_mw=$((POWER_ESTIMATE_BASE_MW + (cpu * POWER_ESTIMATE_CPU_SCALE_MW / 100)))
+  ir_led_state=0
+  if [ -r /sys/class/leds/ir/brightness ]; then
+    read -r ir_led_raw < /sys/class/leds/ir/brightness
+    case "$ir_led_raw" in ''|*[!0-9]*) ir_led_raw=0 ;; esac
+    ir_led_state="$ir_led_raw"
+  elif [ -r /sys/user-gpio/ir-led ]; then
+    read -r ir_led_raw < /sys/user-gpio/ir-led
+    case "$ir_led_raw" in ''|*[!0-9]*) ir_led_raw=0 ;; esac
+    ir_led_state="$ir_led_raw"
+  fi
+  if [ "$ir_led_state" -eq 1 ]; then
+    power_estimated_mw=$((power_estimated_mw + POWER_ESTIMATE_IR_LED_MW))
+  fi
+  if [ "$power_estimated_mw" -lt 0 ]; then
+    power_estimated_mw=0
+  fi
   power_estimated_current_ma=0
+  if [ "$power_voltage_mv" -gt 0 ]; then
+    power_estimated_current_ma=$((power_estimated_mw * 1000 / power_voltage_mv))
+  fi
   power_estimated_enabled_json=0
   if power_estimate_enabled; then
     power_estimated_enabled_json=1
-    power_estimated_mw=$((POWER_ESTIMATE_BASE_MW + (cpu * POWER_ESTIMATE_CPU_SCALE_MW / 100)))
-
-    ir_led_state=0
-    if [ -r /sys/user-gpio/ir-led ]; then
-      read -r ir_led_raw < /sys/user-gpio/ir-led
-      case "$ir_led_raw" in
-        ''|*[!0-9]*) ir_led_raw=0 ;;
-      esac
-      ir_led_state="$ir_led_raw"
-    fi
-    if [ "$ir_led_state" -eq 1 ]; then
-      power_estimated_mw=$((power_estimated_mw + POWER_ESTIMATE_IR_LED_MW))
-    fi
-    if [ "$power_estimated_mw" -lt 0 ]; then
-      power_estimated_mw=0
-    fi
-    if [ "$power_voltage_mv" -gt 0 ]; then
-      power_estimated_current_ma=$((power_estimated_mw * 1000 / power_voltage_mv))
-    fi
   fi
 }
 
@@ -972,7 +972,7 @@ DIAG
   publish_discovery_config "$motion_cfg_topic" "$motion_cfg_payload"
 
   # Switches (Interactive Toggles)
-  for cmd in ir_led front_led red_led motion_detection privacy_shield; do
+  for cmd in ir_led front_led red_led motion_detection privacy_shield night_mode auto_night_mode; do
     uniq_id="${node_id}_${cmd}"
     # Fixed friendly names. The previous `sed 's/\b./\u&/g'` used GNU-only \b and
     # \u, which busybox sed does not implement — it produced mangled names like
@@ -984,6 +984,8 @@ DIAG
       red_led)          name_suffix="Red LED" ;;
       motion_detection) name_suffix="Motion Detection" ;;
       privacy_shield)   name_suffix="Privacy Shield" ;;
+      night_mode)       name_suffix="Night Vision" ;;
+      auto_night_mode)  name_suffix="Auto Night Mode" ;;
       *)                name_suffix="$cmd" ;;
     esac
     ic="mdi:toggle-switch"
@@ -992,15 +994,29 @@ DIAG
     [ "$cmd" = "red_led" ] && ic="mdi:led-variant-on"
     [ "$cmd" = "motion_detection" ] && ic="mdi:motion-sensor"
     [ "$cmd" = "privacy_shield" ] && ic="mdi:shield-account"
+    [ "$cmd" = "night_mode" ] && ic="mdi:weather-night"
+    [ "$cmd" = "auto_night_mode" ] && ic="mdi:theme-light-dark"
 
     stat_field="${cmd}_on"
     [ "$cmd" = "motion_detection" ] && stat_field="motion_enabled"
     [ "$cmd" = "privacy_shield" ] && stat_field="privacy_mode"
+    [ "$cmd" = "auto_night_mode" ] && stat_field="auto_night_enabled"
 
     switch_cfg_topic="${discovery_prefix}/switch/${node_id}/${cmd}/config"
     switch_cfg_payload="$(printf '{"name":"%s %s","uniq_id":"%s","stat_t":"%s","val_tpl":"{{ \"ON\" if value_json.%s == 1 else \"OFF\" }}","cmd_t":"%s","pl_on":"{\"cmd\":\"%s\",\"value\":\"on\"}","pl_off":"{\"cmd\":\"%s\",\"value\":\"off\"}","avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$name_suffix" "$uniq_id" "$health_topic_json" "$stat_field" "$cmd_json" "$cmd" "$cmd" "$avail_topic_json" "$ic" "$device_id_json" "$device_name_json")"
     publish_discovery_config "$switch_cfg_topic" "$switch_cfg_payload"
   done
+
+  # Additional V3 Telemetry Sensors (Wi-Fi Quality, Storage Used, IP Address)
+  publish_discovery_config "${discovery_prefix}/sensor/${node_id}/wifi_quality/config" \
+    "$(printf '{"name":"%s Wi-Fi Quality","uniq_id":"%s_wifi_quality","stat_t":"%s","val_tpl":"{{ value_json.diag.wifi_quality }}","unit_of_meas":"%%","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi-check",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
+  publish_discovery_config "${discovery_prefix}/sensor/${node_id}/storage_used/config" \
+    "$(printf '{"name":"%s Storage Used","uniq_id":"%s_storage_used","stat_t":"%s","val_tpl":"{{ value_json.storage_used_percent }}","unit_of_meas":"%%","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:harddisk",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
+  publish_discovery_config "${discovery_prefix}/sensor/${node_id}/ip_address/config" \
+    "$(printf '{"name":"%s IP Address","uniq_id":"%s_ip_address","stat_t":"%s","val_tpl":"{{ value_json.primary_ip }}","ent_cat":"diagnostic","ic":"mdi:ip-network",%s,%s}' \
+      "$device_name_json" "$device_id_json" "$health_topic_json" "$_avty_json" "$_dev_json")"
 
   # Live image tuning (number/select/switch). State: retained <root>/isp/state.
   if command -v isp_tune_json >/dev/null 2>&1; then
@@ -1303,6 +1319,22 @@ build_diag_payload()
     done < "$_dg_f"
     break
   done
+  if [ "$_dg_rssi" = null ] && [ -r /proc/net/wireless ]; then
+    while read -r _dg_wif _dg_wst _dg_wlnk _dg_wlvl _dg_wrest; do
+      case "$_dg_wif" in
+        wlan0:)
+          _dg_wlnk="${_dg_wlnk%.}"
+          _dg_wlvl="${_dg_wlvl%.}"
+          case "$_dg_wlnk" in [0-9]*) _dg_qual="$_dg_wlnk" ;; esac
+          case "$_dg_wlvl" in
+            -[0-9]*) _dg_rssi="$_dg_wlvl" ;;
+            [0-9]*) [ "$_dg_wlvl" -gt 0 ] && [ "$_dg_wlvl" -le 256 ] && _dg_rssi=$((_dg_wlvl - 256)) ;;
+          esac
+          break
+          ;;
+      esac
+    done < /proc/net/wireless
+  fi
   _dg_rxdrop=null
   while read -r _dg_if _dg_rest; do
     case "$_dg_if" in
@@ -1311,7 +1343,7 @@ build_diag_payload()
       wlan0:*) set -- ${_dg_if#wlan0:} $_dg_rest; _dg_rxdrop="$4"; break ;;
     esac
   done < /proc/net/dev
-  _dg_paws=null; _dg_retrans=null; _dg_h=""
+  _dg_paws=0; _dg_retrans=null; _dg_h=""
   while read -r _dg_k _dg_rest; do
     case "$_dg_k" in
       TcpExt:)
@@ -1351,9 +1383,13 @@ build_diag_payload()
   _dg_lum=null; _dg_day=null
   # These files have no trailing newline: read sets the value but returns 1.
   _dg_v=""; read -r _dg_v < /var/run/lum 2>/dev/null
+  [ -z "$_dg_v" ] && read -r _dg_v < /tmp/cam_luma 2>/dev/null
   case "$_dg_v" in ''|*[!0-9]*) ;; *) _dg_lum="$_dg_v" ;; esac
   _dg_v=""; read -r _dg_v < /var/run/vday 2>/dev/null
-  case "$_dg_v" in 0|1) _dg_day="$_dg_v" ;; esac
+  case "$_dg_v" in
+    0|1) _dg_day="$_dg_v" ;;
+    *) [ -f /tmp/tc100_bw ] && _dg_day=0 || _dg_day=1 ;;
+  esac
   _dg_ro=0
   while read -r _dg_dev _dg_mp _dg_fs _dg_opt _dg_rest; do
     [ "$_dg_mp" = /mnt ] || continue
@@ -1377,6 +1413,13 @@ build_diag_payload()
     case "$_dg_sdst" in failing|readonly|errors) _dg_sdprob=1 ;; esac
   fi
   case "$_dg_sdst" in *[!a-z]*) _dg_sdst="" ;; esac
+  if [ -z "$_dg_sdst" ]; then
+    if grep -qE ' (/mnt/sd|/mnt) vfat ' /proc/mounts 2>/dev/null; then
+      _dg_sdst="mounted"
+    elif [ -f /tmp/flashmode ]; then
+      _dg_sdst="flash_only"
+    fi
+  fi
   # RTSP lite server (src/tc100fix/rtsp.c): playing clients and skipped
   # frames, from its status file (every 10 s; ignored when older than 60 s).
   _dg_rc=null; _dg_rd=null
@@ -1389,18 +1432,25 @@ build_diag_payload()
                 case "$_dg_v" in ''|*[!0-9]*) ;; *) _dg_rd=$((_dg_rd + _dg_v)) ;; esac ;;
       esac
     done < /var/run/tc100rtsp
+  elif [ -r /proc/net/tcp ]; then
+    _dg_rc=0; _dg_rd=0
+    while read -r _dg_sl _dg_loc _dg_rem _dg_st _dg_rest; do
+      [ "$_dg_st" = "01" ] || continue
+      case "$_dg_loc" in *:022A) _dg_rc=$((_dg_rc + 1)) ;; esac
+    done < /proc/net/tcp
   fi
   # Why the camera last started (scripts/reboot-tracker.sh, written at boot)
   # and how many unexpected restarts the kept history holds.
   _dg_boot=unknown
   case "$(cat /tmp/last-reboot-reason 2>/dev/null)" in
     requested*) _dg_boot=requested ;; UNEXPECTED*) _dg_boot=unexpected ;;
+    *) [ -f /tmp/flashmode ] && _dg_boot=flash_boot ;;
   esac
-  _dg_unexp=null
+  _dg_unexp=0
   for _dg_h in /etc/jffs2/tc100/log/reboot-history.log /mnt/log/reboot-history.log; do
     [ -r "$_dg_h" ] || continue
     _dg_unexp="$(grep -c UNEXPECTED "$_dg_h" 2>/dev/null)"
-    case "$_dg_unexp" in ''|*[!0-9]*) _dg_unexp=null ;; esac
+    case "$_dg_unexp" in ''|*[!0-9]*) _dg_unexp=0 ;; esac
     break
   done
   diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s","rtsp_clients":%s,"rtsp_drops":%s,"last_boot":"%s","unexpected_restarts":%s}' \
@@ -1471,9 +1521,36 @@ build_health_payload()
   rtsp_enabled="$slow_rtsp_enabled"
   onvif_enabled="$slow_onvif_enabled"
 
-  front_led_on="$(read_int_file_value /sys/class/leds/blue_led/brightness 0)"
-  red_led_on="$(read_int_file_value /sys/class/leds/red_led/brightness 0)"
-  ir_led_on="$(read_int_file_value /sys/user-gpio/ir-led 0)"
+  if [ -r /sys/class/leds/blue_led/brightness ]; then
+    front_led_on="$(read_int_file_value /sys/class/leds/blue_led/brightness 0)"
+  else
+    front_led_on="$(read_int_file_value /sys/class/leds/blue/brightness 0)"
+  fi
+  if [ -r /sys/class/leds/red_led/brightness ]; then
+    red_led_on="$(read_int_file_value /sys/class/leds/red_led/brightness 0)"
+  else
+    red_led_on="$(read_int_file_value /sys/class/leds/red/brightness 0)"
+  fi
+  if [ -r /sys/class/leds/ir/brightness ]; then
+    ir_led_on="$(read_int_file_value /sys/class/leds/ir/brightness 0)"
+  else
+    ir_led_on="$(read_int_file_value /sys/user-gpio/ir-led 0)"
+  fi
+
+  night_mode_on=0
+  if [ "$(read_int_file_value /var/run/vday 1)" -eq 0 ] || [ -f /tmp/tc100_bw ]; then
+    night_mode_on=1
+  fi
+  auto_night_enabled=0
+  if [ -f /var/run/auto-night-detection.pid ] && kill -0 "$(cat /var/run/auto-night-detection.pid 2>/dev/null)" 2>/dev/null; then
+    auto_night_enabled=1
+  elif [ "$(/mnt/bin/setconf -g n 2>/dev/null)" = "2" ]; then
+    auto_night_enabled=1
+  fi
+  privacy_mode=0
+  if is_truthy_local "$(read_kv_config_value /mnt/config/boot.conf PRIVACY_MODE 0)"; then
+    privacy_mode=1
+  fi
 
   motion_active=0
   if [ -x /mnt/bin/getflag ] && [ -f /tmp/rec_control ]; then
@@ -1511,8 +1588,8 @@ build_health_payload()
   build_network_state_payload
   build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s,"diag":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload" "$diag_payload"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"privacy_mode":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s,"diag":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$privacy_mode" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload" "$diag_payload"
 }
 
 publish_health()
@@ -1722,6 +1799,36 @@ apply_toggle_command()
       ;;
     red_led)
       script="/mnt/controlscripts/red-led"
+      ;;
+    night_mode)
+      script="/mnt/controlscripts/night-mode"
+      ;;
+    auto_night_mode)
+      script="/mnt/controlscripts/auto-night-detection"
+      ;;
+    privacy_shield)
+      install_config /mnt/config/boot.conf
+      case "$requested_value" in
+        on)
+          rewrite_config /mnt/config/boot.conf PRIVACY_MODE 1
+          return 0
+          ;;
+        off)
+          rewrite_config /mnt/config/boot.conf PRIVACY_MODE 0
+          return 0
+          ;;
+        toggle)
+          if is_truthy_local "$(read_kv_config_value /mnt/config/boot.conf PRIVACY_MODE 0)"; then
+            rewrite_config /mnt/config/boot.conf PRIVACY_MODE 0
+          else
+            rewrite_config /mnt/config/boot.conf PRIVACY_MODE 1
+          fi
+          return 0
+          ;;
+        *)
+          return 2
+          ;;
+      esac
       ;;
     ftp)
       if security_hardening_enabled_runtime; then
@@ -1979,7 +2086,7 @@ handle_command_payload()
         command_rc=1
       fi
       ;;
-    motion|motion_detection|ir_led|front_led|red_led|ftp|telnet|rtsp|onvif)
+    motion|motion_detection|ir_led|front_led|red_led|night_mode|auto_night_mode|privacy_shield|ftp|telnet|rtsp|onvif)
       if apply_toggle_command "$cmd" "$value"; then
         publish_event_simple "command.${cmd}" "${value:-toggle}"
         publish_command_result "$cmd" "applied" "Applied ${cmd}=${value:-toggle}." 1 "$command_source" command

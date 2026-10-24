@@ -238,14 +238,14 @@ kv_value() {
 fast_toggle_state() {
   _ft_on=""
   case "$1" in
-    front-led) [ "$(read_first /sys/class/leds/blue_led/brightness)" = 1 ] && _ft_on=1 ;;
-    red-led)   [ "$(read_first /sys/class/leds/red_led/brightness)" = 1 ] && _ft_on=1 ;;
-    ir-led)    [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] && _ft_on=1 ;;
+    front-led) { [ "$(read_first /sys/class/leds/blue_led/brightness)" = 1 ] || [ "$(read_first /sys/class/leds/blue/brightness)" = 1 ]; } && _ft_on=1 ;;
+    red-led)   { [ "$(read_first /sys/class/leds/red_led/brightness)" = 1 ] || [ "$(read_first /sys/class/leds/red/brightness)" = 1 ]; } && _ft_on=1 ;;
+    ir-led)    { [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] || [ "$(read_first /sys/class/leds/ir/brightness)" = 1 ]; } && _ft_on=1 ;;
     ir-cut)    [ "$(read_first /var/run/ircut)" = 1 ] && _ft_on=1 ;;
     black-white) [ "$(read_first /var/run/vday)" = 0 ] && _ft_on=1 ;;
     night-mode)
-      [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] && [ "$(read_first /var/run/ircut)" = 0 ] \
-        && [ "$(read_first /var/run/vday)" = 0 ] && _ft_on=1 ;;
+      { [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] || [ "$(read_first /sys/class/leds/ir/brightness)" = 1 ]; } \
+        && [ "$(read_first /var/run/ircut)" = 0 ] && [ "$(read_first /var/run/vday)" = 0 ] && _ft_on=1 ;;
     auto-night-detection) [ "$(/mnt/bin/setconf -g n 2>/dev/null)" = 2 ] && _ft_on=1 ;;
     motion-detection)
       if [ "$(/mnt/bin/setconf -g p 2>/dev/null)" != 0 ]; then
