@@ -559,7 +559,7 @@ static unsigned char alaw(int s)
 static void aud_open(void)
 {
 	aud_retry = time(NULL) + 5;
-	aud_f = popen("exec arecord -q -D hw:0,0 -f S16_LE -r 8000 -c 1 -t raw -F 32000 -B 128000 2>/dev/null", "r");
+	aud_f = popen("exec arecord -q -D hw:0,0 -f S16_LE -r 8000 -c 1 -t raw 2>/dev/null", "r");
 	if (!aud_f) { LOG("audio: arecord failed\n"); return; }
 	aud_fd = fileno(aud_f);
 	fcntl(aud_fd, F_SETFL, fcntl(aud_fd, F_GETFL) | O_NONBLOCK);
