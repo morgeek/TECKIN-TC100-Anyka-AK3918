@@ -2502,7 +2502,7 @@ new file mode 100644
 index 000000000..7a9cdec59
 --- /dev/null
 +++ b/sound/arm/ak_pcm.c
-@@ -0,0 +1,1539 @@
+@@ -0,0 +1,1545 @@
 +/*
 + *  akpcm soundcard
 + *  Copyright (c) by Anyka, Inc.
@@ -3137,6 +3137,7 @@ index 000000000..7a9cdec59
 +	}
 +	case SNDRV_PCM_TRIGGER_STOP:
 +	case SNDRV_PCM_TRIGGER_SUSPEND:
++		cancel_delayed_work(&akpcm->ds_work);	/* a start still pending must not run after the stop */
 +		clear_bit(0,&akpcm->captureStrmDMARunning); //stop capture stream
 +		return 0;		
 +	}
@@ -3146,11 +3147,15 @@ index 000000000..7a9cdec59
 +static void delay_start_work(struct work_struct *work) 
 +{
 +	struct snd_akpcm *akpcm = container_of(work, struct snd_akpcm, ds_work.work);
-+	struct snd_pcm_substream *substream = akpcm->capturesubstrm;
-+	struct snd_pcm_runtime *runtime = substream->runtime;
-+
-+	dma_addr_t paddr = runtime->dma_addr;
++	struct snd_pcm_substream *substream = READ_ONCE(akpcm->capturesubstrm);
++	struct snd_pcm_runtime *runtime = substream ? substream->runtime : NULL;
++	dma_addr_t paddr;
 +	u8 id = akpcm->L2BufID_For_ADC23;
++
++	/* the stream can be stopped or closed within the 300 ms start delay */
++	if (!runtime)
++		return;
++	paddr = runtime->dma_addr;
 +	set_bit(0,&akpcm->captureStrmDMARunning);  //set bit to inform that capture stream is running
 +	set_bit(1,&akpcm->captureStrmDMARunning);  //set bit to inform that DMA is working
 +	init_completion(&(akpcm->captureHWDMA_completion));
@@ -3521,6 +3526,7 @@ index 000000000..7a9cdec59
 +{
 +	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
 +	capSync.adcCapture_bytes = 0;
++	cancel_delayed_work_sync(&akpcm->ds_work);
 +	akpcm->capturesubstrm=NULL;
 +	return 0;
 +}
