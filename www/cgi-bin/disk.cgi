@@ -57,7 +57,7 @@ mount_text="$(mount 2>/dev/null)"
 eval "$(printf '%s\n' "$df_text" | awk '
   NR==1{next}
   {count++}
-  $1 ~ /mmcblk/ && $NF=="/mnt" && !sd {sd=$3 " used of " $2 " (" $5 ")"}
+  $1 ~ /mmcblk/ && ($NF=="/mnt"||$NF=="/mnt/sd") && !sd {sd=$3 " used of " $2 " (" $5 ")"}
   END{
     printf "sd_usage=\"%s\"\n", (sd ? sd : "n/a")
     printf "filesystem_count=%d\n", count+0
@@ -73,6 +73,161 @@ eval "$(printf '%s\n' "$mount_text" | awk '
     else      printf "mmc_mount=n/a\n"
   }
 ')"
+
+# SPI NOR Flash partition layout & payload usage (from /sys/class/mtd and binary headers)
+flash_card_html=""
+if [ -d /sys/class/mtd/mtd0 ]; then
+    flash_tot=0
+    flash_used_tot=0
+    flash_map_segs=""
+    flash_legend=""
+    flash_rows=""
+    for _d in /sys/class/mtd/mtd[0-9]*; do
+        case "$_d" in *ro) continue ;; esac
+        [ -r "$_d/size" ] || continue
+        _sz="$(cat "$_d/size" 2>/dev/null)"
+        case "$_sz" in ''|*[!0-9]*) continue ;; esac
+        flash_tot=$((flash_tot + _sz))
+    done
+    [ "$flash_tot" -le 0 ] && flash_tot=8388608
+
+    for _d in /sys/class/mtd/mtd[0-9]*; do
+        case "$_d" in *ro) continue ;; esac
+        [ -r "$_d/size" ] || continue
+        _m="${_d##*/}"
+        _name="$(cat "$_d/name" 2>/dev/null)"
+        _sz="$(cat "$_d/size" 2>/dev/null)"
+        _flags="$(cat "$_d/flags" 2>/dev/null)"
+        _off="$(cat "$_d/offset" 2>/dev/null)"
+        case "$_sz" in ''|*[!0-9]*) continue ;; esac
+        case "$_off" in ''|*[!0-9]*) _off=0 ;; esac
+
+        _ro="RO"
+        [ $(( ${_flags:-0} & 0x400 )) -ne 0 ] 2>/dev/null && _ro="RW"
+
+        _used="$_sz"
+        _role="System partition"
+        _color="#64748b"
+        case "$_name" in
+            boot)
+                _color="#6366f1"
+                _role="U-Boot bootloader"
+                _used="$_sz"
+                ;;
+            kernel)
+                _color="#3b82f6"
+                _role="Linux 6.6 uImage + DTB"
+                _khex="$(dd if=/dev/${_m}ro bs=1 skip=12 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+                case "$_khex" in [0-9a-fA-F][0-9a-fA-F]*)
+                    _ksz=$(( 0x$_khex + 64 ))
+                    [ "$_ksz" -gt 64 ] && [ "$_ksz" -le "$_sz" ] && _used="$_ksz"
+                ;; esac
+                ;;
+            mac)
+                _color="#a855f7"
+                _role="Factory MAC address"
+                ;;
+            env)
+                _color="#ec4899"
+                _role="U-Boot environment"
+                ;;
+            initrd)
+                _color="#06b6d4"
+                _role="Initramfs (XZ RAM root)"
+                _icmd="$(sed -n 's/.*initrd=0x[0-9a-fA-F]*,\([0-9][0-9]*\).*/\1/p' /proc/cmdline 2>/dev/null)"
+                case "$_icmd" in [0-9]*) [ "$_icmd" -gt 0 ] && [ "$_icmd" -le "$_sz" ] && _used="$_icmd" ;; esac
+                ;;
+            stack)
+                _color="#10b981"
+                _role="User space SquashFS (/rom)"
+                _shex="$(dd if=/dev/${_m}ro bs=1 skip=40 count=4 2>/dev/null | od -An -tx1 | awk '{print $4$3$2$1}')"
+                case "$_shex" in [0-9a-fA-F][0-9a-fA-F]*)
+                    _ssz=$(( 0x$_shex ))
+                    # SquashFS is padded to 4K blocks
+                    _ssz=$(( (_ssz + 4095) / 4096 * 4096 ))
+                    [ "$_ssz" -gt 0 ] && [ "$_ssz" -le "$_sz" ] && _used="$_ssz"
+                ;; esac
+                ;;
+            cfga|cfgb)
+                _color="#f59e0b"
+                _role="Persistent settings slot (${_name#cfg})"
+                _chdr="$(dd if=/dev/${_m}ro bs=1 count=64 2>/dev/null | tr '\000\377' '  ')"
+                _clen="$(printf '%s' "$_chdr" | awk '$1=="TC1CFG"{print $3+64; exit}')"
+                case "$_clen" in [0-9]*) [ "$_clen" -gt 0 ] && [ "$_clen" -le "$_sz" ] && _used="$_clen" ;; *) _used=0 ;; esac
+                ;;
+        esac
+
+        flash_used_tot=$((flash_used_tot + _used))
+        _free=$((_sz - _used))
+        [ "$_free" -lt 0 ] && _free=0
+        _upct=$(( (_used * 100 + _sz / 2) / _sz ))
+        [ "$_upct" -gt 100 ] && _upct=100
+
+        # Proportion of the 8 MiB chip (in hundredths of a percent for CSS width, min 1.2% so tiny 4K partitions remain visible)
+        _chip_bp=$(( _sz * 10000 / flash_tot ))
+        _chip_pct="$(awk "BEGIN{w=$_chip_bp/100; if(w<1.2) w=1.2; printf \"%.2f\", w}")"
+        _chip_real_pct="$(awk "BEGIN{printf \"%.2f\", $_sz*100/$flash_tot}")"
+
+        _sz_fmt="$(awk "BEGIN{if($_sz>=1048576) printf \"%.2f MiB (%d KB)\", $_sz/1048576, $_sz/1024; else printf \"%d KB\", $_sz/1024}")"
+        _used_fmt="$(awk "BEGIN{if($_used>=1048576) printf \"%.2f MiB\", $_used/1048576; else if($_used>=1024) printf \"%.1f KB\", $_used/1024; else printf \"%d B\", $_used}")"
+        _free_fmt="$(awk "BEGIN{if($_free>=1048576) printf \"%.2f MiB\", $_free/1048576; else if($_free>=1024) printf \"%.1f KB\", $_free/1024; else printf \"%d B\", $_free}")"
+        _off_hex="$(printf '0x%06X' "$_off")"
+
+        flash_map_segs="${flash_map_segs}<div class='flash-seg' style='flex:${_chip_pct} 1 0%;background:${_color}' title='${_name} (${_m}): ${_sz_fmt} — ${_upct}% used (${_used_fmt} / ${_sz_fmt})'><span class='flash-seg-label'>${_name}</span></div>"
+        flash_legend="${flash_legend}<span class='flash-leg-item'><i style='background:${_color}'></i><strong>${_name}</strong> <small>${_chip_real_pct}%</small></span>"
+        flash_rows="${flash_rows}<tr>
+            <td><span class='flash-dot' style='background:${_color}'></span><strong>${_name}</strong> <small class='text-muted'>(${_m})</small></td>
+            <td><code>${_off_hex}</code></td>
+            <td><span class='flash-mode-badge is-${_ro}'>${_ro}</span></td>
+            <td>${_role}</td>
+            <td class='num'>${_used_fmt} / ${_sz_fmt}</td>
+            <td class='num'>${_free_fmt}</td>
+            <td class='flash-bar-cell'>
+                <div class='flash-part-bar' title='${_upct}% used'>
+                    <div class='flash-part-fill' style='width:${_upct}%;background:${_color}'></div>
+                </div>
+                <span class='flash-pct-txt'>${_upct}%</span>
+            </td>
+        </tr>"
+    done
+
+    _tot_mb="$(awk "BEGIN{printf \"%.2f MiB\", $flash_tot/1048576}")"
+    _used_mb="$(awk "BEGIN{printf \"%.2f MiB\", $flash_used_tot/1048576}")"
+    _free_mb="$(awk "BEGIN{printf \"%.2f MiB\", ($flash_tot - $flash_used_tot)/1048576}")"
+    _tot_pct=$(( (flash_used_tot * 100 + flash_tot / 2) / flash_tot ))
+
+    flash_card_html="
+        <div class='card status_card info-card'>
+            <header class='card-header'>
+                <p class='card-header-title'>
+                    <span class='title-with-icon'>
+                        <svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M6 4h12v16H6zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h4M2 15h4M18 9h4M18 15h4'/></svg>
+                        <span>SPI NOR Flash Layout (${_tot_mb} — ${_used_mb} used, ${_free_mb} free, ${_tot_pct}%)</span>
+                    </span>
+                </p>
+            </header>
+            <div class='card-content'>
+                <div class='flash-map-bar' role='img' aria-label='SPI Flash partition proportions'>${flash_map_segs}</div>
+                <div class='flash-legend'>${flash_legend}</div>
+                <div class='table-container' style='margin-top:0.75rem'>
+                    <table class='table is-fullwidth is-narrow flash-table'>
+                        <thead>
+                            <tr>
+                                <th>Partition</th>
+                                <th>Offset</th>
+                                <th>Mode</th>
+                                <th>Role</th>
+                                <th>Payload / Size</th>
+                                <th>Free</th>
+                                <th>Fill</th>
+                            </tr>
+                        </thead>
+                        <tbody>${flash_rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>"
+fi
 
 # SD card health from sysfs
 MMC_BLOCK="/sys/block/mmcblk0"
@@ -182,6 +337,7 @@ cat << EOF
     </div>
 
     <div class='info-main'>
+        ${flash_card_html}
         <div class='card status_card info-card'>
             <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3s-3.6 3-8 3s-8-1.3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3M4 17c0 1.7 3.6 3 8 3s8-1.3 8-3'/></svg><span>Disk Space Information</span></span></p></header>
             <div class='card-content'>
