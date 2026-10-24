@@ -1,11 +1,11 @@
 #!/bin/sh
 # flashw <partition-name> <file>   write a file into one SPI flash partition, safely
-#   - only partitions of the allow-list (default: tail rootfs; add with FLASHW_ALLOW="tail rootfs kernel")
+#   - only partitions of the allow-list (default: cfga cfgb; add with FLASHW_ALLOW="cfga cfgb stack initrd kernel")
 #   - boot, mac (and env, kernel unless allowed) are never touched
 #   - the partition must be writable in the device tree, the file must fit
 #   - erase + write + read-back compare + md5 are done by flashcp, then checked again here
 #   flashw -r <partition> <out-file>   read a partition into a file (always allowed)
-ALLOW="${FLASHW_ALLOW:-tail rootfs}"
+ALLOW="${FLASHW_ALLOW:-cfga cfgb}"
 find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
 if [ "$1" = -r ]; then
   m=$(find_mtd "$2") || { echo "unknown partition $2"; exit 1; }
