@@ -14,9 +14,10 @@ status()
   fi
 }
 
+# NIGHT_KEEP_AUTO=1 (set by auto-night-daemon.sh): switch without leaving automatic mode
 start()
 {
-  auto_night_mode off
+  [ -n "$NIGHT_KEEP_AUTO" ] || auto_night_mode off
   black_white on
   ir_led on
   ir_cut off
@@ -24,7 +25,7 @@ start()
 
 stop()
 {
-  auto_night_mode off
+  [ -n "$NIGHT_KEEP_AUTO" ] || auto_night_mode off
   black_white off
   ir_led off
   ir_cut on

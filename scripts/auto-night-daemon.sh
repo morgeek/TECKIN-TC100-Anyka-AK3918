@@ -12,11 +12,24 @@ THRESHOLD_DAY=100
 
 echo "[auto-night] Daemon started" > /dev/console
 
+# The daemon itself must stay in auto mode (daynight=2) while it switches: nightmode.sh -> night-mode normally
+# means "manual override" and writes daynight=3, which silently froze the daemon in NIGHT mode all day.
+export NIGHT_KEEP_AUTO=1
+
+# daynight value of the config without any fork (the loop runs every 4 s)
+read_daynight() {
+  DN_MODE=2
+  [ -r /mnt/config/rtspserver.conf ] || return 0
+  while IFS='= ' read -r _k _v _; do
+    [ "$_k" = "daynight" ] && { DN_MODE="$_v"; break; }
+  done < /mnt/config/rtspserver.conf
+}
+
 while true; do
   sleep 4
 
-  # Check if auto detection is enabled in config
-  DN_MODE=$(/mnt/bin/rwconf /mnt/config/rtspserver.conf r " " daynight 2>/dev/null || echo 2)
+  # Check if auto detection is enabled in config (manual day/night = 3 pauses the daemon)
+  read_daynight
   [ "$DN_MODE" != "2" ] && continue
 
   # Read luminance directly from real-time streamer or cache
@@ -27,7 +40,9 @@ while true; do
     LUMA=$(hexdump -n 512 -v -e '1/1 "%d\n"' /tmp/currentpic.cache.jpg 2>/dev/null | awk '{s+=$1} END {if (NR>0) print int(s/NR); else print 50}')
   fi
 
-  CUR_CUT=$(ir_cut status)
+  # IR-cut state straight from its state file (same as `ir_cut status`, no fork); 1 = ON = day
+  CUR_CUT=ON
+  [ -r /var/run/ircut ] && { read -r _ic < /var/run/ircut; [ "$_ic" = 0 ] && CUR_CUT=OFF; }
 
   if [ "$CUR_CUT" = "ON" ]; then
     # Currently DAY mode
