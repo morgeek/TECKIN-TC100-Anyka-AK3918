@@ -7,8 +7,10 @@ hardware facts, test loop), then `docs/known-issues.md`.
 ## Ground rules
 - **Language:** the owner writes French; answer in the language of his last message. Commit messages and docs are English
   unless the file is already French.
-- **No brick, ever.** Everything runs from RAM: U-Boot loads the kernel and initrd from the SD card, the flash stays
-  untouched. Never write the SPI NOR flash or U-Boot environment. The bootloader is out of scope.
+- **No brick, ever.** U-Boot, `boot` and `mac` are never written; the bootloader is out of scope. Since 2026-10-24 the kernel,
+  initramfs, user space (`stack`) and settings (`cfga`/`cfgb`) live in the SPI flash and are written only with `v3/linux66-sd/flashw`
+  (read-back checked) and with the owner's explicit agreement for each partition write. The U-Boot environment was changed once
+  (adds `flashboot`; SD kernel `tc100test/c66.img` keeps priority = way back). Take a dump before writing anything.
 - The owner power-cycles the camera himself; do not try to automate a power cycle. After a panic the camera reboots into the
   flash firmware (also Linux 6.6, hostname IPCAM2), which is the fallback shell.
 - Never put passwords, tokens or the MQTT/RTSP credentials in the repo, in docs or in chat. The owner enters them himself.
