@@ -12,10 +12,10 @@ earlier versions is still there and is the way in. The web interface is laid
 out after [OpenIPC's](https://openipc.org/web-interface): a dashboard with live
 graphs, settings in a sidebar with a search box, and a dark theme.
 
-**3.0** is the next major version, in progress: the same firmware on a free,
-recent kernel (Linux 6.6) instead of the vendor's 3.4, with a free video
-encoder, aiming at full control of the hardware and no cloud. It is experimental and not released: see
-[Linux 6.6 and the 3.0 work](#whats-new-in-30).
+**3.0** is the same firmware on a free, recent kernel (Linux 6.6) instead of the vendor's 3.4, with
+a free video encoder (H.264, H.265, JPEG) and RTSP, no vendor daemon and no cloud. It boots from the SD
+card or, since the flash install below, **entirely from the camera's SPI flash with no card at all**. See
+[What's new in 3.0](#whats-new-in-30).
 
 It started from [the original TC100 SD-card hack](#where-it-comes-from) and
 grew from there.
@@ -29,7 +29,7 @@ grew from there.
 ## Contents
 
 - [What you can do](#what-you-can-do)
-- [What's new in 3.0 (in progress)](#whats-new-in-30)
+- [What's new in 3.0](#whats-new-in-30)
 - [What's new in 2.0](#whats-new-in-20)
 - [Screenshots](#screenshots)
 - [Step 1: run from the SD card](#step-1-run-from-the-sd-card)
@@ -86,59 +86,64 @@ grew from there.
 
 ## What's new in 3.0
 
-**In progress, experimental, not released.** The goal: full control of the camera's hardware,
-tuned as far as it goes, with no cloud and no vendor binary. That means this firmware on
-Linux 6.6 with free drivers, a free video encoder (JPEG, H.264, H.265) and a root filesystem
-that fits the 8 MB flash. The 2.x firmware above is unaffected and remains the one to use.
-The kernel and system now boot on the camera from RAM; the encoder is still being debugged.
+Linux 6.6 with free drivers, a free video encoder and a root filesystem that fits the 8 MB flash.
+Running on the camera today: 1080p H.265 (or H.264) main stream plus a 352x200 H.264 sub-stream,
+the web interface, MQTT / Home Assistant, Wi-Fi, audio, ONVIF, motion and day / night, with the SD card
+optional. The 2.x firmware above stays available.
 
-- **Linux 6.6 port** of the AK3918EV300 as a series of 10 patches on the `v6.6` tag
-  ([patches/kernel-6.6/series](patches/kernel-6.6/series/README.md)): CPU, interrupts, timer,
-  console, SD card, USB host, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio and
-  **video** (V4L2 driver for the JX-F23 sensor and the ISP, 1080p NV12 at 25 fps; a private
-  ioctl returns the physical address of capture buffers for zero-copy encoding). Tested from
-  RAM through the stock U-Boot with the flash untouched. CI builds the kernel and a ready-to-copy
-  test folder (`tc100test/`: image, initramfs, self-test) on every push. First boot done:
-  Wi-Fi, SD, audio, video input, V3 services and `/dev/uio0` come up on Linux 6.6 with our own
-  Buildroot base (`v3/buildroot`, no OpenIPC image).
-- **Free video encoder** (`src/jpegenc`, `src/h265enc`, `src/libakuio`, kernel driver `ak39_venc`):
-  the hardware JPEG engine is decoded (register sequence, quantisation tables, stream layout,
-  checked against the vendor library), and the H.265 command-list generator reproduces 40
-  recorded frames word for word. A free `libakuio` lets the vendor libraries run on 6.6 as a
-  stop-gap. `/dev/uio0` works on the camera; the hardware JPEG core answers but does not produce
-  a valid picture yet (being debugged).
-- **Fits the flash**: a slim kernel (1.84 MB for a 2 MB region) and a squashfs root (2.65 MB for
-  5.7 MB), with a size check that refuses images that do not fit
-  ([budget](docs/linux-port/flash-budget.md)). The 6.6 kernel now has a read-only SPI NOR
-  driver (written, compiled, not yet run on the camera); writing is the next step.
-- **V3 user space on 6.6**: `v3/autorun-linux66.sh`, `v3/build-rootfs66.sh` (initramfs) and
-  `v3/build-flash-rootfs66.sh` (flash root), one password for the camera, no credentials baked in,
-  and an opt-in self-test (`v3/selftest66.sh`).
-- Also in the repository for the same effort: an OpenIPC SD boot kit (`contrib/openipc_sd_kit/`) and a
-  Thingino board port (`thingino_port/`, with the verified pin numbers).
+- **Linux 6.6 port** of the AK3918EV300 as a series of patches on the `v6.6` tag
+  ([patches/kernel-6.6/series](patches/kernel-6.6/series/README.md)): CPU, interrupts, timer, console,
+  SD card, USB host, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio, **video** (V4L2 driver for the
+  JX-F23 sensor and the ISP, zero-copy buffers), the hardware video encoder (`ak39_venc`) and a **SPI NOR
+  driver that can write** (4 KiB erase, partitions in the device tree). CI builds the kernel on every push.
+- **Free video encoder** (`src/jpegenc`, `src/h265enc`, `src/libakuio`, driver `ak39_venc`): hardware
+  JPEG, H.264 and H.265 command lists reproduced from the vendor's behaviour, served by `src/tc100rtsp`
+  (RTSP over TCP/UDP, optional G.711 audio, simple authentication, grey-world white balance, OSD clock).
+- **Runs from flash, SD card optional.** The kernel, an xz initramfs and a squashfs user space (3.2 MiB,
+  built by `v3/linux66-sd/build-slim-stack.sh`) are in the SPI flash; settings live in two flash slots that
+  alternate (`cfga` / `cfgb`, atomic, saved by `cfg-persist` when they change, Wi-Fi included). A card, if
+  present, is only video storage at `/mnt/sd`. U-Boot, `boot` and `mac` are never written. Without a card
+  nothing is recorded.
+- **Web interface for 6.6**: dashboard with the flash layout and usage, live view, motion zones, flux
+  and image tuning, MQTT with Home Assistant discovery, day / night with thresholds, diagnostics.
+- **Optimised**: fewer forks in the background services, a smaller footprint, 480 MHz core clock for
+  stability, 3D noise reduction off (its reference frame does not fit in memory).
+- Fixed on 2026-10-25: the automatic day / night daemon froze in NIGHT mode because its own switch
+  called the manual-override path (`daynight=3`); it now stays in automatic mode (`NIGHT_KEEP_AUTO=1`),
+  and its loop forks nothing.
 
-### Planned install of 3.0 (simple, and without bricking the camera)
+### Flash layout (8 MiB, 4 KiB sectors)
 
-Nothing below is released; the steps marked *(not built yet)* are the plan.
+| Partition | Offset | Size | Content |
+|---|---|---|---|
+| `boot` | 0x0 | 228 KiB | vendor U-Boot, read-only, never written |
+| `kernel` | 0x39000 | 2 MiB | Linux 6.6 uImage (about 1.9 MiB) |
+| `mac` | | 4 KiB | radio data, read-only |
+| `env` | 0x23a000 | 4 KiB | U-Boot environment (read-only for Linux) |
+| `initrd` | 0x23b000 | 2 MiB | xz initramfs (dictionary 2 MiB: a bigger one runs out of memory), padded to 2,012,654 bytes |
+| `stack` | 0x43b000 | 3.7 MiB | squashfs (xz) user space |
+| `cfga`, `cfgb` | 0x7ee000, 0x7f7000 | 36 KiB each | settings slots |
 
-1. **Try it from the SD card, nothing is written.** Copy the `tc100test/` folder from the CI artifact to
-   the card (FAT32), add your `wpa_supplicant.conf`, and boot it through the stock U-Boot hook
-   (`contrib/openipc_sd_kit/`). Remove the card and the camera is back on its old system.
-2. **Check that it really works** with the opt-in self-test (`tc100test/selftest`): Wi-Fi, video,
-   audio, encoder, flash read. Install only if every line is OK.
-3. **Install to flash from the running system** *(not built yet)*: `v3/flash-update66.sh`
-   (written, not tested on hardware) is the tool. It
-   - only touches the kernel and rootfs partitions; U-Boot, partition table, MAC and ENV are never written,
-   - refuses an image that does not fit or whose md5 differs,
-   - saves the current partition to the SD card first,
-   - writes with `flashcp`, reads the flash back and compares, and tells you how to restore on any difference,
-   - is a dry run unless you add `--write`.
-4. **Safety net.** The SD hook in U-Boot stays the way back: a camera whose flash content is bad still
-   starts U-Boot (never overwritten), and an SD card with the test folder boots it from RAM so the
-   backup can be written back. The rootfs is written before the kernel, and a power cut during the write
-   is covered only by that SD recovery, since 8 MB leaves no room for two copies.
-5. Before the first real write: a full dump of the 8 MB flash, a stable power supply, and a test of the
-   write path on the harmless `tail` partition.
+### Install to flash (advanced)
+
+There is no one-click installer yet, and it needs the serial console once (to add one U-Boot variable).
+The method that was used and tested on the author's camera:
+
+1. **Run from the SD card first** (the `tc100test/` folder from the CI artifact, plus `v3/` and the stack).
+   Check that everything works.
+2. **Dump the whole flash** and keep it (`flashw -r <partition> <file>` per partition, or `sf read` in U-Boot).
+3. **Write with `flashw`** (`v3/linux66-sd/flashw <partition> <file>`), one partition at a time. It refuses
+   `boot`, `mac` and `env`, partitions that are read-only, files that do not fit, and verifies the
+   write by reading it back. Partitions other than `cfga` / `cfgb` need `FLASHW_ALLOW="stack initrd kernel"`.
+   Do not rewrite `stack` while the system is running from it.
+4. **Add the boot variables in U-Boot** (`flashload`, `flashboot`, and `bootcmd=run sdload sdboot; run flashboot;
+   run boot_normal`): an SD card with `tc100test/c66.img` still takes priority and is the way back; with
+   no such file the camera boots from flash. Details and the exact values:
+   [flash-install-plan](docs/linux-port/flash-install-plan-2026-10-24.md).
+5. A card that is inserted while the camera runs is not detected: power the camera off and on.
+
+Known limits: the serial console is needed for recovery from a bad write; settings that are stored in
+flash survive reboots, but the user-space image is read-only (update it by writing `stack` again).
 
 Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
 
