@@ -164,28 +164,25 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 
 ## Open items
 
-Feature by feature status of the flash build, and the features implemented twice:
-[feature-audit-2026-10-26.md](feature-audit-2026-10-26.md). In order:
+Done on 2026-10-26 (3.0.1-rc1, not yet run on a camera): web login, Wi-Fi from the UI, one flash writer, the image
+built from git with a `vendor` partition and an install from the stock or 2.x firmware without a serial console,
+one-click install from the wizard, web updates, sub-stream, MP4 recorder, and every web page on 3.0 (details and what
+is hidden: [feature-audit-2026-10-26.md](feature-audit-2026-10-26.md), install: [install-3.0.md](install-3.0.md)).
 
-1. ~~Web login on 6.6~~ done 2026-10-26: `v3/linux66-sd/web-auth` writes `/etc/httpd.conf` (root + camera
-   password, MD5 crypt) at boot and at each password change. Needs a base rootfs with `FEATURE_HTTPD_AUTH_MD5`.
-2. **Build the flash image from git**: commit the 6.6 versions that exist only on the SD card (`rtsp-h26x` and
-   `setconf` shims installed by `build-slim-stack.sh`, the auto day/night launcher, `recording`, `sdinfo-sd.sh`,
-   the `sed` edits of `v3/linux66-sd/README.md`).
-3. ~~Wi-Fi from the web UI and the wizard~~ done 2026-10-26: they write `/mnt/config/wpa_supplicant.conf`,
-   `v3/linux66-sd/wifi-apply` uses it at once; `wifi.txt` on the card works again; scan through `iw` or `wpa_cli`.
-4. **IR-cut**: pulse GPIO 592/593 (81/80) from the `setconf` shim; check on the camera.
-5. ~~One flash writer~~ done 2026-10-26: `flashw` has `-m MD5` and `-b DIR` (backup first), `v3/flash-update66.sh`
-   moved to `_archive_v3-drafts/`, `flash-code.sh` refuses on the 6.6 layout.
-6. `cfg-persist`: keep services turned off, report a failed save in the UI.
-7. Hide the pages of features 3.0 does not have (push-to-talk, sound detection, motion zones, Telegram, updates,
-   flash install, wifi-rescue, button); ONVIF: HTTP snapshot URL, main stream only.
-8. On the camera: RTSP over UDP, audio listening test in Frigate / VLC, MQTT entities in Home Assistant, speaker.
-9. On the camera: the sub-stream (second encoder in the 12 MiB pool), the recorder, sound level and zones (section
-   below); ISP colour cast (blue is low).
-10. Smaller flash image (~1.1 MiB of unused files), final SD package and install README, SD test-file cleanup,
-    optional removal of the 2 MiB guard zones.
-11. Encoder: use `AK39_VI_G_PHYS` instead of a copy per frame; free H.265 on the hardware.
+On the camera, in this order:
+1. The stock-firmware hook on a second camera (2.x in flash, no serial console): `tc100-3/STATUS.txt`,
+   `camera.txt`, the U-Boot environment written (`env-3.0.txt`), then the start from the card (`flashcheck` with
+   `mw.b` / `cmp.b` must fail before the install).
+2. Trial mode: web login, wizard, Wi-Fi carried over, video, sub-stream (both encoders in the 12 MiB pool).
+3. One-click install, the start from flash, then a web update.
+4. IR-cut direction, speaker and amplifier level (device tree `speak-gpios-en`), reset button (GPIO 10 at 1 when
+   released), rescue access point, `cfg-persist` deletions across a reboot, the RTSP restarter.
+5. Recorder (MP4 + thumbnails), sound level, motion zones; RTSP over UDP, audio in Frigate / VLC, MQTT entities in
+   Home Assistant; ISP colour cast (blue is low); day/night thresholds under IR light.
+
+Also: fill `v3/install/known-stock.txt` with the U-Boot and stock root md5 of the author's dump; check the CI run
+(`tc100-3-release`); smaller flash image (busybox uClibc, guard zones); encoder: `AK39_VI_G_PHYS` instead of a copy
+per frame, free H.265 on the hardware.
 
 ## H.265 command list and self-test (2026-10-22)
 
