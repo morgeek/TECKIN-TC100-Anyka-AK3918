@@ -14,9 +14,9 @@ graphs, settings in a sidebar with a search box, and a dark theme.
 
 **3.0** is the same firmware on a free, recent kernel (Linux 6.6) instead of the vendor's 3.4, with
 free drivers for the hardware video encoder (H.264, H.265, JPEG) and a free RTSP server, no vendor daemon
-and no cloud. It boots from the SD
-card or, since the flash install below, **entirely from the camera's SPI flash with no card at all**. See
-[What's new in 3.0](#whats-new-in-30).
+and no cloud. It runs from an SD card (trial) or **entirely from the camera's SPI flash**, installed from the
+card without a serial console. **3.0.1-rc1 is a release candidate not yet run on a camera**: see
+[What's new in 3.0](#whats-new-in-30) and [Is it safe?](#is-it-safe).
 
 It started from [the original TC100 SD-card hack](#where-it-comes-from) and
 grew from there.
@@ -31,11 +31,13 @@ grew from there.
 
 - [What you can do](#what-you-can-do)
 - [What's new in 3.0](#whats-new-in-30)
+  - [Try it from the SD card, then install it](#try-it-from-the-sd-card-then-install-it-no-serial-console)
+  - [Is it safe?](#is-it-safe)
 - [What's new in 2.0](#whats-new-in-20)
 - [Screenshots](#screenshots)
-- [Step 1: run from the SD card](#step-1-run-from-the-sd-card)
-- [Step 2: the setup wizard](#step-2-the-setup-wizard)
-- [Step 3 (optional): install to flash, run without the card](#step-3-optional-install-to-flash-run-without-the-card)
+- 2.x: [Step 1: run from the SD card](#step-1-run-from-the-sd-card)
+- 2.x: [Step 2: the setup wizard](#step-2-the-setup-wizard)
+- 2.x: [Step 3 (optional): install to flash, run without the card](#step-3-optional-install-to-flash-run-without-the-card)
 - [Updates](#updates)
 - [Home Assistant and Frigate](#home-assistant-and-frigate)
 - [Recording on the SD card](#recording-on-the-sd-card)
@@ -87,71 +89,107 @@ grew from there.
 
 ## What's new in 3.0
 
-Linux 6.6 with free drivers, a free video encoder and a root filesystem that fits the 8 MB flash.
-Running on the camera today: one 1080p H.265 (or H.264) RTSP stream at 15 fps with the microphone,
-the web interface, MQTT / Home Assistant, Wi-Fi, ONVIF, motion and day / night, with the SD card
-optional. The 640x360 RTSP sub-stream (`video1_unicast`) is coded but not yet checked on the camera. The 2.x firmware
-above stays available.
+> **Status: 3.0.1-rc1 is a release candidate that has not yet run on a camera.** The author's camera runs the
+> 3.0.0 core (kernel, video, RTSP, web interface) from flash since 2026-10-24; the install from an SD card, the
+> sub-stream, the recorder and the 3.0 versions of the web pages were written on 2026-10-26 and checked in Docker
+> only. Read [Is it safe?](#is-it-safe) before you try it. The 2.x firmware above stays available.
+
+Linux 6.6 with free drivers, the hardware video encoder and a root filesystem that fits the 8 MB flash, with the
+SD card optional. It serves a 1080p H.265 (or H.264) RTSP stream at 15 fps with the microphone and a 640x360
+sub-stream, the web interface with a login, MQTT / Home Assistant, ONVIF, motion and sound detection, day / night,
+and recordings on the card.
 
 - **Linux 6.6 port** of the AK3918EV300 as a series of patches on the `v6.6` tag
   ([patches/kernel-6.6/series](patches/kernel-6.6/series/README.md)): CPU, interrupts, timer, console,
-  SD card, USB host, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio, **video** (V4L2 driver for the
-  JX-F23 sensor and the ISP, zero-copy buffers), the hardware video encoder (`ak39_venc`) and a **SPI NOR
+  SD card, USB host, Wi-Fi (mainline `rtl8xxxu`, access point included), GPIO, I2C, watchdog, audio, **video**
+  (V4L2 driver for the JX-F23 sensor and the ISP), the hardware video encoder (`ak39_venc`) and a **SPI NOR
   driver that can write** (4 KiB erase, partitions in the device tree). CI builds the kernel on every push.
 - **Hardware video encoder on a free driver** (`ak39_venc`, `src/libakuio`): H.264 and H.265 are made by the
   vendor encoder control libraries running on the free driver; JPEG is fully free code (`src/jpegenc`). The
-  H.265 command lists are reproduced offline (`src/h265enc`), not yet used on the camera. Served by
-  `src/tc100rtsp` (RTSP over TCP/UDP, optional G.711 audio, Digest/Basic login, grey-world white balance,
-  OSD clock).
-- **Runs from flash, SD card optional.** The kernel, an xz initramfs and a squashfs user space (3.2 MiB,
-  built by `v3/linux66-sd/build-slim-stack.sh`) are in the SPI flash; settings live in two flash slots that
-  alternate (`cfga` / `cfgb`, atomic, saved by `cfg-persist` when they change, Wi-Fi included). A card, if
-  present, is only video storage at `/mnt/sd`. U-Boot, `boot` and `mac` are never written. Without a card
-  nothing is recorded.
-- **Web interface for 6.6**: dashboard with the flash layout and usage, live view, motion zones, flux
-  and image tuning, MQTT with Home Assistant discovery, day / night with thresholds, diagnostics.
-- **Optimised**: fewer forks in the background services, a smaller footprint, 480 MHz core clock for
-  stability, 3D noise reduction off (its reference frame does not fit in memory).
-- Fixed on 2026-10-25: the automatic day / night daemon froze in NIGHT mode because its own switch
-  called the manual-override path (`daynight=3`); it now stays in automatic mode (`NIGHT_KEEP_AUTO=1`),
-  and its loop forks nothing.
+  H.265 command lists are reproduced offline (`src/h265enc`), not yet used on the camera.
+- **`tc100_rtsp`** (`src/tc100rtsp`): main stream and 640x360 sub-stream (`video1_unicast`), RTSP over TCP or UDP,
+  G.711 audio, Digest/Basic login, image tuning, privacy masks, OSD clock, black and white, the web pictures from
+  the hardware JPEG engine, motion with zones, the microphone level, and **recordings** in fragmented MP4 with a
+  thumbnail (`/mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mp4`; a cut file plays up to its last second; no ffmpeg).
+- **Runs from flash, SD card optional**: kernel, xz initramfs and a squashfs user space in the SPI flash, settings
+  in two alternating flash slots (`cfga` / `cfgb`). A card is only for recordings.
+- **Built from git, nothing vendor published**: CI makes the SD package and the web update from free files only;
+  the few vendor libraries 3.0 needs (the uClibc runtime and the encoder control libraries) are copied from each
+  camera into its own `vendor` partition.
+- **Every web page on 3.0**, or hidden with a note where the hardware cannot do it (RTSP server choice, two-way
+  audio, sharpness, card formatting...). Feature by feature:
+  [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
 
 ### Flash layout (8 MiB, 4 KiB sectors)
 
 | Partition | Offset | Size | Content |
 |---|---|---|---|
-| `boot` | 0x0 | 228 KiB | vendor U-Boot, read-only, never written |
+| `boot` | 0x0 | 228 KiB | vendor U-Boot, never written |
 | `kernel` | 0x39000 | 2 MiB | Linux 6.6 uImage (about 1.9 MiB) |
-| `mac` | 0x239000 | 4 KiB | radio data, read-only |
+| `mac` | 0x239000 | 4 KiB | radio data, never written |
 | `env` | 0x23a000 | 4 KiB | U-Boot environment: the 3.0 start commands are added once, from the stock firmware; read-only for Linux 6.6 |
-| `initrd` | 0x23b000 | 2 MiB | xz initramfs (dictionary 2 MiB: a bigger one runs out of memory), padded to 2,012,654 bytes |
+| `initrd` | 0x23b000 | 2 MiB | xz initramfs, padded to 2,012,654 bytes |
 | `stack` | 0x43b000 | 2.7 MiB | squashfs (xz) of the free user space |
 | `vendor` | 0x6ee000 | 1 MiB | squashfs of this camera's own vendor libraries, made at install |
 | `cfga`, `cfgb` | 0x7ee000, 0x7f7000 | 36 KiB each | settings slots |
 
+`initrd` + `stack` + `vendor` are exactly the stock partitions A, B and C.
+
 ### Try it from the SD card, then install it (no serial console)
 
-The CI artifact `tc100-3-release` holds `tc100-<version>-sd.zip` and `tc100-<version>-update.tar`. They contain
-only free files: the few vendor libraries 3.0 needs are copied from your own camera.
+For a TECKIN TC100 with the vendor firmware V1.1.41, or with the 2.x firmware of this project installed in its
+flash. The CI artifact `tc100-3-release` holds `tc100-<version>-sd.zip` and `tc100-<version>-update.tar`.
 
-1. Unzip `tc100-<version>-sd.zip` to a FAT32 card, put it in the camera (vendor firmware V1.1.41), power on.
-   The stock firmware runs the card's `wifitest/wifi_test.sh` once: it checks the camera, **saves the whole
-   flash to the card** (`tc100-3/backup/flash-stock.bin`: keep it, do not publish it), copies the camera's
-   libraries to the card, adds the 3.0 start commands to the U-Boot settings (the stock start stays as the
-   fallback) and restarts. Any doubt: nothing is written and `tc100-3/STATUS.txt` says why.
-2. The camera now runs 3.0 **from the card**: `http://<camera>/`, user `root`, password `pass` (change it).
-   Without the card it starts its stock firmware.
-3. **Settings → Update & backup → Install to flash** writes 3.0 into the flash (about 10 minutes, every
-   partition saved to the card first and read back after writing) and restarts from it.
+1. Unzip `tc100-<version>-sd.zip` to the root of an empty FAT32 card, put it in the camera, power on. The running
+   firmware starts the card's `wifitest/wifi_test.sh` once. It:
+   - checks the camera (partition table, the stock or 2.x `/usr`, the U-Boot environment);
+   - **saves the whole flash to the card** (`tc100-3/backup/flash-stock.bin`: keep it, never publish it);
+   - copies the camera's libraries, settings and Wi-Fi to the card;
+   - adds the 3.0 start commands to the U-Boot environment (the stock start stays as the fallback) and restarts.
+
+   Any doubt: nothing is written and `tc100-3/STATUS.txt` says why.
+2. The camera runs 3.0 **from the card** (trial mode): `http://<camera>/`, user `root`, the password of your 2.x
+   camera or `pass`. The setup wizard opens: it asks for a new password, and its last step offers
+   **"Install into the camera now"** (one click), or "Not now" to try first. Nothing of 3.0 is in the flash yet:
+   without the card the camera starts the system it had before.
+3. Install to flash (from the wizard, or **Settings → Update & backup → Install to flash**): about 10 minutes, every
+   partition saved to the card first and read back after writing, then the camera restarts from its flash and the
+   card only holds recordings.
 4. Later versions: **Firmware update** on the same page, with `tc100-<version>-update.tar`.
 
-Way back: a card with `tc100test/c66.img` always starts first; from there `v3/install/restore-stock.sh` writes
-the stock firmware back from `flash-stock.bin`. Details, the U-Boot commands, and the move of cameras installed by
-hand before 2026-10-26: [docs/linux-port/install-3.0.md](docs/linux-port/install-3.0.md).
+Way back: a card with `tc100test/c66.img` always starts first; from there `v3/install/restore-stock.sh` writes back
+the flash as it was before 3.0 from `flash-stock.bin`. Details, the U-Boot commands, and the move of cameras installed
+by hand before 2026-10-26: [docs/linux-port/install-3.0.md](docs/linux-port/install-3.0.md).
 
-Known limits: settings are kept in flash, the user space is read-only (updated as a whole); a card inserted while
-the camera runs is not detected (power it off and on). What works and what is still being checked, feature by
-feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
+### Is it safe?
+
+Not yet proven: **nothing of the SD install has run on a camera.** Use it only if you can live with opening the
+camera to reach its serial console in the worst case below.
+
+What protects you:
+- U-Boot and `mac` are never written; the whole flash is saved to the card, read twice and compared, before
+  anything is written.
+- Only the 4 KiB U-Boot environment is written before the install. The stock start (`boot_normal`) stays in it as
+  the fallback: no card, no `tc100test/c66.img`, or a 3.0 start command that fails, and U-Boot starts the system the
+  camera had before.
+- The trial mode writes nothing else to the flash: take the card out and the camera is as before.
+- The install writes `initrd` last, saves each partition first and reads each one back; until the end, the card
+  still starts the camera.
+- Any doubt in the checks: the hook stops before writing and says why.
+
+What is not covered yet:
+1. **A power cut during the environment write** (a fraction of a second). `envtool` puts the original back when the
+   write fails, but if power is lost in the middle, U-Boot falls back to its built-in environment, and it is not yet
+   checked that this one starts the stock firmware. Worst case: recovery through the serial console. Do not unplug
+   the camera during the first two minutes.
+2. **Cameras that differ from the author's.** Until `v3/install/known-stock.txt` lists the md5 of U-Boot and of the
+   stock root filesystem, a TC100 with another U-Boot passes the checks. The 3.0 start commands then fall back to
+   the stock start if they fail, but this has not been seen on another U-Boot.
+3. **An interrupted web update** leaves the flash system unable to start: keep the 3.0 SD card; it starts the
+   camera and "Install to flash" writes everything again.
+
+Other limits: settings are kept in flash, the user space is read-only (updated as a whole); a card inserted while
+the camera runs is not detected (power it off and on); the default password `pass` is public until you change it.
 
 Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
 
