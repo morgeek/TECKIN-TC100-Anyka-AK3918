@@ -9,7 +9,7 @@
 #   200 image/jpeg  — thumbnail extracted from the first keyframe of the clip
 #   400             — missing or unsafe path
 #   404             — file not found
-#   503             — no ffmpeg available
+#   503             — no picture next to the clip and no ffmpeg available
 
 . /mnt/www/cgi-bin/func.cgi
 . /mnt/scripts/common_functions.sh
@@ -33,20 +33,6 @@ respond_error() {
 # Only allow GET
 if [ "$REQUEST_METHOD" != "GET" ] && [ "$REQUEST_METHOD" != "HEAD" ]; then
   respond_error "405 Method Not Allowed" "METHOD_NOT_ALLOWED"
-  exit 0
-fi
-
-# Find a usable ffmpeg
-FFMPEG=""
-for _bin in "$FFMPEG_BIN" "$FALLBACK_FFMPEG" /usr/bin/ffmpeg; do
-  if [ -x "$_bin" ]; then
-    FFMPEG="$_bin"
-    break
-  fi
-done
-
-if [ -z "$FFMPEG" ]; then
-  respond_error "503 Service Unavailable" "NO_FFMPEG"
   exit 0
 fi
 
@@ -84,6 +70,29 @@ case "$full_path" in
     exit 0
     ;;
 esac
+
+# The 3.0 recorder writes a picture of the first keyframe next to each file (same name, .jpg): no ffmpeg needed
+if [ -f "${full_path%.*}.jpg" ]; then
+  echo "Content-Type: image/jpeg"
+  echo "Cache-Control: max-age=300"
+  echo ""
+  cat "${full_path%.*}.jpg"
+  exit 0
+fi
+
+# Find a usable ffmpeg
+FFMPEG=""
+for _bin in "$FFMPEG_BIN" "$FALLBACK_FFMPEG" /usr/bin/ffmpeg; do
+  if [ -x "$_bin" ]; then
+    FFMPEG="$_bin"
+    break
+  fi
+done
+
+if [ -z "$FFMPEG" ]; then
+  respond_error "503 Service Unavailable" "NO_FFMPEG"
+  exit 0
+fi
 
 # Thumbnail size
 thumb_w="${F_size:-320}"
