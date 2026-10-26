@@ -54,7 +54,7 @@ pruned() { grep -vE '^(#|$)' "$REPO/v3/initramfs-prune.txt" | grep -qxF "$1"; }
 find_lib() { for d in lib usr/lib; do [ -e "$d/$1" ] && { echo "$d/$1"; return 0; }; done; return 1; }
 mkdir -p "$T/ext/bin" "$T/ext/lib" "$T/ext/etc/ssl/certs"
 : > "$W/libs"
-for b in usr/bin/curl usr/bin/jq usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd usr/sbin/hostapd_cli usr/bin/mksquashfs usr/bin/unsquashfs; do
+for b in usr/bin/curl usr/bin/jq usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd usr/bin/mksquashfs; do
 	[ -f "$b" ] || { echo "build-stack: $b missing from the base" >&2; exit 1; }
 	cp -L "$b" "$T/ext/bin/"
 	echo "$b" >> "$W/todo"
@@ -78,7 +78,8 @@ for b in curl jq; do printf '#!/bin/sh\nexec /mnt/ext/bin/%s "$@"\n' $b > "$T/bi
 chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rtsp "$T"/tc100test/httpfront
 
 # 3. The flash image
-mksquashfs "$T" "$OUT/stack.sqfs" -comp xz -b 256K -noappend -all-root -quiet
+# mksquashfs only serves the install, which runs from the card: it stays in the tree (SD), not in the flash image
+mksquashfs "$T" "$OUT/stack.sqfs" -comp xz -b 256K -noappend -all-root -quiet -e ext/bin/mksquashfs
 n=$(wc -c < "$OUT/stack.sqfs")
 ( cd "$OUT" && md5sum stack.sqfs > stack.sqfs.md5 )
 echo "stack.sqfs: $n bytes (partition $STACK_MAX)"
