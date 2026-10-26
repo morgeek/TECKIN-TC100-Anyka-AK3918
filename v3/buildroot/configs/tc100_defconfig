@@ -24,3 +24,9 @@ BR2_PACKAGE_WPA_SUPPLICANT_PASSPHRASE=y
 BR2_TARGET_ROOTFS_CPIO=y
 BR2_TARGET_ROOTFS_CPIO_GZIP=y
 # BR2_TARGET_ROOTFS_TAR is not set
+# 3.0: Wi-Fi rescue access point (rtl8xxxu has AP mode on the 8188F since Linux 6.5)
+BR2_PACKAGE_HOSTAPD=y
+BR2_PACKAGE_HOSTAPD_DRIVER_NL80211=y
+# 3.0 install: the camera builds the squashfs of its own vendor libraries
+BR2_PACKAGE_SQUASHFS=y
+BR2_PACKAGE_SQUASHFS_XZ=y

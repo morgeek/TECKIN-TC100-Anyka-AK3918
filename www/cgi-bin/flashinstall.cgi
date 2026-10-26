@@ -10,6 +10,9 @@
 #                        video service (only when usr.img is on the card)
 # POSTs need the X-CSRF-Token header.
 
+# 3.0 (Linux 6.6): install from the trial mode on the card (v3/install/install66-cgi.sh)
+[ -f /tmp/linux66 ] && [ -f /mnt/v3/install/install66-cgi.sh ] && exec sh /mnt/v3/install/install66-cgi.sh
+
 FI="${FI_SCRIPT:-/mnt/scripts/flash-install.sh}"
 CARD="${FI_CARD:-/mnt}"
 K="${FI_DIR:-$CARD/tc100-flash}"

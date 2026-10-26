@@ -621,6 +621,7 @@
                 <header class='card-header'><p class='card-header-title'>Firmware update</p></header>
                 <div class='card-content'>
                     <p class="is-size-7 mb-2">Running from the SD card: upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept. Running from the flash memory (FLASH badge): upload a <code>tc100-code-&lt;version&gt;.bin</code> package (<code>src/flash/build-code.sh</code>); it is written to the flash, read back, and the camera reboots; "Roll back" returns to the code built into the firmware.</p>
+                    <p class="is-size-7 mb-2">Firmware 3.0 (Linux 6.6) running from the flash memory: upload <code>tc100-&lt;version&gt;-update.tar</code> from the release page; the system, kernel and boot image are written to the flash, read back, and the camera restarts. Settings, Wi-Fi and the camera's own libraries are kept.</p>
                     <p class="is-size-7 mb-2">From the flash memory, a system package <code>tc100-system-&lt;version&gt;.tar</code> (made by <code>src/flash/build-flash-kit.sh</code>) also replaces the programs, without SD card.</p>
                     <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
                     <div class="file is-small is-fullwidth mb-2">
@@ -641,7 +642,7 @@
             <div class='card status_card mb-4' id="flashInstallCard" style="display:none">
                 <header class='card-header'><p class='card-header-title'>Install to flash (run without the SD card)</p></header>
                 <div class='card-content'>
-                    <p class="is-size-7 mb-2">Puts this firmware into the camera's own memory, so that it works without the SD card (README, "Install to flash"). Three steps: <strong>1.</strong> the camera copies its original system partition to the card (nothing is written to the flash); <strong>2.</strong> on a computer, <code>src/flash/build-flash-kit.sh</code> turns that copy into the image to install; <strong>3.</strong> card back in, the camera installs it at boot, checks it, and restarts from its flash. The card keeps working as before until step 3 succeeds.</p>
+                    <p class="is-size-7 mb-2" id="fiIntro">Puts this firmware into the camera's own memory, so that it works without the SD card (README, "Install to flash"). Three steps: <strong>1.</strong> the camera copies its original system partition to the card (nothing is written to the flash); <strong>2.</strong> on a computer, <code>src/flash/build-flash-kit.sh</code> turns that copy into the image to install; <strong>3.</strong> card back in, the camera installs it at boot, checks it, and restarts from its flash. The card keeps working as before until step 3 succeeds.</p>
                     <p class="is-size-7 mb-2"><strong id="fiState">…</strong></p>
                     <pre class="is-size-7 mb-2" id="fiLog" style="display:none;white-space:pre-wrap;max-height:10em;overflow:auto"></pre>
                     <div class="buttons">
@@ -1201,7 +1202,10 @@
                     xhr.onload = function() {
                         up.classList.remove('is-loading'); up.disabled = false; show(bar, false);
                         var d; try { d = JSON.parse(xhr.responseText); } catch (e) { d = null; }
-                        if (d && d.ok && d.kind === 'system') {
+                        if (d && d.ok && d.kind === 'linux66') {
+                            say('Firmware ' + d.version + ' is valid: the flash memory will be rewritten (installed: ' + d.current + '). Settings, Wi-Fi and the camera\'s own libraries are kept.');
+                            refresh();
+                        } else if (d && d.ok && d.kind === 'system') {
                             say('System package ' + d.version + ' is valid: the programs in the flash memory (/usr) and the code will be replaced (installed: ' + d.current + '). The video is paused until the install.');
                             refresh();
                         } else if (d && d.ok && d.kind === 'code') {
@@ -1225,6 +1229,10 @@
                 });
             });
             inst.addEventListener('click', function() {
+                if (stagedKind === 'linux66') {
+                    run('install', 'Install this firmware and restart the camera?\n\nThe camera stops its services and writes its flash memory (about 6 to 8 minutes), then restarts. Do not unplug it.\n\nIf it does not come back, start it with the 3.0 SD card and use "Install to flash".', 'Writing the flash memory.');
+                    return;
+                }
                 if (stagedKind === 'system') {
                     run('install', 'Install the system package and reboot the camera?\n\nThe camera stops its programs, Wi-Fi included, writes its flash memory and restarts: it is unreachable for about 3 minutes. Do not unplug it.', 'Installing the system package.');
                     return;
@@ -1263,18 +1271,27 @@
                 empty: 'Step 1 not done yet.',
                 prepared: 'Step 1 done: take the card out and run src/flash/build-flash-kit.sh on a computer (step 2).',
                 ready: 'Step 2 done: the image to install is on the card. Step 3 reboots the camera to install it (about 2 minutes).',
-                installed: 'Installed. If the page showed the FLASH badge after the test boot: power off, take the card out, power on.'
+                installed: 'Installed. If the page showed the FLASH badge after the test boot: power off, take the card out, power on.',
+                ready66: 'Ready: the firmware on this card can be written into the flash memory.',
+                blocked: 'Not possible yet:',
+                running: 'Writing the flash memory (about 10 minutes); the camera then restarts from its flash. Do not unplug it.'
             };
+            var intro66 = 'Writes the 3.0 firmware of this card into the camera\'s own memory: the free system, and a copy of the camera\'s own libraries (taken from this camera, never published). Each partition is saved to tc100-3/backup on the card first and read back after writing. At the end the camera restarts from its flash; the card is then only used for recordings. Way back: rename tc100test/c66.img.installed to c66.img on the card.';
             function refresh() {
                 return fetch('cgi-bin/flashinstall.cgi?cmd=status', { cache: 'no-store' })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
                         if (!d || !d.ok || d.state === 'flash') { show(box, false); return; }
                         show(box, true);
-                        st.textContent = d.running ? 'Copying the original system to the card…' : text[d.state] || d.state;
+                        if (d.linux66) {
+                            var intro = document.getElementById('fiIntro');
+                            if (intro) intro.textContent = intro66;
+                            inst.textContent = 'Install to flash and restart';
+                        }
+                        st.textContent = d.running && !d.linux66 ? 'Copying the original system to the card…' : text[d.state] || d.state;
                         log.textContent = d.log || ''; show(log, !!d.log);
-                        show(prep, !d.running && (d.state === 'none' || d.state === 'empty'));
-                        show(inst, !d.running && d.state === 'ready');
+                        show(prep, !d.running && !d.linux66 && (d.state === 'none' || d.state === 'empty'));
+                        show(inst, !d.running && (d.state === 'ready' || d.state === 'ready66'));
                         if (d.running) setTimeout(refresh, 4000);
                     }).catch(function() { show(box, false); });
             }
@@ -1293,10 +1310,11 @@
                 post('prepare').then(function() { setTimeout(refresh, 1500); }, function() {});
             });
             inst.addEventListener('click', function() {
-                if (!confirm('Reboot the camera and install the firmware into its flash memory?\n\nDo not unplug it during the next 3 minutes.')) return;
+                if (!confirm('Install the firmware into the flash memory of the camera?\n\nDo not unplug it during the next 10 minutes.')) return;
                 post('install').then(function() {
-                    st.textContent = 'Rebooting to install. This takes about 2 minutes, then the camera restarts from its flash with the card still in.';
+                    st.textContent = 'Installing. The camera writes its flash memory, then restarts from it.';
                     show(inst, false);
+                    setTimeout(refresh, 4000);
                 }, function() {});
             });
             refresh();
