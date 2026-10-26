@@ -46,6 +46,7 @@ static unsigned char part[MAXPART], want[MAXPART], back[MAXPART];
 static size_t psize, esize;		/* partition size, environment size */
 static unsigned eblock;			/* erase block size */
 static int testmode;			/* ENVTOOL_TEST=1: DEV is a plain file (host tests) */
+static int writable;
 
 static int read_all(const char *dev, unsigned char *buf)
 {
@@ -93,7 +94,7 @@ static int open_env(const char *dev)
 		if (crc32(part + 4, sizes[i] - 4) == stored) { esize = sizes[i]; break; }
 	}
 	if (!esize) { fprintf(stderr, "envtool: no valid environment in %s (CRC does not match any size)\n", dev); return -1; }
-	if (!(mi.flags & MTD_WRITEABLE)) fprintf(stderr, "envtool: note: %s is read-only\n", dev);
+	writable = !!(mi.flags & MTD_WRITEABLE);
 	return 0;
 }
 
@@ -157,6 +158,7 @@ int main(int argc, char **argv)
 	const char *dev = argv[2];
 
 	if (open_env(dev) || parse()) return 2;
+	if (!strcmp(argv[1], "set") && !writable) { fprintf(stderr, "envtool: %s is read-only: nothing written\n", dev); return 2; }
 	if (!strcmp(argv[1], "show")) {
 		printf("# %s: environment %zu bytes in a %zu-byte partition\n", dev, esize, psize);
 		for (int i = 0; i < nvar; i++) puts(var[i]);
