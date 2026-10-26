@@ -1,0 +1,16 @@
+# Everything here runs on the camera or in Linux CI: LF line endings in every checkout, Windows included
+# (a CRLF shell script does not run on the camera).
+* text=auto eol=lf
+*.bin binary
+*.img binary
+*.gz binary
+*.jpg binary
+*.png binary
+*.so binary
+*.so.* binary
+*.wav binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+# a CGI script named like a picture (Thingino web UI)
+thingino_port/package/thingino-webui/cgi-bin/ch0.jpg text eol=lf
