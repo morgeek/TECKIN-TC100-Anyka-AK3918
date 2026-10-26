@@ -53,3 +53,10 @@ usr/share/alsa/ucm2
 usr/share/alsa/topology
 usr/share/ca-certificates
 usr/share/terminfo
+# 3.0: these go to the user space image (ext/ of the stack, v3/build-stack.sh), not to the 2 MiB initrd
+usr/sbin/hostapd
+usr/sbin/hostapd_cli
+usr/bin/mksquashfs
+usr/bin/unsquashfs
+usr/bin/sqfstar
+usr/bin/sqfscat

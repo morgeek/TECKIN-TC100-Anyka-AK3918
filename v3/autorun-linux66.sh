@@ -8,6 +8,9 @@ mkdir -p /tmp/logs /var/run
 : > /tmp/linux66
 # Free tools from the Buildroot base that the initramfs leaves out (curl, jq, iw, wpa_cli, hostapd), in the user space
 export PATH=/mnt/ext/bin:$PATH CURL_CA_BUNDLE=/mnt/ext/etc/ssl/certs/ca-certificates.crt
+for l in /lib/ld-musl-*.so.1; do	# their libraries: /mnt/ext/lib on the musl search path
+  [ -e "$l" ] || continue; n=${l##*/ld-musl-}; echo /lib /usr/lib /mnt/ext/lib | tr ' ' '\n' > /etc/ld-musl-${n%.so.1}.path
+done
 [ -f /var/run/vday ] || echo 1 > /var/run/vday
 [ -f /var/run/ircut ] || echo 1 > /var/run/ircut
 
@@ -35,7 +38,16 @@ for d in bin config controlscripts lib scripts www; do
   [ -d /mnt/sd/$d ] && [ ! -d /mnt/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
 done
 
-# 1a. wifi.txt at the root of the card (SSID=, PASSWORD=), like 2.x: the new network goes first in
+# 1a. SD mode on a new card: every shipped *.dist becomes the live setting until the user changes it (flash mode:
+#     flashmode-prep.sh does the same). The 2.x web server variants stay unused.
+if [ ! -f /tmp/flashmode ]; then
+  for f in /mnt/config/*.dist; do
+    b=${f%.dist}; case "$b" in */lighttpd*) continue;; esac
+    [ -e "$b" ] || cp "$f" "$b"
+  done
+fi
+
+# 1b. wifi.txt at the root of the card (SSID=, PASSWORD=), like 2.x: the new network goes first in
 #     config/wpa_supplicant.conf, the previous ones stay as fallbacks, and it is used at once.
 if [ -f /mnt/sd/wifi.txt ] && [ -f /mnt/scripts/wifi-txt.sh ]; then
   W=/mnt/config/wpa_supplicant.conf
@@ -80,7 +92,7 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/lib/libmpi_venc_ex.so ] && [ -c /dev/uio0 
   for f in $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp_f23_mipi_2lane.conf /mnt/config/isp.conf; do
     [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
   done
-  ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
+  [ -e /mnt/lib/ld-uClibc-0.9.33.2.so ] && ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
   cp $TB/libakuio.so /tmp/libakuio.so; cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
   PWD_FILE=/mnt/config/user.pwd
   [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
