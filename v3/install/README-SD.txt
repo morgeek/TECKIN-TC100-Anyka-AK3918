@@ -1,6 +1,9 @@
 TECKIN TC100 firmware 3.0 (Linux 6.6): SD card package
 =========================================================
 
+RELEASE CANDIDATE: this SD install has not yet run on a camera. Read "Is it safe?" in the project
+README first. Do not unplug the camera during the first start (about 2 minutes).
+
 Made for the TECKIN TC100 indoor camera (Anyka AK3918EV300, JX-F23 sensor, RTL8188FU Wi-Fi) with the
 vendor firmware V1.1.41, or with the 2.x firmware of this project installed into its flash. The camera
 checks this before it changes anything. Settings and Wi-Fi of a 2.x camera are carried over.
@@ -37,7 +40,7 @@ Way back
 - After step 2 or 3: take the card out (or rename tc100test/c66.img): the camera starts the system it had
   before (stock or 2.x) from its flash, unchanged.
 - After step 4: put this card back with tc100test/c66.img (the install renamed it c66.img.installed): the
-  camera starts from the card again. The stock flash can then be written back from
-  tc100-3/backup/flash-stock.bin (see the project README, "Back to the stock firmware").
+  camera starts from the card again. From there, v3/install/restore-stock.sh (over ssh or telnet) writes
+  back the flash as it was before 3.0 from tc100-3/backup/flash-stock.bin.
 
 Source, documentation and issues: https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918
