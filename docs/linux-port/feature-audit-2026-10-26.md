@@ -5,7 +5,21 @@ Static check of every user-facing feature of the 3.0 flash build (Linux 6.6), an
 the binaries they call and the paths they assume exist on the 6.6 flash system. "Card" means the files that are on
 the author's SD card, which the flash image is built from (see problem 2).
 
-## Most important problems
+## Where it stands after the fixes (3.0.1-rc1, end of 2026-10-26, still not run on a camera)
+
+| Problem below | Now |
+|---|---|
+| 1. no web login | fixed: `v3/linux66-sd/web-auth` (`/etc/httpd.conf`, MD5), password step in the 3.0 wizard |
+| 2. image built from the card | fixed: `v3/build-stack.sh` + `v3/build-release.sh` from git and CI only; vendor libraries come from each camera (`vendor` partition); see `install-3.0.md` |
+| 3. Wi-Fi from the UI lost | fixed: `config/wpa_supplicant.conf` + `wifi-apply`; scan through `iw` / `wpa_cli` |
+| 4. IR-cut never moves | coded: GPIO 593 / 592 pulse in the `setconf` shim; direction to check on the camera |
+| 5. second flash writer | fixed: `flash-update66.sh` archived, `flashw -m/-b`, `flash-code.sh` refuses the 6.6 layout |
+| 6. settings persistence gaps | fixed: `config/.cfg-deleted`, "Settings not saved" badge |
+| 7. pages of missing features | each page works on 3.0 or is hidden with a note (section "Web UI on 3.0" below); ONVIF on HTTP, real sub-stream |
+
+Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux-port/README.md`, section on tc100_rtsp.
+
+## Most important problems (as found in the morning)
 
 1. **The web interface has no login on 6.6.** `httpfront` hands each connection to busybox `httpd -i -h /tmp/www`
    (`src/httpfront/httpfront.c:66`) and there is no `httpd.conf` anywhere in the initramfs or the stack, and no CGI
