@@ -12,9 +12,11 @@ export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 WIFI_CONFIG_PATH="/mnt/wpa_supplicant.conf"
 
 
-case "$F_cmd" in
-  reboot|shutdown) rate_limit_check 3 300 ;;
-  *) rate_limit_check 20 60 ;;
+# Rate limit: commands that change something (POST). The pages poll read commands (sd_card_info, wifi_get_ssid,
+# local_rec_status...) with GET; counting them made the settings and dashboard pages hit 429.
+case "${REQUEST_METHOD:-GET}:$F_cmd" in
+  *:reboot|*:shutdown) rate_limit_check 3 300 ;;
+  POST:*) rate_limit_check 20 60 ;;
 esac
 
 # CSRF: enforce the per-boot token on state-changing (POST) requests, matching

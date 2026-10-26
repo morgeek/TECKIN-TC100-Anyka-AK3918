@@ -325,7 +325,11 @@ rate_limit_check() {
     fi
   done
 
-  _rl_file="$_rl_dir/$_rl_ip"
+  # One count per client AND per CGI: each CGI has its own limit, and one shared count made a page that polls
+  # several CGIs run into another CGI's (lower) limit within a minute.
+  _rl_cgi="${SCRIPT_NAME##*/}"; _rl_cgi="${_rl_cgi%.cgi}"
+  case "$_rl_cgi" in ''|*[!A-Za-z0-9_-]*) _rl_cgi=cgi ;; esac
+  _rl_file="$_rl_dir/${_rl_ip}_${_rl_cgi}"
 
   _rl_window_start=0
   _rl_count=0
