@@ -57,6 +57,19 @@ if [ -f /mnt/sd/wifi.txt ] && [ -f /mnt/scripts/wifi-txt.sh ]; then
   sh /mnt/scripts/wifi-txt.sh apply /mnt/sd/wifi.txt $W && ( sh /mnt/v3/linux66-sd/wifi-apply 0 </dev/null >/dev/null 2>&1 & )
 fi
 
+# 1c. Network settings (static address, custom DNS servers) over what the boot script's DHCP gave, as 2.x did
+sh /mnt/v3/linux66-sd/net-apply </dev/null >/dev/null 2>&1
+
+# 1d. Choices of boot.conf that 2.x autorun.sh applied at each start (read here, no sourcing of the whole file)
+bootv() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
+on() { case "$1" in 1|true|yes|on|enabled) return 0 ;; esac; return 1; }
+PROFILE=$(bootv INTEGRATION_PROFILE); LIGHT=$(bootv LIGHTWEIGHT_MODE)
+# Frigate + Home Assistant profile: Frigate detects and stamps the picture itself (2.x apply_frigate_ha_rtsp_profile)
+if [ "$PROFILE" = frigate_ha ] && [ -x /mnt/bin/rwconf ]; then
+  LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " mdenabled 0 2>/dev/null
+  LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " osdenabled 0 2>/dev/null
+fi
+
 # 2. Populate shared uClibc libraries into /lib (symlinks in flashmode to save ~1.8 MB RAM)
 for f in /mnt/lib/*.so*; do
   [ -e "$f" ] || continue
@@ -225,8 +238,20 @@ fi
 # 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be
 #      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
 #      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
-S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
-ntpd -p "$S" </dev/null >/dev/null 2>&1 &
+#      ENABLE_NTP=0 in boot.conf turns it off.
+if [ "$(bootv ENABLE_NTP)" != 0 ]; then
+  S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
+  ntpd -p "$S" </dev/null >/dev/null 2>&1 &
+fi
+# Scheduled reboot (Settings -> System): the managed entry of config/cron/crontabs/root, run by crond
+if on "$(bootv ENABLE_CROND)" || on "$(bootv REBOOT_SCHEDULE_ENABLE)"; then
+  mkdir -p /mnt/config/cron/crontabs
+  crond -c /mnt/config/cron/crontabs </dev/null >/dev/null 2>&1
+fi
+# LEDs as set in Settings (FRONT_LED / RED_LED), not left as the boot found them
+sh -c '. /mnt/scripts/common_functions.sh
+  case "$1" in 1|true|yes|on) front_led on ;; *) front_led off ;; esac
+  case "$2" in 1|true|yes|on) red_led on ;; *) red_led off ;; esac' _ "$(bootv FRONT_LED)" "$(bootv RED_LED)" </dev/null >/dev/null 2>&1
 
 # 12b. Services switched on in the web UI (Services page, "Boot" toggle = file in config/autostart): button-actions,
 #      wifi-rescue, memory-guard, health-snapshot, telegram-bot, ftp/telnet... Started detached, one after the other.
@@ -235,6 +260,9 @@ ntpd -p "$S" </dev/null >/dev/null 2>&1 &
 for f in /mnt/config/autostart/*; do
   n=${f##*/}
   case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording) continue ;; esac
+  # as on 2.x: the lightweight mode and the Frigate + Home Assistant profile keep some services off at boot
+  on "$LIGHT" && case "$n" in front-led) continue ;; esac
+  [ "$PROFILE" = frigate_ha ] && case "$n" in telegram-bot|syslog-forward|sound-detection|ftp-server|telnet-server) continue ;; esac
   [ -f $CS/$n ] && sh $CS/$n start </dev/null >/dev/null 2>&1 &
   sleep 1
 done

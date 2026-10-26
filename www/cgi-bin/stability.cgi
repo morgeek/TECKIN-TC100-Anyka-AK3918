@@ -11,3 +11,4 @@ fi
 # Samples of the last hour are still in RAM (health-snapshot.sh batches the
 # SD writes).
 cat /tmp/log/stability.pending 2>/dev/null
+exit 0

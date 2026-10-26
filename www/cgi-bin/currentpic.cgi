@@ -1,7 +1,22 @@
 #!/bin/sh
 
-echo "Content-type: image/jpeg"
-echo ""
+# serve FILE: the picture with its header; no picture (video server restarting, no frame yet): 503, which the
+# page retries, instead of an empty "image/jpeg" that shows a broken image.
+serve() {
+  if [ -s "$1" ]; then
+    echo "Content-type: image/jpeg"
+    echo "Cache-Control: no-store"
+    echo ""
+    cat "$1"
+  else
+    echo "Status: 503 Service Unavailable"
+    echo "Content-type: text/plain"
+    echo "Retry-After: 1"
+    echo ""
+    echo "no picture yet"
+  fi
+  exit 0
+}
 
 # timeout(1) shim. This CGI is standalone (it sources neither func.cgi nor
 # common_functions.sh, deliberately — it is on the liveview hot path), so it
@@ -47,8 +62,7 @@ if [ -s "$SNAP_FILE" ] && [ "$now_ts" -gt 0 ]; then
   snap_ts="$(date -r "$SNAP_FILE" +%s 2>/dev/null)"
   case "$snap_ts" in ''|*[!0-9]*) snap_ts=0 ;; esac
   if [ "$snap_ts" -gt 0 ] && [ $((now_ts - snap_ts)) -le 3 ] && [ $((now_ts - snap_ts)) -ge -3 ]; then
-    cat "$SNAP_FILE"
-    exit 0
+    serve "$SNAP_FILE"
   fi
 fi
 
@@ -67,8 +81,7 @@ if [ -f "$CACHE_FILE" ] && [ -f "$CACHE_META_FILE" ] && [ "$CACHE_TTL_SECONDS" -
 fi
 
 if [ "$cache_fresh" -eq 1 ]; then
-  cat "$CACHE_FILE"
-  exit 0
+  serve "$CACHE_FILE"
 fi
 
 # Linux 6.6: tc100_rtsp owns the cache (no getimage). It makes a new picture at once when
@@ -83,8 +96,7 @@ if [ -f /tmp/linux66 ]; then
     sleep 0.1
     wait_count=$((wait_count + 1))
   done
-  cat "$CACHE_FILE" 2>/dev/null
-  exit 0
+  serve "$CACHE_FILE"
 fi
 
 if mkdir "$CACHE_LOCK_DIR" 2>/dev/null; then
@@ -95,9 +107,8 @@ if mkdir "$CACHE_LOCK_DIR" 2>/dev/null; then
     rm -f "$tmp_img" >/dev/null 2>&1 || true
     _read_ts
     [ "$now_ts" -gt 0 ] && printf '%s\n' "$now_ts" > "$CACHE_META_FILE"
-    cat "$CACHE_FILE"
     rmdir "$CACHE_LOCK_DIR" >/dev/null 2>&1 || true
-    exit 0
+    serve "$CACHE_FILE"
   fi
   rm -f "$tmp_img" >/dev/null 2>&1 || true
   rmdir "$CACHE_LOCK_DIR" >/dev/null 2>&1 || true
@@ -106,11 +117,11 @@ fi
 wait_count=0
 while [ "$wait_count" -lt 4 ]; do
   sleep 0.1
-  if [ -f "$CACHE_FILE" ]; then
-    cat "$CACHE_FILE"
-    exit 0
-  fi
+  [ -s "$CACHE_FILE" ] && serve "$CACHE_FILE"
   wait_count=$((wait_count + 1))
 done
 
-timeout 5 /mnt/bin/getimage
+tmp_img="/tmp/currentpic.last.$$.jpg"
+timeout 5 /mnt/bin/getimage > "$tmp_img" 2>/dev/null
+( serve "$tmp_img" ); rm -f "$tmp_img"
+

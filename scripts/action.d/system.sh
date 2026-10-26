@@ -418,9 +418,12 @@
       rewrite_config /mnt/config/telegram.conf userChatId "$telegram_chat_id"
       
       if [ -x /mnt/controlscripts/telegram-bot ]; then
+        # the boot starts the bot from config/autostart: the switch here survives a restart
         if [ "$telegram_enable" = "1" ]; then
+          ensure_autostart_script telegram-bot >/dev/null 2>&1 || true
           /mnt/controlscripts/telegram-bot restart >/dev/null 2>&1 || true
         else
+          rm -f /mnt/config/autostart/telegram-bot
           /mnt/controlscripts/telegram-bot stop >/dev/null 2>&1 || true
         fi
       fi

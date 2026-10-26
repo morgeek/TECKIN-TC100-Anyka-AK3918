@@ -1584,7 +1584,7 @@ if [ -n "$F_cmd" ]; then
     get_sd_usage
     _di_host=""; read -r _di_host < /proc/sys/kernel/hostname 2>/dev/null
     _di_kern=""; read -r _di_kern < /proc/sys/kernel/osrelease 2>/dev/null
-    _di_mac=""; read -r _di_mac < /sys/class/net/wlan0/address 2>/dev/null
+    _di_mac=""; read -r _di_mac 2>/dev/null < /sys/class/net/wlan0/address
     _di_ver=""; read -r _di_ver < /mnt/VERSION 2>/dev/null
     # Flash and card usage. In flash mode the card (if any) is on /mnt/sd.
     _di_sdmp=/mnt; [ "${storage_json:-sd}" = flash ] && _di_sdmp=/mnt/sd

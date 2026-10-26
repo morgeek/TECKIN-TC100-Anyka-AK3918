@@ -24,6 +24,6 @@ fi
 # a new network gives a new address: ask for a lease again once the association had time to happen
 sleep 8
 killall udhcpc 2>/dev/null
-udhcpc -i wlan0 -b -t 10 -x hostname:"$(hostname)" >/dev/null 2>&1
+sh /mnt/v3/linux66-sd/net-apply		# a new lease, or the static address of the Network settings
 logger -t tc100-event "Wi-Fi settings applied" 2>/dev/null
 exit 0
