@@ -3476,11 +3476,14 @@ class CameraPanel(unittest.TestCase):
                        AUTOSTART_DIR=str(d))
             html = subprocess.run(['sh', '-c', src], capture_output=True, env=env, timeout=30).stdout.decode()
             rows = re.findall(r"<tr data-script-name='([^']+)'", html)
-            for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection', 'onvif'):
+            for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection'):
                 self.assertNotIn(hidden, rows)
             system = html.split("data-group='system'")[1].split("data-group='features'")[0]
             self.assertIn("data-script-name='rtsp-h26x'", system)
             self.assertIn("data-script-name='mqtt-bridge'", system)
+            # ONVIF and the rescue access point have no other switch: they stay in Services
+            self.assertIn("data-script-name='onvif'", system)
+            self.assertIn("data-script-name='wifi-rescue'", system)
             for feature in ('motion-detection', 'sound-detection', 'telegram-bot'):
                 self.assertNotIn(feature, rows)   # switched in their Settings tab
             self.assertNotIn('Camera Controls', html)
@@ -3516,7 +3519,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
-        self.assertIn('wifi_get_ssid|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', text)     # read-only: no CSRF needed
+        self.assertIn('wifi_get_ssid|wifi_rescue_info|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', text)     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)

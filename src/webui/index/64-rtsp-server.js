@@ -13,6 +13,10 @@
         var talk = form.querySelector("#rtsp_talk");
         if (talk) talk.checked = d.talk !== 0;
         if (!status) return;
+        if (d.server === "tc100_rtsp") {
+          status.textContent = "Free server tc100_rtsp on port " + d.port + ": " + (d.clients === null ? "?" : d.clients) + " client(s) connected.";
+          return;
+        }
         if (d.server !== "lite") { status.textContent = "The original server is in use."; return; }
         if (d.fallback) { status.textContent = "The lite server did not start: the original server has the port until the next reboot."; return; }
         if (d.clients === null || d.status_age === null || d.status_age > 30) { status.textContent = "Lite server: no status yet."; return; }
