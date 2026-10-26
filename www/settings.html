@@ -329,10 +329,10 @@
                 <div class='card status_card'>
                     <header class='card-header'><p class='card-header-title'>Local backup recording</p></header>
                     <div class='card-content'>
-                        <p class="help mb-3"><span class="hide-l66">MP4</span><span class="show-l66">Matroska (.mkv)</span> files on the SD card, copied from the video the camera already encodes (no re-encoding). Oldest files are deleted when the card is full.</p>
+                        <p class="help mb-3">MP4 files on the SD card, copied from the video the camera already encodes (no re-encoding). Oldest files are deleted when the card is full.</p>
                         <div class="field"><input class="switch is-small" id="rec_local" name="rec_local" type="checkbox"><label for="rec_local">Record to the SD card</label></div>
                         <div class="columns is-multiline">
-                            <div class="column is-half"><label class="label is-small" for="rec_when">When</label><div class="select is-small is-fullwidth"><select name="rec_when" id="rec_when"><option value="offline">Only while Frigate does not receive the video</option><option value="always">All the time</option><option value="motion" class="show-l66">On motion</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="rec_when">When</label><div class="select is-small is-fullwidth"><select name="rec_when" id="rec_when"><option value="offline">Only while Frigate does not receive the video</option><option value="always">All the time</option></select></div></div>
                             <div class="column is-half"><label class="label is-small" for="rec_stream">Stream</label><div class="select is-small is-fullwidth"><select name="rec_stream" id="rec_stream"><option value="main">Main stream (best quality, ~4.5 % CPU while recording)</option><option value="sub">Secondary stream (under 1 % CPU)</option></select></div></div>
                             <div class="column is-half"><label class="label is-small" for="rec_segment_min">File length (minutes)</label><input class="input is-small" name="rec_segment_min" id="rec_segment_min" type="number" min="1" max="60" step="1"></div>
                             <div class="column is-half"><label class="label is-small" for="rec_reserve_mb">Keep free on the card (MB)</label><input class="input is-small" name="rec_reserve_mb" id="rec_reserve_mb" type="number" min="32" max="8192" step="1"></div>

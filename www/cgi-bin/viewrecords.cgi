@@ -35,8 +35,6 @@ if [ -n "$F_cmd" ]; then
       else
         fullpath="${DCIM_FOLDER}/${record}"
         if [ -f "$fullpath" ]; then
-          # the recorder of 3.0 keeps a thumbnail next to each clip (same name, .jpg)
-          case "$fullpath" in *.mkv|*.mp4) rm -f "${fullpath%.*}.jpg" ;; esac
           rm -f "$fullpath" && echo '{"ok":true}' || echo '{"ok":false,"error":"delete failed"}'
         else
           echo '{"ok":false,"error":"file not found"}'
@@ -48,7 +46,7 @@ if [ -n "$F_cmd" ]; then
       # Returns SD card usage stats for the recordings area
       _total=0; _used=0; _avail=0; _pct=0
       while read -r _fs _t _u _a _p _mp _rest; do
-        case "$_mp" in /mnt|/mnt/|/mnt/sd)
+        case "$_mp" in /mnt|/mnt/)
           case "$_t" in ''|*[!0-9]*) continue ;; esac
           _total="$_t"; _used="$_u"; _avail="$_a"
           _pct_raw="${_p%%%}"; case "$_pct_raw" in ''|*[!0-9]*) _pct_raw=0 ;; esac
@@ -56,7 +54,7 @@ if [ -n "$F_cmd" ]; then
           break
         ;; esac
       done <<EOF
-$(df -k "$([ -f /tmp/linux66 ] && echo /mnt/sd || echo /mnt)" 2>/dev/null | tail -n +2)
+$(df -k /mnt 2>/dev/null | tail -n +2)
 EOF
       printf '{"total_kb":%s,"used_kb":%s,"avail_kb":%s,"percent":%s}\n' \
         "$_total" "$_used" "$_avail" "$_pct"
@@ -65,11 +63,7 @@ EOF
     list_dates)
       echo "["
       sep=""
-      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER 2>/dev/null)" || files=""
-      # 3.0 (or no lister): the clips are DCIM/YYYY-MM-DD_HH-MM-SS.mkv, list the dates in the shell
-      if [ -z "$files" ] && [ -f /tmp/linux66 ]; then
-        files="$(cd "$DCIM_FOLDER" 2>/dev/null && ls -1 2>/dev/null | sed -n 's/^\([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\)_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\.mkv$/\1/p' | sort -ru)"
-      fi
+      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER)"
       for file in $files; do
         printf '%s{"date":"%s"}\n' "$sep" "$file"
         sep=","
@@ -81,11 +75,7 @@ EOF
       dateVal="${F_date##*/}"
       echo "["
       sep=""
-      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER f $dateVal 2>/dev/null)" || files=""
-      if [ -z "$files" ] && [ -f /tmp/linux66 ]; then
-        case "$dateVal" in *[!0-9-]*) dateVal="" ;; esac
-        [ -n "$dateVal" ] && files="$(cd "$DCIM_FOLDER" 2>/dev/null && ls -1 2>/dev/null | sed -n "s/^${dateVal}_\([0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)\.mkv\$/\1/p" | sort -r)"
-      fi
+      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER f $dateVal)"
       for file in $files; do
         printf '%s{"record":"%s"}\n' "$sep" "$file"
         sep=","

@@ -1,6 +1,15 @@
 window.tc100I18nFr = {
  "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (lighttpd compresses and caches .js). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
  "strings": {
+  "A card put in while the camera runs: \"Mount the card\". Format it on a computer (FAT32, or exFAT for cards over 32 GB).": "Carte insérée pendant que la caméra fonctionne : « Monter la carte ». Formatez-la sur un ordinateur (FAT32, ou exFAT pour les cartes de plus de 32 Go).",
+  "Server: tc100_rtsp. Talking back through the stream is not available (use the Talk button).": "Serveur : tc100_rtsp. Parler à travers le flux n’est pas disponible (utilisez le bouton Parler).",
+  "Settings not saved": "Réglages non enregistrés",
+  "The settings could not be saved to the flash.": "Les réglages n’ont pas pu être enregistrés dans la flash.",
+  "The settings could not be saved to the flash:": "Les réglages n’ont pas pu être enregistrés dans la flash :",
+  "This firmware draws the clock text itself: colour, background, alpha and rotation are not available.": "Ce firmware dessine lui-même le texte de l’horloge : couleur, fond, transparence et rotation ne sont pas disponibles.",
+  "This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360 at up to 15 frames per second: resolution and frame rate below are not used; codec and bit rate are.": "Ce firmware encode le flux principal en 1920x1080 et le flux secondaire en 640x360, jusqu’à 15 images par seconde : la résolution et la cadence ci-dessous ne sont pas utilisées ; le codec et le débit le sont.",
+  "This firmware sends G.711 A-law at 8000 Hz (sample rate and codec are not used); the level applies at once.": "Ce firmware envoie du G.711 A-law à 8000 Hz (fréquence et codec ne sont pas utilisés) ; le niveau s’applique tout de suite.",
+  "This firmware uses the mean picture luminance, 0 to 255 (defaults 40 and 100); the AWB values are not used.": "Ce firmware utilise la luminance moyenne de l’image, de 0 à 255 (40 et 100 par défaut) ; les valeurs AWB ne sont pas utilisées.",
   "(made by": "(créé par",
   "(not running)": "(arrêté)",
   "(optional)": "(facultatif)",
