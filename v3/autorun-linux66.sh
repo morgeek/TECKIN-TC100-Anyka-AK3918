@@ -31,6 +31,14 @@ for d in bin config controlscripts lib scripts www; do
   [ -d /mnt/sd/$d ] && [ ! -d /mnt/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
 done
 
+# 1a. wifi.txt at the root of the card (SSID=, PASSWORD=), like 2.x: the new network goes first in
+#     config/wpa_supplicant.conf, the previous ones stay as fallbacks, and it is used at once.
+if [ -f /mnt/sd/wifi.txt ] && [ -f /mnt/scripts/wifi-txt.sh ]; then
+  W=/mnt/config/wpa_supplicant.conf
+  [ -f $W ] || cp /etc/wpa_supplicant.conf $W 2>/dev/null
+  sh /mnt/scripts/wifi-txt.sh apply /mnt/sd/wifi.txt $W && ( sh /mnt/v3/linux66-sd/wifi-apply 0 </dev/null >/dev/null 2>&1 & )
+fi
+
 # 2. Populate shared uClibc libraries into /lib (symlinks in flashmode to save ~1.8 MB RAM)
 for f in /mnt/lib/*.so*; do
   [ -e "$f" ] || continue
@@ -117,8 +125,9 @@ if [ ! -f /tmp/currentpic.cache.jpg ] && [ -f /mnt/tc100test/tc100-linux66-color
 fi
 [ -f /tmp/currentpic.cache.jpg ] && date +%s > /tmp/currentpic.cache.ts
 
-# 6. Start Web Server on port 80
+# 6. Start Web Server on port 80, with the camera password (root + config/user.pwd, like 2.x)
 killall httpd httpfront 2>/dev/null
+sh /mnt/v3/linux66-sd/web-auth
 # the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
 if [ -x /mnt/tc100test/httpfront ]; then
   /mnt/tc100test/httpfront -p 80 -h /tmp/www &

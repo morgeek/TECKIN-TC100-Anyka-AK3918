@@ -5,21 +5,38 @@
 #   - the partition must be writable in the device tree, the file must fit
 #   - erase + write + read-back compare + md5 are done by flashcp, then checked again here
 #   flashw -r <partition> <out-file>   read a partition into a file (always allowed)
+#   options before the partition name:
+#     -m MD5   refuse unless the file has this md5 (the one published with the image)
+#     -b DIR   save the partition into DIR/<partition>-<date>.bin first (read back and size-checked)
 ALLOW="${FLASHW_ALLOW:-cfga cfgb}"
 find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
 if [ "$1" = -r ]; then
   m=$(find_mtd "$2") || { echo "unknown partition $2"; exit 1; }
   dd if=/dev/${m}ro of="$3" bs=4096 2>/dev/null; md5sum "$3"; exit 0
 fi
+MD5=; BK=
+while :; do
+  case "$1" in
+    -m) MD5=$2; shift 2 ;;
+    -b) BK=$2; shift 2 ;;
+    *) break ;;
+  esac
+done
 P="$1"; F="$2"
-[ -n "$P" ] && [ -f "$F" ] || { echo "usage: flashw <partition> <file> | flashw -r <partition> <out>"; exit 1; }
+[ -n "$P" ] && [ -f "$F" ] || { echo "usage: flashw [-m MD5] [-b DIR] <partition> <file> | flashw -r <partition> <out>"; exit 1; }
 case " $ALLOW " in *" $P "*) ;; *) echo "flashw: partition '$P' is not in the allow-list ($ALLOW)"; exit 2;; esac
-case "$P" in boot|mac) echo "flashw: '$P' is never written"; exit 2;; esac
+case "$P" in boot|mac|env) echo "flashw: '$P' is never written"; exit 2;; esac
 m=$(find_mtd "$P") || { echo "unknown partition $P"; exit 1; }
 fl=$(cat /sys/class/mtd/$m/flags); [ $((fl & 0x400)) -ne 0 ] || { echo "flashw: $P is read-only in the device tree (flags $fl)"; exit 3; }
 sz=$(cat /sys/class/mtd/$m/size); fs=$(wc -c < "$F")
 [ "$fs" -le "$sz" ] || { echo "flashw: file $fs bytes does not fit $P ($sz)"; exit 4; }
 want=$(md5sum < "$F" | cut -d' ' -f1)
+[ -z "$MD5" ] || [ "$MD5" = "$want" ] || { echo "flashw: $F has md5 $want, expected $MD5"; exit 4; }
+if [ -n "$BK" ]; then
+  mkdir -p "$BK" && b=$BK/$P-$(date +%Y%m%d-%H%M%S).bin && dd if=/dev/${m}ro of="$b" bs=4096 2>/dev/null &&
+    [ "$(wc -c < "$b")" -eq "$sz" ] || { echo "flashw: backup of $P into $BK failed"; exit 7; }
+  echo "flashw: backup $b (md5 $(md5sum < "$b" | cut -d' ' -f1))"
+fi
 echo "flashw: $F ($fs bytes, md5 $want) -> $P (/dev/$m, $sz bytes)"
 flashcp -v "$F" /dev/$m || { echo "flashw: flashcp failed"; exit 5; }
 got=$(head -c $fs /dev/${m}ro 2>/dev/null | md5sum | cut -d' ' -f1)

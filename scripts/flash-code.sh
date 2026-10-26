@@ -88,8 +88,17 @@ fc_check()
     echo "ok ${FC_VERSION:-unknown} $FC_SIZE"
 }
 
+# The Linux 6.6 flash layout puts the 6.6 kernel where this zone was (0x160000 of the kernel partition):
+# never write or clear there (the partition names differ, this says why in plain words).
+_fc_not66()
+{
+    if grep -q '"stack"$' "$PROC_MTD" 2>/dev/null; then _fc_log "refused: Linux 6.6 flash layout"; echo "refused: Linux 6.6 flash layout"; return 1; fi
+    return 0
+}
+
 fc_write()
 {
+    _fc_not66 || return 1
     fc_check "$1" >/dev/null || { _fc_log "write refused: $(fc_check "$1")"; echo "refused: $(fc_check "$1")"; return 1; }
     grep -q '^mtd1: 00200000 00001000 "KERNEL"$' "$PROC_MTD" || { _fc_log "write refused: mtd1 is not the 2 MB KERNEL partition"; echo "refused: partition"; return 1; }
     _blocks=$(( ($(wc -c < "$1") + BS - 1) / BS ))
@@ -143,6 +152,7 @@ fc_info()
 
 fc_clear()
 {
+    _fc_not66 || return 1
     grep -q '^mtd1: 00200000 00001000 "KERNEL"$' "$PROC_MTD" || { echo "refused: partition"; return 1; }
     _kern="$(dd if="$MTD_CHAR" bs=$BS count=$KERNEL_BLOCKS 2>/dev/null | md5sum | cut -d' ' -f1)"
     dd if=/dev/zero of="$MTD_BLOCK" bs=$BS seek=$ZONE_BLOCK count=1 conv=notrunc 2>>"$LOG"

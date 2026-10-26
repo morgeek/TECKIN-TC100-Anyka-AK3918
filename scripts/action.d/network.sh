@@ -109,7 +109,22 @@
         if wants_json_response; then
           json_body_err "FORMAT_NOT_SUPPORTED" "wifi_scan command does not support JSON format"
         else
-          scan_out="$(iwlist wlan0 scan 2>/dev/null)"
+          scan_out=""
+          command -v iwlist >/dev/null 2>&1 && scan_out="$(iwlist wlan0 scan 2>/dev/null)"
+          # Linux 6.6 has no wireless-tools: same text shape from iw, or from wpa_supplicant's own scan
+          if [ -z "$scan_out" ] && command -v iw >/dev/null 2>&1; then
+              scan_out="$(iw dev wlan0 scan 2>/dev/null | awk '
+                  /^BSS / { if (n++) print ""; print "Cell " n " - Address: " substr($2, 1, 17); print "Encryption key:off" }
+                  /^[ \t]*signal:/ { print "Signal level=" $2 }
+                  /^[ \t]*SSID:/ { s = $0; sub(/^[ \t]*SSID: ?/, "", s); print "ESSID:\"" s "\"" }
+                  /^[ \t]*(RSN|WPA):|capability:.*Privacy/ { print "Encryption key:on" }')"
+          fi
+          if [ -z "$scan_out" ] && command -v wpa_cli >/dev/null 2>&1; then
+              wpa_cli -i wlan0 scan >/dev/null 2>&1; sleep 4
+              scan_out="$(wpa_cli -i wlan0 scan_results 2>/dev/null | awk -F'\t' 'NR > 1 && NF >= 4 {
+                  print "Cell " NR " - Address: " $1; print "Signal level=" $3
+                  print ($4 ~ /WPA|WEP|RSN|SAE/) ? "Encryption key:on" : "Encryption key:off"; print "ESSID:\"" $5 "\"" }')"
+          fi
           if [ -z "$scan_out" ]; then
               echo "<p class='help'>Scan failed or no results. Ensure WiFi is up.</p>"
           else
@@ -159,8 +174,11 @@
         if [ -z "$_ssid" ] && command -v iwconfig >/dev/null 2>&1; then
             _ssid="$(iwconfig wlan0 2>/dev/null | awk -F'"' '/ESSID:"/ { print $2; exit }')"
         fi
+        if [ -z "$_ssid" ] && command -v iw >/dev/null 2>&1; then
+            _ssid="$(iw dev wlan0 link 2>/dev/null | awk '/^[ \t]*SSID:/ { sub(/^[ \t]*SSID: ?/, ""); print; exit }')"
+        fi
         if [ -z "$_ssid" ]; then
-            for _wpa_conf in "$WIFI_CONFIG_PATH" /mnt/config/wpa_supplicant.conf; do
+            for _wpa_conf in "$WIFI_CONFIG_PATH" /mnt/config/wpa_supplicant.conf /etc/wpa_supplicant.conf; do
                 [ -f "$_wpa_conf" ] || continue
                 _ssid="$(awk -F'"' '/^[ \t]*ssid=/ { print $2; exit }' "$_wpa_conf")"
                 [ -n "$_ssid" ] && break
@@ -175,8 +193,14 @@
         # `wpa_cli reconfigure` below re-reads the old file and the change is
         # silently discarded — and the new one is never used at boot either.
         _wpa_conf="$WIFI_CONFIG_PATH"
+        _wifi66=0
+        if [ -f /mnt/v3/linux66-sd/wifi-apply ] && [ -x /usr/sbin/httpd ]; then
+            # Linux 6.6: the boot reads config/wpa_supplicant.conf (kept in the flash settings or on the card)
+            _wifi66=1
+            _wpa_conf=/mnt/config/wpa_supplicant.conf
+            [ -f "$_wpa_conf" ] || { [ -f /etc/wpa_supplicant.conf ] && cp /etc/wpa_supplicant.conf "$_wpa_conf"; }
         # From flash /mnt is in RAM: the file lives in jffs2, /mnt points to it.
-        if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
+        elif [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
             _wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf
             [ -L "$WIFI_CONFIG_PATH" ] || { rm -f "$WIFI_CONFIG_PATH"; ln -s "$_wpa_conf" "$WIFI_CONFIG_PATH"; }
         fi
@@ -200,7 +224,11 @@
                 exit 0
             fi
             rm -rf "$_wd"
-            command -v wpa_cli >/dev/null 2>&1 && wpa_cli -i wlan0 reconfigure >/dev/null 2>&1 || true
+            if [ "$_wifi66" = 1 ]; then
+                ( sh /mnt/v3/linux66-sd/wifi-apply 2 </dev/null >/dev/null 2>&1 & )
+            else
+                command -v wpa_cli >/dev/null 2>&1 && wpa_cli -i wlan0 reconfigure >/dev/null 2>&1 || true
+            fi
             json_body_ok "WiFi configuration updated for SSID: $_ssid. Reconnecting..."
         fi
     ;;

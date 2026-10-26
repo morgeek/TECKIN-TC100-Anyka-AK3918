@@ -1,0 +1,18 @@
+#!/bin/sh
+# web-auth [PASSWORD]   login for the web interface on the Linux 6.6 system (busybox httpd).
+# busybox httpd reads /etc/httpd.conf at each connection (httpfront starts it in inetd mode), so writing the file
+# applies the new password at once. One account, root, with the camera password (config/user.pwd when no argument
+# is given), like the lighttpd login of 2.x. The password is stored as an MD5 crypt hash when httpd can make one.
+# No password at all (first start, before the wizard): the file is removed and the pages stay open.
+CONF=/etc/httpd.conf
+PW=$1
+[ $# -ge 1 ] || PW=$(head -n 1 /mnt/config/user.pwd 2>/dev/null)
+PW=${PW%"$(printf '\r')"}
+if [ -z "$PW" ]; then
+	rm -f "$CONF"
+	echo "web-auth: no camera password, web interface open" > /dev/console
+	exit 0
+fi
+H=$(httpd -m "$PW" 2>/dev/null)
+case "$H" in '$1$'*) ;; *) H=$PW ;; esac	# httpd without MD5 support: plain text, root-only file in RAM
+( umask 077; printf '/:root:%s\n' "$H" > "$CONF.tmp" ) && mv -f "$CONF.tmp" "$CONF"
