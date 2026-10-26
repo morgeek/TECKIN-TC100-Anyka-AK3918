@@ -35,6 +35,8 @@ if [ -n "$F_cmd" ]; then
       else
         fullpath="${DCIM_FOLDER}/${record}"
         if [ -f "$fullpath" ]; then
+          # the recorder of 3.0 keeps a thumbnail next to each clip (same name, .jpg)
+          case "$fullpath" in *.mkv|*.mp4) rm -f "${fullpath%.*}.jpg" ;; esac
           rm -f "$fullpath" && echo '{"ok":true}' || echo '{"ok":false,"error":"delete failed"}'
         else
           echo '{"ok":false,"error":"file not found"}'
@@ -63,7 +65,11 @@ EOF
     list_dates)
       echo "["
       sep=""
-      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER)"
+      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER 2>/dev/null)" || files=""
+      # 3.0 (or no lister): the clips are DCIM/YYYY-MM-DD_HH-MM-SS.mkv, list the dates in the shell
+      if [ -z "$files" ] && [ -f /tmp/linux66 ]; then
+        files="$(cd "$DCIM_FOLDER" 2>/dev/null && ls -1 2>/dev/null | sed -n 's/^\([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\)_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]\.mkv$/\1/p' | sort -ru)"
+      fi
       for file in $files; do
         printf '%s{"date":"%s"}\n' "$sep" "$file"
         sep=","
@@ -75,7 +81,11 @@ EOF
       dateVal="${F_date##*/}"
       echo "["
       sep=""
-      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER f $dateVal)"
+      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER f $dateVal 2>/dev/null)" || files=""
+      if [ -z "$files" ] && [ -f /tmp/linux66 ]; then
+        case "$dateVal" in *[!0-9-]*) dateVal="" ;; esac
+        [ -n "$dateVal" ] && files="$(cd "$DCIM_FOLDER" 2>/dev/null && ls -1 2>/dev/null | sed -n "s/^${dateVal}_\([0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)\.mkv\$/\1/p" | sort -r)"
+      fi
       for file in $files; do
         printf '%s{"record":"%s"}\n' "$sep" "$file"
         sep=","

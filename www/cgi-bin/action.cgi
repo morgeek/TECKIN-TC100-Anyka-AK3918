@@ -904,8 +904,9 @@ run_postchange_integration_selftest() {
   fi
 
   _ac_now; snapshot_tmp="/tmp/action-selftest.$$.$now_ts.jpg"
-  if [ -x /mnt/bin/getimage ]; then
-    if timeout 5 /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
+  if [ -x /mnt/bin/getimage ] || [ -f /tmp/linux66 ]; then
+    # take_snapshot: getimage (2.x) or the picture tc100_rtsp keeps (Linux 6.6)
+    if take_snapshot "$snapshot_tmp"; then
       record_auto_stream_selftest_result "Snapshot" "OK" "Local snapshot capture succeeded." nonblocking
     else
       record_auto_stream_selftest_result "Snapshot" "WARN" "Snapshot capture failed; keeping stream changes because this check is non-blocking." nonblocking

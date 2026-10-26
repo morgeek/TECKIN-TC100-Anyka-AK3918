@@ -36,6 +36,22 @@ if [ "$REQUEST_METHOD" != "GET" ] && [ "$REQUEST_METHOD" != "HEAD" ]; then
   exit 0
 fi
 
+# 3.0: the recorder in tc100_rtsp writes a hardware JPEG next to each clip (same name, .jpg): serve it as it is
+_ct_rel="${F_path:-}"
+case "$_ct_rel" in
+  ''|*..*|*[!A-Za-z0-9._/-]*) ;;
+  *.mkv|*.mp4)
+    _ct_jpg="$DCIM_ROOT/${_ct_rel#/}"; _ct_jpg="${_ct_jpg%.*}.jpg"
+    if [ -s "$_ct_jpg" ]; then
+      echo "Status: 200 OK"
+      echo "Content-Type: image/jpeg"
+      echo "Cache-Control: max-age=$THUMB_TTL_SECONDS"
+      echo ""
+      cat "$_ct_jpg"
+      exit 0
+    fi ;;
+esac
+
 # Find a usable ffmpeg
 FFMPEG=""
 for _bin in "$FFMPEG_BIN" "$FALLBACK_FFMPEG" /usr/bin/ffmpeg; do

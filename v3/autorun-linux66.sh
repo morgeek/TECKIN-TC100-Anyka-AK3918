@@ -243,6 +243,8 @@ done
 #      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
 #      (sdinfo-sd.sh, also run once now).
 sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
+# the Recordings page plays and downloads /DCIM/<clip>.mkv and shows /DCIM/<clip>.jpg
+[ -e /tmp/www/DCIM ] || ln -sfn /mnt/DCIM /tmp/www/DCIM
 ( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
 
 # 12d. Update notice (boot.conf UPDATE_CHECK=1): asks GitHub once the clock is set (curl + jq of the flash image)
