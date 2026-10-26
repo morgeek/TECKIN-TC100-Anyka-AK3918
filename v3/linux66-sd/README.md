@@ -9,12 +9,11 @@ The card carries the 2.1.9 web UI and its CGIs. They assume the original firmwar
 | `rtsp-h26x` | `controlscripts/rtsp-h26x` | shim: start/stop/restart/status/health for tc100_rtsp, so Services and the "Apply" buttons of Flux vidéo work (never leave the vendor script in `controlscripts/`) |
 | `sdinfo-sd.sh` | `scripts/sdinfo-sd.sh` | writes `/tmp/sd-card` for the SD-card panel |
 
-One-time `sed` patches of the card's CGIs (card is mounted twice, at `/mnt` and `/mnt/sd`, so `df -k /mnt` reports
-`/mnt/sd`):
-- `www/cgi-bin/state.cgi`: `/mnt|/mnt/)` -> `/mnt|/mnt/|/mnt/sd)`
-- `www/cgi-bin/viewrecords.cgi`: `case "$_mp" in /mnt|/mnt/)` -> add `|/mnt/sd`
-- `www/cgi-bin/disk.cgi`: `$NF=="/mnt"` -> `($NF=="/mnt"||$NF=="/mnt/sd")`
-- `www/cgi-bin/action.cgi`, first line of the `sd_card_info)` handler: `[ -f /tmp/tc100-storage ] || sh /mnt/scripts/sdinfo-sd.sh >/dev/null 2>&1`
+The one-time `sed` patches of the card's CGIs listed here before (state.cgi, viewrecords.cgi, disk.cgi, the
+`sd_card_info` handler, `wifi_get_ssid&format=json`) are in git since 2026-10-26: the shared scripts take a 6.6 path
+when `/tmp/linux66` exists (created by `v3/autorun-linux66.sh`). `controlscripts/rtsp-h26x` runs `rtsp-h26x` of this
+folder on 6.6, and the flash image installs `setconf` as `bin/setconf`. See docs/linux-port/feature-audit-2026-10-26.md,
+"Web UI on 3.0", for the feature by feature state.
 
 Not available on this stack at first (they live in the vendor RTSP server / ISP daemon): live image tuning, privacy masks,
 black-and-white switch (`setconf`), motion detection inside the stream, local MP4 backup recording (REC_LOCAL),

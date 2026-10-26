@@ -10,6 +10,11 @@ CONFIGPATH="/mnt/config"
 
 status()
 {
+    # Linux 6.6 (3.0): httpfront on port 80 hands each connection to busybox httpd
+    if [ -f /tmp/linux66 ]; then
+        _pid="$(pidof httpfront 2>/dev/null)"; _pid="${_pid%% *}"
+        [ -n "$_pid" ] && { echo "PID: $_pid (httpfront)"; return 0; }
+    fi
     if [ -f "$PIDFILE" ]; then
         _pid="$(cat "$PIDFILE" 2>/dev/null)"
         if [ -n "$_pid" ] && kill -0 "$_pid" >/dev/null 2>&1; then
@@ -41,6 +46,11 @@ status()
 health()
 {
     if ! status >/dev/null; then
+        return 1
+    fi
+    # 3.0: the pages need a login, a local request would get 401: the port must listen
+    if [ -f /tmp/linux66 ]; then
+        port_listening 80 && { echo "HEALTHY"; return 0; }
         return 1
     fi
 

@@ -71,6 +71,22 @@ if [ "$cache_fresh" -eq 1 ]; then
   exit 0
 fi
 
+# Linux 6.6: tc100_rtsp owns the cache (no getimage). It makes a new picture at once when
+# /tmp/snapshot_request exists; wait ~1.5 s for it, then serve whatever picture is there.
+if [ -f /tmp/linux66 ]; then
+  read -r _old_ts 2>/dev/null < "$CACHE_META_FILE"
+  : > /tmp/snapshot_request 2>/dev/null
+  wait_count=0
+  while [ "$wait_count" -lt 15 ]; do
+    _new_ts=""; read -r _new_ts 2>/dev/null < "$CACHE_META_FILE"
+    [ -n "$_new_ts" ] && [ "$_new_ts" != "$_old_ts" ] && break
+    sleep 0.1
+    wait_count=$((wait_count + 1))
+  done
+  cat "$CACHE_FILE" 2>/dev/null
+  exit 0
+fi
+
 if mkdir "$CACHE_LOCK_DIR" 2>/dev/null; then
   _read_ts
   tmp_img="/tmp/currentpic.cache.$$.$now_ts.jpg"

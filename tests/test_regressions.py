@@ -505,10 +505,10 @@ class Regressions(unittest.TestCase):
     def test_removed_features_stay_removed(self):
         # Removed in 2.1.9 (unused with Frigate, or needing internet): the old
         # ffmpeg recorder, timelapse, motion mail and snapshots, ONVIF event
-        # push, the non-functional audio_stream.cgi.
+        # push. (audio_stream.cgi came back for 3.0: the microphone through ALSA.)
         for rel in ('controlscripts/recording', 'controlscripts/timelapse', 'controlscripts/motion-mail',
                     'controlscripts/motion-snapshot', 'scripts/timelapse.sh', 'scripts/sendPictureMail.sh',
-                    'scripts/onvif-notify.sh', 'www/cgi-bin/audio_stream.cgi', 'bin/ffmpeg-min-recorder'):
+                    'scripts/onvif-notify.sh', 'bin/ffmpeg-min-recorder'):
             self.assertFalse((ROOT / rel).exists(), rel)
         self.assertNotIn('onvif-notify', (ROOT / 'scripts/motion-event.sh').read_text())
         self.assertNotIn('sendPictureMail', (ROOT / 'scripts/detectionOn.sh').read_text())

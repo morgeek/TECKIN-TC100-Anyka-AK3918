@@ -15,6 +15,11 @@
 #
 # (Holding the button while powering the camera on is U-Boot's SD recovery,
 # unrelated to this script.)
+#
+# 3.0 (Linux 6.6, /tmp/linux66): gpio_keys is kept off (it froze the boot), so
+# there is no input device: the button (GPIO 10 = 522 on 6.6, active low) is
+# read from sysfs once a second, without a fork (read on a private FIFO times
+# out). Held 20 s + reboots too (no code zone on 3.0).
 
 DEV="${BUTTON_DEV:-/dev/input/event0}"
 REBOOT_SECONDS="${BUTTON_REBOOT_SECONDS:-8}"
@@ -25,6 +30,56 @@ RESCUE_SECONDS="${BUTTON_RESCUE_SECONDS:-3}"
 RESCUE="${BUTTON_RESCUE:-/mnt/scripts/wifi-rescue.sh}"
 
 _bw_log() { logger -t tc100-event -p user.err "button: $*" 2>/dev/null; }
+
+# _bw_action HELD_SECONDS: what the button does once released
+_bw_action()
+{
+    held=$1
+    if [ "$held" -ge "$RESTORE_SECONDS" ]; then
+        if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ] && [ -x "$FC" ]; then
+            _bw_log "held ${held}s: back to the built-in code, reboot"
+            sh "$FC" clear >/dev/null 2>&1
+        else
+            _bw_log "held ${held}s: reboot"
+        fi
+        sh /mnt/scripts/reboot-tracker.sh intent "reset button held ${held}s" >/dev/null 2>&1
+        sync; $REBOOT
+    elif [ "$held" -ge "$REBOOT_SECONDS" ]; then
+        _bw_log "held ${held}s: reboot"
+        sh /mnt/scripts/reboot-tracker.sh intent "reset button held ${held}s" >/dev/null 2>&1
+        sync; $REBOOT
+    elif [ "$held" -ge "$RESCUE_SECONDS" ]; then
+        _bw_log "held ${held}s: rescue access point"
+        sh "$RESCUE" start-ap "reset button" </dev/null >/dev/null 2>&1 &
+    fi
+}
+
+# Linux 6.6: poll the GPIO (value 0 = pressed)
+_bw_poll()
+{
+    _g="${BUTTON_GPIO_DIR:-/sys/class/gpio/gpio522}"
+    if [ ! -d "$_g" ]; then
+        echo "${BUTTON_GPIO:-522}" > /sys/class/gpio/export 2>/dev/null
+        echo in > "$_g/direction" 2>/dev/null
+    fi
+    [ -r "$_g/value" ] || { echo "no button GPIO ($_g)" >&2; exit 1; }
+    _fifo=/tmp/.button-tick.$$
+    mkfifo "$_fifo" 2>/dev/null
+    # Act on release only, and only once the pin has been seen released: a pin that reads 0 for ever
+    # (stuck button, pin not set up as expected) must never turn into a reboot loop.
+    _down=0; _armed=0
+    while :; do
+        _v=1; read -r _v < "$_g/value"
+        if [ "$_v" = 0 ]; then
+            [ "$_armed" = 1 ] && _down=$((_down + 1))
+        else
+            [ "$_down" -gt 0 ] && _bw_action "$_down"
+            _down=0; _armed=1
+        fi
+        read -t 1 _x <> "$_fifo" 2>/dev/null || [ -p "$_fifo" ] || sleep 1
+    done
+}
+[ -f "${BUTTON_L66_FLAG:-/tmp/linux66}" ] && [ ! -e "$DEV" ] && _bw_poll
 
 # _bw_event -> sets ev_sec ev_type ev_value; 1 at end of input
 _bw_event()
@@ -45,22 +100,5 @@ while _bw_event; do
         continue
     fi
     [ -n "$pressed" ] || continue
-    held=$(( ev_sec - pressed )); pressed=""
-    if [ "$held" -ge "$RESTORE_SECONDS" ]; then
-        if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ] && [ -x "$FC" ]; then
-            _bw_log "held ${held}s: back to the built-in code, reboot"
-            sh "$FC" clear >/dev/null 2>&1
-        else
-            _bw_log "held ${held}s: reboot"
-        fi
-        sh /mnt/scripts/reboot-tracker.sh intent "reset button held ${held}s" >/dev/null 2>&1
-        sync; $REBOOT
-    elif [ "$held" -ge "$REBOOT_SECONDS" ]; then
-        _bw_log "held ${held}s: reboot"
-        sh /mnt/scripts/reboot-tracker.sh intent "reset button held ${held}s" >/dev/null 2>&1
-        sync; $REBOOT
-    elif [ "$held" -ge "$RESCUE_SECONDS" ]; then
-        _bw_log "held ${held}s: rescue access point"
-        sh "$RESCUE" start-ap "reset button" </dev/null >/dev/null 2>&1 &
-    fi
+    _bw_action $(( ev_sec - pressed )); pressed=""
 done

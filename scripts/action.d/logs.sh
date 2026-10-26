@@ -4,6 +4,8 @@
 # audit log) and helpers; F_* are the request fields. Only the file of the
 # requested command is read, so a request parses this file, not all of them.
 
+  # the video server log: v4l2rtspserver (2.x) or tc100_rtsp (3.0, Linux 6.6)
+  _vlog=/tmp/log/v4l2rtspserver.log; [ -f /tmp/linux66 ] && _vlog=/tmp/logs/tc100_rtsp.log
   case "$F_cmd" in
     showlog)
       if wants_json_response; then
@@ -22,11 +24,11 @@
             ;;
 
           3)
-            echo "Content of v4l2rtspserver.log (tail -n ${LOG_VIDEO_TAIL_LINES})<br/>"
-            if [ -f /tmp/log/v4l2rtspserver.log ]; then
-              tail -n "$LOG_VIDEO_TAIL_LINES" /tmp/log/v4l2rtspserver.log
+            echo "Content of ${_vlog##*/} (tail -n ${LOG_VIDEO_TAIL_LINES})<br/>"
+            if [ -f $_vlog ]; then
+              tail -n "$LOG_VIDEO_TAIL_LINES" $_vlog
             else
-              echo "Log file not found: /tmp/log/v4l2rtspserver.log"
+              echo "Log file not found: $_vlog"
             fi
             ;;
 
@@ -52,8 +54,8 @@
             /bin/dmesg -c > /dev/null
             ;;
           3)
-            echo "Content of v4l2rtspserver.log cleared<br/>"
-            : > /tmp/log/v4l2rtspserver.log 2>/dev/null || true
+            echo "Content of ${_vlog##*/} cleared<br/>"
+            : > $_vlog 2>/dev/null || true
             ;;
         esac
         echo "</pre>"

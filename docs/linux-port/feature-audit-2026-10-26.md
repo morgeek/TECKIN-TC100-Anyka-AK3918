@@ -105,3 +105,34 @@ The squashfs is 3.2 MiB in a 3.7 MiB partition. Shipped but unused on 3.0 (xz si
 `contrib/openipc_sd_kit/` (Linux 4.4 kit, superseded by the CI artifacts), `thingino_port/`, `src/tc100_streamer`
 (identical to `bin/tc100_streamer`), `src/venctest`, `tests/venctrace`: bring-up material, candidates for an
 `_archive_*` folder (renamed, not deleted).
+
+## Web UI on 3.0 (2026-10-26, second pass, static: not yet run on the camera)
+
+Code shared with 2.x takes a 6.6 path when `/tmp/linux66` exists; 2.x behaviour is unchanged.
+
+| Feature | 3.0 behaviour now |
+|---|---|
+| RTSP shim, restarter | `controlscripts/rtsp-h26x` runs `v3/linux66-sd/rtsp-h26x`; `scripts/service-watchdog.sh` restarts `tc100_rtsp` (pid file `/var/run/v4l2rtspserver.pid`), started at boot by autorun step 8; memory-guard leaves services with their own watchdog alone |
+| IR-cut | `setconf -k e` pulses GPIO 593 (day) / 592 (night) 150 ms then low; `IRCUT_DAY_GPIO`, `IRCUT_NIGHT_GPIO`, `IRCUT_PULSE_MS` in boot.conf if the filter moves the wrong way; synced once at boot |
+| Auto day / night | the launcher starts `scripts/auto-night-daemon.sh`; thresholds = mean luminance 0-255 in `config/daynight.conf` (Settings, Day/night); started at boot unless switched to manual (daynight=3) |
+| Snapshots | `take_snapshot` (common_functions.sh) and `currentpic.cgi` ask tc100_rtsp for a new `/tmp/currentpic.cache.jpg` (`/tmp/snapshot_request`): Telegram, MQTT snapshot, motion, self-tests |
+| SD card panel | `sdinfo-sd.sh` from `action.d/storage.sh` and every minute from `web-guard.sh`; mount / eject / resume through `scripts/rec-storage.sh` (16 KiB RAM placeholder at `/mnt/sd` without a card) |
+| Speaker, push-to-talk | `scripts/speaker-play.sh`: `aplay -D plughw:0,0` (the codec plays stereo only), volume on "Headphone Playback Volume"; RTSP keeps running. The amplifier (GPIO 14) is driven by the codec driver from the device tree (`speak-gpios-en = <1>`, active high); only when the pin is free does the script drive it (`SPEAKER_AMP_ACTIVE`, default 0 = active low as on 2.x) |
+| Listen | `audio_stream.cgi` (WAV from `arecord`, 60 s); ALSA takes one capture reader and tc100_rtsp keeps the microphone open for its audio track, so it answers 503 ("listen in VLC / Frigate") while the RTSP audio is on |
+| Telegram, update check | musl curl and jq of the image; update-check uses `CURL_CA_BUNDLE`; run at boot when `UPDATE_CHECK=1` |
+| Wi-Fi rescue | hostapd (nl80211) + udhcpd on wlan0 itself (one interface on rtl8xxxu): the station stops while the access point is up (`WIFI_RESCUE_MANUAL_MIN`), then retries; saving Wi-Fi settings ends the access point; web page at http://10.42.0.1 |
+| Button | `button-watch.sh` polls GPIO 522 once a second (no fork), acts on release only and only after the pin was seen released (a stuck pin never reboots) |
+| ONVIF | snapshot URL on http port 80; main 1920x1080, sub-stream 640x360 |
+| Services page | `web-server` = httpfront (status, restart, `web-guard.sh` restarts it); `cpu-scaler` hidden (fixed resolution and frame rate) |
+| Settings persistence | `cfg-persist` stores the list of removed shipped defaults (`config/.cfg-deleted`) and removes them again after a restore; unchanged defaults are no longer stored; a failed save (too big, write error) shows "Settings not saved" in the top bar (`/tmp/cfg-persist.status`) |
+| Logs, self-tests | the video log is `/tmp/logs/tc100_rtsp.log`; RTSP checks use `nc`; snapshot checks use the tc100_rtsp picture |
+| Network-loss reboots | net-guard (default, every minute from web-guard) steps aside while network-monitor runs; neither acts while the rescue access point is up |
+
+Hidden on 3.0 (class `hide-l66`, the platform flag comes from the status line): RTSP server choice and two-way audio
+(one server, no backchannel), sharpness / mains frequency / exposure cap (not applied by tc100_rtsp), OSD colour,
+background, alpha and rotation (tc100_rtsp draws the clock text only), AWB thresholds (the daemon uses luminance), card
+formatting (format on a computer), cpu-scaler. Notes (`show-l66`) say that resolution, frame rate, audio codec and rate
+are fixed.
+
+Still duplicated: the system information CGIs (`sysusageinfo.cgi`, `health.cgi`, `devinfo.cgi` next to `state.cgi`) are
+used by different pages; merging them means changing the pages' data contracts, left for later.

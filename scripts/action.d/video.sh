@@ -67,7 +67,14 @@
       # Two forms post here: Settings → Day/night (the four thresholds) and
       # Settings → Image (on-screen text and orientation). Each part is only
       # written when its fields were sent.
-      if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then
+      if [ -n "${F_daynightlum}${F_nightdaylum}" ] && [ -f /tmp/linux66 ]; then
+        # 3.0: scripts/auto-night-daemon.sh compares the mean picture luminance (0-255), read while it runs
+        _ln=$(sanitize_int_range "${F_daynightlum}" 0 255 40)
+        _ld=$(sanitize_int_range "${F_nightdaylum}" 0 255 100)
+        [ "$_ld" -gt "$_ln" ] || _ld=$((_ln + 20))
+        [ "$_ld" -le 255 ] || _ld=255
+        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\n' "$_ln" "$_ld" > /mnt/config/daynight.conf
+      elif [ -n "${F_daynightlum}${F_nightdaylum}" ]; then
         daynightlum=$(sanitize_int_range "${F_daynightlum}" 0 20000 6000)
         daynightawb=$(sanitize_int_range "${F_daynightawb}" 0 500000 160000)
         nightdaylum=$(sanitize_int_range "${F_nightdaylum}" 0 20000 1500)
