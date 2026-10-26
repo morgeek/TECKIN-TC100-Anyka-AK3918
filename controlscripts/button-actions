@@ -14,6 +14,12 @@ status() {
 
 start() {
   if [ -n "$(status)" ]; then return 0; fi
+  # Linux 6.6 (3.0): no input device (gpio_keys is off), button-watch.sh polls GPIO 10 in sysfs
+  if [ -f /tmp/linux66 ] && [ ! -e /dev/input/event0 ]; then
+    /bin/sh /mnt/scripts/button-watch.sh </dev/null >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+    return 0
+  fi
   [ -r /dev/input/event0 ] || { echo "no button device" >&2; return 1; }
   # tc100-button (src/button, in the code zone from 2.1.9): one small process
   # instead of the shell loop and its dd | od pipeline; same rules.

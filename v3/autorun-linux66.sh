@@ -202,7 +202,7 @@ fi
 
 # 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be
 #      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
-#      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
+#      then every hour. The time zone comes from config/timezone.conf (Services/SystÃ¨me page).
 S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
 ntpd -p "$S" </dev/null >/dev/null 2>&1 &
 
@@ -222,6 +222,11 @@ done
 #      (sdinfo-sd.sh, also run once now).
 sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
 ( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
+
+# 12d. Update notice (boot.conf UPDATE_CHECK=1): asks GitHub once the clock is set (curl + jq of the flash image)
+case "$(sed -n 's/^UPDATE_CHECK="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)" in
+  1|true|yes|on) ( sleep 120; exec sh /mnt/scripts/update-check.sh ) </dev/null >/dev/null 2>&1 & ;;
+esac
 
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).

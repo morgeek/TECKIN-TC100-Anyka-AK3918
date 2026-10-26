@@ -416,6 +416,12 @@ do
       fi
       ;;
     wifi_disconnected|gateway_unreachable)
+      # The rescue access point (scripts/wifi-rescue.sh) is up: someone may be fixing the Wi-Fi through it, and
+      # on 3.0 it uses wlan0 itself. Neither bounce the interface nor reboot meanwhile.
+      if [ -f /tmp/wifi-rescue/hostapd.pid ] && kill -0 "$(cat /tmp/wifi-rescue/hostapd.pid 2>/dev/null)" 2>/dev/null; then
+        sleep "$PINGINTERVAL"
+        continue
+      fi
       recovery_reason="$current_problem"
       reconnect_count=$((reconnect_count + 1))
       record_recovery "$current_problem" "bounce_wifi"

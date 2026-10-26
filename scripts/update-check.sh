@@ -5,6 +5,8 @@ VERSION_FILE="/mnt/VERSION"
 CACHE_FILE="/tmp/update_status.json"
 CACHE_TTL=86400 # 24 hours
 CACERT="/mnt/config/ssl/cacert/cacert.pem"
+# 3.0 (Linux 6.6): the musl curl of the flash image gets its CA bundle from CURL_CA_BUNDLE
+[ -f "$CACERT" ] || CACERT="${CURL_CA_BUNDLE:-}"
 REPO="morgeek/TECKIN-TC100-Anyka-AK3918"
 GITHUB_API="https://api.github.com/repos/$REPO/releases/latest"
 
@@ -48,7 +50,7 @@ fi
 # We use a custom User-Agent as required by GitHub API.
 # We use --cacert for secure, verified HTTPS connectivity.
 _response=$( "$CURL" -s --connect-timeout 5 --max-time 15 -H "User-Agent: Elite-TC100-Updater" \
-             --cacert "$CACERT" \
+             ${CACERT:+--cacert "$CACERT"} \
              "$GITHUB_API" 2>/dev/null )
 
 if [ $? -ne 0 ] || [ -z "$_response" ]; then
