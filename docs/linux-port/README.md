@@ -25,7 +25,7 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker not tested on 6.6 |
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
-| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. **No RTSP sub-stream** (every path serves the main stream); RTSP over UDP and the audio track not yet checked from a client |
+| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. 640x360 sub-stream on `video1_unicast` / `ch1` / `sub` (2026-10-26, not yet run on the camera); RTSP over UDP and the audio track not yet checked from a client |
 | V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge, day / night, motion (Home Assistant entities to be confirmed). Gaps (no web login, Wi-Fi from the UI, IR-cut, 2.x pages): [feature audit](feature-audit-2026-10-26.md) |
 | SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
 | Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
@@ -181,7 +181,8 @@ Feature by feature status of the flash build, and the features implemented twice
 7. Hide the pages of features 3.0 does not have (push-to-talk, sound detection, motion zones, Telegram, updates,
    flash install, wifi-rescue, button); ONVIF: HTTP snapshot URL, main stream only.
 8. On the camera: RTSP over UDP, audio listening test in Frigate / VLC, MQTT entities in Home Assistant, speaker.
-9. RTSP sub-stream (second encoder channel), ISP colour cast (blue is low).
+9. On the camera: the sub-stream (second encoder in the 12 MiB pool), the recorder, sound level and zones (section
+   below); ISP colour cast (blue is low).
 10. Smaller flash image (~1.1 MiB of unused files), final SD package and install README, SD test-file cleanup,
     optional removal of the 2 MiB guard zones.
 11. Encoder: use `AK39_VI_G_PHYS` instead of a copy per frame; free H.265 on the hardware.

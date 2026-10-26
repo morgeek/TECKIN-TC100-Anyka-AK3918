@@ -9,7 +9,7 @@ The 3.0 flash build has known gaps, listed feature by feature in
 interface has no login on 6.6 (keep the camera on a trusted network), a Wi-Fi change made from the web page or the
 wizard is not kept after a restart (edit `/mnt/config/wpa_supplicant.conf` from a shell instead: `cfg-persist`
 saves it to flash, and it takes priority over a copy on the card), the IR-cut filter
-may not move, and there is no RTSP sub-stream.
+may not move, and the sub-stream and recorder of 3.0 are not yet checked on the camera.
 
 ## Lite RTSP server (2.1.9)
 
