@@ -1,6 +1,12 @@
 window.tc100I18nFr = {
  "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (lighttpd compresses and caches .js). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
  "strings": {
+  "Firmware 3.0 (Linux 6.6) running from the flash memory: upload": "Firmware 3.0 (Linux 6.6) en fonctionnement depuis la mémoire flash : envoyez",
+  "from the release page; the system, kernel and boot image are written to the flash, read back, and the camera restarts. Settings, Wi-Fi and the camera's own libraries are kept.": "depuis la page des versions ; le système, le noyau et l’image de démarrage sont écrits dans la flash, relus, puis la caméra redémarre. Les réglages, le Wi-Fi et les bibliothèques propres à la caméra sont conservés.",
+  "MP4 clips. H.264 plays in every browser; H.265 only where the browser decodes it (Safari, Edge): otherwise use Download and open the file in VLC.": "Clips MP4. Le H.264 se lit dans tous les navigateurs ; le H.265 seulement là où le navigateur le décode (Safari, Edge) : sinon, utilisez Télécharger et ouvrez le fichier dans VLC.",
+  "New password for root": "Nouveau mot de passe pour root",
+  "On motion (3.0)": "Sur mouvement (3.0)",
+  "Same password again": "Le même mot de passe à nouveau",
   "A card put in while the camera runs: \"Mount the card\". Format it on a computer (FAT32, or exFAT for cards over 32 GB).": "Carte insérée pendant que la caméra fonctionne : « Monter la carte ». Formatez-la sur un ordinateur (FAT32, ou exFAT pour les cartes de plus de 32 Go).",
   "Server: tc100_rtsp. Talking back through the stream is not available (use the Talk button).": "Serveur : tc100_rtsp. Parler à travers le flux n’est pas disponible (utilisez le bouton Parler).",
   "Settings not saved": "Réglages non enregistrés",

@@ -332,7 +332,7 @@
                         <p class="help mb-3">MP4 files on the SD card, copied from the video the camera already encodes (no re-encoding). Oldest files are deleted when the card is full.</p>
                         <div class="field"><input class="switch is-small" id="rec_local" name="rec_local" type="checkbox"><label for="rec_local">Record to the SD card</label></div>
                         <div class="columns is-multiline">
-                            <div class="column is-half"><label class="label is-small" for="rec_when">When</label><div class="select is-small is-fullwidth"><select name="rec_when" id="rec_when"><option value="offline">Only while Frigate does not receive the video</option><option value="always">All the time</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="rec_when">When</label><div class="select is-small is-fullwidth"><select name="rec_when" id="rec_when"><option value="offline">Only while Frigate does not receive the video</option><option value="always">All the time</option><option value="motion">On motion (3.0)</option></select></div></div>
                             <div class="column is-half"><label class="label is-small" for="rec_stream">Stream</label><div class="select is-small is-fullwidth"><select name="rec_stream" id="rec_stream"><option value="main">Main stream (best quality, ~4.5 % CPU while recording)</option><option value="sub">Secondary stream (under 1 % CPU)</option></select></div></div>
                             <div class="column is-half"><label class="label is-small" for="rec_segment_min">File length (minutes)</label><input class="input is-small" name="rec_segment_min" id="rec_segment_min" type="number" min="1" max="60" step="1"></div>
                             <div class="column is-half"><label class="label is-small" for="rec_reserve_mb">Keep free on the card (MB)</label><input class="input is-small" name="rec_reserve_mb" id="rec_reserve_mb" type="number" min="32" max="8192" step="1"></div>
@@ -894,7 +894,7 @@
                     if (!form || keepForm || form.dataset.loaded) return;
                     form.dataset.loaded = '1';
                     document.getElementById('rec_local').checked = d.rec_local === '1';
-                    document.getElementById('rec_when').value = d.rec_when === 'always' ? 'always' : 'offline';
+                    document.getElementById('rec_when').value = (d.rec_when === 'always' || d.rec_when === 'motion') ? d.rec_when : 'offline';
                     document.getElementById('rec_stream').value = d.rec_stream === 'sub' ? 'sub' : 'main';
                     document.getElementById('rec_segment_min').value = d.rec_segment_min || 5;
                     document.getElementById('rec_reserve_mb').value = d.rec_reserve_mb || 256;

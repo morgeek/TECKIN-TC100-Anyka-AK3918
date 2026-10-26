@@ -5,7 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [3.0.1-rc1] — 2026-10-26 (not yet run on a camera)
+
+### Added
+- **Built from git, installable by anyone**: CI makes `tc100-<version>-sd.zip` and `tc100-<version>-update.tar`
+  with free files only. On first start the stock (or 2.x) firmware runs the card's hook: it checks the camera,
+  saves the whole flash to the card, copies the camera's own vendor libraries, settings and Wi-Fi, and adds the
+  3.0 start commands to U-Boot (stock start kept as fallback). Trial mode from the card, then **one-click install
+  to flash** from the setup wizard or Settings; web updates write the flash; `restore-stock.sh` goes back.
+  New flash partition `vendor` (1 MiB) for the camera's libraries. Details: `docs/linux-port/install-3.0.md`.
+- **Web login** on 3.0 (busybox httpd, root + camera password); the 3.0 wizard sets the password.
+- **RTSP sub-stream** 640x360 (`video1_unicast`, `ch1`, `sub`), **recording** inside tc100_rtsp to fragmented MP4
+  with a JPEG thumbnail per file (no ffmpeg), sound level, motion zones and on/off.
+- Every page on 3.0: speaker and push-to-talk through ALSA, Telegram and update check (curl), Wi-Fi rescue access
+  point (hostapd), reset button polling, IR-cut pulse, auto day/night with luminance thresholds, ONVIF over HTTP,
+  SD panel, a single RTSP restarter, settings deletions kept by `cfg-persist` and a "Settings not saved" badge.
+  What the hardware cannot do is hidden on 3.0 with a note.
+
+### Changed
+- Wi-Fi changes from the web page and the wizard are written where the boot reads them and used at once.
+- One flash writer (`flashw`, now with `-m MD5` and `-b DIR`); `flash-code.sh` refuses the 6.6 layout.
+- LF line endings in every checkout (`.gitattributes`).
 
 ### Fixed
 - Automatic day / night no longer stays stuck in NIGHT: its own switch used the manual-override path; it now keeps
