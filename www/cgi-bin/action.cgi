@@ -281,8 +281,12 @@ PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
 PTT_PCM_PLAYBACK_BIN="/mnt/bin/ak_ao_ptt"
 PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
 
+# Linux 6.6 (3.0): ALSA playback through scripts/speaker-play.sh FILE VOLUME(0-100), no vendor binary
+PTT_SPEAKER_PLAY="/mnt/scripts/speaker-play.sh"
+ptt_l66() { [ -f /tmp/linux66 ] && [ -r "$PTT_SPEAKER_PLAY" ] && command -v aplay >/dev/null 2>&1; }
+
 ptt_backend_status() {
-  if [ -x "$PTT_PCM_PLAYBACK_BIN" ]; then
+  if [ -x "$PTT_PCM_PLAYBACK_BIN" ] || ptt_l66; then
     if wants_json_response; then
       json_body_ok "OK"
     else
@@ -313,7 +317,7 @@ ptt_volume_to_ak() {
 }
 
 resolve_audio_test_source() {
-  for candidate in /mnt/config/audio-test.wav /mnt/config/ptt-test.wav "$PTT_LAST_PCM_FILE"; do
+  for candidate in /mnt/config/audio-test.wav /mnt/config/ptt-test.wav "$PTT_LAST_PCM_FILE" /mnt/sounds/alert.pcm; do
     [ -r "$candidate" ] || continue
     echo "$candidate"
     return 0
@@ -346,6 +350,18 @@ play_audio_test_source() {
     return 1
   fi
 
+  if ptt_l66; then
+    case "$audio_source" in
+      *.pcm|*.wav)
+        ( sh "$PTT_SPEAKER_PLAY" "$audio_source" "$audio_volume" ) </dev/null >/dev/null 2>&1 &
+        if wants_json_response; then
+          json_body_ok "Playing $audio_source at volume $audio_volume"
+        else
+          echo "Play $audio_source at volume $audio_volume"
+        fi
+        return 0 ;;
+    esac
+  fi
   case "$audio_source" in
     *.pcm)
       if [ ! -x "$PTT_PCM_PLAYBACK_BIN" ]; then

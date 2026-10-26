@@ -25,6 +25,8 @@ mkdir -p "$STATE" 2>/dev/null
 
 _wg_ports()
 {
+    # Linux 6.6 (3.0): httpfront on port 80 only (no lighttpd, no HTTPS)
+    [ -f /tmp/linux66 ] && { echo 80; return; }
     WEB_MODE=full; ULTRALITE_HTTP_PORT=80
     [ -f /mnt/config/boot.conf ] && . /mnt/config/boot.conf 2>/dev/null
     case "$WEB_MODE" in
@@ -97,9 +99,13 @@ case "${0##*/}" in
                      wg_once
                      # Network loss with the rest of the system running (net-guard.sh).
                      sh "${WG_NETGUARD:-/mnt/scripts/net-guard.sh}" once </dev/null >/dev/null 2>&1
-                     # SD card put in or taken out (flash mode): sd-card.sh.
-                     sh "${WG_SDCARD:-/mnt/scripts/sd-card.sh}" tick </dev/null >/dev/null 2>&1
-                     if [ $((_i % 10)) -eq 0 ]; then
+                     # SD card put in or taken out (flash mode): sd-card.sh; 3.0: the SD panel (sdinfo-sd.sh)
+                     if [ -f /tmp/linux66 ]; then
+                         sh "${WG_SDINFO:-/mnt/v3/linux66-sd/sdinfo-sd.sh}" </dev/null >/dev/null 2>&1
+                     else
+                         sh "${WG_SDCARD:-/mnt/scripts/sd-card.sh}" tick </dev/null >/dev/null 2>&1
+                     fi
+                     if [ $((_i % 10)) -eq 0 ] && [ ! -f /tmp/linux66 ]; then
                          _last=$(sed -n 's/^test_ts=//p' /tmp/sd-health 2>/dev/null); _now=$(date +%s)
                          _up=$(cut -d. -f1 /proc/uptime)
                          _t=""; [ "$_up" -ge 300 ] && { [ -z "$_last" ] || [ $((_now - _last)) -ge 86400 ] || [ "$_last" -gt "$_now" ]; } && _t=--test

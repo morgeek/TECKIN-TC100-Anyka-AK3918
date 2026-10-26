@@ -67,9 +67,13 @@ _ng_limit()
     echo "$_l"
 }
 
+# network-monitor (Services, opt-in) does the same job with Wi-Fi bounces first: one network-loss rebooter at a time.
+_ng_netmon() { _p=$(cat "${NG_NETMON_PID:-/var/run/network-monitor.pid}" 2>/dev/null); [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null; }
+
 ng_once()
 {
     case "$(_ng_kv NET_GUARD)" in 0|no|off|false) rm -f "$STATE/down_since"; return 0 ;; esac
+    if _ng_netmon; then rm -f "$STATE/down_since"; return 0; fi
     _now=$(_ng_up)
     if _ng_ok; then
         if [ -f "$STATE/down_since" ]; then

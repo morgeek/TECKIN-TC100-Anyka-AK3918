@@ -127,6 +127,9 @@ check_services()
 
         # Skip services that are not supposed to be running (no PID file)
         [ -f "/var/run/$svc.pid" ] || continue
+        # One restarter per service: those started with their own scripts/service-watchdog.sh are left to it
+        _wp="/var/run/$svc-watch.pid"; [ "$svc" = rtsp-h26x ] && _wp=/var/run/v4l2rtspserver-watch.pid
+        checkpid "$_wp" && continue
 
         if "$script" health >/dev/null 2>&1; then
             # Healthy: reset failure count

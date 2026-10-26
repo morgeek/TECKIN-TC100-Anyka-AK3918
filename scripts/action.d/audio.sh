@@ -24,7 +24,12 @@
         exit 0
       fi
 
-      schedule_rtsp_restart
+      if [ -f /tmp/linux66 ]; then
+        # 3.0: the stream audio is fixed (G.711 A-law, 8 kHz); the microphone level applies at once
+        amixer -q -c 0 cset name='LineIn Capture Volume' "$volume" >/dev/null 2>&1
+      else
+        schedule_rtsp_restart
+      fi
       if wants_json_response; then
         json_body_ok "Audio settings updated."
       else
