@@ -2,11 +2,22 @@
  *
  * Capture (V4L2, 1080p NV12) -> vendor H.264 encoder control library on the free libakuio + ak39_venc driver
  * (see src/venctest) -> RTP (RFC 6184, packetization-mode 1, FU-A) over RTSP: TCP interleaved or UDP unicast.
- * One process, one thread: a select() loop serves the V4L2 device, the listening socket and the clients.
+ * The select() loop of the main thread serves the V4L2 device, the listening socket, the clients and the microphone;
+ * the only other thread is the recorder's card writer (rec.c: an SD card can stall a write for seconds).
  * The GOP being encoded is cached so that a new client starts immediately on the last IDR frame.
+ *
+ * Two streams: main 1920x1080 and a 640x360 sub-stream (second encoder channel, fed from the scaled picture that
+ * also makes the web UI's stream.jpg). Paths with "video1" in them, or starting with /ch1 or /sub, serve the
+ * sub-stream; every other path the main stream (also the sub paths when the sub-stream is off or did not open).
+ * Also here: the web UI pictures (hardware JPEG), motion detection with ignored zones (/tmp/rec_control), the
+ * microphone level for the sound detection (/var/run/sound_level) and the local recording (rec.c, Matroska files
+ * on the SD card). Settings are read from /mnt/config while running (boot.conf, rtspserver.conf, isp_tune.conf,
+ * sound_detection.conf, motion_zones.conf, frigate_live.conf).
  *
  * usage: tc100_rtsp [-c h264|h265] [-p PORT] [-b KBPS] [-f FPS] [-q QMIN] [-Q QMAX] [-d VIDEODEV] [-L LIBDIR] [-A libakuio.so]
  *            [-u USER] [-w PASSWORD_FILE]   (Digest or Basic when the file holds a password)
+ *            [-a 0|1 audio track] [-s 0|1 sub-stream] [-C h264|h265 sub codec] [-B KBPS sub bit rate]
+ *            [-R RECORD_DIR (/mnt/DCIM)] [-S SOUND_LEVEL_FILE (/var/run/sound_level)]
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -26,11 +37,14 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "../libakuio/ak39_venc.h"
 #include "jpeg_hw.h"
+#include "rec.h"
+#include "util.h"
 
 #define W 1920
 #define H 1080
@@ -39,9 +53,16 @@
 #define MAXCLI 4
 #define RTP_PAYLOAD 1400
 #define CACHE_MAX (1536 * 1024)
+#define CACHE_MAX_SUB (384 * 1024)
 #define CACHE_FRAMES 128
 #define QMAX (768 * 1024)	/* per-client output queue limit */
+#define CONF "/mnt/config/"
 
+/* struct encode_param of the vendor SDK (48 bytes). size_class is the "use channel" (0 main, 1 sub: 512 / 256 KiB
+ * stream cache) and group the encoder group (one handle per group: "group %d's handle has already opened"). The vendor
+ * v4l2rtspserver (AnykaCameraManager::getVideoEncodeParams, disassembled) opens its main stream with 0 / 1 and its
+ * sub-stream with 1 / 2; tc100_rtsp keeps group 0 for the main stream (what ran on 6.6 since the start) and uses the
+ * vendor's 1 / 2 for the sub-stream. RTSP_SUB_CHN / RTSP_SUB_GROUP (environment, e.g. config/rtsp.env) override. */
 struct venc_param {
 	unsigned int width, height, qpmin, qpmax, fps, gop, kbps, profile, size_class, group, rc_vbr, codec;
 };
@@ -53,7 +74,8 @@ struct video_stream {
 	unsigned int rest[10];
 };
 
-#define LOG(...) do { char _b[300]; int _n = snprintf(_b, sizeof _b, __VA_ARGS__); if (_n > 0) (void)!write(2, _b, _n); } while (0)
+#define LOG(...) do { char _b[300]; int _n = snprintf(_b, sizeof _b, __VA_ARGS__); \
+	_n = _n > (int)sizeof _b - 1 ? (int)sizeof _b - 1 : _n; if (_n > 0) (void)!write(2, _b, _n); } while (0)
 
 static void *(*p_open)(const struct venc_param *);
 static int (*p_send)(void *, unsigned char *, unsigned int, struct video_stream *);
@@ -97,8 +119,21 @@ static uint32_t jpeg_run(uint32_t y, uint32_t uv, int w, int h, int q)
 
 	build_tables(jbuf + JSTREAM, q);
 	ctrl_words(c, w, h, y, uv, jpaddr + JSTREAM, jpaddr, JSTREAM);
-	{ FILE *df = w < 1000 ? fopen("/tmp/c2", "r") : NULL; unsigned v;	/* debug: control word 2 override */
-	  if (df) { if (fscanf(df, "%x", &v) == 1) c[2] = v; fclose(df); } }
+	{ FILE *df = w < 1000 ? fopen("/tmp/c2", "r") : NULL; char hb[16];	/* debug: control word 2 override (hex) */
+	  if (df) {	/* no fscanf: glibc headers turn it into __isoc23_fscanf, which uClibc does not have */
+		if (fgets(hb, sizeof hb, df)) {
+			uint32_t v = 0; int k = 0; const char *p = hb + (hb[0] == '0' && (hb[1] | 32) == 'x' ? 2 : 0);
+
+			for (; *p; p++, k++) {
+				int d = *p >= '0' && *p <= '9' ? *p - '0' : (*p | 32) >= 'a' && (*p | 32) <= 'f' ? (*p | 32) - 'a' + 10 : -1;
+
+				if (d < 0) break;
+				v = v << 4 | (uint32_t)d;
+			}
+			if (k) c[2] = v;
+		}
+		fclose(df);
+	  } }
 	if (!jpeg_inited) { hw_init(); jpeg_inited = 1; }
 	hw_encode(c);
 	p_wait(0);
@@ -182,15 +217,13 @@ static unsigned char ylut[256], ulut[256], vlut[256];
 static int p_ytune, p_hue, p_tune, p_bri, p_con, p_sat, p_mask[4][4], p_mcol = 16, p_osd, p_osdx = 20, p_osdy = 24, p_osdsz = 32;
 static int p_awb = 1, p_du, p_dv;
 static char p_fmt[64] = "%H:%M:%S %d.%m.%Y";
-static time_t p_mt[3];
-static double p_chk;
 
 static int clampi(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
 static int cfg_get(const char *file, const char *sec, const char *key, char *out, int n)
 {
 	FILE *f = fopen(file, "r");
-	char ln[200], cur[16] = "";
+	char ln[512], cur[16] = "";
 	int kl = (int)strlen(key), found = 0;
 
 	if (!f) return 0;
@@ -198,7 +231,7 @@ static int cfg_get(const char *file, const char *sec, const char *key, char *out
 		char *e = ln + strlen(ln);
 
 		while (e > ln && (e[-1] == '\n' || e[-1] == '\r')) *--e = 0;
-		if (ln[0] == '[') { snprintf(cur, sizeof cur, "%s", ln + 1); { char *r = strchr(cur, ']'); if (r) *r = 0; } continue; }
+		if (ln[0] == '[') { snprintf(cur, sizeof cur, "%.15s", ln + 1); { char *r = strchr(cur, ']'); if (r) *r = 0; } continue; }
 		if (strcmp(cur, sec)) continue;
 		if (!strncmp(ln, key, kl) && ln[kl] == '=') {
 			char *v = ln + kl + 1;
@@ -224,19 +257,16 @@ static void post_luts(void)
 	}
 }
 
-static void post_reload(double tn)
+static int truthy(const char *v) { return v[0] == '1' || !strcmp(v, "true") || !strcmp(v, "yes") || !strcmp(v, "on") || !strcmp(v, "enabled"); }
+
+/* the picture settings (called by cfg_reload when boot.conf, isp_tune.conf or rtspserver.conf changed) */
+static void post_apply(void)
 {
-	static const char *fn[3] = { "/mnt/config/boot.conf", "/mnt/config/isp_tune.conf", "/mnt/config/rtspserver.conf" };
-	struct stat sb;
-	int i, ch = 0;
+	static const char *fn[3] = { CONF "boot.conf", CONF "isp_tune.conf", CONF "rtspserver.conf" };
+	int i;
 	char v[80];
 
-	if (tn - p_chk < 2.0) return;
-	p_chk = tn;
-	for (i = 0; i < 3; i++) { time_t m = stat(fn[i], &sb) ? 0 : sb.st_mtime; if (m != p_mt[i]) { p_mt[i] = m; ch = 1; } }
-	{ int a = access("/mnt/config/awb.off", F_OK) ? 1 : 0; if (a != p_awb) { p_awb = a; if (!a) p_du = p_dv = 0; ch = 1; } }
-	if (!ch) return;
-	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && (v[0] == '1' || !strcmp(v, "true") || !strcmp(v, "yes") || !strcmp(v, "on"));
+	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && truthy(v);
 	p_bri = p_con = p_sat = p_hue = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
 	if (p_tune) {
 		if (cfg_get(fn[1], "", "BRIGHTNESS", v, sizeof v)) p_bri = atoi_(v);
@@ -252,7 +282,7 @@ static void post_reload(double tn)
 		if (cfg_get(fn[1], "", "MASK_COLOR", v, sizeof v)) p_mcol = !strcmp(v, "white") ? 235 : !strcmp(v, "gray") ? 128 : 16;
 	}
 	p_osd = cfg_get(fn[2], "", "osdenabled", v, sizeof v) && v[0] == '1';
-	if (cfg_get(fn[2], "", "osdtext", v, sizeof v) && v[0]) snprintf(p_fmt, sizeof p_fmt, "%s", v);
+	if (cfg_get(fn[2], "", "osdtext", v, sizeof v) && v[0]) snprintf(p_fmt, sizeof p_fmt, "%.63s", v);
 	if (cfg_get(fn[2], "0", "osdx", v, sizeof v)) p_osdx = atoi_(v);
 	if (cfg_get(fn[2], "0", "osdy", v, sizeof v)) p_osdy = atoi_(v);
 	if (cfg_get(fn[2], "0", "osdfontsize", v, sizeof v)) p_osdsz = atoi_(v);
@@ -283,7 +313,8 @@ static void post_awb_sample(const unsigned char *uv)
 	{
 		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, ou = p_du, ov = p_dv;
 
-		if (tu > 85) tu = 85; if (tu < -85) tu = -85; if (tv > 85) tv = 85; if (tv < -85) tv = -85;
+		tu = tu > 85 ? 85 : tu < -85 ? -85 : tu;
+		tv = tv > 85 ? 85 : tv < -85 ? -85 : tv;
 		p_du += (tu - p_du + (tu > p_du ? 2 : -2)) / 4; p_dv += (tv - p_dv + (tv > p_dv ? 2 : -2)) / 4;
 		if (p_du != ou || p_dv != ov) post_luts();
 	}
@@ -314,7 +345,7 @@ static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2,
 	int x, yy;
 
 	x1 &= ~1; y1 &= ~1; x2 &= ~1; y2 &= ~1;
-	if (x1 < 0) x1 = 0; if (y1 < 0) y1 = 0; if (x2 > w) x2 = w; if (y2 > h) y2 = h;
+	x1 = x1 < 0 ? 0 : x1; y1 = y1 < 0 ? 0 : y1; x2 = x2 > w ? w : x2; y2 = y2 > h ? h : y2;
 	for (yy = y1; yy < y2; yy++) memset(y + yy * w + x1, col, x2 > x1 ? x2 - x1 : 0);
 	for (yy = y1 / 2; yy < y2 / 2; yy++) { unsigned char *r = y + w * h + yy * w; for (x = x1; x < x2; x += 2) { r[x] = 128; r[x + 1] = 128; } }
 }
@@ -376,15 +407,29 @@ static int num(const char *s)
 	return v;
 }
 
-/* ---- H.264 bit stream bookkeeping ---- */
-static unsigned char sps[128], pps[64], vps[64];
-static int vps_len;
-static int hevc;		/* -c h265: RFC 7798 packetization, VPS/SPS/PPS */
-static char sprop_v[100];
-#define NT(b) (hevc ? ((b) >> 1) & 63 : (b) & 31)
-#define HAVE_PS (sps_len && pps_len && (!hevc || vps_len))
-static int sps_len, pps_len;
-static char sprop[400], plid[8];
+/* ---- the two streams: encoder, parameter sets, GOP cache ---- */
+struct cframe { unsigned char *d; int len; uint32_t ts; };
+struct strm {
+	const char *name;
+	int hevc;			/* RFC 7798 packetization, VPS/SPS/PPS */
+	int w, h;
+	int on;				/* encoder open and usable */
+	int active;			/* frames are being encoded */
+	int fails;			/* encoder calls that failed in a row */
+	void *enc;
+	struct venc_param pa;
+	unsigned long nsent;		/* frames sent to the encoder since it was opened */
+	unsigned char sps[128], pps[64], vps[64];
+	int sps_len, pps_len, vps_len;
+	char sprop[448], plid[8];
+	struct cframe cache[CACHE_FRAMES];	/* the last IDR and the frames after it */
+	int ncache, cache_ok, cache_bytes, cache_max;
+	unsigned long nfr, nbytes;
+	uint32_t ssrc;
+};
+static struct strm S[2];
+#define NT(s, b) ((s)->hevc ? ((b) >> 1) & 63 : (b) & 31)
+#define HAVE_PS(s) ((s)->sps_len && (s)->pps_len && (!(s)->hevc || (s)->vps_len))
 
 static const char b64t[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -434,61 +479,56 @@ static int next_nal(const unsigned char *d, int n, int from, int *len)
 	return s;
 }
 
-static void learn_params(const unsigned char *d, int n)
+static void learn_params(struct strm *st, const unsigned char *d, int n)
 {
 	int pos = 0, l, s;
 
 	while ((s = next_nal(d, n, pos, &l)) >= 0) {
-		int t = NT(d[s]);
+		int t = NT(st, d[s]);
 
-		if (hevc) {
-			if (t == 32 && l < (int)sizeof vps) { memcpy(vps, d + s, l); vps_len = l; }
-			if (t == 33 && l < (int)sizeof sps) { memcpy(sps, d + s, l); sps_len = l; }
-			if (t == 34 && l < (int)sizeof pps) { memcpy(pps, d + s, l); pps_len = l; }
+		if (st->hevc) {
+			if (t == 32 && l < (int)sizeof st->vps) { memcpy(st->vps, d + s, l); st->vps_len = l; }
+			if (t == 33 && l < (int)sizeof st->sps) { memcpy(st->sps, d + s, l); st->sps_len = l; }
+			if (t == 34 && l < (int)sizeof st->pps) { memcpy(st->pps, d + s, l); st->pps_len = l; }
 		} else {
-			if (t == 7 && l < (int)sizeof sps) { memcpy(sps, d + s, l); sps_len = l; }
-			if (t == 8 && l < (int)sizeof pps) { memcpy(pps, d + s, l); pps_len = l; }
+			if (t == 7 && l < (int)sizeof st->sps) { memcpy(st->sps, d + s, l); st->sps_len = l; }
+			if (t == 8 && l < (int)sizeof st->pps) { memcpy(st->pps, d + s, l); st->pps_len = l; }
 		}
 		pos = s + l;
 	}
-	if (!HAVE_PS) return;
+	if (!HAVE_PS(st)) return;
 	{
-		char a[200], c[100];
+		char a[200], c[100], v[100];
 
-		b64(a, sps, sps_len);
-		b64(c, pps, pps_len);
-		if (hevc) {
-			b64(sprop_v, vps, vps_len);
-			snprintf(sprop, sizeof sprop, "sprop-vps=%s;sprop-sps=%s;sprop-pps=%s", sprop_v, a, c);
-		} else if (sps_len > 3) {
-			snprintf(sprop, sizeof sprop, "%s,%s", a, c);
-			snprintf(plid, sizeof plid, "%02x%02x%02x", sps[1], sps[2], sps[3]);
+		b64(a, st->sps, st->sps_len);
+		b64(c, st->pps, st->pps_len);
+		if (st->hevc) {
+			b64(v, st->vps, st->vps_len);
+			snprintf(st->sprop, sizeof st->sprop, "sprop-vps=%.99s;sprop-sps=%.199s;sprop-pps=%.99s", v, a, c);
+		} else if (st->sps_len > 3) {
+			snprintf(st->sprop, sizeof st->sprop, "%s,%s", a, c);
+			snprintf(st->plid, sizeof st->plid, "%02x%02x%02x", st->sps[1], st->sps[2], st->sps[3]);
 		}
 	}
 }
 
 /* ---- GOP cache: the last IDR and the frames after it ---- */
-struct cframe { unsigned char *d; int len; uint32_t ts; };
-static struct cframe cache[CACHE_FRAMES];
-static int ncache, cache_ok;
-static int cache_bytes;
-
-static void cache_reset(void)
+static void cache_reset(struct strm *s)
 {
-	for (int i = 0; i < ncache; i++) free(cache[i].d);
-	ncache = 0; cache_bytes = 0; cache_ok = 1;
+	for (int i = 0; i < s->ncache; i++) free(s->cache[i].d);
+	s->ncache = 0; s->cache_bytes = 0; s->cache_ok = 1;
 }
 
-static void cache_add(const unsigned char *d, int len, uint32_t ts, int idr)
+static void cache_add(struct strm *s, const unsigned char *d, int len, uint32_t ts, int idr)
 {
-	if (idr) cache_reset();
-	if (!cache_ok) return;
-	if (ncache >= CACHE_FRAMES || cache_bytes + len > CACHE_MAX) { cache_ok = 0; return; }
-	cache[ncache].d = malloc(len);
-	if (!cache[ncache].d) { cache_ok = 0; return; }
-	memcpy(cache[ncache].d, d, len);
-	cache[ncache].len = len; cache[ncache].ts = ts;
-	ncache++; cache_bytes += len;
+	if (idr) cache_reset(s);
+	if (!s->cache_ok) return;
+	if (s->ncache >= CACHE_FRAMES || s->cache_bytes + len > s->cache_max) { s->cache_ok = 0; return; }
+	s->cache[s->ncache].d = malloc(len);
+	if (!s->cache[s->ncache].d) { s->cache_ok = 0; return; }
+	memcpy(s->cache[s->ncache].d, d, len);
+	s->cache[s->ncache].len = len; s->cache[s->ncache].ts = ts;
+	s->ncache++; s->cache_bytes += len;
 }
 
 
@@ -643,6 +683,8 @@ static int auth_ok(const char *req, const char *method, const char *nonce)
 struct cli {
 	int fd;
 	int playing, wait_idr;
+	int si, described;		/* stream (0 main, 1 sub), chosen by DESCRIBE (or SETUP without it) */
+	uint32_t peer;			/* client IPv4 address, network order */
 	int tcp;			/* interleaved over the RTSP connection */
 	int ch;				/* RTP channel when interleaved */
 	struct sockaddr_in udp;		/* client RTP address */
@@ -733,14 +775,73 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 	return sendto(udpfd, pk + 4, 12 + n, 0, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? -1 : 0;
 }
 
-/* ---- audio: microphone (ALSA, via arecord) -> G.711 A-law -> RTP PT 8, 8 kHz mono, 20 ms per packet ---- */
+/* ---- audio: microphone (ALSA, via arecord) -> G.711 A-law -> RTP PT 8, 8 kHz mono, 20 ms per packet ----
+ * arecord runs only while it is needed: an audio client plays, or the sound detection is on (level meter below). */
 static int audio_on;
-static FILE *aud_f;
-static int aud_fd = -1;
+static pid_t aud_pid = -1, aud_dead = -1;	/* arecord, and the one stopped but not yet reaped */
+static time_t aud_dead_t, aud_unneeded;
+static int aud_fd = -1, aud_odd = -1, aud_tx;
 static time_t aud_retry;
 static uint32_t aud_ts = 0x1234;
 static unsigned char aud_buf[160 * 2];
 static int aud_n;
+
+/* ---- sound level for the sound detection (the 2.x libtc100fix meter, same file format) ----
+ * When config/sound_detection.conf has ENABLE=1, the level file (-S, default /var/run/sound_level) is rewritten every
+ * 0.25 s: "<epoch> <rms_dbfs> <peak_dbfs> <events> <last_event_epoch> <last_event_dbfs>", RMS and peak of the last
+ * 0.25 s around the mean (no DC offset). An event is a second whose RMS reaches the threshold (dBFS, read every 10 s
+ * from <file>.threshold, written by controlscripts/sound-detection; default -30): the daemon may poll slowly and still
+ * count every loud second (MIN_LOUD_SECONDS). */
+static const char *snd_file = "/var/run/sound_level";
+static int snd_on, snd_thr = -30, snd_last_db = -96;
+static struct lvl snd_w, snd_s;
+static unsigned long snd_events;
+static long snd_last_ev;
+static time_t snd_thr_read;
+
+static void snd_window(void)
+{
+	char line[96], tf[128];
+	time_t now = time(NULL);
+	int n;
+
+	lvl_merge(&snd_s, &snd_w);
+	if (snd_s.n >= 8000) {			/* one second */
+		int db = lvl_rms_db(&snd_s);
+
+		if (now - snd_thr_read >= 10) {
+			FILE *f;
+
+			snprintf(tf, sizeof tf, "%s.threshold", snd_file);
+			if ((f = fopen(tf, "r"))) {
+				char b[16];
+
+				if (fgets(b, sizeof b, f)) { int t = atoi_(b); if (t <= 0 && t >= -90) snd_thr = t; }
+				fclose(f);
+			}
+			snd_thr_read = now;
+		}
+		if (db >= snd_thr) { snd_events++; snd_last_ev = (long)now; snd_last_db = db; }
+		lvl_reset(&snd_s);
+	}
+	n = snprintf(line, sizeof line, "%ld %d %d %lu %ld %d\n", (long)now, lvl_rms_db(&snd_w), lvl_peak_db(&snd_w),
+		     snd_events, snd_last_ev, snd_last_db);
+	wfile(snd_file, line, n);
+	lvl_reset(&snd_w);
+}
+
+static void snd_reload(void)
+{
+	char v[16];
+	int on = cfg_get(CONF "sound_detection.conf", "", "ENABLE", v, sizeof v) && truthy(v);
+
+	if (on != snd_on) {
+		LOG("sound level: %s (%s)\n", on ? "on" : "off", snd_file);
+		lvl_reset(&snd_w); lvl_reset(&snd_s);
+		snd_thr_read = 0;
+	}
+	snd_on = on;
+}
 
 static unsigned char alaw(int s)
 {
@@ -754,14 +855,55 @@ static unsigned char alaw(int s)
 	return (((e << 4) | m) ^ mask) & 0xff;
 }
 
+/* start arecord on a pipe (vfork + exec, no shell; the child closes our sockets and devices) */
 static void aud_open(void)
 {
+	int p[2];
+	pid_t pid;
+
 	aud_retry = time(NULL) + 5;
-	aud_f = popen("exec arecord -q -D hw:0,0 -f S16_LE -r 8000 -c 1 -t raw 2>/dev/null", "r");
-	if (!aud_f) { LOG("audio: arecord failed\n"); return; }
-	aud_fd = fileno(aud_f);
+	if (pipe(p)) { LOG("audio: pipe: %s\n", strerror(errno)); return; }
+	pid = vfork();
+	if (pid == 0) {
+		int i = open("/dev/null", O_WRONLY);
+
+		dup2(p[1], 1);
+		if (i >= 0) dup2(i, 2);
+		for (i = 3; i < 256; i++) close(i);
+		execlp("arecord", "arecord", "-q", "-D", "hw:0,0", "-f", "S16_LE", "-r", "8000", "-c", "1", "-t", "raw", (char *)NULL);
+		_exit(127);
+	}
+	close(p[1]);
+	if (pid < 0) { close(p[0]); LOG("audio: arecord failed: %s\n", strerror(errno)); return; }
+	aud_pid = pid; aud_fd = p[0];
 	fcntl(aud_fd, F_SETFL, fcntl(aud_fd, F_GETFL) | O_NONBLOCK);
-	aud_n = 0;
+	aud_n = 0; aud_odd = -1;
+	lvl_reset(&snd_w); lvl_reset(&snd_s);
+}
+
+/* stop arecord without waiting for it (reaped later by aud_reap) */
+static void aud_close(void)
+{
+	if (aud_fd >= 0) close(aud_fd);
+	aud_fd = -1;
+	if (aud_pid > 0) {
+		kill(aud_pid, SIGTERM);
+		if (aud_dead > 0) waitpid(aud_dead, NULL, WNOHANG);
+		aud_dead = aud_pid; aud_dead_t = time(NULL);
+	}
+	aud_pid = -1;
+}
+
+static void aud_reap(void)
+{
+	if (aud_dead > 0) {
+		if (waitpid(aud_dead, NULL, WNOHANG) != 0) aud_dead = -1;
+		else if (time(NULL) - aud_dead_t > 3) kill(aud_dead, SIGKILL);
+	}
+	if (aud_pid > 0 && waitpid(aud_pid, NULL, WNOHANG) == aud_pid) {	/* arecord died by itself */
+		aud_pid = -1;
+		if (aud_fd >= 0) { close(aud_fd); aud_fd = -1; }
+	}
 }
 
 static void aud_send(const unsigned char *pl, int n)
@@ -774,7 +916,7 @@ static void aud_send(const unsigned char *pl, int n)
 		pk[4] = 0x80; pk[5] = 8;
 		pk[6] = c->a_seq >> 8; pk[7] = c->a_seq & 255; c->a_seq++;
 		pk[8] = aud_ts >> 24; pk[9] = aud_ts >> 16; pk[10] = aud_ts >> 8; pk[11] = aud_ts;
-		pk[12] = (SSRC + 1) >> 24; pk[13] = (SSRC + 1) >> 16; pk[14] = (SSRC + 1) >> 8; pk[15] = (SSRC + 1);
+		pk[12] = (SSRC + 1) >> 24; pk[13] = ((SSRC + 1) >> 16) & 255; pk[14] = ((SSRC + 1) >> 8) & 255; pk[15] = (SSRC + 1) & 255;
 		memcpy(pk + 16, pl, n);
 		if (c->tcp) {
 			if (qfree(c) < 4096) continue;	/* congested: audio is dropped before video is */
@@ -793,34 +935,39 @@ static void aud_pump(void)
 	int r;
 
 	while ((r = read(aud_fd, raw, sizeof raw)) > 0) {
-		static int odd = -1;
-
 		for (int i = 0; i < r; i++) {
-			if (odd < 0) { odd = raw[i]; continue; }
-			aud_buf[aud_n++] = alaw((int16_t)(odd | (raw[i] << 8)));
-			odd = -1;
-			if (aud_n == 160) { aud_send(aud_buf, 160); aud_n = 0; }
+			int s;
+
+			if (aud_odd < 0) { aud_odd = raw[i]; continue; }
+			s = (int16_t)(aud_odd | (raw[i] << 8));
+			aud_odd = -1;
+			if (snd_on) { lvl_add(&snd_w, s); if (snd_w.n >= 2000) snd_window(); }
+			if (aud_tx) {
+				aud_buf[aud_n++] = alaw(s);
+				if (aud_n == 160) { aud_send(aud_buf, 160); aud_n = 0; }
+			}
 		}
 	}
-	if (r == 0 || (r < 0 && errno != EAGAIN && errno != EINTR)) {
-		pclose(aud_f); aud_f = NULL; aud_fd = -1;
-	}
+	if (r == 0 || (r < 0 && errno != EAGAIN && errno != EINTR)) aud_close();
 }
 
 static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char *pl, int n)
 {
 	unsigned char h[12];
+	uint32_t ssrc = S[c->si].ssrc;
 
 	h[0] = 0x80; h[1] = (marker ? 0x80 : 0) | 96;
 	h[2] = c->seq >> 8; h[3] = c->seq & 255; c->seq++;
 	h[4] = ts >> 24; h[5] = ts >> 16; h[6] = ts >> 8; h[7] = ts;
-	h[8] = SSRC >> 24; h[9] = SSRC >> 16; h[10] = SSRC >> 8; h[11] = SSRC;
+	h[8] = ssrc >> 24; h[9] = ssrc >> 16; h[10] = ssrc >> 8; h[11] = ssrc;
 	return rtp_out(c, h, pl, n);
 }
 
 /* one NAL unit as one packet or FU fragments (FU-A for H.264, RFC 7798 FU for H.265) */
 static int send_nal(struct cli *c, uint32_t ts, const unsigned char *nal, int len, int last)
 {
+	int hevc = S[c->si].hevc;
+
 	if (len <= RTP_PAYLOAD)
 		return send_pkt(c, ts, last, nal, len);
 	{
@@ -850,21 +997,24 @@ static int send_nal(struct cli *c, uint32_t ts, const unsigned char *nal, int le
 /* VPS (H.265), SPS and PPS in band */
 static int send_ps(struct cli *c, uint32_t ts)
 {
-	if (hevc && send_nal(c, ts, vps, vps_len, 0)) return -1;
-	return send_nal(c, ts, sps, sps_len, 0) || send_nal(c, ts, pps, pps_len, 0);
+	struct strm *s = &S[c->si];
+
+	if (s->hevc && send_nal(c, ts, s->vps, s->vps_len, 0)) return -1;
+	return send_nal(c, ts, s->sps, s->sps_len, 0) || send_nal(c, ts, s->pps, s->pps_len, 0);
 }
 
 static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts)
 {
+	const struct strm *st = &S[c->si];
 	int pos = 0, l, s;
 	struct { int s, l; } nl[16];
 	int k = 0, i;
 
 	while (k < 16 && (s = next_nal(d, n, pos, &l)) >= 0) {
-		int t = NT(d[s]);
+		int t = NT(st, d[s]);
 
 		pos = s + l;
-		if (t == (hevc ? 35 : 9)) continue;		/* access unit delimiter */
+		if (t == (st->hevc ? 35 : 9)) continue;		/* access unit delimiter */
 		nl[k].s = s; nl[k].l = l; k++;
 	}
 	for (i = 0; i < k; i++)
@@ -875,12 +1025,12 @@ static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts)
 /* queue space a frame needs: payload, RTP/interleave headers per packet, parameter sets */
 static int frame_need(int n) { return n + (n / (RTP_PAYLOAD - 2) + 12) * 18 + 400; }
 
-static void bcast(const unsigned char *d, int n, uint32_t ts, int idr)
+static void bcast(int si, const unsigned char *d, int n, uint32_t ts, int idr)
 {
 	for (int i = 0; i < MAXCLI; i++) {
 		struct cli *c = &cl[i];
 
-		if (c->fd < 0 || !c->playing) continue;
+		if (c->fd < 0 || !c->playing || c->si != si) continue;
 		if (c->wait_idr && !idr) continue;
 		if (c->tcp && qfree(c) < frame_need(n)) {	/* congested: skip this frame, resume at the next IDR */
 			c->wait_idr = 1;
@@ -888,7 +1038,7 @@ static void bcast(const unsigned char *d, int n, uint32_t ts, int idr)
 			continue;
 		}
 		c->wait_idr = 0;
-		if (idr && HAVE_PS) {	/* parameter sets in band before every IDR that lacks them */
+		if (idr && HAVE_PS(&S[si])) {	/* parameter sets in band before every IDR that lacks them */
 			if (send_ps(c, ts)) { cli_close(c); continue; }
 		}
 		if (send_frame(c, d, n, ts) || (c->tcp && qflush(c))) cli_close(c);
@@ -929,13 +1079,14 @@ static const char *hdr(const char *req, const char *name, char *o, int osz)
 
 static void play_burst(struct cli *c)
 {
+	struct strm *s = &S[c->si];
 	int need = 400;
 
-	for (int i = 0; i < ncache; i++) need += frame_need(cache[i].len);
-	if (cache_ok && ncache && (!c->tcp || qfree(c) > need)) {
-		if (HAVE_PS && send_ps(c, cache[0].ts)) { cli_close(c); return; }
-		for (int i = 0; i < ncache; i++)
-			if (send_frame(c, cache[i].d, cache[i].len, cache[i].ts)) { cli_close(c); return; }
+	for (int i = 0; i < s->ncache; i++) need += frame_need(s->cache[i].len);
+	if (s->cache_ok && s->ncache && (!c->tcp || qfree(c) > need)) {
+		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
+		for (int i = 0; i < s->ncache; i++)
+			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts)) { cli_close(c); return; }
 		if (c->tcp && qflush(c)) { cli_close(c); return; }
 		c->wait_idr = 0;
 	} else {
@@ -976,22 +1127,26 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		reply(c, 200, "OK", cseq, "Public: OPTIONS, DESCRIBE, SETUP, PLAY, PAUSE, TEARDOWN, GET_PARAMETER\r\n", NULL);
 	} else if (!strcmp(m, "DESCRIBE")) {
 		char sdp[1536], base[300], fm[600];
+		struct strm *s;
 
-		if (!HAVE_PS) { reply(c, 503, "Service Unavailable", cseq, NULL, NULL); return; }
-		if (hevc) snprintf(fm, sizeof fm, "%s", sprop);
-		else snprintf(fm, sizeof fm, "packetization-mode=1;profile-level-id=%s;sprop-parameter-sets=%s", plid, sprop);
+		if (!c->playing) { c->si = S[1].on && url_is_sub(url); c->described = 1; }
+		s = &S[c->si];
+		if (!HAVE_PS(s)) { reply(c, 503, "Service Unavailable", cseq, NULL, NULL); return; }
+		if (s->hevc) snprintf(fm, sizeof fm, "%s", s->sprop);
+		else snprintf(fm, sizeof fm, "packetization-mode=1;profile-level-id=%s;sprop-parameter-sets=%s", s->plid, s->sprop);
 		snprintf(base, sizeof base, "Content-Base: %s%s\r\n", url, url[strlen(url) - 1] == '/' ? "" : "/");
 		snprintf(sdp, sizeof sdp,
 			 "v=0\r\no=- 1 1 IN IP4 %s\r\ns=TC100\r\nc=IN IP4 0.0.0.0\r\nt=0 0\r\na=control:*\r\n"
 			 "m=video 0 RTP/AVP 96\r\na=rtpmap:96 %s/90000\r\n"
 			 "a=fmtp:96 %s\r\na=control:track1\r\n",
-			 host, hevc ? "H265" : "H264", fm);
+			 host, s->hevc ? "H265" : "H264", fm);
 		if (audio_on) strncat(sdp, "m=audio 0 RTP/AVP 8\r\na=rtpmap:8 PCMA/8000\r\na=control:track2\r\n", sizeof sdp - strlen(sdp) - 1);
 		reply(c, 200, "OK", cseq, base, sdp);
 	} else if (!strcmp(m, "SETUP")) {
 		char tr[300];
 
 		if (!hdr(req, "Transport", tr, sizeof tr)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
+		if (!c->described && !c->playing) c->si = S[1].on && url_is_sub(url);	/* SETUP without DESCRIBE */
 		if (!c->sess[0]) snprintf(c->sess, sizeof c->sess, "%08x", (unsigned)(time(NULL) ^ (c - cl) * 7919));
 		if (audio_on && strstr(url, "track2")) {	/* audio track */
 			if (strstr(tr, "TCP")) {
@@ -1090,11 +1245,253 @@ static void cli_read(struct cli *c)
 	}
 }
 
+/* ---- motion detection: luma grid, ignored zones, sensitivity ---------------------------------------------------
+ * On while /tmp/tc100_md exists (setconf -k p 1: controlscripts/motion-detection, the web UI, MQTT) and
+ * rtspserver.conf does not say mdenabled=0. 4 times a second the luma of a 64x36 grid is compared with the previous
+ * sample, leaving out the cells whose centre lies in a zone of config/motion_zones.conf (as md.c did on 2.x).
+ * Sensitivity 1-100: /tmp/tc100_md_sens (setconf -k m), else rtspserver.conf mdsens. /tmp/rec_control gets "1" on
+ * motion and "0" 8 s after it stopped: the detection monitor (MQTT event, snapshot, LED) and the recorder read it.
+ * /var/run/md_zones: what the detector uses, the 2.x line (action.cgi md_zones_info). */
+#define MD_GW 64
+#define MD_GH 36
+static int md_on, md_conf_on = 1, md_conf_sens = 60, md_sens = 60, md_nz, md_watch = MD_GW * MD_GH, md_motion;
+static int md_z[MDZ_MAX][4];
+static unsigned char md_mask[MD_GW * MD_GH];
+static unsigned md_starts;
+static unsigned char md_prev[MD_GW * MD_GH];
+static int md_have, md_hits;
+static double md_t, md_tlast;
+
+static void md_reload(int conf_changed, int zones_changed)
+{
+	static int old_z[MDZ_MAX][4], old_nz = -1;
+	char v[16];
+	int on, sens;
+	FILE *f;
+
+	if (conf_changed) {
+		md_conf_on = !cfg_get(CONF "rtspserver.conf", "", "mdenabled", v, sizeof v) || v[0] != '0';
+		md_conf_sens = cfg_get(CONF "rtspserver.conf", "", "mdsens", v, sizeof v) && v[0] >= '0' && v[0] <= '9' ? atoi_(v) : 60;
+	}
+	if (zones_changed) {
+		char ln[128];
+
+		md_nz = 0;
+		if ((f = fopen(CONF "motion_zones.conf", "r"))) {
+			while (md_nz < MDZ_MAX && fgets(ln, sizeof ln, f))
+				if (mdz_parse_line(ln, md_z[md_nz])) md_nz++;
+			fclose(f);
+		}
+	}
+	sens = md_conf_sens;
+	if ((f = fopen("/tmp/tc100_md_sens", "r"))) {
+		if (fgets(v, sizeof v, f) && v[0] >= '0' && v[0] <= '9') sens = atoi_(v);
+		fclose(f);
+	}
+	if (sens < 1) sens = 1;
+	if (sens > 100) sens = 100;
+	on = md_conf_on && !access("/tmp/tc100_md", F_OK);
+	if (on == md_on && sens == md_sens && md_nz == old_nz && !memcmp(md_z, old_z, sizeof md_z)) return;
+	md_sens = sens; old_nz = md_nz; memcpy(old_z, md_z, sizeof md_z);
+	if (on) {
+		char st[128];
+		int n;
+
+		md_watch = mdz_mask(md_mask, MD_GW, MD_GH, md_z, md_nz);
+		md_starts++;
+		n = snprintf(st, sizeof st, "starts=%u grid=%dx%d sensitivity=%d ignored=%d result=%s\n", md_starts, MD_GW, MD_GH,
+			     md_sens, MD_GW * MD_GH - md_watch, md_nz ? "area" : "global");
+		wfile("/var/run/md_zones", st, n);
+		if (!md_on || old_nz != md_nz) LOG("motion detection on: sensitivity %d, %d zone(s), %d of %d cells watched\n",
+						    md_sens, md_nz, md_watch, MD_GW * MD_GH);
+	} else if (md_on) {
+		LOG("motion detection off\n");
+		if (md_motion) wfile("/tmp/rec_control", "0\n", 2);
+		md_motion = 0; md_have = 0; md_hits = 0;
+	}
+	md_on = on;
+}
+
+static void md_frame(const unsigned char *sy, double tn)
+{
+	unsigned char cur[MD_GW * MD_GH];
+	int x, y, n = 0, chg = 0;
+
+	if (tn - md_t < 0.25) return;
+	md_t = tn;
+	if (!md_on) { md_have = 0; return; }
+	for (y = 0; y < MD_GH; y++)
+		for (x = 0; x < MD_GW; x++) cur[n++] = sy[(y * 30 + 15) * W + x * 30 + 15];
+	if (md_have) {
+		for (n = 0; n < MD_GW * MD_GH; n++)
+			if (md_mask[n]) { int d = cur[n] - md_prev[n]; if (d < 0) d = -d; if (d > 20) chg++; }
+		if (md_triggered(chg, md_watch, md_sens)) md_hits++; else md_hits = 0;
+		if (md_hits >= 2) { md_tlast = tn; if (!md_motion) { md_motion = 1; wfile("/tmp/rec_control", "1\n", 2); } }
+	}
+	memcpy(md_prev, cur, sizeof cur); md_have = 1;
+	if (md_motion && tn - md_tlast > 8.0) { md_motion = 0; wfile("/tmp/rec_control", "0\n", 2); }
+}
+
+/* ---- local recording (rec.c): settings of boot.conf, as on 2.x (Settings -> Recording) -------------------------
+ * REC_LOCAL=1 turns it on (controlscripts/recording start|stop writes it); REC_WHEN=offline|always|motion;
+ * REC_STREAM=main|sub; REC_SEGMENT_SEC, REC_RESERVE_MB, REC_OFFLINE_SEC, REC_POSTROLL_SEC, REC_RING_KB;
+ * REC_CLIENT = the recorder's IPv4 address, else the host of FRIGATE_URL (config/frigate_live.conf), else any client.
+ * Read again whenever boot.conf changes: no restart needed. */
+static const char *rec_dir = "/mnt/DCIM";
+static int rec_sub, rec_mode;
+static uint32_t rec_client;		/* network order, 0 = any client */
+static time_t snd_pulse;		/* sound event for the motion recording (controlscripts/sound-detection) */
+
+static int cfg_num(const char *file, const char *key, int def)
+{
+	char v[32];
+
+	return cfg_get(file, "", key, v, sizeof v) && v[0] >= '0' && v[0] <= '9' ? atoi_(v) : def;
+}
+
+static uint32_t ip_of(const char *v)	/* dotted quad, alone or as the host of a URL; 0 when none */
+{
+	const char *p = strstr(v, "://");
+	char h[32];
+	int i = 0;
+	struct in_addr a;
+
+	p = p ? p + 3 : v;
+	while (*p && *p != ':' && *p != '/' && i < 31) h[i++] = *p++;
+	h[i] = 0;
+	for (i = 0; h[i]; i++) if (h[i] != '.' && (h[i] < '0' || h[i] > '9')) return 0;
+	return h[0] && inet_aton(h, &a) ? a.s_addr : 0;
+}
+
+static void rec_reload(void)
+{
+	static struct rec_cfg last;
+	static const char *mn[] = { "off", "always", "offline (while the recorder does not receive the stream)", "motion" };
+	struct rec_cfg rc;
+	char v[200];
+	const char *bc = CONF "boot.conf";
+
+	memset(&rc, 0, sizeof rc);
+	snprintf(rc.dir, sizeof rc.dir, "%s", rec_dir);
+	snprintf(rc.status, sizeof rc.status, "/var/run/tc100rec");
+	if (cfg_get(bc, "", "REC_LOCAL", v, sizeof v) && truthy(v)) {
+		rc.mode = REC_OFFLINE;
+		if (cfg_get(bc, "", "REC_WHEN", v, sizeof v))
+			rc.mode = !strcmp(v, "always") ? REC_ALWAYS : !strcmp(v, "motion") ? REC_MOTION : REC_OFFLINE;
+	}
+	rc.segment_s = cfg_num(bc, "REC_SEGMENT_SEC", 300);
+	rc.reserve_mb = cfg_num(bc, "REC_RESERVE_MB", 256);
+	rc.offline_s = cfg_num(bc, "REC_OFFLINE_SEC", 5);
+	rc.postroll_s = cfg_num(bc, "REC_POSTROLL_SEC", 30);
+	rc.ring_kb = cfg_num(bc, "REC_RING_KB", 1024);
+	rec_sub = cfg_get(bc, "", "REC_STREAM", v, sizeof v) && !strcmp(v, "sub");
+	rec_client = 0;
+	if (cfg_get(bc, "", "REC_CLIENT", v, sizeof v) && v[0]) rec_client = ip_of(v);
+	else if (cfg_get(CONF "frigate_live.conf", "", "FRIGATE_URL", v, sizeof v)) rec_client = ip_of(v);
+	rec_mode = rc.mode;
+	if (!memcmp(&rc, &last, sizeof rc)) return;
+	last = rc;
+	if (rc.mode != REC_OFF || rec_active())
+		LOG("recording: %s, %s stream, %d s files, keep %d MB free, into %s\n", mn[rc.mode & 3], rec_sub ? "sub" : "main",
+		    rc.segment_s, rc.reserve_mb, rc.dir);
+	rec_config(&rc);
+}
+
+/* someone receives the stream (for REC_WHEN=offline): a playing client, not local, from REC_CLIENT when set, whose
+ * data flows (a recorder that lost the network keeps its TCP connection open for a while; its queue gives it away) */
+static int rec_watched(void)
+{
+	time_t now = time(NULL);
+
+	for (int i = 0; i < MAXCLI; i++) {
+		const struct cli *c = &cl[i];
+		const unsigned char *ip = (const unsigned char *)&c->peer;
+
+		if (c->fd < 0 || !c->playing || ip[0] == 127) continue;
+		if (rec_client && c->peer != rec_client) continue;
+		if (c->tcp && c->qpos < c->qlen && now - c->qprog >= 3) continue;
+		return 1;
+	}
+	return 0;
+}
+
+/* ---- encoders ---- */
+static void pool_log(const struct strm *s)
+{
+	unsigned long (*gf)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_free_pmem");
+	unsigned long (*gu)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_used_pmem");
+
+	LOG("encoder %s %dx%d %s %u kbit/s (channel %u group %u): %s; pool used %lu, free %lu\n", s->name, s->w, s->h,
+	    s->pa.codec == 2 ? "H.265" : "H.264", s->pa.kbps, s->pa.size_class, s->pa.group, s->enc ? "open" : "OPEN FAILED",
+	    gu ? gu() : 0UL, gf ? gf() : 0UL);
+}
+
+static int strm_reopen(struct strm *s)
+{
+	if (s->enc) p_close(s->enc);
+	s->enc = p_open(&s->pa);
+	s->nsent = 0; s->fails = 0;
+	if (!s->enc) pool_log(s);
+	return s->enc != NULL;
+}
+
+/* the sub-stream stops for good (open failed, no frames): its clients are closed, they reconnect to the main one */
+static void sub_off(const char *why)
+{
+	struct strm *s = &S[1];
+
+	if (!s->on) return;
+	LOG("sub-stream off (%s): the sub-stream paths serve the main stream from now on\n", why);
+	if (s->enc) p_close(s->enc);
+	s->enc = NULL; s->on = 0; s->active = 0;
+	cache_reset(s);
+	for (int i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].si == 1) cli_close(&cl[i]);
+}
+
+static void sub_start(int want)
+{
+	struct strm *s = &S[1];
+
+	if (!want) { LOG("sub-stream off (-s 0): every path serves the main stream\n"); return; }
+	s->enc = p_open(&s->pa);
+	pool_log(s);
+	if (!s->enc) { LOG("sub-stream: the encoder did not open; the sub-stream paths serve the main stream\n"); return; }
+	s->on = 1; s->active = 1; s->nsent = 0; s->fails = 0;
+}
+
+/* ---- settings read while running (every 2 s: a stat() per file) ---- */
+static void cfg_reload(double tn)
+{
+	static const char *fn[6] = { CONF "boot.conf", CONF "isp_tune.conf", CONF "rtspserver.conf",
+				     CONF "sound_detection.conf", CONF "motion_zones.conf", CONF "frigate_live.conf" };
+	static time_t mt[6];
+	static off_t sz[6];
+	static double chk = -10;
+	struct stat sb;
+	int i, ch[6], pic = 0;
+
+	if (tn - chk < 2.0) return;
+	chk = tn;
+	for (i = 0; i < 6; i++) {
+		time_t m = 0;
+		off_t z = 0;
+
+		if (!stat(fn[i], &sb)) { m = sb.st_mtime; z = sb.st_size; }
+		ch[i] = m != mt[i] || z != sz[i];
+		mt[i] = m; sz[i] = z;
+	}
+	{ int a = access(CONF "awb.off", F_OK) ? 1 : 0; if (a != p_awb) { p_awb = a; if (!a) p_du = p_dv = 0; pic = 1; } }
+	if (pic || ch[0] || ch[1] || ch[2]) post_apply();
+	if (ch[0] || ch[5]) rec_reload();
+	if (ch[3]) snd_reload();
+	md_reload(ch[2], ch[4]);
+}
+
 int main(int argc, char **argv)
 {
 	const char *akuio = "/mnt/sd/tc100test/libakuio.so", *dev = "/dev/video0", *dir = "/mnt/sd/lib";
 	const char *pwfile = NULL;
-	int o, kbps = 2000, fps = 15, qmin = 25, qmax = 48, port = 554;
+	int o, kbps = 2000, fps = 15, qmin = 25, qmax = 48, port = 554, hevc = 0, sub_on = 1, sub_hevc = 0, sub_kbps = 400;
 
 	for (o = 1; o + 1 < argc; o += 2) {
 		const char *a = argv[o], *v = argv[o + 1];
@@ -1111,8 +1508,21 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "-L")) dir = v;
 		else if (!strcmp(a, "-A")) akuio = v;
 		else if (!strcmp(a, "-a")) audio_on = num(v) != 0;
-		else { LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-c h264|h265] [-q QMIN] [-Q QMAX] [-d DEV] [-L LIBDIR] [-A libakuio.so] [-a 0|1 audio]\n"); return 2; }
+		else if (!strcmp(a, "-s")) sub_on = num(v) != 0;
+		else if (!strcmp(a, "-C")) sub_hevc = !strcmp(v, "h265");
+		else if (!strcmp(a, "-B")) sub_kbps = num(v);
+		else if (!strcmp(a, "-R")) rec_dir = v;
+		else if (!strcmp(a, "-S")) snd_file = v;
+		else {
+			LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-c h264|h265] [-q QMIN] [-Q QMAX] [-d DEV] [-L LIBDIR]\n");
+			LOG("                  [-A libakuio.so] [-u USER] [-w PASSWORD_FILE] [-a 0|1 audio]\n");
+			LOG("                  [-s 0|1 sub-stream] [-C h264|h265 sub codec] [-B KBPS sub bit rate]\n");
+			LOG("                  [-R RECORD_DIR (/mnt/DCIM)] [-S SOUND_LEVEL_FILE (/var/run/sound_level)]\n");
+			return 2;
+		}
 	}
+	if (fps < 1) fps = 1;
+	if (sub_kbps < 32) sub_kbps = 32;
 	if (pwfile) {	/* first line of the file is the password; an empty or missing file leaves the stream open */
 		FILE *pf = fopen(pwfile, "r");
 
@@ -1149,7 +1559,7 @@ int main(int argc, char **argv)
 		p_close = dlsym(m, "ak_venc_close");
 		p_alloc = dlsym(RTLD_DEFAULT, "akuio_alloc_pmem");
 		p_pinit = dlsym(RTLD_DEFAULT, "akuio_pmem_init");
-		if (!p_open || !p_send || !p_release || !p_alloc) { LOG("missing encoder symbols\n"); return 2; }
+		if (!p_open || !p_send || !p_release || !p_close || !p_alloc) { LOG("missing encoder symbols\n"); return 2; }
 	}
 	if (p_pinit && p_pinit()) { LOG("akuio_pmem_init failed\n"); return 2; }
 
@@ -1180,27 +1590,47 @@ int main(int argc, char **argv)
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
 
-	unsigned int flen = W * H * 3 / 2, ftot = flen + SW * SH * 3 / 2;
+	/* encoder pool: the picture of each stream (main, then the 640x360 sub picture right after it), the JPEG buffer,
+	 * then the encoders' own buffers */
+	unsigned int flen = W * H * 3 / 2, slen = SW * SH * 3 / 2, ftot = flen + slen;
 	unsigned char *pf = (unsigned char *)p_alloc(ftot);
 	double t_luma = 0, t_str = 0, t_snap = 0;
 	if (!getenv("NO_JPEG")) jpeg_ok = jpeg_init() == 0;
 	LOG("web pictures: hardware JPEG %s\n", jpeg_ok ? "on" : "off");
 	if (!pf) { LOG("no DMA memory for the frame\n"); return 1; }
 
-	struct venc_param pa;
-	memset(&pa, 0, sizeof pa);
-	pa.width = W; pa.height = H; pa.qpmin = qmin; pa.qpmax = qmax;
-	pa.fps = fps; pa.gop = fps * 2; pa.kbps = kbps;
-	if (hevc) { pa.codec = 2; pa.profile = 3; }
+	for (int k = 0; k < 2; k++) {
+		struct strm *s = &S[k];
+		struct venc_param *pa = &s->pa;
+
+		s->name = k ? "sub" : "main";
+		s->hevc = k ? sub_hevc : hevc;
+		s->w = k ? SW : W; s->h = k ? SH : H;
+		s->cache_max = k ? CACHE_MAX_SUB : CACHE_MAX;
+		s->ssrc = SSRC + 2 * k;
+		cache_reset(s);
+		memset(pa, 0, sizeof *pa);
+		pa->width = s->w; pa->height = s->h; pa->qpmin = qmin; pa->qpmax = qmax;
+		pa->fps = fps; pa->gop = fps * 2; pa->kbps = k ? sub_kbps : kbps;
+		if (s->hevc) { pa->codec = 2; pa->profile = 3; }
+		if (k) {
+			const char *e;
+
+			pa->size_class = (e = getenv("RTSP_SUB_CHN")) && *e ? (unsigned)num(e) : 1;
+			pa->group = (e = getenv("RTSP_SUB_GROUP")) && *e ? (unsigned)num(e) : 2;
+		}
+	}
 	/* H.265 as the very first use of the encoder after power-up corrupts kernel memory (seen on 6.6: oops within
 	 * seconds, repeatable); after one H.264 session it is stable. So an H.265 server first runs one H.264 frame. */
-	int prime = hevc && !getenv("NO_PRIME");
-	struct venc_param p0 = pa;
+	int prime = (S[0].hevc || (sub_on && S[1].hevc)) && !getenv("NO_PRIME");
+	struct venc_param p0 = S[0].pa;
 
 	if (prime) { p0.codec = 0; p0.profile = 0; }
-	void *enc = p_open(prime ? &p0 : &pa);
-	if (!enc) { LOG("ak_venc_open failed\n"); return 1; }
-	{ unsigned long (*gf)(void) = dlsym(RTLD_DEFAULT, "akuio_get_free_pmem"); LOG("encoder open, pool free %lu\n", gf ? gf() : 0UL); }
+	S[0].enc = p_open(prime ? &p0 : &S[0].pa);
+	if (!prime) pool_log(&S[0]);
+	if (!S[0].enc) { LOG("ak_venc_open failed\n"); return 1; }
+	S[0].on = S[0].active = 1;
+	if (!prime) sub_start(sub_on);
 
 	/* network */
 	int ls = socket(AF_INET, SOCK_STREAM, 0), one = 1;
@@ -1214,22 +1644,34 @@ int main(int argc, char **argv)
 	sa.sin_port = htons(srv_rtp);
 	if (bind(udpfd, (struct sockaddr *)&sa, sizeof sa)) LOG("udp %d: %s\n", srv_rtp, strerror(errno));
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
-	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s\n", port, W, H, fps, kbps);
+	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s %s; sub-stream (/video1, /ch1, /sub) %s %dx%d %d kbit/s %s\n",
+	    port, W, H, fps, kbps, hevc ? "H.265" : "H.264", sub_on ? "on" : "off", SW, SH, sub_kbps, sub_hevc ? "H.265" : "H.264");
+	cfg_reload(now_s());
 
-	int active = 1;		/* encoding: at start (parameter sets) and while somebody watches */
 	struct timespec t0;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	unsigned long nfr = 0, ncap = 0, nbytes = 0;
+	unsigned long ncap = 0, ntot = 0;
 	struct timespec tl = t0;
 	long enc_us = 0, snd_us = 0;
+	int np[2] = { 0, 0 }, na = 0;
+	time_t sec_last = 0;
 
 	while (run) {
 		fd_set fs, ws;
 		struct timeval tv = { 1, 0 };
-		int mx = fd > ls ? fd : ls, i, nplay = 0;
+		int mx = fd > ls ? fd : ls, i;
+		time_t nowt = time(NULL);
 
+		/* microphone: while an audio client plays or the sound detection needs it; stopped 10 s after that */
+		aud_tx = audio_on && na > 0;
+		if (aud_tx || snd_on) {
+			aud_unneeded = 0;
+			if (aud_fd < 0 && aud_pid < 0 && nowt >= aud_retry) aud_open();
+		} else if (aud_fd >= 0) {
+			if (!aud_unneeded) aud_unneeded = nowt;
+			else if (nowt - aud_unneeded >= 10) { aud_close(); aud_unneeded = 0; }
+		}
 		FD_ZERO(&fs); FD_ZERO(&ws); FD_SET(fd, &fs); FD_SET(ls, &fs);
-		if (audio_on && !aud_f && time(NULL) >= aud_retry) aud_open();
 		if (aud_fd >= 0) { FD_SET(aud_fd, &fs); if (aud_fd > mx) mx = aud_fd; }
 		for (i = 0; i < MAXCLI; i++)
 			if (cl[i].fd >= 0) {
@@ -1243,14 +1685,19 @@ int main(int argc, char **argv)
 
 			clock_gettime(CLOCK_MONOTONIC, &tn);
 			if (tn.tv_sec - tl.tv_sec >= 5) {
-				{ unsigned long dr = 0; for (int k = 0; k < MAXCLI; k++) dr += cl[k].dropped; LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu\n", ncap, nfr, nbytes, enc_us / 1000, snd_us / 1000, nplay, dr); }
-				ncap = nfr = nbytes = 0; enc_us = snd_us = 0; tl = tn;
+				{ unsigned long dr = 0; for (int k = 0; k < MAXCLI; k++) dr += cl[k].dropped;
+				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d\n",
+				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
+				      rec_active()); }
+				ncap = 0; S[0].nfr = S[0].nbytes = S[1].nfr = S[1].nbytes = 0; enc_us = snd_us = 0; tl = tn;
 			}
 		}
 
 		if (aud_fd >= 0 && FD_ISSET(aud_fd, &fs)) aud_pump();
 		if (FD_ISSET(ls, &fs)) {
-			int s = accept(ls, NULL, NULL);
+			struct sockaddr_in pa;
+			socklen_t pl = sizeof pa;
+			int s = accept(ls, (struct sockaddr *)&pa, &pl);
 
 			if (s >= 0) {
 				for (i = 0; i < MAXCLI && cl[i].fd >= 0; i++) ;
@@ -1258,57 +1705,84 @@ int main(int argc, char **argv)
 				else {
 					memset(&cl[i], 0, sizeof cl[i]);
 					cl[i].fd = s; cl[i].last = time(NULL); cl[i].qprog = time(NULL);
+					cl[i].peer = pa.sin_addr.s_addr;
 					fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK);
 					setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
 				}
 			}
 		}
+		np[0] = np[1] = 0; na = 0;
 		for (i = 0; i < MAXCLI; i++) {
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &ws) && qflush(&cl[i])) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && time(NULL) - cl[i].qprog > 20) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &fs)) cli_read(&cl[i]);
 			if (cl[i].fd >= 0 && !cl[i].tcp && time(NULL) - cl[i].last > 90) cli_close(&cl[i]);
-			if (cl[i].fd >= 0 && cl[i].playing) nplay++;
+			if (cl[i].fd >= 0 && cl[i].playing) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
+		}
+		if (nowt != sec_last) {		/* once a second: recorder inputs, arecord reaped */
+			int snd = 0;
+
+			sec_last = nowt;
+			if (rec_mode == REC_MOTION && !access("/tmp/motion_detected", F_OK)) {	/* sound event (sound-detection) */
+				unlink("/tmp/motion_detected");
+				snd_pulse = nowt;
+			}
+			snd = snd_pulse && nowt - snd_pulse < 2;
+			rec_inputs(rec_watched(), md_motion || snd);
+			aud_reap();
 		}
 
 		if (FD_ISSET(fd, &fs)) {
 			struct v4l2_buffer b;
 			struct timespec t1;
-			struct video_stream st;
 			uint32_t ts;
-			int r, idr;
+			uint64_t ts_us;
+			int k, rec_on, rsi, rec_idr = 0, fail_main = 0;
 
 			memset(&b, 0, sizeof b);
 			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP;
 			if (ioctl(fd, VIDIOC_DQBUF, &b) < 0) continue;
-			ncap++;
+			ncap++; ntot++;
 			if (prime) {
 				struct video_stream ps;
 
 				memcpy(pf, vb[b.index], flen);
 				ioctl(fd, VIDIOC_QBUF, &b);
 				memset(&ps, 0, sizeof ps);
-				if (!p_send(enc, pf, flen, &ps) && ps.data) p_release(enc, &ps);
-				p_close(enc);
-				enc = p_open(&pa);
-				if (!enc) { LOG("ak_venc_open failed\n"); break; }
+				if (!p_send(S[0].enc, pf, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
+				p_close(S[0].enc);
+				S[0].enc = p_open(&S[0].pa);
+				pool_log(&S[0]);
+				if (!S[0].enc) { LOG("ak_venc_open failed\n"); break; }
 				prime = 0;
+				sub_start(sub_on);
 				continue;
 			}
-			/* encode while someone watches, and until the parameter sets are known.
+			/* encode while someone watches, until the parameter sets are known, and for the recorder.
 			 * Idle: the encoder state moves on without a viewer, so the next viewer gets a new encoder:
 			 * its first frame is an IDR. */
-			if (active && !nplay && HAVE_PS) {
-				active = 0;
-				cache_reset();
-			} else if (!active && nplay) {
-				p_close(enc);
-				enc = p_open(&pa);
-				if (!enc) { LOG("ak_venc_open failed\n"); break; }
-				active = 1;
-				cache_reset();
-				for (i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].playing) cl[i].wait_idr = 1;
+			rec_on = rec_active();
+			rsi = rec_sub && S[1].on ? 1 : 0;
+			for (k = 0; k < 2; k++) {
+				struct strm *s = &S[k];
+				int want = s->on && (np[k] || !HAVE_PS(s) || (rec_on && k == rsi));
+
+				if (s->active && !want) {
+					s->active = 0;
+					cache_reset(s);
+				} else if (!s->active && want) {
+					if (!strm_reopen(s)) {
+						if (k) { sub_off("the encoder did not open again"); continue; }
+						fail_main = 1;
+						break;
+					}
+					s->active = 1;
+					cache_reset(s);
+					for (i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].playing && cl[i].si == k) cl[i].wait_idr = 1;
+				}
 			}
+			if (fail_main) { LOG("ak_venc_open failed\n"); break; }
+			rsi = rec_sub && S[1].on ? 1 : 0;
 			double tn = now_s();
 			/* the web pictures are only made often while somebody reads them (a read after a write moves atime) */
 			double str_iv = 2.0, snap_iv = 10.0;
@@ -1322,6 +1796,11 @@ int main(int argc, char **argv)
 			}
 			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= str_iv;
 			int d_snap = jpeg_ok && (tn - t_snap >= snap_iv || !access("/tmp/snapshot_request", F_OK));
+			/* recording: a JPEG of the picture of each keyframe of the recorded stream (the file's thumbnail), from
+			 * the sub picture; made on the frames where the encoder will start a GOP */
+			const struct strm *rs = &S[rsi];
+			int thumb_due = jpeg_ok && rec_on && rs->active && rs->pa.gop && rs->nsent % rs->pa.gop == 0;
+			int sub_made = S[1].active || d_str || thumb_due;
 
 			if (d_luma) {	/* mean of the sub-stream luma samples, like tc100_streamer */
 				const unsigned char *sy = vb[b.index];	/* main luma at sub-stream coordinates x3 */
@@ -1335,89 +1814,84 @@ int main(int argc, char **argv)
 				wfile("/tmp/cam_luma", lb, ln);
 				t_luma = tn;
 			}
-			/* motion detection (setconf -k p 1 creates /tmp/tc100_md, -k m N the sensitivity 1-100): 4 times a second the
-			 * luma of a 64x36 grid is compared with the previous sample; /tmp/rec_control gets "1" on motion and "0" 8 s
-			 * after it stopped, which is what the recorder, the detection monitor (MQTT event, snapshot, LED) read */
-			{
-				static double t_md, t_mdlast; static unsigned char mdp[64 * 36]; static int mdhave, mdhits, mdon;
-
-				if (tn - t_md >= 0.25) {
-					t_md = tn;
-					if (!access("/tmp/tc100_md", F_OK)) {
-						unsigned char cur[64 * 36]; const unsigned char *sy = vb[b.index]; int x, y, n = 0, chg = 0, sens = 60;
-						char sb[8]; FILE *sf = fopen("/tmp/tc100_md_sens", "r");
-
-						if (sf) { if (fgets(sb, sizeof sb, sf)) sens = (int)num(sb); fclose(sf); }
-						if (sens < 1) sens = 1; if (sens > 100) sens = 100;
-						for (y = 0; y < 36; y++) for (x = 0; x < 64; x++) cur[n++] = sy[(y * 30 + 15) * W + x * 30 + 15];
-						if (mdhave) {
-							for (n = 0; n < 64 * 36; n++) { int d = cur[n] - mdp[n]; if (d < 0) d = -d; if (d > 20) chg++; }
-							if (chg * 1000 > (int)(64 * 36) * (5 + (100 - sens) * 1)) mdhits++; else mdhits = 0;
-							if (mdhits >= 2) { t_mdlast = tn; if (!mdon) { mdon = 1; wfile("/tmp/rec_control", "1\n", 2); } }
-						}
-						memcpy(mdp, cur, sizeof mdp); mdhave = 1;
-						if (mdon && tn - t_mdlast > 8.0) { mdon = 0; wfile("/tmp/rec_control", "0\n", 2); }
-					} else mdhave = 0;
-				}
-			}
-			post_reload(tn);
+			md_frame(vb[b.index], tn);
+			cfg_reload(tn);
 			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H); } }
-			if (active || d_snap) { post_copy(pf, vb[b.index]); post_overlay(pf, W, H, 1); if (bw) memset(pf + W * H, 128, W * H / 2); }
-			if (d_str) { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
+			if (S[0].active || d_snap) { post_copy(pf, vb[b.index]); post_overlay(pf, W, H, 1); if (bw) memset(pf + W * H, 128, W * H / 2); }
+			if (sub_made) { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
 			ioctl(fd, VIDIOC_QBUF, &b);
-			if (active) {
-				clock_gettime(CLOCK_MONOTONIC, &t1);
-				ts = (uint32_t)(((t1.tv_sec - t0.tv_sec) * 1000000ULL + (t1.tv_nsec - t0.tv_nsec) / 1000) * 9 / 100);
+			clock_gettime(CLOCK_MONOTONIC, &t1);
+			ts = (uint32_t)(((t1.tv_sec - t0.tv_sec) * 1000000ULL + (t1.tv_nsec - t0.tv_nsec) / 1000) * 9 / 100);
+			ts_us = (uint64_t)t1.tv_sec * 1000000ULL + (uint64_t)t1.tv_nsec / 1000;
+			for (k = 0; k < 2; k++) {
+				struct strm *s = &S[k];
+				struct video_stream st;
+				int r, idr = 0;
+
+				if (!s->active) continue;
 				memset(&st, 0, sizeof st);
 				{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-				r = p_send(enc, pf, flen, &st);
+				r = p_send(s->enc, k ? pf + flen : pf, k ? slen : flen, &st);
 				clock_gettime(CLOCK_MONOTONIC, &tb); enc_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
-				if (!r && st.data && st.len) {
-					idr = 0;
-					{
-						int pos = 0, l, s;
-
-						while ((s = next_nal(st.data, st.len, pos, &l)) >= 0) {
-							{ int t = NT(st.data[s]); if (hevc ? (t >= 16 && t <= 21) : t == 5) idr = 1; }
-							pos = s + l;
-						}
-					}
-					if (idr) learn_params(st.data, st.len);
-					if (getenv("RTSP_DEBUG")) LOG("FRAME %s len %u\n", idr ? "IDR" : "P", st.len);
-					if (st.len > 10 || idr) {	/* skip frames still count in the timeline */
-						cache_add(st.data, st.len, ts, idr);
-						{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-						bcast(st.data, st.len, ts, idr);
-						clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
-						nbytes += st.len;
-					}
-					nfr++;
-					p_release(enc, &st);
+				s->nsent++;
+				if (r || !st.data || !st.len) {
+					if (k && ++s->fails >= 50) sub_off("the encoder gives no frames");
+					continue;
 				}
+				s->fails = 0;
+				{
+					int pos = 0, l, n;
+
+					while ((n = next_nal(st.data, st.len, pos, &l)) >= 0) {
+						{ int t = NT(s, st.data[n]); if (s->hevc ? (t >= 16 && t <= 21) : t == 5) idr = 1; }
+						pos = n + l;
+					}
+				}
+				if (idr) learn_params(s, st.data, st.len);
+				if (getenv("RTSP_DEBUG")) LOG("FRAME %s %s len %u\n", s->name, idr ? "IDR" : "P", st.len);
+				if (st.len > 10 || idr) {	/* skip frames still count in the timeline */
+					cache_add(s, st.data, st.len, ts, idr);
+					{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
+					bcast(k, st.data, st.len, ts, idr);
+					clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
+					s->nbytes += st.len;
+					if (rec_on && k == rsi) { rec_frame(st.data, st.len, ts_us, idr, s->hevc); if (idr) rec_idr = 1; }
+				}
+				s->nfr++;
+				p_release(s->enc, &st);
 			}
-			if (d_str || d_snap) {
-				uint32_t py = (uint32_t)p_v2p((unsigned long)pf), n;
+			{
+				int want_thumb = jpeg_ok && rec_idr && sub_made;
 
-				if (d_str && !access("/tmp/dump_sub", F_OK)) { unlink("/tmp/dump_sub"); wfile("/tmp/sub.nv12", pf + flen, SW * SH * 3 / 2); }
-					if (d_str && (n = jpeg_run(py + flen, py + flen + SW * SH, SW, SH, 40))) {
-					wfile("/tmp/stream.jpg", jbuf + TABLES_SIZE, n);
-					wfile("/tmp/frame_ch0.jpg", jbuf + TABLES_SIZE, n);
-					t_str = tn;
-				}
-				if (d_snap) {
-					unlink("/tmp/snapshot_request");
-					if ((n = jpeg_run(py, py + W * H, W, H, 35))) {
-						char ts[24];
+				if (d_str || d_snap || want_thumb) {
+					uint32_t py = (uint32_t)p_v2p((unsigned long)pf), n;
 
-						wfile("/tmp/currentpic.cache.jpg", jbuf + TABLES_SIZE, n);
-						wfile("/tmp/currentpic.cache.ts", ts, snprintf(ts, sizeof ts, "%ld\n", (long)time(NULL)));
+					if (d_str && !access("/tmp/dump_sub", F_OK)) { unlink("/tmp/dump_sub"); wfile("/tmp/sub.nv12", pf + flen, slen); }
+					if ((d_str || want_thumb) && (n = jpeg_run(py + flen, py + flen + SW * SH, SW, SH, 40))) {
+						if (d_str) {
+							wfile("/tmp/stream.jpg", jbuf + TABLES_SIZE, n);
+							wfile("/tmp/frame_ch0.jpg", jbuf + TABLES_SIZE, n);
+							t_str = tn;
+						}
+						if (want_thumb) rec_thumb(jbuf + TABLES_SIZE, n, ts_us);
 					}
-					t_snap = tn;
+					if (d_snap) {
+						unlink("/tmp/snapshot_request");
+						if ((n = jpeg_run(py, py + W * H, W, H, 35))) {
+							char tsb[24];
+
+							wfile("/tmp/currentpic.cache.jpg", jbuf + TABLES_SIZE, n);
+							wfile("/tmp/currentpic.cache.ts", tsb, snprintf(tsb, sizeof tsb, "%ld\n", (long)time(NULL)));
+						}
+						t_snap = tn;
+					}
 				}
 			}
 		}
 	}
-	if (p_close) p_close(enc);
-	LOG("tc100_rtsp: stopped after %lu frames\n", nfr);
+	rec_shutdown();
+	aud_close();
+	for (int k = 1; k >= 0; k--) if (S[k].enc) p_close(S[k].enc);
+	LOG("tc100_rtsp: stopped after %lu frames\n", ntot);
 	return 0;
 }

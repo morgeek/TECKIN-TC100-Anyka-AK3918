@@ -195,16 +195,20 @@ if [ -x /mnt/controlscripts/mqtt-bridge ]; then
   echo "[tc100-v3] MQTT bridge service launched" > /dev/console
 fi
 
-# 11. Start Motion Detection
-if [ -x /mnt/controlscripts/motion-detection ]; then
+# 11. Motion detection (in tc100_rtsp): only when the web UI left it on (rtspserver.conf mdenabled=1, or the Services
+#     page's start-at-boot toggle config/autostart/motion-detection); otherwise it stays off, as on 2.x.
+if [ -x /mnt/controlscripts/motion-detection ] && { grep -q '^mdenabled=1' /mnt/config/rtspserver.conf 2>/dev/null || [ -e /mnt/config/autostart/motion-detection ]; }; then
   /mnt/controlscripts/motion-detection start >/dev/null 2>&1
   echo "[tc100-v3] Motion detection service active" > /dev/console
+else
+  rm -f /tmp/tc100_md
 fi
 
-# 12. Start Recording (if enabled and SD card is mounted for video storage)
-if [ -x /mnt/controlscripts/recording ] && grep -qE ' (/mnt/sd|/mnt) vfat ' /proc/mounts; then
+# 12. Recording: the recorder is inside tc100_rtsp and follows REC_LOCAL of boot.conf by itself (it waits for a card).
+#     The Services page's start-at-boot toggle (config/autostart/recording) turns REC_LOCAL on, as 2.x started it.
+if [ -x /mnt/controlscripts/recording ] && [ -e /mnt/config/autostart/recording ]; then
   /mnt/controlscripts/recording start >/dev/null 2>&1
-  echo "[tc100-v3] Recording service launched" > /dev/console
+  echo "[tc100-v3] Recording on" > /dev/console
 fi
 
 # 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be

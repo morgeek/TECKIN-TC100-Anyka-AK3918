@@ -6,7 +6,8 @@
 SERVICE_NAME="RTSP server (tc100_rtsp)"
 status() { for p in $(pidof tc100_rtsp 2>/dev/null); do echo "PID: $p"; return 0; done; return 1; }
 start() { [ -n "$(status)" ] && { echo "already running"; return 0; }; sh /mnt/tc100test/rtsp-launch.sh; }
-stop() { killall tc100_rtsp 2>/dev/null; sleep 1; killall -9 tc100_rtsp 2>/dev/null; return 0; }
+# SIGTERM, then up to 5 s for the recorder to close its file, then SIGKILL
+stop() { killall tc100_rtsp 2>/dev/null; i=0; while pidof tc100_rtsp >/dev/null && [ $i -lt 10 ]; do sleep 0.5; i=$((i+1)); done; killall -9 tc100_rtsp 2>/dev/null; return 0; }
 health() {
   [ -n "$(status)" ] || return 1
   r=$(printf 'DESCRIBE rtsp://127.0.0.1:554/video0_unicast RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n' | nc -w 3 127.0.0.1 554 2>/dev/null)

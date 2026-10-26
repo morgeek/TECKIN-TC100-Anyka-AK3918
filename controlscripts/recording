@@ -1,0 +1,61 @@
+#!/bin/sh
+# Recording on the SD card (3.0, Linux 6.6). The recorder is inside the RTSP server tc100_rtsp (src/tc100rtsp/rec.c):
+# no ffmpeg, no extra process. It follows REC_LOCAL of config/boot.conf, read while running (no restart):
+#   start   REC_LOCAL=1     stop   REC_LOCAL=0     status   running while REC_LOCAL=1 and tc100_rtsp runs
+# The other settings (Settings -> Recording): REC_WHEN=offline|always|motion, REC_STREAM=main|sub, REC_SEGMENT_SEC,
+# REC_RESERVE_MB, REC_OFFLINE_SEC, REC_POSTROLL_SEC, REC_CLIENT. Files: /mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mkv and .jpg
+# (thumbnail), only on a vfat/exfat card. Live state: /var/run/tc100rec; scripts/rec-storage.sh eject pauses it.
+SERVICE_NAME="Recording"
+BOOT=/mnt/config/boot.conf
+STATUS_FILE=/var/run/tc100rec
+
+. /mnt/scripts/common_functions.sh
+
+rec_local() { sed -n 's/^REC_LOCAL="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$BOOT" 2>/dev/null | tail -n 1; }
+
+set_rec_local()
+{
+  install_config "$BOOT"
+  rewrite_config "$BOOT" REC_LOCAL "$1"	# appends the key when missing
+}
+
+status()
+{
+  case "$(rec_local)" in 1|true|yes|on|enabled) ;; *) return 1 ;; esac
+  for p in $(pidof tc100_rtsp 2>/dev/null); do
+    echo "PID: $p"
+    [ -r "$STATUS_FILE" ] && grep -E '^(mode|state|file|free_mb)=' "$STATUS_FILE" | sed 's/^/  /'
+    return 0
+  done
+  return 1
+}
+
+start()
+{
+  set_rec_local 1
+  echo "Recording on (REC_LOCAL=1): tc100_rtsp starts within a few seconds when a card is mounted"
+}
+
+stop()
+{
+  set_rec_local 0
+  echo "Recording off (REC_LOCAL=0): the current file is closed within a few seconds"
+}
+
+health()
+{
+  if status >/dev/null 2>&1; then
+    case "$(sed -n 's/^state=//p' "$STATUS_FILE" 2>/dev/null)" in
+      error|full|no-card) echo "warn: $(sed -n 's/^state=//p' "$STATUS_FILE")" ;;
+      *) echo "ok: running" ;;
+    esac
+  else
+    echo "warn: stopped"
+  fi
+}
+
+case "${1:-start}" in
+  start|stop|status|health) "${1:-start}" ;;
+  restart) stop; start ;;
+  *) echo "Usage: $0 {start|stop|status|restart|health}" >&2; exit 1 ;;
+esac
