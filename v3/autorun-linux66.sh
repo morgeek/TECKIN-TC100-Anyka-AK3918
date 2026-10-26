@@ -4,6 +4,10 @@ echo "[tc100-v3] Starting V3 services..." > /dev/console
 hostname tc100; echo "tc100" > /etc/hostname
 
 mkdir -p /tmp/logs /var/run
+# Scripts and CGIs shared with 2.x test this marker to take the Linux 6.6 path
+: > /tmp/linux66
+# Free tools from the Buildroot base that the initramfs leaves out (curl, jq, iw, wpa_cli, hostapd), in the user space
+export PATH=/mnt/ext/bin:$PATH CURL_CA_BUNDLE=/mnt/ext/etc/ssl/certs/ca-certificates.crt
 [ -f /var/run/vday ] || echo 1 > /var/run/vday
 [ -f /var/run/ircut ] || echo 1 > /var/run/ircut
 
