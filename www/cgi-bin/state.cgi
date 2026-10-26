@@ -942,7 +942,7 @@ get_sd_usage() {
     [ -f /tmp/linux66 ] || return 0
     _sd_vfat=0
     while read -r _m_dev _m_mp _m_fs _m_rest; do
-      [ "$_m_mp $_m_fs" = "/mnt/sd vfat" ] && { _sd_vfat=1; break; }
+      case "$_m_mp $_m_fs" in "/mnt/sd vfat"|"/mnt/sd exfat") _sd_vfat=1; break ;; esac
     done < /proc/mounts
     [ "$_sd_vfat" = 1 ] || return 0
   fi
@@ -1265,8 +1265,9 @@ if [ -n "$F_cmd" ]; then
     snapshot_detail="Snapshot capture failed."
     _read_now_ts
     snapshot_tmp="/tmp/integration-selftest.$$.$now_ts.jpg"
-    if [ -x /mnt/bin/getimage ]; then
-      if timeout 5 /mnt/bin/getimage > "$snapshot_tmp" 2>/dev/null && [ -s "$snapshot_tmp" ]; then
+    if [ -x /mnt/bin/getimage ] || [ -f /tmp/linux66 ]; then
+      # take_snapshot: getimage (2.x) or the picture tc100_rtsp keeps (Linux 6.6)
+      if ( . /mnt/scripts/common_functions.sh; take_snapshot "$snapshot_tmp" ); then
         snapshot_status="ok"
         snapshot_detail="Local snapshot capture succeeded."
       else
@@ -1679,6 +1680,7 @@ EOF_DF
     fullconfig_timezone="$(read_single_config /mnt/config/timezone.conf UTC+0)"
     fullconfig_ntp="$(read_single_config /mnt/config/ntp_srv.conf pool.ntp.org)"
     load_conf_file /mnt/config/motion.conf
+    load_conf_file /mnt/config/daynight.conf   # 3.0 day/night thresholds (luminance)
     load_conf_file /mnt/config/telnetd.conf
     # Sound detection runs in every profile since 1.8.4 (the level is
     # measured inside the RTSP server): the Settings switch showed "off" on
@@ -1753,7 +1755,7 @@ EOF_DF
       "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
       "$(sanitize_int "$(get_cfg imageflip 0)" 0)" "$(truthy_flag "$(get_cfg RTSPLOGENABLED 0)")" \
       "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg 2_codec 4)" 4)" "$(sanitize_int "$(get_cfg 3_codec 4)" 4)" "$audio_vol" \
-      "$(sanitize_int "$(get_cfg daynightlum 2000)" 2000)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(sanitize_int "$(get_cfg nightdaylum 6000)" 6000)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
+      "$(if [ -f /tmp/linux66 ]; then sanitize_int "$(get_cfg LUMA_NIGHT 40)" 40; else sanitize_int "$(get_cfg daynightlum 2000)" 2000; fi)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(if [ -f /tmp/linux66 ]; then sanitize_int "$(get_cfg LUMA_DAY 100)" 100; else sanitize_int "$(get_cfg nightdaylum 6000)" 6000; fi)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
       "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg 0_osdfontsize 24)" 24)" "$(sanitize_int "$(get_cfg osdfrontcolor 1)" 1)" "$(sanitize_int "$(get_cfg osdbackcolor 0)" 0)" "$(sanitize_int "$(get_cfg osdedgecolor 2)" 2)" "$(sanitize_int "$(get_cfg 0_osdx 10)" 10)" "$(sanitize_int "$(get_cfg 0_osdy 10)" 10)" \
       "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
       "$(sanitize_int "$(get_cfg rec_postrecord_sec 10)" 10)" "$(sanitize_int "$(get_cfg rec_file_duration_sec 60)" 60)" "$(sanitize_int "$(get_cfg rec_reserverd_disk_mb 1024)" 1024)" "$(truthy_flag "$(get_cfg rec_motion_activated 0)")" \

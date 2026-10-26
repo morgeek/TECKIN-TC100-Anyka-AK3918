@@ -24,14 +24,24 @@ SD_DIR="${REC_SD_DIR:-/mnt/records}"
 DEVS="${REC_SD_DEVS:-/dev/mmcblk0p1 /dev/mmcblk0}"
 PROC_MOUNTS="${REC_PROC_MOUNTS:-/proc/mounts}"
 
-_flash() { [ "$(cat "$STORAGE_FILE" 2>/dev/null)" = flash ]; }
+# 3.0 (Linux 6.6) in flash mode (/tmp/flashmode): the card is the video storage at /mnt/sd; without one, a
+# 16 KiB RAM placeholder is mounted there (nothing can be recorded into RAM), put back after an eject.
+L66=0; [ -f "${REC_L66_FLAG:-/tmp/linux66}" ] && L66=1
+_flash() { [ "$(cat "$STORAGE_FILE" 2>/dev/null)" = flash ] || { [ "$L66" = 1 ] && [ -f "${REC_FLASHMODE_FLAG:-/tmp/flashmode}" ]; }; }
 
-_mounted() { grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null; }
+_mounted()
+{
+    if [ "$L66" = 1 ]; then grep -qE " $MNT_SD (vfat|exfat) " "$PROC_MOUNTS" 2>/dev/null
+    else grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null; fi
+}
+
+_placeholder() { [ "$L66" = 1 ] && ! grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null && mount -t tmpfs -o size=16k tmpfs "$MNT_SD" 2>/dev/null; return 0; }
 
 _mount_card()
 {
     _mounted && return 0
     mkdir -p "$MNT_SD" 2>/dev/null
+    [ "$L66" = 1 ] && umount "$MNT_SD" 2>/dev/null   # the RAM placeholder
     for _d in $DEVS; do
         [ -b "$_d" ] || continue
         # FAT32 (cards up to 32 GB) or exFAT (larger cards, as formatted out of the box)
@@ -39,14 +49,16 @@ _mount_card()
            mount -t exfat -o rw,noatime "$_d" "$MNT_SD" 2>/dev/null; then
             for _bad in wifitest uImage uimage root.sqsh4 usr.sqsh4 usr.jffs2; do
                 if [ -e "$MNT_SD/$_bad" ]; then
-                    umount "$MNT_SD" 2>/dev/null
+                    umount "$MNT_SD" 2>/dev/null; _placeholder
                     logger -t tc100-rec "card refused: it carries $_bad (boot files)" 2>/dev/null
                     return 1
                 fi
             done
+            [ "$L66" = 1 ] && mkdir -p "$MNT_SD/DCIM" 2>/dev/null
             return 0
         fi
     done
+    _placeholder
     return 1
 }
 
@@ -73,6 +85,7 @@ rs_eject()
     sync
     if _flash && _mounted; then
         umount "$MNT_SD" || { echo "busy"; return 1; }
+        _placeholder
     fi
     echo "ok: the card can be removed"
 }
