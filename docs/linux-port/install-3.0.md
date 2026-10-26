@@ -57,6 +57,23 @@ kept.
 `v3/install/restore-stock.sh` writes the stock kernel and A/B/C back from `flash-stock.bin` and blanks the settings
 slots; the 3.0 commands stay in the environment but `flashcheck` then fails, so the stock firmware starts.
 
+## Cameras with the 2.x firmware installed in flash
+
+2.x replaced the stock `/usr` (partition C) after checking it was the V1.1.41 one, and kept the vendor libraries in
+it; U-Boot, the kernel, the stock root (A) and the U-Boot environment are untouched. The hook therefore accepts a
+`/usr` that is a squashfs with `/usr/tc100/VERSION` (recorded as `usrkind 2.x <version>` in `tc100-3/camera.txt`),
+saves the whole flash (the 2.x system: `restore-stock.sh` brings 2.x back), and copies the 2.x settings
+(`/etc/jffs2/tc100/config`) and Wi-Fi (`/etc/jffs2/tc100/wpa_supplicant.conf`) to the card, so the trial mode
+starts on the same network with the same password. A stock camera's Wi-Fi comes from `/etc/jffs2/anyka_cfg.ini`
+(`v3/install/anyka-wifi.awk`).
+
+## Setup wizard and one-click install
+
+`autorun-linux66.sh` opens the wizard on the first 3.0 start (marker `config/.wizard3_done`, so it runs once even
+with settings brought over from 2.x). On 3.0 its access step sets the camera password (no HTTPS on busybox httpd,
+`WEB_MODE=http`), and in trial mode its last step, "Install into the camera now", starts `install66.sh run` once the
+settings are written: one click from the card to the flash. It is offered only when `install66.sh check` passes.
+
 ## What the author must still provide
 
 - `v3/install/known-stock.txt`: the md5 of U-Boot (first 0x39000 bytes) and of the stock root (partition A,

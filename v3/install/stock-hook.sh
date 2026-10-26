@@ -53,9 +53,15 @@ done
 uboot=$(dd if=${MTD}0 bs=4096 count=57 2>/dev/null | md5)
 rootfs=$(dd if=${MTD}4 bs=4096 2>/dev/null | md5)
 usr=$(dd if=${MTD}6 bs=4096 2>/dev/null | md5)
-{ echo "uboot $uboot"; echo "rootfs $rootfs"; echo "usr $usr"; } > "$K/camera.txt"
-say "camera: U-Boot $uboot, root $rootfs, /usr $usr"
+# /usr: the stock one, or the one the 2.x firmware put there when it was installed to flash (its own install
+# checked the stock V1.1.41 /usr first and kept the vendor libraries in it)
+usrkind=other
+[ "$usr" = "$(awk '$1 == "usr" { print $2; exit }' "$K/known-stock.txt" 2>/dev/null)" ] && usrkind=stock
+[ $usrkind = other ] && [ -e /usr/tc100/VERSION ] && [ "$(dd if=${MTD}6 bs=4 count=1 2>/dev/null)" = hsqs ] && usrkind="2.x $(cat /usr/tc100/VERSION)"
+{ echo "uboot $uboot"; echo "rootfs $rootfs"; echo "usr $usr"; echo "usrkind $usrkind"; } > "$K/camera.txt"
+say "camera: U-Boot $uboot, root $rootfs, /usr $usr ($usrkind)"
 for k in uboot rootfs usr; do
+	case "$k:$usrkind" in usr:2.x*) continue ;; esac
 	want=$(awk -v k=$k '$1 == k { print $2; exit }' "$K/known-stock.txt" 2>/dev/null)
 	eval got=\$$k
 	[ -z "$want" ] && { say "note: no known $k md5 to compare with"; continue; }
@@ -69,17 +75,41 @@ grep -q '^boot_normal=' "$K/env-stock.txt" || stop "the U-Boot environment has n
 grep -q '^bootcmd=' "$K/env-stock.txt" || stop "the U-Boot environment has no bootcmd"
 
 # 2. The whole flash on the card
-say "saving the whole flash (8 MB) to tc100-3/backup/flash-stock.bin..."
+say "saving the whole flash (8 MB, the system it runs now) to tc100-3/backup/flash-stock.bin..."
 dd if=${MTD}0 of="$K/backup/flash-stock.bin" bs=65536 2>/dev/null && sync
 a=$(md5 < "$K/backup/flash-stock.bin"); b=$(dd if=${MTD}0 bs=65536 2>/dev/null | md5)
 [ "$a" = "$b" ] && [ "$(wc -c < "$K/backup/flash-stock.bin")" -eq 8388608 ] || stop "the flash copy on the card differs from the flash (card?)"
 echo "$a  flash-stock.bin" > "$K/backup/flash-stock.bin.md5"
-say "flash saved, md5 $a. KEEP IT: it is the way back to the stock firmware, and it holds vendor files: do not publish it."
+say "flash saved, md5 $a. KEEP IT: it is the way back to the system the camera had before 3.0 ($usrkind), and it holds vendor files: do not publish it."
 
 # 3. Vendor libraries of this camera, for the 3.0 firmware
 sh "$C/v3/install/collect-vendor.sh" / "$C/lib" >> "$LOG" 2>&1 || stop "the camera's libraries could not be copied to the card"
 sync
 say "vendor libraries copied to lib/"
+
+# 3b. Settings and Wi-Fi of the system the camera runs now, so that the trial mode starts with them: the 2.x
+#     firmware installed to flash keeps them in jffs2; the stock firmware has its Wi-Fi in anyka_cfg.ini.
+#     Files already on the card win.
+P=/etc/jffs2/tc100
+mkdir -p "$C/config"
+if [ -d "$P/config" ]; then
+	for f in "$P"/config/* "$P"/config/.wizard_done; do
+		[ -e "$f" ] || continue
+		n=${f##*/}
+		case "$n" in *.dist|*.pre-migrate|*.expired|*.bak*|*-bak|openssl.cnf|packages.lock|ssl|.lkg|lighttpd*) continue ;; esac
+		[ -e "$C/config/$n" ] || cp -r "$f" "$C/config/" 2>/dev/null
+	done
+	say "settings of the 2.x firmware copied to config/"
+fi
+W=$C/config/wpa_supplicant.conf
+if [ ! -f "$W" ]; then
+	if [ -f "$P/wpa_supplicant.conf" ]; then cp "$P/wpa_supplicant.conf" "$W"
+	elif [ -r /etc/jffs2/anyka_cfg.ini ]; then
+		awk -f "$C/v3/install/anyka-wifi.awk" /etc/jffs2/anyka_cfg.ini > "$W.tmp" && mv "$W.tmp" "$W" || rm -f "$W.tmp"
+	fi
+	[ -f "$W" ] && chmod 600 "$W" && say "Wi-Fi settings of the camera copied to config/wpa_supplicant.conf"
+fi
+sync
 
 # 4. Boot commands
 grep -q '^flashcheck=' "$K/env-stock.txt" && say "note: 3.0 boot commands already present, written again"
