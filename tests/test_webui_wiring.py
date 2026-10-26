@@ -42,6 +42,34 @@ class WebUiWiring(unittest.TestCase):
         missing = sorted(r for r in refs - CLIENT_SIDE if not handles(handler_text(r[0]), r[1]))
         self.assertEqual(missing, [], 'commands called by the UI without a handler')
 
+    def test_every_called_action_command_is_routed(self):
+        # action.cgi runs a command only when its dispatch table names it (or it is handled before the table):
+        # a handler in scripts/action.d that the table forgets answers "Unsupported command".
+        a = (CGI / 'action.cgi').read_text(errors='ignore')
+        i = a.index('# Each command lives in scripts/action.d')
+        j = a.index('*) _action_group= ;;', i)
+        routed = set()
+        for m in re.finditer(r'^\s+([a-z0-9_|.-]+)\)\s*$', a[i:j], re.M):
+            routed |= set(m.group(1).split('|'))
+        called = set()
+        for f in list(WWW.glob('*.html')) + list((WWW / 'scripts').glob('*.js')) + [CGI / 'wizard.cgi']:
+            called |= set(re.findall(r'cgi-bin/action\.cgi\?cmd=([A-Za-z0-9_]+)', f.read_text(errors='ignore')))
+        missing = sorted(c for c in called - routed - {c for _, c in CLIENT_SIDE} if not handles(a[:i], c))
+        self.assertEqual(missing, [], 'action.cgi commands called by the UI but not routed')
+
+    def test_json_answers_are_asked_for(self):
+        # action.cgi answers JSON only with format=json (or Accept: application/json, which the pages do not send);
+        # otherwise it appends "<hr/>" and a page that parses the answer as JSON shows an error after a success.
+        bad = []
+        for f in list(WWW.glob('*.html')) + list((WWW / 'scripts').glob('*.js')):
+            s = f.read_text(errors='ignore')
+            for m in re.finditer(r"cgi-bin/action\.cgi\?cmd=([A-Za-z0-9_]+)[^'\"]*", s):
+                if 'format=json' in m.group(0):
+                    continue
+                if re.search(r'\.json\(\)', s[m.end():m.end() + 260]):
+                    bad.append((f.name, m.group(1)))
+        self.assertEqual(sorted(bad), [], 'action.cgi answers parsed as JSON without format=json')
+
     def test_every_form_field_is_read_by_its_handler(self):
         html = (WWW / 'settings.html').read_text(errors='ignore')
         unread = []

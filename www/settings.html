@@ -102,9 +102,9 @@
 
         <!-- Video -->
         <div class="tab-content is-hidden" id="tab-video">
-            <p class="settings-intro">Start with a profile, or adjust each stream below. Advanced options are collapsed; opening them does not change any settings.</p>
-            <p class="help show-l66 mb-3">This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360 at up to 15 frames per second: resolution and frame rate below are not used; codec and bit rate are.</p>
-            <div class='card status_card mb-4 is-link is-light'>
+            <p class="settings-intro hide-l66">Start with a profile, or adjust each stream below. Advanced options are collapsed; opening them does not change any settings.</p>
+            <p class="help show-l66 mb-3">This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360, at up to 15 frames per second. Set the bit rate below, and the codec under Advanced encoding.</p>
+            <div class='card status_card mb-4 is-link is-light hide-l66'>
                 <header class='card-header'><p class='card-header-title'>Quick setup</p></header>
                 <div class='card-content'>
                     <div class="columns">
@@ -163,7 +163,7 @@
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Main stream</p></header>
                     <div class="card-content">
-                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_size0">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size0" id="video_size0"><option value="1920x1080">1920x1080</option><option value="1600x904">1600x904</option><option value="1280x720">1280x720</option><option value="1024x576">1024x576</option><option value="640x360">640x360</option></select></div></div><div class="column is-half"><label class="label is-small" for="fps0">Frames per second</label><input class="input is-small" name="fps0" id="fps0" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate0">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" min="32" max="8000" step="1" required></div></div>
+                        <div class="columns is-multiline"><div class="column is-half hide-l66"><label class="label is-small" for="video_size0">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size0" id="video_size0"><option value="1920x1080">1920x1080</option><option value="1600x904">1600x904</option><option value="1280x720">1280x720</option><option value="1024x576">1024x576</option><option value="640x360">640x360</option></select></div></div><div class="column is-half hide-l66"><label class="label is-small" for="fps0">Frames per second</label><input class="input is-small" name="fps0" id="fps0" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate0">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" min="32" max="8000" step="1" required></div></div>
                         <details class="settings-advanced">
                             <summary>Advanced encoding</summary>
                             <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
@@ -180,7 +180,7 @@
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Secondary stream</p></header>
                     <div class="card-content">
-                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_size1">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size1" id="video_size1"><option value="640x360">640x360</option><option value="352x200">352x200</option></select></div></div><div class="column is-half"><label class="label is-small" for="fps1">Frames per second</label><input class="input is-small" name="fps1" id="fps1" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate1">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate1" id="brbitrate1" type="number" min="32" max="8000" step="1" required></div></div>
+                        <div class="columns is-multiline"><div class="column is-half hide-l66"><label class="label is-small" for="video_size1">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size1" id="video_size1"><option value="640x360">640x360</option><option value="352x200">352x200</option></select></div></div><div class="column is-half hide-l66"><label class="label is-small" for="fps1">Frames per second</label><input class="input is-small" name="fps1" id="fps1" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate1">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate1" id="brbitrate1" type="number" min="32" max="8000" step="1" required></div></div>
                         <details class="settings-advanced">
                             <summary>Advanced encoding</summary>
                             <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
@@ -508,6 +508,13 @@
                 <p class="help">Loading…</p>
             </div>
 
+             <div class='card status_card mt-4 show-l66' id="wifiRescueCard">
+                <header class='card-header'><p class='card-header-title'>Rescue Wi-Fi</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-2">When the camera cannot join its Wi-Fi for 10 minutes, it opens its own Wi-Fi network for 15 minutes: join it with a phone and open http://10.42.0.1/ to fix the settings. Switch it on or off in Services (wifi-rescue, Boot).</p>
+                    <p class="is-size-7" id="wifiRescueInfo">…</p>
+                </div>
+            </div>
              <div class='card status_card mt-4'>
                 <header class='card-header'><p class='card-header-title'>Name and network services</p></header>
                 <div class='card-content'>
@@ -986,7 +993,7 @@
         function loadWifiSsid() {
             var tag = document.getElementById('current_ssid_tag');
             if (!tag || tag.dataset.loaded) return;
-            fetch('cgi-bin/action.cgi?cmd=wifi_get_ssid&_=' + Date.now())
+            fetch('cgi-bin/action.cgi?cmd=wifi_get_ssid&format=json&_=' + Date.now())
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     if (d && d.ssid) {
@@ -1017,7 +1024,7 @@
                 btn.classList.add('is-loading');
                 var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
                 var body = 'ssid=' + encodeURIComponent(ssid) + '&psk=' + encodeURIComponent(psk);
-                cf('cgi-bin/action.cgi?cmd=wifi_set_config', {
+                cf('cgi-bin/action.cgi?cmd=wifi_set_config&format=json', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: body
@@ -1049,7 +1056,7 @@
                 if (!confirm('Restart the setup wizard?\n\nYou will be redirected to the wizard. The current configuration is preserved.')) return;
                 btn.classList.add('is-loading');
                 var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
-                cf('cgi-bin/action.cgi?cmd=wizard_reset', { method: 'POST' })
+                cf('cgi-bin/action.cgi?cmd=wizard_reset&format=json', { method: 'POST' })
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     if (d && d.status === 'success') {
@@ -1252,6 +1259,19 @@
             refresh();
         })();
 
+        (function initWifiRescueInfo() {
+            var el = document.getElementById('wifiRescueInfo');
+            if (!el) return;
+            fetch('cgi-bin/action.cgi?cmd=wifi_rescue_info&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (!d || d.status !== 'success') throw new Error('no answer');
+                    el.textContent = (d.enabled ? 'On at boot. ' : 'Off at boot. ') + (d.ap ? 'Open now. ' : '') +
+                        'Network name: ' + (d.ssid || '?') + ' · password: ' + (d.psk || '?');
+                })
+                .catch(function() { el.textContent = 'The rescue Wi-Fi state could not be read.'; });
+        })();
+
         (function initPasswordForm() {
             var a = document.getElementById('all_password'), b = document.getElementById('all_password2');
             if (!a || !b) return;
@@ -1333,7 +1353,7 @@
                 btn.onclick = function() {
                     var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
                     btn.classList.add('is-loading');
-                    cf('cgi-bin/action.cgi?cmd=refresh_ha_discovery', { method: 'POST' })
+                    cf('cgi-bin/action.cgi?cmd=refresh_ha_discovery&format=json', { method: 'POST' })
                         .then(function(res) { return res.json(); })
                         .then(function(data) {
                             if (data && (data.ok === true || data.status === 'success')) {

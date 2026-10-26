@@ -45,6 +45,9 @@ for l in libmpi_venc_ex.so libnetacl.so; do cp "lib/$l" "$T/lib/"; done
 cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$T/tc100test/"
 cp v3/linux66-sd/rtsp-launch.sh config/isp_f23_mipi_2lane.conf "$T/tc100test/"
 find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' \) -exec rm -f {} +
+# web pages, styles and scripts also as .gz: busybox httpd (FEATURE_HTTPD_GZIP) sends those to browsers that accept
+# gzip, about a quarter of the bytes over Wi-Fi (the CGI answers are not concerned)
+find "$T/www" -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.svg' \) -size +1k -exec gzip -9 -k -n {} \;
 
 # 2. Free tools of the Buildroot base that the initramfs leaves out (v3/initramfs-prune.txt), with the libraries
 #    they need that the initramfs does not have, and the CA bundle for curl

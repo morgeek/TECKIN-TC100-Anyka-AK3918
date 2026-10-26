@@ -546,6 +546,12 @@ read_rtsp_stream_summary() {
     maxkbps1="$(sanitize_int "$(get_cfg 1_maxkbps 450)" 450)"
     targetkbps1="$(sanitize_int "$(get_cfg 1_targetkbps 400)" 400)"
 
+    # 3.0 (Linux 6.6): tc100_rtsp encodes 1920x1080 and 640x360 at 15 frames per second whatever the file says
+    # (codec and bit rate are taken from it): report what the streams really are (dashboard, Frigate YAML, HA manifest).
+    if [ -f /tmp/linux66 ]; then
+      width0=1920; height0=1080; width1=640; height1=360; fps0=15; fps1=15
+    fi
+
     codec0_name="$(codec_name "$codec0")"
     codec1_name="$(codec_name "$codec1")"
 

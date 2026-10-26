@@ -23,8 +23,18 @@
       fi
       _rs_drops=0
       for _rs_d in $(sed -n 's/^client=.* drops=\([0-9]*\).*/\1/p' /var/run/tc100rtsp 2>/dev/null); do _rs_drops=$((_rs_drops + _rs_d)); done
+      _rs_port="$(_rs_num "$(_rs_v port)")"; _rs_clients="$(_rs_num "$(_rs_v clients)")"
+      if [ -f /tmp/linux66 ]; then
+        # 3.0: one server, tc100_rtsp; its clients are the established connections to the RTSP port
+        _rs_server=tc100_rtsp; _rs_fb=0; _rs_age=0
+        _rs_port="$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf r " " PORT 2>/dev/null)"
+        case "$_rs_port" in ''|*[!0-9]*) _rs_port=554 ;; esac
+        _rs_hex="$(printf '%04X' "$_rs_port")"
+        _rs_clients="$(awk -v p=":$_rs_hex" 'NR > 1 && $4 == "01" && substr($2, length($2) - 4) == p { n++ } END { print n + 0 }' /proc/net/tcp 2>/dev/null)"
+        _rs_clients="$(_rs_num "$_rs_clients")"
+      fi
       printf '{"ok":true,"server":"%s","substream":%s,"talk":%s,"fallback":%s,"status_age":%s,"port":%s,"clients":%s,"drops":%s,"audio":"%s","talk_state":"%s"}\n' \
-        "$_rs_server" "$_rs_sub" "$_rs_talk" "$_rs_fb" "$_rs_age" "$(_rs_num "$(_rs_v port)")" "$(_rs_num "$(_rs_v clients)")" \
+        "$_rs_server" "$_rs_sub" "$_rs_talk" "$_rs_fb" "$_rs_age" "$_rs_port" "$_rs_clients" \
         "$_rs_drops" "$(json_escape "$(_rs_v audio)")" "$(json_escape "$(_rs_v talk)")"
     ;;
 

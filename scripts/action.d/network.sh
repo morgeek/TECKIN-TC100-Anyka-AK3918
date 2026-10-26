@@ -161,6 +161,16 @@
         fi
     ;;
 
+    wifi_rescue_info)
+        # The rescue access point (scripts/wifi-rescue.sh): on at boot (Services), up now, its name and password.
+        _wr="$(sh /mnt/scripts/wifi-rescue.sh status 2>/dev/null)"
+        _wr_on=0; [ -f /mnt/config/autostart/wifi-rescue ] && _wr_on=1
+        _wr_v() { printf '%s\n' "$_wr" | sed -n "s/^$1=//p" | head -n 1 | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }'; }
+        _wr_ap="$(_wr_v ap)"; case "$_wr_ap" in 1) ;; *) _wr_ap=0 ;; esac
+        printf '{"status":"success","enabled":%s,"ap":%s,"ssid":"%s","psk":"%s","address":"10.42.0.1"}\n' \
+            "$_wr_on" "$_wr_ap" "$(_wr_v ssid)" "$(_wr_v psk)"
+    ;;
+
     wifi_get_ssid)
         # Ask the interface, not a file. The camera often carries no
         # wpa_supplicant.conf at all (the firmware holds credentials in flash),

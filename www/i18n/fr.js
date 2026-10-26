@@ -1,6 +1,9 @@
 window.tc100I18nFr = {
  "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (lighttpd compresses and caches .js). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
  "strings": {
+  "Free server tc100_rtsp on port": "Serveur libre tc100_rtsp sur le port",
+  "Rescue Wi-Fi": "Wi-Fi de secours",
+  "When the camera cannot join its Wi-Fi for 10 minutes, it opens its own Wi-Fi network for 15 minutes: join it with a phone and open http://10.42.0.1/ to fix the settings. Switch it on or off in Services (wifi-rescue, Boot).": "Quand la caméra ne parvient pas à rejoindre son Wi-Fi pendant 10 minutes, elle ouvre son propre réseau Wi-Fi pendant 15 minutes : rejoignez-le avec un téléphone et ouvrez http://10.42.0.1/ pour corriger les réglages. Activez-le ou non dans Services (wifi-rescue, Démarrage).",
   "Firmware 3.0 (Linux 6.6) running from the flash memory: upload": "Firmware 3.0 (Linux 6.6) en fonctionnement depuis la mémoire flash : envoyez",
   "from the release page; the system, kernel and boot image are written to the flash, read back, and the camera restarts. Settings, Wi-Fi and the camera's own libraries are kept.": "depuis la page des versions ; le système, le noyau et l’image de démarrage sont écrits dans la flash, relus, puis la caméra redémarre. Les réglages, le Wi-Fi et les bibliothèques propres à la caméra sont conservés.",
   "MP4 clips. H.264 plays in every browser; H.265 only where the browser decodes it (Safari, Edge): otherwise use Download and open the file in VLC.": "Clips MP4. Le H.264 se lit dans tous les navigateurs ; le H.265 seulement là où le navigateur le décode (Safari, Edge) : sinon, utilisez Télécharger et ouvrez le fichier dans VLC.",
@@ -13,7 +16,7 @@ window.tc100I18nFr = {
   "The settings could not be saved to the flash.": "Les réglages n’ont pas pu être enregistrés dans la flash.",
   "The settings could not be saved to the flash:": "Les réglages n’ont pas pu être enregistrés dans la flash :",
   "This firmware draws the clock text itself: colour, background, alpha and rotation are not available.": "Ce firmware dessine lui-même le texte de l’horloge : couleur, fond, transparence et rotation ne sont pas disponibles.",
-  "This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360 at up to 15 frames per second: resolution and frame rate below are not used; codec and bit rate are.": "Ce firmware encode le flux principal en 1920x1080 et le flux secondaire en 640x360, jusqu’à 15 images par seconde : la résolution et la cadence ci-dessous ne sont pas utilisées ; le codec et le débit le sont.",
+  "This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360, at up to 15 frames per second. Set the bit rate below, and the codec under Advanced encoding.": "Ce firmware encode le flux principal en 1920x1080 et le flux secondaire en 640x360, jusqu’à 15 images par seconde. Réglez le débit ci-dessous, et le codec dans Encodage avancé.",
   "This firmware sends G.711 A-law at 8000 Hz (sample rate and codec are not used); the level applies at once.": "Ce firmware envoie du G.711 A-law à 8000 Hz (fréquence et codec ne sont pas utilisés) ; le niveau s’applique tout de suite.",
   "This firmware uses the mean picture luminance, 0 to 255 (defaults 40 and 100); the AWB values are not used.": "Ce firmware utilise la luminance moyenne de l’image, de 0 à 255 (40 et 100 par défaut) ; les valeurs AWB ne sont pas utilisées.",
   "(made by": "(créé par",

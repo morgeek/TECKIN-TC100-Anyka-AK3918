@@ -203,8 +203,8 @@ fi
 CS=/mnt/controlscripts
 # RTSP restarter (scripts/service-watchdog.sh through the rtsp-h26x shim): tc100_rtsp was started above
 [ "$NEWRTSP" = 1 ] && [ -f $CS/rtsp-h26x ] && sh $CS/rtsp-h26x watchdog </dev/null >/dev/null 2>&1
-# ONVIF Discovery (monvifd)
-if [ -f $CS/onvif ]; then
+# ONVIF Discovery (monvifd): off by default as on 2.x, on when switched on in Services (config/autostart/onvif)
+if [ -f $CS/onvif ] && [ -e /mnt/config/autostart/onvif ]; then
   sh $CS/onvif restart </dev/null >/dev/null 2>&1
   echo "[tc100-v3] ONVIF service active on port 8081 & WS-Discovery UDP 3702" > /dev/console
 fi
