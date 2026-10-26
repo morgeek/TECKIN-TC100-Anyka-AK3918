@@ -1,7 +1,13 @@
 #!/bin/sh
 # TC100 V3 Startup Script for Linux 6.6 LTS
 echo "[tc100-v3] Starting V3 services..." > /dev/console
-hostname tc100; echo "tc100" > /etc/hostname
+# Host name: config/hostname.conf (Settings -> Network), as on 2.x; "tc100" while it is the shipped placeholder, so that
+# http://tc100/ finds a new camera on most home routers (the name goes to the router with the DHCP request).
+H=$(grep -v '^#' /mnt/config/hostname.conf 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | tr -cd 'A-Za-z0-9-')
+case "$H" in ''|TC100-CAMERA) H=tc100 ;; esac
+hostname "$H"; echo "$H" > /etc/hostname
+# the boot script asked for a lease as "tc100": ask again with this name (net-apply, step 1c, starts udhcpc)
+[ "$H" = tc100 ] || killall udhcpc 2>/dev/null
 
 mkdir -p /tmp/logs /var/run
 # Scripts and CGIs shared with 2.x test this marker to take the Linux 6.6 path
@@ -279,6 +285,32 @@ sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
 case "$(sed -n 's/^UPDATE_CHECK="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)" in
   1|true|yes|on) ( sleep 120; exec sh /mnt/scripts/update-check.sh ) </dev/null >/dev/null 2>&1 & ;;
 esac
+
+# 12e. Tell the user the camera is ready: the startup chime of 2.x on the speaker (BOOT_SOUND=0 in boot.conf: silent),
+#      and how to reach it, on the card (tc100-3/ADRESSE.txt, Windows line ends): its address once the network gave
+#      one; without a network after 12 minutes, the name and password of its rescue access point (scripts/wifi-rescue.sh
+#      starts it after 10 minutes without Wi-Fi), so that a camera with a wrong or missing wifi.txt can still be set up.
+[ "$(bootv BOOT_SOUND)" = 0 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
+( i=0; IP=
+  while [ $i -lt 144 ]; do
+    IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)
+    [ -n "$IP" ] && [ "$IP" != 10.42.0.1 ] && break
+    IP=; sleep 5; i=$((i + 1))
+  done
+  grep -q ' /mnt/sd vfat ' /proc/mounts || exit 0
+  mkdir -p /mnt/sd/tc100-3
+  if [ -n "$IP" ]; then
+    printf 'TC100 %s\r\nWeb page: http://%s/  (or http://%s/)\r\nRTSP: rtsp://%s:554/video0_unicast\r\nWritten %s\r\n' \
+      "$(cat /mnt/VERSION 2>/dev/null)" "$IP" "$(hostname)" "$IP" "$(date '+%Y-%m-%d %H:%M')"
+  else
+    S=$(sh /mnt/scripts/wifi-rescue.sh status 2>/dev/null)
+    printf 'TC100 %s: no Wi-Fi network after 12 minutes (wrong or missing wifi.txt?).\r\n' "$(cat /mnt/VERSION 2>/dev/null)"
+    printf 'Connect a phone or computer to the camera'"'"'s own Wi-Fi:\r\n  name: %s\r\n  password: %s\r\n' \
+      "$(echo "$S" | sed -n 's/^ssid=//p')" "$(echo "$S" | sed -n 's/^psk=//p')"
+    printf 'then open http://10.42.0.1/ and set the Wi-Fi in Settings -> Network.\r\n'
+    printf 'Or: power off, put a wifi.txt (SSID=..., PASSWORD=...) at the root of this card, power on.\r\n'
+  fi > /mnt/sd/tc100-3/ADRESSE.txt
+  sync ) </dev/null >/dev/null 2>&1 &
 
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).

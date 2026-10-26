@@ -3,6 +3,8 @@ name: Build Linux 6.6 LTS Kernel with CMA 16MB for TECKIN TC100
 on:
   push:
     branches: [ main, v3-linux66, v3-on-main ]
+    # a tag v3... also publishes the GitHub release (path filters do not apply to tags)
+    tags: [ 'v3*' ]
     paths:
       - 'patches/kernel-6.6/**'
       - 'v3/**'
@@ -28,6 +30,8 @@ jobs:
     name: Compile Linux 6.6 + Anyka AK3918 + CMA 16MB
     needs: base
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -151,6 +155,17 @@ jobs:
           path: |
             output/release/*.zip
             output/release/*.tar
+
+      - name: Publish the GitHub release (tags v3*)
+        if: startsWith(github.ref, 'refs/tags/v3')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cd output/release
+          md5sum *.zip *.tar > MD5SUMS.txt
+          PRE=; case "$GITHUB_REF_NAME" in *-rc*|*-beta*|*-alpha*) PRE=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" $PRE             --title "TC100 firmware $GITHUB_REF_NAME" --notes-file "$GITHUB_WORKSPACE/v3/install/RELEASE-NOTES.md"             *.zip *.tar MD5SUMS.txt
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
