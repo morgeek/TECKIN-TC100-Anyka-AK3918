@@ -494,6 +494,8 @@ http_password(){
   pass=$1
   hash=$(echo -n "$user:$realm:$pass" | md5sum | cut -b -32)
   echo "$user:$realm:$hash" > /mnt/config/lighttpd.user
+  # Linux 6.6 (busybox httpd): the login lives in /etc/httpd.conf
+  [ -f /mnt/v3/linux66-sd/web-auth ] && [ -x /usr/sbin/httpd ] && sh /mnt/v3/linux66-sd/web-auth "$pass"
 }
 
 # Control the RTSP h264 server

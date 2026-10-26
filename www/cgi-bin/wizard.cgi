@@ -21,7 +21,10 @@ MQTT_CONF_DIST="$CONFIG/mqtt.conf.dist"
 STORAGE="sd"; [ "$(cat "$STORAGE_FILE" 2>/dev/null)" = flash ] && STORAGE="flash"
 # The file wpa_supplicant uses (autorun.sh WIFI_CONFIG); from flash it lives
 # in jffs2 and /mnt/wpa_supplicant.conf links to it (scripts/flashboot.sh).
-if [ "$STORAGE" = flash ]; then WIFI_CONF="${WZ_WIFI_CONF:-/etc/jffs2/tc100/wpa_supplicant.conf}"
+# Linux 6.6: the boot reads config/wpa_supplicant.conf (flash settings or card), v3/linux66-sd/wifi-apply uses it now.
+L66=0; [ -f "$CARD/v3/linux66-sd/wifi-apply" ] && [ -x /usr/sbin/httpd ] && L66=1
+if [ "$L66" = 1 ]; then WIFI_CONF="${WZ_WIFI_CONF:-$CONFIG/wpa_supplicant.conf}"
+elif [ "$STORAGE" = flash ]; then WIFI_CONF="${WZ_WIFI_CONF:-/etc/jffs2/tc100/wpa_supplicant.conf}"
 else WIFI_CONF="${WZ_WIFI_CONF:-$CARD/wpa_supplicant.conf}"; fi
 
 json_str() { printf '%s' "$1" | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }'; }
@@ -100,6 +103,7 @@ case "$QUERY" in
         echo ""
         _ssid=""
         command -v wpa_cli >/dev/null 2>&1 && _ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk '/^ssid=/ { print substr($0, 6); exit }')"
+        [ -z "$_ssid" ] && command -v iw >/dev/null 2>&1 && _ssid="$(iw dev wlan0 link 2>/dev/null | awk '/^[ 	]*SSID:/ { sub(/^[ 	]*SSID: ?/, ""); print; exit }')"
         [ -z "$_ssid" ] && command -v iwconfig >/dev/null 2>&1 && _ssid="$(iwconfig wlan0 2>/dev/null | awk -F'"' '/ESSID:"/ { print $2; exit }')"
         _flash="$(FI_CARD="$CARD" sh "$SCRIPTS/flash-install.sh" status 2>/dev/null)"
         # A card the recorder can use: SD mode = the card itself; from flash,
@@ -259,9 +263,11 @@ if [ "$METHOD" = "POST" ]; then
     if [ -n "$_wifi_ssid" ]; then
         _wd="/tmp/wizard-wifi.$$"; mkdir -p "$_wd"
         { printf 'SSID=%s\n' "$_wifi_ssid"; [ -n "$_wifi_pass" ] && printf 'PASSWORD=%s\n' "$_wifi_pass"; } > "$_wd/wifi.txt"
+        [ "$L66" = 1 ] && [ ! -f "$WIFI_CONF" ] && [ -f /etc/wpa_supplicant.conf ] && cp /etc/wpa_supplicant.conf "$WIFI_CONF"
         if sh "$SCRIPTS/wifi-txt.sh" apply "$_wd/wifi.txt" "$WIFI_CONF" /etc/jffs2/anyka_cfg.ini >/dev/null 2>&1; then
             _wifi=applied
-            [ "$STORAGE" = flash ] && [ ! -e "$CARD/wpa_supplicant.conf" ] && ln -s "$WIFI_CONF" "$CARD/wpa_supplicant.conf" 2>/dev/null
+            [ "$L66" = 1 ] && ( sh "$CARD/v3/linux66-sd/wifi-apply" 5 </dev/null >/dev/null 2>&1 & )
+            [ "$L66" = 0 ] && [ "$STORAGE" = flash ] && [ ! -e "$CARD/wpa_supplicant.conf" ] && ln -s "$WIFI_CONF" "$CARD/wpa_supplicant.conf" 2>/dev/null
         else
             _wifi=failed
         fi

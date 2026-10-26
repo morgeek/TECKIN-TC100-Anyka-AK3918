@@ -1,0 +1,21 @@
+#!/bin/sh
+# wifi-apply [DELAY]   use /mnt/config/wpa_supplicant.conf now (Linux 6.6).
+# The boot script copies the settings to /etc/wpa_supplicant.conf and starts wpa_supplicant on that copy;
+# /mnt/config/wpa_supplicant.conf is the file kept in the flash settings (cfg-persist) or on the card.
+# Run detached (the web page that saved the settings gets its answer first): DELAY seconds, then the copy,
+# a wpa_supplicant reload (wpa_cli) or restart, and a new DHCP lease.
+C=/mnt/config/wpa_supplicant.conf
+sleep "${1:-0}"
+grep -q 'ssid=' "$C" 2>/dev/null || exit 1
+( umask 077; cp "$C" /etc/wpa_supplicant.conf.new ) && mv -f /etc/wpa_supplicant.conf.new /etc/wpa_supplicant.conf || exit 1
+ip link set wlan0 up 2>/dev/null
+if ! { command -v wpa_cli >/dev/null 2>&1 && pidof wpa_supplicant >/dev/null && wpa_cli -i wlan0 reconfigure 2>/dev/null | grep -q OK; }; then
+	killall wpa_supplicant 2>/dev/null; sleep 1
+	wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant.conf >/dev/null 2>&1
+fi
+# a new network gives a new address: ask for a lease again once the association had time to happen
+sleep 8
+killall udhcpc 2>/dev/null
+udhcpc -i wlan0 -b -t 10 -x hostname:"$(hostname)" >/dev/null 2>&1
+logger -t tc100-event "Wi-Fi settings applied" 2>/dev/null
+exit 0

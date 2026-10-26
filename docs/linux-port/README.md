@@ -167,13 +167,16 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 Feature by feature status of the flash build, and the features implemented twice:
 [feature-audit-2026-10-26.md](feature-audit-2026-10-26.md). In order:
 
-1. **Web login on 6.6**: busybox `httpd` runs without `httpd.conf`, the web UI is open to the local network.
+1. ~~Web login on 6.6~~ done 2026-10-26: `v3/linux66-sd/web-auth` writes `/etc/httpd.conf` (root + camera
+   password, MD5 crypt) at boot and at each password change. Needs a base rootfs with `FEATURE_HTTPD_AUTH_MD5`.
 2. **Build the flash image from git**: commit the 6.6 versions that exist only on the SD card (`rtsp-h26x` and
    `setconf` shims installed by `build-slim-stack.sh`, the auto day/night launcher, `recording`, `sdinfo-sd.sh`,
    the `sed` edits of `v3/linux66-sd/README.md`).
-3. **Wi-Fi from the web UI and the wizard**: write `/mnt/config/wpa_supplicant.conf` and apply it live.
+3. ~~Wi-Fi from the web UI and the wizard~~ done 2026-10-26: they write `/mnt/config/wpa_supplicant.conf`,
+   `v3/linux66-sd/wifi-apply` uses it at once; `wifi.txt` on the card works again; scan through `iw` or `wpa_cli`.
 4. **IR-cut**: pulse GPIO 592/593 (81/80) from the `setconf` shim; check on the camera.
-5. **One flash writer**: keep `v3/flash-update66.sh` out of the image, make `flash-code.sh` refuse on 6.6.
+5. ~~One flash writer~~ done 2026-10-26: `flashw` has `-m MD5` and `-b DIR` (backup first), `v3/flash-update66.sh`
+   moved to `_archive_v3-drafts/`, `flash-code.sh` refuses on the 6.6 layout.
 6. `cfg-persist`: keep services turned off, report a failed save in the UI.
 7. Hide the pages of features 3.0 does not have (push-to-talk, sound detection, motion zones, Telegram, updates,
    flash install, wifi-rescue, button); ONVIF: HTTP snapshot URL, main stream only.
