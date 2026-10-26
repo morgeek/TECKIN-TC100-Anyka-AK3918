@@ -47,7 +47,10 @@ start() {
 }
 stop() {
   watchdog_stop
-  killall tc100_rtsp 2>/dev/null; sleep 1; killall -9 tc100_rtsp 2>/dev/null
+  # SIGTERM, then up to 5 s for the recorder to close its file, then SIGKILL
+  killall tc100_rtsp 2>/dev/null
+  i=0; while pidof tc100_rtsp >/dev/null && [ $i -lt 10 ]; do sleep 0.5; i=$((i+1)); done
+  killall -9 tc100_rtsp 2>/dev/null
   rm -f "$PIDFILE"
   return 0
 }

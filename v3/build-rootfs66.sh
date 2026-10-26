@@ -4,8 +4,11 @@
 #   - replaces the boot script with v3/S39tc100-linux66 (SD card, Wi-Fi, password, V3 services)
 #   - drops the Linux 4.4 kernel modules (the 6.6 kernel has Wi-Fi, SD and USB built in)
 #   - locks the default root password of the OpenIPC image (set from config/user.pwd at boot)
-# Needs root (device nodes in the archive) and cpio, gzip.
+# Needs root (device nodes in the archive) and cpio, gzip, xz.
 # Usage: v3/build-rootfs66.sh in.cpio.gz [out.gz]
+#   Output: xz with a 2 MiB dictionary (a bigger one makes the kernel run out of memory while unpacking), zero-padded
+#   to INITRD_SIZE bytes (default 2012654): the U-Boot boot commands (SD and flash) pass this fixed size, and the
+#   flash initrd partition holds it. Fails if the image is bigger.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 IN=${1:?usage: build-rootfs66.sh BASE-rootfs.cpio.gz [out.gz]}
@@ -28,7 +31,10 @@ sed -i 's|^root:[^:]*:|root:*:|' etc/shadow
 if grep -qE '^(psk|ssid)=' etc/wpa_supplicant.conf 2>/dev/null; then
   : > etc/wpa_supplicant.conf
 fi
-find . | cpio -o -H newc --quiet | gzip -9 > "$OUT.tmp"
+INITRD_SIZE=${INITRD_SIZE:-2012654}
+find . | cpio -o -H newc --quiet | xz -9 --check=crc32 --lzma2=dict=2MiB > "$OUT.tmp"
+n=$(wc -c < "$OUT.tmp")
+[ "$n" -le "$INITRD_SIZE" ] || { echo "initramfs is $n bytes, more than $INITRD_SIZE" >&2; rm -f "$OUT.tmp"; exit 1; }
+head -c $((INITRD_SIZE - n)) /dev/zero >> "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
-ls -l "$OUT"
-echo "initrd size for bootargs: $(wc -c < "$OUT")"
+echo "initramfs: $n bytes of xz, padded to $(wc -c < "$OUT") (initrd=0x81000000,$INITRD_SIZE)"

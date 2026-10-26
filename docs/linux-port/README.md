@@ -25,7 +25,7 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker not tested on 6.6 |
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
-| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. **No RTSP sub-stream** (every path serves the main stream); RTSP over UDP and the audio track not yet checked from a client |
+| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. 640x360 sub-stream on `video1_unicast` / `ch1` / `sub` (2026-10-26, not yet run on the camera); RTSP over UDP and the audio track not yet checked from a client |
 | V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge, day / night, motion (Home Assistant entities to be confirmed). Gaps (no web login, Wi-Fi from the UI, IR-cut, 2.x pages): [feature audit](feature-audit-2026-10-26.md) |
 | SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
 | Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
@@ -181,7 +181,8 @@ Feature by feature status of the flash build, and the features implemented twice
 7. Hide the pages of features 3.0 does not have (push-to-talk, sound detection, motion zones, Telegram, updates,
    flash install, wifi-rescue, button); ONVIF: HTTP snapshot URL, main stream only.
 8. On the camera: RTSP over UDP, audio listening test in Frigate / VLC, MQTT entities in Home Assistant, speaker.
-9. RTSP sub-stream (second encoder channel), ISP colour cast (blue is low).
+9. On the camera: the sub-stream (second encoder in the 12 MiB pool), the recorder, sound level and zones (section
+   below); ISP colour cast (blue is low).
 10. Smaller flash image (~1.1 MiB of unused files), final SD package and install README, SD test-file cleanup,
     optional removal of the 2 MiB guard zones.
 11. Encoder: use `AK39_VI_G_PHYS` instead of a copy per frame; free H.265 on the hardware.
@@ -233,3 +234,32 @@ at word 6 the core writes a complete, standard JFIF file by itself: the DQT are 
 the DHT the standard ones, a grey frame gives the textbook `28 a2 8a 00` scan, and a real 1920x1080
 frame decodes to the picture (116 KB at quality 35, no software header needed). Free JPEG
 encoding on the hardware core works from user space (`src/jpegenc`, `/dev/uio0`).
+
+## tc100_rtsp: sub-stream, sound level, motion zones, recorder (2026-10-26)
+
+Written and tested on the host only (`python3 tests/test_tc100rtsp.py`); not yet run on the camera.
+
+- **Sub-stream:** a second encoder channel, 640x360, same frame rate, fed from the scaled picture that also makes
+  `stream.jpg`. Codec and bit rate from `rtspserver.conf` `[1] codec` (0 H.264, 2 H.265) and `[1] bps`; off with
+  `RTSP_SUBSTREAM=0` in `boot.conf` (launcher flag `-s 0`). Paths containing `video1` (`video1`, `video1_unicast`) or
+  starting with `/ch1` or `/sub` serve it; every other path the main stream. Encoder fields as the vendor server
+  (`AnykaCameraManager::getVideoEncodeParams`): channel 1, group 2 (`RTSP_SUB_CHN`, `RTSP_SUB_GROUP` in
+  `config/rtsp.env` override). The log shows the pool use after each open; if the sub-stream does not open, or later
+  gives no frames, its paths serve the main stream.
+- **Sound level:** with `ENABLE=1` in `config/sound_detection.conf`, `/var/run/sound_level` is rewritten 4 times a
+  second in the 2.x format `<epoch> <rms_dbfs> <peak_dbfs> <events> <last_event_epoch> <last_event_dbfs>` (RMS and peak
+  of the last 0.25 s around the mean; an event per second whose RMS reaches `<file>.threshold`). `arecord` runs only
+  while an audio client plays or the sound detection is on.
+- **Motion:** on while `/tmp/tc100_md` exists and `mdenabled` is not 0; sensitivity from `/tmp/tc100_md_sens` or
+  `mdsens`; the zones of `config/motion_zones.conf` (`MDZ1..4="x1,y1,x2,y2"`, percent) are left out of the 64x36 luma
+  grid (2.x `md.c` rule: a cell is ignored when its centre lies in a zone). `/tmp/rec_control` as before;
+  `/var/run/md_zones` holds the 2.x status line. The boot starts it only when `mdenabled=1` or
+  `config/autostart/motion-detection` exists.
+- **Recorder** (`src/tc100rtsp/rec.c`, no ffmpeg): the encoded frames go into Matroska files
+  `/mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mkv` (the name the Recordings page lists) with a hardware-JPEG thumbnail
+  `YYYY-MM-DD_HH-MM-SS.jpg` of the first keyframe next to each. Settings of `boot.conf`, read while running:
+  `REC_LOCAL`, `REC_WHEN=offline|always|motion`, `REC_STREAM=main|sub`, `REC_SEGMENT_SEC`, `REC_RESERVE_MB`,
+  `REC_OFFLINE_SEC`, `REC_POSTROLL_SEC`, `REC_CLIENT` (else the host of `FRIGATE_URL`). Only into a vfat/exfat card;
+  the oldest recordings are deleted to keep `REC_RESERVE_MB` free; `/var/run/tc100rec.pause` (`rec-storage.sh eject`)
+  closes the file and leaves the card alone; state in `/var/run/tc100rec`. Card I/O runs in a writer thread so a slow
+  card never stalls the capture loop. `controlscripts/recording start|stop` sets `REC_LOCAL`.

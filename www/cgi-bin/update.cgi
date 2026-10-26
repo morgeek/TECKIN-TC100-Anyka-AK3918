@@ -12,6 +12,9 @@
 # (server.stream-request-body for this URL) straight to the SD card: a package
 # is several MB and RAM is ~33 MB in total.
 
+# 3.0 (Linux 6.6): images written to the flash partitions (v3/install/update66-cgi.sh, same JSON protocol)
+[ -f /tmp/linux66 ] && [ -f /mnt/v3/install/update66-cgi.sh ] && exec sh /mnt/v3/install/update66-cgi.sh
+
 FWU="${FWU_SCRIPT:-/mnt/scripts/fw-update.sh}"
 WORK="${FWU_WORK:-/mnt/tc100-update}"
 MAX_BYTES=$((48 * 1024 * 1024))

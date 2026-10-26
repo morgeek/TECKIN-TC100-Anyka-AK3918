@@ -1,0 +1,7 @@
+# md5 of the stock flash of the TECKIN TC100 the 3.0 install was tested on (vendor firmware V1.1.41).
+# stock-hook.sh compares the camera with each line present here and stops on a difference
+# (tc100-3/ALLOW-OTHER-STOCK on the card overrides it). Missing lines are only recorded (tc100-3/camera.txt).
+#   uboot   md5 of the first 0x39000 bytes of the flash (U-Boot and its table)
+#   rootfs  md5 of partition A (mtd4), the stock root file system
+#   usr     md5 of partition C (mtd6), the stock /usr
+usr def1ea44addd7a73d613d8169b395447
