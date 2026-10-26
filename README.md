@@ -90,7 +90,7 @@ grew from there.
 Linux 6.6 with free drivers, a free video encoder and a root filesystem that fits the 8 MB flash.
 Running on the camera today: one 1080p H.265 (or H.264) RTSP stream at 15 fps with the microphone,
 the web interface, MQTT / Home Assistant, Wi-Fi, ONVIF, motion and day / night, with the SD card
-optional. There is no RTSP sub-stream yet on 3.0 (every RTSP path serves the main stream). The 2.x firmware
+optional. The 640x360 RTSP sub-stream (`video1_unicast`) is coded but not yet checked on the camera. The 2.x firmware
 above stays available.
 
 - **Linux 6.6 port** of the AK3918EV300 as a series of patches on the `v6.6` tag
