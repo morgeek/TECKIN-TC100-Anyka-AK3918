@@ -7,6 +7,8 @@ echo "$$" > "$PIDFILE"
 
 LOW_LIGHT_COUNT=0
 BRIGHT_LIGHT_COUNT=0
+# Thresholds on the mean picture luminance (0-255): night below luma_night, day again above luma_day
+# (rtspserver.conf, Settings -> Day/night on 3.0; the gap stops the flapping at dusk).
 THRESHOLD_NIGHT=40
 THRESHOLD_DAY=100
 
@@ -16,12 +18,17 @@ echo "[auto-night] Daemon started" > /dev/console
 # means "manual override" and writes daynight=3, which silently froze the daemon in NIGHT mode all day.
 export NIGHT_KEEP_AUTO=1
 
-# daynight value of the config without any fork (the loop runs every 4 s)
+# daynight value and the thresholds of the config without any fork (the loop runs every 4 s)
 read_daynight() {
   DN_MODE=2
   [ -r /mnt/config/rtspserver.conf ] || return 0
   while IFS='= ' read -r _k _v _; do
-    [ "$_k" = "daynight" ] && { DN_MODE="$_v"; break; }
+    case "$_k" in
+      daynight) DN_MODE="$_v" ;;
+      luma_night) case "$_v" in [0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) THRESHOLD_NIGHT="$_v" ;; esac ;;
+      luma_day) case "$_v" in [0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) THRESHOLD_DAY="$_v" ;; esac ;;
+      '[0]') break ;;
+    esac
   done < /mnt/config/rtspserver.conf
 }
 

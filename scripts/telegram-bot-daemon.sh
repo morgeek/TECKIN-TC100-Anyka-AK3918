@@ -17,9 +17,11 @@ TELEGRAM_IDLE_SLEEP_SECONDS="${TELEGRAM_IDLE_SLEEP_SECONDS:-5}"
 TELEGRAM_ERROR_BACKOFF_SECONDS="${TELEGRAM_ERROR_BACKOFF_SECONDS:-5}"
 
 sendShot() {
-  /mnt/bin/getimage > "/tmp/telegram_image.jpg" &&\
+  # getimage (2.x) or the picture tc100_rtsp keeps (Linux 6.6)
+  . /mnt/scripts/common_functions.sh
+  take_snapshot "/tmp/telegram_image.jpg" &&\
   "$TELEGRAM" p "/tmp/telegram_image.jpg"
-  rm "/tmp/telegram_image.jpg"
+  rm -f "/tmp/telegram_image.jpg"
 }
 
 sendMem() {

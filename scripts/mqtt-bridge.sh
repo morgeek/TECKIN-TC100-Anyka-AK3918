@@ -2070,7 +2070,7 @@ handle_command_payload()
     snapshot)
       # Use a fixed path instead of timestamped to prevent /tmp RAM exhaustion
       shot_path="/tmp/mqtt-last-snapshot.jpg"
-      if /mnt/bin/getimage > "$shot_path" 2>/dev/null; then
+      if take_snapshot "$shot_path"; then
         shot_json="$(json_escape "$shot_path")"
         read -r _up _ < /proc/uptime
         now_ts=$((BTIME + ${_up%.*}))
