@@ -1,6 +1,11 @@
 #!/bin/sh
 SERVICE_NAME="RTSP H264/H265 Server"
 PIDFILE="/var/run/v4l2rtspserver.pid"
+# Linux 6.6 (3.0): the free tc100_rtsp replaces v4l2rtspserver. Same interface
+# (start|stop|restart|status|health), same pid file; see v3/linux66-sd/rtsp-h26x.
+if [ -f /tmp/linux66 ] && [ -f /mnt/v3/linux66-sd/rtsp-h26x ]; then
+  exec /bin/sh /mnt/v3/linux66-sd/rtsp-h26x "$@"
+fi
 WATCHDOG_PIDFILE="/var/run/v4l2rtspserver-watch.pid"
 # RAM: the server's own output is chatty and only useful while it runs.
 # Failures also go through tc100_log_event, which keeps them on the SD card.

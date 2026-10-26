@@ -1,22 +1,51 @@
 #!/bin/sh
 SERVICE_NAME="Auto Night Detection"
+PIDFILE="/var/run/auto-night-detection.pid"
+
+# Linux 6.6 (3.0): no vendor ISP daemon. scripts/auto-night-daemon.sh switches day/night from the picture
+# luminance that tc100_rtsp writes to /tmp/cam_luma. 2.x: the vendor ISP daemon does it (setconf -k n).
+L66=0; [ -f /tmp/linux66 ] && L66=1
+
+daemon_pid()
+{
+  _p="$(cat "$PIDFILE" 2>/dev/null)"
+  [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null && echo "$_p"
+}
 
 status()
 {
+  if [ "$L66" = 1 ]; then
+    _p="$(daemon_pid)" && echo "PID: $_p"
+    return
+  fi
   state=$(/mnt/bin/setconf -g n)
   if [ "$state" = "2" ]; then
-    echo "PID: OK" 
+    echo "PID: OK"
   fi
 }
 
 start()
 {
+  if [ "$L66" = 1 ]; then
+    /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2 2>/dev/null
+    if [ -z "$(daemon_pid)" ]; then
+      /bin/sh /mnt/scripts/auto-night-daemon.sh </dev/null >/dev/null 2>&1 &
+      echo "$!" > "$PIDFILE"
+    fi
+    return 0
+  fi
   /mnt/bin/setconf -k n -v 2
   /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2
 }
 
 stop()
 {
+  if [ "$L66" = 1 ]; then
+    _p="$(daemon_pid)" && kill "$_p" 2>/dev/null
+    rm -f "$PIDFILE"
+    /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3 2>/dev/null
+    return 0
+  fi
   /mnt/bin/setconf -k n -v 3
   /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3
 }
@@ -34,4 +63,3 @@ else
     ;;
   esac
 fi
-

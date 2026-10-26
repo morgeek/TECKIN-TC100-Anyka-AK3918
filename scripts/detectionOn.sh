@@ -19,8 +19,7 @@ fi
 # Send a telegram message
 if [ "$send_telegram" = true ]; then
 	tg_tmp="/tmp/telegram_image.$$.jpg"
-	/mnt/bin/getimage > "$tg_tmp"
-	/mnt/bin/telegram p "$tg_tmp"
+	take_snapshot "$tg_tmp" && /mnt/bin/telegram p "$tg_tmp"
 	rm -f "$tg_tmp"
 fi
 

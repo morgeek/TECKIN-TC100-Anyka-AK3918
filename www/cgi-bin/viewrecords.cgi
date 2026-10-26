@@ -46,7 +46,7 @@ if [ -n "$F_cmd" ]; then
       # Returns SD card usage stats for the recordings area
       _total=0; _used=0; _avail=0; _pct=0
       while read -r _fs _t _u _a _p _mp _rest; do
-        case "$_mp" in /mnt|/mnt/)
+        case "$_mp" in /mnt|/mnt/|/mnt/sd)
           case "$_t" in ''|*[!0-9]*) continue ;; esac
           _total="$_t"; _used="$_u"; _avail="$_a"
           _pct_raw="${_p%%%}"; case "$_pct_raw" in ''|*[!0-9]*) _pct_raw=0 ;; esac
@@ -54,7 +54,7 @@ if [ -n "$F_cmd" ]; then
           break
         ;; esac
       done <<EOF
-$(df -k /mnt 2>/dev/null | tail -n +2)
+$(df -k "$([ -f /tmp/linux66 ] && echo /mnt/sd || echo /mnt)" 2>/dev/null | tail -n +2)
 EOF
       printf '{"total_kb":%s,"used_kb":%s,"avail_kb":%s,"percent":%s}\n' \
         "$_total" "$_used" "$_avail" "$_pct"

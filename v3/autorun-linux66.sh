@@ -159,51 +159,69 @@ elif [ -x /mnt/tc100test/thingino-rtsp-server ]; then
   echo "[tc100-v3] RTSP stream active on port 554 (path /ch0)" > /dev/console
 fi
 
-# 8. Start ONVIF Discovery (monvifd)
-if [ -x /mnt/controlscripts/onvif ]; then
-  /mnt/controlscripts/onvif restart >/dev/null 2>&1
+# 8. Steps 8 onwards run the V3 control scripts, shared with 2.x: /tmp/linux66 makes them take their 6.6 path
+#    (also created at the top of this script). Files from the repository may lack the execute bit: always run
+#    them with sh.
+: > /tmp/linux66
+CS=/mnt/controlscripts
+# RTSP restarter (scripts/service-watchdog.sh through the rtsp-h26x shim): tc100_rtsp was started above
+[ "$NEWRTSP" = 1 ] && [ -f $CS/rtsp-h26x ] && sh $CS/rtsp-h26x watchdog </dev/null >/dev/null 2>&1
+# ONVIF Discovery (monvifd)
+if [ -f $CS/onvif ]; then
+  sh $CS/onvif restart </dev/null >/dev/null 2>&1
   echo "[tc100-v3] ONVIF service active on port 8081 & WS-Discovery UDP 3702" > /dev/console
 fi
 
-# 9. Start Auto Day/Night Detection
-if [ -x /mnt/controlscripts/auto-night-detection ]; then
-  /mnt/controlscripts/auto-night-detection start >/dev/null 2>&1
+# 9. Day/night. The IR-cut coil is pulsed once to the position the state file says (day after boot), then the
+#    automatic switching starts unless it was switched off (Services, or "Day" / "Night" under the picture:
+#    no config/autostart/auto-night-detection, or daynight=3 in rtspserver.conf).
+sh /mnt/v3/linux66-sd/setconf -k e -v "$(cat /var/run/ircut 2>/dev/null || echo 1)" </dev/null >/dev/null 2>&1
+DN=$(sed -n 's/^daynight=//p' /mnt/config/rtspserver.conf 2>/dev/null | head -n 1)
+if [ -f $CS/auto-night-detection ] && [ -f /mnt/config/autostart/auto-night-detection ] && [ "$DN" != 3 ]; then
+  sh $CS/auto-night-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Auto Day/Night detection active" > /dev/console
 fi
 
-# 10. Start MQTT Bridge
-if [ -x /mnt/controlscripts/mqtt-bridge ]; then
-  /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1
+# 10. MQTT Bridge (it does nothing unless MQTT_ENABLE=1 in config/mqtt.conf)
+if [ -f $CS/mqtt-bridge ]; then
+  sh $CS/mqtt-bridge start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] MQTT bridge service launched" > /dev/console
 fi
 
-# 11. Start Motion Detection
-if [ -x /mnt/controlscripts/motion-detection ]; then
-  /mnt/controlscripts/motion-detection start >/dev/null 2>&1
+# 11. Motion Detection: only when switched on in the web UI (Settings > Detection = config/autostart entry)
+if [ -f $CS/motion-detection ] && [ -f /mnt/config/autostart/motion-detection ]; then
+  sh $CS/motion-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Motion detection service active" > /dev/console
 fi
 
 # 12. Start Recording (if enabled and SD card is mounted for video storage)
-if [ -x /mnt/controlscripts/recording ] && grep -qE ' (/mnt/sd|/mnt) vfat ' /proc/mounts; then
-  /mnt/controlscripts/recording start >/dev/null 2>&1
+if [ -f $CS/recording ] && grep -qE ' (/mnt/sd|/mnt) vfat ' /proc/mounts; then
+  sh $CS/recording start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Recording service launched" > /dev/console
 fi
 
 # 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be
 #      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
-#      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
+#      then every hour. The time zone comes from config/timezone.conf (Services/Syst�me page).
 S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
 ntpd -p "$S" </dev/null >/dev/null 2>&1 &
 
-# 12b. Services switched on in the web UI (Services page, "Démarrage" toggle = file in config/autostart).
-#      Started detached, one after the other. Left out: the ones started above, the system entries (numbered), and
-#      cpu-scaler (it scales the vendor RTSP server's frame rate; nothing to scale here).
+# 12b. Services switched on in the web UI (Services page, "Boot" toggle = file in config/autostart): button-actions,
+#      wifi-rescue, memory-guard, health-snapshot, telegram-bot, ftp/telnet... Started detached, one after the other.
+#      Left out: the ones started above, the numbered system entries of 2.x (their work is done by httpfront and
+#      step 12c here), web-server (httpfront, step 6) and cpu-scaler (resolution and frame rate are fixed on 3.0).
 for f in /mnt/config/autostart/*; do
   n=${f##*/}
-  case "$n" in [0-9]*|\*|cpu-scaler|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording) continue ;; esac
-  [ -x /mnt/controlscripts/$n ] && sh /mnt/controlscripts/$n start </dev/null >/dev/null 2>&1 &
+  case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording) continue ;; esac
+  [ -f $CS/$n ] && sh $CS/$n start </dev/null >/dev/null 2>&1 &
   sleep 1
 done
+
+# 12c. Every minute (scripts/web-guard.sh): the web server answers (else restart httpfront, then a rescue telnet),
+#      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
+#      (sdinfo-sd.sh, also run once now).
+sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
+( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
 
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).

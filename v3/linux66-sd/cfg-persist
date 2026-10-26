@@ -2,13 +2,30 @@
 # cfg-persist restore|save|daemon|status   keep the user settings (config/) in the SPI flash, no SD card needed
 #   Two slots, the flash partitions "cfga" and "cfgb" (36 KiB each, written one at a time: a power cut during a save
 #   leaves the other slot intact). A slot = one text line "TC1CFG <seq> <bytes> <md5>" then a gzip'ed tar of the
-#   settings that differ from the shipped defaults (*.dist twins and unchanged files are not stored).
+#   settings that differ from the shipped defaults (*.dist twins, unchanged defaults are not stored).
+#   A shipped default the user removed (a service switched off: config/autostart/<name>) is listed in
+#   config/.cfg-deleted, stored with the settings and removed again after a restore.
 #   Saves only when something changed (checked every 30 s), so the flash is written rarely.
+#   /tmp/cfg-persist.status (state=ok|too_big|error, msg=..., ts=...) tells the web page how the last save went.
 CFG=${CFG:-/mnt/sd/config}
 [ -d "$CFG" ] || [ ! -d /mnt/config ] || CFG=/mnt/config
+DEFAULTS=${DEFAULTS:-/rom/config}      # the shipped config/ (read-only squashfs) that flashmode-prep.sh copies at boot
+STATUS=${CFG_STATUS:-/tmp/cfg-persist.status}
 SLOT_MAX=36000
 find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
 log() { echo "[cfg-persist] $*" > /dev/console 2>/dev/null; }
+set_status() { printf 'state=%s\nmsg=%s\nts=%s\n' "$1" "$2" "$(date +%s)" > "$STATUS.tmp" 2>/dev/null && mv -f "$STATUS.tmp" "$STATUS"; }
+
+# shipped defaults (not *.dist) that are missing from the settings, relative to the parent of $CFG
+deleted() {
+  [ -d "$DEFAULTS" ] || return 0
+  b=$(basename "$CFG")
+  ( cd "$DEFAULTS" && find . -type f ) 2>/dev/null | sort | while read f; do
+    f=${f#./}
+    case "$f" in *.dist|*.pid|*.tmp|*.lock|.cfg-deleted) continue;; esac
+    [ -e "$CFG/$f" ] || echo "$b/$f"
+  done
+}
 
 # list of files to store (relative to the parent of $CFG)
 list() {
@@ -16,10 +33,20 @@ list() {
   find $b -type f | sort | while read f; do
     case "$f" in *.dist|*.pid|*.tmp|*.lock|*/ssl/cacert/*|*/ssl/*.sh|*/openssl.cnf|*/swap_header*|*/isp_f23_*|*/isp.conf|*/autostart/0*|*/presets/*.json.dist) continue;; esac   # shipped static files live in the read-only stack
     [ -f "$f.dist" ] && cmp -s "$f" "$f.dist" && continue
+    [ -f "$DEFAULTS/${f#*/}" ] && cmp -s "$f" "$DEFAULTS/${f#*/}" && continue   # unchanged shipped default
     echo "$f"
   done
 }
-signature() { cd "$(dirname $CFG)" || return 1; list | while read f; do md5sum "$f"; done | md5sum | cut -d' ' -f1; }
+# the deletion list is part of the settings: refresh it before listing
+refresh_deleted() {
+  d=$(deleted)
+  if [ -n "$d" ]; then
+    [ "$d" = "$(cat "$CFG/.cfg-deleted" 2>/dev/null)" ] || echo "$d" > "$CFG/.cfg-deleted"
+  else
+    rm -f "$CFG/.cfg-deleted"
+  fi
+}
+signature() { refresh_deleted; cd "$(dirname $CFG)" || return 1; list | while read f; do md5sum "$f"; done | md5sum | cut -d' ' -f1; }
 
 # slot header -> "seq len md5" or nothing when the slot is empty/corrupt
 slot_info() {
@@ -44,30 +71,53 @@ best() {  # prints the name of the valid slot with the highest seq, with its seq
   done
   [ -n "$bn" ] && echo "$bn $bs"
 }
+# after a restore: remove the shipped defaults the user had removed (paths checked: config/... only)
+apply_deleted() {
+  [ -f "$CFG/.cfg-deleted" ] || return 0
+  b=$(basename "$CFG")
+  while read f; do
+    case "$f" in "$b"/*) ;; *) continue ;; esac
+    case "$f" in *..*) continue ;; esac
+    rm -f "$(dirname "$CFG")/$f"
+  done < "$CFG/.cfg-deleted"
+}
 
 case "$1" in
 restore)
   set -- $(best); [ -n "$1" ] || { log "no saved settings (defaults used)"; exit 1; }
-  mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && log "settings restored from slot $1 (seq $2)" ;;
+  mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && apply_deleted && log "settings restored from slot $1 (seq $2)" ;;
 save)
   S=$(signature); T=/tmp/cfgsave.$$; cd "$(dirname $CFG)" || exit 1
-  list > $T.list; [ -s $T.list ] || { log "nothing to save"; rm -f $T.*; exit 0; }
+  list > $T.list; [ -s $T.list ] || { log "nothing to save"; rm -f $T.*; echo $S > /tmp/cfg-persist.sig; set_status ok "nothing to save"; exit 0; }
   tar cf - -T $T.list | gzip -9 > $T.tgz
-  sz=$(wc -c < $T.tgz); [ "$sz" -le $SLOT_MAX ] || { log "settings too big for a slot ($sz bytes)"; rm -f $T.*; exit 2; }
+  sz=$(wc -c < $T.tgz)
+  if [ "$sz" -gt $SLOT_MAX ]; then
+    log "settings too big for a slot ($sz bytes)"; rm -f $T.*
+    set_status too_big "the settings take $sz bytes packed, the flash slot holds $SLOT_MAX (remove presets or backups in config/)"
+    exit 2
+  fi
   set -- $(best); cur=$1; seq=${2:--1}; new=$((seq+1)); if [ "$cur" = cfga ]; then tgt=cfgb; else tgt=cfga; fi
   md=$(md5sum < $T.tgz | cut -d' ' -f1)
   { printf 'TC1CFG %s %s %s\n' $new $sz $md; cat $T.tgz; } > $T.slot
-  m=$(find_mtd $tgt) || { log "no flash slot $tgt"; rm -f $T.*; exit 3; }
-  [ $(( $(cat /sys/class/mtd/$m/flags) & 1024 )) -ne 0 ] || { log "slot $tgt is read-only"; rm -f $T.*; exit 3; }
-  PATH=$PATH:/usr/sbin flashcp $T.slot /dev/$m && log "settings saved to slot $tgt (seq $new, $sz bytes)"
+  m=$(find_mtd $tgt) || { log "no flash slot $tgt"; rm -f $T.*; set_status error "no flash partition $tgt"; exit 3; }
+  [ $(( $(cat /sys/class/mtd/$m/flags) & 1024 )) -ne 0 ] || { log "slot $tgt is read-only"; rm -f $T.*; set_status error "flash partition $tgt is read-only"; exit 3; }
+  if PATH=$PATH:/usr/sbin flashcp $T.slot /dev/$m; then
+    log "settings saved to slot $tgt (seq $new, $sz bytes)"
+    set_status ok "saved to $tgt (seq $new, $sz bytes)"
+  else
+    log "writing slot $tgt failed"; rm -f $T.*
+    set_status error "writing the flash partition $tgt failed"
+    exit 4
+  fi
   echo $S > /tmp/cfg-persist.sig; rm -f $T.* ;;
 daemon)
   [ -f /tmp/cfg-persist.sig ] || signature > /tmp/cfg-persist.sig
   last=; while sleep 30; do
     if [ -z "$last" ]; then
       changed=0
-      for f in "$CFG"/* "$CFG"/autostart/* "$CFG"/presets/*; do
-        [ -f "$f" ] || continue
+      # a file written, or one removed (the directory changes then)
+      for f in "$CFG" "$CFG"/autostart "$CFG"/presets "$CFG"/* "$CFG"/autostart/* "$CFG"/presets/*; do
+        [ -e "$f" ] || continue
         case "$f" in *.dist|*.pid|*.tmp|*.lock) continue ;; esac
         if [ "$f" -nt /tmp/cfg-persist.sig ]; then changed=1; break; fi
       done
@@ -75,13 +125,19 @@ daemon)
     fi
     s=$(signature)
     if [ "$s" != "$(cat /tmp/cfg-persist.sig)" ]; then
-      if [ "$s" = "$last" ]; then sh $0 save; last=; else last=$s; fi   # saved once the change is stable for 30 s
+      if [ "$s" = "$last" ]; then
+        sh $0 save; rc=$?
+        # a failed save is retried only when the settings change again (no flash write loop)
+        [ "$rc" = 0 ] || echo $s > /tmp/cfg-persist.sig
+        last=
+      else last=$s; fi   # saved once the change is stable for 30 s
     else
       touch /tmp/cfg-persist.sig 2>/dev/null || true
       last=
     fi
   done ;;
 status)
-  for s in cfga cfgb; do echo "$s: $(slot_info $s || echo empty)"; done; best ;;
+  for s in cfga cfgb; do echo "$s: $(slot_info $s || echo empty)"; done; best
+  cat "$STATUS" 2>/dev/null ;;
 *) echo "usage: cfg-persist restore|save|daemon|status"; exit 1 ;;
 esac

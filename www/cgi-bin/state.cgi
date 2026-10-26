@@ -938,14 +938,21 @@ get_sd_usage() {
     case "$storage_json" in flash) return 0 ;; *) storage_json=sd ;; esac
   elif [ -f /tmp/flashmode ]; then
     storage_json=flash
-    return 0
+    # Linux 6.6 flash mode: a card, when there is one, is the video storage at /mnt/sd
+    [ -f /tmp/linux66 ] || return 0
+    _sd_vfat=0
+    while read -r _m_dev _m_mp _m_fs _m_rest; do
+      [ "$_m_mp $_m_fs" = "/mnt/sd vfat" ] && { _sd_vfat=1; break; }
+    done < /proc/mounts
+    [ "$_sd_vfat" = 1 ] || return 0
   fi
+  _sd_dir=/mnt; [ -f /tmp/linux66 ] && _sd_dir=/mnt/sd
 
   # df output: Filesystem 1K-blocks Used Available Use% Mounted
   # BusyBox df may omit header or use slightly different columns; parse by mount point.
   while read -r _fs _total _used _avail _pct _mp _rest; do
     case "$_mp" in
-      /mnt|/mnt/)
+      /mnt|/mnt/|/mnt/sd)
         case "$_total" in ''|*[!0-9]*) continue ;; esac
         case "$_used"  in ''|*[!0-9]*) continue ;; esac
         sd_total_kb="$_total"
@@ -958,7 +965,7 @@ get_sd_usage() {
         ;;
     esac
   done <<EOF
-$(df -k /mnt 2>/dev/null | tail -n +2)
+$(df -k "$_sd_dir" 2>/dev/null | tail -n +2)
 EOF
 }
 
@@ -1141,8 +1148,19 @@ if [ -n "$F_cmd" ]; then
     case "$sd_prompt" in *[!0-9a-zA-Z]*) sd_prompt="" ;; esac
     web_fallback=""; [ -r /tmp/web-fallback ] && read -r web_fallback < /tmp/web-fallback
     case "$web_fallback" in http) ;; *) web_fallback="" ;; esac
+    # 3.0 (Linux 6.6): the page hides what this platform does not have (html class "linux66"), and shows
+    # when the last save of the settings to the flash failed (v3/linux66-sd/cfg-persist status file).
+    platform=""; [ -f /tmp/linux66 ] && platform=linux66
+    cfg_save=""; cfg_save_msg=""
+    if [ -r /tmp/cfg-persist.status ]; then
+        while IFS='=' read -r _cp_k _cp_v; do
+            case "$_cp_k" in state) cfg_save="$_cp_v" ;; msg) cfg_save_msg="$_cp_v" ;; esac
+        done < /tmp/cfg-persist.status
+    fi
+    case "$cfg_save" in *[!a-z_]*) cfg_save="" ;; esac
+    json_esc_to cfg_save_msg_json "$cfg_save_msg"
 
-    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\"}"
+    echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\",\"platform\":\"$platform\",\"cfg_save\":\"$cfg_save\",\"cfg_save_msg\":\"$cfg_save_msg_json\"}"
     ;;
 
   integrationtest)
