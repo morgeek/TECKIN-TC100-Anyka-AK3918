@@ -122,35 +122,36 @@ above stays available.
 |---|---|---|---|
 | `boot` | 0x0 | 228 KiB | vendor U-Boot, read-only, never written |
 | `kernel` | 0x39000 | 2 MiB | Linux 6.6 uImage (about 1.9 MiB) |
-| `mac` | | 4 KiB | radio data, read-only |
-| `env` | 0x23a000 | 4 KiB | U-Boot environment (read-only for Linux) |
+| `mac` | 0x239000 | 4 KiB | radio data, read-only |
+| `env` | 0x23a000 | 4 KiB | U-Boot environment: the 3.0 start commands are added once, from the stock firmware; read-only for Linux 6.6 |
 | `initrd` | 0x23b000 | 2 MiB | xz initramfs (dictionary 2 MiB: a bigger one runs out of memory), padded to 2,012,654 bytes |
-| `stack` | 0x43b000 | 3.7 MiB | squashfs (xz) user space |
+| `stack` | 0x43b000 | 2.7 MiB | squashfs (xz) of the free user space |
+| `vendor` | 0x6ee000 | 1 MiB | squashfs of this camera's own vendor libraries, made at install |
 | `cfga`, `cfgb` | 0x7ee000, 0x7f7000 | 36 KiB each | settings slots |
 
-### Install to flash (advanced)
+### Try it from the SD card, then install it (no serial console)
 
-There is no one-click installer yet, and it needs the serial console once (to add one U-Boot variable).
-The method that was used and tested on the author's camera:
+The CI artifact `tc100-3-release` holds `tc100-<version>-sd.zip` and `tc100-<version>-update.tar`. They contain
+only free files: the few vendor libraries 3.0 needs are copied from your own camera.
 
-1. **Run from the SD card first** (the `tc100test/` folder from the CI artifact, plus `v3/` and the stack).
-   Check that everything works.
-2. **Dump the whole flash** and keep it (`flashw -r <partition> <file>` per partition, or `sf read` in U-Boot).
-3. **Write with `flashw`** (`v3/linux66-sd/flashw <partition> <file>`), one partition at a time. It refuses
-   `boot`, `mac` and `env`, partitions that are read-only, files that do not fit, and verifies the
-   write by reading it back. Partitions other than `cfga` / `cfgb` need `FLASHW_ALLOW="stack initrd kernel"`.
-   Do not rewrite `stack` while the system is running from it.
-4. **Add the boot variables in U-Boot** (`flashload`, `flashboot`, and `bootcmd=run sdload sdboot; run flashboot;
-   run boot_normal`): an SD card with `tc100test/c66.img` still takes priority and is the way back; with
-   no such file the camera boots from flash. Details and the exact values:
-   [flash-install-plan](docs/linux-port/flash-install-plan-2026-10-24.md).
-5. A card that is inserted while the camera runs is not detected: power the camera off and on.
+1. Unzip `tc100-<version>-sd.zip` to a FAT32 card, put it in the camera (vendor firmware V1.1.41), power on.
+   The stock firmware runs the card's `wifitest/wifi_test.sh` once: it checks the camera, **saves the whole
+   flash to the card** (`tc100-3/backup/flash-stock.bin`: keep it, do not publish it), copies the camera's
+   libraries to the card, adds the 3.0 start commands to the U-Boot settings (the stock start stays as the
+   fallback) and restarts. Any doubt: nothing is written and `tc100-3/STATUS.txt` says why.
+2. The camera now runs 3.0 **from the card**: `http://<camera>/`, user `root`, password `pass` (change it).
+   Without the card it starts its stock firmware.
+3. **Settings → Update & backup → Install to flash** writes 3.0 into the flash (about 10 minutes, every
+   partition saved to the card first and read back after writing) and restarts from it.
+4. Later versions: **Firmware update** on the same page, with `tc100-<version>-update.tar`.
 
-Known limits: the serial console is needed for recovery from a bad write; settings that are stored in
-flash survive reboots, but the user-space image is read-only (update it by writing `stack` again). On 3.0 the
-web interface has no login yet, Wi-Fi changes made from the web page are not kept, and several 2.x pages
-(push-to-talk, sound detection, Telegram, updates) do not work: see the
-[feature audit](docs/linux-port/feature-audit-2026-10-26.md).
+Way back: a card with `tc100test/c66.img` always starts first; from there `v3/install/restore-stock.sh` writes
+the stock firmware back from `flash-stock.bin`. Details, the U-Boot commands, and the move of cameras installed by
+hand before 2026-10-26: [docs/linux-port/install-3.0.md](docs/linux-port/install-3.0.md).
+
+Known limits: settings are kept in flash, the user space is read-only (updated as a whole); a card inserted while
+the camera runs is not detected (power it off and on). What works and what is still being checked, feature by
+feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
 
 Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
 
