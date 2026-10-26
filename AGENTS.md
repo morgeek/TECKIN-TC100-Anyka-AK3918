@@ -60,6 +60,8 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - Killing `tc100_rtsp` is safe again (audio fix), but restart it with the same arguments as `v3/autorun-linux66.sh`.
 
 ## Open items (see the newest `claude/status-*` doc)
+Ranked list and feature-by-feature status: `docs/linux-port/feature-audit-2026-10-26.md` (web login missing on 6.6,
+flash image built from the SD card instead of git, Wi-Fi from the UI not kept, IR-cut, second flash writer).
 Sub-stream and RTSP over UDP checks, audio listening test in Frigate/VLC, MQTT entities in Home Assistant, ISP colour cast
 (blue is low), day/night, final SD package and README (install by copying to the SD card, way back to the original firmware),
 SD test-file cleanup, optional removal of the guard zones (2 MiB) from the final build.

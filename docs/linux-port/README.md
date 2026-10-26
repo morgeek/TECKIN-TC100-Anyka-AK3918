@@ -2,9 +2,10 @@
 
 Everything about running this camera on a free, recent kernel, in one place: the Linux 6.6 port, the
 video fixes on 4.4, the encoder work, the V3 user space, and the OpenIPC and Thingino experiments.
-**Nothing here is part of a 2.x release.** All tests ran from RAM (kernel loaded from the SD card by the
-stock U-Boot) with the flash untouched. Goal: a free firmware on a recent kernel, with the V3 web interface,
-H.264 and H.265.
+**Nothing here is part of a 2.x release.** Until 2026-10-23 all tests ran from RAM (kernel loaded from the SD
+card by the stock U-Boot) with the flash untouched; since 2026-10-24 the author's camera runs 3.0 from the SPI
+flash (see [the flash install](flash-install-plan-2026-10-24.md)). Goal: a free firmware on a recent kernel,
+with the V3 web interface, H.264 and H.265.
 
 Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-board) · [Building the 6.6 kernel](#building-the-66-kernel) ·
 [Video encoder](#video-encoder-h264--h265--jpeg) · [User space](#user-space-on-66) · [Test loop](#test-loop-no-flash-writes-no-sd-swap) ·
@@ -21,12 +22,13 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | GPIO (3 banks), LEDs, IR LEDs, IR-cut | works |
 | I2C (`i2c-ak39`) | works: JX-F23 answers (id 0x0F23) |
 | Video: V4L2 / vb2-dma-contig driver `ak39_vi` + the 4.4 ISP core | works: 1920x1080 NV12, 25 fps, real colours, AE running |
-| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA; G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker not tested on 6.6 |
+| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker not tested on 6.6 |
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
-| Hardware JPEG (`src/jpegenc`) | works (web UI pictures) |
-| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz (see the Project notes) |
-| V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge (Home Assistant entities to be confirmed) |
-| SPI NOR (boot without the SD card) | not done |
+| Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
+| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. **No RTSP sub-stream** (every path serves the main stream); RTSP over UDP and the audio track not yet checked from a client |
+| V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge, day / night, motion (Home Assistant entities to be confirmed). Gaps (no web login, Wi-Fi from the UI, IR-cut, 2.x pages): [feature audit](feature-audit-2026-10-26.md) |
+| SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
+| Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
 
 ## Hardware facts (verified on the board)
 
@@ -39,12 +41,13 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 - **RTL8188FU over the Anyka USB host:** the firmware download needs 64-byte EP0 writes (`writeN_block_size = 64` for the 8188f) and a few retries in `rtl8xxxu_writeN`. The firmware (`rtlwifi/rtl8188fufw.bin`, 21,020 bytes) is embedded in the kernel.
 - **Sensor pads / I2C:** OR 0x40000710 into SYSCTRL 0x74, 0x01450525 into 0x7c and 0x100 into 0x80 (the 4.4 values); keep 0x78 bits 19-24 clear.
 - **SD card:** with SDXC cards at 50 MHz, `CMD18 -84` (CRC) errors were seen on the OpenIPC 4.4 kernel; capping the clock to 25 MHz is the expected fix (not tried here).
-- **Memory (6.6 test boot):** kernel at 0x80008000, initrd at 0x81000000, encoder pool 12 MiB at 0x81800000, 28 MiB CMA capture pool at 0x82400000.
+- **Memory (6.6):** kernel at 0x80008000, initrd at 0x81000000, encoder pool 12 MiB at 0x81800000 (`no-map`) with 1 MiB guard zones at 0x81700000 and 0x82400000, CMA capture pool from `cma=18M` on the command line (about 20 MiB at 0x82c00000; the 28 MiB of the device tree do not fit). The 3D-NR reference frame never fits, so 3D-NR is off.
+- **SPI NOR layout (6.6, 8 MiB, 4 KiB erase):** `boot` 0x0 (228 KiB, RO), `kernel` 0x39000 (2 MiB), `mac` 0x239000 (4 KiB, RO), `env` 0x23a000 (4 KiB, RO), `initrd` 0x23b000 (2 MiB), `stack` 0x43b000 (3.7 MiB squashfs), `cfga` 0x7ee000 and `cfgb` 0x7f7000 (36 KiB each, settings). `CONFIG_MTD_SPI_NOR_USE_4K_SECTORS=y` is required, otherwise the unaligned partitions are forced read-only.
 - **Do not trust the first OpenIPC 4.4 report for pin numbers.** It lists IR LED 5, speaker enable 79, sensor reset 49, reset button 10, taken from the generic device tree; the table above is the verified one. The generic Anyka DTS maps `gpiokeys` to GPIO 84: on the TC100 that freezes the boot (IRQ storm), use `initcall_blacklist=gpio_keys_init`.
 
 ## Building the 6.6 kernel
 
-The port is a series of 9 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
+The port is a series of 10 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
 
 1. `ARM: anyka` — `ARCH_ANYKA`, machine, interrupt controller, system timer, UART
 2. `soc: anyka` — L2 buffer engine helper and the SD/MMC host (`akmci`)
@@ -55,6 +58,7 @@ The port is a series of 9 patches on the `v6.6` tag, in `patches/kernel-6.6/seri
 7. `ASoC: arm` — AK39 codec and PCM
 8. `misc: ak39_venc` — encoder access
 9. `ARM: dts` — the TC100 board
+10. `spi` — the AK3918EV300 SPI controller (polled PIO) and the SPI NOR partitions
 
 ```
 git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
@@ -63,7 +67,7 @@ cp ../patches/kernel-6.6/defconfig_cma .config && make ARCH=arm CROSS_COMPILE=ar
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs
 ```
 
-CI (`.github/workflows/build-kernel-linux66.yml`) does this on every push and publishes `oipc.img` (zImage + DTB as a uImage, load and entry 0x80008000). The RTL8188FU firmware must be in `firmware/rtlwifi/` of the kernel tree (from linux-firmware; `patches/kernel-6.6/firmware/` has a copy). The vendor ISP tuning file `/lib/firmware/anyka/isp.conf` (the stock `isp_f23_mipi2lane.conf`) must be on the root filesystem before streaming.
+CI (`.github/workflows/build-kernel-linux66.yml`) does this on every push and publishes `oipc.img` (zImage + DTB as a uImage, load and entry 0x80008000) and the `tc100test/` folder in the artifact `tc100-linux66-cma16-kernel`, plus `System.map` and `vmlinux` in `tc100-linux66-symbols` (decode an oops with the symbols of the same run). The RTL8188FU firmware must be in `firmware/rtlwifi/` of the kernel tree (from linux-firmware; `patches/kernel-6.6/firmware/` has a copy). The vendor ISP tuning file `/lib/firmware/anyka/isp.conf` (the stock `isp_f23_mipi2lane.conf`) must be on the root filesystem before streaming.
 
 The sources in `drivers/media/platform/anyka-isp`, `drivers/usb/host/anyka`, `drivers/mmc/host/akmci*` and `include/plat-anyka` derive from the vendor's GPL kernel sources (via OpenIPC/linux) and keep their copyright headers. `git apply` warns about whitespace in them; that is harmless.
 
@@ -89,24 +93,43 @@ Kept from 4.4: the ISP core (`ak39_isp2*.c`, `ispdrv_interface.c`), `/dev/isp_ch
 
 **The open half.** [Xilinx/vcu-ctrl-sw](https://github.com/Xilinx/vcu-ctrl-sw) (MIT licence, same Allegro family) contains 142 of the 285 `AL_*` functions exported by `libakv_encode`: bitstream writers (SPS/PPS/VPS, SEI, scaling lists), API, buffers, part of rate control. Missing there: the CPU scheduler, `AL_EncCore`, `AL_EncChannel`, reference management, DPB, GOP manager, the encoder slice parameters. Rate control and HEVC reference management are the heart of the closed half: a long job.
 
-**Plan.**
-1. Run the vendor `libakv_encode` / `libmpi_venc` on 6.6 through `ak39_venc` and `libakuio` (needs: the capture buffers' physical addresses given to the encoder, and a pool for `libplat_vi`). First test on the camera: `/dev/uio0`, IRQ, pool.
-2. Free JPEG (`src/jpegenc`): run it, compare byte for byte with a vendor JPEG at the same quality.
-3. Free H.265 IDR with a fixed QP: our command list must equal the recorded one; then P frames and reference management.
-4. Remove `libmpi_venc` too.
+**Plan and progress.**
+1. Run the vendor `libakv_encode` / `libmpi_venc` on 6.6 through `ak39_venc` and `libakuio`: **done**. `tc100_rtsp`
+   loads `libmpi_venc_ex.so` (`ak_venc_open/send_frame/release_stream/close`) with the free `libakuio.so`; each captured
+   frame is copied into the encoder pool first (`AK39_VI_G_PHYS` would avoid the copy, not used yet). This is what
+   runs on the camera today.
+2. Free JPEG (`src/jpegenc`): **done**, valid JFIF from the hardware core; the same code makes the web UI pictures
+   inside `tc100_rtsp`.
+3. Free H.265 IDR with a fixed QP: the command list generator (`src/h265enc/cmdlist.py`) reproduces the 40 recorded
+   frames word for word, **offline only**; not yet driving the hardware. Then P frames and reference management.
+4. Remove `libmpi_venc` and `libakv_encode`: not started.
 
 Tracing tool: `libtc100fix` records the vendor encoder's hardware accesses (`VENC_TRACE=/tmp/<name>` in `boot.conf`, then restart `rtsp-h26x` in the background over telnet, never through a 60 s CGI call). The traces are vendor-derived data and stay out of git.
 
 ## User space on 6.6
 
-- `v3/S39tc100-linux66`: the boot script of the initramfs. It mounts the SD card, sets the root password from `config/user.pwd` (without that file, root login stays disabled), brings Wi-Fi up from `config/wpa_supplicant.conf` on the card, then runs `v3/autorun-linux66.sh` from the card. An optional hardware report runs when `tc100test/diag` exists.
-- `v3/autorun-linux66.sh`: V3 services (watchdog keeper, web server, `tc100_streamer`, the RTSP server on port 554, ONVIF, day/night, MQTT bridge, motion, recording). The RTSP login is the camera password from `config/user.pwd`, passed through a private config file, never on the command line and never in git.
+- `v3/S39tc100-linux66`: the boot script of the initramfs. SD mode: it mounts the SD card. Flash mode (`flashroot=1`
+  on the command line): `v3/linux66-sd/flashmode-prep.sh` mounts the `stack` squashfs, builds `/mnt` in RAM and restores
+  the settings from the newest valid `cfga`/`cfgb` slot; a card, if present, is video storage at `/mnt/sd`. Then it sets
+  the root password from `config/user.pwd` (without that file, root login stays disabled), brings Wi-Fi up from
+  `config/wpa_supplicant.conf` and runs `v3/autorun-linux66.sh`. An optional hardware report runs when `tc100test/diag`
+  exists, a self-test when `tc100test/selftest` exists (`v3/selftest66.sh`).
+- `v3/autorun-linux66.sh`: V3 services: watchdog keeper, `tc100_rtsp` through `v3/linux66-sd/rtsp-launch.sh` (RTSP on
+  port 554 and the web UI pictures), web server (`httpfront`), ONVIF, day/night, MQTT bridge, motion, recording (only
+  with a card), `ntpd`, then the services ticked in the web UI (`config/autostart/`). The RTSP login is the camera
+  password from `config/user.pwd`, read from that file by `tc100_rtsp`, never on the command line and never in git.
+  Fallback when the encoder stack is missing: the older `tc100_streamer` (software MJPEG) + `thingino-rtsp-server`
+  (JPEG over RTSP, path `/ch0`); neither is in the flash build.
+- `v3/linux66-sd/`: glue between the 2.x web UI / scripts and the free stack (`rtsp-h26x` shim, `setconf` shim,
+  `rtsp-launch.sh`, `sdinfo-sd.sh`), the flash tools (`build-slim-stack.sh`, `flashw`, `cfg-persist`,
+  `flashmode-prep.sh`). Its README lists what is not available on this stack.
 - `v3/build-rootfs66.sh [in] [out]`: builds the 6.6 initramfs from our Buildroot base (`v3/buildroot/`, built by CI) (replaces the boot script, drops the 4.4 modules, locks the image's default root password). About 3 MB instead of 6.9 MB. Needs root.
-- Video path of V3: `tc100_streamer` reads NV12 from `/dev/video0` and produces JPEG/MJPEG in software; the hardware encoders replace it as the work above progresses.
 
 ## Test loop (no flash writes, no SD swap)
 
-Build `uImage` = zImage + `ak3918ev300-tc100.dtb` (`mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000`), copy it to a test folder on the SD card (never at the card root), then from the stock U-Boot prompt: `fatload` the image and the initramfs, `setenv bootargs console=ttySAK0,115200 panic=10 ak_wdt_reboot=300 initrd=0x81000000,<size> rdinit=/sbin/init`, `bootm`. `ak_wdt_reboot=<s>` arms the watchdog once at boot, so a hung test kernel returns to the installed system by itself. **Compare the image checksum on the card before booting:** an empty or truncated image hangs the stock U-Boot. Serial console: 115200 8N1 on the test pads next to the SD slot (a Raspberry Pi Pico 2 running the DebugProbe firmware works as a bridge). Never run the U-Boot download commands, `erase_env` or `format`.
+Build `uImage` = zImage + `ak3918ev300-tc100.dtb` (`mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000`), copy it to a test folder on the SD card (never at the card root), then from the stock U-Boot prompt: `fatload` the image and the initramfs, `setenv bootargs console=ttySAK0,115200 panic=10 ak_wdt_reboot=300 initrd=0x81000000,<size> rdinit=/sbin/init`, `bootm`. `ak_wdt_reboot=<s>` arms the watchdog once at boot, so a hung test kernel returns to the installed system by itself. **Compare the image checksum on the card before booting:** an empty or truncated image hangs the stock U-Boot. Serial console: 115200 8N1 on the test pads next to the SD slot (a Raspberry Pi Pico 2 running the DebugProbe firmware works as a bridge). Never run the U-Boot download commands, `erase_env` or `format`. **U-Boot truncates `bootargs` at 256 characters**: keep `initrd=0x81000000,<size>` early and check `/proc/cmdline`, otherwise the camera silently falls back to the flash system and looks "up".
+
+Since the flash install the U-Boot `bootcmd` is `run sdload sdboot; run flashboot; run boot_normal`: a card with `tc100test/c66.img` boots the SD kernel first (development and the way back), otherwise the flash system starts. A test kernel on the card therefore still needs no flash write. Flash writes go only through `v3/linux66-sd/flashw` (allow-list, read-back check), after a dump, one partition at a time; `boot`, `mac` and `env` are never written from Linux.
 
 ## Linux 4.4: what was needed for frames
 
@@ -141,22 +164,36 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 
 ## Open items
 
-- Test `v3a.img` (the CI image of the current series) on the camera: boot, video, audio, Wi-Fi, memory, then `ak39_venc` and `libakuio`, then `jpegenc --run`.
-- Capture buffers for the vendor encoder: expose the physical address of a vb2-dma-contig buffer (or share the pool between `ak39_vi` and `ak39_venc`).
-- SPI NOR driver, to boot without the SD card.
-- Make the Thingino config use the verified hardware values.
+Feature by feature status of the flash build, and the features implemented twice:
+[feature-audit-2026-10-26.md](feature-audit-2026-10-26.md). In order:
 
-## H.265 : liste de commandes et auto-test (2026-10-22)
+1. **Web login on 6.6**: busybox `httpd` runs without `httpd.conf`, the web UI is open to the local network.
+2. **Build the flash image from git**: commit the 6.6 versions that exist only on the SD card (`rtsp-h26x` and
+   `setconf` shims installed by `build-slim-stack.sh`, the auto day/night launcher, `recording`, `sdinfo-sd.sh`,
+   the `sed` edits of `v3/linux66-sd/README.md`).
+3. **Wi-Fi from the web UI and the wizard**: write `/mnt/config/wpa_supplicant.conf` and apply it live.
+4. **IR-cut**: pulse GPIO 592/593 (81/80) from the `setconf` shim; check on the camera.
+5. **One flash writer**: keep `v3/flash-update66.sh` out of the image, make `flash-code.sh` refuse on 6.6.
+6. `cfg-persist`: keep services turned off, report a failed save in the UI.
+7. Hide the pages of features 3.0 does not have (push-to-talk, sound detection, motion zones, Telegram, updates,
+   flash install, wifi-rescue, button); ONVIF: HTTP snapshot URL, main stream only.
+8. On the camera: RTSP over UDP, audio listening test in Frigate / VLC, MQTT entities in Home Assistant, speaker.
+9. RTSP sub-stream (second encoder channel), ISP colour cast (blue is low).
+10. Smaller flash image (~1.1 MiB of unused files), final SD package and install README, SD test-file cleanup,
+    optional removal of the 2 MiB guard zones.
+11. Encoder: use `AK39_VI_G_PHYS` instead of a copy per frame; free H.265 on the hardware.
 
-- `src/h265enc/cmdlist.py` décode/encode la liste de commandes de 112 mots de l'encodeur H.265 et la régénère : sur les 40 trames enregistrées, 0 mot différent (`python3 src/h265enc/cmdlist.py`).
-- `src/h265enc/hwseq.py` modélise la séquence d'écriture des registres (horloge H.265 `v | 0x8e00`) et la compare aux traces : 34/34 et 40/41 cycles.
-- Inconnues restantes : source de la taille d'image/de flux ; adresses physiques des tampons V4L2 (ioctl `ak39_vi` à écrire).
-- `v3/selftest66.sh` : auto-test lancé au démarrage si `tc100test/selftest` existe sur la SD (Wi-Fi, vidéo, audio, uio0 ; JPEG matériel si `tc100test/selftest-jpeg`). Journal : `tc100test/selftest-N.log`.
-- Le CI (`build-kernel-linux66.yml`) produit désormais le dossier `tc100test/` prêt à copier (oipc.img, oipcrd66.gz, jpegenc, libakuio.so, selftest66.sh, README-TEST.txt, md5sums.txt). Non testé sur caméra.
+## H.265 command list and self-test (2026-10-22)
+
+- `src/h265enc/cmdlist.py` decodes and encodes the 112-word command list of the H.265 encoder and regenerates it: 0 different words over the 40 recorded frames (`python3 src/h265enc/cmdlist.py`).
+- `src/h265enc/hwseq.py` models the register write sequence (H.265 clock `v | 0x8e00`) and compares it with the traces: 34/34 and 40/41 cycles.
+- Still unknown: where the picture / stream sizes come from. (The physical addresses of the V4L2 buffers are available through `AK39_VI_G_PHYS`, see below.)
+- `v3/selftest66.sh`: self-test run at boot when `tc100test/selftest` exists on the card (Wi-Fi, video, audio, uio0; hardware JPEG when `tc100test/selftest-jpeg` exists). Log: `tc100test/selftest-N.log`.
+- CI (`build-kernel-linux66.yml`) produces the `tc100test/` folder ready to copy (oipc.img, oipcrd66.gz, jpegenc, libakuio.so, selftest66.sh, README-TEST.txt, md5sums.txt).
 
 ## Encoder access without copies (2026-10-22)
 
-- `ak39_vi` has a private ioctl `AK39_VI_G_PHYS` (`include/uapi/linux/ak39_vi.h`): given a buffer index it returns the physical address of the Y and UV planes and the size, so the encoder can read a captured frame in place. Compiles; not run on the camera. It is in patch 0006 of the series.
+- `ak39_vi` has a private ioctl `AK39_VI_G_PHYS` (`include/uapi/linux/ak39_vi.h`): given a buffer index it returns the physical address of the Y and UV planes and the size, so the encoder can read a captured frame in place. It is in patch 0006 of the series. `tc100_rtsp` does not use it yet: it copies each captured frame into the encoder pool (one 3 MB `memcpy` per frame).
 - `tests/check_akuio_symbols.py VENDOR_LIB_DIR` checks that every `akuio_*` symbol imported by the vendor libraries (`libmpi_venc`, `libplat_vi`, `libplat_venc_cb`, `libmpi_osd`) is exported by the free `libakuio`: all of them are. A run under qemu was not done: the vendor libraries need uClibc and the free library is built for glibc.
 - The old `linux-6.6-ak3918-step*.patch` files are removed; the series in `patches/kernel-6.6/series/` is the only source.
 

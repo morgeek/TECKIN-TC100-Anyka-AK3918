@@ -5,19 +5,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## Non publié
-- Générateur de liste de commandes H.265 (`src/h265enc`) validé hors caméra sur 40 trames enregistrées.
-- Auto-test Linux 6.6 (`v3/selftest66.sh`) et paquet de test produit par le CI.
+## [Unreleased]
 
-## [Unreleased] — 3.0 work (Linux 6.6)
+### Fixed
+- Automatic day / night no longer stays stuck in NIGHT: its own switch used the manual-override path; it now keeps
+  the automatic mode (`NIGHT_KEEP_AUTO=1`) and its loop starts no process (2026-10-25).
+- Fewer processes in the background services (cached `timeout` probe, watchdogs and `cfg-persist` without forks);
+  the MQTT bridge launcher no longer holds the console.
 
-Not part of any release; the 2.x firmware is unchanged. See [docs/linux-port](docs/linux-port/README.md).
+### Documentation
+- `docs/linux-port/README.md` brought up to date with the flash install (status, memory map, flash layout,
+  10-patch series, encoder progress, open items); README: what 3.0 really serves today (one RTSP stream, no
+  sub-stream yet; H.264 / H.265 through the vendor encoder libraries on the free driver).
 
-- Linux 6.6 port of the AK3918EV300 as a 9-patch series (`patches/kernel-6.6/series`), built by CI: console, SD card, USB, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio, V4L2 video for the JX-F23.
-- `ak39_venc` kernel driver and `libakuio` (free replacement of the vendor library) to reach the video encoder from user space.
-- `src/jpegenc`: JPEG on the hardware JPEG core, tables and layout verified offline.
-- `v3/`: 6.6 boot script, initramfs builder and autorun; the RTSP login now comes from `config/user.pwd`.
-- OpenIPC SD boot kit and Thingino board port added under `openipc_sd_kit/` and `thingino_port/`.
+## [3.0.0] — 2026-10-24
+
+The same firmware on Linux 6.6 instead of the vendor 3.4 kernel, running from the SPI flash with the SD card
+optional. The 2.x firmware is unchanged and stays available. Details: [docs/linux-port](docs/linux-port/README.md).
+
+### Added
+- **Linux 6.6 port** of the AK3918EV300 as a 10-patch series on `v6.6` (`patches/kernel-6.6/series`), built by CI:
+  machine, interrupts, timer, console, L2 buffer engine, SD card, USB host, Wi-Fi RTL8188FU (mainline `rtl8xxxu`),
+  GPIO, I2C, watchdog, audio (`ak39_codec`, `ak_pcm`), V4L2 video for the JX-F23 (`ak39_vi` + the ISP core), encoder
+  access (`ak39_venc`), SPI controller and NOR partitions (`spi-ak39`).
+- **Hardware encoder on the free kernel**: `ak39_venc` + `libakuio` (free replacement of the vendor library) let the
+  vendor encoder control libraries make H.264 and H.265; `src/jpegenc` makes JPEG on the hardware core with free code.
+- **`tc100_rtsp`** (`src/tc100rtsp`): RTSP server for the main 1080p stream, H.265 (RFC 7798) or H.264 (RFC 6184),
+  RTP over TCP or UDP, Digest/Basic login with the camera password, optional G.711 A-law audio, web UI pictures and
+  the light level from the hardware JPEG engine, grey-world white balance, black and white, and, burned in before the
+  encoder: image tuning (brightness, contrast, saturation, hue; `ISP_TUNE=1`), up to 4 privacy masks and the OSD clock.
+- **Runs from flash**: kernel, xz initramfs and a 3.2 MiB xz squashfs user space (`v3/linux66-sd/build-slim-stack.sh`)
+  in the SPI flash; settings in two alternating 36 KiB slots (`cfga` / `cfgb`, `cfg-persist`); guarded writer
+  `flashw` (allow-list, read-back check). U-Boot, `boot` and `mac` are never written. An SD card with
+  `tc100test/c66.img` boots first (development and the way back).
+- `v3/`: 6.6 boot script, initramfs builder, autorun, self-test (`selftest66.sh`), glue for the 2.x web UI
+  (`rtsp-h26x` and `setconf` shims, `rtsp-launch.sh`, `sdinfo-sd.sh`).
+- Web UI on 6.6: flash layout and usage on the dashboard, MQTT with Home Assistant discovery (more entities, LED and
+  telemetry from the 6.6 sysfs), day / night with thresholds, motion detection, `ntpd` clock, services ticked in the
+  UI started at boot.
+- Study tools: H.265 command list generator (`src/h265enc`, 40 recorded frames reproduced offline), `venctrace`,
+  `venctest`, `AK39_VI_G_PHYS` ioctl (physical address of a capture buffer).
+- OpenIPC SD boot kit (`contrib/openipc_sd_kit/`, Linux 4.4, historical) and a first Thingino board port
+  (`thingino_port/`).
+
+### Changed
+- Core PLL at 480 MHz (ASIC 120 MHz, the stock 3.4 setting): at 640 MHz long H.265 runs crashed.
+- Memory: encoder pool 12 MiB with 1 MiB guard zones, CMA 18 MiB from the command line, 3D-NR off (its reference
+  frame does not fit), OOM watermarks lowered so small daemons are not killed with memory still free.
+
+### Fixed
+- Audio: the delayed capture start is cancelled on stop / close (NULL pointer oops when a stream ended within 300 ms).
+- Flash mode without a card: the ISP tuning file is shipped in the squashfs (no video otherwise).
+- MQTT discovery refresh; health payload retained.
+
+### Not available on 3.0 yet
+- RTSP sub-stream, sharpness and the other ISP-daemon settings, resolution / frame rate settings (fixed 1080p,
+  15 fps), speaker and two-way audio (not tested on 6.6), one-click flash installer.
 
 ---
 

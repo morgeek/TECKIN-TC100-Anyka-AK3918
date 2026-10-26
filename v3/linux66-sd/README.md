@@ -16,9 +16,11 @@ One-time `sed` patches of the card's CGIs (card is mounted twice, at `/mnt` and 
 - `www/cgi-bin/disk.cgi`: `$NF=="/mnt"` -> `($NF=="/mnt"||$NF=="/mnt/sd")`
 - `www/cgi-bin/action.cgi`, first line of the `sd_card_info)` handler: `[ -f /tmp/tc100-storage ] || sh /mnt/scripts/sdinfo-sd.sh >/dev/null 2>&1`
 
-Not available on this stack (they live in the vendor RTSP server / ISP daemon): live image tuning, privacy masks,
+Not available on this stack at first (they live in the vendor RTSP server / ISP daemon): live image tuning, privacy masks,
 black-and-white switch (`setconf`), motion detection inside the stream, local MP4 backup recording (REC_LOCAL),
-resolution/fps of the Flux vidéo page (tc100_rtsp is 1080p, 15 fps nominal).
+resolution/fps of the Flux vidéo page (tc100_rtsp is 1080p, 15 fps nominal). Since 2026-10-24 tc100_rtsp does image
+tuning (brightness, contrast, saturation, hue; not sharpness), privacy masks, the OSD clock and black and white in
+software, and the motion / recording path below; resolution, frame rate and an RTSP sub-stream are still missing.
 
 Also: `www/settings.html` of the card: `cmd=wifi_get_ssid&_=` -> `cmd=wifi_get_ssid&format=json&_=` (the CGI appends `<hr/>` to
 non-JSON requests, which broke `r.json()` and showed "Read error" under Réseau).
