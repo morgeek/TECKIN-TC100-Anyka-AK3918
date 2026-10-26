@@ -25,6 +25,7 @@ cp "$REPO/v3/install/stock-hook.sh" "$C/wifitest/wifi_test.sh"
 cp "$E" "$C/tc100-3/envtool"; cp "$REPO/v3/install/known-stock.txt" "$C/tc100-3/"
 cp "$S/stack.sqfs" "$S/stack.sqfs.md5" "$C/tc100-3/"
 cp "$REPO/v3/install/README-SD.txt" "$C/README-3.0.txt"
+cp "$REPO/v3/install/LISEZ-MOI.txt" "$C/00-LISEZ-MOI-READ-ME.txt"	# first in the listing: card layout, LEDs, address
 chmod 755 "$C/wifitest/wifi_test.sh" "$C/tc100-3/envtool"
 rm -f "$OUT/tc100-$VER-sd.zip"; ( cd "$C" && zip -qr -X "$OUT/tc100-$VER-sd.zip" . )
 

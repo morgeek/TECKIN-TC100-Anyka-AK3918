@@ -33,10 +33,18 @@ INITRD_SIZE=2012654
 BOOTARGS="initrd=0x81000000,$INITRD_SIZE console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init"
 
 say() { echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) $*" >> "$LOG"; sync; }
-stop() { say "STOPPED: $*"; say "Nothing was written to the flash. The camera keeps its stock firmware."; exit 1; }
+# The LEDs tell what happens (nothing else is visible without the card): blue blinking while it works, blue on just
+# before the restart into 3.0, red on when it stopped (the reason is in tc100-3/STATUS.txt).
+led() { for n in $1_led $1; do [ -w /sys/class/leds/$n/brightness ] && echo $2 > /sys/class/leds/$n/brightness; done 2>/dev/null; }
+BLINK=/tmp/tc100-3.blink
+blink_start() { : > $BLINK; ( while [ -f $BLINK ]; do led blue 1; sleep 1; led blue 0; sleep 1; done ) </dev/null >/dev/null 2>&1 & }
+blink_stop() { rm -f $BLINK; sleep 2; }
+stop() { say "STOPPED: $*"; say "Nothing was written to the flash. The camera keeps its stock firmware."
+	blink_stop; led blue 0; led red 1; exit 1; }
 md5() { md5sum | cut -d' ' -f1; }
 
 mkdir -p "$K/backup" || exit 1
+led red 0; blink_start
 say "3.0 install, step 1 (stock firmware): $(cat $C/VERSION 2>/dev/null)"
 [ -f "$K/stage1.done" ] && stop "step 1 was already done ($K/stage1.done): the camera should start from the card. Check that tc100test/c66.img is on it."
 for f in "$K/envtool" "$C/tc100test/c66.img" "$C/tc100test/c66rd.gz" "$C/v3/install/collect-vendor.sh"; do
@@ -123,11 +131,12 @@ rc=$?
 case $rc in
 	0) ;;
 	4) stop "the U-Boot environment could not be written; the original was put back (envtool $rc)" ;;
-	5) say "FAILED: the U-Boot environment could not be written nor restored (envtool 5). U-Boot will use its built-in environment: the camera starts its stock firmware. Backup: tc100-3/backup/env-stock.bin"; exit 1 ;;
+	5) say "FAILED: the U-Boot environment could not be written nor restored (envtool 5). U-Boot will use its built-in environment: the camera starts its stock firmware. Backup: tc100-3/backup/env-stock.bin"; blink_stop; led red 1; exit 1 ;;
 	*) stop "envtool failed ($rc)" ;;
 esac
 "$K/envtool" show ${MTD}3 > "$K/env-3.0.txt" 2>&1
 date > "$K/stage1.done"; sync
 say "step 1 DONE: restarting; the camera now starts the 3.0 firmware from this card (trial mode)."
+blink_stop; led blue 1
 sleep 2
 reboot

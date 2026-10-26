@@ -1,0 +1,46 @@
+TECKIN TC100 - firmware 3.0
+===========================
+
+FRANCAIS
+
+1. Carte microSD de 32 Go maximum, formatee en FAT32 (une carte plus grande est en exFAT : la reformater
+   en FAT32 avec Rufus ou guiformat sous Windows, Utilitaire de disque "MS-DOS (FAT)" sur Mac).
+2. Copier TOUT le contenu de ce zip A LA RACINE de la carte. La carte doit montrer directement :
+       wifitest\   tc100test\   tc100-3\   www\   ...   00-LISEZ-MOI-READ-ME.txt
+   et PAS un dossier "tc100-...-sd\" qui les contiendrait (Windows "Extraire tout" en propose un : l'enlever).
+3. Camera jamais connectee au Wi-Fi ? Ajouter a la racine un fichier wifi.txt de deux lignes :
+       SSID=nom de votre reseau
+       PASSWORD=son mot de passe
+4. Carte dans la camera eteinte, puis l'allumer. Ne pas la debrancher pendant 3 minutes.
+   - LED bleue qui clignote (2 min environ) : sauvegarde de la memoire de la camera sur la carte.
+   - Puis redemarrage, et environ une minute plus tard un petit son : la camera est prete.
+   - LED rouge fixe : arret sans rien modifier, la raison est dans tc100-3\STATUS.txt sur la carte.
+5. Ouvrir http://tc100/ (ou l'adresse donnee par votre box, aussi ecrite dans tc100-3\ADRESSE.txt),
+   utilisateur root, mot de passe "pass" (ou celui de votre camera 2.x). L'assistant demande un nouveau mot
+   de passe puis propose d'installer le firmware dans la camera en un clic.
+   Ni son ni page au bout de 15 minutes ? Eteindre la camera, lire tc100-3\ADRESSE.txt sur un ordinateur :
+   il donne le nom et le mot de passe du Wi-Fi de secours de la camera (page http://10.42.0.1/).
+Garder la carte (et tc100-3\backup\flash-stock.bin, a ne jamais publier) : c'est le retour arriere.
+
+ENGLISH
+
+1. microSD card of 32 GB or less, formatted FAT32 (bigger cards come as exFAT: format them FAT32 with Rufus
+   or guiformat on Windows, Disk Utility "MS-DOS (FAT)" on macOS).
+2. Copy EVERYTHING in this zip TO THE ROOT of the card. The card must show directly:
+       wifitest\   tc100test\   tc100-3\   www\   ...   00-LISEZ-MOI-READ-ME.txt
+   and NOT a "tc100-...-sd\" folder holding them (Windows "Extract all" proposes one: remove it).
+3. Camera never connected to Wi-Fi? Add a file wifi.txt at the root with two lines:
+       SSID=your network name
+       PASSWORD=its password
+4. Card in the camera while it is off, then power it on. Do not unplug it during 3 minutes.
+   - Blue LED blinking (about 2 min): the camera saves its memory to the card.
+   - Then it restarts, and about a minute later plays a short chime: it is ready.
+   - Red LED on: stopped without changing anything, the reason is in tc100-3\STATUS.txt on the card.
+5. Open http://tc100/ (or the address your router shows, also written to tc100-3\ADRESSE.txt), user root,
+   password "pass" (or the one of your 2.x camera). The wizard asks for a new password, then offers to
+   install the firmware into the camera in one click.
+   No chime and no page after 15 minutes? Power off, read tc100-3\ADRESSE.txt on a computer: it gives the
+   name and password of the camera's rescue Wi-Fi (page http://10.42.0.1/).
+Keep the card (and tc100-3\backup\flash-stock.bin, never publish it): it is the way back.
+
+Details: README-3.0.txt and https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918
