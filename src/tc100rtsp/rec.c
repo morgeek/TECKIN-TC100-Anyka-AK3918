@@ -1,13 +1,14 @@
 /* rec.c: local recording for tc100_rtsp (Linux 6.6), the 3.0 successor of src/tc100fix/rec.c (2.x).
  *
  * The H.264 / H.265 frames the encoder already makes for RTSP are copied, with no decoding or re-encoding, into
- * Matroska files on the SD card, where the web UI's Recordings page (viewrecords.cgi, bin/min-recorder-list) lists
- * them: <dir>/YYYY-MM-DD_HH-MM-SS.mkv (local time of the first frame), with a JPEG of the first keyframe's picture
- * next to it: <dir>/YYYY-MM-DD_HH-MM-SS.jpg (made by the hardware JPEG engine in tc100_rtsp, no ffmpeg).
+ * fragmented MP4 files on the SD card, where the web UI's Recordings page (viewrecords.cgi) lists them:
+ * <dir>/YYYY-MM-DD_HH-MM-SS.mp4 (local time of the first frame), with a JPEG of the first keyframe's picture next to
+ * it: <dir>/YYYY-MM-DD_HH-MM-SS.jpg (made by the hardware JPEG engine in tc100_rtsp, no ffmpeg).
  *
- * One cluster per second at most, each one written whole: a file cut by a power loss or a card removal stays
- * playable up to its last cluster. When a file is closed normally, its duration, the cue index (seeking) and the
- * segment size are filled in.
+ * The MP4 writer is the one of src/tc100fix/rec.c (2.x, checked on the camera): an initialisation segment (ftyp,
+ * moov with avcC / hvcC and mvex), then one fragment (moof + mdat) per second at most, each one written whole: a file
+ * cut by a power loss or a card removal stays playable up to its last fragment, and browsers play the files as they
+ * are (H.264 everywhere, H.265 where the browser decodes it).
  *
  * Threads: the main thread (encoder loop) only copies frames into a ring (rec_frame, never blocks). A writer thread
  * of its own does all the card I/O: an SD card can stall a write() for seconds (FAT updates, a slow or failing card),
@@ -22,7 +23,7 @@
  * Card rules: files are written only into a directory on a vfat or exfat file system (the card); RAM, flash and the
  * 16 KB tmpfs placeholder of /mnt/sd are refused. When the directory (or the target of the /mnt/DCIM link) is missing
  * and its parent is on the card, it is created. Free space: before each file and every minute the oldest recordings
- * (YYYY-MM-DD_HH-MM-SS.mkv and its .jpg) are deleted until reserve_mb are free; below half of that the recorder
+ * (YYYY-MM-DD_HH-MM-SS.mp4 and its .jpg) are deleted until reserve_mb are free; below half of that the recorder
  * waits ("full"). <status>.pause (scripts/rec-storage.sh eject) closes the file and leaves the card alone.
  *
  * Status file (<status>, every 10 s and on each change), keys as on 2.x:
@@ -53,11 +54,11 @@
 	_n = _n > (int)sizeof _b - 1 ? (int)sizeof _b - 1 : _n; if (_n > 0) (void)!write(2, _b, _n); } while (0)
 #define BARRIER() __asm__ __volatile__("" ::: "memory")
 
-#define CL_US		1000000ULL	/* one cluster per second at most */
-#define CL_MAX_BLOCKS	128
-#define CL_MAX_BYTES	(384 * 1024)
+#define TS		90000ULL	/* MP4 media timescale */
+#define FRAG_US		1000000ULL	/* one fragment per second at most */
+#define FRAG_MAX_SAMPLES 128		/* a whole GOP of pre-roll fits */
+#define FRAG_MAX_BYTES	(384 * 1024)
 #define PS_MAX		256
-#define CUES_MAX	4096
 
 static uint64_t now_us(void)
 {
@@ -281,7 +282,7 @@ static int parse_sps265(const struct nal *u, struct vinfo *vi)
 	return vi->w > 0 && vi->h > 0 ? 0 : -1;
 }
 
-/* ---- growable buffer and EBML writers ------------------------------------------------------------------------ */
+/* ---- growable buffer and MP4 boxes (src/tc100fix/rec.c) -------------------------------------------------------- */
 struct buf { unsigned char *p; size_t n, cap; int err; };
 
 static void b_need(struct buf *b, size_t k)
@@ -300,69 +301,90 @@ static void b_put(struct buf *b, const void *d, size_t k) { b_need(b, k); if (!b
 static void b8(struct buf *b, unsigned v) { unsigned char c = (unsigned char)v; b_put(b, &c, 1); }
 static void b16(struct buf *b, unsigned v) { b8(b, v >> 8); b8(b, v); }
 static void b32(struct buf *b, uint32_t v) { b16(b, v >> 16); b16(b, v & 0xffff); }
+static void b64(struct buf *b, uint64_t v) { b32(b, (uint32_t)(v >> 32)); b32(b, (uint32_t)v); }
 static void bzero_(struct buf *b, size_t k) { while (k--) b8(b, 0); }
-
-static void e_id(struct buf *b, uint32_t id)
+static size_t box(struct buf *b, const char *t) { size_t at = b->n; b32(b, 0); b_put(b, t, 4); return at; }
+static size_t fbox(struct buf *b, const char *t, unsigned v, uint32_t f) { size_t at = box(b, t); b32(b, (v << 24) | f); return at; }
+static void end(struct buf *b, size_t at)
 {
-	if (id > 0xffffff) b8(b, id >> 24);
-	if (id > 0xffff) b8(b, id >> 16);
-	if (id > 0xff) b8(b, id >> 8);
-	b8(b, id);
-}
-static void e_len(struct buf *b, uint64_t n)	/* shortest EBML size */
-{
-	int k = 1, i;
-	uint64_t v;
-
-	while (k < 8 && n >= (1ULL << (7 * k)) - 1) k++;
-	v = n | (1ULL << (7 * k));
-	for (i = k - 1; i >= 0; i--) b8(b, (unsigned)(v >> (8 * i)));
-}
-static void e_uint(struct buf *b, uint32_t id, uint64_t v)
-{
-	int k = 1, i;
-
-	while (k < 8 && (v >> (8 * k))) k++;
-	e_id(b, id); e_len(b, (uint64_t)k);
-	for (i = k - 1; i >= 0; i--) b8(b, (unsigned)(v >> (8 * i)));
-}
-static void e_bin(struct buf *b, uint32_t id, const void *p, size_t n) { e_id(b, id); e_len(b, n); b_put(b, p, n); }
-static void e_str(struct buf *b, uint32_t id, const char *s) { e_bin(b, id, s, strlen(s)); }
-static size_t e_open(struct buf *b, uint32_t id) { size_t at; e_id(b, id); at = b->n; b32(b, 0x10000000); return at; }
-static void e_close(struct buf *b, size_t at)	/* 4-byte size: up to 256 MB */
-{
-	uint32_t s = (uint32_t)(b->n - at - 4);
+	uint32_t s = (uint32_t)(b->n - at);
 
 	if (b->err) return;
-	b->p[at] = (unsigned char)(0x10 | ((s >> 24) & 0x0f)); b->p[at + 1] = (unsigned char)(s >> 16);
+	b->p[at] = (unsigned char)(s >> 24); b->p[at + 1] = (unsigned char)(s >> 16);
 	b->p[at + 2] = (unsigned char)(s >> 8); b->p[at + 3] = (unsigned char)s;
 }
-static void e_void(struct buf *b, size_t total)	/* Void element of exactly <total> bytes (3..129) */
-{
-	b8(b, 0xEC); e_len(b, total - 2); bzero_(b, total - 2);
-}
 
-/* codec private data: avcC / hvcC (the sample entry boxes of src/tc100fix/rec.c) */
-static void codec_private(struct buf *b, int codec, const struct vinfo *vi,
-			  const struct nal *vps, const struct nal *sps, const struct nal *pps)
+static const uint32_t matrix[9] = { 0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000 };
+
+/* ftyp + moov: one video track, sample entry avc1 / hvc1 with the parameter sets, fragments announced by mvex */
+static void init_segment(struct buf *b, int codec, const struct vinfo *vi,
+			 const struct nal *vps, const struct nal *sps, const struct nal *pps)
 {
+	size_t moov, trak, mdia, minf, stbl, stsd, se_, cfg, dinf, dref, mvex, a;
 	int i;
 
+	a = box(b, "ftyp"); b_put(b, "isom", 4); b32(b, 0x200);
+	b_put(b, "isomiso6mp41", 12); b_put(b, codec == C_H265 ? "hvc1" : "avc1", 4); end(b, a);
+
+	moov = box(b, "moov");
+	a = fbox(b, "mvhd", 0, 0); b32(b, 0); b32(b, 0); b32(b, 1000); b32(b, 0);
+	b32(b, 0x10000); b16(b, 0x100); bzero_(b, 10);
+	for (i = 0; i < 9; i++) b32(b, matrix[i]);
+	bzero_(b, 24); b32(b, 2); end(b, a);
+
+	trak = box(b, "trak");
+	a = fbox(b, "tkhd", 0, 3); b32(b, 0); b32(b, 0); b32(b, 1); b32(b, 0); b32(b, 0);
+	bzero_(b, 8); b16(b, 0); b16(b, 0); b16(b, 0); b16(b, 0);
+	for (i = 0; i < 9; i++) b32(b, matrix[i]);
+	b32(b, (uint32_t)vi->w << 16); b32(b, (uint32_t)vi->h << 16); end(b, a);
+
+	mdia = box(b, "mdia");
+	a = fbox(b, "mdhd", 0, 0); b32(b, 0); b32(b, 0); b32(b, (uint32_t)TS); b32(b, 0);
+	b16(b, 0x55c4); b16(b, 0); end(b, a);
+	a = fbox(b, "hdlr", 0, 0); b32(b, 0); b_put(b, "vide", 4); bzero_(b, 12);
+	b_put(b, "VideoHandler", 13); end(b, a);
+	minf = box(b, "minf");
+	a = fbox(b, "vmhd", 0, 1); bzero_(b, 8); end(b, a);
+	dinf = box(b, "dinf"); dref = fbox(b, "dref", 0, 0); b32(b, 1);
+	a = fbox(b, "url ", 0, 1); end(b, a); end(b, dref); end(b, dinf);
+
+	stbl = box(b, "stbl");
+	stsd = fbox(b, "stsd", 0, 0); b32(b, 1);
+	se_ = box(b, codec == C_H265 ? "hvc1" : "avc1");
+	bzero_(b, 6); b16(b, 1); bzero_(b, 16);
+	b16(b, (unsigned)vi->w); b16(b, (unsigned)vi->h);
+	b32(b, 0x480000); b32(b, 0x480000); b32(b, 0); b16(b, 1);
+	bzero_(b, 32); b16(b, 0x18); b16(b, 0xffff);
 	if (codec == C_H265) {
 		const struct nal *arr[3];
 		int t[3] = { 32, 33, 34 };
 
 		arr[0] = vps; arr[1] = sps; arr[2] = pps;
+		cfg = box(b, "hvcC");
 		b8(b, 1); b_put(b, vi->ptl, 12);
 		b16(b, 0xf000); b8(b, 0xfc); b8(b, 0xfc | (vi->chroma & 3));
 		b8(b, 0xf8 | (vi->depth_l & 7)); b8(b, 0xf8 | (vi->depth_c & 7));
 		b16(b, 0); b8(b, 0x0f); b8(b, 3);
 		for (i = 0; i < 3; i++) { b8(b, 0x80 | t[i]); b16(b, 1); b16(b, arr[i]->n); b_put(b, arr[i]->p, arr[i]->n); }
+		end(b, cfg);
 	} else {
+		cfg = box(b, "avcC");
 		b8(b, 1); b8(b, sps->p[1]); b8(b, sps->p[2]); b8(b, sps->p[3]); b8(b, 0xff);
 		b8(b, 0xe1); b16(b, sps->n); b_put(b, sps->p, sps->n);
 		b8(b, 1); b16(b, pps->n); b_put(b, pps->p, pps->n);
+		end(b, cfg);
 	}
+	end(b, se_); end(b, stsd);
+	a = fbox(b, "stts", 0, 0); b32(b, 0); end(b, a);
+	a = fbox(b, "stsc", 0, 0); b32(b, 0); end(b, a);
+	a = fbox(b, "stsz", 0, 0); b32(b, 0); b32(b, 0); end(b, a);
+	a = fbox(b, "stco", 0, 0); b32(b, 0); end(b, a);
+	end(b, stbl); end(b, minf); end(b, mdia); end(b, trak);
+
+	mvex = box(b, "mvex");
+	a = fbox(b, "trex", 0, 0); b32(b, 1); b32(b, 1); b32(b, 0); b32(b, 0); b32(b, 0); end(b, a);
+	end(b, mvex);
+	end(b, moov);
 }
 
 /* ---- configuration and inputs (main thread -> writer) -------------------------------------------------------- */
@@ -394,7 +416,7 @@ void rec_test_drop(void) { p_gap = 1; q_dropped++; }	/* a frame lost as with a f
 #endif
 
 /* ---- writer state ----------------------------------------------------------------------------------------------- */
-struct cue { uint32_t t_ms, pos; };
+struct sample { uint32_t size, key; uint64_t ts; };
 
 static struct {
 	int fd, codec, waiting_key, thumb_done;
@@ -402,12 +424,9 @@ static struct {
 	unsigned char ps[3][PS_MAX]; uint32_t psn[3];	/* VPS SPS PPS of the open file */
 	char path[200];
 	uint64_t file_t0, file_key_ts, last_ts, last_rx, last_sync;
-	uint32_t off, seg_size_off, seg_data_off, void_off, dur_off;
-	struct buf cl;					/* the cluster being filled */
-	size_t cl_hdr;
-	uint64_t cl_t0;
-	int ncl, cl_key;
-	struct cue *cues; int ncues, cuecap;
+	uint32_t seq;					/* fragment number */
+	struct sample s[FRAG_MAX_SAMPLES]; int ns;	/* the fragment being filled */
+	struct buf data;				/* its samples */
 	unsigned long long bytes, files, thumbs;
 	char state[16];
 	int state_dirty, want, watched;
@@ -464,10 +483,10 @@ static unsigned long free_mb(void)
 	return (unsigned long)((unsigned long long)s.f_bavail * s.f_bsize / (1024 * 1024));
 }
 
-/* YYYY-MM-DD_HH-MM-SS.mkv, the name bin/min-recorder-list lists */
+/* YYYY-MM-DD_HH-MM-SS.mp4, the name the Recordings page lists */
 static int rec_name(const char *s)
 {
-	static const char pat[] = "dddd-dd-dd_dd-dd-dd.mkv";
+	static const char pat[] = "dddd-dd-dd_dd-dd-dd.mp4";
 	int i;
 
 	for (i = 0; pat[i]; i++)
@@ -521,19 +540,13 @@ static int write_all(int fd, const void *p, size_t n)
 	return 0;
 }
 
-static int write_at(int fd, uint32_t off, const void *p, size_t n)
-{
-	return lseek(fd, (off_t)off, SEEK_SET) == (off_t)off ? write_all(fd, p, n) : -1;
-}
-
-static void cluster_reset(void) { W.cl.n = 0; W.cl.err = 0; W.ncl = 0; W.cl_key = 0; }
+static void frag_reset(void) { W.data.n = 0; W.data.err = 0; W.ns = 0; }
 
 static void close_fd(void)
 {
 	if (W.fd >= 0) { fsync(W.fd); close(W.fd); W.fd = -1; }
 	W.path[0] = 0;
-	cluster_reset();
-	W.ncues = 0;
+	frag_reset();
 }
 
 static void fail(const char *what)
@@ -545,104 +558,69 @@ static void fail(const char *what)
 	W.waiting_key = 1;
 }
 
-static void flush_cluster(void)
+/* write the pending fragment (moof + mdat); its last sample lasts until next_ts (0: the average duration) */
+static void flush_frag(uint64_t next_ts)
 {
-	if (!W.ncl || W.fd < 0) { cluster_reset(); return; }
-	e_close(&W.cl, W.cl_hdr);
-	if (W.cl.err) { cluster_reset(); W.waiting_key = 1; return; }
-	if (W.cl_key) {
-		if (W.ncues == W.cuecap && W.cuecap < CUES_MAX) {
-			int nc = W.cuecap ? W.cuecap * 2 : 256;
-			struct cue *n = realloc(W.cues, sizeof *n * (size_t)nc);
-
-			if (n) { W.cues = n; W.cuecap = nc; }
-		}
-		if (W.ncues < W.cuecap) {
-			W.cues[W.ncues].t_ms = (uint32_t)((W.cl_t0 - W.file_t0) / 1000);
-			W.cues[W.ncues].pos = W.off - W.seg_data_off;
-			W.ncues++;
-		}
-	}
-	if (write_all(W.fd, W.cl.p, W.cl.n) != 0) { fail("write"); return; }
-	W.off += (uint32_t)W.cl.n; W.bytes += W.cl.n;
-	if (W.last_ts - W.last_sync >= 10000000ULL) {	/* on the card every 10 s */
-		fdatasync(W.fd);
-		W.last_sync = W.last_ts;
-	}
-	cluster_reset();
-}
-
-/* close the file: last cluster, then the index, duration and segment size of a complete file */
-static void finish_file(void)
-{
-	struct buf b = { 0 };
-	size_t a, s;
-	uint64_t bits, dur_ms;
-	double dur;
-	unsigned char db[8], sz[8];
+	struct buf m = { 0 };
+	size_t moof, traf, a, trun_off;
+	unsigned char mh[8];
+	uint32_t mdat = (uint32_t)(8 + W.data.n), off;
 	int i;
 
-	if (W.fd < 0) { close_fd(); return; }
-	flush_cluster();
-	if (W.fd < 0) return;
-	if (W.ncues) {				/* Cues, then a SeekHead in the 32-byte Void reserved for it */
-		uint32_t cues_pos = W.off - W.seg_data_off;
+	if (W.ns == 0 || W.fd < 0) { frag_reset(); return; }
+	if (W.data.err) { frag_reset(); W.waiting_key = 1; return; }
+	if (next_ts <= W.s[W.ns - 1].ts) {
+		uint64_t d = W.ns > 1 ? (W.s[W.ns - 1].ts - W.s[0].ts) / (uint64_t)(W.ns - 1) : 66000;
 
-		a = e_open(&b, 0x1C53BB6B);
-		for (i = 0; i < W.ncues; i++) {
-			size_t p = e_open(&b, 0xBB), q;
-
-			e_uint(&b, 0xB3, W.cues[i].t_ms);
-			q = e_open(&b, 0xB7);
-			e_uint(&b, 0xF7, 1);
-			e_uint(&b, 0xF1, W.cues[i].pos);
-			e_close(&b, q); e_close(&b, p);
-		}
-		e_close(&b, a);
-		if (!b.err && write_all(W.fd, b.p, b.n) == 0) {
-			unsigned char id[4] = { 0x1C, 0x53, 0xBB, 0x6B };
-
-			W.off += (uint32_t)b.n;
-			b.n = 0;
-			a = e_open(&b, 0x114D9B74);
-			s = e_open(&b, 0x4DBB);
-			e_bin(&b, 0x53AB, id, 4);
-			e_id(&b, 0x53AC); e_len(&b, 8);
-			for (i = 7; i >= 0; i--) b8(&b, (unsigned)((uint64_t)cues_pos >> (8 * i)));
-			e_close(&b, s); e_close(&b, a);
-			if (!b.err && b.n == 32) write_at(W.fd, W.void_off, b.p, b.n);
-		}
+		next_ts = W.s[W.ns - 1].ts + (d ? d : 66000);
 	}
-	free(b.p);
-	/* Duration (float, ms) in the 11-byte Void of Info */
-	dur_ms = W.last_ts > W.file_t0 ? (W.last_ts - W.file_t0) / 1000 : 0;
-	dur = (double)dur_ms + 66.0;			/* + one frame */
-	memcpy(&bits, &dur, 8);
-	db[0] = 0x44; db[1] = 0x89; db[2] = 0x88;
-	{
-		unsigned char e[11];
+	moof = box(&m, "moof");
+	a = fbox(&m, "mfhd", 0, 0); b32(&m, ++W.seq); end(&m, a);
+	traf = box(&m, "traf");
+	a = fbox(&m, "tfhd", 0, 0x020000); b32(&m, 1); end(&m, a);
+	a = fbox(&m, "tfdt", 1, 0); b64(&m, (W.s[0].ts - W.file_t0) * 9 / 100); end(&m, a);
+	a = fbox(&m, "trun", 0, 0x000701); b32(&m, (uint32_t)W.ns);
+	trun_off = m.n; b32(&m, 0);
+	for (i = 0; i < W.ns; i++) {
+		uint64_t t1 = i + 1 < W.ns ? W.s[i + 1].ts : next_ts;
+		uint64_t d = ((t1 - W.file_t0) * 9 / 100) - ((W.s[i].ts - W.file_t0) * 9 / 100);
 
-		memcpy(e, db, 3);
-		for (i = 0; i < 8; i++) e[3 + i] = (unsigned char)(bits >> (56 - 8 * i));
-		write_at(W.fd, W.dur_off, e, 11);
+		b32(&m, (uint32_t)d); b32(&m, W.s[i].size);
+		b32(&m, W.s[i].key ? 0x02000000u : 0x01010000u);
 	}
-	/* Segment size (8-byte EBML size) */
-	{
-		uint64_t n = W.off - W.seg_data_off;
+	end(&m, a); end(&m, traf); end(&m, moof);
+	if (m.err) { free(m.p); frag_reset(); W.waiting_key = 1; return; }
+	off = (uint32_t)(m.n + 8);			/* data offset: from the moof start to the first sample */
+	m.p[trun_off] = (unsigned char)(off >> 24); m.p[trun_off + 1] = (unsigned char)(off >> 16);
+	m.p[trun_off + 2] = (unsigned char)(off >> 8); m.p[trun_off + 3] = (unsigned char)off;
+	mh[0] = (unsigned char)(mdat >> 24); mh[1] = (unsigned char)(mdat >> 16);
+	mh[2] = (unsigned char)(mdat >> 8); mh[3] = (unsigned char)mdat; memcpy(mh + 4, "mdat", 4);
+	if (write_all(W.fd, m.p, m.n) != 0 || write_all(W.fd, mh, 8) != 0 || write_all(W.fd, W.data.p, W.data.n) != 0) {
+		free(m.p);
+		fail("write");
+		return;
+	}
+	W.bytes += m.n + mdat;
+	if (W.s[W.ns - 1].ts - W.last_sync >= 10000000ULL) {	/* on the card every 10 s */
+		fdatasync(W.fd);
+		W.last_sync = W.s[W.ns - 1].ts;
+	}
+	free(m.p);
+	frag_reset();
+}
 
-		sz[0] = 0x01;
-		for (i = 1; i < 8; i++) sz[i] = (unsigned char)(n >> (8 * (7 - i)));
-		write_at(W.fd, W.seg_size_off, sz, 8);
-	}
+/* close the file: a fragmented MP4 needs nothing after its last fragment */
+static void finish_file(void)
+{
+	if (W.fd >= 0) flush_frag(0);
 	close_fd();
 }
 
 static int open_file(const struct nal *vps, const struct nal *sps, const struct nal *pps, uint64_t ts, uint64_t key_ts)
 {
-	struct buf b = { 0 }, cp = { 0 };
+	struct buf b = { 0 };
 	struct tm tm;
 	time_t t;
-	size_t a, tr, te, v;
 	int k;
 	uint64_t now = now_us();
 
@@ -652,50 +630,23 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 	t = time(NULL) - (time_t)(now > ts ? (now - ts) / 1000000ULL : 0);	/* wall time of the first frame */
 	for (k = 0; k < 5; k++, t++) {		/* never overwrite: next second if taken */
 		localtime_r(&t, &tm);
-		snprintf(W.path, sizeof W.path, "%s/%04d-%02d-%02d_%02d-%02d-%02d.mkv", C.dir, tm.tm_year + 1900, tm.tm_mon + 1,
+		snprintf(W.path, sizeof W.path, "%s/%04d-%02d-%02d_%02d-%02d-%02d.mp4", C.dir, tm.tm_year + 1900, tm.tm_mon + 1,
 			 tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 		W.fd = open(W.path, O_WRONLY | O_CREAT | O_EXCL, 0644);
 		if (W.fd >= 0 || errno != EEXIST) break;
 	}
 	if (W.fd < 0) return -1;
-
-	a = e_open(&b, 0x1A45DFA3);			/* EBML header */
-	e_uint(&b, 0x4286, 1); e_uint(&b, 0x42F7, 1); e_uint(&b, 0x42F2, 4); e_uint(&b, 0x42F3, 8);
-	e_str(&b, 0x4282, "matroska"); e_uint(&b, 0x4287, 4); e_uint(&b, 0x4285, 2);
-	e_close(&b, a);
-	e_id(&b, 0x18538067);				/* Segment, size unknown until the file is closed */
-	W.seg_size_off = (uint32_t)b.n;
-	b8(&b, 0x01); for (k = 0; k < 7; k++) b8(&b, 0xff);
-	W.seg_data_off = (uint32_t)b.n;
-	W.void_off = (uint32_t)b.n;			/* room for the SeekHead */
-	e_void(&b, 32);
-	a = e_open(&b, 0x1549A966);			/* Info */
-	e_uint(&b, 0x2AD7B1, 1000000);			/* timestamps in ms */
-	W.dur_off = (uint32_t)b.n;			/* room for the Duration */
-	e_void(&b, 11);
-	e_str(&b, 0x4D80, "tc100_rtsp"); e_str(&b, 0x5741, "tc100_rtsp");
-	e_close(&b, a);
-	tr = e_open(&b, 0x1654AE6B);			/* Tracks */
-	te = e_open(&b, 0xAE);
-	e_uint(&b, 0xD7, 1); e_uint(&b, 0x73C5, 1); e_uint(&b, 0x83, 1); e_uint(&b, 0x9C, 0);
-	e_str(&b, 0x22B59C, "und");
-	e_str(&b, 0x86, W.codec == C_H265 ? "V_MPEGH/ISO/HEVC" : "V_MPEG4/ISO/AVC");
-	codec_private(&cp, W.codec, &W.vi, vps, sps, pps);
-	if (cp.err) b.err = 1; else e_bin(&b, 0x63A2, cp.p, cp.n);
-	free(cp.p);
-	v = e_open(&b, 0xE0);
-	e_uint(&b, 0xB0, (uint64_t)W.vi.w); e_uint(&b, 0xBA, (uint64_t)W.vi.h);
-	e_close(&b, v); e_close(&b, te); e_close(&b, tr);
+	init_segment(&b, W.codec, &W.vi, vps, sps, pps);
 	if (b.err || write_all(W.fd, b.p, b.n) != 0) {
 		int e = errno;
 
 		free(b.p); close(W.fd); W.fd = -1; unlink(W.path); W.path[0] = 0; errno = e ? e : ENOMEM;
 		return -1;
 	}
-	W.off = (uint32_t)b.n; W.bytes += b.n;
+	W.bytes += b.n;
 	free(b.p);
-	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.ncues = 0;
-	cluster_reset();
+	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.seq = 0;
+	frag_reset();
 	W.psn[0] = vps ? vps->n : 0; if (vps) memcpy(W.ps[0], vps->p, vps->n);
 	W.psn[1] = sps->n; memcpy(W.ps[1], sps->p, sps->n);
 	W.psn[2] = pps->n; memcpy(W.ps[2], pps->p, pps->n);
@@ -710,39 +661,23 @@ static int same_ps(int i, const struct nal *u)
 	return u->n == W.psn[i] && !memcmp(u->p, W.ps[i], u->n);
 }
 
-/* one access unit as a SimpleBlock of the current cluster (4-byte NAL lengths, parameter sets and AUDs left out) */
-static void append_block(const struct nal *u, int n, int key, uint64_t ts)
+/* one access unit as a sample of the current fragment (4-byte NAL lengths, parameter sets and AUDs left out) */
+static void append_sample(const struct nal *u, int n, int key, uint64_t ts)
 {
-	size_t pos, size;
-	int i, rel;
+	size_t size = 0;
+	int i;
 
-	if (!W.ncl) {
-		W.cl.n = 0; W.cl.err = 0;
-		W.cl_hdr = e_open(&W.cl, 0x1F43B675);
-		e_uint(&W.cl, 0xE7, (ts - W.file_t0) / 1000);
-		W.cl_t0 = ts; W.cl_key = key;
-	}
-	rel = (int)((ts - W.cl_t0) / 1000);
-	pos = W.cl.n;
-	b8(&W.cl, 0xA3); b32(&W.cl, 0x10000000);
-	b8(&W.cl, 0x81); b16(&W.cl, (unsigned)rel & 0xffff); b8(&W.cl, key ? 0x80 : 0);
-	size = 0;
 	for (i = 0; i < n; i++) {
 		int t = nal_type(W.codec, &u[i]);
 
 		if (W.codec == C_H265 ? (t >= 32 && t <= 35) : (t == 7 || t == 8 || t == 9)) continue;
-		b32(&W.cl, u[i].n); b_put(&W.cl, u[i].p, u[i].n);
+		b32(&W.data, u[i].n); b_put(&W.data, u[i].p, u[i].n);
 		size += 4 + u[i].n;
 	}
-	if (W.cl.err) { cluster_reset(); W.waiting_key = 1; return; }
-	if (!size) { W.cl.n = pos; if (!W.ncl) W.cl.n = 0; return; }
-	{
-		uint32_t s = (uint32_t)(W.cl.n - pos - 5);
-
-		W.cl.p[pos + 1] = (unsigned char)(0x10 | ((s >> 24) & 0x0f)); W.cl.p[pos + 2] = (unsigned char)(s >> 16);
-		W.cl.p[pos + 3] = (unsigned char)(s >> 8); W.cl.p[pos + 4] = (unsigned char)s;
-	}
-	W.ncl++;
+	if (W.data.err) { frag_reset(); W.waiting_key = 1; return; }
+	if (!size) return;
+	W.s[W.ns].size = (uint32_t)size; W.s[W.ns].key = (uint32_t)key; W.s[W.ns].ts = ts;
+	W.ns++;
 }
 
 static void thumb(const struct qhdr *h, const unsigned char *d)
@@ -779,13 +714,13 @@ static void handle(struct qhdr *h, const unsigned char *d)
 	}
 	/* frames can leave the encoder in a burst: at least 10 ms between blocks, the clock catches up afterwards */
 	if (W.last_ts && ts < W.last_ts + 10000 && !(h->flags & QF_GAP)) ts = W.last_ts + 10000;
-	if (h->flags & QF_GAP) { flush_cluster(); W.waiting_key = 1; }
+	if (h->flags & QF_GAP) { flush_frag(0); W.waiting_key = 1; }
 	if (W.waiting_key && !key) return;
 	if (key && sps && pps && (codec == C_H264 || vps) && sps->n <= PS_MAX && pps->n <= PS_MAX && (!vps || vps->n <= PS_MAX)) {
 		int changed = W.fd >= 0 && (!same_ps(0, vps) || !same_ps(1, sps) || !same_ps(2, pps));
 		int rotate = W.fd >= 0 && ts - W.file_t0 >= (uint64_t)C.segment_s * 1000000ULL;
 
-		if (changed || rotate) finish_file();
+		if (changed || rotate) { flush_frag(ts); finish_file(); }
 		if (W.fd < 0) {
 			uint64_t now = now_us();
 
@@ -805,9 +740,9 @@ static void handle(struct qhdr *h, const unsigned char *d)
 	}
 	if (W.fd < 0) { W.waiting_key = 1; return; }
 	W.last_ts = ts;
-	if (W.ncl && (key || ts - W.cl_t0 >= CL_US || W.ncl >= CL_MAX_BLOCKS || W.cl.n > CL_MAX_BYTES)) flush_cluster();
+	if (W.ns && (key || ts - W.s[0].ts >= FRAG_US || W.ns >= FRAG_MAX_SAMPLES || W.data.n > FRAG_MAX_BYTES)) flush_frag(ts);
 	if (W.fd < 0) return;
-	append_block(u, n, key, ts);
+	append_sample(u, n, key, ts);
 }
 
 static int paused(void)

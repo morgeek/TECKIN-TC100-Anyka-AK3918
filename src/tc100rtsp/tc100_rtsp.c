@@ -10,7 +10,7 @@
  * also makes the web UI's stream.jpg). Paths with "video1" in them, or starting with /ch1 or /sub, serve the
  * sub-stream; every other path the main stream (also the sub paths when the sub-stream is off or did not open).
  * Also here: the web UI pictures (hardware JPEG), motion detection with ignored zones (/tmp/rec_control), the
- * microphone level for the sound detection (/var/run/sound_level) and the local recording (rec.c, Matroska files
+ * microphone level for the sound detection (/var/run/sound_level) and the local recording (rec.c, fragmented MP4 files
  * on the SD card). Settings are read from /mnt/config while running (boot.conf, rtspserver.conf, isp_tune.conf,
  * sound_detection.conf, motion_zones.conf, frigate_live.conf).
  *

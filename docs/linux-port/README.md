@@ -255,8 +255,8 @@ Written and tested on the host only (`python3 tests/test_tc100rtsp.py`); not yet
   grid (2.x `md.c` rule: a cell is ignored when its centre lies in a zone). `/tmp/rec_control` as before;
   `/var/run/md_zones` holds the 2.x status line. The boot starts it only when `mdenabled=1` or
   `config/autostart/motion-detection` exists.
-- **Recorder** (`src/tc100rtsp/rec.c`, no ffmpeg): the encoded frames go into Matroska files
-  `/mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mkv` (the name the Recordings page lists) with a hardware-JPEG thumbnail
+- **Recorder** (`src/tc100rtsp/rec.c`, no ffmpeg): the encoded frames go into fragmented MP4 files (the 2.x writer of `src/tc100fix/rec.c`, one fragment a second: a cut file plays up to its last second)
+  `/mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mp4` (the name the Recordings page lists) with a hardware-JPEG thumbnail
   `YYYY-MM-DD_HH-MM-SS.jpg` of the first keyframe next to each. Settings of `boot.conf`, read while running:
   `REC_LOCAL`, `REC_WHEN=offline|always|motion`, `REC_STREAM=main|sub`, `REC_SEGMENT_SEC`, `REC_RESERVE_MB`,
   `REC_OFFLINE_SEC`, `REC_POSTROLL_SEC`, `REC_CLIENT` (else the host of `FRIGATE_URL`). Only into a vfat/exfat card;

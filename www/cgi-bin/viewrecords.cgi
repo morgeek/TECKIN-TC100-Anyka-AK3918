@@ -14,6 +14,22 @@ echo "Pragma: no-cache"
 echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 
+# Recordings: YYYY-MM-DD_HH-MM-SS.mp4 (3.0 recorder, fragmented MP4) or .mkv (older recorders), newest first.
+#   rec_dates          one YYYY-MM-DD per line
+#   rec_files DATE     HH-MM-SS.mp4 / .mkv of that day
+rec_dates() {
+  for _f in "$DCIM_FOLDER"/????-??-??_??-??-??.mp4 "$DCIM_FOLDER"/????-??-??_??-??-??.mkv; do
+    [ -f "$_f" ] || continue
+    _f="${_f##*/}"; echo "${_f%%_*}"
+  done | sort -r | awk '!seen[$0]++'
+}
+rec_files() {
+  for _f in "$DCIM_FOLDER/$1"_??-??-??.mp4 "$DCIM_FOLDER/$1"_??-??-??.mkv; do
+    [ -f "$_f" ] || continue
+    _f="${_f##*/}"; echo "${_f#*_}"
+  done | sort -r
+}
+
 sanitize_record_name() {
   # Strip path components and allow only safe filename characters
   _rn="${1##*/}"
@@ -35,6 +51,8 @@ if [ -n "$F_cmd" ]; then
       else
         fullpath="${DCIM_FOLDER}/${record}"
         if [ -f "$fullpath" ]; then
+          # the picture the 3.0 recorder writes next to each file goes with it
+          case "$fullpath" in *.mp4|*.mkv) rm -f "${fullpath%.*}.jpg" ;; esac
           rm -f "$fullpath" && echo '{"ok":true}' || echo '{"ok":false,"error":"delete failed"}'
         else
           echo '{"ok":false,"error":"file not found"}'
@@ -63,7 +81,7 @@ EOF
     list_dates)
       echo "["
       sep=""
-      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER)"
+      files="$(rec_dates)"
       for file in $files; do
         printf '%s{"date":"%s"}\n' "$sep" "$file"
         sep=","
@@ -75,7 +93,7 @@ EOF
       dateVal="${F_date##*/}"
       echo "["
       sep=""
-      files="$(/mnt/bin/min-recorder-list p $DCIM_FOLDER f $dateVal)"
+      case "$dateVal" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) files="$(rec_files "$dateVal")" ;; *) files="" ;; esac
       for file in $files; do
         printf '%s{"record":"%s"}\n' "$sep" "$file"
         sep=","

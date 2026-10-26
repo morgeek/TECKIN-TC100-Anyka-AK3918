@@ -3,7 +3,7 @@
 # no ffmpeg, no extra process. It follows REC_LOCAL of config/boot.conf, read while running (no restart):
 #   start   REC_LOCAL=1     stop   REC_LOCAL=0     status   running while REC_LOCAL=1 and tc100_rtsp runs
 # The other settings (Settings -> Recording): REC_WHEN=offline|always|motion, REC_STREAM=main|sub, REC_SEGMENT_SEC,
-# REC_RESERVE_MB, REC_OFFLINE_SEC, REC_POSTROLL_SEC, REC_CLIENT. Files: /mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mkv and .jpg
+# REC_RESERVE_MB, REC_OFFLINE_SEC, REC_POSTROLL_SEC, REC_CLIENT. Files: /mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mp4 (fragmented MP4) and .jpg
 # (thumbnail), only on a vfat/exfat card. Live state: /var/run/tc100rec; scripts/rec-storage.sh eject pauses it.
 SERVICE_NAME="Recording"
 BOOT=/mnt/config/boot.conf
