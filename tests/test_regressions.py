@@ -90,7 +90,8 @@ class Regressions(unittest.TestCase):
     def test_all_shell_and_javascript_syntax(self):
         shells, scripts = 0, 0
         for path in ROOT.rglob('*'):
-            if '.git' in path.parts or not path.is_file():
+            # .claude/ holds local agent worktrees (not in git): their copies are checked where they come from
+            if '.git' in path.parts or '.claude' in path.parts or not path.is_file():
                 continue
             if path.read_bytes().startswith(b'#!/bin/sh'):
                 r = subprocess.run(['/bin/sh', '-n', str(path)], capture_output=True)
@@ -506,7 +507,8 @@ class Regressions(unittest.TestCase):
         # Removed in 2.1.9 (unused with Frigate, or needing internet): the old
         # ffmpeg recorder, timelapse, motion mail and snapshots, ONVIF event
         # push. (audio_stream.cgi came back for 3.0: the microphone through ALSA.)
-        for rel in ('controlscripts/recording', 'controlscripts/timelapse', 'controlscripts/motion-mail',
+        # (controlscripts/recording came back for 3.0: it switches the recorder inside tc100_rtsp, no ffmpeg.)
+        for rel in ('controlscripts/timelapse', 'controlscripts/motion-mail',
                     'controlscripts/motion-snapshot', 'scripts/timelapse.sh', 'scripts/sendPictureMail.sh',
                     'scripts/onvif-notify.sh', 'bin/ffmpeg-min-recorder'):
             self.assertFalse((ROOT / rel).exists(), rel)
@@ -2005,7 +2007,7 @@ class SetupWizard(unittest.TestCase):
         r = self.post(urlencode(dict(profile='frigate_ha', security='https_strict', rec='offline', wifi_ssid='New Net',
                                      wifi_pass='p@ss w0rd!', mqtt_host='192.0.2.5', mqtt_port='1883',
                                      frigate_url='192.0.2.9:5000/', flash_prepare='1')))
-        self.assertEqual(r, {'ok': True, 'wifi': 'applied', 'flash': 'started'})
+        self.assertEqual(r, {'ok': True, 'wifi': 'applied', 'flash': 'started', 'password': 'unchanged'})
         boot = (self.d / 'config/boot.conf').read_text()
         self.assertIn('REC_LOCAL=1', boot); self.assertIn('REC_WHEN=offline', boot); self.assertIn('MQTT_ENABLE=1', boot)
         self.assertIn('MQTT_HOST=192.0.2.5', (self.d / 'config/mqtt.conf').read_text())

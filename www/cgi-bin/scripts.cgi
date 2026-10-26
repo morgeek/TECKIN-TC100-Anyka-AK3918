@@ -254,6 +254,11 @@ fast_toggle_state() {
         _ft_pid="$(read_first /var/run/detection-monitor.pid)"
         case "$_ft_pid" in ''|*[!0-9]*) ;; *) [ -d "/proc/$_ft_pid" ] && _ft_on=1 ;; esac
       fi ;;
+    recording)	# 3.0: the recorder inside tc100_rtsp, on while REC_LOCAL=1
+      case "$(boot_conf_flag REC_LOCAL)" in 1|true|yes|on)
+        _ft_pid="$(read_first /var/run/v4l2rtspserver.pid)"
+        case "$_ft_pid" in ''|*[!0-9]*) ;; *) [ -d "/proc/$_ft_pid" ] && _ft_on=1 ;; esac ;;
+      esac ;;
     web-server)
       for _ft_p in /proc/[0-9]*; do
         [ -r "$_ft_p/stat" ] || continue
