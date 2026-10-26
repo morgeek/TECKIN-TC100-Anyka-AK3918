@@ -8,18 +8,18 @@ Access to the 8 MiB SPI NOR so that the system can boot and run from
 flash: controller driver without DMA or interrupts, the flash and its
 partitions in the device tree (boot, mac and env read-only).
 ---
- arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts |  51 ++++
+ arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts |  55 ++++
  drivers/spi/Kconfig                           |   7 +
  drivers/spi/Makefile                          |   1 +
  drivers/spi/spi-ak39.c                        | 229 ++++++++++++++++++
- 4 files changed, 288 insertions(+)
+ 4 files changed, 292 insertions(+)
  create mode 100644 drivers/spi/spi-ak39.c
 
 diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 index 28580fca8..454808235 100644
 --- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -88,6 +88,62 @@ l2: l2@20140000 {
+@@ -88,6 +88,66 @@ l2: l2@20140000 {
  		interrupts = <12>;
  	};
  
@@ -64,8 +64,12 @@ index 28580fca8..454808235 100644
 +					reg = <0x23b000 0x200000>;
 +				};
 +				partition@43b000 {
-+					label = "stack";	/* stock C: squashfs (xz) of the user space, 3.7 MiB */
-+					reg = <0x43b000 0x3b3000>;
++					label = "stack";	/* stock C: squashfs (xz) of the free user space, 2.7 MiB */
++					reg = <0x43b000 0x2b3000>;
++				};
++				partition@6ee000 {
++					label = "vendor";	/* squashfs of the camera's own vendor libraries, made at install, 1 MiB */
++					reg = <0x6ee000 0x100000>;
 +				};
 +				partition@7ee000 {
 +					label = "cfga";		/* settings, slot A (36 KiB), erased (0xFF) in the stock image */

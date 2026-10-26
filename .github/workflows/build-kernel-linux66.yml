@@ -6,6 +6,16 @@ on:
     paths:
       - 'patches/kernel-6.6/**'
       - 'v3/**'
+      - 'www/**'
+      - 'scripts/**'
+      - 'controlscripts/**'
+      - 'config/**'
+      - 'sounds/**'
+      - 'src/tc100rtsp/**'
+      - 'src/libakuio/**'
+      - 'src/httpfront/**'
+      - 'src/jpegenc/**'
+      - 'VERSION'
       - '.github/workflows/build-kernel-linux66.yml'
   workflow_dispatch:
 
@@ -26,7 +36,7 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison device-tree-compiler
+          sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison device-tree-compiler squashfs-tools zip
 
       - name: Clone Linux 6.6 Stable Tree (Tag v6.6)
         run: |
@@ -85,7 +95,10 @@ jobs:
           md5sum ../output/oipc.img > ../output/oipc.img.md5
 
       - name: Flash budget gate (kernel must fit the 2 MiB KERNEL region)
-        run: python3 scripts/flash_budget.py --kernel output/oipc.img
+        run: |
+          python3 scripts/flash_budget.py --kernel output/oipc.img
+          # cameras installed by hand on 2026-10-24 load 0x1ce000 bytes of the kernel partition (U-Boot flashload)
+          n=$(wc -c < output/oipc.img); [ "$n" -le 1892352 ] || echo "::warning::kernel is $n bytes: more than the 0x1ce000 that the first hand-made flashload reads" 
 
       - name: Get our base root filesystem
         uses: actions/download-artifact@v4
@@ -122,6 +135,22 @@ jobs:
           4. About 40 s after boot the log tc100test/selftest-1.log is on the card.
           EOF
           (cd $P && md5sum * > md5sums.txt)
+
+      - name: Build the 3.0 release (free user space image, SD package, web update)
+        run: |
+          set -e
+          arm-linux-gnueabi-gcc -Os -Wall -static -march=armv5te -mfloat-abi=soft -o output/envtool v3/install/envtool.c
+          gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
+          READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
+          sh v3/build-release.sh output/stack output/oipc.img output/tc100test/oipcrd66.gz output/envtool output/release
+
+      - name: Upload the 3.0 release
+        uses: actions/upload-artifact@v4
+        with:
+          name: tc100-3-release
+          path: |
+            output/release/*.zip
+            output/release/*.tar
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
