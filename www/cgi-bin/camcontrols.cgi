@@ -30,11 +30,12 @@ PANEL_SYS="${PANEL_SYS:-/sys}"
 PANEL_SETCONF="${PANEL_SETCONF:-/mnt/bin/setconf}"
 _panel_first() { _pf=""; [ -r "$1" ] && read -r _pf _pr < "$1" 2>/dev/null; printf '%s' "$_pf"; }
 panel_json() {
-  _irled=0; [ "$(_panel_first "$PANEL_SYS/user-gpio/ir-led")" = 1 ] && _irled=1
+  # 2.x vendor nodes first, then the Linux 6.6 LED names of the device tree (ir, blue, red)
+  _irled=0; { [ "$(_panel_first "$PANEL_SYS/user-gpio/ir-led")" = 1 ] || [ "$(_panel_first "$PANEL_SYS/class/leds/ir/brightness")" = 1 ]; } && _irled=1
   _ircut=0; [ "$(_panel_first "$PANEL_RUN/ircut")" = 1 ] && _ircut=1
   _bw=0;    [ "$(_panel_first "$PANEL_RUN/vday")" = 0 ] && _bw=1
-  _blue=0;  [ "$(_panel_first "$PANEL_SYS/class/leds/blue_led/brightness")" = 1 ] && _blue=1
-  _red=0;   [ "$(_panel_first "$PANEL_SYS/class/leds/red_led/brightness")" = 1 ] && _red=1
+  _blue=0;  { [ "$(_panel_first "$PANEL_SYS/class/leds/blue_led/brightness")" = 1 ] || [ "$(_panel_first "$PANEL_SYS/class/leds/blue/brightness")" = 1 ]; } && _blue=1
+  _red=0;   { [ "$(_panel_first "$PANEL_SYS/class/leds/red_led/brightness")" = 1 ] || [ "$(_panel_first "$PANEL_SYS/class/leds/red/brightness")" = 1 ]; } && _red=1
   if [ "$("$PANEL_SETCONF" -g n 2>/dev/null)" = 2 ]; then _mode=auto
   elif [ "$_irled$_ircut$_bw" = 101 ]; then _mode=night
   elif [ "$_irled$_ircut$_bw" = 010 ]; then _mode=day

@@ -161,6 +161,7 @@ status()
     fi
     # Not running. Exit code 3 = turned off in boot.conf (CPU_SCALER_ENABLE=0): the
     # Services page shows "Disabled" rather than a boot service that failed.
+    [ -f /tmp/linux66 ] && return 3
     load_config >/dev/null 2>&1
     is_truthy "$CPU_SCALER_ENABLE" || return 3
     [ -z "$pid" ] || return 1
@@ -168,6 +169,11 @@ status()
 
 start()
 {
+    # 3.0 (Linux 6.6): tc100_rtsp has a fixed resolution and frame rate, there is nothing to lower
+    if [ -f /tmp/linux66 ]; then
+        echo "CPU scaler not used on this firmware (fixed resolution and frame rate)"
+        return 0
+    fi
     load_config
     if ! is_truthy "$CPU_SCALER_ENABLE"; then
         echo "CPU scaler disabled in /mnt/config/boot.conf"

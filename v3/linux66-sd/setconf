@@ -1,11 +1,37 @@
 #!/bin/sh
-# SD-boot (Linux 6.6) stack: the vendor setconf talks to the vendor ISP daemon, which is not running here.
-# Same interface (-k key -v value, -g key); the keys with an effect on this stack are handled, the others accepted.
+# Linux 6.6 (3.0): the vendor setconf talks to the vendor ISP daemon, which is not running here. Installed as
+# /mnt/bin/setconf on 6.6. Same interface (-k key -v value, -g key); the keys with an effect on this stack are
+# handled, the others accepted.
 #   v  black and white   0 = on (tc100_rtsp zeroes the chroma while /tmp/tc100_bw exists), 1 = off
-#   g  IR LED            e  IR cut filter
-#   p  motion detection 1 = on, -0 = off (tc100_rtsp watches /tmp/tc100_md)   m  its sensitivity 1-100
+#   g  IR LED (sysfs LED "ir")
+#   e  IR-cut filter     1 = in (day), 0 = out (night): one pulse on the filter coil, then both pins low
+#   p  motion detection  1 = on, -0 = off (tc100_rtsp watches /tmp/tc100_md)   m  its sensitivity 1-100
+#   n  (get) 2 = automatic day/night running (scripts/auto-night-daemon.sh), 3 = manual
+# IR-cut coil: GPIO 81 (A) / 80 (B) = 593 / 592 on 6.6 (chips at 512, 544, 576). boot.conf IRCUT_DAY_GPIO,
+# IRCUT_NIGHT_GPIO and IRCUT_PULSE_MS override the pins and the pulse (150 ms) if the filter moves the wrong way.
 k=; v=; g=
 while [ $# -gt 0 ]; do case "$1" in -k) k="$2"; shift 2 ;; -v) v="$2"; shift 2 ;; -g) g="$2"; shift 2 ;; *) shift ;; esac; done
+
+kv() { sed -n "s/^$1=\"\{0,1\}\([0-9]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
+gpio_out() {  # gpio_out N VALUE (exports N as an output first)
+  G=/sys/class/gpio/gpio$1
+  [ -d $G ] || echo "$1" > /sys/class/gpio/export 2>/dev/null
+  [ "$(cat $G/direction 2>/dev/null)" = out ] || echo out > $G/direction 2>/dev/null
+  echo "$2" > $G/value 2>/dev/null
+}
+ircut() {  # ircut 1|0
+  day=$(kv IRCUT_DAY_GPIO); night=$(kv IRCUT_NIGHT_GPIO); ms=$(kv IRCUT_PULSE_MS)
+  day=${day:-593}; night=${night:-592}; ms=${ms:-150}
+  [ "$1" = 0 ] && { on=$night; off=$day; } || { on=$day; off=$night; }
+  # one pulse at a time (the day/night daemon and a click in the web page may come together)
+  i=0; while ! mkdir /tmp/.ircut.lock 2>/dev/null; do i=$((i + 1)); [ $i -ge 10 ] && break; sleep 1; done
+  gpio_out "$off" 0
+  gpio_out "$on" 1
+  usleep $((ms * 1000)) 2>/dev/null || sleep 1
+  gpio_out "$on" 0
+  rmdir /tmp/.ircut.lock 2>/dev/null
+}
+
 if [ -n "$g" ]; then
   case "$g" in
     p) [ -e /tmp/tc100_md ] && echo 1 || echo 0 ;;
@@ -26,7 +52,9 @@ case "$k" in
   v) mkdir -p /var/run
      if [ "$v" = 0 ]; then : > /tmp/tc100_bw; echo 0 > /var/run/vday; else rm -f /tmp/tc100_bw; echo 1 > /var/run/vday; fi ;;
   e) mkdir -p /var/run
-     echo "${v:-1}" > /var/run/ircut ;;
+     [ "$v" = 0 ] || v=1
+     ircut "$v"
+     echo "$v" > /var/run/ircut ;;
   p) case "$v" in 1) : > /tmp/tc100_md ;; *) rm -f /tmp/tc100_md; echo 0 > /tmp/rec_control ;; esac ;;
   m) echo "$v" > /tmp/tc100_md_sens ;;
   g) [ -w /sys/class/leds/ir/brightness ] && echo "${v:-0}" > /sys/class/leds/ir/brightness ;;

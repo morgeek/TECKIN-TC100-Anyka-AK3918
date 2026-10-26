@@ -193,6 +193,8 @@ parse_script_capabilities() {
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
 SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection onvif wifi-rescue motion-detection sound-detection telegram-bot"
+# 3.0 (Linux 6.6): the video resolution and frame rate are fixed by tc100_rtsp, cpu-scaler has nothing to lower
+[ -f /tmp/linux66 ] && SERVICES_HIDDEN="$SERVICES_HIDDEN cpu-scaler"
 SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard cpu-scaler health-snapshot button-actions ftp-server telnet-server syslog-forward"
 FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server memory-guard cpu-scaler wifi-rescue "
 
@@ -256,7 +258,7 @@ fast_toggle_state() {
       for _ft_p in /proc/[0-9]*; do
         [ -r "$_ft_p/stat" ] || continue
         read -r _ft_stat 2>/dev/null < "$_ft_p/stat" || continue
-        case "$_ft_stat" in *"(lighttpd)"*|*"(httpd)"*) _ft_on=1; _ft_pid="${_ft_p#/proc/}"; break ;; esac
+        case "$_ft_stat" in *"(lighttpd)"*|*"(httpd)"*|*"(httpfront)"*) _ft_on=1; _ft_pid="${_ft_p#/proc/}"; break ;; esac
       done ;;
     *) return 1 ;;
   esac

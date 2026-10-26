@@ -297,6 +297,26 @@ publish_mqtt_event() {
   fi
 }
 
+# take_snapshot FILE -> a current JPEG of the camera in FILE (status 0 when FILE is not empty).
+# Linux 6.6 (/tmp/linux66): tc100_rtsp keeps /tmp/currentpic.cache.jpg (+ .ts) and makes a new one at once
+# when /tmp/snapshot_request exists; it is used as it is after 3 s. 2.x: getimage asks the vendor server.
+take_snapshot() {
+  if [ -f /tmp/linux66 ] || [ ! -x /mnt/bin/getimage ]; then
+    _tsn_old=""; [ -r /tmp/currentpic.cache.ts ] && read -r _tsn_old < /tmp/currentpic.cache.ts
+    : > /tmp/snapshot_request 2>/dev/null
+    _tsn_i=0
+    while [ "$_tsn_i" -lt 15 ]; do
+      _tsn_new=""; [ -r /tmp/currentpic.cache.ts ] && read -r _tsn_new < /tmp/currentpic.cache.ts
+      [ -n "$_tsn_new" ] && [ "$_tsn_new" != "$_tsn_old" ] && break
+      sleep 0.2 2>/dev/null || sleep 1
+      _tsn_i=$((_tsn_i + 1))
+    done
+    [ -s /tmp/currentpic.cache.jpg ] && cp /tmp/currentpic.cache.jpg "$1" 2>/dev/null && [ -s "$1" ]
+    return
+  fi
+  /mnt/bin/getimage > "$1" 2>/dev/null && [ -s "$1" ]
+}
+
 # Control the led
 led(){
   _led_node="$2"
@@ -444,8 +464,28 @@ _http_server_lighttpd(){
   _hs_run "$_hs_conf"
 }
 
+# Linux 6.6 (3.0): the web server is httpfront (src/httpfront) in front of busybox httpd, port 80, document root
+# /tmp/www (v3/autorun-linux66.sh step 6); no lighttpd, no HTTPS.
+_http_server_66(){
+  case "$1" in
+  on)
+    pidof httpfront >/dev/null 2>&1 && return 0
+    if [ -x /mnt/tc100test/httpfront ]; then
+      ( exec /mnt/tc100test/httpfront -p 80 -h /tmp/www ) </dev/null >/dev/null 2>&1 &
+    else
+      /usr/sbin/httpd -p 80 -h /tmp/www
+    fi
+    sleep 1
+    for _hs_pid in $(pidof httpfront 2>/dev/null); do echo -900 > /proc/$_hs_pid/oom_score_adj 2>/dev/null; done ;;
+  off) killall httpfront httpd 2>/dev/null ;;
+  restart) killall httpfront httpd 2>/dev/null; sleep 1; _http_server_66 on ;;
+  status) if pidof httpfront >/dev/null 2>&1 || pidof httpd >/dev/null 2>&1; then echo "ON"; else echo "OFF"; fi ;;
+  esac
+}
+
 # Control the http server
 http_server(){
+  [ -f /tmp/linux66 ] && { _http_server_66 "$@"; return; }
   WEB_MODE="full"
   ULTRALITE_HTTP_PORT="80"
   if [ -f /mnt/config/boot.conf ]; then

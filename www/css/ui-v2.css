@@ -389,9 +389,13 @@ input.switch[type="checkbox"] + label::before, input.switch[type="checkbox"] + l
 [hidden] { display: none !important; }
 
 /* Language switch (scripts/i18n.js) */
-.storage-flash .needs-sd { display: none !important; }
+/* 2.x from flash has no curl and no card storage; 3.0 (Linux 6.6, html.linux66) has both */
+.storage-flash:not(.linux66) .needs-sd { display: none !important; }
+/* 3.0: what this platform does not have (.hide-l66), and notes that only apply to it (.show-l66) */
+.linux66 .hide-l66 { display: none !important; }
+html:not(.linux66) .show-l66 { display: none !important; }
 .navbar-item.storage-badge { font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; opacity: .75; cursor: default; }
-.navbar-item.storage-badge.webfb-badge { color: #b45309; opacity: 1; }
+.navbar-item.storage-badge.webfb-badge, .navbar-item.storage-badge.cfgsave-badge { color: #b45309; opacity: 1; }
 .navbar-item.lang-toggle { font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; }
 
 /* Tools menu: section label */

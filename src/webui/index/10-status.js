@@ -266,6 +266,14 @@
     if (sb) sb.hidden = st.storage !== "flash";
     // Hide what needs an SD card (recordings, Telegram) in flash mode.
     document.documentElement.classList.toggle("storage-flash", st.storage === "flash");
+    // 3.0 (Linux 6.6): hide what this platform does not have (.hide-l66), show its notes (.show-l66).
+    document.documentElement.classList.toggle("linux66", st.platform === "linux66");
+    // Settings kept in the flash (3.0): the last save failed (too big, write error).
+    var cs = byId("cfgsave_badge");
+    if (cs) {
+      cs.hidden = !st.cfg_save || st.cfg_save === "ok";
+      if (!cs.hidden) cs.title = "The settings could not be saved to the flash: " + (st.cfg_save_msg || st.cfg_save) + ". They are lost at the next restart.";
+    }
     // SD card problems first (scripts/sd-health.sh): a card that garbles
     // writes keeps working for reads, so this is the only early warning.
     var sdBad = { failing: "failing: replace it", readonly: "read-only", errors: "errors" }[st.sd_health];

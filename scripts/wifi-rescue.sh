@@ -15,6 +15,12 @@
 #   wifi-rescue.sh stop-ap          stop now
 #   wifi-rescue.sh status           ap=0|1, ssid, password
 #
+# 3.0 (Linux 6.6, /tmp/linux66): rtl8xxxu has one interface. The access point takes wlan0 itself
+# (hostapd nl80211 + busybox udhcpd, web interface at http://10.42.0.1): the station is stopped meanwhile.
+# The access point stays up WIFI_RESCUE_MANUAL_MIN minutes (and while a device uses it), then the station
+# tries again (v3/linux66-sd/wifi-apply) for WIFI_RESCUE_AFTER_MIN minutes before the next access point.
+# Saving Wi-Fi settings in the web page (wifi-apply) also ends the access point.
+#
 # boot.conf: WIFI_RESCUE=1, WIFI_RESCUE_AFTER_MIN=10, WIFI_RESCUE_MANUAL_MIN=15,
 # WIFI_RESCUE_SSID (default TC100-<last 4 hex of the MAC>), WIFI_RESCUE_PSK
 # (default: generated once, 12 characters, kept in the persistent config and
@@ -22,21 +28,28 @@
 # associated, default 6). WPA2-PSK only, never an open network.
 
 CONF="${WR_BOOT_CONF:-/mnt/config/boot.conf}"
+AP_IP=10.42.0.1
 RUN="${WR_RUN:-/tmp/wifi-rescue}"
 STA="${WR_STA:-wlan0}"
-AP="${WR_AP:-wlan1}"
+L66=0; [ -f "${WR_L66_FLAG:-/tmp/linux66}" ] && L66=1
+if [ "$L66" = 1 ]; then AP="${WR_AP:-wlan0}"; else AP="${WR_AP:-wlan1}"; fi
 # The vendor hostapd (SD-card firmware), else the one built from source
 # (src/hostapd) that the code package carries: the flash /usr has none.
+# 3.0: the hostapd (nl80211) of the flash image, on PATH (/mnt/ext/bin).
 HOSTAPD="${WR_HOSTAPD:-}"
+if [ -z "$HOSTAPD" ] && [ "$L66" = 1 ]; then
+    HOSTAPD="$(command -v hostapd 2>/dev/null)"
+    [ -n "$HOSTAPD" ] || HOSTAPD=/mnt/ext/bin/hostapd
+fi
 if [ -z "$HOSTAPD" ]; then
     for HOSTAPD in /usr/bin/hostapd /tmp/tc100code/bin/hostapd-rtw /mnt/bin/hostapd-rtw; do
         [ -x "$HOSTAPD" ] && break
     done
 fi
+WEB_URL="https://$AP_IP"; [ "$L66" = 1 ] && WEB_URL="http://$AP_IP"
 SYS_NET="${WR_SYS_NET:-/sys/class/net}"
 PROC_ARP="${WR_PROC_ARP:-/proc/net/arp}"
 STEP="${WR_STEP:-30}"
-AP_IP=10.42.0.1
 
 _wr_kv() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$CONF" 2>/dev/null | tail -n 1; }
 _wr_log() { logger -t tc100-event -p user.warn "wifi-rescue: $*" 2>/dev/null; echo "$(date '+%F %T' 2>/dev/null) $*" >> "$RUN/log"; }
@@ -122,15 +135,24 @@ wr_start_ap()
     [ -d "$SYS_NET/$AP" ] || { _wr_log "no $AP interface"; return 1; }
     _psk="$(wr_psk)" || { _wr_log "no password"; return 1; }
     mkdir -p "$RUN"; chmod 700 "$RUN"
+    _drv=rtl871xdrv; _wmm=wme_enabled
+    if [ "$L66" = 1 ]; then
+        # one interface: the station gives wlan0 to the access point
+        _drv=nl80211; _wmm=wmm_enabled
+        killall wpa_supplicant udhcpc 2>/dev/null
+        sleep 1
+        ip addr flush dev "$AP" 2>/dev/null
+        ip link set "$AP" down 2>/dev/null
+    fi
     ( umask 077; cat > "$RUN/hostapd.conf" <<EOF
 interface=$AP
-driver=rtl871xdrv
+driver=$_drv
 ctrl_interface=$RUN/ctrl
 ssid=$(wr_ssid)
 channel=$(_wr_channel)
 hw_mode=g
 ieee80211n=1
-wme_enabled=1
+$_wmm=1
 beacon_int=100
 max_num_sta=4
 ignore_broadcast_ssid=0
@@ -153,14 +175,18 @@ EOF
     : > "$RUN/udhcpd.leases"
     "$HOSTAPD" -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" >> "$RUN/log" 2>&1
     sleep 2
-    if ! wr_ap_up; then _wr_log "hostapd did not start"; return 1; fi
+    if ! wr_ap_up; then
+        _wr_log "hostapd did not start"
+        [ "$L66" = 1 ] && ( sh "${WR_WIFI_APPLY:-/mnt/v3/linux66-sd/wifi-apply}" 0 ) </dev/null >/dev/null 2>&1 &
+        return 1
+    fi
     ifconfig "$AP" "$AP_IP" netmask 255.255.255.0 up
     # Foreground + $!: busybox udhcpd did not write its pidfile on a TC100,
     # so stop-ap left it running.
     udhcpd -f "$RUN/udhcpd.conf" >> "$RUN/log" 2>&1 &
     echo $! > "$RUN/udhcpd.pid"
     date +%s > "$RUN/since"
-    _wr_log "access point $(wr_ssid) up on channel $(sed -n 's/^channel=//p' "$RUN/hostapd.conf") (${1:-manual}), web at https://$AP_IP"
+    _wr_log "access point $(wr_ssid) up on channel $(sed -n 's/^channel=//p' "$RUN/hostapd.conf") (${1:-manual}), web at $WEB_URL"
 }
 
 wr_stop_ap()
@@ -172,6 +198,11 @@ wr_stop_ap()
     ifconfig "$AP" down 2>/dev/null
     rm -f "$RUN/hostapd.pid" "$RUN/udhcpd.pid" "$RUN/since" "$RUN/manual_until" "$RUN/hostapd.conf"
     _wr_log "access point down (${1:-manual})"
+    # 3.0: wlan0 back to the station (wpa_supplicant, DHCP)
+    if [ "$L66" = 1 ]; then
+        ip addr flush dev "$AP" 2>/dev/null
+        ( sh "${WR_WIFI_APPLY:-/mnt/v3/linux66-sd/wifi-apply}" 0 ) </dev/null >/dev/null 2>&1 &
+    fi
 }
 
 # _wr_wait <seconds>: sleep without a fork (read on a private FIFO times out).
@@ -192,7 +223,13 @@ wr_run()
         if wr_link_ok; then _good=$((_good + STEP)); _bad=0; else _bad=$((_bad + STEP)); _good=0; fi
         if wr_ap_up; then
             _now=$(date +%s); _mu=0; read -r _mu < "$RUN/manual_until" 2>/dev/null
-            if [ "$_good" -ge 60 ] && [ "${_now:-0}" -ge "${_mu:-0}" ] && [ "$(wr_ap_clients)" = 0 ]; then
+            if [ "$L66" = 1 ]; then
+                # no station while the access point has wlan0: after its window, retry the station
+                [ "${_mu:-0}" -gt 0 ] || { _mu=$(( _now + $(_wr_kv WIFI_RESCUE_MANUAL_MIN | awk '{ v = $1 + 0; print (v >= 1 ? v : 15) }') * 60 )); echo "$_mu" > "$RUN/manual_until"; }
+                if [ "${_now:-0}" -ge "$_mu" ] && [ "$(wr_ap_clients)" = 0 ]; then
+                    wr_stop_ap "station retry"; _bad=0; _good=0
+                fi
+            elif [ "$_good" -ge 60 ] && [ "${_now:-0}" -ge "${_mu:-0}" ] && [ "$(wr_ap_clients)" = 0 ]; then
                 wr_stop_ap "wifi back"
             fi
         elif [ "$_bad" -ge "$_after" ]; then

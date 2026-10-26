@@ -8,6 +8,14 @@ C=/mnt/config/wpa_supplicant.conf
 sleep "${1:-0}"
 grep -q 'ssid=' "$C" 2>/dev/null || exit 1
 ( umask 077; cp "$C" /etc/wpa_supplicant.conf.new ) && mv -f /etc/wpa_supplicant.conf.new /etc/wpa_supplicant.conf || exit 1
+# the rescue access point (scripts/wifi-rescue.sh) holds wlan0 on this kernel: end it first
+R=/tmp/wifi-rescue
+for p in udhcpd hostapd; do
+	[ -f $R/$p.pid ] && kill "$(cat $R/$p.pid)" 2>/dev/null && sleep 1
+	rm -f $R/$p.pid
+done
+rm -f $R/since $R/manual_until
+ip addr show wlan0 2>/dev/null | grep -q 'inet 10\.42\.0\.1/' && ip addr flush dev wlan0 2>/dev/null
 ip link set wlan0 up 2>/dev/null
 if ! { command -v wpa_cli >/dev/null 2>&1 && pidof wpa_supplicant >/dev/null && wpa_cli -i wlan0 reconfigure 2>/dev/null | grep -q OK; }; then
 	killall wpa_supplicant 2>/dev/null; sleep 1

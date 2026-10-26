@@ -16,7 +16,9 @@ _btime=0
 while read -r _k _v _; do [ "$_k" = "btime" ] && _btime="$_v" && break; done < /proc/stat
 read -r _up _ < /proc/uptime
 _now_ts=$((_btime + ${_up%.*}))
-_mnt_pct="$(df /mnt 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5+0}')"
+# Linux 6.6 (3.0): the card is at /mnt/sd (in flash mode /mnt is a RAM disk)
+_mnt_dir=/mnt; [ -f /tmp/linux66 ] && _mnt_dir=/mnt/sd
+_mnt_pct="$(df "$_mnt_dir" 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5+0}')"
 case "$_mnt_pct" in ''|*[!0-9]*) _mnt_pct="" ;; esac
 if [ -n "$_mnt_pct" ]; then
     if [ -f "$DISK_USAGE_CACHE" ]; then
