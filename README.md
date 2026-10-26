@@ -1,4 +1,4 @@
-# TECKIN TC100 — alternative firmware (v2)
+# TECKIN TC100 — alternative firmware
 
 Local-only firmware for the **TECKIN TC100 / TECKIN Click** indoor camera
 (Anyka AK3918EV300). It replaces the cloud application with RTSP streams for
@@ -13,7 +13,8 @@ out after [OpenIPC's](https://openipc.org/web-interface): a dashboard with live
 graphs, settings in a sidebar with a search box, and a dark theme.
 
 **3.0** is the same firmware on a free, recent kernel (Linux 6.6) instead of the vendor's 3.4, with
-a free video encoder (H.264, H.265, JPEG) and RTSP, no vendor daemon and no cloud. It boots from the SD
+free drivers for the hardware video encoder (H.264, H.265, JPEG) and a free RTSP server, no vendor daemon
+and no cloud. It boots from the SD
 card or, since the flash install below, **entirely from the camera's SPI flash with no card at all**. See
 [What's new in 3.0](#whats-new-in-30).
 
@@ -87,18 +88,21 @@ grew from there.
 ## What's new in 3.0
 
 Linux 6.6 with free drivers, a free video encoder and a root filesystem that fits the 8 MB flash.
-Running on the camera today: 1080p H.265 (or H.264) main stream plus a 352x200 H.264 sub-stream,
-the web interface, MQTT / Home Assistant, Wi-Fi, audio, ONVIF, motion and day / night, with the SD card
-optional. The 2.x firmware above stays available.
+Running on the camera today: one 1080p H.265 (or H.264) RTSP stream at 15 fps with the microphone,
+the web interface, MQTT / Home Assistant, Wi-Fi, ONVIF, motion and day / night, with the SD card
+optional. There is no RTSP sub-stream yet on 3.0 (every RTSP path serves the main stream). The 2.x firmware
+above stays available.
 
 - **Linux 6.6 port** of the AK3918EV300 as a series of patches on the `v6.6` tag
   ([patches/kernel-6.6/series](patches/kernel-6.6/series/README.md)): CPU, interrupts, timer, console,
   SD card, USB host, Wi-Fi (mainline `rtl8xxxu`), GPIO, I2C, watchdog, audio, **video** (V4L2 driver for the
   JX-F23 sensor and the ISP, zero-copy buffers), the hardware video encoder (`ak39_venc`) and a **SPI NOR
   driver that can write** (4 KiB erase, partitions in the device tree). CI builds the kernel on every push.
-- **Free video encoder** (`src/jpegenc`, `src/h265enc`, `src/libakuio`, driver `ak39_venc`): hardware
-  JPEG, H.264 and H.265 command lists reproduced from the vendor's behaviour, served by `src/tc100rtsp`
-  (RTSP over TCP/UDP, optional G.711 audio, simple authentication, grey-world white balance, OSD clock).
+- **Hardware video encoder on a free driver** (`ak39_venc`, `src/libakuio`): H.264 and H.265 are made by the
+  vendor encoder control libraries running on the free driver; JPEG is fully free code (`src/jpegenc`). The
+  H.265 command lists are reproduced offline (`src/h265enc`), not yet used on the camera. Served by
+  `src/tc100rtsp` (RTSP over TCP/UDP, optional G.711 audio, Digest/Basic login, grey-world white balance,
+  OSD clock).
 - **Runs from flash, SD card optional.** The kernel, an xz initramfs and a squashfs user space (3.2 MiB,
   built by `v3/linux66-sd/build-slim-stack.sh`) are in the SPI flash; settings live in two flash slots that
   alternate (`cfga` / `cfgb`, atomic, saved by `cfg-persist` when they change, Wi-Fi included). A card, if
@@ -143,7 +147,10 @@ The method that was used and tested on the author's camera:
 5. A card that is inserted while the camera runs is not detected: power the camera off and on.
 
 Known limits: the serial console is needed for recovery from a bad write; settings that are stored in
-flash survive reboots, but the user-space image is read-only (update it by writing `stack` again).
+flash survive reboots, but the user-space image is read-only (update it by writing `stack` again). On 3.0 the
+web interface has no login yet, Wi-Fi changes made from the web page are not kept, and several 2.x pages
+(push-to-talk, sound detection, Telegram, updates) do not work: see the
+[feature audit](docs/linux-port/feature-audit-2026-10-26.md).
 
 Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-port/README.md).
 

@@ -4,9 +4,9 @@ Date: Thu, 22 Oct 2026 14:04:46 +0200
 Subject: [PATCH] spi: add the AK3918EV300 SPI controller (polled PIO) and
  describe the NOR flash
 
-Read-only access to the 8 MiB SPI NOR so that the root filesystem can be
-mounted from flash: controller driver without DMA or interrupts, the flash
-and its partitions (stock table, all read-only) in the device tree.
+Access to the 8 MiB SPI NOR so that the system can boot and run from
+flash: controller driver without DMA or interrupts, the flash and its
+partitions in the device tree (boot, mac and env read-only).
 ---
  arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts |  51 ++++
  drivers/spi/Kconfig                           |   7 +
@@ -23,7 +23,7 @@ index 28580fca8..454808235 100644
  		interrupts = <12>;
  	};
  
-+	/* SPI NOR flash (8 MiB, XM25QH64A): read-only, partitions of the stock table */
++	/* SPI NOR flash (8 MiB, XM25QH64A): boot, mac and env read-only, 6.6 layout */
 +	spi0: spi@20120000 {
 +		compatible = "anyka,ak3918ev300-spi";
 +		reg = <0x20120000 0x1000>;

@@ -2,6 +2,15 @@
 
 Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGELOG.md).
 
+## 3.0 (Linux 6.6)
+
+The 3.0 flash build has known gaps, listed feature by feature in
+[linux-port/feature-audit-2026-10-26.md](linux-port/feature-audit-2026-10-26.md). The ones that matter most: the web
+interface has no login on 6.6 (keep the camera on a trusted network), a Wi-Fi change made from the web page or the
+wizard is not kept after a restart (edit `/mnt/config/wpa_supplicant.conf` from a shell instead: `cfg-persist`
+saves it to flash, and it takes priority over a copy on the card), the IR-cut filter
+may not move, and there is no RTSP sub-stream.
+
 ## Lite RTSP server (2.1.9)
 
 - **TCP only.** RTP goes over the RTSP connection; a client asking for UDP gets 461 and retries over TCP (go2rtc, ffmpeg, Frigate, VLC do).
