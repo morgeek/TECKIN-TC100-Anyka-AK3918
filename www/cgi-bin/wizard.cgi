@@ -26,6 +26,13 @@ L66=0; [ -f "$CARD/v3/linux66-sd/wifi-apply" ] && [ -x /usr/sbin/httpd ] && L66=
 if [ "$L66" = 1 ]; then WIFI_CONF="${WZ_WIFI_CONF:-$CONFIG/wpa_supplicant.conf}"
 elif [ "$STORAGE" = flash ]; then WIFI_CONF="${WZ_WIFI_CONF:-/etc/jffs2/tc100/wpa_supplicant.conf}"
 else WIFI_CONF="${WZ_WIFI_CONF:-$CARD/wpa_supplicant.conf}"; fi
+# 3.0: its own "done" marker (settings brought over from 2.x carry .wizard_done, the 3.0 wizard still runs once),
+# flash mode from flashmode-prep.sh, and the one-click install from the trial mode (v3/install/install66.sh).
+if [ "$L66" = 1 ]; then
+    WIZARD_DONE_FILE="$CONFIG/.wizard3_done"
+    [ -f /tmp/flashmode ] && STORAGE=flash
+fi
+INSTALL66="$CARD/v3/install/install66.sh"
 
 json_str() { printf '%s' "$1" | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }'; }
 
@@ -105,14 +112,23 @@ case "$QUERY" in
         command -v wpa_cli >/dev/null 2>&1 && _ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk '/^ssid=/ { print substr($0, 6); exit }')"
         [ -z "$_ssid" ] && command -v iw >/dev/null 2>&1 && _ssid="$(iw dev wlan0 link 2>/dev/null | awk '/^[ 	]*SSID:/ { sub(/^[ 	]*SSID: ?/, ""); print; exit }')"
         [ -z "$_ssid" ] && command -v iwconfig >/dev/null 2>&1 && _ssid="$(iwconfig wlan0 2>/dev/null | awk -F'"' '/ESSID:"/ { print $2; exit }')"
-        _flash="$(FI_CARD="$CARD" sh "$SCRIPTS/flash-install.sh" status 2>/dev/null)"
+        _why=""
+        if [ "$L66" = 1 ]; then
+            if [ "$STORAGE" = flash ]; then _flash=installed
+            elif [ -e /tmp/install66.running ]; then _flash=installing
+            else _why="$(sh "$INSTALL66" check 2>&1)"; [ "$_why" = ok ] && { _flash=ready66; _why=""; } || _flash=blocked
+            fi
+        else
+            _flash="$(FI_CARD="$CARD" sh "$SCRIPTS/flash-install.sh" status 2>/dev/null)"
+        fi
         # A card the recorder can use: SD mode = the card itself; from flash,
         # a card in the slot (mounted by scripts/rec-storage.sh when needed).
         _card=0
         if [ "$STORAGE" = sd ]; then _card=1
         elif [ -b /dev/mmcblk0 ]; then _card=1; fi
-        printf '{"first_boot":%s,"storage":"%s","ssid":"%s","flash":"%s","card":%s}\n' \
-            "$([ -f "$FIRST_BOOT_FLAG" ] && echo true || echo false)" "$STORAGE" "$(json_str "$_ssid")" "${_flash:-none}" "$_card"
+        printf '{"first_boot":%s,"storage":"%s","ssid":"%s","flash":"%s","card":%s,"linux66":%s,"flash_reason":"%s"}\n' \
+            "$([ -f "$FIRST_BOOT_FLAG" ] && echo true || echo false)" "$STORAGE" "$(json_str "$_ssid")" "${_flash:-none}" "$_card" \
+            "$([ "$L66" = 1 ] && echo true || echo false)" "$(json_str "$_why")"
         exit 0
         ;;
 esac
@@ -145,6 +161,8 @@ if [ "$METHOD" = "POST" ]; then
     _frigate_raw="$(get_field "$_body" frigate_url)"
     _rec="$(get_field "$_body" rec)"
     _flash_prep="$(get_field "$_body" flash_prepare)"
+    _flash_inst="$(get_field "$_body" flash_install)"
+    _password_raw="$(get_field "$_body" password)"
 
     echo "Content-Type: application/json"
     echo ""
@@ -190,6 +208,15 @@ if [ "$METHOD" = "POST" ]; then
         case "$_wifi_ssid$_wifi_pass" in *\"*|*\\*) echo '{"ok":false,"error":"invalid_wifi"}'; exit 0 ;; esac
     fi
 
+    # New camera password (3.0 wizard, optional): same rules as Settings → System → Password.
+    _password="$(urldecode "$_password_raw" | awk 'NR == 1 { sub(/\r$/, ""); print }')"
+    if [ -n "$_password" ]; then
+        case "$_password" in
+            *[\"\'\$\`\\\ %]*|*"$(printf '\t')"*) echo '{"ok":false,"error":"invalid_password"}'; exit 0 ;;
+        esac
+        [ ${#_password} -lt 6 ] && { echo '{"ok":false,"error":"invalid_password"}'; exit 0; }
+    fi
+
     # Decode and sanitize MQTT fields (awk, not tr -cd — see get_field above)
     _mqtt_host="$(urldecode "$_mqtt_host_raw" | awk '{ gsub(/[^a-zA-Z0-9.:_-]/, ""); print }')"
     _mqtt_port="$(urldecode "$_mqtt_port_raw" | awk '{ gsub(/[^0-9]/, ""); print }')"
@@ -214,8 +241,13 @@ if [ "$METHOD" = "POST" ]; then
             ;;
     esac
 
-    # Apply web / security mode
+    # Apply web / security mode (3.0: plain HTTP with a login is all busybox httpd offers)
+    [ "$L66" = 1 ] && _security=http66
     case "$_security" in
+        http66)
+            set_conf "$BOOT_CONF" WEB_MODE http
+            set_conf "$BOOT_CONF" SECURITY_HARDENING_MODE 0
+            ;;
         https_strict)
             set_conf "$BOOT_CONF" WEB_MODE full
             set_conf "$BOOT_CONF" SECURITY_HARDENING_MODE 1
@@ -287,10 +319,30 @@ if [ "$METHOD" = "POST" ]; then
         esac
     fi
 
+    # 3.0, one click: install to flash from the trial mode once the settings above are written
+    # (install66.sh copies them from the card into the flash settings slots at its end).
+    if [ "$L66" = 1 ] && [ "$_flash_inst" = 1 ] && [ "$STORAGE" = sd ] && [ ! -e /tmp/install66.running ] &&
+       [ "$(sh "$INSTALL66" check 2>&1)" = ok ]; then
+        : > /tmp/install66.running
+        ( trap '' HUP; sleep 8; sh "$INSTALL66" run; rm -f /tmp/install66.running ) </dev/null >/dev/null 2>&1 &
+        _flash=installing
+    fi
+
+    # New password last: the browser has to sign in again afterwards.
+    _pw=unchanged
+    if [ -n "$_password" ]; then
+        if sh -c '. /mnt/scripts/common_functions.sh && all_password "$1"' _ "$_password" >/dev/null 2>&1; then
+            _pw=changed
+            ( sleep 3; sh /mnt/controlscripts/rtsp-h26x restart ) </dev/null >/dev/null 2>&1 &
+        else
+            _pw=failed
+        fi
+    fi
+
     touch "$WIZARD_DONE_FILE" 2>/dev/null || true
     rm -f "$FIRST_BOOT_FLAG" 2>/dev/null || true
 
-    printf '{"ok":true,"wifi":"%s","flash":"%s"}\n' "$_wifi" "$_flash"
+    printf '{"ok":true,"wifi":"%s","flash":"%s","password":"%s"}\n' "$_wifi" "$_flash" "$_pw"
     exit 0
 fi
 
@@ -607,8 +659,20 @@ body {
 
   <!-- ── Web access ─────────────────────────────── -->
   <div class="wz-panel" id="wp-security">
-    <div class="wz-step-title">Access and security</div>
-    <div class="wz-step-hint">How should the web interface be accessed?</div>
+    <div class="wz-step-title" id="wzSecTitle">Access and security</div>
+    <div class="wz-step-hint" id="wzSecHint">How should the web interface be accessed?</div>
+    <div id="wzPwForm" style="display:none">
+      <div class="wz-field">
+        <label class="wz-label" for="wzPw1">New password for root</label>
+        <input class="wz-input" id="wzPw1" type="password" maxlength="64" autocomplete="new-password" oninput="checkPw()">
+      </div>
+      <div class="wz-field">
+        <label class="wz-label" for="wzPw2">Same password again</label>
+        <input class="wz-input" id="wzPw2" type="password" maxlength="64" autocomplete="new-password" oninput="checkPw()">
+      </div>
+      <div class="wz-step-hint" id="wzPwErr" style="color:#f87171"></div>
+    </div>
+    <div id="wzSecCards">
     <div class="wz-card" data-val="https_strict" data-group="security" onclick="pick(this)">
       <div class="wz-icon" style="background:rgba(22,163,74,.12)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
       <div class="wz-card-body">
@@ -632,6 +696,7 @@ body {
         <div class="wz-card-desc">Busybox httpd — minimal RAM, suitable when the dashboard is unused (Frigate headless)</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    </div>
     </div>
     <div class="wz-nav">
       <button class="btn-ghost" onclick="goBack()">← Back</button>
@@ -714,12 +779,12 @@ body {
   <!-- ── Install to flash (SD card mode only) ───── -->
   <div class="wz-panel" id="wp-flash">
     <div class="wz-step-title">Run without the SD card</div>
-    <div class="wz-step-hint">This firmware can be installed into the camera's own memory. The card then becomes optional (recordings only).</div>
+    <div class="wz-step-hint" id="wzFlashHint">This firmware can be installed into the camera's own memory. The card then becomes optional (recordings only).</div>
     <div class="wz-card" data-val="prepare" data-group="flash" onclick="pick(this)">
       <div class="wz-icon" style="background:rgba(22,163,74,.12)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></div>
       <div class="wz-card-body">
-        <div class="wz-card-title">Prepare the installation now</div>
-        <div class="wz-card-desc">Step 1 of 3: the camera copies its original system to the card (nothing is written to its memory). Steps 2 and 3: README, "Install to flash", or Settings → Update & backup.</div>
+        <div class="wz-card-title" id="wzFlashGoTitle">Prepare the installation now</div>
+        <div class="wz-card-desc" id="wzFlashGoDesc">Step 1 of 3: the camera copies its original system to the card (nothing is written to its memory). Steps 2 and 3: README, "Install to flash", or Settings → Update & backup.</div>
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
@@ -765,7 +830,7 @@ body {
 
 <script>
 var wz = { wifi: null, profile: null, security: null, rec: null, flash: null };
-var info = { storage: 'sd', ssid: '', flash: 'none', card: 1 };
+var info = { storage: 'sd', ssid: '', flash: 'none', card: 1, linux66: false, flash_reason: '' };
 
 var LABEL = {
     profile:  { standalone: 'Standalone', frigate_ha: 'Frigate + Home Assistant', nvr: 'Third-party NVR' },
@@ -778,7 +843,24 @@ var ARROW_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><li
 var current = 'start';
 
 function byId(id) { return document.getElementById(id); }
-function flashStep() { return info.storage === 'sd' && (info.flash === 'none' || info.flash === 'empty'); }
+function flashStep() {
+    if (info.linux66) return info.storage === 'sd' && info.flash === 'ready66';
+    return info.storage === 'sd' && (info.flash === 'none' || info.flash === 'empty');
+}
+// 3.0: the access step sets the camera password (busybox httpd has no HTTPS); empty = keep the current one
+function pwError() {
+    var a = byId('wzPw1').value, b = byId('wzPw2').value;
+    if (!a && !b) return '';
+    if (/["'\\$`%\s]/.test(a)) return 'No spaces, quotes, %, $, ` or \\ in the password.';
+    if (a.length < 6) return 'At least 6 characters.';
+    if (a !== b) return 'The two passwords differ.';
+    return '';
+}
+function checkPw() {
+    var e = pwError();
+    byId('wzPwErr').textContent = e;
+    byId('wbtn-security').disabled = e !== '';
+}
 function panels() {
     var p = ['start', 'profile', 'security'];
     if (wz.profile === 'frigate_ha') p.push('mqtt');
@@ -864,7 +946,8 @@ function renderSummary() {
     var fr = byId('wzFrigateUrl').value.trim();
     rows.push(['Wi-Fi', wz.wifi === 'change' ? badge('badge-amber', esc(byId('wzWifiSsid').value) + ' (next restart)') : badge('badge-slate', esc(info.ssid || 'Unchanged'))]);
     rows.push(['Profile', badge('badge-purple', LABEL.profile[wz.profile])]);
-    rows.push(['Web access', badge('badge-purple', LABEL.security[wz.security])]);
+    if (info.linux66) rows.push(['Password', byId('wzPw1').value ? badge('badge-green', 'New password') : badge('badge-amber', 'Unchanged')]);
+    else rows.push(['Web access', badge('badge-purple', LABEL.security[wz.security])]);
     if (wz.profile === 'frigate_ha') {
         rows.push(['Broker MQTT', badge('badge-green', esc(host) + ' : ' + esc(port))]);
         if (fr) rows.push(['Frigate', badge('badge-green', esc(fr))]);
@@ -884,6 +967,7 @@ function renderSummary() {
 var ERRORS = {
     invalid_wifi: 'The Wi-Fi network name or password is not valid.',
     invalid_frigate_url: 'The Frigate address must look like http://192.168.1.20:5000.',
+    invalid_password: 'The new password is not valid (at least 6 characters, no spaces, quotes, %, $, ` or \\).',
     wizard_already_completed: 'The setup was already completed (reload the page).'
 };
 
@@ -900,7 +984,8 @@ function applyConfig() {
                 f('mqtt_user', byId('wzMqttUser').value.trim()) + f('mqtt_pass', byId('wzMqttPass').value) +
                 f('frigate_url', byId('wzFrigateUrl').value.trim());
     }
-    if (flashStep() && wz.flash === 'prepare') body += f('flash_prepare', '1');
+    if (flashStep() && wz.flash === 'prepare') body += f(info.linux66 ? 'flash_install' : 'flash_prepare', '1');
+    if (info.linux66 && byId('wzPw1').value) body += f('password', byId('wzPw1').value);
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/cgi-bin/wizard.cgi', true);
@@ -926,6 +1011,9 @@ function showSuccess(d) {
     if (d.wifi === 'applied') notes.push('The new Wi-Fi network is used from the next restart.');
     if (d.wifi === 'failed') notes.push('The Wi-Fi settings could not be saved; the camera stays on its current network.');
     if (d.flash === 'started') notes.push('Copying the original system to the card: follow it in Settings → Update & backup.');
+    if (d.flash === 'installing') notes.push('The firmware is being written into the camera\'s memory (about 10 minutes, do not unplug it); the camera then restarts from it and the card is only used for recordings. Progress: Settings → Update & backup.');
+    if (d.password === 'changed') notes.push('The password is changed: sign in again as root with the new one (also in the RTSP addresses of Frigate or your NVR).');
+    if (d.password === 'failed') notes.push('The password could not be changed: Settings → System → Password.');
     byId('wzSuccessNote').textContent = notes.join(' ');
     var n = notes.length ? 8 : 5, el = byId('wzCountdown');
     el.textContent = n;
@@ -945,6 +1033,18 @@ function showSuccess(d) {
     xhr.onreadystatechange = function() {
         if (xhr.readyState !== 4) return;
         try { var d = JSON.parse(xhr.responseText); if (d) info = d; } catch (e) {}
+        if (info.linux66) {
+            byId('wzSecTitle').textContent = 'Camera password';
+            byId('wzSecHint').textContent = 'One password for the user root: web interface, RTSP, FTP and telnet. The default one (pass) is known to everybody: choose your own. Leave empty to keep the current one.';
+            byId('wzSecCards').style.display = 'none';
+            byId('wzPwForm').style.display = '';
+            wz.security = 'http_lite';
+            checkPw();
+            LABEL.flash = { prepare: 'Install now', later: 'Not now' };
+            byId('wzFlashHint').textContent = 'This camera can now run the firmware from its own memory. The whole original flash is already saved on the card (tc100-3/backup).';
+            byId('wzFlashGoTitle').textContent = 'Install into the camera now';
+            byId('wzFlashGoDesc').textContent = 'One click: after the settings are applied, the camera writes the firmware into its memory (about 10 minutes, every part saved on the card first and read back), then restarts from it. The card then only holds recordings.';
+        }
         byId('wzSsidNow').textContent = info.ssid ? 'Connected to ' + info.ssid : 'Settings stored in the camera';
         byId('wzRecNote').style.display = info.card ? 'none' : '';
         preselect('wifi', 'keep');
