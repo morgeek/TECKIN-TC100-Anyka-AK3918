@@ -233,3 +233,32 @@ at word 6 the core writes a complete, standard JFIF file by itself: the DQT are 
 the DHT the standard ones, a grey frame gives the textbook `28 a2 8a 00` scan, and a real 1920x1080
 frame decodes to the picture (116 KB at quality 35, no software header needed). Free JPEG
 encoding on the hardware core works from user space (`src/jpegenc`, `/dev/uio0`).
+
+## tc100_rtsp: sub-stream, sound level, motion zones, recorder (2026-10-26)
+
+Written and tested on the host only (`python3 tests/test_tc100rtsp.py`); not yet run on the camera.
+
+- **Sub-stream:** a second encoder channel, 640x360, same frame rate, fed from the scaled picture that also makes
+  `stream.jpg`. Codec and bit rate from `rtspserver.conf` `[1] codec` (0 H.264, 2 H.265) and `[1] bps`; off with
+  `RTSP_SUBSTREAM=0` in `boot.conf` (launcher flag `-s 0`). Paths containing `video1` (`video1`, `video1_unicast`) or
+  starting with `/ch1` or `/sub` serve it; every other path the main stream. Encoder fields as the vendor server
+  (`AnykaCameraManager::getVideoEncodeParams`): channel 1, group 2 (`RTSP_SUB_CHN`, `RTSP_SUB_GROUP` in
+  `config/rtsp.env` override). The log shows the pool use after each open; if the sub-stream does not open, or later
+  gives no frames, its paths serve the main stream.
+- **Sound level:** with `ENABLE=1` in `config/sound_detection.conf`, `/var/run/sound_level` is rewritten 4 times a
+  second in the 2.x format `<epoch> <rms_dbfs> <peak_dbfs> <events> <last_event_epoch> <last_event_dbfs>` (RMS and peak
+  of the last 0.25 s around the mean; an event per second whose RMS reaches `<file>.threshold`). `arecord` runs only
+  while an audio client plays or the sound detection is on.
+- **Motion:** on while `/tmp/tc100_md` exists and `mdenabled` is not 0; sensitivity from `/tmp/tc100_md_sens` or
+  `mdsens`; the zones of `config/motion_zones.conf` (`MDZ1..4="x1,y1,x2,y2"`, percent) are left out of the 64x36 luma
+  grid (2.x `md.c` rule: a cell is ignored when its centre lies in a zone). `/tmp/rec_control` as before;
+  `/var/run/md_zones` holds the 2.x status line. The boot starts it only when `mdenabled=1` or
+  `config/autostart/motion-detection` exists.
+- **Recorder** (`src/tc100rtsp/rec.c`, no ffmpeg): the encoded frames go into Matroska files
+  `/mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mkv` (the name the Recordings page lists) with a hardware-JPEG thumbnail
+  `YYYY-MM-DD_HH-MM-SS.jpg` of the first keyframe next to each. Settings of `boot.conf`, read while running:
+  `REC_LOCAL`, `REC_WHEN=offline|always|motion`, `REC_STREAM=main|sub`, `REC_SEGMENT_SEC`, `REC_RESERVE_MB`,
+  `REC_OFFLINE_SEC`, `REC_POSTROLL_SEC`, `REC_CLIENT` (else the host of `FRIGATE_URL`). Only into a vfat/exfat card;
+  the oldest recordings are deleted to keep `REC_RESERVE_MB` free; `/var/run/tc100rec.pause` (`rec-storage.sh eject`)
+  closes the file and leaves the card alone; state in `/var/run/tc100rec`. Card I/O runs in a writer thread so a slow
+  card never stalls the capture loop. `controlscripts/recording start|stop` sets `REC_LOCAL`.
