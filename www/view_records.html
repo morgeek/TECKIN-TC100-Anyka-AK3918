@@ -68,7 +68,37 @@
 .motion-timeline>summary{cursor:pointer;list-style:none}.motion-timeline>summary::-webkit-details-marker{display:none}.motion-timeline>summary::after{content:"+";margin-left:auto}.motion-timeline[open]>summary::after{content:"−"}.motion-timeline-tools{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}.motion-timeline-empty{padding:.5rem;color:#777;font-size:.85em}
 </style>
 
-<header class="page-head"><h1 class="page-title">Recordings</h1></header>
+<header class="page-head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+  <h1 class="page-title">Recordings</h1>
+  <a class="button is-small is-link is-light onpage" href="javascript:void(0)" data-target="settings.html" data-tab="tab-record" title="Configure local recording schedule, stream and storage">
+    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px;margin-right:0.35rem;fill:none;stroke:currentColor;stroke-width:2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <span>Recording settings</span>
+  </a>
+</header>
+<div id="rec_status_notice" class="notification is-info is-light py-2 px-3 mb-3 is-size-7" style="display:none">
+  <span id="rec_status_notice_text">Checking recording status…</span>
+  <a class="onpage ml-2" href="javascript:void(0)" data-target="settings.html" data-tab="tab-record" style="font-weight:600">Configure</a>
+</div>
+<script>
+(function() {
+  fetch('cgi-bin/action.cgi?cmd=local_rec_status&format=json', { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var n = document.getElementById('rec_status_notice');
+      var t = document.getElementById('rec_status_notice_text');
+      if (!n || !t || !d) return;
+      if (d.rec_local !== '1') {
+        n.style.display = 'block';
+        n.className = 'notification is-warning is-light py-2 px-3 mb-3 is-size-7';
+        t.textContent = 'Local recording to SD card is currently disabled.';
+      } else {
+        n.style.display = 'block';
+        n.className = 'notification is-success is-light py-2 px-3 mb-3 is-size-7';
+        t.textContent = 'Local recording is active (' + (d.state || 'running') + ', stream: ' + (d.rec_stream || 'main') + ').';
+      }
+    }).catch(function() {});
+})();
+</script>
 <div class="records-layout">
   <div class="records-panel">
     <div class="card status_card">
