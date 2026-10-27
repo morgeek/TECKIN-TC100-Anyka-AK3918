@@ -116,6 +116,7 @@
     var el = byId(id);
     if (!el) return;
     var pct = total > 0 ? Math.min(100, Math.round(100 * used / total)) : 0;
+    if (used > 0 && pct === 0) pct = 1;
     el.style.width = pct + "%";
     el.parentNode.classList.toggle("is-high", pct >= 90);
   }
@@ -141,8 +142,15 @@
     var j = i.jffs || [0, 0], sd = i.sd || [0, 0];
     setText("dst_jffs", fmtKb(j[1]) + " / " + fmtKb(j[0]));
     dashBar("dsb_jffs", j[1], j[0]);
-    setText("dst_sd", sd[0] > 0 ? fmtKb(sd[1]) + " / " + fmtKb(sd[0]) : "not mounted");
-    dashBar("dsb_sd", sd[1], sd[0]);
+    if (sd[0] > 0) {
+      var sdpct = (100 * sd[1] / sd[0]);
+      var sdpctStr = sdpct > 0 && sdpct < 0.1 ? "< 0.1%" : (sdpct < 10 ? sdpct.toFixed(1) + "%" : Math.round(sdpct) + "%");
+      setText("dst_sd", fmtKb(sd[1]) + " / " + fmtKb(sd[0]) + " (" + sdpctStr + ")");
+      dashBar("dsb_sd", sd[1], sd[0]);
+    } else {
+      setText("dst_sd", "not mounted");
+      dashBar("dsb_sd", 0, 0);
+    }
     var fw = byId("dash_flash_wrap"), fb = byId("dsb_flash"), fl = byId("dsl_flash");
     if (fw && fb && fl && i.flash && i.flash.total_kb > 0 && Array.isArray(i.flash.parts)) {
       fw.hidden = false;

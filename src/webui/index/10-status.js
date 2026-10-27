@@ -252,6 +252,12 @@
 
   // Instruments under the live picture (css/ui.css), from the statusline poll.
   function renderReadings(st) {
+    if (st.hostname) {
+      var bh = byId("brand_host");
+      if (bh && bh.textContent !== st.hostname) bh.textContent = st.hostname;
+      var osd = byId("osd_name");
+      if (osd && osd.textContent !== st.hostname) osd.textContent = st.hostname;
+    }
     function put(id, text, high) {
       var el = byId(id);
       if (!el) return;
@@ -278,7 +284,9 @@
     } else if (st.storage === "flash") {
       put("rd_sd", st.sd_health === "ok" ? "recordings" : "not used", false);
     } else if (typeof st.sd_total_kb === "number" && st.sd_total_kb > 0) {
-      put("rd_sd", (st.sd_used_kb / 1048576).toFixed(1) + " / " + Math.round(st.sd_total_kb / 1048576) + " GB", st.sd_percent >= 90);
+      var sdp = (100 * st.sd_used_kb / st.sd_total_kb);
+      var sdpStr = sdp > 0 && sdp < 0.1 ? "< 0.1%" : (sdp < 10 ? sdp.toFixed(1) + "%" : Math.round(sdp) + "%");
+      put("rd_sd", (st.sd_used_kb / 1048576).toFixed(1) + " / " + Math.round(st.sd_total_kb / 1048576) + " GB (" + sdpStr + ")", st.sd_percent >= 90);
     } else {
       put("rd_sd", "none", false);
     }
