@@ -101,8 +101,80 @@ class Mp4:
                 assert i == end
                 out.append((t90 * 1000 // 90000, sf == 0x02000000, nals))
                 t90 += dur
-            assert i == de, 'mdat holds exactly the samples'
+            assert i <= de, 'the samples stay inside the mdat (audio follows them)'
             assert (t90 - base) <= 90000 + 9000, 'one fragment per second at most'
+        return out
+
+
+def alaw_decode(a):
+    a ^= 0x55
+    t = (a & 0x0f) << 4
+    seg = (a & 0x70) >> 4
+    if seg == 0:
+        t += 8
+    elif seg == 1:
+        t += 0x108
+    else:
+        t = (t + 0x108) << (seg - 1)
+    return t if a & 0x80 else -t
+
+
+class Mp4Audio:
+    """the second track of a recording: sample entry, fragments (second traf of each moof), A-law bytes"""
+    def __init__(self, m):
+        self.m, b = m, m.b
+        traks = [(d, e) for typ, d, e in boxes(b, *m.moov) if typ == 'trak']
+        self.traks = traks
+        self.ntrak = len(traks)
+
+    def handler(self, k):
+        d, e = self.traks[k]
+        h = child(self.m.b, d, e, 'mdia', 'hdlr')
+        return self.m.b[h[0] + 8:h[0] + 12]
+
+    def entry(self):
+        b = self.m.b
+        d, e = child(b, *self.traks[1], 'mdia', 'minf', 'stbl', 'stsd')
+        typ, sd, se = next(boxes(b, d + 8, e))
+        ch, bits, cid, pk, rate = struct.unpack('>HHHHI', b[sd + 16:sd + 28])
+        return typ, ch, bits, rate >> 16
+
+    def timescale(self):
+        d, e = child(self.m.b, *self.traks[1], 'mdia', 'mdhd')
+        return struct.unpack('>I', self.m.b[d + 12:d + 16])[0]
+
+    def fragments(self):
+        """(tfdt, [sizes], bytes) per fragment; checks track ids, data offsets and that the mdat holds video then audio"""
+        b, out = self.m.b, []
+        for start, (md, me), (dd, de) in self.m.frags:
+            trafs = [(d, e) for typ, d, e in boxes(b, md, me) if typ == 'traf']
+            assert len(trafs) in (1, 2), 'one traf per track per moof (none for audio when a fragment holds no sound)'
+            if len(trafs) == 1:
+                continue
+            ids = []
+            for d, e in trafs:
+                f = child(b, d, e, 'tfhd')
+                ids.append(struct.unpack('>I', b[f[0] + 4:f[0] + 8])[0])
+            assert ids == [1, 2], ids
+            vr = child(b, *trafs[0], 'trun')
+            ar = child(b, *trafs[1], 'trun')
+            vflags = struct.unpack('>I', b[vr[0]:vr[0] + 4])[0] & 0xffffff
+            aflags = struct.unpack('>I', b[ar[0]:ar[0] + 4])[0] & 0xffffff
+            assert (vflags, aflags) == (0x701, 0x301)
+            vcount, voff = struct.unpack('>Ii', b[vr[0] + 4:vr[0] + 12])
+            acount, aoff = struct.unpack('>Ii', b[ar[0] + 4:ar[0] + 12])
+            vbytes = sum(struct.unpack('>I', b[vr[0] + 16 + 12 * k:vr[0] + 20 + 12 * k])[0] for k in range(vcount))
+            sizes = []
+            for k in range(acount):
+                dur, size = struct.unpack('>II', b[ar[0] + 12 + 8 * k:ar[0] + 20 + 8 * k])
+                assert dur == size, 'A-law: one tick per byte'
+                sizes.append(size)
+            assert start + voff == dd and start + aoff == dd + vbytes, 'data offsets'
+            assert de - dd == vbytes + sum(sizes), 'mdat = video samples then audio samples'
+            t = child(b, *trafs[1], 'tfdt')
+            assert b[t[0]] == 1
+            base = struct.unpack('>Q', b[t[0] + 4:t[0] + 12])[0]
+            out.append((base, sizes, b[aoff + start:aoff + start + sum(sizes)]))
         return out
 
 
@@ -123,9 +195,9 @@ class Recorder(unittest.TestCase):
     def setUpClass(cls):
         build('test_rec')
 
-    def run_rec(self, d, codec, drop=None):
+    def run_rec(self, d, codec, drop=None, **env):
         args = [str(SRC / 'test_rec'), str(d), codec, '70', '12', '24', '30'] + ([str(drop)] if drop is not None else [])
-        r = subprocess.run(args, env=dict(os.environ, REC_TEST_ANY_FS='1'), capture_output=True, text=True, timeout=120)
+        r = subprocess.run(args, env=dict(os.environ, REC_TEST_ANY_FS='1', **env), capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return sorted(d.glob('*.mp4'))
 
@@ -171,6 +243,72 @@ class Recorder(unittest.TestCase):
                     st = (Path(d) / 'status').read_text()
                     self.assertIn('codec=%s' % codec, st)
                     self.assertIn('thumbs=3', st)
+
+    def check_audio(self, files, hole):
+        """two tracks (video, 'alaw' 8 kHz mono), audio interleaved in every fragment, on the video clock"""
+        total = 0
+        for j, f in enumerate(files):
+            m = Mp4(f)
+            a = Mp4Audio(m)
+            self.assertEqual(a.ntrak, 2)
+            self.assertEqual((a.handler(0), a.handler(1)), (b'vide', b'soun'))
+            self.assertEqual(a.entry(), ('alaw', 1, 16, 8000))
+            self.assertEqual(a.timescale(), 8000)
+            self.assertEqual(len(list(boxes(m.b, *child(m.b, *m.moov, 'mvex')))), 2, 'a trex per track')
+            frags = a.fragments()
+            self.assertLessEqual(len(m.frags) - len(frags), 2 if hole is not None else 0, 'fragments without sound')
+            pcm, pos = [], None
+            for base, sizes, data in frags:
+                if pos is not None:
+                    self.assertEqual(base, pos, 'audio track continuous (holes are filled with silence)')
+                pos = base + sum(sizes)
+                self.assertTrue(all(0 < x <= 160 for x in sizes))
+                pcm += [alaw_decode(x) for x in data]
+            first = frags[0][0]
+            self.assertLess(first, 8000 * 0.5, 'the audio starts with the file')
+            audio_s = (frags[-1][0] + sum(frags[-1][1])) / 8000
+            video_s = m.samples()[-1][0] / 1000
+            self.assertLess(abs(audio_s - video_s), 1.5, 'audio and video span the same time')
+            # the tone has 0.4 s of silence at 9.0 s, 19.0 s, 29.0 s of the 10 s clock; files start on a multiple of 10 s
+            for want in (9.0, 19.0, 29.0):
+                if (len(pcm) + first) / 8000 < want + 0.5:
+                    continue
+                i = int(want * 8000) - first
+                self.assertLessEqual(max(abs(x) for x in pcm[i + 200:i + 2800]), 16, 'silence at %.1f s' % want)
+                self.assertGreater(max(abs(x) for x in pcm[i - 800:i - 100]), 3000, 'tone before %.1f s' % want)
+                self.assertGreater(max(abs(x) for x in pcm[i + 3300:i + 4000]), 3000, 'tone after %.1f s' % want)
+                # start of the silence within 20 ms of the video clock
+                k = i - 400
+                while abs(pcm[k]) > 16 or abs(pcm[k + 1]) > 16 or abs(pcm[k + 2]) > 16:
+                    k += 1
+                self.assertLess(abs(k - i), 160, 'silence starts at %.1f s (found %.3f)' % (want, (k + first) / 8000))
+            w = pcm[2000:10000]
+            zc = sum(1 for x, y in zip(w, w[1:]) if (x < 0) != (y < 0)) / 2
+            self.assertAlmostEqual(zc, 440, delta=4, msg='440 Hz tone')
+            total += len(pcm)
+        return total
+
+    def test_audio_track(self):
+        for codec in ('h264', 'h265'):
+            for kw in ({}, {'drop': 50}, {'hole': 3}):
+                with self.subTest(codec=codec, **kw), tempfile.TemporaryDirectory() as d:
+                    hole = kw.get('hole')
+                    env = {'REC_TEST_AUDIO': '1'}
+                    if hole is not None:
+                        env['REC_TEST_AUDIO_HOLE'] = str(hole)
+                    files = self.run_rec(Path(d), codec, kw.get('drop'), **env)
+                    self.assertEqual(len(files), 3)
+                    n = self.check_audio(files, hole)
+                    self.assertGreater(n, 60 * 8000)
+                    st = (Path(d) / 'status').read_text()
+                    self.assertIn('audio=alaw', st)
+
+    def test_audio_off_has_one_track(self):
+        with tempfile.TemporaryDirectory() as d:
+            files = self.run_rec(Path(d), 'h264')
+            m = Mp4(files[0])
+            self.assertEqual(Mp4Audio(m).ntrak, 1)
+            self.assertIn('audio=off', (Path(d) / 'status').read_text())
 
     def test_cut_file_still_parses(self):
         """a file cut by a power loss: the header and every complete fragment stay readable"""
