@@ -250,7 +250,7 @@
     return cpu;
   }
 
-  // Instruments under the live picture (ui-v2), from the statusline poll.
+  // Instruments under the live picture (css/ui.css), from the statusline poll.
   function renderReadings(st) {
     function put(id, text, high) {
       var el = byId(id);

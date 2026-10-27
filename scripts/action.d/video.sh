@@ -10,10 +10,11 @@
       # Supports both stream 0 and 1, plus all advanced SmartVBR/QP tuning
       stream_idx="$(sanitize_int_range "${F_stream}" 0 1 0)"
       
-      # Determine which inputs to use based on stream index
+      # Determine which inputs to use based on stream index. tc100_rtsp encodes 1920x1080 and 640x360 at 15 fps
+      # whatever the file says: those are written, so that every reader of the file sees the real values.
       if [ "$stream_idx" = "1" ]; then
-          raw_size=$(printf '%s' "${F_video_size1}")
-          fps=$(sanitize_int_range "${F_fps1}" 1 30 25)
+          raw_size=640x360
+          fps=15
           bitrate=$(sanitize_int_range "${F_brbitrate1}" 32 8000 300)
           codec=$(sanitize_int_range "${F_video_codec1}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen1}" 1 300 50)
@@ -22,8 +23,8 @@
           maxqp=$(sanitize_int_range "${F_maxqp1}" 1 51 45)
           smartmode=$(sanitize_int_range "${F_smartmode1}" 0 2 0)
       else
-          raw_size=$(printf '%s' "${F_video_size0}")
-          fps=$(sanitize_int_range "${F_fps0}" 1 30 25)
+          raw_size=1920x1080
+          fps=15
           bitrate=$(sanitize_int_range "${F_brbitrate0}" 32 8000 1000)
           codec=$(sanitize_int_range "${F_video_codec0}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen0}" 1 300 50)
@@ -75,7 +76,7 @@
         [ "$_ld" -le 255 ] || _ld=255
         printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\n' "$_ln" "$_ld" > /mnt/config/daynight.conf
       fi
-      if [ -n "${F_imageFlip}" ]; then
+      if [ -n "${F_osd_form}" ]; then
         osdenabled=$(normalize_bool "${F_osdenabled}")
         osdtext=$(printf '%s' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
         osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
@@ -85,7 +86,6 @@
         frontcolor=$(sanitize_int_range "${F_frontcolor}" 0 7 1)
         backcolor=$(sanitize_int_range "${F_backcolor}" 0 2 0)
         edgecolor=$(sanitize_int_range "${F_edgecolor}" 0 2 2)
-        imageflip=$(sanitize_int_range "${F_imageFlip}" 0 3 0)
         /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
             " " osdenabled "$osdenabled" \
             " " osdtext "$osdtext" \
@@ -95,8 +95,7 @@
             " " osdedgecolor "$edgecolor" \
             0 osdfontsize "$osdfontsize0" \
             0 osdx "$osdx0" \
-            0 osdy "$osdy0" \
-            " " imageflip "$imageflip"
+            0 osdy "$osdy0"
         /mnt/bin/setconf -k l -v "$osdenabled"
         /mnt/bin/setconf -k o -v "$osdtext"
         /mnt/bin/setconf -k h -v "$osdalpha"
@@ -106,7 +105,6 @@
         /mnt/bin/setconf -k s -v "$osdfontsize0"
         /mnt/bin/setconf -k x -v "$osdx0"
         /mnt/bin/setconf -k y -v "$osdy0"
-        /mnt/bin/setconf -k f -v "$imageflip"
       fi
 
       if wants_json_response; then

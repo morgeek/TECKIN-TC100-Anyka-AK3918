@@ -25,14 +25,16 @@
       Object.keys(mapping).forEach(function(key) { values[key + stream] = video[mapping[key]]; });
     } else if (command === "conf_audioin") {
       if (!config.audio) return false;
-      values = { samplerate: config.audio.samplerate, audioinVol: config.audio.volume, audioCodec0: config.audio.codec_main };
+      values = { audioinVol: config.audio.volume };
     } else return false;
     return values;
   }
 
   function settingsReadbackMatches(command, params, config) {
     var values = settingsConfigValues(command, params, config);
-    return !!values && Object.keys(values).every(function(key) {
+    // only what the form sent: fixed values (stream size, frame rate) have no field
+    var keys = values ? Object.keys(values).filter(function(key) { return params.has(key); }) : [];
+    return keys.length > 0 && keys.every(function(key) {
       return values[key] !== undefined && values[key] !== null && params.get(key) === String(values[key]);
     });
   }
