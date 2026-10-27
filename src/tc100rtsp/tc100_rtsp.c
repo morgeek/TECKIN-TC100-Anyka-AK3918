@@ -399,6 +399,43 @@ static void *ld(const char *dir, const char *name, int must)
 	return h;
 }
 
+/* The vendor encoder library: libmpi_venc_ex.so (the copy stored in the project) first, else libmpi_venc.so (the camera's
+ * own copy). Logs the one opened and its version string when it exports ak_venc_get_version (const char *(void)). */
+static void *ld_venc(const char *dir)
+{
+	static const char *const names[] = { "libmpi_venc_ex.so", "libmpi_venc.so" };
+
+	for (int i = 0; i < 2; i++) {
+		char p[300];
+		const char *(*gv)(void);
+		const char *v = NULL;
+		void *h;
+
+		snprintf(p, sizeof p, "%s/%s", dir, names[i]);
+		if (access(p, R_OK)) { LOG("encoder library %s: not present\n", p); continue; }
+		if (!(h = ld(dir, names[i], 0))) continue;
+		if (!dlsym(h, "ak_venc_open")) { LOG("encoder library %s: no ak_venc_open, trying the next one\n", p); continue; }
+		gv = (const char *(*)(void))dlsym(h, "ak_venc_get_version");
+		if (gv) {
+			v = gv();
+			if ((uintptr_t)v < 0x10000) v = NULL;
+		}
+		if (v) {
+			char vb[64];
+			int k = 0;
+
+			for (; k < 63 && v[k] >= 32 && v[k] < 127; k++) vb[k] = v[k];
+			vb[k] = 0;
+			LOG("encoder library: %s, version \"%s\"\n", p, vb);
+		} else {
+			LOG("encoder library: %s%s\n", p, gv ? " (version string empty)" : " (no ak_venc_get_version)");
+		}
+		return h;
+	}
+	LOG("no encoder library (libmpi_venc_ex.so, libmpi_venc.so) in %s\n", dir);
+	exit(2);
+}
+
 static int num(const char *s)
 {
 	int v = 0;
@@ -1551,7 +1588,7 @@ int main(int argc, char **argv)
 	ld(dir, "libplat_venc_cb.so", 1);
 	ld(dir, "libakv_encode.so", 1);
 	{
-		void *m = ld(dir, "libmpi_venc_ex.so", 1);
+		void *m = ld_venc(dir);
 
 		p_open = dlsym(m, "ak_venc_open");
 		p_send = dlsym(m, "ak_venc_send_frame");
