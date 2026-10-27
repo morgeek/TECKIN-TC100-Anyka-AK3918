@@ -1,15 +1,19 @@
 #!/bin/sh
 # speaker-play.sh FILE [VOLUME]   play a clip on the camera speaker (Linux 6.6 / 3.0, ALSA).
 #   FILE    *.pcm = raw 8 kHz mono signed 16-bit little endian (push-to-talk uploads, sounds/*.pcm),
-#           *.wav = any WAV aplay reads.
+#           *.wav = any WAV aplay reads,
+#           -     = raw PCM as above from standard input (tc100_rtsp's two-way audio: the sound a client sends over
+#                   RTSP; the clip ends when the input does).
 #   VOLUME  0-100 (default: config/pttvolume.conf, else 90), set on the codec's "Headphone Playback Volume".
+# One player at a time, the web push-to-talk and tc100_rtsp's two-way audio alike: the lock below (mkdir) makes the second
+# one exit with status 3 ("busy"); upload_audio.cgi looks at it too.
 # The codec takes stereo only on playback: "plughw" lets ALSA duplicate the mono samples. The capture side
 # (tc100_rtsp's arecord) is a separate substream: the RTSP stream keeps running.
 # Amplifier: GPIO 14 (526 on 6.6). The codec driver drives it itself when the device tree hands it the pin
 # (speak-gpios); when the pin is free, it is driven here around the clip, active level from boot.conf
 # SPEAKER_AMP_ACTIVE (0 = active low, the TC100 board as seen on 2.x; 1 = active high).
 F=$1; V=$2
-[ -r "$F" ] || { echo "no file: $F" >&2; exit 1; }
+[ "$F" = - ] || [ -r "$F" ] || { echo "no file: $F" >&2; exit 1; }
 case "$V" in ''|*[!0-9]*) V=$(head -n 1 /mnt/config/pttvolume.conf 2>/dev/null) ;; esac
 case "$V" in ''|*[!0-9]*) V=90 ;; esac
 [ "$V" -gt 100 ] && V=100
