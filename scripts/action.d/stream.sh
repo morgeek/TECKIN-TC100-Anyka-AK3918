@@ -6,30 +6,32 @@
 
   case "$F_cmd" in
 
-    # SD card from flash (scripts/sd-card.sh): state, format, mount, "do not ask again".
     rtsp_server_info)
       # one server, tc100_rtsp; its clients are the established connections to the RTSP port
       _rs_num() { case "$1" in ''|*[!0-9]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
-      _rs_sub="$(sed -n 's/^RTSP_SUBSTREAM="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)"
-      [ "$_rs_sub" = 0 ] || _rs_sub=1
+      _rs_cfg() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
+      _rs_sub="$(_rs_cfg RTSP_SUBSTREAM)"; [ "$_rs_sub" = 0 ] || _rs_sub=1
+      _rs_talk="$(_rs_cfg RTSP_LITE_TALK)"; case "$_rs_talk" in 0|no|off|false) _rs_talk=0 ;; *) _rs_talk=1 ;; esac
       _rs_port="$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf r " " PORT 2>/dev/null)"
       case "$_rs_port" in ''|*[!0-9]*) _rs_port=554 ;; esac
       _rs_hex="$(printf '%04X' "$_rs_port")"
       _rs_clients="$(awk -v p=":$_rs_hex" 'NR > 1 && $4 == "01" && substr($2, length($2) - 4) == p { n++ } END { print n + 0 }' /proc/net/tcp 2>/dev/null)"
-      printf '{"ok":true,"server":"tc100_rtsp","substream":%s,"port":%s,"clients":%s}\n' \
-        "$_rs_sub" "$_rs_port" "$(_rs_num "$_rs_clients")"
+      printf '{"ok":true,"server":"tc100_rtsp","substream":%s,"talk":%s,"port":%s,"clients":%s}\n' \
+        "$_rs_sub" "$_rs_talk" "$_rs_port" "$(_rs_num "$_rs_clients")"
     ;;
 
     set_rtsp_server)
-      # the sub-stream switch (Settings -> Video)
+      # Settings -> Video: the sub-stream and two-way audio (ONVIF backchannel) switches
       _rs_sub="$(normalize_bool "${F_rtsp_substream:-0}")"
+      _rs_talk="$(normalize_bool "${F_rtsp_talk:-0}")"
       install_config /mnt/config/boot.conf
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$_rs_sub"
+      rewrite_config /mnt/config/boot.conf RTSP_LITE_TALK "$_rs_talk"
       schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
       if wants_json_response; then
-        json_body_ok "Sub-stream $_rs_sub. The stream restarts."
+        json_body_ok "Sub-stream $_rs_sub, two-way audio $_rs_talk. The stream restarts."
       else
-        echo "Sub-stream $_rs_sub. The stream restarts.<br/>"
+        echo "Sub-stream $_rs_sub, two-way audio $_rs_talk. The stream restarts.<br/>"
       fi
     ;;
 

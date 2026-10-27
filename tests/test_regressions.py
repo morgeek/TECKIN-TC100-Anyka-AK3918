@@ -618,7 +618,6 @@ class Regressions(unittest.TestCase):
         r = run(code)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, b'2|1280|720|12|1000|2|8|320|0')
-        self.assertIn('value="frigate-light-ak3918"', (ROOT / 'www/settings.html').read_text())
 
 
     def decoder(self, data):
@@ -1169,22 +1168,21 @@ class RtspServerChoice(unittest.TestCase):
         h = cgi[cgi.index('    set_rtsp_server)'):cgi.index('    ;;', cgi.index('    set_rtsp_server)'))]
         for n in set(re.findall(r'name="([^"]+)"', form)):
             self.assertIn('F_' + n, h, n)
-        for k in ('RTSP_SERVER', 'RTSP_SUBSTREAM', 'RTSP_LITE_TALK'):
+        for k in ('RTSP_SUBSTREAM', 'RTSP_LITE_TALK'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s' % k, h)
-        self.assertIn('rm -f /tmp/rtsp-lite-fallback', h)
         info = cgi[cgi.index('    rtsp_server_info)') + len('    rtsp_server_info)'):cgi.index('    ;;', cgi.index('    rtsp_server_info)'))]
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            (d / 'boot.conf').write_text('RTSP_SERVER=lite\nRTSP_SUBSTREAM=0\n')
-            (d / 'st').write_text('port=554\nclients=2\nbytes=1\naudio=pcma frames=9\ntalk=idle packets=0 sessions=0 errors=0\n'
-                                  'client=192.0.2.5 video0+audio drops=3 audio_drops=0\nclient=192.0.2.6 video1 drops=4 audio_drops=0\n')
-            code = 'json_escape() { printf "%s" "$1"; }\n' + info.replace('/mnt/config/boot.conf', str(d / 'boot.conf')) \
-                .replace('/var/run/tc100rtsp', str(d / 'st')).replace('/tmp/rtsp-lite-fallback', str(d / 'fb'))
+            (d / 'boot.conf').write_text('RTSP_SUBSTREAM=0\nRTSP_LITE_TALK="1"\n')
+            (d / 'rwconf').write_text('#!/bin/sh\necho 8554\n'); (d / 'rwconf').chmod(0o755)
+            # two established connections to port 8554 (0x216A), one listening socket, one other port
+            (d / 'tcp').write_text('  sl local rem st\n0: 0100007F:216A 0A000002:C000 01\n1: 0100007F:216A 0A000003:C001 01\n'
+                                   '2: 00000000:216A 00000000:0000 0A\n3: 0100007F:0050 0A000002:C002 01\n')
+            code = info.replace('/mnt/config/boot.conf', str(d / 'boot.conf')).replace('/mnt/bin/rwconf', str(d / 'rwconf')) \
+                .replace('/proc/net/tcp', str(d / 'tcp'))
             r = subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=10)
             j = json.loads(r.stdout)
-        self.assertEqual((j['server'], j['substream'], j['talk'], j['fallback']), ('lite', 0, 1, 0))
-        self.assertEqual((j['port'], j['clients'], j['drops'], j['audio'], j['talk_state']), (554, 2, 7, 'pcma', 'idle'))
-        self.assertLessEqual(j['status_age'], 5)
+        self.assertEqual(j, {'ok': True, 'server': 'tc100_rtsp', 'substream': 0, 'talk': 1, 'port': 8554, 'clients': 2})
 
 
 

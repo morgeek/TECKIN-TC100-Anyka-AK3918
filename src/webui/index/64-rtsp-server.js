@@ -1,5 +1,5 @@
-  // --- RTSP server card (Video tab): the secondary stream switch and the clients of tc100_rtsp
-  // (action.cgi?cmd=rtsp_server_info).
+  // --- RTSP server card (Video tab): the secondary stream and two-way audio switches, and the clients of
+  // tc100_rtsp (action.cgi?cmd=rtsp_server_info).
   function initRtspServer(form) {
     if (!form) return;
     var status = form.querySelector("#rtsp_server_status");
@@ -8,6 +8,8 @@
       .then(function(d) {
         var sub = form.querySelector("#rtsp_substream");
         if (sub) sub.checked = d.substream !== 0;
+        var talk = form.querySelector("#rtsp_talk");
+        if (talk) talk.checked = d.talk !== 0;
         if (status) status.textContent = "Free server tc100_rtsp on port " + d.port + ": " + (d.clients === null ? "?" : d.clients) + " client(s) connected.";
       })
       .catch(function() { if (status) status.textContent = "RTSP server state could not be read."; });

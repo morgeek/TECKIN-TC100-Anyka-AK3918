@@ -1,16 +1,16 @@
 # Two-way audio: talk through the camera from Home Assistant, Frigate or go2rtc
 
-With the **lite RTSP server** (Settings → Video → RTSP server → *Lite*, with *Two-way audio* on), the camera accepts sound sent back over the RTSP connection. This is the ONVIF "backchannel" that go2rtc uses, and it is played on the camera's speaker.
+With *Two-way audio* on (Settings → Video → RTSP server, on by default) and a camera password set, the RTSP server of the camera (`tc100_rtsp`) accepts sound sent back over the RTSP connection. This is the ONVIF "backchannel" that go2rtc uses, and it is played on the camera's speaker.
 
 Anything that goes through go2rtc can use it: go2rtc's own page, Frigate's live view, and Home Assistant's WebRTC card.
 
 How it works:
 1. go2rtc connects to the camera as usual, and asks for the backchannel.
-2. The camera answers with an extra audio track that it receives (G.711 A-law or µ-law, 8 kHz).
+2. The camera answers with an extra audio track that it receives (G.711 A-law, 8 kHz), over TCP or UDP.
 3. When you press the microphone button, your browser sends your voice to go2rtc over WebRTC. go2rtc passes it to the camera on that track.
 4. The camera decodes it and plays it on the speaker. The volume is the push-to-talk volume (Live view → push-to-talk volume, `/mnt/config/pttvolume.conf`).
 
-Only one person can talk at a time. A second one is ignored until the first has been silent for 3 s.
+Only one person can talk at a time. A second one is ignored until the first has been silent for 2 s.
 
 ## 1. The go2rtc stream
 
@@ -29,11 +29,11 @@ This is the stream that the Frigate configuration from the camera already uses (
 ```
 video, recvonly, H265
 audio, recvonly, PCMA/8000
-audio, sendonly, PCMA/8000, PCMU/8000     <- the backchannel
+audio, sendonly, PCMA/8000                <- the backchannel
 ```
 
 If the third line is missing:
-- the camera runs the original RTSP server, or two-way audio is off: see Settings → Video → RTSP server;
+- two-way audio is off, or the camera has no password: see Settings → Video → RTSP server and Settings → System;
 - or the stream is not a plain `rtsp://` source.
 
 ## 2. Talk from go2rtc's page
@@ -79,9 +79,7 @@ In Home Assistant this fits in a `rest_command`. go2rtc converts the file to G.7
 
 ## Troubleshooting
 
-- **Settings → Video → RTSP server** shows the lite server's state. It says "someone is talking" while sound comes in.
-- `/var/run/tc100rtsp` on the camera has a `talk=` line: `idle` or `playing`, packets received, speaker sessions, and errors. An error count that grows means the speaker could not be opened.
-- **Nothing heard, packets counted**: check the push-to-talk volume, which is shared.
-- **Nothing heard, no packets**: the browser did not send anything. Check that the page is HTTPS and that the microphone permission was granted.
-- The web page's own push-to-talk still works. It pauses the stream for a moment while it plays.
+- `/tmp/logs/tc100_rtsp.log` on the camera (System → Logs) logs `talk: client N talks` when sound comes in and `talk: end (... packets, ... dropped)` 2 s after it stops.
+- **Nothing heard**: check the push-to-talk volume, which is shared; then that the browser page is HTTPS and that the microphone permission was granted.
+- The web page's own push-to-talk answers "busy" while someone talks through the stream, and the other way round.
 - Two-way audio needs the RTSP password: no client can use the speaker without it. It can be turned off in the same card.

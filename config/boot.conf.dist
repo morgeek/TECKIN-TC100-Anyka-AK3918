@@ -130,6 +130,14 @@ REC_WHEN=offline
 REC_CLIENT=
 REC_OFFLINE_SEC=5
 REC_POSTROLL_SEC=30
+# REC_AUDIO=1: the files get a second track with the microphone (G.711 A-law, 8 kHz
+# mono, VLC plays it; browsers show the picture, the sound only if they decode A-law).
+# The microphone then runs while the recorder is on.
+REC_AUDIO=1
+# RTSP_LITE_TALK=1: two-way audio. A client asking for the ONVIF backchannel (go2rtc,
+# Frigate, the microphone button of Home Assistant) plays its sound on the speaker,
+# volume as the push-to-talk. Only with the RTSP password. 0 = off.
+RTSP_LITE_TALK=1
 
 # ONVIF advertised stream policy:
 # - main-primary: ONVIF profile 1 = main stream (default)

@@ -98,7 +98,9 @@
                             <div class="column is-half">
                                 <div class="field"><input class="switch is-small" id="rtsp_substream" name="rtsp_substream" type="checkbox"><label for="rtsp_substream">Secondary stream (video1)</label></div>
                                 <p class="help">Turn off only if no recorder uses video1 (e.g. Frigate detection on the substream): saves its encoding.</p>
-                                <p class="help">Server: tc100_rtsp. Talking back through the stream is not available (use the Talk button).</p>
+                                <div class="field mt-2"><input class="switch is-small" id="rtsp_talk" name="rtsp_talk" type="checkbox"><label for="rtsp_talk">Two-way audio</label></div>
+                                <p class="help">go2rtc / Home Assistant can play sound on the speaker through the stream (password required).</p>
+                                <p class="help">Server: tc100_rtsp. The sound a client sends is played on the speaker; the Talk button waits until it is free.</p>
                             </div>
                         </div>
                         <p class="help" id="rtsp_server_status" role="status"></p>

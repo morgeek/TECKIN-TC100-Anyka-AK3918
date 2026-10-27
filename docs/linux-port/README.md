@@ -22,7 +22,7 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | GPIO (3 banks), LEDs, IR LEDs, IR-cut | works |
 | I2C (`i2c-ak39`) | works: JX-F23 answers (id 0x0F23) |
 | Video: V4L2 / vb2-dma-contig driver `ak39_vi` + the 4.4 ISP core | works: 1920x1080 NV12, 25 fps, real colours, AE running |
-| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker not tested on 6.6 |
+| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker: push-to-talk and RTSP two-way audio through `aplay` (host-tested, not yet on the camera) |
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
 | H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. 640x360 sub-stream on `video1_unicast` / `ch1` / `sub` (2026-10-26, not yet run on the camera); RTSP over UDP and the audio track not yet checked from a client |
@@ -260,3 +260,27 @@ Written and tested on the host only (`python3 tests/test_tc100rtsp.py`); not yet
   the oldest recordings are deleted to keep `REC_RESERVE_MB` free; `/var/run/tc100rec.pause` (`rec-storage.sh eject`)
   closes the file and leaves the card alone; state in `/var/run/tc100rec`. Card I/O runs in a writer thread so a slow
   card never stalls the capture loop. `controlscripts/recording start|stop` sets `REC_LOCAL`.
+
+### tc100_rtsp: sound in recordings, Listen, two-way audio, encoder library (host-tested only, not yet run on the camera)
+
+- **Sound in recordings** (`REC_AUDIO=1` in `boot.conf`, default 1): the MP4 gets a second track, G.711 A-law, 8000 Hz mono (sample
+  entry `alaw`, what ffmpeg reads), one `traf` per track in every `moof`. The 160-byte A-law chunks the RTSP audio track already
+  makes are queued next to the frames (`rec_audio`); the track is a running sample count placed on the video clock at the start
+  of the file and after a hole (a hole up to 2 s is filled with silence), so file and RTSP audio are the same bytes.
+  The microphone (arecord) runs while the recorder is on and the card usable. ffprobe/ffmpeg decode both tracks and the sound
+  stays on the video clock (test: silence markers within 20 ms). In headless Chromium a `<video>` with an `alaw` track plays its
+  video normally (checked with VP9 files, Chromium of Playwright has no H.264); the sound itself is not decoded by browsers, VLC plays it.
+  `/var/run/tc100rec` gets `audio=alaw|off`, `asamples=`.
+- **Listen in the browser:** `audio_stream.cgi` makes `/tmp/tc100_listen/<pid>.fifo` and runs `cat` on it after a WAV header;
+  tc100_rtsp (`alisten.c`) opens it read-write and non-blocking and writes the microphone PCM (S16_LE, 8 kHz, mono) from the
+  capture loop (drop when full, at most 3 listeners, 60 s, closed when 1.5 s of sound stays unread or the FIFO is removed).
+  The microphone runs while a listener exists (10 s grace), also with `-a 0`. 503 when tc100_rtsp is not running and arecord is busy.
+- **Two-way audio:** `RTSP_LITE_TALK` (default 1) and the RTSP password required. A client sending `Require: www.onvif.org/ver20/backchannel`
+  gets a second `m=audio` (`PCMA/8000`, `a=control:track3`, `a=sendonly`). RTP from it (TCP interleaved on the channel given at SETUP, or UDP to
+  port 5004 from the client address) is decoded to S16 and written to `sh scripts/speaker-play.sh -` (aplay `plughw:0,0`, volume
+  `pttvolume.conf`, amplifier GPIO), started on the first packet and closed 2 s after the last. One talker at a time (3 s of silence
+  before another may take over). `speaker-play.sh` holds `/tmp/speaker-play.lock`: while a push-to-talk clip plays the talk is dropped
+  (retry after 2 s), while a client talks `upload_audio.cgi` answers 429 BUSY. A client that sets up only the backchannel gets no video.
+- **Encoder library:** `libmpi_venc_ex.so`, else `libmpi_venc.so`, from the library directory; the log says which and prints `ak_venc_get_version()` when exported.
+- **Host tests:** `make test_rtsp` builds the whole server without camera or encoder (`-DTC100_HOST_TEST`); `tests/test_tc100rtsp.py` runs it with a fake
+  `arecord` and `aplay` (RTSP audio track, backchannel over TCP and UDP, locks, listeners, the CGI).

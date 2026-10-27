@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Sound in the recordings**: a G.711 A-law track next to the video in each MP4 (`REC_AUDIO`, on by default).
+- **Listen live** from the browser again (`audio_stream.cgi`, fed by tc100_rtsp, at most 3 listeners).
+- **Two-way audio** through the RTSP stream (ONVIF backchannel, go2rtc / Home Assistant / Frigate microphone button),
+  password required, one talker at a time; Settings → Video → Two-way audio (`RTSP_LITE_TALK`).
+- tc100_rtsp opens `libmpi_venc_ex.so`, else the camera's own `libmpi_venc.so`, and logs which.
+- `make test_rtsp`: tc100_rtsp built for the host, with tests of the audio track, backchannel and listeners.
+
 ### Changed
 - **`main` holds 3.0 only.** The 2.x firmware moved to the branch `2.x`: its boot script, lighttpd and its
   configurations, the vendor RTSP server and `libtc100fix`, the 2.x flash install and update tools (`src/flash`,

@@ -8,12 +8,18 @@ CROSS ?= arm-linux-gnueabi-
 SYSROOT ?= /usr/arm-linux-gnueabi
 CFLAGS ?= -I../jpegenc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mfloat-abi=soft \
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
-OBJS = tc100_rtsp.o rec.o
+OBJS = tc100_rtsp.o rec.o talk.o alisten.o
 
 all: tc100_rtsp
 
-tc100_rtsp.o: tc100_rtsp.c rec.h util.h
+tc100_rtsp.o: tc100_rtsp.c rec.h util.h talk.h alisten.h
 	$(CROSS)gcc $(CFLAGS) -c tc100_rtsp.c -o $@
+
+talk.o: talk.c talk.h
+	$(CROSS)gcc $(CFLAGS) -Os -c talk.c -o $@
+
+alisten.o: alisten.c alisten.h
+	$(CROSS)gcc $(CFLAGS) -Os -c alisten.c -o $@
 
 rec.o: rec.c rec.h	# card I/O bound: -Os keeps the binary small (the flash stack has a size budget)
 	$(CROSS)gcc $(CFLAGS) -Os -c rec.c -o $@
@@ -50,14 +56,18 @@ tc100_rtsp: start.o $(OBJS) libpthread.so.0 libc.so.0 libdl.so.0
 		$$($(CROSS)gcc -print-libgcc-file-name)
 
 # host tests of the pure parts (util.h, rec.c): gcc of the build host, no camera needed
-test: test_util test_rec
+test: test_util test_rec test_rtsp
 	./test_util
+
+# the whole server without camera and encoder (RTSP, audio, backchannel, listeners): tests/test_tc100rtsp.py runs it
+test_rtsp: tc100_rtsp.c rec.c talk.c alisten.c rec.h talk.h alisten.h util.h
+	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -o $@ tc100_rtsp.c rec.c talk.c alisten.c -ldl -lpthread -lm
 
 test_util: test_util.c util.h
 	gcc -O2 -Wall -Wextra -o $@ test_util.c -lm
 
 test_rec: test_rec.c rec.c rec.h
-	gcc -O2 -Wall -Wextra -DREC_HOST_TEST -o $@ test_rec.c rec.c -lpthread
+	gcc -O2 -Wall -Wextra -DREC_HOST_TEST -o $@ test_rec.c rec.c -lpthread -lm
 
 clean:
-	rm -f tc100_rtsp *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec
+	rm -f tc100_rtsp *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_rtsp
