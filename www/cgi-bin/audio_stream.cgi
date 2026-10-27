@@ -1,6 +1,6 @@
 #!/bin/sh
 # audio_stream.cgi[?type=mic]   the camera microphone as a WAV stream (8 kHz mono 16-bit), for "Listen" on the
-# main page (scripts/ptt-audio.bundle.min.js). Linux 6.6 (3.0) only, at most 60 s.
+# main page (scripts/ptt-audio.bundle.min.js). at most 60 s.
 # The ALSA capture device takes one reader and tc100_rtsp's arecord is it, so the sound comes from tc100_rtsp: this
 # script makes a FIFO /tmp/tc100_listen/<pid>.fifo, tc100_rtsp (src/tc100rtsp/alisten.c) finds it within half a second and
 # writes the raw PCM (S16_LE) into it for as long as it is read, at most 60 s; cat copies it to the browser after a WAV
@@ -8,10 +8,9 @@
 # notices the unread FIFO within 2 s and closes it. Works whether or not the RTSP stream has its audio track.
 # Without tc100_rtsp (not running) the microphone is read directly (arecord), when nothing else holds it.
 # A HEAD request (the page's probe) only tells whether listening is possible: 200 or 503.
-# (the three variables are overridden only by the host tests)
+# (the two variables are overridden only by the host tests)
 LISTEN_DIR=${TC100_LISTEN_DIR:-/tmp/tc100_listen}
 SND_DEV=${TC100_SND_DEV:-/dev/snd/pcmC0D0c}
-LINUX66_FLAG=${TC100_LINUX66_FLAG:-/tmp/linux66}
 unavailable() {
   printf 'Status: 503 Service Unavailable\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\n\r\n'
   [ "$REQUEST_METHOD" = HEAD ] || echo "$1"
@@ -23,7 +22,6 @@ wav_headers() {
   # RIFF/WAVE header with "endless" sizes, PCM 1 channel 8000 Hz 16 bit
   printf 'RIFF\377\377\377\177WAVEfmt \020\000\000\000\001\000\001\000\100\037\000\000\200\076\000\000\002\000\020\000data\333\377\377\177'
 }
-[ -f "$LINUX66_FLAG" ] || unavailable "not available on this firmware"
 if [ -d "$LISTEN_DIR" ] && pidof tc100_rtsp >/dev/null 2>&1; then
   command -v mkfifo >/dev/null 2>&1 || unavailable "mkfifo missing"
   command -v arecord >/dev/null 2>&1 || unavailable "arecord missing"
