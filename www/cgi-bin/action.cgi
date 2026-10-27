@@ -280,15 +280,12 @@ security_hardening_enabled() {
 
 PTT_VOLUME_FILE="/mnt/config/pttvolume.conf"
 PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
-PTT_PCM_PLAYBACK_BIN="/mnt/bin/ak_ao_ptt"
-PTT_WAV_PLAYBACK_BIN="/mnt/bin/audioplay"
-
-# Linux 6.6 (3.0): ALSA playback through scripts/speaker-play.sh FILE VOLUME(0-100), no vendor binary
+# ALSA playback through scripts/speaker-play.sh FILE VOLUME(0-100)
 PTT_SPEAKER_PLAY="/mnt/scripts/speaker-play.sh"
-ptt_l66() { [ -f /tmp/linux66 ] && [ -r "$PTT_SPEAKER_PLAY" ] && command -v aplay >/dev/null 2>&1; }
+ptt_ready() { [ -r "$PTT_SPEAKER_PLAY" ] && command -v aplay >/dev/null 2>&1; }
 
 ptt_backend_status() {
-  if [ -x "$PTT_PCM_PLAYBACK_BIN" ] || ptt_l66; then
+  if ptt_ready; then
     if wants_json_response; then
       json_body_ok "OK"
     else
@@ -311,11 +308,6 @@ read_ptt_volume() {
   else
     echo "$volume"
   fi
-}
-
-ptt_volume_to_ak() {
-  ptt_ui_volume="$(sanitize_int_range "$1" 0 100 90)"
-  echo $(( (ptt_ui_volume * 6 + 50) / 100 ))
 }
 
 resolve_audio_test_source() {
@@ -352,51 +344,21 @@ play_audio_test_source() {
     return 1
   fi
 
-  if ptt_l66; then
-    case "$audio_source" in
-      *.pcm|*.wav)
-        ( sh "$PTT_SPEAKER_PLAY" "$audio_source" "$audio_volume" ) </dev/null >/dev/null 2>&1 &
-        if wants_json_response; then
-          json_body_ok "Playing $audio_source at volume $audio_volume"
-        else
-          echo "Play $audio_source at volume $audio_volume"
-        fi
-        return 0 ;;
-    esac
+  if ! ptt_ready; then
+    if wants_json_response; then
+      json_body_err "AUDIO_TEST_FAILED" "the speaker player (aplay) is missing on the camera."
+    else
+      echo "Audio test failed: the speaker player (aplay) is missing on the camera."
+    fi
+    return 1
   fi
   case "$audio_source" in
-    *.pcm)
-      if [ ! -x "$PTT_PCM_PLAYBACK_BIN" ]; then
-        if wants_json_response; then
-          json_body_err "AUDIO_TEST_FAILED" "PCM playback backend is missing on the camera."
-        else
-          echo "Audio test failed: PCM playback backend is missing on the camera."
-        fi
-        return 1
-      fi
-      ak_volume="$(ptt_volume_to_ak "$audio_volume")"
-      /mnt/bin/busybox nohup "$PTT_PCM_PLAYBACK_BIN" 8000 1 "$audio_source" "$ak_volume" > /dev/null 2>&1 &
+    *.pcm|*.wav)
+      ( sh "$PTT_SPEAKER_PLAY" "$audio_source" "$audio_volume" ) </dev/null >/dev/null 2>&1 &
       if wants_json_response; then
-        json_body_ok "Playing $audio_source at volume $audio_volume (PCM)"
+        json_body_ok "Playing $audio_source at volume $audio_volume"
       else
-        echo "Play $audio_source at volume $audio_volume (PCM)"
-      fi
-      return 0
-      ;;
-    *.wav)
-      if [ ! -x "$PTT_WAV_PLAYBACK_BIN" ]; then
-        if wants_json_response; then
-          json_body_err "AUDIO_TEST_FAILED" "WAV playback backend is missing on the camera."
-        else
-          echo "Audio test failed: WAV playback backend is missing on the camera."
-        fi
-        return 1
-      fi
-      /mnt/bin/busybox nohup "$PTT_WAV_PLAYBACK_BIN" "$audio_source" "$audio_volume" > /dev/null 2>&1 &
-      if wants_json_response; then
-        json_body_ok "Playing $audio_source at volume $audio_volume (WAV)"
-      else
-        echo "Play $audio_source at volume $audio_volume (WAV)"
+        echo "Play $audio_source at volume $audio_volume"
       fi
       return 0
       ;;
@@ -410,7 +372,6 @@ play_audio_test_source() {
       ;;
   esac
 }
-
 
 cron_busybox_bin() {
   if [ -x /mnt/bin/busybox ]; then

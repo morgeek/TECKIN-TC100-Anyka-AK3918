@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **`main` holds 3.0 only.** The 2.x firmware moved to the branch `2.x`: its boot script, lighttpd and its
+  configurations, the vendor RTSP server and `libtc100fix`, the 2.x flash install and update tools (`src/flash`,
+  `src/release`, `flash-*.sh`, `fw-update.sh`...), the CPU scaler, the old PTT players, the OpenIPC 4.4 kit and their
+  tests (about 150 files).
+- **No proprietary file in the repository**: the RTL8188FU firmware is downloaded by the kernel build from
+  linux-firmware (pinned tag and checksum); the encoder API library (`libmpi_venc`) and the sensor tuning file come
+  from the camera at install, like the other vendor libraries.
+- The 3.0 versions became the only ones: `controlscripts/rtsp-h26x`, `bin/setconf`, `www/cgi-bin/update.cgi` and
+  `flashinstall.cgi`; the wizard, push-to-talk and the speaker test have no 2.x path left.
+- `config/boot.conf.dist`: about 60 settings nothing reads any more removed (lite RTSP server, low-CPU overrides,
+  CPU scaler, motion schedule, storage cleanup, print levels...); `WEB_MODE=http` by default.
+- README rewritten for 3.0.
+
+### Fixed
+- The local-network filter (`libnetacl.so`, built for uClibc) was preloaded into musl programs too (telnet, rescue
+  telnet): now only into programs of the uClibc runtime.
+- The setup wizard's French text for the 3.0 steps (password, one-click install).
+- Settings → System → "Run the wizard again" now also clears the 3.0 marker.
+- The Services page and the RTSP control script agree on the pid file of `tc100_rtsp`.
+- The self-test checks the picture of `tc100_rtsp` instead of the removed software streamer.
+
 ## [3.0.1-rc1] — 2026-10-26 (not yet run on a camera)
 
 ### Added

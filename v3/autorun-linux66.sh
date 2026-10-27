@@ -45,10 +45,10 @@ for d in bin config controlscripts lib scripts www; do
 done
 
 # 1a. SD mode on a new card: every shipped *.dist becomes the live setting until the user changes it (flash mode:
-#     flashmode-prep.sh does the same). The 2.x web server variants stay unused.
+#     flashmode-prep.sh does the same).
 if [ ! -f /tmp/flashmode ]; then
   for f in /mnt/config/*.dist; do
-    b=${f%.dist}; case "$b" in */lighttpd*) continue;; esac
+    b=${f%.dist}
     [ -e "$b" ] || cp "$f" "$b"
   done
 fi
@@ -105,12 +105,13 @@ done
 
 # 4a. Free hardware encoder stack (tc100_rtsp): H.265/H.264 over RTSP and the web UI pictures (stream.jpg, currentpic,
 #     cam_luma) from the hardware JPEG engine, one process. Needs the vendor encoder libraries in /mnt/lib and
-#     /dev/uio0 (ak39_venc driver); without them the older tc100_streamer + thingino-rtsp-server path below is used.
+#     /dev/uio0 (ak39_venc driver); without them there is no video (the web UI still starts).
 NEWRTSP=0
 TB=/mnt/tc100test
-if [ -x $TB/tc100_rtsp ] && [ -f /mnt/lib/libmpi_venc_ex.so ] && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
+if [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/lib/libmpi_venc.so ]; } && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
   mkdir -p /lib/firmware/anyka
-  for f in $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp_f23_mipi_2lane.conf /mnt/config/isp.conf; do
+  # sensor tuning of this camera: the vendor partition (flash), else the card (copied there by the install hook)
+  for f in /vendor/isp.conf /mnt/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
     [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
   done
   [ -e /mnt/lib/ld-uClibc-0.9.33.2.so ] && ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
@@ -133,34 +134,14 @@ if [ -x $TB/tc100_rtsp ] && [ -f /mnt/lib/libmpi_venc_ex.so ] && [ -c /dev/uio0 
     fi
     unset LD_LIBRARY_PATH
   fi
-  killall -9 tc100_rtsp tc100_streamer thingino-rtsp-server 2>/dev/null
-  if [ -f $TB/rtsp-launch.sh ]; then sh $TB/rtsp-launch.sh; else
-  RTSP_LOG=/tmp/logs/tc100_rtsp.log
-  [ -f /mnt/config/rtsp.debug ] && RTSP_LOG=/dev/console	# encoder messages on the serial console
-  ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }  # debug variables (AKUIO_*, RTSP_DEBUG)
-    LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -c h265 -A /tmp/libakuio.so -p 554 -b "${RTSP_KBPS:-1500}" \
-      -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "${RTSP_AUDIO:-1}" >"$RTSP_LOG" 2>&1 ) &
-  fi
+  sh $TB/rtsp-launch.sh
   NEWRTSP=1
-  echo "[tc100-v3] free $RTSP_CODEC RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
+  echo "[tc100-v3] free RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
+else
+  echo "[tc100-v3] no video: tc100_rtsp, the encoder libraries (/mnt/lib) or /dev/uio0 missing" > /dev/console
 fi
 
-killall -9 tc100_streamer 2>/dev/null
-if [ "$NEWRTSP" = 1 ]; then
-  :
-elif [ -x /mnt/bin/tc100_streamer ]; then
-  /mnt/bin/tc100_streamer -d
-  echo "[tc100-v3] Hardware V4L2 optical streamer active" > /dev/console
-elif [ -x /mnt/tc100test/tc100_streamer ]; then
-  /mnt/tc100test/tc100_streamer -d
-  echo "[tc100-v3] Hardware V4L2 optical streamer active (tc100test)" > /dev/console
-fi
-
-# 5. Seed initial snapshot cache if missing
-if [ ! -f /tmp/currentpic.cache.jpg ] && [ -f /mnt/tc100test/tc100-linux66-color-frame.jpg ]; then
-  cp /mnt/tc100test/tc100-linux66-color-frame.jpg /tmp/currentpic.cache.jpg
-fi
-[ -f /tmp/currentpic.cache.jpg ] && date +%s > /tmp/currentpic.cache.ts
+# 5. (the picture cache is written by tc100_rtsp)
 
 # 6. Start Web Server on port 80, with the camera password (root + config/user.pwd, like 2.x)
 killall httpd httpfront 2>/dev/null
@@ -173,31 +154,10 @@ else
 fi
 echo "[tc100-v3] WebUI active on port 80" > /dev/console
 
-# 7. Start RTSP Server on port 554 (RFC 2435 JPEG stream)
-[ "$NEWRTSP" = 1 ] || killall -9 thingino-rtsp-server 2>/dev/null
-sleep 0.5
-if [ "$NEWRTSP" = 1 ]; then
-  :
-elif [ -x /mnt/tc100test/thingino-rtsp-server ]; then
-  # One password for the whole camera, as in the main firmware: config/user.pwd
-  # (seeded from the .dist template, never in git). It goes through a private
-  # config file, not the command line, so it does not show in `ps`.
-  PWD_FILE=/mnt/config/user.pwd
-  [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
-  RTSP_CONF=/tmp/rtsp-server.conf
-  ( umask 077
-    { echo "port=554"
-      if [ -s "$PWD_FILE" ]; then
-        echo "username=${RTSP_USER:-root}"
-        echo "password=$(head -n 1 "$PWD_FILE")"
-      fi
-    } > "$RTSP_CONF" )
-  /mnt/tc100test/thingino-rtsp-server -c "$RTSP_CONF" -d
-  echo "[tc100-v3] RTSP stream active on port 554 (path /ch0)" > /dev/console
-fi
+# 7. (RTSP: tc100_rtsp, step 4a)
 
-# 8. Steps 8 onwards run the V3 control scripts, shared with 2.x: /tmp/linux66 makes them take their 6.6 path
-#    (also created at the top of this script). Files from the repository may lack the execute bit: always run
+# 8. Steps 8 onwards run the control scripts (/tmp/linux66, created at the top of this script, tells shared scripts
+#    they run on 3.0). Files from the repository may lack the execute bit: always run
 #    them with sh.
 : > /tmp/linux66
 CS=/mnt/controlscripts
@@ -212,7 +172,7 @@ fi
 # 9. Day/night. The IR-cut coil is pulsed once to the position the state file says (day after boot), then the
 #    automatic switching starts unless it was switched off (Services, or "Day" / "Night" under the picture:
 #    no config/autostart/auto-night-detection, or daynight=3 in rtspserver.conf).
-sh /mnt/v3/linux66-sd/setconf -k e -v "$(cat /var/run/ircut 2>/dev/null || echo 1)" </dev/null >/dev/null 2>&1
+sh /mnt/bin/setconf -k e -v "$(cat /var/run/ircut 2>/dev/null || echo 1)" </dev/null >/dev/null 2>&1
 DN=$(sed -n 's/^daynight=//p' /mnt/config/rtspserver.conf 2>/dev/null | head -n 1)
 if [ -f $CS/auto-night-detection ] && [ -f /mnt/config/autostart/auto-night-detection ] && [ "$DN" != 3 ]; then
   sh $CS/auto-night-detection start </dev/null >/dev/null 2>&1
@@ -262,7 +222,7 @@ sh -c '. /mnt/scripts/common_functions.sh
 # 12b. Services switched on in the web UI (Services page, "Boot" toggle = file in config/autostart): button-actions,
 #      wifi-rescue, memory-guard, health-snapshot, telegram-bot, ftp/telnet... Started detached, one after the other.
 #      Left out: the ones started above, the numbered system entries of 2.x (their work is done by httpfront and
-#      step 12c here), web-server (httpfront, step 6) and cpu-scaler (resolution and frame rate are fixed on 3.0).
+#      step 12c here) and web-server (httpfront, step 6).
 for f in /mnt/config/autostart/*; do
   n=${f##*/}
   case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording) continue ;; esac
@@ -314,7 +274,7 @@ esac
 
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).
-for p in tc100_rtsp httpfront lighttpd monvifd ffmpeg-min-recorder; do
+for p in tc100_rtsp httpfront monvifd; do
   for pid in $(pidof $p 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
 done
 

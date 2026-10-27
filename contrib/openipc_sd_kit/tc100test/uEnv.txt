@@ -1,3 +1,0 @@
-# OpenIPC MicroSD Boot Configuration for TECKIN TC100 (AK3918EV300)
-# Initramfs size: 6921241 bytes
-bootargs=console=ttySAK0,115200n8 mem=64M root=/dev/ram0 rdinit=/init initrd=0x80900000,6921241 mtdparts=spi0.0:8192k(all)ro initcall_blacklist=gpio_keys_init panic=0 loglevel=7

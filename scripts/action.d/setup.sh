@@ -137,7 +137,7 @@
     ;;
 
     wizard_reset)
-        rm -f /mnt/config/.wizard_done 2>/dev/null || true
+        rm -f /mnt/config/.wizard3_done /mnt/config/.wizard_done 2>/dev/null || true
         touch /tmp/.first_boot 2>/dev/null || true
         json_body_ok "Wizard reset. Redirecting to setup wizard."
     ;;

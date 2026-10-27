@@ -1,441 +1,77 @@
 #!/bin/sh
-SERVICE_NAME="RTSP H264/H265 Server"
-PIDFILE="/var/run/v4l2rtspserver.pid"
-# Linux 6.6 (3.0): the free tc100_rtsp replaces v4l2rtspserver. Same interface
-# (start|stop|restart|status|health), same pid file; see v3/linux66-sd/rtsp-h26x.
-if [ -f /tmp/linux66 ] && [ -f /mnt/v3/linux66-sd/rtsp-h26x ]; then
-  exec /bin/sh /mnt/v3/linux66-sd/rtsp-h26x "$@"
-fi
-WATCHDOG_PIDFILE="/var/run/v4l2rtspserver-watch.pid"
-# RAM: the server's own output is chatty and only useful while it runs.
-# Failures also go through tc100_log_event, which keeps them on the SD card.
-LOGDIR="/tmp/log"
-LOGPATH="$LOGDIR/v4l2rtspserver.log"
-LOG_MAX_BYTES=65536
-CONFIGPATH="/mnt/config"
-export LD_LIBRARY_PATH='/mnt/lib/:/thirdlib:/system/lib/:/usr/lib/'
+# Linux 6.6 (3.0): the vendor RTSP server is replaced by tc100_rtsp. This keeps the control-script interface
+# (start|stop|restart|status|health|watchdog) so the web UI (Services, Video streams "Apply") and the watchdog work.
+# (3.0 has no vendor RTSP server: it needed the vendor libraries and would fight tc100_rtsp for the encoder;
+# the 2.x script is on the 2.x branch).
+# One restarter: scripts/service-watchdog.sh (pid file /var/run/v4l2rtspserver-watch.pid) checks the pid written by
+# rtsp-launch.sh (/var/run/v4l2rtspserver.pid) every 60 s and runs "start" when tc100_rtsp is gone. memory-guard
+# leaves services that have their own watchdog alone.
+SERVICE_NAME="RTSP server (tc100_rtsp)"
+PIDFILE=/var/run/v4l2rtspserver.pid
+WATCHDOG_PIDFILE=/var/run/v4l2rtspserver-watch.pid
 
-. /mnt/scripts/common_functions.sh
-. /mnt/scripts/update_timezone.sh
-
-BOOT_CONFIG="/mnt/config/boot.conf"
-if [ -f "$BOOT_CONFIG" ]; then
-  # shellcheck disable=SC1090
-  . "$BOOT_CONFIG"
-fi
-
-: "${RTSP_SUBSTREAM:=1}"
-: "${RTSP_AUDIO:=1}"
-: "${RTSP_FPS_LOCK:=0}"
-: "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"
-: "${VENDOR_PRINT_LEVEL:=1}"   # vendor libraries: errors only (2.1.3); 3 = vendor default
-: "${ISP_TUNE:=0}"
-: "${ONVIF_STREAM_POLICY:=main-primary}"
-: "${RTSP_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
-: "${RTSP_WATCHDOG_MODE:=status}"
-
-case "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" in
-  ''|*[!0-9]*) RTSP_HEALTHCHECK_TIMEOUT_SECONDS=4 ;;
-esac
-[ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -lt 2 ] && RTSP_HEALTHCHECK_TIMEOUT_SECONDS=2
-[ "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" -gt 30 ] && RTSP_HEALTHCHECK_TIMEOUT_SECONDS=30
-
-case "$RTSP_WATCHDOG_MODE" in
-  status|health) ;;
-  *) RTSP_WATCHDOG_MODE="status" ;;
-esac
-
-install_config $CONFIGPATH/rtspserver.conf
-
-status()
-{
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if [ "$pid" ]; then
-    # Prints PID: $pid if exists and returns 0(no error) else returns 1(error condition)
-    kill -0 "$pid" >/dev/null && echo "PID: $pid" || return 1
-  fi
-}
-
-# Wait (max $2 s) until no socket uses TCP port $1, local or remote side.
-rtsp_wait_port_free()
-{
-  _w=0
-  while [ $_w -lt "$2" ]; do
-    netstat -tan 2>/dev/null | grep -q ":$1 " || return 0
-    sleep 1
-    _w=$((_w + 1))
+launcher() {
+  for l in /mnt/tc100test/rtsp-launch.sh /mnt/v3/linux66-sd/rtsp-launch.sh; do
+    [ -f "$l" ] && { echo "$l"; return 0; }
   done
   return 1
 }
-
-start()
-{
-  if [ "$(status)" != "" ]; then
-    echo "A v4l2rtspserver is already running, please stop it or reboot"
+alive() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+# the pid file (written by rtsp-launch.sh) is what the Services page reads; refreshed when tc100_rtsp was restarted
+status() {
+  p=$(cat "$PIDFILE" 2>/dev/null)
+  alive "$p" && { echo "PID: $p"; return 0; }
+  for p in $(pidof tc100_rtsp 2>/dev/null); do echo "$p" > "$PIDFILE"; echo "PID: $p"; return 0; done
+  return 1
+}
+watchdog_start() {
+  wp=$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)
+  alive "$wp" && return 0
+  [ -f /mnt/scripts/service-watchdog.sh ] || return 0
+  ( CHECK_TIMEOUT_SECONDS=60 exec /bin/sh /mnt/scripts/service-watchdog.sh /mnt/controlscripts/rtsp-h26x 0 status ) \
+    </dev/null >/dev/null 2>&1 &
+  echo $! > "$WATCHDOG_PIDFILE"
+}
+watchdog_stop() {
+  wp=$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)
+  alive "$wp" && kill "$wp" 2>/dev/null
+  rm -f "$WATCHDOG_PIDFILE"
+}
+start() {
+  if [ -z "$(status)" ]; then
+    l=$(launcher) || { echo "no rtsp-launch.sh" >&2; return 1; }
+    sh "$l" </dev/null >/dev/null 2>&1
   else
-    echo "Starting v4l2rtspserver"
-
-    IFS=" "
-    set -- $(/mnt/bin/rwconf $CONFIGPATH/rtspserver.conf r \
-      " "  PORT             \
-      " "  RTSPLOGENABLED   \
-      2    codec            \
-      3    codec            \
-      " "  USERNAME         \
-      " "  USERPASSWORD     \
-      " "  osdtext)
-
-    PORT=$1          
-    RTSPLOGENABLED=$2 
-    audioCodec0=$3
-    audioCodec1=$4
-    USERNAME=$5
-    USERPASSWORD=$6
-    OSDTEXT=$7
-
-    if echo "$OSDTEXT" | grep -q '\\x'; then
-        CLEAN_OSDTEXT=$(printf '%s' "$OSDTEXT" | sed 's/\\x/%/g')
-        /mnt/bin/rwconf $CONFIGPATH/rtspserver.conf w " " osdtext "$CLEAN_OSDTEXT"
-        /mnt/bin/setconf -k o -v "$CLEAN_OSDTEXT" >/dev/null 2>&1 || true
-        echo "Sanitized invalid OSD format string: $OSDTEXT -> $CLEAN_OSDTEXT" >> "$LOGPATH"
-    fi
-
-    ## UserName and password
-    if [ "$USERNAME" != "" ]; then
-        CREDENTIAL="-U $USERNAME:$USERPASSWORD"
-    fi
-
-    ## Port — validate numeric, range 1–65535; fall back to default 8554 on bad value.
-    case "$PORT" in
-      ''|*[!0-9]*) PORT="8554" ;;
-    esac
-    [ "$PORT" -lt 1 ]     && PORT="8554"
-    [ "$PORT" -gt 65535 ] && PORT="8554"
-    RTSP_PORT_NUM="$PORT"
-    PORT="-P $PORT"
-   
-    ## Log
-    if [ $RTSPLOGENABLED -eq 0 ]; then
-        LOGPATH="/dev/null"
-    fi
-
-    ## Audio — sanitize codec values before numeric comparisons.
-    case "$audioCodec0" in ''|*[!0-9]*) audioCodec0=0 ;; esac
-    case "$audioCodec1" in ''|*[!0-9]*) audioCodec1=0 ;; esac
-    # Sound detection measures the PCM the vendor audio encoder pulls, and
-    # v4l2rtspserver only opens the encoder for served audio: enabling sound
-    # detection therefore serves audio even when RTSP_AUDIO=0.
-    if [ "$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)" = "1" ] && [ "$RTSP_AUDIO" = "0" ]; then
-      echo "sound detection enabled: serving audio although RTSP_AUDIO=0" >> "$LOGPATH"
-      RTSP_AUDIO=1
-    fi
-    AUDIO0=",audio0"
-    AUDIO1=",audio1"
-    if [ "$audioCodec0" -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
-        AUDIO0=""
-    fi
-    if [ "$audioCodec1" -eq 0 ] || [ "$RTSP_AUDIO" = "0" ]; then
-        AUDIO1=""
-    fi
-
-    restart_service_if_need /mnt/controlscripts/onvif
-
-    STREAMS="video0$AUDIO0"
-    if [ "$RTSP_SUBSTREAM" = "1" ]; then
-      STREAMS="$STREAMS video1$AUDIO1"
-    fi
-
-    mkdir -p "$LOGDIR" 2>/dev/null
-    cap_log
-    echo "================== START ===============" >> "$LOGPATH"
-    # libtc100fix.so fixes the closed vendor v4l2rtspserver at run time; each
-    # fix is enabled by an environment variable set here, for this process only.
-    TC100FIX_ENV=""
-    # From flash, a code package can carry a newer libtc100fix.so than the
-    # one in /usr (code zone mounted on /tmp/tc100code): use it when present.
-    TC100FIX_LIB=/mnt/lib/libtc100fix.so
-    [ -f /tmp/tc100code/lib/libtc100fix.so ] && TC100FIX_LIB=/tmp/tc100code/lib/libtc100fix.so
-    case "$RTSP_FPS_LOCK" in 1|true|yes|on|enabled) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_FPS_LOCK=1" ;; esac
-    # Sound detection: level meter on the PCM the encoder pulls, microphone
-    # without the vendor echo canceller / noise gate (they flatten everything
-    # below speech level to digital silence), DC offset removed in place.
-    _sound_enable="$(read_kv_config_value "$CONFIGPATH/sound_detection.conf" ENABLE 0)"
-    if [ "$_sound_enable" = "1" ]; then
-      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SOUND_LEVEL=/var/run/sound_level TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1"
-    elif [ "$RTSP_AUDIO" = "0" ]; then
-      case "$RTSP_MIC_OFF_WHEN_NO_AUDIO" in 1|true|yes|on|enabled)
-        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_MIC_OFF=1" ;;
-      esac
-    else
-      # Sound served without the detector: the same clean microphone (the
-      # vendor echo canceller costs ~4 % CPU and its noise gate silences
-      # everything below speech). RTSP_AEC=1 keeps the vendor processing.
-      case "${RTSP_AEC:-0}" in 1|true|yes|on|enabled) ;; *)
-        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1" ;;
-      esac
-    fi
-    case "$VENDOR_PRINT_LEVEL" in [0-9]) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL" ;; esac
-    # Day/night thread: poll the ISP every 500 ms instead of every 100 ms
-    # (it also rewrites /var/run/lum and /var/run/awb on each turn). 0 = vendor.
-    # Image statistics for the lens-covered alert (controlscripts/tamper-detection).
-    case "$TAMPER_DETECTION" in 1|true|yes|on|enabled)
-      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD=/var/run/od"
-      [ "$TAMPER_DETECTION_RAW" = 1 ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_OD_RAW=1" ;;
-    esac
-    # Day/night: switch only after HOLD s of steady request, and at least
-    # DWELL s after the previous switch (stops the dawn/dusk flapping). 0 = vendor.
-    : "${RTSP_DAYNIGHT_HOLD_S:=10}"
-    : "${RTSP_DAYNIGHT_DWELL_S:=120}"
-    case "$RTSP_DAYNIGHT_HOLD_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_HOLD_S=$RTSP_DAYNIGHT_HOLD_S" ;; esac
-    case "$RTSP_DAYNIGHT_DWELL_S" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_DWELL_S=$RTSP_DAYNIGHT_DWELL_S" ;; esac
-    : "${RTSP_DAYNIGHT_POLL_MS:=500}"
-    # Encoder poll of the vendor processThread (libtc100fix: ak_sleep_ms).
-    case "$RTSP_PROC_IDLE_MS" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PROC_IDLE_MS=$RTSP_PROC_IDLE_MS" ;; esac
-    case "$RTSP_PROC_BUSY_MS" in ''|0|*[!0-9]*) ;; *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_PROC_BUSY_MS=$RTSP_PROC_BUSY_MS" ;; esac
-    case "$RTSP_DAYNIGHT_POLL_MS" in
-      ''|0|*[!0-9]*) ;;
-      *) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_DAYNIGHT_POLL_MS=$RTSP_DAYNIGHT_POLL_MS" ;;
-    esac
-    # RTSP lite (src/tc100fix/rtsp.c): a lighter RTSP server inside the same
-    # process, fed by the encoder output.
-    #   RTSP_SERVER=lite   it serves the RTSP port (PORT of rtspserver.conf,
-    #                      what Frigate, ONVIF and the web page use); the
-    #                      vendor server moves to RTSP_VENDOR_PORT (8555)
-    #   RTSP_LITE_PORT=n   (vendor mode) a second server on port n
-    _lite_port=""; LITE_MAIN=0
-    case "$RTSP_SERVER" in
-      lite)
-        if [ -f "$TC100FIX_LIB" ] && [ ! -e /tmp/rtsp-lite-fallback ]; then
-          _vport="${RTSP_VENDOR_PORT:-8555}"
-          case "$_vport" in ''|0|*[!0-9]*) _vport=8555 ;; esac
-          [ "$_vport" = "$RTSP_PORT_NUM" ] && _vport=8555
-          [ "$_vport" = "$RTSP_PORT_NUM" ] && _vport=8556
-          _lite_port="$RTSP_PORT_NUM"; LITE_MAIN=1
-          PORT="-P $_vport"
-        fi ;;
-    esac
-    if [ -z "$_lite_port" ]; then
-      case "$RTSP_LITE_PORT" in
-        ''|0|*[!0-9]*) ;;
-        *) [ "$RTSP_LITE_PORT" != "$(read_config rtspserver.conf PORT 2>/dev/null)" ] && _lite_port="$RTSP_LITE_PORT" ;;
-      esac
-    fi
-    if [ -n "$_lite_port" ]; then
-      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_PORT=$_lite_port"
-      case "$RTSP_LITE_FASTSTART" in 0|no|off|false) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_FASTSTART=0" ;; esac
-      case "${RTSP_LITE_TALK:-1}" in 1|yes|on|true) TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_TALK=1" ;; esac
-      # A second account when both are set (letters, digits, . _ - only).
-      case "$RTSP_LITE_USER$RTSP_LITE_PASS" in *[!A-Za-z0-9._-]*) ;; *)
-        [ -n "$RTSP_LITE_USER" ] && [ -n "$RTSP_LITE_PASS" ] &&
-          TC100FIX_ENV="$TC100FIX_ENV TC100FIX_RTSP_USER=$RTSP_LITE_USER TC100FIX_RTSP_PASS=$RTSP_LITE_PASS" ;;
-      esac
-    fi
-    case "$ISP_TUNE" in 1|true|yes|on|enabled)
-      install_config "$CONFIGPATH/isp_tune.conf"
-      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_ISP_TUNE=$CONFIGPATH/isp_tune.conf" ;;
-      # No tuning thread: what it reported last is no longer true.
-      *) rm -f /var/run/isp_tune.status ;;
-    esac
-    # Local backup recording: the encoder's frames copied into fragmented MP4
-    # files on the card, no re-encoding (src/tc100fix/rec.c).
-    case "$REC_LOCAL" in 1|true|yes|on|enabled)
-      _rec_dir="$(sh /mnt/scripts/rec-storage.sh dir 2>/dev/null)"
-      if [ -n "$_rec_dir" ]; then
-        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_REC_DIR=$_rec_dir TC100FIX_REC_SEGMENT_SEC=${REC_SEGMENT_SEC:-300} TC100FIX_REC_RESERVE_MB=${REC_RESERVE_MB:-256} TC100FIX_REC_STREAM=${REC_STREAM:-main}"
-        # REC_WHEN=offline: only while the recorder (REC_CLIENT, by default the
-        # host of the Frigate URL in Settings) is not receiving the stream.
-        _rec_client="$REC_CLIENT"
-        if [ -z "$_rec_client" ]; then
-          _rec_client="$(read_kv_config_value "$CONFIGPATH/frigate_live.conf" FRIGATE_URL "")"
-          _rec_client="${_rec_client#*://}"; _rec_client="${_rec_client%%[:/]*}"
-          case "$_rec_client" in *[!0-9.]*) _rec_client="" ;; esac
-        fi
-        TC100FIX_ENV="$TC100FIX_ENV TC100FIX_REC_WHEN=${REC_WHEN:-offline} TC100FIX_REC_OFFLINE_SEC=${REC_OFFLINE_SEC:-5} TC100FIX_REC_POSTROLL_SEC=${REC_POSTROLL_SEC:-30}${_rec_client:+ TC100FIX_REC_CLIENT=$_rec_client}"
-      else
-        echo "local recording: no usable card, not recording" >> "$LOGPATH"
-      fi ;;
-    esac
-    # Overwrite "-U user:password" in the process's argv once it is parsed, so
-    # ps / /proc/<pid>/cmdline do not show the RTSP password.
-    if [ -n "$CREDENTIAL" ] && [ -f "$TC100FIX_LIB" ]; then
-      TC100FIX_ENV="$TC100FIX_ENV TC100FIX_HIDE_CREDENTIALS=1"
-    fi
-    if [ -n "$TC100FIX_ENV" ] && [ ! -f "$TC100FIX_LIB" ]; then
-      echo "tc100fix options set but $TC100FIX_LIB is missing" >> "$LOGPATH"
-      TC100FIX_ENV=""
-    fi
-    # The last still picture for currentpic.cgi (libtc100fix rec.c).
-    [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_SNAPSHOT=/tmp/snapshot.jpg"
-    # Study tool for a free H.265 encoder (src/tc100fix/venctrace.c): with
-    # VENC_TRACE=/tmp/<name> in boot.conf, the vendor encoder's register
-    # accesses and first frames are recorded to /tmp/<name>.trc / .es.
-    case "$VENC_TRACE" in
-      /tmp/*[!A-Za-z0-9/_.-]*|/tmp/*..*) ;;
-      /tmp/?*) [ -f "$TC100FIX_LIB" ] && TC100FIX_ENV="$TC100FIX_ENV TC100FIX_VENC_TRACE=$VENC_TRACE" ;;
-    esac
-    # LAN only (src/netacl, built into libtc100fix): both RTSP servers refuse
-    # connections from outside the allowed networks (NET_LAN_ONLY), and the
-    # vendor server behind the lite one listens on 127.0.0.1 only
-    # (RTSP_VENDOR_LOCAL=0 to reach it from the network).
-    if [ -f "$TC100FIX_LIB" ]; then
-      _acl="$(netacl_allow_list)"
-      [ -n "$_acl" ] && TC100FIX_ENV="$TC100FIX_ENV TC100_NET_ALLOW=${_acl// /,} TC100_NET_STATUS=/var/run/netacl.rtsp"
-      if [ "$LITE_MAIN" = 1 ]; then
-        case "${RTSP_VENDOR_LOCAL:-1}" in 1|yes|on|true) TC100FIX_ENV="$TC100FIX_ENV TC100_NET_LOCAL_PORTS=$_vport" ;; esac
-      fi
-    fi
-    echo "/mnt/bin/v4l2rtspserver  $STREAMS ${CREDENTIAL:+-U ***} $PORT${TC100FIX_ENV:+ (tc100fix:$TC100FIX_ENV)}" >> "$LOGPATH"
-    # A quick restart while the previous server's client sockets on the RTSP
-    # port are still closing makes the bind fail; the server then exits at once
-    # with a misleading "Address family not supported" (seen on hardware). Wait
-    # for the port to drain, and retry if the server dies right after start.
-    _rtsp_try=0
-    while [ $_rtsp_try -lt 3 ]; do
-      _rtsp_try=$((_rtsp_try + 1))
-      rtsp_wait_port_free "$RTSP_PORT_NUM" 45
-      if [ -n "$TC100FIX_ENV" ]; then
-        # shellcheck disable=SC2086
-        env LD_PRELOAD=$TC100FIX_LIB $TC100FIX_ENV /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
-      else
-        /mnt/bin/v4l2rtspserver -c -Q 20 $STREAMS $CREDENTIAL $PORT 2>> "$LOGPATH" >> "$LOGPATH" &
-      fi
-      _rtsp_pid=$!
-      echo "$_rtsp_pid" > "$PIDFILE"
-      sleep 3
-      kill -0 "$_rtsp_pid" 2>/dev/null && break
-      echo "v4l2rtspserver exited at start (attempt $_rtsp_try), retrying" >> "$LOGPATH"
-      tc100_log_event "rtsp: v4l2rtspserver exited at start (attempt $_rtsp_try)"
-    done
-    # RTSP_SERVER=lite: the lite server opens the RTSP port with the first
-    # encoded frame. If it has not after 30 s, go back to the vendor server
-    # on that port until the next reboot (/tmp/rtsp-lite-fallback).
-    if [ "$LITE_MAIN" = 1 ]; then
-      _lw=0
-      while [ $_lw -lt 30 ] && ! port_listening "$RTSP_PORT_NUM"; do sleep 1; _lw=$((_lw + 1)); done
-      if ! port_listening "$RTSP_PORT_NUM"; then
-        echo "RTSP lite not listening on $RTSP_PORT_NUM: back to the vendor server" >> "$LOGPATH"
-        tc100_log_event "rtsp: lite server not listening, back to the vendor server"
-        : > /tmp/rtsp-lite-fallback
-        kill "$_rtsp_pid" 2>/dev/null; sleep 2; kill -9 "$_rtsp_pid" 2>/dev/null
-        rm -f "$PIDFILE"
-        start
-        return
-      fi
-    fi
-
-    ## Watchdog
-    if ! checkpid "$WATCHDOG_PIDFILE"; then
-      CHECK_TIMEOUT_SECONDS="${CHECK_TIMEOUT_SECONDS:-60}" \
-      WATCHDOG_LOG_MAX_BYTES="${WATCHDOG_LOG_MAX_BYTES:-262144}" \
-      WATCHDOG_LOG_BACKUPS="${WATCHDOG_LOG_BACKUPS:-2}" \
-      WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS:-20}" \
-      WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS="${WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS:-15}" \
-      WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS:-180}" \
-      /mnt/scripts/service-watchdog.sh /mnt/controlscripts/rtsp-h26x 0 "$RTSP_WATCHDOG_MODE" &
-      echo "$!" > "$WATCHDOG_PIDFILE"
-    fi
+    # already running (boot): make sure the pid file the watchdog and the web UI read is right
+    pidof tc100_rtsp 2>/dev/null | awk '{print $1}' > "$PIDFILE"
   fi
+  watchdog_start
+  [ -n "$(status)" ]
 }
-
-# The log is in RAM: keep it bounded. The server writes with O_APPEND, so
-# rewriting the file in place keeps it writing at the (new) end.
-cap_log()
-{
-  [ "$LOGPATH" = "/dev/null" ] && return 0
-  _cl_size="$(wc -c < "$LOGPATH" 2>/dev/null)"
-  case "$_cl_size" in ''|*[!0-9]*) return 0 ;; esac
-  [ "$_cl_size" -gt "$LOG_MAX_BYTES" ] || return 0
-  tail -c $((LOG_MAX_BYTES / 2)) "$LOGPATH" > "$LOGPATH.tmp" 2>/dev/null &&
-    cat "$LOGPATH.tmp" > "$LOGPATH" 2>/dev/null
-  rm -f "$LOGPATH.tmp"
-}
-
-health()
-{
-  cap_log
-  if [ "$(status)" = "" ]; then
-    return 1
-  fi
-
-  # Raw DESCRIBE is used because the bundled curl emits OPTIONS on this build.
-  if ! command -v nc >/dev/null 2>&1; then
-    echo "HEALTHY"
-    return 0
-  fi
-
-  PORT=$(read_config rtspserver.conf PORT)
-  HEALTH_STREAM="video0_unicast"
-  case "$ONVIF_STREAM_POLICY" in
-    sub-primary|sub-only) [ "$RTSP_SUBSTREAM" = "1" ] && HEALTH_STREAM="video1_unicast" ;;
-  esac
-  [ -n "$RTSP_HEALTHCHECK_PATH" ] && HEALTH_STREAM="$RTSP_HEALTHCHECK_PATH"
-  describe_uri="rtsp://127.0.0.1:${PORT}/${HEALTH_STREAM}"
-  sdp=$(printf 'DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n' "$describe_uri" | nc -w "$RTSP_HEALTHCHECK_TIMEOUT_SECONDS" 127.0.0.1 "$PORT" 2>/dev/null) || return 1
-  case "$sdp" in
-    *'RTSP/1.0 401 Unauthorized'*|*'RTSP/1.0 200 OK'*'m=video'*) ;;
-    *) return 1 ;;
-  esac
-
-  # Deep Health Check (GOP stall detection)
-  if is_truthy "$RTSP_DEEP_HEALTH_CHECK"; then
-    _pid="$(cat "$PIDFILE" 2>/dev/null)"
-    if [ -n "$_pid" ] && [ -d "/proc/$_pid" ]; then
-      # Read process CPU ticks to ensure it's actually processing data
-      # /proc/[pid]/stat field 14 (utime) and 15 (stime)
-      _pstat="$(cat "/proc/$_pid/stat" 2>/dev/null)"
-      _ticks="$(echo "$_pstat" | awk '{print $14 + $15}')"
-      _state_file="/tmp/rtsp_gop_health.state"
-      _now="$(date +%s)"
-      
-      if [ -f "$_state_file" ]; then
-        read -r _last_ts _last_ticks < "$_state_file"
-        _delta_ticks=$((_ticks - _last_ticks))
-        _elapsed=$((_now - _last_ts))
-        
-        # If no ticks incremented over the threshold period, it's likely stalled
-        if [ "$_delta_ticks" -le 0 ] && [ "$_elapsed" -ge "${RTSP_GOP_STALL_THRESHOLD_SECONDS:-15}" ]; then
-          echo "UNHEALTHY (GOP STALL)" >> "$LOGPATH"
-          tc100_log_event "rtsp: GOP stall, no encoder progress for ${_elapsed}s"
-          return 1
-        fi
-        
-        # If ticks improved, update state
-        if [ "$_delta_ticks" -gt 0 ]; then
-          echo "$_now $_ticks" > "$_state_file"
-        fi
-      else
-        echo "$_now $_ticks" > "$_state_file"
-      fi
-    fi
-  fi
-
-  echo "HEALTHY"
+stop() {
+  watchdog_stop
+  # SIGTERM, then up to 5 s for the recorder to close its file, then SIGKILL
+  killall tc100_rtsp 2>/dev/null
+  i=0; while pidof tc100_rtsp >/dev/null && [ $i -lt 10 ]; do sleep 0.5; i=$((i+1)); done
+  killall -9 tc100_rtsp 2>/dev/null
+  rm -f "$PIDFILE"
   return 0
 }
-
-restart()
-{
-  stop
-  sleep 1
-  start
+health() {
+  [ -n "$(status)" ] || return 1
+  port=$(sed -n 's/^PORT=//p' /mnt/config/rtspserver.conf 2>/dev/null | head -n 1)
+  case "$port" in ''|*[!0-9]*) port=554 ;; esac
+  r=$(printf 'DESCRIBE rtsp://127.0.0.1:%s/video0_unicast RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n' "$port" |
+      nc -w 3 127.0.0.1 "$port" 2>/dev/null)
+  case "$r" in *'RTSP/1.0 401'*|*'RTSP/1.0 200 OK'*) echo HEALTHY; return 0 ;; esac
+  return 1
 }
-
-stop()
-{
-  killpid_graceful "$WATCHDOG_PIDFILE" 3
-  killpid_graceful "$PIDFILE" 5
-}
-
-if [ $# -eq 0 ]; then
-  start
-else
-  case "$1" in
-    start|stop|status|restart|health)
-      "$1"
-      ;;
-    *)
-      echo "Usage: $0 {start|stop|status|restart|health}" >&2
-      exit 1
-      ;;
-  esac
-fi
+case "${1:-start}" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; sleep 1; start ;;
+  status) status ;;
+  health) health ;;
+  watchdog) watchdog_start ;;   # boot: tc100_rtsp was started by autorun-linux66.sh, add its restarter
+  *) echo "Usage: $0 {start|stop|status|restart|health|watchdog}" >&2; exit 1 ;;
+esac

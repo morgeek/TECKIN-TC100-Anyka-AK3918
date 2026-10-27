@@ -56,11 +56,10 @@ jobs:
       - name: Configure Kernel with CMA and ALSA
         run: |
           cd linux-src
+          # RTL8188FU firmware (embedded in the kernel): from linux-firmware, pinned tag and checksum (not stored here)
           mkdir -p firmware/rtlwifi
-          cp -r ../patches/kernel-6.6/firmware/* firmware/ 2>/dev/null || true
-          if [ ! -f firmware/rtlwifi/rtl8188fufw.bin ]; then
-            curl -s -L "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin" -o firmware/rtlwifi/rtl8188fufw.bin
-          fi
+          curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin
+          echo "e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c -
           cp ../patches/kernel-6.6/defconfig_cma .config
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
           echo "[+] Validating CMA & Audio Configuration in .config:"
@@ -125,7 +124,6 @@ jobs:
           make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/dev/null
           cp src/tc100rtsp/tc100_rtsp $P/
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
-          cp config/isp_f23_mipi_2lane.conf $P/
           cat > $P/README-TEST.txt <<EOF
           RAM-only test of the Linux 6.6 image (nothing is written to flash).
           1. Copy this folder (tc100test) to the SD card (FAT32), never to the card root.

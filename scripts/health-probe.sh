@@ -31,7 +31,6 @@ probe_service_fast() {
     telnet-server)   _pf_file="/var/run/telnet-server.pid" ;;
     syslog-forward)  _pf_file="/var/run/syslog-forward.pid" ;;
     telegram-bot)    _pf_file="/var/run/telegram-bot.pid" ;;
-    cpu-scaler)      _pf_file="/var/run/cpu-scaler.pid" ;;
     health-snapshot) _pf_file="/var/run/health-snapshot.pid" ;;
     button-actions)  _pf_file="/var/run/button-watch.pid" ;;
     wifi-rescue)     _pf_file="/var/run/wifi-rescue.pid" ;;

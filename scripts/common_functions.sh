@@ -709,10 +709,13 @@ netacl_lib() {
 # netacl_exec NAME CMD...: exec CMD with the filter (status in
 # /var/run/netacl.NAME). It REPLACES the calling shell: run it in a subshell
 # or in the background ( netacl_exec web lighttpd ... ) / netacl_exec ftp ... &
+# The filter is built for the uClibc runtime: it is preloaded only into programs of that runtime (the busybox of
+# /mnt/bin). The base system of 3.0 is musl, and a uClibc library in a musl process would load a second C library.
 netacl_exec() {
   _ne_name="$1"; shift
   _ne_lib="$(netacl_lib)"; _ne_allow="$(netacl_allow_list)"
-  if [ -n "$_ne_lib" ] && [ -n "$_ne_allow" ]; then
+  _ne_bin="$(command -v "$1" 2>/dev/null)"
+  if [ -n "$_ne_lib" ] && [ -n "$_ne_allow" ] && [ -n "$_ne_bin" ] && grep -q 'ld-uClibc' "$_ne_bin" 2>/dev/null; then
     LD_PRELOAD="$_ne_lib" TC100_NET_ALLOW="$_ne_allow" TC100_NET_STATUS="/var/run/netacl.$_ne_name" exec "$@"
   fi
   exec "$@"
@@ -1006,20 +1009,11 @@ binary_version() {
     jq)
       v="$("$path" --version 2>/dev/null | head -n 1)"
       ;;
-    lighttpd)
-      v="$(run_strings "$path" | grep -m1 -E 'lighttpd/[0-9]')"
-      ;;
-    openssl)
-      v="$(run_strings "$path" | grep -m1 -E 'OpenSSL [0-9]')"
-      ;;
     monvifd)
       v="$(run_strings "$path" | grep -m1 'Micro ONVIF discovery service')"
       ;;
     rwconf)
       v="$(run_strings "$path" | grep -m1 'Read/Write ini-file utility')"
-      ;;
-    min-recorder-list)
-      v="$(run_strings "$path" | grep -m1 'Get list of video archive records')"
       ;;
     telegram)
       v="shell wrapper"
@@ -1043,7 +1037,7 @@ binary_version() {
 }
 
 build_binary_versions_block() {
-  for n in busybox curl getflag getimage jq lighttpd min-recorder-list monvifd openssl rwconf setconf telegram v4l2rtspserver; do
+  for n in busybox curl getflag getimage jq monvifd rwconf setconf telegram; do
     ver="$(binary_version "$n")"
     printf '%-20s %s\n' "$n" "$ver"
   done

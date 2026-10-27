@@ -2,8 +2,6 @@
 # Set to 1 to enable lightweight defaults (lower CPU/RAM).
 LIGHTWEIGHT_MODE=0
 
-# Service toggles (1=enable, 0=disable)
-ENABLE_WATCHDOG=1
 # Network guard (scripts/net-guard.sh, checked every minute by web-guard.sh):
 # reboot when the default gateway has not answered for NET_GUARD_MIN minutes
 # while the rest of the system runs (the hardware watchdog does not catch
@@ -18,55 +16,8 @@ NET_GUARD_MIN=15
 # Formatting is offered in the web page. SD_AUTOMOUNT=0: never mounted
 # automatically.
 SD_AUTOMOUNT=1
-# RTSP_AEC=1 keeps the vendor echo canceller and noise gate on the microphone
-# (they cost ~4 % CPU and silence everything below speech). Default 0: clean
-# microphone, as with sound detection.
-RTSP_AEC=0
-# Encoder poll of the video server (milliseconds): after a pass without new
-# frames it waits RTSP_PROC_IDLE_MS (vendor: 10, range 10-40), after one with
-# frames RTSP_PROC_BUSY_MS (vendor: 1, range 1-10). Longer = fewer wake-ups,
-# frames wait at most that long. Empty = the vendor's values. Measured on a
-# TC100 (night, Frigate on the lite server): the video process uses 18-20 %
-# CPU either way (20/1, 20/5, 40/10): no gain worth the delay, so off.
-RTSP_PROC_IDLE_MS=
-RTSP_PROC_BUSY_MS=
-# RTSP server on the RTSP port (PORT of rtspserver.conf, 554):
-#   vendor  the original server (live555)
-#   lite    the lighter server of libtc100fix (src/tc100fix/rtsp.c): same
-#           URLs (/video0, /video0_unicast, /video1...), same account, video
-#           and G.711 sound, two-way audio. The vendor server keeps running
-#           for the encoders, on RTSP_VENDOR_PORT (no client expected).
-#           If the lite server does not open the port within 30 s of a start,
-#           the vendor server takes it back until the next reboot.
-RTSP_SERVER=vendor
-RTSP_VENDOR_PORT=8555
-# RTSP_VENDOR_LOCAL=1: with the lite server, the vendor server listens on
-# 127.0.0.1 only (nothing on the network needs it). 0: reachable as before.
-RTSP_VENDOR_LOCAL=1
-# RTSP lite (test): a second RTSP server inside the video process, sending
-# the same encoded video with less overhead, on this port (e.g. 8554):
-# rtsp://<camera>:<port>/video0 and /video1, same user and password as the
-# main server (RTSP_LITE_USER / RTSP_LITE_PASS, when both are set, are a
-# second account: letters, digits, . _ - only), TCP only, with the G.711 sound when the
-# main server has it. Empty or 0 = off. The main server (PORT in
-# rtspserver.conf) is not changed.
-# RTSP_LITE_FASTSTART=1: a new client gets the picture at once (the frames
-# since the last keyframe are kept, about 640 KB of memory); 0 = it waits
-# for the next keyframe (up to 2 s on video0, 4 s on video1).
-RTSP_LITE_PORT=
-RTSP_LITE_USER=
-RTSP_LITE_PASS=
-RTSP_LITE_FASTSTART=1
-# RTSP_LITE_TALK=1: two-way audio. A client asking for the ONVIF backchannel
-# (go2rtc does, e.g. the microphone button of Home Assistant or go2rtc's web
-# page) can play its sound on the camera speaker, volume as the push-to-talk.
-# Only with the RTSP password. 0 = off.
-RTSP_LITE_TALK=1
 ENABLE_NTP=1
-# If ENABLE_NTP=1 and NTP_ONE_SHOT=1, run a one-time sync and exit.
-NTP_ONE_SHOT=0
 ENABLE_CROND=1
-ENABLE_AUTOSTART=1
 
 # Managed scheduled reboot cron task:
 # Cron expression is: REBOOT_SCHEDULE_MINUTE REBOOT_SCHEDULE_HOUR * * REBOOT_SCHEDULE_WEEKDAY
@@ -76,54 +27,27 @@ REBOOT_SCHEDULE_MINUTE=0
 REBOOT_SCHEDULE_HOUR=4
 REBOOT_SCHEDULE_WEEKDAY=*
 
-# Managed scheduled motion arm/disarm cron tasks:
-# ARM turns motion detection ON at MOTION_ARM_HOUR:MOTION_ARM_MINUTE.
-# DISARM turns motion detection OFF at MOTION_DISARM_HOUR:MOTION_DISARM_MINUTE.
-# MOTION_SCHEDULE_WEEKDAY applies to both; supports: *, 0..6, 1-5, 0,6
-MOTION_SCHEDULE_ENABLE=0
-MOTION_ARM_MINUTE=0
-MOTION_ARM_HOUR=8
-MOTION_DISARM_MINUTE=0
-MOTION_DISARM_HOUR=22
-MOTION_SCHEDULE_WEEKDAY=*
-
-# Web server mode:
-# - full: https + redirect (lighttpd, default)
-# - http: http only (lighttpd, no TLS)
-# - ultra-lite: http only (busybox httpd, lightest CPU/RAM, no lighttpd auth/TLS layer)
-# - off: web server disabled
-WEB_MODE=full
-# Optional listen port for WEB_MODE=ultra-lite
+# Web server: busybox httpd behind httpfront, plain HTTP on port 80, one login (root and config/user.pwd).
+# WEB_MODE and ULTRALITE_HTTP_PORT are what the 2.x settings pages read; 3.0 serves port 80 whatever they say.
+WEB_MODE=http
 ULTRALITE_HTTP_PORT=80
-# UI ultra-lite mode:
-# - 1: aggressively lowers UI polling/live-preview cadence and pauses live feed by default
-# - 0: normal UI behavior
+# UI ultra-lite mode: 1 = the web pages poll less often and the live view starts paused.
 UI_ULTRALITE_MODE=0
 
-# Security hardening mode:
-# - forces WEB_MODE=full (HTTPS)
-# - disables FTP and Telnet services
-# - blocks FTP/Telnet and non-HTTPS web mode changes from the UI/API
+# Security hardening mode: FTP and telnet stay off and cannot be started from the web UI.
 SECURITY_HARDENING_MODE=0
 # Network access (src/netacl). The kernel has no packet filter, so the web
-# server, telnet, FTP and both RTSP servers refuse connections themselves.
+# server, telnet and FTP refuse connections themselves.
 #   NET_LAN_ONLY=1   only the private networks may connect (10/8, 172.16/12,
 #                    192.168/16, link-local, 100.64/10 for Tailscale): a port
 #                    forwarded by the router by mistake is refused at once.
 #                    0 = anyone may connect (to the password prompt).
 #   NET_ALLOW_EXTRA  more networks, space-separated a.b.c.d/n (a VPN, ...).
-# The lite RTSP server also refuses for 15 min an address outside these
-# networks after 5 wrong passwords (never one on the local network).
 NET_LAN_ONLY=1
 NET_ALLOW_EXTRA=
 # Telnet and FTP send passwords in clear: started from the web page, they
 # stop by themselves after REMOTE_SHELL_TIMEOUT_MIN minutes (0 = never).
 REMOTE_SHELL_TIMEOUT_MIN=15
-# Emergency telnet on port 9527 (config/autostart/01_system-emergency-telnet):
-#   auto    only if the web interface is not up 2 min after a boot
-#   always  60 s at every boot (before 2.1.9)
-#   off     never
-EMERGENCY_TELNET=auto
 
 # Low CPU profile (recommended for very low usage)
 # When enabled, the startup script applies conservative RTSP settings and
@@ -136,23 +60,6 @@ LOW_CPU_DISABLE_AUDIO=1
 LOW_CPU_DISABLE_MOTION=1
 LOW_CPU_DISABLE_OSD=1
 LOW_CPU_DISABLE_JPEG=1
-
-# Optional overrides for low CPU profile
-LOW_CPU_MAIN_WIDTH=640
-LOW_CPU_MAIN_HEIGHT=360
-LOW_CPU_MAIN_FPS=10
-LOW_CPU_MAIN_BPS=600
-LOW_CPU_MAIN_GOPLEN=30
-LOW_CPU_MAIN_MAXKBPS=800
-LOW_CPU_MAIN_TARGETKBPS=500
-
-LOW_CPU_SUB_WIDTH=320
-LOW_CPU_SUB_HEIGHT=180
-LOW_CPU_SUB_FPS=4
-LOW_CPU_SUB_BPS=150
-LOW_CPU_SUB_GOPLEN=16
-LOW_CPU_SUB_MAXKBPS=200
-LOW_CPU_SUB_TARGETKBPS=150
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Memory Guard & Service Watchdog
@@ -176,31 +83,7 @@ MEM_WATCHDOG_INTERVAL_SECONDS=40
 MEM_WATCHDOG_MAX_RETRIES=3
 MEM_WATCHDOG_SERVICES="web-server rtsp-h26x onvif"
 
-# CPU usage scaler (automatic stream load shedding)
-# - thresholds and hold time to prevent flapping
-# - if CPU utility > threshold for > hold_time, sheds load in two stages:
-#   stage 1 lowers stream 0 FPS to CPU_SCALER_FPS_TARGET (gentler quality loss),
-#   stage 2 lowers stream 0 resolution to D1 if CPU stays high after that
-# Recommended: set to 1 when INTEGRATION_PROFILE=frigate_ha to protect the
-# RTSP pipeline under Frigate detection/NVR load spikes.
-CPU_SCALER_ENABLE=0
-CPU_SCALER_INTERVAL_SECONDS=10
-CPU_SCALER_THRESHOLD_PERCENT=80
-CPU_SCALER_HOLD_TIME_SECONDS=30
-CPU_SCALER_FPS_TARGET=10
-CPU_SCALER_D1_WIDTH=720
-CPU_SCALER_D1_HEIGHT=480
-
-# Autostart filtering:
-# - AUTOSTART_ALLOWLIST: if set, only these scripts will run.
-# - AUTOSTART_DENYLIST: if set, these scripts will be skipped.
-# Script names are files in /mnt/config/autostart (e.g. "rtsp-h26x").
-# In LIGHTWEIGHT_MODE, if both lists are unset, a default denylist is applied.
-AUTOSTART_ALLOWLIST=""
-AUTOSTART_DENYLIST=""
-
-# RTSP stream toggles (1=enable, 0=disable). Low CPU profile may
-# default these to 0 unless you set them explicitly.
+# RTSP stream toggles (1=enable, 0=disable), read by rtsp-launch.sh.
 # Common topology presets:
 # - Dual stream + audio: RTSP_SUBSTREAM=1, RTSP_AUDIO=1
 # - Dual stream, audio off: RTSP_SUBSTREAM=1, RTSP_AUDIO=0
@@ -208,71 +91,37 @@ AUTOSTART_DENYLIST=""
 # - Main stream only: RTSP_SUBSTREAM=0, RTSP_AUDIO=0
 RTSP_SUBSTREAM=1
 RTSP_AUDIO=1
-# Run-time fixes for the closed vendor v4l2rtspserver, applied by preloading
-# /mnt/lib/libtc100fix.so into that process only (see src/tc100fix/).
-# - RTSP_FPS_LOCK=1: keep the sensor at the configured frame rate. The vendor
-#   library otherwise drops to ~10 fps in low light and back to 25 fps, which
-#   makes the RTSP frame rate oscillate (bad for Frigate).
-# - RTSP_MIC_OFF_WHEN_NO_AUDIO=1 (default since 1.8.4): when RTSP_AUDIO=0,
-#   do not start the microphone, echo canceller and noise reduction the server
-#   otherwise runs for nothing (measured ~6.5% CPU: aec_task + ai_capture).
-#   No effect when RTSP_AUDIO=1. Set 0 to restore the vendor behaviour.
-# - VENDOR_PRINT_LEVEL=0..9: replace the level the server forces (3) into
-#   /var/log/ak_print_level, read by every vendor library. Default 1 (also when
-#   empty), errors only: at 3 the encoder library logs every slow frame
-#   (">>> encode frame type=…", "group_type=…") at EMERGENCY priority, which
-#   floods a remote syslog server and its alerts. 3 = vendor behaviour.
-# - ISP_TUNE=1: live image tuning from /mnt/config/isp_tune.conf (brightness,
-#   contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied
-#   without restarting the stream.
-# - RTSP_DAYNIGHT_POLL_MS=500: the server's day/night thread polls the ISP
-#   every 100 ms (and rewrites /var/run/lum and /var/run/awb each time);
-#   500 ms is plenty for day/night switching. Measured: -2 % CPU. 0 = vendor.
-RTSP_FPS_LOCK=0
-RTSP_MIC_OFF_WHEN_NO_AUDIO=1
-VENDOR_PRINT_LEVEL=1
+# ISP_TUNE=1: live image tuning from /mnt/config/isp_tune.conf (brightness,
+# contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied by
+# tc100_rtsp without restarting the stream.
 ISP_TUNE=0
-RTSP_DAYNIGHT_POLL_MS=500
-# Day/night switching (automatic mode): switch only after the ISP has asked for
-# the new mode for RTSP_DAYNIGHT_HOLD_S seconds, and at most every
-# RTSP_DAYNIGHT_DWELL_S seconds. Stops the dawn/dusk flapping caused by the IR
-# lights feeding back into the light measure. 0 = vendor behaviour.
-RTSP_DAYNIGHT_HOLD_S=10
-RTSP_DAYNIGHT_DWELL_S=120
-# TAMPER_DETECTION=1: sample the ISP sharpness/histogram statistics every 2 s
-# into /var/run/od (libtc100fix), groundwork for a lens-covered alert. Off by
-# default until the thresholds are calibrated on hardware.
-TAMPER_DETECTION=0
-# Rescue Wi-Fi access point — ON HOLD: with the vendor hostapd (2013,
-# rtl871xdrv) and this driver, phones complete WPA2 but receive no data (no
-# DHCP), even with the station stopped (tested 2026-10-16); hostapd is not in
-# the flash /usr. Use wifi.txt on the SD card instead. When the Wi-Fi link (association + gateway ping)
-# stays down for WIFI_RESCUE_AFTER_MIN minutes, the camera opens a WPA2 access
-# point (SSID WIFI_RESCUE_SSID, default TC100-<end of MAC>) with the web
-# interface at https://10.42.0.1 to fix the Wi-Fi settings; it closes once the
-# Wi-Fi is back and nobody uses it. Holding the reset button 3-7 s opens it
-# for WIFI_RESCUE_MANUAL_MIN minutes. WIFI_RESCUE_PSK empty = a password
-# generated once, shown in Settings. WIFI_RESCUE_CHANNEL applies when the
-# camera is not associated (otherwise the access point follows the Wi-Fi).
+# Rescue Wi-Fi access point (scripts/wifi-rescue.sh): when the Wi-Fi link
+# (association + gateway ping) stays down for WIFI_RESCUE_AFTER_MIN minutes,
+# the camera opens a WPA2 access point (SSID WIFI_RESCUE_SSID, default
+# TC100-<end of MAC>) with the web interface at http://10.42.0.1 to fix the
+# Wi-Fi settings; it closes once the Wi-Fi is back and nobody uses it. Holding
+# the reset button 3-7 s opens it for WIFI_RESCUE_MANUAL_MIN minutes.
+# WIFI_RESCUE_PSK empty = a password generated once, shown in Settings (and on
+# the card, tc100-3/ADRESSE.txt). WIFI_RESCUE_CHANNEL applies when the camera
+# is not associated (otherwise the access point follows the Wi-Fi).
 WIFI_RESCUE=0
 WIFI_RESCUE_AFTER_MIN=10
 WIFI_RESCUE_MANUAL_MIN=15
 WIFI_RESCUE_SSID=
 WIFI_RESCUE_PSK=
 WIFI_RESCUE_CHANNEL=6
-# Local backup recording (REC_LOCAL=1): the frames the SoC encoder already
-# produces for RTSP are copied into fragmented MP4 files on the SD card, with
-# no decoding or re-encoding. Files: records/YYYYMMDD/HHMMSS.mp4, REC_SEGMENT_SEC
-# long; the oldest are deleted to keep REC_RESERVE_MB free. A file cut by a
-# power loss stays playable up to its last second. From flash the card is
-# mounted on /mnt/sd ("scripts/rec-storage.sh eject" before removing it).
-# REC_STREAM=main|sub (main: 1080p, ~4.5 % CPU while recording; sub: <1 %).
+# Local backup recording (REC_LOCAL=1), made by tc100_rtsp: the frames the
+# encoder already produces for RTSP are copied into fragmented MP4 files on the
+# SD card, with no re-encoding: DCIM/YYYY-MM-DD_HH-MM-SS.mp4 and a .jpg
+# thumbnail, REC_SEGMENT_SEC long; the oldest are deleted to keep REC_RESERVE_MB
+# free. A file cut by a power loss stays playable up to its last second.
+# REC_STREAM=main|sub.
 # REC_WHEN=offline: record only while the recorder is not receiving the RTSP
 # stream (Frigate down, Wi-Fi/network cut): from REC_OFFLINE_SEC after it stops
-# (the file starts with the last ~3 s kept in memory) until REC_POSTROLL_SEC
+# (the file starts with the last seconds kept in memory) until REC_POSTROLL_SEC
 # after it is back. REC_CLIENT = the recorder's IPv4 address; empty = the
 # host of the Frigate URL in Settings, or any client. REC_WHEN=always records
-# all the time.
+# all the time, REC_WHEN=motion on motion.
 REC_LOCAL=0
 REC_SEGMENT_SEC=300
 REC_RESERVE_MB=256
@@ -304,17 +153,11 @@ ONVIF_HEALTHCHECK_RETRIES=2
 ONVIF_RTSP_DEPENDENCY_MODE=status
 # Watchdog monitor interval in seconds (used by service-watchdog).
 CHECK_TIMEOUT_SECONDS=60
-# Watchdog mode per service:
-# - status: restart only when process is not running (safer for flaky health probes)
-# - health: use deep health checks (RTSP DESCRIBE/ONVIF HTTP probe) before deciding
-RTSP_WATCHDOG_MODE=status
+# Watchdog mode of ONVIF:
+# - status: restart only when the process is not running (safer for flaky health probes)
+# - health: use the ONVIF HTTP probe before deciding
 ONVIF_WATCHDOG_MODE=status
 
-# RTSP Deep Health Check (GOP stall detection)
-# - If RTSP_WATCHDOG_MODE=health, also checks if the video encoder is producing frames.
-# - This detects "frozen" streams where the RTSP server is responsive but video is stuck.
-RTSP_DEEP_HEALTH_CHECK=0
-RTSP_GOP_STALL_THRESHOLD_SECONDS=15
 # service-watchdog log rotation safeguards
 WATCHDOG_LOG_MAX_BYTES=262144
 WATCHDOG_LOG_BACKUPS=2
@@ -333,14 +176,6 @@ CHIP_TEMP_SOURCE_PATH=auto
 # - auto: detect 1000-based millidegree or direct Celsius
 # - explicit: set 1000 (millidegree), 1 (Celsius), etc.
 CHIP_TEMP_RAW_DIVISOR=auto
-
-# Storage auto-cleanup:
-# Delete oldest recordings in STORAGE_CLEANUP_DCIM_PATH when SD usage >= threshold.
-# Runs hourly via cron (requires ENABLE_CROND=1).
-STORAGE_CLEANUP_ENABLE=0
-STORAGE_CLEANUP_THRESHOLD=90
-STORAGE_CLEANUP_TARGET=85
-STORAGE_CLEANUP_DCIM_PATH=/mnt/DCIM
 
 # Health snapshot daemon: pre-builds the health.cgi cache every N seconds (min 10, max 300).
 # Lower values mean fresher health data at the cost of more CPU cycles per minute.
@@ -361,27 +196,6 @@ SYSLOG_PORT=514
 # Set to "frigate_ha" in boot.conf if this camera feeds Frigate/HA.
 INTEGRATION_PROFILE=default
 
-# Example lightweight allowlist:
-# AUTOSTART_ALLOWLIST="00_system-config rtsp-h26x"
-# Example lightweight denylist:
-# AUTOSTART_DENYLIST="01_system-emergency-telnet 02_system-webserver auto-night-detection front-led"
-
-# Kernel log verbosity (optional CPU/thermal tuning). Both default empty, meaning
-# "leave the kernel exactly as-is". Writes are guarded — if the interface does not
-# exist on this build, the setting is silently ignored.
-#   KERNEL_PRINTK_LEVEL: written verbatim to /proc/sys/kernel/printk. Lower =
-#     quieter console. Example (quiet): "3 4 1 3".
-KERNEL_PRINTK_LEVEL=
-#   AK_PRINT_LEVEL: Anyka ISP driver verbosity (typically 0-3). The vendor
-#     userspace level actually lives in /var/log/ak_print_level (see
-#     VENDOR_PRINT_LEVEL above). Kept for builds
-#     that expose it, but MEASURED USELESS on CLOUD39EV3_AK3918EV300_MNBD: none
-#     of the three candidate paths exist, and the kernel emits nothing to begin
-#     with (last dmesg line unchanged over 15 s; syslogd+klogd together burned
-#     1.35 s of CPU across 6 h of uptime, ~0.006%). Setting it here is a no-op
-#     on this hardware — do not expect a thermal or CPU win from it.
-AK_PRINT_LEVEL=
-
 # Front (blue) and rear (red) status LED state applied at boot by
 # initialize_gpio(). 0 = off, 1 = on. These keys were previously absent, which
 # left the dashboard reporting a permanent "off" regardless of the hardware.
@@ -389,17 +203,6 @@ AK_PRINT_LEVEL=
 # only decide what boot applies.
 FRONT_LED=0
 RED_LED=0
-# FIRMWARE_IMAGE=1: when firmware.sqfs is on the card (release packages and
-# updates ship it), run bin/ lib/ scripts/ controlscripts/ www/ from that
-# read-only image instead of the FAT copies, which stay as the fallback
-# (scripts/rofs.sh). 0 = always use the FAT copies (needed to edit code files
-# on the card directly).
-FIRMWARE_IMAGE=1
-# WIFI_CLIENT=new: connect with the bundled wpa_supplicant 2.11 (wireless
-# extensions, WPA2-PSK, current security fixes) instead of the vendor 0.8.x
-# from 2013. If it has not associated within 60 s the vendor client is
-# started as before and an important event is logged (scripts/wifi-client.sh).
-WIFI_CLIENT=vendor
 # UPDATE_CHECK=1: at boot, ask GitHub (api.github.com) whether a newer release
 # exists and show it in the web UI. Off by default: the camera needs no
 # internet access; updates are installed from Settings → Firmware update.
