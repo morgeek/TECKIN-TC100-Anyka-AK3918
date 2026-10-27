@@ -4,11 +4,18 @@
 Needs gcc only (no ffmpeg): the recorder is fed synthetic H.264 / H.265 access units (real SPS, dummy slices) and its
 files are checked with a small ISO box reader below. Run: python3 tests/test_tc100rtsp.py
 """
+import base64
+import math
 import os
 import re
+import select
+import shutil
+import socket
 import struct
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -324,10 +331,445 @@ class Recorder(unittest.TestCase):
             self.assertTrue(c.samples()[0][1])
 
 
+FAKE_ARECORD = r"""#!/usr/bin/env python3
+# stands in for arecord: a 440 Hz tone, S16_LE 8 kHz mono, 512-byte periods in real time
+import math, os, signal, struct, sys, time
+signal.signal(signal.SIGTERM, lambda *a: os._exit(0))
+open(os.environ['FAKE_ARECORD_PID'], 'w').write(str(os.getpid()))
+n, t0 = 0, time.time()
+while True:
+    b = struct.pack('<256h', *[int(8000 * math.sin(2 * math.pi * 440 * (n + i) / 8000)) for i in range(256)])
+    n += 256
+    time.sleep(max(0, t0 + n / 8000 - time.time()))
+    try:
+        os.write(1, b)
+    except OSError:
+        os._exit(0)
+"""
+FAKE_APLAY = r"""#!/bin/sh
+# stands in for aplay: appends its input to $FAKE_APLAY_OUT, its arguments to $FAKE_APLAY_OUT.args
+echo "$@" >> "$FAKE_APLAY_OUT.args"
+cat >> "$FAKE_APLAY_OUT"
+"""
+
+
+def rtp(seq, payload, pt=8, ts=None, marker=0):
+    ts = seq * 160 if ts is None else ts
+    return struct.pack('>BBHII', 0x80, (marker << 7) | pt, seq & 0xffff, ts & 0xffffffff, 0x1234) + payload
+
+
+def alaw_enc(s):
+    mask = 0xD5
+    if s < 0:
+        mask = 0x55
+        s = -s - 1
+    s = min(s, 32767)
+    if s < 256:
+        return ((s >> 4) ^ mask) & 0xff
+    e = 1
+    while e < 7 and s >= (512 << (e - 1)):
+        e += 1
+    return (((e << 4) | ((s >> (e + 3)) & 0x0f)) ^ mask) & 0xff
+
+
+def tone_alaw(hz, start, n):
+    return bytes(alaw_enc(int(8000 * math.sin(2 * math.pi * hz * (start + i) / 8000))) for i in range(n))
+
+
+def freq(pcm_bytes):
+    """frequency of an S16_LE mono 8 kHz signal from its zero crossings"""
+    v = struct.unpack('<%dh' % (len(pcm_bytes) // 2), pcm_bytes[:len(pcm_bytes) // 2 * 2])
+    zc = sum(1 for a, b in zip(v, v[1:]) if (a < 0) != (b < 0))
+    return zc / 2 / (len(v) / 8000)
+
+
+class RtspClient:
+    def __init__(self, port, auth=True):
+        self.s = socket.create_connection(('127.0.0.1', port), timeout=5)
+        self.cseq = 0
+        self.auth = auth
+        self.extra = b''
+
+    def request(self, method, url, *headers, expect=200):
+        self.cseq += 1
+        h = ['%s %s RTSP/1.0' % (method, url), 'CSeq: %d' % self.cseq] + list(headers)
+        if self.auth:
+            h.append('Authorization: Basic ' + base64.b64encode(b'root:pw').decode())
+        self.s.sendall(('\r\n'.join(h) + '\r\n\r\n').encode())
+        buf = self.extra
+        while b'\r\n\r\n' not in buf:
+            buf += self.s.recv(4096)
+        head, _, rest = buf.partition(b'\r\n\r\n')
+        lines = head.decode().split('\r\n')
+        code = int(lines[0].split()[1])
+        hd = {k.lower(): v.strip() for k, v in (ln.split(':', 1) for ln in lines[1:])}
+        n = int(hd.get('content-length', 0))
+        while len(rest) < n:
+            rest += self.s.recv(4096)
+        self.extra = rest[n:]
+        if expect:
+            assert code == expect, (method, url, code, head)
+        return code, hd, rest[:n].decode()
+
+    def interleaved(self, ch, pkt):
+        self.s.sendall(b'$' + bytes([ch]) + struct.pack('>H', len(pkt)) + pkt)
+
+    def frames(self, seconds):
+        """interleaved frames (channel, payload) received during <seconds>"""
+        out, buf, end = [], self.extra, time.time() + seconds
+        while time.time() < end:
+            r, _, _ = select.select([self.s], [], [], 0.1)
+            if r:
+                d = self.s.recv(65536)
+                if not d:
+                    break
+                buf += d
+            while len(buf) >= 4 and buf[0] == 0x24:
+                n = struct.unpack('>H', buf[2:4])[0]
+                if len(buf) < 4 + n:
+                    break
+                out.append((buf[1], buf[4:4 + n]))
+                buf = buf[4 + n:]
+        self.extra = buf
+        return out
+
+    def close(self):
+        self.s.close()
+
+
+class Server(unittest.TestCase):
+    """tc100_rtsp built for the host (make test_rtsp: no camera, no encoder) with fake arecord / aplay: RTSP, the audio
+    track, the ONVIF backchannel to the speaker, and the FIFO listeners of the web UI's Listen button"""
+    PORT = 18554
+    audio = 1
+    password = True
+    boot_conf = ''
+    env = {}
+
+    @classmethod
+    def setUpClass(cls):
+        build('test_rtsp')
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = Path(self.tmp.name)
+        (t / 'bin').mkdir()
+        (t / 'conf').mkdir()
+        for name, body in (('arecord', FAKE_ARECORD), ('aplay', FAKE_APLAY), ('amixer', '#!/bin/sh\nexit 0\n')):
+            (t / 'bin' / name).write_text(body)
+            (t / 'bin' / name).chmod(0o755)
+        if self.boot_conf:
+            (t / 'conf' / 'boot.conf').write_text(self.boot_conf)
+        (t / 'pw').write_text('pw\n' if self.password else '\n')
+        self.out = t / 'aplay.out'
+        self.pidf = t / 'arecord.pid'
+        self.listen = t / 'listen'
+        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+        env = dict(os.environ, PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'], FAKE_APLAY_OUT=str(self.out),
+                   FAKE_ARECORD_PID=str(self.pidf), TC100_LISTEN_DIR=str(self.listen),
+                   TC100_SPEAKER_SCRIPT=str(ROOT / 'scripts' / 'speaker-play.sh'), **self.env)
+        self.log = open(t / 'server.log', 'w')
+        shutil.copy(SRC / 'test_rtsp', t / 'bin' / 'tc100_rtsp')           # the CGI finds it by this name (pidof)
+        self.proc = subprocess.Popen([str(t / 'bin' / 'tc100_rtsp'), '-p', str(self.PORT), '-w', str(t / 'pw'), '-a', str(self.audio),
+                                      '-s', '0', '-S', str(t / 'level')],
+                                     cwd=t, env=env, stderr=self.log, stdout=subprocess.DEVNULL)
+        for _ in range(50):
+            try:
+                socket.create_connection(('127.0.0.1', self.PORT), timeout=1).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            self.fail('server did not start')
+        self.clients = []
+
+    def tearDown(self):
+        for c in self.clients:
+            c.close()
+        self.proc.terminate()
+        try:
+            self.proc.wait(10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        log = Path(self.log.name).read_text()
+        self.log.close()
+        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+        if os.environ.get('TC100_TEST_VERBOSE'):
+            print('---- server log of %s ----\n%s' % (self.id(), log))
+        self.tmp.cleanup()
+
+    def client(self, auth=True):
+        c = RtspClient(self.PORT, auth)
+        self.clients.append(c)
+        return c
+
+    URL = 'rtsp://127.0.0.1:18554/video0'
+
+    def describe(self, c, require=True):
+        h = ['Accept: application/sdp'] + (['Require: www.onvif.org/ver20/backchannel'] if require else [])
+        return c.request('DESCRIBE', self.URL, *h)[2]
+
+    def talk_session(self, c, tcp=True, port=None):
+        self.describe(c)
+        if tcp:
+            _, hd, _ = c.request('SETUP', self.URL + '/track3', 'Transport: RTP/AVP/TCP;unicast;interleaved=4-5')
+            self.assertIn('interleaved=4-5', hd['transport'])
+        else:
+            _, hd, _ = c.request('SETUP', self.URL + '/track3', 'Transport: RTP/AVP;unicast;client_port=%d-%d' % (port, port + 1))
+            self.assertIn('server_port=5004-5005', hd['transport'])
+        c.request('PLAY', self.URL, 'Session: ' + hd['session'].split(';')[0])
+
+
+class Backchannel(Server):
+    def test_sdp_offers_the_backchannel_only_when_asked_and_allowed(self):
+        c = self.client()
+        sdp = self.describe(c, require=True)
+        self.assertIn('a=sendonly', sdp)
+        self.assertIn('a=control:track3', sdp)
+        self.assertEqual(sdp.count('PCMA/8000'), 2, 'listen track and backchannel')
+        self.assertIn('m=video', sdp)
+        self.assertNotIn('a=sendonly', self.describe(c, require=False))
+
+    def test_tcp_talk_reaches_the_speaker(self):
+        c = self.client()
+        self.talk_session(c)
+        for i in range(60):                                      # 1.2 s of 600 Hz
+            c.interleaved(4, rtp(i, tone_alaw(600, i * 160, 160)))
+            time.sleep(0.02)
+        c.interleaved(5, b'\x80\xc8' + bytes(26))                # RTCP on the odd channel is ignored
+        self.assertEqual(c.frames(0.3), [], 'a client that set up only the backchannel gets no video')
+        time.sleep(3.5)                                          # 2 s idle, then the player ends
+        pcm = self.out.read_bytes()
+        self.assertAlmostEqual(len(pcm), 60 * 160 * 2, delta=1600)
+        self.assertAlmostEqual(freq(pcm), 600, delta=12)
+        args = Path(str(self.out) + '.args').read_text()
+        self.assertIn('-D plughw:0,0', args)
+        self.assertIn('-r 8000', args)
+        self.assertFalse(os.path.isdir('/tmp/speaker-play.lock'), 'the lock is released with the player')
+        self.assertIn('talk: client', Path(self.log.name).read_text())
+
+    def test_udp_talk_reaches_the_speaker(self):
+        c = self.client()
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.bind(('127.0.0.1', 0))
+        self.talk_session(c, tcp=False, port=u.getsockname()[1])
+        for i in range(40):
+            u.sendto(rtp(i, tone_alaw(500, i * 160, 160)), ('127.0.0.1', 5004))
+            time.sleep(0.02)
+        time.sleep(3.5)
+        pcm = self.out.read_bytes()
+        self.assertAlmostEqual(len(pcm), 40 * 160 * 2, delta=1600)
+        self.assertAlmostEqual(freq(pcm), 500, delta=12)
+        u.close()
+
+    def test_a_datagram_from_another_host_is_ignored(self):
+        c = self.client()
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.bind(('127.0.0.1', 0))
+        self.talk_session(c, tcp=False, port=u.getsockname()[1])
+        o = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        o.bind(('127.0.0.2', 0))                                # another source address
+        for i in range(20):
+            o.sendto(rtp(i, tone_alaw(500, i * 160, 160)), ('127.0.0.1', 5004))
+            time.sleep(0.02)
+        time.sleep(3)
+        self.assertFalse(self.out.exists())
+        o.close()
+        u.close()
+
+    def test_one_talker_at_a_time(self):
+        a, b = self.client(), self.client()
+        self.talk_session(a)
+        self.talk_session(b)
+        for i in range(50):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            b.interleaved(4, rtp(i, tone_alaw(1000, i * 160, 160)))
+            time.sleep(0.02)
+        time.sleep(3.5)
+        pcm = self.out.read_bytes()
+        self.assertAlmostEqual(len(pcm), 50 * 160 * 2, delta=1600, msg='only one of the two')
+        self.assertAlmostEqual(freq(pcm), 400, delta=10)
+
+    def test_busy_speaker_drops_the_sound_then_recovers(self):
+        os.mkdir('/tmp/speaker-play.lock')                       # a web push-to-talk clip is playing
+        c = self.client()
+        self.talk_session(c)
+        for i in range(30):
+            c.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            time.sleep(0.02)
+        time.sleep(3.5)
+        self.assertFalse(self.out.exists() and self.out.stat().st_size, 'nothing played while the lock is held')
+        os.rmdir('/tmp/speaker-play.lock')
+        for i in range(30, 60):
+            c.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            time.sleep(0.02)
+        time.sleep(3.5)
+        self.assertGreater(self.out.stat().st_size, 20 * 160 * 2, 'plays again once the speaker is free')
+
+    def test_push_to_talk_is_refused_while_a_client_talks(self):
+        c = self.client()
+        self.talk_session(c)
+        c.interleaved(4, rtp(0, tone_alaw(400, 0, 160)))
+        time.sleep(1)
+        self.assertTrue(os.path.isdir('/tmp/speaker-play.lock'), 'a client talking holds the speaker lock')
+        r = subprocess.run(['sh', str(ROOT / 'scripts' / 'speaker-play.sh'), '/dev/null'],
+                           env=dict(os.environ, PATH=str(Path(self.tmp.name) / 'bin') + os.pathsep + os.environ['PATH']),
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 3, r.stderr)
+
+
+class BackchannelNeedsPassword(Server):
+    password = False
+
+    def test_no_backchannel_without_a_password(self):
+        sdp = self.describe(self.client(auth=False), require=True)
+        self.assertNotIn('a=sendonly', sdp)
+        self.assertIn('m=video', sdp)
+
+
+class BackchannelOff(Server):
+    boot_conf = 'RTSP_LITE_TALK=0\n'
+
+    def test_switched_off_in_boot_conf(self):
+        self.assertNotIn('a=sendonly', self.describe(self.client(), require=True))
+
+
+class AudioTrack(Server):
+    def test_rtsp_audio_track_still_streams(self):
+        c = self.client()
+        sdp = self.describe(c, require=False)
+        self.assertIn('a=control:track2', sdp)
+        _, hd, _ = c.request('SETUP', self.URL + '/track1', 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1')
+        c.request('SETUP', self.URL + '/track2', 'Transport: RTP/AVP/TCP;unicast;interleaved=2-3', 'Session: ' + hd['session'].split(';')[0])
+        c.request('PLAY', self.URL, 'Session: ' + hd['session'].split(';')[0])
+        fr = [f for f in c.frames(3) if f[0] == 2]
+        self.assertGreater(len(fr), 40)
+        self.assertTrue(all(p[1] & 0x7f == 8 and len(p) == 172 for _, p in fr))
+
+
+class Listen(Server):
+    audio = 0                                                    # the RTSP audio track is off: the listener still gets sound
+    env = {'TC100_LISTEN_SECONDS': '4'}
+
+    def fifo(self, name):
+        path = self.listen / name
+        os.mkfifo(path)
+        return path
+
+    def read_fifo(self, path, seconds, out):
+        def run():
+            fd = os.open(path, os.O_RDONLY)                      # blocks until the server has the FIFO open
+            t0, buf = time.time(), b''
+            while time.time() < t0 + seconds:
+                r, _, _ = select.select([fd], [], [], 0.2)
+                if r:
+                    d = os.read(fd, 65536)
+                    if not d:
+                        out['eof'] = time.time() - t0
+                        break
+                    buf += d
+            os.close(fd)
+            out['data'] = buf
+        th = threading.Thread(target=run)
+        th.start()
+        return th
+
+    def test_listener_gets_the_microphone_and_the_microphone_stops_after_it(self):
+        out = {}
+        th = self.read_fifo(self.fifo('1.fifo'), 8, out)
+        th.join(12)
+        self.assertIn('eof', out, 'the server ends the stream at its time limit')
+        self.assertAlmostEqual(out['eof'], 4, delta=1.5)
+        pcm = out['data']
+        self.assertGreater(len(pcm), 2 * 8000 * 2, 'about 3 s of sound')
+        self.assertEqual(len(pcm) % 2, 0)
+        self.assertAlmostEqual(freq(pcm[16000:]), 440, delta=6)
+        self.assertFalse((self.listen / '1.fifo').exists(), 'its FIFO is removed')
+        pid = int(self.pidf.read_text())
+        for _ in range(200):                                     # 10 s after the last listener the microphone is released
+            try:
+                os.kill(pid, 0)
+                time.sleep(0.1)
+                if os.waitpid(pid, os.WNOHANG) != (0, 0):
+                    break
+            except (ProcessLookupError, ChildProcessError):
+                break
+        else:
+            self.fail('arecord still running 20 s after the last listener')
+
+    def test_stuck_listener_is_dropped_and_extra_listeners_get_end_of_file(self):
+        outs = [{}, {}, {}, {}]
+        ths = [self.read_fifo(self.fifo('%d.fifo' % i), 3, outs[i]) for i in range(4)]
+        for t in ths:
+            t.join(8)
+        self.assertEqual(sum(1 for o in outs if o.get('eof', 99) < 1.5 and not o['data']), 1,
+                         'with three slots the fourth listener is turned away at once: %r' % [(o.get('eof'), len(o['data'])) for o in outs])
+        self.assertEqual(sum(1 for o in outs if len(o['data']) > 8000), 3)
+        # a reader that never reads: its FIFO is dropped after 1.5 s of backlog
+        p = self.fifo('9.fifo')
+        fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+        time.sleep(5)
+        self.assertFalse(p.exists(), 'a listener that does not read is closed and its FIFO removed')
+        os.close(fd)
+
+
+class ListenCgi(Server):
+    """www/cgi-bin/audio_stream.cgi against the running server: a WAV stream from the shared capture"""
+    audio = 0
+
+    def cgi(self, method='GET'):
+        t = Path(self.tmp.name)
+        (t / 'linux66').write_text('')
+        env = dict(os.environ, REQUEST_METHOD=method, TC100_LISTEN_DIR=str(self.listen), TC100_SND_DEV='/dev/null',
+                   TC100_LINUX66_FLAG=str(t / 'linux66'), PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'])
+        return subprocess.Popen(['sh', str(ROOT / 'www' / 'cgi-bin' / 'audio_stream.cgi')], env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL)
+
+    def test_head_probe(self):
+        p = self.cgi('HEAD')
+        out = p.communicate(timeout=10)[0]
+        self.assertTrue(out.startswith(b'Content-Type: audio/wav'), out)
+        self.assertEqual(out.split(b'\r\n\r\n', 1)[1], b'')
+
+    def test_stream_then_the_browser_leaves(self):
+        p = self.cgi()
+        buf, end = b'', time.time() + 3
+        while time.time() < end:
+            r, _, _ = select.select([p.stdout], [], [], 0.2)
+            if r:
+                buf += os.read(p.stdout.fileno(), 65536)
+        head, _, body = buf.partition(b'\r\n\r\n')
+        self.assertIn(b'audio/wav', head)
+        self.assertEqual(body[:4], b'RIFF')
+        self.assertEqual(body[8:16], b'WAVEfmt ')
+        pcm = body[44:]
+        self.assertGreater(len(pcm), 2 * 8000 * 2 * 0.6)
+        self.assertAlmostEqual(freq(pcm[8000:]), 440, delta=8)
+        p.stdout.close()                                          # the browser goes away
+        for _ in range(100):
+            if not list(self.listen.glob('*.fifo')) and p.poll() is not None:
+                break
+            time.sleep(0.1)
+        else:
+            self.fail('the FIFO or the CGI is still there 10 s after the browser left')
+        self.assertFalse(list(self.listen.glob('*.fifo')))
+
+    def test_three_listeners_at_most(self):
+        ps = [self.cgi() for _ in range(3)]
+        time.sleep(1.5)
+        r = self.cgi()
+        out = r.communicate(timeout=10)[0]
+        self.assertIn(b'503', out.split(b'\r\n')[0], out)
+        for p in ps:
+            p.kill()
+            p.wait()
+            p.stdout.close()
+
+
 class Sources(unittest.TestCase):
     def test_no_uclibc_missing_imports(self):
         """the camera's uClibc 0.9.33 has no __isoc23_* (glibc 2.38 C2x redirects), no libm in tc100_rtsp"""
-        for name in ('tc100_rtsp.c', 'rec.c', 'util.h'):
+        for name in ('tc100_rtsp.c', 'rec.c', 'util.h', 'talk.c', 'alisten.c'):
             s = re.sub(r'/\*.*?\*/|//[^\n]*', '', (SRC / name).read_text(), flags=re.S)  # code only
             self.assertIsNone(re.search(r'\b(sscanf|fscanf|strtol|strtoul|atoi|atol|log10|sqrt|lrint)\s*\(', s), name)
 

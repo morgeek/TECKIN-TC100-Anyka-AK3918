@@ -9,6 +9,9 @@
  * Two streams: main 1920x1080 and a 640x360 sub-stream (second encoder channel, fed from the scaled picture that
  * also makes the web UI's stream.jpg). Paths with "video1" in them, or starting with /ch1 or /sub, serve the
  * sub-stream; every other path the main stream (also the sub paths when the sub-stream is off or did not open).
+ * Sound: the microphone (an arecord child, the only ALSA capture reader) feeds the RTSP audio track, the recordings (rec.c,
+ * REC_AUDIO), the sound level and the web UI's Listen button (alisten.c: FIFOs); a client that asks for the ONVIF backchannel
+ * (go2rtc, Frigate, Home Assistant) can play its sound on the speaker (talk.c, RTSP_LITE_TALK, password required).
  * Also here: the web UI pictures (hardware JPEG), motion detection with ignored zones (/tmp/rec_control), the
  * microphone level for the sound detection (/var/run/sound_level) and the local recording (rec.c, fragmented MP4 files
  * on the SD card). Settings are read from /mnt/config while running (boot.conf, rtspserver.conf, isp_tune.conf,
@@ -42,8 +45,10 @@
 #include <unistd.h>
 
 #include "../libakuio/ak39_venc.h"
+#include "alisten.h"
 #include "jpeg_hw.h"
 #include "rec.h"
+#include "talk.h"
 #include "util.h"
 
 #define W 1920
@@ -56,7 +61,9 @@
 #define CACHE_MAX_SUB (384 * 1024)
 #define CACHE_FRAMES 128
 #define QMAX (768 * 1024)	/* per-client output queue limit */
+#ifndef CONF
 #define CONF "/mnt/config/"
+#endif
 
 /* struct encode_param of the vendor SDK (48 bytes). size_class is the "use channel" (0 main, 1 sub: 512 / 256 KiB
  * stream cache) and group the encoder group (one handle per group: "group %d's handle has already opened"). The vendor
@@ -729,6 +736,9 @@ struct cli {
 	int a_ok, a_ch;			/* audio track set up, its interleaved channel */
 	struct sockaddr_in a_udp;	/* client audio RTP address */
 	uint16_t a_seq;
+	int v_set;			/* video track set up (a client that set up only the backchannel gets no video) */
+	int b_ok, b_tcp, b_ch;		/* backchannel (the client's sound for the speaker) set up, over TCP on channel b_ch */
+	struct sockaddr_in b_udp;	/* its RTP source address (UDP) */
 	char sess[16];
 	char nonce[24];
 	char buf[4096];
@@ -741,11 +751,13 @@ struct cli {
 };
 static struct cli cl[MAXCLI];
 static int udpfd = -1;
+static int talk_cfg = 1;		/* RTSP_LITE_TALK of boot.conf (anything but 0, no, off, false) */
 static uint16_t srv_rtp = 5004;
 static const uint32_t SSRC = 0x54433130;	/* "TC10" */
 
 static void cli_close(struct cli *c)
 {
+	if (c->b_ok) talk_release((int)(c - cl));
 	if (c->fd >= 0) close(c->fd);
 	free(c->q);
 	memset(c, 0, sizeof *c);
@@ -982,6 +994,8 @@ static void aud_pump(void)
 	while ((r = read(aud_fd, raw, sizeof raw)) > 0) {
 		int rec_a = rec_audio_wanted();
 		uint64_t tus = rec_a ? now_us64() : 0;
+		unsigned char pcm[sizeof raw + 2];
+		int pn = 0;
 
 		for (int i = 0; i < r; i++) {
 			int s;
@@ -989,6 +1003,7 @@ static void aud_pump(void)
 			if (aud_odd < 0) { aud_odd = raw[i]; continue; }
 			s = (int16_t)(aud_odd | (raw[i] << 8));
 			aud_odd = -1;
+			pcm[pn++] = (unsigned char)s; pcm[pn++] = (unsigned char)((unsigned)s >> 8);
 			if (snd_on) { lvl_add(&snd_w, s); if (snd_w.n >= 2000) snd_window(); }
 			if (aud_tx || rec_a) {
 				aud_buf[aud_n++] = alaw(s);
@@ -999,6 +1014,7 @@ static void aud_pump(void)
 				}
 			}
 		}
+		if (pn) lis_write(pcm, pn);
 	}
 	if (r == 0 || (r < 0 && errno != EAGAIN && errno != EINTR)) aud_close();
 }
@@ -1082,7 +1098,7 @@ static void bcast(int si, const unsigned char *d, int n, uint32_t ts, int idr)
 	for (int i = 0; i < MAXCLI; i++) {
 		struct cli *c = &cl[i];
 
-		if (c->fd < 0 || !c->playing || c->si != si) continue;
+		if (c->fd < 0 || !c->playing || c->si != si || (c->b_ok && !c->v_set)) continue;
 		if (c->wait_idr && !idr) continue;
 		if (c->tcp && qfree(c) < frame_need(n)) {	/* congested: skip this frame, resume at the next IDR */
 			c->wait_idr = 1;
@@ -1134,6 +1150,8 @@ static void play_burst(struct cli *c)
 	struct strm *s = &S[c->si];
 	int need = 400;
 
+	if (c->b_ok && !c->v_set) return;
+
 	for (int i = 0; i < s->ncache; i++) need += frame_need(s->cache[i].len);
 	if (s->cache_ok && s->ncache && (!c->tcp || qfree(c) > need)) {
 		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
@@ -1145,6 +1163,10 @@ static void play_burst(struct cli *c)
 		c->wait_idr = 1;
 	}
 }
+
+/* two-way audio: on in boot.conf (RTSP_LITE_TALK, default on) and only with the RTSP password: without one, anybody on the
+ * network could talk through the camera's speaker */
+static int talk_enabled(void) { return talk_cfg && au_on; }
 
 static void handle(struct cli *c, char *req, int cseq_default)
 {
@@ -1193,6 +1215,8 @@ static void handle(struct cli *c, char *req, int cseq_default)
 			 "a=fmtp:96 %s\r\na=control:track1\r\n",
 			 host, s->hevc ? "H265" : "H264", fm);
 		if (audio_on) strncat(sdp, "m=audio 0 RTP/AVP 8\r\na=rtpmap:8 PCMA/8000\r\na=control:track2\r\n", sizeof sdp - strlen(sdp) - 1);
+		if (talk_enabled() && hdr(req, "Require", v, sizeof v) && strstr(v, "backchannel"))	/* ONVIF backchannel: the client sends here */
+			strncat(sdp, "m=audio 0 RTP/AVP 8\r\na=rtpmap:8 PCMA/8000\r\na=control:track3\r\na=sendonly\r\n", sizeof sdp - strlen(sdp) - 1);
 		reply(c, 200, "OK", cseq, base, sdp);
 	} else if (!strcmp(m, "SETUP")) {
 		char tr[300];
@@ -1200,6 +1224,26 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		if (!hdr(req, "Transport", tr, sizeof tr)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
 		if (!c->described && !c->playing) c->si = S[1].on && url_is_sub(url);	/* SETUP without DESCRIBE */
 		if (!c->sess[0]) snprintf(c->sess, sizeof c->sess, "%08x", (unsigned)(time(NULL) ^ (c - cl) * 7919));
+		if (talk_enabled() && strstr(url, "track3")) {	/* backchannel: sound from the client to the speaker */
+			if (strstr(tr, "TCP")) {
+				char *q = strstr(tr, "interleaved=");
+
+				c->b_tcp = 1; c->b_ch = q ? num(q + 12) : 4;
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=60\r\n", c->b_ch, c->b_ch + 1, c->sess);
+			} else {
+				char *q = strstr(tr, "client_port=");
+				struct sockaddr_in pe;
+				socklen_t pl = sizeof pe;
+
+				if (!q || getpeername(c->fd, (struct sockaddr *)&pe, &pl)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
+				c->b_tcp = 0; c->b_udp = pe; c->b_udp.sin_port = htons(num(q + 12));
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=60\r\n",
+					 num(q + 12), num(q + 12) + 1, srv_rtp, srv_rtp + 1, c->sess);
+			}
+			c->b_ok = 1;
+			reply(c, 200, "OK", cseq, ex, NULL);
+			return;
+		}
 		if (audio_on && strstr(url, "track2")) {	/* audio track */
 			if (strstr(tr, "TCP")) {
 				char *q = strstr(tr, "interleaved=");
@@ -1237,6 +1281,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 				 num(q + 12), num(q + 12) + 1, srv_rtp, srv_rtp + 1, c->sess);
 		}
 		c->seq = (uint16_t)(time(NULL) * 31);
+		c->v_set = 1;
 		reply(c, 200, "OK", cseq, ex, NULL);
 	} else if (!strcmp(m, "PLAY")) {
 		snprintf(ex, sizeof ex, "Range: npt=0.000-\r\nSession: %s\r\n", c->sess);
@@ -1277,6 +1322,8 @@ static void cli_read(struct cli *c)
 			int len = 4 + ((unsigned char)c->buf[2] << 8 | (unsigned char)c->buf[3]);
 
 			if (c->blen < len) return;
+			if (c->b_ok && c->b_tcp && c->playing && (unsigned char)c->buf[1] == c->b_ch)
+				talk_rtp((int)(c - cl), (const unsigned char *)c->buf + 4, len - 4, now_us64());
 			memmove(c->buf, c->buf + len, c->blen - len);
 			c->blen -= len;
 			continue;
@@ -1535,6 +1582,12 @@ static void cfg_reload(double tn)
 	}
 	{ int a = access(CONF "awb.off", F_OK) ? 1 : 0; if (a != p_awb) { p_awb = a; if (!a) p_du = p_dv = 0; pic = 1; } }
 	if (pic || ch[0] || ch[1] || ch[2]) post_apply();
+	if (ch[0]) {
+		char v[16];
+
+		talk_cfg = !(cfg_get(CONF "boot.conf", "", "RTSP_LITE_TALK", v, sizeof v) &&
+			     (v[0] == '0' || !strcmp(v, "no") || !strcmp(v, "off") || !strcmp(v, "false")));
+	}
 	if (ch[0] || ch[5]) rec_reload();
 	if (ch[3]) snd_reload();
 	md_reload(ch[2], ch[4]);
@@ -1588,7 +1641,10 @@ int main(int argc, char **argv)
 		}
 	}
 	signal(SIGINT, on_sig); signal(SIGTERM, on_sig); signal(SIGPIPE, SIG_IGN);
+	lis_init();
+	talk_init();
 
+#ifndef TC100_HOST_TEST
 	if (access("/etc/jffs2/venc.cfg", F_OK)) {
 		FILE *f;
 
@@ -1615,7 +1671,16 @@ int main(int argc, char **argv)
 		if (!p_open || !p_send || !p_release || !p_close || !p_alloc) { LOG("missing encoder symbols\n"); return 2; }
 	}
 	if (p_pinit && p_pinit()) { LOG("akuio_pmem_init failed\n"); return 2; }
+#endif
 
+#ifdef TC100_HOST_TEST	/* make test_rtsp: no camera, no encoder: the network, audio and settings code on the build host */
+	int fd;
+	{ int pp[2]; if (pipe(pp)) return 1; fd = pp[0]; }	/* never readable */
+	void *vb[4] = { NULL };
+	unsigned int flen = W * H * 3 / 2, slen = SW * SH * 3 / 2;
+	unsigned char *pf = NULL;
+	double t_luma = 0, t_str = 0, t_snap = 0;
+#else
 	/* capture */
 	int fd = open(dev, O_RDWR | O_NONBLOCK);
 	if (fd < 0) { LOG("%s: %s\n", dev, strerror(errno)); return 1; }
@@ -1651,6 +1716,7 @@ int main(int argc, char **argv)
 	if (!getenv("NO_JPEG")) jpeg_ok = jpeg_init() == 0;
 	LOG("web pictures: hardware JPEG %s\n", jpeg_ok ? "on" : "off");
 	if (!pf) { LOG("no DMA memory for the frame\n"); return 1; }
+#endif
 
 	for (int k = 0; k < 2; k++) {
 		struct strm *s = &S[k];
@@ -1673,6 +1739,16 @@ int main(int argc, char **argv)
 			pa->group = (e = getenv("RTSP_SUB_GROUP")) && *e ? (unsigned)num(e) : 2;
 		}
 	}
+#ifdef TC100_HOST_TEST
+	int prime = 0;
+	{	/* parameter sets of a 640x360 baseline stream, so that DESCRIBE answers */
+		static const unsigned char ps[] = { 0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x1e, 0xda, 0x05, 0xa1, 0xe8, 0x80,
+						    0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80 };
+
+		S[0].on = S[0].active = 1;
+		learn_params(&S[0], ps, sizeof ps);
+	}
+#else
 	/* H.265 as the very first use of the encoder after power-up corrupts kernel memory (seen on 6.6: oops within
 	 * seconds, repeatable); after one H.264 session it is stable. So an H.265 server first runs one H.264 frame. */
 	int prime = (S[0].hevc || (sub_on && S[1].hevc)) && !getenv("NO_PRIME");
@@ -1684,6 +1760,7 @@ int main(int argc, char **argv)
 	if (!S[0].enc) { LOG("ak_venc_open failed\n"); return 1; }
 	S[0].on = S[0].active = 1;
 	if (!prime) sub_start(sub_on);
+#endif
 
 	/* network */
 	int ls = socket(AF_INET, SOCK_STREAM, 0), one = 1;
@@ -1711,13 +1788,19 @@ int main(int argc, char **argv)
 
 	while (run) {
 		fd_set fs, ws;
+#ifdef TC100_HOST_TEST
+		struct timeval tv = { 0, 100000 };
+#else
 		struct timeval tv = { 1, 0 };
+#endif
 		int mx = fd > ls ? fd : ls, i;
 		time_t nowt = time(NULL);
 
 		/* microphone: while an audio client plays or the sound detection needs it; stopped 10 s after that */
+		lis_scan(now_us64() / 1000);
+		talk_tick(now_us64());
 		aud_tx = audio_on && na > 0;
-		if (aud_tx || snd_on || rec_audio_wanted()) {
+		if (aud_tx || snd_on || rec_audio_wanted() || lis_count()) {
 			aud_unneeded = 0;
 			if (aud_fd < 0 && aud_pid < 0 && nowt >= aud_retry) aud_open();
 		} else if (aud_fd >= 0) {
@@ -1725,6 +1808,7 @@ int main(int argc, char **argv)
 			else if (nowt - aud_unneeded >= 10) { aud_close(); aud_unneeded = 0; }
 		}
 		FD_ZERO(&fs); FD_ZERO(&ws); FD_SET(fd, &fs); FD_SET(ls, &fs);
+		if (udpfd >= 0) { FD_SET(udpfd, &fs); if (udpfd > mx) mx = udpfd; }
 		if (aud_fd >= 0) { FD_SET(aud_fd, &fs); if (aud_fd > mx) mx = aud_fd; }
 		for (i = 0; i < MAXCLI; i++)
 			if (cl[i].fd >= 0) {
@@ -1747,6 +1831,19 @@ int main(int argc, char **argv)
 		}
 
 		if (aud_fd >= 0 && FD_ISSET(aud_fd, &fs)) aud_pump();
+		if (udpfd >= 0 && FD_ISSET(udpfd, &fs)) {	/* RTP from a client's backchannel (UDP) */
+			unsigned char pk[2048];
+			struct sockaddr_in from;
+			socklen_t fl = sizeof from;
+			int n = (int)recvfrom(udpfd, pk, sizeof pk, MSG_DONTWAIT, (struct sockaddr *)&from, &fl), best = -1;
+
+			for (i = 0; n > 12 && i < MAXCLI; i++) {
+				if (cl[i].fd < 0 || !cl[i].b_ok || cl[i].b_tcp || !cl[i].playing || cl[i].b_udp.sin_addr.s_addr != from.sin_addr.s_addr) continue;
+				if (cl[i].b_udp.sin_port == from.sin_port) { best = i; break; }
+				if (best < 0) best = i;		/* same host, another port (NAT): still its sound */
+			}
+			if (best >= 0) talk_rtp(best, pk, n, now_us64());
+		}
 		if (FD_ISSET(ls, &fs)) {
 			struct sockaddr_in pa;
 			socklen_t pl = sizeof pa;
@@ -1770,7 +1867,7 @@ int main(int argc, char **argv)
 			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && time(NULL) - cl[i].qprog > 20) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &fs)) cli_read(&cl[i]);
 			if (cl[i].fd >= 0 && !cl[i].tcp && time(NULL) - cl[i].last > 90) cli_close(&cl[i]);
-			if (cl[i].fd >= 0 && cl[i].playing) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
+			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
 		}
 		if (nowt != sec_last) {		/* once a second: recorder inputs, arecord reaped */
 			int snd = 0;
@@ -1943,6 +2040,8 @@ int main(int argc, char **argv)
 		}
 	}
 	rec_shutdown();
+	talk_shutdown();
+	lis_close_all();
 	aud_close();
 	for (int k = 1; k >= 0; k--) if (S[k].enc) p_close(S[k].enc);
 	LOG("tc100_rtsp: stopped after %lu frames\n", ntot);
