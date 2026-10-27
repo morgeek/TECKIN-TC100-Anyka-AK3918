@@ -14,27 +14,15 @@ PTT_PLAYBACK_PID_FILE="/tmp/ptt-audioplay.pid"
 PTT_LOCK_DIR="/tmp/ptt-upload.lock"
 PTT_LAST_PCM_FILE="/tmp/ptt-last.pcm"
 PLAYBACK_CLEANUP_DELAY_SECONDS=2
-RTSP_SERVICE="/mnt/controlscripts/rtsp-h26x"
 
-# Anyka native audio output binary: ak_ao_demo <rate> <channels> <pcm_file> <volume 0-6>
-AUDIOPLAY_BIN="/mnt/bin/ak_ao_ptt"
-# Linux 6.6 (3.0): ALSA playback (aplay) through scripts/speaker-play.sh <pcm_file> <volume 0-100>; the
-# microphone of the RTSP stream is a separate capture substream, so RTSP is not stopped.
-L66=0; [ -f /tmp/linux66 ] && L66=1
+# ALSA playback (aplay) through scripts/speaker-play.sh <pcm_file> <volume 0-100>; the microphone of the RTSP
+# stream is a separate capture substream, so RTSP keeps running.
 SPEAKER_PLAY="/mnt/scripts/speaker-play.sh"
-
-# Map UI volume (0-100) to ak_ao_demo scale (0-6).
-# Caller guarantees $1 is already clamped to 0-100.
-ptt_volume_to_ak() {
-    _num=$(expr "$1" \* 6 + 50)
-    expr "$_num" / 100
-}
 
 pcm_file=""
 lock_acquired=0
 playback_started=0
 playback_pid=""
-rtsp_was_running=0
 
 respond_plain() {
     status_code="$1"
@@ -66,20 +54,9 @@ if [ "$REQUEST_METHOD" != "POST" ]; then
     exit 0
 fi
 
-if [ "$L66" = 1 ]; then
-    if [ ! -r "$SPEAKER_PLAY" ] || ! command -v aplay >/dev/null 2>&1; then
-        respond_plain "500 Internal Server Error" "PTT_BIN_MISSING"
-        exit 0
-    fi
-else
-if [ ! -x "$AUDIOPLAY_BIN" ] && [ -r /mnt/scripts/prepare-ptt-player.sh ]; then
-    sh /mnt/scripts/prepare-ptt-player.sh >/dev/null 2>&1 || true
-fi
-
-if [ ! -x "$AUDIOPLAY_BIN" ]; then
+if [ ! -r "$SPEAKER_PLAY" ] || ! command -v aplay >/dev/null 2>&1; then
     respond_plain "500 Internal Server Error" "PTT_BIN_MISSING"
     exit 0
-fi
 fi
 
 case "$CONTENT_LENGTH" in
@@ -167,9 +144,6 @@ if [ "$ptt_volume" -gt 100 ]; then
     ptt_volume=100
 fi
 
-# Map 0-100 to 0-6 for ak_ao_demo
-vol_ak="$(ptt_volume_to_ak "$ptt_volume")"
-
 if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
     last_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
     case "$last_pid" in
@@ -184,23 +158,7 @@ if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
     rm -f "$PTT_PLAYBACK_PID_FILE" >/dev/null 2>&1 || true
 fi
 
-# The AK3918 exposes capture and playback through one exclusive codec device.
-# Stop RTSP only when it currently owns that device, then restore it from the
-# detached cleanup worker after the short PTT clip has completed.
-if [ "$L66" = 0 ] && [ -x "$RTSP_SERVICE" ] && "$RTSP_SERVICE" status >/dev/null 2>&1; then
-    rtsp_was_running=1
-    "$RTSP_SERVICE" stop >/dev/null 2>&1 || {
-        respond_plain "503 Service Unavailable" "AUDIO_DEVICE_BUSY"
-        exit 0
-    }
-    sleep 1
-fi
-
-if [ "$L66" = 1 ]; then
-    sh "$SPEAKER_PLAY" "$pcm_file" "$ptt_volume" </dev/null >/dev/null 2>&1 &
-else
-    "$AUDIOPLAY_BIN" 8000 1 "$pcm_file" "$vol_ak" >/dev/null 2>&1 &
-fi
+sh "$SPEAKER_PLAY" "$pcm_file" "$ptt_volume" </dev/null >/dev/null 2>&1 &
 playback_pid="$!"
 playback_started=1
 
@@ -219,9 +177,6 @@ esac
         _cl_loops=$(expr "$_cl_loops" + 1)
     done
     sleep "$PLAYBACK_CLEANUP_DELAY_SECONDS"
-    if [ "$rtsp_was_running" = "1" ] && [ -x "$RTSP_SERVICE" ]; then
-        "$RTSP_SERVICE" start >/dev/null 2>&1 || true
-    fi
     rm -f "$pcm_file" >/dev/null 2>&1 || true
     if [ -f "$PTT_PLAYBACK_PID_FILE" ]; then
         _cur_pid="$(head -n 1 "$PTT_PLAYBACK_PID_FILE" 2>/dev/null)"
@@ -232,6 +187,6 @@ esac
     rmdir "$PTT_LOCK_DIR" >/dev/null 2>&1 || true
 ) >/dev/null 2>&1 &
 # Transfer lock ownership to the detached worker so another upload cannot
-# interrupt playback or race the RTSP restart.
+# interrupt playback.
 lock_acquired=0
 respond_plain "200 OK" "OK"

@@ -67,7 +67,7 @@ cp ../patches/kernel-6.6/defconfig_cma .config && make ARCH=arm CROSS_COMPILE=ar
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs
 ```
 
-CI (`.github/workflows/build-kernel-linux66.yml`) does this on every push and publishes `oipc.img` (zImage + DTB as a uImage, load and entry 0x80008000) and the `tc100test/` folder in the artifact `tc100-linux66-cma16-kernel`, plus `System.map` and `vmlinux` in `tc100-linux66-symbols` (decode an oops with the symbols of the same run). The RTL8188FU firmware must be in `firmware/rtlwifi/` of the kernel tree (from linux-firmware; `patches/kernel-6.6/firmware/` has a copy). The vendor ISP tuning file `/lib/firmware/anyka/isp.conf` (the stock `isp_f23_mipi2lane.conf`) must be on the root filesystem before streaming.
+CI (`.github/workflows/build-kernel-linux66.yml`) does this on every push and publishes `oipc.img` (zImage + DTB as a uImage, load and entry 0x80008000) and the `tc100test/` folder in the artifact `tc100-linux66-cma16-kernel`, plus `System.map` and `vmlinux` in `tc100-linux66-symbols` (decode an oops with the symbols of the same run). The RTL8188FU firmware must be in `firmware/rtlwifi/` of the kernel tree: CI downloads it from linux-firmware (tag 20241017, SHA-256 checked); it is not stored in this repository. The vendor ISP tuning file `/lib/firmware/anyka/isp.conf` (the stock `isp_f23_mipi2lane.conf`) must be on the root filesystem before streaming.
 
 The sources in `drivers/media/platform/anyka-isp`, `drivers/usb/host/anyka`, `drivers/mmc/host/akmci*` and `include/plat-anyka` derive from the vendor's GPL kernel sources (via OpenIPC/linux) and keep their copyright headers. `git apply` warns about whitespace in them; that is harmless.
 
@@ -118,11 +118,11 @@ Tracing tool: `libtc100fix` records the vendor encoder's hardware accesses (`VEN
   port 554 and the web UI pictures), web server (`httpfront`), ONVIF, day/night, MQTT bridge, motion, recording (only
   with a card), `ntpd`, then the services ticked in the web UI (`config/autostart/`). The RTSP login is the camera
   password from `config/user.pwd`, read from that file by `tc100_rtsp`, never on the command line and never in git.
-  Fallback when the encoder stack is missing: the older `tc100_streamer` (software MJPEG) + `thingino-rtsp-server`
-  (JPEG over RTSP, path `/ch0`); neither is in the flash build.
-- `v3/linux66-sd/`: glue between the 2.x web UI / scripts and the free stack (`rtsp-h26x` shim, `setconf` shim,
-  `rtsp-launch.sh`, `sdinfo-sd.sh`), the flash tools (`build-slim-stack.sh`, `flashw`, `cfg-persist`,
-  `flashmode-prep.sh`). Its README lists what is not available on this stack.
+  Without the encoder stack (no vendor libraries, no `/dev/uio0`) there is no video; the web UI still starts.
+- `v3/linux66-sd/`: glue between the web UI / scripts and the free stack (`rtsp-launch.sh`, `sdinfo-sd.sh`,
+  `web-auth`, `wifi-apply`, `net-apply`), the flash tools (`flashw`, `cfg-persist`, `flashmode-prep.sh`). Its README
+  lists what is not available on this stack. The RTSP control script is `controlscripts/rtsp-h26x`, the IR-cut and
+  LED helper `bin/setconf` (both shell scripts).
 - `v3/build-rootfs66.sh [in] [out]`: builds the 6.6 initramfs from our Buildroot base (`v3/buildroot/`, built by CI) (replaces the boot script, drops the 4.4 modules, locks the image's default root password). About 3 MB instead of 6.9 MB. Needs root.
 
 ## Test loop (no flash writes, no SD swap)

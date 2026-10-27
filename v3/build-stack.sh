@@ -29,21 +29,20 @@ cp -r www scripts controlscripts sounds VERSION "$T"/
 mkdir -p "$T/v3/linux66-sd" "$T/config"
 cp v3/autorun-linux66.sh v3/selftest66.sh "$T/v3/"
 for f in v3/linux66-sd/*; do
-	case "${f##*/}" in build-slim-stack.sh|README.md) continue ;; esac
+	case "${f##*/}" in README.md) continue ;; esac
 	cp "$f" "$T/v3/linux66-sd/"
 done
 [ -d v3/install ] && cp -r v3/install "$T/v3/"
-cp config/*.dist config/openssl.cnf config/isp_f23_mipi_2lane.conf "$T/config/"
+cp config/*.dist config/openssl.cnf "$T/config/"	# the sensor tuning comes from the camera (v3/install)
 cp -r config/autostart "$T/config/"
 rm -f "$T/config/autostart/ftp-server"
 # free uClibc programs of the repo that the 6.6 system uses (run with the camera's own uClibc, see vendor)
 mkdir -p "$T/bin" "$T/lib" "$T/tc100test"
-for b in busybox getflag getimage min-recorder-list monvifd rwconf tc100-logfwd telegram; do cp "bin/$b" "$T/bin/"; done
-cp v3/linux66-sd/setconf "$T/bin/setconf"		# the 6.6 shim, not the vendor program
-for l in libmpi_venc_ex.so libnetacl.so; do cp "lib/$l" "$T/lib/"; done
+for b in busybox getflag getimage monvifd rwconf setconf tc100-logfwd telegram; do cp "bin/$b" "$T/bin/"; done
+cp lib/libnetacl.so "$T/lib/"	# the encoder API library comes from the camera too (collect-vendor.sh)
 # what CI compiles
 cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$T/tc100test/"
-cp v3/linux66-sd/rtsp-launch.sh config/isp_f23_mipi_2lane.conf "$T/tc100test/"
+cp v3/linux66-sd/rtsp-launch.sh "$T/tc100test/"
 find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' \) -exec rm -f {} +
 # web pages, styles and scripts also as .gz: busybox httpd (FEATURE_HTTPD_GZIP) sends those to browsers that accept
 # gzip, about a quarter of the bytes over Wi-Fi (the CGI answers are not concerned)

@@ -28,19 +28,16 @@ if ip route 2>/dev/null | grep -q default; then
   if ping -c 3 -W 2 "$GW" >/dev/null 2>&1; then res wifi "ok (gateway answers)"; else res wifi "FAILED (no answer from gateway)"; fi
 else res wifi "FAILED (no default route)"; fi
 
-# --- video: V4L2 capture through the V3 streamer (software JPEG)
+# --- video: the picture tc100_rtsp makes from the hardware JPEG engine (started by autorun-linux66.sh)
 sec video
 if [ -c /dev/video0 ]; then
-  rm -f /tmp/stream.jpg
-  S=$SD/bin/tc100_streamer; [ -x "$S" ] || S=$T/tc100_streamer
-  if [ -x "$S" ]; then
-    "$S" -d; sleep 6
+  if pidof tc100_rtsp >/dev/null; then
+    i=0; while [ ! -s /tmp/stream.jpg ] && [ $i -lt 10 ]; do sleep 1; i=$((i+1)); done
     if [ -s /tmp/stream.jpg ]; then
       cp /tmp/stream.jpg "$T/selftest-$n-frame.jpg"
       res video "ok ($(wc -c < /tmp/stream.jpg) bytes, saved as selftest-$n-frame.jpg)"
-    else res video "FAILED (streamer produced no picture)"; fi
-    killall tc100_streamer 2>/dev/null
-  else res video "SKIPPED (no tc100_streamer)"; fi
+    else res video "FAILED (tc100_rtsp made no picture)"; fi
+  else res video "SKIPPED (tc100_rtsp not running)"; fi
 else res video "FAILED (no /dev/video0)"; fi
 
 # --- flash (read-only SPI NOR through the mtd layer)

@@ -94,6 +94,14 @@ say "flash saved, md5 $a. KEEP IT: it is the way back to the system the camera h
 sh "$C/v3/install/collect-vendor.sh" / "$C/lib" >> "$LOG" 2>&1 || stop "the camera's libraries could not be copied to the card"
 sync
 say "vendor libraries copied to lib/"
+# the sensor tuning of this camera (colours, exposure): without it the image processor sends no picture
+mkdir -p "$C/config"
+if [ ! -f "$C/config/isp_f23_mipi_2lane.conf" ]; then
+	I=$(find /etc /usr -name 'isp_f23*mipi*.conf' 2>/dev/null | head -n 1)
+	[ -n "$I" ] || stop "the sensor tuning file of the camera (isp_f23*mipi*.conf) was not found"
+	cp "$I" "$C/config/isp_f23_mipi_2lane.conf" || stop "the sensor tuning file could not be copied to the card"
+	say "sensor tuning copied from $I"
+fi
 
 # 3b. Settings and Wi-Fi of the system the camera runs now, so that the trial mode starts with them: the 2.x
 #     firmware installed to flash keeps them in jffs2; the stock firmware has its Wi-Fi in anyka_cfg.ini.

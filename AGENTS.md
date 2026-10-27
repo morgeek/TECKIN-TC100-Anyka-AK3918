@@ -20,6 +20,9 @@ hardware facts, test loop), then `docs/known-issues.md`.
   A stop hook refuses to end a session with uncommitted changes.
 
 ## Where things are
+- `main` is 3.0 only. The 2.x firmware (vendor kernel 3.4, lighttpd, `libtc100fix`, `src/flash`, `autorun.sh`) is on the
+  branch `2.x`; do not bring its files back. Shared scripts still carry `[ -f /tmp/linux66 ]` branches from the time both
+  lived here: the 3.0 side is the one that matters.
 - `patches/kernel-6.6/series/00NN-*.patch` are the source of truth for the kernel (applied on tag `v6.6`). `patches/kernel-6.6/audio/`
   and `defconfig_cma` are reference copies. Editing a patch that adds a whole file: recompute the `@@ -0,0 +1,N @@` count
   (`git apply --stat` must pass).

@@ -5,6 +5,10 @@ Static check of every user-facing feature of the 3.0 flash build (Linux 6.6), an
 the binaries they call and the paths they assume exist on the 6.6 flash system. "Card" means the files that are on
 the author's SD card, which the flash image is built from (see problem 2).
 
+> **2026-10-27:** the 2.x firmware left `main` (it lives on the branch `2.x`). The 6.6 shims became the only versions:
+> `controlscripts/rtsp-h26x`, `bin/setconf`, `www/cgi-bin/update.cgi` and `flashinstall.cgi` (were `v3/linux66-sd/...`
+> and `v3/install/*-cgi.sh`); paths below are as of 2026-10-26.
+
 ## Where it stands after the fixes (3.0.1-rc1, end of 2026-10-26, still not run on a camera)
 
 | Problem below | Now |

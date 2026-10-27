@@ -18,9 +18,6 @@ def handler_text(cgi):
     t = (CGI / (cgi + '.cgi')).read_text(errors='ignore')
     if cgi == 'action':
         t += ''.join(p.read_text(errors='ignore') for p in (ROOT / 'scripts/action.d').glob('*.sh'))
-    extra = {'update': 'v3/install/update66-cgi.sh', 'flashinstall': 'v3/install/install66-cgi.sh'}.get(cgi)
-    if extra:
-        t += (ROOT / extra).read_text(errors='ignore')
     return t
 
 

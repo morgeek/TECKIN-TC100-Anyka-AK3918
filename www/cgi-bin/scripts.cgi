@@ -189,14 +189,12 @@ parse_script_capabilities() {
 # them allstates reads the pidfile and /proc directly instead of running the
 # script: running 25 controlscripts one after another (each sourcing
 # common_functions.sh under busybox timeout) took ~12 s per Services poll.
-# memory-guard / cpu-scaler add "disabled" when their boot.conf key is off.
+# memory-guard adds "disabled" when its boot.conf key is off.
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
 SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection motion-detection sound-detection telegram-bot"
-# 3.0 (Linux 6.6): the video resolution and frame rate are fixed by tc100_rtsp, cpu-scaler has nothing to lower
-[ -f /tmp/linux66 ] && SERVICES_HIDDEN="$SERVICES_HIDDEN cpu-scaler"
-SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard cpu-scaler health-snapshot button-actions ftp-server telnet-server syslog-forward onvif wifi-rescue"
-FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server memory-guard cpu-scaler wifi-rescue "
+SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard health-snapshot button-actions ftp-server telnet-server syslog-forward onvif wifi-rescue"
+FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif rtsp-h26x sound-detection syslog-forward telegram-bot telnet-server memory-guard wifi-rescue "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
 # (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID
@@ -315,7 +313,6 @@ fast_pidfile_state() {
   state="stopped"
   case "$1" in
     memory-guard) _fp_key=MEM_GUARD_ENABLE ;;
-    cpu-scaler)   _fp_key=CPU_SCALER_ENABLE ;;
     *)            _fp_key="" ;;
   esac
   if [ -n "$_fp_key" ]; then
@@ -453,7 +450,7 @@ generate_allstates_payload() {
         # remain "error".
         state="stopped"
       elif [ "$status_rc" -eq 3 ]; then
-        state="disabled"   # turned off in boot.conf (memory-guard, cpu-scaler)
+        state="disabled"   # turned off in boot.conf (memory-guard)
       else
         state="error"
       fi

@@ -22,7 +22,9 @@ git -c user.name=build -c user.email=build@localhost am --whitespace=nowarn "$RO
 
 echo "[+] Configuring CMA in kernel..."
 mkdir -p firmware/rtlwifi
-cp -r "$ROOT_DIR/patches/kernel-6.6/firmware/"* firmware/ 2>/dev/null || true
+# RTL8188FU firmware from linux-firmware (pinned, checksum checked), as CI does
+curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin
+echo "e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c -
 cp "$ROOT_DIR/patches/kernel-6.6/defconfig_cma" .config
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
 

@@ -11,7 +11,7 @@ DEST=${2:-}
 [ -n "$CHECK$DEST" ] || { echo "usage: collect-vendor.sh SRC DEST | -c SRC"; exit 2; }
 # uClibc runtime of the stock toolchain, then the encoder control libraries
 VENDOR_LIBS="ld-uClibc.so.0 libc.so.0 libdl.so.0 libm.so.0 libpthread.so.0 librt.so.0 libgcc_s.so.1 libstdc++.so.6
-libakv_encode.so libplat_common.so libplat_drv.so libplat_ipcsrv.so libplat_thread.so libplat_venc_cb.so"
+libakv_encode.so libmpi_venc_ex.so libplat_common.so libplat_drv.so libplat_ipcsrv.so libplat_thread.so libplat_venc_cb.so"
 [ -n "$CHECK" ] || mkdir -p "$DEST" || exit 1
 # the same files under their full names (a FAT card holds no links, so older cards have only these)
 alt() {
@@ -19,6 +19,9 @@ alt() {
 	ld-uClibc.so.0) echo ld-uClibc-0.9.33.2.so ;;
 	libc.so.0) echo libuClibc-0.9.33.2.so ;;
 	libstdc++.so.6) echo libstdc++.so.6.0.19 ;;
+	# the encoder API library: the SDK build the 2.x firmware installed (kept under this name), else the camera's
+	# own libmpi_venc.so, stored as libmpi_venc_ex.so (the name tc100_rtsp loads)
+	libmpi_venc_ex.so) echo libmpi_venc.so ;;
 	esac
 }
 miss=

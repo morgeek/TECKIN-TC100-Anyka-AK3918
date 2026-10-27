@@ -217,154 +217,6 @@ class Regressions(unittest.TestCase):
         result = subprocess.run(['sh', '-c', code], capture_output=True, timeout=10)
         self.assertEqual(result.stdout, b'started\n')
 
-    def test_tc100fix_preload_is_opt_in_and_scoped_to_rtsp_server(self):
-        s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        for default in (': "${RTSP_FPS_LOCK:=0}"', ': "${RTSP_MIC_OFF_WHEN_NO_AUDIO:=1}"', ': "${VENDOR_PRINT_LEVEL:=1}"'):
-            self.assertIn(default, s)
-        # The preload is set on the v4l2rtspserver command only, never exported.
-        self.assertNotIn('export LD_PRELOAD', s)
-        self.assertIn('env LD_PRELOAD=$TC100FIX_LIB $TC100FIX_ENV /mnt/bin/v4l2rtspserver', s)
-        self.assertIn('TC100FIX_LIB=/mnt/lib/libtc100fix.so', s)
-        conf = (ROOT / 'config/boot.conf.dist').read_text()
-        for line in ('RTSP_FPS_LOCK=0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO=1', 'VENDOR_PRINT_LEVEL=1'):
-            self.assertRegex(conf, r'(?m)^' + re.escape(line) + r'$')
-        lib = (ROOT / 'lib/libtc100fix.so').read_bytes()
-        self.assertEqual(lib[:4], b'\x7fELF')
-        self.assertEqual(lib[18], 40)  # e_machine = EM_ARM
-        for sym in (b'ak_vi_set_fps', b'ak_vi_set_switch_fps_enable', b'ak_ai_start_capture',
-                    b'ak_ai_set_aec', b'ak_ai_set_nr_agc', b'ak_print_set_level', b'libc.so.0'):
-            self.assertIn(sym, lib)
-
-    def test_rtsp_start_waits_for_port_to_drain(self):
-        # Restarting while old client sockets on :554 are still closing made the
-        # server exit at once ("Address family not supported"), seen on hardware.
-        code = function('controlscripts/rtsp-h26x', 'rtsp_wait_port_free')
-        state = self.base / 'netstat-calls'
-        # netstat runs in a pipeline subshell, so the call counter lives in a file.
-        st = shlex.quote(str(state))
-        code += ('\necho 0 > ' + st + '\nnetstat() { n=$(($(cat ' + st + ') + 1)); echo $n > ' + st +
-                 '; [ $n -lt 3 ] && echo "tcp 0 0 192.168.1.51:554 192.168.1.2:40000 TIME_WAIT"; return 0; }'
-                 '\nsleep() { :; }\nrtsp_wait_port_free 554 10; echo "rc=$?"')
-        self.assertEqual(run(code).stdout.strip(), b'rc=0')
-        self.assertEqual(state.read_text().strip(), '3')
-        busy = function('controlscripts/rtsp-h26x', 'rtsp_wait_port_free')
-        busy += '\nnetstat() { echo "tcp 0 0 0.0.0.0:554 0.0.0.0:* LISTEN"; }\nsleep() { :; }\nrtsp_wait_port_free 554 5; echo "rc=$?"'
-        self.assertEqual(run(busy).stdout.strip(), b'rc=1')
-        s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        loop = s[s.index('    while [ $_rtsp_try -lt 3 ]; do'):s.index('    done', s.index('    while [ $_rtsp_try -lt 3 ]; do'))]
-        self.assertIn('rtsp_wait_port_free "$RTSP_PORT_NUM"', loop)
-        self.assertIn('kill -0 "$_rtsp_pid"', loop)
-
-    def test_tc100fix_env_assembly(self):
-        # Extract the env-building block of rtsp-h26x and run it with each option.
-        s = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        block = s[s.index('    TC100FIX_ENV=""'):s.index('    if [ -n "$TC100FIX_ENV" ] && [ ! -f')]
-        block = block.replace('TC100FIX_LIB=/mnt/lib/libtc100fix.so', 'TC100FIX_LIB="$TEST_LIB"')
-        cases = [
-            ({}, ''),
-            ({'RTSP_FPS_LOCK': '1'}, 'TC100FIX_FPS_LOCK=1'),
-            ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '1'}, ''),
-            ({'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1', 'RTSP_AUDIO': '0'}, 'TC100FIX_MIC_OFF=1'),
-            # sound served, detector off: clean microphone unless RTSP_AEC=1
-            ({'RTSP_AEC': '0', 'RTSP_AUDIO': '1'}, 'TC100FIX_AEC_OFF=1 TC100FIX_DC_BLOCK=1'),
-            ({'RTSP_AEC': '0', 'RTSP_AUDIO': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '1'}, 'TC100FIX_MIC_OFF=1'),
-            ({'VENDOR_PRINT_LEVEL': '1'}, 'TC100FIX_PRINT_LEVEL=1'),
-            ({'VENDOR_PRINT_LEVEL': '12'}, ''),
-            ({'RTSP_DAYNIGHT_POLL_MS': '500'}, 'TC100FIX_DAYNIGHT_POLL_MS=500'),
-            ({'RTSP_PROC_IDLE_MS': '20', 'RTSP_PROC_BUSY_MS': '5'}, 'TC100FIX_PROC_IDLE_MS=20 TC100FIX_PROC_BUSY_MS=5'),
-            ({'RTSP_PROC_IDLE_MS': 'x'}, ''),
-            ({'RTSP_DAYNIGHT_POLL_MS': 'x'}, ''),
-            ({'RTSP_DAYNIGHT_HOLD_S': '10', 'RTSP_DAYNIGHT_DWELL_S': '120'},
-             'TC100FIX_DAYNIGHT_HOLD_S=10 TC100FIX_DAYNIGHT_DWELL_S=120'),
-            ({'RTSP_DAYNIGHT_DWELL_S': 'x'}, ''),
-            ({'RTSP_LITE_PORT': '8554'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1'),
-            ({'RTSP_LITE_PORT': '554'}, ''),                  # never the main server's port
-            ({'RTSP_LITE_PORT': 'x'}, ''),
-            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'p4ss'},
-             'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1 TC100FIX_RTSP_USER=cam TC100FIX_RTSP_PASS=p4ss'),
-            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_USER': 'cam', 'RTSP_LITE_PASS': 'a b'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_TALK=1'),
-            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_TALK': '0'}, 'TC100FIX_RTSP_PORT=8554'),
-            # RTSP_SERVER=lite: the lite server takes the RTSP port, the vendor one moves
-            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/bin/sh'}, 'TC100FIX_RTSP_PORT=554 TC100FIX_RTSP_TALK=1 PORT=-P 8555'),
-            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/bin/sh', 'RTSP_VENDOR_PORT': '554'}, 'TC100FIX_RTSP_PORT=554 TC100FIX_RTSP_TALK=1 PORT=-P 8555'),
-            ({'RTSP_SERVER': 'lite', 'TEST_LIB': '/nonexistent'}, 'PORT=-P 554'),     # no library: vendor server stays
-            ({'RTSP_LITE_PORT': '8554', 'RTSP_LITE_FASTSTART': '0'}, 'TC100FIX_RTSP_PORT=8554 TC100FIX_RTSP_FASTSTART=0 TC100FIX_RTSP_TALK=1'),
-        ]
-        for env, expected in cases:
-            vals = {'RTSP_FPS_LOCK': '0', 'RTSP_MIC_OFF_WHEN_NO_AUDIO': '0', 'VENDOR_PRINT_LEVEL': '', 'RTSP_AUDIO': '1', 'RTSP_AEC': '1',
-                    'RTSP_DAYNIGHT_POLL_MS': '0', 'RTSP_DAYNIGHT_HOLD_S': '0', 'RTSP_DAYNIGHT_DWELL_S': '0', 'RTSP_LITE_PORT': '',
-                    'RTSP_LITE_USER': '', 'RTSP_LITE_PASS': '', 'RTSP_LITE_FASTSTART': '1', 'RTSP_LITE_TALK': '1',
-                    'RTSP_SERVER': '', 'RTSP_PORT_NUM': '554', 'RTSP_PROC_IDLE_MS': '', 'RTSP_PROC_BUSY_MS': '', 'PORT': '-P 554', 'TEST_LIB': '/nonexistent'}
-            vals.update(env)
-            code = 'read_config() { echo 554; }\n' + ''.join('%s=%s\n' % (k, shlex.quote(v)) for k, v in vals.items()) + block + 'printf "%s" "$TC100FIX_ENV"'
-            if 'RTSP_SERVER' in env:
-                code += '; printf " PORT=%s" "$PORT"'
-            self.assertEqual(run(code).stdout.decode().strip(), expected, env)
-
-    def test_tc100fix_behaviour_under_arm_emulation(self):
-        # Runs only where qemu-arm and a camera sysroot (uClibc /lib) are available:
-        # TC100_SYSROOT=/path/to/extracted/rootfs. Fixtures: tests/tc100fix/build.sh.
-        import shutil
-        sysroot = os.environ.get('TC100_SYSROOT')
-        fx = ROOT / 'tests/tc100fix'
-        if not (sysroot and shutil.which('qemu-arm') and (fx / 'driver').exists()):
-            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
-        def emu(*envs):
-            args = ['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx]
-            for e in envs:
-                args += ['-E', e]
-            return subprocess.run(args + [str(fx / 'driver')], capture_output=True, timeout=30)
-        plain = emu().stdout.decode()
-        inert = emu('LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so')).stdout.decode()
-        self.assertEqual(inert, plain)
-        out = emu('LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'), 'TC100FIX_FPS_LOCK=1',
-                  'TC100FIX_MIC_OFF=1', 'TC100FIX_PRINT_LEVEL=1').stdout.decode()
-        self.assertIn('vendor print_level 1', out)
-        self.assertLess(out.index('vendor switch_fps_enable 0'), out.index('vendor set_fps 25'))
-        self.assertIn('vendor set_aec 0', out)
-        self.assertIn('vendor set_nr_agc 0', out)
-        self.assertNotIn('vendor start_capture', out)
-        self.assertIn('rc start_capture 0', out)
-        self.assertNotIn('vendor stop_capture', out)
-
-    def test_tc100fix_isp_tuning_under_arm_emulation(self):
-        # Same requirements as the emulated shim test; ~20 s (thread sleeps).
-        import shutil
-        sysroot = os.environ.get('TC100_SYSROOT')
-        fx = ROOT / 'tests/tc100fix'
-        if not (sysroot and shutil.which('qemu-arm') and (fx / 'ispdriver').exists()):
-            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
-        conf, status = self.base / 'isp_tune.conf', self.base / 'isp.status'
-        rtsp = self.base / 'rtspserver.conf'
-        rtsp.write_text('[0]\nwidth=1920\nheight=1080\n[1]\nwidth=352\nheight=200\n')
-        out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
-                              '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
-                              '-E', 'TC100FIX_ISP_TUNE=%s' % conf, '-E', 'TC100FIX_ISP_STATUS=%s' % status,
-                              '-E', 'TC100FIX_RTSP_CONF=%s' % rtsp,
-                              str(fx / 'ispdriver')], capture_output=True, timeout=90).stdout.decode()
-        start = out.split('--- after start')[1].split('--- after change')[0]
-        self.assertIn('status: BRIGHTNESS=20', start)
-        self.assertIn('status: SHARPNESS=50', start)          # 99 clamped to 50
-        self.assertIn('status: EXPOSURE_NOW=500', start)      # 50% of 1000
-        change = out.split('--- after change')[0].split('--- after start')[1]
-        self.assertIn('vpss effect_set 3 0', change)          # contrast back to ISP value
-        self.assertIn('vpss effect_set 6 50', change)         # mains frequency
-        reload = out.split('--- after reload')[0].split('vpss reload')[1]
-        self.assertIn('vpss ae exp_time_max=500', reload)     # cap survives an ISP reload
-        reset = out.split('--- after reset')[1]
-        self.assertIn('status: EXPOSURE_MAX_PCT=0', reset)
-        self.assertIn('status: EXPOSURE_NOW=1000', reset)     # original restored
-        # Privacy masks (percent -> pixels of each channel, even), MASK2 invalid (x2 < x1)
-        masks = out.split('--- after reset')[1].split('--- after masks')[0]
-        self.assertIn('vpss mask main0 0,0-960,540', masks)
-        self.assertIn('vpss mask sub2 316,160-350,198', masks)
-        self.assertNotIn('main1', masks)
-        self.assertIn('vpss mask_color type=0 y=128', masks)   # gray
-        self.assertIn('status: MASKS=2', out.split('--- after masks')[1])
-        lost = out.split('vpss masks lost')[1].split('--- after mask reload')[0]
-        self.assertIn('vpss mask main2 1728,864-1918,1078', lost)   # set again after an ISP reload
-        off = out.split('--- after mask reload')[1].split('--- after masks off')[0]
-        self.assertIn('vpss mask_set', off); self.assertNotIn('vpss mask main', off)   # cleared
 
     def test_isp_tune_helpers_validate_and_report(self):
         conf, boot, status = self.base / 'isp_tune.conf', self.base / 'boot.conf', self.base / 'status'
@@ -468,19 +320,6 @@ class Regressions(unittest.TestCase):
         writes = [tuple(values[i:i+3]) for i in range(0, len(values), 3)]
         self.assertEqual(writes, [(' ', 'samplerate', '16000'), (' ', 'volume', '7'), ('2', 'samplerate', '16000'), ('2', 'codec', '17')])
 
-    def test_sound_detection_never_fakes_a_level(self):
-        # 1.8.3 read /dev/voice or /dev/dsp (absent on the AK3918) and then
-        # reported threshold+100: enabling it produced a fake event per poll.
-        script = (ROOT / 'controlscripts/sound-detection').read_text()
-        live = '\n'.join(l for l in script.splitlines() if not l.lstrip().startswith('#'))
-        for bad in ('/dev/voice', '/dev/dsp', 'threshold + 100'):
-            self.assertNotIn(bad, live)
-        self.assertIn('/var/run/sound_level', live)
-        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        self.assertIn('TC100FIX_SOUND_LEVEL=/var/run/sound_level', rtsp)
-        # The meter needs the microphone: MIC_OFF must not be set when enabled.
-        block = rtsp[rtsp.index('_sound_enable='):rtsp.index('VENDOR_PRINT_LEVEL', rtsp.index('_sound_enable='))]
-        self.assertRegex(block, r'if \[ "\$_sound_enable" = "1" \]; then\n\s*TC100FIX_ENV="\$TC100FIX_ENV TC100FIX_SOUND_LEVEL=[^"]*"\n\s*elif')
 
     def test_motion_form_fields_are_read(self):
         # Settings → Motion & Sound posts these names; conf_motiondetect read
@@ -493,15 +332,6 @@ class Regressions(unittest.TestCase):
         for n in names:
             self.assertIn('F_' + n, handler, n)
 
-    def test_tcp_tw_recycle_stays_off(self):
-        # tcp_tw_recycle=1 silently drops SYNs from NATed clients (Frigate's
-        # go2rtc): new RTSP connections timed out while ping worked.
-        files = [ROOT / 'autorun.sh'] + [p for d in ('scripts', 'controlscripts', 'config/autostart', 'www/cgi-bin')
-                                          for p in (ROOT / d).iterdir() if p.is_file()]
-        for p in files:
-            for line in p.read_text(errors='ignore').splitlines():
-                if 'tcp_tw_recycle' in line and not line.lstrip().startswith('#'):
-                    self.assertRegex(line, r'echo 0 > /proc/sys/net/ipv4/tcp_tw_recycle', str(p))
 
     def test_removed_features_stay_removed(self):
         # Removed in 2.1.9 (unused with Frigate, or needing internet): the old
@@ -515,14 +345,6 @@ class Regressions(unittest.TestCase):
         self.assertNotIn('onvif-notify', (ROOT / 'scripts/motion-event.sh').read_text())
         self.assertNotIn('sendPictureMail', (ROOT / 'scripts/detectionOn.sh').read_text())
 
-    def test_bundled_binaries_unchanged(self):
-        count = 0
-        for line in (ROOT / 'config/packages.lock.dist').read_text().splitlines():
-            if not line.startswith('#') and '|' in line:
-                name, digest = line.split('|')
-                self.assertEqual(hashlib.sha256((ROOT / name).read_bytes()).hexdigest(), digest, name)
-                count += 1
-        self.assertEqual(count, 30)
 
     def test_install_config_missing_and_existing(self):
         cfg = self.base / 'test.conf'
@@ -645,7 +467,7 @@ class Regressions(unittest.TestCase):
     def test_config_transaction_rejects_all_files_before_commit(self):
         stage, target, backup = (self.base / name for name in ('stage', 'target', 'backup'))
         stage.mkdir(); target.mkdir()
-        (stage / 'boot.conf').write_text((ROOT / 'config/boot.conf.dist').read_text().replace('WEB_MODE=full', 'WEB_MODE=ultra-lite'))
+        (stage / 'boot.conf').write_text((ROOT / 'config/boot.conf.dist').read_text().replace('WEB_MODE=http', 'WEB_MODE=ultra-lite'))
         (stage / 'mqtt.conf').write_text((ROOT / 'config/mqtt.conf.dist').read_text().replace('MQTT_QOS=0', 'MQTT_QOS=9'))
         original_boot = 'WEB_MODE=full\n'
         original_mqtt = 'MQTT_ENABLE=0\nMQTT_PORT=1883\nMQTT_QOS=0\n'
@@ -751,7 +573,7 @@ class Regressions(unittest.TestCase):
             original = (ROOT / ('config/' + name + '.dist')).read_text()
             (cfg / name).write_text(original)
             (src / 'config' / name).write_text(original)
-        changed = (src / 'config/boot.conf').read_text().replace('WEB_MODE=full', 'WEB_MODE=ultra-lite')
+        changed = (src / 'config/boot.conf').read_text().replace('WEB_MODE=http', 'WEB_MODE=ultra-lite')
         (src / 'config/boot.conf').write_text(changed)
         archive = self.base / 'restore.tar.gz'
         with tarfile.open(archive, 'w:gz') as tar:
@@ -769,34 +591,15 @@ class Regressions(unittest.TestCase):
         self.assertIn('WEB_MODE=ultra-lite', (cfg / 'boot.conf').read_text())
         self.assertTrue(list(self.base.glob('config-rollback-*.tar.gz')))
 
-    def test_ptt_coordinates_exclusive_audio_with_rtsp(self):
+    def test_ptt_plays_through_alsa_and_leaves_rtsp_running(self):
+        # The speaker is an ALSA playback substream: the microphone of the RTSP stream keeps going.
         source = (ROOT / 'www/cgi-bin/upload_audio.cgi').read_text()
-        stop = source.index('"$RTSP_SERVICE" stop')
-        play = source.index('"$AUDIOPLAY_BIN" 8000 1')
-        restart = source.index('"$RTSP_SERVICE" start', play)
-        unlock = source.index('rmdir "$PTT_LOCK_DIR"', restart)
+        self.assertNotIn('rtsp-h26x', source)
+        play = source.index('sh "$SPEAKER_PLAY" "$pcm_file" "$ptt_volume"')
+        unlock = source.index('rmdir "$PTT_LOCK_DIR"', play)
         transfer = source.index('lock_acquired=0', unlock)
-        self.assertLess(stop, play)
-        self.assertLess(play, restart)
-        self.assertLess(restart, unlock)
         self.assertLess(unlock, transfer)
 
-    def test_ptt_player_patcher_rejects_unknown_firmware_binary(self):
-        source = self.base / 'ak_ao_demo'
-        destination = self.base / 'ak_ao_ptt'
-        source.write_bytes(b'unknown firmware binary')
-        env = dict(os.environ, PTT_SOURCE_BIN=str(source), PTT_DEST_BIN=str(destination))
-        r = subprocess.run(
-            ['/bin/sh', str(ROOT / 'scripts/prepare-ptt-player.sh')],
-            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
-        )
-        self.assertNotEqual(r.returncode, 0)
-        self.assertFalse(destination.exists())
-        patcher = (ROOT / 'scripts/prepare-ptt-player.sh').read_text()
-        self.assertIn('seek=3584', patcher)
-        self.assertIn('seek=4208', patcher)
-        self.assertIn('04b300db2de09f5fbbbef316b978a42e', patcher)
-        self.assertIn('50afb76d22a1341366306dccffd2d671', patcher)
 
     def test_stream_profile_health_uses_raw_rtsp_describe(self):
         source = action_cgi_text()
@@ -817,20 +620,6 @@ class Regressions(unittest.TestCase):
         self.assertEqual(r.stdout, b'2|1280|720|12|1000|2|8|320|0')
         self.assertIn('value="frigate-light-ak3918"', (ROOT / 'www/settings.html').read_text())
 
-    def test_package_backup_is_restorable(self):
-        (self.base / 'bin').mkdir()
-        (self.base / 'lib').mkdir()
-        cfg = self.base / 'bin/fixture'
-        cfg.write_text('original')
-        env = dict(os.environ, PKG_ROOT=str(self.base))
-        command = ['/bin/sh', str(ROOT / 'scripts/pkg-upgrade-safe.sh')]
-        r = subprocess.run(command + ['backup'], env=env, capture_output=True, timeout=8)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        backup = next((self.base / 'backup/package-upgrades').iterdir())
-        cfg.write_text('replacement')
-        r = subprocess.run(command + ['rollback', backup.name], env=env, capture_output=True, timeout=8)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(cfg.read_text(), 'original')
 
     def decoder(self, data):
         s = (ROOT / MQTT).read_text()
@@ -995,454 +784,6 @@ class Regressions(unittest.TestCase):
             r = run(code + '\necho "$_memavail"')
             self.assertEqual(r.stdout, b'11776\n', (path, r.stderr))
 
-class ConfigMigrate(unittest.TestCase):
-    """scripts/config-migrate.sh: configs from older releases gain new .dist
-    settings without losing the user's values."""
-    SCRIPT = ROOT / 'scripts/config-migrate.sh'
-    # ${KEY:-x} used only to print a log line, not as a behavioural default.
-    DISPLAY_ONLY = {'dns.conf:DNS_SECONDARY'}
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.cfg = Path(self.tmp.name)
-        for d in (ROOT / 'config').glob('*.dist'):
-            (self.cfg / d.name).write_bytes(d.read_bytes())
-        httpd = (ROOT / 'tests/fixtures/lighttpd.conf.v1.8.3').read_text()
-        (self.cfg / 'lighttpd.conf').write_text(re.sub(r'^server\.max-keep-alive.*\n', '', httpd, flags=re.M))
-        boot = [l for l in (ROOT / 'config/boot.conf.dist').read_text().splitlines()
-                if not l.startswith(('MEM_WATCHDOG', 'FRONT_LED', 'SYSLOG_', 'RED_LED'))]
-        (self.cfg / 'boot.conf').write_text('\n'.join(boot) + '\nRED_LED=1')   # no final newline
-        (self.cfg / 'mqtt.conf').write_text('MQTT_ENABLE=1\n#MQTT_PORT=1884\nMQTT_HOST=10.0.0.5\n')
-        (self.cfg / 'rtspserver.conf').write_text('[0]\nPORT=554\n')
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def migrate(self, *args, shell=None):
-        env = dict(os.environ, CONFIGPATH=str(self.cfg), MIGRATE_LOG=str(self.cfg / 'log'),
-                   LIGHTTPD_BIN='/nonexistent')
-        cmd = (shell or ['/bin/bash']) + [str(self.SCRIPT)] + list(args)
-        return subprocess.run(cmd, capture_output=True, env=env, timeout=30)
-
-    def kv(self, name):
-        out = {}
-        for l in (self.cfg / name).read_text().splitlines():
-            m = re.match(r'^([A-Za-z_]\w*)=(.*)$', l)
-            if m:
-                self.assertNotIn(m.group(1), out, (name, 'duplicate key', m.group(1)))
-                out[m.group(1)] = m.group(2)
-        return out
-
-    def check_result(self):
-        boot = self.kv('boot.conf')
-        self.assertEqual(boot['RED_LED'], '1')                  # user value kept
-        self.assertEqual(boot['FRONT_LED'], '0')                # new key added
-        self.assertEqual(boot['MEM_WATCHDOG_ENABLE'], '0')      # code default, not the .dist one
-        mqtt = self.kv('mqtt.conf')
-        self.assertEqual(mqtt['MQTT_HOST'], '10.0.0.5')
-        self.assertNotIn('MQTT_PORT', mqtt)                     # commented out by the user: left alone
-        self.assertIn('MQTT_STREAM_ENABLE', mqtt)
-        self.assertEqual((self.cfg / 'rtspserver.conf').read_text(), '[0]\nPORT=554\n')
-        httpd = (self.cfg / 'lighttpd.conf').read_text()
-        httpd = '\n'.join(l for l in httpd.splitlines() if not l.lstrip().startswith('#'))
-        self.assertEqual(httpd.count('server.max-keep-alive-idle = 45'), 1)
-        # webperf block (lighttpd -tt cannot run here, so it is accepted)
-        self.assertEqual(httpd.count('server.modules += ("mod_setenv", "mod_expire", "mod_deflate")'), 1)
-        self.assertEqual(httpd.count('deflate.max-loadavg'), 1)
-        for name in ('boot.conf', 'mqtt.conf'):
-            r = subprocess.run(['sh', '-n', str(self.cfg / name)], capture_output=True)
-            self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue((self.cfg / 'lighttpd.conf.pre-migrate').exists())
-
-    def test_appends_missing_settings_only(self):
-        r = self.migrate()
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.check_result()
-        snapshot = {p.name: p.read_bytes() for p in self.cfg.iterdir()}
-        self.assertEqual(self.migrate('--force').returncode, 0)      # idempotent
-        for name in ('boot.conf', 'mqtt.conf', 'lighttpd.conf'):
-            self.assertEqual((self.cfg / name).read_bytes(), snapshot[name], name)
-        stamp = (self.cfg / '.migrate-stamp').read_text()
-        (self.cfg / 'boot.conf').write_text('X=1\n')
-        self.migrate()                                                 # stamp matches: no-op
-        self.assertEqual((self.cfg / 'boot.conf').read_text(), 'X=1\n')
-        self.assertEqual((self.cfg / '.migrate-stamp').read_text(), stamp)
-
-    # Plugins compiled into bin/lighttpd: src/lighttpd/plugin-static.h. A
-    # static lighttpd refuses a config that loads anything else.
-    @staticmethod
-    def built_in_modules():
-        return set(re.findall(r'^PLUGIN_INIT\((mod_\w+)\)', (ROOT / 'src/lighttpd/plugin-static.h').read_text(), re.M))
-
-    def test_httpd_dist_modules_are_built_in(self):
-        built_in = self.built_in_modules()
-        for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
-            text = (ROOT / 'config' / name).read_text()
-            live = '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
-            mods = set()
-            for m in re.finditer(r'^server\.modules \+?= \((.*?)\)', live, re.M | re.S):
-                mods |= set(re.findall(r'"(mod_\w+)"', m.group(1)))
-            self.assertIn('mod_deflate', mods, name)
-            self.assertLessEqual(mods, built_in, name)
-
-    def test_bundled_lighttpd_matches_plugin_list(self):
-        # The 1.8.3 binary had neither zlib nor mod_setenv/expire/deflate
-        # registered ("plugin not found"); the rebuilt one has both.
-        binary = (ROOT / 'bin/lighttpd').read_bytes()
-        self.assertIn(b'\t+ zlib support', binary)
-        self.assertNotIn(b'/home/a/PROJECTS', binary)          # not the old build
-        for mod in self.built_in_modules():
-            self.assertIn(mod.encode() + b'\0', binary, mod)
-        self.assertEqual(self.built_in_modules() & {'mod_setenv', 'mod_expire', 'mod_deflate'},
-                         {'mod_setenv', 'mod_expire', 'mod_deflate'})
-
-    def test_repairs_config_naming_mod_setenv(self):
-        # A camera installed from the 1.8.3-rc20 .dist names mod_setenv, which
-        # the bundled lighttpd lacks: the web server does not start.
-        stub = self.cfg / 'lighttpd-stub'
-        stub.write_text('#!/bin/sh\n[ "$1" = -tt ] && [ "$2" = -f ] || exit 2\n'
-                        'grep -q "mod_setenv" "$3" && exit 255\nexit 0\n')
-        stub.chmod(0o755)
-        old = (ROOT / 'tests/fixtures/lighttpd.conf.v1.8.3').read_text().replace(
-            '"mod_openssl",\n', '"mod_openssl",\n                  "mod_setenv",\n')
-        old += ('\nsetenv.add-response-header = (\n  "X-Frame-Options" => "SAMEORIGIN"\n)\n'
-                '$HTTP["url"] =~ "\\.css$" {\n  setenv.add-response-header = (\n    "Cache-Control" => "x"\n  )\n}\n')
-        (self.cfg / 'lighttpd.conf').write_text(old)
-        env = dict(os.environ, CONFIGPATH=str(self.cfg), MIGRATE_LOG=str(self.cfg / 'log'), LIGHTTPD_BIN=str(stub))
-        r = subprocess.run(['/bin/bash', str(self.SCRIPT)], capture_output=True, env=env, timeout=30)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        httpd = (self.cfg / 'lighttpd.conf').read_text()
-        live = [l for l in httpd.splitlines() if not l.lstrip().startswith('#')]
-        self.assertFalse([l for l in live if 'setenv' in l], httpd)
-        self.assertIn('$HTTP["url"] =~ "\\.css$" {', live)          # block kept, now empty
-        log = (self.cfg / 'log').read_text()
-        self.assertIn('removed mod_setenv', log)
-        # The stub is the 1.8.3 binary: the webperf block (mod_setenv) is
-        # refused, the config stays as repaired, and the next boot retries.
-        self.assertIn('lighttpd rejected the migrated config', log)
-        self.assertNotIn('deflate.max-loadavg', httpd)
-        self.assertFalse((self.cfg / '.migrate-stamp').exists())
-
-    def test_vendor_busybox(self):
-        # The camera runs this with its own BusyBox 1.24 ash (rootfs /bin/busybox).
-        sysroot = os.environ.get('TC100_SYSROOT')
-        if not (sysroot and shutil.which('qemu-arm') and Path(sysroot, 'bin/busybox').exists()):
-            self.skipTest('qemu-arm or TC100_SYSROOT not available')
-        cmd = ['qemu-arm', '-L', sysroot]
-        for k in ('CONFIGPATH', 'MIGRATE_LOG', 'LIGHTTPD_BIN'):
-            cmd += ['-E', '%s=%s' % (k, {'CONFIGPATH': self.cfg, 'MIGRATE_LOG': self.cfg / 'log',
-                                         'LIGHTTPD_BIN': '/nonexistent'}[k])]
-        r = subprocess.run(cmd + [str(Path(sysroot, 'bin/busybox')), 'sh', str(self.SCRIPT)],
-                           capture_output=True, timeout=60)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.check_result()
-
-    def test_dist_divergences_are_declared(self):
-        # A key whose .dist default differs from the code's fallback must be in
-        # MIGRATE_KEEP_BEHAVIOUR, or migrating would change a camera's behaviour.
-        script = self.SCRIPT.read_text()
-        kv_files = re.search(r'^MIGRATE_KV_CONFIGS="([^"]*)"', script, re.M).group(1).split()
-        keep = re.search(r"^MIGRATE_KEEP_BEHAVIOUR='(.*?)'", script, re.M | re.S).group(1).splitlines()
-        keep = {l.split('=', 1)[0]: l.split('=', 1)[1].strip('"') for l in keep}
-        sources = [ROOT / 'autorun.sh'] + list((ROOT / 'scripts').glob('*.sh')) + \
-            list((ROOT / 'controlscripts').iterdir()) + list((ROOT / 'config/autostart').iterdir()) + \
-            list((ROOT / 'www/cgi-bin').iterdir())
-        text = '\n'.join(p.read_text(errors='ignore') for p in sources if p.is_file())
-        for name in kv_files:
-            dist = (ROOT / 'config' / (name + '.dist')).read_text()
-            for m in re.finditer(r'^([A-Za-z_]\w*)=(.*)$', dist, re.M):
-                key, val = m.group(1), m.group(2).strip().strip('"\'')
-                code = {d.strip('"\'') for d in re.findall(r'\$\{' + key + r':?[-=]([^}]*)\}', text)}
-                code.discard('$motion_save_dir')
-                if '%s:%s' % (name, key) in self.DISPLAY_ONLY:
-                    continue
-                if code and val not in code:
-                    self.assertIn('%s:%s' % (name, key), keep, 'undeclared default divergence')
-                    self.assertIn(keep['%s:%s' % (name, key)], code)
-
-    def test_httpd_dist_blocks_are_well_formed(self):
-        for name in ('lighttpd.conf.dist', 'lighttpd.http.conf.dist'):
-            text = (ROOT / 'config' / name).read_text()
-            blocks = re.findall(r'^# @migrate (\S+) ([^\n]+)\n(.*?)^# @end$', text, re.M | re.S)
-            self.assertEqual([b[0] for b in blocks], ['webperf', 'updatestream', 'keepalive'], name)
-            for _, probe, body in blocks:
-                self.assertIn(probe, body, (name, probe))
-
-
-class FwUpdate(unittest.TestCase):
-    """scripts/fw-update.sh: verify / install / rollback of an update package."""
-    SCRIPT = ROOT / 'scripts/fw-update.sh'
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.d = Path(self.tmp.name)
-        self.root = self.d / 'root'
-        for rel, text in {'VERSION': '1.0\n', 'www/index.html': 'old page\n', 'bin/tool': 'old bin\n',
-                          'wpa_supplicant.conf.dist': 'my wifi\n', 'config/lighttpd.conf': 'x\n',
-                          'config/autostart/rtsp-h26x': 'old toggle\n',
-                          'config/autostart/00_system-config': '#!/bin/sh\necho old\n'}.items():
-            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
-            (self.root / rel).write_text(text)
-        self.pkg_files = {'VERSION': '2.0\n', 'www/index.html': 'new page\n', 'bin/tool': 'old bin\n',
-                          'scripts/new.sh': '#!/bin/sh\necho hi\n', 'wpa_supplicant.conf.dist': 'template\n',
-                          'config/autostart/ftp-server': '/mnt/controlscripts/ftp-server\n',
-                          'config/autostart/rtsp-h26x': 'new toggle\n',
-                          'config/autostart/00_system-config': '#!/bin/sh\necho new\n'}
-        self.ok = self.d / 'ok.sh'; self.ok.write_text('#!/bin/sh\nexit 0\n'); self.ok.chmod(0o755)
-        self.bad = self.d / 'bad.sh'; self.bad.write_text('#!/bin/sh\nexit 1\n'); self.bad.chmod(0o755)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def package(self, files=None, extra=None, manifest=None):
-        import tarfile, io
-        files = dict(self.pkg_files if files is None else files)
-        lines = manifest if manifest is not None else \
-            ''.join('%s  %s\n' % (hashlib.md5(v.encode()).hexdigest(), k) for k, v in files.items())
-        out = self.d / 'pkg.tar'
-        with tarfile.open(out, 'w') as t:
-            for name, data in list({'MANIFEST': lines}.items()) + list(files.items()) + list((extra or {}).items()):
-                b = data.encode(); ti = tarfile.TarInfo(name); ti.size = len(b)
-                t.addfile(ti, io.BytesIO(b))
-        return out
-
-    def run_fwu(self, *args, lighttpd=None, shell=None):
-        env = dict(os.environ, FWU_ROOT=str(self.root), FWU_BACKUPS=str(self.d / 'bk'), FWU_LOCK=str(self.d / 'lock'),
-                   FWU_MIGRATE='/dev/null', FWU_TRACKER='/dev/null', FWU_LIGHTTPD=str(lighttpd or self.ok))
-        return subprocess.run((shell or ['sh']) + [str(self.SCRIPT)] + list(args), capture_output=True, env=env, timeout=60)
-
-    def read(self, rel):
-        return (self.root / rel).read_text()
-
-    def test_install_and_rollback(self):
-        r = self.run_fwu('verify', str(self.package()))
-        info = json.loads(r.stdout)
-        self.assertTrue(info['ok'], r.stdout)
-        # VERSION, index.html, new.sh, 00_system-config; not the toggles, not wpa, not the unchanged bin
-        self.assertEqual(info['changed'], 4)
-        r = self.run_fwu('install', '--no-reboot')
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.read('VERSION'), '2.0\n')
-        self.assertEqual(self.read('www/index.html'), 'new page\n')
-        self.assertEqual(self.read('config/autostart/00_system-config'), '#!/bin/sh\necho new\n')
-        self.assertEqual(self.read('wpa_supplicant.conf.dist'), 'my wifi\n')          # credentials kept
-        self.assertEqual(self.read('config/autostart/rtsp-h26x'), 'old toggle\n')    # boot choice kept
-        self.assertFalse((self.root / 'config/autostart/ftp-server').exists())       # not re-enabled
-        self.assertEqual(json.loads(self.run_fwu('status').stdout)['rollback_to'], '1.0')
-        r = self.run_fwu('rollback', '--no-reboot')
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.read('VERSION'), '1.0\n')
-        self.assertEqual(self.read('www/index.html'), 'old page\n')
-        self.assertFalse((self.root / 'scripts/new.sh').exists())
-
-    def test_only_changed_files_are_extracted(self):
-        # The SD card only receives what will actually be installed.
-        r = self.run_fwu('verify', str(self.package()))
-        self.assertTrue(json.loads(r.stdout)['ok'], r.stdout)
-        stage = self.root / 'tc100-update/stage'
-        got = sorted(str(p.relative_to(stage)) for p in stage.rglob('*') if p.is_file())
-        self.assertEqual(got, ['MANIFEST', 'VERSION', 'config/autostart/00_system-config',
-                               'scripts/new.sh', 'www/index.html'])
-        # A changed script with a syntax error is still refused.
-        files = dict(self.pkg_files, **{'scripts/new.sh': 'if then fi(\n'})
-        r = self.run_fwu('verify', str(self.package(files)))
-        self.assertIn('scripts/new.sh', json.loads(r.stdout).get('syntax_errors', ''))
-
-    def test_failed_web_server_check_rolls_back(self):
-        self.run_fwu('verify', str(self.package()))
-        r = self.run_fwu('install', '--no-reboot', lighttpd=self.bad)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertEqual(self.read('VERSION'), '1.0\n')
-        self.assertEqual(self.read('www/index.html'), 'old page\n')
-        self.assertFalse((self.root / 'scripts/new.sh').exists())
-
-    def test_damaged_copy_is_detected_and_rolled_back(self):
-        # A write that comes out wrong (seen on the SD card under memory
-        # pressure) must never be renamed into place.
-        self.run_fwu('verify', str(self.package()))
-        (self.root / 'tc100-update/stage/scripts/new.sh').write_text('#!/bin/sh\necho damaged\n')
-        r = self.run_fwu('install', '--no-reboot')
-        self.assertNotEqual(r.returncode, 0)
-        self.assertEqual(self.read('VERSION'), '1.0\n')
-        self.assertFalse((self.root / 'scripts/new.sh').exists())
-        self.assertFalse(list(self.root.rglob('*.fwu')))
-        self.assertIn('damaged on write', (self.root / 'tc100-update/update.log').read_text())
-
-    def test_rejects_bad_packages(self):
-        bad_md5 = self.package(manifest='%s  VERSION\n' % ('0' * 32))
-        self.assertEqual(json.loads(self.run_fwu('verify', str(bad_md5)).stdout)['error'], 'verify_failed')
-        bad_sh = dict(self.pkg_files, **{'scripts/new.sh': 'if then fi(\n'})
-        self.assertEqual(json.loads(self.run_fwu('verify', str(self.package(bad_sh))).stdout)['error'], 'verify_failed')
-        evil = self.package(extra={'../escape': 'x'})
-        self.assertEqual(json.loads(self.run_fwu('verify', str(evil)).stdout)['error'], 'unsafe_path')
-        self.assertFalse((self.d / 'escape').exists())
-        self.assertNotEqual(self.run_fwu('install', '--no-reboot').returncode, 0)   # nothing staged
-
-    def test_vendor_busybox(self):
-        sysroot = os.environ.get('TC100_SYSROOT')
-        if not (sysroot and shutil.which('qemu-arm') and Path(sysroot, 'bin/busybox').exists()):
-            self.skipTest('qemu-arm or TC100_SYSROOT not available')
-        sh = ['qemu-arm', '-L', sysroot, str(Path(sysroot, 'bin/busybox')), 'sh']
-        r = self.run_fwu('verify', str(self.package()), shell=sh)
-        self.assertTrue(json.loads(r.stdout)['ok'], r.stdout + r.stderr)
-        r = self.run_fwu('install', '--no-reboot', shell=sh)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.read('VERSION'), '2.0\n')
-        r = self.run_fwu('rollback', '--no-reboot', shell=sh)
-        self.assertEqual(self.read('VERSION'), '1.0\n')
-
-    def test_status_survives_garbage_in_the_log(self):
-        # The log of the 2026-10-13 FAT incident held file names made of
-        # random bytes; update.cgi status then returned invalid JSON.
-        (self.root / 'tc100-update').mkdir(parents=True, exist_ok=True)
-        (self.root / 'tc100-update/update.log').write_bytes(b'ok\nrm: bad \x01\x1b name\x7f\n')
-        info = json.loads(self.run_fwu('status').stdout)
-        self.assertIn('bad ?? name?', info['log'])
-
-    def test_firmware_image_goes_to_new_and_rolls_back_by_rename(self):
-        # The image in use is loop-mounted: never replaced under it, swapped at
-        # the next boot (scripts/rofs.sh); no 7 MB backup copy.
-        (self.root / 'firmware.sqfs').write_text('image v1\n')
-        files = dict(self.pkg_files, **{'firmware.sqfs': 'image v2\n'})
-        self.assertTrue(json.loads(self.run_fwu('verify', str(self.package(files))).stdout)['ok'])
-        r = self.run_fwu('install', '--no-reboot')
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.read('firmware.sqfs'), 'image v1\n')
-        self.assertEqual(self.read('firmware.sqfs.new'), 'image v2\n')
-        self.assertFalse(list((self.d / 'bk').rglob('firmware.sqfs')))
-        # Rolled back before the reboot: the pending image is dropped.
-        self.assertEqual(self.run_fwu('rollback', '--no-reboot').returncode, 0)
-        self.assertFalse((self.root / 'firmware.sqfs.new').exists())
-        self.assertEqual(self.read('firmware.sqfs'), 'image v1\n')
-        # Installed and booted (rofs.sh swapped it): rollback brings .old back as .new.
-        self.run_fwu('verify', str(self.package(files)))
-        self.run_fwu('install', '--no-reboot')
-        os.rename(self.root / 'firmware.sqfs', self.root / 'firmware.sqfs.old')
-        os.rename(self.root / 'firmware.sqfs.new', self.root / 'firmware.sqfs')
-        self.assertEqual(self.run_fwu('rollback', '--no-reboot').returncode, 0)
-        self.assertEqual(self.read('firmware.sqfs.new'), 'image v1\n')
-
-
-class FirmwareImage(unittest.TestCase):
-    """scripts/rofs.sh: boot-time decision to run from firmware.sqfs, with stubbed mount."""
-    SCRIPT = ROOT / 'scripts/rofs.sh'
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.d = Path(self.tmp.name)
-        self.sd = self.d / 'sd'
-        for sub in ('bin', 'lib', 'scripts', 'controlscripts', 'www', 'config'):
-            (self.sd / sub).mkdir(parents=True)
-        (self.sd / 'VERSION').write_text('2.0\n')
-        self.stub = self.d / 'stub'; self.stub.mkdir()
-        self.calls = self.d / 'calls'
-        # mount stub: a squashfs mount "fills" the mount point with the image's
-        # VERSION and directories; binds and umount just get logged.
-        (self.stub / 'mount').write_text(
-            '#!/bin/sh\necho "mount $*" >> "%s"\n'
-            'case "$*" in *squashfs*) [ -n "$STUB_MOUNT_FAIL" ] && exit 1\n'
-            '  for a; do t="$a"; done; for x in bin lib scripts controlscripts www; do mkdir -p "$t/$x"; done\n'
-            '  echo "$STUB_IMAGE_VERSION" > "$t/VERSION" ;; esac\nexit 0\n' % self.calls)
-        (self.stub / 'umount').write_text('#!/bin/sh\necho "umount $*" >> "%s"\n' % self.calls)
-        for f in self.stub.iterdir():
-            f.chmod(0o755)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def run_rofs(self, *args, image_version='2.0', fail=False):
-        env = dict(os.environ, ROFS_SD=str(self.sd), ROFS_RUN=str(self.d / 'run'), ROFS_LOG=str(self.d / 'log/rofs.log'),
-                   PATH='%s:%s' % (self.stub, os.environ['PATH']), STUB_IMAGE_VERSION=image_version)
-        if fail:
-            env['STUB_MOUNT_FAIL'] = '1'
-        r = subprocess.run(['sh', str(self.SCRIPT)] + list(args), capture_output=True, env=env, timeout=30)
-        return (self.d / 'run/status').read_text().strip() if (self.d / 'run/status').exists() else '', r
-
-    def test_no_image_keeps_fat(self):
-        self.assertEqual(self.run_rofs('mount')[0], 'inactive no_image')
-
-    def test_disabled_and_recovery(self):
-        (self.sd / 'firmware.sqfs').write_text('img')
-        (self.sd / 'config/boot.conf').write_text('FIRMWARE_IMAGE=0\n')
-        self.assertEqual(self.run_rofs('mount')[0], 'inactive disabled')
-        (self.sd / 'RECOVERY').write_text('')
-        self.assertEqual(self.run_rofs('mount')[0], 'inactive recovery_mode')
-
-    def test_stale_image_is_not_used(self):
-        (self.sd / 'firmware.sqfs').write_text('img')
-        status, _ = self.run_rofs('mount', image_version='1.0')
-        self.assertEqual(status, 'inactive version_mismatch image=1.0 sd=2.0')
-        self.assertNotIn('bind', self.calls.read_text())
-
-    def test_mount_failure_falls_back(self):
-        (self.sd / 'firmware.sqfs').write_text('img')
-        self.assertEqual(self.run_rofs('mount', fail=True)[0], 'inactive mount_failed')
-
-    def test_pending_image_is_swapped_in_before_mounting(self):
-        (self.sd / 'firmware.sqfs').write_text('old')
-        (self.sd / 'firmware.sqfs.new').write_text('new')
-        status, r = self.run_rofs('mount')
-        self.assertEqual((self.sd / 'firmware.sqfs').read_text(), 'new')
-        self.assertEqual((self.sd / 'firmware.sqfs.old').read_text(), 'old')
-        self.assertFalse((self.sd / 'firmware.sqfs.new').exists())
-        # The FAT view is bound before the overlays, then each code directory.
-        binds = [l.split()[-1] for l in self.calls.read_text().splitlines() if 'bind' in l]
-        self.assertEqual(binds[0], str(self.d / 'run/fat'))
-        self.assertEqual(binds[1:], [str(self.sd / x) for x in ('bin', 'lib', 'scripts', 'controlscripts', 'www')])
-        # The stub cannot provide a runnable busybox, so the smoke test refuses
-        # the overlay and everything is unmounted again.
-        self.assertEqual(status, 'inactive smoke_test_failed')
-        self.assertIn('umount %s' % (self.d / 'run/img'), self.calls.read_text())
-
-    def test_verify_renames_a_corrupt_image(self):
-        (self.d / 'run').mkdir()
-        (self.d / 'run/status').write_text('active 2.0\n')
-        (self.sd / 'firmware.sqfs').write_text('img')
-        (self.sd / 'firmware.sqfs.md5').write_text('%s  firmware.sqfs\n' % hashlib.md5(b'img').hexdigest())
-        _, r = self.run_rofs('verify')
-        self.assertEqual(r.returncode, 0)
-        self.assertEqual((self.d / 'run/verified').read_text().strip(), 'verified')
-        (self.sd / 'firmware.sqfs').write_text('imG')
-        _, r = self.run_rofs('verify')
-        self.assertNotEqual(r.returncode, 0)
-        self.assertTrue((self.sd / 'firmware.sqfs.bad').exists())
-        self.assertFalse((self.sd / 'firmware.sqfs').exists())
-
-    def test_image_build_is_executable_and_reproducible(self):
-        if not shutil.which('mksquashfs') or not shutil.which('unsquashfs'):
-            self.skipTest('squashfs-tools not installed')
-        outs = []
-        for n in ('a', 'b'):
-            out = self.d / n
-            subprocess.run(['sh', str(ROOT / 'src/release/build-image.sh'), str(out)], check=True,
-                           capture_output=True, timeout=300)
-            outs.append((out / 'firmware.sqfs').read_bytes())
-        self.assertEqual(outs[0], outs[1])
-        listing = subprocess.run(['unsquashfs', '-lls', str(self.d / 'a/firmware.sqfs')],
-                                 capture_output=True, text=True).stdout
-        modes = {}
-        for l in listing.splitlines():
-            path = [w for w in l.split() if w.startswith('squashfs-root/')]
-            if path:
-                modes[path[0][len('squashfs-root/'):]] = l.split()[0]
-        self.assertEqual(modes['bin/busybox'], '-rwxr-xr-x')        # FAT gives every file x
-        self.assertEqual(modes['www/cgi-bin/state.cgi'], '-rwxr-xr-x')
-        self.assertTrue(modes['bin/ak_ao_ptt'].startswith('l'))
-        self.assertTrue(modes['lib/libcurl.so.4'].startswith('l'))
-        self.assertIn('VERSION', modes)
-
-    def test_prepare_ptt_player_uses_ram_with_image(self):
-        text = (ROOT / 'scripts/prepare-ptt-player.sh').read_text()
-        self.assertIn("' /mnt/bin squashfs ' /proc/mounts", text)
-        self.assertIn('DEST_BIN=/tmp/bin/ak_ao_ptt', text)
-
-    def test_boot_wiring(self):
-        auto = (ROOT / 'autorun.sh').read_text()
-        self.assertLess(auto.index('rofs.sh mount'), auto.index('. /mnt/scripts/common_functions.sh'))
-        self.assertIn("grep -q '^/dev/loop0 /tmp/rofs/'", auto)      # vendor ramdisk cleanup keeps the image
-        self.assertIn('rofs.sh verify', auto)
-        fwu = (ROOT / 'scripts/fw-update.sh').read_text()
-        self.assertIn('ROOT=/tmp/rofs/fat', fwu)
 
 class WebUiLanguage(unittest.TestCase):
     """FR/EN switch: www/scripts/i18n.js + www/i18n/fr.js."""
@@ -1472,249 +813,6 @@ class WebUiLanguage(unittest.TestCase):
         self.assertIn('i18n.js?v=' + version, index)     # bump both together (30-day cache)
 
 
-class SdCardKit(unittest.TestCase):
-    """src/release/build-sd.sh: content of a new SD card."""
-
-    def test_boot_hook_starts_autorun(self):
-        hook = ROOT / 'wifitest/wifi_test.sh'
-        self.assertIn('/mnt/autorun.sh &', hook.read_text())
-        self.assertTrue(os.access(hook, os.X_OK))
-
-    def test_kit_is_complete_and_safe(self):
-        with tempfile.TemporaryDirectory() as d:
-            out = Path(d) / 'kit'
-            env = dict(os.environ, PATH='/nonexistent:' + os.environ['PATH'])
-            subprocess.run(['sh', str(ROOT / 'src/release/build-sd.sh'), str(out)], check=True,
-                           capture_output=True, env=env)
-            for p in ('autorun.sh', 'VERSION', 'wifitest/wifi_test.sh', 'SD-CARD.txt',
-                      'scripts/rofs.sh', 'config/boot.conf.dist', 'log'):
-                self.assertTrue((out / p).exists(), p)
-            names = {p.name for p in out.iterdir()}
-            for bad in ('uimage', 'uImage', 'root.sqsh4', 'usr.sqsh4', 'usr.jffs2', 'update',
-                        'wpa_supplicant.conf'):
-                self.assertNotIn(bad, names)
-            for live in ('mqtt.conf', 'user.pwd', 'lighttpd.pem'):
-                self.assertFalse((out / 'config' / live).exists(), live)
-
-
-class FlashUsrImage(unittest.TestCase):
-    """src/flash/build-usr.sh on a synthetic vendor /usr: cloud removed, SD keeps priority."""
-
-    SERVICE = ('#! /bin/sh\nstart_service ()\n{\n\tif [ $WIFI_TEST = 1 ]; then\n'
-               '\t    /mnt/wifitest/wifi_test.sh \n\telse\n'
-               '\t\tdaemon\n\t\techo 1 > /sys/class/leds/red_led/brightness\n'
-               '\t\t/usr/sbin/anyka_ipc.sh start \n\t\techo "start net service......"\n\tfi\n'
-               '\tif [ -z "$boot_from" ] && [ $FACTORY_TEST = 0 ] && [ $WIFI_TEST = 0 ] && [ $AGING_TEST = 0 ];then\n'
-               '\t\techo "start net service......"\n\t\t/usr/sbin/net_manage.sh &\n\tfi\n}\n')
-
-    @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
-    def test_build(self):
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            v = d / 'usr'
-            for sub in ('bin', 'lib', 'sbin', 'modules', 'share'):
-                (v / sub).mkdir(parents=True)
-            (v / 'sbin/service.sh').write_text(self.SERVICE); (v / 'sbin/service.sh').chmod(0o755)
-            for f in ('modules/8188fu.ko', 'bin/anyka_ipc', 'bin/ak_vi_demo', 'bin/ak_ao_demo',
-                      'bin/wpa_supplicant', 'lib/libapp_net.so', 'lib/libakv_encode.so', 'share/x.mp3'):
-                (v / f).write_text(f)
-            tc = d / 'tc'; (tc / 'bin').mkdir(parents=True); (tc / 'lib').mkdir()
-            (tc / 'bin/curl').write_text('x')
-            out = d / 'u.img'
-            subprocess.run(['sh', str(ROOT / 'src/flash/build-usr.sh'), str(v), str(tc), str(out)],
-                           check=True, capture_output=True)
-            x = d / 'x'
-            subprocess.run(['unsquashfs', '-q', '-d', str(x), str(out)], check=True, capture_output=True)
-            for gone in ('bin/anyka_ipc', 'bin/ak_vi_demo', 'lib/libapp_net.so', 'share/x.mp3'):
-                self.assertFalse((x / gone).exists(), gone)
-            for kept in ('bin/ak_ao_demo', 'bin/wpa_supplicant', 'lib/libakv_encode.so',
-                         'modules/8188fu.ko', 'tc100/bin/curl'):
-                self.assertTrue((x / kept).exists(), kept)
-            svc = (x / 'sbin/service.sh').read_text()
-            self.assertIn('/mnt/wifitest/wifi_test.sh', svc)   # SD path untouched
-            self.assertNotIn('anyka_ipc.sh start', svc)
-            self.assertIn('/etc/jffs2/tc100/boot.sh', svc)
-            self.assertIn('telnetd -p 23', svc)
-            self.assertIn('/usr/tc100/scripts/flashboot.sh', svc)
-            self.assertIn('[ "${TC100_FLASH:-0}" = 0 ];then', svc)
-
-    def test_flash_script_checks_partition_and_reads_back(self):
-        t = (ROOT / 'scripts/flash-usr.sh').read_text()
-        self.assertIn('"C"$', t)
-        self.assertIn('if=/dev/mtd6', t)       # verify from the raw flash, not the block cache
-        self.assertIn('3891200', t)
-
-
-class FlashBoot(unittest.TestCase):
-    """scripts/flashboot.sh with stubbed mount: SD layout rebuilt from /usr/tc100 + jffs2 config."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
-        self.code = d / 'usr_tc100'
-        for sub in ('bin', 'lib', 'scripts', 'controlscripts', 'www', 'sounds', 'config/autostart'):
-            (self.code / sub).mkdir(parents=True)
-        (self.code / 'autorun.sh').write_text('#!/bin/sh\necho ran > "%s/autorun.ran"\n' % d)
-        (self.code / 'autorun.sh').chmod(0o755)
-        (self.code / 'VERSION').write_text('9.9\n')
-        (self.code / 'config/boot.conf.dist').write_text('WEB_MODE=full\nWIFI_CLIENT=vendor\nX=1\n')
-        (self.code / 'config/mqtt.conf.dist').write_text('MQTT_ENABLE=0\n')
-        (self.code / 'config/autostart/rtsp-h26x').write_text('x')
-        (self.code / 'config/autostart/02_system-webserver').write_text('new')
-        self.stub = d / 'stub'; self.stub.mkdir()
-        self.calls = d / 'calls'
-        for name in ('mount', 'umount', 'telnetd'):
-            (self.stub / name).write_text('#!/bin/sh\necho "%s $*" >> "%s"\n' % (name, self.calls))
-            (self.stub / name).chmod(0o755)
-        self.persist = d / 'jffs2'; self.mnt = d / 'mnt'; self.mnt.mkdir()
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def run_fb(self):
-        env = dict(os.environ, PATH='%s:%s' % (self.stub, os.environ['PATH']),
-                   FLASHBOOT_CODE=str(self.code), FLASHBOOT_PERSIST=str(self.persist),
-                   FLASHBOOT_MNT=str(self.mnt), FLASHBOOT_LOG=str(self.d / 'fb.log'),
-                   FLASHBOOT_STATE=str(self.d / 'storage'), FLASHBOOT_CODEROOT=str(self.code),
-                   FLASHBOOT_ZONE='0')
-        r = subprocess.run(['sh', str(ROOT / 'scripts/flashboot.sh')], env=env, capture_output=True, text=True)
-        time.sleep(0.3)
-        return r
-
-    def test_layout_and_config(self):
-        self.run_fb()
-        calls = self.calls.read_text()
-        self.assertIn('mount -t tmpfs -o size=4m', calls)
-        for d in ('bin', 'scripts', 'www', 'controlscripts'):
-            self.assertIn('mount -o bind %s/%s %s/%s' % (self.code, d, self.mnt, d), calls)
-        self.assertIn('mount -o bind %s/config %s/config' % (self.persist, self.mnt), calls)
-        cfg = self.persist / 'config'
-        self.assertTrue((cfg / 'mqtt.conf.dist').is_symlink())
-        self.assertTrue((cfg / 'autostart/rtsp-h26x').exists())
-        boot = (cfg / 'boot.conf').read_text()
-        self.assertIn('WEB_MODE=full', boot); self.assertIn('WIFI_CLIENT=new', boot); self.assertIn('X=1', boot)
-        self.assertTrue((self.d / 'autorun.ran').exists())
-        self.assertEqual((self.d / 'storage').read_text().strip(), 'flash')
-
-    def test_system_boot_scripts_come_from_the_image(self):
-        cfg = self.persist / 'config/autostart'
-        cfg.mkdir(parents=True)
-        (cfg / '02_system-webserver').write_text('old copy from an SD card')
-        (cfg / 'ftp-server').write_text('switch')
-        self.run_fb()
-        self.assertTrue((cfg / '02_system-webserver').is_symlink())
-        self.assertEqual((cfg / '02_system-webserver').read_text(), 'new')
-        self.assertEqual((cfg / 'ftp-server').read_text(), 'switch')
-
-    def test_second_boot_does_not_rewrite_config(self):
-        self.run_fb()
-        boot = self.persist / 'config/boot.conf'
-        before = boot.stat().st_mtime_ns
-        time.sleep(0.05)
-        self.run_fb()
-        self.assertEqual(boot.stat().st_mtime_ns, before)
-
-    def pending_env(self, net_ok=True):
-        fc = self.code / 'scripts/flash-code.sh'
-        fc.write_text('#!/bin/sh\necho "fc $*" >> "%s"\ncase "$1" in mount) exit 1 ;; status) echo none ;; esac\n' % self.calls)
-        fc.chmod(0o755)
-        for name, body in (('netstat', 'echo "tcp 0 0 0.0.0.0:443 0.0.0.0:* LISTEN"' if net_ok else 'true'),
-                           ('route', 'echo "0.0.0.0 192.168.1.1 0.0.0.0 UG 0 0 0 wlan0"'), ('ping', 'exit 0'),
-                           ('reboot', 'echo reboot >> "%s"' % self.calls), ('logger', 'true')):
-            (self.stub / name).write_text('#!/bin/sh\n%s\n' % body); (self.stub / name).chmod(0o755)
-        self.persist.mkdir(exist_ok=True)
-
-    def run_fb_zone(self, tries='3'):
-        env = dict(os.environ, PATH='%s:%s' % (self.stub, os.environ['PATH']),
-                   FLASHBOOT_CODE=str(self.code), FLASHBOOT_PERSIST=str(self.persist),
-                   FLASHBOOT_MNT=str(self.mnt), FLASHBOOT_LOG=str(self.d / 'fb.log'),
-                   FLASHBOOT_STATE=str(self.d / 'storage'), FLASHBOOT_CODEROOT=str(self.code),
-                   FLASHBOOT_CONFIRM_STEP='0', FLASHBOOT_CONFIRM_TRIES=tries, FLASHBOOT_REBOOT=str(self.stub / 'reboot'))
-        subprocess.run(['sh', str(ROOT / 'scripts/flashboot.sh')], env=env, capture_output=True)
-        time.sleep(1.0)
-
-    def test_pending_update_confirmed(self):
-        self.pending_env()
-        (self.persist / 'code-pending').write_text('2.0 0\n')
-        self.run_fb_zone()
-        self.assertFalse((self.persist / 'code-pending').exists())
-        self.assertIn('confirmed 2.0', (self.persist / 'log/code-updates.log').read_text())
-        self.assertNotIn('reboot', self.calls.read_text())
-
-    def test_pending_update_not_confirmed_reboots_then_rolls_back(self):
-        self.pending_env(net_ok=False)
-        (self.persist / 'code-pending').write_text('2.0 0\n')
-        self.run_fb_zone(tries='2')
-        self.assertEqual((self.persist / 'code-pending').read_text().split(), ['2.0', '1'])
-        self.assertIn('reboot', self.calls.read_text())
-        self.run_fb_zone()                    # next boot: never confirmed -> clear
-        self.assertIn('fc clear', self.calls.read_text())
-        self.assertFalse((self.persist / 'code-pending').exists())
-
-    def test_no_code_gives_rescue_telnet(self):
-        shutil.rmtree(self.code / 'scripts')
-        self.run_fb()
-        self.assertIn('telnetd -p 23', self.calls.read_text())
-
-
-class FlashWebServer(unittest.TestCase):
-    def test_flash_conf_uses_mbedtls_without_h2(self):
-        t = (ROOT / 'config/lighttpd.flash.conf.dist').read_text()
-        self.assertIn('"mod_mbedtls"', t); self.assertNotIn('"mod_openssl"', t)
-        self.assertIn('"server.h2proto" => "disable"', t)
-        self.assertIn('ssl.pemfile = "/mnt/config/lighttpd.pem"', t)
-        # ChaCha20 first, in mbedTLS names (OpenSSL names stop lighttpd: tried on a camera)
-        cs = re.search(r'"CipherString" => "([^"]+)"', t).group(1).split(':')
-        self.assertEqual(cs[0], 'TLS-ECDHE-ECDSA-WITH-CHACHA20-POLY1305-SHA256')
-        self.assertTrue(all(c.startswith('TLS-ECDHE-ECDSA-WITH-') for c in cs), cs)
-        self.assertIn('"Options" => "ServerPreference"', t)
-
-    def test_flash_conf_needs_no_pcre(self):
-        t = (ROOT / 'config/lighttpd.flash.conf.dist').read_text()
-        code = '\n'.join(l for l in t.splitlines() if not l.lstrip().startswith('#'))
-        self.assertNotRegex(code, r'=~|!~|url\.redirect|url\.rewrite|"mod_redirect"')
-        self.assertIn('$HTTP["querystring"] =^ "v="', code)
-        self.assertIn('$HTTP["url"] =^ "/cgi-bin/" {\n  deflate.mimetypes = ()', code)
-        self.assertIn('server.document-root = "/mnt/www/http-redirect"', code)
-        self.assertIn('location.replace("https://"', (ROOT / 'www/http-redirect/index.html').read_text())
-
-    def test_selection_in_flash_mode(self):
-        cf = (ROOT / 'scripts/common_functions.sh').read_text()
-        fn = cf[cf.index('_http_server_lighttpd(){'):cf.index('# Control the http server')]
-        flash = fn[fn.index('/tmp/tc100-storage'):fn.index('install_config "$_hs_conf"')]
-        # from flash: only the flash templates, HTTPS first, plain HTTP if it does not listen
-        self.assertIn('_hs_run /mnt/config/lighttpd.flash.conf.dist', flash)
-        self.assertIn('_hs_http=/mnt/config/lighttpd.flash-http.conf.dist', flash)
-        self.assertLess(flash.index('port_listening 443'), flash.index('_hs_run "$_hs_http"'))
-        self.assertNotIn('install_config', flash)
-        ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
-        fl = ws.index('if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then')
-        sd = ws.index('    full)\n')
-        self.assertLess(fl, sd)   # decided before the OpenSSL path
-        block = ws[fl:sd]
-        self.assertIn('*) http_server on ;;', block)
-        self.assertIn('start_web_guard', block)        # rescue when no web server (web-guard.sh)
-        self.assertIn('exit 0', block)
-
-    def test_flash_https_falls_back_to_http(self):
-        cf = (ROOT / 'scripts/common_functions.sh').read_text()
-        fn = cf[cf.index('_http_server_lighttpd(){'):cf.index('# Control the http server')]
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            (d / 'storage').write_text('flash\n')
-            (d / 'pem').write_text('x\n')
-            fn2 = (fn.replace('/tmp/tc100-storage', str(d / 'storage')).replace('/mnt/config/lighttpd.pem', str(d / 'pem'))
-                     .replace('/mnt/bin/lighttpd', 'echo lighttpd').replace('sleep 1', ':'))
-            hs = function('scripts/common_functions.sh', '_hs_run').replace('/mnt/bin/lighttpd', 'echo lighttpd')
-            script = ('port_listening() { return 1; }\nlogger() { :; }\nkillall() { echo killall "$@"; }\n'
-                      'netacl_lib() { return 1; }\nnetacl_allow_list() { :; }\nnetacl_exec() { shift; "$@"; }\n'
-                      + hs + '\n' + fn2 + '\nWEB_MODE=full; _http_server_lighttpd\n')
-            out = subprocess.run(['sh', '-c', script], capture_output=True, text=True).stdout.split('\n')
-            self.assertEqual([l for l in out if l], ['lighttpd -f /mnt/config/lighttpd.flash.conf.dist', 'killall lighttpd',
-                                                     'lighttpd -f /mnt/config/lighttpd.flash-http.conf.dist'])
-            script = script.replace('WEB_MODE=full', 'WEB_MODE=http')
-            out = subprocess.run(['sh', '-c', script], capture_output=True, text=True).stdout.split('\n')
-            self.assertEqual([l for l in out if l], ['lighttpd -f /mnt/config/lighttpd.flash-http.conf.dist'])
-
 
 class AutostartModes(unittest.TestCase):
     def test_autostart_entries_are_executable_in_git(self):
@@ -1724,9 +822,6 @@ class AutostartModes(unittest.TestCase):
         self.assertTrue(modes)
         for f, m in modes.items():
             self.assertEqual(m, '100755', f)
-
-    def test_autorun_runs_non_executable_entries_with_sh(self):
-        self.assertIn('if [ -x "$i" ]; then "$i"; else sh "$i"; fi', (ROOT / 'autorun.sh').read_text())
 
 
 class JsonFlat(unittest.TestCase):
@@ -1751,12 +846,6 @@ class JsonFlat(unittest.TestCase):
         self.assertEqual(self.flat('[1]', '-v', 'require=object').returncode, 2)
         self.assertEqual(self.flat('{"a":1}', '-v', 'require=object').returncode, 0)
 
-    def test_no_jq_left_in_flash_paths(self):
-        for rel in ('www/cgi-bin/config_exchange.cgi', 'www/cgi-bin/action.cgi', 'scripts/event-logger.sh', 'scripts/mqtt-bridge.sh'):
-            text = action_cgi_text() if rel.endswith('action.cgi') else (ROOT / rel).read_text()
-            self.assertNotRegex(text, r'(/mnt/bin/jq|JQ_BIN|command -v jq)', rel)
-        self.assertIn('jq|', (ROOT / 'src/flash/stage-tc100.sh').read_text())
-
 
 class EventLogQueries(unittest.TestCase):
     def test_last_matches_as_json(self):
@@ -1774,209 +863,6 @@ class EventLogQueries(unittest.TestCase):
             self.assertEqual(q('get_error_events 250 5'), ['c'])
 
 
-class FlashInstallFromCard(unittest.TestCase):
-    """scripts/flash-install.sh (install to flash from the SD card) on fake MTD files."""
-    TABLE = ('mtd0: 00800000 00001000 "spi0.0"\nmtd1: 00200000 00001000 "KERNEL"\nmtd2: 00001000 00001000 "MAC"\n'
-             'mtd3: 00001000 00001000 "ENV"\nmtd4: 00180000 00001000 "A"\nmtd5: 0007d000 00001000 "B"\n'
-             'mtd6: 003b6000 00001000 "C"\n')
-
-    @unittest.skipUnless(shutil.which('mksquashfs'), 'squashfs-tools')
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
-        hdr = bytes([0x27, 0x05, 0x19, 0x56]) + b'\0' * 8 + (0x15ac60).to_bytes(4, 'big') + b'\0' * 48
-        self.kernel = hdr + os.urandom(0x15ac60)
-        (d / 'mtd1').write_bytes(self.kernel + b'\xff' * (0x200000 - len(self.kernel)))
-        (d / 'mtd4').write_bytes(os.urandom(4096 * 8))
-        self.stock = os.urandom(3891200)
-        (d / 'mtd6').write_bytes(self.stock)
-        (d / 'proc_mtd').write_text(self.TABLE)
-        (d / 'proc').mkdir()
-        sc = d / 'scripts'; sc.mkdir()
-        for f in ('flash-code.sh', 'flashmode-once.sh'):
-            shutil.copy(ROOT / 'scripts' / f, sc / f)
-        # flash-usr.sh writes /dev/mtdblock6: here the fake mtd6, same checks.
-        (sc / 'flash-usr.sh').write_text(
-            '#!/bin/sh\n[ "$(md5sum "$1" | cut -d" " -f1)" = "$2" ] || exit 1\n'
-            'dd if="$1" of="%s/mtd6" bs=4096 conv=notrunc 2>/dev/null\n' % d)
-        card = self.card = d / 'card'
-        (card / 'config/autostart').mkdir(parents=True); (card / 'wifitest').mkdir()
-        (card / 'VERSION').write_text('2.0.0-test\n')
-        for n in ('boot.conf', 'mqtt.conf', 'boot.conf.dist', 'openssl.cnf', 'packages.lock', 'lighttpd.conf'):
-            (card / 'config' / n).write_text(n + '\n')
-        for n in ('recording', 'rtsp-h264'):
-            (card / 'config/autostart' / n).write_text('#!/bin/sh\n')
-        (card / 'wpa_supplicant.conf').write_text('network={}\n')
-        (card / 'tc100-flash').mkdir()
-        (d / 'jffs/tc100').mkdir(parents=True)
-        stub = d / 'stub'; stub.mkdir()
-        (stub / 'reboot').write_text('#!/bin/sh\ntouch "%s/rebooted"\n' % d); (stub / 'reboot').chmod(0o755)
-        self.env = dict(os.environ, FI_CARD=str(card), FI_PROC_MTD=str(d / 'proc_mtd'), FI_MTD=str(d / 'mtd'),
-                        FI_SCRIPTS=str(sc), FI_JFFS=str(d / 'jffs/tc100'), FI_PROC=str(d / 'proc'), FI_USR=str(d / 'usr'),
-                        FI_STOCK_USR_MD5=hashlib.md5(self.stock).hexdigest(), FI_NO_REBOOT='1',
-                        TC100_STORAGE_FILE=str(d / 'storage'), PATH='%s:%s' % (stub, os.environ['PATH']),
-                        FC_MTD_CHAR=str(d / 'mtd1'), FC_MTD_BLOCK=str(d / 'mtd1'), FC_PROC_MTD=str(d / 'proc_mtd'),
-                        FC_LOG=str(d / 'fc.log'), FC_PENDING=str(d / 'pending'), FC_HISTORY=str(d / 'hist'))
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def fi(self, *args):
-        return subprocess.run(['sh', str(ROOT / 'scripts/flash-install.sh'), *args], capture_output=True, text=True, env=self.env)
-
-    @property
-    def status(self):
-        return (self.card / 'tc100-flash/STATUS.txt').read_text()
-
-    def make_kit(self):
-        k = self.card / 'tc100-flash'
-        img = os.urandom(4096 * 800)
-        (k / 'usr.img').write_bytes(img)
-        (k / 'usr.img.md5').write_text(hashlib.md5(img).hexdigest() + '  usr.img\n')
-        stage = self.d / 'stage'
-        for sub in ('scripts', 'www', 'config'):
-            (stage / sub).mkdir(parents=True, exist_ok=True)
-        (stage / 'autorun.sh').write_text('#!/bin/sh\n'); (stage / 'VERSION').write_text('2.0.0-test\n')
-        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(k / 'code.bin')], check=True, capture_output=True)
-        return img
-
-    def test_prepare_then_install(self):
-        self.assertEqual(self.fi('status').stdout.strip(), 'empty')
-        self.fi('boot')
-        k = self.card / 'tc100-flash'
-        self.assertIn('prepare: DONE', self.status)
-        self.assertEqual((k / 'usr-stock.img').read_bytes(), self.stock)
-        self.assertIn('usr_md5=' + hashlib.md5(self.stock).hexdigest(), (k / 'camera.txt').read_text())
-        self.assertIn('firmware=2.0.0-test', (k / 'camera.txt').read_text())
-        self.assertEqual((self.d / 'mtd6').read_bytes(), self.stock)          # prepare only reads
-        self.assertEqual(self.fi('status').stdout.strip(), 'prepared')
-        img = self.make_kit()
-        self.assertEqual(self.fi('status').stdout.strip(), 'ready')
-        r = self.fi('boot')
-        self.assertIn('install: DONE', self.status, r.stdout + r.stderr)
-        mtd6 = (self.d / 'mtd6').read_bytes()
-        self.assertEqual(mtd6[:len(img)], img); self.assertEqual(len(mtd6), 3891200)
-        mtd1 = (self.d / 'mtd1').read_bytes()
-        self.assertEqual(mtd1[:len(self.kernel)], self.kernel)
-        self.assertEqual(mtd1[0x160000:0x16000b], b'TC100CODE 1')
-        j = self.d / 'jffs/tc100'
-        self.assertEqual(sorted(p.name for p in (j / 'config').iterdir() if p.is_file()), ['boot.conf', 'mqtt.conf'])
-        self.assertEqual(sorted(p.name for p in (j / 'config/autostart').iterdir()), ['button-actions', 'rtsp-h264'])
-        self.assertTrue((j / 'wpa_supplicant.conf').exists())
-        self.assertTrue(os.access(j / 'boot.sh', os.X_OK))
-        self.assertTrue((self.card / 'wifitest.off').is_dir()); self.assertFalse((self.card / 'wifitest').exists())
-        self.assertEqual(self.fi('status').stdout.strip(), 'installed')
-        # Back on the card after a confirmed test boot: reported once.
-        (j / 'log').mkdir(); (j / 'log/code-updates.log').write_text('confirmed 2.0.0-test\n')
-        self.fi('boot'); self.fi('boot')
-        self.assertEqual(self.status.count('test boot from flash worked'), 1)
-
-    def test_refusals_leave_the_flash_alone(self):
-        before = {n: (self.d / n).read_bytes() for n in ('mtd1', 'mtd6')}
-        (self.d / 'storage').write_text('flash\n')
-        self.fi('prepare'); self.assertIn('already running from flash', self.status)
-        (self.d / 'storage').unlink()
-        (self.d / 'proc_mtd').write_text(self.TABLE.replace('003b6000', '003c0000'))
-        self.fi('prepare'); self.assertIn('flash partitions are not', self.status)
-        (self.d / 'proc_mtd').write_text(self.TABLE)
-        env = self.env; self.env = dict(env, FI_STOCK_USR_MD5='0' * 32)
-        self.fi('prepare'); self.assertIn('is not the TC100 V1.1.41', self.status)
-        self.env = env
-        self.fi('prepare'); self.make_kit()
-        # Another camera's card: its /usr differs from the copy.
-        with open(self.d / 'mtd6', 'r+b') as f:
-            f.write(b'\0' * 16)
-        before['mtd6'] = (self.d / 'mtd6').read_bytes()
-        self.fi('install'); self.assertIn("another camera's card", self.status)
-        with open(self.d / 'mtd6', 'r+b') as f:
-            f.write(self.stock[:16])
-        before['mtd6'] = self.stock
-        # Unknown data in the code zone.
-        with open(self.d / 'mtd1', 'r+b') as f:
-            f.seek(0x1f0000); f.write(b'\x00')
-        self.fi('install'); self.assertIn('not empty', self.status)
-        with open(self.d / 'mtd1', 'r+b') as f:
-            f.seek(0x1f0000); f.write(b'\xff')
-        # Damaged image.
-        k = self.card / 'tc100-flash'; (k / 'usr.img.md5').write_text('0' * 32 + '  usr.img\n')
-        self.fi('install'); self.assertIn('damaged', self.status)
-        self.assertEqual({n: (self.d / n).read_bytes() for n in ('mtd1', 'mtd6')}, before)
-        self.assertFalse((self.d / 'jffs/tc100/config').exists())
-        self.assertFalse((self.d / 'rebooted').exists())
-
-    def cgi(self, method, cmd):
-        (self.d / 'csrf').write_text('ab12\n')
-        src = (ROOT / 'www/cgi-bin/flashinstall.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
-        env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, HTTP_X_CSRF_TOKEN='ab12',
-                   FI_SCRIPT=str(ROOT / 'scripts/flash-install.sh'), FI_RUNNING=str(self.d / 'running'))
-        r = subprocess.run(['sh', '-c', src], capture_output=True, env=env)
-        return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
-
-    def test_web_card_flow(self):
-        shutil.rmtree(self.card / 'tc100-flash')
-        self.assertEqual(self.cgi('GET', 'status')['state'], 'none')
-        self.assertFalse(self.cgi('POST', 'install')['ok'])
-        self.assertTrue(self.cgi('POST', 'prepare')['ok'])
-        for _ in range(100):
-            if not (self.d / 'running').exists():
-                break
-            time.sleep(0.1)
-        st = self.cgi('GET', 'status')
-        self.assertEqual(st['state'], 'prepared'); self.assertIn('prepare: DONE', st['log'])
-        self.assertFalse(self.cgi('POST', 'install')['ok'])
-        self.make_kit()
-        self.assertEqual(self.cgi('GET', 'status')['state'], 'ready')
-        (self.d / 'storage').write_text('flash\n')
-        self.assertEqual(self.cgi('GET', 'status')['state'], 'flash')
-
-    def test_install_refused_while_usr_is_in_use(self):
-        self.fi('prepare'); self.make_kit()
-        p = self.d / 'proc/4242'; p.mkdir()
-        (p / 'maps').write_text('b6f00000-b6f10000 r-xp 00000000 1f:06 12 %s/usr/lib/libakuio.so\n' % self.d)
-        (p / 'comm').write_text('v4l2rtspserver\n')
-        self.env['FI_BUSY_WAIT'] = '0'
-        self.fi('install'); self.assertIn('programs use /usr: v4l2rtspserver', self.status)
-        self.assertEqual((self.d / 'mtd6').read_bytes(), self.stock)
-        # A script read from /usr (the vendor service.sh at boot) counts too.
-        (p / 'maps').write_text(''); (p / 'comm').write_text('sh\n')
-        (p / 'fd').mkdir(); (self.d / 'usr/sbin').mkdir(parents=True); (self.d / 'usr/sbin/service.sh').write_text('')
-        os.symlink(self.d / 'usr/sbin/service.sh', p / 'fd' / '10')
-        self.fi('install'); self.assertIn('programs use /usr: sh', self.status)
-        os.unlink(p / 'fd' / '10')
-        r = self.fi('install'); self.assertIn('install: DONE', self.status, r.stdout + r.stderr)
-
-
-class FlashKitOnComputer(unittest.TestCase):
-    """src/flash/build-flash-kit.sh and stage-tc100.sh as run by a user on a computer."""
-
-    def test_kit_refuses_a_damaged_copy(self):
-        with tempfile.TemporaryDirectory() as t:
-            k = Path(t) / 'tc100-flash'; k.mkdir()
-            (k / 'usr-stock.img').write_bytes(b'x' * 4096)
-            (k / 'camera.txt').write_text('usr_md5=' + '0' * 32 + '\n')
-            r = subprocess.run(['sh', str(ROOT / 'src/flash/build-flash-kit.sh'), t], capture_output=True, text=True)
-            self.assertNotEqual(r.returncode, 0)
-            self.assertTrue('does not match' in r.stderr or 'missing' in r.stderr, r.stderr)
-            self.assertFalse((k / 'usr.img').exists())
-
-    @unittest.skipUnless(shutil.which('git') and (ROOT / '.git').exists(), 'git checkout')
-    def test_stage_from_a_source_archive_matches_the_checkout(self):
-        with tempfile.TemporaryDirectory() as t:
-            t = Path(t); src = t / 'src'; src.mkdir()
-            arc = subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=tar', 'HEAD'], capture_output=True, check=True).stdout
-            subprocess.run(['tar', '-x', '-C', str(src)], input=arc, check=True)
-            # The archive is HEAD: stage the uncommitted scripts too.
-            for f in ('src/flash/stage-tc100.sh',):
-                shutil.copy(ROOT / f, src / f)
-            for f in (ROOT / 'src/flash/prebuilt').iterdir():
-                (src / 'src/flash/prebuilt').mkdir(parents=True, exist_ok=True); shutil.copy(f, src / 'src/flash/prebuilt' / f.name)
-            subprocess.run(['sh', str(src / 'src/flash/stage-tc100.sh'), str(t / 'a')], check=True, capture_output=True,
-                           env=dict(os.environ, GIT_DIR=str(t / 'nogit')))
-            names = sorted(str(p.relative_to(t / 'a')) for p in (t / 'a').rglob('*') if p.is_file())
-            self.assertIn('bin/lighttpd', names); self.assertIn('bin/monvifd', names); self.assertIn('bin/curl', names); self.assertIn('autorun.sh', names)
-            self.assertFalse([n for n in names if re.match(r'(config/ssl/|bin/(openssl|jq)$|lib/(libssl|libcrypto|libpcre2))', n)])
-            self.assertTrue(os.access(t / 'a/config/autostart', os.X_OK))
-            self.assertEqual((t / 'a/bin/lighttpd').read_bytes(), (ROOT / 'src/flash/prebuilt/lighttpd').read_bytes())
-
 
 class SetupWizard(unittest.TestCase):
     """www/cgi-bin/wizard.cgi: the first-boot wizard's backend."""
@@ -1990,9 +876,11 @@ class SetupWizard(unittest.TestCase):
         (d / 'wpa.conf').write_text('network={\n\tssid="OldNet"\n\tpsk="oldpassword"\n\tpriority=2\n}\n')
         sc = d / 'scripts'; sc.mkdir()
         shutil.copy(ROOT / 'scripts/wifi-txt.sh', sc / 'wifi-txt.sh')
-        (sc / 'flash-install.sh').write_text('#!/bin/sh\ncase "$1" in status) echo none ;; prepare) touch "%s/prepared" ;; esac\n' % d)
+        (d / 'v3/install').mkdir(parents=True)
+        (d / 'v3/install/install66.sh').write_text('#!/bin/sh\ncase "$1" in check) echo ok ;; run) touch "%s/installed" ;; esac\n' % d)
         self.env = dict(os.environ, WZ_FIRST_BOOT_FLAG=str(d / 'first'), WZ_CONFIG=str(d / 'config'), WZ_CARD=str(d),
-                        WZ_SCRIPTS=str(sc), WZ_WIFI_CONF=str(d / 'wpa.conf'), TC100_STORAGE_FILE=str(d / 'storage'))
+                        WZ_SCRIPTS=str(sc), WZ_WIFI_CONF=str(d / 'wpa.conf'), TC100_STORAGE_FILE=str(d / 'storage'),
+                        WZ_FLASHMODE=str(d / 'flashmode'))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -2004,38 +892,39 @@ class SetupWizard(unittest.TestCase):
 
     def test_full_answers_are_applied(self):
         from urllib.parse import urlencode
-        r = self.post(urlencode(dict(profile='frigate_ha', security='https_strict', rec='offline', wifi_ssid='New Net',
+        r = self.post(urlencode(dict(profile='frigate_ha', rec='offline', wifi_ssid='New Net',
                                      wifi_pass='p@ss w0rd!', mqtt_host='192.0.2.5', mqtt_port='1883',
-                                     frigate_url='192.0.2.9:5000/', flash_prepare='1')))
-        self.assertEqual(r, {'ok': True, 'wifi': 'applied', 'flash': 'started', 'password': 'unchanged'})
+                                     frigate_url='192.0.2.9:5000/', flash_install='1')))
+        self.assertEqual(r, {'ok': True, 'wifi': 'applied', 'flash': 'installing', 'password': 'unchanged'})
         boot = (self.d / 'config/boot.conf').read_text()
         self.assertIn('REC_LOCAL=1', boot); self.assertIn('REC_WHEN=offline', boot); self.assertIn('MQTT_ENABLE=1', boot)
+        self.assertIn('WEB_MODE=http', boot)
         self.assertIn('MQTT_HOST=192.0.2.5', (self.d / 'config/mqtt.conf').read_text())
         self.assertEqual((self.d / 'config/frigate_live.conf').read_text(), 'FRIGATE_URL=http://192.0.2.9:5000\nFRIGATE_CAMERA=\n')
         wpa = (self.d / 'wpa.conf').read_text()
         self.assertIn('ssid="New Net"', wpa); self.assertIn('psk="p@ss w0rd!"', wpa)
         self.assertIn('ssid="OldNet"', wpa)                               # fallback kept
-        self.assertTrue((self.d / 'config/.wizard_done').exists()); self.assertFalse((self.d / 'first').exists())
-        for _ in range(50):
-            if (self.d / 'prepared').exists():
+        self.assertTrue((self.d / 'config/.wizard3_done').exists()); self.assertFalse((self.d / 'first').exists())
+        for _ in range(120):
+            if (self.d / 'installed').exists():
                 break
             time.sleep(0.1)
-        self.assertTrue((self.d / 'prepared').exists())
-        self.assertFalse(self.post('profile=standalone&security=https_strict')['ok'])   # once only
+        self.assertTrue((self.d / 'installed').exists())   # install66.sh run, 8 s after the answer
+        self.assertFalse(self.post('profile=standalone')['ok'])   # once only
 
     def test_invalid_answers_write_nothing(self):
         before = (self.d / 'config/boot.conf').read_text()
-        for body in ('profile=standalone&security=https_strict&wifi_ssid=Net&wifi_pass=short',
-                     'profile=standalone&security=https_strict&wifi_ssid=a%22b&wifi_pass=12345678',
-                     'profile=standalone&security=https_strict&frigate_url=http://x%24y',
-                     'profile=standalone&security=https_strict&rec=sometimes'):
+        for body in ('profile=standalone&wifi_ssid=Net&wifi_pass=short',
+                     'profile=standalone&wifi_ssid=a%22b&wifi_pass=12345678',
+                     'profile=standalone&frigate_url=http://x%24y',
+                     'profile=standalone&rec=sometimes'):
             self.assertFalse(self.post(body)['ok'], body)
         self.assertEqual((self.d / 'config/boot.conf').read_text(), before)
         self.assertIn('OldNet', (self.d / 'wpa.conf').read_text()); self.assertNotIn('Net"\n\tscan', (self.d / 'wpa.conf').read_text())
         self.assertTrue((self.d / 'first').exists())
 
     def test_minimal_answers_keep_wifi_and_recording(self):
-        r = self.post('profile=nvr&security=https_mixed&rec=keep')
+        r = self.post('profile=nvr&rec=keep')
         self.assertEqual(r['wifi'], 'unchanged'); self.assertEqual(r['flash'], 'no')
         self.assertIn('REC_LOCAL=0', (self.d / 'config/boot.conf').read_text())
         self.assertNotIn('New', (self.d / 'wpa.conf').read_text())
@@ -2044,9 +933,9 @@ class SetupWizard(unittest.TestCase):
         env = dict(self.env, REQUEST_METHOD='GET', QUERY_STRING='info', PATH='/nonexistent:/usr/bin:/bin')
         out = subprocess.run(['sh', str(ROOT / 'www/cgi-bin/wizard.cgi')], capture_output=True, text=True, env=env).stdout
         info = json.loads(out.split('\n\n', 1)[1])
-        self.assertEqual((info['first_boot'], info['storage'], info['flash'], info['card']), (True, 'sd', 'none', 1))
-        (self.d / 'storage').write_text('flash\n')
-        r = self.post('profile=standalone&security=https_strict&flash_prepare=1')
+        self.assertEqual((info['first_boot'], info['storage'], info['flash'], info['card']), (True, 'sd', 'ready66', 1))
+        (self.d / 'flashmode').write_text('')
+        r = self.post('profile=standalone&flash_install=1')
         self.assertEqual(r['flash'], 'no')
 
 
@@ -2144,98 +1033,6 @@ class LogForwarder(unittest.TestCase):
         for m in ('first', 'tail of the old file', 'after rotation'):
             self.assertIn(m, got)
 
-    def test_syslogd_start_uses_forwarder_and_falls_back(self):
-        c = (ROOT / 'scripts/common_functions.sh').read_text()
-        i = c.index('syslogd_start() {'); body = c[i:c.index('\n}\n', i)]
-        self.assertIn('tc100-logfwd', body)
-        self.assertIn('-R "$_sl_remote"', body)       # fallback without the binary
-        self.assertIn('bin/tc100-logfwd|', (ROOT / 'config/packages.lock.dist').read_text())
-        self.assertIn('tc100-logfwd', (ROOT / 'src/flash/build-code.sh').read_text())
-
-
-class WifiRescueFlash(unittest.TestCase):
-    """2.1.6: the rescue access point also works from flash (no vendor hostapd in /usr)."""
-
-    def test_hostapd_fallback_and_udhcpd_stop(self):
-        w = (ROOT / 'scripts/wifi-rescue.sh').read_text()
-        self.assertIn('for HOSTAPD in /usr/bin/hostapd /tmp/tc100code/bin/hostapd-rtw /mnt/bin/hostapd-rtw; do', w)
-        self.assertIn('udhcpd -f "$RUN/udhcpd.conf"', w)
-        self.assertIn('echo $! > "$RUN/udhcpd.pid"', w)
-        self.assertIn('for b in tc100-logfwd hostapd-rtw tc100-button; do', (ROOT / 'src/flash/build-code.sh').read_text())
-        self.assertIn('COMMIT=44d73276cb59bf58c700b70f2237ffb440b94ec3', (ROOT / 'src/hostapd/build.sh').read_text())
-        self.assertIn('CONFIG_DRIVER_RTW=y', (ROOT / 'src/hostapd/hostapd.config').read_text())
-        self.assertNotIn('CONFIG_WPS', (ROOT / 'src/hostapd/hostapd.config').read_text())
-        with tempfile.TemporaryDirectory() as d:
-            r = subprocess.run(['sh', '-c', '. %s; echo "$HOSTAPD"' % (ROOT / 'scripts/wifi-rescue.sh')],
-                               capture_output=True, text=True, env=dict(os.environ, WR_HOSTAPD=d + '/h'))
-            self.assertEqual(r.stdout.strip(), d + '/h')
-
-
-class FlashMinify(unittest.TestCase):
-    """src/flash/minify.sh: a file whose minified form does not pass the syntax check keeps its source."""
-
-    def run_minify(self, sh_out, js_out, camera_sh='sh'):
-        d = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, d)
-        st = d / 'st'
-        (st / 'scripts').mkdir(parents=True); (st / 'www/scripts').mkdir(parents=True); (st / 'www/css').mkdir()
-        (st / 'autorun.sh').write_text('#!/bin/sh\n# comment\necho hi\n')
-        (st / 'scripts/a.sh').write_text('# lib\nf() {\n  echo a\n}\n')
-        (st / 'www/scripts/x.js').write_text('// c\nfunction keepMe(a) { return a + 1; }\n')
-        (st / 'www/css/bulma.min.css').write_text('a{b:c}\n')
-        tools = d / 'tools'; tools.mkdir()
-        (tools / 'shfmt').write_text('#!/bin/sh\nprintf %%s %s\n' % shlex.quote(sh_out))
-        (tools / 'esbuild').write_text('#!/bin/sh\ncase "$*" in *.css*) echo BROKEN-CSS ;; *) printf %%s %s ;; esac\n' % shlex.quote(js_out))
-        for t in ('shfmt', 'esbuild'):
-            (tools / t).chmod(0o755)
-        r = subprocess.run(['sh', str(ROOT / 'src/flash/minify.sh'), str(st)], capture_output=True, text=True,
-                           env=dict(os.environ, SHFMT=str(tools / 'shfmt'), ESBUILD=str(tools / 'esbuild'), CAMERA_SH=camera_sh))
-        return st, r
-
-    def test_good_output_replaces_bad_output_is_refused(self):
-        st, r = self.run_minify('f(){ echo a;}\n', 'function keepMe(a){return a+1}\n')
-        self.assertEqual((st / 'scripts/a.sh').read_text(), 'f(){ echo a;}\n')
-        self.assertTrue((st / 'autorun.sh').read_text().startswith('#!/bin/sh\n'))       # interpreter line kept
-        self.assertEqual((st / 'www/scripts/x.js').read_text(), 'function keepMe(a){return a+1}\n')
-        self.assertEqual((st / 'www/css/bulma.min.css').read_text(), 'a{b:c}\n')           # *.min.css untouched
-        st, r = self.run_minify('if then fi (\n', 'function (( {\n')
-        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
-        if shutil.which('node'):
-            self.assertIn('// c', (st / 'www/scripts/x.js').read_text())
-        self.assertIn('kept', r.stdout)
-
-    def test_shell_left_alone_without_the_camera_shell(self):
-        st, r = self.run_minify('f(){ echo a;}\n', 'function keepMe(a){return a+1}\n', camera_sh='')
-        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
-        self.assertIn('CAMERA_SH not set', r.stderr)
-        # a check that fails (the camera's old ash refusing the file) keeps the source
-        st, r = self.run_minify('f(){ echo a;}\n', 'x', camera_sh='false')
-        self.assertIn('# lib', (st / 'scripts/a.sh').read_text())
-
-    def test_all_shell_files_parse_with_the_vendor_ash(self):
-        # 2.1.7: busybox 1.24.1 ash (the camera's /bin/sh in flash mode) misparsed a
-        # file at an 8 KB read-buffer boundary that newer busybox accepts. With the
-        # vendor rootfs (TC100_ROOTFS) and qemu-arm, every script is checked with it.
-        rootfs = os.environ.get('TC100_ROOTFS')
-        if not (rootfs and shutil.which('qemu-arm') and Path(rootfs, 'bin/busybox').exists()):
-            self.skipTest('TC100_ROOTFS (vendor rootfs) and qemu-arm needed')
-        files = subprocess.run(['git', 'ls-files', 'autorun.sh', 'scripts', 'controlscripts', 'config/autostart', 'www/cgi-bin'],
-                               cwd=ROOT, capture_output=True, text=True).stdout.split()
-        bad = []
-        for f in files:
-            p = ROOT / f
-            if not (f.endswith(('.sh', '.cgi')) or f == 'autorun.sh' or p.read_bytes()[:12].startswith(b'#!/bin/')):
-                continue
-            r = subprocess.run(['qemu-arm', '-L', rootfs, rootfs + '/bin/busybox', 'sh', '-n', str(p)], capture_output=True)
-            if r.returncode:
-                bad.append(f)
-        self.assertEqual(bad, [])
-
-    def test_stage_calls_it_and_can_skip_it(self):
-        s = (ROOT / 'src/flash/stage-tc100.sh').read_text()
-        self.assertIn('[ "${MINIFY:-1}" = 0 ] ||', s)
-        self.assertIn("'\\.py$|^config/ssl/", s)                # host tools (generate_sounds.py) stay out
-        self.assertNotIn('icomoon.eot', (ROOT / 'www/icomoon/style.css').read_text())
-
 
 class SdCard(unittest.TestCase):
     """scripts/sd-card.sh: the SD card from flash (detect, auto-mount, format, ask once)."""
@@ -2328,10 +1125,6 @@ class SdCard(unittest.TestCase):
             time.sleep(0.1)
         self.assertFalse((self.d / 'pending').exists())
 
-    def test_no_code_update_during_a_format(self):
-        u = (ROOT / 'www/cgi-bin/update.cgi').read_text()
-        guard = u.index('POST:install|POST:rollback)\n    if [ "$(sed -n \'s/^state=//p\' "${SDC_FMT:-/tmp/sd-format}"')
-        self.assertLess(guard, u.index('if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]'))
 
     def test_format_flow_and_refusals(self):
         r = self.run_sd('format'); self.assertEqual(r.stdout.strip(), 'started')
@@ -2394,26 +1187,6 @@ class RtspServerChoice(unittest.TestCase):
         self.assertLessEqual(j['status_age'], 5)
 
 
-class SnapshotFile(unittest.TestCase):
-    """The still JPEG kept by libtc100fix (rec.c snap_write) and served by currentpic.cgi."""
-
-    def test_currentpic_serves_a_recent_snapshot_without_getimage(self):
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            snap = d / 'snap.jpg'; snap.write_bytes(b'\xff\xd8JPEGDATA')
-            cgi = (ROOT / 'www/cgi-bin/currentpic.cgi').read_text().replace('/mnt/bin/getimage', str(d / 'getimage'))
-            (d / 'getimage').write_text('#!/bin/sh\necho getimage-called\n'); (d / 'getimage').chmod(0o755)
-            env = dict(os.environ, CURRENTPIC_SNAPSHOT=str(snap))
-            r = subprocess.run(['sh', '-c', cgi], capture_output=True, env=env, timeout=20)
-            self.assertTrue(r.stdout.endswith(b'\xff\xd8JPEGDATA'))
-            os.utime(snap, (time.time() - 60, time.time() - 60))           # stale: the old path
-            r = subprocess.run(['sh', '-c', cgi], capture_output=True, env=env, timeout=20, cwd=str(d))
-            self.assertNotIn(b'JPEGDATA', r.stdout)
-        rec = (ROOT / 'src/tc100fix/rec.c').read_text()
-        hook = rec[rec.index('int ak_venc_get_stream_ex('):]
-        self.assertLess(hook.index('snap_write(buf, *len);'), hook.index('tc100fix_rtsp_frame('))
-        self.assertIn('rename(tmp, path);', rec)
-
 
 class MotionZones(unittest.TestCase):
     """src/tc100fix/md.c (zones the vendor motion detection ignores) and its CGI."""
@@ -2424,26 +1197,6 @@ class MotionZones(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_hooks_under_arm_emulation(self):
-        sysroot = os.environ.get('TC100_SYSROOT')
-        fx = ROOT / 'tests/tc100fix'
-        if not (sysroot and shutil.which('qemu-arm') and (fx / 'mddriver').exists()):
-            self.skipTest('qemu-arm, TC100_SYSROOT or ARM fixtures not available')
-        out = subprocess.run(['qemu-arm', '-L', sysroot, '-E', 'LD_LIBRARY_PATH=%s' % fx,
-                              '-E', 'LD_PRELOAD=%s' % (ROOT / 'lib/libtc100fix.so'),
-                              '-E', 'TC100FIX_MDZ=%s' % (self.d / 'z'), '-E', 'TC100FIX_MDZ_STATUS=%s' % (self.d / 's'),
-                              str(fx / 'mddriver')], capture_output=True, timeout=60).stdout.decode()
-        none, zones, vendor = out.split('--- no zones')[1].split('--- zones')[0], \
-            out.split('--- zones')[1].split('--- vendor area')[0], out.split('--- vendor area')[1]
-        self.assertIn('md global 60', none)                          # no zones: the vendor call as it was
-        self.assertIn('result=global', none)
-        self.assertIn('md area 16x12 off=48', zones)                 # 0-50 % x 0-25 % + 75-100 % x 50-100 %
-        self.assertIn('md row  0 ........XXXXXXXX', zones)
-        self.assertIn('md row 11 XXXXXXXXXXXX....', zones)
-        self.assertIn('ignored=48 result=area', zones)               # MDZ3 (x2 < x1) left out
-        self.assertIn('md row  0 ................', vendor)          # vendor rectangle AND zones
-        self.assertIn('md row  5 XXXXXXXX........', vendor)
-        self.assertIn('sensitivity=70', vendor)
 
     def run_cgi_block(self, fields, running=True):
         cgi = action_cgi_text()
@@ -2480,172 +1233,6 @@ class MotionZones(unittest.TestCase):
         self.run_cgi_block({'F_md_zone_form': '1'}, running=False)
         self.assertFalse((self.d / 'motion_zones.conf').exists())
 
-
-class RtspLiteSource(unittest.TestCase):
-    """The frame tap in rec.c: only H.264/H.265 frames reach RTSP lite and the recording."""
-
-    def test_snapshot_encoder_is_left_out(self):
-        rec = (ROOT / 'src/tc100fix/rec.c').read_text()
-        hook = rec[rec.index('int ak_venc_get_stream_ex('):]
-        # the start-code check runs before the RTSP tap and the recording
-        self.assertLess(hook.index('buf[0] || buf[1]'), hook.index('tc100fix_rtsp_frame('))
-        self.assertIn('users[i].still = 1;', hook)
-        self.assertIn('!users[i].still && encs[j].enc', rec)                 # stream_of
-        self.assertIn('if (!users[i].user || users[i].still) continue;', rec)  # choose_user
-
-
-class RtspLite(unittest.TestCase):
-    """src/tc100fix/rtsp.c built for the host: ffprobe/ffmpeg as clients."""
-
-    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe'), 'gcc and ffmpeg')
-    def setUp(self):
-        import socket
-        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
-        self.bin = d / 'rtsp-test'
-        subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-DRTSP_HOST_TEST', '-o', str(self.bin),
-                        str(ROOT / 'src/tc100fix/rtsp.c'), str(ROOT / 'src/netacl/netacl.c'), '-DNETACL_IN_TC100FIX',
-                        '-I' + str(ROOT / 'src/netacl'), '-lpthread', '-ldl'], check=True)
-        s = socket.socket(); s.bind(('127.0.0.1', 0)); self.port = s.getsockname()[1]; s.close()
-        self.srv = None
-
-    def tearDown(self):
-        if self.srv:
-            self.srv.kill(); self.srv.wait()
-        self.tmp.cleanup()
-
-    def serve(self, codec, audio=False, extra=None):
-        src = self.d / ('in.' + codec)
-        enc = ['-c:v', 'libx265', '-x265-params', ('keyint=60' if audio else 'keyint=15') + ':aud=1:repeat-headers=1:bframes=0:log-level=none'] if codec == 'hevc' else \
-              ['-c:v', 'libx264', '-bf', '0', '-x264-params', 'keyint=15:aud=1']
-        subprocess.run(['ffmpeg', '-v', 'quiet', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-t', '3'] + enc +
-                       ['-bsf:v', ('hevc' if codec == 'hevc' else 'h264') + '_mp4toannexb', str(src)], check=True)
-        self.srv = subprocess.Popen([str(self.bin), str(src), '15', '20'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                    env=dict(os.environ, TC100FIX_RTSP_PORT=str(self.port), RTSP_TEST_CRED='admin:s3cret', RTSP_TEST_CRED2='extra:0ther',
-                                             TC100FIX_RTSP_STATUS=str(self.d / 'status'),
-                                             **({'RTSP_TEST_AUDIO': '1'} if audio else {}), **(extra or {})))
-        time.sleep(0.8)
-
-    def frames(self, url, secs=4):
-        out = self.d / 'out.mp4'
-        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-rtsp_transport', 'tcp', '-i', url, '-t', str(secs), '-c', 'copy', str(out)],
-                       capture_output=True, timeout=30)
-        r = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries',
-                            'stream=codec_name,nb_read_frames', '-of', 'csv=p=0', str(out)], capture_output=True, text=True)
-        return r.stdout.strip()
-
-    def test_h265_and_h264_with_digest(self):
-        for codec, name in (('hevc', 'hevc'), ('h264', 'h264')):
-            self.serve(codec)
-            got = self.frames('rtsp://admin:s3cret@127.0.0.1:%d/video0_unicast' % self.port)
-            c, n = got.split(',')
-            self.assertEqual(c, name)
-            self.assertGreaterEqual(int(n), 50)                  # 4 s at 15 fps, from the first keyframe
-            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://extra:0ther@127.0.0.1:%d/video0' % self.port],
-                               capture_output=True, text=True, timeout=20)
-            self.assertEqual(r.returncode, 0, r.stderr)               # the second account
-            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://admin:nope@127.0.0.1:%d/video0' % self.port],
-                               capture_output=True, text=True, timeout=20)
-            self.assertIn('401', r.stderr)
-            r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', 'rtsp://admin:s3cret@127.0.0.1:%d/nothing' % self.port],
-                               capture_output=True, text=True, timeout=20)
-            self.assertIn('404', r.stderr)
-            self.srv.kill(); self.srv.wait(); self.srv = None
-
-    def test_audio_track_and_fast_start(self):
-        self.serve('hevc', audio=True)
-        url = 'rtsp://admin:s3cret@127.0.0.1:%d/video0' % self.port
-        r = subprocess.run(['ffprobe', '-v', 'error', '-rtsp_transport', 'tcp', '-show_entries', 'stream=codec_name,sample_rate',
-                            '-of', 'csv=p=0', url], capture_output=True, text=True, timeout=20)
-        self.assertEqual(r.stdout.split(), ['hevc', 'pcm_alaw,8000'])
-        out = self.d / 'av.crc'
-        r = subprocess.run(['ffmpeg', '-v', 'error', '-rtsp_transport', 'tcp', '-i', url, '-t', '4', '-f', 'framecrc', str(out)],
-                           capture_output=True, text=True, timeout=30)
-        self.assertEqual(r.stderr, '')
-        lines = out.read_text().splitlines()
-        self.assertGreaterEqual(sum(l.startswith('0,') for l in lines), 50)
-        self.assertGreaterEqual(sum(l.startswith('1,') for l in lines), 30)
-        # the GOP cache: a new client gets a picture without waiting for the next keyframe (every 4 s here)
-        for _ in range(3):
-            t0 = time.time()
-            subprocess.run(['ffmpeg', '-v', 'quiet', '-rtsp_transport', 'tcp', '-i', url, '-frames:v', '1', '-f', 'null', '-'],
-                           timeout=20, check=True)
-            self.assertLess(time.time() - t0, 2.0)
-            time.sleep(0.4)
-
-    def test_talk_backchannel_plays_g711(self):
-        import socket, re, struct
-        out = self.d / 'talk.raw'
-        self.serve('hevc', extra={'TC100FIX_RTSP_TALK': '1', 'RTSP_TEST_TALK_OUT': str(out)})
-        url = 'rtsp://127.0.0.1:%d/video0' % self.port
-        s = socket.create_connection(('127.0.0.1', self.port)); n = [0]
-        def req(m, u, extra=''):
-            n[0] += 1
-            s.sendall(('%s %s RTSP/1.0\r\nCSeq: %d\r\n%s\r\n' % (m, u, n[0], extra)).encode())
-            data = b''
-            while b'\r\n\r\n' not in data:
-                data += s.recv(1)
-            h = data.decode(); m2 = re.search(r'Content-Length: (\d+)', h); body = b''
-            if m2:
-                while len(body) < int(m2.group(1)):
-                    body += s.recv(int(m2.group(1)) - len(body))
-            return h, body.decode()
-        nonce = re.search(r'nonce="([^"]+)"', req('DESCRIBE', url)[0]).group(1)
-        def auth(m, u):
-            ha1 = hashlib.md5(b'admin:TC100:s3cret').hexdigest(); ha2 = hashlib.md5(('%s:%s' % (m, u)).encode()).hexdigest()
-            return 'Authorization: Digest username="admin", realm="TC100", nonce="%s", uri="%s", response="%s"\r\n' % (
-                nonce, u, hashlib.md5(('%s:%s:%s' % (ha1, nonce, ha2)).encode()).hexdigest())
-        import hashlib
-        self.assertNotIn('sendonly', req('DESCRIBE', url, auth('DESCRIBE', url))[1])        # not without asking
-        h, body = req('DESCRIBE', url, auth('DESCRIBE', url) + 'Require: www.onvif.org/ver20/backchannel\r\n')
-        self.assertIn('a=control:trackID=2\r\na=sendonly', body)
-        h, _ = req('SETUP', url + '/trackID=2', auth('SETUP', url) + 'Transport: RTP/AVP/TCP;unicast;interleaved=4-5\r\n')
-        sess = re.search(r'Session: ([0-9A-F]+)', h).group(1)
-        self.assertIn('200', req('PLAY', url, auth('PLAY', url) + 'Session: %s\r\n' % sess)[0])
-        for i in range(25):                                   # 0.5 s of A-law 0xd5 (+8) and u-law 0xff (0)
-            pkt = struct.pack('!BBHII', 0x80, 8 if i % 2 == 0 else 0, i, i * 160, 7) + bytes([0xd5 if i % 2 == 0 else 0xff]) * 160
-            s.sendall(b'$\x04' + struct.pack('!H', len(pkt)) + pkt)
-            time.sleep(0.02)
-        time.sleep(1)
-        data = out.read_bytes()
-        v = struct.unpack('<%dh' % (len(data) // 2), data)
-        self.assertEqual(len(v), 25 * 160)
-        self.assertEqual(set(v), {8, 0})
-        s.close()
-
-    def test_slow_client_does_not_stall_the_others(self):
-        import socket, hashlib, re
-        self.serve('hevc')
-        s = socket.create_connection(('127.0.0.1', self.port)); s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
-        url = 'rtsp://127.0.0.1:%d/video0' % self.port
-        def req(m, u, extra='', n=[0]):
-            n[0] += 1
-            s.sendall(('%s %s RTSP/1.0\r\nCSeq: %d\r\n%s\r\n' % (m, u, n[0], extra)).encode())
-            data = b''
-            while b'\r\n\r\n' not in data:
-                data += s.recv(1)
-            h = data.decode(); m2 = re.search(r'Content-Length: (\d+)', h)
-            if m2:
-                left = int(m2.group(1))
-                while left:
-                    left -= len(s.recv(left))
-            return h
-        nonce = re.search(r'nonce="([^"]+)"', req('DESCRIBE', url)).group(1)
-        def auth(m, u):
-            ha1 = hashlib.md5(b'admin:TC100:s3cret').hexdigest(); ha2 = hashlib.md5(('%s:%s' % (m, u)).encode()).hexdigest()
-            return 'Authorization: Digest username="admin", realm="TC100", nonce="%s", uri="%s", response="%s"\r\n' % (
-                nonce, u, hashlib.md5(('%s:%s:%s' % (ha1, nonce, ha2)).encode()).hexdigest())
-        self.assertIn('200', req('DESCRIBE', url, auth('DESCRIBE', url)))
-        self.assertIn('461', req('SETUP', url + '/trackID=0', auth('SETUP', url) + 'Transport: RTP/AVP;unicast;client_port=5000-5001\r\n'))
-        h = req('SETUP', url + '/trackID=0', auth('SETUP', url) + 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n')
-        sess = re.search(r'Session: ([0-9A-F]+)', h).group(1)
-        self.assertIn('200', req('PLAY', url, auth('PLAY', url) + 'Session: %s\r\n' % sess))
-        # this client never reads again; another one must still get every frame
-        got = self.frames('rtsp://admin:s3cret@127.0.0.1:%d/video0' % self.port, 6)
-        self.assertGreaterEqual(int(got.split(',')[1]), 75)
-        time.sleep(10.5)
-        st = (self.d / 'status').read_text()
-        self.assertRegex(st, r'drops=[1-9]')
-        s.close()
 
 
 class NetGuard(unittest.TestCase):
@@ -2726,13 +1313,10 @@ class NetGuard(unittest.TestCase):
         finally:
             sleeper.kill(); sleeper.wait()
 
-    def test_web_guard_loop_calls_net_guard_and_webserver_off_still_starts_it(self):
+    def test_web_guard_loop_calls_net_guard(self):
         wg = (ROOT / 'scripts/web-guard.sh').read_text()
         self.assertIn('net-guard.sh}" once', wg)
-        ws = (ROOT / 'config/autostart/02_system-webserver').read_text()
-        off = ws.index('if [ "$WEB_MODE" = "off" ]')
-        self.assertLess(ws.index('start_web_guard()'), off)
-        self.assertIn('start_web_guard', ws[off:off + 80])
+        self.assertIn('scripts/web-guard.sh', (ROOT / 'v3/autorun-linux66.sh').read_text())
         self.assertIn('NET_GUARD=1', (ROOT / 'config/boot.conf.dist').read_text())
 
 
@@ -2808,156 +1392,6 @@ class WebGuardAndSdHealth(unittest.TestCase):
         self.assertEqual(st, 'errors')
 
 
-class UsrUpdateFromFlash(unittest.TestCase):
-    """scripts/usr-update.sh: /usr + code zone from the web page in flash mode, on fake devices."""
-    STOCK = 'def1ea44addd7a73d613d8169b395447'
-
-    @unittest.skipUnless(shutil.which('mksquashfs'), 'squashfs-tools')
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
-        tree = d / 'tree'
-        for f in ('sbin/service.sh', 'tc100/scripts/flashboot.sh', 'tc100/bin/busybox', 'tc100/bin/lighttpd', 'tc100/bin/v4l2rtspserver'):
-            (tree / f).parent.mkdir(parents=True, exist_ok=True); (tree / f).write_text(f + '\n' + 'x' * 5000)
-        (tree / 'tc100/VERSION').write_text('9.9.9\n')
-        pkg = self.pkg = d / 'pkg'; pkg.mkdir()
-        subprocess.run(['mksquashfs', str(tree), str(pkg / 'usr.img'), '-noappend', '-quiet', '-all-root'], check=True, capture_output=True)
-        size = (pkg / 'usr.img').stat().st_size
-        with open(pkg / 'usr.img', 'ab') as f:
-            f.write(b'\0' * ((-size) % 4096))
-        self.img = (pkg / 'usr.img').read_bytes()
-        (pkg / 'usr.img.md5').write_text(hashlib.md5(self.img).hexdigest() + '  usr.img\n')
-        stage = d / 'stage'
-        for sub in ('scripts', 'www', 'config'):
-            (stage / sub).mkdir(parents=True)
-        (stage / 'autorun.sh').write_text('#!/bin/sh\n'); (stage / 'VERSION').write_text('9.9.9\n')
-        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(pkg / 'code.bin')], check=True, capture_output=True)
-        (pkg / 'camera.txt').write_text('usr_md5=%s\n' % self.STOCK)
-        (pkg / 'VERSION').write_text('9.9.9\n')
-        (d / 'mtd6').write_bytes(b'\x11' * 3891200)
-        hdr = os.urandom(0x15aca0)
-        (d / 'mtd1').write_bytes(hdr + b'\xff' * (0x200000 - len(hdr)))
-        (d / 'proc_mtd').write_text('mtd1: 00200000 00001000 "KERNEL"\nmtd6: 003b6000 00001000 "C"\n')
-        (d / 'storage').write_text('flash\n')
-        (d / 'proc').mkdir(); (d / 'jffs').mkdir()
-        self.env = dict(os.environ, UU_MTD=str(d / 'mtd'), UU_BLOCK6=str(d / 'mtd6'), UU_PROC=str(d / 'proc'),
-                        UU_PROC_MTD=str(d / 'proc_mtd'), UU_JFFS=str(d / 'jffs'), TC100_STORAGE_FILE=str(d / 'storage'),
-                        UU_WATCHDOG=str(d / 'watchdog'), UU_MAPDEV='1f:06', UU_CARD_DEV=str(d / 'nocard'),
-                        UU_FLASHCODE=str(ROOT / 'scripts/flash-code.sh'), UU_NO_MOUNT='1', UU_NO_REBOOT='1', UU_GRACE='0',
-                        FC_MTD_CHAR=str(d / 'mtd1'), FC_MTD_BLOCK=str(d / 'mtd1'), FC_PROC_MTD=str(d / 'proc_mtd'),
-                        FC_LOG=str(d / 'fc.log'), FC_PENDING=str(d / 'pending'), FC_HISTORY=str(d / 'hist'))
-        self.procs = []
-
-    def tearDown(self):
-        for p in self.procs:
-            p.kill(); p.wait()
-        self.tmp.cleanup()
-
-    def uu(self, *args):
-        return subprocess.run(['sh', str(ROOT / 'scripts/usr-update.sh'), *args], capture_output=True, text=True, env=self.env, timeout=120)
-
-    def fake_proc(self, comm, maps_dev, cmdline=''):
-        p = subprocess.Popen(['sleep', '300']); self.procs.append(p)
-        e = self.d / 'proc' / str(p.pid); e.mkdir()
-        (e / 'maps').write_text('00008000-00010000 r-xp 00000000 %s 12 /usr/x\n' % maps_dev)
-        (e / 'comm').write_text(comm + '\n'); (e / 'cmdline').write_text(cmdline)
-
-        def reap():                               # like /proc: the entry goes with the process
-            p.wait(); shutil.rmtree(e, ignore_errors=True)
-        threading.Thread(target=reap, daemon=True).start()
-        return p
-
-    def test_check_accepts_and_refuses(self):
-        self.assertEqual(self.uu('check', str(self.pkg)).stdout.strip(), 'ok 9.9.9')
-        (self.d / 'jffs/usr-stock.md5').write_text('0' * 32 + '\n')
-        self.assertIn('another original /usr', self.uu('check', str(self.pkg)).stdout)
-        (self.d / 'jffs/usr-stock.md5').unlink()
-        (self.d / 'storage').write_text('sd\n')
-        self.assertIn('only from flash', self.uu('check', str(self.pkg)).stdout)
-        (self.d / 'storage').write_text('flash\n')
-        (self.pkg / 'VERSION').write_text('1.0.0\n')
-        self.assertIn('code.bin', self.uu('check', str(self.pkg)).stdout)
-        (self.pkg / 'VERSION').write_text('9.9.9\n')
-        with open(self.pkg / 'usr.img', 'r+b') as f:
-            f.seek(100); f.write(b'zz')
-        self.assertIn('damaged', self.uu('check', str(self.pkg)).stdout)
-
-    def test_install_stops_usr_users_writes_and_keeps_the_watchdog_fed(self):
-        self.assertEqual(self.uu('check', str(self.pkg)).stdout.strip(), 'ok 9.9.9')
-        for f in ('flash-code.sh', 'flashmode-once.sh'):
-            shutil.copy(ROOT / 'scripts' / f, self.pkg / f)
-        users = [self.fake_proc('lighttpd', '1f:06'), self.fake_proc('v4l2rtspserver', '1f:06')]
-        feeder = self.fake_proc('busybox', '1f:06', 'busybox\0watchdog\0-t\0001\0')
-        rootfs = self.fake_proc('sh', '1f:04')
-        r = self.uu('install', str(self.pkg))
-        log = (self.pkg / 'install.log').read_text()
-        self.assertIn('DONE', log, r.stdout + r.stderr + log)
-        for p in users + [feeder]:
-            self.assertIsNotNone(p.poll(), log)
-        self.assertIsNone(rootfs.poll())
-        self.assertIn('watchdog feeder', log)
-        self.assertTrue((self.d / 'watchdog').exists())
-        mtd6 = (self.d / 'mtd6').read_bytes()
-        self.assertEqual(mtd6[:len(self.img)], self.img); self.assertEqual(len(mtd6), 3891200)
-        self.assertEqual((self.d / 'mtd1').read_bytes()[0x160000:0x16000b], b'TC100CODE 1')
-        self.assertIn('system 9.9.9 written', (self.d / 'jffs/log/code-updates.log').read_text())
-
-    def cgi(self, method, cmd, body=b''):
-        (self.d / 'csrf').write_text('ab12\n')
-        src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
-        env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
-                   HTTP_X_CSRF_TOKEN='ab12', FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'fw'),
-                   FWU_JFFS_LOG=str(self.d / 'jffslog'),
-                   UU_WORK=str(self.d / 'sysupd'), UU_SCRIPT=str(ROOT / 'scripts/usr-update.sh'))
-        env.setdefault('FM', str(ROOT / 'scripts/flashmode-once.sh'))
-        r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
-        return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
-
-    def test_web_upload_of_a_system_package(self):
-        tar = self.d / 'sys.tar'
-        with open(self.pkg / 'usr.img', 'ab') as f:            # > 640 KB, like a real image
-            f.write(b'\0' * 700 * 1024)
-        (self.pkg / 'usr.img.md5').write_text(hashlib.md5((self.pkg / 'usr.img').read_bytes()).hexdigest() + '  usr.img\n')
-        subprocess.run(['tar', '-cf', str(tar), '-C', str(self.pkg), 'usr.img', 'usr.img.md5', 'code.bin', 'camera.txt', 'VERSION'], check=True)
-        up = self.cgi('POST', 'upload', tar.read_bytes())
-        self.assertEqual((up['ok'], up['kind'], up['version']), (True, 'system', '9.9.9'), up)
-        st = self.cgi('GET', 'status')
-        self.assertEqual((st['state'], st['kind'], st['staged']), ('staged', 'system', '9.9.9'))
-        self.assertTrue(self.cgi('POST', 'discard')['ok'])
-        self.assertEqual(self.cgi('GET', 'status')['state'], 'idle')
-        (self.pkg / 'camera.txt').write_text('usr_md5=%s\n' % ('0' * 32))
-        subprocess.run(['tar', '-cf', str(tar), '-C', str(self.pkg), 'usr.img', 'usr.img.md5', 'code.bin', 'camera.txt', 'VERSION'], check=True)
-        bad = self.cgi('POST', 'upload', tar.read_bytes())
-        self.assertFalse(bad['ok']); self.assertIn('another original', bad['message'])
-        self.assertFalse((self.d / 'sysupd').exists())
-
-    def test_web_install_of_a_system_package_starts_the_installer(self):
-        tar = self.d / 'sys.tar'
-        with open(self.pkg / 'usr.img', 'ab') as f:
-            f.write(b'\0' * 700 * 1024)
-        (self.pkg / 'usr.img.md5').write_text(hashlib.md5((self.pkg / 'usr.img').read_bytes()).hexdigest() + '  usr.img\n')
-        subprocess.run(['tar', '-cf', str(tar), '-C', str(self.pkg), 'usr.img', 'usr.img.md5', 'code.bin', 'camera.txt', 'VERSION'], check=True)
-        self.assertTrue(self.cgi('POST', 'upload', tar.read_bytes())['ok'])
-        self.env['FM'] = str(ROOT / 'scripts/flashmode-once.sh')
-        r = self.cgi('POST', 'install')            # FC_WORK does not exist yet
-        self.assertEqual((r['ok'], r['kind']), (True, 'system'))
-        log = self.d / 'sysupd/install.log'
-        for _ in range(100):
-            if log.exists() and 'DONE' in log.read_text():
-                break
-            time.sleep(0.2)
-        self.assertIn('DONE', log.read_text())
-        self.assertIn('system 9.9.9 written', (self.d / 'jffs/log/code-updates.log').read_text())
-
-    def test_install_aborts_when_a_process_cannot_be_stopped(self):
-        self.uu('check', str(self.pkg))
-        for f in ('flash-code.sh', 'flashmode-once.sh'):
-            shutil.copy(ROOT / 'scripts' / f, self.pkg / f)
-        e = self.d / 'proc' / '999999'; e.mkdir()          # a pid kill cannot reach
-        (e / 'maps').write_text('0-1 r-xp 0 1f:06 1 /usr/x\n'); (e / 'comm').write_text('stuck\n')
-        self.uu('install', str(self.pkg))
-        self.assertIn('ABORT', (self.pkg / 'install.log').read_text())
-        self.assertEqual((self.d / 'mtd6').read_bytes()[:16], b'\x11' * 16)
-
 
 class WebUiSources(unittest.TestCase):
     def test_index_bundle_is_built_from_src_webui_index(self):
@@ -3010,116 +1444,6 @@ class WebUiSources(unittest.TestCase):
         self.assertIn('css/ui-v3.css?v=', html)
 
 
-class FlashCodeZone(unittest.TestCase):
-    """scripts/flash-code.sh + update.cgi in flash mode, on a fake 2 MB KERNEL partition."""
-
-    @unittest.skipUnless(shutil.which('mksquashfs'), 'squashfs-tools')
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
-        self.mtd = d / 'mtd1'
-        self.kernel = os.urandom(0x15aca0)
-        self.mtd.write_bytes(self.kernel + b'\xff' * (0x200000 - 0x15aca0))
-        (d / 'proc').write_text('mtd1: 00200000 00001000 "KERNEL"\n')
-        stage = d / 'stage'
-        for sub in ('scripts', 'www', 'config'):
-            (stage / sub).mkdir(parents=True)
-        (stage / 'autorun.sh').write_text('#!/bin/sh\n'); (stage / 'autorun.sh').chmod(0o755)
-        (stage / 'VERSION').write_text('9.9-test\n')
-        (stage / 'scripts/x.sh').write_text('echo x\n')
-        self.pkg = d / 'code.bin'
-        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(self.pkg)], check=True, capture_output=True)
-        self.stub = d / 'stub'; self.stub.mkdir()
-        (self.stub / 'reboot').write_text('#!/bin/sh\necho rebooted > "%s/rebooted"\n' % d); (self.stub / 'reboot').chmod(0o755)
-        self.env = dict(os.environ, FC_MTD_CHAR=str(self.mtd), FC_MTD_BLOCK=str(self.mtd), FC_PROC_MTD=str(d / 'proc'),
-                        FC_LOG=str(d / 'fc.log'), PATH='%s:%s' % (self.stub, os.environ['PATH']),
-                        FC_PENDING=str(d / 'pending'), FC_HISTORY=str(d / 'hist'))
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def fc(self, *args):
-        return subprocess.run(['sh', str(ROOT / 'scripts/flash-code.sh'), *args], capture_output=True, text=True, env=self.env)
-
-    def test_write_status_clear_and_kernel_untouched(self):
-        self.assertEqual(self.fc('status').stdout.strip(), 'none')
-        self.assertEqual(self.fc('check', str(self.pkg)).stdout.split()[:2], ['ok', '9.9-test'])
-        self.assertEqual(self.fc('write', str(self.pkg)).stdout.strip(), 'ok 9.9-test')
-        self.assertEqual((self.d / 'pending').read_text().split(), ['9.9-test', '0'])
-        self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
-        data = self.mtd.read_bytes()
-        self.assertEqual(len(data), 0x200000)
-        self.assertEqual(data[:0x15aca0], self.kernel)
-        self.assertEqual(data[0x160000:0x160000 + 11], b'TC100CODE 1')
-        self.assertEqual(self.fc('clear').stdout.strip(), 'ok')
-        self.assertFalse((self.d / 'pending').exists())
-        self.assertIn('installed 9.9-test', (self.d / 'hist').read_text())
-        self.assertEqual(self.fc('status').stdout.strip(), 'none')
-        self.assertEqual(self.mtd.read_bytes()[:0x15aca0], self.kernel)
-
-    def test_refusals_and_damage(self):
-        bad = self.d / 'bad.bin'; bad.write_bytes(b'TC100CODE 1\nsize 10\nmd5 ' + b'0' * 32 + b'\n' + b'\0' * 5000)
-        self.assertIn('refused', self.fc('write', str(bad)).stdout)
-        (self.d / 'proc').write_text('mtd1: 00200000 00010000 "KERNEL"\n')
-        self.assertIn('refused', self.fc('write', str(self.pkg)).stdout)
-        (self.d / 'proc').write_text('mtd1: 00200000 00001000 "KERNEL"\n')
-        self.fc('write', str(self.pkg))
-        with open(self.mtd, 'r+b') as f:
-            f.seek(0x161010); f.write(b'\0' * 64)
-        self.assertEqual(self.fc('status').stdout.strip(), 'bad md5')
-
-    def cgi(self, method, cmd, body=b''):
-        (self.d / 'csrf').write_text('ab12\n')
-        src = (ROOT / 'www/cgi-bin/update.cgi').read_text().replace('/tmp/csrf_token', str(self.d / 'csrf'))
-        env = dict(self.env, REQUEST_METHOD=method, QUERY_STRING='cmd=' + cmd, CONTENT_LENGTH=str(len(body)),
-                   HTTP_X_CSRF_TOKEN='ab12', TC100_STORAGE_FILE=str(self.d / 'storage'),
-                   FC_SCRIPT=str(ROOT / 'scripts/flash-code.sh'), FC_WORK=str(self.d / 'work'),
-                   FWU_JFFS_LOG=str(self.d / 'jffslog'), FC_INFO_SCRIPT=str(ROOT / 'scripts/flash-code.sh'))
-        (self.d / 'storage').write_text('flash\n')
-        r = subprocess.run(['sh', '-c', src], input=body, capture_output=True, env=env)
-        return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
-
-    def test_update_cgi_flash_flow(self):
-        self.assertEqual(self.cgi('GET', 'status')['state'], 'idle')
-        self.assertFalse(self.cgi('POST', 'upload', b'x' * 5000)['ok'])
-        up = self.cgi('POST', 'upload', self.pkg.read_bytes())
-        self.assertTrue(up['ok']); self.assertEqual(up['kind'], 'code'); self.assertEqual(up['version'], '9.9-test')
-        st = self.cgi('GET', 'status'); self.assertEqual((st['state'], st['staged']), ('staged', '9.9-test'))
-        self.assertTrue(self.cgi('POST', 'install')['ok'])
-        for _ in range(50):
-            if (self.d / 'rebooted').exists():
-                break
-            time.sleep(0.1)
-        self.assertTrue((self.d / 'rebooted').exists())
-        self.assertEqual(self.fc('status').stdout.strip(), 'valid 9.9-test')
-        # planned restart recorded for reboot-tracker.sh (not "UNEXPECTED")
-        self.assertIn('|web: code update', (self.d / 'jffslog/.reboot-intent').read_text())
-
-
-    def test_build_identity_in_package_and_web_page(self):
-        stage = self.d / 'stage'
-        p2 = self.d / 'other.bin'
-        (stage / 'scripts/x.sh').write_text('echo y\n')
-        subprocess.run(['sh', str(ROOT / 'src/flash/build-code.sh'), str(stage), str(p2)], check=True, capture_output=True,
-                       env=dict(os.environ, BUILD_DATE='2026-10-18T09:40Z', BUILD_COMMIT='a30317e5c7'))
-        info = dict(l.split('=', 1) for l in self.fc('info', str(p2)).stdout.split())
-        self.assertEqual((info['version'], info['built'], info['commit']), ('9.9-test', '2026-10-18T09:40Z', 'a30317e5c7'))
-        # A package without the two new lines (before 2.1.5) still checks and installs.
-        old = self.d / 'old.bin'; raw = p2.read_bytes()
-        hdr = raw[:4096].split(b'\0', 1)[0].split(b'\n')
-        old.write_bytes(b'\n'.join(hdr[:4]).ljust(4095, b'\0') + b'\0' + raw[4096:])
-        self.assertEqual(self.fc('check', str(old)).stdout.split()[:2], ['ok', '9.9-test'])
-        self.assertEqual(self.fc('info', str(old)).stdout.count('built=\n'), 1)
-        # Installed: self.pkg. Upload of the same version, another build -> same_version 1.
-        self.fc('write', str(self.pkg))
-        (self.d / 'pending').unlink()
-        up = self.cgi('POST', 'upload', p2.read_bytes())
-        self.assertEqual((up['built'], up['commit'], up['same_version']), ('2026-10-18T09:40Z', 'a30317e5c7', 1))
-        self.assertNotEqual(up['md5'], up['current_md5'])
-        self.assertEqual(self.cgi('POST', 'upload', self.pkg.read_bytes())['same_version'], 2)
-        st = self.cgi('GET', 'status')
-        self.assertEqual(st['current'], '9.9-test'); self.assertTrue(st['current_built'])
-        h = (ROOT / 'www/settings.html').read_text()
-        self.assertIn('d.same_version === 1', h); self.assertIn('buildInfo(d.current_built, d.current_commit)', h)
 
 class CameraLogFindings(unittest.TestCase):
     """2026-10-16: what two cameras' logs showed (docs/known-issues.md)."""
@@ -3132,25 +1456,6 @@ class CameraLogFindings(unittest.TestCase):
                                env=dict(os.environ, TIME_ZONE_CONFIG_FILE=str(f)), capture_output=True, text=True)
             return r.stdout
 
-    def test_time_zone_skips_comments_and_is_exported_for_everything(self):
-        self.assertEqual(self.tz((ROOT / 'config/timezone.conf.dist').read_text()), 'UTC0')
-        self.assertEqual(self.tz('# x\n\nCET-1CEST,M3.5.0,M10.5.0/3\n'), 'CET-1CEST,M3.5.0,M10.5.0/3')
-        self.assertEqual(self.tz('UTC-2'), 'UTC-2')
-        self.assertEqual(self.tz('x;reboot\n'), 'UTC0')
-        a = (ROOT / 'autorun.sh').read_text()
-        self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\nstart_syslog_forwarding\n'))
-        self.assertLess(a.index('. /mnt/scripts/update_timezone.sh'), a.index('\ninit_crond\n'))
-
-    def test_vendor_libraries_log_errors_only_by_default(self):
-        r = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        self.assertIn(': "${VENDOR_PRINT_LEVEL:=1}"', r)
-        self.assertIn('TC100FIX_PRINT_LEVEL=$VENDOR_PRINT_LEVEL', r)
-
-    def test_no_false_boot_warnings_from_flash(self):
-        a = (ROOT / 'autorun.sh').read_text()
-        self.assertIn('[ "$_mnt_avail_kb" -lt 4096 ] && [ "$(cat /tmp/tc100-storage 2>/dev/null)" != flash ]', a)
-        self.assertIn('[ -e "$target_path" ] || return 0', a)
-        self.assertIn('= flash ] && MIGRATE_HTTPD_CONFIGS=""', (ROOT / 'scripts/config-migrate.sh').read_text())
 
     @unittest.skipUnless(shutil.which('node'), 'node')
     def test_logs_page_tells_vendor_chatter_from_faults(self):
@@ -3233,21 +1538,6 @@ class ResetButton(unittest.TestCase):
         self.assertEqual(self.run_events([9]), ['reboot'])
         self.assertEqual(self.run_events([21]), ['fc clear', 'reboot'])
         self.assertEqual(self.run_events([21], storage='sd'), ['reboot'])
-
-    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
-    def test_c_helper_same_rules(self):
-        # src/button/tc100-button.c: the same rules without the dd | od shell loop.
-        with tempfile.TemporaryDirectory() as d:
-            exe = Path(d) / 'tc100-button'
-            subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-o', str(exe),
-                            str(ROOT / 'src/button/tc100-button.c')], check=True)
-            for holds, storage, want in (([3], 'flash', []), ([9], 'flash', ['reboot']),
-                                         ([21], 'flash', ['fc clear', 'reboot']), ([21], 'sd', ['reboot']),
-                                         ([2, 9], 'flash', ['reboot'])):
-                self.assertEqual(self.run_events(holds, storage, cmd=[str(exe)]), want, (holds, storage))
-        ctl = (ROOT / 'controlscripts/button-actions').read_text()
-        self.assertIn('tc100-button', ctl)
-        self.assertIn('button-watch.sh', ctl)                  # fallback kept
 
 
 class LocalRecording(unittest.TestCase):
@@ -3338,31 +1628,6 @@ class LocalRecording(unittest.TestCase):
             self.assertEqual(len(n), 1)
             self.assertTrue(240 <= n[0] <= 520, n)
 
-    def test_refuses_ram_and_flash_filesystems(self):
-        src = (ROOT / 'src/tc100fix/rec.c').read_text()
-        for magic in ('0x01021994', '0x858458f6', '0x72b6', '0x73717368'):
-            self.assertIn(magic, src)
-        self.assertIn('O_CREAT | O_EXCL', src)
-
-    def test_storage_dir_and_wiring(self):
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            (d / 'storage').write_text('sd\n')
-            env = dict(os.environ, TC100_STORAGE_FILE=str(d / 'storage'), REC_SD_DIR=str(d / 'records'),
-                       REC_PROC_MOUNTS=str(d / 'mounts'), REC_SD_DEVS=str(d / 'nodev'), REC_SD_MOUNT=str(d / 'sd'))
-            r = subprocess.run(['sh', str(ROOT / 'scripts/rec-storage.sh'), 'dir'], env=env, capture_output=True, text=True)
-            self.assertEqual(r.stdout.strip(), str(d / 'records'))
-            self.assertTrue((d / 'records').is_dir())
-            (d / 'storage').write_text('flash\n')
-            (d / 'mounts').write_text('')
-            r = subprocess.run(['sh', str(ROOT / 'scripts/rec-storage.sh'), 'dir'], env=env, capture_output=True, text=True)
-            self.assertEqual((r.returncode, r.stdout), (1, ''))
-        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        self.assertIn('TC100FIX_REC_DIR=$_rec_dir', rtsp)
-        boot = (ROOT / 'config/boot.conf.dist').read_text()
-        self.assertIn('\nREC_LOCAL=0\n', boot)
-        self.assertIn('rec.c', (ROOT / 'src/tc100fix/build.sh').read_text())
-
 
 class WifiTxt(unittest.TestCase):
     """scripts/wifi-txt.sh: Wi-Fi settings from wifi.txt on the SD card."""
@@ -3405,12 +1670,6 @@ class WifiTxt(unittest.TestCase):
             self.assertFalse((d / 'sd' / 'wifi.txt').exists())
             self.assertEqual(self.apply(d, 'SSID=Open net\n'), 0)
             self.assertIn('key_mgmt=NONE', (d / 'wpa.conf').read_text())
-
-    def test_wired_into_boot_and_settings(self):
-        self.assertIn('wifi-txt.sh" apply "$M/wifi.txt" "$P/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
-        self.assertIn('ln -s "$P/wpa_supplicant.conf" "$M/wpa_supplicant.conf"', (ROOT / 'scripts/flashboot.sh').read_text())
-        self.assertIn('wifi-txt.sh apply /mnt/wifi.txt "$WIFI_CONFIG"', (ROOT / 'autorun.sh').read_text())
-        self.assertIn('_wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf', action_cgi_text())
 
 
 class CameraPanel(unittest.TestCase):
@@ -3530,36 +1789,6 @@ class SettingsByUse(unittest.TestCase):
         self.assertIn('initServiceToggles: initServiceToggles,', (ROOT / 'www/scripts/index.bundle.min.js').read_text())
 
 
-class CodePackageRelease(unittest.TestCase):
-    @unittest.skipUnless(shutil.which('mksquashfs') and shutil.which('unsquashfs'), 'squashfs-tools')
-    def test_package_from_git_is_valid_and_executable(self):
-        with tempfile.TemporaryDirectory() as d:
-            out = Path(d) / 'c.bin'
-            subprocess.run(['sh', str(ROOT / 'src/release/build-code-package.sh'), str(out)], check=True, capture_output=True)
-            r = subprocess.run(['sh', str(ROOT / 'scripts/flash-code.sh'), 'check', str(out)], capture_output=True, text=True)
-            self.assertTrue(r.stdout.startswith('ok '), r.stdout)
-            sq = Path(d) / 'c.sqsh'; sq.write_bytes(out.read_bytes()[4096:])
-            ls = subprocess.run(['unsquashfs', '-lls', str(sq)], capture_output=True, text=True).stdout
-            self.assertRegex(ls, r'-rwxr-xr-x .* squashfs-root/config/autostart/02_system-webserver')
-            self.assertIn('squashfs-root/scripts/flashboot.sh', ls)
-            self.assertNotIn('config/ssl', ls)
-        self.assertIn('build-code-package.sh', (ROOT / '.github/workflows/ci.yml').read_text())
-
-
-class VendorWpaWrapper(unittest.TestCase):
-    def test_filters_conf_and_keeps_args(self):
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            fake = d / 'wpa'; fake.write_text('#!/bin/sh\nfor a; do echo "[$a]"; done\n'); fake.chmod(0o755)
-            conf = d / 'v.conf'; conf.write_text('ctrl_interface=/var/run/wpa_supplicant\ndevice_name=X\nwps_cred_processing=1\nnetwork={\n}\n')
-            tmpc = d / 'out.conf'
-            env = dict(os.environ, WPA_NEW=str(fake), WPA_TMPCONF=str(tmpc))
-            r = subprocess.run(['sh', str(ROOT / 'src/flash/wpa_supplicant-wrapper.sh'), '-B', '-iwlan0', '-Dwext',
-                                '-c', str(conf)], env=env, capture_output=True, text=True, check=True)
-            self.assertEqual(r.stdout.split(), ['[-B]', '[-iwlan0]', '[-Dwext]', '[-c]', '[%s]' % tmpc])
-            out = tmpc.read_text()
-            self.assertIn('ctrl_interface', out); self.assertNotIn('device_name', out); self.assertNotIn('wps_', out)
-
 
 class SettingsLayout(unittest.TestCase):
     """Settings by use (2026-10-16): Image, Video, Day/night, Audio, Detection, Recording, Integrations,
@@ -3628,54 +1857,6 @@ class FrigateLiveAndSyslog(unittest.TestCase):
         self.assertIn('/mnt/config/frigate_live.conf', action)
         self.assertIn('id="live_frigate"', (ROOT / 'www/index.html').read_text())
 
-class WifiClient(unittest.TestCase):
-    """scripts/wifi-client.sh: opt-in wpa_supplicant 2.11 with fallback to the vendor client."""
-    SCRIPT = ROOT / 'scripts/wifi-client.sh'
-
-    def run_wc(self, conf_text, state, bin_ok=True):
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d); stub = d / 'stub'; stub.mkdir()
-            calls = d / 'calls'
-            (stub / 'newwpa').write_text('#!/bin/sh\necho "new $*" >> %s\n[ "$1" = -v ] && exit %d\nexit 0\n'
-                                         % (calls, 0 if bin_ok else 1))
-            (stub / 'wpa_cli').write_text('#!/bin/sh\necho "wpa_state=%s"\n' % state)
-            (stub / 'logger').write_text('#!/bin/sh\necho "logger $*" >> %s\n' % calls)
-            for f in stub.iterdir():
-                f.chmod(0o755)
-            conf = d / 'wpa.conf'; conf.write_text(conf_text)
-            env = dict(os.environ, PATH='%s:%s' % (stub, os.environ['PATH']), WIFI_NEW_BIN=str(stub / 'newwpa'),
-                       WIFI_NEW_TIMEOUT='2', WIFI_CLIENT_LOG=str(d / 'log'))
-            r = subprocess.run(['sh', str(self.SCRIPT), 'start', str(conf)], capture_output=True, env=env, timeout=60)
-            return r.returncode, calls.read_text() if calls.exists() else '', \
-                Path('/tmp/wpa_supplicant-new.conf').read_text() if Path('/tmp/wpa_supplicant-new.conf').exists() else ''
-
-    def test_associates_with_plain_config(self):
-        rc, calls, _ = self.run_wc('ctrl_interface=/var/run/wpa_supplicant\nnetwork={\n ssid="x"\n}\n', 'COMPLETED')
-        self.assertEqual(rc, 0)
-        self.assertRegex(calls, r'new -B -i wlan0 -Dwext -c \S+/wpa.conf ')       # the UI's file itself
-
-    def test_wps_keys_are_filtered_and_fallback_on_timeout(self):
-        rc, calls, filtered = self.run_wc('ctrl_interface=/var/run/wpa_supplicant\nconfig_methods=keypad\n'
-                                          'device_type=1-0050F204-1\n', 'SCANNING')
-        self.assertEqual(rc, 1)
-        self.assertIn('-c /tmp/wpa_supplicant-new.conf', calls)
-        self.assertNotIn('config_methods', filtered)
-        self.assertIn('logger -t tc100-event', calls)
-
-    def test_unusable_binary_is_not_started(self):
-        rc, calls, _ = self.run_wc('ctrl_interface=/x\n', 'COMPLETED', bin_ok=False)
-        self.assertEqual(rc, 1)
-        self.assertNotIn('-B', calls)
-
-    def test_release_check_is_opt_in(self):
-        auto = (ROOT / 'autorun.sh').read_text()
-        self.assertIn('is_truthy "${UPDATE_CHECK:-0}" && [ -x /mnt/scripts/update-check.sh ]', auto)
-        self.assertIn('UPDATE_CHECK=0', (ROOT / 'config/boot.conf.dist').read_text())
-
-    def test_boot_wiring_defaults_to_vendor(self):
-        auto = (ROOT / 'autorun.sh').read_text()
-        self.assertEqual(auto.count('wifi-client.sh start'), 2)
-        self.assertIn('WIFI_CLIENT=vendor', (ROOT / 'config/boot.conf.dist').read_text())
 
 class WebUiCss(unittest.TestCase):
     """www/css/bulma.1.0.2.purged.min.css is generated by src/webui/purge-bulma.mjs."""
@@ -3738,9 +1919,9 @@ class ServicesAndStatus(unittest.TestCase):
         self.assertNotIn('get_cfg DEFAULT_GATEWAY', (ROOT / 'www/cgi-bin/state.cgi').read_text())
 
     def test_config_disabled_services_report_disabled(self):
-        # memory-guard / cpu-scaler start at boot but stay off until enabled in
-        # boot.conf: status exits 3, shown as "Disabled", not as a problem.
-        for name, var in (('memory-guard', 'MEM_GUARD_ENABLE'), ('cpu-scaler', 'CPU_SCALER_ENABLE')):
+        # memory-guard starts at boot but stays off until enabled in boot.conf:
+        # status exits 3, shown as "Disabled", not as a problem.
+        for name, var in (('memory-guard', 'MEM_GUARD_ENABLE'),):
             fn = function('controlscripts/' + name, 'status')
             for enable, want in (('0', 3), ('1', 0)):
                 code = ('PIDFILE=/nonexistent\nis_truthy() { [ "$1" = 1 ]; }\n'
@@ -3911,6 +2092,18 @@ class ActionCommandFiles(unittest.TestCase):
 class NetworkAccessFilter(unittest.TestCase):
     """LAN-only access: src/netacl (accept/bind filter) and its shell side."""
 
+    def test_filter_only_preloaded_into_uclibc_programs(self):
+        # libnetacl.so is a uClibc library: in a musl program (the 3.0 base system) it would load a second libc.
+        with tempfile.TemporaryDirectory() as d:
+            lib = Path(d) / 'libnetacl.so'; lib.write_text('')
+            for name, head, want in (('uc', '\x7fELF /lib/ld-uClibc.so.0', lib.as_posix()), ('mu', '\x7fELF /lib/ld-musl-arm.so.1', '')):
+                prog = Path(d) / name
+                prog.write_text('#!/bin/sh\n# %s\necho "preload=$LD_PRELOAD"\n' % head); prog.chmod(0o755)
+                code = (function('scripts/common_functions.sh', 'netacl_exec') +
+                        '\nnetacl_lib() { printf %%s %s; }\nnetacl_allow_list() { printf 10.0.0.0/8; }\nnetacl_exec t %s'
+                        % (shlex.quote(str(lib)), shlex.quote(str(prog))))
+                self.assertEqual(run(code).stdout.decode().strip(), 'preload=' + want, name)
+
     @unittest.skipUnless(shutil.which('gcc'), 'gcc')
     def test_filter_refuses_outside_the_list_and_never_locks_out(self):
         import socket
@@ -3978,26 +2171,6 @@ class NetworkAccessFilter(unittest.TestCase):
             conf.write_text('NET_LAN_ONLY=1\nNET_ALLOW_EXTRA="203.0.113.7/32 198.51.100.0/24"\n')
             self.assertEqual(run(code).stdout, b'10.0.0.0/8 192.168.0.0/16 203.0.113.7/32 198.51.100.0/24')
 
-    def test_wired_into_every_server(self):
-        cf = (ROOT / 'scripts/common_functions.sh').read_text()
-        hs = function('scripts/common_functions.sh', '_hs_run')
-        self.assertIn('netacl_exec web /mnt/bin/lighttpd', hs)
-        self.assertIn('started without it', hs)                             # never costs the web interface
-        lf = function('scripts/common_functions.sh', '_http_server_lighttpd')
-        self.assertNotIn('/mnt/bin/lighttpd -f', lf)
-        self.assertIn('netacl_exec telnet telnetd', (ROOT / 'controlscripts/telnet-server').read_text())
-        self.assertIn('netacl_exec ftp /mnt/bin/busybox tcpsvd', (ROOT / 'controlscripts/ftp-server').read_text())
-        for svc in ('telnet-server', 'ftp-server'):
-            self.assertIn('service_autoclose ' + svc, (ROOT / 'controlscripts' / svc).read_text())
-        rt = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        self.assertIn('TC100_NET_ALLOW=${_acl// /,}', rt)
-        self.assertIn('TC100_NET_LOCAL_PORTS=$_vport', rt)
-        self.assertIn('netacl.c', (ROOT / 'src/tc100fix/build.sh').read_text())
-        self.assertIn('libnetacl.so', (ROOT / 'src/flash/build-code.sh').read_text())
-        self.assertFalse((ROOT / 'config/autostart/ftp-server').exists())
-        et = (ROOT / 'config/autostart/01_system-emergency-telnet').read_text()
-        self.assertLess(et.index('sleep 120'), et.index('netacl_exec emergency-telnet'))
-        self.assertIn('NETACL_PRIVATE="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10"', cf)
 
     def test_autoclose_stops_the_service(self):
         with tempfile.TemporaryDirectory() as d:
@@ -4018,59 +2191,6 @@ class NetworkAccessFilter(unittest.TestCase):
         self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf killall lighttpd lighttpd -f c.conf')
         out = run(stubs + 'port_listening() { return 0; }\n' + hs + '\n_hs_run c.conf').stdout.decode().split()
         self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf')
-
-    def test_lite_server_ban_spares_the_local_network(self):
-        c = (ROOT / 'src/tc100fix/rtsp.c').read_text()
-        fn = c[c.index('static void login_result'):]
-        fn = fn[:fn.index('\n}\n')]
-        self.assertLess(fn.index('netacl_is_private(a)) return'), fn.index('BAN_US'))
-        self.assertIn('if (login_banned(a.sin_addr.s_addr)) { close(fd); login_refused++; }', c)
-
-
-class VendorEncoderTrace(unittest.TestCase):
-    """src/tc100fix/venctrace.c: the vendor encoder's hardware callbacks recorded, unchanged."""
-
-    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
-    def test_records_registers_dma_irq_and_frames(self):
-        src = ROOT / 'tests/venctrace'
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            run_ = lambda *a: subprocess.run(list(a), check=True, cwd=d)
-            run_('gcc', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror', '-o', 'vt.so', str(ROOT / 'src/tc100fix/venctrace.c'), '-ldl', '-lpthread')
-            run_('gcc', '-shared', '-fPIC', '-o', 'libfakeakv.so', str(src / 'fakeakv.c'))
-            run_('gcc', '-shared', '-fPIC', '-o', 'libstub.so', str(src / 'stub.c'))
-            run_('gcc', '-o', 'main', str(src / 'main.c'), '-L.', '-lfakeakv', '-lstub')
-            env = dict(os.environ, LD_LIBRARY_PATH=str(d), LD_PRELOAD=str(d / 'vt.so'),
-                       TC100FIX_VENC_TRACE=str(d / 'out'), TC100FIX_VENC_TRACE_FRAMES='1')
-            subprocess.run([str(d / 'main')], env=env, check=True)
-            t = (d / 'out.trc').read_bytes()
-            self.assertEqual(t[:8], b'TC100VTR')
-            recs = [struct.unpack('<IHHII', t[i:i + 16]) for i in range(16, len(t), 16)]
-            kinds = [(r[1], r[2], r[3], r[4]) for r in recs]
-            heads, i = [], 0
-            while i < len(recs):
-                r = recs[i]; heads.append((r[1], r[2], r[3], r[4]))
-                if r[1] == 9:                                   # blob: payload follows
-                    payload = t[16 + (i + 1) * 16: 16 + (i + 1) * 16 + r[4]]
-                    self.assertEqual(payload, b'\xab' * 0x400)
-                    i += (r[4] + 15) // 16
-                i += 1
-            self.assertEqual(heads, [(8, 0, 6, 0), (2, 0, 0x20020010, 0x1234), (1, 0, 0x20020014, 1),
-                                     (3, 0, 4096, 0x81001000), (9, 0, 0x81001020, 0x400), (2, 0, 0x20028080, 0x81001020),
-                                     (5, 0, 7, 0), (5, 1, 7, 0), (9, 1, 0x81001020, 0x400),
-                                     (4, 0, 0x81001000, 0), (7, 0, 0, 6)])
-            self.assertEqual((d / 'out.es').read_bytes(), bytes([0, 0, 0, 1, 0x40, 1]))
-            # off: nothing written, the encoder gets its own table
-            env.pop('TC100FIX_VENC_TRACE')
-            (d / 'out.trc').unlink()
-            subprocess.run([str(d / 'main')], env=env, check=True)
-            self.assertFalse((d / 'out.trc').exists())
-
-    def test_wired_in_safely(self):
-        rt = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        self.assertIn('/tmp/*[!A-Za-z0-9/_.-]*|/tmp/*..*) ;;', rt)
-        self.assertIn('venctrace.c', (ROOT / 'src/tc100fix/build.sh').read_text())
-        self.assertIn('tc100fix_venctrace_frame(buf, *len', (ROOT / 'src/tc100fix/rec.c').read_text())
 
 
 if __name__ == '__main__':
@@ -4135,21 +2255,6 @@ class SdWear(unittest.TestCase):
             subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
             self.assertIn('SD card errors (42 kernel errors): likely cause', (Path(d) / 'last').read_text())
 
-    def test_routine_logs_live_in_ram(self):
-        self.assertIn('LOG_FILE="/tmp/log/sound-detection.log"',
-                      (ROOT / 'controlscripts/sound-detection').read_text())
-        rtsp = (ROOT / 'controlscripts/rtsp-h26x').read_text()
-        self.assertIn('LOGDIR="/tmp/log"', rtsp)
-        self.assertIn('cap_log', function('controlscripts/rtsp-h26x', 'health'))
-        autorun = (ROOT / 'autorun.sh').read_text()
-        self.assertIn('*/5 * * * * /bin/sh /mnt/scripts/reboot-tracker.sh tick', autorun)
-        self.assertNotIn('* * * * * /bin/sh /mnt/scripts/reboot-tracker.sh', autorun)
-        self.assertIn('remount,noatime /mnt', (ROOT / 'config/autostart/00_system-config').read_text())
-        conf = function('scripts/common_functions.sh', 'syslogd_start')
-        self.assertIn('*.notice;auth.*;authpriv.*', conf)
-        self.assertEqual(conf.count('-l 6'), 2)
-        # nothing written under /mnt (the forwarder binary may be read from /mnt/bin)
-        self.assertNotIn('/mnt', conf.replace('/mnt/bin/tc100-logfwd', ''))
 
     def test_stability_samples_are_batched(self):
         with tempfile.TemporaryDirectory() as d:

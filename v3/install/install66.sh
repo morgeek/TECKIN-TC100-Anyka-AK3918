@@ -26,6 +26,9 @@ md5() { md5sum < "$1" | cut -d' ' -f1; }
 want_md5() { cut -d' ' -f1 "$1.md5" 2>/dev/null; }
 has_part() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && return 0; done; return 1; }
 
+# the sensor tuning in use (copied at boot from the card), else the card's copy
+isp_src() { for f in /lib/firmware/anyka/isp.conf /mnt/config/isp_f23_mipi_2lane.conf; do [ -s $f ] && { echo $f; return 0; }; done; return 1; }
+
 check() {
 	[ -f /tmp/linux66 ] || { echo "not the 3.0 firmware"; return 1; }
 	[ -f /tmp/flashmode ] && { echo "already running from the flash (use the update instead)"; return 1; }
@@ -36,6 +39,7 @@ check() {
 		[ "$(want_md5 "$f")" = "$(md5 "$f")" ] || { echo "${f#$C/} does not match its md5"; return 1; }
 	done
 	[ -x /mnt/ext/bin/mksquashfs ] || { echo "mksquashfs is missing (ext/ of the package)"; return 1; }
+	isp_src >/dev/null || { echo "the sensor tuning file of the camera is missing (config/isp_f23_mipi_2lane.conf on the card)"; return 1; }
 	sh $V/install/collect-vendor.sh -c /mnt/lib >/dev/null || { echo "the camera's vendor libraries are not all in lib/ of the card (step 1 not done?)"; return 1; }
 	echo ok
 }
@@ -53,6 +57,7 @@ say "install to flash: start ($(cat /mnt/VERSION 2>/dev/null))"
 # the vendor partition image, built on the card (not in RAM)
 W=$K/vendor-build; rm -rf "$W"; mkdir -p "$W/root/lib"
 sh $V/install/collect-vendor.sh /mnt/lib "$W/root/lib" >> "$LOG" 2>&1 || fail "vendor libraries"
+cp "$(isp_src)" "$W/root/isp.conf" || fail "sensor tuning"
 mksquashfs "$W/root" "$K/vendor.sqfs" -comp xz -b 256K -noappend -all-root -quiet >> "$LOG" 2>&1 || fail "mksquashfs"
 rm -rf "$W"
 n=$(wc -c < "$K/vendor.sqfs"); [ "$n" -le $VENDOR_MAX ] || fail "vendor.sqfs is $n bytes, the partition has $VENDOR_MAX"
