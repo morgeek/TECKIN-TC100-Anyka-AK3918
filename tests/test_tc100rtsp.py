@@ -719,9 +719,7 @@ class ListenCgi(Server):
 
     def cgi(self, method='GET'):
         t = Path(self.tmp.name)
-        (t / 'linux66').write_text('')
-        env = dict(os.environ, REQUEST_METHOD=method, TC100_LISTEN_DIR=str(self.listen), TC100_SND_DEV='/dev/null',
-                   TC100_LINUX66_FLAG=str(t / 'linux66'), PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'])
+        env = dict(os.environ, REQUEST_METHOD=method, TC100_LISTEN_DIR=str(self.listen), TC100_SND_DEV='/dev/null', PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'])
         return subprocess.Popen(['sh', str(ROOT / 'www' / 'cgi-bin' / 'audio_stream.cgi')], env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL)
 
