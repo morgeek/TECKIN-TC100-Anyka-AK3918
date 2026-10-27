@@ -145,16 +145,15 @@ if [ "$event_type" = "motion_on" ] && \
       /mnt/bin/telegram p "$snapshot_path" >/dev/null 2>&1 || true
     else
       # Take a fresh snapshot if no snapshot was passed with the event
-      # getimage (2.x) or the picture tc100_rtsp keeps (Linux 6.6): take_snapshot in common_functions.sh
-      if [ -x /mnt/bin/getimage ] || [ -f /tmp/linux66 ]; then
-        _tg_snap="/tmp/telegram_motion_snap_$$.jpg"
-        . /mnt/scripts/common_functions.sh
-        take_snapshot "$_tg_snap" && \
-          /mnt/bin/telegram p "$_tg_snap" >/dev/null 2>&1 || true
-        rm -f "$_tg_snap" 2>/dev/null || true
+      # the picture tc100_rtsp keeps (take_snapshot in common_functions.sh), else a text message
+      _tg_snap="/tmp/telegram_motion_snap_$$.jpg"
+      . /mnt/scripts/common_functions.sh
+      if take_snapshot "$_tg_snap"; then
+        /mnt/bin/telegram p "$_tg_snap" >/dev/null 2>&1 || true
       else
         /mnt/bin/telegram m "Motion detected at $ts_utc" >/dev/null 2>&1 || true
       fi
+      rm -f "$_tg_snap" 2>/dev/null || true
     fi
   fi
 fi

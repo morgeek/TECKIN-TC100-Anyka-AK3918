@@ -1,9 +1,8 @@
 #!/bin/sh
 # Tuneable performance parameters: allow overrides via environment to reduce CPU usage
-# Linux 6.6: tc100_rtsp holds /tmp/rec_control at "1" for 8 s after the last motion, so a 10 s poll could
-# miss a short event: poll every 3 s there.
-_dm_default=10; [ -f /tmp/linux66 ] && _dm_default=3
-MONITOR_TIMEOUT_SECONDS="${MONITOR_TIMEOUT_SECONDS:-$_dm_default}"
+# tc100_rtsp holds /tmp/rec_control at "1" for 8 s after the last motion, so a 10 s poll could miss a short
+# event: poll every 3 s.
+MONITOR_TIMEOUT_SECONDS="${MONITOR_TIMEOUT_SECONDS:-3}"
 MONITOR_TIMEOUT_SECONDS_ON_DETECTION="${MONITOR_TIMEOUT_SECONDS_ON_DETECTION:-12}"
 
 case "$MONITOR_TIMEOUT_SECONDS" in

@@ -298,23 +298,19 @@ publish_mqtt_event() {
 }
 
 # take_snapshot FILE -> a current JPEG of the camera in FILE (status 0 when FILE is not empty).
-# Linux 6.6 (/tmp/linux66): tc100_rtsp keeps /tmp/currentpic.cache.jpg (+ .ts) and makes a new one at once
-# when /tmp/snapshot_request exists; it is used as it is after 3 s. 2.x: getimage asks the vendor server.
+# tc100_rtsp keeps /tmp/currentpic.cache.jpg (+ .ts) and makes a new one at once when /tmp/snapshot_request
+# exists; it is used as it is after 3 s.
 take_snapshot() {
-  if [ -f /tmp/linux66 ] || [ ! -x /mnt/bin/getimage ]; then
-    _tsn_old=""; [ -r /tmp/currentpic.cache.ts ] && read -r _tsn_old < /tmp/currentpic.cache.ts
-    : > /tmp/snapshot_request 2>/dev/null
-    _tsn_i=0
-    while [ "$_tsn_i" -lt 15 ]; do
-      _tsn_new=""; [ -r /tmp/currentpic.cache.ts ] && read -r _tsn_new < /tmp/currentpic.cache.ts
-      [ -n "$_tsn_new" ] && [ "$_tsn_new" != "$_tsn_old" ] && break
-      sleep 0.2 2>/dev/null || sleep 1
-      _tsn_i=$((_tsn_i + 1))
-    done
-    [ -s /tmp/currentpic.cache.jpg ] && cp /tmp/currentpic.cache.jpg "$1" 2>/dev/null && [ -s "$1" ]
-    return
-  fi
-  /mnt/bin/getimage > "$1" 2>/dev/null && [ -s "$1" ]
+  _tsn_old=""; [ -r /tmp/currentpic.cache.ts ] && read -r _tsn_old < /tmp/currentpic.cache.ts
+  : > /tmp/snapshot_request 2>/dev/null
+  _tsn_i=0
+  while [ "$_tsn_i" -lt 15 ]; do
+    _tsn_new=""; [ -r /tmp/currentpic.cache.ts ] && read -r _tsn_new < /tmp/currentpic.cache.ts
+    [ -n "$_tsn_new" ] && [ "$_tsn_new" != "$_tsn_old" ] && break
+    sleep 0.2 2>/dev/null || sleep 1
+    _tsn_i=$((_tsn_i + 1))
+  done
+  [ -s /tmp/currentpic.cache.jpg ] && cp /tmp/currentpic.cache.jpg "$1" 2>/dev/null && [ -s "$1" ]
 }
 
 # Control the led
@@ -418,55 +414,9 @@ ir_cut(){
 }
 
 
-# _http_server_lighttpd — start lighttpd the way 02_system-webserver does.
-# lighttpd needs /mnt/lib (libpcre2, libssl): started from a CGI or a service
-# script without LD_LIBRARY_PATH it exits at once ("can't load library
-# 'libpcre2-8.so.0'"), so a web-server restart used to leave the camera with
-# no web UI until the next reboot. WEB_MODE=http uses the plain-HTTP config.
-# _hs_run CONF: lighttpd with the LAN-only filter; started again without it
-# when port 80 does not listen within 5 s (the filter must never cost the
-# web interface).
-_hs_run(){
-  ( export LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib"; netacl_exec web /mnt/bin/lighttpd -f "$1" )
-  [ -n "$(netacl_lib)" ] && [ -n "$(netacl_allow_list)" ] || return 0
-  _hs_w=0
-  while [ $_hs_w -lt 5 ]; do port_listening 80 && return 0; sleep 1; _hs_w=$((_hs_w + 1)); done
-  logger -t tc100-event -p user.err "web server: did not start with the LAN filter, started without it" 2>/dev/null
-  killall lighttpd 2>/dev/null; sleep 1
-  LD_LIBRARY_PATH="/mnt/lib:/lib:/usr/lib" /mnt/bin/lighttpd -f "$1"
-}
-
-_http_server_lighttpd(){
-  _hs_conf=/mnt/config/lighttpd.conf
-  [ "$WEB_MODE" = "http" ] && _hs_conf=/mnt/config/lighttpd.http.conf
-  # Firmware from flash: lighttpd has mbedTLS instead of OpenSSL, no PCRE and
-  # no openssl tool to make a certificate. Only the flash templates match that
-  # binary (a lighttpd.conf brought from an SD card may not even parse), and
-  # HTTPS needs an existing certificate it can load (ECDSA). If lighttpd does
-  # not come up with TLS, the plain HTTP template is used instead: a camera
-  # without its web interface can only be fixed with a screwdriver.
-  if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
-    _hs_http=/mnt/config/lighttpd.flash-http.conf.dist
-    if [ "$_hs_conf" = /mnt/config/lighttpd.conf ] && [ -s /mnt/config/lighttpd.pem ]; then
-      _hs_run /mnt/config/lighttpd.flash.conf.dist
-      _hs_i=0
-      while [ $_hs_i -lt 5 ]; do
-        sleep 1; _hs_i=$((_hs_i + 1))
-        port_listening 443 && return 0
-      done
-      logger -t tc100-event -p user.err "web server: HTTPS did not start (certificate?), falling back to HTTP" 2>/dev/null
-      killall lighttpd 2>/dev/null; sleep 1
-    fi
-    _hs_run "$_hs_http"
-    return
-  fi
-  install_config "$_hs_conf"
-  _hs_run "$_hs_conf"
-}
-
-# Linux 6.6 (3.0): the web server is httpfront (src/httpfront) in front of busybox httpd, port 80, document root
-# /tmp/www (v3/autorun-linux66.sh step 6); no lighttpd, no HTTPS.
-_http_server_66(){
+# Control the web server: httpfront (src/httpfront) in front of busybox httpd, port 80, document root /tmp/www
+# (v3/autorun-linux66.sh step 6).
+http_server(){
   case "$1" in
   on)
     pidof httpfront >/dev/null 2>&1 && return 0
@@ -478,64 +428,15 @@ _http_server_66(){
     sleep 1
     for _hs_pid in $(pidof httpfront 2>/dev/null); do echo -900 > /proc/$_hs_pid/oom_score_adj 2>/dev/null; done ;;
   off) killall httpfront httpd 2>/dev/null ;;
-  restart) killall httpfront httpd 2>/dev/null; sleep 1; _http_server_66 on ;;
+  restart) killall httpfront httpd 2>/dev/null; sleep 1; http_server on ;;
   status) if pidof httpfront >/dev/null 2>&1 || pidof httpd >/dev/null 2>&1; then echo "ON"; else echo "OFF"; fi ;;
   esac
 }
 
-# Control the http server
-http_server(){
-  [ -f /tmp/linux66 ] && { _http_server_66 "$@"; return; }
-  WEB_MODE="full"
-  ULTRALITE_HTTP_PORT="80"
-  if [ -f /mnt/config/boot.conf ]; then
-    # shellcheck disable=SC1090
-    . /mnt/config/boot.conf
-  fi
-  # lighttpd refuses to start if deflate.cache-dir is missing, and /tmp is
-  # recreated on every boot.
-  mkdir -p /tmp/lighttpd-deflate 2>/dev/null
-  case "$1" in
-  on)
-    if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
-      run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
-    else
-      _http_server_lighttpd
-    fi
-    ;;
-  off)
-    killall lighttpd
-    killall httpd
-    ;;
-  restart)
-    killall lighttpd
-    killall httpd
-    if [ "$WEB_MODE" = "ultra-lite" ] || [ "$WEB_MODE" = "ultralite" ]; then
-      run_busybox httpd -p "${ULTRALITE_HTTP_PORT:-80}" -h /mnt/www
-    else
-      _http_server_lighttpd
-    fi
-    ;;
-  status)
-    if pgrep lighttpd >/dev/null 2>&1 || pgrep httpd >/dev/null 2>&1
-      then
-        echo "ON"
-    else
-        echo "OFF"
-    fi
-    ;;
-  esac
-}
-
 # Set a new http password
+# (busybox httpd: the login lives in /etc/httpd.conf, written by web-auth)
 http_password(){
-  user="root" # by default root until we have proper user management
-  realm="all" # realm is defined in the lightppd.conf
-  pass=$1
-  hash=$(echo -n "$user:$realm:$pass" | md5sum | cut -b -32)
-  echo "$user:$realm:$hash" > /mnt/config/lighttpd.user
-  # Linux 6.6 (busybox httpd): the login lives in /etc/httpd.conf
-  [ -f /mnt/v3/linux66-sd/web-auth ] && [ -x /usr/sbin/httpd ] && sh /mnt/v3/linux66-sd/web-auth "$pass"
+  [ -f /mnt/v3/linux66-sd/web-auth ] && sh /mnt/v3/linux66-sd/web-auth "$1"
 }
 
 # Control the RTSP h264 server

@@ -43,7 +43,6 @@ _read_ts() {
 
 CACHE_FILE="/tmp/currentpic.cache.jpg"
 CACHE_META_FILE="/tmp/currentpic.cache.ts"
-CACHE_LOCK_DIR="/tmp/currentpic.cache.lock"
 CACHE_TTL_SECONDS="${CURRENTPIC_CACHE_TTL_SECONDS:-2}"
 
 case "$CACHE_TTL_SECONDS" in
@@ -53,18 +52,6 @@ esac
 [ "$CACHE_TTL_SECONDS" -gt 10 ] && CACHE_TTL_SECONDS=10
 
 _read_ts
-
-# The video server writes the still-picture encoder's last JPEG (one a
-# second) to /tmp/snapshot.jpg (libtc100fix, TC100FIX_SNAPSHOT): when it is
-# recent, serve it as it is, without starting getimage.
-SNAP_FILE="${CURRENTPIC_SNAPSHOT:-/tmp/snapshot.jpg}"
-if [ -s "$SNAP_FILE" ] && [ "$now_ts" -gt 0 ]; then
-  snap_ts="$(date -r "$SNAP_FILE" +%s 2>/dev/null)"
-  case "$snap_ts" in ''|*[!0-9]*) snap_ts=0 ;; esac
-  if [ "$snap_ts" -gt 0 ] && [ $((now_ts - snap_ts)) -le 3 ] && [ $((now_ts - snap_ts)) -ge -3 ]; then
-    serve "$SNAP_FILE"
-  fi
-fi
 
 cache_fresh=0
 if [ -f "$CACHE_FILE" ] && [ -f "$CACHE_META_FILE" ] && [ "$CACHE_TTL_SECONDS" -gt 0 ] && [ "$now_ts" -gt 0 ]; then
@@ -84,44 +71,15 @@ if [ "$cache_fresh" -eq 1 ]; then
   serve "$CACHE_FILE"
 fi
 
-# Linux 6.6: tc100_rtsp owns the cache (no getimage). It makes a new picture at once when
-# /tmp/snapshot_request exists; wait ~1.5 s for it, then serve whatever picture is there.
-if [ -f /tmp/linux66 ]; then
-  read -r _old_ts 2>/dev/null < "$CACHE_META_FILE"
-  : > /tmp/snapshot_request 2>/dev/null
-  wait_count=0
-  while [ "$wait_count" -lt 15 ]; do
-    _new_ts=""; read -r _new_ts 2>/dev/null < "$CACHE_META_FILE"
-    [ -n "$_new_ts" ] && [ "$_new_ts" != "$_old_ts" ] && break
-    sleep 0.1
-    wait_count=$((wait_count + 1))
-  done
-  serve "$CACHE_FILE"
-fi
-
-if mkdir "$CACHE_LOCK_DIR" 2>/dev/null; then
-  _read_ts
-  tmp_img="/tmp/currentpic.cache.$$.$now_ts.jpg"
-  if timeout 5 /mnt/bin/getimage > "$tmp_img" 2>/dev/null; then
-    mv "$tmp_img" "$CACHE_FILE" 2>/dev/null || cat "$tmp_img" > "$CACHE_FILE"
-    rm -f "$tmp_img" >/dev/null 2>&1 || true
-    _read_ts
-    [ "$now_ts" -gt 0 ] && printf '%s\n' "$now_ts" > "$CACHE_META_FILE"
-    rmdir "$CACHE_LOCK_DIR" >/dev/null 2>&1 || true
-    serve "$CACHE_FILE"
-  fi
-  rm -f "$tmp_img" >/dev/null 2>&1 || true
-  rmdir "$CACHE_LOCK_DIR" >/dev/null 2>&1 || true
-fi
-
+# tc100_rtsp owns the cache. It makes a new picture at once when /tmp/snapshot_request exists; wait ~1.5 s
+# for it, then serve whatever picture is there.
+read -r _old_ts 2>/dev/null < "$CACHE_META_FILE"
+: > /tmp/snapshot_request 2>/dev/null
 wait_count=0
-while [ "$wait_count" -lt 4 ]; do
+while [ "$wait_count" -lt 15 ]; do
+  _new_ts=""; read -r _new_ts 2>/dev/null < "$CACHE_META_FILE"
+  [ -n "$_new_ts" ] && [ "$_new_ts" != "$_old_ts" ] && break
   sleep 0.1
-  [ -s "$CACHE_FILE" ] && serve "$CACHE_FILE"
   wait_count=$((wait_count + 1))
 done
-
-tmp_img="/tmp/currentpic.last.$$.jpg"
-timeout 5 /mnt/bin/getimage > "$tmp_img" 2>/dev/null
-( serve "$tmp_img" ); rm -f "$tmp_img"
-
+serve "$CACHE_FILE"

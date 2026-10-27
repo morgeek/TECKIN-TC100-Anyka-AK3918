@@ -4,8 +4,8 @@
 # audit log) and helpers; F_* are the request fields. Only the file of the
 # requested command is read, so a request parses this file, not all of them.
 
-  # the video server log: v4l2rtspserver (2.x) or tc100_rtsp (3.0, Linux 6.6)
-  _vlog=/tmp/log/v4l2rtspserver.log; [ -f /tmp/linux66 ] && _vlog=/tmp/logs/tc100_rtsp.log
+  # the video server log (tc100_rtsp)
+  _vlog=/tmp/logs/tc100_rtsp.log
   case "$F_cmd" in
     showlog)
       if wants_json_response; then

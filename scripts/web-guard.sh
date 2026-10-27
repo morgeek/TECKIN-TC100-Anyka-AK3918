@@ -25,15 +25,8 @@ mkdir -p "$STATE" 2>/dev/null
 
 _wg_ports()
 {
-    # Linux 6.6 (3.0): httpfront on port 80 only (no lighttpd, no HTTPS)
-    [ -f /tmp/linux66 ] && { echo 80; return; }
-    WEB_MODE=full; ULTRALITE_HTTP_PORT=80
-    [ -f /mnt/config/boot.conf ] && . /mnt/config/boot.conf 2>/dev/null
-    case "$WEB_MODE" in
-        off) echo "" ;;
-        ultra-lite|ultralite) echo "${ULTRALITE_HTTP_PORT:-80}" ;;
-        *) echo "443 80" ;;
-    esac
+    # httpfront on port 80 only (no HTTPS)
+    echo 80
 }
 
 _wg_web_up()
@@ -74,10 +67,6 @@ wg_once()
         _n=$(cat "$STATE/up" 2>/dev/null); _n=$(( ${_n:-0} + 1 ))
         echo "$_n" > "$STATE/up"; rm -f "$STATE/restarted"
         [ "$_n" -ge 2 ] && _wg_rescue_stop
-        if port_listening 443; then rm -f /tmp/web-fallback
-        elif [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ] && [ -s /mnt/config/lighttpd.pem ]; then
-            echo http > /tmp/web-fallback
-        fi
         return 0
     fi
     echo 0 > "$STATE/up"
@@ -99,18 +88,8 @@ case "${0##*/}" in
                      wg_once
                      # Network loss with the rest of the system running (net-guard.sh).
                      sh "${WG_NETGUARD:-/mnt/scripts/net-guard.sh}" once </dev/null >/dev/null 2>&1
-                     # SD card put in or taken out (flash mode): sd-card.sh; 3.0: the SD panel (sdinfo-sd.sh)
-                     if [ -f /tmp/linux66 ]; then
-                         sh "${WG_SDINFO:-/mnt/v3/linux66-sd/sdinfo-sd.sh}" </dev/null >/dev/null 2>&1
-                     else
-                         sh "${WG_SDCARD:-/mnt/scripts/sd-card.sh}" tick </dev/null >/dev/null 2>&1
-                     fi
-                     if [ $((_i % 10)) -eq 0 ] && [ ! -f /tmp/linux66 ]; then
-                         _last=$(sed -n 's/^test_ts=//p' /tmp/sd-health 2>/dev/null); _now=$(date +%s)
-                         _up=$(cut -d. -f1 /proc/uptime)
-                         _t=""; [ "$_up" -ge 300 ] && { [ -z "$_last" ] || [ $((_now - _last)) -ge 86400 ] || [ "$_last" -gt "$_now" ]; } && _t=--test
-                         sh "${WG_SDH:-/mnt/scripts/sd-health.sh}" check $_t >/dev/null 2>&1
-                     fi
+                     # the SD panel (card put in or taken out)
+                     sh "${WG_SDINFO:-/mnt/v3/linux66-sd/sdinfo-sd.sh}" </dev/null >/dev/null 2>&1
                      _i=$((_i + 1)); sleep "$INTERVAL"
                  done ;;
             *) echo "usage: $0 run | once" >&2; exit 2 ;;
