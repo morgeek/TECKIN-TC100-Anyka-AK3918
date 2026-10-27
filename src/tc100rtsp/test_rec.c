@@ -1,6 +1,10 @@
 /* Host test of rec.c: synthetic H.264 / H.265 access units (real SPS, dummy slices) through the recorder into
- * Matroska files. tests/test_tc100rtsp.py checks the files.
- * usage: REC_TEST_ANY_FS=1 ./test_rec DIR h264|h265 SECONDS FPS GOP SEGMENT_S [DROP_FRAME] */
+ * fragmented MP4 files. tests/test_tc100rtsp.py checks the files.
+ * usage: REC_TEST_ANY_FS=1 [REC_TEST_AUDIO=1] ./test_rec DIR h264|h265 SECONDS FPS GOP SEGMENT_S [DROP_FRAME]
+ * REC_TEST_AUDIO=1: also feeds 20 ms A-law chunks (a 440 Hz tone, then 0.4 s of silence every 10 s) like tc100_rtsp does;
+ * REC_TEST_AUDIO_HOLE=<second>: leave out one second of audio there (arecord restarted: the chunk after it has the gap flag).
+ * REC_TEST_INPUT=file.h264: an Annex B stream (ffmpeg -bsf h264_mp4toannexb, with AUDs) instead of the synthetic frames. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +13,31 @@
 #include "rec.h"
 
 void rec_test_drop(void);
+
+static unsigned char alaw_enc(int s)
+{
+	int mask = 0xD5, e, m;
+
+	if (s < 0) { mask = 0x55; s = -s - 1; }
+	if (s > 32767) s = 32767;
+	if (s < 256) return ((s >> 4) ^ mask) & 0xff;
+	for (e = 1; e < 7 && s >= (512 << (e - 1)); e++) ;
+	m = (s >> (e + 3)) & 0x0f;
+	return (((e << 4) | m) ^ mask) & 0xff;
+}
+
+/* 20 ms chunk number i of the test tone */
+static void tone_chunk(int i, unsigned char *o)
+{
+	int k;
+
+	for (k = 0; k < 160; k++) {
+		long n = (long)i * 160 + k;
+		int quiet = (n / 8000) % 10 == 9 && (n % 8000) < 3200;
+
+		o[k] = alaw_enc(quiet ? 0 : (int)(8000.0 * sin(2 * 3.14159265358979 * 440.0 * n / 8000.0)));
+	}
+}
 
 struct bw { unsigned char b[256]; int pos; };
 static void put(struct bw *w, unsigned long long v, int n) { while (n--) { if (v >> n & 1) w->b[w->pos >> 3] |= 0x80 >> (w->pos & 7); w->pos++; } }
@@ -42,7 +71,11 @@ int main(int argc, char **argv)
 {
 	struct rec_cfg c;
 	unsigned char sps[64], pps[16], vps[32], au[20000], tmp[16000], jpg[64];
-	int spsn, ppsn, vpsn = 0, hevc, secs, fps, gop, f, n, drop = -1;
+	int spsn, ppsn, vpsn = 0, hevc, secs, fps, gop, f, n, drop = -1, audio = getenv("REC_TEST_AUDIO") != NULL, ac = 0;
+	unsigned char *in = NULL;
+	long inlen = 0, aoff[20002];
+	int nau = 0;
+	int hole = getenv("REC_TEST_AUDIO_HOLE") ? atoi(getenv("REC_TEST_AUDIO_HOLE")) : -1;
 	struct bw w;
 
 	if (argc < 7) { fprintf(stderr, "usage: test_rec DIR h264|h265 SECONDS FPS GOP SEGMENT_S [DROP]\n"); return 2; }
@@ -81,16 +114,51 @@ int main(int argc, char **argv)
 	c.mode = REC_ALWAYS;
 	snprintf(c.dir, sizeof c.dir, "%s", argv[1]);
 	snprintf(c.status, sizeof c.status, "%s/status", argv[1]);
+	c.audio = audio;
 	c.segment_s = atoi(argv[6]); c.reserve_mb = 16; c.offline_s = 5; c.postroll_s = 30; c.ring_kb = 8192;
 	if (rec_config(&c)) return 1;
 	for (n = 0; n < 200 && !rec_active(); n++) usleep(10000);
 	if (!rec_active()) { fprintf(stderr, "recorder not active\n"); return 1; }
 
+	if (getenv("REC_TEST_INPUT")) {		/* a real Annex B H.264 stream: access units start at an AUD (type 9) */
+		FILE *fp = fopen(getenv("REC_TEST_INPUT"), "rb");
+		long i;
+
+		if (!fp) { perror("REC_TEST_INPUT"); return 1; }
+		in = malloc(64u << 20); inlen = (long)fread(in, 1, 64u << 20, fp); fclose(fp);
+		for (i = 0; i + 4 < inlen; i++)
+			if (in[i] == 0 && in[i + 1] == 0 && in[i + 2] == 1 && (in[i + 3] & 31) == 9 && nau < 20000) {
+				if (i > 0 && in[i - 1] == 0) aoff[nau++] = i - 1; else aoff[nau++] = i;
+			}
+		aoff[nau] = inlen;
+		secs = nau / fps;
+	}
 	for (f = 0; f < secs * fps; f++) {
 		unsigned long long ts = 5000000ULL + (unsigned long long)f * 1000000ULL / fps;
 		int key = f % gop == 0, k = 0;
 
+		while (audio) {		/* the chunks captured up to this picture, as the microphone reader hands them over */
+			unsigned long long ats = 5000000ULL + (unsigned long long)(ac + 1) * 20000ULL;
+			unsigned char ch[160];
+
+			if (ats > ts) break;
+			tone_chunk(ac, ch);
+			if (hole >= 0 && ac / 50 == hole) { ac++; continue; }	/* captured, never delivered */
+			if (rec_audio(ch, 160, ats, hole >= 0 && ac / 50 == hole + 1 && ac % 50 == 0)) { fprintf(stderr, "audio %d not queued\n", ac); return 1; }
+			ac++;
+		}
 		if (f == drop) { rec_test_drop(); continue; }
+		if (in) {
+			long i;
+
+			k = (int)(aoff[f + 1] - aoff[f]);
+			for (i = aoff[f], key = 0; i + 4 < aoff[f + 1]; i++)
+				if (in[i] == 0 && in[i + 1] == 0 && in[i + 2] == 1 && (in[i + 3] & 31) == 5) key = 1;
+			if (rec_frame(in + aoff[f], (uint32_t)k, ts, key, 0)) { fprintf(stderr, "frame %d not queued\n", f); return 1; }
+			if (key) rec_thumb(jpg, 20, ts);
+			if (!(f % 50)) usleep(2000);
+			continue;
+		}
 		if (hevc) { static const unsigned char aud[3] = { 0, 0, 1 }; memcpy(au + k, aud, 3); k += 3; au[k++] = 0x46; au[k++] = 0x01; au[k++] = 0x50; }
 		else { au[k++] = 0; au[k++] = 0; au[k++] = 1; au[k++] = 0x09; au[k++] = 0xf0; }
 		if (key) {

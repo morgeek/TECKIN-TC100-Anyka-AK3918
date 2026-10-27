@@ -817,7 +817,7 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 static int audio_on;
 static pid_t aud_pid = -1, aud_dead = -1;	/* arecord, and the one stopped but not yet reaped */
 static time_t aud_dead_t, aud_unneeded;
-static int aud_fd = -1, aud_odd = -1, aud_tx;
+static int aud_fd = -1, aud_odd = -1, aud_tx, aud_gap;
 static time_t aud_retry;
 static uint32_t aud_ts = 0x1234;
 static unsigned char aud_buf[160 * 2];
@@ -914,7 +914,7 @@ static void aud_open(void)
 	if (pid < 0) { close(p[0]); LOG("audio: arecord failed: %s\n", strerror(errno)); return; }
 	aud_pid = pid; aud_fd = p[0];
 	fcntl(aud_fd, F_SETFL, fcntl(aud_fd, F_GETFL) | O_NONBLOCK);
-	aud_n = 0; aud_odd = -1;
+	aud_n = 0; aud_odd = -1; aud_gap = 1;
 	lvl_reset(&snd_w); lvl_reset(&snd_s);
 }
 
@@ -966,12 +966,23 @@ static void aud_send(const unsigned char *pl, int n)
 	aud_ts += n;
 }
 
+static uint64_t now_us64(void)
+{
+	struct timespec t;
+
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (uint64_t)t.tv_sec * 1000000ULL + (uint64_t)t.tv_nsec / 1000;
+}
+
 static void aud_pump(void)
 {
 	unsigned char raw[1024];
 	int r;
 
 	while ((r = read(aud_fd, raw, sizeof raw)) > 0) {
+		int rec_a = rec_audio_wanted();
+		uint64_t tus = rec_a ? now_us64() : 0;
+
 		for (int i = 0; i < r; i++) {
 			int s;
 
@@ -979,9 +990,13 @@ static void aud_pump(void)
 			s = (int16_t)(aud_odd | (raw[i] << 8));
 			aud_odd = -1;
 			if (snd_on) { lvl_add(&snd_w, s); if (snd_w.n >= 2000) snd_window(); }
-			if (aud_tx) {
+			if (aud_tx || rec_a) {
 				aud_buf[aud_n++] = alaw(s);
-				if (aud_n == 160) { aud_send(aud_buf, 160); aud_n = 0; }
+				if (aud_n == 160) {
+					if (aud_tx) aud_send(aud_buf, 160);
+					if (rec_a) { rec_audio(aud_buf, 160, tus, aud_gap); aud_gap = 0; }
+					aud_n = 0;
+				}
 			}
 		}
 	}
@@ -1421,6 +1436,7 @@ static void rec_reload(void)
 	rc.offline_s = cfg_num(bc, "REC_OFFLINE_SEC", 5);
 	rc.postroll_s = cfg_num(bc, "REC_POSTROLL_SEC", 30);
 	rc.ring_kb = cfg_num(bc, "REC_RING_KB", 1024);
+	rc.audio = cfg_num(bc, "REC_AUDIO", 1) != 0;
 	rec_sub = cfg_get(bc, "", "REC_STREAM", v, sizeof v) && !strcmp(v, "sub");
 	rec_client = 0;
 	if (cfg_get(bc, "", "REC_CLIENT", v, sizeof v) && v[0]) rec_client = ip_of(v);
@@ -1429,8 +1445,8 @@ static void rec_reload(void)
 	if (!memcmp(&rc, &last, sizeof rc)) return;
 	last = rc;
 	if (rc.mode != REC_OFF || rec_active())
-		LOG("recording: %s, %s stream, %d s files, keep %d MB free, into %s\n", mn[rc.mode & 3], rec_sub ? "sub" : "main",
-		    rc.segment_s, rc.reserve_mb, rc.dir);
+		LOG("recording: %s, %s stream, %s, %d s files, keep %d MB free, into %s\n", mn[rc.mode & 3], rec_sub ? "sub" : "main",
+		    rc.audio ? "with sound (G.711 A-law)" : "no sound", rc.segment_s, rc.reserve_mb, rc.dir);
 	rec_config(&rc);
 }
 
@@ -1701,7 +1717,7 @@ int main(int argc, char **argv)
 
 		/* microphone: while an audio client plays or the sound detection needs it; stopped 10 s after that */
 		aud_tx = audio_on && na > 0;
-		if (aud_tx || snd_on) {
+		if (aud_tx || snd_on || rec_audio_wanted()) {
 			aud_unneeded = 0;
 			if (aud_fd < 0 && aud_pid < 0 && nowt >= aud_retry) aud_open();
 		} else if (aud_fd >= 0) {

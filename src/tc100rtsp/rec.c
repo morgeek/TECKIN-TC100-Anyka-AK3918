@@ -54,7 +54,11 @@
 	_n = _n > (int)sizeof _b - 1 ? (int)sizeof _b - 1 : _n; if (_n > 0) (void)!write(2, _b, _n); } while (0)
 #define BARRIER() __asm__ __volatile__("" ::: "memory")
 
-#define TS		90000ULL	/* MP4 media timescale */
+#define TS		90000ULL	/* MP4 media timescale (video) */
+#define ATS		8000		/* audio timescale: 1 tick = 1 A-law sample */
+#define A_MAX		128		/* audio samples (chunks) per fragment */
+#define A_GAP_FILL	16000		/* a hole up to 2 s is filled with silence, a longer one starts a new run */
+#define A_GAP_LATE	12000		/* late arrival beyond 1.5 s counts as a hole */
 #define FRAG_US		1000000ULL	/* one fragment per second at most */
 #define FRAG_MAX_SAMPLES 128		/* a whole GOP of pre-roll fits */
 #define FRAG_MAX_BYTES	(384 * 1024)
@@ -74,12 +78,14 @@ struct qhdr { uint32_t len, flags; uint64_t ts; };
 #define QF_GAP		2u	/* frames were dropped before this one */
 #define QF_HEVC		4u
 #define QF_THUMB	8u	/* JPEG of the keyframe with this timestamp */
+#define QF_AUDIO	16u	/* A-law bytes, ts = the time the last byte was captured */
+#define QF_AGAP		32u	/* audio was dropped or restarted before this chunk */
 #define Q_WRAP		0xffffffffu
 
 static unsigned char *q_buf;
 static size_t q_size;
 static volatile size_t q_head, q_tail;		/* head: written by the producer only, tail: by the writer only */
-static int p_gap;				/* producer: a frame was dropped since the last push */
+static int p_gap, p_agap;			/* producer: a frame / an audio chunk was dropped since the last push */
 static volatile unsigned long q_dropped, q_pushed;
 
 static int q_push(const unsigned char *d, uint32_t len, uint64_t ts, uint32_t flags)
@@ -98,7 +104,8 @@ static int q_push(const unsigned char *d, uint32_t len, uint64_t ts, uint32_t fl
 		goto drop;
 	}
 	h.len = len; h.flags = flags; h.ts = ts;
-	if (!(flags & QF_THUMB)) { if (p_gap) h.flags |= QF_GAP; p_gap = 0; }
+	if (flags & QF_AUDIO) { if (p_agap) h.flags |= QF_AGAP; p_agap = 0; }
+	else if (!(flags & QF_THUMB)) { if (p_gap) h.flags |= QF_GAP; p_gap = 0; }
 	memcpy(q_buf + head, &h, sizeof h);
 	memcpy(q_buf + head + sizeof h, d, len);
 	head += need;
@@ -108,7 +115,8 @@ static int q_push(const unsigned char *d, uint32_t len, uint64_t ts, uint32_t fl
 	q_pushed++;
 	return 0;
 drop:
-	if (!(flags & QF_THUMB)) p_gap = 1;	/* a lost picture is no hole in the video */
+	if (flags & QF_AUDIO) p_agap = 1;
+	else if (!(flags & QF_THUMB)) p_gap = 1;	/* a lost picture is no hole in the video */
 	q_dropped++;
 	return -1;
 }
@@ -318,7 +326,7 @@ static const uint32_t matrix[9] = { 0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x400000
 
 /* ftyp + moov: one video track, sample entry avc1 / hvc1 with the parameter sets, fragments announced by mvex */
 static void init_segment(struct buf *b, int codec, const struct vinfo *vi,
-			 const struct nal *vps, const struct nal *sps, const struct nal *pps)
+			 const struct nal *vps, const struct nal *sps, const struct nal *pps, int audio)
 {
 	size_t moov, trak, mdia, minf, stbl, stsd, se_, cfg, dinf, dref, mvex, a;
 	int i;
@@ -330,7 +338,7 @@ static void init_segment(struct buf *b, int codec, const struct vinfo *vi,
 	a = fbox(b, "mvhd", 0, 0); b32(b, 0); b32(b, 0); b32(b, 1000); b32(b, 0);
 	b32(b, 0x10000); b16(b, 0x100); bzero_(b, 10);
 	for (i = 0; i < 9; i++) b32(b, matrix[i]);
-	bzero_(b, 24); b32(b, 2); end(b, a);
+	bzero_(b, 24); b32(b, audio ? 3 : 2); end(b, a);
 
 	trak = box(b, "trak");
 	a = fbox(b, "tkhd", 0, 3); b32(b, 0); b32(b, 0); b32(b, 1); b32(b, 0); b32(b, 0);
@@ -381,8 +389,39 @@ static void init_segment(struct buf *b, int codec, const struct vinfo *vi,
 	a = fbox(b, "stco", 0, 0); b32(b, 0); end(b, a);
 	end(b, stbl); end(b, minf); end(b, mdia); end(b, trak);
 
+	if (audio) {	/* track 2: G.711 A-law, 8 kHz mono: the 'alaw' sample entry ffmpeg reads (QuickTime sound description v0) */
+		trak = box(b, "trak");
+		a = fbox(b, "tkhd", 0, 3); b32(b, 0); b32(b, 0); b32(b, 2); b32(b, 0); b32(b, 0);
+		bzero_(b, 8); b16(b, 0); b16(b, 0); b16(b, 0x100); b16(b, 0);
+		for (i = 0; i < 9; i++) b32(b, matrix[i]);
+		b32(b, 0); b32(b, 0); end(b, a);
+		mdia = box(b, "mdia");
+		a = fbox(b, "mdhd", 0, 0); b32(b, 0); b32(b, 0); b32(b, ATS); b32(b, 0);
+		b16(b, 0x55c4); b16(b, 0); end(b, a);
+		a = fbox(b, "hdlr", 0, 0); b32(b, 0); b_put(b, "soun", 4); bzero_(b, 12);
+		b_put(b, "SoundHandler", 13); end(b, a);
+		minf = box(b, "minf");
+		a = fbox(b, "smhd", 0, 0); b32(b, 0); end(b, a);
+		dinf = box(b, "dinf"); dref = fbox(b, "dref", 0, 0); b32(b, 1);
+		a = fbox(b, "url ", 0, 1); end(b, a); end(b, dref); end(b, dinf);
+		stbl = box(b, "stbl");
+		stsd = fbox(b, "stsd", 0, 0); b32(b, 1);
+		se_ = box(b, "alaw");
+		bzero_(b, 6); b16(b, 1);			/* reserved, data reference index */
+		b16(b, 0); b16(b, 0); b32(b, 0);		/* sound version 0, revision, vendor */
+		b16(b, 1); b16(b, 16); b16(b, 0); b16(b, 0);	/* channels, sample size, compression id, packet size */
+		b32(b, (uint32_t)ATS << 16);			/* sample rate 16.16 */
+		end(b, se_); end(b, stsd);
+		a = fbox(b, "stts", 0, 0); b32(b, 0); end(b, a);
+		a = fbox(b, "stsc", 0, 0); b32(b, 0); end(b, a);
+		a = fbox(b, "stsz", 0, 0); b32(b, 0); b32(b, 0); end(b, a);
+		a = fbox(b, "stco", 0, 0); b32(b, 0); end(b, a);
+		end(b, stbl); end(b, minf); end(b, mdia); end(b, trak);
+	}
+
 	mvex = box(b, "mvex");
 	a = fbox(b, "trex", 0, 0); b32(b, 1); b32(b, 1); b32(b, 0); b32(b, 0); b32(b, 0); end(b, a);
+	if (audio) { a = fbox(b, "trex", 0, 0); b32(b, 2); b32(b, 1); b32(b, 0); b32(b, 0); b32(b, 0); end(b, a); }
 	end(b, mvex);
 	end(b, moov);
 }
@@ -393,7 +432,16 @@ static volatile unsigned c_seq;
 static volatile int r_mode, r_watched, r_motion;
 static volatile int w_run, w_stop, w_done, w_card_ok, w_paused;
 
+static volatile int r_audio;
+
 int rec_active(void) { return w_run && !w_stop && r_mode != REC_OFF && w_card_ok && !w_paused; }
+int rec_audio_wanted(void) { return r_audio && rec_active(); }
+
+int rec_audio(const unsigned char *d, uint32_t len, uint64_t ts_us, int gap)
+{
+	if (!len || !rec_audio_wanted()) return -1;
+	return q_push(d, len, ts_us, QF_AUDIO | (gap ? QF_AGAP : 0));
+}
 
 int rec_frame(const unsigned char *d, uint32_t len, uint64_t ts_us, int key, int hevc)
 {
@@ -427,6 +475,12 @@ static struct {
 	uint32_t seq;					/* fragment number */
 	struct sample s[FRAG_MAX_SAMPLES]; int ns;	/* the fragment being filled */
 	struct buf data;				/* its samples */
+	int audio;					/* the open file has the A-law track */
+	int a_ok, a_resync, na;				/* audio anchored in this file; samples (chunks) of the fragment */
+	uint16_t asz[A_MAX];				/* their sizes (= durations, 8 kHz) */
+	struct buf adata;				/* their bytes */
+	uint64_t a_pos, a_tfdt;				/* audio samples since the file start: end of the last one, start of the fragment */
+	unsigned long long asamples;
 	unsigned long long bytes, files, thumbs;
 	char state[16];
 	int state_dirty, want, watched;
@@ -540,7 +594,7 @@ static int write_all(int fd, const void *p, size_t n)
 	return 0;
 }
 
-static void frag_reset(void) { W.data.n = 0; W.data.err = 0; W.ns = 0; }
+static void frag_reset(void) { W.data.n = 0; W.data.err = 0; W.ns = 0; W.adata.n = 0; W.adata.err = 0; W.na = 0; }
 
 static void close_fd(void)
 {
@@ -562,13 +616,16 @@ static void fail(const char *what)
 static void flush_frag(uint64_t next_ts)
 {
 	struct buf m = { 0 };
-	size_t moof, traf, a, trun_off;
+	size_t moof, traf, a, trun_off, atrun_off = 0;
 	unsigned char mh[8];
-	uint32_t mdat = (uint32_t)(8 + W.data.n), off;
+	int na = W.audio ? W.na : 0;
+	uint32_t mdat, off;
 	int i;
 
-	if (W.ns == 0 || W.fd < 0) { frag_reset(); return; }
-	if (W.data.err) { frag_reset(); W.waiting_key = 1; return; }
+	if (W.fd < 0) { frag_reset(); return; }
+	if (W.ns == 0) return;				/* audio waits for the next picture */
+	if (W.data.err || W.adata.err) { frag_reset(); W.waiting_key = 1; return; }
+	mdat = (uint32_t)(8 + W.data.n + (na ? W.adata.n : 0));
 	if (next_ts <= W.s[W.ns - 1].ts) {
 		uint64_t d = W.ns > 1 ? (W.s[W.ns - 1].ts - W.s[0].ts) / (uint64_t)(W.ns - 1) : 66000;
 
@@ -588,14 +645,30 @@ static void flush_frag(uint64_t next_ts)
 		b32(&m, (uint32_t)d); b32(&m, W.s[i].size);
 		b32(&m, W.s[i].key ? 0x02000000u : 0x01010000u);
 	}
-	end(&m, a); end(&m, traf); end(&m, moof);
+	end(&m, a); end(&m, traf);
+	if (na) {					/* the audio of the same stretch, track 2 */
+		traf = box(&m, "traf");
+		a = fbox(&m, "tfhd", 0, 0x020000); b32(&m, 2); end(&m, a);
+		a = fbox(&m, "tfdt", 1, 0); b64(&m, W.a_tfdt); end(&m, a);
+		a = fbox(&m, "trun", 0, 0x000301); b32(&m, (uint32_t)na);
+		atrun_off = m.n; b32(&m, 0);
+		for (i = 0; i < na; i++) { b32(&m, W.asz[i]); b32(&m, W.asz[i]); }
+		end(&m, a); end(&m, traf);
+	}
+	end(&m, moof);
 	if (m.err) { free(m.p); frag_reset(); W.waiting_key = 1; return; }
 	off = (uint32_t)(m.n + 8);			/* data offset: from the moof start to the first sample */
 	m.p[trun_off] = (unsigned char)(off >> 24); m.p[trun_off + 1] = (unsigned char)(off >> 16);
 	m.p[trun_off + 2] = (unsigned char)(off >> 8); m.p[trun_off + 3] = (unsigned char)off;
+	if (na) {
+		off += (uint32_t)W.data.n;
+		m.p[atrun_off] = (unsigned char)(off >> 24); m.p[atrun_off + 1] = (unsigned char)(off >> 16);
+		m.p[atrun_off + 2] = (unsigned char)(off >> 8); m.p[atrun_off + 3] = (unsigned char)off;
+	}
 	mh[0] = (unsigned char)(mdat >> 24); mh[1] = (unsigned char)(mdat >> 16);
 	mh[2] = (unsigned char)(mdat >> 8); mh[3] = (unsigned char)mdat; memcpy(mh + 4, "mdat", 4);
-	if (write_all(W.fd, m.p, m.n) != 0 || write_all(W.fd, mh, 8) != 0 || write_all(W.fd, W.data.p, W.data.n) != 0) {
+	if (write_all(W.fd, m.p, m.n) != 0 || write_all(W.fd, mh, 8) != 0 || write_all(W.fd, W.data.p, W.data.n) != 0 ||
+	    (na && write_all(W.fd, W.adata.p, W.adata.n) != 0)) {
 		free(m.p);
 		fail("write");
 		return;
@@ -636,7 +709,8 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 		if (W.fd >= 0 || errno != EEXIST) break;
 	}
 	if (W.fd < 0) return -1;
-	init_segment(&b, W.codec, &W.vi, vps, sps, pps);
+	W.audio = C.audio;
+	init_segment(&b, W.codec, &W.vi, vps, sps, pps, W.audio);
 	if (b.err || write_all(W.fd, b.p, b.n) != 0) {
 		int e = errno;
 
@@ -646,6 +720,7 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 	W.bytes += b.n;
 	free(b.p);
 	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.seq = 0;
+	W.a_ok = W.a_resync = 0; W.a_pos = W.a_tfdt = 0;
 	frag_reset();
 	W.psn[0] = vps ? vps->n : 0; if (vps) memcpy(W.ps[0], vps->p, vps->n);
 	W.psn[1] = sps->n; memcpy(W.ps[1], sps->p, sps->n);
@@ -680,6 +755,65 @@ static void append_sample(const struct nal *u, int n, int key, uint64_t ts)
 	W.ns++;
 }
 
+/* A-law bytes captured up to h->ts. The track is a running sample count: placed on the video clock at the start of the file
+ * (and after a hole), then continuous, so arrival jitter does not move it. A short hole (arecord restarted, a dropped chunk)
+ * is filled with A-law silence, a long one starts the track again at the right time. */
+static void audio_discard(void) { W.na = 0; W.adata.n = 0; W.adata.err = 0; }
+
+static void put_audio(const unsigned char *d, uint32_t n)
+{
+	if (W.na >= A_MAX) {
+		if (W.ns) flush_frag(0); else audio_discard();
+		if (W.fd < 0) return;
+	}
+	if (!W.na) W.a_tfdt = W.a_pos;
+	b_put(&W.adata, d, n);
+	if (W.adata.err) { audio_discard(); return; }
+	W.asz[W.na++] = (uint16_t)n;
+	W.a_pos += n; W.asamples += n;
+}
+
+static void append_audio(const struct qhdr *h, const unsigned char *d)
+{
+	uint64_t dur = (uint64_t)h->len * 1000000ULL / ATS, start, wanted;
+	uint32_t i, n;
+
+	uint32_t fl = h->flags;
+
+	if (!W.audio || W.fd < 0 || !h->len) return;
+	if (W.waiting_key) { W.a_resync = 1; return; }		/* no file content until the next keyframe: the hole is filled later */
+	if (W.a_resync) { fl |= QF_AGAP; W.a_resync = 0; }
+	start = h->ts > dur ? h->ts - dur : 0;			/* when its first byte was captured */
+	if (h->ts <= W.file_t0) return;				/* before the first picture of the file */
+	wanted = start > W.file_t0 ? (start - W.file_t0) * ATS / 1000000ULL : 0;
+	if (!W.a_ok) {
+		W.a_ok = 1; W.a_pos = wanted;
+	} else if (wanted > W.a_pos && (wanted - W.a_pos > A_GAP_LATE || ((fl & QF_AGAP) && wanted - W.a_pos > 400))) {
+		uint64_t gap = wanted - W.a_pos;
+
+		if (gap <= A_GAP_FILL) {
+			static const unsigned char sil[160] = { [0 ... 159] = 0xd5 };
+
+			while (gap) {
+				uint32_t k = gap > sizeof sil ? (uint32_t)sizeof sil : (uint32_t)gap;
+
+				put_audio(sil, k); gap -= k;
+				if (W.fd < 0) return;
+			}
+		} else {					/* too long a hole: the run restarts at its own time */
+			if (W.ns) flush_frag(0);
+			if (W.fd < 0) return;
+			audio_discard();
+			W.a_pos = wanted;
+		}
+	}
+	for (i = 0; i < h->len; i += n) {			/* chunks of at most 160 bytes (20 ms) */
+		n = h->len - i > 160 ? 160 : h->len - i;
+		put_audio(d + i, n);
+		if (W.fd < 0) return;
+	}
+}
+
 static void thumb(const struct qhdr *h, const unsigned char *d)
 {
 	char p[200];
@@ -702,6 +836,7 @@ static void handle(struct qhdr *h, const unsigned char *d)
 	uint64_t ts = h->ts;
 
 	if (h->flags & QF_THUMB) { thumb(h, d); return; }
+	if (h->flags & QF_AUDIO) { append_audio(h, d); return; }
 	codec = (h->flags & QF_HEVC) ? C_H265 : C_H264;
 	if (codec != W.codec) { finish_file(); W.codec = codec; W.waiting_key = 1; }
 	n = split_nals(d, h->len, u, 32);
@@ -763,10 +898,11 @@ static void write_status(uint64_t now)
 	if (!C.status[0]) return;
 	n = snprintf(b, sizeof b,
 		     "mode=%s\nrtsp_client=%d\nstate=%s\nfile=%s\nfiles=%llu\nbytes=%llu\nframes=%lu\ndropped=%lu\ncodec=%s\n"
-		     "size=%dx%d\nfree_mb=%lu\nuptime_s=%llu\nthumbs=%llu\n",
+		     "size=%dx%d\nfree_mb=%lu\nuptime_s=%llu\nthumbs=%llu\naudio=%s\nasamples=%llu\n",
 		     mn[C.mode & 3], W.watched, W.state, W.path, W.files, W.bytes, (unsigned long)q_pushed,
 		     (unsigned long)q_dropped, W.codec == C_H265 ? "h265" : W.codec == C_H264 ? "h264" : "none", W.vi.w, W.vi.h,
-		     w_card_ok && !w_paused ? free_mb() : 0UL, (unsigned long long)(now / 1000000ULL), W.thumbs);
+		     w_card_ok && !w_paused ? free_mb() : 0UL, (unsigned long long)(now / 1000000ULL), W.thumbs,
+		     C.audio ? "alaw" : "off", W.asamples);
 	if (n <= 0 || n >= (int)sizeof b) return;
 	snprintf(tmp, sizeof tmp, "%s.tmp", C.status);
 	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -790,7 +926,7 @@ static void cfg_pull(void)
 		usleep(1000);
 	}
 	W.seen_seq = s1;
-	if (strcmp(t.dir, C.dir) || t.mode != C.mode) { finish_file(); W.waiting_key = 1; W.next_card = 0; }
+	if (strcmp(t.dir, C.dir) || t.mode != C.mode || t.audio != C.audio) { finish_file(); W.waiting_key = 1; W.next_card = 0; }
 	if (t.segment_s < 30) t.segment_s = 30;
 	if (t.reserve_mb < 16) t.reserve_mb = 16;
 	if (t.offline_s < 0) t.offline_s = 0;
@@ -863,7 +999,7 @@ static void *writer(void *arg)
 		}
 		got = q_peek(&h, &d);
 		if (got) {
-			W.last_rx = now;
+			if (!(h.flags & QF_AUDIO)) W.last_rx = now;	/* the pictures decide when the stream stopped */
 			handle(&h, d);
 			q_pop(&h);
 		} else {
@@ -893,6 +1029,7 @@ int rec_config(const struct rec_cfg *c)
 	c_pub = *c; BARRIER();
 	c_seq++;
 	r_mode = c->mode;
+	r_audio = c->audio != 0;
 	if (c->mode != REC_OFF && !w_run && !w_stop) {
 		size_t kb = c->ring_kb >= 128 && c->ring_kb <= 8192 ? (size_t)c->ring_kb : 1024;
 		pthread_t th;

@@ -57,7 +57,7 @@ test_util: test_util.c util.h
 	gcc -O2 -Wall -Wextra -o $@ test_util.c -lm
 
 test_rec: test_rec.c rec.c rec.h
-	gcc -O2 -Wall -Wextra -DREC_HOST_TEST -o $@ test_rec.c rec.c -lpthread
+	gcc -O2 -Wall -Wextra -DREC_HOST_TEST -o $@ test_rec.c rec.c -lpthread -lm
 
 clean:
 	rm -f tc100_rtsp *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec
