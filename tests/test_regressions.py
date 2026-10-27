@@ -1153,7 +1153,7 @@ class SdCard(unittest.TestCase):
         self.assertIn('local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', a)          # only the read is CSRF-free
         st = (ROOT / 'www/cgi-bin/state.cgi').read_text()
         self.assertIn('\\"sd_prompt\\":\\"$sd_prompt\\"', st)
-        self.assertIn('sd-card.sh}" tick', (ROOT / 'scripts/web-guard.sh').read_text())
+        self.assertIn('sdinfo-sd.sh}"', (ROOT / 'scripts/web-guard.sh').read_text())
         self.assertIn('id="sd_modal"', (ROOT / 'www/index.html').read_text())
         self.assertIn('sdCardPrompt(statusline);', (ROOT / 'src/webui/index/40-polling.js').read_text())
 
@@ -1353,7 +1353,7 @@ class WebGuardAndSdHealth(unittest.TestCase):
         self.assertFalse(self.rescue_alive())
         self.guard()
         self.assertTrue(self.rescue_alive())
-        (self.d / 'ports').write_text('443\n')
+        (self.d / 'ports').write_text('80\n')
         self.guard(); self.assertTrue(self.rescue_alive())          # one good check is not enough
         self.guard(); time.sleep(0.2); self.assertFalse(self.rescue_alive())
         self.assertEqual((self.d / 'restarts').read_text(), 'restart\n')
@@ -1773,7 +1773,8 @@ class SettingsByUse(unittest.TestCase):
         block = action_arm('isp_pro')
         self.assertIn('if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then', block)
         self.assertIn('if [ -n "${F_imageFlip}" ]; then', block)
-        self.assertLess(block.index('if [ -n "${F_daynightlum}'), block.index('setconf -k a'))
+        self.assertLess(block.index('if [ -n "${F_daynightlum}'), block.index('/mnt/config/daynight.conf'))
+        self.assertLess(block.index('/mnt/config/daynight.conf'), block.index('if [ -n "${F_imageFlip}" ]'))
         self.assertLess(block.index('if [ -n "${F_imageFlip}" ]'), block.index('setconf -k f'))
 
     def test_local_recording_commands(self):
@@ -1903,7 +1904,7 @@ class ServicesAndStatus(unittest.TestCase):
         r = run('PIDFILE=/nonexistent\n' + function('controlscripts/syslog-forward', 'status') + '\nstatus')
         self.assertEqual((r.returncode, r.stdout), (1, b''))
         ws = (ROOT / 'controlscripts/web-server').read_text()
-        self.assertIn('pidof "$_name"', ws)
+        self.assertIn('pidof httpfront', ws)
 
     def test_dashboard_gateway_is_the_live_default_route(self):
         fn = function('www/cgi-bin/state.cgi', 'get_live_gateway')
@@ -2182,15 +2183,6 @@ class NetworkAccessFilter(unittest.TestCase):
             conf.write_text('REMOTE_SHELL_TIMEOUT_MIN=15\n')
             code2 = code.replace('ls ' + d, 'cat ' + d + '/x.autoclose; kill $(cat ' + d + '/x.autoclose)')
             self.assertRegex(run(code2).stdout, rb'^\d+')
-
-    def test_web_server_restarts_without_the_filter_if_it_does_not_come_up(self):
-        hs = function('scripts/common_functions.sh', '_hs_run').replace('/mnt/bin/lighttpd', 'echo lighttpd').replace('sleep 1', ':')
-        stubs = ('logger() { :; }\nkillall() { echo killall "$@"; }\nnetacl_lib() { echo /x.so; }\n'
-                 'netacl_allow_list() { echo 10.0.0.0/8; }\nnetacl_exec() { shift; echo filtered; "$@"; }\n')
-        out = run(stubs + 'port_listening() { return 1; }\n' + hs + '\n_hs_run c.conf').stdout.decode().split()
-        self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf killall lighttpd lighttpd -f c.conf')
-        out = run(stubs + 'port_listening() { return 0; }\n' + hs + '\n_hs_run c.conf').stdout.decode().split()
-        self.assertEqual(' '.join(out), 'filtered lighttpd -f c.conf')
 
 
 if __name__ == '__main__':

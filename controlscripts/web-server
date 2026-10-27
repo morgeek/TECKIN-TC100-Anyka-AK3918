@@ -2,73 +2,25 @@
 # web-server — Unified control script for Elite TC100 Web Services
 
 SERVICE_NAME="Elite Web Server"
-PIDFILE="/var/run/lighttpd.pid"
-ULTRALITE_PIDFILE="/var/run/httpd.pid"
 CONFIGPATH="/mnt/config"
 
 . /mnt/scripts/common_functions.sh
 
+# httpfront on port 80 hands each connection to busybox httpd
 status()
 {
-    # Linux 6.6 (3.0): httpfront on port 80 hands each connection to busybox httpd
-    if [ -f /tmp/linux66 ]; then
-        _pid="$(pidof httpfront 2>/dev/null)"; _pid="${_pid%% *}"
-        [ -n "$_pid" ] && { echo "PID: $_pid (httpfront)"; return 0; }
-    fi
-    if [ -f "$PIDFILE" ]; then
-        _pid="$(cat "$PIDFILE" 2>/dev/null)"
-        if [ -n "$_pid" ] && kill -0 "$_pid" >/dev/null 2>&1; then
-            echo "PID: $_pid (lighttpd)"
-            return 0
-        fi
-    fi
-    if [ -f "$ULTRALITE_PIDFILE" ]; then
-        _pid="$(cat "$ULTRALITE_PIDFILE" 2>/dev/null)"
-        if [ -n "$_pid" ] && kill -0 "$_pid" >/dev/null 2>&1; then
-            echo "PID: $_pid (httpd)"
-            return 0
-        fi
-    fi
-    # lighttpd.conf sets no server.pid-file, so the pidfile above normally
-    # does not exist: look the process up instead (the Services page showed a
-    # running web server as failed).
-    for _name in lighttpd httpd; do
-        _pid="$(pidof "$_name" 2>/dev/null)"
-        _pid="${_pid%% *}"
-        if [ -n "$_pid" ]; then
-            echo "PID: $_pid ($_name)"
-            return 0
-        fi
-    done
+    _pid="$(pidof httpfront 2>/dev/null)"; _pid="${_pid%% *}"
+    [ -n "$_pid" ] && { echo "PID: $_pid (httpfront)"; return 0; }
+    _pid="$(pidof httpd 2>/dev/null)"; _pid="${_pid%% *}"
+    [ -n "$_pid" ] && { echo "PID: $_pid (httpd)"; return 0; }
     return 1
 }
 
+# the pages need a login, a local request would get 401: the port must listen
 health()
 {
-    if ! status >/dev/null; then
-        return 1
-    fi
-    # 3.0: the pages need a login, a local request would get 401: the port must listen
-    if [ -f /tmp/linux66 ]; then
-        port_listening 80 && { echo "HEALTHY"; return 0; }
-        return 1
-    fi
-
-    # End-to-end responsiveness check:
-    # We probe the internal status API. If it fails or times out, the web engine is locked.
-    # We use -k to ignore SSL cert verification on internal calls.
-    if [ -x /mnt/bin/curl ]; then
-        _res=$(/mnt/bin/curl -s -k -m 5 "http://127.0.0.1/cgi-bin/state.cgi?cmd=statusline" 2>/dev/null)
-        if echo "$_res" | grep -q "\"sysusage\""; then
-            echo "HEALTHY"
-            return 0
-        fi
-    else
-        # Fallback for ultra-lite mode without curl: just check PID
-        echo "HEALTHY (PID ONLY)"
-        return 0
-    fi
-
+    status >/dev/null || return 1
+    port_listening 80 && { echo "HEALTHY"; return 0; }
     return 1
 }
 

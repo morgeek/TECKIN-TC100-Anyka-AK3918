@@ -48,10 +48,7 @@
                             <div class="column is-half"><label class="label is-small" for="isp_brightness">Brightness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_brightness" id="isp_brightness_out">0</output></label><input class="isp-tune-range" name="isp_brightness" id="isp_brightness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Moves the auto-exposure target.</p></div>
                             <div class="column is-half"><label class="label is-small" for="isp_contrast">Contrast <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_contrast" id="isp_contrast_out">0</output></label><input class="isp-tune-range" name="isp_contrast" id="isp_contrast" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Wider or narrower range between dark and light.</p></div>
                             <div class="column is-half"><label class="label is-small" for="isp_saturation">Saturation <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_saturation" id="isp_saturation_out">0</output></label><input class="isp-tune-range" name="isp_saturation" id="isp_saturation" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour intensity.</p></div>
-                            <div class="column is-half hide-l66"><label class="label is-small" for="isp_sharpness">Sharpness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_sharpness" id="isp_sharpness_out">0</output></label><input class="isp-tune-range" name="isp_sharpness" id="isp_sharpness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Edge enhancement; lower reduces noise.</p></div>
                             <div class="column is-half"><label class="label is-small" for="isp_hue">Hue <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_hue" id="isp_hue_out">0</output></label><input class="isp-tune-range" name="isp_hue" id="isp_hue" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Colour shift.</p></div>
-                            <div class="column is-half hide-l66"><label class="label is-small" for="isp_power_hz">Mains frequency (anti-flicker)</label><div class="select is-small is-fullwidth"><select name="isp_power_hz" id="isp_power_hz"><option value="">Unchanged</option><option value="50">50 Hz (Europe)</option><option value="60">60 Hz</option></select></div></div>
-                            <div class="column is-half hide-l66"><label class="label is-small" for="isp_exposure_max_pct">Exposure time cap <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" id="isp_exposure_max_pct_out">off</output></label><input name="isp_exposure_max_pct" id="isp_exposure_max_pct" type="range" min="0" max="100" step="5" value="0" style="width:100%"><p class="help">Limits motion blur at night (image gets darker). 0 = no cap; otherwise 10–100 % of the sensor value.</p></div>
                         </div>
                         <div class="is-divider" data-content="Privacy masks"></div>
                         <p class="help mb-2">Drag on the picture to hide up to 4 areas (a neighbour's window, a street). The camera paints them before encoding: they are gone from the stream, the snapshots, the recordings and what Frigate sees, at no CPU cost. Saving a mask switches live tuning on.</p>
@@ -76,24 +73,14 @@
                         <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
                         
                         <div class="is-divider" data-content="OSD Styling"></div>
-                        <p class="help show-l66">This firmware draws the clock text itself: colour, background, alpha and rotation are not available.</p>
+                        <p class="help">This firmware draws the clock text itself: colour, background, alpha and rotation are not available.</p>
                         <div class="columns is-multiline is-mobile">
-                            <div class="column is-4 hide-l66"><label class="label is-small">Color</label>
-                                <div class="select is-small is-fullwidth"><select name="frontcolor" id="frontcolor"><option value="1">White</option><option value="0">Black</option><option value="2">Red</option><option value="3">Green</option><option value="4">Blue</option></select></div>
-                            </div>
-                            <div class="column is-4 hide-l66"><label class="label is-small">Background</label>
-                                <div class="select is-small is-fullwidth"><select name="backcolor" id="backcolor"><option value="0">Transparent</option><option value="1">Black</option><option value="2">White</option></select></div>
-                            </div>
-                            <div class="column is-4 hide-l66"><label class="label is-small">Alpha (0-255)</label><input class="input is-small" name="osdalpha" id="osdalpha" type="number"></div>
                             <div class="column is-3"><label class="label is-small">Size</label><input class="input is-small" name="osdfontsize0" id="osdfontsize0" type="number"></div>
                             <div class="column is-3"><label class="label is-small">X pos</label><input class="input is-small" name="osdx0" id="osdx0" type="number"></div>
                             <div class="column is-3"><label class="label is-small">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number"></div>
                         </div>
 
                         <div class="is-divider"></div>
-                        <div class="field hide-l66"><label class="label is-small">Image Rotation</label>
-                            <div class="select is-small is-fullwidth"><select name="imageFlip" id="imageFlip"><option value="0">Normal</option><option value="1">Flip</option><option value="2">Mirror</option><option value="3">Flip & Mirror</option></select></div>
-                        </div>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply ISP Settings</button></div>
                     </div>
                 </div>
@@ -102,54 +89,16 @@
 
         <!-- Video -->
         <div class="tab-content is-hidden" id="tab-video">
-            <p class="settings-intro hide-l66">Start with a profile, or adjust each stream below. Advanced options are collapsed; opening them does not change any settings.</p>
-            <p class="help show-l66 mb-3">This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360, at up to 15 frames per second. Set the bit rate below, and the codec under Advanced encoding.</p>
-            <div class='card status_card mb-4 is-link is-light hide-l66'>
-                <header class='card-header'><p class='card-header-title'>Quick setup</p></header>
-                <div class='card-content'>
-                    <div class="columns">
-                        <div class="column">
-                            <form action="cgi-bin/action.cgi?cmd=set_rtsp_preset" method="post">
-                                <label class="label is-small">Video quality profile</label>
-                                <div class="field has-addons">
-                                    <div class="control is-expanded">
-                                        <div class="select is-small is-fullwidth"><select name="preset"><option value="full">Quality (720p, 25 fps)</option><option value="medium">Balanced (720p, 20 fps)</option><option value="low">Economy (360p, 10 fps)</option></select></div>
-                                    </div>
-                                    <div class="control"><button type="submit" class="button is-link is-small">Apply</button></div>
-                                </div>
-                            </form>
-                        </div>
-                        <div class="column">
-                            <form action="cgi-bin/action.cgi?cmd=set_client_profile" method="post">
-                                <label class="label is-small">NVR / Client Compatibility</label>
-                                <div class="field has-addons">
-                                    <div class="control is-expanded">
-                                        <div class="select is-small is-fullwidth"><select name="client_profile"><option value="frigate-light-ak3918">Frigate Light AK3918 (recommended)</option><option value="universal-h264">Universal H264 (Max Comp)</option><option value="frigate-balanced">Frigate Balanced</option><option value="frigate-quality">Frigate Quality</option><option value="hybrid-hevc-main">Hybrid HEVC/264</option></select></div>
-                                    </div>
-                                    <div class="control"><button type="submit" class="button is-info is-small">Apply</button></div>
-                                </div>
-                                <p class="help">The light profile uses two AK3918-compatible H.265 streams: 720p/12 fps main and 360p/8 fps substream for Frigate detection, without audio.</p>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <p class="help mb-3">This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360, at up to 15 frames per second. Set the bit rate below, and the codec under Advanced encoding.</p>
             <form id="formRtspServer" action="cgi-bin/action.cgi?cmd=set_rtsp_server" method="post">
                 <div class='card status_card mb-4'>
                     <header class='card-header'><p class='card-header-title'>RTSP server</p></header>
                     <div class='card-content'>
                         <div class="columns">
-                            <div class="column is-half hide-l66">
-                                <label class="label is-small" for="rtsp_server">Server on the RTSP port</label>
-                                <div class="select is-small is-fullwidth"><select name="rtsp_server" id="rtsp_server"><option value="vendor">Original (live555)</option><option value="lite">Lite (less CPU, two-way audio)</option></select></div>
-                                <p class="help">Same addresses and password either way (rtsp://camera:554/video0_unicast…): recorders see no difference. The lite server uses about 8 % less CPU. If it does not start, the original one takes the port back until the next reboot.</p>
-                            </div>
                             <div class="column is-half">
                                 <div class="field"><input class="switch is-small" id="rtsp_substream" name="rtsp_substream" type="checkbox"><label for="rtsp_substream">Secondary stream (video1)</label></div>
                                 <p class="help">Turn off only if no recorder uses video1 (e.g. Frigate detection on the substream): saves its encoding.</p>
-                                <div class="field mt-2 hide-l66"><input class="switch is-small" id="rtsp_talk" name="rtsp_talk" type="checkbox"><label for="rtsp_talk">Two-way audio (lite server)</label></div>
-                                <p class="help hide-l66">go2rtc / Home Assistant can play sound on the speaker through the stream (password required).</p>
-                                <p class="help show-l66">Server: tc100_rtsp. Talking back through the stream is not available (use the Talk button).</p>
+                                <p class="help">Server: tc100_rtsp. Talking back through the stream is not available (use the Talk button).</p>
                             </div>
                         </div>
                         <p class="help" id="rtsp_server_status" role="status"></p>
@@ -163,7 +112,7 @@
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Main stream</p></header>
                     <div class="card-content">
-                        <div class="columns is-multiline"><div class="column is-half hide-l66"><label class="label is-small" for="video_size0">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size0" id="video_size0"><option value="1920x1080">1920x1080</option><option value="1600x904">1600x904</option><option value="1280x720">1280x720</option><option value="1024x576">1024x576</option><option value="640x360">640x360</option></select></div></div><div class="column is-half hide-l66"><label class="label is-small" for="fps0">Frames per second</label><input class="input is-small" name="fps0" id="fps0" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate0">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" min="32" max="8000" step="1" required></div></div>
+                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="brbitrate0">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" min="32" max="8000" step="1" required></div></div>
                         <details class="settings-advanced">
                             <summary>Advanced encoding</summary>
                             <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
@@ -180,7 +129,7 @@
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Secondary stream</p></header>
                     <div class="card-content">
-                        <div class="columns is-multiline"><div class="column is-half hide-l66"><label class="label is-small" for="video_size1">Resolution</label><div class="select is-small is-fullwidth"><select name="video_size1" id="video_size1"><option value="640x360">640x360</option><option value="352x200">352x200</option></select></div></div><div class="column is-half hide-l66"><label class="label is-small" for="fps1">Frames per second</label><input class="input is-small" name="fps1" id="fps1" type="number" min="1" max="30" step="1" required></div><div class="column is-half"><label class="label is-small" for="brbitrate1">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate1" id="brbitrate1" type="number" min="32" max="8000" step="1" required></div></div>
+                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="brbitrate1">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate1" id="brbitrate1" type="number" min="32" max="8000" step="1" required></div></div>
                         <details class="settings-advanced">
                             <summary>Advanced encoding</summary>
                             <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
@@ -222,17 +171,15 @@
                     <header class='card-header'><p class='card-header-title'>Automatic switching thresholds</p></header>
                     <div class='card-content'>
                         <p class="help mb-3">Used in Auto mode. Night starts when the light falls below the first luminance; day comes back above the second one (the gap avoids flapping at dusk). Current values: see the live reading under the picture.</p>
-                        <p class="help show-l66 mb-3">This firmware uses the mean picture luminance, 0 to 255 (defaults 40 and 100); the AWB values are not used.</p>
+                        <p class="help mb-3">This firmware uses the mean picture luminance, 0 to 255 (defaults 40 and 100); the AWB values are not used.</p>
                         <div class="columns">
                             <div class="column is-half">
                                 <p class="heading">Day → Night (Darkness)</p>
                                 <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="daynightlum" id="daynightlum" type="number"></div>
-                                <div class="field hide-l66"><label class="label is-small">AWB</label><input class="input is-small" name="daynightawb" id="daynightawb" type="number"></div>
                             </div>
                             <div class="column is-half">
                                 <p class="heading">Night → Day (Brightness)</p>
                                 <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="nightdaylum" id="nightdaylum" type="number"></div>
-                                <div class="field hide-l66"><label class="label is-small">AWB</label><input class="input is-small" name="nightdayawb" id="nightdayawb" type="number"></div>
                             </div>
                         </div>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save thresholds</button></div>
@@ -257,8 +204,7 @@
                                 <div class="column is-half"><label class="label is-small" for="audioCodec0">Audio codec</label><div class="select is-small is-fullwidth"><select name="audioCodec0" id="audioCodec0"><option value="0">Off</option><option value="4">AAC (+8 % CPU)</option><option value="6">PCM</option><option value="17">A-law (G.711, recommended)</option><option value="18">µ-law</option></select></div></div>
                             </div>
                         </details>
-                        <p class="help hide-l66">Saving audio may briefly interrupt video.</p>
-                        <p class="help show-l66">This firmware sends G.711 A-law at 8000 Hz (sample rate and codec are not used); the level applies at once.</p>
+                        <p class="help">This firmware sends G.711 A-law at 8000 Hz (sample rate and codec are not used); the level applies at once.</p>
                         <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save audio</button></div>
                     </div>
                 </div>
@@ -319,10 +265,8 @@
                     </p>
                     <div class="buttons mt-2">
                         <button class="button is-small" type="button" id="btnSdMount">Mount the card</button>
-                        <button class="button is-small hide-l66" type="button" id="btnSdOptions">Format or set up…</button>
                     </div>
-                    <p class="help hide-l66">From the flash memory a card put in is checked every minute and mounted when it can be used. Formatting erases the whole card (FAT32).</p>
-                    <p class="help show-l66">A card put in while the camera runs: "Mount the card". Format it on a computer (FAT32, or exFAT for cards over 32 GB).</p>
+                    <p class="help">A card put in while the camera runs: "Mount the card". Format it on a computer (FAT32, or exFAT for cards over 32 GB).</p>
                 </div>
             </div>
             <form id="formLocalRec" action="cgi-bin/action.cgi?cmd=set_local_recording" method="post">
@@ -440,7 +384,7 @@
             <div class="columns mt-4">
                 <div class="column is-half">
                     <form id="formTelegram" action="cgi-bin/action.cgi?cmd=set_telegram_config" method="post">
-                        <div class='card status_card needs-sd'>
+                        <div class='card status_card'>
                             <header class='card-header'><p class='card-header-title'>Telegram notifications</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="telegram_enable" name="telegram_enable" type="checkbox"><label for="telegram_enable">Enable Telegram Notifications</label></div>
@@ -508,7 +452,7 @@
                 <p class="help">Loading…</p>
             </div>
 
-             <div class='card status_card mt-4 show-l66' id="wifiRescueCard">
+             <div class='card status_card mt-4' id="wifiRescueCard">
                 <header class='card-header'><p class='card-header-title'>Rescue Wi-Fi</p></header>
                 <div class='card-content'>
                     <p class="is-size-7 mb-2">When the camera cannot join its Wi-Fi for 10 minutes, it opens its own Wi-Fi network for 15 minutes: join it with a phone and open http://10.42.0.1/ to fix the settings. Switch it on or off in Services (wifi-rescue, Boot).</p>

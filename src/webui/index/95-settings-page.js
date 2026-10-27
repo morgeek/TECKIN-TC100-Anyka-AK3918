@@ -93,9 +93,7 @@
 
             // 3. ISP & OSD
             setVal('daynightlum', isp.daynight_lum);
-            setVal('daynightawb', isp.daynight_awb);
             setVal('nightdaylum', isp.nightday_lum);
-            setVal('nightdayawb', isp.nightday_awb);
 
             setVal('osdenabled', osd.enabled);
             setVal('osdtext', osd.text);

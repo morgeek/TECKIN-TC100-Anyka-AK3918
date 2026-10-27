@@ -63,26 +63,9 @@ case "$ONVIF_RTSP_DEPENDENCY_MODE" in
   *) ONVIF_RTSP_DEPENDENCY_MODE="status" ;;
 esac
 
-WEB_PROTO="https"
-WEB_PORT="443"
-case "$WEB_MODE" in
-  http)
-    WEB_PROTO="http"
-    WEB_PORT="80"
-    ;;
-  ultra-lite|ultralite)
-    WEB_PROTO="http"
-    case "${ULTRALITE_HTTP_PORT}" in
-      ''|*[!0-9]*) WEB_PORT="80" ;;
-      *) WEB_PORT="${ULTRALITE_HTTP_PORT}" ;;
-    esac
-    ;;
-esac
-# Linux 6.6 (3.0): httpfront serves plain HTTP on port 80 only (snapshot URL), whatever WEB_MODE says
-if [ -f /tmp/linux66 ]; then
-  WEB_PROTO="http"
-  WEB_PORT="80"
-fi
+# the web server (snapshot URL) is plain HTTP on port 80
+WEB_PROTO="http"
+WEB_PORT="80"
 
 status()
 {
@@ -113,13 +96,11 @@ start()
     WIDTH1=$6; HEIGHT1=$7; CODEC1=$8; FPS1=$9; BPS1=${10}
     PORT=${11}
 
-    # 3.0: tc100_rtsp encodes 1920x1080 (main) and 640x360 (video1 sub-stream) whatever rtspserver.conf says;
+    # tc100_rtsp encodes 1920x1080 (main) and 640x360 (video1 sub-stream) whatever rtspserver.conf says;
     # codec and bit rate come from the file. Frame rate: 15 unless the file says less.
-    if [ -f /tmp/linux66 ]; then
-      WIDTH0=1920; HEIGHT0=1080; WIDTH1=640; HEIGHT1=360
-      case "$FPS0" in ''|*[!0-9]*) FPS0=15 ;; esac; [ "$FPS0" -gt 15 ] && FPS0=15
-      case "$FPS1" in ''|*[!0-9]*) FPS1=15 ;; esac; [ "$FPS1" -gt 15 ] && FPS1=15
-    fi
+    WIDTH0=1920; HEIGHT0=1080; WIDTH1=640; HEIGHT1=360
+    case "$FPS0" in ''|*[!0-9]*) FPS0=15 ;; esac; [ "$FPS0" -gt 15 ] && FPS0=15
+    case "$FPS1" in ''|*[!0-9]*) FPS1=15 ;; esac; [ "$FPS1" -gt 15 ] && FPS1=15
     CODECSTR0="H264"; [ "$CODEC0" = "2" ] && CODECSTR0="H265"
     CODECSTR1="H264"; [ "$CODEC1" = "2" ] && CODECSTR1="H265"
 

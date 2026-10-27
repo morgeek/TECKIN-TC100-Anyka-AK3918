@@ -264,10 +264,6 @@
     if (typeof st.wifi_qual === "number") put("rd_wifi", st.wifi_qual + " %", st.wifi_qual < 40);
     var sb = byId("storage_badge");
     if (sb) sb.hidden = st.storage !== "flash";
-    // Hide what needs an SD card (recordings, Telegram) in flash mode.
-    document.documentElement.classList.toggle("storage-flash", st.storage === "flash");
-    // 3.0 (Linux 6.6): hide what this platform does not have (.hide-l66), show its notes (.show-l66).
-    document.documentElement.classList.toggle("linux66", st.platform === "linux66");
     // Settings kept in the flash (3.0): the last save failed (too big, write error).
     var cs = byId("cfgsave_badge");
     if (cs) {
