@@ -1,7 +1,6 @@
 #!/bin/sh
-# Linux 6.6 (3.0): fill /tmp/sd-card (read by action.cgi sd_card_info and the status line) and /tmp/sd-health
-# from the card at /mnt/sd (flash mode: video storage only; SD mode: the card is also mounted at /mnt).
-# scripts/sd-card.sh and scripts/sd-health.sh of 2.x expect the 2.x flash layout. Called by
+# Fill /tmp/sd-card (read by action.cgi sd_card_info and the status line) and /tmp/sd-health from the card at
+# /mnt/sd (flash mode: video storage only; SD mode: the card is also mounted at /mnt). Called by
 # action.d/storage.sh and once a minute by scripts/web-guard.sh.
 S=/sys/block/mmcblk0
 if ! [ -b /dev/mmcblk0 ] || [ "$(cat $S/size 2>/dev/null || echo 0)" = 0 ]; then

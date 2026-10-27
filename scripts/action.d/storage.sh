@@ -20,10 +20,9 @@
       rewrite_config /mnt/config/boot.conf REC_STREAM "$_lr_stream"
       rewrite_config /mnt/config/boot.conf REC_SEGMENT_SEC "$((_lr_seg * 60))"
       rewrite_config /mnt/config/boot.conf REC_RESERVE_MB "$_lr_res"
-      # 3.0: tc100_rtsp reads these settings while it runs, nothing to restart
-      [ -f /tmp/linux66 ] || schedule_service_restart /mnt/controlscripts/rtsp-h26x 1
+      # tc100_rtsp reads these settings while it runs, nothing to restart
       if wants_json_response; then
-        json_body_ok "Local recording settings saved; the video stream restarts once."
+        json_body_ok "Local recording settings saved."
       else
         echo "Local recording settings saved.<br/>"
       fi
@@ -46,50 +45,34 @@
     ;;
 
     sd_card_info)
-      # 3.0 (Linux 6.6): the card is only video storage at /mnt/sd, sdinfo-sd.sh describes it
-      [ -f /tmp/linux66 ] && sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
-      if [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
-        [ "$(sed -n 's/^state=//p' /tmp/sd-format 2>/dev/null)" = running ] || sh /mnt/scripts/sd-card.sh inspect >/dev/null 2>&1
-      fi
+      # the card is only video storage at /mnt/sd, sdinfo-sd.sh describes it
+      sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
       _sc_v() { sed -n "s/^$1=//p" "$2" 2>/dev/null | head -n 1; }
       _sc_num() { case "$1" in ''|*[!0-9]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
       _sc_rec="$(sed -n 's/^REC_LOCAL=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)"
-      printf '{"ok":true,"storage":"%s","present":%s,"id":"%s","size_mb":%s,"fs":"%s","kind":"%s","mounted":%s,"free_mb":%s,"prompt":%s,"health":"%s","rec_local":"%s","format_state":"%s","format_msg":"%s"}\n' \
+      printf '{"ok":true,"storage":"%s","present":%s,"id":"%s","size_mb":%s,"fs":"%s","kind":"%s","mounted":%s,"free_mb":%s,"prompt":%s,"health":"%s","rec_local":"%s"}\n' \
         "$(json_escape "$(cat /tmp/tc100-storage 2>/dev/null || { [ -f /tmp/flashmode ] && echo flash; } || echo sd)")" \
         "$(_sc_num "$(_sc_v present /tmp/sd-card)")" "$(json_escape "$(_sc_v id /tmp/sd-card)")" \
         "$(_sc_num "$(_sc_v size_mb /tmp/sd-card)")" "$(json_escape "$(_sc_v fs /tmp/sd-card)")" \
         "$(json_escape "$(_sc_v kind /tmp/sd-card)")" "$(_sc_num "$(_sc_v mounted /tmp/sd-card)")" \
         "$(_sc_num "$(_sc_v free_mb /tmp/sd-card)")" "$(_sc_num "$(_sc_v prompt /tmp/sd-card)")" \
-        "$(json_escape "$(_sc_v state /tmp/sd-health)")" "$(json_escape "$_sc_rec")" \
-        "$(json_escape "$(_sc_v state /tmp/sd-format)")" "$(json_escape "$(_sc_v msg /tmp/sd-format)")"
-    ;;
-
-    sd_card_format)
-      _sc_out="$(sh /mnt/scripts/sd-card.sh format 2>&1)"
-      case "$_sc_out" in started*) json_body_ok "Formatting the SD card…" ;; *) json_body_err "SD_FORMAT" "$_sc_out" ;; esac
+        "$(json_escape "$(_sc_v state /tmp/sd-health)")" "$(json_escape "$_sc_rec")"
     ;;
 
     sd_card_mount)
-      if [ -f /tmp/linux66 ]; then
-        # 3.0: a card put in after boot replaces the 16 KiB RAM placeholder at /mnt/sd
-        sh /mnt/scripts/rec-storage.sh mount >/dev/null 2>&1
-        sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
-        if grep -qE ' /mnt/sd (vfat|exfat) ' /proc/mounts; then
-          json_body_ok "SD card mounted on /mnt/sd"
-        else
-          json_body_err "SD_MOUNT" "This card cannot be mounted (boot files, or no FAT32/exFAT file system)"
-        fi
-      elif sh /mnt/scripts/sd-card.sh mount >/dev/null 2>&1; then sh /mnt/scripts/sd-card.sh inspect >/dev/null 2>&1; json_body_ok "SD card mounted on /mnt/sd"
-      else json_body_err "SD_MOUNT" "This card cannot be mounted (boot files, card errors or no FAT32/exFAT file system)"; fi
-    ;;
-
-    sd_card_ack)
-      if sh /mnt/scripts/sd-card.sh ack "${F_id}" >/dev/null 2>&1; then json_body_ok "ok"; else json_body_err "SD_ACK" "bad id"; fi
+      # a card put in after boot replaces the 16 KiB RAM placeholder at /mnt/sd
+      sh /mnt/scripts/rec-storage.sh mount >/dev/null 2>&1
+      sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
+      if grep -qE ' /mnt/sd (vfat|exfat) ' /proc/mounts; then
+        json_body_ok "SD card mounted on /mnt/sd"
+      else
+        json_body_err "SD_MOUNT" "This card cannot be mounted (boot files, or no FAT32/exFAT file system)"
+      fi
     ;;
 
     local_rec_eject|local_rec_resume)
       _lr_out="$(sh /mnt/scripts/rec-storage.sh "${F_cmd#local_rec_}" 2>&1)"
-      [ -f /tmp/linux66 ] && sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
+      sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
       case "$_lr_out" in
         ok*) json_body_ok "$_lr_out" ;;
         *) json_body_err "REC_STORAGE" "$_lr_out" ;;

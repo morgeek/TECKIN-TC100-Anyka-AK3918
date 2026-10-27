@@ -546,11 +546,9 @@ read_rtsp_stream_summary() {
     maxkbps1="$(sanitize_int "$(get_cfg 1_maxkbps 450)" 450)"
     targetkbps1="$(sanitize_int "$(get_cfg 1_targetkbps 400)" 400)"
 
-    # 3.0 (Linux 6.6): tc100_rtsp encodes 1920x1080 and 640x360 at 15 frames per second whatever the file says
-    # (codec and bit rate are taken from it): report what the streams really are (dashboard, Frigate YAML, HA manifest).
-    if [ -f /tmp/linux66 ]; then
-      width0=1920; height0=1080; width1=640; height1=360; fps0=15; fps1=15
-    fi
+    # tc100_rtsp encodes 1920x1080 and 640x360 at 15 frames per second whatever the file says (codec and bit rate
+    # are taken from it): report what the streams really are (dashboard, Frigate YAML, HA manifest).
+    width0=1920; height0=1080; width1=640; height1=360; fps0=15; fps1=15
 
     codec0_name="$(codec_name "$codec0")"
     codec1_name="$(codec_name "$codec1")"
@@ -944,15 +942,14 @@ get_sd_usage() {
     case "$storage_json" in flash) return 0 ;; *) storage_json=sd ;; esac
   elif [ -f /tmp/flashmode ]; then
     storage_json=flash
-    # Linux 6.6 flash mode: a card, when there is one, is the video storage at /mnt/sd
-    [ -f /tmp/linux66 ] || return 0
+    # flash mode: a card, when there is one, is the video storage at /mnt/sd
     _sd_vfat=0
     while read -r _m_dev _m_mp _m_fs _m_rest; do
       case "$_m_mp $_m_fs" in "/mnt/sd vfat"|"/mnt/sd exfat") _sd_vfat=1; break ;; esac
     done < /proc/mounts
     [ "$_sd_vfat" = 1 ] || return 0
   fi
-  _sd_dir=/mnt; [ -f /tmp/linux66 ] && _sd_dir=/mnt/sd
+  _sd_dir=/mnt/sd
 
   # df output: Filesystem 1K-blocks Used Available Use% Mounted
   # BusyBox df may omit header or use slightly different columns; parse by mount point.
@@ -1134,13 +1131,13 @@ if [ -n "$F_cmd" ]; then
         [ -n "$_fl_url" ] && frigate_live="${_fl_url}/${_fl_cam:+#$_fl_cam}"
     fi
 
-    # SD card health (scripts/sd-health.sh) and HTTPS fallback (web-guard.sh).
+    # SD card health (v3/linux66-sd/sdinfo-sd.sh).
     sd_health=""
     if [ -r /tmp/sd-health ]; then
         while IFS='=' read -r _sh_k _sh_v; do [ "$_sh_k" = state ] && sd_health="$_sh_v"; done < /tmp/sd-health
     fi
     case "$sd_health" in *[!a-z]*) sd_health="" ;; esac
-    # SD card from flash (scripts/sd-card.sh): what it is, and whether the
+    # SD card (v3/linux66-sd/sdinfo-sd.sh): what it is, and whether the
     # web page should ask what to do with it (sd_prompt = the card's id).
     sd_card=""; sd_prompt=""
     if [ -r /tmp/sd-card ]; then
@@ -1154,9 +1151,8 @@ if [ -n "$F_cmd" ]; then
     case "$sd_prompt" in *[!0-9a-zA-Z]*) sd_prompt="" ;; esac
     web_fallback=""; [ -r /tmp/web-fallback ] && read -r web_fallback < /tmp/web-fallback
     case "$web_fallback" in http) ;; *) web_fallback="" ;; esac
-    # 3.0 (Linux 6.6): the page hides what this platform does not have (html class "linux66"), and shows
-    # when the last save of the settings to the flash failed (v3/linux66-sd/cfg-persist status file).
-    platform=""; [ -f /tmp/linux66 ] && platform=linux66
+    # the page shows when the last save of the settings to the flash failed (v3/linux66-sd/cfg-persist status file)
+    platform=linux66
     cfg_save=""; cfg_save_msg=""
     if [ -r /tmp/cfg-persist.status ]; then
         while IFS='=' read -r _cp_k _cp_v; do
@@ -1271,18 +1267,13 @@ if [ -n "$F_cmd" ]; then
     snapshot_detail="Snapshot capture failed."
     _read_now_ts
     snapshot_tmp="/tmp/integration-selftest.$$.$now_ts.jpg"
-    if [ -x /mnt/bin/getimage ] || [ -f /tmp/linux66 ]; then
-      # take_snapshot: getimage (2.x) or the picture tc100_rtsp keeps (Linux 6.6)
-      if ( . /mnt/scripts/common_functions.sh; take_snapshot "$snapshot_tmp" ); then
-        snapshot_status="ok"
-        snapshot_detail="Local snapshot capture succeeded."
-      else
-        snapshot_status="fail"
-        snapshot_detail="getimage did not return a valid JPEG."
-      fi
+    # take_snapshot: the picture tc100_rtsp keeps
+    if ( . /mnt/scripts/common_functions.sh; take_snapshot "$snapshot_tmp" ); then
+      snapshot_status="ok"
+      snapshot_detail="Local snapshot capture succeeded."
     else
       snapshot_status="fail"
-      snapshot_detail="getimage binary is missing."
+      snapshot_detail="tc100_rtsp made no picture."
     fi
     rm -f "$snapshot_tmp" >/dev/null 2>&1 || true
 
@@ -1761,7 +1752,7 @@ EOF_DF
       "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
       "$(sanitize_int "$(get_cfg imageflip 0)" 0)" "$(truthy_flag "$(get_cfg RTSPLOGENABLED 0)")" \
       "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg 2_codec 4)" 4)" "$(sanitize_int "$(get_cfg 3_codec 4)" 4)" "$audio_vol" \
-      "$(if [ -f /tmp/linux66 ]; then sanitize_int "$(get_cfg LUMA_NIGHT 40)" 40; else sanitize_int "$(get_cfg daynightlum 2000)" 2000; fi)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(if [ -f /tmp/linux66 ]; then sanitize_int "$(get_cfg LUMA_DAY 100)" 100; else sanitize_int "$(get_cfg nightdaylum 6000)" 6000; fi)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
+      "$(sanitize_int "$(get_cfg LUMA_NIGHT 40)" 40)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(sanitize_int "$(get_cfg LUMA_DAY 100)" 100)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
       "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg 0_osdfontsize 24)" 24)" "$(sanitize_int "$(get_cfg osdfrontcolor 1)" 1)" "$(sanitize_int "$(get_cfg osdbackcolor 0)" 0)" "$(sanitize_int "$(get_cfg osdedgecolor 2)" 2)" "$(sanitize_int "$(get_cfg 0_osdx 10)" 10)" "$(sanitize_int "$(get_cfg 0_osdy 10)" 10)" \
       "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
       "$(sanitize_int "$(get_cfg rec_postrecord_sec 10)" 10)" "$(sanitize_int "$(get_cfg rec_file_duration_sec 60)" 60)" "$(sanitize_int "$(get_cfg rec_reserverd_disk_mb 1024)" 1024)" "$(truthy_flag "$(get_cfg rec_motion_activated 0)")" \

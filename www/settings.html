@@ -253,6 +253,7 @@
             <div class='card status_card mb-4' id="sd_card_box">
                 <header class='card-header'><p class='card-header-title'>SD card</p></header>
                 <div class='card-content'>
+                    <span id="sd_free_word" hidden>free</span>
                     <p class="is-size-7 sd-summary" id="sd_card_summary" data-kind="">
                         <span data-kind="sdmode">The camera runs from the SD card: the card is managed by the SD-card firmware.</span>
                         <span data-kind="none">No card in the camera.</span>
@@ -867,14 +868,13 @@
                     box.setAttribute('data-mounted', d.mounted ? '1' : '0');
                     var size = document.getElementById('sd_card_size');
                     if (size) size.textContent = d.size_mb ? '(' + (d.size_mb / 1024).toFixed(1) + ' GB' + (d.mounted && d.free_mb !== null ? ', ' + (d.free_mb / 1024).toFixed(1) + ' GB ' + (window.tc100SdFreeWord ? window.tc100SdFreeWord() : 'free') : '') + ')' : '';
-                    var mount = document.getElementById('btnSdMount'), opts = document.getElementById('btnSdOptions');
+                    var mount = document.getElementById('btnSdMount');
                     if (mount) mount.style.display = (kind === 'data' || kind === 'empty') && !d.mounted ? '' : 'none';
-                    if (opts) opts.style.display = d.storage === 'flash' && d.present && kind !== 'errors' ? '' : 'none';
                 })
                 .catch(function () {});
         }
         (function initSdCard() {
-            var mount = document.getElementById('btnSdMount'), opts = document.getElementById('btnSdOptions');
+            var mount = document.getElementById('btnSdMount');
             if (mount) mount.addEventListener('click', function () {
                 mount.classList.add('is-loading');
                 EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_mount&format=json', { method: 'POST' })
@@ -883,7 +883,6 @@
                     .catch(function () {})
                     .finally(function () { mount.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
             });
-            if (opts) opts.addEventListener('click', function () { if (window.tc100OpenSdModal) window.tc100OpenSdModal(); });
             loadSdCard();
         })();
         ['btnRecEject', 'btnRecResume'].forEach(function (id) {

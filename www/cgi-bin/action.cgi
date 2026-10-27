@@ -1153,7 +1153,7 @@ if [ -n "$F_cmd" ]; then
       _action_group=stream ;;
     conf_audioin|audio_test|set_sound_detection|get_ptt_vol|get_ptt_status|conf_ptt)
       _action_group=audio ;;
-    set_local_recording|local_rec_status|sd_card_info|sd_card_format|sd_card_mount|sd_card_ack|local_rec_eject|local_rec_resume)
+    set_local_recording|local_rec_status|sd_card_info|sd_card_mount|local_rec_eject|local_rec_resume)
       _action_group=storage ;;
     md_zones_info|motion_detection_on|motion_detection_off|conf_motiondetect)
       _action_group=detection ;;
