@@ -7,15 +7,9 @@
   case "$F_cmd" in
 
     conf_audioin)
-      samplerate=$(sanitize_int_range "${F_samplerate}" 8000 48000 8000)
+      # the stream audio is fixed (G.711 A-law, 8 kHz): only the microphone level is a setting
       volume=$(sanitize_int_range "${F_audioinVol}" 0 12 10)
-      codec_main=$(sanitize_int_range "${F_audioCodec0}" 0 18 4)
-      
-      if ! /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-          " " samplerate "$samplerate" \
-          " " volume "$volume" \
-          2 samplerate "$samplerate" \
-          2 codec "$codec_main"; then
+      if ! /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " volume "$volume"; then
         if wants_json_response; then
           json_body_err "CONFIG_WRITE_FAILED" "Settings could not be written. Check the SD card."
         else
@@ -24,12 +18,12 @@
         exit 0
       fi
 
-      # the stream audio is fixed (G.711 A-law, 8 kHz); the microphone level applies at once
+      # the level applies at once
       amixer -q -c 0 cset name='LineIn Capture Volume' "$volume" >/dev/null 2>&1
       if wants_json_response; then
         json_body_ok "Audio settings updated."
       else
-        echo "Audio settings updated. RTSP restarting...<br/>"
+        echo "Audio settings updated.<br/>"
       fi
     ;;
 

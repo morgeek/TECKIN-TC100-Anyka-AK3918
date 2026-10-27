@@ -318,7 +318,7 @@ class Regressions(unittest.TestCase):
         self.assertEqual(r.stdout, b'OK\n', r.stderr)
         values = args.read_text().splitlines()[2:]
         writes = [tuple(values[i:i+3]) for i in range(0, len(values), 3)]
-        self.assertEqual(writes, [(' ', 'samplerate', '16000'), (' ', 'volume', '7'), ('2', 'samplerate', '16000'), ('2', 'codec', '17')])
+        self.assertEqual(writes, [(' ', 'volume', '7')])
 
 
     def test_motion_form_fields_are_read(self):
@@ -1287,7 +1287,7 @@ class WebUiSources(unittest.TestCase):
         html = (ROOT / 'www/index.html').read_text()
         self.assertIn('id="view_dashboard"', html); self.assertIn('id="view_live"', html)
         self.assertIn("if (mode !== 'dark' && mode !== 'light') mode = 'dark';", html)
-        self.assertIn('css/ui-v3.css?v=', html)
+        self.assertIn('css/ui.css?v=', html)
 
 
 
@@ -1618,10 +1618,11 @@ class SettingsByUse(unittest.TestCase):
         text = action_cgi_text()
         block = action_arm('isp_pro')
         self.assertIn('if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then', block)
-        self.assertIn('if [ -n "${F_imageFlip}" ]; then', block)
+        self.assertIn('if [ -n "${F_osd_form}" ]; then', block)
         self.assertLess(block.index('if [ -n "${F_daynightlum}'), block.index('/mnt/config/daynight.conf'))
-        self.assertLess(block.index('/mnt/config/daynight.conf'), block.index('if [ -n "${F_imageFlip}" ]'))
-        self.assertLess(block.index('if [ -n "${F_imageFlip}" ]'), block.index('setconf -k f'))
+        self.assertLess(block.index('/mnt/config/daynight.conf'), block.index('if [ -n "${F_osd_form}" ]'))
+        self.assertLess(block.index('if [ -n "${F_osd_form}" ]'), block.index('setconf -k o'))
+        self.assertIn('name="osd_form"', (ROOT / 'www/settings.html').read_text())
 
     def test_local_recording_commands(self):
         text = action_cgi_text()

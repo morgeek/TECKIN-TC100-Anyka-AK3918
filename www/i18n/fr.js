@@ -1,6 +1,7 @@
 window.tc100I18nFr = {
  "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (lighttpd compresses and caches .js). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
  "strings": {
+  "The microphone is sent as G.711 A-law at 8000 Hz; the level applies at once.": "Le micro est envoyé en G.711 A-law à 8000 Hz ; le niveau s'applique immédiatement.",
   "Camera password": "Mot de passe de la caméra",
   "One password for the user root: web interface, RTSP, FTP and telnet. The default one (pass) is known to everybody: choose your own. Leave empty to keep the current one.": "Un seul mot de passe pour l'utilisateur root : interface web, RTSP, FTP et telnet. Celui par défaut (pass) est connu de tous : choisissez le vôtre. Laissez vide pour garder l'actuel.",
   "This camera can now run the firmware from its own memory. The whole original flash is already saved on the card (tc100-3/backup).": "Cette caméra peut maintenant faire tourner le firmware depuis sa propre mémoire. Toute la flash d'origine est déjà sauvegardée sur la carte (tc100-3/backup).",

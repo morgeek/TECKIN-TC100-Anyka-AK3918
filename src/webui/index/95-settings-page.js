@@ -87,8 +87,6 @@
             setVal('smartmode1', vsub.smartmode);
 
 
-            setVal('samplerate', aud.samplerate);
-            setVal('audioCodec0', aud.codec_main);
             setVal('audio_vol', aud.volume);
 
             // 3. ISP & OSD
@@ -103,7 +101,6 @@
             setVal('osdfontsize0', osd.fontsize0);
             setVal('osdx0', osd.x0);
             setVal('osdy0', osd.y0);
-            setVal('imageFlip', vid.flip);
 
             // 3b. Live image tuning (separate endpoint; values applied by libtc100fix)
             loadIspTune(dash);
