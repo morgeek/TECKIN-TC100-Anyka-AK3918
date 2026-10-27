@@ -270,7 +270,7 @@
       cs.hidden = !st.cfg_save || st.cfg_save === "ok";
       if (!cs.hidden) cs.title = "The settings could not be saved to the flash: " + (st.cfg_save_msg || st.cfg_save) + ". They are lost at the next restart.";
     }
-    // SD card problems first (scripts/sd-health.sh): a card that garbles
+    // SD card problems first (sdinfo-sd.sh): a card that garbles
     // writes keeps working for reads, so this is the only early warning.
     var sdBad = { failing: "failing: replace it", readonly: "read-only", errors: "errors" }[st.sd_health];
     if (sdBad) {

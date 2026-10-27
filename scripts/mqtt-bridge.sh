@@ -1399,7 +1399,7 @@ build_diag_payload()
   case "$_dg_fat" in ''|*[!0-9]*) _dg_fat=0 ;; esac
   _dg_sdprob=0
   { [ "$_dg_ro" = 1 ] || [ "$_dg_fat" -gt 0 ]; } && _dg_sdprob=1
-  # scripts/sd-health.sh (web-guard.sh, every 10 min, write test daily) knows
+  # v3/linux66-sd/sdinfo-sd.sh (web-guard.sh, every minute) knows
   # more: a card that garbles writes, the recording card in flash mode.
   _dg_sdst=""
   if [ -r /tmp/sd-health ]; then

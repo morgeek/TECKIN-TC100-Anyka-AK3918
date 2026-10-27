@@ -58,7 +58,7 @@ rt_heartbeat()
   _hb_up=""; read -r _hb_up _hb_rest < /proc/uptime 2>/dev/null
   _hb_load=""; read -r _hb_load _hb_rest < /proc/loadavg 2>/dev/null
   _hb_free="$(sed -n 's/^MemFree: *\([0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null)"
-  # SD card state (scripts/sd-health.sh): a failing card blocks the kernel in
+  # SD card state (v3/linux66-sd/sdinfo-sd.sh): a failing card blocks the kernel in
   # its driver until the hardware watchdog resets the camera, so the boot line
   # can then name the likely cause (seen on a test camera, 2026-10-16).
   _hb_sd=""; _hb_err=0

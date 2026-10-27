@@ -330,31 +330,6 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <!-- SD card put in while running from flash (scripts/sd-card.sh): what to do with it. -->
-    <div class="sd-modal" id="sd_modal" hidden role="dialog" aria-modal="true" aria-labelledby="sd_modal_title">
-        <div class="sd-modal-box">
-            <h2 class="sd-modal-title" id="sd_modal_title">SD card inserted: what do you want to do?</h2>
-            <p class="sd-modal-size" id="sd_modal_size"></p>
-            <p class="sd-kind" data-kind="kit">This card holds the SD-card firmware or the install kit. As long as it is in the camera, the camera starts from the card after a power cut instead of the flash memory. Format it to use it for recordings, or take it out.</p>
-            <p class="sd-kind" data-kind="data">The card is ready and mounted: it can hold the local backup recordings. Its files are kept.</p>
-            <p class="sd-kind" data-kind="empty">The card is empty and mounted: it can hold the local backup recordings.</p>
-            <p class="sd-kind" data-kind="blank">The card has no file system the camera can read (new card, or another format). Format it to use it.</p>
-            <p class="sd-kind" data-kind="interrupted">Formatting this card did not finish (the camera restarted during it): the card cannot be used as it is. Format it again.</p>
-            <p class="sd-kind" data-kind="errors">The card reports read or write errors: it is not used. Replace it.</p>
-            <p class="sd-modal-progress" id="sd_modal_progress" hidden>
-                <span data-fmt="running">Formatting the card… (about a minute)</span>
-                <span data-fmt="done">The card is formatted and mounted.</span>
-                <span data-fmt="error">Formatting failed:</span> <span id="sd_modal_err"></span>
-            </p>
-            <span id="sd_free_word" hidden>free</span>
-            <span id="sd_confirm_text" hidden>Every file on the card will be erased. Format it now?</span>
-            <div class="buttons sd-modal-buttons">
-                <button class="button is-primary is-small" type="button" id="sd_modal_rec">Set up recording</button>
-                <button class="button is-danger is-small is-light" type="button" id="sd_modal_format">Format the card</button>
-                <button class="button is-small" type="button" id="sd_modal_later">Leave it as it is</button>
-            </div>
-        </div>
-    </div>
     <script src="scripts/index.bundle.min.js?v=2.1.2-ui1" type="text/javascript" defer></script>
     <script>
         (function () {

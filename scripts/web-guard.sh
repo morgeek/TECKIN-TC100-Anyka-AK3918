@@ -10,11 +10,10 @@
 #   * as soon as the web interface has been back for two checks in a row, it
 #     closes that rescue telnet again. A telnet the user started from
 #     Services (telnet-server) is never touched.
-# It also records whether HTTPS fell back to plain HTTP (/tmp/web-fallback),
-# which the status line shows in the web page, and every 10 minutes checks
-# the SD card (scripts/sd-health.sh; a write test after boot, then daily).
+# Every minute it also runs the network guard (net-guard.sh) and refreshes the
+# SD card panel (v3/linux66-sd/sdinfo-sd.sh).
 #
-#   web-guard.sh run      the loop (backgrounded by 02_system-webserver)
+#   web-guard.sh run      the loop (started by v3/autorun-linux66.sh)
 #   web-guard.sh once     one check (tests)
 
 . "${WG_COMMON:-/mnt/scripts/common_functions.sh}"
