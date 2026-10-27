@@ -63,13 +63,16 @@ grew from there.
 - Any RTSP NVR works: Blue Iris, Synology Surveillance Station, iSpy, go2rtc…
 
 **Recording**
-- MP4 files on the SD card, copied from the video the camera already encodes (no re-encoding), each with a thumbnail.
+- MP4 files on the SD card with the sound, copied from the video the camera already encodes (no re-encoding), each
+  with a thumbnail.
   By default only **while Frigate does not receive the video**, with a few seconds before and after; "always" and
   "on motion" too. A file cut by a power loss plays up to its last second.
 
 **Audio**
-- The microphone in the RTSP stream, a sound level in dBFS with detection, and push-to-talk from the browser through
-  the camera's speaker.
+- The microphone in the RTSP stream and in the recordings, listening live from the browser, a sound level in dBFS with
+  detection, and push-to-talk from the browser through the camera's speaker.
+- **Two-way audio from Home Assistant, Frigate or go2rtc**: their microphone button plays your voice on the camera's
+  speaker (ONVIF backchannel in the RTSP stream; needs the camera password; Settings → Video → Two-way audio).
 
 **Detection**
 - The camera's own motion detection (MQTT event, picture on motion), with **motion zones**. Off by default: Frigate
@@ -90,9 +93,8 @@ grew from there.
   CSRF protection, only the local network may connect by default, and a "Privacy shield" switch that stops every
   outgoing service.
 
-**What 3.0 does not do** (the matching settings are hidden): HTTPS (busybox httpd serves plain HTTP with a login),
-two-way audio through RTSP, sharpness, anti-flicker and exposure cap, resolution and frame rate changes, card
-formatting from the web page. Feature by feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
+**What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), sharpness, anti-flicker and exposure
+cap, resolution and frame rate changes, card formatting from the web page. Feature by feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
 
 ---
 
@@ -185,6 +187,8 @@ An interrupted update leaves the flash system unable to start: keep the 3.0 SD c
    `state.cgi?cmd=frigateyaml&redact=1` without the password). Streams:
    - main (recording): `rtsp://root:PASSWORD@CAMERA-IP:554/video0_unicast`
    - sub (detection): `rtsp://root:PASSWORD@CAMERA-IP:554/video1_unicast`
+   - go2rtc also gets the speaker: two-way audio from the microphone button of Home Assistant, Frigate or go2rtc
+     ([docs/two-way-audio.md](docs/two-way-audio.md)).
 5. Still image in Home Assistant: a *Generic Camera* with `http://CAMERA-IP/cgi-bin/currentpic.cgi`, basic auth.
 
 Home Assistant can drive the camera (LEDs, day / night, profile, snapshot, motion) by publishing on
@@ -198,7 +202,7 @@ Settings → **Recording**:
 
 - **When**: *only while Frigate does not receive the video* (default), *always*, or *on motion*. Frigate is
   recognised by the address entered in Settings → Integrations → Frigate live view (or `REC_CLIENT` in `boot.conf`).
-- **Stream**: main (best quality) or sub.
+- **Stream**: main (best quality) or sub. The microphone is recorded too (`REC_AUDIO=0` in `boot.conf` turns it off).
 - Files: `DCIM/YYYY-MM-DD_HH-MM-SS.mp4` with a `.jpg` thumbnail, 5 minutes each by default, listed in Recordings.
   The oldest are deleted to keep 256 MB free.
 - In "offline" mode: recording starts 5 s after the stream stops reaching Frigate. The file begins with the last

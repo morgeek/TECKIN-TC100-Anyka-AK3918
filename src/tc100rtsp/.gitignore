@@ -5,3 +5,4 @@ tc100_rtsp
 stubs.c
 test_rec
 test_util
+test_rtsp

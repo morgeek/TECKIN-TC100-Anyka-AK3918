@@ -58,6 +58,12 @@ if [ ! -r "$SPEAKER_PLAY" ] || ! command -v aplay >/dev/null 2>&1; then
     respond_plain "500 Internal Server Error" "PTT_BIN_MISSING"
     exit 0
 fi
+# the speaker is in use: a client talking through the RTSP stream (tc100_rtsp two-way audio) or another clip;
+# speaker-play.sh takes this lock (mkdir) and would turn the clip away silently
+if [ -d /tmp/speaker-play.lock ]; then
+    respond_plain "429 Too Many Requests" "BUSY"
+    exit 0
+fi
 
 case "$CONTENT_LENGTH" in
     ''|*[!0-9]*)
