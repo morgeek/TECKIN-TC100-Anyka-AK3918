@@ -1993,6 +1993,7 @@ unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers ar
 			 * the sub picture; made on the frames where the encoder will start a GOP */
 			const struct strm *rs = &S[rsi];
 			int thumb_due = jpeg_ok && rec_on && rs->active && rs->pa.gop && rs->nsent % rs->pa.gop == 0;
+			/* Only make sub picture on frames where it is actually needed: active sub-stream, thumbnail due, or due stream.jpg snapshot */
 			int sub_made = S[1].active || d_str || thumb_due;
 
 			if (d_luma) {	/* mean of the sub-stream luma samples, like tc100_streamer */
