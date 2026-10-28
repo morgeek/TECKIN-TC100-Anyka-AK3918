@@ -78,7 +78,7 @@
       fi
       if [ -n "${F_osd_form}" ]; then
         osdenabled=$(normalize_bool "${F_osdenabled}")
-        osdtext=$(printf '%s' "${F_osdtext:-%H:%M:%S %d.%m.%Y}")
+        osdtext=$(printf '%s' "${F_osdtext}")
         osdfontsize0=$(sanitize_int_range "${F_osdfontsize0}" 8 128 32)
         osdx0=$(sanitize_int_range "${F_osdx0}" 0 2000 20)
         osdy0=$(sanitize_int_range "${F_osdy0}" 0 2000 24)
