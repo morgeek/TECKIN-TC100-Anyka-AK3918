@@ -133,7 +133,7 @@ body::before, body::after { display: none !important; }
 .v2-osd.bottom { bottom: 0; background: linear-gradient(to top, var(--v2-osd), transparent); }
 .v2-osd .camera-health { display: flex; align-items: center; gap: 0.45rem; }
 .v2-osd .camera-health strong, .v2-osd .camera-health small { font: inherit; color: inherit; }
-.v2-osd .camera-health small { opacity: 0.8; }
+.v2-osd .camera-health small { display: none !important; }
 .v2-osd .camera-state-dot {
   width: 0.62rem; height: 0.62rem; border-radius: 50%;
   background: #9aa4ae; box-shadow: none; margin: 0;
