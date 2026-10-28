@@ -180,7 +180,7 @@
         *[\"\'\$\`\\\ %]*|*"$(printf '\t')"*) _pw_err="Refused: no spaces, quotes, %, \$, \` or \\ in the password." ;;
         *) _pw_err="" ;;
       esac
-      [ ${#password} -lt 6 ] && [ -z "$_pw_err" ] && _pw_err="The password needs at least 6 characters."
+      [ ${#password} -lt 4 ] && [ -z "$_pw_err" ] && _pw_err="The password needs at least 4 characters."
       if [ -n "$_pw_err" ]; then
         if wants_json_response; then json_body_err "INVALID_VALUE" "$_pw_err"; else echo "<p>$_pw_err</p>"; fi
         exit 0

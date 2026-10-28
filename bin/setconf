@@ -44,6 +44,7 @@ if [ -n "$g" ]; then
     p) [ -e /tmp/tc100_md ] && echo 1 || echo 0 ;;
     v) cat /var/run/vday 2>/dev/null || echo 1 ;;
     e) cat /var/run/ircut 2>/dev/null || echo 1 ;;
+    f) cat /var/run/imageflip 2>/dev/null || echo 0 ;;
     n)
       if [ -f /var/run/auto-night-detection.pid ] && kill -0 "$(cat /var/run/auto-night-detection.pid 2>/dev/null)" 2>/dev/null; then
         echo 2
@@ -65,6 +66,15 @@ case "$k" in
   p) case "$v" in 1) : > /tmp/tc100_md ;; *) rm -f /tmp/tc100_md; echo 0 > /tmp/rec_control ;; esac ;;
   m) echo "$v" > /tmp/tc100_md_sens ;;
   g) [ -w /sys/class/leds/ir/brightness ] && echo "${v:-0}" > /sys/class/leds/ir/brightness ;;
+  f)
+    case "$v" in
+      1) /mnt/sd/bin/isp_flip 1 0 2>/dev/null || /mnt/bin/isp_flip 1 0 2>/dev/null ;;
+      2) /mnt/sd/bin/isp_flip 0 1 2>/dev/null || /mnt/bin/isp_flip 0 1 2>/dev/null ;;
+      3) /mnt/sd/bin/isp_flip 1 1 2>/dev/null || /mnt/bin/isp_flip 1 1 2>/dev/null ;;
+      *) /mnt/sd/bin/isp_flip 0 0 2>/dev/null || /mnt/bin/isp_flip 0 0 2>/dev/null ;;
+    esac
+    echo "$v" > /var/run/imageflip 2>/dev/null
+    ;;
   *) : ;;
 esac
 exit 0
