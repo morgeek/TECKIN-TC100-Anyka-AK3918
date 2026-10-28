@@ -16,6 +16,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cpio unzip rsync bc file wget libncurses-dev
+          echo "CFLAGS_FOR_BUILD=-std=gnu17" >> $GITHUB_ENV
+          echo "HOSTCFLAGS=-std=gnu17" >> $GITHUB_ENV
 
       - name: Fetch Buildroot 2024.02.9
         run: git clone --depth 1 --branch 2024.02.9 https://github.com/buildroot/buildroot.git buildroot-src
