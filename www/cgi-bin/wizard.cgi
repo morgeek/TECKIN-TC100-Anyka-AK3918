@@ -196,7 +196,7 @@ if [ "$METHOD" = "POST" ]; then
         case "$_password" in
             *[\"\'\$\`\\\ %]*|*"$(printf '\t')"*) echo '{"ok":false,"error":"invalid_password"}'; exit 0 ;;
         esac
-        [ ${#_password} -lt 6 ] && { echo '{"ok":false,"error":"invalid_password"}'; exit 0; }
+        [ ${#_password} -lt 4 ] && { echo '{"ok":false,"error":"invalid_password"}'; exit 0; }
     fi
 
     # Decode and sanitize MQTT fields (awk, not tr -cd — see get_field above)
@@ -772,7 +772,7 @@ function pwError() {
     var a = byId('wzPw1').value, b = byId('wzPw2').value;
     if (!a && !b) return '';
     if (/["'\\$`%\s]/.test(a)) return 'No spaces, quotes, %, $, ` or \\ in the password.';
-    if (a.length < 6) return 'At least 6 characters.';
+    if (a.length < 4) return 'At least 4 characters.';
     if (a !== b) return 'The two passwords differ.';
     return '';
 }
@@ -886,7 +886,7 @@ function renderSummary() {
 var ERRORS = {
     invalid_wifi: 'The Wi-Fi network name or password is not valid.',
     invalid_frigate_url: 'The Frigate address must look like http://192.168.1.20:5000.',
-    invalid_password: 'The new password is not valid (at least 6 characters, no spaces, quotes, %, $, ` or \\).',
+    invalid_password: 'The new password is not valid (at least 4 characters, no spaces, quotes, %, $, ` or \\).',
     wizard_already_completed: 'The setup was already completed (reload the page).'
 };
 

@@ -750,7 +750,7 @@ window.tc100I18nFr = {
   "The network name is at most 32 characters.": "Le nom du réseau fait au plus 32 caractères.",
   "The new Wi-Fi network is used from the next restart.": "Le nouveau réseau Wi-Fi sera utilisé au prochain redémarrage.",
   "The password must be 8 to 63 characters (empty for an open network).": "Le mot de passe doit faire de 8 à 63 caractères (vide pour un réseau ouvert).",
-  "The password needs at least 6 characters.": "Le mot de passe doit faire au moins 6 caractères.",
+  "The password needs at least 4 characters.": "Le mot de passe doit faire au moins 4 caractères.",
   "The root topic and client ID are configured in": "Le topic racine et l'ID client se règlent dans",
   "The same controls as under the live picture. Auto follows the light level with the thresholds below; Day and Night fix the mode until you change it.": "Les mêmes commandes que sous l'image en direct. Auto suit la luminosité avec les seuils ci-dessous ; Jour et Nuit fixent le mode jusqu'à ce que vous le changiez.",
   "The setup was already completed (reload the page).": "La configuration a déjà été faite (rechargez la page).",
