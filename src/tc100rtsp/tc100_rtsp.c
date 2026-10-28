@@ -1782,7 +1782,7 @@ int main(int argc, char **argv)
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 	unsigned long ncap = 0, ntot = 0;
 	struct timespec tl = t0;
-	long enc_us = 0, snd_us = 0;
+	long enc_us = 0, snd_us = 0, pp_us = 0, sub_us = 0;	/* per 5 s: picture post-processing (main copy + tuning + clock), sub picture */
 	int np[2] = { 0, 0 }, na = 0;
 	time_t sec_last = 0;
 
@@ -1823,10 +1823,10 @@ int main(int argc, char **argv)
 			clock_gettime(CLOCK_MONOTONIC, &tn);
 			if (tn.tv_sec - tl.tv_sec >= 5) {
 				{ unsigned long dr = 0; for (int k = 0; k < MAXCLI; k++) dr += cl[k].dropped;
-				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d\n",
+				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld\n",
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
-				      rec_active()); }
-				ncap = 0; S[0].nfr = S[0].nbytes = S[1].nfr = S[1].nbytes = 0; enc_us = snd_us = 0; tl = tn;
+				      rec_active(), pp_us / 1000, sub_us / 1000); }
+				ncap = 0; S[0].nfr = S[0].nbytes = S[1].nfr = S[1].nbytes = 0; enc_us = snd_us = pp_us = sub_us = 0; tl = tn;
 			}
 		}
 
@@ -1967,8 +1967,11 @@ int main(int argc, char **argv)
 			md_frame(vb[b.index], tn);
 			cfg_reload(tn);
 			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H); } }
+			double t_pp0 = now_s();
 			if (S[0].active || d_snap) { post_copy(pf, vb[b.index]); post_overlay(pf, W, H, 1); if (bw) memset(pf + W * H, 128, W * H / 2); }
+			double t_pp1 = now_s();
 			if (sub_made) { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
+			pp_us += (long)((t_pp1 - t_pp0) * 1e6); sub_us += (long)((now_s() - t_pp1) * 1e6);
 			ioctl(fd, VIDIOC_QBUF, &b);
 			clock_gettime(CLOCK_MONOTONIC, &t1);
 			ts = (uint32_t)(((t1.tv_sec - t0.tv_sec) * 1000000ULL + (t1.tv_nsec - t0.tv_nsec) / 1000) * 9 / 100);
