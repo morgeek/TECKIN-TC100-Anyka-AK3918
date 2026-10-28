@@ -34,7 +34,7 @@ read_daynight() {
 }
 
 while true; do
-  sleep 4
+  sleep 8
 
   # Check if auto detection is enabled in config (manual day/night = 3 pauses the daemon)
   read_daynight
