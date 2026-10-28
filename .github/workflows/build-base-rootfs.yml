@@ -26,6 +26,8 @@ jobs:
           sed -i 's/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/' buildroot-src/package/m4/m4.hash 2>/dev/null || true
           echo "sha256  f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66  m4-1.4.21.tar.xz" > buildroot-src/package/m4/m4.hash
           echo "sha256  3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986  COPYING" >> buildroot-src/package/m4/m4.hash
+          sed -i '/\$(eval \$(cmake-package))/i MBEDTLS_CONF_OPTS += -DCMAKE_POLICY_VERSION_MINIMUM=3.5' buildroot-src/package/mbedtls/mbedtls.mk
+          sed -i 's/-DCMAKE_COLOR_MAKEFILE=OFF/-DCMAKE_COLOR_MAKEFILE=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' buildroot-src/package/pkg-cmake.mk
 
       - name: Cache downloads
         uses: actions/cache@v4
