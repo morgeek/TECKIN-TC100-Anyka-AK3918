@@ -338,6 +338,17 @@ static void post_copy(unsigned char *dst, const unsigned char *src)
 	else memcpy(dst, src, n);
 }
 
+/* zero-copy mode: the same corrections as post_copy, in the capture buffer itself (nothing to do when none is on) */
+static void post_inplace(unsigned char *p)
+{
+	int i, n = W * H / 2;
+	unsigned char *c = p + W * H;
+
+	if (p_ytune) for (i = 0; i < W * H; i++) p[i] = ylut[p[i]];
+	if (p_hue) { for (i = 0; i < n; i += 2) { c[i] = ulut[c[i]]; c[i + 1] = vlut[c[i + 1]]; hue_pair(&c[i], &c[i + 1]); } }
+	else if (p_awb || p_tune) for (i = 0; i < n; i += 2) { c[i] = ulut[c[i]]; c[i + 1] = vlut[c[i + 1]]; }
+}
+
 static void post_sub(unsigned char *p)	/* in place, SW x SH */
 {
 	int i, n = SW * SH / 2;
@@ -1673,6 +1684,8 @@ int main(int argc, char **argv)
 	if (p_pinit && p_pinit()) { LOG("akuio_pmem_init failed\n"); return 2; }
 #endif
 
+unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers are encoder pool memory */
+	int zc = 0;
 #ifdef TC100_HOST_TEST	/* make test_rtsp: no camera, no encoder: the network, audio and settings code on the build host */
 	int fd;
 	{ int pp[2]; if (pipe(pp)) return 1; fd = pp[0]; }	/* never readable */
@@ -1691,31 +1704,59 @@ int main(int argc, char **argv)
 	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12; fmt.fmt.pix.field = V4L2_FIELD_NONE;
 	ioctl(fd, VIDIOC_S_FMT, &fmt);
 	struct v4l2_requestbuffers rq;
-	memset(&rq, 0, sizeof rq);
-	rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_MMAP;
-	if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0) { LOG("REQBUFS: %s\n", strerror(errno)); return 1; }
 	void *vb[4];
-	for (unsigned i = 0; i < rq.count && i < 4; i++) {
-		struct v4l2_buffer b;
-
-		memset(&b, 0, sizeof b);
-		b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP; b.index = i;
-		if (ioctl(fd, VIDIOC_QUERYBUF, &b) < 0) { LOG("QUERYBUF: %s\n", strerror(errno)); return 1; }
-		vb[i] = mmap(NULL, b.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, b.m.offset);
-		if (vb[i] == MAP_FAILED) { LOG("mmap: %s\n", strerror(errno)); return 1; }
-		ioctl(fd, VIDIOC_QBUF, &b);
-	}
-	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
-
 	/* encoder pool: the picture of each stream (main, then the 640x360 sub picture right after it), the JPEG buffer,
 	 * then the encoders' own buffers */
 	unsigned int flen = W * H * 3 / 2, slen = SW * SH * 3 / 2, ftot = flen + slen;
 	unsigned char *pf = (unsigned char *)p_alloc(ftot);
+	if (!pf) { LOG("no DMA memory for the frame\n"); return 1; }
+	if (getenv("RTSP_ZEROCOPY") && getenv("RTSP_ZEROCOPY")[0] == '1') {
+		/* capture straight into the pool: needs the kernel's USERPTR support (patch 0011); any failure -> copy mode */
+		fpb[0] = pf; fpb[1] = (unsigned char *)p_alloc(flen);
+		memset(&rq, 0, sizeof rq);
+		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_USERPTR;
+		if (fpb[1] && ioctl(fd, VIDIOC_REQBUFS, &rq) == 0 && rq.count == 2) {
+			unsigned i;
+
+			zc = 1;
+			for (i = 0; i < 2 && zc; i++) {
+				struct v4l2_buffer b;
+
+				memset(&b, 0, sizeof b);
+				b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_USERPTR; b.index = i;
+				b.m.userptr = (unsigned long)fpb[i]; b.length = flen;
+				if (ioctl(fd, VIDIOC_QBUF, &b) < 0) { LOG("zero-copy: QBUF: %s\n", strerror(errno)); zc = 0; }
+				vb[i] = fpb[i];
+			}
+		} else LOG("zero-copy: %s\n", fpb[1] ? "the kernel has no USERPTR capture" : "no pool memory for the second buffer");
+		if (!zc) {	/* back to the usual mmap buffers */
+			memset(&rq, 0, sizeof rq);
+			rq.count = 0; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_USERPTR;
+			ioctl(fd, VIDIOC_REQBUFS, &rq);
+		}
+		LOG("capture: %s\n", zc ? "zero-copy (the ISP writes into the encoder pool)" : "copy");
+	}
+	if (!zc) {
+		memset(&rq, 0, sizeof rq);
+		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_MMAP;
+		if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0) { LOG("REQBUFS: %s\n", strerror(errno)); return 1; }
+		for (unsigned i = 0; i < rq.count && i < 4; i++) {
+			struct v4l2_buffer b;
+
+			memset(&b, 0, sizeof b);
+			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP; b.index = i;
+			if (ioctl(fd, VIDIOC_QUERYBUF, &b) < 0) { LOG("QUERYBUF: %s\n", strerror(errno)); return 1; }
+			vb[i] = mmap(NULL, b.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, b.m.offset);
+			if (vb[i] == MAP_FAILED) { LOG("mmap: %s\n", strerror(errno)); return 1; }
+			ioctl(fd, VIDIOC_QBUF, &b);
+		}
+	}
+	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
+
 	double t_luma = 0, t_str = 0, t_snap = 0;
 	if (!getenv("NO_JPEG")) jpeg_ok = jpeg_init() == 0;
 	LOG("web pictures: hardware JPEG %s\n", jpeg_ok ? "on" : "off");
-	if (!pf) { LOG("no DMA memory for the frame\n"); return 1; }
 #endif
 
 	for (int k = 0; k < 2; k++) {
@@ -1890,16 +1931,18 @@ int main(int argc, char **argv)
 			int k, rec_on, rsi, rec_idr = 0, fail_main = 0;
 
 			memset(&b, 0, sizeof b);
-			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP;
+			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = zc ? V4L2_MEMORY_USERPTR : V4L2_MEMORY_MMAP;
 			if (ioctl(fd, VIDIOC_DQBUF, &b) < 0) continue;
+			unsigned char *cur = zc ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
 			ncap++; ntot++;
 			if (prime) {
 				struct video_stream ps;
 
-				memcpy(pf, vb[b.index], flen);
-				ioctl(fd, VIDIOC_QBUF, &b);
+				if (!zc) memcpy(pf, vb[b.index], flen);
+				if (!zc) ioctl(fd, VIDIOC_QBUF, &b);
 				memset(&ps, 0, sizeof ps);
-				if (!p_send(S[0].enc, pf, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
+				if (!p_send(S[0].enc, cur, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
+				if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }
 				p_close(S[0].enc);
 				S[0].enc = p_open(&S[0].pa);
 				pool_log(&S[0]);
@@ -1967,12 +2010,18 @@ int main(int argc, char **argv)
 			md_frame(vb[b.index], tn);
 			cfg_reload(tn);
 			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H); } }
-			double t_pp0 = now_s();
-			if (S[0].active || d_snap) { post_copy(pf, vb[b.index]); post_overlay(pf, W, H, 1); if (bw) memset(pf + W * H, 128, W * H / 2); }
-			double t_pp1 = now_s();
+			double t_pp0 = now_s(), t_pp1;
+			/* zero-copy: the sub picture is made first, from the raw picture; the corrections of the main one then
+			 * happen in place. With the copy, the raw picture is untouched and the order does not matter. */
 			if (sub_made) { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
-			pp_us += (long)((t_pp1 - t_pp0) * 1e6); sub_us += (long)((now_s() - t_pp1) * 1e6);
-			ioctl(fd, VIDIOC_QBUF, &b);
+			t_pp1 = now_s();
+			if (S[0].active || d_snap) {
+				if (zc) post_inplace(cur); else post_copy(pf, vb[b.index]);
+				post_overlay(cur, W, H, 1);
+				if (bw) memset(cur + W * H, 128, W * H / 2);
+			}
+			sub_us += (long)((t_pp1 - t_pp0) * 1e6); pp_us += (long)((now_s() - t_pp1) * 1e6);
+			if (!zc) ioctl(fd, VIDIOC_QBUF, &b);	/* zero-copy: the buffer goes back once it has been encoded */
 			clock_gettime(CLOCK_MONOTONIC, &t1);
 			ts = (uint32_t)(((t1.tv_sec - t0.tv_sec) * 1000000ULL + (t1.tv_nsec - t0.tv_nsec) / 1000) * 9 / 100);
 			ts_us = (uint64_t)t1.tv_sec * 1000000ULL + (uint64_t)t1.tv_nsec / 1000;
@@ -1984,7 +2033,7 @@ int main(int argc, char **argv)
 				if (!s->active) continue;
 				memset(&st, 0, sizeof st);
 				{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-				r = p_send(s->enc, k ? pf + flen : pf, k ? slen : flen, &st);
+				r = p_send(s->enc, k ? pf + flen : cur, k ? slen : flen, &st);
 				clock_gettime(CLOCK_MONOTONIC, &tb); enc_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 				s->nsent++;
 				if (r || !st.data || !st.len) {
@@ -2017,10 +2066,10 @@ int main(int argc, char **argv)
 				int want_thumb = jpeg_ok && rec_idr && sub_made;
 
 				if (d_str || d_snap || want_thumb) {
-					uint32_t py = (uint32_t)p_v2p((unsigned long)pf), n;
+					uint32_t py = (uint32_t)p_v2p((unsigned long)cur), pys = (uint32_t)p_v2p((unsigned long)pf) + flen, n;
 
 					if (d_str && !access("/tmp/dump_sub", F_OK)) { unlink("/tmp/dump_sub"); wfile("/tmp/sub.nv12", pf + flen, slen); }
-					if ((d_str || want_thumb) && (n = jpeg_run(py + flen, py + flen + SW * SH, SW, SH, 40))) {
+					if ((d_str || want_thumb) && (n = jpeg_run(pys, pys + SW * SH, SW, SH, 40))) {
 						if (d_str) {
 							wfile("/tmp/stream.jpg", jbuf + TABLES_SIZE, n);
 							wfile("/tmp/frame_ch0.jpg", jbuf + TABLES_SIZE, n);
@@ -2040,6 +2089,7 @@ int main(int argc, char **argv)
 					}
 				}
 			}
+			if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }	/* encoded and copied out: capture here again */
 		}
 	}
 	rec_shutdown();
