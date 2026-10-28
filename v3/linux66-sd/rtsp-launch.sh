@@ -44,6 +44,7 @@ sleep 2
 for pid in $(pidof tc100_rtsp 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
 FLIP=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r " " imageflip 2>/dev/null)
 /mnt/bin/setconf -k f -v ${FLIP:-0} 2>/dev/null || true
+( sleep 3; /mnt/bin/setconf -k f -v ${FLIP:-0} 2>/dev/null ) &
 # the vendor scripts (health, MQTT bridge, capability check) use this pid file as "RTSP server is up"
 pidof tc100_rtsp 2>/dev/null | awk '{print $1}' > /var/run/v4l2rtspserver.pid
 exit 0
