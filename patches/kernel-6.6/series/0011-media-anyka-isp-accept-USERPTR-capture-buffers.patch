@@ -1,0 +1,29 @@
+From 0b3d5c1e7a9f4d2c8e6b1a05c93d7f4e2a1b6c80 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 28 Oct 2026 11:30:00 +0100
+Subject: [PATCH] media: anyka-isp: accept USERPTR capture buffers
+
+Lets tc100_rtsp queue the encoder pool memory (a physically contiguous
+region mapped by /dev/uio0) as capture buffers, so the ISP writes the
+picture where the encoder reads it and no 3 MB copy per frame is needed
+(RTSP_ZEROCOPY=1). vb2_dma_contig already handles contiguous PFN mappings.
+Without USERPTR support in the userspace, nothing changes.
+---
+ drivers/media/platform/anyka-isp/ak39_vi.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
+--- a/drivers/media/platform/anyka-isp/ak39_vi.c
++++ b/drivers/media/platform/anyka-isp/ak39_vi.c
+@@ -838,7 +838,7 @@ static int vi_probe(struct platform_device *pdev)
+ 		goto err_client;
+ 
+ 	vi->q.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-	vi->q.io_modes = VB2_MMAP | VB2_DMABUF;
++	vi->q.io_modes = VB2_MMAP | VB2_DMABUF | VB2_USERPTR;
+ 	vi->q.drv_priv = vi;
+ 	vi->q.buf_struct_size = sizeof(struct ak39_vi_buf);
+ 	vi->q.ops = &vi_qops;
+-- 
+2.43.0
+
