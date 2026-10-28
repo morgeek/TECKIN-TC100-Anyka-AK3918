@@ -1389,7 +1389,7 @@ class ResetButton(unittest.TestCase):
 class LocalRecording(unittest.TestCase):
     """src/tc100fix/rec.c built for the host, fed Annex-B streams; scripts/rec-storage.sh."""
 
-    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe'), 'gcc + ffmpeg')
+    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe') and (ROOT / 'src/tc100fix/rec.c').exists(), 'gcc + ffmpeg + rec.c (2.x recorder, moved to branch 2.x; 3.0 is tested in test_tc100rtsp.py)')
     def test_fragmented_mp4_h264_h265(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
@@ -1436,7 +1436,7 @@ class LocalRecording(unittest.TestCase):
                                     '-of', 'csv=p=0', str(cut)], capture_output=True, text=True)
                 self.assertGreater(int(p.stdout.strip() or 0), 100)
 
-    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe'), 'gcc + ffmpeg')
+    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe') and (ROOT / 'src/tc100fix/rec.c').exists(), 'gcc + ffmpeg + rec.c (2.x recorder, moved to branch 2.x)')
     def test_records_only_while_the_recorder_is_away(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
