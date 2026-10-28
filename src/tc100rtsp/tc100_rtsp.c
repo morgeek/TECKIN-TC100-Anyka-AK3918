@@ -166,7 +166,7 @@ static void wfile(const char *name, const void *d, size_t n)
 }
 
 /* The 6.6 ISP driver does not fill the sub-channel of the V4L2 buffer: make the 640x360 picture from the main one
- * (3x3 decimation, a 3-sample average along the line). */
+ * (point-sample 1 pixel every 3, instead of 3-sample average with expensive software division). */
 static void sub_scale(const unsigned char *src, unsigned char *dst)
 {
 	const unsigned char *uv = src + W * H;
@@ -177,7 +177,7 @@ static void sub_scale(const unsigned char *src, unsigned char *dst)
 		unsigned char *o = dst + y * SW;
 
 		for (int x = 0; x < SW; x++)
-			o[x] = (r[3 * x] + r[3 * x + 1] + r[3 * x + 2]) / 3;
+			o[x] = r[3 * x + 1];
 	}
 	for (int y = 0; y < SH / 2; y++) {
 		const unsigned char *r = uv + (3 * y + 1) * W;
