@@ -10,7 +10,14 @@
 # IR-cut coil: GPIO 81 (A) / 80 (B) = 593 / 592 on 6.6 (chips at 512, 544, 576). boot.conf IRCUT_DAY_GPIO,
 # IRCUT_NIGHT_GPIO and IRCUT_PULSE_MS override the pins and the pulse (150 ms) if the filter moves the wrong way.
 k=; v=; g=
-while [ $# -gt 0 ]; do case "$1" in -k) k="$2"; shift 2 ;; -v) v="$2"; shift 2 ;; -g) g="$2"; shift 2 ;; *) shift ;; esac; done
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -k) k="$2"; [ $# -ge 2 ] && shift 2 || shift 1 ;;
+    -v) v="$2"; [ $# -ge 2 ] && shift 2 || shift 1 ;;
+    -g) g="$2"; [ $# -ge 2 ] && shift 2 || shift 1 ;;
+    *) shift 1 ;;
+  esac
+done
 
 kv() { sed -n "s/^$1=\"\{0,1\}\([0-9]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
 gpio_out() {  # gpio_out N VALUE (exports N as an output first)
