@@ -23,7 +23,7 @@ start()
 {
   mdsens=$(read_config rtspserver.conf mdsens)
 
-  /mnt/bin/setconf -k m -v $mdsens
+  /mnt/bin/setconf -k m -v "${mdsens:-50}"
 
   motion_detection on
 
