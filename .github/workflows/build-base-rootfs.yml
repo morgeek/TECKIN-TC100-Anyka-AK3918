@@ -20,7 +20,12 @@ jobs:
           echo "HOSTCFLAGS=-std=gnu17" >> $GITHUB_ENV
 
       - name: Fetch Buildroot 2024.02.9
-        run: git clone --depth 1 --branch 2024.02.9 https://github.com/buildroot/buildroot.git buildroot-src
+        run: |
+          git clone --depth 1 --branch 2024.02.9 https://github.com/buildroot/buildroot.git buildroot-src
+          sed -i 's/M4_VERSION = 1.4.19/M4_VERSION = 1.4.21/' buildroot-src/package/m4/m4.mk
+          sed -i 's/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/' buildroot-src/package/m4/m4.hash 2>/dev/null || true
+          echo "sha256  f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66  m4-1.4.21.tar.xz" > buildroot-src/package/m4/m4.hash
+          echo "sha256  3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986  COPYING" >> buildroot-src/package/m4/m4.hash
 
       - name: Cache downloads
         uses: actions/cache@v4
