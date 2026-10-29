@@ -93,3 +93,13 @@ the new layout without touching the environment:
 2. Power on: the card starts first (trial mode, new kernel).
 3. Settings -> Update & backup -> Install to flash. `vendor.sqfs` is made from the card's `lib/`.
 4. The hand-made `flashboot` keeps working: same `initrd` size, kernel under 0x1ce000.
+5. ISP sub picture (less CPU for the 640x360 stream): add `ak39_vi.sub_channel=1` to the kernel command line. At the
+   U-Boot prompt (lines are limited to 256 characters, hence the `flashargs` variable):
+
+   ```
+   setenv flashargs console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init initrd=0x81000000,2012654 flashroot=1 ak39_vi.sub_channel=1
+   setenv flashboot run flashload\; setenv bootargs \${flashargs}\; bootm 0x82000000
+   saveenv
+   ```
+
+   Done on IPCAM2 (192.168.1.11) on 2026-10-29. Without it `tc100_rtsp` keeps sampling the sub picture on the CPU.

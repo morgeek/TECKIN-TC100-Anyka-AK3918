@@ -33,7 +33,7 @@ mtd4: 00180000 00001000 "A"
 mtd5: 0007d000 00001000 "B"
 mtd6: 003b6000 00001000 "C"'
 INITRD_SIZE=2012654
-BOOTARGS="initrd=0x81000000,$INITRD_SIZE console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init"
+BOOTARGS="initrd=0x81000000,$INITRD_SIZE console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init ak39_vi.sub_channel=1"
 
 say() { echo "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) $*" >> "$LOG"; sync; }
 # The LEDs tell what happens (nothing else is visible without the card): blue blinking while it works, blue on just
