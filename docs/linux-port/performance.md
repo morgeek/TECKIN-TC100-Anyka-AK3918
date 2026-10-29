@@ -9,7 +9,7 @@ Every optimisation is measured on a camera before it is kept, and stays behind a
 - The `STAT` line of `tc100_rtsp`, every 5 s in `/tmp/logs/tc100_rtsp.log`: frames captured and encoded, bytes,
   `enc_ms` (hardware encoder calls), `snd_ms` (network), `pp_ms` (main picture: copy, colour tables, overlay, black and
   white), `sub_ms` (640x360 sub picture). Milliseconds spent in each step over the last 5 s: 5000 is one full core.
-- `tools/perf/try-rtsp.sh CAMERA BINARY [VAR=value]`: from a computer, runs a test build of `tc100_rtsp` in RAM with
+- `v3/dev/try-rtsp.sh CAMERA BINARY [VAR=value]`: from a computer, runs a test build of `tc100_rtsp` in RAM with
   the arguments of the running one, prints the STAT lines and two CPU profiles (before / with the test build), then
   restarts the normal server. Nothing is written to the flash.
 
