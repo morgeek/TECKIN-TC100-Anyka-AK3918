@@ -1694,8 +1694,9 @@ int main(int argc, char **argv)
 #endif
 
 unsigned char *fpb[2] = { NULL, NULL };
-	/* RTSP_HWSUB=1: the ISP makes the 640x360 sub picture itself (kernel ak39_vi.sub_channel=1), right after the
-	 * main frame in each capture buffer; it is copied instead of being sampled from the main picture by the CPU */
+	/* the ISP makes the 640x360 sub picture itself when the kernel has ak39_vi.sub_channel=1 (the capture buffers
+	 * are then big enough for it, right after the main frame): it is copied instead of being sampled from the main
+	 * picture by the CPU (about 60 % less CPU for the sub picture). RTSP_HWSUB=0 keeps the CPU sampling. */
 	int hwsub = 0; unsigned vblen = ~0u;	/* RTSP_ZEROCOPY: the capture buffers are encoder pool memory */
 	int zc = 0;
 #ifdef TC100_HOST_TEST	/* make test_rtsp: no camera, no encoder: the network, audio and settings code on the build host */
@@ -1776,9 +1777,12 @@ unsigned char *fpb[2] = { NULL, NULL };
 			ioctl(fd, VIDIOC_QBUF, &b);
 		}
 	}
-	if (getenv("RTSP_HWSUB") && getenv("RTSP_HWSUB")[0] == '1') {
-		hwsub = !zc && vblen != ~0u && vblen >= flen + slen;
-		LOG("sub picture: %s\n", hwsub ? "from the ISP sub channel" : "made by the CPU (the capture buffers have no room for the ISP sub channel)");
+	{
+		const char *e = getenv("RTSP_HWSUB");
+
+		hwsub = !(e && e[0] == '0') && !zc && vblen != ~0u && vblen >= flen + slen;
+		LOG("sub picture: %s\n", hwsub ? "from the ISP sub channel" : e && e[0] == '0' ? "made by the CPU (RTSP_HWSUB=0)" :
+		    "made by the CPU (no ISP sub channel: kernel without ak39_vi.sub_channel=1)");
 	}
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }

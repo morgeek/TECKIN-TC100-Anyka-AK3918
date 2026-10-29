@@ -16,7 +16,7 @@ on a capture memory that the CPU reads uncached.
 | ISP privacy masks (`AK_ISP_SET_MAIN_CHAN_MASK_AREA`, `_SUB_CHAN_MASK_AREA`, `_MASK_COLOR`) | **no**: painted by the CPU | small (only the masked areas) |
 | ISP black and white (`AK_ISP_SET_YUV_EFFECT` or saturation 0) | **no**: `memset` of the chroma | 1 MB write per frame in B/W |
 | ISP flip / mirror (`AK_ISP_SET_FLIP_MIRROR`) | **now**: `bin/isp_flip` (was missing, Settings orientation did nothing) | - |
-| ISP sub channel (hardware scaler, 640x360 second output) | **no**: `sub_scale` samples the 1080p picture on the CPU; `ak39_vi.sub_channel=1` crashed the kernel on 2026-10-23 (variant B) and must be fixed first | 345 600 scattered reads per frame |
+| ISP sub channel (hardware scaler, 640x360 second output) | **yes** since 2026-10-29: `ak39_vi.sub_channel=1` on the kernel command line (stable since the 480 MHz clock fix), `tc100_rtsp` copies the ISP picture when the capture buffers hold it (`RTSP_HWSUB=0` falls back to `sub_scale`). IPCAM2: sub picture CPU time 1100 -> 460 ms per 5 s, same framing | was 345 600 scattered reads per frame |
 | ISP 3D noise reduction | **no**: its reference buffers (2 x 3 MB) do not fit the CMA area, it is forced off | quality and bit rate, not CPU |
 | ISP statistics (Y histogram, AE info) | **no**: the light level is a CPU sample of the picture | small |
 | Capture DMA into cached memory (kernel patch 0012, `RTSP_CACHED=1`) | **new, to test** | every CPU read above becomes a cache-line fill instead of a bus access |

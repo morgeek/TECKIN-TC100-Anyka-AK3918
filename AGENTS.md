@@ -53,7 +53,10 @@ hardware facts, test loop), then `docs/known-issues.md`.
   crashed with corrupted registers; at 480 MHz 6 of 6 runs survived (up to 2 h). `ak_core_pll=<value>` overrides it for tests.
 - Memory map: encoder pool 12 MiB at 0x81800000 (nomap) with 1 MiB guard zones around it, CMA 20 MiB at 0x82c00000
   (`cma=18M` on the command line; the DT value of 28 MiB does not fit). The 3D-NR reference frame never fits, so 3D-NR is off.
-- Debug switches: `ak39_vi.guard=1`, `ak39_vi.sub_channel=1`, `slub_debug=ZP page_poison=1`, `oops=panic`, `ak_wdt_reboot=300`,
+- ISP sub channel: `ak39_vi.sub_channel=1` is on the 3.0 command line (U-Boot `flashargs`/`flashboot`, `stock-hook.sh`); `tc100_rtsp`
+  then takes the 640x360 picture from the ISP (`RTSP_HWSUB=0` = CPU sampling). U-Boot reads at most 256 characters per line:
+  long values are set through a variable (`setenv flashboot run flashload\; setenv bootargs \${flashargs}\; bootm 0x82000000`).
+- Debug switches: `ak39_vi.guard=1`, `slub_debug=ZP page_poison=1`, `oops=panic`, `ak_wdt_reboot=300`,
   `AKUIO_REGSCAN=1` (libakuio).
 - Audio: the microphone is ALSA `hw:0,0` (mono, S16_LE, fixed 512-byte period). Do not pass `arecord -F/-B` (I/O errors).
   `/dev/akpcm_cdev*` of the vendor firmware does not exist on 6.6. The capture start is delayed 300 ms in the driver; the
