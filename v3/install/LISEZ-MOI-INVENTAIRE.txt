@@ -1,0 +1,26 @@
+TECKIN TC100 - inventaire materiel / hardware inventory
+=======================================================
+
+FRANCAIS
+Ce paquet n'installe rien et n'ecrit rien dans la camera : il releve seulement son materiel (capteur, puce Wi-Fi,
+memoire flash, version d'U-Boot, RAM, partitions), pour savoir si le firmware 3.0 peut la prendre en charge.
+1. Carte microSD de 32 Go maximum en FAT32. Copier TOUT le contenu du zip A LA RACINE de la carte.
+2. Camera eteinte, inserer la carte, allumer. Attendre que la LED bleue reste allumee (1 a 2 minutes).
+3. Eteindre, lire la carte sur un ordinateur : le fichier tc100-inventory.txt contient le resultat.
+   Sa premiere ligne (board_check) dit si la camera est une variante connue.
+4. Envoyer tc100-inventory.txt dans une "issue" GitHub "Hardware inventory" :
+   https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/issues/new/choose
+Le fichier ne contient ni adresse MAC, ni mot de passe Wi-Fi : les adresses de l'environnement U-Boot sont masquees.
+Avant d'utiliser ensuite le paquet complet du firmware sur cette carte, supprimer le fichier INVENTORY-ONLY.
+
+ENGLISH
+This package installs nothing and writes nothing to the camera: it only records its hardware (sensor, Wi-Fi chip,
+flash memory, U-Boot version, RAM, partitions), to tell whether the 3.0 firmware can support it.
+1. microSD card of 32 GB or less, FAT32. Copy EVERYTHING in the zip TO THE ROOT of the card.
+2. Camera off, card in, power on. Wait until the blue LED stays on (1 to 2 minutes).
+3. Power off, read the card on a computer: the file tc100-inventory.txt holds the result.
+   Its first line (board_check) says whether the camera is a known variant.
+4. Send tc100-inventory.txt in a GitHub issue "Hardware inventory":
+   https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/issues/new/choose
+The file holds no MAC address and no Wi-Fi password: the addresses of the U-Boot environment are hidden.
+Before using the full firmware package on this card afterwards, delete the file INVENTORY-ONLY.

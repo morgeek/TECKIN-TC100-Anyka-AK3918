@@ -33,6 +33,7 @@ for f in v3/linux66-sd/*; do
 	cp "$f" "$T/v3/linux66-sd/"
 done
 [ -d v3/install ] && cp -r v3/install "$T/v3/"
+cp -r v3/board "$T/v3/"	# board profiles, chosen at each start (v3/install/hwcheck.sh)
 cp config/*.dist config/openssl.cnf "$T/config/"	# the sensor tuning comes from the camera (v3/install)
 cp -r config/autostart "$T/config/"
 rm -f "$T/config/autostart/ftp-server"

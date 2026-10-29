@@ -4,4 +4,6 @@
 #   uboot   md5 of the first 0x39000 bytes of the flash (U-Boot and its table)
 #   rootfs  md5 of partition A (mtd4), the stock root file system
 #   usr     md5 of partition C (mtd6), the stock /usr
+uboot c6a19f357299f827a1fab03ba42ee5c7
+rootfs 64f621e23e1dd800c08f91390da4720a
 usr def1ea44addd7a73d613d8169b395447

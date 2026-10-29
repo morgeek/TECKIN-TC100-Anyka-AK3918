@@ -44,6 +44,15 @@ for d in bin config controlscripts lib scripts www; do
   [ -d /mnt/sd/$d ] && [ ! -d /mnt/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
 done
 
+# 1-hw. Which board is this? A read-only inventory (now, while the kernel log still holds the sensor id) chooses the
+#     board profile (v3/board/*.conf: IR-cut GPIOs, LEDs, sensor tuning); /tmp/board.conf links to it. An unknown
+#     camera gets the first profile, and the flash install refuses it (install66.sh).
+sh /mnt/v3/install/inventory.sh --quick > /tmp/inventory.txt 2>/dev/null
+BOARD=$(sh /mnt/v3/install/hwcheck.sh /tmp/inventory.txt /mnt/v3/board 2>/dev/null) && BOARD=${BOARD#board=} || BOARD=
+echo "${BOARD:-unknown}" > /tmp/board
+for f in /mnt/v3/board/${BOARD:-*}.conf; do [ -f "$f" ] && { ln -sf "$f" /tmp/board.conf; break; }; done
+echo "[tc100-v3] board profile: ${BOARD:-unknown hardware, defaults of $(readlink /tmp/board.conf 2>/dev/null)}" > /dev/console
+
 # 1a. SD mode on a new card: every shipped *.dist becomes the live setting until the user changes it (flash mode:
 #     flashmode-prep.sh does the same).
 if [ ! -f /tmp/flashmode ]; then
@@ -111,7 +120,8 @@ TB=/mnt/tc100test
 if [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/lib/libmpi_venc.so ]; } && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
   mkdir -p /lib/firmware/anyka
   # sensor tuning of this camera: the vendor partition (flash), else the card (copied there by the install hook)
-  for f in /vendor/isp.conf /mnt/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
+  ISPN=$(sed -n 's/^ISP_CONF=//p' /tmp/board.conf 2>/dev/null | head -n 1)
+  for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
     [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
   done
   [ -e /mnt/lib/ld-uClibc-0.9.33.2.so ] && ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0

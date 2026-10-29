@@ -76,9 +76,9 @@ settings are written: one click from the card to the flash. It is offered only w
 
 ## What the author must still provide
 
-- `v3/install/known-stock.txt`: the md5 of U-Boot (first 0x39000 bytes) and of the stock root (partition A,
-  0x23b000, 0x180000 bytes) from the stock dump taken before the first install. Until then only the partition table,
-  the stock `/usr` md5 and the environment are checked.
+- `v3/install/known-stock.txt` now has the md5 of U-Boot and of the stock root of the author's stock dump
+  (2026-10-11); other firmware versions get their own lines from the inventories sent in issues. The hardware itself
+  is checked against the board profiles: [hardware variants](../hardware-variants.md).
 - A first run of the hook on a stock camera, with the serial console connected, to confirm that the stock kernel
   lets `envtool` write `/dev/mtd3`, and that the stock U-Boot runs `flashcheck` (`mw.b`, `cmp.b`) as expected.
 

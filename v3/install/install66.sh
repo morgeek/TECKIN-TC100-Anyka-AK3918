@@ -39,6 +39,10 @@ check() {
 		[ "$(want_md5 "$f")" = "$(md5 "$f")" ] || { echo "${f#$C/} does not match its md5"; return 1; }
 	done
 	[ -x /mnt/ext/bin/mksquashfs ] || { echo "mksquashfs is missing (ext/ of the package)"; return 1; }
+	# the hardware must be a known variant (board profile), the flash chip identified by the kernel: else nothing
+	# is written (the inventory is made at each start, while the kernel log still has the sensor id)
+	[ -s /tmp/inventory.txt ] || sh $V/install/inventory.sh --quick > /tmp/inventory.txt 2>/dev/null
+	hw=$(HWCHECK_FLASH_ID=1 sh $V/install/hwcheck.sh /tmp/inventory.txt $V/board) || { echo "this camera is not a TC100 variant the firmware knows ($hw); nothing is written. Please send the page http://<camera>/cgi-bin/inventory.cgi in a GitHub issue (Hardware inventory)"; return 1; }
 	isp_src >/dev/null || { echo "the sensor tuning file of the camera is missing (config/isp_f23_mipi_2lane.conf on the card)"; return 1; }
 	sh $V/install/collect-vendor.sh -c /mnt/lib >/dev/null || { echo "the camera's vendor libraries are not all in lib/ of the card (step 1 not done?)"; return 1; }
 	echo ok

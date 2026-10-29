@@ -16,6 +16,9 @@
 #      stock firmware never has); boot_normal is the stock start, unchanged: without a card, or with a card without
 #      tc100test/c66.img, the camera starts its stock firmware as before.
 #   5. restarts: U-Boot then starts Linux 6.6 from the card (trial mode). Nothing else in the flash is written.
+# Before all of this, a read-only hardware inventory goes to tc100-inventory.txt at the root of the card, and a
+# camera that matches no board profile (v3/board/*.conf: sensor, Wi-Fi chip, flash) is left alone. With a file
+# INVENTORY-ONLY at the root of the card (the inventory package), the hook stops right after the inventory.
 # Any doubt: nothing is written, the reason is in tc100-3/STATUS.txt, and the camera stays on its stock firmware
 # (without the cloud app while this card is in). U-Boot itself is never written.
 C=/mnt
@@ -46,6 +49,23 @@ md5() { md5sum | cut -d' ' -f1; }
 mkdir -p "$K/backup" || exit 1
 led red 0; blink_start
 say "3.0 install, step 1 (stock firmware): $(cat $C/VERSION 2>/dev/null)"
+
+# 0. Hardware inventory (read-only), then: is this a known variant?
+[ -f "$C/v3/install/inventory.sh" ] || stop "v3/install/inventory.sh is missing from the card (copy the whole package)"
+sh "$C/v3/install/inventory.sh" > "$K/inventory.txt" 2>/dev/null
+hw=$(sh "$C/v3/install/hwcheck.sh" "$K/inventory.txt" "$C/v3/board"); hwrc=$?
+{ echo "board_check=$hw"; cat "$K/inventory.txt"; } > "$C/tc100-inventory.txt" 2>/dev/null; sync
+say "inventory: $(grep -E '^(board|sensor_id|sensor_module|wifi_usb|flash_size|flash_name|uboot_version|uboot_md5)=' "$K/inventory.txt" | awk '{ printf "%s ", $0 }')"
+if [ -e "$C/INVENTORY-ONLY" ]; then
+	say "inventory only: written to tc100-inventory.txt on the card ($hw). Nothing else was done."
+	blink_stop; led blue 1; exit 0
+fi
+[ $hwrc = 0 ] ||
+	stop "this camera is not a TC100 variant the firmware knows ($hw). Please send the file tc100-inventory.txt of this card in a GitHub issue (Hardware inventory), so that it can be supported."
+say "hardware: $hw"
+BC=$C/v3/board/${hw#board=}.conf
+bconf() { awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' "$BC"; }
+ISP_GLOB=$(bconf ISP_STOCK_GLOB); ISP_NAME=$(bconf ISP_CONF)
 [ -f "$K/stage1.done" ] && stop "step 1 was already done ($K/stage1.done): the camera should start from the card. Check that tc100test/c66.img is on it."
 for f in "$K/envtool" "$C/tc100test/c66.img" "$C/tc100test/c66rd.gz" "$C/v3/install/collect-vendor.sh"; do
 	[ -f "$f" ] || stop "$f is missing from the card (copy the whole 3.0 package)"
@@ -64,16 +84,16 @@ usr=$(dd if=${MTD}6 bs=4096 2>/dev/null | md5)
 # /usr: the stock one, or the one the 2.x firmware put there when it was installed to flash (its own install
 # checked the stock V1.1.41 /usr first and kept the vendor libraries in it)
 usrkind=other
-[ "$usr" = "$(awk '$1 == "usr" { print $2; exit }' "$K/known-stock.txt" 2>/dev/null)" ] && usrkind=stock
+awk -v m="$usr" '$1 == "usr" && $2 == m { f = 1 } END { exit !f }' "$K/known-stock.txt" 2>/dev/null && usrkind=stock
 [ $usrkind = other ] && [ -e /usr/tc100/VERSION ] && [ "$(dd if=${MTD}6 bs=4 count=1 2>/dev/null)" = hsqs ] && usrkind="2.x $(cat /usr/tc100/VERSION)"
 { echo "uboot $uboot"; echo "rootfs $rootfs"; echo "usr $usr"; echo "usrkind $usrkind"; } > "$K/camera.txt"
 say "camera: U-Boot $uboot, root $rootfs, /usr $usr ($usrkind)"
 for k in uboot rootfs usr; do
 	case "$k:$usrkind" in usr:2.x*) continue ;; esac
-	want=$(awk -v k=$k '$1 == k { print $2; exit }' "$K/known-stock.txt" 2>/dev/null)
+	want=$(awk -v k=$k '$1 == k { printf "%s ", $2 }' "$K/known-stock.txt" 2>/dev/null)
 	eval got=\$$k
 	[ -z "$want" ] && { say "note: no known $k md5 to compare with"; continue; }
-	[ "$got" = "$want" ] && continue
+	case " $want" in *" $got "*) continue ;; esac
 	[ -e "$K/ALLOW-OTHER-STOCK" ] && { say "WARNING: $k differs from the tested camera, going on (ALLOW-OTHER-STOCK)"; continue; }
 	stop "$k ($got) is not the one of the TECKIN TC100 firmware V1.1.41 this was tested with ($want). Create tc100-3/ALLOW-OTHER-STOCK on the card to try anyway (at your own risk)."
 done
@@ -96,10 +116,11 @@ sync
 say "vendor libraries copied to lib/"
 # the sensor tuning of this camera (colours, exposure): without it the image processor sends no picture
 mkdir -p "$C/config"
-if [ ! -f "$C/config/isp_f23_mipi_2lane.conf" ]; then
-	I=$(find /etc /usr -name 'isp_f23*mipi*.conf' 2>/dev/null | head -n 1)
-	[ -n "$I" ] || stop "the sensor tuning file of the camera (isp_f23*mipi*.conf) was not found"
-	cp "$I" "$C/config/isp_f23_mipi_2lane.conf" || stop "the sensor tuning file could not be copied to the card"
+ISP_GLOB=${ISP_GLOB:-isp_f23*mipi*.conf}; ISP_NAME=${ISP_NAME:-isp_f23_mipi_2lane.conf}
+if [ ! -f "$C/config/$ISP_NAME" ]; then
+	I=$(find /etc /usr -name "$ISP_GLOB" 2>/dev/null | head -n 1)
+	[ -n "$I" ] || stop "the sensor tuning file of the camera ($ISP_GLOB) was not found"
+	cp "$I" "$C/config/$ISP_NAME" || stop "the sensor tuning file could not be copied to the card"
 	say "sensor tuning copied from $I"
 fi
 
