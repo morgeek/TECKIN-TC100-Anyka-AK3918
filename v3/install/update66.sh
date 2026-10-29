@@ -16,6 +16,9 @@ LOG=; grep -q ' /mnt/sd vfat ' /proc/mounts && mkdir -p /mnt/sd/tc100-3 2>/dev/n
 check() {
 	D=$1
 	[ -f /tmp/flashmode ] || { echo "the camera is not running from its flash (trial mode: copy the new package to the card instead)"; return 1; }
+	# the first, hand-made flash layout (2026-10-24) has the vendor libraries inside a 3.7 MiB "stack" and no "vendor"
+	# partition: the packaged stack.sqfs has no vendor files, so writing it there would leave the camera without video
+	part_size vendor >/dev/null || { echo "this camera has the first flash layout (no vendor partition): a web update would remove its vendor libraries. Copy the new SD package to the card (keep its lib/ folder), start the camera from it, then Settings -> Update & backup -> Install to flash"; return 1; }
 	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -f "$D/$f" ] || { echo "$f is missing from the package"; return 1; }; done
 	( cd "$D" && md5sum -c MD5SUMS >/dev/null 2>&1 ) || { echo "the package is damaged (md5)"; return 1; }
 	for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do

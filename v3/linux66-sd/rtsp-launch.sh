@@ -9,6 +9,18 @@ stop_rtsp() { killall tc100_rtsp 2>/dev/null || return 0; i=0; while pidof tc100
 cmp -s $TB/tc100_rtsp /tmp/tc100_rtsp 2>/dev/null || { stop_rtsp; cp $TB/tc100_rtsp /tmp/tc100_rtsp && chmod +x /tmp/tc100_rtsp; }
 [ -f /tmp/libakuio.so ] || cp $TB/libakuio.so /tmp/libakuio.so
 [ -e /lib/ld-uClibc.so.0 ] || ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
+# sensor tuning (the camera's own isp.conf): without it the ISP runs untuned (colour cast, which the software white
+# balance then has to correct on every frame). Checked before every start, not only at boot; in flash mode the copy
+# the install hook made may only be on the card (/mnt/sd/config).
+if [ ! -s /lib/firmware/anyka/isp.conf ]; then
+  mkdir -p /lib/firmware/anyka
+  ISPN=$(sed -n 's/^ISP_CONF=//p' /tmp/board.conf 2>/dev/null | head -n 1)
+  for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN /mnt/sd/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf \
+      $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf /mnt/sd/config/isp_f23_mipi_2lane.conf; do
+    [ -s "$f" ] && { cp "$f" /lib/firmware/anyka/isp.conf; break; }
+  done
+  [ -s /lib/firmware/anyka/isp.conf ] || echo "rtsp-launch: no sensor tuning file (isp.conf): the colours will be off" > /dev/console
+fi
 CODEC=h265; KBPS=${RTSP_KBPS:-1500}; PORT=554; SUBCODEC=h264; SUBKBPS=400
 # codec in rtspserver.conf (Video page): 0 = H.264, 2 = H.265 (1, written by older 6.6 boot scripts, = H.264)
 if [ -f $CONF ]; then
