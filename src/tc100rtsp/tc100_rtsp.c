@@ -1615,7 +1615,7 @@ static void cfg_reload(double tn)
 
 int main(int argc, char **argv)
 {
-	const char *akuio = "/mnt/sd/tc100test/libakuio.so", *dev = "/dev/video0", *dir = "/mnt/sd/lib";
+	const char *akuio = "/mnt/sd/tc100test/libakuio.so", *dev = "/dev/video0", *dir = "/mnt/lib";	/* vendor libraries: /mnt/lib in SD and in flash mode (was /mnt/sd/lib: no video without a card) */
 	const char *pwfile = NULL;
 	int o, kbps = 2000, fps = 15, qmin = 25, qmax = 48, port = 554, hevc = 0, sub_on = 1, sub_hevc = 0, sub_kbps = 400;
 

@@ -145,6 +145,9 @@ if [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/lib
     unset LD_LIBRARY_PATH
   fi
   sh $TB/rtsp-launch.sh
+  # the 6.6 kernel logs the sensor id only once the video is open: choose the board profile again then
+  ( sleep 20; sh /mnt/v3/install/inventory.sh --quick > /tmp/inventory.txt.new 2>/dev/null && mv /tmp/inventory.txt.new /tmp/inventory.txt
+    B=$(sh /mnt/v3/install/hwcheck.sh /tmp/inventory.txt /mnt/v3/board 2>/dev/null) && { echo "${B#board=}" > /tmp/board; ln -sf "/mnt/v3/board/${B#board=}.conf" /tmp/board.conf; } ) </dev/null >/dev/null 2>&1 &
   NEWRTSP=1
   echo "[tc100-v3] free RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
 else
