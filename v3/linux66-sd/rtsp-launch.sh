@@ -49,7 +49,7 @@ TZV=$(grep -v '^#' /mnt/config/timezone.conf 2>/dev/null | grep -v '^$' | head -
 RTSP_LOG=/tmp/logs/tc100_rtsp.log; mkdir -p /tmp/logs
 [ -f /mnt/config/rtsp.debug ] && RTSP_LOG=/dev/console
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
-  LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
+  LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -L /mnt/lib -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \
     -S /var/run/sound_level >"$RTSP_LOG" 2>&1 ) &
 sleep 2
