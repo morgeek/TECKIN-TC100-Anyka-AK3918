@@ -10,7 +10,7 @@ the internet, and no vendor file is published.
 free drivers for the hardware video encoder (H.264, H.265, JPEG) and a free RTSP
 server: no vendor daemon, no cloud. It runs from an SD card (trial) or
 **entirely from the camera's SPI flash**, installed from the card without a
-serial console. **3.0.1-rc1 is a release candidate not yet run on a camera**:
+serial console: [copy the files to an SD card and restart the camera](#try-it-copy-to-an-sd-card-restart-the-camera). **3.0.1-rc1 is a release candidate not yet run on a camera**:
 read [Is it safe?](#is-it-safe) first.
 
 > **The 2.x firmware** (vendor kernel 3.4, lighttpd with HTTPS, the vendor RTSP
@@ -30,7 +30,7 @@ grew from there.
 ## Contents
 
 - [What you can do](#what-you-can-do)
-- [Install: SD card trial, then the flash](#install-sd-card-trial-then-the-flash)
+- [Try it: copy to an SD card, restart the camera](#try-it-copy-to-an-sd-card-restart-the-camera)
 - [Is it safe?](#is-it-safe)
 - [Updates](#updates)
 - [Home Assistant and Frigate](#home-assistant-and-frigate)
@@ -98,42 +98,48 @@ cap, resolution and frame rate changes, card formatting from the web page. Featu
 
 ---
 
-## Install: SD card trial, then the flash
+## Try it: copy to an SD card, restart the camera
 
-For a TECKIN TC100 with the vendor firmware V1.1.41, or with the 2.x firmware of this project installed in its
-flash. Download `tc100-<version>-sd.zip` from the [releases](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases)
-(each tag `v3...` publishes one; between releases, the CI artifact `tc100-3-release`).
+Nothing to install on your computer, no cable, no need to open the camera. The same steps in French are in
+`00-LISEZ-MOI-READ-ME.txt`, the first file of the zip.
 
-1. **The card**: microSD of **32 GB or less, FAT32** (bigger cards come as exFAT, which the camera cannot read:
-   format them FAT32 with Rufus or `guiformat` on Windows, Disk Utility "MS-DOS (FAT)" on macOS). Unzip **into the
-   root** of the card: it must show `wifitest`, `tc100test`, `tc100-3`, `www`... directly, not inside a folder
-   (Windows "Extract all" proposes one). `00-LISEZ-MOI-READ-ME.txt`, first in the zip, says the same in French and
-   English.
-2. **Wi-Fi**: a camera already on Wi-Fi (TECKIN app or 2.x) keeps its network. One that never was needs a `wifi.txt`
-   at the root of the card: `SSID=your network` and `PASSWORD=its password` on two lines.
-3. **Power on with the card in.** The running firmware starts the card's `wifitest/wifi_test.sh` once, with the
-   **blue LED blinking** (about 2 minutes). It:
-   - checks the camera (partition table, the stock or 2.x `/usr`, the U-Boot environment);
-   - **saves the whole flash to the card** (`tc100-3/backup/flash-stock.bin`: keep it, never publish it);
-   - copies the camera's libraries, settings and Wi-Fi to the card;
-   - adds the 3.0 start commands to the U-Boot environment (the stock start stays as the fallback) and restarts.
+**You need** a TECKIN TC100 (vendor firmware, or the 2.x firmware of this project), a **microSD card of 32 GB or
+less**, and a computer to copy files to the card.
 
-   Any doubt: nothing is written, the **red LED** stays on and `tc100-3/STATUS.txt` says why.
-4. **3.0 runs from the card** (trial mode) and plays a **chime** when it is ready. Open **http://tc100/** (or the
-   address your router shows, also written to `tc100-3/ADRESSE.txt` on the card), user `root`, the password of your
-   2.x camera or `pass`. The setup wizard asks for a new password, and its last step offers
-   **"Install into the camera now"** (one click), or "Not now" to try first. Nothing of 3.0 is in the flash yet:
-   without the card the camera starts the system it had before.
-   No chime or page after 15 minutes (wrong Wi-Fi)? Power off and read `tc100-3/ADRESSE.txt`: it gives the name and
-   password of the camera's rescue Wi-Fi, page at http://10.42.0.1/.
-5. **Install to flash** (from the wizard, or Settings → Update & backup → Install to flash): about 10 minutes, every
-   partition saved to the card first and read back after writing, then the camera restarts from its flash and the
-   card only holds recordings.
-6. Later versions: **Firmware update** on the same page, with `tc100-<version>-update.tar`.
+1. **Download** `tc100-<version>-sd.zip` from the
+   [releases](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases).
+2. **Copy everything in the zip to the root of the card.** The card must show the folders `wifitest`, `tc100test`,
+   `tc100-3`, `www`... directly, not inside another folder.
+   - The card must be **FAT32**. Cards over 32 GB come as exFAT and do not work as they are: format them FAT32
+     first (Rufus or `guiformat` on Windows, Disk Utility → "MS-DOS (FAT)" on macOS).
+   - Camera never set up on Wi-Fi? Add a file `wifi.txt` at the root of the card, with two lines:
+     `SSID=your network` and `PASSWORD=its password`. A camera already on your Wi-Fi keeps its network.
+3. **Camera off, card in, power on.** Leave it plugged in for 3 minutes:
+   - **blue LED blinking** (about 2 minutes): the camera saves its own memory to the card, then restarts;
+   - **a short chime**: the new firmware is running;
+   - **red LED on**: it stopped without changing anything. The reason is in `tc100-3/STATUS.txt` on the card.
+4. **Open http://tc100/** in a browser (or the camera address shown by your router, also written to
+   `tc100-3/ADRESSE.txt` on the card). User `root`, password `pass`, or the password of your 2.x camera.
+   The setup wizard asks for a new password.
 
-Way back: a card with `tc100test/c66.img` always starts first; from there `v3/install/restore-stock.sh` writes back
-the flash as it was before 3.0 from `flash-stock.bin`. Details, the U-Boot commands, and the move of cameras installed
-by hand before 2026-10-26: [docs/linux-port/install-3.0.md](docs/linux-port/install-3.0.md).
+That is the trial: the new firmware runs **from the card**. **Take the card out and restart: the camera starts its previous
+firmware.** (Only a few start commands were added to the U-Boot environment; the previous start stays the fallback.) Keep the card, and never share `tc100-3/backup/flash-stock.bin` (the copy of your camera's memory).
+
+**Keep it?** The last step of the wizard, or Settings → Update & backup → *Install to flash*, copies the firmware into
+the camera (about 10 minutes, do not unplug). The camera then starts without the card, and the card only holds
+recordings. Later versions: Settings → Update & backup → *Firmware update*, with `tc100-<version>-update.tar`.
+
+**Something went wrong?**
+
+| What you see | What to do |
+|---|---|
+| Nothing happens, no blue LED | The files are not at the root of the card, or the card is not FAT32. |
+| Red LED on | Read `tc100-3/STATUS.txt` on a computer: nothing was changed. |
+| No chime and no page after 15 minutes | Wrong Wi-Fi. Power off, read `tc100-3/ADRESSE.txt` on a computer: it gives the name and password of the camera's rescue Wi-Fi; join it and open http://10.42.0.1/. |
+| You want the old firmware back after *Install to flash* | Put the 3.0 card back in: it starts the camera, and `v3/install/restore-stock.sh` writes back the memory saved on the card. |
+
+What the card does step by step, the U-Boot commands and the flash layout:
+[docs/linux-port/install-3.0.md](docs/linux-port/install-3.0.md).
 
 ## Is it safe?
 
