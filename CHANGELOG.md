@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is steered in the ISP (no table over the colours), the 640x360 sub picture comes from the ISP's second output,
   and the configured frame rate is kept. Each part falls back to the previous way on its own; switches in
   `config/rtsp.env`: `RTSP_DIRECT=0`, `RTSP_ISPAWB=0`, `RTSP_HWSUB=0`, `RTSP_CACHED=0`.
+- 2 MiB more RAM for the system: the guard zones around the encoder pool are gone (they never caught a stray write;
+  the old memory corruption was the 640 MHz clock).
+- Direct capture takes each buffer's physical address from the capture driver (`AK39_VI_G_PHYS`); the RAM search
+  through `/dev/mem` stays only for older kernels.
 - Live image tuning (Image page: brightness, contrast, saturation) is done by the ISP (`AK_ISP_SET_YUV_EFFECT`,
   on top of the tuning file's values) instead of a table over every byte: a camera with tuning on stayed at
   15 fps instead of dropping below 6 (and 95 % CPU). Hue still uses a table (cached buffers then).

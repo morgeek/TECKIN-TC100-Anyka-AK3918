@@ -1693,9 +1693,9 @@ static int rec_watched(void)
 /* ---- direct capture (default; RTSP_DIRECT=0: copy): the encoder and the JPEG engine read the V4L2 capture buffer itself ----------
  * No 3 MB copy per frame: the corrections (white balance, OSD, masks, B/W) are made in place, the data cache is
  * cleaned over the buffer, and libakuio (akuio_map_extra) translates its addresses for the encoder.
- * The kernel does not give the physical address of an mmap capture buffer (pagemap skips device mappings), so each
- * buffer is found in RAM by a marker written at the start of each of its pages, read back through /dev/mem: this
- * also proves that the buffer is physically contiguous. Done before STREAMON, when the ISP does not write. */
+ * The capture driver gives the physical address of each buffer (AK39_VI_G_PHYS). Without it (an older kernel) each
+ * buffer is found in RAM by a marker written at the start of each of its pages, read back through /dev/mem (pagemap
+ * skips device mappings): this also proves that it is contiguous. Done before STREAMON, when the ISP does not write. */
 #ifndef TC100_HOST_TEST
 static void dclean(void *a, unsigned long n)	/* ARM cacheflush: cleans the data cache over [a, a + n) */
 {
@@ -1717,7 +1717,10 @@ static unsigned long hexnum(const char **p)	/* no sscanf: glibc headers turn it 
 	}
 }
 
-static int direct_setup(void **vb, unsigned n, unsigned len)
+struct ak39_vi_phys { uint32_t index, phys_y, phys_uv, size; };
+#define AK39_VI_G_PHYS _IOWR('V', BASE_VIDIOC_PRIVATE + 0, struct ak39_vi_phys)
+
+static int direct_setup(int vfd, void **vb, unsigned n, unsigned len)
 {
 	int (*mx)(unsigned long, unsigned long, unsigned long) =
 		(int (*)(unsigned long, unsigned long, unsigned long))dlsym(RTLD_DEFAULT, "akuio_map_extra");
@@ -1729,6 +1732,24 @@ static int direct_setup(void **vb, unsigned n, unsigned len)
 
 	if (!mx) { LOG("direct capture: libakuio has no akuio_map_extra (copy mode)\n"); return 0; }
 	if (n > 4 || !n) { LOG("direct capture: %u capture buffers (copy mode)\n", n); return 0; }
+	/* the capture driver gives each buffer's physical address (AK39_VI_G_PHYS); the RAM search below is for a
+	 * kernel without it */
+	for (i = 0; i < n; i++) {
+		struct ak39_vi_phys ph = { i, 0, 0, 0 };
+
+		if (ioctl(vfd, AK39_VI_G_PHYS, &ph) < 0 || !ph.phys_y || ph.size < len) break;
+		found[i] = ph.phys_y;
+	}
+	if (i == n) {
+		for (i = 0; i < n && ok; i++) if (mx((unsigned long)vb[i], found[i], len)) ok = 0;
+		if (ok) {
+			for (i = 0; i < n; i++) LOG("direct capture: buffer %u at %#lx (%u bytes, from the driver)\n", i, (unsigned long)found[i], len);
+			return 1;
+		}
+		for (i = 0; i < n; i++) mx((unsigned long)vb[i], 0, 0);
+		ok = 1;
+	}
+	memset(found, 0, sizeof found);
 	if ((f = fopen("/proc/iomem", "r"))) {	/* the RAM ranges to search */
 		while (nr < 4 && fgets(ln, sizeof ln, f)) {
 			unsigned long a, b;
@@ -2051,7 +2072,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		LOG("sub picture: %s\n", hwsub ? "from the ISP sub channel" : e && e[0] == '0' ? "made by the CPU (RTSP_HWSUB=0)" :
 		    "made by the CPU (no ISP sub channel: kernel without ak39_vi.sub_channel=1)");
 	}
-	if (!zc && !(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(vb, rq.count < 4 ? rq.count : 4, vblen);
+	if (!zc && !(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(fd, vb, rq.count < 4 ? rq.count : 4, vblen);
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
 	sensor_fps_want = fps;	/* applied at the first white balance sample, once frames come */
