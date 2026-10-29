@@ -41,6 +41,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -1157,8 +1158,12 @@ static void aud_pump(void)
 	int r;
 
 	while ((r = read(aud_fd, raw, sizeof raw)) > 0) {
-		int rec_a = rec_audio_wanted();
+		int rec_a = rec_audio_wanted(), left = 0;
 		uint64_t tus = rec_a ? now_us64() : 0;
+
+		/* the pipe is read at each video frame (not at each 512-byte period of arecord): the bytes still waiting
+		 * in it are younger than these, so each 20 ms block is dated by what follows it (16 bytes per ms) */
+		if (rec_a && ioctl(aud_fd, FIONREAD, &left) < 0) left = 0;
 		unsigned char pcm[sizeof raw + 2];
 		int pn = 0;
 
@@ -1174,7 +1179,11 @@ static void aud_pump(void)
 				aud_buf[aud_n++] = alaw(s);
 				if (aud_n == 160) {
 					if (aud_tx) aud_send(aud_buf, 160);
-					if (rec_a) { rec_audio(aud_buf, 160, tus, aud_gap); aud_gap = 0; }
+					if (rec_a) {
+						uint64_t after = (uint64_t)(left + (r - 1 - i)) * 1000 / 16;	/* us of sound after this block */
+
+						rec_audio(aud_buf, 160, tus > after ? tus - after : tus, aud_gap); aud_gap = 0;
+					}
 					aud_n = 0;
 				}
 			}
@@ -1768,6 +1777,19 @@ static int direct_setup(void **vb, unsigned n, unsigned len)
 static void dclean(void *a, unsigned long n) { (void)a; (void)n; }
 #endif
 
+/* RTSP_PROFILE=1: kernel (system) CPU time of the main thread per step, added to the STAT line every 5 s as
+ * "PROF sys ms: select dqbuf enc_main enc_sub send qbuf other" (getrusage(RUSAGE_THREAD) around each step) */
+static int prof_on = -1;
+static long prof_ms[10];
+static long prof_now(void)
+{
+	struct rusage r;
+
+	if (getrusage(1 /* RUSAGE_THREAD */, &r)) return 0;
+	return r.ru_stime.tv_sec * 1000000L + r.ru_stime.tv_usec;
+}
+#define PROF(i, stmt) do { if (prof_on) { long _p0 = prof_now(); stmt; prof_ms[i] += prof_now() - _p0; } else { stmt; } } while (0)
+
 static void pool_log(const struct strm *s)
 {
 	unsigned long (*gf)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_free_pmem");
@@ -2103,6 +2125,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 	unsigned long ncap = 0, ntot = 0;
 	struct timespec tl = t0;
+	double t_frame = 0;	/* last frame dequeued */
 	long enc_us = 0, snd_us = 0, pp_us = 0, sub_us = 0;	/* per 5 s: picture post-processing (main copy + tuning + clock), sub picture */
 	int np[2] = { 0, 0 }, na = 0;
 	time_t sec_last = 0;
@@ -2130,14 +2153,18 @@ unsigned char *fpb[2] = { NULL, NULL };
 		}
 		FD_ZERO(&fs); FD_ZERO(&ws); FD_SET(fd, &fs); FD_SET(ls, &fs);
 		if (udpfd >= 0) { FD_SET(udpfd, &fs); if (udpfd > mx) mx = udpfd; }
-		if (aud_fd >= 0) { FD_SET(aud_fd, &fs); if (aud_fd > mx) mx = aud_fd; }
+		/* the microphone pipe wakes the loop only when no video comes (it is read after each frame instead): about
+		 * 28 wake-ups a second less, each a select over all the descriptors (about 1 ms of kernel time here) */
+		if (aud_fd >= 0 && now_s() - t_frame > 0.25) { FD_SET(aud_fd, &fs); if (aud_fd > mx) mx = aud_fd; }
 		for (i = 0; i < MAXCLI; i++)
 			if (cl[i].fd >= 0) {
 				FD_SET(cl[i].fd, &fs);
 				if (cl[i].qpos < cl[i].qlen) FD_SET(cl[i].fd, &ws);
 				if (cl[i].fd > mx) mx = cl[i].fd;
 			}
-		if (select(mx + 1, &fs, &ws, NULL, &tv) < 0) continue;
+		if (prof_on < 0) prof_on = getenv("RTSP_PROFILE") && getenv("RTSP_PROFILE")[0] == '1';
+		{ int _sr; PROF(0, _sr = select(mx + 1, &fs, &ws, NULL, &tv)); if (_sr < 0) continue;
+		  if (prof_on > 0) { prof_ms[6]++; if (FD_ISSET(fd, &fs)) prof_ms[7]++; else if (aud_fd >= 0 && FD_ISSET(aud_fd, &fs)) prof_ms[8]++; } }
 		{
 			struct timespec tn;
 
@@ -2146,12 +2173,22 @@ unsigned char *fpb[2] = { NULL, NULL };
 				{ unsigned long dr = 0; for (int k = 0; k < MAXCLI; k++) dr += cl[k].dropped;
 				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld\n",
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
-				      rec_active(), pp_us / 1000, sub_us / 1000); }
+				      rec_active(), pp_us / 1000, sub_us / 1000);
+				  if (prof_on > 0) {
+					static long last_tot;
+					long tot = prof_now(), all = tot - last_tot, o = all;
+
+					for (int q = 0; q < 6; q++) o -= prof_ms[q];
+					if (last_tot) LOG("PROF sys ms: select %ld dqbuf %ld enc_main %ld enc_sub %ld send %ld qbuf %ld other %ld (total %ld); wakeups %ld (video %ld, audio only %ld)\n",
+					    prof_ms[0] / 1000, prof_ms[1] / 1000, prof_ms[2] / 1000, prof_ms[3] / 1000, prof_ms[4] / 1000, prof_ms[5] / 1000, o / 1000, all / 1000,
+					    prof_ms[6], prof_ms[7], prof_ms[8]);
+					last_tot = tot; memset(prof_ms, 0, sizeof prof_ms);
+				  } }
 				ncap = 0; S[0].nfr = S[0].nbytes = S[1].nfr = S[1].nbytes = 0; enc_us = snd_us = pp_us = sub_us = 0; tl = tn;
 			}
 		}
 
-		if (aud_fd >= 0 && FD_ISSET(aud_fd, &fs)) aud_pump();
+		if (aud_fd >= 0 && (FD_ISSET(aud_fd, &fs) || FD_ISSET(fd, &fs))) aud_pump();
 		if (udpfd >= 0 && FD_ISSET(udpfd, &fs)) {	/* RTP from a client's backchannel (UDP) */
 			unsigned char pk[2048];
 			struct sockaddr_in from;
@@ -2212,7 +2249,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 			memset(&b, 0, sizeof b);
 			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = zc ? V4L2_MEMORY_USERPTR : V4L2_MEMORY_MMAP;
-			if (ioctl(fd, VIDIOC_DQBUF, &b) < 0) continue;
+			{ int _dr; PROF(1, _dr = ioctl(fd, VIDIOC_DQBUF, &b)); if (_dr < 0) continue; }
+			t_frame = now_s();
 			unsigned char *cur = zc || dm ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
 			unsigned char *sp = dm && hwsub ? (unsigned char *)vb[b.index] + flen : pf + flen;	/* and the sub picture */
 			/* frame rate: the sensor gives 25 fps; keep the configured rate (frames come back to the driver at once) */
@@ -2336,7 +2374,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				if (!s->active) continue;
 				memset(&st, 0, sizeof st);
 				{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-				r = p_send(s->enc, k ? sp : cur, k ? slen : flen, &st);
+				PROF(2 + k, r = p_send(s->enc, k ? sp : cur, k ? slen : flen, &st));
 				clock_gettime(CLOCK_MONOTONIC, &tb); enc_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 				s->nsent++;
 				if (r || !st.data || !st.len) {
@@ -2357,7 +2395,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				if (st.len > 10 || idr) {	/* skip frames still count in the timeline */
 					cache_add(s, st.data, st.len, ts, idr);
 					{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-					bcast(k, st.data, st.len, ts, idr);
+					PROF(4, bcast(k, st.data, st.len, ts, idr));
 					clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 					s->nbytes += st.len;
 					if (rec_on && k == rsi) { rec_frame(st.data, st.len, ts_us, idr, s->hevc); if (idr) rec_idr = 1; }
@@ -2393,7 +2431,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				}
 			}
 			if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }	/* encoded and copied out: capture here again */
-			if (dm) ioctl(fd, VIDIOC_QBUF, &b);
+			if (dm) PROF(5, ioctl(fd, VIDIOC_QBUF, &b));
 		}
 	}
 	rec_shutdown();
