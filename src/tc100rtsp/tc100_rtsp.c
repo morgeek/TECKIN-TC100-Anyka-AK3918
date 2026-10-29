@@ -1721,10 +1721,16 @@ unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers ar
 	if (!pf) { LOG("no DMA memory for the frame\n"); return 1; }
 	if (getenv("RTSP_ZEROCOPY") && getenv("RTSP_ZEROCOPY")[0] == '1') {
 		/* capture straight into the pool: needs the kernel's USERPTR support (patch 0011); any failure -> copy mode */
-		fpb[0] = pf; fpb[1] = (unsigned char *)p_alloc(flen);
+		/* the driver keeps NUM_SLOTS (4) buffers queued: as many pool frames are needed, which the 12 MiB pool cannot
+		 * spare next to the encoders; ask first, and only take pool memory when two are enough (no pool free) */
 		memset(&rq, 0, sizeof rq);
 		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_USERPTR;
-		if (fpb[1] && ioctl(fd, VIDIOC_REQBUFS, &rq) == 0 && rq.count == 2) {
+		int rok = ioctl(fd, VIDIOC_REQBUFS, &rq) == 0;
+
+		if (rok && rq.count != 2) LOG("zero-copy: the driver needs %u capture buffers, the encoder pool has room for 2\n", rq.count);
+		else if (!rok) LOG("zero-copy: the kernel has no USERPTR capture\n");
+		else { fpb[0] = pf; fpb[1] = (unsigned char *)p_alloc(flen); }
+		if (rok && fpb[1] && rq.count == 2) {
 			unsigned i;
 
 			zc = 1;
@@ -1737,7 +1743,7 @@ unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers ar
 				if (ioctl(fd, VIDIOC_QBUF, &b) < 0) { LOG("zero-copy: QBUF: %s\n", strerror(errno)); zc = 0; }
 				vb[i] = fpb[i];
 			}
-		} else LOG("zero-copy: %s\n", fpb[1] ? "the kernel has no USERPTR capture" : "no pool memory for the second buffer");
+		} else if (rok && rq.count == 2) LOG("zero-copy: no pool memory for the second buffer\n");
 		if (!zc) {	/* back to the usual mmap buffers */
 			memset(&rq, 0, sizeof rq);
 			rq.count = 0; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_USERPTR;

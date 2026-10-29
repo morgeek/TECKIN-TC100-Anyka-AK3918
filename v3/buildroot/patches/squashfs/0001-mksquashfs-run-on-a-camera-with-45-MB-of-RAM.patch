@@ -1,0 +1,19 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] mksquashfs: run on a camera with 45 MB of RAM
+
+mksquashfs refuses to start below 64 MB of physical memory ("requires more
+physical memory than is available"), whatever -mem says. The TECKIN TC100 has
+about 45 MB for Linux, and the 3.0 flash install builds the 1 MB squashfs of the
+camera's own vendor libraries on the camera. 32 MB is plenty for that (-mem 8M).
+
+--- a/squashfs-tools/mksquashfs.h
++++ b/squashfs-tools/mksquashfs.h
+@@ -135,7 +135,7 @@
+  * Lowest amount of physical memory considered viable for Mksquashfs
+  * to run in Mbytes
+  */
+-#define SQUASHFS_LOWMEM 64
++#define SQUASHFS_LOWMEM 32
+ 
+ /* offset of data in compressed metadata blocks (allowing room for
+  * compressed size */

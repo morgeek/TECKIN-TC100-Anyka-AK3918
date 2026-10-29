@@ -26,6 +26,10 @@ md5() { md5sum < "$1" | cut -d' ' -f1; }
 want_md5() { cut -d' ' -f1 "$1.md5" 2>/dev/null; }
 has_part() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && return 0; done; return 1; }
 
+# a vendor image made off the camera (tc100-3/vendor.sqfs + .md5 and the marker vendor.sqfs.prebuilt): used when
+# mksquashfs cannot run on the camera (squashfs-tools before the 32 MB patch refuse to start with 45 MB of RAM)
+prebuilt() { [ -f "$K/vendor.sqfs.prebuilt" ] && [ -s "$K/vendor.sqfs" ] && [ "$(want_md5 "$K/vendor.sqfs")" = "$(md5 "$K/vendor.sqfs")" ]; }
+
 # the sensor tuning in use (copied at boot from the card), else the card's copy
 isp_src() { for f in /lib/firmware/anyka/isp.conf /mnt/config/isp_f23_mipi_2lane.conf; do [ -s $f ] && { echo $f; return 0; }; done; return 1; }
 
@@ -38,7 +42,7 @@ check() {
 		[ -f "$f" ] || { echo "${f#$C/} is missing on the card"; return 1; }
 		[ "$(want_md5 "$f")" = "$(md5 "$f")" ] || { echo "${f#$C/} does not match its md5"; return 1; }
 	done
-	[ -x /mnt/ext/bin/mksquashfs ] || { echo "mksquashfs is missing (ext/ of the package)"; return 1; }
+	[ -x /mnt/ext/bin/mksquashfs ] || prebuilt || { echo "mksquashfs is missing (ext/ of the package)"; return 1; }
 	# the hardware must be a known variant (board profile), the flash chip identified by the kernel: else nothing
 	# is written (the inventory is made at each start, while the kernel log still has the sensor id)
 	[ -s /tmp/inventory.txt ] || sh $V/install/inventory.sh --quick > /tmp/inventory.txt 2>/dev/null
@@ -62,7 +66,13 @@ say "install to flash: start ($(cat /mnt/VERSION 2>/dev/null))"
 W=$K/vendor-build; rm -rf "$W"; mkdir -p "$W/root/lib"
 sh $V/install/collect-vendor.sh /mnt/lib "$W/root/lib" >> "$LOG" 2>&1 || fail "vendor libraries"
 cp "$(isp_src)" "$W/root/isp.conf" || fail "sensor tuning"
-mksquashfs "$W/root" "$K/vendor.sqfs" -comp xz -b 256K -noappend -all-root -quiet >> "$LOG" 2>&1 || fail "mksquashfs"
+if /mnt/ext/bin/mksquashfs "$W/root" "$K/vendor.new" -comp xz -b 256K -noappend -all-root -quiet -processors 1 -mem 8M >> "$LOG" 2>&1; then
+	mv -f "$K/vendor.new" "$K/vendor.sqfs"; rm -f "$K/vendor.sqfs.prebuilt"
+elif prebuilt; then
+	rm -f "$K/vendor.new"; say "mksquashfs cannot run here: using the prebuilt tc100-3/vendor.sqfs"
+else
+	fail "mksquashfs (and no prebuilt tc100-3/vendor.sqfs)"
+fi
 rm -rf "$W"
 n=$(wc -c < "$K/vendor.sqfs"); [ "$n" -le $VENDOR_MAX ] || fail "vendor.sqfs is $n bytes, the partition has $VENDOR_MAX"
 md5sum < "$K/vendor.sqfs" | sed 's/ .*/  vendor.sqfs/' > "$K/vendor.sqfs.md5"
