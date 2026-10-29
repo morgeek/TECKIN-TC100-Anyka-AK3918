@@ -50,6 +50,7 @@ say "installing $(cat "$D/VERSION"): stopping the services"
 for s in recording motion-detection mqtt-bridge onvif auto-night-detection; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
 killall tc100_rtsp monvifd 2>/dev/null
 sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+for p in $(pidof watchdog); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null; done	# its keeper must outlive a memory shortage
 BK=; [ -n "$LOG" ] && BK="-b /mnt/sd/tc100-3/backup"
 for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
 	f=$D/${p#*:}

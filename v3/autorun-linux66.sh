@@ -29,6 +29,9 @@ echo 1024 > /proc/sys/vm/min_free_kbytes 2>/dev/null
 # 0. Start Hardware Watchdog keeper (feed every 15s, 60s timeout)
 killall watchdog 2>/dev/null
 watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
+# never the out-of-memory victim: without its keeper the hardware watchdog restarts the camera 60 s later, even in
+# the middle of a flash write
+echo -1000 > /proc/$!/oom_score_adj 2>/dev/null
 
 # 0b. The user space (web pages, scripts, status checks) expects its files under /mnt. SD mode: the card is mounted
 #     there and /mnt/sd is an alias (the card has an empty "sd" folder for that second mount). Flash mode
