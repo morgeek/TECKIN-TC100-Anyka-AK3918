@@ -252,7 +252,7 @@ static int cfg_get(const char *file, const char *sec, const char *key, char *out
 	return found;
 }
 
-static int tune_hw = -1, tune_dirty = 1;	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
+static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
 
 static void post_luts(void)
 {
@@ -376,11 +376,45 @@ static void sensor_fps_set(void)
 /* Live image tuning in the ISP (AK_ISP_SET_YUV_EFFECT: Y' = Y * y_a / 64 + y_b, UV' = UV * uv_a / 64 + uv_b,
  * measured on a TC100) on top of the tuning file's own values, instead of a table over every byte of the picture.
  * Same result as the tables: contrast around mid grey, brightness 2 levels per step, saturation 2 % per step.
- * Hue has no ISP equivalent here and stays a table. RTSP_ISPTUNE=0 keeps the tables. */
+ * Hue: see AK_ISP_SET_HUE below. RTSP_ISPTUNE=0 keeps the tables. */
 struct isp_effect { unsigned short y_a; short y_b, uv_a, uv_b; unsigned short dark_margin; };
 #define ISP_SET_YUV_EFFECT _IOW('I', 65, int)
 #define ISP_GET_YUV_EFFECT _IOR('I', 66, int)
 static struct isp_effect eff0;
+/* hue: AK_ISP_SET_HUE, 65 colour sectors each with a rotation (a, b) = 127 (cos, sin) and a saturation s (64 = 1),
+ * read on a TC100; the tuning file sets a small correction per sector. The Image page hue (0.6 degree per step)
+ * turns every sector's (a, b) by the same angle. */
+struct isp_hue1 { unsigned short en; signed char a[65], b[65]; unsigned char s[65]; };
+struct isp_hue { unsigned short mode; struct isp_hue1 man, h[4]; };
+#define ISP_SET_HUE _IOW('I', 119, int)
+#define ISP_GET_HUE _IOR('I', 120, int)
+static struct isp_hue hue0;
+static int hue_hw = -1, hue_want;
+static void hue_turn(struct isp_hue1 *d, const struct isp_hue1 *o, int c, int sn)	/* c, sn: cos, sin x 1024 */
+{
+	for (int i = 0; i < 65; i++) {
+		int x = (o->a[i] * c - o->b[i] * sn) / 1024, y = (o->a[i] * sn + o->b[i] * c) / 1024;
+
+		d->a[i] = (signed char)(x > 127 ? 127 : x < -128 ? -128 : x);
+		d->b[i] = (signed char)(y > 127 ? 127 : y < -128 ? -128 : y);
+	}
+}
+static int hue_hw_set(int fd, int hue)
+{
+	static const short cs[] = { 1024, 1024, 1023, 1022, 1021, 1019, 1017, 1014, 1011, 1008, 1004, 999, 995, 990, 984,
+		978, 972, 965, 958, 951, 943, 935, 926, 917, 908, 898, 887, 876, 865, 853, 841 };	/* cos(0..30 deg) x 1024 */
+	struct isp_hue x = hue0;
+	int d = hue < 0 ? -hue : hue, k = d * 6 / 10, c, sn;
+
+	if (k > 30) k = 30;
+	c = cs[k]; sn = (int)(1024 * 1.0 * k / 57.2958 - (1024.0 * k * k * k) / (6 * 57.2958 * 57.2958 * 57.2958));	/* sin, small angles */
+	if (hue > 0) sn = -sn;	/* the ISP turns the other way round from the table (measured): same direction as before */
+	if (hue) {	/* each colour temperature has its own table, some switched off (en 0) by the tuning file: all on */
+		hue_turn(&x.man, &hue0.man, c, sn); x.man.en = 1;
+		for (int j = 0; j < 4; j++) { hue_turn(&x.h[j], &hue0.h[j], c, sn); x.h[j].en = 1; }
+	}
+	return ioctl(fd, ISP_SET_HUE, &x);
+}
 
 static void tune_hw_apply(void)
 {
@@ -404,10 +438,20 @@ static void tune_hw_apply(void)
 		x.y_b = (short)(yb < -128 ? -128 : yb > 127 ? 127 : yb);
 		x.uv_a = (short)(uva < -256 ? -256 : uva > 255 ? 255 : uva);
 	}
+	if (bw_want) { x.uv_a = 0; x.uv_b = 0; }	/* black and white: no colour out of the ISP, nothing to clear per frame */
 	if (ioctl(fd, ISP_SET_YUV_EFFECT, &x) < 0) { LOG("image tuning: the ISP refused it (%s): tables\n", strerror(errno)); tune_hw = 0; }
 	else {
 		if (tune_hw != 1 || p_tune) LOG("image tuning: in the ISP (y_a %u y_b %d uv_a %d)\n", x.y_a, x.y_b, x.uv_a);
-		tune_hw = 1;
+		if (bw_want != bw_isp) LOG("black and white: %s by the ISP\n", bw_want ? "on" : "off");
+		tune_hw = 1; bw_isp = bw_want;
+	}
+	if (tune_hw == 1) {	/* hue too, when the ISP takes it: then no table at all */
+		if (hue_hw < 0) hue_hw = ioctl(fd, ISP_GET_HUE, &hue0) == 0;
+		if (hue_hw == 1) {
+			hue_want = p_hue;
+			if (hue_hw_set(fd, p_tune ? hue_want : 0) == 0) { if (hue_want) LOG("image tuning: hue %d in the ISP\n", hue_want); p_hue = 0; }
+			else { LOG("image tuning: the ISP refused the hue: table\n"); hue_hw = 0; }
+		}
 	}
 	close(fd);
 	post_luts();
@@ -2043,7 +2087,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		 * invalidation (a TC100 with tuning on went to 95 % CPU), so those cameras keep cached buffers. */
 		const char *ce = getenv("RTSP_CACHED"), *de = getenv("RTSP_DIRECT");
 		post_apply();
-		int tables = p_tune && (p_hue || ((p_bri || p_con || p_sat) && getenv("RTSP_ISPTUNE") && getenv("RTSP_ISPTUNE")[0] == '0'));
+		int tables = p_tune && (p_bri || p_con || p_sat || p_hue) && getenv("RTSP_ISPTUNE") && getenv("RTSP_ISPTUNE")[0] == '0';
 		int cached = ce && ce[0] ? ce[0] == '1' : ((de && de[0] == '0') || tables);
 
 		if (tables && !(ce && ce[0])) LOG("capture buffers: cached (live image tuning on: tables over the picture)\n");
@@ -2337,7 +2381,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 				if (!stat("/tmp/stream.jpg", &sb) && nw - sb.st_atime < 4) str_iv = 0.25;
 				if (!stat("/tmp/currentpic.cache.jpg", &sb) && nw - sb.st_atime < 10) snap_iv = 2.0;
-				if (nw != bw_chk) { bw_chk = nw; bw = !access("/tmp/tc100_bw", F_OK); }	/* black and white switch */
+				if (nw != bw_chk) { bw_chk = nw; bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; } }	/* black and white switch */
 			}
 			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= str_iv;
 			int d_snap = jpeg_ok && (tn - t_snap >= snap_iv || !access("/tmp/snapshot_request", F_OK));
@@ -2371,16 +2415,16 @@ unsigned char *fpb[2] = { NULL, NULL };
 				if (dm && hwsub) post_sub(sp);
 				else if (hwsub) post_sub_copy(sp, (unsigned char *)vb[b.index] + flen);
 				else { sub_scale(vb[b.index], sp); post_sub(sp); }
-				post_overlay(sp, SW, SH, 0); if (bw) memset(sp + SW * SH, 128, SW * SH / 2);
-				if (dm && hwsub) dm_clean(sp, SW, SH, bw);	/* the encoder reads memory, not the cache */
+				post_overlay(sp, SW, SH, 0); if (bw && !bw_isp) memset(sp + SW * SH, 128, SW * SH / 2);
+				if (dm && hwsub) dm_clean(sp, SW, SH, bw && !bw_isp);	/* the encoder reads memory, not the cache */
 			}
 			t_pp1 = now_s();
 			if (S[0].active || d_snap) {
 				dirty_reset();
 				if (zc || dm) post_inplace(cur); else post_copy(pf, vb[b.index]);
 				post_overlay(cur, W, H, 1);
-				if (bw) memset(cur + W * H, 128, W * H / 2);
-				if (dm) dm_clean(cur, W, H, bw);
+				if (bw && !bw_isp) memset(cur + W * H, 128, W * H / 2);
+				if (dm) dm_clean(cur, W, H, bw && !bw_isp);
 			}
 			sub_us += (long)((t_pp1 - t_pp0) * 1e6); pp_us += (long)((now_s() - t_pp1) * 1e6);
 			if (!zc && !dm) ioctl(fd, VIDIOC_QBUF, &b);	/* zero-copy, direct: the buffer goes back once it has been encoded */

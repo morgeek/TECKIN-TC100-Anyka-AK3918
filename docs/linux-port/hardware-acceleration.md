@@ -121,3 +121,13 @@ y_b -2, uv_a 64. `tc100_rtsp` applies the Image page values on top of these (con
 brightness 2 levels per step, saturation 2 % per step), live, and puts the base back when tuning is turned off.
 With tuning on and the tables, IPCAM1 ran at 95 % CPU and IPCAM2 dropped to under 6 fps (in-place table over
 uncached memory); with the ISP: 15 fps, pp 3 ms per 5 s.
+
+## Hue and black and white in the ISP (2026-10-29 evening)
+
+- `AK_ISP_GET_HUE` / `_SET_HUE`: a manual table and four tables by colour temperature (A, TL84, D50, D65), each
+  65 sectors of (a, b) = 127 (cos, sin) and a saturation s (64 = 1). The tuning file switches some of them off
+  (`en` 0, D65 on IPCAM2), which is why a first try changed nothing. `tc100_rtsp` turns every (a, b) by the hue
+  angle and switches all tables on; HUE=0 puts the tuning file's tables back. Measured per pixel on IPCAM2:
+  table +34.7 degrees, ISP +26.6 degrees for HUE=50 (30 asked); the ISP turns the other way, the sign is flipped.
+- Black and white (night): `uv_a` = `uv_b` = 0 in `AK_ISP_SET_YUV_EFFECT`; snapshot chroma 0.00 (max 0.0).
+- IPCAM1 had HUE=14 and SATURATION=-13: 79 % CPU in `tc100_rtsp` with the hue table, which is now gone.
