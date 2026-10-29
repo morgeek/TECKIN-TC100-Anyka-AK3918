@@ -85,17 +85,19 @@ if [ "$PROFILE" = frigate_ha ] && [ -x /mnt/bin/rwconf ]; then
   LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " osdenabled 0 2>/dev/null
 fi
 
-# 2. Populate shared uClibc libraries into /lib (symlinks in flashmode to save ~1.8 MB RAM)
+# 2. Populate shared uClibc libraries into /lib: symlinks, except on the card (SD mode) for the small uClibc runtime,
+#    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a
+#    link: a card used by older firmwares holds ~15 MB of libraries (libcrypto, libliveMedia, 3 x libstdc++...)
+#    whose copy into RAM left the 6.6 trial mode without memory.
 for f in /mnt/lib/*.so*; do
   [ -e "$f" ] || continue
   b="${f##*/}"
-  if [ ! -e "/lib/$b" ]; then
-    if [ -f /tmp/flashmode ]; then
-      ln -sf "$f" "/lib/$b"
-    else
-      cp "$f" "/lib/$b" && chmod +x "/lib/$b" 2>/dev/null || true
-    fi
-  fi
+  [ -e "/lib/$b" ] && continue
+  case "$b" in
+    ld-uClibc*|libc.so.0|libuClibc-*|libdl*|libm.so*|libm-*|libpthread*|librt*|libgcc_s*|libcrypt*)
+      if [ -f /tmp/flashmode ]; then ln -sf "$f" "/lib/$b"; else cp "$f" "/lib/$b" && chmod +x "/lib/$b" 2>/dev/null || true; fi ;;
+    *) ln -sf "$f" "/lib/$b" ;;
+  esac
 done
 
 # 3. Setup WebUI document root in RAM
