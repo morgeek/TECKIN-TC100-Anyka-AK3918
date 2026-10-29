@@ -31,3 +31,21 @@ on a capture memory that the CPU reads uncached.
 3. `RTSP_ZEROCOPY=1` (kernel with 0011): no copy at all; compare with 2.
 4. Live image tuning, masks and black and white through `/dev/isp_char` instead of the CPU.
 5. The ISP sub channel (hardware 640x360), once the variant B crash is understood.
+
+## Measured on IPCAM2, 2026-10-29 (new flash layout, kernel with 0011/0012, H.265 1080p + H.264 sub, 1 client)
+
+STAT per 5 s (5000 ms = one full core); cap = frames captured in 5 s (15 fps = 75).
+
+| Mode | cap | pp_ms | sub_ms | enc_ms |
+|---|---|---|---|---|
+| copy, uncached capture (default) | 35-41 | 2240-2410 | 810-1070 | 1100-1270 |
+| `RTSP_CACHED=1` | 36-42 | 1910-2310 | 710-870 | 1130-1340 |
+| `RTSP_CACHED=1` + `config/awb.off` (no software white balance) | 40-52 | 1900-2070 | 320-600 | 1320-1650 |
+| `RTSP_ZEROCOPY=1` | not possible: the driver keeps 4 capture slots (NUM_SLOTS), 4 x 3 MB of the 12 MiB pool; the fallback used to leave a 3 MB pool block taken and the encoder failed to open (fixed) | | | |
+
+- Cached capture: about 10 % less per frame, same picture. Kept on IPCAM2 (`config/rtsp.env`).
+- Without the software white balance, the cost per frame of the copy drops from about 54 to 36 ms (cap goes up
+  from about 8 to 10 fps), but the colours then rely on the ISP alone: to be judged on the picture before
+  making it the default.
+- The camera stays CPU-bound (cap < 75): the next gains are the ISP doing the colour work and the sub picture
+  (sections above), and a capture at the encoded frame rate only.
