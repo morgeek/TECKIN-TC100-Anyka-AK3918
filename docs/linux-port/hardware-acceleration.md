@@ -67,3 +67,32 @@ STAT per 5 s (5000 ms = one full core); cap = frames captured in 5 s (15 fps = 7
   (49 ms), then waits for the hardware encoder (about 30 ms), one after the other. Overlapping the copy of frame
   N+1 with the encoding of frame N, or removing the copy (zero copy), is what brings the frame rate to 15.
 - The Wi-Fi USB host raises about 480 interrupts/s (PIO, no DMA); system time is 16 %.
+
+## No copy, white balance in the ISP (2026-10-29 evening, IPCAM2)
+
+Three changes, now the defaults of `tc100_rtsp` (each can be turned off for comparison):
+
+- **Direct capture** (`RTSP_DIRECT=0` turns it off): the encoder and the JPEG engine read the V4L2 capture buffer
+  itself instead of a copy in the encoder pool. The kernel does not give the physical address of an mmap
+  buffer (pagemap skips device mappings), so before STREAMON each buffer gets a marker at the start of each page,
+  the RAM ranges of `/proc/iomem` are searched through `/dev/mem`, and only a buffer whose every page is found in
+  order (physically contiguous) is used; `libakuio` then translates its addresses (`akuio_map_extra`). Anything
+  missing: copy mode as before. In-place corrections (masks, clock, B/W, colour tables) are written back with a
+  data cache clean of the rows they touched (ARM `cacheflush`), because the encoder reads memory, not the cache.
+- **White balance in the ISP** (`RTSP_ISPAWB=0`: software tables): the grey-world measure steers the ISP's own
+  extra red and blue gains (`AK_ISP_SET_AWB_EX`, `rgain_ex` / `bgain_ex` on top of the tuning file's values)
+  instead of a table over the 1.5 MB of chroma. It converges in about 2 s (IPCAM2: red x 0.90, blue x 1.09, mean
+  U/V within 1 of grey) and is frozen in black and white.
+- **Frame rate kept**: the sensor gives 25 fps, the extra frames go straight back to the driver. Before, the
+  loop never reached the configured rate, so there was no limit.
+- Cached capture buffers are the default too (`RTSP_CACHED=0`: uncached).
+
+| IPCAM2, 1080p H.265 1.6 Mbit/s, 1 client | before (morning) | now |
+|---|---|---|
+| frames per second | about 9.5 of 15 | 15 |
+| main picture CPU time (pp_ms per 5 s) | about 2 150 | 3 |
+| sub picture (sub_ms per 5 s) | about 1 100 | 1-2 |
+| CPU: user / system / idle | 53 / 16 / 30 % | 8 / 39 / 50 % |
+
+The system time that is left is mostly the Wi-Fi: the USB host runs without DMA (about 900 interrupts/s at 15 fps),
+the next thing to look at.

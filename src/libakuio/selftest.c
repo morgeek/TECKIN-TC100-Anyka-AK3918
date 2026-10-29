@@ -7,6 +7,7 @@ int akuio_test_attach(void *, unsigned, unsigned);
 unsigned long akuio_alloc_pmem(int);
 void akuio_free_pmem(unsigned long);
 int akuio_vaddr2paddr(unsigned long);
+int akuio_map_extra(unsigned long, unsigned long, unsigned long);
 unsigned long akuio_get_used_pmem(void);
 unsigned long akuio_get_free_pmem(void);
 int akuio_pmem_fini(void);
@@ -32,6 +33,12 @@ int main(void)
 	assert(akuio_alloc_pmem(sz) != 0);	/* whole pool again: all merged */
 	assert(akuio_alloc_pmem(32) == 0);	/* and now full */
 	assert(akuio_vaddr2paddr(0x1234) == 0);
+	/* a capture buffer outside the pool (direct capture) */
+	assert(akuio_map_extra(0x40000000, 0x82d00000, 0x34c000) == 0);
+	assert(akuio_vaddr2paddr(0x40000000 + 0x1000) == (int)0x82d01000);
+	assert(akuio_vaddr2paddr(0x40000000 + 0x34c000) == 0);	/* just past it */
+	assert(akuio_map_extra(0x40000000, 0, 0) == 0);
+	assert(akuio_vaddr2paddr(0x40000000) == 0);
 	akuio_pmem_fini();
 	puts("selftest ok");
 	return 0;
