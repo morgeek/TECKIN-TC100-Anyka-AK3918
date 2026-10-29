@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is steered in the ISP (no table over the colours), the 640x360 sub picture comes from the ISP's second output,
   and the configured frame rate is kept. Each part falls back to the previous way on its own; switches in
   `config/rtsp.env`: `RTSP_DIRECT=0`, `RTSP_ISPAWB=0`, `RTSP_HWSUB=0`, `RTSP_CACHED=0`.
+- Live image tuning (Image page: brightness, contrast, saturation) is done by the ISP (`AK_ISP_SET_YUV_EFFECT`,
+  on top of the tuning file's values) instead of a table over every byte: a camera with tuning on stayed at
+  15 fps instead of dropping below 6 (and 95 % CPU). Hue still uses a table (cached buffers then).
+  `RTSP_ISPTUNE=0` keeps the tables.
 - Uncached capture buffers with direct capture, and the sensor set to the stream rate (15 fps instead of 25) once
   the video runs: the kernel no longer invalidates 3.4 MB of cache line by line for each of 25 frames a second.
   Measured on a TC100 at 15 fps: CPU idle 35 % -> 68 % (system 50 % -> 19 %). `RTSP_CACHED=1`,

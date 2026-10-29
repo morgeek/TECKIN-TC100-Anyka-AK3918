@@ -251,16 +251,18 @@ static int cfg_get(const char *file, const char *sec, const char *key, char *out
 	return found;
 }
 
+static int tune_hw = -1, tune_dirty = 1;	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
+
 static void post_luts(void)
 {
 	int i;
-	int cf = 100 + p_con * 2, sf = 100 + p_sat * 2;
+	int cf = 100 + p_con * 2, sf = 100 + p_sat * 2, sw = p_tune && tune_hw != 1;
 
-	p_ytune = p_tune && (p_bri || p_con);
+	p_ytune = sw && (p_bri || p_con);
 	for (i = 0; i < 256; i++) {
 		ylut[i] = (unsigned char)(p_ytune ? clampi((i - 128) * cf / 100 + 128 + p_bri * 2) : i);
-		ulut[i] = (unsigned char)clampi(128 + (i - 128) * (p_tune ? sf : 100) / 100 - p_du);
-		vlut[i] = (unsigned char)clampi(128 + (i - 128) * (p_tune ? sf : 100) / 100 - p_dv);
+		ulut[i] = (unsigned char)clampi(128 + (i - 128) * (sw ? sf : 100) / 100 - p_du);
+		vlut[i] = (unsigned char)clampi(128 + (i - 128) * (sw ? sf : 100) / 100 - p_dv);
 	}
 }
 
@@ -295,6 +297,7 @@ static void post_apply(void)
 	if (cfg_get(fn[2], "0", "osdfontsize", v, sizeof v)) p_osdsz = atoi_(v);
 	if (p_osdsz < 8) p_osdsz = 8;
 	p_hue = p_tune ? p_hue : 0;
+	tune_dirty = 1;
 	post_luts();
 }
 
@@ -369,11 +372,52 @@ static void sensor_fps_set(void)
 	close(fd);
 }
 
+/* Live image tuning in the ISP (AK_ISP_SET_YUV_EFFECT: Y' = Y * y_a / 64 + y_b, UV' = UV * uv_a / 64 + uv_b,
+ * measured on a TC100) on top of the tuning file's own values, instead of a table over every byte of the picture.
+ * Same result as the tables: contrast around mid grey, brightness 2 levels per step, saturation 2 % per step.
+ * Hue has no ISP equivalent here and stays a table. RTSP_ISPTUNE=0 keeps the tables. */
+struct isp_effect { unsigned short y_a; short y_b, uv_a, uv_b; unsigned short dark_margin; };
+#define ISP_SET_YUV_EFFECT _IOW('I', 65, int)
+#define ISP_GET_YUV_EFFECT _IOR('I', 66, int)
+static struct isp_effect eff0;
+
+static void tune_hw_apply(void)
+{
+	const char *e = getenv("RTSP_ISPTUNE");
+	struct isp_effect x;
+	int fd, cf, sf, ya, yb, uva;
+
+	tune_dirty = 0;
+	if (e && e[0] == '0') { if (tune_hw) { tune_hw = 0; post_luts(); } return; }
+	if ((fd = open("/dev/isp_char", O_RDWR)) < 0) { tune_hw = 0; post_luts(); return; }
+	if (tune_hw < 0) {	/* the tuning file's values: the base, read once the video runs */
+		if (ioctl(fd, ISP_GET_YUV_EFFECT, &eff0) < 0 || !eff0.y_a) { LOG("image tuning: no ISP effect control: tables\n"); tune_hw = 0; close(fd); post_luts(); return; }
+	}
+	x = eff0;
+	if (p_tune) {
+		cf = 100 + p_con * 2; sf = 100 + p_sat * 2;
+		ya = eff0.y_a * cf / 100;
+		yb = eff0.y_b * cf / 100 + 128 * (100 - cf) / 100 + p_bri * 2;
+		uva = eff0.uv_a * sf / 100;
+		x.y_a = (unsigned short)(ya < 0 ? 0 : ya > 255 ? 255 : ya);
+		x.y_b = (short)(yb < -128 ? -128 : yb > 127 ? 127 : yb);
+		x.uv_a = (short)(uva < -256 ? -256 : uva > 255 ? 255 : uva);
+	}
+	if (ioctl(fd, ISP_SET_YUV_EFFECT, &x) < 0) { LOG("image tuning: the ISP refused it (%s): tables\n", strerror(errno)); tune_hw = 0; }
+	else {
+		if (tune_hw != 1 || p_tune) LOG("image tuning: in the ISP (y_a %u y_b %d uv_a %d)\n", x.y_a, x.y_b, x.uv_a);
+		tune_hw = 1;
+	}
+	close(fd);
+	post_luts();
+}
+
 static void post_awb_sample(const unsigned char *uv, int bw)
 {
 	long su = 0, sv = 0; int n = 0, i;
 
 	if (sensor_fps_want) sensor_fps_set();
+	if (tune_dirty) tune_hw_apply();
 	if (!p_awb) return;
 	if (awb_hw < 0) awb_hw_init();
 	if (awb_hw == 1 && bw) return;	/* black and white (night): no colour to measure */
@@ -1951,8 +1995,15 @@ unsigned char *fpb[2] = { NULL, NULL };
 		/* Cached buffers help when the CPU reads the whole picture (copy mode). With direct capture the CPU reads
 		 * almost nothing of it and the kernel's cache invalidation of 3.4 MB per frame (line by line) costs far more:
 		 * measured on a TC100, system time 50 % -> 19 %. Default: cached only when direct capture is off. */
+		/* Live image tuning (ISP_TUNE=1 with brightness, contrast, saturation or hue set) is a table over every byte
+		 * of the picture, in place with direct capture: on uncached memory that pass costs more than the cache
+		 * invalidation (a TC100 with tuning on went to 95 % CPU), so those cameras keep cached buffers. */
 		const char *ce = getenv("RTSP_CACHED"), *de = getenv("RTSP_DIRECT");
-		int cached = ce && ce[0] ? ce[0] == '1' : (de && de[0] == '0');
+		post_apply();
+		int tables = p_tune && (p_hue || ((p_bri || p_con || p_sat) && getenv("RTSP_ISPTUNE") && getenv("RTSP_ISPTUNE")[0] == '0'));
+		int cached = ce && ce[0] ? ce[0] == '1' : ((de && de[0] == '0') || tables);
+
+		if (tables && !(ce && ce[0])) LOG("capture buffers: cached (live image tuning on: tables over the picture)\n");
 
 		if (cached) rq.flags = V4L2_MEMORY_FLAG_NON_COHERENT;
 		if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0) { LOG("REQBUFS: %s\n", strerror(errno)); return 1; }

@@ -112,3 +112,12 @@ for each of the sensor's 25 frames a second, including the 10 the server drops t
 The CPU reads almost nothing of the picture any more (statistics samples only), so cached buffers no longer pay
 for themselves: they stay the default in copy mode only. USB DMA for the Wi-Fi would at best take a part of the
 remaining 5-8 %.
+
+## Live image tuning in the ISP (2026-10-29)
+
+`AK_ISP_SET_YUV_EFFECT` / `_GET_` (`y_a`, `y_b`, `uv_a`, `uv_b`): measured on IPCAM2, `Y' = Y * y_a / 64 + y_b`
+(y_a 68 -> 34 halved the mean luma 117 -> 57, y_b -2 -> 30 raised it to 149); the tuning file sets y_a 68,
+y_b -2, uv_a 64. `tc100_rtsp` applies the Image page values on top of these (contrast around mid grey,
+brightness 2 levels per step, saturation 2 % per step), live, and puts the base back when tuning is turned off.
+With tuning on and the tables, IPCAM1 ran at 95 % CPU and IPCAM2 dropped to under 6 fps (in-place table over
+uncached memory); with the ISP: 15 fps, pp 3 ms per 5 s.
