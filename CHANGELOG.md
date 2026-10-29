@@ -17,6 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the old memory corruption was the 640 MHz clock).
 - Direct capture takes each buffer's physical address from the capture driver (`AK39_VI_G_PHYS`); the RAM search
   through `/dev/mem` stays only for older kernels.
+- Hue (Image page) and the night black and white are done by the ISP too: hue turns every colour sector of
+  `AK_ISP_SET_HUE` (measured +27 degrees for +30 asked), black and white sets the ISP colour gain to 0 instead
+  of clearing 1 MB of chroma per frame. No table over the picture is left; `RTSP_ISPTUNE=0` brings them back.
 - Live image tuning (Image page: brightness, contrast, saturation) is done by the ISP (`AK_ISP_SET_YUV_EFFECT`,
   on top of the tuning file's values) instead of a table over every byte: a camera with tuning on stayed at
   15 fps instead of dropping below 6 (and 95 % CPU). Hue still uses a table (cached buffers then).
