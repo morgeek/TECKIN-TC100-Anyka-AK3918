@@ -93,7 +93,8 @@ the new layout without touching the environment:
 2. Power on: the card starts first (trial mode, new kernel).
 3. Settings -> Update & backup -> Install to flash. `vendor.sqfs` is made from the card's `lib/`.
 4. The hand-made `flashboot` keeps working: same `initrd` size, kernel under 0x1ce000.
-5. ISP sub picture (less CPU for the 640x360 stream): add `ak39_vi.sub_channel=1` to the kernel command line. At the
+5. ISP sub picture (less CPU for the 640x360 stream): kernels from 3.0.1-rc2 program it by default, nothing to do.
+   With an older kernel, add `ak39_vi.sub_channel=1` to the kernel command line. At the
    U-Boot prompt (lines are limited to 256 characters, hence the `flashargs` variable):
 
    ```
@@ -103,3 +104,11 @@ the new layout without touching the environment:
    ```
 
    Done on IPCAM2 (192.168.1.11) on 2026-10-29. Without it `tc100_rtsp` keeps sampling the sub picture on the CPU.
+
+## Settings across an install
+
+The settings slots (`cfga`, `cfgb`) are at the end of the flash in both layouts and no install writes over them
+when they hold valid settings: a camera that already ran 3.0 from its flash keeps its own settings when it is
+installed again from a card (for example to move from the first layout to the one with the `vendor` partition).
+Only a first install takes the settings of the card. To take the card's settings anyway, create an empty file
+`tc100-3/settings-from-card` on the card before Install to flash. The web update (`update66.sh`) never touches them.
