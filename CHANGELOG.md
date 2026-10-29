@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is steered in the ISP (no table over the colours), the 640x360 sub picture comes from the ISP's second output,
   and the configured frame rate is kept. Each part falls back to the previous way on its own; switches in
   `config/rtsp.env`: `RTSP_DIRECT=0`, `RTSP_ISPAWB=0`, `RTSP_HWSUB=0`, `RTSP_CACHED=0`.
+- Uncached capture buffers with direct capture, and the sensor set to the stream rate (15 fps instead of 25) once
+  the video runs: the kernel no longer invalidates 3.4 MB of cache line by line for each of 25 frames a second.
+  Measured on a TC100 at 15 fps: CPU idle 35 % -> 68 % (system 50 % -> 19 %). `RTSP_CACHED=1`,
+  `RTSP_SENSOR_FPS=0` bring the old behaviour back.
 - The kernel programs the ISP sub channel by default (`ak39_vi.sub_channel=0` turns it off): no U-Boot change.
 - **Sound in the recordings**: a G.711 A-law track next to the video in each MP4 (`REC_AUDIO`, on by default).
 - **Listen live** from the browser again (`audio_stream.cgi`, fed by tc100_rtsp, at most 3 listeners).
