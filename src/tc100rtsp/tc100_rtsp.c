@@ -1693,7 +1693,10 @@ int main(int argc, char **argv)
 	if (p_pinit && p_pinit()) { LOG("akuio_pmem_init failed\n"); return 2; }
 #endif
 
-unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers are encoder pool memory */
+unsigned char *fpb[2] = { NULL, NULL };
+	/* RTSP_HWSUB=1: the ISP makes the 640x360 sub picture itself (kernel ak39_vi.sub_channel=1), right after the
+	 * main frame in each capture buffer; it is copied instead of being sampled from the main picture by the CPU */
+	int hwsub = 0; unsigned vblen = ~0u;	/* RTSP_ZEROCOPY: the capture buffers are encoder pool memory */
 	int zc = 0;
 #ifdef TC100_HOST_TEST	/* make test_rtsp: no camera, no encoder: the network, audio and settings code on the build host */
 	int fd;
@@ -1768,9 +1771,14 @@ unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers ar
 			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP; b.index = i;
 			if (ioctl(fd, VIDIOC_QUERYBUF, &b) < 0) { LOG("QUERYBUF: %s\n", strerror(errno)); return 1; }
 			vb[i] = mmap(NULL, b.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, b.m.offset);
+			if (b.length < vblen) vblen = b.length;
 			if (vb[i] == MAP_FAILED) { LOG("mmap: %s\n", strerror(errno)); return 1; }
 			ioctl(fd, VIDIOC_QBUF, &b);
 		}
+	}
+	if (getenv("RTSP_HWSUB") && getenv("RTSP_HWSUB")[0] == '1') {
+		hwsub = !zc && vblen != ~0u && vblen >= flen + slen;
+		LOG("sub picture: %s\n", hwsub ? "from the ISP sub channel" : "made by the CPU (the capture buffers have no room for the ISP sub channel)");
 	}
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
@@ -2035,7 +2043,7 @@ unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers ar
 			double t_pp0 = now_s(), t_pp1;
 			/* zero-copy: the sub picture is made first, from the raw picture; the corrections of the main one then
 			 * happen in place. With the copy, the raw picture is untouched and the order does not matter. */
-			if (sub_made) { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
+			if (sub_made) { if (hwsub) memcpy(pf + flen, (unsigned char *)vb[b.index] + flen, slen); else sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
 			t_pp1 = now_s();
 			if (S[0].active || d_snap) {
 				if (zc) post_inplace(cur); else post_copy(pf, vb[b.index]);
