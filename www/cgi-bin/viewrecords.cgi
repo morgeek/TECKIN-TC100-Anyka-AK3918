@@ -63,17 +63,13 @@ if [ -n "$F_cmd" ]; then
     disk_usage)
       # Returns SD card usage stats for the recordings area
       _total=0; _used=0; _avail=0; _pct=0
-      while read -r _fs _t _u _a _p _mp _rest; do
-        case "$_mp" in /mnt|/mnt/)
-          case "$_t" in ''|*[!0-9]*) continue ;; esac
-          _total="$_t"; _used="$_u"; _avail="$_a"
-          _pct_raw="${_p%%%}"; case "$_pct_raw" in ''|*[!0-9]*) _pct_raw=0 ;; esac
-          _pct="$_pct_raw"
-          break
-        ;; esac
-      done <<EOF
-$(df -k /mnt 2>/dev/null | tail -n +2)
-EOF
+      # the file system that holds the recordings: the SD card (/mnt/DCIM may be a link to it; in flash mode /mnt
+      # itself is the small read-only system, which df /mnt reported instead of the card)
+      _dir="$DCIM_FOLDER/"; [ -d "$_dir" ] || _dir=/mnt/sd/
+      set -- $(df -kP "$_dir" 2>/dev/null | tail -n 1)
+      case "$2:$3:$4" in *[!0-9:]*|::*) ;; *)
+        _total="$2"; _used="$3"; _avail="$4"; _pct="${5%%%}"; case "$_pct" in ''|*[!0-9]*) _pct=0 ;; esac ;;
+      esac
       printf '{"total_kb":%s,"used_kb":%s,"avail_kb":%s,"percent":%s}\n' \
         "$_total" "$_used" "$_avail" "$_pct"
     ;;

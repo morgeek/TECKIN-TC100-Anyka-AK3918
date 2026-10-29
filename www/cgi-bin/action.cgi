@@ -475,6 +475,16 @@ LOG_SUMMARY_TAIL_LINES=40
 LOG_DMESG_TAIL_LINES=200
 LOG_VIDEO_TAIL_LINES=256
 
+# Only log files: on Linux 6.6 /var/log is a link to /tmp, which also holds the running programs (tc100_rtsp,
+# libakuio.so), the CSRF token, password caches and markers such as /tmp/flashmode. Showing them leaked secrets
+# into the page, and "Clear" emptied them, which broke the camera until the next restart.
+is_log_file() {
+  case "${1##*/}" in
+    messages|messages.[0-9]*|*.log|*.log.[0-9]*|*.csv) [ -f "$1" ] ;;
+    *) return 1 ;;
+  esac
+}
+
 emit_log_tail_dir() {
   log_dir="$1"
   heading="$2"
@@ -482,7 +492,7 @@ emit_log_tail_dir() {
   found=0
 
   for log_file in "$log_dir"/*; do
-    [ -f "$log_file" ] || continue
+    is_log_file "$log_file" || continue
     if [ "$found" -eq 0 ]; then
       echo "$heading<br/>"
       found=1
@@ -502,7 +512,7 @@ clear_log_dir_files() {
   cleared=0
 
   for log_file in "$log_dir"/*; do
-    [ -f "$log_file" ] || continue
+    is_log_file "$log_file" || continue
     : > "$log_file" 2>/dev/null || true
     cleared=$((cleared + 1))
   done
