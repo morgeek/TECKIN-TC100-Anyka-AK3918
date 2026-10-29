@@ -16,6 +16,8 @@
           "" | 1)
             emit_log_tail_dir "/var/log" "Summary of /var/log (tail -n ${LOG_SUMMARY_TAIL_LINES})" "$LOG_SUMMARY_TAIL_LINES"
             emit_log_tail_dir "/mnt/log" "=== /mnt/log (tail -n ${LOG_SUMMARY_TAIL_LINES}) ===" "$LOG_SUMMARY_TAIL_LINES"
+            emit_log_tail_dir "/tmp/logs" "=== /tmp/logs (tail -n ${LOG_SUMMARY_TAIL_LINES}) ===" "$LOG_SUMMARY_TAIL_LINES"
+            emit_log_tail_dir "/tmp/log" "=== /tmp/log (tail -n ${LOG_SUMMARY_TAIL_LINES}) ===" "$LOG_SUMMARY_TAIL_LINES"
             ;;
 
           2)
