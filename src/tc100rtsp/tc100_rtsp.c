@@ -327,26 +327,35 @@ static void post_awb_sample(const unsigned char *uv)
 	}
 }
 
+/* The capture memory is uncached (unless RTSP_CACHED=1 and the kernel allows it): every CPU read of it is one bus
+ * access, so the tables are applied 4 bytes per 32-bit read, and an identity table is a plain memcpy. */
+static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
+
+static void lut4(uint32_t *d, const uint32_t *s, int n4, const unsigned char *a, const unsigned char *b)
+{	/* bytes 0 and 2 through a, 1 and 3 through b (NV12 chroma: U V U V; luma: a = b) */
+	for (int i = 0; i < n4; i++) {
+		uint32_t w = s[i];
+
+		d[i] = (uint32_t)a[w & 255] | (uint32_t)b[(w >> 8) & 255] << 8 | (uint32_t)a[(w >> 16) & 255] << 16 | (uint32_t)b[w >> 24] << 24;
+	}
+}
+
 static void post_copy(unsigned char *dst, const unsigned char *src)
 {
 	int i, n = W * H / 2;
 
-	if (p_ytune) for (i = 0; i < W * H; i++) dst[i] = ylut[src[i]]; else memcpy(dst, src, W * H);
+	if (p_ytune && !lut_id(ylut)) lut4((uint32_t *)dst, (const uint32_t *)src, W * H / 4, ylut, ylut);
+	else if (dst != src) memcpy(dst, src, W * H);
 	src += W * H; dst += W * H;
 	if (p_hue) { for (i = 0; i < n; i += 2) { dst[i] = ulut[src[i]]; dst[i + 1] = vlut[src[i + 1]]; hue_pair(&dst[i], &dst[i + 1]); } }
-	else if (p_awb || p_tune) for (i = 0; i < n; i += 2) { dst[i] = ulut[src[i]]; dst[i + 1] = vlut[src[i + 1]]; }
-	else memcpy(dst, src, n);
+	else if ((p_awb || p_tune) && !(lut_id(ulut) && lut_id(vlut))) lut4((uint32_t *)dst, (const uint32_t *)src, n / 4, ulut, vlut);
+	else if (dst != src) memcpy(dst, src, n);
 }
 
 /* zero-copy mode: the same corrections as post_copy, in the capture buffer itself (nothing to do when none is on) */
 static void post_inplace(unsigned char *p)
 {
-	int i, n = W * H / 2;
-	unsigned char *c = p + W * H;
-
-	if (p_ytune) for (i = 0; i < W * H; i++) p[i] = ylut[p[i]];
-	if (p_hue) { for (i = 0; i < n; i += 2) { c[i] = ulut[c[i]]; c[i + 1] = vlut[c[i + 1]]; hue_pair(&c[i], &c[i + 1]); } }
-	else if (p_awb || p_tune) for (i = 0; i < n; i += 2) { c[i] = ulut[c[i]]; c[i + 1] = vlut[c[i + 1]]; }
+	post_copy(p, p);	/* same tables, in place (the copies are skipped when dst == src) */
 }
 
 static void post_sub(unsigned char *p)	/* in place, SW x SH */
@@ -1739,7 +1748,13 @@ unsigned char *fpb[2] = { NULL, NULL };	/* RTSP_ZEROCOPY: the capture buffers ar
 	if (!zc) {
 		memset(&rq, 0, sizeof rq);
 		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_MMAP;
+		/* RTSP_CACHED=1: cached capture buffers (kernel patch 0012), invalidated by the kernel at each frame: the CPU
+		 * reads them in cache lines instead of one bus access per read (copy, sub picture, statistics) */
+		if (getenv("RTSP_CACHED") && getenv("RTSP_CACHED")[0] == '1') rq.flags = V4L2_MEMORY_FLAG_NON_COHERENT;
 		if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0) { LOG("REQBUFS: %s\n", strerror(errno)); return 1; }
+		if (getenv("RTSP_CACHED") && getenv("RTSP_CACHED")[0] == '1')
+			LOG("capture buffers: %s\n", (rq.capabilities & V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS) && (rq.flags & V4L2_MEMORY_FLAG_NON_COHERENT)
+				? "cached" : "uncached (the kernel has no cache hints for this queue)");
 		for (unsigned i = 0; i < rq.count && i < 4; i++) {
 			struct v4l2_buffer b;
 

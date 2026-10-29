@@ -1,0 +1,29 @@
+From 5f1c2e9d8a7b4c3e6f0a1d2b3c4e5f6a7b8c9d01 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 29 Oct 2026 10:00:00 +0100
+Subject: [PATCH] media: anyka-isp: allow cached (non-coherent) capture buffers
+
+With allow_cache_hints, userspace may ask for V4L2_MEMORY_FLAG_NON_COHERENT
+MMAP buffers: they are mapped cached and vb2 invalidates them when a frame
+is dequeued. tc100_rtsp reads each frame (copy to the encoder pool, sub
+picture, motion and light statistics); on the uncached mapping every read
+is a single-beat bus access, several times slower than cache-line fills.
+Userspace that does not ask keeps the coherent (uncached) buffers.
+---
+ drivers/media/platform/anyka-isp/ak39_vi.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
+--- a/drivers/media/platform/anyka-isp/ak39_vi.c
++++ b/drivers/media/platform/anyka-isp/ak39_vi.c
+@@ -843,6 +843,7 @@ static int vi_probe(struct platform_device *pdev)
+ 	vi->q.buf_struct_size = sizeof(struct ak39_vi_buf);
+ 	vi->q.ops = &vi_qops;
+ 	vi->q.mem_ops = &vb2_dma_contig_memops;
++	vi->q.allow_cache_hints = 1;
+ 	vi->q.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+ 	vi->q.lock = &vi->lock;
+ 	vi->q.dev = dev;
+-- 
+2.43.0
+

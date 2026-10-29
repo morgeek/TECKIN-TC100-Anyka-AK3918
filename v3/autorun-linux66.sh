@@ -121,7 +121,7 @@ if [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/lib
   mkdir -p /lib/firmware/anyka
   # sensor tuning of this camera: the vendor partition (flash), else the card (copied there by the install hook)
   ISPN=$(sed -n 's/^ISP_CONF=//p' /tmp/board.conf 2>/dev/null | head -n 1)
-  for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
+  for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN /mnt/sd/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf /mnt/sd/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
     [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
   done
   [ -e /mnt/lib/ld-uClibc-0.9.33.2.so ] && ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
