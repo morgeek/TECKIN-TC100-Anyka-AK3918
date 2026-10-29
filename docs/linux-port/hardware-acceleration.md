@@ -49,3 +49,21 @@ STAT per 5 s (5000 ms = one full core); cap = frames captured in 5 s (15 fps = 7
   making it the default.
 - The camera stays CPU-bound (cap < 75): the next gains are the ISP doing the colour work and the sub picture
   (sections above), and a capture at the encoded frame rate only.
+
+## Measured on IPCAM2, 2026-10-29 afternoon (ISP sub channel on, tuning file loaded at boot)
+
+| Mode | cap / 5 s | pp per frame | sub per frame |
+|---|---|---|---|
+| ISP sub channel, byte-wise colour pass on the sub picture (in the uncached encoder buffer) | 42-46 | 48 ms | 10.5 ms |
+| same + `config/awb.off` | 44-52 | 48 ms | 2 ms, but warm cast (mean B 10 % low) |
+| ISP sub channel, colour pass applied while copying out of the capture buffer, 4 bytes per access (`post_sub_copy`) | 43-52 | 49 ms | 2.2 ms, neutral colours |
+
+- The software white balance stays: with the tuning file loaded the ISP still leaves a warm cast (mean R/G/B
+  103/98/91 without, 102/101/100 with). On the main picture it costs nothing extra: the chroma table is applied
+  during the copy, which is limited by memory bandwidth (about 60 MB/s for 3 MB), not by the table.
+- Sensor at 15 fps instead of 25 (`isp_fps 15`, `AK_ISP_SET_SENSOR_FPS`; vi interrupts 25/s -> 15/s): no change in
+  CPU, copy time or captured frames. Left at 25.
+- The stream gets about 10 fps of the 15 asked for, while the CPU is still 29 % idle: the loop copies a frame
+  (49 ms), then waits for the hardware encoder (about 30 ms), one after the other. Overlapping the copy of frame
+  N+1 with the encoding of frame N, or removing the copy (zero copy), is what brings the frame rate to 15.
+- The Wi-Fi USB host raises about 480 interrupts/s (PIO, no DMA); system time is 16 %.

@@ -358,14 +358,22 @@ static void post_inplace(unsigned char *p)
 	post_copy(p, p);	/* same tables, in place (the copies are skipped when dst == src) */
 }
 
-static void post_sub(unsigned char *p)	/* in place, SW x SH */
+/* sub picture SW x SH: from src into dst (dst == src: in place), 4 bytes per 32-bit access like post_copy. With the
+ * ISP sub channel the corrections are applied while copying out of the capture buffer: the encoder buffer is
+ * uncached, a second pass over it costs about as much as the copy. */
+static void post_sub_copy(unsigned char *dst, const unsigned char *src)
 {
 	int i, n = SW * SH / 2;
 
-	if (p_ytune) for (i = 0; i < SW * SH; i++) p[i] = ylut[p[i]];
-	p += SW * SH;
-	if (p_awb || p_tune) for (i = 0; i < n; i += 2) { p[i] = ulut[p[i]]; p[i + 1] = vlut[p[i + 1]]; if (p_hue) hue_pair(&p[i], &p[i + 1]); }
+	if (p_ytune && !lut_id(ylut)) lut4((uint32_t *)dst, (const uint32_t *)src, SW * SH / 4, ylut, ylut);
+	else if (dst != src) memcpy(dst, src, SW * SH);
+	src += SW * SH; dst += SW * SH;
+	if (p_hue) { for (i = 0; i < n; i += 2) { dst[i] = ulut[src[i]]; dst[i + 1] = vlut[src[i + 1]]; hue_pair(&dst[i], &dst[i + 1]); } }
+	else if ((p_awb || p_tune) && !(lut_id(ulut) && lut_id(vlut))) lut4((uint32_t *)dst, (const uint32_t *)src, n / 4, ulut, vlut);
+	else if (dst != src) memcpy(dst, src, n);
 }
+
+static void post_sub(unsigned char *p) { post_sub_copy(p, p); }	/* in place */
 
 static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2, int col)
 {
@@ -2047,7 +2055,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			double t_pp0 = now_s(), t_pp1;
 			/* zero-copy: the sub picture is made first, from the raw picture; the corrections of the main one then
 			 * happen in place. With the copy, the raw picture is untouched and the order does not matter. */
-			if (sub_made) { if (hwsub) memcpy(pf + flen, (unsigned char *)vb[b.index] + flen, slen); else sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
+			if (sub_made) { if (hwsub) post_sub_copy(pf + flen, (unsigned char *)vb[b.index] + flen); else { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); } post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
 			t_pp1 = now_s();
 			if (S[0].active || d_snap) {
 				if (zc) post_inplace(cur); else post_copy(pf, vb[b.index]);
