@@ -29,6 +29,16 @@ cp "$REPO/v3/install/LISEZ-MOI.txt" "$C/00-LISEZ-MOI-READ-ME.txt"	# first in the
 chmod 755 "$C/wifitest/wifi_test.sh" "$C/tc100-3/envtool"
 rm -f "$OUT/tc100-$VER-sd.zip"; ( cd "$C" && zip -qr -X "$OUT/tc100-$VER-sd.zip" . )
 
+# inventory package: only the read-only hardware inventory (the same hook stops after it: INVENTORY-ONLY), for owners
+# of a TC100 that may differ from the tested one. Nothing of the firmware, nothing written to the camera.
+N=$OUT/inventory; rm -rf "$N"; mkdir -p "$N/wifitest" "$N/v3/install" "$N/bin" "$N/tc100-3"
+cp "$REPO/v3/install/stock-hook.sh" "$N/wifitest/wifi_test.sh"
+cp "$REPO/v3/install/inventory.sh" "$REPO/v3/install/hwcheck.sh" "$N/v3/install/"
+cp -r "$REPO/v3/board" "$N/v3/"; cp "$S/tree/bin/busybox" "$N/bin/"; cp "$S/tree/VERSION" "$N/"
+cp "$REPO/v3/install/LISEZ-MOI-INVENTAIRE.txt" "$N/00-LISEZ-MOI-READ-ME.txt"
+: > "$N/INVENTORY-ONLY"; chmod 755 "$N/wifitest/wifi_test.sh"
+rm -f "$OUT/tc100-$VER-inventory.zip"; ( cd "$N" && zip -qr -X "$OUT/tc100-$VER-inventory.zip" . )
+
 # web update: what the flash partitions stack, kernel and initrd receive
 U=$OUT/update; rm -rf "$U"; mkdir -p "$U"
 cp "$S/stack.sqfs" "$U/"; cp "$K" "$U/c66.img"; cp "$I" "$U/c66rd.gz"; cp "$S/tree/VERSION" "$U/"

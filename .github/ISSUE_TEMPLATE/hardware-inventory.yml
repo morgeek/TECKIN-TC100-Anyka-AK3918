@@ -1,0 +1,44 @@
+name: Hardware inventory
+description: Send the hardware inventory of your TECKIN TC100, so that the firmware can support it (or confirm it already does).
+title: "Hardware inventory: <sensor> / <Wi-Fi> / <flash>"
+labels: ["hardware-inventory"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you! The inventory is read-only: it never changes anything in the camera.
+        - **Camera on its original (vendor) firmware or on 2.x**: copy `tc100-<version>-inventory.zip` from the
+          [releases](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases) to the root of a FAT32 card, power
+          the camera on with it, wait for the blue LED to stay on, then attach `tc100-inventory.txt` from the card.
+        - **Camera already on 3.0**: open `http://<camera>/cgi-bin/inventory.cgi?full=1` and paste the page.
+        The file holds no MAC address and no Wi-Fi password. Check it before posting anyway.
+  - type: textarea
+    id: inventory
+    attributes:
+      label: tc100-inventory.txt
+      description: Paste the whole file, or drag it here.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and where it was bought
+      description: The label under the camera (model, FCC ID, date), the shop, the year.
+      placeholder: "TECKIN TC100, FCC ID ..., bought 2021"
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware on the camera when the inventory ran
+      options:
+        - Original (vendor, TECKIN / Nooie app)
+        - 2.x of this project
+        - 3.0 of this project
+        - I do not know
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Did the 3.0 trial start? Which LED stayed on? Anything in tc100-3/STATUS.txt?

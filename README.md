@@ -106,6 +106,12 @@ Nothing to install on your computer, no cable, no need to open the camera. The s
 **You need** a TECKIN TC100 (vendor firmware, or the 2.x firmware of this project), a **microSD card of 32 GB or
 less**, and a computer to copy files to the card.
 
+**Is my camera supported?** Only one hardware variant is known so far (JX-F23 sensor, RTL8188FU Wi-Fi, 8 MiB
+XM25QH64A flash: [hardware variants](docs/hardware-variants.md)). The card checks the camera first and **writes
+nothing to a camera it does not recognise** (red LED, the reason in `tc100-3/STATUS.txt`). Not sure? Try
+`tc100-<version>-inventory.zip` first: same steps, it only writes `tc100-inventory.txt` to the card. Send that file
+in a [Hardware inventory issue](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/issues/new/choose).
+
 1. **Download** `tc100-<version>-sd.zip` from the
    [releases](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases).
 2. **Copy everything in the zip to the root of the card.** The card must show the folders `wifitest`, `tc100test`,
@@ -134,7 +140,7 @@ recordings. Later versions: Settings → Update & backup → *Firmware update*, 
 | What you see | What to do |
 |---|---|
 | Nothing happens, no blue LED | The files are not at the root of the card, or the card is not FAT32. |
-| Red LED on | Read `tc100-3/STATUS.txt` on a computer: nothing was changed. |
+| Red LED on | Read `tc100-3/STATUS.txt` on a computer: nothing was changed. "Not a TC100 variant the firmware knows": send `tc100-inventory.txt` from the card in a Hardware inventory issue. |
 | No chime and no page after 15 minutes | Wrong Wi-Fi. Power off, read `tc100-3/ADRESSE.txt` on a computer: it gives the name and password of the camera's rescue Wi-Fi; join it and open http://10.42.0.1/. |
 | You want the old firmware back after *Install to flash* | Put the 3.0 card back in: it starts the camera, and `v3/install/restore-stock.sh` writes back the memory saved on the card. |
 
@@ -147,6 +153,9 @@ Not yet proven: **nothing of the SD install has run on a camera.** Use it only i
 camera to reach its serial console in the worst case below.
 
 What protects you:
+- The camera is identified before anything is written: a read-only inventory (sensor, Wi-Fi chip, flash, U-Boot)
+  must match a known board profile, and U-Boot and the stock partitions must match the md5 of the tested camera.
+  The flash install checks again on Linux 6.6, with the sensor id and the flash chip id.
 - U-Boot and `mac` are never written; the whole flash is saved to the card, read twice and compared, before
   anything is written.
 - Only the 4 KiB U-Boot environment is written before the install. The stock start (`boot_normal`) stays in it as
@@ -162,9 +171,8 @@ What is not covered yet:
    write fails, but if power is lost in the middle, U-Boot falls back to its built-in environment, and it is not yet
    checked that this one starts the stock firmware. Worst case: recovery through the serial console. Do not unplug
    the camera during the first two minutes.
-2. **Cameras that differ from the author's.** Until `v3/install/known-stock.txt` lists the md5 of U-Boot and of the
-   stock root filesystem, a TC100 with another U-Boot passes the checks. The 3.0 start commands then fall back to
-   the stock start if they fail, but this has not been seen on another U-Boot.
+2. **Cameras that differ from the author's** are refused (nothing written), but only one variant is known yet: other
+   TC100 batches need their inventory first ([hardware variants](docs/hardware-variants.md)).
 3. **An interrupted web update** leaves the flash system unable to start: keep the 3.0 SD card; it starts the
    camera and "Install to flash" writes everything again.
 
