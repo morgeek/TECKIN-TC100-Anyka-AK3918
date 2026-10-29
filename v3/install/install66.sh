@@ -7,7 +7,8 @@
 #   stack   tc100-3/stack.sqfs, the free user space
 #   kernel  tc100test/c66.img
 #   initrd  tc100test/c66rd.gz, last: U-Boot's flashcheck starts the flash system only once this area holds it
-# then copies the settings of the card into the flash slots (cfg-persist), renames tc100test/c66.img to
+# then copies the settings of the card into the flash slots (cfg-persist) unless the flash already holds settings
+# (a camera that ran 3.0 before keeps its own), renames tc100test/c66.img to
 # c66.img.installed (so that the next start is from the flash) and restarts.
 # The way back at every step: rename tc100test/c66.img.installed to c66.img on the card, and the camera starts from
 # the card again. U-Boot, its environment, "boot" and "mac" are never written here.
@@ -90,8 +91,15 @@ w stack "$K/stack.sqfs"
 w kernel "$C/tc100test/c66.img"
 w initrd "$C/tc100test/c66rd.gz"
 
-say "copying the settings of the card into the flash slots..."
-CFG=/mnt/config sh $V/linux66-sd/cfg-persist save >> "$LOG" 2>&1 || say "WARNING: the settings were not saved to flash (they stay on the card; set them again after the restart)"
+# A camera that already ran 3.0 from its flash keeps its own settings: the cfga/cfgb slots sit at the same place in
+# every layout and this install does not write them. Only a first install (no valid slot) takes the card's settings,
+# or a card with tc100-3/settings-from-card (the user asks for the card's settings).
+if s=$(sh $V/linux66-sd/cfg-persist saved 2>/dev/null) && [ ! -f "$K/settings-from-card" ]; then
+	say "the settings already in the flash are kept ($s)"
+else
+	say "copying the settings of the card into the flash slots..."
+	CFG=/mnt/config sh $V/linux66-sd/cfg-persist save >> "$LOG" 2>&1 || say "WARNING: the settings were not saved to flash (they stay on the card; set them again after the restart)"
+fi
 
 mv -f "$C/tc100test/c66.img" "$C/tc100test/c66.img.installed" && sync
 say "DONE: restarting from the flash. The card is now only video storage. Way back: rename tc100test/c66.img.installed to c66.img."

@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **15 fps for real, about 45 points less CPU** (measured on a TC100: user CPU 53 % -> 8 %, frames 9.5 -> 15 per
+  second, same bit rate): the encoder reads the capture buffer itself (no 3 MB copy per frame), the white balance
+  is steered in the ISP (no table over the colours), the 640x360 sub picture comes from the ISP's second output,
+  and the configured frame rate is kept. Each part falls back to the previous way on its own; switches in
+  `config/rtsp.env`: `RTSP_DIRECT=0`, `RTSP_ISPAWB=0`, `RTSP_HWSUB=0`, `RTSP_CACHED=0`.
+- The kernel programs the ISP sub channel by default (`ak39_vi.sub_channel=0` turns it off): no U-Boot change.
 - **Sound in the recordings**: a G.711 A-law track next to the video in each MP4 (`REC_AUDIO`, on by default).
 - **Listen live** from the browser again (`audio_stream.cgi`, fed by tc100_rtsp, at most 3 listeners).
 - **Two-way audio** through the RTSP stream (ONVIF backchannel, go2rtc / Home Assistant / Frigate microphone button),
@@ -30,6 +36,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - README rewritten for 3.0.
 
 ### Fixed
+- Install to flash on a camera that already ran 3.0 from its flash kept the card's settings instead of its own:
+  the settings in the flash are now kept (a first install still takes the card's; `tc100-3/settings-from-card`
+  forces them).
 - The local-network filter (`libnetacl.so`, built for uClibc) was preloaded into musl programs too (telnet, rescue
   telnet): now only into programs of the uClibc runtime.
 - The setup wizard's French text for the 3.0 steps (password, one-click install).

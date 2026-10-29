@@ -10020,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,909 @@
+@@ -0,0 +1,910 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10079,8 +10079,9 @@ index 000000000..42f5fa12c
 +#define SUB_W		640
 +#define SUB_H		360
 +
-+/* ak39_vi.sub_channel=1 on the kernel command line: program the 640x360 sub channel at stream start */
-+static int sub_channel;
++/* program the 640x360 sub channel at stream start (the hardware sub picture of tc100_rtsp); ak39_vi.sub_channel=0 on
++ * the kernel command line turns it off */
++static int sub_channel = 1;
 +static int guard;
 +module_param(guard, int, 0444);
 +MODULE_PARM_DESC(guard, "debug: fill the buffer tails with 0xA5 and report ISP writes past the main frame");
