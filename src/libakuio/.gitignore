@@ -1,3 +1,4 @@
 *.o
 libc.so.0
 libpthread.so.0
+selftest.bin
