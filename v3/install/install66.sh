@@ -80,7 +80,12 @@ md5sum < "$K/vendor.sqfs" | sed 's/ .*/  vendor.sqfs/' > "$K/vendor.sqfs.md5"
 say "vendor image: $n bytes"
 
 # stop what reads the card or the flash heavily while writing (the polled SPI flash is slow, about a minute per MiB)
-for s in recording motion-detection; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
+# and what takes the most memory (the camera restarts at the end): the same list as the web update. With only the
+# first two stopped, a camera in trial mode restarted in the middle of writing the stack (2026-10-29).
+for s in recording motion-detection rtsp-h26x mqtt-bridge onvif auto-night-detection; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
+killall tc100_rtsp monvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+for p in $(pidof watchdog); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null; done
+say "free memory before writing: $(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo) KB"
 
 w() {	# partition file
 	say "writing $1 ($(wc -c < "$2") bytes)..."
