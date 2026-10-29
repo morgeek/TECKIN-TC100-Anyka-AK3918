@@ -36,3 +36,9 @@ node_modules/
 __pycache__/
 *.pyc
 dist/
+
+# tc100_rtsp link stand-ins, made by its Makefile
+/src/tc100rtsp/defined.txt
+/src/tc100rtsp/imports.txt
+/src/tc100rtsp/libpthread.so.0
+/src/tc100rtsp/stub_pthread.c
