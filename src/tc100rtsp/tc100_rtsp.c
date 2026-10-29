@@ -310,13 +310,70 @@ static void hue_pair(unsigned char *u, unsigned char *v)
 	*v = (unsigned char)clampi(128 + (a * s + b * c) / 256);
 }
 
-static void post_awb_sample(const unsigned char *uv)
+/* White balance in the ISP (default; RTSP_ISPAWB=0: software tables): the same grey-world measure steers the ISP's own white balance through
+ * its extra red and blue gains (AK_ISP_SET_AWB_EX: r_gain * rgain_ex / 256, b_gain * bgain_ex / 256, for each of its
+ * 10 colour temperature ranges), so the picture comes out neutral and no table is applied to the 1.5 MB of chroma.
+ * The tuning file's values are read once the video runs (the ISP loads them at each start) and kept as the base. */
+struct isp_awb_ctrl { int rmax, rmin, gmax, gmin, bmax, bmin, rex, bex; };
+struct isp_awb_ex { int en; struct isp_awb_ctrl c[10]; };
+#define ISP_SET_AWB_EX _IOW('I', 115, int)	/* as the driver defines them (size field int, the struct is copied) */
+#define ISP_GET_AWB_EX _IOR('I', 116, int)
+static int awb_hw = -1, awb_fd = -1, ex_r = 256, ex_b = 256;	/* awb_hw: -1 not tried, 0 software, 1 ISP */
+static struct isp_awb_ex awb0;
+
+static int awb_hw_set(void)
+{
+	struct isp_awb_ex a = awb0;
+
+	for (int i = 0; i < 10; i++) { a.c[i].rex = awb0.c[i].rex * ex_r / 256; a.c[i].bex = awb0.c[i].bex * ex_b / 256; }
+	return ioctl(awb_fd, ISP_SET_AWB_EX, &a);
+}
+
+static void awb_hw_init(void)
+{
+	const char *e = getenv("RTSP_ISPAWB");
+
+	awb_hw = 0;
+	if (e && e[0] == '0') return;	/* RTSP_ISPAWB=0: software white balance */
+	if ((awb_fd = open("/dev/isp_char", O_RDWR)) < 0 || ioctl(awb_fd, ISP_GET_AWB_EX, &awb0) < 0) {
+		LOG("white balance: the ISP has no extra gains (%s): software\n", strerror(errno));
+		if (awb_fd >= 0) close(awb_fd);
+		awb_fd = -1;
+		return;
+	}
+	if (!awb0.en) {	/* not used by the tuning file: no clamping, gains x 1 */
+		awb0.en = 1;
+		for (int i = 0; i < 10; i++) awb0.c[i] = (struct isp_awb_ctrl){ 0xffff, 0, 0xffff, 0, 0xffff, 0, 256, 256 };
+	}
+	for (int i = 0; i < 10; i++) if (awb0.c[i].rex <= 0 || awb0.c[i].bex <= 0) { awb0.c[i].rex = 256; awb0.c[i].bex = 256; }
+	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
+	awb_hw = 1;
+	p_du = p_dv = 0; post_luts();
+	LOG("white balance: in the ISP (extra gains, tuning file %s)\n", awb0.c[0].rmax == 0xffff ? "without them" : "with them");
+}
+
+static void post_awb_sample(const unsigned char *uv, int bw)
 {
 	long su = 0, sv = 0; int n = 0, i;
 
 	if (!p_awb) return;
+	if (awb_hw < 0) awb_hw_init();
+	if (awb_hw == 1 && bw) return;	/* black and white (night): no colour to measure */
 	for (i = 0; i < W * H / 2 - 2; i += 64) { su += uv[i]; sv += uv[i + 1]; n++; }	/* even i: U, i+1: V */
 	if (!n) return;
+	if (awb_hw == 1) {	/* the ISP's picture itself is measured: move its gains until the mean is grey */
+		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, r = ex_r, b = ex_b;
+
+		tu = tu > 40 ? 40 : tu < -40 ? -40 : tu;
+		tv = tv > 40 ? 40 : tv < -40 ? -40 : tv;
+		if (tv > 1 || tv < -1) r = r * (256 - tv) / 256;	/* V high: too red */
+		if (tu > 1 || tu < -1) b = b * (256 - tu) / 256;	/* U high: too blue */
+		r = r < 128 ? 128 : r > 512 ? 512 : r;
+		b = b < 128 ? 128 : b > 512 ? 512 : b;
+		if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); }
+		if (getenv("RTSP_DEBUG")) LOG("AWB u %d v %d -> rgain_ex %d bgain_ex %d\n", tu, tv, ex_r, ex_b);
+		return;
+	}
 	{
 		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, ou = p_du, ov = p_dv;
 
@@ -327,7 +384,7 @@ static void post_awb_sample(const unsigned char *uv)
 	}
 }
 
-/* The capture memory is uncached (unless RTSP_CACHED=1 and the kernel allows it): every CPU read of it is one bus
+/* The capture memory is uncached when RTSP_CACHED=0 or the kernel has no cache hints: every CPU read of it is one bus
  * access, so the tables are applied 4 bytes per 32-bit read, and an identity table is a plain memcpy. */
 static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
 
@@ -375,12 +432,30 @@ static void post_sub_copy(unsigned char *dst, const unsigned char *src)
 
 static void post_sub(unsigned char *p) { post_sub_copy(p, p); }	/* in place */
 
+static int dirty_y0, dirty_y1;	/* luma rows written by fill() (masks, clock) since dirty_reset(): direct capture */
+static void dirty_reset(void) { dirty_y0 = 1 << 30; dirty_y1 = 0; }
+
+/* direct capture: write back to memory (data cache clean) what the corrections changed in a w x h picture: the
+ * chroma when a colour table or B/W is on, the luma when a luma table is on, else only the rows fill() wrote */
+static void dclean(void *a, unsigned long n);
+static void dm_clean(unsigned char *p, int w, int h, int bw)
+{
+	int luma = p_ytune && !lut_id(ylut), chroma = bw || p_hue || ((p_awb || p_tune) && !(lut_id(ulut) && lut_id(vlut)));
+	int y0 = dirty_y0, y1 = dirty_y1 > h ? h : dirty_y1;
+
+	if (luma) dclean(p, (unsigned long)w * h);
+	else if (y1 > y0) dclean(p + y0 * w, (unsigned long)(y1 - y0) * w);
+	if (chroma) dclean(p + w * h, (unsigned long)w * h / 2);
+	else if (y1 > y0) dclean(p + w * h + y0 / 2 * w, (unsigned long)((y1 - y0) / 2 + 1) * w);
+}
+
 static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2, int col)
 {
 	int x, yy;
 
 	x1 &= ~1; y1 &= ~1; x2 &= ~1; y2 &= ~1;
 	x1 = x1 < 0 ? 0 : x1; y1 = y1 < 0 ? 0 : y1; x2 = x2 > w ? w : x2; y2 = y2 > h ? h : y2;
+	if (y2 > y1 && x2 > x1) { if (y1 < dirty_y0) dirty_y0 = y1; if (y2 > dirty_y1) dirty_y1 = y2; }
 	for (yy = y1; yy < y2; yy++) memset(y + yy * w + x1, col, x2 > x1 ? x2 - x1 : 0);
 	for (yy = y1 / 2; yy < y2 / 2; yy++) { unsigned char *r = y + w * h + yy * w; for (x = x1; x < x2; x += 2) { r[x] = 128; r[x + 1] = 128; } }
 }
@@ -1544,6 +1619,93 @@ static int rec_watched(void)
 }
 
 /* ---- encoders ---- */
+/* ---- direct capture (default; RTSP_DIRECT=0: copy): the encoder and the JPEG engine read the V4L2 capture buffer itself ----------
+ * No 3 MB copy per frame: the corrections (white balance, OSD, masks, B/W) are made in place, the data cache is
+ * cleaned over the buffer, and libakuio (akuio_map_extra) translates its addresses for the encoder.
+ * The kernel does not give the physical address of an mmap capture buffer (pagemap skips device mappings), so each
+ * buffer is found in RAM by a marker written at the start of each of its pages, read back through /dev/mem: this
+ * also proves that the buffer is physically contiguous. Done before STREAMON, when the ISP does not write. */
+#ifndef TC100_HOST_TEST
+static void dclean(void *a, unsigned long n)	/* ARM cacheflush: cleans the data cache over [a, a + n) */
+{
+	register long r0 __asm__("r0") = (long)a, r1 __asm__("r1") = (long)a + (long)n, r2 __asm__("r2") = 0,
+		r7 __asm__("r7") = 0xf0002;
+
+	__asm__ volatile ("svc 0" : "+r"(r0) : "r"(r1), "r"(r2), "r"(r7) : "memory");
+}
+
+static unsigned long hexnum(const char **p)	/* no sscanf: glibc headers turn it into a symbol uClibc lacks */
+{
+	unsigned long v = 0;
+
+	for (;; (*p)++) {
+		int c = **p, d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+
+		if (d < 0) return v;
+		v = v * 16 + (unsigned long)d;
+	}
+}
+
+static int direct_setup(void **vb, unsigned n, unsigned len)
+{
+	int (*mx)(unsigned long, unsigned long, unsigned long) =
+		(int (*)(unsigned long, unsigned long, unsigned long))dlsym(RTLD_DEFAULT, "akuio_map_extra");
+	unsigned long ram[4][2]; int nr = 0, mf, ok = 1;
+	unsigned i, j, np = (len + 4095) / 4096;	/* the last page may be partly used */
+	uint32_t tag = (uint32_t)time(NULL) ^ (uint32_t)getpid() << 16, found[4] = { 0 };
+	FILE *f;
+	char ln[128];
+
+	if (!mx) { LOG("direct capture: libakuio has no akuio_map_extra (copy mode)\n"); return 0; }
+	if (n > 4 || !n) { LOG("direct capture: %u capture buffers (copy mode)\n", n); return 0; }
+	if ((f = fopen("/proc/iomem", "r"))) {	/* the RAM ranges to search */
+		while (nr < 4 && fgets(ln, sizeof ln, f)) {
+			unsigned long a, b;
+
+			const char *q = ln;
+
+			if (!strstr(ln, "System RAM") || ln[0] == ' ') continue;
+			a = hexnum(&q); if (*q++ != '-') continue;
+			b = hexnum(&q);
+			if (b > a) { ram[nr][0] = a; ram[nr][1] = b + 1; nr++; }
+		}
+		fclose(f);
+	}
+	if ((mf = open("/dev/mem", O_RDONLY | O_SYNC)) < 0) { LOG("direct capture: /dev/mem: %s (copy mode)\n", strerror(errno)); return 0; }
+	for (i = 0; i < n; i++) {
+		for (j = 0; j < np; j++) { uint32_t *w = (uint32_t *)((unsigned char *)vb[i] + j * 4096); w[0] = 0x31434454; w[1] = tag; w[2] = i; w[3] = j; }
+		dclean(vb[i], len);
+	}
+	for (int r = 0; r < nr && ok; r++) {
+		unsigned long sz = ram[r][1] - ram[r][0], o;
+		const uint32_t *m = mmap(NULL, sz, PROT_READ, MAP_SHARED, mf, (off_t)ram[r][0]);
+
+		if (m == MAP_FAILED) continue;
+		for (o = 0; o + np * 4096 <= sz; o += 4096) {
+			const uint32_t *w = (const uint32_t *)((const unsigned char *)m + o);
+
+			if (w[0] != 0x31434454 || w[1] != tag || w[3] != 0 || w[2] >= n || found[w[2]]) continue;
+			i = w[2];
+			for (j = 1; j < np; j++) {
+				const uint32_t *x = (const uint32_t *)((const unsigned char *)m + o + j * 4096);
+
+				if (x[0] != 0x31434454 || x[1] != tag || x[2] != i || x[3] != j) break;
+			}
+			if (j == np) found[i] = (uint32_t)(ram[r][0] + o);
+		}
+		munmap((void *)m, sz);
+	}
+	close(mf);
+	for (i = 0; i < n; i++) if (!found[i]) ok = 0;
+	for (i = 0; i < n && ok; i++) if (mx((unsigned long)vb[i], found[i], len)) ok = 0;
+	if (!ok) { for (i = 0; i < n; i++) mx((unsigned long)vb[i], 0, 0); LOG("direct capture: capture buffers not found in RAM (copy mode)\n"); return 0; }
+	for (i = 0; i < n; i++) LOG("direct capture: buffer %u at %#lx (%u bytes)\n", i, (unsigned long)found[i], len);
+	return 1;
+}
+#else
+static void dclean(void *a, unsigned long n) { (void)a; (void)n; }
+#endif
+
 static void pool_log(const struct strm *s)
 {
 	unsigned long (*gf)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_free_pmem");
@@ -1608,7 +1770,7 @@ static void cfg_reload(double tn)
 		ch[i] = m != mt[i] || z != sz[i];
 		mt[i] = m; sz[i] = z;
 	}
-	{ int a = access(CONF "awb.off", F_OK) ? 1 : 0; if (a != p_awb) { p_awb = a; if (!a) p_du = p_dv = 0; pic = 1; } }
+	{ int a = access(CONF "awb.off", F_OK) ? 1 : 0; if (a != p_awb) { p_awb = a; if (!a) { p_du = p_dv = 0; if (awb_hw == 1) { ex_r = ex_b = 256; awb_hw_set(); } } pic = 1; } }
 	if (pic || ch[0] || ch[1] || ch[2]) post_apply();
 	if (ch[0]) {
 		char v[16];
@@ -1706,7 +1868,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	 * are then big enough for it, right after the main frame): it is copied instead of being sampled from the main
 	 * picture by the CPU (about 60 % less CPU for the sub picture). RTSP_HWSUB=0 keeps the CPU sampling. */
 	int hwsub = 0; unsigned vblen = ~0u;	/* RTSP_ZEROCOPY: the capture buffers are encoder pool memory */
-	int zc = 0;
+	int zc = 0, dm = 0;	/* dm: RTSP_DIRECT, the encoder reads the capture buffers */
 #ifdef TC100_HOST_TEST	/* make test_rtsp: no camera, no encoder: the network, audio and settings code on the build host */
 	int fd;
 	{ int pp[2]; if (pipe(pp)) return 1; fd = pp[0]; }	/* never readable */
@@ -1766,11 +1928,13 @@ unsigned char *fpb[2] = { NULL, NULL };
 	if (!zc) {
 		memset(&rq, 0, sizeof rq);
 		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_MMAP;
-		/* RTSP_CACHED=1: cached capture buffers (kernel patch 0012), invalidated by the kernel at each frame: the CPU
+		/* cached capture buffers (default, RTSP_CACHED=0: uncached; kernel patch 0012), invalidated by the kernel at each frame: the CPU
 		 * reads them in cache lines instead of one bus access per read (copy, sub picture, statistics) */
-		if (getenv("RTSP_CACHED") && getenv("RTSP_CACHED")[0] == '1') rq.flags = V4L2_MEMORY_FLAG_NON_COHERENT;
+		int cached = !(getenv("RTSP_CACHED") && getenv("RTSP_CACHED")[0] == '0');	/* default on, RTSP_CACHED=0 off */
+
+		if (cached) rq.flags = V4L2_MEMORY_FLAG_NON_COHERENT;
 		if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0) { LOG("REQBUFS: %s\n", strerror(errno)); return 1; }
-		if (getenv("RTSP_CACHED") && getenv("RTSP_CACHED")[0] == '1')
+		if (cached)
 			LOG("capture buffers: %s\n", (rq.capabilities & V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS) && (rq.flags & V4L2_MEMORY_FLAG_NON_COHERENT)
 				? "cached" : "uncached (the kernel has no cache hints for this queue)");
 		for (unsigned i = 0; i < rq.count && i < 4; i++) {
@@ -1792,6 +1956,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		LOG("sub picture: %s\n", hwsub ? "from the ISP sub channel" : e && e[0] == '0' ? "made by the CPU (RTSP_HWSUB=0)" :
 		    "made by the CPU (no ISP sub channel: kernel without ak39_vi.sub_channel=1)");
 	}
+	if (!zc && !(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(vb, rq.count < 4 ? rq.count : 4, vblen);
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
 
@@ -1974,7 +2139,20 @@ unsigned char *fpb[2] = { NULL, NULL };
 			memset(&b, 0, sizeof b);
 			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = zc ? V4L2_MEMORY_USERPTR : V4L2_MEMORY_MMAP;
 			if (ioctl(fd, VIDIOC_DQBUF, &b) < 0) continue;
-			unsigned char *cur = zc ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
+			unsigned char *cur = zc || dm ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
+			unsigned char *sp = dm && hwsub ? (unsigned char *)vb[b.index] + flen : pf + flen;	/* and the sub picture */
+			/* frame rate: the sensor gives 25 fps; keep the configured rate (frames come back to the driver at once) */
+			if (!prime) {
+				static double due;
+				double tq = now_s(), iv = 1.0 / fps;
+
+				if (tq < due - iv * 0.3) {
+					if (zc) { b.m.userptr = (unsigned long)vb[b.index]; b.length = flen; }
+					ioctl(fd, VIDIOC_QBUF, &b);
+					continue;
+				}
+				due = tq - due > 2 * iv ? tq + iv : due + iv;
+			}
 			ncap++; ntot++;
 			if (prime) {
 				struct video_stream ps;
@@ -1982,7 +2160,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				if (!zc) memcpy(pf, vb[b.index], flen);
 				if (!zc) ioctl(fd, VIDIOC_QBUF, &b);
 				memset(&ps, 0, sizeof ps);
-				if (!p_send(S[0].enc, cur, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
+				if (!p_send(S[0].enc, zc ? cur : pf, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
 				if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }
 				p_close(S[0].enc);
 				S[0].enc = p_open(&S[0].pa);
@@ -2051,19 +2229,28 @@ unsigned char *fpb[2] = { NULL, NULL };
 			}
 			md_frame(vb[b.index], tn);
 			cfg_reload(tn);
-			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H); } }
+			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H, bw); } }
 			double t_pp0 = now_s(), t_pp1;
 			/* zero-copy: the sub picture is made first, from the raw picture; the corrections of the main one then
 			 * happen in place. With the copy, the raw picture is untouched and the order does not matter. */
-			if (sub_made) { if (hwsub) post_sub_copy(pf + flen, (unsigned char *)vb[b.index] + flen); else { sub_scale(vb[b.index], pf + flen); post_sub(pf + flen); } post_overlay(pf + flen, SW, SH, 0); if (bw) memset(pf + flen + SW * SH, 128, SW * SH / 2); }
+			if (sub_made) {
+				dirty_reset();
+				if (dm && hwsub) post_sub(sp);
+				else if (hwsub) post_sub_copy(sp, (unsigned char *)vb[b.index] + flen);
+				else { sub_scale(vb[b.index], sp); post_sub(sp); }
+				post_overlay(sp, SW, SH, 0); if (bw) memset(sp + SW * SH, 128, SW * SH / 2);
+				if (dm && hwsub) dm_clean(sp, SW, SH, bw);	/* the encoder reads memory, not the cache */
+			}
 			t_pp1 = now_s();
 			if (S[0].active || d_snap) {
-				if (zc) post_inplace(cur); else post_copy(pf, vb[b.index]);
+				dirty_reset();
+				if (zc || dm) post_inplace(cur); else post_copy(pf, vb[b.index]);
 				post_overlay(cur, W, H, 1);
 				if (bw) memset(cur + W * H, 128, W * H / 2);
+				if (dm) dm_clean(cur, W, H, bw);
 			}
 			sub_us += (long)((t_pp1 - t_pp0) * 1e6); pp_us += (long)((now_s() - t_pp1) * 1e6);
-			if (!zc) ioctl(fd, VIDIOC_QBUF, &b);	/* zero-copy: the buffer goes back once it has been encoded */
+			if (!zc && !dm) ioctl(fd, VIDIOC_QBUF, &b);	/* zero-copy, direct: the buffer goes back once it has been encoded */
 			clock_gettime(CLOCK_MONOTONIC, &t1);
 			ts = (uint32_t)(((t1.tv_sec - t0.tv_sec) * 1000000ULL + (t1.tv_nsec - t0.tv_nsec) / 1000) * 9 / 100);
 			ts_us = (uint64_t)t1.tv_sec * 1000000ULL + (uint64_t)t1.tv_nsec / 1000;
@@ -2075,7 +2262,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				if (!s->active) continue;
 				memset(&st, 0, sizeof st);
 				{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-				r = p_send(s->enc, k ? pf + flen : cur, k ? slen : flen, &st);
+				r = p_send(s->enc, k ? sp : cur, k ? slen : flen, &st);
 				clock_gettime(CLOCK_MONOTONIC, &tb); enc_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 				s->nsent++;
 				if (r || !st.data || !st.len) {
@@ -2108,9 +2295,9 @@ unsigned char *fpb[2] = { NULL, NULL };
 				int want_thumb = jpeg_ok && rec_idr && sub_made;
 
 				if (d_str || d_snap || want_thumb) {
-					uint32_t py = (uint32_t)p_v2p((unsigned long)cur), pys = (uint32_t)p_v2p((unsigned long)pf) + flen, n;
+					uint32_t py = (uint32_t)p_v2p((unsigned long)cur), pys = (uint32_t)p_v2p((unsigned long)sp), n;
 
-					if (d_str && !access("/tmp/dump_sub", F_OK)) { unlink("/tmp/dump_sub"); wfile("/tmp/sub.nv12", pf + flen, slen); }
+					if (d_str && !access("/tmp/dump_sub", F_OK)) { unlink("/tmp/dump_sub"); wfile("/tmp/sub.nv12", sp, slen); }
 					if ((d_str || want_thumb) && (n = jpeg_run(pys, pys + SW * SH, SW, SH, 40))) {
 						if (d_str) {
 							wfile("/tmp/stream.jpg", jbuf + TABLES_SIZE, n);
@@ -2132,6 +2319,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				}
 			}
 			if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }	/* encoded and copied out: capture here again */
+			if (dm) ioctl(fd, VIDIOC_QBUF, &b);
 		}
 	}
 	rec_shutdown();

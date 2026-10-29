@@ -8,7 +8,8 @@
  *
  *   akuio_pmem_init / _fini         open the device, map the DMA pool
  *   akuio_alloc_pmem / _free_pmem   sub-allocate from the pool (32-byte units)
- *   akuio_vaddr2paddr               physical address of a pool pointer
+ *   akuio_vaddr2paddr               physical address of a pool pointer (or of an akuio_map_extra region)
+ *   akuio_map_extra                 declare a contiguous region outside the pool (V4L2 capture buffers)
  *   akuio_map_regs / _unmap_regs    map the encoder register window
  *   akuio_wait_irq                  wait for the encoder interrupt
  *   akuio_reset_video               pulse the core reset
@@ -276,6 +277,30 @@ void akuio_free_pmem(unsigned long vaddr)
 	pthread_mutex_unlock(&lock);
 }
 
+/* Physically contiguous memory outside the pool that the encoder and the JPEG engine may read: the V4L2 capture
+ * buffers, so that tc100_rtsp hands a captured picture to the encoder without copying it into the pool.
+ * akuio_map_extra(vaddr, paddr, size) adds a region (size 0 removes the one at vaddr); returns 0 or -1. */
+#define NEXTRA 4
+static struct { uintptr_t v; uint32_t p, size; } extra[NEXTRA];
+
+int akuio_map_extra(unsigned long vaddr, unsigned long paddr, unsigned long size)
+{
+	int i, ret = -1;
+
+	pthread_mutex_lock(&lock);
+	for (i = 0; i < NEXTRA; i++) {
+		if (size && !extra[i].size) {
+			extra[i].v = vaddr; extra[i].p = (uint32_t)paddr; extra[i].size = (uint32_t)size;
+			ret = 0;
+			break;
+		}
+		if (!size && extra[i].size && extra[i].v == vaddr) { extra[i].size = 0; ret = 0; break; }
+	}
+	pthread_mutex_unlock(&lock);
+	DBG("akuio_map_extra(%#lx, %#lx, %lu): %d\n", vaddr, paddr, size, ret);
+	return ret;
+}
+
 int akuio_vaddr2paddr(unsigned long vaddr)
 {
 	struct blk *b;
@@ -299,6 +324,9 @@ int akuio_vaddr2paddr(unsigned long vaddr)
 			break;
 		}
 	}
+	for (int i = 0; !ret && i < NEXTRA; i++)
+		if (extra[i].size && vaddr >= extra[i].v && vaddr < extra[i].v + extra[i].size)
+			ret = (int)(extra[i].p + (vaddr - extra[i].v));
 	pthread_mutex_unlock(&lock);
 	if (!ret)
 		ERR("akuio_vaddr2paddr can't find %p in dma memory list\n",
