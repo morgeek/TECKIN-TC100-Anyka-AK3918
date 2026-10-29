@@ -96,3 +96,19 @@ Three changes, now the defaults of `tc100_rtsp` (each can be turned off for comp
 
 The system time that is left is mostly the Wi-Fi: the USB host runs without DMA (about 900 interrupts/s at 15 fps),
 the next thing to look at.
+
+## Where the system time went (2026-10-29, IPCAM2, two /proc/stat reads 60 s apart)
+
+The 39-50 % of system time left after direct capture was not the Wi-Fi: per process, `tc100_rtsp` itself had
+1 711 kernel ticks in 60 s (28 % of the CPU), the kworkers of the Wi-Fi about 5 %, soft interrupts about 3 %.
+With cached (non-coherent) capture buffers the kernel invalidates the 3.4 MB buffer line by line at each queue,
+for each of the sensor's 25 frames a second, including the 10 the server drops to keep 15.
+
+| 15 fps, 1 client | cached, sensor 25 fps | uncached, sensor 15 fps (now the default) |
+|---|---|---|
+| user / system / idle | 12.6 / 49.9 / 34.8 % | 10.1-10.5 / 18.0-20.6 / 66-70 % |
+| `tc100_rtsp` kernel ticks in 60 s | 1 711 | 610 |
+
+The CPU reads almost nothing of the picture any more (statistics samples only), so cached buffers no longer pay
+for themselves: they stay the default in copy mode only. USB DMA for the Wi-Fi would at best take a part of the
+remaining 5-8 %.

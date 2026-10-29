@@ -352,10 +352,28 @@ static void awb_hw_init(void)
 	LOG("white balance: in the ISP (extra gains, tuning file %s)\n", awb0.c[0].rmax == 0xffff ? "without them" : "with them");
 }
 
+/* The sensor runs at 25 fps; frames above the stream rate cost ISP work, memory bandwidth and a dequeue each. Once
+ * the video runs, the sensor is set to the stream rate (AK_ISP_SET_SENSOR_FPS; RTSP_SENSOR_FPS=0 keeps 25). The ISP
+ * loads its tuning again at each start, so this is done for every start of the video. */
+#define ISP_SET_SENSOR_FPS _IOW('I', 122, int)
+static int sensor_fps_want;
+static void sensor_fps_set(void)
+{
+	const char *e = getenv("RTSP_SENSOR_FPS");
+	int f = sensor_fps_want, fd;
+
+	sensor_fps_want = 0;
+	if ((e && e[0] == '0') || f < 1 || f >= 25 || (fd = open("/dev/isp_char", O_RDWR)) < 0) return;
+	if (ioctl(fd, ISP_SET_SENSOR_FPS, &f) == 0) LOG("sensor: %d fps (the stream rate)\n", f);
+	else LOG("sensor: the ISP refused %d fps (%s), stays at 25\n", f, strerror(errno));
+	close(fd);
+}
+
 static void post_awb_sample(const unsigned char *uv, int bw)
 {
 	long su = 0, sv = 0; int n = 0, i;
 
+	if (sensor_fps_want) sensor_fps_set();
 	if (!p_awb) return;
 	if (awb_hw < 0) awb_hw_init();
 	if (awb_hw == 1 && bw) return;	/* black and white (night): no colour to measure */
@@ -384,7 +402,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 	}
 }
 
-/* The capture memory is uncached when RTSP_CACHED=0 or the kernel has no cache hints: every CPU read of it is one bus
+/* The capture memory is uncached unless RTSP_CACHED=1 (or copy mode) and the kernel allows it: every CPU read of it is one bus
  * access, so the tables are applied 4 bytes per 32-bit read, and an identity table is a plain memcpy. */
 static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
 
@@ -1928,9 +1946,13 @@ unsigned char *fpb[2] = { NULL, NULL };
 	if (!zc) {
 		memset(&rq, 0, sizeof rq);
 		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_MMAP;
-		/* cached capture buffers (default, RTSP_CACHED=0: uncached; kernel patch 0012), invalidated by the kernel at each frame: the CPU
+		/* RTSP_CACHED=1: cached capture buffers (kernel patch 0012), invalidated by the kernel at each frame: the CPU
 		 * reads them in cache lines instead of one bus access per read (copy, sub picture, statistics) */
-		int cached = !(getenv("RTSP_CACHED") && getenv("RTSP_CACHED")[0] == '0');	/* default on, RTSP_CACHED=0 off */
+		/* Cached buffers help when the CPU reads the whole picture (copy mode). With direct capture the CPU reads
+		 * almost nothing of it and the kernel's cache invalidation of 3.4 MB per frame (line by line) costs far more:
+		 * measured on a TC100, system time 50 % -> 19 %. Default: cached only when direct capture is off. */
+		const char *ce = getenv("RTSP_CACHED"), *de = getenv("RTSP_DIRECT");
+		int cached = ce && ce[0] ? ce[0] == '1' : (de && de[0] == '0');
 
 		if (cached) rq.flags = V4L2_MEMORY_FLAG_NON_COHERENT;
 		if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0) { LOG("REQBUFS: %s\n", strerror(errno)); return 1; }
@@ -1959,6 +1981,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	if (!zc && !(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(vb, rq.count < 4 ? rq.count : 4, vblen);
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
+	sensor_fps_want = fps;	/* applied at the first white balance sample, once frames come */
 
 	double t_luma = 0, t_str = 0, t_snap = 0;
 	if (!getenv("NO_JPEG")) jpeg_ok = jpeg_init() == 0;
