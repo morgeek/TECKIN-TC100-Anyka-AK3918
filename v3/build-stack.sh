@@ -80,9 +80,17 @@ cd "$REPO"
 for b in curl jq; do printf '#!/bin/sh\nexec /mnt/ext/bin/%s "$@"\n' $b > "$T/bin/$b"; done
 chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rtsp "$T"/tc100test/httpfront
 
-# 3. The flash image
-# mksquashfs only serves the install, which runs from the card: it stays in the tree (SD), not in the flash image
-mksquashfs "$T" "$OUT/stack.sqfs" -comp xz -b 256K -noappend -all-root -quiet -e ext/bin/mksquashfs
+# 3. The flash image. Left out of it (they stay in the tree, which is the SD card package):
+#    - ext/bin/mksquashfs: only the install uses it, and it runs from the card
+#    - bin/busybox, the uClibc busybox of the 2.x era (1.1 MB): it is the stock firmware's helper of the SD hook;
+#      on 3.0 /mnt/bin/busybox becomes a link to the system busybox, which has every applet the scripts call
+#      (tests/test_flash_image.py checks the list)
+#    - build and development files that never run on the camera
+mksquashfs "$T" "$OUT/stack.sqfs" -comp xz -b 256K -noappend -all-root -quiet \
+	-p "bin/busybox s 777 0 0 /bin/busybox" \
+	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py \
+	scripts/collect-platform-dump.sh v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
+	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh
 n=$(wc -c < "$OUT/stack.sqfs")
 ( cd "$OUT" && md5sum stack.sqfs > stack.sqfs.md5 )
 echo "stack.sqfs: $n bytes (partition $STACK_MAX)"
