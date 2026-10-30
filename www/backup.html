@@ -9,8 +9,9 @@
   .backup-grid { grid-template-columns: 1fr 1fr; }
 }
 .backup-status { margin-top: 0.5rem; font-size: 0.9em; min-height: 1.4em; }
-.backup-status.ok  { color: #23d160; }
-.backup-status.err { color: #ff3860; }
+.backup-status { white-space: pre-line; overflow-wrap: anywhere; }
+.backup-status.ok  { color: var(--v2-ok, #16a34a); }
+.backup-status.err { color: var(--v2-tally, #dc3b3b); }
 </style>
 
 <div class="backup-grid">
@@ -60,10 +61,10 @@
           <input type="checkbox" id="restore_restart_cb"> Restart RTSP &amp; ONVIF after restore
         </label>
       </div>
-      <button class="button is-warning is-small" id="restore_btn" type="button" disabled onclick="doRestore()">
+      <button class="button is-warning is-small" id="restore_btn" type="button" disabled>
         Restore Backup
       </button>
-      <p id="restore_status" class="backup-status"></p>
+      <p id="restore_status" class="backup-status" role="status"></p>
     </div>
   </div>
 
@@ -84,13 +85,13 @@
       
       <div class="columns">
         <div class="column">
-          <label class="label is-small">Export</label>
+          <p class="label is-small">Export</p>
           <a class="button is-link is-small" href="cgi-bin/config_exchange.cgi?cmd=export">
             Download Settings (.json)
           </a>
         </div>
         <div class="column">
-          <label class="label is-small">Import</label>
+          <label class="label is-small" for="json_import_file">Import</label>
           <div class="field">
             <div class="control">
               <input class="input is-small" type="file" id="json_import_file" accept=".json" style="padding:0.35rem 0.5rem; margin-bottom:0.5rem;">
@@ -106,10 +107,10 @@
               <input type="checkbox" id="json_exclude_credentials"> Exclude Credentials (Passwords/Tokens)
             </label>
           </div>
-          <button class="button is-warning is-small" id="json_import_btn" onclick="doJsonImport()">
+          <button class="button is-warning is-small" id="json_import_btn" type="button">
             Import JSON Settings
           </button>
-          <p id="json_exchange_status" class="backup-status"></p>
+          <p id="json_exchange_status" class="backup-status" role="status"></p>
         </div>
       </div>
     </div>
@@ -122,118 +123,148 @@
   var fileInput = document.getElementById('restore_file_input');
   var restoreBtn = document.getElementById('restore_btn');
   var restoreStatus = document.getElementById('restore_status');
+  var jsonInput = document.getElementById('json_import_file');
+  var importBtn = document.getElementById('json_import_btn');
+  var jsonStatus = document.getElementById('json_exchange_status');
+  if (!fileInput || !restoreBtn || !jsonInput || !importBtn) return;
 
   var MAX_BACKUP_BYTES = 1 * 1024 * 1024; // 1 MB — must match upload_backup.cgi
+  var MAX_JSON_BYTES = 1 * 1024 * 1024;
+  var T = function (s) { return window.tc100T ? window.tc100T(s) : s; };
+
+  function say(node, msg, kind) {
+    node.textContent = msg;
+    node.className = 'backup-status' + (kind ? ' ' + kind : '');
+  }
+
+  // The per-boot CSRF token comes from the shell (index.js); wait for it when it
+  // is not loaded yet (the old synchronous read sent an empty header right after
+  // a page load, and the camera answered 403).
+  function withToken(fn) {
+    var ready = typeof window.ensureCsrfToken === 'function'
+      ? window.ensureCsrfToken().catch(function () { return ''; })
+      : Promise.resolve(typeof window.getCsrfToken === 'function' ? (window.getCsrfToken() || '') : '');
+    return ready.then(fn);
+  }
+
   fileInput.addEventListener('change', function () {
     var f = fileInput.files && fileInput.files[0];
     if (!f) {
       restoreBtn.disabled = true;
-      restoreStatus.textContent = '';
-      restoreStatus.className = 'backup-status';
+      say(restoreStatus, '', '');
       return;
     }
     if (f.size > MAX_BACKUP_BYTES) {
       restoreBtn.disabled = true;
-      restoreStatus.textContent = 'File too large (' + (f.size / 1048576).toFixed(1) + ' MB). Maximum is 1 MB.';
-      restoreStatus.className = 'backup-status err';
+      say(restoreStatus, 'File too large (max 1 MB).', 'err');
       return;
     }
     restoreBtn.disabled = false;
-    restoreStatus.textContent = '';
-    restoreStatus.className = 'backup-status';
+    say(restoreStatus, '', '');
   });
 
-  function getCsrfToken() {
-    // The token lives in index.js's IIFE scope; read it via the exported getter.
-    // (The old `typeof csrfToken` check always saw undefined here, so the
-    // X-CSRF-Token header was always empty and restore/import failed.)
-    if (typeof window.getCsrfToken === 'function') return window.getCsrfToken() || '';
-    return '';
-  }
-
-  window.doRestore = function () {
+  restoreBtn.addEventListener('click', function () {
     var file = fileInput.files && fileInput.files[0];
     if (!file) return;
+    if (!confirm(T('Restore this backup? The current settings are replaced (a rollback copy is kept in /tmp).'))) return;
     var restart = document.getElementById('restore_restart_cb').checked ? '1' : '0';
 
     restoreBtn.disabled = true;
-    restoreStatus.textContent = 'Uploading...';
-    restoreStatus.className = 'backup-status';
-
-    // Send the archive to the dedicated restore endpoint.
-    var headers = { 'Content-Type': 'application/octet-stream' };
-    var tok = getCsrfToken();
-    if (tok) headers['X-CSRF-Token'] = tok;
+    say(restoreStatus, 'Uploading...', '');
 
     var reader = new FileReader();
+    reader.onerror = function () {
+      say(restoreStatus, 'The file could not be read.', 'err');
+      restoreBtn.disabled = false;
+    };
     reader.onload = function (ev) {
-      fetch('cgi-bin/upload_backup.cgi?restart_services=' + restart, {
-        method: 'POST',
-        headers: headers,
-        body: ev.target.result,
-        cache: 'no-store'
+      withToken(function (tok) {
+        var headers = { 'Content-Type': 'application/octet-stream' };
+        if (tok) headers['X-CSRF-Token'] = tok;
+        return fetch('cgi-bin/upload_backup.cgi?restart_services=' + restart, {
+          method: 'POST',
+          headers: headers,
+          body: ev.target.result,
+          cache: 'no-store'
+        });
       })
-      .then(function (r) { return r.text(); })
-      .then(function (t) {
-        var ok = t.indexOf('completed') !== -1 || t.indexOf('OK') !== -1;
-        restoreStatus.textContent = t.replace(/<br\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
-        restoreStatus.className = 'backup-status ' + (ok ? 'ok' : 'err');
-        restoreBtn.disabled = false;
+      .then(function (r) {
+        return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; });
+      })
+      .then(function (res) {
+        var msg = res.text.replace(/<br\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+        var ok = res.ok && /restore completed/i.test(msg);
+        say(restoreStatus, ok || msg ? msg : 'Restore failed (HTTP ' + res.status + ').', ok ? 'ok' : 'err');
+        if (ok) fileInput.value = '';
+        restoreBtn.disabled = ok;
       })
       .catch(function (err) {
-        restoreStatus.textContent = 'Upload failed: ' + err;
-        restoreStatus.className = 'backup-status err';
+        say(restoreStatus, 'Upload failed: ' + err, 'err');
         restoreBtn.disabled = false;
       });
     };
     reader.readAsArrayBuffer(file);
-  };
+  });
 
-  window.doJsonImport = function () {
-    var fileInput = document.getElementById('json_import_file');
-    var file = fileInput.files && fileInput.files[0];
+  importBtn.addEventListener('click', function () {
+    var file = jsonInput.files && jsonInput.files[0];
     if (!file) {
-      alert("Please select a JSON file first.");
+      say(jsonStatus, 'Please select a JSON file first.', 'err');
+      jsonInput.focus();
       return;
     }
-
-    var importBtn = document.getElementById('json_import_btn');
-    var status = document.getElementById('json_exchange_status');
+    if (file.size > MAX_JSON_BYTES) {
+      say(jsonStatus, 'File too large (max 1 MB).', 'err');
+      return;
+    }
+    if (!confirm(T('Import these settings? Values in the file replace the current ones.'))) return;
     var exNet = document.getElementById('json_exclude_network').checked ? '1' : '0';
     var exCred = document.getElementById('json_exclude_credentials').checked ? '1' : '0';
 
     importBtn.disabled = true;
-    status.textContent = 'Importing...';
-    status.className = 'backup-status';
+    say(jsonStatus, 'Importing...', '');
 
     var reader = new FileReader();
+    reader.onerror = function () {
+      say(jsonStatus, 'The file could not be read.', 'err');
+      importBtn.disabled = false;
+    };
     reader.onload = function (ev) {
-      var headers = { 'Content-Type': 'application/json' };
-      var tok = getCsrfToken();
-      if (tok) headers['X-CSRF-Token'] = tok;
-
-      fetch('cgi-bin/config_exchange.cgi?cmd=import&exclude_network=' + exNet + '&exclude_credentials=' + exCred, {
-        method: 'POST',
-        headers: headers,
-        body: ev.target.result,
-        cache: 'no-store'
+      withToken(function (tok) {
+        var headers = { 'Content-Type': 'application/json' };
+        if (tok) headers['X-CSRF-Token'] = tok;
+        return fetch('cgi-bin/config_exchange.cgi?cmd=import&exclude_network=' + exNet + '&exclude_credentials=' + exCred, {
+          method: 'POST',
+          headers: headers,
+          body: ev.target.result,
+          cache: 'no-store'
+        });
       })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        var ok = !!(res && res.ok === true);
-        var successText = ok ? ('Import successful: ' + (res.applied || 0) + ' value(s), ' + (res.changed_files || 0) + ' file(s) changed.') : 'Error';
-        status.textContent = res.message || res.error || successText;
-        status.className = 'backup-status ' + (ok ? 'ok' : 'err');
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var res = null;
+          try { res = JSON.parse(t); } catch (e) { /* not JSON: HTTP error page */ }
+          return { httpOk: r.ok, status: r.status, res: res };
+        });
+      })
+      .then(function (o) {
+        var res = o.res;
+        var ok = !!(o.httpOk && res && res.ok === true);
+        if (ok) {
+          say(jsonStatus, 'Import successful: ' + (res.applied || 0) + ' value(s), ' + (res.changed_files || 0) + ' file(s) changed.', 'ok');
+          jsonInput.value = '';
+        } else {
+          var why = res && (res.message || res.error);
+          say(jsonStatus, why ? String(why) : 'Import failed (HTTP ' + o.status + ').', 'err');
+        }
         importBtn.disabled = false;
-        if (ok) fileInput.value = '';
       })
       .catch(function (err) {
-        status.textContent = 'Import failed: ' + err;
-        status.className = 'backup-status err';
+        say(jsonStatus, 'Import failed: ' + err, 'err');
         importBtn.disabled = false;
       });
     };
     reader.readAsText(file);
-  };
+  });
 }());
 </script>

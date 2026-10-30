@@ -11,14 +11,14 @@
         </p>
       </header>
       <div class="card-content">
-        <div class="logs-tab-buttons" id="logsTabs">
-          <button class="button is-small is-active" data-tab="1" type="button">Summary</button>
-          <button class="button is-small" data-tab="2" type="button">dmesg</button>
-          <button class="button is-small" data-tab="3" type="button">video server</button>
+        <div class="logs-tab-buttons" id="logsTabs" role="group" aria-label="Log to show">
+          <button class="button is-small is-active" data-tab="1" type="button" aria-pressed="true">Summary</button>
+          <button class="button is-small" data-tab="2" type="button" aria-pressed="false">dmesg</button>
+          <button class="button is-small" data-tab="3" type="button" aria-pressed="false">video server</button>
         </div>
         <div class="logs-actions">
           <button class="button is-small is-light" id="logsRefreshBtn" type="button">Refresh</button>
-          <button class="button is-small is-light" id="logsDownloadBtn" type="button">Download</button>
+          <button class="button is-small is-light" id="logsDownloadBtn" type="button" disabled>Download</button>
           <button class="button is-small is-warning is-light" id="logsClearBtn" type="button">Clear current</button>
         </div>
         <div class="logs-toolbar">
@@ -56,8 +56,8 @@
             <button class="button is-small is-light" id="logsSortDir" type="button">Desc</button>
           </div>
         </div>
-        <div class="logs-summary" id="logsSummary"></div>
-        <p class="help">Severity is auto-detected from each line. Click column headers to sort. Double-click a tab to clear that log.</p>
+        <div class="logs-summary" id="logsSummary" aria-live="polite"></div>
+        <p class="help">Severity is auto-detected from each line. Click column headers to sort.</p>
         <p class="help">Use Parse cap to keep the browser responsive on large logs; raw download still keeps full fetched text.</p>
       </div>
     </div>
@@ -99,7 +99,7 @@
       </header>
       <div class="card-content">
         <div id="logsParseNotice" class="logs-parse-notice is-hidden"></div>
-        <div id="logsOutput" class="logs-output-box">Loading logs...</div>
+        <div id="logsOutput" class="logs-output-box" aria-live="polite">Loading logs...</div>
         <pre id="logsRawOutput" class="logs-raw-output is-hidden"></pre>
       </div>
     </div>
@@ -122,6 +122,8 @@
   var summaryNode = document.getElementById("logsSummary");
   var parseNoticeNode = document.getElementById("logsParseNotice");
   var DEFAULT_PARSE_LINE_CAP = 1000;
+  var loadSeq = 0;
+  var T = function (s) { return window.tc100T ? window.tc100T(s) : s; };
   if (!tabsContainer || !output || !rawOutput || !title) {
     return;
   }
@@ -194,7 +196,9 @@
 
   function setActiveTabButton(tab) {
     Array.prototype.slice.call(tabsContainer.querySelectorAll("button[data-tab]")).forEach(function (btn) {
-      btn.classList.toggle("is-active", btn.getAttribute("data-tab") === tab);
+      var on = btn.getAttribute("data-tab") === tab;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
     });
   }
 
@@ -209,7 +213,11 @@
 
   function setErrorState() {
     output.innerHTML =
-      "<article class='message is-danger'><div class='message-header'><p>Log error</p></div><div class='message-body'>Unable to load log output.</div></article>";
+      "<article class='message is-danger'><div class='message-header'><p>Log error</p></div><div class='message-body'>Unable to load log output. Press Refresh to try again.</div></article>";
+    state.rawText = "";
+    state.entries = [];
+    if (downloadBtn) { downloadBtn.disabled = true; }
+    if (summaryNode) { summaryNode.innerHTML = ""; }
     rawOutput.textContent = "";
     if (parseNoticeNode) {
       parseNoticeNode.textContent = "";
@@ -413,25 +421,29 @@
     var displayed = entries.length;
     summaryNode.innerHTML = "";
 
-    function addChip(text, className) {
+    // The label and the number are separate nodes so the label can be translated.
+    function addChip(label, value, className) {
       var chip = document.createElement("span");
       chip.className = "logs-summary-chip " + className;
-      chip.textContent = text;
+      var name = document.createElement("span");
+      name.textContent = label;
+      chip.appendChild(name);
+      chip.appendChild(document.createTextNode(": " + value));
       summaryNode.appendChild(chip);
     }
 
-    addChip("Parsed: " + displayed + "/" + total, "sev-total");
+    addChip("Parsed", displayed + "/" + total, "sev-total");
     if (state.truncatedEntries > 0) {
-      addChip("Skipped: " + state.truncatedEntries, "sev-warning");
+      addChip("Skipped", state.truncatedEntries, "sev-warning");
     }
-    addChip("Critical: " + counts.critical, "sev-critical");
-    addChip("Error: " + counts.error, "sev-error");
-    addChip("Warning: " + counts.warning, "sev-warning");
-    addChip("Notice: " + counts.notice, "sev-notice");
-    addChip("Info: " + counts.info, "sev-info");
-    addChip("Debug: " + counts.debug, "sev-debug");
+    addChip("Critical", counts.critical, "sev-critical");
+    addChip("Error", counts.error, "sev-error");
+    addChip("Warning", counts.warning, "sev-warning");
+    addChip("Notice", counts.notice, "sev-notice");
+    addChip("Info", counts.info, "sev-info");
+    addChip("Debug", counts.debug, "sev-debug");
     if (counts.known) {
-      addChip("Vendor messages: " + counts.known, "sev-known");
+      addChip("Vendor messages", counts.known, "sev-known");
     }
   }
 
@@ -440,14 +452,14 @@
       return;
     }
     if (state.truncatedEntries > 0) {
-      parseNoticeNode.textContent =
-        "Showing " +
-        state.entries.length +
-        " of " +
-        state.totalEntries +
-        " parsed lines due to Parse cap (" +
-        state.parseLineCap +
-        "). Increase cap to inspect more lines.";
+      parseNoticeNode.textContent = "";
+      var shown = document.createElement("span");
+      shown.textContent = "Showing the last lines only (Parse cap).";
+      parseNoticeNode.appendChild(shown);
+      parseNoticeNode.appendChild(document.createTextNode(" " + state.entries.length + " / " + state.totalEntries + ". "));
+      var more = document.createElement("span");
+      more.textContent = "Increase the cap to see more lines.";
+      parseNoticeNode.appendChild(more);
       parseNoticeNode.classList.remove("is-hidden");
       return;
     }
@@ -468,12 +480,15 @@
     wrap.className = "logs-table-wrap";
     var table = document.createElement("table");
     table.className = "table is-fullwidth is-hoverable logs-table";
+    function sortAttr(key) {
+      return state.sortBy === key ? (state.sortDir === "asc" ? "ascending" : "descending") : "none";
+    }
     table.innerHTML =
       "<thead><tr>" +
-      "<th><button class='logs-sort-btn' type='button' data-sort='line'>Line</button></th>" +
-      "<th><button class='logs-sort-btn' type='button' data-sort='time'>Time</button></th>" +
-      "<th><button class='logs-sort-btn' type='button' data-sort='severity'>Severity</button></th>" +
-      "<th><button class='logs-sort-btn' type='button' data-sort='message'>Message</button></th>" +
+      "<th scope='col' aria-sort='" + sortAttr("line") + "'><button class='logs-sort-btn' type='button' data-sort='line'>Line</button></th>" +
+      "<th scope='col' aria-sort='" + sortAttr("time") + "'><button class='logs-sort-btn' type='button' data-sort='time'>Time</button></th>" +
+      "<th scope='col' aria-sort='" + sortAttr("severity") + "'><button class='logs-sort-btn' type='button' data-sort='severity'>Severity</button></th>" +
+      "<th scope='col' aria-sort='" + sortAttr("message") + "'><button class='logs-sort-btn' type='button' data-sort='message'>Message</button></th>" +
       "</tr></thead>";
     var tbody = document.createElement("tbody");
 
@@ -510,7 +525,7 @@
   }
 
   function renderRaw() {
-    rawOutput.textContent = state.rawText || "No log output.";
+    rawOutput.textContent = state.rawText || T("No log output.");
   }
 
   function applyView() {
@@ -531,6 +546,9 @@
     if (sortDirBtn) {
       sortDirBtn.textContent = state.sortDir === "asc" ? "Asc" : "Desc";
     }
+    if (downloadBtn) {
+      downloadBtn.disabled = !state.rawText;
+    }
     if (viewModeSelect) {
       viewModeSelect.value = state.viewMode;
     }
@@ -550,6 +568,7 @@
     setActiveTabButton(state.currentTab);
     title.textContent = tabNames[state.currentTab] || "Logs";
     setLoadingState();
+    var mySeq = ++loadSeq;
 
     var cmd = clearMode ? "clearlog" : "showlog";
     var body = "logname=" + encodeURIComponent(state.currentTab);
@@ -575,9 +594,11 @@
         return r.text();
       })
       .then(function (html) {
+        if (mySeq !== loadSeq) { return; } // a newer request replaced this one
         refreshStateFromResponse(html);
       })
       .catch(function (err) {
+        if (mySeq !== loadSeq) { return; }
         console.error(err);
         setErrorState();
       });
@@ -607,7 +628,7 @@
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   }
 
   tabsContainer.addEventListener("click", function (event) {
@@ -616,18 +637,6 @@
       return;
     }
     loadLog(btn.getAttribute("data-tab"), false);
-  });
-
-  tabsContainer.addEventListener("dblclick", function (event) {
-    var btn = event.target.closest("button[data-tab]");
-    if (!btn) {
-      return;
-    }
-    var tabLabel = tabNames[btn.getAttribute("data-tab")] || "this log";
-    if (!confirm("Clear " + tabLabel + " log? This cannot be undone.")) {
-      return;
-    }
-    loadLog(btn.getAttribute("data-tab"), true);
   });
 
   output.addEventListener("click", function (event) {
@@ -657,7 +666,7 @@
   if (clearBtn) {
     clearBtn.addEventListener("click", function () {
       var tabLabel = tabNames[state.currentTab] || "this log";
-      if (!confirm("Clear " + tabLabel + " log? This cannot be undone.")) {
+      if (!confirm(T("Clear this log? This cannot be undone.") + "\n" + tabLabel)) {
         return;
       }
       loadLog(state.currentTab, true);
@@ -708,7 +717,7 @@
       .then(function (r) { if (!r.ok) { throw new Error("HTTP " + r.status); } return r.json(); })
       .then(function (list) {
         wait.classList.add("is-hidden");
-        if (!list.length) { none.classList.remove("is-hidden"); return; }
+        if (!Array.isArray(list) || !list.length) { none.classList.remove("is-hidden"); return; }
         list.forEach(function (b) {
           var node = tpl.content.cloneNode(true);
           node.querySelector(".sb-name").textContent = b.boot;
@@ -726,7 +735,11 @@
           box.appendChild(node);
         });
       })
-      .catch(function () { wait.classList.add("is-hidden"); none.classList.remove("is-hidden"); });
+      .catch(function () {
+        wait.classList.add("is-hidden");
+        none.textContent = T("The list of saved logs could not be loaded.");
+        none.classList.remove("is-hidden");
+      });
   })();
 })();
 </script>

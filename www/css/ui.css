@@ -706,3 +706,11 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
 .sd-summary[data-kind="kit"] [data-kind="kit"], .sd-summary[data-kind="data"] [data-kind="data"],
 .sd-summary[data-kind="empty"] [data-kind="empty"], .sd-summary[data-kind="blank"] [data-kind="blank"],
 .sd-summary[data-kind="errors"] [data-kind="errors"], .sd-summary[data-mounted="1"] [data-mounted="1"] { display: inline; }
+
+/* ---- pages pass (2026-10) ---- */
+#diagnostics_container .tabs li:focus-visible { outline: 2px solid var(--v2-accent-fill); outline-offset: 2px; }
+.logs-sort-btn:focus-visible, .logs-tab-buttons .button:focus-visible { outline: 2px solid var(--v2-accent-fill); outline-offset: 1px; }
+.logs-message-cell { overflow-wrap: anywhere; word-break: break-word; }
+.logs-raw-output { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+#configeditor_area { max-width: 100%; }
+.records-video video { max-width: 100%; }
