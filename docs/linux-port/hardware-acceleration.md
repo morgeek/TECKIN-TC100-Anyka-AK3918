@@ -150,3 +150,19 @@ reserve (buddyinfo `64 40 26 18 4 2 2 4`), MemAvailable 10.1-10.8 MB, no OOM or 
 3.0.1-rc5 then installed in the flash of IPCAM2 with `update66.sh apply` (stack, kernel, initrd written and checked,
 settings kept), normal flash start (no card kernel): "Page block order: 7", 2 high-atomic blocks, MemAvailable
 10.7 MB, no OOM or allocation failure, 75 frames per 5 s with a client, 84 % idle.
+
+## What is left on the CPU, and what was done about it (2026-10-30, not yet run on a camera)
+
+| Work | Before | Now (switch) | Test |
+|---|---|---|---|
+| Copy of the pictures in the encoder pool | 3.4 MB of the pool always taken | only in copy mode | [HW-01](test-queue.md#hw-01-no-picture-copy-in-the-encoder-pool-with-direct-capture--to-test) |
+| Encoder pool | 12 MiB no-map, lost to the kernel | CMA area, `ak39_venc.pool=` gives the rest back | HW-02 |
+| Wi-Fi USB FIFO | one bus access per byte | 32-bit words (`otg_hs.fifo32=1`) | HW-03 |
+| Privacy masks | painted by the CPU in each frame | ISP mask areas (`RTSP_ISPMASK=1`) | HW-04 |
+| Sharpness | not applied on 3.0 | ISP `AK_ISP_SET_SHARP` (Image page) | HW-05 |
+| Exposure cap | not applied on 3.0 | ISP `AK_ISP_SET_AE` (Image page) | HW-06 |
+| OSD clock | drawn by the CPU in each frame | ISP OSD window, kernel patch 0014 (`RTSP_ISPOSD=1`) | HW-07 |
+| Light level for day / night | CPU sample of the picture after AE | AE state written to `/tmp/cam_ae` (not used yet) | HW-08 |
+
+Not possible or not done: SD 4-bit (its data lines are the IR-cut GPIOs), USB DMA (vendor path unsafe), 3D-NR
+(memory), anti-flicker (vendor call unknown). Details and the test procedures: [test-queue.md](test-queue.md).
