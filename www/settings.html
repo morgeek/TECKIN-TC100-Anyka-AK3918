@@ -467,7 +467,7 @@
                     <div class="field">
                         <label class="label is-small" for="wifi_psk_input">Password</label>
                         <input class="input is-small" id="wifi_psk_input" type="password" maxlength="63" placeholder="●●●●●●●●" autocomplete="new-password">
-                        <p class="help">Minimum 8 characters</p>
+                        <p class="help">8 to 63 characters. Open networks (no password) cannot be set from here.</p>
                     </div>
                     <div class="buttons is-right mt-3">
                         <button class="button is-warning is-small" type="button" id="btnWifiApply">Connect to this network</button>
@@ -1141,14 +1141,14 @@
             }
             function run(cmd, confirmText, msg) {
                 if (!confirm(confirmText)) return;
-                inst.disabled = rb.disabled = up.disabled = true;
+                inst.disabled = up.disabled = true;
                 cf('cgi-bin/update.cgi?cmd=' + cmd, { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
                         if (!d || !d.ok) throw new Error((d && (d.message || d.error)) || 'refused');
                         waitForReboot(msg);
                     })
-                    .catch(function(e) { inst.disabled = rb.disabled = false; say('Error: ' + e.message); });
+                    .catch(function(e) { inst.disabled = up.disabled = false; say('Error: ' + e.message); });
             }
 
             file.addEventListener('change', function() {
@@ -1274,7 +1274,7 @@
                         log.textContent = d.log || ''; show(log, !!d.log);
                         show(prep, !d.running && !d.linux66 && (d.state === 'none' || d.state === 'empty'));
                         show(inst, !d.running && (d.state === 'ready' || d.state === 'ready66'));
-                        if (d.running) setTimeout(refresh, 4000);
+                        if (d.running && document.body.contains(box)) setTimeout(refresh, 4000);
                     }).catch(function() { show(box, false); });
             }
             function post(cmd) {
@@ -1327,25 +1327,21 @@
                 };
             }
 
-            // Sync HA Status from live telemetry
-            if (window.EliteUI && window.EliteUI.onStateUpdate) {
-                var originalOnState = window.EliteUI.onStateUpdate;
-                window.EliteUI.onStateUpdate = function(state) {
-                    if (originalOnState) originalOnState(state);
-                    var badge = document.getElementById('ha_discovery_badge');
-                    var prefix = document.getElementById('ha_discovery_prefix');
-                    if (state.mqtt_discovery_enabled === 1 || state.mqtt_discovery === 1) {
-                        badge.className = 'tag is-small is-success';
-                        badge.textContent = 'Active';
-                    } else {
-                        badge.className = 'tag is-small is-light';
-                        badge.textContent = 'Disabled';
-                    }
-                    if (state.mqtt && state.mqtt.discovery_prefix) {
-                        prefix.textContent = state.mqtt.discovery_prefix;
-                    }
-                };
+            // Badge from the form (mqtt_discovery / mqtt_enabled): there is no live telemetry hook for it.
+            function syncHa() {
+                var badge = document.getElementById('ha_discovery_badge');
+                var on = document.getElementById('mqtt_discovery'), mq = document.getElementById('mqtt_enabled');
+                if (!badge || !on) return;
+                var active = on.checked && (!mq || mq.checked);
+                badge.className = 'tag is-small ' + (active ? 'is-success' : 'is-light');
+                badge.textContent = active ? 'Active' : 'Disabled';
             }
+            window.tc100HaSync = syncHa;
+            ['mqtt_discovery', 'mqtt_enabled'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el && !el.dataset.haBound) { el.dataset.haBound = '1'; el.addEventListener('change', syncHa); }
+            });
+            syncHa();
         }
     })();
 </script>
