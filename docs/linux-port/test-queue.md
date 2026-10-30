@@ -76,6 +76,33 @@ uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/tel
      so active high is what the driver does) and the codec's speaker path (`DAC out mode` 0, the stock firmware's
      mixer settings), and the effect of the pin fix 9a325f2 on GPIO 14. Microphone not tested here (`tc100_rtsp` holds the
      capture device: `arecord` says `Resource busy`); RTSP audio to be listened to with VLC.
+- **MQTT bridge costs about 20 points of CPU (new finding, reproducible).** `perf-baseline.sh 60`, same scene, 15 fps,
+  one RTSP client, rc7 flash, IPCAM2 (its broker 192.168.1.25 is configured, the owner has not set the password yet):
+  **`mqtt-bridge` stopped: idle 77.4 % / 74.5 % (system 12.3 / 13.7)**; **running: idle 54.0 % / 57-59 % (system
+  26-29, user 12-13.5)**, three alternating runs. The bridge's own processes show almost no ticks (`/proc/<pid>/stat`:
+  12 ticks in 60 s for the listener), so the cost is its **forks and children** (health publish, spool poll) and what
+  they cause in the kernel (system time), not the shell's own loop. `top` showed the persistent listener at 10 % at one
+  point. The first baseline of the night (72.6 % idle) was taken shortly after boot with the bridge in a quiet phase.
+  Everything compared before (P-04 etc.) carries this load. **Asked of the implementer:** count the forks per minute of
+  the running bridge (`strace -c -f` is not there: count `ps` children or `/proc/*/stat` of short-lived pids), poll
+  and publish less often, use builtins instead of `date`/`cat`/`awk` per tick, and make the listener back off when the
+  broker refuses the login. A camera with MQTT configured and no/wrong password must not pay this.
+- **P-09 (owner watching VLC, IPCAM2, rc7, main H.265 + sub):** `RTSP_UDPSG=1` (log `rtp scatter-gather 1 sendmmsg 0`):
+  **clean and smooth picture** over UDP for 1 minute+, `dropped` 0, `snd_ms` 250-310 per 5 s (same as without).
+  `RTSP_UDPSG=1` + **`RTSP_UDPMMSG=1`** (`sendmmsg 1`): **blocks / smears / stutter** in VLC (the log shows
+  `clients 2`, `snd_ms` 716-1124 in two STAT lines while the second client connected, `dropped` 0). So the `sendmmsg`
+  batching is **not** ready; scatter-gather alone looks fine, no CPU difference seen (idle 56.9 % with, 57.5 % without,
+  bridge running in both). Not tried: a simultaneous TCP and UDP client, 30 min of `dropped`, Frigate reconnect time.
+- **P-08 `RTSP_VBR=1`** (night scene, noisy, one client): bytes per 5 s 0.89-0.96 MB (VBR) against 0.95-1.03 MB (CBR,
+  ceiling 1.0 MB per 5 s): about **6 % lower**, `cap`/`enc` unchanged. A still, low-noise scene was not available
+  (the picture is noisy at this gain), so the saving on a day scene is still to measure. The smart mode symbols in
+  `libmpi_venc*.so` not looked up.
+- **P-04 frame rate (bridge running, one client, 60 s each):** 15 fps idle 56.9 % (system 27.1), 20 fps **57.9 %**
+  (STAT 98-99 frames per 5 s, `dropped` 0-2), 25 fps **59.2 %** (117-125 frames per 5 s, `dropped` 0); USB host
+  interrupts 808 / 644 / 609 per s, wlan0 tx 238 / 191 / 184 KB/s (bit rate fixed). **The frame rate costs no measurable
+  CPU: 25 fps is as cheap as 15** (the bit rate is shared by more frames, so each frame is smaller). The rtspserver.conf
+  value `fps` of IPCAM2 is 16 (not one of 10/12/15/20/25, so no `-f`: the code default 15 applied); restored to 16 after
+  the runs. The picture quality at 25 fps was not judged (no one looked at VLC then).
 - **P-01** half done: needs ONVIF discovery from a client. **P-05** (128 KiB squashfs blocks): stack 2306048 B in the
   partition; MemAvailable did not drop (15.2-16.0 MB, rc6 15.9-16.1); no timing yet.
 - Not run yet: audio B-01/B-02, O-05, P-09 (`RTSP_UDPSG=1`), P-08 (`RTSP_VBR=1`), P-04 (20/25 fps), P-02
