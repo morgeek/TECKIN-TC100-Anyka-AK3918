@@ -13,6 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is steered in the ISP (no table over the colours), the 640x360 sub picture comes from the ISP's second output,
   and the configured frame rate is kept. Each part falls back to the previous way on its own; switches in
   `config/rtsp.env`: `RTSP_DIRECT=0`, `RTSP_ISPAWB=0`, `RTSP_HWSUB=0`, `RTSP_CACHED=0`.
+- No more out-of-memory kills with 10 MB free: the kernel's page blocks are 512 KB instead of 4 MB
+  (`CONFIG_ARCH_FORCE_MAX_ORDER=7`). With 4 MB blocks the 47 MB of RAM had only 16 of them, and the reserve for
+  high-order atomic allocations (the Wi-Fi's receive buffers) took one or two whole blocks, up to 8 MB: a new
+  process (16 KB page table) could not be created although 9.7 MB were free (seen 84 s after a start).
 - 2 MiB more RAM for the system: the guard zones around the encoder pool are gone (they never caught a stray write;
   the old memory corruption was the 640 MHz clock).
 - Direct capture takes each buffer's physical address from the capture driver (`AK39_VI_G_PHYS`); the RAM search

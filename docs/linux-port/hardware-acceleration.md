@@ -131,3 +131,13 @@ uncached memory); with the ISP: 15 fps, pp 3 ms per 5 s.
   table +34.7 degrees, ISP +26.6 degrees for HUE=50 (30 asked); the ISP turns the other way, the sign is flipped.
 - Black and white (night): `uv_a` = `uv_b` = 0 in `AK_ISP_SET_YUV_EFFECT`; snapshot chroma 0.00 (max 0.0).
 - IPCAM1 had HUE=14 and SATURATION=-13: 79 % CPU in `tc100_rtsp` with the hue table, which is now gone.
+
+## Out-of-memory kills with free memory: 4 MB page blocks (2026-10-30)
+
+IPCAM2, 84 s after a start on rc4: `sh invoked oom-killer: order=2` (the 16 KB first-level page table of a new
+process on ARM) with `Normal free:9696kB ... reserved_highatomic:8192KB`. `/proc/pagetypeinfo`: "Page block order
+10" (4 MB), 16 blocks in all (4 unmovable, 6 movable, 1-2 high-atomic, 5 CMA). The high-atomic reserve (for the
+Wi-Fi's order-2/3 atomic receive buffers) is counted in whole page blocks, so it took 4 to 8 MB, and the 115 free
+16 KB blocks were in it or in CMA. `CONFIG_ARCH_FORCE_MAX_ORDER=7`: 512 KB blocks (128 of them), the reserve stays
+near 1 MB and the migrate types are kept apart 8 times more finely. Nothing needs more than 512 KB from the page
+allocator (capture buffers come from CMA, the encoder pool is reserved, large driver buffers are vmalloc).
