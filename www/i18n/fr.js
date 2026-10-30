@@ -925,7 +925,6 @@ window.tc100I18nFr = {
   "🌤 Twilight": "🌤 Crépuscule",
   "📋 Copy": "📋 Copier",
   "📋 Copy URL": "📋 Copier l'URL",
-  "_pages pass": "strings of the logs, diagnostics, backup, config editor and recordings pages (2026-10)",
   "Configuration file": "Fichier de configuration",
   "Copy failed": "Copie impossible",
   "Date": "Date",
