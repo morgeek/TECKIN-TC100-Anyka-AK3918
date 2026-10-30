@@ -11,12 +11,31 @@ BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_TC100_PATH)/board/tc10
 BR2_PACKAGE_ALSA_UTILS=y
 BR2_PACKAGE_ALSA_UTILS_AMIXER=y
 BR2_PACKAGE_ALSA_UTILS_APLAY=y
+# Slim ALSA (2026-10-30 audit): the camera calls amixer, aplay (-D plughw:0,0) and arecord (-D hw:0,0) only.
+# No alsactl/alsamixer (and so no ncurses), no sequencer, rawmidi, hwdep, UCM, topology, alisp, aload;
+# PCM plugins: what `plug` (plughw) needs for format/rate/channel conversion, plus the default device (asym, dmix, dsnoop).
+# BR2_PACKAGE_ALSA_UTILS_ALSACTL is not set
+# BR2_PACKAGE_ALSA_UTILS_ALSAMIXER is not set
+# BR2_PACKAGE_ALSA_LIB_ALOAD is not set
+# BR2_PACKAGE_ALSA_LIB_RAWMIDI is not set
+# BR2_PACKAGE_ALSA_LIB_HWDEP is not set
+# BR2_PACKAGE_ALSA_LIB_SEQ is not set
+# BR2_PACKAGE_ALSA_LIB_UCM is not set
+# BR2_PACKAGE_ALSA_LIB_ALISP is not set
+# BR2_PACKAGE_ALSA_LIB_OLD_SYMBOLS is not set
+# BR2_PACKAGE_ALSA_LIB_TOPOLOGY is not set
+BR2_PACKAGE_ALSA_LIB_PCM_PLUGINS="copy linear route mulaw alaw rate plug lfloat iec958 asym dmix dsnoop mmap_emul"
+BR2_PACKAGE_ALSA_LIB_CTL_PLUGINS="ext"
+# the 3.0 kernel has no IPv6 (slim config): BusyBox, curl and the rest are built without it
+# BR2_INET_IPV6 is not set
 BR2_PACKAGE_JQ=y
 BR2_PACKAGE_CA_CERTIFICATES=y
 BR2_PACKAGE_MBEDTLS=y
 BR2_PACKAGE_LIBCURL=y
 BR2_PACKAGE_LIBCURL_CURL=y
 BR2_PACKAGE_DROPBEAR=y
+# the camera is only an ssh/scp server (dbclient/ssh are not called by any script)
+# BR2_PACKAGE_DROPBEAR_CLIENT is not set
 BR2_PACKAGE_IW=y
 BR2_PACKAGE_WPA_SUPPLICANT=y
 BR2_PACKAGE_WPA_SUPPLICANT_CLI=y
@@ -27,6 +46,12 @@ BR2_TARGET_ROOTFS_CPIO_GZIP=y
 # 3.0: Wi-Fi rescue access point (rtl8xxxu has AP mode on the 8188F since Linux 6.5)
 BR2_PACKAGE_HOSTAPD=y
 BR2_PACKAGE_HOSTAPD_DRIVER_NL80211=y
+# rescue AP: nl80211 only (wifi-rescue.sh, driver=nl80211, fixed channel, WPA2-PSK); no ACS, no VLAN (VLAN pulls libnl-route)
+# BR2_PACKAGE_HOSTAPD_DRIVER_HOSTAP is not set
+# BR2_PACKAGE_HOSTAPD_ACS is not set
+# BR2_PACKAGE_HOSTAPD_VLAN is not set
+# BR2_PACKAGE_HOSTAPD_VLAN_DYNAMIC is not set
+# BR2_PACKAGE_HOSTAPD_VLAN_NETLINK is not set
 # 3.0 install: the camera builds the squashfs of its own vendor libraries (patches/squashfs: it runs with 45 MB)
 BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_TC100_PATH)/patches"
 BR2_PACKAGE_SQUASHFS=y

@@ -49,6 +49,30 @@ class FlashImage(unittest.TestCase):
         self.assertTrue(calls)
         self.assertEqual(sorted(c for c in calls if c not in APPLETS), [])
 
+    def test_slimmed_applets_are_not_called(self):
+        """v3/buildroot/board/tc100/busybox.fragment switches applets off; none of them may be called by the V3
+        scripts, CGIs, init and install scripts (command position: line start, after ; & | { ` $( or busybox)."""
+        frag = (ROOT / 'v3/buildroot/board/tc100/busybox.fragment').read_text()
+        off = {m.group(1).lower() for m in re.finditer(r'^# CONFIG_([A-Z0-9_]+) is not set$', frag, re.M)
+               if not m.group(1).startswith('FEATURE_')}
+        off = {a for a in off if a not in APPLETS}
+        self.assertGreater(len(off), 50)
+        # the applet list in the fixture is the list after slimming: nothing switched off may still be in it
+        self.assertEqual(sorted(a for a in off if a in APPLETS), [])
+        files = list(runtime_files()) + [(ROOT / 'v3/S39tc100-linux66', (ROOT / 'v3/S39tc100-linux66').read_text())]
+        bad = []
+        for f, text in files:
+            if f.name == 'collect-platform-dump.sh':
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                if line.lstrip().startswith('#'):
+                    continue
+                line = re.sub(r'"[^"]*"|\x27[^\x27]*\x27', '""', line)	# words inside quotes are text, not commands
+                for a in off:
+                    if re.search(r'(?:^|[;&|`{]|\$\()\s*(?:/mnt/bin/busybox\s+|run_busybox\s+|busybox\s+)?' + re.escape(a) + r'(?=\s|$|;)', line):
+                        bad.append((a, str(f.relative_to(ROOT)), n))
+        self.assertEqual(bad, [])
+
     def test_image_links_busybox(self):
         src = (ROOT / 'v3/build-stack.sh').read_text()
         self.assertIn('-p "bin/busybox s 777 0 0 /bin/busybox"', src)
