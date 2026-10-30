@@ -44,6 +44,11 @@ off on IPCAM2); the MQTT password (the owner re-enters it); a go for the HW-02 t
 is NOT in the flash boot arguments (it needs a U-Boot env change: the owner has not agreed yet). The SD card still holds `tc100test/`
 (consoleshell, test.img) and `.bootcount` = 0009 (see the F-05 bug).
 
+**HW-02 test 2 (`ak39_venc.pool=9600K`): NOT run, on the advice relayed by the owner (do not touch U-Boot).** Reminder of what the tester did
+touch: the one-shot kernel tests of night 2 (slots=3, rtl8xxxu.dma_aggregation=1, otg_hs.fifo32=1) typed `setenv bootargs ...; bootm` at the U-Boot
+prompt, in RAM only; no `saveenv`, the stored environment was not written. If the implementer wants HW-02 test 2 without any U-Boot prompt,
+it needs the pool size built into the test kernel's own command line (CONFIG_CMDLINE) in a CI build for the card.
+
 **Builds run today**
 - `cb20c19` / `80c0285` (rc5): 512 KB page blocks (`CONFIG_ARCH_FORCE_MAX_ORDER=7`), high-atomic reserve 1 MB,
   no boot OOM; installed in the flash of IPCAM2 in the morning, and on IPCAM1 (.24) by its owner through the web UI.
