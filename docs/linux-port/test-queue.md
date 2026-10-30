@@ -347,7 +347,7 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
 - **Test:** the 12 checks of the implementer's report, in short:
   1. `cat /var/run/v4l2rtspserver.pid` = `pidof tc100_rtsp`, its `oom_score_adj` is -900; `/mnt/config/rtsp.debug`
      still sends the log to the console.
-  2. `time wget -qO- 'http://127.0.0.1/cgi-bin/state.cgi?cmd=dashinfo&format=json'` twice: second fast, same JSON;
+  2. `time curl -s 'http://127.0.0.1/cgi-bin/state.cgi?cmd=dashinfo&format=json'` (with `-u root:<password>`) twice: second fast, same JSON;
      `touch /mnt/config/rtspserver.conf` rebuilds it.
   3. Browser network tab at page load: no `cmd=hostname`, no `get_ptt_vol`; the title shows the host name; Talk or
      the volume slider fetches `get_ptt_vol` once.
@@ -421,6 +421,28 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
      no `flashroot=1` (SD mode) works; a card tree from before this build with this initrd prints
      `user space without ext/bin/aplay` and still brings up Wi-Fi, web UI and video.
 
+### B-02 Slimmer Buildroot base (busybox, alsa-lib, hostapd, wpa_supplicant, dropbear) — `to test`
+- **What (commit `[big] Slim Buildroot base ...`, `v3/buildroot/` only):**
+  - **busybox:** 98 unused applets off, 290 -> 192; IPv6, CIFS, bzip2 and verbose usage off; 968 -> 681 KB.
+  - **alsa-lib:** only PCM and mixer (`hw`, `plug` and the conversion plugins; no seq, rawmidi, ucm, topology);
+    903 -> 554 KB. alsactl, alsamixer and ncurses are gone.
+  - **Wi-Fi tools:** hostapd nl80211 only, without the extras; wpa_supplicant without TDLS / 802.11r.
+  - **Other:** dropbear without the ssh client; libnl-route, libgcc_s and the single CA certificate files removed.
+  - **Removed applets you might type:** `wget` (use `curl`, in ext/), `nslookup`, `traceroute`, `telnet` (the client;
+    `telnetd` stays), `arp`, `fdisk`.
+  - **Combined with B-01, measured:** unpacked initramfs 2384 KB (was about 4450 KB), xz initrd 895,968 B,
+    `stack.sqfs` 2,195,456 B (partition 2,830,336).
+- **Off:** the previous build.
+- **Test:**
+  1. `busybox --list | wc -l` = 192, and no `not found` from S01..S50 on the console.
+  2. Microphone: `arecord -q -D hw:0,0 -f S16_LE -r 8000 -c 1 -t raw -d 3 /tmp/a.raw` gives about 48000 B. RTSP audio
+     and the web Listen button work.
+  3. Speaker: `aplay -q -D plughw:0,0 -t raw -f S16_LE -r 8000 -c 1 /tmp/a.raw`, and Talk / the sound test of the UI.
+  4. Mixer: `amixer -c 0 cset name='LineIn Capture Volume' 10`.
+  5. Wi-Fi client, and the rescue AP (`scripts/wifi-rescue.sh`: hostapd starts and a phone joins).
+  6. `ssh` and `scp` into the camera.
+  7. Web login and CGIs, `ftpd`, `telnetd`, `crond` (scheduled reboot), `ntpd`, the SD card mount.
+
 ### O-06 One housekeeper loop for the slow shell daemons — `to test`
 - **What (commit `[big] One housekeeper loop ...`):** `scripts/housekeeper.sh` replaces web-guard, log-persist, the
   rtsp / mqtt / onvif / telegram service watchdogs and health-snapshot (separate `sh` processes) with one resident
@@ -448,7 +470,7 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
      processes are back, and the Services page is still correct.
 
 Not done (listed for later): `cma=16M` (about 4 MB more for the kernel if 4 capture slots still fit: needs the owner's U-Boot
-change); base image as squashfs instead of RAM (about 3 MB); a smaller libasound and busybox applet set; the
-Buildroot `S50telnet` (busybox telnetd on port 23 at every boot) and `S50dropbear` still start from the base image's
+change); moving wpa_supplicant + libnl out of the RAM image too (0.78 MB more, but no network without the user
+space); the Buildroot `S50telnet` (busybox telnetd on port 23 at every boot) and `S50dropbear` still start from the base image's
 init.d: owner's decision whether they stay; `CONFIG_IP_MULTICAST` is off, so ONVIF discovery (off by default) cannot
 work.
