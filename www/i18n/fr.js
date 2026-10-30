@@ -985,7 +985,8 @@ window.tc100I18nFr = {
   "No video records found.": "Aucun enregistrement vidéo.",
   "The autorun change failed. Retry or inspect the logs.": "Le changement de démarrage automatique a échoué. Réessayez ou consultez les journaux."
 ,
-  "Local recording to SD card is currently disabled.": "L'enregistrement local sur la carte SD est désactivé."
+  "Local recording to SD card is currently disabled.": "L'enregistrement local sur la carte SD est désactivé.",
+  "Remote shell: ssh-server (SSH, encrypted) is on by default; telnet-server sends the password in clear, is off by default and stops by itself after a while.": "Accès à distance : ssh-server (SSH, chiffré) est activé par défaut ; telnet-server envoie le mot de passe en clair, est désactivé par défaut et s'arrête de lui-même au bout d'un moment."
  },
  "rules": [
   [

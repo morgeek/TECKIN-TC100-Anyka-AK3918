@@ -101,6 +101,9 @@ append_log()
     printf '%s\n' "$line" >> "$LOGPATH" 2>/dev/null || true
 }
 
+# run a service script: directly when it is executable, else through sh (scripts/housekeeper.sh may lack the x bit)
+_wd_run() { if [ -x "$1" ]; then "$@"; else sh "$@"; fi; }
+
 service_is_healthy()
 {
     SERVICE_TO_MONITOR=$1
@@ -112,6 +115,8 @@ service_is_healthy()
             onvif)       _wd_pf="/var/run/onvif.pid" ;;
             mqtt-bridge) _wd_pf="/var/run/mqtt-bridge.pid" ;;
             rtsp-h26x)   _wd_pf="/var/run/v4l2rtspserver.pid" ;;
+            # the housekeeper itself (scripts/housekeeper.sh supervise): its pid file, no fork
+            housekeeper.sh) _wd_pf="${HK_PIDFILE:-/var/run/housekeeper.pid}" ;;
         esac
         if [ -n "$_wd_pf" ]; then
             _wd_pid=""
@@ -123,13 +128,13 @@ service_is_healthy()
         fi
     fi
 
-    service_status="$("$SERVICE_TO_MONITOR" status 2>/dev/null)"
+    service_status="$(_wd_run "$SERVICE_TO_MONITOR" status 2>/dev/null)"
     if [ -z "$service_status" ]; then
         return 1
     fi
 
     if [ "$CHECK_MODE" = "health" ]; then
-        "$SERVICE_TO_MONITOR" health >/dev/null 2>&1 || return 1
+        _wd_run "$SERVICE_TO_MONITOR" health >/dev/null 2>&1 || return 1
     fi
 
     return 0
@@ -142,9 +147,9 @@ recover_service()
 
     if [ "$CHECK_MODE" = "health" ]; then
         # Prefer a service-level restart so watchdog process itself is not killed.
-        "$SERVICE_TO_MONITOR" restart >/dev/null 2>&1 || "$SERVICE_TO_MONITOR" start >/dev/null 2>&1
+        _wd_run "$SERVICE_TO_MONITOR" restart >/dev/null 2>&1 || _wd_run "$SERVICE_TO_MONITOR" start >/dev/null 2>&1
     else
-        "$SERVICE_TO_MONITOR" start >/dev/null 2>&1
+        _wd_run "$SERVICE_TO_MONITOR" start >/dev/null 2>&1
     fi
 }
 

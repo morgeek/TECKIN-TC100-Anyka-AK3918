@@ -12,6 +12,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`RTSP_LOGFILE`, `RTSP_LOGMAX`).
 
 ### Changed
+- **Remote shells under Services** (`[svc]`): SSH (`ssh-server`, dropbear) on by default, telnet (`telnet-server`) off
+  by default; the always-on telnetd of the base image is gone (`v3/S50telnet-linux66`, only a fallback without
+  dropbear). The boot follows the Services "Boot" toggle; an upgraded camera that never chose keeps SSH on. The
+  rescue telnet while the web UI is down is unchanged.
+- **The housekeeper has a restarter** (`housekeeper.sh supervise`): a small `service-watchdog.sh` process restarts the
+  loop if it dies (no reboot, same back-off as the other services).
 - **Optimisation pass for the AK3918** (commits `[opt] ...`; camera checks O-01..O-05 in `docs/linux-port/test-queue.md`):
   - Kernel config about 520 KB lighter in RAM and squashfs fragment cache 1 block (about 1 MB less in flash mode);
     initramfs about 0.45 MB smaller; `tc100_rtsp` and `libakuio.so` stripped (both live in /tmp).

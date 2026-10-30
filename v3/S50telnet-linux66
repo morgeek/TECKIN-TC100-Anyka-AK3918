@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# Replaces the Buildroot S50telnet of the initramfs. The base image started busybox telnetd (port 23, password in clear)
+# at every boot, whatever the web UI said. Now telnet is a Services entry (controlscripts/telnet-server, off by default:
+# it is started from config/autostart/telnet-server by autorun-linux66.sh, LAN only, closed again after
+# REMOTE_SHELL_TIMEOUT_MIN) and ssh (S50dropbear) is the way in. The rescue telnet of scripts/web-guard.sh (port 23,
+# only while the web interface is down) is unchanged.
+#
+# The one exception: no dropbear in the user space (a user space older than this initramfs). Then telnetd starts at
+# boot as it always did, so that the camera stays reachable; a line on the console says so.
+
+DB=
+for p in /mnt/ext/bin/dropbear /mnt/sd/ext/bin/dropbear; do
+	[ -x $p ] && { DB=$p; break; }
+done
+
+case "$1" in
+  start)
+	if [ -n "$DB" ]; then
+		echo "Starting telnetd: off (Services page; ssh is the way in)"
+		exit 0
+	fi
+	printf "Starting telnetd (no dropbear in the user space): "
+	telnetd >/dev/null 2>&1 && echo "OK" || echo "FAIL"
+	;;
+  stop)
+	printf "Stopping telnetd: "
+	killall telnetd >/dev/null 2>&1 && echo "OK" || echo "no telnetd"
+	;;
+  restart|reload)
+	"$0" stop
+	"$0" start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit 0
