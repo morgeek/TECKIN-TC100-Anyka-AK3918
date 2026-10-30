@@ -1,0 +1,3 @@
+[    1.000000] <img src=x onerror=alert(1)> kernel boot ok
+[    2.100000] ak39_vi: failed to get frame while a very long line follows xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Oct 30 10:00:00 cam daemon.warn rtsp: client dropped
