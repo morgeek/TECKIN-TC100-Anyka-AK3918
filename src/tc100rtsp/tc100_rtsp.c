@@ -1571,14 +1571,15 @@ static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char 
 }
 
 /* one NAL unit as one packet or FU fragments (FU-A for H.264, RFC 7798 FU for H.265) */
-/* ---- RTP without the two copies (RTSP_UDPSG, default on; =0: the old send_pkt / rtp_out path below) ----
+/* ---- RTP without the two copies (RTSP_UDPSG=1, default off until H.265 is checked on the camera: the old send_pkt /
+ * rtp_out path below) ----
  * A packet is a header (12 RTP bytes + the FU bytes, built in a small buffer) and the payload, which stays where it is (the
  * frame copy): UDP hands both to sendmsg as two iovecs, TCP queues the 4 byte interleave header + header, then the payload
  * (one copy, into the queue). The old path copied the payload into an FU buffer, then into a packet buffer, then sent.
  * RTSP_UDPMMSG=1 (default off): the packets of one frame are collected (SG_MAX) and sent by one sendmmsg raw syscall. */
 #define SG_MAX 16
 struct sg_mmsg { struct msghdr hdr; unsigned int len; };	/* kernel struct mmsghdr, as glibc's */
-static int sg_on = 1, sg_mmsg_on;
+static int sg_on, sg_mmsg_on;
 static struct {
 	struct cli *c;
 	int n;
@@ -2455,7 +2456,7 @@ int main(int argc, char **argv)
 	dbg_on = getenv("RTSP_DEBUG") != NULL;
 	{ const char *fc = getenv("RTSP_FRAMECOPY"), *qt = getenv("RTSP_QTRIM"), *qb = getenv("RTSP_QBURST"); fcopy_on = !(fc && fc[0] == '0'); qtrim_on = !(qt && qt[0] == '0');
 	  qburst_on = !(qb && qb[0] == '0');
-	  { const char *sgv = getenv("RTSP_UDPSG"), *mm = getenv("RTSP_UDPMMSG"); sg_on = !(sgv && sgv[0] == '0'); sg_mmsg_on = sg_on && mm && mm[0] == '1'; } }
+	  { const char *sgv = getenv("RTSP_UDPSG"), *mm = getenv("RTSP_UDPMMSG"); sg_on = sgv && sgv[0] == '1'; sg_mmsg_on = sg_on && mm && mm[0] == '1'; } }
 
 	for (o = 1; o + 1 < argc; o += 2) {
 		const char *a = argv[o], *v = argv[o + 1];

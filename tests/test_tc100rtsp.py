@@ -1188,7 +1188,7 @@ class RtpPath(Server):
     def test_the_three_paths_send_the_same_packets_over_udp_and_over_the_connection(self):
         feed = '24,20000,3000,50,12'
         got = {}
-        for name, env in (('old', {'RTSP_UDPSG': '0'}), ('sg', {}), ('mmsg', {'RTSP_UDPMMSG': '1'})):
+        for name, env in (('old', {}), ('sg', {'RTSP_UDPSG': '1'}), ('mmsg', {'RTSP_UDPSG': '1', 'RTSP_UDPMMSG': '1'})):
             for tcp in (False, True):
                 self.start(TC100_RTP_TEST=feed, **env)
                 try:

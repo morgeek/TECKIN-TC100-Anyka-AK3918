@@ -705,6 +705,27 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
   3. For the smart mode itself: `strings /mnt/lib/libmpi_venc*.so | grep -i smart` and write the symbols here.
      Smart mode (long GOP on a still scene) needs its call found in the vendor library first.
 
+### P-09 Video server: RTP without payload copies, 384 KB client queues, live MP4 into the send buffer — `to test`
+- **What (commit `[video] ...`):**
+  - **RTP:** a packet is a header buffer plus the payload left in the frame copy, sent with `sendmsg` iovecs (UDP);
+    TCP queues header then payload. The two payload copies per packet are gone. **Opt-in: `RTSP_UDPSG=1`** (the host
+    test shows byte-identical packets for H.264; H.265 framing is not covered there). With it, `RTSP_UDPMMSG=1`
+    batches a frame's packets in one `sendmmsg`.
+  - **Client queue:** 384 KB by default (was 768), raised to 1.5 s of the main bit rate. A late TCP joiner gets the
+    IDR and the P frames that fit at once (`RTSP_QBURST=0`: wait for the next IDR as before). `RTSP_QMAX=<KB>` sets it.
+  - **Browser live video:** the fMP4 fragment is built straight into the viewer's send buffer (byte-identical in the
+    host test); `RTSP_LIVE_DIRECT=0` restores the old path.
+  - **VBR (P-08):** `RTSP_VBR=1`, `RTSP_VBR_SUB`.
+  - All switches go in `/mnt/config/rtsp.env`; the start line of `tc100_rtsp.log` shows the active values.
+- **Test:**
+  1. `RTSP_UDPSG=1`: VLC over UDP and over TCP, main H.265 and sub H.264. Clean picture, STAT `snd_ms` lower than
+     without. Then `RTSP_UDPMMSG=1`: same picture, nothing in the log.
+  2. A TCP and a UDP client together.
+  3. `dropped` over 30 min on the real Wi-Fi, default 384 KB against `RTSP_QMAX=768`. A VLC or Frigate reconnect shows
+     a picture within about 0.3 s.
+  4. The browser live view plays smoothly for 2 minutes.
+- **Pass:** every passed switch becomes the default (UDPSG first, once H.265 is clean).
+
 ### Other suggestions of 2026-10-30, not taken now (reasons)
 - **Clock gating of unused blocks (Ethernet MAC, extra UART):** no verified clock register map yet. A wrong bit can
   stop the SPI flash, USB or SD; the only gain is heat. The RMII pads are no longer muxed (LED-01 fix).
