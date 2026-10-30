@@ -5,6 +5,7 @@
     csrfFetch: csrfFetch,
     getStatusline: getStatusline,
     initCamPanel: initCamPanel,
+    initDayNight: initDayNight,
     initServiceToggles: initServiceToggles,
     initDashboard: initDashboard,
     initPresets: initPresets,
