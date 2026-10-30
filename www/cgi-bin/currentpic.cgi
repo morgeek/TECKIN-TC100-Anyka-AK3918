@@ -7,7 +7,7 @@ serve() {
     echo "Content-type: image/jpeg"
     echo "Cache-Control: no-store"
     echo ""
-    cat "$1"
+    exec cat "$1"
   else
     echo "Status: 503 Service Unavailable"
     echo "Content-type: text/plain"

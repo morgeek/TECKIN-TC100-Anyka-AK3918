@@ -156,7 +156,7 @@ class Regressions(unittest.TestCase):
         a = source.index('  fullconfig)')
         b = source.index('  perfprofile)', a)
         body = source[a:b].replace('/mnt/config', str(cfg)).replace('/proc/sys/kernel/hostname', str(self.base / 'hostname'))
-        helpers = '\n'.join(function('www/cgi-bin/state.cgi', name) for name in ['load_conf_file', 'read_single_config', 'get_cfg', 'read_rtsp_stream_summary', 'sanitize_int', 'truthy_flag', 'codec_name'])
+        helpers = '\n'.join(function('www/cgi-bin/state.cgi', name) for name in ['load_conf_file', 'read_single_config', 'get_cfg', 'read_rtsp_stream_summary', 'sanitize_int', 'truthy_flag', 'codec_name', 'cfg_int', 'codec_name_to'])
         helpers += '\n' + function('www/cgi-bin/func.cgi', 'json_escape')
         helpers += '\ndetect_primary_ip() { :; }; read_reboot_epoch() { :; }; get_perf_profile() { echo balanced; }; hostname() { echo fixture; };\n'
         r = run(helpers + 'case fullconfig in\n' + body + '\nesac')
@@ -180,8 +180,9 @@ class Regressions(unittest.TestCase):
     def test_stream_summary_exposes_codec_names(self):
         code = function('www/cgi-bin/state.cgi', 'read_rtsp_stream_summary')
         code += '\n' + function('www/cgi-bin/state.cgi', 'sanitize_int')
-        code += '\n' + function('www/cgi-bin/state.cgi', 'codec_name')
-        code += '\nget_cfg() { case "$1" in 0_codec) echo 2 ;; 1_codec) echo 0 ;; *) echo "$3" ;; esac; }'
+        code += '\n' + function('www/cgi-bin/state.cgi', 'codec_name') + '\n' + function('www/cgi-bin/state.cgi', 'cfg_int')
+        code += '\n' + function('www/cgi-bin/state.cgi', 'codec_name_to')
+        code += '\nC_0_codec=2; C_1_codec=0'
         code += '\nread_rtsp_stream_summary; printf "%s|%s" "$codec0_name" "$codec1_name"'
         self.assertEqual(run(code).stdout, b'H265|H264')
 
