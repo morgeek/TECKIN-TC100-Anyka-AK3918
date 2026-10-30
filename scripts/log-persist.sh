@@ -77,7 +77,9 @@ lp_dir() {
     _n=0
     [ -r "$LP_ROOT/.bootcount" ] && read -r _n < "$LP_ROOT/.bootcount"
     case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
-    _n=$((_n + 1))
+    # the file holds 0008: without its leading zeros, or ash reads it as octal (8 and 9 are a syntax error)
+    _n=${_n#"${_n%%[!0]*}"}
+    _n=$((${_n:-0} + 1))
     [ "$_n" -le 9999 ] || _n=1
     printf '%04d\n' "$_n" > "$LP_ROOT/.bootcount" 2>/dev/null || return 1
     D="$LP_ROOT/boot-$(printf '%04d' "$_n")"

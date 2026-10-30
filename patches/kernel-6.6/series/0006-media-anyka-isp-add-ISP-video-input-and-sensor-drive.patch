@@ -10020,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,916 @@
+@@ -0,0 +1,917 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10087,11 +10087,12 @@ index 000000000..42f5fa12c
 +MODULE_PARM_DESC(guard, "debug: fill the buffer tails with 0xA5 and report ISP writes past the main frame");
 +module_param(sub_channel, int, 0444);
 +MODULE_PARM_DESC(sub_channel, "program the ISP sub channel (640x360) at stream start");
-+/* capture buffers handed to the ISP (it has NUM_SLOTS output slots): ak39_vi.slots=3 frees one buffer of CMA
-+ * (~3.4 MB at 1080p), the slot left unarmed is the case of a buffer held by user space */
-+static int slots = NUM_SLOTS;
++/* capture buffers handed to the ISP (it has NUM_SLOTS output slots): 3 (the default since rc8) frees one buffer of CMA
++ * (~3.4 MB at 1080p; measured: no dropped frames at 15 and 25 fps), the slot left unarmed is the case of a buffer held
++ * by user space; ak39_vi.slots=4 arms them all as before */
++static int slots = 3;
 +module_param(slots, int, 0444);
-+MODULE_PARM_DESC(slots, "capture buffers (2..4, default 4)");
++MODULE_PARM_DESC(slots, "capture buffers (2..4, default 3)");
 +static unsigned int vi_slots(void) { return slots >= 2 && slots <= NUM_SLOTS ? slots : NUM_SLOTS; }
 +
 +/* SYSCTRL */

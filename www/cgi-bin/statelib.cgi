@@ -271,6 +271,7 @@ get_security_and_mqtt_flags() {
   mqtt_discovery=0
   mqtt_last_pub_ts=0
   mqtt_last_pub_ok=-1
+  mqtt_refused=0
 
   conf_get security_raw /mnt/config/boot.conf SECURITY_HARDENING_MODE 0
   case "$security_raw" in
@@ -294,11 +295,13 @@ get_security_and_mqtt_flags() {
   esac
 
   if [ -f /tmp/mqtt_last_pub.status ]; then
-    read -r _mq_ts _mq_result < /tmp/mqtt_last_pub.status
+    _mq_code=
+    read -r _mq_ts _mq_result _mq_code < /tmp/mqtt_last_pub.status
     case "$_mq_ts" in ''|*[!0-9]*) _mq_ts=0 ;; esac
     case "$_mq_result" in
       ok)   mqtt_last_pub_ok=1 ;;
-      fail) mqtt_last_pub_ok=0 ;;
+      fail) mqtt_last_pub_ok=0
+            case "$_mq_code" in [1-5]) mqtt_refused=$_mq_code ;; esac ;;
     esac
     mqtt_last_pub_ts="$_mq_ts"
   fi
@@ -583,5 +586,5 @@ statusline_json() {
   [ -n "$cam_hostname" ] || cam_hostname="tc100"
   json_esc_to cam_hostname_json "$cam_hostname"
 
-  echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\",\"platform\":\"$platform\",\"cfg_save\":\"$cfg_save\",\"cfg_save_msg\":\"$cfg_save_msg_json\",\"hostname\":\"$cam_hostname_json\"}"
+  echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"mqtt_refused\":$mqtt_refused,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\",\"platform\":\"$platform\",\"cfg_save\":\"$cfg_save\",\"cfg_save_msg\":\"$cfg_save_msg_json\",\"hostname\":\"$cam_hostname_json\"}"
 }

@@ -456,6 +456,7 @@ window.tc100I18nFr = {
   "LEDs and privacy": "LED et confidentialité",
   "Language and Wi-Fi": "Langue et Wi-Fi",
   "Last publish FAILED,": "Dernière publication ÉCHOUÉE,",
+  "The broker refused the MQTT user name or password,": "Le broker a refusé l'utilisateur ou le mot de passe MQTT,",
   "Last publish OK,": "Dernière publication réussie,",
   "Last reboot:": "Dernier redémarrage :",
   "Level": "Niveau",
@@ -500,6 +501,7 @@ window.tc100I18nFr = {
   "MQTT enabled — no publish recorded yet since boot.": "MQTT actif — aucune publication depuis le démarrage.",
   "MQTT publish status unavailable.": "État des publications MQTT indisponible.",
   "MQTT: fail": "MQTT : échec",
+  "MQTT: login refused": "MQTT : connexion refusée",
   "MQTT: ok": "MQTT : ok",
   "MQTT: waiting": "MQTT : en attente",
   "Main": "Principal",
@@ -901,6 +903,8 @@ window.tc100I18nFr = {
   "min": "min",
   "no card": "pas de carte",
   "no recent publish": "aucune publication récente",
+  "login refused by the broker": "identifiant refusé par le broker",
+  "refused by the broker": "refusé par le broker",
   "none": "aucune",
   "not mounted": "non montée",
   "not used": "inutilisée",
@@ -1036,6 +1040,10 @@ window.tc100I18nFr = {
   [
    "^Last publish FAILED, (.+)\\. Check broker connectivity\\.$",
    "Dernière publication ÉCHOUÉE, $1. Vérifiez la connexion au broker."
+  ],
+  [
+   "^The broker refused the MQTT user name or password, (.+)\\. Check them in Settings, MQTT and Home Assistant\\.$",
+   "Le broker a refusé l'utilisateur ou le mot de passe MQTT, $1. Vérifiez-les dans Réglages, MQTT et Home Assistant."
   ],
   [
    "^Device unreachable — last update (.+)$",

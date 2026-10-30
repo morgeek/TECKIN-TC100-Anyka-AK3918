@@ -99,7 +99,8 @@
           updateMqttBadge(
             typeof statusline.mqtt_enabled === "number" ? statusline.mqtt_enabled : -1,
             typeof statusline.mqtt_last_pub_ts === "number" ? statusline.mqtt_last_pub_ts : 0,
-            typeof statusline.mqtt_last_pub_ok === "number" ? statusline.mqtt_last_pub_ok : -1
+            typeof statusline.mqtt_last_pub_ok === "number" ? statusline.mqtt_last_pub_ok : -1,
+            typeof statusline.mqtt_refused === "number" ? statusline.mqtt_refused : 0
           );
           updateLumAwbLabels(typeof statusline.lum === "string" ? statusline.lum : "", typeof statusline.awb === "string" ? statusline.awb : "");
           if (typeof statusline.csrf_token === "string" && statusline.csrf_token.length > 0) {

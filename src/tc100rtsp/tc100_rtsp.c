@@ -484,14 +484,14 @@ static void tune_hw_apply(void)
 }
 
 /* ---- more of the picture work in the ISP (docs/linux-port/hardware-acceleration.md) ----------------------------------
- * - privacy masks (RTSP_ISPMASK=1, to be checked on a camera): AK_ISP_SET_MAIN_CHAN_MASK_AREA, _SUB_CHAN_MASK_AREA
+ * - privacy masks (default since rc8, HW-04 passed; RTSP_ISPMASK=0: by the CPU): AK_ISP_SET_MAIN_CHAN_MASK_AREA, _SUB_CHAN_MASK_AREA
  *   and _MASK_COLOR, the areas the 2.x firmware set on this camera through the vendor library (opaque colour: type 0,
  *   alpha 0); the CPU then paints nothing. Any refusal: painted by the CPU as before.
  * - sharpness (SHARPNESS): AK_ISP_SET_SHARP, the tuning file's medium and high frequency gains of the manual set and
  *   of the 9 gain-linked sets, 2 % per step (-50 = off, +50 = double).
  * - exposure cap (EXPOSURE_MAX_PCT): AK_ISP_SET_AE, exp_time_max at a percentage of the tuning file's value (less
  *   motion blur at night, darker picture), never below exp_time_min.
- * - the clock (RTSP_ISPOSD=1, to be checked on a camera, kernel patch 0014): drawn once a second into an OSD window
+ * - the clock (default since rc8, HW-07 passed; RTSP_ISPOSD=0: by the CPU; kernel patch 0014): drawn once a second into an OSD window
  *   the ISP blends into the main picture, instead of being written into every frame. Refusal (older kernel): CPU.
  * - the exposure state (AK_ISP_GET_AE_RUN_INFO) every 2 s in /tmp/cam_ae, for day / night: "lumi exp_time a_gain
  *   d_gain isp_d_gain dark_flag".
@@ -556,7 +556,7 @@ static void ispx_apply(void)
 	int fd = ispx_open(), i, n = 0;
 
 	if (fd < 0) return;
-	if (mask_hw < 0) mask_hw = e && e[0] == '1';
+	if (mask_hw < 0) mask_hw = !(e && e[0] == '0');
 	for (i = 0; i < 4; i++) n += p_mask[i][2] > p_mask[i][0] && p_mask[i][3] > p_mask[i][1];
 	if (mask_hw == 1 && (n || mask_n)) {
 		struct isp_masks mm, ms;
@@ -659,7 +659,7 @@ static void ispx_ae_report(double tn)
 	if (n > 0 && n < (int)sizeof b) wfile("/tmp/cam_ae", b, (size_t)n);
 }
 
-/* The clock in an ISP OSD window (RTSP_ISPOSD=1): colours 0 and 1 the black box, 2 the white text; 4 bits per pixel,
+/* The clock in an ISP OSD window (default; RTSP_ISPOSD=0: by the CPU): colours 0 and 1 the black box, 2 the white text; 4 bits per pixel,
  * the first pixel in the low nibble (RTSP_OSD_NIBBLE=1: high nibble), alpha RTSP_OSD_ALPHA (0..15, default 0). */
 static const unsigned char font57[14][5];
 static void osd_tick(void)
@@ -678,7 +678,7 @@ static void osd_tick(void)
 	if (osd_hw < 0) {
 		const char *e = getenv("RTSP_ISPOSD"), *nb = getenv("RTSP_OSD_NIBBLE"), *al = getenv("RTSP_OSD_ALPHA");
 
-		osd_hw = e && e[0] == '1' ? 2 : 0;	/* 2: to be tried */
+		osd_hw = e && e[0] == '0' ? 0 : 2;	/* 2: to be tried */
 		hi = nb && nb[0] == '1'; alpha = al && *al ? atoi_(al) & 15 : 0;
 	}
 	if (!osd_hw || ispx_open() < 0) return;
@@ -2656,7 +2656,16 @@ unsigned char *fpb[2] = { NULL, NULL };
 		const char *e = getenv("RTSP_POOLPAD");
 		unsigned pad = e && *e ? (unsigned)num(e) & ~3u : ftot;
 		int (*v2p)(unsigned long) = (int (*)(unsigned long))dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
+		unsigned long (*gf)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_free_pmem");
+		unsigned long (*gu)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_used_pmem");
+		unsigned long tot = gf && gu ? gf() + gu() : 0;
 
+		/* HW-02 test 2: a pool made smaller with ak39_venc.pool= (12 MiB by default) has no room for the guard;
+		 * the HW-01 failure was not reproduced without it (HW-01b), so no guard unless RTSP_POOLPAD asks for one */
+		if (!(e && *e) && tot && tot < 12u << 20) {
+			LOG("encoder pool: %lu bytes (ak39_venc.pool), no guard at its start\n", tot);
+			pad = 0;
+		}
 		if (pad && (pg = (uint32_t *)p_alloc((int)pad))) {
 			pg_len = pad;
 			for (unsigned i = 0; i < pad / 4; i++) pg[i] = PG_PAT;

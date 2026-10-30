@@ -38,6 +38,7 @@ Returns a JSON object with the current system status line, including the CSRF to
 | `mqtt_enabled` | string | `1` if MQTT bridge is active |
 | `mqtt_last_pub_ts` | string | Unix timestamp of last MQTT publish |
 | `mqtt_last_pub_ok` | string | `1` if last publish succeeded |
+| `mqtt_refused` | number | CONNACK code of the last refused connection (4 bad user name or password, 5 not authorized), `0` otherwise |
 | `default_password_active` | string | `1` if factory default password is still in use |
 | `csrf_token` | string | Per-boot CSRF token — use as `X-CSRF-Token` header |
 | `update_available` | string | `1` if an update is available |

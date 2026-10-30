@@ -157,12 +157,13 @@ settings kept), normal flash start (no card kernel): "Page block order: 7", 2 hi
 |---|---|---|---|
 | Copy of the pictures in the encoder pool | 3.4 MB of the pool always taken | only in copy mode | [HW-01](test-queue.md#hw-01-no-picture-copy-in-the-encoder-pool-with-direct-capture--to-test) |
 | Encoder pool | 12 MiB no-map, lost to the kernel | CMA area, `ak39_venc.pool=` gives the rest back | HW-02 |
-| Wi-Fi USB FIFO | one bus access per byte | 32-bit words (`otg_hs.fifo32=1`) | HW-03 |
-| Privacy masks | painted by the CPU in each frame | ISP mask areas (`RTSP_ISPMASK=1`) | HW-04 |
-| Sharpness | not applied on 3.0 | ISP `AK_ISP_SET_SHARP` (Image page) | HW-05 |
-| Exposure cap | not applied on 3.0 | ISP `AK_ISP_SET_AE` (Image page) | HW-06 |
-| OSD clock | drawn by the CPU in each frame | ISP OSD window, kernel patch 0014 (`RTSP_ISPOSD=1`) | HW-07 |
+| Wi-Fi USB FIFO | one bus access per byte | 32-bit words (`otg_hs.fifo32=1`, off: no gain measured in rc7) | HW-03 |
+| Privacy masks | painted by the CPU in each frame | ISP mask areas (default since rc8, `RTSP_ISPMASK=0` = CPU) | HW-04 passed |
+| Sharpness | not applied on 3.0 | ISP `AK_ISP_SET_SHARP` (Image page; 3 effective levels) | HW-05 works |
+| Exposure cap | not applied on 3.0 | ISP `AK_ISP_SET_AE` (Image page) | HW-06 passed |
+| OSD clock | drawn by the CPU in each frame | ISP OSD window, kernel patch 0014 (default since rc8, `RTSP_ISPOSD=0` = CPU) | HW-07 passed |
 | Light level for day / night | CPU sample of the picture after AE | AE state written to `/tmp/cam_ae` (not used yet) | HW-08 |
+| Capture buffers | 4 ISP slots armed, one 3.4 MB CMA buffer each | 3 (default since rc8, `ak39_vi.slots=4` = before) | P-02 passed |
 
 Not possible or not done: SD 4-bit (its data lines are the IR-cut GPIOs), USB DMA (vendor path unsafe), 3D-NR
 (memory), anti-flicker (vendor call unknown). Details and the test procedures: [test-queue.md](test-queue.md).

@@ -312,7 +312,10 @@
     if (mq) mq.style.display = st.mqtt_enabled === 1 ? "" : "none";
     if (st.mqtt_enabled === 1) {
       var age = st.mqtt_last_pub_ts > 0 ? Math.floor(Date.now() / 1000) - st.mqtt_last_pub_ts : -1;
-      put("rd_mqtt", st.mqtt_last_pub_ok === 1 && age >= 0 && age < 900 ? "connected" : "no recent publish", st.mqtt_last_pub_ok !== 1);
+      var mqRefused = st.mqtt_last_pub_ok === 0 && st.mqtt_refused > 0;
+      put("rd_mqtt", st.mqtt_last_pub_ok === 1 && age >= 0 && age < 900 ? "connected" :
+        (mqRefused ? (st.mqtt_refused >= 4 ? "login refused by the broker" : "refused by the broker") : "no recent publish"),
+        st.mqtt_last_pub_ok !== 1);
     }
     var prof = byId("osd_profile");
     if (prof && typeof st.perfprofile === "string") prof.textContent = "Profile " + st.perfprofile;
@@ -411,7 +414,7 @@
     document.body.insertBefore(banner, document.body.firstChild);
   }
 
-  function updateMqttBadge(mqttEnabled, lastPubTs, lastPubOk) {
+  function updateMqttBadge(mqttEnabled, lastPubTs, lastPubOk, refused) {
     var badge = byId("mqttbadge");
     if (!badge) return;
     var wrap = badge.parentElement;
@@ -434,6 +437,10 @@
       badge.textContent = "MQTT: ok";
       badge.title = "Last publish OK, " + ageStr + ".";
       badge.classList.add("mqtt-ok");
+    } else if (lastPubOk === 0 && refused >= 4) {
+      badge.textContent = "MQTT: login refused";
+      badge.title = "The broker refused the MQTT user name or password, " + ageStr + ". Check them in Settings, MQTT and Home Assistant.";
+      badge.classList.add("mqtt-fail");
     } else if (lastPubOk === 0) {
       badge.textContent = "MQTT: fail";
       badge.title = "Last publish FAILED, " + ageStr + ". Check broker connectivity.";
