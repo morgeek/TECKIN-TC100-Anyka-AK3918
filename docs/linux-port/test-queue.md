@@ -18,11 +18,35 @@ Rules that apply to every entry:
 - Measure with the `STAT` lines of `/tmp/logs/tc100_rtsp.log`, `scripts/cpu-profile.sh 60`, `/proc/meminfo`
   (`MemAvailable`), `/proc/interrupts` (two reads 60 s apart), and look at the picture (snapshot, VLC).
 
-## Blocking findings for the implementers (tester, 2026-10-30)
+## Tester report to the implementers (2026-10-30, IPCAM2 / .11 on the serial console)
 
-- **None open** after the evening run of 563dbff (see HW-01b and HW-03): the HW-01 stream failure and the stuck
-  Wi-Fi of the morning (bde3887) did not come back, with the HW-01 layout or the bde3887 binary either.
-- Still not run: HW-02 test 2, HW-03 measurement, HW-04 to HW-08, F-01 to F-04, most UI checks.
+Read this first. Details and numbers are under each entry.
+
+**Builds run today**
+- `cb20c19` / `80c0285` (rc5): 512 KB page blocks (`CONFIG_ARCH_FORCE_MAX_ORDER=7`), high-atomic reserve 1 MB,
+  no boot OOM; installed in the flash of IPCAM2 in the morning, and on IPCAM1 (.24) by its owner through the web UI.
+- `bde3887` (morning): kernel booted once from the card. HW-02 test 1 passed (MemTotal +12 MiB). The new
+  `tc100_rtsp` lost the main stream after 5-10 s (HW-01), and after a reboot from that kernel the RTL8188FU stayed in
+  `Failed power on` until a power cut (HW-03). Both were reported as blocking.
+- `563dbff` (evening, after a power cut): kernel from the card, then **installed in the flash** of IPCAM2 with
+  `update66.sh` (settings kept). **Neither problem came back**: HW-01b passed (no guard report, `RTSP_POOLPAD=0` and
+  even the bde3887 binary stream normally), 6 warm reboots after the new kernel all kept the Wi-Fi. MemAvailable
+  15.3-15.9 MB (10.8 on rc5), 15 fps, 84 % idle, UI-01 and F-05 passed. IPCAM2 now runs 563dbff from its flash.
+
+**No blocking finding is open.** IPCAM1 (.24) still runs the morning rc5; nothing of today's work is on it yet.
+
+**Asked of the implementers**
+1. The packages of bde3887 and 563dbff still say `3.0.1-rc5` (same as the morning build): bump `VERSION` (rc6) so the
+   cameras and the update page can tell them apart.
+2. HW-01b: the cause of the morning failure is unknown (bde3887 kernel or the degraded state of that session). Keep
+   the guard as a detector (it costs nothing while the pool is not shrunk); revisit with HW-02 test 2.
+3. The serial console shell (`tc100test/consoleshell`) has no `CURL_CA_BUNDLE`/ext `PATH`: `curl` there exits 60.
+   Harmless for the services; give login and console shells the same environment if it is cheap.
+4. Next on the camera (in this order unless told otherwise): an overnight soak of 563dbff, HW-02 test 2, HW-03
+   measurement with `fifo32=1`, HW-04 to HW-08 and F-01 to F-04, then the UI checks (need a browser on the LAN).
+
+**Rule kept for every new build:** first boot from the card (nothing written), Wi-Fi + 15 fps + memory checked,
+then the flash. A build that fails is written up here as `failed` with the serial log lines.
 
 ## Hardware use and memory (2026-10-30, commits `[hwaccel] ...`)
 
