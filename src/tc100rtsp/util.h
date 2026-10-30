@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <string.h>
 #include <strings.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* ---- RTSP paths ----------------------------------------------------------------------------------------------
  * 1 when the URL names the sub-stream: any path containing "video1" (video1, video1_unicast, /x/video1/track1),
@@ -162,6 +165,89 @@ static inline int idle_fps_now(int fps, int idle_fps, int idle_after, int md_on,
 	if (idle_fps < 1 || idle_fps >= fps || !md_on || rec_full) return fps;
 	if (idle_after < 1) idle_after = 1;
 	return now - last_event >= idle_after ? idle_fps : fps;
+}
+
+/* ---- log rotation ---------------------------------------------------------------------------------------------
+ * The log lives on tmpfs (RAM) and nothing trims it: when the file `path` (the one fd 1 and 2 append to) is larger
+ * than `max` bytes it becomes path.1 (an old .1 is replaced) and a fresh file takes its place on fd 1 and 2.
+ * path NULL or empty, or a missing file: nothing. Returns 1 when rotated. The new file starts with "log rotated". */
+static inline int log_rotate(const char *path, long max)
+{
+	struct stat sb;
+	char old[300];
+	size_t n;
+	int f;
+
+	if (!path || !*path || max < 1 || (n = strlen(path)) > sizeof old - 3 || stat(path, &sb) || sb.st_size <= max) return 0;
+	memcpy(old, path, n); memcpy(old + n, ".1", 3);
+	if (rename(path, old)) return 0;
+	f = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
+	if (f < 0) return 0;
+	dup2(f, 1); dup2(f, 2);
+	if (f > 2) close(f);
+	(void)!write(2, "log rotated\n", 12);
+	return 1;
+}
+
+/* ---- output queue size ------------------------------------------------------------------------------------------
+ * New capacity of a drained queue that held at most `hi` bytes in the last second: the smallest power-of-two multiple
+ * of `min` that is at least twice that (room for the next burst), at most `max`; `cap` when that is not smaller. */
+static inline int q_target(int hi, int cap, int min, int max)
+{
+	int t = min;
+
+	while (t < hi * 2 && t < max) t *= 2;
+	if (t > max) t = max;
+	return t < cap ? t : cap;
+}
+
+/* ---- one NAL scan per frame ------------------------------------------------------------------------------------
+ * The encoder output is uncached memory: it is copied once (nal_copy, 32-bit reads) and the Annex B start codes are
+ * found once in the copy, into a small table (offset of the NAL header byte, length up to the next start code with
+ * its leading zeros trimmed, header byte). Same cut as next_nal() of tc100_rtsp.c. */
+#define NALT_MAX 20
+struct nal_tab {
+	int n;
+	unsigned off[NALT_MAX], len[NALT_MAX];
+	unsigned char hdr[NALT_MAX];	/* first NAL byte (H.264: type = hdr & 31, H.265: (hdr >> 1) & 63) */
+};
+
+static inline void nal_copy(void *dst, const void *src, unsigned n)
+{	/* volatile 32-bit reads (never turned back into a byte loop): a byte read of write-combined memory is one bus
+	 * access each, a word read one per 4 bytes. The 0..3 tail bytes are read singly (no read past the buffer). */
+	uint32_t *d = (uint32_t *)dst;
+	const volatile uint32_t *s = (const volatile uint32_t *)src;
+	unsigned i, w = n >> 2;
+
+	if (((uintptr_t)dst | (uintptr_t)src) & 3) { memcpy(dst, src, n); return; }
+	for (i = 0; i < w; i++) d[i] = s[i];
+	for (i = w << 2; i < n; i++) ((unsigned char *)dst)[i] = ((const volatile unsigned char *)src)[i];
+}
+
+/* fills t (at most NALT_MAX NALs, the rest of the frame is ignored); returns t->n */
+static inline int nal_scan(struct nal_tab *t, const unsigned char *d, unsigned len)
+{
+	unsigned i = 0, start = 0;
+	int have = 0;
+
+	t->n = 0;
+	while (i + 3 <= len) {
+		if (d[i + 2] > 1) { i += 3; continue; }	/* no start code can begin at i, i+1 or i+2 */
+		if (d[i] == 0 && d[i + 1] == 0 && d[i + 2] == 1) {
+			if (have && t->n < NALT_MAX) {
+				unsigned e = i;
+
+				while (e > start && d[e - 1] == 0) e--;
+				t->off[t->n] = start; t->len[t->n] = e - start; t->hdr[t->n] = d[start]; t->n++;
+			}
+			start = i + 3; have = start < len;
+			i += 3;
+		} else i++;
+	}
+	if (have && t->n < NALT_MAX) {
+		t->off[t->n] = start; t->len[t->n] = len - start; t->hdr[t->n] = d[start]; t->n++;
+	}
+	return t->n;
 }
 
 #endif
