@@ -251,6 +251,13 @@ for f in /mnt/config/autostart/*; do
   sleep 1
 done
 
+# 12b2. Logs kept across reboots: the RAM logs (dmesg, syslog, tc100_rtsp and the other services) are copied to the card
+#       (/mnt/sd/logs/boot-NNNN, last 5 boots) every 10 minutes and before a deliberate reboot (reboot-tracker.sh intent
+#       calls it). The Logs page lists them. LOG_PERSIST=0 in boot.conf turns it off.
+if [ -f /mnt/scripts/log-persist.sh ] && [ "$(bootv LOG_PERSIST)" != 0 ]; then
+  ( exec sh /mnt/scripts/log-persist.sh run ) </dev/null >/dev/null 2>&1 &
+fi
+
 # 12c. Every minute (scripts/web-guard.sh): the web server answers (else restart httpfront, then a rescue telnet),
 #      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
 #      (sdinfo-sd.sh, also run once now).
