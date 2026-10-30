@@ -61,6 +61,30 @@
         <p class="help">Use Parse cap to keep the browser responsive on large logs; raw download still keeps full fetched text.</p>
       </div>
     </div>
+    <div class="card status_card info-card mt-4">
+      <header class="card-header">
+        <p class="card-header-title">
+          <span class="title-with-icon">
+            <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4l3 2M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4"/></svg>
+            <span>Logs of previous boots</span>
+          </span>
+        </p>
+      </header>
+      <div class="card-content">
+        <p class="help mb-2">With an SD card in the camera, the logs (kernel messages, system log, video server and services) are copied to it every 10 minutes and before a reboot. The last 5 boots are kept, so they can be read after a restart or a crash.</p>
+        <div id="savedLogs">
+          <p class="help" id="savedLogsWait">Looking for saved logs...</p>
+          <p class="help is-hidden" id="savedLogsNone">No saved logs yet: they need an SD card that is writable and not ejected, and a few minutes after the start.</p>
+        </div>
+        <template id="savedLogsTpl">
+          <div class="saved-boot mb-3">
+            <p class="is-size-7"><b class="sb-name"></b> <span class="tag is-light sb-cur is-hidden">This boot</span> <span class="sb-saved"></span></p>
+            <p class="is-size-7 sb-files"></p>
+          </div>
+        </template>
+      </div>
+    </div>
+
   </div>
 
   <div class="info-main">
@@ -675,5 +699,34 @@
   }
 
   loadLog(state.currentTab, false);
+  // Logs of the previous boots (scripts/log-persist.sh through cgi-bin/savedlogs.cgi)
+  (function loadSavedLogs() {
+    var box = document.getElementById("savedLogs"), tpl = document.getElementById("savedLogsTpl");
+    var wait = document.getElementById("savedLogsWait"), none = document.getElementById("savedLogsNone");
+    if (!box || !tpl || !tpl.content) { return; }
+    fetch("cgi-bin/savedlogs.cgi?_=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { if (!r.ok) { throw new Error("HTTP " + r.status); } return r.json(); })
+      .then(function (list) {
+        wait.classList.add("is-hidden");
+        if (!list.length) { none.classList.remove("is-hidden"); return; }
+        list.forEach(function (b) {
+          var node = tpl.content.cloneNode(true);
+          node.querySelector(".sb-name").textContent = b.boot;
+          if (b.current) { node.querySelector(".sb-cur").classList.remove("is-hidden"); }
+          node.querySelector(".sb-saved").textContent = b.saved || "";
+          var files = node.querySelector(".sb-files");
+          (b.files || []).forEach(function (f) {
+            var a = document.createElement("a");
+            a.href = "cgi-bin/savedlogs.cgi?boot=" + encodeURIComponent(b.boot) + "&file=" + encodeURIComponent(f.name);
+            a.setAttribute("download", b.boot + "-" + f.name);
+            a.textContent = f.name + " (" + Math.max(1, Math.round(f.size / 1024)) + " KB)";
+            files.appendChild(a);
+            files.appendChild(document.createTextNode("  "));
+          });
+          box.appendChild(node);
+        });
+      })
+      .catch(function () { wait.classList.add("is-hidden"); none.classList.remove("is-hidden"); });
+  })();
 })();
 </script>
