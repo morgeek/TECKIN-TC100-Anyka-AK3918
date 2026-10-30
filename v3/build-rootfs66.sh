@@ -34,8 +34,10 @@ install -m 755 "$HERE/S50dropbear-linux66" etc/init.d/S50dropbear
 for l in lib/ld-musl-*.so.1; do
   n=${l##*/ld-musl-}; printf '/lib\n/usr/lib\n/mnt/ext/lib\n' > "etc/ld-musl-${n%.so.1}.path"
 done
-# login shells (ssh, telnet, console): the tools of ext/ (curl, jq, iw, ...) on the PATH
-printf 'export PATH="$PATH:/mnt/ext/bin"\n' > etc/profile.d/tc100-ext.sh
+# login shells (ssh, telnet, console): the tools of ext/ (curl, jq, iw, ...) on the PATH, and the CA bundle of curl
+# (as autorun gives the services; without it curl over TLS exits 60)
+printf 'export PATH="$PATH:/mnt/ext/bin"\nexport CURL_CA_BUNDLE=/mnt/ext/etc/ssl/certs/ca-certificates.crt\n' \
+  > etc/profile.d/tc100-ext.sh
 # the serial console is started by S39tc100 (login prompt, or a shell if tc100test/consoleshell exists)
 sed -i '/ttySAK0/d' etc/inittab
 # default password of the OpenIPC image: lock it, S39tc100 sets the real one
