@@ -23,8 +23,16 @@ def sh(code, env=None, timeout=20):
     return subprocess.run(SH + ['-c', code], capture_output=True, text=True, timeout=timeout, env=e)
 
 
+def state_text(path):
+    """A CGI's text; state.cgi's helpers shared with statusline.cgi live in statelib.cgi."""
+    t = (ROOT / path).read_text()
+    if path.endswith('cgi-bin/state.cgi'):
+        t += '\n' + (ROOT / 'www/cgi-bin/statelib.cgi').read_text()
+    return t
+
+
 def function(path, name):
-    m = re.search(r'^' + re.escape(name) + r'\(\)\s*\{.*?^}', (ROOT / path).read_text(), re.M | re.S)
+    m = re.search(r'^' + re.escape(name) + r'\(\)\s*\{.*?^}', state_text(path), re.M | re.S)
     if not m:
         raise AssertionError((path, name))
     return m.group(0)

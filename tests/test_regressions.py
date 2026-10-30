@@ -22,9 +22,17 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 MQTT = 'scripts/mqtt-bridge.sh'
 
+def state_text(path):
+    """A CGI's text; state.cgi's helpers shared with statusline.cgi live in statelib.cgi."""
+    t = (ROOT / path).read_text()
+    if path.endswith('cgi-bin/state.cgi'):
+        t += '\n' + (ROOT / 'www/cgi-bin/statelib.cgi').read_text()
+    return t
+
+
 def function(path, name):
     match = re.search(r'^' + re.escape(name) + r'\(\)\s*\{.*?^}',
-                      (ROOT / path).read_text(), re.M | re.S)
+                      state_text(path), re.M | re.S)
     if not match:
         raise AssertionError((path, name))
     return match.group(0)
@@ -1296,8 +1304,8 @@ class WebUiSources(unittest.TestCase):
             shutil.rmtree(tmp)
 
     def test_statusline_and_func_cgi_avoid_subshells(self):
-        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
-        body = s[s.index('  statusline)\n'):s.index('  integrationtest)\n')]
+        s = (ROOT / 'www/cgi-bin/statelib.cgi').read_text()
+        body = s[s.index('statusline_json() {\n'):]
         subshells = [l.strip() for l in body.splitlines() if '$(' in l.replace('$((', '')]
         # only the one-time CSRF token creation and the rare non-hex token clean-up
         self.assertEqual(len(subshells), 3, subshells)
@@ -1319,7 +1327,9 @@ class WebUiSources(unittest.TestCase):
         html = (ROOT / 'www/index.html').read_text()
         self.assertIn('id="view_dashboard"', html); self.assertIn('id="view_live"', html)
         self.assertIn("if (mode !== 'dark' && mode !== 'light') mode = 'dark';", html)
-        self.assertIn('css/ui.css?v=', html)
+        self.assertIn('css/ui.bundle.min.css?v=', html)   # the three sheets in one file (src/webui/build-css.sh)
+        for old in ('css/ui.css', 'css/ui-modern.min.css', 'bulma.1.0.2.purged.min.css'):
+            self.assertNotIn('href="' + old, html)
 
 
 
@@ -1758,7 +1768,7 @@ class FrigateLiveAndSyslog(unittest.TestCase):
         self.assertLess(block.index('syslog_err'), block.index('rewrite_config'))
 
     def test_frigate_live_link_in_statusline(self):
-        state = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        state = state_text('www/cgi-bin/state.cgi')
         self.assertIn('\\"frigate_live\\":\\"$frigate_live\\"', state)
         action = action_cgi_text()
         self.assertIn('/mnt/config/frigate_live.conf', action)
@@ -1785,8 +1795,11 @@ class WebUiCss(unittest.TestCase):
 
     def test_ui_links_the_purged_bulma(self):
         self.assertFalse((ROOT / 'www/css/bulma.1.0.2.min.css').exists())
-        for f in [ROOT / 'www/index.html', ROOT / 'www/cgi-bin/wizard.cgi']:
-            self.assertIn('css/bulma.1.0.2.purged.min.css', f.read_text())
+        # the wizard loads the purged file alone; the main page loads it inside css/ui.bundle.min.css
+        self.assertIn('css/bulma.1.0.2.purged.min.css', (ROOT / 'www/cgi-bin/wizard.cgi').read_text())
+        self.assertIn('css/ui.bundle.min.css', (ROOT / 'www/index.html').read_text())
+        self.assertIn(re.sub(r'@charset "UTF-8";\s*', '', (ROOT / 'www/css/bulma.1.0.2.purged.min.css').read_text()).strip(),
+                      (ROOT / 'www/css/ui.bundle.min.css').read_text())
         self.assertLess((ROOT / 'www/css/bulma.1.0.2.purged.min.css').stat().st_size, 160_000)
 
 class ServicesAndStatus(unittest.TestCase):
@@ -1932,7 +1945,7 @@ class ServicesAndStatus(unittest.TestCase):
                 f.write_text(hdr + body)
                 r = run(fn + '\nWIFI_PROC_FILE=%s; get_wifi_quality; echo "$wifi_qual_json $wifi_iface_json"' % shlex.quote(str(f)))
                 self.assertEqual(r.stdout.decode().strip('\n'), want, body)
-        s = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        s = state_text('www/cgi-bin/state.cgi')
         self.assertIn('\\"wifi_qual\\":$wifi_qual_json', s)
 
 class ActionCommandFiles(unittest.TestCase):
