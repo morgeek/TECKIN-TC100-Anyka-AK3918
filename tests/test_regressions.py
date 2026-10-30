@@ -572,6 +572,30 @@ class Regressions(unittest.TestCase):
         self.assertEqual(response['error'], 'validation_failed')
         self.assertEqual((cfg / 'boot.conf').read_bytes(), before)
 
+    def test_legacy_import_takes_idle_rate_and_saved_logs(self):
+        cfg = self.base / 'config'; cfg.mkdir()
+        for name in ('boot.conf', 'mqtt.conf'):
+            (cfg / name).write_text((ROOT / ('config/' + name + '.dist')).read_text())
+        source = (ROOT / 'www/cgi-bin/conf-import.cgi').read_text().replace('/tmp/csrf_token', str(self.base / 'csrf'))
+
+        def post(body):
+            env = dict(os.environ, REQUEST_METHOD='POST', CONTENT_LENGTH=str(len(body)),
+                       TC_CONFIG_ROOT=str(cfg), CONFIG_TX_LIB=str(ROOT / 'scripts/config-transaction.sh'))
+            r = run(source, body, env, timeout=15)
+            return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
+
+        head = b'## tc100-boot-mqtt-export v1\n##[SECTION:boot.conf]##\n'
+        response = post(head + b'IDLE_FPS=5\nIDLE_AFTER=30\nLOG_PERSIST=0\nLOG_PERSIST_MIN=20\n')
+        self.assertTrue(response['ok'], response)
+        self.assertEqual(response['applied'], 4)
+        boot = (cfg / 'boot.conf').read_text()
+        for line in ('IDLE_FPS=5', 'IDLE_AFTER=30', 'LOG_PERSIST=0', 'LOG_PERSIST_MIN=20'):
+            self.assertIn('\n' + line + '\n', boot)
+        for bad in (b'IDLE_FPS=25\n', b'IDLE_AFTER=0\n', b'LOG_PERSIST=2\n', b'LOG_PERSIST_MIN=1441\n'):
+            before = (cfg / 'boot.conf').read_bytes()
+            self.assertEqual(post(head + bad)['error'], 'validation_failed', bad)
+            self.assertEqual((cfg / 'boot.conf').read_bytes(), before)
+
     def test_backup_restore_commits_staged_archive(self):
         mnt = self.base / 'mnt'; cfg = mnt / 'config'; cfg.mkdir(parents=True)
         src = self.base / 'source'; (src / 'config').mkdir(parents=True)
