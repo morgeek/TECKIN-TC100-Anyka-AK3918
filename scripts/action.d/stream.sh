@@ -25,13 +25,21 @@
       _rs_sub="$(normalize_bool "${F_rtsp_substream:-0}")"
       _rs_talk="$(normalize_bool "${F_rtsp_talk:-0}")"
       install_config /mnt/config/boot.conf
+      # the sub-stream is chosen when tc100_rtsp starts; two-way audio (RTSP_LITE_TALK) is read while it runs
+      _rs_old_sub="$(sed -n 's/^RTSP_SUBSTREAM="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)"
+      case "$_rs_old_sub" in 0|no|off|false) _rs_old_sub=0 ;; *) _rs_old_sub=1 ;; esac
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$_rs_sub"
       rewrite_config /mnt/config/boot.conf RTSP_LITE_TALK "$_rs_talk"
-      schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
-      if wants_json_response; then
-        json_body_ok "Sub-stream $_rs_sub, two-way audio $_rs_talk. The stream restarts."
+      if [ "$_rs_old_sub" != "$_rs_sub" ]; then
+        schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
+        _rs_msg="Sub-stream $_rs_sub, two-way audio $_rs_talk. The stream restarts."
       else
-        echo "Sub-stream $_rs_sub, two-way audio $_rs_talk. The stream restarts.<br/>"
+        _rs_msg="Sub-stream $_rs_sub, two-way audio $_rs_talk. Applied without restarting the stream."
+      fi
+      if wants_json_response; then
+        json_body_ok "$_rs_msg"
+      else
+        echo "$_rs_msg<br/>"
       fi
     ;;
 
