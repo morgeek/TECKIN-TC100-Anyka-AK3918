@@ -238,3 +238,55 @@ Not fixed, for later: the action endpoints left from 2.x that no page calls (`se
 `set_onvif_stream_policy`, `set_rtsp_preset`, `set_rtsp_quality_profile`, `set_client_profile`, `pair_home_assistant`,
 `complete_setup_wizard`, `conf_autodaynight`, ...); the performance profiles of `system.sh` write values 3.0 does not
 read; anti-flicker (see above).
+
+## New features using the freed CPU (2026-10-30, commits `[feat30] ...`, `[live] ...`)
+
+Checked before pushing with `tests/docker/local-ci.sh` (tests + ARM build); nothing run on a camera.
+
+### F-01 Live video in the browser (`live.cgi`, Media Source Extensions) — `to test`
+- **What:** the live view plays the camera's H.264 stream (sub-stream 640x360 when it is H.264, else the main stream)
+  as fragmented MP4, no re-encoding; "Video / Snapshots" switch on the live view (remembered by the browser); at most
+  2 viewers, a viewer is dropped after 1.5 s without reading, reconnects every 10 min. Snapshots as before otherwise.
+- **Test:** Chrome / Safari on a desktop and a phone: video within 1-3 s, `/tmp/tc100_live/status` reads
+  `stream=sub codec=avc1...`; CPU with Video vs Snapshots (`cpu-profile.sh 60`); a third tab stays on snapshots;
+  after closing the tabs `/tmp/tc100_live` is empty and the sub encoder stops (STAT); hiding the tab closes the
+  connection; 15 min of video over Wi-Fi (reconnect near 10 min without a long freeze); sub codec H.265 with main
+  H.264 serves the main stream, both H.265 = snapshots.
+- **Off:** "Snapshots" on the switch.
+
+### F-02 Frame rate select (Streams & audio) — `to test`
+- **What:** 10 / 12 / 15 (default) / 20 / 25 fps for both streams, `-f` from `rtspserver.conf [0] fps`; other values
+  mean 15. A camera holding 20 or 25 there from an old preset changes rate at the next stream restart.
+- **Test:** each rate: log `sensor: N fps`, STAT `cap` = N x 5 per 5 s, keyframe interval, CPU and Wi-Fi at 25.
+
+### F-03 Lower frame rate when nothing moves (`IDLE_FPS`, opt-in) — `to test`
+- **What:** with motion detection on, `IDLE_FPS=5`, `IDLE_AFTER=10` (boot.conf, Streams & audio card): after 10 s
+  without motion or sound event the encoders get 5 fps; full rate again at the first motion. Not applied while the
+  recorder writes continuously.
+- **Test:** stay still: log `idle frame rate: ... 5 fps instead of 15`, STAT `cap` 25 per 5 s; wave: `back to the full
+  rate` within about 1 s; Frigate and a motion recording still start correctly. **Off:** `IDLE_FPS=0`.
+
+### F-04 Day / night from the ISP exposure (`DAYNIGHT_SOURCE=ae|isp`, opt-in) — `to test`
+- **What:** index `exp_time * a_gain/256 * d_gain/256 * isp_d_gain/256` with `AE_NIGHT_ABOVE` / `AE_DAY_BELOW` (the
+  defaults 4000 / 1000 are placeholders), or the ISP's own dark flag; night after 10 s, day after 60 s. Live reading
+  on the Day/night tab. Default stays `luma`. Uses the HW-08 data.
+- **Test:** note the reading in daylight, dusk, night with IR on and off; set the thresholds (day clearly below the
+  IR-lit night index); switch to the `ae` source: no flapping when the IR LEDs come on. Check the gain unit (256 = 1x?).
+  **Off:** source "Picture luminance".
+
+### F-05 Logs kept across reboots (`scripts/log-persist.sh`, on by default) — `to test`
+- **What:** dmesg, syslog, `tc100_rtsp.log` and tails of the other logs to `/mnt/sd/logs/boot-NNNN` 120 s after the
+  start, every 10 min and before a reboot from the web UI (`reboot-tracker.sh intent`); last 5 boots, about 2 MB
+  each; skipped when the card is not vfat/exfat, ejected / recording paused, unhealthy or under 64 MB free. A bare
+  `reboot` in a shell and a panic keep only the last 10-minute copy. Logs page: "Logs of previous boots".
+- **Test:** files appear after about 2 min; reboot from the UI gives a `why=shutdown` save and `boot-0002`; nothing
+  written while ejected; card writes over a day are small. **Off:** `LOG_PERSIST=0`.
+
+### F-06 Memory Guard defaults (warn 6144 / critical 3072 KB) — `to test`
+- **What:** the old defaults (8192 / 4096) sat next to the normal MemAvailable; cameras holding exactly them are
+  migrated when the service starts; the warn stage no longer stops `auto-night-detection`.
+- **Test:** `/tmp/log/memory-guard.log` shows the migration once; no warn / critical stage in a day of normal use.
+  **Off:** `MEM_GUARD_ENABLE=0`.
+
+Not done: 3D-NR (its 6.2 MB reference frame does not fit until HW-01b / HW-02 free memory); `conf-import.cgi` does not
+know `IDLE_FPS` and `LOG_PERSIST` yet.
