@@ -627,8 +627,52 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
   9. With `HOUSEKEEPER=0` and a reboot, the separate `web-guard.sh run`, `log-persist.sh run` and `service-watchdog.sh`
      processes are back, and the Services page is still correct.
 
-Not done (listed for later): `cma=16M` (about 4 MB more for the kernel if 4 capture slots still fit: needs the owner's U-Boot
-change); moving wpa_supplicant + libnl out of the RAM image too (0.78 MB more, but no network without the user
-space); the Buildroot `S50telnet` (busybox telnetd on port 23 at every boot) and `S50dropbear` still start from the base image's
-init.d: owner's decision whether they stay; `CONFIG_IP_MULTICAST` is off, so ONVIF discovery (off by default) cannot
-work.
+Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM image, cfg-persist in the housekeeper.
+
+## Tester's accepted proposals (2026-10-30 night, build 3.0.1-rc7)
+
+### P-01 IP multicast in the kernel (ONVIF discovery) — `to test`
+- **What:** `CONFIG_IP_MULTICAST=y` in `defconfig_cma`; ONVIF WS-Discovery needs it.
+- **Test:**
+  1. Turn ONVIF on in Services.
+  2. Home Assistant (ONVIF integration, "discover") or ONVIF Device Manager finds the camera without typing its IP.
+  3. `cat /proc/net/igmp` lists 239.255.255.250 on wlan0 while monvifd runs.
+- **Off:** the previous kernel.
+
+### P-02 Three capture buffers instead of four (`ak39_vi.slots=3`, opt-in) — `to test`
+- **What:** a module parameter, default 4 (nothing changes without it). With `slots=3` one 1080p capture buffer
+  (~3.4 MB of CMA) is not allocated. The ISP's fourth slot stays unarmed: this is the same state as when
+  `tc100_rtsp` holds a buffer.
+- **Test (from the card only, kernel command line):**
+  1. Boot `c66.img` with `ak39_vi.slots=3` added through `EXTRA` of `pack66/boot66b.sh`. Keep `/proc/cmdline` under
+     256 characters.
+  2. `cat /sys/module/ak39_vi/parameters/slots` gives 3.
+  3. `grep -i cma /proc/meminfo`: CmaFree about 3.4 MB higher than with 4.
+  4. 15 fps in STAT (`cap` 75 per 5 s), `dropped` 0, the kernel's `stream stopped: N frames, M skipped irqs` with M
+     small, over 30 minutes.
+  5. Then the same at 25 fps (P-04).
+- **Pass:** no frame lost against 4 buffers. Then it can become the default through the device tree; that is the
+  owner's decision. No U-Boot change is needed for the test.
+
+### P-03 Buildroot base cached in the CI — `to test` (CI only)
+- **What:** `build-base-rootfs.yml` keeps the finished `rootfs.cpio.gz`. The key hashes `v3/buildroot/**` and the
+  workflow; a hit skips the Buildroot build.
+- **Test:** a push that does not touch `v3/buildroot` builds in a few minutes and gives the same base artifact (same
+  size as the previous run). A change in `v3/buildroot` rebuilds it.
+
+### P-04 Higher frame rate: 20 or 25 fps at what CPU cost — `to test` (owner's question)
+- **What:** the JX-F23 sensor driver tops out at 25 fps (`MAX_FPS`). Settings > Streams & audio already offers 10 /
+  12 / 15 / 20 / 25 (F-02), and 15 is only the default. On rc6, 15 fps leaves 79-84 % of the CPU idle. Encoding is
+  done by the hardware; the CPU cost per frame is capture handling, frame copy (O-05), RTP and the Wi-Fi interrupts.
+  The latter depend on the bit rate, not on the frame rate.
+- **Test** (same scene, one RTSP client + the dashboard; 2 minutes at each rate):
+  1. `scripts/cpu-profile.sh 60` and `top` idle %.
+  2. STAT: `cap`, `enc`, `dropped`, `enc_ms`, `snd_ms`, `pp_ms`.
+  3. `MemAvailable`.
+  4. The picture in VLC: motion smoothness, and blockiness at the same bit rate.
+  5. Rates: 15, 20 and 25, then 25 with the main bit rate raised by 1.5x (the same bits are shared by more frames).
+- **Decision rule (implementer, after the numbers):** the default goes to 20, or 25, if idle stays above about 55 %
+  with one client and the dashboard, `dropped` stays 0, and Wi-Fi keeps up (`snd_ms` steady). The bit rate default
+  follows if the picture needs it.
+
+Not done (listed for later): one front LED choice in Settings (waits for LED-01 on the new build).
