@@ -178,6 +178,7 @@
     // #dashboard (default), #live, or the id of a menu entry (#status,
     // #nav_video, #logs…) to come back to the same page after a reload.
     var hash = document.location.hash;
+    if (hash === "#nav_audio") hash = "#nav_video";   // the Audio section is now part of Streams & audio
     var hashTarget = null;
     if (hash && hash !== "#dashboard" && hash !== "#live" && /^#[A-Za-z][\w-]*$/.test(hash)) {
       hashTarget = document.querySelector(hash);

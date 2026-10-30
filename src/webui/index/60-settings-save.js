@@ -64,8 +64,10 @@
     else out.textContent = (v > 0 ? "+" : "") + v;
   }
 
-  function loadIspTune(root) {
+  // withMasks: also (re)draw the privacy masks, which live in their own form (Privacy & overlay)
+  function loadIspTune(root, withMasks) {
     var form = (root || document).querySelector("#formIspTune");
+    var maskForm = (root || document).querySelector("#formMasks");
     if (!form) return;
     form.querySelectorAll('input[type="range"]').forEach(function(input) {
       if (!input.dataset.ispBound) {
@@ -89,7 +91,13 @@
         });
         var hz = form.querySelector("#isp_power_hz");
         if (hz) hz.value = conf.POWER_HZ ? String(conf.POWER_HZ) : "";
-        initPrivacyMasks(form, conf);
+        if (maskForm && withMasks !== false) initPrivacyMasks(maskForm, conf);
+        var maskStatus = maskForm && maskForm.querySelector("#mask_applied");
+        if (maskStatus) {
+          var m = d.applied;
+          if (!m) maskStatus.textContent = "Waiting for the video server to report applied values…";
+          else maskStatus.textContent = (m.MASKS ? m.MASKS + " privacy mask(s) applied" + (m.MASK_RC ? " (error " + m.MASK_RC + ")" : "") : "No privacy mask applied") + ".";
+        }
         var status = form.querySelector("#isp_tune_applied");
         if (status) {
           var a = d.applied;
@@ -99,7 +107,7 @@
             ", saturation " + a.SATURATION + ", sharpness " + a.SHARPNESS + ", hue " + a.HUE +
             (a.POWER_HZ ? ", " + a.POWER_HZ + " Hz" : "") +
             (a.EXPOSURE_NOW ? ", exposure max " + a.EXPOSURE_NOW + (a.EXPOSURE_ORIG ? " / " + a.EXPOSURE_ORIG : "") : "") +
-            (a.MASKS ? ", " + a.MASKS + " privacy mask(s)" + (a.MASK_RC ? " (error " + a.MASK_RC + ")" : "") : "") + ".";
+            ".";
         }
       })
       .catch(function() {
@@ -123,7 +131,8 @@
           .then(function(config) { result.settingsConfig = config; return result; })
           .catch(function() { return { ok: false, unconfirmed: true, message: "The video check passed, but current values could not be refreshed. Reopen Settings before making more changes." }; });
       }
-      if (command === "isp_tune") setTimeout(function() { loadIspTune(document); }, 4000);
+      // the masks are redrawn only after a mask save: saving the sliders must not drop masks being drawn
+      if (command === "isp_tune") setTimeout(function() { loadIspTune(document, params.has("isp_mask_form")); }, 4000);
       if (command !== "set_video_params" && command !== "conf_audioin") return result;
       progress("Checking the saved settings…", "pending");
       // One read after an explicit save; no new background polling loop.

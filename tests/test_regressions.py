@@ -1628,6 +1628,21 @@ class SettingsByUse(unittest.TestCase):
         self.assertLess(block.index('/mnt/config/daynight.conf'), block.index('if [ -n "${F_osd_form}" ]'))
         self.assertLess(block.index('if [ -n "${F_osd_form}" ]'), block.index('setconf -k o'))
         self.assertIn('name="osd_form"', (ROOT / 'www/settings.html').read_text())
+        # orientation alone (Settings -> Picture) is handled outside the osd_form block
+        self.assertGreater(block.index('if [ -n "${F_imageflip+x}" ]'), block.index('setconf -k y'))
+
+    def test_isp_tune_mask_only_form_keeps_the_tuning_switch(self):
+        block = action_arm('isp_tune')
+        self.assertNotIn('_it_masks', block)
+        self.assertIn('_it_want="$(isp_tune_enabled)"', block)
+        self.assertIn('if [ -n "${F_isp_enable+x}" ] || [ -n "${F_isp_brightness+x}" ]; then', block)
+        html = (ROOT / 'www/settings.html').read_text()
+        mask_form = html[html.index('id="formMasks"'):html.index('id="formISP"')]
+        self.assertIn('name="isp_mask_form"', mask_form)
+        for field in ('isp_enable', 'isp_brightness', 'isp_contrast'):
+            self.assertNotIn('name="%s"' % field, mask_form)
+        tune_form = html[html.index('id="formIspTune"'):html.index('id="formOrientation"')]
+        self.assertNotIn('isp_mask_form', tune_form)
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
@@ -1651,7 +1666,7 @@ class SettingsLayout(unittest.TestCase):
         html = (ROOT / 'www/settings.html').read_text()
         tabs = re.findall(r'data-tab="([^"]+)"', html)
         # sidebar order (2.1.0): Image, Video & audio, Events, Network & integrations, System
-        self.assertEqual(tabs, ['tab-image', 'tab-daynight', 'tab-video', 'tab-audio', 'tab-detect', 'tab-record',
+        self.assertEqual(tabs, ['tab-image', 'tab-overlay', 'tab-daynight', 'tab-video', 'tab-detect', 'tab-record',
                                 'tab-network', 'tab-integrations', 'tab-system', 'tab-backup'])
         self.assertIn('id="settings_search"', html)
         self.assertIn('window.tc100SettingsTab = ', html)
@@ -1659,10 +1674,22 @@ class SettingsLayout(unittest.TestCase):
             a = html.index('id="%s"' % t)
             nxt = [html.index('id="%s"' % o, a + 1) for o in tabs if html.find('id="%s"' % o, a + 1) > 0]
             return html[a:min(nxt) if nxt else len(html)]
-        self.assertIn('id="formIspTune"', tab('tab-image')); self.assertIn('id="formISP"', tab('tab-image'))
-        self.assertNotIn('daynightlum', tab('tab-image'))
+        self.assertIn('id="formIspTune"', tab('tab-image')); self.assertIn('id="formOrientation"', tab('tab-image'))
+        self.assertNotIn('daynightlum', tab('tab-image')); self.assertNotIn('isp_mask1', tab('tab-image'))
+        self.assertIn('id="formMasks"', tab('tab-overlay')); self.assertIn('id="formISP"', tab('tab-overlay'))
+        self.assertNotIn('id="imageflip"', tab('tab-overlay'))
+        self.assertNotIn('switches live tuning on', html)
         self.assertIn('id="formDayNight"', tab('tab-daynight')); self.assertIn('data-cam-panel', tab('tab-daynight'))
-        self.assertIn('id="formAudioAdvanced"', tab('tab-audio'))
+        self.assertIn('id="formAudioAdvanced"', tab('tab-video')); self.assertIn('id="dash_rtsp_link_0"', tab('tab-video'))
+        self.assertNotIn('id="dash_rtsp_link_0"', tab('tab-integrations'))
+        self.assertIn("'tab-audio': 'tab-video'", html)                      # old section id still lands somewhere
+        self.assertIn('id="btnRecEject"', tab('tab-record')); self.assertIn('id="sd_card_box"', tab('tab-record'))
+        self.assertIn('id="ha_discovery_badge"', tab('tab-integrations'))
+        self.assertIn('id="wifiRescueInfo"', tab('tab-network'))
+        self.assertLess(html.index('id="formPassword"'), html.index('id="formLeds"'))
+        self.assertLess(html.index('id="formLeds"'), html.index('id="formRebootSchedule"'))
+        self.assertLess(html.index('id="formRebootSchedule"'), html.index('id="formTuning"'))
+        self.assertLess(html.index('id="formTuning"'), html.index('id="btnWizardReset"'))
         self.assertIn('data-service="motion-detection"', tab('tab-detect'))
         self.assertIn('id="formLocalRec"', tab('tab-record'))
         self.assertIn('id="fwuFile"', tab('tab-backup')); self.assertNotIn('id="fwuFile"', tab('tab-system'))
@@ -1672,7 +1699,7 @@ class SettingsLayout(unittest.TestCase):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         self.assertEqual(dup, [])
         # every form that existed before the move is still there
-        for form in ('formVideoAdvanced', 'formVideoSub', 'formAudioAdvanced', 'formISP', 'formIspTune', 'formMQTT',
+        for form in ('formVideoAdvanced', 'formVideoSub', 'formAudioAdvanced', 'formISP', 'formIspTune', 'formMasks', 'formOrientation', 'formMQTT',
                      'formFrigateLive', 'formDetect', 'formTelegram', 'formSyslog', 'formNetwork',
                      'formTime', 'formTuning', 'formLeds', 'formRebootSchedule', 'preset_dropdown', 'fwuFile'):
             self.assertIn('id="%s"' % form, html)
