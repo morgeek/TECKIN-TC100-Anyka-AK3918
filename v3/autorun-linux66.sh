@@ -192,6 +192,12 @@ echo "[tc100-v3] WebUI active on port 80" > /dev/console
 #    them with sh.
 : > /tmp/linux66
 CS=/mnt/controlscripts
+# One resident loop for the slow periodic jobs (scripts/housekeeper.sh: web guard, network guard, SD panel, and the jobs
+# the control scripts register: RTSP/MQTT watchdogs, health snapshot, log persistence) instead of one shell process each.
+# HOUSEKEEPER=0 in boot.conf (or no script, or a loop that did not start): the separate daemons of before, started below.
+if [ "$BC_HOUSEKEEPER" != 0 ] && [ -f /mnt/scripts/housekeeper.sh ]; then
+  sh /mnt/scripts/housekeeper.sh start </dev/null >/dev/null 2>&1
+fi
 # RTSP restarter (scripts/service-watchdog.sh through the rtsp-h26x shim): tc100_rtsp was started above
 [ "$NEWRTSP" = 1 ] && [ -f $CS/rtsp-h26x ] && sh $CS/rtsp-h26x watchdog </dev/null >/dev/null 2>&1
 # ONVIF Discovery (monvifd): off by default as on 2.x, on when switched on in Services (config/autostart/onvif)
@@ -282,7 +288,10 @@ done
 #       (/mnt/sd/logs/boot-NNNN, last 5 boots) every 10 minutes and before a deliberate reboot (reboot-tracker.sh intent
 #       calls it). The Logs page lists them. LOG_PERSIST=0 in boot.conf turns it off.
 if [ -f /mnt/scripts/log-persist.sh ] && [ "$BC_LOG_PERSIST" != 0 ]; then
-  ( exec sh /mnt/scripts/log-persist.sh run ) </dev/null >/dev/null 2>&1 &
+  # a job of the housekeeper (first save after 120 s, then every LOG_PERSIST_MIN minutes), else a loop of its own
+  sh /mnt/scripts/housekeeper.sh job add log-persist bg 600 120 /var/run/log-persist.pid \
+    sh /mnt/scripts/log-persist.sh hk </dev/null >/dev/null 2>&1 ||
+    ( exec sh /mnt/scripts/log-persist.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
 # 12c. Every minute (scripts/web-guard.sh): the web server answers (else restart httpfront, then a rescue telnet),
@@ -291,7 +300,8 @@ fi
 sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
 # the Recordings page plays and downloads /DCIM/<clip>.mkv and shows /DCIM/<clip>.jpg
 [ -e /tmp/www/DCIM ] || ln -sfn /mnt/DCIM /tmp/www/DCIM
-( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
+# (the housekeeper does these three checks itself; web-guard.sh run is the loop of HOUSEKEEPER=0)
+sh /mnt/scripts/housekeeper.sh active </dev/null >/dev/null 2>&1 || ( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
 
 # 12d. Update notice (boot.conf UPDATE_CHECK=1): asks GitHub once the clock is set (curl + jq of the flash image)
 case "$BC_UPDATE_CHECK" in

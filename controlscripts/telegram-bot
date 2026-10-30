@@ -51,14 +51,17 @@ start()
     ## Watchdog — only when the bot is configured; an unconfigured daemon
     ## exits immediately and a watchdog would restart-loop it forever.
     if bot_configured && ! checkpid "$WATCHDOG_PIDFILE"; then
+      sh /mnt/scripts/housekeeper.sh watch-add telegram-bot "$WATCHDOG_PIDFILE" </dev/null >/dev/null 2>&1 || {
       /mnt/scripts/service-watchdog.sh /mnt/controlscripts/telegram-bot 0 status &
       echo "$!" > "$WATCHDOG_PIDFILE"
+      }
     fi
   fi
 }
 
 stop()
 {
+  sh /mnt/scripts/housekeeper.sh watch-del telegram-bot </dev/null >/dev/null 2>&1   # job of the housekeeper: its pid file goes
   killpid_graceful "$WATCHDOG_PIDFILE" 3
   killpid_graceful "$PIDFILE" 5
   echo "Bot stopped"
