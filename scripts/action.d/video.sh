@@ -67,8 +67,8 @@
     ;;
 
     isp_pro)
-      # Two forms post here: Settings → Day/night (the four thresholds) and
-      # Settings → Image (on-screen text and orientation). Each part is only
+      # Three forms post here: Settings → Day/night (the thresholds), Settings → Privacy & overlay
+      # (on-screen clock, osd_form) and Settings → Picture (orientation only). Each part is only
       # written when its fields were sent.
       if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then
         # scripts/auto-night-daemon.sh compares the mean picture luminance (0-255), read while it runs
@@ -98,13 +98,6 @@
             0 osdfontsize "$osdfontsize0" \
             0 osdx "$osdx0" \
             0 osdy "$osdy0"
-        # Orientation (0 normal, 1 flip = upside down, 2 mirror = left-right, 3 both = rotated 180): the ISP does it
-        # at once (setconf -k f -> isp_flip); rtsp-launch.sh applies the stored value after every video start.
-        if [ -n "${F_imageflip+x}" ]; then
-          _flip=$(sanitize_int_range "${F_imageflip}" 0 3 0)
-          /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " imageflip "$_flip"
-          /mnt/bin/setconf -k f -v "$_flip"
-        fi
         /mnt/bin/setconf -k l -v "$osdenabled"
         /mnt/bin/setconf -k o -v "$osdtext"
         /mnt/bin/setconf -k h -v "$osdalpha"
@@ -114,6 +107,14 @@
         /mnt/bin/setconf -k s -v "$osdfontsize0"
         /mnt/bin/setconf -k x -v "$osdx0"
         /mnt/bin/setconf -k y -v "$osdy0"
+      fi
+      # Orientation (0 normal, 1 flip = upside down, 2 mirror = left-right, 3 both = rotated 180): the ISP does it
+      # at once (setconf -k f -> isp_flip); rtsp-launch.sh applies the stored value after every video start.
+      # Settings -> Picture posts only this field: nothing else is touched.
+      if [ -n "${F_imageflip+x}" ]; then
+        _flip=$(sanitize_int_range "${F_imageflip}" 0 3 0)
+        /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " imageflip "$_flip"
+        /mnt/bin/setconf -k f -v "$_flip"
       fi
 
       if wants_json_response; then
@@ -161,7 +162,6 @@
       [ -n "${F_isp_hue+x}" ] && isp_tune_set HUE "$F_isp_hue"
       [ -n "${F_isp_power_hz+x}" ] && isp_tune_set POWER_HZ "$F_isp_power_hz"
       [ -n "${F_isp_exposure_max_pct+x}" ] && isp_tune_set EXPOSURE_MAX_PCT "$F_isp_exposure_max_pct"
-      _it_masks=0
       for _it_k in $ISP_MASK_KEYS; do
         case "$_it_k" in
           MASK1) _it_in="$F_isp_mask1" ;; MASK2) _it_in="$F_isp_mask2" ;;
@@ -171,11 +171,14 @@
         # Old pages (no mask fields): leave the masks as they are.
         [ -n "${F_isp_mask_form:-}" ] || continue
         isp_tune_set "$_it_k" "$_it_in" || continue
-        case "$_it_k" in MASK[1-4]) [ -n "$_it_in" ] && _it_masks=1 ;; esac
       done
-      _it_want="$(normalize_bool "${F_isp_enable}")"
-      # The masks are applied by the tuning thread: drawing one switches it on.
-      [ "$_it_masks" = 1 ] && _it_want=1
+      # The tuning switch is only touched by the form that has it (Settings -> Picture: sliders or the
+      # switch posted). The mask form (Privacy & overlay) posts only mask fields: the masks apply whatever
+      # the switch is (tc100_rtsp), and it must not switch live tuning off.
+      _it_want="$(isp_tune_enabled)"
+      if [ -n "${F_isp_enable+x}" ] || [ -n "${F_isp_brightness+x}" ]; then
+        _it_want="$(normalize_bool "${F_isp_enable}")"
+      fi
       _it_msg="Image settings saved; applied within a few seconds."
       if [ "$_it_want" != "$(isp_tune_enabled)" ]; then
         install_config /mnt/config/boot.conf

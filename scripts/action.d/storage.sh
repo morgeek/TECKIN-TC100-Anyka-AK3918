@@ -7,7 +7,7 @@
   case "$F_cmd" in
 
     # Local backup recording (libtc100fix, src/tc100fix/rec.c): settings in
-    # boot.conf, applied by restarting the RTSP server.
+    # boot.conf, read live by tc100_rtsp (no restart).
     set_local_recording)
       install_config /mnt/config/boot.conf
       _lr_on=$(normalize_bool "${F_rec_local}")
