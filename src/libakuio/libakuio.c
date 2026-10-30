@@ -235,7 +235,11 @@ unsigned long akuio_alloc_pmem(int size)
 	b->used = 1;
 	used_bytes += b->size;
 	DBG("A %u @%x used %u\n", need, b->off, used_bytes);
-	if (!getenv("AKUIO_NOZERO"))	/* the pool keeps the previous process' data: hand out zeroed memory */
+	static int nozero = -1;
+
+	if (nozero < 0)
+		nozero = getenv("AKUIO_NOZERO") != NULL;
+	if (!nozero)	/* the pool keeps the previous process' data: hand out zeroed memory */
 		memset(pool + b->off, 0, need);
 	pthread_mutex_unlock(&lock);
 	return (unsigned long)(pool + b->off);
@@ -449,8 +453,17 @@ void akuio_wait_irq(unsigned long arg)
 	int dummy = 0;
 	int *res = arg ? (int *)arg : &dummy;
 	uint32_t st = 0;
+	static int env_read, e_stray, e_regscan, e_irqdbg;	/* the debug switches, read once (not 8 getenv per wait) */
+	static const char *e_dump;
 
-	if (getenv("AKUIO_STRAY")) {	/* debug: address-looking words of the small blocks (command lists) that point outside the pool */
+	if (!env_read) {
+		e_stray = getenv("AKUIO_STRAY") != NULL;
+		e_regscan = getenv("AKUIO_REGSCAN") != NULL;
+		e_irqdbg = getenv("AKUIO_IRQDBG") != NULL;
+		e_dump = getenv("AKUIO_DUMP");
+		env_read = 1;
+	}
+	if (e_stray) {	/* debug: address-looking words of the small blocks (command lists) that point outside the pool */
 		static int shown;
 		struct blk *bk;
 
@@ -471,7 +484,7 @@ void akuio_wait_irq(unsigned long arg)
 	}
 	{
 		static int n;
-		const char *pre = getenv("AKUIO_DUMP");
+		const char *pre = e_dump;
 
 		if (pre) {	/* snapshot of the small pool blocks (command lists, tables) */
 			char name[96];
@@ -493,7 +506,7 @@ void akuio_wait_irq(unsigned long arg)
 			}
 		}
 	}
-	if (regs && getenv("AKUIO_REGSCAN")) {	/* debug: DRAM-looking register values outside the pool (a DMA target the kernel does not own) */
+	if (regs && e_regscan) {	/* debug: DRAM-looking register values outside the pool (a DMA target the kernel does not own) */
 		static uint32_t seen_o[64], seen_v[64];
 		static int nseen;
 		uint32_t o;
@@ -516,10 +529,10 @@ void akuio_wait_irq(unsigned long arg)
 		}
 	}
 	struct timeval t0, t1;
-	if (getenv("AKUIO_IRQDBG")) irqdbg("pre ");
+	if (e_irqdbg) irqdbg("pre ");
 	gettimeofday(&t0, NULL);
 	if (ioctl(fd, AKUIO_WAIT_IRQ, (unsigned long)res) < 0) {
-		if (getenv("AKUIO_IRQDBG")) irqdbg("FAIL");
+		if (e_irqdbg) irqdbg("FAIL");
 		ERR("akuio_wait_irq: ioctl AKUIO_WAIT_IRQ error: %s\n",
 		    strerror(errno));
 		return;
@@ -552,11 +565,11 @@ void akuio_wait_irq(unsigned long arg)
 			uint32_t b4 = *s18;
 
 			*s18 = clr == 1 ? b4 : clr == 2 ? 0 : 0xffffffffu;
-			if (getenv("AKUIO_IRQDBG"))
+			if (e_irqdbg)
 				fprintf(stderr, "CLR mode %d: 0x18 %08x -> %08x\n", clr, b4, *s18);
 		}
 	}
-	if (getenv("AKUIO_IRQDBG")) {
+	if (e_irqdbg) {
 		char tb[64];
 		int tn;
 
