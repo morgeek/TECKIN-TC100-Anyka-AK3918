@@ -934,7 +934,15 @@ window.tc100I18nFr = {
   "Your version:": "Votre version :",
   "Please visit the GitHub repository to download the update.": "Rendez-vous sur le dépôt GitHub pour télécharger la mise à jour.",
   "Network traffic over the last minutes": "Trafic réseau des dernières minutes",
-  "CPU and memory use over the last minutes": "Charge CPU et mémoire des dernières minutes"
+  "CPU and memory use over the last minutes": "Charge CPU et mémoire des dernières minutes",
+  "Hide": "Masquer",
+  "Hide password": "Masquer le mot de passe",
+  "The network name (SSID) is required.": "Le nom du réseau (SSID) est obligatoire.",
+  "The password must be 8 to 63 characters.": "Le mot de passe doit faire de 8 à 63 caractères.",
+  "Quotes and backslashes cannot be used in the network name or the password.": "Les guillemets et les barres obliques inverses ne sont pas autorisés dans le nom du réseau ni le mot de passe.",
+  "Could not reach the camera.": "La caméra est injoignable.",
+  "The rescue Wi-Fi state could not be read.": "L'état du Wi-Fi de secours n'a pas pu être lu.",
+  "8 to 63 characters. Open networks (no password) cannot be set from here.": "De 8 à 63 caractères. Les réseaux ouverts (sans mot de passe) ne peuvent pas être réglés ici."
  },
  "rules": [
   [

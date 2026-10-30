@@ -712,3 +712,7 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
 #fw_version, #brand_host { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-facts dd, .dash-sub { overflow-wrap: anywhere; }
 @media (max-width: 480px) { .dash-table { display: block; overflow-x: auto; } }
+
+/* ---- settings pass (2026-10) ---- */
+.settings-nav a:focus-visible { outline: 2px solid var(--v2-accent); outline-offset: -2px; }
+.settings-nav a[aria-current="page"] { font-weight: 650; }
