@@ -40,6 +40,8 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <time.h>
@@ -62,7 +64,7 @@
 #define CACHE_MAX (1536 * 1024)
 #define CACHE_MAX_SUB (384 * 1024)
 #define CACHE_FRAMES 128
-#define QMAX (768 * 1024)	/* per-client output queue limit */
+#define QMAX_DEF (384 * 1024)	/* per-client output queue limit: about 2 s at 1.6 Mbit/s (was 768 KB; RTSP_QMAX=768 restores it) */
 #define QMIN (64 * 1024)	/* what a drained queue is cut back to (at least) */
 #ifndef CONF
 #define CONF "/mnt/config/"
@@ -1272,7 +1274,11 @@ static void cli_close(struct cli *c)
 }
 
 /* output queue: the socket is non-blocking; a slow client never stalls the encoder, it just skips to the next IDR */
-static int qfree(struct cli *c) { return QMAX - (c->qlen - c->qpos); }
+/* RTSP_QMAX (KB, 64..2048) sets the limit; unset: 384 KB, raised to 1.5 s of the main bit rate (at most 768 KB) so that an IDR
+ * frame always fits. Read once in main(). */
+static int q_cap = QMAX_DEF;
+static int qburst_on = 1;	/* RTSP_QBURST=0: a late joiner whose queue cannot take the whole GOP cache waits for the next IDR */
+static int qfree(struct cli *c) { return q_cap - (c->qlen - c->qpos); }
 
 static int qsend(struct cli *c, const void *p, int n)
 {
@@ -1286,7 +1292,7 @@ static int qsend(struct cli *c, const void *p, int n)
 			c->qlen -= c->qpos; c->qpos = 0;
 		}
 		while (nc < c->qlen + n) nc *= 2;
-		if (nc > QMAX + 4096) nc = QMAX + 4096;
+		if (nc > q_cap + 4096) nc = q_cap + 4096;
 		if (c->qlen + n > nc) return -1;
 		if (nc > c->qcap) {
 			nq = realloc(c->q, nc);
@@ -1300,7 +1306,7 @@ static int qsend(struct cli *c, const void *p, int n)
 	return 0;
 }
 
-/* The queue grows for a congested client (up to QMAX) and is not needed that big afterwards: once a second, when it is
+/* The queue grows for a congested client (up to q_cap) and is not needed that big afterwards: once a second, when it is
  * empty, it is cut to what the last second needed (never below QMIN, util.h q_target). RTSP_QTRIM=0: never shrunk. */
 static int qtrim_on = 1;
 static void qtrim(struct cli *c, time_t now)
@@ -1309,7 +1315,7 @@ static void qtrim(struct cli *c, time_t now)
 
 	if (now == c->qtrim_t) return;
 	c->qtrim_t = now;
-	if (qtrim_on && c->q && c->qpos == c->qlen && (t = q_target(c->qhi, c->qcap, QMIN, QMAX + 4096)) < c->qcap) {
+	if (qtrim_on && c->q && c->qpos == c->qlen && (t = q_target(c->qhi, c->qcap, QMIN, q_cap + 4096)) < c->qcap) {
 		unsigned char *nq = realloc(c->q, t);
 
 		if (nq) { c->q = nq; c->qcap = t; c->qpos = c->qlen = 0; }
@@ -1565,8 +1571,107 @@ static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char 
 }
 
 /* one NAL unit as one packet or FU fragments (FU-A for H.264, RFC 7798 FU for H.265) */
+/* ---- RTP without the two copies (RTSP_UDPSG, default on; =0: the old send_pkt / rtp_out path below) ----
+ * A packet is a header (12 RTP bytes + the FU bytes, built in a small buffer) and the payload, which stays where it is (the
+ * frame copy): UDP hands both to sendmsg as two iovecs, TCP queues the 4 byte interleave header + header, then the payload
+ * (one copy, into the queue). The old path copied the payload into an FU buffer, then into a packet buffer, then sent.
+ * RTSP_UDPMMSG=1 (default off): the packets of one frame are collected (SG_MAX) and sent by one sendmmsg raw syscall. */
+#define SG_MAX 16
+struct sg_mmsg { struct msghdr hdr; unsigned int len; };	/* kernel struct mmsghdr, as glibc's */
+static int sg_on = 1, sg_mmsg_on;
+static struct {
+	struct cli *c;
+	int n;
+	unsigned char h[SG_MAX][16];
+	struct iovec iov[SG_MAX][2];
+	struct sg_mmsg m[SG_MAX];
+} sg;
+
+/* send what was collected for sg.c; 0 when fine, -1 when the client has to go (as a failed sendto did) */
+static int sg_flush(void)
+{
+	int i = 0, rc = 0;
+
+	while (i < sg.n) {
+		if (sg_mmsg_on && sg.n - i > 1) {
+			long r = syscall(SYS_sendmmsg, udpfd, sg.m + i, (unsigned)(sg.n - i), MSG_NOSIGNAL);
+
+			if (r > 0) { i += (int)r; continue; }
+			if (r < 0 && errno == ENOSYS) { sg_mmsg_on = 0; continue; }
+			if (r < 0 && errno == EINTR) continue;
+			rc = -1; break;
+		}
+		if (sendmsg(udpfd, &sg.m[i].hdr, MSG_NOSIGNAL) < 0) { rc = -1; break; }
+		i++;
+	}
+	sg.n = 0; sg.c = NULL;
+	return rc;
+}
+
+/* header: 12 RTP bytes then fl FU bytes (fu), payload pl / n left in place */
+static int sg_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char *fu, int fl, const unsigned char *pl, int n)
+{
+	uint32_t ssrc = S[c->si].ssrc;
+	unsigned char th[4 + 16], *h;
+	int k = 0;
+
+	if (c->tcp) {
+		h = th + 4;
+		th[0] = '$'; th[1] = c->ch; th[2] = (12 + fl + n) >> 8; th[3] = (12 + fl + n) & 255;
+	} else {
+		if (sg.n && sg.c != c && sg_flush()) return -1;
+		sg.c = c;
+		k = sg.n;
+		h = sg.h[k];
+	}
+	h[0] = 0x80; h[1] = (marker ? 0x80 : 0) | 96;
+	h[2] = c->seq >> 8; h[3] = c->seq & 255; c->seq++;
+	h[4] = ts >> 24; h[5] = ts >> 16; h[6] = ts >> 8; h[7] = ts;
+	h[8] = ssrc >> 24; h[9] = ssrc >> 16; h[10] = ssrc >> 8; h[11] = ssrc;
+	for (int j = 0; j < fl; j++) h[12 + j] = fu[j];
+	if (c->tcp) return qsend(c, th, 16 + fl) || qsend(c, pl, n) ? -1 : 0;
+	sg.iov[k][0].iov_base = h; sg.iov[k][0].iov_len = 12 + fl;
+	sg.iov[k][1].iov_base = (void *)pl; sg.iov[k][1].iov_len = n;
+	memset(&sg.m[k], 0, sizeof sg.m[k]);
+	sg.m[k].hdr.msg_name = &c->udp; sg.m[k].hdr.msg_namelen = sizeof c->udp;
+	sg.m[k].hdr.msg_iov = sg.iov[k]; sg.m[k].hdr.msg_iovlen = 2;
+	sg.n++;
+	if (sg.n >= (sg_mmsg_on ? SG_MAX : 1)) return sg_flush();
+	return 0;
+}
+
+static int send_nal_sg(struct cli *c, uint32_t ts, const unsigned char *nal, int len, int last)
+{
+	int hevc = S[c->si].hevc;
+
+	if (len <= RTP_PAYLOAD)
+		return sg_pkt(c, ts, last, NULL, 0, nal, len);
+	{
+		unsigned char fu[3];
+		int hl = hevc ? 2 : 1, ph = hevc ? 3 : 2, off = hl, first = 1;
+
+		while (off < len) {
+			int n = len - off > RTP_PAYLOAD - ph ? RTP_PAYLOAD - ph : len - off;
+			int end = off + n >= len;
+
+			if (hevc) {
+				fu[0] = (nal[0] & 0x81) | (49 << 1);
+				fu[1] = nal[1];
+				fu[2] = (first ? 0x80 : 0) | (end ? 0x40 : 0) | ((nal[0] >> 1) & 63);
+			} else {
+				fu[0] = (nal[0] & 0xe0) | 28;
+				fu[1] = (first ? 0x80 : 0) | (end ? 0x40 : 0) | (nal[0] & 31);
+			}
+			if (sg_pkt(c, ts, last && end, fu, ph, nal + off, n)) return -1;
+			off += n; first = 0;
+		}
+	}
+	return 0;
+}
+
 static int send_nal(struct cli *c, uint32_t ts, const unsigned char *nal, int len, int last)
 {
+	if (sg_on) return send_nal_sg(c, ts, nal, len, last);
 	int hevc = S[c->si].hevc;
 
 	if (len <= RTP_PAYLOAD)
@@ -1601,7 +1706,8 @@ static int send_ps(struct cli *c, uint32_t ts)
 	struct strm *s = &S[c->si];
 
 	if (s->hevc && send_nal(c, ts, s->vps, s->vps_len, 0)) return -1;
-	return send_nal(c, ts, s->sps, s->sps_len, 0) || send_nal(c, ts, s->pps, s->pps_len, 0);
+	if (send_nal(c, ts, s->sps, s->sps_len, 0) || send_nal(c, ts, s->pps, s->pps_len, 0)) return -1;
+	return sg.n ? sg_flush() : 0;
 }
 
 /* tab: the NALs of the frame already found once (nal_scan of the cached copy), NULL: scan d here */
@@ -1626,8 +1732,8 @@ static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts,
 		nl[k].s = s; nl[k].l = l; k++;
 	}
 	for (i = 0; i < k; i++)
-		if (send_nal(c, ts, d + nl[i].s, nl[i].l, i == k - 1)) return -1;
-	return 0;
+		if (send_nal(c, ts, d + nl[i].s, nl[i].l, i == k - 1)) { sg.n = 0; sg.c = NULL; return -1; }
+	return sg.n ? sg_flush() : 0;
 }
 
 /* queue space a frame needs: payload, RTP/interleave headers per packet, parameter sets */
@@ -1699,6 +1805,17 @@ static void play_burst(struct cli *c)
 			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
 		if (c->tcp && qflush(c)) { cli_close(c); return; }
 		c->wait_idr = 0;
+	} else if (qburst_on && c->tcp && s->cache_ok && s->ncache && qfree(c) > 400 + frame_need(s->cache[0].len)) {
+		/* the whole GOP does not fit the (smaller) queue: send the IDR and the P frames that fit, then wait for the next
+		 * IDR: the client has a picture at once instead of after up to a GOP */
+		int k = 0, sum = 400;
+
+		while (k < s->ncache && sum + frame_need(s->cache[k].len) < qfree(c)) sum += frame_need(s->cache[k++].len);
+		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
+		for (int i = 0; i < k; i++)
+			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
+		if (qflush(c)) { cli_close(c); return; }
+		c->wait_idr = 1;
 	} else {
 		c->wait_idr = 1;
 	}
@@ -2265,6 +2382,68 @@ static void cfg_reload(double tn)
 	md_reload(ch[2], ch[4]);
 }
 
+#ifdef TC100_HOST_TEST
+/* make test_rtsp: video for the RTSP clients without an encoder. TC100_RTP_TEST=<frames>[,idr_bytes,p_bytes,fps,gop] sends that
+ * many access units of stream 0 (AUD + SEI + slice, filler bytes derived from the frame number, timestamp frame * 6000, an
+ * IDR every gop frames) through cache_add / bcast like the capture loop does, starting at the first IDR after a client plays.
+ * With TC100_RTP_TEST_REPEAT=1 the sequence goes on after the last frame (a late joiner test). The slice starts with the
+ * frame number (two bytes, 0x11 + n / 100 and 0x11 + n % 100) so that a client can tell which frame it got. */
+static void rtp_test_feed(void)
+{
+	static int nfr = -1, idr_b = 20000, p_b = 3000, fps = 15, gop = 15, next, playing_seen, repeat;
+	static struct timespec t0;
+	struct timespec tn;
+	int playing = 0;
+
+	if (nfr < 0) {
+		const char *e = getenv("TC100_RTP_TEST");
+
+		nfr = 0;
+		if (e && *e) {
+			int *v[5] = { &nfr, &idr_b, &p_b, &fps, &gop };
+
+			for (int k = 0; k < 5 && e; k++) {
+				*v[k] = num(e);
+				e = strchr(e, ',');
+				if (e) e++;
+			}
+			if (fps < 1) fps = 15;
+			if (gop < 1) gop = 15;
+		}
+		repeat = getenv("TC100_RTP_TEST_REPEAT") != NULL;
+	}
+	if (!nfr) return;
+	for (int i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].playing && !cl[i].si) playing = 1;
+	clock_gettime(CLOCK_MONOTONIC, &tn);
+	if (!playing) { if (!repeat) { playing_seen = 0; next = 0; } return; }
+	if (!playing_seen) { playing_seen = 1; t0 = tn; }
+	while (next < nfr || repeat) {
+		long due = (tn.tv_sec - t0.tv_sec) * 1000000L + (tn.tv_nsec - t0.tv_nsec) / 1000;
+		struct strm *s = &S[0];
+		int idr = next % gop == 0, size = idr ? idr_b : p_b, n = 0, i;
+		unsigned char *f;
+		unsigned seed = (unsigned)next * 2654435761u + 1;
+		uint32_t ts = (uint32_t)next * 6000;
+
+		if ((long)next * 1000000L / fps > due) break;
+		f = malloc(size + 64);
+		if (!f) break;
+		f[n++] = 0; f[n++] = 0; f[n++] = 1; f[n++] = 0x09; f[n++] = 0xf0;
+		f[n++] = 0; f[n++] = 0; f[n++] = 1; f[n++] = 0x06; f[n++] = 0x05; f[n++] = 0x20;
+		f[n++] = 0; f[n++] = 0; f[n++] = 0; f[n++] = 1; f[n++] = idr ? 0x65 : 0x41;
+		f[n++] = (unsigned char)(0x11 + (next / 100) % 100); f[n++] = (unsigned char)(0x11 + next % 100);
+		for (i = 0; i < size; i++) { seed = seed * 1103515245u + 12345u; f[n++] = (unsigned char)(0x11 + (seed >> 16) % 0xe0); }
+		{
+			int kept = cache_add(s, f, n, ts, idr, f);
+
+			bcast(0, f, n, ts, idr, NULL);
+			if (!kept) free(f);
+		}
+		next++;
+	}
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	const char *akuio = "/mnt/sd/tc100test/libakuio.so", *dev = "/dev/video0", *dir = "/mnt/lib";	/* vendor libraries: /mnt/lib in SD and in flash mode (was /mnt/sd/lib: no video without a card) */
@@ -2274,7 +2453,9 @@ int main(int argc, char **argv)
 	long logmax = lm && *lm ? num(lm) : 262144;
 
 	dbg_on = getenv("RTSP_DEBUG") != NULL;
-	{ const char *fc = getenv("RTSP_FRAMECOPY"), *qt = getenv("RTSP_QTRIM"); fcopy_on = !(fc && fc[0] == '0'); qtrim_on = !(qt && qt[0] == '0'); }
+	{ const char *fc = getenv("RTSP_FRAMECOPY"), *qt = getenv("RTSP_QTRIM"), *qb = getenv("RTSP_QBURST"); fcopy_on = !(fc && fc[0] == '0'); qtrim_on = !(qt && qt[0] == '0');
+	  qburst_on = !(qb && qb[0] == '0');
+	  { const char *sgv = getenv("RTSP_UDPSG"), *mm = getenv("RTSP_UDPMMSG"); sg_on = !(sgv && sgv[0] == '0'); sg_mmsg_on = sg_on && mm && mm[0] == '1'; } }
 
 	for (o = 1; o + 1 < argc; o += 2) {
 		const char *a = argv[o], *v = argv[o + 1];
@@ -2308,6 +2489,17 @@ int main(int argc, char **argv)
 	}
 	if (fps < 1) fps = 1;
 	if (sub_kbps < 32) sub_kbps = 32;
+	{	/* client queue limit */
+		const char *qm = getenv("RTSP_QMAX");
+		long kb = qm && *qm ? num(qm) : 0;
+
+		if (kb >= 64 && kb <= 2048) q_cap = (int)kb * 1024;
+		else {
+			long floor = (long)kbps * 187;	/* 1.5 s of the main bit rate */
+
+			q_cap = floor > QMAX_DEF ? (floor > 768 * 1024 ? 768 * 1024 : (int)floor) : QMAX_DEF;
+		}
+	}
 	if (pwfile) {	/* first line of the file is the password; an empty or missing file leaves the stream open */
 		FILE *pf = fopen(pwfile, "r");
 
@@ -2499,6 +2691,12 @@ unsigned char *fpb[2] = { NULL, NULL };
 		memset(pa, 0, sizeof *pa);
 		pa->width = s->w; pa->height = s->h; pa->qpmin = qmin; pa->qpmax = qmax;
 		pa->fps = fps; pa->gop = (k && gop_sub > 0 ? gop_sub : gop_main > 0 ? gop_main : fps * 2); pa->kbps = k ? sub_kbps : kbps;
+		{	/* RTSP_VBR=1: variable bit rate for the main stream, the bit rate is then the ceiling; RTSP_VBR_SUB for the sub-stream (default: RTSP_VBR) */
+			const char *vb = getenv("RTSP_VBR"), *vs = getenv("RTSP_VBR_SUB");
+			int vm = vb && vb[0] == '1';
+
+			pa->rc_vbr = k ? (vs && *vs ? vs[0] == '1' : vm) : vm;
+		}
 		if (s->hevc) { pa->codec = 2; pa->profile = 3; }
 		if (k) {
 			const char *e;
@@ -2544,6 +2742,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
 	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s %s; sub-stream (/video1, /ch1, /sub) %s %dx%d %d kbit/s %s\n",
 	    port, W, H, fps, kbps, hevc ? "H.265" : "H.264", sub_on ? "on" : "off", SW, SH, sub_kbps, sub_hevc ? "H.265" : "H.264");
+	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d sendmmsg %d; live direct\n",
+	    S[0].pa.rc_vbr, S[1].pa.rc_vbr, q_cap / 1024, sg_on, sg_mmsg_on);
 	cfg_reload(now_s());
 
 	struct timespec t0;
@@ -2568,6 +2768,9 @@ unsigned char *fpb[2] = { NULL, NULL };
 		/* microphone: while an audio client plays or the sound detection needs it; stopped 10 s after that */
 		lis_scan(now_us64() / 1000);
 		live_scan(now_us64() / 1000);
+#ifdef TC100_HOST_TEST
+		rtp_test_feed();
+#endif
 		talk_tick(now_us64());
 		aud_tx = audio_on && na > 0;
 		if (aud_tx || snd_on || rec_audio_wanted() || lis_count()) {
