@@ -35,6 +35,10 @@ if [ -f $CONF ]; then
   # Only valid values are passed (QP 10..51 with min <= max, GOP 1..300 frames); otherwise tc100_rtsp keeps its defaults.
   set -- $(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 minqp 0 maxqp 0 goplen 1 goplen 2>/dev/null)
   [ $# -eq 4 ] || set -- "" "" "" ""	# a missing key would shift the values
+  # The values shipped before 3.0.1 (QP 20..51, GOP 64 / 32) were never applied: a camera still holding them keeps
+  # the tested behaviour (QP 25..48, GOP 2 s) until someone sets other values on the Video page.
+  [ "$1 $2" = "20 51" ] && set -- "" "" "$3" "$4"
+  [ "$3" = 64 ] && [ "$4" = 32 ] && set -- "$1" "$2" "" ""
   case "$1$2" in *[!0-9]*|'') ;; *) [ "$1" -ge 10 ] && [ "$2" -le 51 ] && [ "$1" -le "$2" ] && ENCOPT="-q $1 -Q $2" ;; esac
   case "$3" in ''|*[!0-9]*) ;; *) [ "$3" -ge 1 ] && [ "$3" -le 300 ] && ENCOPT="$ENCOPT -g $3" ;; esac
   case "$4" in ''|*[!0-9]*) ;; *) [ "$4" -ge 1 ] && [ "$4" -le 300 ] && ENCOPT="$ENCOPT -G $4" ;; esac
