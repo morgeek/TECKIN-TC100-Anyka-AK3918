@@ -18,7 +18,7 @@
         <input class="input settings-search" type="search" id="settings_search" placeholder="Search settings…" aria-label="Search settings" autocomplete="off">
         <p class="settings-empty" id="settings_search_empty" hidden>No setting matches.</p>
         <p class="settings-nav-group">Image</p>
-        <a href="javascript: void(0)" data-tab="tab-image" class="is-active"><span>Picture</span><b class="settings-hits"></b></a>
+        <a href="javascript: void(0)" data-tab="tab-image" class="is-active" aria-current="page"><span>Picture</span><b class="settings-hits"></b></a>
         <a href="javascript: void(0)" data-tab="tab-overlay"><span>Privacy &amp; overlay</span><b class="settings-hits"></b></a>
         <a href="javascript: void(0)" data-tab="tab-daynight"><span>Day/night</span><b class="settings-hits"></b></a>
         <p class="settings-nav-group">Video &amp; audio</p>
@@ -94,14 +94,14 @@
                     <header class='card-header'><p class='card-header-title'>On-screen clock</p></header>
                     <div class='card-content'>
                         <div class="field mb-3"><input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox"><label for="osdenabled">Enable OSD Text</label></div>
-                        <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
+                        <div class="field"><label class="label is-small" for="osdtext">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
                         
                         <div class="is-divider" data-content="OSD Styling"></div>
                         <p class="help">This firmware draws the clock text itself: colour, background, alpha and rotation are not available.</p>
                         <div class="columns is-multiline is-mobile">
-                            <div class="column is-3"><label class="label is-small">Size</label><input class="input is-small" name="osdfontsize0" id="osdfontsize0" type="number"></div>
-                            <div class="column is-3"><label class="label is-small">X pos</label><input class="input is-small" name="osdx0" id="osdx0" type="number"></div>
-                            <div class="column is-3"><label class="label is-small">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number"></div>
+                            <div class="column is-3"><label class="label is-small" for="osdfontsize0">Size</label><input class="input is-small" name="osdfontsize0" id="osdfontsize0" type="number" min="8" max="128" step="1"></div>
+                            <div class="column is-3"><label class="label is-small" for="osdx0">X pos</label><input class="input is-small" name="osdx0" id="osdx0" type="number" min="0" max="2000" step="1"></div>
+                            <div class="column is-3"><label class="label is-small" for="osdy0">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number" min="0" max="2000" step="1"></div>
                         </div>
 
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply clock</button></div>
@@ -280,8 +280,8 @@
                     <div class="is-divider"></div>
                     <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
                         <div class="columns">
-                            <div class="column is-half"><label class="label is-small">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number"></div>
-                            <div class="column is-half"><label class="label is-small">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
+                            <div class="column is-half"><label class="label is-small" for="mdsens">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number" min="1" max="100" step="1"></div>
+                            <div class="column is-half"><label class="label is-small" for="sound_det_threshold">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
                         </div>
                         <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
                         <div class="is-divider" data-content="Motion zones"></div>
@@ -359,11 +359,11 @@
                     <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
                         <div class="field"><input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1"><label for="mqtt_enabled">Enable MQTT Bridge</label></div>
                         <div class="columns is-multiline">
-                            <div class="column is-8"><label class="label is-small">Host</label><input class="input is-small" name="mqtt_host" id="mqtt_host" type="text" placeholder="192.168.1.x"></div>
-                            <div class="column is-4"><label class="label is-small">Port</label><input class="input is-small" name="mqtt_port" id="mqtt_port" type="number" placeholder="1883"></div>
-                            <div class="column is-6"><label class="label is-small">Username</label><input class="input is-small" name="mqtt_user" id="mqtt_user" type="text" autocomplete="username"></div>
-                            <div class="column is-6"><label class="label is-small">Password</label><input class="input is-small" name="mqtt_password" id="mqtt_password" type="password" autocomplete="new-password" placeholder="leave empty to keep the saved password"></div>
-                            <div class="column is-12"><label class="label is-small">Root Topic</label><input class="input is-small" name="mqtt_topic_root" id="mqtt_topic_root" type="text"></div>
+                            <div class="column is-8"><label class="label is-small" for="mqtt_host">Host</label><input class="input is-small" name="mqtt_host" id="mqtt_host" type="text" placeholder="192.168.1.x"></div>
+                            <div class="column is-4"><label class="label is-small" for="mqtt_port">Port</label><input class="input is-small" name="mqtt_port" id="mqtt_port" type="number" min="1" max="65535" step="1" placeholder="1883"></div>
+                            <div class="column is-6"><label class="label is-small" for="mqtt_user">Username</label><input class="input is-small" name="mqtt_user" id="mqtt_user" type="text" autocomplete="username"></div>
+                            <div class="column is-6"><label class="label is-small" for="mqtt_password">Password</label><input class="input is-small" name="mqtt_password" id="mqtt_password" type="password" autocomplete="new-password" placeholder="leave empty to keep the saved password"></div>
+                            <div class="column is-12"><label class="label is-small" for="mqtt_topic_root">Root Topic</label><input class="input is-small" name="mqtt_topic_root" id="mqtt_topic_root" type="text"></div>
                         </div>
                         <div class="is-divider"></div>
                         <div class="field"><input class="switch is-small" id="mqtt_discovery" name="mqtt_discovery" type="checkbox"><label for="mqtt_discovery">Enable Home Assistant Discovery</label></div>
@@ -420,9 +420,9 @@
                             <header class='card-header'><p class='card-header-title'>Telegram notifications</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="telegram_enable" name="telegram_enable" type="checkbox"><label for="telegram_enable">Enable Telegram Notifications</label></div>
-                                <label class="label is-small">Bot Token</label>
+                                <label class="label is-small" for="telegram_token">Bot Token</label>
                                 <input class="input is-small" name="telegram_token" id="telegram_token" type="password" placeholder="123456789:ABCDEF...">
-                                <label class="label is-small mt-2">Chat ID</label>
+                                <label class="label is-small mt-2" for="telegram_chat_id">Chat ID</label>
                                 <input class="input is-small" name="telegram_chat_id" id="telegram_chat_id" type="text" placeholder="987654321">
                                 <div class="buttons is-right mt-4"><button class="button is-primary is-small" type="submit">Save Telegram</button></div>
                             </div>
@@ -435,9 +435,9 @@
                             <header class='card-header'><p class='card-header-title'>Remote logging (syslog)</p></header>
                             <div class='card-content'>
                                 <div class="field"><input class="switch is-small" id="syslog_enable" name="syslog_enable" type="checkbox"><label for="syslog_enable">Enable Remote Syslog</label></div>
-                                <label class="label is-small">Remote Host</label>
+                                <label class="label is-small" for="syslog_host">Remote Host</label>
                                 <input class="input is-small" name="syslog_host" id="syslog_host" type="text" placeholder="192.168.1.10">
-                                <label class="label is-small mt-2">Remote Port</label>
+                                <label class="label is-small mt-2" for="syslog_port">Remote Port</label>
                                 <input class="input is-small" name="syslog_port" id="syslog_port" type="number" min="1" max="65535" placeholder="514">
                                 <p class="help">Sends the camera's important messages (notice level and above, logins) over UDP, still kept locally. On a Synology NAS: Log Center → Log Receiving → Create, format BSD, transfer protocol UDP, port 514; then enter the NAS address here.</p>
                                 <div class="buttons is-right mt-4"><button class="button is-primary is-small" type="submit">Save Syslog</button></div>
@@ -461,12 +461,12 @@
                         <div class="message-body">The connection will be interrupted while changing networks. Reconnect to this page after a few seconds.</div>
                     </article>
                     <div class="field">
-                        <label class="label is-small">Network name (SSID)</label>
+                        <label class="label is-small" for="wifi_ssid_input">Network name (SSID)</label>
                         <input class="input is-small" id="wifi_ssid_input" type="text" placeholder="NetworkName" maxlength="32" autocomplete="off" spellcheck="false">
                     </div>
                     <div class="field">
-                        <label class="label is-small">Password</label>
-                        <input class="input is-small" id="wifi_psk_input" type="password" placeholder="●●●●●●●●" autocomplete="new-password">
+                        <label class="label is-small" for="wifi_psk_input">Password</label>
+                        <input class="input is-small" id="wifi_psk_input" type="password" maxlength="63" placeholder="●●●●●●●●" autocomplete="new-password">
                         <p class="help">Minimum 8 characters</p>
                     </div>
                     <div class="buttons is-right mt-3">
@@ -493,10 +493,10 @@
                 <header class='card-header'><p class='card-header-title'>Name and network services</p></header>
                 <div class='card-content'>
                     <form id="formNetwork" action="cgi-bin/action.cgi?cmd=set_network" method="post">
-                        <div class="field"><label class="label is-small">Hostname</label><input class="input is-small" name="hostname" id="hostname" type="text"></div>
+                        <div class="field"><label class="label is-small" for="hostname">Hostname</label><input class="input is-small" name="hostname" id="hostname" type="text"></div>
                         <div class="columns">
-                            <div class="column"><label class="label is-small">RTSP Port</label><input class="input is-small" name="rtsp_port" id="rtsp_port" type="number" placeholder="554"></div>
-                            <div class="column"><label class="label is-small">Telnet Port</label><input class="input is-small" name="telnet_port" id="telnet_port" type="number" placeholder="23"></div>
+                            <div class="column"><label class="label is-small" for="rtsp_port">RTSP Port</label><input class="input is-small" name="rtsp_port" id="rtsp_port" type="number" min="1" max="65535" step="1" placeholder="554"></div>
+                            <div class="column"><label class="label is-small" for="telnet_port">Telnet Port</label><input class="input is-small" name="telnet_port" id="telnet_port" type="number" min="1" max="65535" step="1" placeholder="23"></div>
                         </div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Update Network</button></div>
                     </form>
@@ -506,8 +506,8 @@
                 <header class='card-header'><p class='card-header-title'>Time zone and clock</p></header>
                 <div class='card-content'>
                     <form id="formTime" action="cgi-bin/action.cgi?cmd=settz" method="post">
-                        <div class="field"><label class="label is-small">Timezone (TZ string)</label><input class="input is-small" name="tz" id="timezone" type="text" placeholder="UTC0"><p class="help">POSIX format, e.g. CET-1CEST,M3.5.0,M10.5.0/3 for Paris with summer time (east of Greenwich is negative). Logs and scheduled tasks use it after the next restart.</p></div>
-                        <div class="field"><label class="label is-small">NTP Server</label><input class="input is-small" name="ntp_srv" id="ntp_server" type="text" placeholder="pool.ntp.org"></div>
+                        <div class="field"><label class="label is-small" for="timezone">Timezone (TZ string)</label><input class="input is-small" name="tz" id="timezone" type="text" placeholder="UTC0"><p class="help">POSIX format, e.g. CET-1CEST,M3.5.0,M10.5.0/3 for Paris with summer time (east of Greenwich is negative). Logs and scheduled tasks use it after the next restart.</p></div>
+                        <div class="field"><label class="label is-small" for="ntp_server">NTP Server</label><input class="input is-small" name="ntp_srv" id="ntp_server" type="text" placeholder="pool.ntp.org"></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply Time</button></div>
                     </form>
                 </div>
@@ -551,9 +551,9 @@
                     <form id="formRebootSchedule" action="cgi-bin/action.cgi?cmd=set_reboot_schedule" method="post">
                          <div class="field"><input class="switch is-small" id="reboot_enable" name="reboot_enable" type="checkbox"><label for="reboot_enable">Enable Scheduled Reboot</label></div>
                          <div class="columns is-mobile">
-                            <div class="column"><label class="label is-small">Hour (0-23)</label><input class="input is-small" name="reboot_hour" id="reboot_schedule_hour" type="number"></div>
-                            <div class="column"><label class="label is-small">Min (0-59)</label><input class="input is-small" name="reboot_min" id="reboot_schedule_min" type="number"></div>
-                            <div class="column is-half"><label class="label is-small">Weekday (* or 0-6)</label><input class="input is-small" name="reboot_dow" id="reboot_schedule_dow" type="text"></div>
+                            <div class="column"><label class="label is-small" for="reboot_schedule_hour">Hour (0-23)</label><input class="input is-small" name="reboot_hour" id="reboot_schedule_hour" type="number" min="0" max="23" step="1"></div>
+                            <div class="column"><label class="label is-small" for="reboot_schedule_min">Min (0-59)</label><input class="input is-small" name="reboot_min" id="reboot_schedule_min" type="number" min="0" max="59" step="1"></div>
+                            <div class="column is-half"><label class="label is-small" for="reboot_schedule_dow">Weekday (* or 0-6)</label><input class="input is-small" name="reboot_dow" id="reboot_schedule_dow" type="text"></div>
                          </div>
                          <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Set Schedule</button></div>
                     </form>
@@ -575,9 +575,9 @@
                         <div class="is-divider" data-content="Memory Guard (OOM Prevention)"></div>
                         <div class="field"><input class="switch is-small" id="mem_guard_enable" name="mem_guard_enable" type="checkbox"><label for="mem_guard_enable">Enable Memory Guard Daemon</label></div>
                         <div class="columns is-mobile mb-0">
-                            <div class="column"><label class="label is-small">Warn (K)</label><input class="input is-small" name="mem_guard_warn" id="mem_guard_warn_kb" type="number"></div>
-                            <div class="column"><label class="label is-small">Crit (K)</label><input class="input is-small" name="mem_guard_crit" id="mem_guard_crit_kb" type="number"></div>
-                            <div class="column"><label class="label is-small">Check (s)</label><input class="input is-small" name="mem_guard_interval" id="mem_guard_interval" type="number"></div>
+                            <div class="column"><label class="label is-small" for="mem_guard_warn_kb">Warn (K)</label><input class="input is-small" name="mem_guard_warn" id="mem_guard_warn_kb" type="number" min="1024" max="32768" step="1"></div>
+                            <div class="column"><label class="label is-small" for="mem_guard_crit_kb">Crit (K)</label><input class="input is-small" name="mem_guard_crit" id="mem_guard_crit_kb" type="number" min="512" max="16384" step="1"></div>
+                            <div class="column"><label class="label is-small" for="mem_guard_interval">Check (s)</label><input class="input is-small" name="mem_guard_interval" id="mem_guard_interval" type="number" min="5" max="600" step="1"></div>
                         </div>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save Hardening</button></div>
                     </form>
@@ -660,7 +660,7 @@
                     <p class="mb-4">Save your current configuration as a named preset, or load a previously saved preset to restore settings.</p>
                     <div class="columns">
                         <div class="column is-half">
-                            <label class="label is-small">Load Preset</label>
+                            <label class="label is-small" for="preset_dropdown">Load Preset</label>
                             <div class="field has-addons">
                                 <div class="control is-expanded">
                                     <div class="select is-small is-fullwidth"><select id="preset_dropdown"><option value="">-- Select a preset --</option></select></div>
@@ -670,7 +670,7 @@
                             <p class="help">Load a previously saved configuration.</p>
                         </div>
                         <div class="column is-half">
-                            <label class="label is-small">Save as New Preset</label>
+                            <label class="label is-small" for="preset_name_input">Save as New Preset</label>
                             <div class="field has-addons">
                                 <div class="control is-expanded">
                                     <input class="input is-small" id="preset_name_input" type="text" placeholder="e.g., frigate-night, universal-h264">
@@ -756,7 +756,11 @@
             currentTab = targetId;
             var search = document.getElementById('settings_search');
             if (search && search.value) { search.value = ''; applySearch(''); }
-            navLinks.forEach(function (t) { t.classList.toggle('is-active', t.dataset.tab === targetId); });
+            navLinks.forEach(function (t) {
+                var on = t.dataset.tab === targetId;
+                t.classList.toggle('is-active', on);
+                if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+            });
             var title = document.getElementById('settings_title');
             if (title && linkFor[targetId]) title.textContent = linkFor[targetId].querySelector('span').textContent;
             document.querySelectorAll('#tab-contents > .tab-content').forEach(function(content) {
@@ -892,7 +896,7 @@
                 EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_mount&format=json', { method: 'POST' })
                     .then(function (r) { return r.json(); })
                     .then(function (d) { if (window.showResult) window.showResult(d.ok ? d.message : (d.message || d.error), d.ok ? 'is-success' : 'is-danger'); })
-                    .catch(function () {})
+                    .catch(function () { if (window.showResult) window.showResult('Could not reach the camera.', 'is-danger'); })
                     .finally(function () { mount.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
             });
             loadSdCard();
@@ -974,8 +978,9 @@
             btn.addEventListener('click', function() {
                 var ssid = (document.getElementById('wifi_ssid_input').value || '').trim();
                 var psk  = document.getElementById('wifi_psk_input').value || '';
-                if (!ssid) { alert('Le SSID est requis.'); return; }
-                if (psk.length < 8) { alert('The password must contain at least 8 characters.'); return; }
+                if (!ssid) { alert('The network name (SSID) is required.'); return; }
+                if (psk.length < 8 || psk.length > 63) { alert('The password must be 8 to 63 characters.'); return; }
+                if (/["\\]/.test(ssid + psk)) { alert('Quotes and backslashes cannot be used in the network name or the password.'); return; }
                 if (!confirm('Change the Wi-Fi network to "' + ssid + '" ?\n\nThe connection will be interrupted. Reconnect after a few seconds.')) return;
 
                 btn.classList.add('is-loading');

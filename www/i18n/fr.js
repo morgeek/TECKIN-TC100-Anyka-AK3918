@@ -924,7 +924,14 @@ window.tc100I18nFr = {
   "🌙 Night: n/a": "🌙 Nuit : n/d",
   "🌤 Twilight": "🌤 Crépuscule",
   "📋 Copy": "📋 Copier",
-  "📋 Copy URL": "📋 Copier l'URL"
+  "📋 Copy URL": "📋 Copier l'URL",
+  "Hide": "Masquer",
+  "Hide password": "Masquer le mot de passe",
+  "The network name (SSID) is required.": "Le nom du réseau (SSID) est obligatoire.",
+  "The password must be 8 to 63 characters.": "Le mot de passe doit faire de 8 à 63 caractères.",
+  "Quotes and backslashes cannot be used in the network name or the password.": "Les guillemets et les barres obliques inverses ne sont pas autorisés dans le nom du réseau ni le mot de passe.",
+  "Could not reach the camera.": "La caméra est injoignable.",
+  "The rescue Wi-Fi state could not be read.": "L'état du Wi-Fi de secours n'a pas pu être lu."
  },
  "rules": [
   [

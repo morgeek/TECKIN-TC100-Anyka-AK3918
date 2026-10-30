@@ -706,3 +706,7 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
 .sd-summary[data-kind="kit"] [data-kind="kit"], .sd-summary[data-kind="data"] [data-kind="data"],
 .sd-summary[data-kind="empty"] [data-kind="empty"], .sd-summary[data-kind="blank"] [data-kind="blank"],
 .sd-summary[data-kind="errors"] [data-kind="errors"], .sd-summary[data-mounted="1"] [data-mounted="1"] { display: inline; }
+
+/* ---- settings pass (2026-10) ---- */
+.settings-nav a:focus-visible { outline: 2px solid var(--v2-accent); outline-offset: -2px; }
+.settings-nav a[aria-current="page"] { font-weight: 650; }
