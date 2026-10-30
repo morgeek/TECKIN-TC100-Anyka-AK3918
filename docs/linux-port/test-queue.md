@@ -133,13 +133,16 @@ uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/tel
   So three capture buffers are enough at 15 fps: +3.5 MB of RAM for free. Not tested: 25 fps, H.264 main, sub stream
   with `slots=3` (a 20-25 fps run should be done before changing the default), and a long run for `dropped`.
   Wi-Fi associated at 15 s, all services up, no Oops.
-- **New observation: the CPU load grows with uptime (suspect: the failing MQTT bridge).** Right after boot (2-4 min)
-  the idle is **80-82 %** with the bridge running and failing its login (CONNACK 5, see above); at 47-53 min of uptime it
-  was **54-59 %** (system 26-29 %) and went back to **75-77 %** when the bridge was stopped. So the cost is not constant:
-  something accumulates in the bridge cycle (the listener leaves a `/tmp/mqtt_stream.bin.N` file per failed session
-  every ~2 min, plus `.checked` files; the scripts may glob or list them, and `/tmp` is RAM). To the implementer:
-  check what the bridge does per cycle that scales with those files or with log size, and delete the old session
-  files. To verify on my side: idle at 20 min and 45 min of uptime of this boot (default slots), numbers below if done.
+- **CORRECTION of the "mqtt-bridge costs 20 points of CPU" finding (not reproduced, do not act on it yet).** On a fresh
+  card boot (same rc7 kernel, flash user space, bridge failing its login with CONNACK 5, one RTSP client, 15 fps):
+  idle **82.0 %** at 2 min, **80.9 %** at 13 min, and **82.9 %** at 18 min after a manual `mqtt-bridge restart`
+  (that restart itself shows a short burst: idle 69.5 % during the first minute, user 9.5 / system 18.5). That is as
+  good as the "bridge stopped" runs of earlier (74-77 %). The earlier 54-59 % came from the boot that had been up 47-53 min
+  after several of my own experiments (fps changes, rtsp.env switches, a second VLC client at times). The bridge's
+  cleanup is fine (old `/tmp/mqtt_stream.bin.N` files are removed, 5 present, 44 files in `/tmp`), so my "accumulating files"
+  guess was wrong too. Still worth doing: the **backoff on CONNACK 4/5** (a refused login re-sent every ~2 min costs a
+  burst each time) and surfacing the code in the UI. I will re-measure at ~45 min of this boot to see whether the load
+  appears later; result below if it does.
 - **P-01** half done: needs ONVIF discovery from a client. **P-05** (128 KiB squashfs blocks): stack 2306048 B in the
   partition; MemAvailable did not drop (15.2-16.0 MB, rc6 15.9-16.1); no timing yet.
 - Not run yet: audio B-01/B-02, O-05, P-09 (`RTSP_UDPSG=1`), P-08 (`RTSP_VBR=1`), P-04 (20/25 fps), P-02
