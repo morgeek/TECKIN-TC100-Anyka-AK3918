@@ -21,7 +21,7 @@ if [ ! -s /lib/firmware/anyka/isp.conf ]; then
   done
   [ -s /lib/firmware/anyka/isp.conf ] || echo "rtsp-launch: no sensor tuning file (isp.conf): the colours will be off" > /dev/console
 fi
-CODEC=h265; KBPS=${RTSP_KBPS:-1500}; PORT=554; SUBCODEC=h264; SUBKBPS=400
+CODEC=h265; KBPS=${RTSP_KBPS:-1500}; PORT=554; SUBCODEC=h264; SUBKBPS=400; ENCOPT=
 # codec in rtspserver.conf (Video page): 0 = H.264, 2 = H.265 (1, written by older 6.6 boot scripts, = H.264)
 if [ -f $CONF ]; then
   set -- $(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 codec 0 bps " " PORT 2>/dev/null)
@@ -31,6 +31,13 @@ if [ -f $CONF ]; then
   set -- $(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 1 codec 1 bps 2>/dev/null)
   [ "$1" = 2 ] && SUBCODEC=h265
   case "$2" in ''|*[!0-9]*) ;; *) SUBKBPS=$2 ;; esac
+  # Video page, advanced encoding: QP range (main stream values, both streams) and keyframe interval per stream.
+  # Only valid values are passed (QP 10..51 with min <= max, GOP 1..300 frames); otherwise tc100_rtsp keeps its defaults.
+  set -- $(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 minqp 0 maxqp 0 goplen 1 goplen 2>/dev/null)
+  [ $# -eq 4 ] || set -- "" "" "" ""	# a missing key would shift the values
+  case "$1$2" in *[!0-9]*|'') ;; *) [ "$1" -ge 10 ] && [ "$2" -le 51 ] && [ "$1" -le "$2" ] && ENCOPT="-q $1 -Q $2" ;; esac
+  case "$3" in ''|*[!0-9]*) ;; *) [ "$3" -ge 1 ] && [ "$3" -le 300 ] && ENCOPT="$ENCOPT -g $3" ;; esac
+  case "$4" in ''|*[!0-9]*) ;; *) [ "$4" -ge 1 ] && [ "$4" -le 300 ] && ENCOPT="$ENCOPT -G $4" ;; esac
 fi
 # boot.conf: RTSP_SUBSTREAM (640x360 second stream on /video1, /ch1, /sub; 0 = off) and RTSP_AUDIO (G.711 track).
 # The recording (REC_*), the sound level (sound_detection.conf) and the motion zones are read by tc100_rtsp itself.
@@ -39,7 +46,7 @@ SUB=$(bc RTSP_SUBSTREAM); case "$SUB" in 0|no|off|false) SUB=0 ;; *) SUB=1 ;; es
 AUD=${RTSP_AUDIO:-$(bc RTSP_AUDIO)}; case "$AUD" in 0|no|off|false) AUD=0 ;; *) AUD=1 ;; esac
 # recordings: /mnt/DCIM (the card; in flash mode a link to /mnt/sd/DCIM), what the Recordings page lists
 REC_DIR=/mnt/DCIM
-# microphone gain (Audio page, 0-12) -> codec "LineIn Capture Volume" (0-15)
+# microphone gain (Audio page, 0-15, passed as it is) -> codec "LineIn Capture Volume" (0-15)
 V=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r " " volume 2>/dev/null)
 case "$V" in ''|*[!0-9]*) ;; *) amixer -c 0 cset name="LineIn Capture Volume" "$V" >/dev/null 2>&1 ;; esac
 stop_rtsp
@@ -51,7 +58,7 @@ RTSP_LOG=/tmp/logs/tc100_rtsp.log; mkdir -p /tmp/logs
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
   LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -L /mnt/lib -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \
-    -S /var/run/sound_level >"$RTSP_LOG" 2>&1 ) &
+    -S /var/run/sound_level $ENCOPT >"$RTSP_LOG" 2>&1 ) &
 sleep 2
 for pid in $(pidof tc100_rtsp 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
 FLIP=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r " " imageflip 2>/dev/null)

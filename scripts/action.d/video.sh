@@ -19,8 +19,8 @@
           codec=$(sanitize_int_range "${F_video_codec1}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen1}" 1 300 50)
           format=$(sanitize_int_range "${F_video_format1}" 0 1 1)
-          minqp=$(sanitize_int_range "${F_minqp1}" 1 51 20)
-          maxqp=$(sanitize_int_range "${F_maxqp1}" 1 51 45)
+          minqp=$(sanitize_int_range "${F_minqp1}" 10 51 20)
+          maxqp=$(sanitize_int_range "${F_maxqp1}" 10 51 45)
           smartmode=$(sanitize_int_range "${F_smartmode1}" 0 2 0)
       else
           raw_size=1920x1080
@@ -29,8 +29,8 @@
           codec=$(sanitize_int_range "${F_video_codec0}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen0}" 1 300 50)
           format=$(sanitize_int_range "${F_video_format0}" 0 1 1)
-          minqp=$(sanitize_int_range "${F_minqp0}" 1 51 20)
-          maxqp=$(sanitize_int_range "${F_maxqp0}" 1 51 45)
+          minqp=$(sanitize_int_range "${F_minqp0}" 10 51 20)
+          maxqp=$(sanitize_int_range "${F_maxqp0}" 10 51 45)
           smartmode=$(sanitize_int_range "${F_smartmode0}" 0 2 0)
       fi
       
@@ -56,6 +56,8 @@
         exit 0
       fi
 
+      # tc100_rtsp reads bit rate, codec, QP range (main stream, both streams) and keyframe interval at its start
+      # (a range with the maximum below the minimum is ignored by rtsp-launch.sh)
       schedule_rtsp_restart
       if wants_json_response; then
         json_body_ok "Video settings for stream $stream_idx updated."
@@ -96,6 +98,13 @@
             0 osdfontsize "$osdfontsize0" \
             0 osdx "$osdx0" \
             0 osdy "$osdy0"
+        # Orientation (0 normal, 1 flip = upside down, 2 mirror = left-right, 3 both = rotated 180): the ISP does it
+        # at once (setconf -k f -> isp_flip); rtsp-launch.sh applies the stored value after every video start.
+        if [ -n "${F_imageflip+x}" ]; then
+          _flip=$(sanitize_int_range "${F_imageflip}" 0 3 0)
+          /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " imageflip "$_flip"
+          /mnt/bin/setconf -k f -v "$_flip"
+        fi
         /mnt/bin/setconf -k l -v "$osdenabled"
         /mnt/bin/setconf -k o -v "$osdtext"
         /mnt/bin/setconf -k h -v "$osdalpha"
@@ -115,9 +124,8 @@
     ;;
 
     isp_tune)
-      # Live image tuning (see scripts/isp-tune.sh). Values apply within ~2 s
-      # without restarting the stream; only switching ISP_TUNE itself on or
-      # off restarts RTSP, because the tuning thread lives in v4l2rtspserver.
+      # Live image tuning (see scripts/isp-tune.sh). Values and the ISP_TUNE switch apply within ~2 s
+      # without restarting the stream (tc100_rtsp reloads boot.conf and isp_tune.conf).
       . /mnt/scripts/isp-tune.sh
       _it_bad=""
       for _it_k in $ISP_TUNE_KEYS; do
@@ -144,13 +152,15 @@
         if wants_json_response; then json_body_err "INVALID_VALUE" "Invalid value for:$_it_bad"; else echo "Invalid value for:$_it_bad<br/>"; fi
         exit 0
       fi
-      isp_tune_set BRIGHTNESS "$F_isp_brightness"
-      isp_tune_set CONTRAST "$F_isp_contrast"
-      isp_tune_set SATURATION "$F_isp_saturation"
-      isp_tune_set SHARPNESS "$F_isp_sharpness"
-      isp_tune_set HUE "$F_isp_hue"
-      isp_tune_set POWER_HZ "$F_isp_power_hz"
-      isp_tune_set EXPOSURE_MAX_PCT "$F_isp_exposure_max_pct"
+      # Only the keys the form posted: a partial form (or an old page) must not reset values set elsewhere (MQTT).
+      # POWER_HZ has no field on 3.0 (not applied by the ISP code).
+      [ -n "${F_isp_brightness+x}" ] && isp_tune_set BRIGHTNESS "$F_isp_brightness"
+      [ -n "${F_isp_contrast+x}" ] && isp_tune_set CONTRAST "$F_isp_contrast"
+      [ -n "${F_isp_saturation+x}" ] && isp_tune_set SATURATION "$F_isp_saturation"
+      [ -n "${F_isp_sharpness+x}" ] && isp_tune_set SHARPNESS "$F_isp_sharpness"
+      [ -n "${F_isp_hue+x}" ] && isp_tune_set HUE "$F_isp_hue"
+      [ -n "${F_isp_power_hz+x}" ] && isp_tune_set POWER_HZ "$F_isp_power_hz"
+      [ -n "${F_isp_exposure_max_pct+x}" ] && isp_tune_set EXPOSURE_MAX_PCT "$F_isp_exposure_max_pct"
       _it_masks=0
       for _it_k in $ISP_MASK_KEYS; do
         case "$_it_k" in
@@ -170,8 +180,7 @@
       if [ "$_it_want" != "$(isp_tune_enabled)" ]; then
         install_config /mnt/config/boot.conf
         rewrite_config /mnt/config/boot.conf ISP_TUNE "$_it_want"
-        schedule_service_restart /mnt/controlscripts/rtsp-h26x 1
-        _it_msg="Image tuning $( [ "$_it_want" = 1 ] && echo enabled || echo disabled ); the video stream restarts once."
+        _it_msg="Image tuning $( [ "$_it_want" = 1 ] && echo enabled || echo disabled ); applied within a few seconds."
       fi
       if wants_json_response; then json_body_ok "$_it_msg"; else echo "$_it_msg<br/>"; fi
     ;;
