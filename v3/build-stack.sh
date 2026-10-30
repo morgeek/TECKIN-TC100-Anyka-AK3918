@@ -97,7 +97,10 @@ chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rts
 #      on 3.0 /mnt/bin/busybox becomes a link to the system busybox, which has every applet the scripts call
 #      (tests/test_flash_image.py checks the list)
 #    - build and development files that never run on the camera
-mksquashfs "$T" "$OUT/stack.sqfs" -comp xz -b 256K -noappend -all-root -quiet \
+# 128 KiB blocks: a page read from the flash decompresses half as much as with 256 KiB, and the kernel's squashfs
+# caches (data, fragment, xz dictionary: one block each) take about 384 KB less RAM; about 45 KB more flash
+# (2026-10-30: 2,240,512 B against 2,195,456; lzo 2.96 MB and lz4 3.2-3.9 MB do not fit the 2.83 MB partition)
+mksquashfs "$T" "$OUT/stack.sqfs" -comp xz -b 128K -noappend -all-root -quiet \
 	-p "bin/busybox s 777 0 0 /bin/busybox" \
 	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py \
 	scripts/collect-platform-dump.sh v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
