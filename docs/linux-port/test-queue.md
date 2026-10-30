@@ -362,6 +362,33 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
   11. `ls /tmp/www` lists every page (if the multi-target `ln` failed the UI would 404), `ls -l /lib | grep mnt`.
   12. Idle camera, `ps` a few times over 3 minutes: no new `sh` / `ping` every minute.
 
+### O-05 Video server: one read of the encoder output, log rotation, less per-frame work — `to test`
+- **What (commit `[opt] tc100_rtsp: log rotation, one read of the encoder output, ...`):**
+  - **Log rotation (bug):** the STAT line every 5 s made `/tmp/logs/tc100_rtsp.log` grow without limit in RAM
+    (about 2.6 MB a day). Above `RTSP_LOGMAX` (256 KB) it is now renamed to `.1` and reopened (first line `log rotated`).
+  - **Encoder output read once:** it is uncached memory. Each frame is copied once with word reads, the NALs are found
+    once, the encoder buffer is given back at once, and the GOP cache keeps that copy. The RTSP clients, the recorder,
+    the live MP4 and the IDR test then read the cached copy; before, they read the uncached buffer 4 to 6 times.
+  - **Per-frame calls cut:** no `getenv`, file checks every 0.25 s, OSD clock text once a second, colour-table
+    identity flags. JPEG tables are built once per quality, and each JPEG is read once from the engine.
+  - **Snapshot cadence:** the 2 s snapshot cadence now applies only if the picture was read in the last 4 s (the
+    dashboard kept it at 2 s forever).
+  - **Client queues:** they shrink back after a congestion.
+- **Switches:** `RTSP_FRAMECOPY=0` (frame and JPEG reads as before), `RTSP_QTRIM=0` (queues never shrunk),
+  `RTSP_LOGFILE` unset (no rotation), in `/mnt/config/rtsp.env`.
+- **Test** (same scene, bit rate and clients before and after):
+  1. After about an hour: `ls -l /tmp/logs` shows `tc100_rtsp.log` under 256 KB and a `.1`; `MemAvailable` stops
+     drifting down over a day.
+  2. STAT `snd_ms` lower than with `RTSP_FRAMECOPY=0`, `enc_ms` unchanged; `scripts/cpu-profile.sh 30` for both.
+  3. Main and sub, H.264 and H.265, in VLC and Frigate: clean picture (no green or grey blocks). A client that joins
+     mid-GOP starts at once on the cached keyframe. One TCP and one UDP client together. Recordings open with no gap,
+     and the live video in the browser plays. Any artefact: compare with `RTSP_FRAMECOPY=0`.
+  4. `/tmp/stream.jpg`, `/tmp/frame_ch0.jpg`, the dashboard picture and a recording thumbnail are valid JPEGs. The
+     dashboard picture still refreshes smoothly; if it lags, the 4 s window is the cause.
+  5. A slow viewer for 30 s, then `MemAvailable` recovers about a second after it catches up (compare with
+     `RTSP_QTRIM=0`).
+  6. The black-and-white switch reacts within about a second, and the software clock still ticks every second.
+
 Not done (listed for later): merging the slow daemons (web-guard, health-snapshot, log-persist, service-watchdog)
 into one loop; `cma=16M` (about 4 MB more for the kernel if 4 capture slots still fit: needs the owner's U-Boot
 change); base image as squashfs instead of RAM (about 3 MB); a smaller libasound and busybox applet set; the

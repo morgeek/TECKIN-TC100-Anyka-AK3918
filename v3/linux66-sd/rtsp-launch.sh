@@ -64,8 +64,8 @@ w=0; while netstat -tan 2>/dev/null | grep -q ":$PORT .*LISTEN" && [ $w -lt 8 ];
 TZV=$(grep -v '^#' /mnt/config/timezone.conf 2>/dev/null | grep -v '^$' | head -n 1); [ -n "$TZV" ] && export TZ="$TZV"
 RTSP_LOG=/tmp/logs/tc100_rtsp.log; mkdir -p /tmp/logs
 [ -f /mnt/config/rtsp.debug ] && RTSP_LOG=/dev/console
-# the log in /tmp is capped by the server itself (RTSP_LOGFILE: it truncates the file when it grows too big): the file is
-# emptied once here and opened for appending, so a truncation by the server is not followed by a hole of NUL bytes
+# the log in /tmp is capped by the server itself (RTSP_LOGFILE: above RTSP_LOGMAX, 256 KB, it is renamed to .1 and
+# reopened): the file is emptied once here and opened for appending
 if [ "$RTSP_LOG" != /dev/console ]; then export RTSP_LOGFILE="$RTSP_LOG"; : > "$RTSP_LOG"; fi
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
   LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -L /mnt/lib -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
