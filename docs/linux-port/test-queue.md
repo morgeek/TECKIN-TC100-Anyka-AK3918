@@ -122,6 +122,24 @@ uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/tel
      bridge should cost nothing.
   Open for the owner: verify the password for `morgeekha` in HA and re-enter it in the web UI; then I re-measure the
   CPU with a working login (expected to be different) and check the entities arrive in HA.
+- **P-02 `ak39_vi.slots=3` (one-shot from the SD card, rc7 kernel, flash user space, bootargs only in RAM, no saveenv): PASSED, worth making the default.**
+  Same procedure twice, 15 fps, one RTSP client (Frigate), `perf-baseline.sh 60` taken at the same age (2-4 min after boot):
+  | | default (module reports `slots` = 4) | `ak39_vi.slots=3` (cmdline and module report 3) |
+  |---|---|---|
+  | MemAvailable | **15.6 MB** | **18.8-19.5 MB** (+3.2 to 3.9 MB) |
+  | CmaFree | 1.3 MB | 1.2-1.4 MB |
+  | CPU idle | 82.0 % (user 4.5, sys 11.2) | 81.5-80.9 % (user 5.2, sys 10.9) |
+  | STAT frames per 5 s / dropped | 74-75 / 0-2 | 75-76 / 0 |
+  So three capture buffers are enough at 15 fps: +3.5 MB of RAM for free. Not tested: 25 fps, H.264 main, sub stream
+  with `slots=3` (a 20-25 fps run should be done before changing the default), and a long run for `dropped`.
+  Wi-Fi associated at 15 s, all services up, no Oops.
+- **New observation: the CPU load grows with uptime (suspect: the failing MQTT bridge).** Right after boot (2-4 min)
+  the idle is **80-82 %** with the bridge running and failing its login (CONNACK 5, see above); at 47-53 min of uptime it
+  was **54-59 %** (system 26-29 %) and went back to **75-77 %** when the bridge was stopped. So the cost is not constant:
+  something accumulates in the bridge cycle (the listener leaves a `/tmp/mqtt_stream.bin.N` file per failed session
+  every ~2 min, plus `.checked` files; the scripts may glob or list them, and `/tmp` is RAM). To the implementer:
+  check what the bridge does per cycle that scales with those files or with log size, and delete the old session
+  files. To verify on my side: idle at 20 min and 45 min of uptime of this boot (default slots), numbers below if done.
 - **P-01** half done: needs ONVIF discovery from a client. **P-05** (128 KiB squashfs blocks): stack 2306048 B in the
   partition; MemAvailable did not drop (15.2-16.0 MB, rc6 15.9-16.1); no timing yet.
 - Not run yet: audio B-01/B-02, O-05, P-09 (`RTSP_UDPSG=1`), P-08 (`RTSP_VBR=1`), P-04 (20/25 fps), P-02
