@@ -592,6 +592,36 @@ static void ispx_apply(void)
 	ispx_status();
 }
 
+/* Start of the encoder pool (test queue HW-01): on a TC100 the H.265 stream died after 5-10 s (72 bytes a frame)
+ * when the encoders' buffers started at the beginning of the pool, and streamed normally with the 3.4 MB picture copy
+ * there, never used with direct capture. Until the cause is known that space stays taken (RTSP_POOLPAD bytes,
+ * default the old copy; 0 = none), filled with a pattern and checked every 10 s: a write into it is logged with its
+ * extent and first words (a stray DMA writer), no write while a smaller pad fails points at an address limit of the
+ * encoder instead. */
+#define PG_PAT 0xa5a5a5a5u
+static uint32_t *pg;
+static unsigned pg_len, pg_phys;
+
+static void pool_guard_check(double tn)
+{
+	static double t;
+	static int reports;
+	unsigned n = pg_len / 4, i, first = ~0u, last = 0;
+
+	if (!pg || tn - t < 10.0 || reports >= 20) return;
+	t = tn;
+	for (i = 0; i < n; i += 64) if (pg[i] != PG_PAT) break;	/* one word every 256 bytes first */
+	if (i >= n) return;
+	for (i = 0; i < n; i++) if (pg[i] != PG_PAT) { first = i; break; }
+	for (i = n; i-- > 0;) if (pg[i] != PG_PAT) { last = i; break; }
+	if (first == ~0u) return;
+	LOG("pool guard: written from +0x%x to +0x%x (phys 0x%08x..0x%08x): %08x %08x %08x %08x\n", first * 4, last * 4 + 3,
+	    pg_phys + first * 4, pg_phys + last * 4 + 3, (unsigned)pg[first], first + 1 < n ? (unsigned)pg[first + 1] : 0,
+	    first + 2 < n ? (unsigned)pg[first + 2] : 0, first + 3 < n ? (unsigned)pg[first + 3] : 0);
+	for (i = first; i <= last; i++) pg[i] = PG_PAT;	/* armed again: does it keep happening? */
+	reports++;
+}
+
 /* the exposure state for day / night, every 2 s (cheap: one ioctl) */
 static void ispx_ae_report(double tn)
 {
@@ -2346,6 +2376,18 @@ unsigned char *fpb[2] = { NULL, NULL };
 		    "made by the CPU (no ISP sub channel: kernel without ak39_vi.sub_channel=1)");
 	}
 	if (!zc && !(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(fd, vb, rq.count < 4 ? rq.count : 4, vblen);
+	if (dm) {	/* HW-01: keep the start of the pool taken, as a checked guard (see pool_guard_check) */
+		const char *e = getenv("RTSP_POOLPAD");
+		unsigned pad = e && *e ? (unsigned)num(e) & ~3u : ftot;
+		int (*v2p)(unsigned long) = (int (*)(unsigned long))dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
+
+		if (pad && (pg = (uint32_t *)p_alloc((int)pad))) {
+			pg_len = pad;
+			for (unsigned i = 0; i < pad / 4; i++) pg[i] = PG_PAT;
+			pg_phys = v2p ? (unsigned)v2p((unsigned long)pg) : 0;
+			LOG("encoder pool: %u-byte guard at its start (phys 0x%08x), checked every 10 s (RTSP_POOLPAD)\n", pad, pg_phys);
+		}
+	}
 	if (dm && hwsub) LOG("encoder pool: no picture copy (direct capture and the ISP sub channel)\n");
 	else if (dm) { if (!(psub = (unsigned char *)p_alloc(slen))) { LOG("no DMA memory for the sub picture\n"); return 1; } }
 	else {
@@ -2641,7 +2683,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			}
 			md_frame(vb[b.index], tn);
 			cfg_reload(tn);
-			osd_tick(); ispx_ae_report(tn);
+			osd_tick(); ispx_ae_report(tn); pool_guard_check(tn);
 			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H, bw); } }
 			double t_pp0 = now_s(), t_pp1;
 			/* zero-copy: the sub picture is made first, from the raw picture; the corrections of the main one then

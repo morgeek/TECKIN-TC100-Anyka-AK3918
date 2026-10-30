@@ -59,6 +59,23 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
     pool (and say why in the code), or find what writes at 0x81800000..0x81b50000 (ISP 3D-NR? the JPEG engine?
     the CMA area handed to the kernel?) and fix that; then a new entry to test.
 
+### HW-01b Start of the encoder pool: guard and diagnosis — `to test`
+- **What (implementer, after the HW-01 result):** with direct capture `tc100_rtsp` again takes the first 3.4 MB of the
+  pool (the old layout, which streamed), now as a guard: filled with `a5a5a5a5` and checked every 10 s. Any write
+  into it is logged: `pool guard: written from +0x.. to +0x.. (phys 0x..): w0 w1 w2 w3` (at most 20 reports, the area
+  is re-armed after each). `RTSP_POOLPAD=<bytes>` sets its size, `0` = none (the failing HW-01 layout).
+  The log at start: `encoder pool: N-byte guard at its start (phys 0x81800000)`.
+- **Test, in this order** (main H.265 + sub on, one client, 5 min each, STAT bytes per 5 s):
+  1. Default: streams normally (about 1 MB per 5 s). Any `pool guard:` line? Write it down: it names the writer's
+     range and its first words (`ffd8ffe0` = JPEG, `00000001` / `000001..` = a video bitstream, zeros, ...).
+  2. `RTSP_POOLPAD=0`: the HW-01 failure should come back; confirms the reproduction.
+  3. `RTSP_POOLPAD=65536`, then `1048576`, `2097152`: the smallest size that streams, and any guard reports.
+  4. Steps 1-2 again on the **rc5 kernel** (no-map pool, without patch 0015), to tell the layout from 0015.
+- **Reading it:** guard reports with the failure gone = something writes at the start of the pool (find it from
+  the address and content). No report but a size threshold = the encoder's own buffers cannot sit at those
+  addresses (alignment or address window of the core): then keep the pad, sized to the threshold, and note it.
+  Failure only on the 0015 kernel = the CMA pool (cache or mapping of the area) is the cause.
+
 ### HW-02 Encoder pool from a reusable CMA area, size on the command line (kernel patch 0015) — `to test`
 - **What:** the 12 MiB `no-map` region of the encoder became a CMA area of its own. The driver takes the pool from it
   at boot; `ak39_venc.pool=<size>` takes less, and the rest is usable by the kernel. Default (no parameter) = 12 MiB,
@@ -88,6 +105,14 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   occurrence). **Asked of the implementer:** check what 0013 changes with fifo32=0 (registers written at probe or
   shutdown, the controller's reset / suspend path) and whether the rtl8xxxu power-off at shutdown still runs. HW-03
   waits until a warm reboot after the new kernel keeps the Wi-Fi (to be retried after the power cut).
+- **Implementer's answer (2026-10-30):** with `fifo32=0` patch 0013 runs the same code as before: the byte loops
+  only moved into `fifo_write()` / `fifo_read()` (the receive loop no longer advances `buf`, which nothing reads
+  afterwards); nothing is written at probe, shutdown or reset. The rest of that kernel: 0014 (ISP OSD ioctls, not
+  called unless `RTSP_ISPOSD=1`) and 0015 (encoder pool from CMA). Warm reboots that leave the RTL8188FU in "Failed
+  power on" until a power cut are a known `rtl8xxxu` / 8188FU behaviour (the chip is not powered off at reboot).
+  Proposed check after the power cut: boot the new kernel, 5 warm reboots **without** starting a stream test, then 5
+  with the stream running; if it comes back, 5 warm reboots of the rc5 kernel in the same way, to see whether it is
+  the kernel or the reboot itself.
 
 - **What:** the Wi-Fi USB host moved every byte of a packet with its own bus access. With `otg_hs.fifo32=1` it moves
   32-bit words (tail bytes as before). Off by default. Can be switched live:
