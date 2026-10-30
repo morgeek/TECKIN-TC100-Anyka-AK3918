@@ -73,7 +73,7 @@
     var controller = new AbortController();
     sysUsageFetchController = controller;
 
-    fetch("cgi-bin/state.cgi?cmd=statusline&uid=" + Date.now(), { cache: "no-store", signal: controller.signal })
+    fetch("cgi-bin/statusline.cgi?uid=" + Date.now(), { cache: "no-store", signal: controller.signal })
       .then(function (r) {
         return r.text();
       })
@@ -153,7 +153,7 @@
     var maxAge = typeof maxAgeMs === "number" ? maxAgeMs : 10000;
     if (lastStatusline && Date.now() - lastStatuslineTs <= maxAge) return Promise.resolve(lastStatusline);
     if (sharedStatuslineRequest) return sharedStatuslineRequest;
-    sharedStatuslineRequest = fetch("cgi-bin/state.cgi?cmd=statusline", { cache: "no-store" })
+    sharedStatuslineRequest = fetch("cgi-bin/statusline.cgi", { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("Status HTTP " + r.status); return r.json(); })
       .then(function (data) {
         lastStatusline = data;
