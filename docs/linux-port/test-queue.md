@@ -18,12 +18,21 @@ Rules that apply to every entry:
 - Measure with the `STAT` lines of `/tmp/logs/tc100_rtsp.log`, `scripts/cpu-profile.sh 60`, `/proc/meminfo`
   (`MemAvailable`), `/proc/interrupts` (two reads 60 s apart), and look at the picture (snapshot, VLC).
 
+## Blocking findings for the implementers (tester, 2026-10-30)
+
+- **HW-01 breaks the main stream** (build bde3887): with no picture copy at the start of the encoder pool, H.265
+  falls to ~72 bytes per frame after 5-10 s. A 3.4 MB allocation at the start of the pool cures it. Do not make
+  the next build with HW-01 as is. Details under HW-01.
+- **Wi-Fi chip stuck after a reboot from the bde3887 kernel** (`rtl8xxxu ... Failed power on`), only a power cut
+  clears it. Patch 0013 is suspected, not proven. Details under HW-03.
+- Not tested yet because of these two: HW-02 test 2, HW-04 to HW-08, the UI checks.
+
 ## Hardware use and memory (2026-10-30, commits `[hwaccel] ...`)
 
 Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was compiled or run before it was pushed
 (no compiler on the author's machine): the first check is that the CI run is green.
 
-### HW-01 No picture copy in the encoder pool with direct capture — `to test`
+### HW-01 No picture copy in the encoder pool with direct capture — `failed`
 - **What:** `tc100_rtsp` allocated a 3.4 MB copy of the main and sub pictures in the encoder pool even when the encoder
   reads the capture buffers (direct capture, the default). It now allocates it only in copy mode (`RTSP_DIRECT=0`), and
   only the 0.35 MB sub picture when the sub picture is made by the CPU (`RTSP_HWSUB=0`). The H.265 warm-up frame is
@@ -33,6 +42,22 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   H.264. Video, sub-stream and snapshots as before. Then the same with `RTSP_DIRECT=0` (copy mode must still work).
 - **Pass:** free pool about 3.4 MB larger than before; no `ak_venc_open failed`; 15 fps.
 - **Gives:** the pool size for HW-02 (largest "used" + 0.5 MB).
+- **Result 2026-10-30, IPCAM2 (.11), build bde3887 (CI run 41032639092), kernel of the same build booted once from
+  the card: FAILED, the main stream dies.** Log as expected (`encoder pool: no picture copy ...`, main pool used
+  7946976, sub 8866880, free 3716032), but 5-10 s after the start the H.265 main stream falls to about 5.4 KB per
+  5 s (72 bytes per frame) instead of about 1 MB, for good, with `cap 75 enc 75` and a client connected. The capture
+  itself is fine (`/tmp/cam_luma` 110, the 640x360 web JPEG is a normal picture). Same with `RTSP_HWSUB=0` (dies
+  after about 10 s). `RTSP_DIRECT=0` (copy mode) works (11 fps, copy cost, as before).
+  - **Cause isolated:** the same source with one line added after the "no picture copy" log,
+    `if (dm && getenv("RTSP_PFPAD")) p_alloc(ftot);` (the 3.4 MB the old code allocated first, never used), streams
+    normally (1.0 MB per 5 s, 15 fps, pool used 11402976 / 12322880 as in rc5). So the encoder's own buffers must
+    not be in the first ~3.4 MB of the pool: something else writes there, or the encoder library mishandles that
+    area. With the old layout only the (rewritten every frame) picture copy sat there, which hid it.
+  - **Not settled yet:** whether it also happens with the rc5 kernel (no-map pool, no patch 0015): to be run after
+    the Wi-Fi problem below. Until then, suspect patch 0015 as much as the layout.
+  - **Asked of the implementer:** do not ship HW-01 as is. Either keep a 3.4 MB allocation at the start of the
+    pool (and say why in the code), or find what writes at 0x81800000..0x81b50000 (ISP 3D-NR? the JPEG engine?
+    the CMA area handed to the kernel?) and fix that; then a new entry to test.
 
 ### HW-02 Encoder pool from a reusable CMA area, size on the command line (kernel patch 0015) — `to test`
 - **What:** the 12 MiB `no-map` region of the encoder became a CMA area of its own. The driver takes the pool from it
@@ -45,11 +70,25 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   or kernel errors. Then H.265 + H.264 sub, and a client switching codecs (Settings → Video).
 - **Fail / revert:** no `/dev/uio0` or `cannot map the ... pool` in dmesg: boot the previous kernel. Pool too small:
   drop the parameter.
+- **Result 2026-10-30, IPCAM2, build bde3887, test 1 (default): passed for memory.** dmesg `video encoder: ...
+  pool 12288 KiB at 0x81800000 (CMA)`, MemTotal 59436 kB (47164 before), MemAvailable 10.8 MB (unchanged), no OOM,
+  video 15 fps with the rc5 `tc100_rtsp` (which keeps the 3.4 MB copy at the start of the pool). Test 2 not run
+  (needs HW-01). See HW-01: the area at the start of the pool may be the one being overwritten.
 - **If it passes:** put the measured size in `flashargs` / `stock-hook.sh` (U-Boot environment: ask the owner first),
   or as the default in the device tree (`anyka,pool-size` is not used for CMA; change `reg` size or add a default in
   the driver).
 
-### HW-03 USB host: FIFO data in 32-bit words (kernel patch 0013, `otg_hs.fifo32=1`) — `to test`
+### HW-03 USB host: FIFO data in 32-bit words (kernel patch 0013, `otg_hs.fifo32=1`) — `blocked`
+- **Result 2026-10-30, IPCAM2: Wi-Fi dead after the bde3887 kernel, survives resets.** The bde3887 kernel (fifo32
+  left at its default 0) ran for about 10 minutes, Wi-Fi fine. After a `reboot` from it, the Wi-Fi chip no longer
+  starts, on the rc5 kernel too: `rtl8xxxu_init_device: Failed power on`, `probe of 1-1:1.0 failed with error -16`,
+  no wlan0. Not cleared by 4 more `reboot`s, by USB re-authorisation (`authorized` 0 then 1), nor by a hardware
+  watchdog reset (U-Boot starts again): a power cut is needed. More than ten warm reboots of rc4/rc5 kernels the
+  same day never did this. Patch 0013 is the only USB change in that kernel; that it caused it is not proven (one
+  occurrence). **Asked of the implementer:** check what 0013 changes with fifo32=0 (registers written at probe or
+  shutdown, the controller's reset / suspend path) and whether the rtl8xxxu power-off at shutdown still runs. HW-03
+  waits until a warm reboot after the new kernel keeps the Wi-Fi (to be retried after the power cut).
+
 - **What:** the Wi-Fi USB host moved every byte of a packet with its own bus access. With `otg_hs.fifo32=1` it moves
   32-bit words (tail bytes as before). Off by default. Can be switched live:
   `echo 1 > /sys/module/otg_hs/parameters/fifo32` (do it from the **serial console**: Wi-Fi is the only network).
