@@ -19,10 +19,10 @@
         <p class="settings-empty" id="settings_search_empty" hidden>No setting matches.</p>
         <p class="settings-nav-group">Image</p>
         <a href="javascript: void(0)" data-tab="tab-image" class="is-active"><span>Picture</span><b class="settings-hits"></b></a>
+        <a href="javascript: void(0)" data-tab="tab-overlay"><span>Privacy &amp; overlay</span><b class="settings-hits"></b></a>
         <a href="javascript: void(0)" data-tab="tab-daynight"><span>Day/night</span><b class="settings-hits"></b></a>
         <p class="settings-nav-group">Video &amp; audio</p>
-        <a href="javascript: void(0)" data-tab="tab-video"><span>Video streams</span><b class="settings-hits"></b></a>
-        <a href="javascript: void(0)" data-tab="tab-audio"><span>Audio</span><b class="settings-hits"></b></a>
+        <a href="javascript: void(0)" data-tab="tab-video"><span>Streams &amp; audio</span><b class="settings-hits"></b></a>
         <p class="settings-nav-group">Events</p>
         <a href="javascript: void(0)" data-tab="tab-detect"><span>Detection</span><b class="settings-hits"></b></a>
         <a href="javascript: void(0)" data-tab="tab-record"><span>Recording</span><b class="settings-hits"></b></a>
@@ -52,8 +52,29 @@
                             <div class="column is-half"><label class="label is-small" for="isp_sharpness">Sharpness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_sharpness" id="isp_sharpness_out">0</output></label><input class="isp-tune-range" name="isp_sharpness" id="isp_sharpness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Edge enhancement; lower reduces noise.</p></div>
                             <div class="column is-half"><label class="label is-small" for="isp_exposure_max_pct">Exposure time cap <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" id="isp_exposure_max_pct_out">off</output></label><input name="isp_exposure_max_pct" id="isp_exposure_max_pct" type="range" min="0" max="100" step="10" value="0" style="width:100%"><p class="help">Limits motion blur at night (image gets darker). 0 = no cap; otherwise 10–100 % of the sensor value.</p></div>
                         </div>
-                        <div class="is-divider" data-content="Privacy masks"></div>
-                        <p class="help mb-2">Drag on the picture to hide up to 4 areas (a neighbour's window, a street). The camera paints them before encoding: they are gone from the stream, the snapshots, the recordings and what Frigate sees, at no CPU cost. Saving a mask switches live tuning on.</p>
+                        <p class="help" id="isp_tune_applied" role="status"></p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply image tuning</button></div>
+                    </div>
+                </div>
+            </form>
+            <form id="formOrientation" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Orientation</p></header>
+                    <div class='card-content'>
+                        <div class="field"><label class="label is-small" for="imageflip">Image orientation</label><div class="control"><div class="select is-small"><select name="imageflip" id="imageflip"><option value="0">Normal</option><option value="1">Flip (upside down)</option><option value="2">Mirror (left-right)</option><option value="3">Rotate 180&deg;</option></select></div></div><p class="help">Done by the image processor, applied at once. For a camera mounted on the ceiling, choose Rotate 180&deg;.</p></div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply orientation</button></div>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Privacy & overlay -->
+        <div class="tab-content is-hidden" id="tab-overlay">
+            <form id="formMasks" action="cgi-bin/action.cgi?cmd=isp_tune" method="post">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Privacy masks</p></header>
+                    <div class='card-content'>
+                        <p class="help mb-2">Drag on the picture to hide up to 4 areas (a neighbour's window, a street). The camera paints them before encoding: they are gone from the stream, the snapshots, the recordings and what Frigate sees, at no CPU cost. They apply whether or not live image tuning is on.</p>
                         <div class="mask-editor" id="mask_editor"><img id="mask_preview" alt="Current camera picture" draggable="false"><div class="mask-layer" id="mask_layer"></div></div>
                         <input type="hidden" name="isp_mask_form" value="1"><input type="hidden" name="isp_mask1"><input type="hidden" name="isp_mask2"><input type="hidden" name="isp_mask3"><input type="hidden" name="isp_mask4">
                         <div class="field is-grouped is-grouped-multiline mt-2">
@@ -62,15 +83,15 @@
                             <div class="control"><button class="button is-small is-light" type="button" id="mask_reload">Refresh picture</button></div>
                             <div class="control"><span class="tag is-light" id="mask_count">0 / 4</span></div>
                         </div>
-                        <p class="help" id="isp_tune_applied" role="status"></p>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply image tuning</button></div>
+                        <p class="help" id="mask_applied" role="status"></p>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply privacy masks</button></div>
                     </div>
                 </div>
             </form>
             <form id="formISP" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
                 <input type="hidden" name="osd_form" value="1">
                 <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>On-screen text and orientation</p></header>
+                    <header class='card-header'><p class='card-header-title'>On-screen clock</p></header>
                     <div class='card-content'>
                         <div class="field mb-3"><input class="switch is-small" id="osdenabled" name="osdenabled" type="checkbox"><label for="osdenabled">Enable OSD Text</label></div>
                         <div class="field"><label class="label is-small">OSD Text Pattern</label><input class="input is-small" name="osdtext" id="osdtext" type="text" placeholder="e.g. %H:%M:%S %d.%m.%Y"></div>
@@ -83,17 +104,59 @@
                             <div class="column is-3"><label class="label is-small">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number"></div>
                         </div>
 
-                        <div class="is-divider" data-content="Orientation"></div>
-                        <div class="field"><label class="label is-small" for="imageflip">Image orientation</label><div class="control"><div class="select is-small"><select name="imageflip" id="imageflip"><option value="0">Normal</option><option value="1">Flip (upside down)</option><option value="2">Mirror (left-right)</option><option value="3">Rotate 180&deg;</option></select></div></div><p class="help">Done by the image processor, applied at once. For a camera mounted on the ceiling, choose Rotate 180&deg;.</p></div>
-
-                        <div class="is-divider"></div>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply ISP Settings</button></div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply clock</button></div>
                     </div>
                 </div>
             </form>
         </div>
 
-        <!-- Video -->
+        <!-- Day/night -->
+        <div class="tab-content is-hidden" id="tab-daynight">
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Day/night mode</p></header>
+                <div class='card-content'>
+                    <p class="help mb-3">The same controls as under the live picture. Auto follows the light level with the thresholds below; Day and Night fix the mode until you change it.</p>
+                    <section class="cam-panel" data-cam-panel aria-label="Camera controls">
+                        <div class="cam-group" role="group" aria-label="Day/night mode">
+                            <div class="buttons has-addons cam-modes">
+                                <button type="button" class="button is-small" data-cam-mode="auto" aria-pressed="false">Auto</button>
+                                <button type="button" class="button is-small" data-cam-mode="day" aria-pressed="false">Day</button>
+                                <button type="button" class="button is-small" data-cam-mode="night" aria-pressed="false">Night</button>
+                            </div>
+                        </div>
+                        <div class="cam-group cam-toggles" role="group" aria-label="Camera controls">
+                            <button type="button" class="button is-small cam-toggle" data-cam-control="ir-led" aria-pressed="false" title="Infrared lights">IR light</button>
+                            <button type="button" class="button is-small cam-toggle" data-cam-control="ir-cut" aria-pressed="false" title="Infrared-cut filter in front of the sensor (in for daylight colours)">IR filter</button>
+                            <button type="button" class="button is-small cam-toggle" data-cam-control="black-white" aria-pressed="false">Black &amp; white</button>
+                        </div>
+                        <small class="cam-status" aria-live="polite"></small>
+                    </section>
+                </div>
+            </div>
+            <form id="formDayNight" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
+                <div class='card status_card'>
+                    <header class='card-header'><p class='card-header-title'>Automatic switching thresholds</p></header>
+                    <div class='card-content'>
+                        <p class="help mb-3">Used in Auto mode. Night starts when the light falls below the first luminance; day comes back above the second one (the gap avoids flapping at dusk). Current values: see the live reading under the picture.</p>
+                        <p class="help mb-3">This firmware uses the mean picture luminance, 0 to 255 (defaults 40 and 100); the AWB values are not used.</p>
+                        <div class="columns">
+                            <div class="column is-half">
+                                <p class="heading">Day → Night (Darkness)</p>
+                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="daynightlum" id="daynightlum" type="number"></div>
+                            </div>
+                            <div class="column is-half">
+                                <p class="heading">Night → Day (Brightness)</p>
+                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="nightdaylum" id="nightdaylum" type="number"></div>
+                            </div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save thresholds</button></div>
+                    </div>
+                </div>
+
+            </form>
+        </div>
+
+        <!-- Streams & audio -->
         <div class="tab-content is-hidden" id="tab-video">
             <p class="help mb-3">This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360, at up to 15 frames per second. Set the bit rate below, and the codec under Advanced encoding.</p>
             <form id="formRtspServer" action="cgi-bin/action.cgi?cmd=set_rtsp_server" method="post">
@@ -149,57 +212,7 @@
                 </div>
             </form>
 
-        </div>
-
-        <!-- Day/night -->
-        <div class="tab-content is-hidden" id="tab-daynight">
-            <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Day/night mode</p></header>
-                <div class='card-content'>
-                    <p class="help mb-3">The same controls as under the live picture. Auto follows the light level with the thresholds below; Day and Night fix the mode until you change it.</p>
-                    <section class="cam-panel" data-cam-panel aria-label="Camera controls">
-                        <div class="cam-group" role="group" aria-label="Day/night mode">
-                            <div class="buttons has-addons cam-modes">
-                                <button type="button" class="button is-small" data-cam-mode="auto" aria-pressed="false">Auto</button>
-                                <button type="button" class="button is-small" data-cam-mode="day" aria-pressed="false">Day</button>
-                                <button type="button" class="button is-small" data-cam-mode="night" aria-pressed="false">Night</button>
-                            </div>
-                        </div>
-                        <div class="cam-group cam-toggles" role="group" aria-label="Camera controls">
-                            <button type="button" class="button is-small cam-toggle" data-cam-control="ir-led" aria-pressed="false" title="Infrared lights">IR light</button>
-                            <button type="button" class="button is-small cam-toggle" data-cam-control="ir-cut" aria-pressed="false" title="Infrared-cut filter in front of the sensor (in for daylight colours)">IR filter</button>
-                            <button type="button" class="button is-small cam-toggle" data-cam-control="black-white" aria-pressed="false">Black &amp; white</button>
-                        </div>
-                        <small class="cam-status" aria-live="polite"></small>
-                    </section>
-                </div>
-            </div>
-            <form id="formDayNight" action="cgi-bin/action.cgi?cmd=isp_pro" method="post" class="mt-4">
-                <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Automatic switching thresholds</p></header>
-                    <div class='card-content'>
-                        <p class="help mb-3">Used in Auto mode. Night starts when the light falls below the first luminance; day comes back above the second one (the gap avoids flapping at dusk). Current values: see the live reading under the picture.</p>
-                        <p class="help mb-3">This firmware uses the mean picture luminance, 0 to 255 (defaults 40 and 100); the AWB values are not used.</p>
-                        <div class="columns">
-                            <div class="column is-half">
-                                <p class="heading">Day → Night (Darkness)</p>
-                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="daynightlum" id="daynightlum" type="number"></div>
-                            </div>
-                            <div class="column is-half">
-                                <p class="heading">Night → Day (Brightness)</p>
-                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="nightdaylum" id="nightdaylum" type="number"></div>
-                            </div>
-                        </div>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save thresholds</button></div>
-                    </div>
-                </div>
-
-            </form>
-        </div>
-
-        <!-- Audio -->
-        <div class="tab-content is-hidden" id="tab-audio">
-            <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post">
+            <form id="formAudioAdvanced" action="cgi-bin/action.cgi?cmd=conf_audioin" method="post" class="mt-4">
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Microphone</p></header>
                     <div class="card-content">
@@ -209,21 +222,32 @@
                     </div>
                 </div>
             </form>
+
+            <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Stream addresses</p></header>
+                <div class='card-content'>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div><p class="heading">IP Address</p><p class="title is-6" id="dash_ip">--.--.--.--</p></div>
+                        <div><p class="heading">Gateway</p><p class="title is-6" id="dash_gw">--.--.--.--</p></div>
+                    </div>
+                    <div class="buttons mt-2">
+                        <a class="button is-small is-primary" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
+                        <a class="button is-small is-light" id="dash_snapshot_link" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
+                    </div>
+                    <p class="help">Secondary stream: same address ending in <code>video1_unicast</code>. A Frigate configuration ready to paste is under More tools → Diagnostics on the main screen.</p>
+                </div>
+            </div>
         </div>
 
         <!-- Detection -->
         <div class="tab-content is-hidden" id="tab-detect">
-            <div class='card status_card mb-4'>
-                <header class='card-header'><p class='card-header-title'>Detectors</p></header>
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>Motion and sound detection</p></header>
                 <div class='card-content'>
                     <p class="help mb-3">Switched on or off at once, and kept for the next boots.</p>
                     <div class="field svc-toggle-field"><input class="switch is-small svc-toggle" id="svc_motion-detection" type="checkbox" data-service="motion-detection" disabled><label for="svc_motion-detection">Motion detection (MQTT event)</label> <small class="svc-toggle-state"></small></div>
-                </div>
-            </div>
-            <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
-                <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>Motion and sound detection</p></header>
-                    <div class='card-content'>
+                    <div class="is-divider"></div>
+                    <form id="formDetect" action="cgi-bin/action.cgi?cmd=conf_motiondetect" method="post">
                         <div class="columns">
                             <div class="column is-half"><label class="label is-small">Motion Sensitivity (1-100)</label><input class="input is-small" name="mdsens" id="mdsens" type="number"></div>
                             <div class="column is-half"><label class="label is-small">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
@@ -241,15 +265,15 @@
                         <p class="help" id="mdz_status" role="status"></p>
                         <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; applied within a few seconds)</label></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
-                    </div>
+                    </form>
                 </div>
-            </form>
+            </div>
         </div>
 
         <!-- Recording -->
         <div class="tab-content is-hidden" id="tab-record">
             <div class='card status_card mb-4' id="sd_card_box">
-                <header class='card-header'><p class='card-header-title'>SD card</p></header>
+                <header class='card-header'><p class='card-header-title'>SD card and recorder</p></header>
                 <div class='card-content'>
                     <span id="sd_free_word" hidden>free</span>
                     <p class="is-size-7 sd-summary" id="sd_card_summary" data-kind="">
@@ -268,6 +292,13 @@
                         <button class="button is-small" type="button" id="btnSdMount">Mount the card</button>
                     </div>
                     <p class="help">A card put in while the camera runs: "Mount the card". Format it on a computer (FAT32, or exFAT for cards over 32 GB).</p>
+                    <div class="is-divider" data-content="Recorder"></div>
+                    <p class="is-size-7" id="rec_status_text">Loading…</p>
+                    <div class="buttons mt-2">
+                        <button class="button is-small" type="button" id="btnRecEject">Stop and eject the card</button>
+                        <button class="button is-small" type="button" id="btnRecResume">Resume</button>
+                    </div>
+                    <p class="help">Eject before taking the card out: recording pauses, the files are closed and the card is released.</p>
                 </div>
             </div>
             <form id="formLocalRec" action="cgi-bin/action.cgi?cmd=set_local_recording" method="post">
@@ -282,31 +313,19 @@
                             <div class="column is-half"><label class="label is-small" for="rec_segment_min">File length (minutes)</label><input class="input is-small" name="rec_segment_min" id="rec_segment_min" type="number" min="1" max="60" step="1"></div>
                             <div class="column is-half"><label class="label is-small" for="rec_reserve_mb">Keep free on the card (MB)</label><input class="input is-small" name="rec_reserve_mb" id="rec_reserve_mb" type="number" min="32" max="8192" step="1"></div>
                         </div>
-                        <p class="help">Saving restarts the video stream once. From the flash memory the card must not carry the firmware (no <code>wifitest</code> folder).</p>
+                        <p class="help">Applied within a few seconds, without restarting the video stream. From the flash memory the card must not carry the firmware (no <code>wifitest</code> folder).</p>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save recording</button></div>
                     </div>
                 </div>
             </form>
-            <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Recorder status</p></header>
-                <div class='card-content'>
-                    <p class="is-size-7" id="rec_status_text">Loading…</p>
-                    <div class="buttons mt-2">
-                        <button class="button is-small" type="button" id="btnRecEject">Stop and eject the card</button>
-                        <button class="button is-small" type="button" id="btnRecResume">Resume</button>
-                    </div>
-                    <p class="help">Eject before taking the card out: recording pauses, the files are closed and the card is released.</p>
-                </div>
-            </div>
         </div>
-
 
         <!-- Integrations -->
         <div class="tab-content is-hidden" id="tab-integrations">
-            <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
-                <div class='card status_card'>
-                    <header class='card-header'><p class='card-header-title'>MQTT and Home Assistant</p></header>
-                    <div class='card-content'>
+            <div class='card status_card'>
+                <header class='card-header'><p class='card-header-title'>MQTT and Home Assistant</p></header>
+                <div class='card-content'>
+                    <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
                         <div class="field"><input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1"><label for="mqtt_enabled">Enable MQTT Bridge</label></div>
                         <div class="columns is-multiline">
                             <div class="column is-8"><label class="label is-small">Host</label><input class="input is-small" name="mqtt_host" id="mqtt_host" type="text" placeholder="192.168.1.x"></div>
@@ -318,13 +337,8 @@
                         <div class="is-divider"></div>
                         <div class="field"><input class="switch is-small" id="mqtt_discovery" name="mqtt_discovery" type="checkbox"><label for="mqtt_discovery">Enable Home Assistant Discovery</label></div>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save MQTT</button></div>
-                    </div>
-                </div>
-            </form>
-
-            <div class='card status_card mt-4 ha-connectivity-card'>
-                <header class='card-header'><p class='card-header-title'>Home Assistant status</p></header>
-                <div class='card-content'>
+                    </form>
+                    <div class="is-divider" data-content="Home Assistant status"></div>
                     <div id="ha_discovery_status_container">
                         <div class="level is-mobile mb-2">
                             <div class="level-left">
@@ -367,20 +381,6 @@
                     </div>
                 </div>
             </form>
-            <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Streams for Frigate and recorders</p></header>
-                <div class='card-content'>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div><p class="heading">IP Address</p><p class="title is-6" id="dash_ip">--.--.--.--</p></div>
-                        <div><p class="heading">Gateway</p><p class="title is-6" id="dash_gw">--.--.--.--</p></div>
-                    </div>
-                    <div class="buttons mt-2">
-                        <a class="button is-small is-primary" id="dash_rtsp_link_0" href="#" target="_blank">RTSP Main</a>
-                        <a class="button is-small is-light" id="dash_snapshot_link" href="cgi-bin/currentpic.cgi" target="_blank">Snapshot</a>
-                    </div>
-                    <p class="help">Secondary stream: same address ending in <code>video1_unicast</code>. A Frigate configuration ready to paste is under More tools → Diagnostics on the main screen.</p>
-                </div>
-            </div>
 
             <div class="columns mt-4">
                 <div class="column is-half">
@@ -447,19 +447,17 @@
                         <span class="help">Takes 3-5 seconds. Choose a network to fill in its name.</span>
                     </div>
                     <div id="wifi_scan_results"></div>
+                    <div id="wifiRescueCard">
+                        <div class="is-divider" data-content="Rescue Wi-Fi"></div>
+                    <p class="is-size-7 mb-2">When the camera cannot join its Wi-Fi for 10 minutes, it opens its own Wi-Fi network for 15 minutes: join it with a phone and open http://10.42.0.1/ to fix the settings. Switch it on or off in Services (wifi-rescue, Boot).</p>
+                    <p class="is-size-7" id="wifiRescueInfo">…</p>
+                    </div>
                 </div>
             </div>
             <div id="network_settings_slot" class="mt-4" data-src="cgi-bin/network.cgi?part=settings">
                 <p class="help">Loading…</p>
             </div>
 
-             <div class='card status_card mt-4' id="wifiRescueCard">
-                <header class='card-header'><p class='card-header-title'>Rescue Wi-Fi</p></header>
-                <div class='card-content'>
-                    <p class="is-size-7 mb-2">When the camera cannot join its Wi-Fi for 10 minutes, it opens its own Wi-Fi network for 15 minutes: join it with a phone and open http://10.42.0.1/ to fix the settings. Switch it on or off in Services (wifi-rescue, Boot).</p>
-                    <p class="is-size-7" id="wifiRescueInfo">…</p>
-                </div>
-            </div>
              <div class='card status_card mt-4'>
                 <header class='card-header'><p class='card-header-title'>Name and network services</p></header>
                 <div class='card-content'>
@@ -487,26 +485,7 @@
 
         <!-- System -->
         <div class="tab-content is-hidden" id="tab-system">
-             <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Performance and security</p></header>
-                <div class='card-content'>
-                    <form id="formTuning" action="cgi-bin/action.cgi?cmd=set_advanced_tuning" method="post">
-                        <div class="columns is-multiline mb-0">
-                            <div class="column is-half"><div class="field"><input class="switch is-small" id="security_hardening" name="security_hardening" type="checkbox"><label for="security_hardening">Security Hardening</label></div></div>
-                        </div>
-                        <div class="is-divider" data-content="Memory Guard (OOM Prevention)"></div>
-                        <div class="field"><input class="switch is-small" id="mem_guard_enable" name="mem_guard_enable" type="checkbox"><label for="mem_guard_enable">Enable Memory Guard Daemon</label></div>
-                        <div class="columns is-mobile mb-0">
-                            <div class="column"><label class="label is-small">Warn (K)</label><input class="input is-small" name="mem_guard_warn" id="mem_guard_warn_kb" type="number"></div>
-                            <div class="column"><label class="label is-small">Crit (K)</label><input class="input is-small" name="mem_guard_crit" id="mem_guard_crit_kb" type="number"></div>
-                            <div class="column"><label class="label is-small">Check (s)</label><input class="input is-small" name="mem_guard_interval" id="mem_guard_interval" type="number"></div>
-                        </div>
-                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save Hardening</button></div>
-                    </form>
-                </div>
-            </div>
-
-            <div class='card status_card mt-4'>
+            <div class='card status_card'>
                 <header class='card-header'><p class='card-header-title'>Password</p></header>
                 <div class='card-content'>
                     <p class="is-size-7 mb-3">One password for the user <code>root</code>: web interface, RTSP streams, FTP and telnet. After the change, update the stream addresses in Frigate or your NVR, and the browser asks you to sign in again.</p>
@@ -552,6 +531,25 @@
                         <button id="btnReboot" class="button is-danger is-small is-outlined">Hard Reboot</button>
                         <button id="btnFreeRam" class="button is-warning is-small is-outlined">Clear Page Cache</button>
                     </div>
+                </div>
+            </div>
+
+             <div class='card status_card mt-4'>
+                <header class='card-header'><p class='card-header-title'>Performance and security</p></header>
+                <div class='card-content'>
+                    <form id="formTuning" action="cgi-bin/action.cgi?cmd=set_advanced_tuning" method="post">
+                        <div class="columns is-multiline mb-0">
+                            <div class="column is-half"><div class="field"><input class="switch is-small" id="security_hardening" name="security_hardening" type="checkbox"><label for="security_hardening">Security Hardening</label></div></div>
+                        </div>
+                        <div class="is-divider" data-content="Memory Guard (OOM Prevention)"></div>
+                        <div class="field"><input class="switch is-small" id="mem_guard_enable" name="mem_guard_enable" type="checkbox"><label for="mem_guard_enable">Enable Memory Guard Daemon</label></div>
+                        <div class="columns is-mobile mb-0">
+                            <div class="column"><label class="label is-small">Warn (K)</label><input class="input is-small" name="mem_guard_warn" id="mem_guard_warn_kb" type="number"></div>
+                            <div class="column"><label class="label is-small">Crit (K)</label><input class="input is-small" name="mem_guard_crit" id="mem_guard_crit_kb" type="number"></div>
+                            <div class="column"><label class="label is-small">Check (s)</label><input class="input is-small" name="mem_guard_interval" id="mem_guard_interval" type="number"></div>
+                        </div>
+                        <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save Hardening</button></div>
+                    </form>
                 </div>
             </div>
 
@@ -610,8 +608,9 @@
                 </div>
             </article>
             <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Restore point</p></header>
+                <header class='card-header'><p class='card-header-title'>Presets and restore point</p></header>
                 <div class='card-content'>
+                    <div class="is-divider" data-content="Restore point"></div>
                     <div class="columns mb-0">
                         <div class="column">
                             <form action="cgi-bin/action.cgi?cmd=save_known_good_profile" method="post">
@@ -626,12 +625,7 @@
                             <p class="help mt-1">Revert if a profile change causes image issues.</p>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>Configuration profiles</p></header>
-                <div class='card-content'>
+                    <div class="is-divider" data-content="Configuration profiles"></div>
                     <p class="mb-4">Save your current configuration as a named preset, or load a previously saved preset to restore settings.</p>
                     <div class="columns">
                         <div class="column is-half">
@@ -655,11 +649,7 @@
                             <p class="help">Save current settings with a new name.</p>
                         </div>
                     </div>
-                </div>
-            </div>
-            <div class='card status_card'>
-                <header class='card-header'><p class='card-header-title'>Saved presets</p></header>
-                <div class='card-content'>
+                    <div class="is-divider" data-content="Saved presets"></div>
                     <table class="table is-fullwidth is-hoverable is-size-7" id="presets_table" style="display:none">
                         <thead>
                             <tr><th>Preset Name</th><th>Actions</th></tr>
@@ -727,7 +717,10 @@
         var linkFor = {};
         navLinks.forEach(function (t) { linkFor[t.dataset.tab] = t; });
         var currentTab = 'tab-image';
+        // Sections that were merged or renamed: old ids (bookmarks, menu links, docs) land on the new one.
+        var TAB_ALIAS = { 'tab-audio': 'tab-video' };
         function showTab(targetId) {
+            targetId = TAB_ALIAS[targetId] || targetId;
             if (!document.getElementById(targetId)) return;
             currentTab = targetId;
             var search = document.getElementById('settings_search');
