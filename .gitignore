@@ -41,4 +41,6 @@ dist/
 /src/tc100rtsp/defined.txt
 /src/tc100rtsp/imports.txt
 /src/tc100rtsp/libpthread.so.0
+/src/tc100rtsp/tc100_rtsp.dbg
+/src/libakuio/libakuio.dbg.so
 /src/tc100rtsp/stub_pthread.c

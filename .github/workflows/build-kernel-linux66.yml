@@ -175,6 +175,8 @@ jobs:
         run: |
           mkdir -p symbols
           cp linux-src/System.map linux-src/.config symbols/
+          # unstripped user-space programs (the shipped ones are stripped)
+          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so symbols/ 2>/dev/null || true
           gzip -c linux-src/vmlinux > symbols/vmlinux.gz
 
       - name: Upload kernel symbols
