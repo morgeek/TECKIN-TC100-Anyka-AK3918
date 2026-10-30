@@ -421,8 +421,33 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
      no `flashroot=1` (SD mode) works; a card tree from before this build with this initrd prints
      `user space without ext/bin/aplay` and still brings up Wi-Fi, web UI and video.
 
-Not done (listed for later): merging the slow daemons (web-guard, health-snapshot, log-persist, service-watchdog)
-into one loop; `cma=16M` (about 4 MB more for the kernel if 4 capture slots still fit: needs the owner's U-Boot
+### O-06 One housekeeper loop for the slow shell daemons — `to test`
+- **What (commit `[big] One housekeeper loop ...`):** `scripts/housekeeper.sh` replaces web-guard, log-persist, the
+  rtsp / mqtt / onvif / telegram service watchdogs and health-snapshot (separate `sh` processes) with one resident
+  loop. It waits with `read -t` on a FIFO, 30 s at most.
+  - **Periods are unchanged:** web 60 s, network check 60 s (run every 3rd minute while the gateway answers), SD panel
+    60 s, watchdogs 60 s, health snapshot 300 s, log-persist 10 min.
+  - **A slow job never stalls the others:** it runs in a guarded background process.
+  - **Same status readers:** the Services page, health-probe and memory-guard read the same pid files. While a job is
+    registered, its pid file holds the housekeeper's pid.
+  - **Still separate:** button-watch, auto-night, the MQTT bridge, getty and cfg-persist.
+  - **Known limit:** nothing restarts the housekeeper itself if it dies (web-guard was not supervised either).
+- **Switch:** `HOUSEKEEPER=0` in `/mnt/config/boot.conf` (read at boot) brings back the separate daemons.
+- **Test:**
+  1. `ps | grep -c '[s]h '` is 3 or more lower than on the previous build, and `/var/run/housekeeper.pid` is alive.
+  2. `sh /mnt/scripts/housekeeper.sh status` lists `web`, `net`, `sd` and `watch-rtsp-h26x`, then `log-persist`, plus
+     `health-snapshot` if it is on. `runs=` grows and `skipped=0`.
+  3. `/var/run/v4l2rtspserver-watch.pid` holds the housekeeper's pid, and the Services page shows rtsp-h26x running.
+  4. Kill tc100_rtsp: it is back within 1-2 minutes (`/tmp/log/service-watchdog.log`: "perform restart").
+  5. In Services, stop and start health-snapshot (and mqtt-bridge if MQTT is on): the pid file goes and comes back,
+     and `status` follows.
+  6. The network, card and httpfront checks of O-04 item 8.
+  7. `/mnt/sd/logs/boot-NNNN` appears about 2 minutes after boot and is refreshed every 10 minutes.
+  8. Idle `top`: the housekeeper is near 0%.
+  9. With `HOUSEKEEPER=0` and a reboot, the separate `web-guard.sh run`, `log-persist.sh run` and `service-watchdog.sh`
+     processes are back, and the Services page is still correct.
+
+Not done (listed for later): `cma=16M` (about 4 MB more for the kernel if 4 capture slots still fit: needs the owner's U-Boot
 change); base image as squashfs instead of RAM (about 3 MB); a smaller libasound and busybox applet set; the
 Buildroot `S50telnet` (busybox telnetd on port 23 at every boot) and `S50dropbear` still start from the base image's
 init.d: owner's decision whether they stay; `CONFIG_IP_MULTICAST` is off, so ONVIF discovery (off by default) cannot
