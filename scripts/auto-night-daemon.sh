@@ -22,7 +22,7 @@
 if [ -z "$DN_TEST" ]; then
   PIDFILE="/var/run/auto-night-detection.pid"
   echo "$$" > "$PIDFILE"
-  . /mnt/scripts/common_functions.sh
+  # (common_functions.sh, 31 KB, is not sourced: the daemon uses none of it; the switch is done by nightmode.sh)
 fi
 
 CONSOLE=${DN_CONSOLE:-/dev/console}
@@ -200,13 +200,40 @@ dn_step_luma() {
   fi
 }
 
+# The two config files are read again only when one of them was written since the last read (stamp file): the loop runs
+# every 2-8 s and a parse is some hundred shell steps each time. A file that is missing is read (and ignored) each time.
+dn_conf_changed() {
+  [ -e "$DN_STAMP" ] || return 0
+  for _cf in "$DN_RTSPCONF" "$DN_CONF"; do
+    [ -e "$_cf" ] || return 0
+    [ "$DN_STAMP" -nt "$_cf" ] || return 0   # written since, or in the same second as the stamp
+  done
+  return 1
+}
+
+# Waiting without a fork: read -t on a FIFO that nobody writes to (as scripts/button-watch.sh does); sleep when the shell
+# has no working read -t (probed once: the first wait must really last a second).
+dn_wait() {
+  if [ "$DN_WAITMODE" = fifo ]; then read -t "$1" _x <> "$DN_FIFO" 2>/dev/null; else sleep "$1"; fi
+  return 0
+}
+dn_centis() { read -r _up _ < /proc/uptime; DN_CS="${_up%.*}${_up#*.}"; }
+
 if [ -z "$DN_TEST" ]; then
   SLP=8
+  DN_STAMP=/tmp/.auto-night.stamp.$$; DN_FIFO=/tmp/.auto-night.fifo.$$; DN_WAITMODE=sleep
+  trap 'rm -f "$DN_STAMP" "$DN_FIFO"; exit 0' TERM INT
+  if mkfifo "$DN_FIFO" 2>/dev/null; then
+    dn_centis; _c0=$DN_CS
+    read -t 1 _x <> "$DN_FIFO" 2>/dev/null
+    dn_centis
+    case "$_c0$DN_CS" in *[!0-9]*) ;; *) [ $((DN_CS - _c0)) -ge 90 ] && DN_WAITMODE=fifo ;; esac
+  fi
   while true; do
-    sleep "$SLP"
+    dn_wait "$SLP"
 
     # Check if auto detection is enabled in config (manual day/night = 3 pauses the daemon)
-    read_daynight
+    if dn_conf_changed; then read_daynight; : > "$DN_STAMP"; fi
     [ "$DN_MODE" != "2" ] && continue
 
     if [ "$DAYNIGHT_SOURCE" != luma ]; then

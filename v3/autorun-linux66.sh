@@ -82,9 +82,19 @@ fi
 sh /mnt/v3/linux66-sd/net-apply </dev/null >/dev/null 2>&1
 
 # 1d. Choices of boot.conf that 2.x autorun.sh applied at each start (read here, no sourcing of the whole file)
-bootv() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
+# boot.conf is parsed once into BC_<KEY> variables (last line of a key wins, one pair of double quotes removed, a value
+# holding another quote is ignored: what the former sed|tail per key gave, without ten forks at boot).
+if [ -r /mnt/config/boot.conf ]; then
+  while IFS= read -r _l || [ -n "$_l" ]; do
+    case "$_l" in [A-Za-z_]*=*) ;; *) continue ;; esac
+    _k=${_l%%=*}; case "$_k" in *[!A-Za-z0-9_]*) continue ;; esac
+    _v=${_l#*=}; _v=${_v#\"}; _v=${_v%\"}
+    case "$_v" in *\"*) continue ;; esac
+    eval "BC_$_k=\$_v"
+  done < /mnt/config/boot.conf
+fi
 on() { case "$1" in 1|true|yes|on|enabled) return 0 ;; esac; return 1; }
-PROFILE=$(bootv INTEGRATION_PROFILE); LIGHT=$(bootv LIGHTWEIGHT_MODE)
+PROFILE=$BC_INTEGRATION_PROFILE; LIGHT=$BC_LIGHTWEIGHT_MODE
 # (Frigate + Home Assistant profile: motion detection and the clock overlay are switched off once, by the setup wizard,
 #  so that later Settings changes stay; the profile still keeps some services off at boot, step 12b)
 
@@ -92,22 +102,25 @@ PROFILE=$(bootv INTEGRATION_PROFILE); LIGHT=$(bootv LIGHTWEIGHT_MODE)
 #    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a
 #    link: a card used by older firmwares holds ~15 MB of libraries (libcrypto, libliveMedia, 3 x libstdc++...)
 #    whose copy into RAM left the 6.6 trial mode without memory.
+# (the links are collected and made by one ln: the link has the name of its target, so "ln -sf f1 f2 ... /lib/" does it)
+LIBLINKS=
 for f in /mnt/lib/*.so*; do
   [ -e "$f" ] || continue
   b="${f##*/}"
   [ -e "/lib/$b" ] && continue
   case "$b" in
     ld-uClibc*|libc.so.0|libuClibc-*|libdl*|libm.so*|libm-*|libpthread*|librt*|libgcc_s*|libcrypt*)
-      if [ -f /tmp/flashmode ]; then ln -sf "$f" "/lib/$b"; else cp "$f" "/lib/$b" && chmod +x "/lib/$b" 2>/dev/null || true; fi ;;
-    *) ln -sf "$f" "/lib/$b" ;;
+      if [ -f /tmp/flashmode ]; then LIBLINKS="$LIBLINKS $f"; else cp "$f" "/lib/$b" && chmod +x "/lib/$b" 2>/dev/null || true; fi ;;
+    *) LIBLINKS="$LIBLINKS $f" ;;
   esac
 done
+[ -n "$LIBLINKS" ] && ln -sf $LIBLINKS /lib/
 
 # 3. Setup WebUI document root in RAM
 mkdir -p /tmp/www
-for f in /mnt/www/*; do
-  ln -sfn "$f" /tmp/www/$(basename "$f")
-done
+# (one ln for every entry: the links have the names of their targets)
+set -- /mnt/www/*
+[ -e "$1" ] && ln -sfn "$@" /tmp/www/
 ln -sfn /tmp/currentpic.cache.jpg /tmp/www/ch0.jpg
 ln -sfn /tmp/stream.jpg /tmp/frame_ch0.jpg
 
@@ -191,7 +204,10 @@ fi
 #    automatic switching starts unless it was switched off (Services, or "Day" / "Night" under the picture:
 #    no config/autostart/auto-night-detection, or daynight=3 in rtspserver.conf).
 sh /mnt/bin/setconf -k e -v "$(cat /var/run/ircut 2>/dev/null || echo 1)" </dev/null >/dev/null 2>&1
-DN=$(sed -n 's/^daynight=//p' /mnt/config/rtspserver.conf 2>/dev/null | head -n 1)
+DN=
+if [ -r /mnt/config/rtspserver.conf ]; then
+  while IFS='=' read -r _k _v; do [ "$_k" = daynight ] && { DN=$_v; break; }; done < /mnt/config/rtspserver.conf
+fi
 if [ -f $CS/auto-night-detection ] && [ -f /mnt/config/autostart/auto-night-detection ] && [ "$DN" != 3 ]; then
   sh $CS/auto-night-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Auto Day/Night detection active" > /dev/console
@@ -223,19 +239,29 @@ fi
 #      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
 #      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
 #      ENABLE_NTP=0 in boot.conf turns it off.
-if [ "$(bootv ENABLE_NTP)" != 0 ]; then
+if [ "$BC_ENABLE_NTP" != 0 ]; then
   S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
   ntpd -p "$S" </dev/null >/dev/null 2>&1 &
 fi
 # Scheduled reboot (Settings -> System): the managed entry of config/cron/crontabs/root, run by crond
-if on "$(bootv ENABLE_CROND)" || on "$(bootv REBOOT_SCHEDULE_ENABLE)"; then
+# crond only when there is something to run (a non-comment line in the crontab): without an entry the resident daemon
+# woke up every minute for nothing. The Settings schedule starts it itself when it saves one (action.cgi
+# restart_crond_if_enabled).
+if on "$BC_ENABLE_CROND" || on "$BC_REBOOT_SCHEDULE_ENABLE"; then
   mkdir -p /mnt/config/cron/crontabs
-  crond -c /mnt/config/cron/crontabs </dev/null >/dev/null 2>&1
+  _cron=0
+  if [ -r /mnt/config/cron/crontabs/root ]; then
+    while IFS= read -r _l || [ -n "$_l" ]; do
+      case "$_l" in ''|'#'*) continue ;; esac
+      case "$_l" in *[!\ \	]*) _cron=1; break ;; esac
+    done < /mnt/config/cron/crontabs/root
+  fi
+  [ "$_cron" = 1 ] && crond -c /mnt/config/cron/crontabs </dev/null >/dev/null 2>&1
 fi
 # LEDs as set in Settings (FRONT_LED / RED_LED), not left as the boot found them
 sh -c '. /mnt/scripts/common_functions.sh
   case "$1" in 1|true|yes|on) front_led on ;; *) front_led off ;; esac
-  case "$2" in 1|true|yes|on) red_led on ;; *) red_led off ;; esac' _ "$(bootv FRONT_LED)" "$(bootv RED_LED)" </dev/null >/dev/null 2>&1
+  case "$2" in 1|true|yes|on) red_led on ;; *) red_led off ;; esac' _ "$BC_FRONT_LED" "$BC_RED_LED" </dev/null >/dev/null 2>&1
 
 # 12b. Services switched on in the web UI (Services page, "Boot" toggle = file in config/autostart): button-actions,
 #      wifi-rescue, memory-guard, health-snapshot, telegram-bot, ftp/telnet... Started detached, one after the other.
@@ -247,14 +273,15 @@ for f in /mnt/config/autostart/*; do
   # as on 2.x: the lightweight mode and the Frigate + Home Assistant profile keep some services off at boot
   on "$LIGHT" && case "$n" in front-led) continue ;; esac
   [ "$PROFILE" = frigate_ha ] && case "$n" in telegram-bot|syslog-forward|sound-detection|ftp-server|telnet-server) continue ;; esac
-  [ -f $CS/$n ] && sh $CS/$n start </dev/null >/dev/null 2>&1 &
-  sleep 1
+  [ -f $CS/$n ] || continue
+  sh $CS/$n start </dev/null >/dev/null 2>&1 &
+  sleep 1   # spaces the starts: each one is a shell plus its own checks, and the encoder is still starting up
 done
 
 # 12b2. Logs kept across reboots: the RAM logs (dmesg, syslog, tc100_rtsp and the other services) are copied to the card
 #       (/mnt/sd/logs/boot-NNNN, last 5 boots) every 10 minutes and before a deliberate reboot (reboot-tracker.sh intent
 #       calls it). The Logs page lists them. LOG_PERSIST=0 in boot.conf turns it off.
-if [ -f /mnt/scripts/log-persist.sh ] && [ "$(bootv LOG_PERSIST)" != 0 ]; then
+if [ -f /mnt/scripts/log-persist.sh ] && [ "$BC_LOG_PERSIST" != 0 ]; then
   ( exec sh /mnt/scripts/log-persist.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
@@ -267,7 +294,7 @@ sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
 ( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
 
 # 12d. Update notice (boot.conf UPDATE_CHECK=1): asks GitHub once the clock is set (curl + jq of the flash image)
-case "$(sed -n 's/^UPDATE_CHECK="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)" in
+case "$BC_UPDATE_CHECK" in
   1|true|yes|on) ( sleep 120; exec sh /mnt/scripts/update-check.sh ) </dev/null >/dev/null 2>&1 & ;;
 esac
 
@@ -275,7 +302,7 @@ esac
 #      and how to reach it, on the card (tc100-3/ADRESSE.txt, Windows line ends): its address once the network gave
 #      one; without a network after 12 minutes, the name and password of its rescue access point (scripts/wifi-rescue.sh
 #      starts it after 10 minutes without Wi-Fi), so that a camera with a wrong or missing wifi.txt can still be set up.
-[ "$(bootv BOOT_SOUND)" = 0 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
+[ "$BC_BOOT_SOUND" = 0 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
 ( i=0; IP=
   while [ $i -lt 144 ]; do
     IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)

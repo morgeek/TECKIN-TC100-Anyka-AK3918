@@ -64,15 +64,20 @@ w=0; while netstat -tan 2>/dev/null | grep -q ":$PORT .*LISTEN" && [ $w -lt 8 ];
 TZV=$(grep -v '^#' /mnt/config/timezone.conf 2>/dev/null | grep -v '^$' | head -n 1); [ -n "$TZV" ] && export TZ="$TZV"
 RTSP_LOG=/tmp/logs/tc100_rtsp.log; mkdir -p /tmp/logs
 [ -f /mnt/config/rtsp.debug ] && RTSP_LOG=/dev/console
+# the log in /tmp is capped by the server itself (RTSP_LOGFILE: it truncates the file when it grows too big): the file is
+# emptied once here and opened for appending, so a truncation by the server is not followed by a hole of NUL bytes
+if [ "$RTSP_LOG" != /dev/console ]; then export RTSP_LOGFILE="$RTSP_LOG"; : > "$RTSP_LOG"; fi
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
   LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -L /mnt/lib -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \
-    -S /var/run/sound_level $ENCOPT >"$RTSP_LOG" 2>&1 ) &
-sleep 2
-for pid in $(pidof tc100_rtsp 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
+    -S /var/run/sound_level $ENCOPT >>"$RTSP_LOG" 2>&1 ) &
+# the subshell exec's tc100_rtsp: $! is the server's pid (no sleep and pidof needed to find it); pidof stays as a fallback
+RPID=$!
+[ -d /proc/$RPID ] || { sleep 1; RPID=$(pidof tc100_rtsp 2>/dev/null); RPID=${RPID%% *}; }
+[ -n "$RPID" ] && echo -900 > /proc/$RPID/oom_score_adj 2>/dev/null
 FLIP=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r " " imageflip 2>/dev/null)
 /mnt/bin/setconf -k f -v ${FLIP:-0} 2>/dev/null || true
 ( sleep 3; /mnt/bin/setconf -k f -v ${FLIP:-0} 2>/dev/null ) &
 # the vendor scripts (health, MQTT bridge, capability check) use this pid file as "RTSP server is up"
-pidof tc100_rtsp 2>/dev/null | awk '{print $1}' > /var/run/v4l2rtspserver.pid
+echo "$RPID" > /var/run/v4l2rtspserver.pid
 exit 0
