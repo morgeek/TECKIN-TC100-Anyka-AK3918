@@ -122,6 +122,37 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   pin 15. Not tried: blind toggling of other pins (IR-cut 80/81, speaker 14 and the sensor pins are on the same
   banks). **Asked of the implementer:** the sharepin bits for GPIO 15 and 47 from the stock 3.4 board code (the ISP
   log shows `share 74=4200071c 78=00000000 7c=01450525`), and a one-minute test that sets them.
+- **Implementer's answer (2026-10-30 night): found, our own device tree did it.**
+  - **Where:** at each stream start, `vi_power_up()` (patch 0006) ORs `anyka,sharepin-or` into SYSCTRL
+    0x74 / 0x78 / 0x7c / 0x80. Patch 0009 held `<0x40000710 0x0 0x01450525 0x100>`, copied from the OpenIPC 4.4
+    kernel.
+  - **What those values did:** besides the sensor clock pad (pin 3) and I2C (27, 28), they mux the **Ethernet RMII**
+    pads that the OpenIPC device tree enables. Its `ethernet_pins_rmii` = pins 10 11 13 14 15 19 20 23 24 47,
+    function 1.
+  - **Decoded with the EV33x sharepin table** (OpenIPC/linux `drivers/pinctrl/anyka/ak_ev330_pinctrl.c`, the driver
+    of this SoC; field value 0 = GPIO):
+    - 0x7c = 0x01450525 sets exactly pins 10, 11, 13, 14, 15, 19, 20, 23 and 24 to function 1.
+    - Bit 10 of 0x74 sets pin 47 to OPCLK.
+    - 0x80 bit 8 is the pull bit of pin 47.
+  - **So once the video starts, these pins leave the GPIO block:** blue LED 15 (MII_TXD1), red LED 47 (OPCLK), and
+    very likely the **IR LED 19, the speaker amplifier 14 and the reset button 10** too.
+  - **Fix (next build):** `anyka,sharepin-or = <0x40000310 0x0 0x0 0x0>`, which keeps pin 3, 27 and 28 only. Checked:
+    the series applies, the kernel builds, and the `.dtb` holds the new value.
+- **Check now, on the running build** (nothing written; undone by the next stream restart):
+  ```
+  devmem 0x08000074 32 0x4200031c      # was 0x4200071c: pin 47 back to GPIO
+  devmem 0x0800007c 32 0x00000000      # was 0x01450525: pins 10 11 13 14 15 19 20 23 24 back to GPIO
+  echo 0 > /sys/class/leds/red/brightness;  echo 1 > /sys/class/leds/red/brightness;  echo 0 > /sys/class/leds/red/brightness
+  echo 1 > /sys/class/leds/blue/brightness; echo 0 > /sys/class/leds/blue/brightness
+  ```
+  Expected: red and blue follow, and the video keeps running (it does not use these pins). If the picture stops,
+  restore `0x4200071c` / `0x01450525` and write down which write did it.
+- **Then, with the next build:**
+  1. The Settings LED switches work.
+  2. IR LED: `setconf -k g -v 1` / `0` lights / darkens the IR LEDs at night (look with a phone camera).
+  3. Speaker: Talk or the sound test is heard (amplifier pin 14).
+  4. Reset button: held 3 s gives the button-watch log line; UI-20 (held 20 s) can then be tested.
+  5. The video starts as before.
 
 ## Hardware use and memory (2026-10-30, commits `[hwaccel] ...`)
 
