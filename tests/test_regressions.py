@@ -256,9 +256,14 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'disc').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 8)   # 6 numbers + select + switch
+        self.assertEqual(len(lines), 8)   # 6 numbers + anti-flicker removal + switch
         for line in lines:
             topic, payload = line.split('\t', 1)
+            if '/select/' in topic:
+                # anti-flicker is not applied on 3.0: an empty retained payload removes the old entity
+                self.assertTrue(topic.endswith('/isp_power_hz/config'), topic)
+                self.assertEqual(payload, '')
+                continue
             d = json.loads(payload)
             self.assertEqual(d['stat_t'], 'cam/x/isp/state', topic)
             if '/number/' in topic:
@@ -1089,19 +1094,19 @@ class MotionZones(unittest.TestCase):
                                      .replace('/var/run/md_zones', str(d / 'md_zones'))
         return subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=20)
 
-    def test_cgi_saves_valid_zones_and_restarts_a_running_detector(self):
+    def test_cgi_saves_valid_zones_without_restarting_the_detector(self):
         import json
         r = self.run_cgi_block({'F_md_zone_form': '1', 'F_md_zone1': '0,0,50,25', 'F_md_zone2': 'x;rm -rf /',
                                 'F_md_zone3': '', 'F_md_zone4': '10,10,20,20'})
         self.assertEqual((self.d / 'motion_zones.conf').read_text(), 'MDZ1="0,0,50,25"\nMDZ2="10,10,20,20"\n')
         self.assertIn('Motion zones: 2', r.stdout)
-        self.assertEqual((self.d / 'md.calls').read_text().split(), ['status', 'stop', 'start'])
+        # tc100_rtsp reads motion_zones.conf while it runs: the detector is not touched
+        self.assertFalse((self.d / 'md.calls').exists())
         info = json.loads(r.stdout.splitlines()[-1])
         self.assertEqual(info['zones'], ['0,0,50,25', '10,10,20,20'])
         self.assertEqual(info['enabled'], 1)
         self.assertEqual(info['detector'], {'grid': '32x24', 'ignored': 96, 'result': 'area'})
         # same zones again: nothing rewritten, detector left alone
-        (self.d / 'md.calls').unlink()
         self.run_cgi_block({'F_md_zone_form': '1', 'F_md_zone1': '0,0,50,25', 'F_md_zone2': '10,10,20,20'})
         self.assertFalse((self.d / 'md.calls').exists())
         # all removed: the file goes
