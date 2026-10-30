@@ -7,6 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Web UI pass** (HTML/CSS/JS only, commits `[webui] ...`; camera checks: UI-22 in `docs/linux-port/test-queue.md`):
+  Settings orientation could not be saved (field taken for an IP address), negative sound threshold refused,
+  "Install & reboot" threw before posting, Home Assistant badge stuck on "Checking...", input bounds aligned on the CGIs,
+  Wi-Fi password checked before sending; config editor turned a literal `\n` into a line break and failed on tabs;
+  restore / import could send an empty CSRF token right after a page load; recordings with a space in the name did not
+  play; live video kept streaming after leaving the Live view; error states, confirmations for destructive actions,
+  labels and keyboard use, 390 px layout and missing French strings across the pages.
+
 ### Added
 - **Live video in the browser** (Video / Snapshots switch on the live view): the camera's H.264 stream (sub-stream by default) as fragmented MP4
   through `live.cgi` and Media Source Extensions, no re-encoding, two viewers at most, snapshots as the fallback. Waiting for a camera run
