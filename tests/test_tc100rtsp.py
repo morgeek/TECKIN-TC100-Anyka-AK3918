@@ -526,6 +526,57 @@ class Server(unittest.TestCase):
         c.request('PLAY', self.URL, 'Session: ' + hd['session'].split(';')[0])
 
 
+class LogRotation(unittest.TestCase):
+    """RTSP_LOGFILE: the STAT tick (every 5 s) moves a log larger than RTSP_LOGMAX to <file>.1 and goes on in a new file"""
+    PORT = 18561
+
+    @classmethod
+    def setUpClass(cls):
+        build('test_rtsp')
+
+    def run_server(self, tmp, **env):
+        log = Path(tmp) / 'tc100_rtsp.log'
+        f = open(log, 'ab')
+        proc = subprocess.Popen([str(SRC / 'test_rtsp'), '-p', str(self.PORT), '-a', '0', '-s', '0'], cwd=tmp,
+                                env=dict(os.environ, **env), stderr=f, stdout=f)
+        f.close()
+        return proc, log
+
+    def test_rotates_when_too_big_and_keeps_one_old_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc, log = self.run_server(tmp, RTSP_LOGFILE=str(Path(tmp) / 'tc100_rtsp.log'), RTSP_LOGMAX='100')
+            try:
+                old = Path(str(log) + '.1')
+                for _ in range(120):
+                    if old.exists() and log.exists() and b'STAT' in log.read_bytes():
+                        break
+                    time.sleep(0.1)
+                self.assertTrue(old.exists(), 'no rotation')
+                self.assertIn(b'tc100_rtsp: rtsp://', old.read_bytes())          # the start-up lines went to the old file
+                self.assertTrue(log.read_bytes().startswith(b'log rotated\nSTAT'), log.read_bytes()[:80])
+            finally:
+                proc.terminate()
+                proc.wait(10)
+
+    def test_no_rotation_below_the_limit_or_without_the_variable(self):
+        for env in ({'RTSP_LOGFILE': 'x', 'RTSP_LOGMAX': '1000000'}, {}):
+            with tempfile.TemporaryDirectory() as tmp:
+                if 'RTSP_LOGFILE' in env:
+                    env = dict(env, RTSP_LOGFILE=str(Path(tmp) / 'tc100_rtsp.log'))
+                proc, log = self.run_server(tmp, **env)
+                try:
+                    for _ in range(120):
+                        if b'STAT' in log.read_bytes():
+                            break
+                        time.sleep(0.1)
+                    self.assertIn(b'STAT', log.read_bytes())
+                    self.assertFalse(Path(str(log) + '.1').exists())
+                    self.assertNotIn(b'log rotated', log.read_bytes())
+                finally:
+                    proc.terminate()
+                    proc.wait(10)
+
+
 class Backchannel(Server):
     def test_sdp_offers_the_backchannel_only_when_asked_and_allowed(self):
         c = self.client()
