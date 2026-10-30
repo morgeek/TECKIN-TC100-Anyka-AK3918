@@ -72,7 +72,12 @@
             .then(function () {
               showResult(isReboot ? "Restarting: the camera is back in about a minute" : "Command sent to the camera", "is-success");
             })
-            .catch(function () { showResult("The camera did not accept the command", "is-danger"); });
+            .catch(function (err) {
+              // csrfFetch throws an Error for an HTTP failure (403, 500: refused) and a TypeError when
+              // the connection dropped. For a reboot that usually means the camera is already going down.
+              if (isReboot && err instanceof TypeError) showResult("The camera stopped answering: it is probably restarting", "is-warning");
+              else showResult("The camera did not accept the command", "is-danger");
+            });
         }
         return;
       }
