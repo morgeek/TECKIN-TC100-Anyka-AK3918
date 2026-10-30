@@ -1572,7 +1572,7 @@ if [ -n "$F_cmd" ]; then
 
   isp_tune)
     # Live image tuning: configured values, ISP_TUNE flag and what the
-    # libtc100fix thread reports as applied (/var/run/isp_tune.status).
+    # tc100_rtsp reports as applied (/var/run/isp_tune.status).
     . /mnt/scripts/isp-tune.sh
     isp_tune_json
     ;;

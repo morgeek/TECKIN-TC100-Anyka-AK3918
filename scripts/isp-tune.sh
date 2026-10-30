@@ -1,8 +1,8 @@
 #!/bin/sh
 # isp-tune.sh — shared helpers for live image tuning (ISP_TUNE).
 # Sourced by www/cgi-bin/action.cgi, www/cgi-bin/state.cgi and
-# scripts/mqtt-bridge.sh. The values are applied by the libtc100fix.so thread
-# inside v4l2rtspserver (src/tc100fix/isp_tune.c), which polls the file.
+# scripts/mqtt-bridge.sh. The values are applied by tc100_rtsp through the ISP
+# (/dev/isp_char), which checks the file every 2 s; POWER_HZ is not applied.
 # Camera-side shell: no tr(1), no bashisms.
 
 ISP_TUNE_CONF="${ISP_TUNE_CONF:-/mnt/config/isp_tune.conf}"
