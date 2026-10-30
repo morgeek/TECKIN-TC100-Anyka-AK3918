@@ -75,6 +75,9 @@ if [ -f /mnt/sd/wifi.txt ] && [ -f /mnt/scripts/wifi-txt.sh ]; then
   sh /mnt/scripts/wifi-txt.sh apply /mnt/sd/wifi.txt $W && ( sh /mnt/v3/linux66-sd/wifi-apply 0 </dev/null >/dev/null 2>&1 & )
 fi
 
+# 1b2. Time zone for every process started from here on (date, logs, ntpd, scripts): config/timezone.conf, POSIX TZ string
+[ -f /mnt/scripts/update_timezone.sh ] && . /mnt/scripts/update_timezone.sh
+
 # 1c. Network settings (static address, custom DNS servers) over what the boot script's DHCP gave, as 2.x did
 sh /mnt/v3/linux66-sd/net-apply </dev/null >/dev/null 2>&1
 
@@ -82,11 +85,8 @@ sh /mnt/v3/linux66-sd/net-apply </dev/null >/dev/null 2>&1
 bootv() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
 on() { case "$1" in 1|true|yes|on|enabled) return 0 ;; esac; return 1; }
 PROFILE=$(bootv INTEGRATION_PROFILE); LIGHT=$(bootv LIGHTWEIGHT_MODE)
-# Frigate + Home Assistant profile: Frigate detects and stamps the picture itself (2.x apply_frigate_ha_rtsp_profile)
-if [ "$PROFILE" = frigate_ha ] && [ -x /mnt/bin/rwconf ]; then
-  LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " mdenabled 0 2>/dev/null
-  LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " osdenabled 0 2>/dev/null
-fi
+# (Frigate + Home Assistant profile: motion detection and the clock overlay are switched off once, by the setup wizard,
+#  so that later Settings changes stay; the profile still keeps some services off at boot, step 12b)
 
 # 2. Populate shared uClibc libraries into /lib: symlinks, except on the card (SD mode) for the small uClibc runtime,
 #    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a

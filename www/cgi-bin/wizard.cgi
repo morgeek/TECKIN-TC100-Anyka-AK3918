@@ -160,7 +160,8 @@ if [ "$METHOD" = "POST" ]; then
 
     # Allowlist validation
     case "$_profile" in
-        standalone|frigate_ha|nvr) ;;
+        standalone|frigate_ha) ;;
+        nvr) _profile=standalone ;;	# profile removed (same as standalone); old clients still work
         *) echo '{"ok":false,"error":"invalid_profile"}'; exit 0 ;;
     esac
     case "$_rec" in ''|keep|off|offline|always) ;; *) echo '{"ok":false,"error":"invalid_rec"}'; exit 0 ;; esac
@@ -216,6 +217,12 @@ if [ "$METHOD" = "POST" ]; then
         frigate_ha)
             set_conf "$BOOT_CONF" INTEGRATION_PROFILE frigate_ha
             set_conf "$BOOT_CONF" MQTT_ENABLE 1
+            # Frigate detects and stamps the picture itself: motion detection and the clock overlay start off.
+            # Done once, here (the boot script used to force it at every start, over later Settings changes).
+            if [ -x /mnt/bin/rwconf ] && [ -f "$CONFIG/rtspserver.conf" ]; then
+                LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf "$CONFIG/rtspserver.conf" w " " mdenabled 0 >/dev/null 2>&1
+                LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf "$CONFIG/rtspserver.conf" w " " osdenabled 0 >/dev/null 2>&1
+            fi
             ;;
         *)
             set_conf "$BOOT_CONF" INTEGRATION_PROFILE default
@@ -595,14 +602,6 @@ body {
       </div>
       <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
     </div>
-    <div class="wz-card" data-val="nvr" data-group="profile" onclick="pick(this)">
-      <div class="wz-icon" style="background:rgba(217,119,6,.12)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" ry="2"/><path d="M15 9.5l5 2.5-5 2.5V9.5z"/></svg></div>
-      <div class="wz-card-body">
-        <div class="wz-card-title">Third-party NVR</div>
-        <div class="wz-card-desc">Blue Iris, Synology Surveillance, iSpy — direct RTSP streams without MQTT</div>
-      </div>
-      <div class="wz-check"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><polyline points="1.5,4.5 3.5,6.5 7.5,2" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-    </div>
     <div class="wz-nav">
       <button class="btn-ghost" onclick="goBack()">← Back</button>
       <button class="btn-primary" id="wbtn-profile" disabled onclick="goNext()">Next <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="8,4 11,7 8,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -757,7 +756,7 @@ var wz = { wifi: null, profile: null, rec: null, flash: null };
 var info = { storage: 'sd', ssid: '', flash: 'none', card: 1, flash_reason: '' };
 
 var LABEL = {
-    profile:  { standalone: 'Standalone', frigate_ha: 'Frigate + Home Assistant', nvr: 'Third-party NVR' },
+    profile:  { standalone: 'Standalone', frigate_ha: 'Frigate + Home Assistant' },
     rec:      { offline: 'When Frigate stops receiving the video', always: 'Always', off: 'Off' },
     flash:    { prepare: 'Install now', later: 'Not now' }
 };

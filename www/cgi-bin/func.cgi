@@ -42,6 +42,9 @@ if [ "$_to_ok" = 0 ]; then
     }
 fi
 
+# Time zone of the camera (config/timezone.conf, POSIX TZ string): CGIs that run date or format times use it.
+[ -f /mnt/scripts/update_timezone.sh ] && . /mnt/scripts/update_timezone.sh
+
 # Callers that stream a BINARY body (raw PCM for PTT) must set
 # FUNC_CGI_SKIP_BODY=1 before sourcing this file: the form-parsing slurp below
 # would otherwise drain stdin, leaving the real reader an empty stream — that is
