@@ -10,6 +10,7 @@ Run: python3 -m unittest tests.test_flash_image -v
 """
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import unittest
 
@@ -63,6 +64,40 @@ class FlashImage(unittest.TestCase):
                 if f.name == base:
                     continue
                 self.assertNotIn(base, text, (name, str(f.relative_to(ROOT))))
+
+    def test_moved_programs_come_with_the_user_space(self):
+        """What leaves the RAM initramfs for ext/ (initramfs-prune.txt, "3.0 (2026-10-30)") must be in the user space
+        tree, and still be found by name (links in the initramfs, S50dropbear search path)."""
+        prune = [l.strip() for l in (ROOT / 'v3/initramfs-prune.txt').read_text().splitlines()
+                 if l.strip() and not l.startswith('#')]
+        stack = (ROOT / 'v3/build-stack.sh').read_text()
+        rootfs = (ROOT / 'v3/build-rootfs66.sh').read_text()
+        for b in ('usr/bin/aplay', 'usr/bin/arecord', 'usr/bin/amixer', 'usr/sbin/dropbear'):
+            self.assertIn(b, prune)
+            self.assertIn(b, stack)
+        self.assertIn('usr/lib/libasound.so.2', prune)
+        self.assertIn('usr/share/alsa', prune)
+        self.assertIn('ext/share/alsa', stack)
+        self.assertIn('for b in aplay arecord amixer; do ln -sf /mnt/ext/bin/$b usr/bin/$b; done', rootfs)
+        self.assertIn('ln -sfn /mnt/ext/share/alsa usr/share/alsa', rootfs)
+        self.assertIn('S50dropbear-linux66', rootfs)
+        self.assertIn('/mnt/ext/lib', rootfs)       # musl search path baked in the initramfs
+        # the initramfs boot needs wpa_supplicant and its libraries: they must stay
+        for keep in ('usr/sbin/wpa_supplicant', 'usr/lib/libnl-3.so.200', 'usr/lib/libnl-genl-3.so.200', 'bin/busybox', 'lib/libc.so'):
+            self.assertNotIn(keep, prune)
+        # nobody calls the moved programs by their old absolute path
+        for f, text in runtime_files():
+            for old in ('/usr/bin/aplay', '/usr/bin/arecord', '/usr/bin/amixer', '/usr/sbin/dropbear', '/usr/share/alsa'):
+                self.assertNotIn(old, text, (old, str(f.relative_to(ROOT))))
+
+    def test_dropbear_start_script(self):
+        s = (ROOT / 'v3/S50dropbear-linux66').read_text()
+        self.assertIn('/mnt/ext/bin/dropbear', s)
+        self.assertIn('/mnt/sd/ext/bin/dropbear', s)    # SD mode: the card is at /mnt/sd before autorun mounts /mnt
+        self.assertIn('--exec $DB', s)
+        sh = shutil.which('busybox')
+        cmd = [sh, 'ash', '-n', str(ROOT / 'v3/S50dropbear-linux66')] if sh else (['sh', '-n', str(ROOT / 'v3/S50dropbear-linux66')])
+        self.assertEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
 
     def test_httpfront_is_freestanding(self):
         src = (ROOT / 'src/httpfront/httpfront.c').read_text()

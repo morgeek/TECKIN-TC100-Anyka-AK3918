@@ -389,6 +389,38 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
      `RTSP_QTRIM=0`).
   6. The black-and-white switch reacts within about a second, and the software clock still ticks every second.
 
+### B-01 Initramfs reduced to the boot essentials: ALSA tools, libasound, dropbear, libz/libgcc_s/libatomic moved to `ext/` — `to test`
+- **What (commit `[big] ...`):** the RAM image (ramfs, never reclaimed) goes from 4.18 MB of files (4452 KB du) to
+  2.51 MB (2720 KB du), the xz initrd from 1.51 MB to 1.03 MB (partition 2,012,654). Out of it, into `ext/` of the user
+  space (`/rom/ext` in flash mode, the card tree in SD mode; page cache, read on demand): `aplay`, `arecord`,
+  `amixer`, `libasound.so.2` (`ext/lib`), `/usr/share/alsa` (`ext/share/alsa`, without the alsactl init files), `dropbear`
+  (and its links ssh/scp/dbclient/dropbearkey, not shipped any more), `libz`, `libgcc_s`, `libatomic` (`ext/lib` only
+  for the tools that need them: curl, mksquashfs); the xz helper scripts are dropped. `stack.sqfs` grows from 1.97 to 2.46 MB
+  (partition 2.83 MB). **Kept in the RAM image:** busybox, musl, `wpa_supplicant` + libnl-3/genl (Wi-Fi up without
+  the user space; moving them would save 0.78 MB more), init scripts, `udhcpc` script, telnetd start.
+  How callers find the moved files: `/usr/bin/aplay|arecord|amixer` and `/usr/share/alsa` are links into `/mnt/ext`
+  (CGIs run with busybox httpd's reset PATH, `tc100_rtsp` does `execlp("arecord")`), `etc/ld-musl-arm.path` is baked into
+  the initrd (`/lib /usr/lib /mnt/ext/lib`, same as autorun writes), `etc/profile.d/tc100-ext.sh` adds `/mnt/ext/bin`
+  to login shells, `S50dropbear` is `v3/S50dropbear-linux66` (looks in `/mnt/ext/bin`, then `/mnt/sd/ext/bin`: in SD mode
+  `/mnt` is the card only after autorun, the card is already at `/mnt/sd`; no dropbear = a console line, telnetd
+  unchanged). `S39tc100` logs a warning if the user space has no `ext/bin/aplay`.
+- **Off:** none at run time. The initrd and the user space must be updated together (the updater writes `stack` first,
+  `initrd` last; a card tree must be the one of the same build). New initrd + old user space = no audio tools, no ssh
+  (telnet and everything else work); old initrd + new user space works.
+- **Test** (flash mode, then SD mode `tc100test/c66.img` + card tree, then flash mode with the card removed):
+  1. `/proc/cmdline` shows the full initrd size; `free`: MemAvailable about 1.7 MB higher than before.
+  2. `ls -l /usr/bin/aplay /usr/share/alsa` (links to `/mnt/ext`), `aplay -l` and `arecord -l` list the card,
+     `amixer -c 0 scontents` works from the serial shell and from an ssh session (`PATH` has `/mnt/ext/bin`).
+  3. RTSP with audio plays (VLC: sound), the web UI Listen button and the Talk / sound test (speaker) work,
+     `pidof arecord` while an audio client is connected.
+  4. `ssh root@<ip>` works (password of config/user.pwd) and `ps | grep dropbear`; boot log has `Starting dropbear sshd: OK`
+     and no `dropbear is not in the user space` line. `telnet` still answers where S50telnet was answering before.
+  5. Wi-Fi up as before; `curl -sI https://example.org | head -1` and `jq -n 1` (`libz`, `libatomic` from `ext/lib`);
+     `iw reg get`.
+  6. Fallbacks: card removed in flash mode (everything works, no video storage); `tc100test/flashmode` absent and
+     no `flashroot=1` (SD mode) works; a card tree from before this build with this initrd prints
+     `user space without ext/bin/aplay` and still brings up Wi-Fi, web UI and video.
+
 Not done (listed for later): merging the slow daemons (web-guard, health-snapshot, log-persist, service-watchdog)
 into one loop; `cma=16M` (about 4 MB more for the kernel if 4 capture slots still fit: needs the owner's U-Boot
 change); base image as squashfs instead of RAM (about 3 MB); a smaller libasound and busybox applet set; the
