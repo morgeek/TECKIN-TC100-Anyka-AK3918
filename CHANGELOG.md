@@ -8,6 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Five improvements, waiting for a camera run** (tests: `tests/test_feat30.py`, `src/tc100rtsp/test_util.c`):
+  - Day / night can decide from the ISP exposure instead of the picture luminance (`DAYNIGHT_SOURCE=luma|ae|isp` in
+    `config/daynight.conf`, Settings -> Day/night with a live reading, hold times: night after 10 s, day after 60 s).
+    Default stays `luma`.
+  - Frame rate select on Settings -> Streams & audio: 10, 12, 15 (default), 20 or 25, one rate for both streams
+    (`rtspserver.conf` `[0] fps`, passed as `-f` by `rtsp-launch.sh`; anything else means 15).
+  - Optional lower frame rate when nothing moves: `IDLE_FPS` (0 = off, default) and `IDLE_AFTER` in `boot.conf`;
+    needs motion detection; not applied while recording continuously.
+  - Logs kept across reboots: `scripts/log-persist.sh` copies dmesg, the syslog and the service logs to
+    `/mnt/sd/logs/boot-NNNN` every 10 minutes and before a deliberate reboot (last 5 boots, about 2 MB each,
+    `LOG_PERSIST=0` turns it off); the Logs page lists and downloads them (`cgi-bin/savedlogs.cgi`).
+  - Memory Guard defaults: warn 6144 KB and critical 3072 KB (were 8192 / 4096, next to the normal 10.8 MB
+    MemAvailable); the warn stage no longer stops `auto-night-detection`. Cameras holding exactly the old values are
+    moved when the service starts.
+
 - **More work done by the hardware, waiting for a camera run** ([test queue](docs/linux-port/test-queue.md)):
   sharpness and exposure cap on the Image page again, applied by the ISP; privacy masks (`RTSP_ISPMASK=1`) and the
   clock (`RTSP_ISPOSD=1`, kernel patch 0014: ISP OSD ioctls) by the ISP instead of the CPU; 3.4 MB less of the encoder

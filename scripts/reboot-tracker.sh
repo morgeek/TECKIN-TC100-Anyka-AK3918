@@ -51,6 +51,14 @@ rt_intent()
   mkdir -p "$LOGDIR" 2>/dev/null
   printf '%s|%s\n' "$(_rt_ts)" "${1:-unspecified}" > "$INTENT" 2>/dev/null
   sync
+  # the RAM logs go to the SD card before the restart (scripts/log-persist.sh; LOG_PERSIST=0 turns it off);
+  # every deliberate reboot (web UI, MQTT, net-guard, the reset button) announces itself here. Bounded at 8 s.
+  _lp="${LOG_PERSIST_SH:-/mnt/scripts/log-persist.sh}"
+  if [ -f "$_lp" ]; then
+    sh "$_lp" shutdown "${1:-reboot}" >/dev/null 2>&1 &
+    _lpp=$!; _lpi=0
+    while kill -0 "$_lpp" 2>/dev/null && [ "$_lpi" -lt 16 ]; do sleep 0.5; _lpi=$((_lpi + 1)); done
+  fi
 }
 
 rt_heartbeat()

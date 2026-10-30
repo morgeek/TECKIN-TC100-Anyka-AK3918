@@ -548,7 +548,10 @@ read_rtsp_stream_summary() {
 
     # tc100_rtsp encodes 1920x1080 and 640x360 at 15 frames per second whatever the file says (codec and bit rate
     # are taken from it): report what the streams really are (dashboard, Frigate YAML, HA manifest).
-    width0=1920; height0=1080; width1=640; height1=360; fps0=15; fps1=15
+    # The frame rate is one setting for both streams: 10, 12, 15, 20 or 25 (Settings -> Streams & audio), else 15.
+    width0=1920; height0=1080; width1=640; height1=360
+    case "$fps0" in 10|12|15|20|25) ;; *) fps0=15 ;; esac
+    fps1=$fps0
 
     codec0_name="$(codec_name "$codec0")"
     codec1_name="$(codec_name "$codec1")"
@@ -1046,6 +1049,34 @@ if [ -n "$F_cmd" ]; then
     else
       hostname
     fi
+    ;;
+
+  daynight)
+    # Settings -> Day/night: the automatic switching settings and the live reading (picture luminance, ISP exposure
+    # state of /tmp/cam_ae and the exposure index the ae source compares; the formula is that of
+    # scripts/auto-night-daemon.sh dn_index) so that the thresholds can be set from what the camera sees.
+    load_conf_file /mnt/config/daynight.conf
+    _dn_src="$(get_cfg DAYNIGHT_SOURCE luma)"; case "$_dn_src" in ae|isp) ;; *) _dn_src=luma ;; esac
+    _dn_luma=""; [ -r /tmp/cam_luma ] && read -r _dn_luma < /tmp/cam_luma
+    _dn_ae=0; _dn_idx=null; _dn_l=null; _dn_e=null; _dn_a=null; _dn_d=null; _dn_i=null; _dn_k=null
+    if [ -r /tmp/cam_ae ]; then
+      read -r _l _e _a _d _i _k < /tmp/cam_ae
+      case "$_l $_e $_a $_d $_i $_k" in
+        *[!0-9\ ]*|*"  "*|" "*|*" ") ;;
+        *)
+          if [ -n "$_k" ] && [ "${#_e}" -le 9 ] && [ "${#_a}" -le 9 ] && [ "${#_d}" -le 9 ] && [ "${#_i}" -le 9 ]; then
+            _dn_ae=1; _dn_l=$_l; _dn_e=$_e; _dn_a=$_a; _dn_d=$_d; _dn_i=$_i; _dn_k=$_k
+            _dn_idx=$(( _e * _a / 256 )); _dn_idx=$(( _dn_idx * _d / 256 )); _dn_idx=$(( _dn_idx * _i / 256 ))
+          fi ;;
+      esac
+    fi
+    _dn_cut=1; [ -r /var/run/ircut ] && { read -r _dn_c < /var/run/ircut; [ "$_dn_c" = 0 ] && _dn_cut=0; }
+    _dn_auto=1; _dn_m="$(sed -n 's/^daynight=//p' /mnt/config/rtspserver.conf 2>/dev/null | head -n 1)"; [ "$_dn_m" = 3 ] && _dn_auto=0
+    printf '{"source":"%s","luma_night":%s,"luma_day":%s,"ae_night_above":%s,"ae_day_below":%s,"night_hold":%s,"day_hold":%s,"auto":%s,"night":%s,"luma":%s,"ae_available":%s,"lumi":%s,"exp_time":%s,"a_gain":%s,"d_gain":%s,"isp_d_gain":%s,"dark_flag":%s,"index":%s}\n' \
+      "$_dn_src" "$(sanitize_int "$(get_cfg LUMA_NIGHT 40)" 40)" "$(sanitize_int "$(get_cfg LUMA_DAY 100)" 100)" \
+      "$(sanitize_int "$(get_cfg AE_NIGHT_ABOVE 4000)" 4000)" "$(sanitize_int "$(get_cfg AE_DAY_BELOW 1000)" 1000)" \
+      "$(sanitize_int "$(get_cfg NIGHT_HOLD 10)" 10)" "$(sanitize_int "$(get_cfg DAY_HOLD 60)" 60)" \
+      "$_dn_auto" "$((1 - _dn_cut))" "$(sanitize_int "$_dn_luma" null)" "$_dn_ae" "$_dn_l" "$_dn_e" "$_dn_a" "$_dn_d" "$_dn_i" "$_dn_k" "$_dn_idx"
     ;;
 
   lumawb)
@@ -1761,7 +1792,7 @@ EOF_DF
       "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
       "$(sanitize_int "$(get_cfg rec_postrecord_sec 10)" 10)" "$(sanitize_int "$(get_cfg rec_file_duration_sec 60)" 60)" "$(sanitize_int "$(get_cfg rec_reserverd_disk_mb 1024)" 1024)" "$(truthy_flag "$(get_cfg rec_motion_activated 0)")" \
       "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_live_gateway)")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
-      "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 8192)" 8192)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 4096)" 4096)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
+      "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 6144)" 6144)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 3072)" 3072)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
       "$(sanitize_int "$(get_cfg tlinterval 10)" 10)" "$(sanitize_int "$(get_cfg tlduration 0)" 0)" \
       "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$(_st_db="$(get_cfg THRESHOLD_DB -24)"; case "$_st_db" in -[0-9]|-[0-9][0-9]|0) echo "$_st_db" ;; *) echo -24 ;; esac)" "$(sanitize_int "$(get_cfg INTERVAL 2)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")" \
       "$telegram_enabled" "$(json_escape "$(get_cfg apiToken "")")" "$(json_escape "$(get_cfg userChatId "")")" \
