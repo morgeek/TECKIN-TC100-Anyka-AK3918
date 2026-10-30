@@ -24,9 +24,9 @@
   overflow-x: auto;
 }
 .configeditor-status { font-size: 0.9em; min-height: 1.4em; }
-.configeditor-status.ok  { color: #23d160; }
-.configeditor-status.err { color: #ff3860; }
-.configeditor-note { font-size: 0.82em; color: #888; margin-top: 0.25rem; }
+.configeditor-status.ok  { color: var(--v2-ok, #16a34a); }
+.configeditor-status.err { color: var(--v2-tally, #dc3b3b); }
+.configeditor-note { font-size: 0.82em; color: var(--v2-muted, #6b7280); margin-top: 0.25rem; }
 </style>
 
 <header class="page-head"><h1 class="page-title">Config editor</h1></header>
@@ -43,7 +43,7 @@
     <div class="configeditor-wrap">
       <div class="configeditor-toolbar">
         <div class="select">
-          <select id="configeditor_file" onchange="configEditorLoad()">
+          <select id="configeditor_file" aria-label="Configuration file">
             <option value="boot.conf">boot.conf</option>
             <option value="mqtt.conf">mqtt.conf</option>
             <option value="rtspserver.conf">rtspserver.conf</option>
@@ -59,13 +59,13 @@
             <option value="pttvolume.conf">pttvolume.conf</option>
           </select>
         </div>
-        <button class="button is-small" type="button" onclick="configEditorLoad()">Reload</button>
-        <button class="button is-primary is-small" id="configeditor_save" type="button" onclick="configEditorSave()" disabled>Save</button>
+        <button class="button is-small" type="button" id="configeditor_reload">Reload</button>
+        <button class="button is-primary is-small" id="configeditor_save" type="button" disabled>Save</button>
       </div>
 
-      <textarea id="configeditor_area" class="textarea" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Loading..."></textarea>
+      <textarea id="configeditor_area" class="textarea" aria-label="File content" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Loading..."></textarea>
 
-      <p id="configeditor_status" class="configeditor-status"></p>
+      <p id="configeditor_status" class="configeditor-status" role="status"></p>
       <p class="configeditor-note">
         Changes take effect after the relevant service is restarted. A timestamped backup is kept in <code>/tmp/</code> before each save. Boot-critical settings (lighttpd, network) are not editable here.
       </p>
@@ -75,29 +75,29 @@
 
 <script>
 (function () {
-  // This inline script is re-executed every time the Config Editor SPA page is
-  // injected into #content. Dirty state is kept on window (not an IIFE-local
-  // var) and the beforeunload listener is registered ONCE (guarded), otherwise
-  // each visit leaked a new listener bound to a stale closure.
-  function isDirty() { return !!window.__cfgEditorDirty; }
-  function markClean() { window.__cfgEditorDirty = false; }
-  function markDirty() { window.__cfgEditorDirty = true; }
+  // This inline script runs again every time the Config Editor page is injected
+  // into #content. The dirty flag lives on window; the beforeunload listener is
+  // registered once and only warns while the editor is still on screen.
+  window.__cfgEditorDirty = false;
+  var lastFile = '';
+  var loadSeq = 0;
+  var T = function (s) { return window.tc100T ? window.tc100T(s) : s; };
 
   if (!window.__cfgEditorUnloadBound) {
     window.__cfgEditorUnloadBound = true;
     window.addEventListener('beforeunload', function (e) {
-      if (window.__cfgEditorDirty) {
+      if (window.__cfgEditorDirty && document.getElementById('configeditor_area')) {
         e.preventDefault();
         e.returnValue = 'You have unsaved changes in the Config Editor.';
       }
     });
   }
 
-  function getCsrfToken() {
-    // Read the live token via index.js's exported getter (it is not in scope here).
-    if (typeof window.getCsrfToken === 'function') return window.getCsrfToken() || '';
-    return '';
-  }
+  var sel = document.getElementById('configeditor_file');
+  var area = document.getElementById('configeditor_area');
+  var saveBtn = document.getElementById('configeditor_save');
+  var reloadBtn = document.getElementById('configeditor_reload');
+  if (!sel || !area || !saveBtn) return;
 
   function setStatus(msg, isErr) {
     var el = document.getElementById('configeditor_status');
@@ -106,95 +106,96 @@
     el.className = 'configeditor-status' + (msg ? (isErr ? ' err' : ' ok') : '');
   }
 
-  function getSelectedFile() {
-    var sel = document.getElementById('configeditor_file');
-    return sel ? sel.value : '';
+  function withToken(fn) {
+    var ready = typeof window.ensureCsrfToken === 'function'
+      ? window.ensureCsrfToken().catch(function () { return ''; })
+      : Promise.resolve(typeof window.getCsrfToken === 'function' ? (window.getCsrfToken() || '') : '');
+    return ready.then(fn);
   }
 
-  window.configEditorLoad = function () {
-    var file = getSelectedFile();
+  // configeditor.cgi escapes quotes, backslashes and newlines but not tabs or
+  // other control characters, which are illegal inside a JSON string: escape
+  // them before parsing so a file with a tab still opens.
+  function parseCgiJson(t) {
+    /* eslint-disable-next-line no-control-regex */
+    return JSON.parse(t.replace(/[\u0000-\u001f]/g, function (c) {
+      return c === '\n' ? c : '\\u' + ('000' + c.charCodeAt(0).toString(16)).slice(-4);
+    }));
+  }
+
+  function load(force) {
+    var file = sel.value;
     if (!file) return;
-    if (isDirty() && !confirm('You have unsaved changes. Discard and load a different file?')) {
-      // Revert the dropdown to the last-loaded file
+    if (!force && window.__cfgEditorDirty && !confirm(T('You have unsaved changes. Discard and load a different file?'))) {
+      sel.value = lastFile || file; // keep showing the file that is being edited
       return;
     }
-    var area = document.getElementById('configeditor_area');
-    var saveBtn = document.getElementById('configeditor_save');
-    if (area) { area.value = 'Loading...'; area.disabled = true; }
-    if (saveBtn) saveBtn.disabled = true;
-    setStatus('');
-    markClean();
+    var mySeq = ++loadSeq;
+    area.value = '';
+    area.disabled = true;
+    saveBtn.disabled = true;
+    setStatus('Loading...', false);
+    window.__cfgEditorDirty = false;
 
     fetch('cgi-bin/configeditor.cgi?cmd=read&file=' + encodeURIComponent(file), { cache: 'no-store' })
-      .then(function (r) { return r.text(); })
-      .then(function (t) {
-        try {
-          var d = JSON.parse(t);
-          if (!d.ok) { setStatus('Load failed: ' + (d.error || 'unknown'), true); return; }
-          if (area) {
-            area.value = d.content.replace(/\\n/g, '\n');
-            area.disabled = false;
-            // Persistent input listener, attached once per textarea element.
-            // The old { once: true } removed itself after the first keystroke,
-            // so after a save (markClean) further edits never re-flagged dirty —
-            // and on the old browsers this targets, the options object was
-            // coerced to useCapture=true, ignoring `once` entirely.
-            if (!area._dirtyBound) {
-              area._dirtyBound = true;
-              area.addEventListener('input', markDirty);
-            }
-          }
-          if (saveBtn) saveBtn.disabled = false;
-          if (d.source === 'dist') setStatus('Showing .dist template (no active config found)', false);
-        } catch (e) {
-          setStatus('Failed to parse response', true);
-        }
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
       })
-      .catch(function (e) { setStatus('Load error: ' + e, true); });
-  };
-
-  window.configEditorSave = function () {
-    var file = getSelectedFile();
-    var area = document.getElementById('configeditor_area');
-    var saveBtn = document.getElementById('configeditor_save');
-    if (!file || !area) return;
-
-    var content = area.value;
-    var tok = getCsrfToken();
-    var headers = { 'Content-Type': 'text/plain; charset=utf-8' };
-    if (tok) headers['X-CSRF-Token'] = tok;
-
-    if (saveBtn) saveBtn.disabled = true;
-    setStatus('Saving...');
-
-    fetch('cgi-bin/configeditor.cgi?cmd=save&file=' + encodeURIComponent(file), {
-      method: 'POST',
-      headers: headers,
-      body: content,
-      cache: 'no-store'
-    })
-    .then(function (r) { return r.text(); })
-    .then(function (t) {
-      try {
-        var d = JSON.parse(t);
-        if (d.ok) markClean();
-        setStatus(d.ok ? 'Saved successfully.' : ('Save failed: ' + (d.error || 'unknown')), !d.ok);
-      } catch (e) {
-        setStatus('Unexpected response', true);
-      }
-      if (saveBtn) saveBtn.disabled = false;
-    })
-    .catch(function (e) {
-      setStatus('Save error: ' + e, true);
-      if (saveBtn) saveBtn.disabled = false;
-    });
-  };
-
-  // Load first file on page open
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', window.configEditorLoad);
-  } else {
-    window.configEditorLoad();
+      .then(function (t) {
+        if (mySeq !== loadSeq) return;
+        var d = parseCgiJson(t);
+        if (!d.ok) { setStatus('Load failed: ' + (d.error || 'unknown'), true); return; }
+        // d.content is already the file text: do not turn a literal "\n" of the file into a line break.
+        area.value = String(d.content == null ? '' : d.content);
+        area.disabled = false;
+        saveBtn.disabled = false;
+        lastFile = file;
+        setStatus(d.source === 'dist' ? 'Showing .dist template (no active config found)' : '', false);
+      })
+      .catch(function (e) {
+        if (mySeq !== loadSeq) return;
+        setStatus('Load error: ' + e, true);
+      });
   }
+
+  function save() {
+    var file = lastFile;
+    if (!file || area.disabled) return;
+    if (!confirm(T('Save this file? A wrong value can stop a service from starting.') + '\n' + file)) return;
+
+    saveBtn.disabled = true;
+    setStatus('Saving...', false);
+
+    withToken(function (tok) {
+      var headers = { 'Content-Type': 'text/plain; charset=utf-8' };
+      if (tok) headers['X-CSRF-Token'] = tok;
+      return fetch('cgi-bin/configeditor.cgi?cmd=save&file=' + encodeURIComponent(file), {
+        method: 'POST',
+        headers: headers,
+        body: area.value,
+        cache: 'no-store'
+      });
+    })
+    .then(function (r) {
+      return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; });
+    })
+    .then(function (o) {
+      var d = null;
+      try { d = parseCgiJson(o.text); } catch (e) { /* not JSON */ }
+      if (!d) { setStatus(o.ok ? 'Unexpected response' : 'Save failed (HTTP ' + o.status + ')', true); return; }
+      if (d.ok) window.__cfgEditorDirty = false;
+      setStatus(d.ok ? (d.message === 'Unchanged' ? 'Unchanged' : 'Saved successfully.') : ('Save failed: ' + (d.error || 'unknown')), !d.ok);
+    })
+    .catch(function (e) { setStatus('Save error: ' + e, true); })
+    .then(function () { saveBtn.disabled = false; });
+  }
+
+  area.addEventListener('input', function () { window.__cfgEditorDirty = true; });
+  sel.addEventListener('change', function () { load(false); });
+  if (reloadBtn) reloadBtn.addEventListener('click', function () { load(false); });
+  saveBtn.addEventListener('click', save);
+
+  load(true);
 }());
 </script>

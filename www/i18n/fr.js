@@ -924,7 +924,49 @@ window.tc100I18nFr = {
   "🌙 Night: n/a": "🌙 Nuit : n/d",
   "🌤 Twilight": "🌤 Crépuscule",
   "📋 Copy": "📋 Copier",
-  "📋 Copy URL": "📋 Copier l'URL"
+  "📋 Copy URL": "📋 Copier l'URL",
+  "_pages pass": "strings of the logs, diagnostics, backup, config editor and recordings pages (2026-10)",
+  "Configuration file": "Fichier de configuration",
+  "Copy failed": "Copie impossible",
+  "Date": "Date",
+  "File content": "Contenu du fichier",
+  "Log to show": "Journal à afficher",
+  "Severity is auto-detected from each line. Click column headers to sort.": "La gravité est détectée automatiquement pour chaque ligne. Cliquez sur un en-tête de colonne pour trier.",
+  "Critical": "Critique",
+  "Warning": "Avertissement",
+  "Notice": "Notice",
+  "Info": "Info",
+  "Debug": "Débogage",
+  "Parsed": "Analysées",
+  "Skipped": "Ignorées",
+  "Vendor messages": "Messages constructeur",
+  "Log error": "Erreur de journal",
+  "Unable to load log output. Press Refresh to try again.": "Impossible de charger le journal. Appuyez sur Actualiser pour réessayer.",
+  "Showing the last lines only (Parse cap).": "Seules les dernières lignes sont affichées (limite d’analyse).",
+  "Increase the cap to see more lines.": "Augmentez la limite pour voir plus de lignes.",
+  "No log lines available.": "Aucune ligne de journal.",
+  "No log output.": "Aucune sortie de journal.",
+  "Clear this log? This cannot be undone.": "Effacer ce journal ? Cette action est irréversible.",
+  "The list of saved logs could not be loaded.": "La liste des journaux enregistrés n’a pas pu être chargée.",
+  "Asc": "Croiss.",
+  "Restore this backup? The current settings are replaced (a rollback copy is kept in /tmp).": "Restaurer cette sauvegarde ? Les réglages actuels sont remplacés (une copie de retour arrière est gardée dans /tmp).",
+  "Import these settings? Values in the file replace the current ones.": "Importer ces réglages ? Les valeurs du fichier remplacent les valeurs actuelles.",
+  "File too large (max 1 MB).": "Fichier trop volumineux (1 Mo maximum).",
+  "Uploading...": "Envoi...",
+  "Importing...": "Import...",
+  "The file could not be read.": "Le fichier n’a pas pu être lu.",
+  "Please select a JSON file first.": "Choisissez d’abord un fichier JSON.",
+  "The page scripts did not load. Reload the page.": "Les scripts de la page ne se sont pas chargés. Rechargez la page.",
+  "Save this file? A wrong value can stop a service from starting.": "Enregistrer ce fichier ? Une valeur erronée peut empêcher un service de démarrer.",
+  "You have unsaved changes. Discard and load a different file?": "Modifications non enregistrées. Les abandonner et charger un autre fichier ?",
+  "Saved successfully.": "Enregistré.",
+  "Unexpected response": "Réponse inattendue",
+  "Showing .dist template (no active config found)": "Modèle .dist affiché (aucune configuration active)",
+  "Delete this recording? This cannot be undone.": "Supprimer cet enregistrement ? Cette action est irréversible.",
+  "The list of recordings of this day is unavailable. Retry or inspect the camera logs.": "La liste des enregistrements de ce jour est indisponible. Réessayez ou consultez les journaux de la caméra.",
+  "Recordings are unavailable. Retry or inspect the camera logs.": "Les enregistrements sont indisponibles. Réessayez ou consultez les journaux de la caméra.",
+  "No video records found.": "Aucun enregistrement vidéo.",
+  "The autorun change failed. Retry or inspect the logs.": "Le changement de démarrage automatique a échoué. Réessayez ou consultez les journaux."
  },
  "rules": [
   [
@@ -1046,6 +1088,10 @@ window.tc100I18nFr = {
   [
    "^Vendor messages: (\\d+)$",
    "Messages constructeur : $1"
+  ],
+  [
+   "^Import successful: (\\d+) value\\(s\\), (\\d+) file\\(s\\) changed\\.$",
+   "Import réussi : $1 valeur(s), $2 fichier(s) modifié(s)."
   ]
  ],
  "untranslated": [
