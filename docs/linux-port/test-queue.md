@@ -76,7 +76,7 @@ uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/tel
      so active high is what the driver does) and the codec's speaker path (`DAC out mode` 0, the stock firmware's
      mixer settings), and the effect of the pin fix 9a325f2 on GPIO 14. Microphone not tested here (`tc100_rtsp` holds the
      capture device: `arecord` says `Resource busy`); RTSP audio to be listened to with VLC.
-- **MQTT bridge costs about 20 points of CPU (new finding, reproducible).** `perf-baseline.sh 60`, same scene, 15 fps,
+- **[RETRACTED, see CORRECTION further down] MQTT bridge costs about 20 points of CPU.** `perf-baseline.sh 60`, same scene, 15 fps,
   one RTSP client, rc7 flash, IPCAM2 (its broker 192.168.1.25 is configured, the owner has not set the password yet):
   **`mqtt-bridge` stopped: idle 77.4 % / 74.5 % (system 12.3 / 13.7)**; **running: idle 54.0 % / 57-59 % (system
   26-29, user 12-13.5)**, three alternating runs. The bridge's own processes show almost no ticks (`/proc/<pid>/stat`:
