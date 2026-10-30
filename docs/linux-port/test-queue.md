@@ -239,6 +239,77 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### Next build: 3.0.1-rc8 — stable: only what passed on rc7, and the two bugs fixed (2026-10-31)
+
+The owner asks for a stable rc8 made of verified improvements. Nothing new or untested goes in; every change has a
+switch back to the rc7 behaviour.
+
+**Implementer's answers to the tester's priority list (night 2):**
+1. **F-05 octal counter: fixed** (`scripts/log-persist.sh` strips the leading zeros; host test with `.bootcount`
+   = `0007`, `0008`, `0009`, `0099`, `0000`). After the install on IPCAM2 the stuck `.bootcount` (`0009`) needs no
+   `rm`: the next boot makes `boot-0010`.
+2. **MQTT:** the refusal code is surfaced (badge "MQTT: login refused" for CONNACK 4 / 5, status line "login refused by
+   the broker", `mqtt_refused` in the status JSON). **The longer back-off is not in rc8:** the bridge already backs off
+   (up to `MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS`), its cost measured 0.2 % of a core with a refused login, and a change to
+   the listener's reconnect loop is not a "verified" change. Later, if a refused login turns out to bother the broker.
+3. **Made default:** `RTSP_ISPOSD`, `RTSP_ISPMASK` (`=0` restores the CPU path; a refusal by the ISP falls back to the
+   CPU by itself) and `ak39_vi.slots=3` (kernel default; `ak39_vi.slots=4` = rc7). The camera's `rtsp.env` does not
+   need these lines any more.
+4. **Left opt-in:** `RTSP_UDPMMSG`, `RTSP_UDPSG` (no gain measured, so no reason to switch), `otg_hs.fifo32`,
+   `rtl8xxxu.dma_aggregation`, `RTSP_FRAMECOPY=0`.
+5. **`amixer -c 0`: fixed** by shipping `cards/aliases.conf` in `ext/share/alsa` (build-stack checks it is there).
+   **Speaker silent: not touched in rc8** (no verified fix; the codec path needs a test of its own, see B-01 notes).
+6. **25 fps as the default: not in rc8.** It costs no CPU (P-04), but the picture quality at 25 fps with the same
+   bit rate was not looked at. The owner can choose 25 in Streams & audio; a default change waits for a day-time look.
+7. **HW-02 test 2 (`ak39_venc.pool=9600K`): the owner says go, in rc8** (card boot only, the parameter lives in
+   RAM; kept if it passes, dropped if not). To make it a one-parameter test, `tc100_rtsp` leaves out the start-of-pool
+   guard by itself when the pool is smaller than 12 MiB (log `encoder pool: N bytes (ak39_venc.pool), no guard at
+   its start`; `RTSP_POOLPAD=<bytes>` still forces one). With the default 12 MiB pool nothing changes. Steps in R8-02.
+
+### R8-01 3.0.1-rc8 on the camera — `to test`
+- **What:** the rc7 tree plus: `slots=3` default (kernel), ISP clock and ISP masks default (`tc100_rtsp`), the F-05 and
+  `amixer` fixes, the MQTT refusal in the web UI. `VERSION` = `3.0.1-rc8`.
+- **Test, in this order** (card boot of the kernel first, then the flash install with `update66.sh` as for rc7):
+  1. `/proc/cmdline` complete; `cat /sys/module/ak39_vi/parameters/slots` = **3** with no `slots=` on the command line;
+     Wi-Fi, 15 fps, `MemAvailable` about 18.5-19.5 MB (rc7: 15.6).
+  2. `tc100_rtsp.log` with an empty `rtsp.env`: `clock: in the ISP OSD ...` (when the clock is on) and, with a mask
+     set in Settings, Privacy & overlay, `privacy masks: N in the ISP`; snapshot: clock and mask as in HW-07 / HW-04.
+     `RTSP_ISPOSD=0` in `rtsp.env` + restart: no `clock: in the ISP` line, clock drawn by the CPU (`pp_ms` back to ~100+).
+  3. `amixer -c 0 sget 'Headphone Playback Volume'` works (rc 0, no `aliases.conf` error); the Microphone level of
+     Settings (UI-12) is applied (`amixer -c 0 sget 'LineIn Capture Volume'` follows it).
+  4. F-05: on the card of IPCAM2 (`.bootcount` = `0009`) one reboot makes `boot-0010`, the next `boot-0011`.
+  5. MQTT with the current refused login: the top badge reads **MQTT: login refused** (French: "MQTT : connexion
+     refusée"), `/tmp/mqtt_last_pub.status` ends with ` fail 5`. After the owner fixes the password: **MQTT: ok**.
+  6. One hour of streaming with Frigate at the camera's frame rate: `dropped` as rc7 (P-09: 0.55 %), no Oops / OOM.
+     Then the overnight soak of rc8.
+- **Pass:** all six; `MemAvailable` gain present; nothing worse than rc7.
+- **Fail / revert:** `ak39_vi.slots=4` on the command line (card boot) or `RTSP_ISPOSD=0` / `RTSP_ISPMASK=0` in
+  `rtsp.env`; whole build: reinstall rc7 with `update66.sh`.
+
+### R8-02 HW-02 test 2 on rc8: a 9.4 MiB encoder pool (`ak39_venc.pool=9600K`, card boot) — `to test` (owner's go 2026-10-31)
+- **Why this size:** the encoders use 8866880 bytes with the main stream in H.265 and the sub-stream in H.264 (HW-01b,
+  no guard); 9600K = 9830400 bytes leaves about 0.96 MB. **Gain expected: about 2.6 MB more `MemAvailable`** on top of
+  `slots=3`. Never measured: the pool use with the **main stream in H.264**, the riskiest case.
+- **Safety:** nothing is written to the flash or to the U-Boot environment (`pack66/boot66b.sh` boots in RAM, no
+  `saveenv`). A pool too small only means no video until the next boot without the parameter.
+- **Test, after R8-01 step 1 on the same card kernel:**
+  1. Boot: `EXTRA="ak39_venc.pool=9600K" pack66/boot66b.sh`. `/proc/cmdline` holds the full initrd size **and**
+     `ak39_venc.pool=9600K` (256-character limit); `cat /sys/module/ak39_venc/parameters/pool` = `9600K`.
+  2. dmesg: `video encoder: ... pool 9600 KiB at 0x81800000 (CMA)`, no `cannot map the ... pool`, `/dev/uio0` present.
+  3. `tc100_rtsp.log`: `encoder pool: 9830400 bytes (ak39_venc.pool), no guard at its start`, both encoders `open`,
+     and the `pool used ..., free ...` lines: write down **used** and **free** (main H.265 + sub H.264).
+  4. `MemAvailable` and `MemFree` at 2-4 min after boot, compared with R8-01 step 1 (same build, default pool).
+  5. Main stream in **H.264** (Settings, Streams & audio), then back to H.265: both encoders reopen (`open`, not
+     `OPEN FAILED`), write down **used** / **free** in H.264 too. Then switch the sub-stream codec if the UI offers it.
+  6. Snapshot (web picture), recording of the sub-stream if Frigate records it, 25 fps for 5 minutes.
+  7. **One hour** of streaming with Frigate: `dropped` like R8-01 step 6, the main stream bytes per 5 s stay about
+     1 MB (watch for the HW-01 failure: a fall to ~5 KB per 5 s), no `ak_venc_open failed`, no Oops / OOM.
+- **Pass:** steps 1-7, smallest **free** at least 256 KB in every codec combination. **Then** (rc9): 9600K (or the
+  largest measured **used** + 0.75 MB, rounded up to 64 KB) becomes the driver's default in patch 0015, so the
+  flash boot gets it without any U-Boot change.
+- **Fail:** any `OPEN FAILED` / `ak_venc_open failed`, the main stream dying, or a free below 256 KB: write down the
+  numbers, reboot without `EXTRA`; the idea is dropped (or retried once at `10240K` if only the margin was short).
+
 ### Next build: 3.0.1-rc7 — the owner asks for everything to be tried (2026-10-30 night)
 
 rc7 = rc6 plus the LED / IR / speaker / reset pin fix (LED-01), the tester's accepted proposals and the remaining
@@ -479,7 +550,7 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   installed in the flash, 3 warm `reboot`s with the stream running: associates every time (15.5 s). **Not
   reproduced** (0 of 6). The fifo32=1 measurement itself is still to do: status back to `to test`.
 
-### HW-04 Privacy masks by the ISP (`RTSP_ISPMASK=1`) — `to test`
+### HW-04 Privacy masks by the ISP (`RTSP_ISPMASK=1`) — `passed` (rc7 night 2), the default since rc8 (`RTSP_ISPMASK=0` = CPU)
 - **What:** `AK_ISP_SET_MAIN_CHAN_MASK_AREA`, `_SUB_CHAN_MASK_AREA`, `_MASK_COLOR` (as the 2.x firmware did through the
   vendor library: opaque, type 0, alpha 0) instead of painting the areas in every frame. Off by default because a mask
   in the wrong place is a privacy failure.
@@ -497,13 +568,13 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   the camera" line under the form shows the value.
 - **Fail:** picture broken or unchanged at ±50: note the logged gains; `RTSP_ISPTUNE` does not cover it, set SHARPNESS=0.
 
-### HW-06 Exposure cap by the ISP (Image page, `EXPOSURE_MAX_PCT`) — `to test`
+### HW-06 Exposure cap by the ISP (Image page, `EXPOSURE_MAX_PCT`) — `passed` (rc7 night 2)
 - **What:** the Exposure time cap slider is back. `AK_ISP_SET_AE` `exp_time_max` = the tuning file's value × percent,
   never below `exp_time_min` (the 2.x firmware did the same through the vendor library).
 - **Test:** in low light, 100 % (off) then 30 %: log `exposure cap: 30 % (exp_time_max A -> B)`; moving things blur less,
   the picture is darker. `/tmp/cam_ae` (HW-08) shows `exp_time` not above B.
 
-### HW-07 Clock by the ISP OSD (`RTSP_ISPOSD=1`, kernel patch 0014) — `to test`
+### HW-07 Clock by the ISP OSD (`RTSP_ISPOSD=1`, kernel patch 0014) — `passed` (rc7 night 2), the default since rc8 (`RTSP_ISPOSD=0` = CPU)
 - **What:** new ioctls `AK_ISP_SET_OSD_COLOR_TABLE` / `AK_ISP_SET_OSD` reach the ISP's on-screen display code (window 0,
   4 bits per pixel, 16 colours, swapped at the next frame). `tc100_rtsp` draws the clock into it once a second instead
   of into each frame (and no cache clean of those rows). Off by default; any refusal falls back to the CPU clock.
@@ -642,7 +713,7 @@ Checked before pushing with `tests/docker/local-ci.sh` (tests + ARM build); noth
   IR-lit night index); switch to the `ae` source: no flapping when the IR LEDs come on. Check the gain unit (256 = 1x?).
   **Off:** source "Picture luminance".
 
-### F-05 Logs kept across reboots (`scripts/log-persist.sh`, on by default) — `to test`
+### F-05 Logs kept across reboots (`scripts/log-persist.sh`, on by default) — `failed` on rc7 (octal boot counter), fixed in rc8: `to test`
 - **What:** dmesg, syslog, `tc100_rtsp.log` and tails of the other logs to `/mnt/sd/logs/boot-NNNN` 120 s after the
   start, every 10 min and before a reboot from the web UI (`reboot-tracker.sh intent`); last 5 boots, about 2 MB
   each; skipped when the card is not vfat/exfat, ejected / recording paused, unhealthy or under 64 MB free. A bare
@@ -840,7 +911,7 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
   3. `cat /proc/net/igmp` lists 239.255.255.250 on wlan0 while monvifd runs.
 - **Off:** the previous kernel.
 
-### P-02 Three capture buffers instead of four (`ak39_vi.slots=3`, opt-in) — `to test`
+### P-02 Three capture buffers instead of four (`ak39_vi.slots=3`) — `passed` (rc7), the default since rc8 (`ak39_vi.slots=4` = before)
 - **What:** a module parameter, default 4 (nothing changes without it). With `slots=3` one 1080p capture buffer
   (~3.4 MB of CMA) is not allocated. The ISP's fourth slot stays unarmed: this is the same state as when
   `tc100_rtsp` holds a buffer.

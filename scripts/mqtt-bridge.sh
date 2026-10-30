@@ -699,27 +699,35 @@ mqtt_publish_raw()
   retain="${3:-0}"
   [ -n "$topic" ] || return 1
 
+  _pub_refused=""
   if _mqtt_publish_session "$topic" "$payload" "$retain"; then
     _pub_rc=0
   else
     _mqtt_resp="/tmp/.mqtt_pub_resp.$$"
     _mqtt_send_packets "$topic" "$payload" "$retain" "${MQTT_CLIENT_ID}-pub" \
       | nc -w 4 "$MQTT_HOST" "$MQTT_PORT" > "$_mqtt_resp" 2>/dev/null
-    if od -An -tx1 "$_mqtt_resp" 2>/dev/null | grep -q '20 02 00 00'; then
-      _pub_rc=0
-    else
-      _pub_rc=1
-    fi
+    # The CONNACK is the first packet of the answer; codes 1-5 = the broker
+    # refused the connection (4 bad user name or password, 5 not authorized)
+    case "$(head -c 4 "$_mqtt_resp" 2>/dev/null | od -An -tx1)" in
+      *'20 02 00 00'*) _pub_rc=0 ;;
+      *'20 02 00 01'*) _pub_rc=1; _pub_refused=1 ;;
+      *'20 02 00 02'*) _pub_rc=1; _pub_refused=2 ;;
+      *'20 02 00 03'*) _pub_rc=1; _pub_refused=3 ;;
+      *'20 02 00 04'*) _pub_rc=1; _pub_refused=4 ;;
+      *'20 02 00 05'*) _pub_rc=1; _pub_refused=5 ;;
+      *) _pub_rc=1 ;;
+    esac
     rm -f "$_mqtt_resp" 2>/dev/null
   fi
-  # Record result for MQTT health indicator in web UI (/tmp/mqtt_last_pub.status).
+  # Record result for MQTT health indicator in web UI (/tmp/mqtt_last_pub.status):
+  # "<time> ok", "<time> fail" or "<time> fail <CONNACK code>" when refused.
   [ "$BTIME" -gt 0 ] || _load_btime
   read -r _pub_up _ < /proc/uptime
   _pub_ts=$(( BTIME + ${_pub_up%.*} ))
   if [ "$_pub_rc" -eq 0 ]; then
     printf '%s ok\n' "$_pub_ts" > /tmp/mqtt_last_pub.status 2>/dev/null || true
   else
-    printf '%s fail\n' "$_pub_ts" > /tmp/mqtt_last_pub.status 2>/dev/null || true
+    printf '%s fail%s\n' "$_pub_ts" "${_pub_refused:+ $_pub_refused}" > /tmp/mqtt_last_pub.status 2>/dev/null || true
   fi
   return "$_pub_rc"
 }

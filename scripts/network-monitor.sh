@@ -185,7 +185,7 @@ read_broker_status() {
   broker_state="unknown"
   [ -r "$MQTT_STATUS_FILE" ] || return 0
 
-  read -r broker_status_ts broker_status_result < "$MQTT_STATUS_FILE"
+  read -r broker_status_ts broker_status_result _ < "$MQTT_STATUS_FILE"
   broker_status_ts="$(sanitize_int_local "$broker_status_ts" 0)"
   _nm_now
   if [ "$broker_status_ts" -gt 0 ]; then

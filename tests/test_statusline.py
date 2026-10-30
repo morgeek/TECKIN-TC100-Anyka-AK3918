@@ -120,7 +120,7 @@ class StatuslineCgi(unittest.TestCase):
                 self.assertEqual(bn, bo)
                 self.assertTrue(bn.startswith('{"sysusage":"CPU: '), bn)
                 d = json.loads(bn)
-                self.assertEqual(len(d), 34)
+                self.assertEqual(len(d), 35)
                 self.assertIn('Content-type: application/json', hn)
                 self.assertIn('Cache-Control: max-age=0, no-store, no-cache', hn)
                 self.assertIn('Pragma: no-cache', hn)
@@ -146,6 +146,17 @@ class StatuslineCgi(unittest.TestCase):
         self.assertEqual(d['mqtt_enabled'], 1)
         self.assertEqual(d['default_password_active'], 1)
         self.assertEqual(d['storage'], 'sd')
+
+    def test_mqtt_refusal_code(self):
+        # mqtt-bridge.sh writes "<time> fail <CONNACK code>" when the broker refuses the login (rc7, IPCAM2: code 5)
+        for status, ok, refused in (('1700000100 ok\n', 1, 0), ('1700000100 fail\n', 0, 0),
+                                    ('1700000100 fail 5\n', 0, 5), ('1700000100 fail 4\n', 0, 4),
+                                    ('1700000100 fail x\n', 0, 0)):
+            with self.subTest(status), tempfile.TemporaryDirectory() as b:
+                base = build(b, 'full', ['statelib.cgi', 'statusline.cgi'])
+                (base / 'tmp/mqtt_last_pub.status').write_text(status)
+                d = json.loads(split(run_cgi(base, 'statusline.cgi').stdout)[1])
+                self.assertEqual((d['mqtt_last_pub_ok'], d['mqtt_refused']), (ok, refused))
 
     def test_flash_mode_storage(self):
         _, rn = self.both('flash')

@@ -272,6 +272,19 @@ class LogPersist(unittest.TestCase):
         self.assertIn('why=test', (b / 'meta.txt').read_text())
         self.assertEqual((self.d / 'sd' / 'logs' / '.bootcount').read_text().strip(), '0001')
 
+    def test_counter_with_leading_zeros_is_decimal(self):
+        # F-05 on IPCAM2: 0008 was read as octal by ash, no folder after the 8th boot
+        logs = self.d / 'sd' / 'logs'
+        for old, new in (('0007', '0008'), ('0008', '0009'), ('0009', '0010'), ('0099', '0100'), ('0000', '0001')):
+            logs.mkdir(parents=True, exist_ok=True)
+            (logs / '.bootcount').write_text(old + '\n')
+            if (self.d / 'state').exists():
+                self.new_boot()
+            r = self.lp('save')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual((logs / '.bootcount').read_text().strip(), new)
+            self.assertTrue((logs / ('boot-' + new)).is_dir(), self.boots())
+
     def test_second_save_of_the_same_boot_reuses_the_folder_and_skips_unchanged_files(self):
         self.lp('save')
         b = self.d / 'sd' / 'logs' / 'boot-0001'

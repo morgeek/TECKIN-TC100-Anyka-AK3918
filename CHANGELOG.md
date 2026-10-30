@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Logs kept across reboots stopped after the 8th boot** (3.0.1-rc8, F-05 on IPCAM2): the boot counter `0008` was
+  read as octal by ash (`arithmetic syntax error`), so no `boot-NNNN` folder was made at boots 8, 9, 18, 19 ... The
+  leading zeros are stripped before the count.
+- **`amixer -c 0` failed on rc7** (speaker volume, microphone level at start and from the UI did nothing): the user
+  space ALSA tree lacked `cards/aliases.conf`, which `alsa.conf` includes. It is shipped again (the rest of `cards/`
+  stays out).
 - **Front LEDs, IR LED, speaker amplifier and reset button lost to the Ethernet pads** (3.0.1-rc7, LED-01): the ISP
   start ORed the OpenIPC 4.4 sharepin values, which mux the RMII pads 10 11 13 14 15 19 20 23 24 47, into SYSCTRL.
   Only the sensor clock pad and I2C are set now.
@@ -15,6 +21,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`RTSP_LOGFILE`, `RTSP_LOGMAX`).
 
 ### Changed
+- **3.0.1-rc8: the rc7 switches that passed on IPCAM2 are the defaults** (no new feature; checks R8-01 in
+  `docs/linux-port/test-queue.md`):
+  - **Kernel:** 3 capture buffers (`ak39_vi.slots`, P-02: +3.5 MB of RAM, no dropped frames at 15 and 25 fps;
+    `ak39_vi.slots=4` = before).
+  - **Video server:** the clock drawn by the ISP OSD (HW-07, about 2 % of a core; `RTSP_ISPOSD=0` = CPU) and the
+    privacy masks by the ISP (HW-04; `RTSP_ISPMASK=0` = CPU). Both fall back to the CPU by themselves on a refusal.
+  - **MQTT:** a broker that refuses the login (CONNACK 4 / 5) shows as "MQTT: login refused" in the web UI instead of
+    a plain "fail" (`mqtt_refused` in the status JSON).
+  - **HW-02 test 2 ready (R8-02):** with a smaller encoder pool (`ak39_venc.pool=9600K`, card boot, RAM only)
+    `tc100_rtsp` leaves out the 3.4 MB start-of-pool guard by itself (`RTSP_POOLPAD` still forces one); the default
+    12 MiB pool is unchanged. Kept as the default in rc9 if it passes, dropped otherwise.
+  - Kept opt-in after the rc7 measurements: `RTSP_UDPSG` (fine, no gain), `RTSP_UDPMMSG` (stutters in VLC),
+    `otg_hs.fifo32` and `rtl8xxxu.dma_aggregation` (no gain), `RTSP_FRAMECOPY=0`.
 - **3.0.1-rc7** (camera checks P-01..P-09, S-01, W-01 and the rc7 plan in `docs/linux-port/test-queue.md`):
   - **Kernel:** IP multicast (ONVIF discovery), and `ak39_vi.slots` (opt-in 3 capture buffers, about 3.4 MB of CMA).
   - **User space squashfs:** 128 KiB blocks, half the decompression per page.
