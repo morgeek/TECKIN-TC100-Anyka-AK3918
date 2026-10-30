@@ -20,7 +20,7 @@ EXPOSURE_MAX_PCT=
 # spatial and temporal strengths of every gain level. Stronger = less noise
 # and a lower bitrate at night, more smearing of moving things. Empty = 100.
 #NR3D_STRENGTH=150
-# Hardware privacy masks, drawn in Settings → Image: up to 4 areas,
+# Hardware privacy masks, drawn in Settings → Privacy & overlay: up to 4 areas,
 # x1,y1,x2,y2 in percent of the picture (0,0 = top left). Painted by the ISP
 # before encoding (streams, snapshots, recordings, Frigate), no CPU cost.
 # MASK_COLOR: black, gray or white.

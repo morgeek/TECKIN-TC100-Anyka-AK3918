@@ -286,14 +286,15 @@ static void post_apply(void)
 		if (cfg_get(fn[1], "", "CONTRAST", v, sizeof v)) p_con = atoi_(v);
 		if (cfg_get(fn[1], "", "SATURATION", v, sizeof v)) p_sat = atoi_(v);
 		if (cfg_get(fn[1], "", "HUE", v, sizeof v)) p_hue = atoi_(v);
-		for (i = 0; i < 4; i++) {
-			char k[8];
-
-			snprintf(k, sizeof k, "MASK%d", i + 1);
-			if (cfg_get(fn[1], "", k, v, sizeof v)) sscanf_4(v, p_mask[i]);
-		}
-		if (cfg_get(fn[1], "", "MASK_COLOR", v, sizeof v)) p_mcol = !strcmp(v, "white") ? 235 : !strcmp(v, "gray") ? 128 : 16;
 	}
+	/* privacy masks apply whatever ISP_TUNE is */
+	for (i = 0; i < 4; i++) {
+		char k[8];
+
+		snprintf(k, sizeof k, "MASK%d", i + 1);
+		if (cfg_get(fn[1], "", k, v, sizeof v)) sscanf_4(v, p_mask[i]);
+	}
+	if (cfg_get(fn[1], "", "MASK_COLOR", v, sizeof v)) p_mcol = !strcmp(v, "white") ? 235 : !strcmp(v, "gray") ? 128 : 16;
 	p_osd = cfg_get(fn[2], "", "osdenabled", v, sizeof v) && v[0] == '1';
 	if (cfg_get(fn[2], "", "osdtext", v, sizeof v) && v[0]) snprintf(p_fmt, sizeof p_fmt, "%.63s", v);
 	if (cfg_get(fn[2], "0", "osdx", v, sizeof v)) p_osdx = atoi_(v);

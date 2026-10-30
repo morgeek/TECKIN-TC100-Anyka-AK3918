@@ -1469,6 +1469,11 @@ CSRF required. Fields: `isp_enable` (switching it restarts RTSP once),
 `isp_exposure_max_pct` (0 = no cap, else 10..100). Any invalid field rejects the
 whole request (`{"ok":false,"code":"INVALID_VALUE"}`).
 
+Privacy masks (Settings → Privacy & overlay) post `isp_mask_form=1`, `isp_mask1`..`isp_mask4`
+(`x1,y1,x2,y2` in percent, empty = none) and `isp_mask_color` (`black|gray|white`). A request
+without `isp_enable` and `isp_brightness` (the mask form) leaves the tuning switch alone, and the
+masks apply whether or not `ISP_TUNE` is on.
+
 ### MQTT
 
 Retained state on `<root>/isp/state` (same JSON as above). Commands on the
