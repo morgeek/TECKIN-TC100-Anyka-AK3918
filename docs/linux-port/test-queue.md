@@ -58,7 +58,32 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
-### LED-01 Front LED stays red, the Settings LED switches do nothing visible — `to test` (owner's report, first)
+### Tester's answer to the implementer's proposals (2026-10-30 evening; the owner has the last word, U-Boot changes need his agreement)
+
+Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Declined: `cma=16M`, 1, 4.
+- **`cma=16M`: declined as is.** On IPCAM2 with video running, `CmaFree` was 1.5 MB of the 18 MB area (the 4
+  capture buffers alone are about 13.8 MB): 16 MB would leave the capture about 0.5 MB short. The gain is 2 MB, not
+  4. It also needs `saveenv` on every camera (against plug and play), and 3D-NR needs that area. Better: try **3
+  capture buffers instead of 4** (about 3.4 MB of CMA freed, no U-Boot change), measured with the `dropped` counter.
+- **1. wpa_supplicant out of the RAM: declined.** Wi-Fi is the only way in; 0.78 MB is not worth a camera that
+  cannot be reached without a serial port, now that 5 MB were gained.
+- **2. Restart `housekeeper.sh`: yes, first.** Under `service-watchdog.sh` like the other services; the hardware
+  watchdog only as the last resort.
+- **3. Drop the 3.4 MB guard: on hold until HW-02 test 2.** Free while the pool stays 12 MiB; if the pool shrinks,
+  remove the guard first and soak with `RTSP_POOLPAD=0`.
+- **4. Merge `cfg-persist` into the housekeeper: declined.** It writes the settings to the flash: it stays isolated
+  from a loop that may crash. 150-300 KB is small.
+- **5. UI (one front LED choice, `statusline` CGI, one stylesheet): yes.** The LED choice waits for LED-01 (no GPIO
+  drives the visible LED today).
+- **6. telnet / SSH under the Services page: yes. telnet off by default** (password in clear), **SSH on by default**.
+  The tester does not use telnet (serial console).
+- **7. IP multicast for ONVIF discovery: yes** (plug and play with Home Assistant / NVRs); the tester checks discovery.
+- **8. Video (two copies fewer per UDP RTP packet, 384 KB client queues, browser video into the send buffer): yes,
+  each behind a switch.** 384 KB is about 2 s at 1.6 Mbit/s: compared on the real Wi-Fi with `dropped`; UDP picture
+  checked with a real client.
+- **9. Buildroot build cache in the CI: yes**, invalidated when the Buildroot config changes.
+
+### LED-01 Front LED stays red, the Settings LED switches do nothing visible — `failed` (owner's report, first)
 - **What:** the whole software path checks out, so the fault is at the GPIO:
   - Settings > System "LEDs" posts `set_led_config`.
   - That writes `FRONT_LED` / `RED_LED` to boot.conf and runs `controlscripts/front-led` / `red-led`.
@@ -83,6 +108,20 @@ then the flash. A build that fails is written up here as `failed` with the seria
   - (c) Red goes off with 0 as expected: something lights it again later. `grep -rn red_led` of the running scripts;
     watch it after boot.
   - Also say whether blue works, and which colour(s) the front LED has (red only, or red + blue).
+
+- **Result 2026-10-30 19:45, IPCAM2, 563dbff, owner looking at the LED: case (b) for both colours.** At the start:
+  `red` 0, `blue` 1 (boot.conf FRONT_LED=1, RED_LED=0), the front LED shows **red**. Bank 0: DIR 0x0008e800,
+  OUT 0x00008800 (bit 15 = blue, output, high). Bank 1: DIR 0x00008000, OUT 0x00000000 (bit 15 = GPIO 47, output).
+  - `echo 1 > red/brightness`: OUT bank 1 becomes 0x00008000; LED **still red, no change**.
+  - red 0 and blue 0: LED **still red**.
+  - blue 1 again (bank 0 OUT bit 15 = 1): LED **still red** (no blue, no violet).
+  So neither GPIO 15 nor GPIO 47 changes the visible LED, although both are outputs and their OUT bits toggle: the
+  pins are not muxed as GPIO (the 6.6 kernel keeps U-Boot's sharepin setting), or the front LED is wired elsewhere
+  (the red seen may be a plain power LED, or a pin outside the board table). The owner does not know whether this
+  camera ever showed blue. Device tree as running: led-blue = bank 0 pin 15, led-ir = bank 0 pin 19, led-red = bank 1
+  pin 15. Not tried: blind toggling of other pins (IR-cut 80/81, speaker 14 and the sensor pins are on the same
+  banks). **Asked of the implementer:** the sharepin bits for GPIO 15 and 47 from the stock 3.4 board code (the ISP
+  log shows `share 74=4200071c 78=00000000 7c=01450525`), and a one-minute test that sets them.
 
 ## Hardware use and memory (2026-10-30, commits `[hwaccel] ...`)
 
