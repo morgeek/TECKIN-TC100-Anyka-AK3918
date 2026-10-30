@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **More work done by the hardware, waiting for a camera run** ([test queue](docs/linux-port/test-queue.md)):
+  sharpness and exposure cap on the Image page again, applied by the ISP; privacy masks (`RTSP_ISPMASK=1`) and the
+  clock (`RTSP_ISPOSD=1`, kernel patch 0014: ISP OSD ioctls) by the ISP instead of the CPU; 3.4 MB less of the encoder
+  pool with direct capture, and the pool from a CMA area whose size `ak39_venc.pool=` sets (patch 0015, the rest goes
+  back to the kernel); Wi-Fi USB FIFO in 32-bit words (`otg_hs.fifo32=1`, patch 0013); the exposure state in
+  `/tmp/cam_ae` for a future day / night decision. The applied values show under the Image form again.
 - **15 fps for real, about 45 points less CPU** (measured on a TC100: user CPU 53 % -> 8 %, frames 9.5 -> 15 per
   second, same bit rate): the encoder reads the capture buffer itself (no 3 MB copy per frame), the white balance
   is steered in the ISP (no table over the colours), the 640x360 sub picture comes from the ISP's second output,

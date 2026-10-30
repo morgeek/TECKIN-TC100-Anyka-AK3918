@@ -19,6 +19,13 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - Commit trailers (required): `Co-Authored-By: <model> <noreply@anthropic.com>` and the `Claude-Session:` URL; push to `main`.
   A stop hook refuses to end a session with uncommitted changes.
 
+## Work shared between agents
+- `docs/linux-port/test-queue.md` is the hand-off: every change that needs the real camera gets an entry there (what,
+  switch to turn it off, test, pass criteria). Testers write results under the entry and make passed changes the
+  default. Read it before starting; update it in the same commit as the change.
+- Prefix the commit subject of a work stream (e.g. `[hwaccel] ...`): the CI run carries the subject as its title, so
+  the tester can find the build of an entry.
+
 ## Where things are
 - `main` is 3.0 only. The 2.x firmware (vendor kernel 3.4, lighttpd, `libtc100fix`, `src/flash`, `autorun.sh`) is on the
   branch `2.x`; do not bring its files back. Shared scripts still carry `[ -f /tmp/linux66 ]` branches from the time both
