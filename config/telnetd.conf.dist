@@ -1,6 +1,10 @@
 # Telnet server configuration
 # Managed by: controlscripts/telnet-server
 #
+# Telnet is OFF by default (Services page: telnet-server; its "Boot" toggle starts it at boot). SSH
+# (ssh-server, dropbear) is the encrypted way in and is on by default. The rescue telnet that opens on port 23 while the
+# web interface is down (scripts/web-guard.sh) does not depend on this.
+#
 # TELNET_PORT — TCP port the BusyBox telnetd listens on.
 #   Default: 23 (standard Telnet)
 #   Change if port 23 is blocked or you want a non-standard port.

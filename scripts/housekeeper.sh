@@ -25,11 +25,18 @@
 # own pid in it while the job is registered, removed when it is not, so "pid alive" stays true exactly while the job runs.
 #
 #   housekeeper.sh start | stop | run | active | status
+#   housekeeper.sh supervise | unsupervise   its restarter (below); "stop" removes the restarter first
 #   housekeeper.sh job add NAME KIND PERIOD FIRST PIDFILE|- COMMAND...   (kind fn|bg|wd; wd: "SERVICE_SCRIPT NEED MODE [VAR=N...]")
 #   housekeeper.sh job del NAME | job list | job has NAME
 #   housekeeper.sh watch-add SERVICE PIDFILE [TIMEOUT] [NEED_REBOOT] [MODE]   (CHECK_TIMEOUT_SECONDS and WATCHDOG_* of the
 #                                                                           environment go with it) | watch-del SERVICE
 # Exit status of job add / watch-add: 1 when the housekeeper is not running (callers then start their own daemon).
+# Restarter ("supervise", started by v3/autorun-linux66.sh right after "start", only with HOUSEKEEPER on): a plain
+# `service-watchdog.sh housekeeper.sh 0 status` process (no reboot mode: the existing back-off 20 s + 15 s per failure, up to
+# 180 s) that checks $HK_PIDFILE every CHECK_TIMEOUT_SECONDS (60) without a fork and runs `sh housekeeper.sh start` when the
+# loop is gone. It is not part of the loop it watches (no loop that watches itself). A restarted loop reads the job files of
+# /tmp/housekeeper/jobs again (each first run after its FIRST delay), rewrites its pid file and the pid files of the jobs;
+# a background run orphaned by the crash may overlap the first new run of its job once. Its pid file: $HK_WATCHPID.
 # HOUSEKEEPER=0 in /mnt/config/boot.conf: the boot script does not start this and everything runs as separate daemons.
 
 HK_DIR=${HK_DIR:-/tmp/housekeeper}
@@ -42,6 +49,7 @@ HK_SCRIPTS=${HK_SCRIPTS:-/mnt/scripts}
 HK_WDSTATE=${HK_WDSTATE:-/tmp/watchdog-state}
 HK_RUNDIR=${HK_RUNDIR:-/var/run}
 HK_WAITMODE=${HK_WAITMODE:-}
+HK_WATCHPID=${HK_WATCHPID:-/var/run/housekeeper-watch.pid}
 
 # seconds of the clock (uptime) -> hk_t
 hk_now() { _hk_up=; read -r _hk_up _ < "$HK_CLOCK" 2>/dev/null; hk_t=${_hk_up%.*}; case "$hk_t" in ''|*[!0-9]*) hk_t=0 ;; esac; }
@@ -304,6 +312,26 @@ hk_stop()
     return 0
 }
 
+# the restarter: service-watchdog.sh in its own loop mode, no reboot (NEED_REBOOT 0), pid check without a fork
+hk_supervise()
+{
+    _hk_w=; [ -r "$HK_WATCHPID" ] && read -r _hk_w _ < "$HK_WATCHPID" 2>/dev/null
+    hk_alive "$_hk_w" && return 0
+    [ -f "$HK_SCRIPTS/service-watchdog.sh" ] || return 1
+    # sh -c: the oom_score_adj is set on the process that then becomes service-watchdog.sh (exec keeps the pid)
+    CHECK_TIMEOUT_SECONDS=${HK_SUP_PERIOD:-60} HK_PIDFILE=$HK_PIDFILE sh -c         'echo -300 > /proc/$$/oom_score_adj 2>/dev/null; exec sh "$1" "$2" 0 status' _         "$HK_SCRIPTS/service-watchdog.sh" "$HK_SCRIPTS/housekeeper.sh" </dev/null >/dev/null 2>&1 &
+    echo "$!" > "$HK_WATCHPID"
+    return 0
+}
+
+hk_unsupervise()
+{
+    _hk_w=; [ -r "$HK_WATCHPID" ] && read -r _hk_w _ < "$HK_WATCHPID" 2>/dev/null
+    hk_alive "$_hk_w" && kill "$_hk_w" 2>/dev/null
+    rm -f "$HK_WATCHPID"
+    return 0
+}
+
 hk_status()
 {
     hk_active || return 1
@@ -323,7 +351,9 @@ hk_status()
 if [ -z "$HK_TEST_SOURCE" ]; then
     case "$1" in
         start) hk_start ;;
-        stop) hk_stop ;;
+        stop) hk_unsupervise; hk_stop ;;
+        supervise) hk_supervise ;;
+        unsupervise) hk_unsupervise ;;
         run) hk_run ;;
         active) hk_active ;;
         status) hk_status ;;
@@ -337,6 +367,6 @@ if [ -z "$HK_TEST_SOURCE" ]; then
             esac ;;
         watch-add) shift; hk_active || exit 1; hk_watch_add "$@" ;;
         watch-del) hk_job_del "watch-${2##*/}" ;;
-        *) echo "usage: $0 start | stop | run | active | status | job add|del|has|list | watch-add | watch-del" >&2; exit 2 ;;
+        *) echo "usage: $0 start | stop | run | active | status | supervise | unsupervise | job add|del|has|list | watch-add | watch-del" >&2; exit 2 ;;
     esac
 fi

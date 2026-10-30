@@ -1,0 +1,74 @@
+#!/bin/sh
+# SSH server (dropbear, from the user space: ext/bin/dropbear). On by default; the Services page "Boot" toggle
+# (config/autostart/ssh-server) decides whether it starts at boot. The boot itself is done by the initramfs script
+# /etc/init.d/S50dropbear (v3/S50dropbear-linux66), early, from the same switch; this script is the manual start/stop
+# (Services page, MQTT) and does the same work. Same login as telnet and the web UI: root + config/user.pwd.
+SERVICE_NAME="SSH Server (dropbear)"
+PIDFILE="/var/run/dropbear.pid"
+PATH=/mnt/ext/bin:/mnt/bin:/system/bin:/bin:/sbin:/usr/bin:/usr/sbin
+
+. /mnt/scripts/common_functions.sh
+
+dropbear_bin()
+{
+  for _b in /mnt/ext/bin/dropbear /mnt/sd/ext/bin/dropbear; do
+    [ -x "$_b" ] && { echo "$_b"; return 0; }
+  done
+  return 1
+}
+
+status()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  if kill -0 "$pid" 2>/dev/null && grep -q dropbear "/proc/$pid/cmdline" 2>/dev/null; then
+    echo "PID: $pid"
+    return 0
+  fi
+  rm -f "$PIDFILE"
+  return 1
+}
+
+start()
+{
+  _security="$(read_kv_config_value /mnt/config/boot.conf SECURITY_HARDENING_MODE 0)"
+  case "$_security" in 1|true|yes|on|enabled)
+    echo "Service disabled by security hardening" >&2
+    return 1 ;;
+  esac
+  [ -n "$(status)" ] && return 0
+  DB="$(dropbear_bin)" || { echo "dropbear is not in the user space (ext/bin)" >&2; return 1; }
+  DROPBEAR_ARGS=
+  [ -r /etc/default/dropbear ] && . /etc/default/dropbear
+  # /etc/dropbear is a symlink to /var/run/dropbear (RAM): the host keys are made on the first connection (-R)
+  if [ -L /etc/dropbear ] && [ "$(readlink /etc/dropbear)" = "/var/run/dropbear" ]; then
+    if rm -f /etc/dropbear >/dev/null 2>&1; then mkdir -p /etc/dropbear; else mkdir -p /var/run/dropbear; fi
+  fi
+  ( umask 077; start-stop-daemon -S -q -p "$PIDFILE" --exec "$DB" -- $DROPBEAR_ARGS -R -P "$PIDFILE" ) </dev/null >/dev/null 2>&1
+  sleep 1
+  [ -n "$(status)" ]
+}
+
+stop()
+{
+  start-stop-daemon -K -q -p "$PIDFILE" >/dev/null 2>&1
+  _i=0
+  while [ -n "$(status)" ] && [ "$_i" -lt 5 ]; do sleep 1; _i=$((_i + 1)); done
+  [ -z "$(status)" ] || killpid_graceful "$PIDFILE" 3
+  rm -f "$PIDFILE"
+  return 0
+}
+
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
+if [ $# -eq 0 ]; then
+  start
+else
+  case $1 in start|stop|status|health)
+    $1
+    ;;
+  esac
+fi
