@@ -306,5 +306,65 @@ Checked before pushing with `tests/docker/local-ci.sh` (tests + ARM build); noth
 - **Test:** `/tmp/log/memory-guard.log` shows the migration once; no warn / critical stage in a day of normal use.
   **Off:** `MEM_GUARD_ENABLE=0`.
 
-Not done: 3D-NR (its 6.2 MB reference frame does not fit until HW-01b / HW-02 free memory); `conf-import.cgi` does not
-know `IDLE_FPS` and `LOG_PERSIST` yet.
+Not done: 3D-NR (its 6.2 MB reference frame does not fit until HW-01b / HW-02 free memory).
+
+## Optimisation for the AK3918 (2026-10-30, commits `[opt] ...`)
+
+Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|Slab|CmaFree' /proc/meminfo`, `ps`
+(count the `sh` processes), `scripts/cpu-profile.sh 30`, `ls -l /tmp/logs`. Same commands after; one line per result.
+
+### O-01 Kernel config: less RAM (`defconfig_cma`) — `to test`
+- **What:** about 520 KB less kernel RAM and 107 KB less zImage (printk buffer 64 KB, no io_uring / zram / LZ4 /
+  ZSTD / signed regdb / inet_diag, slab merging on, small CRC32 tables), squashfs fragment cache 1 block instead of 3
+  (2 x 256 KB less per mounted squashfs: stack and vendor in flash mode), `MAGIC_SYSRQ` on (serial break off) so the
+  last-resort reboot of `service-watchdog.sh` (`echo b > /proc/sysrq-trigger`) works.
+- **Test:** boots from the SD card (c66.img) then from flash; `MemTotal` and `MemAvailable` up by about 0.5 MB, plus
+  about 1 MB in flash mode; a full boot log still fits in `dmesg` (first lines are the `Booting Linux` banner);
+  Wi-Fi associates (regulatory domain still set: `iw reg get` from ext/); browsing the Settings pages from flash is not
+  slower; `echo b > /proc/sysrq-trigger` reboots. **Off:** the previous kernel.
+
+### O-02 Smaller initramfs (`v3/initramfs-prune.txt`) — `to test`
+- **What:** hostapd sample config, hostapd_cli, wpa_passphrase, the xz tools and liblzma out of the RAM image (about
+  0.45 MB); `mksquashfs` in `ext/` gets its own liblzma.
+- **Test:** boot; the rescue access point starts (`sh /mnt/scripts/wifi-rescue.sh` from the serial console, UI-10);
+  the 3.0 install path that runs `/mnt/ext/bin/mksquashfs` still starts it (`/mnt/ext/bin/mksquashfs -version`).
+
+### O-03 tc100_rtsp and libakuio.so stripped, `-mtune=arm926ej-s` — `to test`
+- **What:** both are copied to /tmp (RAM) at boot; 128 -> 112 KB and 16 -> 13 KB. Unstripped copies (`*.dbg`) are
+  in the CI symbols artifact for decoding.
+- **Test:** the stream starts (VLC), the STAT line appears; `ls -l /tmp/tc100_rtsp /tmp/libakuio.so`.
+
+### O-04 Shell side: fewer forks, fewer resident processes — `to test`
+- **What (commits `[opt] Web CGIs...`, `[opt] Resident daemons and boot...`):** `state.cgi?cmd=dashinfo` cached 300 s
+  in `/tmp/state_dashinfo.cache` (dropped when the host name or a config file changes); no `cmd=hostname` and no
+  `get_ptt_vol` at page load; `csrf_guard` returns early on GET; Day/night tab polls every 5 s with about 2 forks
+  instead of 20; `camcontrols.cgi?cmd=panel` without func.cgi; the day/night daemon no longer sources
+  common_functions.sh and waits with `read -t` on a FIFO; web-guard runs net-guard every 3rd minute while the gateway
+  answers (every minute after a failure, same reboot limits) and sdinfo only when the card changed or every 10th
+  minute; the health prober answers "stopped" for motion without a shell and does the RTSP DESCRIBE every 6th probe;
+  crond starts only when its crontab has an entry; boot.conf parsed once at boot; one `ln` for the www and vendor
+  links; `rtsp-launch.sh` takes the pid from `$!` (no `sleep 2`) and opens the log with `>>` and `RTSP_LOGFILE`.
+- **Test:** the 12 checks of the implementer's report, in short:
+  1. `cat /var/run/v4l2rtspserver.pid` = `pidof tc100_rtsp`, its `oom_score_adj` is -900; `/mnt/config/rtsp.debug`
+     still sends the log to the console.
+  2. `time wget -qO- 'http://127.0.0.1/cgi-bin/state.cgi?cmd=dashinfo&format=json'` twice: second fast, same JSON;
+     `touch /mnt/config/rtspserver.conf` rebuilds it.
+  3. Browser network tab at page load: no `cmd=hostname`, no `get_ptt_vol`; the title shows the host name; Talk or
+     the volume slider fetches `get_ptt_vol` once.
+  4. A POST without the CSRF header gets 403; the UI saves still work.
+  5. Day/night tab refreshes every 5 s; `state.cgi?cmd=daynight&format=json` same fields as before.
+  6. Day / Night buttons under the picture work (`camcontrols.cgi?cmd=panel`).
+  7. Change LUMA_NIGHT: applied at the next cycle; `top`: the day/night daemon near 0% (the FIFO wait really waits).
+  8. Router unplugged: `/tmp/net-guard/down_since` within about 3 min, reboot at NET_GUARD_MIN as before. Card out
+     and in: the SD panel follows within 1 min. `kill` httpfront: restarted, then the rescue telnet if it fails.
+  9. Motion off: `/tmp/health_snapshot.cache` says motion "stopped"; `/tmp/health_rtsp_deep` exists.
+  10. Fresh config: no `crond` after boot; saving a scheduled reboot starts it.
+  11. `ls /tmp/www` lists every page (if the multi-target `ln` failed the UI would 404), `ls -l /lib | grep mnt`.
+  12. Idle camera, `ps` a few times over 3 minutes: no new `sh` / `ping` every minute.
+
+Not done (listed for later): merging the slow daemons (web-guard, health-snapshot, log-persist, service-watchdog)
+into one loop; `cma=16M` (about 4 MB more for the kernel if 4 capture slots still fit: needs the owner's U-Boot
+change); base image as squashfs instead of RAM (about 3 MB); a smaller libasound and busybox applet set; the
+Buildroot `S50telnet` (busybox telnetd on port 23 at every boot) and `S50dropbear` still start from the base image's
+init.d: owner's decision whether they stay; `CONFIG_IP_MULTICAST` is off, so ONVIF discovery (off by default) cannot
+work.
