@@ -42,6 +42,29 @@ Read this first. Details and numbers are under each entry.
   (`ak39_venc.pool=9600K` or so) with `RTSP_POOLPAD=0`; `8M` would be too small. With the guard (12322880 used) a
   smaller pool cannot work: the guard has to go first (proposal 3).
 
+### rc7 (`fb75210`, CI run 41120278897) on IPCAM2, 2026-10-30 night: LED-01 fixed, S-01 passed, nothing blocking
+
+Order followed: card boot (kernel only, rule), then the flash (`update66.sh`, settings kept), because the card boot
+uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/telnet) only exist after the flash install.
+- **Card boot of the rc7 kernel:** `/proc/cmdline` complete (initrd size present), Wi-Fi 15.4 s, 15 fps, MemAvailable
+  15.96 MB, no OOM, **`/proc/net/igmp` exists** (multicast in the kernel, P-01 first half).
+- **Flash install:** md5 and `update66.sh check` ok, written, restart, Wi-Fi 15.2 s, VERSION 3.0.1-rc7, MemAvailable
+  15.97 MB, no OOM / squashfs error.
+- **LED-01 `passed`** (owner looking at the front LED): both off -> **off**; blue = 1 -> **blue**; red = 1 -> **red**;
+  `ir` = 1 -> the IR LEDs around the lens glow. The Settings page itself (browser) not tried yet. Reset button input
+  (bank 0 IN bit 10) reads 1 at rest (released); a press was not tried.
+- **S-01:** port **22 open, 23 closed** after boot. `kill -9` of `housekeeper.sh run` -> a new one is running under
+  `service-watchdog.sh` (it was back within about 70 s, not within the first 25 s; exact delay not measured).
+- **P-06 reference profile (`perf-baseline.sh 60`, 1 RTSP client, 15 fps, rc7 flash):** user 9.6 %, system 15.2 %,
+  softirq 2.2 %, idle **72.6 %**; wlan0 tx 216 KB/s; interrupts/s: usb-host **717**, timer 100, l2 31, venc 19, vi 15,
+  mmc 10; MemAvailable 15.2 MB, Slab 6.0 MB, CmaFree 1.6 MB; STAT 71-76 frames per 5 s, `dropped` 0-1.
+  The USB host interrupt (717/s) is the largest source: the target of HW-03 (`fifo32`) and P-07.
+- **P-01** half done: needs ONVIF discovery from a client. **P-05** (128 KiB squashfs blocks): stack 2306048 B in the
+  partition; MemAvailable did not drop (15.2-16.0 MB, rc6 15.9-16.1); no timing yet.
+- Not run yet: audio B-01/B-02, O-05, P-09 (`RTSP_UDPSG=1`), P-08 (`RTSP_VBR=1`), P-04 (20/25 fps), P-02
+  (`ak39_vi.slots=3`, card only), P-07, W-01/UI-22 (browser), HW-02 test 2, HW-03 `fifo32=1`, HW-04..HW-08, F-01..F-06,
+  overnight soak.
+
 **No blocking finding is open.** IPCAM1 (.24) still runs the morning rc5; nothing of today's work is on it yet.
 
 **Asked of the implementers**
@@ -121,7 +144,7 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   checked with a real client.
 - **9. Buildroot build cache in the CI: yes**, invalidated when the Buildroot config changes.
 
-### LED-01 Front LED stays red, the Settings LED switches do nothing visible — `failed` (owner's report, first)
+### LED-01 Front LED stays red, the Settings LED switches do nothing visible — `passed` (owner's report, first)
 - **What:** the whole software path checks out, so the fault is at the GPIO:
   - Settings > System "LEDs" posts `set_led_config`.
   - That writes `FRONT_LED` / `RED_LED` to boot.conf and runs `controlscripts/front-led` / `red-led`.
