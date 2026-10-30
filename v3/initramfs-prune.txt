@@ -77,3 +77,44 @@ usr/bin/unlzma
 usr/lib/liblzma.so
 usr/lib/liblzma.so.5
 usr/lib/liblzma.so.5.4.5
+
+# 3.0 (2026-10-30): everything that is not needed before the user space is mounted leaves the RAM image (ramfs: never
+# reclaimed) for ext/ of the user space (v3/build-stack.sh: ext/bin, ext/lib, ext/share/alsa), which is demand-paged
+# from the squashfs (flash mode) or the card (SD mode). Kept: busybox, musl, the init scripts, wpa_supplicant + libnl
+# (Wi-Fi without the user space), the dropbear start script.
+# Callers: usr/bin/aplay, arecord, amixer and usr/share/alsa become links into /mnt/ext (v3/build-rootfs66.sh), so the
+# CGIs (busybox httpd resets PATH), ssh sessions and tc100_rtsp (execlp arecord) still find them; S50dropbear
+# (v3/S50dropbear-linux66) looks in /mnt/ext/bin, then /mnt/sd/ext/bin.
+usr/bin/aplay
+usr/bin/arecord
+usr/bin/amixer
+usr/lib/libasound.so
+usr/lib/libasound.so.2
+usr/lib/libasound.so.2.0.0
+usr/share/alsa
+usr/sbin/dropbear
+usr/bin/dbclient
+usr/bin/dropbearkey
+usr/bin/scp
+usr/bin/ssh
+lib/libgcc_s.so.1
+lib/libatomic.so.1
+lib/libatomic.so.1.2.0
+usr/lib/libz.so
+usr/lib/libz.so.1
+usr/lib/libz.so.1.3.1
+# scripts of the xz tools (xz itself is pruned above)
+usr/bin/xzgrep
+usr/bin/xzegrep
+usr/bin/xzfgrep
+usr/bin/xzdiff
+usr/bin/xzcmp
+usr/bin/xzless
+usr/bin/xzmore
+usr/bin/lzgrep
+usr/bin/lzegrep
+usr/bin/lzfgrep
+usr/bin/lzdiff
+usr/bin/lzcmp
+usr/bin/lzless
+usr/bin/lzmore

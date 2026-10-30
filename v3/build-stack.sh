@@ -57,7 +57,8 @@ pruned() { grep -vE '^(#|$)' "$REPO/v3/initramfs-prune.txt" | grep -qxF "$1"; }
 find_lib() { for d in lib usr/lib; do [ -e "$d/$1" ] && { echo "$d/$1"; return 0; }; done; return 1; }
 mkdir -p "$T/ext/bin" "$T/ext/lib" "$T/ext/etc/ssl/certs"
 : > "$W/libs"
-for b in usr/bin/curl usr/bin/jq usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd usr/bin/mksquashfs; do
+for b in usr/bin/curl usr/bin/jq usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd usr/bin/mksquashfs \
+	usr/bin/aplay usr/bin/arecord usr/bin/amixer usr/sbin/dropbear; do
 	[ -f "$b" ] || { echo "build-stack: $b missing from the base" >&2; exit 1; }
 	cp -L "$b" "$T/ext/bin/"
 	echo "$b" >> "$W/todo"
@@ -75,6 +76,16 @@ while [ -s "$W/todo" ]; do
 	done
 done
 cp -L etc/ssl/certs/ca-certificates.crt "$T/ext/etc/ssl/certs/"
+# ALSA configuration (the initramfs links /usr/share/alsa to /mnt/ext/share/alsa); alsactl init files, cards, ucm and topology
+# are not used (no alsactl, no UCM on this sound chip)
+mkdir -p "$T/ext/share/alsa"
+for d in usr/share/alsa/*; do
+	case "${d##*/}" in init|cards|ucm|ucm2|topology) continue ;; esac
+	cp -rL "$d" "$T/ext/share/alsa/"
+done
+for f in ext/bin/aplay ext/bin/arecord ext/bin/amixer ext/bin/dropbear ext/lib/libasound.so.2 ext/share/alsa/alsa.conf; do
+	[ -s "$T/$f" ] || { echo "build-stack: $f missing from the tree" >&2; exit 1; }
+done
 cd "$REPO"
 # scripts call /mnt/bin/curl and /mnt/bin/jq: wrappers (a FAT card cannot hold links)
 for b in curl jq; do printf '#!/bin/sh\nexec /mnt/ext/bin/%s "$@"\n' $b > "$T/bin/$b"; done

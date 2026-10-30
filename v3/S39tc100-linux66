@@ -74,6 +74,10 @@ else
   log "no wlan0"
 fi
 
+# 3b. The ALSA tools, the ssh server and some libraries are not in this RAM image: they come with the user space
+#     (ext/, links and start script prepared by v3/build-rootfs66.sh). A user space older than this initramfs lacks them.
+[ -x /mnt/ext/bin/aplay ] || [ -x /mnt/sd/ext/bin/aplay ] || log "user space without ext/bin/aplay: no audio tools, no ssh (telnet only); update the stack or the card together with the initrd"
+
 # 4. V3 services
 for a in /mnt/v3/autorun-linux66.sh /mnt/sd/v3/autorun-linux66.sh /mnt/sd/autorun-linux66.sh /mnt/sd/tc100test/autorun.sh; do
   if [ -f "$a" ]; then log "starting $a"; /bin/sh "$a" & break; fi
