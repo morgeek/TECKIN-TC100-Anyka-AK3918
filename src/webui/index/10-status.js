@@ -167,6 +167,7 @@
         setLiveToggleButtonState();
       }
       clearJob("refreshLiveImage");
+      liveVideoSync();
     } else {
       tuneUiPollIntervals(currentPerfProfileToken);
       setLiveToggleButtonState();

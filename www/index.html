@@ -22,7 +22,7 @@
     <!-- CSS Framework: Modernization v1.0.2 -->
     <link href="css/bulma.1.0.2.purged.min.css?v=1.8.4" rel="stylesheet">
     <link href="css/ui-modern.min.css?v=1.8.4-ui4" rel="stylesheet">
-    <link href="css/ui.css?v=3.0.1-ui1" rel="stylesheet">
+    <link href="css/ui.css?v=3.0.1-ui2" rel="stylesheet">
     <script src="scripts/i18n.js?v=2.1.2-i18n1"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
@@ -251,6 +251,7 @@
             <div class="liveview-wrap v2-monitor">
                 <img id="liveview" src="cgi-bin/currentpic.cgi" loading="eager" decoding="async"
                     alt="Live camera preview" onerror="this.src='css/unable_load.png';">
+                <video id="liveview_video" muted autoplay playsinline disablepictureinpicture style="display:none" aria-label="Live camera video"></video>
                 <div class="v2-osd top">
                     <div class="camera-health">
                         <span id="camera_state_dot" class="camera-state-dot is-checking"></span>
@@ -293,6 +294,10 @@
             <div class="app-toolbar">
                 <div class="toolbar-group live-actions">
                     <button class="button v2-primary" id="live_toggle" type="button">Resume Live</button>
+                    <div class="buttons has-addons live-mode" id="live_mode" role="group" aria-label="Live view mode">
+                        <button type="button" class="button is-small" id="live_mode_video" aria-pressed="false" title="Smooth video from the camera (H.264, no extra encoding)">Video</button>
+                        <button type="button" class="button is-small" id="live_mode_snap" aria-pressed="false" title="A new picture every few seconds (the lightest for the camera)">Snapshots</button>
+                    </div>
                     <a class="button is-light" id="live_snapshot" href="cgi-bin/currentpic.cgi" target="_blank" rel="noopener">Snapshot</a>
                     <a class="button is-light" id="live_frigate" href="#" target="_blank" rel="noopener" title="Open this camera in Frigate's live view (full frame rate)" hidden>Smooth live</a>
                 </div>
