@@ -6,7 +6,7 @@
 # already in the process anyway (libakuio.so needs it); the recorder's card writer (rec.c) is a thread.
 CROSS ?= arm-linux-gnueabi-
 SYSROOT ?= /usr/arm-linux-gnueabi
-CFLAGS ?= -I../jpegenc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mfloat-abi=soft \
+CFLAGS ?= -I../jpegenc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft \
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
 OBJS = tc100_rtsp.o rec.o mp4box.o livemp4.o talk.o alisten.o
 
@@ -56,7 +56,11 @@ libdl.so.0: dummy.c
 start.o: start.S
 	$(CROSS)gcc -march=armv5te -c start.S -o $@
 
-tc100_rtsp: start.o $(OBJS) libpthread.so.0 libc.so.0 libdl.so.0
+# The camera copies it to /tmp (RAM): the symbol table stays out of it, in tc100_rtsp.dbg (CI symbols artifact).
+tc100_rtsp: tc100_rtsp.dbg
+	$(CROSS)strip --strip-unneeded -R .comment -o $@ $<
+
+tc100_rtsp.dbg: start.o $(OBJS) libpthread.so.0 libc.so.0 libdl.so.0
 	$(CROSS)gcc -nostdlib -no-pie -Wl,--dynamic-linker=/lib/ld-uClibc.so.0 -Wl,--hash-style=sysv -Wl,--no-as-needed \
 		-nostartfiles -o $@ start.o $(OBJS) -L. -l:libpthread.so.0 -l:libc.so.0 -l:libdl.so.0 \
 		$$($(CROSS)gcc -print-libgcc-file-name)
@@ -80,4 +84,4 @@ test_livemp4: test_livemp4.c livemp4.c livemp4.h mp4box.c mp4box.h
 	gcc -O2 -Wall -Wextra -o $@ test_livemp4.c livemp4.c mp4box.c
 
 clean:
-	rm -f tc100_rtsp *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp
+	rm -f tc100_rtsp tc100_rtsp.dbg *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp

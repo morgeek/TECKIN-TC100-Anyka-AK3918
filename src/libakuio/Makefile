@@ -6,7 +6,7 @@
 # --hash-style=sysv: the uClibc dynamic loader does not know DT_GNU_HASH.
 CROSS ?= arm-linux-gnueabi-
 CC = $(CROSS)gcc
-CFLAGS ?= -O2 -Wall -Wextra -U_FORTIFY_SOURCE -fno-stack-protector -march=armv5te -mfloat-abi=soft \
+CFLAGS ?= -O2 -Wall -Wextra -U_FORTIFY_SOURCE -fno-stack-protector -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft \
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
 LIB = libakuio.so
 
@@ -28,7 +28,11 @@ libc.so.0: stub_libc.c
 libpthread.so.0: stub_pthread.c
 	$(CC) -shared -nostdlib -Wl,-soname,libpthread.so.0 -o $@ $<
 
-$(LIB): libakuio.o libc.so.0 libpthread.so.0
+# loaded into RAM (/tmp) on the camera: shipped stripped, the symbols stay in libakuio.dbg.so
+$(LIB): libakuio.dbg.so
+	$(CROSS)strip --strip-unneeded -R .comment -o $@ $<
+
+libakuio.dbg.so: libakuio.o libc.so.0 libpthread.so.0
 	$(CC) -shared -nostdlib -Wl,-soname,libakuio.so -Wl,--hash-style=sysv -Wl,--no-as-needed libakuio.o -L. -l:libc.so.0 -l:libpthread.so.0 \
 		$$($(CC) -print-libgcc-file-name) -o $@
 
@@ -38,4 +42,4 @@ selftest: libakuio.c selftest.c ak39_venc.h
 	./selftest.bin
 
 clean:
-	rm -f $(LIB) *.o stub_*.c libc.so.0 libpthread.so.0 selftest.bin
+	rm -f $(LIB) libakuio.dbg.so *.o stub_*.c libc.so.0 libpthread.so.0 selftest.bin
