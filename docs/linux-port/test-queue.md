@@ -233,6 +233,24 @@ A static audit traced every control of the web UI to what acts on it on 3.0. The
   a mask-only save with tuning on keeps it on. Orientation alone changes only the flip (OSD, clock, day/night kept).
   Saving the recording settings does not restart the stream. MQTT save and "Refresh Home Assistant Entities" work in
   the merged card; the rescue Wi-Fi line fills in under the Wi-Fi card.
+- UI-22 `to test` — Web UI pass (commits `[webui] ...`, HTML/CSS/JS only, no CGI change). On a desktop and a phone, in
+  French and English:
+  - Settings: orientation alone saves (was blocked by the "ip" check); a negative sound threshold (-30) saves; Wi-Fi
+    refuses a password with `"` or `\` or outside 8..63 characters before sending; "Install & reboot" posts
+    `update.cgi?cmd=install` (was a ReferenceError; cancel at the confirm or use a test package); the Home Assistant
+    badge follows the MQTT and Discovery switches; drawing a mask on a phone marks the form changed.
+  - Shell: reboot from the menu gives a green toast (a dropped connection gives the neutral "probably restarting");
+    with the network cut, open Logs, restore it and click Logs again: it reloads; leaving Live for Settings closes the
+    `live.cgi` connection (`ps`: the sub-stream encode stops); `camcontrols.cgi?cmd=panel` is not polled while the
+    Dashboard is shown; the dashboard snapshot keeps refreshing over slow Wi-Fi.
+  - Config editor: switch files with unsaved edits and cancel (the list goes back); a value containing a literal `\n`
+    and a file with a tab load and save unchanged. Backup: restore and JSON import right after a page load (no 403).
+  - Recordings: play, download and delete a clip, also one whose name has a space. Logs: switch tabs quickly, Clear,
+    Download, the saved-logs list.
+  Found on the way, needs a CGI change (not done): `wizard.cgi` says an empty Wi-Fi password gives an open network but
+  `wifi_set_config` refuses it; `wifi_set_config` strips `"` and `\` instead of refusing them; `configeditor.cgi`
+  read does not escape control characters in its JSON (the page works around it); `viewrecords.cgi` remove leaves the
+  `.jpg` thumbnail; `config_exchange.cgi` / `upload_backup.cgi` messages are English only.
 
 Not fixed, for later: the action endpoints left from 2.x that no page calls (`set_stream_topology`,
 `set_onvif_stream_policy`, `set_rtsp_preset`, `set_rtsp_quality_profile`, `set_client_profile`, `pair_home_assistant`,

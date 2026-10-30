@@ -984,8 +984,14 @@ window.tc100I18nFr = {
   "Recordings are unavailable. Retry or inspect the camera logs.": "Les enregistrements sont indisponibles. Réessayez ou consultez les journaux de la caméra.",
   "No video records found.": "Aucun enregistrement vidéo.",
   "The autorun change failed. Retry or inspect the logs.": "Le changement de démarrage automatique a échoué. Réessayez ou consultez les journaux."
+,
+  "Local recording to SD card is currently disabled.": "L'enregistrement local sur la carte SD est désactivé."
  },
  "rules": [
+  [
+   "^Local recording is active \\((.+), stream: (.+)\\)\\.$",
+   "Enregistrement local actif ($1, flux : $2)."
+  ],
   [
    "^Device unreachable — last update (.+) ago\\. Retrying\\.\\.\\.$",
    "Appareil injoignable — dernière mise à jour il y a $1. Nouvel essai..."
