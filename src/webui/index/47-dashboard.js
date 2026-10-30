@@ -278,6 +278,7 @@
     var content = byId("content");
     if (!homeNode) homeNode = byId("home_view");
     stopDashboard();
+    liveVideoStop();   // the video element is about to leave the page: close the stream while it can still be found
     setHomeNavActive(null);
     if (content && homeNode && homeNode.parentNode === content) content.removeChild(homeNode);
   }

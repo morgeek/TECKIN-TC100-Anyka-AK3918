@@ -360,10 +360,11 @@
         badge.title = "New Version Available: " + latest + " (Current: " + current + ")";
         badge.onclick = function (e) {
           e.preventDefault();
+          var tr = window.tc100T || function (s) { return s; };
           alert(
-            "A newer version of the firmware is available!\n\nLatest: " + latest +
-            "\nYour Version: " + current +
-            "\n\nPlease visit the GitHub repository to download the update."
+            tr("A newer version of the firmware is available!") + "\n\n" + tr("Latest:") + " " + latest +
+            "\n" + tr("Your version:") + " " + current +
+            "\n\n" + tr("Please visit the GitHub repository to download the update.")
           );
         };
       } else {
@@ -385,6 +386,7 @@
     var ageStr = ageSec > 60 ? Math.round(ageSec / 60) + " min" : ageSec + "s";
     var banner = document.createElement("div");
     banner.id = bannerId;
+    banner.setAttribute("role", "alert");
     banner.style.cssText = "position:fixed;top:0;left:0;width:100%;background:#b00020;color:#fff;text-align:center;padding:4px 8px;font-size:0.82rem;z-index:9999;";
     banner.textContent = "Device unreachable — last update " + (sysUsageLastSuccessTs > 0 ? ageStr + " ago" : "unknown") + ". Retrying...";
     var cameraState = byId("camera_state");

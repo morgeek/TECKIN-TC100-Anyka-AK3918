@@ -124,12 +124,13 @@
       contentLoadController.abort();
     }
 
-    contentLoadController = new AbortController();
+    var controller = new AbortController();
+    contentLoadController = controller;
     setContentLoading(true);
 
     fetch(cacheBustedUrl(target), {
       cache: "no-store",
-      signal: contentLoadController.signal,
+      signal: controller.signal,
     })
       .then(function (r) {
         if (!r.ok) {
@@ -153,6 +154,8 @@
         }
         console.log(e);
         leaveHome();
+        currentContentTarget = "";   // the error box is not that page: clicking its menu entry again must reload it
+        setActiveOnPageTarget("");
         content.innerHTML = "<article class='message is-danger'><div class='message-header'><p>Page unavailable</p></div><div class='message-body'>The camera did not return this page. <button id='page_retry' class='button is-small' type='button'>Retry</button> <button id='page_logs' class='button is-small' type='button'>Open logs</button></div></article>";
         var retryButton = byId("page_retry");
         if (retryButton) retryButton.addEventListener("click", function () { loadOnPageTarget(target, onLoaded, true); });
@@ -160,7 +163,11 @@
         if (logsButton) logsButton.addEventListener("click", function () { loadOnPageTarget("logs.html", null, true); });
       })
       .finally(function () {
-        setContentLoading(false);
+        // A newer navigation owns the spinner now (this one was aborted).
+        if (contentLoadController === controller) {
+          setContentLoading(false);
+          contentLoadController = null;
+        }
       });
   }
 
