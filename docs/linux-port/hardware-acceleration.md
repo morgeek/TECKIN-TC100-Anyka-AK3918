@@ -141,3 +141,8 @@ Wi-Fi's order-2/3 atomic receive buffers) is counted in whole page blocks, so it
 16 KB blocks were in it or in CMA. `CONFIG_ARCH_FORCE_MAX_ORDER=7`: 512 KB blocks (128 of them), the reserve stays
 near 1 MB and the migrate types are kept apart 8 times more finely. Nothing needs more than 512 KB from the page
 allocator (capture buffers come from CMA, the encoder pool is reserved, large driver buffers are vmalloc).
+
+Measured on IPCAM2 with the cb20c19 kernel booted once from the card: "Page block order: 7", 128 pages per block,
+blocks 28 unmovable / 58 movable / 4 reclaimable / 2 high-atomic (1 MB) / 36 CMA; free 16 KB blocks outside the
+reserve (buddyinfo `64 40 26 18 4 2 2 4`), MemAvailable 10.1-10.8 MB, no OOM or allocation failure after 4 min
+(the old kernel failed at 84 s), video 74-76 frames per 5 s with a client, 69 % idle.
