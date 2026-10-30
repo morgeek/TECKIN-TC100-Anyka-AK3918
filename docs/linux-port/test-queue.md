@@ -132,8 +132,17 @@ A static audit traced every control of the web UI to what acts on it on 3.0. The
 - UI-04 `to test` — Auto day / night at dusk or in a dark room: `watch -n2 'cat /tmp/cam_luma /tmp/cam_ae'` and the
   `[auto-night]` lines; note any flapping when the IR LEDs switch on (see HW-08).
 - UI-05 `to test` — Image orientation select: Mirror, Flip, Rotate 180; masks, OSD clock and snapshots follow.
-- UI-06 `to test` — Video: GOP, min / max QP from Settings reach `tc100_rtsp` (its command line in `ps`, keyframe
-  interval in VLC's codec info).
+- UI-06 `to test` — Video: GOP, min / max QP from Settings reach `tc100_rtsp` (`-q -Q -g -G` in `ps`, keyframe
+  interval in VLC's codec info). A camera still holding the old shipped values (QP 20..51, GOP 64 / 32, never applied
+  before) keeps QP 25..48 and GOP 2 s; set e.g. GOP 15 and QP 22..45 and check they apply, then the bit rate and the
+  picture under motion. Orientation select (Mirror / Flip / Rotate 180): picture changes within 1 s without a
+  stream restart, kept after a reboot; `docs/api.md` says 1 = horizontal flip, the code (`bin/setconf`,
+  `src/ispflip`) 1 = flip, 2 = mirror: correct the doc after looking.
+- UI-06b `to test` — No stream restart any more when switching live tuning, sound detection, two-way audio or the
+  motion zones (all read live); the sub-stream switch still restarts. Saving the Image form keeps values set from MQTT.
+  Home Assistant: the anti-flicker and Privacy Shield entities are gone. Wizard: only Standalone and Frigate + HA;
+  after the Frigate profile, motion and OSD switched on again in Settings stay on after a reboot. Motion events carry
+  a picture (`/tmp/motion_snap_*.jpg`, 5 kept).
 - UI-07 `to test` — Motion: red LED blinks on motion with "Blink LED" on; the Recordings page timeline shows a
   picture for each event; "On motion" recording with Detection off records nothing (the UI says so).
 - UI-08 `to test` — Network: static IP without DNS, reboot: `/etc/resolv.conf` holds the gateway, `ntpd` resolves.
