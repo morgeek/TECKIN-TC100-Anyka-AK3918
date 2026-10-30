@@ -12,6 +12,7 @@
 # or when it has less than 64 MB free. LOG_PERSIST=0 in config/boot.conf turns it off (read at every cycle).
 #
 #   log-persist.sh run              loop: first save after 2 minutes, then every LOG_PERSIST_MIN minutes (10)
+#   log-persist.sh hk               one cycle for the housekeeper (scripts/housekeeper.sh runs this instead of "run")
 #   log-persist.sh save [why]       one save now
 #   log-persist.sh shutdown [why]   one save, before a reboot (called by scripts/reboot-tracker.sh intent)
 #   log-persist.sh list             saved boots as JSON, newest first (www/cgi-bin/savedlogs.cgi)
@@ -201,21 +202,36 @@ lp_cat() {   # BOOT FILE
   cat "$LP_ROOT/$1/$2"
 }
 
+# LOG_PERSIST_MIN in minutes, 1..1440, else 10 (-> $_m)
+lp_minutes() {
+  _m=$(lp_conf LOG_PERSIST_MIN 10)
+  case "$_m" in ''|*[!0-9]*) _m=10 ;; esac
+  [ "$_m" -ge 1 ] && [ "$_m" -le 1440 ] || _m=10
+}
+
 lp_run() {
   echo $$ > "$LP_PIDFILE" 2>/dev/null
   sleep "$LP_FIRST"
   while :; do
     lp_save periodic
-    _m=$(lp_conf LOG_PERSIST_MIN 10)
-    case "$_m" in ''|*[!0-9]*) _m=10 ;; esac
-    [ "$_m" -ge 1 ] && [ "$_m" -le 1440 ] || _m=10
+    lp_minutes
     sleep $((_m * 60))
   done
+}
+
+# one cycle for scripts/housekeeper.sh (which runs it, the first time after LP_FIRST): save, then tell the
+# housekeeper the period of the next run (LOG_PERSIST_MIN is read at every cycle)
+lp_hk() {
+  lp_save periodic
+  lp_minutes
+  mkdir -p "${HK_DIR:-/tmp/housekeeper}/period" 2>/dev/null
+  echo $((_m * 60)) > "${HK_DIR:-/tmp/housekeeper}/period/log-persist" 2>/dev/null
 }
 
 if [ -z "$LP_TEST_SOURCE" ]; then
   case "$1" in
     run) lp_run ;;
+    hk) lp_hk ;;
     save) lp_save "${2:-manual}" ;;
     shutdown) lp_save "shutdown${2:+: $2}" ;;
     list) lp_list ;;

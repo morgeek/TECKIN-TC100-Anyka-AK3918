@@ -187,8 +187,11 @@ start()
       WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS:-20}" \
       WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS="${WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS:-15}" \
       WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS="${WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS:-180}" \
+      sh /mnt/scripts/housekeeper.sh watch-add onvif "$WATCHDOG_PIDFILE" "$CHECK_TIMEOUT_SECONDS" 0 "$ONVIF_WATCHDOG_MODE" \
+        </dev/null >/dev/null 2>&1 || {
       /mnt/scripts/service-watchdog.sh /mnt/controlscripts/onvif 0 "$ONVIF_WATCHDOG_MODE" </dev/null >/dev/null 2>&1 &
       echo "$!" > "$WATCHDOG_PIDFILE"
+      }
     fi
   fi
 }
@@ -259,6 +262,7 @@ restart()
 stop()
 {
   rm -f "$START_TS_FILE"
+  sh /mnt/scripts/housekeeper.sh watch-del onvif </dev/null >/dev/null 2>&1   # job of the housekeeper: its pid file goes
   killpid_graceful "$WATCHDOG_PIDFILE" 3
   killpid_graceful "$PIDFILE" 5
 }
