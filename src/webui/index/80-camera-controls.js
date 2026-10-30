@@ -35,7 +35,9 @@
     });
   }
   function refreshCamPanel() {
-    if (!camPanels().length || camPanelBusy) return Promise.resolve();
+    // A panel inside the hidden Live view is not worth a request every 30 s.
+    var shown = camPanels().filter(function (p) { return p.offsetParent !== null; });
+    if (!shown.length || camPanelBusy) return Promise.resolve();
     return fetch("cgi-bin/camcontrols.cgi?cmd=panel", { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(renderCamPanel)

@@ -924,7 +924,17 @@ window.tc100I18nFr = {
   "🌙 Night: n/a": "🌙 Nuit : n/d",
   "🌤 Twilight": "🌤 Crépuscule",
   "📋 Copy": "📋 Copier",
-  "📋 Copy URL": "📋 Copier l'URL"
+  "📋 Copy URL": "📋 Copier l'URL",
+  "Restarting: the camera is back in about a minute": "Redémarrage : la caméra revient dans environ une minute",
+  "Command sent to the camera": "Commande envoyée à la caméra",
+  "The camera did not accept the command": "La caméra n'a pas accepté la commande",
+  "The camera stopped answering: it is probably restarting": "La caméra ne répond plus : elle redémarre probablement",
+  "A newer version of the firmware is available!": "Une version plus récente du firmware est disponible !",
+  "Latest:": "Dernière :",
+  "Your version:": "Votre version :",
+  "Please visit the GitHub repository to download the update.": "Rendez-vous sur le dépôt GitHub pour télécharger la mise à jour.",
+  "Network traffic over the last minutes": "Trafic réseau des dernières minutes",
+  "CPU and memory use over the last minutes": "Charge CPU et mémoire des dernières minutes"
  },
  "rules": [
   [

@@ -706,3 +706,9 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
 .sd-summary[data-kind="kit"] [data-kind="kit"], .sd-summary[data-kind="data"] [data-kind="data"],
 .sd-summary[data-kind="empty"] [data-kind="empty"], .sd-summary[data-kind="blank"] [data-kind="blank"],
 .sd-summary[data-kind="errors"] [data-kind="errors"], .sd-summary[data-mounted="1"] [data-mounted="1"] { display: inline; }
+/* ---- dashboard pass (2026-10) ---- */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.navbar-burger:focus-visible, #theme_toggle:focus-visible { outline: 2px solid var(--v2-accent, currentColor); outline-offset: 2px; }
+#fw_version, #brand_host { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-facts dd, .dash-sub { overflow-wrap: anywhere; }
+@media (max-width: 480px) { .dash-table { display: block; overflow-x: auto; } }

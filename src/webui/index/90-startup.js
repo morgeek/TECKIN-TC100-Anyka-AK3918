@@ -8,9 +8,12 @@
 
     fetch("cgi-bin/state.cgi?cmd=hostname", { cache: "no-store" })
       .then(function (r) {
+        if (!r.ok) throw new Error("hostname HTTP " + r.status);
         return r.text();
       })
       .then(function (title) {
+        title = String(title || "").trim();
+        if (!title || title.length > 64 || /[<>]/.test(title)) return;   // not a host name (error page): keep "TC100"
         document.title = title;
         var osdName = byId("osd_name");
         if (osdName) osdName.textContent = title;
@@ -20,7 +23,8 @@
         }
         var brandHost = byId("brand_host");
         if (brandHost) brandHost.textContent = title;
-      });
+      })
+      .catch(function () { /* the name stays "TC100" */ });
 
     document.addEventListener("click", function (event) {
       var homeTarget = event.target.closest("[data-home-view]");
@@ -63,8 +67,17 @@
             return;
           }
           // Use csrfFetch so the CSRF token is sent as a header.
+          var isReboot = /[?&]cmd=reboot/.test(promptTarget.dataset.target);
           csrfFetch(promptTarget.dataset.target, { cache: "no-store" })
-            .catch(function () {});
+            .then(function () {
+              showResult(isReboot ? "Restarting: the camera is back in about a minute" : "Command sent to the camera", "is-success");
+            })
+            .catch(function (err) {
+              // csrfFetch throws an Error for an HTTP failure (403, 500: refused) and a TypeError when
+              // the connection dropped. For a reboot that usually means the camera is already going down.
+              if (isReboot && err instanceof TypeError) showResult("The camera stopped answering: it is probably restarting", "is-warning");
+              else showResult("The camera did not accept the command", "is-danger");
+            });
         }
         return;
       }
@@ -94,6 +107,20 @@
         }
       });
     }
+
+    if (navbarBurger) {
+      // The burger is a link without href: make it reachable and usable from the keyboard.
+      navbarBurger.setAttribute("tabindex", "0");
+      navbarBurger.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navbarBurger.click(); }
+      });
+    }
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+      var menu = byId("nav_menu");
+      if (menu && menu.classList.contains("is-active")) { closeNavMenu(); if (navbarBurger) navbarBurger.focus(); }
+      else closeNavDropdowns();
+    });
 
     var navMenu = byId("nav_menu");
     if (navMenu) {
