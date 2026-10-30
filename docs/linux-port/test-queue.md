@@ -726,6 +726,30 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
   4. The browser live view plays smoothly for 2 minutes.
 - **Pass:** every passed switch becomes the default (UDPSG first, once H.265 is clean).
 
+### S-01 Housekeeper restarter; ssh-server (on) and telnet (off) under Services — `to test`
+- **What (commit `[svc] ...`):**
+  - **Restarter:** `housekeeper.sh supervise` runs one `service-watchdog.sh` (no-reboot mode, back-off 20/35/…/180 s,
+    fork-free pid check every 60 s) that restarts the housekeeper loop. It costs about 150-300 KB resident and is
+    started by autorun only with HOUSEKEEPER on. `housekeeper.sh stop` stops the supervisor first.
+  - **SSH:** a new Services entry `ssh-server` (dropbear from ext/), on by default. Its "Boot" toggle drives
+    `S50dropbear`. A camera that never chose keeps SSH (marker `config/.services_ssh_done`).
+  - **Telnet:** the base-image `S50telnet` is replaced (`v3/S50telnet-linux66`): no telnetd at boot any more. Telnet is
+    the Services entry `telnet-server` only (off by default, LAN only, closes by itself). The rescue telnet of web-guard
+    is unchanged. Without dropbear in the user space (old card tree), telnetd still starts at boot as a fallback.
+- **Switch:** `HOUSEKEEPER=0` (no restarter); the "Boot" toggles in Services. The S50 scripts need the new initramfs.
+- **Test:**
+  1. `ps`: one `service-watchdog.sh /mnt/scripts/housekeeper.sh`, matching `/var/run/housekeeper-watch.pid`.
+  2. `kill -9 $(cat /var/run/housekeeper.pid)`: within about 1 minute the loop is back with its jobs and pid files. The
+     log says "housekeeper.sh - unhealthy, perform restart", and there is no reboot.
+  3. `housekeeper.sh stop` stays stopped.
+  4. After boot: port 22 listens, port 23 does not, `ssh root@<cam>` works.
+  5. Services: ssh-server stop and start. "Boot" off and a reboot gives no sshd ("off (Services page)" on the console);
+     "Boot" on brings it back.
+  6. `telnet-server` start and stop from Services (LAN only, closes after 15 min).
+  7. `killall httpfront`: the rescue telnet opens after 2-3 minutes and closes once the web UI is back.
+  8. An upgrade over rc6 settings: SSH on, telnet off.
+- **Pass:** all of the above, and MemAvailable within 0.3 MB of rc6.
+
 ### Other suggestions of 2026-10-30, not taken now (reasons)
 - **Clock gating of unused blocks (Ethernet MAC, extra UART):** no verified clock register map yet. A wrong bit can
   stop the SPI flash, USB or SD; the only gain is heat. The RMII pads are no longer muxed (LED-01 fix).
