@@ -184,3 +184,39 @@ jobs:
         with:
           name: tc100-linux66-symbols
           path: symbols/
+
+      # HW-02 test 2 (test queue R8-02) without any U-Boot prompt: the same kernel with ak39_venc.pool=9600K in its
+      # own command line (appended to the one U-Boot passes), for the card only (tc100test/c66.img). Built last, so
+      # the artifacts above are the normal kernel. Only the files that use CONFIG_CMDLINE are rebuilt.
+      - name: Card test kernel with a 9600K encoder pool (HW-02 test 2)
+        run: |
+          set -e
+          cd linux-src
+          scripts/config --set-str CMDLINE "ak39_venc.pool=9600K" --disable CMDLINE_FROM_BOOTLOADER --enable CMDLINE_EXTEND
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
+          grep -qx 'CONFIG_CMDLINE="ak39_venc.pool=9600K"' .config
+          grep -qx 'CONFIG_CMDLINE_EXTEND=y' .config
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage
+          D=../output-hw02; mkdir -p $D
+          cat arch/arm/boot/zImage $(find arch/arm/boot/ -name "*tc100*.dtb" | head -n 1) > $D/zImage-dtb
+          mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 TC100 HW-02 pool 9600K" -d $D/zImage-dtb $D/c66-hw02-pool9600k.img
+          rm $D/zImage-dtb
+          cp System.map .config $D/
+          cat > $D/README-HW02.txt <<'TXT'
+          HW-02 test 2 (docs/linux-port/test-queue.md, R8-02): the rc8 kernel of this same run with
+          ak39_venc.pool=9600K added to its command line by the kernel itself. No U-Boot prompt, nothing written
+          to the flash or to the U-Boot environment.
+          1. On the SD card, rename tc100test/c66.img to tc100test/c66-rc8.img (rename, do not delete).
+          2. Copy c66-hw02-pool9600k.img to the card as tc100test/c66.img; c66rd.gz stays the rc8 one.
+          3. Reboot (reboot from the shell, or power cycle). Check /proc/cmdline ends with ak39_venc.pool=9600K
+             and dmesg says "pool 9600 KiB ... (CMA)".
+          Way back: rename tc100test/c66-rc8.img back to tc100test/c66.img and reboot.
+          System.map and .config here are those of this kernel (decode its Oops traces with them).
+          TXT
+          (cd $D && md5sum * > md5sums.txt)
+
+      - name: Upload the HW-02 card test kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: tc100-linux66-hw02-pool9600k
+          path: output-hw02/

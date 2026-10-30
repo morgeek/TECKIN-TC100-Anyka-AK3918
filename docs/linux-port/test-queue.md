@@ -261,8 +261,8 @@ switch back to the rc7 behaviour.
    **Speaker silent: not touched in rc8** (no verified fix; the codec path needs a test of its own, see B-01 notes).
 6. **25 fps as the default: not in rc8.** It costs no CPU (P-04), but the picture quality at 25 fps with the same
    bit rate was not looked at. The owner can choose 25 in Streams & audio; a default change waits for a day-time look.
-7. **HW-02 test 2 (`ak39_venc.pool=9600K`): the owner says go, in rc8** (card boot only, the parameter lives in
-   RAM; kept if it passes, dropped if not). To make it a one-parameter test, `tc100_rtsp` leaves out the start-of-pool
+7. **HW-02 test 2 (`ak39_venc.pool=9600K`): the owner says go, in rc8** (card kernel only, built by CI with the parameter in
+   its own command line: no U-Boot prompt; kept if it passes, dropped if not). To make it a one-parameter test, `tc100_rtsp` leaves out the start-of-pool
    guard by itself when the pool is smaller than 12 MiB (log `encoder pool: N bytes (ak39_venc.pool), no guard at
    its start`; `RTSP_POOLPAD=<bytes>` still forces one). With the default 12 MiB pool nothing changes. Steps in R8-02.
 
@@ -290,11 +290,17 @@ switch back to the rc7 behaviour.
 - **Why this size:** the encoders use 8866880 bytes with the main stream in H.265 and the sub-stream in H.264 (HW-01b,
   no guard); 9600K = 9830400 bytes leaves about 0.96 MB. **Gain expected: about 2.6 MB more `MemAvailable`** on top of
   `slots=3`. Never measured: the pool use with the **main stream in H.264**, the riskiest case.
-- **Safety:** nothing is written to the flash or to the U-Boot environment (`pack66/boot66b.sh` boots in RAM, no
-  `saveenv`). A pool too small only means no video until the next boot without the parameter.
-- **Test, after R8-01 step 1 on the same card kernel:**
-  1. Boot: `EXTRA="ak39_venc.pool=9600K" pack66/boot66b.sh`. `/proc/cmdline` holds the full initrd size **and**
-     `ak39_venc.pool=9600K` (256-character limit); `cat /sys/module/ak39_venc/parameters/pool` = `9600K`.
+- **No U-Boot prompt (the owner's rule after night 2):** the rc8 CI run also builds a **card test kernel with the
+  parameter in its own command line** (`CONFIG_CMDLINE="ak39_venc.pool=9600K"`, `CONFIG_CMDLINE_EXTEND`: appended by
+  the kernel to what U-Boot passes, so the 256-character limit does not apply). Artifact
+  **`tc100-linux66-hw02-pool9600k`**: `c66-hw02-pool9600k.img`, its `System.map` / `.config`, `README-HW02.txt`.
+- **Safety:** nothing is written to the flash or to the U-Boot environment; only a file on the SD card changes. A pool
+  too small only means no video until the card kernel is put back. After a panic the camera boots its flash firmware.
+- **Test, after R8-01 (rc8 kernel and initramfs on the card, rc8 in the flash):**
+  1. On the card: rename `tc100test/c66.img` to `tc100test/c66-rc8.img` (rename, never delete), copy
+     `c66-hw02-pool9600k.img` as `tc100test/c66.img` (check its md5 against `md5sums.txt`), `reboot`.
+     `/proc/cmdline` holds the full initrd size **and ends with** `ak39_venc.pool=9600K`;
+     `cat /sys/module/ak39_venc/parameters/pool` = `9600K`.
   2. dmesg: `video encoder: ... pool 9600 KiB at 0x81800000 (CMA)`, no `cannot map the ... pool`, `/dev/uio0` present.
   3. `tc100_rtsp.log`: `encoder pool: 9830400 bytes (ak39_venc.pool), no guard at its start`, both encoders `open`,
      and the `pool used ..., free ...` lines: write down **used** and **free** (main H.265 + sub H.264).
@@ -308,7 +314,8 @@ switch back to the rc7 behaviour.
   largest measured **used** + 0.75 MB, rounded up to 64 KB) becomes the driver's default in patch 0015, so the
   flash boot gets it without any U-Boot change.
 - **Fail:** any `OPEN FAILED` / `ak_venc_open failed`, the main stream dying, or a free below 256 KB: write down the
-  numbers, reboot without `EXTRA`; the idea is dropped (or retried once at `10240K` if only the margin was short).
+  numbers, rename `tc100test/c66-rc8.img` back to `tc100test/c66.img` and reboot; the idea is dropped (or retried
+  once at `10240K` if only the margin was short).
 
 ### Next build: 3.0.1-rc7 — the owner asks for everything to be tried (2026-10-30 night)
 

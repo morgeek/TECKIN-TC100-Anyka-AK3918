@@ -29,9 +29,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     privacy masks by the ISP (HW-04; `RTSP_ISPMASK=0` = CPU). Both fall back to the CPU by themselves on a refusal.
   - **MQTT:** a broker that refuses the login (CONNACK 4 / 5) shows as "MQTT: login refused" in the web UI instead of
     a plain "fail" (`mqtt_refused` in the status JSON).
-  - **HW-02 test 2 ready (R8-02):** with a smaller encoder pool (`ak39_venc.pool=9600K`, card boot, RAM only)
-    `tc100_rtsp` leaves out the 3.4 MB start-of-pool guard by itself (`RTSP_POOLPAD` still forces one); the default
-    12 MiB pool is unchanged. Kept as the default in rc9 if it passes, dropped otherwise.
+  - **HW-02 test 2 ready (R8-02):** CI also builds a card-only test kernel with `ak39_venc.pool=9600K` in its own
+    command line (artifact `tc100-linux66-hw02-pool9600k`: no U-Boot prompt, nothing written to the flash). With a
+    smaller pool `tc100_rtsp` leaves out the 3.4 MB start-of-pool guard by itself (`RTSP_POOLPAD` still forces one);
+    the default 12 MiB pool is unchanged. Kept as the default in rc9 if it passes, dropped otherwise.
   - Kept opt-in after the rc7 measurements: `RTSP_UDPSG` (fine, no gain), `RTSP_UDPMMSG` (stutters in VLC),
     `otg_hs.fifo32` and `rtl8xxxu.dma_aggregation` (no gain), `RTSP_FRAMECOPY=0`.
 - **3.0.1-rc7** (camera checks P-01..P-09, S-01, W-01 and the rc7 plan in `docs/linux-port/test-queue.md`):
