@@ -23,6 +23,7 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - `docs/linux-port/test-queue.md` is the hand-off: every change that needs the real camera gets an entry there (what,
   switch to turn it off, test, pass criteria). Testers write results under the entry and make passed changes the
   default. Read it before starting; update it in the same commit as the change.
+- Run `sh tests/docker/local-ci.sh tests|cross|kernel|all` (Docker) before pushing: GitHub CI only confirms.
 - Prefix the commit subject of a work stream (e.g. `[hwaccel] ...`): the CI run carries the subject as its title, so
   the tester can find the build of an entry.
 
