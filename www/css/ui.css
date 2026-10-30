@@ -116,6 +116,10 @@ body::before, body::after { display: none !important; }
   box-shadow: none;
 }
 .v2-monitor #liveview { display: block; width: 100%; height: auto; border: 0; border-radius: 0; }
+.v2-monitor #liveview_video { width: 100%; height: auto; border: 0; border-radius: 0; background: #000; }
+.live-mode.buttons { margin: 0 !important; }
+.live-mode .button { margin-bottom: 0 !important; }
+.live-mode .button.is-on { background: var(--v2-ink) !important; border-color: var(--v2-ink) !important; color: var(--v2-panel) !important; }
 .v2-osd {
   position: absolute;
   left: 0; right: 0;

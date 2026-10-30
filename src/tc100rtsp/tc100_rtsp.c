@@ -47,6 +47,7 @@
 
 #include "../libakuio/ak39_venc.h"
 #include "alisten.h"
+#include "livemp4.h"
 #include "jpeg_hw.h"
 #include "rec.h"
 #include "talk.h"
@@ -2251,6 +2252,7 @@ int main(int argc, char **argv)
 	}
 	signal(SIGINT, on_sig); signal(SIGTERM, on_sig); signal(SIGPIPE, SIG_IGN);
 	lis_init();
+	live_init();
 	talk_init();
 
 #ifndef TC100_HOST_TEST
@@ -2496,6 +2498,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 		/* microphone: while an audio client plays or the sound detection needs it; stopped 10 s after that */
 		lis_scan(now_us64() / 1000);
+		live_scan(now_us64() / 1000);
 		talk_tick(now_us64());
 		aud_tx = audio_on && na > 0;
 		if (aud_tx || snd_on || rec_audio_wanted() || lis_count()) {
@@ -2585,6 +2588,11 @@ unsigned char *fpb[2] = { NULL, NULL };
 			int snd = 0;
 
 			sec_last = nowt;
+			{	/* the stream of the browser live view (live.cgi): the sub-stream when it is H.264, else the main one */
+				int lsi = S[1].on && !S[1].hevc ? 1 : !S[0].hevc ? 0 : -1;
+
+				live_stream(lsi, lsi ? "sub" : "main", lsi >= 0 ? S[lsi].sps : NULL, lsi >= 0 ? S[lsi].sps_len : 0);
+			}
 			if (rec_mode == REC_MOTION && !access("/tmp/motion_detected", F_OK)) {	/* sound event (sound-detection) */
 				unlink("/tmp/motion_detected");
 				snd_pulse = nowt;
@@ -2660,7 +2668,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			rsi = rec_sub && S[1].on ? 1 : 0;
 			for (k = 0; k < 2; k++) {
 				struct strm *s = &S[k];
-				int want = s->on && (np[k] || !HAVE_PS(s) || (rec_on && k == rsi));
+				int want = s->on && (np[k] || !HAVE_PS(s) || (rec_on && k == rsi) || live_wants(k));
 
 				if (s->active && !want) {
 					s->active = 0;
@@ -2771,6 +2779,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 					clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 					s->nbytes += st.len;
 					if (rec_on && k == rsi) { rec_frame(st.data, st.len, ts_us, idr, s->hevc); if (idr) rec_idr = 1; }
+					live_frame(k, st.data, st.len, ts_us, idr);
 				}
 				s->nfr++;
 				p_release(s->enc, &st);
@@ -2809,6 +2818,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	rec_shutdown();
 	talk_shutdown();
 	lis_close_all();
+	live_close_all();
 	aud_close();
 	for (int k = 1; k >= 0; k--) if (S[k].enc) p_close(S[k].enc);
 	LOG("tc100_rtsp: stopped after %lu frames\n", ntot);

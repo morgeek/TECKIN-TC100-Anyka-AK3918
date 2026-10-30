@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Live video in the browser** (Video / Snapshots switch on the live view): the camera's H.264 stream (sub-stream by default) as fragmented MP4
+  through `live.cgi` and Media Source Extensions, no re-encoding, two viewers at most, snapshots as the fallback. Waiting for a camera run
+  (`docs/linux-port/README.md`, tc100_rtsp part).
 - **Five improvements, waiting for a camera run** (tests: `tests/test_feat30.py`, `src/tc100rtsp/test_util.c`):
   - Day / night can decide from the ISP exposure instead of the picture luminance (`DAYNIGHT_SOURCE=luma|ae|isp` in
     `config/daynight.conf`, Settings -> Day/night with a live reading, hold times: night after 10 s, day after 60 s).

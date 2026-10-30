@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Host tests of src/tc100rtsp: util.h (RTSP path -> stream, dBFS meter, motion zones) and rec.c (fragmented MP4 recorder).
+"""Host tests of src/tc100rtsp: util.h (RTSP path -> stream, dBFS meter, motion zones), rec.c (fragmented MP4 recorder) and
+livemp4.c (live view: fragmented MP4 to the browser).
 
 Needs gcc only (no ffmpeg): the recorder is fed synthetic H.264 / H.265 access units (real SPS, dummy slices) and its
 files are checked with a small ISO box reader below. Run: python3 tests/test_tc100rtsp.py
@@ -445,6 +446,7 @@ class Server(unittest.TestCase):
     password = True
     boot_conf = ''
     env = {}
+    live_stream = False                                          # feed the browser live view from a synthetic stream
 
     @classmethod
     def setUpClass(cls):
@@ -464,10 +466,14 @@ class Server(unittest.TestCase):
         self.out = t / 'aplay.out'
         self.pidf = t / 'arecord.pid'
         self.listen = t / 'listen'
+        self.live = t / 'live'
         subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
         env = dict(os.environ, PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'], FAKE_APLAY_OUT=str(self.out),
-                   FAKE_ARECORD_PID=str(self.pidf), TC100_LISTEN_DIR=str(self.listen),
+                   FAKE_ARECORD_PID=str(self.pidf), TC100_LISTEN_DIR=str(self.listen), TC100_LIVE_DIR=str(self.live),
                    TC100_SPEAKER_SCRIPT=str(ROOT / 'scripts' / 'speaker-play.sh'), **self.env)
+        if self.live_stream:
+            (t / 'live.h264').write_bytes(synthetic_h264())
+            env['TC100_LIVE_TEST_FILE'] = str(t / 'live.h264')
         self.log = open(t / 'server.log', 'w')
         shutil.copy(SRC / 'test_rtsp', t / 'bin' / 'tc100_rtsp')           # the CGI finds it by this name (pidof)
         self.proc = subprocess.Popen([str(t / 'bin' / 'tc100_rtsp'), '-p', str(self.PORT), '-w', str(t / 'pw'), '-a', str(self.audio),
@@ -764,10 +770,264 @@ class ListenCgi(Server):
             p.stdout.close()
 
 
+def synthetic_h264(n=40, gop=10):
+    """Annex B stream, one access unit per frame (AUD first), a 640x360 baseline SPS, dummy slices; the first frame is an IDR"""
+    out, seed = bytearray(), 1
+    for f in range(n):
+        key = f % gop == 0
+        out += b'\0\0\1\x09\xf0'
+        if key:
+            out += b'\0\0\0\1' + bytes([0x67, 0x42, 0xc0, 0x1e, 0xda, 0x02, 0x80, 0xbf, 0xe5, 0x40]) + b'\0\0\0\1\x68\xcc'
+        out += b'\0\0\1' + bytes([0x65 if key else 0x41])
+        for _ in range(3000 if key else 400):
+            seed = (seed * 1103515245 + 12345) & 0xffffffff
+            out.append(0x11 + (seed >> 16) % 0xe0)
+    return bytes(out)
+
+
+def whole_boxes(b):
+    """the prefix of b made of complete top-level boxes (a stream read in the middle of a fragment)"""
+    i = 0
+    while i + 8 <= len(b):
+        size = struct.unpack('>I', b[i:i + 4])[0]
+        if size < 8 or i + size > len(b):
+            break
+        i += size
+    return b[:i]
+
+
+def live_fragments(m):
+    """(frame number written into the slice by the tests, key, tfdt, duration) per one-frame fragment of a live stream"""
+    out = []
+    for start, (md, me), (dd, de) in m.frags:
+        t = child(m.b, md, me, 'traf', 'tfdt')
+        base = struct.unpack('>Q', m.b[t[0] + 4:t[0] + 12])[0]
+        r = child(m.b, md, me, 'traf', 'trun')
+        count = struct.unpack('>I', m.b[r[0] + 4:r[0] + 8])[0]
+        assert count == 1, 'one frame per fragment'
+        dur, size, flags = struct.unpack('>III', m.b[r[0] + 12:r[0] + 24])
+        assert de - dd == size
+        fid = (m.b[dd + 5] - 0x11) * 100 + (m.b[dd + 6] - 0x11)
+        out.append((fid, flags == 0x02000000, base, dur))
+    return out
+
+
+class LiveMux(unittest.TestCase):
+    """src/tc100rtsp/livemp4.c on its own (test_livemp4): frames in, the stream a browser gets out of the viewers' FIFOs"""
+
+    @classmethod
+    def setUpClass(cls):
+        build('test_livemp4')
+
+    def run_live(self, *args):
+        r = subprocess.run([str(SRC / 'test_livemp4')] + [str(a) for a in args], capture_output=True, text=True, timeout=90)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('OK', r.stdout)
+        return r.stdout
+
+    def test_viewers_get_an_init_segment_then_one_fragment_per_frame_from_the_first_idr(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.run_live('flow', d / 'live', d / 'a.mp4', d / 'b.mp4')
+            m = Mp4(d / 'a.mp4')                                    # ftyp + moov first, then moof / mdat pairs, sequence numbers 1..n
+            self.assertEqual(m.timescale(), 90000)
+            typ, cp, w, h = m.track()
+            self.assertEqual((typ, w, h), ('avc1', 640, 360))
+            self.assertEqual(cp[1:4], bytes([66, 0xc0, 30]))
+            self.assertEqual(m.b[8:12], b'isom')
+            self.assertIn(b'avc1', m.b[:64])
+            self.assertEqual(len(m.frags), 57, 'frames 3..59: the three P frames before the first IDR are not sent')
+            ms = m.samples()
+            self.assertTrue(ms[0][1], 'starts with an IDR')
+            self.assertEqual([i for i, s in enumerate(ms) if s[1]], [0, 10, 20, 30, 40, 50])
+            self.assertTrue(all([n & 31 for n in s[2]] == ([5] if s[1] else [1]) for s in ms), 'only slices: parameter sets and delimiters are out of the samples')
+            fr = live_fragments(m)
+            self.assertEqual([f[0] for f in fr], list(range(3, 60)))
+            for i, f in enumerate(fr):                              # decode times from the frame timestamps, first frame at 0
+                self.assertAlmostEqual(f[2] / 90.0, i * 1000 / 15.0, delta=1.0)
+            self.assertEqual(fr[0][3], 6000, 'the first frame lasts one nominal frame')
+            self.assertTrue(all(abs(f[3] - 6000) <= 2 for f in fr[1:]), [f[3] for f in fr[:5]])
+            b = Mp4(d / 'b.mp4')                                    # attached half way: its own init, sequence 1.., starts at the next IDR
+            fb = live_fragments(b)
+            self.assertEqual([f[0] for f in fb], list(range(33, 60)))
+            self.assertTrue(fb[0][1])
+            self.assertEqual(fb[0][2], 0, 'times are relative to the viewer\'s first frame')
+            self.assertEqual(b.samples()[0][1], True)
+
+    def test_a_slow_viewer_skips_frames_until_a_keyframe_and_the_time_line_stays_continuous(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.run_live('slow', d / 'live', d / 's.mp4')
+            m = Mp4(d / 's.mp4')
+            fr = live_fragments(m)
+            ids = [f[0] for f in fr]
+            self.assertTrue(fr[0][1])
+            gaps = [i for i in range(1, len(ids)) if ids[i] != ids[i - 1] + 1]
+            self.assertTrue(gaps, 'the viewer could not take all the frames: some were skipped')
+            self.assertTrue(all(fr[i][1] for i in gaps), 'the stream resumes at a keyframe')
+            self.assertLess(len(ids), 190)
+            for a, b in zip(fr, fr[1:]):
+                self.assertAlmostEqual(b[2], a[2] + a[3], delta=2, msg='no hole in the decode time line (%d -> %d)' % (a[0], b[0]))
+            m.samples()                                             # sequence numbers 1..n, offsets, NAL framing
+
+    def test_stuck_viewer_dropped_removed_fifo_dropped_extra_viewer_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.run_live('stuck', Path(d) / 'live')
+
+    def test_stream_changes_and_status_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.run_live('change', Path(d) / 'live')
+
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'ffmpeg + ffprobe')
+    def test_a_real_h264_stream_decodes_in_ffmpeg(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=15', '-t', '10', '-c:v', 'libx264',
+                            '-profile:v', 'baseline', '-level', '3.0', '-g', '15', '-sc_threshold', '0', '-pix_fmt', 'yuv420p',
+                            '-x264-params', 'aud=1:repeat-headers=1', '-bsf:v', 'h264_mp4toannexb', '-f', 'h264', str(d / 'in.h264')], check=True)
+            self.run_live('flow', d / 'live', d / 'a.mp4', d / 'b.mp4', d / 'in.h264')
+            for name, frames in (('a.mp4', 150), ('b.mp4', 60)):   # B joins after frame 75: the next IDR is frame 90
+                r = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries',
+                                    'stream=codec_name,profile,width,height,nb_read_frames', '-of', 'default=nw=1', str(d / name)],
+                                   capture_output=True, text=True)
+                self.assertIn('codec_name=h264', r.stdout, r.stdout + r.stderr)
+                self.assertIn('width=640', r.stdout)
+                self.assertIn('height=360', r.stdout)
+                self.assertIn('nb_read_frames=%d' % frames, r.stdout)
+                dec = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(d / name), '-f', 'null', '-'], capture_output=True, text=True)
+                self.assertEqual(dec.stderr.strip(), '', 'ffmpeg decodes the stream without a complaint')
+                self.assertEqual(len(live_fragments(Mp4(d / name))), frames)
+            if os.environ.get('LIVE_KEEP_DIR'):                      # for the browser check (headless Chromium, tests/ui-browser)
+                shutil.copy(d / 'a.mp4', Path(os.environ['LIVE_KEEP_DIR']) / 'live-real.mp4')
+
+
+class LiveServer(Server):
+    """tc100_rtsp (host build) with the live view: frames from a file (TC100_LIVE_TEST_FILE, 15 fps), www/cgi-bin/live.cgi"""
+    audio = 0
+    live_stream = True
+    env = {'TC100_LIVE_SECONDS': '6'}
+
+    def cgi(self, query='', method='GET', live=None):
+        t = Path(self.tmp.name)
+        env = dict(os.environ, REQUEST_METHOD=method, QUERY_STRING=query, TC100_LIVE_DIR=str(live or self.live),
+                   PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'])
+        return subprocess.Popen(['sh', str(ROOT / 'www' / 'cgi-bin' / 'live.cgi')], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def wait_status(self):
+        for _ in range(60):
+            if (self.live / 'status').exists() and 'codec=' in (self.live / 'status').read_text():
+                return
+            time.sleep(0.1)
+        self.fail('no live status')
+
+    def read_all(self, p, seconds):
+        buf, end = b'', time.time() + seconds
+        while time.time() < end:
+            r, _, _ = select.select([p.stdout], [], [], 0.2)
+            if r:
+                d = os.read(p.stdout.fileno(), 65536)
+                if not d:
+                    break
+                buf += d
+        return buf
+
+    def test_info_json_and_the_stream_of_a_viewer(self):
+        self.wait_status()
+        out = self.cgi('info=1').communicate(timeout=10)[0]
+        head, _, body = out.partition(b'\r\n\r\n')
+        self.assertIn(b'application/json', head)
+        self.assertRegex(body.decode(), r'^\{"ok":1,"stream":"main","codec":"avc1\.42c01e","width":\d+,"height":\d+\}\n$')
+        p = self.cgi()
+        buf = self.read_all(p, 3)
+        head, _, body = buf.partition(b'\r\n\r\n')
+        self.assertIn(b'Content-Type: video/mp4', head)
+        self.assertIn(b'Cache-Control: no-store', head)
+        f = Path(self.tmp.name) / 'live.mp4'
+        f.write_bytes(whole_boxes(body))
+        m = Mp4(f)
+        fr = live_fragments(m)
+        self.assertGreater(len(fr), 20, 'about 3 s at 15 fps')
+        self.assertTrue(fr[0][1], 'starts with an IDR')
+        self.assertEqual(fr[0][2], 0)
+        self.assertEqual(m.track()[0], 'avc1')
+        m.samples()
+        p.stdout.close()                                           # the browser goes away: the FIFO is removed, the CGI ends
+        for _ in range(100):
+            if not list(self.live.glob('*.fifo')) and p.poll() is not None:
+                break
+            time.sleep(0.1)
+        else:
+            self.fail('the FIFO or the CGI is still there 10 s after the browser left')
+
+    def test_two_viewers_at_most(self):
+        self.wait_status()
+        ps = [self.cgi() for _ in range(2)]
+        time.sleep(1.5)
+        out = self.cgi().communicate(timeout=10)[0]
+        self.assertIn(b'503', out.split(b'\r\n')[0], out)
+        self.assertIn(b'too many viewers', out)
+        for p in ps:
+            self.assertGreater(len(self.read_all(p, 1)), 1000)
+            p.kill()
+            p.wait()
+            p.stdout.close()
+
+    def test_a_viewer_ends_after_the_time_limit_and_the_page_can_reconnect(self):
+        self.wait_status()
+        p = self.cgi()
+        t0 = time.time()
+        buf = self.read_all(p, 12)
+        self.assertAlmostEqual(time.time() - t0, 6, delta=2, msg='the server ends the stream (TC100_LIVE_SECONDS=6)')
+        self.assertGreater(len(buf), 5000)
+        p.wait(5)
+        p2 = self.cgi()
+        self.assertGreater(len(self.read_all(p2, 2)), 1000, 'a new viewer is served again')
+        p2.kill()
+        p2.wait()
+        p2.stdout.close()
+
+    def test_a_viewer_that_does_not_read_is_dropped(self):
+        self.wait_status()
+        p = self.live / '9.fifo'
+        os.mkfifo(p)
+        fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+        time.sleep(0.8)
+        self.assertTrue(p.exists())
+        for _ in range(60):
+            if not p.exists():
+                break
+            time.sleep(0.1)
+        else:
+            self.fail('a viewer that does not read is not dropped')
+        os.close(fd)
+
+    def test_head_probe_and_the_statuses(self):
+        self.wait_status()
+        out = self.cgi('', 'HEAD').communicate(timeout=10)[0]
+        self.assertTrue(out.startswith(b'Content-Type: video/mp4'), out)
+        self.assertEqual(out.split(b'\r\n\r\n', 1)[1], b'')
+        other = Path(self.tmp.name) / 'other'
+        other.mkdir()
+        for status, code in (('stream=none', b'415'), ('stream=pending', b'503'), ('stream=sub codec=avc1.zz width=640 height=360', b'503'),
+                             ('stream=sub codec=avc1.42c01e width=6x0 height=360', b'503'), ('garbage', b'503')):
+            (other / 'status').write_text(status + '\n')
+            out = self.cgi('info=1', live=other).communicate(timeout=10)[0]
+            self.assertIn(code, out.split(b'\r\n')[0], (status, out))
+            self.assertIn(b'"ok":0', out)
+            out = self.cgi('', live=other).communicate(timeout=10)[0]
+            self.assertIn(code, out.split(b'\r\n')[0], (status, out))
+        (other / 'status').unlink()
+        self.assertIn(b'503', self.cgi('info=1', live=other).communicate(timeout=10)[0].split(b'\r\n')[0])
+        (other / 'status').write_text('stream=sub codec=avc1.4d401f width=640 height=360\n')
+        out = self.cgi('info=1', live=other).communicate(timeout=10)[0]
+        self.assertTrue(out.endswith(b'{"ok":1,"stream":"sub","codec":"avc1.4d401f","width":640,"height":360}\n'), out)
+
+
+
 class Sources(unittest.TestCase):
     def test_no_uclibc_missing_imports(self):
         """the camera's uClibc 0.9.33 has no __isoc23_* (glibc 2.38 C2x redirects), no libm in tc100_rtsp"""
-        for name in ('tc100_rtsp.c', 'rec.c', 'util.h', 'talk.c', 'alisten.c'):
+        for name in ('tc100_rtsp.c', 'rec.c', 'util.h', 'talk.c', 'alisten.c', 'mp4box.c', 'livemp4.c'):
             s = re.sub(r'/\*.*?\*/|//[^\n]*', '', (SRC / name).read_text(), flags=re.S)  # code only
             self.assertIsNone(re.search(r'\b(sscanf|fscanf|strtol|strtoul|atoi|atol|log10|sqrt|lrint)\s*\(', s), name)
 
