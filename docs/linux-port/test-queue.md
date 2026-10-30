@@ -22,6 +22,22 @@ Rules that apply to every entry:
 
 Read this first. Details and numbers are under each entry.
 
+**Update 2026-10-31 (night 2, rc7 `fb75210`, IPCAM2): what to do first, in this order**
+1. **Bug, F-05:** `scripts/log-persist.sh` line 80, a boot counter with an 8 or 9 in it (`0008`) is read as octal by ash:
+   no log folder is created any more after the 8th boot on a card. Details and fix in the "night 2" table below.
+2. **MQTT:** the broker refuses IPCAM2's login (CONNACK 5). Not a firmware fault, but show the CONNACK code in the web UI
+   status and back off on refusal (the owner saw "nothing" in Home Assistant and had no way to know why).
+3. **Make default:** `RTSP_ISPOSD=1` (HW-07 passed, saves about 2 % of a core), the privacy masks by the ISP (HW-04 passed
+   for black, gray and white), `ak39_vi.slots=3` (+3.5 MB RAM, no cost, 15 and 25 fps checked).
+4. **Do not make default / drop:** `RTSP_UDPMMSG=1` (blocks and stutter in VLC), `otg_hs.fifo32=1` and
+   `rtl8xxxu.dma_aggregation=1` (no gain), `RTSP_FRAMECOPY` (no difference at one client).
+5. **Needs data from the day:** HW-08 / F-04 (at night AE is pegged: exposure 1124, gain 6840 with or without IR), HW-05
+   (sharpness gains are 1 in the tuning file: only 0 / 1 / 2 levels).
+**Questions waiting for the owner** (the tester cannot do these alone): RTSP / web credentials for the client tests (TCP + UDP at the
+same time, sub-stream, H.265 UDPSG, W-01, UI-22, F-01, O-04 checks 2-9, ssh); ONVIF discovery from a real LAN client (ONVIF is
+off on IPCAM2); the MQTT password (the owner re-enters it); a go for the HW-02 test 2 boot argument `ak39_venc.pool=9600K`
+(RAM only, not saved); daylight readings for HW-08 / F-04 tomorrow; the microphone and the speaker by ear.
+
 **Builds run today**
 - `cb20c19` / `80c0285` (rc5): 512 KB page blocks (`CONFIG_ARCH_FORCE_MAX_ORDER=7`), high-atomic reserve 1 MB,
   no boot OOM; installed in the flash of IPCAM2 in the morning, and on IPCAM1 (.24) by its owner through the web UI.
