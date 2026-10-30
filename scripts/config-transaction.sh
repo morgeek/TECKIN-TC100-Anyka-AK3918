@@ -35,6 +35,9 @@ tc_normalize_and_validate()
     fps) tc_uint_range "$_tc_value" 1 30 ;;
     bitrate) tc_uint_range "$_tc_value" 32 8000 ;;
     gop) tc_uint_range "$_tc_value" 1 300 ;;
+    idle_fps) tc_uint_range "$_tc_value" 0 24 ;;
+    idle_after) tc_uint_range "$_tc_value" 1 3600 ;;
+    persist_min) tc_uint_range "$_tc_value" 1 1440 ;;
     width) tc_uint_range "$_tc_value" 160 1920 && [ $((_tc_value % 2)) -eq 0 ] ;;
     height) tc_uint_range "$_tc_value" 120 1080 && [ $((_tc_value % 2)) -eq 0 ] ;;
     codec) case "$_tc_value" in 0|2|4|17) ;; *) return 1 ;; esac ;;

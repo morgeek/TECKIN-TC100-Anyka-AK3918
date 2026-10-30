@@ -22,6 +22,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Logs kept across reboots: `scripts/log-persist.sh` copies dmesg, the syslog and the service logs to
     `/mnt/sd/logs/boot-NNNN` every 10 minutes and before a deliberate reboot (last 5 boots, about 2 MB each,
     `LOG_PERSIST=0` turns it off); the Logs page lists and downloads them (`cgi-bin/savedlogs.cgi`).
+  - Config import (`conf-import.cgi`) takes `IDLE_FPS` (0-24), `IDLE_AFTER` (1-3600 s), `LOG_PERSIST` (0/1) and
+    `LOG_PERSIST_MIN` (1-1440); a value out of range rejects the whole file, as for the other keys.
   - Memory Guard defaults: warn 6144 KB and critical 3072 KB (were 8192 / 4096, next to the normal 10.8 MB
     MemAvailable); the warn stage no longer stops `auto-night-detection`. Cameras holding exactly the old values are
     moved when the service starts.
