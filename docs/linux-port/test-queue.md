@@ -33,6 +33,15 @@ Read this first. Details and numbers are under each entry.
   even the bde3887 binary stream normally), 6 warm reboots after the new kernel all kept the Wi-Fi. MemAvailable
   15.3-15.9 MB (10.8 on rc5), 15 fps, 84 % idle, UI-01 and F-05 passed. IPCAM2 now runs 563dbff from its flash.
 
+- `b5e7573` (**3.0.1-rc6**, 20:00): kernel booted once from the card (Wi-Fi 15.4 s, 15 fps, MemAvailable 15.4 MB),
+  then installed in the flash of IPCAM2 (settings kept). From flash: MemAvailable 15.9-16.1 MB, 15 fps (about 1 MB
+  per 5 s), about 79 % idle a minute after the start, no OOM; 2 warm reboots, Wi-Fi every time; `curl` over TLS works
+  in the serial console shell now (api.github.com 200); one housekeeper running. IPCAM2 runs rc6 from its flash.
+- **HW-02 test 2 has not been run yet** (no `ak39_venc.pool=` boot so far). Note for its size: without the HW-01b
+  guard the pool used is 8866880 bytes (main H.265 + sub H.264), so the pool must be at least about 9.4 MB
+  (`ak39_venc.pool=9600K` or so) with `RTSP_POOLPAD=0`; `8M` would be too small. With the guard (12322880 used) a
+  smaller pool cannot work: the guard has to go first (proposal 3).
+
 **No blocking finding is open.** IPCAM1 (.24) still runs the morning rc5; nothing of today's work is on it yet.
 
 **Asked of the implementers**
