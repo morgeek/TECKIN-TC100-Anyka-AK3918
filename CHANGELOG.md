@@ -8,10 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Front LEDs, IR LED, speaker amplifier and reset button lost to the Ethernet pads** (3.0.1-rc7, LED-01): the ISP
+  start ORed the OpenIPC 4.4 sharepin values, which mux the RMII pads 10 11 13 14 15 19 20 23 24 47, into SYSCTRL.
+  Only the sensor clock pad and I2C are set now.
 - **`tc100_rtsp.log` grew without limit in RAM** (a STAT line every 5 s, about 2.6 MB a day): rotated at 256 KB
   (`RTSP_LOGFILE`, `RTSP_LOGMAX`).
 
 ### Changed
+- **3.0.1-rc7** (camera checks P-01..P-09, S-01, W-01 and the rc7 plan in `docs/linux-port/test-queue.md`):
+  - **Kernel:** IP multicast (ONVIF discovery), and `ak39_vi.slots` (opt-in 3 capture buffers, about 3.4 MB of CMA).
+  - **User space squashfs:** 128 KiB blocks, half the decompression per page.
+  - **Video server:** RTP without payload copies (`RTSP_UDPSG=1`, opt-in), 384 KB client queues with a partial
+    burst for late joiners, live MP4 built into the send buffer, `RTSP_VBR`.
+  - **Web:** `statusline.cgi` (a fifth of the shell to parse per poll), one stylesheet for the main page.
+  - **Tools and CI:** `scripts/perf-baseline.sh`; the Buildroot base cached in CI.
 - **Remote shells under Services** (`[svc]`): SSH (`ssh-server`, dropbear) on by default, telnet (`telnet-server`) off
   by default; the always-on telnetd of the base image is gone (`v3/S50telnet-linux66`, only a fallback without
   dropbear). The boot follows the Services "Boot" toggle; an upgraded camera that never chose keeps SSH on. The
