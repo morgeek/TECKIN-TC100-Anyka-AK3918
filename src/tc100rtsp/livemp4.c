@@ -61,6 +61,7 @@ static unsigned live_seconds = 600;
 static int ready, cur_si = -1, nview;
 static uint64_t last_scan;
 static char status_last[160];
+static int direct = 1;	/* RTSP_LIVE_DIRECT=0 (or TC100_LIVE_DIRECT=0): the old way, a payload buffer per frame then a copy per viewer */
 
 static uint64_t mono_ms(void)
 {
@@ -98,6 +99,7 @@ void live_init(void)
 	const char *e;
 	int i;
 
+	if ((e = getenv("RTSP_LIVE_DIRECT")) && *e == '0') direct = 0;
 	if ((e = getenv("TC100_LIVE_DIR")) && *e) dir = e;
 	if ((e = getenv("TC100_LIVE_SECONDS")) && *e) { live_seconds = 0; while (*e >= '0' && *e <= '9') live_seconds = live_seconds * 10 + (unsigned)(*e++ - '0'); }
 	for (i = 0; i < LIVE_MAX; i++) V[i].fd = -1;
@@ -264,8 +266,9 @@ void live_scan(uint64_t now_ms)
 	closedir(dp);
 }
 
-/* moof + mdat of one frame into the viewer's buffer */
-static void put_frag(struct viewer *v, const struct buf *pl, uint64_t ts_us, int key)
+/* moof + mdat of one frame into the viewer's buffer. The sample is either pl (length-prefixed NALs already joined: the old
+ * way) or, with pl NULL, the nn NALs in nl, each written behind its 4 byte length straight into the buffer (plen bytes in all) */
+static void put_frag(struct viewer *v, const struct buf *pl, const struct nal *nl, int nn, size_t plen, uint64_t ts_us, int key)
 {
 	size_t moof, traf, a, doff;
 	uint64_t dt;
@@ -289,6 +292,7 @@ static void put_frag(struct viewer *v, const struct buf *pl, uint64_t ts_us, int
 		if (dt <= v->prev_dt) dt = v->prev_dt + 1;
 		dur = d < 900 ? 900 : d > 90000 ? 90000 : (uint32_t)d;
 	}
+	if (!pl) mp4_b_need(&v->tx, plen + 256);
 	moof = mp4_box(&v->tx, "moof");
 	a = mp4_fbox(&v->tx, "mfhd", 0, 0); mp4_b32(&v->tx, ++v->seq); mp4_end(&v->tx, a);
 	traf = mp4_box(&v->tx, "traf");
@@ -296,7 +300,7 @@ static void put_frag(struct viewer *v, const struct buf *pl, uint64_t ts_us, int
 	a = mp4_fbox(&v->tx, "tfdt", 1, 0); mp4_b64(&v->tx, dt); mp4_end(&v->tx, a);
 	a = mp4_fbox(&v->tx, "trun", 0, 0x000701); mp4_b32(&v->tx, 1);
 	doff = v->tx.n; mp4_b32(&v->tx, 0);
-	mp4_b32(&v->tx, dur); mp4_b32(&v->tx, (uint32_t)pl->n);
+	mp4_b32(&v->tx, dur); mp4_b32(&v->tx, (uint32_t)plen);
 	mp4_b32(&v->tx, key ? 0x02000000u : 0x01010000u);
 	mp4_end(&v->tx, a); mp4_end(&v->tx, traf); mp4_end(&v->tx, moof);
 	if (v->tx.err) return;
@@ -306,17 +310,23 @@ static void put_frag(struct viewer *v, const struct buf *pl, uint64_t ts_us, int
 		p = v->tx.p + doff;
 		p[0] = (unsigned char)(off >> 24); p[1] = (unsigned char)(off >> 16); p[2] = (unsigned char)(off >> 8); p[3] = (unsigned char)off;
 	}
-	mdat = (uint32_t)(8 + pl->n);
-	mp4_b32(&v->tx, mdat); mp4_b_put(&v->tx, "mdat", 4); mp4_b_put(&v->tx, pl->p, pl->n);
+	mdat = (uint32_t)(8 + plen);
+	mp4_b32(&v->tx, mdat); mp4_b_put(&v->tx, "mdat", 4);
+	if (pl) mp4_b_put(&v->tx, pl->p, pl->n);
+	else {
+		mp4_b_need(&v->tx, plen);	/* one growth, not one per NAL */
+		for (int i = 0; i < nn; i++) { mp4_b32(&v->tx, nl[i].n); mp4_b_put(&v->tx, nl[i].p, nl[i].n); }
+	}
 	v->prev_ts_us = ts_us; v->prev_dt = dt; v->prev_dur = dur;
 }
 
 void live_frame(int si, const unsigned char *d, uint32_t len, uint64_t ts_us, int key)
 {
-	struct nal u[32];
+	struct nal u[32], sel[32];
 	const struct nal *sps = NULL, *pps = NULL;
 	struct buf pl = { 0 };
-	int n, i;
+	size_t plen = 0;
+	int n, i, ns = 0;
 
 	if (!nview || si != cur_si || si < 0) return;
 	n = mp4_split_nals(d, len, u, 32);
@@ -326,9 +336,11 @@ void live_frame(int si, const unsigned char *d, uint32_t len, uint64_t ts_us, in
 		if (t == 7) { sps = &u[i]; continue; }
 		if (t == 8) { pps = &u[i]; continue; }
 		if (t == 9) continue;
-		mp4_b32(&pl, u[i].n); mp4_b_put(&pl, u[i].p, u[i].n);
+		if (direct) { sel[ns++] = u[i]; plen += 4 + (size_t)u[i].n; }
+		else { mp4_b32(&pl, u[i].n); mp4_b_put(&pl, u[i].p, u[i].n); }
 	}
-	if (pl.err || !pl.n) { free(pl.p); return; }
+	if (!direct) plen = pl.n;
+	if (pl.err || !plen) { free(pl.p); return; }
 	if (sps && (sps->n > MP4_PS_MAX || sps->n < 4)) sps = NULL;
 	for (i = 0; i < LIVE_MAX; i++) {
 		struct viewer *v = &V[i];
@@ -350,12 +362,12 @@ void live_frame(int si, const unsigned char *d, uint32_t len, uint64_t ts_us, in
 		if (flush(v) < 0) { v_drop(v); continue; }
 		pending = v->tx.n - v->off;
 		if (v->need_key && !key) continue;
-		if (pending + pl.n + 256 > LIVE_OUT_MAX) {	/* the viewer cannot keep up: wait for the next keyframe */
+		if (pending + plen + 256 > LIVE_OUT_MAX) {	/* the viewer cannot keep up: wait for the next keyframe */
 			v->need_key = 1;
 			continue;
 		}
 		if (v->off) { memmove(v->tx.p, v->tx.p + v->off, pending); v->tx.n = pending; v->off = 0; }
-		put_frag(v, &pl, ts_us, key);
+		put_frag(v, direct ? NULL : &pl, sel, ns, plen, ts_us, key);
 		if (v->tx.err || flush(v) < 0) v_drop(v);
 	}
 	free(pl.p);

@@ -870,8 +870,9 @@ class LiveMux(unittest.TestCase):
     def setUpClass(cls):
         build('test_livemp4')
 
-    def run_live(self, *args):
-        r = subprocess.run([str(SRC / 'test_livemp4')] + [str(a) for a in args], capture_output=True, text=True, timeout=90)
+    def run_live(self, *args, env=None):
+        r = subprocess.run([str(SRC / 'test_livemp4')] + [str(a) for a in args], capture_output=True, text=True, timeout=90,
+                           env=dict(os.environ, **(env or {})))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('OK', r.stdout)
         return r.stdout
@@ -904,6 +905,17 @@ class LiveMux(unittest.TestCase):
             self.assertTrue(fb[0][1])
             self.assertEqual(fb[0][2], 0, 'times are relative to the viewer\'s first frame')
             self.assertEqual(b.samples()[0][1], True)
+
+    def test_building_the_fragment_in_the_viewers_buffer_gives_the_same_bytes_as_the_payload_copy(self):
+        """RTSP_LIVE_DIRECT=0 is the old path (a payload buffer per frame); the output must not change by one byte"""
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.run_live('flow', d / 'live0', d / 'a0.mp4', d / 'b0.mp4', env={'RTSP_LIVE_DIRECT': '0'})
+            self.run_live('flow', d / 'live1', d / 'a1.mp4', d / 'b1.mp4')
+            for n in 'ab':
+                old, new = (d / (n + '0.mp4')).read_bytes(), (d / (n + '1.mp4')).read_bytes()
+                self.assertGreater(len(old), 10000)
+                self.assertEqual(old, new, n + '.mp4 differs between the two paths')
 
     def test_a_slow_viewer_skips_frames_until_a_keyframe_and_the_time_line_stays_continuous(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1073,6 +1085,167 @@ class LiveServer(Server):
         out = self.cgi('info=1', live=other).communicate(timeout=10)[0]
         self.assertTrue(out.endswith(b'{"ok":1,"stream":"sub","codec":"avc1.4d401f","width":640,"height":360}\n'), out)
 
+
+
+def rtp_frame(n, idr, size):
+    """the access unit rtp_test_feed (tc100_rtsp.c, host build) makes: NALs after the AUD, as the server sends them"""
+    seed = (n * 2654435761 + 1) & 0xffffffff
+    body = bytearray([0x11 + (n // 100) % 100, 0x11 + n % 100])
+    for _ in range(size):
+        seed = (seed * 1103515245 + 12345) & 0xffffffff
+        body.append(0x11 + (seed >> 16) % 0xe0)
+    return [bytes([6, 5, 0x20]), bytes([0x65 if idr else 0x41]) + bytes(body)]
+
+
+def rtp_nals(pkts):
+    """[(timestamp, [nal bytes], marker seen on the last packet)] from RTP packets (H.264: single NAL and FU-A)"""
+    frames, cur, ts = [], None, None
+    for p in pkts:
+        if p[1] & 0x7f != 96:
+            continue
+        t = struct.unpack('>I', p[4:8])[0]
+        if t != ts:
+            cur = [t, [], False, None]
+            frames.append(cur)
+            ts = t
+        pl = p[12:]
+        if pl[0] & 31 == 28:
+            if pl[1] & 0x80:
+                cur[3] = bytearray([(pl[0] & 0xe0) | (pl[1] & 31)])
+            cur[3] += pl[2:]
+            if pl[1] & 0x40:
+                cur[1].append(bytes(cur[3]))
+                cur[3] = None
+        else:
+            cur[1].append(bytes(pl))
+        cur[2] = bool(p[1] & 0x80)
+    return [(f[0], f[1], f[2]) for f in frames]
+
+
+class RtpPath(Server):
+    """the video RTP path of the server (host build, frames made by TC100_RTP_TEST): the packets of the old path (RTSP_UDPSG=0), the
+    scatter-gather path and the sendmmsg path must be the same bytes, over UDP and over the RTSP connection; the client queue limit"""
+    audio = 0
+    password = False
+
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        pass
+
+    def start(self, **env):
+        self.env = dict(env)
+        Server.setUp(self)
+
+    def stop(self):
+        Server.tearDown(self)
+
+    def play(self, tcp, seconds=2.5, port=24000):
+        c = self.client(auth=False)
+        self.describe(c, require=False)
+        u = None
+        if tcp:
+            _, hd, _ = c.request('SETUP', self.URL + '/track1', 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1')
+        else:
+            u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            u.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20)
+            u.bind(('127.0.0.1', port))
+            _, hd, _ = c.request('SETUP', self.URL + '/track1', 'Transport: RTP/AVP;unicast;client_port=%d-%d' % (port, port + 1))
+        c.request('PLAY', self.URL, 'Session: ' + hd['session'].split(';')[0])
+        if tcp:
+            pk = [p for ch, p in c.frames(seconds) if ch == 0]
+        else:
+            pk, end = [], time.time() + seconds
+            while time.time() < end:
+                r, _, _ = select.select([u], [], [], 0.1)
+                if r:
+                    pk.append(u.recv(4096))
+            u.close()
+        return pk
+
+    @staticmethod
+    def normal(pkts):
+        """sequence numbers relative to the first one (they start at a time based value)"""
+        s0 = struct.unpack('>H', pkts[0][2:4])[0]
+        return [p[:2] + struct.pack('>H', (struct.unpack('>H', p[2:4])[0] - s0) & 0xffff) + p[4:] for p in pkts]
+
+    def check_content(self, pkts, nfr, idr_b, p_b, gop=15):
+        fr = rtp_nals(pkts)
+        self.assertEqual(len(fr), nfr)
+        for n, (ts, nals, marker) in enumerate(fr):
+            self.assertEqual(ts, n * 6000)
+            self.assertTrue(marker, 'marker on the last packet of frame %d' % n)
+            if n % gop == 0:                                       # parameter sets in band before the IDR
+                self.assertEqual([x[0] & 31 for x in nals], [7, 8, 6, 5])
+                nals = nals[2:]
+            else:
+                self.assertEqual([x[0] & 31 for x in nals], [6, 1])
+            self.assertEqual(nals, rtp_frame(n, n % gop == 0, idr_b if n % gop == 0 else p_b), 'frame %d' % n)
+        seqs = [struct.unpack('>H', p[2:4])[0] for p in pkts]
+        self.assertEqual(seqs, [(seqs[0] + i) & 0xffff for i in range(len(seqs))], 'sequence numbers count up with no hole')
+
+    def test_the_three_paths_send_the_same_packets_over_udp_and_over_the_connection(self):
+        feed = '24,20000,3000,50,12'
+        got = {}
+        for name, env in (('old', {'RTSP_UDPSG': '0'}), ('sg', {}), ('mmsg', {'RTSP_UDPMMSG': '1'})):
+            for tcp in (False, True):
+                self.start(TC100_RTP_TEST=feed, **env)
+                try:
+                    pk = self.play(tcp)
+                finally:
+                    self.stop()
+                self.check_content(pk, 24, 20000, 3000, 12)
+                got[name, tcp] = self.normal(pk)
+        self.assertGreater(len(got['old', False]), 24 * 2, 'the IDRs are fragmented')
+        for tcp in (False, True):
+            self.assertEqual(got['sg', tcp], got['old', tcp], 'scatter-gather packets differ from the old path (tcp=%s)' % tcp)
+        self.assertEqual(got['mmsg', False], got['old', False], 'sendmmsg packets differ from the old path')
+        self.assertEqual(got['old', True], got['old', False], 'UDP and interleaved packets carry the same RTP')
+
+    def first_ids(self, **env):
+        """a TCP client that joins at frame ~18 of a stream with a 15 frame GOP: ids of the frames it gets"""
+        self.start(TC100_RTP_TEST='1,60000,5000,15,15', TC100_RTP_TEST_REPEAT='1', **env)
+        try:
+            b = self.play(False, seconds=1.25, port=24100)           # a UDP viewer starts the stream; its IDR is frame 0
+            self.assertTrue(b)
+            c = self.client(auth=False)
+            self.describe(c, require=False)
+            _, hd, _ = c.request('SETUP', self.URL + '/track1', 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1')
+            c.request('PLAY', self.URL, 'Session: ' + hd['session'].split(';')[0])
+            ids = []
+            for ts, nals, _ in rtp_nals([p for ch, p in c.frames(1.4) if ch == 0]):
+                sl = nals[-1]
+                ids.append((sl[1] - 0x11) * 100 + sl[2] - 0x11)
+            return ids
+        finally:
+            self.stop()
+
+    def test_a_late_tcp_joiner_gets_the_whole_gop_when_it_fits_the_queue(self):
+        ids = self.first_ids()                                       # default limit: 384 KB or more
+        self.assertEqual(ids[:3], [15, 16, 17], ids)
+        self.assertEqual(ids, list(range(ids[0], ids[0] + len(ids))), 'no frame lost')
+
+    def test_a_late_tcp_joiner_gets_the_keyframe_at_once_when_the_gop_is_too_big_for_the_queue(self):
+        ids = self.first_ids(RTSP_QMAX='64')                         # 64 KB: the IDR (60 KB) fits, the rest of the GOP does not
+        self.assertEqual(ids[0], 15, ids)
+        self.assertNotIn(16, ids, 'only the keyframe was sent, then it waits for the next IDR')
+        self.assertIn(30, ids)
+
+    def test_without_the_partial_burst_the_late_joiner_waits_for_the_next_idr(self):
+        ids = self.first_ids(RTSP_QMAX='64', RTSP_QBURST='0')
+        self.assertEqual(ids[0], 30, ids)
+
+    def test_vbr_switch_is_in_the_start_line(self):
+        for env, want in (({}, 'vbr main 0 sub 0'), ({'RTSP_VBR': '1'}, 'vbr main 1 sub 1'),
+                          ({'RTSP_VBR': '1', 'RTSP_VBR_SUB': '0'}, 'vbr main 1 sub 0'), ({'RTSP_VBR_SUB': '1'}, 'vbr main 0 sub 1')):
+            self.start(**env)
+            try:
+                time.sleep(0.3)
+                log = Path(self.log.name).read_text()
+            finally:
+                self.stop()
+            self.assertIn(want, log)
 
 
 class Sources(unittest.TestCase):
