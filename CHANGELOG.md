@@ -8,6 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- **`tc100_rtsp.log` grew without limit in RAM** (a STAT line every 5 s, about 2.6 MB a day): rotated at 256 KB
+  (`RTSP_LOGFILE`, `RTSP_LOGMAX`).
+
+### Changed
+- **Optimisation pass for the AK3918** (commits `[opt] ...`; camera checks O-01..O-05 in `docs/linux-port/test-queue.md`):
+  - Kernel config about 520 KB lighter in RAM and squashfs fragment cache 1 block (about 1 MB less in flash mode);
+    initramfs about 0.45 MB smaller; `tc100_rtsp` and `libakuio.so` stripped (both live in /tmp).
+  - The video server reads each encoder frame once from uncached memory instead of 4 to 6 times
+    (`RTSP_FRAMECOPY=0` restores the old path), with less per-frame work and client queues that shrink after a
+    congestion (`RTSP_QTRIM=0`).
+  - Shell side: dashinfo cached, fewer requests at page load, fork-free day/night daemon wait, the network check
+    every 3 minutes while the gateway answers, crond only with a crontab, a single boot.conf parse.
+
+### Fixed
 - **Web UI pass** (HTML/CSS/JS only, commits `[webui] ...`; camera checks: UI-22 in `docs/linux-port/test-queue.md`):
   Settings orientation could not be saved (field taken for an IP address), negative sound threshold refused,
   "Install & reboot" threw before posting, Home Assistant badge stuck on "Checking...", input bounds aligned on the CGIs,
