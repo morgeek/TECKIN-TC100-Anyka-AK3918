@@ -63,6 +63,7 @@
 #define CACHE_MAX_SUB (384 * 1024)
 #define CACHE_FRAMES 128
 #define QMAX (768 * 1024)	/* per-client output queue limit */
+#define QMIN (64 * 1024)	/* what a drained queue is cut back to (at least) */
 #ifndef CONF
 #define CONF "/mnt/config/"
 #endif
@@ -93,6 +94,8 @@ static int (*p_close)(void *);
 static unsigned long (*p_alloc)(int);
 static int (*p_pinit)(void);
 static volatile int run = 1;
+static int fcopy_on = 1;	/* RTSP_FRAMECOPY=0: encoder output and JPEGs are read in place (uncached) as before */
+static int dbg_on;	/* RTSP_DEBUG, read once at start (no getenv per frame) */
 
 static void on_sig(int s) { (void)s; run = 0; }
 
@@ -126,9 +129,9 @@ static uint32_t jpeg_run(uint32_t y, uint32_t uv, int w, int h, int q)
 {
 	uint32_t c[11], st[3];
 
-	build_tables(jbuf + JSTREAM, q);
+	build_tables_cached(jbuf + JSTREAM, q);
 	ctrl_words(c, w, h, y, uv, jpaddr + JSTREAM, jpaddr, JSTREAM);
-	{ FILE *df = w < 1000 ? fopen("/tmp/c2", "r") : NULL; char hb[16];	/* debug: control word 2 override (hex) */
+	{ FILE *df = dbg_on && w < 1000 ? fopen("/tmp/c2", "r") : NULL; char hb[16];	/* debug (RTSP_DEBUG only): control word 2 override (hex) */
 	  if (df) {	/* no fscanf: glibc headers turn it into __isoc23_fscanf, which uClibc does not have */
 		if (fgets(hb, sizeof hb, df)) {
 			uint32_t v = 0; int k = 0; const char *p = hb + (hb[0] == '0' && (hb[1] | 32) == 'x' ? 2 : 0);
@@ -150,9 +153,19 @@ static uint32_t jpeg_run(uint32_t y, uint32_t uv, int w, int h, int q)
 	(void)RD(R_STAT); (void)RD(R_ACK); WR(R_ACK, 0x10001);
 	WR(R_IRQ_EN, 0x1000007); WR(0x822c, 0);
 	WR(R_CLK, (RD(R_CLK) & 0xffff7fff) | 0xe00);
-	if (getenv("RTSP_DEBUG")) LOG("JPEG %dx%d status %08x %08x %08x\n", w, h, st[0], st[1], st[2]);
+	if (dbg_on) LOG("JPEG %dx%d status %08x %08x %08x\n", w, h, st[0], st[1], st[2]);
 	if (st[1] < 4 || st[1] > JSTREAM - TABLES_SIZE || jbuf[TABLES_SIZE] != 0xff || jbuf[TABLES_SIZE + 1] != 0xd8) return 0;
 	return st[1];
+}
+
+/* the JPEG in jbuf is uncached memory read two or three times (two files, the recorder's thumbnail): one word-wise
+ * copy to the heap, the readers use that; *own is what to free (NULL: no copy, jbuf itself) */
+static const uint8_t *jpeg_stable(uint32_t n, uint8_t **own)
+{
+	*own = fcopy_on ? malloc(n) : NULL;
+	if (!*own) return jbuf + TABLES_SIZE;
+	nal_copy(*own, jbuf + TABLES_SIZE, n);
+	return *own;
 }
 
 static void wfile(const char *name, const void *d, size_t n)
@@ -197,7 +210,7 @@ static double now_s(void)
 	struct timespec t;
 
 	clock_gettime(CLOCK_MONOTONIC, &t);
-	return t.tv_sec + t.tv_nsec / 1e9;
+	return t.tv_sec + t.tv_nsec * 1e-9;	/* soft-float: a multiply, not a divide */
 }
 
 static int atoi_(const char *s)	/* no atoi/strtol: they pull C2x symbols the camera's uClibc does not have */
@@ -256,6 +269,9 @@ static int cfg_get(const char *file, const char *sec, const char *key, char *out
 static int p_sharp, p_expct;	/* isp_tune.conf SHARPNESS (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap): done by the ISP */
 static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
 
+static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
+static int lut_y_id, lut_uv_id;	/* the tables are identity (nothing to apply): worked out when they change, not per picture */
+
 static void post_luts(void)
 {
 	int i;
@@ -267,6 +283,7 @@ static void post_luts(void)
 		ulut[i] = (unsigned char)clampi(128 + (i - 128) * (sw ? sf : 100) / 100 - p_du);
 		vlut[i] = (unsigned char)clampi(128 + (i - 128) * (sw ? sf : 100) / 100 - p_dv);
 	}
+	lut_y_id = lut_id(ylut); lut_uv_id = lut_id(ulut) && lut_id(vlut);
 }
 
 static int truthy(const char *v) { return v[0] == '1' || !strcmp(v, "true") || !strcmp(v, "yes") || !strcmp(v, "on") || !strcmp(v, "enabled"); }
@@ -648,21 +665,29 @@ static void osd_tick(void)
 	static char last[64];
 	static unsigned char bits[64 * 1024];
 	static int shown, colours;
-	const char *e = getenv("RTSP_ISPOSD"), *nb = getenv("RTSP_OSD_NIBBLE"), *al = getenv("RTSP_OSD_ALPHA");
+	static int hi, alpha;	/* RTSP_OSD_NIBBLE / RTSP_OSD_ALPHA, read once with RTSP_ISPOSD */
+	static time_t t_last;
 	char t[64];
 	struct isp_osd o;
 	time_t now;
 	struct tm *tm;
-	int sc, n, w, h, i, c, r, hi = nb && nb[0] == '1';
+	int sc, n, w, h, i, c, r;
 
-	if (osd_hw < 0) osd_hw = e && e[0] == '1' ? 2 : 0;	/* 2: to be tried */
+	if (osd_hw < 0) {
+		const char *e = getenv("RTSP_ISPOSD"), *nb = getenv("RTSP_OSD_NIBBLE"), *al = getenv("RTSP_OSD_ALPHA");
+
+		osd_hw = e && e[0] == '1' ? 2 : 0;	/* 2: to be tried */
+		hi = nb && nb[0] == '1'; alpha = al && *al ? atoi_(al) & 15 : 0;
+	}
 	if (!osd_hw || ispx_open() < 0) return;
 	memset(&o, 0, sizeof o);
 	if (!p_osd) {
 		if (shown && ioctl(ispx_fd, ISP_SET_OSD, &o) == 0) { shown = 0; last[0] = 0; }
 		return;
 	}
-	now = time(NULL); tm = localtime(&now);
+	now = time(NULL);
+	if (now == t_last) return;	/* the text changes once a second at most: no localtime/strftime per frame */
+	t_last = now; tm = localtime(&now);
 	if (!tm || !strftime(t, sizeof t, p_fmt, tm) || !strcmp(t, last)) return;
 	if (!colours) {
 		unsigned int tab[16] = { 0x108080, 0x108080, 0xeb8080 };
@@ -704,7 +729,7 @@ static void osd_tick(void)
 	o.y = (unsigned short)((p_osdy - 2 * sc < 0 ? 0 : p_osdy - 2 * sc) & ~1);
 	if (o.x + w > W) o.x = (unsigned short)((W - w) & ~1);
 	if (o.y + h > H) o.y = (unsigned short)((H - h) & ~1);
-	o.alpha = (unsigned short)(al && *al ? atoi_(al) & 15 : 0);
+	o.alpha = (unsigned short)alpha;
 	o.enable = 1; o.data = (unsigned long)bits;
 	if (ioctl(ispx_fd, ISP_SET_OSD, &o) < 0) {
 		LOG("clock: the ISP refused the OSD (%s): drawn by the CPU\n", strerror(errno));
@@ -724,7 +749,11 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 	if (!p_awb) return;
 	if (awb_hw < 0) awb_hw_init();
 	if (awb_hw == 1 && bw) return;	/* black and white (night): no colour to measure */
-	for (i = 0; i < W * H / 2 - 2; i += 64) { su += uv[i]; sv += uv[i + 1]; n++; }	/* even i: U, i+1: V */
+	for (i = 0; i < W * H / 2 - 2; i += 64) {	/* U V U V: one 32-bit read (capture memory is uncached) gives both samples */
+		uint32_t w = *(const volatile uint32_t *)(uv + i);
+
+		su += w & 255; sv += (w >> 8) & 255; n++;
+	}
 	if (!n) return;
 	if (awb_hw == 1) {	/* the ISP's picture itself is measured: move its gains until the mean is grey */
 		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, r = ex_r, b = ex_b;
@@ -736,7 +765,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 		r = r < 128 ? 128 : r > 512 ? 512 : r;
 		b = b < 128 ? 128 : b > 512 ? 512 : b;
 		if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); }
-		if (getenv("RTSP_DEBUG")) LOG("AWB u %d v %d -> rgain_ex %d bgain_ex %d\n", tu, tv, ex_r, ex_b);
+		if (dbg_on) LOG("AWB u %d v %d -> rgain_ex %d bgain_ex %d\n", tu, tv, ex_r, ex_b);
 		return;
 	}
 	{
@@ -751,7 +780,6 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 
 /* The capture memory is uncached unless RTSP_CACHED=1 (or copy mode) and the kernel allows it: every CPU read of it is one bus
  * access, so the tables are applied 4 bytes per 32-bit read, and an identity table is a plain memcpy. */
-static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
 
 static void lut4(uint32_t *d, const uint32_t *s, int n4, const unsigned char *a, const unsigned char *b)
 {	/* bytes 0 and 2 through a, 1 and 3 through b (NV12 chroma: U V U V; luma: a = b) */
@@ -766,11 +794,11 @@ static void post_copy(unsigned char *dst, const unsigned char *src)
 {
 	int i, n = W * H / 2;
 
-	if (p_ytune && !lut_id(ylut)) lut4((uint32_t *)dst, (const uint32_t *)src, W * H / 4, ylut, ylut);
+	if (p_ytune && !lut_y_id) lut4((uint32_t *)dst, (const uint32_t *)src, W * H / 4, ylut, ylut);
 	else if (dst != src) memcpy(dst, src, W * H);
 	src += W * H; dst += W * H;
 	if (p_hue) { for (i = 0; i < n; i += 2) { dst[i] = ulut[src[i]]; dst[i + 1] = vlut[src[i + 1]]; hue_pair(&dst[i], &dst[i + 1]); } }
-	else if ((p_awb || p_tune) && !(lut_id(ulut) && lut_id(vlut))) lut4((uint32_t *)dst, (const uint32_t *)src, n / 4, ulut, vlut);
+	else if ((p_awb || p_tune) && !lut_uv_id) lut4((uint32_t *)dst, (const uint32_t *)src, n / 4, ulut, vlut);
 	else if (dst != src) memcpy(dst, src, n);
 }
 
@@ -787,11 +815,11 @@ static void post_sub_copy(unsigned char *dst, const unsigned char *src)
 {
 	int i, n = SW * SH / 2;
 
-	if (p_ytune && !lut_id(ylut)) lut4((uint32_t *)dst, (const uint32_t *)src, SW * SH / 4, ylut, ylut);
+	if (p_ytune && !lut_y_id) lut4((uint32_t *)dst, (const uint32_t *)src, SW * SH / 4, ylut, ylut);
 	else if (dst != src) memcpy(dst, src, SW * SH);
 	src += SW * SH; dst += SW * SH;
 	if (p_hue) { for (i = 0; i < n; i += 2) { dst[i] = ulut[src[i]]; dst[i + 1] = vlut[src[i + 1]]; hue_pair(&dst[i], &dst[i + 1]); } }
-	else if ((p_awb || p_tune) && !(lut_id(ulut) && lut_id(vlut))) lut4((uint32_t *)dst, (const uint32_t *)src, n / 4, ulut, vlut);
+	else if ((p_awb || p_tune) && !lut_uv_id) lut4((uint32_t *)dst, (const uint32_t *)src, n / 4, ulut, vlut);
 	else if (dst != src) memcpy(dst, src, n);
 }
 
@@ -805,7 +833,7 @@ static void dirty_reset(void) { dirty_y0 = 1 << 30; dirty_y1 = 0; }
 static void dclean(void *a, unsigned long n);
 static void dm_clean(unsigned char *p, int w, int h, int bw)
 {
-	int luma = p_ytune && !lut_id(ylut), chroma = bw || p_hue || ((p_awb || p_tune) && !(lut_id(ulut) && lut_id(vlut)));
+	int luma = p_ytune && !lut_y_id, chroma = bw || p_hue || ((p_awb || p_tune) && !lut_uv_id);
 	int y0 = dirty_y0, y1 = dirty_y1 > h ? h : dirty_y1;
 
 	if (luma) dclean(p, (unsigned long)w * h);
@@ -839,10 +867,17 @@ static void post_overlay(unsigned char *p, int w, int h, int main_pic)
 		if (p_mask[i][2] > p_mask[i][0] && p_mask[i][3] > p_mask[i][1])
 			fill(p, w, h, p_mask[i][0] * w / 100, p_mask[i][1] * h / 100, p_mask[i][2] * w / 100, p_mask[i][3] * h / 100, p_mcol);
 	if (main_pic && p_osd && osd_hw != 1) {	/* the ISP OSD draws the clock */
-		char t[64]; time_t now = time(NULL); struct tm *tm = localtime(&now);
+		static char t[64]; static time_t tt; static char tf[64];	/* the text is made once a second (or when the format changes) */
+		time_t now = time(NULL);
 		int sc = p_osdsz / 8 ? p_osdsz / 8 : 1, x = p_osdx, y = p_osdy, n, c, r, k;
 
-		if (!tm || !strftime(t, sizeof t, p_fmt, tm)) return;
+		if (now != tt || strcmp(tf, p_fmt)) {
+			struct tm *tm = localtime(&now);
+
+			if (!tm || !strftime(t, sizeof t, p_fmt, tm)) { t[0] = 0; return; }
+			tt = now; snprintf(tf, sizeof tf, "%s", p_fmt);
+		}
+		if (!t[0]) return;
 		n = (int)strlen(t);
 		fill(p, w, h, x - 2 * sc, y - 2 * sc, x + n * 6 * sc + 2 * sc, y + 9 * sc, 16);
 		for (i = 0; i < n; i++) {
@@ -1031,16 +1066,19 @@ static void cache_reset(struct strm *s)
 	s->ncache = 0; s->cache_bytes = 0; s->cache_ok = 1;
 }
 
-static void cache_add(struct strm *s, const unsigned char *d, int len, uint32_t ts, int idr)
+/* own: a heap copy of the frame (d == own) that the cache may keep instead of making another one; returns 1 when it did
+ * (the caller must not free it; it stays valid until the next IDR or cache_reset), 0 otherwise */
+static int cache_add(struct strm *s, const unsigned char *d, int len, uint32_t ts, int idr, unsigned char *own)
 {
 	if (idr) cache_reset(s);
-	if (!s->cache_ok) return;
-	if (s->ncache >= CACHE_FRAMES || s->cache_bytes + len > s->cache_max) { s->cache_ok = 0; return; }
-	s->cache[s->ncache].d = malloc(len);
-	if (!s->cache[s->ncache].d) { s->cache_ok = 0; return; }
-	memcpy(s->cache[s->ncache].d, d, len);
+	if (!s->cache_ok) return 0;
+	if (s->ncache >= CACHE_FRAMES || s->cache_bytes + len > s->cache_max) { s->cache_ok = 0; return 0; }
+	s->cache[s->ncache].d = own ? own : malloc(len);
+	if (!s->cache[s->ncache].d) { s->cache_ok = 0; return 0; }
+	if (!own) memcpy(s->cache[s->ncache].d, d, len);
 	s->cache[s->ncache].len = len; s->cache[s->ncache].ts = ts;
 	s->ncache++; s->cache_bytes += len;
+	return own != NULL;
 }
 
 
@@ -1214,7 +1252,8 @@ struct cli {
 	time_t last;
 	unsigned char *q;		/* output queue (non-blocking socket) */
 	int qlen, qpos, qcap;
-	time_t qprog;
+	int qhi;			/* most the queue held since qtrim_t */
+	time_t qprog, qtrim_t;
 	unsigned long dropped;
 };
 static struct cli cl[MAXCLI];
@@ -1257,7 +1296,25 @@ static int qsend(struct cli *c, const void *p, int n)
 	}
 	memcpy(c->q + c->qlen, p, n);
 	c->qlen += n;
+	if (c->qlen > c->qhi) c->qhi = c->qlen;
 	return 0;
+}
+
+/* The queue grows for a congested client (up to QMAX) and is not needed that big afterwards: once a second, when it is
+ * empty, it is cut to what the last second needed (never below QMIN, util.h q_target). RTSP_QTRIM=0: never shrunk. */
+static int qtrim_on = 1;
+static void qtrim(struct cli *c, time_t now)
+{
+	int t;
+
+	if (now == c->qtrim_t) return;
+	c->qtrim_t = now;
+	if (qtrim_on && c->q && c->qpos == c->qlen && (t = q_target(c->qhi, c->qcap, QMIN, QMAX + 4096)) < c->qcap) {
+		unsigned char *nq = realloc(c->q, t);
+
+		if (nq) { c->q = nq; c->qcap = t; c->qpos = c->qlen = 0; }
+	}
+	c->qhi = c->qlen - c->qpos;
 }
 
 /* push the queue out; returns -1 when the connection is gone */
@@ -1547,13 +1604,20 @@ static int send_ps(struct cli *c, uint32_t ts)
 	return send_nal(c, ts, s->sps, s->sps_len, 0) || send_nal(c, ts, s->pps, s->pps_len, 0);
 }
 
-static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts)
+/* tab: the NALs of the frame already found once (nal_scan of the cached copy), NULL: scan d here */
+static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts, const struct nal_tab *tab)
 {
 	const struct strm *st = &S[c->si];
 	int pos = 0, l, s;
 	struct { int s, l; } nl[16];
 	int k = 0, i;
 
+	if (tab) {
+		for (i = 0; i < tab->n && k < 16; i++) {
+			if (NT(st, tab->hdr[i]) == (st->hevc ? 35 : 9)) continue;	/* access unit delimiter */
+			nl[k].s = (int)tab->off[i]; nl[k].l = (int)tab->len[i]; k++;
+		}
+	} else
 	while (k < 16 && (s = next_nal(d, n, pos, &l)) >= 0) {
 		int t = NT(st, d[s]);
 
@@ -1569,7 +1633,7 @@ static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts)
 /* queue space a frame needs: payload, RTP/interleave headers per packet, parameter sets */
 static int frame_need(int n) { return n + (n / (RTP_PAYLOAD - 2) + 12) * 18 + 400; }
 
-static void bcast(int si, const unsigned char *d, int n, uint32_t ts, int idr)
+static void bcast(int si, const unsigned char *d, int n, uint32_t ts, int idr, const struct nal_tab *tab)
 {
 	for (int i = 0; i < MAXCLI; i++) {
 		struct cli *c = &cl[i];
@@ -1585,7 +1649,7 @@ static void bcast(int si, const unsigned char *d, int n, uint32_t ts, int idr)
 		if (idr && HAVE_PS(&S[si])) {	/* parameter sets in band before every IDR that lacks them */
 			if (send_ps(c, ts)) { cli_close(c); continue; }
 		}
-		if (send_frame(c, d, n, ts) || (c->tcp && qflush(c))) cli_close(c);
+		if (send_frame(c, d, n, ts, tab) || (c->tcp && qflush(c))) cli_close(c);
 	}
 }
 
@@ -1632,7 +1696,7 @@ static void play_burst(struct cli *c)
 	if (s->cache_ok && s->ncache && (!c->tcp || qfree(c) > need)) {
 		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
 		for (int i = 0; i < s->ncache; i++)
-			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts)) { cli_close(c); return; }
+			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
 		if (c->tcp && qflush(c)) { cli_close(c); return; }
 		c->wait_idr = 0;
 	} else {
@@ -2206,6 +2270,11 @@ int main(int argc, char **argv)
 	const char *akuio = "/mnt/sd/tc100test/libakuio.so", *dev = "/dev/video0", *dir = "/mnt/lib";	/* vendor libraries: /mnt/lib in SD and in flash mode (was /mnt/sd/lib: no video without a card) */
 	const char *pwfile = NULL;
 	int o, kbps = 2000, fps = 15, qmin = 25, qmax = 48, port = 554, hevc = 0, sub_on = 1, sub_hevc = 0, sub_kbps = 400, gop_main = 0, gop_sub = 0;
+	const char *logfile = getenv("RTSP_LOGFILE"), *lm = getenv("RTSP_LOGMAX");	/* log rotation: the STAT tick trims the file fd 2 appends to */
+	long logmax = lm && *lm ? num(lm) : 262144;
+
+	dbg_on = getenv("RTSP_DEBUG") != NULL;
+	{ const char *fc = getenv("RTSP_FRAMECOPY"), *qt = getenv("RTSP_QTRIM"); fcopy_on = !(fc && fc[0] == '0'); qtrim_on = !(qt && qt[0] == '0'); }
 
 	for (o = 1; o + 1 < argc; o += 2) {
 		const char *a = argv[o], *v = argv[o + 1];
@@ -2527,6 +2596,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 			clock_gettime(CLOCK_MONOTONIC, &tn);
 			if (tn.tv_sec - tl.tv_sec >= 5) {
+				log_rotate(logfile, logmax);
 				{ unsigned long dr = 0; for (int k = 0; k < MAXCLI; k++) dr += cl[k].dropped;
 				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld\n",
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
@@ -2580,6 +2650,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		for (i = 0; i < MAXCLI; i++) {
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &ws) && qflush(&cl[i])) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && time(NULL) - cl[i].qprog > 20) cli_close(&cl[i]);
+			if (cl[i].fd >= 0) qtrim(&cl[i], nowt);
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &fs)) cli_read(&cl[i]);
 			if (cl[i].fd >= 0 && !cl[i].tcp && time(NULL) - cl[i].last > 90) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
@@ -2625,7 +2696,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (!prime) {
 				static double due;
 				static int was_idle;
-				double tq = now_s(), ev = md_tlast > snd_t ? md_tlast : snd_t, iv;
+				double tq = t_frame, ev = md_tlast > snd_t ? md_tlast : snd_t, iv;
 				int fr;
 
 				if (md_since > ev) ev = md_since;
@@ -2688,17 +2759,21 @@ unsigned char *fpb[2] = { NULL, NULL };
 			rsi = rec_sub && S[1].on ? 1 : 0;
 			double tn = now_s();
 			/* the web pictures are only made often while somebody reads them (a read after a write moves atime) */
-			double str_iv = 2.0, snap_iv = 10.0;
-			static time_t bw_chk = 0; static int bw = 0;
-			{
+			static double str_iv = 2.0, snap_iv = 10.0, t_fchk;
+			static int bw = 0, snap_req = 0;
+			if (tn - t_fchk >= 0.25) {	/* the file checks (2 stat, 2 access) four times a second, not on every frame */
 				struct stat sb; time_t nw = time(NULL);
 
-				if (!stat("/tmp/stream.jpg", &sb) && nw - sb.st_atime < 4) str_iv = 0.25;
-				if (!stat("/tmp/currentpic.cache.jpg", &sb) && nw - sb.st_atime < 10) snap_iv = 2.0;
-				if (nw != bw_chk) { bw_chk = nw; bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; } }	/* black and white switch */
+				t_fchk = tn;
+				str_iv = !stat("/tmp/stream.jpg", &sb) && nw - sb.st_atime < 4 ? 0.25 : 2.0;
+				/* currentpic.cgi asks for a fresh picture itself (snapshot_request) when the cache is older than 2 s: the
+				 * fast rate is for a reader that comes more often than that, not for the dashboard's 4 to 10 s polling */
+				snap_iv = !stat("/tmp/currentpic.cache.jpg", &sb) && nw - sb.st_atime < 4 ? 2.0 : 10.0;
+				snap_req = !access("/tmp/snapshot_request", F_OK);
+				bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; }	/* black and white switch */
 			}
 			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= str_iv;
-			int d_snap = jpeg_ok && (tn - t_snap >= snap_iv || !access("/tmp/snapshot_request", F_OK));
+			int d_snap = jpeg_ok && (tn - t_snap >= snap_iv || snap_req);
 			/* recording: a JPEG of the picture of each keyframe of the recorded stream (the file's thumbnail), from
 			 * the sub picture; made on the frames where the encoder will start a GOP */
 			const struct strm *rs = &S[rsi];
@@ -2763,26 +2838,42 @@ unsigned char *fpb[2] = { NULL, NULL };
 				}
 				s->fails = 0;
 				{
-					int pos = 0, l, n;
+					/* The encoder output is uncached memory: read it once, word-wise, into the heap (the GOP cache keeps
+					 * that copy), find the NALs once, give the encoder its buffer back, and let everything below read the
+					 * copy. RTSP_FRAMECOPY=0 (or no memory for the copy): the old way, the encoder buffer read in place. */
+					unsigned char *own = fcopy_on ? malloc(st.len) : NULL, *d = own ? own : st.data;
+					unsigned len = st.len;
+					struct nal_tab nt, *tp = NULL;
+					int kept = 0, i;
 
-					while ((n = next_nal(st.data, st.len, pos, &l)) >= 0) {
-						{ int t = NT(s, st.data[n]); if (s->hevc ? (t >= 16 && t <= 21) : t == 5) idr = 1; }
-						pos = n + l;
+					if (own) {
+						nal_copy(own, st.data, len);
+						p_release(s->enc, &st);
+						nal_scan(&nt, own, len); tp = &nt;
+						for (i = 0; i < nt.n; i++) { int t = NT(s, nt.hdr[i]); if (s->hevc ? (t >= 16 && t <= 21) : t == 5) idr = 1; }
+					} else {
+						int pos = 0, l, n;
+
+						while ((n = next_nal(st.data, len, pos, &l)) >= 0) {
+							{ int t = NT(s, st.data[n]); if (s->hevc ? (t >= 16 && t <= 21) : t == 5) idr = 1; }
+							pos = n + l;
+						}
 					}
+					if (idr) learn_params(s, d, len);
+					if (dbg_on) LOG("FRAME %s %s len %u\n", s->name, idr ? "IDR" : "P", len);
+					if (len > 10 || idr) {	/* skip frames still count in the timeline */
+						kept = cache_add(s, d, len, ts, idr, own);
+						{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
+						PROF(4, bcast(k, d, len, ts, idr, tp));
+						clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
+						s->nbytes += len;
+						if (rec_on && k == rsi) { rec_frame(d, len, ts_us, idr, s->hevc); if (idr) rec_idr = 1; }
+						live_frame(k, d, len, ts_us, idr);
+					}
+					s->nfr++;
+					if (own && !kept) free(own);
+					if (!own) p_release(s->enc, &st);
 				}
-				if (idr) learn_params(s, st.data, st.len);
-				if (getenv("RTSP_DEBUG")) LOG("FRAME %s %s len %u\n", s->name, idr ? "IDR" : "P", st.len);
-				if (st.len > 10 || idr) {	/* skip frames still count in the timeline */
-					cache_add(s, st.data, st.len, ts, idr);
-					{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-					PROF(4, bcast(k, st.data, st.len, ts, idr));
-					clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
-					s->nbytes += st.len;
-					if (rec_on && k == rsi) { rec_frame(st.data, st.len, ts_us, idr, s->hevc); if (idr) rec_idr = 1; }
-					live_frame(k, st.data, st.len, ts_us, idr);
-				}
-				s->nfr++;
-				p_release(s->enc, &st);
 			}
 			{
 				int want_thumb = jpeg_ok && rec_idr && sub_made;
@@ -2792,19 +2883,27 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 					if (d_str && !access("/tmp/dump_sub", F_OK)) { unlink("/tmp/dump_sub"); wfile("/tmp/sub.nv12", sp, slen); }
 					if ((d_str || want_thumb) && (n = jpeg_run(pys, pys + SW * SH, SW, SH, 40))) {
+						uint8_t *own;
+						const uint8_t *jp = jpeg_stable(n, &own);
+
 						if (d_str) {
-							wfile("/tmp/stream.jpg", jbuf + TABLES_SIZE, n);
-							wfile("/tmp/frame_ch0.jpg", jbuf + TABLES_SIZE, n);
+							wfile("/tmp/stream.jpg", jp, n);
+							wfile("/tmp/frame_ch0.jpg", jp, n);
 							t_str = tn;
 						}
-						if (want_thumb) rec_thumb(jbuf + TABLES_SIZE, n, ts_us);
+						if (want_thumb) rec_thumb(jp, n, ts_us);
+						free(own);
 					}
 					if (d_snap) {
-						unlink("/tmp/snapshot_request");
+						unlink("/tmp/snapshot_request"); snap_req = 0;
 						if ((n = jpeg_run(py, py + W * H, W, H, 35))) {
 							char tsb[24];
 
-							wfile("/tmp/currentpic.cache.jpg", jbuf + TABLES_SIZE, n);
+							uint8_t *own;
+							const uint8_t *jp = jpeg_stable(n, &own);
+
+							wfile("/tmp/currentpic.cache.jpg", jp, n);
+							free(own);
 							wfile("/tmp/currentpic.cache.ts", tsb, snprintf(tsb, sizeof tsb, "%ld\n", (long)time(NULL)));
 						}
 						t_snap = tn;

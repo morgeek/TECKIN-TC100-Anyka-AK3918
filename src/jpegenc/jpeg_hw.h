@@ -63,6 +63,20 @@ static void build_tables(uint8_t *t, int q)
 	/* 0x738..0x790 stays zero */
 }
 
+/* build_tables() once per quality (tc100_rtsp uses 40 and 35 alternately: 256 divisions and a table build per picture
+ * saved); the image is copied into the engine's block every time, so a core that writes there changes nothing. */
+static inline void build_tables_cached(uint8_t *t, int q)
+{
+	static uint8_t img[2][TABLES_SIZE];
+	static int iq[2], n;
+	int k;
+
+	for (k = 0; k < n; k++)
+		if (iq[k] == q) { memcpy(t, img[k], TABLES_SIZE); return; }
+	build_tables(t, q);
+	if (n < 2) { memcpy(img[n], t, TABLES_SIZE); iq[n++] = q; }
+}
+
 /* ---- the 11 control words (JpegParamToCtrlRegs + AL_EncCore_EncodeJpeg) ---- */
 static void ctrl_words(uint32_t *c, int w, int h, uint32_t y, uint32_t uv, uint32_t aux,
 		       uint32_t stream, uint32_t stream_size)
