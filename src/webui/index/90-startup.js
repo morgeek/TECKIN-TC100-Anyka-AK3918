@@ -6,25 +6,8 @@
     initPttVolumeControls();
     initCamPanel();
 
-    fetch("cgi-bin/state.cgi?cmd=hostname", { cache: "no-store" })
-      .then(function (r) {
-        if (!r.ok) throw new Error("hostname HTTP " + r.status);
-        return r.text();
-      })
-      .then(function (title) {
-        title = String(title || "").trim();
-        if (!title || title.length > 64 || /[<>]/.test(title)) return;   // not a host name (error page): keep "TC100"
-        document.title = title;
-        var osdName = byId("osd_name");
-        if (osdName) osdName.textContent = title;
-        var titleNode = byId("title");
-        if (titleNode) {
-          titleNode.title = title;
-        }
-        var brandHost = byId("brand_host");
-        if (brandHost) brandHost.textContent = title;
-      })
-      .catch(function () { /* the name stays "TC100" */ });
+    // The page title, the brand and the OSD name come from the first status line poll (renderReadings, applyHostName):
+    // no separate state.cgi?cmd=hostname request at load.
 
     document.addEventListener("click", function (event) {
       var homeTarget = event.target.closest("[data-home-view]");
