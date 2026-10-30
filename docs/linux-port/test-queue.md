@@ -67,6 +67,35 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### Next build: 3.0.1-rc7 — the owner asks for everything to be tried (2026-10-30 night)
+
+rc7 = rc6 plus the LED / IR / speaker / reset pin fix (LED-01), the tester's accepted proposals and the remaining
+optimisations. Nothing in it touches U-Boot, `boot`, `mac` or `env`. The initramfs changes (S50 scripts, profile.d)
+come with the kernel package.
+
+**Order** (each step only if the previous one is fine; write the result under each entry):
+1. **Card boot first** (rule): `c66.img` of rc7, nothing written. Check `/proc/cmdline`, Wi-Fi, 15 fps, and run
+   `sh /mnt/scripts/perf-baseline.sh 60` (P-06) once with one client. Keep its output as the rc7 reference.
+2. **LED-01:** the Settings LED switches, then the IR LED, the speaker and the reset button (they were on the same
+   wrongly muxed pins).
+3. **Audio:** B-01 / B-02 checks 2-4: microphone, speaker, `amixer`.
+4. **Access:** S-01. Port 22 open and port 23 closed after boot, Services ssh / telnet, the housekeeper restarter
+   (`kill -9`), the rescue telnet.
+5. **Then the flash** (`update66.sh`, settings kept) and the same quick checks.
+6. **Video, one change at a time** with `perf-baseline.sh` before / after:
+   - O-05;
+   - P-09: `RTSP_UDPSG=1` with H.265, then the 384 KB queues;
+   - P-08: `RTSP_VBR=1` on a still scene;
+   - P-04: 20 and 25 fps, the owner's question;
+   - P-02: `ak39_vi.slots=3`, from the card only.
+7. **Web:** W-01 and UI-22 (a browser on the LAN), O-04, O-06.
+8. **Network:** P-01 (ONVIF discovery), P-07 (`rtl8xxxu.dma_aggregation=1` from the card).
+9. **The rest of the queue in its order:** HW-02 test 2, HW-03 `fifo32=1`, HW-04 to HW-08, F-01 to F-06, then the
+   overnight soak of rc7.
+
+Anything that fails: status `failed`, the serial lines, and the switch that brings back the old behaviour (every
+change has one, listed in its entry).
+
 ### Tester's answer to the implementer's proposals (2026-10-30 evening; the owner has the last word, U-Boot changes need his agreement)
 
 Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Declined: `cma=16M`, 1, 4.
@@ -338,7 +367,7 @@ A static audit traced every control of the web UI to what acts on it on 3.0. The
 
 - UI-01 `passed` (2026-10-30, 563dbff: crond, crontab, mkfifo, timeout, usleep all present) — Busybox applets: `busybox --list | grep -E '^(crond|crontab|usleep|mkfifo|timeout)$'`. Without
   `usleep` the IR-cut pulse of `bin/setconf` becomes 1 s; without `crond` the scheduled reboot never runs.
-- UI-02 `to test` — Time zone: set `CET-1CEST,M3.5.0,M10.5.0/3`, reboot; `date` over telnet, the OSD clock, a new
+- UI-02 `to test` — Time zone: set `CET-1CEST,M3.5.0,M10.5.0/3`, reboot; `date` over ssh, the OSD clock, a new
   recording's file name and the log times agree.
 - UI-03 `to test` — IR-cut: Day / Night from the dashboard; the filter clicks and the picture changes the right way
   (the UI state is `/var/run/ircut`, not read from the coil).
@@ -555,16 +584,16 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
   (and its links ssh/scp/dbclient/dropbearkey, not shipped any more), `libz`, `libgcc_s`, `libatomic` (`ext/lib` only
   for the tools that need them: curl, mksquashfs); the xz helper scripts are dropped. `stack.sqfs` grows from 1.97 to 2.46 MB
   (partition 2.83 MB). **Kept in the RAM image:** busybox, musl, `wpa_supplicant` + libnl-3/genl (Wi-Fi up without
-  the user space; moving them would save 0.78 MB more), init scripts, `udhcpc` script, telnetd start.
+  the user space; moving them would save 0.78 MB more), init scripts, `udhcpc` script (telnetd at boot: see S-01).
   How callers find the moved files: `/usr/bin/aplay|arecord|amixer` and `/usr/share/alsa` are links into `/mnt/ext`
   (CGIs run with busybox httpd's reset PATH, `tc100_rtsp` does `execlp("arecord")`), `etc/ld-musl-arm.path` is baked into
   the initrd (`/lib /usr/lib /mnt/ext/lib`, same as autorun writes), `etc/profile.d/tc100-ext.sh` adds `/mnt/ext/bin`
   to login shells, `S50dropbear` is `v3/S50dropbear-linux66` (looks in `/mnt/ext/bin`, then `/mnt/sd/ext/bin`: in SD mode
-  `/mnt` is the card only after autorun, the card is already at `/mnt/sd`; no dropbear = a console line, telnetd
-  unchanged). `S39tc100` logs a warning if the user space has no `ext/bin/aplay`.
+  `/mnt` is the card only after autorun, the card is already at `/mnt/sd`; no dropbear = a console line and the
+  telnetd fallback of S-01). `S39tc100` logs a warning if the user space has no `ext/bin/aplay`.
 - **Off:** none at run time. The initrd and the user space must be updated together (the updater writes `stack` first,
   `initrd` last; a card tree must be the one of the same build). New initrd + old user space = no audio tools, no ssh
-  (telnet and everything else work); old initrd + new user space works.
+  (the telnetd fallback of S-01 and everything else work); old initrd + new user space works.
 - **Test** (flash mode, then SD mode `tc100test/c66.img` + card tree, then flash mode with the card removed):
   1. `/proc/cmdline` shows the full initrd size; `free`: MemAvailable about 1.7 MB higher than before.
   2. `ls -l /usr/bin/aplay /usr/share/alsa` (links to `/mnt/ext`), `aplay -l` and `arecord -l` list the card,
@@ -572,7 +601,7 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
   3. RTSP with audio plays (VLC: sound), the web UI Listen button and the Talk / sound test (speaker) work,
      `pidof arecord` while an audio client is connected.
   4. `ssh root@<ip>` works (password of config/user.pwd) and `ps | grep dropbear`; boot log has `Starting dropbear sshd: OK`
-     and no `dropbear is not in the user space` line. `telnet` still answers where S50telnet was answering before.
+     and no `dropbear is not in the user space` line. Since rc7 (S-01) port 23 is closed at boot.
   5. Wi-Fi up as before; `curl -sI https://example.org | head -1` and `jq -n 1` (`libz`, `libatomic` from `ext/lib`);
      `iw reg get`.
   6. Fallbacks: card removed in flash mode (everything works, no video storage); `tc100test/flashmode` absent and
@@ -676,8 +705,8 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
   follows if the picture needs it.
 
 ### P-05 User space squashfs in 128 KiB blocks — `to test`
-- **What:** `stack.sqfs` built with `-comp xz -b 128K` instead of 256K: 2,240,512 B against 2,195,456 (partition
-  2,830,336). A page read from the flash decompresses half as much, and the squashfs caches take about 384 KB less RAM.
+- **What:** `stack.sqfs` built with `-comp xz -b 128K` instead of 256K: 2,240,512 B against 2,195,456 on the rc6 tree
+  (partition 2,830,336); the full rc7 tree measures 2,306,048 B. A page read from the flash decompresses half as much, and the squashfs caches take about 384 KB less RAM.
   Measured alternatives that do not fit: lzo 2.96 MB, lz4 3.2-3.9 MB; gzip 2.70 MB would fit with 126 KB to spare.
   The `vendor` partition (made at install) is left at 256K.
 - **Test:** MemAvailable / Slab after boot against rc6, both in flash mode; `time ls -lR /rom > /dev/null` and the
@@ -749,6 +778,25 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
   7. `killall httpfront`: the rescue telnet opens after 2-3 minutes and closes once the web UI is back.
   8. An upgrade over rc6 settings: SSH on, telnet off.
 - **Pass:** all of the above, and MemAvailable within 0.3 MB of rc6.
+
+### W-01 Web UI: statusline in its own CGI, one stylesheet — `to test`
+- **What (commit `[webui] statusline in its own small CGI, one stylesheet for the main page`):**
+  - **statusline.cgi:** `cgi-bin/statusline.cgi` sources only `statelib.cgi`: 605 lines (20 KB) against 2604 (104 KB)
+    for func + state; 5.1 against 7.4 ms per call on the PC. It gives the same JSON as `state.cgi?cmd=statusline`,
+    which stays. The pages poll it.
+  - **One stylesheet:** `css/ui.bundle.min.css` holds bulma purged + ui-modern + ui.css in the same order, so the main
+    page makes 1 stylesheet request instead of 3. The CSS rules are identical (1263 of 1263 in Edge), the `?v=` is a
+    hash of the bundle, and the build is `src/webui/build-css.sh`.
+- **Off:** revert the commit (the old CGI arm and stylesheets are still there).
+- **Test:**
+  1. Browser network tab: `cgi-bin/statusline.cgi` every few seconds, a single `css/ui.bundle.min.css`, no 404, no
+     `cmd=statusline`. The look is unchanged, light / dark, 1280 / 390 px.
+  2. `curl -s -u root:<pw> http://<cam>/cgi-bin/statusline.cgi | head -c 300`: one JSON line, `csrf_token` of 32
+     hex characters. Same fields as `state.cgi?cmd=statusline`.
+  3. On the camera, 10 runs of each: `time sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do REQUEST_METHOD=GET QUERY_STRING=
+     /mnt/www/cgi-bin/statusline.cgi >/dev/null; done'`, then the same with `QUERY_STRING=cmd=statusline` and
+     `state.cgi`. Write down both times.
+  4. The Recordings page loads its status, and a settings save gives no 403.
 
 ### Other suggestions of 2026-10-30, not taken now (reasons)
 - **Clock gating of unused blocks (Ethernet MAC, extra UART):** no verified clock register map yet. A wrong bit can
