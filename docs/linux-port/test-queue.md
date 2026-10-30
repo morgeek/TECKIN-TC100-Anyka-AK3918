@@ -675,4 +675,56 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
   with one client and the dashboard, `dropped` stays 0, and Wi-Fi keeps up (`snd_ms` steady). The bit rate default
   follows if the picture needs it.
 
+### P-05 User space squashfs in 128 KiB blocks — `to test`
+- **What:** `stack.sqfs` built with `-comp xz -b 128K` instead of 256K: 2,240,512 B against 2,195,456 (partition
+  2,830,336). A page read from the flash decompresses half as much, and the squashfs caches take about 384 KB less RAM.
+  Measured alternatives that do not fit: lzo 2.96 MB, lz4 3.2-3.9 MB; gzip 2.70 MB would fit with 126 KB to spare.
+  The `vendor` partition (made at install) is left at 256K.
+- **Test:** MemAvailable / Slab after boot against rc6, both in flash mode; `time ls -lR /rom > /dev/null` and the
+  first Settings page load after boot.
+
+### P-06 Reference profile of each build (`scripts/perf-baseline.sh`) — tool
+- **What:** 60 s, one RTSP client: the CPU split (user, system, irq, softirq, idle), interrupts per second per source
+  (the USB host of the Wi-Fi), Wi-Fi bytes/s, MemAvailable / CmaFree / Slab, the last STAT lines.
+- **Use:** `sh /mnt/scripts/perf-baseline.sh 60` once per build in the result, so builds compare.
+
+### P-07 Wi-Fi: RX aggregation and USB interrupts — `to test` (measurement only)
+- **What:** `rtl8xxxu.dma_aggregation=1` on the kernel command line (from the card, `EXTRA` of `boot66b.sh`); no code
+  change. The driver has no power-save path for this chip, so there is nothing to switch there.
+- **Test:** `perf-baseline.sh 60` without a client, then with one, then the same with `dma_aggregation=1`. Look at
+  interrupts/s of the USB host, and softirq. Throughput: VLC stays smooth.
+
+### P-08 Encoder "smart" mode / VBR — `to test`
+- **What:** `tc100_rtsp` never used the vendor smart mode or VBR (`rc_vbr` was always 0 = constant bit rate). The
+  `[video]` commit adds `RTSP_VBR=1` (main) / `RTSP_VBR_SUB`. The bit rate becomes a ceiling, so a still scene
+  sends less.
+- **Test:**
+  1. Still scene, then motion, 5 min each: STAT bytes per 5 s with and without `RTSP_VBR=1` (in
+     `/mnt/config/rtsp.env`).
+  2. Frigate: still records and detects, and the keyframe interval is unchanged.
+  3. For the smart mode itself: `strings /mnt/lib/libmpi_venc*.so | grep -i smart` and write the symbols here.
+     Smart mode (long GOP on a still scene) needs its call found in the vendor library first.
+
+### Other suggestions of 2026-10-30, not taken now (reasons)
+- **Clock gating of unused blocks (Ethernet MAC, extra UART):** no verified clock register map yet. A wrong bit can
+  stop the SPI flash, USB or SD; the only gain is heat. The RMII pads are no longer muxed (LED-01 fix).
+- **SPI flash DMA / quad read:** it changes the driver that also writes the flash (kernel, initrd, stack, settings).
+  Not without a long write/read-back campaign; boot time is not a problem today.
+- **USB DMA:** the largest CPU gain left, but the vendor code is unsafe as is (HW-03 notes). Last, after HW-03 fifo32,
+  with a long soak.
+- **Motion detection from ISP statistics:** the software detector reads 2,304 bytes 4 times a second (about
+  0.4 ms/s): no measurable gain.
+- **Thumb build of non-critical programs:** busybox would shrink by about 25 % (~170 KB of the RAM image). But it is
+  the init and the shell of the rescue path. A later trial on the card only (busybox `CONFIG_EXTRA_CFLAGS="-mthumb"`),
+  not in this build.
+- **ARMv5TE DSP instructions, PLD:**
+  - The audit found no soft-float or division in a hot loop: the sound level log is ~30 µs per 0.25 s, and G.711 is
+    a table.
+  - The remaining frame copy reads uncached memory, where PLD does nothing.
+- **ftrace / perf in the kernel:**
+  - The ARM926 has no performance counters, so perf only has software events.
+  - The function tracer costs RAM and adds an mcount call to every function.
+  - Possible later as a separate debug kernel artifact, never the release. `perf-baseline.sh` covers the
+    per-build comparison meanwhile.
+
 Not done (listed for later): one front LED choice in Settings (waits for LED-01 on the new build).
