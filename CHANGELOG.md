@@ -23,6 +23,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - One resident housekeeper loop (`scripts/housekeeper.sh`) instead of six shell processes: web guard, network guard
     and SD panel checks, the RTSP and MQTT service watchdogs, the health snapshot and log persistence run as its jobs
     (own periods, a slow job never holds up the others). `HOUSEKEEPER=0` in boot.conf restores the separate daemons.
+  - RAM image (initramfs, never reclaimed) from about 4.45 MB to 2.38 MB: the ALSA tools and data, libasound,
+    dropbear and the libraries only they need moved to `ext/` of the user space (flash squashfs or card tree, read
+    on demand), links left in their old places; busybox 290 -> 192 applets (`wget`, `nslookup`, `traceroute`,
+    `telnet` client gone: use `curl`), alsa-lib PCM + mixer only, hostapd / wpa_supplicant / dropbear trimmed
+    (camera checks B-01, B-02, O-06).
 
 ### Fixed
 - **Web UI pass** (HTML/CSS/JS only, commits `[webui] ...`; camera checks: UI-22 in `docs/linux-port/test-queue.md`):
