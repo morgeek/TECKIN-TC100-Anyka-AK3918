@@ -146,3 +146,7 @@ Measured on IPCAM2 with the cb20c19 kernel booted once from the card: "Page bloc
 blocks 28 unmovable / 58 movable / 4 reclaimable / 2 high-atomic (1 MB) / 36 CMA; free 16 KB blocks outside the
 reserve (buddyinfo `64 40 26 18 4 2 2 4`), MemAvailable 10.1-10.8 MB, no OOM or allocation failure after 4 min
 (the old kernel failed at 84 s), video 74-76 frames per 5 s with a client, 69 % idle.
+
+3.0.1-rc5 then installed in the flash of IPCAM2 with `update66.sh apply` (stack, kernel, initrd written and checked,
+settings kept), normal flash start (no card kernel): "Page block order: 7", 2 high-atomic blocks, MemAvailable
+10.7 MB, no OOM or allocation failure, 75 frames per 5 s with a client, 84 % idle.
