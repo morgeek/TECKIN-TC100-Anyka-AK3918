@@ -137,18 +137,38 @@
                 <div class='card status_card'>
                     <header class='card-header'><p class='card-header-title'>Automatic switching thresholds</p></header>
                     <div class='card-content'>
-                        <p class="help mb-3">Used in Auto mode. Night starts when the light falls below the first luminance; day comes back above the second one (the gap avoids flapping at dusk). Current values: see the live reading under the picture.</p>
-                        <p class="help mb-3">This firmware uses the mean picture luminance, 0 to 255 (defaults 40 and 100); the AWB values are not used.</p>
+                        <p class="help mb-3">Used in Auto mode. Night starts when the light falls below the first value; day comes back above the second one (the gap avoids flapping at dusk).</p>
+                        <div class="field">
+                            <label class="label is-small" for="dn_source">Light measurement</label>
+                            <div class="select is-small is-fullwidth"><select name="dn_source" id="dn_source"><option value="luma">Picture luminance (default)</option><option value="ae">ISP exposure index</option><option value="isp">ISP dark flag</option></select></div>
+                            <p class="help">The picture luminance stays near the auto-exposure target whatever the light, and rises when the infrared lights come on. The exposure index (exposure time times the gains) measures the scene light itself; the dark flag is the image processor's own decision. If the exposure data is missing, the luminance is used.</p>
+                        </div>
+                        <div class="box dn-live" id="dn_live" aria-live="off">
+                            <p class="heading">Live reading</p>
+                            <div class="tags">
+                                <span class="tag is-light">Mode: <b id="dn_live_mode">–</b></span>
+                                <span class="tag is-light">Luminance: <b id="dn_live_luma">–</b></span>
+                                <span class="tag is-light">Exposure index: <b id="dn_live_idx">–</b></span>
+                                <span class="tag is-light">Dark flag: <b id="dn_live_dark">–</b></span>
+                            </div>
+                            <p class="help">Exposure time, analogue gain, digital gain, ISP gain: <span id="dn_live_raw">–</span></p>
+                            <p class="help">At dusk, read the index and set the two index thresholds around it.</p>
+                        </div>
                         <div class="columns">
                             <div class="column is-half">
                                 <p class="heading">Day → Night (Darkness)</p>
-                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="daynightlum" id="daynightlum" type="number"></div>
+                                <div class="field"><label class="label is-small" for="daynightlum">Luminance below</label><input class="input is-small" name="daynightlum" id="daynightlum" type="number" min="0" max="255"></div>
+                                <div class="field"><label class="label is-small" for="ae_night_above">Exposure index above</label><input class="input is-small" name="ae_night_above" id="ae_night_above" type="number" min="1" max="999999999"></div>
+                                <div class="field"><label class="label is-small" for="dn_night_hold">Hold time (s)</label><input class="input is-small" name="dn_night_hold" id="dn_night_hold" type="number" min="1" max="3600"></div>
                             </div>
                             <div class="column is-half">
                                 <p class="heading">Night → Day (Brightness)</p>
-                                <div class="field"><label class="label is-small">Luminance</label><input class="input is-small" name="nightdaylum" id="nightdaylum" type="number"></div>
+                                <div class="field"><label class="label is-small" for="nightdaylum">Luminance above</label><input class="input is-small" name="nightdaylum" id="nightdaylum" type="number" min="0" max="255"></div>
+                                <div class="field"><label class="label is-small" for="ae_day_below">Exposure index below</label><input class="input is-small" name="ae_day_below" id="ae_day_below" type="number" min="0" max="999999999"></div>
+                                <div class="field"><label class="label is-small" for="dn_day_hold">Hold time (s)</label><input class="input is-small" name="dn_day_hold" id="dn_day_hold" type="number" min="1" max="3600"></div>
                             </div>
                         </div>
+                        <p class="help">The luminance thresholds (0 to 255, defaults 40 and 100) apply to the luminance measurement; the index thresholds and hold times apply to the exposure index and to the dark flag (hold times). With the infrared lights on the scene is lit and the index falls: keep the day threshold clearly below the index you see at night, and the day hold time long.</p>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save thresholds</button></div>
                     </div>
                 </div>
@@ -158,7 +178,7 @@
 
         <!-- Streams & audio -->
         <div class="tab-content is-hidden" id="tab-video">
-            <p class="help mb-3">This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360, at up to 15 frames per second. Set the bit rate below, and the codec under Advanced encoding.</p>
+            <p class="help mb-3">This firmware encodes the main stream in 1920x1080 and the secondary stream in 640x360, at 15 frames per second unless you choose another rate in the main stream card (one rate for both streams). Set the bit rate below, and the codec under Advanced encoding.</p>
             <form id="formRtspServer" action="cgi-bin/action.cgi?cmd=set_rtsp_server" method="post">
                 <div class='card status_card mb-4'>
                     <header class='card-header'><p class='card-header-title'>RTSP server</p></header>
@@ -172,6 +192,16 @@
                                 <p class="help">Server: tc100_rtsp. The sound a client sends is played on the speaker; the Talk button waits until it is free.</p>
                             </div>
                         </div>
+                        <div class="columns">
+                            <div class="column is-half">
+                                <div class="field"><label class="label is-small" for="rtsp_idle_fps">Lower frame rate when nothing moves (frames per second)</label><div class="select is-small is-fullwidth"><select name="rtsp_idle_fps" id="rtsp_idle_fps"><option value="0">Off</option><option value="2">2</option><option value="3">3</option><option value="5">5</option><option value="8">8</option></select></div></div>
+                            </div>
+                            <div class="column is-half">
+                                <div class="field"><label class="label is-small" for="rtsp_idle_after">After no motion for (seconds)</label><input class="input is-small" name="rtsp_idle_after" id="rtsp_idle_after" type="number" min="1" max="3600" step="1"></div>
+                            </div>
+                        </div>
+                        <p class="help">Saves processor time and bit rate at night or in an empty room. Needs motion detection (Settings, Detection) switched on; without it nothing changes. Back to the full rate at the first motion or sound; the first moment of an event can show a lower frame rate. Not applied while recording continuously. Applied at once, no restart.</p>
+                        <p class="help is-hidden has-text-warning-dark" id="rtsp_idle_warn">Motion detection is off: this setting does nothing for now.</p>
                         <p class="help" id="rtsp_server_status" role="status"></p>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply</button></div>
                     </div>
@@ -183,7 +213,8 @@
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Main stream</p></header>
                     <div class="card-content">
-                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="brbitrate0">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" min="32" max="8000" step="1" required></div></div>
+                        <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="brbitrate0">Bitrate (kbit/s)</label><input class="input is-small" name="brbitrate0" id="brbitrate0" type="number" min="32" max="8000" step="1" required></div><div class="column is-half"><label class="label is-small" for="fps0">Frame rate (both streams)</label><div class="select is-small is-fullwidth"><select name="fps0" id="fps0"><option value="10">10</option><option value="12">12</option><option value="15">15</option><option value="20">20</option><option value="25">25</option></select></div></div></div>
+                        <p class="help">Frames per second, the same for the main and the secondary stream (they share the camera's capture). 15 is the tested default; 25 is the sensor's full rate and needs more processor time and bit rate. The stream restarts when you save.</p>
                         <details class="settings-advanced">
                             <summary>Advanced encoding</summary>
                             <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
@@ -735,6 +766,7 @@
             if (targetId === 'tab-network') { loadWifiSsid(); loadSlot('network_settings_slot'); }
             if (targetId === 'tab-backup') { loadSlot('backup_slot'); }
             if (targetId === 'tab-daynight' && EliteUI.initCamPanel) { EliteUI.initCamPanel(); }
+            if (targetId === 'tab-daynight' && EliteUI.initDayNight) { EliteUI.initDayNight(); }
             if ((targetId === 'tab-detect' || targetId === 'tab-record') && EliteUI.initServiceToggles) {
                 EliteUI.initServiceToggles(document.getElementById(targetId));
             }

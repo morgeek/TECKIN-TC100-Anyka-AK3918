@@ -10,11 +10,15 @@
       # Supports both stream 0 and 1, plus all advanced SmartVBR/QP tuning
       stream_idx="$(sanitize_int_range "${F_stream}" 0 1 0)"
       
-      # Determine which inputs to use based on stream index. tc100_rtsp encodes 1920x1080 and 640x360 at 15 fps
-      # whatever the file says: those are written, so that every reader of the file sees the real values.
+      # Determine which inputs to use based on stream index. tc100_rtsp encodes 1920x1080 and 640x360 whatever the
+      # file says: those are written, so that every reader of the file sees the real values. The frame rate is one
+      # for both streams (they share the capture loop): 10, 12, 15, 20 or 25, the main stream's select; a form
+      # without it (secondary stream) keeps the rate in the file; anything else is 15 (rtsp-launch.sh fps_opt).
+      _fps_old="$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf r 0 fps 2>/dev/null)"
+      case "${F_fps0}" in 10|12|15|20|25) fps="${F_fps0}" ;; *) fps="$_fps_old" ;; esac
+      case "$fps" in 10|12|15|20|25) ;; *) fps=15 ;; esac
       if [ "$stream_idx" = "1" ]; then
           raw_size=640x360
-          fps=15
           bitrate=$(sanitize_int_range "${F_brbitrate1}" 32 8000 300)
           codec=$(sanitize_int_range "${F_video_codec1}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen1}" 1 300 50)
@@ -24,7 +28,6 @@
           smartmode=$(sanitize_int_range "${F_smartmode1}" 0 2 0)
       else
           raw_size=1920x1080
-          fps=15
           bitrate=$(sanitize_int_range "${F_brbitrate0}" 32 8000 1000)
           codec=$(sanitize_int_range "${F_video_codec0}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen0}" 1 300 50)
@@ -41,7 +44,8 @@
           "$stream_idx" width "$width" \
           "$stream_idx" height "$height" \
           "$stream_idx" codec "$codec" \
-          "$stream_idx" fps "$fps" \
+          0 fps "$fps" \
+          1 fps "$fps" \
           "$stream_idx" bps "$bitrate" \
           "$stream_idx" goplen "$gop" \
           "$stream_idx" brmode "$format" \
@@ -70,13 +74,22 @@
       # Three forms post here: Settings → Day/night (the thresholds), Settings → Privacy & overlay
       # (on-screen clock, osd_form) and Settings → Picture (orientation only). Each part is only
       # written when its fields were sent.
-      if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then
-        # scripts/auto-night-daemon.sh compares the mean picture luminance (0-255), read while it runs
-        _ln=$(sanitize_int_range "${F_daynightlum}" 0 255 40)
-        _ld=$(sanitize_int_range "${F_nightdaylum}" 0 255 100)
+      if [ -n "${F_daynightlum}${F_nightdaylum}${F_dn_source}" ]; then
+        # scripts/auto-night-daemon.sh reads config/daynight.conf while it runs: the picture luminance (0-255,
+        # DAYNIGHT_SOURCE=luma, the default), or the ISP exposure index (ae) / dark flag (isp) with hold times
+        _dn_get() { sed -n "s/^$1=//p" /mnt/config/daynight.conf 2>/dev/null | tail -n 1; }
+        _ln=$(sanitize_int_range "${F_daynightlum:-$(_dn_get LUMA_NIGHT)}" 0 255 40)
+        _ld=$(sanitize_int_range "${F_nightdaylum:-$(_dn_get LUMA_DAY)}" 0 255 100)
         [ "$_ld" -gt "$_ln" ] || _ld=$((_ln + 20))
         [ "$_ld" -le 255 ] || _ld=255
-        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\n' "$_ln" "$_ld" > /mnt/config/daynight.conf
+        case "${F_dn_source:-$(_dn_get DAYNIGHT_SOURCE)}" in ae) _ds=ae ;; isp) _ds=isp ;; *) _ds=luma ;; esac
+        _an=$(sanitize_int_range "${F_ae_night_above:-$(_dn_get AE_NIGHT_ABOVE)}" 1 999999999 4000)
+        _ad=$(sanitize_int_range "${F_ae_day_below:-$(_dn_get AE_DAY_BELOW)}" 0 999999999 1000)
+        [ "$_ad" -lt "$_an" ] || _ad=$((_an / 2 ))
+        _nh=$(sanitize_int_range "${F_dn_night_hold:-$(_dn_get NIGHT_HOLD)}" 1 3600 10)
+        _dh=$(sanitize_int_range "${F_dn_day_hold:-$(_dn_get DAY_HOLD)}" 1 3600 60)
+        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\n' \
+          "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" > /mnt/config/daynight.conf
       fi
       if [ -n "${F_osd_form}" ]; then
         osdenabled=$(normalize_bool "${F_osdenabled}")
@@ -195,8 +208,8 @@
 
       # Mem Guard settings
       mg_enable=$(normalize_bool "${F_mem_guard_enable}")
-      mg_warn=$(sanitize_int_range "${F_mem_guard_warn}" 1024 32768 8192)
-      mg_crit=$(sanitize_int_range "${F_mem_guard_crit}" 512 16384 4096)
+      mg_warn=$(sanitize_int_range "${F_mem_guard_warn}" 1024 32768 6144)
+      mg_crit=$(sanitize_int_range "${F_mem_guard_crit}" 512 16384 3072)
       mg_interval=$(sanitize_int_range "${F_mem_guard_interval}" 5 600 20)
 
       # Persist to boot.conf
@@ -352,8 +365,9 @@
       bps1="$(sanitize_int_range "${F_brbitrate1}" 64 4000 300)"
       brmode0="$(sanitize_video_brmode "${F_video_format0}")"
       brmode1="$(sanitize_video_brmode "${F_video_format1}")"
-      fps0="$(sanitize_int_range "${F_fps0}" 1 25 20)"
-      fps1="$(sanitize_int_range "${F_fps1}" 1 25 10)"
+      # one frame rate for both streams: 10, 12, 15, 20 or 25 (else 15)
+      case "${F_fps0}" in 10|12|15|20|25) fps0="${F_fps0}" ;; *) fps0=15 ;; esac
+      fps1="$fps0"
       goplen0="$(sanitize_int_range "${F_goplen0}" 1 120 50)"
       goplen1="$(sanitize_int_range "${F_goplen1}" 1 120 20)"
       minqp0="$(sanitize_int_range "${F_minqp0}" 1 51 20)"

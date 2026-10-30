@@ -154,4 +154,14 @@ static inline int md_triggered(int changed, int watched, int sens)
 	return watched > 0 && changed * 1000 > watched * (5 + (100 - sens));
 }
 
+/* Frame rate of the capture loop. idle_fps (boot.conf IDLE_FPS, 0 = off) applies when it is lower than the stream
+ * rate, motion detection is running (md_on), the recorder is not writing continuously (rec_full) and nothing happened
+ * (motion, sound event, motion detection just switched on) for idle_after seconds (last_event, same clock as now). */
+static inline int idle_fps_now(int fps, int idle_fps, int idle_after, int md_on, int rec_full, double now, double last_event)
+{
+	if (idle_fps < 1 || idle_fps >= fps || !md_on || rec_full) return fps;
+	if (idle_after < 1) idle_after = 1;
+	return now - last_event >= idle_after ? idle_fps : fps;
+}
+
 #endif
