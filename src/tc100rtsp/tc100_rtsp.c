@@ -252,6 +252,7 @@ static int cfg_get(const char *file, const char *sec, const char *key, char *out
 	return found;
 }
 
+static int p_sharp, p_expct;	/* isp_tune.conf SHARPNESS (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap): done by the ISP */
 static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
 
 static void post_luts(void)
@@ -277,9 +278,11 @@ static void post_apply(void)
 	char v[80];
 
 	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && truthy(v);
-	p_bri = p_con = p_sat = p_hue = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
+	p_bri = p_con = p_sat = p_hue = p_sharp = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
 	if (p_tune) {
 		if (cfg_get(fn[1], "", "BRIGHTNESS", v, sizeof v)) p_bri = atoi_(v);
+		if (cfg_get(fn[1], "", "SHARPNESS", v, sizeof v)) p_sharp = atoi_(v);
+		if (cfg_get(fn[1], "", "EXPOSURE_MAX_PCT", v, sizeof v)) p_expct = atoi_(v);
 		if (cfg_get(fn[1], "", "CONTRAST", v, sizeof v)) p_con = atoi_(v);
 		if (cfg_get(fn[1], "", "SATURATION", v, sizeof v)) p_sat = atoi_(v);
 		if (cfg_get(fn[1], "", "HUE", v, sizeof v)) p_hue = atoi_(v);
@@ -298,6 +301,8 @@ static void post_apply(void)
 	if (cfg_get(fn[2], "0", "osdfontsize", v, sizeof v)) p_osdsz = atoi_(v);
 	if (p_osdsz < 8) p_osdsz = 8;
 	p_hue = p_tune ? p_hue : 0;
+	p_sharp = p_sharp < -50 ? -50 : p_sharp > 50 ? 50 : p_sharp;
+	p_expct = p_expct < 10 || p_expct >= 100 ? 0 : p_expct;
 	tune_dirty = 1;
 	post_luts();
 }
@@ -457,12 +462,233 @@ static void tune_hw_apply(void)
 	post_luts();
 }
 
+/* ---- more of the picture work in the ISP (docs/linux-port/hardware-acceleration.md) ----------------------------------
+ * - privacy masks (RTSP_ISPMASK=1, to be checked on a camera): AK_ISP_SET_MAIN_CHAN_MASK_AREA, _SUB_CHAN_MASK_AREA
+ *   and _MASK_COLOR, the areas the 2.x firmware set on this camera through the vendor library (opaque colour: type 0,
+ *   alpha 0); the CPU then paints nothing. Any refusal: painted by the CPU as before.
+ * - sharpness (SHARPNESS): AK_ISP_SET_SHARP, the tuning file's medium and high frequency gains of the manual set and
+ *   of the 9 gain-linked sets, 2 % per step (-50 = off, +50 = double).
+ * - exposure cap (EXPOSURE_MAX_PCT): AK_ISP_SET_AE, exp_time_max at a percentage of the tuning file's value (less
+ *   motion blur at night, darker picture), never below exp_time_min.
+ * - the clock (RTSP_ISPOSD=1, to be checked on a camera, kernel patch 0014): drawn once a second into an OSD window
+ *   the ISP blends into the main picture, instead of being written into every frame. Refusal (older kernel): CPU.
+ * - the exposure state (AK_ISP_GET_AE_RUN_INFO) every 2 s in /tmp/cam_ae, for day / night: "lumi exp_time a_gain
+ *   d_gain isp_d_gain dark_flag".
+ * The ISP loads its tuning at each video start: the tuning file's values are read once the video runs and kept as
+ * the base. The layouts are those of the kernel (include/plat-anyka/ak_isp_drv.h); the sizes are checked below. */
+struct isp_mask1 { unsigned short x1, x2, y1, y2; unsigned char en, pad; };	/* AK_ISP_MASK_AREA */
+struct isp_masks { struct isp_mask1 m[4]; };
+struct isp_mask_color { unsigned char type, alpha, y, u, v; };
+#define ISP_SET_MAIN_MASK _IOW('I', 90, int)
+#define ISP_SET_MASK_COLOR _IOW('I', 92, int)
+#define ISP_SET_SUB_MASK _IOW('I', 101, int)
+struct isp_sharp1 { unsigned short mf_k, mf_shift, hf_k, hf_shift, method, skin_weaken, skin_th, skin_en, en;
+	short mf_lut[256], hf_lut[256]; unsigned short mf_key[16], hf_key[16]; };	/* AK_ISP_SHARP */
+struct isp_sharp { unsigned short mode; struct isp_sharp1 s[10]; };	/* manual + 9 gain-linked sets */
+#define ISP_SET_SHARP _IOW('I', 37, int)
+#define ISP_GET_SHARP _IOR('I', 38, int)
+#define AE_WORDS 51	/* AK_ISP_AE_ATTR: exp_time_max, exp_time_min, ... */
+#define ISP_SET_AE _IOW('I', 80, int)
+#define ISP_GET_AE _IOR('I', 81, int)
+struct isp_ae_run { unsigned char lumi, lumi_comp, dark; int a_gain, d_gain, isp_d_gain, exp_time; unsigned int st[4]; };
+#define ISP_GET_AE_RUN_INFO _IOR('I', 82, int)
+struct isp_osd { unsigned int channel, width, height; unsigned short x, y, alpha, enable; unsigned long data; };
+#define ISP_SET_OSD_COLORS _IOW('I', 131, int)
+#define ISP_SET_OSD _IOW('I', 132, int)
+typedef char isp_layout_check[(sizeof(struct isp_masks) == 40 && sizeof(struct isp_mask_color) == 5 &&
+	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_ae_run) == 36) ? 1 : -1];
+
+static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_now, ae_base = -1, exp_now_pct;
+static int osd_hw = -1;
+static unsigned int ae0[AE_WORDS], exp_now;
+static struct isp_sharp sharp0, sharp1;
+
+static int ispx_open(void)
+{
+	if (ispx_fd < 0) ispx_fd = open("/dev/isp_char", O_RDWR);
+	return ispx_fd;
+}
+
+static void mask_px(struct isp_mask1 *a, const int *pc, int w, int h)
+{
+	a->x1 = (unsigned short)((w * pc[0] / 100) & ~1); a->x2 = (unsigned short)((w * pc[2] / 100) & ~1);
+	a->y1 = (unsigned short)((h * pc[1] / 100) & ~1); a->y2 = (unsigned short)((h * pc[3] / 100) & ~1);
+	a->en = 1;
+}
+
+static void ispx_status(void)	/* /var/run/isp_tune.status: what the web page shows as applied */
+{
+	char b[400];
+	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nHUE=%d\nPOWER_HZ=\n"
+			 "EXPOSURE_MAX_PCT=%d\nMASKS=%d\nMASK_RC=%d\nMASK_HW=%d\nOSD_HW=%d\n",
+			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, p_tune ? hue_want : 0,
+			 exp_now_pct, mask_n, mask_rc, mask_hw == 1, osd_hw == 1);
+
+	if (ae_base == 1 && n > 0 && n < (int)sizeof b)
+		n += snprintf(b + n, sizeof b - n, "EXPOSURE_NOW=%u\nEXPOSURE_ORIG=%u\n", exp_now ? exp_now : ae0[0], ae0[0]);
+	if (n > 0 && n < (int)sizeof b) wfile("/var/run/isp_tune.status", b, (size_t)n);
+}
+
+static void ispx_apply(void)
+{
+	const char *e = getenv("RTSP_ISPMASK");
+	int fd = ispx_open(), i, n = 0;
+
+	if (fd < 0) return;
+	if (mask_hw < 0) mask_hw = e && e[0] == '1';
+	for (i = 0; i < 4; i++) n += p_mask[i][2] > p_mask[i][0] && p_mask[i][3] > p_mask[i][1];
+	if (mask_hw == 1 && (n || mask_n)) {
+		struct isp_masks mm, ms;
+		struct isp_mask_color mc;
+
+		memset(&mm, 0, sizeof mm); memset(&ms, 0, sizeof ms); memset(&mc, 0, sizeof mc);
+		for (i = 0; i < 4; i++)
+			if (p_mask[i][2] > p_mask[i][0] && p_mask[i][3] > p_mask[i][1]) {
+				mask_px(&mm.m[i], p_mask[i], W, H);
+				mask_px(&ms.m[i], p_mask[i], SW, SH);
+			}
+		mc.y = (unsigned char)p_mcol; mc.u = mc.v = 128;	/* opaque colour */
+		if (ioctl(fd, ISP_SET_MASK_COLOR, &mc) < 0 || ioctl(fd, ISP_SET_MAIN_MASK, &mm) < 0 || ioctl(fd, ISP_SET_SUB_MASK, &ms) < 0) {
+			LOG("privacy masks: the ISP refused them (%s): painted by the CPU\n", strerror(errno));
+			mask_hw = 0; mask_rc = -1;
+		} else LOG("privacy masks: %d in the ISP\n", n);
+	}
+	mask_n = n;
+	if (p_sharp != sharp_now) {
+		if (sharp_base < 0) sharp_base = ioctl(fd, ISP_GET_SHARP, &sharp0) == 0;
+		if (sharp_base == 1) {
+			int f = 100 + 2 * p_sharp;
+
+			sharp1 = sharp0;
+			for (i = 0; i < 10; i++) {
+				int m = sharp0.s[i].mf_k * f / 100, h = sharp0.s[i].hf_k * f / 100;
+
+				sharp1.s[i].mf_k = (unsigned short)(m > 127 ? 127 : m);
+				sharp1.s[i].hf_k = (unsigned short)(h > 127 ? 127 : h);
+			}
+			if (ioctl(fd, ISP_SET_SHARP, &sharp1) == 0) {
+				LOG("sharpness: %d in the ISP (medium %u -> %u, high %u -> %u)\n", p_sharp, sharp0.s[0].mf_k,
+				    sharp1.s[0].mf_k, sharp0.s[0].hf_k, sharp1.s[0].hf_k);
+				sharp_now = p_sharp;
+			} else { LOG("sharpness: the ISP refused it (%s)\n", strerror(errno)); sharp_base = 0; }
+		} else if (sharp_base == 0 && p_sharp) LOG("sharpness: no ISP sharpness control\n");
+	}
+	if (p_expct != exp_now_pct) {
+		if (ae_base < 0) ae_base = ioctl(fd, ISP_GET_AE, ae0) == 0 && ae0[0];
+		if (ae_base == 1) {
+			unsigned int a[AE_WORDS];
+			unsigned long t = p_expct ? (unsigned long)ae0[0] * (unsigned)p_expct / 100 : ae0[0];
+
+			memcpy(a, ae0, sizeof a);
+			if (t < ae0[1]) t = ae0[1];
+			if (t < 1) t = 1;
+			a[0] = (unsigned int)t;
+			if (ioctl(fd, ISP_SET_AE, a) == 0) {
+				LOG("exposure cap: %d %% (exp_time_max %u -> %u)\n", p_expct ? p_expct : 100, ae0[0], a[0]);
+				exp_now_pct = p_expct; exp_now = a[0];
+			} else { LOG("exposure cap: the ISP refused it (%s)\n", strerror(errno)); ae_base = 0; }
+		}
+	}
+	ispx_status();
+}
+
+/* the exposure state for day / night, every 2 s (cheap: one ioctl) */
+static void ispx_ae_report(double tn)
+{
+	static double t;
+	struct isp_ae_run r;
+	char b[96];
+	int n;
+
+	if (tn - t < 2.0 || ispx_open() < 0) return;
+	t = tn;
+	memset(&r, 0, sizeof r);
+	if (ioctl(ispx_fd, ISP_GET_AE_RUN_INFO, &r) < 0) return;
+	n = snprintf(b, sizeof b, "%u %d %d %d %d %u\n", r.lumi, r.exp_time, r.a_gain, r.d_gain, r.isp_d_gain, r.dark);
+	if (n > 0 && n < (int)sizeof b) wfile("/tmp/cam_ae", b, (size_t)n);
+}
+
+/* The clock in an ISP OSD window (RTSP_ISPOSD=1): colours 0 and 1 the black box, 2 the white text; 4 bits per pixel,
+ * the first pixel in the low nibble (RTSP_OSD_NIBBLE=1: high nibble), alpha RTSP_OSD_ALPHA (0..15, default 0). */
+static const unsigned char font57[14][5];
+static void osd_tick(void)
+{
+	static char last[64];
+	static unsigned char bits[64 * 1024];
+	static int shown, colours;
+	const char *e = getenv("RTSP_ISPOSD"), *nb = getenv("RTSP_OSD_NIBBLE"), *al = getenv("RTSP_OSD_ALPHA");
+	char t[64];
+	struct isp_osd o;
+	time_t now;
+	struct tm *tm;
+	int sc, n, w, h, i, c, r, hi = nb && nb[0] == '1';
+
+	if (osd_hw < 0) osd_hw = e && e[0] == '1' ? 2 : 0;	/* 2: to be tried */
+	if (!osd_hw || ispx_open() < 0) return;
+	memset(&o, 0, sizeof o);
+	if (!p_osd) {
+		if (shown && ioctl(ispx_fd, ISP_SET_OSD, &o) == 0) { shown = 0; last[0] = 0; }
+		return;
+	}
+	now = time(NULL); tm = localtime(&now);
+	if (!tm || !strftime(t, sizeof t, p_fmt, tm) || !strcmp(t, last)) return;
+	if (!colours) {
+		unsigned int tab[16] = { 0x108080, 0x108080, 0xeb8080 };
+
+		for (i = 3; i < 16; i++) tab[i] = 0x108080;
+		if (ioctl(ispx_fd, ISP_SET_OSD_COLORS, tab) < 0) {
+			LOG("clock: no ISP OSD (%s, kernel without patch 0014): drawn by the CPU\n", strerror(errno));
+			osd_hw = 0; return;
+		}
+		colours = 1;
+	}
+	n = (int)strlen(t);
+	sc = p_osdsz / 8 ? p_osdsz / 8 : 1;
+	for (;;) {
+		w = ((n * 6 + 4) * sc + 7) & ~7; h = 11 * sc;
+		if (w * h / 2 <= (int)sizeof bits || sc == 1) break;
+		sc--;
+	}
+	if (w * h / 2 > (int)sizeof bits) return;
+	memset(bits, 0x11, (size_t)(w * h / 2));	/* colour 1 everywhere: the box */
+	for (i = 0; i < n; i++) {
+		const char *g = "0123456789:.-/", *q = strchr(g, t[i]);
+
+		if (!q || !t[i]) continue;
+		for (c = 0; c < 5; c++) for (r = 0; r < 7; r++) if (font57[q - g][c] & (1 << r)) {
+			int x0 = (2 + i * 6 + c) * sc, y0 = (2 + r) * sc, a, b;
+
+			for (b = 0; b < sc; b++) for (a = 0; a < sc; a++) {
+				int x = x0 + a, k = (y0 + b) * w + x;
+				unsigned char *p = &bits[k / 2];
+
+				if ((x & 1) ^ hi) *p = (unsigned char)((*p & 0x0f) | 0x20);
+				else *p = (unsigned char)((*p & 0xf0) | 0x02);
+			}
+		}
+	}
+	o.channel = 0; o.width = (unsigned)w; o.height = (unsigned)h;
+	o.x = (unsigned short)((p_osdx - 2 * sc < 0 ? 0 : p_osdx - 2 * sc) & ~1);
+	o.y = (unsigned short)((p_osdy - 2 * sc < 0 ? 0 : p_osdy - 2 * sc) & ~1);
+	if (o.x + w > W) o.x = (unsigned short)((W - w) & ~1);
+	if (o.y + h > H) o.y = (unsigned short)((H - h) & ~1);
+	o.alpha = (unsigned short)(al && *al ? atoi_(al) & 15 : 0);
+	o.enable = 1; o.data = (unsigned long)bits;
+	if (ioctl(ispx_fd, ISP_SET_OSD, &o) < 0) {
+		LOG("clock: the ISP refused the OSD (%s): drawn by the CPU\n", strerror(errno));
+		osd_hw = 0; return;
+	}
+	if (osd_hw == 2) { LOG("clock: in the ISP OSD (%dx%d at %u,%u)\n", w, h, o.x, o.y); osd_hw = 1; }
+	shown = 1;
+	snprintf(last, sizeof last, "%s", t);
+}
+
 static void post_awb_sample(const unsigned char *uv, int bw)
 {
 	long su = 0, sv = 0; int n = 0, i;
 
 	if (sensor_fps_want) sensor_fps_set();
-	if (tune_dirty) tune_hw_apply();
+	if (tune_dirty) { tune_hw_apply(); ispx_apply(); }
 	if (!p_awb) return;
 	if (awb_hw < 0) awb_hw_init();
 	if (awb_hw == 1 && bw) return;	/* black and white (night): no colour to measure */
@@ -577,10 +803,10 @@ static void post_overlay(unsigned char *p, int w, int h, int main_pic)
 {
 	int i;
 
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 4 && mask_hw != 1; i++)	/* ISP masks: nothing to paint */
 		if (p_mask[i][2] > p_mask[i][0] && p_mask[i][3] > p_mask[i][1])
 			fill(p, w, h, p_mask[i][0] * w / 100, p_mask[i][1] * h / 100, p_mask[i][2] * w / 100, p_mask[i][3] * h / 100, p_mcol);
-	if (main_pic && p_osd) {
+	if (main_pic && p_osd && osd_hw != 1) {	/* the ISP OSD draws the clock */
 		char t[64]; time_t now = time(NULL); struct tm *tm = localtime(&now);
 		int sc = p_osdsz / 8 ? p_osdsz / 8 : 1, x = p_osdx, y = p_osdy, n, c, r, k;
 
@@ -2023,7 +2249,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	{ int pp[2]; if (pipe(pp)) return 1; fd = pp[0]; }	/* never readable */
 	void *vb[4] = { NULL };
 	unsigned int flen = W * H * 3 / 2, slen = SW * SH * 3 / 2;
-	unsigned char *pf = NULL;
+	unsigned char *pf = NULL, *psub = NULL;
 	double t_luma = 0, t_str = 0, t_snap = 0;
 #else
 	/* capture */
@@ -2037,11 +2263,12 @@ unsigned char *fpb[2] = { NULL, NULL };
 	ioctl(fd, VIDIOC_S_FMT, &fmt);
 	struct v4l2_requestbuffers rq;
 	void *vb[4];
-	/* encoder pool: the picture of each stream (main, then the 640x360 sub picture right after it), the JPEG buffer,
-	 * then the encoders' own buffers */
+	/* encoder pool: a copy of the pictures (main, then the 640x360 sub picture right after it) only when the encoder
+	 * cannot read the capture buffers themselves (allocated below, once the capture mode is known), the JPEG buffer,
+	 * then the encoders' own buffers. Direct capture with the ISP sub channel needs no copy: 3.4 MB of the pool
+	 * stay free (pool_log shows it). */
 	unsigned int flen = W * H * 3 / 2, slen = SW * SH * 3 / 2, ftot = flen + slen;
-	unsigned char *pf = (unsigned char *)p_alloc(ftot);
-	if (!pf) { LOG("no DMA memory for the frame\n"); return 1; }
+	unsigned char *pf = NULL, *psub = NULL;	/* psub: the sub picture the encoder reads when it is not in a capture buffer */
 	if (getenv("RTSP_ZEROCOPY") && getenv("RTSP_ZEROCOPY")[0] == '1') {
 		/* capture straight into the pool: needs the kernel's USERPTR support (patch 0011); any failure -> copy mode */
 		/* the driver keeps NUM_SLOTS (4) buffers queued: as many pool frames are needed, which the 12 MiB pool cannot
@@ -2052,7 +2279,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 		if (rok && rq.count != 2) LOG("zero-copy: the driver needs %u capture buffers, the encoder pool has room for 2\n", rq.count);
 		else if (!rok) LOG("zero-copy: the kernel has no USERPTR capture\n");
-		else { fpb[0] = pf; fpb[1] = (unsigned char *)p_alloc(flen); }
+		else { fpb[0] = pf = (unsigned char *)p_alloc(ftot); fpb[1] = pf ? (unsigned char *)p_alloc(flen) : NULL; }
 		if (rok && fpb[1] && rq.count == 2) {
 			unsigned i;
 
@@ -2117,6 +2344,12 @@ unsigned char *fpb[2] = { NULL, NULL };
 		    "made by the CPU (no ISP sub channel: kernel without ak39_vi.sub_channel=1)");
 	}
 	if (!zc && !(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(fd, vb, rq.count < 4 ? rq.count : 4, vblen);
+	if (dm && hwsub) LOG("encoder pool: no picture copy (direct capture and the ISP sub channel)\n");
+	else if (dm) { if (!(psub = (unsigned char *)p_alloc(slen))) { LOG("no DMA memory for the sub picture\n"); return 1; } }
+	else {
+		if (!pf && !(pf = (unsigned char *)p_alloc(ftot))) { LOG("no DMA memory for the frame\n"); return 1; }
+		psub = pf + flen;
+	}
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
 	sensor_fps_want = fps;	/* applied at the first white balance sample, once frames come */
@@ -2317,7 +2550,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			{ int _dr; PROF(1, _dr = ioctl(fd, VIDIOC_DQBUF, &b)); if (_dr < 0) continue; }
 			t_frame = now_s();
 			unsigned char *cur = zc || dm ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
-			unsigned char *sp = dm && hwsub ? (unsigned char *)vb[b.index] + flen : pf + flen;	/* and the sub picture */
+			unsigned char *sp = dm && hwsub ? (unsigned char *)vb[b.index] + flen : psub;	/* and the sub picture */
 			/* frame rate: the sensor gives 25 fps; keep the configured rate (frames come back to the driver at once) */
 			if (!prime) {
 				static double due;
@@ -2334,11 +2567,11 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (prime) {
 				struct video_stream ps;
 
-				if (!zc) memcpy(pf, vb[b.index], flen);
-				if (!zc) ioctl(fd, VIDIOC_QBUF, &b);
+				if (!zc && !dm) { memcpy(pf, vb[b.index], flen); ioctl(fd, VIDIOC_QBUF, &b); }
 				memset(&ps, 0, sizeof ps);
-				if (!p_send(S[0].enc, zc ? cur : pf, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
+				if (!p_send(S[0].enc, cur, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
 				if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }
+				else if (dm) ioctl(fd, VIDIOC_QBUF, &b);	/* direct: back to the driver once encoded */
 				p_close(S[0].enc);
 				S[0].enc = p_open(&S[0].pa);
 				pool_log(&S[0]);
@@ -2406,6 +2639,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			}
 			md_frame(vb[b.index], tn);
 			cfg_reload(tn);
+			osd_tick(); ispx_ae_report(tn);
 			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H, bw); } }
 			double t_pp0 = now_s(), t_pp1;
 			/* zero-copy: the sub picture is made first, from the raw picture; the corrections of the main one then
