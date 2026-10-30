@@ -10020,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,910 @@
+@@ -0,0 +1,916 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10087,6 +10087,12 @@ index 000000000..42f5fa12c
 +MODULE_PARM_DESC(guard, "debug: fill the buffer tails with 0xA5 and report ISP writes past the main frame");
 +module_param(sub_channel, int, 0444);
 +MODULE_PARM_DESC(sub_channel, "program the ISP sub channel (640x360) at stream start");
++/* capture buffers handed to the ISP (it has NUM_SLOTS output slots): ak39_vi.slots=3 frees one buffer of CMA
++ * (~3.4 MB at 1080p), the slot left unarmed is the case of a buffer held by user space */
++static int slots = NUM_SLOTS;
++module_param(slots, int, 0444);
++MODULE_PARM_DESC(slots, "capture buffers (2..4, default 4)");
++static unsigned int vi_slots(void) { return slots >= 2 && slots <= NUM_SLOTS ? slots : NUM_SLOTS; }
 +
 +/* SYSCTRL */
 +#define SYS_PERI_CTRL1	0x14
@@ -10519,7 +10525,7 @@ index 000000000..42f5fa12c
 +	struct ak39_vi *vi = vb2_get_drv_priv(q);
 +	unsigned int size = vi->sizeimage + SUB_W * SUB_H * 3 / 2 + 4096;
 +
-+	*nbuf = NUM_SLOTS;	/* the ISP has exactly four output slots */
++	*nbuf = vi_slots();	/* the ISP has four output slots; ak39_vi.slots can leave some unarmed */
 +	if (*nplanes)
 +		return sizes[0] < size ? -EINVAL : 0;
 +	*nplanes = 1;
@@ -10531,7 +10537,7 @@ index 000000000..42f5fa12c
 +{
 +	struct ak39_vi *vi = vb2_get_drv_priv(vb->vb2_queue);
 +
-+	if (vb->index >= NUM_SLOTS)
++	if (vb->index >= vi_slots())
 +		return -EINVAL;
 +	if (vb2_plane_size(vb, 0) < vi->sizeimage)
 +		return -EINVAL;
@@ -10870,7 +10876,7 @@ index 000000000..42f5fa12c
 +	vi->q.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 +	vi->q.lock = &vi->lock;
 +	vi->q.dev = dev;
-+	vi->q.min_buffers_needed = NUM_SLOTS;
++	vi->q.min_buffers_needed = vi_slots();
 +	ret = vb2_queue_init(&vi->q);
 +	if (ret)
 +		goto err_v4l2;
