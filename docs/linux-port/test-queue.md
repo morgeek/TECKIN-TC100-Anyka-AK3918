@@ -226,6 +226,13 @@ A static audit traced every control of the web UI to what acts on it on 3.0. The
 - UI-18 `to test` — Listen in the browser with the RTSP audio track on; syslog (`ps | grep syslogd`, `/var/log`).
 - UI-19 `to test` — SD card mount / eject / resume with FAT32 and exFAT cards; an update uploaded without a card.
 - UI-20 `to test` — Reset button held 20 s: only a reboot on 3.0.
+- UI-21 `to test` — Settings regrouped (commits `[ui30] Settings: shorter menu...`, `Privacy masks apply whatever
+  live tuning is...`): on a desktop and a phone, every tab opens (Picture, Privacy & overlay, Day/night, Streams &
+  audio, Detection, Recording, Network, Integrations, System, Update & backup), an old `#nav_audio` bookmark lands on
+  Streams & audio. A mask saved with live tuning **off** is painted (stream, snapshot) and the tuning switch stays off;
+  a mask-only save with tuning on keeps it on. Orientation alone changes only the flip (OSD, clock, day/night kept).
+  Saving the recording settings does not restart the stream. MQTT save and "Refresh Home Assistant Entities" work in
+  the merged card; the rescue Wi-Fi line fills in under the Wi-Fi card.
 
 Not fixed, for later: the action endpoints left from 2.x that no page calls (`set_stream_topology`,
 `set_onvif_stream_policy`, `set_rtsp_preset`, `set_rtsp_quality_profile`, `set_client_profile`, `pair_home_assistant`,
