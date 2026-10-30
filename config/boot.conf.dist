@@ -105,6 +105,10 @@ IDLE_AFTER=10
 # reboot; only with a healthy card and the recording not paused. 0 = off.
 LOG_PERSIST=1
 LOG_PERSIST_MIN=10
+# One resident loop for the slow periodic jobs (scripts/housekeeper.sh: web guard, network guard, SD panel, the RTSP and
+# MQTT service watchdogs, health snapshot, log persistence) instead of one shell process each: about 1 MB less RAM.
+# 0 = the separate daemons of before (read at boot).
+HOUSEKEEPER=1
 # ISP_TUNE=1: live image tuning from /mnt/config/isp_tune.conf (brightness,
 # contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied by
 # tc100_rtsp without restarting the stream.

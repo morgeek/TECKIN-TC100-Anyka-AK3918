@@ -158,7 +158,74 @@ _wd_graceful_shutdown() {
   sleep 2
 }
 
-monitor_service()
+# One check of one service (the body of the former loop). State: CURRENT_ERRORS, CURRENT_SUCCESS,
+# no_reboot_delay_seconds, last_no_reboot_restart_ts; SERVICE_TO_MONITOR, NEED_REBOOT_ON_ERROR and CHECK_MODE are set.
+wd_step()
+{
+    if service_is_healthy "$SERVICE_TO_MONITOR" "$CHECK_MODE"; then
+        CURRENT_SUCCESS=$((CURRENT_SUCCESS+1))
+        if [ "$CURRENT_SUCCESS" -gt 10 ]; then
+            no_reboot_delay_seconds="$WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS"
+        fi
+        if [ "$CURRENT_SUCCESS" -gt "$MIN_SUCCESS_TO_RESET_REBOOT" ]; then
+            CURRENT_SUCCESS=0
+            CURRENT_ERRORS=0
+        fi
+    elif [ $NEED_REBOOT_ON_ERROR -eq 0 ]; then
+        _wd_now; now_ts="$_wd_ts"
+        if [ "$no_reboot_delay_seconds" -gt 0 ] && [ "$last_no_reboot_restart_ts" -gt 0 ] && [ "$now_ts" -gt "$last_no_reboot_restart_ts" ]; then
+            elapsed=$((now_ts - last_no_reboot_restart_ts))
+            if [ "$elapsed" -lt "$no_reboot_delay_seconds" ]; then
+                append_log "@${now_ts} $SERVICE_TO_MONITOR - unhealthy, restart deferred ${elapsed}s/${no_reboot_delay_seconds}s (no reboot mode, check=$CHECK_MODE)"
+                return 0
+            fi
+        fi
+        append_log "@${now_ts} $SERVICE_TO_MONITOR - unhealthy, perform restart (no reboot mode, check=$CHECK_MODE, backoff=${no_reboot_delay_seconds}s)"
+        recover_service "$SERVICE_TO_MONITOR" "$CHECK_MODE"
+        last_no_reboot_restart_ts="$now_ts"
+        if [ "$no_reboot_delay_seconds" -lt "$WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS" ]; then
+            no_reboot_delay_seconds=$((no_reboot_delay_seconds + WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS))
+            if [ "$no_reboot_delay_seconds" -gt "$WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS" ]; then
+                no_reboot_delay_seconds="$WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS"
+            fi
+        fi
+    else
+        CURRENT_SUCCESS=0
+        CURRENT_ERRORS=$((CURRENT_ERRORS+1))
+        _wd_now
+        append_log "@${_wd_ts} Service $SERVICE_TO_MONITOR unhealthy, error count: $CURRENT_ERRORS (check=$CHECK_MODE)"
+        if [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_ALTERNATIVE_REBOOT" ]; then # If we can't reboot by normal call to 'reboot'
+            append_log "$SERVICE_TO_MONITOR - perform alternative reboot"
+            log_event "critical" "system" "Watchdog performing alternative reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
+            /bin/sh /mnt/scripts/reboot-tracker.sh intent "service-watchdog: $SERVICE_TO_MONITOR unhealthy ($CURRENT_ERRORS errors), forced reboot" >/dev/null 2>&1
+            _wd_graceful_shutdown
+            echo b >/proc/sysrq-trigger
+            CURRENT_ERRORS=0
+        elif [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_REBOOT" ]; then
+            append_log "$SERVICE_TO_MONITOR - perform reboot"
+            log_event "critical" "system" "Watchdog performing system reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
+            /bin/sh /mnt/scripts/reboot-tracker.sh intent "service-watchdog: $SERVICE_TO_MONITOR unhealthy ($CURRENT_ERRORS errors)" >/dev/null 2>&1
+            _wd_graceful_shutdown
+            /sbin/reboot -f
+        else
+            append_log "$SERVICE_TO_MONITOR - perform restart"
+            log_event "warn" "service" "Watchdog restarting $SERVICE_TO_MONITOR (error count: $CURRENT_ERRORS)"
+            recover_service "$SERVICE_TO_MONITOR" "$CHECK_MODE"
+            # Post-restart validation: wait half a check cycle, then confirm recovery.
+            _post_wait=$(( CHECK_TIMEOUT_SECONDS / 2 ))
+            [ "$_post_wait" -lt 5 ] && _post_wait=5
+            sleep "$_post_wait"
+            if ! service_is_healthy "$SERVICE_TO_MONITOR" "$CHECK_MODE"; then
+                _wd_now
+                append_log "@${_wd_ts} $SERVICE_TO_MONITOR - restart did not recover service"
+                log_event "error" "service" "Watchdog restart of $SERVICE_TO_MONITOR failed to recover (error count: $CURRENT_ERRORS)"
+                CURRENT_ERRORS=$((CURRENT_ERRORS + 1))
+            fi
+        fi
+    fi
+}
+
+wd_init()
 {
     SERVICE_TO_MONITOR=$1
     NEED_REBOOT_ON_ERROR=$2
@@ -172,6 +239,11 @@ monitor_service()
         status|health) ;;
         *) CHECK_MODE="status" ;;
     esac
+}
+
+monitor_service()
+{
+    wd_init "$1" "$2" "$3"
 
     # Allow clean exit via SIGTERM/SIGINT (e.g. when the watchdog itself is stopped).
     trap 'exit 0' TERM INT
@@ -179,73 +251,35 @@ monitor_service()
     while :
     do
         sleep $CHECK_TIMEOUT_SECONDS
-
-        if service_is_healthy "$SERVICE_TO_MONITOR" "$CHECK_MODE"; then
-            CURRENT_SUCCESS=$((CURRENT_SUCCESS+1))
-            if [ "$CURRENT_SUCCESS" -gt 10 ]; then
-                no_reboot_delay_seconds="$WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS"
-            fi
-            if [ "$CURRENT_SUCCESS" -gt "$MIN_SUCCESS_TO_RESET_REBOOT" ]; then
-                CURRENT_SUCCESS=0
-                CURRENT_ERRORS=0
-            fi
-        elif [ $NEED_REBOOT_ON_ERROR -eq 0 ]; then
-            _wd_now; now_ts="$_wd_ts"
-            if [ "$no_reboot_delay_seconds" -gt 0 ] && [ "$last_no_reboot_restart_ts" -gt 0 ] && [ "$now_ts" -gt "$last_no_reboot_restart_ts" ]; then
-                elapsed=$((now_ts - last_no_reboot_restart_ts))
-                if [ "$elapsed" -lt "$no_reboot_delay_seconds" ]; then
-                    append_log "@${now_ts} $SERVICE_TO_MONITOR - unhealthy, restart deferred ${elapsed}s/${no_reboot_delay_seconds}s (no reboot mode, check=$CHECK_MODE)"
-                    continue
-                fi
-            fi
-            append_log "@${now_ts} $SERVICE_TO_MONITOR - unhealthy, perform restart (no reboot mode, check=$CHECK_MODE, backoff=${no_reboot_delay_seconds}s)"
-            recover_service "$SERVICE_TO_MONITOR" "$CHECK_MODE"
-            last_no_reboot_restart_ts="$now_ts"
-            if [ "$no_reboot_delay_seconds" -lt "$WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS" ]; then
-                no_reboot_delay_seconds=$((no_reboot_delay_seconds + WATCHDOG_NO_REBOOT_BACKOFF_STEP_SECONDS))
-                if [ "$no_reboot_delay_seconds" -gt "$WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS" ]; then
-                    no_reboot_delay_seconds="$WATCHDOG_NO_REBOOT_MAX_DELAY_SECONDS"
-                fi
-            fi
-        else
-            CURRENT_SUCCESS=0
-            CURRENT_ERRORS=$((CURRENT_ERRORS+1))
-            _wd_now
-            append_log "@${_wd_ts} Service $SERVICE_TO_MONITOR unhealthy, error count: $CURRENT_ERRORS (check=$CHECK_MODE)"
-            if [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_ALTERNATIVE_REBOOT" ]; then # If we can't reboot by normal call to 'reboot'
-                append_log "$SERVICE_TO_MONITOR - perform alternative reboot"
-                log_event "critical" "system" "Watchdog performing alternative reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
-                /bin/sh /mnt/scripts/reboot-tracker.sh intent "service-watchdog: $SERVICE_TO_MONITOR unhealthy ($CURRENT_ERRORS errors), forced reboot" >/dev/null 2>&1
-                _wd_graceful_shutdown
-                echo b >/proc/sysrq-trigger
-                CURRENT_ERRORS=0
-            elif [ "$CURRENT_ERRORS" -gt "$MAX_ERRORS_TO_REBOOT" ]; then
-                append_log "$SERVICE_TO_MONITOR - perform reboot"
-                log_event "critical" "system" "Watchdog performing system reboot for $SERVICE_TO_MONITOR after $CURRENT_ERRORS errors"
-                /bin/sh /mnt/scripts/reboot-tracker.sh intent "service-watchdog: $SERVICE_TO_MONITOR unhealthy ($CURRENT_ERRORS errors)" >/dev/null 2>&1
-                _wd_graceful_shutdown
-                /sbin/reboot -f
-            else
-                append_log "$SERVICE_TO_MONITOR - perform restart"
-                log_event "warn" "service" "Watchdog restarting $SERVICE_TO_MONITOR (error count: $CURRENT_ERRORS)"
-                recover_service "$SERVICE_TO_MONITOR" "$CHECK_MODE"
-                # Post-restart validation: wait half a check cycle, then confirm recovery.
-                _post_wait=$(( CHECK_TIMEOUT_SECONDS / 2 ))
-                [ "$_post_wait" -lt 5 ] && _post_wait=5
-                sleep "$_post_wait"
-                if ! service_is_healthy "$SERVICE_TO_MONITOR" "$CHECK_MODE"; then
-                    _wd_now
-                    append_log "@${_wd_ts} $SERVICE_TO_MONITOR - restart did not recover service"
-                    log_event "error" "service" "Watchdog restart of $SERVICE_TO_MONITOR failed to recover (error count: $CURRENT_ERRORS)"
-                    CURRENT_ERRORS=$((CURRENT_ERRORS + 1))
-                fi
-            fi
-        fi
+        wd_step
     done
+}
+
+# One check, for scripts/housekeeper.sh (one resident loop instead of one watchdog process per service): the counters
+# live in a file between two calls ("errors success delay lastrestart", delay "-" = the base delay).
+#   service-watchdog.sh --tick SERVICE_SCRIPT NEED_REBOOT MODE
+WD_STATE_DIR="${HK_WDSTATE:-/tmp/watchdog-state}"
+wd_tick()
+{
+    wd_init "$1" "${2:-1}" "${3:-status}"
+    trap 'exit 0' TERM INT
+    _wd_sf="$WD_STATE_DIR/${SERVICE_TO_MONITOR##*/}"
+    _wd_e=0; _wd_s=0; _wd_d=-; _wd_l=0
+    [ -r "$_wd_sf" ] && read -r _wd_e _wd_s _wd_d _wd_l < "$_wd_sf"
+    case "$_wd_e$_wd_s$_wd_l" in ''|*[!0-9]*) _wd_e=0; _wd_s=0; _wd_l=0 ;; esac
+    case "$_wd_d" in ''|*[!0-9]*) _wd_d=- ;; esac
+    CURRENT_ERRORS=$_wd_e; CURRENT_SUCCESS=$_wd_s; last_no_reboot_restart_ts=$_wd_l
+    [ "$_wd_d" = - ] || no_reboot_delay_seconds=$_wd_d
+    wd_step
+    mkdir -p "$WD_STATE_DIR" 2>/dev/null
+    _wd_d=$no_reboot_delay_seconds; [ "$_wd_d" = "$WATCHDOG_NO_REBOOT_BASE_DELAY_SECONDS" ] && _wd_d=-
+    echo "$CURRENT_ERRORS $CURRENT_SUCCESS $_wd_d $last_no_reboot_restart_ts" > "$_wd_sf" 2>/dev/null
 }
 
 if [ $# -eq 0 ]; then
     append_log "No service to monitor! First param - full patch to service control script."
+elif [ "$1" = "--tick" ]; then
+    wd_tick "$2" "$3" "$4"
 else
     monitor_service "$1" "${2:-1}" "${3:-status}"
 fi

@@ -4,6 +4,8 @@ PIDFILE="/var/run/health-snapshot.pid"
 
 . /mnt/scripts/common_functions.sh
 
+# With scripts/housekeeper.sh running this is a job of it (the pid file holds the housekeeper's pid while the job is
+# registered), else a daemon of its own (HOUSEKEEPER=0 in boot.conf).
 status() {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && echo "PID: $pid"
@@ -11,12 +13,27 @@ status() {
 
 start() {
   if [ -n "$(status)" ]; then return 0; fi
-  HEALTH_SNAPSHOT_INTERVAL_SECONDS="$(read_kv_config_value /mnt/config/boot.conf HEALTH_SNAPSHOT_INTERVAL_SECONDS 300)" \
-    /mnt/scripts/health-snapshot.sh </dev/null >/dev/null 2>&1 &
+  HEALTH_SNAPSHOT_INTERVAL_SECONDS="$(read_kv_config_value /mnt/config/boot.conf HEALTH_SNAPSHOT_INTERVAL_SECONDS 300)"
+  export HEALTH_SNAPSHOT_INTERVAL_SECONDS
+  if sh /mnt/scripts/housekeeper.sh active </dev/null >/dev/null 2>&1; then
+    # the interval as the script clamps it (10..300); the first snapshot at once, as the daemon builds one at start
+    iv="$(sh /mnt/scripts/health-snapshot.sh interval 2>/dev/null)"
+    case "$iv" in ''|*[!0-9]*) iv=60 ;; esac
+    rm -f /tmp/health_snapshot.elapsed
+    sh /mnt/scripts/housekeeper.sh job add health-snapshot bg "$iv" 0 "$PIDFILE" \
+      env HEALTH_SNAPSHOT_INTERVAL_SECONDS="$iv" sh /mnt/scripts/health-snapshot.sh once </dev/null >/dev/null 2>&1 && return 0
+  fi
+  /mnt/scripts/health-snapshot.sh </dev/null >/dev/null 2>&1 &
   echo "$!" > "$PIDFILE"
 }
 
 stop() {
+  # a job of the housekeeper: unregister it (this also stops a run that is going and removes the pid file), then write
+  # the pending stability samples, as the daemon does when it is stopped
+  if sh /mnt/scripts/housekeeper.sh job del health-snapshot </dev/null >/dev/null 2>&1; then
+    sh /mnt/scripts/health-snapshot.sh flush </dev/null >/dev/null 2>&1
+    return 0
+  fi
   killpid_graceful "$PIDFILE" 3
 }
 
