@@ -117,3 +117,44 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   change to give it a buffer). Quality and bit rate at night, not CPU.
 - **Anti-flicker (`POWER_HZ`):** the 2.x firmware set it through the vendor library (`ak_vpss_effect_set(6, hz)`),
   whose ISP calls are not known; the field stays hidden on 3.0.
+
+## Web UI on 3.0: checks that need the camera (audit of 2026-10-30)
+
+A static audit traced every control of the web UI to what acts on it on 3.0. The fixes are in the commits
+`[ui30] ...`; these checks remain. Write the result after each line.
+
+- UI-01 `to test` — Busybox applets: `busybox --list | grep -E '^(crond|crontab|usleep|mkfifo|timeout)$'`. Without
+  `usleep` the IR-cut pulse of `bin/setconf` becomes 1 s; without `crond` the scheduled reboot never runs.
+- UI-02 `to test` — Time zone: set `CET-1CEST,M3.5.0,M10.5.0/3`, reboot; `date` over telnet, the OSD clock, a new
+  recording's file name and the log times agree.
+- UI-03 `to test` — IR-cut: Day / Night from the dashboard; the filter clicks and the picture changes the right way
+  (the UI state is `/var/run/ircut`, not read from the coil).
+- UI-04 `to test` — Auto day / night at dusk or in a dark room: `watch -n2 'cat /tmp/cam_luma /tmp/cam_ae'` and the
+  `[auto-night]` lines; note any flapping when the IR LEDs switch on (see HW-08).
+- UI-05 `to test` — Image orientation select: Mirror, Flip, Rotate 180; masks, OSD clock and snapshots follow.
+- UI-06 `to test` — Video: GOP, min / max QP from Settings reach `tc100_rtsp` (its command line in `ps`, keyframe
+  interval in VLC's codec info).
+- UI-07 `to test` — Motion: red LED blinks on motion with "Blink LED" on; the Recordings page timeline shows a
+  picture for each event; "On motion" recording with Detection off records nothing (the UI says so).
+- UI-08 `to test` — Network: static IP without DNS, reboot: `/etc/resolv.conf` holds the gateway, `ntpd` resolves.
+  Changing the RTSP port restarts the server on the new port.
+- UI-09 `to test` — Wi-Fi tile: `cat /proc/net/wireless` and `iw dev wlan0 link` give the signal.
+- UI-10 `to test` — Rescue access point, from the serial console (it takes wlan0): `sh /mnt/scripts/wifi-rescue.sh
+  start`; a phone sees it, `http://10.42.0.1` answers.
+- UI-11 `to test` — Scheduled reboot 2 minutes ahead fires (needs UI-01 `crond`).
+- UI-12 `to test` — Microphone level 0..15: `amixer -c 0 cget name='LineIn Capture Volume'` follows the setting.
+- UI-13 `to test` — Speaker / push-to-talk: a clip through `scripts/speaker-play.sh` is heard; amplifier polarity
+  (`SPEAKER_AMP_ACTIVE`, GPIO 14) and RTSP two-way audio from go2rtc / Home Assistant.
+- UI-14 `to test` — Home Assistant: the entities that appear all act (no anti-flicker or privacy entities any more).
+- UI-15 `to test` — Telegram: `/mnt/bin/telegram p`, and curl over TLS to `api.telegram.org`.
+- UI-16 `to test` — Settings size: 10 presets plus MQTT, then `cat /tmp/cfg-persist.status` (a 36 KB slot).
+- UI-17 `to test` — Memory Guard: its default thresholds (warn 8192, critical 4096 KB) against the real MemAvailable
+  (about 10 MB, more after HW-02); the critical stage must not stop motion detection in normal use.
+- UI-18 `to test` — Listen in the browser with the RTSP audio track on; syslog (`ps | grep syslogd`, `/var/log`).
+- UI-19 `to test` — SD card mount / eject / resume with FAT32 and exFAT cards; an update uploaded without a card.
+- UI-20 `to test` — Reset button held 20 s: only a reboot on 3.0.
+
+Not fixed, for later: the action endpoints left from 2.x that no page calls (`set_stream_topology`,
+`set_onvif_stream_policy`, `set_rtsp_preset`, `set_rtsp_quality_profile`, `set_client_profile`, `pair_home_assistant`,
+`complete_setup_wizard`, `conf_autodaynight`, ...); the performance profiles of `system.sh` write values 3.0 does not
+read; anti-flicker (see above).
