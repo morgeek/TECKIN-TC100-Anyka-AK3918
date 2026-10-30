@@ -1834,7 +1834,9 @@ static unsigned char md_mask[MD_GW * MD_GH];
 static unsigned md_starts;
 static unsigned char md_prev[MD_GW * MD_GH];
 static int md_have, md_hits;
-static double md_t, md_tlast;
+static double md_t, md_tlast, md_since;
+static int idle_fps, idle_after = 10;	/* boot.conf IDLE_FPS (0 = off), IDLE_AFTER: lower rate while nothing moves */
+static double snd_t;			/* time of the last sound event (now_s clock) */
 
 static void md_reload(int conf_changed, int zones_changed)
 {
@@ -1865,6 +1867,7 @@ static void md_reload(int conf_changed, int zones_changed)
 	if (sens < 1) sens = 1;
 	if (sens > 100) sens = 100;
 	on = md_conf_on && !access("/tmp/tc100_md", F_OK);
+	if (on && !md_on) md_since = now_s();
 	if (on == md_on && sens == md_sens && md_nz == old_nz && !memcmp(md_z, old_z, sizeof md_z)) return;
 	md_sens = sens; old_nz = md_nz; memcpy(old_z, md_z, sizeof md_z);
 	if (on) {
@@ -2183,6 +2186,14 @@ static void cfg_reload(double tn)
 
 		talk_cfg = !(cfg_get(CONF "boot.conf", "", "RTSP_LITE_TALK", v, sizeof v) &&
 			     (v[0] == '0' || !strcmp(v, "no") || !strcmp(v, "off") || !strcmp(v, "false")));
+	}
+	if (ch[0]) {
+		int f = cfg_num(CONF "boot.conf", "IDLE_FPS", 0), a = cfg_num(CONF "boot.conf", "IDLE_AFTER", 10);
+
+		if (f < 0 || f > 24) f = 0;
+		if (a < 1 || a > 3600) a = 10;
+		if (f != idle_fps || a != idle_after) LOG("idle frame rate: %s (IDLE_FPS=%d IDLE_AFTER=%d)\n", f ? "on, needs motion detection" : "off", f, a);
+		idle_fps = f; idle_after = a;
 	}
 	if (ch[0] || ch[5]) rec_reload();
 	if (ch[3]) snd_reload();
@@ -2577,6 +2588,12 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (rec_mode == REC_MOTION && !access("/tmp/motion_detected", F_OK)) {	/* sound event (sound-detection) */
 				unlink("/tmp/motion_detected");
 				snd_pulse = nowt;
+				snd_t = now_s();
+			} else if (idle_fps && rec_mode != REC_MOTION) {	/* idle frame rate: a touch of the file is a sound event; not removed */
+				static time_t snd_mt;
+				struct stat sbm;
+
+				if (!stat("/tmp/motion_detected", &sbm) && sbm.st_mtime != snd_mt) { snd_mt = sbm.st_mtime; snd_t = now_s(); }
 			}
 			snd = snd_pulse && nowt - snd_pulse < 2;
 			rec_inputs(rec_watched(), md_motion || snd);
@@ -2599,9 +2616,20 @@ unsigned char *fpb[2] = { NULL, NULL };
 			/* frame rate: the sensor gives 25 fps; keep the configured rate (frames come back to the driver at once) */
 			if (!prime) {
 				static double due;
-				double tq = now_s(), iv = 1.0 / fps;
+				static int was_idle;
+				double tq = now_s(), ev = md_tlast > snd_t ? md_tlast : snd_t, iv;
+				int fr;
 
+				if (md_since > ev) ev = md_since;
+				fr = idle_fps_now(fps, idle_fps, idle_after, md_on, rec_active() && rec_mode != REC_MOTION, tq, ev);
+				if ((fr < fps) != was_idle) {
+					was_idle = fr < fps; due = 0;
+					LOG("idle frame rate: %s\n", was_idle ? "nothing moves, lowered" : "motion or sound, back to the full rate");
+					if (was_idle) LOG("idle frame rate: %d fps instead of %d\n", idle_fps, fps);
+				}
+				iv = 1.0 / fr;
 				if (tq < due - iv * 0.3) {
+					if (was_idle) md_frame(vb[b.index], tq);	/* the motion check keeps its 4 samples a second */
 					if (zc) { b.m.userptr = (unsigned long)vb[b.index]; b.length = flen; }
 					ioctl(fd, VIDIOC_QBUF, &b);
 					continue;
