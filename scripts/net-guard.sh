@@ -32,31 +32,63 @@ PERSIST="${NG_PERSIST:-/mnt/config/.net-guard-reboots}"
 WR_RUN="${NG_WR_RUN:-/tmp/wifi-rescue}"
 mkdir -p "$STATE" 2>/dev/null
 
-_ng_kv() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$CONF" 2>/dev/null | tail -n 1; }
-_ng_up() { if [ -n "$NG_UPTIME" ]; then echo "$NG_UPTIME"; else cut -d. -f1 /proc/uptime; fi; }
+# No forks in the helpers below: the check runs every minute (3 minutes while the network is fine, see web-guard.sh).
+# _ng_kv KEY: value of KEY in boot.conf (last line wins, one pair of double quotes removed, a value with another quote
+# is ignored: what the former sed|tail gave), into $_kv
+_ng_kv()
+{
+    _kv=
+    [ -r "$CONF" ] || return 0
+    while IFS= read -r _kl || [ -n "$_kl" ]; do
+        case "$_kl" in "$1="*) ;; *) continue ;; esac
+        _kx=${_kl#*=}; _kx=${_kx#\"}; _kx=${_kx%\"}
+        case "$_kx" in *\"*) continue ;; esac
+        _kv=$_kx
+    done < "$CONF"
+}
+# uptime in seconds into $_now
+_ng_up() { if [ -n "$NG_UPTIME" ]; then _now="$NG_UPTIME"; else read -r _u _ < /proc/uptime; _now="${_u%.*}"; fi; }
+# first line of FILE into $_f1 (empty when unreadable)
+_ng_first() { _f1=; [ -r "$1" ] && read -r _f1 < "$1"; return 0; }
 
+# the default gateway into $_gw: first line with destination 0.0.0.0 of "route -n" text (NG_ROUTE_FILE: tests), or of
+# /proc/net/route (hex, little endian: C0A80101 is written 0101A8C0)
 _ng_gateway()
 {
-    if [ -n "$NG_ROUTE_FILE" ]; then cat "$NG_ROUTE_FILE"; else route -n 2>/dev/null; fi |
-        awk '$1 == "0.0.0.0" { print $2; exit }'
+    _gw=
+    if [ -n "$NG_ROUTE_FILE" ]; then
+        [ -r "$NG_ROUTE_FILE" ] || return 0
+        while read -r _rd _rg _; do
+            [ "$_rd" = 0.0.0.0 ] && { _gw=$_rg; break; }
+        done < "$NG_ROUTE_FILE"
+        return 0
+    fi
+    [ -r /proc/net/route ] || return 0
+    while read -r _ri _rd _rg _; do
+        [ "$_rd" = 00000000 ] || continue
+        case "$_rg" in [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;; *) continue ;; esac
+        _o3=${_rg#??}; _o3=${_o3%????}; _o2=${_rg#????}; _o2=${_o2%??}
+        _gw="$((0x${_rg#??????})).$((0x$_o2)).$((0x$_o3)).$((0x${_rg%??????}))"
+        break
+    done < /proc/net/route
 }
 
 _ng_ok()
 {
-    _gw="$(_ng_gateway)"
+    _ng_gateway
     [ -n "$_gw" ] || return 1
     ${NG_PING:-ping} -c 1 -W 3 "$_gw" >/dev/null 2>&1 && return 0
     sleep "${NG_RETRY_S:-2}"
     ${NG_PING:-ping} -c 1 -W 3 "$_gw" >/dev/null 2>&1
 }
 
-_ng_rescue_ap() { [ -f "$WR_RUN/hostapd.pid" ] && kill -0 "$(cat "$WR_RUN/hostapd.pid" 2>/dev/null)" 2>/dev/null; }
+_ng_rescue_ap() { _ng_first "$WR_RUN/hostapd.pid"; [ -n "$_f1" ] && kill -0 "$_f1" 2>/dev/null; }
 
-_ng_count() { _c=$(cat "$PERSIST" 2>/dev/null); case "$_c" in ''|*[!0-9]*) _c=0 ;; esac; echo "$_c"; }
+_ng_count() { _ng_first "$PERSIST"; _c=$_f1; case "$_c" in ''|*[!0-9]*) _c=0 ;; esac; echo "$_c"; }
 
 _ng_limit()
 {
-    _min="$(_ng_kv NET_GUARD_MIN)"
+    _ng_kv NET_GUARD_MIN; _min=$_kv
     case "$_min" in ''|*[!0-9]*|0) _min=15 ;; esac
     _n=$(_ng_count); [ "$_n" -gt 3 ] && _n=3
     _b=$((_min * 60)); _l=$_b
@@ -68,21 +100,23 @@ _ng_limit()
 }
 
 # network-monitor (Services, opt-in) does the same job with Wi-Fi bounces first: one network-loss rebooter at a time.
-_ng_netmon() { _p=$(cat "${NG_NETMON_PID:-/var/run/network-monitor.pid}" 2>/dev/null); [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null; }
+_ng_netmon() { _ng_first "${NG_NETMON_PID:-/var/run/network-monitor.pid}"; [ -n "$_f1" ] && kill -0 "$_f1" 2>/dev/null; }
 
 ng_once()
 {
-    case "$(_ng_kv NET_GUARD)" in 0|no|off|false) rm -f "$STATE/down_since"; return 0 ;; esac
+    _ng_kv NET_GUARD
+    case "$_kv" in 0|no|off|false) rm -f "$STATE/down_since"; return 0 ;; esac
     if _ng_netmon; then rm -f "$STATE/down_since"; return 0; fi
-    _now=$(_ng_up)
+    _ng_up
     if _ng_ok; then
         if [ -f "$STATE/down_since" ]; then
-            _ds=$(cat "$STATE/down_since"); rm -f "$STATE/down_since"
+            _ng_first "$STATE/down_since"; _ds=$_f1; rm -f "$STATE/down_since"
             logger -t tc100-event -p user.notice "net-guard: network back after $((_now - _ds)) s" 2>/dev/null
         fi
         [ -f "$STATE/up_since" ] || echo "$_now" > "$STATE/up_since"
-        if [ -f "$PERSIST" ] && [ $((_now - $(cat "$STATE/up_since"))) -ge 600 ]; then
-            rm -f "$PERSIST"; sync
+        if [ -f "$PERSIST" ]; then
+            _ng_first "$STATE/up_since"
+            [ $((_now - _f1)) -ge 600 ] && { rm -f "$PERSIST"; sync; }
         fi
         return 0
     fi
@@ -92,7 +126,7 @@ ng_once()
         logger -t tc100-event -p user.warn "net-guard: gateway unreachable, reboot in $(( $(_ng_limit) / 60 )) min if it stays so" 2>/dev/null
         return 0
     fi
-    _ds=$(cat "$STATE/down_since")
+    _ng_first "$STATE/down_since"; _ds=$_f1
     _lim=$(_ng_limit)
     [ $((_now - _ds)) -ge "$_lim" ] || return 0
     if _ng_rescue_ap; then return 0; fi
@@ -113,8 +147,8 @@ case "${0##*/}" in
         case "$1" in
             once) ng_once ;;
             status)
-                _now=$(_ng_up); _d=0
-                [ -f "$STATE/down_since" ] && _d=$((_now - $(cat "$STATE/down_since")))
+                _ng_up; _d=0
+                [ -f "$STATE/down_since" ] && { _ng_first "$STATE/down_since"; _d=$((_now - _f1)); }
                 echo "down_s=$_d limit_s=$(_ng_limit) reboots=$(_ng_count)" ;;
             *) echo "usage: $0 once | status" >&2; exit 2 ;;
         esac ;;

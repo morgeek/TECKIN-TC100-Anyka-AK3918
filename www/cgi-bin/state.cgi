@@ -495,6 +495,137 @@ codec_name() {
   esac
 }
 
+# Dashboard cards: ~150 forks when built from scratch (df, wpa_cli|awk, per-partition reads, json_escape), and the page
+# asks every minute. The finished JSON is kept in /tmp (line 1 = uptime seconds when built, line 2 = hostname, line 3 =
+# the JSON) for DASHINFO_CACHE_TTL_SECONDS, and dropped at once when a file it is made of is newer than the cache
+# (stream settings, host name, Wi-Fi, firmware version) or when the host name changed (read from /proc, no fork).
+DASHINFO_CACHE_FILE="/tmp/state_dashinfo.cache"
+DASHINFO_CACHE_TTL_SECONDS=300
+
+dashinfo_compute() {
+    load_conf_file /mnt/config/rtspserver.conf
+    read_rtsp_stream_summary
+    detect_primary_ip
+    get_sd_usage
+    _di_host=""; read -r _di_host < /proc/sys/kernel/hostname 2>/dev/null
+    _di_kern=""; read -r _di_kern < /proc/sys/kernel/osrelease 2>/dev/null
+    _di_mac=""; read -r _di_mac 2>/dev/null < /sys/class/net/wlan0/address
+    _di_ver=""; read -r _di_ver < /mnt/VERSION 2>/dev/null
+    # Flash and card usage. In flash mode the card (if any) is on /mnt/sd.
+    _di_sdmp=/mnt; [ "${storage_json:-sd}" = flash ] && _di_sdmp=/mnt/sd
+    _di_jt=0; _di_ju=0; _di_st=0; _di_su=0
+    while read -r _fs _t _u _a _p _mp _rest; do
+      case "$_t$_u" in ''|*[!0-9]*) continue ;; esac
+      case "$_mp" in
+        /etc/jffs2) _di_jt=$_t; _di_ju=$_u ;;
+        "$_di_sdmp")
+          if [ "$_mp" = "/mnt/sd" ] && [ "$_fs" = "tmpfs" ]; then continue; fi
+          _di_st=$_t; _di_su=$_u ;;
+      esac
+    done <<EOF_DF
+$(df -k 2>/dev/null)
+EOF_DF
+    # Linux 6.6 flash mode uses cfga/cfgb (36 KB each) instead of /etc/jffs2
+    if [ "$_di_jt" -eq 0 ] && [ -f /tmp/flashmode ]; then
+      for _dm in /sys/class/mtd/mtd[0-9]*; do
+        case "$_dm" in *ro) continue ;; esac
+        _nm=""; read -r _nm < "$_dm/name" 2>/dev/null
+        [ "$_nm" = "cfga" ] || continue
+        _csz=""; read -r _csz < "$_dm/size" 2>/dev/null
+        case "$_csz" in [0-9]*) _di_jt=$(( _csz / 1024 )) ;; esac
+        _chdr="$(dd if=/dev/${_dm##*/}ro bs=1 count=64 2>/dev/null | tr '\000\377' '  ')"
+        _clen="$(printf '%s' "$_chdr" | awk '$1=="TC1CFG"{print int(($3+64+1023)/1024); exit}')"
+        case "$_clen" in [0-9]*) _di_ju="$_clen" ;; esac
+        break
+      done
+    fi
+    # Detailed SPI flash breakdown for the Dashboard Storage card (in KB)
+    _di_flash_json="null"
+    if [ -d /sys/class/mtd/mtd0 ]; then
+      _fp_list=""
+      _ftot_kb=0
+      _fused_kb=0
+      for _dm in /sys/class/mtd/mtd[0-9]*; do
+        case "$_dm" in *ro) continue ;; esac
+        [ -r "$_dm/size" ] || continue
+        _m="${_dm##*/}"
+        _nm=""; read -r _nm < "$_dm/name" 2>/dev/null
+        _sz=""; read -r _sz < "$_dm/size" 2>/dev/null
+        case "$_sz" in ''|*[!0-9]*) continue ;; esac
+        _used="$_sz"
+        case "$_nm" in
+          kernel)
+            _khex="$(dd if=/dev/${_m}ro bs=1 skip=12 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+            case "$_khex" in [0-9a-fA-F][0-9a-fA-F]*) _ksz=$(( 0x$_khex + 64 )); [ "$_ksz" -gt 64 ] && [ "$_ksz" -le "$_sz" ] && _used="$_ksz" ;; esac
+            ;;
+          initrd)
+            _icmd="$(sed -n 's/.*initrd=0x[0-9a-fA-F]*,\([0-9][0-9]*\).*/\1/p' /proc/cmdline 2>/dev/null)"
+            case "$_icmd" in [0-9]*) [ "$_icmd" -gt 0 ] && [ "$_icmd" -le "$_sz" ] && _used="$_icmd" ;; esac
+            ;;
+          stack)
+            _shex="$(dd if=/dev/${_m}ro bs=1 skip=40 count=4 2>/dev/null | od -An -tx1 | awk '{print $4$3$2$1}')"
+            case "$_shex" in [0-9a-fA-F][0-9a-fA-F]*) _ssz=$(( (0x$_shex + 4095) / 4096 * 4096 )); [ "$_ssz" -gt 0 ] && [ "$_ssz" -le "$_sz" ] && _used="$_ssz" ;; esac
+            ;;
+          cfga|cfgb)
+            _chdr="$(dd if=/dev/${_m}ro bs=1 count=64 2>/dev/null | tr '\000\377' '  ')"
+            _clen="$(printf '%s' "$_chdr" | awk '$1=="TC1CFG"{print $3+64; exit}')"
+            case "$_clen" in [0-9]*) [ "$_clen" -gt 0 ] && [ "$_clen" -le "$_sz" ] && _used="$_clen" ;; *) _used=0 ;; esac
+            ;;
+        esac
+        _sz_kb=$(( _sz / 1024 ))
+        _us_kb=$(( (_used + 512) / 1024 ))
+        [ "$_us_kb" -gt "$_sz_kb" ] && _us_kb="$_sz_kb"
+        _ftot_kb=$(( _ftot_kb + _sz_kb ))
+        _fused_kb=$(( _fused_kb + _us_kb ))
+        json_esc_to _nm_j "$_nm"
+        _item="{\"name\":\"$_nm_j\",\"size_kb\":$_sz_kb,\"used_kb\":$_us_kb}"
+        _fp_list="${_fp_list:+${_fp_list},}${_item}"
+      done
+      _di_flash_json="$(printf '{"total_kb":%d,"used_kb":%d,"parts":[%s]}' "$_ftot_kb" "$_fused_kb" "$_fp_list")"
+    fi
+    _di_ssid=""
+    if command -v wpa_cli >/dev/null 2>&1; then
+      _di_ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk -F= '$1 == "ssid" { print $2; exit }')"
+    fi
+    [ -z "$_di_ssid" ] && [ -r /etc/wpa_supplicant.conf ] && _di_ssid="$(sed -n 's/^[[:space:]]*ssid="\([^"]*\)".*/\1/p' /etc/wpa_supplicant.conf 2>/dev/null | head -n 1)"
+    json_esc_to _j_host "$_di_host"; json_esc_to _j_ip "$primary_ip"; json_esc_to _j_mac "$_di_mac"
+    json_esc_to _j_kern "$_di_kern"; json_esc_to _j_ver "$_di_ver"; json_esc_to _j_ssid "$_di_ssid"
+    printf '{"hostname":"%s","ip":"%s","mac":"%s","kernel":"%s","firmware":"%s","storage":"%s","soc":"Anyka AK3918EV300","sensor":"SOI JXF23","wifi_chip":"Realtek RTL8188FU","ssid":"%s","rtsp_port":%s,"main":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"sub":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"jffs":[%s,%s],"sd":[%s,%s],"flash":%s}\n' \
+      "$_j_host" "$_j_ip" "$_j_mac" "$_j_kern" "$_j_ver" "${storage_json:-sd}" "$_j_ssid" "$rtsp_port" \
+      "$codec0_name" "$width0" "$height0" "$fps0" "$bps0" "$codec1_name" "$width1" "$height1" "$fps1" "$bps1" \
+      "$_di_jt" "$_di_ju" "$_di_st" "$_di_su" "$_di_flash_json"
+}
+
+dashinfo_cached() {
+  _dc_up=0; read -r _dc_up _ < /proc/uptime 2>/dev/null; _dc_up="${_dc_up%.*}"
+  case "$_dc_up" in ''|*[!0-9]*) _dc_up=0 ;; esac
+  _dc_host=""; read -r _dc_host < /proc/sys/kernel/hostname 2>/dev/null
+  if [ -f "$DASHINFO_CACHE_FILE" ]; then
+    _dc_ts=""; _dc_chost=""; _dc_json=""
+    { read -r _dc_ts; read -r _dc_chost; read -r _dc_json; } < "$DASHINFO_CACHE_FILE"
+    case "$_dc_ts" in ''|*[!0-9]*) _dc_ts="" ;; esac
+    if [ -n "$_dc_ts" ] && [ -n "$_dc_json" ] && [ "$_dc_chost" = "$_dc_host" ] &&
+       [ "$_dc_up" -ge "$_dc_ts" ] && [ $((_dc_up - _dc_ts)) -lt "$DASHINFO_CACHE_TTL_SECONDS" ]; then
+      _dc_stale=0
+      for _dc_f in /mnt/config/rtspserver.conf /mnt/config/hostname.conf /mnt/config/boot.conf /etc/wpa_supplicant.conf \
+          /mnt/VERSION /tmp/flashmode /tmp/tc100-storage /tmp/camera_ip.txt; do
+        [ "$_dc_f" -nt "$DASHINFO_CACHE_FILE" ] && { _dc_stale=1; break; }
+      done
+      if [ "$_dc_stale" = 0 ]; then
+        printf '%s\n' "$_dc_json"
+        return 0
+      fi
+    fi
+  fi
+  _dc_json="$(dashinfo_compute)"
+  printf '%s\n' "$_dc_json"
+  case "$_dc_json" in
+    '{"hostname":'*)
+      { printf '%s\n%s\n%s\n' "$_dc_up" "$_dc_host" "$_dc_json" > "$DASHINFO_CACHE_FILE.$$" &&
+        mv "$DASHINFO_CACHE_FILE.$$" "$DASHINFO_CACHE_FILE"; } 2>/dev/null || rm -f "$DASHINFO_CACHE_FILE.$$" 2>/dev/null ;;
+  esac
+}
+
 service_state_json() {
   service_script="$1"
   service_state="stopped"
@@ -509,42 +640,55 @@ service_state_json() {
   printf '{"state":"%s","pid":%s}' "$service_state_escaped" "$service_pid"
 }
 
+# cfg_int VAR KEY DEFAULT: get_cfg + sanitize_int into a variable, without the two subshells (read_rtsp_stream_summary
+# calls it 33 times, each camera page poll). Same result: an empty or non-numeric value gives the default.
+cfg_int() {
+  eval "_ci_val=\"\$C_$2\""
+  case "$_ci_val" in ''|*[!0-9]*) _ci_val="$3" ;; esac
+  eval "$1=\"\$_ci_val\""
+}
+
+# codec_name without a subshell: codec_name_to VAR CODE
+codec_name_to() {
+  case "$2" in 2) eval "$1=H265" ;; 0) eval "$1=H264" ;; *) eval "$1=unknown" ;; esac
+}
+
 read_rtsp_stream_summary() {
     # Main Stream [0]
-    codec0="$(sanitize_int "$(get_cfg 0_codec 2)" 2)"
-    width0="$(sanitize_int "$(get_cfg 0_width 1280)" 1280)"
-    height0="$(sanitize_int "$(get_cfg 0_height 720)" 720)"
-    fps0="$(sanitize_int "$(get_cfg 0_fps 16)" 16)"
-    bps0="$(sanitize_int "$(get_cfg 0_bps 1000)" 1000)"
-    profile0="$(sanitize_int "$(get_cfg 0_profile 3)" 3)"
-    goplen0="$(sanitize_int "$(get_cfg 0_goplen 50)" 50)"
-    brmode0="$(sanitize_int "$(get_cfg 0_brmode 1)" 1)"
-    minqp0="$(sanitize_int "$(get_cfg 0_minqp 20)" 20)"
-    maxqp0="$(sanitize_int "$(get_cfg 0_maxqp 51)" 51)"
-    smartmode0="$(sanitize_int "$(get_cfg 0_smartmode 1)" 1)"
-    smartgoplen0="$(sanitize_int "$(get_cfg 0_smartgoplen 0)" 0)"
-    smartquality0="$(sanitize_int "$(get_cfg 0_smartquality 100)" 100)"
-    smartstatic0="$(sanitize_int "$(get_cfg 0_smartstatic 500)" 500)"
-    maxkbps0="$(sanitize_int "$(get_cfg 0_maxkbps 1500)" 1500)"
-    targetkbps0="$(sanitize_int "$(get_cfg 0_targetkbps 1200)" 1200)"
+    cfg_int codec0 0_codec 2
+    cfg_int width0 0_width 1280
+    cfg_int height0 0_height 720
+    cfg_int fps0 0_fps 16
+    cfg_int bps0 0_bps 1000
+    cfg_int profile0 0_profile 3
+    cfg_int goplen0 0_goplen 50
+    cfg_int brmode0 0_brmode 1
+    cfg_int minqp0 0_minqp 20
+    cfg_int maxqp0 0_maxqp 51
+    cfg_int smartmode0 0_smartmode 1
+    cfg_int smartgoplen0 0_smartgoplen 0
+    cfg_int smartquality0 0_smartquality 100
+    cfg_int smartstatic0 0_smartstatic 500
+    cfg_int maxkbps0 0_maxkbps 1500
+    cfg_int targetkbps0 0_targetkbps 1200
 
     # Sub Stream [1]
-    codec1="$(sanitize_int "$(get_cfg 1_codec 0)" 0)"
-    width1="$(sanitize_int "$(get_cfg 1_width 640)" 640)"
-    height1="$(sanitize_int "$(get_cfg 1_height 360)" 360)"
-    fps1="$(sanitize_int "$(get_cfg 1_fps 8)" 8)"
-    bps1="$(sanitize_int "$(get_cfg 1_bps 250)" 250)"
-    profile1="$(sanitize_int "$(get_cfg 1_profile 0)" 0)"
-    goplen1="$(sanitize_int "$(get_cfg 1_goplen 32)" 32)"
-    brmode1="$(sanitize_int "$(get_cfg 1_brmode 1)" 1)"
-    minqp1="$(sanitize_int "$(get_cfg 1_minqp 20)" 20)"
-    maxqp1="$(sanitize_int "$(get_cfg 1_maxqp 51)" 51)"
-    smartmode1="$(sanitize_int "$(get_cfg 1_smartmode 1)" 1)"
-    smartgoplen1="$(sanitize_int "$(get_cfg 1_smartgoplen 0)" 0)"
-    smartquality1="$(sanitize_int "$(get_cfg 1_smartquality 50)" 50)"
-    smartstatic1="$(sanitize_int "$(get_cfg 1_smartstatic 150)" 150)"
-    maxkbps1="$(sanitize_int "$(get_cfg 1_maxkbps 450)" 450)"
-    targetkbps1="$(sanitize_int "$(get_cfg 1_targetkbps 400)" 400)"
+    cfg_int codec1 1_codec 0
+    cfg_int width1 1_width 640
+    cfg_int height1 1_height 360
+    cfg_int fps1 1_fps 8
+    cfg_int bps1 1_bps 250
+    cfg_int profile1 1_profile 0
+    cfg_int goplen1 1_goplen 32
+    cfg_int brmode1 1_brmode 1
+    cfg_int minqp1 1_minqp 20
+    cfg_int maxqp1 1_maxqp 51
+    cfg_int smartmode1 1_smartmode 1
+    cfg_int smartgoplen1 1_smartgoplen 0
+    cfg_int smartquality1 1_smartquality 50
+    cfg_int smartstatic1 1_smartstatic 150
+    cfg_int maxkbps1 1_maxkbps 450
+    cfg_int targetkbps1 1_targetkbps 400
 
     # tc100_rtsp encodes 1920x1080 and 640x360 at 15 frames per second whatever the file says (codec and bit rate
     # are taken from it): report what the streams really are (dashboard, Frigate YAML, HA manifest).
@@ -553,10 +697,10 @@ read_rtsp_stream_summary() {
     case "$fps0" in 10|12|15|20|25) ;; *) fps0=15 ;; esac
     fps1=$fps0
 
-    codec0_name="$(codec_name "$codec0")"
-    codec1_name="$(codec_name "$codec1")"
+    codec_name_to codec0_name "$codec0"
+    codec_name_to codec1_name "$codec1"
 
-    rtsp_port="$(sanitize_int "$(get_cfg PORT 554)" 554)"
+    cfg_int rtsp_port PORT 554
 }
 
 last_watchdog_event_json() {
@@ -1056,7 +1200,7 @@ if [ -n "$F_cmd" ]; then
     # state of /tmp/cam_ae and the exposure index the ae source compares; the formula is that of
     # scripts/auto-night-daemon.sh dn_index) so that the thresholds can be set from what the camera sees.
     load_conf_file /mnt/config/daynight.conf
-    _dn_src="$(get_cfg DAYNIGHT_SOURCE luma)"; case "$_dn_src" in ae|isp) ;; *) _dn_src=luma ;; esac
+    _dn_src="$C_DAYNIGHT_SOURCE"; case "$_dn_src" in ae|isp) ;; *) _dn_src=luma ;; esac
     _dn_luma=""; [ -r /tmp/cam_luma ] && read -r _dn_luma < /tmp/cam_luma
     _dn_ae=0; _dn_idx=null; _dn_l=null; _dn_e=null; _dn_a=null; _dn_d=null; _dn_i=null; _dn_k=null
     if [ -r /tmp/cam_ae ]; then
@@ -1071,12 +1215,22 @@ if [ -n "$F_cmd" ]; then
       esac
     fi
     _dn_cut=1; [ -r /var/run/ircut ] && { read -r _dn_c < /var/run/ircut; [ "$_dn_c" = 0 ] && _dn_cut=0; }
-    _dn_auto=1; _dn_m="$(sed -n 's/^daynight=//p' /mnt/config/rtspserver.conf 2>/dev/null | head -n 1)"; [ "$_dn_m" = 3 ] && _dn_auto=0
+    # first "daynight=" line of rtspserver.conf (3 = manual night): read in the shell, no sed|head
+    _dn_auto=1
+    if [ -r /mnt/config/rtspserver.conf ]; then
+      while IFS='=' read -r _dn_k0 _dn_m; do
+        [ "$_dn_k0" = daynight ] || continue
+        [ "$_dn_m" = 3 ] && _dn_auto=0
+        break
+      done < /mnt/config/rtspserver.conf
+    fi
+    cfg_int _dn_ln LUMA_NIGHT 40; cfg_int _dn_ld LUMA_DAY 100
+    cfg_int _dn_an AE_NIGHT_ABOVE 4000; cfg_int _dn_ad AE_DAY_BELOW 1000
+    cfg_int _dn_nh NIGHT_HOLD 10; cfg_int _dn_dh DAY_HOLD 60
+    case "$_dn_luma" in ''|*[!0-9]*) _dn_luma=null ;; esac
     printf '{"source":"%s","luma_night":%s,"luma_day":%s,"ae_night_above":%s,"ae_day_below":%s,"night_hold":%s,"day_hold":%s,"auto":%s,"night":%s,"luma":%s,"ae_available":%s,"lumi":%s,"exp_time":%s,"a_gain":%s,"d_gain":%s,"isp_d_gain":%s,"dark_flag":%s,"index":%s}\n' \
-      "$_dn_src" "$(sanitize_int "$(get_cfg LUMA_NIGHT 40)" 40)" "$(sanitize_int "$(get_cfg LUMA_DAY 100)" 100)" \
-      "$(sanitize_int "$(get_cfg AE_NIGHT_ABOVE 4000)" 4000)" "$(sanitize_int "$(get_cfg AE_DAY_BELOW 1000)" 1000)" \
-      "$(sanitize_int "$(get_cfg NIGHT_HOLD 10)" 10)" "$(sanitize_int "$(get_cfg DAY_HOLD 60)" 60)" \
-      "$_dn_auto" "$((1 - _dn_cut))" "$(sanitize_int "$_dn_luma" null)" "$_dn_ae" "$_dn_l" "$_dn_e" "$_dn_a" "$_dn_d" "$_dn_i" "$_dn_k" "$_dn_idx"
+      "$_dn_src" "$_dn_ln" "$_dn_ld" "$_dn_an" "$_dn_ad" "$_dn_nh" "$_dn_dh" \
+      "$_dn_auto" "$((1 - _dn_cut))" "$_dn_luma" "$_dn_ae" "$_dn_l" "$_dn_e" "$_dn_a" "$_dn_d" "$_dn_i" "$_dn_k" "$_dn_idx"
     ;;
 
   lumawb)
@@ -1609,95 +1763,8 @@ if [ -n "$F_cmd" ]; then
     ;;
 
   dashinfo)
-    # What changes rarely, for the dashboard cards (read once a minute).
-    load_conf_file /mnt/config/rtspserver.conf
-    read_rtsp_stream_summary
-    detect_primary_ip
-    get_sd_usage
-    _di_host=""; read -r _di_host < /proc/sys/kernel/hostname 2>/dev/null
-    _di_kern=""; read -r _di_kern < /proc/sys/kernel/osrelease 2>/dev/null
-    _di_mac=""; read -r _di_mac 2>/dev/null < /sys/class/net/wlan0/address
-    _di_ver=""; read -r _di_ver < /mnt/VERSION 2>/dev/null
-    # Flash and card usage. In flash mode the card (if any) is on /mnt/sd.
-    _di_sdmp=/mnt; [ "${storage_json:-sd}" = flash ] && _di_sdmp=/mnt/sd
-    _di_jt=0; _di_ju=0; _di_st=0; _di_su=0
-    while read -r _fs _t _u _a _p _mp _rest; do
-      case "$_t$_u" in ''|*[!0-9]*) continue ;; esac
-      case "$_mp" in
-        /etc/jffs2) _di_jt=$_t; _di_ju=$_u ;;
-        "$_di_sdmp")
-          if [ "$_mp" = "/mnt/sd" ] && [ "$_fs" = "tmpfs" ]; then continue; fi
-          _di_st=$_t; _di_su=$_u ;;
-      esac
-    done <<EOF_DF
-$(df -k 2>/dev/null)
-EOF_DF
-    # Linux 6.6 flash mode uses cfga/cfgb (36 KB each) instead of /etc/jffs2
-    if [ "$_di_jt" -eq 0 ] && [ -f /tmp/flashmode ]; then
-      for _dm in /sys/class/mtd/mtd[0-9]*; do
-        case "$_dm" in *ro) continue ;; esac
-        [ "$(cat "$_dm/name" 2>/dev/null)" = "cfga" ] || continue
-        _csz="$(cat "$_dm/size" 2>/dev/null)"
-        case "$_csz" in [0-9]*) _di_jt=$(( _csz / 1024 )) ;; esac
-        _chdr="$(dd if=/dev/${_dm##*/}ro bs=1 count=64 2>/dev/null | tr '\000\377' '  ')"
-        _clen="$(printf '%s' "$_chdr" | awk '$1=="TC1CFG"{print int(($3+64+1023)/1024); exit}')"
-        case "$_clen" in [0-9]*) _di_ju="$_clen" ;; esac
-        break
-      done
-    fi
-    # Detailed SPI flash breakdown for the Dashboard Storage card (in KB)
-    _di_flash_json="null"
-    if [ -d /sys/class/mtd/mtd0 ]; then
-      _fp_list=""
-      _ftot_kb=0
-      _fused_kb=0
-      for _dm in /sys/class/mtd/mtd[0-9]*; do
-        case "$_dm" in *ro) continue ;; esac
-        [ -r "$_dm/size" ] || continue
-        _m="${_dm##*/}"
-        _nm="$(cat "$_dm/name" 2>/dev/null)"
-        _sz="$(cat "$_dm/size" 2>/dev/null)"
-        case "$_sz" in ''|*[!0-9]*) continue ;; esac
-        _used="$_sz"
-        case "$_nm" in
-          kernel)
-            _khex="$(dd if=/dev/${_m}ro bs=1 skip=12 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')"
-            case "$_khex" in [0-9a-fA-F][0-9a-fA-F]*) _ksz=$(( 0x$_khex + 64 )); [ "$_ksz" -gt 64 ] && [ "$_ksz" -le "$_sz" ] && _used="$_ksz" ;; esac
-            ;;
-          initrd)
-            _icmd="$(sed -n 's/.*initrd=0x[0-9a-fA-F]*,\([0-9][0-9]*\).*/\1/p' /proc/cmdline 2>/dev/null)"
-            case "$_icmd" in [0-9]*) [ "$_icmd" -gt 0 ] && [ "$_icmd" -le "$_sz" ] && _used="$_icmd" ;; esac
-            ;;
-          stack)
-            _shex="$(dd if=/dev/${_m}ro bs=1 skip=40 count=4 2>/dev/null | od -An -tx1 | awk '{print $4$3$2$1}')"
-            case "$_shex" in [0-9a-fA-F][0-9a-fA-F]*) _ssz=$(( (0x$_shex + 4095) / 4096 * 4096 )); [ "$_ssz" -gt 0 ] && [ "$_ssz" -le "$_sz" ] && _used="$_ssz" ;; esac
-            ;;
-          cfga|cfgb)
-            _chdr="$(dd if=/dev/${_m}ro bs=1 count=64 2>/dev/null | tr '\000\377' '  ')"
-            _clen="$(printf '%s' "$_chdr" | awk '$1=="TC1CFG"{print $3+64; exit}')"
-            case "$_clen" in [0-9]*) [ "$_clen" -gt 0 ] && [ "$_clen" -le "$_sz" ] && _used="$_clen" ;; *) _used=0 ;; esac
-            ;;
-        esac
-        _sz_kb=$(( _sz / 1024 ))
-        _us_kb=$(( (_used + 512) / 1024 ))
-        [ "$_us_kb" -gt "$_sz_kb" ] && _us_kb="$_sz_kb"
-        _ftot_kb=$(( _ftot_kb + _sz_kb ))
-        _fused_kb=$(( _fused_kb + _us_kb ))
-        _item="$(printf '{"name":"%s","size_kb":%d,"used_kb":%d}' "$(json_escape "$_nm")" "$_sz_kb" "$_us_kb")"
-        _fp_list="${_fp_list:+${_fp_list},}${_item}"
-      done
-      _di_flash_json="$(printf '{"total_kb":%d,"used_kb":%d,"parts":[%s]}' "$_ftot_kb" "$_fused_kb" "$_fp_list")"
-    fi
-    _di_ssid=""
-    if command -v wpa_cli >/dev/null 2>&1; then
-      _di_ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk -F= '$1 == "ssid" { print $2; exit }')"
-    fi
-    [ -z "$_di_ssid" ] && [ -r /etc/wpa_supplicant.conf ] && _di_ssid="$(sed -n 's/^[[:space:]]*ssid="\([^"]*\)".*/\1/p' /etc/wpa_supplicant.conf 2>/dev/null | head -n 1)"
-    printf '{"hostname":"%s","ip":"%s","mac":"%s","kernel":"%s","firmware":"%s","storage":"%s","soc":"Anyka AK3918EV300","sensor":"SOI JXF23","wifi_chip":"Realtek RTL8188FU","ssid":"%s","rtsp_port":%s,"main":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"sub":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"jffs":[%s,%s],"sd":[%s,%s],"flash":%s}\n' \
-      "$(json_escape "$_di_host")" "$(json_escape "$primary_ip")" "$(json_escape "$_di_mac")" "$(json_escape "$_di_kern")" \
-      "$(json_escape "$_di_ver")" "${storage_json:-sd}" "$(json_escape "$_di_ssid")" "$rtsp_port" \
-      "$codec0_name" "$width0" "$height0" "$fps0" "$bps0" "$codec1_name" "$width1" "$height1" "$fps1" "$bps1" \
-      "$_di_jt" "$_di_ju" "$_di_st" "$_di_su" "$_di_flash_json"
+    # What changes rarely, for the dashboard cards (read once a minute); answered from dashinfo_cached.
+    dashinfo_cached
     ;;
 
   fullconfig)

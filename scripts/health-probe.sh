@@ -37,7 +37,10 @@ probe_service_fast() {
     auto-night-detection)
       [ -f /var/run/auto-night-detection.pid ] && _pf_file="/var/run/auto-night-detection.pid" ;;
     motion-detection)
-      [ -e /tmp/tc100_md ] && _pf_file="/var/run/detection-monitor.pid" ;;
+      # no /tmp/tc100_md = motion detection off (the default): that is what "setconf -g p" and the controlscript report
+      # as stopped, so do not exec the controlscript (shell + common_functions.sh) to be told so
+      [ -e /tmp/tc100_md ] || { echo "stopped"; return; }
+      _pf_file="/var/run/detection-monitor.pid" ;;
   esac
 
   if [ -n "$_pf_file" ]; then
@@ -72,12 +75,30 @@ probe_service_fast() {
     esac
   fi
 
+  # The RTSP DESCRIBE of rtsp-h26x takes ~1.2 s of the single-threaded server: while the last deep check said "running",
+  # only every HP_DEEP_EVERY-th probe (default 6: every 30 min at the snapshot interval of 5 min) repeats it, the others
+  # answer from the pid check above. After a failure it is repeated at every probe. State: "<probes since> <verdict>".
+  _pf_df="${HP_DEEP_FILE:-/tmp/health_rtsp_deep}"
+  if [ "$_pf_svc" = rtsp-h26x ]; then
+    _pf_dn=0; _pf_dv=""
+    [ -r "$_pf_df" ] && read -r _pf_dn _pf_dv < "$_pf_df" 2>/dev/null
+    case "$_pf_dn" in ''|*[!0-9]*) _pf_dn=0 ;; esac
+    if [ "$_pf_dv" = running ] && [ "$_pf_dn" -lt "${HP_DEEP_EVERY:-6}" ]; then
+      echo "$((_pf_dn + 1)) running" > "$_pf_df" 2>/dev/null
+      echo "running"; return
+    fi
+  fi
+
   _pf_out="$("$_pf_script" health 2>/dev/null)"
   _pf_rc=$?
   case "$_pf_svc" in
     rtsp-h26x|onvif)
-      if [ "$_pf_rc" -ne 0 ]; then echo "unhealthy"; return; fi ;;
+      if [ "$_pf_rc" -ne 0 ]; then
+        [ "$_pf_svc" = rtsp-h26x ] && echo "0 unhealthy" > "$_pf_df" 2>/dev/null
+        echo "unhealthy"; return
+      fi ;;
   esac
+  [ "$_pf_svc" = rtsp-h26x ] && echo "1 running" > "$_pf_df" 2>/dev/null
   case "$_pf_out" in
     ok:*)   echo "running" ;;
     warn:*) echo "stopped" ;;

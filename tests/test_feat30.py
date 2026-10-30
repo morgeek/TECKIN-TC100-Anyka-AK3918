@@ -152,7 +152,7 @@ class DayNightFromExposure(unittest.TestCase):
                        .replace('/mnt/config/rtspserver.conf', str(self.d / 'rtspserver.conf')) \
                        .replace('/tmp/cam_ae', str(self.d / 'ae')).replace('/tmp/cam_luma', str(self.d / 'luma')) \
                        .replace('/var/run/ircut', str(self.d / 'ircut'))
-        helpers = '\n'.join(function('www/cgi-bin/state.cgi', n) for n in ('load_conf_file', 'get_cfg', 'sanitize_int'))
+        helpers = '\n'.join(function('www/cgi-bin/state.cgi', n) for n in ('load_conf_file', 'get_cfg', 'sanitize_int', 'cfg_int'))
         r = sh(helpers + '\ncase daynight in\n' + body + '\nesac')
         self.assertEqual(r.returncode, 0, r.stderr)
         j = json.loads(r.stdout)
@@ -183,7 +183,7 @@ class FrameRateSetting(unittest.TestCase):
         self.assertRegex(dist, r'(?s)\[0\].*?\nfps=15\n.*?\[1\]')
 
     def test_state_reports_a_valid_rate_for_both_streams(self):
-        helpers = '\n'.join(function('www/cgi-bin/state.cgi', n) for n in ('get_cfg', 'sanitize_int', 'read_rtsp_stream_summary', 'codec_name'))
+        helpers = '\n'.join(function('www/cgi-bin/state.cgi', n) for n in ('get_cfg', 'sanitize_int', 'cfg_int', 'read_rtsp_stream_summary', 'codec_name', 'codec_name_to'))
         for conf, want in ((20, '20 20'), (16, '15 15'), (25, '25 25'), (7, '15 15')):
             r = sh(helpers + '\nC_0_fps=%d; C_1_fps=8\nread_rtsp_stream_summary\necho "$fps0 $fps1"\n' % conf)
             self.assertEqual(r.stdout.strip().split('\n')[-1], want, (conf, r.stderr))
@@ -352,7 +352,7 @@ class LogPersist(unittest.TestCase):
         self.assertIn('log-persist.sh', t)
         a = (ROOT / 'v3/autorun-linux66.sh').read_text()
         self.assertIn('log-persist.sh run', a)
-        self.assertIn('"$(bootv LOG_PERSIST)" != 0', a)
+        self.assertIn('"$BC_LOG_PERSIST" != 0', a)
         self.assertIn('\nLOG_PERSIST=1\n', (ROOT / 'config/boot.conf.dist').read_text())
 
     def test_reboot_tracker_intent_saves_first(self):

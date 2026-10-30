@@ -372,6 +372,11 @@ csrf_guard() {
   _cg_stored=""
   if [ -r /tmp/csrf_token ]; then
     read -r _cg_stored < /tmp/csrf_token
+    # Safe methods (GET/HEAD) only need the token to exist: a clean token returns at once, without the tr fork.
+    case "$_cg_stored" in
+      ''|*[!0-9a-fA-F]*) ;;
+      *) if [ "${REQUEST_METHOD}" = "GET" ] || [ "${REQUEST_METHOD}" = "HEAD" ]; then return 0; fi ;;
+    esac
     _cg_stored="$(printf '%s' "$_cg_stored" | tr -cd '0-9a-fA-F')"
   fi
 

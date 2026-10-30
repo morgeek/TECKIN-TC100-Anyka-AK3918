@@ -89,7 +89,7 @@
   }
 
   // --- Settings -> Day/night: the automatic switching settings and a live reading (state.cgi?cmd=daynight) so that
-  // the exposure index thresholds can be set from what the camera sees. Refreshed every 3 s while the tab is shown.
+  // the exposure index thresholds can be set from what the camera sees. Refreshed every 5 s while the tab is shown.
   var dayNightTimer = null;
   function dayNightShow(d, fill) {
     var set = function (id, v) { var el = byId(id); if (el) el.textContent = v; };
@@ -121,7 +121,7 @@
       var f = byId("formDayNight");
       if (!f) { clearInterval(dayNightTimer); dayNightTimer = null; return; }
       if (document.visibilityState === "visible" && f.offsetParent !== null) load(false);
-    }, 3000);
+    }, 5000);
   }
 
   // On/off switches for features in Settings (.svc-toggle data-service=X):
