@@ -1557,6 +1557,27 @@ curl "http://root:pass@192.168.1.50/cgi-bin/events.cgi?limit=100"
 
 ---
 
+## GET /cgi-bin/savedlogs.cgi
+
+The logs of the previous boots that `scripts/log-persist.sh` copied to the SD card (`/mnt/sd/logs/boot-NNNN`).
+Without parameters: a JSON array, newest boot first, each `{"boot","current","saved","why","files":[{"name","size"}]}`.
+With `boot=boot-0007&file=dmesg.log`: that file as a text download (names are checked).
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/savedlogs.cgi"
+```
+
+---
+
+## GET /cgi-bin/state.cgi?cmd=daynight&format=json
+
+Automatic day / night settings and the live reading: `source` (`luma`, `ae` or `isp`), the thresholds
+(`luma_night`, `luma_day`, `ae_night_above`, `ae_day_below`), `night_hold`, `day_hold`, `auto`, `night`, the picture
+`luma`, and when `/tmp/cam_ae` exists (`ae_available`) `lumi`, `exp_time`, `a_gain`, `d_gain`, `isp_d_gain`, `dark_flag`
+and `index` (`exp_time * a_gain/256 * d_gain/256 * isp_d_gain/256`).
+
+---
+
 ## GET /cgi-bin/motionevents.cgi
 
 Returns a JSON list of motion detection events with snapshot and clip paths.

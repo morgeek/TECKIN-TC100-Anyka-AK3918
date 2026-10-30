@@ -146,7 +146,7 @@ class Regressions(unittest.TestCase):
     def test_fullconfig_reads_actual_ini_video_and_audio(self):
         cfg = self.base / 'config'
         cfg.mkdir()
-        data = (ROOT / 'config/rtspserver.conf.dist').read_text().replace('volume=10', 'volume=7').replace('fps=16', 'fps=19').replace('brmode=1', 'brmode=0').replace('imageflip=0', 'imageflip=1')
+        data = (ROOT / 'config/rtspserver.conf.dist').read_text().replace('volume=10', 'volume=7').replace('fps=15', 'fps=19').replace('brmode=1', 'brmode=0').replace('imageflip=0', 'imageflip=1')
         (cfg / 'rtspserver.conf').write_text(data)
         (cfg / 'hostname.conf').write_text('# comment\ncam-test\n')
         (cfg / 'timezone.conf').write_text('UTC+2\n')
@@ -162,7 +162,8 @@ class Regressions(unittest.TestCase):
         r = run(helpers + 'case fullconfig in\n' + body + '\nesac')
         self.assertEqual(r.returncode, 0, r.stderr)
         result = json.loads(r.stdout)
-        self.assertEqual(result['video']['main']['fps'], 15)        # tc100_rtsp: 15 fps whatever the file says
+        self.assertEqual(result['video']['main']['fps'], 15)        # 19 is not one of 10/12/15/20/25: 15
+        self.assertEqual(result['video']['sub']['fps'], 15)
         self.assertEqual(result['video']['main']['format'], '0')
         self.assertEqual(result['video']['main']['codec'], 2)
         self.assertEqual(result['video']['sub']['height'], 360)
@@ -1064,7 +1065,8 @@ class RtspServerChoice(unittest.TestCase):
                 .replace('/proc/net/tcp', str(d / 'tcp'))
             r = subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=10)
             j = json.loads(r.stdout)
-        self.assertEqual(j, {'ok': True, 'server': 'tc100_rtsp', 'substream': 0, 'talk': 1, 'port': 8554, 'clients': 2})
+        self.assertEqual(j, {'ok': True, 'server': 'tc100_rtsp', 'substream': 0, 'talk': 1, 'port': 8554, 'clients': 2,
+                                 'idle_fps': 0, 'idle_after': 10, 'motion_detection': 0})
 
 
 
@@ -1622,7 +1624,7 @@ class SettingsByUse(unittest.TestCase):
     def test_isp_pro_writes_only_what_was_posted(self):
         text = action_cgi_text()
         block = action_arm('isp_pro')
-        self.assertIn('if [ -n "${F_daynightlum}${F_nightdaylum}" ]; then', block)
+        self.assertIn('if [ -n "${F_daynightlum}${F_nightdaylum}${F_dn_source}" ]; then', block)
         self.assertIn('if [ -n "${F_osd_form}" ]; then', block)
         self.assertLess(block.index('if [ -n "${F_daynightlum}'), block.index('/mnt/config/daynight.conf'))
         self.assertLess(block.index('/mnt/config/daynight.conf'), block.index('if [ -n "${F_osd_form}" ]'))

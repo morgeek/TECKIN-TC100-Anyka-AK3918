@@ -16,8 +16,11 @@
       case "$_rs_port" in ''|*[!0-9]*) _rs_port=554 ;; esac
       _rs_hex="$(printf '%04X' "$_rs_port")"
       _rs_clients="$(awk -v p=":$_rs_hex" 'NR > 1 && $4 == "01" && substr($2, length($2) - 4) == p { n++ } END { print n + 0 }' /proc/net/tcp 2>/dev/null)"
-      printf '{"ok":true,"server":"tc100_rtsp","substream":%s,"talk":%s,"port":%s,"clients":%s}\n' \
-        "$_rs_sub" "$_rs_talk" "$_rs_port" "$(_rs_num "$_rs_clients")"
+      _rs_idle="$(_rs_cfg IDLE_FPS)"; case "$_rs_idle" in ''|*[!0-9]*) _rs_idle=0 ;; esac
+      _rs_after="$(_rs_cfg IDLE_AFTER)"; case "$_rs_after" in ''|*[!0-9]*) _rs_after=10 ;; esac
+      _rs_md=0; [ -e /tmp/tc100_md ] && _rs_md=1
+      printf '{"ok":true,"server":"tc100_rtsp","substream":%s,"talk":%s,"port":%s,"clients":%s,"idle_fps":%s,"idle_after":%s,"motion_detection":%s}\n' \
+        "$_rs_sub" "$_rs_talk" "$_rs_port" "$(_rs_num "$_rs_clients")" "$_rs_idle" "$_rs_after" "$_rs_md"
     ;;
 
     set_rtsp_server)
@@ -30,6 +33,11 @@
       case "$_rs_old_sub" in 0|no|off|false) _rs_old_sub=0 ;; *) _rs_old_sub=1 ;; esac
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$_rs_sub"
       rewrite_config /mnt/config/boot.conf RTSP_LITE_TALK "$_rs_talk"
+      # lower frame rate while nothing moves (tc100_rtsp reads both while it runs; 0 = off). Written only when sent.
+      if [ -n "${F_rtsp_idle_fps}" ]; then
+        rewrite_config /mnt/config/boot.conf IDLE_FPS "$(sanitize_int_range "${F_rtsp_idle_fps}" 0 24 0)"
+        rewrite_config /mnt/config/boot.conf IDLE_AFTER "$(sanitize_int_range "${F_rtsp_idle_after}" 1 3600 10)"
+      fi
       if [ "$_rs_old_sub" != "$_rs_sub" ]; then
         schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
         _rs_msg="Sub-stream $_rs_sub, two-way audio $_rs_talk. The stream restarts."
