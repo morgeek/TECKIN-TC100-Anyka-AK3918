@@ -18,9 +18,10 @@ run_tests() {
 	echo "== tests (python + node, busybox ash)"
 	docker run --rm -v "$SRC:/src:ro" node:22-bookworm sh -c '
 		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 >/dev/null 2>&1
-		cp -r /src /w && cd /w && rm -f .git && git init -q 2>/dev/null; git config --global --add safe.directory /w
-		[ -d /src/.git ] && { rm -rf .git; cp -r /src/.git .git; }
-		node --test tests/frontend.test.js tests/settings-save.test.js >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
+		cp -r /src /w && cd /w && git config --global --add safe.directory /w
+		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
+		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
+		node --test tests/frontend.test.js tests/settings-save.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
 		python3 -m unittest discover -s tests >/tmp/py.log 2>&1; grep -E "^(FAIL|ERROR):|^Ran|^FAILED|^OK" /tmp/py.log
 		# known failure of this image only (awk flavour): JsonFlat.test_paths_types_and_escapes
 		n=$(grep -E "^(FAIL|ERROR):" /tmp/py.log | grep -vc "JsonFlat.test_paths_types_and_escapes")
