@@ -16,7 +16,8 @@
 # guard runs every minute only while the gateway is out and every 3rd minute otherwise, the SD panel script runs when
 # the card state changed (or every 10th minute) and common_functions.sh (31 KB) is sourced only on the failure paths.
 #
-#   web-guard.sh run      the loop (started by v3/autorun-linux66.sh)
+#   web-guard.sh run      the loop (started by v3/autorun-linux66.sh only with HOUSEKEEPER=0: by default scripts/housekeeper.sh
+#                         sources this file and runs the same three checks as its jobs web, net and sd, wg_hk_*)
 #   web-guard.sh once     one check (tests)
 
 # port_listening here (same as common_functions.sh): a TCP socket in LISTEN state on the port, from /proc/net/tcp[6]
@@ -91,7 +92,8 @@ _wg_sdsig()
     done < /proc/mounts
 }
 
-wg_once()
+# the check itself (no fork on the way "web is up"): 0 = up, 1 = down
+wg_check()
 {
     [ -z "$WG_PORTS" ] && return 0          # WEB_MODE=off: nothing to guard
     if _wg_web_up; then
@@ -103,6 +105,12 @@ wg_once()
         return 0
     fi
     echo 0 > "$STATE/up"
+    return 1
+}
+
+# what to do when the web interface is down: restart it once, then open the rescue telnet
+wg_down()
+{
     if [ ! -e "$STATE/restarted" ]; then
         : > "$STATE/restarted"
         logger -t tc100-event -p user.err "web interface down: restarting the web server" 2>/dev/null
@@ -111,6 +119,29 @@ wg_once()
         return 0
     fi
     _wg_rescue_start
+}
+
+wg_once() { wg_check || wg_down; }
+
+# --- jobs of scripts/housekeeper.sh (it sources this file; its hk_bg runs a command in a guarded background subshell,
+# --- 0 = started, 1 = the previous run of that name is still going). Same checks as the "run" loop below, one job each,
+# --- so that a hung SD card (sdinfo) or a slow ping cannot hold up the web check.
+_wgn_i=0; _wgs_i=0; _wgs_prev=
+wg_hk_web() { wg_check || hk_bg web-down wg_down; }
+wg_hk_net()
+{
+    if [ -e "${WG_NETSTATE:-/tmp/net-guard}/down_since" ] || [ $((_wgn_i % 3)) -eq 0 ]; then
+        hk_bg net-guard sh "${WG_NETGUARD:-/mnt/scripts/net-guard.sh}" once
+    fi
+    _wgn_i=$((_wgn_i + 1))
+}
+wg_hk_sd()
+{
+    _wg_sdsig
+    if [ "$_wg_sig" != "$_wgs_prev" ] || [ $((_wgs_i % 10)) -eq 0 ]; then
+        hk_bg sdinfo sh "${WG_SDINFO:-/mnt/v3/linux66-sd/sdinfo-sd.sh}" && _wgs_prev=$_wg_sig
+    fi
+    _wgs_i=$((_wgs_i + 1))
 }
 
 case "${0##*/}" in

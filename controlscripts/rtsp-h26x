@@ -3,7 +3,8 @@
 # (start|stop|restart|status|health|watchdog) so the web UI (Services, Video streams "Apply") and the watchdog work.
 # (3.0 has no vendor RTSP server: it needed the vendor libraries and would fight tc100_rtsp for the encoder;
 # the 2.x script is on the 2.x branch).
-# One restarter: scripts/service-watchdog.sh (pid file /var/run/v4l2rtspserver-watch.pid) checks the pid written by
+# One restarter: scripts/service-watchdog.sh (a job of scripts/housekeeper.sh, or a process of its own when the
+# housekeeper is off: HOUSEKEEPER=0; pid file /var/run/v4l2rtspserver-watch.pid either way) checks the pid written by
 # rtsp-launch.sh (/var/run/v4l2rtspserver.pid) every 60 s and runs "start" when tc100_rtsp is gone. memory-guard
 # leaves services that have their own watchdog alone.
 SERVICE_NAME="RTSP server (tc100_rtsp)"
@@ -28,11 +29,14 @@ watchdog_start() {
   wp=$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)
   alive "$wp" && return 0
   [ -f /mnt/scripts/service-watchdog.sh ] || return 0
+  # one resident loop for the slow jobs (scripts/housekeeper.sh) when it runs: the pid file then holds its pid
+  CHECK_TIMEOUT_SECONDS=60 sh /mnt/scripts/housekeeper.sh watch-add rtsp-h26x "$WATCHDOG_PIDFILE" </dev/null >/dev/null 2>&1 && return 0
   ( CHECK_TIMEOUT_SECONDS=60 exec /bin/sh /mnt/scripts/service-watchdog.sh /mnt/controlscripts/rtsp-h26x 0 status ) \
     </dev/null >/dev/null 2>&1 &
   echo $! > "$WATCHDOG_PIDFILE"
 }
 watchdog_stop() {
+  sh /mnt/scripts/housekeeper.sh watch-del rtsp-h26x </dev/null >/dev/null 2>&1   # job of the housekeeper: its pid file goes
   wp=$(cat "$WATCHDOG_PIDFILE" 2>/dev/null)
   alive "$wp" && kill "$wp" 2>/dev/null
   rm -f "$WATCHDOG_PIDFILE"

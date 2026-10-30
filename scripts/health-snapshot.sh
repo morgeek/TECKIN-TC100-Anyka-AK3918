@@ -7,10 +7,10 @@
 #
 # Started by the health-snapshot controlscript; PID written to /var/run/health-snapshot.pid.
 
-CACHE_FILE="/tmp/health_snapshot.cache"
+CACHE_FILE="${HEALTH_SNAPSHOT_CACHE:-/tmp/health_snapshot.cache}"
 HEALTH_CGI="/mnt/www/cgi-bin/health.cgi"
 INTERVAL="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-300}"
-PIDFILE="/var/run/health-snapshot.pid"
+PIDFILE="${HEALTH_SNAPSHOT_PIDFILE:-/var/run/health-snapshot.pid}"
 STABILITY_FILE="${STABILITY_FILE:-/mnt/log/stability.csv}"
 STABILITY_SAMPLE_SECONDS="${STABILITY_SAMPLE_SECONDS:-300}"
 STABILITY_MAX_SAMPLES="${STABILITY_MAX_SAMPLES:-576}"
@@ -34,8 +34,18 @@ case "$STABILITY_FLUSH_SAMPLES" in ''|*[!0-9]*) STABILITY_FLUSH_SAMPLES=12 ;; es
 [ "$STABILITY_FLUSH_SAMPLES" -gt 48 ] && STABILITY_FLUSH_SAMPLES=48
 printf '%s\n' "$INTERVAL" > /tmp/health_snapshot.interval
 
-echo "$$" > "$PIDFILE" 2>/dev/null || true
-trap 'stability_flush; rm -f "$PIDFILE"; exit 0' TERM INT
+# Modes (the controlscript uses "once" through scripts/housekeeper.sh when that is running, the daemon loop otherwise):
+#   once       one snapshot (the housekeeper runs it every INTERVAL seconds; the pid file then holds the housekeeper's)
+#   flush      write the pending stability samples to the SD card (the controlscript's stop)
+#   interval   print the interval in seconds, clamped as above
+#   (none)     the daemon loop; PID written to /var/run/health-snapshot.pid
+STABILITY_ELAPSED_FILE="${STABILITY_ELAPSED_FILE:-/tmp/health_snapshot.elapsed}"
+case "$1" in
+  once|flush|interval) ;;
+  *)
+    echo "$$" > "$PIDFILE" 2>/dev/null || true
+    trap 'stability_flush; rm -f "$PIDFILE"; exit 0' TERM INT ;;
+esac
 
 _btime=0
 _now() {
@@ -169,9 +179,21 @@ build_snapshot() {
   fi
 }
 
-# Build once immediately, then loop.
-build_snapshot
-while :; do
-  sleep "$INTERVAL"
-  build_snapshot
-done
+case "$1" in
+  interval) echo "$INTERVAL" ;;
+  flush) stability_flush ;;
+  once)
+    # the time since the last stability sample lives in a file between two runs (the daemon keeps it in a variable)
+    _se=0; [ -r "$STABILITY_ELAPSED_FILE" ] && read -r _se < "$STABILITY_ELAPSED_FILE"
+    case "$_se" in ''|*[!0-9]*) _se=0 ;; esac
+    _stability_elapsed=$_se
+    build_snapshot
+    echo "$_stability_elapsed" > "$STABILITY_ELAPSED_FILE" 2>/dev/null ;;
+  *)
+    # Build once immediately, then loop.
+    build_snapshot
+    while :; do
+      sleep "$INTERVAL"
+      build_snapshot
+    done ;;
+esac

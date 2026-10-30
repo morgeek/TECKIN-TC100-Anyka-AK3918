@@ -44,13 +44,17 @@ start()
   ## Watchdog — only when the bridge is enabled in config; a disabled bridge
   ## exits by design and a watchdog would restart-loop it forever.
   if bridge_enabled_in_config && ! checkpid "$WATCHDOG_PIDFILE"; then
+    # one resident loop for the slow jobs (scripts/housekeeper.sh) when it runs, else a watchdog process of its own
+    sh /mnt/scripts/housekeeper.sh watch-add mqtt-bridge "$WATCHDOG_PIDFILE" </dev/null >/dev/null 2>&1 || {
     /mnt/scripts/service-watchdog.sh /mnt/controlscripts/mqtt-bridge 0 status </dev/null >/dev/null 2>&1 &
     echo "$!" > "$WATCHDOG_PIDFILE"
+    }
   fi
 }
 
 stop()
 {
+  sh /mnt/scripts/housekeeper.sh watch-del mqtt-bridge </dev/null >/dev/null 2>&1   # job of the housekeeper: its pid file goes
   killpid_graceful "$WATCHDOG_PIDFILE" 3
   if [ -n "$(cat "$PIDFILE" 2>/dev/null)" ]; then
     killpid_graceful "$PIDFILE" 5

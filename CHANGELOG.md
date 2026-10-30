@@ -20,6 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     congestion (`RTSP_QTRIM=0`).
   - Shell side: dashinfo cached, fewer requests at page load, fork-free day/night daemon wait, the network check
     every 3 minutes while the gateway answers, crond only with a crontab, a single boot.conf parse.
+  - One resident housekeeper loop (`scripts/housekeeper.sh`) instead of six shell processes: web guard, network guard
+    and SD panel checks, the RTSP and MQTT service watchdogs, the health snapshot and log persistence run as its jobs
+    (own periods, a slow job never holds up the others). `HOUSEKEEPER=0` in boot.conf restores the separate daemons.
 
 ### Fixed
 - **Web UI pass** (HTML/CSS/JS only, commits `[webui] ...`; camera checks: UI-22 in `docs/linux-port/test-queue.md`):
