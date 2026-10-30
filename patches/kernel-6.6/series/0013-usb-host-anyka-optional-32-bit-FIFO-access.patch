@@ -1,0 +1,111 @@
+From 7c3e1a9b5d2f4e6a8b0c1d3e5f7a9b2c4d6e8f01 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 10:00:00 +0100
+Subject: [PATCH] usb: host: anyka: optional 32-bit FIFO access (otg_hs.fifo32)
+
+The host controller is PIO only: out_packet() writes every byte of a
+packet to the endpoint FIFO with its own 8-bit store and done() reads an
+IN packet back one byte at a time. With the RTL8188FU Wi-Fi adapter that
+is 512 bus accesses per high-speed bulk packet, for every packet of the
+video stream. The FIFO registers take 8-, 16- and 32-bit accesses
+(usb-reg-define.h) and the driver already writes the EP0 SETUP packet
+in 32-bit words.
+
+Move packet data in 32-bit words (little-endian, unaligned buffers
+allowed) and keep the 1-3 byte tail byte-wide. The number of
+interrupts does not change (still one per packet); the time spent in
+each one does.
+
+Not yet run on the hardware, so it is off by default: otg_hs.fifo32=1
+on the kernel command line, or at run time through
+/sys/module/otg_hs/parameters/fifo32 (read once per packet, so it can
+be switched while the adapter runs). A reboot goes back to bytes.
+---
+ drivers/usb/host/anyka/usb-hc.c | 44 ++++++++++++++++++++++++++++++++++------
+ 1 file changed, 37 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
+--- a/drivers/usb/host/anyka/usb-hc.c
++++ b/drivers/usb/host/anyka/usb-hc.c
+@@ -33,6 +33,41 @@
+ static u8 ep_fifos[] = { USB_FIFO_EP0, USB_FIFO_EP1, USB_FIFO_EP2, USB_FIFO_EP3, USB_FIFO_EP4, USB_FIFO_EP5};
+ struct akotghc_epfifo_mapping akotg_epfifo_mapping;
+ 
++/* Packet data through the FIFO in 32-bit words instead of bytes: a quarter of
++ * the bus accesses for each 512-byte bulk packet of the Wi-Fi adapter. The
++ * FIFO registers take 8-, 16- and 32-bit accesses (usb-reg-define.h) and the
++ * SETUP packet of EP0 has always been written in words; the 1-3 byte tail of
++ * a packet stays byte-wide. Off by default until measured on a camera:
++ * otg_hs.fifo32=1 on the kernel command line, or at run time
++ * echo 1 > /sys/module/otg_hs/parameters/fifo32 (read once per packet). */
++static bool fifo32;
++module_param(fifo32, bool, 0644);
++MODULE_PARM_DESC(fifo32, "move FIFO data in 32-bit words (default: bytes)");
++
++static void fifo_write(int epfifo, const unsigned char *buf, int len)
++{
++	u8 reg = ep_fifos[epfifo];
++	int i = 0;
++
++	if (READ_ONCE(fifo32))
++		for (; i + 4 <= len; i += 4)
++			hc_writel(get_unaligned_le32(buf + i), reg);
++	for (; i < len; i++)
++		hc_writeb(buf[i], reg);
++}
++
++static void fifo_read(int epfifo, unsigned char *buf, int len)
++{
++	u8 reg = ep_fifos[epfifo];
++	int i = 0;
++
++	if (READ_ONCE(fifo32))
++		for (; i + 4 <= len; i += 4)
++			put_unaligned_le32(hc_readl(reg), buf + i);
++	for (; i < len; i++)
++		buf[i] = hc_readb(reg);
++}
++
+ static inline int get_ep_type(int pipe)
+ {
+ 	int eptype = 0;
+@@ -250,7 +285,6 @@
+ 	struct urb		*urb
+ )
+ {
+-	int i;
+ 	unsigned char		*buf;
+ 	u16			        len;
+ 	u32                 remain;
+@@ -331,9 +365,7 @@
+     {
+     	hc_index_writeb(ep->epfifo, 0, USB_REG_TXCSR1);
+     	hc_writeb(usb_pipedevice(urb->pipe), USB_REG_FADDR);
+-    	for (i = 0; i < len; i ++) {
+-    		hc_writeb(buf[i], ep_fifos[ep->epfifo]);
+-    	}
++    	fifo_write(ep->epfifo, buf, len);
+     	if (ep->epnum == 0) {
+     		hc_index_writeb(0, 0x02, USB_REG_TXCSR1);
+     	} else {
+@@ -616,7 +648,6 @@
+ static void
+ done(struct akotg_usbhc *akotghc, struct akotghc_ep *ep)
+ {
+-	int 			i;
+ 	int			err_occurred = 0;
+ 	int			epfifo;
+ 	u8			status;
+@@ -733,8 +764,7 @@
+ 			}
+ 			// read data from fifo
+ 			urb->actual_length += len;
+-			for (i = 0; i < len; i++)
+-				*buf++ = hc_readb(ep_fifos[epfifo]);
++			fifo_read(epfifo, buf, len);
+ 
+ 			if (ep->epnum == 0) {
+ 				u8 regval = hc_index_readb(epfifo, USB_REG_TXCSR1);
+--
+2.43.0
+

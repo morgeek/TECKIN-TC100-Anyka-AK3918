@@ -1,0 +1,163 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 12:00:00 +0100
+Subject: [PATCH] media: anyka-isp: OSD ioctls for the main and sub channels
+
+The ISP blends up to three 4-bit-per-pixel windows (16-colour table) into
+the main and the sub channel before the picture reaches memory; the vendor
+code for it (ak_isp_vpp_set_*_channel_osd_*, applied at each frame by
+ak_isp_osd_irq_update) is in the driver, but only the retired
+AK_ISP_SET_USER_PARAMS path could reach it.
+
+Two ioctls on /dev/isp_char: AK_ISP_SET_OSD_COLOR_TABLE (16 words
+0x00YYUUVV) and AK_ISP_SET_OSD (window 0 of the main or the sub channel:
+size, position, alpha, enable and a user pointer to the bitmap). The driver
+allocates the two buffer halves once (64 KiB per half for the main channel,
+16 KiB for the sub channel, coherent, from the ISP's DMA device) and keeps
+them across video sessions. tc100_rtsp draws the clock with it instead of
+writing into every captured frame (RTSP_ISPOSD=1).
+---
+ .../media/platform/anyka-isp/ak_isp_char.c    | 80 +++++++++++++++++++
+ .../media/platform/anyka-isp/ak_isp_char.h    | 21 +++++
+ 2 files changed, 101 insertions(+)
+
+diff --git a/drivers/media/platform/anyka-isp/ak_isp_char.c b/drivers/media/platform/anyka-isp/ak_isp_char.c
+index 2e2360c..5c22064 100644
+--- a/drivers/media/platform/anyka-isp/ak_isp_char.c
++++ b/drivers/media/platform/anyka-isp/ak_isp_char.c
+@@ -53,6 +53,11 @@ struct akisp_char_pirv {
+ 	void *capture_context;
+ 	struct mutex lock;
+ 	AK_ISP_SENSOR_CB *sensor_cb;
++	/* AK_ISP_SET_OSD bitmaps, main and sub channel, two halves each; kept
++	 * across video sessions (the ISP state is not) */
++	void *osd_virt[2];
++	dma_addr_t osd_dma[2];
++	size_t osd_size[2];
+ };
+ 
+ static struct akisp_char_pirv *priv = NULL;
+@@ -1278,6 +1283,68 @@ static int printk_hue_para(AK_ISP_HUE_ATTR *hue_para)
+ }
+ 
+ 
++extern struct device *ak_isp_dma_dev;	/* set by the capture driver, defined below */
++
++/* AK_ISP_SET_OSD, called with priv->lock held and the ISP prepared */
++static long akisp_set_osd(void __user *arg)
++{
++	struct ak_isp_osd_user u;
++	AK_ISP_OSD_MEM_ATTR mem;
++	AK_ISP_OSD_CONTEXT_ATTR ctx;
++	size_t half, len;
++	void *bits;
++	int c;
++
++	if (copy_from_user(&u, arg, sizeof(u)))
++		return -EFAULT;
++	if (u.channel > 1 || !ak_isp_dma_dev)
++		return -EINVAL;
++	c = u.channel;
++	half = c ? AK_ISP_OSD_SUB_BYTES : AK_ISP_OSD_MAIN_BYTES;
++	len = u.enable ? (size_t)u.width * u.height / 2 : 0;
++	if (u.enable && (!u.width || !u.height || (u.width & 1) || len > half ||
++			 u.alpha > 15 || u.x + u.width > 8191 || u.y + u.height > 8191))
++		return -EINVAL;
++	if (!priv->osd_virt[c]) {
++		priv->osd_virt[c] = dma_alloc_coherent(ak_isp_dma_dev, 2 * half,
++						       &priv->osd_dma[c], GFP_KERNEL);
++		if (!priv->osd_virt[c])
++			return -ENOMEM;
++		priv->osd_size[c] = 2 * half;
++	}
++	bits = kzalloc(len ? len : 4, GFP_KERNEL);
++	if (!bits)
++		return -ENOMEM;
++	if (len && copy_from_user(bits, (void __user *)u.data, len)) {
++		kfree(bits);
++		return -EFAULT;
++	}
++
++	memset(&mem, 0, sizeof(mem));
++	mem.chn = OSD_CHN0;
++	mem.dma_paddr = (T_U8 *)(unsigned long)priv->osd_dma[c];
++	mem.dma_vaddr = priv->osd_virt[c];
++	mem.size = priv->osd_size[c];
++	memset(&ctx, 0, sizeof(ctx));
++	ctx.chn = OSD_CHN0;
++	ctx.osd_context_addr = bits;	/* copied into the free half at once */
++	ctx.osd_width = u.enable ? u.width : 0;
++	ctx.osd_height = u.enable ? u.height : 0;
++	ctx.start_xpos = u.x;
++	ctx.start_ypos = u.y;
++	ctx.alpha = u.alpha;
++	ctx.enable = u.enable ? 1 : 0;
++	if (c) {
++		ak_isp_vpp_set_sub_channel_osd_mem_attr(&mem);
++		ak_isp_vpp_set_sub_channel_osd_context_attr(&ctx);
++	} else {
++		ak_isp_vpp_set_main_channel_osd_mem_attr(&mem);
++		ak_isp_vpp_set_main_channel_osd_context_attr(&ctx);
++	}
++	kfree(bits);
++	return 0;
++}
++
+ static long akisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+ {
+ 	long ret = 0;
+@@ -3114,6 +3181,19 @@ static long akisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+ 		}
+ 		break;
+ 
++	case AK_ISP_SET_OSD_COLOR_TABLE:
++		{
++			AK_ISP_OSD_COLOR_TABLE_ATTR table;
++
++			if (copy_from_user(&table, (void __user *)arg, sizeof(table)))
++				ret = -EFAULT;
++			else
++				ak_isp_vpp_set_osd_color_table_attr(&table);
++		}
++		break;
++	case AK_ISP_SET_OSD:
++		ret = akisp_set_osd((void __user *)arg);
++		break;
+ 	case AK_ISP_GET_ISO:
+ 		{
+ 			int iso = ak_isp_get_iso();
+diff --git a/drivers/media/platform/anyka-isp/ak_isp_char.h b/drivers/media/platform/anyka-isp/ak_isp_char.h
+index 545bcbf..530a222 100644
+--- a/drivers/media/platform/anyka-isp/ak_isp_char.h
++++ b/drivers/media/platform/anyka-isp/ak_isp_char.h
+@@ -157,6 +157,27 @@
+ #define AK_ISP_SET_TUNING_STYLE _IOW(AKISP_MAGIC, 129, unsigned int)
+ #define AK_ISP_GET_TUNING_STYLE _IOR(AKISP_MAGIC, 130, unsigned int)
+ 
++/*
++ * 6.6 port: the ISP's on-screen display (OSD) of the main or the sub channel,
++ * window 0. 4 bits per pixel (two pixels per byte) through a 16-entry colour
++ * table of 0x00YYUUVV words, blended by the ISP before the picture reaches
++ * memory, and swapped in at the next frame (two buffer halves). The bitmap is
++ * copied in from user space; enable = 0 hides the window.
++ */
++struct ak_isp_osd_user {
++	unsigned int channel;	/* 0 main, 1 sub */
++	unsigned int width;	/* pixels, even */
++	unsigned int height;
++	unsigned short x, y;	/* top left corner in the channel's picture */
++	unsigned short alpha;	/* 0..15 */
++	unsigned short enable;
++	unsigned long data;	/* user address of width * height / 2 bytes */
++};
++#define AK_ISP_OSD_MAIN_BYTES	(64 * 1024)	/* largest bitmap: main channel */
++#define AK_ISP_OSD_SUB_BYTES	(16 * 1024)	/* sub channel */
++#define AK_ISP_SET_OSD_COLOR_TABLE	_IOW(AKISP_MAGIC, 131, int)
++#define AK_ISP_SET_OSD			_IOW(AKISP_MAGIC, 132, int)
++
+ /* Blow is the params that user can adjust in real time */
+ typedef struct {
+ 	int id;
+-- 
+2.43.0
+
