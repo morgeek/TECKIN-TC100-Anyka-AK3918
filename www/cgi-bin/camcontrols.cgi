@@ -1,6 +1,11 @@
 #!/bin/sh
 
-. /mnt/www/cgi-bin/func.cgi
+# GET ?cmd=panel (polled by the main page every 30 s) needs nothing of func.cgi (query parsing, CSRF, rate limit): skip
+# sourcing and parsing it; every other request takes the normal path.
+case "${REQUEST_METHOD:-GET}:${QUERY_STRING:-}" in
+  GET:cmd=panel|GET:cmd=panel\&*|GET:*\&cmd=panel|GET:*\&cmd=panel\&*) F_cmd=panel ;;
+  *) . /mnt/www/cgi-bin/func.cgi ;;
+esac
 
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 SCRIPT_HOME="${SCRIPT_HOME:-/mnt/controlscripts}"
@@ -28,14 +33,21 @@ esac
 PANEL_RUN="${PANEL_RUN:-/var/run}"
 PANEL_SYS="${PANEL_SYS:-/sys}"
 PANEL_SETCONF="${PANEL_SETCONF:-/mnt/bin/setconf}"
-_panel_first() { _pf=""; [ -r "$1" ] && read -r _pf _pr < "$1" 2>/dev/null; printf '%s' "$_pf"; }
+# _panel_first FILE: first word of the file into $_pf, no subshell
+_panel_first() { _pf=""; [ -r "$1" ] && read -r _pf _pr < "$1" 2>/dev/null; }
+# _panel_any VALUE FILE...: 1 when the first word of one of the files is VALUE, else 0 (into $_pa)
+_panel_any() {
+  _pv="$1"; shift; _pa=0
+  for _pfile in "$@"; do _panel_first "$_pfile"; [ "$_pf" = "$_pv" ] && { _pa=1; return 0; }; done
+  return 0
+}
 panel_json() {
   # 2.x vendor nodes first, then the Linux 6.6 LED names of the device tree (ir, blue, red)
-  _irled=0; { [ "$(_panel_first "$PANEL_SYS/user-gpio/ir-led")" = 1 ] || [ "$(_panel_first "$PANEL_SYS/class/leds/ir/brightness")" = 1 ]; } && _irled=1
-  _ircut=0; [ "$(_panel_first "$PANEL_RUN/ircut")" = 1 ] && _ircut=1
-  _bw=0;    [ "$(_panel_first "$PANEL_RUN/vday")" = 0 ] && _bw=1
-  _blue=0;  { [ "$(_panel_first "$PANEL_SYS/class/leds/blue_led/brightness")" = 1 ] || [ "$(_panel_first "$PANEL_SYS/class/leds/blue/brightness")" = 1 ]; } && _blue=1
-  _red=0;   { [ "$(_panel_first "$PANEL_SYS/class/leds/red_led/brightness")" = 1 ] || [ "$(_panel_first "$PANEL_SYS/class/leds/red/brightness")" = 1 ]; } && _red=1
+  _panel_any 1 "$PANEL_SYS/user-gpio/ir-led" "$PANEL_SYS/class/leds/ir/brightness"; _irled=$_pa
+  _panel_first "$PANEL_RUN/ircut"; _ircut=0; [ "$_pf" = 1 ] && _ircut=1
+  _panel_first "$PANEL_RUN/vday"; _bw=0; [ "$_pf" = 0 ] && _bw=1
+  _panel_any 1 "$PANEL_SYS/class/leds/blue_led/brightness" "$PANEL_SYS/class/leds/blue/brightness"; _blue=$_pa
+  _panel_any 1 "$PANEL_SYS/class/leds/red_led/brightness" "$PANEL_SYS/class/leds/red/brightness"; _red=$_pa
   if [ "$("$PANEL_SETCONF" -g n 2>/dev/null)" = 2 ]; then _mode=auto
   elif [ "$_irled$_ircut$_bw" = 101 ]; then _mode=night
   elif [ "$_irled$_ircut$_bw" = 010 ]; then _mode=day

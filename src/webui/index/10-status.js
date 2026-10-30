@@ -252,7 +252,22 @@
   }
 
   // Instruments under the live picture (css/ui.css), from the statusline poll.
+  // Host name from the status line (replaces the state.cgi?cmd=hostname request made at load). Same validation as before:
+  // not empty, at most 64 characters, no < or > (anything else is an error page): the title stays "TC100".
+  function applyHostName(title) {
+    title = String(title || "").trim();
+    if (!title || title.length > 64 || /[<>]/.test(title)) return;
+    if (document.title !== title) document.title = title;
+    var osdName = byId("osd_name");
+    if (osdName && osdName.textContent !== title) osdName.textContent = title;
+    var titleNode = byId("title");
+    if (titleNode && titleNode.title !== title) titleNode.title = title;
+    var brandHost = byId("brand_host");
+    if (brandHost && brandHost.textContent !== title) brandHost.textContent = title;
+  }
+
   function renderReadings(st) {
+    if (st.hostname) applyHostName(st.hostname);
     if (st.hostname) {
       var bh = byId("brand_host");
       if (bh && bh.textContent !== st.hostname) bh.textContent = st.hostname;
