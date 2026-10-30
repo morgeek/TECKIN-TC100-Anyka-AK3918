@@ -266,6 +266,21 @@ switch back to the rc7 behaviour.
    guard by itself when the pool is smaller than 12 MiB (log `encoder pool: N bytes (ak39_venc.pool), no guard at
    its start`; `RTSP_POOLPAD=<bytes>` still forces one). With the default 12 MiB pool nothing changes. Steps in R8-02.
 
+### R8-00 rc8 CI: the kernel workflow FAILS on `fd8c178` and on `c574c15` (tester, 2026-10-31 01:10) - nothing to test yet
+- Runs 41146850236 (`fd8c178`) and 41147148222 (`c574c15`), workflow "Build Linux 6.6 LTS Kernel ...", job "Compile Linux 6.6 + Anyka AK3918 +
+  CMA 16MB", step **"Build the 3.0 release (free user space image, SD package, web update)"**: `sh v3/build-stack.sh ...` stops with
+  **`cp: cannot stat 'usr/share/alsa/cards/aliases.conf': No such file or directory`** (the line `cp -L usr/share/alsa/cards/aliases.conf
+  "$T/ext/share/alsa/cards/"`, `v3/build-stack.sh` line 87). The Python "CI" workflow is green. No artifact was produced, so the tester has
+  no rc8 to put on the camera.
+- **Why:** the slim Buildroot base (B-02: alsa-lib with PCM and mixer only) does not install `/usr/share/alsa/cards/aliases.conf` at all (it is
+  not in the base rootfs), so there is nothing to copy; on the camera the missing file is what breaks `amixer -c 0` (rc7 report).
+- **Fix proposals (either):** (a) if the file is not in the base, write a one-line placeholder in `build-stack.sh` instead of copying
+  (`printf '# cards are addressed by number on this camera\n' > "$T/ext/share/alsa/cards/aliases.conf"`; `alsa.conf` only needs the file to
+  exist, `-c 0` is a number); keep the `[ -s ... ]` check afterwards (a comment line is not empty); or (b) enable the alsa-lib option that
+  installs `cards/` in `v3/buildroot/configs/` and rebuild the base (the CI caches it: bump the cache key). (a) is the quick one and needs no
+  new base. After the fix, test on the camera: `amixer -c 0 sget 'Headphone Playback Volume'` rc 0 and no `cannot stat` line.
+- The workflow added in `c574c15` for the pool-9600K card kernel runs after this step, so it has not been exercised either.
+
 ### R8-01 3.0.1-rc8 on the camera — `to test`
 - **What:** the rc7 tree plus: `slots=3` default (kernel), ISP clock and ISP masks default (`tc100_rtsp`), the F-05 and
   `amixer` fixes, the MQTT refusal in the web UI. `VERSION` = `3.0.1-rc8`.
