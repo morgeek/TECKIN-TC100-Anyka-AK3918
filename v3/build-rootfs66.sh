@@ -23,6 +23,19 @@ install -m 755 "$HERE/S39tc100-linux66" etc/init.d/S39tc100
 rm -rf lib/modules/4.4.302
 # RAM-only: drop what the self-test does not need (see initramfs-prune.txt)
 grep -vE '^(#|$)' "$HERE/initramfs-prune.txt" | while read -r f; do rm -rf "./$f"; done
+# What the prune list moved to ext/ of the user space (build-stack.sh puts it there): links into /mnt/ext, which is the
+# user space in both modes (flash: link to /rom/ext; SD: the card, mounted at /mnt by autorun-linux66.sh). A link costs no
+# RAM and is dangling until then, as the program would be missing. dropbear has its own start script.
+for b in aplay arecord amixer; do ln -sf /mnt/ext/bin/$b usr/bin/$b; done
+ln -sfn /mnt/ext/share/alsa usr/share/alsa	# the ALSA configuration directory compiled into libasound
+install -m 755 "$HERE/S50dropbear-linux66" etc/init.d/S50dropbear
+# musl library search path, same content as autorun-linux66.sh writes: the moved libraries (ext/lib) are found by a
+# rescue shell too, before autorun runs
+for l in lib/ld-musl-*.so.1; do
+  n=${l##*/ld-musl-}; printf '/lib\n/usr/lib\n/mnt/ext/lib\n' > "etc/ld-musl-${n%.so.1}.path"
+done
+# login shells (ssh, telnet, console): the tools of ext/ (curl, jq, iw, ...) on the PATH
+printf 'export PATH="$PATH:/mnt/ext/bin"\n' > etc/profile.d/tc100-ext.sh
 # the serial console is started by S39tc100 (login prompt, or a shell if tc100test/consoleshell exists)
 sed -i '/ttySAK0/d' etc/inittab
 # default password of the OpenIPC image: lock it, S39tc100 sets the real one
