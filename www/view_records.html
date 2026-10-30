@@ -86,7 +86,7 @@
     .then(function(d) {
       var n = document.getElementById('rec_status_notice');
       var t = document.getElementById('rec_status_notice_text');
-      if (!n || !t || !d) return;
+      if (!n || !t || !d || d.ok === false) return;
       if (d.rec_local !== '1') {
         n.style.display = 'block';
         n.className = 'notification is-warning is-light py-2 px-3 mb-3 is-size-7';
@@ -105,10 +105,10 @@
       <header class="card-header"><p class="card-header-title">Video Records</p></header>
       <div class="card-content">
         <div id="dateselectdiv" class="select is-loading">
-          <select id="dateselect" onchange="onDateChanged()"></select>
+          <select id="dateselect" aria-label="Date" onchange="onDateChanged()"></select>
         </div>
         <div id="recordselectdiv" class="select is-loading">
-          <select id="recordselect" onchange="onRecordChanged()"></select>
+          <select id="recordselect" aria-label="Recording" onchange="onRecordChanged()"></select>
         </div>
         <input class="switch" id="autoplay" type="checkbox" onclick="autoPlayCheck(this)">
         <label for="autoplay">Autoplay</label>
@@ -126,8 +126,8 @@
 
   <div class="records-video-col">
     <div class="records-video">
-      <div id="videonote" class="message is-danger" style="display:none;"><div class="message-body"><span id="videonote_text"></span> <button id="records_retry" class="button is-small" type="button">Retry</button></div></div>
-      <video id="rpl" controls playsinline></video>
+      <div id="videonote" class="message is-danger" style="display:none;" role="alert"><div class="message-body"><span id="videonote_text"></span> <button id="records_retry" class="button is-small" type="button">Retry</button></div></div>
+      <video id="rpl" controls playsinline preload="metadata"></video>
       <p class="help">MP4 clips. H.264 plays in every browser; H.265 only where the browser decodes it (Safari, Edge): otherwise use Download and open the file in VLC. The sound (G.711 A-law) is played by VLC; browsers usually show the picture only.</p>
     </div>
     <details class="card status_card motion-timeline" id="motion_timeline_card" style="margin-top:1rem;">
