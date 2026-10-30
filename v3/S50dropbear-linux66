@@ -1,0 +1,65 @@
+#!/bin/sh
+#
+# Starts dropbear sshd (replaces the Buildroot S50dropbear in the initramfs: the program is not in the RAM image any
+# more, it comes with the user space, ext/bin/dropbear).
+#   Flash mode: /mnt/ext is the user space squashfs (S39tc100 has mounted it before this script runs).
+#   SD mode:    /mnt is the card only once autorun-linux66.sh has mounted it, which races with this script: the card is
+#               already at /mnt/sd (S39tc100, step 1) and carries the same tree.
+# Without dropbear (a user space older than the initramfs) the camera stays reachable by the busybox telnetd of
+# S50telnet, with the same root password; a line on the console says so.
+
+DB=
+for p in /mnt/ext/bin/dropbear /mnt/sd/ext/bin/dropbear; do
+	[ -x $p ] && { DB=$p; break; }
+done
+
+# Allow a few customizations from a config file
+test -r /etc/default/dropbear && . /etc/default/dropbear
+
+start() {
+	if [ -z "$DB" ]; then
+		echo "[tc100] dropbear is not in the user space (ext/bin): no ssh, telnetd is the way in" > /dev/console
+		echo "Starting dropbear sshd: SKIP"
+		return 0
+	fi
+	DROPBEAR_ARGS="$DROPBEAR_ARGS -R"
+
+	# /etc/dropbear is a symlink to /var/run/dropbear (RAM): the host keys are made at each boot
+	if [ -L /etc/dropbear ] && [ "$(readlink /etc/dropbear)" = "/var/run/dropbear" ]; then
+		if rm -f /etc/dropbear >/dev/null 2>&1; then
+			mkdir -p /etc/dropbear
+		else
+			mkdir -p "$(readlink /etc/dropbear)"
+		fi
+	fi
+
+	printf "Starting dropbear sshd: "
+	umask 077
+
+	start-stop-daemon -S -q -p /var/run/dropbear.pid \
+		--exec $DB -- $DROPBEAR_ARGS
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+stop() {
+	printf "Stopping dropbear sshd: "
+	start-stop-daemon -K -q -p /var/run/dropbear.pid
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart|reload)
+	stop
+	start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?

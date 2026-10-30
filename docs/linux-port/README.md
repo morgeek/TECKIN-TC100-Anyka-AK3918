@@ -123,7 +123,7 @@ Tracing tool: `libtc100fix` records the vendor encoder's hardware accesses (`VEN
   `web-auth`, `wifi-apply`, `net-apply`), the flash tools (`flashw`, `cfg-persist`, `flashmode-prep.sh`). Its README
   lists what is not available on this stack. The RTSP control script is `controlscripts/rtsp-h26x`, the IR-cut and
   LED helper `bin/setconf` (both shell scripts).
-- `v3/build-rootfs66.sh [in] [out]`: builds the 6.6 initramfs from our Buildroot base (`v3/buildroot/`, built by CI) (replaces the boot script, drops the 4.4 modules, locks the image's default root password). About 3 MB instead of 6.9 MB. Needs root.
+- `v3/build-rootfs66.sh [in] [out]`: builds the 6.6 initramfs from our Buildroot base (`v3/buildroot/`, built by CI) (replaces the boot script, drops the 4.4 modules, locks the image's default root password). About 2.5 MB unpacked instead of 6.9 MB: only what the boot needs stays (busybox, musl, wpa_supplicant + libnl, init scripts); the ALSA tools and libasound, dropbear (`v3/S50dropbear-linux66`), libz, libgcc_s and libatomic live in `ext/` of the user space (links and the musl path file in the initramfs find them, see test-queue B-01). Needs root.
 
 ## Test loop (no flash writes, no SD swap)
 
