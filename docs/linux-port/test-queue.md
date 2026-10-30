@@ -38,6 +38,12 @@ same time, sub-stream, H.265 UDPSG, W-01, UI-22, F-01, O-04 checks 2-9, ssh); ON
 off on IPCAM2); the MQTT password (the owner re-enters it); a go for the HW-02 test 2 boot argument `ak39_venc.pool=9600K`
 (RAM only, not saved); daylight readings for HW-08 / F-04 tomorrow; the microphone and the speaker by ear.
 
+**IPCAM2 (.11) state at 2026-10-31 00:45:** rc7 (`fb75210`, nothing newer on main) in the flash, **25 fps set by the owner's decision**
+(`rtspserver.conf [0] fps=25`, saved to the flash settings by cfg-persist, survives a full reboot: `-f 25`, 123-126 frames per 5 s,
+`dropped` 2 per 5 s at worst, idle 79.8 %, MemAvailable 16.5 MB, Frigate connected). No U-Boot change, no `saveenv`; `ak39_vi.slots=3`
+is NOT in the flash boot arguments (it needs a U-Boot env change: the owner has not agreed yet). The SD card still holds `tc100test/`
+(consoleshell, test.img) and `.bootcount` = 0009 (see the F-05 bug).
+
 **Builds run today**
 - `cb20c19` / `80c0285` (rc5): 512 KB page blocks (`CONFIG_ARCH_FORCE_MAX_ORDER=7`), high-atomic reserve 1 MB,
   no boot OOM; installed in the flash of IPCAM2 in the morning, and on IPCAM1 (.24) by its owner through the web UI.
