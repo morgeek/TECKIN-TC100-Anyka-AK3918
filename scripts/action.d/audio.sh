@@ -8,7 +8,7 @@
 
     conf_audioin)
       # the stream audio is fixed (G.711 A-law, 8 kHz): only the microphone level is a setting
-      volume=$(sanitize_int_range "${F_audioinVol}" 0 12 10)
+      volume=$(sanitize_int_range "${F_audioinVol}" 0 15 10)
       if ! /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " volume "$volume"; then
         if wants_json_response; then
           json_body_err "CONFIG_WRITE_FAILED" "Settings could not be written. Check the SD card."

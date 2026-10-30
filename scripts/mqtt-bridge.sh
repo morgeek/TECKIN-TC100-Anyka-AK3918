@@ -972,7 +972,7 @@ DIAG
   publish_discovery_config "$motion_cfg_topic" "$motion_cfg_payload"
 
   # Switches (Interactive Toggles)
-  for cmd in ir_led front_led red_led motion_detection privacy_shield night_mode auto_night_mode; do
+  for cmd in ir_led front_led red_led motion_detection night_mode auto_night_mode; do
     uniq_id="${node_id}_${cmd}"
     # Fixed friendly names. The previous `sed 's/\b./\u&/g'` used GNU-only \b and
     # \u, which busybox sed does not implement — it produced mangled names like
@@ -1007,6 +1007,9 @@ DIAG
     publish_discovery_config "$switch_cfg_topic" "$switch_cfg_payload"
   done
 
+  # Privacy Shield was removed on 3.0 (it only stopped services until the reboot): drop the entity older versions announced
+  publish_discovery_config "${discovery_prefix}/switch/${node_id}/privacy_shield/config" ""
+
   # Additional V3 Telemetry Sensors (Wi-Fi Quality, Storage Used, IP Address)
   publish_discovery_config "${discovery_prefix}/sensor/${node_id}/wifi_quality/config" \
     "$(printf '{"name":"%s Wi-Fi Quality","uniq_id":"%s_wifi_quality","stat_t":"%s","val_tpl":"{{ value_json.diag.wifi_quality }}","unit_of_meas":"%%","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi-check",%s,%s}' \
@@ -1038,11 +1041,9 @@ DIAG
         "$(printf '{"name":"%s %s","uniq_id":"%s_isp_%s","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","min":%s,"max":%s,"step":%s,"mode":"slider","ent_cat":"config"%s,"avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
           "$device_name_json" "$isp_name" "$device_id_json" "$isp_key" "$isp_state_json" "$isp_tpl_json" "$cmd_json" "$isp_cmd_tpl_json" "$isp_min" "$isp_max" "$isp_step" "$isp_unit" "$avail_topic_json" "$isp_ic" "$device_id_json" "$device_name_json")"
     done
-    isp_hz_tpl_json="$(json_escape "{{ value_json.conf.POWER_HZ | string if value_json.conf.POWER_HZ else 'unchanged' }}")"
-    isp_hz_cmd_json="$(json_escape "{\"cmd\":\"isp_power_hz\",\"value\":\"{{ value }}\"}")"
-    publish_discovery_config "${discovery_prefix}/select/${node_id}/isp_power_hz/config" \
-      "$(printf '{"name":"%s Anti-flicker","uniq_id":"%s_isp_power_hz","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","options":["unchanged","50","60"],"ent_cat":"config","avty_t":"%s","ic":"mdi:sine-wave","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
-        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_hz_tpl_json" "$cmd_json" "$isp_hz_cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+    # Anti-flicker (POWER_HZ) is not applied by the ISP code on 3.0: no entity (an empty retained payload removes the
+    # one older versions announced). The "isp_power_hz" command below stays harmless.
+    publish_discovery_config "${discovery_prefix}/select/${node_id}/isp_power_hz/config" ""
     isp_en_tpl_json="$(json_escape "{{ 'ON' if value_json.enabled == 1 else 'OFF' }}")"
     publish_discovery_config "${discovery_prefix}/switch/${node_id}/isp_tune/config" \
       "$(printf '{"name":"%s Image Tuning","uniq_id":"%s_isp_tune","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","pl_on":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"on\\"}","pl_off":"{\\"cmd\\":\\"isp_tune\\",\\"value\\":\\"off\\"}","ent_cat":"config","avty_t":"%s","ic":"mdi:tune","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \

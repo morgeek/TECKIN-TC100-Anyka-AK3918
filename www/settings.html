@@ -42,7 +42,7 @@
                 <div class='card status_card'>
                     <header class='card-header'><p class='card-header-title'>Live image tuning</p></header>
                     <div class='card-content'>
-                        <p class="help mb-3">Applied within a few seconds, without restarting the stream. 0 keeps the sensor's factory value. Switching tuning on or off restarts the video once.</p>
+                        <p class="help mb-3">Applied within a few seconds, without restarting the stream. 0 keeps the sensor's factory value.</p>
                         <div class="field mb-3"><input class="switch is-small" id="isp_enable" name="isp_enable" type="checkbox"><label for="isp_enable">Enable live image tuning</label></div>
                         <div class="columns is-multiline">
                             <div class="column is-half"><label class="label is-small" for="isp_brightness">Brightness <output class="isp-tune-value" style="font-weight:600;margin-left:.4em" for="isp_brightness" id="isp_brightness_out">0</output></label><input class="isp-tune-range" name="isp_brightness" id="isp_brightness" type="range" min="-50" max="50" step="1" value="0" style="width:100%"><p class="help">Moves the auto-exposure target.</p></div>
@@ -83,6 +83,9 @@
                             <div class="column is-3"><label class="label is-small">Y pos</label><input class="input is-small" name="osdy0" id="osdy0" type="number"></div>
                         </div>
 
+                        <div class="is-divider" data-content="Orientation"></div>
+                        <div class="field"><label class="label is-small" for="imageflip">Image orientation</label><div class="control"><div class="select is-small"><select name="imageflip" id="imageflip"><option value="0">Normal</option><option value="1">Flip (upside down)</option><option value="2">Mirror (left-right)</option><option value="3">Rotate 180&deg;</option></select></div></div><p class="help">Done by the image processor, applied at once. For a camera mounted on the ceiling, choose Rotate 180&deg;.</p></div>
+
                         <div class="is-divider"></div>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Apply ISP Settings</button></div>
                     </div>
@@ -107,7 +110,7 @@
                             </div>
                         </div>
                         <p class="help" id="rtsp_server_status" role="status"></p>
-                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply (restarts the stream)</button></div>
+                        <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Apply</button></div>
                     </div>
                 </div>
             </form>
@@ -121,7 +124,7 @@
                         <details class="settings-advanced">
                             <summary>Advanced encoding</summary>
                             <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
-                            <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_codec0">Video codec</label><div class="select is-small is-fullwidth"><select name="video_codec0" id="video_codec0"><option value="0">H.264</option><option value="2">H.265</option></select></div></div><div class="column is-half"><label class="label is-small" for="goplen0">Keyframe interval (frames)</label><input class="input is-small" name="goplen0" id="goplen0" type="number" min="1" max="300" step="1" required></div><div class="column is-half"><label class="label is-small" for="video_format0">Bitrate mode</label><div class="select is-small is-fullwidth"><select name="video_format0" id="video_format0"><option value="0">Constant (CBR)</option><option value="1">Variable (VBR)</option></select></div></div><div class="column is-half"><label class="label is-small" for="minqp0">Minimum QP</label><input class="input is-small" name="minqp0" id="minqp0" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="maxqp0">Maximum QP</label><input class="input is-small" name="maxqp0" id="maxqp0" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="smartmode0">Smart encoding</label><div class="select is-small is-fullwidth"><select name="smartmode0" id="smartmode0"><option value="0">Off</option><option value="1">Long-term reference</option><option value="2">Adaptive keyframes</option></select></div></div></div>
+                            <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_codec0">Video codec</label><div class="select is-small is-fullwidth"><select name="video_codec0" id="video_codec0"><option value="0">H.264</option><option value="2">H.265</option></select></div></div><div class="column is-half"><label class="label is-small" for="goplen0">Keyframe interval (frames)</label><input class="input is-small" name="goplen0" id="goplen0" type="number" min="1" max="300" step="1" required></div><div class="column is-half"><label class="label is-small" for="minqp0">Minimum QP (both streams)</label><input class="input is-small" name="minqp0" id="minqp0" type="number" min="10" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="maxqp0">Maximum QP (both streams)</label><input class="input is-small" name="maxqp0" id="maxqp0" type="number" min="10" max="51" step="1" required></div></div>
                         </details>
                         <p class="help">Saving this stream may briefly interrupt video.</p>
                         <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save main stream</button></div>
@@ -138,7 +141,7 @@
                         <details class="settings-advanced">
                             <summary>Advanced encoding</summary>
                             <p class="help mb-3">Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.</p>
-                            <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_codec1">Video codec</label><div class="select is-small is-fullwidth"><select name="video_codec1" id="video_codec1"><option value="0">H.264</option><option value="2">H.265</option></select></div></div><div class="column is-half"><label class="label is-small" for="goplen1">Keyframe interval (frames)</label><input class="input is-small" name="goplen1" id="goplen1" type="number" min="1" max="300" step="1" required></div><div class="column is-half"><label class="label is-small" for="video_format1">Bitrate mode</label><div class="select is-small is-fullwidth"><select name="video_format1" id="video_format1"><option value="0">Constant (CBR)</option><option value="1">Variable (VBR)</option></select></div></div><div class="column is-half"><label class="label is-small" for="minqp1">Minimum QP</label><input class="input is-small" name="minqp1" id="minqp1" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="maxqp1">Maximum QP</label><input class="input is-small" name="maxqp1" id="maxqp1" type="number" min="1" max="51" step="1" required></div><div class="column is-half"><label class="label is-small" for="smartmode1">Smart encoding</label><div class="select is-small is-fullwidth"><select name="smartmode1" id="smartmode1"><option value="0">Off</option><option value="1">Long-term reference</option><option value="2">Adaptive keyframes</option></select></div></div></div>
+                            <div class="columns is-multiline"><div class="column is-half"><label class="label is-small" for="video_codec1">Video codec</label><div class="select is-small is-fullwidth"><select name="video_codec1" id="video_codec1"><option value="0">H.264</option><option value="2">H.265</option></select></div></div><div class="column is-half"><label class="label is-small" for="goplen1">Keyframe interval (frames)</label><input class="input is-small" name="goplen1" id="goplen1" type="number" min="1" max="300" step="1" required></div></div>
                         </details>
                         <p class="help">Saving this stream may briefly interrupt video.</p>
                         <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save secondary stream</button></div>
@@ -200,7 +203,7 @@
                 <div class="card status_card">
                     <header class="card-header"><p class="card-header-title">Microphone</p></header>
                     <div class="card-content">
-                        <div class="field"><label class="label" for="audio_vol">Microphone level (0–12)</label><input class="input" name="audioinVol" id="audio_vol" type="number" min="0" max="12" step="1" required></div>
+                        <div class="field"><label class="label" for="audio_vol">Microphone level (0–15)</label><input class="input" name="audioinVol" id="audio_vol" type="number" min="0" max="15" step="1" required></div>
                         <p class="help">The microphone is sent as G.711 A-law at 8000 Hz; the level applies at once.</p>
                         <div class="buttons is-right mt-3"><button class="button is-primary" type="submit">Save audio</button></div>
                     </div>
@@ -236,7 +239,7 @@
                             <div class="control"><span class="tag is-light" id="mdz_count">0 / 4</span></div>
                         </div>
                         <p class="help" id="mdz_status" role="status"></p>
-                        <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; restarts the RTSP stream when switched)</label></div>
+                        <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; applied within a few seconds)</label></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
                     </div>
                 </div>
@@ -274,7 +277,7 @@
                         <p class="help mb-3">MP4 files on the SD card, copied from the video the camera already encodes (no re-encoding). Oldest files are deleted when the card is full.</p>
                         <div class="field"><input class="switch is-small" id="rec_local" name="rec_local" type="checkbox"><label for="rec_local">Record to the SD card</label></div>
                         <div class="columns is-multiline">
-                            <div class="column is-half"><label class="label is-small" for="rec_when">When</label><div class="select is-small is-fullwidth"><select name="rec_when" id="rec_when"><option value="offline">Only while Frigate does not receive the video</option><option value="always">All the time</option><option value="motion">On motion (3.0)</option></select></div></div>
+                            <div class="column is-half"><label class="label is-small" for="rec_when">When</label><div class="select is-small is-fullwidth"><select name="rec_when" id="rec_when"><option value="offline">Only while Frigate does not receive the video</option><option value="always">All the time</option><option value="motion">On motion (3.0)</option></select></div><p class="help">"On motion" records only while Motion detection is on (Settings, Detection).</p></div>
                             <div class="column is-half"><label class="label is-small" for="rec_stream">Stream</label><div class="select is-small is-fullwidth"><select name="rec_stream" id="rec_stream"><option value="main">Main stream (best quality, ~4.5 % CPU while recording)</option><option value="sub">Secondary stream (under 1 % CPU)</option></select></div></div>
                             <div class="column is-half"><label class="label is-small" for="rec_segment_min">File length (minutes)</label><input class="input is-small" name="rec_segment_min" id="rec_segment_min" type="number" min="1" max="60" step="1"></div>
                             <div class="column is-half"><label class="label is-small" for="rec_reserve_mb">Keep free on the card (MB)</label><input class="input is-small" name="rec_reserve_mb" id="rec_reserve_mb" type="number" min="32" max="8192" step="1"></div>
@@ -489,7 +492,6 @@
                 <div class='card-content'>
                     <form id="formTuning" action="cgi-bin/action.cgi?cmd=set_advanced_tuning" method="post">
                         <div class="columns is-multiline mb-0">
-                            <div class="column is-half"><div class="field"><input class="switch is-small" id="lightweight_mode" name="lightweight_mode" type="checkbox"><label for="lightweight_mode">Lightweight Boot</label></div></div>
                             <div class="column is-half"><div class="field"><input class="switch is-small" id="security_hardening" name="security_hardening" type="checkbox"><label for="security_hardening">Security Hardening</label></div></div>
                         </div>
                         <div class="is-divider" data-content="Memory Guard (OOM Prevention)"></div>
@@ -519,7 +521,7 @@
             </div>
 
             <div class='card status_card mt-4'>
-                <header class='card-header'><p class='card-header-title'>LEDs and privacy</p></header>
+                <header class='card-header'><p class='card-header-title'>LEDs</p></header>
                 <div class='card-content'>
                     <div class="columns">
                         <div class="column is-half">
@@ -528,13 +530,6 @@
                                 <div class="field"><input class="switch is-small" id="led_red" name="led_red" type="checkbox"><label for="led_red">Infrared Red Dot</label></div>
                                 <div class="buttons is-right"><button class="button is-primary is-small" type="submit">Save LEDs</button></div>
                             </form>
-                        </div>
-                        <div class="column is-half">
-                            <div class="field"><label class="label is-small">Privacy Shield</label></div>
-                            <div class="buttons">
-                                <button class="button is-danger is-small is-fullwidth" type="button" id="btnPrivacyEnable">Enable Privacy Shield</button>
-                            </div>
-                            <p class="help">Disables all cloud and non-local access paths instantly.</p>
                         </div>
                     </div>
                 </div>
@@ -575,9 +570,7 @@
             <div class='card status_card mb-4'>
                 <header class='card-header'><p class='card-header-title'>Firmware update</p></header>
                 <div class='card-content'>
-                    <p class="is-size-7 mb-2">Running from the SD card: upload a <code>tc100-update-&lt;version&gt;.tar</code> package (built by <code>src/release/build-update.sh</code>). It is checked file by file before anything is installed; only changed files are replaced, the previous ones are kept for a rollback, and the camera reboots at the end. Your settings, start-at-boot choices and Wi-Fi credentials are kept. Running from the flash memory (FLASH badge): upload a <code>tc100-code-&lt;version&gt;.bin</code> package (<code>src/flash/build-code.sh</code>); it is written to the flash, read back, and the camera reboots; "Roll back" returns to the code built into the firmware.</p>
                     <p class="is-size-7 mb-2">Firmware 3.0 (Linux 6.6) running from the flash memory: upload <code>tc100-&lt;version&gt;-update.tar</code> from the release page; the system, kernel and boot image are written to the flash, read back, and the camera restarts. Settings, Wi-Fi and the camera's own libraries are kept.</p>
-                    <p class="is-size-7 mb-2">From the flash memory, a system package <code>tc100-system-&lt;version&gt;.tar</code> (made by <code>src/flash/build-flash-kit.sh</code>) also replaces the programs, without SD card.</p>
                     <p class="is-size-7 mb-3" id="fwuStatus">Installed version: <span id="fwuCurrent">…</span></p>
                     <div class="file is-small is-fullwidth mb-2">
                         <label class="file-label" style="width:100%">
@@ -590,7 +583,6 @@
                     <div class="buttons">
                         <button class="button is-info is-small" type="button" id="btnFwuUpload" disabled>Upload &amp; check</button>
                         <button class="button is-warning is-small" type="button" id="btnFwuInstall" style="display:none">Install &amp; reboot</button>
-                        <button class="button is-small" type="button" id="btnFwuRollback" style="display:none">Roll back</button>
                     </div>
                 </div>
             </div>
@@ -1075,7 +1067,6 @@
             var name = document.getElementById('fwuFileName');
             var up = document.getElementById('btnFwuUpload');
             var inst = document.getElementById('btnFwuInstall');
-            var rb = document.getElementById('btnFwuRollback');
             var bar = document.getElementById('fwuProgress');
             var cur = document.getElementById('fwuCurrent');
             var status = document.getElementById('fwuStatus');
@@ -1097,8 +1088,6 @@
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
                         cur.textContent = (d.current || '?') + buildInfo(d.current_built, d.current_commit);
-                        show(rb, !!d.rollback_to);
-                        if (d.rollback_to) rb.textContent = 'Roll back to ' + d.rollback_to;
                         show(inst, d.state === 'staged');
                         stagedKind = d.kind || '';
                         if (d.state === 'staged') inst.textContent = 'Install ' + d.staged + ' & reboot';
@@ -1191,10 +1180,7 @@
                     return;
                 }
                 run('install', (stagedSame === 1 ? 'This package has the same version as the installed code but is a different build.\n\n' : '') +
-                    'Install the uploaded firmware and reboot the camera?\n\nThe replaced files are kept for a rollback.', 'Installing.');
-            });
-            rb.addEventListener('click', function() {
-                run('rollback', 'Restore the files replaced by the last update and reboot the camera?', 'Rolling back.');
+                    'Install the uploaded firmware and reboot the camera?', 'Installing.');
             });
             refresh();
         })();

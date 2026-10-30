@@ -101,6 +101,7 @@
             setVal('osdfontsize0', osd.fontsize0);
             setVal('osdx0', osd.x0);
             setVal('osdy0', osd.y0);
+            setVal('imageflip', vid.flip);
 
             // 3b. Live image tuning (separate endpoint; values applied by libtc100fix)
             loadIspTune(dash);
@@ -518,15 +519,6 @@
                 btnFreeRam.onclick = function() {
                     csrfFetch('cgi-bin/action.cgi?cmd=clear_mem', { method: 'POST' }).then(function() {
                         showResult('Memory cache cleared', 'is-success');
-                    });
-                };
-            }
-            var btnPrivacy = byId('btnPrivacyEnable');
-            if (btnPrivacy) {
-                btnPrivacy.onclick = function() {
-                    if (!confirm('Activate Privacy Shield? This will disconnect all outbound/cloud services.')) return;
-                    csrfFetch('cgi-bin/action.cgi?cmd=enable_privacy_shield', { method: 'POST' }).then(function() {
-                        showResult('Privacy Shield Activated', 'is-danger');
                     });
                 };
             }

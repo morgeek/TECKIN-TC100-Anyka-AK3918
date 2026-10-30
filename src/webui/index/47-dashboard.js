@@ -139,9 +139,7 @@
       setText("ds_" + k + "_rate", s.kbps ? s.kbps + " kbit/s" : "–");
     });
     setText("ds_port", "RTSP port " + i.rtsp_port);
-    var j = i.jffs || [0, 0], sd = i.sd || [0, 0];
-    setText("dst_jffs", fmtKb(j[1]) + " / " + fmtKb(j[0]));
-    dashBar("dsb_jffs", j[1], j[0]);
+    var sd = i.sd || [0, 0];
     if (sd[0] > 0) {
       var sdpct = (100 * sd[1] / sd[0]);
       var sdpctStr = sdpct > 0 && sdpct < 0.1 ? "< 0.1%" : (sdpct < 10 ? sdpct.toFixed(1) + "%" : Math.round(sdpct) + "%");

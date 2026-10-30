@@ -2162,7 +2162,7 @@ int main(int argc, char **argv)
 {
 	const char *akuio = "/mnt/sd/tc100test/libakuio.so", *dev = "/dev/video0", *dir = "/mnt/lib";	/* vendor libraries: /mnt/lib in SD and in flash mode (was /mnt/sd/lib: no video without a card) */
 	const char *pwfile = NULL;
-	int o, kbps = 2000, fps = 15, qmin = 25, qmax = 48, port = 554, hevc = 0, sub_on = 1, sub_hevc = 0, sub_kbps = 400;
+	int o, kbps = 2000, fps = 15, qmin = 25, qmax = 48, port = 554, hevc = 0, sub_on = 1, sub_hevc = 0, sub_kbps = 400, gop_main = 0, gop_sub = 0;
 
 	for (o = 1; o + 1 < argc; o += 2) {
 		const char *a = argv[o], *v = argv[o + 1];
@@ -2173,6 +2173,8 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "-f")) fps = num(v);
 		else if (!strcmp(a, "-q")) qmin = num(v);
 		else if (!strcmp(a, "-Q")) qmax = num(v);
+		else if (!strcmp(a, "-g")) gop_main = num(v);	/* keyframe interval in frames, main stream (default 2 s) */
+		else if (!strcmp(a, "-G")) gop_sub = num(v);	/* same, sub stream (default: as -g) */
 		else if (!strcmp(a, "-d")) dev = v;
 		else if (!strcmp(a, "-u")) snprintf(au_user, sizeof au_user, "%s", v);
 		else if (!strcmp(a, "-w")) pwfile = v;
@@ -2185,7 +2187,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "-R")) rec_dir = v;
 		else if (!strcmp(a, "-S")) snd_file = v;
 		else {
-			LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-c h264|h265] [-q QMIN] [-Q QMAX] [-d DEV] [-L LIBDIR]\n");
+			LOG("usage: tc100_rtsp [-p PORT] [-b KBPS] [-f FPS] [-c h264|h265] [-q QMIN] [-Q QMAX] [-g GOP] [-G SUBGOP] [-d DEV] [-L LIBDIR]\n");
 			LOG("                  [-A libakuio.so] [-u USER] [-w PASSWORD_FILE] [-a 0|1 audio]\n");
 			LOG("                  [-s 0|1 sub-stream] [-C h264|h265 sub codec] [-B KBPS sub bit rate]\n");
 			LOG("                  [-R RECORD_DIR (/mnt/DCIM)] [-S SOUND_LEVEL_FILE (/var/run/sound_level)]\n");
@@ -2371,7 +2373,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		cache_reset(s);
 		memset(pa, 0, sizeof *pa);
 		pa->width = s->w; pa->height = s->h; pa->qpmin = qmin; pa->qpmax = qmax;
-		pa->fps = fps; pa->gop = fps * 2; pa->kbps = k ? sub_kbps : kbps;
+		pa->fps = fps; pa->gop = (k && gop_sub > 0 ? gop_sub : gop_main > 0 ? gop_main : fps * 2); pa->kbps = k ? sub_kbps : kbps;
 		if (s->hevc) { pa->codec = 2; pa->profile = 3; }
 		if (k) {
 			const char *e;
