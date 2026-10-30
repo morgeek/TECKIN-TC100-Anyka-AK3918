@@ -168,7 +168,7 @@
                     <span class="navbar-item storage-badge webfb-badge" id="webfb_badge" title="HTTPS could not start (certificate): this page is served over plain HTTP. It is tried again at the next restart." hidden>HTTP</span>
                     <span class="navbar-item storage-badge cfgsave-badge" id="cfgsave_badge" title="The settings could not be saved to the flash." hidden>Settings not saved</span>
                     <a class="navbar-item lang-toggle" id="lang_toggle" href="#" translate="no">FR</a>
-                    <a class="navbar-item" id="theme_toggle" title="Toggle Light/Dark Mode">
+                    <a class="navbar-item" id="theme_toggle" href="#" role="button" title="Toggle Light/Dark Mode" aria-label="Toggle Light/Dark Mode">
                         <span class="nav-icon" id="theme_toggle_icon">
                             <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 18px; height: 18px;">
                                 <path fill="currentColor"
@@ -194,7 +194,7 @@
         <div id="content" class="container app-shell">
           <div id="home_view">
             <section id="view_dashboard" class="dash" aria-label="Dashboard">
-                <header class="page-head"><h1 class="page-title">Dashboard</h1><small class="page-meta"><span class="dash-live-dot"></span><span id="dash_updated">Updating…</span></small></header>
+                <header class="page-head"><h1 class="page-title">Dashboard</h1><small class="page-meta"><span class="dash-live-dot" aria-hidden="true"></span><span id="dash_updated">Updating…</span></small></header>
                 <div class="dash-tiles">
                     <div class="dash-tile"><span class="dash-label">CPU</span><strong class="dash-value" id="dt_cpu">…</strong><small class="dash-sub" id="dt_cpu_sub"></small><span class="dash-spark" id="ds_cpu"></span></div>
                     <div class="dash-tile"><span class="dash-label">Memory</span><strong class="dash-value" id="dt_mem">…</strong><small class="dash-sub" id="dt_mem_sub"></small><span class="dash-spark" id="ds_mem"></span></div>
@@ -218,7 +218,7 @@
                     <article class="dash-card">
                         <header class="dash-card-head"><span class="dash-label">Streams</span><small class="dash-sub" id="ds_port"></small></header>
                         <table class="dash-table">
-                            <thead><tr><th></th><th>Codec</th><th>Size</th><th>Rate</th><th>Bitrate</th></tr></thead>
+                            <thead><tr><th><span class="sr-only">Stream</span></th><th>Codec</th><th>Size</th><th>Rate</th><th>Bitrate</th></tr></thead>
                             <tbody>
                             <tr><th>Main</th><td id="ds_main_codec">–</td><td id="ds_main_res">–</td><td id="ds_main_fps">–</td><td id="ds_main_rate">–</td></tr>
                             <tr><th>Sub</th><td id="ds_sub_codec">–</td><td id="ds_sub_res">–</td><td id="ds_sub_fps">–</td><td id="ds_sub_rate">–</td></tr>
@@ -254,7 +254,7 @@
                 <video id="liveview_video" muted autoplay playsinline disablepictureinpicture style="display:none" aria-label="Live camera video"></video>
                 <div class="v2-osd top">
                     <div class="camera-health">
-                        <span id="camera_state_dot" class="camera-state-dot is-checking"></span>
+                        <span id="camera_state_dot" class="camera-state-dot is-checking" aria-hidden="true"></span>
                         <div><strong id="camera_state">Checking camera…</strong><small id="status_updated" style="display:none">Updating…</small></div>
                     </div>
                     <span id="osd_name"></span>
@@ -264,7 +264,7 @@
                     <span id="osd_light"></span>
                 </div>
             </div>
-            <div class="v2-readings" id="readings" aria-live="polite">
+            <div class="v2-readings" id="readings">
                 <span id="rd_cpu">CPU<b>…</b></span>
                 <span id="rd_ram">Memory<b>…</b></span>
                 <span id="rd_wifi">Wi-Fi<b>…</b></span>
@@ -305,7 +305,7 @@
                 <div class="toolbar-group audio-actions">
                     <button class="button is-info" id="listen_btn" type="button" title="Load camera audio controls"><i class="icon-headphones"></i> <span class="listen-label">Listen</span></button>
                     <button class="button is-danger ptt-primary" id="ptt_btn" type="button" title="Load push-to-talk controls"><i class="icon-microphone"></i> <span class="ptt-label">Talk</span></button>
-                    <span class="ptt-vol-wrap" title="Speaker volume"><i class="icon-volume-medium ptt-vol-icon"></i><input type="range" id="ptt_vol" min="0" max="100" value="90" class="ptt-vol-slider" aria-label="PTT volume" disabled><span id="ptt_vol_label" class="ptt-vol-label">90%</span></span>
+                    <span class="ptt-vol-wrap" title="Speaker volume"><i class="icon-volume-medium ptt-vol-icon" aria-hidden="true"></i><input type="range" id="ptt_vol" min="0" max="100" value="90" class="ptt-vol-slider" aria-label="PTT volume" disabled><span id="ptt_vol_label" class="ptt-vol-label">90%</span></span>
                     <button class="button is-small" id="ptt_test_btn" type="button" disabled><i class="icon-play"></i> <span class="ptt-test-label">Test</span></button>
                     <span id="ptt_last_sent" class="ptt-last-sent">Audio loads on demand</span>
                 </div>
@@ -323,7 +323,7 @@
             <section id="diagnostics_panel" class="diagnostics-panel" hidden>
                 <div class="diagnostics-head"><div><strong>Camera diagnostics</strong><small id="diagnostics_summary">Loading…</small></div><button class="button is-small" id="copy_frigate" type="button">Copy Frigate YAML</button></div>
                 <div class="diagnostics-grid">
-                    <div><h3>48-hour stability</h3><canvas id="stability_chart" width="640" height="180" aria-label="Load and available memory history"></canvas><small id="stability_legend">Waiting for samples</small></div>
+                    <div><h3>48-hour stability</h3><canvas id="stability_chart" width="640" height="180" role="img" aria-label="Load and available memory history"></canvas><small id="stability_legend">Waiting for samples</small></div>
                     <div><h3>Frigate / go2rtc</h3><pre id="frigate_preview">Loading configuration…</pre></div>
                 </div>
             </section>
@@ -378,6 +378,7 @@
                     var path = svg.querySelector('path');
                     path.setAttribute('d', themes[mode === 'dark' ? 'dark' : 'light'].path);
                     icon.title = mode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+                    if (toggle) toggle.setAttribute('aria-pressed', mode === 'dark' ? 'true' : 'false');
                 }
             }
 
@@ -387,7 +388,8 @@
             setTheme(saved);
 
             if (toggle) {
-                toggle.addEventListener('click', function() {
+                toggle.addEventListener('click', function(e) {
+                    e.preventDefault();
                     setTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
                 });
             }

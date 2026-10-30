@@ -924,7 +924,10 @@ window.tc100I18nFr = {
   "🌙 Night: n/a": "🌙 Nuit : n/d",
   "🌤 Twilight": "🌤 Crépuscule",
   "📋 Copy": "📋 Copier",
-  "📋 Copy URL": "📋 Copier l'URL"
+  "📋 Copy URL": "📋 Copier l'URL",
+  "Restarting: the camera is back in about a minute": "Redémarrage : la caméra revient dans environ une minute",
+  "Command sent to the camera": "Commande envoyée à la caméra",
+  "The camera did not accept the command": "La caméra n'a pas accepté la commande"
  },
  "rules": [
   [

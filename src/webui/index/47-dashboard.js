@@ -185,8 +185,13 @@
     clearJob("dashSnap");
     if (!dashActive || document.hidden) return;
     var img = byId("dash_snap");
-    if (img) img.src = liveViewSnapshotEndpoint + "?" + Date.now();
-    timeoutJobs.dashSnap = setTimeout(refreshDashSnapshot, DASH_SNAP_MS);
+    var next = function () { clearJob("dashSnap"); timeoutJobs.dashSnap = setTimeout(refreshDashSnapshot, DASH_SNAP_MS); };
+    if (!img) { next(); return; }
+    // Wait for the picture (or its failure) before counting the delay: a slow
+    // camera is not asked again while it is still sending the previous one.
+    img.onload = img.onerror = next;
+    img.src = liveViewSnapshotEndpoint + "?" + Date.now();
+    timeoutJobs.dashSnap = setTimeout(refreshDashSnapshot, DASH_SNAP_MS * 3);   // safety net if neither event fires
   }
 
   function pollDashboard() {
@@ -264,6 +269,7 @@
     setHash("#" + view);
     if (view === "dashboard") startDashboard(); else stopDashboard();
     if (view === "live" && canRefreshLiveImageNow()) scheduleRefreshLiveImage(100);
+    if (view === "live") refreshCamPanel();
     window.scrollTo(0, 0);
   }
 
