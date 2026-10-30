@@ -1,0 +1,139 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 12:10:00 +0100
+Subject: [PATCH] misc: ak39_venc: encoder pool from a reusable CMA area, size on the command line
+
+The encoder pool was a 12 MiB no-map region: lost to the kernel whatever
+the encoders really use. With direct capture tc100_rtsp no longer copies
+the pictures into the pool (3.4 MB less), so the pool can shrink, but only
+by rebuilding the device tree.
+
+A memory-region marked reusable is now a CMA area of the encoder's own:
+the pool is allocated from it at probe (dma_alloc_wc on a device CMA area
+does not round 12 MiB up to 16 MiB as the coherent allocator does), and the
+part the pool does not take serves the kernel's movable pages.
+ak39_venc.pool=<size> on the command line sets a smaller pool; default is
+the whole area, i.e. the same 12 MiB as before. A no-map region keeps the
+old fixed pool. The TC100 device tree makes the region reusable.
+---
+ arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts |  5 ++-
+ drivers/misc/ak39_venc.c                      | 42 +++++++++++++++++--
+ 2 files changed, 43 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+index ce6fa48..9c0c023 100644
+--- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
++++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
+@@ -42,7 +42,10 @@
+ 		venc_pool: venc@81800000 {
+ 			compatible = "shared-dma-pool";
+ 			reg = <0x81800000 0xc00000>;
+-			no-map;
++			/* a CMA area: the driver allocates the pool from it at
++			 * boot (ak39_venc.pool=9M takes less, the rest serves the
++			 * kernel's movable pages); no-map here is the old fixed pool */
++			reusable;
+ 		};
+ 	};
+ 
+diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
+index 9938178..143a09f 100644
+--- a/drivers/misc/ak39_venc.c
++++ b/drivers/misc/ak39_venc.c
+@@ -18,12 +18,14 @@
+ #include <linux/dma-mapping.h>
+ #include <linux/interrupt.h>
+ #include <linux/io.h>
++#include <linux/kernel.h>
+ #include <linux/miscdevice.h>
+ #include <linux/mm.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
++#include <linux/of_reserved_mem.h>
+ #include <linux/platform_device.h>
+ #include <linux/spinlock.h>
+ #include <linux/string.h>
+@@ -51,6 +53,7 @@ struct ak39_venc {
+ 	dma_addr_t pool_dma;
+ 	size_t pool_size;
+ 	bool pool_reserved;	/* memremap()ed no-map region, not dma_alloc */
++	bool pool_cma;		/* allocated from a CMA area of its own */
+ 	int open_count;
+ 
+ 	/* guard zones around the pool (0 = below, 1 = above), filled with GUARD_PAT */
+@@ -66,6 +69,10 @@ static bool guard = true;
+ module_param(guard, bool, 0444);
+ MODULE_PARM_DESC(guard, "watch the reserved guard zones around the encoder pool for stray DMA writes");
+ 
++static char *pool;
++module_param(pool, charp, 0444);
++MODULE_PARM_DESC(pool, "encoder pool size (e.g. 9M) when the memory-region is a reusable CMA area; default: the whole area");
++
+ #define GUARD_PAT	0xA5
+ #define GUARD_NEAR	SZ_64K
+ 
+@@ -350,7 +357,32 @@ static int ak39_venc_probe(struct platform_device *pdev)
+ 	 * Without a memory-region the default DMA pool is used.
+ 	 */
+ 	np = of_parse_phandle(dev->of_node, "memory-region", 0);
+-	if (np) {
++	if (np && of_property_read_bool(np, "reusable")) {
++		/*
++		 * A CMA area of its own: the pool is allocated from it (no
++		 * rounding up, unlike the coherent allocator) and whatever the
++		 * pool does not take serves movable pages of the kernel.
++		 * ak39_venc.pool= makes the pool smaller than the area.
++		 */
++		struct resource rr;
++		unsigned long long want = pool ? memparse(pool, NULL) : 0;
++
++		ret = of_address_to_resource(np, 0, &rr);
++		of_node_put(np);
++		if (ret)
++			return ret;
++		ret = of_reserved_mem_device_init(dev);
++		if (ret)
++			return ret;
++		v->pool_size = resource_size(&rr);
++		if (want && want < v->pool_size)
++			v->pool_size = PAGE_ALIGN((size_t)want);
++		v->pool_virt = dma_alloc_wc(dev, v->pool_size, &v->pool_dma,
++					    GFP_KERNEL);
++		v->pool_cma = true;
++		if (!v->pool_virt)
++			of_reserved_mem_device_release(dev);
++	} else if (np) {
+ 		struct resource rr;
+ 
+ 		ret = of_address_to_resource(np, 0, &rr);
+@@ -405,12 +437,14 @@ static int ak39_venc_probe(struct platform_device *pdev)
+ 	ret = misc_register(&v->misc);
+ 	if (ret) {
+ 		ak39_venc_pool_free(v);
++		if (v->pool_cma)
++			of_reserved_mem_device_release(dev);
+ 		return ret;
+ 	}
+ 	platform_set_drvdata(pdev, v);
+-	dev_info(dev, "video encoder: regs %pa+%zx irq %d, pool %zu KiB at %pad\n",
++	dev_info(dev, "video encoder: regs %pa+%zx irq %d, pool %zu KiB at %pad%s\n",
+ 		 &v->regs_phys, v->regs_size, v->irq, v->pool_size >> 10,
+-		 &v->pool_dma);
++		 &v->pool_dma, v->pool_cma ? " (CMA)" : "");
+ 	return 0;
+ }
+ 
+@@ -421,6 +455,8 @@ static void ak39_venc_remove(struct platform_device *pdev)
+ 	cancel_delayed_work_sync(&v->guard_work);
+ 	misc_deregister(&v->misc);
+ 	ak39_venc_pool_free(v);
++	if (v->pool_cma)
++		of_reserved_mem_device_release(&pdev->dev);
+ }
+ 
+ static const struct of_device_id ak39_venc_of_match[] = {
+-- 
+2.43.0
+
