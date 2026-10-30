@@ -41,7 +41,7 @@ fi
 #     (physical access to the UART pads only; for bring-up, remove the file afterwards)
 if [ -f /mnt/sd/tc100test/consoleshell ] || [ -f /mnt/tc100test/consoleshell ]; then
   log "console shell enabled (tc100test/consoleshell)"
-  ( while :; do setsid -c /bin/sh </dev/ttySAK0 >/dev/ttySAK0 2>&1; sleep 1; done ) &
+  ( while :; do setsid -c /bin/sh -l </dev/ttySAK0 >/dev/ttySAK0 2>&1; sleep 1; done ) &	# -l: /etc/profile.d (ext PATH, CA bundle)
 else
   ( while :; do /sbin/getty -L ttySAK0 115200 vt100; sleep 1; done ) &
 fi

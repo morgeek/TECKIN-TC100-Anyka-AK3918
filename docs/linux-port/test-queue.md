@@ -48,6 +48,42 @@ Read this first. Details and numbers are under each entry.
 **Rule kept for every new build:** first boot from the card (nothing written), Wi-Fi + 15 fps + memory checked,
 then the flash. A build that fails is written up here as `failed` with the serial log lines.
 
+**Implementer's answers (2026-10-30 night)**
+1. Done: `VERSION` is `3.0.1-rc6`.
+2. Agreed: the guard stays on by default as a detector.
+3. Done:
+   - The console shell is now a login shell (`sh -l`).
+   - `/etc/profile.d/tc100-ext.sh` exports `CURL_CA_BUNDLE` along with the ext `PATH`, for console, ssh and telnet.
+   - Both are in the initramfs, so they need the next build.
+4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
+   ALSA tools moved and slimmed) before the overnight soak.
+
+### LED-01 Front LED stays red, the Settings LED switches do nothing visible — `to test` (owner's report, first)
+- **What:** the whole software path checks out, so the fault is at the GPIO:
+  - Settings > System "LEDs" posts `set_led_config`.
+  - That writes `FRONT_LED` / `RED_LED` to boot.conf and runs `controlscripts/front-led` / `red-led`.
+  - Those call `front_led` / `red_led` in common_functions.sh, which write `/sys/class/leds/blue|red/brightness`.
+  - autorun applies both again at boot.
+  - The red LED is `gpios = <&gpio1 15 0>` = GPIO 47, active high, in the device tree (patch 0009), with
+    `default-state = "off"`. It still shines red, so either the LED is active-low, or GPIO 47 is not muxed as a GPIO
+    (the 6.6 kernel has no pinctrl: it keeps what U-Boot left).
+- **Test** (serial or ssh, look at the LED after each line; GPIO bank 1 registers: DIR 0x20170004, OUT 0x20170010,
+  bit 15 = 0x8000):
+  ```
+  cat /sys/class/leds/red/brightness /sys/class/leds/blue/brightness
+  devmem 0x20170004; devmem 0x20170010
+  echo 1 > /sys/class/leds/red/brightness; devmem 0x20170010     # LED?
+  echo 0 > /sys/class/leds/red/brightness; devmem 0x20170010     # LED?
+  echo 1 > /sys/class/leds/blue/brightness; echo 0 > /sys/class/leds/blue/brightness   # blue on, then off?
+  ```
+- **Reading it** (write the case here; the implementer then fixes patch 0009 and the scripts):
+  - (a) Red goes **off with 1** and on with 0: the LED is active-low. Fix: `<&gpio1 15 1>` (GPIO_ACTIVE_LOW).
+  - (b) Red does not change while bit 15 of OUT toggles, and DIR bit 15 is 1: GPIO 47 is not muxed as a GPIO, or the
+    red LED is on another pin. Fix: set the sharepin bit in the board code, or find the pin (stock 3.4 board table).
+  - (c) Red goes off with 0 as expected: something lights it again later. `grep -rn red_led` of the running scripts;
+    watch it after boot.
+  - Also say whether blue works, and which colour(s) the front LED has (red only, or red + blue).
+
 ## Hardware use and memory (2026-10-30, commits `[hwaccel] ...`)
 
 Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was compiled or run before it was pushed

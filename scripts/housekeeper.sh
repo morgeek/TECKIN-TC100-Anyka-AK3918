@@ -49,6 +49,8 @@ hk_now() { _hk_up=; read -r _hk_up _ < "$HK_CLOCK" 2>/dev/null; hk_t=${_hk_up%.*
 hk_var() { _hk_v=$1; while :; do case $_hk_v in *-*) _hk_v=${_hk_v%%-*}_${_hk_v#*-} ;; *) break ;; esac; done; }
 hk_pid() { _hk_p=; [ -r "$HK_PIDFILE" ] && read -r _hk_p _ < "$HK_PIDFILE" 2>/dev/null; case "$_hk_p" in ''|*[!0-9]*) _hk_p= ;; esac; }
 hk_active() { hk_pid; [ -n "$_hk_p" ] && kill -0 "$_hk_p" 2>/dev/null; }
+# start and the loop both write the pid file at the same moment: through a rename, never an empty file to a reader
+hk_write_pid() { echo "$1" > "$HK_PIDFILE.$$" 2>/dev/null && mv -f "$HK_PIDFILE.$$" "$HK_PIDFILE"; }
 # a process that is running (a zombie child is reaped and counts as gone)
 hk_alive()
 {
@@ -98,6 +100,7 @@ hk_job_del()
     [ -f "$HK_JOBS/$1" ] || return 1
     _hk_x=; _hk_pf=-; read -r _hk_x _hk_x _hk_x _hk_x _hk_pf _hk_x < "$HK_JOBS/$1" 2>/dev/null
     rm -f "$HK_JOBS/$1" "$HK_DIR/period/$1" "$HK_DIR/state/$1"
+    # the loop writes run/NAME just after the fork: a del in that instant leaves the run to finish by itself
     _hk_rp=; [ -r "$HK_DIR/run/$1" ] && read -r _hk_rp < "$HK_DIR/run/$1"
     rm -f "$HK_DIR/run/$1"
     if [ "$HK_JOB" != "$1" ] && hk_alive "$_hk_rp"; then kill "$_hk_rp" 2>/dev/null; fi
@@ -244,7 +247,7 @@ hk_core_jobs()
 hk_run()
 {
     mkdir -p "$HK_JOBS" "$HK_DIR/run" "$HK_DIR/state" "$HK_DIR/period" 2>/dev/null
-    echo $$ > "$HK_PIDFILE" 2>/dev/null
+    hk_write_pid $$
     echo -300 > /proc/$$/oom_score_adj 2>/dev/null   # a daemon this small is not the one to kill
     trap 'rm -f "$HK_PIDFILE" "$HK_FIFO"; exit 0' TERM INT
     hk_core_jobs
@@ -286,7 +289,7 @@ hk_start()
     hk_active && return 0
     mkdir -p "$HK_JOBS" "$HK_DIR/run" "$HK_DIR/state" "$HK_DIR/period" 2>/dev/null
     ( exec sh "$0" run ) </dev/null >/dev/null 2>&1 &
-    echo $! > "$HK_PIDFILE"      # at once: the next job add must find it (the loop writes the same number)
+    hk_write_pid $!      # at once: the next job add must find it (the loop writes the same number)
     return 0
 }
 

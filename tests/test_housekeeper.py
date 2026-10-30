@@ -213,6 +213,9 @@ class DaemonLifecycle(Base):
         self.assertTrue(wait_for(marker.exists, 8))
         lp = int(marker.read_text())
         self.assertTrue(self.alive(lp))
+        # the loop records the run's pid just after the fork: a del before that leaves the run to finish (harmless)
+        run = self.d / 'hk' / 'run' / 'long'
+        self.assertTrue(wait_for(lambda: run.exists() and run.read_text().strip() == str(lp), 5))
         self.hk('job', 'del', 'long')
         self.assertTrue(wait_for(lambda: not self.alive(lp), 5), 'the run in progress must be stopped')
 
