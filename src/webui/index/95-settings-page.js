@@ -113,6 +113,7 @@
             setVal('mqtt_user', mqtt.user);
             setVal('mqtt_topic_root', mqtt.topic_root);
             setVal('mqtt_discovery', mqtt.discovery);
+            if (window.tc100HaSync) window.tc100HaSync();
 
             setVal('mdsens', svc.motion_sens);
             setVal('sound_det_threshold', svc.sound_det_threshold);

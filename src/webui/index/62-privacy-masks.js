@@ -27,11 +27,15 @@
     var rects = [];
     (o.rects || []).forEach(function(v) { var m = parseMask(v); if (m && rects.length < MASK_MAX) rects.push(m); });
 
-    function sync() {
+    // user: the change comes from the editor, so tell the form (unsaved-changes tracking)
+    function sync(user) {
+      var first = null;
       for (var k = 1; k <= MASK_MAX; k++) {
         var input = form.querySelector('[name="' + o.field + k + '"]');
         if (input) input.value = rects[k - 1] ? rects[k - 1].join(",") : "";
+        if (!first) first = input;
       }
+      if (user === true && first) first.dispatchEvent(new Event("input"));
       if (count) count.textContent = rects.length + " / " + MASK_MAX;
     }
 
@@ -48,7 +52,7 @@
           del.setAttribute("aria-label", o.label || "Remove this mask");
           del.addEventListener("pointerdown", function(e) { e.stopPropagation(); });
           del.addEventListener("click", function(e) {
-            e.stopPropagation(); rects.splice(idx, 1); sync(); render();
+            e.stopPropagation(); rects.splice(idx, 1); sync(true); render();
           });
           box.appendChild(del);
         }
@@ -79,10 +83,11 @@
         var p = pct(e), m = [Math.min(start[0], p[0]), Math.min(start[1], p[1]), Math.max(start[0], p[0]), Math.max(start[1], p[1])];
         start = null;
         if (m[2] - m[0] >= 2 && m[3] - m[1] >= 2) editor._masks.push(m);
-        editor._sync(); editor._render();
+        editor._sync(true); editor._render();
       });
+      layer.addEventListener("pointercancel", function() { start = null; editor._render(); });
       var clear = form.querySelector("#" + o.id + "_clear");
-      if (clear) clear.addEventListener("click", function() { editor._masks.length = 0; editor._sync(); editor._render(); });
+      if (clear) clear.addEventListener("click", function() { editor._masks.length = 0; editor._sync(true); editor._render(); });
       var reload = form.querySelector("#" + o.id + "_reload");
       if (reload) reload.addEventListener("click", function() { img.src = "cgi-bin/currentpic.cgi?_=" + Date.now(); });
     }
