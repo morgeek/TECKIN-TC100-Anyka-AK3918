@@ -284,3 +284,40 @@ Written and tested on the host only (`python3 tests/test_tc100rtsp.py`); not yet
 - **Encoder library:** `libmpi_venc_ex.so`, else `libmpi_venc.so`, from the library directory; the log says which and prints `ak_venc_get_version()` when exported.
 - **Host tests:** `make test_rtsp` builds the whole server without camera or encoder (`-DTC100_HOST_TEST`); `tests/test_tc100rtsp.py` runs it with a fake
   `arecord` and `aplay` (RTSP audio track, backchannel over TCP and UDP, locks, listeners, the CGI).
+
+### tc100_rtsp: live video in the browser (host-tested, ffprobe and Chromium checked, not yet run on the camera)
+
+The live view of the web UI had only JPEG snapshots. It now plays the H.264 stream the camera already encodes, packed as fragmented
+MP4 and played with Media Source Extensions: no re-encoding, little CPU.
+
+- **Transport (as Listen):** `www/cgi-bin/live.cgi` makes `/tmp/tc100_live/<pid>.fifo` and runs `cat` on it after a
+  `Content-Type: video/mp4`, `Cache-Control: no-store` header; tc100_rtsp (`livemp4.c`) finds it twice a second, opens it
+  read-write and non-blocking and writes into it from the capture loop. `live.cgi?info=1` gives the page a small JSON
+  (`{"ok":1,"stream":"sub","codec":"avc1.42c01e","width":640,"height":360}`) read from `/tmp/tc100_live/status`, which tc100_rtsp
+  rewrites when the live stream or its SPS changes. 415: neither stream is H.264 (the page keeps the JPEG view); 503: tc100_rtsp not
+  running, SPS not known yet, or two viewers already.
+- **Stream:** the 640x360 sub-stream when its codec is H.264 (`rtspserver.conf` `[1] codec 0`, the default), else the main stream when
+  it is H.264, else 415. The encoder of that stream runs while a viewer exists (`live_wants()` next to the RTSP clients and the
+  recorder in the `want` test of the capture loop) and stops when the last one leaves.
+- **Muxing:** the init segment (ftyp + moov with avcC from the SPS/PPS of the first IDR) then one moof + mdat per frame, from the next IDR
+  on. The box writers and the SPS parser moved out of `rec.c` into `mp4box.c` (names prefixed `mp4_`); the recorder's files are byte for
+  byte what they were (checked old against new on H.264 and H.265, with and without sound). Sequence numbers from 1, decode times from the
+  frame timestamps relative to the viewer's first frame, a frame lasts as long as the one before it. Video only (A-law is not played by
+  browsers).
+- **Limits:** 2 viewers; dropped when its FIFO is removed, when it has read nothing for 1.5 s (bytes written minus bytes still in the FIFO),
+  when no keyframe came for 10 s, when the SPS changes, or after 10 min (`TC100_LIVE_SECONDS`); the page reconnects. What the FIFO does not
+  take waits in at most 256 KB per viewer; beyond that frames are skipped until the next keyframe with the time line kept continuous. The
+  capture loop never blocks.
+- **Page** (`src/webui/index/30-live-view.js`, "Video / Snapshots" switch next to Resume Live, remembered in `localStorage` key
+  `tc100.liveMode`): Video when `MediaSource.isTypeSupported('video/mp4; codecs="avc1.PPCCLL"')` for the codec of `info=1`; a `<video muted
+  autoplay playsinline>` fed by `fetch()` + `ReadableStream` into a `SourceBuffer`; twice a second it jumps to 0.2 s before the newest frame
+  when more than 1 s behind (and plays at 1.1x from 0.5 s), buffer older than 10 s is removed. It stops when the page is hidden or off screen
+  or paused, reconnects when the stream ends (10 min) or breaks (3 tries), then falls back to snapshots (2 min; 10 min for 415 or a profile
+  the browser cannot play). Without Media Source Extensions the switch is hidden and nothing changes. Fallback order: camera video, then
+  snapshots. The "Smooth live" (Frigate) button stays as it was: it opens Frigate in another tab, so it cannot be a source inside the page.
+- **Latency:** about the keyframe wait at start (up to one GOP when another client already keeps the encoder running, at once otherwise) plus
+  the browser's own buffer, 0.2-1 s afterwards.
+- **Tests:** `test_livemp4` (`make test_livemp4`, `tests/test_tc100rtsp.py` `LiveMux`: boxes, IDR first, sequence numbers, a real x264 stream
+  through ffprobe/ffmpeg, slow, stuck and refused viewers), `LiveServer` (host tc100_rtsp fed from a file, `live.cgi` end to end),
+  `tests/live-video.test.js` (fallbacks of the page code) and `tests/ui-browser/live-check.mjs` (headless Chromium against a fake camera: plays,
+  jumps to the live edge, pause/hidden close the connection, reconnect, fallbacks; VP9 because the Chromium of Playwright has no H.264).

@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Live video in the browser** (Video / Snapshots switch on the live view): the camera's H.264 stream (sub-stream by default) as fragmented MP4
+  through `live.cgi` and Media Source Extensions, no re-encoding, two viewers at most, snapshots as the fallback. Waiting for a camera run
+  (`docs/linux-port/README.md`, tc100_rtsp part).
 - **More work done by the hardware, waiting for a camera run** ([test queue](docs/linux-port/test-queue.md)):
   sharpness and exposure cap on the Image page again, applied by the ISP; privacy masks (`RTSP_ISPMASK=1`) and the
   clock (`RTSP_ISPOSD=1`, kernel patch 0014: ISP OSD ioctls) by the ISP instead of the CPU; 3.4 MB less of the encoder

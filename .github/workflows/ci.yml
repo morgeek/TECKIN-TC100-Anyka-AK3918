@@ -46,4 +46,4 @@ jobs:
       - name: Python regressions
         run: python3 -m unittest discover -s tests -v
       - name: Frontend tests
-        run: node --test tests/frontend.test.js tests/settings-save.test.js
+        run: node --test tests/frontend.test.js tests/settings-save.test.js tests/live-video.test.js

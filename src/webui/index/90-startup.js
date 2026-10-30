@@ -141,9 +141,11 @@
         } else {
           clearJob("refreshLiveImage");
         }
+        liveVideoSync();
       });
     }
     setLiveToggleButtonState();
+    initLiveModeSwitch();
 
     statusRefreshButton = byId("status_refresh");
     statusUpdatedLabel = byId("status_updated");
@@ -160,6 +162,7 @@
       } else {
         clearJob("refreshLiveImage");
       }
+      liveVideoSync(); // video: closed while hidden (the camera stops encoding), opened again when shown
       if (document.hidden) {
         clearJob("refreshSysUsage");
         updateStatusRefreshUi("paused");
@@ -192,6 +195,7 @@
 
   window.addEventListener("resize", fixMenuPadding);
   window.addEventListener("beforeunload", function () {
+    liveVideoStop();
     if (liveViewVisibilityObserver) {
       liveViewVisibilityObserver.disconnect();
       liveViewVisibilityObserver = null;
