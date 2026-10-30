@@ -115,6 +115,17 @@ int main(void)
 	CHECK(md_triggered(10, 0, 100) == 0);
 	CHECK(md_triggered(3, 100, 100) == 1);		/* fewer watched cells: a smaller count is enough */
 
+	/* idle frame rate: off, needs motion detection, waits idle_after, never while recording continuously */
+	CHECK(idle_fps_now(15, 0, 10, 1, 0, 100, 0) == 15);		/* IDLE_FPS=0: off */
+	CHECK(idle_fps_now(15, 5, 10, 0, 0, 100, 0) == 15);		/* no motion detection: nothing changes */
+	CHECK(idle_fps_now(15, 5, 10, 1, 1, 100, 0) == 15);		/* continuous recording keeps the full rate */
+	CHECK(idle_fps_now(15, 5, 10, 1, 0, 109.9, 100) == 15);	/* quiet for less than idle_after */
+	CHECK(idle_fps_now(15, 5, 10, 1, 0, 110, 100) == 5);
+	CHECK(idle_fps_now(15, 5, 10, 1, 0, 111, 110.5) == 15);	/* motion: back at once */
+	CHECK(idle_fps_now(15, 15, 10, 1, 0, 500, 0) == 15);		/* not below the stream rate: off */
+	CHECK(idle_fps_now(15, 20, 10, 1, 0, 500, 0) == 15);
+	CHECK(idle_fps_now(15, 5, 0, 1, 0, 100.5, 100) == 15 && idle_fps_now(15, 5, 0, 1, 0, 101, 100) == 5);	/* after < 1 -> 1 s */
+
 	printf(fails ? "%d FAILED\n" : "util: all OK\n", fails);
 	return fails != 0;
 }

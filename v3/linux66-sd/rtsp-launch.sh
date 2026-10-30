@@ -21,6 +21,10 @@ if [ ! -s /lib/firmware/anyka/isp.conf ]; then
   done
   [ -s /lib/firmware/anyka/isp.conf ] || echo "rtsp-launch: no sensor tuning file (isp.conf): the colours will be off" > /dev/console
 fi
+# Frame rate (Settings -> Streams & audio, rtspserver.conf [0] fps): one rate for both streams (they share the capture
+# loop). Only 10, 12, 15, 20 and 25 are passed as -f; anything else (the 16 of older config files, an empty value)
+# leaves tc100_rtsp at its default of 15.
+fps_opt() { case "$1" in 10|12|15|20|25) echo "-f $1" ;; esac; }
 CODEC=h265; KBPS=${RTSP_KBPS:-1500}; PORT=554; SUBCODEC=h264; SUBKBPS=400; ENCOPT=
 # codec in rtspserver.conf (Video page): 0 = H.264, 2 = H.265 (1, written by older 6.6 boot scripts, = H.264)
 if [ -f $CONF ]; then
@@ -40,6 +44,7 @@ if [ -f $CONF ]; then
   [ "$1 $2" = "20 51" ] && set -- "" "" "$3" "$4"
   [ "$3" = 64 ] && [ "$4" = 32 ] && set -- "$1" "$2" "" ""
   case "$1$2" in *[!0-9]*|'') ;; *) [ "$1" -ge 10 ] && [ "$2" -le 51 ] && [ "$1" -le "$2" ] && ENCOPT="-q $1 -Q $2" ;; esac
+  ENCOPT="$ENCOPT $(fps_opt "$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 fps 2>/dev/null)")"
   case "$3" in ''|*[!0-9]*) ;; *) [ "$3" -ge 1 ] && [ "$3" -le 300 ] && ENCOPT="$ENCOPT -g $3" ;; esac
   case "$4" in ''|*[!0-9]*) ;; *) [ "$4" -ge 1 ] && [ "$4" -le 300 ] && ENCOPT="$ENCOPT -G $4" ;; esac
 fi
