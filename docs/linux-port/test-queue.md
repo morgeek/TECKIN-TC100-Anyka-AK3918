@@ -20,12 +20,9 @@ Rules that apply to every entry:
 
 ## Blocking findings for the implementers (tester, 2026-10-30)
 
-- **HW-01 breaks the main stream** (build bde3887): with no picture copy at the start of the encoder pool, H.265
-  falls to ~72 bytes per frame after 5-10 s. A 3.4 MB allocation at the start of the pool cures it. Do not make
-  the next build with HW-01 as is. Details under HW-01.
-- **Wi-Fi chip stuck after a reboot from the bde3887 kernel** (`rtl8xxxu ... Failed power on`), only a power cut
-  clears it. Patch 0013 is suspected, not proven. Details under HW-03.
-- Not tested yet because of these two: HW-02 test 2, HW-04 to HW-08, the UI checks.
+- **None open** after the evening run of 563dbff (see HW-01b and HW-03): the HW-01 stream failure and the stuck
+  Wi-Fi of the morning (bde3887) did not come back, with the HW-01 layout or the bde3887 binary either.
+- Still not run: HW-02 test 2, HW-03 measurement, HW-04 to HW-08, F-01 to F-04, most UI checks.
 
 ## Hardware use and memory (2026-10-30, commits `[hwaccel] ...`)
 
@@ -59,7 +56,7 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
     pool (and say why in the code), or find what writes at 0x81800000..0x81b50000 (ISP 3D-NR? the JPEG engine?
     the CMA area handed to the kernel?) and fix that; then a new entry to test.
 
-### HW-01b Start of the encoder pool: guard and diagnosis — `to test`
+### HW-01b Start of the encoder pool: guard and diagnosis — `passed`
 - **What (implementer, after the HW-01 result):** with direct capture `tc100_rtsp` again takes the first 3.4 MB of the
   pool (the old layout, which streamed), now as a guard: filled with `a5a5a5a5` and checked every 10 s. Any write
   into it is logged: `pool guard: written from +0x.. to +0x.. (phys 0x..): w0 w1 w2 w3` (at most 20 reports, the area
@@ -75,6 +72,15 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   the address and content). No report but a size threshold = the encoder's own buffers cannot sit at those
   addresses (alignment or address window of the core): then keep the pad, sized to the threshold, and note it.
   Failure only on the 0015 kernel = the CMA pool (cache or mapping of the area) is the cause.
+- **Result 2026-10-30 evening, IPCAM2, build 563dbff (CI run 41089089376), installed in the flash of IPCAM2 (.11) with update66.sh, settings kept:** step 1 (default): `encoder pool: 3456000-byte guard at
+  its start (phys 0x81800000)`, about 1.0 MB per 5 s, **no `pool guard:` report**. Step 2 (`RTSP_POOLPAD=0`, pool
+  used 7946976 / 8866880 = the failing HW-01 layout): **streams normally for 5 min** (59 STAT lines, lowest 0.90 MB
+  per 5 s after the first). And the bde3887 CI binary that failed this morning (md5 c66a4edf...) also streams
+  normally on this kernel (15 STAT lines, 0.86-1.03 MB). **The HW-01 failure is not reproduced**: it was not the
+  pool layout of `tc100_rtsp` alone. It happened on the bde3887 kernel, in the session that ended with the Wi-Fi
+  chip stuck (HW-03), so a degraded USB / system state or that kernel are the remaining suspects. Steps 3-4 not run
+  (nothing to size). Keeping the guard costs nothing while the pool is not shrunk (HW-02 test 2); the implementer
+  may drop it later or keep it as a detector.
 
 ### HW-02 Encoder pool from a reusable CMA area, size on the command line (kernel patch 0015) — `to test`
 - **What:** the 12 MiB `no-map` region of the encoder became a CMA area of its own. The driver takes the pool from it
@@ -95,7 +101,7 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   or as the default in the device tree (`anyka,pool-size` is not used for CMA; change `reg` size or add a default in
   the driver).
 
-### HW-03 USB host: FIFO data in 32-bit words (kernel patch 0013, `otg_hs.fifo32=1`) — `blocked`
+### HW-03 USB host: FIFO data in 32-bit words (kernel patch 0013, `otg_hs.fifo32=1`) — `to test`
 - **Result 2026-10-30, IPCAM2: Wi-Fi dead after the bde3887 kernel, survives resets.** The bde3887 kernel (fifo32
   left at its default 0) ran for about 10 minutes, Wi-Fi fine. After a `reboot` from it, the Wi-Fi chip no longer
   starts, on the rc5 kernel too: `rtl8xxxu_init_device: Failed power on`, `probe of 1-1:1.0 failed with error -16`,
@@ -128,6 +134,10 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   (see the patch description).
 - **Not done:** DMA. The vendor DMA path (`CONFIG_USB_AKOTG_DMA`) unmaps buffers usbcore already maps (and with a NULL
   device), may write past the end of an RX buffer and does not handle short / zero-length packets; it needs a rework.
+- **Result 2026-10-30 evening, IPCAM2, after a power cut:** Wi-Fi back. 3 cycles "563dbff kernel booted from the
+  card with a stream, then `reboot` into the rc5 kernel": Wi-Fi associates every time (about 16.5 s). Then 563dbff
+  installed in the flash, 3 warm `reboot`s with the stream running: associates every time (15.5 s). **Not
+  reproduced** (0 of 6). The fifo32=1 measurement itself is still to do: status back to `to test`.
 
 ### HW-04 Privacy masks by the ISP (`RTSP_ISPMASK=1`) — `to test`
 - **What:** `AK_ISP_SET_MAIN_CHAN_MASK_AREA`, `_SUB_CHAN_MASK_AREA`, `_MASK_COLOR` (as the 2.x firmware did through the
@@ -187,7 +197,7 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
 A static audit traced every control of the web UI to what acts on it on 3.0. The fixes are in the commits
 `[ui30] ...`; these checks remain. Write the result after each line.
 
-- UI-01 `to test` — Busybox applets: `busybox --list | grep -E '^(crond|crontab|usleep|mkfifo|timeout)$'`. Without
+- UI-01 `passed` (2026-10-30, 563dbff: crond, crontab, mkfifo, timeout, usleep all present) — Busybox applets: `busybox --list | grep -E '^(crond|crontab|usleep|mkfifo|timeout)$'`. Without
   `usleep` the IR-cut pulse of `bin/setconf` becomes 1 s; without `crond` the scheduled reboot never runs.
 - UI-02 `to test` — Time zone: set `CET-1CEST,M3.5.0,M10.5.0/3`, reboot; `date` over telnet, the OSD clock, a new
   recording's file name and the log times agree.
@@ -299,6 +309,9 @@ Checked before pushing with `tests/docker/local-ci.sh` (tests + ARM build); noth
   `reboot` in a shell and a panic keep only the last 10-minute copy. Logs page: "Logs of previous boots".
 - **Test:** files appear after about 2 min; reboot from the UI gives a `why=shutdown` save and `boot-0002`; nothing
   written while ejected; card writes over a day are small. **Off:** `LOG_PERSIST=0`.
+- **Result 2026-10-30, IPCAM2, 563dbff:** `/mnt/sd/logs/boot-0001` and `boot-0002` created about 120 s after the
+  start, each with dmesg.log, meta.txt, other.log, syslog.log, tc100_rtsp.log. Boots rebooted before 120 s leave no
+  folder (as described). UI reboot (`why=shutdown`) and the eject case not tried yet.
 
 ### F-06 Memory Guard defaults (warn 6144 / critical 3072 KB) — `to test`
 - **What:** the old defaults (8192 / 4096) sat next to the normal MemAvailable; cameras holding exactly them are
@@ -322,6 +335,12 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
   about 1 MB in flash mode; a full boot log still fits in `dmesg` (first lines are the `Booting Linux` banner);
   Wi-Fi associates (regulatory domain still set: `iw reg get` from ext/); browsing the Settings pages from flash is not
   slower; `echo b > /proc/sysrq-trigger` reboots. **Off:** the previous kernel.
+- **Result 2026-10-30, IPCAM2, 563dbff (CI run 41089089376), installed in the flash of IPCAM2 (.11) with update66.sh, settings kept (O-01 + O-02 + B-01 + B-02 together):** MemTotal 59932 kB,
+  **MemAvailable 15.3-15.9 MB** two minutes after a flash start (rc5 with 0015: 10.8 MB; rc4: 10 MB), no OOM or
+  allocation failure, Wi-Fi associates, 15 fps (75 frames per 5 s, about 1 MB), CPU 84 % idle over 10 s with a
+  client. Web server answers (`/` 302, `state.cgi` 401 without a session). `curl` over TLS works for the services
+  (`CURL_CA_BUNDLE` from autorun: api.github.com 200); note: the serial console shell does not get that variable
+  (curl exits 60 there), harmless for the services. BusyBox no longer has `wget` (no script uses it).
 
 ### O-02 Smaller initramfs (`v3/initramfs-prune.txt`) — `to test`
 - **What:** hostapd sample config, hostapd_cli, wpa_passphrase, the xz tools and liblzma out of the RAM image (about
