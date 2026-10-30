@@ -4,7 +4,7 @@
 . /mnt/scripts/common_functions.sh
 
 MOTION_CONFIG="/mnt/config/motion.conf"
-EVENT_LOG="/mnt/log/motion-events.log"
+EVENT_LOG="/tmp/log/motion-events.log"
 LATEST_SNAPSHOT_FILE="/tmp/motion-last-snapshot.path"
 
 install_config "$MOTION_CONFIG"

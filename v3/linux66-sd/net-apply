@@ -1,5 +1,5 @@
 #!/bin/sh
-# net-apply [dns]   address of wlan0 on Linux 6.6, from the Network settings (as 2.x autorun.sh did at boot):
+# net-apply [dns|dnsonly]   address of wlan0 on Linux 6.6, from the Network settings (as 2.x autorun.sh did at boot):
 #   config/network.conf  IP_MODE=dhcp|static, STATIC_IP, STATIC_NETMASK, STATIC_GATEWAY
 #   config/dns.conf      DNS_PRIMARY, DNS_SECONDARY (empty: the DNS servers of the DHCP lease)
 # Static: udhcpc is stopped and the address set. DHCP: udhcpc (started by the boot script) is kept, or started; the
@@ -13,19 +13,32 @@ IP_MODE=dhcp STATIC_IP= STATIC_NETMASK= STATIC_GATEWAY= DNS_PRIMARY= DNS_SECONDA
 valid_ip() { echo "$1" | awk -F. 'NF == 4 { for (i = 1; i <= 4; i++) if ($i !~ /^[0-9]+$/ || $i > 255) exit 1; exit 0 } { exit 1 }'; }
 
 dns() {
-	valid_ip "$DNS_PRIMARY" || return 0
+	P=$DNS_PRIMARY
+	if ! valid_ip "$P"; then
+		# static address and no DNS server given: no lease fills /etc/resolv.conf, so ask the gateway (on a home
+		# network the router answers DNS)
+		[ "$IP_MODE" = static ] && valid_ip "$STATIC_IP" && valid_ip "$STATIC_GATEWAY" || return 0
+		P=$STATIC_GATEWAY
+	fi
 	# written in place: /etc/resolv.conf is a link to /tmp on the base system
-	{ echo "nameserver $DNS_PRIMARY"; valid_ip "$DNS_SECONDARY" && echo "nameserver $DNS_SECONDARY"; } > /etc/resolv.conf
+	{ echo "nameserver $P"; valid_ip "$DNS_SECONDARY" && echo "nameserver $DNS_SECONDARY"; } > /etc/resolv.conf
+}
+
+# the lease hook that puts the custom DNS servers back after every DHCP lease
+hook() {
+	if valid_ip "$DNS_PRIMARY"; then
+		mkdir -p "${HOOK%/*}"
+		printf '#!/bin/sh\ncase "$1" in bound|renew) sh /mnt/v3/linux66-sd/net-apply dns ;; esac\n' > "$HOOK" && chmod 755 "$HOOK"
+	else
+		rm -f "$HOOK"
+	fi
 }
 
 [ "$1" = dns ] && { dns; exit 0; }
+# Settings -> Network, DNS servers: hook and resolv.conf now; the address and the routes are not touched
+[ "$1" = dnsonly ] && { hook; dns; exit 0; }
 
-if valid_ip "$DNS_PRIMARY"; then
-	mkdir -p "${HOOK%/*}"
-	printf '#!/bin/sh\ncase "$1" in bound|renew) sh /mnt/v3/linux66-sd/net-apply dns ;; esac\n' > "$HOOK" && chmod 755 "$HOOK"
-else
-	rm -f "$HOOK"
-fi
+hook
 if [ "$IP_MODE" = static ] && valid_ip "$STATIC_IP"; then
 	killall udhcpc 2>/dev/null
 	ifconfig wlan0 "$STATIC_IP" netmask "${STATIC_NETMASK:-255.255.255.0}" up

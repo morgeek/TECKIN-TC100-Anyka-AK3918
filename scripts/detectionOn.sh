@@ -10,18 +10,32 @@ install_config $CONFIGPATH
 
 snapshot_path=""
 
+# Led (the web UI writes 1/0; older files hold true/false)
+case "$motion_trigger_led" in
+  1|true|yes|on) red_led_blink 4 & ;;
+esac
 
-# Led
-if [ "$motion_trigger_led" = true ] ; then
-    red_led_blink 4 &
+# A picture of the event: the hardware JPEG tc100_rtsp keeps (take_snapshot), a few kept in RAM for the events list
+snap="/tmp/motion_snap_$(date +%s).jpg"
+if take_snapshot "$snap"; then
+    snapshot_path="$snap"
+    # keep the newest 5
+    ls -1t /tmp/motion_snap_*.jpg 2>/dev/null | tail -n +6 | while read -r old; do rm -f "$old"; done
+else
+    rm -f "$snap"
 fi
 
 # Send a telegram message
-if [ "$send_telegram" = true ]; then
-	tg_tmp="/tmp/telegram_image.$$.jpg"
-	take_snapshot "$tg_tmp" && /mnt/bin/telegram p "$tg_tmp"
-	rm -f "$tg_tmp"
-fi
+case "$send_telegram" in
+  1|true|yes|on)
+    if [ -n "$snapshot_path" ]; then
+        /mnt/bin/telegram p "$snapshot_path"
+    else
+        tg_tmp="/tmp/telegram_image.$$.jpg"
+        take_snapshot "$tg_tmp" && /mnt/bin/telegram p "$tg_tmp"
+        rm -f "$tg_tmp"
+    fi ;;
+esac
 
 # Persist motion event for local API + optional MQTT publish.
 /mnt/scripts/motion-event.sh motion_on "$snapshot_path" "" "trigger=motion" >/dev/null 2>&1 &

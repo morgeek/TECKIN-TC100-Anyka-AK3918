@@ -13,13 +13,25 @@
       
       [ -n "$hostname" ] && hostname "$hostname" && echo "$hostname" > /mnt/config/hostname.conf
       
+      _old_rtsp=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf r " " PORT 2>/dev/null)
+      _old_telnet=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/telnetd.conf r " " TELNET_PORT 2>/dev/null)
       /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " PORT "$rtsp_port"
       /mnt/bin/rwconf /mnt/config/telnetd.conf w " " TELNET_PORT "$telnet_port"
-      
+
+      # a service restarts only when its port changed (the host name applies at once)
+      _net_msg="Network settings updated."
+      if [ "$_old_rtsp" != "$rtsp_port" ]; then
+        schedule_rtsp_restart
+        _net_msg="$_net_msg RTSP restarts on port $rtsp_port."
+      fi
+      if [ "$_old_telnet" != "$telnet_port" ] && [ -n "$(/mnt/controlscripts/telnet-server status 2>/dev/null)" ]; then
+        schedule_service_restart /mnt/controlscripts/telnet-server 2
+        _net_msg="$_net_msg Telnet restarts on port $telnet_port."
+      fi
       if wants_json_response; then
-        json_body_ok "Network settings updated. RTSP/Telnet restart scheduled."
+        json_body_ok "$_net_msg"
       else
-        echo "Network settings updated.<br/>"
+        echo "$_net_msg<br/>"
       fi
     ;;
 
@@ -51,13 +63,17 @@
         else
             rewrite_config /mnt/config/dns.conf DNS_PRIMARY "$dns_primary"
             rewrite_config /mnt/config/dns.conf DNS_SECONDARY "$dns_secondary"
-            # Apply immediately to /etc/resolv.conf
-            {
-                [ -n "$dns_primary" ] && echo "nameserver $dns_primary"
-                [ -n "$dns_secondary" ] && echo "nameserver $dns_secondary"
-            } > /etc/resolv.conf
+            # Apply at once (resolv.conf and the lease hook); net-apply does not touch the address or the routes
+            if [ -f /mnt/v3/linux66-sd/net-apply ]; then
+                sh /mnt/v3/linux66-sd/net-apply dnsonly </dev/null >/dev/null 2>&1
+            else
+                {
+                    [ -n "$dns_primary" ] && echo "nameserver $dns_primary"
+                    [ -n "$dns_secondary" ] && echo "nameserver $dns_secondary"
+                } > /etc/resolv.conf
+            fi
             if wants_json_response; then
-              json_body_ok "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
+              json_body_ok "DNS updated and applied. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}."
             else
               echo "DNS updated. Primary: ${dns_primary:-none} Secondary: ${dns_secondary:-none}. Reboot to make permanent."
             fi
