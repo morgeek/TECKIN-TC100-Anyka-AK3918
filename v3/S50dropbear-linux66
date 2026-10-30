@@ -5,8 +5,12 @@
 #   Flash mode: /mnt/ext is the user space squashfs (S39tc100 has mounted it before this script runs).
 #   SD mode:    /mnt is the card only once autorun-linux66.sh has mounted it, which races with this script: the card is
 #               already at /mnt/sd (S39tc100, step 1) and carries the same tree.
+# On by default; the Services page toggle "Boot" (config/autostart/ssh-server) turns it off. A camera that never made that
+# choice keeps ssh (no lock-out after an upgrade): the choice exists once config/.services_ssh_done does (autorun-linux66.sh
+# writes it at the first boot of this version). The config is read where the settings are at this point of the boot:
+# /mnt/config in flash mode (flashmode-prep.sh has run), the card (/mnt/sd/config) in SD mode.
 # Without dropbear (a user space older than the initramfs) the camera stays reachable by the busybox telnetd of
-# S50telnet, with the same root password; a line on the console says so.
+# S50telnet (v3/S50telnet-linux66), with the same root password; a line on the console says so.
 
 DB=
 for p in /mnt/ext/bin/dropbear /mnt/sd/ext/bin/dropbear; do
@@ -17,6 +21,11 @@ done
 test -r /etc/default/dropbear && . /etc/default/dropbear
 
 start() {
+	CFG=/mnt/sd/config; [ -f /tmp/flashmode ] && CFG=/mnt/config
+	if [ ! -e $CFG/autostart/ssh-server ] && [ -e $CFG/.services_ssh_done ]; then
+		echo "Starting dropbear sshd: off (Services page)"
+		return 0
+	fi
 	if [ -z "$DB" ]; then
 		echo "[tc100] dropbear is not in the user space (ext/bin): no ssh, telnetd is the way in" > /dev/console
 		echo "Starting dropbear sshd: SKIP"
@@ -37,7 +46,7 @@ start() {
 	umask 077
 
 	start-stop-daemon -S -q -p /var/run/dropbear.pid \
-		--exec $DB -- $DROPBEAR_ARGS
+		--exec $DB -- $DROPBEAR_ARGS -P /var/run/dropbear.pid
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 }
 stop() {

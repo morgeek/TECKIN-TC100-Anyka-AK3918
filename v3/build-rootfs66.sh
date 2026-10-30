@@ -29,6 +29,8 @@ grep -vE '^(#|$)' "$HERE/initramfs-prune.txt" | while read -r f; do rm -rf "./$f
 for b in aplay arecord amixer; do ln -sf /mnt/ext/bin/$b usr/bin/$b; done
 ln -sfn /mnt/ext/share/alsa usr/share/alsa	# the ALSA configuration directory compiled into libasound
 install -m 755 "$HERE/S50dropbear-linux66" etc/init.d/S50dropbear
+# telnet is a Services entry now (off by default): the base S50telnet started telnetd at every boot
+install -m 755 "$HERE/S50telnet-linux66" etc/init.d/S50telnet
 # musl library search path, same content as autorun-linux66.sh writes: the moved libraries (ext/lib) are found by a
 # rescue shell too, before autorun runs
 for l in lib/ld-musl-*.so.1; do

@@ -470,6 +470,220 @@ class OneShotModes(Base):
         self.assertIn('sleep $((_m * 60))', s)
 
 
+class Supervisor(Base):
+    """housekeeper.sh supervise: a service-watchdog.sh process that restarts the loop (never reboots)."""
+
+    def setUp(self):
+        super().setUp()
+        d = self.d
+        (d / 'event-logger.sh').write_text('log_event() { echo "$*" >> %s; }\n' % (d / 'events'))
+        (d / 'reboot-tracker.sh').write_text('echo "$@" >> %s\n' % (d / 'tracker'))
+        s = (ROOT / 'scripts/service-watchdog.sh').read_text()
+        s = s.replace('/mnt/scripts/event-logger.sh', str(d / 'event-logger.sh'))
+        s = s.replace('/mnt/scripts/reboot-tracker.sh', str(d / 'reboot-tracker.sh'))
+        s = s.replace('/sbin/reboot -f', 'echo reboot >> %s' % (d / 'tracker'))
+        (d / 'scripts' / 'service-watchdog.sh').write_text(s)
+        # a copy without the x bit: the restarter must run it through sh
+        (d / 'scripts' / 'housekeeper.sh').write_text(Path(HK).read_text())
+        self.hkc = str(d / 'scripts' / 'housekeeper.sh')
+        self.wpid = d / 'hkw.pid'
+        self.env.update(HK_WAITMODE='fifo', HK_MAXWAIT='2', HK_WATCHPID=str(self.wpid), HK_SUP_PERIOD='5',
+                        LOGPATH=str(d / 'wd.log'))
+
+    def tearDown(self):
+        if self.wpid.exists():
+            try:
+                os.kill(int(self.wpid.read_text().split()[0]), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+        super().tearDown()
+
+    def hk(self, *args):
+        return script(self.hkc, *args, env=self.env)
+
+    def hkpid(self):
+        try:
+            return int((self.d / 'hk.pid').read_text().split()[0])
+        except (OSError, ValueError, IndexError):
+            return 0
+
+    def test_a_dead_loop_is_restarted_with_its_jobs_and_never_by_a_reboot(self):
+        pa = self.d / 'a.pid'
+        a = self.d / 'a.log'
+        ja = self.prog('ja.sh', 'echo a >> %s\n' % a)
+        self.assertEqual(self.hk('start').returncode, 0)
+        self.assertEqual(self.hk('supervise').returncode, 0)
+        sup = int(self.wpid.read_text())
+        self.assertTrue(wait_for(lambda: self.hkpid() > 0, 3))
+        old = self.hkpid()
+        self.assertEqual(self.hk('job', 'add', 'a', 'bg', '2', '1', str(pa), 'sh', str(ja)).returncode, 0)
+        self.assertTrue(wait_for(lambda: len(lines(a)) >= 1, 8))
+        self.assertEqual(self.hk('supervise').returncode, 0)          # a second call starts no second restarter
+        self.assertEqual(int(self.wpid.read_text()), sup)
+        os.kill(old, signal.SIGKILL)
+        n = len(lines(a))
+        # the check is every 5 s (the floor of service-watchdog.sh)
+        self.assertTrue(wait_for(lambda: self.hkpid() not in (0, old) and self.hk('active').returncode == 0, 25),
+                        'the restarter did not bring the loop back')
+        new = self.hkpid()
+        self.assertTrue(wait_for(lambda: pa.exists() and pa.read_text().strip() == str(new), 5),
+                        'pid files of the jobs are rewritten')
+        self.assertIn('a kind=bg period=2', self.hk('status').stdout)
+        self.assertTrue(wait_for(lambda: len(lines(a)) > n, 8), 'the registered job runs again')
+        self.assertIn('housekeeper.sh - unhealthy', (self.d / 'wd.log').read_text())
+        self.assertFalse((self.d / 'tracker').exists(), 'no reboot from this path')
+        # stop = the restarter goes first, the loop stays down
+        self.assertEqual(self.hk('stop').returncode, 0)
+        self.assertFalse(self.wpid.exists())
+        self.assertTrue(wait_for(lambda: not Path('/proc/%d' % sup).exists()
+                                 or 'Z' in Path('/proc/%d/stat' % sup).read_text().rsplit(')', 1)[1].split()[0], 5))
+        self.assertNotEqual(self.hk('active').returncode, 0)
+
+    def test_failures_back_off_instead_of_looping(self):
+        # a loop that cannot start (a script that does nothing): the no-reboot back-off defers the next restarts
+        self.assertEqual(self.hk('supervise').returncode, 0)
+        s = self.d / 'scripts' / 'housekeeper.sh'
+        s.write_text('#!/bin/sh\ncase "$1" in start) echo start >> %s;; esac\n' % (self.d / 'starts'))
+        time.sleep(17)
+        got = len(lines(self.d / 'starts'))
+        self.assertGreaterEqual(got, 1)
+        self.assertLessEqual(got, 3, 'checks every 5 s, restarts spaced by 20 s, 35 s ...')
+        self.assertIn('restart deferred', (self.d / 'wd.log').read_text())
+        self.assertFalse((self.d / 'tracker').exists())
+        script(HK, 'unsupervise', env=self.env)
+
+
+class RemoteShells(unittest.TestCase):
+    """ssh on / telnet off by default: the boot scripts, the migration marker and the Services entries."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        (self.d / 'bin').mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self, p):
+        return (ROOT / p).read_text()
+
+    def fake(self, name):
+        p = self.d / 'bin' / name
+        p.write_text('#!/bin/sh\necho "%s $@" >> %s\n' % (name, self.d / 'calls'))
+        p.chmod(0o755)
+
+    def s50(self, name, marker, autostart, flash=False, dropbear=True):
+        d = self.d
+        for x in ('sdcfg', 'fcfg'):
+            shutil.rmtree(d / x, ignore_errors=True)
+        (d / 'flashmode').unlink(missing_ok=True)
+        cfg = d / ('fcfg' if flash else 'sdcfg')
+        (cfg / 'autostart').mkdir(parents=True, exist_ok=True)
+        if marker:
+            (cfg / '.services_ssh_done').write_text('')
+        if autostart:
+            (cfg / 'autostart' / 'ssh-server').write_text('x')
+        s = self.read(name)
+        s = s.replace('/mnt/sd/config', str(d / 'sdcfg')).replace('/mnt/config', str(d / 'fcfg'))
+        s = s.replace('/tmp/flashmode', str(d / 'flashmode'))
+        db = d / 'bin' / 'dropbear'
+        db.unlink(missing_ok=True)
+        if dropbear:
+            db.write_text('#!/bin/sh\n')
+            db.chmod(0o755)
+        s = s.replace('/mnt/ext/bin/dropbear', str(db)).replace('/mnt/sd/ext/bin/dropbear', str(d / 'none'))
+        (d / 'init.sh').write_text(s)
+        if flash:
+            (d / 'flashmode').write_text('')
+        for f in ('start-stop-daemon', 'telnetd', 'killall'):
+            self.fake(f)
+            # absolute paths: busybox ash would run its own applet of that name
+            s = s.replace('\t' + f + ' ', '\t' + str(d / 'bin' / f) + ' ')
+        (d / 'init.sh').write_text(s)
+        env = dict(os.environ)
+        (d / 'calls').write_text('')
+        return subprocess.run(SH + [str(d / 'init.sh'), 'start'], capture_output=True, text=True, env=env, timeout=30)
+
+    def test_dropbear_follows_the_services_toggle_and_keeps_ssh_when_no_choice_was_made(self):
+        n = 'v3/S50dropbear-linux66'
+        for kw, expect in (
+                (dict(marker=False, autostart=False), True),     # an upgraded card: no choice yet, ssh stays
+                (dict(marker=True, autostart=True), True),       # on in Services
+                (dict(marker=True, autostart=False), False),     # switched off in Services
+                (dict(marker=True, autostart=True, flash=True), True),
+                (dict(marker=True, autostart=False, flash=True), False),
+                (dict(marker=False, autostart=False, flash=True), True)):
+            r = self.s50(n, **kw)
+            self.assertEqual(r.returncode, 0, (kw, r.stderr))
+            called = 'start-stop-daemon' in (self.d / 'calls').read_text()
+            self.assertEqual(called, expect, (kw, r.stdout))
+            if not expect:
+                self.assertIn('off (Services page)', r.stdout)
+
+    def test_dropbear_missing_still_exits_cleanly(self):
+        r = self.s50('v3/S50dropbear-linux66', marker=False, autostart=False, dropbear=False)
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn('start-stop-daemon', (self.d / 'calls').read_text())
+
+    def test_boot_telnetd_is_off_unless_there_is_no_dropbear(self):
+        r = self.s50('v3/S50telnet-linux66', marker=False, autostart=False, dropbear=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('telnetd', (self.d / 'calls').read_text())
+        self.assertIn('off', r.stdout)
+        r = self.s50('v3/S50telnet-linux66', marker=False, autostart=False, dropbear=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('telnetd', (self.d / 'calls').read_text())
+        for p in ('v3/S50telnet-linux66', 'v3/S50dropbear-linux66'):
+            self.assertEqual(subprocess.run(SH + ['-n', str(ROOT / p)], capture_output=True).returncode, 0, p)
+        b = self.read('v3/build-rootfs66.sh')
+        self.assertIn('S50telnet-linux66" etc/init.d/S50telnet', b)
+        self.assertIn('S50dropbear-linux66" etc/init.d/S50dropbear', b)
+
+    def migration(self, autostart_files, marker):
+        a = self.read('v3/autorun-linux66.sh')
+        i = a.index('# 1e. Remote shells')
+        j = a.index('# 2. Populate shared uClibc')
+        cfg = self.d / 'config'
+        (cfg / 'autostart').mkdir(parents=True)
+        for f in autostart_files:
+            (cfg / 'autostart' / f).write_text('x')
+        if marker:
+            (cfg / '.services_ssh_done').write_text('')
+        code = a[i:j].replace('/mnt/config', str(cfg))
+        r = subprocess.run(SH + ['-c', code], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return cfg
+
+    def test_first_boot_of_this_version_adds_ssh_once_and_never_telnet(self):
+        cfg = self.migration(['health-snapshot'], marker=False)
+        self.assertTrue((cfg / 'autostart' / 'ssh-server').exists())
+        self.assertTrue((cfg / '.services_ssh_done').exists())
+        self.assertFalse((cfg / 'autostart' / 'telnet-server').exists())
+        self.assertIn('ssh-server start', (cfg / 'autostart' / 'ssh-server').read_text())
+
+    def test_after_the_marker_a_missing_entry_stays_off_and_an_explicit_telnet_stays(self):
+        cfg = self.migration(['telnet-server'], marker=True)
+        self.assertFalse((cfg / 'autostart' / 'ssh-server').exists())
+        self.assertTrue((cfg / 'autostart' / 'telnet-server').exists())
+
+    def test_services_page_and_defaults(self):
+        c = self.read('www/cgi-bin/scripts.cgi')
+        self.assertRegex(c, r'SERVICES_SYSTEM="[^"]*\bssh-server\b')
+        self.assertRegex(c, r'FAST_PIDFILE_SERVICES="[^"]* ssh-server ')
+        self.assertTrue((ROOT / 'config/autostart/ssh-server').exists())
+        self.assertFalse((ROOT / 'config/autostart/telnet-server').exists())
+        t = self.read('controlscripts/ssh-server')
+        self.assertIn('PIDFILE="/var/run/dropbear.pid"', t)
+        for fn in ('start()', 'stop()', 'status()', 'health()'):
+            self.assertIn(fn, t)
+        self.assertEqual(subprocess.run(SH + ['-n', str(ROOT / 'controlscripts/ssh-server')], capture_output=True).returncode, 0)
+
+    def test_rescue_telnet_of_the_web_guard_is_untouched(self):
+        w = self.read('scripts/web-guard.sh')
+        self.assertIn('rescue-telnet telnetd -p 23 -F', w)
+        self.assertIn('port_listening 23 && return 0', w)
+
+
 class BootWiring(unittest.TestCase):
     def read(self, p):
         return (ROOT / p).read_text()
@@ -482,6 +696,10 @@ class BootWiring(unittest.TestCase):
         self.assertIn('log-persist.sh run', a)
         self.assertIn('web-guard.sh run', a)
         self.assertIn('housekeeper.sh active', a)
+        # the restarter is started only inside the HOUSEKEEPER-on branch, right after the loop
+        i = a.index('housekeeper.sh start')
+        self.assertLess(i, a.index('housekeeper.sh supervise'))
+        self.assertLess(a.index('housekeeper.sh supervise'), a.index('\nfi', i))
         self.assertIn('HOUSEKEEPER=1', self.read('config/boot.conf.dist'))
 
     def test_every_control_script_has_a_fallback_to_its_own_daemon(self):

@@ -235,6 +235,9 @@ Settings → **Recording**:
 - **Password**: `root` / `pass` on a new installation (or the password of a 2.x camera). The wizard asks for a new
   one; a banner says so until it is changed (Settings → System → Password).
 - **Plain HTTP**: the web interface has a login but no HTTPS on 3.0. Use it on your own network only.
+- **Remote shell**: SSH (dropbear, same `root` password) is on by default; switch it in Services (`ssh-server`).
+  Telnet sends the password in clear: it is **off** by default (Services, `telnet-server`; the "Boot" toggle starts it
+  at boot, LAN only, it stops by itself after `REMOTE_SHELL_TIMEOUT_MIN`). An upgraded camera keeps SSH on.
 - **Rescue telnet**: when the web interface does not answer, the web server is restarted once; if that does not
   help, a telnet opens on port 23, and closes again once the web interface has been back for two minutes.
 - **Offline by design**: the camera makes no outgoing connection except to your MQTT broker, NTP server and syslog

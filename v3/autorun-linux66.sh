@@ -98,6 +98,18 @@ PROFILE=$BC_INTEGRATION_PROFILE; LIGHT=$BC_LIGHTWEIGHT_MODE
 # (Frigate + Home Assistant profile: motion detection and the clock overlay are switched off once, by the setup wizard,
 #  so that later Settings changes stay; the profile still keeps some services off at boot, step 12b)
 
+# 1e. Remote shells (Services page): ssh (dropbear) on, telnet off by default. Boot toggles are the files of
+#     config/autostart. A camera that has not chosen yet (no config/.services_ssh_done: first start of this version, or an
+#     SD card upgraded in place) gets the ssh entry now, so that an upgrade never locks the owner out; from then on a
+#     missing entry means "off" (S50dropbear reads the same marker). Telnet is never added here: only what the owner
+#     switched on in Services stays (the old always-on telnetd of the base image is gone, v3/S50telnet-linux66).
+if [ ! -e /mnt/config/.services_ssh_done ] && [ -d /mnt/config ]; then
+  mkdir -p /mnt/config/autostart
+  [ -e /mnt/config/autostart/ssh-server ] ||
+    { printf '#!/bin/sh\n/mnt/controlscripts/ssh-server start\n' > /mnt/config/autostart/ssh-server && chmod +x /mnt/config/autostart/ssh-server; }
+  : > /mnt/config/.services_ssh_done
+fi
+
 # 2. Populate shared uClibc libraries into /lib: symlinks, except on the card (SD mode) for the small uClibc runtime,
 #    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a
 #    link: a card used by older firmwares holds ~15 MB of libraries (libcrypto, libliveMedia, 3 x libstdc++...)
@@ -197,6 +209,9 @@ CS=/mnt/controlscripts
 # HOUSEKEEPER=0 in boot.conf (or no script, or a loop that did not start): the separate daemons of before, started below.
 if [ "$BC_HOUSEKEEPER" != 0 ] && [ -f /mnt/scripts/housekeeper.sh ]; then
   sh /mnt/scripts/housekeeper.sh start </dev/null >/dev/null 2>&1
+  # its restarter: a service-watchdog.sh process that checks the pid file every 60 s and runs "housekeeper.sh start" when
+  # the loop is gone (never a reboot). Only here, with HOUSEKEEPER on.
+  sh /mnt/scripts/housekeeper.sh supervise </dev/null >/dev/null 2>&1
 fi
 # RTSP restarter (scripts/service-watchdog.sh through the rtsp-h26x shim): tc100_rtsp was started above
 [ "$NEWRTSP" = 1 ] && [ -f $CS/rtsp-h26x ] && sh $CS/rtsp-h26x watchdog </dev/null >/dev/null 2>&1
