@@ -60,3 +60,20 @@ usr/bin/mksquashfs
 usr/bin/unsquashfs
 usr/bin/sqfstar
 usr/bin/sqfscat
+# not used on the camera (2026-10-30 audit): the hostapd sample config (128 KB), the real hostapd_cli path, the
+# xz tools (busybox has unxz / xzcat) and liblzma (mksquashfs in ext/ gets its own copy, see build-stack.sh)
+etc/hostapd.conf
+usr/bin/hostapd_cli
+usr/sbin/wpa_passphrase
+usr/bin/xz
+usr/bin/unxz
+usr/bin/xzcat
+usr/bin/xzdec
+usr/bin/lzcat
+usr/bin/lzma
+usr/bin/lzmadec
+usr/bin/lzmainfo
+usr/bin/unlzma
+usr/lib/liblzma.so
+usr/lib/liblzma.so.5
+usr/lib/liblzma.so.5.4.5
