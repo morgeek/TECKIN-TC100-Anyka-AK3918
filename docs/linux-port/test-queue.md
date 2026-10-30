@@ -103,6 +103,25 @@ uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/tel
   CPU: 25 fps is as cheap as 15** (the bit rate is shared by more frames, so each frame is smaller). The rtspserver.conf
   value `fps` of IPCAM2 is 16 (not one of 10/12/15/20/25, so no `-f`: the code default 15 applied); restored to 16 after
   the runs. The picture quality at 25 fps was not judged (no one looked at VLC then).
+- **MQTT: Home Assistant sees nothing on IPCAM2 (rc7), diagnosed - the broker refuses the login (CONNACK 5).**
+  Owner report: with rc3 some entities were still visible, with rc7 nothing. On the camera (rc7 flash, up 53 min):
+  `/tmp/mqtt_last_pub.status` = `fail`; the listener's capture `/tmp/mqtt_stream.bin.26` and `.27` contain
+  **`20 02 00 05`** = CONNACK "not authorized" (sessions 26, 27 ... the listener has reconnected about once every
+  2 minutes since boot). Network is fine: ping 15-20 ms, `nc 192.168.1.25 1883` connects. `/mnt/config/mqtt.conf` has
+  `MQTT_ENABLE=1`, host 192.168.1.25, port 1883, user `morgeekha`, and a non-empty 8-character `MQTT_PASSWORD`
+  (no quote, space, `$` or `#`; file dated Oct 29, so it was not changed by the rc7 install). So the camera speaks
+  correctly and the broker says no: user/password pair wrong or user not allowed on the broker (owner to check the
+  Mosquitto user in Home Assistant). rc3 "still showing some info" is most likely the retained discovery
+  messages / entities left in HA, not live data. **Not a firmware fault, but two things for the implementer:**
+  1. **Surface it.** `mqtt_last_pub.status` only says `fail`. Record the CONNACK code (`bad credentials` /
+     `not authorized`) in the status file and show it in the web UI MQTT indicator, so the owner sees
+     "broker refused the login" instead of silence.
+  2. **Back off on refusal.** On CONNACK 4/5 the listener must stop hammering: wait 1, 2, 4 ... up to 30 min, and do
+     not run the fork-heavy health/spool work while not connected. This is the likely source of the 20 points of
+     CPU measured above (reconnect + `nc` + `od` + `date` per cycle, system time 26-29 %). With a refused login the
+     bridge should cost nothing.
+  Open for the owner: verify the password for `morgeekha` in HA and re-enter it in the web UI; then I re-measure the
+  CPU with a working login (expected to be different) and check the entities arrive in HA.
 - **P-01** half done: needs ONVIF discovery from a client. **P-05** (128 KiB squashfs blocks): stack 2306048 B in the
   partition; MemAvailable did not drop (15.2-16.0 MB, rc6 15.9-16.1); no timing yet.
 - Not run yet: audio B-01/B-02, O-05, P-09 (`RTSP_UDPSG=1`), P-08 (`RTSP_VBR=1`), P-04 (20/25 fps), P-02
