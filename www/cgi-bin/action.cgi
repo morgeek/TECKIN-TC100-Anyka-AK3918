@@ -93,12 +93,11 @@ sound_threshold_db() {
   echo "$_std"
 }
 
-# apply_sound_detection ENABLE THRESHOLD_DB [INTERVAL] — persist, (re)start the
-# daemon and restart RTSP when ENABLE changed (the microphone capture and the
-# level meter are set up when v4l2rtspserver starts).
+# apply_sound_detection ENABLE THRESHOLD_DB [INTERVAL] — persist and (re)start the
+# daemon. No RTSP restart: tc100_rtsp reads sound_detection.conf while it runs
+# (the level meter follows ENABLE within 2 s).
 apply_sound_detection() {
   install_config /mnt/config/sound_detection.conf
-  _asd_old="$(read_kv_or_default /mnt/config/sound_detection.conf ENABLE 0)"
   rewrite_config /mnt/config/sound_detection.conf ENABLE "$1"
   rewrite_config /mnt/config/sound_detection.conf THRESHOLD_DB "$2"
   [ -n "$3" ] && rewrite_config /mnt/config/sound_detection.conf INTERVAL "$3"
@@ -107,7 +106,7 @@ apply_sound_detection() {
   else
     /mnt/controlscripts/sound-detection stop >/dev/null 2>&1
   fi
-  [ "$_asd_old" != "$1" ] && schedule_rtsp_restart
+  return 0
 }
 
 sanitize_int_range() {

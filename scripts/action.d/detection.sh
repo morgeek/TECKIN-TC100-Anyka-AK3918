@@ -46,8 +46,7 @@
       sound_threshold="$(sound_threshold_db "${F_sound_det_threshold}" -24)"
       apply_sound_detection "$sound_enable" "$sound_threshold"
       # Motion zones (pages from 2.1.9 send md_zone_form): areas the motion
-      # detection ignores, read by the video server when the detector starts,
-      # so a running detector is restarted to take them.
+      # detection ignores; tc100_rtsp reads motion_zones.conf while it runs.
       if [ -n "${F_md_zone_form:-}" ]; then
         _mz_new=""; _mz_n=0
         for _mz_v in "${F_md_zone1:-}" "${F_md_zone2:-}" "${F_md_zone3:-}" "${F_md_zone4:-}"; do
@@ -59,9 +58,6 @@
         if [ "$(printf '%s' "$_mz_new")" != "$(cat /mnt/config/motion_zones.conf 2>/dev/null)" ]; then
           if [ -n "$_mz_new" ]; then printf '%s' "$_mz_new" > /mnt/config/motion_zones.conf.tmp && mv -f /mnt/config/motion_zones.conf.tmp /mnt/config/motion_zones.conf
           else rm -f /mnt/config/motion_zones.conf; fi
-          if [ -n "$(/mnt/controlscripts/motion-detection status 2>/dev/null)" ]; then
-            ( /mnt/controlscripts/motion-detection stop; /mnt/controlscripts/motion-detection start ) </dev/null >/dev/null 2>&1 &
-          fi
         fi
         echo "Motion zones: ${_mz_n}<BR>"
       fi
