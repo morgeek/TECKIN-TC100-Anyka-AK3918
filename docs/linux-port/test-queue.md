@@ -291,6 +291,24 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   light at dusk, R12-03 / R12-05 over a night, R12-04 listening, R12-06 listening for the clicks, R12-09 dumps,
   R12-07 and R12-08 with the owner).
 
+- **Results R14 (tester, 2026-10-31 ~12:30-13:00 local, rc14 = 28a290a, both CIs green); rc14 installed in the .11 flash:**
+  - Install: rc14 kernel (md5 7c524207…) booted once from the card (U-Boot prompt, RAM): Wi-Fi up (`wlan0: associated` at 15 s), pool 9600K, MemAvailable 21.6 MB;
+    package md5 e9123d64…, `check` ok, `apply update14`, `/mnt/VERSION` 3.0.1-rc14; flash boot, Wi-Fi up again, `meta.txt` `wifi_power_fail=0`, `wlan0=yes`.
+  - **R14-01 Wi-Fi recovery:**
+    - Safe check on a working camera: `wifi-recover.sh check` rc 0, `run` returns at once, nothing printed: PASS.
+    - **Manual power cycle of GPIO 11 (= gpio523): PASS, it IS the Wi-Fi chip's power.** `echo 0 > gpio523/value`: `usb 1-1: USB disconnect, device number 2`,
+      `wlan0: deauthenticating ... (Reason: 3=DEAUTH_LEAVING)`; `echo 1`: `RTL8188FU rev B` re-enumerates 8 s later, firmware loaded, `wlan0: associated` ~11 s after the
+      power came back. `wifi-apply` then gave 192.168.1.11 again. (`gpio522` and `gpio592/593` are already exported by something else; I unexported 523 afterwards.)
+    - **But a side effect: after this manual cycle the link was bad for several minutes**: ping from the LAN 1.1-3.6 s (was 4-6 ms), camera-to-gateway ping 2.3-3.5 s, RX `dropped` 1503,
+      the server's `dropped` rising 18 -> 68 per 5 s, while the signal read -30..-36 dBm (MCS 4-5). A warm `reboot` cleared it (6 ms, `dropped` 0-2). So the chip comes back working but
+      in a degraded state; the real recovery path (`wifi-recover.sh` calling `wifi-apply`) should be checked for the same thing: maybe it needs a clean unbind / module reload or a
+      longer off time than 6 s. I did not reproduce the original `Failed power on` failure (all 3 warm boots of the day on rc14 had Wi-Fi), so **the automatic recovery itself is NOT tested.**
+  - **R14-02 night parameter set: PASS.** With `RTSP_NIGHTSTYLE=1` and `nightmode.sh on`: dmesg `ak39-vi 8000000.video-input: tuning parameter set 1`, log `ISP: night parameter set of the
+    tuning file`, `cam_ae` `47 2812 502 256 256 0 2812` (exposure limit 2812), **`cap` 50 per 5 s (10 fps)**, 380-440 KB per 5 s, one client connected. `nightmode.sh off`: dmesg
+    `tuning parameter set 0`, log `day parameter set`, `cam_ae` 7th field 1125, `cap` 125, 978 KB per 5 s. (The picture itself was not compared: the room is lit by day.) The R12-01 refusal (ENODEV) is gone.
+  - Not redone on rc14 (need dusk / night / the owner): R12-02, 03, 05, 06, 07, 08, R12-04 sound, R12-09 dumps.
+  - .11 now: rc14 in flash, `rtsp.env` empty, auto day/night running (luma), fps 25, soak restarted (13:0x local), Frigate connected (`clients 1`).
+
 ### Next build: 3.0.1-rc13 = rc12 + the R11 answers — install rc13, not rc12 (2026-10-31)
 
 rc12 was pushed before the R11 results came in; rc13 replaces it (same R12-xx tests). **Implementer's answers to R11:**
