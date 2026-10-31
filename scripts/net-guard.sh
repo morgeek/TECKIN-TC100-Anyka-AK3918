@@ -127,6 +127,9 @@ ng_once()
         return 0
     fi
     _ng_first "$STATE/down_since"; _ds=$_f1
+    # W-NET: no wlan0 at all (the Wi-Fi chip failed to power on after a warm reboot): bring the chip back first, a warm
+    # reboot did not (scripts/wifi-recover.sh: probe again, then a power cycle; it spaces its own tries by 5 min)
+    [ -e "${NG_SYS:-/sys}/class/net/wlan0" ] || { sh "${NG_WIFI_RECOVER:-/mnt/scripts/wifi-recover.sh}" run </dev/null >/dev/null 2>&1 & }
     _lim=$(_ng_limit)
     [ $((_now - _ds)) -ge "$_lim" ] || return 0
     if _ng_rescue_ap; then return 0; fi

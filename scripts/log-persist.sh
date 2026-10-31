@@ -155,6 +155,9 @@ lp_save_files() {
     echo "why=${1:-periodic}"
     echo "version=$(cat /mnt/VERSION 2>/dev/null)"
     echo "kernel=$(uname -r 2>/dev/null)"
+    # W-NET: how often the Wi-Fi chip fails to power on after a reboot (read from the dmesg just saved)
+    echo "wifi_power_fail=$(grep -c 'Failed power on' "$D/dmesg.log" 2>/dev/null)"
+    echo "wlan0=$([ -e /sys/class/net/wlan0 ] && echo yes || echo no)"
   } > "$D/.meta.tmp"
   mv -f "$D/.meta.tmp" "$D/meta.txt"
   # a boot never keeps more than LP_BOOTCAP bytes: the least useful file goes first

@@ -238,6 +238,10 @@ elif [ "$DN" = 3 ]; then
   logger -t tc100-v3 "auto day/night not started: manual mode (daynight=3)" 2>/dev/null
 fi
 
+# 9b. W-NET: the Wi-Fi chip may fail to power on after a warm reboot (no wlan0): probe it again, then power-cycle it
+#     (scripts/wifi-recover.sh), in the background; the Wi-Fi settings are applied again when wlan0 comes back
+[ -e /sys/class/net/wlan0 ] || { sh /mnt/scripts/wifi-recover.sh run </dev/null >/dev/null 2>&1 & }
+
 # 10. MQTT Bridge (it does nothing unless MQTT_ENABLE=1 in config/mqtt.conf)
 if [ -f $CS/mqtt-bridge ]; then
   sh $CS/mqtt-bridge start </dev/null >/dev/null 2>&1
