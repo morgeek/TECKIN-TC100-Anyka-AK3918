@@ -352,6 +352,30 @@ then R12-01/02 (a dim room and an evening), R12-03/05 over a night, R12-06, and 
   `update66.sh apply` with the owner's agreement (dump first, `flashw` with read-back, settings kept, as for every rc);
   U-Boot untouched. The camera then runs with no card at all.
 
+- **Results R12 (tester, 2026-10-31 ~10:10-11:40 UTC, rc12 = 8fef396, both CIs green), rc12 installed in the .11 flash:**
+  - **R12-00 PASS.** rc12 kernel (md5 165426b4…) booted once from the card (U-Boot prompt, RAM), package md5 308e2478…, `check` ok, `apply update12`;
+    `/mnt/VERSION` 3.0.1-rc12, pool 9600K, both encoders `open` (used 8866880, free 963520), MemAvailable 23.0-23.2 MB, `anti-flicker: camera default 50 Hz`,
+    `cam_ae` has 7 numbers (7th 1125), `cam_awb` 11 numbers.
+  - **R12-04 speaker: electrical part PASS, sound NOT confirmed.** `devmem 0x2017000c`: **0xC800 at rest** (bit 14 set = high = amplifier off) with the rc12 kernel; **0x8800 during
+    playback** (bit 14 clear, `speaker-play.sh` of 20 x `alert.pcm`, volume `Headphone` 5), back to 0xC800 after. The owner was not next to the camera: **no one heard it**.
+    To do: someone listening while `sh /mnt/scripts/speaker-play.sh /tmp/long.pcm` plays (the file was made with 20 copies of `/mnt/sounds/alert.pcm`).
+  - **R12-01 night parameter set: FAIL on this kernel.** `RTSP_NIGHTSTYLE=1`, camera switched to night (`nightmode.sh on`): log
+    **`ISP: the night parameter set was refused (No such device): the day set stays, colour off at night`**. `AK_ISP_SET_TUNING_STYLE` returns ENODEV from the 6.6 ISP driver:
+    the ioctl is probably not implemented or the ISP style block is not set up. No 10 fps at night, `cap` stays ~125 per 5 s. Switched back (`nightmode.sh off`, auto restarted).
+    The implementer needs to look at the kernel side (video-input driver patch) or drop the feature.
+  - **R12-02 10 fps in low light: not exercised.** The room was too bright all morning (gain 957-2157, i.e. 3.7-8.4x; the threshold is 14x = 3584): the log line `low light:` never
+    appeared. Needs dusk or a covered lens. With `RTSP_LOWLIGHT_FPS=1` the server started and ran normally.
+  - **R12-03 stock method (`DAYNIGHT_SOURCE=vendor`, with RTSP_LOWLIGHT_FPS=1): runs; dim day room stays day.** Calibration log lines: `mode=day src=vendor ... idx=4241 lum=989 awb=108594719 …`;
+    `lum` 923-1001 against the stock thresholds (night above 3584, day below 1536): the dim morning room (which the `ae` source called night at index 15000-30000) is **day**: the
+    stock metric is the better one. Caveat: `awb=` is still the **frozen** set of R11-02, so the white balance check ("no daylight" for night) can never say night: **a night switch with this
+    source cannot happen until the AWB counts are real**. Dusk / dawn: not yet. Source put back to `luma`.
+  - **R12-05 IR LED protection: not tested** (needs a real night decision from the daemon; with a manual night the counter does not start). To do at dusk with `IR_LED_MAX_ON=120`.
+  - **R12-06 IR-cut pulse 10 ms: inconclusive.** `IRCUT_PULSE_MS=10`, 10 x (out, in) with `setconf -k e` without error, `/var/run/ircut` follows. The two snapshots (filter out / in) are both
+    almost grey (saturation 8.5 and 9.4): the picture does not show the filter position in this light, so I cannot say it moved 10 / 10. Someone should listen for the clicks. Line removed from `boot.conf`.
+  - **R12-07 web page, R12-08 no SD card: not done** (need the owner's login and the card taken out).
+  - Also noticed: `clients 0` in the STAT lines since this morning's reboots: nothing is connected to the camera now (Frigate not pulling?). The camera clock is wrong after a boot (00:xx) until NTP.
+  - .11 now: rc12 in flash, `rtsp.env` empty, `daynight=2` auto running source `luma`, fps 25, soak restarted.
+
 ### Next build: 3.0.1-rc11 — what the stock binaries taught (2026-10-31)
 
 The owner asked to read the original binaries (Ghidra) and use what they teach. The full stock dump was in the git
