@@ -331,6 +331,15 @@ no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not
   (`/vendor/isp.conf` is read first).
 - This covers the README's "a second camera" for the update path (rc5 -> rc16 by the web page). Open: the same checks as R15-04 on the .24.
 
+### Owner's decisions, 2026-10-31 evening (for the implementers)
+- **An upgrade from an older version must not keep the old image tint and saturation** (`HUE`, `SATURATION` of `isp_tune.conf`; also
+  `ISP_TUNE=1` carried over): reset them to 0 at migration (the .24 had HUE=-10, SATURATION=-13: green picture). Not a note: a reset.
+- **Both cameras must have the same settings, except their IPs (and what is hardware: names, passwords, Wi-Fi).** The tester will align
+  the two cameras' settings and list what still differs and why (`.11` had leftovers of the tests: sub stream 352x200 at 8 fps with the
+  smart mode on; the main stream with `smartmode=1`; `.24` has the old IR-cut GPIO lines, `FRONT_LED=0`, no `recording` switch).
+- **The second stream must be of the best quality the SoC can give** on both cameras (640x360 is the ISP sub picture; frame rate and bit
+  rate to be measured: CPU, dropped frames, Frigate).
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
