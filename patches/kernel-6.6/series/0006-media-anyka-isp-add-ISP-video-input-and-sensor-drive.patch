@@ -5072,7 +5072,7 @@ new file mode 100644
 index 000000000..ec66106c8
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.h
-@@ -0,0 +1,378 @@
+@@ -0,0 +1,379 @@
 +#ifndef _AK39_ISP2_H
 +#define _AK39_ISP2_H
 +
@@ -5251,6 +5251,7 @@ index 000000000..ec66106c8
 +    AK_ISP_AWB_ATTR             awb_para;
 +    AK_ISP_AWB_EX_ATTR          awb_ex_ctrl_para;	
 +    AK_ISP_AWB_STAT_INFO        awb_stat_info_para;
++    AK_ISP_AWB_STAT_INFO        awb_stat_live;	/* the live counts (word 1160), for AK_ISP_GET_AWB_STAT_INFO */
 +    AK_ISP_WB_GAIN              wb_gain_para;
 +    AK_ISP_AWB_ALGO             awb_algo;
 +    
@@ -5456,14 +5457,21 @@ new file mode 100644
 index 000000000..e9de58ea7
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2_3a.c
-@@ -0,0 +1,3092 @@
+@@ -0,0 +1,3114 @@
 +/* See the note at the head of ak39_isp2.c. */
 +#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/moduleparam.h>
 +#include <linux/string.h>
 +#include <plat-anyka/ak_isp_drv.h>
 +#include "ak39_isp2.h"
 +#include "ak39_isp2_3a.h"
 +#include "ak39_isp2_reg.h"
++
++/* R15-01: the white balance algorithm on the live statistics (word 1160) instead of the fixed block it always had */
++static int awb_live;
++module_param(awb_live, int, 0444);
++MODULE_PARM_DESC(awb_live, "white balance on the live statistics (1) or as before (0, default: R15-01 blue cast)");
 +
 +//#define ISP_DEBUG
 +#ifdef ISP_DEBUG
@@ -5941,6 +5949,11 @@ index 000000000..e9de58ea7
 +{
 +    isp_dbg("%s enter.\n", __func__);
 +    memcpy(p_awb_stat_info,&(isp->awb_stat_info_para),sizeof(AK_ISP_AWB_STAT_INFO));
++    /* the counts as the ISP measures them, whatever the white balance algorithm reads (ak_isp.awb_live) */
++    memcpy(p_awb_stat_info->total_R, isp->awb_stat_live.total_R, sizeof(isp->awb_stat_live.total_R));
++    memcpy(p_awb_stat_info->total_G, isp->awb_stat_live.total_G, sizeof(isp->awb_stat_live.total_G));
++    memcpy(p_awb_stat_info->total_B, isp->awb_stat_live.total_B, sizeof(isp->awb_stat_live.total_B));
++    memcpy(p_awb_stat_info->total_cnt, isp->awb_stat_live.total_cnt, sizeof(isp->awb_stat_live.total_cnt));
 +    
 +    return 0;
 +}
@@ -6416,16 +6429,26 @@ index 000000000..e9de58ea7
 +    }
 +
 +	/* R12-09 (dumps on a TC100): the white balance block, 10 x (R, G, B, count), is the last 40 words of the
-+	 * statistics area; word 1032 (+257+257+257+256+5) held fixed, random-looking data the white balance worked on */
-+	stat_addr = stat_addr + 257 + 257 + 257 + 256 + 5 + 128;
++	 * statistics area (word 1160); word 1032 (+257+257+257+256+5) holds fixed, random-looking data. R15-01: fed the
++	 * live block, the ISP's white balance gave a strong blue / violet cast the software white balance of tc100_rtsp
++	 * could not correct, while with the fixed block the ISP stays at one colour temperature that the software white
++	 * balance brings to neutral (rc14, R/G/B 102/101/100). So the live counts go to AK_ISP_GET_AWB_STAT_INFO
++	 * (/tmp/cam_awb, day / night) and the algorithm keeps the old block unless ak_isp.awb_live=1 */
++	{
++		unsigned long *live = stat_addr + 257 + 257 + 257 + 256 + 5 + 128;
++		unsigned long *algo = awb_live ? live : stat_addr + 257 + 257 + 257 + 256 + 5;
 +
-+	for(i=0;i<10;i++)
-+    {
-+        isp->awb_stat_info_para.total_R[i]  = *stat_addr++ ;
-+        isp->awb_stat_info_para.total_G[i]  = *stat_addr++;
-+        isp->awb_stat_info_para.total_B[i]  = *stat_addr++ ;
-+        isp->awb_stat_info_para.total_cnt[i]= *stat_addr++;
-+    }
++		for (i = 0; i < 10; i++) {
++			isp->awb_stat_live.total_R[i] = live[4 * i];
++			isp->awb_stat_live.total_G[i] = live[4 * i + 1];
++			isp->awb_stat_live.total_B[i] = live[4 * i + 2];
++			isp->awb_stat_live.total_cnt[i] = live[4 * i + 3];
++			isp->awb_stat_info_para.total_R[i] = algo[4 * i];
++			isp->awb_stat_info_para.total_G[i] = algo[4 * i + 1];
++			isp->awb_stat_info_para.total_B[i] = algo[4 * i + 2];
++			isp->awb_stat_info_para.total_cnt[i] = algo[4 * i + 3];
++		}
++	}
 +  
 +    return 0;   
 +}

@@ -29,7 +29,7 @@ Nothing in this path writes U-Boot, `boot`, `mac` or `env`. Every flash write is
 | R12-07 web page | fixes of what the owner saw | page / CGI | |
 | R12-08 no SD card | the documented normal use | README | the fault fixed in rc15 |
 | R14-01 Wi-Fi recovery | already on (only acts without `wlan0`); GPIO 11 confirmed; one clean restart when the link is slow after a power cycle (prepared) | scripts | `WIFI_POWER_GPIO=0` (re-probe only) |
-| R12-09 white balance statistics | **found (word 1160), the kernel reads them in rc15**; then the A/B of R15-01 | patch 0006, `config/awb.off` | the software white balance stays |
+| R12-09 / R15-01 white balance statistics | found (word 1160); live counts for `/tmp/cam_awb` and day / night; the algorithm kept as rc14 (rc15 went blue: `ak_isp.awb_live=1` to retry) | patch 0006 | the software white balance stays on |
 | R11-01 smart mode | not in 3.0.1 (stops the encoder with the 9600K pool) | | |
 | P-08 VBR | on, if R12-07 shows no loss with Frigate | `rtspserver.conf.dist` [0] `vbr=1` | CBR stays |
 

@@ -8,6 +8,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Strong blue / violet cast on rc15** (R15-01): fed the live white balance statistics, the ISP's own white
+  balance chose gains the software white balance could not correct. 3.0.1-rc16: the algorithm works as up to rc14
+  (the software white balance then brings the picture to neutral), the live counts still reach `/tmp/cam_awb` and
+  the day / night method; `ak_isp.awb_live=1` keeps the rc15 behaviour for further work.
+- Boot console: "Wi-Fi settings from the saved settings" when they come from the flash (it always said "SD
+  card"), and the board profile line no longer says "unknown hardware" before the sensor is read.
+
 - **The image processor's white balance worked on fixed, random-looking data** (R12-09, statistics dumps on
   IPCAM2): the kernel read the white balance counts at word 1032 of the statistics area; they are the last 40
   words (from 1160). 3.0.1-rc15 reads them there: the ISP's own white balance gets live statistics (a candidate
