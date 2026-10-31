@@ -239,6 +239,92 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### Next build: 3.0.1-rc12 — everything the stock dump can give, then the flash-only camera (2026-10-31)
+
+The owner (2026-10-31): analyse the binaries deeply, put into rc12 all that the stock dump can bring, **check that
+everything is wired in the web UI too**; if rc12 is conclusive, the next step is the complete, persistent flash
+install for a camera that needs no SD card. Findings: [vendor-re-findings.md](vendor-re-findings.md). Nothing touches
+U-Boot, `boot`, `mac` or `env`. Every new behaviour is switchable from the web page; off by default except the speaker
+fix (a bug fix) and the IR LED protection (the stock behaviour, protective).
+
+**Order:** R12-00 install (card boot, then `update66.sh apply`), R12-04 speaker first (one minute), R12-07 the page,
+then R12-01/02 (a dim room and an evening), R12-03/05 over a night, R12-06, and R12-08 (no SD card) last.
+
+### R12-00 3.0.1-rc12 on the camera — `to test`
+- Card boot of the rc12 kernel, then `update66.sh check` / `apply` (owner's agreement), flash boot. `/mnt/VERSION` =
+  3.0.1-rc12, pool 9600K, both encoders `open`, MemAvailable as rc10 (21-22 MB), `tc100_rtsp.log`: `anti-flicker:
+  camera default 50 Hz`, `cat /tmp/cam_ae` has 7 numbers (the 7th 1125), `cat /tmp/cam_awb` 11 numbers.
+
+### R12-04 Speaker: amplifier enable active low (`speak-gpios-en = <0>`) — `to test`
+- **What:** the stock kernel and app play with GPIO 14 **low** (vendor-re-findings.md); 3.0 drove it high, so the
+  amplifier was off while playing and on (hissing) at rest. rc12: active low, off at rest; route changes no longer
+  switch it on. **Way back:** `ak39_codec.spk_active=1` on a card kernel's command line, or the rc11 kernel.
+- **Test:** `devmem 0x2017000c 32` at rest (bit 14 set = high = amplifier off). `sh /mnt/scripts/speaker-play.sh
+  /mnt/sounds/<a clip>` (or `aplay -D plughw:0,0` of a WAV): **the clip is heard**; during it bit 14 is clear. At rest
+  after the clip: no hiss. `amixer -c 0 sset Headphone 1` then `5` changes the loudness. Then push-to-talk / two-way
+  audio from go2rtc or Home Assistant (UI-13) and the web page sounds.
+- **Pass:** audible clip, silent at rest. **Fail:** write `devmem` readings; rc11 kernel back.
+
+### R12-01 Night picture settings (Day/night page: "Night picture settings of the sensor tuning") — `to test`
+- **What:** at night (black and white) `tc100_rtsp` loads the tuning file's night parameter set
+  (`AK_ISP_SET_TUNING_STYLE 1`: exposure up to 2812 lines, night noise filter and sharpness, AE target 45, 10 fps), and
+  the day set at day (sensor back to the stream rate). The bases of live tuning, sharpness, exposure cap, anti-flicker
+  and white balance are read again after each switch and the settings applied on top. Off: the switch off (as rc11).
+- **Test:** switch on, Save (the server restarts). Night (dark room or the Night button): log `ISP: night parameter set
+  of the tuning file`, `cap` about 50 per 5 s (10 fps), `cam_ae` 7th field 2812. Snapshot and 30 s of VLC against the
+  same scene with the switch off: brightness, grain, smearing of a moving hand. Privacy masks and the clock still
+  shown; live tuning values still applied. Day button: `day parameter set`, colour back, the stream rate back (`cap`).
+  Frigate: still records and detects at 10 fps at night.
+- **Pass:** a better night picture, masks / clock / tuning kept, day back to normal. Then (rc13) on by default.
+
+### R12-02 10 fps in low light by day (Day/night page) — `to test`
+- **What:** by day, total gain above 14 x -> sensor 10 fps and exposure up to 2812 lines; under 5 x -> the stream rate
+  and 1125 (5 s apart), as the stock app. Not at night, not with an exposure cap.
+- **Test:** switch on, Save. Dim room by day: log `low light: total gain 26x, sensor 10 fps, exposure up to 2812
+  lines`, picture brighter, less grain; light on: `... sensor 25 fps, exposure up to 1125 lines`. No flapping between
+  the two (watch 10 minutes at dusk light). Frigate fine at 10 fps.
+- **Pass:** brighter dim-room picture, clean switches. Then (rc13) on by default (it also makes R12-03's thresholds valid).
+
+### R12-03 Day / night "Stock firmware method" source — `to test` (needs R12-02 on)
+- **What:** `DAYNIGHT_SOURCE=vendor` (Day/night page, "Light measurement"): lum = exposure x total gain / exposure
+  limit x 40 / picture brightness ("Stock method value" in the live reading), night above 3584 when the white balance
+  sees no daylight, day below 1536 when it sees visible light, 3 samples in a row, a switch back within 15 s locks it.
+- **Test:** with R12-02 on, the live value in a lit room, a dim room by day (must stay day), at dusk and at night; then
+  the source on "Stock firmware method" through one dusk and one dawn: one switch each way, the console lines `vendor
+  lum=... awb day=... visible=...`, no flapping when the IR LEDs come on. The calibration log (`lum=` and `awb=`) here.
+- **Pass:** clean switches both ways, the dim day room stays day. Then (rc13) the default source.
+
+### R12-05 IR LED protection (every source; Day/night page, hours) — `to test`
+- **What:** after `IR_LED_MAX_ON` seconds of night (50400 = 14 h, the stock value) day mode for 600 s, then the normal
+  decision again; 0 = off. Console: `IR LEDs on for N s: day mode for 600 s (IR LED protection)`.
+- **Test:** `IR_LED_MAX_ON=120` in `/mnt/config/daynight.conf` (the page takes whole hours: edit the file for the test),
+  restart the daemon (`auto-night-detection stop; start`), night mode: after 2 minutes the line, day mode, 10 minutes
+  later back to night (if dark). Then the page value back to 14.
+
+### R12-06 IR-cut pulse 10 ms (`IRCUT_PULSE_MS=10` in boot.conf) — `to test`
+- **What:** the stock app pulses the IR-cut coil 10 ms; 3.0 uses 150 ms (`bin/setconf`). A shorter pulse heats the
+  coil less. Already a setting: nothing new in the code.
+- **Test:** `IRCUT_PULSE_MS=10` in `/mnt/config/boot.conf`, Day / Night buttons 10 times each way: the filter clicks
+  and the picture changes every time. Then 20 ms if 10 misses once.
+- **Pass:** 10 / 10 each way. Then (rc13) the default.
+
+### R12-07 The web page: every new switch wired — `to test` (owner, needs the login)
+- Settings, Streams & audio: "Bit rate mode" and "Smart encoding" (main stream form), Save: `rtspserver.conf` [0]
+  `vbr` / `smart`, the server restarts, log `vbr main 1` and `encoder main: smart mode N`. Settings, Day/night: the
+  stock method thresholds, the IR protection hours, the two switches (night settings, low light), the live "Stock
+  method value"; Save and reload the page: every value comes back. Settings, Picture: anti-flicker "Camera default" and
+  the 50 Hz line. In French too.
+
+### R12-08 A camera with no SD card (the goal) — `to test` (last, after the others)
+- **What:** the flash already holds kernel, initramfs, user space, vendor libraries and the settings; U-Boot tries the
+  card first and boots the flash without one (the card stays the way back). Nothing is written for this test.
+- **Test:** power off, take the card out, power on: video (RTSP, Frigate), web page, Wi-Fi, MQTT, settings kept
+  (change one, reboot from the page, still there: R11-03), day / night and the speaker. What needs a card says so
+  cleanly: recordings (page message), saved logs (`log-persist` skips), no error loop in `dmesg` / syslog. One hour.
+- **Pass:** everything above. **Then the flash-only release (rc13):** the switches that passed become defaults; one
+  `update66.sh apply` with the owner's agreement (dump first, `flashw` with read-back, settings kept, as for every rc);
+  U-Boot untouched. The camera then runs with no card at all.
+
 ### Next build: 3.0.1-rc11 — what the stock binaries taught (2026-10-31)
 
 The owner asked to read the original binaries (Ghidra) and use what they teach. The full stock dump was in the git

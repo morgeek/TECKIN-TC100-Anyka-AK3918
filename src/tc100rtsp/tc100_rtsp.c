@@ -390,7 +390,7 @@ static void awb_hw_init(void)
  * the video runs, the sensor is set to the stream rate (AK_ISP_SET_SENSOR_FPS; RTSP_SENSOR_FPS=0 keeps 25). The ISP
  * loads its tuning again at each start, so this is done for every start of the video. */
 #define ISP_SET_SENSOR_FPS _IOW('I', 122, int)
-static int sensor_fps_want;
+static int sensor_fps_want, stream_fps;
 static void sensor_fps_set(void)
 {
 	const char *e = getenv("RTSP_SENSOR_FPS");
@@ -504,7 +504,7 @@ static void tune_hw_apply(void)
  * - the clock (default since rc8, HW-07 passed; RTSP_ISPOSD=0: by the CPU; kernel patch 0014): drawn once a second into an OSD window
  *   the ISP blends into the main picture, instead of being written into every frame. Refusal (older kernel): CPU.
  * - the exposure state (AK_ISP_GET_AE_RUN_INFO) every 2 s in /tmp/cam_ae, for day / night: "lumi exp_time a_gain
- *   d_gain isp_d_gain dark_flag".
+ *   d_gain isp_d_gain dark_flag exp_time_max".
  * The ISP loads its tuning at each video start: the tuning file's values are read once the video runs and kept as
  * the base. The layouts are those of the kernel (include/plat-anyka/ak_isp_drv.h); the sizes are checked below. */
 struct isp_mask1 { unsigned short x1, x2, y1, y2; unsigned char en, pad; };	/* AK_ISP_MASK_AREA */
@@ -535,6 +535,8 @@ typedef char isp_layout_check[(sizeof(struct isp_masks) == 40 && sizeof(struct i
 static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_now, ae_base = -1, exp_now_pct, hz_now;
 static int osd_hw = -1;
 static unsigned int ae0[AE_WORDS], exp_now, exp_step_now;
+#define LOWLIGHT_EXP 2812	/* the night set's exposure limit, lines (R12-02) */
+static int lowlight_on;	/* R12-02: sensor at 10 fps by day in low light */
 static struct isp_sharp sharp0, sharp1;
 
 static int line_rate(void)	/* sensor lines a second (anti-flicker): JX-F23 on MIPI, RTSP_LINE_RATE for another sensor */
@@ -643,6 +645,7 @@ static void ispx_apply(void)
 			if (t < ae0[1]) t = ae0[1];
 			if (t < 1) t = 1;
 			a[0] = (unsigned int)t;
+			if (lowlight_on && !p_expct) a[0] = LOWLIGHT_EXP;
 			if (p_hz) a[8] = (unsigned int)((rate + p_hz) / (2 * p_hz));	/* AK_ISP_AE_ATTR word 8: exp_step */
 			if (ioctl(fd, ISP_SET_AE, a) == 0) {
 				if (p_expct != exp_now_pct)
@@ -687,6 +690,69 @@ static void pool_guard_check(double tn)
 	reports++;
 }
 
+/* R12-01: the tuning file holds two complete parameter sets, day (0) and night (1: no colour, 2.5 x the exposure,
+ * its own noise filters, 10 fps). The stock app reloads the whole set at every switch (ak_vi_switch_mode); 3.0 used
+ * the day set at night with the colour turned off. RTSP_NIGHTSTYLE=1: AK_ISP_SET_TUNING_STYLE 1 when black and white
+ * starts (night), 0 when it ends. The set replaces the modules the bases were read from: they are read again and the
+ * settings applied on top; by day the sensor goes back to the stream rate. Refused (one set only): stays off. */
+#define ISP_SET_TUNING_STYLE _IOW('I', 129, unsigned int)
+static int night_style = -1;	/* -1 not read, 0 off, 1 on */
+static void isp_bases_reset(void)
+{
+	tune_hw = -1; hue_hw = -1; sharp_base = -1; sharp_now = 0; ae_base = -1; exp_now_pct = 0; hz_now = 0;
+	if (awb_fd >= 0) close(awb_fd);
+	awb_fd = -1; awb_hw = -1; tune_dirty = 1;
+}
+
+static void style_switch(int night)
+{
+	unsigned int s = night ? 1 : 0;
+
+	if (night_style < 0) { const char *e = getenv("RTSP_NIGHTSTYLE"); night_style = e && e[0] == '1'; }
+	if (night_style != 1 || ispx_open() < 0) return;
+	if (ioctl(ispx_fd, ISP_SET_TUNING_STYLE, &s) < 0) {
+		LOG("ISP: the %s parameter set was refused (%s): the day set stays, colour off at night\n", night ? "night" : "day", strerror(errno));
+		night_style = 0;
+		return;
+	}
+	LOG("ISP: %s parameter set of the tuning file\n", night ? "night" : "day");
+	isp_bases_reset();
+	lowlight_on = 0;
+	if (!night) sensor_fps_want = stream_fps;
+}
+
+/* R12-02: by day in low light the stock app drops the sensor to 10 fps and lets the exposure run 2.5 x longer
+ * (change_fps_pthread: total gain above 14 x -> 10 fps, exposure up to 2812 lines; under 5 x -> back to 25 fps and
+ * 1125 lines; 5 s between changes). A brighter, cleaner picture in a dim room, and the light metric of the stock
+ * day / night switch assumes it. RTSP_LOWLIGHT_FPS=1; not at night (the night set has its own rate), not with an
+ * exposure cap (EXPOSURE_MAX_PCT). The exposure step keeps one lamp pulse (exp_step is in lines, the line rate
+ * does not change with the frame rate). */
+static void lowlight_check(double tn, const struct isp_ae_run *r)
+{
+	static int on = -1;
+	static double t;
+	unsigned int a[AE_WORDS];
+	int g, f;
+
+	if (on < 0) { const char *e = getenv("RTSP_LOWLIGHT_FPS"); on = e && e[0] == '1'; }
+	if (!on || bw_want || p_expct || ae_base != 1 || tn - t < 5.0 || ispx_fd < 0) return;
+	g = (int)(((long long)r->isp_d_gain * (((long long)r->a_gain * r->d_gain) >> 8)) >> 16);	/* total gain, x 1 */
+	if (!lowlight_on && g > 14) f = 10;
+	else if (lowlight_on && g < 5) f = stream_fps > 0 && stream_fps < 25 ? stream_fps : 25;
+	else return;
+	memcpy(a, ae0, sizeof a);
+	if (exp_now_pct == 0 && hz_now) a[8] = exp_step_now;
+	a[0] = f == 10 ? LOWLIGHT_EXP : ae0[0];
+	if (ioctl(ispx_fd, ISP_SET_SENSOR_FPS, &f) < 0 || ioctl(ispx_fd, ISP_SET_AE, a) < 0) {
+		LOG("low light: the ISP refused %d fps (%s)\n", f, strerror(errno));
+		on = 0;
+		return;
+	}
+	t = tn;
+	lowlight_on = f == 10;
+	LOG("low light: total gain %dx, sensor %d fps, exposure up to %u lines\n", g, f, a[0]);
+}
+
 /* the exposure state for day / night, every 2 s (cheap: one ioctl) */
 static void ispx_ae_report(double tn)
 {
@@ -699,7 +765,13 @@ static void ispx_ae_report(double tn)
 	t = tn;
 	memset(&r, 0, sizeof r);
 	if (ioctl(ispx_fd, ISP_GET_AE_RUN_INFO, &r) < 0) return;
-	n = snprintf(b, sizeof b, "%u %d %d %d %d %u\n", r.lumi, r.exp_time, r.a_gain, r.d_gain, r.isp_d_gain, r.dark);
+	lowlight_check(tn, &r);
+	{
+		unsigned int a[AE_WORDS];
+		unsigned int mx = ioctl(ispx_fd, ISP_GET_AE, a) == 0 ? a[0] : 0;	/* 7th field: the exposure limit now (R12-03) */
+
+		n = snprintf(b, sizeof b, "%u %d %d %d %d %u %u\n", r.lumi, r.exp_time, r.a_gain, r.d_gain, r.isp_d_gain, r.dark, mx);
+	}
 	if (n > 0 && n < (int)sizeof b) wfile("/tmp/cam_ae", b, (size_t)n);
 	{	/* R11-02: the white balance counts per colour temperature, which the stock firmware's day / night switch
 		 * checks (docs/linux-port/vendor-re-findings.md): "cnt0 .. cnt9 colour_temperature_index" in /tmp/cam_awb */
@@ -2785,7 +2857,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	}
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (ioctl(fd, VIDIOC_STREAMON, &bt) < 0) { LOG("STREAMON: %s\n", strerror(errno)); return 1; }
-	sensor_fps_want = fps;	/* applied at the first white balance sample, once frames come */
+	sensor_fps_want = stream_fps = fps;	/* applied at the first white balance sample, once frames come */
 
 	double t_luma = 0, t_str = 0, t_snap = 0;
 	if (!getenv("NO_JPEG")) jpeg_ok = jpeg_init() == 0;
@@ -3089,7 +3161,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				 * fast rate is for a reader that comes more often than that, not for the dashboard's 4 to 10 s polling */
 				snap_iv = !stat("/tmp/currentpic.cache.jpg", &sb) && nw - sb.st_atime < 4 ? 2.0 : 10.0;
 				snap_req = !access("/tmp/snapshot_request", F_OK);
-				bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; }	/* black and white switch */
+				bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; style_switch(bw); }	/* black and white switch */
 			}
 			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= str_iv;
 			int d_snap = jpeg_ok && (tn - t_snap >= snap_iv || snap_req);

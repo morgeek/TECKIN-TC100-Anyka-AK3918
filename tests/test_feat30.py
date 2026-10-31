@@ -136,8 +136,56 @@ class DayNightFromExposure(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = log.read_text().splitlines()
         self.assertEqual(len(lines), 3, lines)                 # 1100 is within 300 s of 1000
-        self.assertTrue(lines[0].endswith('mode=night src=luma luma=47 ae=9 1124 6840 256 256 0 idx=30031 awb=-'), lines[0])
-        self.assertTrue(lines[2].endswith('ae=- idx=- awb=-'), lines[2])
+        self.assertTrue(lines[0].endswith('mode=night src=luma luma=47 ae=9 1124 6840 256 256 0 idx=30031 lum=30368 awb=-'), lines[0])
+        self.assertTrue(lines[2].endswith('ae=- idx=- lum=- awb=-'), lines[2])
+
+    def vendor(self, samples, awb, cut='1', pre=''):
+        """samples: (time, cam_ae line); awb: cam_awb line or None; returns the ircut value after each sample"""
+        if awb is not None:
+            (self.d / 'awb').write_text(awb + '\n')
+        (self.d / 'ircut').write_text(cut + '\n')
+        code = '. %s\n%s\n' % (self.daemon, pre)
+        for t, line in samples:
+            code += 'echo "%s" > "$CAM_AE"; dn_step_vendor %d; cat "$DN_IRCUT"\n' % (line, t)
+        r = sh(code, dict(self.env, CAM_AWB=str(self.d / 'awb')))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.split()
+
+    def test_vendor_metric_divides_by_the_picture_brightness(self):
+        """R12-03: stock metric exp * gain / exp_max * 40 / lumi (vendor-re-findings.md)"""
+        r = sh('. %s\ndn_vendor_lum 50 1124 6840 256 256 0 1125 && echo $DN_LUM\n'
+               'dn_vendor_lum 9 1124 6840 256 256 0 1125 && echo $DN_LUM\n'
+               'dn_vendor_lum 50 1124 6840 256 256 0 && echo $DN_LUM\n' % self.daemon, self.env)
+        self.assertEqual(r.stdout.split(), ['5466', '30368', '5466'])   # dim day room, IR night, no 7th field = 1125
+
+    def test_vendor_daylight_counts_keep_the_day(self):
+        dark = '9 1124 6840 256 256 0 1125'
+        s = [(100, dark), (102, dark), (104, dark)]
+        self.assertEqual(self.vendor(s, '400000 0 0 0 0 0 0 0 0 0 3'), ['1', '1', '1'])     # white balance sees daylight
+        self.assertEqual(self.vendor(s, '100 100 0 0 0 0 0 0 0 0 3'), ['1', '1', '0'])      # 3 samples: night
+
+    def test_vendor_day_needs_visible_light(self):
+        lit = '60 300 256 256 256 0 2812'
+        s = [(100, lit), (102, lit), (104, lit)]
+        self.assertEqual(self.vendor(s, '1000 900 800 700 600 0 0 0 0 0 3', cut='0'), ['0', '0', '0'])   # IR only
+        self.assertEqual(self.vendor(s, '20000 900 800 700 600 0 0 0 0 0 3', cut='0'), ['0', '0', '1'])
+
+    def test_vendor_switch_back_within_15_s_locks(self):
+        dark, lit = '9 1124 6840 256 256 0 1125', '60 300 256 256 256 0 2812'
+        s = [(100, dark), (102, dark), (104, dark),            # night at 104
+             (106, lit), (108, lit), (110, lit),               # back to day 6 s later: locked instead
+             (112, lit), (114, lit), (116, lit)]               # still locked (same scene)
+        out = self.vendor(s, '20000 0 0 0 0 0 0 0 0 0 3', pre='AWB_DAY_CNT=300000')
+        self.assertEqual(out, ['1', '1', '0', '0', '0', '0', '0', '0', '0'])
+
+    def test_ir_led_protection(self):
+        (self.d / 'ircut').write_text('0\n')
+        r = sh('. %s\nIR_LED_MAX_ON=100; IR_LED_REST=50\n'
+               'DN_NOW=1000; dn_ir_guard; echo "a$? $(cat $DN_IRCUT)"\n'
+               'DN_NOW=1100; dn_ir_guard; echo "b$? $(cat $DN_IRCUT)"\n'
+               'DN_NOW=1120; dn_ir_guard; echo "c$? $(cat $DN_IRCUT)"\n'
+               'DN_NOW=1160; dn_ir_guard; echo "d$? $(cat $DN_IRCUT)"\n' % self.daemon, self.env)
+        self.assertEqual(r.stdout.split('\n')[:4], ['a1 0', 'b0 1', 'c0 1', 'd1 1'])   # 100 s of night, 50 s rest
 
     def test_unusable_exposure_file_falls_back(self):
         r = sh('. %s\nrm -f "$CAM_AE"; dn_step_ae 5; echo rc=$?\necho "1 2 3" > "$CAM_AE"; dn_step_ae 5; echo rc=$?\n'
@@ -505,6 +553,39 @@ class Rc9SocWiring(unittest.TestCase):
         self.assertIn('env_int(ks, 0, 0, 2)', f)
         self.assertIn('if (!s->pa.rc_vbr)', f)
         self.assertGreaterEqual(src.count('smart_apply('), 5)   # definition + every encoder open
+
+    def test_rc12_settings_are_wired_page_to_server(self):
+        """every rc12 switch has a field, a save path, a read-back in state.cgi and reaches tc100_rtsp or the daemon"""
+        html = (ROOT / 'www/settings.html').read_text(encoding='utf-8')
+        for f in ('vbr0', 'smart0', 'dn_vendor_night', 'dn_vendor_day', 'dn_ir_max_h', 'dn_nightstyle', 'dn_lowlight', 'dn_live_lum'):
+            self.assertIn('id="%s"' % f, html)
+        self.assertIn('<option value="vendor">', html)
+        video = (ROOT / 'scripts/action.d/video.sh').read_text()
+        for k in ('F_vbr0', 'F_smart0', 'F_dn_vendor_night', 'F_dn_vendor_day', 'F_dn_ir_max_h', 'F_dn_nightstyle', 'F_dn_lowlight',
+                  'VENDOR_NIGHT_LUM=%s', 'IR_LED_MAX_ON=%s', 'NIGHT_STYLE=%s', 'LOWLIGHT_FPS=%s'):
+            self.assertIn(k, video)
+        state = (ROOT / 'www/cgi-bin/state.cgi').read_text()
+        for k in ('"vbr":%s', '"smart":%s', '"vendor_lum":%s', '"night_style":%s', '"lowlight_fps":%s', 'ae|isp|vendor'):
+            self.assertIn(k, state)
+        bundle = (ROOT / 'www/scripts/index.bundle.min.js').read_text(encoding='utf-8')
+        for k in ("setVal('vbr0'", "setVal('smart0'", 'put("dn_vendor_night"', 'chk("dn_nightstyle"', 'set("dn_live_lum"'):
+            self.assertIn(k, bundle)
+        launch = (ROOT / 'v3/linux66-sd/rtsp-launch.sh').read_text()
+        for k in ('export RTSP_VBR=1', 'export RTSP_SMART=$2', 'export RTSP_NIGHTSTYLE=1', 'export RTSP_LOWLIGHT_FPS=1'):
+            self.assertIn(k, launch)
+        src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
+        for k in ('getenv("RTSP_NIGHTSTYLE")', 'getenv("RTSP_LOWLIGHT_FPS")', 'ISP_SET_TUNING_STYLE', 'style_switch(bw)'):
+            self.assertIn(k, src)
+        daemon = (ROOT / 'scripts/auto-night-daemon.sh').read_text()
+        self.assertIn('VENDOR_NIGHT_LUM|VENDOR_DAY_LUM|AWB_DAY_CNT|AWB_NIGHT_CNT|VENDOR_LOCK|IR_LED_MAX_ON|IR_LED_REST)', daemon)
+
+    def test_speaker_amplifier_active_low(self):
+        """R12-04: the stock kernel plays with GPIO 14 low; the amplifier is off at rest"""
+        dts = (ROOT / 'patches/kernel-6.6/series/0009-ARM-dts-anyka-add-TECKIN-TC100-board.patch').read_text(encoding='utf-8')
+        self.assertIn('+		speak-gpios-en = <0>;', dts)
+        codec = (ROOT / 'patches/kernel-6.6/series/0007-ASoC-arm-add-AK39-codec-and-PCM-driver.patch').read_text(encoding='utf-8', errors='replace')
+        self.assertIn('+module_param(spk_active, int, 0444);', codec)
+        self.assertNotIn('ak39_codec_speak_on(codec, !plug_in)', codec)
 
     def test_manual_daynight_is_said(self):
         """rc10: daynight=3 kept the automatic switching off without a word (R9-02)"""

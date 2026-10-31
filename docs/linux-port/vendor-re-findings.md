@@ -48,6 +48,49 @@ facts below (call shapes, values, the logic in words). The binaries stay on the 
   R9-02 showed cannot separate a dim day room from the night. rc11 logs the white balance counts (`/tmp/cam_awb`,
   `awb=` in the calibration log) so that the vendor's two-part test can be set from tonight's dusk and dawn lines.
 
-## Not looked at yet
+## Speaker (R12-04): the amplifier enable is active low
+- Vendor kernel 3.4.35 (the dump's uImage, xz payload): the codec's speaker function writes the board's speaker pin
+  level as given, no polarity mapping; at probe it is set to 1 (high). The app (`anyka_ipc`) calls
+  `ak_ao_enable_speaker(1)` at audio init and `ak_ao_enable_speaker(0)` **just before** playing a voice prompt, 1 after;
+  `libplat_ao` passes it as ioctl `_IOW('P', 0x81, int)` (IOC_SET_SPEAKER) on `/dev/akpcm_cdev0`. So the speaker plays
+  while GPIO 14 is **low**. The 2.x push-to-talk worked once the stock `ak_ao_demo`'s two levels were swapped
+  (`scripts/prepare-ptt-player.sh` on the 2.x branch), the same conclusion.
+- 3.0 drove it active high (`speak-gpios-en = <1>`): the amplifier was off while playing and on at rest, which matches
+  rc7's register reading (bank 0 output 0x8800 at rest, 0xC800 while playing). rc12: `speak-gpios-en = <0>`, the
+  amplifier off at rest (a route change or the headphone check no longer switches it on), `ak39_codec.spk_active=0|1`
+  overrides the level from the command line.
+- The probe mixer defaults (headphone 3, line-in 10, mic 6, route 4) are those of patch 0007.
+
+## ISP: two parameter sets, and the night one was never used (R12-01, R12-02)
+- `isp_f23_mipi2lane.conf` (69548 bytes) holds two complete sets of 34774 bytes: set 0 day, set 1 night. Night: manual
+  white balance, no colour (`uv_a` 0), exposure up to 2812 lines (2.5 x), `exp_step` 1, AE target 45 (day 38), its
+  own noise filters, sharpness, gammas, CCM; frame rate 10 fps fixed. Day: 25 fps, down to 10 fps when the gain goes
+  above 14 x, back to 25 under 5 x.
+- The stock app reloads the whole set at every switch (`ak_vi_switch_mode`), re-applies the user's effects on top,
+  sets the white balance step to 10 for a quick convergence, then asks for a keyframe. Order to night: IR LED on, set 1,
+  IR-cut; to day: IR-cut, set 0, IR LED off. IR-cut pulse 10 ms (3.0: 150 ms, `IRCUT_PULSE_MS`).
+- 3.0 kept the day set at night and only turned the colour off. rc12: `AK_ISP_SET_TUNING_STYLE` (already in the
+  kernel) to the night set when black and white starts (Day/night page switch), the bases re-read after each switch.
+- Low light by day (`change_fps_pthread`): total gain = isp x ((a x d) >> 8) >> 16; above 14 -> 10 fps and exposure up
+  to 2812 lines, under 5 -> 25 fps and 1125; checked every 100 ms, 5 s between changes; `exp_step` stays one lamp pulse.
+  rc12: the same in `tc100_rtsp` (Day/night page switch), every 2 s.
+- Colour cast: the stock app applies no colour correction of its own (user effects are relative and 0 by default, the
+  day set's extra white balance gains are neutral), and the 3.0 kernel loads the same day modules: the warm cast is not
+  something the app fixed. The software white balance stays until an A/B test shows the ISP alone is neutral.
+
+## Day / night: the remaining details (R12-03, R12-05)
+- `lum_factor = exp_time * gain_q8 / exp_max`, `gain_q8 = ((a_gain * d_gain) >> 8) * isp_d_gain >> 8`, with exp_max
+  the current mode's limit (1125 at 25 fps, 2812 at 10 fps): at full exposure it is the total gain (256 = 1 x). Called
+  every second, about 3-4 s of sampling per decision (500 ms wait, 3 agreeing samples, 3 decision samples, 500 ms apart).
+- A switch request less than 15 s after the last switch locks the state for `lock_time` (900 s in the stock ini, 1800 s
+  library default) unless lum moves by more than 30 % from the value at the switch (or a white balance count by 30 %
+  and 10000). Library defaults without ini: 3072 / 2048, night counts 1200, day counts 50000.
+- With the 10 fps low-light mode the dim day room of R9-02 gives lum about 2900 (under 3584: day); without it about
+  5470 (would be night): the stock thresholds need R12-02.
+- IR LED protection (`ir_switch_handler`): after 50400 s (14 h) of IR LEDs, day mode forced; after 600 s, night again.
+- rc12: `DAYNIGHT_SOURCE=vendor` reproduces this in `auto-night-daemon.sh` (3 samples 2 s apart), and the IR LED
+  protection runs for every source (on by default, 14 h / 10 min, Day/night page).
+
+## Not looked at
 - 3D-NR reference size in `akcamera.ko` (3D-NR not kept, R9-01).
-- The speaker path (`libplat_ao.so`, `ak_ao_demo`) for the silent speaker.
+- `libakaudiofilter` (echo cancellation and noise reduction for the microphone), for later.
