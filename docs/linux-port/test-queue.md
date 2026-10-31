@@ -239,6 +239,32 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### Next build: 3.0.1-rc10 — fixes from the R9 results (2026-10-31)
+
+The owner (2026-10-31): 3D-NR is not worth its 5.6 MB of RAM; make the other fixes; for day / night, wait for the
+dusk and dawn readings before changing any logic. So rc10 = rc9 +:
+- **Anti-flicker:** the default choice is now **"Camera default"** (was "Off"), and the page shows what it is
+  ("Camera default: 50 Hz." under the select, from `POWER_HZ_BASE` in `/var/run/isp_tune.status`); `tc100_rtsp.log`
+  says it at every start: `anti-flicker: camera default 50 Hz (exposure step 281 lines)`. Back to the default from a
+  choice logs `anti-flicker: camera default (exposure step N -> 281 lines ...)`.
+- **Day / night launcher:** with `daynight=3` (manual Day / Night) the boot now prints `Auto Day/Night detection not
+  started: manual day/night mode (daynight=3)` on the console and in syslog, and `auto-night-detection health` says
+  `ok: manual day/night mode (daynight=3), automatic switching off` instead of `warn: stopped`. The behaviour is
+  unchanged (manual stays manual).
+- **3D-NR:** `nr3d=0` stays the default, the option stays in the kernel; CI no longer builds the card test kernel.
+- **Not changed:** the day / night logic and its thresholds (waiting for R9-02's dusk and dawn lines).
+
+### R10-01 3.0.1-rc10 on the camera — `to test`
+- **Test:**
+  1. Card boot, then `update66.sh apply` as for rc9 (owner's agreement); `/mnt/VERSION` = 3.0.1-rc10.
+  2. `grep anti-flicker /tmp/logs/tc100_rtsp.log`: `camera default 50 Hz (exposure step 281 lines)`. Web page
+     Settings, Picture: the select shows "Camera default" (FR "Réglage d'usine") and under it "Camera default: 50 Hz.".
+     Choose 60 Hz, then Camera default again: the two log lines, `POWER_HZ_BASE=50` in `/var/run/isp_tune.status`.
+  3. `rwconf /mnt/config/rtspserver.conf w " " daynight 3`, reboot: the console line `not started: manual day/night
+     mode`, `sh /mnt/controlscripts/auto-night-detection health` = `ok: manual ...`. Then `auto-night-detection start`
+     (writes `daynight=2`) and check `health` = `ok: running`. Leave it on auto for R9-02.
+- **Pass:** 1-3.
+
 ### Next build: 3.0.1-rc9 — the pool that passed, and the four untapped parts of the SoC (2026-10-31)
 
 The owner (2026-10-31): R8-02's hour with Frigate looked stable ("RAS"), so the 9600K pool is kept; and "do all of
@@ -324,7 +350,7 @@ those four, each **off by default** (or a pure measurement) until its entry belo
     a recursive grep froze the console (see R8-02). Hand-off for the implementer: rc10 candidates = fix the launcher so `daynight=3` does not hide the daemon
     silently (or log it), print `anti-flicker: off` at start, and re-think the `ae` thresholds from a bright-day reading.
 
-### R9-01 3D noise reduction (`ak39_vi.nr3d=1`, card test kernel) — `to test`
+### R9-01 3D noise reduction (`ak39_vi.nr3d=1`, card test kernel) — `passed technically, not kept` (owner 2026-10-31: 25-34 % less noise is not worth 5.6 MB of RAM; `nr3d=0` stays the default)
 - **What:** the ISP's temporal noise filter needs a reference frame of 3 bytes a pixel (6.2 MB at 1080p). Until rc8 it
   was asked for at each video start and never found room in CMA next to the capture buffers, so 3D-NR was always off.
   Patch 0006 now: `ak39_vi.nr3d=1` reserves it **once at boot**, while CMA is empty, and keeps it; the tuning file's own

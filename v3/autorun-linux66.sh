@@ -232,6 +232,10 @@ fi
 if [ -f $CS/auto-night-detection ] && [ -f /mnt/config/autostart/auto-night-detection ] && [ "$DN" != 3 ]; then
   sh $CS/auto-night-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Auto Day/Night detection active" > /dev/console
+elif [ "$DN" = 3 ]; then
+  # R9-02: a manual Day / Night choice (daynight=3) left from earlier kept the automatic switching off without a word
+  echo "[tc100-v3] Auto Day/Night detection not started: manual day/night mode (daynight=3); Auto under the picture or Services turns it on" > /dev/console
+  logger -t tc100-v3 "auto day/night not started: manual mode (daynight=3)" 2>/dev/null
 fi
 
 # 10. MQTT Bridge (it does nothing unless MQTT_ENABLE=1 in config/mqtt.conf)

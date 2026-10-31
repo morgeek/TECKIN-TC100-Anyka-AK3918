@@ -52,7 +52,13 @@ stop()
 
 health()
 {
-  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+  if [ -n "$(status)" ]; then echo "ok: running"; return; fi
+  # stopped on purpose: a manual Day / Night choice (daynight=3) is not a fault, but say so (R9-02)
+  if [ "$L66" = 1 ] && grep -q '^daynight=3' /mnt/config/rtspserver.conf 2>/dev/null; then
+    echo "ok: manual day/night mode (daynight=3), automatic switching off"
+  else
+    echo "warn: stopped"
+  fi
 }
 
 if [ $# -eq 0 ]; then

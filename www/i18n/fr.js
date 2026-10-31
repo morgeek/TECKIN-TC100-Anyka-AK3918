@@ -100,6 +100,8 @@ window.tc100I18nFr = {
   "50 Hz (Europe)": "50 Hz (Europe)",
   "60 Hz (Americas)": "60 Hz (Amériques)",
   "Anti-flicker": "Anti-scintillement",
+  "Camera default": "Réglage d'usine",
+  "Camera default: no anti-flicker.": "Réglage d'usine : sans anti-scintillement.",
   "Removes the moving bands that lamps on the mains make indoors. Works whether live tuning is on or off.": "Supprime les bandes mouvantes que font les lampes sur le secteur en intérieur. Fonctionne que le réglage en direct soit activé ou non.",
   "500 lines": "500 lignes",
   "5000 lines": "5000 lignes",
@@ -1047,6 +1049,10 @@ window.tc100I18nFr = {
   [
    "^The broker refused the MQTT user name or password, (.+)\\. Check them in Settings, MQTT and Home Assistant\\.$",
    "Le broker a refusé l'utilisateur ou le mot de passe MQTT, $1. Vérifiez-les dans Réglages, MQTT et Home Assistant."
+  ],
+  [
+   "^Camera default: (\\d+) Hz\\.$",
+   "Réglage d'usine : $1 Hz."
   ],
   [
    "^Device unreachable — last update (.+)$",

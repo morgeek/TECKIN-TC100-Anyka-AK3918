@@ -499,6 +499,7 @@ static void tune_hw_apply(void)
  *   pulses, which removes the bands (the 2.x firmware did it through the vendor library). Exposure is counted in
  *   sensor lines: the JX-F23 on MIPI runs 1125 lines a frame at 25 fps (0x465 in the sensor driver, exp_time_max
  *   1125 measured), 28125 lines a second at every frame rate (only the blanking changes); RTSP_LINE_RATE overrides it.
+ *   POWER_HZ empty = the tuning file's step, which is already 50 Hz on IPCAM2 (logged at start, POWER_HZ_BASE).
  * - the clock (default since rc8, HW-07 passed; RTSP_ISPOSD=0: by the CPU; kernel patch 0014): drawn once a second into an OSD window
  *   the ISP blends into the main picture, instead of being written into every frame. Refusal (older kernel): CPU.
  * - the exposure state (AK_ISP_GET_AE_RUN_INFO) every 2 s in /tmp/cam_ae, for day / night: "lumi exp_time a_gain
@@ -532,6 +533,22 @@ static int osd_hw = -1;
 static unsigned int ae0[AE_WORDS], exp_now, exp_step_now;
 static struct isp_sharp sharp0, sharp1;
 
+static int line_rate(void)	/* sensor lines a second (anti-flicker): JX-F23 on MIPI, RTSP_LINE_RATE for another sensor */
+{
+	const char *lr = getenv("RTSP_LINE_RATE");
+
+	return lr && atoi_(lr) > 1000 ? atoi_(lr) : 28125;
+}
+
+static int step_hz(unsigned int step)	/* the mains frequency an exposure step stands for: 50, 60, 0 = none */
+{
+	int r = line_rate();
+
+	if (step * 100 + 300 >= (unsigned)r && step * 100 <= (unsigned)r + 300) return 50;
+	if (step * 120 + 360 >= (unsigned)r && step * 120 <= (unsigned)r + 360) return 60;
+	return 0;
+}
+
 static int ispx_open(void)
 {
 	if (ispx_fd < 0) ispx_fd = open("/dev/isp_char", O_RDWR);
@@ -554,7 +571,8 @@ static void ispx_status(void)	/* /var/run/isp_tune.status: what the web page sho
 			 exp_now_pct, mask_n, mask_rc, mask_hw == 1, osd_hw == 1);
 
 	if (ae_base == 1 && n > 0 && n < (int)sizeof b)
-		n += snprintf(b + n, sizeof b - n, "EXPOSURE_NOW=%u\nEXPOSURE_ORIG=%u\n", exp_now ? exp_now : ae0[0], ae0[0]);
+		n += snprintf(b + n, sizeof b - n, "EXPOSURE_NOW=%u\nEXPOSURE_ORIG=%u\nPOWER_HZ_BASE=%d\n", exp_now ? exp_now : ae0[0],
+			      ae0[0], step_hz(ae0[8]));
 	if (n > 0 && n < (int)sizeof b) wfile("/var/run/isp_tune.status", b, (size_t)n);
 }
 
@@ -602,13 +620,20 @@ static void ispx_apply(void)
 			} else { LOG("sharpness: the ISP refused it (%s)\n", strerror(errno)); sharp_base = 0; }
 		} else if (sharp_base == 0 && p_sharp) LOG("sharpness: no ISP sharpness control\n");
 	}
+	if (ae_base < 0) {	/* the tuning file's exposure settings, the base of the cap and of anti-flicker (R9-03: the IPCAM2
+				 * tuning already uses 281 lines = 50 Hz, so "camera default" is not "no anti-flicker") */
+		ae_base = ioctl(fd, ISP_GET_AE, ae0) == 0 && ae0[0];
+		if (ae_base == 1) {
+			int h = step_hz(ae0[8]);
+
+			LOG("anti-flicker: camera default %s (exposure step %u lines)\n", h == 50 ? "50 Hz" : h == 60 ? "60 Hz" : "none", ae0[8]);
+		}
+	}
 	if (p_expct != exp_now_pct || p_hz != hz_now) {
-		if (ae_base < 0) ae_base = ioctl(fd, ISP_GET_AE, ae0) == 0 && ae0[0];
 		if (ae_base == 1) {
 			unsigned int a[AE_WORDS];
 			unsigned long t = p_expct ? (unsigned long)ae0[0] * (unsigned)p_expct / 100 : ae0[0];
-			const char *lr = getenv("RTSP_LINE_RATE");
-			int rate = lr && atoi_(lr) > 1000 ? atoi_(lr) : 28125;
+			int rate = line_rate();
 
 			memcpy(a, ae0, sizeof a);
 			if (t < ae0[1]) t = ae0[1];
@@ -620,7 +645,7 @@ static void ispx_apply(void)
 					LOG("exposure cap: %d %% (exp_time_max %u -> %u)\n", p_expct ? p_expct : 100, ae0[0], a[0]);
 				if (p_hz != hz_now)
 					LOG("anti-flicker: %s (exposure step %u -> %u lines, exp_time_max %u)\n",
-					    p_hz ? (p_hz == 50 ? "50 Hz" : "60 Hz") : "off", hz_now ? exp_step_now : ae0[8], a[8], a[0]);
+					    p_hz ? (p_hz == 50 ? "50 Hz" : "60 Hz") : "camera default", hz_now ? exp_step_now : ae0[8], a[8], a[0]);
 				exp_now_pct = p_expct; exp_now = a[0]; hz_now = p_hz; exp_step_now = a[8];
 			} else { LOG("exposure: the ISP refused the AE settings (%s)\n", strerror(errno)); ae_base = 0; }
 		}
