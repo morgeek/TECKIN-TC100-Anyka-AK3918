@@ -325,6 +325,22 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   - Not redone on rc14 (need dusk / night / the owner): R12-02, 03, 05, 06, 07, 08, R12-04 sound, R12-09 dumps.
   - .11 now: rc14 in flash, `rtsp.env` empty, auto day/night running (luma), fps 25, soak restarted (13:0x local), Frigate connected (`clients 1`).
 
+- **Results R12 / R13 / R14 with the owner next to the camera (tester, 2026-10-31 ~13:20-14:10 local, rc14 in flash):**
+  - **R12-04 speaker: AUDIBLE but weak / crackling (owner listened).** The 20 s alert (`alert.pcm` x 20 = 10 s of 8 kHz mono, `Headphone` 5 then 3) is heard: the amplifier fix works. The owner: "faible ou grésillant", the **same at volume 3**: so it is not
+    clipping from the volume setting. dmesg: `perfect asic pll clk is:480000000, actual sample rate is 8000`, `ak39_set_hp_power 1,soft_de_pipa=1`. To look at: the codec's output gain / digital volume, the amplifier supply, the PCM data format,
+    the sample rate path; the playback of the stock firmware may use a different mixer setup (`amixer -c 0 contents` here if wanted).
+  - **R12-06 IR-cut pulse 10 ms: PASS, heard 20 / 20** (10 out + 10 in, `IRCUT_PULSE_MS=10`, 1.5 s apart): the owner counted every click. 10 ms can become the default (I put the 150 ms default back).
+  - **R12-02 10 fps in low light by day: PASS.** `RTSP_LOWLIGHT_FPS=1`, lens covered by hand: `low light: total gain 26x, sensor 10 fps, exposure up to 2812 lines`, `cam_ae` `48 2810 3540 256 256 0 2812`, `cap` 51 per 5 s,
+    405 KB per 5 s; uncovered: `low light: total gain 1x, sensor 25 fps, exposure up to 1125 lines` within 40 s, `cap` 117-125. One switch each way, no flapping seen in the ~3 minutes.
+  - **R12-09 ISP statistics dumps (read only): the white balance counts are NOT at word 1032.** `dmesg`: `statistics DMA area at 0x82e61dd4, 4800 bytes (white balance counts read from word 1032)`. Three dumps (lit, lit 86 s later, lens covered; `docs/linux-port/r12-09-isp-words.txt`,
+    words 1032-1199, three columns): **words 1032-1071 are identical in all three dumps and look like random data** (`0xA658D3D2 0xC7C1FE74 0x3FFA5F8C ...`: an uninitialised or pseudo-random block, not counts), so the kernel's AWB and the vendor
+    source were reading garbage. The words that really move are **1155, 1160-1171 and 1180-1183** (e.g. 1160-1163 `0x0004068F 0x0003A1B5 0x00019473 0x00000515` -> `0x00046795 0x0003B344 0x00020778 0x000004F6`, 1180-1181 up to `0x000B0768`
+    when lit and `0x00026499` later), the histograms (words 0-1031, 756 words changed between two lit dumps, i.e. noise plus the scene) move too. The files are also on the camera's card in `/mnt/sd/r12-09/`. The implementer can work out which
+    of these are the ten AWB `total_cnt`: **1160-1163, 1164-1167 (?), 1168-1171 (?) and 1180-1183 look like groups of four**.
+  - **R11-01 follow-up (rc13 guard) PASS:** `RTSP_VBR=1` + `RTSP_SMART=1`: log `encoder main: smart mode 1 not used: it needs 3670016 bytes of encoder pool, 963520 free (a bigger ak39_venc.pool)`, the server stays up (`cap` 122, a client connected),
+    no `/tmp/.rtsp_smart_try` left. **Server watchdog PASS:** `killall tc100_rtsp`: `service-watchdog.log` `rtsp-h26x - unhealthy, perform restart (no reboot mode, check=status, backoff=20s)` ~4 s after the kill, the server back (`clients 1`) within 90 s.
+  - Camera restored: `rtsp.env` empty, auto day / night running (luma), `IRCUT_PULSE_MS` line removed, fps 25.
+
 ### Next build: 3.0.1-rc13 = rc12 + the R11 answers — install rc13, not rc12 (2026-10-31)
 
 rc12 was pushed before the R11 results came in; rc13 replaces it (same R12-xx tests). **Implementer's answers to R11:**
