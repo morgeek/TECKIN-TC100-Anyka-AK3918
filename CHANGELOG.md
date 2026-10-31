@@ -12,8 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   read as octal by ash (`arithmetic syntax error`), so no `boot-NNNN` folder was made at boots 8, 9, 18, 19 ... The
   leading zeros are stripped before the count.
 - **`amixer -c 0` failed on rc7** (speaker volume, microphone level at start and from the UI did nothing): the user
-  space ALSA tree lacked `cards/aliases.conf`, which `alsa.conf` includes. It is shipped again (the rest of `cards/`
-  stays out).
+  space ALSA tree lacked `cards/aliases.conf`, which `alsa.conf` includes (the slim base drops `cards/`). Its working
+  part, the four includes that define `sysdefault`, `dmix` and `dsnoop`, is written into `ext/share/alsa/cards/`.
 - **Front LEDs, IR LED, speaker amplifier and reset button lost to the Ethernet pads** (3.0.1-rc7, LED-01): the ISP
   start ORed the OpenIPC 4.4 sharepin values, which mux the RMII pads 10 11 13 14 15 19 20 23 24 47, into SYSCTRL.
   Only the sensor clock pad and I2C are set now.
