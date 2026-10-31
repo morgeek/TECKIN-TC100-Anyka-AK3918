@@ -76,7 +76,6 @@
             setVal('maxqp0', vmain.maxqp);
             setVal('smartmode0', vmain.smartmode);
             setVal('vbr0', vmain.vbr);
-            setVal('smart0', vmain.smart);
 
             setVal('video_size1', (vsub.width || 640) + 'x' + (vsub.height || 360));
             setVal('fps1', vsub.fps);

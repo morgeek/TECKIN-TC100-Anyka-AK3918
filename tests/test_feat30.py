@@ -178,6 +178,13 @@ class DayNightFromExposure(unittest.TestCase):
         out = self.vendor(s, '20000 0 0 0 0 0 0 0 0 0 3', pre='AWB_DAY_CNT=300000')
         self.assertEqual(out, ['1', '1', '0', '0', '0', '0', '0', '0', '0'])
 
+    def test_frozen_white_balance_counts_are_ignored(self):
+        """R11-02: the same 10 counts for 3 samples are stale: no daylight veto, visible light assumed"""
+        (self.d / 'awb').write_text('400000 0 0 0 0 0 0 0 0 0 5\n')
+        r = sh('. %s\nfor i in 1 2 3; do dn_awb; echo "$DN_AWB_DAY$DN_AWB_VIS"; done\n' % self.daemon,
+               dict(self.env, CAM_AWB=str(self.d / 'awb')))
+        self.assertEqual(r.stdout.split(), ['11', '11', '01'])   # daylight seen twice, then stale: no veto
+
     def test_ir_led_protection(self):
         (self.d / 'ircut').write_text('0\n')
         r = sh('. %s\nIR_LED_MAX_ON=100; IR_LED_REST=50\n'
@@ -557,7 +564,8 @@ class Rc9SocWiring(unittest.TestCase):
     def test_rc12_settings_are_wired_page_to_server(self):
         """every rc12 switch has a field, a save path, a read-back in state.cgi and reaches tc100_rtsp or the daemon"""
         html = (ROOT / 'www/settings.html').read_text(encoding='utf-8')
-        for f in ('vbr0', 'smart0', 'dn_vendor_night', 'dn_vendor_day', 'dn_ir_max_h', 'dn_nightstyle', 'dn_lowlight', 'dn_live_lum'):
+        self.assertNotIn('id="smart0"', html)   # R11-01: smart mode stops the server on this camera, not on the page
+        for f in ('vbr0', 'dn_vendor_night', 'dn_vendor_day', 'dn_ir_max_h', 'dn_nightstyle', 'dn_lowlight', 'dn_live_lum'):
             self.assertIn('id="%s"' % f, html)
         self.assertIn('<option value="vendor">', html)
         video = (ROOT / 'scripts/action.d/video.sh').read_text()
@@ -568,7 +576,7 @@ class Rc9SocWiring(unittest.TestCase):
         for k in ('"vbr":%s', '"smart":%s', '"vendor_lum":%s', '"night_style":%s', '"lowlight_fps":%s', 'ae|isp|vendor'):
             self.assertIn(k, state)
         bundle = (ROOT / 'www/scripts/index.bundle.min.js').read_text(encoding='utf-8')
-        for k in ("setVal('vbr0'", "setVal('smart0'", 'put("dn_vendor_night"', 'chk("dn_nightstyle"', 'set("dn_live_lum"'):
+        for k in ("setVal('vbr0'", 'put("dn_vendor_night"', 'chk("dn_nightstyle"', 'set("dn_live_lum"'):
             self.assertIn(k, bundle)
         launch = (ROOT / 'v3/linux66-sd/rtsp-launch.sh').read_text()
         for k in ('export RTSP_VBR=1', 'export RTSP_SMART=$2', 'export RTSP_NIGHTSTYLE=1', 'export RTSP_LOWLIGHT_FPS=1'):

@@ -2441,7 +2441,15 @@ static void pool_log(const struct strm *s)
  * (docs/linux-port/vendor-re-findings.md): ak_venc_set_smart_config(handle, int[4] = {mode, gop length, quality,
  * static value}); mode 0 = plain VBR, 1 = long-term reference (LTR), 2 = variable GOP (long GOP on a still scene);
  * the stock firmware's values: gop 300, quality 100, static 550, and only in VBR. RTSP_SMART=1|2 (RTSP_SMART_SUB for the
- * sub-stream, default RTSP_SMART), RTSP_SMART_GOP / _Q / _V override the values; unset or 0: never called. */
+ * sub-stream, default RTSP_SMART), RTSP_SMART_GOP / _Q / _V override the values; unset or 0: never called.
+ * R11-01 on IPCAM2 (9600K pool): mode 1 asks the encoder for 3407872 more bytes of DMA ("alloc dma for 3407872 failed",
+ * then an assertion ends the server), mode 2 ends it after 3 frames. So: mode 1 only when the pool has that room
+ * (SMART_LTR_NEED), mode 2 only with RTSP_SMART_FORCE=1, and a marker file (/tmp/.rtsp_smart_try) set before the call
+ * and removed after 250 good frames: a server that died meanwhile skips smart mode at its next start (no crash loop
+ * under the watchdog). */
+#define SMART_LTR_NEED (3407872u + (256u << 10))
+#define SMART_MARK "/tmp/.rtsp_smart_try"
+static int smart_marked;
 static int env_int(const char *k, int def, int lo, int hi)
 {
 	const char *e = getenv(k);
@@ -2457,11 +2465,30 @@ static void smart_apply(struct strm *s)
 
 	c[0] = env_int(ks, 0, 0, 2);
 	if (!s->enc || !c[0]) return;
+	if (!access(SMART_MARK, F_OK) && !smart_marked) {
+		LOG("encoder %s: smart mode skipped: the server stopped after it last time (rm " SMART_MARK " to try again)\n", s->name);
+		return;
+	}
+	if (c[0] == 2 && !getenv("RTSP_SMART_FORCE")) {
+		LOG("encoder %s: smart mode 2 (variable GOP) not used: it stops the encoder on this camera (R11-01); RTSP_SMART_FORCE=1 tries it\n", s->name);
+		return;
+	}
+	if (c[0] == 1) {
+		unsigned long (*gf)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_free_pmem");
+		unsigned long fr = gf ? gf() : 0;
+
+		if (fr < SMART_LTR_NEED) {
+			LOG("encoder %s: smart mode 1 not used: it needs %u bytes of encoder pool, %lu free (a bigger ak39_venc.pool)\n",
+			    s->name, SMART_LTR_NEED, fr);
+			return;
+		}
+	}
 	if (!p_smart) { LOG("encoder %s: smart mode asked, the library has no ak_venc_set_smart_config\n", s->name); return; }
 	if (!s->pa.rc_vbr) { LOG("encoder %s: smart mode %d needs VBR (RTSP_VBR=1): not set\n", s->name, c[0]); return; }
 	c[1] = env_int("RTSP_SMART_GOP", 300, 1, 1000);
 	c[2] = env_int("RTSP_SMART_Q", 100, 1, 100);
 	c[3] = env_int("RTSP_SMART_V", 550, 0, 65535);
+	if (!smart_marked) { wfile(SMART_MARK, "1\n", 2); smart_marked = 1; }
 	if (p_smart(s->enc, c) == 0)
 		LOG("encoder %s: smart mode %d (%s), gop %d, quality %d, static %d\n", s->name, c[0],
 		    c[0] == 1 ? "long-term reference" : "variable GOP", c[1], c[2], c[3]);
@@ -3223,6 +3250,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				PROF(2 + k, r = p_send(s->enc, k ? sp : cur, k ? slen : flen, &st));
 				clock_gettime(CLOCK_MONOTONIC, &tb); enc_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 				s->nsent++;
+				if (smart_marked == 1 && !k && s->nsent > 250) { unlink(SMART_MARK); smart_marked = 2; }	/* smart mode survived */
 				if (r || !st.data || !st.len) {
 					if (k && ++s->fails >= 50) sub_off("the encoder gives no frames");
 					continue;
