@@ -382,6 +382,17 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
     no `/tmp/.rtsp_smart_try` left. **Server watchdog PASS:** `killall tc100_rtsp`: `service-watchdog.log` `rtsp-h26x - unhealthy, perform restart (no reboot mode, check=status, backoff=20s)` ~4 s after the kill, the server back (`clients 1`) within 90 s.
   - Camera restored: `rtsp.env` empty, auto day / night running (luma), `IRCUT_PULSE_MS` line removed, fps 25.
 
+- **Result R12-08 camera with no SD card (tester + owner, 2026-10-31 ~13:35-13:55 local, rc14 in flash): short run PASS, the one-hour and the persistence checks NOT done.**
+  - Power cut, card out, power on: U-Boot `MMC: no card present` / `** Bad device mmc 0 **` (twice), then the flash boot: console `[tc100] no SD card`, `[flashmode] no SD card: no video storage`,
+    `[tc100-v3] free RTSP server + hardware JPEG pictures active`, `WebUI active on port 80`, `Auto Day/Night detection active`, `MQTT bridge service launched`, `All services initialized successfully`; `wlan0` associated
+    (`[tc100] Wi-Fi settings from the SD card` is still printed, the settings come from the flash copy), no error loop in the console after boot. `board profile: unknown hardware, defaults of ...tc100-f23-rtl8188fu.conf` (a harmless
+    line, but the board is a TC100: the profile detection may deserve a look).
+  - From the LAN, 3 minutes after the boot and for the next ~25 minutes: ping 4-6 ms (jitter up to 54 ms, one sample of 1.8 s average at 12:47:50, back to normal the next minute), HTTP 302, RTSP port 554 open.
+    **Owner: Frigate shows the picture and detects, the web page opens and reads the settings, and the page says clearly that there is no card (recording / logs) without an error.**
+  - **What I could not do: any command on the camera.** The serial shell needs `tc100test/consoleshell` on the card (login prompt otherwise), so no logs, no `dmesg`, no MemAvailable, no `dropped` in this state.
+    The owner postponed the persistence check (change a setting on the page, wait 1 minute, reboot from the page, still there?). **To do: that check, and an hour of Frigate with someone watching it.**
+  - Suggestion: a way to read the camera's logs with no card (the web page's log view, or `dmesg` / `tc100_rtsp.log` through an authenticated CGI), since the console shell and the logs on the card both need the card.
+
 ### Next build: 3.0.1-rc13 = rc12 + the R11 answers — install rc13, not rc12 (2026-10-31)
 
 rc12 was pushed before the R11 results came in; rc13 replaces it (same R12-xx tests). **Implementer's answers to R11:**
