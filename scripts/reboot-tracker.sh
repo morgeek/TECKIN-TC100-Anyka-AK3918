@@ -51,6 +51,15 @@ rt_intent()
   mkdir -p "$LOGDIR" 2>/dev/null
   printf '%s|%s\n' "$(_rt_ts)" "${1:-unspecified}" > "$INTENT" 2>/dev/null
   sync
+  # settings changed in the last minute are saved to the flash first (cfg-persist saves a change once it has been
+  # stable for 30 s: a reboot sooner lost it, R10-01). Only in flash mode, only when something changed; waited for up
+  # to 20 s and never interrupted (the two slots keep the previous settings if the power goes during a write).
+  _cp="${CFG_PERSIST_SH:-/mnt/v3/linux66-sd/cfg-persist}"
+  if [ -f "$_cp" ] && [ -f "${CFG_PERSIST_SIG:-/tmp/cfg-persist.sig}" ]; then
+    CFG=/mnt/config sh "$_cp" flush >/dev/null 2>&1 &
+    _cpp=$!; _cpi=0
+    while kill -0 "$_cpp" 2>/dev/null && [ "$_cpi" -lt 40 ]; do sleep 0.5; _cpi=$((_cpi + 1)); done
+  fi
   # the RAM logs go to the SD card before the restart (scripts/log-persist.sh; LOG_PERSIST=0 turns it off);
   # every deliberate reboot (web UI, MQTT, net-guard, the reset button) announces itself here. Bounded at 8 s.
   _lp="${LOG_PERSIST_SH:-/mnt/scripts/log-persist.sh}"

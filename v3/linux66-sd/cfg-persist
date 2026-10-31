@@ -1,5 +1,5 @@
 #!/bin/sh
-# cfg-persist restore|save|daemon|status|saved   keep the user settings (config/) in the SPI flash, no SD card needed
+# cfg-persist restore|save|flush|daemon|status|saved   keep the user settings (config/) in the SPI flash, no SD card needed
 #   Two slots, the flash partitions "cfga" and "cfgb" (36 KiB each, written one at a time: a power cut during a save
 #   leaves the other slot intact). A slot = one text line "TC1CFG <seq> <bytes> <md5>" then a gzip'ed tar of the
 #   settings that differ from the shipped defaults (*.dist twins, unchanged defaults are not stored).
@@ -136,10 +136,15 @@ daemon)
       last=
     fi
   done ;;
+flush)	# a deliberate reboot (scripts/reboot-tracker.sh intent): save now what the daemon would save within a minute
+	# (a change is saved once stable for 30 s, so a reboot sooner lost it: R10-01). Nothing when nothing changed.
+  [ -f /tmp/cfg-persist.sig ] || exit 0
+  [ "$(signature)" = "$(cat /tmp/cfg-persist.sig)" ] && exit 0
+  exec sh $0 save ;;
 saved)	# the valid slot with the newest settings ("cfgb 59"), exit 1 when the flash holds none
   set -- $(best); [ -n "$1" ] || exit 1; echo "$1 $2" ;;
 status)
   for s in cfga cfgb; do echo "$s: $(slot_info $s || echo empty)"; done; best
   cat "$STATUS" 2>/dev/null ;;
-*) echo "usage: cfg-persist restore|save|daemon|status|saved"; exit 1 ;;
+*) echo "usage: cfg-persist restore|save|flush|daemon|status|saved"; exit 1 ;;
 esac

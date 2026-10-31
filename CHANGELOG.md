@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **3.0.1-rc11: what the stock binaries taught** (Ghidra on the stock firmware dump and `libmpi_venc_ex.so`,
+  `docs/linux-port/vendor-re-findings.md`; no vendor file in the repository):
+  - **Encoder smart mode** (`RTSP_SMART=1` long-term reference, `2` variable GOP; off by default, only with
+    `RTSP_VBR=1`): `ak_venc_set_smart_config` with the stock values (GOP 300, quality 100, static 550).
+  - **White balance counts for day / night** in `/tmp/cam_awb` and the calibration log (`awb=`): the stock
+    switch confirms its light metric with them. Measurement only, the logic is unchanged.
+
+### Fixed
+- **A setting changed less than a minute before a reboot from the web UI or MQTT was lost** (R10-01): the
+  settings are saved to the flash once a change has been stable for 30 s. A deliberate reboot now saves first
+  when something changed (`cfg-persist flush`, called by `reboot-tracker.sh intent`).
+
 ### Changed
 - **3.0.1-rc10:**
   - **Anti-flicker:** the default choice is "Camera default", and the page and `tc100_rtsp.log` say what it is
