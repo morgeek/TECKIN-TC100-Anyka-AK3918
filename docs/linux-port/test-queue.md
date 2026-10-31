@@ -321,6 +321,14 @@ no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not
   **Colours: a strong green cast** in a dim evening room (luma 67-78, `mode=day`, exposure gain 2810 vs 1124 on the .11 in a lit room;
   white wall looks yellow-green, the floor pink). Not compared with the same scene on rc5 (no earlier snapshot): a different sensor module?
   The software white balance is on (default). Snapshot kept on the owner's Mac, not in git. To look at: does the cast go away with light (day)?
+- **.24 green cast: part of it is a setting carried over from 2.x (found 2026-10-31 evening).** `/mnt/config/isp_tune.conf` on the .24 had
+  `HUE=-10`, `SATURATION=-13` with `ISP_TUNE=1` in `boot.conf` (the .11 has `ISP_TUNE=0` and zeros). Set to 0 by the tester (old file kept on the
+  card: `isp_tune.conf.before-2026-10-31`): the green is gone, the wall is still yellowish in a dim, warm room (luma 65-70, exposure gain 2810).
+  Same sensor file on both cameras (`/vendor/isp.conf`, md5 926b0a2a...), same kernel, `awb_live` 0, software white balance on. So the remaining
+  difference is the scene and the light; to be compared in daylight. Question for the implementers: should an upgrade from 2.x keep
+  `HUE`/`SATURATION` at all (a migration of the old image tuning), or reset them with a note? Other .24 settings from the old layout:
+  stale 2.x/3.0-trial files on the card (`/mnt/sd/config/boot.conf` 18 KB, `isp_f23_mipi_2lane.conf`, `.cfg-deleted`); the card file is not used
+  (`/vendor/isp.conf` is read first).
 - This covers the README's "a second camera" for the update path (rc5 -> rc16 by the web page). Open: the same checks as R15-04 on the .24.
 
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
