@@ -271,6 +271,47 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   callback (`ak_isp_acquire(NULL, NULL)`). rc14 gives it (`vi_set_style`: the capture mutex, then
   `ak_isp_apply_tuning_style`, as the stock app does while capturing); dmesg says `tuning parameter set 1`.
 
+### Next build: 3.0.1-rc15 — the release candidate (2026-10-31)
+
+**Implementer's answers to the last results (R12-02/04/06/09, the rc13 guard, the watchdog):**
+- **R12-09: found.** The moving words form groups of four (R, G, B, count) from word **1160**; 10 groups end at word
+  1199, the last of the 4800-byte area. The kernel read word 1032, a fixed block. rc15 reads 1160 (patch 0006,
+  `_get_awb_stat_result`; dmesg now says `read from word 1160`). Consequences: the ISP's own automatic white balance
+  works on live statistics for the first time on 3.0 (colours may change: R15-01), `/tmp/cam_awb` moves, and the
+  stock day / night method's white balance check works; its thresholds are set to the stock **library** defaults
+  (1200 / 50000), the scale of these counts (lit room: 1301 and 4351), not the ini's 15000 / 300000.
+- **R12-04:** the clips were full-scale sines (0 dBFS): the small amplifier may clip whatever the analogue volume.
+  rc15: the clips at -6 dBFS with fades, and three test tones to tell clipping from a playback fault (R15-02).
+- **Defaults in rc15:** night picture settings on (R14-02), 10 fps in low light on (R12-02), IR-cut pulse 10 ms
+  (R12-06). The stock day / night method stays opt-in until a night with live counts (R15-03).
+- The rc13 smart-mode guard and the server watchdog passed: nothing to change.
+
+### R15-01 Colours with the live white balance statistics — `to test` (owner looks)
+- **What changed:** the ISP's automatic white balance now reads real counts (it read fixed data before). The
+  software white balance of `tc100_rtsp` still runs on top (`config/awb.off` turns it off).
+- **Test:** `dmesg | grep 'read from word 1160'`; `cat /tmp/cam_awb` twice with different light: the numbers change.
+  Then by day: a snapshot with the default (software white balance on), then `touch /mnt/config/awb.off`, restart the
+  server (`rtsp-h26x restart`), a snapshot of the same scene: is the picture neutral with the ISP alone? A white wall
+  or paper in view helps. Write the impression and keep the two snapshots on the card.
+- **Then (3.0.1):** if the ISP alone is neutral, the software white balance goes off by default (`awb.off` shipped);
+  otherwise it stays.
+
+### R15-02 Speaker with the -6 dBFS clips and the test tones — `to test` (someone listening)
+- `aplay -D plughw:0,0 -t raw -f S16_LE -r 8000 -c 1 /mnt/sounds/test-1k-m6.pcm` (no `-q`: an `underrun` message is a
+  playback fault), the same with `m12` and `m20`, Headphone at 3 and 5 (`amixer -c 0 sset Headphone 3`). Cleaner when
+  lower = clipping (the clips' level answers it); crackling at every level and an `underrun` = the PCM / DMA path
+  (then `amixer -c 0 contents` here). Then `speaker-play.sh /mnt/sounds/alert.pcm` and the boot chime.
+
+### R15-03 One night on rc15 (the defaults) — `to test`
+- Auto day / night (source luma, the default), night picture settings and low light on: the night switch, the picture
+  at night (grain, brightness) against R12, back to day in the morning; IR LED protection lines if any; the
+  calibration log (`awb=` now live, `lum=`) copied here: it sets the stock method's thresholds for a later default.
+
+### R15-04 The owner's checks — `to test`
+- R12-07 (the web page: Streams & audio bit rate mode, Day/night switches and live value, Picture anti-flicker, in
+  French too) and R12-08 (no SD card: power off, card out, power on, one hour: video, page, Wi-Fi, MQTT, settings kept
+  after a page reboot). Then the release: [release-3.0.1.md](release-3.0.1.md).
+
 ### Prepared for rc15 (in git, no build to install yet): the answers to R14 (implementer, 2026-10-31)
 - **R14-01:** GPIO 11 confirmed as the Wi-Fi power, thank you. The degraded link after the manual cycle is answered
   the way you found it clears: after a power cycle `wifi-recover.sh` applies the Wi-Fi settings, waits 25 s and pings

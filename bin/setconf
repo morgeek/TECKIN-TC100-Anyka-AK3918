@@ -8,7 +8,7 @@
 #   p  motion detection  1 = on, -0 = off (tc100_rtsp watches /tmp/tc100_md)   m  its sensitivity 1-100
 #   n  (get) 2 = automatic day/night running (scripts/auto-night-daemon.sh), 3 = manual
 # IR-cut coil: GPIO 81 (A) / 80 (B) = 593 / 592 on 6.6 (chips at 512, 544, 576). boot.conf IRCUT_DAY_GPIO,
-# IRCUT_NIGHT_GPIO and IRCUT_PULSE_MS override the pins and the pulse (150 ms) if the filter moves the wrong way.
+# IRCUT_NIGHT_GPIO and IRCUT_PULSE_MS override the pins and the pulse (10 ms, as the stock firmware) if the filter moves the wrong way.
 k=; v=; g=
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,7 +30,7 @@ gpio_out() {  # gpio_out N VALUE (exports N as an output first)
 ircut() {  # ircut 1|0
   day=$(kv IRCUT_DAY_GPIO); night=$(kv IRCUT_NIGHT_GPIO); ms=$(kv IRCUT_PULSE_MS)
   day=${day:-$(bd IRCUT_DAY_GPIO)}; night=${night:-$(bd IRCUT_NIGHT_GPIO)}; ms=${ms:-$(bd IRCUT_PULSE_MS)}
-  day=${day:-593}; night=${night:-592}; ms=${ms:-150}
+  day=${day:-593}; night=${night:-592}; ms=${ms:-10}	# 10 ms: the stock pulse, R12-06 heard 20 / 20 (was 150)
   [ "$1" = 0 ] && { on=$night; off=$day; } || { on=$day; off=$night; }
   # one pulse at a time (the day/night daemon and a click in the web page may come together)
   i=0; while ! mkdir /tmp/.ircut.lock 2>/dev/null; do i=$((i + 1)); [ $i -ge 10 ] && break; sleep 1; done

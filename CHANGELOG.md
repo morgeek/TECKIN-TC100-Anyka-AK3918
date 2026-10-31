@@ -8,6 +8,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- **The image processor's white balance worked on fixed, random-looking data** (R12-09, statistics dumps on
+  IPCAM2): the kernel read the white balance counts at word 1032 of the statistics area; they are the last 40
+  words (from 1160). 3.0.1-rc15 reads them there: the ISP's own white balance gets live statistics (a candidate
+  for the colour cast), `/tmp/cam_awb` and the stock day / night method too (thresholds at the scale of these
+  counts: the stock library defaults 1200 / 50000).
+- **Speaker clips at full scale** (R12-04: audible but weak and crackling): the camera's sounds are at -6 dBFS with
+  5 ms fades; `sounds/test-1k-m6|m12|m20.pcm` tell clipping from a playback fault.
+
+### Changed
+- **3.0.1-rc15 defaults** (each passed on IPCAM2): the night picture settings (R14-02), 10 fps in low light by day
+  (R12-02), the IR-cut pulse 10 ms (R12-06: 20 / 20 heard). Each can be turned off (Day/night page, `IRCUT_PULSE_MS`).
+- **Wi-Fi recovery:** one clean restart when the link is slow after a power cycle of the chip (R14-01).
+
 - **Camera off the network after warm reboots** (W-NET, IPCAM2: the Wi-Fi chip answered on USB but "Failed power
   on", no `wlan0`, Frigate and the web page unreachable until a power cut; the net-guard's warm reboot did not
   help). 3.0.1-rc14: `scripts/wifi-recover.sh` probes the chip again, then power-cycles it through GPIO 11 (the
