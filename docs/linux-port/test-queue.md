@@ -288,6 +288,23 @@ switch back to the rc7 behaviour.
   those four includes (same result as the full file in the container), and checks that the included files are present.
   No new base. On the camera: R8-01 step 3.
 
+### R8-01 / R8-02 results: rc8 (`c952996`, CI run 41147884892) on IPCAM2, 2026-10-31 01:00 (tester)
+Installed: package `tc100-3.0.1-rc8-update.tar` (md5 `b33b0c9d...`, 12 chunks over the serial console, each md5 checked, then `tar -x` and `md5sum -c` OK on the card),
+first **one card boot of the rc8 kernel** (as on rc7: kernel from the card, flash user space, U-Boot prompt in RAM only, no `saveenv`; owner agreed to this
+for the plain card boot), then **`update66.sh check` = ok, `apply`** (kernel md5 `c3687a47...`, initrd md5 `9e3f1978...`, stack, read-back md5 identical, backups of the
+old partitions on the card in `tc100-3/backup/`, settings kept; the whole apply took under 2 minutes, `DONE: 3.0.1-rc8 written, restarting`). IPCAM2 now runs rc8 from its flash.
+| R8-01 step | Result |
+|---|---|
+| 1 `slots` | **PASSED.** Card boot and flash boot: `/sys/module/ak39_vi/parameters/slots` = **3** with no `slots=` on the command line, cmdline complete (`initrd=0x81000000,2012654`, `flashroot=1`), Wi-Fi associated at 15.1 s, no Oops. **MemAvailable 19.1-19.2 MB** (rc7: 15.6). |
+| 2 ISP clock and masks by default | **PASSED.** With an **empty `rtsp.env`**: `clock: in the ISP OSD (472x44 at 12,16)` (clock on) and `privacy masks: 1 in the ISP` (one mask set), `pp_ms` 1. With `RTSP_ISPOSD=0` and `RTSP_ISPMASK=0`: neither line, `pp_ms` **183-260** per 5 s at 25 fps (CPU clock). Settings restored (`osdenabled=0`, no mask, `rtsp.env` empty). |
+| 3 `amixer -c 0` | **PASSED.** `amixer -c 0 scontrols` lists Headphone, LineIn, Mic, DAC out mode; `amixer -c 0 sget 'Headphone'` -> `Playback 3 [60%]`, limits 0-5; `amixer -c 0 cget name='LineIn Capture Volume'` -> `values=10`, 0-15; `amixer -D sysdefault:0 scontrols` works; **no `cannot stat aliases.conf` line any more**. Note for the doc: the plan's `sget 'Headphone Playback Volume'` does not exist as a *simple* control (use `sget 'Headphone'`, or `cget name='Headphone Playback Volume'`). Not checked: that the Settings microphone level moves `LineIn Capture Volume` (needs the UI). |
+| 4 F-05 | **PASSED.** `.bootcount` was `0009`: the first rc8 boot made **boot-0010**, a "ui" reboot (`reboot-tracker.sh intent`) wrote `why=shutdown: ui: F-05 rc8 test` into it, the next boot made **boot-0011** (`0011`, first save at 159 s). |
+| 5 MQTT refusal | **Partly.** `/tmp/mqtt_last_pub.status` = `1793407671 fail 5` (the code is there). The top badge "MQTT: login refused" needs the web UI (owner). |
+| 6 one hour with Frigate, then the soak | **Soak started 2026-10-31 00:57 UTC** (`/mnt/sd/soak.sh`, a line every 5 min in `/mnt/sd/soak-20261031.log`: avail, CPU split, `cap`/`drop`, Wi-Fi, kernel errors). 25 fps, one Frigate client. To be read in the morning. |
+Also: at 25 fps after the install: 124-126 frames per 5 s, `dropped` 0-2, MemAvailable 19.2 MB.
+
+**R8-02 HW-02 test 2 (`ak39_venc.pool=9600K`): NOT run - the card hook route cannot start it as built.** The U-Boot hook of IPCAM2 (`bootcmd=run sdload sdboot; run flashboot ...`, `sdload` loads **both `tc100test/c66.img` and `tc100test/c66rd.gz` from the card**, `sdboot`'s bootargs have **no `flashroot=1` and no `ak39_vi.sub_channel=1`**, written on 2026-10-24) boots in **SD mode**: the initramfs then looks for the user space in the card tree (`/mnt/sd/v3`, the `tc100-3.0.1-rc8-sd.zip` content). IPCAM2's card has no such tree (it runs from the flash), and unzipping the SD package there would also create `/mnt/sd/config/`, which cfg-persist and the flash boot would take for the settings folder - not something the tester will do. **Request:** build the pool kernel with `CONFIG_CMDLINE="ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1"` (still `CMDLINE_EXTEND`, so it comes after the U-Boot arguments), so that with the card's `c66.img` = that kernel and `c66rd.gz` = the rc8 initramfs (same file as in the flash, 2012654 bytes) the camera boots the **flash user space** with the 9600K pool, no U-Boot prompt. Then the tester copies two files to `tc100test/` (3 and 4 minutes over the serial console), reboots, runs R8-02 steps 1-7, and renames the files away again. Tell me when that artifact exists.
+
 ### R8-01 3.0.1-rc8 on the camera — `to test`
 - **What:** the rc7 tree plus: `slots=3` default (kernel), ISP clock and ISP masks default (`tc100_rtsp`), the F-05 and
   `amixer` fixes, the MQTT refusal in the web UI. `VERSION` = `3.0.1-rc8`.
