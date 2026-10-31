@@ -186,15 +186,18 @@ jobs:
           path: symbols/
 
       # HW-02 test 2 (test queue R8-02) without any U-Boot prompt: the same kernel with ak39_venc.pool=9600K in its
-      # own command line (appended to the one U-Boot passes), for the card only (tc100test/c66.img). Built last, so
-      # the artifacts above are the normal kernel. Only the files that use CONFIG_CMDLINE are rebuilt.
+      # own command line (appended to the one U-Boot passes), for the card only (tc100test/c66.img). The card hook's
+      # sdboot arguments have no flashroot=1 (SD mode): the kernel adds it, so the initramfs takes the user space from
+      # the flash as in a flash boot, and sub_channel=1 as the flash boot has it. Built last, so the artifacts above
+      # are the normal kernel. Only the files that use CONFIG_CMDLINE are rebuilt.
       - name: Card test kernel with a 9600K encoder pool (HW-02 test 2)
         run: |
           set -e
           cd linux-src
-          scripts/config --set-str CMDLINE "ak39_venc.pool=9600K" --disable CMDLINE_FROM_BOOTLOADER --enable CMDLINE_EXTEND
+          HW02_CMDLINE="ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1"
+          scripts/config --set-str CMDLINE "$HW02_CMDLINE" --disable CMDLINE_FROM_BOOTLOADER --enable CMDLINE_EXTEND
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
-          grep -qx 'CONFIG_CMDLINE="ak39_venc.pool=9600K"' .config
+          grep -qx "CONFIG_CMDLINE=\"$HW02_CMDLINE\"" .config
           grep -qx 'CONFIG_CMDLINE_EXTEND=y' .config
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage
           D=../output-hw02; mkdir -p $D
@@ -204,12 +207,15 @@ jobs:
           cp System.map .config $D/
           cat > $D/README-HW02.txt <<'TXT'
           HW-02 test 2 (docs/linux-port/test-queue.md, R8-02): the rc8 kernel of this same run with
-          ak39_venc.pool=9600K added to its command line by the kernel itself. No U-Boot prompt, nothing written
+          "ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1" added to its command line by the kernel itself:
+          the user space and the settings come from the flash, as in a flash boot. No U-Boot prompt, nothing written
           to the flash or to the U-Boot environment.
           1. On the SD card, rename tc100test/c66.img to tc100test/c66-rc8.img (rename, do not delete).
-          2. Copy c66-hw02-pool9600k.img to the card as tc100test/c66.img; c66rd.gz stays the rc8 one.
-          3. Reboot (reboot from the shell, or power cycle). Check /proc/cmdline ends with ak39_venc.pool=9600K
-             and dmesg says "pool 9600 KiB ... (CMA)".
+          2. Copy c66-hw02-pool9600k.img to the card as tc100test/c66.img; tc100test/c66rd.gz must be the rc8
+             initramfs, and its size must equal the initrd size in the hook's sdboot arguments (read the U-Boot
+             environment, do not write it): a larger file is cut short and the kernel panics at every start.
+          3. Reboot (reboot from the shell, or power cycle). Check /proc/cmdline ends with
+             "ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1" and dmesg says "pool 9600 KiB ... (CMA)".
           Way back: rename tc100test/c66-rc8.img back to tc100test/c66.img and reboot.
           System.map and .config here are those of this kernel (decode its Oops traces with them).
           TXT
