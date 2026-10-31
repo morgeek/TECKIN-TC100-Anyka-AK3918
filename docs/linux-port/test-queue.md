@@ -312,6 +312,15 @@ no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not
 - `/proc/mtd`: new layout (`kernel`, `initrd` 2 MiB, `stack` 0x2b3000, `vendor` 1 MiB, `cfga`, `cfgb`), so the web update was accepted
   by the first-layout gate. `/proc/cmdline` has `flashroot=1` (flash boot), `ak_isp awb_live` = 0, `wlan0` 192.168.1.24, ping 2-4 ms, SD 60 GB free.
 - Not seen by the tester: the `[flashmode] user space from flash` line, colours, Frigate, the web page, a warm reboot with the Wi-Fi check.
+- **Update 2026-10-31 evening: tester's access is now ssh, not the serial console** (the bridge is gone). Key-based, key put in
+  `/root/.ssh/authorized_keys` by the owner (RAM only: gone at each boot). Finding for the implementers: dropbear makes new host
+  keys at each boot, so every reboot gives the owner's Mac a "host identification changed" warning; a persistent host key in the
+  settings, or in `config/`, would stop it (not urgent).
+- **IPCAM1 (.24) on rc16, 18:48 local:** up 1 h 23, `awb_live` 0, `wlan0` -48 dBm, USB 480 Mbit/s, 15 pings 0 % loss avg 3.9 ms
+  (the first of two pings had taken 875 ms: the link waking, not seen again), RTSP server running, SD card mounted. MemAvailable 20.7 MB.
+  **Colours: a strong green cast** in a dim evening room (luma 67-78, `mode=day`, exposure gain 2810 vs 1124 on the .11 in a lit room;
+  white wall looks yellow-green, the floor pink). Not compared with the same scene on rc5 (no earlier snapshot): a different sensor module?
+  The software white balance is on (default). Snapshot kept on the owner's Mac, not in git. To look at: does the cast go away with light (day)?
 - This covers the README's "a second camera" for the update path (rc5 -> rc16 by the web page). Open: the same checks as R15-04 on the .24.
 
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
