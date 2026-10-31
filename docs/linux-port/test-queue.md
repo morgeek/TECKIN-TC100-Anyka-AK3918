@@ -265,6 +265,21 @@ dusk and dawn readings before changing any logic. So rc10 = rc9 +:
      (writes `daynight=2`) and check `health` = `ok: running`. Leave it on auto for R9-02.
 - **Pass:** 1-3.
 
+- **Result R10-01 (tester, 2026-10-31, rc10 = 84c2268, CI green): steps 1-3 PASS.**
+  - Step 1: rc10 kernel (md5 b47f9bfa…) booted once from the card through the U-Boot prompt in RAM (flash initrd): pool 9600K, no 3D-NR line, MemAvailable 21.3 MB.
+    Package md5 16ea9d33…, `update66.sh check` ok, `apply /mnt/sd/tc100-3/update10`: stack, kernel, initrd written, restart; `/mnt/VERSION` = 3.0.1-rc10,
+    flash boot, MemAvailable 21.5 MB, `ak39_venc.pool` 9600K, both encoders `open`.
+  - Step 2: log `anti-flicker: camera default 50 Hz (exposure step 281 lines)`, `POWER_HZ_BASE=50` in `isp_tune.status`; 60 Hz:
+    `anti-flicker: 60 Hz (exposure step 281 -> 234 lines, exp_time_max 1125)`, `POWER_HZ=60`; back to the camera default: the first line again, `POWER_HZ=` empty.
+    **Web page (select "Camera default" / "Réglage d'usine" and the 50 Hz line under it) not looked at: needs the owner's login.**
+  - Step 3: `daynight=3` persisted (waited for `settings saved`), reboot: console `Auto Day/Night detection not started: manual day/night mode (daynight=3); Auto under the picture or
+    Services turns it on`; `auto-night-detection health` = `ok: manual day/night mode (daynight=3), automatic switching off`; no daemon running.
+    `auto-night-detection start`: `daynight=2` written, `health` = `ok: running`; persisted to cfgb. The .11 is left on auto with the daemon running.
+  - Tester note: the first try at step 3 lost `daynight=3` because the camera was rebooted 35 s after the change, before cfg-persist saved (it needs ~30-60 s: wait for
+    `/tmp/cfg-persist.status`).
+  - New soak started ~09:12 UTC (`/mnt/sd/soak-20261031.log`, rc10); R9-00 step 4 (overnight) and R9-02 (dusk, dawn) are read from it and from `/tmp/logs/daynight.log`.
+  - Card: `tc100test/test.img` = rc10 kernel, `test.img.rc9`, `.rc8`, `.rc7`, `c66-nr3d.img`, `c66-pool.img`, `c66rd-*.gz` kept; no `c66.img` (flash boot).
+
 ### Next build: 3.0.1-rc9 — the pool that passed, and the four untapped parts of the SoC (2026-10-31)
 
 The owner (2026-10-31): R8-02's hour with Frigate looked stable ("RAS"), so the 9600K pool is kept; and "do all of
