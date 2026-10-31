@@ -286,6 +286,19 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
 - **R12-08 (no SD card, short run) passed.** Two misleading console lines fixed (Wi-Fi settings source, board profile
   before the sensor id). To reach the logs with no card: the web page, Logs (needs the login), or ssh (on by default).
 
+### Results on rc16 — tester, .11, 2026-10-31 (card boot once, then `update66.sh check` / `apply`)
+- **Install:** `update16` md5 ok, card boot of the rc16 kernel, `check` ok, `apply` DONE, boot shows `user space from flash (3.0.1-rc16)`.
+  `awb_live` = 0, `dmesg` `read from word 1160`, `/tmp/cam_awb` live (33264 36 14 0 0 29444 ...), `wlan0` up, ping 2-8 ms, MemAvailable 21 MB.
+  The card-boot console line "board profile: unknown hardware, defaults of ..." is still printed (the card boot runs the flash's rc15 user space: look again after the flash boot).
+- **R16-01 colours: PASSED.** Same room, default settings (software white balance on): the white wall and the blanket are neutral
+  (grey-white), the lamp warm, the lion picture violet as the picture really is, the sofa side purple as the real sofa. The
+  blue / violet cast of rc15 is gone. (Scene differs slightly from R15-01: the owner is out of the frame. Snapshot on the card: `/mnt/sd/r16-01.jpg`.)
+- **Alert:** `speaker-play.sh /mnt/sounds/alert.pcm` at the default volume: the owner heard **nothing** (the clip is 8000 bytes = 0.5 s;
+  the driver log shows the play and `done`, rc=0). Three plays at volume 100 then the -6 dBFS tone at 60: **all heard**. So the alert
+  is audible but short; at the default volume (pttvolume.conf / 90 %) a first play was missed: worth a longer or louder alert.
+  **Boot chime: not heard/verified** (the flash was written, the camera rebooted, nobody listened for it).
+- **Not done (daytime / owner):** R15-03 night, R15-04 (web page, no-card hour with a page reboot). Soak restarted on rc16.
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
