@@ -239,6 +239,22 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### URGENT DIAG-01 Frigate gets no picture and the web page does not show since rc11 (owner, 2026-10-31) — `to do first`
+The owner: since rc11 Frigate receives no picture and the web interface is not visible. The tester saw `clients 0` in
+the STAT lines since the morning reboots. Nothing in the rc11 code explains it on paper (no web or network change;
+the new ISP calls print nothing), so the camera must tell. **Read only, nothing written** (except the restart in 4).
+1. Network: `ip addr show wlan0` (address, same as before?), `iw dev wlan0 link`, `ip route`, `cat /etc/resolv.conf`.
+   From the Mac: `ping -c3 <ip>`, `curl -sI http://<ip>/` (HTTP code), `curl -sI http://<ip>/index.html`.
+2. Services: `ps | grep -E 'httpfront|httpd|tc100_rtsp|dropbear|mqtt'`, `netstat -tln` (ports 80 and 554 listening?),
+   `wget -qO- http://127.0.0.1/ | head -c 300` on the camera, `cat /var/run/v4l2rtspserver.pid`.
+3. Logs: `tail -40 /tmp/logs/tc100_rtsp.log` (RTSP connections, `401`, errors), `logread | tail -60`,
+   `dmesg | tail -40`, `cat /tmp/log/service-watchdog.log | tail -20`, `sh /mnt/scripts/web-guard.sh` output if any,
+   `ls -l /mnt/config/user.pwd /etc/httpd.conf` (the web and RTSP password files: present, sizes).
+4. RTSP from the Mac: `ffprobe -rtsp_transport tcp rtsp://<user>:<password>@<ip>:554/video0_unicast` (the owner types
+   the password) or VLC; then `sh /mnt/controlscripts/rtsp-h26x restart` and the same again.
+5. Write every output here (no passwords). If the camera is not reachable at all on the network, say so first: that
+   points at Wi-Fi / the address, not at the RTSP server or the web server.
+
 ### Next build: 3.0.1-rc13 = rc12 + the R11 answers — install rc13, not rc12 (2026-10-31)
 
 rc12 was pushed before the R11 results came in; rc13 replaces it (same R12-xx tests). **Implementer's answers to R11:**
