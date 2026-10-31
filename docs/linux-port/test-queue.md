@@ -288,6 +288,42 @@ those four, each **off by default** (or a pure measurement) until its entry belo
   - Card state: `tc100test/c66.img` and `c66rd.gz` are renamed (`c66-pool.img`, `c66rd-rc8.gz`), `test.img` = rc9 kernel, `test.img.rc8`/`.rc7` kept:
     the .11 boots from the flash. R9-01 (nr3d kernel) needs `c66.img` + `c66rd.gz` back; I will do it after the soak.
 
+- **Results R9-01 to R9-04 (tester, 2026-10-31 07:30-08:20 UTC, IPCAM2, rc9 fcf41ab):**
+  - **R9-01 3D-NR (card kernel `c66-nr3d-test.img` md5 a693c2c8…, rc9 `c66rd.gz` 2012654 bytes): steps 1-3 PASS, step 4 partial, step 5 NOT run.**
+    Step 2: cmdline ends `ak39_vi.nr3d=1 cma=24M flashroot=1 ak39_vi.sub_channel=1`; `cma: Reserved 24 MiB at 0x82800000`;
+    `3D-NR reference frame: 4050 KiB at 0x82900000, 2025 KiB at 0x82d00000`; pool 9600 KiB; both encoders `open`, free 963520.
+    Step 3 (20 min, one client, 25 fps): **MemAvailable 15.7-15.9 MB (normal rc9 kernel: 21.5-22.3 MB, so -5.6 MB), CmaTotal 36864 kB, CmaFree only
+    1596-1636 kB** (normal kernel: CmaTotal 30720). Idle CPU 75-76 % (normal 72-78 %), `cap` 122-125, `dropped` 0-2 per 5 s, 942-1036 KB per 5 s
+    (normal 850-980): no visible CPU or frame cost. Step 4: snapshots in the same dim morning room, daytime mode (IR-cut on), 4 JPEGs each at ~13 s apart,
+    static patches (blanket, wall) normalised by their mean: **temporal noise -25 % (blanket 0.0218 vs 0.0290) and -34 % (wall 0.0314 vs 0.0474);
+    spatial high-pass noise -24 % and -30 %**. Light drifted between the two series (exposure gain 4562 vs 3562) and JPEG snapshots are not the video,
+    so treat it as indicative; I did not judge a moving hand or the night with the IR LEDs, nor RTSP_VBR with 3D-NR. Step 5 (1 h with Frigate) not run.
+    Verdict: **measurable noise gain at no CPU cost, for 5.6 MB of RAM and only 1.6 MB of CMA left free**: worth keeping as an option; the owner decides
+    whether 5.6 MB is worth it (default `nr3d=0` stays safe). Before it becomes a default, someone should check the 1.6 MB CMA margin with snapshots + recording.
+  - **R9-02 day/night log: auto day/night was NOT running on the .11.** `daynight=3` (manual night, left by an earlier test) made the launcher skip the
+    daemon although `config/autostart/auto-night-detection` exists. I ran `controlscripts/auto-night-detection start` (writes `daynight=2`, persisted).
+    Calibration lines (source `luma`, ircut=1 = day, dim shuttered room, morning light rising): 07:31 `luma=111 ae=50 1124 6840 idx=30031`;
+    07:36 `idx=30031`; 07:45 `idx=20030`; 07:50 `idx=17531`; 08:03 `idx=15029`; 08:08 `luma=92 ... 3475 idx=15257`.
+    So in **day mode, in this room, the index sits at 15000-30000, the very value the night gives (30000)**: with the rc9 defaults (night above 15000,
+    day below 3000) the `ae` source would call this room night all morning and never come back to day. The thresholds need a bright scene (outdoors or a window
+    in full sun) and the dusk / dawn readings, which I cannot get today. Dusk (~17:50 local) and dawn are still to do; the daemon now runs and logs.
+  - **R9-03 anti-flicker (log and status only, no judgement of bands by eye):** 50 Hz: `anti-flicker: 50 Hz (exposure step 281 -> 281 lines, exp_time_max 1125)`
+    (the tuning file already used 281: 50 Hz changes nothing on the IPCAM2); 60 Hz: `(exposure step 281 -> 234 lines ...)`, `/var/run/isp_tune.status`
+    `POWER_HZ=60`, `cam_ae` exp_time 1124 -> 936 with gain 3531 -> 4035 (the cap follows the step). Back to empty (Off): no `anti-flicker: off` line was
+    written at the restart (the spec says one is). Steps 2-4 (bright window, night, `EXPOSURE_MAX_PCT=30`) not done; banding to be judged by someone
+    watching VLC under LED light.
+  - **R9-04 encoder:** step 1 done: `libmpi_venc_ex.so` strings hold `ak_venc_set_smart_config`, `ak_venc_set_rc`, `ak_venc_set_rc_weight`, `ak_venc_set_roi`,
+    `ak_venc_get/set_gop_len` and the message `setting smart mode=%d, gop=%d, q=%d, v=%d`: the smart-mode call exists (arguments unknown to me).
+    Step 2: `RTSP_VBR=1` (log `vbr main 1 sub 1`), 72 STAT lines (6 min, one Frigate client, a person in view part of the time): **899 KB per 5 s against
+    950-980 KB with CBR (about -6 %)**, `enc_ms` 3790, `dropped` 16 in 72 lines (0.2 per 5 s, CBR 0-4 at the soak's sampling): the saving is small on this scene
+    and the scene was not still. Reverted to CBR (`rtsp.env` empty). Step 3 `IDLE_FPS`: **not testable**: there is no `IDLE_FPS` line in `boot.conf` here and
+    the motion-detection daemon is not enabled on the .11 (the log says it needs it); not changed.
+  - Left on the .11: rc9 in the flash, `daynight=2` (auto, daemon running), `POWER_HZ` empty, `rtsp.env` empty, fps 25, soak running (`/mnt/sd/soak-20261031.log`).
+    Card: `tc100test/c66-nr3d.img`, `c66-pool.img`, `c66rd-rc8.gz`, `c66rd-rc9.gz`, `test.img` (rc9) / `test.img.rc8` / `.rc7`; no `c66.img`: flash boot.
+  - Tester slips, no firmware cause: I sent the old pool kernel again once because `split` does not overwrite its output files (3 min lost);
+    a recursive grep froze the console (see R8-02). Hand-off for the implementer: rc10 candidates = fix the launcher so `daynight=3` does not hide the daemon
+    silently (or log it), print `anti-flicker: off` at start, and re-think the `ae` thresholds from a bright-day reading.
+
 ### R9-01 3D noise reduction (`ak39_vi.nr3d=1`, card test kernel) — `to test`
 - **What:** the ISP's temporal noise filter needs a reference frame of 3 bytes a pixel (6.2 MB at 1080p). Until rc8 it
   was asked for at each video start and never found room in CMA next to the capture buffers, so 3D-NR was always off.
