@@ -477,6 +477,30 @@ class Rc9SocWiring(unittest.TestCase):
         # 28125 sensor lines a second: one lamp pulse is 281 lines at 50 Hz, 234 at 60 Hz
         self.assertEqual(((28125 + 50) // 100, (28125 + 60) // 120), (281, 234))
 
+    def test_camera_default_anti_flicker_is_shown(self):
+        """rc10: the empty choice is the tuning file's step (50 Hz on IPCAM2), not "Off" (R9-03)"""
+        html = (ROOT / 'www/settings.html').read_text(encoding='utf-8')
+        self.assertIn('<option value="">Camera default</option>', html)
+        self.assertIn('id="isp_power_hz_base"', html)
+        src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
+        self.assertIn('POWER_HZ_BASE=%d', src)
+        self.assertIn('POWER_HZ_BASE', (ROOT / 'scripts/isp-tune.sh').read_text())
+        self.assertIn('"Camera default: " + hb + " Hz."', (ROOT / 'www/scripts/index.bundle.min.js').read_text(encoding='utf-8'))
+
+    def test_manual_daynight_is_said(self):
+        """rc10: daynight=3 kept the automatic switching off without a word (R9-02)"""
+        self.assertIn('not started: manual day/night mode (daynight=3)', (ROOT / 'v3/autorun-linux66.sh').read_text())
+        d = Path(tempfile.mkdtemp())
+        (d / 'rtspserver.conf').write_text('daynight=3\n')
+        cs = (ROOT / 'controlscripts/auto-night-detection').read_text().replace('/mnt/config/rtspserver.conf', str(d / 'rtspserver.conf'))
+        cs = cs.replace('L66=0; [ -f /tmp/linux66 ] && L66=1', 'L66=1').replace('PIDFILE="/var/run/', 'PIDFILE="%s/' % d)
+        (d / 'cs').write_text(cs)
+        r = sh('sh %s health' % (d / 'cs'))
+        self.assertEqual(r.stdout.strip(), 'ok: manual day/night mode (daynight=3), automatic switching off', r.stderr)
+        (d / 'rtspserver.conf').write_text('daynight=2\n')
+        self.assertEqual(sh('sh %s health' % (d / 'cs')).stdout.strip(), 'warn: stopped')
+        shutil.rmtree(d)
+
 
 if __name__ == '__main__':
     unittest.main()

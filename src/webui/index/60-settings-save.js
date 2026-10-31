@@ -91,6 +91,11 @@
         });
         var hz = form.querySelector("#isp_power_hz");
         if (hz) hz.value = conf.POWER_HZ ? String(conf.POWER_HZ) : "";
+        var hzBase = form.querySelector("#isp_power_hz_base");
+        if (hzBase) {
+          var hb = d.applied ? d.applied.POWER_HZ_BASE : undefined;
+          hzBase.textContent = hb ? "Camera default: " + hb + " Hz." : hb === 0 ? "Camera default: no anti-flicker." : "";
+        }
         if (maskForm && withMasks !== false) initPrivacyMasks(maskForm, conf);
         var maskStatus = maskForm && maskForm.querySelector("#mask_applied");
         if (maskStatus) {

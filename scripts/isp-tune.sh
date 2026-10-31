@@ -98,7 +98,7 @@ isp_tune_json()
   if [ -r "$ISP_TUNE_STATUS" ]; then
     printf '{'
     _itj_sep=""
-    for _itj_k in $ISP_TUNE_KEYS EXPOSURE_NOW EXPOSURE_ORIG MASKS MASK_RC; do
+    for _itj_k in $ISP_TUNE_KEYS EXPOSURE_NOW EXPOSURE_ORIG POWER_HZ_BASE MASKS MASK_RC; do
       _itj_v="$(isp_tune_get "$_itj_k" "$ISP_TUNE_STATUS")"
       [ -n "$_itj_v" ] || continue
       printf '%s"%s":%s' "$_itj_sep" "$_itj_k" "$(_isp_num "$_itj_v")"

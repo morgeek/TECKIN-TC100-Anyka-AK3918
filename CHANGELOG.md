@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **3.0.1-rc10:**
+  - **Anti-flicker:** the default choice is "Camera default", and the page and `tc100_rtsp.log` say what it is
+    (`POWER_HZ_BASE`; 50 Hz on IPCAM2, whose tuning file already uses a 281-line exposure step). It was
+    labelled "Off", which it never was.
+  - **Day / night:** a manual Day / Night choice (`daynight=3`) that keeps the automatic switching off is now
+    said at boot (console, syslog) and by the service health ("manual day/night mode") instead of nothing.
+  - **3D noise reduction stays off** (R9-01: 25 to 34 % less noise, but 5.6 MB of RAM and 1.6 MB of CMA left;
+    the owner keeps the RAM). `ak39_vi.nr3d=1` remains available; CI no longer builds its card test kernel.
+
 ### Added
 - **3.0.1-rc9: the parts of the SoC still unused, each off by default until checked on a camera** (test queue
   R9-01 to R9-04 in `docs/linux-port/test-queue.md`):

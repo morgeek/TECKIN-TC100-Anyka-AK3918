@@ -17,7 +17,7 @@ on a capture memory that the CPU reads uncached.
 | ISP black and white (`AK_ISP_SET_YUV_EFFECT` or saturation 0) | **no**: `memset` of the chroma | 1 MB write per frame in B/W |
 | ISP flip / mirror (`AK_ISP_SET_FLIP_MIRROR`) | **now**: `bin/isp_flip` (was missing, Settings orientation did nothing) | - |
 | ISP sub channel (hardware scaler, 640x360 second output) | **yes** since 2026-10-29: `ak39_vi.sub_channel=1` on the kernel command line (stable since the 480 MHz clock fix), `tc100_rtsp` copies the ISP picture when the capture buffers hold it (`RTSP_HWSUB=0` falls back to `sub_scale`). IPCAM2: sub picture CPU time 1100 -> 460 ms per 5 s, same framing | was 345 600 scattered reads per frame |
-| ISP 3D noise reduction | **to test** (rc9, R9-01): `ak39_vi.nr3d=1` reserves the 6.2 MB reference frame at boot; off by default, card test kernel with a 24 MiB CMA area | quality and bit rate, not CPU |
+| ISP 3D noise reduction | **works, not kept** (R9-01): `ak39_vi.nr3d=1` with `cma=24M` reserves the 6.2 MB reference frame at boot; 25-34 % less noise, no CPU or frame cost, but MemAvailable 22 -> 15.8 MB and 1.6 MB of CMA left. Off by default | quality and bit rate, not CPU |
 | ISP statistics (Y histogram, AE info) | **no**: the light level is a CPU sample of the picture | small |
 | Capture DMA into cached memory (kernel patch 0012, `RTSP_CACHED=1`) | **new, to test** | every CPU read above becomes a cache-line fill instead of a bus access |
 | Capture straight into the encoder pool (kernel patch 0011, `RTSP_ZEROCOPY=1`) | **new, to test** | the 3 MB copy itself |
@@ -163,7 +163,7 @@ settings kept), normal flash start (no card kernel): "Page block order: 7", 2 hi
 | Exposure cap | not applied on 3.0 | ISP `AK_ISP_SET_AE` (Image page) | HW-06 passed |
 | OSD clock | drawn by the CPU in each frame | ISP OSD window, kernel patch 0014 (default since rc8, `RTSP_ISPOSD=0` = CPU) | HW-07 passed |
 | Light level for day / night | CPU sample of the picture after AE | AE state in `/tmp/cam_ae`; the `ae` source with thresholds from the measured night, calibration log (rc9) | HW-08, R9-02 |
-| Anti-flicker | not applied on 3.0 | ISP auto exposure `exp_step` = one lamp pulse (rc9, `POWER_HZ`, off by default) | R9-03 |
+| Anti-flicker | the tuning file's exposure step: 281 lines = 50 Hz on IPCAM2 | ISP auto exposure `exp_step` = one lamp pulse (`POWER_HZ` 50 / 60; default "Camera default") | R9-03, R10-01 |
 | Capture buffers | 4 ISP slots armed, one 3.4 MB CMA buffer each | 3 (default since rc8, `ak39_vi.slots=4` = before) | P-02 passed |
 
 Not possible or not done: SD 4-bit (its data lines are the IR-cut GPIOs), USB DMA (vendor path unsafe), 3D-NR
