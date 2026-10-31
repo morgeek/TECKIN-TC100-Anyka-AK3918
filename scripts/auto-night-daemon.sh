@@ -72,6 +72,8 @@ VENDOR_LOCK=900
 IR_LED_MAX_ON=50400
 IR_LED_REST=600
 DN_VCNT=0
+DN_AWB_LAST=
+DN_AWB_SAME=0
 DN_LAST_SW=-100000
 DN_SW_LUM=0
 DN_LOCK_UNTIL=0
@@ -225,6 +227,11 @@ dn_awb() {
     case "$_w" in ''|*[!0-9]*) return 0 ;; esac
     [ "${#_w}" -le 9 ] || return 0
   done
+  # R11-02: on rc11 the counts never changed (the same 11 numbers for hours and after a reboot): counts that stay
+  # exactly the same for 3 samples are stale, the metric then decides alone
+  _wl="$_w0 $_w1 $_w2 $_w3 $_w4 $_w5 $_w6 $_w7 $_w8 $_w9"
+  if [ "$_wl" = "$DN_AWB_LAST" ]; then DN_AWB_SAME=$((DN_AWB_SAME + 1)); else DN_AWB_SAME=0; DN_AWB_LAST=$_wl; fi
+  [ "$DN_AWB_SAME" -ge 2 ] && return 0
   DN_AWB_VIS=0
   for _w in "$_w0" "$_w1" "$_w2" "$_w3" "$_w4"; do [ "$_w" -gt "$AWB_NIGHT_CNT" ] && DN_AWB_VIS=1; done
   for _w in "$_w0" "$_w1" "$_w2" "$_w3" "$_w4" "$_w5" "$_w6" "$_w7" "$_w8" "$_w9"; do

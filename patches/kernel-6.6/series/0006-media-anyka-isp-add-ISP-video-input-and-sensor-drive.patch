@@ -120,7 +120,7 @@ new file mode 100644
 index 000000000..97f00ee92
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.c
-@@ -0,0 +1,4942 @@
+@@ -0,0 +1,4946 @@
 +#include <linux/kernel.h>
 +#include <linux/errno.h>
 +#include <linux/string.h>
@@ -4838,6 +4838,10 @@ index 000000000..97f00ee92
 +    	+ STATIC_DEAD_PIXELS_SIZE);
 +    isp->stat_handle = (isp->handle + DMA_CONFIG_REG_SIZE 
 +    	+ STATIC_DEAD_PIXELS_SIZE);
++    /* R12-09: the white balance counts read below never change on the TC100 (R11-02); where the ISP writes its
++     * statistics, so that a dump of this area over time shows which words move */
++    pr_info("ak39_isp2: statistics DMA area at %#lx, %d bytes (white balance counts read from word %d)\n",
++            (unsigned long)isp->stat_handle, DMA_STAT_DATA_SIZE, 257 + 257 + 257 + 256 + 5);
 +
 +   	//isp_init_awb_parms(isp);
 +   	//_cmos_cam_exp_time_init();  //comment by xc

@@ -239,6 +239,33 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### Next build: 3.0.1-rc13 = rc12 + the R11 answers — install rc13, not rc12 (2026-10-31)
+
+rc12 was pushed before the R11 results came in; rc13 replaces it (same R12-xx tests). **Implementer's answers to R11:**
+1. **R11-01 smart mode: dropped from the page.** Request (1) done: mode 1 is only called when the pool has 3407872 +
+   256 KB free (log `smart mode 1 not used: it needs N bytes of encoder pool, M free`); mode 2 never, unless
+   `RTSP_SMART_FORCE=1`. A marker (`/tmp/.rtsp_smart_try`) set before the call and removed after 250 good frames: a
+   server that died after trying skips smart mode at its next start (`smart mode skipped: the server stopped after it
+   last time`). (2) The restarter exists: `scripts/service-watchdog.sh`, a job of the housekeeper, checks every 60 s and
+   restarts with a back-off of 20 s + 15 s per failure. With `RTSP_SMART` still in `rtsp.env` each restart died again,
+   which looks like nothing restarting. **Please check** `/tmp/log/service-watchdog.log` and `housekeeper.sh status`
+   after the next deliberate `killall tc100_rtsp`: the server must be back within about 80 s. (3) Mode 2's need is not
+   known (no message before it dies); not pursued, the stream bit rate gain was small (R9-04: VBR alone -6 %).
+2. **R11-02 frozen `/tmp/cam_awb`:** the kernel reads the white balance counts at a fixed offset of its statistics area
+   (word 1032); on the TC100 they never change, so the kernel's own automatic white balance works on frozen numbers
+   too, **a candidate cause of the colour cast**. rc13: the vendor day / night source ignores counts that do not change,
+   dmesg gives the statistics area's address, and R12-09 finds the words that really move.
+3. R11-03 passed, thank you (`intent` records the reason, the caller reboots: right).
+
+### R12-09 Where the ISP writes its white balance statistics (`scripts/isp-stat-dump.sh`, read only) — `to test`
+- **Test:** `dmesg | grep 'statistics DMA area'` (address, 4800 bytes). Lamp on, `sh /mnt/scripts/isp-stat-dump.sh`
+  (about 10 s, writes `/tmp/isp-stat-<time>.txt`); a minute later the same; then lamp off or a coloured object in front
+  of the lens and a third dump. `awk 'NR==FNR{a[$1]=$2;next} a[$1]!=$2' dump1 dump2 | wc -l` (noise) and dump2 against
+  dump3 (the light change): copy the three files to the card (`/mnt/sd/r12-09/`) and write here which word ranges
+  change. Words 0-1031 are the histograms (they must move); 1032-1071 are where the kernel reads the white balance.
+- **Then:** if the white balance block is elsewhere, the offset in the kernel is fixed (a kernel patch): the kernel's
+  automatic white balance and the vendor day / night source get live counts, and the software white balance may go.
+
 ### Next build: 3.0.1-rc12 — everything the stock dump can give, then the flash-only camera (2026-10-31)
 
 The owner (2026-10-31): analyse the binaries deeply, put into rc12 all that the stock dump can bring, **check that
@@ -309,8 +336,8 @@ then R12-01/02 (a dim room and an evening), R12-03/05 over a night, R12-06, and 
 - **Pass:** 10 / 10 each way. Then (rc13) the default.
 
 ### R12-07 The web page: every new switch wired — `to test` (owner, needs the login)
-- Settings, Streams & audio: "Bit rate mode" and "Smart encoding" (main stream form), Save: `rtspserver.conf` [0]
-  `vbr` / `smart`, the server restarts, log `vbr main 1` and `encoder main: smart mode N`. Settings, Day/night: the
+- Settings, Streams & audio: "Bit rate mode" (main stream form), Save: `rtspserver.conf` [0] `vbr`, the server
+  restarts, log `vbr main 1`. (Smart encoding is not on the page since rc13: R11-01.) Settings, Day/night: the
   stock method thresholds, the IR protection hours, the two switches (night settings, low light), the live "Stock
   method value"; Save and reload the page: every value comes back. Settings, Picture: anti-flicker "Camera default" and
   the 50 Hz line. In French too.
@@ -321,7 +348,7 @@ then R12-01/02 (a dim room and an evening), R12-03/05 over a night, R12-06, and 
 - **Test:** power off, take the card out, power on: video (RTSP, Frigate), web page, Wi-Fi, MQTT, settings kept
   (change one, reboot from the page, still there: R11-03), day / night and the speaker. What needs a card says so
   cleanly: recordings (page message), saved logs (`log-persist` skips), no error loop in `dmesg` / syslog. One hour.
-- **Pass:** everything above. **Then the flash-only release (rc13):** the switches that passed become defaults; one
+- **Pass:** everything above. **Then the flash-only release (rc14):** the switches that passed become defaults; one
   `update66.sh apply` with the owner's agreement (dump first, `flashw` with read-back, settings kept, as for every rc);
   U-Boot untouched. The camera then runs with no card at all.
 

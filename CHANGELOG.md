@@ -8,11 +8,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Smart encoding stopped the video server** (rc11, R11-01: mode 1 needs 3.25 MB more encoder DMA than the 9600K
+  pool has, mode 2 ends the encoder after 3 frames). 3.0.1-rc13: not on the web page any more; mode 1 only when the
+  pool has the room, mode 2 only with `RTSP_SMART_FORCE=1`, and a server that died after trying it skips it at its
+  next start (no crash loop under the watchdog).
+- **Day / night "Stock firmware method" with frozen white balance counts** (R11-02: the same numbers for hours):
+  counts unchanged for 3 samples are ignored and the light metric decides alone.
+
 - **Speaker silent** (3.0.1-rc12, R12-04): the amplifier enable (GPIO 14) is active low, as the stock kernel and app
   use it; the device tree drove it active high, so it was off while playing and on at rest. `speak-gpios-en = <0>`,
   the amplifier stays off at rest; `ak39_codec.spk_active=0|1` overrides the level.
 
 ### Added
+- **3.0.1-rc13 diagnostic:** dmesg gives the address of the ISP statistics area and
+  `scripts/isp-stat-dump.sh` reads it (R12-09: find the live white balance counts; the kernel's own white balance
+  reads the frozen ones, a candidate cause of the colour cast).
 - **3.0.1-rc12: the rest of what the stock firmware does** (`docs/linux-port/vendor-re-findings.md`), each
   switchable from the web page:
   - **Night picture settings** (Day/night page): the tuning file's night parameter set (2.5 x exposure, night
