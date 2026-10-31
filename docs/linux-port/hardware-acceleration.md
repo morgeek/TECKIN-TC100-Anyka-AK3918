@@ -166,6 +166,8 @@ settings kept), normal flash start (no card kernel): "Page block order: 7", 2 hi
 | Anti-flicker | the tuning file's exposure step: 281 lines = 50 Hz on IPCAM2 | ISP auto exposure `exp_step` = one lamp pulse (`POWER_HZ` 50 / 60; default "Camera default") | R9-03, R10-01 |
 | Capture buffers | 4 ISP slots armed, one 3.4 MB CMA buffer each | 3 (default since rc8, `ak39_vi.slots=4` = before) | P-02 passed |
 
+The stock firmware's own use of these blocks (smart mode, anti-flicker, day / night): [vendor-re-findings.md](vendor-re-findings.md).
+
 Not possible or not done: SD 4-bit (its data lines are the IR-cut GPIOs), USB DMA (vendor path unsafe), 3D-NR
 (memory; tried again in rc9, R9-01), anti-flicker (vendor call unknown; done through the ISP's auto exposure in rc9,
 R9-03). Details and the test procedures: [test-queue.md](test-queue.md).

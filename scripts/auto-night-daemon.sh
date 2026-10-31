@@ -19,7 +19,7 @@
 #                   after NIGHT_HOLD seconds of dark=1, day after DAY_HOLD seconds of dark=0.
 # Without a usable /tmp/cam_ae (tc100_rtsp not running) the ae and isp sources fall back to luma.
 # Calibration log: every DN_LOG_EVERY seconds (300) one line "HH:MM mode=day|night src=... luma=N ae=<cam_ae line>
-# idx=N" in $DN_LOG (/tmp/logs/daynight.log, kept to the last 2 x 400 lines; log-persist.sh copies /tmp/logs to the
+# idx=N awb=<cam_awb line: white balance counts cnt0..cnt9, colour temperature index>" in $DN_LOG (/tmp/logs/daynight.log, kept to the last 2 x 400 lines; log-persist.sh copies /tmp/logs to the
 # card), whatever the source, so the index thresholds can be set from real dusk and dawn readings (F-04).
 # Test hook: DN_TEST=1 only defines the functions (tests/test_regressions.py feeds samples to dn_step_ae).
 if [ -z "$DN_TEST" ]; then
@@ -33,6 +33,7 @@ DN_CONF=${DN_CONF:-/mnt/config/daynight.conf}
 DN_RTSPCONF=${DN_RTSPCONF:-/mnt/config/rtspserver.conf}
 CAM_AE=${CAM_AE:-/tmp/cam_ae}
 CAM_LUMA=${CAM_LUMA:-/tmp/cam_luma}
+CAM_AWB=${CAM_AWB:-/tmp/cam_awb}
 IRCUT_FILE=${DN_IRCUT:-/var/run/ircut}
 NIGHTMODE=${DN_NIGHTMODE:-/mnt/scripts/nightmode.sh}
 DN_LOG=${DN_LOG:-/tmp/logs/daynight.log}
@@ -219,11 +220,12 @@ dn_log() {
   read_cut
   _ll=-; [ -r "$CAM_LUMA" ] && read -r _ll < "$CAM_LUMA"
   _la=-; [ -r "$CAM_AE" ] && read -r _la < "$CAM_AE"
+  _lw=-; [ -r "$CAM_AWB" ] && read -r _lw < "$CAM_AWB"
   # shellcheck disable=SC2086
   dn_index $_la 2>/dev/null || DN_IDX=-
   _lm=day; [ "$CUR_CUT" = OFF ] && _lm=night
   if [ "$DN_LOG_N" -ge 400 ]; then mv -f "$DN_LOG" "$DN_LOG.1" 2>/dev/null; DN_LOG_N=0; fi
-  echo "$(date +%H:%M 2>/dev/null) mode=$_lm src=$DAYNIGHT_SOURCE luma=${_ll:--} ae=${_la:--} idx=${DN_IDX:--}" >> "$DN_LOG" 2>/dev/null
+  echo "$(date +%H:%M 2>/dev/null) mode=$_lm src=$DAYNIGHT_SOURCE luma=${_ll:--} ae=${_la:--} idx=${DN_IDX:--} awb=${_lw:--}" >> "$DN_LOG" 2>/dev/null
   DN_LOG_N=$((DN_LOG_N + 1))
 }
 

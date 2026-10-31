@@ -93,6 +93,7 @@ static void *(*p_open)(const struct venc_param *);
 static int (*p_send)(void *, unsigned char *, unsigned int, struct video_stream *);
 static int (*p_release)(void *, struct video_stream *);
 static int (*p_close)(void *);
+static int (*p_smart)(void *, const int *);	/* ak_venc_set_smart_config, optional (R11-01) */
 static unsigned long (*p_alloc)(int);
 static int (*p_pinit)(void);
 static volatile int run = 1;
@@ -522,11 +523,14 @@ struct isp_sharp { unsigned short mode; struct isp_sharp1 s[10]; };	/* manual + 
 #define ISP_GET_AE _IOR('I', 81, int)
 struct isp_ae_run { unsigned char lumi, lumi_comp, dark; int a_gain, d_gain, isp_d_gain, exp_time; unsigned int st[4]; };
 #define ISP_GET_AE_RUN_INFO _IOR('I', 82, int)
+struct isp_awb_stat { unsigned int r[10], g[10], b[10], cnt[10]; unsigned short rg, gg, bg; short ro, go, bo;
+	unsigned short ct, ct_stable[10]; };	/* AK_ISP_AWB_STAT_INFO */
+#define ISP_GET_AWB_STAT_INFO _IOR('I', 89, int)
 struct isp_osd { unsigned int channel, width, height; unsigned short x, y, alpha, enable; unsigned long data; };
 #define ISP_SET_OSD_COLORS _IOW('I', 131, int)
 #define ISP_SET_OSD _IOW('I', 132, int)
 typedef char isp_layout_check[(sizeof(struct isp_masks) == 40 && sizeof(struct isp_mask_color) == 5 &&
-	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_ae_run) == 36) ? 1 : -1];
+	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_ae_run) == 36 && sizeof(struct isp_awb_stat) == 196) ? 1 : -1];
 
 static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_now, ae_base = -1, exp_now_pct, hz_now;
 static int osd_hw = -1;
@@ -697,6 +701,19 @@ static void ispx_ae_report(double tn)
 	if (ioctl(ispx_fd, ISP_GET_AE_RUN_INFO, &r) < 0) return;
 	n = snprintf(b, sizeof b, "%u %d %d %d %d %u\n", r.lumi, r.exp_time, r.a_gain, r.d_gain, r.isp_d_gain, r.dark);
 	if (n > 0 && n < (int)sizeof b) wfile("/tmp/cam_ae", b, (size_t)n);
+	{	/* R11-02: the white balance counts per colour temperature, which the stock firmware's day / night switch
+		 * checks (docs/linux-port/vendor-re-findings.md): "cnt0 .. cnt9 colour_temperature_index" in /tmp/cam_awb */
+		struct isp_awb_stat a;
+		char w[160];
+		int k;
+
+		memset(&a, 0, sizeof a);
+		if (ioctl(ispx_fd, ISP_GET_AWB_STAT_INFO, &a) == 0) {
+			for (k = 0, n = 0; k < 10 && n < (int)sizeof w - 16; k++) n += snprintf(w + n, sizeof w - n, "%u ", a.cnt[k]);
+			n += snprintf(w + n, sizeof w - n, "%u\n", a.ct);
+			if (n > 0 && n < (int)sizeof w) wfile("/tmp/cam_awb", w, (size_t)n);
+		}
+	}
 }
 
 /* The clock in an ISP OSD window (default; RTSP_ISPOSD=0: by the CPU): colours 0 and 1 the black box, 2 the white text; 4 bits per pixel,
@@ -2348,10 +2365,42 @@ static void pool_log(const struct strm *s)
 	    gu ? gu() : 0UL, gf ? gf() : 0UL);
 }
 
+/* R11-01: the encoder's smart mode. Its call was read from the vendor library with Ghidra
+ * (docs/linux-port/vendor-re-findings.md): ak_venc_set_smart_config(handle, int[4] = {mode, gop length, quality,
+ * static value}); mode 0 = plain VBR, 1 = long-term reference (LTR), 2 = variable GOP (long GOP on a still scene);
+ * the stock firmware's values: gop 300, quality 100, static 550, and only in VBR. RTSP_SMART=1|2 (RTSP_SMART_SUB for the
+ * sub-stream, default RTSP_SMART), RTSP_SMART_GOP / _Q / _V override the values; unset or 0: never called. */
+static int env_int(const char *k, int def, int lo, int hi)
+{
+	const char *e = getenv(k);
+	int v = e && *e ? atoi_(e) : def;
+
+	return v < lo || v > hi ? def : v;
+}
+
+static void smart_apply(struct strm *s)
+{
+	const char *ks = s == &S[1] && getenv("RTSP_SMART_SUB") ? "RTSP_SMART_SUB" : "RTSP_SMART";
+	int c[4];
+
+	c[0] = env_int(ks, 0, 0, 2);
+	if (!s->enc || !c[0]) return;
+	if (!p_smart) { LOG("encoder %s: smart mode asked, the library has no ak_venc_set_smart_config\n", s->name); return; }
+	if (!s->pa.rc_vbr) { LOG("encoder %s: smart mode %d needs VBR (RTSP_VBR=1): not set\n", s->name, c[0]); return; }
+	c[1] = env_int("RTSP_SMART_GOP", 300, 1, 1000);
+	c[2] = env_int("RTSP_SMART_Q", 100, 1, 100);
+	c[3] = env_int("RTSP_SMART_V", 550, 0, 65535);
+	if (p_smart(s->enc, c) == 0)
+		LOG("encoder %s: smart mode %d (%s), gop %d, quality %d, static %d\n", s->name, c[0],
+		    c[0] == 1 ? "long-term reference" : "variable GOP", c[1], c[2], c[3]);
+	else LOG("encoder %s: the library refused smart mode %d\n", s->name, c[0]);
+}
+
 static int strm_reopen(struct strm *s)
 {
 	if (s->enc) p_close(s->enc);
 	s->enc = p_open(&s->pa);
+	smart_apply(s);
 	s->nsent = 0; s->fails = 0;
 	if (!s->enc) pool_log(s);
 	return s->enc != NULL;
@@ -2378,6 +2427,7 @@ static void sub_start(int want)
 	s->enc = p_open(&s->pa);
 	pool_log(s);
 	if (!s->enc) { LOG("sub-stream: the encoder did not open; the sub-stream paths serve the main stream\n"); return; }
+	smart_apply(s);
 	s->on = 1; s->active = 1; s->nsent = 0; s->fails = 0;
 }
 
@@ -2579,6 +2629,7 @@ int main(int argc, char **argv)
 		p_send = dlsym(m, "ak_venc_send_frame");
 		p_release = dlsym(m, "ak_venc_release_stream");
 		p_close = dlsym(m, "ak_venc_close");
+		p_smart = dlsym(m, "ak_venc_set_smart_config");
 		p_alloc = dlsym(RTLD_DEFAULT, "akuio_alloc_pmem");
 		p_pinit = dlsym(RTLD_DEFAULT, "akuio_pmem_init");
 		if (!p_open || !p_send || !p_release || !p_close || !p_alloc) { LOG("missing encoder symbols\n"); return 2; }
@@ -2787,6 +2838,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	S[0].enc = p_open(prime ? &p0 : &S[0].pa);
 	if (!prime) pool_log(&S[0]);
 	if (!S[0].enc) { LOG("ak_venc_open failed\n"); return 1; }
+	if (!prime) smart_apply(&S[0]);
 	S[0].on = S[0].active = 1;
 	if (!prime) sub_start(sub_on);
 #endif
@@ -2994,6 +3046,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				S[0].enc = p_open(&S[0].pa);
 				pool_log(&S[0]);
 				if (!S[0].enc) { LOG("ak_venc_open failed\n"); break; }
+				smart_apply(&S[0]);
 				prime = 0;
 				sub_start(sub_on);
 				continue;

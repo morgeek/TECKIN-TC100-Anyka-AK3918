@@ -239,6 +239,52 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### Next build: 3.0.1-rc11 — what the stock binaries taught (2026-10-31)
+
+The owner asked to read the original binaries (Ghidra) and use what they teach. The full stock dump was in the git
+history (`bootloader.bin`, 8 MiB). Findings in [vendor-re-findings.md](vendor-re-findings.md). The owner's choices:
+smart mode as an option; for day / night, measure first (the vendor's metric needs the white balance counts in the
+log); push after local CI. rc11 = rc10 +:
+- **R11-01 encoder smart mode** (off by default).
+- **R11-02 white balance counts** for day / night: `/tmp/cam_awb` and `awb=` in the calibration log.
+- Confirmed, nothing to change: anti-flicker computes the step exactly as the stock library (R9-03).
+- **R11-03 fix:** settings changed less than a minute before a deliberate reboot are saved first.
+
+### R11-01 Encoder smart mode (`RTSP_SMART`) — `to test`
+- **What:** `ak_venc_set_smart_config(handle, {mode, gop, quality, static})` after every encoder open, with the stock
+  values (GOP 300 frames, quality 100, static 550). `RTSP_SMART=1`: long-term reference (LTR); `RTSP_SMART=2`:
+  variable GOP (GOP up to 300 frames on a still scene). Only with `RTSP_VBR=1` (the vendor app uses it in VBR only);
+  `RTSP_SMART_SUB` for the sub-stream (default: as the main), `RTSP_SMART_GOP` / `_Q` / `_V` override. **Off:**
+  unset or `0` (the call is never made).
+- **Test** (`/mnt/config/rtsp.env`, restart `tc100_rtsp` as `v3/autorun-linux66.sh` does; one Frigate client):
+  1. `RTSP_VBR=1` + `RTSP_SMART=1`: log `encoder main: smart mode 1 (long-term reference), gop 300, quality 100,
+     static 550` (and `sub`), both encoders `open`. 10 minutes on a still day scene: main stream bytes per 5 s
+     against VBR alone (R9-04: 899 KB) and CBR (950-980 KB). Then a hand in front: no smear, blocks or freeze.
+  2. The same with `RTSP_SMART=2`. Also: VLC opened while the scene is still: the time to the first picture (a long
+     GOP means waiting for a keyframe), and Frigate: recordings and detections still start without a missed second.
+  3. A codec change in Settings (main H.264, then back): the smart line again after the reopen.
+- **Pass:** a clear saving on a still scene, no visible loss, Frigate and VLC fine. **Then** (rc12) the mode that wins
+  becomes the default with `RTSP_VBR=1`. **Fail:** `rtsp.env` empty again.
+
+### R11-02 White balance counts for day / night — `to test` (with R9-02's dusk and dawn)
+- **What:** every 2 s `tc100_rtsp` writes `/tmp/cam_awb`: the 10 `total_cnt` of `AK_ISP_AWB_STAT_INFO` and the
+  colour temperature index. The calibration log line gets `awb=<those 11 numbers>`. The stock switch goes to night
+  only when none of the 10 counts is above 300000 (no daylight), and back to day only when one of the first 5 is
+  above 15000 (visible light, not just the IR LEDs), on top of its metric `index * 40 / lumi` (lumi = first field of
+  `/tmp/cam_ae`).
+- **Test:** `cat /tmp/cam_awb` (11 numbers that move with the scene), then nothing but the R9-02 dusk and dawn: copy
+  the log lines here. From them the implementer sets the vendor-like source (metric + white balance check).
+
+### R11-03 Settings saved before a deliberate reboot (`cfg-persist flush`) — `to test`
+- **What:** R10-01's note: a setting changed 35 s before a reboot was lost (`cfg-persist` saves a change once it has
+  been stable for 30 s, checked every 30 s). `reboot-tracker.sh intent` (every reboot from the web UI, MQTT, the
+  button, net-guard) now runs `cfg-persist flush` first: a save only when the settings differ from the last saved ones,
+  waited for up to 20 s, never interrupted. A plain `reboot` typed in a shell does not go through it.
+- **Test:** change a setting from the web page (or `rwconf ... daynight 3` then `sh /mnt/scripts/reboot-tracker.sh
+  intent "test: R11-03"`), reboot within 10 s: the console shows `[cfg-persist] settings saved to slot ...` before the
+  restart, and the setting is there after it. Reboot again with nothing changed: no save line.
+- **Pass:** both. **Fail:** write what was lost; the 30 s daemon keeps working as before either way.
+
 ### Next build: 3.0.1-rc10 — fixes from the R9 results (2026-10-31)
 
 The owner (2026-10-31): 3D-NR is not worth its 5.6 MB of RAM; make the other fixes; for day / night, wait for the
@@ -443,7 +489,7 @@ those four, each **off by default** (or a pure measurement) until its entry belo
 - **Pass:** VBR saves on a still day scene with no visible loss and Frigate is fine: **then** (rc10) `RTSP_VBR=1` by
   default. Same for `IDLE_FPS`. Smart mode: implemented only once step 1 shows its call.
 
-### RE-01 Copy the stock binaries to the card for reverse engineering (read only) — `to do` (owner's request 2026-10-31)
+### RE-01 Copy the stock binaries to the card for reverse engineering (read only) — `done another way` (the full stock dump was in the git history, see vendor-re-findings.md; only the speaker libraries of the camera might still be wanted)
 - **Why:** the owner asks to read the original binaries (Ghidra, on the implementer's PC) instead of guessing vendor
   structures: the `ak_venc_set_smart_config` structure (R9-04: the call exists), the anti-flicker call of the stock
   firmware (`ak_vpss_effect_set(6, hz)`, to check R9-03), the 3D-NR reference frame size of the vendor ISP driver (to

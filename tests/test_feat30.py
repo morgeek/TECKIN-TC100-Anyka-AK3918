@@ -136,8 +136,8 @@ class DayNightFromExposure(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = log.read_text().splitlines()
         self.assertEqual(len(lines), 3, lines)                 # 1100 is within 300 s of 1000
-        self.assertTrue(lines[0].endswith('mode=night src=luma luma=47 ae=9 1124 6840 256 256 0 idx=30031'), lines[0])
-        self.assertTrue(lines[2].endswith('ae=- idx=-'), lines[2])
+        self.assertTrue(lines[0].endswith('mode=night src=luma luma=47 ae=9 1124 6840 256 256 0 idx=30031 awb=-'), lines[0])
+        self.assertTrue(lines[2].endswith('ae=- idx=- awb=-'), lines[2])
 
     def test_unusable_exposure_file_falls_back(self):
         r = sh('. %s\nrm -f "$CAM_AE"; dn_step_ae 5; echo rc=$?\necho "1 2 3" > "$CAM_AE"; dn_step_ae 5; echo rc=$?\n'
@@ -486,6 +486,25 @@ class Rc9SocWiring(unittest.TestCase):
         self.assertIn('POWER_HZ_BASE=%d', src)
         self.assertIn('POWER_HZ_BASE', (ROOT / 'scripts/isp-tune.sh').read_text())
         self.assertIn('"Camera default: " + hb + " Hz."', (ROOT / 'www/scripts/index.bundle.min.js').read_text(encoding='utf-8'))
+
+    def test_settings_saved_before_a_deliberate_reboot(self):
+        """rc11: cfg-persist flush from reboot-tracker intent (R10-01 lost a setting changed 35 s before)"""
+        rt = (ROOT / 'scripts/reboot-tracker.sh').read_text()
+        self.assertIn('sh "$_cp" flush', rt)
+        self.assertLess(rt.index('flush'), rt.index('log-persist.sh'))
+        cp = (ROOT / 'v3/linux66-sd/cfg-persist').read_text()
+        flush = cp[cp.index('flush)'):cp.index('saved)')]
+        self.assertIn('[ "$(signature)" = "$(cat /tmp/cfg-persist.sig)" ] && exit 0', flush)
+
+    def test_smart_mode_wiring(self):
+        """rc11: ak_venc_set_smart_config only when RTSP_SMART is 1 or 2 and VBR is on (R11-01)"""
+        src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
+        self.assertIn('p_smart = dlsym(m, "ak_venc_set_smart_config");', src)
+        f = src[src.index('static void smart_apply('):]
+        f = f[:f.index('\n}\n')]
+        self.assertIn('env_int(ks, 0, 0, 2)', f)
+        self.assertIn('if (!s->pa.rc_vbr)', f)
+        self.assertGreaterEqual(src.count('smart_apply('), 5)   # definition + every encoder open
 
     def test_manual_daynight_is_said(self):
         """rc10: daynight=3 kept the automatic switching off without a word (R9-02)"""
