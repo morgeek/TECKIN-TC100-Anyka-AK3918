@@ -34,7 +34,7 @@ from each camera's own stock firmware at install time.
    written, read back, restored on a difference):
    ```
    sdload=fatload mmc 0 0x82000000 tc100test/c66.img; fatload mmc 0 0x81000000 tc100test/c66rd.gz
-   sdboot=setenv bootargs initrd=0x81000000,2012654 console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init; bootm 0x82000000
+   sdboot=setenv bootargs initrd=0x81000000,2012654 console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init ak39_vi.sub_channel=1; bootm 0x82000000
    flashcheck=sf probe 0:0 20000000 0; sf read 0x81000000 0x23b000 0x1ec000; mw.b 0x80800000 0xfd; … ; cmp.b 0x80800000 0x81000000 6
    flashboot=sf read 0x82000000 0x39000 0x200000; setenv bootargs <same> flashroot=1; bootm 0x82000000
    bootcmd=run sdload sdboot; run flashcheck flashboot; run boot_normal
@@ -42,9 +42,16 @@ from each camera's own stock firmware at install time.
    `flashcheck` compares the first 6 bytes of the `initrd` area with the xz magic: the stock flash has a squashfs
    there, so before the install (and after a return to stock) it fails and `boot_normal`, the stock start, runs.
    `run a b` stops at the first command that fails, which this U-Boot already showed with `sdload`.
-3. **Trial mode**: U-Boot starts Linux 6.6 from the card; the user space runs from the card with the vendor
-   libraries in `lib/`. Nothing of 3.0 is in the flash yet.
-4. **Install to flash** (Settings -> Update & backup, `v3/install/install66.sh`): builds `vendor.sqfs` on the card
+3. **First start from the card**: U-Boot starts Linux 6.6 from the card; the user space runs from the card with
+   the vendor libraries in `lib/`. Nothing of 3.0 is in the flash yet. `v3/install/auto-install.sh` (autorun step
+   12f, 20 s after the services) then installs by itself when the card is fresh from the hook (`stage1.done`), the
+   flash does not hold 3.0 yet (no xz magic in `initrd`) and it has not tried on this card before
+   (`auto-install.tried`, written before anything else): `restore-stock.sh --check` (the copy of the flash on the
+   card, its md5, its `boot` and `mac` areas equal to the flash's), `install66.sh check`, then the video server
+   delivers frames for 30 s (`/tmp/cam_luma` renewed); then step 4 without a click. A failed check: nothing written,
+   red LED, the reason in `tc100-3/STATUS.txt`, the camera stays in trial mode. `ESSAI.txt` / `TRIAL.txt` at the root
+   of the card keeps the trial mode; the startup chime is kept for the start from the flash.
+4. **Install to flash** (automatic in step 3, or Settings -> Update & backup, `v3/install/install66.sh`): builds `vendor.sqfs` on the card
    from `lib/` (mksquashfs from the Buildroot base), then writes with `flashw` (allow-list, each partition saved to
    `tc100-3/backup` first, md5 checked before and after) `vendor`, `stack`, `kernel` and `initrd` last, copies the
    settings of the card into `cfga`/`cfgb`, renames `tc100test/c66.img` to `c66.img.installed` and restarts.
@@ -55,7 +62,10 @@ kept.
 
 **Way back**: a card with `tc100test/c66.img` always starts first. From the trial mode,
 `v3/install/restore-stock.sh` writes the stock kernel and A/B/C back from `flash-stock.bin` and blanks the settings
-slots; the 3.0 commands stay in the environment but `flashcheck` then fails, so the stock firmware starts.
+slots; the 3.0 commands stay in the environment but `flashcheck` then fails, so the stock firmware starts. It refuses
+a copy whose md5 or whose `boot` / `mac` areas differ from this camera's. Without a shell: `RESTAURER.txt` (or
+`RESTORE.txt`) at the root of the card makes `auto-install.sh` run it once (the file becomes `RESTAURER.done`), then
+rename `tc100test/c66.img` to `c66.img.off` and restart into the previous system.
 
 ## Cameras with the 2.x firmware installed in flash
 

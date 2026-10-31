@@ -64,6 +64,17 @@ if [ ! -f /tmp/flashmode ]; then
     [ -e "$b" ] || cp "$f" "$b"
   done
 fi
+# 1a2. Once per camera (config/.migrated-3.0.1): the picture tint and saturation of an older version are not kept
+#      (owner, 2026-10-31: a 2.x camera came with HUE=-10 SATURATION=-13 and a green picture); they go back to 0 and
+#      the live image tuning switch off, as on a new camera (Settings -> Picture switches it on again; the other
+#      values of the file stay).
+if [ ! -f /mnt/config/.migrated-3.0.1 ] && [ -f /mnt/config/isp_tune.conf ]; then
+  sh -c '. /mnt/scripts/common_functions.sh
+    rewrite_config /mnt/config/isp_tune.conf HUE 0; rewrite_config /mnt/config/isp_tune.conf SATURATION 0
+    rewrite_config /mnt/config/boot.conf ISP_TUNE 0' </dev/null >/dev/null 2>&1
+  echo "[tc100-v3] picture tint and saturation of the previous version reset to 0 (once)" > /dev/console
+fi
+: > /mnt/config/.migrated-3.0.1 2>/dev/null
 # first start of 3.0 (even with settings brought over from 2.x): the web pages open the setup wizard
 [ -f /mnt/config/.wizard3_done ] || : > /tmp/.first_boot
 
@@ -321,7 +332,7 @@ fi
 #      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
 #      (sdinfo-sd.sh, also run once now).
 sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
-# the Recordings page plays and downloads /DCIM/<clip>.mkv and shows /DCIM/<clip>.jpg
+# the Recordings page plays and downloads /DCIM/<clip>.mp4 and shows /DCIM/<clip>.jpg
 [ -e /tmp/www/DCIM ] || ln -sfn /mnt/DCIM /tmp/www/DCIM
 # (the housekeeper does these three checks itself; web-guard.sh run is the loop of HOUSEKEEPER=0)
 sh /mnt/scripts/housekeeper.sh active </dev/null >/dev/null 2>&1 || ( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
@@ -335,7 +346,10 @@ esac
 #      and how to reach it, on the card (tc100-3/ADRESSE.txt, Windows line ends): its address once the network gave
 #      one; without a network after 12 minutes, the name and password of its rescue access point (scripts/wifi-rescue.sh
 #      starts it after 10 minutes without Wi-Fi), so that a camera with a wrong or missing wifi.txt can still be set up.
-[ "$BC_BOOT_SOUND" = 0 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
+# (a first start that installs itself to the flash, step 12f, plays the chime only once it runs from the flash)
+AUTO_INSTALL=0
+[ -f /tmp/flashmode ] || ! sh /mnt/v3/install/auto-install.sh pending </dev/null >/dev/null 2>&1 || AUTO_INSTALL=1
+[ "$BC_BOOT_SOUND" = 0 ] || [ $AUTO_INSTALL = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
 ( i=0; IP=
   while [ $i -lt 144 ]; do
     IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)
@@ -356,6 +370,11 @@ esac
     printf 'Or: power off, put a wifi.txt (SSID=..., PASSWORD=...) at the root of this card, power on.\r\n'
   fi > /mnt/sd/tc100-3/ADRESSE.txt
   sync ) </dev/null >/dev/null 2>&1 &
+
+# 12f. First start from a card fresh from the stock-firmware hook: checks the camera and the copy of its original flash,
+#      then installs to the flash by itself (v3/install/auto-install.sh; ESSAI.txt on the card keeps the trial mode,
+#      RESTAURER.txt puts the original system back). Trial mode only; the video server needs 20 s to deliver frames.
+[ $AUTO_INSTALL = 1 ] && ( sleep 20; exec sh /mnt/v3/install/auto-install.sh ) </dev/null >/dev/null 2>&1 &
 
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).

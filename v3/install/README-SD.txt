@@ -1,8 +1,8 @@
 TECKIN TC100 firmware 3.0 (Linux 6.6): SD card package
 =========================================================
 
-RELEASE CANDIDATE: this SD install has not yet run on a camera. Read "Is it safe?" in the project
-README first. Do not unplug the camera during the first start (about 2 minutes).
+Tested on two TC100 cameras of the same variant (October 2026). Read "Is it safe?" in the project README
+first. Do not unplug the camera during the install (about 15 minutes).
 
 Made for the TECKIN TC100 indoor camera (Anyka AK3918EV300, JX-F23 sensor, RTL8188FU Wi-Fi) with the
 vendor firmware V1.1.41, or with the 2.x firmware of this project installed into its flash. The camera
@@ -24,26 +24,34 @@ What it does, step by step
    - restarts. Progress and any reason to stop: tc100-3/STATUS.txt.
    This takes about 2 minutes, with the blue LED blinking. If anything looks wrong, nothing is written, the
    red LED stays on and STATUS.txt says why.
-3. The camera now starts the 3.0 firmware from the card (trial mode) and plays a short chime when it is
-   ready. Open http://tc100/ (or the address your router shows, also written to tc100-3/ADRESSE.txt) and sign in as root with the password of your 2.x camera, or
-   "pass" on a camera that had the stock firmware. The setup wizard opens: it asks for a new password,
-   and its last step offers to install 3.0 into the camera in one click (or "Not now" to try it first;
-   nothing of 3.0 is in the flash yet).
-4. To install later: Settings -> Update & backup -> Install to flash. The camera writes the firmware into
-   its flash (about 10 minutes, each partition saved to tc100-3/backup first and read back after writing)
-   and restarts from its flash. The card is then only used for recordings and can be removed.
+3. The camera now starts the 3.0 firmware from the card and checks, by itself (v3/install/auto-install.sh):
+   - the copy of the flash (tc100-3/backup/flash-stock.bin) read again from the card: its md5, and its
+     U-Boot and mac areas equal to this camera's (the way back must exist before anything is installed);
+   - the hardware on Linux 6.6 (board profile, sensor id, flash chip id), the package files and their md5;
+   - a picture from the sensor through the video server.
+   If all pass, it writes the firmware into its flash (about 10 minutes, blue LED blinking, each partition
+   saved to tc100-3/backup first and read back after writing, initrd last) and restarts from its flash with
+   a short chime. Any doubt: nothing is written to the flash, red LED, the reason in STATUS.txt, and the
+   camera keeps running from the card. No Wi-Fi is needed for the install.
+   With an empty file ESSAI.txt (or TRIAL.txt) at the root of the card, it stays in trial mode instead
+   (nothing of 3.0 in the flash); Settings -> Update & backup -> Install to flash installs it later.
+4. Open http://tc100/ (or the address your router shows, also written to tc100-3/ADRESSE.txt) and sign in
+   as root with the password of your 2.x camera, or "pass" on a camera that had the stock firmware. The
+   setup wizard asks for a new password. The card is now only used for recordings and can be removed.
 
 Without this card, or with a card without tc100test/c66.img, the camera starts its stock firmware until
-step 4 is done.
+the install of step 3 is done.
 
 Updates: Settings -> Update & backup -> Firmware update, with tc100-<version>-update.tar.
 
 Way back
 --------
-- After step 2 or 3: take the card out (or rename tc100test/c66.img): the camera starts the system it had
-  before (stock or 2.x) from its flash, unchanged.
-- After step 4: put this card back with tc100test/c66.img (the install renamed it c66.img.installed): the
-  camera starts from the card again. From there, v3/install/restore-stock.sh (over ssh or telnet) writes
-  back the flash as it was before 3.0 from tc100-3/backup/flash-stock.bin.
+- Trial mode (ESSAI.txt), or the install stopped (red LED): take the card out (or rename
+  tc100test/c66.img): the camera starts the system it had before (stock or 2.x) from its flash, unchanged.
+- After the install: on the card, rename tc100test/c66.img.installed to c66.img and add an empty file
+  RESTAURER.txt (or RESTORE.txt) at the root. Power on: the camera starts from the card, writes back the
+  flash as it was before 3.0 from tc100-3/backup/flash-stock.bin (about 10 minutes, after checking that the
+  copy is this camera's), and restarts into it. Then take the card out (with it, the stock firmware runs
+  the card's hook instead of its app). v3/install/restore-stock.sh does the same over ssh.
 
 Source, documentation and issues: https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918

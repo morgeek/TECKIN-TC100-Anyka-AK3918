@@ -15,7 +15,9 @@
 #      from the flash once it is installed there (they check that the "initrd" area holds an xz image, which the
 #      stock firmware never has); boot_normal is the stock start, unchanged: without a card, or with a card without
 #      tc100test/c66.img, the camera starts its stock firmware as before.
-#   5. restarts: U-Boot then starts Linux 6.6 from the card (trial mode). Nothing else in the flash is written.
+#   5. restarts: U-Boot then starts Linux 6.6 from the card. Nothing else in the flash is written here; the 3.0 side
+#      (v3/install/auto-install.sh) then checks the camera and the copy again and installs to the flash, unless
+#      ESSAI.txt is on the card (trial mode).
 # Before all of this, a read-only hardware inventory goes to tc100-inventory.txt at the root of the card, and a
 # camera that matches no board profile (v3/board/*.conf: sensor, Wi-Fi chip, flash) is left alone. With a file
 # INVENTORY-ONLY at the root of the card (the inventory package), the hook stops right after the inventory.
@@ -165,7 +167,7 @@ case $rc in
 esac
 "$K/envtool" show ${MTD}3 > "$K/env-3.0.txt" 2>&1
 date > "$K/stage1.done"; sync
-say "step 1 DONE: restarting; the camera now starts the 3.0 firmware from this card (trial mode)."
+say "step 1 DONE: restarting; the camera now starts the 3.0 firmware from this card, checks itself and installs to the flash (unless ESSAI.txt is on the card: trial mode)."
 blink_stop; led blue 1
 sleep 2
 reboot

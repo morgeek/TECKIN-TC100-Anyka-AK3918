@@ -13,6 +13,20 @@ night picture and low-light settings from the sensor tuning, Wi-Fi that recovers
 21 MB of free memory, the clock, masks and sub-stream done by the image processor. The entries below are the
 release candidates' details, newest first.
 
+### Added (3.0.1-rc17)
+- **Install with no click**: after the stock-firmware hook, the first start from the card checks the copy of the
+  original flash again (md5, U-Boot and `mac` areas of this camera), the hardware and a picture from the sensor,
+  then installs to the flash by itself and restarts from it with the chime (`v3/install/auto-install.sh`). No Wi-Fi
+  needed. `ESSAI.txt` on the card keeps the trial mode; a flash that already holds 3.0 is never written by the card.
+- **Way back without a shell**: `RESTAURER.txt` (or `RESTORE.txt`) on a card that starts the camera writes back the
+  copy of the original flash (`restore-stock.sh`, which now refuses a copy that is not this camera's) and restarts
+  into the previous system.
+
+### Changed (3.0.1-rc17)
+- An upgrade no longer keeps the picture tint and saturation of an older version (owner's decision: a 2.x camera
+  came with `HUE=-10`, `SATURATION=-13` and a green picture): reset to 0 once, live image tuning switched off.
+- README, the card's LISEZ-MOI and README-3.0: the automatic install, `ESSAI.txt`, `RESTAURER.txt`; push-to-talk and
+  two-way audio marked "not yet checked on a camera"; recording is off until the wizard or Settings turns it on.
 
 ### Fixed
 - **Strong blue / violet cast on rc15** (R15-01): fed the live white balance statistics, the ISP's own white
