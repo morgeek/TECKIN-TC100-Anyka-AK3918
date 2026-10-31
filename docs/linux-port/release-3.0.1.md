@@ -21,14 +21,14 @@ Nothing in this path writes U-Boot, `boot`, `mac` or `env`. Every flash write is
 | Test | If it passes (rc15 default) | Where | If it fails |
 |---|---|---|---|
 | R12-04 speaker | already the default (bug fix) | patch 0009 | `spk_active=1` / rc11 kernel; push-to-talk listed as not working |
-| R12-01 night parameter set | on | `NIGHT_STYLE=1` as the default where it is read (rtsp-launch.sh, state.cgi, action.d/video.sh) | stays off, switch kept |
+| R12-01 / R14-02 night parameter set | **on (done, R14-02 passed)** | `NIGHT_STYLE` default 1 (rtsp-launch.sh, state.cgi, action.d/video.sh) | off by the switch |
 | R12-02 low light 10 fps | on | `LOWLIGHT_FPS=1`, same three places | stays off |
 | R12-03 stock day / night method | default source `vendor` (needs R12-02 and live white balance counts, R12-09) | `DAYNIGHT_SOURCE=vendor` in the daemon, state.cgi, action.d/video.sh | luminance stays the default |
 | R12-05 IR LED protection | already on | daemon | `IR_LED_MAX_ON=0` default |
 | R12-06 IR-cut pulse 10 ms | 10 (or 20) ms | `bin/setconf` default `IRCUT_PULSE_MS` | 150 ms stays |
 | R12-07 web page | fixes of what the owner saw | page / CGI | |
 | R12-08 no SD card | the documented normal use | README | the fault fixed in rc15 |
-| R14-01 Wi-Fi recovery | already on (only acts without `wlan0`) | scripts | `WIFI_POWER_GPIO=0` (re-probe only) |
+| R14-01 Wi-Fi recovery | already on (only acts without `wlan0`); GPIO 11 confirmed; one clean restart when the link is slow after a power cycle (prepared) | scripts | `WIFI_POWER_GPIO=0` (re-probe only) |
 | R12-09 white balance statistics | kernel reads the live counts (patch 0006); then an A/B of the software white balance | patch 0006, `config/awb.off` | the software white balance stays, the stock method uses its metric alone |
 | R11-01 smart mode | not in 3.0.1 (stops the encoder with the 9600K pool) | | |
 | P-08 VBR | on, if R12-07 shows no loss with Frigate | `rtspserver.conf.dist` [0] `vbr=1` | CBR stays |

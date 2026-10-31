@@ -18,6 +18,7 @@ WR_BOOTCONF=${WR_BOOTCONF:-/mnt/config/boot.conf}
 WR_CONSOLE=${WR_CONSOLE:-/dev/console}
 WR_LOCK=${WR_LOCK:-/tmp/.wifi-recover.lock}
 WR_LAST=${WR_LAST:-/tmp/.wifi-recover.last}
+WR_MARK=${WR_MARK:-/mnt/config/.wifi-recover-restarts}
 WR_GAP=${WR_GAP:-300}     # seconds between two tries (net-guard calls it every minute while wlan0 is missing)
 
 wr_log() { echo "[wifi-recover] $*" >> "$WR_CONSOLE" 2>/dev/null; logger -t tc100-event -p user.warn "wifi-recover: $*" 2>/dev/null; }
@@ -62,6 +63,23 @@ else
   fi
 fi
 if [ -z "$ok" ]; then wr_log "Wi-Fi chip not recovered (a power cut is needed)"; exit 1; fi
-wr_log "wlan0 back after the $ok: Wi-Fi settings applied again"
+wr_log "wlan0 back after the $ok (USB speed $(cat "$WR_DEV/speed" 2>/dev/null || echo ?) Mbit/s): Wi-Fi settings applied again"
 [ -f "$WR_APPLY" ] && sh "$WR_APPLY" >/dev/null 2>&1
+# R14-01: after a power cycle by hand the chip came back but the link stayed bad (pings of 1-3 s, RX drops) until a
+# warm reboot, which then started from the freshly powered chip. So after a power cycle the gateway is pinged; a lost or
+# slow link (average above WR_SLOW_MS) restarts the camera, once: the count in WR_MARK (kept in the flash settings)
+# stops a second restart until the net-guard has seen the network fine for 10 minutes.
+case "$ok" in "power cycle"*) ;; *) exit 0 ;; esac
+sleep "${WR_SETTLE:-25}"
+gw=$(ip route 2>/dev/null | sed -n 's/^default via \([0-9.]*\).*/\1/p' | head -n 1)
+avg=$( [ -n "$gw" ] && ping -c 4 -W 2 "$gw" 2>/dev/null | sed -n 's|.*min/avg/max[^=]*= *[0-9.]*/\([0-9]*\).*|\1|p')
+case "$avg" in ''|*[!0-9]*) avg=99999 ;; esac
+[ "$avg" -le "${WR_SLOW_MS:-500}" ] && { wr_log "link fine after the power cycle (gateway $avg ms)"; exit 0; }
+n=0; [ -r "$WR_MARK" ] && read -r n < "$WR_MARK"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
+if [ "$n" -ge 1 ]; then wr_log "link still slow (gateway ${avg} ms) after a restart for it: left as it is"; exit 0; fi
+echo $((n + 1)) > "$WR_MARK" 2>/dev/null
+wr_log "link slow after the power cycle (gateway ${avg} ms): restart from the freshly powered chip"
+sh "${WR_TRACKER:-/mnt/scripts/reboot-tracker.sh}" intent "wifi-recover: link slow after a Wi-Fi power cycle, clean restart" >/dev/null 2>&1
+sync
+${WR_REBOOT:-reboot}
 exit 0

@@ -98,11 +98,11 @@
         _irs=$(_dn_get IR_LED_MAX_ON)
         if [ -n "${F_dn_ir_max_h}" ]; then _irs=$(( $(sanitize_int_range "${F_dn_ir_max_h}" 0 48 14) * 3600 )); fi
         _irs=$(sanitize_int_range "${_irs}" 0 172800 50400)
-        _ns0=$(_dn_get NIGHT_STYLE); _lf0=$(_dn_get LOWLIGHT_FPS)
+        _ns0=$(_dn_get NIGHT_STYLE); _ns0=${_ns0:-1}; _lf0=$(_dn_get LOWLIGHT_FPS)
         _ns=$(normalize_bool "${F_dn_nightstyle}"); _lf=$(normalize_bool "${F_dn_lowlight}")
         printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\nVENDOR_NIGHT_LUM=%s\nVENDOR_DAY_LUM=%s\nIR_LED_MAX_ON=%s\nNIGHT_STYLE=%s\nLOWLIGHT_FPS=%s\n' \
           "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" "$_vn" "$_vd" "$_irs" "$_ns" "$_lf" > /mnt/config/daynight.conf
-        [ "${_ns0:-0}" = "$_ns" ] && [ "${_lf0:-0}" = "$_lf" ] || schedule_rtsp_restart
+        [ "$_ns0" = "$_ns" ] && [ "${_lf0:-0}" = "$_lf" ] || schedule_rtsp_restart
       fi
       if [ -n "${F_osd_form}" ]; then
         osdenabled=$(normalize_bool "${F_osdenabled}")

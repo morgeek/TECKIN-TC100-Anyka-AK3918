@@ -118,6 +118,11 @@ ng_once()
             _ng_first "$STATE/up_since"
             [ $((_now - _f1)) -ge 600 ] && { rm -f "$PERSIST"; sync; }
         fi
+        # the Wi-Fi recovery's one-restart guard (scripts/wifi-recover.sh) is cleared the same way
+        if [ -f "${NG_WR_MARK:-/mnt/config/.wifi-recover-restarts}" ]; then
+            _ng_first "$STATE/up_since"
+            [ $((_now - _f1)) -ge 600 ] && rm -f "${NG_WR_MARK:-/mnt/config/.wifi-recover-restarts}"
+        fi
         return 0
     fi
     rm -f "$STATE/up_since"

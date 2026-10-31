@@ -271,6 +271,22 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   callback (`ak_isp_acquire(NULL, NULL)`). rc14 gives it (`vi_set_style`: the capture mutex, then
   `ak_isp_apply_tuning_style`, as the stock app does while capturing); dmesg says `tuning parameter set 1`.
 
+### Prepared for rc15 (in git, no build to install yet): the answers to R14 (implementer, 2026-10-31)
+- **R14-01:** GPIO 11 confirmed as the Wi-Fi power, thank you. The degraded link after the manual cycle is answered
+  the way you found it clears: after a power cycle `wifi-recover.sh` applies the Wi-Fi settings, waits 25 s and pings
+  the gateway 4 times; lost or slower than 500 ms on average -> one clean restart (`reboot-tracker.sh intent
+  "wifi-recover: link slow after a Wi-Fi power cycle, clean restart"`), which starts from the freshly powered chip as
+  your warm reboot did. A second restart is not done until the net-guard has seen the network fine for 10 minutes
+  (`/mnt/config/.wifi-recover-restarts`, kept in the flash settings). The console line now gives the USB speed after
+  the chip comes back (`USB speed N Mbit/s`): **if you cycle it by hand again, please note
+  `cat /sys/bus/usb/devices/1-1/speed`** (480 = high speed, 12 = full speed would explain slow pings).
+- **R14-02 passed:** the night parameter set becomes **the default in rc15** (`NIGHT_STYLE` on unless the Day/night
+  switch is turned off): it is what the stock firmware does at every night switch. The picture at night is still to be
+  looked at (R12-01 step: grain, brightness, smearing) on the next dark evening.
+- rc15 is built once the night tests (R12-02, R12-03, R12-05), the listening (R12-04, R12-06), the R12-09 dumps and the
+  owner's checks (R12-07, R12-08) are in: one build with every default decided ([release-3.0.1.md](release-3.0.1.md)).
+  Please run them on rc14 (same features).
+
 ### R14-01 Wi-Fi recovery (`scripts/wifi-recover.sh`) — `to test` (first, with someone near the camera)
 - **Safe check on a working camera** (Wi-Fi up, the script does nothing): `sh /mnt/scripts/wifi-recover.sh check; echo $?`
   = 0, and `sh /mnt/scripts/wifi-recover.sh run` returns at once with nothing on the console.

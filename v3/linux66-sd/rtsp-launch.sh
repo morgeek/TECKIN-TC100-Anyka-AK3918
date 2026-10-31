@@ -58,7 +58,8 @@ if [ -f $CONF ]; then
   case "$2" in 1|2) export RTSP_SMART=$2 ;; esac
 fi
 dnc() { sed -n "s/^$1=//p" /mnt/config/daynight.conf 2>/dev/null | tail -n 1; }
-[ "$(dnc NIGHT_STYLE)" = 1 ] && export RTSP_NIGHTSTYLE=1
+# the night parameter set is on unless switched off (rc15: R14-02 passed, the stock firmware always uses it)
+[ "$(dnc NIGHT_STYLE)" = 0 ] || export RTSP_NIGHTSTYLE=1
 [ "$(dnc LOWLIGHT_FPS)" = 1 ] && export RTSP_LOWLIGHT_FPS=1
 # boot.conf: RTSP_SUBSTREAM (640x360 second stream on /video1, /ch1, /sub; 0 = off) and RTSP_AUDIO (G.711 track).
 # The recording (REC_*), the sound level (sound_detection.conf) and the motion zones are read by tc100_rtsp itself.
