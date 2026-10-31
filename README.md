@@ -10,8 +10,9 @@ the internet, and no vendor file is published.
 free drivers for the hardware video encoder (H.264, H.265, JPEG) and a free RTSP
 server: no vendor daemon, no cloud. It runs from an SD card (trial) or
 **entirely from the camera's SPI flash**, installed from the card without a
-serial console: [copy the files to an SD card and restart the camera](#try-it-copy-to-an-sd-card-restart-the-camera). **3.0.1-rc1 is a release candidate not yet run on a camera**:
-read [Is it safe?](#is-it-safe) first.
+serial console: [copy the files to an SD card and restart the camera](#try-it-copy-to-an-sd-card-restart-the-camera). **3.0.1** was
+tested on two TC100 cameras (installed from the card, then updated from the web page, running from the flash with
+and without a card); read [Is it safe?](#is-it-safe) first.
 
 > **The 2.x firmware** (vendor kernel 3.4, lighttpd with HTTPS, the vendor RTSP
 > server with `libtc100fix`, install to `/usr`) is on the branch
@@ -93,8 +94,10 @@ grew from there.
   CSRF protection, only the local network may connect by default, and a "Privacy shield" switch that stops every
   outgoing service.
 
-**What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), resolution changes, card formatting
-from the web page. Anti-flicker (Settings, Picture) is new in 3.0.1-rc9 and still to be checked on a camera. Feature by feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
+**What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), a VPN, resolution changes (1080p and
+640x360), card formatting from the web page, the encoder's smart mode (it stops the encoder with the memory left on
+this camera). Not yet checked on a camera: push-to-talk and two-way audio through the speaker (the speaker itself
+works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). Feature by feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
 
 ---
 
@@ -149,8 +152,11 @@ What the card does step by step, the U-Boot commands and the flash layout:
 
 ## Is it safe?
 
-Not yet proven: **nothing of the SD install has run on a camera.** Use it only if you can live with opening the
-camera to reach its serial console in the worst case below.
+Tested on **two cameras of the same hardware variant** (October 2026): the SD card install from the stock firmware,
+about a dozen release candidates written to the flash by the update (kernel, user space, initramfs, each read
+back), the web update on a second camera, runs without the SD card, soaks of several hours with Frigate. Still not covered:
+other hardware variants, a power cut during the one U-Boot environment write, and `restore-stock.sh` on a real
+camera. Use it only if you can live with opening the camera to reach its serial console in the worst case below.
 
 What protects you:
 - The camera is identified before anything is written: a read-only inventory (sensor, Wi-Fi chip, flash, U-Boot)
