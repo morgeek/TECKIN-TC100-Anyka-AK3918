@@ -48,12 +48,15 @@ grew from there.
 ## What you can do
 
 **Video**
-- Two RTSP streams: main 1080p H.265 or H.264 at 15 fps, and a 640x360 sub-stream for detection
-  (`rtsp://CAMERA-IP:554/video0_unicast` and `video1_unicast`), over TCP or UDP, with the microphone as a G.711 track.
-  The sub-stream can be turned off when no recorder uses it.
+- Two RTSP streams: main 1080p H.265 or H.264 (10 to 25 fps, 15 by default; constant or variable bit rate), and a
+  640x360 sub-stream for detection made by the image processor's own scaler (`rtsp://CAMERA-IP:554/video0_unicast` and
+  `video1_unicast`), over TCP or UDP, with the microphone as a G.711 track. The sub-stream can be turned off when no
+  recorder uses it.
 - ONVIF (discovery and profiles, port 8081): off by default, Services → Services → onvif.
-- **Privacy masks** painted out before encoding, live image tuning (brightness, contrast, saturation, hue) with no
-  stream restart, day / night with the IR LEDs and the IR filter, black and white, on-screen clock.
+- **Privacy masks** and the on-screen clock drawn by the image processor, live image tuning (brightness, contrast,
+  saturation, hue, sharpness, exposure cap) with no stream restart, anti-flicker (50 / 60 Hz).
+- **Day and night** with the IR LEDs and the IR filter: at night the sensor tuning's own night settings (longer
+  exposure, night noise filter), by day 10 fps in low light for a brighter picture, IR LED protection after 14 hours.
 - Still JPEG at `cgi-bin/currentpic.cgi`, made by the hardware JPEG engine, so Home Assistant polling costs nothing.
 
 **Home Assistant, Frigate, NVRs**
@@ -80,7 +83,11 @@ grew from there.
   does the detection.
 
 **Running it**
-- From the **flash memory**, the SD card only for recordings; or from the SD card (trial mode).
+- From the **flash memory**, with or without an SD card (the card holds recordings and saved logs); or from the SD
+  card (trial mode).
+- **Recovers by itself:** the Wi-Fi chip when it fails to start after a reboot (probe, power cycle, one clean
+  restart), the video server when it stops, the network (a guard restarts the camera after a long outage); settings
+  changed just before a reboot are kept.
 - Setup wizard, French / English interface, light / dark theme, phone layout.
 - Firmware updates from the web page, written to the flash and read back.
 - Wi-Fi from a `wifi.txt` file on the card, from the web page, or from a rescue access point when the Wi-Fi is lost;
@@ -97,7 +104,8 @@ grew from there.
 **What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), a VPN, resolution changes (1080p and
 640x360), card formatting from the web page, the encoder's smart mode (it stops the encoder with the memory left on
 this camera). Not yet checked on a camera: push-to-talk and two-way audio through the speaker (the speaker itself
-works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). Feature by feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
+works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). What is known
+not to be perfect yet: [known issues](docs/known-issues.md).
 
 ---
 

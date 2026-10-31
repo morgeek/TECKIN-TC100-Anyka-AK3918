@@ -271,6 +271,13 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   callback (`ak_isp_acquire(NULL, NULL)`). rc14 gives it (`vi_set_style`: the capture mutex, then
   `ak_isp_apply_tuning_style`, as the stock app does while capturing); dmesg says `tuning parameter set 1`.
 
+### 3.0.1 prepared (2026-10-31, the owner: "prepare a release")
+`VERSION` 3.0.1 = rc16 + the alert as three 1 kHz beeps (R16: the 0.5 s tone was missed at the default volume, still
+at the -6 dBFS that R15-02 heard clean) + the release documentation. **The tag `v3.0.1` (which publishes the files) waits
+for the owner's go.** Still open when it was prepared: R15-03 (one night on the defaults) and R15-04 (the web page, the
+no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not a re-tag.
+- To check on the 3.0.1 build: the alert heard at the default volume (`sh /mnt/scripts/speaker-play.sh /mnt/sounds/alert.pcm`).
+
 ### Next build: 3.0.1-rc16 — the release candidate after R15 (2026-10-31)
 
 **Implementer's answers to the rc15 results:**

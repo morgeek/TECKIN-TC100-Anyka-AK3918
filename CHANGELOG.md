@@ -5,7 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [3.0.1] - 2026-10-31
+
+Tested on two TC100 cameras of the same variant: from rc5 on, each release candidate was installed and checked on
+IPCAM2, and rc16 also runs on IPCAM1 (installed by the web update). In short: runs from the flash with no SD card, the speaker works,
+night picture and low-light settings from the sensor tuning, Wi-Fi that recovers by itself after a reboot, about
+21 MB of free memory, the clock, masks and sub-stream done by the image processor. The entries below are the
+release candidates' details, newest first.
+
 
 ### Fixed
 - **Strong blue / violet cast on rc15** (R15-01): fed the live white balance statistics, the ISP's own white

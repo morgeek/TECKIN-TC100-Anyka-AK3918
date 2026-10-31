@@ -1,5 +1,9 @@
 # Release plan: 3.0.1 (2026-10-31)
 
+**Status:** prepared on main (`VERSION` 3.0.1 = rc16 + the alert sound + the documentation); the tag `v3.0.1` waits
+for the owner's go. rc16 passed R16-01 (colours) on IPCAM2, runs on IPCAM1 (web update); R15-03 (a night) and
+R15-04 (the owner's checks) were still open.
+
 The owner's target: at most one or two more release candidates, then the release. This page is the plan; the test
 results live in [test-queue.md](test-queue.md).
 

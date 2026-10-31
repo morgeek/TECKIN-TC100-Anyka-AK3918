@@ -29,8 +29,13 @@ if __name__ == "__main__":
             with open(f, "rb") as infile:
                 outfile.write(infile.read())
 
-    # Motion detected: lower tone alert
-    generate_pcm("sounds/alert.pcm", duration_sec=0.5, freq=400)
+    # Motion detected: three 1 kHz beeps (R16: one 0.5 s 400 Hz tone was missed at the default volume)
+    generate_pcm("sounds/beep.tmp", duration_sec=0.3, freq=1000)
+    beep = open("sounds/beep.tmp", "rb").read()
+    gap = b"\x00\x00" * int(0.15 * 8000)
+    with open("sounds/alert.pcm", "wb") as f:
+        f.write(beep + gap + beep + gap + beep)
+    os.remove("sounds/beep.tmp")
 
     # Speaker test tones (test queue R15-02)
     for db in (6, 12, 20):
