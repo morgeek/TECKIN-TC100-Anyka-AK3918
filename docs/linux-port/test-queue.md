@@ -376,6 +376,19 @@ no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not
   -256 (the net-guard acts only after a gateway loss)? It would have shown this without a ping flood.
 - The .24 could not be measured with `tc100_rtsp.log` (no `STAT` log on its stdout, unlike the .11: the launch differs?).
 
+### .24 colours on rc16: the ISP white balance is wrong on this unit (tester, 2026-10-31 20:45 local, lit room, luma 148)
+- With `HUE`/`SATURATION` back to 0, the wall that is white is still **yellow-green** with the software white balance on (default), and
+  **bright green** with `awb.off` (the ISP alone; snapshots on the owner's Mac, not in git: an animal and a room). So the ISP's own white
+  balance sits at a green colour temperature on the .24; the software white balance corrects most of it, not all. The .11 (same
+  `/vendor/isp.conf`, md5 926b0a2a..., same kernel, `awb_live` 0) is neutral by the same test. Same sensor name F23 on both; the ISP file does not differ.
+- rc15 (live statistics) went **blue** on the .11 (R15-01). So neither the old block (green on the .24) nor the live counts (blue on the .11) give a
+  neutral picture on both units: the white balance algorithm needs a look with data of both cameras. `awb_live` is read-only at runtime
+  (`/sys/module/ak_isp/parameters`, 0444): it cannot be flipped on the .24 without a kernel command line change (U-Boot; no serial on that camera), so
+  no live counts test on the .24 was made.
+- `cam_awb` on the .24 in this scene: `1894122 1083 8 0 0 3502 7 ...` (.11 in a dimmer scene: `272604 30 1 0 0 233 ...`).
+- Requested: make `awb_live` a runtime-writable parameter (0644) or a `/mnt/config` switch the kernel reads at the start of capture, so the tester can A/B on both cameras without U-Boot.
+- Owner's expectation: **the same neutral picture on both cameras** (3.0.1 should not ship with one camera green).
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
