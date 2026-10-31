@@ -366,6 +366,24 @@ those four, each **off by default** (or a pure measurement) until its entry belo
 - **Pass:** VBR saves on a still day scene with no visible loss and Frigate is fine: **then** (rc10) `RTSP_VBR=1` by
   default. Same for `IDLE_FPS`. Smart mode: implemented only once step 1 shows its call.
 
+### RE-01 Copy the stock binaries to the card for reverse engineering (read only) — `to do` (owner's request 2026-10-31)
+- **Why:** the owner asks to read the original binaries (Ghidra, on the implementer's PC) instead of guessing vendor
+  structures: the `ak_venc_set_smart_config` structure (R9-04: the call exists), the anti-flicker call of the stock
+  firmware (`ak_vpss_effect_set(6, hz)`, to check R9-03), the 3D-NR reference frame size of the vendor ISP driver (to
+  check R9-01 before its card test), the stock day / night logic and the speaker path. These files are not free: they
+  go to the card and then to the owner's PC only, **never into git, a CI artifact or a chat**.
+- **Safety:** reads only (`cp`, `dd if=` of a partition into a file on the card). Nothing written to the flash.
+- **Do (after the R9-00 soak, card mounted read-write):**
+  1. `mkdir -p /mnt/sd/re` and copy the camera's vendor libraries: `/mnt/lib/libmpi_venc_ex.so`, `libakv_encode.so`,
+     every `libplat_*.so`, and whatever else the `vendor` partition holds (`ls -l` of it into `/mnt/sd/re/vendor-ls.txt`).
+  2. The stock firmware: if `tc100-3/backup/` (written by the 3.0 install) holds the old partitions, list them with
+     their md5 into `/mnt/sd/re/backup-ls.txt` (no copy needed, they are already on the card). If a full 8 MB dump or a
+     `collect-platform-dump.sh` tar exists on the card or the Mac, say where.
+  3. Write here what was copied (names, sizes, md5). The owner copies `/mnt/sd/re/` and the stock partitions to
+     `C:\Users\mfront\Documents\tc100-re\in\` on his PC.
+- **Then (implementer):** Ghidra headless analysis; the findings (structures, values, call sequences) go into the code
+  and `docs/linux-port/`, each as a switch with its own test entry here.
+
 ### Next build: 3.0.1-rc8 — stable: only what passed on rc7, and the two bugs fixed (2026-10-31)
 
 The owner asks for a stable rc8 made of verified improvements. Nothing new or untested goes in; every change has a
