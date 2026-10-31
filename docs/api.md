@@ -1481,8 +1481,9 @@ Retained state on `<root>/isp/state` (same JSON as above). Commands on the
 command topic: `{"cmd":"isp_brightness","value":"20"}` (also `isp_contrast`,
 `isp_saturation`, `isp_sharpness`, `isp_hue`, `isp_exposure_max_pct`,
 `isp_power_hz` with `unchanged|50|60`) and `{"cmd":"isp_tune","value":"on|off"}`.
-Home Assistant discovery creates six `number` sliders, an `Anti-flicker` select
-and an `Image Tuning` switch (entity category: config).
+Home Assistant discovery creates six `number` sliders and an `Image Tuning` switch
+(entity category: config). The `Anti-flicker` select of 2.x is not announced on 3.0 (anti-flicker is applied
+again from 3.0.1-rc9 on, test queue R9-03; the entity comes back once that passes); `isp_power_hz` works.
 
 ---
 

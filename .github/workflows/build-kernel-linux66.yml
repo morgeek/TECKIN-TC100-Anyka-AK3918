@@ -185,44 +185,48 @@ jobs:
           name: tc100-linux66-symbols
           path: symbols/
 
-      # HW-02 test 2 (test queue R8-02) without any U-Boot prompt: the same kernel with ak39_venc.pool=9600K in its
-      # own command line (appended to the one U-Boot passes), for the card only (tc100test/c66.img). The card hook's
-      # sdboot arguments have no flashroot=1 (SD mode): the kernel adds it, so the initramfs takes the user space from
-      # the flash as in a flash boot, and sub_channel=1 as the flash boot has it. Built last, so the artifacts above
-      # are the normal kernel. Only the files that use CONFIG_CMDLINE are rebuilt.
-      - name: Card test kernel with a 9600K encoder pool (HW-02 test 2)
+      # 3D noise reduction test (test queue R9-01) without any U-Boot prompt: the same kernel with
+      # "ak39_vi.nr3d=1 cma=24M flashroot=1 ak39_vi.sub_channel=1" in its own command line, appended to the one U-Boot
+      # passes (CMDLINE_EXTEND; the later cma= wins over U-Boot's cma=18M), for the card only (tc100test/c66.img).
+      # nr3d=1 reserves the 6.2 MB reference frame at boot, cma=24M makes room for it next to the capture buffers;
+      # flashroot=1: the hook's sdboot arguments have none, the user space and settings then come from the flash as in
+      # a flash boot. Built last, so the artifacts above are the normal kernel. Only the files that use CONFIG_CMDLINE
+      # are rebuilt.
+      - name: Card test kernel with 3D noise reduction (R9-01)
         run: |
           set -e
           cd linux-src
-          HW02_CMDLINE="ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1"
-          scripts/config --set-str CMDLINE "$HW02_CMDLINE" --disable CMDLINE_FROM_BOOTLOADER --enable CMDLINE_EXTEND
+          NR3D_CMDLINE="ak39_vi.nr3d=1 cma=24M flashroot=1 ak39_vi.sub_channel=1"
+          scripts/config --set-str CMDLINE "$NR3D_CMDLINE" --disable CMDLINE_FROM_BOOTLOADER --enable CMDLINE_EXTEND
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
-          grep -qx "CONFIG_CMDLINE=\"$HW02_CMDLINE\"" .config
+          grep -qx "CONFIG_CMDLINE=\"$NR3D_CMDLINE\"" .config
           grep -qx 'CONFIG_CMDLINE_EXTEND=y' .config
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage
-          D=../output-hw02; mkdir -p $D
+          D=../output-nr3d; mkdir -p $D
           cat arch/arm/boot/zImage $(find arch/arm/boot/ -name "*tc100*.dtb" | head -n 1) > $D/zImage-dtb
-          mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 TC100 HW-02 pool 9600K" -d $D/zImage-dtb $D/c66-hw02-pool9600k.img
+          mkimage -A arm -O linux -T kernel -C none -a 0x80008000 -e 0x80008000 -n "Linux 6.6 TC100 3D-NR test" -d $D/zImage-dtb $D/c66-nr3d-test.img
           rm $D/zImage-dtb
           cp System.map .config $D/
-          cat > $D/README-HW02.txt <<'TXT'
-          HW-02 test 2 (docs/linux-port/test-queue.md, R8-02): the rc8 kernel of this same run with
-          "ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1" added to its command line by the kernel itself:
-          the user space and the settings come from the flash, as in a flash boot. No U-Boot prompt, nothing written
-          to the flash or to the U-Boot environment.
-          1. On the SD card, rename tc100test/c66.img to tc100test/c66-rc8.img (rename, do not delete).
-          2. Copy c66-hw02-pool9600k.img to the card as tc100test/c66.img; tc100test/c66rd.gz must be the rc8
-             initramfs, and its size must equal the initrd size in the hook's sdboot arguments (read the U-Boot
+          cat > $D/README-NR3D.txt <<'TXT'
+          3D noise reduction test (docs/linux-port/test-queue.md, R9-01): the kernel of this same run with
+          "ak39_vi.nr3d=1 cma=24M flashroot=1 ak39_vi.sub_channel=1" added to its command line by the kernel itself:
+          the 3D-NR reference frame (6.2 MB) is reserved at boot in a 24 MiB CMA area, the user space and the
+          settings come from the flash, as in a flash boot. No U-Boot prompt, nothing written to the flash or to
+          the U-Boot environment.
+          1. On the SD card, rename tc100test/c66.img to tc100test/c66-before.img (rename, do not delete).
+          2. Copy c66-nr3d-test.img to the card as tc100test/c66.img (check its md5 below). tc100test/c66rd.gz
+             stays the one whose size equals the initrd size in the hook's sdboot arguments (read the U-Boot
              environment, do not write it): a larger file is cut short and the kernel panics at every start.
           3. Reboot (reboot from the shell, or power cycle). Check /proc/cmdline ends with
-             "ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1" and dmesg says "pool 9600 KiB ... (CMA)".
-          Way back: rename tc100test/c66-rc8.img back to tc100test/c66.img and reboot.
+             "ak39_vi.nr3d=1 cma=24M flashroot=1 ak39_vi.sub_channel=1", and dmesg: "cma: Reserved 24 MiB" and
+             "3D-NR reference frame: 4050 KiB at ..., 2025 KiB at ...".
+          Way back: rename tc100test/c66-before.img back to tc100test/c66.img and reboot.
           System.map and .config here are those of this kernel (decode its Oops traces with them).
           TXT
           (cd $D && md5sum * > md5sums.txt)
 
-      - name: Upload the HW-02 card test kernel
+      - name: Upload the 3D-NR card test kernel
         uses: actions/upload-artifact@v4
         with:
-          name: tc100-linux66-hw02-pool9600k
-          path: output-hw02/
+          name: tc100-linux66-nr3d-test
+          path: output-nr3d/

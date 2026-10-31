@@ -17,7 +17,7 @@ on a capture memory that the CPU reads uncached.
 | ISP black and white (`AK_ISP_SET_YUV_EFFECT` or saturation 0) | **no**: `memset` of the chroma | 1 MB write per frame in B/W |
 | ISP flip / mirror (`AK_ISP_SET_FLIP_MIRROR`) | **now**: `bin/isp_flip` (was missing, Settings orientation did nothing) | - |
 | ISP sub channel (hardware scaler, 640x360 second output) | **yes** since 2026-10-29: `ak39_vi.sub_channel=1` on the kernel command line (stable since the 480 MHz clock fix), `tc100_rtsp` copies the ISP picture when the capture buffers hold it (`RTSP_HWSUB=0` falls back to `sub_scale`). IPCAM2: sub picture CPU time 1100 -> 460 ms per 5 s, same framing | was 345 600 scattered reads per frame |
-| ISP 3D noise reduction | **no**: its reference buffers (2 x 3 MB) do not fit the CMA area, it is forced off | quality and bit rate, not CPU |
+| ISP 3D noise reduction | **to test** (rc9, R9-01): `ak39_vi.nr3d=1` reserves the 6.2 MB reference frame at boot; off by default, card test kernel with a 24 MiB CMA area | quality and bit rate, not CPU |
 | ISP statistics (Y histogram, AE info) | **no**: the light level is a CPU sample of the picture | small |
 | Capture DMA into cached memory (kernel patch 0012, `RTSP_CACHED=1`) | **new, to test** | every CPU read above becomes a cache-line fill instead of a bus access |
 | Capture straight into the encoder pool (kernel patch 0011, `RTSP_ZEROCOPY=1`) | **new, to test** | the 3 MB copy itself |
@@ -156,14 +156,16 @@ settings kept), normal flash start (no card kernel): "Page block order: 7", 2 hi
 | Work | Before | Now (switch) | Test |
 |---|---|---|---|
 | Copy of the pictures in the encoder pool | 3.4 MB of the pool always taken | only in copy mode | [HW-01](test-queue.md#hw-01-no-picture-copy-in-the-encoder-pool-with-direct-capture--to-test) |
-| Encoder pool | 12 MiB no-map, lost to the kernel | CMA area, `ak39_venc.pool=` gives the rest back | HW-02 |
+| Encoder pool | 12 MiB no-map, lost to the kernel | CMA area, 9600K by default since rc9 (`ak39_venc.pool=12M` = before), the rest serves the kernel | HW-02 / R8-02 passed |
 | Wi-Fi USB FIFO | one bus access per byte | 32-bit words (`otg_hs.fifo32=1`, off: no gain measured in rc7) | HW-03 |
 | Privacy masks | painted by the CPU in each frame | ISP mask areas (default since rc8, `RTSP_ISPMASK=0` = CPU) | HW-04 passed |
 | Sharpness | not applied on 3.0 | ISP `AK_ISP_SET_SHARP` (Image page; 3 effective levels) | HW-05 works |
 | Exposure cap | not applied on 3.0 | ISP `AK_ISP_SET_AE` (Image page) | HW-06 passed |
 | OSD clock | drawn by the CPU in each frame | ISP OSD window, kernel patch 0014 (default since rc8, `RTSP_ISPOSD=0` = CPU) | HW-07 passed |
-| Light level for day / night | CPU sample of the picture after AE | AE state written to `/tmp/cam_ae` (not used yet) | HW-08 |
+| Light level for day / night | CPU sample of the picture after AE | AE state in `/tmp/cam_ae`; the `ae` source with thresholds from the measured night, calibration log (rc9) | HW-08, R9-02 |
+| Anti-flicker | not applied on 3.0 | ISP auto exposure `exp_step` = one lamp pulse (rc9, `POWER_HZ`, off by default) | R9-03 |
 | Capture buffers | 4 ISP slots armed, one 3.4 MB CMA buffer each | 3 (default since rc8, `ak39_vi.slots=4` = before) | P-02 passed |
 
 Not possible or not done: SD 4-bit (its data lines are the IR-cut GPIOs), USB DMA (vendor path unsafe), 3D-NR
-(memory), anti-flicker (vendor call unknown). Details and the test procedures: [test-queue.md](test-queue.md).
+(memory; tried again in rc9, R9-01), anti-flicker (vendor call unknown; done through the ISP's auto exposure in rc9,
+R9-03). Details and the test procedures: [test-queue.md](test-queue.md).

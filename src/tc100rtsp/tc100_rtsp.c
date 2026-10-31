@@ -268,7 +268,7 @@ static int cfg_get(const char *file, const char *sec, const char *key, char *out
 	return found;
 }
 
-static int p_sharp, p_expct;	/* isp_tune.conf SHARPNESS (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap): done by the ISP */
+static int p_sharp, p_expct, p_hz;	/* isp_tune.conf SHARPNESS (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap), POWER_HZ (50, 60, 0 = off): done by the ISP */
 static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
 
 static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
@@ -299,6 +299,9 @@ static void post_apply(void)
 
 	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && truthy(v);
 	p_bri = p_con = p_sat = p_hue = p_sharp = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
+	/* anti-flicker applies whatever ISP_TUNE is, like the masks: it is about the lamps, not a matter of taste */
+	p_hz = cfg_get(fn[1], "", "POWER_HZ", v, sizeof v) ? atoi_(v) : 0;
+	if (p_hz != 50 && p_hz != 60) p_hz = 0;
 	if (p_tune) {
 		if (cfg_get(fn[1], "", "BRIGHTNESS", v, sizeof v)) p_bri = atoi_(v);
 		if (cfg_get(fn[1], "", "SHARPNESS", v, sizeof v)) p_sharp = atoi_(v);
@@ -491,6 +494,11 @@ static void tune_hw_apply(void)
  *   of the 9 gain-linked sets, 2 % per step (-50 = off, +50 = double).
  * - exposure cap (EXPOSURE_MAX_PCT): AK_ISP_SET_AE, exp_time_max at a percentage of the tuning file's value (less
  *   motion blur at night, darker picture), never below exp_time_min.
+ * - anti-flicker (POWER_HZ 50 / 60, test queue R9-03): the same AK_ISP_SET_AE, exp_step = the sensor lines of one lamp
+ *   pulse (1 / 100 s or 1 / 120 s); the ISP's auto exposure then keeps exposures longer than a pulse at whole
+ *   pulses, which removes the bands (the 2.x firmware did it through the vendor library). Exposure is counted in
+ *   sensor lines: the JX-F23 on MIPI runs 1125 lines a frame at 25 fps (0x465 in the sensor driver, exp_time_max
+ *   1125 measured), 28125 lines a second at every frame rate (only the blanking changes); RTSP_LINE_RATE overrides it.
  * - the clock (default since rc8, HW-07 passed; RTSP_ISPOSD=0: by the CPU; kernel patch 0014): drawn once a second into an OSD window
  *   the ISP blends into the main picture, instead of being written into every frame. Refusal (older kernel): CPU.
  * - the exposure state (AK_ISP_GET_AE_RUN_INFO) every 2 s in /tmp/cam_ae, for day / night: "lumi exp_time a_gain
@@ -519,9 +527,9 @@ struct isp_osd { unsigned int channel, width, height; unsigned short x, y, alpha
 typedef char isp_layout_check[(sizeof(struct isp_masks) == 40 && sizeof(struct isp_mask_color) == 5 &&
 	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_ae_run) == 36) ? 1 : -1];
 
-static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_now, ae_base = -1, exp_now_pct;
+static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_now, ae_base = -1, exp_now_pct, hz_now;
 static int osd_hw = -1;
-static unsigned int ae0[AE_WORDS], exp_now;
+static unsigned int ae0[AE_WORDS], exp_now, exp_step_now;
 static struct isp_sharp sharp0, sharp1;
 
 static int ispx_open(void)
@@ -540,9 +548,9 @@ static void mask_px(struct isp_mask1 *a, const int *pc, int w, int h)
 static void ispx_status(void)	/* /var/run/isp_tune.status: what the web page shows as applied */
 {
 	char b[400];
-	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nHUE=%d\nPOWER_HZ=\n"
+	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nHUE=%d\nPOWER_HZ=%.0d\n"
 			 "EXPOSURE_MAX_PCT=%d\nMASKS=%d\nMASK_RC=%d\nMASK_HW=%d\nOSD_HW=%d\n",
-			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, p_tune ? hue_want : 0,
+			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, p_tune ? hue_want : 0, hz_now,
 			 exp_now_pct, mask_n, mask_rc, mask_hw == 1, osd_hw == 1);
 
 	if (ae_base == 1 && n > 0 && n < (int)sizeof b)
@@ -594,20 +602,27 @@ static void ispx_apply(void)
 			} else { LOG("sharpness: the ISP refused it (%s)\n", strerror(errno)); sharp_base = 0; }
 		} else if (sharp_base == 0 && p_sharp) LOG("sharpness: no ISP sharpness control\n");
 	}
-	if (p_expct != exp_now_pct) {
+	if (p_expct != exp_now_pct || p_hz != hz_now) {
 		if (ae_base < 0) ae_base = ioctl(fd, ISP_GET_AE, ae0) == 0 && ae0[0];
 		if (ae_base == 1) {
 			unsigned int a[AE_WORDS];
 			unsigned long t = p_expct ? (unsigned long)ae0[0] * (unsigned)p_expct / 100 : ae0[0];
+			const char *lr = getenv("RTSP_LINE_RATE");
+			int rate = lr && atoi_(lr) > 1000 ? atoi_(lr) : 28125;
 
 			memcpy(a, ae0, sizeof a);
 			if (t < ae0[1]) t = ae0[1];
 			if (t < 1) t = 1;
 			a[0] = (unsigned int)t;
+			if (p_hz) a[8] = (unsigned int)((rate + p_hz) / (2 * p_hz));	/* AK_ISP_AE_ATTR word 8: exp_step */
 			if (ioctl(fd, ISP_SET_AE, a) == 0) {
-				LOG("exposure cap: %d %% (exp_time_max %u -> %u)\n", p_expct ? p_expct : 100, ae0[0], a[0]);
-				exp_now_pct = p_expct; exp_now = a[0];
-			} else { LOG("exposure cap: the ISP refused it (%s)\n", strerror(errno)); ae_base = 0; }
+				if (p_expct != exp_now_pct)
+					LOG("exposure cap: %d %% (exp_time_max %u -> %u)\n", p_expct ? p_expct : 100, ae0[0], a[0]);
+				if (p_hz != hz_now)
+					LOG("anti-flicker: %s (exposure step %u -> %u lines, exp_time_max %u)\n",
+					    p_hz ? (p_hz == 50 ? "50 Hz" : "60 Hz") : "off", hz_now ? exp_step_now : ae0[8], a[8], a[0]);
+				exp_now_pct = p_expct; exp_now = a[0]; hz_now = p_hz; exp_step_now = a[8];
+			} else { LOG("exposure: the ISP refused the AE settings (%s)\n", strerror(errno)); ae_base = 0; }
 		}
 	}
 	ispx_status();
@@ -2542,6 +2557,19 @@ int main(int argc, char **argv)
 		p_alloc = dlsym(RTLD_DEFAULT, "akuio_alloc_pmem");
 		p_pinit = dlsym(RTLD_DEFAULT, "akuio_pmem_init");
 		if (!p_open || !p_send || !p_release || !p_close || !p_alloc) { LOG("missing encoder symbols\n"); return 2; }
+		{	/* P-08 / R9-04: which optional calls this camera's encoder library has (looked up, never called): the smart
+			 * mode (long GOP on a still scene) is not used until its call and structure are known */
+			static const char *const opt[] = { "ak_venc_set_smart_config", "ak_venc_get_smart_config", "ak_venc_set_rc",
+				"ak_venc_set_br", "ak_venc_set_fps", "ak_venc_set_gop_len", "ak_venc_set_iframe", "ak_venc_request_idr",
+				"ak_venc_set_profile", "ak_venc_set_roi" };
+			char b[320];
+			int n = 0;
+
+			b[0] = 0;
+			for (unsigned i = 0; i < sizeof opt / sizeof *opt; i++)
+				if (dlsym(m, opt[i]) && n + 40 < (int)sizeof b) n += snprintf(b + n, sizeof b - n, " %s", opt[i]);
+			LOG("encoder library: optional calls:%s\n", n ? b : " none of the known names");
+		}
 	}
 	if (p_pinit && p_pinit()) { LOG("akuio_pmem_init failed\n"); return 2; }
 #endif

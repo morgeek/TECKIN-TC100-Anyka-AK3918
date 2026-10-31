@@ -121,6 +121,24 @@ class DayNightFromExposure(unittest.TestCase):
         s = [(100 + 4 * i, '50 1 256 256 256 %d' % (i % 2)) for i in range(40)]
         self.assertEqual([c for c in self.feed('isp', s, pre) if c[1] != c[2]], [])
 
+    def test_default_thresholds_separate_the_measured_night(self):
+        """rc7 night 2 on IPCAM2: exposure 1124 lines, analogue gain 6840, IR LEDs on or off (R9-02)"""
+        s = [(100, '9 1124 6840 256 256 0'), (112, '9 1124 6840 256 256 0')]
+        self.assertEqual([c for c in self.feed('ae', s) if c[1] != c[2]], [(112, '1', '0')])
+
+    def test_calibration_log_every_interval_with_the_index(self):
+        (self.d / 'ae').write_text('9 1124 6840 256 256 0\n')
+        (self.d / 'luma').write_text('47\n')
+        (self.d / 'ircut').write_text('0\n')
+        log = self.d / 'dn.log'
+        r = sh('. %s\nDN_LOG_EVERY=300\nDN_NOW=1000; dn_log\nDN_NOW=1100; dn_log\nDN_NOW=1300; dn_log\n'
+               'rm -f "$CAM_AE"; DN_NOW=1700; dn_log\n' % self.daemon, dict(self.env, DN_LOG=str(log)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = log.read_text().splitlines()
+        self.assertEqual(len(lines), 3, lines)                 # 1100 is within 300 s of 1000
+        self.assertTrue(lines[0].endswith('mode=night src=luma luma=47 ae=9 1124 6840 256 256 0 idx=30031'), lines[0])
+        self.assertTrue(lines[2].endswith('ae=- idx=-'), lines[2])
+
     def test_unusable_exposure_file_falls_back(self):
         r = sh('. %s\nrm -f "$CAM_AE"; dn_step_ae 5; echo rc=$?\necho "1 2 3" > "$CAM_AE"; dn_step_ae 5; echo rc=$?\n'
                'echo "a b c d e f" > "$CAM_AE"; dn_step_ae 5; echo rc=$?\n' % self.daemon, self.env)
@@ -165,7 +183,7 @@ class DayNightFromExposure(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         j = json.loads(r.stdout)
         self.assertEqual((j['source'], j['index'], j['dark_flag'], j['luma'], j['ae_available'], j['ae_night_above'],
-                          j['ae_day_below'], j['night'], j['auto']), ('isp', 2000, 1, 77, 1, 5000, 1000, 0, 1))
+                          j['ae_day_below'], j['night'], j['auto']), ('isp', 2000, 1, 77, 1, 5000, 3000, 0, 1))
 
 
 class FrameRateSetting(unittest.TestCase):
@@ -432,6 +450,32 @@ class MemoryGuardDefaults(unittest.TestCase):
         self.assertNotIn('_auto_warn', mg)
         self.assertIn('6144', (ROOT / 'www/cgi-bin/state.cgi').read_text())
         self.assertIn('6144', (ROOT / 'scripts/action.d/video.sh').read_text())
+
+
+class Rc9SocWiring(unittest.TestCase):
+    """3.0.1-rc9 (test queue R9-00 to R9-03): pool default, 3D-NR switch, anti-flicker field and its use."""
+
+    def test_pool_default_and_nr3d_off_by_default(self):
+        p15 = (ROOT / 'patches/kernel-6.6/series/0015-misc-ak39_venc-encoder-pool-from-a-reusable-CMA-area.patch').read_text(encoding='utf-8')
+        self.assertIn('+static char *pool = "9600K";', p15)
+        p6 = (ROOT / 'patches/kernel-6.6/series/0006-media-anyka-isp-add-ISP-video-input-and-sensor-drive.patch').read_text(encoding='utf-8', errors='replace')
+        self.assertIn('+static int nr3d;\n+module_param(nr3d, int, 0444);', p6)
+        # reserved at probe only when asked, never at stream start any more
+        self.assertIn('+	if (nr3d)\n+		alloc_ref(vi);', p6)
+        prog = p6[p6.index('+static void program_ref('):]
+        prog = prog[:prog.index('\n+}\n')]
+        self.assertNotIn('dma_alloc', prog)
+
+    def test_anti_flicker_field_and_server(self):
+        html = (ROOT / 'www/settings.html').read_text(encoding='utf-8')
+        m = re.search(r'<select name="isp_power_hz" id="isp_power_hz">(.*?)</select>', html)
+        self.assertIsNotNone(m)
+        self.assertEqual(re.findall(r'value="(\d*)"', m.group(1)), ['', '50', '60'])
+        src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
+        self.assertIn('"POWER_HZ"', src)
+        self.assertIn('a[8] = (unsigned int)((rate + p_hz) / (2 * p_hz))', src)
+        # 28125 sensor lines a second: one lamp pulse is 281 lines at 50 Hz, 234 at 60 Hz
+        self.assertEqual(((28125 + 50) // 100, (28125 + 60) // 120), (281, 234))
 
 
 if __name__ == '__main__':

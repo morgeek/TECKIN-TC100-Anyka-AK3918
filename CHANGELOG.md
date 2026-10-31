@@ -7,6 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **3.0.1-rc9: the parts of the SoC still unused, each off by default until checked on a camera** (test queue
+  R9-01 to R9-04 in `docs/linux-port/test-queue.md`):
+  - **3D noise reduction** (kernel, `ak39_vi.nr3d=1`): the ISP's 6.2 MB reference frame is reserved once at boot
+    instead of being asked for at every video start, where it never found room. A card test kernel built by CI
+    (`tc100-linux66-nr3d-test`) carries `nr3d=1` and a 24 MiB CMA area in its own command line.
+  - **Anti-flicker** (Settings, Picture: Off / 50 Hz / 60 Hz, `POWER_HZ`): the ISP's auto exposure keeps
+    exposures at whole lamp pulses (`exp_step` of `AK_ISP_SET_AE`). Applied whatever live tuning is.
+  - **Day / night from the ISP exposure:** thresholds of the `ae` source from the night measured on IPCAM2 (night
+    above 15000, day below 3000; were 4000 / 1000), and a calibration line every 5 minutes in
+    `/tmp/logs/daynight.log`. The default source stays the picture luminance.
+  - **Encoder:** the optional calls of the vendor library are listed once in `tc100_rtsp.log` (looked up, never
+    called), for the smart mode.
+
 ### Fixed
 - **Logs kept across reboots stopped after the 8th boot** (3.0.1-rc8, F-05 on IPCAM2): the boot counter `0008` was
   read as octal by ash (`arithmetic syntax error`), so no `boot-NNNN` folder was made at boots 8, 9, 18, 19 ... The
@@ -21,6 +35,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`RTSP_LOGFILE`, `RTSP_LOGMAX`).
 
 ### Changed
+- **3.0.1-rc9: the encoder pool is 9600K by default** (`ak39_venc.pool`, kernel patch 0015; R8-02 on IPCAM2: the
+  encoders use 8866880 bytes at most in H.265 and H.264, MemAvailable 22 MB instead of 19). `ak39_venc.pool=12M`
+  takes the whole area as before. The 3D-NR reference frame is no longer tried at each video start (two failed CMA
+  allocations and a warning in dmesg every time).
 - **3.0.1-rc8: the rc7 switches that passed on IPCAM2 are the defaults** (no new feature; checks R8-01 in
   `docs/linux-port/test-queue.md`):
   - **Kernel:** 3 capture buffers (`ak39_vi.slots`, P-02: +3.5 MB of RAM, no dropped frames at 15 and 25 fps;

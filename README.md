@@ -93,8 +93,8 @@ grew from there.
   CSRF protection, only the local network may connect by default, and a "Privacy shield" switch that stops every
   outgoing service.
 
-**What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), sharpness, anti-flicker and exposure
-cap, resolution and frame rate changes, card formatting from the web page. Feature by feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
+**What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), resolution changes, card formatting
+from the web page. Anti-flicker (Settings, Picture) is new in 3.0.1-rc9 and still to be checked on a camera. Feature by feature: [feature audit](docs/linux-port/feature-audit-2026-10-26.md).
 
 ---
 

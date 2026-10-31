@@ -239,6 +239,116 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
+### Next build: 3.0.1-rc9 — the pool that passed, and the four untapped parts of the SoC (2026-10-31)
+
+The owner (2026-10-31): R8-02's hour with Frigate looked stable ("RAS"), so the 9600K pool is kept; and "do all of
+1 to 4" from the list of what the SoC still leaves unused (3D noise reduction, anti-flicker, day / night from the ISP
+exposure, the encoder's smart / VBR modes), **with every precaution: no brick**. So rc9 = rc8 + the pool default +
+those four, each **off by default** (or a pure measurement) until its entry below passes. Nothing touches U-Boot,
+`boot`, `mac` or `env`; 3D-NR is tried with a card kernel only.
+
+**Order** (each step only if the previous one is fine; write the result under each entry):
+1. R9-00: rc9 as a card boot (kernel and initramfs on the card, the rule), then `update66.sh apply` as for rc8.
+2. R9-03 anti-flicker and R9-04 encoder: on the flash rc9, no kernel change.
+3. R9-01 3D-NR: the card test kernel, then back to the normal kernel. An evening or night reading is the useful one.
+4. R9-02 day / night: nothing to do but leave the camera running through a dusk and a dawn, then copy the log.
+
+### R9-00 3.0.1-rc9 on the camera: the 9600K encoder pool is the driver's default — `to test`
+- **What:** `ak39_venc.pool` defaults to `9600K` in the driver (patch 0015; R8-02 passed: used 8866880 bytes in H.265
+  and in H.264, free 963520). The flash boot gets it with no command line change. **Off:** `ak39_venc.pool=12M` (the
+  whole 12 MiB area, as rc8) - only through a card kernel; never needed so far.
+- **Also in rc9 (no switch needed, harmless):** the 3D-NR reference frame is no longer tried at every video start (the
+  two failed CMA allocations of 4 and 2 MB and the `no memory for the 3D-NR reference frame` line are gone from dmesg);
+  `tc100_rtsp.log` lists the optional calls of the encoder library once (`encoder library: optional calls: ...`).
+- **Test:**
+  1. Card boot of rc9 (`c66.img` + `c66rd.gz` of rc9 on the card, as for rc8): `/proc/cmdline` complete,
+     `cat /sys/module/ak39_venc/parameters/pool` = `9600K`, dmesg `pool 9600 KiB at 0x81800000 (CMA)`, **no**
+     `alloc failed, req-size: 1013 pages` and no `3D-NR` line at video start.
+  2. `tc100_rtsp.log`: `encoder pool: 9830400 bytes (ak39_venc.pool), no guard at its start`, both encoders `open`;
+     copy the `encoder library: optional calls:` line here.
+  3. `update66.sh check`, `apply` (owner's agreement, as for rc8), flash boot: same checks; MemAvailable at 2-4 min
+     (R8-02 measured 21.6-22.0 MB).
+  4. Overnight soak as R8-01 step 6 (one Frigate client): no reboot, no Oops / OOM, MemAvailable trend.
+- **Pass:** steps 1-4. **Fail:** rename the card files back (rc8) or `update66.sh` the rc8 package; write down why.
+
+### R9-01 3D noise reduction (`ak39_vi.nr3d=1`, card test kernel) — `to test`
+- **What:** the ISP's temporal noise filter needs a reference frame of 3 bytes a pixel (6.2 MB at 1080p). Until rc8 it
+  was asked for at each video start and never found room in CMA next to the capture buffers, so 3D-NR was always off.
+  Patch 0006 now: `ak39_vi.nr3d=1` reserves it **once at boot**, while CMA is empty, and keeps it; the tuning file's own
+  3D-NR settings then apply. Default `nr3d=0`: off, nothing allocated. The CI builds a **card test kernel** with
+  `ak39_vi.nr3d=1 cma=24M flashroot=1 ak39_vi.sub_channel=1` in its own command line (appended after U-Boot's, so its
+  `cma=24M` wins over U-Boot's `cma=18M`: 6 MB more CMA for the reference frame). Artifact **`tc100-linux66-nr3d-test`**
+  (`c66-nr3d-test.img`, `System.map`, `.config`, `README-NR3D.txt`, `md5sums.txt`).
+- **Expected:** less grain at night and in dim light, and with `RTSP_VBR=1` a lower bit rate on a still scene.
+  **Costs to measure:** 6.2 MB of RAM (MemAvailable about 16 MB instead of 22), and memory traffic (the ISP reads and
+  writes the reference at every frame: watch `cap` and `dropped`).
+- **Safety:** card file only, as R8-02. A kernel that cannot reserve 24 MiB of CMA would have no video: rename back.
+- **Test (after R9-00, rc9 in the flash):**
+  1. On the card: rename `tc100test/c66.img` to `tc100test/c66-before.img`, copy `c66-nr3d-test.img` as
+     `tc100test/c66.img` (md5 against `md5sums.txt`). `c66rd.gz` stays the one whose size equals the initrd size of the
+     hook's `sdboot` (read the environment, do not write it). Reboot.
+  2. `/proc/cmdline` ends with `ak39_vi.nr3d=1 cma=24M flashroot=1 ak39_vi.sub_channel=1`; dmesg `cma: Reserved 24 MiB`
+     and `3D-NR reference frame: 4050 KiB at ..., 2025 KiB at ...` (or `no memory for the 3D-NR reference frame`: write
+     it down, with `grep -i cma /proc/meminfo`); video starts, both encoders `open`.
+  3. Five minutes at 25 fps with one client: `cap` / `dropped` per 5 s against R9-00, idle CPU, MemAvailable, CmaFree.
+  4. Picture, the main point: a snapshot and 30 s of VLC in a dim room (and at night with the IR LEDs) with this
+     kernel, the same with the normal kernel (rename back, reboot): grain on flat surfaces, smearing of a moving hand.
+     Keep the snapshots on the card (`/mnt/sd/r9-01-*.jpg`). With `RTSP_VBR=1`: main stream bytes per 5 s on a still
+     dim scene, with and without 3D-NR.
+  5. If 1-4 look good: one hour with Frigate as R8-02 step 7 (no `ak_venc_open failed`, no Oops / OOM, stream bytes
+     steady), then rename back.
+- **Pass:** steps 1-5, no more dropped frames than R9-00, a visible noise gain. **Then** (rc10): `nr3d=1` and `cma=24M`
+  become the defaults (`nr3d` in the driver; `cma=24M` through the release kernel's built-in command line, appended
+  as here, so no U-Boot change). **Fail:** rename back; write the numbers. A gain too small for 6 MB of RAM is a fail.
+
+### R9-02 Day / night from the ISP exposure: calibration log and measured thresholds — `to test`
+- **What:** rc7 night 2 (HW-08) measured the exposure index at night: `exp_time 1124` (the maximum) and `a_gain 6840`
+  (26.7x), index about **30000** with or without the IR LEDs. The defaults of the `ae` source (F-04) were placeholders
+  (4000 / 1000, under the night value even in the day); they are now **night above 15000** (full exposure and about
+  13x gain) and **day below 3000** (5 times less, room for the IR-cut filter and the LEDs changing the light at the
+  switch). The source stays **`luma` by default**. New: `auto-night-daemon.sh` writes a **calibration line every 5
+  minutes** to `/tmp/logs/daynight.log` (`HH:MM mode=day|night src=... luma=N ae=<cam_ae line> idx=N`, last 2 x 400
+  lines; `log-persist.sh` copies `/tmp/logs` to the card as `other.log`), whatever the source.
+- **Test:** leave the camera running through one dusk and one dawn (auto day / night on, source `luma` as now), then
+  copy `/tmp/logs/daynight.log` (or `/mnt/sd/logs/boot-NNNN/other.log`) here, or its lines around the two switches.
+  From them: the index in full day (indoor and outdoor if possible), when the `luma` source switched, and the index
+  right after each switch. Then set the source to "ISP exposure" with thresholds taken from the log, one more dusk and
+  dawn: one switch each way, no flapping when the IR LEDs come on or go off.
+- **Pass:** a clean switch each way with the `ae` source. **Then** (rc10): `ae` becomes the default source with the
+  measured thresholds. **Note:** the `isp` source (the ISP's dark flag) read 0 all night on HW-08: not usable.
+
+### R9-03 Anti-flicker (`POWER_HZ`, Settings, Picture) — `to test`
+- **What:** the field is back (Settings, Picture: Off / 50 Hz / 60 Hz), applied by `tc100_rtsp` whatever live tuning
+  is: `AK_ISP_SET_AE` with `exp_step` = the sensor lines of one lamp pulse (28125 lines/s on the JX-F23: 281 lines at
+  50 Hz, 234 at 60 Hz). The ISP's auto exposure then keeps every exposure longer than a pulse at whole pulses (its own
+  code: `ak39_isp2_3a.c`, `exp_step`). **Default Off** (the tuning file's step, unchanged). `RTSP_LINE_RATE` overrides
+  the line rate.
+- **Test:**
+  1. Indoors under mains lighting (LED bulbs or tubes), daytime mode, live tuning off: Off, look at the picture (VLC):
+     dark bands rolling up or down, or a pulsing brightness? Then 50 Hz (Save): `tc100_rtsp.log` `anti-flicker: 50 Hz
+     (exposure step N -> 281 lines, exp_time_max 1125)`, `/var/run/isp_tune.status` `POWER_HZ=50`. The bands stop.
+  2. Outdoors or a bright window (exposure under 10 ms): the picture is not darker or blown out with 50 Hz.
+  3. Night (IR): nothing changes (exposure at the maximum).
+  4. With `EXPOSURE_MAX_PCT=30` also set: both lines in the log, the exposure cap still applies.
+  5. Off again: `anti-flicker: off (exposure step 281 -> <tuning value> lines ...)`.
+- **Pass:** 1-5. **Then** (rc10): 50 Hz by default for a camera set to a European time zone? (owner's choice); the Home
+  Assistant select comes back. **Fail:** Off; write what was seen (the step value of the tuning file is in the log).
+
+### R9-04 Encoder: VBR, idle frame rate, and the smart mode's calls — `to test`
+- **What:** the encoder side of "use the SoC": `RTSP_VBR=1` (P-08: 6 % less on a noisy night, the day scene not
+  measured) and `IDLE_FPS` (F-03, frame rate lowered while nothing moves) were opt-in and not finished. rc9 adds the
+  list of optional encoder calls to the log (looked up, never called), so that the vendor smart mode (long GOP on a
+  still scene) can be used once its call is known.
+- **Test:**
+  1. The `encoder library: optional calls:` line of R9-00 step 2, and `strings /mnt/lib/libmpi_venc*.so
+     /vendor/lib/libmpi_venc*.so 2>/dev/null | grep -i -E 'smart|gop|_rc|roi'` here.
+  2. Day, still scene, 10 minutes each, one Frigate client: main stream bytes per 5 s with CBR, then with `RTSP_VBR=1`
+     in `/mnt/config/rtsp.env` (restart `tc100_rtsp` as `v3/autorun-linux66.sh` does). Then a hand moving in front:
+     the bytes go back up to the ceiling, no smear or blocks. Frigate keeps recording and detecting.
+  3. `IDLE_FPS` as F-03 says (Frigate side: a motion still starts a recording without a missed second).
+- **Pass:** VBR saves on a still day scene with no visible loss and Frigate is fine: **then** (rc10) `RTSP_VBR=1` by
+  default. Same for `IDLE_FPS`. Smart mode: implemented only once step 1 shows its call.
+
 ### Next build: 3.0.1-rc8 — stable: only what passed on rc7, and the two bugs fixed (2026-10-31)
 
 The owner asks for a stable rc8 made of verified improvements. Nothing new or untested goes in; every change has a
@@ -349,7 +459,7 @@ are the same rc8 build (only the build stamp differs), so there is nothing to re
 - **Fail / revert:** `ak39_vi.slots=4` on the command line (card boot) or `RTSP_ISPOSD=0` / `RTSP_ISPMASK=0` in
   `rtsp.env`; whole build: reinstall rc7 with `update66.sh`.
 
-### R8-02 HW-02 test 2 on rc8: a 9.4 MiB encoder pool (`ak39_venc.pool=9600K`, card boot) — `to test` (owner's go 2026-10-31)
+### R8-02 HW-02 test 2 on rc8: a 9.4 MiB encoder pool (`ak39_venc.pool=9600K`, card boot) — `passed` (steps 1-5 tester, the hour with Frigate "stable" for the owner, 2026-10-31); the driver default since rc9 (R9-00)
 - **Why this size:** the encoders use 8866880 bytes with the main stream in H.265 and the sub-stream in H.264 (HW-01b,
   no guard); 9600K = 9830400 bytes leaves about 0.96 MB. **Gain expected: about 2.6 MB more `MemAvailable`** on top of
   `slots=3`. Never measured: the pool use with the **main stream in H.264**, the riskiest case.
@@ -682,11 +792,10 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
 - **SD card 4-bit bus:** the SD controller's data lines 2-3 are GPIO 80 / 81, the IR-cut filter on the TC100
   (OpenIPC device tree `mci0_pins`: 0x1f-0x22 and 0x50, 0x51). The card stays 1-bit.
 - **USB DMA:** see HW-03.
-- **3D noise reduction:** its reference frame (about 3 MB) does not fit the capture CMA area. With HW-01/HW-02 freeing
-  memory it could be tried again (`AK_ISP_SET_3D_NR_PHYADDR` is refused by the 6.6 char driver today; needs a kernel
-  change to give it a buffer). Quality and bit rate at night, not CPU.
-- **Anti-flicker (`POWER_HZ`):** the 2.x firmware set it through the vendor library (`ak_vpss_effect_set(6, hz)`),
-  whose ISP calls are not known; the field stays hidden on 3.0.
+- **3D noise reduction:** its reference frame (6.2 MB) did not fit the capture CMA area. Tried again in rc9 (R9-01):
+  reserved at boot with `ak39_vi.nr3d=1` and a 24 MiB CMA area, card test kernel.
+- **Anti-flicker (`POWER_HZ`):** the 2.x firmware set it through the vendor library (`ak_vpss_effect_set(6, hz)`).
+  The ISP's own auto exposure has the means (`exp_step` of `AK_ISP_AE_ATTR`): done that way in rc9 (R9-03).
 
 ## Web UI on 3.0: checks that need the camera (audit of 2026-10-30)
 

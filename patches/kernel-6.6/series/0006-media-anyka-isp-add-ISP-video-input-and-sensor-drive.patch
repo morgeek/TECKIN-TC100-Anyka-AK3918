@@ -10020,7 +10020,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,917 @@
+@@ -0,0 +1,936 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10094,6 +10094,12 @@ index 000000000..42f5fa12c
 +module_param(slots, int, 0444);
 +MODULE_PARM_DESC(slots, "capture buffers (2..4, default 3)");
 +static unsigned int vi_slots(void) { return slots >= 2 && slots <= NUM_SLOTS ? slots : NUM_SLOTS; }
++/* 3D noise reduction needs a reference frame of 3 bytes a pixel (Y 2, UV 1): 6.2 MB at 1080p. Taken at each stream
++ * start it never found room in CMA next to the capture buffers (two failed allocations at every start), so
++ * ak39_vi.nr3d=1 reserves it once at boot, while CMA is still empty; without it 3D-NR stays off and nothing is tried */
++static int nr3d;
++module_param(nr3d, int, 0444);
++MODULE_PARM_DESC(nr3d, "3D noise reduction: reserve its reference frame (6.2 MB of CMA at 1080p) at boot (default 0: off)");
 +
 +/* SYSCTRL */
 +#define SYS_PERI_CTRL1	0x14
@@ -10352,32 +10358,42 @@ index 000000000..42f5fa12c
 +	vi->ref_y = vi->ref_uv = NULL;
 +}
 +
++/* ak39_vi.nr3d=1, at probe: for the largest picture (try_fmt), kept until the driver goes */
++static void alloc_ref(struct ak39_vi *vi)
++{
++	size_t px = 1920 * 1080;
++
++	vi->ref_y_bytes = px * 2;
++	vi->ref_uv_bytes = px;
++	vi->ref_y = dma_alloc_coherent(vi->dev, vi->ref_y_bytes,
++				       &vi->ref_y_dma, GFP_KERNEL);
++	vi->ref_uv = dma_alloc_coherent(vi->dev, vi->ref_uv_bytes,
++					&vi->ref_uv_dma, GFP_KERNEL);
++	if (!vi->ref_y || !vi->ref_uv) {
++		free_ref(vi);
++		dev_warn(vi->dev, "no memory for the 3D-NR reference frame, 3D-NR off\n");
++		return;
++	}
++	dev_info(vi->dev, "3D-NR reference frame: %zu KiB at %pad, %zu KiB at %pad\n",
++		 vi->ref_y_bytes >> 10, &vi->ref_y_dma, vi->ref_uv_bytes >> 10, &vi->ref_uv_dma);
++}
++
 +static void program_ref(struct ak39_vi *vi)
 +{
 +	size_t px = vi->width * vi->height;
 +	AK_ISP_3D_NR_REF_ATTR ref;
 +
-+	if (!vi->ref_y) {
-+		vi->ref_y_bytes = px * 2;
-+		vi->ref_uv_bytes = px;
-+		vi->ref_y = dma_alloc_coherent(vi->dev, vi->ref_y_bytes,
-+					       &vi->ref_y_dma, GFP_KERNEL);
-+		vi->ref_uv = dma_alloc_coherent(vi->dev, vi->ref_uv_bytes,
-+						&vi->ref_uv_dma, GFP_KERNEL);
-+		if (!vi->ref_y || !vi->ref_uv) {
-+			free_ref(vi);
-+			ispdrv_vp_3d_nr_noref(1);
-+			dev_warn(vi->dev, "no memory for the 3D-NR reference frame, 3D-NR disabled\n");
-+			return;
-+		}
++	if (!vi->ref_y || px * 2 > vi->ref_y_bytes) {
++		ispdrv_vp_3d_nr_noref(1);
++		return;
 +	}
 +	ispdrv_vp_3d_nr_noref(0);
 +	ref.yaddr_3d = vi->ref_y_dma;
-+	ref.ysize_3d = vi->ref_y_bytes;
++	ref.ysize_3d = px * 2;
 +	ref.uaddr_3d = vi->ref_uv_dma;
-+	ref.usize_3d = vi->ref_uv_bytes / 2;
-+	ref.vaddr_3d = vi->ref_uv_dma + vi->ref_uv_bytes / 2;
-+	ref.vsize_3d = vi->ref_uv_bytes / 2;
++	ref.usize_3d = px / 2;
++	ref.vaddr_3d = vi->ref_uv_dma + px / 2;
++	ref.vsize_3d = px / 2;
 +	ispdrv_vp_set_3d_nr_ref_addr(&ref);
 +}
 +
@@ -10722,7 +10738,6 @@ index 000000000..42f5fa12c
 +	vi->width = fmt->fmt.pix.width;
 +	vi->height = fmt->fmt.pix.height;
 +	vi->sizeimage = fmt->fmt.pix.sizeimage;
-+	free_ref(vi);
 +	return 0;
 +}
 +
@@ -10860,6 +10875,9 @@ index 000000000..42f5fa12c
 +	}
 +	ak_sensor_i2c_set_client(vi->client);
 +
++	if (nr3d)
++		alloc_ref(vi);
++
 +	ret = devm_request_irq(dev, vi->irq, vi_irq, IRQF_NO_AUTOEN, DRV_NAME, vi);
 +	if (ret)
 +		goto err_client;
@@ -10902,6 +10920,7 @@ index 000000000..42f5fa12c
 +err_v4l2:
 +	v4l2_device_unregister(&vi->v4l2);
 +err_client:
++	free_ref(vi);
 +	i2c_unregister_device(vi->client);
 +err_adap:
 +	i2c_put_adapter(vi->adap);

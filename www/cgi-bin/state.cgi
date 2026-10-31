@@ -791,7 +791,7 @@ if [ -n "$F_cmd" ]; then
       done < /mnt/config/rtspserver.conf
     fi
     cfg_int _dn_ln LUMA_NIGHT 40; cfg_int _dn_ld LUMA_DAY 100
-    cfg_int _dn_an AE_NIGHT_ABOVE 4000; cfg_int _dn_ad AE_DAY_BELOW 1000
+    cfg_int _dn_an AE_NIGHT_ABOVE 15000; cfg_int _dn_ad AE_DAY_BELOW 3000
     cfg_int _dn_nh NIGHT_HOLD 10; cfg_int _dn_dh DAY_HOLD 60
     case "$_dn_luma" in ''|*[!0-9]*) _dn_luma=null ;; esac
     printf '{"source":"%s","luma_night":%s,"luma_day":%s,"ae_night_above":%s,"ae_day_below":%s,"night_hold":%s,"day_hold":%s,"auto":%s,"night":%s,"luma":%s,"ae_available":%s,"lumi":%s,"exp_time":%s,"a_gain":%s,"d_gain":%s,"isp_d_gain":%s,"dark_flag":%s,"index":%s}\n' \
