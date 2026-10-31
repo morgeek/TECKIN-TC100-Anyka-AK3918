@@ -313,6 +313,22 @@ the oldest removed), so log-persist runs and keeps its limit. The MQTT status st
 
 **R8-02 HW-02 test 2 (`ak39_venc.pool=9600K`): NOT run - the card hook route cannot start it as built.** The U-Boot hook of IPCAM2 (`bootcmd=run sdload sdboot; run flashboot ...`, `sdload` loads **both `tc100test/c66.img` and `tc100test/c66rd.gz` from the card**, `sdboot`'s bootargs have **no `flashroot=1` and no `ak39_vi.sub_channel=1`**, written on 2026-10-24) boots in **SD mode**: the initramfs then looks for the user space in the card tree (`/mnt/sd/v3`, the `tc100-3.0.1-rc8-sd.zip` content). IPCAM2's card has no such tree (it runs from the flash), and unzipping the SD package there would also create `/mnt/sd/config/`, which cfg-persist and the flash boot would take for the settings folder - not something the tester will do. **Request:** build the pool kernel with `CONFIG_CMDLINE="ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1"` (still `CMDLINE_EXTEND`, so it comes after the U-Boot arguments), so that with the card's `c66.img` = that kernel and `c66rd.gz` = the rc8 initramfs (same file as in the flash, 2012654 bytes) the camera boots the **flash user space** with the 9600K pool, no U-Boot prompt. Then the tester copies two files to `tc100test/` (3 and 4 minutes over the serial console), reboots, runs R8-02 steps 1-7, and renames the files away again. Tell me when that artifact exists.
 
+**Implementer answer (2026-10-31):** done as asked. The card test kernel's built-in command line is now
+`ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1` (`CMDLINE_EXTEND`, after the U-Boot arguments; `S39tc100-linux66`
+greps `/proc/cmdline` for `flashroot=1`, which holds the appended part). Same artifact name `tc100-linux66-hw02-pool9600k`,
+from the CI run of the commit `[rc8] HW-02 card kernel boots the flash user space`. The other artifacts of that run
+are the same rc8 build (only the build stamp differs), so there is nothing to reinstall. Notes:
+- `flashmode-prep.sh` only mounts (`stack`, `vendor`, settings); nothing in the flash mode start writes the flash.
+- **Before the reboot:** the hook's `sdboot` carries a fixed `initrd=0x81000000,<size>`. Read it (U-Boot environment,
+  read only) and check it equals the size of the card's `c66rd.gz` (2012654 for rc8). A larger file is cut short, the
+  kernel panics, and `panic=10` brings it back to the same card boot every time (way out: the owner takes the card out).
+- `/proc/cmdline` must end with `ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1`; R8-02 step 1 is otherwise
+  unchanged. Way back as before: rename `tc100test/c66-rc8.img` back to `c66.img` (and the card's `c66rd.gz` back to
+  what it was, if you replaced it).
+- Without waiting for CI, the same start can be had with the current pool kernel and an empty file
+  `tc100test/flashmode` on the card (`S39` line 25 takes it as `flashroot=1`); rename it away after the test, or every
+  later card boot also runs from the flash.
+
 ### R8-01 3.0.1-rc8 on the camera — `to test`
 - **What:** the rc7 tree plus: `slots=3` default (kernel), ISP clock and ISP masks default (`tc100_rtsp`), the F-05 and
   `amixer` fixes, the MQTT refusal in the web UI. `VERSION` = `3.0.1-rc8`.
@@ -338,7 +354,8 @@ the oldest removed), so log-persist runs and keeps its limit. The MQTT status st
   no guard); 9600K = 9830400 bytes leaves about 0.96 MB. **Gain expected: about 2.6 MB more `MemAvailable`** on top of
   `slots=3`. Never measured: the pool use with the **main stream in H.264**, the riskiest case.
 - **No U-Boot prompt (the owner's rule after night 2):** the rc8 CI run also builds a **card test kernel with the
-  parameter in its own command line** (`CONFIG_CMDLINE="ak39_venc.pool=9600K"`, `CONFIG_CMDLINE_EXTEND`: appended by
+  parameter in its own command line** (`CONFIG_CMDLINE="ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1"` since
+  the tester's 2026-10-31 request: flash user space from a card boot; `CONFIG_CMDLINE_EXTEND`: appended by
   the kernel to what U-Boot passes, so the 256-character limit does not apply). Artifact
   **`tc100-linux66-hw02-pool9600k`**: `c66-hw02-pool9600k.img`, its `System.map` / `.config`, `README-HW02.txt`.
 - **Safety:** nothing is written to the flash or to the U-Boot environment; only a file on the SD card changes. A pool
