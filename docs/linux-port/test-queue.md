@@ -340,6 +340,16 @@ no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not
 - **The second stream must be of the best quality the SoC can give** on both cameras (640x360 is the ISP sub picture; frame rate and bit
   rate to be measured: CPU, dropped frames, Frigate).
 
+### .24 Wi-Fi is unstable, independent of the bit rate (tester, ssh, 2026-10-31 19:40 local)
+- 1000-byte pings every 0.25 s to the gateway, in series of 25-40: **.24 loses 0-80 % in bursts** (48 %, 8 %, 80 %, 45 %, with 3-5 s round-trips
+  at the worst) with the sub stream at 250 kb/s as well as at 600 kb/s (tried 600/900 kb/s then restored 250: `rtspserver.conf.before-2026-10-31`
+  on the card). `/proc/net/wireless` link level swings -46 .. -72 dBm and drops to -256 (link down) for a few seconds, then recovers; no
+  `deauth`/`disassoc` line in `dmesg`, USB at 480 Mbit/s, the Wi-Fi chip not power cycled (up 2 h). The .11 on the same network: -29 dBm,
+  0 % loss, 7 ms average, max 42 ms. So it is the link of that unit / its place, not the bit rate: no change of the second stream's bit rate yet.
+- For the implementers: is there a Wi-Fi quality metric in the web page (signal over time, retries) and a log line when the link drops to
+  -256 (the net-guard acts only after a gateway loss)? It would have shown this without a ping flood.
+- The .24 could not be measured with `tc100_rtsp.log` (no `STAT` log on its stdout, unlike the .11: the launch differs?).
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
