@@ -374,6 +374,20 @@ are the same rc8 build (only the build stamp differs), so there is nothing to re
   6. Snapshot (web picture), recording of the sub-stream if Frigate records it, 25 fps for 5 minutes.
   7. **One hour** of streaming with Frigate: `dropped` like R8-01 step 6, the main stream bytes per 5 s stay about
      1 MB (watch for the HW-01 failure: a fall to ~5 KB per 5 s), no `ak_venc_open failed`, no Oops / OOM.
+- **Result so far (tester, 2026-10-31, build b55d032, CI green) — steps 1-5 PASS, 6-7 running:**
+  - Boot: card kernel `c66-hw02-pool9600k.img` (md5 1e335be3…, matches md5sums.txt) + rc8 `c66rd.gz` (2012654 bytes) copied to the card
+    as `tc100test/c66.img` / `c66rd.gz`; no U-Boot prompt. The flash user space came up (`flashroot=1`); `/proc/cmdline` ends with
+    `ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1`; `/sys/module/ak39_venc/parameters/pool` = `9600K`;
+    dmesg `pool 9600 KiB at 0x81800000 (CMA)`; `/dev/uio0` present; no Oops.
+  - `tc100_rtsp.log`: `encoder pool: 9830400 bytes (ak39_venc.pool), no guard at its start`.
+    **Main H.265 + sub H.264: used 8866880, free 963520** (main alone 7946976). **Main H.264 + sub H.264: used 7946976 / 8866880, free 963520** (identical), both `open`.
+    Back to H.265: both reopen. Smallest free 963520 >= 256 KB: PASS.
+  - `MemAvailable` 21.6-22.0 MB at 2-4 min (rc8 default pool: 19.2 MB): about +2.4 MB, as expected. 25 fps, STAT cap ~125, dropped 0-3 per 5 s.
+  - How the codec was switched without a browser: `rwconf /mnt/config/rtspserver.conf w 0 codec 0|2` then `/mnt/controlscripts/rtsp-h26x restart`.
+  - Tester incident (not a firmware fault): a recursive `grep -r` over /etc and /mnt/lib that I ran on the serial console never returned and
+    ^C had no effect; the camera still answered ping/HTTP. The owner power-cycled it. Avoid heavy recursive commands on the console.
+  - Still to do: 1 h with Frigate (soak started 06:11 UTC, read at ~07:10 UTC), snapshot, sub-stream recording. Then: card files renamed back, flash boot.
+  - Request for the implementer: if the hour passes, make 9600K the default of patch 0015 (rc9).
 - **Pass:** steps 1-7, smallest **free** at least 256 KB in every codec combination. **Then** (rc9): 9600K (or the
   largest measured **used** + 0.75 MB, rounded up to 64 KB) becomes the driver's default in patch 0015, so the
   flash boot gets it without any U-Boot change.
