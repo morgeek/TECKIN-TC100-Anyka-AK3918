@@ -4,12 +4,22 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-The 3.0 flash build has known gaps, listed feature by feature in
-[linux-port/feature-audit-2026-10-26.md](linux-port/feature-audit-2026-10-26.md). The ones that matter most: the web
-interface has no login on 6.6 (keep the camera on a trusted network), a Wi-Fi change made from the web page or the
-wizard is not kept after a restart (edit `/mnt/config/wpa_supplicant.conf` from a shell instead: `cfg-persist`
-saves it to flash, and it takes priority over a copy on the card), the IR-cut filter
-may not move, and the sub-stream and recorder of 3.0 are not yet checked on the camera.
+State of 3.0.1 (October 2026, two cameras of the same variant; details and results in
+[linux-port/test-queue.md](linux-port/test-queue.md)):
+- **Colours:** slightly warm; the software white balance of the video server corrects them (on by default). The
+  image processor's own white balance on its live statistics gave a blue cast and is not used
+  (`ak_isp.awb_live=1` to try it).
+- **Wi-Fi after a warm reboot:** the Wi-Fi chip sometimes failed to power on (no `wlan0`). 3.0.1 recovers it by
+  itself (`scripts/wifi-recover.sh`: probe again, power cycle through GPIO 11, one clean restart if needed); a power
+  cut remains the last resort.
+- **Speaker:** works; quiet at a low volume (Settings, the speaker volume). Push-to-talk and two-way audio are not yet
+  checked on a camera.
+- **Day / night:** the picture luminance decides by default; the exposure index and the stock firmware's method are
+  options (Settings, Day/night) whose thresholds still need a night of readings.
+- **Memory:** about 21 MB free with the 9600K encoder pool; the encoder's smart mode needs 3.4 MB more and is off.
+- **Logs with no SD card:** the web page (Logs) or ssh; the saved logs need a card.
+- The feature audit of 2026-10-26 ([linux-port/feature-audit-2026-10-26.md](linux-port/feature-audit-2026-10-26.md))
+  is history: most of what it lists was fixed in the 3.0.1 release candidates.
 
 ## Lite RTSP server (2.1.9)
 

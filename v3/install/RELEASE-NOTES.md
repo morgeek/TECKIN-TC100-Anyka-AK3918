@@ -2,6 +2,17 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1
+- Runs from the camera's flash with **no SD card**; the card only holds recordings and saved logs.
+- **The speaker works** (its amplifier was driven the wrong way round), and the camera's sounds no longer clip.
+- **Night picture** from the sensor tuning's own night settings, **10 fps in low light** by day, anti-flicker
+  (50 / 60 Hz, the camera default shown), the IR-cut pulsed as the stock firmware does.
+- **Wi-Fi recovers by itself** when the chip fails to start after a reboot; settings changed just before a reboot are
+  kept; the video server restarts by itself if it stops.
+- About 21 MB of free memory (was 10 MB in the first 3.0 builds), the clock and privacy masks drawn by the image
+  processor, a 640x360 sub-stream from its own scaler.
+- Bit rate mode (constant / variable), the stock firmware's day / night method as an option, IR LED protection.
+
 ## Install (copy to a card, power on)
 
 1. Download `tc100-<version>-sd.zip` below.
