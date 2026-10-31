@@ -371,6 +371,28 @@ log); push after local CI. rc11 = rc10 +:
   restart, and the setting is there after it. Reboot again with nothing changed: no save line.
 - **Pass:** both. **Fail:** write what was lost; the 30 s daemon keeps working as before either way.
 
+- **Results R11-01..03 (tester, 2026-10-31, rc11 = 6c47a88, CI green); rc11 installed in the .11 flash:**
+  - Install: rc11 kernel (md5 17233877…) booted once from the card (U-Boot prompt, RAM), package md5 1007ad97…, `update66.sh check` ok, `apply update11`:
+    `/mnt/VERSION` 3.0.1-rc11, flash boot, pool 9600K, MemAvailable 21.6-23.8 MB, both encoders `open`.
+  - **R11-01 FAIL, and a hazard: both smart modes stop the video server.**
+    `RTSP_VBR=1` + `RTSP_SMART=1`: log `[ak_venc_set_smart_config:2571] setting smart mode=1, gop=300, q=100, v=550`, then
+    **`[venc_cb_dma_alloc:269] alloc dma for 3407872 failed`**, `Encoder failed : Memory shortage detected`, and
+    `lib_interface/akv_interface.cpp: 1978: UpdateEncParams: Assertion 'pEnc' failed` (twice); `tc100_rtsp` is gone (0 processes), **nothing restarts it**: no
+    stream until someone restarts it or the camera reboots. The LTR mode wants **3407872 bytes (3.25 MB)** of encoder DMA more; the main encoder leaves
+    1883424 free in the 9600K pool, and the sub-stream takes 920 KB of it, so it cannot fit (with a 12M pool: 12582912 - 8866880 = 3.7 MB, it might: card kernel
+    `ak39_venc.pool=12M` needed, not tried). `RTSP_SMART=2`: both `smart mode 2 (variable GOP)` lines for main and sub are printed, then the server dies after
+    3 frames (`stream stopped: 3 frames`, no STAT line, no process, no message in the log or dmesg). So neither mode can be switched on with the rc9+ pool.
+    Reverted at once (`rtsp.env` empty, restart: server back). **Requests:** (1) never call the smart config when the pool lacks the room (the log line
+    says `free N` per encoder; refuse and log), (2) a respawn or at least a health flag when `tc100_rtsp` dies, (3) find what smart mode 2 asks for.
+  - **R11-02 `/tmp/cam_awb`: the file exists but its numbers are constant.** 11 numbers `108594719 72811827 33752465 80479141 111674134 122422761 71303623 43648936
+    67961336 7275626 5`, **identical** at 5 readings over 3 minutes while `cam_ae` moved (gain 3475 -> 1433 -> 1246), **and identical after a reboot**: they are
+    not live statistics (stale or uninitialised read). All ten counts are far above 300000 and the first five above 15000: "day" by the stock rule, at any hour.
+    The first `awb=` calibration line is not written yet (5 min after a boot); it will show in the soak's day / night log.
+  - **R11-03 PASS.** `daynight=3` written, `reboot-tracker.sh intent` after 4 s (note: `intent` only records the reason, the reboot is the caller's): `[cfg-persist] settings saved
+    to slot cfga (seq 112)` at once, setting kept. Second run: `daynight=2` written, `intent` after 3 s, `sync; reboot`: `settings saved to slot cfgb (seq 113)` before the
+    restart and `settings restored from slot cfgb (seq 113)` after: `daynight=2`, `health` `ok: running`. (I did not test the no-save case with nothing changed.)
+  - .11 now: rc11 in flash, auto day/night running, `rtsp.env` empty, fps 25, soak restarted (rc11), card boot files as before (`test.img` rc11, older ones renamed).
+
 ### Next build: 3.0.1-rc10 — fixes from the R9 results (2026-10-31)
 
 The owner (2026-10-31): 3D-NR is not worth its 5.6 MB of RAM; make the other fixes; for day / night, wait for the
