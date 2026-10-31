@@ -10024,7 +10024,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,936 @@
+@@ -0,0 +1,954 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10299,6 +10299,24 @@ index 000000000..42f5fa12c
 +	return NULL;
 +}
 +
++/* AK_ISP_SET_TUNING_STYLE (/dev/isp_char): the tuning file's day (0) or night (1) parameter set while capturing, as
++ * the stock app's ak_vi_switch_mode does (R12-01: without this callback the ioctl answered ENODEV). The capture mutex
++ * first, then the ISP's (the order ak_isp_char.c asks for). */
++static int vi_set_style(void *context, unsigned int style)
++{
++	struct ak39_vi *vi = context;
++	int ret;
++
++	mutex_lock(&vi->lock);
++	ret = ak_isp_apply_tuning_style(style);
++	mutex_unlock(&vi->lock);
++	if (ret)
++		dev_warn(vi->dev, "tuning parameter set %u: %d\n", style, ret);
++	else
++		dev_info(vi->dev, "tuning parameter set %u\n", style);
++	return ret;
++}
++
 +/* Everything ak_camera_add_device() + the first S_FMT did on 4.4. */
 +static int vi_power_up(struct ak39_vi *vi)
 +{
@@ -10327,7 +10345,7 @@ index 000000000..42f5fa12c
 +	ak_sensor_set_sensor_cb(vi->scb);
 +	mipi_setup(vi);
 +
-+	ret = ak_isp_acquire(NULL, NULL);
++	ret = ak_isp_acquire(vi_set_style, vi);
 +	if (ret)
 +		return ret;
 +	vi->isp_owned = true;

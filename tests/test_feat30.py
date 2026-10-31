@@ -507,6 +507,57 @@ class MemoryGuardDefaults(unittest.TestCase):
         self.assertIn('6144', (ROOT / 'scripts/action.d/video.sh').read_text())
 
 
+class WifiRecover(unittest.TestCase):
+    """scripts/wifi-recover.sh (W-NET: the Wi-Fi chip failed to power on after warm reboots, no wlan0)"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        for p in ('class/net', 'class/gpio/gpio523', 'usb'):
+            (self.d / p).mkdir(parents=True)
+        (self.d / 'class/gpio/export').write_text('')
+        (self.d / 'usb/authorized').write_text('1\n')
+        self.env = dict(WR_SYS=str(self.d), WR_DEV=str(self.d / 'usb'), WR_WAIT='1', WR_APPLY=str(self.d / 'apply'),
+                        WR_BOOTCONF=str(self.d / 'boot.conf'), WR_CONSOLE=str(self.d / 'console'),
+                        WR_LOCK=str(self.d / 'lock'), WR_LAST=str(self.d / 'last'))
+        self.script = str(ROOT / 'scripts/wifi-recover.sh')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_nothing_done_when_wlan0_is_there(self):
+        (self.d / 'class/net/wlan0').mkdir()
+        r = sh('sh %s run; echo rc=$?' % self.script, self.env)
+        self.assertIn('rc=0', r.stdout)
+        self.assertFalse((self.d / 'console').exists())
+
+    def test_probe_then_power_cycle_then_gives_up(self):
+        r = sh('sh %s run; echo rc=$?' % self.script, self.env, timeout=30)
+        self.assertIn('rc=1', r.stdout)
+        log = (self.d / 'console').read_text()
+        self.assertIn('probing the Wi-Fi chip again', log)
+        self.assertIn('power cycle of the Wi-Fi chip (GPIO 523)', log)
+        self.assertIn('not recovered', log)
+        self.assertEqual((self.d / 'class/gpio/gpio523/value').read_text().strip(), '1')   # power back on
+        self.assertEqual((self.d / 'usb/authorized').read_text().strip(), '1')
+        # a second call right away is spaced out (net-guard calls it every minute)
+        (self.d / 'console').unlink()
+        r = sh('sh %s run; echo rc=$?' % self.script, self.env)
+        self.assertIn('rc=0', r.stdout)
+        self.assertFalse((self.d / 'console').exists())
+
+    def test_gpio_can_be_left_alone(self):
+        (self.d / 'boot.conf').write_text('WIFI_POWER_GPIO=0\n')
+        sh('sh %s run' % self.script, self.env, timeout=30)
+        self.assertNotIn('power cycle', (self.d / 'console').read_text())
+        self.assertFalse((self.d / 'class/gpio/gpio523/value').exists())
+
+    def test_wired_into_boot_and_net_guard(self):
+        self.assertIn('sh /mnt/scripts/wifi-recover.sh run', (ROOT / 'v3/autorun-linux66.sh').read_text())
+        self.assertIn('wifi-recover.sh}" run', (ROOT / 'scripts/net-guard.sh').read_text())
+        self.assertIn('wifi_power_fail=', (ROOT / 'scripts/log-persist.sh').read_text())
+
+
 class Rc9SocWiring(unittest.TestCase):
     """3.0.1-rc9 (test queue R9-00 to R9-03): pool default, 3D-NR switch, anti-flicker field and its use."""
 

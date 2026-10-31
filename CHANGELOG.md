@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- **Camera off the network after warm reboots** (W-NET, IPCAM2: the Wi-Fi chip answered on USB but "Failed power
+  on", no `wlan0`, Frigate and the web page unreachable until a power cut; the net-guard's warm reboot did not
+  help). 3.0.1-rc14: `scripts/wifi-recover.sh` probes the chip again, then power-cycles it through GPIO 11 (the
+  stock firmware's Wi-Fi power pin) and applies the Wi-Fi settings again; it runs at boot when `wlan0` is missing
+  and from the net-guard before any reboot. `meta.txt` of the saved logs counts the failures (`wifi_power_fail`).
+- **Night picture settings refused** (R12-01: `AK_ISP_SET_TUNING_STYLE` answered ENODEV): the video driver now
+  gives the ISP its parameter-set callback.
+
 - **Smart encoding stopped the video server** (rc11, R11-01: mode 1 needs 3.25 MB more encoder DMA than the 9600K
   pool has, mode 2 ends the encoder after 3 frames). 3.0.1-rc13: not on the web page any more; mode 1 only when the
   pool has the room, mode 2 only with `RTSP_SMART_FORCE=1`, and a server that died after trying it skips it at its

@@ -239,7 +239,7 @@ then the flash. A build that fails is written up here as `failed` with the seria
 4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
    ALSA tools moved and slimmed) before the overnight soak.
 
-### URGENT DIAG-01 Frigate gets no picture and the web page does not show since rc11 (owner, 2026-10-31) — `to do first`
+### URGENT DIAG-01 Frigate gets no picture and the web page does not show since rc11 (owner, 2026-10-31) — `found: W-NET (the Wi-Fi chip did not power on after warm reboots); answered in rc14`
 The owner: since rc11 Frigate receives no picture and the web interface is not visible. The tester saw `clients 0` in
 the STAT lines since the morning reboots. Nothing in the rc11 code explains it on paper (no web or network change;
 the new ISP calls print nothing), so the camera must tell. **Read only, nothing written** (except the restart in 4).
@@ -254,6 +254,42 @@ the new ISP calls print nothing), so the camera must tell. **Read only, nothing 
    the password) or VLC; then `sh /mnt/controlscripts/rtsp-h26x restart` and the same again.
 5. Write every output here (no passwords). If the camera is not reachable at all on the network, say so first: that
    points at Wi-Fi / the address, not at the RTSP server or the web server.
+
+### Next build: 3.0.1-rc14 = rc13 + the W-NET recovery + the night parameter set fix — the release candidate (2026-10-31)
+
+rc13 was not installed (the tester ran R12 on rc12); install **rc14** directly. It holds rc13 (smart mode guarded and
+off the page, frozen white balance counts ignored, statistics area diagnostic) and:
+- **W-NET answer.** The stock board data (vendor kernel, `anyka-wifi` platform device, read with Ghidra) names
+  **GPIO 11** as the Wi-Fi power / reset pin, driven high, with 200 ms after the reset and 2000 ms after power-on
+  before the stock firmware loads `otg-hs.ko` and `8188fu.ko` (`sdio_wifi.ko`, its "wifi power on" / "wifi power
+  reset"). New `scripts/wifi-recover.sh`, run **only when `wlan0` is missing**: (1) the USB device probed again
+  (`authorized` 0 -> 1), (2) GPIO 11 low 1 s, high, 2 s, probed again; each step waits up to 20 s; then `wifi-apply`
+  (wpa_supplicant, DHCP). Called at boot (autorun step 9b) and by the net-guard as soon as it sees the network down
+  with no `wlan0` (tries spaced by 5 minutes), before any reboot. `WIFI_POWER_GPIO=0` in boot.conf leaves the pin alone.
+  `meta.txt` of each saved boot gets `wifi_power_fail=<count>` and `wlan0=yes|no` (the counter you asked for).
+- **R12-01 answer:** ENODEV came from the video driver, which registered with the ISP without its parameter-set
+  callback (`ak_isp_acquire(NULL, NULL)`). rc14 gives it (`vi_set_style`: the capture mutex, then
+  `ak_isp_apply_tuning_style`, as the stock app does while capturing); dmesg says `tuning parameter set 1`.
+
+### R14-01 Wi-Fi recovery (`scripts/wifi-recover.sh`) — `to test` (first, with someone near the camera)
+- **Safe check on a working camera** (Wi-Fi up, the script does nothing): `sh /mnt/scripts/wifi-recover.sh check; echo $?`
+  = 0, and `sh /mnt/scripts/wifi-recover.sh run` returns at once with nothing on the console.
+- **The power cycle itself, by hand, from the serial console** (the camera goes off the network for about a minute):
+  `echo 523 > /sys/class/gpio/export; echo out > /sys/class/gpio/gpio523/direction; echo 0 > /sys/class/gpio/gpio523/value`
+  -> within a few seconds dmesg shows the USB device **disconnecting** (`usb 1-1: USB disconnect`) and `wlan0` goes;
+  `echo 1 > /sys/class/gpio/gpio523/value` -> the chip enumerates again, `rtl8xxxu` probes, `wlan0` back; then
+  `sh /mnt/v3/linux66-sd/wifi-apply` and a ping from the LAN. **If nothing disconnects, GPIO 11 is not the Wi-Fi
+  power on this board: write it here and set `WIFI_POWER_GPIO=0` in boot.conf** (the recovery then only re-probes).
+- **The failure case, when it comes back** (warm reboots in a row, check `wlan0` after each): the console lines
+  `[wifi-recover] no wlan0: probing the Wi-Fi chip again`, then `power cycle` if needed, `wlan0 back after the ...`,
+  the camera pingable again without a power cut. `meta.txt` of the saved boots: `wifi_power_fail=`.
+- **Pass:** the manual cycle disconnects and brings the chip back; a real failure recovers without a power cut.
+
+### R14-02 Night parameter set (R12-01 again, rc14 kernel) — `to test`
+- As R12-01: dmesg `tuning parameter set 1` at night and `0` at day, the log `ISP: night parameter set of the
+  tuning file`, about 10 fps at night, the picture against the day set. Then the rest of R12 on rc14 (R12-02 low
+  light at dusk, R12-03 / R12-05 over a night, R12-04 listening, R12-06 listening for the clicks, R12-09 dumps,
+  R12-07 and R12-08 with the owner).
 
 ### Next build: 3.0.1-rc13 = rc12 + the R11 answers — install rc13, not rc12 (2026-10-31)
 
