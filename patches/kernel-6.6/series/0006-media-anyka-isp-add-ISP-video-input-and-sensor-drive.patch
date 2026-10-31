@@ -4841,7 +4841,7 @@ index 000000000..97f00ee92
 +    /* R12-09: the white balance counts read below never change on the TC100 (R11-02); where the ISP writes its
 +     * statistics, so that a dump of this area over time shows which words move */
 +    pr_info("ak39_isp2: statistics DMA area at %#lx, %d bytes (white balance counts read from word %d)\n",
-+            (unsigned long)isp->stat_handle, DMA_STAT_DATA_SIZE, 257 + 257 + 257 + 256 + 5);
++            (unsigned long)isp->stat_handle, DMA_STAT_DATA_SIZE, 257 + 257 + 257 + 256 + 5 + 128);
 +
 +   	//isp_init_awb_parms(isp);
 +   	//_cmos_cam_exp_time_init();  //comment by xc
@@ -5456,7 +5456,7 @@ new file mode 100644
 index 000000000..e9de58ea7
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2_3a.c
-@@ -0,0 +1,3090 @@
+@@ -0,0 +1,3092 @@
 +/* See the note at the head of ak39_isp2.c. */
 +#include <linux/kernel.h>
 +#include <linux/string.h>
@@ -6415,7 +6415,9 @@ index 000000000..e9de58ea7
 +        break;
 +    }
 +
-+	stat_addr = stat_addr +257+257 +257+256+5;
++	/* R12-09 (dumps on a TC100): the white balance block, 10 x (R, G, B, count), is the last 40 words of the
++	 * statistics area; word 1032 (+257+257+257+256+5) held fixed, random-looking data the white balance worked on */
++	stat_addr = stat_addr + 257 + 257 + 257 + 256 + 5 + 128;
 +
 +	for(i=0;i<10;i++)
 +    {
