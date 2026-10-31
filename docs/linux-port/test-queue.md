@@ -257,7 +257,8 @@ switch back to the rc7 behaviour.
    need these lines any more.
 4. **Left opt-in:** `RTSP_UDPMMSG`, `RTSP_UDPSG` (no gain measured, so no reason to switch), `otg_hs.fifo32`,
    `rtl8xxxu.dma_aggregation`, `RTSP_FRAMECOPY=0`.
-5. **`amixer -c 0`: fixed** by shipping `cards/aliases.conf` in `ext/share/alsa` (build-stack checks it is there).
+5. **`amixer -c 0`: fixed** by writing `ext/share/alsa/cards/aliases.conf` (the slim base drops `cards/`): its four
+   includes define `sysdefault`, `dmix`, `dsnoop`; build-stack checks them.
    **Speaker silent: not touched in rc8** (no verified fix; the codec path needs a test of its own, see B-01 notes).
 6. **25 fps as the default: not in rc8.** It costs no CPU (P-04), but the picture quality at 25 fps with the same
    bit rate was not looked at. The owner can choose 25 in Streams & audio; a default change waits for a day-time look.

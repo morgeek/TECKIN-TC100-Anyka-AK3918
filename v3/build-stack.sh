@@ -78,15 +78,25 @@ done
 cp -L etc/ssl/certs/ca-certificates.crt "$T/ext/etc/ssl/certs/"
 # ALSA configuration (the initramfs links /usr/share/alsa to /mnt/ext/share/alsa); alsactl init files, ucm and topology
 # are not used (no alsactl, no UCM on this sound chip). Of cards/ only aliases.conf: alsa.conf includes it, and without
-# it every "-c 0" (amixer -c 0, card names) fails with "cannot stat cards/aliases.conf" (rc7 on IPCAM2)
+# it every "-c 0" (amixer -c 0, card names) fails with "cannot stat cards/aliases.conf" (rc7 on IPCAM2). The base image
+# drops cards/ (v3/buildroot post-build.sh); then its working part is written here: the four includes at its end define
+# sysdefault, dmix and dsnoop (checked against alsa-lib 1.2: same result as the full file); the aliases of PC sound
+# cards are not needed
 mkdir -p "$T/ext/share/alsa/cards"
 for d in usr/share/alsa/*; do
 	case "${d##*/}" in init|cards|ucm|ucm2|topology) continue ;; esac
 	cp -rL "$d" "$T/ext/share/alsa/"
 done
-cp -L usr/share/alsa/cards/aliases.conf "$T/ext/share/alsa/cards/"
+if [ -s usr/share/alsa/cards/aliases.conf ]; then
+	cp -L usr/share/alsa/cards/aliases.conf "$T/ext/share/alsa/cards/"
+else
+	printf '%s\n' '# cards/aliases.conf of alsa-lib without the aliases of PC sound cards (v3/build-stack.sh)' \
+		'<confdir:ctl/default.conf>' '<confdir:pcm/default.conf>' '<confdir:pcm/dmix.conf>' '<confdir:pcm/dsnoop.conf>' \
+		> "$T/ext/share/alsa/cards/aliases.conf"
+fi
 for f in ext/bin/aplay ext/bin/arecord ext/bin/amixer ext/bin/dropbear ext/lib/libasound.so.2 ext/share/alsa/alsa.conf \
-	ext/share/alsa/cards/aliases.conf; do
+	ext/share/alsa/cards/aliases.conf ext/share/alsa/ctl/default.conf ext/share/alsa/pcm/default.conf \
+	ext/share/alsa/pcm/dmix.conf ext/share/alsa/pcm/dsnoop.conf; do
 	[ -s "$T/$f" ] || { echo "build-stack: $f missing from the tree" >&2; exit 1; }
 done
 cd "$REPO"
