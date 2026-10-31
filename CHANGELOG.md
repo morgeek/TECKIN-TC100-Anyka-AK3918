@@ -7,7 +7,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Speaker silent** (3.0.1-rc12, R12-04): the amplifier enable (GPIO 14) is active low, as the stock kernel and app
+  use it; the device tree drove it active high, so it was off while playing and on at rest. `speak-gpios-en = <0>`,
+  the amplifier stays off at rest; `ak39_codec.spk_active=0|1` overrides the level.
+
 ### Added
+- **3.0.1-rc12: the rest of what the stock firmware does** (`docs/linux-port/vendor-re-findings.md`), each
+  switchable from the web page:
+  - **Night picture settings** (Day/night page): the tuning file's night parameter set (2.5 x exposure, night
+    noise filter, 10 fps) when night mode starts, the day set back at day. Off by default.
+  - **10 fps in low light by day** (Day/night page), as the stock app: brighter, less noise. Off by default.
+  - **Day / night source "Stock firmware method"**: exposure x gain / exposure limit x 40 / picture brightness,
+    confirmed by the white balance counts, the stock thresholds, the flap lock. The default source stays luminance.
+  - **IR LED protection** (every source, on by default): after 14 h of night, day mode for 10 minutes.
+  - **Bit rate mode and smart encoding** on the Streams & audio page (`vbr`, `smart` in rtspserver.conf;
+    `RTSP_VBR` / `RTSP_SMART` of rc11). Off by default.
+  - `/tmp/cam_ae` gets a 7th field, the current exposure limit.
+
 - **3.0.1-rc11: what the stock binaries taught** (Ghidra on the stock firmware dump and `libmpi_venc_ex.so`,
   `docs/linux-port/vendor-re-findings.md`; no vendor file in the repository):
   - **Encoder smart mode** (`RTSP_SMART=1` long-term reference, `2` variable GOP; off by default, only with

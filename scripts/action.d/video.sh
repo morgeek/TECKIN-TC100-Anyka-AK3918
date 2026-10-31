@@ -51,7 +51,9 @@
           "$stream_idx" brmode "$format" \
           "$stream_idx" minqp "$minqp" \
           "$stream_idx" maxqp "$maxqp" \
-          "$stream_idx" smartmode "$smartmode"; then
+          "$stream_idx" smartmode "$smartmode" \
+          $( [ "$stream_idx" = 0 ] && [ -n "${F_vbr0}${F_smart0}" ] && \
+             echo "0 vbr $(sanitize_int_range "${F_vbr0}" 0 1 0) 0 smart $(sanitize_int_range "${F_smart0}" 0 2 0)" ); then
         if wants_json_response; then
           json_body_err "CONFIG_WRITE_FAILED" "Settings could not be written. Check the SD card."
         else
@@ -82,14 +84,25 @@
         _ld=$(sanitize_int_range "${F_nightdaylum:-$(_dn_get LUMA_DAY)}" 0 255 100)
         [ "$_ld" -gt "$_ln" ] || _ld=$((_ln + 20))
         [ "$_ld" -le 255 ] || _ld=255
-        case "${F_dn_source:-$(_dn_get DAYNIGHT_SOURCE)}" in ae) _ds=ae ;; isp) _ds=isp ;; *) _ds=luma ;; esac
+        case "${F_dn_source:-$(_dn_get DAYNIGHT_SOURCE)}" in ae) _ds=ae ;; isp) _ds=isp ;; vendor) _ds=vendor ;; *) _ds=luma ;; esac
         _an=$(sanitize_int_range "${F_ae_night_above:-$(_dn_get AE_NIGHT_ABOVE)}" 1 999999999 15000)
         _ad=$(sanitize_int_range "${F_ae_day_below:-$(_dn_get AE_DAY_BELOW)}" 0 999999999 3000)
         [ "$_ad" -lt "$_an" ] || _ad=$((_an / 2 ))
         _nh=$(sanitize_int_range "${F_dn_night_hold:-$(_dn_get NIGHT_HOLD)}" 1 3600 10)
         _dh=$(sanitize_int_range "${F_dn_day_hold:-$(_dn_get DAY_HOLD)}" 1 3600 60)
-        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\n' \
-          "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" > /mnt/config/daynight.conf
+        # stock firmware method (R12-03), IR LED protection (hours on the page, seconds in the file), and the two
+        # tc100_rtsp switches (night parameter set R12-01, low-light 10 fps R12-02): a change of those restarts it
+        _vn=$(sanitize_int_range "${F_dn_vendor_night:-$(_dn_get VENDOR_NIGHT_LUM)}" 1 999999 3584)
+        _vd=$(sanitize_int_range "${F_dn_vendor_day:-$(_dn_get VENDOR_DAY_LUM)}" 0 999999 1536)
+        [ "$_vd" -lt "$_vn" ] || _vd=$((_vn / 2))
+        _irs=$(_dn_get IR_LED_MAX_ON)
+        if [ -n "${F_dn_ir_max_h}" ]; then _irs=$(( $(sanitize_int_range "${F_dn_ir_max_h}" 0 48 14) * 3600 )); fi
+        _irs=$(sanitize_int_range "${_irs}" 0 172800 50400)
+        _ns0=$(_dn_get NIGHT_STYLE); _lf0=$(_dn_get LOWLIGHT_FPS)
+        _ns=$(normalize_bool "${F_dn_nightstyle}"); _lf=$(normalize_bool "${F_dn_lowlight}")
+        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\nVENDOR_NIGHT_LUM=%s\nVENDOR_DAY_LUM=%s\nIR_LED_MAX_ON=%s\nNIGHT_STYLE=%s\nLOWLIGHT_FPS=%s\n' \
+          "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" "$_vn" "$_vd" "$_irs" "$_ns" "$_lf" > /mnt/config/daynight.conf
+        [ "${_ns0:-0}" = "$_ns" ] && [ "${_lf0:-0}" = "$_lf" ] || schedule_rtsp_restart
       fi
       if [ -n "${F_osd_form}" ]; then
         osdenabled=$(normalize_bool "${F_osdenabled}")

@@ -465,6 +465,7 @@ read_rtsp_stream_summary() {
     cfg_int minqp0 0_minqp 20
     cfg_int maxqp0 0_maxqp 51
     cfg_int smartmode0 0_smartmode 1
+    cfg_int vbr0 0_vbr 0; cfg_int smart0 0_smart 0
     cfg_int smartgoplen0 0_smartgoplen 0
     cfg_int smartquality0 0_smartquality 100
     cfg_int smartstatic0 0_smartstatic 500
@@ -766,17 +767,21 @@ if [ -n "$F_cmd" ]; then
     # state of /tmp/cam_ae and the exposure index the ae source compares; the formula is that of
     # scripts/auto-night-daemon.sh dn_index) so that the thresholds can be set from what the camera sees.
     load_conf_file /mnt/config/daynight.conf
-    _dn_src="$C_DAYNIGHT_SOURCE"; case "$_dn_src" in ae|isp) ;; *) _dn_src=luma ;; esac
+    _dn_src="$C_DAYNIGHT_SOURCE"; case "$_dn_src" in ae|isp|vendor) ;; *) _dn_src=luma ;; esac
     _dn_luma=""; [ -r /tmp/cam_luma ] && read -r _dn_luma < /tmp/cam_luma
-    _dn_ae=0; _dn_idx=null; _dn_l=null; _dn_e=null; _dn_a=null; _dn_d=null; _dn_i=null; _dn_k=null
+    _dn_ae=0; _dn_idx=null; _dn_lum=null; _dn_l=null; _dn_e=null; _dn_a=null; _dn_d=null; _dn_i=null; _dn_k=null
     if [ -r /tmp/cam_ae ]; then
-      read -r _l _e _a _d _i _k < /tmp/cam_ae
+      read -r _l _e _a _d _i _k _m < /tmp/cam_ae
       case "$_l $_e $_a $_d $_i $_k" in
         *[!0-9\ ]*|*"  "*|" "*|*" ") ;;
         *)
           if [ -n "$_k" ] && [ "${#_e}" -le 9 ] && [ "${#_a}" -le 9 ] && [ "${#_d}" -le 9 ] && [ "${#_i}" -le 9 ]; then
             _dn_ae=1; _dn_l=$_l; _dn_e=$_e; _dn_a=$_a; _dn_d=$_d; _dn_i=$_i; _dn_k=$_k
             _dn_idx=$(( _e * _a / 256 )); _dn_idx=$(( _dn_idx * _d / 256 )); _dn_idx=$(( _dn_idx * _i / 256 ))
+            # the stock firmware's metric (vendor source): exp_time * gain / exp_max * 40 / lumi
+            case "$_m" in ''|*[!0-9]*|0) _m=1125 ;; esac
+            _dn_g=$(( _a * _d / 256 )); _dn_g=$(( _dn_g * _i / 256 ))
+            _dn_lum=$(( _e * _dn_g / _m * 40 / ( _l > 0 ? _l : 40 ) ))
           fi ;;
       esac
     fi
@@ -793,10 +798,12 @@ if [ -n "$F_cmd" ]; then
     cfg_int _dn_ln LUMA_NIGHT 40; cfg_int _dn_ld LUMA_DAY 100
     cfg_int _dn_an AE_NIGHT_ABOVE 15000; cfg_int _dn_ad AE_DAY_BELOW 3000
     cfg_int _dn_nh NIGHT_HOLD 10; cfg_int _dn_dh DAY_HOLD 60
+    cfg_int _dn_vn VENDOR_NIGHT_LUM 3584; cfg_int _dn_vd VENDOR_DAY_LUM 1536; cfg_int _dn_ir IR_LED_MAX_ON 50400
+    cfg_int _dn_ns NIGHT_STYLE 0; cfg_int _dn_lf LOWLIGHT_FPS 0
     case "$_dn_luma" in ''|*[!0-9]*) _dn_luma=null ;; esac
-    printf '{"source":"%s","luma_night":%s,"luma_day":%s,"ae_night_above":%s,"ae_day_below":%s,"night_hold":%s,"day_hold":%s,"auto":%s,"night":%s,"luma":%s,"ae_available":%s,"lumi":%s,"exp_time":%s,"a_gain":%s,"d_gain":%s,"isp_d_gain":%s,"dark_flag":%s,"index":%s}\n' \
+    printf '{"source":"%s","luma_night":%s,"luma_day":%s,"ae_night_above":%s,"ae_day_below":%s,"night_hold":%s,"day_hold":%s,"auto":%s,"night":%s,"luma":%s,"ae_available":%s,"lumi":%s,"exp_time":%s,"a_gain":%s,"d_gain":%s,"isp_d_gain":%s,"dark_flag":%s,"index":%s,"vendor_lum":%s,"vendor_night":%s,"vendor_day":%s,"ir_max_on":%s,"night_style":%s,"lowlight_fps":%s}\n' \
       "$_dn_src" "$_dn_ln" "$_dn_ld" "$_dn_an" "$_dn_ad" "$_dn_nh" "$_dn_dh" \
-      "$_dn_auto" "$((1 - _dn_cut))" "$_dn_luma" "$_dn_ae" "$_dn_l" "$_dn_e" "$_dn_a" "$_dn_d" "$_dn_i" "$_dn_k" "$_dn_idx"
+      "$_dn_auto" "$((1 - _dn_cut))" "$_dn_luma" "$_dn_ae" "$_dn_l" "$_dn_e" "$_dn_a" "$_dn_d" "$_dn_i" "$_dn_k" "$_dn_idx" "$_dn_lum" "$_dn_vn" "$_dn_vd" "$_dn_ir" "$_dn_ns" "$_dn_lf"
     ;;
 
   lumawb)
@@ -1308,10 +1315,10 @@ if [ -n "$F_cmd" ]; then
     privacy_enabled="$(truthy_flag "$(get_cfg PRIVACY_MODE 0)")"
     
     # Feature blocks
-    printf '{"boot":{"web_mode":"%s","perf_profile":"%s","service_trim":%s,"topology":"%s","ultralite_port":%s,"lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s},"telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"frigate":{"url":"%s","camera":"%s"},"peripherals":{"led_front":%s,"led_red":%s,"privacy":%s}}\n' \
+    printf '{"boot":{"web_mode":"%s","perf_profile":"%s","service_trim":%s,"topology":"%s","ultralite_port":%s,"lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s,"vbr":%s,"smart":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s},"telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"frigate":{"url":"%s","camera":"%s"},"peripherals":{"led_front":%s,"led_red":%s,"privacy":%s}}\n' \
       "$(json_escape "$(get_cfg WEB_MODE full)")" "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(sanitize_int "$(get_cfg ULTRALITE_HTTP_PORT 80)" 80)" "$(truthy_flag "$(get_cfg LIGHTWEIGHT_MODE 0)")" "$(truthy_flag "$(get_cfg SECURITY_HARDENING_MODE 0)")" \
       "$rtsp_port" \
-      "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" \
+      "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" "$vbr0" "$smart0" \
       "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
       "$(sanitize_int "$(get_cfg imageflip 0)" 0)" "$(truthy_flag "$(get_cfg RTSPLOGENABLED 0)")" \
       "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg 2_codec 4)" 4)" "$(sanitize_int "$(get_cfg 3_codec 4)" 4)" "$audio_vol" \

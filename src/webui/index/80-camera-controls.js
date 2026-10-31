@@ -99,12 +99,17 @@
     set("dn_live_idx", d.ae_available ? num(d.index) : "–");
     set("dn_live_dark", d.ae_available ? (d.dark_flag ? "1" : "0") : "–");
     set("dn_live_raw", d.ae_available ? [d.exp_time, d.a_gain, d.d_gain, d.isp_d_gain].join(" / ") : "–");
+    set("dn_live_lum", d.ae_available ? num(d.vendor_lum) : "–");
     if (!fill) return;
     var put = function (id, v) { var el = byId(id); if (el && v !== undefined && v !== null) el.value = String(v); };
     put("dn_source", d.source);
     put("daynightlum", d.luma_night); put("nightdaylum", d.luma_day);
     put("ae_night_above", d.ae_night_above); put("ae_day_below", d.ae_day_below);
     put("dn_night_hold", d.night_hold); put("dn_day_hold", d.day_hold);
+    put("dn_vendor_night", d.vendor_night); put("dn_vendor_day", d.vendor_day);
+    if (d.ir_max_on !== undefined && d.ir_max_on !== null) put("dn_ir_max_h", Math.round(d.ir_max_on / 3600));
+    var chk = function (id, v) { var el = byId(id); if (el) el.checked = v === 1; };
+    chk("dn_nightstyle", d.night_style); chk("dn_lowlight", d.lowlight_fps);
   }
   function initDayNight() {
     var form = byId("formDayNight");

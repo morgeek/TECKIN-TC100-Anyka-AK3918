@@ -17,7 +17,17 @@
 #                   long DAY_HOLD, default 60 s, rides over short brightening).
 #   isp             the dark flag of /tmp/cam_ae, the ISP's own day/night decision (tuning file thresholds): night
 #                   after NIGHT_HOLD seconds of dark=1, day after DAY_HOLD seconds of dark=0.
-# Without a usable /tmp/cam_ae (tc100_rtsp not running) the ae and isp sources fall back to luma.
+#   vendor          the stock firmware's own method (R12-03, docs/linux-port/vendor-re-findings.md):
+#                     lum = exp_time * total gain / exp_max * 40 / lumi   (cam_ae fields 2-5, 7 and 1)
+#                   night after 3 samples in a row with lum above VENDOR_NIGHT_LUM (3584) while the white balance
+#                   sees no daylight (none of the 10 counts of /tmp/cam_awb above AWB_DAY_CNT, 300000); day after 3
+#                   samples with lum below VENDOR_DAY_LUM (1536) while it sees visible light (one of the first 5
+#                   counts above AWB_NIGHT_CNT, 15000: the IR LEDs alone leave them low). A switch back within 15 s
+#                   locks the state for VENDOR_LOCK seconds (900) unless lum moves by more than 30 %. Its thresholds
+#                   assume the 10 fps low-light mode by day (RTSP_LOWLIGHT_FPS=1, exposure up to 2812 lines).
+# Without a usable /tmp/cam_ae (tc100_rtsp not running) the ae, isp and vendor sources fall back to luma.
+# IR LED protection (all sources, as the stock firmware): after IR_LED_MAX_ON seconds of night (50400 = 14 h) day
+# mode for IR_LED_REST seconds (600), then the normal decision again; IR_LED_MAX_ON=0 turns it off.
 # Calibration log: every DN_LOG_EVERY seconds (300) one line "HH:MM mode=day|night src=... luma=N ae=<cam_ae line>
 # idx=N awb=<cam_awb line: white balance counts cnt0..cnt9, colour temperature index>" in $DN_LOG (/tmp/logs/daynight.log, kept to the last 2 x 400 lines; log-persist.sh copies /tmp/logs to the
 # card), whatever the source, so the index thresholds can be set from real dusk and dawn readings (F-04).
@@ -54,6 +64,20 @@ DAYNIGHT_SOURCE=luma
 # from the dusk and dawn lines of the calibration log (/tmp/logs/daynight.log) once a day of them exists
 AE_NIGHT_ABOVE=15000
 AE_DAY_BELOW=3000
+VENDOR_NIGHT_LUM=3584
+VENDOR_DAY_LUM=1536
+AWB_DAY_CNT=300000
+AWB_NIGHT_CNT=15000
+VENDOR_LOCK=900
+IR_LED_MAX_ON=50400
+IR_LED_REST=600
+DN_VCNT=0
+DN_LAST_SW=-100000
+DN_SW_LUM=0
+DN_LOCK_UNTIL=0
+DN_LOCK_LUM=0
+DN_NIGHT_SINCE=0
+DN_REST_UNTIL=0
 NIGHT_HOLD=10
 DAY_HOLD=60
 DN_DARK_SINCE=0
@@ -81,7 +105,11 @@ read_daynight() {
         case "$_v" in [0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) ;; *) continue ;; esac
         if [ "$_k" = LUMA_NIGHT ]; then THRESHOLD_NIGHT="$_v"; else THRESHOLD_DAY="$_v"; fi ;;
       DAYNIGHT_SOURCE)
-        case "$_v" in luma|ae|isp) DAYNIGHT_SOURCE="$_v" ;; esac ;;
+        case "$_v" in luma|ae|isp|vendor) DAYNIGHT_SOURCE="$_v" ;; esac ;;
+      VENDOR_NIGHT_LUM|VENDOR_DAY_LUM|AWB_DAY_CNT|AWB_NIGHT_CNT|VENDOR_LOCK|IR_LED_MAX_ON|IR_LED_REST)
+        case "$_v" in ''|*[!0-9]*) continue ;; esac
+        [ "${#_v}" -le 9 ] || continue
+        eval "$_k=$_v" ;;
       AE_NIGHT_ABOVE|AE_DAY_BELOW)
         case "$_v" in ''|*[!0-9]*) continue ;; esac
         [ "${#_v}" -le 9 ] || continue
@@ -159,7 +187,7 @@ dn_switch() {   # $1 = night|day, $2 = what the decision was based on
 # $1 = now when given (tests), else the clock.
 dn_step_ae() {
   [ -r "$CAM_AE" ] || return 1
-  read -r _l _e _a _d _i _k < "$CAM_AE" || return 1
+  read -r _l _e _a _d _i _k _m < "$CAM_AE" || return 1
   dn_index "$_l" "$_e" "$_a" "$_d" "$_i" "$_k" || return 1
   [ -n "$1" ] && NOW="$1" || read_now
   read_cut
@@ -175,6 +203,87 @@ dn_step_ae() {
   dn_hold "$_dark" "$_bright" "$NOW"
   [ -n "$DN_ACT" ] && dn_switch "$DN_ACT" "$_why"
   return 0
+}
+
+# the stock firmware's light metric from the cam_ae fields $1..$7 -> DN_LUM (empty when unusable)
+dn_vendor_lum() {
+  DN_LUM=
+  dn_index "$1" "$2" "$3" "$4" "$5" "$6" || return 1
+  _vm=$7; case "$_vm" in ''|*[!0-9]*|0|0[0-9]*) _vm=1125 ;; esac
+  _vl=$1; [ "$_vl" -gt 0 ] || _vl=40
+  _vg=$(( $3 * $4 / 256 )); _vg=$(( _vg * $5 / 256 ))
+  DN_LUM=$(( $2 * _vg / _vm * 40 / _vl ))
+}
+
+# white balance counts of /tmp/cam_awb -> DN_AWB_DAY (1: daylight, a count above AWB_DAY_CNT) and DN_AWB_VIS (1:
+# visible light, one of the first five above AWB_NIGHT_CNT); without the file the metric decides alone
+dn_awb() {
+  DN_AWB_DAY=0; DN_AWB_VIS=1
+  [ -r "$CAM_AWB" ] || return 0
+  read -r _w0 _w1 _w2 _w3 _w4 _w5 _w6 _w7 _w8 _w9 _wct < "$CAM_AWB" || return 0
+  for _w in "$_w0" "$_w1" "$_w2" "$_w3" "$_w4" "$_w5" "$_w6" "$_w7" "$_w8" "$_w9"; do
+    case "$_w" in ''|*[!0-9]*) return 0 ;; esac
+    [ "${#_w}" -le 9 ] || return 0
+  done
+  DN_AWB_VIS=0
+  for _w in "$_w0" "$_w1" "$_w2" "$_w3" "$_w4"; do [ "$_w" -gt "$AWB_NIGHT_CNT" ] && DN_AWB_VIS=1; done
+  for _w in "$_w0" "$_w1" "$_w2" "$_w3" "$_w4" "$_w5" "$_w6" "$_w7" "$_w8" "$_w9"; do
+    [ "$_w" -gt "$AWB_DAY_CNT" ] && DN_AWB_DAY=1
+  done
+  return 0
+}
+
+# One decision of the vendor source; returns 1 when /tmp/cam_ae cannot be used. $1 = now (tests), else the clock.
+dn_step_vendor() {
+  [ -r "$CAM_AE" ] || return 1
+  read -r _l _e _a _d _i _k _m < "$CAM_AE" || return 1
+  dn_vendor_lum "$_l" "$_e" "$_a" "$_d" "$_i" "$_k" "$_m" || return 1
+  [ -n "$1" ] && NOW="$1" || read_now
+  read_cut
+  dn_awb
+  _want=
+  if [ "$CUR_CUT" = ON ]; then
+    [ "$DN_LUM" -gt "$VENDOR_NIGHT_LUM" ] && [ "$DN_AWB_DAY" = 0 ] && _want=night
+  else
+    [ "$DN_LUM" -lt "$VENDOR_DAY_LUM" ] && [ "$DN_AWB_VIS" = 1 ] && _want=day
+  fi
+  if [ -n "$_want" ]; then DN_VCNT=$((DN_VCNT + 1)); else DN_VCNT=0; fi
+  [ "$DN_VCNT" -ge 3 ] || return 0
+  DN_VCNT=0
+  if [ "$DN_LOCK_UNTIL" -gt "$NOW" ]; then
+    _vd=$(( DN_LUM - DN_LOCK_LUM )); [ "$_vd" -lt 0 ] && _vd=$(( -_vd ))
+    [ $(( _vd * 10 )) -gt $(( DN_LOCK_LUM * 3 )) ] || return 0   # locked: the scene did not change by 30 %
+    DN_LOCK_UNTIL=0
+  fi
+  if [ $(( NOW - DN_LAST_SW )) -lt 15 ]; then
+    DN_LOCK_UNTIL=$(( NOW + VENDOR_LOCK )); DN_LOCK_LUM=$DN_SW_LUM
+    echo "[auto-night] switching back within 15 s: locked for ${VENDOR_LOCK} s (lum=$DN_LUM)" > "$CONSOLE"
+    return 0
+  fi
+  DN_LAST_SW=$NOW; DN_SW_LUM=$DN_LUM
+  dn_switch "$_want" "vendor lum=$DN_LUM awb day=$DN_AWB_DAY visible=$DN_AWB_VIS"
+  return 0
+}
+
+# IR LED protection (stock ir_switch_handler): after IR_LED_MAX_ON s of night, day mode for IR_LED_REST s.
+# Returns 0 while it holds the decisions (it switched, or the rest is not over).
+dn_ir_guard() {
+  [ "$IR_LED_MAX_ON" -gt 0 ] || return 1
+  read_now
+  read_cut
+  if [ "$CUR_CUT" = OFF ]; then
+    [ "$DN_NIGHT_SINCE" = 0 ] && DN_NIGHT_SINCE=$NOW
+    if [ $(( NOW - DN_NIGHT_SINCE )) -ge "$IR_LED_MAX_ON" ]; then
+      echo "[auto-night] IR LEDs on for $(( NOW - DN_NIGHT_SINCE )) s: day mode for $IR_LED_REST s (IR LED protection)" > "$CONSOLE"
+      "$NIGHTMODE" off
+      DN_REST_UNTIL=$(( NOW + IR_LED_REST )); DN_NIGHT_SINCE=0
+      return 0
+    fi
+  else
+    DN_NIGHT_SINCE=0
+  fi
+  [ "$DN_REST_UNTIL" -gt "$NOW" ] && return 0
+  return 1
 }
 
 # the original decision on the picture luminance: two samples in a row beyond the threshold
@@ -223,9 +332,11 @@ dn_log() {
   _lw=-; [ -r "$CAM_AWB" ] && read -r _lw < "$CAM_AWB"
   # shellcheck disable=SC2086
   dn_index $_la 2>/dev/null || DN_IDX=-
+  # shellcheck disable=SC2086
+  dn_vendor_lum $_la 2>/dev/null || DN_LUM=-
   _lm=day; [ "$CUR_CUT" = OFF ] && _lm=night
   if [ "$DN_LOG_N" -ge 400 ]; then mv -f "$DN_LOG" "$DN_LOG.1" 2>/dev/null; DN_LOG_N=0; fi
-  echo "$(date +%H:%M 2>/dev/null) mode=$_lm src=$DAYNIGHT_SOURCE luma=${_ll:--} ae=${_la:--} idx=${DN_IDX:--} awb=${_lw:--}" >> "$DN_LOG" 2>/dev/null
+  echo "$(date +%H:%M 2>/dev/null) mode=$_lm src=$DAYNIGHT_SOURCE luma=${_ll:--} ae=${_la:--} idx=${DN_IDX:--} lum=${DN_LUM:--} awb=${_lw:--}" >> "$DN_LOG" 2>/dev/null
   DN_LOG_N=$((DN_LOG_N + 1))
 }
 
@@ -265,8 +376,12 @@ if [ -z "$DN_TEST" ]; then
     if dn_conf_changed; then read_daynight; : > "$DN_STAMP"; fi
     dn_log
     [ "$DN_MODE" != "2" ] && continue
+    dn_ir_guard && continue
 
-    if [ "$DAYNIGHT_SOURCE" != luma ]; then
+    if [ "$DAYNIGHT_SOURCE" = vendor ]; then
+      SLP=2
+      dn_step_vendor && continue
+    elif [ "$DAYNIGHT_SOURCE" != luma ]; then
       SLP=2     # /tmp/cam_ae changes every 2 s; the hold times are measured in seconds
       dn_step_ae && continue
     fi

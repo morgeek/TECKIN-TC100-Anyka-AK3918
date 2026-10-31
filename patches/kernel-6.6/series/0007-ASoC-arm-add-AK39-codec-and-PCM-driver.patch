@@ -119,7 +119,7 @@ new file mode 100644
 index 000000000..66bdc52da
 --- /dev/null
 +++ b/sound/arm/ak39_codec.c
-@@ -0,0 +1,2208 @@
+@@ -0,0 +1,2219 @@
 +#include <linux/kernel.h>
 +#include <linux/init.h>
 +#include <linux/err.h>
@@ -1493,6 +1493,12 @@ index 000000000..66bdc52da
 + * @param[in]  bOn: 1-power on; 0-power off
 + * @return  void
 + */
++/* the amplifier enable level: -1 = the device tree's speak-gpios-en (0 on the TC100: the stock kernel plays with
++ * GPIO 14 low, test queue R12-04), 0 or 1 overrides it from the command line */
++static int spk_active = -1;
++module_param(spk_active, int, 0444);
++MODULE_PARM_DESC(spk_active, "speaker amplifier enable level: 0 low, 1 high, -1 the device tree's (default)");
++
 +void ak39_codec_speak_on(struct ak39_codec *codec, bool bOn)
 +{
 +	if (!gpio_is_valid(codec->spkrshdn_gpio))
@@ -1598,7 +1604,9 @@ index 000000000..66bdc52da
 +
 +	set_playmode_switch(codec, plug_in);
 +
-+	ak39_codec_speak_on(codec, !plug_in);
++	/* off at rest, as the stock kernel: only a playback start switches the amplifier on */
++	if (plug_in)
++		ak39_codec_speak_on(codec, false);
 +	return 0;
 +}
 +
@@ -2047,8 +2055,9 @@ index 000000000..66bdc52da
 +
 +		set_playmode_switch(codec, plug_in);
 +
-+		/*power on the speaker when headphone plug out.*/
-+		ak39_codec_speak_on(codec, !plug_in); 
++		/* a route change does not switch the amplifier on (it would hiss at rest until the next stop) */
++		if (plug_in)
++			ak39_codec_speak_on(codec, false);
 +
 +	}else if(dst == MIXER_ADDR_DST_ADC2) {
 +	}
@@ -2175,6 +2184,8 @@ index 000000000..66bdc52da
 +	codec->spkrshdn_gpio = of_get_named_gpio(np, "speak-gpios", 0);
 +	codec->spk_gpios_en = 1;
 +	of_property_read_u32(np, "speak-gpios-en", (u32 *)&codec->spk_gpios_en);
++	if (spk_active == 0 || spk_active == 1)
++		codec->spk_gpios_en = spk_active;
 +	if (gpio_is_valid(codec->spkrshdn_gpio)) {
 +		err = gpio_request_one(codec->spkrshdn_gpio,
 +				codec->spk_gpios_en ? GPIOF_OUT_INIT_LOW

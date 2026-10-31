@@ -162,7 +162,9 @@ settings kept), normal flash start (no card kernel): "Page block order: 7", 2 hi
 | Sharpness | not applied on 3.0 | ISP `AK_ISP_SET_SHARP` (Image page; 3 effective levels) | HW-05 works |
 | Exposure cap | not applied on 3.0 | ISP `AK_ISP_SET_AE` (Image page) | HW-06 passed |
 | OSD clock | drawn by the CPU in each frame | ISP OSD window, kernel patch 0014 (default since rc8, `RTSP_ISPOSD=0` = CPU) | HW-07 passed |
-| Light level for day / night | CPU sample of the picture after AE | AE state in `/tmp/cam_ae`; the `ae` source with thresholds from the measured night, calibration log (rc9) | HW-08, R9-02 |
+| Light level for day / night | CPU sample of the picture after AE | AE state in `/tmp/cam_ae`, white balance counts in `/tmp/cam_awb`; the stock firmware's method as a source (rc12) | HW-08, R9-02, R12-03 |
+| ISP night parameter set | never used (day set, colour off) | `AK_ISP_SET_TUNING_STYLE` at the night switch (rc12, page switch) | R12-01 |
+| Sensor rate in low light | 25 fps | 10 fps and 2.5 x exposure above 14 x gain, as the stock app (rc12, page switch) | R12-02 |
 | Anti-flicker | the tuning file's exposure step: 281 lines = 50 Hz on IPCAM2 | ISP auto exposure `exp_step` = one lamp pulse (`POWER_HZ` 50 / 60; default "Camera default") | R9-03, R10-01 |
 | Capture buffers | 4 ISP slots armed, one 3.4 MB CMA buffer each | 3 (default since rc8, `ak39_vi.slots=4` = before) | P-02 passed |
 

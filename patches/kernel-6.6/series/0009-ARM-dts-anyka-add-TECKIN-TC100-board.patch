@@ -252,7 +252,7 @@ index 000000000..28580fca8
 +		      <0x20110000 0x8008>;
 +		interrupts = <6>, <7>;
 +		speak-gpios = <&gpio0 14 0>;
-+		speak-gpios-en = <1>;
++		speak-gpios-en = <0>;	/* active low: the stock kernel plays with GPIO 14 low (R12-04) */
 +		status = "okay";
 +	};
 +};

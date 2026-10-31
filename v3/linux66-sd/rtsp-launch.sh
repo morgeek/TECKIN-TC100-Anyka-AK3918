@@ -48,6 +48,18 @@ if [ -f $CONF ]; then
   case "$3" in ''|*[!0-9]*) ;; *) [ "$3" -ge 1 ] && [ "$3" -le 300 ] && ENCOPT="$ENCOPT -g $3" ;; esac
   case "$4" in ''|*[!0-9]*) ;; *) [ "$4" -ge 1 ] && [ "$4" -le 300 ] && ENCOPT="$ENCOPT -G $4" ;; esac
 fi
+# Settings: bit rate mode and smart encoding (Streams & audio, rtspserver.conf [0] vbr / smart: R11-01), the night
+# parameter set and the low-light frame rate (Day/night, daynight.conf NIGHT_STYLE / LOWLIGHT_FPS: R12-01, R12-02).
+# The older brmode / smartmode keys were never applied and are not read. config/rtsp.env, sourced later, overrides.
+if [ -f $CONF ]; then
+  set -- $(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 vbr 0 smart 2>/dev/null)
+  [ $# -eq 2 ] || set -- "" ""
+  case "$1" in 1) export RTSP_VBR=1 ;; esac
+  case "$2" in 1|2) export RTSP_SMART=$2 ;; esac
+fi
+dnc() { sed -n "s/^$1=//p" /mnt/config/daynight.conf 2>/dev/null | tail -n 1; }
+[ "$(dnc NIGHT_STYLE)" = 1 ] && export RTSP_NIGHTSTYLE=1
+[ "$(dnc LOWLIGHT_FPS)" = 1 ] && export RTSP_LOWLIGHT_FPS=1
 # boot.conf: RTSP_SUBSTREAM (640x360 second stream on /video1, /ch1, /sub; 0 = off) and RTSP_AUDIO (G.711 track).
 # The recording (REC_*), the sound level (sound_detection.conf) and the motion zones are read by tc100_rtsp itself.
 bc() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
