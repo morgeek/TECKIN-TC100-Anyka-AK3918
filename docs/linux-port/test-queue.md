@@ -271,6 +271,32 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   callback (`ak_isp_acquire(NULL, NULL)`). rc14 gives it (`vi_set_style`: the capture mutex, then
   `ak_isp_apply_tuning_style`, as the stock app does while capturing); dmesg says `tuning parameter set 1`.
 
+### Next build: 3.0.1-rc17 — install with no click, way back from the card, old tint reset (2026-10-31)
+The owner asked for a simpler install: from the original SD hook, and if the camera is compliant, the flash, with the
+safest choice and a way back. The tag `v3.0.1` waits for R17-01 (and R15-03 / R15-04).
+
+### R17-01 Automatic install from the card, then the way back with RESTAURER.txt — `to test` (needs the owner's OK per flash write)
+- **What:** `v3/install/auto-install.sh`, started by `autorun-linux66.sh` step 12f in trial mode only. It installs when
+  the card went through the stock hook (`tc100-3/stage1.done`), the flash's `initrd` has no xz image (no 3.0 yet) and
+  `tc100-3/auto-install.tried` is absent; checks first: `restore-stock.sh --check` (copy 8 MiB, md5, `boot` and `mac`
+  areas equal to the flash), `install66.sh check`, frames for 30 s (`/tmp/cam_luma`). No chime in that trial start;
+  the chime comes from the flash start. `RESTAURER.txt` runs `restore-stock.sh` once (renamed `RESTAURER.done`).
+- **Switch:** `ESSAI.txt` (or `TRIAL.txt`) at the root of the card: trial mode as before (wizard / Install to flash).
+- **Test (only a camera on its stock or 2.x firmware enters the hook; both cameras run 3.0 from flash):**
+  1. Safe part first, on the current 3.0 cameras, nothing written: boot the rc17 card by hand (`boot66b.sh`): the
+     console has no `auto-install:` line (flash holds 3.0) and the chime plays; `sh /mnt/v3/install/auto-install.sh
+     pending; echo $?` = 1; `sh /mnt/v3/install/restore-stock.sh --check` on a card with that camera's
+     `flash-stock.bin` = `ok ...`, and with the other camera's copy = refused (`not this camera's`).
+  2. With the owner's OK (flash writes, dump first): `RESTAURER.txt` on the card of one camera (one whose card still holds
+     its own `flash-stock.bin` from the hook; step 1 tells): it writes back, restarts into its old system (2.x or stock), card out.
+  3. Then a fresh rc17 card (only `wifi.txt` added): power on, wait 15 min: blue blinking twice, chime, `/proc/cmdline`
+     has `flashroot=1`, `tc100-3/STATUS.txt` ends with "all checks passed ... installing", `install66.log` "DONE".
+  4. `ESSAI.txt` variant (optional): the camera stays on the card, `STATUS.txt` says "trial mode kept".
+- **Pass:** steps 1-3 as above; nothing written to the flash when a check fails (simulate: rename `tc100-3/stack.sqfs.md5`
+  on a stock camera's card: red LED, "NOT INSTALLED", the camera runs from the card).
+- **Also in rc17:** the picture tint and saturation of an older version reset once (`config/.migrated-3.0.1`): on the
+  .24 `HUE=0 SATURATION=0` in `isp_tune.conf` and `ISP_TUNE=0` in `boot.conf` after the first rc17 start.
+
 ### 3.0.1 prepared (2026-10-31, the owner: "prepare a release")
 `VERSION` 3.0.1 = rc16 + the alert as three 1 kHz beeps (R16: the 0.5 s tone was missed at the default volume, still
 at the -6 dBFS that R15-02 heard clean) + the release documentation. **The tag `v3.0.1` (which publishes the files) waits

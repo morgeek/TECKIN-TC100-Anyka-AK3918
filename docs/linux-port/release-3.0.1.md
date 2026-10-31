@@ -1,7 +1,8 @@
 # Release plan: 3.0.1 (2026-10-31)
 
-**Status:** prepared on main (`VERSION` 3.0.1 = rc16 + the alert sound + the documentation); the tag `v3.0.1` waits
-for the owner's go. rc16 passed R16-01 (colours) on IPCAM2, runs on IPCAM1 (web update); R15-03 (a night) and
+**Status:** rc17 on main (`VERSION` 3.0.1-rc17 = the prepared 3.0.1 + the install with no click, the way back with
+`RESTAURER.txt` and the old tint reset, asked by the owner on 2026-10-31 evening); the tag `v3.0.1` waits for R17-01
+and the owner's go. Before that, it was prepared as 3.0.1 = rc16 + the alert sound + the documentation. rc16 passed R16-01 (colours) on IPCAM2, runs on IPCAM1 (web update); R15-03 (a night) and
 R15-04 (the owner's checks) were still open.
 
 The owner's target: at most one or two more release candidates, then the release. This page is the plan; the test

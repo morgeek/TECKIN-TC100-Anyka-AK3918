@@ -661,5 +661,55 @@ class Rc9SocWiring(unittest.TestCase):
         shutil.rmtree(d)
 
 
+class AutoInstall(unittest.TestCase):
+    """3.0.1-rc17 (test queue R17-01): the card installs to the flash by itself, after the checks, with a way back."""
+
+    def setUp(self):
+        self.ai = (ROOT / 'v3/install/auto-install.sh').read_text(encoding='utf-8')
+        self.rs = (ROOT / 'v3/install/restore-stock.sh').read_text(encoding='utf-8')
+        self.ar = (ROOT / 'v3/autorun-linux66.sh').read_text(encoding='utf-8')
+
+    def test_checks_come_before_the_flash_write(self):
+        body = self.ai[self.ai.index('first_install || exit 0'):]
+        run = body.index('install66.sh run')
+        for gate in ('restore-stock.sh --check', 'install66.sh check', 'pidof tc100_rtsp', 'find /tmp/cam_luma -newer'):
+            self.assertLess(body.index(gate), run, gate)
+        # tried once per card, marked before anything is written (no loop if the camera restarts in the middle)
+        self.assertLess(body.index('date > "$K/auto-install.tried"'), run)
+        self.assertLess(body.index('ESSAI.txt TRIAL.txt'), run)
+
+    def test_never_over_a_flash_that_holds_3_0_nor_in_flash_mode(self):
+        self.assertIn('fd377a585a00', self.ai)      # the xz magic U-Boot's flashcheck looks for
+        self.assertIn('first_install() { [ -f "$K/stage1.done" ] && ! flash_has_30', self.ai)
+        self.assertIn('[ -f /tmp/linux66 ] && [ ! -f /tmp/flashmode ] || exit 1', self.ai)
+        self.assertIn('[ -f /tmp/linux66 ] && [ ! -f /tmp/flashmode ] || fail', self.rs)
+
+    def test_restore_is_asked_for_and_runs_once(self):
+        i = self.ai.index('RESTAURER.txt RESTORE.txt); then')
+        self.assertLess(self.ai.index('mv -f "$C/$r" "$C/${r%.txt}.done"', i), self.ai.index('restore-stock.sh >>', i))
+        self.assertIn('c66.img.off', self.ai)
+
+    def test_backup_must_be_this_cameras(self):
+        # U-Boot (boot, 0..0x39000) and mac (0x239000, one sector) of the copy against the flash, md5 required
+        self.assertIn('for p in boot:0:57 mac:569:1; do', self.rs)
+        self.assertEqual((0x39000 // 4096, 0x239000 // 4096), (57, 569))
+        self.assertIn('fail "$F.md5 not found', self.rs)
+        self.assertIn('[ -n "$CHECK" ] && {', self.rs)
+        self.assertLess(self.rs.index('[ -n "$CHECK" ] && {'), self.rs.index('FLASHW_ALLOW='))
+
+    def test_autorun_wiring(self):
+        self.assertIn('auto-install.sh pending', self.ar)
+        self.assertIn('[ $AUTO_INSTALL = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh', self.ar)
+        self.assertIn('[ $AUTO_INSTALL = 1 ] && ( sleep 20; exec sh /mnt/v3/install/auto-install.sh )', self.ar)
+        self.assertIn('sh -n', sh('sh -n %s && echo "sh -n"' % (ROOT / 'v3/install/auto-install.sh')).stdout)
+
+    def test_old_tint_and_saturation_reset_once(self):
+        i = self.ar.index('1a2.')
+        blk = self.ar[i:self.ar.index(': > /mnt/config/.migrated-3.0.1', i)]
+        for k in ('HUE 0', 'SATURATION 0', 'boot.conf ISP_TUNE 0'):
+            self.assertIn(k, blk)
+        self.assertIn('[ ! -f /mnt/config/.migrated-3.0.1 ]', blk)
+
+
 if __name__ == '__main__':
     unittest.main()

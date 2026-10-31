@@ -69,14 +69,15 @@ grew from there.
 **Recording**
 - MP4 files on the SD card with the sound, copied from the video the camera already encodes (no re-encoding), each
   with a thumbnail.
-  By default only **while Frigate does not receive the video**, with a few seconds before and after; "always" and
-  "on motion" too. A file cut by a power loss plays up to its last second.
+  Off until you turn it on (the wizard asks); then by default only **while Frigate does not receive the video**, with
+  a few seconds before and after; "always" and "on motion" too. A file cut by a power loss plays up to its last second.
 
 **Audio**
 - The microphone in the RTSP stream and in the recordings, listening live from the browser, a sound level in dBFS with
-  detection, and push-to-talk from the browser through the camera's speaker.
+  detection, and push-to-talk from the browser through the camera's speaker (not yet checked on a camera).
 - **Two-way audio from Home Assistant, Frigate or go2rtc**: their microphone button plays your voice on the camera's
-  speaker (ONVIF backchannel in the RTSP stream; needs the camera password; Settings → Video → Two-way audio).
+  speaker (ONVIF backchannel in the RTSP stream; needs the camera password; Settings → Video → Two-way audio; not yet
+  checked on a camera).
 
 **Detection**
 - The camera's own motion detection (MQTT event, picture on motion), with **motion zones**. Off by default: Frigate
@@ -92,7 +93,7 @@ grew from there.
 - Firmware updates from the web page, written to the flash and read back.
 - Wi-Fi from a `wifi.txt` file on the card, from the web page, or from a rescue access point when the Wi-Fi is lost;
   the current network is always kept as a fallback.
-- One password for the web interface, RTSP, FTP and telnet (Settings → System).
+- One password for the web interface, RTSP, SSH, FTP and telnet (Settings → System).
 - Backups and presets of the settings, export to another camera.
 - Diagnostics: memory, processes, events, service health, reboot history with the cause.
 
@@ -131,29 +132,35 @@ in a [Hardware inventory issue](https://github.com/morgeek/TECKIN-TC100-Anyka-AK
      first (Rufus or `guiformat` on Windows, Disk Utility → "MS-DOS (FAT)" on macOS).
    - Camera never set up on Wi-Fi? Add a file `wifi.txt` at the root of the card, with two lines:
      `SSID=your network` and `PASSWORD=its password`. A camera already on your Wi-Fi keeps its network.
-3. **Camera off, card in, power on.** Leave it plugged in for 3 minutes:
-   - **blue LED blinking** (about 2 minutes): the camera saves its own memory to the card, then restarts;
-   - **a short chime**: the new firmware is running;
-   - **red LED on**: it stopped without changing anything. The reason is in `tc100-3/STATUS.txt` on the card.
+3. **Camera off, card in, power on, and leave it plugged in for 15 minutes.** Nothing else to do:
+   - **blue LED blinking** (about 2 minutes): the camera saves a copy of its whole memory to the card (the way back),
+     then restarts on the new firmware from the card;
+   - **blue LED blinking again** (about 10 minutes): the camera has passed every check (the copy of its memory, the
+     hardware, a picture from the sensor) and installs the firmware into its flash, then restarts from it;
+   - **a short chime**: the new firmware runs from the camera's flash; the card now only holds recordings;
+   - **red LED on**: it stopped, the reason is in `tc100-3/STATUS.txt` on the card. Before the copy is made, nothing
+     is changed; after it, the camera runs the new firmware from the card and nothing is written to its flash.
 4. **Open http://tc100/** in a browser (or the camera address shown by your router, also written to
    `tc100-3/ADRESSE.txt` on the card). User `root`, password `pass`, or the password of your 2.x camera.
    The setup wizard asks for a new password.
 
-That is the trial: the new firmware runs **from the card**. **Take the card out and restart: the camera starts its previous
-firmware.** (Only a few start commands were added to the U-Boot environment; the previous start stays the fallback.) Keep the card, and never share `tc100-3/backup/flash-stock.bin` (the copy of your camera's memory).
+Keep the card, and never share `tc100-3/backup/flash-stock.bin` (the copy of your camera's memory, made before
+anything else is written): it is the way back.
 
-**Keep it?** The last step of the wizard, or Settings → Update & backup → *Install to flash*, copies the firmware into
-the camera (about 10 minutes, do not unplug). The camera then starts without the card, and the card only holds
-recordings. Later versions: Settings → Update & backup → *Firmware update*, with `tc100-<version>-update.tar`.
+**Try it first without installing?** Put an empty file `ESSAI.txt` (or `TRIAL.txt`) at the root of the card before
+step 3. The new firmware then runs **from the card** only: take the card out and restart, and the camera starts its
+previous firmware. To install later: Settings → Update & backup → *Install to flash* (or the last step of the wizard).
+
+Later versions: Settings → Update & backup → *Firmware update*, with `tc100-<version>-update.tar`.
 
 **Something went wrong?**
 
 | What you see | What to do |
 |---|---|
 | Nothing happens, no blue LED | The files are not at the root of the card, or the card is not FAT32. |
-| Red LED on | Read `tc100-3/STATUS.txt` on a computer: nothing was changed. "Not a TC100 variant the firmware knows": send `tc100-inventory.txt` from the card in a Hardware inventory issue. |
-| No chime and no page after 15 minutes | Wrong Wi-Fi. Power off, read `tc100-3/ADRESSE.txt` on a computer: it gives the name and password of the camera's rescue Wi-Fi; join it and open http://10.42.0.1/. |
-| You want the old firmware back after *Install to flash* | Put the 3.0 card back in: it starts the camera, and `v3/install/restore-stock.sh` writes back the memory saved on the card. |
+| Red LED on | Read `tc100-3/STATUS.txt` on a computer. "Not a TC100 variant the firmware knows": nothing was changed; send `tc100-inventory.txt` from the card in a Hardware inventory issue. "NOT INSTALLED": the camera runs the new firmware from the card, its flash was not written; the web page can retry. |
+| No page after 15 minutes | Wrong Wi-Fi (the install itself needs none). Power off, read `tc100-3/ADRESSE.txt` on a computer: it gives the name and password of the camera's rescue Wi-Fi; join it and open http://10.42.0.1/. |
+| You want the old firmware back | On the card: rename `tc100test/c66.img.installed` to `c66.img` and add an empty file `RESTAURER.txt` (or `RESTORE.txt`) at the root. Power on: the camera writes back the copy of its memory saved on the card (about 10 minutes, blue LED blinking) and restarts into its previous firmware. Then take the card out. |
 
 What the card does step by step, the U-Boot commands and the flash layout:
 [docs/linux-port/install-3.0.md](docs/linux-port/install-3.0.md).
@@ -164,7 +171,9 @@ Tested on **two cameras of the same hardware variant** (October 2026): the SD ca
 about a dozen release candidates written to the flash by the update (kernel, user space, initramfs, each read
 back), the web update on a second camera, runs without the SD card, soaks of several hours with Frigate. Still not covered:
 other hardware variants, a power cut during the one U-Boot environment write, and `restore-stock.sh` on a real
-camera. Use it only if you can live with opening the camera to reach its serial console in the worst case below.
+camera. The automatic install from the card (no click, 3.0.1-rc17) and the way back with `RESTAURER.txt` are new and
+being tested ([test queue](docs/linux-port/test-queue.md), R17-01). Use it only if you can live with opening the
+camera to reach its serial console in the worst case below.
 
 What protects you:
 - The camera is identified before anything is written: a read-only inventory (sensor, Wi-Fi chip, flash, U-Boot)
@@ -175,10 +184,13 @@ What protects you:
 - Only the 4 KiB U-Boot environment is written before the install. The stock start (`boot_normal`) stays in it as
   the fallback: no card, no `tc100test/c66.img`, or a 3.0 start command that fails, and U-Boot starts the system the
   camera had before.
-- The trial mode writes nothing else to the flash: take the card out and the camera is as before.
+- The flash is written only after the copy of the original is checked again from the card (its md5, and its U-Boot
+  and `mac` areas equal this camera's), the hardware is identified on Linux 6.6 and the sensor gives a picture. A
+  flash that already holds 3.0 is never written by the card (that is the web update's job).
 - The install writes `initrd` last, saves each partition first and reads each one back; until the end, the card
-  still starts the camera.
-- Any doubt in the checks: the hook stops before writing and says why.
+  still starts the camera, also after a power cut.
+- With `ESSAI.txt` on the card nothing else is written to the flash: take the card out and the camera is as before.
+- Any doubt in the checks: nothing is written, the red LED says so and `tc100-3/STATUS.txt` says why.
 
 What is not covered yet:
 1. **A power cut during the environment write** (a fraction of a second). `envtool` puts the original back when the
@@ -256,8 +268,8 @@ Settings → **Recording**:
   help, a telnet opens on port 23, and closes again once the web interface has been back for two minutes.
 - **Offline by design**: the camera makes no outgoing connection except to your MQTT broker, NTP server and syslog
   server, if set. *Privacy Shield* (Settings → System → LEDs and privacy) stops every outgoing service at once.
-- **Way back**: a card with `tc100test/c66.img` always starts first, and `v3/install/restore-stock.sh` writes back the
-  flash saved before 3.0. The vendor U-Boot is never written.
+- **Way back**: a card with `tc100test/c66.img` always starts first; with `RESTAURER.txt` at its root it writes back
+  the flash saved before 3.0 (`v3/install/restore-stock.sh`, also usable over ssh). The vendor U-Boot is never written.
 
 ---
 
