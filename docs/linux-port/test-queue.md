@@ -281,6 +281,12 @@ switch back to the rc7 behaviour.
   installs `cards/` in `v3/buildroot/configs/` and rebuild the base (the CI caches it: bump the cache key). (a) is the quick one and needs no
   new base. After the fix, test on the camera: `amixer -c 0 sget 'Headphone Playback Volume'` rc 0 and no `cannot stat` line.
 - The workflow added in `c574c15` for the pool-9600K card kernel runs after this step, so it has not been exercised either.
+- **Implementer (2026-10-31): fixed in `c952996`,** a variant of (a). A comment-only file is not enough: checked with
+  alsa-lib 1.2 in a container, `amixer -D sysdefault:0` still fails (`Unknown parameters 0`, `Invalid CTL sysdefault:0`),
+  because the end of the real `aliases.conf` holds four includes (`ctl/default.conf`, `pcm/default.conf`, `pcm/dmix.conf`,
+  `pcm/dsnoop.conf`) that define `sysdefault`. `build-stack.sh` now copies the base's file if there is one, else writes
+  those four includes (same result as the full file in the container), and checks that the included files are present.
+  No new base. On the camera: R8-01 step 3.
 
 ### R8-01 3.0.1-rc8 on the camera — `to test`
 - **What:** the rc7 tree plus: `slots=3` default (kernel), ISP clock and ISP masks default (`tc100_rtsp`), the F-05 and
