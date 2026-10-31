@@ -299,6 +299,14 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   **Boot chime: not heard/verified** (the flash was written, the camera rebooted, nobody listened for it).
 - **Not done (daytime / owner):** R15-03 night, R15-04 (web page, no-card hour with a page reboot). Soak restarted on rc16.
 
+### Second camera: IPCAM1 (.24) on rc16 — tester, 2026-10-31 (read over ssh by the owner, not by the tester)
+- Updated with the web update at 16:24 local: `tc100-3/update/VERSION` = 3.0.1-rc16, the update saved the previous kernel and
+  initrd (`kernel-20261031-162405.bin`, `initrd-20261031-162428.bin`); `c66.img.installed` on the card, no trial kernel left.
+- `/proc/mtd`: new layout (`kernel`, `initrd` 2 MiB, `stack` 0x2b3000, `vendor` 1 MiB, `cfga`, `cfgb`), so the web update was accepted
+  by the first-layout gate. `/proc/cmdline` has `flashroot=1` (flash boot), `ak_isp awb_live` = 0, `wlan0` 192.168.1.24, ping 2-4 ms, SD 60 GB free.
+- Not seen by the tester: the `[flashmode] user space from flash` line, colours, Frigate, the web page, a warm reboot with the Wi-Fi check.
+- This covers the README's "a second camera" for the update path (rc5 -> rc16 by the web page). Open: the same checks as R15-04 on the .24.
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
