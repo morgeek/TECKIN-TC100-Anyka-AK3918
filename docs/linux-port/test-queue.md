@@ -392,6 +392,22 @@ then R12-01/02 (a dim room and an evening), R12-03/05 over a night, R12-06, and 
   - Also noticed: `clients 0` in the STAT lines since this morning's reboots: nothing is connected to the camera now (Frigate not pulling?). The camera clock is wrong after a boot (00:xx) until NTP.
   - .11 now: rc12 in flash, `rtsp.env` empty, `daynight=2` auto running source `luma`, fps 25, soak restarted.
 
+- **FINDING W-NET (tester, 2026-10-31 ~11:00-11:55 local): the .11 lost its Wi-Fi after a warm reboot, five boots in a row; only a power cut brought it back. To investigate (owner's request).**
+  - Symptom: Frigate not connected (`clients 0` in the STAT lines for hours), web page unreachable, no ping from the LAN; the serial console showed `tc100_rtsp` and the web server running and listening
+    on 554 / 80, but **no `wlan0`**. Not noticed during the R11 / R12 tests because they were all done over the serial console.
+  - Cause in dmesg (boots 0023-0027, `/mnt/sd/logs/boot-NNNN/dmesg.log`): the USB Wi-Fi chip is found (`RTL8188FU rev B`, firmware 4.0 loaded) and then
+    **`usb 1-1: rtl8xxxu_init_device: Failed power on`**, **`rtl8xxxu: probe of 1-1:1.0 failed with error -16`** (EBUSY) at ~4.0 s; no retry, so no `wlan0`.
+    Boot 0023 = first rc11 boot (kernel from the card), 0024 = rc11 flash boot (`why=shutdown: net-guard: no network for 903 s, reboot (#1)`: the guard rebooted it, which did not help),
+    0025, 0026 rc11, 0027 = rc12 flash boot. The older boot logs are rotated (no `dmesg.log`), so the first bad boot is unknown; the soak log shows Wi-Fi fine (`wifi -30..-41` dBm) until 09:33 UTC on rc10, and
+    the failure starts with the first reboot after it. All the reboots in between were warm (`reboot`, `update66.sh` restart, U-Boot-prompt boots).
+  - **Fix found: a power cut** (the owner unplugged the camera): `wlan0` associated at 15 s (`associate with 58:d9:d5:ae:1a:23 (try 1/3)`), 192.168.1.11 pings in 4-6 ms, HTTP 302, Frigate connected again
+    (`clients 1`). So a warm reboot can leave the chip in a state where the driver cannot power it on, and it stays so across warm reboots.
+  - Ideas for the implementer (not tested): power-cycle the Wi-Fi chip or its USB port by GPIO before the probe (and in `wifi-rescue`), re-probe on `-16` (unbind / bind of `1-1:1.0`, or `usb reset`),
+    retry the probe a few times at boot, and make `net-guard` do this instead of only rebooting (a warm reboot proved useless here). Whether the chip's rail is under software control on the TC100 is for the
+    hardware notes. The kernel did not change in any way that explains it (rc10, rc11, rc12 kernels all carry the same Wi-Fi code), so it may be a rare hardware / timing state: **a counter of how often it
+    happens would help** (`log-persist` could keep `Failed power on` per boot in `meta.txt`).
+  - Also: after this, any test that reboots should be followed by a `ping` and a look at `wlan0` from the LAN; I will do it from now on.
+
 ### Next build: 3.0.1-rc11 — what the stock binaries taught (2026-10-31)
 
 The owner asked to read the original binaries (Ghidra) and use what they teach. The full stock dump was in the git
