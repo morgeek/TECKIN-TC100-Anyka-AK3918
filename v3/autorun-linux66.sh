@@ -54,7 +54,7 @@ sh /mnt/v3/install/inventory.sh --quick > /tmp/inventory.txt 2>/dev/null
 BOARD=$(sh /mnt/v3/install/hwcheck.sh /tmp/inventory.txt /mnt/v3/board 2>/dev/null) && BOARD=${BOARD#board=} || BOARD=
 echo "${BOARD:-unknown}" > /tmp/board
 for f in /mnt/v3/board/${BOARD:-*}.conf; do [ -f "$f" ] && { ln -sf "$f" /tmp/board.conf; break; }; done
-echo "[tc100-v3] board profile: ${BOARD:-unknown hardware, defaults of $(readlink /tmp/board.conf 2>/dev/null)}" > /dev/console
+echo "[tc100-v3] board profile: ${BOARD:-not known yet (the sensor id comes once the video runs, checked again then), defaults of $(readlink /tmp/board.conf 2>/dev/null)}" > /dev/console
 
 # 1a. SD mode on a new card: every shipped *.dist becomes the live setting until the user changes it (flash mode:
 #     flashmode-prep.sh does the same).

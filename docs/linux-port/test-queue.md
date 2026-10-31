@@ -271,6 +271,27 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   callback (`ak_isp_acquire(NULL, NULL)`). rc14 gives it (`vi_set_style`: the capture mutex, then
   `ak_isp_apply_tuning_style`, as the stock app does while capturing); dmesg says `tuning parameter set 1`.
 
+### Next build: 3.0.1-rc16 — the release candidate after R15 (2026-10-31)
+
+**Implementer's answers to the rc15 results:**
+- **R15-01, colours: a regression of rc15, undone.** Up to rc14 the picture with the software white balance was close
+  to neutral (R/G/B 102/101/100 measured on 2026-10-29); rc15 fed the ISP's white balance the live statistics and it
+  went blue / violet, with or without the software white balance. rc16: the white balance **algorithm** reads the old
+  block again (it then stays at one colour temperature that the software white balance corrects), while the **live
+  counts** still go to `/tmp/cam_awb` and the stock day / night method. Switch: `ak_isp.awb_live=1` (kernel command
+  line) gives the rc15 behaviour. The colour cast work goes on after 3.0.1 (the live statistics are known now).
+- **R15-02 passed:** the crackling was the full-scale clips; the clips are at -6 dBFS since rc15. The alert and the
+  boot chime still to be heard once (`sh /mnt/scripts/speaker-play.sh /mnt/sounds/alert.pcm`; the boot chime plays 3 s
+  after the services start).
+- **R12-08 (no SD card, short run) passed.** Two misleading console lines fixed (Wi-Fi settings source, board profile
+  before the sensor id). To reach the logs with no card: the web page, Logs (needs the login), or ssh (on by default).
+
+### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
+- Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
+  moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
+- Then R15-03 (one night) and R15-04 (the owner: the page, the no-card hour with a reboot from the page), the alert
+  and boot chime heard once. If they pass: **3.0.1** (VERSION, release documentation, the tag with the owner's go).
+
 ### Next build: 3.0.1-rc15 — the release candidate (2026-10-31)
 
 **Implementer's answers to the last results (R12-02/04/06/09, the rc13 guard, the watchdog):**
