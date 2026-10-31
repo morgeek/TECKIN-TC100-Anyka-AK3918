@@ -271,6 +271,23 @@ those four, each **off by default** (or a pure measurement) until its entry belo
   4. Overnight soak as R8-01 step 6 (one Frigate client): no reboot, no Oops / OOM, MemAvailable trend.
 - **Pass:** steps 1-4. **Fail:** rename the card files back (rc8) or `update66.sh` the rc8 package; write down why.
 
+- **Result (tester, 2026-10-31, rc9 = fcf41ab, CI green) — R9-00 steps 1-3 PASS, step 4 (overnight) running:**
+  - **R8-02 closed: PASS.** 1 h with one client on the 9600K pool kernel (06:11-07:01 UTC): no reboot, no Oops, `rtsp` pid unchanged,
+    `MemAvailable` flat 21.1-21.8 MB, `dropped` 0-3 per 5 s, main stream ~950-980 KB per 5 s (no HW-01 collapse), wifi -31..-45 dBm.
+    (The `kerr 1` column is the word `oops=panic` in the command line: the soak script's grep counts it; ignore it.)
+  - Step 1 (one card boot, RAM only through the U-Boot prompt as on night 2: rc9 `c66.img` md5 60e55dfd… as `test.img`, flash initrd):
+    pool `9600K`, dmesg `pool 9600 KiB at 0x81800000 (CMA)`, **no** `alloc failed`, **no** `3D-NR` line, MemAvailable 21.97 MB.
+  - Step 2: `encoder pool: 9830400 bytes ... no guard at its start`; main H.265 + sub H.264 used 8866880, free 963520, both `open`.
+    `encoder library: /mnt/lib/libmpi_venc_ex.so, version "libmpi_venc V1.0.07"`;
+    **`encoder library: optional calls: ak_venc_set_smart_config ak_venc_set_rc ak_venc_set_br ak_venc_set_fps ak_venc_set_gop_len ak_venc_set_iframe ak_venc_set_profile ak_venc_set_roi`**
+    (R9-04 step 1: the smart-mode call exists in the library).
+  - Step 3: `update66.sh check` ok, `apply /mnt/sd/tc100-3/update9` (package md5 d47f46f0…, owner's agreement): stack, kernel, initrd written,
+    backup `stack-20261031-072250.bin`, restart; `/mnt/VERSION` = 3.0.1-rc9, flash boot, `cmdline` unchanged (`cma=18M`, no pool argument), pool 9600K,
+    settings kept (fps 25), `MemAvailable` 21.7 MB, `dropped` 2, no 3D-NR lines.
+  - Step 4: soak restarted 07:23 UTC (`/mnt/sd/soak-20261031.log`), one Frigate client; result to follow.
+  - Card state: `tc100test/c66.img` and `c66rd.gz` are renamed (`c66-pool.img`, `c66rd-rc8.gz`), `test.img` = rc9 kernel, `test.img.rc8`/`.rc7` kept:
+    the .11 boots from the flash. R9-01 (nr3d kernel) needs `c66.img` + `c66rd.gz` back; I will do it after the soak.
+
 ### R9-01 3D noise reduction (`ak39_vi.nr3d=1`, card test kernel) — `to test`
 - **What:** the ISP's temporal noise filter needs a reference frame of 3 bytes a pixel (6.2 MB at 1080p). Until rc8 it
   was asked for at each video start and never found room in CMA next to the capture buffers, so 3D-NR was always off.
