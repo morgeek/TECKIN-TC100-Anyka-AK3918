@@ -286,6 +286,23 @@ off the page, frozen white balance counts ignored, statistics area diagnostic) a
   (R12-06). The stock day / night method stays opt-in until a night with live counts (R15-03).
 - The rc13 smart-mode guard and the server watchdog passed: nothing to change.
 
+### Results on rc15 — tester, .11, 2026-10-31 (installed in flash: card boot once, then `update66.sh check` / `apply`)
+- **Install:** card boot of the rc15 kernel, `check` ok, `apply` DONE, reboot shows `[flashmode] user space from flash (3.0.1-rc15)`;
+  `wlan0` up, ping gateway 3-20 ms, 0 % loss; MemAvailable ~21 MB; RTSP serving, 1 client. Serial console needed a rewire
+  by the owner before this (no software cause found).
+- **R15-01 white balance: PARTLY.** `dmesg`: `white balance counts read from word 1160`; `/tmp/cam_awb` live and moving
+  (17306 8 8 0 0 4572 ... then 18068 6 5 0 0 4849 ..., then 18383 7 8 0 0 5297). Two snapshots of the same scene (lit room, afternoon), default
+  (software AWB on) and `awb.off`: **both have a strong blue/violet cast** (white throw and walls look lavender, a cream wall at the right stays warm).
+  The ISP alone is not neutral, and the software AWB changes little (slightly less saturated). So: **keep the software AWB on in 3.0.1**,
+  and the cast remains: the target of the AWB gains needs a look (kept on the card: `/mnt/sd/r15-01-awb-on.jpg`, `r15-01-awb-off.jpg`, not in git: a person is in the picture).
+  `awb.off` removed, server restarted.
+- **R15-02 speaker: PASSED (tones).** `aplay` of `test-1k-m6/m12/m20.pcm` at Headphone 3 and 5: no `underrun`, no error;
+  the owner hears them **clean at every level, -6 dBFS included**. So the earlier crackling was clipping of the 0 dBFS clips: confirmed.
+  `speaker-play.sh` was not found by `find` here (the alert and boot chime were not played by it; the owner answered "clean" to a
+  question about the alert, but my command failed to start it, so treat the alert/chime as **not verified**).
+- **R15-03 night and R15-04 owner checks (R12-07, no-card hour): not done yet** (daytime; owner postponed). Soak restarted on rc15
+  (`/mnt/sd/soak-20261031.log`).
+
 ### R15-01 Colours with the live white balance statistics — `to test` (owner looks)
 - **What changed:** the ISP's automatic white balance now reads real counts (it read fixed data before). The
   software white balance of `tc100_rtsp` still runs on top (`config/awb.off` turns it off).
