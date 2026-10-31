@@ -18,6 +18,9 @@
 #   isp             the dark flag of /tmp/cam_ae, the ISP's own day/night decision (tuning file thresholds): night
 #                   after NIGHT_HOLD seconds of dark=1, day after DAY_HOLD seconds of dark=0.
 # Without a usable /tmp/cam_ae (tc100_rtsp not running) the ae and isp sources fall back to luma.
+# Calibration log: every DN_LOG_EVERY seconds (300) one line "HH:MM mode=day|night src=... luma=N ae=<cam_ae line>
+# idx=N" in $DN_LOG (/tmp/logs/daynight.log, kept to the last 2 x 400 lines; log-persist.sh copies /tmp/logs to the
+# card), whatever the source, so the index thresholds can be set from real dusk and dawn readings (F-04).
 # Test hook: DN_TEST=1 only defines the functions (tests/test_regressions.py feeds samples to dn_step_ae).
 if [ -z "$DN_TEST" ]; then
   PIDFILE="/var/run/auto-night-detection.pid"
@@ -32,6 +35,10 @@ CAM_AE=${CAM_AE:-/tmp/cam_ae}
 CAM_LUMA=${CAM_LUMA:-/tmp/cam_luma}
 IRCUT_FILE=${DN_IRCUT:-/var/run/ircut}
 NIGHTMODE=${DN_NIGHTMODE:-/mnt/scripts/nightmode.sh}
+DN_LOG=${DN_LOG:-/tmp/logs/daynight.log}
+DN_LOG_EVERY=${DN_LOG_EVERY:-300}
+DN_LOG_AT=0
+DN_LOG_N=0
 
 LOW_LIGHT_COUNT=0
 BRIGHT_LIGHT_COUNT=0
@@ -40,8 +47,12 @@ BRIGHT_LIGHT_COUNT=0
 THRESHOLD_NIGHT=40
 THRESHOLD_DAY=100
 DAYNIGHT_SOURCE=luma
-AE_NIGHT_ABOVE=4000
-AE_DAY_BELOW=1000
+# index defaults from IPCAM2 (rc7 night 2, HW-08): a dark room pegs the exposure at 1124 lines and the analogue gain
+# at 6840 (26.7x), index about 30000 with or without the IR LEDs; night above 15000 = full exposure and about 13x
+# gain, day below 3000 (5 times less, room for the IR filter and LEDs changing the light at the switch). To be set
+# from the dusk and dawn lines of the calibration log (/tmp/logs/daynight.log) once a day of them exists
+AE_NIGHT_ABOVE=15000
+AE_DAY_BELOW=3000
 NIGHT_HOLD=10
 DAY_HOLD=60
 DN_DARK_SINCE=0
@@ -200,6 +211,22 @@ dn_step_luma() {
   fi
 }
 
+# one calibration line when DN_LOG_EVERY seconds have passed (one date fork every 5 minutes; mv every 400 lines)
+dn_log() {
+  read_now
+  [ $(( NOW - DN_LOG_AT )) -ge "$DN_LOG_EVERY" ] || return 0
+  DN_LOG_AT=$NOW
+  read_cut
+  _ll=-; [ -r "$CAM_LUMA" ] && read -r _ll < "$CAM_LUMA"
+  _la=-; [ -r "$CAM_AE" ] && read -r _la < "$CAM_AE"
+  # shellcheck disable=SC2086
+  dn_index $_la 2>/dev/null || DN_IDX=-
+  _lm=day; [ "$CUR_CUT" = OFF ] && _lm=night
+  if [ "$DN_LOG_N" -ge 400 ]; then mv -f "$DN_LOG" "$DN_LOG.1" 2>/dev/null; DN_LOG_N=0; fi
+  echo "$(date +%H:%M 2>/dev/null) mode=$_lm src=$DAYNIGHT_SOURCE luma=${_ll:--} ae=${_la:--} idx=${DN_IDX:--}" >> "$DN_LOG" 2>/dev/null
+  DN_LOG_N=$((DN_LOG_N + 1))
+}
+
 # The two config files are read again only when one of them was written since the last read (stamp file): the loop runs
 # every 2-8 s and a parse is some hundred shell steps each time. A file that is missing is read (and ignored) each time.
 dn_conf_changed() {
@@ -234,6 +261,7 @@ if [ -z "$DN_TEST" ]; then
 
     # Check if auto detection is enabled in config (manual day/night = 3 pauses the daemon)
     if dn_conf_changed; then read_daynight; : > "$DN_STAMP"; fi
+    dn_log
     [ "$DN_MODE" != "2" ] && continue
 
     if [ "$DAYNIGHT_SOURCE" != luma ]; then

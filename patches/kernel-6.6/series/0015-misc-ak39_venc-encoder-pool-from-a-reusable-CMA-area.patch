@@ -12,9 +12,10 @@ A memory-region marked reusable is now a CMA area of the encoder's own:
 the pool is allocated from it at probe (dma_alloc_wc on a device CMA area
 does not round 12 MiB up to 16 MiB as the coherent allocator does), and the
 part the pool does not take serves the kernel's movable pages.
-ak39_venc.pool=<size> on the command line sets a smaller pool; default is
-the whole area, i.e. the same 12 MiB as before. A no-map region keeps the
-old fixed pool. The TC100 device tree makes the region reusable.
+ak39_venc.pool=<size> on the command line sets the pool size; default
+9600K (the encoders use 8866880 bytes at most, measured on rc8: R8-02),
+ak39_venc.pool=12M takes the whole area as before. A no-map region keeps
+the old fixed pool. The TC100 device tree makes the region reusable.
 ---
  arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts |  5 ++-
  drivers/misc/ak39_venc.c                      | 42 +++++++++++++++++--
@@ -30,7 +31,7 @@ index ce6fa48..9c0c023 100644
  			reg = <0x81800000 0xc00000>;
 -			no-map;
 +			/* a CMA area: the driver allocates the pool from it at
-+			 * boot (ak39_venc.pool=9M takes less, the rest serves the
++			 * boot (9600K by default, ak39_venc.pool=; the rest serves the
 +			 * kernel's movable pages); no-map here is the old fixed pool */
 +			reusable;
  		};
@@ -67,9 +68,9 @@ index 9938178..143a09f 100644
  module_param(guard, bool, 0444);
  MODULE_PARM_DESC(guard, "watch the reserved guard zones around the encoder pool for stray DMA writes");
  
-+static char *pool;
++static char *pool = "9600K";
 +module_param(pool, charp, 0444);
-+MODULE_PARM_DESC(pool, "encoder pool size (e.g. 9M) when the memory-region is a reusable CMA area; default: the whole area");
++MODULE_PARM_DESC(pool, "encoder pool size when the memory-region is a reusable CMA area (default 9600K; 12M: the whole area)");
 +
  #define GUARD_PAT	0xA5
  #define GUARD_NEAR	SZ_64K

@@ -83,8 +83,8 @@
         [ "$_ld" -gt "$_ln" ] || _ld=$((_ln + 20))
         [ "$_ld" -le 255 ] || _ld=255
         case "${F_dn_source:-$(_dn_get DAYNIGHT_SOURCE)}" in ae) _ds=ae ;; isp) _ds=isp ;; *) _ds=luma ;; esac
-        _an=$(sanitize_int_range "${F_ae_night_above:-$(_dn_get AE_NIGHT_ABOVE)}" 1 999999999 4000)
-        _ad=$(sanitize_int_range "${F_ae_day_below:-$(_dn_get AE_DAY_BELOW)}" 0 999999999 1000)
+        _an=$(sanitize_int_range "${F_ae_night_above:-$(_dn_get AE_NIGHT_ABOVE)}" 1 999999999 15000)
+        _ad=$(sanitize_int_range "${F_ae_day_below:-$(_dn_get AE_DAY_BELOW)}" 0 999999999 3000)
         [ "$_ad" -lt "$_an" ] || _ad=$((_an / 2 ))
         _nh=$(sanitize_int_range "${F_dn_night_hold:-$(_dn_get NIGHT_HOLD)}" 1 3600 10)
         _dh=$(sanitize_int_range "${F_dn_day_hold:-$(_dn_get DAY_HOLD)}" 1 3600 60)
@@ -167,7 +167,7 @@
         exit 0
       fi
       # Only the keys the form posted: a partial form (or an old page) must not reset values set elsewhere (MQTT).
-      # POWER_HZ has no field on 3.0 (not applied by the ISP code).
+      # POWER_HZ (anti-flicker) is applied by tc100_rtsp whatever ISP_TUNE is, like the masks.
       [ -n "${F_isp_brightness+x}" ] && isp_tune_set BRIGHTNESS "$F_isp_brightness"
       [ -n "${F_isp_contrast+x}" ] && isp_tune_set CONTRAST "$F_isp_contrast"
       [ -n "${F_isp_saturation+x}" ] && isp_tune_set SATURATION "$F_isp_saturation"
