@@ -19,6 +19,22 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - Commit trailers (required): `Co-Authored-By: <model> <noreply@anthropic.com>` and the `Claude-Session:` URL; push to `main`.
   A stop hook refuses to end a session with uncommitted changes.
 
+## Maximum control from Linux without ever touching U-Boot
+- **Never touch U-Boot or its environment (`boot`, `env`, `saveenv`, `bootargs`).** There is no serial console attached in
+  normal operation. Never require a U-Boot prompt command or a kernel command-line edit to test or enable a feature.
+- **Bypass U-Boot limitations entirely from Linux:**
+  1. **Compiled-in kernel defaults:** Validated parameters (`ak39_vi.sub_channel=1`, `ak39_vi.slots=3`,
+     `ak39_venc.pool=9600K`) must be the C defaults in `patches/kernel-6.6/series/00NN-*.patch` so they work regardless
+     of `/proc/cmdline`.
+  2. **Runtime-writable sysfs parameters (`0644`):** Expose driver switches (`ak_isp`, `ak39_vi`, `ak39_venc`,
+     `ak39_codec`, `otg_hs`) as `0644` `module_param` / `module_param_cb` (or re-read them at device open / streaming
+     start) instead of read-only `0444` boot-time parameters.
+  3. **User-space control via `/mnt/config/`:** Drive all hardware and kernel toggles from `/mnt/config/boot.conf` or
+     `/mnt/config/rtsp.env` (`autorun-linux66.sh` / `rtsp-launch.sh` writing to `/sys/module/*/parameters/*` or issuing
+     ioctls), requiring at most a service restart or normal Linux reboot.
+  4. **Unattended recovery in initramfs:** Boot counters, fallback to the previous kernel/initrd backup, persistent SSH
+     keys, and previous-boot logs must live entirely in the Linux initramfs and `cfga`/`cfgb`/SD card, never in U-Boot.
+
 ## Work shared between agents
 - `docs/linux-port/test-queue.md` is the hand-off: every change that needs the real camera gets an entry there (what,
   switch to turn it off, test, pass criteria). Testers write results under the entry and make passed changes the
