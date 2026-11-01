@@ -1987,3 +1987,10 @@ Not done (listed for later): one front LED choice in Settings (waits for LED-01 
 - Retour arrière : vider rtsp.env, supprimer config/awb.off, `rtsp-h26x restart`.
 - Pour l'implémenteur : à retirer dès que la boucle globale (clamp ~1536, gains de départ sauvegardés) est installée ; sans carte SD la rustine ne fait rien (le test `-x` protège).
 - Non testé : après un vrai reboot (clé ssh à remettre par le propriétaire) ; de nuit (IR, couleurs sans objet).
+
+## 2026-11-01 — .11 alignée sur la .24 (flux)
+
+- `/mnt/config/rtspserver.conf` de la .11 remplacé par celui de la .24 (seules différences qui existaient : sous-flux 352x200 8 i/s 400 kb/s → 640x360 25 i/s 250 kb/s ; `smartmode=1` → 0 ; clés `smart=0`, `vbr=0` ajoutées). Sauvegarde : `xfer17/rtspserver.conf.11.before-2026-11-01` (Mac).
+- Choix du propriétaire : Frigate fait la détection → compromis simple, mêmes valeurs sur les deux caméras ; débit du sous-flux à relever pour les deux plus tard si le Wi-Fi de la .24 se stabilise.
+- Vérifié après `rtsp-h26x restart` : flux principal H.265 1920x1080 25 i/s ; /video1 H.264 640x360 25 i/s, ~230 kb/s mesurés (STAT sub_bytes), 0 perte, ping OK.
+- Écarts restants (volontairement non touchés, à décider) : boot.conf `ISP_TUNE` (.11=0, .24=1), `FRONT_LED` (.11=1, .24=0), `MQTT_ENABLE=1` seulement sur la .11, `IRCUT_*_GPIO` seulement sur la .24 (matériel), `daynight.conf DAYNIGHT_SOURCE=luma` seulement sur la .11, autostart `button-actions` seulement sur la .11.
