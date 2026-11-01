@@ -462,6 +462,23 @@ Not needed: per-unit calibration files, a kernel parameter, the live-statistics 
 - **Tester's side:** one camera at a time; the owner is asked to be near the camera and its power supply for the first boot of any update that changes the kernel; the SD card with the
   backup stays in; after each reboot the owner re-adds the key (one command) until request 1 is in.
 
+### .24 white balance: PROOF that the gain range is the cause (tester, ssh, 2026-11-01 14:25 local, daylight, white wall in view)
+- New test tool `docs/linux-port/awbx.c` (static ARM build, copied to `/tmp` on the camera, RAM only): `awbx get` / `awbx set R B` read and set the ISP's extra white balance gains
+  (`AK_ISP_GET/SET_AWB_EX`, 256 = x1) for the 10 colour temperature ranges. **The driver accepts values above 512** (700 read back as 700).
+- Steady state of the loop in `tc100_rtsp`: **.11 settles at rex 230 / bex 287** (about x0.9 / x1.12); **.24 is stuck at 512 / 512** (the clamp) and still green.
+- With `awb.off` (loop off) and gains set by hand on the .24 (the same room, mean of boxes of the JPEG snapshot; R,G,B):
+  | rex / bex | white wall, lit part | white wall, shaded part | picture |
+  |---|---|---|---|
+  | 256 / 256 (as the ISP starts) | 82, 244, 0 | bright green | green |
+  | loop at its clamp 512 / 512 (software on) | 176, 213, 84 | | yellow-green |
+  | 700 / 700 | 255, 249, 216 | 235, 204, 186 | warm, wall clipped |
+  | **600 / 760** | 253, 248, 231 | **211, 205, 200** | **neutral: white wall, natural wood and leaves** |
+  | 650 / 820 | 254, 245, 243 | 224, 198, 211 | slightly magenta |
+  So the .24 needs about **x2.3 red and x3.0 blue** (600 / 760) against **x0.9 / x1.1** on the .11: a clamp at 512 can never work for it, and a clamp up to 1024 does.
+- **Fix to build (global, the same code for every unit):** in `post_awb_sample` raise the clamps to 128..1536 (r, b), keep the grey-world loop, start from saved gains. Test with `awbx get` after
+  a minute in daylight: the loop must settle by itself near 600 / 760 on the .24 and near 230 / 290 on the .11, wall within 3 %.
+- The tester restored the default on the .24 (no `awb.off`, server restarted); the manual gains were RAM only and are gone with the restart.
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
