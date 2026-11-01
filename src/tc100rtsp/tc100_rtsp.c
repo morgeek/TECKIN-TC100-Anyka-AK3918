@@ -392,7 +392,8 @@ static void awb_state_save(void)
 	if (last_save && now - last_save < 120) return;
 	last_save = now;
 	n = snprintf(buf, sizeof buf, "%d %d\n", ex_r, ex_b);
-	if (n > 0 && n < (int)sizeof buf && !wfile("/mnt/config/awb.state", buf, (size_t)n)) {
+	if (n > 0 && n < (int)sizeof buf) {
+		wfile("/mnt/config/awb.state", buf, (size_t)n);
 		awb_saved_r = ex_r;
 		awb_saved_b = ex_b;
 	}

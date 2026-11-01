@@ -108,6 +108,7 @@
     put("dn_night_hold", d.night_hold); put("dn_day_hold", d.day_hold);
     put("dn_vendor_night", d.vendor_night); put("dn_vendor_day", d.vendor_day);
     if (d.ir_max_on !== undefined && d.ir_max_on !== null) put("dn_ir_max_h", Math.round(d.ir_max_on / 3600));
+    put("dn_ir_led_mode", d.ir_led_mode || "auto");
     var chk = function (id, v) { var el = byId(id); if (el) el.checked = v === 1; };
     chk("dn_nightstyle", d.night_style); chk("dn_lowlight", d.lowlight_fps);
   }

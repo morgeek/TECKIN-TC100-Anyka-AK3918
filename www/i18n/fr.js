@@ -1007,7 +1007,12 @@ window.tc100I18nFr = {
   "The autorun change failed. Retry or inspect the logs.": "Le changement de démarrage automatique a échoué. Réessayez ou consultez les journaux."
 ,
   "Local recording to SD card is currently disabled.": "L'enregistrement local sur la carte SD est désactivé.",
-  "Remote shell: ssh-server (SSH, encrypted) is on by default; telnet-server sends the password in clear, is off by default and stops by itself after a while.": "Accès à distance : ssh-server (SSH, chiffré) est activé par défaut ; telnet-server envoie le mot de passe en clair, est désactivé par défaut et s'arrête de lui-même au bout d'un moment."
+  "Remote shell: ssh-server (SSH, encrypted) is on by default; telnet-server sends the password in clear, is off by default and stops by itself after a while.": "Accès à distance : ssh-server (SSH, chiffré) est activé par défaut ; telnet-server envoie le mot de passe en clair, est désactivé par défaut et s'arrête de lui-même au bout d'un moment.",
+  "Always on": "Toujours allumées",
+  "Automatic (on at night)": "Automatique (allumées la nuit)",
+  "Choose \"Off — Behind glass\" when the camera looks through a window so the infrared LEDs do not blind the sensor by reflection while still removing the IR-cut filter at night.": "Choisissez « Éteintes — Derrière une vitre » lorsque la caméra filme à travers une fenêtre afin que les LED infrarouges n'éblouissent pas le capteur par reflet tout en retirant le filtre IR-cut la nuit.",
+  "Infrared LEDs in night mode": "LED infrarouges en mode nuit",
+  "Off — Behind glass / window mode (IR-cut off & B&W, no IR glare)": "Éteintes — Mode derrière une vitre (filtre IR-cut retiré et N&B, sans reflet IR)"
  },
  "rules": [
   [
