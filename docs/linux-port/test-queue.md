@@ -2053,3 +2053,24 @@ Mêmes règles que la liste précédente : rien ne bloque les installations exis
 - 6. Veille matérielle (arrêt des horloges capteur/ISP) : risqué (peut bloquer le réveil ou planter le noyau) et sans console série le rattrapage est difficile. À essayer seulement en dernier, jamais dans une version taguée sans une journée de test sur une caméra et un moyen de retour (coupure/reprise de courant). Chiffres (150 à 200 mW, 6 à 8 °C) à mesurer.
 
 **Ordre conseillé après la balance des blancs :** 9 (SD) → 8 (synchro) → 10 (sabotage) → 5 (vignette HA) → 7 (sons) → 3 (timelapse) → 4 → 2 → 1 → 6.
+
+## 2026-11-01 — Troisième liste de pistes du propriétaire (9 idées, à explorer)
+
+Mêmes règles que les deux listes précédentes (rien ne bloque l'existant, réglage nouveau proposé et désactivé par défaut, interrupteur sans reboot, mesure CPU/RAM avant/après, test sur les deux caméras). Les coûts annoncés (CPU, RAM, dB, ms) n'ont PAS été mesurés.
+
+**Priorité haute :**
+- 4. Vox / babyphone : fenêtre glissante RMS court terme vs long terme, deux modes (impulsion, soutenu), niveau en dBFS dans `statusline` et petit VU-mètre. Utile pour réduire les fausses alertes. Seuils réglables, interrupteur, rien d'enregistré si le micro est coupé. Se combine avec l'idée audio de la liste 1 (filtre passe-haut).
+- 7. Qualité d'alimentation (brownout) : seulement en LECTURE au début. Vérifier d'abord sur une caméra que le registre ADC cité (0x0800005c, AIN0/BAT) correspond bien à un rail utile (sinon l'indicateur serait faux) ; comparer la valeur IR éteinte / allumée / Wi-Fi émet. Ne jamais déplacer ou retarder l'allumage des IR avant d'avoir une mesure qui le justifie.
+- 8. mDNS (`ipcam1.local`, `ipcam2.local`) : très utile sans console série et pour Home Assistant. Le nom vient de `hostname.conf` ; répondre seulement en lecture (pas d'écriture réseau non sollicitée à part les réponses), pas de service SSDP au début (surface d'attaque), à désactiver par un interrupteur. Respecte la règle de réduction de surface : annonces limitées au réseau local, aucune information sensible (version, clé) dans les enregistrements.
+
+**Priorité moyenne :**
+- 5. Frise 24 h des événements (`events.idx`) : petit fichier journalier sur la SD, rendu en JS. Réserves : horloge avant NTP (ne pas indexer avec une date 1970), écriture robuste après coupure de courant (ligne complète ou rien), purge avec les clips, accès protégé par la session comme les enregistrements.
+- 9. Carte de chaleur d'activité : tableau en RAM (≈3,5 Ko), remise à zéro à minuit, affichage dans l'interface. Utile pour régler les faux positifs de Frigate. Ne rien enregistrer sur flash ; masques de confidentialité respectés (ne pas montrer d'activité dans une zone masquée).
+- 2. Texte OSD libre (fichier ou MQTT) : réserves : filtrer les caractères (police limitée, longueur max), valeur par défaut vide, pas de commande exécutée à partir du texte, MQTT limité aux topics de la caméra. Vérifier que l'incrustation matérielle apparaît bien dans le sous-flux et les snapshots.
+
+**À étudier d'abord, risque ou faisabilité non prouvés :**
+- 1. Pose longue la nuit (12,5 ou 15 i/s via les registres du capteur) : l'idée est bonne pour l'image de nuit, mais agit sur des registres du capteur : essai à la main d'abord sur une caméra, réversible, avec retour automatique à 25 i/s après un délai ; à comparer avec Frigate (la détection a besoin de cadence ; attention aux enregistrements et à l'audio synchronisé). Fait suite au test de nuit R15-03.
+- 3. Flux H.264/H.265 brut sur WebSocket + `VideoDecoder` du navigateur (très faible latence) : nécessite HTTPS ou localhost pour l'API `VideoDecoder` (contexte sécurisé) ; donc lié à la question HTTPS prévue pour 3.0.2. Mesurer la latence actuelle d'abord.
+- 6. Moteur crypto matériel (AES/SHA à 0x20170000) pour chiffrer les enregistrements ou accélérer TLS : non prioritaire ; un pilote noyau ajoute un risque de plantage, et chiffrer les enregistrements complique la lecture par Frigate/ffmpeg et la récupération. Si étudié : en option seulement, clé jamais stockée en clair sur la même carte SD, essai sur banc.
+
+**Ordre conseillé (à la suite des deux listes précédentes) :** 8 (mDNS) → 4 (vox) → 7 (lecture alimentation) → 9 (chaleur) → 5 (frise) → 2 (OSD libre) → 1 (pose longue nocturne) → 3 → 6.
