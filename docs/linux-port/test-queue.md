@@ -430,6 +430,21 @@ switched off by the update. The **strict rules apply to new installs only** (the
 RTSP password offered). Same for 3.0.2's HTTPS: added next to HTTP on port 80, which stays until the owner turns it off.
 Also from the owner on the same day: an upgrade from an older version must reset the old image tint and saturation (not keep them) -- see above; this one is a fix, not a security prompt.
 
+### White balance, a global fix (owner: "if the tint can be solved globally, that would be the best") -- proposal from the tester, 2026-11-01
+Why a per-camera fix is not enough: the .11 is neutral, the .24 green (needs more than x2 on red and blue), rc15's live statistics were blue on the .11. A third unit
+will differ again. So the correction must be a **closed loop that has enough range and a safe target**, the same code on every unit:
+1. **Range:** the extra gains in `post_awb_sample` stop at 512 (x2); allow 128..1536 (x0.5 .. x6). The log shows the .24 stuck at 512 with U -23, V -18.
+2. **Target and robustness:** grey-world on the whole picture is fooled by a coloured scene (a red wall pulls everything cyan). Measure only pixels that are plausibly grey
+   (Y between 40 and 220, |U|,|V| below 25 around the current mean) and ignore the rest; or accept a correction only inside the colour temperatures a lamp or daylight can
+   have (a small locus: red/blue ratio between 0.5 and 2.5 once corrected). Step slowly (the 0.5 s sample, 1/4 of the error), freeze when the scene luminance changes quickly.
+3. **Start point:** begin each start from the last good gains (saved in `/mnt/config/awb.state` every few minutes, 2 numbers), so the first picture is already right and a unit's
+   own bias is learnt once; reset it on a sensor or tuning file change.
+4. **Same handling day and night:** hold the gains at the IR switch (colour is meaningless in the B/W night picture), restart the loop from the saved day values in the morning.
+5. **Switch to see it:** `RTSP_DEBUG` log line already prints `AWB u v -> rgain_ex bgain_ex`; put the final gains and U/V in `/tmp/cam_awb` too so the tester reads them without debug.
+6. **Acceptance (both cameras, daylight, white wall in view, and again in a lamp-lit evening):** `AWB u v` within +-2, R/G/B of the wall within 3 %, gains below the new clamp,
+   and the same code on both. A third unit's owner can then check the same two numbers (`/tmp/cam_awb`) in an issue.
+Not needed: per-unit calibration files, a kernel parameter, the live-statistics mode (it can stay for the day/night method only).
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
