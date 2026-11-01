@@ -2031,3 +2031,25 @@ Source : liste fournie par le propriétaire. Priorité et réserves de la testeu
 11. Détection sirène / fumée par Goertzel : un détecteur de fumée réel doit rester un vrai détecteur ; ce capteur ne serait qu'une aide. Prévoir faux positifs (sonnerie, musique), seuils réglables, et ne jamais le présenter comme une sécurité.
 
 **Pour tous les points :** un interrupteur d'exécution (sans reboot), valeur par défaut sûre, mesure de CPU/RAM avant et après (idle ~64 à 69 %, MemAvailable ~19 à 22 Mo), et un résultat testé sur les deux caméras avant le tag.
+
+## 2026-11-01 — Deuxième liste de pistes du propriétaire (à explorer, classées par la testeuse)
+
+Mêmes règles que la liste précédente : rien ne bloque les installations existantes, réglage nouveau = proposé et désactivé par défaut, interrupteur sans reboot, mesure CPU/RAM avant/après, test sur les deux caméras. Les chiffres de coût (CPU, RAM, mW, °C) viennent du propriétaire et n'ont PAS été mesurés : à vérifier avant de les afficher dans une doc ou une interface.
+
+**Priorité haute (utile tout de suite, risque faible) :**
+- 9. Fiabilité de la carte SD : `fsck.fat -a` seulement si le bit « dirty » est levé, avant montage ; état lecture/écriture, erreurs MMC (`/sys/block/mmcblk0/stat`) et vitesse d'écriture dans Diagnostics et MQTT. Réserves : un fsck doit avoir une durée maximale et ne jamais bloquer le démarrage ; ne jamais réparer en écrasant sans sauvegarde des fichiers de config ; test avec une coupure de courant provoquée (R12-08 aide).
+- 8. Synchronisation entre caméras (`sync-cam.sh <ip>` ou bouton) : très utile pour garder les deux caméras identiques (c'est ce que le propriétaire demande). Liste blanche stricte des réglages partagés ; jamais hostname, IP, flip, gains/étalonnage couleur, GPIO ; jamais de mot de passe en clair dans l'URL ni dans les journaux ; confirmation avant d'écraser ; mode « simulation » qui montre les différences d'abord. Cible via ssh/clé ou API authentifiée, pas en HTTP sans mot de passe.
+- 10. Détection de sabotage (caméra masquée/déplacée) : peu coûteux, mais à régler pour éviter les faux positifs (bascule IR, soleil, volet, lumière qui s'éteint). Seuil et durée réglables, silence pendant la bascule jour/nuit, état publié sur MQTT.
+
+**Priorité moyenne :**
+- 5. Entité caméra MQTT : réparer en publiant le vrai JPEG binaire (le défaut connu vient de la publication d'un chemin au lieu du fichier). Fréquence basse ou sur mouvement seulement, taille limitée, pas de publication si le courtier est lent. Vérifier le nom réel du fichier snapshot (le chemin `/dev/shm/rtsp_snap.jpg` cité n'est pas confirmé : sur les caméras le snapshot est `/tmp/currentpic.cache.jpg`).
+- 4. Mouvement multi-zones nommées + événement direct (sans polling shell). Frigate fait déjà la détection ; garder ça comme un complément léger, nom de la zone dans le message MQTT.
+- 7. Carillon / sirène / annonces via HTTP ou MQTT (sons A-law/µ-law 8 kHz). Réserve : volume borné (on a vu qu'une alerte courte n'était pas audible au volume par défaut), droits d'accès identiques aux autres commandes, limite de durée, jamais d'exécution de son en boucle sans arrêt.
+- 2. Exposition par zone (pondération centre / zone prioritaire / exclure les masques) : intéressant pour la .24 (mur blanc), mais touche l'auto-exposition ; à essayer d'abord à la main (lecture des statistiques ISP) et à comparer avant/après sur une scène fixe. Désactivé par défaut.
+- 3. Timelapse MP4 intégré : bonne idée, simple si `mp4box.c` sait déjà écrire sans ré-encodage. Réserves : espace SD (quota et purge), horloge avant NTP (noms de fichier), reprise après coupure de courant (fichier MP4 tronqué/non finalisé : écrire l'index régulièrement ou fragmenter).
+
+**À étudier d'abord, faisabilité non prouvée (ne pas promettre) :**
+- 1. `libakaudiofilter.so` (AEC, réduction de bruit, AGC) : bibliothèque propriétaire, point de licence/redistribution à vérifier avant de l'embarquer dans une version publiée ; vérifier aussi qu'elle tourne en Linux 6.6 et le coût réel. Fait suite à l'idée de filtre passe-haut/AGC de la liste précédente (une version libre, sans la bibliothèque, passe avant).
+- 6. Veille matérielle (arrêt des horloges capteur/ISP) : risqué (peut bloquer le réveil ou planter le noyau) et sans console série le rattrapage est difficile. À essayer seulement en dernier, jamais dans une version taguée sans une journée de test sur une caméra et un moyen de retour (coupure/reprise de courant). Chiffres (150 à 200 mW, 6 à 8 °C) à mesurer.
+
+**Ordre conseillé après la balance des blancs :** 9 (SD) → 8 (synchro) → 10 (sabotage) → 5 (vignette HA) → 7 (sons) → 3 (timelapse) → 4 → 2 → 1 → 6.
