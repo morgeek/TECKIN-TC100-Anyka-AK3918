@@ -2074,3 +2074,38 @@ Mêmes règles que les deux listes précédentes (rien ne bloque l'existant, ré
 - 6. Moteur crypto matériel (AES/SHA à 0x20170000) pour chiffrer les enregistrements ou accélérer TLS : non prioritaire ; un pilote noyau ajoute un risque de plantage, et chiffrer les enregistrements complique la lecture par Frigate/ffmpeg et la récupération. Si étudié : en option seulement, clé jamais stockée en clair sur la même carte SD, essai sur banc.
 
 **Ordre conseillé (à la suite des deux listes précédentes) :** 8 (mDNS) → 4 (vox) → 7 (lecture alimentation) → 9 (chaleur) → 5 (frise) → 2 (OSD libre) → 1 (pose longue nocturne) → 3 → 6.
+
+## 2026-11-01 — Quatrième liste du propriétaire : nouvelles idées + feuille de route en 5 lots
+
+Mêmes règles : rien ne bloque l'existant, réglage nouveau proposé et désactivé par défaut, interrupteur sans reboot, mesure CPU/RAM avant/après, test sur les deux caméras. Les coûts annoncés ne sont pas mesurés. Les références à Thingino / OpenIPC viennent du propriétaire : s'en inspirer pour les idées, ne pas copier de code sans vérifier sa licence.
+
+### Nouvelles idées
+
+**A. Mode « derrière une vitre » (IR-Cut actif, LED IR coupée) — priorité haute.**
+- Séparer dans l'interface et dans le démon jour/nuit : (1) filtre IR-Cut + noir et blanc ISP, (2) allumage de la LED IR, avec `IR_LED_MODE = auto | off | force` (défaut `auto` = comportement actuel, aucune installation existante ne change).
+- Point à traiter : le retour en couleur le matin ne peut plus s'appuyer sur la baisse de gain due aux IR. Utiliser alors seulement l'exposition/gain naturel, avec hystérésis et délai minimal (éviter les bascules répétées à l'aube/au crépuscule ; à tester avec R15-03 et R12-03/05).
+- Les deux caméras n'ont pas les mêmes GPIO (`IRCUT_*_GPIO` sur la .24) : le mode doit marcher avec les deux matériels.
+
+**B. Enregistrement sur partage réseau NFS / CIFS sans carte SD — priorité moyenne.**
+- Montage dans `/mnt/nas` (NFS en priorité, `busybox mount -t nfs`, CIFS seulement si le noyau l'a). Vérifier d'abord quelle config noyau 6.6 est présente (NFS client, taille supplémentaire ; l'annonce de ~90 Ko n'est pas vérifiée).
+- Réserves : aucun mot de passe dans l'URL ni dans les journaux (fichier de réglages protégé), montage au démarrage qui ne doit JAMAIS bloquer le boot (délai maximal, en arrière-plan), enregistrement qui bascule proprement sur la carte SD si le NAS disparaît, pas de blocage de tc100_rtsp sur un montage NFS figé (options `soft,timeo=…`, test avec câble/Wi-Fi coupé). Wi-Fi de la .24 instable : l'écriture réseau continue risque de saturer ; mesurer avant.
+
+**C. Page « Console & Logs en direct » dans l'interface web — priorité basse, sécurité d'abord.**
+- Flux en direct des journaux (dmesg, syslog, tc100_rtsp) via Server-Sent Events : lecture seule, derrière la session administrateur.
+- La partie « taper une commande » (terminal web) est à ne PAS faire telle quelle : elle élargit fortement la surface d'attaque (règle du propriétaire : la réduire). Si elle existe un jour : désactivée par défaut, réservée à l'admin, liste de commandes de diagnostic fixes (pas de shell libre), jamais en HTTP simple depuis l'extérieur du réseau local. Les journaux en lecture seule suffisent déjà beaucoup (une alternative à ssh sans console série).
+
+### Feuille de route par lots (vue d'ensemble demandée par le propriétaire)
+
+- **Lot 1 — Qualité d'image & vision jour/nuit :** AWB universel (grands murs blancs), WDR/Gamma matériel, netteté additive, pose longue nocturne, mode « derrière une vitre » (idée A), anti-scintillement 50 Hz, OSD dynamique/positionnable.
+- **Lot 2 — Intelligence embarquée & détection :** pre-roll RAM 3–5 s, 4 zones de mouvement nommées, détection colis/objet déposé, franchissement de ligne entrée/sortie, best-shot JPEG, détection de sabotage, carte de chaleur 24 h.
+- **Lot 3 — Audio avancé & interphonie :** filtre `libakaudiofilter.so` (AEC+NR, licence à vérifier) ou biquad+AGC libre, détecteur Goertzel sirène/fumée (aide seulement), mode babyphone/Vox + VU-mètre, lecture de sons/carillon/sirène.
+- **Lot 4 — Écosystème & domotique :** alertes directes Telegram / Webhook / Ntfy / e-mail / FTP, snapshot MQTT pour Home Assistant, événements ONVIF (PullPoint), Prometheus `/metrics`, mDNS `.local`.
+- **Lot 5 — Interface web, performance & multi-caméras :** direct très basse latence (WebCodecs/fMP4), raccourci C dans `httpfront`, vue multi-caméras 2×2, frise 24 h, synchronisation en un clic, WebDAV pour le Finder macOS, auto-diagnostic et réparation FAT32.
+
+**Réserves par lot (à vérifier avant de s'engager) :**
+- Lot 4 : toute alerte vers l'extérieur (Telegram, Ntfy, webhook, e-mail) sort de la maison : désactivée par défaut, identifiants jamais dans les journaux ni dans l'URL de l'interface, contenu des images limité. Prometheus `/metrics` et ONVIF doivent être protégés comme le reste (pas d'information sensible, authentification).
+- Lot 5 : la vue 2×2 et le direct WebCodecs coûtent surtout du côté navigateur ; HTTPS exigé pour WebCodecs. WebDAV = un nouveau service réseau : désactivé par défaut, authentifié.
+- Lot 2 : « colis/objet déposé » et « franchissement de ligne » sont des fonctions de vision plus lourdes ; Frigate le fait déjà bien. À garder comme complément léger seulement si la mesure CPU le permet (idle actuel ~64–69 %).
+- Lot 1 : anti-scintillement 50 Hz (secteur européen) à vérifier sous éclairage artificiel ; le réglage ne doit pas dégrader le rendu existant (défaut inchangé).
+
+**Fil conducteur conseillé :** 1) balance des blancs + fiabilité sans console série (clés ssh, rollback, journaux, carte SD) → 2) mode derrière une vitre + nuit → 3) mDNS, Vox, alimentation, sabotage, pre-roll → 4) alertes/domotique → 5) interface (frise, synchro, multi-vue) → 6) le reste (crypto, veille matérielle, WebRTC/WebCodecs, NFS) après mesure.
