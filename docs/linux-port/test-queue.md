@@ -445,6 +445,23 @@ will differ again. So the correction must be a **closed loop that has enough ran
    and the same code on both. A third unit's owner can then check the same two numbers (`/tmp/cam_awb`) in an issue.
 Not needed: per-unit calibration files, a kernel parameter, the live-statistics mode (it can stay for the day/night method only).
 
+### Test method change: no serial console any more (owner, 2026-11-01) -- the tester works over ssh only
+- **What is lost:** the card-boot step before a flash install (kernel booted once from the SD card at the U-Boot prompt, nothing written), the U-Boot prompt for recovery,
+  the kernel messages of a boot that fails, and any fix that needs the U-Boot environment (e.g. kernel command line switches such as `ak_isp.awb_live`).
+  Every build now goes straight to the flash with `update66.sh` / the web update, on a camera the tester cannot see until it answers on the network.
+- **Requests that follow (please treat as release-relevant):**
+  1. **ssh by key that survives a reboot:** read `config/authorized_keys` into `/root/.ssh/authorized_keys` at each start (and a persistent host key). Today the tester's key lives
+     in RAM and the owner must re-add it after every reboot; with no serial, a reboot ends the tester's access until then.
+  2. **A way back that works unattended:** if the new kernel/user space does not reach "network up + web page + RTSP" within N minutes after an update, the camera restarts into the previous
+     kernel and initrd (the update saves them: `tc100-3/backup`, `kernel-*`, `initrd-*` on the card). A boot counter in the settings slots (not the U-Boot environment), checked by the early
+     user space; `flashcheck` already falls back to the stock firmware when the initrd is bad, extend it to "boot failed three times -> previous images".
+  3. **The last boot's messages kept:** `dmesg` of the previous boot written to the card (or the settings slot) at boot and at a crash (`/mnt/sd/logs/boot-prev.log`), shown on the web page
+     (Logs), so a failed boot can be read after the owner power cycles. Today the log in `/tmp` is lost with the power.
+  4. **A runtime switch for anything the tester needs to A/B** (white balance mode, etc.) instead of kernel command line parameters.
+  5. **No kernel or U-Boot change in a release that has not run a full day on a camera first** (the tester cannot recover a camera that does not boot).
+- **Tester's side:** one camera at a time; the owner is asked to be near the camera and its power supply for the first boot of any update that changes the kernel; the SD card with the
+  backup stays in; after each reboot the owner re-adds the key (one command) until request 1 is in.
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
