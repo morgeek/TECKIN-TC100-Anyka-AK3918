@@ -75,6 +75,10 @@ if [ ! -f /mnt/config/.migrated-3.0.1 ] && [ -f /mnt/config/isp_tune.conf ]; the
   echo "[tc100-v3] picture tint and saturation of the previous version reset to 0 (once)" > /dev/console
 fi
 : > /mnt/config/.migrated-3.0.1 2>/dev/null
+# Single source of truth for MQTT_ENABLE is config/mqtt.conf (remove any stale duplicate from boot.conf)
+if grep -q '^MQTT_ENABLE=' /mnt/config/boot.conf 2>/dev/null; then
+  sed -i '/^MQTT_ENABLE=/d' /mnt/config/boot.conf 2>/dev/null
+fi
 # first start of 3.0 (even with settings brought over from 2.x): the web pages open the setup wizard
 [ -f /mnt/config/.wizard3_done ] || : > /tmp/.first_boot
 

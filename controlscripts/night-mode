@@ -4,12 +4,19 @@ export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
 . /mnt/scripts/common_functions.sh
 
+ir_led_mode()
+{
+  _m=$(sed -n 's/^IR_LED_MODE=//p' /mnt/config/daynight.conf 2>/dev/null | tail -n 1)
+  case "$_m" in off|force) echo "$_m" ;; *) echo auto ;; esac
+}
+
 status()
 {
   state_led=$(ir_led status)
   state_cut=$(ir_cut status)
   state_bw=$(black_white status)
-  if { [ "$state_led" = "ON" ] || [ "$state_led" = "on" ]; } && { [ "$state_cut" = "OFF" ] || [ "$state_cut" = "off" ]; } && { [ "$state_bw" = "ON" ] || [ "$state_bw" = "on" ]; }; then
+  mode_led=$(ir_led_mode)
+  if { [ "$mode_led" = "off" ] || [ "$state_led" = "ON" ] || [ "$state_led" = "on" ]; } && { [ "$state_cut" = "OFF" ] || [ "$state_cut" = "off" ]; } && { [ "$state_bw" = "ON" ] || [ "$state_bw" = "on" ]; }; then
     echo "PID: OK"
   fi
 }
@@ -19,7 +26,7 @@ start()
 {
   [ -n "$NIGHT_KEEP_AUTO" ] || auto_night_mode off
   black_white on
-  ir_led on
+  if [ "$(ir_led_mode)" = "off" ]; then ir_led off; else ir_led on; fi
   ir_cut off
 }
 
@@ -27,7 +34,7 @@ stop()
 {
   [ -n "$NIGHT_KEEP_AUTO" ] || auto_night_mode off
   black_white off
-  ir_led off
+  if [ "$(ir_led_mode)" = "force" ]; then ir_led on; else ir_led off; fi
   ir_cut on
 }
 

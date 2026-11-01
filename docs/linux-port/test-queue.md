@@ -2124,3 +2124,49 @@ Verdict : la règle est bonne et suivable. Trois points sur quatre sont faisable
    - armer le chien de garde matériel dès cet `init` (à vérifier : le SoC et le noyau 6.6 en exposent-ils un ? non vérifié) pour qu'un blocage après démarrage redémarre la caméra au lieu de la laisser figée.
 
 Critères de réussite proposés : (a) panne simulée de la pile (fichier cassé) → retour automatique à la pile précédente en moins de 3 démarrages, journal de la panne conservé sur la SD ; (b) aucun accès à U-Boot dans les scripts de mise à jour ; (c) le test du retour arrière se fait sur une caméra, propriétaire présent, jamais en production.
+
+## 2026-11-01 — Lot 1A (implémenté, zéro U-Boot / zéro noyau) : AWB global, clés SSH persistantes, mode derrière une vitre, amixer hw:0
+
+Quatre améliorations à faible risque livrées dans l'espace utilisateur uniquement (aucune modification du noyau ni de U-Boot) :
+
+### 1. Balance des blancs globale fermée (`tc100_rtsp`) + état persistant `/mnt/config/awb.state`
+- **Quoi :**
+  - Plafond des gains supplémentaires (`ISP_SET_AWB_EX`) relevé de `512` ($\times 2{,}0$) à `1536` ($\times 6{,}0$) afin que la `.24` (qui nécessite `rex=600 / bex=760` en lumière du jour) et la `.11` (`~230 / 287`) convergent toutes les deux sans plafonner.
+  - Filtrage gris/luma : seuls les pixels de luminance moyenne (`Y` entre `40` et `220`, ni brûlés ni noirs) et non saturés (`U, V` dans `88..168`) sont pris en compte quand ils représentent au moins 5 % des échantillons.
+  - Gel d'un échantillon lors d'un saut brutal de luminosité (`|ΔY| > 25`), et gel total en noir et blanc (`bw=1`).
+  - Persistance : une fois la balance stabilisée (`|u| <= 2` et `|v| <= 2` pendant 6 échantillons consécutifs), les gains sont enregistrés dans `/mnt/config/awb.state` (si l'écart dépasse 8 et au plus une fois toutes les 120 s) et rechargés dès l'ouverture de `/dev/isp_char` au démarrage suivant (blanc neutre dès la première seconde).
+  - `/tmp/cam_awb` expose désormais en fin de ligne `rex=<r> bex=<b> u=<tu> v=<tv>` (les 11 premiers champs utilisés par `auto-night-daemon.sh` restent identiques).
+- **Interrupteurs (dans `/mnt/config/rtsp.env`, puis `rtsp-h26x restart`) :**
+  - `RTSP_AWB_MAX=512` : revient à l'ancien plafond `512`.
+  - `RTSP_AWB_GREY=0` : désactive le filtrage par luma/saturation (moyenne brute sur toute l'image).
+  - `RTSP_AWB_STATE=0` : n'utilise ni n'écrit `/mnt/config/awb.state`.
+- **Test sur `.11` et `.24` :**
+  1. Sur la `.24`, retirer la rustine temporaire SD (`rm -f /mnt/config/awb.off`, vider la ligne `awbx` de `/mnt/config/rtsp.env`), puis `sh /mnt/controlscripts/rtsp-h26x restart`.
+  2. Après 15 s de jour, lire `cat /tmp/cam_awb` et `/mnt/config/awb.state` : vérifier que `u` et `v` sont dans `-2..+2` et qu'un snapshot JPEG sur le mur blanc a R/G et B/G proches de 1,00 (±5 %).
+  3. Redémarrer `rtsp-h26x` : vérifier dans `/tmp/logs/rtsp.log` la ligne `white balance: starting from saved gains rex ... bex ...`.
+
+### 2. Clés SSH (`authorized_keys`) et clé d'hôte Dropbear persistantes à travers les reboots
+- **Quoi :**
+  - `v3/S50dropbear-linux66` et `controlscripts/ssh-server` restaurent `/root/.ssh/authorized_keys` depuis `/mnt/config/authorized_keys` (permissions `0700`/`0600`) et `/etc/dropbear/dropbear_ed25519_host_key` depuis `/mnt/config/dropbear_ed25519_host_key`.
+  - Si une clé est ajoutée à chaud dans `/root/.ssh/authorized_keys`, le démarrage/arrêt de `ssh-server` et `v3/linux66-sd/cfg-persist` (`sync_ssh`) la copient automatiquement dans `/mnt/config/authorized_keys` avant d'écrire la partition `cfga`/`cfgb`.
+- **Test :**
+  1. Vérifier que `/root/.ssh/authorized_keys` est présent, lancer `/mnt/v3/linux66-sd/cfg-persist save`, vérifier que `/mnt/config/authorized_keys` et `/mnt/config/dropbear_ed25519_host_key` existent.
+  2. Après un redémarrage, vérifier que `ssh root@<ip>` se connecte sans mot de passe et sans avertissement `REMOTE HOST IDENTIFICATION HAS CHANGED`.
+
+### 3. Mode « Derrière une vitre » (`IR_LED_MODE=auto|off|force` dans `daynight.conf` et Settings → Day/night)
+- **Quoi :**
+  - Nouveau réglage `IR_LED_MODE` dans `/mnt/config/daynight.conf` (`auto` par défaut = comportement actuel inchangé ; `off` = coupe la LED IR la nuit tout en basculant le filtre IR-Cut et le noir & blanc ; `force` = LED IR toujours allumée).
+  - Quand `IR_LED_MODE=off`, la pause thermique de 14 h (`dn_ir_guard`) est désactivée puisque la LED IR est éteinte.
+  - Sélecteur ajouté dans `Settings → Day/night` (`Infrared LEDs in night mode`) et exposé dans `state.cgi?cmd=daynight` (`ir_led_mode`).
+- **Interrupteur :** `IR_LED_MODE=auto` (défaut).
+- **Test :**
+  1. Choisir `Off — Behind glass` dans `Settings → Day/night` (ou écrire `IR_LED_MODE=off` dans `/mnt/config/daynight.conf`) et passer en mode Nuit : vérifier `ir_cut status` = `OFF`, `/tmp/tc100_bw` présent, et `ir_led status` = `OFF`.
+  2. Revenir sur `Automatic (on at night)` : vérifier que la LED IR se rallume en mode Nuit.
+
+### 4. Contrôle du volume ALSA sans `aliases.conf` (`B-01`) + source unique `MQTT_ENABLE` + limite `AGENTS.md`
+- **Quoi :**
+  - Remplacement de `amixer -q -c 0` par `amixer -q -D hw:0` dans `scripts/speaker-play.sh`, `scripts/action.d/audio.sh` et `v3/linux66-sd/rtsp-launch.sh`.
+  - Suppression automatique de toute ligne `MQTT_ENABLE=` résiduelle dans `/mnt/config/boot.conf` au démarrage (`v3/autorun-linux66.sh`) afin que `/mnt/config/mqtt.conf` reste la seule source de vérité.
+  - Précision ajoutée dans `AGENTS.md` (section U-Boot) suivant l'avis de la testeuse.
+- **Test :** `amixer -D hw:0 sget 'ADC Capture Volume'` et réglage du volume micro/haut-parleur depuis l'interface web sans erreur dans les journaux.
+

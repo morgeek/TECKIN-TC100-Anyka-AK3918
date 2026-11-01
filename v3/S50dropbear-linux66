@@ -33,13 +33,26 @@ start() {
 	fi
 	DROPBEAR_ARGS="$DROPBEAR_ARGS -R"
 
-	# /etc/dropbear is a symlink to /var/run/dropbear (RAM): the host keys are made at each boot
+	# /etc/dropbear is a symlink to /var/run/dropbear (RAM): restore persistent host key and authorized_keys from config/
 	if [ -L /etc/dropbear ] && [ "$(readlink /etc/dropbear)" = "/var/run/dropbear" ]; then
 		if rm -f /etc/dropbear >/dev/null 2>&1; then
 			mkdir -p /etc/dropbear
 		else
 			mkdir -p "$(readlink /etc/dropbear)"
 		fi
+	fi
+	if [ -s "$CFG/dropbear_ed25519_host_key" ]; then
+		cp "$CFG/dropbear_ed25519_host_key" /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
+		chmod 600 /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
+	fi
+	if [ -s "$CFG/authorized_keys" ]; then
+		mkdir -p /root/.ssh 2>/dev/null
+		chmod 700 /root/.ssh 2>/dev/null
+		cp "$CFG/authorized_keys" /root/.ssh/authorized_keys 2>/dev/null
+		chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+	elif [ -s /root/.ssh/authorized_keys ] && [ -d "$CFG" ]; then
+		cp /root/.ssh/authorized_keys "$CFG/authorized_keys" 2>/dev/null
+		chmod 600 "$CFG/authorized_keys" 2>/dev/null
 	fi
 
 	printf "Starting dropbear sshd: "

@@ -35,7 +35,7 @@ amp() {  # amp 1|0
   if [ "$1" = 1 ]; then echo "$ACT" > $G/value; else echo $((1 - ACT)) > $G/value; fi 2>/dev/null
 }
 
-amixer -q -c 0 cset name='Headphone Playback Volume' "${V}%" >/dev/null 2>&1
+amixer -q -D hw:0 cset name='Headphone Playback Volume' "${V}%" >/dev/null 2>&1
 amp 1
 case "$F" in
   *.wav|*.WAV) aplay -q -D plughw:0,0 "$F" ;;

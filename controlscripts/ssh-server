@@ -40,9 +40,21 @@ start()
   DB="$(dropbear_bin)" || { echo "dropbear is not in the user space (ext/bin)" >&2; return 1; }
   DROPBEAR_ARGS=
   [ -r /etc/default/dropbear ] && . /etc/default/dropbear
-  # /etc/dropbear is a symlink to /var/run/dropbear (RAM): the host keys are made on the first connection (-R)
+  # /etc/dropbear is a symlink to /var/run/dropbear (RAM): restore persistent host key and authorized_keys from config/
   if [ -L /etc/dropbear ] && [ "$(readlink /etc/dropbear)" = "/var/run/dropbear" ]; then
     if rm -f /etc/dropbear >/dev/null 2>&1; then mkdir -p /etc/dropbear; else mkdir -p /var/run/dropbear; fi
+  fi
+  if [ -s /mnt/config/dropbear_ed25519_host_key ]; then
+    cp /mnt/config/dropbear_ed25519_host_key /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
+    chmod 600 /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
+  fi
+  if [ -s /mnt/config/authorized_keys ]; then
+    mkdir -p /root/.ssh 2>/dev/null && chmod 700 /root/.ssh 2>/dev/null
+    cp /mnt/config/authorized_keys /root/.ssh/authorized_keys 2>/dev/null
+    chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+  elif [ -s /root/.ssh/authorized_keys ] && [ -d /mnt/config ]; then
+    cp /root/.ssh/authorized_keys /mnt/config/authorized_keys 2>/dev/null
+    chmod 600 /mnt/config/authorized_keys 2>/dev/null
   fi
   ( umask 077; start-stop-daemon -S -q -p "$PIDFILE" --exec "$DB" -- $DROPBEAR_ARGS -R -P "$PIDFILE" ) </dev/null >/dev/null 2>&1
   sleep 1

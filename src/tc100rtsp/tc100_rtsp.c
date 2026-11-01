@@ -353,7 +353,50 @@ struct isp_awb_ex { int en; struct isp_awb_ctrl c[10]; };
 #define ISP_SET_AWB_EX _IOW('I', 115, int)	/* as the driver defines them (size field int, the struct is copied) */
 #define ISP_GET_AWB_EX _IOR('I', 116, int)
 static int awb_hw = -1, awb_fd = -1, ex_r = 256, ex_b = 256;	/* awb_hw: -1 not tried, 0 software, 1 ISP */
+static int awb_max = 1536, awb_grey = 1, awb_state_on = 1, awb_saved_r = 256, awb_saved_b = 256, awb_last_tu, awb_last_tv;
 static struct isp_awb_ex awb0;
+
+static void awb_state_load(void)
+{
+	FILE *f;
+	char buf[32], *q;
+	int r = 0, b = 0;
+
+	if (!awb_state_on || !(f = fopen("/mnt/config/awb.state", "r"))) return;
+	/* no fscanf: glibc headers turn it into __isoc23_fscanf, which uClibc does not have */
+	if (fgets(buf, sizeof buf, f)) {
+		r = atoi_(buf);
+		q = strchr(buf, ' ');
+		if (q) b = atoi_(q + 1);
+		if (r >= 128 && r <= awb_max && b >= 128 && b <= awb_max) {
+			ex_r = awb_saved_r = r;
+			ex_b = awb_saved_b = b;
+			LOG("white balance: starting from saved gains rex %d bex %d\n", ex_r, ex_b);
+		}
+	}
+	fclose(f);
+}
+
+static void awb_state_save(void)
+{
+	static time_t last_save;
+	time_t now;
+	char buf[32];
+	int n, dr = ex_r - awb_saved_r, db = ex_b - awb_saved_b;
+
+	if (!awb_state_on) return;
+	if (dr < 0) dr = -dr;
+	if (db < 0) db = -db;
+	if (dr < 8 && db < 8) return;
+	now = time(NULL);
+	if (last_save && now - last_save < 120) return;
+	last_save = now;
+	n = snprintf(buf, sizeof buf, "%d %d\n", ex_r, ex_b);
+	if (n > 0 && n < (int)sizeof buf && !wfile("/mnt/config/awb.state", buf, (size_t)n)) {
+		awb_saved_r = ex_r;
+		awb_saved_b = ex_b;
+	}
+}
 
 static int awb_hw_set(void)
 {
@@ -365,8 +408,11 @@ static int awb_hw_set(void)
 
 static void awb_hw_init(void)
 {
-	const char *e = getenv("RTSP_ISPAWB");
+	const char *e = getenv("RTSP_ISPAWB"), *em = getenv("RTSP_AWB_MAX"), *eg = getenv("RTSP_AWB_GREY"), *es = getenv("RTSP_AWB_STATE");
 
+	if (em && *em) { int m = atoi_(em); if (m >= 256 && m <= 4096) awb_max = m; }
+	if (eg && eg[0] == '0') awb_grey = 0;
+	if (es && es[0] == '0') awb_state_on = 0;
 	awb_hw = 0;
 	if (e && e[0] == '0') return;	/* RTSP_ISPAWB=0: software white balance */
 	if ((awb_fd = open("/dev/isp_char", O_RDWR)) < 0 || ioctl(awb_fd, ISP_GET_AWB_EX, &awb0) < 0) {
@@ -380,10 +426,12 @@ static void awb_hw_init(void)
 		for (int i = 0; i < 10; i++) awb0.c[i] = (struct isp_awb_ctrl){ 0xffff, 0, 0xffff, 0, 0xffff, 0, 256, 256 };
 	}
 	for (int i = 0; i < 10; i++) if (awb0.c[i].rex <= 0 || awb0.c[i].bex <= 0) { awb0.c[i].rex = 256; awb0.c[i].bex = 256; }
+	awb_state_load();
 	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
 	awb_hw = 1;
 	p_du = p_dv = 0; post_luts();
-	LOG("white balance: in the ISP (extra gains, tuning file %s)\n", awb0.c[0].rmax == 0xffff ? "without them" : "with them");
+	LOG("white balance: in the ISP (extra gains max %d, grey filter %d, tuning file %s)\n",
+	    awb_max, awb_grey, awb0.c[0].rmax == 0xffff ? "without them" : "with them");
 }
 
 /* The sensor runs at 25 fps; frames above the stream rate cost ISP work, memory bandwidth and a dequeue each. Once
@@ -774,15 +822,16 @@ static void ispx_ae_report(double tn)
 	}
 	if (n > 0 && n < (int)sizeof b) wfile("/tmp/cam_ae", b, (size_t)n);
 	{	/* R11-02: the white balance counts per colour temperature, which the stock firmware's day / night switch
-		 * checks (docs/linux-port/vendor-re-findings.md): "cnt0 .. cnt9 colour_temperature_index" in /tmp/cam_awb */
+		 * checks (docs/linux-port/vendor-re-findings.md): "cnt0 .. cnt9 colour_temperature_index" in /tmp/cam_awb,
+		 * followed by the live closed-loop extra gains and chroma residual (rex=N bex=N u=N v=N) */
 		struct isp_awb_stat a;
-		char w[160];
+		char w[200];
 		int k;
 
 		memset(&a, 0, sizeof a);
 		if (ioctl(ispx_fd, ISP_GET_AWB_STAT_INFO, &a) == 0) {
-			for (k = 0, n = 0; k < 10 && n < (int)sizeof w - 16; k++) n += snprintf(w + n, sizeof w - n, "%u ", a.cnt[k]);
-			n += snprintf(w + n, sizeof w - n, "%u\n", a.ct);
+			for (k = 0, n = 0; k < 10 && n < (int)sizeof w - 48; k++) n += snprintf(w + n, sizeof w - n, "%u ", a.cnt[k]);
+			n += snprintf(w + n, sizeof w - n, "%u rex=%d bex=%d u=%d v=%d\n", a.ct, ex_r, ex_b, awb_last_tu, awb_last_tv);
 			if (n > 0 && n < (int)sizeof w) wfile("/tmp/cam_awb", w, (size_t)n);
 		}
 	}
@@ -873,35 +922,65 @@ static void osd_tick(void)
 
 static void post_awb_sample(const unsigned char *uv, int bw)
 {
-	long su = 0, sv = 0; int n = 0, i;
+	static int last_my = -1, settled;
+	const unsigned char *y_plane = uv - W * H;
+	long su = 0, sv = 0, sy = 0, gu = 0, gv = 0;
+	int n = 0, ng = 0, i;
 
 	if (sensor_fps_want) sensor_fps_set();
 	if (tune_dirty) { tune_hw_apply(); ispx_apply(); }
 	if (!p_awb) return;
 	if (awb_hw < 0) awb_hw_init();
-	if (awb_hw == 1 && bw) return;	/* black and white (night): no colour to measure */
+	if (awb_hw == 1 && bw) { settled = 0; return; }	/* black and white (night): no colour to measure */
 	for (i = 0; i < W * H / 2 - 2; i += 64) {	/* U V U V: one 32-bit read (capture memory is uncached) gives both samples */
 		uint32_t w = *(const volatile uint32_t *)(uv + i);
+		int u0 = (int)(w & 255), v0 = (int)((w >> 8) & 255);
 
-		su += w & 255; sv += (w >> 8) & 255; n++;
+		su += u0; sv += v0; n++;
+		if (awb_grey) {
+			int uv_row = i / W, uv_col = i - uv_row * W;
+			int y0 = y_plane[(uv_row * 2) * W + uv_col];
+
+			sy += y0;
+			/* mid-luma non-saturated candidates (ignore clipped highlights >220, dark shadows <40, and vivid patches) */
+			if (y0 >= 40 && y0 <= 220 && u0 > 88 && u0 < 168 && v0 > 88 && v0 < 168) {
+				gu += u0; gv += v0; ng++;
+			}
+		}
 	}
 	if (!n) return;
+	if (awb_grey) {
+		int my = (int)(sy / n), prev_y = last_my;
+
+		last_my = my;
+		/* freeze AWB for one sample when scene brightness jumps abruptly (lamp switched on/off, door opened) */
+		if (prev_y >= 0 && (my - prev_y > 25 || prev_y - my > 25)) { settled = 0; return; }
+		/* use the mid-luma grey-world subset when enough neutral-ish pixels exist (>= 5% of grid) */
+		if (ng >= n / 20 && ng > 0) { su = gu; sv = gv; n = ng; }
+	}
 	if (awb_hw == 1) {	/* the ISP's picture itself is measured: move its gains until the mean is grey */
 		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, r = ex_r, b = ex_b;
 
+		awb_last_tu = tu; awb_last_tv = tv;
 		tu = tu > 40 ? 40 : tu < -40 ? -40 : tu;
 		tv = tv > 40 ? 40 : tv < -40 ? -40 : tv;
 		if (tv > 1 || tv < -1) r = r * (256 - tv) / 256;	/* V high: too red */
 		if (tu > 1 || tu < -1) b = b * (256 - tu) / 256;	/* U high: too blue */
-		r = r < 128 ? 128 : r > 512 ? 512 : r;
-		b = b < 128 ? 128 : b > 512 ? 512 : b;
+		r = r < 128 ? 128 : r > awb_max ? awb_max : r;
+		b = b < 128 ? 128 : b > awb_max ? awb_max : b;
 		if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); }
-		if (dbg_on) LOG("AWB u %d v %d -> rgain_ex %d bgain_ex %d\n", tu, tv, ex_r, ex_b);
+		if (tu >= -2 && tu <= 2 && tv >= -2 && tv <= 2) {
+			if (++settled >= 6) awb_state_save();
+		} else {
+			settled = 0;
+		}
+		if (dbg_on) LOG("AWB u %d v %d (ng %d) -> rgain_ex %d bgain_ex %d\n", tu, tv, ng, ex_r, ex_b);
 		return;
 	}
 	{
 		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, ou = p_du, ov = p_dv;
 
+		awb_last_tu = tu; awb_last_tv = tv;
 		tu = tu > 85 ? 85 : tu < -85 ? -85 : tu;
 		tv = tv > 85 ? 85 : tv < -85 ? -85 : tv;
 		p_du += (tu - p_du + (tu > p_du ? 2 : -2)) / 4; p_dv += (tv - p_dv + (tv > p_dv ? 2 : -2)) / 4;

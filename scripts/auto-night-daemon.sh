@@ -71,6 +71,7 @@ AWB_NIGHT_CNT=1200
 VENDOR_LOCK=900
 IR_LED_MAX_ON=50400
 IR_LED_REST=600
+IR_LED_MODE=auto
 DN_VCNT=0
 DN_AWB_LAST=
 DN_AWB_SAME=0
@@ -108,6 +109,8 @@ read_daynight() {
         if [ "$_k" = LUMA_NIGHT ]; then THRESHOLD_NIGHT="$_v"; else THRESHOLD_DAY="$_v"; fi ;;
       DAYNIGHT_SOURCE)
         case "$_v" in luma|ae|isp|vendor) DAYNIGHT_SOURCE="$_v" ;; esac ;;
+      IR_LED_MODE)
+        case "$_v" in auto|off|force) IR_LED_MODE="$_v" ;; esac ;;
       VENDOR_NIGHT_LUM|VENDOR_DAY_LUM|AWB_DAY_CNT|AWB_NIGHT_CNT|VENDOR_LOCK|IR_LED_MAX_ON|IR_LED_REST)
         case "$_v" in ''|*[!0-9]*) continue ;; esac
         [ "${#_v}" -le 9 ] || continue
@@ -275,6 +278,7 @@ dn_step_vendor() {
 # IR LED protection (stock ir_switch_handler): after IR_LED_MAX_ON s of night, day mode for IR_LED_REST s.
 # Returns 0 while it holds the decisions (it switched, or the rest is not over).
 dn_ir_guard() {
+  [ "$IR_LED_MODE" = off ] && return 1
   [ "$IR_LED_MAX_ON" -gt 0 ] || return 1
   read_now
   read_cut

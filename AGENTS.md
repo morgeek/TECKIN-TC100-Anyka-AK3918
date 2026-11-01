@@ -26,14 +26,18 @@ hardware facts, test loop), then `docs/known-issues.md`.
   1. **Compiled-in kernel defaults:** Validated parameters (`ak39_vi.sub_channel=1`, `ak39_vi.slots=3`,
      `ak39_venc.pool=9600K`) must be the C defaults in `patches/kernel-6.6/series/00NN-*.patch` so they work regardless
      of `/proc/cmdline`.
-  2. **Runtime-writable sysfs parameters (`0644`):** Expose driver switches (`ak_isp`, `ak39_vi`, `ak39_venc`,
-     `ak39_codec`, `otg_hs`) as `0644` `module_param` / `module_param_cb` (or re-read them at device open / streaming
-     start) instead of read-only `0444` boot-time parameters.
-  3. **User-space control via `/mnt/config/`:** Drive all hardware and kernel toggles from `/mnt/config/boot.conf` or
-     `/mnt/config/rtsp.env` (`autorun-linux66.sh` / `rtsp-launch.sh` writing to `/sys/module/*/parameters/*` or issuing
-     ioctls), requiring at most a service restart or normal Linux reboot.
-  4. **Unattended recovery in initramfs:** Boot counters, fallback to the previous kernel/initrd backup, persistent SSH
-     keys, and previous-boot logs must live entirely in the Linux initramfs and `cfga`/`cfgb`/SD card, never in U-Boot.
+  2. **Runtime-writable sysfs parameters (`0644`):** Expose driver switches that are re-read at device open or streaming
+     start (e.g. `ak_isp.awb_live`) as `0644` `module_param` / `module_param_cb` instead of read-only `0444`. Boot-time
+     DMA allocations (`slots`, `pool`) stay boot-time with C defaults ("at most one reboot", never live realloc).
+  3. **User-space control via `/mnt/config/` (single source per setting):** Drive all hardware and kernel toggles from
+     `/mnt/config/boot.conf` or `/mnt/config/rtsp.env` (`autorun-linux66.sh` / `rtsp-launch.sh` writing to
+     `/sys/module/*/parameters/*` or issuing ioctls), requiring at most a service restart or normal Linux reboot. Keep a
+     single authoritative config file per setting (never duplicate a key across `boot.conf` and a service `.conf`).
+  4. **Unattended recovery in initramfs & pre-flash kernel boundary:** Boot counters, fallback to the previous
+     user-space/initrd, persistent SSH keys, and previous-boot logs live in the Linux initramfs and `cfga`/`cfgb`/SD
+     card, never in U-Boot. **Limit:** if a flashed kernel itself fails to boot, the initramfs is never reached and
+     U-Boot always loads `mtd1`. Therefore, protection against a broken kernel must happen *before* flashing (strict size,
+     checksum, and target-partition verification; one kernel change at a time; owner near the camera).
 
 ## Work shared between agents
 - `docs/linux-port/test-queue.md` is the hand-off: every change that needs the real camera gets an entry there (what,

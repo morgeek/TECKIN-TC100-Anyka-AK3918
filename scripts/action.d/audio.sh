@@ -19,7 +19,7 @@
       fi
 
       # the level applies at once
-      amixer -q -c 0 cset name='LineIn Capture Volume' "$volume" >/dev/null 2>&1
+      amixer -q -D hw:0 cset name='LineIn Capture Volume' "$volume" >/dev/null 2>&1
       if wants_json_response; then
         json_body_ok "Audio settings updated."
       else

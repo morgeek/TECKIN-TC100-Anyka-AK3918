@@ -711,5 +711,57 @@ class AutoInstall(unittest.TestCase):
         self.assertIn('[ ! -f /mnt/config/.migrated-3.0.1 ]', blk)
 
 
+class FirstBatchEnhancements(unittest.TestCase):
+    """Low-risk user-space enhancements: ALSA -D hw:0, persistent SSH keys, behind-glass IR_LED_MODE, and global AWB."""
+
+    def test_alsa_uses_hw0_device_not_card_alias(self):
+        for rel in ('scripts/speaker-play.sh', 'scripts/action.d/audio.sh', 'v3/linux66-sd/rtsp-launch.sh'):
+            txt = (ROOT / rel).read_text(encoding='utf-8')
+            self.assertIn('-D hw:0', txt, rel)
+            self.assertNotIn('-c 0', txt, rel)
+
+    def test_ssh_authorized_keys_and_host_key_persistence(self):
+        s50 = (ROOT / 'v3/S50dropbear-linux66').read_text(encoding='utf-8')
+        ssh = (ROOT / 'controlscripts/ssh-server').read_text(encoding='utf-8')
+        cp = (ROOT / 'v3/linux66-sd/cfg-persist').read_text(encoding='utf-8')
+        for txt in (s50, ssh, cp):
+            self.assertIn('authorized_keys', txt)
+            self.assertIn('/root/.ssh/authorized_keys', txt)
+            self.assertIn('dropbear_ed25519_host_key', txt)
+        self.assertIn('sync_ssh()', cp)
+        for rel in ('v3/S50dropbear-linux66', 'controlscripts/ssh-server', 'v3/linux66-sd/cfg-persist'):
+            self.assertEqual(sh('sh -n %s' % (ROOT / rel)).returncode, 0, rel)
+
+    def test_behind_glass_ir_led_mode(self):
+        d = Path(tempfile.mkdtemp())
+        try:
+            daemon = ROOT / 'scripts/auto-night-daemon.sh'
+            (d / 'daynight.conf').write_text('IR_LED_MODE=off\nIR_LED_MAX_ON=100\n')
+            (d / 'rtspserver.conf').write_text('daynight=2\n')
+            (d / 'ircut').write_text('0\n')
+            env = {
+                'DN_TEST': '1',
+                'DN_CONSOLE': '/dev/null',
+                'DN_CONF': str(d / 'daynight.conf'),
+                'DN_RTSPCONF': str(d / 'rtspserver.conf'),
+                'DN_IRCUT': str(d / 'ircut'),
+            }
+            r = sh('. %s\nread_daynight\necho "mode=$IR_LED_MODE"\nDN_NOW=1000; dn_ir_guard; echo "guard=$?"\n' % daemon, env)
+            self.assertEqual(r.stdout.split(), ['mode=off', 'guard=1'])
+            nm = (ROOT / 'controlscripts/night-mode').read_text(encoding='utf-8')
+            self.assertIn('IR_LED_MODE', nm)
+            self.assertIn('if [ "$(ir_led_mode)" = "off" ]; then ir_led off; else ir_led on; fi', nm)
+            self.assertEqual(sh('sh -n %s' % (ROOT / 'controlscripts/night-mode')).returncode, 0)
+            self.assertEqual(sh('sh -n %s' % (ROOT / 'scripts/action.d/video.sh')).returncode, 0)
+        finally:
+            shutil.rmtree(d)
+
+    def test_global_awb_clamp_and_state_in_rtsp(self):
+        src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
+        for token in ('awb_max = 1536', 'RTSP_AWB_MAX', 'RTSP_AWB_GREY', 'RTSP_AWB_STATE',
+                      '/mnt/config/awb.state', 'rex=%d bex=%d u=%d v=%d'):
+            self.assertIn(token, src)
+
+
 if __name__ == '__main__':
     unittest.main()

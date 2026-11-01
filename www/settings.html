@@ -174,6 +174,11 @@
                             <div class="column is-half"><div class="field"><label class="label is-small" for="dn_vendor_night">Stock method: night above</label><input class="input is-small" name="dn_vendor_night" id="dn_vendor_night" type="number" min="1" max="999999"></div></div>
                             <div class="column is-half"><div class="field"><label class="label is-small" for="dn_vendor_day">Stock method: day below</label><input class="input is-small" name="dn_vendor_day" id="dn_vendor_day" type="number" min="0" max="999999"></div></div>
                         </div>
+                        <div class="field">
+                            <label class="label is-small" for="dn_ir_led_mode">Infrared LEDs in night mode</label>
+                            <div class="select is-small is-fullwidth"><select name="dn_ir_led_mode" id="dn_ir_led_mode"><option value="auto">Automatic (on at night)</option><option value="off">Off — Behind glass / window mode (IR-cut off &amp; B&amp;W, no IR glare)</option><option value="force">Always on</option></select></div>
+                            <p class="help">Choose "Off — Behind glass" when the camera looks through a window so the infrared LEDs do not blind the sensor by reflection while still removing the IR-cut filter at night.</p>
+                        </div>
                         <div class="field"><label class="label is-small" for="dn_ir_max_h">Infrared light protection (hours)</label><input class="input is-small" name="dn_ir_max_h" id="dn_ir_max_h" type="number" min="0" max="48"><p class="help">After this many hours of night, day mode for 10 minutes, as the stock firmware does (14 by default, 0 = off).</p></div>
                         <div class="field"><input class="switch is-small" id="dn_nightstyle" name="dn_nightstyle" type="checkbox" value="1"><label for="dn_nightstyle">Night picture settings of the sensor tuning (longer exposure, night noise filter, 10 fps at night)</label></div>
                         <div class="field"><input class="switch is-small" id="dn_lowlight" name="dn_lowlight" type="checkbox" value="1"><label for="dn_lowlight">10 fps in low light by day (brighter, less noise; needed by the stock method's thresholds)</label></div>

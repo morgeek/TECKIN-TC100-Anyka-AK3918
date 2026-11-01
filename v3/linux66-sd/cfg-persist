@@ -37,8 +37,29 @@ list() {
     echo "$f"
   done
 }
+# sync live SSH keys in RAM (/root/.ssh/authorized_keys, /etc/dropbear/dropbear_ed25519_host_key) into $CFG when running on the camera
+sync_ssh() {
+  [ "$CFG" = "/mnt/config" ] || [ "$CFG" = "/mnt/sd/config" ] || return 0
+  if [ -s /root/.ssh/authorized_keys ] && ! cmp -s /root/.ssh/authorized_keys "$CFG/authorized_keys" 2>/dev/null; then
+    cp /root/.ssh/authorized_keys "$CFG/authorized_keys" 2>/dev/null && chmod 600 "$CFG/authorized_keys" 2>/dev/null
+  fi
+  if [ -s /etc/dropbear/dropbear_ed25519_host_key ] && [ ! -s "$CFG/dropbear_ed25519_host_key" ]; then
+    cp /etc/dropbear/dropbear_ed25519_host_key "$CFG/dropbear_ed25519_host_key" 2>/dev/null && chmod 600 "$CFG/dropbear_ed25519_host_key" 2>/dev/null
+  fi
+}
+restore_ssh() {
+  [ "$CFG" = "/mnt/config" ] || [ "$CFG" = "/mnt/sd/config" ] || return 0
+  if [ -s "$CFG/authorized_keys" ]; then
+    mkdir -p /root/.ssh 2>/dev/null && chmod 700 /root/.ssh 2>/dev/null
+    cp "$CFG/authorized_keys" /root/.ssh/authorized_keys 2>/dev/null && chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+  fi
+  if [ -s "$CFG/dropbear_ed25519_host_key" ] && [ -d /etc/dropbear ]; then
+    cp "$CFG/dropbear_ed25519_host_key" /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null && chmod 600 /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
+  fi
+}
 # the deletion list is part of the settings: refresh it before listing
 refresh_deleted() {
+  sync_ssh
   d=$(deleted)
   if [ -n "$d" ]; then
     [ "$d" = "$(cat "$CFG/.cfg-deleted" 2>/dev/null)" ] || echo "$d" > "$CFG/.cfg-deleted"
@@ -85,7 +106,7 @@ apply_deleted() {
 case "$1" in
 restore)
   set -- $(best); [ -n "$1" ] || { log "no saved settings (defaults used)"; exit 1; }
-  mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && apply_deleted && log "settings restored from slot $1 (seq $2)" ;;
+  mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && apply_deleted && restore_ssh && log "settings restored from slot $1 (seq $2)" ;;
 save)
   S=$(signature); T=/tmp/cfgsave.$$; cd "$(dirname $CFG)" || exit 1
   list > $T.list; [ -s $T.list ] || { log "nothing to save"; rm -f $T.*; echo $S > /tmp/cfg-persist.sig; set_status ok "nothing to save"; exit 0; }
@@ -114,6 +135,7 @@ daemon)
   [ -f /tmp/cfg-persist.sig ] || signature > /tmp/cfg-persist.sig
   last=; while sleep 30; do
     if [ -z "$last" ]; then
+      sync_ssh
       changed=0
       # a file written, or one removed (the directory changes then)
       for f in "$CFG" "$CFG"/autostart "$CFG"/presets "$CFG"/* "$CFG"/autostart/* "$CFG"/presets/*; do

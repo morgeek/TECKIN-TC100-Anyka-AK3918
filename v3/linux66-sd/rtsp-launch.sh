@@ -71,7 +71,7 @@ AUD=${RTSP_AUDIO:-$(bc RTSP_AUDIO)}; case "$AUD" in 0|no|off|false) AUD=0 ;; *) 
 REC_DIR=/mnt/DCIM
 # microphone gain (Audio page, 0-15, passed as it is) -> codec "LineIn Capture Volume" (0-15)
 V=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r " " volume 2>/dev/null)
-case "$V" in ''|*[!0-9]*) ;; *) amixer -c 0 cset name="LineIn Capture Volume" "$V" >/dev/null 2>&1 ;; esac
+case "$V" in ''|*[!0-9]*) ;; *) amixer -D hw:0 cset name="LineIn Capture Volume" "$V" >/dev/null 2>&1 ;; esac
 stop_rtsp
 w=0; while netstat -tan 2>/dev/null | grep -q ":$PORT .*LISTEN" && [ $w -lt 8 ]; do sleep 1; w=$((w+1)); done
 # time zone for the clock overlay (first non-comment line of config/timezone.conf, POSIX TZ string)
