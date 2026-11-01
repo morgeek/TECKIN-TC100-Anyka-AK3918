@@ -399,6 +399,30 @@ no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not
 - Test to ask for after the fix: both cameras, a white wall in daylight, `AWB u v` within +-2 and R/G/B within 3 %.
 - Restored after the test: `config/rtsp.env` empty as before (copy `rtsp.env.before-2026-11-01` on the card), software white balance default.
 
+### Attack surface of the cameras: audit and requests (tester over ssh, owner's goal: reduce it, 2026-11-01)
+Seen on both cameras (rc16, flash boot): listening **tcp 22** (dropbear, root, password; no key file is read), **tcp 80** (`httpfront` + busybox httpd,
+plain HTTP with a login), **tcp 554** (RTSP, login), **udp 5004** (RTP). Telnet, FTP and ONVIF are off. One password (`config/user.pwd`) is used for the web
+page, RTSP and ssh, and it is **short** (4 and 5 bytes on the two cameras, the default-like one). `wifi-rescue` (hostapd AP when the Wi-Fi is lost) is in autostart.
+Suggestions, by value:
+1. **Password:** the first start (wizard) must refuse the default and short passwords (min 10 characters, not equal to the user name), and the web page should show a warning
+   banner while the default is in use. Separate passwords for ssh and for the web/RTSP login (or ssh by key only).
+2. **ssh:** off by default again (it is on by default today, "no lock-out after an upgrade"): on for a fresh install only during the wizard, key-based (read
+   `config/authorized_keys` into `/root/.ssh` at boot: nothing reads it now), `-s` (no password) when a key exists, `-w` (no root password) is not possible as root is the only user;
+   keep a persistent host key (`config/dropbear_ed25519_host_key`): today a new one at each boot, so users learn to ignore the host key warning.
+3. **HTTPS:** TLS in `httpfront` (mbedtls already in `ext/lib`, ECDSA P-256 certificate regenerated before expiry, session resumption, HTTP on 80 only
+   redirects the login page). Measured here: one TLS handshake costs about 0.8 s of one core on this SoC (curl/mbedTLS, 3 runs); the cameras have 64-69 % idle and about 20 MB
+   available; flash `stack` has about 500 KB left (`/rom` 2304 of 2828 KB). Not for 3.0.1: 3.0.2.
+4. **RTSP:** login on (it is: `-u root -w user.pwd`); RTSPS is not available. Make the RTSP user and password separate from the web one (Frigate needs only the RTSP one), and
+   offer a read-only RTSP user.
+5. **Network exposure:** bind the web page and ssh to the Wi-Fi interface only (nothing listens on a second one now), brute-force throttle on the login
+   (a few seconds of delay after 5 failures, and a log line); udp 5004 only while an RTP client is connected; `wifi-rescue` AP only for a limited time with a strong random
+   password shown on the page (check what `wifi_rescue.psk` holds).
+6. **Update path:** the web update is the only thing that writes the flash; keep it behind the login, check that a package is signed (md5 alone does not protect
+   against a changed package: a signature with a public key in the initrd), and refuse a downgrade unless forced.
+7. **Housekeeping:** no secrets in `/tmp/*.cache` (world-readable files), the `log-persist` files readable by root only, and the `config` backup (`tc100-3/backup`) with
+   mode 600 on the card.
+Owner's decision: **reduce the attack surface of these small devices; he takes these suggestions.**
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
