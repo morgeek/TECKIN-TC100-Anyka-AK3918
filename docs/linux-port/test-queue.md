@@ -2109,3 +2109,18 @@ Mêmes règles : rien ne bloque l'existant, réglage nouveau proposé et désact
 - Lot 1 : anti-scintillement 50 Hz (secteur européen) à vérifier sous éclairage artificiel ; le réglage ne doit pas dégrader le rendu existant (défaut inchangé).
 
 **Fil conducteur conseillé :** 1) balance des blancs + fiabilité sans console série (clés ssh, rollback, journaux, carte SD) → 2) mode derrière une vitre + nuit → 3) mDNS, Vox, alimentation, sabotage, pre-roll → 4) alertes/domotique → 5) interface (frise, synchro, multi-vue) → 6) le reste (crypto, veille matérielle, WebRTC/WebCodecs, NFS) après mesure.
+
+## 2026-11-01 — Avis de la testeuse sur la règle « maximum de contrôle depuis Linux, sans toucher U-Boot » (AGENTS.md, 177c1da)
+
+Verdict : la règle est bonne et suivable. Trois points sur quatre sont faisables tels quels ; le quatrième l'est en partie, avec une limite à écrire dans AGENTS.md.
+
+1. **Jamais de U-Boot ni de console série :** d'accord, cohérent avec le test uniquement par ssh.
+2. **Valeurs par défaut compilées dans le noyau** (`ak39_vi.sub_channel=1`, `slots=3`, `ak39_venc.pool=9600K`) : faisable et souhaitable ; cela supprime l'écart constaté entre l'environnement de la .11 (`sub_channel=1` dans les arguments) et celui de la .24 (rien). Réserve : un changement de noyau passe par la flash, c'est l'opération la plus risquée sans console. Regrouper ces changements dans peu de versions, caméra à portée, jamais le même jour qu'un autre changement risqué.
+3. **Paramètres sysfs en `0644`** : faisable pour ce qui se relit à l'ouverture du périphérique ou au début du flux (ex. `ak_isp.awb_live`, aujourd'hui en lecture seule). Pas pour les allocations faites au démarrage (`slots`, `pool`) : les rendre modifiables à chaud est risqué ; pour elles, « au plus un redémarrage » reste la bonne cible. Prévoir pour chaque paramètre modifiable : valeur lue, valeur écrite, retour à la valeur par défaut, et un test d'écriture invalide sans plantage.
+4. **Pilotage par `boot.conf` / `rtsp.env`** : faisable, déjà utilisé (la rustine blanc de la .24 passe par `rtsp.env`). Garder UNE seule source par réglage (voir l'écart `MQTT_ENABLE` entre `boot.conf` et `mqtt.conf`).
+5. **Récupération automatique dans l'initramfs** : faisable pour les pannes APRÈS le démarrage du noyau (Wi-Fi, web ou RTSP qui échouent 3 fois de suite). **Limite à écrire dans AGENTS.md :** si un nouveau noyau ne démarre pas du tout, l'initramfs n'est jamais exécuté et seul U-Boot pourrait revenir à l'ancien noyau ; or U-Boot charge toujours la même partition noyau. Donc :
+   - la protection contre un noyau cassé doit venir d'AVANT le flashage : vérifications (taille, somme de contrôle, partition cible), test préalable sur une image, un seul changement de noyau à la fois, propriétaire à portée de la caméra ;
+   - pour tout le reste (initrd, pile squashfs, scripts), proposer un `init` d'initramfs minimal et jamais modifié, qui choisit entre deux piles A/B selon un compteur de démarrage stocké en `cfga`/`cfgb` ;
+   - armer le chien de garde matériel dès cet `init` (à vérifier : le SoC et le noyau 6.6 en exposent-ils un ? non vérifié) pour qu'un blocage après démarrage redémarre la caméra au lieu de la laisser figée.
+
+Critères de réussite proposés : (a) panne simulée de la pile (fichier cassé) → retour automatique à la pile précédente en moins de 3 démarrages, journal de la panne conservé sur la SD ; (b) aucun accès à U-Boot dans les scripts de mise à jour ; (c) le test du retour arrière se fait sur une caméra, propriétaire présent, jamais en production.
