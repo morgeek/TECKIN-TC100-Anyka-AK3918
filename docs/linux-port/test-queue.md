@@ -2000,3 +2000,9 @@ Not done (listed for later): one front LED choice in Settings (waits for LED-01 
 - .11 : `FRONT_LED=0` dans boot.conf (LED bleue éteinte tout de suite, `front_led status` = OFF) ; la .11 a donc le même réglage que la .24.
 - .24 : `config/daynight.conf` créé avec `DAYNIGHT_SOURCE=luma` (le journal daynight montrait déjà `src=luma` par défaut : le fichier ne fait que rendre le réglage explicite et identique à la .11).
 - Restent différents, non touchés : `ISP_TUNE`, `MQTT_ENABLE` (.11 seulement), `button-actions` (.11 seulement), `IRCUT_*_GPIO` (matériel .24).
+
+## 2026-11-01 — MQTT sur la .24 (déjà actif)
+
+- Le MQTT de la .24 était déjà activé : `config/mqtt.conf` a `MQTT_ENABLE=1`, broker 192.168.1.25, topics propres (`tc100/cam2`, client `tc100-cam2`) ; le pont tourne et `/tmp/mqtt_last_pub.status` = ok, publication il y a moins de 5 min (idem .11 : `tc100/camera`).
+- Écart réel : seule la .11 a une ligne `MQTT_ENABLE=1` en trop dans `boot.conf` (sans effet, c'est mqtt.conf qui compte). À nettoyer par l'implémenteur : une seule source du réglage (propositions : ignorer ou supprimer la clé dans boot.conf).
+- Reste différent, volontairement : `ISP_TUNE`, `button-actions` (.11 seulement), `IRCUT_*_GPIO` (matériel .24).
