@@ -2006,3 +2006,28 @@ Not done (listed for later): one front LED choice in Settings (waits for LED-01 
 - Le MQTT de la .24 était déjà activé : `config/mqtt.conf` a `MQTT_ENABLE=1`, broker 192.168.1.25, topics propres (`tc100/cam2`, client `tc100-cam2`) ; le pont tourne et `/tmp/mqtt_last_pub.status` = ok, publication il y a moins de 5 min (idem .11 : `tc100/camera`).
 - Écart réel : seule la .11 a une ligne `MQTT_ENABLE=1` en trop dans `boot.conf` (sans effet, c'est mqtt.conf qui compte). À nettoyer par l'implémenteur : une seule source du réglage (propositions : ignorer ou supprimer la clé dans boot.conf).
 - Reste différent, volontairement : `ISP_TUNE`, `button-actions` (.11 seulement), `IRCUT_*_GPIO` (matériel .24).
+
+## 2026-11-01 — Pistes d'amélioration proposées par le propriétaire (à explorer, pas des ordres)
+
+Source : liste fournie par le propriétaire. Priorité et réserves de la testeuse ci-dessous. Règle inchangée : rien ne doit bloquer les installations existantes, tout réglage nouveau est proposé (bandeau) et jamais imposé.
+
+**Déjà dans cette file (ne pas refaire deux fois) :** balance des blancs globale (clamp 128..1536, gains sauvegardés, figée la nuit : voir « white balance global closed-loop » ; le fichier d'état `awb.state` remplace la rustine SD de la .24), clés ssh et clé d'hôte dropbear persistantes, rollback automatique après mise à jour, journal de démarrage conservé, indicateur de qualité Wi-Fi, mot de passe RTSP séparé.
+
+**Priorité haute (valeur claire, risque faible) :**
+1. Balance des blancs (voir ci-dessus). Critère d'acceptation : mur blanc à ±3 % sur R/G/B sur la .11 et la .24, dès la première seconde après reboot. Ne mesurer que les pixels plausiblement gris (luma 40..220, hors saturation).
+2. Pre-roll en RAM (1 à 2 GOP, ~0,6 à 0,9 Mo) pour que l'enregistrement commence avant l'événement. À tester : début du fichier avec une image clé, durée réelle du pre-roll, mémoire libre avant/après.
+3. Clés ssh persistantes + rollback automatique + journal avant crash (sans console série, c'est ce qui permet de tester à distance).
+4. Qualité Wi-Fi dans le temps (RSSI, retries, pertes) + capteur MQTT : la .24 a des rafales de perte, on ne peut pas les corriger sans la mesure.
+
+**Priorité moyenne (à valider par une mesure avant de s'engager) :**
+5. Débit adaptatif quand la scène est fixe. Réserve : Frigate fait la détection et l'enregistrement ; un débit qui baisse puis remonte doit rester sans effet sur sa détection (le sous-flux 640x360 sert à la détection). Proposition : l'appliquer au flux principal seulement, derrière un interrupteur désactivé par défaut, tester avec Frigate (pas de faux mouvements au moment de la remontée, image clé immédiate).
+6. Fast-path `currentpic.cgi` / `statusline.cgi` dans httpfront : gain réel (moins de fork), mais la vérification du cookie de session est un point de sécurité : relire avec soin, mêmes réponses d'erreur qu'aujourd'hui, test sans cookie / cookie périmé.
+7. Filtre passe-haut + AGC audio (coût CPU faible) : avec interrupteur, test à l'oreille par le propriétaire, ne pas écrire dans le flux si le micro est coupé.
+8. Netteté progressive via `AK_ISP_SET_SHARP` (curseur -50..+50) : à faire après l'essai HW-05 ; vérifier que 0 = rendu actuel.
+
+**À étudier d'abord (faisabilité non prouvée, ne pas promettre) :**
+9. WDR / gamma matériel (`AK_ISP_SET_WDR`, `AK_ISP_SET_Y_GAMMA`) : le bloc existe dans le pilote, mais on ne sait pas s'il fonctionne sur le capteur F23 ; commencer par un essai ioctl à la main sur une caméra (lecture, puis changement réversible, instantané avant/après), à documenter avant tout réglage dans l'interface.
+10. Direct navigateur très basse latence (fMP4 CMAF, < 250 ms) : intéressant mais touche le muxeur et le lecteur JS ; mesurer la latence actuelle d'abord.
+11. Détection sirène / fumée par Goertzel : un détecteur de fumée réel doit rester un vrai détecteur ; ce capteur ne serait qu'une aide. Prévoir faux positifs (sonnerie, musique), seuils réglables, et ne jamais le présenter comme une sécurité.
+
+**Pour tous les points :** un interrupteur d'exécution (sans reboot), valeur par défaut sûre, mesure de CPU/RAM avant et après (idle ~64 à 69 %, MemAvailable ~19 à 22 Mo), et un résultat testé sur les deux caméras avant le tag.
