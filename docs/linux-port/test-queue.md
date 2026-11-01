@@ -389,6 +389,16 @@ no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not
 - Requested: make `awb_live` a runtime-writable parameter (0644) or a `/mnt/config` switch the kernel reads at the start of capture, so the tester can A/B on both cameras without U-Boot.
 - Owner's expectation: **the same neutral picture on both cameras** (3.0.1 should not ship with one camera green).
 
+### .24 white balance: the ISP-gain controller of `tc100_rtsp` saturates (tester, ssh, 2026-11-01 10:50 local)
+- With `RTSP_DEBUG=1` on the .24 (log in `/tmp/logs/tc100_rtsp.log`; the .24 had a leftover `config/rtsp.debug` from 2.x that sent the log
+  to the console: removed): `AWB u -23 v -18 -> rgain_ex 512 bgain_ex 512`, stuck there. Both extra gains are at their **upper clamp (512 = x2)** and the mean
+  chroma is still green (U -23, V -18): the .24's picture needs more than x2 on red and blue. The controller climbs 248 -> 270 -> 312 -> 360 -> 512 in a few seconds.
+- `RTSP_ISPAWB=0` (software tables, +-85) is **worse** on the .24: green wall, purple wood and floor (over-corrected chroma), so it is not an alternative.
+- So a remote fix exists but it is in `tc100_rtsp`: raise the clamp (512 -> 1024 or more, `r`/`b` in `post_awb_sample`), or start from the right base gains for each unit
+  (the tuning file's AWB table seems to be a different colour temperature for this unit). Please also keep U/V clamped at +-40 only for the rate, not for the target.
+- Test to ask for after the fix: both cameras, a white wall in daylight, `AWB u v` within +-2 and R/G/B within 3 %.
+- Restored after the test: `config/rtsp.env` empty as before (copy `rtsp.env.before-2026-11-01` on the card), software white balance default.
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
