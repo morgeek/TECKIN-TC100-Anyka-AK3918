@@ -1976,3 +1976,14 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
     per-build comparison meanwhile.
 
 Not done (listed for later): one front LED choice in Settings (waits for LED-01 on the new build).
+
+## 2026-11-01 — Rustine blanc de la .24 (temporaire, SD + rtsp.env)
+
+- But : la .24 garde un bon blanc (rex 600 / bex 760) jusqu'à la version avec la boucle corrigée.
+- Mis en place sur la .24 seulement : `/mnt/sd/awbx` (outil, md5 bd8da617…), `/mnt/config/awb.off` (boucle logicielle coupée),
+  `/mnt/config/rtsp.env` = une ligne qui lance `sleep 25; /mnt/sd/awbx set 600 760` en tâche de fond à chaque (re)démarrage de tc100_rtsp
+  (rtsp.env est sourcé par rtsp-launch.sh juste avant l'exec). Sauvegarde : `/mnt/sd/rtsp.env.before-awb-2026-11-01`.
+- Vérifié : `rtsp-h26x restart` (sans reboot) → `awbx get` = 600/760 ; snapshot R/G 1.08, B/G 0.96 (identique à g600 ; rc16 d'origine : 0.95 / 0.58).
+- Retour arrière : vider rtsp.env, supprimer config/awb.off, `rtsp-h26x restart`.
+- Pour l'implémenteur : à retirer dès que la boucle globale (clamp ~1536, gains de départ sauvegardés) est installée ; sans carte SD la rustine ne fait rien (le test `-x` protège).
+- Non testé : après un vrai reboot (clé ssh à remettre par le propriétaire) ; de nuit (IR, couleurs sans objet).
