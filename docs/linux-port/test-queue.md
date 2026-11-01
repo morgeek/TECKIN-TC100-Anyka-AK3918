@@ -1994,3 +1994,9 @@ Not done (listed for later): one front LED choice in Settings (waits for LED-01 
 - Choix du propriétaire : Frigate fait la détection → compromis simple, mêmes valeurs sur les deux caméras ; débit du sous-flux à relever pour les deux plus tard si le Wi-Fi de la .24 se stabilise.
 - Vérifié après `rtsp-h26x restart` : flux principal H.265 1920x1080 25 i/s ; /video1 H.264 640x360 25 i/s, ~230 kb/s mesurés (STAT sub_bytes), 0 perte, ping OK.
 - Écarts restants (volontairement non touchés, à décider) : boot.conf `ISP_TUNE` (.11=0, .24=1), `FRONT_LED` (.11=1, .24=0), `MQTT_ENABLE=1` seulement sur la .11, `IRCUT_*_GPIO` seulement sur la .24 (matériel), `daynight.conf DAYNIGHT_SOURCE=luma` seulement sur la .11, autostart `button-actions` seulement sur la .11.
+
+## 2026-11-01 — Écarts .11/.24 : LED et luma (décision du propriétaire)
+
+- .11 : `FRONT_LED=0` dans boot.conf (LED bleue éteinte tout de suite, `front_led status` = OFF) ; la .11 a donc le même réglage que la .24.
+- .24 : `config/daynight.conf` créé avec `DAYNIGHT_SOURCE=luma` (le journal daynight montrait déjà `src=luma` par défaut : le fichier ne fait que rendre le réglage explicite et identique à la .11).
+- Restent différents, non touchés : `ISP_TUNE`, `MQTT_ENABLE` (.11 seulement), `button-actions` (.11 seulement), `IRCUT_*_GPIO` (matériel .24).
