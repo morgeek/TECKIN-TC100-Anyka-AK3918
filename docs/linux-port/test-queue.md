@@ -423,6 +423,13 @@ Suggestions, by value:
    mode 600 on the card.
 Owner's decision: **reduce the attack surface of these small devices; he takes these suggestions.**
 
+**Owner's rule for all of the above (2026-11-01): never block or lock out an existing installation.** An installed camera keeps working exactly as it does
+(same password, same ssh, same ports) after an update. The camera **proposes** the change instead: a dismissible banner on the web page ("the password is short or the
+default: change it", "ssh is on: turn it off or use a key"), shown at each login until done or dismissed for 30 days; no forced reset, no refused update, no service
+switched off by the update. The **strict rules apply to new installs only** (the wizard of a first start: refuses the default / short password, ssh off unless asked, separate
+RTSP password offered). Same for 3.0.2's HTTPS: added next to HTTP on port 80, which stays until the owner turns it off.
+Also from the owner on the same day: an upgrade from an older version must reset the old image tint and saturation (not keep them) -- see above; this one is a fix, not a security prompt.
+
 ### R16-01 rc16 on the camera: colours back to rc14, then the last checks — `to test`
 - Install as rc15. `dmesg`: `read from word 1160`; `cat /sys/module/ak_isp/parameters/awb_live` = 0; `/tmp/cam_awb`
   moves. A snapshot of the R15-01 scene: **the blue / violet cast is gone** (as rc14: near neutral, maybe slightly warm).
