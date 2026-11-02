@@ -34,6 +34,7 @@ probe_service_fast() {
     health-snapshot) _pf_file="/var/run/health-snapshot.pid" ;;
     button-actions)  _pf_file="/var/run/button-watch.pid" ;;
     wifi-rescue)     _pf_file="/var/run/wifi-rescue.pid" ;;
+    mdns)            _pf_file="/var/run/mdns.pid" ;;
     auto-night-detection)
       [ -f /var/run/auto-night-detection.pid ] && _pf_file="/var/run/auto-night-detection.pid" ;;
     motion-detection)

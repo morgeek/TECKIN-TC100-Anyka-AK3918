@@ -1,0 +1,54 @@
+#!/bin/sh
+# mDNS name on the local network: the camera answers "<hostname>.local" (e.g. http://ipcam1.local/), the name of
+# config/hostname.conf. Answer only (no announcements, no services, no SSDP), same subnet only: src/mdnsd.
+# Off by default; the Services page "Boot" toggle (config/autostart/mdns) starts it at boot (autorun-linux66.sh
+# step 12b), Start/Stop here at once. Needs no reboot.
+SERVICE_NAME="mDNS name (.local)"
+PIDFILE="/var/run/mdns.pid"
+BIN=/mnt/tc100test/tc100-mdnsd
+
+. /mnt/scripts/common_functions.sh
+
+status()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  if kill -0 "$pid" 2>/dev/null && grep -q mdnsd "/proc/$pid/cmdline" 2>/dev/null; then
+    echo "PID: $pid"
+    return 0
+  fi
+  rm -f "$PIDFILE"
+  return 1
+}
+
+start()
+{
+  [ -n "$(status)" ] && return 0
+  [ -x "$BIN" ] || { echo "tc100-mdnsd is not installed ($BIN)" >&2; return 1; }
+  "$BIN" -i wlan0 </dev/null >/dev/null 2>&1 &
+  echo $! > "$PIDFILE"
+  sleep 1
+  [ -n "$(status)" ]
+}
+
+stop()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  case "$pid" in ''|*[!0-9]*) ;; *) kill "$pid" 2>/dev/null ;; esac
+  rm -f "$PIDFILE"
+  return 0
+}
+
+health()
+{
+  if [ -n "$(status)" ]; then echo "ok: running"; else echo "warn: stopped"; fi
+}
+
+if [ $# -eq 0 ]; then
+  start
+else
+  case $1 in start|stop|status|health)
+    $1
+    ;;
+  esac
+fi

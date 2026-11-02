@@ -763,5 +763,81 @@ class FirstBatchEnhancements(unittest.TestCase):
             self.assertIn(token, src)
 
 
+
+class Lot1B(unittest.TestCase):
+    """Remote diagnostics without a serial console: mDNS name, Wi-Fi quality over time, SD card errors."""
+
+    def test_mdns_packet_code(self):
+        d = Path(tempfile.mkdtemp())
+        try:
+            b = d / 'test_mdns'
+            subprocess.run(['cc', '-Wall', '-Wextra', '-o', str(b), str(ROOT / 'src/mdnsd/test_mdns.c')], check=True)
+            r = subprocess.run([str(b)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            self.assertIn('mdns: ok', r.stdout)
+        finally:
+            shutil.rmtree(d)
+
+    def test_mdns_daemon_is_freestanding_answer_only_and_off_by_default(self):
+        src = (ROOT / 'src/mdnsd/mdnsd.c').read_text()
+        self.assertEqual(re.findall(r'#include\s+(\S+)', src), ['"mdns_pkt.h"'])
+        self.assertIn('(src.addr & mask) != (ip & mask)', src)      # same subnet only
+        self.assertNotIn('_services._dns-sd', src + (ROOT / 'src/mdnsd/mdns_pkt.h').read_text())
+        self.assertFalse((ROOT / 'config/autostart/mdns').exists())  # off unless the owner turns it on
+        cs = (ROOT / 'controlscripts/mdns').read_text()
+        self.assertIn('/mnt/tc100test/tc100-mdnsd', cs)
+        self.assertEqual(sh('sh -n %s' % (ROOT / 'controlscripts/mdns')).returncode, 0)
+        self.assertIn('src/mdnsd/mdnsd.c -o $P/tc100-mdnsd', (ROOT / '.github/workflows/build-kernel-linux66.yml').read_text())
+        self.assertIn('"$PACK/tc100-mdnsd"', (ROOT / 'v3/build-stack.sh').read_text())
+        self.assertIn(' mdns"', (ROOT / 'www/cgi-bin/scripts.cgi').read_text())
+        self.assertIn('mdns)            _pf_file="/var/run/mdns.pid"', (ROOT / 'scripts/health-probe.sh').read_text())
+
+    def test_wifi_quality_samples_and_hour_summary(self):
+        d = Path(tempfile.mkdtemp())
+        try:
+            (d / 'wireless').write_text('Inter-| sta-|   Quality        |   Discarded packets\n'
+                                        ' face | tus | link level noise |  nwid  crypt\n'
+                                        ' wlan0: 0000   44.  -66.  -256        0      0\n')
+            (d / 'st').write_text('Station aa:bb (on wlan0)\n\ttx retries:\t100\n\ttx failed:\t5\n')
+            (d / 'ping').write_text('3 packets transmitted, 2 packets received, 33% packet loss\n')
+            env = dict(WQ_LOG=str(d / 'log'), WQ_SUM=str(d / 'sum'), WQ_STATE=str(d / 'prev'),
+                       WQ_WIRELESS=str(d / 'wireless'), WQ_STATION=str(d / 'st'), WQ_PING=str(d / 'ping'))
+            script = ROOT / 'scripts/wifi-quality.sh'
+            r = sh('WQ_NOW=1000 sh %s sample' % script, env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            (d / 'st').write_text('Station aa:bb (on wlan0)\n\ttx retries:\t130\n\ttx failed:\t7\n')
+            (d / 'wireless').write_text(' wlan0: 0000   30.  -80.  -256        0      0\n')
+            (d / 'ping').write_text('3 packets transmitted, 3 packets received, 0% packet loss\n')
+            sh('WQ_NOW=1060 sh %s sample' % script, env)
+            lines = (d / 'log').read_text().split('\n')
+            self.assertEqual(lines[:2], ['1000 -66 0 0 33', '1060 -80 30 2 0'])   # first sample: no deltas yet
+            summ = dict(l.split('=') for l in (d / 'sum').read_text().split())
+            self.assertEqual((summ['rssi'], summ['rssi_min_1h'], summ['rssi_avg_1h'], summ['loss_pct_1h'],
+                              summ['retries_1h'], summ['failed_1h'], summ['samples_1h']),
+                             ('-80', '-80', '-73', '17', '30', '2', '2'))
+            # no router answer at all: loss is null, the summary still comes out
+            (d / 'ping').write_text('')
+            sh('WQ_NOW=5000 sh %s sample' % script, env)
+            summ = dict(l.split('=') for l in (d / 'sum').read_text().split())
+            self.assertEqual((summ['samples_1h'], summ['loss_pct_1h']), ('1', 'null'))
+        finally:
+            shutil.rmtree(d)
+
+    def test_wifi_quality_is_off_by_default_and_reaches_mqtt(self):
+        self.assertIn('\nWIFI_QUALITY=0\n', (ROOT / 'config/boot.conf.dist').read_text())
+        ar = (ROOT / 'v3/autorun-linux66.sh').read_text()
+        self.assertIn('on "$BC_WIFI_QUALITY"', ar)
+        self.assertIn('job add wifi-quality bg 60 30', ar)
+        mq = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        for k in ('"wifi_loss_pct":%s', '"wifi_tx_retries":%s', '"wifi_rssi_min":%s', 'value_json.diag.wifi_loss_pct'):
+            self.assertIn(k, mq)
+
+    def test_sd_health_counts_kernel_errors_and_keeps_the_state(self):
+        s = (ROOT / 'v3/linux66-sd/sdinfo-sd.sh').read_text()
+        self.assertIn("printf 'state=%s\\nerrors=%s\\nreadonly=%s\\n'", s)
+        self.assertIn('errors) _hb_err=', (ROOT / 'scripts/reboot-tracker.sh').read_text())
+        self.assertIn('kernel error(s) since boot', (ROOT / 'www/cgi-bin/disk.cgi').read_text())
+
+
 if __name__ == '__main__':
     unittest.main()

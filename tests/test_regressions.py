@@ -292,7 +292,7 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'diag').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 14)   # 11 sensors + 3 binary sensors
+        self.assertEqual(len(lines), 17)   # 14 sensors + 3 binary sensors
         for line in lines:
             topic, payload = line.split('\t', 1)
             d = json.loads(payload)

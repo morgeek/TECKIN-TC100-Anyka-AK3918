@@ -2170,3 +2170,32 @@ Quatre améliorations à faible risque livrées dans l'espace utilisateur unique
   - Précision ajoutée dans `AGENTS.md` (section U-Boot) suivant l'avis de la testeuse.
 - **Test :** `amixer -D hw:0 sget 'ADC Capture Volume'` et réglage du volume micro/haut-parleur depuis l'interface web sans erreur dans les journaux.
 
+
+## 2026-11-02 — Lot 1B (implémenté, zéro U-Boot / zéro noyau) : nom mDNS, qualité Wi-Fi dans le temps, erreurs de la carte SD
+
+Trois ajouts pour diagnostiquer à distance sans console série. Tout est dans l'espace utilisateur ; les deux nouveaux services sont **désactivés par défaut**.
+
+### 1. Nom `.local` (mDNS) : `tc100-mdnsd` + service `mdns`
+- **Quoi :** petit programme sans bibliothèque C (`src/mdnsd/`, quelques Ko, compilé par la CI dans `tc100test/tc100-mdnsd`) qui répond uniquement à la question « adresse de `<hostname>.local` » (enregistrement A, nom de `config/hostname.conf`). Pas d'annonce, pas de service DNS-SD, pas de SSDP, aucune version ni clé dans la réponse, réponse uniquement aux machines du même sous-réseau.
+- **Interrupteur :** page Services → `mdns` (Start/Stop immédiat ; bascule « Boot » = `config/autostart/mdns`). Absent par défaut.
+- **Test (.11 et .24) :**
+  1. Services → `mdns` → Start ; `pidof tc100-mdnsd` répond.
+  2. Depuis le Mac : `ping ipcam1.local` (nom réel de la caméra) et `dns-sd -G v4 ipcam1.local` donnent l'adresse de la caméra ; `http://ipcam1.local/` ouvre l'interface.
+  3. Mesurer : `top` → CPU de `tc100-mdnsd` ≈ 0 %, RSS < 100 Ko ; MemAvailable avant/après.
+  4. Stop → `ping ipcam1.local` échoue de nouveau (après expiration du cache du Mac, 2 min).
+- **Critère :** nom résolu sur le Mac et par Home Assistant, aucun effet sur le flux RTSP.
+
+### 2. Qualité Wi-Fi dans le temps : `scripts/wifi-quality.sh`
+- **Quoi :** un relevé par minute (signal dBm, retransmissions et échecs d'émission depuis `iw station dump`, pertes de 3 pings vers le routeur), gardé 24 h en RAM (`/tmp/wifi-quality.log`, rien sur la flash ni la carte). Résumé de la dernière heure dans `/tmp/wifi-quality` et dans MQTT : nouvelles entités Home Assistant « Wi-Fi Packet Loss (1 h) », « Wi-Fi Transmit Retries (1 h) », « Wi-Fi Weakest Signal (1 h) » (valeur vide quand la fonction est coupée).
+- **Interrupteur :** `WIFI_QUALITY=1` dans `boot.conf` (défaut `0`), lu au démarrage (job du housekeeper, 60 s).
+- **Test (surtout la .24, qui a des rafales de pertes) :**
+  1. `WIFI_QUALITY=1` dans `boot.conf`, reboot ; après 5 min `cat /tmp/wifi-quality.log` a 4-5 lignes `epoch rssi retries failed loss`.
+  2. `cat /tmp/wifi-quality` : valeurs cohérentes avec `iw dev wlan0 link`.
+  3. Home Assistant : les 3 entités apparaissent (MQTT → « Re-publish discovery ») et suivent les valeurs.
+  4. Laisser tourner une nuit et rapprocher les rafales de pertes de la .24 des pics de `retries`/`loss`.
+- **Critère :** pas de hausse de CPU visible (un ping et un `iw` par minute), MemAvailable inchangée à ±200 Ko.
+
+### 3. Erreurs de la carte SD
+- **Quoi :** `v3/linux66-sd/sdinfo-sd.sh` (déjà appelé chaque minute) écrit maintenant dans `/tmp/sd-health` le nombre d'erreurs carte du journal noyau (`errors=`, FAT/I/O/mmcblk) et `readonly=` ; l'état (`state=ok|readonly`) ne change pas, donc la sauvegarde des journaux et la barre d'état se comportent comme avant. MQTT `sd_errors` et la page Disque (« In-flight / errors ») utilisent ce compte.
+- **Pas fait (volontairement) :** `fsck` au démarrage (outil `fsck.fat` absent de l'image, et risque de bloquer le boot) et mesure de vitesse d'écriture (écrit sur la carte) : à reprendre plus tard, à part.
+- **Test :** `cat /tmp/sd-health` → `state=ok`, `errors=0`, `readonly=0` ; page Disque → « none detected ».

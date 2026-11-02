@@ -936,6 +936,9 @@ rtsp_clients|RTSP Clients|{{ value_json.diag.rtsp_clients }}|"stat_cla":"measure
 rtsp_drops|RTSP Skipped Frames|{{ value_json.diag.rtsp_drops }}|"stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:video-off"
 last_boot|Last Restart Cause|{{ value_json.diag.last_boot }}|"ent_cat":"diagnostic","ic":"mdi:restart"
 unexpected_restarts|Unexpected Restarts (history)|{{ value_json.diag.unexpected_restarts }}|"stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:restart-alert"
+wifi_loss|Wi-Fi Packet Loss (1 h)|{{ value_json.diag.wifi_loss_pct }}|"unit_of_meas":"%","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi-alert"
+wifi_retries|Wi-Fi Transmit Retries (1 h)|{{ value_json.diag.wifi_tx_retries }}|"stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi-sync"
+wifi_signal_min|Wi-Fi Weakest Signal (1 h)|{{ value_json.diag.wifi_rssi_min }}|"unit_of_meas":"dBm","dev_cla":"signal_strength","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi-strength-1"
 DIAG
   publish_discovery_config "${discovery_prefix}/binary_sensor/${node_id}/sd_problem/config" \
     "$(printf '{"name":"%s SD Card Problem","uniq_id":"%s_sd_problem","stat_t":"%s","val_tpl":"{{ \\"ON\\" if value_json.diag.sd_problem == 1 else \\"OFF\\" }}","dev_cla":"problem","ent_cat":"diagnostic","ic":"mdi:sd",%s,%s}' \
@@ -1462,8 +1465,18 @@ build_diag_payload()
     case "$_dg_unexp" in ''|*[!0-9]*) _dg_unexp=0 ;; esac
     break
   done
-  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s","rtsp_clients":%s,"rtsp_drops":%s,"last_boot":"%s","unexpected_restarts":%s}' \
-    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob" "${_dg_sdst:-unknown}" "$_dg_rc" "$_dg_rd" "$_dg_boot" "$_dg_unexp")"
+  # Wi-Fi quality over the last hour (scripts/wifi-quality.sh, boot.conf WIFI_QUALITY=1): null when it is off.
+  _dg_wloss=null; _dg_wretry=null; _dg_wmin=null
+  if [ -r /tmp/wifi-quality ]; then
+    while IFS='=' read -r _dg_k _dg_v; do
+      case "$_dg_v" in ''|*[!0-9-]*) continue ;; esac
+      case "$_dg_k" in
+        loss_pct_1h) _dg_wloss="$_dg_v" ;; retries_1h) _dg_wretry="$_dg_v" ;; rssi_min_1h) _dg_wmin="$_dg_v" ;;
+      esac
+    done < /tmp/wifi-quality
+  fi
+  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s","rtsp_clients":%s,"rtsp_drops":%s,"last_boot":"%s","unexpected_restarts":%s,"wifi_loss_pct":%s,"wifi_tx_retries":%s,"wifi_rssi_min":%s}' \
+    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob" "${_dg_sdst:-unknown}" "$_dg_rc" "$_dg_rd" "$_dg_boot" "$_dg_unexp" "$_dg_wloss" "$_dg_wretry" "$_dg_wmin")"
 }
 
 build_health_payload()

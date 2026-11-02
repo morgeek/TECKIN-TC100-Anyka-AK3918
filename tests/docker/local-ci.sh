@@ -35,6 +35,7 @@ run_cross() {
 		cp -r /src /w && cd /w && set -e
 		arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o /tmp/jpegenc
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
+		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
 		make -C src/libakuio CROSS=arm-linux-gnueabi- 2>&1 | grep -iE "warning|error" || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- 2>&1 | grep -iE "warning|error" || true
 		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so

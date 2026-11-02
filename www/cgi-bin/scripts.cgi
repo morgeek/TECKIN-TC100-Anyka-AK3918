@@ -193,8 +193,8 @@ parse_script_capabilities() {
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
 SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection motion-detection sound-detection telegram-bot"
-SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard health-snapshot button-actions ftp-server telnet-server ssh-server syslog-forward onvif wifi-rescue"
-FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif rtsp-h26x sound-detection ssh-server syslog-forward telegram-bot telnet-server memory-guard wifi-rescue "
+SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard health-snapshot button-actions ftp-server telnet-server ssh-server syslog-forward onvif wifi-rescue mdns"
+FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif rtsp-h26x sound-detection ssh-server syslog-forward telegram-bot telnet-server memory-guard wifi-rescue mdns "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
 # (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID

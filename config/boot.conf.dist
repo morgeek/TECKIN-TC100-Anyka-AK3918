@@ -105,6 +105,10 @@ IDLE_AFTER=10
 # reboot; only with a healthy card and the recording not paused. 0 = off.
 LOG_PERSIST=1
 LOG_PERSIST_MIN=10
+# Wi-Fi quality over time (scripts/wifi-quality.sh): one sample a minute of the signal, the transmit retries and
+# failures and the packet loss to the router, kept 24 h in RAM (/tmp/wifi-quality.log, nothing written to flash or
+# card); the last hour goes to MQTT (Wi-Fi loss, retries, weakest signal). 1 = on, 0 = off (default). Read at boot.
+WIFI_QUALITY=0
 # One resident loop for the slow periodic jobs (scripts/housekeeper.sh: web guard, network guard, SD panel, the RTSP and
 # MQTT service watchdogs, health snapshot, log persistence) instead of one shell process each: about 1 MB less RAM.
 # 0 = the separate daemons of before (read at boot).

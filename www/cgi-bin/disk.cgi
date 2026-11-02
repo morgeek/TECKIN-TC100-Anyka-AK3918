@@ -269,7 +269,12 @@ if [ -d "$MMC_BLOCK" ]; then
           printf "mmc_write_ios=%d\n", $5+0
           printf "in_flight=%d\n",     $9+0
         }')"
-        [ "$in_flight" = "0" ] && mmc_io_errors="none detected" || mmc_io_errors="$in_flight in-flight"
+        _sd_errs=0
+        [ -r /tmp/sd-health ] && while IFS='=' read -r _k _v; do [ "$_k" = errors ] && _sd_errs="$_v"; done < /tmp/sd-health
+        case "$_sd_errs" in ''|*[!0-9]*) _sd_errs=0 ;; esac
+        if [ "$_sd_errs" -gt 0 ]; then mmc_io_errors="$_sd_errs kernel error(s) since boot"
+        elif [ "$in_flight" = "0" ]; then mmc_io_errors="none detected"
+        else mmc_io_errors="$in_flight in-flight"; fi
     fi
 
     # eMMC wear/health (may not exist on removable SD cards)

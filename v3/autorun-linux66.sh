@@ -332,6 +332,14 @@ if [ -f /mnt/scripts/log-persist.sh ] && [ "$BC_LOG_PERSIST" != 0 ]; then
     ( exec sh /mnt/scripts/log-persist.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
+# 12b3. Wi-Fi quality over time (boot.conf WIFI_QUALITY=1, off by default): one sample a minute in RAM
+#       (scripts/wifi-quality.sh), a housekeeper job, else a loop of its own.
+if [ -f /mnt/scripts/wifi-quality.sh ] && on "$BC_WIFI_QUALITY"; then
+  sh /mnt/scripts/housekeeper.sh job add wifi-quality bg 60 30 /var/run/wifi-quality.pid \
+    sh /mnt/scripts/wifi-quality.sh hk </dev/null >/dev/null 2>&1 ||
+    ( exec sh /mnt/scripts/wifi-quality.sh run ) </dev/null >/dev/null 2>&1 &
+fi
+
 # 12c. Every minute (scripts/web-guard.sh): the web server answers (else restart httpfront, then a rescue telnet),
 #      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
 #      (sdinfo-sd.sh, also run once now).
