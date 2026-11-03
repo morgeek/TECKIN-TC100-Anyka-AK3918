@@ -4,7 +4,7 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-State of 3.0.1 (October 2026, two cameras of the same variant; details and results in
+State of 3.0.1 (rc23, November 2026, two cameras of the same variant; details and results in
 [linux-port/test-queue.md](linux-port/test-queue.md)):
 - **Colours:** slightly warm; the software white balance of the video server corrects them (on by default). The
   image processor's own white balance on its live statistics gave a blue cast and is not used
@@ -18,6 +18,18 @@ State of 3.0.1 (October 2026, two cameras of the same variant; details and resul
   options (Settings, Day/night) whose thresholds still need a night of readings.
 - **Memory:** about 21 MB free with the 9600K encoder pool; the encoder's smart mode needs 3.4 MB more and is off.
 - **Logs with no SD card:** the web page (Logs) or ssh; the saved logs need a card.
+- **Picture right after a boot:** once (rc20) the picture stayed almost white for several minutes after a reboot,
+  then the exposure settled by itself. Under investigation; it did not show again on rc21-rc23.
+- **Wi-Fi in the first minute after a boot:** the gateway may not answer yet (100 % loss seen once at 1 min of
+  uptime); it settles within a few minutes. The kernel has no `regulatory.db`, so the Wi-Fi runs in the "world"
+  domain (channels 12-13 and transmit power limited).
+- **Frame rate in low light:** by day in low light the camera drops to 10 fps on purpose (brighter picture); Frigate
+  and NVRs see 10 fps during that time.
+- **MQTT and Telegram settings:** the MQTT user / password and the Telegram token / chat id cannot hold spaces,
+  quotes or `$ ` \ ; & | < > ( )` (the files that hold them are read by shell scripts). Use other characters.
+- **JSON configuration import:** takes 10-20 s on the camera (about 120 values checked and written as one
+  transaction); wait for the answer.
+- **Some pages answer slowly at times** (up to 6-7 s for the status, health or Frigate pages on the single-core CPU).
 - The feature audit of 2026-10-26 ([linux-port/feature-audit-2026-10-26.md](linux-port/feature-audit-2026-10-26.md))
   is history: most of what it lists was fixed in the 3.0.1 release candidates.
 

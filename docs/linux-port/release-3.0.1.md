@@ -56,17 +56,17 @@ Nothing in this path writes U-Boot, `boot`, `mac` or `env`. Every flash write is
 
 ## To fix before the final 3.0.1 (tester findings on rc21-rc23, 2026-11-03)
 Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Tick when fixed and retested on both cameras.
-- [ ] **JSON import answers with an empty body** (`config_exchange.cgi?cmd=import`, valid JSON: HTTP 200, 0 bytes; invalid JSON and missing CSRF are answered correctly). The UI cannot confirm an import; expected `{"ok":true,"applied":N,...}`.
+- [x] **JSON import "empty body"**: in fact the import took ~40 s and the tester's client gave up at 30 s. Now ~12-15 s (one pass per file, `tc_apply_edits`; validation reads each file once). Fixed 2026-11-04, retested on the .11 (same result, invalid import still refused as a whole).
 - [ ] **`syslog/host` differs between the two cameras** (.11 = 192.168.1.23, .24 = 192.168.1.22). Decide which is right, align both (the owner wants identical settings except IP and hardware identity).
-- [ ] **.24 frame rate in the evening** (`STAT cap` about 51 per interval against 122 on the .11, exposure 2810 against 1124). Check whether the long exposure at night caps the fps, and whether the cap is wanted.
-- [ ] **CI red** on 5a94854 / 7284c73 (`has-text-weight-semibold`, host test). Green CI is required on the tag commit.
+- [x] **.24 frame rate in the evening**: not a bug, the "10 fps in low light by day" mode (README). `ffprobe` showed 10/1 on the .24.
+- [x] **CI red** (`has-text-weight-semibold` purged from Bulma): purge re-run, bundle rebuilt (2026-11-04). Green CI is required on the tag commit.
 - [ ] **AE overshoot after boot** (.11, rc20: picture almost white about 7 minutes after boot, back to normal by itself). Start the AE from a mid exposure; criterion: luma below 200 within 30 s after boot.
 - [ ] **mDNS**: now on by default in rc23; unicast answer verified on both cameras, multicast `ping <name>.local` from the owner's Mac still to be confirmed.
 - [ ] Still to run on both cameras before the tag: tamper alarm with the owner's hand, a real night (day/night switch, colours back in the morning, IR off behind glass), SD card tests on the .24, notifications, flash write frequency of `awb.state` through cfg-persist.
 
 ## Added by the audit of 2026-11-03 (`audit-2026-11-03.md`)
-- [ ] **Values written unquoted into shell-sourced files**: `MQTT_USER`, `MQTT_PASSWORD`, Telegram `apiToken`/`userChatId` (`rewrite_config`, then `. mqtt.conf`). A password with a space breaks the MQTT bridge; `$(...)` would run as root. Quote on write or parse without sourcing; add a test with `a b$(x)`.
-- [ ] **Reported frame rate wrong**: dashboard, `frigateyaml` and HA manifest say 15 fps while the streams run at 25 (`state.cgi:460-498` reads `0_fps`, falls back to 15). Also README "15 by default" while `rtspserver.conf.dist` has `fps=25`; document the 10 fps low-light mode.
+- [x] **Values written unquoted into shell-sourced files**: the settings page, Home Assistant pairing and Telegram now refuse spaces, quotes and `$ ` \ ; & | < > ( )` in the MQTT user/password and Telegram token/chat id (`sourced_value_ok` in action.cgi); the wizard no longer keeps `( )`. Retested on the .11 (`a b` and `$(reboot)` refused). The JSON import already wrote them quoted.
+- [x] **Reported frame rate wrong**: `frigateyaml`, `integrationmanifest` and `integrationtest` did not load rtspserver.conf before `read_rtsp_stream_summary` (defaults: 15 fps). Fixed and retested on the .11 (25 fps reported). The README "15 by default" is right (`[0] fps=15` in the .dist).
 - [ ] `frigateyaml`: camera password in clear by default; use `{FRIGATE_RTSP_PASSWORD}`.
 - [ ] **No LICENSE file** although the README says "100% open-source repository" (owner's decision on the licence).
-- [ ] `CREDITS.md`: remove `thingino_port/` (gone); document origin and licence of the prebuilt `monvifd`, `rwconf`, `getflag`, `getimage`, or rebuild them.
+- [~] `CREDITS.md`: Thingino row fixed and the prebuilt programs listed (2026-11-04); the source and licence of `monvifd`, `rwconf`, `getflag`, `getimage` still to be written down, or the programs rebuilt.

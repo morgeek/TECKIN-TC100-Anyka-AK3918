@@ -7,6 +7,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Frame rate reported as 15 fps** in the Frigate configuration (`state.cgi?cmd=frigateyaml`), the Home Assistant
+  integration manifest and the integration test while the camera ran at another rate: those three did not read
+  `rtspserver.conf` before summing up the streams, and reported the defaults.
+- **MQTT and Telegram settings could break their service**: a space, a quote or `$ ` \ ; & | < > ( )` in the MQTT
+  user / password or the Telegram token / chat id was written as it was into a file that a shell script reads
+  (a space broke the MQTT bridge, `$(...)` ran as a command). The settings page, the Home Assistant pairing and the
+  Telegram settings now refuse those characters with a message; the setup wizard no longer keeps `( )`.
+- **JSON configuration import took about 40 s** (the page could give up before the answer): each value rewrote its
+  whole file, and the validation read every key with its own `awk`. The values are now written in one pass per
+  file and the validation reads each file once: about 12-15 s on the camera, same result.
+- **Tests:** the purged Bulma stylesheet kept up with the UI again (`has-text-weight-semibold`), so the CI is green.
+
+### Documentation
+- `CREDITS.md`: the Thingino row says what is left of it (nothing shipped); the prebuilt ARM programs are listed.
+- `docs/known-issues.md`: 3.0 section brought to rc23 (exposure after a boot, Wi-Fi in the first minute and the
+  missing `regulatory.db`, 10 fps in low light, characters refused in MQTT/Telegram settings, import duration).
+- `docs/linux-port/audit-2026-11-03.md`: full project audit.
+
 ## [3.0.1-rc23] - 2026-11-03
 
 ### Added
