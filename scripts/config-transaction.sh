@@ -235,8 +235,114 @@ tc_set_ini()
   }
 }
 
+# tc_apply_edits FILE EDITS: applies, in ONE pass, a list of edits that tc_set_flat / tc_set_ini would apply one by one
+# (each of those rewrites the whole file with its own awk: about 0.3 s per value on the camera, so a JSON import of
+# ~120 values took 40 s). EDITS holds one edit per line: MODE<TAB>SECTION<TAB>KEY<TAB>VALUE, MODE flat or ini (SECTION
+# is ignored for flat; root = before the first [N] header). Same result as the sequential calls: the first active line
+# of a key gets the last value given, its other active lines are dropped, a missing key is added (ini: at the end of its
+# section, root: before the first header). Values are printable text (tc_normalize_and_validate), so never hold a tab.
+# A file gets flat edits or ini edits, not both for one key (the import table never mixes them in a file).
+tc_apply_edits()
+{
+  _tc_file="$1"; _tc_tmp="${1}.set.$$"
+  awk -v edits="$2" '
+    BEGIN {
+      n = 0
+      while ((getline line < edits) > 0) {
+        i = index(line, "\t"); m = substr(line, 1, i - 1); line = substr(line, i + 1)
+        i = index(line, "\t"); s = substr(line, 1, i - 1); line = substr(line, i + 1)
+        i = index(line, "\t"); k = substr(line, 1, i - 1); v = substr(line, i + 1)
+        id = (m == "flat" ? "F" : "I" s) SUBSEP k
+        if (!(id in val)) { n++; order[n] = id; ini[id] = (m != "flat"); sec[id] = s; key[id] = k }
+        val[id] = v
+      }
+      close(edits)
+      current = "root"
+    }
+    function add_missing(section,   j, id) {
+      for (j = 1; j <= n; j++) {
+        id = order[j]
+        if (ini[id] && sec[id] == section && !done[id]) { print key[id] "=" val[id]; done[id] = 1 }
+      }
+    }
+    /^\[[0-9]+\][[:space:]]*$/ {
+      add_missing(current)
+      current = $0; gsub(/^\[|\][[:space:]]*$/, "", current)
+      print; next
+    }
+    $0 !~ /^[[:space:]]*#/ && match($0, /^[[:space:]]*[^=[:space:]]+=/) {
+      k = substr($0, RSTART, RLENGTH - 1); sub(/^[[:space:]]*/, "", k)
+      id = "F" SUBSEP k
+      if (!(id in val)) id = "I" current SUBSEP k
+      if (id in val) {
+        if (!done[id]) print key[id] "=" val[id]
+        done[id] = 1; next
+      }
+    }
+    { print }
+    END {
+      add_missing(current)
+      add_missing("root")
+      for (j = 1; j <= n; j++) { id = order[j]; if (!ini[id] && !done[id]) print key[id] "=" val[id] }
+    }
+  ' "$_tc_file" > "$_tc_tmp" && mv "$_tc_tmp" "$_tc_file" || {
+    rm -f "$_tc_tmp"; return 1;
+  }
+}
+
+# Flat-key cache: tc_validate_candidate checks a file key by key (~90 tc_check_flat calls on boot.conf, two awk runs
+# each: ~12 s of a JSON import on the camera). While a file is validated, its active KEY=value lines are read once
+# (first line of each key, as the awk lookups below) and tc_has_flat / tc_read_flat answer from that, without a fork.
+_tc_cache_file=""; _tc_cache=""
+tc_flat_cache_load()
+{
+  _tc_cache_file="$1"
+  _tc_cache="
+$(awk -F= '$0 !~ /^[[:space:]]*#/ && !($1 in seen) {seen[$1]=1; k=$1; sub(/^[^=]*=/, ""); print k "=" $0}' "$1" 2>/dev/null)
+"
+  # the same for [N] sections (rtspserver.conf): one "[SECTION]KEY=value" line per first key of a section
+  _tc_icache="
+$(awk -F= '
+    BEGIN { section="root" }
+    /^\[[0-9]+\][[:space:]]*$/ { section=$0; gsub(/^\[|\][[:space:]]*$/, "", section); next }
+    $0 !~ /^[[:space:]]*#/ && !((section, $1) in seen) { seen[section, $1]=1; k=$1; sub(/^[^=]*=/, ""); print "[" section "]" k "=" $0 }
+  ' "$1" 2>/dev/null)
+"
+}
+
+# tc_ini_value FILE SECTION KEY: TC_INI_VALUE = what tc_read_ini prints (no fork when FILE is cached); 1 when absent
+tc_ini_value()
+{
+  if [ -n "$_tc_cache_file" ] && [ "$1" = "$_tc_cache_file" ]; then
+    TC_INI_VALUE=""
+    case "$_tc_icache" in
+      *"
+[$2]$3="*) TC_INI_VALUE="${_tc_icache#*"
+[$2]$3="}"; TC_INI_VALUE="${TC_INI_VALUE%%"
+"*}"; return 0 ;;
+    esac
+    return 1
+  fi
+  tc_has_ini "$1" "$2" "$3" || { TC_INI_VALUE=""; return 1; }
+  TC_INI_VALUE="$(tc_read_ini "$1" "$2" "$3")"
+}
+
+tc_flat_cache_clear()
+{
+  _tc_cache_file=""; _tc_cache=""; _tc_icache=""
+}
+
 tc_read_flat()
 {
+  if [ -n "$_tc_cache_file" ] && [ "$1" = "$_tc_cache_file" ]; then
+    case "$_tc_cache" in
+      *"
+$2="*) _tc_rf="${_tc_cache#*"
+$2="}"; printf '%s\n' "${_tc_rf%%"
+"*}" ;;
+    esac
+    return 0
+  fi
   awk -F= -v key="$2" '$0 !~ /^[[:space:]]*#/ && $1 == key {sub(/^[^=]*=/, ""); print; exit}' "$1" 2>/dev/null
 }
 
@@ -251,6 +357,11 @@ tc_read_ini()
 
 tc_has_flat()
 {
+  if [ -n "$_tc_cache_file" ] && [ "$1" = "$_tc_cache_file" ]; then
+    case "$_tc_cache" in *"
+$2="*) return 0 ;; esac
+    return 1
+  fi
   awk -F= -v key="$2" '$0 !~ /^[[:space:]]*#/ && $1 == key {found=1; exit} END {exit !found}' "$1" 2>/dev/null
 }
 
@@ -271,13 +382,29 @@ tc_require_flat()
 
 tc_require_ini()
 {
-  tc_has_ini "$1" "$2" "$3" || _tc_fail "$4:[$2].$3:missing"
+  tc_ini_value "$1" "$2" "$3" || _tc_fail "$4:[$2].$3:missing"
+}
+
+# tc_flat_value FILE KEY: TC_FLAT_VALUE = what tc_read_flat prints, without a subshell when FILE is cached
+tc_flat_value()
+{
+  if [ -n "$_tc_cache_file" ] && [ "$1" = "$_tc_cache_file" ]; then
+    TC_FLAT_VALUE=""
+    case "$_tc_cache" in
+      *"
+$2="*) TC_FLAT_VALUE="${_tc_cache#*"
+$2="}"; TC_FLAT_VALUE="${TC_FLAT_VALUE%%"
+"*}" ;;
+    esac
+    return 0
+  fi
+  TC_FLAT_VALUE="$(tc_read_flat "$1" "$2")"
 }
 
 tc_check_flat()
 {
   tc_has_flat "$1" "$2" || return 0
-  _tc_check_value="$(tc_read_flat "$1" "$2")"
+  tc_flat_value "$1" "$2"; _tc_check_value="$TC_FLAT_VALUE"
   tc_strip_quotes "$_tc_check_value"
   tc_normalize_and_validate "$3" "$TC_UNQUOTED_VALUE" || _tc_fail "$4:$2"
 }
@@ -286,7 +413,7 @@ tc_check_pair()
 {
   # tc_check_pair FILE HIGH_KEY LOW_KEY LABEL: when both keys are set, HIGH must be greater than LOW
   tc_has_flat "$1" "$2" && tc_has_flat "$1" "$3" || return 0
-  _tc_hi="$(tc_read_flat "$1" "$2")"; _tc_lo="$(tc_read_flat "$1" "$3")"
+  tc_flat_value "$1" "$2"; _tc_hi="$TC_FLAT_VALUE"; tc_flat_value "$1" "$3"; _tc_lo="$TC_FLAT_VALUE"
   case "$_tc_hi$_tc_lo" in *[!0-9]*) return 0 ;; esac
   [ -n "$_tc_hi" ] && [ -n "$_tc_lo" ] || return 0
   [ "$_tc_hi" -gt "$_tc_lo" ] || _tc_fail "$4:$2<=$3"
@@ -294,8 +421,8 @@ tc_check_pair()
 
 tc_check_ini()
 {
-  tc_has_ini "$1" "$2" "$3" || return 0
-  _tc_check_value="$(tc_read_ini "$1" "$2" "$3")"
+  tc_ini_value "$1" "$2" "$3" || return 0
+  _tc_check_value="$TC_INI_VALUE"
   tc_normalize_and_validate "$4" "$_tc_check_value" || _tc_fail "$5:[$2].$3"
 }
 
@@ -332,8 +459,8 @@ tc_validate_rtsp()
     tc_check_ini "$_tc_file" "$_tc_section" smartstatic smartstatic "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" maxkbps bitrate "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" targetkbps bitrate "$_tc_label" || return 1
-    _tc_minqp="$(tc_read_ini "$_tc_file" "$_tc_section" minqp)"
-    _tc_maxqp="$(tc_read_ini "$_tc_file" "$_tc_section" maxqp)"
+    tc_ini_value "$_tc_file" "$_tc_section" minqp; _tc_minqp="$TC_INI_VALUE"
+    tc_ini_value "$_tc_file" "$_tc_section" maxqp; _tc_maxqp="$TC_INI_VALUE"
     [ -z "$_tc_minqp" ] || [ -z "$_tc_maxqp" ] || [ "$_tc_minqp" -le "$_tc_maxqp" ] || _tc_fail "$_tc_label:[$_tc_section].qp_order" || return 1
   done
   tc_check_ini "$_tc_file" root imageflip flip "$_tc_label" || return 1
@@ -346,6 +473,16 @@ tc_validate_rtsp()
 }
 
 tc_validate_candidate()
+{
+  # the flat-key cache only lives while this one file is validated
+  [ -f "$2" ] && tc_flat_cache_load "$2"
+  _tc_validate_candidate_body "$1" "$2"
+  _tc_vc_rc=$?
+  tc_flat_cache_clear
+  return $_tc_vc_rc
+}
+
+_tc_validate_candidate_body()
 {
   _tc_rel="$1"; _tc_file="$2"
   [ -f "$_tc_file" ] || _tc_fail "$_tc_rel:missing" || return 1

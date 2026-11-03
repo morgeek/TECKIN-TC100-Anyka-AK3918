@@ -517,17 +517,26 @@ _ce_import() {
         _ce_pw=1; _ce_values=$((_ce_values + 1)); continue ;;
     esac
     _ce_prepare_file "$_ce_rel" || _ce_fail "Missing base configuration: $_ce_rel" "CONFIG_NOT_FOUND"
+    # flat / ini values are queued per file and applied in one pass after the loop (tc_apply_edits)
+    _ce_edits="$_ce_stage/.edits.${_ce_rel//\//_}"
     case "$_ce_mode" in
-      flat) tc_set_flat "$_ce_stage/$_ce_rel" "$_ce_key" "$_ce_value" ;;
-      flatd) tc_set_flat "$_ce_stage/$_ce_rel" "$_ce_key" "\"$_ce_value\"" ;;
-      flatq) tc_set_flat "$_ce_stage/$_ce_rel" "$_ce_key" "'$_ce_value'" ;;
-      ini) tc_set_ini "$_ce_stage/$_ce_rel" "$_ce_section" "$_ce_key" "$_ce_value" ;;
+      flat) printf 'flat\t\t%s\t%s\n' "$_ce_key" "$_ce_value" >> "$_ce_edits" ;;
+      flatd) printf 'flat\t\t%s\t"%s"\n' "$_ce_key" "$_ce_value" >> "$_ce_edits" ;;
+      flatq) printf "flat\t\t%s\t'%s'\n" "$_ce_key" "$_ce_value" >> "$_ce_edits" ;;
+      ini) printf 'ini\t%s\t%s\t%s\n' "$_ce_section" "$_ce_key" "$_ce_value" >> "$_ce_edits" ;;
       single) printf '%s\n' "$_ce_value" > "$_ce_stage/$_ce_rel" ;;
       *) false ;;
     esac || _ce_fail "Cannot stage ${_ce_rel}:${_ce_key}" "STAGING_FAILED"
     _ce_add_file "$_ce_rel"
     _ce_values=$((_ce_values + 1))
   done < "$_ce_rows"
+
+  for _ce_f in $_ce_files; do
+    _ce_edits="$_ce_stage/.edits.${_ce_f//\//_}"
+    [ -f "$_ce_edits" ] || continue
+    tc_apply_edits "$_ce_stage/$_ce_f" "$_ce_edits" || _ce_fail "Cannot stage ${_ce_f}" "STAGING_FAILED"
+    rm -f "$_ce_edits"
+  done
 
   [ "$_ce_values" -gt 0 ] || _ce_fail "No applicable configuration values found" "EMPTY_CONFIG"
   if [ "$_ce_wifi" = 1 ]; then
