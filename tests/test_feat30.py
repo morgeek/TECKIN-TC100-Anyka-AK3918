@@ -479,26 +479,35 @@ class MemoryGuardDefaults(unittest.TestCase):
         out = self.run_migration(self.OLD)
         self.assertIn('MEM_GUARD_WARN_KB=6144\n', out)
         self.assertIn('MEM_GUARD_CRITICAL_KB=3072\n', out)
-        self.assertIn('MEM_GUARD_SOFT_SERVICES="network-monitor"\n', out)
+        self.assertIn('MEM_GUARD_SOFT_SERVICES=""\n', out)
         self.assertIn('MEM_GUARD_ENABLE=1\n', out)
         self.assertIn('MEM_GUARD_CRITICAL_SERVICES="ftp-server telnet-server motion-detection"\n', out)
 
     def test_chosen_values_are_left_alone(self):
-        for conf in (self.OLD.replace('8192', '7000'), self.OLD.replace('4096', '4000'), self.OLD.replace('8192', '10000').replace('4096', '5000'),
-                     self.OLD.replace('8192', '6144').replace('4096', '3072')):
+        base = self.OLD.replace('network-monitor ', '')   # the removed service's name is dropped on purpose
+        for conf in (base.replace('8192', '7000'), base.replace('4096', '4000'), base.replace('8192', '10000').replace('4096', '5000'),
+                     base.replace('8192', '6144').replace('4096', '3072')):
             self.assertEqual(self.run_migration(conf), conf)
 
     def test_custom_soft_services_survive_the_migration(self):
-        conf = self.OLD.replace('"network-monitor auto-night-detection"', '"network-monitor"')
-        out = self.run_migration(conf.replace('"network-monitor"', '"network-monitor syslog-forward"'))
+        conf = self.OLD.replace('"network-monitor auto-night-detection"', '"network-monitor syslog-forward"')
+        out = self.run_migration(conf)
         self.assertIn('MEM_GUARD_WARN_KB=6144\n', out)
-        self.assertIn('MEM_GUARD_SOFT_SERVICES="network-monitor syslog-forward"\n', out)
+        self.assertIn('MEM_GUARD_SOFT_SERVICES="syslog-forward"\n', out)
+
+    def test_removed_network_monitor_name_is_dropped(self):
+        conf = self.OLD.replace('8192', '7000').replace('"network-monitor auto-night-detection"', '"network-monitor syslog-forward"')
+        out = self.run_migration(conf)
+        self.assertIn('MEM_GUARD_WARN_KB=7000\n', out)
+        self.assertIn('MEM_GUARD_SOFT_SERVICES="syslog-forward"\n', out)
+        self.assertNotIn('network-monitor', out)
 
     def test_defaults_everywhere(self):
         boot = (ROOT / 'config/boot.conf.dist').read_text()
         self.assertIn('\nMEM_GUARD_WARN_KB=6144\n', boot)
         self.assertIn('\nMEM_GUARD_CRITICAL_KB=3072\n', boot)
-        self.assertIn('\nMEM_GUARD_SOFT_SERVICES="network-monitor"\n', boot)
+        self.assertIn('\nMEM_GUARD_SOFT_SERVICES=""\n', boot)
+        self.assertNotIn('network-monitor', boot)
         mg = (ROOT / 'controlscripts/memory-guard').read_text()
         self.assertIn('MEM_GUARD_WARN_KB:-6144', mg)
         self.assertIn('MEM_GUARD_CRITICAL_KB:-3072', mg)
@@ -601,6 +610,31 @@ class Rc9SocWiring(unittest.TestCase):
         cp = (ROOT / 'v3/linux66-sd/cfg-persist').read_text()
         flush = cp[cp.index('flush)'):cp.index('saved)')]
         self.assertIn('[ "$(signature)" = "$(cat /tmp/cfg-persist.sig)" ] && exit 0', flush)
+
+    def test_awb_state_alone_never_triggers_a_flash_save(self):
+        """awb.state (white balance gains, rewritten every few minutes) is in the slot but not in the change signature"""
+        cp = (ROOT / 'v3/linux66-sd/cfg-persist').read_text(encoding='utf-8')
+        helpers = cp[:cp.index('\ncase "$1" in')]
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / 'config'
+            cfg.mkdir()
+            (cfg / 'boot.conf').write_text('A=1\n')
+            (cfg / 'awb.state').write_text('r=256\nb=256\n')
+            lib = Path(d) / 'lib.sh'
+            lib.write_text(helpers)
+            env = dict(CFG=str(cfg), DEFAULTS=str(Path(d) / 'none'))
+
+            def run(cmd):
+                r = sh('. %s; %s' % (lib, cmd), env)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                return r.stdout.strip()
+            sig = run('signature')
+            (cfg / 'awb.state').write_text('r=300\nb=210\n')
+            self.assertEqual(run('signature'), sig)
+            self.assertIn('config/awb.state', run('cd "$(dirname $CFG)"; list'))   # still stored in every slot
+            (cfg / 'boot.conf').write_text('A=2\n')
+            self.assertNotEqual(run('signature'), sig)
+        self.assertIn('*/awb.state) continue ;;', cp)
 
     def test_smart_mode_wiring(self):
         """rc11: ak_venc_set_smart_config only when RTSP_SMART is 1 or 2 and VBR is on (R11-01)"""
@@ -1037,13 +1071,16 @@ class Lot5MultiViewAndTools(unittest.TestCase):
         settings_html = (ROOT / 'www/settings.html').read_text()
         self.assertIn('id="motion_heatmap_bar"', settings_html)
 
-    def test_webdav_service_and_config(self):
-        wd_path = ROOT / 'controlscripts/webdav'
-        self.assertTrue(wd_path.exists())
-        self.assertEqual(sh('sh -n %s' % wd_path).returncode, 0)
-        self.assertTrue((ROOT / 'config/webdav.conf.dist').exists())
-        self.assertIn('webdav', (ROOT / 'www/cgi-bin/scripts.cgi').read_text())
-        self.assertIn('webdav', (ROOT / 'scripts/health-probe.sh').read_text())
+    def test_duplicate_services_are_gone(self):
+        # WebDAV (a second httpd on 8080 for /DCIM) and network-monitor (net-guard is the one network watcher) were removed.
+        for gone in ('controlscripts/webdav', 'config/webdav.conf.dist', 'controlscripts/network-monitor',
+                     'scripts/network-monitor.sh', 'config/netmon.conf.dist'):
+            self.assertFalse((ROOT / gone).exists(), gone)
+        for f in ('www/cgi-bin/scripts.cgi', 'scripts/health-probe.sh', 'www/cgi-bin/health.cgi', 'scripts/mqtt-bridge.sh',
+                  'scripts/health-snapshot.sh', 'www/cgi-bin/action.cgi', 'scripts/action.d/system.sh', 'scripts/net-guard.sh'):
+            text = (ROOT / f).read_text()
+            self.assertNotIn('webdav', text, f)
+            self.assertNotIn('network-monitor', text, f)
 
 
 class EventsSettingsActions(unittest.TestCase):

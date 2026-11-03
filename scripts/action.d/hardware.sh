@@ -92,21 +92,4 @@
       echo "LED configuration updated.<br/>"
     ;;
 
-    conf_autodaynight)
-        /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-            " " daynightawb "${F_dnawb}" \
-            " " daynightlum "${F_dnlum}" \
-            " " nightdayawb "${F_ndawb}" \
-            " " nightdaylum "${F_ndlum}"
-
-        /mnt/bin/setconf -k r -v "${F_dnawb}"
-        /mnt/bin/setconf -k a -v "${F_dnlum}"
-        /mnt/bin/setconf -k b -v "${F_ndawb}"
-        /mnt/bin/setconf -k d -v "${F_ndlum}"
-
-        echo "daynightawb ${F_dnawb} <BR>"
-        echo "daynightlum ${F_dnlum} <BR>"
-        echo "nightdayawb ${F_ndawb} <BR>"
-        echo "nightdaylum ${F_ndlum} <BR>"
-     ;;
   esac

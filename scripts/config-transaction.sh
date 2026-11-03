@@ -271,7 +271,7 @@ tc_validate_candidate()
   [ "$_tc_size" -le 262144 ] || _tc_fail "$_tc_rel:too_large" || return 1
   case "$_tc_rel" in
     rtspserver.conf) tc_validate_rtsp "$_tc_file" "$_tc_rel" || return 1 ;;
-    boot.conf|mqtt.conf|service_trim.conf|recording.conf|sound_detection.conf|motion.conf|telegram.conf|telnetd.conf|ftp.conf|onvif.conf|network.conf|dns.conf|netmon.conf|sendmail.conf|timelapse.conf|onvif_events.conf)
+    boot.conf|mqtt.conf|service_trim.conf|recording.conf|sound_detection.conf|motion.conf|telegram.conf|telnetd.conf|ftp.conf|onvif.conf|network.conf|dns.conf|sendmail.conf|timelapse.conf|onvif_events.conf)
       /bin/sh -n "$_tc_file" >/dev/null 2>&1 || _tc_fail "$_tc_rel:shell_syntax" || return 1 ;;
   esac
   case "$_tc_rel" in

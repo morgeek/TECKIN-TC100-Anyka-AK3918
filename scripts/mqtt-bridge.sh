@@ -6,8 +6,6 @@ CONFIG_FILE="/mnt/config/mqtt.conf"
 LOGPATH="/tmp/log/mqtt-bridge.log"
 STATE_FILE="/tmp/mqtt-bridge.state"
 HEALTH_SLOW_CACHE_FILE="/tmp/mqtt-bridge.health-slow.cache"
-NETWORK_STATE_FILE="/tmp/network-monitor.state"
-NETWORK_STATE_MAX_AGE_SECONDS=900
 CURL_BIN="/mnt/bin/curl"
 JSONFLAT="${JSONFLAT:-/mnt/scripts/jsonflat.awk}"
 LOCAL_STATE_CGI="/mnt/www/cgi-bin/state.cgi"
@@ -386,91 +384,6 @@ service_script_running_int()
   else
     echo "0"
   fi
-}
-
-init_network_state_defaults()
-{
-  network_state_ts=0
-  network_state_fresh=0
-  network_wifi_iface="wlan0"
-  network_wifi_connected=0
-  network_gateway_address=""
-  network_gateway_reachable=0
-  network_broker_monitor_enabled=0
-  network_broker_host=""
-  network_broker_port=1883
-  network_broker_state="disabled"
-  network_broker_reachable=0
-  network_current_problem="disabled"
-  network_reconnect_count=0
-  network_broker_restart_count=0
-  network_last_recovery_reason="none"
-  network_last_recovery_action="none"
-  network_last_recovery_ts=0
-}
-
-load_network_monitor_state()
-{
-  init_network_state_defaults
-
-  if [ "$network_monitor_enabled" != "1" ]; then
-    return 1
-  fi
-
-  network_current_problem="state_missing"
-  [ -r "$NETWORK_STATE_FILE" ] || return 1
-
-  while IFS='=' read -r key value; do
-    case "$key" in
-      ts) network_state_ts="$value" ;;
-      wifi_iface) network_wifi_iface="$value" ;;
-      wifi_connected) network_wifi_connected="$value" ;;
-      gateway_address) network_gateway_address="$value" ;;
-      gateway_reachable) network_gateway_reachable="$value" ;;
-      broker_monitor_enabled) network_broker_monitor_enabled="$value" ;;
-      broker_host) network_broker_host="$value" ;;
-      broker_port) network_broker_port="$value" ;;
-      broker_state) network_broker_state="$value" ;;
-      broker_reachable) network_broker_reachable="$value" ;;
-      current_problem) network_current_problem="$value" ;;
-      reconnect_count) network_reconnect_count="$value" ;;
-      broker_restart_count) network_broker_restart_count="$value" ;;
-      last_recovery_reason) network_last_recovery_reason="$value" ;;
-      last_recovery_action) network_last_recovery_action="$value" ;;
-      last_recovery_ts) network_last_recovery_ts="$value" ;;
-    esac
-  done < "$NETWORK_STATE_FILE"
-
-  case "$network_state_ts" in ''|*[!0-9]*) network_state_ts=0 ;; esac
-  case "$network_wifi_connected" in ''|*[!0-9]*) network_wifi_connected=0 ;; esac
-  case "$network_gateway_reachable" in ''|*[!0-9]*) network_gateway_reachable=0 ;; esac
-  case "$network_broker_monitor_enabled" in ''|*[!0-9]*) network_broker_monitor_enabled=0 ;; esac
-  case "$network_broker_port" in ''|*[!0-9]*) network_broker_port=1883 ;; esac
-  case "$network_broker_reachable" in ''|*[!0-9]*) network_broker_reachable=0 ;; esac
-  case "$network_reconnect_count" in ''|*[!0-9]*) network_reconnect_count=0 ;; esac
-  case "$network_broker_restart_count" in ''|*[!0-9]*) network_broker_restart_count=0 ;; esac
-  case "$network_last_recovery_ts" in ''|*[!0-9]*) network_last_recovery_ts=0 ;; esac
-  [ -n "$network_wifi_iface" ] || network_wifi_iface="wlan0"
-  [ -n "$network_current_problem" ] || network_current_problem="unknown"
-  [ -n "$network_broker_state" ] || network_broker_state="unknown"
-  [ -n "$network_last_recovery_reason" ] || network_last_recovery_reason="none"
-  [ -n "$network_last_recovery_action" ] || network_last_recovery_action="none"
-
-  [ "$BTIME" -gt 0 ] || _load_btime
-  read -r _up _ < /proc/uptime
-  now_ts=$((BTIME + ${_up%.*}))
-  if [ "$network_state_ts" -le 0 ] || [ "$network_state_ts" -gt "$now_ts" ]; then
-    network_current_problem="stale"
-    return 1
-  fi
-
-  if [ $((now_ts - network_state_ts)) -gt "$NETWORK_STATE_MAX_AGE_SECONDS" ]; then
-    network_current_problem="stale"
-    return 1
-  fi
-
-  network_state_fresh=1
-  return 0
 }
 
 normalize_toggle_value()
@@ -920,7 +833,6 @@ publish_homeassistant_discovery()
   cmd_json="$(json_escape "$MQTT_TOPIC_COMMAND")"
   health_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/health")"
   motion_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/motion/state")"
-  network_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/network/state")"
   integration_manifest_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/integration/manifest")"
   avail_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/availability")"
   device_name_json="$(json_escape "$hostname_value")"
@@ -1060,7 +972,6 @@ DIAG
       front_led)        name_suffix="Front LED" ;;
       red_led)          name_suffix="Red LED" ;;
       motion_detection) name_suffix="Motion Detection" ;;
-      privacy_shield)   name_suffix="Privacy Shield" ;;
       night_mode)       name_suffix="Night Vision" ;;
       auto_night_mode)  name_suffix="Auto Night Mode" ;;
       *)                name_suffix="$cmd" ;;
@@ -1070,13 +981,11 @@ DIAG
     [ "$cmd" = "front_led" ] && ic="mdi:led-on"
     [ "$cmd" = "red_led" ] && ic="mdi:led-variant-on"
     [ "$cmd" = "motion_detection" ] && ic="mdi:motion-sensor"
-    [ "$cmd" = "privacy_shield" ] && ic="mdi:shield-account"
     [ "$cmd" = "night_mode" ] && ic="mdi:weather-night"
     [ "$cmd" = "auto_night_mode" ] && ic="mdi:theme-light-dark"
 
     stat_field="${cmd}_on"
     [ "$cmd" = "motion_detection" ] && stat_field="motion_enabled"
-    [ "$cmd" = "privacy_shield" ] && stat_field="privacy_mode"
     [ "$cmd" = "auto_night_mode" ] && stat_field="auto_night_enabled"
 
     switch_cfg_topic="${discovery_prefix}/switch/${node_id}/${cmd}/config"
@@ -1160,7 +1069,6 @@ init_slow_health_defaults()
   slow_web_mode="full"
   slow_profile="balanced"
   slow_security_hardening_mode=0
-  slow_network_monitor_enabled=0
   slow_motion_enabled=0
   slow_ftp_enabled=0
   slow_telnet_enabled=0
@@ -1220,7 +1128,6 @@ collect_slow_health_metrics()
   esac
 
   slow_motion_enabled="$(service_script_running_int /mnt/controlscripts/motion-detection /var/run/detection-monitor.pid)"
-  slow_network_monitor_enabled="$(service_script_running_int /mnt/controlscripts/network-monitor /var/run/network-monitor.pid)"
   slow_ftp_enabled="$(service_script_running_int /mnt/controlscripts/ftp-server /var/run/ftp-server.pid)"
   slow_telnet_enabled="$(service_script_running_int /mnt/controlscripts/telnet-server /var/run/telnet-server.pid)"
   slow_rtsp_enabled="$(service_script_running_int /mnt/controlscripts/rtsp-h26x /var/run/v4l2rtspserver.pid)"
@@ -1279,7 +1186,6 @@ save_slow_health_cache()
     printf 'web_mode=%s\n' "$slow_web_mode"
     printf 'profile=%s\n' "$slow_profile"
     printf 'security_hardening_mode=%s\n' "$slow_security_hardening_mode"
-    printf 'network_monitor_enabled=%s\n' "$slow_network_monitor_enabled"
     printf 'motion_enabled=%s\n' "$slow_motion_enabled"
     printf 'ftp_enabled=%s\n' "$slow_ftp_enabled"
     printf 'telnet_enabled=%s\n' "$slow_telnet_enabled"
@@ -1312,7 +1218,6 @@ load_slow_health_cache()
       web_mode) slow_web_mode="$value" ;;
       profile) slow_profile="$value" ;;
       security_hardening_mode) slow_security_hardening_mode="$value" ;;
-      network_monitor_enabled) slow_network_monitor_enabled="$value" ;;
       motion_enabled) slow_motion_enabled="$value" ;;
       ftp_enabled) slow_ftp_enabled="$value" ;;
       telnet_enabled) slow_telnet_enabled="$value" ;;
@@ -1345,7 +1250,6 @@ load_slow_health_cache()
   [ "$age" -le "$MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS" ] || return 1
 
   case "$slow_security_hardening_mode" in ''|*[!0-9]*) slow_security_hardening_mode=0 ;; esac
-  case "$slow_network_monitor_enabled" in ''|*[!0-9]*) slow_network_monitor_enabled=0 ;; esac
   case "$slow_motion_enabled" in ''|*[!0-9]*) slow_motion_enabled=0 ;; esac
   case "$slow_ftp_enabled" in ''|*[!0-9]*) slow_ftp_enabled=0 ;; esac
   case "$slow_telnet_enabled" in ''|*[!0-9]*) slow_telnet_enabled=0 ;; esac
@@ -1376,20 +1280,6 @@ load_or_collect_slow_health_metrics()
   fi
   collect_slow_health_metrics
   save_slow_health_cache
-}
-
-build_network_state_payload()
-{
-  network_wifi_iface_json="$(json_escape "$network_wifi_iface")"
-  network_gateway_address_json="$(json_escape "$network_gateway_address")"
-  network_broker_host_json="$(json_escape "$network_broker_host")"
-  network_broker_state_json="$(json_escape "$network_broker_state")"
-  network_current_problem_json="$(json_escape "$network_current_problem")"
-  network_last_recovery_reason_json="$(json_escape "$network_last_recovery_reason")"
-  network_last_recovery_action_json="$(json_escape "$network_last_recovery_action")"
-
-  network_state_payload="$(printf '{"ts":%s,"hostname":"%s","monitor_enabled":%s,"state_fresh":%s,"wifi_iface":"%s","wifi_connected":%s,"gateway_address":"%s","gateway_reachable":%s,"broker_monitor_enabled":%s,"broker_host":"%s","broker_port":%s,"broker_state":"%s","broker_reachable":%s,"current_problem":"%s","reconnect_count":%s,"broker_restart_count":%s,"last_recovery_reason":"%s","last_recovery_action":"%s","last_recovery_ts":%s}' \
-    "$now_ts" "$hostname_json" "$network_monitor_enabled" "$network_state_fresh" "$network_wifi_iface_json" "$network_wifi_connected" "$network_gateway_address_json" "$network_gateway_reachable" "$network_broker_monitor_enabled" "$network_broker_host_json" "$network_broker_port" "$network_broker_state_json" "$network_broker_reachable" "$network_current_problem_json" "$network_reconnect_count" "$network_broker_restart_count" "$network_last_recovery_reason_json" "$network_last_recovery_action_json" "$network_last_recovery_ts")"
 }
 
 # Diagnostics for Home Assistant, read from /proc and tmpfs without forks
@@ -1583,7 +1473,6 @@ build_health_payload()
   web_mode="$slow_web_mode"
   profile="$slow_profile"
   security_hardening_mode="$slow_security_hardening_mode"
-  network_monitor_enabled="$slow_network_monitor_enabled"
   motion_enabled="$slow_motion_enabled"
   ftp_enabled="$slow_ftp_enabled"
   telnet_enabled="$slow_telnet_enabled"
@@ -1615,10 +1504,6 @@ build_health_payload()
     auto_night_enabled=1
   elif [ "$(/mnt/bin/setconf -g n 2>/dev/null)" = "2" ]; then
     auto_night_enabled=1
-  fi
-  privacy_mode=0
-  if is_truthy_local "$(read_kv_config_value /mnt/config/boot.conf PRIVACY_MODE 0)"; then
-    privacy_mode=1
   fi
 
   motion_active=0
@@ -1663,12 +1548,10 @@ build_health_payload()
   profile_json="$(json_escape "$profile")"
   power_sensor_path_json="$(json_escape "$power_sensor_path")"
   primary_ip_json="$(json_escape "$primary_ip")"
-  load_network_monitor_state >/dev/null 2>&1 || true
-  build_network_state_payload
   build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"privacy_mode":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"network":%s,"diag":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$privacy_mode" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$network_state_payload" "$diag_payload"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
 }
 
 publish_health()
@@ -1676,7 +1559,6 @@ publish_health()
   payload="$(build_health_payload)"
   mqtt_publish_topic_suffix "health" "$payload" 1
   mqtt_publish_topic_suffix "motion/state" "$motion_state_payload" 1 >/dev/null 2>&1 || true
-  mqtt_publish_topic_suffix "network/state" "$network_state_payload" 1 >/dev/null 2>&1 || true
   publish_isp_state
 }
 
@@ -1838,7 +1720,7 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
       ensure_low_cpu_runtime_tuning
-      for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode network-monitor; do
+      for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
         fi
@@ -1884,30 +1766,6 @@ apply_toggle_command()
       ;;
     auto_night_mode)
       script="/mnt/controlscripts/auto-night-detection"
-      ;;
-    privacy_shield)
-      install_config /mnt/config/boot.conf
-      case "$requested_value" in
-        on)
-          rewrite_config /mnt/config/boot.conf PRIVACY_MODE 1
-          return 0
-          ;;
-        off)
-          rewrite_config /mnt/config/boot.conf PRIVACY_MODE 0
-          return 0
-          ;;
-        toggle)
-          if is_truthy_local "$(read_kv_config_value /mnt/config/boot.conf PRIVACY_MODE 0)"; then
-            rewrite_config /mnt/config/boot.conf PRIVACY_MODE 0
-          else
-            rewrite_config /mnt/config/boot.conf PRIVACY_MODE 1
-          fi
-          return 0
-          ;;
-        *)
-          return 2
-          ;;
-      esac
       ;;
     ftp)
       if security_hardening_enabled_runtime; then
@@ -1994,9 +1852,6 @@ restart_named_service()
       ;;
     onvif)
       service_script="/mnt/controlscripts/onvif"
-      ;;
-    network_monitor|network)
-      service_script="/mnt/controlscripts/network-monitor"
       ;;
     mqtt_bridge|mqtt)
       queue_mqtt_bridge_restart
@@ -2187,7 +2042,7 @@ handle_command_payload()
         command_rc=1
       fi
       ;;
-    motion|motion_detection|ir_led|front_led|red_led|night_mode|auto_night_mode|privacy_shield|ftp|telnet|rtsp|onvif)
+    motion|motion_detection|ir_led|front_led|red_led|night_mode|auto_night_mode|ftp|telnet|rtsp|onvif)
       if apply_toggle_command "$cmd" "$value"; then
         publish_event_simple "command.${cmd}" "${value:-toggle}"
         publish_command_result "$cmd" "applied" "Applied ${cmd}=${value:-toggle}." 1 "$command_source" command
@@ -2244,7 +2099,7 @@ handle_command_payload()
         command_rc=1
       fi
       ;;
-    restart_rtsp|restart_onvif|restart_network_monitor|restart_mqtt_bridge)
+    restart_rtsp|restart_onvif|restart_mqtt_bridge)
       restart_target="${cmd#restart_}"
       if restart_named_service "$restart_target"; then
         case "$restart_target" in

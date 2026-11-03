@@ -1,5 +1,0 @@
-# HTTP File Share server configuration (Direct browser/curl recording access)
-# Disabled by default. Enabled from Services page or boot.
-PORT=8080
-# Directory to share: defaults to SD card records (/mnt/sd/DCIM or /mnt/records)
-DIR=/mnt/records

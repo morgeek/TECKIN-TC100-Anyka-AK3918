@@ -5,7 +5,8 @@
 #   settings that differ from the shipped defaults (*.dist twins, unchanged defaults are not stored).
 #   A shipped default the user removed (a service switched off: config/autostart/<name>) is listed in
 #   config/.cfg-deleted, stored with the settings and removed again after a restore.
-#   Saves only when something changed (checked every 30 s), so the flash is written rarely.
+#   Saves only when something changed (checked every 30 s), so the flash is written rarely. config/awb.state is saved with
+#   the slot but a change of it alone is not a change (flash wear): it goes out with the next real save.
 #   /tmp/cfg-persist.status (state=ok|too_big|error, msg=..., ts=...) tells the web page how the last save went.
 CFG=${CFG:-/mnt/sd/config}
 [ -d "$CFG" ] || [ ! -d /mnt/config ] || CFG=/mnt/config
@@ -68,7 +69,9 @@ refresh_deleted() {
     rm -f "$CFG/.cfg-deleted"
   fi
 }
-signature() { refresh_deleted; cd "$(dirname $CFG)" || return 1; list | while read f; do md5sum "$f"; done | md5sum | cut -d' ' -f1; }
+# awb.state (the white balance gains tc100_rtsp rewrites every few minutes while the light drifts) is stored in every slot
+# but never counts as a change: it would wear the flash. It goes out with the next real save (boot-guard, a deliberate reboot).
+signature() { refresh_deleted; cd "$(dirname $CFG)" || return 1; list | while read f; do case "$f" in */awb.state) continue;; esac; md5sum "$f"; done | md5sum | cut -d' ' -f1; }
 
 # slot header -> "seq len md5" or nothing when the slot is empty/corrupt
 slot_info() {
@@ -141,7 +144,7 @@ daemon)
       # a file written, or one removed (the directory changes then)
       for f in "$CFG" "$CFG"/autostart "$CFG"/presets "$CFG"/* "$CFG"/autostart/* "$CFG"/presets/*; do
         [ -e "$f" ] || continue
-        case "$f" in *.dist|*.pid|*.tmp|*.lock) continue ;; esac
+        case "$f" in *.dist|*.pid|*.tmp|*.lock|*/awb.state) continue ;; esac
         if [ "$f" -nt /tmp/cfg-persist.sig ]; then changed=1; break; fi
       done
       [ "$changed" = 1 ] || continue

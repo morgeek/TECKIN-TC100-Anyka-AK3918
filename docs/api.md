@@ -385,33 +385,6 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
 
 ---
 
-### cmd=conf_autodaynight
-
-Sets the auto day/night mode thresholds and applies them immediately.
-
-**Parameters:**
-
-| Parameter | Description |
-|---|---|
-| `dnlum` | Day-to-night luminance threshold |
-| `dnawb` | Day-to-night AWB threshold |
-| `ndlum` | Night-to-day luminance threshold |
-| `ndawb` | Night-to-day AWB threshold |
-
-**Response:** HTML
-
-```sh
-curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
-  -H "X-CSRF-Token: <token>" \
-  --data-urlencode "cmd=conf_autodaynight" \
-  --data-urlencode "dnlum=60" \
-  --data-urlencode "dnawb=100" \
-  --data-urlencode "ndlum=100" \
-  --data-urlencode "ndawb=150"
-```
-
----
-
 ### cmd=osd
 
 Configures OSD (on-screen display) overlay for both streams.
@@ -1164,19 +1137,6 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
 
 ---
 
-### cmd=enable_privacy_shield
-
-Activates Privacy Shield: immediately stops Telegram bot, syslog-forward, mqtt-bridge, ftp-server, and telnet-server, and sets `PRIVACY_MODE=1` in boot config.
-
-**Response:** JSON or HTML
-
-```sh
-curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=enable_privacy_shield" \
-  -H "X-CSRF-Token: <token>"
-```
-
----
-
 ### cmd=conf_ptt
 
 Sets the push-to-talk speaker volume.
@@ -1517,7 +1477,6 @@ Returns a JSON health summary for all services, cached for the configured snapsh
     "motion-detection": "running",
     "sound-detection": "stopped",
     "mqtt-bridge": "running",
-    "network-monitor": "running",
     "auto-night-detection": "running",
     "memory-guard": "running",
     "ftp-server": "running",
@@ -2074,7 +2033,7 @@ In-browser editor for individual config files.
 
 Returns the file content as JSON.
 
-**Allowed files:** `boot.conf`, `mqtt.conf`, `rtspserver.conf`, `recording.conf`, `onvif.conf`, `hostname.conf`, `ntp_srv.conf`, `timezone.conf`, `telegram.conf`, `netmon.conf`, `dns.conf`, `motion.conf`, `pttvolume.conf`
+**Allowed files:** `boot.conf`, `mqtt.conf`, `rtspserver.conf`, `recording.conf`, `onvif.conf`, `hostname.conf`, `ntp_srv.conf`, `timezone.conf`, `telegram.conf`, `dns.conf`, `motion.conf`, `pttvolume.conf`
 
 **Response:**
 ```json

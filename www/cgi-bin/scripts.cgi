@@ -199,8 +199,8 @@ parse_script_capabilities() {
 # LED/IR toggles, motion, auto-night and web-server go through
 # fast_toggle_state; any other script is probed.
 SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection motion-detection sound-detection telegram-bot"
-SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge network-monitor memory-guard health-snapshot button-actions ftp-server telnet-server ssh-server syslog-forward onvif wifi-rescue webdav mdns"
-FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge network-monitor onvif rtsp-h26x sound-detection ssh-server syslog-forward telegram-bot telnet-server memory-guard wifi-rescue webdav mdns "
+SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge memory-guard health-snapshot button-actions ftp-server telnet-server ssh-server syslog-forward onvif wifi-rescue mdns"
+FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge onvif rtsp-h26x sound-detection ssh-server syslog-forward telegram-bot telnet-server memory-guard wifi-rescue mdns "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
 # (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID
@@ -332,7 +332,7 @@ service_impact_level_for() {
     rtsp-h26x|motion-detection)
       echo "heavy"
       ;;
-    onvif|mqtt-bridge|telegram-bot|auto-night-detection|network-monitor)
+    onvif|mqtt-bridge|telegram-bot|auto-night-detection)
       echo "med"
       ;;
     *)
@@ -358,7 +358,7 @@ service_impact_hint_for() {
     telegram-bot)
       echo "Triggered network tasks can spike CPU and RAM briefly."
       ;;
-    auto-night-detection|network-monitor)
+    auto-night-detection)
       echo "Periodic checks with moderate overhead."
       ;;
     *)
@@ -707,7 +707,7 @@ else
         autorun_checked="checked='checked'"
       fi
       impact_level="$(service_impact_level_for "$i")"
-      case "$i" in rtsp-h26x|web-server|network-monitor|memory-guard) essential="1" ;; *) essential="0" ;; esac
+      case "$i" in rtsp-h26x|web-server|memory-guard) essential="1" ;; *) essential="0" ;; esac
       impact_label="$(service_impact_label_for "$impact_level")"
       impact_hint="$(service_impact_hint_for "$i")"
 

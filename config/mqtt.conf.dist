@@ -65,7 +65,6 @@ MQTT_HA_CAMERA_ENTITY_ENABLE=0
 #   profile:rtsp-only
 #   restart_rtsp
 #   restart_onvif
-#   restart_network_monitor
 #   restart_mqtt_bridge
 #   repair_integration
 #   integration_manifest
