@@ -70,16 +70,12 @@ wr_psk()
     if [ "${#_p}" -ge 8 ] && [ "${#_p}" -le 63 ]; then echo "$_p"; return; fi
     _f="$(_wr_pskfile)"
     read -r _p < "$_f" 2>/dev/null
-    if [ "${#_p}" -lt 8 ]; then
-        # 12 characters, no look-alikes (0/O, 1/l/I)
-        _p="$(dd if=/dev/urandom bs=48 count=1 2>/dev/null | od -An -v -tu1 | awk '
-            BEGIN { c = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789" }
-            { for (i = 1; i <= NF && n < 12; i++) if ($i < 4 * 56) { s = s substr(c, $i % 56 + 1, 1); n++ } }
-            END { print s }')"
-        [ "${#_p}" -eq 12 ] || return 1
-        mkdir -p "${_f%/*}" 2>/dev/null
-        ( umask 077; echo "$_p" > "$_f" )
-    fi
+    if [ "${#_p}" -ge 8 ] && [ "${#_p}" -le 63 ]; then echo "$_p"; return; fi
+
+    # Default fixed and documented rescue password
+    _p="tc100rescue"
+    mkdir -p "${_f%/*}" 2>/dev/null
+    ( umask 077; echo "$_p" > "$_f" )
     echo "$_p"
 }
 

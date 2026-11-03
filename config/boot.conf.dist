@@ -123,14 +123,14 @@ ISP_TUNE=0
 # TC100-<end of MAC>) with the web interface at http://10.42.0.1 to fix the
 # Wi-Fi settings; it closes once the Wi-Fi is back and nobody uses it. Holding
 # the reset button 3-7 s opens it for WIFI_RESCUE_MANUAL_MIN minutes.
-# WIFI_RESCUE_PSK empty = a password generated once, shown in Settings (and on
-# the card, tc100-3/ADRESSE.txt). WIFI_RESCUE_CHANNEL applies when the camera
+# WIFI_RESCUE_PSK empty = default fixed password 'tc100rescue' (or custom in Settings).
+# WIFI_RESCUE_CHANNEL applies when the camera
 # is not associated (otherwise the access point follows the Wi-Fi).
 WIFI_RESCUE=0
 WIFI_RESCUE_AFTER_MIN=10
 WIFI_RESCUE_MANUAL_MIN=15
 WIFI_RESCUE_SSID=
-WIFI_RESCUE_PSK=
+WIFI_RESCUE_PSK=tc100rescue
 WIFI_RESCUE_CHANNEL=6
 # Local backup recording (REC_LOCAL=1), made by tc100_rtsp: the frames the
 # encoder already produces for RTSP are copied into fragmented MP4 files on the
