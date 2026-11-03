@@ -289,34 +289,24 @@
         say(syncStatus, 'Veuillez saisir une URL de caméra cible.', 'err');
         return;
       }
-      if (!/^https?:\/\//i.test(target)) target = 'http://' + target;
-      target = target.replace(/\/+$/, '');
       syncBtn.disabled = true;
-      say(syncStatus, 'Exportation et envoi...', '');
+      say(syncStatus, 'Envoi de la configuration vers la caméra cible...', '');
 
-      fetch('cgi-bin/config_exchange.cgi?cmd=export', { cache: 'no-store' })
+      fetch('cgi-bin/config_exchange.cgi?cmd=push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'target=' + encodeURIComponent(target),
+        cache: 'no-store'
+      })
         .then(function (r) {
-          if (!r.ok) throw new Error('Échec export local (HTTP ' + r.status + ')');
-          return r.text();
-        })
-        .then(function (cfgJson) {
-          var dest = target + '/cgi-bin/config_exchange.cgi?cmd=import&exclude_network=1&exclude_credentials=1';
-          return fetch(dest, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: cfgJson,
-            cache: 'no-store'
-          });
-        })
-        .then(function (r) {
-          if (!r.ok) throw new Error('Échec réception cible (HTTP ' + r.status + ')');
+          if (!r.ok) throw new Error('Échec passerelle push (HTTP ' + r.status + ')');
           return r.json();
         })
         .then(function (res) {
           if (res && res.ok) {
-            say(syncStatus, 'Synchronisation réussie (' + (res.applied || 0) + ' valeurs).', 'ok');
+            say(syncStatus, 'Synchronisation réussie (' + (res.applied || 0) + ' valeurs appliquées).', 'ok');
           } else {
-            say(syncStatus, 'Erreur cible: ' + (res && res.error ? res.error : 'inconnue'), 'err');
+            say(syncStatus, 'Erreur cible: ' + (res && (res.error || res.message) ? (res.error || res.message) : 'inconnue'), 'err');
           }
         })
         .catch(function (err) {

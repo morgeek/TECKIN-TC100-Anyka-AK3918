@@ -275,6 +275,55 @@ case "$F_cmd" in
     echo ""
     _ce_import
     ;;
+  push)
+    mutation_guard
+    output_json_header
+    echo ""
+    _target="${F_target:-}"
+    case "$_target" in
+      http://*|https://*) ;;
+      *) _target="http://$_target" ;;
+    esac
+    _target="${_target%/}"
+
+    # Validate target host/IP format (IPv4 or hostname:port)
+    _thost="$(printf '%s' "$_target" | sed -E 's#^https?://([^/:]+).*#\1#')"
+    case "$_thost" in
+      ''|*[!a-zA-Z0-9.-]*)
+        json_body_err "INVALID_TARGET" "Invalid target address"
+        exit 0
+        ;;
+    esac
+
+    _curl_bin="/mnt/bin/curl"
+    [ -x "$_curl_bin" ] || _curl_bin="$(command -v curl 2>/dev/null || echo "")"
+    if [ -z "$_curl_bin" ]; then
+      json_body_err "CURL_UNAVAILABLE" "curl binary not found"
+      exit 0
+    fi
+
+    # Export current settings to a temporary JSON buffer
+    _push_tmp="/tmp/ce_push_$$.json"
+    QUERY_STRING="cmd=fullconfig" F_cmd="fullconfig" sh ./state.cgi | sed '1,/^$/d' > "$_push_tmp" 2>/dev/null
+
+    # Build auth parameter if user/pass provided
+    _auth_opt=""
+    if [ -n "${F_user:-}" ] || [ -n "${F_password:-}" ]; then
+      _auth_opt="-u ${F_user:-}:${F_password:-}"
+    fi
+
+    # Target URL with exclusion parameters
+    _dest_url="$_target/cgi-bin/config_exchange.cgi?cmd=import&exclude_network=1&exclude_credentials=1"
+    _resp="$("$_curl_bin" -s -S -m 10 $_auth_opt -H "Content-Type: application/json" --data-binary "@$_push_tmp" "$_dest_url" 2>&1)"
+    _ret=$?
+    rm -f "$_push_tmp" 2>/dev/null
+
+    if [ "$_ret" -eq 0 ] && [ -n "$_resp" ]; then
+      printf '%s\n' "$_resp"
+    else
+      printf '{"error":"Push failed (code %d): %s"}\n' "$_ret" "$(printf '%s' "$_resp" | tr '"\n' "' ")"
+    fi
+    ;;
   *)
     output_json_header
     echo ""
