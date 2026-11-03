@@ -935,9 +935,11 @@ class SetupWizard(unittest.TestCase):
                                      frigate_url='192.0.2.9:5000/', flash_install='1')))
         self.assertEqual(r, {'ok': True, 'wifi': 'applied', 'flash': 'installing', 'password': 'unchanged'})
         boot = (self.d / 'config/boot.conf').read_text()
-        self.assertIn('REC_LOCAL=1', boot); self.assertIn('REC_WHEN=offline', boot); self.assertIn('MQTT_ENABLE=1', boot)
+        self.assertIn('REC_LOCAL=1', boot); self.assertIn('REC_WHEN=offline', boot)
+        self.assertNotIn('MQTT_ENABLE', boot)                             # mqtt.conf is its one place
         self.assertIn('WEB_MODE=http', boot)
         self.assertIn('MQTT_HOST=192.0.2.5', (self.d / 'config/mqtt.conf').read_text())
+        self.assertIn('MQTT_ENABLE=1', (self.d / 'config/mqtt.conf').read_text())
         self.assertEqual((self.d / 'config/frigate_live.conf').read_text(), 'FRIGATE_URL=http://192.0.2.9:5000\nFRIGATE_CAMERA=\n')
         wpa = (self.d / 'wpa.conf').read_text()
         self.assertIn('ssid="New Net"', wpa); self.assertIn('psk="p@ss w0rd!"', wpa)

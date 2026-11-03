@@ -128,8 +128,9 @@ publish_sound_event()
         /mnt/scripts/notify.sh sound "Sound alert: level ${level} dBFS (threshold ${threshold} dBFS)" "" "$level" >/dev/null 2>&1 &
     fi
 
-    # Trigger recording if enabled.
-    if [ "$(read_kv_config_value /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
+    # A sound starts a recording like motion does when the recorder records on events (boot.conf REC_WHEN=motion,
+    # Settings -> Recording; the former recording.conf rec_motion_activated is gone)
+    if [ "$(read_kv_config_value /mnt/config/boot.conf REC_WHEN offline)" = "motion" ]; then
         touch /tmp/motion_detected
     fi
 }

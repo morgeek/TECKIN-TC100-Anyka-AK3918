@@ -1700,3 +1700,24 @@ Contexte : la flash n'a la place que pour UNE pile (`stack` 2,7 Mo, `initrd` 2 M
 - **Caméras déjà en service (.11, .24) :** leur `boot.conf` contient `WIFI_RESCUE=0` (copié de l'ancien `.dist`) : inchangé par la mise à jour. Pour l'activer : `WIFI_RESCUE=1` dans `/mnt/config/boot.conf` puis `sh /mnt/controlscripts/wifi-rescue restart`.
 - **Interrupteur :** `WIFI_RESCUE=0` (plus de point d'accès, ni automatique ni par le bouton).
 - **Test (propriétaire, caméra à portée) :** (1) sur une caméra avec `WIFI_RESCUE=1`, bouton reset 3-7 s → réseau `TC100-<MAC>` visible, connexion avec `tc100rescue`, page http://10.42.0.1/ ; (2) mauvais mot de passe Wi-Fi enregistré → le réseau de secours apparaît au bout d'environ 10 min, la correction du Wi-Fi depuis cette page ferme le point d'accès et la caméra revient sur le réseau de la maison ; (3) Wi-Fi normal pendant 24 h → le point d'accès ne s'ouvre jamais (`sh /mnt/scripts/wifi-rescue.sh status` → `ap=0`).
+
+## 2026-11-03 — Un seul interrupteur par service, bugs « l'interface dit une chose, la caméra en fait une autre » (`[one-switch]`)
+
+Décisions du propriétaire : l'interrupteur de l'interface gagne (le profil Frigate + HA coupe une seule fois quand on le choisit) ; secours Wi-Fi d'abord.
+
+- **Quoi :**
+  - `scripts/service-switch.sh` (nouveau) : pour détection sonore (`sound_detection.conf ENABLE`), syslog (`SYSLOG_ENABLE`), enregistrement (`REC_LOCAL`), Memory Guard (`MEM_GUARD_ENABLE`), point d'accès de secours (`WIFI_RESCUE`), MQTT (`mqtt.conf MQTT_ENABLE`), bot Telegram (`TELEGRAM_ENABLE`), détection de mouvement (`mdenabled`), la clé est le seul interrupteur. Le démarrage, la case « Boot » de la page Services et l'affichage la lisent / l'écrivent ; `config/autostart/<service>` est ignoré pour eux. Jour/nuit automatique : seulement `daynight` (3 = manuel). LED : seulement `FRONT_LED` / `RED_LED`. Sabotage : seulement `tamper.conf` (les `TAMPER_*` quittent `boot.conf`).
+  - **Telegram : un seul chemin** (`scripts/notify.sh`, `notify.conf TELEGRAM_NOTIFY_ENABLE`) : plus de 2ᵉ et 3ᵉ photo par mouvement (`motion.conf send_telegram`, `telegram.conf TELEGRAM_MOTION_SNAPSHOT` supprimés).
+  - **Migration une fois** (`scripts/migrate-switches.sh`, marqueur `config/.migrated-switches`) : garde ce que la caméra faisait (Telegram sur mouvement → `TELEGRAM_NOTIFY_ENABLE=1` ; sabotage = `TAMPER_DETECT` ET `ENABLE` ; `autostart/recording` → `REC_LOCAL=1`).
+  - Assistant (profil Frigate + HA) : `MQTT_ENABLE` écrit dans `mqtt.conf` (il l'était dans `boot.conf`, effacé au démarrage) ; Telegram, syslog, détection sonore, FTP et telnet coupés **une fois** au choix du profil, plus à chaque démarrage.
+  - Détection sonore → enregistrement : suit `REC_WHEN=motion` (plus `recording.conf rec_motion_activated`).
+  - `net-guard` : tant que le surveillant du point d'accès de secours tourne, pas de redémarrage avant 2 cycles complets (2 × (10 + 15) = 50 min ; jamais pendant que le point d'accès est ouvert, comme avant).
+- **Interrupteurs :** aucun nouveau (ce sont les clés existantes).
+- **Test (les deux caméras, après la mise à jour) :**
+  1. `cat /mnt/config/.migrated-switches` existe ; `grep TAMPER /mnt/config/boot.conf` vide ; services en marche identiques à avant la mise à jour (`pidof`, page Services).
+  2. Page Services : décocher puis recocher « Boot » de `syslog-forward` / `memory-guard` / `wifi-rescue` → la clé change dans `boot.conf` (pas de fichier dans `autostart/`) ; redémarrer → l'état affiché est l'état réel.
+  3. Réglages → Enregistrement off, redémarrer → reste off (avant : revenait à on avec `autostart/recording`).
+  4. Détection sonore activée dans Réglages, redémarrer → `pidof` du démon présent et événements sonores reçus.
+  5. Telegram configuré + `TELEGRAM_NOTIFY_ENABLE=1` : un mouvement → **une** photo.
+  6. Sans réseau (box coupée) avec `WIFI_RESCUE=1` : point d'accès à ~10 min, retour station ~25 min, point d'accès ~35 min, redémarrage pas avant ~50 min.
+- **Critères :** 1 à 6 conformes, aucun service perdu ni ajouté par rapport à avant la mise à jour.

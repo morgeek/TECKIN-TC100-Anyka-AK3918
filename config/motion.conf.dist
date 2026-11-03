@@ -5,7 +5,7 @@
 # Configure how to deal with motion events:
 
 motion_trigger_led=true
-send_telegram=false
+# (Telegram, Ntfy and webhook alerts: config/notify.conf, scripts/notify.sh)
 
 # Best-shot JPEG selection:
 # When set to 1, takes 3 quick successive snapshots on motion trigger and selects

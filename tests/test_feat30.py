@@ -863,7 +863,8 @@ class Lot2BabyphoneAndTamper(unittest.TestCase):
         self.assertIn('tamper/state "ON"', s)
         self.assertIn('tamper/state "OFF"', s)
         self.assertEqual(sh('sh -n %s' % script).returncode, 0)
-        self.assertIn('TAMPER_DETECT=0', (ROOT / 'config/boot.conf.dist').read_text())
+        self.assertIn('\nENABLE=0\n', (ROOT / 'config/tamper.conf.dist').read_text())
+        self.assertNotIn('TAMPER_DETECT', (ROOT / 'config/boot.conf.dist').read_text())
         self.assertIn('job add tamper-detect bg 2 5', (ROOT / 'v3/autorun-linux66.sh').read_text())
 
     def test_mqtt_discovery_for_babyphone_and_tamper(self):
@@ -1045,6 +1046,71 @@ class Lot5MultiViewAndTools(unittest.TestCase):
         self.assertIn('webdav', (ROOT / 'scripts/health-probe.sh').read_text())
 
 
+class OneSwitchPerService(unittest.TestCase):
+    """scripts/service-switch.sh: one settings key per service; migrate-switches.sh keeps what a camera did."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.c = self.d / 'config'
+        (self.c / 'autostart').mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.d)
+
+    def sw(self, code):
+        return sh('SW_CONF_DIR=%s; . %s; %s' % (self.c, ROOT / 'scripts/service-switch.sh', code))
+
+    def test_key_is_read_and_written(self):
+        (self.c / 'boot.conf').write_text('A=1\nREC_LOCAL=0\n')
+        self.assertNotEqual(self.sw('svc_on recording').returncode, 0)
+        self.assertEqual(self.sw('svc_set recording 1; svc_on recording').returncode, 0)
+        self.assertIn('\nREC_LOCAL=1\n', (self.c / 'boot.conf').read_text())
+        self.assertEqual(self.sw('svc_on wifi-rescue').returncode, 0)           # missing key: on by default
+        self.assertEqual(self.sw('svc_set mqtt-bridge 1; svc_on mqtt-bridge').returncode, 0)
+        self.assertIn('MQTT_ENABLE=1', (self.c / 'mqtt.conf').read_text())       # created when missing
+        self.assertNotEqual(self.sw('svc_switch ssh-server').returncode, 0)     # autostart file stays its switch
+
+    def test_migration_keeps_what_the_camera_did(self):
+        (self.c / 'boot.conf').write_text('TAMPER_DETECT=1\nTAMPER_HOLD_SEC=3\nTAMPER_LUMA_MIN=15\nX=1\n')
+        (self.c / 'tamper.conf').write_text('ENABLE=0\nTAMPER_HOLD_SEC=6\n')
+        (self.c / 'motion.conf').write_text('motion_trigger_led=true\nsend_telegram=true\n')
+        (self.c / 'autostart' / 'recording').write_text('x')
+        env = dict(MS_CONF_DIR=str(self.c), MS_SWITCH=str(ROOT / 'scripts/service-switch.sh'))
+        r = sh('sh %s' % (ROOT / 'scripts/migrate-switches.sh'), env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('TELEGRAM_NOTIFY_ENABLE=1', (self.c / 'notify.conf').read_text())
+        self.assertNotIn('send_telegram', (self.c / 'motion.conf').read_text())
+        self.assertIn('ENABLE=0', (self.c / 'tamper.conf').read_text())         # both were needed: off
+        boot = (self.c / 'boot.conf').read_text()
+        self.assertNotIn('TAMPER_', boot)
+        self.assertIn('REC_LOCAL=1', boot)
+        self.assertFalse((self.c / 'autostart' / 'recording').exists())
+        (self.c / 'boot.conf').write_text('TAMPER_DETECT=1\n')                  # once only
+        sh('sh %s' % (ROOT / 'scripts/migrate-switches.sh'), env)
+        self.assertEqual((self.c / 'boot.conf').read_text(), 'TAMPER_DETECT=1\n')
+
+    def test_boot_and_services_page_use_the_key(self):
+        a = (ROOT / 'v3/autorun-linux66.sh').read_text()
+        self.assertIn('for n in sound-detection syslog-forward memory-guard wifi-rescue telegram-bot; do', a)
+        self.assertIn('svc_switch $n && continue', a)
+        self.assertNotIn('autostart/recording', a)
+        self.assertNotIn('[ "$PROFILE" = frigate_ha ] && case', a)
+        s = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        self.assertIn('if svc_switch "$script"; then svc_set "$script" 0;', s)
+        for gone in ('send_telegram', 'TELEGRAM_MOTION_SNAPSHOT'):
+            self.assertNotIn(gone, (ROOT / 'scripts/detectionOn.sh').read_text() + (ROOT / 'scripts/motion-event.sh').read_text())
+
+    def test_net_guard_waits_two_rescue_cycles(self):
+        conf = self.d / 'boot.conf'
+        conf.write_text('NET_GUARD_MIN=15\nWIFI_RESCUE_AFTER_MIN=10\nWIFI_RESCUE_MANUAL_MIN=15\n')
+        env = dict(NG_BOOT_CONF=str(conf), NG_STATE=str(self.d / 'st'), NG_PERSIST=str(self.d / 'p'),
+                   NG_UPTIME='100', NG_WR_PID=str(self.d / 'wr.pid'))
+        ng = ROOT / 'scripts/net-guard.sh'
+        self.assertIn('limit_s=900 ', sh('sh %s status' % ng, env).stdout)
+        r = sh('sleep 5 & echo $! > %s; sh %s status' % (self.d / 'wr.pid', ng), env)
+        self.assertIn('limit_s=3000 ', r.stdout)
+
+
 class BootGuard(unittest.TestCase):
     """v3/linux66-sd/boot-guard: safe mode after 3 runs in a row shorter than 5 minutes (flash mode only)."""
 
@@ -1118,7 +1184,7 @@ class BootGuard(unittest.TestCase):
         self.assertLess(a.index('boot-guard start'), a.index('rtsp-launch.sh'))
         self.assertLess(a.index('reboot-tracker.sh boot'), a.index('boot-guard start'))
         for step in ('elif [ -x $TB/tc100_rtsp ]', '"$SAFE" = 0 ] && [ -f $CS/mqtt-bridge', '"$SAFE" = 0 ] && [ -f $CS/onvif',
-                     'ssh-server|telnet-server|wifi-rescue|button-actions'):
+                     'ssh-server|telnet-server|button-actions) ;;', '[ "$SAFE" = 1 ] && [ "$n" != wifi-rescue ]'):
             self.assertIn(step, a)
         rt = (ROOT / 'scripts/reboot-tracker.sh').read_text()
         self.assertIn('"web UI"*|"reset button"*)', rt)

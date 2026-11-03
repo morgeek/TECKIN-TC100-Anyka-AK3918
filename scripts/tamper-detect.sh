@@ -32,16 +32,7 @@ LUMA_MIN=15
 JPEG_DROP_PCT=50
 
 load_config() {
-  # Single source of truth / backwards compatibility: check boot.conf then tamper.conf
-  if [ -r "$BOOT_CONF" ]; then
-    while IFS='=' read -r _k _v; do
-      case "$_k" in
-        TAMPER_DETECT) ENABLE="$_v" ;;
-        TAMPER_HOLD_SEC) HOLD_SEC="$_v" ;;
-        TAMPER_LUMA_MIN) LUMA_MIN="$_v" ;;
-      esac
-    done < "$BOOT_CONF"
-  fi
+  # tamper.conf is the one place of these settings (scripts/migrate-switches.sh moved the TAMPER_* of boot.conf)
   if [ -r "$TAMPER_CONF" ]; then
     while IFS='=' read -r _k _v; do
       case "$_k" in

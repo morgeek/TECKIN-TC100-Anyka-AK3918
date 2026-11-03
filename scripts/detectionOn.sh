@@ -48,17 +48,7 @@ else
     rm -f "$snap"
 fi
 
-# Send a telegram message
-case "$send_telegram" in
-  1|true|yes|on)
-    if [ -n "$snapshot_path" ]; then
-        /mnt/bin/telegram p "$snapshot_path"
-    else
-        tg_tmp="/tmp/telegram_image.$$.jpg"
-        take_snapshot "$tg_tmp" && /mnt/bin/telegram p "$tg_tmp"
-        rm -f "$tg_tmp"
-    fi ;;
-esac
+# (Telegram, Ntfy, webhook: scripts/notify.sh, called by motion-event.sh below: one alert per event)
 
 # Persist motion event for local API + optional MQTT publish.
 /mnt/scripts/motion-event.sh motion_on "$snapshot_path" "" "trigger=motion" >/dev/null 2>&1 &

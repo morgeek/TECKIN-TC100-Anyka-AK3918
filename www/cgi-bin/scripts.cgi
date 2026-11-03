@@ -14,6 +14,12 @@ echo "Cache-Control: max-age=0, no-store, no-cache"
 SCRIPT_HOME="${SCRIPT_HOME:-/mnt/controlscripts/}"
 # Allow tests to override autostart dir for safer testing
 AUTOSTART_DIR="${AUTOSTART_DIR:-/mnt/config/autostart}"
+# One switch per service (scripts/service-switch.sh): for the services with a settings key, the "Boot" toggle reads
+# and writes that key, not a file in AUTOSTART_DIR
+svc_switch() { return 1; }
+[ -r "${SVC_SWITCH_SH:-/mnt/scripts/service-switch.sh}" ] && . "${SVC_SWITCH_SH:-/mnt/scripts/service-switch.sh}"
+# boot_enabled SCRIPT -> 0 when it starts at boot
+boot_enabled() { if svc_switch "$1"; then svc_on "$1"; else [ -f "$AUTOSTART_DIR/$1" ]; fi; }
 status_timeout_cmd=""
 ALLSTATES_CACHE_FILE="${ALLSTATES_CACHE_FILE:-/tmp/scripts-allstates.cache}"
 ALLSTATES_CACHE_TTL_SECONDS="${ALLSTATES_CACHE_TTL_SECONDS:-4}"
@@ -416,7 +422,7 @@ generate_allstates_payload() {
     state="unknown"
     uptime_s=-1
 
-    [ -f "$AUTOSTART_DIR/$script" ] && autostart_enabled=1
+    boot_enabled "$script" && autostart_enabled=1
 
     if [ "$has_status" -eq 1 ] && { fast_pidfile_state "$script" || fast_toggle_state "$script"; }; then
       :
@@ -524,7 +530,7 @@ if [ -n "$F_script" ]; then
         ;;
       disable)
         mutation_guard
-        rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true
+        if svc_switch "$script"; then svc_set "$script" 0; else rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true; fi
         invalidate_allstates_cache
         echo "Content-type: application/json"
         echo ""
@@ -544,9 +550,13 @@ if [ -n "$F_script" ]; then
       enable)
         mutation_guard
         if [ -e "$SCRIPT_HOME/$script" ]; then
-          mkdir -p "${AUTOSTART_DIR}"
-          printf "#!/bin/sh\nsh \"%s%s\"\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"
-          chmod +x "${AUTOSTART_DIR}/$script"
+          if svc_switch "$script"; then
+            svc_set "$script" 1
+          else
+            mkdir -p "${AUTOSTART_DIR}"
+            printf "#!/bin/sh\nsh \"%s%s\"\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"
+            chmod +x "${AUTOSTART_DIR}/$script"
+          fi
           invalidate_allstates_cache
           echo "Content-type: application/json"
           echo ""
@@ -586,7 +596,7 @@ if [ -n "$F_script" ]; then
 
           parse_script_capabilities "$SCRIPT_HOME/$script"
 
-          if [ -f "$AUTOSTART_DIR/$script" ]; then
+          if boot_enabled "$script"; then
             autostart_enabled=1
           fi
 
@@ -693,7 +703,7 @@ else
       action_disabled=""
 
       autorun_checked=""
-      if [ -f "$AUTOSTART_DIR/$i" ]; then
+      if boot_enabled "$i"; then
         autorun_checked="checked='checked'"
       fi
       impact_level="$(service_impact_level_for "$i")"

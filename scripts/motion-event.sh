@@ -136,28 +136,3 @@ fi
 if [ "$event_type" = "motion_on" ] && [ -x /mnt/scripts/notify.sh ]; then
   /mnt/scripts/notify.sh motion "Motion detected at $ts_utc" "$snapshot_path" "$detail" >/dev/null 2>&1 &
 fi
-
-# Telegram snapshot on motion_on — opt-in via TELEGRAM_MOTION_SNAPSHOT=1 in telegram.conf
-if [ "$event_type" = "motion_on" ] && \
-   [ -f /mnt/config/telegram.conf ] && \
-   [ -x /mnt/bin/telegram ]; then
-  TELEGRAM_MOTION_SNAPSHOT=0
-  # shellcheck disable=SC1091
-  . /mnt/config/telegram.conf 2>/dev/null || true
-  if [ "${TELEGRAM_MOTION_SNAPSHOT:-0}" = "1" ] && [ -n "${apiToken:-}" ]; then
-    if [ -n "$snapshot_path" ] && [ -f "$snapshot_path" ]; then
-      /mnt/bin/telegram p "$snapshot_path" >/dev/null 2>&1 || true
-    else
-      # Take a fresh snapshot if no snapshot was passed with the event
-      # the picture tc100_rtsp keeps (take_snapshot in common_functions.sh), else a text message
-      _tg_snap="/tmp/telegram_motion_snap_$$.jpg"
-      . /mnt/scripts/common_functions.sh
-      if take_snapshot "$_tg_snap"; then
-        /mnt/bin/telegram p "$_tg_snap" >/dev/null 2>&1 || true
-      else
-        /mnt/bin/telegram m "Motion detected at $ts_utc" >/dev/null 2>&1 || true
-      fi
-      rm -f "$_tg_snap" 2>/dev/null || true
-    fi
-  fi
-fi

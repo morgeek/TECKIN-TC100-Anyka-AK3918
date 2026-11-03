@@ -20,7 +20,8 @@
 #     every 15 min. The count is kept in the persistent config (one small
 #     write per reboot) and cleared once the network has been back 10 min;
 #   * never while the Wi-Fi rescue access point is up (scripts/wifi-rescue.sh):
-#     someone may be connected to it to fix the Wi-Fi settings.
+#     someone may be connected to it to fix the Wi-Fi settings; and while its
+#     watcher runs, not before two full rescue cycles (2 x (10 + 15) = 50 min).
 # boot.conf: NET_GUARD=1 (0 = off), NET_GUARD_MIN=15.
 #
 #   net-guard.sh once     one check
@@ -83,6 +84,8 @@ _ng_ok()
 }
 
 _ng_rescue_ap() { _ng_first "$WR_RUN/hostapd.pid"; [ -n "$_f1" ] && kill -0 "$_f1" 2>/dev/null; }
+# the rescue access point watcher (controlscripts/wifi-rescue, WIFI_RESCUE=1) is running
+_ng_rescue_on() { _ng_first "${NG_WR_PID:-/var/run/wifi-rescue.pid}"; [ -n "$_f1" ] && kill -0 "$_f1" 2>/dev/null; }
 
 _ng_count() { _ng_first "$PERSIST"; _c=$_f1; case "$_c" in ''|*[!0-9]*) _c=0 ;; esac; echo "$_c"; }
 
@@ -96,6 +99,14 @@ _ng_limit()
     # Doubling stops at 2 h (or at the base itself when it is set above 2 h).
     _cap=7200; [ "$_b" -gt "$_cap" ] && _cap=$_b
     [ "$_l" -gt "$_cap" ] && _l=$_cap
+    # Rescue first (owner, 2026-11-03): while the rescue access point watcher runs, its cycle (station tries for
+    # WIFI_RESCUE_AFTER_MIN, then the access point for WIFI_RESCUE_MANUAL_MIN) goes round twice before a reboot.
+    if _ng_rescue_on; then
+        _ng_kv WIFI_RESCUE_AFTER_MIN; _ra=$_kv; case "$_ra" in ''|*[!0-9]*|0) _ra=10 ;; esac
+        _ng_kv WIFI_RESCUE_MANUAL_MIN; _rm=$_kv; case "$_rm" in ''|*[!0-9]*|0) _rm=15 ;; esac
+        _rl=$(( 2 * (_ra + _rm) * 60 ))
+        [ "$_l" -lt "$_rl" ] && _l=$_rl
+    fi
     echo "$_l"
 }
 

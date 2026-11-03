@@ -216,17 +216,23 @@ if [ "$METHOD" = "POST" ]; then
     case "$_profile" in
         frigate_ha)
             set_conf "$BOOT_CONF" INTEGRATION_PROFILE frigate_ha
-            set_conf "$BOOT_CONF" MQTT_ENABLE 1
+            # (MQTT_ENABLE: mqtt.conf, its one place, set with the broker below)
             # Frigate detects and stamps the picture itself: motion detection and the clock overlay start off.
             # Done once, here (the boot script used to force it at every start, over later Settings changes).
             if [ -x /mnt/bin/rwconf ] && [ -f "$CONFIG/rtspserver.conf" ]; then
                 LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf "$CONFIG/rtspserver.conf" w " " mdenabled 0 >/dev/null 2>&1
                 LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf "$CONFIG/rtspserver.conf" w " " osdenabled 0 >/dev/null 2>&1
             fi
+            # The services Frigate and Home Assistant make useless start off, once (owner, 2026-11-03: afterwards the
+            # switch in the web pages decides, the boot no longer keeps them off)
+            [ -f "$CONFIG/telegram.conf" ] && set_conf "$CONFIG/telegram.conf" TELEGRAM_ENABLE 0
+            [ -f "$BOOT_CONF" ] && set_conf "$BOOT_CONF" SYSLOG_ENABLE 0
+            [ -f "$CONFIG/sound_detection.conf" ] && set_conf "$CONFIG/sound_detection.conf" ENABLE 0
+            rm -f "$CONFIG/autostart/ftp-server" "$CONFIG/autostart/telnet-server"
             ;;
         *)
             set_conf "$BOOT_CONF" INTEGRATION_PROFILE default
-            set_conf "$BOOT_CONF" MQTT_ENABLE 0
+            [ -f "$MQTT_CONF" ] && set_conf "$MQTT_CONF" MQTT_ENABLE 0
             ;;
     esac
 

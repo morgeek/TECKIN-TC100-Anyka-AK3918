@@ -236,11 +236,8 @@
           /mnt/controlscripts/onvif stop >/dev/null 2>&1 || true
         fi
 
-        if [ "$ha_enable_mqtt_autostart" = "1" ]; then
-          ensure_autostart_script mqtt-bridge >/dev/null 2>&1 || true
-        else
-          rm -f /mnt/config/autostart/mqtt-bridge >/dev/null 2>&1 || true
-        fi
+        # (the bridge always starts at boot and follows MQTT_ENABLE of mqtt.conf, its one switch: no autostart file)
+        rm -f /mnt/config/autostart/mqtt-bridge >/dev/null 2>&1 || true
         if [ -x /mnt/controlscripts/mqtt-bridge ]; then
           /mnt/controlscripts/mqtt-bridge stop >/dev/null 2>&1 || true
           /mnt/controlscripts/mqtt-bridge start >/dev/null 2>&1 || true

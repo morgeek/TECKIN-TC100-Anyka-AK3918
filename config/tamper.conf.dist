@@ -1,6 +1,7 @@
-# Camera tampering / occlusion detection
-# Detects lens covering, spraying or occlusion.
-# ENABLE: 0 = disabled, 1 = enabled
+# Camera tampering / occlusion detection (scripts/tamper-detect.sh): a drop of the JPEG size together with a jump
+# of the exposure (the auto-exposure brings a covered lens back to mid luma). Suppressed 30 s after a day/night switch.
+# The only place of these settings (boot.conf TAMPER_* of earlier versions are moved here once).
+# ENABLE: 0 = disabled (default), 1 = enabled
 ENABLE=0
 
 # Consecutive detections required to confirm tampering (in seconds, default 6)
@@ -8,3 +9,6 @@ TAMPER_HOLD_SEC=6
 
 # Baseline JPEG size drop ratio (percentage, default 50 = drop below 50% of baseline)
 TAMPER_JPEG_DROP_PCT=50
+
+# Picture this dark (luma 0-255) counts as covered at night (default 15)
+TAMPER_LUMA_MIN=15

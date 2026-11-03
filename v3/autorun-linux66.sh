@@ -79,6 +79,10 @@ fi
 if grep -q '^MQTT_ENABLE=' /mnt/config/boot.conf 2>/dev/null; then
   sed -i '/^MQTT_ENABLE=/d' /mnt/config/boot.conf 2>/dev/null
 fi
+# One switch per service (scripts/service-switch.sh: the key of a settings file, not config/autostart): once per camera,
+# the older double switches become that key, set to what the camera did at its last start
+sh /mnt/scripts/migrate-switches.sh </dev/null >/dev/null 2>&1
+. /mnt/scripts/service-switch.sh
 # first start of 3.0 (even with settings brought over from 2.x): the web pages open the setup wizard
 [ -f /mnt/config/.wizard3_done ] || : > /tmp/.first_boot
 
@@ -257,7 +261,7 @@ if [ -r /mnt/config/rtspserver.conf ]; then
 fi
 if [ "$SAFE" = 1 ]; then
   :	# safe mode: no video, nothing to switch
-elif [ -f $CS/auto-night-detection ] && [ -f /mnt/config/autostart/auto-night-detection ] && [ "$DN" != 3 ]; then
+elif [ -f $CS/auto-night-detection ] && [ "$DN" != 3 ]; then	# daynight=3 (manual) is the only off switch
   sh $CS/auto-night-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Auto Day/Night detection active" > /dev/console
 elif [ "$DN" = 3 ]; then
@@ -276,9 +280,9 @@ if [ "$SAFE" = 0 ] && [ -f $CS/mqtt-bridge ]; then
   echo "[tc100-v3] MQTT bridge service launched" > /dev/console
 fi
 
-# 11. Motion detection (in tc100_rtsp): only when the web UI left it on (rtspserver.conf mdenabled=1, or the Services
-#     page's start-at-boot toggle config/autostart/motion-detection); otherwise it stays off, as on 2.x.
-if [ "$SAFE" = 0 ] && [ -f $CS/motion-detection ] && { grep -q '^mdenabled=1' /mnt/config/rtspserver.conf 2>/dev/null || [ -e /mnt/config/autostart/motion-detection ]; }; then
+# 11. Motion detection (in tc100_rtsp): only when the web UI left it on (rtspserver.conf mdenabled=1, its one switch);
+#     otherwise it stays off, as on 2.x.
+if [ "$SAFE" = 0 ] && [ -f $CS/motion-detection ] && svc_on motion-detection; then
   sh $CS/motion-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Motion detection service active" > /dev/console
 else
@@ -286,11 +290,8 @@ else
 fi
 
 # 12. Recording: the recorder is inside tc100_rtsp and follows REC_LOCAL of boot.conf by itself (it waits for a card).
-#     The Services page's start-at-boot toggle (config/autostart/recording) turns REC_LOCAL on, as 2.x started it.
-if [ "$SAFE" = 0 ] && [ -f $CS/recording ] && [ -e /mnt/config/autostart/recording ]; then
-  sh $CS/recording start </dev/null >/dev/null 2>&1
-  echo "[tc100-v3] Recording on" > /dev/console
-fi
+#     REC_LOCAL is its one switch (Settings -> Recording, and the Services page "Boot" toggle write it): nothing to
+#     start here.
 
 # 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be
 #      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
@@ -320,21 +321,30 @@ sh -c '. /mnt/scripts/common_functions.sh
   case "$1" in 1|true|yes|on) front_led on ;; *) front_led off ;; esac
   case "$2" in 1|true|yes|on) red_led on ;; *) red_led off ;; esac' _ "$BC_FRONT_LED" "$BC_RED_LED" </dev/null >/dev/null 2>&1
 
-# 12b. Services switched on in the web UI (Services page, "Boot" toggle = file in config/autostart): button-actions,
-#      wifi-rescue, memory-guard, health-snapshot, telegram-bot, ftp/telnet... Started detached, one after the other.
-#      Left out: the ones started above, the numbered system entries of 2.x (their work is done by httpfront and
-#      step 12c here) and web-server (httpfront, step 6).
-for f in /mnt/config/autostart/*; do
-  n=${f##*/}
-  case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording) continue ;; esac
-  # safe mode: only what keeps the camera reachable
-  [ "$SAFE" = 1 ] && case "$n" in ssh-server|telnet-server|wifi-rescue|button-actions) ;; *) continue ;; esac
-  # as on 2.x: the lightweight mode and the Frigate + Home Assistant profile keep some services off at boot
-  on "$LIGHT" && case "$n" in front-led) continue ;; esac
-  [ "$PROFILE" = frigate_ha ] && case "$n" in telegram-bot|syslog-forward|sound-detection|ftp-server|telnet-server) continue ;; esac
+# 12b. Services switched on in the web UI, one switch each, what the page shows is what starts:
+#      - the services with a settings key (scripts/service-switch.sh: sound detection ENABLE, SYSLOG_ENABLE,
+#        MEM_GUARD_ENABLE, WIFI_RESCUE, TELEGRAM_ENABLE), whatever config/autostart holds for them;
+#      - the others from the Services page "Boot" toggle (a file in config/autostart): button-actions, health-snapshot,
+#        ftp/telnet, mdns... Started detached, one after the other.
+#      Left out: the ones started above (MQTT, motion, recording, day/night, ONVIF), the LEDs (FRONT_LED / RED_LED,
+#      just applied), the numbered system entries of 2.x and web-server (httpfront, step 6). The Frigate + Home
+#      Assistant profile switches some of them off once, when it is chosen (wizard.cgi), not at every start.
+for n in sound-detection syslog-forward memory-guard wifi-rescue telegram-bot; do
+  svc_on $n || continue
+  [ "$SAFE" = 1 ] && [ "$n" != wifi-rescue ] && continue
   [ -f $CS/$n ] || continue
   sh $CS/$n start </dev/null >/dev/null 2>&1 &
   sleep 1   # spaces the starts: each one is a shell plus its own checks, and the encoder is still starting up
+done
+for f in /mnt/config/autostart/*; do
+  n=${f##*/}
+  case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording|front-led|red-led) continue ;; esac
+  svc_switch $n && continue	# its settings key decides (loop above)
+  # safe mode: only what keeps the camera reachable
+  [ "$SAFE" = 1 ] && case "$n" in ssh-server|telnet-server|button-actions) ;; *) continue ;; esac
+  [ -f $CS/$n ] || continue
+  sh $CS/$n start </dev/null >/dev/null 2>&1 &
+  sleep 1
 done
 
 # 12b2. Logs kept across reboots: the RAM logs (dmesg, syslog, tc100_rtsp and the other services) are copied to the card
@@ -359,8 +369,8 @@ if [ -f /mnt/scripts/wifi-quality.sh ] && on "$BC_WIFI_QUALITY"; then
     ( exec sh /mnt/scripts/wifi-quality.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
-# 12b4. Tamper / occlusion detection (boot.conf TAMPER_DETECT=1, off by default):
-if [ "$SAFE" = 0 ] && [ -f /mnt/scripts/tamper-detect.sh ] && on "$BC_TAMPER_DETECT"; then
+# 12b4. Tamper / occlusion detection (config/tamper.conf ENABLE=1, its one switch, off by default):
+if [ "$SAFE" = 0 ] && [ -f /mnt/scripts/tamper-detect.sh ] && on "$(svc_kv /mnt/config/tamper.conf ENABLE 0)"; then
   sh /mnt/scripts/housekeeper.sh job add tamper-detect bg 2 5 /var/run/tamper-detect.pid \
     sh /mnt/scripts/tamper-detect.sh hk </dev/null >/dev/null 2>&1 ||
     ( exec sh /mnt/scripts/tamper-detect.sh run ) </dev/null >/dev/null 2>&1 &
