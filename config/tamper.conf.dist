@@ -1,0 +1,10 @@
+# Camera tampering / occlusion detection
+# Detects lens covering, spraying or occlusion.
+# ENABLE: 0 = disabled, 1 = enabled
+ENABLE=0
+
+# Consecutive detections required to confirm tampering (in seconds, default 6)
+TAMPER_HOLD_SEC=6
+
+# Baseline JPEG size drop ratio (percentage, default 50 = drop below 50% of baseline)
+TAMPER_JPEG_DROP_PCT=50
