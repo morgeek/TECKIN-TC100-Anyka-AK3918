@@ -14,18 +14,12 @@ SUM=${WQ_SUM:-/tmp/wifi-quality}
 STATE=${WQ_STATE:-/tmp/.wifi-quality.prev}
 IFACE=wlan0
 MAXLINES=1440
+. "${0%/*}/wifi-signal.sh"
 
 wq_rssi() {
-  _r=null
-  while read -r _i _s _q _l _rest; do
-    [ "${_i%:}" = "$IFACE" ] || continue
-    _l=${_l%.}
-    case "$_l" in -[0-9]*) _r=$_l ;; [0-9]*) [ "$_l" -gt 0 ] && [ "$_l" -le 256 ] && _r=$((_l - 256)) ;; esac
-    # the RTL8188FU driver sometimes reports -256 (no reading): keep only -110..-1 dBm
-    case "$_r" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110) ;; *) _r=null ;; esac
-    break
-  done < "${WQ_WIRELESS:-/proc/net/wireless}" 2>/dev/null
-  echo "$_r"
+  WIFI_PROC_FILE="${WQ_WIRELESS:-}"
+  wifi_signal_read
+  echo "${WIFI_DBM:-null}"
 }
 
 # totals of "tx retries" and "tx failed" over the stations (the access point)

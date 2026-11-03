@@ -8,6 +8,9 @@ if ! command -v tr >/dev/null 2>&1; then
     tr() { busybox tr "$@"; }
 fi
 
+# Wi-Fi signal: scripts/wifi-signal.sh is the one reader (wifi_signal_read), shared with metrics, MQTT, wifi-quality.
+[ -r /mnt/scripts/wifi-signal.sh ] && . /mnt/scripts/wifi-signal.sh
+
 # conf_get VAR FILE KEY DEFAULT: read one key of a key=value file into a variable, without a subshell.
 conf_get() {
   _cg_val="$4"
@@ -364,36 +367,19 @@ get_perf_profile() {
   echo "$profile"
 }
 
-# get_wifi_quality — Wi-Fi link quality (0-100) for the dashboard gauge, read
-# from /proc/net/wireless with the shell only (this runs on every statusline
-# poll). The RTL8188FU reports "link" and "level" on a 0-100 scale, e.g.
-#   wlan0: 0000   86.   78.    0. ...   (iwconfig: Link Quality=86/100)
-# wlan1 is the idle AP interface (all zeros). Prefers wlan0, otherwise the
-# first interface with a non-zero link. Sets wifi_qual_json ("null" when no
-# wireless link) and wifi_iface_json.
+# get_wifi_quality - Wi-Fi link quality (0-100) for the dashboard gauge. The reading itself is
+# scripts/wifi-signal.sh (the one reader of /proc/net/wireless, shared with metrics, MQTT and wifi-quality). The
+# RTL8188FU reports the link quality on a 0-100 scale; wlan0 is preferred, otherwise the first interface with a
+# non-zero link (wlan1 is the idle AP interface). Sets wifi_qual_json ("null" when no wireless link) and
+# wifi_iface_json.
 get_wifi_quality() {
   wifi_qual_json="null"
   wifi_iface_json=""
-  _gwq_src="${WIFI_PROC_FILE:-/proc/net/wireless}"
-  [ -r "$_gwq_src" ] || return 0
-  _gwq_best=""
-  _gwq_iface=""
-  while read -r _gwq_if _gwq_status _gwq_link _gwq_rest; do
-    case "$_gwq_if" in *:) ;; *) continue ;; esac
-    _gwq_if="${_gwq_if%:}"
-    _gwq_link="${_gwq_link%%.*}"
-    case "$_gwq_link" in ''|*[!0-9]*) continue ;; esac
-    [ "$_gwq_link" -gt 0 ] || continue
-    if [ "$_gwq_if" = "wlan0" ] || [ -z "$_gwq_best" ]; then
-      _gwq_best="$_gwq_link"
-      _gwq_iface="$_gwq_if"
-      [ "$_gwq_if" = "wlan0" ] && break
-    fi
-  done < "$_gwq_src"
-  [ -n "$_gwq_best" ] || return 0
-  [ "$_gwq_best" -gt 100 ] && _gwq_best=100
-  wifi_qual_json="$_gwq_best"
-  wifi_iface_json="$_gwq_iface"
+  command -v wifi_signal_read >/dev/null 2>&1 && wifi_signal_read any || return 0
+  case "$WIFI_QUAL" in ''|*[!0-9]*|0) return 0 ;; esac
+  [ "$WIFI_QUAL" -gt 100 ] && WIFI_QUAL=100
+  wifi_qual_json="$WIFI_QUAL"
+  wifi_iface_json="$WIFI_IF"
 }
 
 get_sd_usage() {

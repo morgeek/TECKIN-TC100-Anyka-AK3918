@@ -11,16 +11,16 @@
 #   rec-storage.sh mount    mount the card (flash mode) without touching the recorder
 #   rec-storage.sh status   the recorder's status lines
 #
-# SD mode: the card is /mnt itself, recordings go to /mnt/records.
+# SD mode: the card is /mnt itself, recordings go to /mnt/DCIM.
 # Flash mode: the card (first FAT32/exFAT partition, or the whole card) is mounted on
-# /mnt/sd, recordings go to /mnt/sd/records. The card must not carry the files
+# /mnt/sd, recordings go to /mnt/sd/DCIM. The card must not carry the files
 # that make the vendor boot use it (wifitest/, or uImage / root.sqsh4 /
 # usr.sqsh4 / usr.jffs2 at its root): those are refused, not mounted.
 
 STORAGE_FILE="${TC100_STORAGE_FILE:-/tmp/tc100-storage}"
 MNT_SD="${REC_SD_MOUNT:-/mnt/sd}"
 STATUS="${TC100FIX_REC_STATUS:-/var/run/tc100rec}"
-SD_DIR="${REC_SD_DIR:-/mnt/records}"
+SD_DIR="${REC_SD_DIR:-/mnt/DCIM}"
 DEVS="${REC_SD_DEVS:-/dev/mmcblk0p1 /dev/mmcblk0}"
 PROC_MOUNTS="${REC_PROC_MOUNTS:-/proc/mounts}"
 
@@ -66,7 +66,7 @@ rs_dir()
 {
     if _flash; then
         _mount_card || return 1
-        _dir="$MNT_SD/records"
+        _dir="$MNT_SD/DCIM"
     else
         _dir="$SD_DIR"
     fi

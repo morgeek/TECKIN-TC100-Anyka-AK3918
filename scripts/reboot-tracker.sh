@@ -93,7 +93,7 @@ rt_heartbeat()
 {
   _hb_up=""; read -r _hb_up _hb_rest < /proc/uptime 2>/dev/null
   _hb_load=""; read -r _hb_load _hb_rest < /proc/loadavg 2>/dev/null
-  _hb_free="$(sed -n 's/^MemFree: *\([0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null)"
+  _hb_free="$(sed -n 's/^MemAvailable: *\([0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null)"
   # SD card state (v3/linux66-sd/sdinfo-sd.sh): a failing card blocks the kernel in
   # its driver until the hardware watchdog resets the camera, so the boot line
   # can then name the likely cause (seen on a test camera, 2026-10-16).
@@ -162,7 +162,7 @@ rt_boot()
     _bt_rest="${_bt_rest#*|}"
     _bt_line="$_bt_line, load ${_bt_rest%%|*}"
     _bt_rest="${_bt_rest#*|}"
-    _bt_line="$_bt_line, MemFree ${_bt_rest%%|*} kB"
+    _bt_line="$_bt_line, MemAvailable ${_bt_rest%%|*} kB"
     case "$_bt_rest" in
       *'|'*) _bt_sd="${_bt_rest#*|}"; _bt_n="${_bt_sd#*:}"
              case "${_bt_sd%%:*}" in

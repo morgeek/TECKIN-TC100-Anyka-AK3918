@@ -41,12 +41,14 @@ EOF_DF
 fi
 printf 'present=1\nid=%s\nsize_mb=%s\nfs=%s\nkind=%s\nmounted=%s\nfree_mb=%s\nprompt=0\n' "$id" "$size" "$fs" "$kind" "$m" "$free" > /tmp/sd-card.tmp &&
   mv -f /tmp/sd-card.tmp /tmp/sd-card
-# card errors the kernel logged since boot (FAT, I/O, card status): mqtt-bridge.sh (sd_errors) and the Disk page read
-# them from here; the state is unchanged (log-persist.sh and the status line keep testing "ok")
+# THE one scanner of the kernel log for card errors (FAT, I/O, card status) and the one writer of /tmp/sd-health:
+# state=ok | errors (the kernel logged card errors since boot) | readonly, errors=<count>, readonly=0|1.
+# Everybody else only reads it (status line, dashboard, Disk page, mqtt-bridge.sh, log-persist.sh, scripts/sd-diag.sh).
 errs=0
 if [ -n "$health" ]; then
   errs=$(dmesg 2>/dev/null | grep -c -E 'FAT-fs .*error|exFAT.*error|I/O error.*mmcblk|mmcblk0.*(timeout|error)|get_card_status wait too long')
   case "$errs" in ''|*[!0-9]*) errs=0 ;; esac
+  [ "$health" = ok ] && [ "$errs" -gt 0 ] && health=errors
   printf 'state=%s\nerrors=%s\nreadonly=%s\n' "$health" "$errs" "$([ "$health" = readonly ] && echo 1 || echo 0)" > /tmp/sd-health.tmp &&
     mv -f /tmp/sd-health.tmp /tmp/sd-health
 else

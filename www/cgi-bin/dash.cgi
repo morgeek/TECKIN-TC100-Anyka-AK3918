@@ -10,10 +10,11 @@ _d_cpu="0,0,0,0,0,0,0"
 while read -r _k _u _n _s _i _w _q _sq _rest; do
   [ "$_k" = cpu ] && { _d_cpu="$_u,$_n,$_s,$_i,${_w:-0},${_q:-0},${_sq:-0}"; break; }
 done < /proc/stat
-_d_mt=0; _d_mf=0; _d_mb=0; _d_mc=0
+# RAM: one definition everywhere, available = MemAvailable, used = MemTotal - MemAvailable
+_d_mt=0; _d_ma=0
 while read -r _k _v _rest; do
   case "$_k" in
-    MemTotal:) _d_mt=$_v ;; MemFree:) _d_mf=$_v ;; Buffers:) _d_mb=$_v ;; Cached:) _d_mc=$_v; break ;;
+    MemTotal:) _d_mt=$_v ;; MemAvailable:) _d_ma=$_v; break ;;
   esac
 done < /proc/meminfo
 _d_rx=0; _d_tx=0; _d_if=""
@@ -27,13 +28,10 @@ while IFS= read -r _l; do
   esac
 done < /proc/net/dev
 _d_wq=null; _d_wl=null
-while read -r _k _st _lk _lv _rest; do
-  [ "$_k" = "wlan0:" ] || continue
-  _lk="${_lk%%.*}"; _lv="${_lv%%.*}"
-  case "$_lk" in ''|*[!0-9]*) ;; *) _d_wq=$_lk ;; esac
-  # Realtek drivers give the level either in dBm (negative) or as 0-100.
-  case "$_lv" in -[0-9]*|[0-9]*) case "${_lv#-}" in *[!0-9]*) ;; *) _d_wl=$_lv ;; esac ;; esac
-done 2>/dev/null < /proc/net/wireless
+if [ -r /mnt/scripts/wifi-signal.sh ]; then
+  . /mnt/scripts/wifi-signal.sh
+  wifi_signal_read && { _d_wq="${WIFI_QUAL:-null}"; _d_wl="${WIFI_DBM:-null}"; }
+fi
 _d_up=0; read -r _d_up _rest < /proc/uptime; _d_up="${_d_up%%.*}"
 _d_l1=0; read -r _d_l1 _d_l5 _d_l15 _rest < /proc/loadavg
 # RTSP viewers: established TCP connections to the RTSP port (default 554).
@@ -52,5 +50,5 @@ if [ -r /tmp/sd-health ]; then
   while IFS='=' read -r _k _v; do [ "$_k" = state ] && _d_sd="$_v"; done < /tmp/sd-health
 fi
 case "$_d_sd" in *[!a-z]*) _d_sd="" ;; esac
-printf '{"up":%s,"load":"%s","cpu":[%s],"mem":[%s,%s,%s,%s],"iface":"%s","net":[%s,%s],"wifi":[%s,%s],"rtsp_clients":%s,"sd_health":"%s"}\n' \
-  "$_d_up" "$_d_l1" "$_d_cpu" "$_d_mt" "$_d_mf" "$_d_mb" "$_d_mc" "$_d_if" "$_d_rx" "$_d_tx" "$_d_wq" "$_d_wl" "$_d_cl" "$_d_sd"
+printf '{"up":%s,"load":"%s","cpu":[%s],"mem":[%s,%s],"iface":"%s","net":[%s,%s],"wifi":[%s,%s],"rtsp_clients":%s,"sd_health":"%s"}\n' \
+  "$_d_up" "$_d_l1" "$_d_cpu" "$_d_mt" "$_d_ma" "$_d_if" "$_d_rx" "$_d_tx" "$_d_wq" "$_d_wl" "$_d_cl" "$_d_sd"

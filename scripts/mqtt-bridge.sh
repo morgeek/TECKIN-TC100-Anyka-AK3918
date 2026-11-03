@@ -16,6 +16,7 @@ STREAM_FIFO="/tmp/mqtt-bridge-sub.fifo"
 stream_pid=""
 
 . /mnt/scripts/common_functions.sh
+. /mnt/scripts/wifi-signal.sh
 # Live image tuning helpers (isp_tune_* functions, ISP_TUNE_KEYS).
 [ -r /mnt/scripts/isp-tune.sh ] && . /mnt/scripts/isp-tune.sh
 
@@ -1395,33 +1396,8 @@ build_network_state_payload()
 # except one dmesg|grep for SD card errors. Sets diag_payload (JSON object).
 build_diag_payload()
 {
-  _dg_rssi=null; _dg_qual=null
-  for _dg_f in /proc/net/rtl*/wlan0/rx_signal; do
-    [ -r "$_dg_f" ] || continue
-    while IFS=: read -r _dg_k _dg_v; do
-      case "$_dg_k:$_dg_v" in
-        rssi:-[0-9]*|rssi:[0-9]*) _dg_rssi="$_dg_v" ;;
-        signal_qual:[0-9]*) _dg_qual="$_dg_v" ;;
-      esac
-    done < "$_dg_f"
-    break
-  done
-  if [ "$_dg_rssi" = null ] && [ -r /proc/net/wireless ]; then
-    while read -r _dg_wif _dg_wst _dg_wlnk _dg_wlvl _dg_wrest; do
-      case "$_dg_wif" in
-        wlan0:)
-          _dg_wlnk="${_dg_wlnk%.}"
-          _dg_wlvl="${_dg_wlvl%.}"
-          case "$_dg_wlnk" in [0-9]*) _dg_qual="$_dg_wlnk" ;; esac
-          case "$_dg_wlvl" in
-            -[0-9]*) _dg_rssi="$_dg_wlvl" ;;
-            [0-9]*) [ "$_dg_wlvl" -gt 0 ] && [ "$_dg_wlvl" -le 256 ] && _dg_rssi=$((_dg_wlvl - 256)) ;;
-          esac
-          break
-          ;;
-      esac
-    done < /proc/net/wireless
-  fi
+  wifi_signal_read   # scripts/wifi-signal.sh: the one reader of the signal
+  _dg_rssi="${WIFI_DBM:-null}"; _dg_qual="${WIFI_QUAL:-null}"
   _dg_rxdrop=null
   while read -r _dg_if _dg_rest; do
     case "$_dg_if" in
@@ -1452,14 +1428,10 @@ build_diag_payload()
           _dg_h=""; fi ;;
     esac
   done < /proc/net/snmp
-  _dg_avail=null; _dg_free=0; _dg_buf=0; _dg_cache=0
+  _dg_avail=null
   while read -r _dg_k _dg_v _dg_u; do
-    case "$_dg_k" in
-      MemAvailable:) _dg_avail="$_dg_v" ;;
-      MemFree:) _dg_free="$_dg_v" ;; Buffers:) _dg_buf="$_dg_v" ;; Cached:) _dg_cache="$_dg_v" ;;
-    esac
+    case "$_dg_k" in MemAvailable:) _dg_avail="$_dg_v"; break ;; esac
   done < /proc/meminfo
-  [ "$_dg_avail" = null ] && _dg_avail=$((_dg_free + _dg_buf + _dg_cache))
   _dg_sound=null
   if [ -r /var/run/sound_level ]; then
     read -r _dg_sts _dg_rms _dg_rest < /var/run/sound_level

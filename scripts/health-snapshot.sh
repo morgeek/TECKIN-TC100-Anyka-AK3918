@@ -11,7 +11,9 @@ CACHE_FILE="${HEALTH_SNAPSHOT_CACHE:-/tmp/health_snapshot.cache}"
 HEALTH_CGI="/mnt/www/cgi-bin/health.cgi"
 INTERVAL="${HEALTH_SNAPSHOT_INTERVAL_SECONDS:-300}"
 PIDFILE="${HEALTH_SNAPSHOT_PIDFILE:-/var/run/health-snapshot.pid}"
-STABILITY_FILE="${STABILITY_FILE:-/mnt/log/stability.csv}"
+# stability.csv goes to the SD card (/mnt/sd/logs, like log-persist.sh) when one is mounted read-write, else to
+# /mnt/log (RAM in flash mode; never the flash). STABILITY_FILE forces a path (tests).
+STABILITY_FILE="${STABILITY_FILE:-}"
 STABILITY_SAMPLE_SECONDS="${STABILITY_SAMPLE_SECONDS:-300}"
 STABILITY_MAX_SAMPLES="${STABILITY_MAX_SAMPLES:-576}"
 # Samples are collected in RAM and appended to the SD card in batches (default
@@ -81,19 +83,31 @@ else
   probe_service_fast() { probe_service "$1"; }
 fi
 
-# Append the RAM samples to the SD file in one write, then trim it.
+# Where stability.csv goes now: the card when it is mounted read-write (the card may come and go), else RAM.
+stability_default_path() {
+  _sf=/mnt/log/stability.csv
+  while read -r _sd_dev _sd_mp _sd_fs _sd_opt _sd_rest; do
+    case "$_sd_mp $_sd_fs" in
+      "/mnt/sd vfat"|"/mnt/sd exfat") case ",$_sd_opt," in *,ro,*) ;; *) _sf=/mnt/sd/logs/stability.csv ;; esac ;;
+    esac
+  done < /proc/mounts
+}
+
+# Append the RAM samples to the file in one write, then trim it.
 stability_flush() {
   [ -s "$STABILITY_PENDING" ] || return 0
-  mkdir -p "${STABILITY_FILE%/*}" 2>/dev/null || true
-  [ -s "$STABILITY_FILE" ] || printf 'timestamp,uptime_s,load1,mem_available_kb,unhealthy_services\n' > "$STABILITY_FILE"
-  cat "$STABILITY_PENDING" >> "$STABILITY_FILE" 2>/dev/null || return 0
+  _sf="$STABILITY_FILE"
+  [ -n "$_sf" ] || stability_default_path
+  mkdir -p "${_sf%/*}" 2>/dev/null || true
+  [ -s "$_sf" ] || printf 'timestamp,uptime_s,load1,mem_available_kb,unhealthy_services\n' > "$_sf" 2>/dev/null || return 0
+  cat "$STABILITY_PENDING" >> "$_sf" 2>/dev/null || return 0
   : > "$STABILITY_PENDING"
-  _stability_lines="$(wc -l < "$STABILITY_FILE" 2>/dev/null)"
+  _stability_lines="$(wc -l < "$_sf" 2>/dev/null)"
   case "$_stability_lines" in ''|*[!0-9]*) _stability_lines=0 ;; esac
   if [ "$_stability_lines" -gt $((STABILITY_MAX_SAMPLES + 25)) ]; then
-    _stmp="${STABILITY_FILE}.$$"
-    { printf 'timestamp,uptime_s,load1,mem_available_kb,unhealthy_services\n'; tail -n "$STABILITY_MAX_SAMPLES" "$STABILITY_FILE"; } > "$_stmp" \
-      && mv "$_stmp" "$STABILITY_FILE" || rm -f "$_stmp"
+    _stmp="${_sf}.$$"
+    { printf 'timestamp,uptime_s,load1,mem_available_kb,unhealthy_services\n'; tail -n "$STABILITY_MAX_SAMPLES" "$_sf"; } > "$_stmp" \
+      && mv "$_stmp" "$_sf" || rm -f "$_stmp"
   fi
 }
 

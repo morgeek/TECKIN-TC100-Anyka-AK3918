@@ -26,7 +26,6 @@ if [ -r /proc/meminfo ]; then
   done < /proc/meminfo 2>/dev/null
 fi
 
-[ "$_ma" -gt 0 ] 2>/dev/null || _ma=$(( _mf + _mb + _mc ))
 printf '# HELP tc100_memory_total_bytes Total system memory\n# TYPE tc100_memory_total_bytes gauge\ntc100_memory_total_bytes %s\n' "$((_mt * 1024))"
 printf '# HELP tc100_memory_free_bytes Free system memory\n# TYPE tc100_memory_free_bytes gauge\ntc100_memory_free_bytes %s\n' "$((_mf * 1024))"
 printf '# HELP tc100_memory_available_bytes Estimated memory available for starting new applications\n# TYPE tc100_memory_available_bytes gauge\ntc100_memory_available_bytes %s\n' "$((_ma * 1024))"
@@ -59,20 +58,17 @@ printf '# HELP tc100_network_receive_drops_total Total received packets dropped\
 printf '# HELP tc100_network_transmit_drops_total Total transmitted packets dropped\n# TYPE tc100_network_transmit_drops_total counter\ntc100_network_transmit_drops_total %s\n' "$_tx_drop"
 
 # 5. Wi-Fi Link Quality & Signal
-_wq=0; _wl=0
-if [ -r /proc/net/wireless ]; then
-  while read -r _k _st _lk _lv _rest; do
-    [ "$_k" = "wlan0:" ] || continue
-    _lk="${_lk%%.*}"; _lv="${_lv%%.*}"
-    case "$_lk" in ''|*[!0-9]*) ;; *) _wq=$_lk ;; esac
-    # same filter as wifi-quality.sh: -256 (no reading from the driver) is not a signal level
-    case "$_lv" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110) _wl=$_lv ;; esac
-    break
-  done < /proc/net/wireless 2>/dev/null
+# scripts/wifi-signal.sh is the one reader; an unknown value has no sample (no fake 0)
+_wq=""; _wl=""
+if [ -r /mnt/scripts/wifi-signal.sh ]; then
+  . /mnt/scripts/wifi-signal.sh
+  wifi_signal_read && { _wq="$WIFI_QUAL"; _wl="$WIFI_DBM"; }
 fi
 
-printf '# HELP tc100_wifi_link_quality Wi-Fi link quality score (0-100)\n# TYPE tc100_wifi_link_quality gauge\ntc100_wifi_link_quality %s\n' "$_wq"
-printf '# HELP tc100_wifi_signal_dbm Wi-Fi signal level in dBm\n# TYPE tc100_wifi_signal_dbm gauge\ntc100_wifi_signal_dbm %s\n' "$_wl"
+printf '# HELP tc100_wifi_link_quality Wi-Fi link quality score (0-100), no sample when unknown\n# TYPE tc100_wifi_link_quality gauge\n'
+[ -n "$_wq" ] && printf 'tc100_wifi_link_quality %s\n' "$_wq"
+printf '# HELP tc100_wifi_signal_dbm Wi-Fi signal level in dBm, no sample when unknown\n# TYPE tc100_wifi_signal_dbm gauge\n'
+[ -n "$_wl" ] && printf 'tc100_wifi_signal_dbm %s\n' "$_wl"
 
 # 6. RTSP Viewers (active TCP connections on port 554)
 _rtsp_clients=0
