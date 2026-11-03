@@ -1,28 +1,21 @@
 # TECKIN TC100 — alternative firmware
 
-Local-only firmware for the **TECKIN TC100 / TECKIN Click** indoor camera
-(Anyka AK3918EV300). It replaces the cloud application with RTSP streams for
-Frigate or any NVR, MQTT and Home Assistant discovery, a French / English web
-interface and recording on the SD card when the network fails. Nothing needs
-the internet, and no vendor file is published.
+Free, local-only firmware distribution (Linux 6.6 LTS) for the **TECKIN TC100 / TECKIN Click** indoor camera
+(Anyka AK3918EV300, JX-F23 sensor, RTL8188FU Wi-Fi).
 
-**3.0** runs a free, recent kernel (Linux 6.6) instead of the vendor's 3.4, with
-free drivers for the hardware video encoder (H.264, H.265, JPEG) and a free RTSP
-server: no vendor daemon, no cloud. It runs from an SD card (trial) or
-**entirely from the camera's SPI flash**, installed from the card without a
-serial console: [copy the files to an SD card and restart the camera](#try-it-copy-to-an-sd-card-restart-the-camera). **3.0.1** was
-tested on two TC100 cameras (installed from the card, then updated from the web page, running from the flash with
-and without a card); read [Is it safe?](#is-it-safe) first.
+**100% open-source repository:** no proprietary vendor file, daemon, or cloud dependency is published or redistributed.
+It provides high-performance RTSP streams for Frigate / NVRs, smooth in-browser HTML5 live video (fMP4 / MediaSource),
+MQTT telemetry with Home Assistant discovery, mDNS, and local SD card recording.
 
-Features introduced in recent 3.0.1 releases include smooth HTML5 live video streaming
-(fMP4 / MediaSource) across the dashboard, multiview and settings preview, zero-configuration
-mDNS (`<hostname>.local`), fine-tuned auto white balance (AWB), network traffic shaping / pacing,
-and proactive Wi-Fi / bridge health diagnostics.
+Runs from a microSD card (trial mode) or **installed entirely into the camera's internal SPI flash memory** without opening
+the camera or soldering a serial console: [copy the files to an SD card and restart the camera](#try-it-copy-to-an-sd-card-restart-the-camera).
 
-> **The 2.x firmware** (vendor kernel 3.4, lighttpd with HTTPS, the vendor RTSP
-> server with `libtc100fix`, install to `/usr`) is on the branch
-> [`2.x`](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/tree/2.x). `main`
-> only holds 3.0. A camera running 2.x can move to 3.0 with the SD card below.
+Features in the latest release include:
+- Native HTML5 smooth live video streaming across the dashboard, multiview grid, and settings preview.
+- Zero-configuration mDNS local discovery (`<hostname>.local`).
+- Tuned auto white balance (AWB) eliminating indoor yellow cast.
+- RTP packet pacing and send buffer shaping for rock-solid Wi-Fi streaming.
+- Real-time MQTT connection status and CONNACK diagnosis.
 
 It started from [the original TC100 SD-card hack](#where-it-comes-from) and
 grew from there.
@@ -129,7 +122,7 @@ not to be perfect yet: [known issues](docs/known-issues.md).
 Nothing to install on your computer, no cable, no need to open the camera. The same steps in French are in
 `00-LISEZ-MOI-READ-ME.txt`, the first file of the zip.
 
-**You need** a TECKIN TC100 (vendor firmware, or the 2.x firmware of this project), a **microSD card of 32 GB or
+**You need** a TECKIN TC100, a **microSD card of 32 GB or
 less**, and a computer to copy files to the card.
 
 **Is my camera supported?** Only one hardware variant is known so far (JX-F23 sensor, RTL8188FU Wi-Fi, 8 MiB
@@ -155,7 +148,7 @@ in a [Hardware inventory issue](https://github.com/morgeek/TECKIN-TC100-Anyka-AK
    - **red LED on**: it stopped, the reason is in `tc100-3/STATUS.txt` on the card. Before the copy is made, nothing
      is changed; after it, the camera runs the new firmware from the card and nothing is written to its flash.
 4. **Open http://tc100/** in a browser (or the camera address shown by your router, also written to
-   `tc100-3/ADRESSE.txt` on the card). User `root`, password `pass`, or the password of your 2.x camera.
+   `tc100-3/ADRESSE.txt` on the card). User `root`, password `pass`.
    The setup wizard asks for a new password.
 
 Keep the card, and never share `tc100-3/backup/flash-stock.bin` (the copy of your camera's memory, made before
@@ -282,7 +275,7 @@ Settings → **Recording**:
   After 10 minutes without Wi-Fi (or holding the reset button 3-7 s) the camera opens its
   own Wi-Fi network named `TC100-<MAC>` with the default fixed password **`tc100rescue`** (also configurable in
   Settings → Network or `boot.conf` `WIFI_RESCUE_PSK`). Join it and open http://10.42.0.1/ to set up your Wi-Fi.
-- **Password**: `root` / `pass` on a new installation (or the password of a 2.x camera). The wizard asks for a new
+- **Password**: `root` / `pass` on a new installation. The wizard asks for a new
   one; a banner says so until it is changed (Settings → System → Password).
 - **Plain HTTP**: the web interface has a login but no HTTPS on 3.0: the password crosses the network in clear at
   each login (as for RTSP and FTP), readable by anyone who can capture your Wi-Fi traffic. Use it on your own network
@@ -318,7 +311,7 @@ Settings → **Recording**:
 | ![Dark, French](docs/screenshots/settings-dark-fr.png) Settings in French | ![Phone](docs/screenshots/dashboard-mobile.png) On a phone |
 | ![Live, light](docs/screenshots/live-view.png) Live view, light theme | ![Phone settings](docs/screenshots/settings-mobile.png) Settings on a phone |
 
-<sub>Made before the 2.x / 3.0 split; a few pages differ on 3.0.</sub>
+<sub>Historical screenshots; live UI reflects recent continuous enhancements.</sub>
 Remake them with `python3 src/webui/screenshots/shots.py docs/screenshots` (Playwright, canned answers, no camera needed).
 
 ---
@@ -401,9 +394,9 @@ Full list of projects and licences: [CREDITS.md](CREDITS.md).
   Thanks to its author, and to the earlier Anyka camera hacks it built on.
 - **OpenIPC.** [OpenIPC](https://openipc.org) is the model for where this project went: the flash design and the
   layout of the web interface ([OpenIPC web interface](https://openipc.org/web-interface)).
-- **From there to here**: 1.x and 2.x on the vendor kernel (Home Assistant and Frigate, live image tuning,
-  push-to-talk, recording when Frigate is down, the install to flash, the new interface; branch `2.x`), then 3.0 on
-  Linux 6.6. The whole history is in [CHANGELOG.md](CHANGELOG.md).
+- **Evolution & milestones**: Early iterations (1.x / 2.x on vendor kernel 3.4) established initial Home Assistant /
+  Frigate integrations and web UI tooling before the complete transition to the modern, mainline Linux 6.6 LTS architecture
+  (3.x). Full development history is documented in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
