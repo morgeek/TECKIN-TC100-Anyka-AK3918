@@ -203,8 +203,9 @@ if [ "$METHOD" = "POST" ]; then
     # Decode and sanitize MQTT fields (awk, not tr -cd — see get_field above)
     _mqtt_host="$(urldecode "$_mqtt_host_raw" | awk '{ gsub(/[^a-zA-Z0-9.:_-]/, ""); print }')"
     _mqtt_port="$(urldecode "$_mqtt_port_raw" | awk '{ gsub(/[^0-9]/, ""); print }')"
-    _mqtt_user="$(urldecode "$_mqtt_user_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*()=+-]/, ""); print }')"
-    _mqtt_pass="$(urldecode "$_mqtt_pass_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*()=+-]/, ""); print }')"
+    # mqtt.conf is sourced by the bridge: no ( ) either (an unquoted "a(b" is a shell syntax error there)
+    _mqtt_user="$(urldecode "$_mqtt_user_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*=+-]/, ""); print }')"
+    _mqtt_pass="$(urldecode "$_mqtt_pass_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*=+-]/, ""); print }')"
 
     case "$_mqtt_port" in
         ''|*[!0-9]*) _mqtt_port=1883 ;;

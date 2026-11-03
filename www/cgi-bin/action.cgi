@@ -539,6 +539,24 @@ read_kv_or_default() {
   fi
 }
 
+# sourced_value_ok VALUE: 0 when VALUE can be written as KEY=VALUE (unquoted, the rewrite_config format) into a file
+# that a script later sources (mqtt.conf, telegram.conf). A space, a quote or $ ` \ ; & | < > ( ) would break the
+# file or run as a command when sourced, so those are refused rather than written.
+sourced_value_ok() {
+  case "$1" in
+    *[[:space:]]*|*\'*|*\"*|*\$*|*\`*|*\\*|*\;*|*\&*|*\|*|*\<*|*\>*|*\(*|*\)*) return 1 ;;
+  esac
+  return 0
+}
+
+# refuse_unsafe_value LABEL VALUE: answers an error and exits when VALUE fails sourced_value_ok
+refuse_unsafe_value() {
+  sourced_value_ok "$2" && return 0
+  _ruv_msg="$1: spaces, quotes and the characters \$ \` \\ ; & | < > ( ) are not allowed."
+  if wants_json_response; then json_body_err "INVALID_VALUE" "$_ruv_msg"; else echo "<p>Error: $_ruv_msg</p>"; fi
+  exit 0
+}
+
 apply_low_cpu_background_defaults() {
   install_config /mnt/config/mqtt.conf
 

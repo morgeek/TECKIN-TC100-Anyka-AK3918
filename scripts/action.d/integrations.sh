@@ -34,6 +34,9 @@
       mqtt_user=$(printf '%s' "${F_mqtt_user}")
       # The settings form only posts the fields it shows: a missing or empty password keeps the saved one
       mqtt_password="${F_mqtt_password:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_PASSWORD "")}"
+      # mqtt.conf is sourced by the bridge: only the values typed in the form are checked (a saved one is kept as it is)
+      refuse_unsafe_value "MQTT user" "$mqtt_user"
+      [ -n "${F_mqtt_password:-}" ] && refuse_unsafe_value "MQTT password" "$F_mqtt_password"
       mqtt_client_id="${F_mqtt_client_id:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)}"
       mqtt_topic_root=$(printf '%s' "${F_mqtt_topic_root}")
       mqtt_topic_command="${F_mqtt_topic_command:-}"
@@ -139,6 +142,8 @@
       ha_broker_port="$(sanitize_int_range "${F_ha_broker_port}" 1 65535 1883)"
       ha_user="$(printf '%s' "${F_ha_user}")"
       ha_password="$(printf '%s' "${F_ha_password}")"
+      refuse_unsafe_value "MQTT user" "$ha_user"
+      refuse_unsafe_value "MQTT password" "$ha_password"
       ha_client_id="$(printf '%s' "${F_ha_client_id}")"
       ha_topic_root="$(printf '%s' "${F_ha_topic_root}")"
       ha_discovery_prefix="$(printf '%s' "${F_ha_discovery_prefix}")"

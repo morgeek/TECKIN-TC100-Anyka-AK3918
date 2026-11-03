@@ -412,7 +412,10 @@
       telegram_enable=$(normalize_bool "${F_telegram_enable}")
       telegram_token=$(printf '%s' "${F_telegram_token}")
       telegram_chat_id=$(printf '%s' "${F_telegram_chat_id}")
-      
+      # telegram.conf is sourced by the bot
+      refuse_unsafe_value "Telegram token" "$telegram_token"
+      refuse_unsafe_value "Telegram chat id" "$telegram_chat_id"
+
       rewrite_config /mnt/config/telegram.conf TELEGRAM_ENABLE "$telegram_enable"
       rewrite_config /mnt/config/telegram.conf apiToken "$telegram_token"
       rewrite_config /mnt/config/telegram.conf userChatId "$telegram_chat_id"
