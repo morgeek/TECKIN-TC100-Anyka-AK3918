@@ -14,6 +14,11 @@ serial console: [copy the files to an SD card and restart the camera](#try-it-co
 tested on two TC100 cameras (installed from the card, then updated from the web page, running from the flash with
 and without a card); read [Is it safe?](#is-it-safe) first.
 
+Features introduced in recent 3.0.1 releases include smooth HTML5 live video streaming
+(fMP4 / MediaSource) across the dashboard, multiview and settings preview, zero-configuration
+mDNS (`<hostname>.local`), fine-tuned auto white balance (AWB), network traffic shaping / pacing,
+and proactive Wi-Fi / bridge health diagnostics.
+
 > **The 2.x firmware** (vendor kernel 3.4, lighttpd with HTTPS, the vendor RTSP
 > server with `libtc100fix`, install to `/usr`) is on the branch
 > [`2.x`](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/tree/2.x). `main`
@@ -51,18 +56,28 @@ grew from there.
 - Two RTSP streams: main 1080p H.265 or H.264 (10 to 25 fps, 15 by default; constant or variable bit rate), and a
   640x360 sub-stream for detection made by the image processor's own scaler (`rtsp://CAMERA-IP:554/video0_unicast` and
   `video1_unicast`), over TCP or UDP, with the microphone as a G.711 track. The sub-stream can be turned off when no
-  recorder uses it.
+  recorder uses it. Optional RTP packet pacing (`RTSP_PACING_US`) and socket send buffer shaping (`RTSP_SNDBUF`) prevent
+  burst packet congestion on Wi-Fi.
+- **Smooth HTML5 live video**: native ultra-low-latency H.264 fMP4 / MediaSource video streaming in the browser
+  (`/cgi-bin/live.cgi`) across the Dashboard, the Multi-View grid, and the Image settings preview.
+- **Multi-View 2×2 grid viewer**: monitor up to 4 cameras simultaneously in the browser (`multiview.html`) with smooth
+  video or snapshot modes, client-side configuration, and custom camera labels.
 - ONVIF (discovery and profiles, port 8081): off by default, Services → Services → onvif.
+- **Zero-configuration mDNS discovery**: camera broadcasts `<hostname>.local` on your local network out of the box.
 - **Privacy masks** and the on-screen clock drawn by the image processor, live image tuning (brightness, contrast,
-  saturation, hue, sharpness, exposure cap) with no stream restart, anti-flicker (50 / 60 Hz).
+  saturation, hue, sharpness, exposure cap) with no stream restart, tuned auto white balance (AWB) eliminating indoor yellow tint,
+  and anti-flicker (50 / 60 Hz).
 - **Day and night** with the IR LEDs and the IR filter: at night the sensor tuning's own night settings (longer
   exposure, night noise filter), by day 10 fps in low light for a brighter picture, IR LED protection after 14 hours.
 - Still JPEG at `cgi-bin/currentpic.cgi`, made by the hardware JPEG engine, so Home Assistant polling costs nothing.
 
 **Home Assistant, Frigate, NVRs**
 - MQTT with Home Assistant discovery: about 30 entities (Wi-Fi signal, memory, light level, sound level, night mode,
-  SD card, RTSP clients, LEDs, profile…), commands from Home Assistant, availability, and an *Unexpected Restart*
-  sensor after a restart nobody asked for.
+  SD card, RTSP clients, LEDs, profile…), commands from Home Assistant, availability, play chime / siren actions,
+  live broker connection diagnostics (CONNACK codes 4/5 surfaced in UI), and an *Unexpected Restart* sensor after a restart
+  nobody asked for.
+- Built-in sound library with doorbell chime and siren alarm audio clips (`chime.pcm`, `siren.pcm`) playable from Home Assistant
+  or the web interface.
 - A Frigate configuration ready to paste (Live view → More tools → Diagnostics, or `state.cgi?cmd=frigateyaml`).
 - Any RTSP NVR works: Blue Iris, Synology Surveillance Station, iSpy, go2rtc…
 
@@ -273,10 +288,10 @@ Settings → **Recording**:
   each login (as for RTSP and FTP), readable by anyone who can capture your Wi-Fi traffic. Use it on your own network
   only and never forward ports 80, 554, 22 or 21 from the internet (use a VPN to reach the camera from outside).
 - **Off by default**: every service that opens something to the network or sends data out is off on a new
-  installation (ONVIF, telnet, FTP, mDNS, MQTT, Ntfy/webhook/Telegram notifications, the
-  update check). An updated camera keeps what was switched on before. Exception: the rescue access point is on,
-  because a camera that lost its Wi-Fi has no other way back; it only opens while the Wi-Fi does not work, and its
-  default password `tc100rescue` is public: change it in Settings → Network.
+  installation (ONVIF, telnet, FTP, MQTT, Ntfy/webhook/Telegram notifications, the
+  update check). An updated camera keeps what was switched on before. Exception: the rescue access point and mDNS
+  (`<hostname>.local`) are on by default, ensuring the camera remains discoverable and accessible even without prior static IP knowledge.
+  The rescue access point only opens while the Wi-Fi does not work, and its default password `tc100rescue` is public: change it in Settings → Network.
 - **Remote shell**: SSH (dropbear, same `root` password) is on by default; switch it in Services (`ssh-server`).
   Telnet sends the password in clear: it is **off** by default (Services, `telnet-server`; the "Boot" toggle starts it
   at boot, LAN only, it stops by itself after `REMOTE_SHELL_TIMEOUT_MIN`). An upgraded camera keeps SSH on.
