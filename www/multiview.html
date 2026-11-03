@@ -237,11 +237,13 @@
       if (titleEl) titleEl.textContent = cam.name || ("Caméra " + i);
       if (cam.url) {
         var base = cam.url.replace(/\/+$/, "");
-        var picUrl = base === "" ? "/cgi-bin/currentpic.cgi" : base + "/cgi-bin/currentpic.cgi";
-        picUrl += (picUrl.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now();
-        if (imgEl) {
-          imgEl.src = picUrl;
-          imgEl.style.display = "block";
+        if (!activeStreams[i]) {
+          var picUrl = base === "" ? "/cgi-bin/currentpic.cgi" : base + "/cgi-bin/currentpic.cgi";
+          picUrl += (picUrl.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now();
+          if (imgEl) {
+            imgEl.src = picUrl;
+            imgEl.style.display = "block";
+          }
         }
         if (tagEl) {
           tagEl.className = "tag is-small is-success";
@@ -269,7 +271,7 @@
   // --- HTML5 Live Video stream player for cameras supporting /cgi-bin/live.cgi ---
   var activeStreams = {};
 
-  window.toggleCamVideo = function(idx) {
+  window.toggleCamVideo = function(idx, autoStart) {
     var cams = loadCams();
     var cam = cams[idx - 1];
     if (!cam || !cam.url) return;
@@ -298,7 +300,7 @@
     }
 
     if (!window.MediaSource || !window.fetch) {
-      alert("Votre navigateur ne supporte pas MediaSource pour la vidéo directe.");
+      if (!autoStart) alert("Votre navigateur ne supporte pas MediaSource pour la vidéo directe.");
       return;
     }
 
@@ -308,7 +310,7 @@
     activeStreams[idx] = { ctl: ctl, ms: ms, reader: null };
 
     if (btn) {
-      btn.textContent = "Connexion...";
+      btn.textContent = (window.t ? window.t("Connecting...") : "Connecting...");
       btn.className = "button is-small is-warning";
     }
 
@@ -365,12 +367,12 @@
           videoEl.play().catch(function() {});
         }
         if (btn) {
-          btn.textContent = "Arrêter vidéo";
+          btn.textContent = (window.t ? window.t("Stop video") : "Stop video");
           btn.className = "button is-small is-danger";
         }
       })
       .catch(function(err) {
-        alert("Impossible de démarrer la vidéo fluide: " + err.message);
+        if (!autoStart) alert("Impossible de démarrer la vidéo fluide: " + err.message);
         window.toggleCamVideo(idx);
       });
   };
@@ -411,6 +413,15 @@
   };
 
   renderGrid();
+  // Auto-start smooth video by default on all configured cameras supporting it
+  if (window.MediaSource && window.fetch) {
+    var initialCams = loadCams();
+    for (var k = 1; k <= 4; k++) {
+      if (initialCams[k - 1] && initialCams[k - 1].url) {
+        window.toggleCamVideo(k, true);
+      }
+    }
+  }
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(renderGrid, 4000);
 })();
