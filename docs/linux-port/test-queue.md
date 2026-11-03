@@ -1756,3 +1756,20 @@ Décisions du propriétaire : un seul chemin fonctionnel par fonction ; WebDAV s
 - **Interrupteur :** aucun (suppressions ; revert de fcc5d85).
 - **Test :** (1) page Services : ni network-monitor ni WebDAV ; les autres services démarrent et s'arrêtent. (2) `MEM_GUARD_SOFT_SERVICES` d'une caméra qui citait `network-monitor` : le nom disparaît au redémarrage de memory-guard. (3) box coupée : seul `net-guard` redémarre la caméra (avec `WIFI_RESCUE=1`, après les 2 cycles de secours). (4) MQTT `health` publié, Home Assistant fonctionne. (5) 30 min de flux avec une lumière qui change : `awb.state` change mais `/tmp/cfg-persist.status` ne montre pas de nouvelle sauvegarde ; après un redémarrage volontaire, le slot contient `awb.state` et les gains sont restaurés.
 - **Critères :** aucune page cassée ni erreur CGI ; aucune écriture flash due à `awb.state` seul.
+
+## 2026-11-03 — Export / import de configuration : un seul format JSON, case « Inclure les secrets », envoi vers une autre caméra réparé (`[json-export]`)
+
+Décision du propriétaire : JSON seulement ; secrets seulement si on coche la case.
+
+- **Quoi :** `config_exchange.cgi` : une seule table de lignes sert à l'export ET à l'import (symétriques). Ajoutés : enregistrement (`REC_*`), jour/nuit (`daynight.conf`), alertes (`notify.conf`), sabotage, détection sonore (Vox, alarme), réglage d'image (`isp_tune.conf`), point d'accès de secours, mode sans échec, journaux, suivi Wi-Fi. Retirés : lignes mortes (`recording.conf rec_*`, jour/nuit de `rtspserver.conf`, `PRIVACY_MODE`). Avec la case cochée, `secrets` : réseaux Wi-Fi (4 max, psk entre guillemets), mot de passe de la caméra, utilisateur et mot de passe MQTT, jeton et chat Telegram, mot de passe du secours ; sous `notify` : jeton Ntfy, sujet Ntfy et adresse webhook (traités comme secrets : un sujet ntfy.sh vaut un mot de passe). Validation stricte de chaque valeur, import tout-ou-rien. Envoi (« Push ») : identifiant et mot de passe de la caméra cible, jeton CSRF lu chez la cible, jamais de secrets ni d'identité réseau. Supprimés : `conf-export.cgi`, `conf-import.cgi`, `configbackup.cgi`, `upload_backup.cgi` (instantané sur la caméra, préréglages et `cfg-persist` inchangés).
+- **Limites :** un réseau Wi-Fi à psk hexadécimal n'est pas exporté ; un SSID accentué peut faire refuser l'import ; les anciens exports (`.telegram.token`, `.mqtt.user`) ne réimportent plus ces deux valeurs.
+- **Interrupteur :** aucun (ne pas importer en cas de doute ; l'export ne modifie rien).
+- **Test :**
+  1. Outils → Mise à jour et sauvegarde : export sans la case → le fichier ne contient ni Wi-Fi, ni mot de passe, ni jeton, ni sujet Ntfy, ni adresse webhook.
+  2. Case cochée (avertissement visible) → le fichier contient `secrets`.
+  3. Modifier `REC_WHEN`, les seuils jour/nuit, les événements d'alerte ; réimporter le fichier complet → les valeurs reviennent ; mot de passe et Wi-Fi réappliqués (la page peut se déconnecter : vérifier le retour).
+  4. Import avec « exclure les identifiants » → secrets inchangés.
+  5. JSON invalide (`"when":"x"`) → refusé, rien de modifié.
+  6. Push vers l'autre caméra avec identifiant et mot de passe → réglages appliqués, sans Wi-Fi, mots de passe ni identité réseau (topic MQTT, nom, retournement d'image).
+  7. `/cgi-bin/conf-export.cgi` et `/cgi-bin/configbackup.cgi` → 404.
+- **Critères :** 1 à 7 conformes ; caméra toujours joignable après un import avec Wi-Fi.

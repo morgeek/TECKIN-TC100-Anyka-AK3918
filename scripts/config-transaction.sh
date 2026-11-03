@@ -16,6 +16,7 @@ tc_uint_range()
 {
   _tc_value="$1"; _tc_min="$2"; _tc_max="$3"
   case "$_tc_value" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#_tc_value}" -le 10 ] || return 1
   [ "$_tc_value" -ge "$_tc_min" ] && [ "$_tc_value" -le "$_tc_max" ]
 }
 
@@ -100,13 +101,87 @@ tc_normalize_and_validate()
       case "$_tc_value" in *[\$\`\;\&\|\<\>\"\']*) return 1 ;; esac ;;
     motion_sens) tc_uint_range "$_tc_value" 0 100 ;;
     sound_threshold) tc_uint_range "$_tc_value" 100 10000 ;;
-    sound_interval) tc_uint_range "$_tc_value" 2 300 ;;
+    sound_interval) tc_uint_range "$_tc_value" 1 300 ;;
     record_post) tc_uint_range "$_tc_value" 0 60 ;;
     record_duration) tc_uint_range "$_tc_value" 10 600 ;;
     disk_mb) tc_uint_range "$_tc_value" 0 65535 ;;
     positive_interval) tc_uint_range "$_tc_value" 1 86400 ;;
     qos) tc_uint_range "$_tc_value" 0 2 ;;
     nonnegative) tc_uint_range "$_tc_value" 0 9999999 ;;
+    # Ranges written in the table itself: u:MIN:MAX (unsigned integer).
+    u:*:*) _tc_r="${_tc_type#u:}"; tc_uint_range "$_tc_value" "${_tc_r%%:*}" "${_tc_r#*:}" ;;
+    sound_db) case "$_tc_value" in 0|-[1-9]|-[1-8][0-9]|-90) ;; *) return 1 ;; esac ;;
+    isp_effect)
+      case "$_tc_value" in ''|0|[1-9]|-[1-9]|[1-4][0-9]|-[1-4][0-9]|50|-50) ;; *) return 1 ;; esac ;;
+    isp_power_hz) case "$_tc_value" in ''|50|60) ;; *) return 1 ;; esac ;;
+    isp_exposure_pct) [ -z "$_tc_value" ] || tc_uint_range "$_tc_value" 10 100 ;;
+    isp_mask_color) case "$_tc_value" in black|gray|white) ;; *) return 1 ;; esac ;;
+    isp_mask)
+      # x1,y1,x2,y2 in percent, x2 > x1 and y2 > y1; empty = no mask
+      [ -z "$_tc_value" ] && return 0
+      case "$_tc_value" in *[!0-9,]*) return 1 ;; esac
+      _tc_ifs="$IFS"; IFS=,
+      set -- $_tc_value
+      IFS="$_tc_ifs"
+      [ $# -eq 4 ] || return 1
+      for _tc_n in "$@"; do
+        [ -n "$_tc_n" ] && [ "${#_tc_n}" -le 3 ] && [ "$_tc_n" -le 100 ] || return 1
+      done
+      [ "$(($3 + 0))" -gt "$(($1 + 0))" ] && [ "$(($4 + 0))" -gt "$(($2 + 0))" ] ;;
+    rec_when) case "$_tc_value" in always|motion|offline) ;; *) return 1 ;; esac ;;
+    rec_stream) case "$_tc_value" in main|sub) ;; *) return 1 ;; esac ;;
+    dn_source) case "$_tc_value" in luma|ae|isp|vendor) ;; *) return 1 ;; esac ;;
+    ir_led_mode) case "$_tc_value" in off|force|auto) ;; *) return 1 ;; esac ;;
+    http_method) case "$_tc_value" in POST|PUT) ;; *) return 1 ;; esac ;;
+    ntfy_priority) case "$_tc_value" in min|low|default|high|urgent|max|[1-5]) ;; *) return 1 ;; esac ;;
+    ntfy_topic)
+      [ "${#_tc_value}" -le 64 ] || return 1
+      case "$_tc_value" in *[!A-Za-z0-9_-]*) return 1 ;; esac ;;
+    events)
+      # a subset of the events notify.sh knows, separated by single spaces (empty = none)
+      [ "${#_tc_value}" -le 64 ] || return 1
+      case "$_tc_value" in *[!a-z\ ]*|' '*|*' '|*'  '*) return 1 ;; esac
+      for _tc_w in $_tc_value; do
+        case "$_tc_w" in motion|sound|tamper) ;; *) return 1 ;; esac
+      done ;;
+    ipv4_optional)
+      [ -z "$_tc_value" ] && return 0
+      case "$_tc_value" in *[!0-9.]*|.*|*.|*..*) return 1 ;; esac
+      _tc_ifs="$IFS"; IFS=.
+      set -- $_tc_value
+      IFS="$_tc_ifs"
+      [ $# -eq 4 ] || return 1
+      for _tc_n in "$@"; do tc_uint_range "$_tc_n" 0 255 || return 1; done ;;
+    url|url_optional)
+      [ "$_tc_type" = url_optional ] && [ -z "$_tc_value" ] && return 0
+      [ "${#_tc_value}" -le 200 ] || return 1
+      case "$_tc_value" in http://?*|https://?*) ;; *) return 1 ;; esac
+      case "$_tc_value" in *[!A-Za-z0-9._~:/?\&=%+@#,-]*) return 1 ;; esac ;;
+    ntfy_auth)
+      [ "${#_tc_value}" -le 200 ] || return 1
+      case "$_tc_value" in *[\\\$\`\;\&\|\<\>\"\']*) return 1 ;; esac ;;
+    password)
+      # same rules as the web UI password change (action.d/system.sh set_all_password)
+      [ "${#_tc_value}" -ge 4 ] && [ "${#_tc_value}" -le 128 ] || return 1
+      case "$_tc_value" in *[\"\'\$\`\\\ %]*|*"$(printf '\t')"*) return 1 ;; esac ;;
+    wifi_ssid)
+      # a network name for wpa_supplicant.conf (a quoted string): no quote, no backslash
+      [ "${#_tc_value}" -ge 1 ] && [ "${#_tc_value}" -le 32 ] || return 1
+      case "$_tc_value" in *[\\\"]*) return 1 ;; esac ;;
+    wifi_psk)
+      # empty = open network
+      [ -z "$_tc_value" ] && return 0
+      [ "${#_tc_value}" -ge 8 ] && [ "${#_tc_value}" -le 63 ] || return 1
+      case "$_tc_value" in *[\\\"]*) return 1 ;; esac ;;
+    rescue_ssid_optional)
+      # written inside "..." of the sourced boot.conf: nothing the shell would expand
+      [ -z "$_tc_value" ] && return 0
+      [ "${#_tc_value}" -le 32 ] || return 1
+      case "$_tc_value" in *[\\\$\`\"\']*) return 1 ;; esac ;;
+    rescue_psk_optional)
+      [ -z "$_tc_value" ] && return 0
+      [ "${#_tc_value}" -ge 8 ] && [ "${#_tc_value}" -le 63 ] || return 1
+      case "$_tc_value" in *[\\\$\`\"\']*) return 1 ;; esac ;;
     *) return 1 ;;
   esac
 }
@@ -207,6 +282,16 @@ tc_check_flat()
   tc_normalize_and_validate "$3" "$TC_UNQUOTED_VALUE" || _tc_fail "$4:$2"
 }
 
+tc_check_pair()
+{
+  # tc_check_pair FILE HIGH_KEY LOW_KEY LABEL: when both keys are set, HIGH must be greater than LOW
+  tc_has_flat "$1" "$2" && tc_has_flat "$1" "$3" || return 0
+  _tc_hi="$(tc_read_flat "$1" "$2")"; _tc_lo="$(tc_read_flat "$1" "$3")"
+  case "$_tc_hi$_tc_lo" in *[!0-9]*) return 0 ;; esac
+  [ -n "$_tc_hi" ] && [ -n "$_tc_lo" ] || return 0
+  [ "$_tc_hi" -gt "$_tc_lo" ] || _tc_fail "$4:$2<=$3"
+}
+
 tc_check_ini()
 {
   tc_has_ini "$1" "$2" "$3" || return 0
@@ -271,7 +356,7 @@ tc_validate_candidate()
   [ "$_tc_size" -le 262144 ] || _tc_fail "$_tc_rel:too_large" || return 1
   case "$_tc_rel" in
     rtspserver.conf) tc_validate_rtsp "$_tc_file" "$_tc_rel" || return 1 ;;
-    boot.conf|mqtt.conf|service_trim.conf|recording.conf|sound_detection.conf|motion.conf|telegram.conf|telnetd.conf|ftp.conf|onvif.conf|network.conf|dns.conf|sendmail.conf|timelapse.conf|onvif_events.conf)
+    boot.conf|mqtt.conf|service_trim.conf|recording.conf|sound_detection.conf|daynight.conf|notify.conf|tamper.conf|isp_tune.conf|motion.conf|telegram.conf|telnetd.conf|ftp.conf|onvif.conf|network.conf|dns.conf|sendmail.conf|timelapse.conf|onvif_events.conf)
       /bin/sh -n "$_tc_file" >/dev/null 2>&1 || _tc_fail "$_tc_rel:shell_syntax" || return 1 ;;
   esac
   case "$_tc_rel" in
@@ -288,7 +373,26 @@ tc_validate_candidate()
       tc_check_flat "$_tc_file" RTSP_MIC_OFF_WHEN_NO_AUDIO bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" VENDOR_PRINT_LEVEL print_level "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" ISP_TUNE bool "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" ONVIF_STREAM_POLICY onvif_policy "$_tc_rel" || return 1 ;;
+      tc_check_flat "$_tc_file" ONVIF_STREAM_POLICY onvif_policy "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_LOCAL bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_WHEN rec_when "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_STREAM rec_stream "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_SEGMENT_SEC u:30:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_RESERVE_MB u:16:65535 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_POSTROLL_SEC u:0:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_OFFLINE_SEC u:0:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_CLIENT ipv4_optional "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_RING_KB u:128:8192 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_AUDIO bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_RESCUE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_RESCUE_AFTER_MIN u:2:1440 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_RESCUE_MANUAL_MIN u:1:1440 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_RESCUE_SSID rescue_ssid_optional "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_RESCUE_PSK rescue_psk_optional "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" BOOT_GUARD bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" LOG_PERSIST bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" LOG_PERSIST_MIN persist_min "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_QUALITY bool "$_tc_rel" || return 1 ;;
     mqtt.conf)
       tc_require_flat "$_tc_file" MQTT_ENABLE "$_tc_rel" || return 1
       tc_require_flat "$_tc_file" MQTT_PORT "$_tc_rel" || return 1
@@ -305,7 +409,62 @@ tc_validate_candidate()
     sound_detection.conf)
       tc_check_flat "$_tc_file" ENABLE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" THRESHOLD sound_threshold "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" INTERVAL sound_interval "$_tc_rel" || return 1 ;;
+      tc_check_flat "$_tc_file" THRESHOLD_DB sound_db "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" INTERVAL sound_interval "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" MIN_LOUD_SECONDS u:1:10 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VOX_MODE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VOX_HOLD_SECONDS u:1:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" ALARM_DETECT bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" ALARM_HOLD_SECONDS u:1:3600 "$_tc_rel" || return 1 ;;
+    daynight.conf)
+      tc_check_flat "$_tc_file" LUMA_NIGHT u:0:255 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" LUMA_DAY u:0:255 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" DAYNIGHT_SOURCE dn_source "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" AE_NIGHT_ABOVE u:1:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" AE_DAY_BELOW u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NIGHT_HOLD u:1:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" DAY_HOLD u:1:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VENDOR_NIGHT_LUM u:1:999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VENDOR_DAY_LUM u:0:999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" IR_LED_MAX_ON u:0:172800 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NIGHT_STYLE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" LOWLIGHT_FPS bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" IR_LED_MODE ir_led_mode "$_tc_rel" || return 1
+      # the day threshold must lie above the night one (the daemon would flap otherwise)
+      tc_check_pair "$_tc_file" LUMA_DAY LUMA_NIGHT "$_tc_rel" || return 1
+      tc_check_pair "$_tc_file" AE_NIGHT_ABOVE AE_DAY_BELOW "$_tc_rel" || return 1
+      tc_check_pair "$_tc_file" VENDOR_NIGHT_LUM VENDOR_DAY_LUM "$_tc_rel" || return 1 ;;
+    notify.conf)
+      tc_check_flat "$_tc_file" WEBHOOK_ENABLE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WEBHOOK_URL url_optional "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WEBHOOK_METHOD http_method "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NTFY_ENABLE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NTFY_URL url_optional "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NTFY_TOPIC ntfy_topic "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NTFY_PRIORITY ntfy_priority "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NTFY_AUTH ntfy_auth "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" TELEGRAM_NOTIFY_ENABLE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NOTIFY_ATTACH_SNAPSHOT bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NOTIFY_COOLDOWN_SECONDS u:0:86400 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NOTIFY_EVENTS events "$_tc_rel" || return 1 ;;
+    tamper.conf)
+      tc_check_flat "$_tc_file" ENABLE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" TAMPER_HOLD_SEC u:1:600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" TAMPER_JPEG_DROP_PCT u:1:100 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" TAMPER_LUMA_MIN u:0:255 "$_tc_rel" || return 1 ;;
+    isp_tune.conf)
+      for _tc_k in BRIGHTNESS CONTRAST SATURATION SHARPNESS HUE; do
+        tc_check_flat "$_tc_file" "$_tc_k" isp_effect "$_tc_rel" || return 1
+      done
+      tc_check_flat "$_tc_file" POWER_HZ isp_power_hz "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" EXPOSURE_MAX_PCT isp_exposure_pct "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" MASK_COLOR isp_mask_color "$_tc_rel" || return 1
+      for _tc_k in MASK1 MASK2 MASK3 MASK4; do
+        tc_check_flat "$_tc_file" "$_tc_k" isp_mask "$_tc_rel" || return 1
+      done ;;
+    wpa_supplicant.conf)
+      # not sourced by a shell, but wpa_supplicant must still find at least one network
+      grep -q '^[[:space:]]*ssid="' "$_tc_file" || _tc_fail "$_tc_rel:no_network" || return 1 ;;
     telnetd.conf) tc_check_flat "$_tc_file" TELNET_PORT port "$_tc_rel" || return 1 ;;
     ftp.conf) tc_check_flat "$_tc_file" PORT port "$_tc_rel" || return 1 ;;
     onvif.conf) tc_check_flat "$_tc_file" ONVIF_PORT port "$_tc_rel" || return 1 ;;

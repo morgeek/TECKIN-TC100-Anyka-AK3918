@@ -1038,6 +1038,18 @@ window.tc100I18nFr = {
     "Ouvrir": "Ouvrir",
     "Plages enregistrées": "Plages enregistrées",
     "Position": "Position",
+    "Export your settings as one portable JSON file: back them up, or clone a configuration to other cameras. Importing is additive: the settings in the file are updated, the others stay unchanged.": "Exportez vos réglages dans un seul fichier JSON portable : pour les sauvegarder ou cloner une configuration vers d'autres caméras. L'import est additif : les réglages du fichier sont mis à jour, les autres restent inchangés.",
+    "Include secrets (Wi-Fi, passwords, tokens)": "Inclure les secrets (Wi-Fi, mots de passe, jetons)",
+    "The file then holds your Wi-Fi networks and passwords, the camera password, MQTT, Telegram and Ntfy credentials: keep it private.": "Le fichier contient alors vos réseaux Wi-Fi et leurs mots de passe, le mot de passe de la caméra, les identifiants MQTT, Telegram et Ntfy : gardez-le privé.",
+    "Without secrets the file is safe to share between cameras.": "Sans les secrets, le fichier peut être partagé entre caméras sans risque.",
+    "User of the target camera": "Utilisateur de la caméra cible",
+    "Password of the target camera": "Mot de passe de la caméra cible",
+    "The push never sends secrets, nor the network identity of this camera (address, name, MQTT topic, image flip).": "L'envoi ne transmet jamais les secrets, ni l'identité réseau de cette caméra (adresse, nom, topic MQTT, retournement de l'image).",
+    "File too large (max 64 KB).": "Fichier trop volumineux (64 Ko maximum).",
+    "Enter the address of the target camera.": "Saisissez l'adresse de la caméra cible.",
+    "Sending the settings to the target camera...": "Envoi des réglages vers la caméra cible...",
+    "Push failed: ": "Échec de l'envoi : ",
+    "Export, import and push of the settings (one JSON file, secrets optional) are in the JSON Configuration Exchange card below.": "L'export, l'import et l'envoi des réglages (un seul fichier JSON, secrets en option) se trouvent dans la carte « Échange de configuration JSON » ci-dessous.",
     "Push": "Envoyer",
     "Push to Remote Camera (1-Click Sync)": "Transférer vers une caméra distante (Synchro 1-clic)",
     "Sauvegarder": "Sauvegarder",
@@ -1236,6 +1248,10 @@ window.tc100I18nFr = {
     [
       "^Import successful: (\\d+) value\\(s\\), (\\d+) file\\(s\\) changed\\.$",
       "Import réussi : $1 valeur(s), $2 fichier(s) modifié(s)."
+    ],
+    [
+      "^Push done: (\\d+) value\\(s\\) applied on the target camera\\.$",
+      "Envoi terminé : $1 valeur(s) appliquée(s) sur la caméra cible."
     ]
   ],
   "untranslated": [

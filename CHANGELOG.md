@@ -7,6 +7,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Safe mode** (`v3/linux66-sd/boot-guard`, `BOOT_GUARD=1`): after 3 runs in a row that end within 5 minutes, the next
+  start brings up Wi-Fi, web, ssh and the reset button only; the reboot history is kept in the flash settings; a web
+  update checks the kernel (uImage, complete, not larger than what this camera's U-Boot reads) before writing anything.
+- **Web pages for what only the config editor could set**: Alerts (Ntfy, webhook, Telegram, events, cooldown), tamper
+  detection, babyphone and alarm sound (`scripts/action.d/events.sh`).
+
+### Changed
+- **One switch per service** (`scripts/service-switch.sh`): the boot, the Services page and the Settings read the same
+  settings key (sound detection, syslog, recording, Memory Guard, rescue access point, MQTT, Telegram bot, motion);
+  tamper settings live in `tamper.conf` only; one Telegram alert path (`notify.sh`); the Frigate + Home Assistant profile
+  switches its services off once in the wizard, not at every boot. Migrated once per camera (`scripts/migrate-switches.sh`).
+- **Menus by use**: Image (with a live picture over the image settings; sliders apply on release), Settings, Tools.
+- **One definition per value**: Wi-Fi signal (`scripts/wifi-signal.sh`), RAM (MemAvailable), SD card health
+  (`sdinfo-sd.sh` alone writes `/tmp/sd-health`).
+- **Rescue access point on by default** (`WIFI_RESCUE=1`, owner's decision; fixed documented password kept); network
+  guard waits two rescue cycles before rebooting.
+
+### Changed
+- **One configuration export/import format: a `.json` file** (`config_exchange.cgi`). The tar.gz backup
+  (`configbackup.cgi`, `upload_backup.cgi`) and the `.conf` export (`conf-export.cgi`, `conf-import.cgi`) are removed.
+  The export has an "include secrets" box, off by default: without it no Wi-Fi, password or token is in the file (safe
+  to share between cameras); with it the file restores a camera completely (Wi-Fi networks, camera password, MQTT,
+  Telegram, Ntfy, rescue access point password). Added to the file: local recording (`REC_*` of boot.conf), day/night
+  (daynight.conf), notifications (notify.conf), tamper, sound detection (vox, alarm), image tuning (isp_tune.conf), the
+  rescue access point, boot guard, saved logs, Wi-Fi quality. Removed rows that no longer matched a live key (`rec_*` of
+  recording.conf, the day/night values of rtspserver.conf, `PRIVACY_MODE`).
+- **Push to another camera works**: the form asks for the target's user and password, the CSRF token of the target is
+  read first, the request body is read by the CGI (it used to be dropped); a push never carries secrets.
+
 ### Removed
 - **network-monitor** (`controlscripts/network-monitor`, `scripts/network-monitor.sh`, `netmon.conf`): `scripts/net-guard.sh`
   (run by the housekeeper every minute) is the one network watcher. The `network/state` MQTT topic and the `network` object of
@@ -19,6 +49,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - White balance memory (`awb.state`) no longer triggers a settings write to the SPI flash by itself: it is saved with the next
   real settings save (boot-guard, deliberate reboots).
+
+---
 
 ## [3.0.1] - 2026-10-31
 
