@@ -2223,6 +2223,19 @@ Trois ajouts pour diagnostiquer à distance sans console série. Tout est dans l
   3. Découvrir l'objectif -> Repasse immédiatement à `tamper/state OFF`.
   4. Basculer jour/nuit -> Vérifier qu'aucun faux positif n'est émis.
 
+### 3. Sélection intelligente du meilleur cliché (« Best-shot JPEG ») (`scripts/detectionOn.sh`)
+- **Quoi :** Lors d'un déclenchement de mouvement, prise en rafale rapide de 3 clichés espacés de 200 ms. Sélection automatique du cliché ayant la plus grande taille / netteté de détails (`_best_size`), pour éviter les clichés flous lors des mouvements rapides.
+- **Interrupteur :** `motion_best_shot=0` par défaut dans `motion.conf` (`1` pour activer).
+- **Test :** Activer `motion_best_shot=1` dans `motion.conf`, générer un mouvement rapide devant la caméra, vérifier que l'image sauvegardée dans `/tmp/motion_snap_*.jpg` est nette et complète.
+
+### 4. Zones de détection nommées (`motion_zones.conf` & `scripts/action.d/detection.sh`)
+- **Quoi :** Prise en charge des libellés de zones `MDZ<k>_NAME="Nom Zone"` dans `motion_zones.conf` et renvoi dans la réponse JSON de `md_zones_info` (`"names":["Porte","Allée"]`). Permet d'identifier clairement les zones ignorées ou surveillées dans les interfaces.
+- **Test :** Configurer les zones avec noms via l'API, vérifier la persistance dans `motion_zones.conf` et le parsing correct.
+
+### 5. Pre-roll d'enregistrement en RAM (`REC_RING_KB` dans `boot.conf`)
+- **Quoi :** Exposition de `REC_RING_KB=1024` (1 à 8 Mo) dans `config/boot.conf.dist` pour conserver en permanence les secondes précédant un déclenchement de mouvement ou de coupure réseau dans le buffer circulaire de `tc100_rtsp`.
+- **Test :** Vérifier dans les journaux de démarrage de `tc100_rtsp` la prise en compte du ring buffer mémoire configuré.
+
 
 ## 2026-11-03 — Lot 4 (implémenté, zéro U-Boot / zéro noyau) : Notifications multi-canaux (Ntfy, Webhook), métriques Prometheus, Snapshot MQTT
 

@@ -6,3 +6,9 @@
 
 motion_trigger_led=true
 send_telegram=false
+
+# Best-shot JPEG selection:
+# When set to 1, takes 3 quick successive snapshots on motion trigger and selects
+# the sharpest image (highest detail / byte size) for the alert and notification.
+# Set to 0 (default) to take a single snapshot.
+motion_best_shot=0

@@ -929,5 +929,30 @@ class Lot4NotificationsAndMetrics(unittest.TestCase):
         self.assertEqual(sh('sh -n %s' % (ROOT / 'scripts/mqtt-bridge.sh')).returncode, 0)
 
 
+class Lot2BestShotAndZones(unittest.TestCase):
+    """Lot 2 completion: Best-shot selection, named motion zones, pre-roll RAM config."""
+
+    def test_motion_conf_best_shot_default(self):
+        conf = (ROOT / 'config/motion.conf.dist').read_text()
+        self.assertIn('motion_best_shot=0', conf)
+
+    def test_detection_on_best_shot_logic(self):
+        script = ROOT / 'scripts/detectionOn.sh'
+        s = script.read_text()
+        self.assertIn('motion_best_shot', s)
+        self.assertIn('_best_size', s)
+        self.assertEqual(sh('sh -n %s' % script).returncode, 0)
+
+    def test_action_detection_named_zones(self):
+        det = (ROOT / 'scripts/action.d/detection.sh').read_text()
+        self.assertIn('MDZ${_mz_k}_NAME', det)
+        self.assertIn('names', det)
+        self.assertEqual(sh('sh -n %s' % (ROOT / 'scripts/action.d/detection.sh')).returncode, 0)
+
+    def test_boot_conf_rec_ring_kb_pre_roll(self):
+        boot = (ROOT / 'config/boot.conf.dist').read_text()
+        self.assertIn('REC_RING_KB=1024', boot)
+
+
 if __name__ == '__main__':
     unittest.main()

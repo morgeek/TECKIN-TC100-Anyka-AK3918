@@ -152,6 +152,10 @@ REC_WHEN=offline
 REC_CLIENT=
 REC_OFFLINE_SEC=5
 REC_POSTROLL_SEC=30
+# Pre-roll RAM buffer size in KB (default 1024 = 1 MB; min 128, max 8192).
+# Keeps the last seconds of video in RAM ring buffer so recordings on motion or
+# network cut start with the events leading up to the trigger.
+REC_RING_KB=1024
 # REC_AUDIO=1: the files get a second track with the microphone (G.711 A-law, 8 kHz
 # mono, VLC plays it; browsers show the picture, the sound only if they decode A-law).
 # The microphone then runs while the recorder is on.

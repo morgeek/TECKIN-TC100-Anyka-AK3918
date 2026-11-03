@@ -10,15 +10,21 @@
       # Motion zones (src/tc100fix/md.c): the saved zones and what the
       # detector got at its last start (/var/run/md_zones).
       _mz_list=""
+      _mz_names=""
       for _mz_k in 1 2 3 4; do
         _mz_v="$(sed -n "s/^MDZ${_mz_k}=\"\{0,1\}\([0-9,]*\)\"\{0,1\}$/\1/p" /mnt/config/motion_zones.conf 2>/dev/null | tail -n 1)"
-        case "$_mz_v" in [0-9]*,[0-9]*,[0-9]*,[0-9]*) _mz_list="${_mz_list:+$_mz_list,}\"$_mz_v\"" ;; esac
+        _mz_name="$(sed -n "s/^MDZ${_mz_k}_NAME=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" /mnt/config/motion_zones.conf 2>/dev/null | tail -n 1)"
+        case "$_mz_v" in [0-9]*,[0-9]*,[0-9]*,[0-9]*)
+          _mz_list="${_mz_list:+$_mz_list,}\"$_mz_v\""
+          _mz_names="${_mz_names:+$_mz_names,}\"$(json_escape "$_mz_name")\""
+          ;;
+        esac
       done
       _mz_on=0; grep -q '^mdenabled=1' /mnt/config/rtspserver.conf 2>/dev/null && _mz_on=1
       _mz_st() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /var/run/md_zones 2>/dev/null | head -n 1; }
       _mz_ign="$(_mz_st ignored)"; case "$_mz_ign" in ''|*[!0-9]*) _mz_ign=null ;; esac
-      printf '{"ok":true,"zones":[%s],"enabled":%s,"detector":{"grid":"%s","ignored":%s,"result":"%s"}}\n' \
-        "$_mz_list" "$_mz_on" "$(json_escape "$(_mz_st grid)")" "$_mz_ign" "$(json_escape "$(_mz_st result)")"
+      printf '{"ok":true,"zones":[%s],"names":[%s],"enabled":%s,"detector":{"grid":"%s","ignored":%s,"result":"%s"}}\n' \
+        "$_mz_list" "${_mz_names:-}" "$_mz_on" "$(json_escape "$(_mz_st grid)")" "$_mz_ign" "$(json_escape "$(_mz_st result)")"
     ;;
 
     motion_detection_on)
@@ -49,11 +55,19 @@
       # detection ignores; tc100_rtsp reads motion_zones.conf while it runs.
       if [ -n "${F_md_zone_form:-}" ]; then
         _mz_new=""; _mz_n=0
-        for _mz_v in "${F_md_zone1:-}" "${F_md_zone2:-}" "${F_md_zone3:-}" "${F_md_zone4:-}"; do
+        for _mz_idx in 1 2 3 4; do
+          eval "_mz_v=\"\${F_md_zone${_mz_idx}:-}\""
+          eval "_mz_nm=\"\${F_md_zone${_mz_idx}_name:-}\""
           case "$_mz_v" in ''|*[!0-9,]*) continue ;; esac
           printf '%s' "$_mz_v" | grep -Eq '^[0-9]{1,3},[0-9]{1,3},[0-9]{1,3},[0-9]{1,3}$' || continue
-          _mz_n=$((_mz_n + 1)); _mz_new="${_mz_new}MDZ${_mz_n}=\"${_mz_v}\"
+          _mz_n=$((_mz_n + 1))
+          _mz_new="${_mz_new}MDZ${_mz_n}=\"${_mz_v}\"
 "
+          if [ -n "$_mz_nm" ]; then
+            _mz_clean_nm="$(printf '%s' "$_mz_nm" | sed 's/[^A-Za-z0-9 _-]//g')"
+            _mz_new="${_mz_new}MDZ${_mz_n}_NAME=\"${_mz_clean_nm}\"
+"
+          fi
         done
         if [ "$(printf '%s' "$_mz_new")" != "$(cat /mnt/config/motion_zones.conf 2>/dev/null)" ]; then
           if [ -n "$_mz_new" ]; then printf '%s' "$_mz_new" > /mnt/config/motion_zones.conf.tmp && mv -f /mnt/config/motion_zones.conf.tmp /mnt/config/motion_zones.conf
