@@ -156,6 +156,7 @@
     }
     setLiveToggleButtonState();
     initLiveModeSwitch();
+    liveVideoSync();
 
     statusRefreshButton = byId("status_refresh");
     statusUpdatedLabel = byId("status_updated");

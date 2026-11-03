@@ -1005,6 +1005,7 @@
         navLinks.forEach(function(tab) {
             tab.addEventListener('click', function() { showTab(tab.dataset.tab); });
         });
+        showTab(currentTab);
 
         function applySearch(q) {
             q = (q || '').trim().toLowerCase();
