@@ -23,8 +23,8 @@ FRANCAIS
 5. Ouvrir http://tc100/ (ou l'adresse donnee par votre box, aussi ecrite dans tc100-3\ADRESSE.txt),
    utilisateur root, mot de passe "pass" (ou celui de votre camera 2.x). L'assistant demande un nouveau mot
    de passe.
-   Pas de page au bout de 15 minutes ? Eteindre la camera, lire tc100-3\ADRESSE.txt sur un ordinateur :
-   il donne le nom et le mot de passe du Wi-Fi de secours de la camera (page http://10.42.0.1/).
+   Pas de page au bout de 15 minutes ? La camera ouvre son propre Wi-Fi de secours
+   (nom : TC100-<MAC>, mot de passe par defaut : tc100rescue). S'y connecter et ouvrir http://10.42.0.1/.
 Garder la carte (et tc100-3\backup\flash-stock.bin, a ne jamais publier) : c'est le retour arriere.
 Revenir au firmware d'avant : sur la carte, renommer tc100test\c66.img.installed en c66.img et ajouter un
 fichier vide RESTAURER.txt a la racine, allumer (10 min), puis retirer la carte.
@@ -50,8 +50,8 @@ ENGLISH
    To only TRY it without installing: put an empty file ESSAI.txt (or TRIAL.txt) at the root of the card first.
 5. Open http://tc100/ (or the address your router shows, also written to tc100-3\ADRESSE.txt), user root,
    password "pass" (or the one of your 2.x camera). The wizard asks for a new password.
-   No page after 15 minutes? Power off, read tc100-3\ADRESSE.txt on a computer: it gives the name and
-   password of the camera's rescue Wi-Fi (page http://10.42.0.1/).
+   No page after 15 minutes? The camera opens its rescue Wi-Fi (name: TC100-<MAC>,
+   default password: tc100rescue). Connect to it and open http://10.42.0.1/.
 Keep the card (and tc100-3\backup\flash-stock.bin, never publish it): it is the way back.
 Back to the previous firmware: on the card, rename tc100test\c66.img.installed to c66.img and add an empty
 file RESTAURER.txt (or RESTORE.txt) at the root, power on (10 min), then take the card out.

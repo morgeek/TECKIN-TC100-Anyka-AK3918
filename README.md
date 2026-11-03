@@ -159,7 +159,7 @@ Later versions: Settings → Update & backup → *Firmware update*, with `tc100-
 |---|---|
 | Nothing happens, no blue LED | The files are not at the root of the card, or the card is not FAT32. |
 | Red LED on | Read `tc100-3/STATUS.txt` on a computer. "Not a TC100 variant the firmware knows": nothing was changed; send `tc100-inventory.txt` from the card in a Hardware inventory issue. "NOT INSTALLED": the camera runs the new firmware from the card, its flash was not written; the web page can retry. |
-| No page after 15 minutes | Wrong Wi-Fi (the install itself needs none). Power off, read `tc100-3/ADRESSE.txt` on a computer: it gives the name and password of the camera's rescue Wi-Fi; join it and open http://10.42.0.1/. |
+| No page after 15 minutes | Wrong Wi-Fi (the install itself needs none). The camera opens its rescue Wi-Fi (`TC100-<MAC>`, default password: `tc100rescue`). Connect your phone or laptop to it and open http://10.42.0.1/ to configure your network. |
 | You want the old firmware back | On the card: rename `tc100test/c66.img.installed` to `c66.img` and add an empty file `RESTAURER.txt` (or `RESTORE.txt`) at the root. Power on: the camera writes back the copy of its memory saved on the card (about 10 minutes, blue LED blinking) and restarts into its previous firmware. Then take the card out. |
 
 What the card does step by step, the U-Boot commands and the flash layout:
@@ -256,8 +256,8 @@ Settings → **Recording**:
   network comes first and the previous ones stay as fallbacks, so a typo does not take the camera off the network.
   An invalid `wifi.txt` becomes `wifi-invalid.txt` with the reason.
 - **Rescue access point**: after 10 minutes without Wi-Fi (or holding the reset button 3-7 s) the camera opens its
-  own Wi-Fi network; its name and password are in Settings and on the card (`tc100-3/ADRESSE.txt`), the page is at
-  http://10.42.0.1/.
+  own Wi-Fi network named `TC100-<MAC>` with the default fixed password **`tc100rescue`** (also configurable in
+  Settings → Network or `boot.conf` `WIFI_RESCUE_PSK`). Join it and open http://10.42.0.1/ to set up your Wi-Fi.
 - **Password**: `root` / `pass` on a new installation (or the password of a 2.x camera). The wizard asks for a new
   one; a banner says so until it is changed (Settings → System → Password).
 - **Plain HTTP**: the web interface has a login but no HTTPS on 3.0. Use it on your own network only.

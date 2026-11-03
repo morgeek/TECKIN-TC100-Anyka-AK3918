@@ -28,8 +28,8 @@ Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
    router, also written to `tc100-3/ADRESSE.txt` on the card), sign in as `root` / `pass` (or the password of your
    2.x camera). The setup wizard asks for a new password, and its last step installs the firmware into the camera
    in one click.
-7. No chime and no page after 15 minutes (wrong Wi-Fi)? Power off and read `tc100-3/ADRESSE.txt` on a computer:
-   it gives the name and password of the camera's own rescue Wi-Fi, with the page at http://10.42.0.1/.
+7. No chime and no page after 15 minutes (wrong Wi-Fi)? The camera opens its own rescue Wi-Fi (`TC100-<MAC>`,
+   default password: `tc100rescue`). Connect to it and open http://10.42.0.1/ to configure your Wi-Fi.
 
 Updates: Settings → Update & backup → Firmware update with `tc100-<version>-update.tar`.
 Way back: [docs/linux-port/install-3.0.md](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/blob/main/docs/linux-port/install-3.0.md).
