@@ -1819,7 +1819,7 @@ class ServicesAndStatus(unittest.TestCase):
         # status: output + rc 0 = running, no output + rc 0 or rc 1 = stopped.
         cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
         self.assertEqual(cgi.count('elif [ "$status_rc" -eq 1 ]; then'), 2)
-        for name in ('telegram-bot', 'network-monitor'):
+        for name in ('telegram-bot',):
             s = (ROOT / 'controlscripts' / name).read_text()
             self.assertIn('[ "$1" = "status" ] || echo "You have to configure', s)
         r = run('PIDFILE=/nonexistent\n' + function('controlscripts/syslog-forward', 'status') + '\nstatus')

@@ -25,7 +25,6 @@ probe_service_fast() {
   case "$_pf_svc" in
     sound-detection) _pf_file="/var/run/sound-detection.pid" ;;
     mqtt-bridge)     _pf_file="/var/run/mqtt-bridge.pid" ;;
-    network-monitor) _pf_file="/var/run/network-monitor.pid" ;;
     memory-guard)    _pf_file="/var/run/memory-guard.pid" ;;
     ftp-server)      _pf_file="/var/run/ftp-server.pid" ;;
     telnet-server)   _pf_file="/var/run/telnet-server.pid" ;;
@@ -35,7 +34,6 @@ probe_service_fast() {
     button-actions)  _pf_file="/var/run/button-watch.pid" ;;
     wifi-rescue)     _pf_file="/var/run/wifi-rescue.pid" ;;
     mdns)            _pf_file="/var/run/mdns.pid" ;;
-    webdav)          _pf_file="/var/run/webdav.pid" ;;
     auto-night-detection)
       [ -f /var/run/auto-night-detection.pid ] && _pf_file="/var/run/auto-night-detection.pid" ;;
     motion-detection)

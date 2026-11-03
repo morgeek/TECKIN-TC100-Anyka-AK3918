@@ -678,7 +678,7 @@ sync_memory_guard_service_with_config() {
 }
 
 stop_trimmed_runtime_services() {
-  for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode network-monitor; do
+  for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode; do
     if [ -x "/mnt/controlscripts/$svc" ]; then
       /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
     fi
@@ -1156,7 +1156,7 @@ if [ -n "$F_cmd" ]; then
   case "$F_cmd" in
     showlog|clearlog)
       _action_group=logs ;;
-    set_video_params|isp_pro|isp_tune|set_advanced_tuning|osd|image-flip|toggle-rtsp-nightvision-on|toggle-rtsp-nightvision-off|rtsp-log-on|rtsp-log-off|enable_privacy_shield|set_video_size)
+    set_video_params|isp_pro|isp_tune|set_advanced_tuning|osd|image-flip|toggle-rtsp-nightvision-on|toggle-rtsp-nightvision-off|rtsp-log-on|rtsp-log-off|set_video_size)
       _action_group=video ;;
     rtsp_server_info|set_rtsp_server|set_stream_topology|set_onvif_stream_policy|set_rtsp_preset|set_rtsp_quality_profile|set_client_profile|save_known_good_profile|restore_known_good_profile|set_frigate_live)
       _action_group=stream ;;
@@ -1166,7 +1166,7 @@ if [ -n "$F_cmd" ]; then
       _action_group=storage ;;
     md_zones_info|motion_heatmap|motion_detection_on|motion_detection_off|conf_motiondetect)
       _action_group=detection ;;
-    front_led_on|front_led_off|red_led_on|red_led_off|ir_led_on|ir_led_off|ir_cut_on|ir_cut_off|auto_night_mode_start|auto_night_mode_stop|night-mode-on|night-mode-off|conf_autodaynight|set_led_config)
+    front_led_on|front_led_off|red_led_on|red_led_off|ir_led_on|ir_led_off|ir_cut_on|ir_cut_off|auto_night_mode_start|auto_night_mode_stop|night-mode-on|night-mode-off|set_led_config)
       _action_group=hardware ;;
     reboot|shutdown|clear_mem|set_telnet|set_ftp|settz|set_http_password|set_all_password|service_trim_on|service_trim_off|set_performance_profile|set_web_mode|set_reboot_schedule|set_telegram_config|set_syslog_config|save_preset|delete_preset)
       _action_group=system ;;

@@ -41,7 +41,7 @@ load_config()
     MEM_GUARD_INTERVAL_SECONDS="$(sanitize_positive_int "${MEM_GUARD_INTERVAL_SECONDS:-60}" 20)"
 
     # Defaults (64 MB camera, MemAvailable about 10.8 MB in normal use with the streams, web and MQTT running):
-    #   warn 6144 KB     the first stage stops only the light services (network-monitor): well below normal, above
+    #   warn 6144 KB     the first stage stops only the light services (none by default): well below normal, above
     #                    what a snapshot or a few web pages take at once
     #   critical 3072 KB also stops ftp, telnet and motion detection, and drops the caches: really about to run out
     #   emergency 2048 KB
@@ -54,7 +54,7 @@ load_config()
     MEM_GUARD_CRITICAL_HITS="$(sanitize_positive_int "${MEM_GUARD_CRITICAL_HITS:-1}" 1)"
     MEM_GUARD_COOLDOWN_SECONDS="$(sanitize_positive_int "${MEM_GUARD_COOLDOWN_SECONDS:-120}" 120)"
     : "${MEM_GUARD_DROP_CACHES:=1}"
-    : "${MEM_GUARD_SOFT_SERVICES:=network-monitor}"
+    : "${MEM_GUARD_SOFT_SERVICES:=}"
     : "${MEM_GUARD_CRITICAL_SERVICES:=ftp-server telnet-server motion-detection}"
     : "${MEM_GUARD_EMERGENCY_SERVICES:=}"
 
@@ -281,9 +281,20 @@ mg_migrate_defaults()
     if [ "$_mg_w" = 8192 ] && [ "$_mg_c" = 4096 ]; then
         rewrite_config "$_mg_bc" MEM_GUARD_WARN_KB 6144
         rewrite_config "$_mg_bc" MEM_GUARD_CRITICAL_KB 3072
-        [ "$_mg_s" = "network-monitor auto-night-detection" ] && rewrite_config "$_mg_bc" MEM_GUARD_SOFT_SERVICES '"network-monitor"'
+        [ "$_mg_s" = "network-monitor auto-night-detection" ] && _mg_s="network-monitor"
         echo "[$(get_now_ts)] Memory guard: shipped thresholds 8192/4096 KB replaced by 6144/3072 KB" >> "$LOGPATH"
     fi
+    # network-monitor was removed (net-guard is the one network watcher): drop its name from the soft stage list
+    case " $_mg_s " in
+        *" network-monitor "*)
+            _mg_n=""
+            for _mg_t in $_mg_s; do
+                [ "$_mg_t" = "network-monitor" ] || _mg_n="${_mg_n:+$_mg_n }$_mg_t"
+            done
+            rewrite_config "$_mg_bc" MEM_GUARD_SOFT_SERVICES "\"$_mg_n\""
+            echo "[$(get_now_ts)] Memory guard: network-monitor removed from MEM_GUARD_SOFT_SERVICES" >> "$LOGPATH"
+            ;;
+    esac
     return 0
 }
 

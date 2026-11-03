@@ -99,8 +99,7 @@ grew from there.
 
 **Privacy**
 - No cloud and no outgoing connection, unless you turn on the GitHub release check (`UPDATE_CHECK=1`). Web login,
-  CSRF protection, only the local network may connect by default, and a "Privacy shield" switch that stops every
-  outgoing service.
+  CSRF protection and only the local network may connect by default.
 
 **What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), a VPN, resolution changes (1080p and
 640x360), card formatting from the web page, the encoder's smart mode (it stops the encoder with the memory left on
@@ -274,7 +273,7 @@ Settings → **Recording**:
   each login (as for RTSP and FTP), readable by anyone who can capture your Wi-Fi traffic. Use it on your own network
   only and never forward ports 80, 554, 22 or 21 from the internet (use a VPN to reach the camera from outside).
 - **Off by default**: every service that opens something to the network or sends data out is off on a new
-  installation (ONVIF, telnet, FTP, the HTTP file share, mDNS, MQTT, Ntfy/webhook/Telegram notifications, the
+  installation (ONVIF, telnet, FTP, mDNS, MQTT, Ntfy/webhook/Telegram notifications, the
   update check). An updated camera keeps what was switched on before. Exception: the rescue access point is on,
   because a camera that lost its Wi-Fi has no other way back; it only opens while the Wi-Fi does not work, and its
   default password `tc100rescue` is public: change it in Settings → Network.
@@ -284,7 +283,7 @@ Settings → **Recording**:
 - **Rescue telnet**: when the web interface does not answer, the web server is restarted once; if that does not
   help, a telnet opens on port 23, and closes again once the web interface has been back for two minutes.
 - **Offline by design**: the camera makes no outgoing connection except to your MQTT broker, NTP server and syslog
-  server, if set. *Privacy Shield* (Settings → System → LEDs and privacy) stops every outgoing service at once.
+  server, if set.
 - **Way back**: a card with `tc100test/c66.img` always starts first; with `RESTAURER.txt` at its root it writes back
   the flash saved before 3.0 (`v3/install/restore-stock.sh`, also usable over ssh). The vendor U-Boot is never written.
 

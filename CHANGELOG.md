@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Removed
+- **network-monitor** (`controlscripts/network-monitor`, `scripts/network-monitor.sh`, `netmon.conf`): `scripts/net-guard.sh`
+  (run by the housekeeper every minute) is the one network watcher. The `network/state` MQTT topic and the `network` object of
+  the health payload went with it. Cameras that listed it in `MEM_GUARD_SOFT_SERVICES` lose the name at the next memory-guard start.
+  `MEM_GUARD_SOFT_SERVICES` is empty by default.
+- **HTTP File Share (WebDAV-compat)** service (`controlscripts/webdav`, port 8080): the Recordings page already serves `/DCIM`.
+- **Privacy Shield leftovers**: `cmd=enable_privacy_shield`, the MQTT `privacy_shield` command and the `privacy_mode` health field.
+- **`cmd=conf_autodaynight`**: it wrote keys of `rtspserver.conf` that nothing reads (the day/night daemon reads `daynight.conf`).
+
+### Fixed
+- White balance memory (`awb.state`) no longer triggers a settings write to the SPI flash by itself: it is saved with the next
+  real settings save (boot-guard, deliberate reboots).
+
 ## [3.0.1] - 2026-10-31
 
 Tested on two TC100 cameras of the same variant: from rc5 on, each release candidate was installed and checked on

@@ -19,6 +19,5 @@
 #   telnet-server         — BusyBox telnetd shell access
 #   telegram-bot          — Telegram bot command listener
 #   mqtt-bridge           — MQTT command-to-controlscript bridge
-#   network-monitor       — connectivity watchdog / auto-reconnect
 #   memory-guard          — low-memory process reaper
 ENABLED_CAM_CONTROL_SWITCHES="auto-night-detection night-mode front-led rtsp-h26x motion-detection ftp-server telnet-server"

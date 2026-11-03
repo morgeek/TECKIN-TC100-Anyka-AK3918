@@ -339,21 +339,6 @@
       schedule_rtsp_restart
     ;;
 
-    enable_privacy_shield)
-      install_config /mnt/config/boot.conf
-      # Privacy Shield: Stop all non-essential outbound/inbound services.
-      for svc in telegram-bot syslog-forward mqtt-bridge ftp-server telnet-server; do
-        if [ -x "/mnt/controlscripts/$svc" ]; then
-          "/mnt/controlscripts/$svc" stop >/dev/null 2>&1 || true
-        fi
-      done
-      rewrite_config /mnt/config/boot.conf PRIVACY_MODE 1
-      echo "Privacy Shield activated: Cloud & outbound services disabled.<br/>"
-      _ac_now
-      [ -n "$now_ts" ] || now_ts=0
-      publish_mqtt_event "$(printf '{"ts":%s,"type":"privacy_shield","enabled":1}' "$now_ts")"
-    ;;
-
     set_video_size)
       capture_prechange_stream_snapshot
       safe_values_changed=0

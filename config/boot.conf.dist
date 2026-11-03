@@ -77,7 +77,7 @@ MEM_GUARD_COOLDOWN_SECONDS=120
 MEM_GUARD_DROP_CACHES=0
 
 # List of services to stop based on stage (soft, critical, emergency)
-MEM_GUARD_SOFT_SERVICES="network-monitor"
+MEM_GUARD_SOFT_SERVICES=""
 MEM_GUARD_CRITICAL_SERVICES="ftp-server telnet-server motion-detection"
 MEM_GUARD_EMERGENCY_SERVICES=""
 
