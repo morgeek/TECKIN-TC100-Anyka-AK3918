@@ -41,4 +41,27 @@ if __name__ == "__main__":
     for db in (6, 12, 20):
         generate_pcm("sounds/test-1k-m%d.pcm" % db, duration_sec=3.0, freq=1000, dbfs=-db)
 
+    # Chime ding-dong: 784 Hz (G5) for 0.4s then 587 Hz (D5) for 0.6s
+    generate_pcm("sounds/chime1.tmp", duration_sec=0.4, freq=784)
+    generate_pcm("sounds/chime2.tmp", duration_sec=0.6, freq=587)
+    with open("sounds/chime.pcm", "wb") as f:
+        f.write(open("sounds/chime1.tmp", "rb").read())
+        f.write(b"\x00\x00" * int(8000 * 0.05))
+        f.write(open("sounds/chime2.tmp", "rb").read())
+    os.remove("sounds/chime1.tmp")
+    os.remove("sounds/chime2.tmp")
+
+    # Siren: 2-second sweeping tone
+    rate = 8000
+    amp = 32767 * 10 ** (-6.0 / 20.0)
+    total = int(2.0 * rate)
+    phase = 0.0
+    with open("sounds/siren.pcm", "wb") as f:
+        for i in range(total):
+            t = (i % (rate // 2)) / (rate // 2)
+            freq = 800 + 600 * math.sin(math.pi * t)
+            phase += 2 * math.pi * freq / rate
+            fade = min(1.0, i / 40, (total - 1 - i) / 40)
+            f.write(struct.pack('<h', int(round(amp * fade * math.sin(phase)))))
+
     print("Generated PCM files in sounds/ directory.")

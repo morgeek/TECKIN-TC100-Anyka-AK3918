@@ -35,4 +35,10 @@ INTERVAL=2
 VOX_MODE=0
 VOX_HOLD_SECONDS=5
 
+# ALARM_DETECT — 1 to enable alarm sound alert tracking.
+#   When enabled, detects continuous loud high-pitched sound bursts typical of smoke / CO detectors
+#   (bursts lasting at least 3 seconds above threshold) and publishes alarm/state ON.
+ALARM_DETECT=0
+ALARM_HOLD_SECONDS=15
+
 # THRESHOLD — legacy (1.8.3 and earlier, raw sample sum); no longer used.

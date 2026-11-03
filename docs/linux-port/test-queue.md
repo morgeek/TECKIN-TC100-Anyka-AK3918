@@ -2237,6 +2237,27 @@ Trois ajouts pour diagnostiquer à distance sans console série. Tout est dans l
 - **Test :** Vérifier dans les journaux de démarrage de `tc100_rtsp` la prise en compte du ring buffer mémoire configuré.
 
 
+## 2026-11-03 — Lot 3 (implémenté, zéro U-Boot / zéro noyau) : Audio avancé, bibliothèque de carillons/sirènes, détection alarme fumée
+
+Évolutions audio en espace utilisateur Linux, 100% désactivées par défaut.
+
+### 1. Bibliothèque de sons & carillon / sirène intégrés (`sounds/`, `action.d/audio.sh`, `scripts/mqtt-bridge.sh`)
+- **Quoi :** Ajout de sons pré-générés au format natif AK3918 (PCM 8 kHz mono S16_LE à -6 dBFS anti-écrêtage avec fondus) :
+  - `sounds/chime.pcm` : carillon 2 tons (784 Hz / 587 Hz).
+  - `sounds/siren.pcm` : sirène d'alerte balayée 800–1400 Hz (2 s).
+  - Déclenchables immédiatement via l'API Web : `action.cgi?cmd=play_sound&sound=chime|siren|alert` avec paramètre `volume=0..100`.
+  - Boutons Home Assistant créés automatiquement via MQTT Discovery : « Play Chime » et « Sound Siren » (`<root>/button/chime`, `<root>/button/siren`), ainsi que commande plain text / JSON `{"cmd":"play_sound","value":"chime"}`.
+- **Test :**
+  1. Depuis l'UI Web ou `curl http://<ip>/cgi-bin/action.cgi?cmd=play_sound&sound=chime` : le carillon retentit sur le haut-parleur.
+  2. Depuis Home Assistant, cliquer sur « Play Chime » ou « Sound Siren ».
+
+### 2. Détection de motif d'alarme fumée / sirène (`controlscripts/sound-detection`)
+- **Quoi :** Détection de son fort soutenu (>= 3 secondes consécutives au-dessus du seuil configuré `THRESHOLD_DB`), caractéristique des avertisseurs de fumée et de CO (norme NF DAAF T3).
+- **MQTT :** Publie l'état vers `<root>/alarm/state` (`ON` puis `OFF` après `ALARM_HOLD_SECONDS=15` de silence) et entité Home Assistant `binary_sensor` (`dev_cla: safety`, icône `mdi:fire-alert`).
+- **Interrupteur :** `ALARM_DETECT=0` par défaut dans `sound_detection.conf` (`1` pour activer).
+- **Test :** Activer `ALARM_DETECT=1` dans `sound_detection.conf`, émettre un son aigu/soutenu pendant plus de 3 secondes, vérifier la publication `alarm/state ON` et l'alerte sur Home Assistant.
+
+
 ## 2026-11-03 — Lot 4 (implémenté, zéro U-Boot / zéro noyau) : Notifications multi-canaux (Ntfy, Webhook), métriques Prometheus, Snapshot MQTT
 
 Évolutions écosystème, alertes et domotique en espace utilisateur Linux, 100% désactivées par défaut.

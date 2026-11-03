@@ -167,13 +167,13 @@ sd_wait()
     fi
 }
 
-# load_config -> enable threshold interval min_loud vox_mode vox_hold, read in one pass without
+# load_config -> enable threshold interval min_loud vox_mode vox_hold alarm_detect alarm_hold, read in one pass without
 # a subshell; only when the file changed since the last load (shell -nt test).
 SD_STAMP="${SD_STAMP:-/tmp/sound-detection.loaded}"
 load_config()
 {
     [ -n "${enable:-}" ] && [ -f "$SD_STAMP" ] && ! [ "$CONFIG_FILE" -nt "$SD_STAMP" ] && return 0
-    enable=0; threshold=-24; interval=2; min_loud=1; vox_mode=0; vox_hold=5
+    enable=0; threshold=-24; interval=2; min_loud=1; vox_mode=0; vox_hold=5; alarm_detect=0; alarm_hold=15
     if [ -r "$CONFIG_FILE" ]; then
         while IFS='=' read -r _lc_k _lc_v; do
             case "$_lc_k" in
@@ -183,6 +183,8 @@ load_config()
                 MIN_LOUD_SECONDS) min_loud="$_lc_v" ;;
                 VOX_MODE) vox_mode="$_lc_v" ;;
                 VOX_HOLD_SECONDS) vox_hold="$_lc_v" ;;
+                ALARM_DETECT) alarm_detect="$_lc_v" ;;
+                ALARM_HOLD_SECONDS) alarm_hold="$_lc_v" ;;
             esac
         done < "$CONFIG_FILE"
     fi
@@ -195,6 +197,9 @@ load_config()
     case "$vox_mode" in 1|true|yes|on) vox_mode=1 ;; *) vox_mode=0 ;; esac
     case "$vox_hold" in ''|*[!0-9]*) vox_hold=5 ;; esac
     [ "$vox_hold" -lt 1 ] && vox_hold=1; [ "$vox_hold" -gt 60 ] && vox_hold=60
+    case "$alarm_detect" in 1|true|yes|on) alarm_detect=1 ;; *) alarm_detect=0 ;; esac
+    case "$alarm_hold" in ''|*[!0-9]*) alarm_hold=15 ;; esac
+    [ "$alarm_hold" -lt 5 ] && alarm_hold=5; [ "$alarm_hold" -gt 120 ] && alarm_hold=120
     : > "$SD_STAMP"
 }
 
@@ -208,6 +213,8 @@ run_daemon()
     cooldown_seconds="$(clamp_int "$EVENT_COOLDOWN_SECONDS" 0 300)"
     vox_active=0
     vox_until=0
+    alarm_active=0
+    alarm_until=0
 
     enable=""
     rm -f "$SD_STAMP"
@@ -219,6 +226,11 @@ run_daemon()
                 vox_active=0
                 rm -f /tmp/vox_state
                 [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish babyphone/state "OFF" 1 >/dev/null 2>&1 || true
+            fi
+            if [ "$alarm_active" = "1" ]; then
+                alarm_active=0
+                rm -f /tmp/sound_alarm_state
+                [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish alarm/state "OFF" 1 >/dev/null 2>&1 || true
             fi
             sd_wait 300
             continue
@@ -253,6 +265,19 @@ run_daemon()
                         vox_until=$(( ${_v_up%.*} + vox_hold ))
                     fi
                 fi
+                # Alarm tone detector: loud sound continuous for 3+ seconds
+                if [ "$alarm_detect" = "1" ] && [ "$streak" -ge 3 ]; then
+                    alarm_active=1
+                    read -r _a_up _ < /proc/uptime 2>/dev/null
+                    alarm_until=$(( ${_a_up%.*} + alarm_hold ))
+                    echo "ON" > /tmp/sound_alarm_state 2>/dev/null
+                    if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
+                        /mnt/scripts/mqtt-bridge.sh publish alarm/state "ON" 1 >/dev/null 2>&1 || true
+                    fi
+                    if [ -x /mnt/scripts/notify.sh ]; then
+                        /mnt/scripts/notify.sh sound "Alarm sound pattern detected (loudness: ${streak}s)" "" "$m_last_db" >/dev/null 2>&1 &
+                    fi
+                fi
             else
                 streak=0
             fi
@@ -263,6 +288,15 @@ run_daemon()
                     vox_active=0
                     rm -f /tmp/vox_state
                     [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish babyphone/state "OFF" 1 >/dev/null 2>&1 || true
+                fi
+            fi
+
+            if [ "$alarm_detect" = "1" ] && [ "$alarm_active" = "1" ]; then
+                read -r _a_up _ < /proc/uptime 2>/dev/null
+                if [ "${_a_up%.*}" -ge "$alarm_until" ]; then
+                    alarm_active=0
+                    rm -f /tmp/sound_alarm_state
+                    [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish alarm/state "OFF" 1 >/dev/null 2>&1 || true
                 fi
             fi
         else
@@ -276,6 +310,11 @@ run_daemon()
                 vox_active=0
                 rm -f /tmp/vox_state
                 [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish babyphone/state "OFF" 1 >/dev/null 2>&1 || true
+            fi
+            if [ "$alarm_active" = "1" ]; then
+                alarm_active=0
+                rm -f /tmp/sound_alarm_state
+                [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish alarm/state "OFF" 1 >/dev/null 2>&1 || true
             fi
         fi
 

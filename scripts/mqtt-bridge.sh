@@ -1041,6 +1041,12 @@ DIAG
   tamper_cfg_payload="$(printf '{"name":"%s Tamper","uniq_id":"%s_tamper","stat_t":"%s","dev_cla":"problem","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:shield-alert","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$tamper_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$tamper_cfg_topic" "$tamper_cfg_payload"
 
+  # Smoke / Siren Alarm binary_sensor (<root>/alarm/state)
+  alarm_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/alarm/state")"
+  alarm_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/alarm/config"
+  alarm_cfg_payload="$(printf '{"name":"%s Smoke/Siren Alarm","uniq_id":"%s_alarm","stat_t":"%s","dev_cla":"safety","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:fire-alert","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$alarm_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$alarm_cfg_topic" "$alarm_cfg_payload"
+
   # Switches (Interactive Toggles)
   for cmd in ir_led front_led red_led motion_detection night_mode auto_night_mode; do
     uniq_id="${node_id}_${cmd}"
@@ -1128,6 +1134,14 @@ DIAG
   snapshot_btn_topic="${discovery_prefix}/button/${node_id}/snapshot/config"
   snapshot_btn_payload="$(printf '{"name":"%s Take Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","payload_press":"{\"cmd\":\"snapshot\"}","avty_t":"%s","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$snapshot_btn_topic" "$snapshot_btn_payload"
+
+  chime_btn_topic="${discovery_prefix}/button/${node_id}/chime/config"
+  chime_btn_payload="$(printf '{"name":"%s Play Chime","uniq_id":"%s_chime","cmd_t":"%s","payload_press":"{\"cmd\":\"play_sound\",\"value\":\"chime\"}","avty_t":"%s","ic":"mdi:bell-ring","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$chime_btn_topic" "$chime_btn_payload"
+
+  siren_btn_topic="${discovery_prefix}/button/${node_id}/siren/config"
+  siren_btn_payload="$(printf '{"name":"%s Sound Siren","uniq_id":"%s_siren","cmd_t":"%s","payload_press":"{\"cmd\":\"play_sound\",\"value\":\"siren\"}","avty_t":"%s","ic":"mdi:bullhorn","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$siren_btn_topic" "$siren_btn_payload"
 
   update_cfg_topic="${discovery_prefix}/update/${node_id}/firmware/config"
   update_cfg_payload="$(printf '{"name":"%s Firmware","uniq_id":"%s_update","stat_t":"%s","val_tpl":"{{ value_json.update_status if value_json.update_status is defined else \"none\" }}","cmd_t":"%s","pl_inst":"{\"cmd\":\"update_install\"}","avty_t":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/update/state" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
@@ -2177,6 +2191,25 @@ handle_command_payload()
       else
         publish_event_simple "command.profile" "invalid:$value"
         publish_command_result "profile" "invalid" "Unknown profile ${value}." 0 "$command_source" command
+        command_rc=1
+      fi
+      ;;
+    play_sound|chime|siren|alarm)
+      _snd_to_play="${value:-$cmd}"
+      case "$_snd_to_play" in
+        play_sound) _snd_to_play="chime" ;;
+        alarm)      _snd_to_play="siren" ;;
+      esac
+      _snd_to_play="$(printf '%s' "$_snd_to_play" | tr -cd 'a-zA-Z0-9_-')"
+      _snd_path="/mnt/sounds/${_snd_to_play}.pcm"
+      [ -f "$_snd_path" ] || _snd_path="sounds/${_snd_to_play}.pcm"
+      if [ -f "$_snd_path" ] && [ -x /mnt/scripts/speaker-play.sh ]; then
+        /mnt/scripts/speaker-play.sh "$_snd_path" 90 >/dev/null 2>&1 &
+        publish_event_simple "command.play_sound" "$_snd_to_play"
+        publish_command_result "play_sound" "played" "Playing ${_snd_to_play}." 1 "$command_source" command
+      else
+        publish_event_simple "command.play_sound" "not_found:$_snd_to_play"
+        publish_command_result "play_sound" "not_found" "Sound ${_snd_to_play} not found." 0 "$command_source" command
         command_rc=1
       fi
       ;;

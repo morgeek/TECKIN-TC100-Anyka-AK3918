@@ -954,5 +954,39 @@ class Lot2BestShotAndZones(unittest.TestCase):
         self.assertIn('REC_RING_KB=1024', boot)
 
 
+class Lot3AudioAndSounds(unittest.TestCase):
+    """Lot 3: Built-in sound library, siren/chime playback via API/MQTT, and smoke alarm detection."""
+
+    def test_sound_files_exist(self):
+        for name in ('chime.pcm', 'siren.pcm', 'alert.pcm', 'startup_complete.pcm'):
+            p = ROOT / 'sounds' / name
+            self.assertTrue(p.exists(), name)
+            self.assertGreater(p.stat().st_size, 1000)
+
+    def test_action_play_sound_endpoint(self):
+        act = (ROOT / 'scripts/action.d/audio.sh').read_text()
+        self.assertIn('play_sound)', act)
+        self.assertIn('/mnt/scripts/speaker-play.sh', act)
+        self.assertEqual(sh('sh -n %s' % (ROOT / 'scripts/action.d/audio.sh')).returncode, 0)
+
+    def test_mqtt_bridge_audio_commands_and_buttons(self):
+        mq = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        self.assertIn('play_sound|chime|siren|alarm)', mq)
+        self.assertIn('button/${node_id}/chime/config', mq)
+        self.assertIn('button/${node_id}/siren/config', mq)
+        self.assertIn('binary_sensor/${node_id}/alarm/config', mq)
+        self.assertEqual(sh('sh -n %s' % (ROOT / 'scripts/mqtt-bridge.sh')).returncode, 0)
+
+    def test_alarm_detection_logic_and_config(self):
+        conf = (ROOT / 'config/sound_detection.conf.dist').read_text()
+        self.assertIn('ALARM_DETECT=0', conf)
+        self.assertIn('ALARM_HOLD_SECONDS=15', conf)
+        sd = (ROOT / 'controlscripts/sound-detection').read_text()
+        self.assertIn('alarm_detect', sd)
+        self.assertIn('sound_alarm_state', sd)
+        self.assertIn('alarm/state "ON"', sd)
+        self.assertEqual(sh('sh -n %s' % (ROOT / 'controlscripts/sound-detection')).returncode, 0)
+
+
 if __name__ == '__main__':
     unittest.main()
