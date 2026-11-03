@@ -63,3 +63,10 @@ Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Ti
 - [ ] **AE overshoot after boot** (.11, rc20: picture almost white about 7 minutes after boot, back to normal by itself). Start the AE from a mid exposure; criterion: luma below 200 within 30 s after boot.
 - [ ] **mDNS**: now on by default in rc23; unicast answer verified on both cameras, multicast `ping <name>.local` from the owner's Mac still to be confirmed.
 - [ ] Still to run on both cameras before the tag: tamper alarm with the owner's hand, a real night (day/night switch, colours back in the morning, IR off behind glass), SD card tests on the .24, notifications, flash write frequency of `awb.state` through cfg-persist.
+
+## Added by the audit of 2026-11-03 (`audit-2026-11-03.md`)
+- [ ] **Values written unquoted into shell-sourced files**: `MQTT_USER`, `MQTT_PASSWORD`, Telegram `apiToken`/`userChatId` (`rewrite_config`, then `. mqtt.conf`). A password with a space breaks the MQTT bridge; `$(...)` would run as root. Quote on write or parse without sourcing; add a test with `a b$(x)`.
+- [ ] **Reported frame rate wrong**: dashboard, `frigateyaml` and HA manifest say 15 fps while the streams run at 25 (`state.cgi:460-498` reads `0_fps`, falls back to 15). Also README "15 by default" while `rtspserver.conf.dist` has `fps=25`; document the 10 fps low-light mode.
+- [ ] `frigateyaml`: camera password in clear by default; use `{FRIGATE_RTSP_PASSWORD}`.
+- [ ] **No LICENSE file** although the README says "100% open-source repository" (owner's decision on the licence).
+- [ ] `CREDITS.md`: remove `thingino_port/` (gone); document origin and licence of the prebuilt `monvifd`, `rwconf`, `getflag`, `getimage`, or rebuild them.
