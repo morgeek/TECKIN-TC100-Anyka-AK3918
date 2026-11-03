@@ -490,9 +490,11 @@ read_rtsp_stream_summary() {
     cfg_int maxkbps1 1_maxkbps 450
     cfg_int targetkbps1 1_targetkbps 400
 
-    # tc100_rtsp encodes 1920x1080 and 640x360 at 15 frames per second whatever the file says (codec and bit rate
-    # are taken from it): report what the streams really are (dashboard, Frigate YAML, HA manifest).
-    # The frame rate is one setting for both streams: 10, 12, 15, 20 or 25 (Settings -> Streams & audio), else 15.
+    # tc100_rtsp encodes 1920x1080 and 640x360 whatever the file says (codec and bit rate are taken from it): report
+    # what the streams really are (dashboard, Frigate YAML, HA manifest). The frame rate is one setting for both
+    # streams, [0] fps: 10, 12, 15, 20 or 25 (Settings -> Streams & audio; rtsp-launch.sh passes it as -f), else 15.
+    # The caller must have run load_conf_file /mnt/config/rtspserver.conf (frigateyaml, integrationtest and
+    # integrationmanifest did not, and reported 15 fps and the defaults while the camera ran at 25).
     width0=1920; height0=1080; width1=640; height1=360
     case "$fps0" in 10|12|15|20|25) ;; *) fps0=15 ;; esac
     fps1=$fps0
@@ -832,6 +834,7 @@ if [ -n "$F_cmd" ]; then
     fi
     [ -n "$test_hostname" ] || test_hostname="TC100 Camera"
 
+    load_conf_file /mnt/config/rtspserver.conf   # read_rtsp_stream_summary reads the C_* variables it sets
     read_rtsp_stream_summary
     rtsp_username_test="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
     rtsp_password_test="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
@@ -1009,6 +1012,7 @@ if [ -n "$F_cmd" ]; then
       web_motion_thumbnail_url="${web_base_url}/cgi-bin/motionthumb.cgi"
     fi
 
+    load_conf_file /mnt/config/rtspserver.conf   # read_rtsp_stream_summary reads the C_* variables it sets
     read_rtsp_stream_summary
     rtsp_username="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
     rtsp_password="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
@@ -1454,6 +1458,7 @@ if [ -n "$F_cmd" ]; then
     [ -n "$fy_slug" ] || fy_slug="tc100_camera"
 
     detect_primary_ip
+    load_conf_file /mnt/config/rtspserver.conf   # read_rtsp_stream_summary reads the C_* variables it sets
     read_rtsp_stream_summary
     fy_user="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
     fy_pass="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
