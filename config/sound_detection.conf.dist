@@ -30,14 +30,18 @@ MIN_LOUD_SECONDS=1
 INTERVAL=2
 
 # VOX_MODE — 1 to enable continuous babyphone / Vox state tracking.
+#   Needs ENABLE=1 as well (VOX_MODE alone does nothing).
 #   When VOX_MODE=1, sound bursts emit babyphone binary_sensor ON to MQTT,
 #   and hold ON until VOX_HOLD_SECONDS of silence elapsed before resetting to OFF.
 VOX_MODE=0
 VOX_HOLD_SECONDS=5
 
 # ALARM_DETECT — 1 to enable alarm sound alert tracking.
-#   When enabled, detects continuous loud high-pitched sound bursts typical of smoke / CO detectors
-#   (bursts lasting at least 3 seconds above threshold) and publishes alarm/state ON.
+#   Needs ENABLE=1 as well. Fires on ANY sound above THRESHOLD_DB for at least
+#   3 seconds in a row (level only, the pitch is not analysed): a smoke / CO
+#   alarm does that, but so do music, a vacuum cleaner or a long shout.
+#   A help, never a safety device: it does not replace a real alarm.
+#   Publishes alarm/state ON, back to OFF after ALARM_HOLD_SECONDS.
 ALARM_DETECT=0
 ALARM_HOLD_SECONDS=15
 

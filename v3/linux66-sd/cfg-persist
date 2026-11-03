@@ -52,6 +52,7 @@ restore_ssh() {
   if [ -s "$CFG/authorized_keys" ]; then
     mkdir -p /root/.ssh 2>/dev/null && chmod 700 /root/.ssh 2>/dev/null
     cp "$CFG/authorized_keys" /root/.ssh/authorized_keys 2>/dev/null && chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+    chmod 600 "$CFG/authorized_keys" 2>/dev/null
   fi
   if [ -s "$CFG/dropbear_ed25519_host_key" ] && [ -d /etc/dropbear ]; then
     cp "$CFG/dropbear_ed25519_host_key" /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null && chmod 600 /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null

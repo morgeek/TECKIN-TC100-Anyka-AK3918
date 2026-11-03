@@ -2486,3 +2486,20 @@ Build : `3.0.1-rc20` (commit d217a60), installée par la mise à jour web sur la
   - Demande à l'implémenteur : au démarrage de tc100_rtsp, initialiser l'AE sur une exposition moyenne (ou accélérer la convergence) ; critère : luma < 200 dans les 30 s après boot sur la .11.
   - .24 non concernée (luma 140 à la même heure).
 - **mDNS** : le service est **off par défaut** → `ping ipcamera2.local` = "unknown host" est attendu tant qu'il n'est pas démarré. Démarré à la main sur la .11 (`tc100-mdnsd -i wlan0`, nom = hostname.conf = IPCAMERA2) ; le démarrage manuel ne survit pas au reboot. À décider : activer `config/autostart/mdns` par défaut (léger) ? Retest ping depuis le Mac du propriétaire en attente.
+
+## 2026-11-03 — Petites corrections après le bilan rc20 (commit `[rc20-fix]`, zéro U-Boot / zéro noyau)
+
+Seuls les défauts mineurs et sans risque du bilan rc20 sont corrigés ici. Le reste est laissé à l'implémenteur (liste en fin d'entrée).
+
+1. **Droits de `/mnt/config/authorized_keys`** (défaut 4) : à chaque restauration de la clé (`S50dropbear-linux66`, `controlscripts/ssh-server`, `cfg-persist restore`), le fichier de `/mnt/config` est remis en `600` en plus de la copie dans `/root/.ssh`.
+   - Test (.24) : redémarrer, puis `ls -l /mnt/config/authorized_keys` → `-rw-------` ; la connexion ssh par clé marche toujours.
+2. **Signal Wi-Fi -256** (défaut 2) : `wifi-quality.sh` et `metrics.cgi` n'acceptent plus que -110..-1 dBm ; -256 (pas de mesure du pilote) donne `null` dans `/tmp/wifi-quality.log` (et ne fausse plus `rssi_min_1h`), `0` dans `tc100_wifi_signal_dbm` comme avant quand il n'y a pas de valeur. Test unitaire ajouté (`Lot1B.test_wifi_quality_samples_and_hour_summary`).
+   - Test : après 1 h, `cat /tmp/wifi-quality` : `rssi_min_1h` n'est jamais -256 ; comparer `rssi` à `iw dev wlan0 link`.
+   - Pas fait : lire `iw dev wlan0 link` à la place de `/proc/net/wireless` (à décider après la mesure ci-dessus).
+3. **Push : identifiants passés à `curl` en UN argument** (`config_exchange.cgi`) : un mot de passe avec une espace ou un `*` ne peut plus être découpé en options de `curl`.
+4. **Documentation** : `sound_detection.conf.dist` et `CHANGELOG.md` disent que Vox et l'alarme demandent aussi `ENABLE=1`, et que l'alarme se déclenche sur tout son fort ≥ 3 s (pas d'analyse de fréquence, jamais une sécurité) ; `boot.conf.dist` décrit la vraie méthode du sabotage (taille JPEG + exposition) et dit que `tamper.conf` l'emporte sur `TAMPER_DETECT`.
+
+**Non corrigé ici (à l'implémenteur, décision ou risque) :**
+- **Push encore inutilisable** : `backup.html` n'envoie ni l'en-tête `X-CSRF-Token` (refus attendu par `mutation_guard` → `csrf_guard`) ni d'identifiant/mot de passe pour la caméra cible (qui répond 401) ; la configuration envoyée contient le jeton Telegram et l'utilisateur MQTT en HTTP simple (`exclude_credentials` ne joue que du côté de la cible). À retester seulement après correction.
+- **Mot de passe de secours fixe `tc100rescue`** (20c0c5e / 3962833) : identique sur toutes les caméras et publié dans le dépôt, alors que l'ancien était aléatoire par caméra (écrit sur la carte, `tc100-3/ADRESSE.txt`). À décider par le propriétaire (règle AGENTS.md : pas de mot de passe dans le dépôt).
+- Carte SD non démontée avant `reboot` (touche tous les chemins de redémarrage), surexposition de la .11 après démarrage, fréquence avec plusieurs clients RTSP, à-coups Wi-Fi, historique des redémarrages en mode flash, mDNS actif par défaut ou non.

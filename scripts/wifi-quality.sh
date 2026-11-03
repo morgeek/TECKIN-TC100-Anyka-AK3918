@@ -21,6 +21,8 @@ wq_rssi() {
     [ "${_i%:}" = "$IFACE" ] || continue
     _l=${_l%.}
     case "$_l" in -[0-9]*) _r=$_l ;; [0-9]*) [ "$_l" -gt 0 ] && [ "$_l" -le 256 ] && _r=$((_l - 256)) ;; esac
+    # the RTL8188FU driver sometimes reports -256 (no reading): keep only -110..-1 dBm
+    case "$_r" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110) ;; *) _r=null ;; esac
     break
   done < "${WQ_WIRELESS:-/proc/net/wireless}" 2>/dev/null
   echo "$_r"

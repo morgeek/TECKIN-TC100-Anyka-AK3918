@@ -24,7 +24,9 @@ release candidates' details, newest first.
   - Home Assistant MQTT discovery buttons ("Play Chime", "Sound Siren") and MQTT command topic support.
   - Audio Test button on live dashboard linked directly to built-in chime playback.
 - **Continuous Siren & Smoke / CO Alarm Detection (`controlscripts/sound-detection`)**:
-  - Pattern detector for continuous loud high-pitched sound bursts (≥3s sustained) typical of smoke and CO alarms.
+  - Fires on any loud sound sustained ≥3 s (level only, the pitch is not analysed), which smoke and CO alarms
+    produce; music or a vacuum cleaner trigger it too. Needs `ENABLE=1` in `sound_detection.conf`. A help, not a
+    safety device.
   - Home Assistant `safety` binary sensor (`mdi:fire-alert`) publishing to `<root>/alarm/state`.
 - **Motion Best-Shot Selection & Named Zones (`scripts/detectionOn.sh`, `scripts/action.d/detection.sh`, `www/settings.html`)**:
   - `motion_best_shot=1` takes a rapid 3-shot burst and selects the sharpest JPEG image by detail/byte size for alerts and notifications.
@@ -46,7 +48,8 @@ release candidates' details, newest first.
   - Direct raw JPEG image bytes published to `<root>/snapshot/image` via `mqtt_publish_file` on snapshot requests.
   - Opt-in camera entity discovery (`MQTT_HA_CAMERA_ENTITY_ENABLE=1` in `mqtt.conf`) compatible with Home Assistant's MQTT camera platform.
 - **VOX / Babyphone Mode & Camera Tamper Detection**:
-  - `VOX_MODE=1` and `VOX_HOLD_SECONDS=5` in `sound_detection.conf` with Home Assistant `sound` binary sensor.
+  - `VOX_MODE=1` and `VOX_HOLD_SECONDS=5` in `sound_detection.conf` (with `ENABLE=1`, which turns the sound
+    detection on) with Home Assistant `sound` binary sensor.
   - Real-time audio VU level (`sound_db`) in the web UI status line without subshells.
   - Occlusion / tamper detector (`scripts/tamper-detect.sh`) with day/night transition guard and Home Assistant `problem` binary sensor.
 - **Remote Diagnostics & Network Reliability**:

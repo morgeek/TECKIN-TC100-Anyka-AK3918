@@ -306,15 +306,16 @@ case "$F_cmd" in
     _push_tmp="/tmp/ce_push_$$.json"
     QUERY_STRING="cmd=fullconfig" F_cmd="fullconfig" sh ./state.cgi | sed '1,/^$/d' > "$_push_tmp" 2>/dev/null
 
-    # Build auth parameter if user/pass provided
-    _auth_opt=""
+    # Auth parameter if user/pass provided, as ONE argument (a space or a '*' in the password must not split it
+    # into extra curl options)
+    set --
     if [ -n "${F_user:-}" ] || [ -n "${F_password:-}" ]; then
-      _auth_opt="-u ${F_user:-}:${F_password:-}"
+      set -- -u "${F_user:-}:${F_password:-}"
     fi
 
     # Target URL with exclusion parameters
     _dest_url="$_target/cgi-bin/config_exchange.cgi?cmd=import&exclude_network=1&exclude_credentials=1"
-    _resp="$("$_curl_bin" -s -S -m 10 $_auth_opt -H "Content-Type: application/json" --data-binary "@$_push_tmp" "$_dest_url" 2>&1)"
+    _resp="$("$_curl_bin" -s -S -m 10 "$@" -H "Content-Type: application/json" --data-binary "@$_push_tmp" "$_dest_url" 2>&1)"
     _ret=$?
     rm -f "$_push_tmp" 2>/dev/null
 

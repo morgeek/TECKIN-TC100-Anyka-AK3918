@@ -815,11 +815,13 @@ class Lot1B(unittest.TestCase):
             self.assertEqual((summ['rssi'], summ['rssi_min_1h'], summ['rssi_avg_1h'], summ['loss_pct_1h'],
                               summ['retries_1h'], summ['failed_1h'], summ['samples_1h']),
                              ('-80', '-80', '-73', '17', '30', '2', '2'))
-            # no router answer at all: loss is null, the summary still comes out
+            # no router answer at all: loss is null, the summary still comes out; the driver's -256 is no reading
             (d / 'ping').write_text('')
+            (d / 'wireless').write_text(' wlan0: 0000   0.  -256.  -256        0      0\n')
             sh('WQ_NOW=5000 sh %s sample' % script, env)
             summ = dict(l.split('=') for l in (d / 'sum').read_text().split())
             self.assertEqual((summ['samples_1h'], summ['loss_pct_1h']), ('1', 'null'))
+            self.assertEqual((summ['rssi'], summ['rssi_min_1h']), ('null', 'null'))
         finally:
             shutil.rmtree(d)
 

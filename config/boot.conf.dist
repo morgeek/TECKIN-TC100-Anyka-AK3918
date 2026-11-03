@@ -243,8 +243,12 @@ RED_LED=0
 UPDATE_CHECK=0
 
 # Camera tampering / occlusion detection (scripts/tamper-detect.sh):
-# detects lens covering/spraying via sudden pitch-dark luma and maximum AE gain.
+# detects lens covering/spraying via a drop of the JPEG size together with a jump
+# of the exposure (the auto-exposure brings a covered lens back to mid luma).
 # Suppressed for 30s after night/day switches. 0 = off (default), 1 = on.
+# If /mnt/config/tamper.conf exists, its ENABLE / TAMPER_HOLD_SEC / TAMPER_LUMA_MIN
+# win over these lines (tamper.conf with ENABLE=0 turns it off even when
+# TAMPER_DETECT=1).
 TAMPER_DETECT=0
 TAMPER_LUMA_MIN=15
 TAMPER_HOLD_SEC=3

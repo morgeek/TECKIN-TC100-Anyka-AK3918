@@ -65,7 +65,8 @@ if [ -r /proc/net/wireless ]; then
     [ "$_k" = "wlan0:" ] || continue
     _lk="${_lk%%.*}"; _lv="${_lv%%.*}"
     case "$_lk" in ''|*[!0-9]*) ;; *) _wq=$_lk ;; esac
-    case "$_lv" in -[0-9]*|[0-9]*) case "${_lv#-}" in *[!0-9]*) ;; *) _wl=$_lv ;; esac ;; esac
+    # same filter as wifi-quality.sh: -256 (no reading from the driver) is not a signal level
+    case "$_lv" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110) _wl=$_lv ;; esac
     break
   done < /proc/net/wireless 2>/dev/null
 fi
