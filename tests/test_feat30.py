@@ -817,7 +817,7 @@ class Lot1B(unittest.TestCase):
         self.assertEqual(re.findall(r'#include\s+(\S+)', src), ['"mdns_pkt.h"'])
         self.assertIn('(src.addr & mask) != (ip & mask)', src)      # same subnet only
         self.assertNotIn('_services._dns-sd', src + (ROOT / 'src/mdnsd/mdns_pkt.h').read_text())
-        self.assertFalse((ROOT / 'config/autostart/mdns').exists())  # off unless the owner turns it on
+        self.assertTrue((ROOT / 'config/autostart/mdns').exists())  # enabled by default in 3.0.1-rc23
         cs = (ROOT / 'controlscripts/mdns').read_text()
         self.assertIn('/mnt/tc100test/tc100-mdnsd', cs)
         self.assertEqual(sh('sh -n %s' % (ROOT / 'controlscripts/mdns')).returncode, 0)

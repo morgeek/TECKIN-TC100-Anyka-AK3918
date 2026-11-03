@@ -37,8 +37,9 @@
     <div class="settings-main">
     <!-- Live picture for the Image sections (Picture, Day/night): every change is seen at once -->
     <div class="image-preview" id="image_preview" hidden style="position:sticky;top:3.25rem;z-index:4;padding:.5rem 0;background:inherit">
+        <video id="image_preview_video" autoplay muted playsinline style="display:none;width:100%;max-height:42vh;object-fit:contain;background:#000;border-radius:6px"></video>
         <img id="image_preview_img" alt="Live camera picture" decoding="async" style="display:block;width:100%;max-height:42vh;object-fit:contain;background:#000;border-radius:6px">
-        <p class="help" id="image_preview_note">Live picture, refreshed every 2 seconds while this section is open.</p>
+        <p class="help" id="image_preview_note">Live picture (Smooth H.264 video), refreshed in real time while this section is open.</p>
     </div>
     <!-- Tab Contents -->
     <div id="tab-contents">
@@ -868,21 +869,92 @@
         // Live picture above Picture and Day/night: a new snapshot every 2 s while the section is open and the page
         // visible (the camera keeps it ready: no extra encoding), never two requests at once.
         var previewTimer = null;
+        var previewStream = null;
+
         function imagePreview(on) {
             var box = document.getElementById('image_preview');
             var img = document.getElementById('image_preview_img');
+            var video = document.getElementById('image_preview_video');
             if (!box || !img) return;
             box.hidden = !on;
             if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
-            if (!on) return;
-            function next() {
-                previewTimer = null;
-                if (box.hidden || !document.body.contains(box)) return;
-                if (document.hidden) { previewTimer = setTimeout(next, 2000); return; }
-                img.onload = img.onerror = function () { if (!box.hidden) previewTimer = setTimeout(next, 2000); };
-                img.src = 'cgi-bin/currentpic.cgi?_=' + Date.now();
+            if (previewStream) {
+                try { previewStream.reader.cancel(); } catch(e) {}
+                try { previewStream.ctl.abort(); } catch(e) {}
+                if (video) {
+                    try { video.pause(); } catch(e) {}
+                    video.removeAttribute('src');
+                    try { video.load(); } catch(e) {}
+                    video.style.display = 'none';
+                }
+                previewStream = null;
             }
-            next();
+            if (!on) {
+                if (img) img.style.display = 'none';
+                return;
+            }
+
+            // Prefer smooth H.264 fMP4 live video via MediaSource
+            if (window.MediaSource && window.fetch && video) {
+                var ctl = new AbortController();
+                var ms = new MediaSource();
+                previewStream = { ctl: ctl, ms: ms, reader: null };
+                fetch('cgi-bin/live.cgi?info=1', { cache: 'no-store', signal: ctl.signal })
+                    .then(function (r) { return r.json(); })
+                    .then(function (info) {
+                        if (!info || !info.ok || !info.codec) throw new Error('no h264');
+                        var mime = 'video/mp4; codecs="' + info.codec + '"';
+                        if (!MediaSource.isTypeSupported(mime)) throw new Error('unsupported');
+                        ms.addEventListener('sourceopen', function () {
+                            var sb = ms.addSourceBuffer(mime);
+                            var queue = [];
+                            var pumping = false;
+                            function pump() {
+                                if (pumping || !sb || sb.updating || queue.length === 0) return;
+                                pumping = true;
+                                try { sb.appendBuffer(queue.shift()); } catch(e) {}
+                            }
+                            sb.addEventListener('updateend', function () { pumping = false; pump(); });
+                            fetch('cgi-bin/live.cgi', { cache: 'no-store', signal: ctl.signal })
+                                .then(function (res) {
+                                    if (!res.ok) throw new Error('http ' + res.status);
+                                    var reader = res.body.getReader();
+                                    if (previewStream) previewStream.reader = reader;
+                                    function readChunk() {
+                                        reader.read().then(function (result) {
+                                            if (result.done) return;
+                                            queue.push(result.value);
+                                            pump();
+                                            readChunk();
+                                        }).catch(function () {});
+                                    }
+                                    readChunk();
+                                })
+                                .catch(function () { fallbackSnapshot(); });
+                        });
+                        video.src = URL.createObjectURL(ms);
+                        video.style.display = 'block';
+                        img.style.display = 'none';
+                        video.play().catch(function () {});
+                    })
+                    .catch(function () { fallbackSnapshot(); });
+                return;
+            }
+
+            fallbackSnapshot();
+
+            function fallbackSnapshot() {
+                if (video) video.style.display = 'none';
+                if (img) img.style.display = 'block';
+                function next() {
+                    previewTimer = null;
+                    if (box.hidden || !document.body.contains(box)) return;
+                    if (document.hidden) { previewTimer = setTimeout(next, 2000); return; }
+                    img.onload = img.onerror = function () { if (!box.hidden) previewTimer = setTimeout(next, 2000); };
+                    img.src = 'cgi-bin/currentpic.cgi?_=' + Date.now();
+                }
+                next();
+            }
         }
 
         // Settings -> Detection (sound options, tamper) and Alerts: their files have no other page (events_info)
