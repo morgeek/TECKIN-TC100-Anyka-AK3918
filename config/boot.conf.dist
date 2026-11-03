@@ -132,7 +132,9 @@ ISP_TUNE=0
 # WIFI_RESCUE_PSK empty = default fixed password 'tc100rescue' (or custom in Settings).
 # WIFI_RESCUE_CHANNEL applies when the camera
 # is not associated (otherwise the access point follows the Wi-Fi).
-WIFI_RESCUE=0
+# On by default (owner, 2026-11-03): the access point only opens while the
+# Wi-Fi is not working. 0 = never, not even with the reset button.
+WIFI_RESCUE=1
 WIFI_RESCUE_AFTER_MIN=10
 WIFI_RESCUE_MANUAL_MIN=15
 WIFI_RESCUE_SSID=

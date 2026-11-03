@@ -13,7 +13,8 @@ status() {
 
 start() {
   if [ -n "$(status)" ]; then return 0; fi
-  case "$(read_kv_config_value /mnt/config/boot.conf WIFI_RESCUE 0)" in
+  # on unless WIFI_RESCUE=0 (owner, 2026-11-03: the access point must come while the Wi-Fi is not working)
+  case "$(read_kv_config_value /mnt/config/boot.conf WIFI_RESCUE 1)" in
     1|true|yes|on|enabled) ;;
     *) echo "disabled (WIFI_RESCUE=0)"; return 3 ;;
   esac

@@ -21,10 +21,11 @@
 # tries again (v3/linux66-sd/wifi-apply) for WIFI_RESCUE_AFTER_MIN minutes before the next access point.
 # Saving Wi-Fi settings in the web page (wifi-apply) also ends the access point.
 #
-# boot.conf: WIFI_RESCUE=1, WIFI_RESCUE_AFTER_MIN=10, WIFI_RESCUE_MANUAL_MIN=15,
+# boot.conf: WIFI_RESCUE=1 (default; 0 = no access point, not even with the
+# button), WIFI_RESCUE_AFTER_MIN=10, WIFI_RESCUE_MANUAL_MIN=15,
 # WIFI_RESCUE_SSID (default TC100-<last 4 hex of the MAC>), WIFI_RESCUE_PSK
-# (default: generated once, 12 characters, kept in the persistent config and
-# shown in Settings), WIFI_RESCUE_CHANNEL (used when the station is not
+# (default: the fixed, documented "tc100rescue", owner's decision 2026-11-03;
+# changeable in Settings), WIFI_RESCUE_CHANNEL (used when the station is not
 # associated, default 6). WPA2-PSK only, never an open network.
 
 CONF="${WR_BOOT_CONF:-/mnt/config/boot.conf}"
@@ -242,7 +243,8 @@ case "${0##*/}" in
             run) wr_run ;;
             start-ap)
                 # The button only works with the feature on; "manual" (shell) always.
-                if [ "${2:-manual}" != manual ] && [ "$(_wr_kv WIFI_RESCUE)" != 1 ]; then exit 3; fi
+                _wr_on=$(_wr_kv WIFI_RESCUE)
+                if [ "${2:-manual}" != manual ] && [ "${_wr_on:-1}" != 1 ]; then exit 3; fi
                 mkdir -p "$RUN"
                 echo $(( $(date +%s) + $(_wr_kv WIFI_RESCUE_MANUAL_MIN | awk '{ v = $1 + 0; print (v >= 1 ? v : 15) }') * 60 )) > "$RUN/manual_until"
                 wr_start_ap "${2:-manual}" ;;

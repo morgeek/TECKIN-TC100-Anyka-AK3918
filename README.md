@@ -159,7 +159,7 @@ Later versions: Settings → Update & backup → *Firmware update*, with `tc100-
 |---|---|
 | Nothing happens, no blue LED | The files are not at the root of the card, or the card is not FAT32. |
 | Red LED on | Read `tc100-3/STATUS.txt` on a computer. "Not a TC100 variant the firmware knows": nothing was changed; send `tc100-inventory.txt` from the card in a Hardware inventory issue. "NOT INSTALLED": the camera runs the new firmware from the card, its flash was not written; the web page can retry. |
-| No page after 15 minutes | Wrong Wi-Fi (the install itself needs none). Hold the reset button 3-7 s: the camera opens its rescue Wi-Fi (`TC100-<MAC>`, default password: `tc100rescue`). Connect your phone or laptop to it and open http://10.42.0.1/ to configure your network. |
+| No page after 15 minutes | Wrong Wi-Fi (the install itself needs none). After 10 minutes without Wi-Fi (or at once with the reset button held 3-7 s) the camera opens its rescue Wi-Fi (`TC100-<MAC>`, default password: `tc100rescue`). Connect your phone or laptop to it and open http://10.42.0.1/ to configure your network. |
 | You want the old firmware back | On the card: rename `tc100test/c66.img.installed` to `c66.img` and add an empty file `RESTAURER.txt` (or `RESTORE.txt`) at the root. Power on: the camera writes back the copy of its memory saved on the card (about 10 minutes, blue LED blinking) and restarts into its previous firmware. Then take the card out. |
 
 What the card does step by step, the U-Boot commands and the flash layout:
@@ -264,8 +264,8 @@ Settings → **Recording**:
 - **Wi-Fi**: `wifi.txt` on the card (`SSID=`, `PASSWORD=`), the wizard, or Settings → Network. In every case the new
   network comes first and the previous ones stay as fallbacks, so a typo does not take the camera off the network.
   An invalid `wifi.txt` becomes `wifi-invalid.txt` with the reason.
-- **Rescue access point**: holding the reset button 3-7 s (or, when switched on with `WIFI_RESCUE=1` in Settings →
-  Network / `boot.conf`, after 10 minutes without Wi-Fi; off by default) the camera opens its
+- **Rescue access point** (on by default, `WIFI_RESCUE=1` in `boot.conf`): only while the Wi-Fi does not work.
+  After 10 minutes without Wi-Fi (or holding the reset button 3-7 s) the camera opens its
   own Wi-Fi network named `TC100-<MAC>` with the default fixed password **`tc100rescue`** (also configurable in
   Settings → Network or `boot.conf` `WIFI_RESCUE_PSK`). Join it and open http://10.42.0.1/ to set up your Wi-Fi.
 - **Password**: `root` / `pass` on a new installation (or the password of a 2.x camera). The wizard asks for a new
@@ -275,7 +275,9 @@ Settings → **Recording**:
   only and never forward ports 80, 554, 22 or 21 from the internet (use a VPN to reach the camera from outside).
 - **Off by default**: every service that opens something to the network or sends data out is off on a new
   installation (ONVIF, telnet, FTP, the HTTP file share, mDNS, MQTT, Ntfy/webhook/Telegram notifications, the
-  automatic rescue access point, the update check). An updated camera keeps what was switched on before.
+  update check). An updated camera keeps what was switched on before. Exception: the rescue access point is on,
+  because a camera that lost its Wi-Fi has no other way back; it only opens while the Wi-Fi does not work, and its
+  default password `tc100rescue` is public: change it in Settings → Network.
 - **Remote shell**: SSH (dropbear, same `root` password) is on by default; switch it in Services (`ssh-server`).
   Telnet sends the password in clear: it is **off** by default (Services, `telnet-server`; the "Boot" toggle starts it
   at boot, LAN only, it stops by itself after `REMOTE_SHELL_TIMEOUT_MIN`). An upgraded camera keeps SSH on.
