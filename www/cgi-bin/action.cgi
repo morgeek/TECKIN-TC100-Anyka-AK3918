@@ -1160,7 +1160,7 @@ if [ -n "$F_cmd" ]; then
       _action_group=video ;;
     rtsp_server_info|set_rtsp_server|set_stream_topology|set_onvif_stream_policy|set_rtsp_preset|set_rtsp_quality_profile|set_client_profile|save_known_good_profile|restore_known_good_profile|set_frigate_live)
       _action_group=stream ;;
-    conf_audioin|audio_test|set_sound_detection|get_ptt_vol|get_ptt_status|conf_ptt)
+    conf_audioin|audio_test|set_sound_detection|play_sound|get_ptt_vol|get_ptt_status|conf_ptt)
       _action_group=audio ;;
     set_local_recording|local_rec_status|sd_card_info|sd_card_mount|local_rec_eject|local_rec_resume)
       _action_group=storage ;;

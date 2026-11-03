@@ -14,11 +14,7 @@
       for _mz_k in 1 2 3 4; do
         _mz_v="$(sed -n "s/^MDZ${_mz_k}=\"\{0,1\}\([0-9,]*\)\"\{0,1\}$/\1/p" /mnt/config/motion_zones.conf 2>/dev/null | tail -n 1)"
         _mz_name="$(sed -n "s/^MDZ${_mz_k}_NAME=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" /mnt/config/motion_zones.conf 2>/dev/null | tail -n 1)"
-        case "$_mz_v" in [0-9]*,[0-9]*,[0-9]*,[0-9]*)
-          _mz_list="${_mz_list:+$_mz_list,}\"$_mz_v\""
-          _mz_names="${_mz_names:+$_mz_names,}\"$(json_escape "$_mz_name")\""
-          ;;
-        esac
+        case "$_mz_v" in [0-9]*,[0-9]*,[0-9]*,[0-9]*) _mz_list="${_mz_list:+$_mz_list,}\"$_mz_v\""; _mz_names="${_mz_names:+$_mz_names,}\"$(json_escape "$_mz_name")\"" ;; esac
       done
       _mz_on=0; grep -q '^mdenabled=1' /mnt/config/rtspserver.conf 2>/dev/null && _mz_on=1
       _mz_st() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /var/run/md_zones 2>/dev/null | head -n 1; }
@@ -59,6 +55,7 @@
       # detection ignores; tc100_rtsp reads motion_zones.conf while it runs.
       if [ -n "${F_md_zone_form:-}" ]; then
         _mz_new=""; _mz_n=0
+        _mz_f1="${F_md_zone1:-}"; _mz_f2="${F_md_zone2:-}"; _mz_f3="${F_md_zone3:-}"; _mz_f4="${F_md_zone4:-}"
         for _mz_idx in 1 2 3 4; do
           eval "_mz_v=\"\${F_md_zone${_mz_idx}:-}\""
           eval "_mz_nm=\"\${F_md_zone${_mz_idx}_name:-}\""
