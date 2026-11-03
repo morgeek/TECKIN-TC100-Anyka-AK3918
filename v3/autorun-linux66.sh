@@ -132,7 +132,7 @@ fi
 #     settings once, history line included, before anything that could crash starts.
 sh /mnt/scripts/reboot-tracker.sh boot </dev/null >/dev/null 2>&1
 sh /mnt/v3/linux66-sd/boot-guard start </dev/null >/dev/null 2>&1
-SAFE=0; [ -f /tmp/safemode ] && SAFE=1
+SAFE=0; if [ -f /tmp/safemode ]; then SAFE=1; fi
 
 # 2. Populate shared uClibc libraries into /lib: symlinks, except on the card (SD mode) for the small uClibc runtime,
 #    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a
