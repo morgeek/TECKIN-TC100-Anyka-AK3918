@@ -2418,3 +2418,20 @@ Compte rendu pour l'implémenteur. La rc20 est dans la flash (`/rom` = `mtdblock
 **PAS ENCORE TESTÉ sur la .11** (précision) : notifications Ntfy/webhook (aucun canal configuré), mode « derrière une vitre » (essai de nuit), entité caméra MQTT (Home Assistant), meilleur cliché, zones nommées, pre-roll, carillon/sirène (`play_sound`), alarme fumée, vue 2×2, présélections OSD, frise 24 h (demande la carte), carte de chaleur, anti-scintillement 50 Hz.
 
 **Prochains essais testeuse :** retest du sabotage (en cours), puis rc20 sur la .24 (balance des blancs avec gains ≈ 600/760 attendus : critère R/G et B/G à ±5 %, clés ssh après reboot, mode derrière une vitre la nuit). Rappel : la .24 porte encore ma rustine (`awb.off`, ligne `awbx` dans `rtsp.env`, outil sur sa carte SD) : à retirer avant l'essai de la balance des blancs.
+
+## 2026-11-03 13:25 — RÉSULTATS rc20 (d217a60) sur la .24 / IPCAM1 (testeuse, ssh, carte SD présente)
+
+La rc20 a été installée sur la .24 par le propriétaire (mise à jour web), uptime 13 min au premier relevé.
+
+**PASSÉ**
+- **Balance des blancs globale : la boucle rc20 corrige la .24 seule, mieux que ma rustine.** Rustine retirée (`awb.off` supprimé, `rtsp.env` vidé, sauvegarde `/mnt/sd/rtsp.env.rustine-2026-11-03`), `rtsp-h26x restart`, sans autre action. En 30 à 90 s les gains convergent à `rex 518 / bex 756 / 750 / 755` (ISP, lu avec `awbx get`), `u=1 v=0`. Le plafond ancien (512) était donc juste sous la valeur de `rex` ; la boucle a pris 518 avec un meilleur équilibre que le 600/760 fixé à la main. Mesure sur le snapshot (mur blanc) : **rustine 600/760 : R/G 1,18, B/G 1,02 ; boucle rc20 : R/G 1,01, B/G 0,99** (critère ±5 % : passé). L'image n'est plus verte ni jaune-verte.
+- **Gains mémorisés :** `/mnt/config/awb.state` = `518 762` ; après `rtsp-h26x restart` : `white balance: starting from saved gains rex 518 bex 762` puis `rex=523 bex=748 u=-1 v=1`.
+- **Clés ssh persistantes :** après le reboot de la mise à jour, la clé de la testeuse n'était plus là (première installation du mécanisme : prévu) ; le propriétaire l'a remise dans `/root/.ssh/authorized_keys`, et `/mnt/config/authorized_keys` la contient maintenant aussi (2 lignes : l'ancienne clé RSA de 2.x + la nouvelle ed25519) ; à confirmer par un second reboot que la clé revient seule. Clé d'hôte écrite en flash (`dropbear_ed25519_host_key`, 83 octets, 12:07) : empreinte `SHA256:WKXNKdA8…` (à comparer après le prochain reboot). Note : `/mnt/config/authorized_keys` a les droits `-rwxr-xr-x` (755) : à ramener à 600.
+- **ssh interactif :** `devpts` monté, session stable (la clé a été ajoutée à la main dans une session ouverte sans coupure).
+- **Teinte (HUE/SATURATION) :** restée à 0 après la mise à jour. `DAYNIGHT_SOURCE=luma` conservé.
+- **Suivi Wi-Fi :** `WIFI_QUALITY=1` ajouté à `boot.conf` et relevé démarré (`rssi=-54`, perte 0 % sur la première minute, ping routeur 1,9 à 10,8 ms). À laisser tourner une nuit pour corréler les rafales de pertes de la .24. Mémoire disponible 20,5 Mo, flux principal stable (`dropped 0`).
+
+**À SURVEILLER / PAS ENCORE TESTÉ sur la .24**
+- Plusieurs reprises de la boucle de blancs : le soir/la nuit (bascule IR, gel en noir et blanc, retour le matin), changement brusque d'éclairage ; vérifier que `awb.state` n'est pas écrit en boucle (usure flash) : sorties à surveiller `ls -l --full-time /mnt/config/awb.state` sur 24 h.
+- Mode derrière une vitre (nuit), notifications, sabotage (essai de jour en cours sur la .11), son et vox, mDNS (non démarré), carte de chaleur, frise 24 h (la .24 a une carte SD : `/mnt/sd/DCIM` présent), auto-diagnostic SD (`sd-diag.sh check`, car la carte est là), 50 Hz.
+- Après un second reboot : clés ssh et clé d'hôte, `awb.state`, `WIFI_QUALITY`.
