@@ -53,3 +53,13 @@ Nothing in this path writes U-Boot, `boot`, `mac` or `env`. Every flash write is
 - The OpenIPC forum post #2639: a draft only, without mentioning 6.6 (owner's rule).
 - The tester's camera: card test files renamed into one `_archive_rc` folder (no deletion without the owner's OK).
 - CI green on the tag commit; `local-ci.sh all` before.
+
+## To fix before the final 3.0.1 (tester findings on rc21-rc23, 2026-11-03)
+Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Tick when fixed and retested on both cameras.
+- [ ] **JSON import answers with an empty body** (`config_exchange.cgi?cmd=import`, valid JSON: HTTP 200, 0 bytes; invalid JSON and missing CSRF are answered correctly). The UI cannot confirm an import; expected `{"ok":true,"applied":N,...}`.
+- [ ] **`syslog/host` differs between the two cameras** (.11 = 192.168.1.23, .24 = 192.168.1.22). Decide which is right, align both (the owner wants identical settings except IP and hardware identity).
+- [ ] **.24 frame rate in the evening** (`STAT cap` about 51 per interval against 122 on the .11, exposure 2810 against 1124). Check whether the long exposure at night caps the fps, and whether the cap is wanted.
+- [ ] **CI red** on 5a94854 / 7284c73 (`has-text-weight-semibold`, host test). Green CI is required on the tag commit.
+- [ ] **AE overshoot after boot** (.11, rc20: picture almost white about 7 minutes after boot, back to normal by itself). Start the AE from a mid exposure; criterion: luma below 200 within 30 s after boot.
+- [ ] **mDNS**: now on by default in rc23; unicast answer verified on both cameras, multicast `ping <name>.local` from the owner's Mac still to be confirmed.
+- [ ] Still to run on both cameras before the tag: tamper alarm with the owner's hand, a real night (day/night switch, colours back in the morning, IR off behind glass), SD card tests on the .24, notifications, flash write frequency of `awb.state` through cfg-persist.
