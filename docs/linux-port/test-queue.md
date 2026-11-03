@@ -1757,7 +1757,18 @@ Décisions du propriétaire : un seul chemin fonctionnel par fonction ; WebDAV s
 - **Test :** (1) page Services : ni network-monitor ni WebDAV ; les autres services démarrent et s'arrêtent. (2) `MEM_GUARD_SOFT_SERVICES` d'une caméra qui citait `network-monitor` : le nom disparaît au redémarrage de memory-guard. (3) box coupée : seul `net-guard` redémarre la caméra (avec `WIFI_RESCUE=1`, après les 2 cycles de secours). (4) MQTT `health` publié, Home Assistant fonctionne. (5) 30 min de flux avec une lumière qui change : `awb.state` change mais `/tmp/cfg-persist.status` ne montre pas de nouvelle sauvegarde ; après un redémarrage volontaire, le slot contient `awb.state` et les gains sont restaurés.
 - **Critères :** aucune page cassée ni erreur CGI ; aucune écriture flash due à `awb.state` seul.
 
-## 2026-11-03 — Export / import de configuration : un seul format JSON, case « Inclure les secrets », envoi vers une autre caméra réparé (`[json-export]`)
+## 2026-11-03 — Version 3.0.1-rc21 (Consolidation complète et release candidate)
+
+- **Version :** `3.0.1-rc21`
+- **Contenu embarqué :**
+  - **Safe mode / Boot Guard** (`BOOT_GUARD=1`) : bascule en mode de secours après 3 reboots consécutifs en < 5 min.
+  - **Nettoyage des doublons** : suppression de `network-monitor`, du port 8080 (WebDAV obsolète), et fin de l'usure Flash par `awb.state`.
+  - **Unification Export / Import JSON & Push** : table unique, case "Inclure les secrets", Push inter-caméras sécurisé.
+  - **Mot de passe Wi-Fi de secours par défaut** : fixé et documenté sur `tc100rescue`.
+  - **CI hôte verte** : 172 tests unitaires passés avec succès.
+- **Test à effectuer :**
+  1. Installation de la `rc21` sur la caméra via la mise à jour web.
+  2. Vérification de la persistance de configuration et de la stabilité globale.
 
 Décision du propriétaire : JSON seulement ; secrets seulement si on coche la case.
 

@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc21] - 2026-11-03
+
 ### Added
 - **Safe mode** (`v3/linux66-sd/boot-guard`, `BOOT_GUARD=1`): after 3 runs in a row that end within 5 minutes, the next
   start brings up Wi-Fi, web, ssh and the reset button only; the reboot history is kept in the flash settings; a web
