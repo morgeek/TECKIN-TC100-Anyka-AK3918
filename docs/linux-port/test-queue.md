@@ -1739,3 +1739,11 @@ Décisions du propriétaire : l'interrupteur de l'interface gagne (le profil Fri
   4. Sabotage activé dans la page → main sur l'objectif ≥ 10 s → état « objectif masqué » et alerte ; désactivé → plus rien.
   5. Babyphone activé (avec la détection sonore) → l'entité son de Home Assistant reste active pendant le bruit puis s'éteint après le délai.
 - **Critères :** 1 à 5 conformes ; charge CPU de la caméra inchangée hors section Image.
+
+## 2026-11-03 — Une seule définition par valeur : signal Wi-Fi, RAM, santé de la carte SD (`[one-value]`)
+
+- **Quoi :** signal Wi-Fi calculé une seule fois (`scripts/wifi-signal.sh`, -110..-1 dBm, vide si le pilote ne donne rien : -256 et 0) pour le tableau de bord, la ligne d'état, `metrics.cgi` (échantillon omis au lieu d'un faux 0), MQTT et `wifi-quality.sh` ; chemin 2.x `rx_signal` et fonction morte supprimés. RAM : disponible = `MemAvailable`, utilisée = total − disponible, partout (tableau de bord compris ; la ligne de démarrage dit « MemAvailable »). Carte SD : `sdinfo-sd.sh` est le seul à lire dmesg et à écrire `/tmp/sd-health` (`state=errors` quand le noyau a signalé des erreurs) ; `sd-diag.sh` le lit ; réparation **refusée** en mode SD (carte qui porte le firmware, montée en écriture) ; chemins `/mnt/records` morts supprimés. `stability.csv` sur la carte (`/mnt/sd/logs`) quand elle est là, sinon RAM, jamais la flash.
+- **Effet de bord :** quand `/tmp/sd-health` dit `errors`, `log-persist.sh` n'écrit plus de journaux sur la carte (il exigeait déjà `ok`).
+- **Interrupteur :** aucun (revert de 022ac07).
+- **Test :** (1) tableau de bord, `/cgi-bin/metrics.cgi` et diag MQTT : même signal (dBm négatif) ; sans lecture : `null` en JSON, pas d'échantillon `tc100_wifi_signal_dbm`. (2) RAM utilisée identique entre tableau de bord, ligne d'état et MQTT. (3) erreur carte dans dmesg → `/tmp/sd-health` `state=errors`, même état dans le panneau Disque et `sd-diag.sh check` ; mode SD : « Réparer » → refusé, aucun fsck ; mode flash avec carte : la réparation fonctionne. (4) mode flash avec carte : `/mnt/sd/logs/stability.csv` se remplit (~1 h), `/cgi-bin/stability.cgi` le renvoie ; sans carte : RAM seulement.
+- **Critères :** valeurs identiques partout, aucune valeur inventée, aucun fsck sur la carte en service, rien d'écrit en flash.
