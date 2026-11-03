@@ -1551,6 +1551,9 @@ static int qflush(struct cli *c)
 	return 0;
 }
 
+static int pacing_us;	/* RTSP_PACING_US: delay in us after sending each UDP packet/batch to smooth IDR burst */
+static int sndbuf_kb;	/* RTSP_SNDBUF: socket SO_SNDBUF in KB (e.g. 32 to 64 KB to limit Wi-Fi driver queuing) */
+
 static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned char *pl, int n)
 {
 	unsigned char pk[16 + RTP_PAYLOAD + 64];
@@ -1791,8 +1794,6 @@ static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char 
 #define SG_MAX 16
 struct sg_mmsg { struct msghdr hdr; unsigned int len; };	/* kernel struct mmsghdr, as glibc's */
 static int sg_on, sg_mmsg_on;
-static int pacing_us;	/* RTSP_PACING_US: delay in us after sending each UDP packet/batch to smooth IDR burst */
-static int sndbuf_kb;	/* RTSP_SNDBUF: socket SO_SNDBUF in KB (e.g. 32 to 64 KB to limit Wi-Fi driver queuing) */
 static struct {
 	struct cli *c;
 	int n;
