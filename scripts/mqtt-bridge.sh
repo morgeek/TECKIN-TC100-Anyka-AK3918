@@ -1318,10 +1318,14 @@ build_diag_payload()
           _dg_h=""; fi ;;
     esac
   done < /proc/net/snmp
-  _dg_avail=null
+  _dg_avail=null; _dg_free=0; _dg_buf=0; _dg_cache=0
   while read -r _dg_k _dg_v _dg_u; do
-    case "$_dg_k" in MemAvailable:) _dg_avail="$_dg_v"; break ;; esac
+    case "$_dg_k" in
+      MemAvailable:) _dg_avail="$_dg_v"; break ;;
+      MemFree:) _dg_free="$_dg_v" ;; Buffers:) _dg_buf="$_dg_v" ;; Cached:) _dg_cache="$_dg_v" ;;
+    esac
   done < /proc/meminfo
+  [ "$_dg_avail" = null ] && [ "$_dg_free" -gt 0 ] 2>/dev/null && _dg_avail=$((_dg_free + _dg_buf + _dg_cache))
   _dg_sound=null
   if [ -r /var/run/sound_level ]; then
     read -r _dg_sts _dg_rms _dg_rest < /var/run/sound_level

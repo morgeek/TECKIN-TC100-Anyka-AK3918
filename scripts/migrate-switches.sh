@@ -24,18 +24,24 @@ ms_set() {
 }
 on() { case "$1" in 1|true|yes|on|enabled) return 0 ;; esac; return 1; }
 
+# delete PATTERN in FILE safely on busybox/GNU and BSD/macOS
+ms_del() {
+  [ -f "$1" ] || return 0
+  sed "$2" "$1" > "$1.tmp.$$" && mv -f "$1.tmp.$$" "$1"
+}
+
 # Telegram
 if on "$(svc_kv "$C/motion.conf" send_telegram 0)" || on "$(svc_kv "$C/telegram.conf" TELEGRAM_MOTION_SNAPSHOT 0)"; then
   ms_set "$C/notify.conf" TELEGRAM_NOTIFY_ENABLE 1
 fi
-[ -f "$C/motion.conf" ] && sed -i '/^send_telegram=/d' "$C/motion.conf"
-[ -f "$C/telegram.conf" ] && sed -i '/^TELEGRAM_MOTION_SNAPSHOT=/d' "$C/telegram.conf"
+ms_del "$C/motion.conf" '/^send_telegram=/d'
+ms_del "$C/telegram.conf" '/^TELEGRAM_MOTION_SNAPSHOT=/d'
 
 # Tamper
 if grep -q '^TAMPER_' "$C/boot.conf" 2>/dev/null; then
   if on "$(svc_kv "$C/boot.conf" TAMPER_DETECT 0)" && on "$(svc_kv "$C/tamper.conf" ENABLE 0)"; then t=1; else t=0; fi
   ms_set "$C/tamper.conf" ENABLE "$t"
-  sed -i '/^TAMPER_DETECT=/d; /^TAMPER_HOLD_SEC=/d; /^TAMPER_LUMA_MIN=/d' "$C/boot.conf"
+  ms_del "$C/boot.conf" '/^TAMPER_DETECT=/d; /^TAMPER_HOLD_SEC=/d; /^TAMPER_LUMA_MIN=/d'
 fi
 
 # Recording
