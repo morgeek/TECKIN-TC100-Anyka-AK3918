@@ -387,7 +387,7 @@ esac
 # (a first start that installs itself to the flash, step 12f, plays the chime only once it runs from the flash)
 AUTO_INSTALL=0
 [ -f /tmp/flashmode ] || ! sh /mnt/v3/install/auto-install.sh pending </dev/null >/dev/null 2>&1 || AUTO_INSTALL=1
-[ "$BC_BOOT_SOUND" = 0 ] || [ $AUTO_INSTALL = 1 ] || [ "$SAFE" = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
+[ "$BC_BOOT_SOUND" = 0 ] || [ "$SAFE" = 1 ] || [ $AUTO_INSTALL = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
 ( i=0; IP=
   while [ $i -lt 144 ]; do
     IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)
