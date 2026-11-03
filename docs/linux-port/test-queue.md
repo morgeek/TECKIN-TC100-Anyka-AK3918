@@ -2373,3 +2373,15 @@ Toutes les régressions CI hôte et traductions i18n ont été corrigées et vé
   - Sélecteur et paramètre `POWER_HZ` (Europe 50 Hz / Amériques 60 Hz) validé dans l'ISP et la découverte MQTT Home Assistant.
 - **Service WebDAV Finder macOS (`controlscripts/webdav`, `config/webdav.conf.dist`) :**
   - Partage direct des enregistrements `/mnt/sd/DCIM` ou `/mnt/records` sur le port 8080 (désactivé par défaut, activable dans Services ou au boot). Identifiants protégés via l'authentification de la caméra.
+
+### Tableau récapitulatif des tests et fonctions pour la testeuse (RC20)
+
+| Élément | Switch / Fichier | Test à effectuer | Critère de réussite |
+|---|---|---|---|
+| **Auto-diag SD & Réparation** | `sd_card_check` / `sd_card_repair` dans UI ou `scripts/sd-diag.sh check` | Cliquer sur "Vérifier la santé" dans Settings > Enregistrement | Status vert "OK (écriture: XX Ko/s, 0 erreurs dmesg)" sans altérer la carte |
+| **Motion Heatmap 24h** | `action.cgi?cmd=motion_heatmap` / `scripts/motion-heatmap.sh get` | Déclencher du mouvement ou appeler le script | Retour JSON des 24 tranches horaires avec barres d'activité visibles dans l'UI |
+| **WebDAV (macOS Finder)** | `controlscripts/webdav start` | Connexion Finder `http://<ip>:8080` avec login caméra | Navigation et lecture des vidéos du dossier `/mnt/sd/DCIM` ou `/mnt/records` |
+| **Anti-flicker 50 Hz** | `config/isp_tune.conf` `POWER_HZ=50` | Vérifier en direct sous éclairage secteur 50 Hz | Pas de bandes / battements lumineux sous éclairage LED / néon |
+| **Synchro caméra (Push)** | `backup.html` bouton Push | Tester export/import entre les deux caméras | `tc100/cam2` et paramètres spécifiques non écrasés |
+| **Frise 24h & Présélections OSD** | `view_records.html` & OSD presets | Vérifier affichage frise et positionnement coins OSD | Pas de régression d'affichage, OSD bien calé |
+
