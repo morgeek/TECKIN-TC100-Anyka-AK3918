@@ -157,7 +157,7 @@
       </div>
       <div class="mv-toolbar">
         <a id="mv_link_1" href="/" target="_blank" class="button is-small is-light">Ouvrir</a>
-        <button id="mv_mode_1" type="button" class="button is-small is-info is-outlined" onclick="toggleCamVideo(1)">Vidéo fluide</button>
+        <button id="mv_mode_1" type="button" class="button is-small is-info is-outlined" data-i18n="Smooth video" onclick="toggleCamVideo(1)">Smooth video</button>
       </div>
     </div>
 
@@ -173,7 +173,7 @@
       </div>
       <div class="mv-toolbar">
         <a id="mv_link_2" href="#" target="_blank" class="button is-small is-light" style="display:none;">Ouvrir</a>
-        <button id="mv_mode_2" type="button" class="button is-small is-info is-outlined" style="display:none;" onclick="toggleCamVideo(2)">Vidéo fluide</button>
+        <button id="mv_mode_2" type="button" class="button is-small is-info is-outlined" style="display:none;" data-i18n="Smooth video" onclick="toggleCamVideo(2)">Smooth video</button>
       </div>
     </div>
 
@@ -290,7 +290,7 @@
       }
       if (imgEl) imgEl.style.display = "block";
       if (btn) {
-        btn.textContent = "Vidéo fluide";
+        btn.textContent = (window.t ? window.t("Smooth video") : "Smooth video");
         btn.className = "button is-small is-info is-outlined";
       }
       delete activeStreams[idx];

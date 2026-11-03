@@ -51,6 +51,7 @@ window.tc100I18nFr = {
     "Mirror (left-right)": "Miroir (gauche-droite)",
     "Orientation": "Orientation",
     "Rotate 180°": "Rotation 180°",
+    "Smooth video": "Vidéo fluide",
     "Smooth video from the camera (H.264, no extra encoding)": "Vidéo fluide depuis la caméra (H.264, sans réencodage)",
     "Snapshots": "Images fixes",
     "Sound detection (MQTT event; applied within a few seconds)": "Détection de son (événement MQTT ; appliquée en quelques secondes)",
