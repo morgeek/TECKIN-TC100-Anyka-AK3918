@@ -1,0 +1,300 @@
+<style id="multiview_css">
+.mv-container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.mv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+@media (max-width: 768px) {
+  .mv-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.mv-card {
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.mv-header {
+  padding: 0.5rem 0.75rem;
+  background: #f5f5f5;
+  border-bottom: 1px solid #dbdbdb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.mv-screen {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%; /* 16:9 ratio */
+  background: #111;
+}
+.mv-screen img,
+.mv-screen iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border: none;
+}
+.mv-toolbar {
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  background: #fafafa;
+  border-top: 1px solid #eee;
+}
+.mv-cfg-panel {
+  padding: 1rem;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 1rem;
+}
+.mv-cfg-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  align-items: center;
+}
+.mv-cfg-row input {
+  font-size: 0.85rem;
+}
+</style>
+
+<div class="mv-container">
+  <div class="level mb-3">
+    <div class="level-left">
+      <h1 class="title is-4">Multi-View (Grille 2&times;2)</h1>
+    </div>
+    <div class="level-right">
+      <button id="mv_btn_config" class="button is-small is-light" onclick="toggleMultiViewConfig()">
+        <svg style="width:14px;height:14px;margin-right:4px;" viewBox="0 0 24 24"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97c0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 13 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1c0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/></svg>
+        Configurer les caméras
+      </button>
+      <button id="mv_btn_refresh" class="button is-small is-info ml-2" onclick="refreshMultiView()">
+        Actualiser
+      </button>
+    </div>
+  </div>
+
+  <div id="mv_config_box" class="mv-cfg-panel is-hidden">
+    <h2 class="subtitle is-6 mb-2">Adresses des caméras (IP ou nom .local)</h2>
+    <div class="columns is-multiline">
+      <div class="column is-6">
+        <label class="label is-small">Caméra 1 (Actuelle par défaut)</label>
+        <div class="field has-addons">
+          <div class="control is-expanded">
+            <input id="mv_cam1_url" class="input is-small" type="text" placeholder="http://192.168.1.XX ou /">
+          </div>
+          <div class="control">
+            <input id="mv_cam1_name" class="input is-small" type="text" placeholder="Nom (ex: Salon)">
+          </div>
+        </div>
+      </div>
+      <div class="column is-6">
+        <label class="label is-small">Caméra 2</label>
+        <div class="field has-addons">
+          <div class="control is-expanded">
+            <input id="mv_cam2_url" class="input is-small" type="text" placeholder="http://192.168.1.XX ou ipcam2.local">
+          </div>
+          <div class="control">
+            <input id="mv_cam2_name" class="input is-small" type="text" placeholder="Nom (ex: Garage)">
+          </div>
+        </div>
+      </div>
+      <div class="column is-6">
+        <label class="label is-small">Caméra 3</label>
+        <div class="field has-addons">
+          <div class="control is-expanded">
+            <input id="mv_cam3_url" class="input is-small" type="text" placeholder="http://192.168.1.XX">
+          </div>
+          <div class="control">
+            <input id="mv_cam3_name" class="input is-small" type="text" placeholder="Nom (ex: Jardin)">
+          </div>
+        </div>
+      </div>
+      <div class="column is-6">
+        <label class="label is-small">Caméra 4</label>
+        <div class="field has-addons">
+          <div class="control is-expanded">
+            <input id="mv_cam4_url" class="input is-small" type="text" placeholder="http://192.168.1.XX">
+          </div>
+          <div class="control">
+            <input id="mv_cam4_name" class="input is-small" type="text" placeholder="Nom (ex: Entrée)">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="buttons">
+      <button class="button is-small is-primary" onclick="saveMultiViewConfig()">Sauvegarder</button>
+      <button class="button is-small" onclick="toggleMultiViewConfig()">Fermer</button>
+    </div>
+  </div>
+
+  <div class="mv-grid">
+    <!-- Camera 1 -->
+    <div class="mv-card">
+      <div class="mv-header">
+        <span id="mv_title_1">Caméra 1</span>
+        <span class="tag is-small is-success" id="mv_tag_1">Direct</span>
+      </div>
+      <div class="mv-screen">
+        <img id="mv_img_1" src="/cgi-bin/currentpic.cgi" alt="Cam 1">
+      </div>
+      <div class="mv-toolbar">
+        <a id="mv_link_1" href="/" target="_blank" class="button is-small is-light">Ouvrir</a>
+      </div>
+    </div>
+
+    <!-- Camera 2 -->
+    <div class="mv-card">
+      <div class="mv-header">
+        <span id="mv_title_2">Caméra 2</span>
+        <span class="tag is-small is-light" id="mv_tag_2">En attente</span>
+      </div>
+      <div class="mv-screen">
+        <img id="mv_img_2" src="" alt="Cam 2 non configurée">
+      </div>
+      <div class="mv-toolbar">
+        <a id="mv_link_2" href="#" target="_blank" class="button is-small is-light" style="display:none;">Ouvrir</a>
+      </div>
+    </div>
+
+    <!-- Camera 3 -->
+    <div class="mv-card">
+      <div class="mv-header">
+        <span id="mv_title_3">Caméra 3</span>
+        <span class="tag is-small is-light" id="mv_tag_3">En attente</span>
+      </div>
+      <div class="mv-screen">
+        <img id="mv_img_3" src="" alt="Cam 3 non configurée">
+      </div>
+      <div class="mv-toolbar">
+        <a id="mv_link_3" href="#" target="_blank" class="button is-small is-light" style="display:none;">Ouvrir</a>
+      </div>
+    </div>
+
+    <!-- Camera 4 -->
+    <div class="mv-card">
+      <div class="mv-header">
+        <span id="mv_title_4">Caméra 4</span>
+        <span class="tag is-small is-light" id="mv_tag_4">En attente</span>
+      </div>
+      <div class="mv-screen">
+        <img id="mv_img_4" src="" alt="Cam 4 non configurée">
+      </div>
+      <div class="mv-toolbar">
+        <a id="mv_link_4" href="#" target="_blank" class="button is-small is-light" style="display:none;">Ouvrir</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var STORAGE_KEY = "tc100_multiview_cams";
+  var refreshTimer = null;
+
+  function loadCams() {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      try { return JSON.parse(raw); } catch(e) {}
+    }
+    return [
+      { name: "Cette caméra", url: "/" },
+      { name: "Caméra 2", url: "" },
+      { name: "Caméra 3", url: "" },
+      { name: "Caméra 4", url: "" }
+    ];
+  }
+
+  function renderGrid() {
+    var cams = loadCams();
+    for (var i = 1; i <= 4; i++) {
+      var cam = cams[i - 1] || { name: "Caméra " + i, url: "" };
+      var titleEl = document.getElementById("mv_title_" + i);
+      var tagEl = document.getElementById("mv_tag_" + i);
+      var imgEl = document.getElementById("mv_img_" + i);
+      var linkEl = document.getElementById("mv_link_" + i);
+
+      if (titleEl) titleEl.textContent = cam.name || ("Caméra " + i);
+      if (cam.url) {
+        var base = cam.url.replace(/\/+$/, "");
+        var picUrl = base === "" ? "/cgi-bin/currentpic.cgi" : base + "/cgi-bin/currentpic.cgi";
+        picUrl += (picUrl.indexOf("?") >= 0 ? "&" : "?") + "_t=" + Date.now();
+        if (imgEl) {
+          imgEl.src = picUrl;
+          imgEl.style.display = "block";
+        }
+        if (tagEl) {
+          tagEl.className = "tag is-small is-success";
+          tagEl.textContent = "Connectée";
+        }
+        if (linkEl) {
+          linkEl.href = base || "/";
+          linkEl.style.display = "inline-block";
+        }
+      } else {
+        if (imgEl) imgEl.style.display = "none";
+        if (tagEl) {
+          tagEl.className = "tag is-small is-light";
+          tagEl.textContent = "Non configurée";
+        }
+        if (linkEl) linkEl.style.display = "none";
+      }
+    }
+  }
+
+  window.toggleMultiViewConfig = function() {
+    var box = document.getElementById("mv_config_box");
+    if (!box) return;
+    box.classList.toggle("is-hidden");
+    if (!box.classList.contains("is-hidden")) {
+      var cams = loadCams();
+      for (var i = 1; i <= 4; i++) {
+        var c = cams[i - 1] || { name: "", url: "" };
+        var uIn = document.getElementById("mv_cam" + i + "_url");
+        var nIn = document.getElementById("mv_cam" + i + "_name");
+        if (uIn) uIn.value = c.url || "";
+        if (nIn) nIn.value = c.name || "";
+      }
+    }
+  };
+
+  window.saveMultiViewConfig = function() {
+    var cams = [];
+    for (var i = 1; i <= 4; i++) {
+      var uIn = document.getElementById("mv_cam" + i + "_url");
+      var nIn = document.getElementById("mv_cam" + i + "_name");
+      cams.push({
+        url: (uIn ? uIn.value.trim() : ""),
+        name: (nIn ? nIn.value.trim() : "")
+      });
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cams));
+    toggleMultiViewConfig();
+    renderGrid();
+  };
+
+  window.refreshMultiView = function() {
+    renderGrid();
+  };
+
+  renderGrid();
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(renderGrid, 4000);
+})();
+</script>

@@ -45,7 +45,9 @@ case "${1:-run}" in
   *) echo "usage: wifi-recover.sh [check|run]" >&2; exit 2 ;;
 esac
 wr_have && exit 0
-read -r _up _ < /proc/uptime; _now=${_up%.*}
+_now=
+if [ -r /proc/uptime ]; then read -r _up _ < /proc/uptime; _now=${_up%.*}; fi
+[ -n "$_now" ] || _now=$(date +%s 2>/dev/null || echo 0)
 if [ -r "$WR_LAST" ]; then read -r _last < "$WR_LAST"; case "$_last" in ""|*[!0-9]*) ;; *) [ $((_now - _last)) -ge "$WR_GAP" ] || exit 0 ;; esac; fi
 mkdir "$WR_LOCK" 2>/dev/null || exit 0      # one recovery at a time (boot and net-guard)
 echo "$_now" > "$WR_LAST" 2>/dev/null

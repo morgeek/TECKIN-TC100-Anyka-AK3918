@@ -988,5 +988,28 @@ class Lot3AudioAndSounds(unittest.TestCase):
         self.assertEqual(sh('sh -n %s' % (ROOT / 'controlscripts/sound-detection')).returncode, 0)
 
 
+class Lot5MultiViewAndTools(unittest.TestCase):
+    """Lot 5: Web UI Multi-View 2x2 grid viewer and top navigation integration."""
+
+    def test_multiview_html_exists_and_structure(self):
+        mv_path = ROOT / 'www/multiview.html'
+        self.assertTrue(mv_path.exists())
+        html = mv_path.read_text()
+        self.assertIn('mv-grid', html)
+        self.assertIn('mv-card', html)
+        self.assertIn('mv_img_1', html)
+        self.assertIn('mv_img_4', html)
+        self.assertIn('/cgi-bin/currentpic.cgi', html)
+        self.assertIn('toggleMultiViewConfig', html)
+        self.assertIn('saveMultiViewConfig', html)
+        self.assertIn('refreshMultiView', html)
+
+    def test_index_html_multiview_nav_item(self):
+        index_html = (ROOT / 'www/index.html').read_text()
+        self.assertIn('id="multiview_nav"', index_html)
+        self.assertIn('data-target="multiview.html"', index_html)
+        self.assertIn('Multi-View', index_html)
+
+
 if __name__ == '__main__':
     unittest.main()

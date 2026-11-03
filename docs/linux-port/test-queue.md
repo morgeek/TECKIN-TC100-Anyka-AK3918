@@ -2294,3 +2294,22 @@ Trois ajouts pour diagnostiquer à distance sans console série. Tout est dans l
   1. Activer `MQTT_HA_CAMERA_ENTITY_ENABLE=1` dans `/mnt/config/mqtt.conf` et redémarrer le bridge.
   2. Dans Home Assistant, vérifier la présence de l'entité Camera et appuyer sur le bouton Snapshot : l'image s'affiche dans Home Assistant.
 
+
+## 2026-11-03 — Lot 5 (implémenté, zéro U-Boot / zéro noyau) : Interface Web Multi-View (Grille 2×2) & Supervision multi-caméras
+
+Améliorations de l'interface Web en espace utilisateur Linux, 100% exécutées côté client (navigateur) sans charge CPU supplémentaire sur la caméra hôte.
+
+### 1. Grille Multi-View 2×2 (`www/multiview.html` + barre de navigation `www/index.html`)
+- **Quoi :**
+  - Page de supervision multi-caméras permettant d'afficher jusqu'à 4 caméras simultanément en grille 2×2 responsive (ou colonne unique sur mobile).
+  - Intégrée nativement dans la navigation supérieure de l'interface Web (« Multi-View » entre « Live » et « Recordings »).
+  - Rafraîchissement intelligent côté client via requêtes directes de snapshots JPEG (`/cgi-bin/currentpic.cgi`), évitant le transcodage ou le décodage vidéo lourd sur le CPU de la caméra hôte.
+  - Panneau de configuration dépliable avec persistance dans le `localStorage` du navigateur (adresses IP ou noms mDNS `.local`, et libellés personnalisés pour chaque caméra, ex: Salon, Garage, Entrée, Jardin).
+  - Bouton d'accès direct « Ouvrir » par flux pour lancer l'interface complète de la caméra ciblée.
+- **Test :**
+  1. Ouvrir l'interface Web de la caméra.
+  2. Cliquer sur l'élément « Multi-View » dans la barre supérieure : la grille 2×2 s'affiche.
+  3. Cliquer sur « Configurer les caméras », renseigner une seconde caméra sur le réseau local (IP ou `.local`) et sauvegarder.
+  4. Vérifier que les vignettes s'actualisent régulièrement et que la configuration est conservée après rafraîchissement de la page.
+
+
