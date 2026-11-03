@@ -13,6 +13,29 @@ night picture and low-light settings from the sensor tuning, Wi-Fi that recovers
 21 MB of free memory, the clock, masks and sub-stream done by the image processor. The entries below are the
 release candidates' details, newest first.
 
+### Added (3.0.1-rc18)
+- **Multi-channel Notifications (`scripts/notify.sh` + `config/notify.conf.dist`)**:
+  - Direct alert dispatcher supporting **Ntfy** (`ntfy.sh` or self-hosted) with priority, tags and instant JPEG snapshot attachment.
+  - Generic **Webhook HTTP POST** with JSON payload (`hostname`, `event`, `message`, `timestamp`).
+  - Unified Telegram dispatch through `bin/telegram`.
+  - Configurable anti-storm cooldown (`NOTIFY_COOLDOWN_SECONDS=15`) per event type.
+  - Automatically wired into `motion-event.sh`, `sound-detection`, and `tamper-detect.sh`.
+- **Prometheus Metrics Exporter (`www/cgi-bin/metrics.cgi`)**:
+  - Standard Prometheus exposition format (`version=0.0.4`) exposing system uptime, load averages, memory (total/free/available bytes), Wi-Fi link quality and dBm, network traffic and drops, active RTSP viewers, scene luminance, audio dBFS, and active detection states (motion, tamper, vox). Pure ash, reading `/proc` directly without heavy forks.
+- **Home Assistant MQTT Binary Snapshot (`scripts/mqtt-bridge.sh`)**:
+  - Direct raw JPEG image bytes published to `<root>/snapshot/image` via `mqtt_publish_file` on snapshot requests.
+  - Opt-in camera entity discovery (`MQTT_HA_CAMERA_ENTITY_ENABLE=1` in `mqtt.conf`) compatible with Home Assistant's MQTT camera platform.
+- **VOX / Babyphone Mode & Camera Tamper Detection**:
+  - `VOX_MODE=1` and `VOX_HOLD_SECONDS=5` in `sound_detection.conf` with Home Assistant `sound` binary sensor.
+  - Real-time audio VU level (`sound_db`) in the web UI status line without subshells.
+  - Occlusion / tamper detector (`scripts/tamper-detect.sh`) with day/night transition guard and Home Assistant `problem` binary sensor.
+- **Remote Diagnostics & Network Reliability**:
+  - Freestanding mDNS daemon `tc100-mdnsd` answering `.local` domain name queries.
+  - 24-hour Wi-Fi connection quality tracking (`scripts/wifi-quality.sh`) reporting retries, packet loss, and signal metrics.
+  - Kernel SD card error logging in `sdinfo-sd.sh`.
+  - Closed-loop software AWB fallback in `scripts/nightmode.sh`.
+  - Persistent SSH host keys across reboots.
+
 ### Added (3.0.1-rc17)
 - **Install with no click**: after the stock-firmware hook, the first start from the card checks the copy of the
   original flash again (md5, U-Boot and `mac` areas of this camera), the hardware and a picture from the sensor,
