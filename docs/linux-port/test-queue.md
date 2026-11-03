@@ -1784,3 +1784,27 @@ Décision du propriétaire : JSON seulement ; secrets seulement si on coche la c
   6. Push vers l'autre caméra avec identifiant et mot de passe → réglages appliqués, sans Wi-Fi, mots de passe ni identité réseau (topic MQTT, nom, retournement d'image).
   7. `/cgi-bin/conf-export.cgi` et `/cgi-bin/configbackup.cgi` → 404.
 - **Critères :** 1 à 7 conformes ; caméra toujours joignable après un import avec Wi-Fi.
+
+## 2026-11-03 17:10 — rc21 installée sur .11 et .24 : premiers contrôles (testeur)
+
+Build `cc6e1d4` (CI verte), `tc100-3.0.1-rc21-update.tar` md5 `8383e2e65e9539de78e45fac9732fba5`, installée par le propriétaire via l'update web sur les 2 caméras.
+
+| Contrôle | .11 | .24 |
+|---|---|---|
+| Version `/etc/version` | 3.0.1-rc21 | 3.0.1-rc21 |
+| Flash (`flashroot=1`), watchdog armé 300 s | OK | OK |
+| ssh par clé persistante après update | OK | OK |
+| `metrics.cgi`, `state.cgi?cmd=daynight`, `/multiview.html` (auth) | 200 | 200 |
+| Image (snapshot) | normale (luma 92-94, fin de journée, lampe allumée) | normale (luma 123-130) |
+| Exposition juste après boot | luma 94 à 13 min (le boot précédent avait montré une surexposition transitoire) | luma 130 dès la 1re minute |
+| AWB | rex=213 bex=323 stable | rex≈580 bex=704 |
+| Fichiers retirés (WebDAV `/mnt/webdav`, network-monitor, Privacy Shield) | absents | absents |
+| `awb.state` | présent (8 octets) | présent |
+| Pas d'oops/panic dans dmesg | OK | OK |
+| Services autostart | auto-night-detection, button-actions, cpu-scaler, health-snapshot, memory-guard, rtsp-h26x, ssh-server, wifi-rescue | idem sans button-actions |
+| mDNS | non démarré (autostart absent) → `.local` ne répond pas | idem |
+
+Remarques :
+- Ping passerelle depuis la .24 : 100 % de perte à 1 min d'uptime (Wi-Fi pas encore stable juste après le boot) ; à recontrôler.
+- Non encore testé en rc21 : export/import JSON unique avec case « inclure les secrets », push de config corrigé, fréquence d'écriture de awb.state, alarme anti-masquage (main du propriétaire), nuit, SD (.24).
+- mDNS : toujours à décider (autostart par défaut ou non).
