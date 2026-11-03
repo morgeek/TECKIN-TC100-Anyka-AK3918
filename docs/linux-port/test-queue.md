@@ -1864,3 +1864,7 @@ Les 2 caméras tournent en 3.0.1-rc23 (flash), uptime 3 h, mDNS démarré automa
 4. Constat à 21:50 UTC sur la .24 : `STAT cap 51` pour ~4 s (fps réduit en soirée, expo 2810) vs .11 `cap 122` ; à expliquer (limite de temps d'exposition de nuit ?).
 
 Campagne de nuit : échantillonneur sur le Mac du propriétaire toutes les 2 min (uptime, RAM, luma, AE, AWB, ping passerelle, fps, awb.state) dans `night.log` + un snapshot / 30 min. Dépouillement demain matin (reboots, dérive mémoire, bascule jour/nuit, retour des couleurs, fréquence d'écriture awb.state). Anti-masquage reporté (main du propriétaire).
+
+### Complément 23:05 — enregistreur de nuit et awb.state (testeur)
+- L'échantillonneur côté Mac n'a pas survécu (processus de fond tués entre deux appels) : remplacé par `/tmp/nightcam.sh` **sur chaque caméra** (RAM, 1 ligne / 180 s dans `/tmp/night.log` : uptime, RAM, luma, AE, AWB, awb.state, load, ping passerelle, fps, IR). Perdu si reboot (détecté par l'uptime). Dépouillement demain matin.
+- `awb.state` est réécrit environ toutes les 2 min mais `/mnt` est un **tmpfs** : pas d'usure flash par cette écriture. Reste à vérifier demain que la copie persistante (cfg-persist vers cfga/cfgb) n'est pas déclenchée à chaque écriture.
