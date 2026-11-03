@@ -153,9 +153,11 @@
       </div>
       <div class="mv-screen">
         <img id="mv_img_1" src="/cgi-bin/currentpic.cgi" alt="Cam 1">
+        <video id="mv_video_1" autoplay muted playsinline style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;"></video>
       </div>
       <div class="mv-toolbar">
         <a id="mv_link_1" href="/" target="_blank" class="button is-small is-light">Ouvrir</a>
+        <button id="mv_mode_1" type="button" class="button is-small is-info is-outlined" onclick="toggleCamVideo(1)">Vidéo fluide</button>
       </div>
     </div>
 
@@ -167,9 +169,11 @@
       </div>
       <div class="mv-screen">
         <img id="mv_img_2" src="" alt="Cam 2 non configurée">
+        <video id="mv_video_2" autoplay muted playsinline style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;"></video>
       </div>
       <div class="mv-toolbar">
         <a id="mv_link_2" href="#" target="_blank" class="button is-small is-light" style="display:none;">Ouvrir</a>
+        <button id="mv_mode_2" type="button" class="button is-small is-info is-outlined" style="display:none;" onclick="toggleCamVideo(2)">Vidéo fluide</button>
       </div>
     </div>
 
@@ -247,6 +251,8 @@
           linkEl.href = base || "/";
           linkEl.style.display = "inline-block";
         }
+        var modeBtn = document.getElementById("mv_mode_" + i);
+        if (modeBtn) modeBtn.style.display = "inline-block";
       } else {
         if (imgEl) imgEl.style.display = "none";
         if (tagEl) {
@@ -254,9 +260,120 @@
           tagEl.textContent = "Non configurée";
         }
         if (linkEl) linkEl.style.display = "none";
+        var modeBtn = document.getElementById("mv_mode_" + i);
+        if (modeBtn) modeBtn.style.display = "none";
       }
     }
   }
+
+  // --- HTML5 Live Video stream player for cameras supporting /cgi-bin/live.cgi ---
+  var activeStreams = {};
+
+  window.toggleCamVideo = function(idx) {
+    var cams = loadCams();
+    var cam = cams[idx - 1];
+    if (!cam || !cam.url) return;
+    var base = cam.url.replace(/\/+$/, "");
+    var videoEl = document.getElementById("mv_video_" + idx);
+    var imgEl = document.getElementById("mv_img_" + idx);
+    var btn = document.getElementById("mv_mode_" + idx);
+
+    if (activeStreams[idx]) {
+      // Stop stream
+      try { activeStreams[idx].reader.cancel(); } catch(e) {}
+      try { activeStreams[idx].ctl.abort(); } catch(e) {}
+      if (videoEl) {
+        videoEl.pause();
+        videoEl.removeAttribute("src");
+        videoEl.load();
+        videoEl.style.display = "none";
+      }
+      if (imgEl) imgEl.style.display = "block";
+      if (btn) {
+        btn.textContent = "Vidéo fluide";
+        btn.className = "button is-small is-info is-outlined";
+      }
+      delete activeStreams[idx];
+      return;
+    }
+
+    if (!window.MediaSource || !window.fetch) {
+      alert("Votre navigateur ne supporte pas MediaSource pour la vidéo directe.");
+      return;
+    }
+
+    var liveUrl = base ? base + "/cgi-bin/live.cgi" : "/cgi-bin/live.cgi";
+    var ctl = new AbortController();
+    var ms = new MediaSource();
+    activeStreams[idx] = { ctl: ctl, ms: ms, reader: null };
+
+    if (btn) {
+      btn.textContent = "Connexion...";
+      btn.className = "button is-small is-warning";
+    }
+
+    fetch(liveUrl + "?info=1", { cache: "no-store", credentials: "same-origin", signal: ctl.signal })
+      .then(function(r) { return r.json(); })
+      .then(function(info) {
+        if (!info || !info.ok || !info.codec) throw new Error("Flux H.264 non disponible");
+        var mime = 'video/mp4; codecs="' + info.codec + '"';
+        if (!MediaSource.isTypeSupported(mime)) throw new Error("Codec non supporté: " + info.codec);
+
+        ms.addEventListener("sourceopen", function() {
+          var sb = ms.addSourceBuffer(mime);
+          var queue = [];
+          var pumping = false;
+
+          function pump() {
+            if (pumping || !sb || sb.updating || queue.length === 0) return;
+            pumping = true;
+            try {
+              sb.appendBuffer(queue.shift());
+            } catch(e) {
+              console.warn("SB append error", e);
+            }
+          }
+          sb.addEventListener("updateend", function() {
+            pumping = false;
+            pump();
+          });
+
+          fetch(liveUrl, { cache: "no-store", credentials: "same-origin", signal: ctl.signal })
+            .then(function(res) {
+              if (!res.ok) throw new Error("Erreur HTTP " + res.status);
+              var reader = res.body.getReader();
+              activeStreams[idx].reader = reader;
+              function readChunk() {
+                reader.read().then(function(result) {
+                  if (result.done) return;
+                  queue.push(result.value);
+                  pump();
+                  readChunk();
+                }).catch(function(e) {});
+              }
+              readChunk();
+            })
+            .catch(function(e) {
+              console.warn("Live fetch error", e);
+            });
+        });
+
+        if (videoEl) {
+          videoEl.src = URL.createObjectURL(ms);
+          videoEl.style.display = "block";
+          if (imgEl) imgEl.style.display = "none";
+          videoEl.play().catch(function() {});
+        }
+        if (btn) {
+          btn.textContent = "Arrêter vidéo";
+          btn.className = "button is-small is-danger";
+        }
+      })
+      .catch(function(err) {
+        alert("Impossible de démarrer la vidéo fluide: " + err.message);
+        window.toggleCamVideo(idx);
+      });
+  };
 
   window.toggleMultiViewConfig = function() {
     var box = document.getElementById("mv_config_box");
