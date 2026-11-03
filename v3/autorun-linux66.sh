@@ -340,6 +340,13 @@ if [ -f /mnt/scripts/wifi-quality.sh ] && on "$BC_WIFI_QUALITY"; then
     ( exec sh /mnt/scripts/wifi-quality.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
+# 12b4. Tamper / occlusion detection (boot.conf TAMPER_DETECT=1, off by default):
+if [ -f /mnt/scripts/tamper-detect.sh ] && on "$BC_TAMPER_DETECT"; then
+  sh /mnt/scripts/housekeeper.sh job add tamper-detect bg 2 5 /var/run/tamper-detect.pid \
+    sh /mnt/scripts/tamper-detect.sh hk </dev/null >/dev/null 2>&1 ||
+    ( exec sh /mnt/scripts/tamper-detect.sh run ) </dev/null >/dev/null 2>&1 &
+fi
+
 # 12c. Every minute (scripts/web-guard.sh): the web server answers (else restart httpfront, then a rescue telnet),
 #      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
 #      (sdinfo-sd.sh, also run once now).

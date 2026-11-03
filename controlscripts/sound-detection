@@ -115,6 +115,14 @@ publish_sound_event()
     # Publish to MQTT via shared function. level / threshold are dBFS.
     publish_mqtt_event "{\"type\":\"sound\",\"ts\":$now_ts,\"level_db\":$level,\"threshold_db\":$threshold}"
 
+    # In VOX / babyphone mode, also publish babyphone/state ON
+    if [ "${vox_mode:-0}" = "1" ]; then
+        if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
+            /mnt/scripts/mqtt-bridge.sh publish babyphone/state "ON" 1 >/dev/null 2>&1 || true
+        fi
+        echo "ON" > /tmp/vox_state 2>/dev/null
+    fi
+
     # Trigger recording if enabled.
     if [ "$(read_kv_config_value /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
         touch /tmp/motion_detected
@@ -154,13 +162,13 @@ sd_wait()
     fi
 }
 
-# load_config -> enable threshold interval min_loud, read in one pass without
+# load_config -> enable threshold interval min_loud vox_mode vox_hold, read in one pass without
 # a subshell; only when the file changed since the last load (shell -nt test).
 SD_STAMP="${SD_STAMP:-/tmp/sound-detection.loaded}"
 load_config()
 {
     [ -n "${enable:-}" ] && [ -f "$SD_STAMP" ] && ! [ "$CONFIG_FILE" -nt "$SD_STAMP" ] && return 0
-    enable=0; threshold=-24; interval=2; min_loud=1
+    enable=0; threshold=-24; interval=2; min_loud=1; vox_mode=0; vox_hold=5
     if [ -r "$CONFIG_FILE" ]; then
         while IFS='=' read -r _lc_k _lc_v; do
             case "$_lc_k" in
@@ -168,6 +176,8 @@ load_config()
                 THRESHOLD_DB) threshold="$_lc_v" ;;
                 INTERVAL) interval="$_lc_v" ;;
                 MIN_LOUD_SECONDS) min_loud="$_lc_v" ;;
+                VOX_MODE) vox_mode="$_lc_v" ;;
+                VOX_HOLD_SECONDS) vox_hold="$_lc_v" ;;
             esac
         done < "$CONFIG_FILE"
     fi
@@ -177,6 +187,9 @@ load_config()
     [ "$interval" -lt 1 ] && interval=1; [ "$interval" -gt 300 ] && interval=300
     case "$min_loud" in ''|*[!0-9]*) min_loud=1 ;; esac
     [ "$min_loud" -lt 1 ] && min_loud=1; [ "$min_loud" -gt 10 ] && min_loud=10
+    case "$vox_mode" in 1|true|yes|on) vox_mode=1 ;; *) vox_mode=0 ;; esac
+    case "$vox_hold" in ''|*[!0-9]*) vox_hold=5 ;; esac
+    [ "$vox_hold" -lt 1 ] && vox_hold=1; [ "$vox_hold" -gt 60 ] && vox_hold=60
     : > "$SD_STAMP"
 }
 
@@ -188,6 +201,8 @@ run_daemon()
     streak=0
     warned=0
     cooldown_seconds="$(clamp_int "$EVENT_COOLDOWN_SECONDS" 0 300)"
+    vox_active=0
+    vox_until=0
 
     enable=""
     rm -f "$SD_STAMP"
@@ -195,6 +210,11 @@ run_daemon()
         load_config
         if [ "$enable" != "1" ]; then
             # Disabled: poll the config only occasionally.
+            if [ "$vox_active" = "1" ]; then
+                vox_active=0
+                rm -f /tmp/vox_state
+                [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish babyphone/state "OFF" 1 >/dev/null 2>&1 || true
+            fi
             sd_wait 300
             continue
         fi
@@ -222,9 +242,23 @@ run_daemon()
                     log_msg "Triggered level=${m_last_db}dBFS threshold=${threshold}dBFS loud=${streak}s"
                     publish_sound_event "$m_last_db" "$threshold" "$m_last_ts"
                     last_publish="$m_last_ts"
+                    if [ "$vox_mode" = "1" ]; then
+                        vox_active=1
+                        read -r _v_up _ < /proc/uptime 2>/dev/null
+                        vox_until=$(( ${_v_up%.*} + vox_hold ))
+                    fi
                 fi
             else
                 streak=0
+            fi
+
+            if [ "$vox_mode" = "1" ] && [ "$vox_active" = "1" ]; then
+                read -r _v_up _ < /proc/uptime 2>/dev/null
+                if [ "${_v_up%.*}" -ge "$vox_until" ]; then
+                    vox_active=0
+                    rm -f /tmp/vox_state
+                    [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish babyphone/state "OFF" 1 >/dev/null 2>&1 || true
+                fi
             fi
         else
             printf '%s\n' "none" > "$STATE_FILE"
@@ -233,6 +267,11 @@ run_daemon()
                 warned=1
             fi
             last_events=""
+            if [ "$vox_active" = "1" ]; then
+                vox_active=0
+                rm -f /tmp/vox_state
+                [ -x /mnt/scripts/mqtt-bridge.sh ] && /mnt/scripts/mqtt-bridge.sh publish babyphone/state "OFF" 1 >/dev/null 2>&1 || true
+            fi
         fi
 
         sd_wait "$interval"

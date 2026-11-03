@@ -237,3 +237,10 @@ RED_LED=0
 # exists and show it in the web UI. Off by default: the camera needs no
 # internet access; updates are installed from Settings → Firmware update.
 UPDATE_CHECK=0
+
+# Camera tampering / occlusion detection (scripts/tamper-detect.sh):
+# detects lens covering/spraying via sudden pitch-dark luma and maximum AE gain.
+# Suppressed for 30s after night/day switches. 0 = off (default), 1 = on.
+TAMPER_DETECT=0
+TAMPER_LUMA_MIN=15
+TAMPER_HOLD_SEC=3

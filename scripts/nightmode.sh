@@ -49,11 +49,13 @@ case "$1" in
     night_mode on
     log_nightmode "on"
     publish_nightmode_mqtt "on"
+    read -r _nm_u _ < /proc/uptime 2>/dev/null && echo "${_nm_u%.*}" > /tmp/nightmode.last 2>/dev/null || true
     ;;
   off)
     night_mode off
     log_nightmode "off"
     publish_nightmode_mqtt "off"
+    read -r _nm_u _ < /proc/uptime 2>/dev/null && echo "${_nm_u%.*}" > /tmp/nightmode.last 2>/dev/null || true
     ;;
   status)
     night_mode status

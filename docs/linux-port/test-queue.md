@@ -2199,3 +2199,26 @@ Trois ajouts pour diagnostiquer à distance sans console série. Tout est dans l
 - **Quoi :** `v3/linux66-sd/sdinfo-sd.sh` (déjà appelé chaque minute) écrit maintenant dans `/tmp/sd-health` le nombre d'erreurs carte du journal noyau (`errors=`, FAT/I/O/mmcblk) et `readonly=` ; l'état (`state=ok|readonly`) ne change pas, donc la sauvegarde des journaux et la barre d'état se comportent comme avant. MQTT `sd_errors` et la page Disque (« In-flight / errors ») utilisent ce compte.
 - **Pas fait (volontairement) :** `fsck` au démarrage (outil `fsck.fat` absent de l'image, et risque de bloquer le boot) et mesure de vitesse d'écriture (écrit sur la carte) : à reprendre plus tard, à part.
 - **Test :** `cat /tmp/sd-health` → `state=ok`, `errors=0`, `readonly=0` ; page Disque → « none detected ».
+
+
+## 2026-11-03 — Lot 2 (implémenté, zéro U-Boot / zéro noyau) : Babyphone/Vox, niveau audio live, détection de sabotage
+
+Évolutions d'intelligence embarquée légères en espace utilisateur Linux, 100% désactivées par défaut.
+
+### 1. Mode Babyphone / Vox (`controlscripts/sound-detection`)
+- **Quoi :** Ajout de `VOX_MODE=1` et `VOX_HOLD_SECONDS=5` dans `sound_detection.conf`. Quand un événement sonore est déclenché, la détection maintient l'état actif vers MQTT sur `<root>/babyphone/state` (`ON`) et le retient pendant la durée de maintien configurée après le dernier son fort avant de repasser à `OFF`. Nouvelle entité Home Assistant `binary_sensor` (`dev_cla: sound`).
+- **Niveau sonore direct (`sound_db`) :** `statelib.cgi` lit instantanément `/var/run/sound_level` (sans aucun sous-shell) et l'expose dans le JSON de la statusline (`sound_db`). L'interface Web (`index.html`) affiche désormais un indicateur en direct du niveau audio (`#rd_sound`).
+- **Test :**
+  1. Activer `VOX_MODE=1` dans `/mnt/config/sound_detection.conf`.
+  2. Bruit au micro -> Vérifier `babyphone/state` passe à `ON` sur le broker MQTT et revient à `OFF` après silence.
+  3. Ouvrir l'UI Web : le chip Audio affiche le niveau en dBFS.
+
+### 2. Détection de sabotage et d'occultation caméra (`scripts/tamper-detect.sh`)
+- **Quoi :** Détecteur léger surveillant les masquages brutaux (objectif couvert, occultation) en analysant la chute de luma (`/tmp/cam_luma`) combinée à l'exposition automatique. Protection anti-faux-positifs intégrée : neutralisation automatique pendant 30 secondes après un basculement de mode jour/nuit (`/tmp/nightmode.last`).
+- **MQTT :** Publie sur `<root>/tamper/state` (`ON`/`OFF`) et auto-découverte Home Assistant `binary_sensor` (`dev_cla: problem`, icône bouclier d'alerte).
+- **Interrupteur :** `TAMPER_DETECT=0` par défaut dans `boot.conf` (option `1` pour activer).
+- **Test :**
+  1. `TAMPER_DETECT=1` dans `boot.conf`.
+  2. Couvrir l'objectif de la main -> Vérifier publication MQTT `tamper/state ON` après 3 secondes.
+  3. Découvrir l'objectif -> Repasse immédiatement à `tamper/state OFF`.
+  4. Basculer jour/nuit -> Vérifier qu'aucun faux positif n'est émis.

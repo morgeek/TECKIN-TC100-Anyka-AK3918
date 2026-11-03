@@ -120,7 +120,7 @@ class StatuslineCgi(unittest.TestCase):
                 self.assertEqual(bn, bo)
                 self.assertTrue(bn.startswith('{"sysusage":"CPU: '), bn)
                 d = json.loads(bn)
-                self.assertEqual(len(d), 35)
+                self.assertEqual(len(d), 36)
                 self.assertIn('Content-type: application/json', hn)
                 self.assertIn('Cache-Control: max-age=0, no-store, no-cache', hn)
                 self.assertIn('Pragma: no-cache', hn)

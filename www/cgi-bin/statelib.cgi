@@ -586,5 +586,19 @@ statusline_json() {
   [ -n "$cam_hostname" ] || cam_hostname="tc100"
   json_esc_to cam_hostname_json "$cam_hostname"
 
-  echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"mqtt_refused\":$mqtt_refused,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\",\"platform\":\"$platform\",\"cfg_save\":\"$cfg_save\",\"cfg_save_msg\":\"$cfg_save_msg_json\",\"hostname\":\"$cam_hostname_json\"}"
+  # Real-time microphone audio level (dBFS) for status line and UI VU indicator
+  sound_db_json="null"
+  if [ -r /var/run/sound_level ]; then
+    _sl_ts=""; _sl_rms=""
+    read -r _sl_ts _sl_rms _sl_rest < /var/run/sound_level
+    case "$_sl_ts" in ''|*[!0-9]*) ;; *)
+      _read_now_ts
+      if [ $((now_ts - _sl_ts)) -le 10 ]; then
+        case "$_sl_rms" in -[0-9]*|0) sound_db_json="$_sl_rms" ;; esac
+      fi
+      ;;
+    esac
+  fi
+
+  echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"mqtt_refused\":$mqtt_refused,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\",\"platform\":\"$platform\",\"cfg_save\":\"$cfg_save\",\"cfg_save_msg\":\"$cfg_save_msg_json\",\"hostname\":\"$cam_hostname_json\",\"sound_db\":$sound_db_json}"
 }

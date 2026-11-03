@@ -982,6 +982,18 @@ DIAG
   motion_cfg_payload="$(printf '{"name":"%s Motion","uniq_id":"%s_motion","stat_t":"%s","dev_cla":"motion","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:motion-sensor","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$motion_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$motion_cfg_topic" "$motion_cfg_payload"
 
+  # Babyphone / Vox binary_sensor (<root>/babyphone/state)
+  vox_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/babyphone/state")"
+  vox_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/babyphone/config"
+  vox_cfg_payload="$(printf '{"name":"%s Babyphone","uniq_id":"%s_babyphone","stat_t":"%s","dev_cla":"sound","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:baby","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$vox_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$vox_cfg_topic" "$vox_cfg_payload"
+
+  # Tamper / Occlusion binary_sensor (<root>/tamper/state)
+  tamper_state_topic_json="$(json_escape "${MQTT_TOPIC_ROOT}/tamper/state")"
+  tamper_cfg_topic="${discovery_prefix}/binary_sensor/${node_id}/tamper/config"
+  tamper_cfg_payload="$(printf '{"name":"%s Tamper","uniq_id":"%s_tamper","stat_t":"%s","dev_cla":"problem","pl_on":"ON","pl_off":"OFF","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:shield-alert","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$tamper_state_topic_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$tamper_cfg_topic" "$tamper_cfg_payload"
+
   # Switches (Interactive Toggles)
   for cmd in ir_led front_led red_led motion_detection night_mode auto_night_mode; do
     uniq_id="${node_id}_${cmd}"

@@ -839,5 +839,44 @@ class Lot1B(unittest.TestCase):
         self.assertIn('kernel error(s) since boot', (ROOT / 'www/cgi-bin/disk.cgi').read_text())
 
 
+class Lot2BabyphoneAndTamper(unittest.TestCase):
+    """Lot 2: Babyphone / Vox mode and Camera Tamper / Occlusion detection."""
+
+    def test_vox_mode_in_sound_detection(self):
+        sd = (ROOT / 'controlscripts/sound-detection').read_text()
+        self.assertIn('VOX_MODE) vox_mode="$_lc_v" ;;', sd)
+        self.assertIn('VOX_HOLD_SECONDS) vox_hold="$_lc_v" ;;', sd)
+        self.assertIn('babyphone/state "ON"', sd)
+        self.assertIn('babyphone/state "OFF"', sd)
+        conf = (ROOT / 'config/sound_detection.conf.dist').read_text()
+        self.assertIn('VOX_MODE=0', conf)
+        self.assertIn('VOX_HOLD_SECONDS=5', conf)
+
+    def test_tamper_detection_script_and_transition_guard(self):
+        script = ROOT / 'scripts/tamper-detect.sh'
+        self.assertTrue(script.is_file())
+        s = script.read_text()
+        self.assertIn('TAMPER_CONF="/mnt/config/tamper.conf"', s)
+        self.assertIn('nightmode.last', s)
+        self.assertIn('tamper/state "ON"', s)
+        self.assertIn('tamper/state "OFF"', s)
+        self.assertEqual(sh('sh -n %s' % script).returncode, 0)
+        self.assertIn('TAMPER_DETECT=0', (ROOT / 'config/boot.conf.dist').read_text())
+        self.assertIn('job add tamper-detect bg 2 5', (ROOT / 'v3/autorun-linux66.sh').read_text())
+
+    def test_mqtt_discovery_for_babyphone_and_tamper(self):
+        mq = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        self.assertIn('binary_sensor/${node_id}/babyphone/config', mq)
+        self.assertIn('binary_sensor/${node_id}/tamper/config', mq)
+        self.assertIn('"dev_cla":"sound"', mq)
+        self.assertIn('"dev_cla":"problem"', mq)
+
+    def test_sound_db_in_statelib(self):
+        lib = (ROOT / 'www/cgi-bin/statelib.cgi').read_text()
+        self.assertIn(r'\"sound_db\":$sound_db_json', lib)
+        self.assertIn('/var/run/sound_level', lib)
+        self.assertEqual(sh('sh -n %s' % (ROOT / 'www/cgi-bin/statelib.cgi')).returncode, 0)
+
+
 if __name__ == '__main__':
     unittest.main()

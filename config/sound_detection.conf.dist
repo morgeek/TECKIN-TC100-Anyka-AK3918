@@ -29,4 +29,10 @@ MIN_LOUD_SECONDS=1
 #   one. Range 1–300. Default: 2
 INTERVAL=2
 
+# VOX_MODE — 1 to enable continuous babyphone / Vox state tracking.
+#   When VOX_MODE=1, sound bursts emit babyphone binary_sensor ON to MQTT,
+#   and hold ON until VOX_HOLD_SECONDS of silence elapsed before resetting to OFF.
+VOX_MODE=0
+VOX_HOLD_SECONDS=5
+
 # THRESHOLD — legacy (1.8.3 and earlier, raw sample sum); no longer used.
