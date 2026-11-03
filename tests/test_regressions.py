@@ -443,42 +443,6 @@ class Regressions(unittest.TestCase):
                 self.assertIn(marker, r.stdout, (r.stdout, r.stderr))
                 self.assertEqual(cfg.read_bytes(), original)
 
-    def test_date_formatters(self):
-        for path, name, pattern in [
-            ('www/cgi-bin/configbackup.cgi', '_format_backup_tag', rb'\d{8}-\d{6}\n')]:
-            r = run(function(path, name) + '\n' + name + ' 1788973200')
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertRegex(r.stdout, pattern)
-
-    def archive(self, name='config/boot.conf', size=8, kind=tarfile.REGTYPE):
-        path = self.base / 'backup.tar.gz'
-        with tarfile.open(path, 'w:gz', format=tarfile.USTAR_FORMAT) as tar:
-            member = tarfile.TarInfo(name)
-            member.type = kind
-            if kind == tarfile.REGTYPE:
-                member.size = size
-                tar.addfile(member, io.BytesIO(b'A' * size))
-            else:
-                member.linkname = '/outside'
-                tar.addfile(member)
-        return path
-
-    def test_archive_validation(self):
-        code = '\n'.join(function('www/cgi-bin/configbackup.cgi', name) for name in [
-            'archive_to_plain', 'list_plain_entries', 'list_plain_verbose', 'validate_archive_entries']) + '\n'
-        code += 'TMP_ROOT=' + shlex.quote(str(self.base)) + '\n'
-        for name, size, kind, allowed in [
-            ('config/boot.conf', 8, tarfile.REGTYPE, True),
-            ('config/../outside', 8, tarfile.REGTYPE, False),
-            ('outside', 8, tarfile.REGTYPE, False),
-            ('config/link', 0, tarfile.SYMTYPE, False),
-            ('config/link', 0, tarfile.LNKTYPE, False),
-            ('config/large', 2097153, tarfile.REGTYPE, False)]:
-            with self.subTest(name=name, kind=kind, size=size):
-                path = self.archive(name, size, kind)
-                r = run(code + 'validate_archive_entries ' + shlex.quote(str(path)))
-                self.assertEqual(r.returncode == 0, allowed, r.stderr)
-
     def test_config_transaction_rejects_all_files_before_commit(self):
         stage, target, backup = (self.base / name for name in ('stage', 'target', 'backup'))
         stage.mkdir(); target.mkdir()
@@ -525,110 +489,219 @@ class Regressions(unittest.TestCase):
         self.assertIn('tc_commit_config_files', source)
         for expected in [
             '"0";"codec"', '"1";"fps"', '"2";"codec"', '"3";"codec"',
-            '"imageflip"', '"RTSPLOGENABLED"', '"rec_postrecord_sec"',
-            '"rec_file_duration_sec"', '"rec_reserverd_disk_mb"']:
+            '"imageflip"', '"RTSPLOGENABLED"', '"REC_LOCAL"', '"REC_WHEN"', '"REC_SEGMENT_SEC"',
+            '"REC_RESERVE_MB"', '"REC_POSTROLL_SEC"', '"REC_OFFLINE_SEC"', '"REC_CLIENT"', '"REC_RING_KB"',
+            '"LUMA_NIGHT"', '"DAYNIGHT_SOURCE"', '"NTFY_AUTH"', '"VOX_MODE"', '"TAMPER_HOLD_SEC"',
+            '"WIFI_RESCUE_PSK"', '"MQTT_PASSWORD"', '"BRIGHTNESS"', '"BOOT_GUARD"']:
             self.assertIn(expected, source)
-        for obsolete in ['"0_codec"', '"audioCodec0"', '"postrec";"record_post"']:
+        # dead or removed settings must not come back
+        for obsolete in ['"0_codec"', '"audioCodec0"', '"postrec";"record_post"', '"rec_postrecord_sec"',
+                         '"rec_file_duration_sec"', '"rec_reserverd_disk_mb"', '"daynightlum"', '"nightdaylum"',
+                         '"daynightawb"', '"nightdayawb"', 'PRIVACY_MODE']:
             self.assertNotIn(obsolete, source)
         self.assertIn('res && res.ok === true', (ROOT / 'www/backup.html').read_text())
 
-    def config_exchange_code(self):
+    def config_exchange_code(self, entry='_ce_import'):
         names = ['_ce_cleanup', '_ce_fail', '_ce_truthy', '_ce_add_file',
-                 '_ce_prepare_file', '_ce_row_table', '_ce_build_rows', '_ce_import']
+                 '_ce_prepare_file', '_ce_row_table', '_ce_build_rows', '_ce_build_wpa', '_ce_export', '_ce_import']
         code = '. ' + shlex.quote(str(ROOT / 'scripts/config-transaction.sh')) + '\n'
         code += function('www/cgi-bin/func.cgi', 'urldecode') + '\n'
         code += 'json_body_err() { printf \'{"ok":false,"error":"%s","message":"%s"}\\n\' "$1" "$2"; }\n'
         code += '\n'.join(function('www/cgi-bin/config_exchange.cgi', name) for name in names)
-        return code + '\n_ce_import'
+        return code + '\n' + entry
+
+    def exchange_env(self, cfg, **extra):
+        env = dict(os.environ, CONFIG_ROOT=str(cfg), TC_CONFIG_ROOT=str(cfg), JSONFLAT=str(ROOT / 'scripts/jsonflat.awk'),
+                   F_exclude_network='0', F_exclude_credentials='0', F_include_secrets='0')
+        env.update(extra)
+        return env
+
+    def seed_config(self, names=None):
+        cfg = self.base / 'config'; cfg.mkdir(exist_ok=True)
+        for f in sorted((ROOT / 'config').glob('*.dist')):
+            if names is None or f.name[:-5] in names:
+                (cfg / f.name[:-5]).write_text(f.read_text())
+        return cfg
+
+    def import_json(self, cfg, doc, **extra):
+        body = json.dumps(doc).encode()
+        env = self.exchange_env(cfg, CONTENT_LENGTH=str(len(body)), **extra)
+        r = run(self.config_exchange_code(), body, env, timeout=20)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
 
     def test_json_import_applies_sections_and_rejects_whole_invalid_batch(self):
-        cfg = self.base / 'config'; cfg.mkdir()
-        for name in ('boot.conf', 'rtspserver.conf', 'recording.conf', 'telegram.conf'):
-            (cfg / name).write_text((ROOT / ('config/' + name + '.dist')).read_text())
-        env = dict(os.environ, CONFIG_ROOT=str(cfg), TC_CONFIG_ROOT=str(cfg), JSONFLAT=str(ROOT / 'scripts/jsonflat.awk'),
-                   F_exclude_network='0', F_exclude_credentials='0')
-        good = json.dumps({'video': {'main': {'fps': 12, 'bitrate': 1000}},
-                           'recording': {'postrec': 8},
-                           'telegram': {'token': '123:abc$def'}}).encode()
-        env['CONTENT_LENGTH'] = str(len(good))
-        r = run(self.config_exchange_code(), good, env, timeout=15)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(json.loads(r.stdout)['transactional'])
+        cfg = self.seed_config()
+        good = {'video': {'main': {'fps': 12, 'bitrate': 1000}},
+                'recording': {'segment_sec': 600, 'when': 'always'},
+                'secrets': {'telegram_token': '123:abc$def'}}
+        res = self.import_json(cfg, good)
+        self.assertTrue(res['transactional'], res)
         rtsp = (cfg / 'rtspserver.conf').read_text()
         self.assertRegex(rtsp, r'(?s)\[0\].*?\nbps=1000\n.*?\nfps=12\n')
-        self.assertIn('rec_postrecord_sec=8', (cfg / 'recording.conf').read_text())
+        boot = (cfg / 'boot.conf').read_text()
+        self.assertIn('\nREC_SEGMENT_SEC=600\n', boot)
+        self.assertIn('\nREC_WHEN=always\n', boot)
         self.assertIn("apiToken='123:abc$def'", (cfg / 'telegram.conf').read_text())
 
         before_rtsp = rtsp
-        bad = json.dumps({'video': {'main': {'fps': 10}},
-                          'recording': {'maxduration': 2}}).encode()
-        env['CONTENT_LENGTH'] = str(len(bad))
-        r = run(self.config_exchange_code(), bad, env, timeout=15)
-        self.assertEqual(json.loads(r.stdout)['error'], 'VALIDATION_FAILED')
+        bad = {'video': {'main': {'fps': 10}}, 'recording': {'segment_sec': 2}}
+        self.assertEqual(self.import_json(cfg, bad)['error'], 'VALIDATION_FAILED')
         self.assertEqual((cfg / 'rtspserver.conf').read_text(), before_rtsp)
 
-    def test_legacy_import_is_transactional(self):
-        cfg = self.base / 'config'; cfg.mkdir()
-        for name in ('boot.conf', 'mqtt.conf'):
-            (cfg / name).write_text((ROOT / ('config/' + name + '.dist')).read_text())
-        before = (cfg / 'boot.conf').read_bytes()
-        body = b'## tc100-boot-mqtt-export v1\n##[SECTION:boot.conf]##\nWEB_MODE=ultra-lite\n##[SECTION:mqtt.conf]##\nMQTT_QOS=9\n'
-        source = (ROOT / 'www/cgi-bin/conf-import.cgi').read_text().replace('/tmp/csrf_token', str(self.base / 'csrf'))
-        env = dict(os.environ, REQUEST_METHOD='POST', CONTENT_LENGTH=str(len(body)),
-                   TC_CONFIG_ROOT=str(cfg), CONFIG_TX_LIB=str(ROOT / 'scripts/config-transaction.sh'))
-        r = run(source, body, env, timeout=15)
-        response = json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
-        self.assertEqual(response['error'], 'validation_failed')
-        self.assertEqual((cfg / 'boot.conf').read_bytes(), before)
+    def test_json_import_validates_every_new_setting_strictly(self):
+        cfg = self.seed_config()
+        good = {
+            'recording': {'local': 1, 'when': 'offline', 'stream': 'sub', 'segment_sec': 300, 'reserve_mb': 256,
+                          'postroll_sec': 30, 'offline_sec': 5, 'client': '192.168.1.10', 'ring_kb': 1024, 'audio': 1},
+            'daynight': {'luma_night': 30, 'luma_day': 90, 'source': 'ae', 'ae_night_above': 7000, 'ae_day_below': 2000,
+                         'night_hold': 10, 'day_hold': 60, 'vendor_night_lum': 3584, 'vendor_day_lum': 1536,
+                         'ir_led_max_on': 50400, 'night_style': 1, 'lowlight_fps': 0, 'ir_led_mode': 'auto'},
+            'notify': {'ntfy_enabled': 1, 'ntfy_url': 'https://ntfy.sh', 'ntfy_priority': 'high', 'cooldown_sec': 30,
+                       'events': 'motion tamper', 'webhook_method': 'PUT', 'attach_snapshot': 0},
+            'tamper': {'enabled': 1, 'hold_sec': 8, 'jpeg_drop_pct': 40, 'luma_min': 12},
+            'services': {'sound_det_threshold': -30, 'sound_det_interval': 3, 'sound_det_min_loud': 2, 'vox_mode': 1,
+                         'vox_hold': 9, 'alarm_detect': 1, 'alarm_hold': 20},
+            'isp': {'brightness': -5, 'contrast': 10, 'power_hz': 50, 'exposure_max_pct': 80, 'mask_color': 'gray',
+                    'mask1': '0,0,25,30'},
+            'wifi_rescue': {'enabled': 1, 'after_min': 10, 'manual_min': 15, 'ssid': 'Rescue cam'},
+            'boot': {'boot_guard': 1, 'log_persist': 0, 'log_persist_min': 20, 'wifi_quality': 1}}
+        res = self.import_json(cfg, good)
+        self.assertTrue(res.get('ok'), res)
+        for name, lines in {
+            'daynight.conf': ['LUMA_NIGHT=30', 'DAYNIGHT_SOURCE=ae', 'AE_NIGHT_ABOVE=7000', 'IR_LED_MODE=auto'],
+            'notify.conf': ['NTFY_PRIORITY="high"', 'NOTIFY_EVENTS="motion tamper"', 'NOTIFY_COOLDOWN_SECONDS=30',
+                            'WEBHOOK_METHOD="PUT"'],
+            'tamper.conf': ['ENABLE=1', 'TAMPER_HOLD_SEC=8'],
+            'sound_detection.conf': ['THRESHOLD_DB=-30', 'VOX_MODE=1', 'ALARM_HOLD_SECONDS=20', 'MIN_LOUD_SECONDS=2'],
+            'isp_tune.conf': ['BRIGHTNESS=-5', 'POWER_HZ=50', 'MASK1=0,0,25,30', 'MASK_COLOR=gray'],
+            'boot.conf': ['REC_CLIENT=192.168.1.10', 'REC_STREAM=sub', 'WIFI_RESCUE_SSID="Rescue cam"', 'LOG_PERSIST=0',
+                          'BOOT_GUARD=1']}.items():
+            text = (cfg / name).read_text()
+            for line in lines:
+                self.assertIn('\n' + line + '\n', '\n' + text, (name, line))
+            self.assertEqual(subprocess.run(['/bin/sh', '-n', str(cfg / name)]).returncode, 0, name)
 
-    def test_legacy_import_takes_idle_rate_and_saved_logs(self):
-        cfg = self.base / 'config'; cfg.mkdir()
-        for name in ('boot.conf', 'mqtt.conf'):
-            (cfg / name).write_text((ROOT / ('config/' + name + '.dist')).read_text())
-        source = (ROOT / 'www/cgi-bin/conf-import.cgi').read_text().replace('/tmp/csrf_token', str(self.base / 'csrf'))
+        # every one of these must be refused, and the files must not move
+        snapshot = {f.name: f.read_bytes() for f in cfg.iterdir()}
+        for bad in [
+            {'recording': {'when': 'never'}}, {'recording': {'client': '999.1.1.1'}},
+            {'recording': {'client': '1.2.3.4;reboot'}}, {'recording': {'ring_kb': 64}},
+            {'daynight': {'source': 'x; id'}}, {'daynight': {'luma_day': 20, 'luma_night': 30}},
+            {'notify': {'ntfy_url': 'https://x/$(id)'}}, {'notify': {'ntfy_url': 'ftp://host/'}},
+            {'notify': {'events': 'motion; id'}}, {'notify': {'events': 'fire'}},
+            {'secrets': {'telegram_token': "a'b"}},
+            {'notify': {'ntfy_topic': 'a b'}}, {'notify': {'webhook_url': 'http://h/`id`'}},
+            {'services': {'sound_det_threshold': 5}}, {'services': {'vox_hold': 0}},
+            {'isp': {'brightness': 60}}, {'isp': {'mask1': '10,10,5,5'}}, {'isp': {'mask_color': 'red'}},
+            {'wifi_rescue': {'ssid': 'a$(id)'}}, {'secrets': {'wifi_rescue_psk': 'pa"ss1234'}},
+            {'wifi_rescue': {'after_min': 1}}, {'boot': {'log_persist': 'maybe'}}]:
+            res = self.import_json(cfg, bad, F_include_secrets='1')
+            self.assertIn(res.get('error'), ('VALIDATION_FAILED', 'TRANSACTION_FAILED'), bad)
+            self.assertEqual({f.name: f.read_bytes() for f in cfg.iterdir()}, snapshot, bad)
 
-        def post(body):
-            env = dict(os.environ, REQUEST_METHOD='POST', CONTENT_LENGTH=str(len(body)),
-                       TC_CONFIG_ROOT=str(cfg), CONFIG_TX_LIB=str(ROOT / 'scripts/config-transaction.sh'))
-            r = run(source, body, env, timeout=15)
-            return json.loads(r.stdout.split(b'\r\n\r\n', 1)[1])
+    def test_json_import_secrets_and_exclude_credentials(self):
+        cfg = self.seed_config()
+        doc = {'secrets': {'mqtt_user': 'user1', 'mqtt_password': 'pw:with$chars', 'telegram_chat_id': '-1001',
+                           'wifi_rescue_psk': 'rescue-psk-1',
+                           'wifi': [{'ssid': 'Home net', 'psk': 'secret-psk-1'}, {'ssid': 'Open', 'psk': ''}]},
+               'notify': {'ntfy_auth': 'Bearer tk_abc'}}
+        doc['secrets']['camera_password'] = 'longpass1'
+        # excluded: nothing credential-like is written (and the import has nothing left to apply)
+        res = self.import_json(cfg, dict(doc, mqtt={'enabled': 1}), F_exclude_credentials='1')
+        self.assertTrue(res['ok'], res)
+        self.assertEqual(res['skipped'], 10, res)
+        self.assertNotIn('pw:with', (cfg / 'mqtt.conf').read_text())
+        self.assertFalse((cfg / 'wpa_supplicant.conf').exists())
+        res = self.import_json(cfg, doc)
+        self.assertTrue(res['ok'], res)
+        self.assertIn("MQTT_PASSWORD='pw:with$chars'", (cfg / 'mqtt.conf').read_text())
+        self.assertIn('WIFI_RESCUE_PSK="rescue-psk-1"', (cfg / 'boot.conf').read_text())
+        wpa = (cfg / 'wpa_supplicant.conf').read_text()
+        self.assertIn('ssid="Home net"', wpa)
+        self.assertIn('psk="secret-psk-1"', wpa)
+        self.assertRegex(wpa, r'ssid="Open"\n\tscan_ssid=1\n\tkey_mgmt=NONE')
+        self.assertLess(wpa.index('Home net'), wpa.index('"Open"'))
+        for bad in [{'secrets': {'wifi': [{'ssid': 'a"b', 'psk': 'secret-psk-1'}]}},
+                    {'secrets': {'wifi': [{'ssid': 'ok', 'psk': 'short'}]}},
+                    {'secrets': {'wifi': [{'psk': 'secret-psk-1'}]}},
+                    {'secrets': {'camera_password': 'a b c d'}}, {'secrets': {'camera_password': 'abc'}},
+                    {'secrets': {'camera_password': 'p"wd1'}}]:
+            before = (cfg / 'wpa_supplicant.conf').read_bytes()
+            res = self.import_json(cfg, bad)
+            self.assertFalse(res.get('ok'), bad)
+            self.assertEqual((cfg / 'wpa_supplicant.conf').read_bytes(), before, bad)
 
-        head = b'## tc100-boot-mqtt-export v1\n##[SECTION:boot.conf]##\n'
-        response = post(head + b'IDLE_FPS=5\nIDLE_AFTER=30\nLOG_PERSIST=0\nLOG_PERSIST_MIN=20\n')
-        self.assertTrue(response['ok'], response)
-        self.assertEqual(response['applied'], 4)
-        boot = (cfg / 'boot.conf').read_text()
-        for line in ('IDLE_FPS=5', 'IDLE_AFTER=30', 'LOG_PERSIST=0', 'LOG_PERSIST_MIN=20'):
-            self.assertIn('\n' + line + '\n', boot)
-        for bad in (b'IDLE_FPS=25\n', b'IDLE_AFTER=0\n', b'LOG_PERSIST=2\n', b'LOG_PERSIST_MIN=1441\n'):
-            before = (cfg / 'boot.conf').read_bytes()
-            self.assertEqual(post(head + bad)['error'], 'validation_failed', bad)
-            self.assertEqual((cfg / 'boot.conf').read_bytes(), before)
-
-    def test_backup_restore_commits_staged_archive(self):
-        mnt = self.base / 'mnt'; cfg = mnt / 'config'; cfg.mkdir(parents=True)
-        src = self.base / 'source'; (src / 'config').mkdir(parents=True)
-        for name in ('boot.conf', 'mqtt.conf'):
-            original = (ROOT / ('config/' + name + '.dist')).read_text()
-            (cfg / name).write_text(original)
-            (src / 'config' / name).write_text(original)
-        changed = (src / 'config/boot.conf').read_text().replace('WEB_MODE=http', 'WEB_MODE=ultra-lite')
-        (src / 'config/boot.conf').write_text(changed)
-        archive = self.base / 'restore.tar.gz'
-        with tarfile.open(archive, 'w:gz') as tar:
-            tar.add(src / 'config', arcname='config')
-        names = ['_format_backup_tag', 'html_header', 'is_truthy', 'create_archive',
-                 'archive_to_plain', 'extract_plain_archive', 'restore_backup']
-        code = '. ' + shlex.quote(str(ROOT / 'scripts/config-transaction.sh')) + '\n'
-        code += '\n'.join(function('www/cgi-bin/configbackup.cgi', name) for name in names)
-        code += '\n_read_ts() { now_ts=1; }\nrestore_backup "$ARCHIVE" 0'
-        env = dict(os.environ, ARCHIVE=str(archive), TMP_ROOT=str(self.base), MNT_ROOT=str(mnt),
-                   CONFIG_ROOT=str(cfg), TC_MNT_ROOT=str(mnt), TC_CONFIG_ROOT=str(cfg))
-        r = run(code, env=env, timeout=20)
+    def export_json(self, cfg, secrets):
+        env = self.exchange_env(cfg, F_include_secrets='1' if secrets else '0')
+        r = run(self.config_exchange_code('_ce_export'), None, env, timeout=20)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(b'transactionally (1 changed file(s))', r.stdout)
-        self.assertIn('WEB_MODE=ultra-lite', (cfg / 'boot.conf').read_text())
-        self.assertTrue(list(self.base.glob('config-rollback-*.tar.gz')))
+        def no_dupes(pairs):
+            keys = [k for k, _ in pairs]
+            self.assertEqual(len(keys), len(set(keys)), keys)
+            return dict(pairs)
+        return json.loads(r.stdout, object_pairs_hook=no_dupes), r.stdout.decode()
+
+    def test_json_export_has_no_secrets_unless_asked_and_round_trips(self):
+        cfg = self.seed_config()
+        (cfg / 'mqtt.conf').write_text((cfg / 'mqtt.conf').read_text().replace('MQTT_USER=\n', "MQTT_USER='cam1'\n")
+                                       .replace('MQTT_PASSWORD=\n', "MQTT_PASSWORD='mqttpw1'\n"))
+        (cfg / 'telegram.conf').write_text('apiToken="777:TOKEN$X"\nuserChatId="4242"\nTELEGRAM_ENABLE=1\n')
+        (cfg / 'user.pwd').write_text('camerapw1\n')
+        (cfg / 'wpa_supplicant.conf').write_text(
+            'ctrl_interface=/var/run/wpa_supplicant\nnetwork={\n\tssid="Home"\n\tscan_ssid=1\n\tkey_mgmt=WPA-PSK\n'
+            '\tpsk="homepass123"\n\tpriority=2\n}\nnetwork={\n\tssid="Old"\n\tkey_mgmt=NONE\n\tpriority=1\n}\n')
+        (cfg / 'notify.conf').write_text((cfg / 'notify.conf').read_text().replace('NTFY_AUTH=""', 'NTFY_AUTH="Bearer tk_9"')
+                                         .replace('NTFY_TOPIC=""', 'NTFY_TOPIC="mytopic"'))
+        plain, text = self.export_json(cfg, False)
+        for secret in ['mqttpw1', 'cam1', 'TOKEN', '4242', 'camerapw1', 'homepass123', 'Home', 'tk_9', 'mytopic', 'tc100rescue']:
+            self.assertNotIn(secret, text)
+        self.assertNotIn('secrets', plain)
+        self.assertFalse(plain['includes_secrets'])
+        self.assertEqual(plain['telegram'], {'enabled': 1})
+        self.assertEqual(plain['recording']['when'], 'offline')
+        self.assertIn('segment_sec', plain['recording'])
+        self.assertNotIn('privacy', plain.get('peripherals', {}))
+        full, text = self.export_json(cfg, True)
+        self.assertTrue(full['includes_secrets'])
+        sec = full['secrets']
+        self.assertEqual((sec['mqtt_user'], sec['mqtt_password'], sec['telegram_token'], sec['telegram_chat_id']),
+                         ('cam1', 'mqttpw1', '777:TOKEN$X', '4242'))
+        self.assertEqual(sec['camera_password'], 'camerapw1')
+        self.assertEqual(sec['wifi'], [{'ssid': 'Home', 'psk': 'homepass123'}, {'ssid': 'Old', 'psk': ''}])
+        self.assertEqual(sec['wifi_rescue_psk'], 'tc100rescue')
+        self.assertEqual(full['notify']['ntfy_auth'], 'Bearer tk_9')
+        self.assertEqual(full['notify']['ntfy_topic'], 'mytopic')
+
+        # what one camera exports another camera imports, secrets included, and exports again unchanged
+        cfg2 = self.base / 'config2'; cfg2.mkdir()
+        for f in cfg.iterdir():
+            (cfg2 / f.name).write_bytes(f.read_bytes())
+        for name in ('mqtt.conf', 'telegram.conf', 'wpa_supplicant.conf', 'notify.conf'):
+            (cfg2 / name).unlink()
+        for f in (ROOT / 'config').glob('*.dist'):
+            if f.name[:-5] in ('mqtt.conf', 'telegram.conf', 'notify.conf'):
+                (cfg2 / f.name[:-5]).write_text(f.read_text())
+        res = self.import_json(cfg2, full)
+        self.assertTrue(res.get('ok'), res)
+        again, _ = self.export_json(cfg2, True)
+        self.assertEqual(again, full)
+
+    def test_json_push_reads_its_form_and_sends_token_and_credentials(self):
+        source = (ROOT / 'www/cgi-bin/config_exchange.cgi').read_text()
+        push = source[source.index('  push)'):]
+        self.assertIn('_ce_form_get target', push)
+        self.assertIn('_ce_form_get user', push)
+        self.assertIn('_ce_form_get password', push)
+        self.assertIn('F_include_secrets=0', push)
+        self.assertIn('exclude_network=1&exclude_credentials=1', push)
+        self.assertIn('-H "X-CSRF-Token: $_tok"', push)
+        self.assertIn('-u "${_push_user}:${_push_password}"', push)
+        html = (ROOT / 'www/backup.html').read_text()
+        self.assertIn('X-CSRF-Token', html[html.index('syncBtn.addEventListener'):])
+        for gone in ('configbackup', 'upload_backup', 'conf-export', 'conf-import', '.tar.gz'):
+            self.assertNotIn(gone, html)
+            self.assertNotIn(gone, (ROOT / 'www/settings.html').read_text())
 
     def test_ptt_plays_through_alsa_and_leaves_rtsp_running(self):
         # The speaker is an ALSA playback substream: the microphone of the RTSP stream keeps going.
@@ -776,28 +849,6 @@ class Regressions(unittest.TestCase):
         size = (self.base / 'spool.1').stat().st_size
         self.assertGreater(size, 0)
         self.assertLessEqual(size, 131072)
-
-    def test_raw_backup_upload_reaches_delegate_once(self):
-        archive = self.archive()
-        body = archive.read_bytes()
-        s = (ROOT / 'www/cgi-bin/upload_backup.cgi').read_text()
-        a = s.index('if [ -r /mnt/www/cgi-bin/func.cgi ]')
-        b = s.index('MAX_UPLOAD_BYTES=')
-        prelude = 'timeout() { :; }; . ' + shlex.quote(str(ROOT / 'www/cgi-bin/func.cgi')) + '\n'
-        prelude += 'rate_limit_check() { :; };\n' + self.guard_code() + '\n'
-        s = s[:a] + prelude + s[b:]
-        delegate = self.base / 'delegate'
-        delegate.write_text('#!/bin/sh\ncp "$F_archive_path" "$CAPTURE"\nprintf "%s %s" "$REQUEST_METHOD" "$CONTENT_LENGTH"\n')
-        delegate.chmod(0o755)
-        s = s.replace('TMP_ROOT="/tmp"', 'TMP_ROOT=' + shlex.quote(str(self.base)))
-        s = s.replace('/mnt/www/cgi-bin/configbackup.cgi', str(delegate))
-        env = dict(os.environ, REQUEST_METHOD='POST', QUERY_STRING='', CONTENT_LENGTH=str(len(body)),
-                   HTTP_X_CSRF_TOKEN='aabbcc', CAPTURE=str(self.base / 'received'))
-        r = run(s, body, env)
-        self.assertEqual(r.returncode, 0, (r.stdout, r.stderr))
-        self.assertIn(b'POST 0', r.stdout)
-        self.assertEqual((self.base / 'received').read_bytes(), body)
-        self.assertFalse(list(self.base.glob('config-upload-*')))
 
     def test_deep_health_failure_is_not_running(self):
         svc = self.base / 'rtsp-h26x'

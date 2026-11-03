@@ -1920,92 +1920,49 @@ curl -k -X POST https://root:pass@192.168.1.50/cgi-bin/upload_audio.cgi \
 
 ---
 
-## GET /cgi-bin/configbackup.cgi
-
-### cmd=download
-
-Downloads a tar.gz archive of `/mnt/config/`.
-
-- Response: `application/gzip`, filename `camera-config-<TIMESTAMP>.tar.gz`
-- No CSRF required (read-only download)
-
-```sh
-curl -o backup.tar.gz \
-  "http://root:pass@192.168.1.50/cgi-bin/configbackup.cgi?cmd=download"
-```
-
-### cmd=restore
-
-Restores configuration from a previously uploaded tar.gz. CSRF required.
-
-**Parameters:**
-
-| Parameter | Description |
-|---|---|
-| `archive_path` | Path to archive file on camera (must be `/tmp/*.tar.gz`) |
-| `restart_services` | `1`/`0` — restart services after restore |
-
-- Validates: path must be `/tmp/`, max 1 MiB, all entries must be under `config/`, at most 2 MiB expanded and 512 entries; links are rejected
-- Validates configuration syntax and value ranges in an isolated staging directory
-- Commits all files together and restores the originals automatically if a write or readback fails
-- Creates a downloadable rollback archive before applying
-- Response: HTML
-
-```sh
-# Upload the archive first via upload_backup.cgi, then:
-curl -X POST "http://root:pass@192.168.1.50/cgi-bin/configbackup.cgi?cmd=restore&archive_path=/tmp/backup.tar.gz&restart_services=1" \
-  -H "X-CSRF-Token: <token>"
-```
-
----
-
-## POST /cgi-bin/upload_backup.cgi
-
-Accepts a raw tar.gz backup archive upload and delegates to `configbackup.cgi?cmd=restore`.
-
-- Method: `POST` only
-- CSRF required
-- Rate limit: 2 per 300 s
-- Body: raw binary `tar.gz`, max 1 MiB
-- Parameter: `restart_services` (`1`/`0`)
-
-```sh
-curl -X POST http://root:pass@192.168.1.50/cgi-bin/upload_backup.cgi \
-  -H "X-CSRF-Token: <token>" \
-  --data-binary @backup.tar.gz \
-  -H "Content-Type: application/octet-stream"
-```
-
----
-
 ## GET/POST /cgi-bin/config_exchange.cgi
 
-CSRF is required for import; export is read-only. Rate limit: 10 per 60 s.
+The one configuration export/import format: a `.json` file. (The tar.gz backup, `conf-export.cgi` and `conf-import.cgi`
+of earlier versions are gone.) CSRF is required for import and push; export is read-only. Rate limit: 10 per 60 s.
+
+The document is built from, and read by, one table in `config_exchange.cgi` (`_ce_row_table`), so what a camera exports
+another camera imports. Top-level keys: `format`, `version`, `includes_secrets`, `boot`, `video`, `audio`, `osd`,
+`daynight`, `isp`, `mqtt`, `recording`, `system`, `services`, `tamper`, `notify`, `telegram`, `syslog`, `peripherals`,
+`wifi_rescue`, and, only with `include_secrets=1`, `secrets` (Wi-Fi networks `secrets.wifi[]`, `camera_password`,
+`mqtt_user`, `mqtt_password`, `telegram_token`, `telegram_chat_id`, `wifi_rescue_psk`) plus `notify.ntfy_auth`,
+`notify.ntfy_topic` and `notify.webhook_url` (a webhook URL or an ntfy topic can act as a password).
 
 ### cmd=export
 
-Returns the full camera configuration as a downloadable JSON file (same data as `state.cgi?cmd=fullconfig`).
+Returns the configuration as a downloadable JSON file.
 
-- Response: `application/json` with `Content-Disposition: attachment`
+| Parameter | Values | Description |
+|---|---|---|
+| `include_secrets` | `1`/`0` (default `0`) | `0`: no Wi-Fi, no passwords, no tokens (safe to share between cameras). `1`: full restore file |
+
+- Response: `application/json` with `Content-Disposition: attachment` (`tc100_config_<date>[_with_secrets].json`)
 
 ```sh
 curl -o config.json \
-  "http://root:pass@192.168.1.50/cgi-bin/config_exchange.cgi?cmd=export" \
-  -H "X-CSRF-Token: <token>"
+  "http://root:pass@192.168.1.50/cgi-bin/config_exchange.cgi?cmd=export&include_secrets=1"
 ```
 
 ### cmd=import
 
-Imports a JSON configuration object. Values are type/range checked in isolated copies, then all changed files are committed together. Any write or readback failure restores the originals. A successful change triggers an asynchronous RTSP and MQTT restart.
+Imports a JSON configuration object. Values are type/range checked (several config files are sourced by shell scripts,
+so nothing with shell metacharacters is accepted) in isolated copies, then all changed files are committed together. Any
+write or readback failure restores the originals. A successful change triggers an asynchronous RTSP and MQTT restart.
+The camera password (`secrets.camera_password`) is applied afterwards the way the Settings password change does (web UI,
+RTSP, FTP, telnet); a changed Wi-Fi list is applied with `wifi-apply`.
 
 - Method: `POST`, JSON body, max 64 KB
 - Response includes `applied`, `changed_files`, `skipped`, and `transactional: true`
-- Parameters (query string or JSON):
+- Parameters (query string):
 
 | Parameter | Values | Description |
 |---|---|---|
-| `exclude_network` | `1`/`0` | Skip network-related keys |
-| `exclude_credentials` | `1`/`0` | Skip password/credential keys |
+| `exclude_network` | `1`/`0` | Skip network-related keys (address, host names, ports, MQTT topic, flip) |
+| `exclude_credentials` | `1`/`0` | Skip the secrets |
 
 ```sh
 curl -X POST "http://root:pass@192.168.1.50/cgi-bin/config_exchange.cgi?cmd=import&exclude_credentials=1" \
@@ -2014,54 +1971,17 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/config_exchange.cgi?cmd=impo
   -d @config.json
 ```
 
----
+### cmd=push
 
-## GET /cgi-bin/conf-export.cgi
-
-Exports `boot.conf` and `mqtt.conf` as a single plain-text file with a magic header.
-
-- GET only, no CSRF (read-only)
-- Response: `text/plain`, filename `tc100-config-<TIMESTAMP>.conf`
-- Format: `## tc100-boot-mqtt-export v1` header, then `##[SECTION:boot.conf]##` block, then `##[SECTION:mqtt.conf]##` block
+Sends this camera's settings to another camera (server side, with curl; the browser cannot do it because of CORS).
+Always without secrets and with `exclude_network=1&exclude_credentials=1`. Form body (`application/x-www-form-urlencoded`):
+`target` (address of the other camera), `user`, `password` (its web login). The target's CSRF token is read from its
+`statusline.cgi` first.
 
 ```sh
-curl -o settings.conf http://root:pass@192.168.1.50/cgi-bin/conf-export.cgi
-```
-
----
-
-## POST /cgi-bin/conf-import.cgi
-
-Imports a `conf-export` format file, updating only allowlisted keys in `boot.conf` and `mqtt.conf`.
-
-- Method: `POST` only
-- CSRF required (`X-CSRF-Token` header)
-- Body: raw text (`Content-Type: text/plain`), max 128 KB
-- Must begin with `## tc100-boot-mqtt-export v1` magic header
-- Only keys in the BOOT_KEYS or MQTT_KEYS allowlists are applied; all others are silently skipped
-- Known values are type/range checked; both files are staged and committed as one transaction
-
-**Allowlisted boot.conf keys include** (non-exhaustive): `LIGHTWEIGHT_MODE`, `ENABLE_NTP`, `NTP_ONE_SHOT`, `WEB_MODE`, `SECURITY_HARDENING_MODE`, `MEM_GUARD_*`, `REBOOT_SCHEDULE_*`, `RTSP_SUBSTREAM`, `RTSP_AUDIO`, `ONVIF_STREAM_POLICY`, `INTEGRATION_PROFILE`, `MQTT_ENABLE`, and others.
-
-**Allowlisted mqtt.conf keys**: `MQTT_ENABLE`, `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER`, `MQTT_PASSWORD`, `MQTT_CLIENT_ID`, `MQTT_TOPIC_ROOT`, `MQTT_TOPIC_COMMAND`, `MQTT_QOS`, `MQTT_HEALTH_INTERVAL_SECONDS`, `MQTT_DISCOVERY_ENABLE`, `MQTT_DISCOVERY_PREFIX`.
-
-**Response:**
-```json
-{"ok": true, "applied": 12, "changed_files": 2, "skipped": 3, "transactional": true}
-```
-
-Error responses:
-```json
-{"ok": false, "error": "csrf_invalid", "message": "CSRF token invalid — reload the page."}
-{"ok": false, "error": "invalid_format", "message": "Not a valid TC100 config export file."}
-{"ok": false, "error": "config_not_found", "message": "Cannot locate boot.conf or mqtt.conf on SD card."}
-```
-
-```sh
-curl -X POST http://root:pass@192.168.1.50/cgi-bin/conf-import.cgi \
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/config_exchange.cgi?cmd=push" \
   -H "X-CSRF-Token: <token>" \
-  -H "Content-Type: text/plain" \
-  --data-binary @settings.conf
+  --data-urlencode "target=http://192.168.1.51" --data-urlencode "user=root" --data-urlencode "password=<password>"
 ```
 
 ---

@@ -1,147 +1,97 @@
 <style id="backup_css">
-.backup-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-  align-items: start;
-}
-@media screen and (min-width: 768px) {
-  .backup-grid { grid-template-columns: 1fr 1fr; }
-}
-.backup-grid > .card { margin: 0; }
 .backup-status { margin-top: 0.5rem; font-size: 0.9em; min-height: 1.4em; }
 .backup-status { white-space: pre-line; overflow-wrap: anywhere; }
 .backup-status.ok  { color: var(--v2-ok, #16a34a); }
 .backup-status.err { color: var(--v2-tally, #dc3b3b); }
 </style>
 
-<div class="backup-grid">
+<div class="card status_card">
+  <header class="card-header">
+    <p class="card-header-title">
+      <span class="title-with-icon">
+        <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4m4-10l5 5 5-5m-5 5V3"/></svg>
+        <span>JSON Configuration Exchange</span>
+      </span>
+    </p>
+  </header>
+  <div class="card-content">
+    <p class="help" style="margin-bottom:1rem">
+      Export your settings as one portable JSON file: back them up, or clone a configuration to other cameras.
+      Importing is additive: the settings in the file are updated, the others stay unchanged.
+    </p>
 
-  <div class="card status_card">
-    <header class="card-header">
-      <p class="card-header-title">
-        <span class="title-with-icon">
-          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>
-          <span>Download Config Backup</span>
-        </span>
-      </p>
-    </header>
-    <div class="card-content">
-      <p class="help" style="margin-bottom:0.75rem">
-        Downloads a <code>.tar.gz</code> archive of the entire <code>/mnt/config/</code> directory.
-        Store this file somewhere safe — it contains passwords and credentials.
-      </p>
-      <a id="backup_dl_btn" class="button is-primary is-small" href="cgi-bin/configbackup.cgi?cmd=download" download>
-        Download Backup
-      </a>
-    </div>
-  </div>
-
-  <div class="card status_card">
-    <header class="card-header">
-      <p class="card-header-title">
-        <span class="title-with-icon">
-          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9m0 0l-4 4m4-4l4 4M4 7V4h16v3"/></svg>
-          <span>Restore Config Backup</span>
-        </span>
-      </p>
-    </header>
-    <div class="card-content">
-      <p class="help" style="margin-bottom:0.75rem">
-        Upload a previously downloaded <code>camera-config-*.tar.gz</code> file to restore settings.
-        The camera will keep a rollback snapshot in <code>/tmp/</code>. A reboot is recommended after restore.
-      </p>
-      <div class="field">
-        <label class="label is-small" for="restore_file_input">Select backup file</label>
-        <div class="control">
-          <input class="input is-small" type="file" id="restore_file_input" accept=".tar.gz,.tgz" style="padding:0.35rem 0.5rem;">
+    <div class="columns">
+      <div class="column">
+        <p class="label is-small">Export</p>
+        <div class="field">
+          <label class="checkbox">
+            <input type="checkbox" id="json_include_secrets"> Include secrets (Wi-Fi, passwords, tokens)
+          </label>
+          <p class="help" id="json_secrets_warn" style="display:none; color:var(--v2-tally, #dc3b3b)">
+            The file then holds your Wi-Fi networks and passwords, the camera password, MQTT, Telegram and Ntfy credentials: keep it private.
+          </p>
+          <p class="help" id="json_secrets_off">
+            Without secrets the file is safe to share between cameras.
+          </p>
         </div>
+        <a class="button is-link is-small mb-3" id="json_export_btn" href="cgi-bin/config_exchange.cgi?cmd=export">
+          Download Settings (.json)
+        </a>
+        <hr style="margin: 0.75rem 0;">
+        <p class="label is-small">Push to Remote Camera (1-Click Sync)</p>
+        <div class="field">
+          <div class="control">
+            <input class="input is-small" id="sync_target_url" type="text" placeholder="http://192.168.1.x ou .local">
+          </div>
+        </div>
+        <div class="field is-grouped">
+          <div class="control is-expanded">
+            <input class="input is-small" id="sync_target_user" type="text" autocomplete="off" placeholder="User of the target camera">
+          </div>
+          <div class="control is-expanded">
+            <input class="input is-small" id="sync_target_password" type="password" autocomplete="new-password" placeholder="Password of the target camera">
+          </div>
+          <div class="control">
+            <button class="button is-info is-small" id="sync_push_btn" type="button">Push</button>
+          </div>
+        </div>
+        <p class="help">The push never sends secrets, nor the network identity of this camera (address, name, MQTT topic, image flip).</p>
+        <p id="sync_push_status" class="backup-status" role="status"></p>
       </div>
-      <div class="field">
-        <label class="checkbox">
-          <input type="checkbox" id="restore_restart_cb"> Restart RTSP &amp; ONVIF after restore
-        </label>
-      </div>
-      <button class="button is-warning is-small" id="restore_btn" type="button" disabled>
-        Restore Backup
-      </button>
-      <p id="restore_status" class="backup-status" role="status"></p>
-    </div>
-  </div>
-
-  <div class="card status_card" style="grid-column: 1 / -1">
-    <header class="card-header">
-      <p class="card-header-title">
-        <span class="title-with-icon">
-          <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4m4-10l5 5 5-5m-5 5V3"/></svg>
-          <span>JSON Configuration Exchange</span>
-        </span>
-      </p>
-    </header>
-    <div class="card-content">
-      <p class="help" style="margin-bottom:1rem">
-        Export your settings as a single portable JSON file to easily clone a configuration to multiple cameras.
-        Importing is additive: settings in the JSON will be updated, while others remain unchanged.
-      </p>
-      
-      <div class="columns">
-        <div class="column">
-          <p class="label is-small">Export</p>
-          <a class="button is-link is-small mb-3" href="cgi-bin/config_exchange.cgi?cmd=export">
-            Download Settings (.json)
-          </a>
-          <hr style="margin: 0.75rem 0;">
-          <p class="label is-small">Push to Remote Camera (1-Click Sync)</p>
-          <div class="field has-addons">
-            <div class="control is-expanded">
-              <input class="input is-small" id="sync_target_url" type="text" placeholder="http://192.168.1.x ou .local">
-            </div>
-            <div class="control">
-              <button class="button is-info is-small" id="sync_push_btn" type="button">Push</button>
-            </div>
+      <div class="column">
+        <label class="label is-small" for="json_import_file">Import</label>
+        <div class="field">
+          <div class="control">
+            <input class="input is-small" type="file" id="json_import_file" accept=".json" style="padding:0.35rem 0.5rem; margin-bottom:0.5rem;">
           </div>
-          <p id="sync_push_status" class="backup-status" role="status"></p>
         </div>
-        <div class="column">
-          <label class="label is-small" for="json_import_file">Import</label>
-          <div class="field">
-            <div class="control">
-              <input class="input is-small" type="file" id="json_import_file" accept=".json" style="padding:0.35rem 0.5rem; margin-bottom:0.5rem;">
-            </div>
-          </div>
-          <div class="field">
-            <label class="checkbox">
-              <input type="checkbox" id="json_exclude_network" checked> Exclude Network Identity (IP/Hostname)
-            </label>
-          </div>
-          <div class="field">
-            <label class="checkbox" style="margin-bottom:0.5rem; display:block">
-              <input type="checkbox" id="json_exclude_credentials"> Exclude Credentials (Passwords/Tokens)
-            </label>
-          </div>
-          <button class="button is-warning is-small" id="json_import_btn" type="button">
-            Import JSON Settings
-          </button>
-          <p id="json_exchange_status" class="backup-status" role="status"></p>
+        <div class="field">
+          <label class="checkbox">
+            <input type="checkbox" id="json_exclude_network" checked> Exclude Network Identity (IP/Hostname)
+          </label>
         </div>
+        <div class="field">
+          <label class="checkbox" style="margin-bottom:0.5rem; display:block">
+            <input type="checkbox" id="json_exclude_credentials"> Exclude Credentials (Passwords/Tokens)
+          </label>
+        </div>
+        <button class="button is-warning is-small" id="json_import_btn" type="button">
+          Import JSON Settings
+        </button>
+        <p id="json_exchange_status" class="backup-status" role="status"></p>
       </div>
     </div>
   </div>
-
 </div>
 
 <script>
 (function () {
-  var fileInput = document.getElementById('restore_file_input');
-  var restoreBtn = document.getElementById('restore_btn');
-  var restoreStatus = document.getElementById('restore_status');
   var jsonInput = document.getElementById('json_import_file');
   var importBtn = document.getElementById('json_import_btn');
   var jsonStatus = document.getElementById('json_exchange_status');
-  if (!fileInput || !restoreBtn || !jsonInput || !importBtn) return;
+  if (!jsonInput || !importBtn) return;
 
-  var MAX_BACKUP_BYTES = 1 * 1024 * 1024; // 1 MB — must match upload_backup.cgi
-  var MAX_JSON_BYTES = 1 * 1024 * 1024;
+  var MAX_JSON_BYTES = 64 * 1024; // must match config_exchange.cgi
   var T = function (s) { return window.tc100T ? window.tc100T(s) : s; };
 
   function say(node, msg, kind) {
@@ -159,74 +109,28 @@
     return ready.then(fn);
   }
 
-  fileInput.addEventListener('change', function () {
-    var f = fileInput.files && fileInput.files[0];
-    if (!f) {
-      restoreBtn.disabled = true;
-      say(restoreStatus, '', '');
-      return;
-    }
-    if (f.size > MAX_BACKUP_BYTES) {
-      restoreBtn.disabled = true;
-      say(restoreStatus, 'File too large (max 1 MB).', 'err');
-      return;
-    }
-    restoreBtn.disabled = false;
-    say(restoreStatus, '', '');
-  });
-
-  restoreBtn.addEventListener('click', function () {
-    var file = fileInput.files && fileInput.files[0];
-    if (!file) return;
-    if (!confirm(T('Restore this backup? The current settings are replaced (a rollback copy is kept in /tmp).'))) return;
-    var restart = document.getElementById('restore_restart_cb').checked ? '1' : '0';
-
-    restoreBtn.disabled = true;
-    say(restoreStatus, 'Uploading...', '');
-
-    var reader = new FileReader();
-    reader.onerror = function () {
-      say(restoreStatus, 'The file could not be read.', 'err');
-      restoreBtn.disabled = false;
-    };
-    reader.onload = function (ev) {
-      withToken(function (tok) {
-        var headers = { 'Content-Type': 'application/octet-stream' };
-        if (tok) headers['X-CSRF-Token'] = tok;
-        return fetch('cgi-bin/upload_backup.cgi?restart_services=' + restart, {
-          method: 'POST',
-          headers: headers,
-          body: ev.target.result,
-          cache: 'no-store'
-        });
-      })
-      .then(function (r) {
-        return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; });
-      })
-      .then(function (res) {
-        var msg = res.text.replace(/<br\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
-        var ok = res.ok && /restore completed/i.test(msg);
-        say(restoreStatus, ok || msg ? msg : 'Restore failed (HTTP ' + res.status + ').', ok ? 'ok' : 'err');
-        if (ok) fileInput.value = '';
-        restoreBtn.disabled = ok;
-      })
-      .catch(function (err) {
-        say(restoreStatus, 'Upload failed: ' + err, 'err');
-        restoreBtn.disabled = false;
-      });
-    };
-    reader.readAsArrayBuffer(file);
-  });
+  // Export: the "include secrets" box adds a parameter to the download link.
+  var secretsBox = document.getElementById('json_include_secrets');
+  var exportBtn = document.getElementById('json_export_btn');
+  var warn = document.getElementById('json_secrets_warn');
+  var warnOff = document.getElementById('json_secrets_off');
+  if (secretsBox && exportBtn) {
+    secretsBox.addEventListener('change', function () {
+      exportBtn.setAttribute('href', 'cgi-bin/config_exchange.cgi?cmd=export' + (secretsBox.checked ? '&include_secrets=1' : ''));
+      if (warn) warn.style.display = secretsBox.checked ? '' : 'none';
+      if (warnOff) warnOff.style.display = secretsBox.checked ? 'none' : '';
+    });
+  }
 
   importBtn.addEventListener('click', function () {
     var file = jsonInput.files && jsonInput.files[0];
     if (!file) {
-      say(jsonStatus, 'Please select a JSON file first.', 'err');
+      say(jsonStatus, T('Please select a JSON file first.'), 'err');
       jsonInput.focus();
       return;
     }
     if (file.size > MAX_JSON_BYTES) {
-      say(jsonStatus, 'File too large (max 1 MB).', 'err');
+      say(jsonStatus, T('File too large (max 64 KB).'), 'err');
       return;
     }
     if (!confirm(T('Import these settings? Values in the file replace the current ones.'))) return;
@@ -234,11 +138,11 @@
     var exCred = document.getElementById('json_exclude_credentials').checked ? '1' : '0';
 
     importBtn.disabled = true;
-    say(jsonStatus, 'Importing...', '');
+    say(jsonStatus, T('Importing...'), '');
 
     var reader = new FileReader();
     reader.onerror = function () {
-      say(jsonStatus, 'The file could not be read.', 'err');
+      say(jsonStatus, T('The file could not be read.'), 'err');
       importBtn.disabled = false;
     };
     reader.onload = function (ev) {
@@ -263,7 +167,7 @@
         var res = o.res;
         var ok = !!(o.httpOk && res && res.ok === true);
         if (ok) {
-          say(jsonStatus, 'Import successful: ' + (res.applied || 0) + ' value(s), ' + (res.changed_files || 0) + ' file(s) changed.', 'ok');
+          say(jsonStatus, T('Import successful: ' + (res.applied || 0) + ' value(s), ' + (res.changed_files || 0) + ' file(s) changed.'), 'ok');
           jsonInput.value = '';
         } else {
           var why = res && (res.message || res.error);
@@ -281,39 +185,54 @@
 
   var syncBtn = document.getElementById('sync_push_btn');
   var syncTarget = document.getElementById('sync_target_url');
+  var syncUser = document.getElementById('sync_target_user');
+  var syncPass = document.getElementById('sync_target_password');
   var syncStatus = document.getElementById('sync_push_status');
   if (syncBtn && syncTarget && syncStatus) {
     syncBtn.addEventListener('click', function () {
       var target = (syncTarget.value || '').trim();
       if (!target) {
-        say(syncStatus, 'Veuillez saisir une URL de caméra cible.', 'err');
+        say(syncStatus, T('Enter the address of the target camera.'), 'err');
         return;
       }
       syncBtn.disabled = true;
-      say(syncStatus, 'Envoi de la configuration vers la caméra cible...', '');
+      say(syncStatus, T('Sending the settings to the target camera...'), '');
 
-      fetch('cgi-bin/config_exchange.cgi?cmd=push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'target=' + encodeURIComponent(target),
-        cache: 'no-store'
+      var body = 'target=' + encodeURIComponent(target) +
+        '&user=' + encodeURIComponent(syncUser ? syncUser.value : '') +
+        '&password=' + encodeURIComponent(syncPass ? syncPass.value : '');
+      withToken(function (tok) {
+        var headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        if (tok) headers['X-CSRF-Token'] = tok;
+        return fetch('cgi-bin/config_exchange.cgi?cmd=push', {
+          method: 'POST',
+          headers: headers,
+          body: body,
+          cache: 'no-store'
+        });
       })
         .then(function (r) {
-          if (!r.ok) throw new Error('Échec passerelle push (HTTP ' + r.status + ')');
-          return r.json();
+          return r.text().then(function (t) {
+            var res = null;
+            try { res = JSON.parse(t); } catch (e) { /* not JSON */ }
+            return { httpOk: r.ok, status: r.status, res: res };
+          });
         })
-        .then(function (res) {
-          if (res && res.ok) {
-            say(syncStatus, 'Synchronisation réussie (' + (res.applied || 0) + ' valeurs appliquées).', 'ok');
+        .then(function (o) {
+          var res = o.res;
+          if (res && res.ok === true) {
+            say(syncStatus, T('Push done: ' + (res.applied || 0) + ' value(s) applied on the target camera.'), 'ok');
           } else {
-            say(syncStatus, 'Erreur cible: ' + (res && (res.error || res.message) ? (res.error || res.message) : 'inconnue'), 'err');
+            var why = res && (res.message || res.error);
+            say(syncStatus, why ? T('Push failed: ') + why : T('Push failed: ') + 'HTTP ' + o.status, 'err');
           }
         })
         .catch(function (err) {
-          say(syncStatus, 'Erreur synchro: ' + err.message, 'err');
+          say(syncStatus, T('Push failed: ') + err.message, 'err');
         })
         .finally(function () {
           syncBtn.disabled = false;
+          if (syncPass) syncPass.value = '';
         });
     });
   }

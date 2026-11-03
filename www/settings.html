@@ -734,30 +734,7 @@
             <div class='card status_card mt-4'>
                 <header class='card-header'><p class='card-header-title'>Export and import settings</p></header>
                 <div class='card-content'>
-                    <div class="columns">
-                        <div class="column is-half">
-                            <p class="is-size-7 mb-2">Download <code>boot.conf</code> and <code>mqtt.conf</code> as a text <code>.conf</code> file.</p>
-                            <a class="button is-info is-small is-fullwidth" href="cgi-bin/conf-export.cgi">
-                                <span class="icon is-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-                                <span>Export settings</span>
-                            </a>
-                        </div>
-                        <div class="column is-half">
-                            <p class="is-size-7 mb-2">Import a file exported by this camera. Only known keys are applied.</p>
-                            <div class="file is-small is-fullwidth mb-2">
-                                <label class="file-label" style="width:100%">
-                                    <input class="file-input" type="file" id="confImportFile" accept=".conf">
-                                    <span class="file-cta" style="flex-shrink:0">
-                                        <span class="file-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 14 12 9 7 14"/><line x1="12" y1="9" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg></span>
-                                        <span class="file-label">Choose…</span>
-                                    </span>
-                                    <span class="file-name" id="confImportFileName" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">No file selected</span>
-                                </label>
-                            </div>
-                            <button class="button is-warning is-small is-fullwidth" id="btnConfImport" disabled>Import</button>
-                        </div>
-                    </div>
-                    <p class="help mt-2">A reboot is required to apply imported changes.</p>
+                    <p class="is-size-7">Export, import and push of the settings (one JSON file, secrets optional) are in the JSON Configuration Exchange card below.</p>
                 </div>
             </div>
             <div id="backup_slot" class="mt-4" data-src="backup.html">
@@ -1094,63 +1071,6 @@
                 });
             });
         })();
-
-        (function initConfImport() {
-            var fileInput = document.getElementById('confImportFile');
-            var fileLabel = document.getElementById('confImportFileName');
-            var btnImport = document.getElementById('btnConfImport');
-            if (!fileInput || !btnImport) return;
-
-            fileInput.addEventListener('change', function() {
-                var f = fileInput.files[0];
-                fileLabel.textContent = f ? f.name : 'No file selected';
-                btnImport.disabled = !f;
-            });
-
-            btnImport.addEventListener('click', function() {
-                var f = fileInput.files[0];
-                if (!f) return;
-                if (!confirm('Apply the imported configuration?\n\nKnown values in boot.conf and mqtt.conf will be overwritten.\nA reboot is required to apply them.')) return;
-
-                btnImport.classList.add('is-loading');
-                btnImport.disabled = true;
-
-                var reader = new FileReader();
-                reader.onload = function(ev) {
-                    var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
-                    cf('cgi-bin/conf-import.cgi', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-                        body: ev.target.result
-                    })
-                    .then(function(r) { return r.json(); })
-                    .then(function(d) {
-                        btnImport.classList.remove('is-loading');
-                        if (d && d.ok) {
-                            alert('Import successful: ' + d.applied + ' key(s) applied, ' + d.skipped + ' skipped.\n\nReboot the camera to apply the changes.');
-                            fileInput.value = '';
-                            fileLabel.textContent = 'No file selected';
-                            btnImport.disabled = true;
-                        } else {
-                            btnImport.disabled = false;
-                            alert('Error: ' + ((d && d.message) || (d && d.error) || 'Unexpected response'));
-                        }
-                    })
-                    .catch(function(e) {
-                        btnImport.classList.remove('is-loading');
-                        btnImport.disabled = false;
-                        alert('Network error: ' + e.message);
-                    });
-                };
-                reader.onerror = function() {
-                    btnImport.classList.remove('is-loading');
-                    btnImport.disabled = false;
-                    alert('Unable to read the file.');
-                };
-                reader.readAsText(f, 'utf-8');
-            });
-        })();
-
 
         (function initFirmwareUpdate() {
             var file = document.getElementById('fwuFile');

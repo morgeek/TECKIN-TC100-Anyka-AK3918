@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **One configuration export/import format: a `.json` file** (`config_exchange.cgi`). The tar.gz backup
+  (`configbackup.cgi`, `upload_backup.cgi`) and the `.conf` export (`conf-export.cgi`, `conf-import.cgi`) are removed.
+  The export has an "include secrets" box, off by default: without it no Wi-Fi, password or token is in the file (safe
+  to share between cameras); with it the file restores a camera completely (Wi-Fi networks, camera password, MQTT,
+  Telegram, Ntfy, rescue access point password). Added to the file: local recording (`REC_*` of boot.conf), day/night
+  (daynight.conf), notifications (notify.conf), tamper, sound detection (vox, alarm), image tuning (isp_tune.conf), the
+  rescue access point, boot guard, saved logs, Wi-Fi quality. Removed rows that no longer matched a live key (`rec_*` of
+  recording.conf, the day/night values of rtspserver.conf, `PRIVACY_MODE`).
+- **Push to another camera works**: the form asks for the target's user and password, the CSRF token of the target is
+  read first, the request body is read by the CGI (it used to be dropped); a push never carries secrets.
+
+---
+
 ## [3.0.1] - 2026-10-31
 
 Tested on two TC100 cameras of the same variant: from rc5 on, each release candidate was installed and checked on
