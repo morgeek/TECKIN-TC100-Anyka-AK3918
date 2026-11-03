@@ -23,6 +23,14 @@
         "$_mz_list" "${_mz_names:-}" "$_mz_on" "$(json_escape "$(_mz_st grid)")" "$_mz_ign" "$(json_escape "$(_mz_st result)")"
     ;;
 
+    motion_heatmap)
+      if [ -x /mnt/scripts/motion-heatmap.sh ]; then
+        /mnt/scripts/motion-heatmap.sh get
+      else
+        echo '{"ok":true,"current_hour":0,"total_24h":0,"hourly":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}'
+      fi
+    ;;
+
     motion_detection_on)
         mdsens=$(read_config rtspserver.conf mdsens)
 

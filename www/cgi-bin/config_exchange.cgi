@@ -133,7 +133,7 @@ _ce_row_table() {
     row("mqtt.conf";"flat";"root";"MQTT_HOST";"host";"network";.mqtt.host),
     row("mqtt.conf";"flat";"root";"MQTT_PORT";"port";"network";.mqtt.port),
     row("mqtt.conf";"flatq";"root";"MQTT_USER";"credential_optional";"credential";.mqtt.user),
-    row("mqtt.conf";"flat";"root";"MQTT_TOPIC_ROOT";"topic";"general";.mqtt.topic_root),
+    row("mqtt.conf";"flat";"root";"MQTT_TOPIC_ROOT";"topic";"network";.mqtt.topic_root),
     row("mqtt.conf";"flat";"root";"MQTT_HA_DISCOVERY_ENABLE";"bool";"general";.mqtt.discovery),
     row("mqtt.conf";"flat";"root";"MQTT_HA_DISCOVERY_PREFIX";"topic";"general";.mqtt.discovery_prefix),
 

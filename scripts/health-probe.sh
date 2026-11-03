@@ -35,6 +35,7 @@ probe_service_fast() {
     button-actions)  _pf_file="/var/run/button-watch.pid" ;;
     wifi-rescue)     _pf_file="/var/run/wifi-rescue.pid" ;;
     mdns)            _pf_file="/var/run/mdns.pid" ;;
+    webdav)          _pf_file="/var/run/webdav.pid" ;;
     auto-night-detection)
       [ -f /var/run/auto-night-detection.pid ] && _pf_file="/var/run/auto-night-detection.pid" ;;
     motion-detection)

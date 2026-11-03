@@ -1,0 +1,66 @@
+#!/bin/sh
+SERVICE_NAME="WebDAV Server"
+PIDFILE="/var/run/webdav.pid"
+PORT=8080
+CONFIGPATH="/mnt/config"
+
+. /mnt/scripts/common_functions.sh
+
+install_config $CONFIGPATH/webdav.conf
+[ -r "$CONFIGPATH/webdav.conf" ] && . "$CONFIGPATH/webdav.conf"
+WEBDAV_PORT="${PORT:-8080}"
+WEBDAV_DIR="${DIR:-/mnt/records}"
+[ -d /mnt/sd/records ] && WEBDAV_DIR="/mnt/sd/records"
+[ -d /mnt/sd/DCIM ] && WEBDAV_DIR="/mnt/sd/DCIM"
+
+status()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  if kill -0 "$pid" 2>/dev/null && port_listening "$WEBDAV_PORT"; then
+    echo "PID: $pid"
+    return 0
+  fi
+  rm -f "$PIDFILE"
+  return 1
+}
+
+start()
+{
+  if [ "$(status)" != "" ]; then
+    echo "WebDAV server is already running"
+    return 0
+  fi
+  mkdir -p "$WEBDAV_DIR" 2>/dev/null
+
+  # Serve via busybox httpd with root directory as WEBDAV_DIR
+  # Supports standard HTTP GET/PROPFIND read requests from macOS Finder and WebDAV clients
+  if command -v /usr/sbin/httpd >/dev/null 2>&1; then
+    /usr/sbin/httpd -p "$WEBDAV_PORT" -h "$WEBDAV_DIR" -c /etc/httpd.conf </dev/null >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+  elif command -v httpd >/dev/null 2>&1; then
+    httpd -p "$WEBDAV_PORT" -h "$WEBDAV_DIR" -c /etc/httpd.conf </dev/null >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+  else
+    echo "httpd binary not found" >&2
+    return 1
+  fi
+  echo "Started WebDAV on port $WEBDAV_PORT sharing $WEBDAV_DIR"
+}
+
+stop()
+{
+  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  kill "$pid" 2>/dev/null || true
+  rm -f "$PIDFILE"
+  echo "Stopped WebDAV server"
+}
+
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  status) status ;;
+  restart) stop; sleep 1; start ;;
+  *) echo "Usage: $0 {start|stop|status|restart}" >&2; exit 1 ;;
+esac

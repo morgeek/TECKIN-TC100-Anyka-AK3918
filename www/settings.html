@@ -324,6 +324,10 @@
                         <div class="field"><input class="switch is-small" id="sound_det_enable" name="sound_det_enable" type="checkbox"><label for="sound_det_enable">Sound detection (MQTT event; applied within a few seconds)</label></div>
                         <div class="buttons is-right mt-2"><button class="button is-primary is-small" type="submit">Save Detectors</button></div>
                     </form>
+                    <div class="is-divider" data-content="24h Activity Heatmap"></div>
+                    <p class="help mb-2">Hourly motion triggers distribution over the last 24 hours.</p>
+                    <div id="motion_heatmap_bar" style="display:flex;height:24px;gap:2px;background:#1e293b;padding:3px;border-radius:4px;align-items:flex-end;"></div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;margin-top:2px;"><span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span></div>
                 </div>
             </div>
         </div>
@@ -348,7 +352,10 @@
                     </p>
                     <div class="buttons mt-2">
                         <button class="button is-small" type="button" id="btnSdMount">Mount the card</button>
+                        <button class="button is-small is-info is-light" type="button" id="btnSdCheck">Check health</button>
+                        <button class="button is-small is-warning is-light" type="button" id="btnSdRepair">Auto-repair</button>
                     </div>
+                    <p class="help" id="sd_diag_msg"></p>
                     <p class="help">A card put in while the camera runs: "Mount the card". Format it on a computer (FAT32, or exFAT for cards over 32 GB).</p>
                     <div class="is-divider" data-content="Recorder"></div>
                     <p class="is-size-7" id="rec_status_text">Loading…</p>
@@ -925,6 +932,32 @@
                     .then(function (d) { if (window.showResult) window.showResult(d.ok ? d.message : (d.message || d.error), d.ok ? 'is-success' : 'is-danger'); })
                     .catch(function () { if (window.showResult) window.showResult('Could not reach the camera.', 'is-danger'); })
                     .finally(function () { mount.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
+            });
+            var btnCheck = document.getElementById('btnSdCheck');
+            var btnRepair = document.getElementById('btnSdRepair');
+            var diagMsg = document.getElementById('sd_diag_msg');
+            if (btnCheck) btnCheck.addEventListener('click', function() {
+                btnCheck.classList.add('is-loading');
+                EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_check&format=json', { method: 'POST' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (diagMsg) diagMsg.textContent = 'Diagnostic: ' + (d.state || 'ok') + ' (errors: ' + (d.errors || 0) + ', write: ' + (d.write_speed_kb || 0) + ' KB/s)';
+                        if (window.showResult) window.showResult('Diagnostic: ' + (d.state || 'ok'), d.state === 'ok' ? 'is-success' : 'is-warning');
+                    })
+                    .catch(function () { if (window.showResult) window.showResult('Diagnostic failed', 'is-danger'); })
+                    .finally(function () { btnCheck.classList.remove('is-loading'); loadSdCard(); });
+            });
+            if (btnRepair) btnRepair.addEventListener('click', function() {
+                if (!confirm('Run SD card repair? Recording will pause temporarily.')) return;
+                btnRepair.classList.add('is-loading');
+                EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_repair&format=json', { method: 'POST' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (diagMsg) diagMsg.textContent = 'Repair result: ' + (d.state || 'completed');
+                        if (window.showResult) window.showResult('Repair: ' + (d.state || 'completed'), d.state === 'ok' ? 'is-success' : 'is-warning');
+                    })
+                    .catch(function () { if (window.showResult) window.showResult('Repair failed', 'is-danger'); })
+                    .finally(function () { btnRepair.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
             });
             loadSdCard();
         })();

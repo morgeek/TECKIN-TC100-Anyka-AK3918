@@ -1010,6 +1010,38 @@ class Lot5MultiViewAndTools(unittest.TestCase):
         self.assertIn('data-target="multiview.html"', index_html)
         self.assertIn('Multi-View', index_html)
 
+    def test_sd_diagnostic_and_repair_scripts(self):
+        diag_path = ROOT / 'scripts/sd-diag.sh'
+        self.assertTrue(diag_path.exists())
+        self.assertEqual(sh('sh -n %s' % diag_path).returncode, 0)
+        storage_sh = (ROOT / 'scripts/action.d/storage.sh').read_text()
+        self.assertIn('sd_card_check)', storage_sh)
+        self.assertIn('sd_card_repair)', storage_sh)
+        settings_html = (ROOT / 'www/settings.html').read_text()
+        self.assertIn('id="btnSdCheck"', settings_html)
+        self.assertIn('id="btnSdRepair"', settings_html)
+
+    def test_motion_heatmap_script_and_webui(self):
+        hm_path = ROOT / 'scripts/motion-heatmap.sh'
+        self.assertTrue(hm_path.exists())
+        self.assertEqual(sh('sh -n %s' % hm_path).returncode, 0)
+        action_sh = (ROOT / 'scripts/action.d/detection.sh').read_text()
+        self.assertIn('motion_heatmap)', action_sh)
+        action_cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        self.assertIn('motion_heatmap|', action_cgi)
+        det_on = (ROOT / 'scripts/detectionOn.sh').read_text()
+        self.assertIn('motion-heatmap.sh record', det_on)
+        settings_html = (ROOT / 'www/settings.html').read_text()
+        self.assertIn('id="motion_heatmap_bar"', settings_html)
+
+    def test_webdav_service_and_config(self):
+        wd_path = ROOT / 'controlscripts/webdav'
+        self.assertTrue(wd_path.exists())
+        self.assertEqual(sh('sh -n %s' % wd_path).returncode, 0)
+        self.assertTrue((ROOT / 'config/webdav.conf.dist').exists())
+        self.assertIn('webdav', (ROOT / 'www/cgi-bin/scripts.cgi').read_text())
+        self.assertIn('webdav', (ROOT / 'scripts/health-probe.sh').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()

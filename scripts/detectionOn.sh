@@ -62,6 +62,7 @@ esac
 
 # Persist motion event for local API + optional MQTT publish.
 /mnt/scripts/motion-event.sh motion_on "$snapshot_path" "" "trigger=motion" >/dev/null 2>&1 &
+[ -x /mnt/scripts/motion-heatmap.sh ] && /mnt/scripts/motion-heatmap.sh record >/dev/null 2>&1 &
 
 # Run any user scripts.
 for i in /mnt/config/userscripts/motiondetection/*; do

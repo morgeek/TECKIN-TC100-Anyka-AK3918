@@ -1148,7 +1148,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info) ;;
     *) csrf_check ;;
   esac
   # Each command lives in scripts/action.d/<group>.sh: only that file is
@@ -1162,9 +1162,9 @@ if [ -n "$F_cmd" ]; then
       _action_group=stream ;;
     conf_audioin|audio_test|set_sound_detection|play_sound|get_ptt_vol|get_ptt_status|conf_ptt)
       _action_group=audio ;;
-    set_local_recording|local_rec_status|sd_card_info|sd_card_mount|local_rec_eject|local_rec_resume)
+    set_local_recording|local_rec_status|sd_card_info|sd_card_mount|sd_card_check|sd_card_repair|local_rec_eject|local_rec_resume)
       _action_group=storage ;;
-    md_zones_info|motion_detection_on|motion_detection_off|conf_motiondetect)
+    md_zones_info|motion_heatmap|motion_detection_on|motion_detection_off|conf_motiondetect)
       _action_group=detection ;;
     front_led_on|front_led_off|red_led_on|red_led_off|ir_led_on|ir_led_off|ir_cut_on|ir_cut_off|auto_night_mode_start|auto_night_mode_stop|night-mode-on|night-mode-off|conf_autodaynight|set_led_config)
       _action_group=hardware ;;

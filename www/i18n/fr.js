@@ -1,6 +1,10 @@
 window.tc100I18nFr = {
   "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (lighttpd compresses and caches .js). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
   "strings": {
+    "Auto-repair": "Réparation automatique",
+    "Check health": "Vérifier la santé",
+    "24h Activity Heatmap": "Carte d'activité 24h",
+    "Hourly motion triggers distribution over the last 24 hours.": "Distribution horaire des déclenchements de mouvement sur les dernières 24 heures.",
     "After no motion for (seconds)": "Après une absence de mouvement de (secondes)",
     "At dusk, read the index and set the two index thresholds around it.": "Au crépuscule, relevez l’indice et réglez les deux seuils d’indice autour de cette valeur.",
     "Dark flag:": "Indicateur sombre :",

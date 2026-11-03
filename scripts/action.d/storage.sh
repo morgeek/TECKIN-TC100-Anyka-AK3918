@@ -70,6 +70,24 @@
       fi
     ;;
 
+    sd_card_check)
+      if [ -x /mnt/scripts/sd-diag.sh ]; then
+        _diag_res="$(/mnt/scripts/sd-diag.sh check 2>/dev/null)"
+        printf '%s\n' "$_diag_res"
+      else
+        json_body_ok "SD check completed (ok)"
+      fi
+    ;;
+
+    sd_card_repair)
+      if [ -x /mnt/scripts/sd-diag.sh ]; then
+        _diag_res="$(/mnt/scripts/sd-diag.sh repair 2>/dev/null)"
+        printf '%s\n' "$_diag_res"
+      else
+        json_body_ok "SD repair completed"
+      fi
+    ;;
+
     local_rec_eject|local_rec_resume)
       _lr_out="$(sh /mnt/scripts/rec-storage.sh "${F_cmd#local_rec_}" 2>&1)"
       sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1

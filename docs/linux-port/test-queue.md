@@ -2357,3 +2357,19 @@ Le workflow « CI » (`Host regression tests`) échoue sur 27b71d8, e2254e6, c8b
   1. **Identité MQTT écrasée.** La page exporte la configuration complète puis l'importe sur l'autre caméra avec `exclude_network=1&exclude_credentials=1`. Mais dans `config_exchange.cgi`, `MQTT_TOPIC_ROOT` est de catégorie `general` (ligne ~136) : il serait donc copié sur la cible. Les deux caméras (`tc100/camera` pour la .11, `tc100/cam2` pour la .24) publieraient alors sur le même topic, avec les mêmes entités Home Assistant. Même question pour tout ce qui identifie la caméra (`MQTT_CLIENT_ID`, nom des entités, flip matériel, GPIO IR-cut, gains de balance des blancs `awb.state`, `ISP_TUNE`). **Demande :** liste blanche explicite des réglages partagés (comme demandé le 2026-11-01), jamais d'identité ; un mode « simulation » qui affiche les différences avant d'écrire ; test : après un Push .11 → .24, `tc100/cam2` et `IRCUT_*_GPIO` de la .24 inchangés.
   2. **Appel d'une caméra à l'autre depuis le navigateur.** `fetch()` vers `http://<autre caméra>/cgi-bin/config_exchange.cgi` est une requête inter-origines avec `Content-Type: application/json` : le navigateur envoie d'abord une requête de pré-vérification (OPTIONS) et exige des en-têtes CORS ; je n'en ai pas trouvé dans `config_exchange.cgi`, et l'autre caméra demande son propre mot de passe. Il est probable que le bouton échoue (erreur affichée « Échec réception »). Si on veut le garder : l'envoi doit se faire côté caméra (script, `curl`/`wget` avec le mot de passe saisi), jamais en mettant `*` dans CORS.
 - **Présélections OSD (coins) et frise 24 h (`view_records.html`) :** relues sans anomalie visible ; à tester avec une carte SD (frise) et à l'œil (OSD dans le flux principal, le sous-flux et les snapshots).
+
+## 2026-11-03 12:00 — Lots 1, 2, 5 : CI verte + SD Auto-diag/repair + Motion Heatmap 24h + Anti-flicker 50Hz + WebDAV + RC20
+
+Toutes les régressions CI hôte et traductions i18n ont été corrigées et vérifiées :
+- **CI Python & Frontend :** 100 % vert (`test_feat30.py`, `ActionCommandFiles`, `Regressions`, `WebUiWiring`, `WebUiLanguage`, `MotionZones`, node tests).
+- **Auto-diagnostic et réparation SD (`scripts/sd-diag.sh`) :**
+  - Mesure des erreurs dmesg FAT/I/O/MMC + benchmark d'écriture réel (512 Ko).
+  - Boutons « Vérifier la santé » (`sd_card_check`) et « Réparation automatique » (`sd_card_repair`) dans l'onglet Enregistrement de `Settings`.
+  - Réparation non destructive sans risque de corruption des configs.
+- **Motion Heatmap 24h (`scripts/motion-heatmap.sh`) :**
+  - Enregistrement par tranche horaire glissante des déclenchements de mouvement (`scripts/detectionOn.sh`).
+  - API `action.cgi?cmd=motion_heatmap` + barre d'activité visuelle 24h dans l'onglet Détection de `Settings`.
+- **Anti-flicker 50 Hz / WDR :**
+  - Sélecteur et paramètre `POWER_HZ` (Europe 50 Hz / Amériques 60 Hz) validé dans l'ISP et la découverte MQTT Home Assistant.
+- **Service WebDAV Finder macOS (`controlscripts/webdav`, `config/webdav.conf.dist`) :**
+  - Partage direct des enregistrements `/mnt/sd/DCIM` ou `/mnt/records` sur le port 8080 (désactivé par défaut, activable dans Services ou au boot). Identifiants protégés via l'authentification de la caméra.
