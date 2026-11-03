@@ -10,9 +10,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [3.0.1-rc22] - 2026-11-03
 
 ### Added
+- **Proactive Wi-Fi USB Recovery** (`scripts/wifi-recover.sh force`, `scripts/net-guard.sh`):
+  - When gateway ping fails for >= 60 seconds (even if `wlan0` is still visible), `net-guard` now attempts proactive USB re-probing / Wi-Fi reload before resorting to an ungraceful watchdog reboot of the camera.
 - **RTSP Network Pacing & Traffic Shaping** (`RTSP_PACING_US`, `RTSP_SNDBUF`):
   - Adds optional micro-pacing (`RTSP_PACING_US` in µs) in `tc100_rtsp` UDP transmission path to space out RTP packets during large IDR/I-frame bursts, preventing RTL8188FU USB Wi-Fi queue congestion and ping spikes.
   - Adds optional socket send buffer capping (`RTSP_SNDBUF` in KB) for both UDP and TCP RTSP sockets to limit kernel-side driver queuing.
+- **RAM Footprint Optimization**:
+  - Reduced default `RTSP_LOGMAX` from 256 KB to 128 KB to conserve tmpfs memory.
 - **Multiview Live HTML5 Video**: Live camera stream via native MediaSource (`/cgi-bin/live.cgi`) on `multiview.html` with full EN/FR i18n support.
 
 ## [3.0.1-rc21] - 2026-11-03

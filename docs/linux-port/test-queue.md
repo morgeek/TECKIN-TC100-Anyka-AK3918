@@ -1809,13 +1809,15 @@ Remarques :
 - Non encore testé en rc21 : export/import JSON unique avec case « inclure les secrets », push de config corrigé, fréquence d'écriture de awb.state, alarme anti-masquage (main du propriétaire), nuit, SD (.24).
 - mDNS : toujours à décider (autostart par défaut ou non).
 
-## 2026-11-03 — Version 3.0.1-rc22 (Lissage réseau RTSP & Anti-burst Wi-Fi)
+## 2026-11-03 — Version 3.0.1-rc22 (Lissage réseau RTSP, Récupération proactive Wi-Fi & Allègement RAM)
 
 - **Version :** `3.0.1-rc22`
 - **Quoi :**
   1. `RTSP_PACING_US` : micro-lissage d'émission des paquets RTP UDP en microsecondes (ex: 50 à 100 µs entre paquets/salves) pour étaler les salves des trames IDR volumineuses (H.265 ~130 Ko) et éviter de saturer la queue TX du dongle Wi-Fi USB RTL8188FU.
   2. `RTSP_SNDBUF` : plafonnement de `SO_SNDBUF` en Ko (ex: 32 à 64 Ko) sur les sockets RTSP (TCP et UDP) afin de limiter l'accumulation de données dans la pile réseau du noyau.
-  3. `multiview.html` : support du flux vidéo direct HTML5 (live.cgi) avec bascule instantanée et traductions complètes FR/EN.
+  3. Récupération Wi-Fi proactive : `net-guard.sh` tente un `wifi-recover.sh force` (re-probe USB propre) dès 60 s d'échec passerelle avant d'attendre l'extinction/reboot de la caméra.
+  4. Optimisation RAM `/tmp` : rotation `RTSP_LOGMAX` abaissée de 256 Ko à 128 Ko.
+  5. `multiview.html` : support du flux vidéo direct HTML5 (live.cgi) avec bascule instantanée et traductions complètes FR/EN.
 - **Interrupteurs (dans `/mnt/config/rtsp.env`, puis `rtsp-h26x restart`) :**
   - Par défaut : désactivé (`pacing 0 us sndbuf 0 KB` dans la ligne de log de démarrage de `tc100_rtsp`).
   - Pour tester le lissage : ajouter `export RTSP_PACING_US=100` et/ou `export RTSP_SNDBUF=64` dans `/mnt/config/rtsp.env` puis redémarrer le serveur RTSP.
