@@ -1,5 +1,5 @@
 #!/bin/sh
-SERVICE_NAME="WebDAV Server"
+SERVICE_NAME="HTTP File Share (WebDAV-compat)"
 PIDFILE="/var/run/webdav.pid"
 PORT=8080
 CONFIGPATH="/mnt/config"
@@ -28,13 +28,13 @@ status()
 start()
 {
   if [ "$(status)" != "" ]; then
-    echo "WebDAV server is already running"
+    echo "HTTP File Share is already running"
     return 0
   fi
   mkdir -p "$WEBDAV_DIR" 2>/dev/null
 
   # Serve via busybox httpd with root directory as WEBDAV_DIR
-  # Supports standard HTTP GET/PROPFIND read requests from macOS Finder and WebDAV clients
+  # Provides read-only authenticated HTTP file browsing on the local network
   if command -v /usr/sbin/httpd >/dev/null 2>&1; then
     /usr/sbin/httpd -p "$WEBDAV_PORT" -h "$WEBDAV_DIR" -c /etc/httpd.conf </dev/null >/dev/null 2>&1 &
     echo "$!" > "$PIDFILE"

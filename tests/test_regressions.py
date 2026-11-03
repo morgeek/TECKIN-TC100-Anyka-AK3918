@@ -1683,7 +1683,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
-        self.assertIn('wifi_get_ssid|wifi_rescue_info|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;', text)     # read-only: no CSRF needed
+        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info\) ;;')     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)

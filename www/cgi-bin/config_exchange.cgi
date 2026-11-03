@@ -107,7 +107,7 @@ _ce_row_table() {
     row("rtspserver.conf";"ini";"1";"smartstatic";"smartstatic";"general";.video.sub.smartstatic),
     row("rtspserver.conf";"ini";"1";"maxkbps";"bitrate";"general";.video.sub.maxkbps),
     row("rtspserver.conf";"ini";"1";"targetkbps";"bitrate";"general";.video.sub.targetkbps),
-    row("rtspserver.conf";"ini";"root";"imageflip";"flip";"general";.video.flip),
+    row("rtspserver.conf";"ini";"root";"imageflip";"flip";"network";.video.flip),
     row("rtspserver.conf";"ini";"root";"RTSPLOGENABLED";"bool";"general";.video.rtsp_log),
 
     row("rtspserver.conf";"ini";"root";"samplerate";"samplerate";"general";.audio.samplerate),

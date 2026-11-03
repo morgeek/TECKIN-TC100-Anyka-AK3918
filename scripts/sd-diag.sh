@@ -61,20 +61,23 @@ check() {
 }
 
 repair() {
-  # Safe non-destructive repair/recovery:
+  # Safe non-destructive recovery / remount:
   # 1. Pause local recording if active
   [ -x /mnt/scripts/rec-storage.sh ] && /mnt/scripts/rec-storage.sh eject >/dev/null 2>&1
   sleep 1
 
-  _res="repaired"
+  _res="remounted"
   # 2. Check if dosfsck / fsck.fat exists
   if command -v fsck.fat >/dev/null 2>&1; then
-    fsck.fat -a -w "$DEV" >/dev/null 2>&1 || _res="fsck_failed"
+    fsck.fat -a -w "$DEV" >/dev/null 2>&1 && _res="fsck_repaired" || _res="fsck_failed"
   elif command -v dosfsck >/dev/null 2>&1; then
-    dosfsck -a -w "$DEV" >/dev/null 2>&1 || _res="fsck_failed"
+    dosfsck -a -w "$DEV" >/dev/null 2>&1 && _res="fsck_repaired" || _res="fsck_failed"
+  else
+    # Fallback when fsck binary is not present in rootfs: remount rw safely
+    mount -o remount,rw "$MNT_SD" 2>/dev/null || mount -o remount,rw /mnt/records 2>/dev/null || true
   fi
 
-  # 3. Remount
+  # 3. Remount & resume
   [ -x /mnt/scripts/rec-storage.sh ] && /mnt/scripts/rec-storage.sh resume >/dev/null 2>&1
   sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
 
