@@ -1561,7 +1561,9 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 		pk[0] = '$'; pk[1] = c->ch; pk[2] = (12 + n) >> 8; pk[3] = (12 + n) & 255;
 		return qsend(c, pk, 16 + n);
 	}
-	return sendto(udpfd, pk + 4, 12 + n, 0, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? -1 : 0;
+	int rc = sendto(udpfd, pk + 4, 12 + n, 0, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? -1 : 0;
+	if (!rc && pacing_us > 0) usleep((useconds_t)pacing_us);
+	return rc;
 }
 
 /* ---- audio: microphone (ALSA, via arecord) -> G.711 A-law -> RTP PT 8, 8 kHz mono, 20 ms per packet ----
@@ -1789,6 +1791,8 @@ static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char 
 #define SG_MAX 16
 struct sg_mmsg { struct msghdr hdr; unsigned int len; };	/* kernel struct mmsghdr, as glibc's */
 static int sg_on, sg_mmsg_on;
+static int pacing_us;	/* RTSP_PACING_US: delay in us after sending each UDP packet/batch to smooth IDR burst */
+static int sndbuf_kb;	/* RTSP_SNDBUF: socket SO_SNDBUF in KB (e.g. 32 to 64 KB to limit Wi-Fi driver queuing) */
 static struct {
 	struct cli *c;
 	int n;
@@ -1806,12 +1810,17 @@ static int sg_flush(void)
 		if (sg_mmsg_on && sg.n - i > 1) {
 			long r = syscall(SYS_sendmmsg, udpfd, sg.m + i, (unsigned)(sg.n - i), MSG_NOSIGNAL);
 
-			if (r > 0) { i += (int)r; continue; }
+			if (r > 0) {
+				i += (int)r;
+				if (pacing_us > 0) usleep((useconds_t)pacing_us);
+				continue;
+			}
 			if (r < 0 && errno == ENOSYS) { sg_mmsg_on = 0; continue; }
 			if (r < 0 && errno == EINTR) continue;
 			rc = -1; break;
 		}
 		if (sendmsg(udpfd, &sg.m[i].hdr, MSG_NOSIGNAL) < 0) { rc = -1; break; }
+		if (pacing_us > 0) usleep((useconds_t)pacing_us);
 		i++;
 	}
 	sg.n = 0; sg.c = NULL;
@@ -2725,7 +2734,10 @@ int main(int argc, char **argv)
 	dbg_on = getenv("RTSP_DEBUG") != NULL;
 	{ const char *fc = getenv("RTSP_FRAMECOPY"), *qt = getenv("RTSP_QTRIM"), *qb = getenv("RTSP_QBURST"); fcopy_on = !(fc && fc[0] == '0'); qtrim_on = !(qt && qt[0] == '0');
 	  qburst_on = !(qb && qb[0] == '0');
-	  { const char *sgv = getenv("RTSP_UDPSG"), *mm = getenv("RTSP_UDPMMSG"); sg_on = sgv && sgv[0] == '1'; sg_mmsg_on = sg_on && mm && mm[0] == '1'; } }
+	  { const char *sgv = getenv("RTSP_UDPSG"), *mm = getenv("RTSP_UDPMMSG"); sg_on = sgv && sgv[0] == '1'; sg_mmsg_on = sg_on && mm && mm[0] == '1'; }
+	  { const char *pc = getenv("RTSP_PACING_US"), *sb = getenv("RTSP_SNDBUF");
+	    pacing_us = pc && *pc ? (int)num(pc) : 0;
+	    sndbuf_kb = sb && *sb ? (int)num(sb) : 0; } }
 
 	for (o = 1; o + 1 < argc; o += 2) {
 		const char *a = argv[o], *v = argv[o + 1];
@@ -3033,11 +3045,15 @@ unsigned char *fpb[2] = { NULL, NULL };
 	udpfd = socket(AF_INET, SOCK_DGRAM, 0);
 	sa.sin_port = htons(srv_rtp);
 	if (bind(udpfd, (struct sockaddr *)&sa, sizeof sa)) LOG("udp %d: %s\n", srv_rtp, strerror(errno));
+	if (sndbuf_kb > 0) {
+		int sb = sndbuf_kb * 1024;
+		setsockopt(udpfd, SOL_SOCKET, SO_SNDBUF, &sb, sizeof sb);
+	}
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
 	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s %s; sub-stream (/video1, /ch1, /sub) %s %dx%d %d kbit/s %s\n",
 	    port, W, H, fps, kbps, hevc ? "H.265" : "H.264", sub_on ? "on" : "off", SW, SH, sub_kbps, sub_hevc ? "H.265" : "H.264");
-	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d sendmmsg %d; live direct\n",
-	    S[0].pa.rc_vbr, S[1].pa.rc_vbr, q_cap / 1024, sg_on, sg_mmsg_on);
+	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d sendmmsg %d; pacing %d us sndbuf %d KB; live direct\n",
+	    S[0].pa.rc_vbr, S[1].pa.rc_vbr, q_cap / 1024, sg_on, sg_mmsg_on, pacing_us, sndbuf_kb);
 	cfg_reload(now_s());
 
 	struct timespec t0;
@@ -3140,6 +3156,10 @@ unsigned char *fpb[2] = { NULL, NULL };
 					cl[i].peer = pa.sin_addr.s_addr;
 					fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK);
 					setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+					if (sndbuf_kb > 0) {
+						int sb = sndbuf_kb * 1024;
+						setsockopt(s, SOL_SOCKET, SO_SNDBUF, &sb, sizeof sb);
+					}
 				}
 			}
 		}

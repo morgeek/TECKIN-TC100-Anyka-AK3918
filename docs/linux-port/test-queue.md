@@ -1808,3 +1808,21 @@ Remarques :
 - Ping passerelle depuis la .24 : 100 % de perte à 1 min d'uptime (Wi-Fi pas encore stable juste après le boot) ; à recontrôler.
 - Non encore testé en rc21 : export/import JSON unique avec case « inclure les secrets », push de config corrigé, fréquence d'écriture de awb.state, alarme anti-masquage (main du propriétaire), nuit, SD (.24).
 - mDNS : toujours à décider (autostart par défaut ou non).
+
+## 2026-11-03 — Version 3.0.1-rc22 (Lissage réseau RTSP & Anti-burst Wi-Fi)
+
+- **Version :** `3.0.1-rc22`
+- **Quoi :**
+  1. `RTSP_PACING_US` : micro-lissage d'émission des paquets RTP UDP en microsecondes (ex: 50 à 100 µs entre paquets/salves) pour étaler les salves des trames IDR volumineuses (H.265 ~130 Ko) et éviter de saturer la queue TX du dongle Wi-Fi USB RTL8188FU.
+  2. `RTSP_SNDBUF` : plafonnement de `SO_SNDBUF` en Ko (ex: 32 à 64 Ko) sur les sockets RTSP (TCP et UDP) afin de limiter l'accumulation de données dans la pile réseau du noyau.
+  3. `multiview.html` : support du flux vidéo direct HTML5 (live.cgi) avec bascule instantanée et traductions complètes FR/EN.
+- **Interrupteurs (dans `/mnt/config/rtsp.env`, puis `rtsp-h26x restart`) :**
+  - Par défaut : désactivé (`pacing 0 us sndbuf 0 KB` dans la ligne de log de démarrage de `tc100_rtsp`).
+  - Pour tester le lissage : ajouter `export RTSP_PACING_US=100` et/ou `export RTSP_SNDBUF=64` dans `/mnt/config/rtsp.env` puis redémarrer le serveur RTSP.
+- **Test à effectuer :**
+  1. Installer la `rc22` via mise à jour web.
+  2. Lancer un flux continu (Frigate ou VLC en UDP/TCP).
+  3. Mesurer la latence ICMP (ping passerelle) pendant les trames IDR (toutes les 2 s) : comparer avec et sans `RTSP_PACING_US=100`.
+- **Critères :**
+  - Sans pacing : ping avec des pics réguliers à >500 ms voire 1-4 s lors des IDR.
+  - Avec pacing : ping stable sans pics majeurs lors des IDR ; aucune dégradation visuelle du flux vidéo.

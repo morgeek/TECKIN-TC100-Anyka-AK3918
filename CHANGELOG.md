@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc22] - 2026-11-03
+
+### Added
+- **RTSP Network Pacing & Traffic Shaping** (`RTSP_PACING_US`, `RTSP_SNDBUF`):
+  - Adds optional micro-pacing (`RTSP_PACING_US` in µs) in `tc100_rtsp` UDP transmission path to space out RTP packets during large IDR/I-frame bursts, preventing RTL8188FU USB Wi-Fi queue congestion and ping spikes.
+  - Adds optional socket send buffer capping (`RTSP_SNDBUF` in KB) for both UDP and TCP RTSP sockets to limit kernel-side driver queuing.
+- **Multiview Live HTML5 Video**: Live camera stream via native MediaSource (`/cgi-bin/live.cgi`) on `multiview.html` with full EN/FR i18n support.
+
 ## [3.0.1-rc21] - 2026-11-03
 
 ### Added
