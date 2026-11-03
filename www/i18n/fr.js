@@ -1074,6 +1074,7 @@ window.tc100I18nFr = {
     "Empty keeps the saved token; a single - removes it.": "Vide : garde le jeton enregistré ; un seul - le supprime.",
     "Factory values": "Valeurs d'usine",
     "High": "Haute",
+    "Live picture (Smooth H.264 video), refreshed in real time while this section is open.": "Image en direct (Vidéo fluide H.264), rafraîchie en temps réel lorsque cette section est ouverte.",
     "Live picture, refreshed every 2 seconds while this section is open.": "Image en direct, rafraîchie toutes les 2 secondes tant que cette section est ouverte.",
     "Low": "Basse",
     "Method": "Méthode",
