@@ -1,14 +1,20 @@
 #!/bin/sh
 # sd-diag.sh: Auto-diagnostic & non-destructive check/repair for SD storage
 # Usage:
-#   sd-diag.sh check    -> Run quick health check, test read/write speed and inspect dmesg errors
+#   sd-diag.sh check    -> Run quick health check and test write speed; the error count comes from /tmp/sd-health
 #   sd-diag.sh repair   -> Unmount /mnt/sd safely, run filesystem check if tool available, or remount rw
+#                          (refused when the card is mounted read-write and holds the running firmware)
 #   sd-diag.sh status   -> Output JSON status of last diagnostic
+# v3/linux66-sd/sdinfo-sd.sh is the only scanner of the kernel log for card errors and the only writer of
+# /tmp/sd-health; this script runs it and reads the result, so the panel and the diagnostic always agree.
 
 STATUS_FILE="/tmp/sd-diag.status"
 MNT_SD="/mnt/sd"
 DEV="/dev/mmcblk0p1"
 [ -b "$DEV" ] || DEV="/dev/mmcblk0"
+SDINFO="${SDD_SDINFO:-/mnt/v3/linux66-sd/sdinfo-sd.sh}"
+HEALTH="${SDD_HEALTH:-/tmp/sd-health}"
+PROC_MOUNTS="${SDD_PROC_MOUNTS:-/proc/mounts}"
 
 status() {
   if [ -r "$STATUS_FILE" ]; then
@@ -18,22 +24,30 @@ status() {
   fi
 }
 
-check() {
-  _errs=$(dmesg 2>/dev/null | grep -c -E 'FAT-fs .*error|exFAT.*error|I/O error.*mmcblk|mmcblk0.*(timeout|error)|get_card_status wait too long')
-  case "$_errs" in ''|*[!0-9]*) _errs=0 ;; esac
-
-  _ro=0
-  if grep -qE " $MNT_SD (vfat|exfat) " /proc/mounts 2>/dev/null; then
-    grep -E " $MNT_SD (vfat|exfat) " /proc/mounts | grep -q ",ro," && _ro=1
+# refresh /tmp/sd-health through sdinfo-sd.sh, then read state and errors from it
+read_health() {
+  [ -f "$SDINFO" ] && sh "$SDINFO" >/dev/null 2>&1
+  _hstate=nocard; _herrs=0
+  if [ -r "$HEALTH" ]; then
+    while IFS='=' read -r _k _v; do
+      case "$_k" in state) _hstate="$_v" ;; errors) _herrs="$_v" ;; esac
+    done < "$HEALTH"
   fi
+  case "$_herrs" in ''|*[!0-9]*) _herrs=0 ;; esac
+  case "$_hstate" in ''|*[!a-z]*) _hstate=nocard ;; esac
+}
+
+check() {
+  read_health
+  _errs=$_herrs
+  _ro=0
+  [ "$_hstate" = readonly ] && _ro=1
 
   # Benchmark write speed with a safe 512KB temporary block
   _wspeed=0
   _target=""
-  if [ "$_ro" = 0 ] && [ -d "$MNT_SD" ]; then
+  if [ "$_ro" = 0 ] && [ "$_hstate" != nocard ] && [ -d "$MNT_SD" ]; then
     _target="$MNT_SD/.sd_test_$$"
-  elif [ -d "/mnt/records" ]; then
-    _target="/mnt/records/.sd_test_$$"
   fi
 
   if [ -n "$_target" ]; then
@@ -51,8 +65,7 @@ check() {
     fi
   fi
 
-  _state="ok"
-  [ "$_errs" -gt 0 ] && _state="errors"
+  _state="$_hstate"
   [ "$_ro" -eq 1 ] && _state="readonly"
 
   printf '{"ok":true,"state":"%s","errors":%d,"readonly":%d,"write_speed_kb":%d,"timestamp":%s}\n' \
@@ -60,7 +73,23 @@ check() {
   cat "$STATUS_FILE"
 }
 
+# The card is mounted read-write and the camera runs from it (SD / trial mode: no /tmp/flashmode): never fsck it.
+card_runs_firmware() {
+  [ -f "${SDD_FLASHMODE:-/tmp/flashmode}" ] && return 1
+  while read -r _d _mp _fs _opt _rest; do
+    case "$_mp $_fs" in
+      "/mnt/sd vfat"|"/mnt/sd exfat"|"/mnt vfat"|"/mnt exfat")
+        case ",$_opt," in *,ro,*) ;; *) return 0 ;; esac ;;
+    esac
+  done < "$PROC_MOUNTS"
+  return 1
+}
+
 repair() {
+  if card_runs_firmware; then
+    echo '{"ok":false,"state":"refused","message":"The card is mounted read-write and holds the running firmware: a file system check would corrupt it. Boot the camera from its flash, or check the card on a computer."}'
+    return 1
+  fi
   # Safe non-destructive recovery / remount:
   # 1. Pause local recording if active
   [ -x /mnt/scripts/rec-storage.sh ] && /mnt/scripts/rec-storage.sh eject >/dev/null 2>&1
@@ -74,14 +103,13 @@ repair() {
     dosfsck -a -w "$DEV" >/dev/null 2>&1 && _res="fsck_repaired" || _res="fsck_failed"
   else
     # Fallback when fsck binary is not present in rootfs: remount rw safely
-    mount -o remount,rw "$MNT_SD" 2>/dev/null || mount -o remount,rw /mnt/records 2>/dev/null || true
+    mount -o remount,rw "$MNT_SD" 2>/dev/null || true
   fi
 
   # 3. Remount & resume
   [ -x /mnt/scripts/rec-storage.sh ] && /mnt/scripts/rec-storage.sh resume >/dev/null 2>&1
-  sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1
 
-  # Re-evaluate
+  # Re-evaluate (check refreshes /tmp/sd-health through sdinfo-sd.sh)
   check
 }
 

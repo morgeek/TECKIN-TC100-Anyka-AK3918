@@ -72,6 +72,10 @@ def build(base, scenario, files):
         text = PATHS.sub(lambda m: str(base) + '/' + m.group(1) + '/', (CGI / name).read_text())
         text = text.replace('df -k ', str(base) + '/bin/df -k ')   # by path: busybox ash would run its own df applet
         (cgi / name).write_text(text)
+    scripts = base / 'mnt/scripts'      # statelib.cgi sources the Wi-Fi signal reader from /mnt/scripts
+    scripts.mkdir(parents=True)
+    (scripts / 'wifi-signal.sh').write_text(
+        PATHS.sub(lambda m: str(base) + '/' + m.group(1) + '/', (ROOT / 'scripts/wifi-signal.sh').read_text()))
     for rel, body in SCENARIOS[scenario].items():
         p = base / rel
         p.parent.mkdir(parents=True, exist_ok=True)

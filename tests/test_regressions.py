@@ -1292,7 +1292,7 @@ class WebUiSources(unittest.TestCase):
         self.assertNotIn('. /mnt/www/cgi-bin/func.cgi', body)
         self.assertEqual(body.count('$(') - body.count('$(('), 0)   # no command substitution (a fork)
         self.assertNotIn(' | ', body)                    # no pipeline
-        for f in ('/proc/stat', '/proc/meminfo', '/proc/net/dev', '/proc/net/wireless', '/proc/net/tcp'):
+        for f in ('/proc/stat', '/proc/meminfo', '/proc/net/dev', '/mnt/scripts/wifi-signal.sh', '/proc/net/tcp'):
             self.assertIn(f, body)
         code = body
         tmp = tempfile.mkdtemp()
@@ -1301,7 +1301,7 @@ class WebUiSources(unittest.TestCase):
             r = subprocess.run(['busybox', 'ash', str(script)] if shutil.which('busybox') else ['sh', str(script)],
                                capture_output=True, text=True)
             d = json.loads(r.stdout[r.stdout.index('{'):])   # after the CGI header
-            self.assertEqual(len(d['cpu']), 7); self.assertEqual(len(d['mem']), 4); self.assertEqual(len(d['net']), 2)
+            self.assertEqual(len(d['cpu']), 7); self.assertEqual(len(d['mem']), 2); self.assertEqual(len(d['net']), 2)
         finally:
             shutil.rmtree(tmp)
 
@@ -1950,7 +1950,7 @@ class ServicesAndStatus(unittest.TestCase):
                      ('', 'null ')]
             for body, want in cases:
                 f.write_text(hdr + body)
-                r = run(fn + '\nWIFI_PROC_FILE=%s; get_wifi_quality; echo "$wifi_qual_json $wifi_iface_json"' % shlex.quote(str(f)))
+                r = run('. %s\n' % (ROOT / 'scripts/wifi-signal.sh') + fn + '\nWIFI_PROC_FILE=%s; get_wifi_quality; echo "$wifi_qual_json $wifi_iface_json"' % shlex.quote(str(f)))
                 self.assertEqual(r.stdout.decode().strip('\n'), want, body)
         s = state_text('www/cgi-bin/state.cgi')
         self.assertIn('\\"wifi_qual\\":$wifi_qual_json', s)
@@ -2162,7 +2162,7 @@ class SdWear(unittest.TestCase):
                        REBOOT_TRACKER_LAST=str(Path(d) / 'last'))
             subprocess.run(['/bin/sh', str(ROOT / 'scripts/reboot-tracker.sh'), 'boot'], env=env, timeout=8)
             line = (Path(d) / 'last').read_text()
-            self.assertRegex(line, r'MemFree [0-9]+ kB\n$')       # padding trimmed
+            self.assertRegex(line, r'MemAvailable [0-9]+ kB\n$')       # padding trimmed
 
     def test_boot_line_names_a_failing_sd_card(self):
         with tempfile.TemporaryDirectory() as d:

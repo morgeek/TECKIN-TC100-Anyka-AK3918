@@ -154,38 +154,6 @@ get_default_gateway()
   printf '%d.%d.%d.%d\n' "0x$_h_v1" "0x$_h_v2" "0x$_h_v3" "0x$_h_v4"
 }
 
-get_wifi_signal_strength()
-{
-  # Extracts wireless telemetry directly from the kernel without grep/awk forks.
-  _gwss_iface="wlan0"
-  _gwss_qual=0
-  _gwss_lvl=0
-
-  while read -r _gif _status _link _level _noise _rest; do
-      # Format: wlan0: 0000   44.  -66.  -256
-      [ "${_gif%:}" = "$_gwss_iface" ] || continue
-      
-      # Strip trailing dots from link/level using shell parameter expansion
-      _gwss_qual="${_link%.}"
-      _gwss_lvl="${_level%.}"
-      break
-  done < /proc/net/wireless
-
-  # Handle dBm offset (some drivers report level as unsigned level + 256)
-  case "$_gwss_lvl" in
-      ''|*[!0-9-]*) _gwss_lvl=0 ;;
-  esac
-  if [ "$_gwss_lvl" -gt 0 ] && [ "$_gwss_lvl" -le 256 ]; then
-      _gwss_lvl=$((_gwss_lvl - 256))
-  fi
-
-  case "$_gwss_qual" in
-      ''|*[!0-9]*) _gwss_qual=0 ;;
-  esac
-  printf '%s %s\n' "$_gwss_qual" "$_gwss_lvl"
-}
-
-
 # Replace the old value of a config_key at the cfg_path with new_value
 # Don't rewrite commented lines
 rewrite_config(){
@@ -696,19 +664,11 @@ get_current_cpu_usage()
 
 get_current_memory_usage()
 {
-    # get used memory without buffers/cache by reading /proc/meminfo directly (saves 2 process forks)
-    total=0; free=0; buffers=0; cached=0; srec=0
-    while IFS=' :' read -r key val _; do
-        case "$key" in
-            MemTotal) total=$val ;;
-            MemFree) free=$val ;;
-            Buffers) buffers=$val ;;
-            Cached) cached=$val ;;
-            SReclaimable) srec=$val ;;
-        esac
-    done < /proc/meminfo
-    # Return used memory in KB (mimicking old logic: total - free - buffers - cached)
-    echo $((total - free - buffers - cached - srec))
+    # The one definition of "used": MemTotal - MemAvailable, in KB (no fork)
+    total=0
+    _mem_avail=$(get_mem_available_kb)
+    read -r _ total _ < /proc/meminfo
+    echo $((total - _mem_avail))
 }
 
 get_mem_available_kb()
