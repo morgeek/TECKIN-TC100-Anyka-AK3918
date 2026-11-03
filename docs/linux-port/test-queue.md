@@ -2479,3 +2479,10 @@ Build : `3.0.1-rc20` (commit d217a60), installée par la mise à jour web sur la
 - De nuit : bascule jour/nuit réelle (daemon `luma`), mode vitre, retour en couleur le matin, boucle de blancs pendant la bascule IR, anti-scintillement 50 Hz sous éclairage artificiel.
 - Sur la carte de la .24 : auto-diagnostic SD, frise 24 h, enregistrement sur mouvement, pre-roll, meilleur cliché, notifications (Ntfy/webhook : à configurer par le propriétaire).
 - Plusieurs jours : fréquence d'écriture de `awb.state` (usure flash), dérive de mémoire, nombre de redémarrages par le chien de garde.
+
+## 2026-11-03 13:50 — .11 : surexposition après reboot + mDNS (testeur)
+
+- **Surexposition .11** (rc20, uptime ~7 min au moment du constat, reboot 12:37 UTC) : snapshot 12:44 UTC quasi blanc (luma 241-244, 81 % des pixels >240), `cam_ae` = `236 1124 484 256 256 0 1125`. Deux minutes plus tard, sans aucune action de ma part : luma 123, `cam_ae` = `47 137 256 …`, image normale. Donc **transitoire post-boot** : l'AE met plusieurs minutes à converger après démarrage (partait d'un gain/expo maximal ?). Teinte légèrement violette juste après le boot (rex=226 bex=296), à surveiller.
+  - Demande à l'implémenteur : au démarrage de tc100_rtsp, initialiser l'AE sur une exposition moyenne (ou accélérer la convergence) ; critère : luma < 200 dans les 30 s après boot sur la .11.
+  - .24 non concernée (luma 140 à la même heure).
+- **mDNS** : le service est **off par défaut** → `ping ipcamera2.local` = "unknown host" est attendu tant qu'il n'est pas démarré. Démarré à la main sur la .11 (`tc100-mdnsd -i wlan0`, nom = hostname.conf = IPCAMERA2) ; le démarrage manuel ne survit pas au reboot. À décider : activer `config/autostart/mdns` par défaut (léger) ? Retest ping depuis le Mac du propriétaire en attente.
