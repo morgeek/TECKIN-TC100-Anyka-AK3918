@@ -1828,3 +1828,12 @@ Remarques :
 - **Critères :**
   - Sans pacing : ping avec des pics réguliers à >500 ms voire 1-4 s lors des IDR.
   - Avec pacing : ping stable sans pics majeurs lors des IDR ; aucune dégradation visuelle du flux vidéo.
+
+## 2026-11-03 18:20 — rc22 : NON TESTABLE, le build échoue (testeur)
+
+Commits `725a356` (pacing RTSP, bump rc22) et `947ff86` (récupération Wi-Fi proactive, logmax) : **CI rouge sur les deux**, aucun `tc100-3-release` produit, donc pas de tar rc22 à installer. Les caméras restent en rc21.
+
+- **Cause 1 (compilation)** : `src/tc100rtsp/tc100_rtsp.c:1565` utilise `pacing_us`, mais `static int pacing_us;` est déclaré plus bas (ligne 1794) → `error: 'pacing_us' undeclared`. Corriger en déplaçant la déclaration avant la première utilisation (ou prototype `extern`).
+- **Cause 2 (tests hôte)** : `test_tc100rtsp.RtpPath` échoue au `setUpClass` car `make -C src/tc100rtsp test_rtsp` retourne 2 (même erreur de compilation) → 9 erreurs.
+- À faire : corriger, vérifier la CI verte, puis republier (rc22 ou rc23) ; je télécharge et teste dès que le build est vert.
+- Points à tester à ce moment-là : lissage RTSP (`RTSP_PACING_US`) avec plusieurs clients (rappel : chute de fps avec plusieurs clients RTSP), récupération Wi-Fi proactive (rappel : ping passerelle 100 % perdu juste après le boot de la .24), vidéo live HTML5 du multiview (`live.cgi`).
