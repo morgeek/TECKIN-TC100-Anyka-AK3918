@@ -38,6 +38,10 @@ __pycache__/
 dist/
 
 # tc100_rtsp link stand-ins, made by its Makefile
+/src/tc100rtsp/test_livemp4
+/src/tc100rtsp/test_rtsp
+/src/tc100rtsp/test_rec
+/src/tc100rtsp/test_util
 /src/tc100rtsp/defined.txt
 /src/tc100rtsp/imports.txt
 /src/tc100rtsp/libpthread.so.0
