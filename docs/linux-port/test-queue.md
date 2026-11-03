@@ -1868,3 +1868,20 @@ Campagne de nuit : échantillonneur sur le Mac du propriétaire toutes les 2 min
 ### Complément 23:05 — enregistreur de nuit et awb.state (testeur)
 - L'échantillonneur côté Mac n'a pas survécu (processus de fond tués entre deux appels) : remplacé par `/tmp/nightcam.sh` **sur chaque caméra** (RAM, 1 ligne / 180 s dans `/tmp/night.log` : uptime, RAM, luma, AE, AWB, awb.state, load, ping passerelle, fps, IR). Perdu si reboot (détecté par l'uptime). Dépouillement demain matin.
 - `awb.state` est réécrit environ toutes les 2 min mais `/mnt` est un **tmpfs** : pas d'usure flash par cette écriture. Reste à vérifier demain que la copie persistante (cfg-persist vers cfga/cfgb) n'est pas déclenchée à chaque écriture.
+
+## 2026-11-04 01:00 — Correctifs de l'audit poussés par le testeur (à intégrer dans la prochaine RC)
+
+À la demande du propriétaire, le testeur a corrigé lui-même les points P0 de `audit-2026-11-03.md`. **CI verte** sur `67b1a01` (tests hôte + build). Commits :
+- `7c49fec` CSS : purge Bulma relancée (`has-text-weight-semibold`), la CI était rouge depuis 5a94854.
+- `23a7c84` MQTT/Telegram : refus des espaces, quotes et `$ ` \ ; & | < > ( )` (fichiers sourcés par le shell root) dans la page Réglages, l'appairage HA et Telegram ; l'assistant ne garde plus `( )`.
+- `cb946e4` Import JSON : **ce n'était pas un corps vide**, l'import durait ~40 s et mon client coupait à 30 s. Écritures groupées par fichier (`tc_apply_edits`) + cache de validation : **12-15 s** mesurées sur la .11.
+- `9cf38e1` `frigateyaml` / `integrationmanifest` / `integrationtest` annonçaient 15 fps (rtspserver.conf non chargé) : 25 fps maintenant.
+- `fd9c6b3` 7 tests de non-régression (`tests/test_audit_fixes.py`).
+- `67b1a01` Doc : CHANGELOG [Unreleased], CREDITS, known-issues rc23, checklist release cochée.
+
+Méthode de test sur caméra : fichiers superposés en RAM sur la .11 (`mount --bind` sur /mnt, retirés ensuite ; la .11 est revenue exactement en rc23, md5 vérifiés). **Rien n'est installé en flash** : il faut une RC (rc24) pour les avoir sur les caméras.
+
+Pour l'implémenteur :
+1. Publier une rc24 avec ces commits ; je la teste sur les deux caméras.
+2. Restent ouverts (checklist `release-3.0.1.md`) : exposition au boot, mot de passe en clair dans `frigateyaml` (proposer `{FRIGATE_RTSP_PASSWORD}`), fichier LICENCE (décision du propriétaire), source/licence de `monvifd`, `rwconf`, `getflag`, `getimage`, `syslog/host` différent entre .11 et .24, mDNS multicast depuis le Mac.
+3. Correction d'audit : le README « 15 fps by default » est juste (`[0] fps=15` dans la .dist).
