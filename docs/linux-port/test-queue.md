@@ -1842,3 +1842,25 @@ Remarques :
   2. Vérifier l'accès immédiat via `http://teckin-11.local/` (ou nom d'hôte).
   3. Vérifier le rendu direct dans `settings.html` et la disparition de la teinte jaunâtre.
   4. Confirmer la stabilité continue du Wi-Fi sans rebond.
+
+## 2026-11-03 23:05 — rc23 sur .11 et .24 : tests fonctionnels + campagne de nuit lancée (testeur)
+
+Les 2 caméras tournent en 3.0.1-rc23 (flash), uptime 3 h, mDNS démarré automatiquement, ping passerelle 2-7 ms sans perte, RAM libre stable (~20 Mo).
+
+| Test | Résultat |
+|---|---|
+| mDNS (requête unicast UDP 5353 depuis le LAN) | `ipcamera2.local` → .11 OK ; `ipcamera1.local` → .24 OK (multicast non testable depuis ma VM) |
+| Vidéo fluide `live.cgi` (fMP4, flux continu) | OK sur les 2 : H.264 640x360 décodable par ffmpeg ; ~20 Ko/s sur 20 s |
+| `multiview.html`, `metrics.cgi`, `state.cgi?cmd=daynight` | 200 sur les 2 |
+| Export JSON `config_exchange.cgi?cmd=export` | OK ; sans secrets : aucun psk/mot de passe ; avec `include_secrets=1` : flag `includes_secrets:true` et secrets présents |
+| Import JSON (cible = soi-même) | JSON invalide → erreur propre `INVALID_JSON` ; sans CSRF → 403 ; **import valide → HTTP 200 mais corps VIDE** (attendu `{"ok":true,"applied":…}`), config inchangée (md5 identique), `mqtt-bridge restart` observé ensuite sur la .11 |
+| Écart de config .11 vs .24 (hors réseau) | hostname, `MQTT_TOPIC_ROOT` (tc100/camera vs tc100/cam2) et **`syslog/host` : 192.168.1.23 (.11) vs 192.168.1.22 (.24)** → vérifier laquelle est la bonne |
+| Image | .11 luma ~90, .24 ~112 (soirée, pas de surexposition) |
+
+À corriger / décider :
+1. `config_exchange.cgi?cmd=import` : réponse vide sur import valide (le résultat n'est pas affiché ; l'UI ne peut pas confirmer l'import).
+2. `syslog/host` différent entre les deux caméras (voulu ?).
+3. CI rouge sur 5a94854/7284c73 (test classes CSS `has-text-weight-semibold`) à remettre au vert avant de qualifier la rc23 stable.
+4. Constat à 21:50 UTC sur la .24 : `STAT cap 51` pour ~4 s (fps réduit en soirée, expo 2810) vs .11 `cap 122` ; à expliquer (limite de temps d'exposition de nuit ?).
+
+Campagne de nuit : échantillonneur sur le Mac du propriétaire toutes les 2 min (uptime, RAM, luma, AE, AWB, ping passerelle, fps, awb.state) dans `night.log` + un snapshot / 30 min. Dépouillement demain matin (reboots, dérive mémoire, bascule jour/nuit, retour des couleurs, fréquence d'écriture awb.state). Anti-masquage reporté (main du propriétaire).
