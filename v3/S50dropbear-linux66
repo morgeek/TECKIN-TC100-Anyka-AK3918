@@ -55,11 +55,18 @@ start() {
 		chmod 600 "$CFG/authorized_keys" 2>/dev/null
 	fi
 
-	printf "Starting dropbear sshd: "
-	umask 077
+	# Ensure devpts pseudo-terminal filesystem is mounted for interactive SSH sessions
+	if [ ! -d /dev/pts ] || ! grep -q ' /dev/pts devpts ' /proc/mounts 2>/dev/null; then
+		mkdir -p /dev/pts 2>/dev/null
+		mount -t devpts devpts /dev/pts -o mode=620,ptmxmode=666 2>/dev/null || true
+	fi
 
-	start-stop-daemon -S -q -p /var/run/dropbear.pid \
-		--exec $DB -- $DROPBEAR_ARGS -P /var/run/dropbear.pid
+	printf "Starting dropbear sshd: "
+	(
+		umask 022
+		start-stop-daemon -S -q -p /var/run/dropbear.pid \
+			--exec $DB -- $DROPBEAR_ARGS -P /var/run/dropbear.pid
+	)
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 }
 stop() {

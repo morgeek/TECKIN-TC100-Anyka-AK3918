@@ -56,7 +56,13 @@ start()
     cp /root/.ssh/authorized_keys /mnt/config/authorized_keys 2>/dev/null
     chmod 600 /mnt/config/authorized_keys 2>/dev/null
   fi
-  ( umask 077; start-stop-daemon -S -q -p "$PIDFILE" --exec "$DB" -- $DROPBEAR_ARGS -R -P "$PIDFILE" ) </dev/null >/dev/null 2>&1
+  # Ensure devpts pseudo-terminal filesystem is mounted for interactive SSH sessions
+  if [ ! -d /dev/pts ] || ! grep -q ' /dev/pts devpts ' /proc/mounts 2>/dev/null; then
+    mkdir -p /dev/pts 2>/dev/null
+    mount -t devpts devpts /dev/pts -o mode=620,ptmxmode=666 2>/dev/null || true
+  fi
+
+  ( umask 022; start-stop-daemon -S -q -p "$PIDFILE" --exec "$DB" -- $DROPBEAR_ARGS -R -P "$PIDFILE" ) </dev/null >/dev/null 2>&1
   sleep 1
   [ -n "$(status)" ]
 }
