@@ -188,10 +188,11 @@
     initNavDropdownToggles();
     refreshSysUsage();
 
-    // #dashboard (default), #live, or the id of a menu entry (#status,
+    // #dashboard (default), #live, or the id of a menu entry (#nav_picture,
     // #nav_video, #logs…) to come back to the same page after a reload.
     var hash = document.location.hash;
     if (hash === "#nav_audio") hash = "#nav_video";   // the Audio section is now part of Streams & audio
+    if (hash === "#status") hash = "#nav_picture";   // "All settings" left the menu (2026-11-03): the first section
     var hashTarget = null;
     if (hash && hash !== "#dashboard" && hash !== "#live" && /^#[A-Za-z][\w-]*$/.test(hash)) {
       hashTarget = document.querySelector(hash);

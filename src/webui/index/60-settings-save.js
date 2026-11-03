@@ -64,6 +64,25 @@
     else out.textContent = (v > 0 ? "+" : "") + v;
   }
 
+  // Live image tuning: switch on when a value differs from 0, then save shortly after the last change (a save in
+  // progress delays it; one request at a time)
+  var ispApplyTimer = null;
+  function ispTuneAutoApply(form) {
+    var enable = form.querySelector("#isp_enable");
+    if (enable) {
+      var any = false;
+      form.querySelectorAll('input[type="range"]').forEach(function(input) { if ((parseInt(input.value, 10) || 0) !== 0) any = true; });
+      enable.checked = any;
+    }
+    if (ispApplyTimer) clearTimeout(ispApplyTimer);
+    ispApplyTimer = setTimeout(function send() {
+      ispApplyTimer = null;
+      if (form.getAttribute("aria-busy") === "true") { ispApplyTimer = setTimeout(send, 800); return; }
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else { var b = form.querySelector('button[type="submit"]'); if (b) { b.disabled = false; b.click(); } }
+    }, 500);
+  }
+
   // withMasks: also (re)draw the privacy masks, which live in their own form (Privacy & overlay)
   function loadIspTune(root, withMasks) {
     var form = (root || document).querySelector("#formIspTune");
@@ -72,9 +91,20 @@
     form.querySelectorAll('input[type="range"]').forEach(function(input) {
       if (!input.dataset.ispBound) {
         input.addEventListener("input", function() { ispTuneLabel(input); });
+        // applied when the slider is released (the live picture above shows it): no separate "enable" switch,
+        // the tuning is on as soon as one value differs from the sensor's factory value
+        input.addEventListener("change", function() { ispTuneAutoApply(form); });
         input.dataset.ispBound = "1";
       }
     });
+    var factory = (root || document).querySelector("#isp_factory");
+    if (factory && !factory.dataset.ispBound) {
+      factory.addEventListener("click", function() {
+        form.querySelectorAll('input[type="range"]').forEach(function(input) { input.value = 0; ispTuneLabel(input); });
+        ispTuneAutoApply(form);
+      });
+      factory.dataset.ispBound = "1";
+    }
     fetch("cgi-bin/state.cgi?cmd=isp_tune&format=json", { cache: "no-store" })
       .then(function(r) { if (!r.ok) throw new Error("isp_tune unavailable"); return r.json(); })
       .then(function(d) {

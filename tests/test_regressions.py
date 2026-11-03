@@ -1641,12 +1641,17 @@ class CameraPanel(unittest.TestCase):
         html = (ROOT / 'www/index.html').read_text()
         nav = html.split('id="common_nav"')[1].split('navbar-end')[0]
         self.assertLess(nav.index('id="dashboard_nav"'), nav.index('id="home_nav"'))
-        self.assertLess(nav.index('id="home_nav"'), nav.index('id="status"'))
-        services = nav.split('<span>Services</span>')[1].split('<span>System</span>')[0]
-        self.assertIn('id="services"', services)     # Services menu: Integrations + Services
-        system = nav.split('<span>System</span>')[1]
-        for page in ('id="status"', 'id="diagnostics"', 'id="logs"', 'id="configeditor"', 'cmd=reboot'):
-            self.assertIn(page, system)
+        # menus by use (2026-11-03): Image (live picture), Settings, Tools
+        image = nav.split('<span>Image</span>')[1].split('<span>Settings</span>')[0]
+        for tab in ('tab-image', 'tab-overlay', 'tab-daynight'):
+            self.assertIn('data-tab="%s"' % tab, image)
+        settings_menu = nav.split('<span>Settings</span>')[1].split('<span>Tools</span>')[0]
+        for tab in ('tab-video', 'tab-detect', 'tab-record', 'tab-notify', 'tab-network', 'tab-integrations', 'tab-system'):
+            self.assertIn('data-tab="%s"' % tab, settings_menu)
+        tools = nav.split('<span>Tools</span>')[1]
+        for page in ('data-tab="tab-backup"', 'id="services"', 'id="diagnostics"', 'id="logs"', 'id="configeditor"', 'cmd=reboot'):
+            self.assertIn(page, tools)
+        self.assertLess(nav.index('id="home_nav"'), nav.index('<span>Image</span>'))
         # every settings deep link names a section that exists
         settings = (ROOT / 'www/settings.html').read_text()
         for tab in re.findall(r'data-tab="([^"]+)"', nav):
@@ -1685,7 +1690,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
-        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info\) ;;')     # read-only: no CSRF needed
+        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?\) ;;')     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)
@@ -1706,7 +1711,7 @@ class SettingsLayout(unittest.TestCase):
         tabs = re.findall(r'data-tab="([^"]+)"', html)
         # sidebar order (2.1.0): Image, Video & audio, Events, Network & integrations, System
         self.assertEqual(tabs, ['tab-image', 'tab-overlay', 'tab-daynight', 'tab-video', 'tab-detect', 'tab-record',
-                                'tab-network', 'tab-integrations', 'tab-system', 'tab-backup'])
+                                'tab-notify', 'tab-network', 'tab-integrations', 'tab-system', 'tab-backup'])
         self.assertIn('id="settings_search"', html)
         self.assertIn('window.tc100SettingsTab = ', html)
         def tab(t):

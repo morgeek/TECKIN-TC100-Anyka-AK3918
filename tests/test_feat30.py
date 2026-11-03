@@ -1046,6 +1046,67 @@ class Lot5MultiViewAndTools(unittest.TestCase):
         self.assertIn('webdav', (ROOT / 'scripts/health-probe.sh').read_text())
 
 
+class EventsSettingsActions(unittest.TestCase):
+    """scripts/action.d/events.sh: Alerts, sound options and tamper from the web page; notify.conf is sourced by a
+    shell script, so nothing that a shell would interpret may reach it."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        (self.d / 'notify.conf').write_text((ROOT / 'config/notify.conf.dist').read_text())
+        (self.d / 'tamper.conf').write_text((ROOT / 'config/tamper.conf.dist').read_text())
+
+    def tearDown(self):
+        shutil.rmtree(self.d)
+
+    def run_cmd(self, cmd, **fields):
+        helpers = '\n'.join([function('scripts/common_functions.sh', 'rewrite_config'),
+                             function('scripts/common_functions.sh', 'read_kv_config_value'),
+                             function('www/cgi-bin/action.cgi', 'normalize_bool'),
+                             function('www/cgi-bin/action.cgi', 'sanitize_int_range'),
+                             function('www/cgi-bin/func.cgi', 'json_escape')])
+        helpers += ('\ninstall_config() { :; }\njson_body_ok() { echo "OK $1"; }\njson_body_err() { echo "ERR $2"; }\n')
+        body = (ROOT / 'scripts/action.d/events.sh').read_text().replace('/mnt/config', str(self.d)) \
+            .replace('/mnt/scripts/housekeeper.sh', '/nonexistent')
+        env = {'F_cmd': cmd}
+        env.update({'F_' + k: v for k, v in fields.items()})
+        r = subprocess.run(SH + ['-c', helpers + '\n' + body], capture_output=True, text=True, timeout=20,
+                           env=dict(os.environ, **env))
+        return r.stdout
+
+    def test_notify_values_are_checked_before_the_file(self):
+        before = (self.d / 'notify.conf').read_text()
+        for bad in ({'webhook_url': 'http://x/$(reboot)'}, {'webhook_url': 'http://x/"a'}, {'ntfy_topic': 'a b'},
+                    {'ntfy_topic': 'a;b'}, {'ntfy_auth': 'Bearer `id`'}, {'webhook_url': 'ftp://x'}):
+            self.assertIn('ERR', self.run_cmd('set_notify_config', **bad), bad)
+            self.assertEqual((self.d / 'notify.conf').read_text(), before, bad)
+
+    def test_notify_saved_and_sourceable(self):
+        out = self.run_cmd('set_notify_config', ntfy_enable='on', ntfy_url='https://ntfy.example.org/', ntfy_topic='cam_1',
+                           ntfy_priority='high', ntfy_auth='Bearer tk_abc', notify_event_motion='on',
+                           notify_event_tamper='on', notify_cooldown='30', notify_attach_snapshot='on')
+        self.assertIn('OK', out)
+        r = sh('. %s; echo "$NTFY_ENABLE|$NTFY_URL|$NTFY_TOPIC|$NTFY_PRIORITY|$NTFY_AUTH|$NOTIFY_EVENTS|$NOTIFY_COOLDOWN_SECONDS|$WEBHOOK_ENABLE"'
+               % (self.d / 'notify.conf'))
+        self.assertEqual(r.stdout.strip(), '1|https://ntfy.example.org|cam_1|high|Bearer tk_abc|motion tamper|30|0')
+        self.run_cmd('set_notify_config', ntfy_enable='on', ntfy_topic='cam_1', ntfy_auth='')   # empty keeps the token
+        self.assertIn('NTFY_AUTH="Bearer tk_abc"', (self.d / 'notify.conf').read_text())
+        info = json.loads(self.run_cmd('events_info'))
+        self.assertEqual((info['notify']['ntfy_topic'], info['notify']['ntfy_auth_set']), ('cam_1', 1))
+        self.assertNotIn('tk_abc', json.dumps(info))                                            # never sent back
+
+    def test_tamper_and_sound_options(self):
+        self.assertIn('OK', self.run_cmd('set_tamper_config', tamper_enable='on', tamper_hold='500', tamper_drop_pct='40'))
+        t = (self.d / 'tamper.conf').read_text()
+        self.assertIn('\nENABLE=1\n', '\n' + t)
+        self.assertIn('TAMPER_HOLD_SEC=120', t)        # out of range: clamped
+        self.assertIn('TAMPER_JPEG_DROP_PCT=40', t)
+        (self.d / 'sound_detection.conf').write_text('ENABLE=1\n')
+        self.assertIn('OK', self.run_cmd('set_sound_options', vox_mode='on', vox_hold='20', alarm_detect='on'))
+        s = (self.d / 'sound_detection.conf').read_text()
+        for k in ('VOX_MODE=1', 'VOX_HOLD_SECONDS=20', 'ALARM_DETECT=1', 'ALARM_HOLD_SECONDS=15', 'MIN_LOUD_SECONDS=1'):
+            self.assertIn(k, s)
+
+
 class OneSwitchPerService(unittest.TestCase):
     """scripts/service-switch.sh: one settings key per service; migrate-switches.sh keeps what a camera did."""
 

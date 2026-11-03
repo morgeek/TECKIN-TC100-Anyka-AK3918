@@ -120,36 +120,34 @@
                     <a id="home_nav" class="navbar-item" href="#live" data-home-view="live"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM16 10l5-3v10l-5-3"/></svg><span>Live</span></a>
                     <a id="multiview_nav" class="navbar-item onpage" href="javascript: void(0)" data-target="multiview.html"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3V3m10 0h8v8h-8V3M3 13h8v8H3v-8m10 0h8v8h-8v-8Z"/></svg><span>Multi-View</span></a>
                     <a id="viewrecordspage" class="navbar-item onpage" href="javascript: void(0)" data-target="view_records.html"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18zM10 8.5v7l6-3.5z"/></svg><span>Recordings</span></a>
+                    <!-- Menus by use (2026-11-03): Image (with the live picture), Settings, Tools -->
                     <div class="navbar-item has-dropdown is-hoverable">
-                        <a class="navbar-link" href="javascript: void(0)"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 10a3 3 0 1 0 0 6a3 3 0 0 0 0-6z"/></svg><span>Camera</span></a>
+                        <a class="navbar-link" href="javascript: void(0)"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 10a3 3 0 1 0 0 6a3 3 0 0 0 0-6z"/></svg><span>Image</span></a>
                         <div class="navbar-dropdown is-boxed">
-                            <p class="navbar-item nav-section-label">Image</p>
                             <a id="nav_picture" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-image">Picture</a>
                             <a id="nav_overlay" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-overlay">Privacy &amp; overlay</a>
                             <a id="nav_daynight" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-daynight">Day/night</a>
-                            <p class="navbar-item nav-section-label">Video &amp; audio</p>
+                        </div>
+                    </div>
+                    <div class="navbar-item has-dropdown is-hoverable">
+                        <a class="navbar-link" href="javascript: void(0)"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>Settings</span></a>
+                        <div class="navbar-dropdown is-boxed">
                             <a id="nav_video" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-video">Streams &amp; audio</a>
                             <p class="navbar-item nav-section-label">Events</p>
                             <a id="nav_detect" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-detect">Detection</a>
                             <a id="nav_record" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-record">Recording</a>
-                        </div>
-                    </div>
-                    <div class="navbar-item has-dropdown is-hoverable admin-nav">
-                        <a class="navbar-link" href="javascript: void(0)"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12h8M10 7H7a5 5 0 0 0 0 10h3M14 7h3a5 5 0 0 1 0 10h-3"/></svg><span>Services</span></a>
-                        <div class="navbar-dropdown is-boxed">
-                            <a id="nav_integrations" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-integrations">Integrations</a>
-                            <a id="services" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/scripts.cgi">Services</a>
-                        </div>
-                    </div>
-                    <div class="navbar-item has-dropdown is-hoverable admin-nav">
-                        <a class="navbar-link" href="javascript: void(0)"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9a3 3 0 1 0 0 6a3 3 0 0 0 0-6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>System</span></a>
-                        <div class="navbar-dropdown is-boxed is-right">
-                            <a id="status" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-force-reload="1">All settings</a>
-                            <a id="nav_network" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-network">Network</a>
-                            <a id="nav_system" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-system">System</a>
-                            <a id="nav_backup" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-backup">Update &amp; backup</a>
+                            <a id="nav_notify" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-notify">Alerts</a>
                             <hr class="nav-section-divider">
-                            <p class="navbar-item nav-section-label">Tools</p>
+                            <a id="nav_network" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-network">Network</a>
+                            <a id="nav_integrations" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-integrations">Integrations</a>
+                            <a id="nav_system" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-system">System</a>
+                        </div>
+                    </div>
+                    <div class="navbar-item has-dropdown is-hoverable admin-nav">
+                        <a class="navbar-link" href="javascript: void(0)"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/></svg><span>Tools</span></a>
+                        <div class="navbar-dropdown is-boxed is-right">
+                            <a id="nav_backup" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-backup">Update &amp; backup</a>
+                            <a id="services" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/scripts.cgi">Services</a>
                             <a id="diagnostics" class="navbar-item onpage" href="javascript: void(0)" data-target="diagnostics.html">Diagnostics</a>
                             <a id="logs" class="navbar-item onpage" href="javascript: void(0)" data-target="logs.html">Logs</a>
                             <a id="configeditor" class="navbar-item onpage" href="javascript: void(0)" data-target="configeditor.html">Config Editor</a>

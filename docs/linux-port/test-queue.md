@@ -1721,3 +1721,21 @@ Décisions du propriétaire : l'interrupteur de l'interface gagne (le profil Fri
   5. Telegram configuré + `TELEGRAM_NOTIFY_ENABLE=1` : un mouvement → **une** photo.
   6. Sans réseau (box coupée) avec `WIFI_RESCUE=1` : point d'accès à ~10 min, retour station ~25 min, point d'accès ~35 min, redémarrage pas avant ~50 min.
 - **Critères :** 1 à 6 conformes, aucun service perdu ni ajouté par rapport à avant la mise à jour.
+
+## 2026-11-03 — Interface réorganisée par usage, image en direct, pages pour Alertes / sabotage / babyphone (`[ui]`)
+
+- **Quoi :**
+  - Menu du haut : Tableau de bord, Direct, Multi-vue, Enregistrements, **Image** (Image, Confidentialité et incrustation, Jour/nuit), **Réglages** (Flux et son ; Événements : Détection, Enregistrement, **Alertes** ; Réseau, Intégrations, Système), **Outils** (Mise à jour et sauvegarde, Services, Diagnostics, Journaux, Éditeur de config, redémarrer, éteindre). « Tous les réglages » disparaît (l'ancien favori `#status` ouvre Image).
+  - Image et Jour/nuit : **image en direct** au-dessus des réglages (une photo toutes les 2 s, seulement pendant que la section est ouverte et la page visible). Les curseurs s'appliquent **au relâchement** ; plus d'interrupteur « Enable live image tuning » (actif dès qu'une valeur ≠ 0) ; bouton « Valeurs d'usine ».
+  - Détection : cartes **Babyphone et son d'alarme** (`VOX_MODE`, `VOX_HOLD_SECONDS`, `ALARM_DETECT`, `ALARM_HOLD_SECONDS`, `MIN_LOUD_SECONDS`) et **Détection de sabotage** (`tamper.conf`, active/désactive la tâche du housekeeper tout de suite).
+  - Nouvelle section **Alertes** (`notify.conf`) : événements (mouvement, son, sabotage), délai, image jointe, Telegram, Ntfy (jeton jamais renvoyé à la page ; vide = garder, « - » = supprimer), webhook. Toutes les valeurs sont filtrées (fichier chargé par le shell).
+  - Intégrations → Telegram : l'interrupteur devient « Bot Telegram : répondre aux commandes » (c'est ce qu'il faisait) ; les alertes Telegram sont dans Alertes.
+  - Nouvelles commandes `action.cgi` : `events_info` (lecture), `set_notify_config`, `set_tamper_config`, `set_sound_options` (`scripts/action.d/events.sh`).
+- **Interrupteurs :** ceux des cartes (tout désactivé par défaut).
+- **Test (navigateur, propriétaire) :**
+  1. Menus : chaque entrée ouvre la bonne section ; ordinateur et téléphone.
+  2. Image : l'image se rafraîchit ; bouger la luminosité → appliqué au relâchement, visible dans l'image en 2 à 4 s ; « Valeurs d'usine » → retour à l'image d'origine ; quitter la section → plus de requêtes `currentpic.cgi` (onglet Réseau du navigateur).
+  3. Alertes : Ntfy avec un sujet de test → un mouvement envoie **une** notification avec l'image ; une adresse avec un espace ou un guillemet est refusée avec un message.
+  4. Sabotage activé dans la page → main sur l'objectif ≥ 10 s → état « objectif masqué » et alerte ; désactivé → plus rien.
+  5. Babyphone activé (avec la détection sonore) → l'entité son de Home Assistant reste active pendant le bruit puis s'éteint après le délai.
+- **Critères :** 1 à 5 conformes ; charge CPU de la caméra inchangée hors section Image.

@@ -1148,7 +1148,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info) ;;
     *) csrf_check ;;
   esac
   # Each command lives in scripts/action.d/<group>.sh: only that file is
@@ -1176,6 +1176,8 @@ if [ -n "$F_cmd" ]; then
       _action_group=integrations ;;
     complete_setup_wizard|wizard_reset)
       _action_group=setup ;;
+    events_info|set_notify_config|set_tamper_config|set_sound_options)
+      _action_group=events ;;
     *) _action_group= ;;
   esac
   if [ -n "$_action_group" ] && [ -f "/mnt/scripts/action.d/$_action_group.sh" ]; then
