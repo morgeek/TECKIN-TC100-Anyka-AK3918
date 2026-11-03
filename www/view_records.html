@@ -118,6 +118,17 @@
       <progress id="disk_usage_bar" class="progress is-info" value="0" max="100" style="margin-bottom:0.15rem;height:0.6rem;"></progress>
       <p id="disk_usage_label" style="font-size:0.8em;color:#555;"></p>
     </div>
+    <!-- 24h Visual Timeline -->
+    <div id="timeline24_card" class="card status_card mb-3" style="margin-top:0.75rem; padding:0.6rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+        <span class="is-size-7 has-text-weight-bold">Frise 24 h</span>
+        <span id="timeline24_hint" class="is-size-7 has-text-grey">00:00 - 23:59</span>
+      </div>
+      <div id="timeline24_bar" style="position:relative; width:100%; height:20px; background:#e2e8f0; border-radius:4px; overflow:hidden;" title="Plages enregistrées"></div>
+      <div style="display:flex; justify-content:space-between; font-size:0.68rem; color:#888; margin-top:2px;">
+        <span>00h</span><span>04h</span><span>08h</span><span>12h</span><span>16h</span><span>20h</span><span>24h</span>
+      </div>
+    </div>
     <div class="records-actions">
       <button id="dwbtn" class="button is-primary" type="button" disabled onclick="downloadRecord()">Download</button>
       <button id="rmbtn" class="button is-danger" type="button" disabled onclick="removeRecord()">Remove</button>
