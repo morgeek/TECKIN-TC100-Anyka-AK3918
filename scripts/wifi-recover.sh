@@ -41,10 +41,10 @@ wr_reprobe() {
 
 case "${1:-run}" in
   check) wr_have; exit $? ;;
-  run) [ -e "$WR_SYS/class/net/wlan0" ] && exit 0 ;;
-  force) ;;
-  *) echo "usage: wifi-recover.sh [check|run|force]" >&2; exit 2 ;;
+  run) ;;
+  *) echo "usage: wifi-recover.sh [check|run]" >&2; exit 2 ;;
 esac
+wr_have && exit 0
 _now=
 if [ -r /proc/uptime ]; then read -r _up _ < /proc/uptime; _now=${_up%.*}; fi
 [ -n "$_now" ] || _now=$(date +%s 2>/dev/null || echo 0)
@@ -52,7 +52,7 @@ if [ -r "$WR_LAST" ]; then read -r _last < "$WR_LAST"; case "$_last" in ""|*[!0-
 mkdir "$WR_LOCK" 2>/dev/null || exit 0      # one recovery at a time (boot and net-guard)
 echo "$_now" > "$WR_LAST" 2>/dev/null
 trap 'rmdir "$WR_LOCK" 2>/dev/null' EXIT
-wr_log "${1:-no wlan0}: probing the Wi-Fi chip again"
+wr_log "no wlan0: probing the Wi-Fi chip again"
 ok=
 if wr_reprobe && wr_wait; then ok="USB probe"
 else
