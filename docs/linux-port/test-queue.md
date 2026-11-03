@@ -2435,3 +2435,47 @@ La rc20 a été installée sur la .24 par le propriétaire (mise à jour web), u
 - Plusieurs reprises de la boucle de blancs : le soir/la nuit (bascule IR, gel en noir et blanc, retour le matin), changement brusque d'éclairage ; vérifier que `awb.state` n'est pas écrit en boucle (usure flash) : sorties à surveiller `ls -l --full-time /mnt/config/awb.state` sur 24 h.
 - Mode derrière une vitre (nuit), notifications, sabotage (essai de jour en cours sur la .11), son et vox, mDNS (non démarré), carte de chaleur, frise 24 h (la .24 a une carte SD : `/mnt/sd/DCIM` présent), auto-diagnostic SD (`sd-diag.sh check`, car la carte est là), 50 Hz.
 - Après un second reboot : clés ssh et clé d'hôte, `awb.state`, `WIFI_QUALITY`.
+
+## 2026-11-03 14:45 — BILAN DE VALIDATION rc20 sur les 2 caméras en flash (testeuse, ssh, de jour)
+
+Build : `3.0.1-rc20` (commit d217a60), installée par la mise à jour web sur la .11 (IPCAM2, sans carte SD) et la .24 (IPCAM1, carte SD 64 Go). Les deux tournent depuis la flash (`/rom` = `mtdblock5`, `flashroot=1`). Tests de jour, via ssh et les API web ; les essais de nuit et ceux qui demandent le propriétaire sont listés à la fin.
+
+### Résumé
+| Fonction | .11 | .24 | Remarque |
+|---|---|---|---|
+| Redémarrage `reboot` : retour du ping / ssh | 28 s / 33 s | 32 s / 34 s | rapide, sans intervention |
+| Clés ssh + clé d'hôte persistantes | **OK** (md5 identiques avant/après) | **OK** | plus de clé à remettre ; empreintes inchangées (`GWE6XV…` / `WKXNKd…`) |
+| Balance des blancs : gains mémorisés au démarrage | **OK** (219/291) | **OK** (517/754 → 513/742) | R/G 0,96 et B/G 1,00 (.11), R/G 1,00 et B/G 0,99 (.24) après reboot ; `awb.state` réécrit à chaque arrêt/démarrage |
+| Réglages conservés après reboot (`WIFI_QUALITY`, vox, alarme, `FRONT_LED`, daynight) | **OK** | **OK** | suivi Wi-Fi et niveau sonore redémarrent seuls |
+| Accès sans mot de passe (web, CGI, métriques, vue 2×2, export config, RTSP) | **tout refusé (401)** | **idem** | seuls ports ouverts : 22, 80, 554 |
+| Mode « derrière une vitre » (`IR_LED_MODE=off`, bascule nuit forcée de jour) | **OK** : LED IR éteinte, IR-cut ouvert, noir et blanc | **OK** | `auto` (défaut) : LED allumée ; retour jour correct ; réglage visible dans `state.cgi?cmd=daynight` (`ir_led_mode`) ; l'essai de la vraie nuit reste à faire |
+| Alarme fumée/sirène (`ALARM_DETECT=1`) | **OK** : ON après ≈ 3 s de son soutenu, OFF après la durée de maintien | **OK** | déclenché par un niveau fort soutenu (pas par la fréquence) ; voir réserve |
+| Vox / babyphone | **OK** (ON puis OFF) | **OK** | |
+| Métriques Prometheus | **OK** (200, auth) | **OK** | |
+| Vue multi-caméras (`/multiview.html`) | 200 (auth), page servie | 200 | affichage et mémorisation des IP à regarder à l'œil |
+| `play_sound` (carillon, sirène) par `action.cgi` | **OK** côté API (`"Playing chime"`) | **OK** | **nécessite l'en-tête `X-CSRF-Token`** (comportement attendu) ; écoute à confirmer par le propriétaire |
+| Carte de chaleur (`motion_heatmap`) | OK (JSON 24 valeurs) | OK | toutes à 0 : pas de mouvement détecté/compté depuis le démarrage, à revoir avec du mouvement |
+| `sd_card_info` / `local_rec_status` | présent=0, normal | `present 1`, vfat, 59 543 Mo libres, santé « ok » | |
+| Sabotage (`tamper-detect.sh`, 25fecef) | essai demandé au propriétaire (main sur l'objectif) | non démarré | **en attente** |
+| Auto-diagnostic SD, frise 24 h, WebDAV | — | à faire | voir « reste » |
+
+### Chiffres de stabilité (de jour)
+- Mémoire disponible : .11 21,4 Mo, .24 20,4 Mo (3 h après les installations, 3 clients RTSP) ; pas de dérive mesurée sur ~1 h.
+- Charge : repos 0,8 à 1,1 ; 64 % d'inactivité avec 1 client (Frigate).
+- **Plusieurs clients RTSP : la fréquence baisse.** Un client (Frigate) : ≈ 25 i/s. Frigate + le sous-flux (2 clients) : ≈ 20 à 21 i/s reçues par le client, `dropped` 0 à 2 ; Frigate + flux principal + sous-flux (3 clients) : ≈ 18 i/s, CPU de la .11 à 0 % d'inactivité. Capacité à surveiller si Frigate prend les deux flux : à examiner par l'implémenteur (coût du sous-flux ISP / envoi) ; la mémoire reste stable (+0).
+- Journal du noyau : aucune erreur (`oops`, `panic`, `segfault`, `OOM`), chien de garde armé 300 s (`ak_wdt_reboot`). Seul message : `regulatory.db` absent (bénin).
+
+### Défauts et observations pour les agents
+1. **Latence et pertes Wi-Fi par à-coups sur LES DEUX caméras** (mesure de la testeuse, ping depuis l'ordinateur du propriétaire, 60 à 100 paquets) : vers le routeur : 0 % de perte, 11 ms ; vers la .11 : 0 à 4 % de perte mais **766 ms de latence moyenne (max 4,4 s)** ; vers la .24 : 15 à 33 % de perte, **0,6 à 1,8 s de moyenne (max 4,9 s)**. Immédiatement après, la .24 répondait en 15 ms moyen et 0 % de perte : à-coups, pas un état permanent. Signal correct (.11 -14 dBm, .24 -50 dBm), débit MCS 7 (72 Mbit/s), `iw` : 0 retransmission, 0 échec, économie d'énergie coupée, canal 2 (2417 MHz). Pistes : contention sur le canal 2,4 GHz, file d'attente d'émission de la caméra pleine pendant les rafales de l'encodeur (envoi des images clés H.265 ~130 Ko) ; demander à l'implémenteur de mesurer la file d'envoi (`tx` du pilote) et d'essayer un limiteur de débit. Le suivi Wi-Fi donne maintenant 12 à 15 % de perte sur la dernière heure.
+2. **`wifi-quality.sh` lit une valeur de signal peu fiable** : la colonne « level » de `/proc/net/wireless` vaut -13/-14 ou -256 (invalide) selon le moment, alors que `iw dev wlan0 link` donne -14 dBm (.11) et -50 dBm (.24) et `metrics.cgi` -50. Résultat : `rssi_min_1h = -256` à tort. Lire `iw ... link` (ou ignorer -256) et rendre la même grandeur à `metrics.cgi`.
+3. **Carte SD marquée « pas proprement démontée » après chaque redémarrage de la .24** (`FAT-fs (mmcblk0p1): Volume was not properly unmounted`), y compris pour un `reboot` demandé (la mise à jour web et `reboot` ne démontent pas `/mnt/sd` avant). À corriger : `sync` + démontage avant `reboot`/mise à jour web/chien de garde.
+4. **Droits de `/mnt/config/authorized_keys` à 755** sur la .24 (ancien fichier de la 2.x) : mettre 600 à chaque restauration.
+5. **Vox, alarme, mot de passe, WebDAV, synchro, sabotage** : voir les entrées précédentes (documentation et corrections demandées).
+6. **Documentation de l'alarme** : l'alarme se déclenche sur tout son fort continu ≥ 3 s (testé avec une tonalité de 1 kHz) ; ce n'est pas une détection d'avertisseur de fumée par fréquence. À écrire clairement et ne jamais présenter comme une sécurité.
+7. **Pas de journal de redémarrage visible** : `/mnt/log` n'existe pas en mode flash alors que `reboot-tracker.sh` parle de jffs2 : vérifier où l'historique des démarrages est écrit.
+
+### Ce qui reste à valider (non fait aujourd'hui)
+- Le propriétaire : écoute du carillon et de la sirène (envoyés sur les 2 caméras à volume 35), sabotage avec la main (.11 prête), `ping ipcamera2.local` sur le Mac, coup d'œil à la vue 2×2 et aux présélections OSD.
+- De nuit : bascule jour/nuit réelle (daemon `luma`), mode vitre, retour en couleur le matin, boucle de blancs pendant la bascule IR, anti-scintillement 50 Hz sous éclairage artificiel.
+- Sur la carte de la .24 : auto-diagnostic SD, frise 24 h, enregistrement sur mouvement, pre-roll, meilleur cliché, notifications (Ntfy/webhook : à configurer par le propriétaire).
+- Plusieurs jours : fréquence d'écriture de `awb.state` (usure flash), dérive de mémoire, nombre de redémarrages par le chien de garde.
