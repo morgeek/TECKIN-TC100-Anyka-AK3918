@@ -13,6 +13,26 @@ night picture and low-light settings from the sensor tuning, Wi-Fi that recovers
 21 MB of free memory, the clock, masks and sub-stream done by the image processor. The entries below are the
 release candidates' details, newest first.
 
+### Added (3.0.1-rc19)
+- **Web UI Multi-View 2×2 Grid Viewer (`www/multiview.html`)**:
+  - Live 2×2 camera monitoring matrix polling snapshot feeds (`/cgi-bin/currentpic.cgi`) from local and remote cameras.
+  - 100% client-side execution in the browser with `localStorage` configuration persistence (IP / `.local` hostnames and custom camera names).
+  - Native integration into the top navigation bar (`Multi-View`).
+- **Built-in Sound Library & Alert Triggers (`sounds/`, `action.d/audio.sh`, `scripts/mqtt-bridge.sh`)**:
+  - Pre-generated PCM 8 kHz anti-clipping sound clips at -6 dBFS: `chime.pcm` (doorbell 2-tone) and `siren.pcm` (swept alarm).
+  - Web action API endpoint `cmd=play_sound&sound=chime|siren|alert` with volume control.
+  - Home Assistant MQTT discovery buttons ("Play Chime", "Sound Siren") and MQTT command topic support.
+  - Audio Test button on live dashboard linked directly to built-in chime playback.
+- **Continuous Siren & Smoke / CO Alarm Detection (`controlscripts/sound-detection`)**:
+  - Pattern detector for continuous loud high-pitched sound bursts (≥3s sustained) typical of smoke and CO alarms.
+  - Home Assistant `safety` binary sensor (`mdi:fire-alert`) publishing to `<root>/alarm/state`.
+- **Motion Best-Shot Selection & Named Zones (`scripts/detectionOn.sh`, `scripts/action.d/detection.sh`, `www/settings.html`)**:
+  - `motion_best_shot=1` takes a rapid 3-shot burst and selects the sharpest JPEG image by detail/byte size for alerts and notifications.
+  - Switch exposed in Web UI Settings under Detection tab, persisted in `motion.conf`, and exposed in `state.cgi` / `config_exchange.cgi`.
+  - Named motion exclusion zones (`MDZ<n>_NAME`).
+- **Enhanced Web Config Editor (`www/configeditor.html`, `www/cgi-bin/configeditor.cgi`)**:
+  - Added whitelist support for `sound_detection.conf`, `notify.conf`, and `tamper.conf`.
+
 ### Added (3.0.1-rc18)
 - **Multi-channel Notifications (`scripts/notify.sh` + `config/notify.conf.dist`)**:
   - Direct alert dispatcher supporting **Ntfy** (`ntfy.sh` or self-hosted) with priority, tags and instant JPEG snapshot attachment.
