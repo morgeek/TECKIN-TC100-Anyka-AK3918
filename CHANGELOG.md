@@ -14,6 +14,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Live video stream via native MediaSource (`/cgi-bin/live.cgi`) is now the default on the main dashboard (`index.html`), all multiview panels (`multiview.html`), and the Settings live preview (`settings.html`).
 - **Default mDNS local domain support** (`config/autostart/mdns`):
   - Starts lightweight `tc100-mdnsd` at boot; camera is reachable at `<hostname>.local` out of the box.
+- **Live MQTT Bridge Status & Broker Diagnostics in Settings**:
+  - Real-time connection badge and diagnostic description in Settings → Integrations, displaying CONNACK codes (4 bad credentials, 5 not authorized) and publish latency.
 - **ISP White Balance (AWB) Tuning**:
   - Accelerated blue gain convergence in `tc100_rtsp` to eliminate warm/yellow color cast in indoor environments.
 
