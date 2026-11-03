@@ -298,6 +298,8 @@
                             <div class="column is-half"><label class="label is-small" for="sound_det_threshold">Sound threshold (dBFS, -90…0)</label><input class="input is-small" name="sound_det_threshold" id="sound_det_threshold" type="number" min="-90" max="0" step="1"><p class="help">Quiet room ≈ -60, speech ≈ -35…-25, shout or bark ≈ -20…-10. Current level: Services → sound-detection.</p></div>
                         </div>
                         <div class="field"><input class="switch is-small" id="motion_led" name="motion_trigger_led" type="checkbox"><label for="motion_led">Blink LED on Motion</label></div>
+                        <div class="field"><input class="switch is-small" id="motion_best_shot" name="motion_best_shot" type="checkbox"><label for="motion_best_shot">Best-shot selection (3 rapid JPEG bursts, keeps the sharpest)</label></div>
+                        <input type="hidden" name="motion_best_shot_present" value="1">
                         <div class="is-divider" data-content="Motion zones"></div>
                         <p class="help mb-2">Drag on the picture to mark up to 4 areas the camera's motion detection ignores (a tree, a road, a TV). This is the camera's own detection (MQTT event, picture on motion); Frigate has its own zones and masks.</p>
                         <div class="mask-editor" id="mdz_editor"><img id="mdz_preview" alt="Current camera picture" draggable="false"><div class="mask-layer" id="mdz_layer"></div></div>

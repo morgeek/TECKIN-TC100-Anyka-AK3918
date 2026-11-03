@@ -18,7 +18,8 @@ is_allowed_file() {
   case "$1" in
     boot.conf|mqtt.conf|rtspserver.conf|recording.conf|onvif.conf|\
     hostname.conf|ntp_srv.conf|timezone.conf|telegram.conf|\
-    netmon.conf|dns.conf|motion.conf|pttvolume.conf)
+    netmon.conf|dns.conf|motion.conf|pttvolume.conf|\
+    sound_detection.conf|notify.conf|tamper.conf)
       return 0 ;;
     *) return 1 ;;
   esac

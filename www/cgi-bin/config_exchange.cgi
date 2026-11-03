@@ -156,6 +156,7 @@ _ce_row_table() {
     row("sound_detection.conf";"flat";"root";"INTERVAL";"sound_interval";"general";.services.sound_det_interval),
     row("rtspserver.conf";"ini";"root";"mdsens";"motion_sens";"general";.services.motion_sens),
     row("motion.conf";"flat";"root";"motion_trigger_led";"bool";"general";.services.motion_led),
+    row("motion.conf";"flat";"root";"motion_best_shot";"bool";"general";.services.motion_best_shot),
 
     row("telegram.conf";"flat";"root";"TELEGRAM_ENABLE";"bool";"general";.telegram.enabled),
     row("telegram.conf";"flatq";"root";"apiToken";"credential_optional";"credential";.telegram.token),

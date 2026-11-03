@@ -48,6 +48,10 @@
       /mnt/bin/setconf -k m -v "$mdsens"
       motion_led="$(normalize_bool "${F_motion_trigger_led:-${F_motionBlink:-0}}")"
       rewrite_config /mnt/config/motion.conf motion_trigger_led "$motion_led"
+      if [ -n "${F_motion_best_shot+x}" ] || [ -n "${F_motion_best_shot_present:-}" ]; then
+        motion_bs="$(normalize_bool "${F_motion_best_shot:-0}")"
+        rewrite_config /mnt/config/motion.conf motion_best_shot "$motion_bs"
+      fi
       sound_enable="$(normalize_bool "${F_sound_det_enable:-0}")"
       sound_threshold="$(sound_threshold_db "${F_sound_det_threshold}" -24)"
       apply_sound_detection "$sound_enable" "$sound_threshold"
