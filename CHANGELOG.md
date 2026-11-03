@@ -7,6 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc23] - 2026-11-03
+
+### Added
+- **Smooth H.264 fMP4 / MediaSource video across all views**:
+  - Live video stream via native MediaSource (`/cgi-bin/live.cgi`) is now the default on the main dashboard (`index.html`), all multiview panels (`multiview.html`), and the Settings live preview (`settings.html`).
+- **Default mDNS local domain support** (`config/autostart/mdns`):
+  - Starts lightweight `tc100-mdnsd` at boot; camera is reachable at `<hostname>.local` out of the box.
+- **ISP White Balance (AWB) Tuning**:
+  - Accelerated blue gain convergence in `tc100_rtsp` to eliminate warm/yellow color cast in indoor environments.
+
+### Fixed
+- **Wi-Fi stability under load**:
+  - Reverted aggressive proactive USB re-probing in `scripts/net-guard.sh` that caused network bounce loops.
+
 ## [3.0.1-rc22] - 2026-11-03
 
 ### Added

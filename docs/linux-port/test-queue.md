@@ -1829,9 +1829,16 @@ Remarques :
   - Sans pacing : ping avec des pics réguliers à >500 ms voire 1-4 s lors des IDR.
   - Avec pacing : ping stable sans pics majeurs lors des IDR ; aucune dégradation visuelle du flux vidéo.
 
-## 2026-11-03 18:35 — rc22 : build vert (commit 9b1bf1b), prêt à tester
+## 2026-11-03 19:25 — Version 3.0.1-rc23 (Vidéo fluide partout, mDNS par défaut, AWB équilibré & Wi-Fi durci)
 
-- **Correctif appliqué :** déclaration de `pacing_us` et `sndbuf_kb` déplacée avant `rtp_out()` dans `src/tc100rtsp/tc100_rtsp.c` (commit `9b1bf1b`).
-- **CI :** 100 % verte (Shell syntax et 347 Host regression tests passés avec succès).
-- Le package de release `tc100-3-release` (avec `tc100-3.0.1-rc22-update.tar`) et le kernel sont en cours d'empaquetage / génération d'artefacts.
-- Prêt pour téléchargement et mise à jour web sur les caméras dès que l'artefact est prêt.
+- **Version :** `3.0.1-rc23`
+- **Quoi :**
+  1. **Vidéo fluide native par défaut partout** : MediaSource (`live.cgi` fMP4 H.264 25 fps) actif par défaut sur la page principale (`index.html`), le multiview (`multiview.html`), et dans l'aperçu dynamique de la page des réglages Image/Jour/Nuit (`settings.html`).
+  2. **mDNS actif par défaut** (`config/autostart/mdns`) : résolution automatique du nom de la caméra sur le réseau local (`<hostname>.local`).
+  3. **AWB ISP rééquilibré** (`src/tc100rtsp/tc100_rtsp.c`) : convergence accélérée de la composante bleue (`bex`) pour éliminer la dominante chaude/jaunâtre sous éclairage intérieur.
+  4. **Stabilité Wi-Fi** : suppression du trigger agressif dans `net-guard.sh` qui provoquait des déconnexions/reboots en cascade.
+- **Tests à effectuer :**
+  1. Installer la mise à jour `tc100-3.0.1-rc23-update.tar`.
+  2. Vérifier l'accès immédiat via `http://teckin-11.local/` (ou nom d'hôte).
+  3. Vérifier le rendu direct dans `settings.html` et la disparition de la teinte jaunâtre.
+  4. Confirmer la stabilité continue du Wi-Fi sans rebond.

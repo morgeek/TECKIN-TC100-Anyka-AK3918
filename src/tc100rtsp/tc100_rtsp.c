@@ -966,7 +966,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 		tu = tu > 40 ? 40 : tu < -40 ? -40 : tu;
 		tv = tv > 40 ? 40 : tv < -40 ? -40 : tv;
 		if (tv > 1 || tv < -1) r = r * (256 - tv) / 256;	/* V high: too red */
-		if (tu > 1 || tu < -1) b = b * (256 - tu) / 256;	/* U high: too blue */
+		if (tu > 1 || tu < -1) b = b * (256 - tu * 5 / 4) / 256;	/* U high: too blue; accelerate blue correction to avoid warm cast */
 		r = r < 128 ? 128 : r > awb_max ? awb_max : r;
 		b = b < 128 ? 128 : b > awb_max ? awb_max : b;
 		if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); }
