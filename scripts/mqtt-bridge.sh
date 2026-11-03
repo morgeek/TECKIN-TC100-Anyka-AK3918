@@ -1534,7 +1534,7 @@ build_diag_payload()
     *) [ -f /tmp/flashmode ] && _dg_boot=flash_boot ;;
   esac
   _dg_unexp=0
-  for _dg_h in /etc/jffs2/tc100/log/reboot-history.log /mnt/log/reboot-history.log; do
+  for _dg_h in /mnt/config/log/reboot-history.log /etc/jffs2/tc100/log/reboot-history.log /mnt/log/reboot-history.log; do
     [ -r "$_dg_h" ] || continue
     _dg_unexp="$(grep -c UNEXPECTED "$_dg_h" 2>/dev/null)"
     case "$_dg_unexp" in ''|*[!0-9]*) _dg_unexp=0 ;; esac

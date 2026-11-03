@@ -1045,5 +1045,96 @@ class Lot5MultiViewAndTools(unittest.TestCase):
         self.assertIn('webdav', (ROOT / 'scripts/health-probe.sh').read_text())
 
 
+class BootGuard(unittest.TestCase):
+    """v3/linux66-sd/boot-guard: safe mode after 3 runs in a row shorter than 5 minutes (flash mode only)."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        (self.d / 'cfg').mkdir()
+        (self.d / 'flashmode').write_text('')
+        (self.d / 'uptime').write_text('20.00 10.00\n')
+        (self.d / 'persist.sh').write_text('echo "$CFG" >> %s\n' % (self.d / 'saves'))
+        self.env = dict(BG_CFG=str(self.d / 'cfg'), BG_FLASHMODE=str(self.d / 'flashmode'),
+                        BG_FLAG=str(self.d / 'safemode'), BG_MOTD=str(self.d / 'motd'),
+                        BG_UPTIME=str(self.d / 'uptime'), BG_OK_S='3600', BG_NO_TIMER='1',
+                        BG_PERSIST='sh %s' % (self.d / 'persist.sh'))
+
+    def tearDown(self):
+        shutil.rmtree(self.d)
+
+    def bg(self, cmd):
+        r = sh('sh %s %s' % (ROOT / 'v3/linux66-sd/boot-guard', cmd), self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def count(self):
+        return (self.d / 'cfg' / '.boot-guard').read_text().strip()
+
+    def saves(self):
+        p = self.d / 'saves'
+        return len(p.read_text().split()) if p.exists() else 0
+
+    def test_three_short_runs_then_safe_mode_and_cap(self):
+        for n in (1, 2, 3):
+            self.bg('start')
+            self.assertEqual(self.count(), str(n))
+            self.assertFalse((self.d / 'safemode').exists(), n)
+        self.bg('start')
+        self.assertTrue((self.d / 'safemode').exists())
+        self.assertIn('SAFE MODE', (self.d / 'motd').read_text())
+        self.assertEqual((self.count(), self.saves()), ('4', 4))
+        self.bg('start')            # a loop that goes on: count stays at 4, the flash is not written again
+        self.assertEqual((self.count(), self.saves()), ('4', 4))
+        self.assertTrue((self.d / 'safemode').exists())
+
+    def test_ok_only_after_the_delay_and_clear(self):
+        self.bg('start'); self.bg('start')
+        self.bg('ok')               # uptime 20 s < 3600 s: nothing
+        self.assertEqual(self.count(), '2')
+        (self.d / 'uptime').write_text('3700.00 10.00\n')
+        self.bg('ok')
+        self.assertEqual((self.count(), self.saves()), ('0', 3))
+        self.bg('ok')               # unchanged: no flash write
+        self.assertEqual(self.saves(), 3)
+        self.bg('start')
+        self.bg('clear')
+        self.assertEqual((self.count(), self.saves()), ('0', 5))
+
+    def test_off_in_sd_mode_and_with_boot_guard_0(self):
+        (self.d / 'cfg' / 'boot.conf').write_text('BOOT_GUARD=0\n')
+        for _ in range(5):
+            self.bg('start')
+        self.assertFalse((self.d / 'safemode').exists())
+        self.assertFalse((self.d / 'cfg' / '.boot-guard').exists())
+        (self.d / 'cfg' / 'boot.conf').write_text('BOOT_GUARD=1\n')
+        (self.d / 'flashmode').unlink()
+        for _ in range(5):
+            self.bg('start')
+        self.assertFalse((self.d / 'safemode').exists())
+        self.assertEqual(self.saves(), 0)
+
+    def test_autorun_safe_mode_and_owner_reboots(self):
+        a = (ROOT / 'v3/autorun-linux66.sh').read_text()
+        self.assertLess(a.index('boot-guard start'), a.index('rtsp-launch.sh'))
+        self.assertLess(a.index('reboot-tracker.sh boot'), a.index('boot-guard start'))
+        for step in ('elif [ -x $TB/tc100_rtsp ]', '"$SAFE" = 0 ] && [ -f $CS/mqtt-bridge', '"$SAFE" = 0 ] && [ -f $CS/onvif',
+                     'ssh-server|telnet-server|wifi-rescue|button-actions'):
+            self.assertIn(step, a)
+        rt = (ROOT / 'scripts/reboot-tracker.sh').read_text()
+        self.assertIn('"web UI"*|"reset button"*)', rt)
+        self.assertIn('LOGDIR=/mnt/config/log', rt)
+        self.assertIn('\nBOOT_GUARD=1\n', (ROOT / 'config/boot.conf.dist').read_text())
+
+    def test_reboot_tracker_flash_mode_dirs(self):
+        (self.d / 'fm').write_text('')
+        code = ('REBOOT_TRACKER_FLASHMODE=%s; . %s >/dev/null 2>&1; echo "$LOGDIR $HEARTBEAT $IMPORTANT $KEEP"'
+                % (self.d / 'fm', ROOT / 'scripts/reboot-tracker.sh'))
+        out = sh(code).stdout.split()
+        self.assertEqual(out[0], '/mnt/config/log')
+        self.assertFalse(out[1].startswith('/mnt/config'))
+        self.assertFalse(out[2].startswith('/mnt/config'))
+        self.assertEqual(out[3], '30')
+
+
 if __name__ == '__main__':
     unittest.main()

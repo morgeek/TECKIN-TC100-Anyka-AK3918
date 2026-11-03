@@ -10,6 +10,18 @@
 # Status: /tmp/update66.status (one line) and, with a card, tc100-3/update66.log.
 ST=/tmp/update66.status
 part_size() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { cat $d/size; return 0; }; done; return 1; }
+# smallest number of bytes of the kernel partition that this camera's U-Boot reads ("sf read 0x82000000 0x39000 SIZE" in
+# its environment, read-only here): 0x200000 for the card install, 0x1ce000 for the hand-made commands of 2026-10-24
+kernel_load_max() {
+	for d in /sys/class/mtd/mtd[0-9]*; do
+		case $d in *ro) continue;; esac
+		[ "$(cat $d/name)" = env ] || continue
+		tr '\000' '\n' < /dev/${d##*/}ro 2>/dev/null | sed -n 's/.*sf read 0x82000000 0x39000 \(0x[0-9a-fA-F]*\).*/\1/p' |
+			while read h; do echo $((h)); done | sort -n | head -n 1 | grep .
+		return
+	done
+	return 1
+}
 say() { echo "$*" > $ST; echo "update66: $*" > /dev/console; [ -n "$LOG" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 LOG=; grep -q ' /mnt/sd vfat ' /proc/mounts && mkdir -p /mnt/sd/tc100-3 2>/dev/null && LOG=/mnt/sd/tc100-3/update66.log
 
@@ -27,6 +39,16 @@ check() {
 	done
 	[ "$(wc -c < "$D/c66rd.gz")" -eq 2012654 ] || { echo "c66rd.gz has not the size the boot commands load"; return 1; }
 	head -c 6 "$D/c66rd.gz" | od -An -tx1 | grep -q 'fd 37 7a 58 5a 00' || { echo "c66rd.gz is not an xz image"; return 1; }
+	# A kernel that does not start cannot be put right from Linux (U-Boot always loads the kernel partition, the
+	# initramfs never runs): it is checked before anything is written. A uImage (bootm), complete (the data size of its
+	# header), and not larger than what this camera's U-Boot reads from the flash.
+	ks=$(wc -c < "$D/c66.img")
+	head -c 4 "$D/c66.img" | od -An -tx1 | grep -q '27 05 19 56' || { echo "c66.img is not a U-Boot kernel image (uImage)"; return 1; }
+	kd=$(dd if="$D/c66.img" bs=1 skip=12 count=4 2>/dev/null | od -An -tu1 | awk '{ print (($1 * 256 + $2) * 256 + $3) * 256 + $4 }')
+	case "$kd" in ''|*[!0-9]*) echo "c66.img: unreadable uImage header"; return 1 ;; esac
+	[ $((kd + 64)) -le "$ks" ] || { echo "c66.img is cut short ($ks bytes, its header announces $((kd + 64)))"; return 1; }
+	kl=$(kernel_load_max) && [ "$ks" -gt "$kl" ] && { echo "c66.img ($ks bytes) is larger than the $kl bytes this camera's start commands read from the flash: it would not start. Install it from the SD card instead"; return 1; }
+	[ "$(head -c 4 "$D/stack.sqfs")" = hsqs ] || { echo "stack.sqfs is not a squashfs image"; return 1; }
 	echo ok
 }
 

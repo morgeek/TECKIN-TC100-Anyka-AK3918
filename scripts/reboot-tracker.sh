@@ -6,8 +6,14 @@
 #                          syslog lines to important.log; every 15 min also
 #                          runs heartbeat
 #   heartbeat              last time seen alive (rewritten in place)
+#   hk                     3.0: flush + heartbeat, every 15 min (housekeeper job)
 #   boot                   called early by autorun.sh: classifies the previous
 #                          shutdown and appends one line to the history
+#
+# 3.0 from the flash (/tmp/flashmode): the history and the intent go to
+# /mnt/config/log, kept in the flash settings slots by cfg-persist (one save
+# per start and per deliberate reboot, never per heartbeat); the heartbeat and
+# important.log go to the SD card (/mnt/sd/logs) when there is one, else RAM.
 #
 # A boot with no recorded intent means the previous run ended without anyone
 # asking for it: hardware watchdog, power loss or kernel crash. The last
@@ -23,15 +29,23 @@
 LOGDIR="${REBOOT_TRACKER_DIR:-/mnt/log}"
 # Firmware run from flash: /mnt/log is a RAM disk; keep these few files in the
 # jffs2 flash partition instead (small, and written as rarely as on the card).
-if [ -z "${REBOOT_TRACKER_DIR:-}" ] && [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
+FASTDIR=
+if [ -z "${REBOOT_TRACKER_DIR:-}" ] && [ -f "${REBOOT_TRACKER_FLASHMODE:-/tmp/flashmode}" ]; then
+  # 3.0: /mnt is a RAM disk and there is no jffs2; /mnt/config is saved to the flash slots
+  LOGDIR=/mnt/config/log
+  FASTDIR=/tmp/log
+  grep -q ' /mnt/sd vfat rw' /proc/mounts 2>/dev/null && FASTDIR=/mnt/sd/logs
+elif [ -z "${REBOOT_TRACKER_DIR:-}" ] && [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
   LOGDIR=/etc/jffs2/tc100/log
 fi
+FASTDIR="${REBOOT_TRACKER_FASTDIR:-${FASTDIR:-$LOGDIR}}"
 INTENT="$LOGDIR/.reboot-intent"
-HEARTBEAT="$LOGDIR/.heartbeat"
+HEARTBEAT="$FASTDIR/.heartbeat"
 HISTORY="$LOGDIR/reboot-history.log"
 LAST="${REBOOT_TRACKER_LAST:-/tmp/last-reboot-reason}"
 KEEP=50
-IMPORTANT="$LOGDIR/important.log"
+[ "$LOGDIR" = /mnt/config/log ] && KEEP=30	# a flash settings slot holds 36 KB
+IMPORTANT="$FASTDIR/important.log"
 IMPORTANT_MAX_BYTES=65536
 case "$LOGDIR" in /etc/jffs2/*) IMPORTANT_MAX_BYTES=16384 ;; esac
 IMPORTANT_KEEP=400
@@ -51,6 +65,11 @@ rt_intent()
   mkdir -p "$LOGDIR" 2>/dev/null
   printf '%s|%s\n' "$(_rt_ts)" "${1:-unspecified}" > "$INTENT" 2>/dev/null
   sync
+  # a restart asked by a person is not one of the short runs that lead to the safe mode (v3/linux66-sd/boot-guard);
+  # automatic ones (MQTT commands, watchdogs, network guard) still count. Flash mode only; saves the intent with it.
+  case "$1" in
+    "web UI"*|"reset button"*) sh "${BOOT_GUARD_SH:-/mnt/v3/linux66-sd/boot-guard}" clear >/dev/null 2>&1 ;;
+  esac
   # settings changed in the last minute are saved to the flash first (cfg-persist saves a change once it has been
   # stable for 30 s: a reboot sooner lost it, R10-01). Only in flash mode, only when something changed; waited for up
   # to 20 s and never interrupted (the two slots keep the previous settings if the power goes during a write).
@@ -86,7 +105,7 @@ rt_heartbeat()
   fi
   case "$_hb_sd" in *[!a-z]*) _hb_sd="" ;; esac
   case "$_hb_err" in ''|*[!0-9]*) _hb_err=0 ;; esac
-  mkdir -p "$LOGDIR" 2>/dev/null
+  mkdir -p "$FASTDIR" 2>/dev/null
   # Fixed 64-byte record written over the previous one (read -r trims the
   # padding back off).
   printf '%-63s\n' "$(_rt_ts)|${_hb_up%.*}|$_hb_load|$_hb_free|${_hb_sd}:$_hb_err" |
@@ -107,7 +126,7 @@ rt_flush_important()
       { a[++n] = $0; if ($0 == last) m = n }
       END { for (i = m + 1; i <= n; i++) print a[i] }')"
   [ -n "$_fi_new" ] || return 0
-  mkdir -p "$LOGDIR" 2>/dev/null
+  mkdir -p "$FASTDIR" 2>/dev/null
   printf '%s\n' "$_fi_new" >> "$IMPORTANT" 2>/dev/null || return 0
   printf '%s\n' "$_fi_new" | tail -n 1 > "$IMPORTANT_MARK" 2>/dev/null
   _fi_size="$(wc -c < "$IMPORTANT" 2>/dev/null)"
@@ -170,8 +189,9 @@ case "${0##*/}" in
       intent) shift; rt_intent "$*" ;;
       heartbeat) rt_heartbeat ;;
       tick) rt_tick ;;
+      hk) rt_flush_important; rt_heartbeat ;;
       flush) rt_flush_important ;;
       boot) rt_boot ;;
-      *) echo "usage: $0 intent <reason> | tick | heartbeat | flush | boot" >&2; exit 2 ;;
+      *) echo "usage: $0 intent <reason> | tick | hk | heartbeat | flush | boot" >&2; exit 2 ;;
     esac ;;
 esac

@@ -1,0 +1,84 @@
+#!/bin/sh
+# boot-guard start|ok|clear|status   safe mode after repeated short runs (flash mode), no U-Boot, no serial console
+#   The flash holds one user space only ("stack"), so the camera cannot fall back to an older one. A fault that
+#   restarts it again and again (a kernel panic in the video drivers, a hardware watchdog reset, a service that reboots
+#   it) would leave it unreachable. boot-guard counts the runs that end before BG_OK_S seconds (300) in
+#   config/.boot-guard, which cfg-persist keeps in the flash slots (cfga/cfgb). After BG_MAX (3) short runs in a row
+#   the next start is a SAFE MODE (/tmp/safemode, read by autorun-linux66.sh): Wi-Fi, web interface, ssh, the reset
+#   button and the rescue access point only; no video server, MQTT, detections, sounds or other optional services.
+#   Every run that lasts BG_OK_S seconds sets the count back to 0, safe mode included: the next restart is a normal one.
+#   A restart asked by a person (web UI, reset button: reboot-tracker.sh intent runs "clear") does not count; an
+#   automatic one (MQTT command, service watchdog, network guard) does.
+#   BOOT_GUARD=0 in boot.conf switches it off. At most two flash writes per start (count up, back to 0); the count
+#   stops at BG_MAX + 1, so a loop that goes on in safe mode does not write the flash at every start.
+#   SD mode (no /tmp/flashmode): nothing, the card starts the camera and holds the logs.
+#     start    at boot, before the services: count this start, decide safe mode, save the count
+#     ok       once the run has lasted BG_OK_S (started in the background by "start")
+#     clear    count back to 0 now (saved when it changes)
+#     status   count, switch and mode
+# Test hooks: BG_CFG, BG_BOOTCONF, BG_FLASHMODE, BG_FLAG, BG_MOTD, BG_UPTIME, BG_PERSIST (command that saves),
+# BG_NO_TIMER (no background "ok").
+CFG=${BG_CFG:-/mnt/config}
+CNT=$CFG/.boot-guard
+BOOTCONF=${BG_BOOTCONF:-$CFG/boot.conf}
+FLASHMODE=${BG_FLASHMODE:-/tmp/flashmode}
+FLAG=${BG_FLAG:-/tmp/safemode}
+MOTD=${BG_MOTD:-/etc/motd}
+UPTIME=${BG_UPTIME:-/proc/uptime}
+PERSIST=${BG_PERSIST:-sh /mnt/v3/linux66-sd/cfg-persist save}
+BG_MAX=${BG_MAX:-3}
+BG_OK_S=${BG_OK_S:-300}
+
+log() { echo "[boot-guard] $*" 2>/dev/null > /dev/console; logger -t tc100-event -p user.warn "boot-guard: $*" 2>/dev/null; }
+
+enabled() {
+  [ -f "$FLASHMODE" ] || return 1
+  _v=$(sed -n 's/^BOOT_GUARD="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$BOOTCONF" 2>/dev/null | tail -n 1)
+  case "$_v" in 0|no|off|false) return 1 ;; esac
+  return 0
+}
+
+count() {
+  _n=; [ -r "$CNT" ] && read -r _n < "$CNT"
+  case "$_n" in ''|*[!0-9]*) _n=0 ;; esac
+  echo "$_n"
+}
+
+# write the count and save the settings to the flash, only when it changes
+set_count() {
+  [ "$(count)" = "$1" ] && [ -f "$CNT" ] && return 0
+  echo "$1" > "$CNT.tmp" && mv -f "$CNT.tmp" "$CNT" || { log "cannot write $CNT"; return 1; }
+  CFG=$CFG $PERSIST >/dev/null 2>&1 || log "count $1 not saved to the flash (cfg-persist $?)"
+}
+
+uptime_s() { _u=0; read -r _u _r < "$UPTIME" 2>/dev/null; _u=${_u%.*}; case "$_u" in ''|*[!0-9]*) _u=0 ;; esac; echo "$_u"; }
+
+case "$1" in
+start)
+  rm -f "$FLAG"
+  enabled || exit 0
+  n=$(count); n=$((n + 1)); [ "$n" -gt $((BG_MAX + 1)) ] && n=$((BG_MAX + 1))
+  set_count "$n"
+  if [ "$n" -gt "$BG_MAX" ]; then
+    echo "$((n - 1)) short runs in a row" > "$FLAG"
+    log "SAFE MODE: the last $((n - 1)) runs ended before ${BG_OK_S} s; video, MQTT and optional services are not started (network, web, ssh only). Back to normal at the next restart once this one has lasted ${BG_OK_S} s; BOOT_GUARD=0 in boot.conf turns this off"
+    { echo "SAFE MODE ($((n - 1)) short runs in a row): video, MQTT and optional services are off."
+      echo "Logs: /mnt/config/log/reboot-history.log. Reboot after ${BG_OK_S} s of uptime for a normal start."; } > "$MOTD" 2>/dev/null
+  fi
+  [ -n "$BG_NO_TIMER" ] && exit 0
+  w=$((BG_OK_S - $(uptime_s))); [ "$w" -lt 1 ] && w=1
+  ( sleep "$w"; exec sh "$0" ok ) </dev/null >/dev/null 2>&1 &
+  ;;
+ok)
+  enabled || exit 0
+  [ "$(uptime_s)" -ge "$BG_OK_S" ] || exit 0
+  set_count 0 ;;
+clear)
+  enabled || exit 0
+  set_count 0 ;;
+status)
+  if enabled; then echo "on: count=$(count) max=$BG_MAX ok_after=${BG_OK_S}s"; else echo "off (BOOT_GUARD=0 or SD mode)"; fi
+  [ -f "$FLAG" ] && echo "safe mode: $(cat "$FLAG")" || echo "normal mode" ;;
+*) echo "usage: boot-guard start|ok|clear|status"; exit 2 ;;
+esac
+exit 0

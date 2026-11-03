@@ -105,6 +105,12 @@ IDLE_AFTER=10
 # reboot; only with a healthy card and the recording not paused. 0 = off.
 LOG_PERSIST=1
 LOG_PERSIST_MIN=10
+# Safe mode (v3/linux66-sd/boot-guard, camera running from its flash): after 3 runs in a row that ended within
+# 5 minutes (crash, watchdog, automatic reboot), the next start brings up only the Wi-Fi, the web interface, ssh and
+# the reset button (no video, MQTT or optional services), so the camera stays reachable without a serial console.
+# A restart once it has run 5 minutes is a normal one again. Reboots from the web page or the reset button do not
+# count. The history: /mnt/config/log/reboot-history.log. 0 = off.
+BOOT_GUARD=1
 # Wi-Fi quality over time (scripts/wifi-quality.sh): one sample a minute of the signal, the transmit retries and
 # failures and the packet loss to the router, kept 24 h in RAM (/tmp/wifi-quality.log, nothing written to flash or
 # card); the last hour goes to MQTT (Wi-Fi loss, retries, weakest signal). 1 = on, 0 = off (default). Read at boot.

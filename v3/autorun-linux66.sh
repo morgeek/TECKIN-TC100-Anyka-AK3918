@@ -125,6 +125,15 @@ if [ ! -e /mnt/config/.services_ssh_done ] && [ -d /mnt/config ]; then
   : > /mnt/config/.services_ssh_done
 fi
 
+# 1f. Why the previous run ended (scripts/reboot-tracker.sh: /tmp/last-reboot-reason, the Information page and MQTT;
+#     the history is in /mnt/config/log from the flash, kept in the settings slots), then the safe mode check
+#     (v3/linux66-sd/boot-guard, flash mode only, BOOT_GUARD=0 turns it off): after 3 runs in a row that ended within
+#     5 minutes, this start brings up the network, web interface and ssh only (/tmp/safemode). boot-guard saves the
+#     settings once, history line included, before anything that could crash starts.
+sh /mnt/scripts/reboot-tracker.sh boot </dev/null >/dev/null 2>&1
+sh /mnt/v3/linux66-sd/boot-guard start </dev/null >/dev/null 2>&1
+SAFE=0; [ -f /tmp/safemode ] && SAFE=1
+
 # 2. Populate shared uClibc libraries into /lib: symlinks, except on the card (SD mode) for the small uClibc runtime,
 #    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a
 #    link: a card used by older firmwares holds ~15 MB of libraries (libcrypto, libliveMedia, 3 x libstdc++...)
@@ -162,7 +171,9 @@ done
 #     /dev/uio0 (ak39_venc driver); without them there is no video (the web UI still starts).
 NEWRTSP=0
 TB=/mnt/tc100test
-if [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/lib/libmpi_venc.so ]; } && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
+if [ "$SAFE" = 1 ]; then
+  echo "[tc100-v3] SAFE MODE ($(cat /tmp/safemode 2>/dev/null)): the video server is not started" > /dev/console
+elif [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/lib/libmpi_venc.so ]; } && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
   mkdir -p /lib/firmware/anyka
   # sensor tuning of this camera: the vendor partition (flash), else the card (copied there by the install hook)
   ISPN=$(sed -n 's/^ISP_CONF=//p' /tmp/board.conf 2>/dev/null | head -n 1)
@@ -231,7 +242,7 @@ fi
 # RTSP restarter (scripts/service-watchdog.sh through the rtsp-h26x shim): tc100_rtsp was started above
 [ "$NEWRTSP" = 1 ] && [ -f $CS/rtsp-h26x ] && sh $CS/rtsp-h26x watchdog </dev/null >/dev/null 2>&1
 # ONVIF Discovery (monvifd): off by default as on 2.x, on when switched on in Services (config/autostart/onvif)
-if [ -f $CS/onvif ] && [ -e /mnt/config/autostart/onvif ]; then
+if [ "$SAFE" = 0 ] && [ -f $CS/onvif ] && [ -e /mnt/config/autostart/onvif ]; then
   sh $CS/onvif restart </dev/null >/dev/null 2>&1
   echo "[tc100-v3] ONVIF service active on port 8081 & WS-Discovery UDP 3702" > /dev/console
 fi
@@ -244,7 +255,9 @@ DN=
 if [ -r /mnt/config/rtspserver.conf ]; then
   while IFS='=' read -r _k _v; do [ "$_k" = daynight ] && { DN=$_v; break; }; done < /mnt/config/rtspserver.conf
 fi
-if [ -f $CS/auto-night-detection ] && [ -f /mnt/config/autostart/auto-night-detection ] && [ "$DN" != 3 ]; then
+if [ "$SAFE" = 1 ]; then
+  :	# safe mode: no video, nothing to switch
+elif [ -f $CS/auto-night-detection ] && [ -f /mnt/config/autostart/auto-night-detection ] && [ "$DN" != 3 ]; then
   sh $CS/auto-night-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Auto Day/Night detection active" > /dev/console
 elif [ "$DN" = 3 ]; then
@@ -258,14 +271,14 @@ fi
 [ -e /sys/class/net/wlan0 ] || { sh /mnt/scripts/wifi-recover.sh run </dev/null >/dev/null 2>&1 & }
 
 # 10. MQTT Bridge (it does nothing unless MQTT_ENABLE=1 in config/mqtt.conf)
-if [ -f $CS/mqtt-bridge ]; then
+if [ "$SAFE" = 0 ] && [ -f $CS/mqtt-bridge ]; then
   sh $CS/mqtt-bridge start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] MQTT bridge service launched" > /dev/console
 fi
 
 # 11. Motion detection (in tc100_rtsp): only when the web UI left it on (rtspserver.conf mdenabled=1, or the Services
 #     page's start-at-boot toggle config/autostart/motion-detection); otherwise it stays off, as on 2.x.
-if [ -f $CS/motion-detection ] && { grep -q '^mdenabled=1' /mnt/config/rtspserver.conf 2>/dev/null || [ -e /mnt/config/autostart/motion-detection ]; }; then
+if [ "$SAFE" = 0 ] && [ -f $CS/motion-detection ] && { grep -q '^mdenabled=1' /mnt/config/rtspserver.conf 2>/dev/null || [ -e /mnt/config/autostart/motion-detection ]; }; then
   sh $CS/motion-detection start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Motion detection service active" > /dev/console
 else
@@ -274,7 +287,7 @@ fi
 
 # 12. Recording: the recorder is inside tc100_rtsp and follows REC_LOCAL of boot.conf by itself (it waits for a card).
 #     The Services page's start-at-boot toggle (config/autostart/recording) turns REC_LOCAL on, as 2.x started it.
-if [ -f $CS/recording ] && [ -e /mnt/config/autostart/recording ]; then
+if [ "$SAFE" = 0 ] && [ -f $CS/recording ] && [ -e /mnt/config/autostart/recording ]; then
   sh $CS/recording start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] Recording on" > /dev/console
 fi
@@ -314,6 +327,8 @@ sh -c '. /mnt/scripts/common_functions.sh
 for f in /mnt/config/autostart/*; do
   n=${f##*/}
   case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording) continue ;; esac
+  # safe mode: only what keeps the camera reachable
+  [ "$SAFE" = 1 ] && case "$n" in ssh-server|telnet-server|wifi-rescue|button-actions) ;; *) continue ;; esac
   # as on 2.x: the lightweight mode and the Frigate + Home Assistant profile keep some services off at boot
   on "$LIGHT" && case "$n" in front-led) continue ;; esac
   [ "$PROFILE" = frigate_ha ] && case "$n" in telegram-bot|syslog-forward|sound-detection|ftp-server|telnet-server) continue ;; esac
@@ -332,6 +347,10 @@ if [ -f /mnt/scripts/log-persist.sh ] && [ "$BC_LOG_PERSIST" != 0 ]; then
     ( exec sh /mnt/scripts/log-persist.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
+# 12b2b. Reboot tracker every 15 minutes: the critical log lines to important.log and the "last seen alive" heartbeat
+#        that dates an unexpected restart (SD card when there is one, else RAM: never the flash)
+sh /mnt/scripts/housekeeper.sh job add reboot-tracker bg 900 300 - sh /mnt/scripts/reboot-tracker.sh hk </dev/null >/dev/null 2>&1
+
 # 12b3. Wi-Fi quality over time (boot.conf WIFI_QUALITY=1, off by default): one sample a minute in RAM
 #       (scripts/wifi-quality.sh), a housekeeper job, else a loop of its own.
 if [ -f /mnt/scripts/wifi-quality.sh ] && on "$BC_WIFI_QUALITY"; then
@@ -341,7 +360,7 @@ if [ -f /mnt/scripts/wifi-quality.sh ] && on "$BC_WIFI_QUALITY"; then
 fi
 
 # 12b4. Tamper / occlusion detection (boot.conf TAMPER_DETECT=1, off by default):
-if [ -f /mnt/scripts/tamper-detect.sh ] && on "$BC_TAMPER_DETECT"; then
+if [ "$SAFE" = 0 ] && [ -f /mnt/scripts/tamper-detect.sh ] && on "$BC_TAMPER_DETECT"; then
   sh /mnt/scripts/housekeeper.sh job add tamper-detect bg 2 5 /var/run/tamper-detect.pid \
     sh /mnt/scripts/tamper-detect.sh hk </dev/null >/dev/null 2>&1 ||
     ( exec sh /mnt/scripts/tamper-detect.sh run ) </dev/null >/dev/null 2>&1 &
@@ -368,7 +387,7 @@ esac
 # (a first start that installs itself to the flash, step 12f, plays the chime only once it runs from the flash)
 AUTO_INSTALL=0
 [ -f /tmp/flashmode ] || ! sh /mnt/v3/install/auto-install.sh pending </dev/null >/dev/null 2>&1 || AUTO_INSTALL=1
-[ "$BC_BOOT_SOUND" = 0 ] || [ $AUTO_INSTALL = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
+[ "$BC_BOOT_SOUND" = 0 ] || [ $AUTO_INSTALL = 1 ] || [ "$SAFE" = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
 ( i=0; IP=
   while [ $i -lt 144 ]; do
     IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)

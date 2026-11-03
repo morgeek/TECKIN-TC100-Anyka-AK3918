@@ -90,6 +90,9 @@ uptime_secs="$(uptime_seconds_safe)"
 last_boot_text="$(format_epoch "$last_boot_epoch")"
 prev_shutdown_text="$(sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' /tmp/last-reboot-reason 2>/dev/null)"
 [ -n "$prev_shutdown_text" ] || prev_shutdown_text="unknown"
+# v3/linux66-sd/boot-guard: this start is a safe mode after several short runs
+[ -r /tmp/safemode ] && prev_shutdown_text="SAFE MODE ($(tr -cd 'a-z0-9 ' < /tmp/safemode)): video, MQTT and optional services are off. Restart once the camera has run 5 minutes for a normal start.
+$prev_shutdown_text"
 uptime_text="$(format_uptime "$uptime_secs")"
 binary_versions_text="$(cat /tmp/devinfo_binary_versions.txt 2>/dev/null)"
 [ -n "$binary_versions_text" ] || binary_versions_text="$(build_binary_versions_block)"
