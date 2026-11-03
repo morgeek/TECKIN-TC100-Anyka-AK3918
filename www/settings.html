@@ -468,6 +468,19 @@
                 <div class='card-content'>
                     <form id="formMQTT" action="cgi-bin/action.cgi?cmd=set_mqtt_config" method="post">
                         <div class="field"><input class="switch is-small" id="mqtt_enabled" name="mqtt_enable" type="checkbox" value="1"><label for="mqtt_enabled">Enable MQTT Bridge</label></div>
+                        <div class="level is-mobile mb-2">
+                            <div class="level-left">
+                                <div class="level-item">
+                                    <span class="is-size-7 has-text-weight-semibold">Bridge Status:</span>
+                                </div>
+                            </div>
+                            <div class="level-right">
+                                <div class="level-item">
+                                    <span class="tag is-small is-light" id="mqtt_bridge_badge">Disabled</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="help mb-3" id="mqtt_bridge_status_text">MQTT bridge is disabled.</p>
                         <div class="columns is-multiline">
                             <div class="column is-8"><label class="label is-small" for="mqtt_host">Host</label><input class="input is-small" name="mqtt_host" id="mqtt_host" type="text" placeholder="192.168.1.x"></div>
                             <div class="column is-4"><label class="label is-small" for="mqtt_port">Port</label><input class="input is-small" name="mqtt_port" id="mqtt_port" type="number" min="1" max="65535" step="1" placeholder="1883"></div>
@@ -1518,11 +1531,73 @@
                 badge.textContent = active ? 'Active' : 'Disabled';
             }
             window.tc100HaSync = syncHa;
+
+            function updateMqttStatus() {
+                var mqBadge = document.getElementById('mqtt_bridge_badge');
+                var mqText = document.getElementById('mqtt_bridge_status_text');
+                var mq = document.getElementById('mqtt_enabled');
+                if (!mqBadge || !mqText) return;
+                if (mq && !mq.checked) {
+                    mqBadge.className = 'tag is-small is-light';
+                    mqBadge.textContent = 'Disabled';
+                    mqText.textContent = 'MQTT bridge is disabled.';
+                    return;
+                }
+                fetch('cgi-bin/statusline.cgi')
+                    .then(function(r) { return r.json(); })
+                    .then(function(st) {
+                        if (st.mqtt_enabled !== 1) {
+                            mqBadge.className = 'tag is-small is-light';
+                            mqBadge.textContent = 'Disabled';
+                            mqText.textContent = 'MQTT bridge is disabled in configuration.';
+                            return;
+                        }
+                        if (!st.mqtt_last_pub_ts || st.mqtt_last_pub_ts <= 0) {
+                            mqBadge.className = 'tag is-small is-warning';
+                            mqBadge.textContent = 'Waiting';
+                            mqText.textContent = 'MQTT bridge enabled — waiting for first message publish.';
+                            return;
+                        }
+                        var nowTs = Math.floor(Date.now() / 1000);
+                        var age = nowTs - st.mqtt_last_pub_ts;
+                        var ageStr = age < 60 ? age + 's ago' : Math.floor(age / 60) + 'm ago';
+                        if (st.mqtt_last_pub_ok === 1) {
+                            mqBadge.className = 'tag is-small is-success';
+                            mqBadge.textContent = 'Connected (OK)';
+                            mqText.textContent = 'MQTT broker connection verified (last publish ' + ageStr + ').';
+                        } else if (st.mqtt_last_pub_ok === 0 && st.mqtt_refused >= 4) {
+                            mqBadge.className = 'tag is-small is-danger';
+                            mqBadge.textContent = 'Login Refused (Code ' + st.mqtt_refused + ')';
+                            mqText.textContent = 'Broker refused connection (CONNACK code ' + st.mqtt_refused + ': ' +
+                                (st.mqtt_refused === 4 ? 'bad user name or password' : 'not authorized') + ', ' + ageStr + '). Check username/password.';
+                        } else if (st.mqtt_last_pub_ok === 0) {
+                            mqBadge.className = 'tag is-small is-danger';
+                            mqBadge.textContent = 'Connection Failed';
+                            mqText.textContent = 'Failed to publish to MQTT broker (' + ageStr + '). Check host and port.';
+                        } else {
+                            mqBadge.className = 'tag is-small is-info';
+                            mqBadge.textContent = 'Unknown';
+                            mqText.textContent = 'MQTT status unavailable.';
+                        }
+                    })
+                    .catch(function() {
+                        mqBadge.className = 'tag is-small is-light';
+                        mqBadge.textContent = 'Unknown';
+                    });
+            }
+
             ['mqtt_discovery', 'mqtt_enabled'].forEach(function(id) {
                 var el = document.getElementById(id);
-                if (el && !el.dataset.haBound) { el.dataset.haBound = '1'; el.addEventListener('change', syncHa); }
+                if (el && !el.dataset.haBound) {
+                    el.dataset.haBound = '1';
+                    el.addEventListener('change', function() {
+                        syncHa();
+                        updateMqttStatus();
+                    });
+                }
             });
             syncHa();
+            updateMqttStatus();
         }
     })();
 </script>

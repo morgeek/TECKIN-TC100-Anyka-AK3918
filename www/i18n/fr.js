@@ -1,6 +1,8 @@
 window.tc100I18nFr = {
   "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (lighttpd compresses and caches .js). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
   "strings": {
+    "Bridge Status:": "État du pont :",
+    "MQTT bridge is disabled.": "Le pont MQTT est désactivé.",
     "Auto-repair": "Réparation automatique",
     "Check health": "Vérifier la santé",
     "24h Activity Heatmap": "Carte d'activité 24h",
