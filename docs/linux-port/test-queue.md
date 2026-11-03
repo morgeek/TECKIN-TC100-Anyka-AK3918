@@ -2313,3 +2313,14 @@ Améliorations de l'interface Web en espace utilisateur Linux, 100% exécutées 
   4. Vérifier que les vignettes s'actualisent régulièrement et que la configuration est conservée après rafraîchissement de la page.
 
 
+
+## 2026-11-03 — rc18 sur la .11 (installée par le propriétaire) : premières vérifications par ssh (testeuse, sans console série)
+
+Build : `3.0.1-rc18` (artifact `tc100-3-release` du run du commit a63f90f). Le propriétaire a installé la rc18 sur la .11 avant moi ; la .11 n'a PAS de carte SD (test R12-08 / R15-04 en cours) ; uptime 1 h 17 au moment du relevé.
+
+- **Clés ssh persistantes : OK.** Après le reboot de l'installation ma clé (RAM) avait disparu, le propriétaire l'a remise à la main dans `/root/.ssh/authorized_keys` à 09:02 ; `cfg-persist` l'a recopiée tout seul dans `/mnt/config/authorized_keys` (3 clés, 212 octets) et la clé d'hôte est dans `/mnt/config/dropbear_ed25519_host_key` (83 octets, 09:00). La connexion par clé fonctionne. **À confirmer au prochain reboot** : clé et clé d'hôte revenues sans action, pas d'avertissement « HOST IDENTIFICATION HAS CHANGED » sur le Mac.
+- **Balance des blancs : OK sur la .11.** `white balance: in the ISP (extra gains max 1536, grey filter 1)` ; `/tmp/cam_awb` : `rex=221 bex=299 u=0 v=1` ; `/mnt/config/awb.state` = `221 299` (écrit à 08:06). Snapshot (mur et pièce) R/G 1,02, B/G 1,00 (critère ±5 % : passé). Reste à voir : le redémarrage de `rtsp-h26x` (ligne `starting from saved gains`) et la .24 (rex≈600 / bex≈760 attendus).
+- **Autre : OK** — `MemAvailable` 21 992 kB, charge 1,1 à 1,3, `tc100_rtsp` stable (`dropped 0`), pas de plantage au noyau, MQTT publie (`mqtt_last_pub.status` ok, âgé de 3 s), `FRONT_LED=0` conservé, `MQTT_ENABLE` plus dans `boot.conf`, `mdnsd` arrêté (désactivé par défaut, comme prévu), `rtsp.env` vide.
+- **Constaté :** la ligne de commande du noyau contient `ak_wdt_reboot=300` : le chien de garde matériel existe donc (réponse à ma question dans l'avis sur AGENTS.md ; à confirmer par l'implémenteur qu'il est armé par l'init).
+- **Pas encore testé sur la .11 :** mDNS, qualité Wi-Fi (`WIFI_QUALITY=1`), mode babyphone, sabotage, notifications, mode vitre, métriques Prometheus. La carte SD manque pour les journaux persistants et `/tmp/sd-health`.
+- **Remarque de version :** la rc18 a été construite au commit a63f90f ; les commits suivants (fin du lot 2, lot 3, lot 5, interface) ne sont pas dedans alors que `VERSION` dit toujours `3.0.1-rc18`. Demande à l'implémenteur : numéroter la prochaine construction rc19.
