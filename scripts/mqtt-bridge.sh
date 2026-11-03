@@ -743,6 +743,60 @@ mqtt_publish_topic_suffix()
   mqtt_publish_raw "${MQTT_TOPIC_ROOT}/${suffix}" "$payload" "$retain"
 }
 
+# Publish a binary file (e.g. JPEG image) over a dedicated one-shot connection.
+mqtt_publish_file()
+{
+  _pf_topic="$1"
+  _pf_file="$2"
+  _pf_retain="${3:-0}"
+  [ -n "$_pf_topic" ] && [ -r "$_pf_file" ] || return 1
+  if ! mqtt_enabled; then return 0; fi
+
+  _pf_size=$(wc -c < "$_pf_file" 2>/dev/null)
+  case "$_pf_size" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$_pf_size" -gt 0 ] || return 1
+
+  _pf_cid="${MQTT_CLIENT_ID}-pubf"
+  _pf_resp="/tmp/.mqtt_pubf_resp.$$"
+
+  {
+    # CONNECT packet
+    _sp_flags=2; _sp_rem=$((10 + 2 + ${#_pf_cid}))
+    if [ -n "$MQTT_USER" ]; then
+      _sp_flags=$((0x80 | 0x40 | 2))
+      _sp_rem=$((_sp_rem + 2 + ${#MQTT_USER} + 2 + ${#MQTT_PASSWORD}))
+    fi
+    printf '\x10'; _mqtt_varint "$_sp_rem"
+    printf '\x00\x04MQTT\x04'
+    printf "\\x$(printf '%02x' "$_sp_flags")"
+    printf '\x00\x3c'
+    _mqtt_str "$_pf_cid"
+    if [ -n "$MQTT_USER" ]; then
+      _mqtt_str "$MQTT_USER"
+      _mqtt_str "$MQTT_PASSWORD"
+    fi
+
+    # PUBLISH header + topic + file contents
+    _pp_hdr=48
+    [ "$_pf_retain" = "1" ] && _pp_hdr=49
+    printf "\\x$(printf '%02x' "$_pp_hdr")"
+    _mqtt_varint $((2 + ${#_pf_topic} + _pf_size))
+    _mqtt_str "$_pf_topic"
+    cat "$_pf_file"
+
+    # Give broker time to ingest then disconnect
+    sleep 1
+    printf '\xe0\x00'
+  } | nc -w 6 "$MQTT_HOST" "$MQTT_PORT" > "$_pf_resp" 2>/dev/null
+
+  _pf_rc=1
+  case "$(head -c 4 "$_pf_resp" 2>/dev/null | od -An -tx1)" in
+    *'20 02 00 00'*) _pf_rc=0 ;;
+  esac
+  rm -f "$_pf_resp" 2>/dev/null
+  return "$_pf_rc"
+}
+
 read_power_telemetry()
 {
   power_sensor_candidates=""
@@ -959,16 +1013,9 @@ DIAG
   rtsp_url_json="$(json_escape "rtsp://${rtsp_user:+$rtsp_user:$rtsp_pass@}$(detect_primary_ip_current):$rtsp_port/video0_unicast")"
   
   camera_cfg_topic="${discovery_prefix}/camera/${node_id}/live/config"
-  # NOTE: "stream_source" is NOT a valid key in HA's MQTT camera schema — its
-  # presence made HA reject the whole payload, so the camera entity never
-  # registered. Removed. The MQTT camera shows the last snapshot JPEG path; for
-  # a live RTSP feed use the go2rtc/Frigate config from state.cgi?cmd=frigateyaml.
-  camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/last_path" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  # Off by default: snapshot/last_path carries a filesystem PATH, but HA's MQTT
-  # camera platform expects the image BYTES — the entity can never render. Set
-  # MQTT_HA_CAMERA_ENTITY_ENABLE=1 to publish it anyway. Streaming the JPEG over
-  # MQTT instead would cost tens of KB per snapshot on a 33 MB device, so the
-  # supported route stays RTSP/go2rtc (state.cgi?cmd=frigateyaml).
+  camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/image" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  # Off by default: when MQTT_HA_CAMERA_ENTITY_ENABLE=1 is set, registers the camera
+  # entity subscribed to <MQTT_TOPIC_ROOT>/snapshot/image (real JPEG bytes).
   if is_truthy_local "$MQTT_HA_CAMERA_ENTITY_ENABLE"; then
     publish_discovery_config "$camera_cfg_topic" "$camera_cfg_payload"
   fi
@@ -2111,6 +2158,9 @@ handle_command_payload()
         payload=$(printf '{"ts":%s,"type":"snapshot.manual","snapshot":"%s"}' "$now_ts" "$shot_json")
         mqtt_publish_topic_suffix "event" "$payload" 0
         mqtt_publish_topic_suffix "snapshot/last_path" "$shot_path" 1 >/dev/null 2>&1 || true
+        if is_truthy_local "$MQTT_HA_CAMERA_ENTITY_ENABLE"; then
+          mqtt_publish_file "${MQTT_TOPIC_ROOT}/snapshot/image" "$shot_path" 1 >/dev/null 2>&1 || true
+        fi
         publish_command_result "snapshot" "captured" "Captured a fresh snapshot to /tmp/mqtt-last-snapshot.jpg." 1 "$command_source" command
       else
         publish_event_simple "command.snapshot" "failed"

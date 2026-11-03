@@ -878,5 +878,56 @@ class Lot2BabyphoneAndTamper(unittest.TestCase):
         self.assertEqual(sh('sh -n %s' % (ROOT / 'www/cgi-bin/statelib.cgi')).returncode, 0)
 
 
+class Lot4NotificationsAndMetrics(unittest.TestCase):
+    """Lot 4: Webhook / Ntfy / Telegram notification dispatcher and Prometheus exporter."""
+
+    def test_notify_conf_dist_and_defaults(self):
+        conf = (ROOT / 'config/notify.conf.dist').read_text()
+        self.assertIn('WEBHOOK_ENABLE=0', conf)
+        self.assertIn('NTFY_ENABLE=0', conf)
+        self.assertIn('TELEGRAM_NOTIFY_ENABLE=0', conf)
+        self.assertIn('NOTIFY_EVENTS="motion sound tamper"', conf)
+
+    def test_notify_script_syntax_and_providers(self):
+        script = ROOT / 'scripts/notify.sh'
+        self.assertTrue(script.exists())
+        self.assertEqual(sh('sh -n %s' % script).returncode, 0)
+        s = script.read_text()
+        self.assertIn('NTFY_ENABLE', s)
+        self.assertIn('WEBHOOK_ENABLE', s)
+        self.assertIn('TELEGRAM_NOTIFY_ENABLE', s)
+        self.assertIn('NOTIFY_COOLDOWN_SECONDS', s)
+
+    def test_event_scripts_wire_notify(self):
+        motion = (ROOT / 'scripts/motion-event.sh').read_text()
+        sound = (ROOT / 'controlscripts/sound-detection').read_text()
+        tamper = (ROOT / 'scripts/tamper-detect.sh').read_text()
+
+        self.assertIn('/mnt/scripts/notify.sh motion', motion)
+        self.assertIn('/mnt/scripts/notify.sh sound', sound)
+        self.assertIn('/mnt/scripts/notify.sh tamper', tamper)
+
+    def test_metrics_cgi_exporter(self):
+        cgi = ROOT / 'www/cgi-bin/metrics.cgi'
+        self.assertTrue(cgi.exists())
+        self.assertEqual(sh('sh -n %s' % cgi).returncode, 0)
+        r = sh('sh %s' % cgi)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn('version=0.0.4', r.stdout)
+        self.assertIn('tc100_uptime_seconds', r.stdout)
+        self.assertIn('tc100_memory_total_bytes', r.stdout)
+        self.assertIn('tc100_wifi_link_quality', r.stdout)
+        self.assertIn('tc100_rtsp_viewers_active', r.stdout)
+        self.assertIn('tc100_motion_active', r.stdout)
+        self.assertIn('tc100_tamper_active', r.stdout)
+        self.assertIn('tc100_audio_level_dbfs', r.stdout)
+
+    def test_mqtt_bridge_camera_snapshot_image(self):
+        mq = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
+        self.assertIn('snapshot/image', mq)
+        self.assertIn('mqtt_publish_file', mq)
+        self.assertEqual(sh('sh -n %s' % (ROOT / 'scripts/mqtt-bridge.sh')).returncode, 0)
+
+
 if __name__ == '__main__':
     unittest.main()

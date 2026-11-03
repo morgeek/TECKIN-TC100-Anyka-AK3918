@@ -2222,3 +2222,41 @@ Trois ajouts pour diagnostiquer à distance sans console série. Tout est dans l
   2. Couvrir l'objectif de la main -> Vérifier publication MQTT `tamper/state ON` après 3 secondes.
   3. Découvrir l'objectif -> Repasse immédiatement à `tamper/state OFF`.
   4. Basculer jour/nuit -> Vérifier qu'aucun faux positif n'est émis.
+
+
+## 2026-11-03 — Lot 4 (implémenté, zéro U-Boot / zéro noyau) : Notifications multi-canaux (Ntfy, Webhook), métriques Prometheus, Snapshot MQTT
+
+Évolutions écosystème, alertes et domotique en espace utilisateur Linux, 100% désactivées par défaut.
+
+### 1. Dispatcheur de notifications multi-canaux (`scripts/notify.sh` + `config/notify.conf.dist`)
+- **Quoi :** Script central non-bloquant recevant les événements (`motion`, `sound`, `tamper`) et envoyant les alertes :
+  - **Ntfy :** Envoi vers `https://ntfy.sh` (ou serveur privé) avec priorité, tags et pièce jointe instantanée JPEG (en-tête `Filename` / streaming curl `-T`).
+  - **Webhook :** Envoi HTTP POST JSON vers un endpoint générique ou webhook d'automatisation (Home Assistant / Node-RED / n8n).
+  - **Telegram :** Intégration unifiée déléguant à `bin/telegram` si configuré.
+  - **Protection ressources :** Cooldown configurable par type d'événement (`NOTIFY_COOLDOWN_SECONDS=15`), requêtes asynchrones en arrière-plan sans bloquer les détections.
+- **Interrupteurs :** `WEBHOOK_ENABLE=0`, `NTFY_ENABLE=0`, `TELEGRAM_NOTIFY_ENABLE=0` dans `/mnt/config/notify.conf`.
+- **Test :**
+  1. Configurer un topic de test dans `/mnt/config/notify.conf` (`NTFY_ENABLE=1`, `NTFY_TOPIC=mon_topic_test`).
+  2. Déclencher un événement avec `/mnt/scripts/notify.sh motion "Test alerte" /tmp/test.jpg`.
+  3. Vérifier la réception instantanée sur le téléphone ou le client ntfy.
+
+### 2. Exportateur de métriques Prometheus (`www/cgi-bin/metrics.cgi`)
+- **Quoi :** Endpoint HTTP standard au format texte Prometheus (`Content-Type: text/plain; version=0.0.4`), interrogeable sur `http://<ip>/cgi-bin/metrics.cgi`.
+- **Métriques exposées (lecture directe `/proc` sans fork lourd) :**
+  - Uptime et charge CPU (`tc100_uptime_seconds`, `tc100_load1`, `tc100_load5`, `tc100_load15`).
+  - Mémoire en octets (`tc100_memory_total_bytes`, `tc100_memory_free_bytes`, `tc100_memory_available_bytes`).
+  - Réseau et Wi-Fi (`tc100_network_*_bytes_total`, `tc100_network_*_drops_total`, `tc100_wifi_link_quality`, `tc100_wifi_signal_dbm`).
+  - Flux RTSP (`tc100_rtsp_viewers_active` comptant les clients TCP connectés au port 554).
+  - États de détection et capteurs (`tc100_motion_active`, `tc100_tamper_active`, `tc100_vox_active`, `tc100_sensor_luma`, `tc100_audio_level_dbfs`).
+- **Test :**
+  1. `curl -s http://192.168.1.XX/cgi-bin/metrics.cgi`
+  2. Vérifier que la sortie est conforme à la syntaxe Prometheus (`# HELP`, `# TYPE`, valeurs numériques).
+  3. Intégrer à un scraper Prometheus / VictoriaMetrics sans charge CPU mesurable.
+
+### 3. Snapshot JPEG binaire via MQTT pour Home Assistant (`scripts/mqtt-bridge.sh`)
+- **Quoi :** Prise en charge de la publication directe des octets bruts JPEG du cliché sur `<root>/snapshot/image` via `mqtt_publish_file` lors de l'appui sur le bouton "Take Snapshot" ou d'une demande. L'entité caméra MQTT Home Assistant peut désormais s'abonner directement à ce topic au lieu d'un simple chemin de fichier.
+- **Interrupteur :** `MQTT_HA_CAMERA_ENTITY_ENABLE=0` par défaut dans `mqtt.conf` (option `1` pour déclarer l'entité Camera HA connectée au flux image MQTT).
+- **Test :**
+  1. Activer `MQTT_HA_CAMERA_ENTITY_ENABLE=1` dans `/mnt/config/mqtt.conf` et redémarrer le bridge.
+  2. Dans Home Assistant, vérifier la présence de l'entité Camera et appuyer sur le bouton Snapshot : l'image s'affiche dans Home Assistant.
+

@@ -132,6 +132,10 @@ if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
   /mnt/scripts/mqtt-bridge.sh publish "$@" >/dev/null 2>&1 || true
 fi
 
+# Multi-channel notification dispatcher (webhook, ntfy, telegram) on motion_on
+if [ "$event_type" = "motion_on" ] && [ -x /mnt/scripts/notify.sh ]; then
+  /mnt/scripts/notify.sh motion "Motion detected at $ts_utc" "$snapshot_path" "$detail" >/dev/null 2>&1 &
+fi
 
 # Telegram snapshot on motion_on — opt-in via TELEGRAM_MOTION_SNAPSHOT=1 in telegram.conf
 if [ "$event_type" = "motion_on" ] && \

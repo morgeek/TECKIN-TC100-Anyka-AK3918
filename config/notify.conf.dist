@@ -1,0 +1,28 @@
+#!/bin/sh
+# notify.conf — multi-channel direct notification configuration for TECKIN TC100
+# Sourced by scripts/notify.sh
+
+# Webhook notification (generic HTTP POST)
+WEBHOOK_ENABLE=0
+WEBHOOK_URL=""
+WEBHOOK_METHOD="POST"
+
+# Ntfy notification (https://ntfy.sh or self-hosted)
+NTFY_ENABLE=0
+NTFY_URL="https://ntfy.sh"
+NTFY_TOPIC=""
+NTFY_PRIORITY="default"
+NTFY_AUTH=""
+
+# Telegram notification (uses existing /mnt/bin/telegram and /mnt/config/telegram.conf)
+# Note: credentials (apiToken, userChatId) reside in /mnt/config/telegram.conf
+TELEGRAM_NOTIFY_ENABLE=0
+
+# Include image snapshot in notifications when available
+NOTIFY_ATTACH_SNAPSHOT=1
+
+# Cooldown between notifications per event type (seconds)
+NOTIFY_COOLDOWN_SECONDS=15
+
+# Events filter (space-separated: motion sound tamper)
+NOTIFY_EVENTS="motion sound tamper"

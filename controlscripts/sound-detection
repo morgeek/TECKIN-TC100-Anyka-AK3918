@@ -123,6 +123,11 @@ publish_sound_event()
         echo "ON" > /tmp/vox_state 2>/dev/null
     fi
 
+    # Multi-channel notification dispatcher (webhook, ntfy, telegram)
+    if [ -x /mnt/scripts/notify.sh ]; then
+        /mnt/scripts/notify.sh sound "Sound alert: level ${level} dBFS (threshold ${threshold} dBFS)" "" "$level" >/dev/null 2>&1 &
+    fi
+
     # Trigger recording if enabled.
     if [ "$(read_kv_config_value /mnt/config/recording.conf rec_motion_activated 0)" = "1" ]; then
         touch /tmp/motion_detected

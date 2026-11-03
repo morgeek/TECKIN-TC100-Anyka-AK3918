@@ -88,6 +88,9 @@ check_tamper_once() {
           /mnt/scripts/mqtt-bridge.sh publish event "{\"type\":\"tamper\",\"state\":\"ON\",\"ts\":$_now,\"luma\":$_lum}" 0 \
             tamper/state "ON" 1 >/dev/null 2>&1 || true
         fi
+        if [ -x /mnt/scripts/notify.sh ]; then
+          /mnt/scripts/notify.sh tamper "Camera occlusion / tamper detected (luma: $_lum)" "" "$_lum" >/dev/null 2>&1 &
+        fi
       fi
     fi
   else
