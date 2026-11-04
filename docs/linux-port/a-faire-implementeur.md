@@ -190,8 +190,9 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 49. [x] **Banc d'essai matériel interactif avec jumeau visuel (Hardware Visual Twin / Interactive Testbed)** :
     *Fait le 2026-11-04 (première version, dessin d'après la photo du propriétaire) : `www/hardware.html`, Outils →
     Test du matériel, commande de lecture `hw_state`. Pas de banc de débit de la carte SD (écrire sur la carte des
-    enregistrements pour mesurer n'est pas anodin) : la carte montre taille, espace libre, montage et santé. Emplacements
-    des éléments arrière indicatifs, à corriger d'après une photo de l'arrière.*
+    enregistrements pour mesurer n'est pas anodin) : la carte montre taille, espace libre, montage et santé. Dos
+    redessiné d'après la photo du propriétaire ; la LED rouge est supposée être la 2e couleur de la LED d'état en façade
+    (le dos n'en a pas), à confirmer sur caméra.*
     - Nouvelle page ou vue dédiée dans le WebUI représentant un schéma vectoriel interactif SVG stylisé de la TECKIN TC100 (vue de face et vue arrière) permettant de tester et diagnostiquer chaque composant physique en un clic :
       - **Vue de face** :
         - *Objectif / Capteur* : clic pour snapshot instantané et affichage de la luminance / exposition en direct.

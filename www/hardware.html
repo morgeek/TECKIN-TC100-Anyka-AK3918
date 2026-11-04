@@ -13,16 +13,16 @@
         #hw_container .hw-hot { cursor: pointer; outline: none; }
         #hw_container .hw-hot .hw-ring { fill: none; stroke: var(--ui-primary, #3b82f6); stroke-width: 2; stroke-dasharray: 4 3; opacity: 0; transition: opacity .15s; }
         #hw_container .hw-hot:hover .hw-ring, #hw_container .hw-hot:focus .hw-ring, #hw_container .hw-hot.is-selected .hw-ring { opacity: 1; }
-        #hw_container .hw-led-blue { fill: #2a2f36; transition: fill .2s; }
-        #hw_container .is-on .hw-led-blue { fill: #4aa8ff; filter: url(#hwGlowBlue); }
-        #hw_container .hw-led-red { fill: #c9cdd2; transition: fill .2s; }
-        #hw_container .is-on .hw-led-red { fill: #ff3b30; filter: url(#hwGlowRed); }
+        #hw_container .hw-led { fill: #2a2f36; transition: fill .2s; }
+        #hw_container .is-blue .hw-led { fill: #4aa8ff; filter: url(#hwGlowBlue); }
+        #hw_container .is-red .hw-led { fill: #ff3b30; filter: url(#hwGlowRed); }
+        #hw_container .is-blue.is-red .hw-led { fill: #c25bff; }
         #hw_container .hw-ir-dot { fill: #1c1f24; transition: fill .3s; }
         #hw_container .is-on .hw-ir-dot { fill: #8b1a1a; filter: url(#hwGlowIr); }
-        #hw_container .hw-btn-cap { fill: #e9ecef; stroke: #b9bfc6; transition: fill .1s; }
-        #hw_container .is-pressed .hw-btn-cap { fill: #ffd34d; }
+        #hw_container .hw-btn-cap { fill: #1c1f24; stroke: #8b929a; transition: fill .1s; }
+        #hw_container .is-pressed .hw-btn-cap { fill: #ffd34d; filter: url(#hwGlowRed); }
         #hw_container .hw-vu { fill: none; stroke: #4ade80; stroke-width: 2; stroke-linecap: round; opacity: 0; transition: opacity .2s; }
-        #hw_container .hw-speaker-wave { fill: none; stroke: var(--ui-primary, #3b82f6); stroke-width: 2; opacity: 0; transform-origin: 120px 92px; transform-box: view-box; }
+        #hw_container .hw-speaker-wave { fill: none; stroke: var(--ui-primary, #3b82f6); stroke-width: 2; opacity: 0; transform-origin: 160px 66px; transform-box: view-box; }
         #hw_container .is-playing .hw-speaker-wave { animation: hwWave 1s ease-out 3; }
         @keyframes hwWave { 0% { opacity: .9; transform: scale(.8); } 100% { opacity: 0; transform: scale(1.25); } }
         #hw_container .hw-panel { background: var(--ui-surface, #f7f8fa); border: 1px solid var(--ui-border, #e3e6ea); border-radius: 14px; padding: 1rem; }
@@ -75,9 +75,10 @@
                         <circle cx="113" cy="112" r="4" fill="#fff" opacity=".55"/>
                         <circle cx="128" cy="129" r="1.8" fill="#fff" opacity=".35"/>
                     </g>
-                    <g class="hw-hot" id="hw_part_led" tabindex="0" role="button" aria-label="Blue LED" data-part="led">
+                    <!-- one status LED with two colours (the back has no LED: owner's photo of 2026-11-04) -->
+                    <g class="hw-hot" id="hw_part_led" tabindex="0" role="button" aria-label="Status LED (blue and red)" data-part="led">
                         <circle class="hw-ring" cx="120" cy="52" r="9"/>
-                        <circle class="hw-led-blue" cx="120" cy="52" r="3.6"/>
+                        <circle class="hw-led" cx="120" cy="52" r="3.6"/>
                     </g>
                     <g class="hw-hot" id="hw_part_mic" tabindex="0" role="button" aria-label="Microphone" data-part="mic">
                         <circle class="hw-ring" cx="120" cy="190" r="9"/>
@@ -94,26 +95,32 @@
                     <rect x="62" y="296" width="116" height="26" rx="11" fill="url(#hwBody)" stroke="#d5d9de"/>
                     <rect x="108" y="222" width="24" height="80" rx="9" fill="url(#hwBody)" stroke="#d5d9de"/>
                     <rect x="102" y="216" width="36" height="12" rx="6" fill="#eef0f2" stroke="#d5d9de"/>
+                    <!-- after the owner's photo of the back: a field of small holes, the speaker's larger holes top
+                         right, the reset button's hole top left, the mount disk in the middle, micro-USB at the bottom;
+                         the microSD slot is on the side (left seen from the front, so right seen from the back) -->
                     <rect x="28" y="18" width="184" height="204" rx="38" fill="url(#hwBody)" stroke="#d0d4d9"/>
-                    <rect x="42" y="32" width="156" height="176" rx="28" fill="none" stroke="#e1e4e8"/>
+                    <g id="hw_perf" fill="#c3c8ce" aria-hidden="true"></g>
+                    <g aria-hidden="true">
+                        <circle cx="120" cy="112" r="20" fill="#eef0f2" stroke="#cfd4da"/>
+                        <circle cx="120" cy="112" r="14" fill="none" stroke="#dde1e5"/>
+                        <path d="M112 123 Q120 127 128 123" fill="none" stroke="#3a3f46" stroke-width="3" stroke-linecap="round"/>
+                        <path d="M107 103 L111 99" fill="none" stroke="#3a3f46" stroke-width="2.5" stroke-linecap="round"/>
+                        <rect x="110" y="195" width="20" height="8" rx="2.5" fill="#f4f5f7" stroke="#9aa1a9"/>
+                        <rect x="113" y="197.5" width="14" height="3" rx="1" fill="#2a2f36"/>
+                    </g>
                     <g class="hw-hot" id="hw_part_speaker" tabindex="0" role="button" aria-label="Speaker" data-part="speaker">
-                        <rect class="hw-ring" x="72" y="56" width="96" height="72" rx="16"/>
-                        <g id="hw_grille" fill="#9aa1a9"></g>
-                        <circle class="hw-speaker-wave" cx="120" cy="92" r="52"/>
+                        <circle class="hw-ring" cx="160" cy="66" r="30"/>
+                        <g id="hw_grille" fill="#3a3f46"></g>
+                        <circle class="hw-speaker-wave" cx="160" cy="66" r="34"/>
                     </g>
                     <g class="hw-hot" id="hw_part_sd" tabindex="0" role="button" aria-label="microSD card slot" data-part="sd">
-                        <rect class="hw-ring" x="18" y="100" width="22" height="58" rx="6"/>
-                        <rect x="25" y="108" width="8" height="42" rx="3" fill="#cfd4da" stroke="#aab1b9"/>
-                        <rect x="27" y="112" width="4" height="34" rx="2" fill="#7c848d"/>
-                    </g>
-                    <g class="hw-hot" id="hw_part_red" tabindex="0" role="button" aria-label="Red LED" data-part="red">
-                        <circle class="hw-ring" cx="150" cy="172" r="10"/>
-                        <circle class="hw-led-red" cx="150" cy="172" r="4"/>
+                        <rect class="hw-ring" x="200" y="100" width="22" height="58" rx="6"/>
+                        <rect x="207" y="108" width="8" height="42" rx="3" fill="#cfd4da" stroke="#aab1b9"/>
+                        <rect x="209" y="112" width="4" height="34" rx="2" fill="#7c848d"/>
                     </g>
                     <g class="hw-hot" id="hw_part_button" tabindex="0" role="button" aria-label="Reset button" data-part="button">
-                        <circle class="hw-ring" cx="90" cy="172" r="13"/>
-                        <circle cx="90" cy="172" r="8" fill="#d9dde2"/>
-                        <circle class="hw-btn-cap" cx="90" cy="172" r="5.5"/>
+                        <circle class="hw-ring" cx="64" cy="50" r="12"/>
+                        <circle class="hw-btn-cap" cx="64" cy="50" r="5"/>
                     </g>
                 </svg>
                 <p class="hw-caption">Back view</p>
@@ -122,13 +129,13 @@
 
         <div class="hw-panel" id="hw_panel">
             <h3 id="hw_title">Choose a part of the camera</h3>
-            <p id="hw_desc">Click the lens, a LED, the microphone, the speaker, the card slot or the button to test it.</p>
+            <p id="hw_desc">Click the lens, the status LED, the microphone, the speaker, the card slot or the button to test it.</p>
             <div id="hw_controls" class="mt-3"></div>
             <div id="hw_result"></div>
             <p class="hw-msg" id="hw_msg" role="status"></p>
         </div>
     </div>
-    <p class="help mt-3">A drawing, not a photograph: the places of the parts are approximate. Forcing the IR LEDs or the IR-cut filter while the automatic day/night runs lasts until its next decision.</p>
+    <p class="help mt-3">A drawing after photographs of the camera. Forcing the IR LEDs or the IR-cut filter while the automatic day/night runs lasts until its next decision.</p>
 </div>
 <script>
     (function () {
@@ -142,13 +149,24 @@
         function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
         function msg(text, bad) { var m = byId('hw_msg'); if (m) { m.textContent = T(text || ''); m.style.color = bad ? '#ef4444' : ''; } }
 
-        // speaker grille: 7 x 5 holes
+        // the back: a round field of small holes around the mount disk, the speaker's larger holes top right
         (function () {
-            var g = byId('hw_grille'), ns = 'http://www.w3.org/2000/svg';
-            for (var r = 0; r < 5; r++) for (var c = 0; c < 7; c++) {
+            var ns = 'http://www.w3.org/2000/svg';
+            function hole(g, x, y, r) {
                 var h = document.createElementNS(ns, 'circle');
-                h.setAttribute('cx', 84 + c * 12); h.setAttribute('cy', 68 + r * 12); h.setAttribute('r', 2.6);
+                h.setAttribute('cx', x); h.setAttribute('cy', y); h.setAttribute('r', r);
                 g.appendChild(h);
+            }
+            function d2(x, y, cx, cy) { return (x - cx) * (x - cx) + (y - cy) * (y - cy); }
+            for (var r = 0; r < 19; r++) for (var c = 0; c < 18; c++) {
+                var x = 44 + c * 9 + (r % 2 ? 4.5 : 0), y = 36 + r * 9;
+                if (d2(x, y, 120, 112) > 80 * 80 || d2(x, y, 120, 112) < 26 * 26 || d2(x, y, 160, 66) < 31 * 31) continue;
+                if (x < 46 || x > 194 || y < 36 || y > 186) continue;
+                hole(byId('hw_perf'), x, y, 1.5);
+            }
+            for (var r2 = -3; r2 <= 3; r2++) for (var c2 = -3; c2 <= 3; c2++) {
+                var x2 = 160 + c2 * 9 + (r2 % 2 ? 4.5 : 0), y2 = 66 + r2 * 9;
+                if (d2(x2, y2, 160, 66) <= 26 * 26) hole(byId('hw_grille'), x2, y2, 2.4);
             }
         })();
 
@@ -175,8 +193,8 @@
         // the drawing follows the state
         function paint() {
             var set = function (id, cls, on) { var n = byId(id); if (n) n.classList.toggle(cls, !!on); };
-            set('hw_part_led', 'is-on', st.front_led === true);
-            set('hw_part_red', 'is-on', st.red_led === true);
+            set('hw_part_led', 'is-blue', st.front_led === true);
+            set('hw_part_led', 'is-red', st.red_led === true);
             set('hw_part_ir', 'is-on', st.ir_led === true);
             set('hw_part_button', 'is-pressed', st.button === true);
             var lvl = typeof st.sound_db === 'number' ? Math.max(0, Math.min(1, (st.sound_db + 70) / 60)) : 0;
@@ -226,12 +244,16 @@
                 c.appendChild(r);
                 snap(res);
             } },
-            led: { title: 'Blue LED', desc: 'The status LED on the front.', show: function (c) {
+            led: { title: 'Status LED (blue and red)', desc: 'The LED on the front has two colours; both on at once look purple.', show: function (c) {
                 var r = row();
-                r.appendChild(button('On', function () { cmd('front_led_on'); }));
-                r.appendChild(button('Off', function () { cmd('front_led_off'); }));
+                r.appendChild(button('Blue on', function () { cmd('front_led_on'); }));
+                r.appendChild(button('Blue off', function () { cmd('front_led_off'); }));
                 r.appendChild(button('Blink', function () { blink(); }, 'is-info'));
                 c.appendChild(r);
+                var r2 = row();
+                r2.appendChild(button('Red on', function () { cmd('red_led_on'); }));
+                r2.appendChild(button('Red off', function () { cmd('red_led_off'); }));
+                c.appendChild(r2);
             } },
             ir: { title: 'Infrared LEDs and IR-cut filter', desc: 'The IR LEDs light the scene at night; the IR-cut filter stops the infrared by day (you hear a click when it moves).', show: function (c) {
                 var r = row();
@@ -258,12 +280,6 @@
                 r.appendChild(button('Read the card', function () { sdInfo(res); }, 'is-info'));
                 c.appendChild(r);
                 sdInfo(res);
-            } },
-            red: { title: 'Red LED', desc: 'The red LED.', show: function (c) {
-                var r = row();
-                r.appendChild(button('On', function () { cmd('red_led_on'); }));
-                r.appendChild(button('Off', function () { cmd('red_led_off'); }));
-                c.appendChild(r);
             } },
             button: { title: 'Reset button', desc: 'Press the button briefly: the drawing lights up while it is down. Holding it does what it always does (3-7 s: rescue Wi-Fi, 8 s: restart).', show: function (c) {
                 pressedSeen = false;

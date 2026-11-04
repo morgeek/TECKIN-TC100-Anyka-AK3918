@@ -2151,5 +2151,5 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
   2. Micro : avec la détection sonore activée, le vumètre monte quand on parle ; sans elle, le message « Pas de niveau ».
   3. Bouton : appui bref → dessin jaune puis « Relâché (un appui a été vu) » (si `button-watch` a exporté le GPIO 522 ; sinon « Le bouton ne peut pas être lu », à noter).
   4. Charge : `top` pendant 2 min page ouverte : un `action.cgi` toutes les 2 s, CPU moyen à noter ; page quittée : plus aucune requête `hw_state` (journal httpd).
-  5. **Emplacements** : dire où sont vraiment la LED rouge, le bouton et le haut-parleur à l'arrière (photo) pour corriger le dessin.
+  5. **Emplacements** : dos redessiné d'après la photo du propriétaire (bouton reset = trou en haut à gauche, haut-parleur = gros trous en haut à droite, disque de fixation, micro-USB, fente SD sur le côté). **À confirmer** : le dos n'a pas de LED, donc la LED rouge est supposée être la deuxième couleur de la LED d'état en façade (point du haut) ; vérifier en cliquant « Rouge allumée ».
 - **Critères :** 1-4 conformes, aucune action de la page sans jeton CSRF (les commandes de modification répondent 403 sans lui).
