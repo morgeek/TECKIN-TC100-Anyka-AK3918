@@ -2024,3 +2024,10 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
   3. Mode sans échec (ou caméra sans `user.pwd`) : l'interface demande toujours un mot de passe.
   4. Console série au démarrage sans Wi-Fi : invite de login tout de suite (plus d'attente du DHCP).
 - **Critères :** 1-4 conformes, aucune régression de flux.
+
+## 2026-11-04 18:20 — rc24 téléchargée (testeur) : deux paquets portent le même nom
+
+- `36e573c` (bump rc24, paquet désigné par le plan de test) : `tc100-3.0.1-rc24-update.tar` md5 `5c9c264201c3d70a44874181aafd6ca8` → `~/Downloads/tc100-fix/xfer24/` sur le Mac du propriétaire.
+- `5c6b059` (rc24 + `[license]`, `[credits]`, `[wifi-country]`, `[mqtt-c]`, `[audit]`) : `VERSION` dit aussi **3.0.1-rc24**, md5 `0f7abf39b6f95300045757cddd7ff7b9` → `xfer24-latest/`.
+- **Demande à l'implémenteur** : ne pas publier deux contenus sous le même numéro ; si `5c6b059` est la version à tester (elle contient le correctif RTSP H1 et les changements de démarrage `S39tc100`/udhcpc), la renuméroter **rc25**. Sinon, le testeur installe `xfer24` d'abord, puis la suivante sous un nouveau numéro.
+- Je n'ai trouvé aucun détail dans le dépôt sur la « CVE-2026-98432 » citée dans l'entrée rc24 (« décision du propriétaire en attente ») : décrire le problème, le patch et le risque pour que le propriétaire puisse décider.
