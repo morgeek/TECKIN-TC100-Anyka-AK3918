@@ -2092,3 +2092,18 @@ Activé à la demande du propriétaire sur la .11 (rc25) : `MQTT_BRIDGE_IMPL=c` 
 
 ### Correction 19:35 — gain mémoire réel du pont C (testeur)
 Le « 376 Ko contre 7 976 Ko » plus haut compare des **RSS**, qui comptent plusieurs fois le code busybox partagé par les processus shell. Mesure par `smaps_rollup` : pont shell (.24, 4 processus) **PSS 1 129 Ko**, privé 416 Ko ; `tc100-mqttd` (.11) **PSS 209 Ko**, privé 84 Ko. Gain réel ≈ **0,9 Mo** (sur ~20 Mo disponibles), plus les forks évités (curl par publication, sous-shells) ; `MemAvailable` de la .11 n'a pas bougé de façon mesurable juste après la bascule. Le critère « RSS du démon bien en dessous des 5,7 Mo » du plan est donc trompeur : comparer les PSS.
+
+## 2026-11-04 19:40 — Où va la RAM (testeur, .11 rc25, pont MQTT en C)
+
+Mesure `smaps_rollup` de tous les processus : **espace utilisateur = 7,1 Mo PSS** (5,6 Mo privés, 24 processus) sur 59,9 Mo. Le reste : CMA 30 Mo réservés au vidéo (6,3 Mo libres sur la .11, 1,4 Mo sur la .24), noyau/slab 4,5 Mo, cache 13,9 Mo (récupérable, compté dans MemAvailable 21,7 Mo).
+
+| PSS | Processus | Piste |
+|---|---|---|
+| 2 783 Ko | `tc100_rtsp` | déjà en C |
+| 794 Ko | `wpa_supplicant` | nécessaire |
+| 659 Ko | `arecord` (micro) | lire ALSA directement dans `tc100_rtsp` : ~0,6 Mo |
+| 217 Ko + 90 Ko | `sh controlscripts/mqtt-bridge start`, `sh /etc/init.d/S39tc100 start` restés en attente | `exec` (ou ne pas attendre) : ~0,3 Mo **sans C** |
+| ~1,2 Mo au total | démons shell : `sound-detection` 269, `housekeeper` 250, `auto-night-daemon` 191, `cfg-persist` 154, `service-watchdog` 141, `button-watch` 129 | un seul démon C les regroupant : ~1 Mo |
+| < 200 Ko chacun | dropbear ×2, logfwd, watchdog, ntpd, klogd, getty, udhcpc, mdnsd, httpfront | déjà petits |
+
+Bilan : le C peut encore libérer **environ 2 Mo** au total (≈ 10 % de la RAM disponible), dont 0,3 Mo sans écrire de C. La RAM n'est pas le goulot actuel (20 Mo stables la nuit, pas de fuite) ; la marge qui compte est la **CMA de la .24 (1,4 Mo libres)**, que ces portages ne touchent pas. Priorité proposée : les 2 `exec` (risque nul), puis `arecord` dans `tc100_rtsp` ; le démon C unique seulement si un besoin mémoire apparaît (beaucoup de logique shell testée à réécrire).
