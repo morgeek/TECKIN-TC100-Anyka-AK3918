@@ -1924,3 +1924,12 @@ Pistes Wi-Fi pour l'implémenteur (par ordre) : (a) mesurer avec `RTSP_PACING_US
 - **Interrupteur :** aucun (revert du commit).
 - **Test (rc24) :** (1) `WIFI_QUALITY=1` une nuit : `/tmp/wifi-quality.log` s'écrit jusqu'au matin, un seul processus `wifi-quality.sh` à la fois ; `rssi` du journal ≈ `signal avg` de `iw dev wlan0 station dump` ; tableau de bord et `metrics.cgi` donnent la même valeur. (2) `health.cgi` : `memory-guard` = `disabled` (avec `MEM_GUARD_ENABLE=0`), compteur de redémarrage à 0. (3) .24 : redémarrage depuis la page web → pas de `FAT-fs ... not properly unmounted` au démarrage suivant (`dmesg | grep FAT`). (4) Diagnostics → YAML Frigate : `{FRIGATE_RTSP_PASSWORD}` au lieu du mot de passe ; avec la variable définie dans Frigate, le flux s'ouvre.
 - **Critères :** 1 à 4 conformes.
+
+## 2026-11-04 — Plus de HTTPS sur la caméra : restes de la 2.x supprimés, HTTPS par un proxy (`[no-https]`)
+
+Décision du propriétaire : l'interface reste en HTTP simple sur le port 80 ; le HTTPS se fait par un proxy sur son réseau (README, section « HTTPS with a reverse proxy » : Caddy, nginx).
+
+- **Quoi :** supprimés : clés `WEB_MODE`, `ULTRALITE_HTTP_PORT`, `UI_ULTRALITE_MODE` et tout leur code (`set_web_mode`, `apply_web_mode_async`, assistant, `state.cgi`/`statelib.cgi`, `network.cgi`, `mqtt-bridge.sh`, `web-guard.sh` → port 80 seulement, lignes de l'export JSON), le badge « HTTPS impossible » et le mode « ultra-lite » de l'interface, `config/ssl/` (Let's Encrypt de la 2.x, paquet de certificats) et `config/openssl.cnf`. Les adresses du manifeste Home Assistant sont toujours `http://`. Gardés avec une valeur fixe pour Home Assistant : `web_mode: "http"`, `port_https_open: 0`. Le HTTPS sortant (curl vers Ntfy, webhooks, Telegram, GitHub) ne change pas.
+- **Interrupteur :** aucun (revert de 0349ff1).
+- **Test :** (1) `http://IP/` : l'interface se charge, vidéo fluide comprise, sans badge orange « HTTP ». (2) Page Réseau : plus de ligne « HTTPS web UI », « HTTP web UI » ouverte. (3) Manifeste (`state.cgi?cmd=integrationmanifest`) : adresses en `http://IP/…`, `web_mode` = `http`. (4) Import d'une ancienne sauvegarde JSON qui contient `web_mode` : réussit, `boot.conf` sans `WEB_MODE`. (5) Vérification de mise à jour (`UPDATE_CHECK=1`) et alerte Telegram ou Ntfy de test : fonctionnent (certificats du système). (6) Propriétaire : interface derrière son proxy HTTPS, vidéo fluide comprise (`live.cgi` sans mise en tampon).
+- **Critères :** 1 à 6 conformes, entité Home Assistant toujours disponible.
