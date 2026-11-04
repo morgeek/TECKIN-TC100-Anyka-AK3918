@@ -86,8 +86,10 @@ Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Ti
 
 ## Added by the audit of 2026-11-04 (`audit-2026-11-04.md`)
 - [x] H1 RTSP stale buffer after an interleaved frame, W1 reflected / stored XSS, W5 open web interface without a password in safe mode, B2 console and password back before the Wi-Fi, CI hardening (tag must match `VERSION`, local CI must run the Python tests, triggers, busybox in GitHub host tests): fixed in git, to check in the next rc.
-- [ ] **B1** web update: no automatic reboot after a failed flash write, retries (owner's decision).
-- [ ] **B3** web update: `flashw -m` given the md5 of `MD5SUMS`, not of the file itself.
-- [ ] **W4** setup wizard POST without CSRF token.
+- [ ] **B1** web update: no automatic reboot after a failed flash write, retries. **Owner's decision, postponed
+  (2026-11-04: "on verra plus tard")**; details in `audit-2026-11-04.md`, section 6.
+- [ ] **B3** web update: `flashw -m` given the md5 of `MD5SUMS`, not of the file itself (to do with B1).
+- [ ] **W4** setup wizard POST without CSRF token. **Owner's decision, postponed (2026-11-04)**: before the tag (rc26,
+  with a full wizard run on a camera) or 3.0.2 as a known limit; details in `audit-2026-11-04.md`, section 6.
 - [ ] **D8** documentation pass (api.md, linux-port/README.md, AGENTS.md, RELEASE-NOTES.md).
 - 3.0.2: W2/R2 (`httpfront`: LAN filter and connection cap), R1 (RTSP slots), W3 (per-camera password), B4-B6, D1-D7, M1.
