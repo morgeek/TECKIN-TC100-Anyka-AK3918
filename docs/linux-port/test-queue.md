@@ -2141,3 +2141,15 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
 - **CHANGELOG rc26 corrigé :** la ligne « ~0,3 Mo gagnés au démarrage » était fausse (voir `a-faire-implementeur.md`, P0 n° 2, note de vérification).
 - **Interrupteur :** aucun.
 - **Test (rc suivante) :** tableau de bord → Redémarrer → « Restarting: the camera is back in about a minute », puis éventuellement « The camera stopped answering: it is probably restarting » (orange), jamais le message rouge.
+
+## 2026-11-04 nuit — Page « Test du matériel » (`[hwtest]`, feuille de route n° 49)
+
+- **Quoi :** Outils → Test du matériel (`www/hardware.html`) : la caméra dessinée de face et de dos (d'après la photo du propriétaire) ; un clic sur un élément le teste avec les commandes existantes : image + luminance / exposition (objectif), LED bleue (allumer, éteindre, clignoter), LED rouge, LED IR et filtre IR-cut, vumètre du micro, carillon sur le haut-parleur, carte microSD (taille, libre, santé), bouton reset affiché enfoncé. Une seule nouvelle commande, en lecture : `action.cgi?cmd=hw_state` (toutes les 2 s tant que la page est ouverte et visible, arrêt en quittant la page). Thème clair / sombre, mobile.
+- **Interrupteur :** aucun (page à part ; revert du commit).
+- **Test (une caméra) :**
+  1. Chaque élément : LED bleue et rouge allumées / éteintes / clignotement visibles sur la caméra **et** sur le dessin ; LED IR (lueur dans le noir, visible au téléphone) ; filtre IR-cut (clic audible, image qui change) ; carillon entendu ; carte .24 : taille et libre corrects ; objectif : image actuelle + luminance.
+  2. Micro : avec la détection sonore activée, le vumètre monte quand on parle ; sans elle, le message « Pas de niveau ».
+  3. Bouton : appui bref → dessin jaune puis « Relâché (un appui a été vu) » (si `button-watch` a exporté le GPIO 522 ; sinon « Le bouton ne peut pas être lu », à noter).
+  4. Charge : `top` pendant 2 min page ouverte : un `action.cgi` toutes les 2 s, CPU moyen à noter ; page quittée : plus aucune requête `hw_state` (journal httpd).
+  5. **Emplacements** : dire où sont vraiment la LED rouge, le bouton et le haut-parleur à l'arrière (photo) pour corriger le dessin.
+- **Critères :** 1-4 conformes, aucune action de la page sans jeton CSRF (les commandes de modification répondent 403 sans lui).

@@ -62,15 +62,18 @@ class NoControlCharacters(unittest.TestCase):
         """A backspace (0x08) where `\\b` was meant made the reboot regex of 90-startup.js never match (the dashboard
         said "Command sent" and showed a red error while the camera restarted)."""
         bad = []
-        for base in ('www', 'src/webui', 'scripts', 'controlscripts', 'v3'):
-            for f in (ROOT / base).rglob('*'):
-                if not f.is_file() or f.suffix in ('.png', '.jpg', '.gz', '.ico', '.woff', '.woff2', '.pcm', '.bin'):
-                    continue
-                data = f.read_bytes()
-                if b'\0' in data[:4096]:
-                    continue                                           # binary
-                if re.search(rb'[\x01-\x08\x0b\x0e-\x1f]', data):
-                    bad.append(str(f.relative_to(ROOT)))
+        files = [f for base in ('www', 'src/webui', 'scripts', 'controlscripts', 'v3', 'docs') for f in (ROOT / base).rglob('*')]
+        files += [ROOT / n for n in ('CHANGELOG.md', 'README.md', 'AGENTS.md', 'CREDITS.md')]
+        for f in files:
+            if not f.is_file() or f.suffix in ('.png', '.jpg', '.gz', '.ico', '.woff', '.woff2', '.pcm', '.bin'):
+                continue
+            if 'openipc' in f.relative_to(ROOT).parts:              # raw logs captured from the stock firmware
+                continue
+            data = f.read_bytes()
+            if b'\0' in data[:4096]:
+                continue                                           # binary
+            if re.search(rb'[\x01-\x08\x0b\x0e-\x1f]', data):
+                bad.append(str(f.relative_to(ROOT)))
         self.assertEqual(bad, [])
 
 

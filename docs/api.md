@@ -552,11 +552,12 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
 
 ### cmd=wifi_country_info
 
-Returns the active and configured Wi-Fi country code as JSON.
+*(read-only, no CSRF)* The Wi-Fi country of `boot.conf` (`WIFI_COUNTRY`, empty = world rules), the one the kernel
+applies now (`"00"` = world rules) and whether the regulatory database is present.
 
 **Response (JSON):**
 ```json
-{"ok":true,"country":"FR","supported":true}
+{"status":"success","country":"FR","effective":"FR","regdb":1}
 ```
 
 ---
@@ -834,6 +835,19 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
   --data-urlencode "cmd=set_led_config" \
   --data-urlencode "led_front=1" \
   --data-urlencode "led_red=0"
+```
+
+---
+
+### cmd=hw_state *(read-only, no CSRF)*
+
+Live state of the parts the Hardware test page shows (`www/hardware.html`): the blue and red LEDs, the IR LEDs, the
+IR-cut filter (`1` = in, day), whether the automatic day/night runs, the microphone level in dBFS (only while the sound
+detection writes it, less than 10 s old) and the reset button (`true` = pressed). `null` when the camera cannot tell.
+
+**Response (JSON):**
+```json
+{"ok":true,"front_led":false,"red_led":false,"ir_led":false,"ir_cut":1,"auto_daynight":true,"sound_db":-48,"button":false}
 ```
 
 ---

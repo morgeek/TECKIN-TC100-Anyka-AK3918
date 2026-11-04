@@ -1,0 +1,342 @@
+<header class="page-head"><h1 class="page-title">Hardware test</h1></header>
+<div id="hw_container">
+    <!-- The camera drawn as two views; a click on a part tests it with the commands the rest of the interface
+         already uses (action.cgi). Everything is drawn by the browser: the camera only answers the commands and
+         one small state read every 2 s while this page is shown (action.cgi?cmd=hw_state). -->
+    <style>
+        #hw_container .hw-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1.25rem; align-items: start; }
+        @media (max-width: 900px) { #hw_container .hw-layout { grid-template-columns: minmax(0, 1fr); } }
+        #hw_container .hw-views { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+        #hw_container .hw-view { background: var(--ui-surface, #f7f8fa); border: 1px solid var(--ui-border, #e3e6ea); border-radius: 14px; padding: .5rem .5rem .25rem; }
+        #hw_container .hw-view svg { display: block; width: 100%; height: auto; max-height: 420px; }
+        #hw_container .hw-caption { text-align: center; font-size: .8rem; color: var(--ui-muted, #6b7280); margin: .1rem 0 .3rem; }
+        #hw_container .hw-hot { cursor: pointer; outline: none; }
+        #hw_container .hw-hot .hw-ring { fill: none; stroke: var(--ui-primary, #3b82f6); stroke-width: 2; stroke-dasharray: 4 3; opacity: 0; transition: opacity .15s; }
+        #hw_container .hw-hot:hover .hw-ring, #hw_container .hw-hot:focus .hw-ring, #hw_container .hw-hot.is-selected .hw-ring { opacity: 1; }
+        #hw_container .hw-led-blue { fill: #2a2f36; transition: fill .2s; }
+        #hw_container .is-on .hw-led-blue { fill: #4aa8ff; filter: url(#hwGlowBlue); }
+        #hw_container .hw-led-red { fill: #c9cdd2; transition: fill .2s; }
+        #hw_container .is-on .hw-led-red { fill: #ff3b30; filter: url(#hwGlowRed); }
+        #hw_container .hw-ir-dot { fill: #1c1f24; transition: fill .3s; }
+        #hw_container .is-on .hw-ir-dot { fill: #8b1a1a; filter: url(#hwGlowIr); }
+        #hw_container .hw-btn-cap { fill: #e9ecef; stroke: #b9bfc6; transition: fill .1s; }
+        #hw_container .is-pressed .hw-btn-cap { fill: #ffd34d; }
+        #hw_container .hw-vu { fill: none; stroke: #4ade80; stroke-width: 2; stroke-linecap: round; opacity: 0; transition: opacity .2s; }
+        #hw_container .hw-speaker-wave { fill: none; stroke: var(--ui-primary, #3b82f6); stroke-width: 2; opacity: 0; transform-origin: 120px 92px; transform-box: view-box; }
+        #hw_container .is-playing .hw-speaker-wave { animation: hwWave 1s ease-out 3; }
+        @keyframes hwWave { 0% { opacity: .9; transform: scale(.8); } 100% { opacity: 0; transform: scale(1.25); } }
+        #hw_container .hw-panel { background: var(--ui-surface, #f7f8fa); border: 1px solid var(--ui-border, #e3e6ea); border-radius: 14px; padding: 1rem; }
+        #hw_container .hw-panel h3 { font-weight: 600; margin-bottom: .35rem; }
+        #hw_container .hw-panel p { color: var(--ui-muted, #6b7280); font-size: .85rem; }
+        #hw_container .hw-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .75rem; }
+        #hw_container .hw-meter { height: 10px; border-radius: 6px; background: var(--ui-border, #e3e6ea); overflow: hidden; margin: .4rem 0; }
+        #hw_container .hw-meter > div { height: 100%; width: 0; background: linear-gradient(90deg, #4ade80, #facc15 70%, #ef4444); transition: width .3s; }
+        #hw_container .hw-snap { width: 100%; border-radius: 10px; margin-top: .5rem; background: #000; min-height: 60px; }
+        #hw_container .hw-kv { font-size: .85rem; margin-top: .4rem; }
+        #hw_container .hw-kv span { display: inline-block; min-width: 9rem; color: var(--ui-muted, #6b7280); }
+        #hw_container .hw-msg { font-size: .85rem; margin-top: .6rem; min-height: 1.2em; }
+    </style>
+
+    <div class="hw-chips" id="hw_chips" aria-live="polite"></div>
+    <div class="hw-layout">
+        <div class="hw-views">
+            <div class="hw-view">
+                <svg viewBox="0 0 240 340" role="group" aria-label="Front of the camera">
+                    <defs>
+                        <linearGradient id="hwBody" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e6e9ed"/></linearGradient>
+                        <linearGradient id="hwFace" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b2f35"/><stop offset=".45" stop-color="#0c0d0f"/><stop offset="1" stop-color="#16181b"/></linearGradient>
+                        <radialGradient id="hwGlass" cx=".42" cy=".38" r=".7"><stop offset="0" stop-color="#9fd3ff"/><stop offset=".35" stop-color="#3a6fb0"/><stop offset=".7" stop-color="#1d2a4a"/><stop offset="1" stop-color="#0a0d14"/></radialGradient>
+                        <filter id="hwGlowBlue" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                        <filter id="hwGlowRed" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                        <filter id="hwGlowIr" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                    </defs>
+                    <ellipse cx="120" cy="326" rx="74" ry="6" fill="#000" opacity=".08"/>
+                    <rect x="62" y="296" width="116" height="26" rx="11" fill="url(#hwBody)" stroke="#d5d9de"/>
+                    <rect x="108" y="222" width="24" height="80" rx="9" fill="url(#hwBody)" stroke="#d5d9de"/>
+                    <rect x="102" y="216" width="36" height="12" rx="6" fill="#eef0f2" stroke="#d5d9de"/>
+                    <rect x="28" y="18" width="184" height="204" rx="38" fill="url(#hwBody)" stroke="#d0d4d9"/>
+                    <rect x="42" y="32" width="156" height="176" rx="28" fill="url(#hwFace)"/>
+                    <path d="M52 52 Q60 40 78 38 L120 38 Q70 60 52 110 Z" fill="#fff" opacity=".05"/>
+                    <!-- IR LEDs behind the black front and the IR-cut filter -->
+                    <g class="hw-hot" id="hw_part_ir" tabindex="0" role="button" aria-label="Infrared LEDs and IR-cut filter" data-part="ir">
+                        <circle class="hw-ring" cx="120" cy="120" r="60"/>
+                        <g id="hw_ir_dots">
+                            <circle class="hw-ir-dot" cx="158" cy="82" r="4"/>
+                            <circle class="hw-ir-dot" cx="174" cy="120" r="4"/><circle class="hw-ir-dot" cx="158" cy="158" r="4"/>
+                            <circle class="hw-ir-dot" cx="82" cy="158" r="4"/><circle class="hw-ir-dot" cx="66" cy="120" r="4"/>
+                            <circle class="hw-ir-dot" cx="82" cy="82" r="4"/>
+                        </g>
+                    </g>
+                    <g class="hw-hot" id="hw_part_lens" tabindex="0" role="button" aria-label="Lens and image sensor" data-part="lens">
+                        <circle class="hw-ring" cx="120" cy="120" r="40"/>
+                        <circle cx="120" cy="120" r="34" fill="#1a1c20" stroke="#3a3f46" stroke-width="2"/>
+                        <circle cx="120" cy="120" r="24" fill="url(#hwGlass)"/>
+                        <circle cx="120" cy="120" r="9" fill="#06080c"/>
+                        <circle cx="113" cy="112" r="4" fill="#fff" opacity=".55"/>
+                        <circle cx="128" cy="129" r="1.8" fill="#fff" opacity=".35"/>
+                    </g>
+                    <g class="hw-hot" id="hw_part_led" tabindex="0" role="button" aria-label="Blue LED" data-part="led">
+                        <circle class="hw-ring" cx="120" cy="52" r="9"/>
+                        <circle class="hw-led-blue" cx="120" cy="52" r="3.6"/>
+                    </g>
+                    <g class="hw-hot" id="hw_part_mic" tabindex="0" role="button" aria-label="Microphone" data-part="mic">
+                        <circle class="hw-ring" cx="120" cy="190" r="9"/>
+                        <circle cx="120" cy="190" r="3" fill="#2a2f36"/>
+                        <path class="hw-vu" id="hw_vu1" d="M110 184 A11 11 0 0 0 110 196"/><path class="hw-vu" id="hw_vu2" d="M130 184 A11 11 0 0 1 130 196"/>
+                        <path class="hw-vu" id="hw_vu3" d="M105 180 A17 17 0 0 0 105 200"/><path class="hw-vu" id="hw_vu4" d="M135 180 A17 17 0 0 1 135 200"/>
+                    </g>
+                </svg>
+                <p class="hw-caption">Front view</p>
+            </div>
+            <div class="hw-view">
+                <svg viewBox="0 0 240 340" role="group" aria-label="Back of the camera">
+                    <ellipse cx="120" cy="326" rx="74" ry="6" fill="#000" opacity=".08"/>
+                    <rect x="62" y="296" width="116" height="26" rx="11" fill="url(#hwBody)" stroke="#d5d9de"/>
+                    <rect x="108" y="222" width="24" height="80" rx="9" fill="url(#hwBody)" stroke="#d5d9de"/>
+                    <rect x="102" y="216" width="36" height="12" rx="6" fill="#eef0f2" stroke="#d5d9de"/>
+                    <rect x="28" y="18" width="184" height="204" rx="38" fill="url(#hwBody)" stroke="#d0d4d9"/>
+                    <rect x="42" y="32" width="156" height="176" rx="28" fill="none" stroke="#e1e4e8"/>
+                    <g class="hw-hot" id="hw_part_speaker" tabindex="0" role="button" aria-label="Speaker" data-part="speaker">
+                        <rect class="hw-ring" x="72" y="56" width="96" height="72" rx="16"/>
+                        <g id="hw_grille" fill="#9aa1a9"></g>
+                        <circle class="hw-speaker-wave" cx="120" cy="92" r="52"/>
+                    </g>
+                    <g class="hw-hot" id="hw_part_sd" tabindex="0" role="button" aria-label="microSD card slot" data-part="sd">
+                        <rect class="hw-ring" x="18" y="100" width="22" height="58" rx="6"/>
+                        <rect x="25" y="108" width="8" height="42" rx="3" fill="#cfd4da" stroke="#aab1b9"/>
+                        <rect x="27" y="112" width="4" height="34" rx="2" fill="#7c848d"/>
+                    </g>
+                    <g class="hw-hot" id="hw_part_red" tabindex="0" role="button" aria-label="Red LED" data-part="red">
+                        <circle class="hw-ring" cx="150" cy="172" r="10"/>
+                        <circle class="hw-led-red" cx="150" cy="172" r="4"/>
+                    </g>
+                    <g class="hw-hot" id="hw_part_button" tabindex="0" role="button" aria-label="Reset button" data-part="button">
+                        <circle class="hw-ring" cx="90" cy="172" r="13"/>
+                        <circle cx="90" cy="172" r="8" fill="#d9dde2"/>
+                        <circle class="hw-btn-cap" cx="90" cy="172" r="5.5"/>
+                    </g>
+                </svg>
+                <p class="hw-caption">Back view</p>
+            </div>
+        </div>
+
+        <div class="hw-panel" id="hw_panel">
+            <h3 id="hw_title">Choose a part of the camera</h3>
+            <p id="hw_desc">Click the lens, a LED, the microphone, the speaker, the card slot or the button to test it.</p>
+            <div id="hw_controls" class="mt-3"></div>
+            <div id="hw_result"></div>
+            <p class="hw-msg" id="hw_msg" role="status"></p>
+        </div>
+    </div>
+    <p class="help mt-3">A drawing, not a photograph: the places of the parts are approximate. Forcing the IR LEDs or the IR-cut filter while the automatic day/night runs lasts until its next decision.</p>
+</div>
+<script>
+    (function () {
+        var root = document.getElementById('hw_container');
+        if (!root) return;
+        var E = window.EliteUI || {};
+        var post = function (url) { return (E.csrfFetch || fetch)(url, { method: 'POST' }).then(function (r) { return r.json(); }); };
+        var T = function (s) { return window.tc100T ? window.tc100T(s) : s; };	// for the texts put together here
+        var st = {}, part = null, timer = null, pressedSeen = false;
+        function byId(id) { return document.getElementById(id); }
+        function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+        function msg(text, bad) { var m = byId('hw_msg'); if (m) { m.textContent = T(text || ''); m.style.color = bad ? '#ef4444' : ''; } }
+
+        // speaker grille: 7 x 5 holes
+        (function () {
+            var g = byId('hw_grille'), ns = 'http://www.w3.org/2000/svg';
+            for (var r = 0; r < 5; r++) for (var c = 0; c < 7; c++) {
+                var h = document.createElementNS(ns, 'circle');
+                h.setAttribute('cx', 84 + c * 12); h.setAttribute('cy', 68 + r * 12); h.setAttribute('r', 2.6);
+                g.appendChild(h);
+            }
+        })();
+
+        function cmd(name, done) {
+            msg('…');
+            return post('cgi-bin/action.cgi?cmd=' + name + '&format=json')
+                .then(function (d) {
+                    if (!d || d.ok === false) throw new Error((d && d.error) || 'refused');
+                    msg(d.message || 'Done.');
+                    if (done) done(d);
+                    setTimeout(poll, 400);
+                })
+                .catch(function (e) { msg(T('Error:') + ' ' + e.message, true); });
+        }
+        function button(label, onClick, cls) {
+            var b = el('button', 'button is-small ' + (cls || 'is-light'), T(label));
+            b.type = 'button';
+            b.addEventListener('click', onClick);
+            return b;
+        }
+        function row() { return el('div', 'buttons'); }
+        function kv(label, value) { var p = el('p', 'hw-kv'); p.appendChild(el('span', '', T(label))); p.appendChild(document.createTextNode(T(value))); return p; }
+
+        // the drawing follows the state
+        function paint() {
+            var set = function (id, cls, on) { var n = byId(id); if (n) n.classList.toggle(cls, !!on); };
+            set('hw_part_led', 'is-on', st.front_led === true);
+            set('hw_part_red', 'is-on', st.red_led === true);
+            set('hw_part_ir', 'is-on', st.ir_led === true);
+            set('hw_part_button', 'is-pressed', st.button === true);
+            var lvl = typeof st.sound_db === 'number' ? Math.max(0, Math.min(1, (st.sound_db + 70) / 60)) : 0;
+            ['hw_vu1', 'hw_vu2', 'hw_vu3', 'hw_vu4'].forEach(function (id, i) {
+                var n = byId(id); if (n) n.style.opacity = lvl > (i < 2 ? 0.25 : 0.6) ? 1 : 0;
+            });
+            var chips = byId('hw_chips');
+            if (chips) {
+                chips.textContent = '';
+                [['Blue LED', st.front_led], ['Red LED', st.red_led], ['IR LEDs', st.ir_led],
+                 ['IR-cut', st.ir_cut === 1 ? 'day' : st.ir_cut === 0 ? 'night' : null],
+                 ['Auto day/night', st.auto_daynight], ['Button', st.button === true ? 'pressed' : st.button === false ? 'released' : null],
+                 ['Microphone', typeof st.sound_db === 'number' ? st.sound_db + ' dBFS' : null]
+                ].forEach(function (c) {
+                    var v = c[1], t = v === true ? 'On' : v === false ? 'Off' : v === null || v === undefined ? '?' : v;
+                    var tag = el('span', 'tag ' + (v === true || v === 'pressed' ? 'is-success' : v === null || v === undefined ? 'is-light' : 'is-info'), T(c[0]) + ': ' + T(String(t)));
+                    chips.appendChild(tag);
+                });
+            }
+            if (part === 'mic') {
+                var bar = byId('hw_mic_bar'), val = byId('hw_mic_val');
+                if (bar) bar.style.width = Math.round(lvl * 100) + '%';
+                if (val) val.textContent = typeof st.sound_db === 'number' ? st.sound_db + ' dBFS' : T('No level: switch the sound detection on (Settings, Detection).');
+            }
+            if (part === 'button') {
+                var bs = byId('hw_btn_state');
+                if (st.button === true) pressedSeen = true;
+                if (bs) bs.textContent = T(st.button === true ? 'Pressed' : st.button === false ? (pressedSeen ? 'Released (a press was seen)' : 'Released') : 'The button cannot be read.');
+            }
+        }
+
+        function poll() {
+            if (!root.isConnected) { clearTimeout(timer); return; }
+            clearTimeout(timer);
+            if (document.hidden) { timer = setTimeout(poll, 2000); return; }
+            fetch('cgi-bin/action.cgi?cmd=hw_state&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (d && d.ok) { st = d; paint(); } })
+                .catch(function () {})
+                .finally(function () { if (root.isConnected) timer = setTimeout(poll, 2000); });
+        }
+
+        var parts = {
+            lens: { title: 'Lens and image sensor', desc: 'A picture taken now, and what the image processor measures.', show: function (c, res) {
+                var r = row();
+                r.appendChild(button('Take a picture', function () { snap(res); }, 'is-info'));
+                c.appendChild(r);
+                snap(res);
+            } },
+            led: { title: 'Blue LED', desc: 'The status LED on the front.', show: function (c) {
+                var r = row();
+                r.appendChild(button('On', function () { cmd('front_led_on'); }));
+                r.appendChild(button('Off', function () { cmd('front_led_off'); }));
+                r.appendChild(button('Blink', function () { blink(); }, 'is-info'));
+                c.appendChild(r);
+            } },
+            ir: { title: 'Infrared LEDs and IR-cut filter', desc: 'The IR LEDs light the scene at night; the IR-cut filter stops the infrared by day (you hear a click when it moves).', show: function (c) {
+                var r = row();
+                r.appendChild(button('IR LEDs on', function () { cmd('ir_led_on'); }));
+                r.appendChild(button('IR LEDs off', function () { cmd('ir_led_off'); }));
+                c.appendChild(r);
+                var r2 = row();
+                r2.appendChild(button('Filter in (day)', function () { cmd('ir_cut_on'); }));
+                r2.appendChild(button('Filter out (night)', function () { cmd('ir_cut_off'); }));
+                c.appendChild(r2);
+            } },
+            mic: { title: 'Microphone', desc: 'The level the microphone hears, every 2 seconds. Speak or clap near the camera.', show: function (c) {
+                var m = el('div', 'hw-meter'), b = el('div'); b.id = 'hw_mic_bar'; m.appendChild(b);
+                c.appendChild(m);
+                var v = el('p', 'hw-kv'); v.id = 'hw_mic_val'; c.appendChild(v);
+            } },
+            speaker: { title: 'Speaker', desc: 'Plays a short sound on the camera.', show: function (c) {
+                var r = row();
+                r.appendChild(button('Play the chime', function () { play('chime'); }, 'is-info'));
+                c.appendChild(r);
+            } },
+            sd: { title: 'microSD card', desc: 'The card in the slot: size, free space and health.', show: function (c, res) {
+                var r = row();
+                r.appendChild(button('Read the card', function () { sdInfo(res); }, 'is-info'));
+                c.appendChild(r);
+                sdInfo(res);
+            } },
+            red: { title: 'Red LED', desc: 'The red LED.', show: function (c) {
+                var r = row();
+                r.appendChild(button('On', function () { cmd('red_led_on'); }));
+                r.appendChild(button('Off', function () { cmd('red_led_off'); }));
+                c.appendChild(r);
+            } },
+            button: { title: 'Reset button', desc: 'Press the button briefly: the drawing lights up while it is down. Holding it does what it always does (3-7 s: rescue Wi-Fi, 8 s: restart).', show: function (c) {
+                pressedSeen = false;
+                var p = el('p', 'hw-kv'); p.id = 'hw_btn_state'; c.appendChild(p);
+            } }
+        };
+
+        function select(name) {
+            var p = parts[name];
+            if (!p) return;
+            part = name;
+            Array.prototype.forEach.call(root.querySelectorAll('.hw-hot'), function (n) { n.classList.toggle('is-selected', n.dataset.part === name); });
+            byId('hw_title').textContent = T(p.title);
+            byId('hw_desc').textContent = T(p.desc);
+            var c = byId('hw_controls'), res = byId('hw_result');
+            c.textContent = ''; res.textContent = ''; msg('');
+            p.show(c, res);
+            paint();
+        }
+
+        function snap(res) {
+            res.textContent = '';
+            var img = el('img', 'hw-snap');
+            img.alt = T('Picture from the camera');
+            img.src = 'cgi-bin/currentpic.cgi?_=' + Date.now();
+            res.appendChild(img);
+            fetch('cgi-bin/state.cgi?cmd=daynight&_=' + Date.now(), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    res.appendChild(kv('Luminance', d.luma === null || d.luma === undefined ? '?' : String(d.luma)));
+                    res.appendChild(kv('Exposure time', d.exp_time === null || d.exp_time === undefined ? '?' : String(d.exp_time)));
+                    res.appendChild(kv('Mode', d.night ? 'night' : 'day'));
+                })
+                .catch(function () { msg('The image processor values could not be read.', true); });
+        }
+
+        function blink() {
+            var was = st.front_led === true, n = 0;
+            (function step() {
+                if (!root.isConnected) return;
+                post('cgi-bin/action.cgi?cmd=' + (n % 2 ? 'front_led_off' : 'front_led_on') + '&format=json').catch(function () {});
+                n++;
+                if (n < 6) setTimeout(step, 500);
+                else setTimeout(function () { cmd(was ? 'front_led_on' : 'front_led_off'); }, 500);
+            })();
+        }
+
+        function play(name) {
+            var sp = byId('hw_part_speaker');
+            cmd('play_sound&sound=' + name + '&volume=70', function () {
+                if (!sp) return;
+                sp.classList.remove('is-playing'); void sp.getBoundingClientRect(); sp.classList.add('is-playing');
+            });
+        }
+
+        function sdInfo(res) {
+            res.textContent = '';
+            fetch('cgi-bin/action.cgi?cmd=sd_card_info&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (!d.present) { res.appendChild(kv('Card', 'none in the slot')); return; }
+                    res.appendChild(kv('Card', (d.size_mb ? Math.round(d.size_mb / 1024) + ' GB ' : '') + (d.fs || '')));
+                    res.appendChild(kv('Free', d.free_mb !== null && d.free_mb !== undefined ? Math.round(d.free_mb / 1024 * 10) / 10 + ' GB' : '?'));
+                    res.appendChild(kv('Mounted', d.mounted ? 'yes' : 'no'));
+                    res.appendChild(kv('Health', d.health || '?'));
+                })
+                .catch(function () { msg('The card could not be read.', true); });
+        }
+
+        Array.prototype.forEach.call(root.querySelectorAll('.hw-hot'), function (n) {
+            n.addEventListener('click', function () { select(n.dataset.part); });
+            n.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(n.dataset.part); } });
+        });
+        poll();
+    })();
+</script>

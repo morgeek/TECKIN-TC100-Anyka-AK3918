@@ -187,7 +187,11 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 48. [ ] **Gestionnaire de sons personnalisés (Démarrage, Alertes, Upload audio)** :
     - Interface de sélection du son au démarrage (jingle par défaut, son alternatif ou silencieux) et des sons d'alertes / carillons.
     - Outil d'upload audio dans l'interface Web permettant d'importer de nouveaux sons personnalisés (ex: voix d'accueil, aboiement dissuasif, mélodie personnalisée) avec conversion automatique en PCM 8 kHz / 16 kHz léger sur la carte SD.
-49. [ ] **Banc d'essai matériel interactif avec jumeau visuel (Hardware Visual Twin / Interactive Testbed)** :
+49. [x] **Banc d'essai matériel interactif avec jumeau visuel (Hardware Visual Twin / Interactive Testbed)** :
+    *Fait le 2026-11-04 (première version, dessin d'après la photo du propriétaire) : `www/hardware.html`, Outils →
+    Test du matériel, commande de lecture `hw_state`. Pas de banc de débit de la carte SD (écrire sur la carte des
+    enregistrements pour mesurer n'est pas anodin) : la carte montre taille, espace libre, montage et santé. Emplacements
+    des éléments arrière indicatifs, à corriger d'après une photo de l'arrière.*
     - Nouvelle page ou vue dédiée dans le WebUI représentant un schéma vectoriel interactif SVG stylisé de la TECKIN TC100 (vue de face et vue arrière) permettant de tester et diagnostiquer chaque composant physique en un clic :
       - **Vue de face** :
         - *Objectif / Capteur* : clic pour snapshot instantané et affichage de la luminance / exposition en direct.

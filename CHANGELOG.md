@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Hardware test page** (Tools → Hardware test, `www/hardware.html`): the camera drawn from the front and the back;
+  a click on a part tests it with the existing commands: picture and image processor values (lens), blue and red LEDs
+  (on, off, blink), IR LEDs and IR-cut filter, microphone level meter, speaker chime, microSD card details, reset
+  button shown pressed while it is down. One read-only state command, `action.cgi?cmd=hw_state`, read every 2 s while
+  the page is open and visible.
+
+### Fixed
+- The dashboard's Reboot showed "Command sent" and a red error while the camera restarted (a backspace byte in place
+  of `\b` in the detection pattern).
+
 ## [3.0.1-rc26] - 2026-11-04
 
 ### Changed
