@@ -151,17 +151,36 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 40. [ ] **Roaming Wi-Fi multi-bornes / Mesh (Fast BSS Transition & anti-client collant)** :
     - Dans les installations disposant de répéteurs Wi-Fi ou réseau Mesh (même SSID sur plusieurs BSSID), éviter que la caméra ne reste connectée à une borne affaiblie (« sticky client »).
     - Si le RSSI chute sous -75 dBm pendant plus de 2 minutes alors qu'une borne alternative avec le même SSID propose un signal nettement supérieur (> 15 dB d'écart), forcer une réassociation douce (`wpa_cli reassociate`) sur le meilleur BSSID.
-41. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
+41. [ ] **Contrôle et réparation douce FAT32 sur carte SD (`mount-sd.sh` / `dosfsck`)** :
+    - Détection automatique et non-destructive du dirty bit (« not properly unmounted ») lors du montage au boot via `dosfsck -n`.
+    - Si une incohérence mineure est décelée, exécution automatique de `dosfsck -a` avant montage en lecture-écriture pour prévenir toute corruption silencieuse des enregistrements consécutive à une coupure électrique.
+42. [ ] **Mode Démarrage Discret / Silencieux (`BOOT_STEALTH=1`)** :
+    - Option dans `boot.conf` et l'interface Web désactivant les jingles sonores au haut-parleur (`sounds/startup*.pcm`) et maintenant les LED éteintes pendant toute la phase de boot.
+    - Idéal pour les caméras placées en chambre de bébé ou pièces de vie nocturne lors des redémarrages automatiques de maintenance.
+43. [ ] **Test de latence et gigue vers le NVR / Frigate dans Diagnostics** :
+    - Bouton d'action dans l'interface Web envoyant une salve de requêtes ICMP/ping vers l'hôte NVR/Frigate configuré.
+    - Affichage du RTT moyen, du jitter et du taux de perte pour lever immédiatement le doute entre instabilité caméra et congestion du réseau Wi-Fi local.
+44. [ ] **Infobulles explicatives pour chaque réglage dans l'interface Web (Tooltips)** :
+    - Ajouter une icône d'aide ou un tooltip interactif sur chaque commutateur, curseur et champ de saisie dans l'interface Web.
+    - Rôle : expliquer en langage clair la fonction exacte du réglage, son mode d'action technique et son impact recommandé.
+45. [ ] **Simulateur d'occupation mémoire dynamique dans les réglages (Memory Budgeter)** :
+    - Jauge d'estimation en temps réel dans l'interface Web calculant l'impact RAM prévisionnel selon les options cochées :
+      - Résolution (1080p vs 720p : gain/coût ~1,7 Mo),
+      - Débit binaire et taille du tampon RTSP (`RTSP_QMAX`),
+      - Activation du pre-roll en RAM (ex: +800 Ko),
+      - Démons optionnels (pont MQTT, détection sonore VOX, etc.).
+    - Alerte visuelle / Warning dynamique (passage en orange puis rouge) dès que la configuration choisie s'approche de la zone critique (< 10 Mo de RAM libre restante) afin de guider l'utilisateur vers une configuration pérenne et stable.
+46. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par
     connexion sans plafond), R3, D1-D7, D9.
 
 ## P2 — plus tard, seulement si un besoin apparaît
 
-42. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
+47. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
-43. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
+48. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
 
 ## Hors implémenteur (propriétaire)
