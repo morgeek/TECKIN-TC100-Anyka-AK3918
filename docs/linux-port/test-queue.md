@@ -1948,3 +1948,5 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 - **Interrupteur :** aucun (revert du commit).
 - **Test (rc24, `WIFI_QUALITY=1`) :** `rssi` de `/tmp/wifi-quality.log` ≈ `beacon signal avg` de `iw` (.24 ≈ -51, .11 ≈ -20) et cohérent avec le débit (`tx bitrate`) ; même valeur sur le tableau de bord et `metrics.cgi`.
 - **Critères :** écart ≤ 3 dB avec `beacon signal avg` ; plus de valeur aberrante (-13 avec MCS 2).
+
+- 2026-11-04 11:30 (testeur) : `949f7d2` relu et vérifié sur la sortie réelle de `iw` de la .24 (retries 3, failed 1, `beacon signal avg` -51 → `3 1 -51`). OK. Prêt pour une **rc24**.
