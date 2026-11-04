@@ -1913,3 +1913,14 @@ Nouveaux défauts :
 4. Carte SD .24 toujours marquée sale au boot (démonter avant reboot).
 
 Pistes Wi-Fi pour l'implémenteur (par ordre) : (a) mesurer avec `RTSP_PACING_US=100` / `RTSP_SNDBUF=64` (rc22) une nuit sur une seule caméra, l'autre en témoin ; (b) `regulatory.db` / domaine FR ; (c) changer de canal côté box (canal 2 encombré ?) — décision du propriétaire ; (d) paramètres `rtl8xxxu` (ht40, dma aggregation).
+
+## 2026-11-04 — Correctifs des constats de la nuit rc23 (`[night-fixes]`, à intégrer dans la rc24)
+
+- **Quoi :**
+  1. `wifi-quality.sh` : `iw` (5 s) et `ping` (8 s) sous `timeout` (un échantillon bloqué dans le pilote figeait le journal de la .11 depuis 20:13) ; le signal est désormais `signal avg` de `iw station dump` (déjà lu à chaque échantillon), écrit dans `/tmp/wifi-signal.avg` ; `scripts/wifi-signal.sh` (le seul lecteur du signal) l'utilise tant qu'il a moins de 3 min, sinon le niveau de `/proc/net/wireless`.
+  2. `health-probe.sh` (`health.cgi` et `health-snapshot.sh`) : un service coupé par son interrupteur (clé de `service-switch.sh`, ou pas d'entrée `autostart` pour les autres ; `daynight=3` pour le jour/nuit auto) est `disabled`, plus `stopped` : Memory Guard (`MEM_GUARD_ENABLE=0` par défaut) ne compte plus comme un redémarrage.
+  3. Carte SD : avant un redémarrage volontaire (`reboot-tracker.sh intent` : page web, bouton, MQTT, chiens de garde) l'enregistreur est mis en pause puis la carte remontée en lecture seule (5 s max) ; idem à la fin d'une mise à jour web. Un `reboot` tapé en ssh n'est pas couvert.
+  4. `frigateyaml` : plus de mot de passe en clair, `{FRIGATE_RTSP_PASSWORD}` dans les adresses (Frigate le remplace depuis son environnement) ; README à jour.
+- **Interrupteur :** aucun (revert du commit).
+- **Test (rc24) :** (1) `WIFI_QUALITY=1` une nuit : `/tmp/wifi-quality.log` s'écrit jusqu'au matin, un seul processus `wifi-quality.sh` à la fois ; `rssi` du journal ≈ `signal avg` de `iw dev wlan0 station dump` ; tableau de bord et `metrics.cgi` donnent la même valeur. (2) `health.cgi` : `memory-guard` = `disabled` (avec `MEM_GUARD_ENABLE=0`), compteur de redémarrage à 0. (3) .24 : redémarrage depuis la page web → pas de `FAT-fs ... not properly unmounted` au démarrage suivant (`dmesg | grep FAT`). (4) Diagnostics → YAML Frigate : `{FRIGATE_RTSP_PASSWORD}` au lieu du mot de passe ; avec la variable définie dans Frigate, le flux s'ouvre.
+- **Critères :** 1 à 4 conformes.

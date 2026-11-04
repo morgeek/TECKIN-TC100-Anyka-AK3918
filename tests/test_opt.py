@@ -171,7 +171,8 @@ class CameraPanelFastPath(Tmp):
 
 class HealthProbe(Tmp):
     def probe(self, svc, env=None, extra=''):
-        code = function('scripts/health-probe.sh', 'probe_service_fast')
+        code = '\n'.join(function('scripts/health-probe.sh', n) for n in ('_pf_wanted', '_pf_down', 'probe_service_fast'))
+        code = '. %s\nSW_CONF_DIR=%s; HP_CONF_DIR=%s\n' % (ROOT / 'scripts/service-switch.sh', self.d, self.d) + code
         code = code.replace('/mnt/controlscripts', str(self.d)).replace('/tmp/tc100_md', str(self.d / 'md')) \
                    .replace('/var/run/v4l2rtspserver.pid', str(self.d / 'gate'))
         r = sh(extra + code + '\nprobe_service_fast ' + svc, env=dict(env or {}, HP_DEEP_FILE=str(self.d / 'deep')))
@@ -186,14 +187,17 @@ class HealthProbe(Tmp):
         p = self.d / (name + '.log')
         return len(p.read_text().split()) if p.exists() else 0
 
-    def test_motion_detection_off_is_stopped_without_running_the_script(self):
+    def test_motion_detection_off_is_disabled_without_running_the_script(self):
         self.script('motion-detection', 'echo "ok: running"')
-        self.assertEqual(self.probe('motion-detection'), 'stopped')
+        # switched off (mdenabled=0, its one switch): "disabled", not a stopped service (2026-11-04)
+        (self.d / 'rtspserver.conf').write_text('mdenabled=0\n')
+        self.assertEqual(self.probe('motion-detection'), 'disabled')
         self.assertEqual(self.count('motion-detection'), 0)
 
     def test_motion_detection_on_still_checks_the_monitor_pid(self):
         self.script('motion-detection', 'echo "ok: running"')
         (self.d / 'md').write_text('')
+        (self.d / 'rtspserver.conf').write_text('mdenabled=1\n')
         # the monitor pid file is /var/run/detection-monitor.pid: absent here = stopped, and still no exec
         self.assertEqual(self.probe('motion-detection'), 'stopped')
         self.assertEqual(self.count('motion-detection'), 0)

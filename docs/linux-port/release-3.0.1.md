@@ -67,12 +67,13 @@ Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Ti
 ## Added by the audit of 2026-11-03 (`audit-2026-11-03.md`)
 - [x] **Values written unquoted into shell-sourced files**: the settings page, Home Assistant pairing and Telegram now refuse spaces, quotes and `$ ` \ ; & | < > ( )` in the MQTT user/password and Telegram token/chat id (`sourced_value_ok` in action.cgi); the wizard no longer keeps `( )`. Retested on the .11 (`a b` and `$(reboot)` refused). The JSON import already wrote them quoted.
 - [x] **Reported frame rate wrong**: `frigateyaml`, `integrationmanifest` and `integrationtest` did not load rtspserver.conf before `read_rtsp_stream_summary` (defaults: 15 fps). Fixed and retested on the .11 (25 fps reported). The README "15 by default" is right (`[0] fps=15` in the .dist).
-- [ ] `frigateyaml`: camera password in clear by default; use `{FRIGATE_RTSP_PASSWORD}`.
+- [x] `frigateyaml`: camera password in clear by default; use `{FRIGATE_RTSP_PASSWORD}`. Fixed in git 2026-11-04 (README says where to set it); to check in rc24.
 - [ ] **No LICENSE file** although the README says "100% open-source repository" (owner's decision on the licence).
 - [~] `CREDITS.md`: Thingino row fixed and the prebuilt programs listed (2026-11-04); the source and licence of `monvifd`, `rwconf`, `getflag`, `getimage` still to be written down, or the programs rebuilt.
 
 ## Added by the night test of 2026-11-03/04 (test-queue.md, 2026-11-04 08:40)
 - [x] Night stability: no reboot, no memory drift, day/night switch and morning colours OK on both cameras.
 - [ ] **Wi-Fi drops**: the gateway did not answer 2 pings in 11 % (.11) and 7 % (.24) of the samples, all night long, independently on each camera (power save off, strong signal on the .11). Try `RTSP_PACING_US` / `RTSP_SNDBUF` on one camera for a night, then regulatory domain / driver options.
-- [ ] `wifi-quality.sh` stops writing its log (.11, since 20:13 UTC) while its processes keep running; its RSSI is still wrong (use `iw dev wlan0 station dump`).
-- [ ] `health.cgi` shows `memory-guard` stopped on the .11 although it is in autostart.
+- [x] `wifi-quality.sh` stops writing its log (.11, since 20:13 UTC) while its processes keep running; its RSSI is still wrong (use `iw dev wlan0 station dump`). Fixed in git 2026-11-04: `iw` and `ping` under `timeout`; the signal is iw's `signal avg`, shared with every reader through `scripts/wifi-signal.sh` while fresh. To check in rc24.
+- [x] `health.cgi` shows `memory-guard` stopped on the .11 although it is in autostart. Not a failure: its switch is `MEM_GUARD_ENABLE` (0 by default, one switch per service). `health-probe.sh` now says `disabled` for a service switched off, so it no longer counts as a restart. To check in rc24.
+- [x] SD card "not properly unmounted" after a deliberate reboot (.24): the reboot path (`reboot-tracker.sh intent`) pauses the recorder and remounts the card read-only, the web update too (2026-11-04). A plain `reboot` over ssh is not covered. To check in rc24.

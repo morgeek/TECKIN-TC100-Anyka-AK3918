@@ -150,3 +150,72 @@ class StabilityCsv(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NightFindings(unittest.TestCase):
+    """Tester's night of 2026-11-03/04: averaged Wi-Fi signal, no stuck sample, switched-off services shown as
+    disabled, the card left clean by a deliberate reboot."""
+
+    def test_averaged_signal_is_used_while_fresh(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'wireless').write_text(HDR + ' wlan0: 0000   70.  -14.  -256        0      0\n')
+            (d / 'up').write_text('1000.00 1\n')
+            code = ('. %s; WIFI_PROC_FILE=%s; WIFI_UPTIME_FILE=%s; WIFI_AVG_FILE=%s; wifi_signal_read; echo "[$WIFI_DBM]"'
+                    % (ROOT / 'scripts/wifi-signal.sh', d / 'wireless', d / 'up', d / 'avg'))
+            self.assertEqual(sh(code).stdout.strip(), '[-14]')              # no average yet: the /proc level
+            (d / 'avg').write_text('900 -25\n')
+            self.assertEqual(sh(code).stdout.strip(), '[-25]')              # 100 s old: the average
+            (d / 'avg').write_text('700 -25\n')
+            self.assertEqual(sh(code).stdout.strip(), '[-14]')              # 300 s old: stale
+
+    def test_quality_sample_takes_signal_avg_and_bounds_iw_and_ping(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'wireless').write_text(HDR + ' wlan0: 0000   70.  -14.  -256        0      0\n')
+            (d / 'st').write_text('Station aa:bb (on wlan0)\n\tsignal avg:\t-25 [-27, -29] dBm\n\ttx retries:\t3\n\ttx failed:\t0\n')
+            (d / 'ping').write_text('3 packets transmitted, 3 packets received, 0% packet loss\n')
+            (d / 'up').write_text('500.00 1\n')
+            env = dict(WQ_LOG=str(d / 'log'), WQ_SUM=str(d / 'sum'), WQ_STATE=str(d / 'prev'), WQ_WIRELESS=str(d / 'wireless'),
+                       WQ_STATION=str(d / 'st'), WQ_PING=str(d / 'ping'), WQ_UPTIME=str(d / 'up'), WIFI_AVG_FILE=str(d / 'avg'))
+            r = sh('WQ_NOW=1000 sh %s sample' % (ROOT / 'scripts/wifi-quality.sh'), env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual((d / 'log').read_text().split()[:2], ['1000', '-25'])
+            self.assertEqual((d / 'avg').read_text().strip(), '500 -25')
+        w = text('scripts/wifi-quality.sh')
+        self.assertIn('timeout 5 "$(command -v iw', w)
+        self.assertIn('timeout 8 ping', w)
+
+    def test_switched_off_service_is_disabled_not_stopped(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'autostart').mkdir()
+            (d / 'boot.conf').write_text('MEM_GUARD_ENABLE=0\n')
+            cs = d / 'cs'; cs.mkdir()
+            for n in ('memory-guard', 'ftp-server'):
+                (cs / n).write_text('#!/bin/sh\n'); (cs / n).chmod(0o755)
+            code = ('SW_CONF_DIR=%s; HP_CONF_DIR=%s; HP_SWITCH_SH=%s; . %s\n'
+                    'probe() { _pf_svc=$1; case $1 in *) ;; esac; _pf_down; }\n'
+                    'probe memory-guard; probe ftp-server; touch %s/autostart/ftp-server; probe ftp-server\n'
+                    % (d, d, ROOT / 'scripts/service-switch.sh', ROOT / 'scripts/health-probe.sh', d))
+            self.assertEqual(sh(code).stdout.split(), ['disabled', 'disabled', 'stopped'])
+
+    def test_deliberate_reboot_leaves_the_card_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'fm').write_text('')
+            (d / 'mounts').write_text('/dev/mmcblk0p1 /mnt/sd vfat rw,noatime 0 0\n')
+            (d / 'rec').write_text('state=paused\n')
+            code = ('REBOOT_TRACKER_FLASHMODE=%s; REBOOT_TRACKER_MOUNTS=%s; TC100FIX_REC_STATUS=%s; '
+                    'REBOOT_TRACKER_REMOUNT="touch %s/remounted"; . %s >/dev/null 2>&1; rt_card_clean'
+                    % (d / 'fm', d / 'mounts', d / 'rec', d, ROOT / 'scripts/reboot-tracker.sh'))
+            self.assertEqual(sh(code).returncode, 0)
+            self.assertTrue((d / 'rec.pause').exists())
+            self.assertTrue((d / 'remounted').exists())
+        self.assertIn('mount -o remount,ro /mnt/sd', text('v3/install/update66.sh'))
+
+    def test_frigate_yaml_never_holds_the_password(self):
+        s = text('www/cgi-bin/state.cgi')
+        block = s[s.index('  frigateyaml)'):s.index('    ;;', s.index('  frigateyaml)'))]
+        self.assertIn('fy_auth="${fy_user}:{FRIGATE_RTSP_PASSWORD}@"', block)
+        self.assertNotIn('USERPASSWORD', block)

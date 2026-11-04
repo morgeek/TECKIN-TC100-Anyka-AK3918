@@ -15,6 +15,25 @@
 #     slow-but-correct path instead of misreporting
 #
 # Keep the map in sync with the PIDFILE= lines in controlscripts/*.
+#
+# A service that is not running because it is switched off is "disabled", not "stopped": "stopped" counts as a
+# restart in health.cgi's history and as a problem in the pages. Switched off = its settings key is off
+# (scripts/service-switch.sh, one switch per service), or, for the services without a key, no config/autostart entry.
+[ -r "${HP_SWITCH_SH:-/mnt/scripts/service-switch.sh}" ] && . "${HP_SWITCH_SH:-/mnt/scripts/service-switch.sh}"
+_pf_wanted() {
+  if command -v svc_switch >/dev/null 2>&1 && svc_switch "$1"; then svc_on "$1"; return; fi
+  case "$1" in
+    rtsp-h26x|health-snapshot) return 0 ;;                   # always started at boot
+    auto-night-detection)                                    # daynight=3 (manual day / night) is its off switch
+      _pf_dn=""; [ -r "${HP_CONF_DIR:-/mnt/config}/rtspserver.conf" ] && while IFS='=' read -r _pf_k _pf_v; do
+        [ "$_pf_k" = daynight ] && { _pf_dn=$_pf_v; break; }; done < "${HP_CONF_DIR:-/mnt/config}/rtspserver.conf"
+      [ "$_pf_dn" != 3 ]; return ;;
+  esac
+  [ -e "${HP_CONF_DIR:-/mnt/config}/autostart/$1" ]
+}
+_pf_down() {
+  if _pf_wanted "$_pf_svc"; then echo "stopped"; else echo "disabled"; fi
+}
 
 probe_service_fast() {
   _pf_svc="$1"
@@ -39,7 +58,7 @@ probe_service_fast() {
     motion-detection)
       # no /tmp/tc100_md = motion detection off (the default): that is what "setconf -g p" and the controlscript report
       # as stopped, so do not exec the controlscript (shell + common_functions.sh) to be told so
-      [ -e /tmp/tc100_md ] || { echo "stopped"; return; }
+      [ -e /tmp/tc100_md ] || { _pf_down; return; }
       _pf_file="/var/run/detection-monitor.pid" ;;
   esac
 
@@ -47,8 +66,8 @@ probe_service_fast() {
     _pf_pid=""
     [ -f "$_pf_file" ] && read -r _pf_pid _ < "$_pf_file" 2>/dev/null
     case "$_pf_pid" in
-      ''|*[!0-9]*) echo "stopped" ;;
-      *) if kill -0 "$_pf_pid" 2>/dev/null; then echo "running"; else echo "stopped"; fi ;;
+      ''|*[!0-9]*) _pf_down ;;
+      *) if kill -0 "$_pf_pid" 2>/dev/null; then echo "running"; else _pf_down; fi ;;
     esac
     return
   fi
@@ -70,8 +89,8 @@ probe_service_fast() {
     _pf_gpid=""
     [ -f "$_pf_gate" ] && read -r _pf_gpid _ < "$_pf_gate" 2>/dev/null
     case "$_pf_gpid" in
-      ''|*[!0-9]*) echo "stopped"; return ;;
-      *) kill -0 "$_pf_gpid" 2>/dev/null || { echo "stopped"; return ; } ;;
+      ''|*[!0-9]*) _pf_down; return ;;
+      *) kill -0 "$_pf_gpid" 2>/dev/null || { _pf_down; return ; } ;;
     esac
   fi
 
@@ -101,10 +120,10 @@ probe_service_fast() {
   [ "$_pf_svc" = rtsp-h26x ] && echo "1 running" > "$_pf_df" 2>/dev/null
   case "$_pf_out" in
     ok:*)   echo "running" ;;
-    warn:*) echo "stopped" ;;
+    warn:*) _pf_down ;;
     *)
       _pf_out="$("$_pf_script" status 2>/dev/null)"
-      if [ -n "$_pf_out" ]; then echo "running"; else echo "stopped"; fi
+      if [ -n "$_pf_out" ]; then echo "running"; else _pf_down; fi
       ;;
   esac
 }

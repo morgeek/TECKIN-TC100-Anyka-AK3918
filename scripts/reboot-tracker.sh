@@ -87,6 +87,25 @@ rt_intent()
     _lpp=$!; _lpi=0
     while kill -0 "$_lpp" 2>/dev/null && [ "$_lpi" -lt 16 ]; do sleep 0.5; _lpi=$((_lpi + 1)); done
   fi
+  rt_card_clean
+}
+
+# 3.0 from the flash: the card (video storage only) came back "not properly unmounted" after every deliberate reboot
+# (.24, 2026-11-03). Pause the recorder like an eject does (scripts/rec-storage.sh), then remount the card read-only so
+# that its FAT is marked clean. Bounded (5 s); a card still busy stays as it is (the remount is refused, nothing hangs).
+rt_card_clean()
+{
+  [ -f "${REBOOT_TRACKER_FLASHMODE:-/tmp/flashmode}" ] || return 0
+  grep -qE ' /mnt/sd (vfat|exfat) rw' "${REBOOT_TRACKER_MOUNTS:-/proc/mounts}" 2>/dev/null || return 0
+  _cc_st="${TC100FIX_REC_STATUS:-/var/run/tc100rec}"
+  : > "$_cc_st.pause" 2>/dev/null
+  _cc_i=0
+  while [ "$_cc_i" -lt 5 ] && ! grep -q '^state=\(paused\|waiting\|no-card\|error\)' "$_cc_st" 2>/dev/null; do
+    sleep 1; _cc_i=$((_cc_i + 1))
+  done
+  sync
+  ${REBOOT_TRACKER_REMOUNT:-mount -o remount,ro /mnt/sd} 2>/dev/null
+  return 0
 }
 
 rt_heartbeat()

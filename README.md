@@ -240,7 +240,9 @@ An interrupted update leaves the flash system unable to start: keep the 3.0 SD c
    topics (`CAMERA1` → `camera1/…`). Two cameras with the same name merge into one device.
 3. Home Assistant finds the camera through MQTT discovery. The device page shows the firmware version.
 4. Frigate: Live view → More tools → Diagnostics gives a configuration to paste (go2rtc restream;
-   `state.cgi?cmd=frigateyaml&redact=1` without the password). Streams:
+   `state.cgi?cmd=frigateyaml&redact=1` without the user name either). The camera password is never in it: the stream
+   addresses carry `{FRIGATE_RTSP_PASSWORD}`, set that variable to the camera password in Frigate's environment
+   (docker `-e` / compose `environment:`, or the Frigate add-on options). Streams:
    - main (recording): `rtsp://root:PASSWORD@CAMERA-IP:554/video0_unicast`
    - sub (detection): `rtsp://root:PASSWORD@CAMERA-IP:554/video1_unicast`
    - go2rtc also gets the speaker: two-way audio from the microphone button of Home Assistant, Frigate or go2rtc

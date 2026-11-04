@@ -5,6 +5,9 @@
 #                 reading" and 0 on an idle interface: both are "unknown", never a level.
 #      WIFI_QUAL  link quality, a number (0-100 scale of the driver), empty when unknown
 #      WIFI_IF    the interface the values come from
+# Signal: the access point's averaged signal that wifi-quality.sh writes each minute from `iw station dump`
+# ($WIFI_AVG_FILE, "<uptime s> <dBm>", used while less than 3 minutes old: the /proc level of rtl8xxxu is one frame and
+# read -12..-16 dBm on the .11 where iw averaged -25), else the level of /proc/net/wireless.
 # Reads wlan0 of /proc/net/wireless; "any" falls back to the first interface with a non-zero link quality (the idle
 # AP interface wlan1 is all zeros). Returns 1 when no interface was found. Test hook: WIFI_PROC_FILE (a file instead
 # of /proc/net/wireless).
@@ -26,5 +29,13 @@ wifi_signal_read() {
     case "$_ws_lv" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110) WIFI_DBM="$_ws_lv" ;; esac
     [ "$_ws_if" = wlan0 ] && break
   done < "$_ws_src"
+  if [ "$WIFI_IF" = wlan0 ] && [ -r "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}" ]; then
+    _ws_t=""; _ws_a=""; read -r _ws_t _ws_a < "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}"
+    _ws_u=0; read -r _ws_u _ws_r < "${WIFI_UPTIME_FILE:-/proc/uptime}" 2>/dev/null; _ws_u=${_ws_u%.*}
+    case "$_ws_t" in ''|*[!0-9]*) ;; *)
+      case "$_ws_a" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110)
+        [ $((_ws_u - _ws_t)) -ge 0 ] && [ $((_ws_u - _ws_t)) -le 180 ] && WIFI_DBM=$_ws_a ;; esac ;;
+    esac
+  fi
   [ -n "$WIFI_IF" ]
 }

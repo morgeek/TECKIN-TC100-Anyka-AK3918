@@ -22,18 +22,21 @@ wq_rssi() {
   echo "${WIFI_DBM:-null}"
 }
 
-# totals of "tx retries" and "tx failed" over the stations (the access point)
+# totals of "tx retries" and "tx failed" over the stations (the access point), and the driver's averaged signal of
+# the access point ("signal avg", dBm; "-" when there is none). iw and ping run under timeout: a sample stuck in the
+# Wi-Fi driver kept the housekeeper job "running" for hours (the .11, 2026-11-03: log frozen, processes left).
 wq_station() {
   if [ -n "$WQ_STATION" ]; then cat "$WQ_STATION" 2>/dev/null
-  else "$(command -v iw || echo /mnt/ext/bin/iw)" dev "$IFACE" station dump 2>/dev/null; fi | {
-    _rt=0; _fl=0
+  else timeout 5 "$(command -v iw || echo /mnt/ext/bin/iw)" dev "$IFACE" station dump 2>/dev/null; fi | {
+    _rt=0; _fl=0; _sg=-
     while read -r _a _b _v _rest; do
       case "$_a $_b" in
         "tx retries:") case "$_v" in ''|*[!0-9]*) ;; *) _rt=$((_rt + _v)) ;; esac ;;
         "tx failed:") case "$_v" in ''|*[!0-9]*) ;; *) _fl=$((_fl + _v)) ;; esac ;;
+        "signal avg:") case "$_v" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110) [ "$_sg" = - ] && _sg=$_v ;; esac ;;
       esac
     done
-    echo "$_rt $_fl"
+    echo "$_rt $_fl $_sg"
   }
 }
 
@@ -50,15 +53,22 @@ wq_gateway() {
 # packet loss in % over 3 pings to the router (null without a router)
 wq_loss() {
   if [ -n "$WQ_PING" ]; then _out=$(cat "$WQ_PING" 2>/dev/null)
-  else _gw=$(wq_gateway) || { echo null; return; }; _out=$(ping -c 3 -W 1 -w 4 -q "$_gw" 2>/dev/null); fi
+  else _gw=$(wq_gateway) || { echo null; return; }; _out=$(timeout 8 ping -c 3 -W 1 -w 4 -q "$_gw" 2>/dev/null); fi
   _p=$(printf '%s\n' "$_out" | sed -n 's/.* \([0-9][0-9]*\)% packet loss.*/\1/p' | head -n 1)
   case "$_p" in ''|*[!0-9]*) echo null ;; *) echo "$_p" ;; esac
 }
 
 wq_sample() {
   _now=${WQ_NOW:-$(date +%s)}
-  _rssi=$(wq_rssi)
-  set -- $(wq_station); _rt=${1:-0}; _fl=${2:-0}
+  set -- $(wq_station); _rt=${1:-0}; _fl=${2:-0}; _sg=${3:--}
+  # the averaged signal of iw is the one value of the signal while this runs: kept for every reader
+  # (scripts/wifi-signal.sh reads $WIFI_AVG_FILE while it is fresh), else the driver's /proc level
+  if [ "$_sg" != - ]; then
+    _rssi=$_sg; _u=0; read -r _u _r < "${WQ_UPTIME:-/proc/uptime}" 2>/dev/null
+    echo "${_u%.*} $_sg" > "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}.tmp" && mv -f "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}.tmp" "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}"
+  else
+    _rssi=$(wq_rssi)
+  fi
   _prt=""; _pfl=""; [ -r "$STATE" ] && read -r _prt _pfl < "$STATE"
   echo "$_rt $_fl" > "$STATE"
   _drt=0; _dfl=0

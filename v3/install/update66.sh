@@ -86,4 +86,6 @@ for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
 done
 say "DONE: $(cat "$D/VERSION") written, restarting"
 sync; sleep 2
+# the card (video storage, the recorder is stopped above) leaves clean: no "not properly unmounted" at the next boot
+grep -qE ' /mnt/sd (vfat|exfat) rw' /proc/mounts && mount -o remount,ro /mnt/sd 2>/dev/null
 reboot

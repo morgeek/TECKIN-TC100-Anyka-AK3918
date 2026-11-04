@@ -1446,7 +1446,8 @@ if [ -n "$F_cmd" ]; then
     # camera. Targets the current Frigate schema (0.14+): explicit
     # detect.enabled, role-split ffmpeg inputs, and NONE of the deprecated
     # record.retain.days / record.events keys (those are hard config-load
-    # failures now). Use cmd=frigateyaml&redact=1 to blank credentials for sharing.
+    # failures now). Use cmd=frigateyaml&redact=1 to blank credentials for sharing. The camera password is never written
+    # in clear: the URLs carry {FRIGATE_RTSP_PASSWORD}, which Frigate replaces from its environment (audit 2026-11-03).
     fy_redact="$(truthy_flag "$F_redact")"
     if [ -r /proc/sys/kernel/hostname ]; then
       read -r fy_hostname < /proc/sys/kernel/hostname
@@ -1461,13 +1462,12 @@ if [ -n "$F_cmd" ]; then
     load_conf_file /mnt/config/rtspserver.conf   # read_rtsp_stream_summary reads the C_* variables it sets
     read_rtsp_stream_summary
     fy_user="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
-    fy_pass="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
     fy_sub_enabled="$(truthy_flag "$(read_conf_value /mnt/config/boot.conf RTSP_SUBSTREAM 1)")"
 
     if [ "$fy_redact" = "1" ]; then
       fy_auth="USERNAME:PASSWORD@"
     elif [ -n "$fy_user" ]; then
-      fy_auth="${fy_user}:${fy_pass}@"
+      fy_auth="${fy_user}:{FRIGATE_RTSP_PASSWORD}@"
     else
       fy_auth=""
     fi
@@ -1496,6 +1496,9 @@ if [ -n "$F_cmd" ]; then
       "$width0" "$height0" "$fps0" "$(codec_name "$codec0")" "$width1" "$height1" "$fps1" "$(codec_name "$codec1")" "$fy_sub_enabled"
     if [ "$fy_redact" = "1" ]; then
       printf '# NOTE: credentials redacted — replace USERNAME/PASSWORD below.\n'
+    elif [ -n "$fy_user" ]; then
+      printf '# The camera password is not in this file: set FRIGATE_RTSP_PASSWORD to it in the environment of Frigate\n'
+      printf '# (docker run -e, compose "environment:", or the Frigate add-on options in Home Assistant).\n'
     fi
     printf '\n'
 
