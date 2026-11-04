@@ -125,8 +125,11 @@ load_config()
   MQTT_ENABLE="${MQTT_ENABLE:-0}"
   MQTT_HOST="${MQTT_HOST:-}"
   
-  # Plug & Play: Auto-detect MQTT broker if not configured
-  if [ -z "$MQTT_HOST" ] || [ "$MQTT_HOST" = "127.0.0.1" ] || [ "$MQTT_HOST" = "192.168.1.10" ]; then
+  # Plug & Play: Auto-detect MQTT broker if not configured. tc100-mqttd detects once, then hands the result to the
+  # jobs it starts (MQTT_HOST_RESOLVED): no ping at every command.
+  if [ -n "$MQTT_HOST_RESOLVED" ]; then
+    MQTT_HOST="$MQTT_HOST_RESOLVED"
+  elif [ -z "$MQTT_HOST" ] || [ "$MQTT_HOST" = "127.0.0.1" ] || [ "$MQTT_HOST" = "192.168.1.10" ]; then
     # Try common Home Assistant broker names
     for host in "homeassistant" "hassio" "home-assistant"; do
       if ping -c 1 -W 2 "$host" >/dev/null 2>&1; then
@@ -603,12 +606,52 @@ _mqtt_send_packets()
   printf '\xe0\x00'
 }
 
+# ── tc100-mqttd (src/mqttd) as the transport ────────────────────────────────
+# MQTT_BRIDGE_IMPL=c in mqtt.conf: the C daemon owns the broker connection. It runs this script as a worker with
+# MQTT_SINK=1 and file descriptor 3 open: instead of connecting, every publish is written there as a record
+#   P<retain><topic> NUL <payload> NUL      F<retain><topic> NUL <file to publish> NUL
+# which it publishes over its own connection. Scripts called from elsewhere (publish, discovery, command) hand their
+# records to the daemon through its FIFO when it is alive (a record under PIPE_BUF is written atomically); with no
+# daemon they use the one-shot connection below, as before.
+MQTT_DAEMON_FIFO="${MQTT_DAEMON_FIFO:-/tmp/mqtt-bridge.pub}"
+MQTT_DAEMON_PIDFILE="${MQTT_DAEMON_PIDFILE:-/var/run/tc100-mqttd.pid}"
+
+_mqtt_daemon_alive()
+{
+  [ -p "$MQTT_DAEMON_FIFO" ] || return 1
+  _da_pid=""
+  read -r _da_pid < "$MQTT_DAEMON_PIDFILE" 2>/dev/null || return 1
+  case "$_da_pid" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$_da_pid" 2>/dev/null
+}
+
+# _mqtt_sink_send <P|F> <retain> <topic> <payload or file>: 0 = handed over
+_mqtt_sink_send()
+{
+  if [ -n "$MQTT_SINK" ]; then
+    printf '%s%s%s\000%s\000' "$1" "$2" "$3" "$4" 2>/dev/null >&3
+    return
+  fi
+  [ $((${#3} + ${#4})) -lt 3000 ] || return 1
+  _mqtt_daemon_alive || return 1
+  printf '%s%s%s\000%s\000' "$1" "$2" "$3" "$4" 2>/dev/null > "$MQTT_DAEMON_FIFO"
+}
+
 mqtt_publish_raw()
 {
   topic="$1"
   payload="$2"
   retain="${3:-0}"
   [ -n "$topic" ] || return 1
+
+  # The daemon keeps the web UI status file itself.
+  if [ -n "$MQTT_SINK" ]; then
+    _mqtt_sink_send P "$retain" "$topic" "$payload"
+    return
+  fi
+  if _mqtt_sink_send P "$retain" "$topic" "$payload"; then
+    return 0
+  fi
 
   _pub_refused=""
   if _mqtt_publish_session "$topic" "$payload" "$retain"; then
@@ -666,6 +709,13 @@ mqtt_publish_file()
   _pf_size=$(wc -c < "$_pf_file" 2>/dev/null)
   case "$_pf_size" in ''|*[!0-9]*) return 1 ;; esac
   [ "$_pf_size" -gt 0 ] || return 1
+
+  # The daemon reads the file itself.
+  if [ -n "$MQTT_SINK" ]; then
+    _mqtt_sink_send F "$_pf_retain" "$_pf_topic" "$_pf_file"
+    return
+  fi
+  _mqtt_sink_send F "$_pf_retain" "$_pf_topic" "$_pf_file" && return 0
 
   _pf_cid="${MQTT_CLIENT_ID}-pubf"
   _pf_resp="/tmp/.mqtt_pubf_resp.$$"
@@ -809,8 +859,8 @@ publish_discovery_config()
   cfg_topic="$1"
   cfg_payload="$2"
   mqtt_publish_raw "$cfg_topic" "$cfg_payload" 1 >/dev/null 2>&1 || true
-  # Smear the discovery load to prevent CPU spikes from 20+ concurrent curls
-  sleep 0.1
+  # Smear the discovery load to prevent CPU spikes from 20+ concurrent curls (nothing to smear into the daemon's sink)
+  [ -n "$MQTT_SINK" ] || sleep 0.1
 }
 
 publish_homeassistant_discovery()
@@ -2828,9 +2878,61 @@ discovery_mode()
   publish_health >/dev/null 2>&1 || true
 }
 
+# Worker modes of tc100-mqttd (src/mqttd): it runs these with MQTT_SINK=1.
+print_config_mode()
+{
+  load_config
+  _pc_en=0
+  mqtt_enabled && _pc_en=1
+  printf 'MQTT_ENABLE=%s\n' "$_pc_en"
+  for _pc_k in MQTT_HOST MQTT_PORT MQTT_USER MQTT_PASSWORD MQTT_CLIENT_ID MQTT_TOPIC_ROOT MQTT_TOPIC_COMMAND \
+    MQTT_HEALTH_INTERVAL_SECONDS MQTT_KEEPALIVE_PING_SECONDS MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS \
+    MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER; do
+    eval "_pc_v=\"\${$_pc_k}\""
+    printf '%s=%s\n' "$_pc_k" "$_pc_v"
+  done
+  _pc_cb="${MQTT_CIRCUIT_BREAKER_THRESHOLD:-50}"
+  case "$_pc_cb" in ''|*[!0-9]*) _pc_cb=50 ;; esac
+  printf 'MQTT_CIRCUIT_BREAKER_THRESHOLD=%s\n' "$_pc_cb"
+  _pc_cb="${MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS:-300}"
+  case "$_pc_cb" in ''|*[!0-9]*) _pc_cb=300 ;; esac
+  printf 'MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS=%s\n' "$_pc_cb"
+}
+
+# what run_loop does once the broker has accepted the connection (availability is the daemon's own)
+startup_mode()
+{
+  load_config
+  mqtt_enabled || exit 0
+  publish_integration_manifest force >/dev/null 2>&1 || true
+  publish_homeassistant_discovery
+  publish_event_simple "bridge.start" "online"
+}
+
+# one health cycle of run_loop
+health_cycle_mode()
+{
+  load_config
+  mqtt_enabled || exit 0
+  publish_health >/dev/null 2>&1 || true
+  publish_integration_manifest >/dev/null 2>&1 || true
+}
+
 case "$1" in
   run|daemon|"")
     run_loop
+    ;;
+  print-config)
+    print_config_mode
+    ;;
+  startup)
+    startup_mode
+    ;;
+  health-cycle)
+    health_cycle_mode
+    ;;
+  log-event)
+    log_event "$2" "mqtt" "$3"
     ;;
   discovery)
     discovery_mode
@@ -2843,7 +2945,7 @@ case "$1" in
     command_mode "$2" "$3"
     ;;
   *)
-    echo "Usage: $0 [run|discovery|publish <topic_suffix> <payload> [retain]|command <payload> [source]]"
+    echo "Usage: $0 [run|discovery|publish <topic_suffix> <payload> [retain]|command <payload> [source]|print-config|startup|health-cycle|log-event <level> <message>]"
     exit 1
     ;;
 esac
