@@ -69,7 +69,10 @@ const source = fs.readFileSync(path.join(__dirname, '../www/scripts/index.bundle
   const home = fs.readFileSync(path.join(__dirname, '../www/index.html'), 'utf8');
   assert.doesNotMatch(home, /<script src="scripts\/ptt-audio/, 'PTT bundle must not load during initial render');
   assert.match(home, /createElement\('script'\)[\s\S]*ptt-audio\.bundle\.min\.js/, 'PTT bundle must load on demand');
-  assert.match(source, /diagnostics_toggle/, 'diagnostics remain wired after moving into More tools');
+  const diagPage = fs.readFileSync(path.join(__dirname, '../www/diagnostics.html'), 'utf8');
+  assert.match(diagPage, /diag_stability/, 'stability chart moved to dedicated diagnostics view');
+  assert.match(diagPage, /drawStabilityChart/, 'stability chart is rendered in diagnostics view');
+  assert.doesNotMatch(home, /id="diagnostics_panel"/, 'diagnostics panel removed from home page');
   // Operator mode was removed (it only hid menus in one browser); its saved
   // state must be cleared so no browser keeps the menus hidden.
   assert.doesNotMatch(home, /operator_mode_toggle/, 'operator mode button removed');

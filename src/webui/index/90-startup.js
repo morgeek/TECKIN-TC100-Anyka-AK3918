@@ -119,8 +119,6 @@
       });
     }
 
-    initDiagnosticsPanel();
-
     initLiveViewVisibilityObserver();
 
     var liveview = byId("liveview");

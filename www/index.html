@@ -312,20 +312,10 @@
                 <details class="home-tools">
                     <summary>More tools</summary>
                     <div class="home-tools-menu">
-                        <button class="button is-small" id="diagnostics_toggle" type="button" aria-expanded="false" aria-controls="diagnostics_panel">Diagnostics</button>
                         <button class="button is-small" id="status_refresh" type="button">Refresh status</button>
-                        <a class="button is-small is-light" href="cgi-bin/stability.cgi" download>Download CSV</a>
                     </div>
                 </details>
             </div>
-
-            <section id="diagnostics_panel" class="diagnostics-panel" hidden>
-                <div class="diagnostics-head"><div><strong>Camera diagnostics</strong><small id="diagnostics_summary">Loading…</small></div><button class="button is-small" id="copy_frigate" type="button">Copy Frigate YAML</button></div>
-                <div class="diagnostics-grid">
-                    <div><h3>48-hour stability</h3><canvas id="stability_chart" width="640" height="180" role="img" aria-label="Load and available memory history"></canvas><small id="stability_legend">Waiting for samples</small></div>
-                    <div><h3>Frigate / go2rtc</h3><pre id="frigate_preview">Loading configuration…</pre></div>
-                </div>
-            </section>
             </section>
           </div>
         </div>
