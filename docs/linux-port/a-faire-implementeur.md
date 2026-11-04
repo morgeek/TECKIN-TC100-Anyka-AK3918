@@ -170,17 +170,27 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
       - Activation du pre-roll en RAM (ex: +800 Ko),
       - Démons optionnels (pont MQTT, détection sonore VOX, etc.).
     - Alerte visuelle / Warning dynamique (passage en orange puis rouge) dès que la configuration choisie s'approche de la zone critique (< 10 Mo de RAM libre restante) afin de guider l'utilisateur vers une configuration pérenne et stable.
-46. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
+46. [ ] **Refonte ergonomique et visuelle de la page Services (`scripts.cgi`)** :
+    - Remplacer le tableau linéaire étroit peu efficace par une mise en page moderne en cartes / grille responsive (grid multi-colonnes exploitant toute la largeur de l'écran).
+    - Regroupement thématique clair des services : Core/Système (RTSP, Web, Housekeeper), Réseau/Accès (SSH, mDNS), Intégrations (MQTT, Telegram, Syslog).
+    - Affichage compact des interrupteurs d'état (démarré/arrêté), commutateurs de boot, indicateurs d'impact RAM/CPU et boutons d'action rapide.
+47. [ ] **Passe de cohérence et actualisation des textes dans toute l'interface Web** :
+    - Nettoyer les mentions historiques devenues obsolètes (anciennes références à lighttpd, 2.x, v4l2rtspserver, etc.).
+    - Harmoniser le vocabulaire, les infobulles, les traductions françaises (`www/i18n/fr.js`) et la documentation intégrée pour refléter l'architecture 3.0 moderne (noyau 6.6, `httpfront`, `tc100_rtsp`, pont MQTT en C).
+48. [ ] **Gestionnaire de sons personnalisés (Démarrage, Alertes, Upload audio)** :
+    - Interface de sélection du son au démarrage (jingle par défaut, son alternatif ou silencieux) et des sons d'alertes / carillons.
+    - Outil d'upload audio dans l'interface Web permettant d'importer de nouveaux sons personnalisés (ex: voix d'accueil, aboiement dissuasif, mélodie personnalisée) avec conversion automatique en PCM 8 kHz / 16 kHz léger sur la carte SD.
+49. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par
     connexion sans plafond), R3, D1-D7, D9.
 
 ## P2 — plus tard, seulement si un besoin apparaît
 
-47. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
+50. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
-48. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
+51. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
 
 ## Hors implémenteur (propriétaire)
