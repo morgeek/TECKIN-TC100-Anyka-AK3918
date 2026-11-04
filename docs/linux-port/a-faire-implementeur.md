@@ -142,17 +142,23 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Le 3D-NR matériel étant désactivé par manque de mémoire tampon dans le pool CMA (18 Mo), exploiter dynamiquement le filtre spatial 2D-NR de l'ISP.
     - Asservir le niveau de lissage et le coring au gain capteur en temps réel (`ispx_ae_report`) : netteté maximale et piqué fin en plein jour, atténuation progressive du fourmillement sur les aplats sombres la nuit.
     - Gain : image nocturne nettement plus propre et économie de 20 à 30 % de bande passante / débit H.264 sans aucun octet de RAM supplémentaire.
-38. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
+38. [ ] **Annonce mDNS / Zero-Conf enrichie (IP, version, état de santé)** :
+    - Enrichir les enregistrements TXT du démon `tc100-mdnsd` pour diffuser non seulement le service web/rtsp mais aussi la version firmware exacte, l'adresse IP et les indicateurs vitaux (température SoC, charge, Wi-Fi RSSI).
+    - Facilite l'identification immédiate et le repérage multi-caméras sur le réseau local depuis les navigateurs/outils réseau sans scanner les baux DHCP.
+39. [ ] **Structure de trames indépendante multi-profils NVR (GOP différencié ch0 / ch1)** :
+    - Permettre de configurer des intervalles de trames clés (GOP / I-frame interval) distincts entre le flux principal ch0 et le sous-flux ch1 dans `tc100_rtsp` (`rtspserver.conf`).
+    - Cas d'usage optimisé pour NVR / Frigate : flux principal ch0 à GOP long (2 à 4 s) pour minimiser l'espace disque d'enregistrement, et sous-flux ch1 à GOP court (1 s) pour une détection d'objets IA instantanée et ultra-réactive.
+40. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par
     connexion sans plafond), R3, D1-D7, D9.
 
 ## P2 — plus tard, seulement si un besoin apparaît
 
-39. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
+41. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
-40. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
+42. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
 
 ## Hors implémenteur (propriétaire)
