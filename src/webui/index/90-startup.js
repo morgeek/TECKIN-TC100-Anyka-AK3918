@@ -50,7 +50,7 @@
             return;
           }
           // Use csrfFetch so the CSRF token is sent as a header.
-          var isReboot = /[?&]cmd=reboot/.test(promptTarget.dataset.target);
+          var isReboot = /[?&]cmd=reboot\b/.test(promptTarget.dataset.target);
           csrfFetch(promptTarget.dataset.target, { cache: "no-store" })
             .then(function () {
               showResult(isReboot ? "Restarting: the camera is back in about a minute" : "Command sent to the camera", "is-success");

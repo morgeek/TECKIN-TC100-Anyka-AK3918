@@ -16,6 +16,13 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
      devient alors le pid du démon lui-même, ce qui règle aussi la cause du point 1 ; idem pour le pont shell.
    - `/etc/init.d/S39tc100 start` reste vivant après le démarrage (90 Ko PSS) : `exec` sur la dernière commande ou
      ne pas attendre.
+     *Vérification (implémenteur, 2026-11-04 nuit)* : ce processus est la boucle `( while :; do /sbin/getty …; done ) &`
+     de `S39tc100` (même ligne de commande que le script), qui relance la console série : elle est nécessaire. La
+     redirection ajoutée en rc26 (`</dev/null >/dev/null 2>&1` sur l'autorun) ne la supprime pas, et le CHANGELOG rc26
+     qui annonçait ~0,3 Mo gagnés est corrigé. Pour la supprimer : une ligne `respawn` de getty dans `/etc/inittab`
+     (que `build-rootfs66.sh` retire aujourd'hui pour laisser S39 choisir entre login et `consoleshell`). Côté MQTT,
+     la proposition `( exec … nohup "$BIN" … ) &` reste valable : `run_busybox` est une fonction, le sous-shell
+     lancé par `&` attend le démon.
 3. [ ] **Points ouverts de la checklist** : W4 (assistant sans jeton CSRF), B3 (`flashw -m` compare le fichier à
    lui-même, avec B1), D8 (passe de documentation : `api.md` cite encore HTTPS et `set_web_mode`, `wifi_set_country`
    non documenté…). B1 et W4 : décision du propriétaire reportée, à lui reposer avant le tag.

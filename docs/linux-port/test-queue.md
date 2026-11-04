@@ -2134,3 +2134,10 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
   - **Pas fait, coché à tort** : « mqtt.conf : documenté la règle de dérivation du topic root (`_mb_slug`) » : aucun changement de doc ; la règle n'est expliquée que dans le commentaire de `scripts/mqtt-bridge.sh:160-188` (client id par défaut `tc100-camera` → client id et racine = nom d'hôte en minuscules, `ipcamera2`). À écrire dans `config/mqtt.conf.dist` au-dessus de `MQTT_TOPIC_ROOT` et dans `docs/api.md`.
   - **P0 n° 2 pas fait** : `controlscripts/mqtt-bridge` garde `run_busybox nohup … &` (le sous-shell `sh mqtt-bridge start` reste en mémoire, 217 Ko) ; `S39tc100` redirige seulement les sorties de l'autorun (`</dev/null >/dev/null 2>&1 &`), ce qui ne supprime pas le `sh /etc/init.d/S39tc100 start` resté vivant — à vérifier sur caméra avec la rc26.
 - Installation conseillée : la **.11** (demain matin, après le bilan de la nuit en cours, pour ne pas casser la mesure) ; la .24 reste en rc23.
+
+## 2026-11-04 nuit — Vérification du projet après la rc26 (implémenteur, `[verify]`)
+
+- **Corrigé :** `src/webui/index/90-startup.js:53` (et le bundle) : la regex de détection du redémarrage contenait un caractère « retour arrière » (0x08) au lieu de `\b` ; elle ne correspondait jamais. Effet depuis le 2026-10-30 (`c763490`) : après « Redémarrer » sur le tableau de bord, « Command sent to the camera » au lieu de « Restarting: the camera is back in about a minute », et un message rouge « The camera did not accept the command » quand la connexion tombait pendant le redémarrage. Test ajouté : aucun caractère de contrôle dans `www/`, `src/webui/`, `scripts/`, `controlscripts/`, `v3/`.
+- **CHANGELOG rc26 corrigé :** la ligne « ~0,3 Mo gagnés au démarrage » était fausse (voir `a-faire-implementeur.md`, P0 n° 2, note de vérification).
+- **Interrupteur :** aucun.
+- **Test (rc suivante) :** tableau de bord → Redémarrer → « Restarting: the camera is back in about a minute », puis éventuellement « The camera stopped answering: it is probably restarting » (orange), jamais le message rouge.

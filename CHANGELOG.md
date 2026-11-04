@@ -11,7 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - **`tc100-mqttd` supervision and PID tracking**: `controlscripts/mqtt-bridge` properly waits for and tracks the daemon's own PID file on start, and cleans up any duplicate instances on stop/restart, preventing client ID flapping on the broker.
-- **Process memory optimization at boot**: detach/exec background tasks cleanly in `v3/S39tc100-linux66`, avoiding lingering shell wrapper processes in user space (~0.3 MB saved).
+- **Boot script**: `v3/S39tc100-linux66` starts `autorun-linux66.sh` with its input and output detached from the
+  console. (Correction 2026-11-04, verification: this does not remove the shells that stay in memory; the
+  `/etc/init.d/S39tc100 start` process that stays is the loop that restarts `getty` on the serial console, which is
+  needed, and `controlscripts/mqtt-bridge start` still keeps a `sh` parent of the daemon. No memory was saved.)
 - **Documentation refresh**: comprehensive updates across `docs/api.md`, `README.md`, `v3/install/RELEASE-NOTES.md` and `AGENTS.md` (mDNS, Wi-Fi country code, PTT ALSA player, and current kernel patch series status).
 - **Owner validated**: native mDNS discovery (`<hostname>.local`) verified and confirmed functional from LAN.
 

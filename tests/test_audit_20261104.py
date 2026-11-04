@@ -56,6 +56,24 @@ class PasswordBeforeTheWebServer(unittest.TestCase):
         self.assertGreater(seed, a.index('# 6. Start Web Server'))     # outside the video branch (safe mode too)
 
 
+class NoControlCharacters(unittest.TestCase):
+
+    def test_web_sources_hold_no_control_characters(self):
+        """A backspace (0x08) where `\\b` was meant made the reboot regex of 90-startup.js never match (the dashboard
+        said "Command sent" and showed a red error while the camera restarted)."""
+        bad = []
+        for base in ('www', 'src/webui', 'scripts', 'controlscripts', 'v3'):
+            for f in (ROOT / base).rglob('*'):
+                if not f.is_file() or f.suffix in ('.png', '.jpg', '.gz', '.ico', '.woff', '.woff2', '.pcm', '.bin'):
+                    continue
+                data = f.read_bytes()
+                if b'\0' in data[:4096]:
+                    continue                                           # binary
+                if re.search(rb'[\x01-\x08\x0b\x0e-\x1f]', data):
+                    bad.append(str(f.relative_to(ROOT)))
+        self.assertEqual(bad, [])
+
+
 class RtspInterleavedFrame(unittest.TestCase):
 
     def test_buffer_ended_after_a_consumed_frame(self):
