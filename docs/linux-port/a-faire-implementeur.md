@@ -133,17 +133,26 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 35. [ ] **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
     - Protocole WHEP (WebRTC HTTP Egress Protocol) pour streaming direct vers les navigateurs sans serveur intermédiaire (Go2RTC/MediaMTX).
     - Exploitation directe des paquets RTP H.264/H.265 et audio PCMA déjà packagés en interne, avec latence inférieure à 150 ms dans le WebUI.
-36. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
+36. [ ] **Frise chronologique interactive dans le WebUI (Timeline & Replay scrubbing)** :
+    - Interface temporelle fluide HTML5/Canvas pour naviguer dans les enregistrements sur carte SD sur 24 heures.
+    - Représentation visuelle des blocs d'enregistrement continu et surlignage coloré des événements marquants (mouvements, bruits VOX, sabotages).
+    - Clic ou scrub sur la frise pour charger instantanément le lecteur vidéo MP4 à la seconde exacte sans recharger la page.
+    - Zéro charge CPU/RAM pour la caméra : rendu 100 % côté navigateur client à partir d'un fichier index compact.
+37. [ ] **Réduction du bruit spatiale adaptative sans allocation CMA (2D-NR dynamique par gain ISP)** :
+    - Le 3D-NR matériel étant désactivé par manque de mémoire tampon dans le pool CMA (18 Mo), exploiter dynamiquement le filtre spatial 2D-NR de l'ISP.
+    - Asservir le niveau de lissage et le coring au gain capteur en temps réel (`ispx_ae_report`) : netteté maximale et piqué fin en plein jour, atténuation progressive du fourmillement sur les aplats sombres la nuit.
+    - Gain : image nocturne nettement plus propre et économie de 20 à 30 % de bande passante / débit H.264 sans aucun octet de RAM supplémentaire.
+38. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par
     connexion sans plafond), R3, D1-D7, D9.
 
 ## P2 — plus tard, seulement si un besoin apparaît
 
-37. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
+39. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
-38. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
+40. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
 
 ## Hors implémenteur (propriétaire)
