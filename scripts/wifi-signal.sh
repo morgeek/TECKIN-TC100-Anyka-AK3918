@@ -6,8 +6,8 @@
 #      WIFI_QUAL  link quality, a number (0-100 scale of the driver), empty when unknown
 #      WIFI_IF    the interface the values come from
 # Signal: the access point's averaged signal that wifi-quality.sh writes each minute from `iw station dump`
-# ($WIFI_AVG_FILE, "<uptime s> <dBm>", used while less than 3 minutes old: the /proc level of rtl8xxxu is one frame and
-# read -12..-16 dBm on the .11 where iw averaged -25), else the level of /proc/net/wireless.
+# ($WIFI_AVG_FILE, "<uptime s> <dBm>": the "beacon signal avg" of the access point, used while less than 3 minutes old;
+# it agrees with the link rate, while iw's "signal avg" of rtl8xxxu can be far off), else the level of /proc/net/wireless.
 # Reads wlan0 of /proc/net/wireless; "any" falls back to the first interface with a non-zero link quality (the idle
 # AP interface wlan1 is all zeros). Returns 1 when no interface was found. Test hook: WIFI_PROC_FILE (a file instead
 # of /proc/net/wireless).

@@ -7,7 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- **Frigate configuration without the camera password**: `state.cgi?cmd=frigateyaml` writes
+  `{FRIGATE_RTSP_PASSWORD}` in the stream addresses. A configuration pasted as is now needs that environment variable
+  set to the camera password on the Frigate side (docker `-e`, compose `environment:`, or the add-on options).
+- **Plain HTTP only on the camera** (port 80): the 2.x web modes and HTTPS leftovers are gone; HTTPS is done by a
+  reverse proxy (README, "HTTPS with a reverse proxy").
+
 ### Fixed
+- **Wi-Fi quality log frozen** (`wifi-quality.sh`): `iw` and `ping` run under `timeout`. The signal it records and
+  shares with every page (`scripts/wifi-signal.sh`) is the access point's `beacon signal avg` (iw's `signal avg` of
+  rtl8xxxu read -13 dBm where the beacons, /proc and the link rate gave about -50), else `/proc/net/wireless`.
+- **Services switched off shown as stopped**: `health.cgi` says `disabled` and no longer counts them as restarts.
+- **SD card "not properly unmounted"** after a deliberate reboot or a web update: the card is remounted read-only first.
 - **Frame rate reported as 15 fps** in the Frigate configuration (`state.cgi?cmd=frigateyaml`), the Home Assistant
   integration manifest and the integration test while the camera ran at another rate: those three did not read
   `rtspserver.conf` before summing up the streams, and reported the defaults.

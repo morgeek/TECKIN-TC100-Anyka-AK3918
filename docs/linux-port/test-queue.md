@@ -1941,3 +1941,10 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 - `frigateyaml` avec `{FRIGATE_RTSP_PASSWORD}` : OK ; à mentionner dans le CHANGELOG (une config collée telle quelle demande désormais la variable d'environnement côté Frigate).
 - `no-https` (0349ff1) : sur 3.0 le web n'a jamais servi de HTTPS (busybox httpd), donc pas de régression pour une installation existante ; le bundle CA des connexions sortantes reste fourni par Buildroot (`/mnt/ext/etc/ssl/certs/ca-certificates.crt`, `CURL_CA_BUNDLE`), la suppression de `config/ssl/cacert` ne touche pas ntfy / GitHub / Telegram. À vérifier sur caméra avec la rc24 : `update-check.sh` et une notification ntfy.
 - Toujours en attente : **rc24** (VERSION est encore 3.0.1-rc23) pour tester tout cela sur les deux caméras.
+
+## 2026-11-04 — Signal Wi-Fi : `beacon signal avg` (suite de la relecture testeur de 11:05) (`[wifi-beacon]`)
+
+- **Quoi :** `wifi-quality.sh` relève `beacon signal avg:` de `iw dev wlan0 station dump` (signal moyen des balises du point d'accès) au lieu de `signal avg:` (faux sur la .24 : -13 dBm avec MCS 2). Pas de repli sur `signal avg` (démontré faux avec rtl8xxxu) : sans ligne de balises, c'est le niveau de `/proc/net/wireless`. La valeur reste partagée par `scripts/wifi-signal.sh` (cache de 3 min) avec le tableau de bord, `metrics.cgi` et MQTT.
+- **Interrupteur :** aucun (revert du commit).
+- **Test (rc24, `WIFI_QUALITY=1`) :** `rssi` de `/tmp/wifi-quality.log` ≈ `beacon signal avg` de `iw` (.24 ≈ -51, .11 ≈ -20) et cohérent avec le débit (`tx bitrate`) ; même valeur sur le tableau de bord et `metrics.cgi`.
+- **Critères :** écart ≤ 3 dB avec `beacon signal avg` ; plus de valeur aberrante (-13 avec MCS 2).

@@ -22,9 +22,10 @@ wq_rssi() {
   echo "${WIFI_DBM:-null}"
 }
 
-# totals of "tx retries" and "tx failed" over the stations (the access point), and the driver's averaged signal of
-# the access point ("signal avg", dBm; "-" when there is none). iw and ping run under timeout: a sample stuck in the
-# Wi-Fi driver kept the housekeeper job "running" for hours (the .11, 2026-11-03: log frozen, processes left).
+# totals of "tx retries" and "tx failed" over the stations (the access point), and the averaged signal of the access
+# point's beacons ("beacon signal avg", dBm; "-" when there is none). Not "signal avg": with rtl8xxxu it read -13 dBm on
+# the .24 while beacons, /proc and the MCS 2 rate all said about -50 (tester, 2026-11-04). iw and ping run under
+# timeout: a sample stuck in the Wi-Fi driver kept the housekeeper job "running" for hours (.11, 2026-11-03).
 wq_station() {
   if [ -n "$WQ_STATION" ]; then cat "$WQ_STATION" 2>/dev/null
   else timeout 5 "$(command -v iw || echo /mnt/ext/bin/iw)" dev "$IFACE" station dump 2>/dev/null; fi | {
@@ -33,7 +34,8 @@ wq_station() {
       case "$_a $_b" in
         "tx retries:") case "$_v" in ''|*[!0-9]*) ;; *) _rt=$((_rt + _v)) ;; esac ;;
         "tx failed:") case "$_v" in ''|*[!0-9]*) ;; *) _fl=$((_fl + _v)) ;; esac ;;
-        "signal avg:") case "$_v" in -[0-9]|-[0-9][0-9]|-10[0-9]|-110) [ "$_sg" = - ] && _sg=$_v ;; esac ;;
+        "beacon signal") [ "$_v" = "avg:" ] && case "${_rest%% *}" in
+            -[0-9]|-[0-9][0-9]|-10[0-9]|-110) [ "$_sg" = - ] && _sg=${_rest%% *} ;; esac ;;
       esac
     done
     echo "$_rt $_fl $_sg"

@@ -169,19 +169,27 @@ class NightFindings(unittest.TestCase):
             (d / 'avg').write_text('700 -25\n')
             self.assertEqual(sh(code).stdout.strip(), '[-14]')              # 300 s old: stale
 
-    def test_quality_sample_takes_signal_avg_and_bounds_iw_and_ping(self):
+    def test_quality_sample_takes_beacon_signal_avg_and_bounds_iw_and_ping(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
-            (d / 'wireless').write_text(HDR + ' wlan0: 0000   70.  -14.  -256        0      0\n')
-            (d / 'st').write_text('Station aa:bb (on wlan0)\n\tsignal avg:\t-25 [-27, -29] dBm\n\ttx retries:\t3\n\ttx failed:\t0\n')
+            (d / 'wireless').write_text(HDR + ' wlan0: 0000   70.  -49.  -256        0      0\n')
+            # the .24 on 2026-11-04: "signal avg" -13 is wrong (MCS 2), the beacons' -51 is right
+            (d / 'st').write_text('Station aa:bb (on wlan0)\n\tsignal:  \t0 dBm\n\tsignal avg:\t-13 dBm\n'
+                                  '\tbeacon signal avg:\t-51 dBm\n\ttx retries:\t3\n\ttx failed:\t0\n')
             (d / 'ping').write_text('3 packets transmitted, 3 packets received, 0% packet loss\n')
             (d / 'up').write_text('500.00 1\n')
             env = dict(WQ_LOG=str(d / 'log'), WQ_SUM=str(d / 'sum'), WQ_STATE=str(d / 'prev'), WQ_WIRELESS=str(d / 'wireless'),
                        WQ_STATION=str(d / 'st'), WQ_PING=str(d / 'ping'), WQ_UPTIME=str(d / 'up'), WIFI_AVG_FILE=str(d / 'avg'))
             r = sh('WQ_NOW=1000 sh %s sample' % (ROOT / 'scripts/wifi-quality.sh'), env)
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual((d / 'log').read_text().split()[:2], ['1000', '-25'])
-            self.assertEqual((d / 'avg').read_text().strip(), '500 -25')
+            self.assertEqual((d / 'log').read_text().split()[:3], ['1000', '-51', '0'])
+            self.assertEqual((d / 'avg').read_text().strip(), '500 -51')
+            # no beacon line: the /proc level, no cache written
+            (d / 'avg').unlink()
+            (d / 'st').write_text('Station aa:bb (on wlan0)\n\tsignal avg:\t-13 dBm\n\ttx retries:\t3\n')
+            sh('WQ_NOW=1060 sh %s sample' % (ROOT / 'scripts/wifi-quality.sh'), env)
+            self.assertEqual((d / 'log').read_text().splitlines()[-1].split()[1], '-49')
+            self.assertFalse((d / 'avg').exists())
         w = text('scripts/wifi-quality.sh')
         self.assertIn('timeout 5 "$(command -v iw', w)
         self.assertIn('timeout 8 ping', w)
