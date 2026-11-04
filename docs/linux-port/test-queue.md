@@ -2089,3 +2089,6 @@ Activé à la demande du propriétaire sur la .11 (rc25) : `MQTT_BRIDGE_IMPL=c` 
 - Le pont shell avait le même `$!` faux, masqué par le ménage des orphelins `mqtt-bridge.sh run` dans `stop`.
 - La .11 reste en mode C cette nuit (soak) ; le script corrigé est superposé en RAM jusqu'au prochain redémarrage (au démarrage, un seul `start`, donc pas de doublon). Il faut une rc26 pour l'avoir en flash.
 - Remarque : `MQTT_TOPIC_ROOT=tc100/camera` dans `mqtt.conf` mais les deux ponts publient sous `ipcamera2/` (racine tirée du nom d'hôte ?) : à documenter ou aligner.
+
+### Correction 19:35 — gain mémoire réel du pont C (testeur)
+Le « 376 Ko contre 7 976 Ko » plus haut compare des **RSS**, qui comptent plusieurs fois le code busybox partagé par les processus shell. Mesure par `smaps_rollup` : pont shell (.24, 4 processus) **PSS 1 129 Ko**, privé 416 Ko ; `tc100-mqttd` (.11) **PSS 209 Ko**, privé 84 Ko. Gain réel ≈ **0,9 Mo** (sur ~20 Mo disponibles), plus les forks évités (curl par publication, sous-shells) ; `MemAvailable` de la .11 n'a pas bougé de façon mesurable juste après la bascule. Le critère « RSS du démon bien en dessous des 5,7 Mo » du plan est donc trompeur : comparer les PSS.
