@@ -2,7 +2,8 @@
 
 This firmware is built on the work of others. Where code is derived, its copyright
 headers are kept in the source files. This list names the projects; each one's own
-licence applies to its code.
+licence applies to its code. The code of this project itself is under the GPL-2.0
+([LICENSE](LICENSE)).
 
 | Project | What we use | Where |
 |---|---|---|

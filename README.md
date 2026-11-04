@@ -437,7 +437,9 @@ Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-por
 
 ## Where it comes from
 
-Full list of projects and licences: [CREDITS.md](CREDITS.md).
+Licence: the code of this project is under the GNU General Public License version 2 ([LICENSE](LICENSE)), like the
+Linux kernel and the vendor GPL sources it derives from. Third-party code keeps its own licence. Full list of projects
+and licences: [CREDITS.md](CREDITS.md).
 
 - **The original hack.** This project began in February 2026 as a copy of
   [TECKIN-TC100-Anyka-AK3918-camera-hacks](https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks)

@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `LICENSE`: the project's own code is under the GPL-2.0 (third-party code keeps its licence, `CREDITS.md`).
+
 ## [3.0.1-rc24] - 2026-11-04
 
 The audit fixes of the night of 2026-11-03/04, the tester's night findings on rc23 and plain HTTP only.

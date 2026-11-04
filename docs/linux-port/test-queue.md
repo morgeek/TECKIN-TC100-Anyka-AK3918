@@ -1968,3 +1968,9 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
   5. Vérification de mise à jour et une notification Ntfy ou Telegram de test (certificats du système après la suppression de `config/ssl`).
   6. Propriétaire : interface derrière son proxy HTTPS, vidéo fluide comprise.
 - **Critères :** 1 à 6 conformes, aucune régression par rapport à la nuit rc23 (pas de redémarrage, RAM stable ~20 Mo, bascule jour/nuit).
+
+## 2026-11-04 — Retours du propriétaire : mDNS, `syslog/host`, licence (`[license]`)
+
+- **mDNS :** `<nom>.local` confirmé par le propriétaire depuis son poste. Point fermé dans `release-3.0.1.md`.
+- **`syslog/host` (.11 = 192.168.1.23, .24 = 192.168.1.22) :** les deux adresses sont le même Synology ; pas de défaut, rien à aligner. À vérifier au passage avec la rc24 : les journaux des deux caméras arrivent bien sur le Synology.
+- **Licence :** fichier `LICENSE` = texte officiel de la GPL-2.0 (cohérent avec les patchs noyau et `libakuio`, déjà `SPDX-License-Identifier: GPL-2.0`) ; README (« Where it comes from ») et `CREDITS.md` le disent, le code tiers garde sa licence. Pas de test caméra.
