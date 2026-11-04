@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **`tc100-mqttd`** (`src/mqttd`): the MQTT bridge as one small C process instead of four shell processes (about 5.7 MB
+  together, the second-largest memory user after the video server). MQTT 3.1.1, one persistent connection with the
+  retained Will, `online`/`offline` availability, keepalive, backoff and circuit breaker of `mqtt.conf`. The discovery
+  payloads, health JSON, manifest and command results are still produced by `scripts/mqtt-bridge.sh` (same topics,
+  byte for byte the same payloads, which the host tests compare); the daemon publishes them and runs the commands
+  through that script as one argument, with a time limit. Off by default: set `MQTT_BRIDGE_IMPL=c` in
+  `config/mqtt.conf` and restart the MQTT bridge service (`shell` is the default until the cameras pass the test; no
+  binary installed means the shell bridge). The web UI status (`/tmp/mqtt_last_pub.status`, CONNACK diagnosis) and the
+  health check work with both. Scripts that call `mqtt-bridge.sh publish` reach the running daemon through a FIFO
+  instead of opening a connection each.
 - `LICENSE`: the project's own code is under the GPL-2.0 (third-party code keeps its licence, `CREDITS.md`).
 - **Wi-Fi rules per country**: the regulatory database (`regulatory.db`, Buildroot wireless-regdb) is in the
   initramfs, and Settings → Network → "Country (Wi-Fi rules)" (`WIFI_COUNTRY` in `boot.conf`, also in the JSON

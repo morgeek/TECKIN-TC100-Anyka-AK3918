@@ -432,7 +432,10 @@ Notes, hardware facts, status and how to build: [docs/linux-port](docs/linux-por
   (`flashboot`), otherwise the stock firmware. `v3/autorun-linux66.sh` starts the services.
 - **Settings** live in two alternating flash slots (`cfga` / `cfgb`, `cfg-persist`), so a power cut during a save
   keeps the previous settings.
-- **MQTT**: forged in shell and sent through `nc`. One persistent connection.
+- **MQTT**: by default `scripts/mqtt-bridge.sh` forges the packets in shell and sends them through `nc` (four shell
+  processes, about 5.7 MB). `MQTT_BRIDGE_IMPL=c` in `config/mqtt.conf` runs `tc100-mqttd` instead (`src/mqttd`): one
+  small C process, one persistent connection, same topics, payloads and commands (the script stays the worker that
+  builds them).
 - Platform notes and bugs fixed during the bring-up: [docs/known-issues.md](docs/known-issues.md). HTTP API:
   [docs/api.md](docs/api.md).
 
@@ -471,6 +474,7 @@ src/libakuio/       Free replacement for the vendor encoder-memory library
 src/jpegenc/        Hardware JPEG encoder
 src/h265enc/        H.265 command-list generator and register-sequence model (experimental)
 src/httpfront/      Front for busybox httpd (redirects /, one connection per request)
+src/mqttd/          tc100-mqttd: the MQTT connection in C (option of the MQTT bridge, MQTT_BRIDGE_IMPL=c)
 src/netacl/         libnetacl: local-network-only filter for the uClibc programs
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
 www/                Web interface; www/cgi-bin/ are shell CGIs

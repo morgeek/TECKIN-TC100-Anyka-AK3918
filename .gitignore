@@ -48,3 +48,13 @@ dist/
 /src/tc100rtsp/tc100_rtsp.dbg
 /src/libakuio/libakuio.dbg.so
 /src/tc100rtsp/stub_pthread.c
+
+# tc100-mqttd build products
+/src/mqttd/*.o
+/src/mqttd/*.dbg
+/src/mqttd/stubs.c
+/src/mqttd/defined.txt
+/src/mqttd/imports.txt
+/src/mqttd/libc.so.0
+/src/mqttd/tc100-mqttd
+/src/mqttd/tc100-mqttd-host

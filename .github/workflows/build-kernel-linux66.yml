@@ -16,6 +16,7 @@ on:
       - 'src/tc100rtsp/**'
       - 'src/libakuio/**'
       - 'src/httpfront/**'
+      - 'src/mqttd/**'
       - 'src/jpegenc/**'
       - 'VERSION'
       - '.github/workflows/build-kernel-linux66.yml'
@@ -124,6 +125,8 @@ jobs:
           cp src/libakuio/libakuio.so $P/
           make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/dev/null
           cp src/tc100rtsp/tc100_rtsp $P/
+          make -C src/mqttd CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/mqttd/tc100-mqttd $P/
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
           cat > $P/README-TEST.txt <<EOF
           RAM-only test of the Linux 6.6 image (nothing is written to flash).

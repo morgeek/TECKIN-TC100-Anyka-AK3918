@@ -1,7 +1,7 @@
 #!/bin/sh
 # Local CI in Docker, run BEFORE pushing (the GitHub runs take 15-20 minutes each).
 #   sh tests/docker/local-ci.sh tests    # Python regressions + frontend tests (as the CI job)
-#   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, jpegenc, httpfront (as the kernel job)
+#   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, jpegenc, httpfront, tc100-mqttd (as the kernel job)
 #   sh tests/docker/local-ci.sh kernel   # Linux 6.6 + patches/kernel-6.6/series + zImage + dtbs (slow the first time)
 #   sh tests/docker/local-ci.sh all      # the three
 # Works from Git Bash on Windows (Docker Desktop) and from Linux. The tree is copied into the container (read-only
@@ -38,7 +38,9 @@ run_cross() {
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
 		make -C src/libakuio CROSS=arm-linux-gnueabi- 2>&1 | grep -iE "warning|error" || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- 2>&1 | grep -iE "warning|error" || true
-		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so
+		make -C src/mqttd CROSS=arm-linux-gnueabi- 2>&1 | grep -iE "warning|error" || true
+		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd
+		echo "tc100-mqttd (stripped, bytes): $(wc -c < src/mqttd/tc100-mqttd)"
 		make -C src/tc100rtsp test_rtsp >/dev/null 2>&1 && echo "host test build: ok"
 		echo "cross: ok"' || rc=1
 }

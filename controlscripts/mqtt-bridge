@@ -2,6 +2,9 @@
 SERVICE_NAME="MQTT Bridge"
 PIDFILE="/var/run/mqtt-bridge.pid"
 WATCHDOG_PIDFILE="/var/run/mqtt-bridge-watch.pid"
+# MQTT_BRIDGE_IMPL=c (config/mqtt.conf) runs the free C daemon instead of scripts/mqtt-bridge.sh run (src/mqttd);
+# the pid file, the watchdog, the status file of the web UI and the health check are the same for both.
+BIN=/mnt/tc100test/tc100-mqttd
 
 . /mnt/scripts/common_functions.sh
 
@@ -17,6 +20,17 @@ bridge_enabled_in_config()
       *) exit 1 ;;
     esac
   )
+}
+
+bridge_impl()
+{
+  # "c" only when asked for in mqtt.conf and the binary is there; anything else is the shell bridge.
+  (
+    [ -x "$BIN" ] && [ -f /mnt/config/mqtt.conf ] || exit 1
+    # shellcheck disable=SC1091
+    . /mnt/config/mqtt.conf 2>/dev/null
+    [ "$MQTT_BRIDGE_IMPL" = c ]
+  ) && echo c || echo shell
 }
 
 status()
@@ -37,9 +51,15 @@ start()
   fi
 
   rm -f "$PIDFILE" >/dev/null 2>&1 || true
-  run_busybox nohup /mnt/scripts/mqtt-bridge.sh run </dev/null >/dev/null 2>&1 &
-  echo "$!" > "$PIDFILE"
-  echo "MQTT bridge started"
+  if [ "$(bridge_impl)" = c ]; then
+    run_busybox nohup "$BIN" </dev/null >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+    echo "MQTT bridge started (tc100-mqttd)"
+  else
+    run_busybox nohup /mnt/scripts/mqtt-bridge.sh run </dev/null >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+    echo "MQTT bridge started"
+  fi
 
   ## Watchdog — only when the bridge is enabled in config; a disabled bridge
   ## exits by design and a watchdog would restart-loop it forever.
@@ -63,6 +83,8 @@ stop()
     rm -f "$PIDFILE" 2>/dev/null || true
     echo "MQTT bridge is not running"
   fi
+  # a daemon that was killed hard leaves its FIFO and pid file: other scripts then fall back to one-shot connections
+  rm -f /var/run/tc100-mqttd.pid /tmp/mqtt-bridge.pub 2>/dev/null
   # Ensure no orphan listener subshells remain if the parent was SIGKILLed
   _mb_orphans="$(ps 2>/dev/null | awk '/\/scripts\/mqtt-bridge\.sh run/ { print $1 }')"
   if [ -n "$_mb_orphans" ]; then
