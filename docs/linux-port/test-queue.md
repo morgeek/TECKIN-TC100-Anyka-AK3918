@@ -2107,3 +2107,16 @@ Mesure `smaps_rollup` de tous les processus : **espace utilisateur = 7,1 Mo PSS*
 | < 200 Ko chacun | dropbear ×2, logfwd, watchdog, ntpd, klogd, getty, udhcpc, mdnsd, httpfront | déjà petits |
 
 Bilan : le C peut encore libérer **environ 2 Mo** au total (≈ 10 % de la RAM disponible), dont 0,3 Mo sans écrire de C. La RAM n'est pas le goulot actuel (20 Mo stables la nuit, pas de fuite) ; la marge qui compte est la **CMA de la .24 (1,4 Mo libres)**, que ces portages ne touchent pas. Priorité proposée : les 2 `exec` (risque nul), puis `arecord` dans `tc100_rtsp` ; le démon C unique seulement si un besoin mémoire apparaît (beaucoup de logique shell testée à réécrire).
+
+## 2026-11-04 19:45 — RAM libre au service de la vidéo : deux essais sur la .11 (décision du propriétaire : tous les tests sur la .11)
+
+**Essai 1 (en cours cette nuit) — file d'envoi client plus grande : `RTSP_QMAX=1024`.**
+- Constat : la file par client vaut 384 Ko (`QMAX_DEF`, ≈ 2 s à 1,6 Mbit/s) ; la nuit rc23 a montré des blocages Wi-Fi de 1-2 s (ping max ~1,9 s). Au-delà de la file, `bcast()` saute les images jusqu'à la prochaine IDR (`dropped`).
+- Réglage : `RTSP_QMAX=1024` ajouté à `/mnt/config/rtsp.env` de la .11 (sauvegarde `/tmp/rtsp.env.before-qmax`, le fichier était vide), `rtsp-h26x restart` à 18:39 UTC ; log : `client queue 1024 KB` (≈ 5 s). Coût : jusqu'à ~1 Mo de RAM par client congestionné (un client : Frigate).
+- `RTSP_SNDBUF` n'est **pas** le bon levier (il plafonne `SO_SNDBUF`, l'inverse) ; `RTSP_PACING_US` non activé pour garder un seul changement.
+- Mesure : l'enregistreur de nuit note maintenant `drop` (compteur cumulé `dropped` du STAT) sur la .11 **et** la .24 (témoin rc23, file 384 Ko) ; parties précédentes dans `/tmp/night-part1.log`. Critère : moins d'images sautées sur la .11 que sur la .24 pour des pertes Wi-Fi comparables ; latence du direct à surveiller après un blocage (la file plus longue retarde au lieu de sauter).
+- Retour : vider `/mnt/config/rtsp.env` puis `rtsp-h26x restart`.
+
+**Essai 2 (demande à l'implémenteur) — mode smart de l'encodeur (meilleure image ou moins de débit à qualité égale).**
+- `smart_apply()` exige `SMART_LTR_NEED` = 3 407 872 + 256 Ko libres dans le pool encodeur ; avec `ak39_venc.pool` 9600K il reste ~1,9 Mo (R11-01 : `alloc dma for 3407872 failed`, serveur arrêté). Le paramètre est `0444` (pas modifiable à chaud) et la ligne de commande vient du bootloader (interdit d'y toucher).
+- Demande : un build pour la .11 avec la **valeur par défaut compilée** `ak39_venc.pool=12M` (patch 0015, pas de U-Boot), puis test `RTSP_VBR=1` + `RTSP_SMART=1` (mode 1 « long-term reference », pas le mode 2) : log `smart mode 1 (long-term reference)`, pas de `alloc dma … failed`, serveur vivant 24 h, MemAvailable attendu ~2,4 Mo plus bas (≈ 18-19 Mo), débit / qualité comparés à la .24.
