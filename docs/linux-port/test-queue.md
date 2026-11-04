@@ -2120,3 +2120,7 @@ Bilan : le C peut encore libérer **environ 2 Mo** au total (≈ 10 % de la RAM 
 **Essai 2 (demande à l'implémenteur) — mode smart de l'encodeur (meilleure image ou moins de débit à qualité égale).**
 - `smart_apply()` exige `SMART_LTR_NEED` = 3 407 872 + 256 Ko libres dans le pool encodeur ; avec `ak39_venc.pool` 9600K il reste ~1,9 Mo (R11-01 : `alloc dma for 3407872 failed`, serveur arrêté). Le paramètre est `0444` (pas modifiable à chaud) et la ligne de commande vient du bootloader (interdit d'y toucher).
 - Demande : un build pour la .11 avec la **valeur par défaut compilée** `ak39_venc.pool=12M` (patch 0015, pas de U-Boot), puis test `RTSP_VBR=1` + `RTSP_SMART=1` (mode 1 « long-term reference », pas le mode 2) : log `smart mode 1 (long-term reference)`, pas de `alloc dma … failed`, serveur vivant 24 h, MemAvailable attendu ~2,4 Mo plus bas (≈ 18-19 Mo), débit / qualité comparés à la .24.
+
+## 2026-11-04 19:50 — Liste consolidée des changements à faire (testeur)
+
+Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 / P1 3.0.2 / P2), dans **`docs/linux-port/a-faire-implementeur.md`**. Premier point : publier une rc26 avec le correctif d'arrêt du pont MQTT en C (`04f2313`, `9853759`).
