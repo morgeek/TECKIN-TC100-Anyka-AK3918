@@ -529,27 +529,34 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
 
 ---
 
-### cmd=set_web_mode
+### cmd=wifi_set_country
 
-Switches the web server mode. Changes take effect after a reboot.
+Sets the Wi-Fi 2-letter ISO regulatory country code (e.g. `FR`, `US`, `DE`). Updates `WIFI_COUNTRY` in `boot.conf` and applies regulatory domain limits at runtime.
 
 **Parameters:**
 
 | Parameter | Values | Description |
 |---|---|---|
-| `web_mode` | `full` | HTTPS on port 443 (default) |
-| `web_mode` | `http` | HTTP on port 80 |
-| `web_mode` | `ultra-lite` | Minimal busybox httpd frontend |
-| `web_mode` | `off` | Disable web server |
-| `ultralite_http_port` | 1–65535 | Port for `ultra-lite` mode (default 80) |
+| `country` | `[A-Z]{2}` | 2-letter country code |
 
-**Response:** HTML only
+**Response:** JSON / HTML
 
 ```sh
 curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
   -H "X-CSRF-Token: <token>" \
-  --data-urlencode "cmd=set_web_mode" \
-  --data-urlencode "web_mode=http"
+  --data-urlencode "cmd=wifi_set_country" \
+  --data-urlencode "country=FR"
+```
+
+---
+
+### cmd=wifi_country_info
+
+Returns the active and configured Wi-Fi country code as JSON.
+
+**Response (JSON):**
+```json
+{"ok":true,"country":"FR","supported":true}
 ```
 
 ---
@@ -1850,9 +1857,9 @@ Plays audio through the camera speaker (push-to-talk).
 - Body: raw PCM — **Int16 LE, mono, 8 kHz**. Must be an even byte count.
 - Max body size: 524 288 bytes (512 KB / ~32 s of audio)
 - CSRF required (`X-CSRF-Token` header), like every mutating endpoint
-- Plays through `/mnt/bin/ak_ao_ptt`, created at boot by `scripts/prepare-ptt-player.sh`: an MD5-guarded copy of `/usr/bin/ak_ao_demo` with the speaker-enable polarity flipped (the TC100 amplifier is active-low). The stock binary is never modified.
-- Volume is read from `/mnt/config/pttvolume.conf` (0–100 → mapped to 0–6)
-- The codec device is exclusive: if RTSP is running it is stopped for the clip and restarted by a detached worker ~2 s after playback ends. The upload lock is held until then, so a second upload gets `BUSY`.
+- Plays via ALSA (`aplay`) through `scripts/speaker-play.sh`: raw PCM Int16 LE mono 8 kHz sent to the DAC/amplifier. RTSP streaming continues in parallel without interruption.
+- Volume is read from `/mnt/config/pttvolume.conf` (0–100)
+- Concurrent playbacks are locked via `/tmp/speaker-play.lock`; busy uploads return `BUSY` (429).
 
 **Response:** Plain text `OK`, or one of:
 

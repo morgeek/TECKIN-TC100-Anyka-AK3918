@@ -47,7 +47,7 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 
 ## Building the 6.6 kernel
 
-The port is a series of 10 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
+The port is a series of 15 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
 
 1. `ARM: anyka` — `ARCH_ANYKA`, machine, interrupt controller, system timer, UART
 2. `soc: anyka` — L2 buffer engine helper and the SD/MMC host (`akmci`)
@@ -59,6 +59,11 @@ The port is a series of 10 patches on the `v6.6` tag, in `patches/kernel-6.6/ser
 8. `misc: ak39_venc` — encoder access
 9. `ARM: dts` — the TC100 board
 10. `spi` — the AK3918EV300 SPI controller (polled PIO) and the SPI NOR partitions
+11. `media: anyka-isp` — USERPTR capture buffers
+12. `media: anyka-isp` — cached capture buffers
+13. `usb: host: anyka` — optional 32-bit FIFO access
+14. `media: anyka-isp` — OSD ioctls for main and sub channels
+15. `misc: ak39_venc` — encoder pool from reusable CMA area
 
 ```
 git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git

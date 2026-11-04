@@ -95,7 +95,7 @@ fi
 
 # 4. V3 services
 for a in /mnt/v3/autorun-linux66.sh /mnt/sd/v3/autorun-linux66.sh /mnt/sd/autorun-linux66.sh /mnt/sd/tc100test/autorun.sh; do
-  if [ -f "$a" ]; then log "starting $a"; /bin/sh "$a" & break; fi
+  if [ -f "$a" ]; then log "starting $a"; /bin/sh "$a" </dev/null >/dev/null 2>&1 & break; fi
 done
 
 # 5. One-shot self-test (touch tc100test/selftest on the card); log in tc100test/selftest-<n>.log

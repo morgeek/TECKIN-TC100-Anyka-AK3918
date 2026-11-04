@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc26] - 2026-11-04
+
+### Changed
+- **`tc100-mqttd` supervision and PID tracking**: `controlscripts/mqtt-bridge` properly waits for and tracks the daemon's own PID file on start, and cleans up any duplicate instances on stop/restart, preventing client ID flapping on the broker.
+- **Process memory optimization at boot**: detach/exec background tasks cleanly in `v3/S39tc100-linux66`, avoiding lingering shell wrapper processes in user space (~0.3 MB saved).
+- **Documentation refresh**: comprehensive updates across `docs/api.md`, `README.md`, `v3/install/RELEASE-NOTES.md` and `AGENTS.md` (mDNS, Wi-Fi country code, PTT ALSA player, and current kernel patch series status).
+- **Owner validated**: native mDNS discovery (`<hostname>.local`) verified and confirmed functional from LAN.
+
 ## [3.0.1-rc25] - 2026-11-04
 
 rc24 plus: the Wi-Fi country rules and an earlier Wi-Fi at boot, the MQTT bridge in C (off by default), the fixes of

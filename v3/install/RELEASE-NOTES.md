@@ -7,8 +7,11 @@ Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 - **The speaker works** (its amplifier was driven the wrong way round), and the camera's sounds no longer clip.
 - **Night picture** from the sensor tuning's own night settings, **10 fps in low light** by day, anti-flicker
   (50 / 60 Hz, the camera default shown), the IR-cut pulsed as the stock firmware does.
-- **Wi-Fi recovers by itself** when the chip fails to start after a reboot; settings changed just before a reboot are
-  kept; the video server restarts by itself if it stops.
+- **Wi-Fi recovers by itself** when the chip fails to start after a reboot; Wi-Fi regulatory domain and country selection in Settings; settings changed just before a reboot are kept; the video server restarts by itself if it stops.
+- **Native mDNS local discovery** enabled out of the box (`<hostname>.local`).
+- **Native MQTT bridge in C** (`tc100-mqttd`) available as a lightweight alternative to shell loops.
+- **Fluid live video preview** powered by native MediaSource fMP4 across all dashboard and settings views.
+- Plain HTTP on port 80 only (external TLS delegated cleanly to a reverse proxy).
 - About 21 MB of free memory (was 10 MB in the first 3.0 builds), the clock and privacy masks drawn by the image
   processor, a 640x360 sub-stream from its own scaler.
 - Bit rate mode (constant / variable), the stock firmware's day / night method as an option, IR LED protection.
