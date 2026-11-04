@@ -187,6 +187,32 @@
             "$_wr_on" "$_wr_ap" "$(_wr_v ssid)" "$(_wr_v psk)"
     ;;
 
+    wifi_country_info)
+        # The country whose Wi-Fi rules the radio follows (boot.conf WIFI_COUNTRY, scripts/wifi-country.sh): the
+        # setting, what the kernel applies now ("00" = world rules) and whether the rules database is there.
+        _wc="$(sh /mnt/scripts/wifi-country.sh status 2>/dev/null)"
+        _wc_v() { printf '%s\n' "$_wc" | sed -n "s/^$1=\([0-9A-Z]*\)$/\1/p" | head -n 1; }
+        _wc_db="$(_wc_v regdb)"; [ "$_wc_db" = 1 ] || _wc_db=0
+        printf '{"status":"success","country":"%s","effective":"%s","regdb":%s}\n' \
+            "$(_wc_v configured)" "$(_wc_v effective)" "$_wc_db"
+    ;;
+
+    wifi_set_country)
+        # Saved in boot.conf (its one source) and applied at once by scripts/wifi-country.sh, without reconnecting.
+        _wc_new="$(printf '%s' "${F_country:-}" | tr 'a-z' 'A-Z')"
+        case "$_wc_new" in
+            ''|[A-Z][A-Z])
+                install_config /mnt/config/boot.conf
+                if rewrite_config /mnt/config/boot.conf WIFI_COUNTRY "$_wc_new"; then
+                    ( sh /mnt/scripts/wifi-country.sh apply </dev/null >/dev/null 2>&1 & )
+                    json_body_ok "Wi-Fi country: ${_wc_new:-world rules}"
+                else
+                    json_body_err "WRITE_ERROR" "Cannot write boot.conf"
+                fi ;;
+            *) json_body_err "INVALID_COUNTRY" "A two-letter country code (ISO 3166), or empty for the world rules" ;;
+        esac
+    ;;
+
     wifi_get_ssid)
         # Ask the interface, not a file. The camera often carries no
         # wpa_supplicant.conf at all (the firmware holds credentials in flash),

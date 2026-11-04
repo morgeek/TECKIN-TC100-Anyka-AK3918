@@ -1980,3 +1980,21 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 - **Binaires :** `rwconf`, `getflag`, `getimage` = sources publiques (Unlicense) de `anyka-v4l2rtspserver/libv4l2cpp` (ThatUsernameAlreadyExist), construites par `tools.sh` de `anyka-software` ; `monvifd` = binaire du même auteur (« Micro ONVIF discovery service v1.1 », publié en 2023 dans son hack JCO-PM203 puis TC100), sans source ni licence. Détail dans `CREDITS.md`. Proposé après la 3.0.1 : reconstruire les trois premiers en CI, remplacer `monvifd` (ONVIF coupé par défaut).
 - **Surexposition après démarrage (.11, rc20) :** plus revue par le propriétaire depuis ; close comme cas isolé, à rouvrir si elle revient (critère : luma < 200 en 30 s après le démarrage).
 - Pas de test caméra.
+
+## 2026-11-04 — Pays Wi-Fi (`regulatory.db`), Wi-Fi plus tôt au démarrage (`[wifi-country]`)
+
+- **Quoi :**
+  1. **Base des règles Wi-Fi** : `BR2_PACKAGE_WIRELESS_REGDB=y` (Buildroot) → `/lib/firmware/regulatory.db` dans l'initramfs ; le noyau (inchangé, `CFG80211=y`, signature non exigée) la lit au démarrage. Plus de `cfg80211: failed to load regulatory.db`. La base Buildroot est reconstruite une fois en CI (~40 min, cache ensuite). `build-rootfs66.sh` prévient si le fichier manque.
+  2. **Pays** : clé `WIFI_COUNTRY` de `boot.conf` (seule source ; vide = règles « monde » comme avant), lue par `scripts/wifi-country.sh` (et par `S39tc100` avec le même motif, avant la partie utilisateur). `wpa_supplicant` démarre sur une copie de `config/wpa_supplicant.conf` avec `country=XX` en première ligne (S39 et `wifi-apply`) ; `autorun` relit la base si le noyau l'a ratée et règle le pays s'il n'est pas appliqué ; Réglages → Réseau → « Pays (règles Wi-Fi) » l'applique tout de suite (`wpa_cli set country` + `iw reg set`, sans reconnexion) ; le point d'accès de secours reçoit `country_code` + `ieee80211d=1` ; export / import JSON (`boot.wifi_country`, code ISO à 2 lettres majuscules ou vide).
+  3. **Wi-Fi plus tôt** : dans `S39tc100` le Wi-Fi passe avant la console et le mot de passe ; `udhcpc -T 1 -t 20 -A 5` (une demande par seconde au lieu de 3 s : les premières partent avant l'association) ; le nom DHCP vient de `config/hostname.conf` (`/tmp/dhcp-hostname`), donc `autorun` ne tue plus `udhcpc` sur une caméra qui a son propre nom (le nouveau `udhcpc` effaçait l'adresse jusqu'au bail : coupure à chaque démarrage de la .11 et de la .24). Attente de `wlan0` par pas de 0,2 s.
+  4. Page Réglages : « Se connecter à ce réseau » et « Relancer l'assistant » affichaient « Error: Unexpected response » après un enregistrement réussi (`ok:true` attendu comme `status:success`). Corrigé.
+- **Interrupteur :** `WIFI_COUNTRY=` vide = comportement d'avant pour le pays. Le reste : revert du commit (initramfs, donc mise à jour web complète).
+- **Test (les deux caméras, mise à jour web) :**
+  1. Après le démarrage : `dmesg | grep -i regulatory` → pas de « failed to load » ; `iw reg get` → `country 00` sans pays.
+  2. Réglages → Réseau → Pays = FR, Enregistrer : « En vigueur : FR » après 2-3 s, **pas de coupure** (ping continu depuis le Mac) ; `iw reg get` → `country FR: DFS-ETSI` ; `head -1 /etc/wpa_supplicant.conf` → `country=FR` ; `grep WIFI_COUNTRY /mnt/config/boot.conf`.
+  3. Redémarrer : `iw reg get` → FR sans action ; `logread | grep -i country`.
+  4. Temps du Wi-Fi : `dmesg` / `logread` : moins de secondes entre « wlan0: associated » et l'adresse DHCP qu'avant ; ping continu depuis le Mac pendant un redémarrage : premier ping reçu (noter l'heure) ; **plus de perte pendant la première minute** une fois la première réponse reçue. `ps | grep udhcpc` : un seul, lancé par S39 (pas de redémarrage par autorun) ; le nom DHCP est celui de la caméra sur la box.
+  5. Réglages → Réseau : « Se connecter à ce réseau » sur le réseau actuel → message de succès (plus d'« Unexpected response »).
+  6. Nuit `WIFI_QUALITY=1` en FR : pertes de ping comparées à la nuit rc23 (7-11 %).
+  7. Point d'accès de secours (bouton reset 3-7 s) : `cat /tmp/wifi-rescue/hostapd.conf` → `country_code=FR` ; le téléphone le voit et s'y connecte.
+- **Critères :** 1-5 et 7 conformes ; 6 : pas pire que la rc23 (mieux attendu si les pertes venaient du domaine monde).

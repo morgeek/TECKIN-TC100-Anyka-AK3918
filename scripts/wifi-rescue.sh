@@ -26,7 +26,7 @@
 # WIFI_RESCUE_SSID (default TC100-<last 4 hex of the MAC>), WIFI_RESCUE_PSK
 # (default: the fixed, documented "tc100rescue", owner's decision 2026-11-03;
 # changeable in Settings), WIFI_RESCUE_CHANNEL (used when the station is not
-# associated, default 6). WPA2-PSK only, never an open network.
+# associated, default 6), WIFI_COUNTRY (scripts/wifi-country.sh). WPA2-PSK only, never an open network.
 
 CONF="${WR_BOOT_CONF:-/mnt/config/boot.conf}"
 AP_IP=10.42.0.1
@@ -120,6 +120,9 @@ _wr_channel()
     case "$_c" in [1-9]|1[0-3]) echo "$_c" ;; *) echo 6 ;; esac
 }
 
+# The country of boot.conf (WIFI_COUNTRY, scripts/wifi-country.sh): the access point follows its rules too.
+_wr_country() { _c="$(_wr_kv WIFI_COUNTRY)"; case "$_c" in [A-Z][A-Z]) printf 'country_code=%s\nieee80211d=1' "$_c" ;; esac; }
+
 wr_ap_up() { [ -f "$RUN/hostapd.pid" ] && kill -0 "$(cat "$RUN/hostapd.pid" 2>/dev/null)" 2>/dev/null; }
 
 # Devices on the access point: neighbours seen on wlan1 (ARP complete).
@@ -148,6 +151,7 @@ ctrl_interface=$RUN/ctrl
 ssid=$(wr_ssid)
 channel=$(_wr_channel)
 hw_mode=g
+$(_wr_country)
 ieee80211n=1
 $_wmm=1
 beacon_int=100

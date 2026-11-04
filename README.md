@@ -275,6 +275,9 @@ Settings → **Recording**:
 - **Wi-Fi**: `wifi.txt` on the card (`SSID=`, `PASSWORD=`), the wizard, or Settings → Network. In every case the new
   network comes first and the previous ones stay as fallbacks, so a typo does not take the camera off the network.
   An invalid `wifi.txt` becomes `wifi-invalid.txt` with the reason.
+- **Country**: Settings → Network → "Country (Wi-Fi rules)" (`WIFI_COUNTRY` in `boot.conf`, e.g. `FR`) gives the
+  radio the channels and the transmit power the law of that country allows. Without a country the camera keeps the
+  world rules, the most restrictive. Changed at once, without reconnecting.
 - **Rescue access point** (on by default, `WIFI_RESCUE=1` in `boot.conf`): only while the Wi-Fi does not work.
   After 10 minutes without Wi-Fi (or holding the reset button 3-7 s) the camera opens its
   own Wi-Fi network named `TC100-<MAC>` with the default fixed password **`tc100rescue`** (also configurable in

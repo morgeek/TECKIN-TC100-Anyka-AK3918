@@ -172,6 +172,10 @@ tc_normalize_and_validate()
       [ -z "$_tc_value" ] && return 0
       [ "${#_tc_value}" -ge 8 ] && [ "${#_tc_value}" -le 63 ] || return 1
       case "$_tc_value" in *[\\\"]*) return 1 ;; esac ;;
+    country_optional)
+      # boot.conf WIFI_COUNTRY (scripts/wifi-country.sh): an ISO 3166 code, empty = the world rules
+      case "$_tc_value" in ''|[A-Z][A-Z]) return 0 ;; esac
+      return 1 ;;
     rescue_ssid_optional)
       # written inside "..." of the sourced boot.conf: nothing the shell would expand
       [ -z "$_tc_value" ] && return 0
@@ -525,7 +529,8 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" BOOT_GUARD bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOG_PERSIST bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOG_PERSIST_MIN persist_min "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" WIFI_QUALITY bool "$_tc_rel" || return 1 ;;
+      tc_check_flat "$_tc_file" WIFI_QUALITY bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_COUNTRY country_optional "$_tc_rel" || return 1 ;;
     mqtt.conf)
       tc_require_flat "$_tc_file" MQTT_ENABLE "$_tc_rel" || return 1
       tc_require_flat "$_tc_file" MQTT_PORT "$_tc_rel" || return 1

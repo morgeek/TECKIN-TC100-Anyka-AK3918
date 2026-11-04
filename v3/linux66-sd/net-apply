@@ -45,7 +45,8 @@ if [ "$IP_MODE" = static ] && valid_ip "$STATIC_IP"; then
 	valid_ip "$STATIC_GATEWAY" && { route del default 2>/dev/null; route add default gw "$STATIC_GATEWAY" wlan0; }
 	logger -t tc100-event "network: static address $STATIC_IP" 2>/dev/null
 elif ! pidof udhcpc >/dev/null; then
-	udhcpc -i wlan0 -b -t 10 -x hostname:"$(hostname)" >/dev/null 2>&1
+	echo "$(hostname)" > /tmp/dhcp-hostname
+	udhcpc -i wlan0 -b -t 20 -T 1 -A 5 -x hostname:"$(hostname)" >/dev/null 2>&1
 fi
 dns
 exit 0

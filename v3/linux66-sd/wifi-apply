@@ -7,7 +7,9 @@
 C=/mnt/config/wpa_supplicant.conf
 sleep "${1:-0}"
 grep -q 'ssid=' "$C" 2>/dev/null || exit 1
-( umask 077; cp "$C" /etc/wpa_supplicant.conf.new ) && mv -f /etc/wpa_supplicant.conf.new /etc/wpa_supplicant.conf || exit 1
+# the copy carries the country of boot.conf (WIFI_COUNTRY) as its first line, as the boot script writes it
+( umask 077; sh /mnt/scripts/wifi-country.sh conf "$C" /etc/wpa_supplicant.conf.new ) &&
+	mv -f /etc/wpa_supplicant.conf.new /etc/wpa_supplicant.conf || exit 1
 # the rescue access point (scripts/wifi-rescue.sh) holds wlan0 on this kernel: end it first
 R=/tmp/wifi-rescue
 for p in udhcpd hostapd; do

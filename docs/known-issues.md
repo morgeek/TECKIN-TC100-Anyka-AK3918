@@ -19,10 +19,12 @@ State of 3.0.1 (rc23, November 2026, two cameras of the same variant; details an
 - **Memory:** about 21 MB free with the 9600K encoder pool; the encoder's smart mode needs 3.4 MB more and is off.
 - **Logs with no SD card:** the web page (Logs) or ssh; the saved logs need a card.
 - **Picture right after a boot:** once (rc20) the picture stayed almost white for several minutes after a reboot,
-  then the exposure settled by itself. Under investigation; it did not show again on rc21-rc23.
+  then the exposure settled by itself. Not seen again since (owner, 2026-11-04): treated as an isolated case.
 - **Wi-Fi in the first minute after a boot:** the gateway may not answer yet (100 % loss seen once at 1 min of
-  uptime); it settles within a few minutes. The kernel has no `regulatory.db`, so the Wi-Fi runs in the "world"
-  domain (channels 12-13 and transmit power limited).
+  uptime); it settles within a few minutes. After 3.0.1-rc24 the services script no longer restarts the DHCP client at
+  boot (it dropped the address meanwhile); to be confirmed on the cameras.
+- **Wi-Fi country:** without a country (Settings → Network), the Wi-Fi follows the "world" rules: channels 12-13
+  passive and a lower transmit power. Up to 3.0.1-rc24 the firmware has no rules database at all.
 - **Frame rate in low light:** by day in low light the camera drops to 10 fps on purpose (brighter picture); Frigate
   and NVRs see 10 fps during that time.
 - **MQTT and Telegram settings:** the MQTT user / password and the Telegram token / chat id cannot hold spaces,

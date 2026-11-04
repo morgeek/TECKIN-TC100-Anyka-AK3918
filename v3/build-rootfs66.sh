@@ -48,6 +48,8 @@ sed -i 's|^root:[^:]*:|root:*:|' etc/shadow
 if grep -qE '^(psk|ssid)=' etc/wpa_supplicant.conf 2>/dev/null; then
   : > etc/wpa_supplicant.conf
 fi
+# the kernel reads the Wi-Fi rules per country from here at boot (Buildroot wireless-regdb); an older base image lacks it
+[ -f lib/firmware/regulatory.db ] || echo "warning: no lib/firmware/regulatory.db, the Wi-Fi keeps the world rules" >&2
 INITRD_SIZE=${INITRD_SIZE:-2012654}
 find . | cpio -o -H newc --quiet | xz -9 --check=crc32 --lzma2=dict=2MiB > "$OUT.tmp"
 n=$(wc -c < "$OUT.tmp")

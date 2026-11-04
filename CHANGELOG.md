@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - `LICENSE`: the project's own code is under the GPL-2.0 (third-party code keeps its licence, `CREDITS.md`).
+- **Wi-Fi rules per country**: the regulatory database (`regulatory.db`, Buildroot wireless-regdb) is in the
+  initramfs, and Settings → Network → "Country (Wi-Fi rules)" (`WIFI_COUNTRY` in `boot.conf`, also in the JSON
+  export / import) sets the country: wpa_supplicant starts with it, a change applies at once without reconnecting,
+  and the rescue access point follows it. Empty = the world rules, as before.
+
+### Changed
+- **Wi-Fi up earlier at boot**: the boot script starts the Wi-Fi before the console and the password, asks for the
+  DHCP lease every second instead of every three, and with the host name of the settings, so the services script
+  no longer restarts `udhcpc` (which dropped the address until the new lease) on a camera with its own name.
+
+### Fixed
+- Settings → Network → "Connect to this network" and "Restart the setup wizard" said "Error: Unexpected response"
+  after a successful save (the page waited for `status: success`, the command answers `ok: true`).
 
 ## [3.0.1-rc24] - 2026-11-04
 

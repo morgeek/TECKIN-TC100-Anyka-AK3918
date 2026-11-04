@@ -6,8 +6,10 @@ echo "[tc100-v3] Starting V3 services..." > /dev/console
 H=$(grep -v '^#' /mnt/config/hostname.conf 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | tr -cd 'A-Za-z0-9-')
 case "$H" in ''|TC100-CAMERA) H=tc100 ;; esac
 hostname "$H"; echo "$H" > /etc/hostname
-# the boot script asked for a lease as "tc100": ask again with this name (net-apply, step 1c, starts udhcpc)
-[ "$H" = tc100 ] || killall udhcpc 2>/dev/null
+# the boot script asked for a lease with the name it read from the same file (/tmp/dhcp-hostname; an older boot script
+# asked as "tc100"): only when that differs, ask again with this name (net-apply, step 1c, starts udhcpc). A new udhcpc
+# drops the address until its lease, so it is not restarted for nothing.
+[ "$H" = "$(cat /tmp/dhcp-hostname 2>/dev/null || echo tc100)" ] || killall udhcpc 2>/dev/null
 
 mkdir -p /tmp/logs /var/run
 # Scripts and CGIs shared with 2.x test this marker to take the Linux 6.6 path
@@ -17,6 +19,9 @@ export PATH=/mnt/ext/bin:$PATH CURL_CA_BUNDLE=/mnt/ext/etc/ssl/certs/ca-certific
 for l in /lib/ld-musl-*.so.1; do	# their libraries: /mnt/ext/lib on the musl search path
   [ -e "$l" ] || continue; n=${l##*/ld-musl-}; echo /lib /usr/lib /mnt/ext/lib | tr ' ' '\n' > /etc/ld-musl-${n%.so.1}.path
 done
+# Wi-Fi rules of the country of boot.conf (WIFI_COUNTRY): the boot script gave it to wpa_supplicant; the regulatory
+# database is read again if the kernel missed it at boot, and the kernel is told the country if it does not apply it yet
+[ -f /mnt/scripts/wifi-country.sh ] && timeout 10 sh /mnt/scripts/wifi-country.sh boot </dev/null >/dev/null 2>&1
 [ -f /var/run/vday ] || echo 1 > /var/run/vday
 [ -f /var/run/ircut ] || echo 1 > /var/run/ircut
 

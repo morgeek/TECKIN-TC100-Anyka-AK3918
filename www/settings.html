@@ -606,6 +606,13 @@
                     <p class="is-size-7 mb-2">When the camera cannot join its Wi-Fi for 10 minutes, it opens its own Wi-Fi network for 15 minutes: join it with a phone and open http://10.42.0.1/ to fix the settings. Switch it on or off in Services (wifi-rescue, Boot).</p>
                     <p class="is-size-7" id="wifiRescueInfo">…</p>
                     </div>
+                    <div class="is-divider" data-content="Country (Wi-Fi rules)"></div>
+                    <p class="is-size-7 mb-2">The channels and the transmit power the law allows depend on the country. Choose the country where the camera works; without one, the camera keeps the world rules (the most restrictive). Applied at once, without reconnecting.</p>
+                    <div class="field has-addons">
+                        <div class="control"><div class="select is-small"><select id="wifi_country_select" aria-label="Country (Wi-Fi rules)"><option value="">World rules (no country)</option></select></div></div>
+                        <div class="control"><button class="button is-light is-small" type="button" id="btnWifiCountry">Save the country</button></div>
+                    </div>
+                    <p class="help" id="wifiCountryInfo" role="status"></p>
                 </div>
             </div>
             <div id="network_settings_slot" class="mt-4" data-src="cgi-bin/network.cgi?part=settings">
@@ -1246,7 +1253,7 @@
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                     btn.classList.remove('is-loading');
-                    if (d && d.status === 'success') {
+                    if (d && (d.ok === true || d.status === 'success')) {
                         var tag = document.getElementById('current_ssid_tag');
                         if (tag) { tag.textContent = ssid; tag.className = 'tag is-success is-light is-size-7'; delete tag.dataset.loaded; }
                         document.getElementById('wifi_ssid_input').value = '';
@@ -1273,7 +1280,7 @@
                 cf('cgi-bin/action.cgi?cmd=wizard_reset&format=json', { method: 'POST' })
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
-                    if (d && d.status === 'success') {
+                    if (d && (d.ok === true || d.status === 'success')) {
                         window.location.replace('/cgi-bin/wizard.cgi');
                     } else {
                         btn.classList.remove('is-loading');
@@ -1421,6 +1428,57 @@
                         'Network name: ' + (d.ssid || '?') + ' · password: ' + (d.psk || '?');
                 })
                 .catch(function() { el.textContent = 'The rescue Wi-Fi state could not be read.'; });
+        })();
+
+        // Country of the Wi-Fi rules (boot.conf WIFI_COUNTRY, scripts/wifi-country.sh). Names in their own language,
+        // so the list needs no translation; a code set another way (JSON import) is added to the list.
+        (function initWifiCountry() {
+            var sel = document.getElementById('wifi_country_select');
+            var btn = document.getElementById('btnWifiCountry');
+            var info = document.getElementById('wifiCountryInfo');
+            if (!sel || !btn || !info) return;
+            [['FR', 'France'], ['BE', 'Belgique / België'], ['CH', 'Suisse / Schweiz'], ['LU', 'Luxembourg'],
+             ['MC', 'Monaco'], ['DE', 'Deutschland'], ['AT', 'Österreich'], ['NL', 'Nederland'], ['ES', 'España'],
+             ['PT', 'Portugal'], ['IT', 'Italia'], ['GB', 'United Kingdom'], ['IE', 'Ireland'], ['DK', 'Danmark'],
+             ['SE', 'Sverige'], ['NO', 'Norge'], ['FI', 'Suomi'], ['PL', 'Polska'], ['CZ', 'Česko'], ['GR', 'Ελλάδα'],
+             ['RO', 'România'], ['HU', 'Magyarország'], ['CA', 'Canada'], ['US', 'United States'], ['MA', 'Maroc'],
+             ['DZ', 'Algérie'], ['TN', 'Tunisie'], ['SN', 'Sénégal'], ['CI', "Côte d'Ivoire"], ['RE', 'La Réunion'],
+             ['GP', 'Guadeloupe'], ['MQ', 'Martinique'], ['GF', 'Guyane'], ['NC', 'Nouvelle-Calédonie'],
+             ['PF', 'Polynésie française'], ['AU', 'Australia'], ['NZ', 'New Zealand'], ['JP', '日本']
+            ].forEach(function (c) { addOption(c[0], c[0] + ' · ' + c[1]); });
+            function addOption(code, text) {
+                var o = document.createElement('option'); o.value = code; o.textContent = text; sel.appendChild(o);
+            }
+            function load() {
+                fetch('cgi-bin/action.cgi?cmd=wifi_country_info&format=json&_=' + Date.now(), { cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d || d.status !== 'success') throw new Error('no answer');
+                        if (d.country && !sel.querySelector('option[value="' + d.country + '"]')) addOption(d.country, d.country);
+                        sel.value = d.country || '';
+                        if (!d.regdb) info.textContent = 'This firmware has no Wi-Fi rules database: the world rules stay in force.';
+                        else info.textContent = 'In force now: ' + (d.effective === '00' ? 'world rules' : (d.effective || '?')) + '.';
+                    })
+                    .catch(function () { info.textContent = 'The Wi-Fi country could not be read.'; });
+            }
+            btn.addEventListener('click', function () {
+                btn.classList.add('is-loading');
+                var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+                cf('cgi-bin/action.cgi?cmd=wifi_set_country&format=json', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'country=' + encodeURIComponent(sel.value)
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d || !d.ok) throw new Error((d && d.error) || 'Unexpected response');
+                        info.textContent = 'Saved. Applying…';
+                        setTimeout(load, 2500);	// applied in the background
+                    })
+                    .catch(function (e) { info.textContent = 'Error: ' + e.message; })
+                    .finally(function () { btn.classList.remove('is-loading'); });
+            });
+            load();
         })();
 
         (function initPasswordForm() {

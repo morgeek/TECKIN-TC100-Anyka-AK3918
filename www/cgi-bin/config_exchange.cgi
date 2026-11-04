@@ -94,6 +94,7 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"LOG_PERSIST";"bool";"general";.boot.log_persist),
     row("boot.conf";"flat";"root";"LOG_PERSIST_MIN";"persist_min";"general";.boot.log_persist_min),
     row("boot.conf";"flat";"root";"WIFI_QUALITY";"bool";"general";.boot.wifi_quality),
+    row("boot.conf";"flat";"root";"WIFI_COUNTRY";"country_optional";"general";.boot.wifi_country),
     row("boot.conf";"flat";"root";"ISP_TUNE";"bool";"general";.boot.isp_tune),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),
@@ -403,7 +404,7 @@ _ce_export() {
         if (lv == "1" || lv == "true" || lv == "on" || lv == "yes" || lv == "enabled") j = "1"
         else if (lv == "0" || lv == "false" || lv == "off" || lv == "no" || lv == "disabled") j = "0"
         else next
-      } else if (t ~ /^(topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|isp_mask|isp_mask_color)$/) {
+      } else if (t ~ /^(topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|country_optional|isp_mask|isp_mask_color)$/) {
         j = jstr(v)
       } else if (v ~ /^-?[0-9]+$/) {
         j = sprintf("%d", v + 0)
@@ -548,6 +549,8 @@ _ce_import() {
     [ -f "$CONFIG_ROOT/user.pwd" ] && IFS= read -r _ce_pw_cur < "$CONFIG_ROOT/user.pwd"
     [ "$_ce_pw_cur" = "$_ce_pw_value" ] && _ce_pw_value=""
   fi
+  _ce_wc() { [ -f /mnt/scripts/wifi-country.sh ] && WC_CONF="$CONFIG_ROOT/boot.conf" sh /mnt/scripts/wifi-country.sh get 2>/dev/null; }
+  _ce_wc_before="$(_ce_wc)"
   tc_commit_config_files "$_ce_stage" "$CONFIG_ROOT" "$_ce_backup" "$_ce_files" || _ce_fail "Import rejected (${TC_CONFIG_ERROR:-transaction failed}); active configuration was preserved" "TRANSACTION_FAILED"
   _ce_changed="$TC_COMMIT_COUNT"
   _ce_cleanup
@@ -562,6 +565,10 @@ _ce_import() {
   if [ "$_ce_wifi_changed" = 1 ] && [ -f /mnt/v3/linux66-sd/wifi-apply ]; then
     # the new network list is used now (the page has its answer first)
     ( sh /mnt/v3/linux66-sd/wifi-apply 5 </dev/null >/dev/null 2>&1 & )
+  fi
+  if [ -f /mnt/scripts/wifi-country.sh ] && [ "$(_ce_wc)" != "$_ce_wc_before" ]; then
+    # the Wi-Fi rules of the new country (boot.conf WIFI_COUNTRY), now and without reconnecting
+    ( sh /mnt/scripts/wifi-country.sh apply </dev/null >/dev/null 2>&1 & )
   fi
   if [ -n "$_ce_pw_value" ] && [ -r /mnt/scripts/common_functions.sh ]; then
     # the camera password: the web UI, the shell, RTSP, FTP and telnet, as the Settings password change does

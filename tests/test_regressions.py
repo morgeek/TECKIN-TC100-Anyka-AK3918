@@ -593,7 +593,7 @@ class Regressions(unittest.TestCase):
             'isp': {'brightness': -5, 'contrast': 10, 'power_hz': 50, 'exposure_max_pct': 80, 'mask_color': 'gray',
                     'mask1': '0,0,25,30'},
             'wifi_rescue': {'enabled': 1, 'after_min': 10, 'manual_min': 15, 'ssid': 'Rescue cam'},
-            'boot': {'boot_guard': 1, 'log_persist': 0, 'log_persist_min': 20, 'wifi_quality': 1}}
+            'boot': {'boot_guard': 1, 'log_persist': 0, 'log_persist_min': 20, 'wifi_quality': 1, 'wifi_country': 'FR'}}
         res = self.import_json(cfg, good)
         self.assertTrue(res.get('ok'), res)
         for name, lines in {
@@ -604,7 +604,7 @@ class Regressions(unittest.TestCase):
             'sound_detection.conf': ['THRESHOLD_DB=-30', 'VOX_MODE=1', 'ALARM_HOLD_SECONDS=20', 'MIN_LOUD_SECONDS=2'],
             'isp_tune.conf': ['BRIGHTNESS=-5', 'POWER_HZ=50', 'MASK1=0,0,25,30', 'MASK_COLOR=gray'],
             'boot.conf': ['REC_CLIENT=192.168.1.10', 'REC_STREAM=sub', 'WIFI_RESCUE_SSID="Rescue cam"', 'LOG_PERSIST=0',
-                          'BOOT_GUARD=1']}.items():
+                          'BOOT_GUARD=1', 'WIFI_COUNTRY=FR']}.items():
             text = (cfg / name).read_text()
             for line in lines:
                 self.assertIn('\n' + line + '\n', '\n' + text, (name, line))
@@ -623,7 +623,8 @@ class Regressions(unittest.TestCase):
             {'services': {'sound_det_threshold': 5}}, {'services': {'vox_hold': 0}},
             {'isp': {'brightness': 60}}, {'isp': {'mask1': '10,10,5,5'}}, {'isp': {'mask_color': 'red'}},
             {'wifi_rescue': {'ssid': 'a$(id)'}}, {'secrets': {'wifi_rescue_psk': 'pa"ss1234'}},
-            {'wifi_rescue': {'after_min': 1}}, {'boot': {'log_persist': 'maybe'}}]:
+            {'wifi_rescue': {'after_min': 1}}, {'boot': {'log_persist': 'maybe'}},
+            {'boot': {'wifi_country': 'fr'}}, {'boot': {'wifi_country': 'FRA'}}, {'boot': {'wifi_country': '$(id)'}}]:
             res = self.import_json(cfg, bad, F_include_secrets='1')
             self.assertIn(res.get('error'), ('VALIDATION_FAILED', 'TRANSACTION_FAILED'), bad)
             self.assertEqual({f.name: f.read_bytes() for f in cfg.iterdir()}, snapshot, bad)
@@ -1769,7 +1770,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
-        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?\) ;;')     # read-only: no CSRF needed
+        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info(\|wifi_country_info)?\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?\) ;;')     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)
