@@ -56,7 +56,7 @@ start()
     rm -f "$MQTTD_PIDFILE" 2>/dev/null
     run_busybox nohup "$BIN" </dev/null >/dev/null 2>&1 &
     echo "$!" > "$PIDFILE"
-    # run_busybox is a shell function: $! is the subshell that runs it, not the daemon. The daemon writes its own pid
+    # run_busybox() is a shell function: $! is the subshell that runs it, not the daemon. The daemon writes its own pid
     # file at once; PIDFILE takes that pid, so stop and the watchdog act on the daemon (tester, 2026-11-04: stop left
     # the daemon running, a second one came up with the same client id and the broker kicked them in turn every 2 s).
     _mb_n=0
