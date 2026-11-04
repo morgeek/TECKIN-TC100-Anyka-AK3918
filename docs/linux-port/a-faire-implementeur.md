@@ -101,17 +101,24 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Commutateur Web et MQTT (`teckin/privacy/set = ON`).
     - Coupure logicielle immédiate du flux vidéo (trame noire avec mention "Privé / Inactif") et coupure de la capture micro ALSA (`amixer set Capture nocap`).
     - Optionnellement, extinction des LED d'état et mise en veille du capteur d'image JX-F23 (ou arrêt du flux ISP/RTSP) pour préserver l'intimité lors du désarmement d'alarme.
-26. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
+26. [ ] **Boutons d'action sirène et carillon sur l'interface Web** :
+    - Les fichiers audio `sounds/siren.pcm`, `sounds/alert.pcm`, `sounds/chime.pcm` existent déjà dans le dépôt et sont câblés dans `scripts/mqtt-bridge.sh` (`play_sound`).
+    - Ajouter les boutons d'action rapide dans l'interface Web (Dashboard / Actions rapides) pour déclencher la sirène ou le carillon en un clic sans passer par un script externe.
+27. [ ] **Endpoint de métriques Prometheus minimaliste (`/metrics`)** :
+    - Exposition texte brut ultra-légère par `httpfront` (format Prometheus / OpenMetrics standard, zéro parsing JSON).
+    - Métriques clés : `tc100_chip_temp_celsius`, `tc100_memory_available_bytes`, `tc100_wifi_rssi_dbm`, `tc100_rtsp_clients_connected`, `tc100_rtsp_drops_total`, `tc100_sdcard_free_bytes`.
+    - Permet l'intégration native et directe dans Grafana / Prometheus / VictoriaMetrics et Home Assistant sans surcoût CPU/RAM.
+28. [ ] **Audit du 2026-11-04, points ouverts** : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par
     connexion sans plafond), R3, D1-D7, D9.
 
 ## P2 — plus tard, seulement si un besoin apparaît
 
-27. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
+29. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
-28. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
+30. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
 
 ## Hors implémenteur (propriétaire)
