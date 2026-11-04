@@ -154,11 +154,15 @@ class WifiCountrySources(unittest.TestCase):
 
 class WifiFirstAtBoot(unittest.TestCase):
 
-    def test_wifi_starts_before_the_console_and_the_password(self):
+    def test_wifi_starts_before_the_services_and_after_the_console(self):
+        """The console and the password take milliseconds: they come first, so that a camera without network does not
+        hold them for the 20-30 s of the DHCP attempts (audit 2026-11-04)."""
         s = text('v3/S39tc100-linux66')
-        self.assertLess(s.index('wpa_supplicant -B -i wlan0'), s.index('/sbin/getty'))
-        self.assertLess(s.index('wpa_supplicant -B -i wlan0'), s.index('chpasswd'))
-        self.assertGreater(s.index('wpa_supplicant -B -i wlan0'), s.index('flashmode-prep.sh'))   # needs the settings
+        wpa = s.index('wpa_supplicant -B -i wlan0')
+        self.assertGreater(wpa, s.index('/sbin/getty'))
+        self.assertGreater(wpa, s.index('chpasswd'))
+        self.assertGreater(wpa, s.index('flashmode-prep.sh'))                 # needs the settings
+        self.assertLess(wpa, s.index('# 4. V3 services'))
 
     def test_dhcp_name_from_the_settings_and_no_needless_restart(self):
         s = text('v3/S39tc100-linux66')

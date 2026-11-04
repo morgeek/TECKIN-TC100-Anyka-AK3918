@@ -98,7 +98,7 @@ if [ -n "$F_cmd" ]; then
     ;;
 
     *)
-      echo "Unsupported command '$F_cmd'"
+      echo "Unsupported command"	# the value is not printed back: a crafted link would run script in the page
    ;;
   esac
 fi

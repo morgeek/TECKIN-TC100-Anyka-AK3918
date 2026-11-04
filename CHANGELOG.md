@@ -25,11 +25,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and the rescue access point follows it. Empty = the world rules, as before.
 
 ### Changed
-- **Wi-Fi up earlier at boot**: the boot script starts the Wi-Fi before the console and the password, asks for the
-  DHCP lease every second instead of every three, and with the host name of the settings, so the services script
+- **Wi-Fi up earlier at boot**: the boot script asks for the DHCP lease every second instead of every three (the
+  first requests go out before the association), waits for `wlan0` in 0.2 s steps, and asks with the host name of the
+  settings, so the services script
   no longer restarts `udhcpc` (which dropped the address until the new lease) on a camera with its own name.
 
 ### Fixed
+- **RTSP server**: after an interleaved `$` frame the request buffer was not ended again, so a stale request end could
+  be parsed past the received bytes and the buffer moved by a negative length (one connection, no password needed;
+  audit 2026-11-04, H1).
+- **Web pages**: three error pages printed the request back (a crafted link could run script in the camera's page),
+  and the audit log stored the raw command name that `showlog` displayed; now nothing is printed back, the log keeps
+  a command-name shape only and `showlog` escapes the logs (W1).
+- A password exists before the web server starts on every boot path (safe mode, no video): the web interface was
+  open without one (W5).
 - Settings → Network → "Connect to this network" and "Restart the setup wizard" said "Error: Unexpected response"
   after a successful save (the page waited for `status: success`, the command answers `ok: true`).
 

@@ -1,6 +1,6 @@
 #!/bin/sh
 # TC100 V3 on Linux 6.6: boot script of the initramfs (RAM only, nothing written to flash).
-# Mounts the SD card, brings Wi-Fi up first (rtl8xxxu is built into the 6.6 kernel), sets the
+# Mounts the SD card, brings Wi-Fi up (rtl8xxxu is built into the 6.6 kernel), sets the
 # root password from config/user.pwd, then starts the V3 services from the card.
 [ "$1" = start ] || exit 0
 C=/dev/console
@@ -37,8 +37,28 @@ if [ $FM = 1 ]; then
   fi
 fi
 
-# 1b. Wi-Fi first, so that the camera is on the network as early as possible (the console and the password take no
-#    network). wpa_supplicant runs on a copy of the settings with the country of boot.conf (WIFI_COUNTRY, read by
+# 1b. Serial console: a login prompt, or a root shell if tc100test/consoleshell exists on the card
+#     (physical access to the UART pads only; for bring-up, remove the file afterwards)
+if [ -f /mnt/sd/tc100test/consoleshell ] || [ -f /mnt/tc100test/consoleshell ]; then
+  log "console shell enabled (tc100test/consoleshell)"
+  ( while :; do setsid -c /bin/sh -l </dev/ttySAK0 >/dev/ttySAK0 2>&1; sleep 1; done ) &	# -l: /etc/profile.d (ext PATH, CA bundle)
+else
+  ( while :; do /sbin/getty -L ttySAK0 115200 vt100; sleep 1; done ) &
+fi
+
+# 2. One password for the camera (config/user.pwd); without it, remote login stays closed
+PW=
+[ -s $CFGD/user.pwd ] && PW=$(head -n 1 $CFGD/user.pwd)
+if [ -n "$PW" ]; then
+  echo "root:$PW" | chpasswd -m 2>/dev/null
+else
+  head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' | sed 's/^/root:/' | chpasswd -m 2>/dev/null
+  log "no config/user.pwd: root login disabled until one is set"
+fi
+unset PW
+
+# 3. Wi-Fi, before the services (the console and the password above take milliseconds; put after the Wi-Fi they waited
+#    up to 30 s on a camera without network). wpa_supplicant runs on a copy of the settings with the country of boot.conf (WIFI_COUNTRY, read by
 #    scripts/wifi-country.sh once the user space is up) as its first line: the radio follows that country's rules
 #    from the first association. The DHCP request carries the host name of config/hostname.conf (same rule as
 #    autorun-linux66.sh), so that autorun does not have to restart udhcpc, which drops the address meanwhile.
@@ -69,27 +89,7 @@ else
   log "no wlan0"
 fi
 
-# 1c. Serial console: a login prompt, or a root shell if tc100test/consoleshell exists on the card
-#     (physical access to the UART pads only; for bring-up, remove the file afterwards)
-if [ -f /mnt/sd/tc100test/consoleshell ] || [ -f /mnt/tc100test/consoleshell ]; then
-  log "console shell enabled (tc100test/consoleshell)"
-  ( while :; do setsid -c /bin/sh -l </dev/ttySAK0 >/dev/ttySAK0 2>&1; sleep 1; done ) &	# -l: /etc/profile.d (ext PATH, CA bundle)
-else
-  ( while :; do /sbin/getty -L ttySAK0 115200 vt100; sleep 1; done ) &
-fi
-
-# 2. One password for the camera (config/user.pwd); without it, remote login stays closed
-PW=
-[ -s $CFGD/user.pwd ] && PW=$(head -n 1 $CFGD/user.pwd)
-if [ -n "$PW" ]; then
-  echo "root:$PW" | chpasswd -m 2>/dev/null
-else
-  head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' | sed 's/^/root:/' | chpasswd -m 2>/dev/null
-  log "no config/user.pwd: root login disabled until one is set"
-fi
-unset PW
-
-# 3. The ALSA tools, the ssh server and some libraries are not in this RAM image: they come with the user space
+# 3b. The ALSA tools, the ssh server and some libraries are not in this RAM image: they come with the user space
 #     (ext/, links and start script prepared by v3/build-rootfs66.sh). A user space older than this initramfs lacks them.
 [ -x /mnt/ext/bin/aplay ] || [ -x /mnt/sd/ext/bin/aplay ] || log "user space without ext/bin/aplay: no audio tools, no ssh (telnet only); update the stack or the card together with the initrd"
 

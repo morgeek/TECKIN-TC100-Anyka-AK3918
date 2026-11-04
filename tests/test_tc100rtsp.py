@@ -577,6 +577,28 @@ class LogRotation(unittest.TestCase):
                     proc.wait(10)
 
 
+class InterleavedFrame(Server):
+    def test_frame_then_stale_request_end_does_not_crash(self):
+        """Audit 2026-11-04 H1: an interleaved '$' frame holding "\\r\\n\\r\\n" was consumed without ending the buffer
+        again, strstr then found that stale request end past the received bytes and memmove got a negative length
+        (one connection, no password needed, killed the server)."""
+        s = socket.create_connection(('127.0.0.1', self.PORT), timeout=1)
+        body = b'\r\n\r\n' + b'A' * 257
+        s.sendall(b'$\x01' + len(body).to_bytes(2, 'big') + body)
+        try:
+            answer = s.recv(200)
+        except socket.timeout:
+            answer = b''
+        # the old code answered the consumed frame as a request (401 here; with glibc on the host it did not crash,
+        # with the camera's uClibc the negative memmove that followed is not survivable)
+        self.assertNotIn(b'RTSP/1.0', answer)
+        s.close()
+        time.sleep(0.3)
+        self.assertIsNone(self.proc.poll(), 'the server died')
+        c = self.client()
+        self.assertIn('m=video', self.describe(c, require=False))
+
+
 class Backchannel(Server):
     def test_sdp_offers_the_backchannel_only_when_asked_and_allowed(self):
         c = self.client()

@@ -639,13 +639,13 @@ if [ -n "$F_script" ]; then
       *)
         echo "Content-type: text/html"
         echo ""
-        echo "<p>Unsupported command '$F_cmd'</p>"
+        echo "<p>Unsupported command</p>"	# request values are not printed back (reflected script)
         ;;
     esac
   else
     echo "Content-type: text/html"
     echo ""
-    echo "<p>$F_script is not a valid script!</p>"
+    echo "<p>Not a valid script.</p>"
   fi
 else
   echo "Content-type: text/html"

@@ -23,6 +23,8 @@ run_tests() {
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
 		node --test tests/frontend.test.js tests/settings-save.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
 		python3 -m unittest discover -s tests >/tmp/py.log 2>&1; grep -E "^(FAIL|ERROR):|^Ran|^FAILED|^OK" /tmp/py.log
+		# no "Ran N tests" (python3 missing, an import error): not a pass
+		grep -q "^Ran [1-9]" /tmp/py.log || { echo "python tests did not run"; tail -20 /tmp/py.log; exit 1; }
 		# known failure of this image only (awk flavour): JsonFlat.test_paths_types_and_escapes
 		n=$(grep -E "^(FAIL|ERROR):" /tmp/py.log | grep -vc "JsonFlat.test_paths_types_and_escapes")
 		[ "$n" = 0 ] || { grep -A25 -E "^(FAIL|ERROR):" /tmp/py.log | grep -v JsonFlat | head -80; exit 1; }' || rc=1

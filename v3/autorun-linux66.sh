@@ -223,6 +223,9 @@ fi
 
 # 6. Start Web Server on port 80, with the camera password (root + config/user.pwd, like 2.x)
 killall httpd httpfront 2>/dev/null
+# the shipped password when none is set yet, also when step 4a did not run (safe mode, no video): web-auth leaves the
+# web interface open without one
+[ -s /mnt/config/user.pwd ] || { [ -s /mnt/config/user.pwd.dist ] && cp /mnt/config/user.pwd.dist /mnt/config/user.pwd; }
 sh /mnt/v3/linux66-sd/web-auth
 # the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
 if [ -x /mnt/tc100test/httpfront ]; then

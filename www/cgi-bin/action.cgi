@@ -481,7 +481,7 @@ emit_log_tail_dir() {
       found=1
     fi
     echo "--- $(basename "$log_file") ---<br/>"
-    tail -n "$tail_lines" "$log_file" 2>/dev/null || true
+    tail -n "$tail_lines" "$log_file" 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' || true
     echo "<br/>"
   done
 
@@ -1123,7 +1123,8 @@ csrf_check() {
 }
 
 audit_log() {
-  _al_cmd="$1"
+  # only what a command name can hold: the log is shown by showlog, and a newline would forge lines
+  _al_cmd="$(printf '%s' "$1" | tr -cd 'A-Za-z0-9_.-' | cut -c1-48)"
   _al_dir="/tmp/log"
   _al_file="$_al_dir/audit.log"
   _al_max_bytes=65536

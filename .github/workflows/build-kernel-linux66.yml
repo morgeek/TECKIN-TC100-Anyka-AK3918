@@ -17,6 +17,9 @@ on:
       - 'src/libakuio/**'
       - 'src/httpfront/**'
       - 'src/mqttd/**'
+      - 'src/mdnsd/**'
+      - 'bin/**'
+      - 'lib/**'
       - 'src/jpegenc/**'
       - 'VERSION'
       - '.github/workflows/build-kernel-linux66.yml'
@@ -164,6 +167,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
+          # the tag must name the version the files carry (a v3.0.1 tag on a 3.0.1-rc24 tree would publish rc files
+          # as the release)
+          V=$(head -n 1 "$GITHUB_WORKSPACE/VERSION" | tr -d '\r')
+          [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION $V"; exit 1; }
           cd output/release
           md5sum *.zip *.tar > MD5SUMS.txt
           PRE=; case "$GITHUB_REF_NAME" in *-rc*|*-beta*|*-alpha*) PRE=--prerelease ;; esac
@@ -180,7 +187,7 @@ jobs:
           mkdir -p symbols
           cp linux-src/System.map linux-src/.config symbols/
           # unstripped user-space programs (the shipped ones are stripped)
-          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so symbols/ 2>/dev/null || true
+          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so src/mqttd/tc100-mqttd.dbg symbols/ 2>/dev/null || true
           gzip -c linux-src/vmlinux > symbols/vmlinux.gz
 
       - name: Upload kernel symbols

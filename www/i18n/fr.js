@@ -71,6 +71,8 @@ window.tc100I18nFr = {
     "Install now": "Installer maintenant",
     "Free server tc100_rtsp on port": "Serveur libre tc100_rtsp sur le port",
     "Rescue Wi-Fi": "Wi-Fi de secours",
+    "Not a valid script.": "Script non valide.",
+    "Unsupported command": "Commande non prise en charge",
     "Country (Wi-Fi rules)": "Pays (règles Wi-Fi)",
     "The channels and the transmit power the law allows depend on the country. Choose the country where the camera works; without one, the camera keeps the world rules (the most restrictive). Applied at once, without reconnecting.": "Les canaux et la puissance d’émission autorisés par la loi dépendent du pays. Choisissez le pays où la caméra fonctionne ; sans pays, la caméra garde les règles mondiales (les plus restrictives). Appliqué tout de suite, sans reconnexion.",
     "World rules (no country)": "Règles mondiales (aucun pays)",

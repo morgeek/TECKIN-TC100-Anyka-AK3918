@@ -2203,6 +2203,7 @@ static void cli_read(struct cli *c)
 				talk_rtp((int)(c - cl), (const unsigned char *)c->buf + 4, len - 4, now_us64());
 			memmove(c->buf, c->buf + len, c->blen - len);
 			c->blen -= len;
+			c->buf[c->blen] = 0;	/* or strstr below finds the end of an old request in the bytes just consumed */
 			continue;
 		}
 		e = strstr(c->buf, "\r\n\r\n");
@@ -2211,6 +2212,7 @@ static void cli_read(struct cli *c)
 			return;
 		}
 		used = e + 4 - c->buf;
+		if (used > c->blen) { cli_close(c); return; }	/* never past what was received */
 		*e = 0;
 		strcat(c->buf, "\r\n");	/* keeps the header scanner happy on the last line */
 		handle(c, c->buf, 1);

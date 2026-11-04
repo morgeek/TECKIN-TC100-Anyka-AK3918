@@ -82,3 +82,11 @@ Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Ti
 - [x] `wifi-quality.sh` stops writing its log (.11, since 20:13 UTC) while its processes keep running; its RSSI is still wrong (use `iw dev wlan0 station dump`). Fixed in git 2026-11-04: `iw` and `ping` under `timeout`; the signal is iw's `signal avg`, shared with every reader through `scripts/wifi-signal.sh` while fresh. To check in rc24.
 - [x] `health.cgi` shows `memory-guard` stopped on the .11 although it is in autostart. Not a failure: its switch is `MEM_GUARD_ENABLE` (0 by default, one switch per service). `health-probe.sh` now says `disabled` for a service switched off, so it no longer counts as a restart. To check in rc24.
 - [x] SD card "not properly unmounted" after a deliberate reboot (.24): the reboot path (`reboot-tracker.sh intent`) pauses the recorder and remounts the card read-only, the web update too (2026-11-04). A plain `reboot` over ssh is not covered. To check in rc24.
+
+## Added by the audit of 2026-11-04 (`audit-2026-11-04.md`)
+- [x] H1 RTSP stale buffer after an interleaved frame, W1 reflected / stored XSS, W5 open web interface without a password in safe mode, B2 console and password back before the Wi-Fi, CI hardening (tag must match `VERSION`, local CI must run the Python tests, triggers, busybox in GitHub host tests): fixed in git, to check in the next rc.
+- [ ] **B1** web update: no automatic reboot after a failed flash write, retries (owner's decision).
+- [ ] **B3** web update: `flashw -m` given the md5 of `MD5SUMS`, not of the file itself.
+- [ ] **W4** setup wizard POST without CSRF token.
+- [ ] **D8** documentation pass (api.md, linux-port/README.md, AGENTS.md, RELEASE-NOTES.md).
+- 3.0.2: W2/R2 (`httpfront`: LAN filter and connection cap), R1 (RTSP slots), W3 (per-camera password), B4-B6, D1-D7, M1.
