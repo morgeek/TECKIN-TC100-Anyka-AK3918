@@ -111,20 +111,6 @@ get_cfg() {
   fi
 }
 
-normalize_web_mode_value() {
-  case "$1" in
-    ultra-lite|ultralite)
-      echo "ultra-lite"
-      ;;
-    full|http|off)
-      echo "$1"
-      ;;
-    *)
-      echo "full"
-      ;;
-  esac
-}
-
 detect_primary_ip() {
   primary_ip=""
   if [ -r /tmp/camera_ip.txt ]; then
@@ -197,50 +183,12 @@ build_rtsp_url_template() {
   printf 'rtsp://%s%s:%s/%s' "$rtsp_url_auth_prefix" "$url_host" "$url_port" "$url_path"
 }
 
+# The camera serves its web UI over plain HTTP on port 80 only (HTTPS is the
+# job of a reverse proxy on the owner's network).
 build_web_base_url() {
-  web_mode_value="$1"
-  web_host="$2"
-  ultralite_port_value="$3"
-
+  web_host="$1"
   web_enabled=1
-  web_scheme="https"
-  web_port=443
-  web_base_url=""
-
-  case "$web_mode_value" in
-    full)
-      web_scheme="https"
-      web_port=443
-      ;;
-    http)
-      web_scheme="http"
-      web_port=80
-      ;;
-    ultra-lite)
-      web_scheme="http"
-      web_port="$ultralite_port_value"
-      ;;
-    off)
-      web_enabled=0
-      web_scheme=""
-      web_port=0
-      ;;
-    *)
-      web_scheme="https"
-      web_port=443
-      ;;
-  esac
-
-  if [ "$web_enabled" = "1" ]; then
-    case "${web_scheme}:${web_port}" in
-      https:443|http:80)
-        web_base_url="${web_scheme}://${web_host}"
-        ;;
-      *)
-        web_base_url="${web_scheme}://${web_host}:${web_port}"
-        ;;
-    esac
-  fi
+  web_base_url="http://${web_host}"
 }
 
 rtsp_describe_local_ok() {
@@ -992,12 +940,8 @@ if [ -n "$F_cmd" ]; then
     [ -n "$manifest_camera_slug" ] || manifest_camera_slug="$(slugify_value "$(read_conf_value /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)")"
     [ -n "$manifest_camera_slug" ] || manifest_camera_slug="tc100_camera"
 
-    manifest_web_mode="$(normalize_web_mode_value "$(read_conf_value /mnt/config/boot.conf WEB_MODE full)")"
-    manifest_ultralite_http_port="$(sanitize_int "$(read_conf_value /mnt/config/boot.conf ULTRALITE_HTTP_PORT 80)" 80)"
-    if [ "$manifest_ultralite_http_port" -lt 1 ] || [ "$manifest_ultralite_http_port" -gt 65535 ]; then
-      manifest_ultralite_http_port=80
-    fi
-    build_web_base_url "$manifest_web_mode" "$primary_ip" "$manifest_ultralite_http_port"
+    manifest_web_mode="http"   # fixed: kept in the JSON for Home Assistant consumers
+    build_web_base_url "$primary_ip"
 
     web_snapshot_url=""
     web_healthsnapshot_url=""
@@ -1169,7 +1113,6 @@ if [ -n "$F_cmd" ]; then
     load_or_compute_usage_metrics
     profile="$(get_perf_profile)"
     load_lum_awb
-    get_ui_ultralite_mode
     get_security_and_mqtt_flags
     read_chip_temperature
     read_power_telemetry
@@ -1201,7 +1144,7 @@ if [ -n "$F_cmd" ]; then
     chip_temp_text_json="$(json_escape "$chip_temp_text")"
     power_voltage_text_json="$(json_escape "$power_voltage_text")"
     power_estimated_text_json="$(json_escape "$power_estimated_text")"
-    web_mode_json="$(json_escape "$(get_cfg WEB_MODE full)")"
+    web_mode_json="http"
     codec0_json="$(json_escape "$codec0_name")"
     codec1_json="$(json_escape "$codec1_name")"
     watchdog_json="$(last_watchdog_event_json)"
@@ -1222,7 +1165,7 @@ if [ -n "$F_cmd" ]; then
         csrf_token="$(printf '%s' "$csrf_token" | tr -cd '0-9a-fA-F')"
     fi
 
-    _hs_result="{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_discovery_enabled\":$mqtt_discovery,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"sd_readonly\":$sd_readonly,\"csrf_token\":\"$csrf_token\",\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json,\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
+    _hs_result="{\"timestamp_utc\":\"$health_time_utc_json\",\"hostname\":\"$health_hostname_json\",\"uptime_seconds\":$uptime_seconds,\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"chip_temp_c\":$chip_temp_json,\"chip_temp_text\":\"$chip_temp_text_json\",\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_discovery_enabled\":$mqtt_discovery,\"reboot_epoch\":$reboot_epoch,\"default_password_active\":$default_password_active,\"sd_readonly\":$sd_readonly,\"csrf_token\":\"$csrf_token\",\"power_voltage_mv\":$power_voltage_mv_json,\"power_voltage_text\":\"$power_voltage_text_json\",\"power_sensor_raw\":$power_sensor_raw_json,\"power_sensor_path\":\"$power_sensor_path_json\",\"power_estimate_enabled\":$power_estimate_enabled,\"power_estimated_mw\":$power_estimated_mw_json,\"power_estimated_text\":\"$power_estimated_text_json\",\"power_estimated_current_ma\":$power_estimated_current_ma_json,\"rtsp\":{\"service\":$rtsp_state_json,\"port\":$rtsp_port,\"main\":{\"path\":\"video0_unicast\",\"codec\":\"$codec0_json\",\"width\":$width0,\"height\":$height0,\"fps\":$fps0},\"sub\":{\"path\":\"video1_unicast\",\"codec\":\"$codec1_json\",\"width\":$width1,\"height\":$height1,\"fps\":$fps1}},\"onvif\":{\"service\":$onvif_state_json},\"last_watchdog_event\":\"$watchdog_json\"}"
     { printf '%s\n' "$_hs_now"; printf '%s\n' "$_hs_result"; } > "$HEALTH_SNAP_CACHE" 2>/dev/null || true
     printf '%s\n' "$_hs_result"
     fi
@@ -1321,8 +1264,8 @@ if [ -n "$F_cmd" ]; then
     case "$_st_db" in -[0-9]|-[0-9][0-9]|0) : ;; *) _st_db=-24 ;; esac
     
     # Feature blocks
-    printf '{"boot":{"web_mode":"%s","perf_profile":"%s","service_trim":%s,"topology":"%s","ultralite_port":%s,"lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s,"vbr":%s,"smart":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s,"motion_best_shot":%s},"telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"frigate":{"url":"%s","camera":"%s"},"peripherals":{"led_front":%s,"led_red":%s}}\n' \
-      "$(json_escape "$(get_cfg WEB_MODE full)")" "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(sanitize_int "$(get_cfg ULTRALITE_HTTP_PORT 80)" 80)" "$(truthy_flag "$(get_cfg LIGHTWEIGHT_MODE 0)")" "$(truthy_flag "$(get_cfg SECURITY_HARDENING_MODE 0)")" \
+    printf '{"boot":{"perf_profile":"%s","service_trim":%s,"topology":"%s","lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s,"vbr":%s,"smart":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s,"motion_best_shot":%s},"telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"frigate":{"url":"%s","camera":"%s"},"peripherals":{"led_front":%s,"led_red":%s}}\n' \
+      "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(truthy_flag "$(get_cfg LIGHTWEIGHT_MODE 0)")" "$(truthy_flag "$(get_cfg SECURITY_HARDENING_MODE 0)")" \
       "$rtsp_port" \
       "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" "$vbr0" "$smart0" \
       "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \

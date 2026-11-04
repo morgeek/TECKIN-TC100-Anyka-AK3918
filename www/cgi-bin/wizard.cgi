@@ -238,7 +238,6 @@ if [ "$METHOD" = "POST" ]; then
     esac
 
     # Web access: plain HTTP with a login (all busybox httpd offers)
-    set_conf "$BOOT_CONF" WEB_MODE http
     set_conf "$BOOT_CONF" SECURITY_HARDENING_MODE 0
 
     # Apply MQTT broker settings (frigate_ha only)

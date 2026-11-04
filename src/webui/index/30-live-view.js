@@ -4,10 +4,6 @@
     if (!toggle) {
       return;
     }
-    if (uiUltraLiteMode && !liveFeedEnabled) {
-      toggle.textContent = "Resume Live (manual)";
-      return;
-    }
     toggle.textContent = liveFeedEnabled ? "Pause Live" : "Resume Live";
   }
 

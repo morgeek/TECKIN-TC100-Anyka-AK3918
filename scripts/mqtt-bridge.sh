@@ -443,7 +443,6 @@ port_open_from_list_int()
 collect_port_states_from_netstat()
 {
   eval "$(printf '%s\n' "$1" | awk \
-    -v p_https=443 \
     -v p_http="$2" \
     -v p_rtsp="$3" \
     -v p_onvif="$4" \
@@ -452,7 +451,6 @@ collect_port_states_from_netstat()
     '$1 ~ /^tcp/ {
       n = split($4, a, ":")
       p = a[n]
-      if (p == p_https)  https  = 1
       if (p == p_http)   http   = 1
       if (p == p_rtsp)   rtsp   = 1
       if (p == p_onvif)  onvif  = 1
@@ -460,7 +458,6 @@ collect_port_states_from_netstat()
       if (p == p_telnet) telnet = 1
     }
     END {
-      print "slow_port_https_open="  (https  + 0)
       print "slow_port_http_open="   (http   + 0)
       print "slow_port_rtsp_open="   (rtsp   + 0)
       print "slow_port_onvif_open="  (onvif  + 0)
@@ -1066,7 +1063,7 @@ DIAG
 
 init_slow_health_defaults()
 {
-  slow_web_mode="full"
+  slow_web_mode="http"   # plain HTTP only; the key stays in the JSON for HA consumers
   slow_profile="balanced"
   slow_security_hardening_mode=0
   slow_motion_enabled=0
@@ -1092,14 +1089,12 @@ collect_slow_health_metrics()
 {
   init_slow_health_defaults
 
-  ultralite_http_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/boot.conf ULTRALITE_HTTP_PORT 80)" 1 65535 80)"
-  slow_web_mode="full"
+  slow_web_mode="http"
   slow_profile="balanced"
   slow_security_hardening_mode=0
   if [ -f /mnt/config/boot.conf ]; then
     # shellcheck disable=SC1090
     . /mnt/config/boot.conf
-    slow_web_mode="${WEB_MODE:-full}"
     if [ "${LOW_CPU_PROFILE:-0}" = "1" ]; then
       slow_profile="low-cpu"
     fi
@@ -1121,11 +1116,6 @@ collect_slow_health_metrics()
   onvif_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 1 65535 8081)"
 
   http_port=80
-  case "$slow_web_mode" in
-    ultra-lite|ultralite)
-      http_port="$ultralite_http_port"
-      ;;
-  esac
 
   slow_motion_enabled="$(service_script_running_int /mnt/controlscripts/motion-detection /var/run/detection-monitor.pid)"
   slow_ftp_enabled="$(service_script_running_int /mnt/controlscripts/ftp-server /var/run/ftp-server.pid)"
@@ -1267,7 +1257,7 @@ load_slow_health_cache()
   case "$slow_port_ftp_open" in ''|*[!0-9]*) slow_port_ftp_open=0 ;; esac
   case "$slow_port_telnet_open" in ''|*[!0-9]*) slow_port_telnet_open=0 ;; esac
   [ -n "$slow_primary_ip" ] || slow_primary_ip="n/a"
-  case "$slow_web_mode" in full|http|off|ultra-lite|ultralite) ;; *) slow_web_mode="full" ;; esac
+  slow_web_mode="http"
   case "$slow_profile" in balanced|low-cpu|rtsp-only) ;; *) slow_profile="balanced" ;; esac
 
   return 0

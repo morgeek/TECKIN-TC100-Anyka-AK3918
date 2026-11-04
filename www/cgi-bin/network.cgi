@@ -247,19 +247,6 @@ capture_limited_output() {
   '
 }
 
-normalize_web_mode() {
-  mode="$(printf '%s' "$1" | sed 's/\r//g; s/^[[:space:]]*//; s/[[:space:]]*$//')"
-  mode="$(to_lower_ascii "$mode")"
-  case "$mode" in
-    ultralite) mode="ultra-lite" ;;
-  esac
-  case "$mode" in
-    full|http|ultra-lite|off) ;;
-    *) mode="full" ;;
-  esac
-  printf '%s\n' "$mode"
-}
-
 LISTEN_TCP="$(with_timeout 5 netstat -lnt 2>/dev/null)"
 if [ -z "$LISTEN_TCP" ]; then
   LISTEN_TCP="$(with_timeout 5 netstat -ln 2>/dev/null)"
@@ -328,47 +315,16 @@ emit_port_row() {
     "$service_name" "$port" "$(status_badge "$runtime_state")" "$expected_label" "$note"
 }
 
-web_mode="$(normalize_web_mode "$(read_cfg boot.conf WEB_MODE full)")"
-ultralite_http_port="$(sanitize_port "$(read_cfg boot.conf ULTRALITE_HTTP_PORT 80)" 80)"
 rtsp_port="$(sanitize_port "$(read_cfg rtspserver.conf PORT 554)" 554)"
 onvif_port="$(sanitize_port "$(read_cfg onvif.conf ONVIF_PORT 8081)" 8081)"
 ftp_port="$(sanitize_port "$(read_cfg ftp.conf PORT 21)" 21)"
 telnet_port="$(sanitize_port "$(read_cfg telnetd.conf TELNET_PORT 23)" 23)"
 security_hardening_mode="$(read_cfg boot.conf SECURITY_HARDENING_MODE 0)"
 
+# The camera serves the web UI over plain HTTP on port 80 only (HTTPS: reverse proxy on the owner network).
 http_port=80
-http_expected=0
-https_expected=0
-http_note="HTTP UI disabled"
-https_note="HTTPS UI disabled"
-
-case "$web_mode" in
-  full)
-    http_port=80
-    http_expected=1
-    https_expected=1
-    http_note="HTTP redirect endpoint (to HTTPS)"
-    https_note="Main secure web UI"
-    ;;
-  http)
-    http_port=80
-    http_expected=1
-    https_expected=0
-    http_note="Main web UI (HTTP mode)"
-    https_note="Disabled by WEB_MODE=http"
-    ;;
-  ultra-lite|ultralite)
-    http_port="$ultralite_http_port"
-    http_expected=1
-    https_expected=0
-    http_note="BusyBox ultra-lite web UI"
-    https_note="Disabled by WEB_MODE=ultra-lite"
-    ;;
-  off)
-    http_expected=0
-    https_expected=0
-    ;;
-esac
+http_expected=1
+http_note="Web UI (plain HTTP)"
 
 # A port is "expected" open only when its service starts at boot; otherwise
 # it is "optional" (ONVIF/FTP/Telnet were always "expected", so a stopped
@@ -387,7 +343,6 @@ if is_truthy_local "$security_hardening_mode"; then
 fi
 
 open_ports_rows="$(cat <<EOF
-$(emit_port_row "HTTPS web UI" 443 "$https_expected" "$https_note")
 $(emit_port_row "HTTP web UI" "$http_port" "$http_expected" "$http_note")
 $(emit_port_row "RTSP" "$rtsp_port" 1 "Main/sub streams")
 $(emit_port_row "ONVIF" "$onvif_port" "$onvif_expected" "NVR/Home Assistant discovery")

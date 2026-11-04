@@ -357,8 +357,9 @@
     set_frigate_live)
       # Smooth live view: a link to this camera in Frigate's own live page
       # (go2rtc restream: no extra connection to the camera). Frigate is
-      # plain HTTP and this UI HTTPS, so it opens in its own tab rather than
-      # being embedded (mixed content). Stored in config/frigate_live.conf.
+      # plain HTTP and this UI may sit behind an HTTPS reverse proxy, so it
+      # opens in its own tab rather than being embedded (mixed content).
+      # Stored in config/frigate_live.conf.
       fl_url="$(printf '%s' "${F_frigate_url}")"; fl_cam="$(printf '%s' "${F_frigate_camera}")"
       fl_url="${fl_url%/}"; fl_err=""; fl_note=""
       if [ -n "$fl_url" ]; then

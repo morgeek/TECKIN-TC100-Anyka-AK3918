@@ -5,7 +5,7 @@
 # (wlan0). When wlan0 stays without a working link for WIFI_RESCUE_AFTER_MIN
 # minutes, hostapd (the vendor build, rtl871xdrv) starts an access point on
 # wlan1 and udhcpd hands out 10.42.0.10-50: the web interface is then at
-# https://10.42.0.1 to fix the Wi-Fi settings. The station keeps trying in
+# http://10.42.0.1 to fix the Wi-Fi settings. The station keeps trying in
 # the background; the access point stops once the link has been back for a
 # minute and no device is using it.
 #
@@ -47,7 +47,7 @@ if [ -z "$HOSTAPD" ]; then
         [ -x "$HOSTAPD" ] && break
     done
 fi
-WEB_URL="https://$AP_IP"; [ "$L66" = 1 ] && WEB_URL="http://$AP_IP"
+WEB_URL="http://$AP_IP"
 SYS_NET="${WR_SYS_NET:-/sys/class/net}"
 PROC_ARP="${WR_PROC_ARP:-/proc/net/arp}"
 STEP="${WR_STEP:-30}"
