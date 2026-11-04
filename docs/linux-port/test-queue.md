@@ -2031,3 +2031,17 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 - `5c6b059` (rc24 + `[license]`, `[credits]`, `[wifi-country]`, `[mqtt-c]`, `[audit]`) : `VERSION` dit aussi **3.0.1-rc24**, md5 `0f7abf39b6f95300045757cddd7ff7b9` → `xfer24-latest/`.
 - **Demande à l'implémenteur** : ne pas publier deux contenus sous le même numéro ; si `5c6b059` est la version à tester (elle contient le correctif RTSP H1 et les changements de démarrage `S39tc100`/udhcpc), la renuméroter **rc25**. Sinon, le testeur installe `xfer24` d'abord, puis la suivante sous un nouveau numéro.
 - Je n'ai trouvé aucun détail dans le dépôt sur la « CVE-2026-98432 » citée dans l'entrée rc24 (« décision du propriétaire en attente ») : décrire le problème, le patch et le risque pour que le propriétaire puisse décider.
+
+## 2026-11-04 — Version 3.0.1-rc25 (remplace la rc24 : un seul paquet par numéro)
+
+- **Réponse au testeur (18:20) :** oui, `5c6b059` devait être renuméroté ; c'est fait. La rc24 n'est plus à tester : la rc25 la contient entièrement. Ne pas installer `xfer24-latest/` (contenu rc25 sous le numéro rc24).
+- **Paquet :** artefact `tc100-3-release` du run CI du commit `[release] Bump to 3.0.1-rc25` (`tc100-3.0.1-rc25-update.tar`, mise à jour web). **Noyau inchangé depuis la rc23.** **Initramfs modifié** (`regulatory.db`, `S39tc100` : pays Wi-Fi, nom DHCP, `udhcpc -T 1`) : la mise à jour web l'écrit comme à chaque version.
+- **CVE-2026-98432 :** le dépôt ne contient rien d'autre que la mention « décision du propriétaire en attente » (entrée rc24) : ni description, ni patch, ni source. L'implémenteur ne peut pas la documenter sans la source de cette mention ; le propriétaire la fournit (note du projet claude.ai ?) ou la mention est retirée. Rien n'a changé dans le noyau à ce sujet.
+- **Contenu depuis la rc24 :** `c70d93f` [license] GPL-2.0 ; `77dacb8` [credits] origine des binaires préconstruits ; `56c0da0` [wifi-country] ; `452cc5c`/`498bd72` [mqtt-c] (`MQTT_BRIDGE_IMPL=shell` par défaut) ; `5c6b059` [audit] (H1 RTSP, W1 XSS, W5 mot de passe en mode sans échec, B2 ordre console/Wi-Fi dans S39, CI).
+- **À tester sur les deux caméras (la .11 d'abord) :**
+  1. Installation par la mise à jour web : `cat /mnt/VERSION` = 3.0.1-rc25 ; redémarrage ; `boot-guard status` → `count=0` après 5 min ; `dmesg | grep -i -E 'regulatory|FAT'` : pas de « failed to load regulatory.db », pas de « not properly unmounted » (.24).
+  2. Le plan rc24 (entrée « Version 3.0.1-rc24 », points 1-6) sur la rc25.
+  3. Entrées `[wifi-country]` (pays FR sans coupure, Wi-Fi au démarrage, « Se connecter à ce réseau » sans faux message d'erreur), `[audit]` (flux RTSP TCP/UDP et voie de retour, pages d'erreur, `showlog`, mode sans échec, console).
+  4. `[mqtt-c]` sur **une** caméra seulement (`MQTT_BRIDGE_IMPL=c`), l'autre en témoin avec le pont shell.
+  5. Une nuit `WIFI_QUALITY=1` en FR sur les deux : pertes de ping comparées à la nuit rc23 (7-11 %).
+- **Critères :** 1-5 conformes, aucune régression par rapport à la nuit rc23 (pas de redémarrage, RAM stable ~20 Mo, bascule jour/nuit).

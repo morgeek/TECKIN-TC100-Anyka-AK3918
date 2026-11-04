@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc25] - 2026-11-04
+
+rc24 plus: the Wi-Fi country rules and an earlier Wi-Fi at boot, the MQTT bridge in C (off by default), the fixes of
+the evening audit (RTSP buffer, script injection in web error pages, password in safe mode), the GPL-2.0 licence.
+Kernel unchanged from rc23; the initramfs changes (regulatory database, boot script).
+
 ### Added
 - **`tc100-mqttd`** (`src/mqttd`): the MQTT bridge as one small C process instead of four shell processes (about 5.7 MB
   together, the second-largest memory user after the video server). MQTT 3.1.1, one persistent connection with the

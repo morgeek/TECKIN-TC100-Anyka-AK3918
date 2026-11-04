@@ -1,8 +1,9 @@
 # Release plan: 3.0.1 (2026-10-31)
 
-**Status (2026-11-04):** rc24 prepared on main (`VERSION` 3.0.1-rc24: the audit fixes, the rc23 night findings,
-plain HTTP only; kernel unchanged from rc23); to be installed and tested on both cameras (test-queue.md,
-"Version 3.0.1-rc24"). The list "To fix before the final 3.0.1" below holds what is left.
+**Status (2026-11-04 evening):** rc25 on main (`VERSION` 3.0.1-rc25 = rc24 + Wi-Fi country / earlier Wi-Fi, the MQTT
+bridge in C (off by default), the fixes of the audit of 2026-11-04, the licence; kernel unchanged from rc23, initramfs
+changed). rc24 is superseded: test rc25 on both cameras (test-queue.md, "Version 3.0.1-rc25"). The lists below hold
+what is left.
 
 **Earlier status:** rc17 on main (`VERSION` 3.0.1-rc17 = the prepared 3.0.1 + the install with no click, the way back with
 `RESTAURER.txt` and the old tint reset, asked by the owner on 2026-10-31 evening); the tag `v3.0.1` waits for R17-01
