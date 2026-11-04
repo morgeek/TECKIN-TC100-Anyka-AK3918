@@ -307,57 +307,6 @@
       rm -f /tmp/health_snapshot.cache 2>/dev/null || true
     ;;
 
-    set_web_mode)
-      if wants_json_response; then
-        json_body_err "FORMAT_NOT_SUPPORTED" "set_web_mode command does not support JSON format"
-      else
-        install_config /mnt/config/boot.conf
-        web_mode=$(printf '%s' "${F_web_mode}")
-        ultralite_http_port=$(printf '%s' "${F_ultralite_http_port}")
-
-        if security_hardening_enabled; then
-          if [ "$web_mode" != "full" ]; then
-            echo "Security hardening is enabled. WEB_MODE is locked to full (HTTPS).<br/>"
-            exit 0
-          fi
-        fi
-
-        case "$web_mode" in
-          full|http|ultra-lite|ultralite|off) ;;
-          *)
-            echo "Unknown web mode '$web_mode'<br/>"
-            exit 0
-            ;;
-        esac
-
-        if [ "$web_mode" = "ultralite" ]; then
-          web_mode="ultra-lite"
-        fi
-
-        case "$ultralite_http_port" in
-          ''|*[!0-9]*) ultralite_http_port=80 ;;
-        esac
-        if [ "$ultralite_http_port" -lt 1 ] || [ "$ultralite_http_port" -gt 65535 ]; then
-          ultralite_http_port=80
-        fi
-
-        rewrite_config /mnt/config/boot.conf WEB_MODE "$web_mode"
-        rewrite_config /mnt/config/boot.conf ULTRALITE_HTTP_PORT "$ultralite_http_port"
-
-        apply_web_mode_async "$web_mode"
-        schedule_onvif_restart
-
-        echo "Web mode set to: $web_mode<br/>"
-        if [ "$web_mode" = "ultra-lite" ]; then
-          echo "Ultra-lite HTTP port set to: $ultralite_http_port<br/>"
-        fi
-        echo "If the web UI disconnects, reconnect using the updated protocol/port.<br/>"
-        _ac_now
-        publish_mqtt_event "$(printf '{"ts":%s,"type":"web_mode","mode":"%s"}' "$now_ts" "$web_mode")"
-        rm -f /tmp/health_snapshot.cache 2>/dev/null || true
-      fi
-    ;;
-
     set_reboot_schedule)
       install_config /mnt/config/boot.conf
 

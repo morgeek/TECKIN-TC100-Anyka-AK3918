@@ -20,9 +20,6 @@
     badge.classList.add("profile-" + normalized);
     currentPerfProfileToken = normalized;
     tuneUiPollIntervals(normalized);
-    if (uiUltraLiteMode) {
-      applyUiUltraLiteMode(true);
-    }
   }
 
   function setAdaptiveLivePreviewProfile(cpuPercent, ramPercent) {
@@ -142,38 +139,6 @@
       badge.textContent = "\u2600\uFE0F Day";
       badge.classList.add("nightmode-day");
       badge.title = "High luminance " + lumVal + " — camera is in day mode. AWB: " + (awb || "n/a");
-    }
-  }
-
-  function applyUiUltraLiteMode(enabled) {
-    var next = !!enabled;
-    if (uiUltraLiteMode === next) {
-      return;
-    }
-    uiUltraLiteMode = next;
-    document.body.classList.toggle("ui-ultra-lite", uiUltraLiteMode);
-
-    if (uiUltraLiteMode) {
-      LIVEVIEW_INTERVAL_VISIBLE_MS = Math.max(LIVEVIEW_INTERVAL_VISIBLE_MS, 9000);
-      LIVEVIEW_INTERVAL_HIDDEN_MS = Math.max(LIVEVIEW_INTERVAL_HIDDEN_MS, 25000);
-      SYSUSAGE_INTERVAL_VISIBLE_MS = Math.max(SYSUSAGE_INTERVAL_VISIBLE_MS, 30000);
-      SYSUSAGE_INTERVAL_HIDDEN_MS = Math.max(SYSUSAGE_INTERVAL_HIDDEN_MS, 120000);
-      AUTONIGHT_INTERVAL_VISIBLE_MS = Math.max(AUTONIGHT_INTERVAL_VISIBLE_MS, 15000);
-      AUTONIGHT_INTERVAL_HIDDEN_MS = Math.max(AUTONIGHT_INTERVAL_HIDDEN_MS, 35000);
-      liveViewSnapshotEndpoint = "cgi-bin/currentpic.cgi";
-
-      if (liveFeedEnabled) {
-        liveFeedEnabled = false;
-        setLiveToggleButtonState();
-      }
-      clearJob("refreshLiveImage");
-      liveVideoSync();
-    } else {
-      tuneUiPollIntervals(currentPerfProfileToken);
-      setLiveToggleButtonState();
-      if (!document.hidden && liveFeedEnabled) {
-        scheduleRefreshLiveImage(200);
-      }
     }
   }
 
@@ -315,8 +280,6 @@
     } else {
       put("rd_sd", "none", false);
     }
-    var fb = byId("webfb_badge");
-    if (fb) fb.hidden = st.web_fallback !== "http";
     var mq = byId("rd_mqtt");
     if (mq) mq.style.display = st.mqtt_enabled === 1 ? "" : "none";
     if (st.mqtt_enabled === 1) {

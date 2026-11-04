@@ -28,11 +28,7 @@ REBOOT_SCHEDULE_HOUR=4
 REBOOT_SCHEDULE_WEEKDAY=*
 
 # Web server: busybox httpd behind httpfront, plain HTTP on port 80, one login (root and config/user.pwd).
-# WEB_MODE and ULTRALITE_HTTP_PORT are what the 2.x settings pages read; 3.0 serves port 80 whatever they say.
-WEB_MODE=http
-ULTRALITE_HTTP_PORT=80
-# UI ultra-lite mode: 1 = the web pages poll less often and the live view starts paused.
-UI_ULTRALITE_MODE=0
+# HTTPS is not served by the camera: put a reverse proxy on your network in front of it.
 
 # Security hardening mode: FTP and telnet stay off and cannot be started from the web UI.
 SECURITY_HARDENING_MODE=0

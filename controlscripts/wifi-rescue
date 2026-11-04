@@ -1,6 +1,6 @@
 #!/bin/sh
 # Rescue Wi-Fi access point watcher (scripts/wifi-rescue.sh): an access point
-# with the web interface at https://10.42.0.1 when the Wi-Fi stays down.
+# with the web interface at http://10.42.0.1 when the Wi-Fi stays down.
 SERVICE_NAME="Wi-Fi rescue access point"
 PIDFILE="/var/run/wifi-rescue.pid"
 

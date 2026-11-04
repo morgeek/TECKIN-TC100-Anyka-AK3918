@@ -86,9 +86,7 @@ _ce_prepare_file() {
 # several of these files are sourced by shell scripts, so nothing with shell metacharacters gets in.
 _ce_row_table() {
   cat <<'ROWS'
-    row("boot.conf";"flat";"root";"WEB_MODE";"web_mode";"network";.boot.web_mode),
     row("boot.conf";"flat";"root";"STREAM_TOPOLOGY";"topology";"general";.boot.topology),
-    row("boot.conf";"flat";"root";"ULTRALITE_HTTP_PORT";"port";"network";.boot.ultralite_port),
     row("boot.conf";"flat";"root";"LIGHTWEIGHT_MODE";"bool";"general";.boot.lightweight_mode),
     row("boot.conf";"flat";"root";"SECURITY_HARDENING_MODE";"bool";"general";.boot.security_hardening),
     row("service_trim.conf";"flat";"root";"SERVICE_TRIM";"bool";"general";.boot.service_trim),
@@ -405,7 +403,7 @@ _ce_export() {
         if (lv == "1" || lv == "true" || lv == "on" || lv == "yes" || lv == "enabled") j = "1"
         else if (lv == "0" || lv == "false" || lv == "off" || lv == "no" || lv == "disabled") j = "0"
         else next
-      } else if (t ~ /^(web_mode|topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|isp_mask|isp_mask_color)$/) {
+      } else if (t ~ /^(topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|isp_mask|isp_mask_color)$/) {
         j = jstr(v)
       } else if (v ~ /^-?[0-9]+$/) {
         j = sprintf("%d", v + 0)

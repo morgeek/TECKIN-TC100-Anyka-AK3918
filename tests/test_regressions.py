@@ -446,9 +446,9 @@ class Regressions(unittest.TestCase):
     def test_config_transaction_rejects_all_files_before_commit(self):
         stage, target, backup = (self.base / name for name in ('stage', 'target', 'backup'))
         stage.mkdir(); target.mkdir()
-        (stage / 'boot.conf').write_text((ROOT / 'config/boot.conf.dist').read_text().replace('WEB_MODE=http', 'WEB_MODE=ultra-lite'))
+        (stage / 'boot.conf').write_text((ROOT / 'config/boot.conf.dist').read_text().replace('REBOOT_SCHEDULE_HOUR=4', 'REBOOT_SCHEDULE_HOUR=99'))
         (stage / 'mqtt.conf').write_text((ROOT / 'config/mqtt.conf.dist').read_text().replace('MQTT_QOS=0', 'MQTT_QOS=9'))
-        original_boot = 'WEB_MODE=full\n'
+        original_boot = 'REBOOT_SCHEDULE_HOUR=4\n'
         original_mqtt = 'MQTT_ENABLE=0\nMQTT_PORT=1883\nMQTT_QOS=0\n'
         (target / 'boot.conf').write_text(original_boot)
         (target / 'mqtt.conf').write_text(original_mqtt)
@@ -468,7 +468,7 @@ class Regressions(unittest.TestCase):
         rtsp = self.base / 'rtsp.conf'
         rtsp.write_text((ROOT / 'config/rtspserver.conf.dist').read_text())
         code = '. ' + shlex.quote(str(ROOT / 'scripts/config-transaction.sh'))
-        code += '; tc_set_flat ' + shlex.quote(str(stage / 'boot.conf')) + ' WEB_MODE ultra-lite'
+        code += '; tc_set_flat ' + shlex.quote(str(stage / 'boot.conf')) + ' REBOOT_SCHEDULE_HOUR 5'
         code += '; tc_set_ini ' + shlex.quote(str(rtsp)) + ' 0 fps 12'
         code += '; tc_set_ini ' + shlex.quote(str(rtsp)) + ' root imageflip 1'
         code += '; tc_validate_candidate rtspserver.conf ' + shlex.quote(str(rtsp))
@@ -477,7 +477,7 @@ class Regressions(unittest.TestCase):
         r = run(code)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, b'1')
-        self.assertIn('WEB_MODE=ultra-lite', (target / 'boot.conf').read_text())
+        self.assertIn('REBOOT_SCHEDULE_HOUR=5', (target / 'boot.conf').read_text())
         data = rtsp.read_text()
         self.assertNotIn('0_fps=', data)
         self.assertRegex(data, r'(?s)\[0\].*?\nfps=12\n')
@@ -548,6 +548,34 @@ class Regressions(unittest.TestCase):
         bad = {'video': {'main': {'fps': 10}}, 'recording': {'segment_sec': 2}}
         self.assertEqual(self.import_json(cfg, bad)['error'], 'VALIDATION_FAILED')
         self.assertEqual((cfg / 'rtspserver.conf').read_text(), before_rtsp)
+
+    def test_json_import_ignores_the_removed_web_mode_keys(self):
+        # a backup made by an older version still carries boot.web_mode / boot.ultralite_port: it imports fine
+        cfg = self.seed_config()
+        res = self.import_json(cfg, {'boot': {'web_mode': 'full', 'ultralite_port': 8080, 'topology': 'dual'},
+                                     'recording': {'segment_sec': 600}})
+        self.assertTrue(res.get('ok'), res)
+        boot = (cfg / 'boot.conf').read_text()
+        self.assertIn('\nREC_SEGMENT_SEC=600\n', boot)
+        self.assertNotIn('WEB_MODE', boot)
+        self.assertNotIn('ULTRALITE_HTTP_PORT', boot)
+
+    def test_camera_never_serves_or_builds_https_for_itself(self):
+        # 3.0 serves plain HTTP on port 80 only; HTTPS is a reverse proxy on the owner's network.
+        # Outgoing https:// to third parties (ntfy, GitHub, Telegram, webhooks) is client TLS and allowed.
+        files = [ROOT / 'v3/autorun-linux66.sh']
+        for d in ('scripts', 'controlscripts', 'www/cgi-bin', 'src/webui/index'):
+            files += [p for p in sorted((ROOT / d).rglob('*')) if p.is_file() and p.suffix not in ('.png', '.bin', '.gz')]
+        own = re.compile(r'https://(\$|127\.|localhost|10\.42\.|192\.168\.|"\s*\+\s*(location|window)|\$\{?(AP_IP|primary_ip|web_host))', re.I)
+        port443 = re.compile(r'(?<![0-9A-Za-z.])443(?![0-9])')
+        bad = []
+        for p in files:
+            for n, line in enumerate(p.read_text(errors='replace').splitlines(), 1):
+                if own.search(line) or port443.search(line) or re.search(r'WEB_MODE|ULTRALITE_HTTP_PORT|lighttpd\.pem', line):
+                    bad.append('%s:%d: %s' % (p.relative_to(ROOT), n, line.strip()[:120]))
+        self.assertEqual(bad, [])
+        # the one place that used to build the base URL
+        self.assertIn('web_base_url="http://${web_host}"', (ROOT / 'www/cgi-bin/state.cgi').read_text())
 
     def test_json_import_validates_every_new_setting_strictly(self):
         cfg = self.seed_config()
@@ -959,7 +987,7 @@ class SetupWizard(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); d = self.d = Path(self.tmp.name)
         (d / 'config').mkdir()
-        (d / 'config/boot.conf').write_text('REC_LOCAL=0\nREC_WHEN=offline\nWEB_MODE=full\n')
+        (d / 'config/boot.conf').write_text('REC_LOCAL=0\nREC_WHEN=offline\n')
         (d / 'config/mqtt.conf.dist').write_text('MQTT_ENABLE=0\nMQTT_HOST=\n')
         (d / 'first').write_text('')
         (d / 'wpa.conf').write_text('network={\n\tssid="OldNet"\n\tpsk="oldpassword"\n\tpriority=2\n}\n')
@@ -988,7 +1016,7 @@ class SetupWizard(unittest.TestCase):
         boot = (self.d / 'config/boot.conf').read_text()
         self.assertIn('REC_LOCAL=1', boot); self.assertIn('REC_WHEN=offline', boot)
         self.assertNotIn('MQTT_ENABLE', boot)                             # mqtt.conf is its one place
-        self.assertIn('WEB_MODE=http', boot)
+        self.assertNotIn('WEB_MODE', boot)                                # no 2.x web mode key any more
         self.assertIn('MQTT_HOST=192.0.2.5', (self.d / 'config/mqtt.conf').read_text())
         self.assertIn('MQTT_ENABLE=1', (self.d / 'config/mqtt.conf').read_text())
         self.assertEqual((self.d / 'config/frigate_live.conf').read_text(), 'FRIGATE_URL=http://192.0.2.9:5000\nFRIGATE_CAMERA=\n')

@@ -60,7 +60,6 @@ tc_normalize_and_validate()
     print_level) [ -z "$_tc_value" ] || tc_uint_range "$_tc_value" 0 9 ;;
     minute) tc_uint_range "$_tc_value" 0 59 ;;
     weekday) case "$_tc_value" in '*'|[0-6]|1-5|0,6) ;; *) return 1 ;; esac ;;
-    web_mode) case "$_tc_value" in full|http|ultra-lite|ultralite|off) ;; *) return 1 ;; esac ;;
     topology) case "$_tc_value" in dual|main-only|sub-only) ;; *) return 1 ;; esac ;;
     onvif_policy) case "$_tc_value" in main-primary|sub-primary|sub-only|main-only) ;; *) return 1 ;; esac ;;
     hostname)
@@ -498,9 +497,6 @@ _tc_validate_candidate_body()
   esac
   case "$_tc_rel" in
     boot.conf)
-      tc_require_flat "$_tc_file" WEB_MODE "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" WEB_MODE web_mode "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" ULTRALITE_HTTP_PORT port "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REBOOT_SCHEDULE_HOUR hour "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REBOOT_SCHEDULE_MINUTE minute "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REBOOT_SCHEDULE_WEEKDAY weekday "$_tc_rel" || return 1

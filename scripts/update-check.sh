@@ -4,9 +4,8 @@
 VERSION_FILE="/mnt/VERSION"
 CACHE_FILE="/tmp/update_status.json"
 CACHE_TTL=86400 # 24 hours
-CACERT="/mnt/config/ssl/cacert/cacert.pem"
-# 3.0 (Linux 6.6): the musl curl of the flash image gets its CA bundle from CURL_CA_BUNDLE
-[ -f "$CACERT" ] || CACERT="${CURL_CA_BUNDLE:-}"
+# the curl of the flash image gets its CA bundle from CURL_CA_BUNDLE (v3/autorun-linux66.sh)
+CACERT="${CURL_CA_BUNDLE:-}"
 REPO="morgeek/TECKIN-TC100-Anyka-AK3918"
 GITHUB_API="https://api.github.com/repos/$REPO/releases/latest"
 

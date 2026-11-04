@@ -27,7 +27,6 @@
   var liveViewVisibilityObserver = null;
   var currentPerfProfileToken = "balanced";
   var dynamicSysUsageIntervalMs = 0;
-  var uiUltraLiteMode = false;
   var perfProfileFetchController = null;
   var sysUsageFetchController = null;
   var legacySysUsageFetchController = null;

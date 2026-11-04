@@ -1224,25 +1224,6 @@ a.button[disabled]:hover {
   }
 }
 
-body.ui-ultra-lite {
-  background: #eff4fa;
-}
-
-body.ui-ultra-lite::before,
-body.ui-ultra-lite::after {
-  display: none;
-}
-
-body.ui-ultra-lite .navbar,
-body.ui-ultra-lite .script_card,
-body.ui-ultra-lite .status_card,
-body.ui-ultra-lite .card,
-body.ui-ultra-lite .liveview-wrap,
-body.ui-ultra-lite .app-toolbar {
-  backdrop-filter: none;
-  box-shadow: none;
-}
-
 @media screen and (max-width: 1023px) {
   .navbar-menu {
     background: rgba(255, 255, 255, 0.94);

@@ -92,9 +92,6 @@
           if (typeof statusline.perfprofile === "string") {
             setPerformanceProfileBadge(statusline.perfprofile);
           }
-          if (typeof statusline.ui_ultralite_mode === "number") {
-            applyUiUltraLiteMode(statusline.ui_ultralite_mode > 0);
-          }
           updateSecurityBadge(typeof statusline.default_password_active === "number" ? statusline.default_password_active : null);
           updateMqttBadge(
             typeof statusline.mqtt_enabled === "number" ? statusline.mqtt_enabled : -1,

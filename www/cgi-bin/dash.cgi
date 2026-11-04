@@ -3,7 +3,7 @@
 # polled every 5 s while the dashboard is on screen; the page turns them into
 # rates (CPU %, Mbit/s). Kept apart from state.cgi on purpose: no func.cgi,
 # no command substitution, no pipeline, so a poll starts no process besides
-# this shell. Measured on a camera over a kept-alive HTTPS connection: no
+# this shell. Measured on a camera over a kept-alive connection: no
 # visible change in CPU use at one poll every 5 s (state.cgi: about +6 %).
 printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
 _d_cpu="0,0,0,0,0,0,0"

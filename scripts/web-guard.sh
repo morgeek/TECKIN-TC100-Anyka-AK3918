@@ -2,8 +2,7 @@
 # web-guard.sh — keeps a way into the camera when the web interface is down.
 #
 # Started by config/autostart/02_system-webserver (SD card and flash). Every
-# minute it checks that a web port listens (443 or 80, or the ultra-lite
-# port):
+# minute it checks that the web port (80) listens:
 #   * the first time none does, it restarts the web server once;
 #   * if that did not help, it opens a rescue telnet on port 23 (login as
 #     usual) and logs it;
@@ -42,7 +41,7 @@ PIDF="${WG_PIDFILE:-/var/run/rescue-telnetd.pid}"
 INTERVAL="${WG_INTERVAL:-60}"
 mkdir -p "$STATE" 2>/dev/null
 
-# httpfront on port 80 only (no HTTPS); empty = WEB_MODE off, nothing to guard
+# httpfront on port 80 only
 WG_PORTS="80"
 
 _wg_web_up()
@@ -95,7 +94,6 @@ _wg_sdsig()
 # the check itself (no fork on the way "web is up"): 0 = up, 1 = down
 wg_check()
 {
-    [ -z "$WG_PORTS" ] && return 0          # WEB_MODE=off: nothing to guard
     if _wg_web_up; then
         _n=0; [ -r "$STATE/up" ] && read -r _n < "$STATE/up"
         case "$_n" in ''|*[!0-9]*) _n=0 ;; esac

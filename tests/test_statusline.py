@@ -34,11 +34,10 @@ SCENARIOS = {
         'tmp/update_status.json': '{"update_available":1,"latest_version":"3.1.0"}\n',
         'tmp/sd-health': 'state=ok\n',
         'tmp/sd-card': 'kind=sd\nprompt=1\nid=ab12\n',
-        'tmp/web-fallback': 'http\n',
         'tmp/cfg-persist.status': 'state=failed\nmsg=flash "busy" \\ retry\n',
         'tmp/mqtt_last_pub.status': '1700000100 ok\n',
         'mnt/VERSION': '3.0.7\n',
-        'mnt/config/boot.conf': 'WEB_MODE=ultra-lite\nLOW_CPU_PROFILE=1\nSECURITY_HARDENING_MODE=1\n',
+        'mnt/config/boot.conf': 'LOW_CPU_PROFILE=1\nSECURITY_HARDENING_MODE=1\n',
         'mnt/config/mqtt.conf': 'MQTT_ENABLE=1\nMQTT_HA_DISCOVERY_ENABLE=0\n',
         'mnt/config/rtspserver.conf': 'USERNAME=root\nUSERPASSWORD=pass\n',
         'mnt/config/frigate_live.conf': 'FRIGATE_URL=http://10.0.0.5:5000\nFRIGATE_CAMERA=garage\n',
@@ -124,7 +123,7 @@ class StatuslineCgi(unittest.TestCase):
                 self.assertEqual(bn, bo)
                 self.assertTrue(bn.startswith('{"sysusage":"CPU: '), bn)
                 d = json.loads(bn)
-                self.assertEqual(len(d), 36)
+                self.assertEqual(len(d), 34)
                 self.assertIn('Content-type: application/json', hn)
                 self.assertIn('Cache-Control: max-age=0, no-store, no-cache', hn)
                 self.assertIn('Pragma: no-cache', hn)
@@ -140,7 +139,8 @@ class StatuslineCgi(unittest.TestCase):
         self.assertEqual(d['csrf_token'], '0123456789abcdef0123456789ABCDEF')
         self.assertEqual(d['wifi_qual'], 86)
         self.assertEqual(d['perfprofile'], 'low-cpu')
-        self.assertEqual(d['ui_ultralite_mode'], 1)
+        self.assertNotIn('ui_ultralite_mode', d); self.assertNotIn('web_fallback', d)
+        self.assertEqual(d['web_mode'], 'http')                           # fixed: kept for Home Assistant consumers
         self.assertEqual(d['sd_percent'], 25)
         self.assertEqual(d['sd_card'], 'sd')
         self.assertEqual(d['sd_prompt'], 'ab12')

@@ -250,24 +250,6 @@ load_lum_awb() {
   fi
 }
 
-get_ui_ultralite_mode() {
-  ui_mode=0
-  conf_get WEB_MODE_VALUE /mnt/config/boot.conf WEB_MODE full
-  conf_get UI_ULTRALITE_MODE_VALUE /mnt/config/boot.conf UI_ULTRALITE_MODE 0
-
-  case "$WEB_MODE_VALUE" in
-    ultra-lite|ultralite)
-      ui_mode=1
-      ;;
-  esac
-
-  case "$UI_ULTRALITE_MODE_VALUE" in
-    1|true|on|yes|enabled)
-      ui_mode=1
-      ;;
-  esac
-}
-
 get_security_and_mqtt_flags() {
   security_hardening_mode=0
   mqtt_enabled=0
@@ -471,7 +453,6 @@ statusline_json() {
   load_or_compute_usage_metrics
   load_cached_perf_profile || { compute_perf_profile; save_cached_perf_profile; }
   load_lum_awb
-  get_ui_ultralite_mode
   get_security_and_mqtt_flags
   get_sd_usage
   get_wifi_quality
@@ -480,7 +461,7 @@ statusline_json() {
   json_esc_to profile_json "$profile"
   json_esc_to lum_json "$lum_value"
   json_esc_to awb_json "$awb_value"
-  json_esc_to web_mode_json "$WEB_MODE_VALUE"
+  web_mode_json="http"   # fixed: plain HTTP only; kept in the JSON for Home Assistant consumers
   csrf_token=""
   # Ensure a CSRF token exists so the client ALWAYS receives one on its first
   # statusline poll. Without this, if no CGI had called csrf_guard since boot
@@ -555,8 +536,6 @@ statusline_json() {
   fi
   case "$sd_card" in *[!a-z]*) sd_card="" ;; esac
   case "$sd_prompt" in *[!0-9a-zA-Z]*) sd_prompt="" ;; esac
-  web_fallback=""; [ -r /tmp/web-fallback ] && read -r web_fallback < /tmp/web-fallback
-  case "$web_fallback" in http) ;; *) web_fallback="" ;; esac
   # the page shows when the last save of the settings to the flash failed (v3/linux66-sd/cfg-persist status file)
   platform=linux66
   cfg_save=""; cfg_save_msg=""
@@ -586,5 +565,5 @@ statusline_json() {
     esac
   fi
 
-  echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"ui_ultralite_mode\":$ui_mode,\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"mqtt_refused\":$mqtt_refused,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"web_fallback\":\"$web_fallback\",\"platform\":\"$platform\",\"cfg_save\":\"$cfg_save\",\"cfg_save_msg\":\"$cfg_save_msg_json\",\"hostname\":\"$cam_hostname_json\",\"sound_db\":$sound_db_json}"
+  echo "{\"sysusage\":\"CPU: $cpu% RAM: $mem_used/$mem_total kB\",\"cpu\":$cpu,\"ram_used_kb\":$mem_used,\"ram_total_kb\":$mem_total,\"ram_percent\":$ram_percent,\"sd_used_kb\":$sd_used_kb,\"sd_total_kb\":$sd_total_kb,\"sd_percent\":$sd_percent,\"perfprofile\":\"$profile_json\",\"lum\":\"$lum_json\",\"awb\":\"$awb_json\",\"web_mode\":\"$web_mode_json\",\"security_hardening_mode\":$security_hardening_mode,\"mqtt_enabled\":$mqtt_enabled,\"mqtt_last_pub_ts\":$mqtt_last_pub_ts,\"mqtt_last_pub_ok\":$mqtt_last_pub_ok,\"mqtt_refused\":$mqtt_refused,\"default_password_active\":$default_password_active,\"csrf_token\":\"$csrf_token\",\"update_available\":$update_available,\"update_latest_version\":\"$update_latest_json\",\"current_version\":\"$current_version_json\",\"wifi_qual\":$wifi_qual_json,\"wifi_iface\":\"$wifi_iface_json\",\"frigate_live\":\"$frigate_live\",\"storage\":\"${storage_json:-sd}\",\"sd_health\":\"$sd_health\",\"sd_card\":\"$sd_card\",\"sd_prompt\":\"$sd_prompt\",\"platform\":\"$platform\",\"cfg_save\":\"$cfg_save\",\"cfg_save_msg\":\"$cfg_save_msg_json\",\"hostname\":\"$cam_hostname_json\",\"sound_db\":$sound_db_json}"
 }

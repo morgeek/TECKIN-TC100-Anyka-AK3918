@@ -32,7 +32,7 @@ function fixture(opts) {
     byId: (id) => nodes[id] || null,
     setTimeout: (fn, ms) => { timers.push({fn, ms}); return timers.length; },
     setInterval: () => 1, clearInterval: () => {},
-    liveFeedEnabled: true, liveViewInViewport: true, uiUltraLiteMode: false,
+    liveFeedEnabled: true, liveViewInViewport: true,
     liveViewSnapshotEndpoint: 'cgi-bin/currentpic.cgi', liveViewVisibleIntervalMs: 4000, liveViewVisibilityObserver: null,
     fetch: (url) => {
       fetches.push(url);
