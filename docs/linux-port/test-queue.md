@@ -2051,3 +2051,28 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 - Build `d89f913` (CI et build verts) : `tc100-3.0.1-rc25-update.tar` md5 `58a786f84ba28e4e4c0db4a8c32a6f58`, `VERSION` 3.0.1-rc25 → `~/Downloads/tc100-fix/xfer25/` sur le Mac du propriétaire. Contenu = `5c6b059` + bump (diff `5c6b059..d89f913` : CHANGELOG, VERSION, docs seulement). Les paquets rc24 (`xfer24`, `xfer24-latest`) sont périmés : ne pas les installer.
 - Plan : rc25 sur la **.11 seule** ; la **.24 reste en rc23** cette nuit comme témoin (pertes Wi-Fi avec / sans `regulatory.db` + `WIFI_COUNTRY=FR`). Tests du plan rc25 dès que la .11 a redémarré.
 - CVE-2026-98432 : la mention vient de l'entrée rc24 de l'implémenteur et rien dans le dépôt ne la documente ; à retirer de la checklist si personne ne peut en donner la source.
+
+## 2026-11-04 18:55 — rc25 sur la .11 : résultats (testeur)
+
+Installée par le propriétaire (mise à jour web) ; la .24 reste en **rc23** (témoin de nuit). Mesures à 9-13 min d'uptime.
+
+| Test du plan | Résultat |
+|---|---|
+| `VERSION` 3.0.1-rc25, boot-guard | OK, `count=0`, mode normal |
+| `regulatory.db` | OK : plus de « failed to load regulatory.db » ; `iw reg get` → `country FR: DFS-ETSI` avant même le réglage (pays annoncé par la box) |
+| Pays Wi-Fi (`wifi_set_country` FR) | OK : `WIFI_COUNTRY=FR`, `country=FR` en tête de `/etc/wpa_supplicant.conf`, **0 perte sur 75 pings** (0,2 s) pendant l'application |
+| MQTT `a b` / `$(reboot)` | refusés (`INVALID_VALUE`) |
+| `frigateyaml` | `1920x1080@25`, `640x360@25`, `{FRIGATE_RTSP_PASSWORD}`, plus de mot de passe en clair |
+| `integrationmanifest` | `"fps":25` ×2 |
+| XSS `viewrecords.cgi?cmd=<b>x</b>` / `camcontrols.cgi?cmd=<script>` | « Unsupported command » sans balise ; 0 `<script>` renvoyé ; `showlog` sans balise |
+| `health.cgi` | `memory-guard` = `disabled` (juste : `MEM_GUARD_ENABLE=0` ; l'entrée `config/autostart/memory-guard` est un reste ignoré), `wifi-rescue` = `disabled` |
+| RTSP TCP | principal hevc 25 fps + audio, sous-flux h264 + audio OK |
+| RTSP UDP | **non testable d'ici** (ma VM est derrière un NAT : le RTP ne revient pas) — à vérifier par le propriétaire (VLC UDP) ou par Frigate |
+| `wifi-quality.log` | écrit chaque minute ; RSSI -15/-20 ≈ `beacon signal avg` -21 dBm |
+| Import JSON (123 valeurs) | 23 s juste après le boot (charge 2,6), **13,6 s** ensuite |
+| TLS sortant (`config/ssl` supprimé) | `curl` avec le bundle de Buildroot : GitHub 200 et ntfy 200, `ssl_verify_result=0` |
+| SD | pas de carte dans la .11 (test « non properly unmounted » à faire sur la .24 quand elle passera en rc25) |
+
+Petites remarques : `MEM_GUARD_SOFT_SERVICES="network-monitor"` dans `boot.conf` cite un service supprimé ; `config/autostart/memory-guard` reste alors que le service est coupé par son interrupteur. Une session ssh n'a pas `CURL_CA_BUNDLE` (seuls les services lancés par autorun l'ont) : sans gravité.
+
+Nuit : enregistreur relancé sur les deux caméras (17:51 UTC) → comparaison des pertes Wi-Fi .11 rc25 (FR + regdb) / .24 rc23 (monde) demain matin. La .24 est à 18,8 Mo disponibles après 22,8 h d'uptime (20,5 Mo hier soir) : à suivre.
