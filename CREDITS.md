@@ -18,6 +18,17 @@ No vendor binary is published in this repository. The vendor media libraries are
 
 Prebuilt ARM programs kept in the repository and copied into the 3.0 image by `v3/build-stack.sh` (uClibc, from the
 2.x era): `bin/getflag`, `bin/getimage`, `bin/isp_flip`, `bin/monvifd` (ONVIF), `bin/rwconf`, `bin/tc100-logfwd`, `lib/libnetacl.so`.
-`tc100-logfwd`, `isp_flip` and `libnetacl` have their source in `src/`; for `monvifd`, `rwconf`, `getflag` and `getimage` the
-origin is the original SD-card hack (row above) and their source and licence still have to be written down here, or
-the programs rebuilt from source (audit of 2026-11-03, `docs/linux-port/audit-2026-11-03.md`, C2).
+`tc100-logfwd`, `isp_flip` and `libnetacl` have their source in `src/`. The other four came with the first commit of
+this repository (`99c3112`, 2026-02-02), a copy of the original SD-card hack, whose `bin/` holds the same files
+(identified 2026-11-04):
+
+| Program | Source | Licence |
+|---|---|---|
+| `rwconf` | [anyka-v4l2rtspserver](https://github.com/ThatUsernameAlreadyExist/anyka-v4l2rtspserver), `libv4l2cpp/src/ReadWriteConfig.cpp` + `ConfigFile.cpp`, built by `tools.sh` of [anyka-software](https://github.com/ThatUsernameAlreadyExist/anyka-software) (`-DBUILD_RWCONFIG=1`) | Unlicense (public domain) |
+| `getflag` | same tree, `GetFlag.cpp` + `SharedMemory.cpp` (`-DBUILD_GETFLAG=1`) | Unlicense (public domain) |
+| `getimage` | same tree, `GetImage.cpp` + `SharedMemory.cpp` (`-DBUILD_GETIMAGE=1`) | Unlicense (public domain) |
+| `monvifd` | "Micro ONVIF discovery service v1.1" by ThatUsernameAlreadyExist, first published as a binary in [JCO-PM203-Fisheye-Ingenic-T20-P2P-camera-hacks](https://github.com/ThatUsernameAlreadyExist/JCO-PM203-Fisheye-Ingenic-T20-P2P-camera-hacks) (2023-05-15), then in the TC100 hack (2023-07-09). **No source published**; neither repository has a licence. | none stated |
+
+`bin/setconf` and `bin/telegram` are shell scripts of this repository (2.x's `setconf` was built from
+`SetSharedConfig.cpp`, same tree). The three Unlicense programs can be rebuilt from their public source; `monvifd`
+stays a binary without a source until it is replaced by an open WS-Discovery responder (ONVIF is off by default).

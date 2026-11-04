@@ -1974,3 +1974,9 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 - **mDNS :** `<nom>.local` confirmé par le propriétaire depuis son poste. Point fermé dans `release-3.0.1.md`.
 - **`syslog/host` (.11 = 192.168.1.23, .24 = 192.168.1.22) :** les deux adresses sont le même Synology ; pas de défaut, rien à aligner. À vérifier au passage avec la rc24 : les journaux des deux caméras arrivent bien sur le Synology.
 - **Licence :** fichier `LICENSE` = texte officiel de la GPL-2.0 (cohérent avec les patchs noyau et `libakuio`, déjà `SPDX-License-Identifier: GPL-2.0`) ; README (« Where it comes from ») et `CREDITS.md` le disent, le code tiers garde sa licence. Pas de test caméra.
+
+## 2026-11-04 — Origine des binaires préconstruits ; surexposition au démarrage close (`[credits]`)
+
+- **Binaires :** `rwconf`, `getflag`, `getimage` = sources publiques (Unlicense) de `anyka-v4l2rtspserver/libv4l2cpp` (ThatUsernameAlreadyExist), construites par `tools.sh` de `anyka-software` ; `monvifd` = binaire du même auteur (« Micro ONVIF discovery service v1.1 », publié en 2023 dans son hack JCO-PM203 puis TC100), sans source ni licence. Détail dans `CREDITS.md`. Proposé après la 3.0.1 : reconstruire les trois premiers en CI, remplacer `monvifd` (ONVIF coupé par défaut).
+- **Surexposition après démarrage (.11, rc20) :** plus revue par le propriétaire depuis ; close comme cas isolé, à rouvrir si elle revient (critère : luma < 200 en 30 s après le démarrage).
+- Pas de test caméra.

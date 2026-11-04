@@ -64,7 +64,7 @@ Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Ti
 - [x] **`syslog/host` differs between the two cameras** (.11 = 192.168.1.23, .24 = 192.168.1.22): not a fault, both addresses are the same Synology (owner, 2026-11-04); nothing to align.
 - [x] **.24 frame rate in the evening**: not a bug, the "10 fps in low light by day" mode (README). `ffprobe` showed 10/1 on the .24.
 - [x] **CI red** (`has-text-weight-semibold` purged from Bulma): purge re-run, bundle rebuilt (2026-11-04). Green CI is required on the tag commit.
-- [ ] **AE overshoot after boot** (.11, rc20: picture almost white about 7 minutes after boot, back to normal by itself). Start the AE from a mid exposure; criterion: luma below 200 within 30 s after boot.
+- [x] **AE overshoot after boot** (.11, rc20: picture almost white about 7 minutes after boot, back to normal by itself): not seen again by the owner since (2026-11-04), treated as an isolated case; reopen if it comes back (criterion: luma below 200 within 30 s after boot).
 - [x] **mDNS**: on by default since rc23; unicast answer verified on both cameras, `<name>.local` confirmed by the owner (2026-11-04).
 - [ ] Still to run on both cameras before the tag: tamper alarm with the owner's hand, a real night (day/night switch, colours back in the morning, IR off behind glass), SD card tests on the .24, notifications, flash write frequency of `awb.state` through cfg-persist.
 
@@ -73,7 +73,8 @@ Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Ti
 - [x] **Reported frame rate wrong**: `frigateyaml`, `integrationmanifest` and `integrationtest` did not load rtspserver.conf before `read_rtsp_stream_summary` (defaults: 15 fps). Fixed and retested on the .11 (25 fps reported). The README "15 by default" is right (`[0] fps=15` in the .dist).
 - [x] `frigateyaml`: camera password in clear by default; use `{FRIGATE_RTSP_PASSWORD}`. Fixed in git 2026-11-04 (README says where to set it); to check in rc24.
 - [x] **No LICENSE file**: `LICENSE` = GPL-2.0 (owner, 2026-11-04), consistent with the kernel patches and `libakuio`; README and `CREDITS.md` say so.
-- [~] `CREDITS.md`: Thingino row fixed and the prebuilt programs listed (2026-11-04); the source and licence of `monvifd`, `rwconf`, `getflag`, `getimage` still to be written down, or the programs rebuilt.
+- [x] `CREDITS.md`: Thingino row fixed, prebuilt programs listed, origin and licence of the four written down (2026-11-04): `rwconf`, `getflag`, `getimage` = public-domain (Unlicense) sources in anyka-v4l2rtspserver; `monvifd` = binary by the same author, no source, no licence.
+- [ ] Optional, after 3.0.1: rebuild `rwconf` / `getflag` / `getimage` from source in CI; replace `monvifd` by an open WS-Discovery responder (ONVIF is off by default, so the binary only runs when the user switches it on).
 
 ## Added by the night test of 2026-11-03/04 (test-queue.md, 2026-11-04 08:40)
 - [x] Night stability: no reboot, no memory drift, day/night switch and morning colours OK on both cameras.
