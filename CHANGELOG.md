@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc24] - 2026-11-04
+
+The audit fixes of the night of 2026-11-03/04, the tester's night findings on rc23 and plain HTTP only.
+Kernel unchanged from rc23.
+
 ### Changed
 - **Frigate configuration without the camera password**: `state.cgi?cmd=frigateyaml` writes
   `{FRIGATE_RTSP_PASSWORD}` in the stream addresses. A configuration pasted as is now needs that environment variable
@@ -37,6 +42,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `docs/known-issues.md`: 3.0 section brought to rc23 (exposure after a boot, Wi-Fi in the first minute and the
   missing `regulatory.db`, 10 fps in low light, characters refused in MQTT/Telegram settings, import duration).
 - `docs/linux-port/audit-2026-11-03.md`: full project audit.
+- `README.md`: "HTTPS with a reverse proxy" (Caddy and nginx examples, what the proxy must do for the live video).
 
 ## [3.0.1-rc23] - 2026-11-03
 

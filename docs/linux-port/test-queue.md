@@ -1950,3 +1950,21 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 - **Critères :** écart ≤ 3 dB avec `beacon signal avg` ; plus de valeur aberrante (-13 avec MCS 2).
 
 - 2026-11-04 11:30 (testeur) : `949f7d2` relu et vérifié sur la sortie réelle de `iw` de la .24 (retries 3, failed 1, `beacon signal avg` -51 → `3 1 -51`). OK. Prêt pour une **rc24**.
+
+## 2026-11-04 — Version 3.0.1-rc24 (correctifs de l'audit, constats de la nuit rc23, HTTP seul)
+
+- **Paquet :** artefact `tc100-3-release` du run CI du commit `[release] Bump to 3.0.1-rc24` (`tc100-3.0.1-rc24-update.tar`, mise à jour web : Outils → Mise à jour et sauvegarde). **Noyau inchangé depuis la rc23** (aucun patch noyau ; le correctif de la CVE-2026-98432 n'est pas dedans, décision du propriétaire en attente). La mise à jour web vérifie le noyau avant d'écrire (taille lue dans l'environnement U-Boot de chaque caméra).
+- **Contenu depuis la rc23 :**
+  - correctifs de l'audit (testeur, 2026-11-04 01:00) : `7c49fec` purge Bulma, `23a7c84` refus des caractères dangereux MQTT/Telegram, `cb946e4` import JSON en une passe (12-15 s), `9cf38e1` fps annoncés (25), `fd9c6b3` tests ;
+  - `c131441` [night-fixes] : `wifi-quality.sh` sous `timeout`, services coupés affichés `disabled`, carte SD remontée en lecture seule avant un redémarrage volontaire et à la fin d'une mise à jour web, `{FRIGATE_RTSP_PASSWORD}` dans le YAML Frigate ;
+  - `949f7d2` [wifi-beacon] : signal Wi-Fi = `beacon signal avg` ;
+  - `0349ff1` [no-https] : HTTP seul (port 80), restes 2.x HTTPS / modes web / `config/ssl` supprimés ; README : HTTPS par un proxy (`5ba69c6`) ;
+  - commits du propriétaire après le bump rc23, s'ils n'étaient pas dans la rc23 installée : `8fad9b1` vidéo fluide lancée d'office (tableau de bord, Réglages, multi-vue), `7c4ed8f` README.
+- **À tester sur les deux caméras (ordre conseillé : la .11 d'abord, la .24 le lendemain) :**
+  1. Installation par la mise à jour web : `VERSION` = 3.0.1-rc24, redémarrage, pas de mode sans échec (`boot-guard status` → `count=0` après 5 min), `dmesg | grep FAT` : **pas** de « not properly unmounted » sur la .24 après ce redémarrage.
+  2. Entrées détaillées plus haut : `[night-fixes]` (2026-11-04), `[wifi-beacon]`, `[no-https]`, et les points de l'audit (refus `a b` / `$(reboot)` dans MQTT et Telegram, import JSON ≤ 15 s, 25 fps dans le YAML Frigate et le manifeste).
+  3. `WIFI_QUALITY=1` une nuit sur les deux : journal écrit jusqu'au matin, `rssi` ≈ `beacon signal avg`, pertes de ping comparées à la nuit rc23 (7-11 %).
+  4. `health.cgi` : `memory-guard` = `disabled`, aucun compteur de redémarrage qui monte pour un service coupé.
+  5. Vérification de mise à jour et une notification Ntfy ou Telegram de test (certificats du système après la suppression de `config/ssl`).
+  6. Propriétaire : interface derrière son proxy HTTPS, vidéo fluide comprise.
+- **Critères :** 1 à 6 conformes, aucune régression par rapport à la nuit rc23 (pas de redémarrage, RAM stable ~20 Mo, bascule jour/nuit).
