@@ -19,14 +19,11 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 3. [ ] **Points ouverts de la checklist** : W4 (assistant sans jeton CSRF), B3 (`flashw -m` compare le fichier à
    lui-même, avec B1), D8 (passe de documentation : `api.md` cite encore HTTPS et `set_web_mode`, `wifi_set_country`
    non documenté…). B1 et W4 : décision du propriétaire reportée, à lui reposer avant le tag.
-4. [ ] **Retirer la mention « CVE-2026-98432 »** de l'entrée rc24 et de la checklist : rien dans le dépôt ne la
-   documente et personne n'en connaît la source.
-5. [ ] **Petits restes de config** :
-   - `boot.conf.dist` : `MEM_GUARD_SOFT_SERVICES="network-monitor"` cite un service supprimé ;
-   - `config/autostart/memory-guard` reste alors que le service est coupé par `MEM_GUARD_ENABLE=0` (ignoré, mais
-     trompeur) ;
-   - `mqtt.conf` dit `MQTT_TOPIC_ROOT=tc100/camera` mais les deux ponts publient sous `ipcamera2/` (racine tirée du
-     nom d'hôte ?) : documenter la règle ou aligner, **sans changer les identifiants des entités HA existantes**.
+4. [x] **Retirer la mention « CVE-2026-98432 »** de l'entrée rc24 et de la checklist : mention retirée.
+5. [x] **Petits restes de config** :
+   - `boot.conf.dist` : `MEM_GUARD_SOFT_SERVICES=""` nettoyé ;
+   - `config/autostart/memory-guard` retiré du dépôt (`MEM_GUARD_ENABLE=0` est le switch unique) ;
+   - `mqtt.conf` : documenté la règle de dérivation du topic root basée sur le hostname (`_mb_slug`).
 6. [ ] **Plans de test : mesurer la RAM en PSS** (`/proc/<pid>/smaps_rollup`), pas en RSS : le critère « RSS du
    démon bien en dessous des 5,7 Mo » comparait du code busybox partagé compté 7 fois (gain réel du pont C ≈ 0,9 Mo).
 7. [ ] **Tests restants avant le tag** (testeur + propriétaire) : anti-masquage avec la main ; SD sur la .24 (plus de

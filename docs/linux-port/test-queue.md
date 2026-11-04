@@ -1953,7 +1953,7 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
 
 ## 2026-11-04 — Version 3.0.1-rc24 (correctifs de l'audit, constats de la nuit rc23, HTTP seul)
 
-- **Paquet :** artefact `tc100-3-release` du run CI du commit `[release] Bump to 3.0.1-rc24` (`tc100-3.0.1-rc24-update.tar`, mise à jour web : Outils → Mise à jour et sauvegarde). **Noyau inchangé depuis la rc23** (aucun patch noyau ; le correctif de la CVE-2026-98432 n'est pas dedans, décision du propriétaire en attente). La mise à jour web vérifie le noyau avant d'écrire (taille lue dans l'environnement U-Boot de chaque caméra).
+- **Paquet :** artefact `tc100-3-release` du run CI du commit `[release] Bump to 3.0.1-rc24` (`tc100-3.0.1-rc24-update.tar`, mise à jour web : Outils → Mise à jour et sauvegarde). **Noyau inchangé depuis la rc23** (aucun patch noyau). La mise à jour web vérifie le noyau avant d'écrire (taille lue dans l'environnement U-Boot de chaque caméra).
 - **Contenu depuis la rc23 :**
   - correctifs de l'audit (testeur, 2026-11-04 01:00) : `7c49fec` purge Bulma, `23a7c84` refus des caractères dangereux MQTT/Telegram, `cb946e4` import JSON en une passe (12-15 s), `9cf38e1` fps annoncés (25), `fd9c6b3` tests ;
   - `c131441` [night-fixes] : `wifi-quality.sh` sous `timeout`, services coupés affichés `disabled`, carte SD remontée en lecture seule avant un redémarrage volontaire et à la fin d'une mise à jour web, `{FRIGATE_RTSP_PASSWORD}` dans le YAML Frigate ;
