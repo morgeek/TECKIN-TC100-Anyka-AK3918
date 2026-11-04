@@ -70,3 +70,9 @@ Details and measurements: `test-queue.md`, entries of 2026-11-03 (rc20-rc23). Ti
 - [ ] `frigateyaml`: camera password in clear by default; use `{FRIGATE_RTSP_PASSWORD}`.
 - [ ] **No LICENSE file** although the README says "100% open-source repository" (owner's decision on the licence).
 - [~] `CREDITS.md`: Thingino row fixed and the prebuilt programs listed (2026-11-04); the source and licence of `monvifd`, `rwconf`, `getflag`, `getimage` still to be written down, or the programs rebuilt.
+
+## Added by the night test of 2026-11-03/04 (test-queue.md, 2026-11-04 08:40)
+- [x] Night stability: no reboot, no memory drift, day/night switch and morning colours OK on both cameras.
+- [ ] **Wi-Fi drops**: the gateway did not answer 2 pings in 11 % (.11) and 7 % (.24) of the samples, all night long, independently on each camera (power save off, strong signal on the .11). Try `RTSP_PACING_US` / `RTSP_SNDBUF` on one camera for a night, then regulatory domain / driver options.
+- [ ] `wifi-quality.sh` stops writing its log (.11, since 20:13 UTC) while its processes keep running; its RSSI is still wrong (use `iw dev wlan0 station dump`).
+- [ ] `health.cgi` shows `memory-guard` stopped on the .11 although it is in autostart.

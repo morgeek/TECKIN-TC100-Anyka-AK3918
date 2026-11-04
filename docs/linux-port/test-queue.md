@@ -1885,3 +1885,31 @@ Pour l'implémenteur :
 1. Publier une rc24 avec ces commits ; je la teste sur les deux caméras.
 2. Restent ouverts (checklist `release-3.0.1.md`) : exposition au boot, mot de passe en clair dans `frigateyaml` (proposer `{FRIGATE_RTSP_PASSWORD}`), fichier LICENCE (décision du propriétaire), source/licence de `monvifd`, `rwconf`, `getflag`, `getimage`, `syslog/host` différent entre .11 et .24, mDNS multicast depuis le Mac.
 3. Correction d'audit : le README « 15 fps by default » est juste (`[0] fps=15` dans la .dist).
+
+## 2026-11-04 08:40 — Bilan de la nuit rc23 sur .11 et .24 (testeur)
+
+Mesures : `/tmp/nightcam.sh` sur chaque caméra, 1 ligne / 180 s, du 2026-11-03 21:58 au 2026-11-04 07:36 UTC (192 mesures .11, 191 .24), plus `daynight.log`, dmesg, `stability.cgi`, `health.cgi`.
+
+| Critère | .11 | .24 | Verdict |
+|---|---|---|---|
+| Reboots (uptime continu) | 0 (12 h 51 au matin) | 0 (12 h 33) | **OK** |
+| RAM disponible | 19,8-21,8 Mo ; moyenne 1er quart 20,9 / dernier quart 20,9 | 20,0-21,6 Mo ; 20,5 / 20,4 | **OK, pas de fuite** |
+| Charge | moy 1,00, max 2,67 | moy 1,02, max 1,57 | OK |
+| Services (`health.cgi`) | tous attendus actifs, 0 redémarrage de service | — | OK (`memory-guard` affiché « stopped » alors qu'il est en autostart : à vérifier) |
+| Bascule nuit | 23:17 UTC (lumière éteinte), luma 23-43 en nuit | nuit dès le soir (expo 2810) | **OK** |
+| Retour jour | 07:36 UTC (luma 118, quand la pièce s'éclaire) | 06:17 UTC en `daynight.log`, expo jour 07:15 | **OK** |
+| Couleurs du matin | couleur, légère dominante violette (rex=243 bex=341) | couleur, quasi neutre (rex≈655 bex≈718) | OK (dominante .11 à surveiller) |
+| fps | 25 jour, 10 en basse lumière (`STAT cap` 122-125 / 49-51) | idem | OK (mode 10 fps prévu) |
+| `awb.state` (tmpfs) | 24 écritures en 9,6 h | 25 | OK (tmpfs) ; écritures flash via cfg-persist non mesurées (pas de log) |
+| **Ping passerelle (2 pings, -W1)** | **perte totale dans 21/192 mesures (11 %)**, pire 1 854 ms | **14/191 (7 %)**, pire 1 933 ms | **À corriger** |
+| dmesg | 2 « isp pause fail » + réinit ISP à 11 442 s et 11 572 s (pendant mes tests `live.cgi` de la veille) ; rien pendant la nuit | carte SD : `FAT-fs … not properly unmounted` au boot | à suivre |
+
+Analyse des pertes Wi-Fi : réparties toute la nuit (toutes les heures), **indépendantes d'une caméra à l'autre** (5 pertes .11 sur 24 seulement à ±3 min d'une perte .24) → pas la box, côté caméra. Économie d'énergie Wi-Fi **off** sur les deux (`iw … get power_save`), même canal 2 (2417 MHz), driver `rtl8xxxu`. Signal fort sur la .11 (-25 dBm moyen) qui a pourtant le plus de pertes ; .24 plus faible (balise -51 dBm, 19,5 Mbit/s MCS 2). Le premier ssh de ce matin vers la .11 a expiré, le second est passé : même phénomène.
+
+Nouveaux défauts :
+1. **`/tmp/wifi-quality.log` figé sur la .11 depuis 2026-11-03 20:13 UTC** alors que 3 processus `wifi-quality.sh` tournent (la .24 l'écrit encore) : le script se bloque.
+2. Le RSSI de `wifi-quality.log` reste faux (-12/-16 sur la .11) : rappel du parsing `/proc/net/wireless` à corriger ; `iw dev wlan0 station dump` donne les bonnes valeurs (`signal avg`).
+3. `health.cgi` : `memory-guard` « stopped » sur la .11 alors que `config/autostart/memory-guard` existe.
+4. Carte SD .24 toujours marquée sale au boot (démonter avant reboot).
+
+Pistes Wi-Fi pour l'implémenteur (par ordre) : (a) mesurer avec `RTSP_PACING_US=100` / `RTSP_SNDBUF=64` (rc22) une nuit sur une seule caméra, l'autre en témoin ; (b) `regulatory.db` / domaine FR ; (c) changer de canal côté box (canal 2 encombré ?) — décision du propriétaire ; (d) paramètres `rtl8xxxu` (ht40, dma aggregation).
