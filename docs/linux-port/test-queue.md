@@ -2045,3 +2045,9 @@ CI verte sur `8e63100`. Relu, rien de bloquant ; mes correctifs d'hier sont inta
   4. `[mqtt-c]` sur **une** caméra seulement (`MQTT_BRIDGE_IMPL=c`), l'autre en témoin avec le pont shell.
   5. Une nuit `WIFI_QUALITY=1` en FR sur les deux : pertes de ping comparées à la nuit rc23 (7-11 %).
 - **Critères :** 1-5 conformes, aucune régression par rapport à la nuit rc23 (pas de redémarrage, RAM stable ~20 Mo, bascule jour/nuit).
+
+## 2026-11-04 18:35 — rc25 téléchargée (testeur)
+
+- Build `d89f913` (CI et build verts) : `tc100-3.0.1-rc25-update.tar` md5 `58a786f84ba28e4e4c0db4a8c32a6f58`, `VERSION` 3.0.1-rc25 → `~/Downloads/tc100-fix/xfer25/` sur le Mac du propriétaire. Contenu = `5c6b059` + bump (diff `5c6b059..d89f913` : CHANGELOG, VERSION, docs seulement). Les paquets rc24 (`xfer24`, `xfer24-latest`) sont périmés : ne pas les installer.
+- Plan : rc25 sur la **.11 seule** ; la **.24 reste en rc23** cette nuit comme témoin (pertes Wi-Fi avec / sans `regulatory.db` + `WIFI_COUNTRY=FR`). Tests du plan rc25 dès que la .11 a redémarré.
+- CVE-2026-98432 : la mention vient de l'entrée rc24 de l'implémenteur et rien dans le dépôt ne la documente ; à retirer de la checklist si personne ne peut en donner la source.
