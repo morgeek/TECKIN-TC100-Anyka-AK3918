@@ -35,6 +35,7 @@ grew from there.
 - [Home Assistant and Frigate](#home-assistant-and-frigate)
 - [Recording on the SD card](#recording-on-the-sd-card)
 - [Wi-Fi, passwords, safety](#wi-fi-passwords-safety)
+- [HTTPS with a reverse proxy](#https-with-a-reverse-proxy)
 - [Screenshots](#screenshots)
 - [The hardware, and OpenIPC](#the-hardware-and-openipc)
 - [How it works](#how-it-works)
@@ -109,7 +110,8 @@ grew from there.
 - No cloud and no outgoing connection, unless you turn on the GitHub release check (`UPDATE_CHECK=1`). Web login,
   CSRF protection and only the local network may connect by default.
 
-**What 3.0 does not do**: HTTPS (busybox httpd serves plain HTTP with a login), a VPN, resolution changes (1080p and
+**What 3.0 does not do**: HTTPS on the camera (it serves plain HTTP with a login; put a
+[reverse proxy](#https-with-a-reverse-proxy) in front of it), a VPN, resolution changes (1080p and
 640x360), card formatting from the web page, the encoder's smart mode (it stops the encoder with the memory left on
 this camera). Not yet checked on a camera: push-to-talk and two-way audio through the speaker (the speaker itself
 works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). What is known
@@ -282,6 +284,7 @@ Settings → **Recording**:
 - **Plain HTTP**: the web interface has a login but no HTTPS on 3.0: the password crosses the network in clear at
   each login (as for RTSP and FTP), readable by anyone who can capture your Wi-Fi traffic. Use it on your own network
   only and never forward ports 80, 554, 22 or 21 from the internet (use a VPN to reach the camera from outside).
+  For HTTPS, put a reverse proxy in front of it: [HTTPS with a reverse proxy](#https-with-a-reverse-proxy).
 - **Off by default**: every service that opens something to the network or sends data out is off on a new
   installation (ONVIF, telnet, FTP, MQTT, Ntfy/webhook/Telegram notifications, the
   update check). An updated camera keeps what was switched on before. Exception: the rescue access point and mDNS
@@ -296,6 +299,54 @@ Settings → **Recording**:
   server, if set.
 - **Way back**: a card with `tc100test/c66.img` always starts first; with `RESTAURER.txt` at its root it writes back
   the flash saved before 3.0 (`v3/install/restore-stock.sh`, also usable over ssh). The vendor U-Boot is never written.
+
+---
+
+## HTTPS with a reverse proxy
+
+The camera serves its web interface in plain HTTP on port 80 only. TLS on it would cost seconds of its 480 MHz CPU
+per connection, part of its 20 MB of free memory, and give a self-signed certificate that browsers warn about.
+HTTPS is done better by a reverse proxy on your network (a NAS, the Home Assistant machine, a Raspberry Pi): it
+holds a real certificate and forwards to the camera in HTTP over your LAN.
+
+What the proxy must do:
+- forward to `http://CAMERA-IP:80/` and pass the `Authorization` header (the camera's login; proxies do by default);
+- **not buffer** the live video: `cgi-bin/live.cgi` is a long fragmented MP4 response (smooth video in the Live view,
+  the Image settings and the multi-view), so turn buffering off and allow a long read timeout;
+- stay on your network or behind a VPN: the camera's software is not hardened for the internet, HTTPS or not.
+
+Caddy (`tls internal` gives a certificate from Caddy's own authority for a name that only exists at home: install
+Caddy's root certificate once on your phones and computers; with a public domain name, remove that line and Caddy
+gets a Let's Encrypt certificate):
+```
+camera.home.lan {
+    tls internal
+    reverse_proxy 192.168.1.11:80 {
+        flush_interval -1
+    }
+}
+```
+
+nginx (also what Nginx Proxy Manager writes; add the two `proxy_*` lines under "Advanced"):
+```
+server {
+    listen 443 ssl;
+    server_name camera.home.lan;
+    ssl_certificate     /etc/ssl/camera.crt;
+    ssl_certificate_key /etc/ssl/camera.key;
+    location / {
+        proxy_pass http://192.168.1.11:80;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+RTSP (port 554, Frigate, VLC) and the camera's own HTTP address keep working as before; the proxy only adds an HTTPS
+entrance. HTTPS protects the password between your devices and the proxy; between the proxy and the camera it is
+still HTTP, and the camera cannot refuse port 80 to other devices (it has no packet filter, and a home router does not
+filter between two devices of the same network). Keep the proxy and the camera on a network you trust (a separate
+camera VLAN or Wi-Fi if your router has one) and use the HTTPS address everywhere else.
 
 ---
 
