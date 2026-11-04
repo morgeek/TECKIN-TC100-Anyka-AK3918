@@ -134,3 +134,22 @@ class StreamSummaryLoadsItsConfig(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MqttBridgeControlStopsTheDaemon(unittest.TestCase):
+    """controlscripts/mqtt-bridge with MQTT_BRIDGE_IMPL=c: run_busybox is a shell function, so `$!` after
+    `run_busybox nohup BIN &` is the subshell, not tc100-mqttd. stop then left the daemon running and the next start
+    brought a second one with the same client id (the broker dropped them in turn every 2 s, IPCAM2 2026-11-04)."""
+    TEXT = (ROOT / 'controlscripts/mqtt-bridge').read_text()
+
+    def test_start_records_the_daemon_pid(self):
+        start = function('controlscripts/mqtt-bridge', 'start')
+        self.assertIn('_mb_pid="$(cat "$MQTTD_PIDFILE" 2>/dev/null)"', start)
+        self.assertIn('echo "$_mb_pid" > "$PIDFILE"', start)
+        self.assertLess(start.index('rm -f "$MQTTD_PIDFILE"'), start.index('run_busybox nohup "$BIN"'))
+
+    def test_stop_kills_every_daemon(self):
+        stop = function('controlscripts/mqtt-bridge', 'stop')
+        self.assertIn('killpid_graceful "$MQTTD_PIDFILE" 5', stop)
+        self.assertIn('pidof tc100-mqttd', stop)
+        self.assertLess(stop.index('pidof tc100-mqttd'), stop.index('rm -f "$MQTTD_PIDFILE"'))

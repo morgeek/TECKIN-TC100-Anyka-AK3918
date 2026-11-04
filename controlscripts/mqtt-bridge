@@ -5,6 +5,7 @@ WATCHDOG_PIDFILE="/var/run/mqtt-bridge-watch.pid"
 # MQTT_BRIDGE_IMPL=c (config/mqtt.conf) runs the free C daemon instead of scripts/mqtt-bridge.sh run (src/mqttd);
 # the pid file, the watchdog, the status file of the web UI and the health check are the same for both.
 BIN=/mnt/tc100test/tc100-mqttd
+MQTTD_PIDFILE=/var/run/tc100-mqttd.pid
 
 . /mnt/scripts/common_functions.sh
 
@@ -52,8 +53,16 @@ start()
 
   rm -f "$PIDFILE" >/dev/null 2>&1 || true
   if [ "$(bridge_impl)" = c ]; then
+    rm -f "$MQTTD_PIDFILE" 2>/dev/null
     run_busybox nohup "$BIN" </dev/null >/dev/null 2>&1 &
     echo "$!" > "$PIDFILE"
+    # run_busybox is a shell function: $! is the subshell that runs it, not the daemon. The daemon writes its own pid
+    # file at once; PIDFILE takes that pid, so stop and the watchdog act on the daemon (tester, 2026-11-04: stop left
+    # the daemon running, a second one came up with the same client id and the broker kicked them in turn every 2 s).
+    _mb_n=0
+    while [ "$_mb_n" -lt 30 ] && [ ! -s "$MQTTD_PIDFILE" ]; do sleep 0.1 2>/dev/null || sleep 1; _mb_n=$((_mb_n + 1)); done
+    _mb_pid="$(cat "$MQTTD_PIDFILE" 2>/dev/null)"
+    case "$_mb_pid" in ''|*[!0-9]*) ;; *) echo "$_mb_pid" > "$PIDFILE" ;; esac
     echo "MQTT bridge started (tc100-mqttd)"
   else
     run_busybox nohup /mnt/scripts/mqtt-bridge.sh run </dev/null >/dev/null 2>&1 &
@@ -83,8 +92,20 @@ stop()
     rm -f "$PIDFILE" 2>/dev/null || true
     echo "MQTT bridge is not running"
   fi
+  # the C daemon by its own pid file, then any other tc100-mqttd (one started by an older start, whose PIDFILE held
+  # the subshell): two daemons share the client id and the broker drops them in turn
+  [ -s "$MQTTD_PIDFILE" ] && killpid_graceful "$MQTTD_PIDFILE" 5
+  _mb_daemons="$(pidof tc100-mqttd 2>/dev/null)"
+  if [ -n "$_mb_daemons" ]; then
+    # shellcheck disable=SC2086
+    kill -TERM $_mb_daemons 2>/dev/null || true
+    sleep 1
+    _mb_daemons="$(pidof tc100-mqttd 2>/dev/null)"
+    # shellcheck disable=SC2086
+    [ -z "$_mb_daemons" ] || kill -9 $_mb_daemons 2>/dev/null || true
+  fi
   # a daemon that was killed hard leaves its FIFO and pid file: other scripts then fall back to one-shot connections
-  rm -f /var/run/tc100-mqttd.pid /tmp/mqtt-bridge.pub 2>/dev/null
+  rm -f "$MQTTD_PIDFILE" /tmp/mqtt-bridge.pub 2>/dev/null
   # Ensure no orphan listener subshells remain if the parent was SIGKILLed
   _mb_orphans="$(ps 2>/dev/null | awk '/\/scripts\/mqtt-bridge\.sh run/ { print $1 }')"
   if [ -n "$_mb_orphans" ]; then

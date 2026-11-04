@@ -2076,3 +2076,16 @@ Installée par le propriétaire (mise à jour web) ; la .24 reste en **rc23** (t
 Petites remarques : `MEM_GUARD_SOFT_SERVICES="network-monitor"` dans `boot.conf` cite un service supprimé ; `config/autostart/memory-guard` reste alors que le service est coupé par son interrupteur. Une session ssh n'a pas `CURL_CA_BUNDLE` (seuls les services lancés par autorun l'ont) : sans gravité.
 
 Nuit : enregistreur relancé sur les deux caméras (17:51 UTC) → comparaison des pertes Wi-Fi .11 rc25 (FR + regdb) / .24 rc23 (monde) demain matin. La .24 est à 18,8 Mo disponibles après 22,8 h d'uptime (20,5 Mo hier soir) : à suivre.
+
+## 2026-11-04 19:20 — Pont MQTT en C (`MQTT_BRIDGE_IMPL=c`) sur la .11 : fonctionne, un défaut d'arrêt corrigé (testeur)
+
+Activé à la demande du propriétaire sur la .11 (rc25) : `MQTT_BRIDGE_IMPL=c` ajouté à `/mnt/config/mqtt.conf` (sauvegarde `/tmp/mqtt.conf.before-c`), pont shell arrêté.
+- **Mémoire** : `tc100-mqttd` **376-440 Ko** (VmRSS) contre **7 976 Ko** cumulés pour les 7 processus du pont shell.
+- **Connexion** : une seule connexion TCP 1883 ; `ipcamera2/availability` = `online` retenu ; log « MQTT connected … root=ipcamera2 ».
+- **Commandes** : `{"cmd":"health"}` → `command/result` + `last_result` + `event` + `health` + `isp/state` en < 1 s.
+- **Événements des autres scripts** : `mqtt-bridge.sh publish event …` passe par le démon (toujours une seule connexion) ; après `kill -9` du démon, repli sur une connexion unique sans blocage (`publish rc=0`).
+- **Découverte HA** : 48 configs, 47 `uniq_id` distincts, aucun `_2` ; le doublon `ipcamera2_night_mode` est un `binary_sensor` et un `switch` (domaines différents, accepté par HA, déjà le cas avec le pont shell).
+- **DÉFAUT trouvé et corrigé** : `start` faisait `run_busybox nohup "$BIN" &` ; `run_busybox` est une fonction shell, donc `$!` = le sous-shell, pas le démon. `stop` tuait le sous-shell, **le démon restait** ; le `start` suivant en lançait un second avec le même client id → le broker les éjectait tour à tour, `availability` basculait `offline`/`online` **toutes les 2 s**. Correctif dans `controlscripts/mqtt-bridge` : `start` attend le pid file du démon et l'écrit dans `mqtt-bridge.pid` ; `stop` tue le démon par son pid file puis tout `tc100-mqttd` restant (`pidof`). Retesté sur la .11 (script superposé en RAM) : restart ×2, stop, start, start ×2, kill -9 + start → **toujours un seul démon**, pid file = démon, 4 paires offline/online = les 4 arrêts voulus, puis 45 s sans aucune bascule. Tests statiques ajoutés (`tests/test_audit_fixes.py`).
+- Le pont shell avait le même `$!` faux, masqué par le ménage des orphelins `mqtt-bridge.sh run` dans `stop`.
+- La .11 reste en mode C cette nuit (soak) ; le script corrigé est superposé en RAM jusqu'au prochain redémarrage (au démarrage, un seul `start`, donc pas de doublon). Il faut une rc26 pour l'avoir en flash.
+- Remarque : `MQTT_TOPIC_ROOT=tc100/camera` dans `mqtt.conf` mais les deux ponts publient sous `ipcamera2/` (racine tirée du nom d'hôte ?) : à documenter ou aligner.
