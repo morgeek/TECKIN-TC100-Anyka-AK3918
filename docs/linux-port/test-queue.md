@@ -2124,3 +2124,13 @@ Bilan : le C peut encore libérer **environ 2 Mo** au total (≈ 10 % de la RAM 
 ## 2026-11-04 19:50 — Liste consolidée des changements à faire (testeur)
 
 Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 / P1 3.0.2 / P2), dans **`docs/linux-port/a-faire-implementeur.md`**. Premier point : publier une rc26 avec le correctif d'arrêt du pont MQTT en C (`04f2313`, `9853759`).
+
+## 2026-11-04 20:15 — rc26 relue et téléchargée (testeur)
+
+- Build `342b523` (CI + build verts, seul build rc26) : `tc100-3.0.1-rc26-update.tar` md5 `95cc1c2ce46253077fcb11faef9eec4a` → `~/Downloads/tc100-fix/xfer26/`. Le `stack.sqfs` contient bien le `controlscripts/mqtt-bridge` corrigé (`MQTTD_PIDFILE`, arrêt par `pidof`).
+- Relecture de `3bd0dc1` / `342b523` :
+  - OK : CVE retirée ; `config/autostart/memory-guard` retiré (le service ne dépend que de `MEM_GUARD_ENABLE`, `service-switch.sh`) ; sur une caméra déjà installée, l'ancienne entrée reste dans `/mnt/config` (données de l'utilisateur), sans effet.
+  - `MEM_GUARD_SOFT_SERVICES=""` était déjà vide dans la `.dist` ; c'est le `boot.conf` des caméras installées qui garde `"network-monitor"` (sans effet, service absent).
+  - **Pas fait, coché à tort** : « mqtt.conf : documenté la règle de dérivation du topic root (`_mb_slug`) » : aucun changement de doc ; la règle n'est expliquée que dans le commentaire de `scripts/mqtt-bridge.sh:160-188` (client id par défaut `tc100-camera` → client id et racine = nom d'hôte en minuscules, `ipcamera2`). À écrire dans `config/mqtt.conf.dist` au-dessus de `MQTT_TOPIC_ROOT` et dans `docs/api.md`.
+  - **P0 n° 2 pas fait** : `controlscripts/mqtt-bridge` garde `run_busybox nohup … &` (le sous-shell `sh mqtt-bridge start` reste en mémoire, 217 Ko) ; `S39tc100` redirige seulement les sorties de l'autorun (`</dev/null >/dev/null 2>&1 &`), ce qui ne supprime pas le `sh /etc/init.d/S39tc100 start` resté vivant — à vérifier sur caméra avec la rc26.
+- Installation conseillée : la **.11** (demain matin, après le bilan de la nuit en cours, pour ne pas casser la mesure) ; la .24 reste en rc23.
