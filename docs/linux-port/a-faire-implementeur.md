@@ -33,7 +33,14 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 
 ## P1 — 3.0.2 (fiabilité et image)
 
-8. [ ] **Build noyau pour le mode smart de l'encodeur** (essai sur la .11) : valeur par défaut compilée
+8. [ ] **Support natif d'une résolution intermédiaire 720p (1280×720)** :
+   - Rendre la géométrie du flux principal configurable dans `tc100_rtsp` (`main_w`, `main_h`, options `-W`/`-H` ou `RTSP_WIDTH`/`RTSP_HEIGHT`).
+   - Mettre à jour `rtsp-launch.sh` pour lire `[0] width` et `[0] height` dans `rtspserver.conf` et passer les arguments.
+   - Adapter `scripts/action.d/video.sh` (`cmd=set_video_params`) pour accepter `video_size0=1280x720` (au lieu de forcer `1920x1080`).
+   - Ajouter le sélecteur de résolution dans l'interface Web (`Settings → Main stream`, 1080p / 720p).
+   - Gains : ~45 % de pixels en moins, soulage la bande passante bus DMA, l'encodeur matériel et libère ~1,7 Mo par trame NV12.
+
+9. [ ] **Build noyau pour le mode smart de l'encodeur** (essai sur la .11) : valeur par défaut compilée
    `ak39_venc.pool=12M` (patch 0015 ; le paramètre est `0444` et la ligne de commande vient du bootloader : pas de
    U-Boot). Puis `RTSP_VBR=1` + `RTSP_SMART=1` (mode 1 seulement). Critères : `smart mode 1 (long-term reference)`
    dans le log, pas de `alloc dma … failed`, serveur vivant 24 h, MemAvailable ~2,4 Mo plus bas, débit et qualité
