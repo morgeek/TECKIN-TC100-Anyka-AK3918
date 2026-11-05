@@ -539,7 +539,12 @@ _ce_import() {
     if { [ "$_ce_category" = network ] && [ "$_ce_exclude_network" = 1 ]; } || { [ "$_ce_category" = credential ] && [ "$_ce_exclude_credentials" = 1 ]; }; then
       _ce_skipped=$((_ce_skipped + 1)); continue
     fi
-    _ce_value="$(urldecode "$_ce_encoded")"
+    # most values (1, auto, 25...) have nothing encoded: no subshell for them (rc27 tester R7: 144 values took 20-25 s,
+    # one $(urldecode) each, and the capture lost frames meanwhile)
+    case "$_ce_encoded" in
+      *%*|*+*) _ce_value="$(urldecode "$_ce_encoded")" ;;
+      *) _ce_value="$_ce_encoded" ;;
+    esac
     tc_normalize_and_validate "$_ce_type" "$_ce_value" || _ce_fail "Invalid value for ${_ce_rel}:${_ce_key}" "VALIDATION_FAILED"
     _ce_value="$TC_NORMALIZED_VALUE"
     case "$_ce_mode" in

@@ -20,7 +20,7 @@ const resp = (status, body, headers) => ({ok: status >= 200 && status < 300, sta
 function fixture(routes) {
   const nodes = {};
   const mk = (id) => (nodes[id] = {id, style: {}, attrs: {}, classes: new Set(), listeners: {}, textContent: '', srcObject: null,
-    muted: false, currentTime: 0,
+    muted: false, currentTime: 0, videoWidth: 640,
     classList: {toggle: (c, on) => { on ? nodes[id].classes.add(c) : nodes[id].classes.delete(c); }},
     setAttribute: (k, v) => { nodes[id].attrs[k] = v; }, getAttribute: (k) => nodes[id].attrs[k],
     removeAttribute: () => {}, addEventListener: (ev, fn) => { nodes[id].listeners[ev] = fn; },
@@ -175,6 +175,21 @@ const okRoutes = () => ({
     const t = f.timers.shift(); t.fn();                           // liveVideoRetry
     await tick();
     assert.deepEqual(f.fetches.filter((x) => x.startsWith('GET')), [MP4_INFO], 'the retry does not use WebRTC');
+  }
+  { // rc27 R4: "playing" with sound but no picture (videoWidth 0) is not playing: MP4 live view after 8 s
+    const f = fixture(okRoutes());
+    f.ctx.liveVideoSync();
+    await tick();
+    f.nodes.liveview_video.videoWidth = 0;
+    f.nodes.liveview_video.listeners.playing();                 // the audio track plays
+    f.nodes.liveview_video.currentTime = 5;                      // and moves the clock
+    f.intervals[0]();
+    assert.equal(f.ctx.liveVideo.on, true, 'waits for a picture first');
+    f.ctx.liveVideo.startedAt = Date.now() - 9000;
+    f.intervals[0]();
+    await tick();
+    assert.equal(f.fetches[f.fetches.length - 1], MP4_INFO, 'no picture: MP4 live view');
+    assert.equal(f.pcs[0].closed, true);
   }
   { // a frozen picture (4 checks with the same time) counts as lost
     const f = fixture(okRoutes());

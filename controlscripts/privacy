@@ -40,7 +40,11 @@ stop()
   logger -t tc100-event -p user.notice "privacy mode off" 2>/dev/null
 }
 
+# restart = stop then start: service-watchdog, memory-guard, the MQTT bridge, the config import and the Settings
+# pages call it (it was missing here: the call did nothing, rc27 tester R5)
+restart() { stop; start; }
+
 case "$1" in
-  start|stop|status) "$1" ;;
-  *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
+  start|stop|status|restart) "$1" ;;
+  *) echo "usage: $0 start|stop|status|restart" >&2; exit 2 ;;
 esac

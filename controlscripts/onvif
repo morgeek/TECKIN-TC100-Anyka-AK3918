@@ -90,17 +90,22 @@ start()
     set -- $(/mnt/bin/rwconf $CONFIGPATH/rtspserver.conf r \
       0 width 0 height 0 codec 0 fps 0 bps \
       1 width 1 height 1 codec 1 fps 1 bps \
-      " " PORT)
+      " " PORT 0 mainres)
 
     WIDTH0=$1; HEIGHT0=$2; CODEC0=$3; FPS0=$4; BPS0=$5
     WIDTH1=$6; HEIGHT1=$7; CODEC1=$8; FPS1=$9; BPS1=${10}
-    PORT=${11}
+    PORT=${11}; MAINRES=${12}
 
-    # tc100_rtsp encodes 1920x1080 (main) and 640x360 (video1 sub-stream) whatever rtspserver.conf says;
-    # codec and bit rate come from the file. Frame rate: 15 unless the file says less.
+    # what tc100_rtsp really sends, whatever else rtspserver.conf says (the same rules as v3/linux66-sd/rtsp-launch.sh
+    # and state.cgi): 1920x1080, or 1280x720 when [0] mainres is 720 and the kernel scales the picture (ak39_vi
+    # main_scale); 640x360 for video1. One frame rate for both streams, [0] fps when it is 10, 12, 15, 20 or 25, else
+    # tc100_rtsp's default of 15 (rc27 tester R6: it was capped at 15 while the streams ran at 25)
     WIDTH0=1920; HEIGHT0=1080; WIDTH1=640; HEIGHT1=360
-    case "$FPS0" in ''|*[!0-9]*) FPS0=15 ;; esac; [ "$FPS0" -gt 15 ] && FPS0=15
-    case "$FPS1" in ''|*[!0-9]*) FPS1=15 ;; esac; [ "$FPS1" -gt 15 ] && FPS1=15
+    if [ "$MAINRES" = 720 ] && [ -e "${TC100_VI_SCALE_PARAM:-/sys/module/ak39_vi/parameters/main_scale}" ]; then
+      WIDTH0=1280; HEIGHT0=720
+    fi
+    case "$FPS0" in 10|12|15|20|25) ;; *) FPS0=15 ;; esac
+    FPS1=$FPS0
     CODECSTR0="H264"; [ "$CODEC0" = "2" ] && CODECSTR0="H265"
     CODECSTR1="H264"; [ "$CODEC1" = "2" ] && CODECSTR1="H265"
 

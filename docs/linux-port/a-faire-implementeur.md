@@ -38,12 +38,12 @@ corrigés **superposés en RAM** (perdus au prochain redémarrage) : la rc28 est
 R1. [ ] **Publier la rc28** avec, au minimum : `ee969e9` (onvifd/supervisord sans variable libc), `d8ff063` (whep :
     paquets RTP de 1412 octets), le point R2, et un `tc100-whep` reconstruit (image de base, `build-base-rootfs` lancé à
     la main le 2026-11-05 ~20:35 : vérifier qu'il est vert et que le build de la rc28 prend bien cette image).
-R2. [ ] **Annuler `RTSP_PACING_US=100` par défaut** (`1a3a2eb`, `v3/linux66-sd/rtsp-launch.sh`) : noyau `CONFIG_HZ=100`
+R2. [x] *(fait, `[rc28-fixes]`)* **Annuler `RTSP_PACING_US=100` par défaut** (`1a3a2eb`, `v3/linux66-sd/rtsp-launch.sh`) : noyau `CONFIG_HZ=100`
     sans minuterie haute résolution (`/proc/timer_list` : résolution 10 ms) → `usleep(100)` dort ≥ 10 ms ; le pacing
     ne touche que les clients **UDP** et dort dans la boucle principale (un seul fil) après chaque paquet : un client
     UDP plafonne vers 100 paquets/s (< 1,6 Mbit/s) et retarde la capture pour tous. Un vrai lissage demanderait
     `CONFIG_HIGH_RES_TIMERS=y` ou un envoi par lots sans `usleep`, mesuré sur caméra.
-R3. [ ] **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `ee969e9`) : la libc factice de ces Makefiles
+R3. [x] *(contrôle CI ajouté : `tests/check-libc-data-imports.sh` sur les `imports.txt`, `[rc28-fixes]`)* **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `ee969e9`) : la libc factice de ces Makefiles
     déclare tout import comme une fonction, donc **aucune variable libc** (`stderr`, `stdout`, `optarg`, `environ`,
     `timezone`…) dans `src/tc100rtsp`, `src/mqttd`, `src/onvifd`, `src/supervisord` : le test
     `tests/test_audit_fixes.NoLibcDataImports` le vérifie désormais. Contrôle à ajouter en CI : `readelf --dyn-syms` des
@@ -51,13 +51,13 @@ R3. [ ] **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `ee9
 R4. [~] **WHEP sans vidéo** (corrigé par le testeur, `d8ff063` ; image de base reconstruite (run 42089030516) et binaire validé sur la .11 le 2026-11-05 21:30 : 18 img/s reçues par aiortc, voir test-queue) : `on_video()` jetait tout paquet > 1400 ; le test
     d'interop découpe maintenant comme `tc100_rtsp` (échoue avec l'ancien code). Sur caméra : retester avec la rc28
     (aiortc : images reçues, page web : direct WebRTC, retour MP4 si échec). Point d'UI à vérifier : si le WebRTC
-    s'établit mais **sans image**, la page doit aussi retomber sur le MP4 (sinon direct noir avec le son).
-R5. [ ] **`controlscripts/auto-night-detection` n'a pas de `restart`** (seulement start/stop/status/health) : un
+    s'établit mais **sans image**, la page doit aussi retomber sur le MP4 (sinon direct noir avec le son). *(2026-11-05 soir : corrigé, la page exige `videoWidth > 0` et compte les images décodées, `[rc28-fixes]`)*
+R5. [x] *(fait pour les 15 scripts sans `restart`, test pour tous, `[rc28-fixes]`)* **`controlscripts/auto-night-detection` n'a pas de `restart`** (seulement start/stop/status/health) : un
     `restart` (Services, passage `SUPERVISOR_IMPL`) ne fait rien. Ajouter `restart` (stop puis start), vérifier les
     autres scripts de service.
-R6. [ ] **`controlscripts/onvif` plafonne les fps annoncés à 15** (`FPS0=15` « unless the file says less ») alors que
+R6. [x] *(fait, plus la taille 720p, `[rc28-fixes]`)* **`controlscripts/onvif` plafonne les fps annoncés à 15** (`FPS0=15` « unless the file says less ») alors que
     les flux tournent à 25 : même défaut que `frigateyaml` corrigé en `9cf38e1`. Annoncer la valeur réelle.
-R7. [ ] **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
+R7. [~] *(un sous-shell de moins par valeur sans caractère encodé, `[rc28-fixes]` ; à mesurer sur caméra)* **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
     11-17 img/s pendant l'import ; voir où partent les secondes (nouveaux validateurs ?).
 R8. [ ] **Garder sur la .11 et en faire les défauts si la nuit est bonne** (propriétaire : « si tout est concluant on
     garde ») : `SUPERVISOR_IMPL=c`, `MQTT_DISCOVERY_IMPL=c`, `RTSP_ALSA_DIRECT=1` (validés le 2026-11-05 : découverte
@@ -510,7 +510,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - Zéro risque de perte de données : les écritures sur SD sont flushées plus tôt en arrière-plan sans bloquer les allocations vidéo.
     - **5. Smart Bitrate / Smart GOP sur VPU AK3918** : *Accord propriétaire*. Activer via `libmpi_venc_ex.so` / `libakuio` (`ak_venc_set_smart_config`) pour diviser le débit par 2 à 3 sur scènes nocturnes ou immobiles sans impact CPU.
 
-57. [ ] **Audit final exhaustif front/back & élimination du code mort (Consigne propriétaire 2026-11-05 soir, en toute fin de projet)** :
+57. [x] *(2026-11-05 soir : fait, `tests/test_wiring_e2e.py`, entrée `[wiring-57]`)* **Audit final exhaustif front/back & élimination du code mort (Consigne propriétaire 2026-11-05 soir, en toute fin de projet)** :
     - **Risque identifié** : suite au très grand nombre de modifications et d'ajouts réalisés aujourd'hui (W6, secrets, exclusions flash, bundle CSS, refontes de scripts, services-ui, endpoints CGI, migration WHEP/ONVIF), il existe un risque majeur de rupture de câblage silencieuse entre le front (JS/HTML/CGI) et le back (scripts shell, daemons C, variables d'environnement).
     - **Contrôle d'intégrité de bout en bout (End-to-End wiring check)** :
       - Pour chaque bouton, formulaire, slider, toggle et appel AJAX (`fetch` / `XMLHttpRequest`) de toutes les pages web (`index.html`, `settings.html`, `view_records.html`, `hardware.html`, `backup.html`, `logs.html`, `diagnostics.html`, etc.) : vérifier que l'endpoint CGI correspondant (`state.cgi`, `action.cgi`, `config_exchange.cgi`, etc.) existe, traite bien le paramètre exact, et produit la réponse attendue sans erreur 404 ni 500.

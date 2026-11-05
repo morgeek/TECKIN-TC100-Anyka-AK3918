@@ -61,6 +61,7 @@ run_cross() {
 		make -C src/mqttd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/supervisord CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/onvifd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
+		sh tests/check-libc-data-imports.sh	# rc27 R3: no libc variable through the stand-in libc
 		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd
 		echo "httpfront (stripped, bytes): $(wc -c < /tmp/httpfront)"
 		echo "tc100-mqttd (stripped, bytes): $(wc -c < src/mqttd/tc100-mqttd)"

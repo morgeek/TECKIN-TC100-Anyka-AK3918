@@ -217,6 +217,14 @@ bounded httpfront, idle RTSP clients, web update retries without reboot, wizard 
   longer returns the Telegram token (`token_set` says one is saved; an empty field keeps it, `-` removes it).
 
 ### Fixed
+- **From the rc27 test on a camera**: no RTSP pacing by default (it capped UDP clients and delayed the capture with
+  the 100 Hz kernel); `restart` now works for the 15 service scripts that ignored it (a new Telegram token is taken at
+  once, the service watchdog really restarts them); the WebRTC live view falls back to MP4 when sound arrives without
+  a picture; ONVIF advertises the real frame rate (and 720p); the JSON import spends one subshell less per value; a
+  build check refuses a libc variable in the programs linked to the stand-in libc (it crashed `tc100-onvifd`).
+- **Front/back wiring** (item 57): the push-to-talk speaker test sent no CSRF token and was refused silently; the
+  configuration export left out `WHEP_STREAM`, `SUPERVISOR_IMPL` and `SERIAL_CONSOLE`; a dead 2.x step was removed
+  from the flash install card; `tests/test_wiring_e2e.py` now checks every page call against its CGI.
 - The dashboard's Reboot showed "Command sent" and a red error while the camera restarted (a backspace byte in place
   of `\b` in the detection pattern).
 - **Local network only applies again to the web page and RTSP** (`boot.conf` `NET_LAN_ONLY=1`, audit 2026-11-04 W2):

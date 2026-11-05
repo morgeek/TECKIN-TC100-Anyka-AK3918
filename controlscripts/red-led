@@ -25,10 +25,14 @@ stop()
   red_led off
 }
 
+# restart = stop then start: service-watchdog, memory-guard, the MQTT bridge, the config import and the Settings
+# pages call it (it was missing here: the call did nothing, rc27 tester R5)
+restart() { stop; start; }
+
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status)
+  case $1 in start|stop|status|restart)
     $1
     ;;
   esac
