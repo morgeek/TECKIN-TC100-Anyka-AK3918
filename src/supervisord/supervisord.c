@@ -628,7 +628,7 @@ static void button_init(void)
 	g_down = g_armed = g_btn_ok = 0;
 	/* the poll is the Linux 6.6 path: the /tmp/linux66 flag and no input device (gpio_keys is off) */
 	if (access(envs("BUTTON_L66_FLAG", "/tmp/linux66"), F_OK) != 0 || access(envs("BUTTON_DEV", "/dev/input/event0"), F_OK) == 0) {
-		fprintf(stderr, "button: not the Linux 6.6 poll mode\n");
+		dprintf(2, "button: not the Linux 6.6 poll mode\n");
 		return;
 	}
 	if (access(dir, F_OK) != 0) {
@@ -643,7 +643,7 @@ static void button_init(void)
 		if (f >= 0) { if (write(f, "in\n", 3) < 0) {} close(f); }
 	}
 	snprintf(p, sizeof p, "%s/value", dir);
-	if (access(p, R_OK) != 0) { fprintf(stderr, "no button GPIO (%s)\n", dir); return; }
+	if (access(p, R_OK) != 0) { dprintf(2, "no button GPIO (%s)\n", dir); return; }
 	g_btn_ok = 1;
 }
 
@@ -653,7 +653,7 @@ static void bw_log(const char *msg)	/* logger -t tc100-event -p user.err "button
 	const char *argv[8];
 
 	snprintf(m, sizeof m, "button: %s", msg);
-	if (g_replay) { printf("log %s\n", m); fflush(stdout); }
+	if (g_replay) dprintf(1, "log %s\n", m);
 	argv[0] = access("/usr/bin/logger", X_OK) == 0 ? "/usr/bin/logger" : "/bin/logger";
 	argv[1] = "-t"; argv[2] = "tc100-event"; argv[3] = "-p"; argv[4] = "user.err"; argv[5] = m; argv[6] = NULL;
 	run(argv, 1);
@@ -739,7 +739,7 @@ static void replay(const char *script)
 	int n = slurp(script, b, sizeof b);
 	char *p = b, *e;
 
-	if (n < 0) { fprintf(stderr, "cannot read %s\n", script); exit(2); }
+	if (n < 0) { dprintf(2, "cannot read %s\n", script); exit(2); }
 	g_replay = 1;
 	button_init();
 	while (*p) {
@@ -750,15 +750,15 @@ static void replay(const char *script)
 		arg = strchr(p, ' ');
 		if (arg) *arg++ = 0; else arg = (char *)"";
 		if (!strcmp(p, "now")) NOW = dec(arg);
-		else if (!strcmp(p, "night")) { night_iteration(); printf("slp=%d\n", SLP); fflush(stdout); }
+		else if (!strcmp(p, "night")) { night_iteration(); dprintf(1, "slp=%d\n", SLP); }
 		else if (!strcmp(p, "button")) button_sample(arg[0] == '0');
-		else if (!strcmp(p, "echo")) { puts(arg); fflush(stdout); }
+		else if (!strcmp(p, "echo")) dprintf(1, "%s\n", arg);
 		else if (!strcmp(p, "rm")) unlink(arg);
 		else if (!strcmp(p, "cat")) {
 			char c[2048];
 			int k = slurp(arg, c, sizeof c);
 
-			if (k > 0) { fwrite(c, 1, k, stdout); fflush(stdout); }
+			if (k > 0 && write(1, c, k) < 0) { /* nothing to do */ }
 		} else if (!strcmp(p, "write") || !strcmp(p, "writen") || !strcmp(p, "writeml")) {
 			char *text = strchr(arg, ' '), *q;
 			int f;
@@ -796,7 +796,7 @@ int main(int argc, char **argv)
 	ll night_due = 0, button_due = 0, t, wake;
 
 	if (argc == 3 && !strcmp(argv[1], "-r")) { replay(argv[2]); return 0; }
-	if (argc != 1) { fprintf(stderr, "usage: tc100-supervisord [-r SCRIPT]\n"); return 2; }
+	if (argc != 1) { dprintf(2, "usage: tc100-supervisord [-r SCRIPT]\n"); return 2; }
 	g_div = env_num("SV_TICK_DIV", 1);
 	if (g_div < 1) g_div = 1;
 	if (pid_alive(pidfile)) return 0;	/* one daemon: the service scripts start it when they find none */
