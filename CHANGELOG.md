@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **One C supervisor for day/night and the reset button** (items 52 / 55, `SUPERVISOR_IMPL=c`, off by default):
+  `tc100-supervisord` (21 KB) replaces the two resident shell loops with the same decisions; the shell loops come back
+  by themselves if it is missing, does not start or dies.
 - **WebRTC, first step** (item 35): `src/whep/srtp.h`, the SRTP protection of WebRTC (AES-128-CM + HMAC-SHA1-80)
   without a library, checked with the published vectors, and `srtp-bench` in the CI test pack to measure its CPU
   cost on the camera before the gateway is built (`docs/linux-port/whep-design.md`).

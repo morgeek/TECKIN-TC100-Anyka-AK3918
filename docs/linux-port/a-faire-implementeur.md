@@ -384,7 +384,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 
 ## P2 — plus tard, seulement si un besoin apparaît
 
-52. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
+52. [ ] *(2026-11-05 soir : jour/nuit et bouton reset faits dans `tc100-supervisord`, `SUPERVISOR_IMPL=c`, désactivé par défaut, entrée `[supervisord]` ; housekeeper, sound-detection et cfg-persist restent en shell)* Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
 53. [ ] *(2026-11-05 : `monvifd` remplacé par `tc100-onvifd`, désactivé par défaut jusqu'à l'essai `[onvif]` ; restent

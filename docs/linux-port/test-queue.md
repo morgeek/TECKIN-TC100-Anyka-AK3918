@@ -2556,3 +2556,15 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** clé `smart` absente ou 0 (défaut). `RTSP_SMART_FORCE=1` seulement pour le mode 2, qui arrête l'encodeur sur cette caméra.
 - **Test :** voir l'entrée `[smart-pool]` : noyau avec `ak39_venc.pool=12M`, puis `vbr=1` et `smart=1`. Sur le pool 9600K, le journal doit dire `smart mode 1 not used`.
 - **Critères :** `smart mode 1 (long-term reference)` dans le journal, pas de `alloc dma failed`, serveur vivant 24 h, MemAvailable environ 2,4 Mo plus bas, débit et qualité comparés à la .24.
+
+## 2026-11-05 — Superviseur C unique : jour/nuit + bouton reset (`[supervisord]`, items 52 / 55)
+
+- **Quoi :** nouveau démon `tc100-supervisord` (src/supervisord, 21 Ko) qui remplace les deux boucles shell résidentes `auto-night-daemon.sh` et `button-watch.sh` (mêmes décisions, mêmes fichiers `daynight.conf` / `rtspserver.conf`, mêmes scripts appelés pour le travail : `nightmode.sh`, `wifi-rescue.sh`, `reboot-tracker.sh`, `flash-code.sh`). Un seul processus, deux jobs activés par des fichiers drapeaux `/var/run/tc100-sv.{night,button}`. Retour automatique aux boucles shell si le binaire manque, si le démon ne démarre pas, si le GPIO du bouton est refusé (ce job seulement), ou s'il meurt (relance par la surveillance du housekeeper, marqueur `/var/run/tc100-supervisord.failed` jusqu'au prochain démarrage). Pas portés : housekeeper, sound-detection, cfg-persist (restent en shell). Gain attendu estimé 0,3 à 0,5 Mo PSS (pas 1 à 1,5 Mo : trois boucles restent en shell).
+- **Interrupteur :** `SUPERVISOR_IMPL=c` dans `/mnt/config/boot.conf` (défaut `sh`), puis redémarrage ou `controlscripts/auto-night-detection restart` et `controlscripts/button-actions restart`. Retour : `SUPERVISOR_IMPL=sh` et même redémarrage.
+- **Test :**
+  1. Mesurer le PSS avant/après (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`) : somme des deux `sh` (auto-night-daemon, button-watch, plus leurs parents `controlscripts`) contre `tc100-supervisord`.
+  2. Jour/nuit : pour chaque `DAYNIGHT_SOURCE` (luma, ae, isp, vendor), vérifier au crépuscule et à l'aube les commutations et les messages `[auto-night]` sur la console, comparer au journal `/tmp/logs/daynight.log` d'une nuit en mode shell ; `daynight=3` (manuel) doit mettre le job en pause.
+  3. Bouton : appui 3 s (point d'accès de secours), 8 s (reboot), 20 s depuis la flash (retour au code intégré puis reboot) ; un appui bloqué à 0 depuis le boot ne doit rien faire.
+  4. Secours : `kill -9` du démon, attendre la relance de la surveillance (60 s) ; les boucles shell doivent reprendre (`ps`, présence de `/var/run/tc100-supervisord.failed`), puis le jour/nuit et le bouton restent fonctionnels.
+  5. Arrêt/démarrage d'un seul service (Services) : l'autre job continue de tourner.
+- **Critères :** PSS total inférieur à celui des deux boucles shell ; mêmes commutations jour/nuit et mêmes actions de bouton qu'en mode shell ; aucun reboot parasite ; la reprise shell après arrêt brutal du démon fonctionne sans intervention ; aucune erreur noyau ni boucle de redémarrage pendant une nuit complète de soak.
