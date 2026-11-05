@@ -11,10 +11,17 @@ Runs from a microSD card (trial mode) or **installed entirely into the camera's 
 the camera or soldering a serial console: [copy the files to an SD card and restart the camera](#try-it-copy-to-an-sd-card-restart-the-camera).
 
 Features in the latest release include:
-- Native HTML5 smooth live video streaming across the dashboard, multiview grid, and settings preview.
+- **Ultra-low-latency WebRTC (WHEP) live video**: native direct browser streaming (< 150 ms delay) via dedicated C daemon (`tc100-whep`) with hardware-accelerated SRTP encryption (AES-128-CM / HMAC-SHA1).
+- **Free, open-source ONVIF Profile T service (`tc100-onvifd`)**: WS-Discovery, Device & Media2 services, PullPoint motion events, and Two-Way Audio Backchannel (`AudioBackChannel`) for Home Assistant & Frigate.
+- **Direct ALSA audio capture in `tc100_rtsp`**: micro-latency zero-fork sound streaming eliminating `arecord` and saving over 660 KB of RAM.
+- **Universal HTML5 audio recordings (AAC-LC)**: integrated fixed-point C audio encoder producing directly playable MP4 video on SD card without browser transcode.
+- **C Supervisor micro-daemon (`tc100-supervisord`)**: unified C poll loop replacing multiple heavy shell background loops (day/night detection, hardware button, sound trigger) down to ~145 KB PSS.
+- **Native C Home Assistant autodiscovery (`tc100-mqttd`)**: near-instant zero-fork discovery publishing 49 HA entities in seconds.
+- **Native C HTTP endpoints (`httpfront`)**: high-performance dashboard and state responses serving API requests in < 5 ms.
+- **Rock-solid Safe-Mode & Auto-recovery**: boot-guard protecting against boot loops, temporary 5-min serial console auto-shutdown (staying open in safe-mode), and clean SD card unmount logic on shutdown.
+- Native HTML5 smooth live video fallback streaming across dashboard, multiview grid, and settings preview.
 - Zero-configuration mDNS local discovery (`<hostname>.local`).
 - Tuned auto white balance (AWB) eliminating indoor yellow cast.
-- RTP packet pacing and send buffer shaping for rock-solid Wi-Fi streaming.
 - Real-time MQTT connection status and CONNACK diagnosis.
 
 It started from [the original TC100 SD-card hack](#where-it-comes-from) and
@@ -49,14 +56,14 @@ grew from there.
 **Video**
 - Two RTSP streams: main 1080p H.265 or H.264 (10 to 25 fps, 15 by default; constant or variable bit rate), and a
   640x360 sub-stream for detection made by the image processor's own scaler (`rtsp://CAMERA-IP:554/video0_unicast` and
-  `video1_unicast`), over TCP or UDP, with the microphone as a G.711 track. The sub-stream can be turned off when no
-  recorder uses it. Optional RTP packet pacing (`RTSP_PACING_US`) and socket send buffer shaping (`RTSP_SNDBUF`) prevent
-  burst packet congestion on Wi-Fi.
-- **Smooth HTML5 live video**: native ultra-low-latency H.264 fMP4 / MediaSource video streaming in the browser
+  `video1_unicast`), over TCP or UDP, with the microphone as a direct ALSA G.711 track (no CPU overhead). The sub-stream can be turned off when no
+  recorder uses it.
+- **WebRTC / WHEP ultra-low-latency streaming**: native browser streaming (< 150 ms delay) via dedicated C daemon (`tc100-whep`) with hardware-accelerated SRTP encryption (AES-128-CM / HMAC-SHA1).
+- **Smooth HTML5 live video**: native low-latency H.264 fMP4 / MediaSource video streaming in the browser
   (`/cgi-bin/live.cgi`) across the Dashboard, the Multi-View grid, and the Image settings preview.
 - **Multi-View 2×2 grid viewer**: monitor up to 4 cameras simultaneously in the browser (`multiview.html`) with smooth
   video or snapshot modes, client-side configuration, and custom camera labels.
-- ONVIF (discovery and profiles, port 8081): off by default, Services → Services → onvif.
+- **Full ONVIF Profile T support (`tc100-onvifd`)**: free, open-source C daemon replacing legacy proprietary blobs (WS-Discovery, Device & Media2 services, PullPoint motion events, Two-Way Audio Backchannel, port 8081).
 - **Zero-configuration mDNS discovery**: camera broadcasts `<hostname>.local` on your local network out of the box.
 - **Privacy masks** and the on-screen clock drawn by the image processor, live image tuning (brightness, contrast,
   saturation, hue, sharpness, exposure cap) with no stream restart, tuned auto white balance (AWB) eliminating indoor yellow tint,
@@ -66,20 +73,20 @@ grew from there.
 - Still JPEG at `cgi-bin/currentpic.cgi`, made by the hardware JPEG engine, so Home Assistant polling costs nothing.
 
 **Home Assistant, Frigate, NVRs**
-- MQTT with Home Assistant discovery: about 30 entities (Wi-Fi signal, memory, light level, sound level, night mode,
-  SD card, RTSP clients, LEDs, profile…), commands from Home Assistant, availability, play chime / siren actions,
-  live broker connection diagnostics (CONNACK codes 4/5 surfaced in UI), and an *Unexpected Restart* sensor after a restart
-  nobody asked for.
+- High-performance C MQTT daemon (`tc100-mqttd`) with instantaneous Home Assistant autodiscovery: 49 entities (Wi-Fi signal, memory, light level, sound level, night mode,
+  SD card, RTSP clients, LEDs, profile…), zero-fork discovery, commands from Home Assistant, availability, play chime / siren actions,
+  live broker connection diagnostics, and an *Unexpected Restart* sensor after an unrequested reboot.
 - Built-in sound library with doorbell chime and siren alarm audio clips (`chime.pcm`, `siren.pcm`) playable from Home Assistant
   or the web interface.
 - A Frigate configuration ready to paste (Live view → More tools → Diagnostics, or `state.cgi?cmd=frigateyaml`).
-- Any RTSP NVR works: Blue Iris, Synology Surveillance Station, iSpy, go2rtc…
+- Any RTSP / ONVIF NVR works: Blue Iris, Synology Surveillance Station, iSpy, go2rtc…
 
 **Recording**
-- MP4 files on the SD card with the sound, copied from the video the camera already encodes (no re-encoding), each
-  with a thumbnail.
-  Off until you turn it on (the wizard asks); then by default only **while Frigate does not receive the video**, with
+- MP4 files on the SD card with universal **AAC-LC audio** (native fixed-point C encoder), playable instantly in all HTML5 web browsers without transcode.
+- Copied directly from the hardware video stream (no re-encoding), each with a thumbnail.
+- Off until you turn it on (the wizard asks); then by default only **while Frigate does not receive the video**, with
   a few seconds before and after; "always" and "on motion" too. A file cut by a power loss plays up to its last second.
+- Clean unmount protection on shutdown (`S39tc100 stop`) and automatic filesystem check preventing "dirty card" corruption.
 
 **Audio**
 - The microphone in the RTSP stream and in the recordings, listening live from the browser, a sound level in dBFS with
