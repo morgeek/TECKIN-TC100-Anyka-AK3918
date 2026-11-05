@@ -2727,3 +2727,9 @@ Nuit : enregistreur relancé sur la .11 (18:24 UTC) : pertes de ping, images sau
 - **Interrupteur :** remettre les anciens binaires (`git show <commit précédent>:bin/tc100-logfwd`, idem `lib/libnetacl.so`) ; pour le filtre seul `NET_LAN_ONLY=0` ; pour le renvoi, vider l'hôte syslog (retour à `syslogd -R`).
 - **Test :** `readelf -d /mnt/lib/libnetacl.so` : NEEDED libdl.so.0 et libc.so.0 ; syslog distant réglé : `logger -p user.err test` arrive une fois, 5 messages identiques → une ligne « repeated N times », `tc100-logfwd` vivant après un redémarrage de syslogd ; telnet et FTP depuis le LAN : OK ; depuis une adresse hors liste : refusé, `/var/run/netacl.telnet` compte les refus ; aucune « symbol lookup error » ni « can't resolve symbol » dans les journaux.
 - **Critères :** journaux distants filtrés comme avant ; telnet/FTP accessibles depuis le LAN, refusés hors liste, jamais bloqués depuis 127.0.0.1 ; aucune erreur de chargement. Si un symbole manque : remettre les binaires précompilés.
+
+## 2026-11-05 23:35 — 3.0.1-rc28 (bump par le testeur à la demande du propriétaire)
+
+- Contenu : `15faed3` (CI verte ; l'échec de `1310577` est `test_mqttd…reconnects_after_the_broker_drops` 1 != 2, test au minutage instable, vert au commit suivant) + ce bump. Le build de release reconstruit l'image de base (`build-base-rootfs.yml` appelé ligne 43) : il embarque le `tc100-whep` corrigé (`src/whep` inchangé depuis `d8ff063`).
+- Installation : **.11**, mise à jour web, flash, sans carte SD. La .11 avait des binaires corrigés superposés en RAM (onvifd, supervisord, whep) : la mise à jour redémarre la caméra, ils disparaissent et sont remplacés par ceux de la rc28.
+- ⚠ `[rc28-defaults]` change les **défauts d'une nouvelle installation** ; sur la .11, les réglages existants de `/mnt/config` restent (`install_config` ne copie pas une `.dist` sur un fichier présent).

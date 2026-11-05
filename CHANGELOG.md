@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc28] - 2026-11-05
+
+After the rc27 package (`87599e8`): the tester's rc27 fixes (`ee969e9` no libc variable in onvifd/supervisord,
+`d8ff063` WebRTC forwards full 1412-byte RTP packets), `[rc28-fixes]` R2-R7 (no RTSP pacing by default, `restart` in
+every service script, WebRTC falls back to MP4 without a picture, ONVIF real frame rate, faster JSON import, libc import
+check in CI), `[rc28-defaults]` (every coded feature on by default for a new install: C supervisor with sound
+detection, C MQTT discovery, direct microphone, free ONVIF, WebRTC, AAC audio in SD recordings), free `rwconf`,
+`tc100-logfwd` and `libnetacl.so` built in CI, `getflag`/`getimage` removed, native `dash.cgi`/`statusline` in
+`httpfront`, front/back wiring test.
+
 ## [3.0.1-rc27] - 2026-11-05
 
 Everything below, from the [Unreleased] entries of 2026-11-05 (56 commits after the rc26 package `342b523`): free ONVIF
