@@ -740,6 +740,21 @@
                 </div>
             </div>
 
+            <!-- item 45: memory measured per program (action.cgi mem_budget) and a forecast for the options below -->
+            <div class="card status_card mt-4" id="mem_card">
+                <header class="card-header"><p class="card-header-title">Memory</p></header>
+                <div class="card-content">
+                    <progress id="mem_bar" class="progress is-success" value="0" max="100" style="height:0.7rem;margin-bottom:0.3rem"></progress>
+                    <p class="is-size-7" id="mem_text">Measuring...</p>
+                    <p class="label is-small mt-3">Forecast: tick what should run</p>
+                    <div id="mem_options" class="is-size-7"></div>
+                    <p class="label is-small mt-3">Largest programs now (PSS)</p>
+                    <div id="mem_procs" class="is-size-7"></div>
+                    <p class="help">Measured on this camera; the values of stopped services are estimates. Below 10 MB free the camera becomes fragile, below 6 MB the memory guard restarts services. The forecast changes nothing: switch the services in their own settings.</p>
+                    <button class="button is-small is-light mt-2" type="button" id="mem_refresh">Measure again</button>
+                </div>
+            </div>
+
         </div>
 
         <!-- Backup -->
@@ -1687,6 +1702,81 @@
             syncHa();
             updateMqttStatus();
         }
+    })();
+
+    // Settings -> System -> Memory (item 45): the free memory measured now, and what it would be with the ticked
+    // options: a running program gives back what it uses now (its PSS), a stopped one costs an estimate measured on
+    // the TC100 (the C MQTT bridge 209 KB, the shell one 1.1 MB, arecord 660 KB, 1080p against 720p about 1.7 MB)
+    (function() {
+        var box = document.getElementById('mem_options');
+        if (!box || box.dataset.bound) return;
+        box.dataset.bound = '1';
+        var T = window.tc100T || String;
+        var OPTIONS = [
+            { label: 'MQTT bridge', procs: ['tc100-mqttd', 'mqtt-bridge.sh'], est: 210 },
+            { label: 'ONVIF', procs: ['tc100-onvifd', 'monvifd'], est: 300 },
+            { label: 'mDNS (camera.local)', procs: ['tc100-mdnsd'], est: 10 },
+            { label: 'SSH (dropbear)', procs: ['dropbear'], est: 200 },
+            { label: 'Microphone read by arecord (RTSP_ALSA_DIRECT=0)', procs: ['arecord'], est: 660 },
+            { label: 'Recording pre-roll in memory (REC_RING_KB)', ring: true },
+            { label: 'Main stream in 1080p (instead of 720p)', main1080: true, est: 1700 }
+        ];
+        var data = null;
+        function mb(kb) { return (kb / 1024).toFixed(1) + ' MB'; }
+        function used(o) {
+            if (o.ring) return data.rec_local ? data.ring_kb : 0;
+            if (o.main1080) return data.mainres === 720 ? 0 : o.est;
+            var s = 0;
+            data.procs.forEach(function(p) { if (o.procs.indexOf(p.name) >= 0) s += p.pss_kb; });
+            return s;
+        }
+        function cost(o) { return o.ring ? data.ring_kb : o.est; }
+        function update() {
+            var free = data.avail_kb;
+            OPTIONS.forEach(function(o, i) {
+                var on = document.getElementById('mem_opt_' + i).checked, now = used(o);
+                if (now && !on) free += now;
+                if (!now && on) free -= cost(o);
+            });
+            var bar = document.getElementById('mem_bar'), pct = Math.max(0, Math.min(100, 100 * free / data.total_kb));
+            bar.value = 100 - pct;
+            bar.className = 'progress ' + (free < 6144 ? 'is-danger' : free < 10240 ? 'is-warning' : 'is-success');
+            document.getElementById('mem_text').textContent = T('Free now') + ': ' + mb(data.avail_kb) + ' · ' +
+                T('forecast') + ': ' + mb(free) + ' ' + T('of') + ' ' + mb(data.total_kb) +
+                (free < 6144 ? ' · ' + T('too little: services will be restarted') : free < 10240 ? ' · ' + T('tight') : '');
+        }
+        function render(d) {
+            data = d;
+            box.innerHTML = '';
+            OPTIONS.forEach(function(o, i) {
+                var now = used(o), row = document.createElement('label');
+                row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.15rem';
+                var c = document.createElement('input');
+                c.type = 'checkbox'; c.id = 'mem_opt_' + i; c.checked = now > 0;
+                c.addEventListener('change', update);
+                var t = document.createElement('span');
+                t.textContent = T(o.label) + ' · ' + (now ? T('now') + ' ' + mb(now) : T('off, about') + ' ' + mb(cost(o)));
+                row.appendChild(c); row.appendChild(t);
+                box.appendChild(row);
+            });
+            var list = document.getElementById('mem_procs');
+            list.innerHTML = '';
+            d.procs.slice().sort(function(a, b) { return b.pss_kb - a.pss_kb; }).slice(0, 8).forEach(function(p) {
+                var r = document.createElement('div');
+                r.textContent = p.name + (p.n > 1 ? ' ×' + p.n : '') + ' · ' + mb(p.pss_kb);
+                list.appendChild(r);
+            });
+            update();
+        }
+        function load() {
+            document.getElementById('mem_text').textContent = T('Measuring...');
+            fetch('cgi-bin/action.cgi?cmd=mem_budget&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) { if (!d || !d.total_kb || !d.procs) throw new Error('bad answer'); render(d); })
+                .catch(function() { document.getElementById('mem_text').textContent = T('The memory could not be measured.'); });
+        }
+        document.getElementById('mem_refresh').addEventListener('click', load);
+        load();
     })();
 
     // Settings -> Sounds (item 48): list, play, delete, startup sound, and the upload of any file the browser decodes,

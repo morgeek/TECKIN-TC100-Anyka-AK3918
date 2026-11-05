@@ -6,6 +6,57 @@
 
   case "$F_cmd" in
 
+    mem_budget)
+      # item 45: where the memory goes, measured: PSS (smaps_rollup, KB) of each program, grouped by name (a shell
+      # script by its script name), with MemTotal / MemAvailable and the settings the page's forecast needs
+      # (Settings -> System -> Memory). One ps and one awk.
+      ps 2>/dev/null | awk -v conf=/mnt/config/boot.conf -v rtsp=/mnt/config/rtspserver.conf '
+        BEGIN {
+          while ((getline l < "/proc/meminfo") > 0) {
+            split(l, w, " ")
+            if (w[1] == "MemTotal:") total = w[2]; else if (w[1] == "MemAvailable:") avail = w[2]
+          }
+          close("/proc/meminfo")
+          ring = 1024; reclocal = 0; alsa = 0
+          while ((getline l < conf) > 0) {
+            gsub(/"/, "", l); split(l, w, "=")
+            if (w[1] == "REC_RING_KB" && w[2] ~ /^[0-9]+$/) ring = w[2] + 0
+            else if (w[1] == "REC_LOCAL") reclocal = (w[2] ~ /^(1|true|yes|on)$/)
+            else if (w[1] == "RTSP_ALSA_DIRECT") alsa = (w[2] ~ /^(1|true|yes|on)$/)
+          }
+          close(conf)
+          mainres = 1080; sec = ""
+          while ((getline l < rtsp) > 0) {
+            if (l ~ /^\[/) { sec = l; continue }
+            if (sec == "[0]" && l ~ /^mainres[ \t]*=/) { sub(/^[^=]*=[ \t]*/, "", l); if (l ~ /^[0-9]+/) mainres = l + 0 }
+          }
+          close(rtsp)
+        }
+        NR > 1 && $1 ~ /^[0-9]+$/ {
+          pid = $1; name = ""
+          for (i = 5; i <= NF; i++) {
+            t = $i
+            if (i == 5 && t ~ /^\[/) break			# a kernel thread
+            if (i == 5 && t ~ /^\{.+\}$/) { name = substr(t, 2, length(t) - 2); break }	# busybox ps: {comm} when argv[0] differs (a script)
+            if (i == 5 && t ~ /(^|\/)(sh|ash|busybox)$/) continue	# a shell: named after its script
+            if (t ~ /^-/) continue
+            sub(/.*\//, "", t); name = t; break
+          }
+          if (name == "") next
+          f = "/proc/" pid "/smaps_rollup"; pss = -1
+          while ((getline l < f) > 0) if (l ~ /^Pss:/) { split(l, w, " "); pss = w[2] + 0; break }
+          close(f)
+          if (pss < 0) next
+          if (!(name in kb)) order[++n] = name
+          kb[name] += pss; cnt[name]++
+        }
+        END {
+          printf "{\"status\":\"success\",\"total_kb\":%d,\"avail_kb\":%d,\"ring_kb\":%d,\"rec_local\":%d,\"alsa_direct\":%d,\"mainres\":%d,\"procs\":[", total, avail, ring, reclocal, alsa, mainres
+          for (i = 1; i <= n; i++) printf "%s{\"name\":\"%s\",\"pss_kb\":%d,\"n\":%d}", (i > 1 ? "," : ""), order[i], kb[order[i]], cnt[order[i]]
+          printf "]}\n"
+        }'
+    ;;
+
     reboot)
       csrf_check
       if wants_json_response; then

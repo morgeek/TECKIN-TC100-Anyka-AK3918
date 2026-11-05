@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Memory forecast** (Settings → System → Memory, item 45): the free memory measured now, the largest programs
+  (PSS from `smaps_rollup`, `action.cgi?cmd=mem_budget`, one `ps` and one `awk`), and a forecast as options are
+  ticked: a running service gives back what it uses now, a stopped one costs an estimate measured on the TC100
+  (MQTT bridge, ONVIF, mDNS, SSH, `arecord`, the recording pre-roll `REC_RING_KB`, 1080p against 720p). The gauge
+  turns orange below 10 MB free and red below 6 MB. It changes nothing by itself.
 - **Your own sounds** (Settings → Streams & audio → Sounds, item 48): play, add or delete the speaker's sounds and
   choose the startup sound (or silent). Any audio file the browser decodes (WAV, MP3, OGG...) is converted in the
   browser to the speaker's format (8 kHz mono 16-bit, 30 s at most) and stored on the SD card

@@ -330,7 +330,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 44. [ ] **Infobulles explicatives pour chaque réglage dans l'interface Web (Tooltips)** :
     - Ajouter une icône d'aide ou un tooltip interactif sur chaque commutateur, curseur et champ de saisie dans l'interface Web.
     - Rôle : expliquer en langage clair la fonction exacte du réglage, son mode d'action technique et son impact recommandé.
-45. [ ] **Simulateur d'occupation mémoire dynamique dans les réglages (Memory Budgeter)** :
+45. [x] *(2026-11-05 : fait, entrée `[mem-budget]` ; PSS mesurée par programme, estimations seulement pour les services arrêtés ; `RTSP_QMAX` et le débit ne sont pas modélisés, faute de mesure)* **Simulateur d'occupation mémoire dynamique dans les réglages (Memory Budgeter)** :
     - Jauge d'estimation en temps réel dans l'interface Web calculant l'impact RAM prévisionnel selon les options cochées :
       - Résolution (1080p vs 720p : gain/coût ~1,7 Mo),
       - Débit binaire et taille du tampon RTSP (`RTSP_QMAX`),
