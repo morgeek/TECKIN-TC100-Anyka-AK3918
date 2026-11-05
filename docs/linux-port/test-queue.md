@@ -2390,3 +2390,10 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** `IDLE_FPS=0` (défaut) ou `IDLE_WHEN=still`.
 - **Test :** `IDLE_FPS=10 IDLE_WHEN=unwatched`, Frigate arrêté et pas de VLC : log `idle frame rate: lowered`, `STAT cap` ≈ 10 images/s ; ouvrir VLC → `back to the full rate` en moins d'une seconde, l'image est fluide ; fermer VLC → de nouveau 10 après `IDLE_AFTER`. `IDLE_WHEN=night` : la nuit 10 images/s, le jour pleine cadence. Charge CPU (`scripts/cpu-profile.sh 60`) plus basse pendant la cadence réduite.
 - **Critères :** bascules conformes, aucune image figée au retour d'un client, enregistrement continu jamais ralenti.
+
+## 2026-11-05 — Aide au placement Wi-Fi (`[wifi-aim]`, liste de l'implémenteur #32)
+
+- **Quoi :** tableau de bord : la valeur du signal Wi-Fi en vert (≥ -60 dBm), orange (jusqu'à -70) ou rouge. `WIFI_AIM=1` dans `boot.conf` : pendant 5 min après le démarrage, la LED bleue de façade clignote d'autant plus vite que le signal est bon (≈ 4 fois/s à -50 dBm, une fois toutes les 2 s à -85), éteinte sans lien ; éteinte à la fin. Le signal vient de `wifi-signal.sh` (le même que partout).
+- **Interrupteur :** `WIFI_AIM=0` (défaut).
+- **Test :** `WIFI_AIM=1`, redémarrer ; tourner la caméra / l'éloigner de la box : le rythme suit le signal ; après 5 min la LED s'éteint et `ps` n'a plus `wifi-aim.sh`. Tableau de bord : la couleur suit les dBm affichés.
+- **Critères :** rythme cohérent avec les dBm, LED rendue éteinte, pas d'effet sur le reste.

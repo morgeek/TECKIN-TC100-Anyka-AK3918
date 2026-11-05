@@ -98,6 +98,7 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"NET_GUARD_SOFT";"bool";"general";.boot.net_guard_soft),
     row("boot.conf";"flat";"root";"PRIVACY_SCREEN";"bool";"general";.boot.privacy_screen),
     row("boot.conf";"flat";"root";"WEB_LOCKOUT";"bool";"general";.boot.web_lockout),
+    row("boot.conf";"flat";"root";"WIFI_AIM";"bool";"general";.boot.wifi_aim),
     row("boot.conf";"flat";"root";"ISP_TUNE";"bool";"general";.boot.isp_tune),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),

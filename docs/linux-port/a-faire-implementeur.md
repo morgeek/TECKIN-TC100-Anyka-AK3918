@@ -251,7 +251,10 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     - En absence de client RTSP connecté ou lors de la bascule en vision nocturne, ajustement automatique du framerate cible (25 fps -> 15 fps).
     - Rétablissement instantané à 25 fps dès la connexion d'un client RTSP ou la détection d'un événement (mouvement/son).
     - Gain : baisse de 3 à 5°C de la température SoC et réduction du bruit thermique sur le capteur JX-F23.
-32. [ ] **Aide au positionnement Wi-Fi & Diagnostic passif** :
+32. [x] **Aide au positionnement Wi-Fi & Diagnostic passif** :
+    *Fait le 2026-11-05 : le tableau de bord avait déjà le signal (% , dBm, courbe) ; ajouté la couleur (vert / orange /
+    rouge) et `WIFI_AIM=1` (LED bleue qui clignote plus vite quand le signal est meilleur, 5 min après le démarrage,
+    `scripts/wifi-aim.sh`). Entrée `[wifi-aim]`.*
     - Affichage de la qualité du lien Wi-Fi en dBm avec code couleur sur le tableau de bord web.
     - Option de retour visuel sur la LED frontale (rythme de pulsation proportionnel au RSSI) pendant les 5 minutes suivant le démarrage pour orienter la caméra sans écran.
 33. [x] **Enregistrement avec « Pre-Roll » circulaire en RAM (Buffer continu 3 à 5 s)** :

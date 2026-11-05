@@ -528,6 +528,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" NET_GUARD_SOFT bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" PRIVACY_SCREEN bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WEB_LOCKOUT bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_AIM bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_AFTER_MIN u:2:1440 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_MANUAL_MIN u:1:1440 "$_tc_rel" || return 1

@@ -107,6 +107,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   in night mode (`night`), not only while nothing moves (`still`, the default); a motion or sound event gives the full
   rate in every case.
 
+- **Wi-Fi placement aid** (item 32): the dashboard shows the signal in colour (good from -60 dBm, fair down to -70,
+  weak below); `WIFI_AIM=1` makes the blue front LED blink faster as the signal gets better for 5 minutes after boot,
+  to aim the camera without a screen.
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

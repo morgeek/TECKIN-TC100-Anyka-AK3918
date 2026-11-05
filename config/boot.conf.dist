@@ -56,6 +56,9 @@ NET_ALLOW_EXTRA=
 # 5 minutes (httpfront; the camera itself never). The kernel has no packet filter, so this is the
 # web server's own. 0 = no limit.
 WEB_LOCKOUT=0
+# WIFI_AIM=1: for 5 minutes after boot the blue front LED blinks faster as the Wi-Fi signal gets
+# better (about 4 a second at -50 dBm, one every 2 s at -85), to aim the camera without a screen.
+WIFI_AIM=0
 # Telnet and FTP send passwords in clear: started from the web page, they
 # stop by themselves after REMOTE_SHELL_TIMEOUT_MIN minutes (0 = never).
 REMOTE_SHELL_TIMEOUT_MIN=15

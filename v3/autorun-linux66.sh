@@ -375,6 +375,8 @@ fi
 # 12b2b. Reboot tracker every 15 minutes: the critical log lines to important.log and the "last seen alive" heartbeat
 #        that dates an unexpected restart (SD card when there is one, else RAM: never the flash)
 sh /mnt/scripts/housekeeper.sh job add reboot-tracker bg 900 300 - sh /mnt/scripts/reboot-tracker.sh hk </dev/null >/dev/null 2>&1
+# item 32: WIFI_AIM=1: the front LED blinks with the Wi-Fi signal for 5 minutes, to aim the camera without a screen
+on "$BC_WIFI_AIM" && ( exec sh /mnt/scripts/wifi-aim.sh run ) </dev/null >/dev/null 2>&1 &
 # item 28: the logs in RAM that do not cap themselves, every 10 minutes (scripts/log-cap.sh, LOG_CAP_KB)
 sh /mnt/scripts/housekeeper.sh job add log-cap bg 600 600 - sh /mnt/scripts/log-cap.sh </dev/null >/dev/null 2>&1
 
