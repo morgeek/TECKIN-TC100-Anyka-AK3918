@@ -264,7 +264,11 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     survient (`update_want`), les trames antérieures déjà bufferisées sont dépilées et intégrées au début du conteneur fMP4.*
     - Maintenir en mémoire vive un anneau circulaire (ring-buffer) des 3 à 5 dernières secondes de vidéo encodée H.264 (~600 à 900 Ko de RAM consommée).
     - Lors d'un déclenchement d'alarme (mouvement, son, tamper), le clip MP4 écrit sur la carte SD intègre ces secondes préalables, assurant de voir l'amorce de l'action plutôt que l'intrus déjà en train de sortir.
-34. [ ] **Envoi de secours hors-site sur alerte critique (Cloud / Telegram / Webhook)** :
+34. [x] **Envoi de secours hors-site sur alerte critique (Cloud / Telegram / Webhook)** :
+    *Fait le 2026-11-05 : les notifications Ntfy / Telegram / webhook existaient (une image par mouvement, **aucune pour
+    le sabotage**) ; ajouté une image fraîche quand l'événement n'en a pas, la rafale `NOTIFY_BURST` (1 image/s) et la
+    copie hors site `NOTIFY_UPLOAD_URL` (PUT WebDAV / adresse d'envoi). L'appel Ntfy ne passe plus par `eval`. Pas
+    d'interface pour les nouvelles clés (fichier `notify.conf`). Entrée `[notify-burst]`.*
     - Sur détection de sabotage (tamper) ou intrusion confirmée, expédition immédiate d'une rafale de 3 snapshots HD ou d'un clip court vers un canal hors-site sécurisé (bot Telegram, webhook ntfy/Home Assistant ou stockage S3/WebDAV).
     - Protège les preuves d'intrusion même en cas de vol, d'arrachage de la caméra ou d'extraction de la carte SD par l'intrus.
 35. [ ] **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :

@@ -26,3 +26,12 @@ NOTIFY_COOLDOWN_SECONDS=15
 
 # Events filter (space-separated: motion sound tamper)
 NOTIFY_EVENTS="motion sound tamper"
+
+# Pictures out of the camera on a serious alert (they survive a camera torn down or a card taken out):
+# NOTIFY_BURST=N (0-5): N more fresh pictures, one a second, for the events of NOTIFY_BURST_EVENTS, to Ntfy / Telegram.
+NOTIFY_BURST=0
+NOTIFY_BURST_EVENTS="tamper"
+# NOTIFY_UPLOAD_URL: every picture of an alert is also sent there with an HTTP PUT (a WebDAV folder, a pre-signed
+# upload address; empty = off), as <camera>_<date>_<event>_<n>.jpg. NOTIFY_UPLOAD_AUTH="user:password" (optional).
+NOTIFY_UPLOAD_URL=""
+NOTIFY_UPLOAD_AUTH=""

@@ -111,6 +111,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   weak below); `WIFI_AIM=1` makes the blue front LED blink faster as the signal gets better for 5 minutes after boot,
   to aim the camera without a screen.
 
+- **Pictures out of the camera on a serious alert** (`notify.conf`, item 34): a tamper alert now carries a fresh
+  picture (it had none); `NOTIFY_BURST=N` sends N more pictures, one a second, for the events of `NOTIFY_BURST_EVENTS`
+  (tamper by default) to Ntfy / Telegram; `NOTIFY_UPLOAD_URL` also PUTs every picture of the alert to a WebDAV folder
+  or an upload address, so they survive a camera torn down or a card taken out. The Ntfy call no longer goes through
+  `eval` (a message with a quote broke it).
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

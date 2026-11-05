@@ -2397,3 +2397,10 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** `WIFI_AIM=0` (défaut).
 - **Test :** `WIFI_AIM=1`, redémarrer ; tourner la caméra / l'éloigner de la box : le rythme suit le signal ; après 5 min la LED s'éteint et `ps` n'a plus `wifi-aim.sh`. Tableau de bord : la couleur suit les dBm affichés.
 - **Critères :** rythme cohérent avec les dBm, LED rendue éteinte, pas d'effet sur le reste.
+
+## 2026-11-05 — Images hors de la caméra sur alerte grave (`[notify-burst]`, liste de l'implémenteur #34)
+
+- **Quoi :** `scripts/notify.sh` : une alerte sans image (sabotage) en prend une fraîche (`NOTIFY_ATTACH_SNAPSHOT=1`) ; `NOTIFY_BURST=N` (0-5) envoie N images de plus, une par seconde, pour les événements de `NOTIFY_BURST_EVENTS` (défaut `tamper`) vers Ntfy / Telegram ; `NOTIFY_UPLOAD_URL` envoie aussi chaque image de l'alerte par HTTP PUT (dossier WebDAV du Synology, adresse pré-signée), `NOTIFY_UPLOAD_AUTH="utilisateur:mot de passe"` facultatif. Ntfy sans `eval`.
+- **Interrupteur :** `NOTIFY_BURST=0`, `NOTIFY_UPLOAD_URL=""` (défauts).
+- **Test :** Ntfy (ou Telegram) actif, `NOTIFY_BURST=3`, `NOTIFY_UPLOAD_URL=http://<synology>/webdav/tc100/` : masquer l'objectif avec la main jusqu'à l'alerte de sabotage → 1 + 3 images reçues sur le téléphone, 4 fichiers `<caméra>_<date>_tamper_0..3.jpg` dans le dossier WebDAV ; un mouvement → une seule image (pas de rafale) ; un message avec une apostrophe passe.
+- **Critères :** images reçues et copiées ; aucune rafale hors des événements choisis.
