@@ -388,11 +388,17 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     source ni licence) par un répondeur WS-Discovery libre.
     *Propriétaire, 2026-11-05 : ONVIF est utilisé → le remplacement de `monvifd` passe en P1, avec #12. #35 (WebRTC) :
     sans alourdir le CPU.*
+    - **Cible Flash immédiate (suppression de `bin/monvifd`)** : Dès que `tc100-onvifd` est validé sur caméra, supprimer définitivement l'ancien binaire opaque `bin/monvifd` (gain direct de **228 Ko brut**, soit ~70-80 Ko de flash SquashFS).
+    - **Remplacement des résidus 2.x (`rwconf`, `getflag`, `getimage`)** : Remplacer ces 3 anciens binaires uClibc (45 Ko au total) par un unique helper C minimaliste ou des fonctions intégrées directement dans `httpfront`/`tc100_rtsp`.
 
 54. [x] *(2026-11-05 : fait, entrée `[flash-space]` ; mesuré : exclusions -65 Ko, BCJ -4 Ko sur nos binaires, le reste dépend de `ext/` ; le wizard ne charge plus Bulma au lieu du bundle)* **Gisements d'optimisation espace Flash SPI (gain net estimé : 150 à 250 Ko dans `stack.sqfs`, sans perte fonctionnelle)** :
     - *Filtre ARM pour SquashFS (`build-stack.sh`)* : ajouter l'option `-Xbcj arm` à la commande `mksquashfs` pour améliorer la compression XZ des binaires ELF ARM (`tc100_rtsp`, `httpfront`, `tc100-mqttd`, `tc100-onvifd`) de 5 à 8 % sans aucun surcoût en RAM lors de la décompression noyau (gain ~60 à 100 Ko flash).
     - *Tonalités audio de test (`sounds/`)* : exclure `sounds/test-1k-*.pcm` (141 Ko brut) de l'image flash via `-e` dans `build-stack.sh`. Ces fichiers ne servent qu'au banc d'essai usine/étalonnage et restent disponibles sur la carte SD ou via `generate_sounds.py` (gain ~40 à 50 Ko flash).
     - *Déduplication CSS WebUI (`www/css/`)* : `ui.bundle.min.css` intègre déjà Bulma + ui-modern + ui.css. Faire pointer `wizard.cgi` vers le bundle minifié et exclure les sources non groupées `bulma.1.0.2.purged.min.css` (121 Ko) et `ui.css` (41 Ko) de la flash (gain ~40 Ko flash).
+
+55. [ ] **Chantiers de réécriture C ciblés pour gains RAM & Flash (feuille de route propriétaire 2026-11-05)** :
+    - **Capture audio ALSA directe dans `tc100_rtsp` (#11)** : Éliminer le sous-processus `arecord` et le pipe Unix associé au profit d'un `snd_pcm_read` direct dans le serveur RTSP. Gain : **~660 Ko PSS** économisés, zéro fork, élimination des sauts de contexte noyau.
+    - **Micro-démon superviseur unifié C (`tc100-supervisord`) (#52)** : Remplacer les boucles shell résidentes (`button-watch.sh`, `auto-night-daemon.sh`, surveillance `housekeeper`) par un seul processus C compact avec `poll()`. Gain : **~1 à 1,5 Mo de RAM PSS** récupérée et fin des forks cycliques (`read`, `cat /proc/uptime`).
 
 ## Hors implémenteur (propriétaire)
 
