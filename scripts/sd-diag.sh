@@ -15,6 +15,8 @@ DEV="/dev/mmcblk0p1"
 SDINFO="${SDD_SDINFO:-/mnt/v3/linux66-sd/sdinfo-sd.sh}"
 HEALTH="${SDD_HEALTH:-/tmp/sd-health}"
 PROC_MOUNTS="${SDD_PROC_MOUNTS:-/proc/mounts}"
+# fsck.fat comes with the user space (ext/bin, item 41); the web server's environment may not have it on PATH
+PATH="/mnt/ext/bin:$PATH"
 
 status() {
   if [ -r "$STATUS_FILE" ]; then

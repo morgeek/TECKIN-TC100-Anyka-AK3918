@@ -274,7 +274,13 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 40. [ ] **Roaming Wi-Fi multi-bornes / Mesh (Fast BSS Transition & anti-client collant)** :
     - Dans les installations disposant de répéteurs Wi-Fi ou réseau Mesh (même SSID sur plusieurs BSSID), éviter que la caméra ne reste connectée à une borne affaiblie (« sticky client »).
     - Si le RSSI chute sous -75 dBm pendant plus de 2 minutes alors qu'une borne alternative avec le même SSID propose un signal nettement supérieur (> 15 dB d'écart), forcer une réassociation douce (`wpa_cli reassociate`) sur le meilleur BSSID.
-41. [ ] **Contrôle et réparation douce FAT32 sur carte SD (`mount-sd.sh` / `dosfsck`)** :
+41. [x] **Contrôle et réparation douce FAT32 sur carte SD (`mount-sd.sh` / `dosfsck`)** :
+    *Fait le 2026-11-05 (implémenteur) : la cause de la carte sale de la .24 est trouvée : à l'arrêt, init appelle
+    `S39tc100 stop` avant `umount -a -r`, et S39 sortait sans rien faire : l'enregistreur écrivait encore, le remontage
+    en lecture seule échouait. `stop` arrête maintenant l'enregistreur, `sync`, remonte la carte en lecture seule
+    (sinon `tc100-3/shutdown.log` dit qui la tient). `fsck.fat` (dosfstools) dans `ext/` : le bouton Réparer de la page
+    Carte SD marche ; `SD_AUTO_REPAIR=1` répare une carte laissée sale par une coupure, une minute après le démarrage
+    (mode flash). Le `dosfsck -a` de `96336d1` est retiré. Entrée `[sd-clean]`.*
     *2026-11-05 : `96336d1` (autre agent) lance `dosfsck -a` dans `rec-storage.sh _mount_card`, mais (1) `dosfsck` n'est
     pas dans l'image (ni dosfstools dans Buildroot, ni applet busybox : la ligne ne fait rien), (2) au démarrage la carte
     est montée par `v3/S39tc100-linux66`, pas par `_mount_card` (qui ne sert qu'après une éjection en mode flash), (3)

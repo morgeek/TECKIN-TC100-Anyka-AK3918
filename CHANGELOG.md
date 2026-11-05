@@ -85,6 +85,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   sensor), WS-Security login (digest or text) with the RTSP user and password, `TC100_NET_ALLOW` LAN filter, 46 KB.
   Off by default: `ONVIF_IMPL=c` in `onvif.conf` (monvifd stays the default until checked on the camera).
 
+- **SD card clean after every restart** (item 41): at restart / power-off the init system calls `S39tc100 stop`
+  before unmounting everything; it did nothing, so the recorder was still writing and the card stayed read-write:
+  every boot found it "not properly unmounted". It now stops the recorder, syncs and remounts the card read-only
+  (a card still busy is logged on itself, `tc100-3/shutdown.log`, with what held it). `fsck.fat` is in the user space
+  now: the Repair button of the SD card page works, and `SD_AUTO_REPAIR=1` checks a card left dirty by a power cut
+  a minute after boot. The `dosfsck -a` of `96336d1` (run at every remount, and never at boot) is removed.
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

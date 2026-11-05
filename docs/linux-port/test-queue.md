@@ -2352,3 +2352,17 @@ Prochaine étape : rc26 sur la .11.
 ### `[sd-fsck]` `dosfsck -a` avant de remonter la carte (`96336d1`)
 - **Constat de l'implémenteur (sans caméra) :** `dosfsck` n'est pas dans l'image (la ligne est sautée par `command -v`), et le montage du démarrage se fait dans `S39tc100-linux66`, pas dans `rec-storage.sh` : **aucun effet attendu** sur le « not properly unmounted » de la .24. À reprendre au #41 de `a-faire-implementeur.md` (bit « sale » lu dans S39, réparation seulement s'il est posé, `fsck.fat` dans l'image).
 - **Test :** sur la .24, `command -v dosfsck fsck.fat` (attendu : rien) et `dmesg | grep FAT` au démarrage suivant une mise à jour web.
+
+## 2026-11-05 — Carte SD propre après chaque redémarrage, réparation FAT (`[sd-clean]`, liste de l'implémenteur #41 ; remplace `[sd-fsck]`)
+
+- **Quoi :**
+  - Cause trouvée de « not properly unmounted » : à l'arrêt, init lance `/etc/init.d/rcK` (donc `S39tc100 stop`) puis `umount -a -r`. S39 sortait aussitôt (`[ "$1" = start ] || exit 0`) : `tc100_rtsp` enregistrait encore, le remontage en lecture seule échouait. **`S39tc100 stop`** arrête maintenant `tc100_rtsp` (SIGTERM, 5 s : le fichier est fermé proprement), `sync`, `mount -o remount,ro /mnt/sd`. Si la carte reste occupée : une ligne dans `tc100-3/shutdown.log` avec les pid qui la tiennent (`fuser`).
+  - `fsck.fat` (dosfstools) dans `ext/bin` du stack (pas dans l'initramfs) : le bouton « Réparer » de la page Carte SD (`sd-diag.sh repair` : pause de l'enregistrement, démontage, `fsck.fat -a`, remontage) fonctionne enfin.
+  - `SD_AUTO_REPAIR=1` (`boot.conf`, défaut 0, mode flash) : si le noyau a vu la carte sale au démarrage (coupure de courant), la même réparation une minute après.
+  - Le `dosfsck -a` ajouté dans `rec-storage.sh` par `96336d1` est retiré.
+- **Interrupteur :** `SD_AUTO_REPAIR=0` ; l'arrêt propre n'a pas d'interrupteur (il ne fait que fermer et remonter en lecture seule).
+- **Test (.24, carte SD, enregistrement actif) :**
+  1. Redémarrage voulu (page web, puis `reboot` en ssh, puis une mise à jour web) : au démarrage suivant, `dmesg | grep FAT` **sans** « not properly unmounted » ; le dernier enregistrement se lit jusqu'au bout ; pas de `tc100-3/shutdown.log` (ou, s'il existe, noter les pid qu'il cite).
+  2. `ls /mnt/ext/bin/fsck.fat` ; page Carte SD → Réparer : réponse `fsck_repaired`, l'enregistrement reprend.
+  3. `SD_AUTO_REPAIR=1`, couper le courant pendant un enregistrement : au démarrage `not properly unmounted` dans `dmesg`, puis ~1 min après `sd-diag` répare (`/tmp/sd-health`, log) et l'enregistrement reprend.
+- **Critères :** 1 sans avertissement FAT sur 3 redémarrages ; 2 et 3 conformes. La taille de l'initramfs ne change presque pas (quelques lignes de S39).

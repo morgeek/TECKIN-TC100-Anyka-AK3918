@@ -184,6 +184,10 @@ REC_AUDIO=1
 # empty .evt next to it; when the card is full, the oldest recording WITHOUT an event
 # is deleted first, the event clips only when nothing else is left. 0 = the oldest.
 REC_KEEP_EVENTS=0
+# SD_AUTO_REPAIR=1: a card the kernel found "not properly unmounted" at boot (power cut) is checked
+# and repaired (fsck.fat -a) a minute later, recording paused meanwhile; flash mode only. 0 = only
+# the Repair button of the SD card page.
+SD_AUTO_REPAIR=0
 # PRIVACY_SCREEN=1: privacy mode (Services page "Privacy Mode", MQTT switch): black picture
 # on every stream, snapshot and recording, no sound, no motion detection. Kept over a restart.
 PRIVACY_SCREEN=0

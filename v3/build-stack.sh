@@ -63,6 +63,10 @@ for b in usr/bin/curl usr/bin/jq usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd u
 	cp -L "$b" "$T/ext/bin/"
 	echo "$b" >> "$W/todo"
 done
+# fsck.fat (dosfstools, item 41): optional, the base of an older CI run may not have it yet
+for b in sbin/fsck.fat usr/sbin/fsck.fat; do
+	[ -f "$b" ] && { cp -L "$b" "$T/ext/bin/"; echo "$b" >> "$W/todo"; break; }
+done
 while [ -s "$W/todo" ]; do
 	f=$(head -n 1 "$W/todo"); sed -i 1d "$W/todo"
 	for n in $($READELF -d "$f" 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do

@@ -2,6 +2,24 @@
 # TC100 V3 on Linux 6.6: boot script of the initramfs (RAM only, nothing written to flash).
 # Mounts the SD card, brings Wi-Fi up (rtl8xxxu is built into the 6.6 kernel), sets the
 # root password from config/user.pwd, then starts the V3 services from the card.
+if [ "$1" = stop ]; then
+  # Restart / power-off (/etc/init.d/rcK, run by init just before "umount -a -r"): the card was left read-write
+  # with the recorder still writing, the read-only remount failed and every boot found it "not properly unmounted"
+  # (the .24, 2026-11-04/05; item 41). The recorder closes its file on SIGTERM; then the card goes read-only, which
+  # marks it clean. A card still busy is logged on itself (tc100-3/shutdown.log) with what holds it.
+  killall -TERM tc100_rtsp 2>/dev/null
+  i=0; while pidof tc100_rtsp >/dev/null 2>&1 && [ $i -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
+  killall -9 tc100_rtsp 2>/dev/null
+  sync
+  if grep -qE ' /mnt/sd (vfat|exfat) rw' /proc/mounts; then
+    if ! mount -o remount,ro /mnt/sd 2>/dev/null; then
+      mkdir -p /mnt/sd/tc100-3 2>/dev/null
+      echo "$(date '+%Y-%m-%d %H:%M:%S') card still busy at shutdown: $(echo $(fuser -m /mnt/sd 2>/dev/null))" >> /mnt/sd/tc100-3/shutdown.log 2>/dev/null
+      sync
+    fi
+  fi
+  exit 0
+fi
 [ "$1" = start ] || exit 0
 C=/dev/console
 log() { echo "[tc100] $*" > $C; }

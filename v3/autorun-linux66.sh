@@ -394,6 +394,11 @@ fi
 #      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
 #      (sdinfo-sd.sh, also run once now).
 sh /mnt/v3/linux66-sd/sdinfo-sd.sh </dev/null >/dev/null 2>&1
+# item 41: a card the kernel found "not properly unmounted" (a power cut) is checked and repaired once the camera runs
+# from its flash (SD_AUTO_REPAIR=1; sd-diag.sh pauses the recorder, unmounts, fsck.fat -a, mounts again)
+if [ -f /tmp/flashmode ] && on "$BC_SD_AUTO_REPAIR" && dmesg 2>/dev/null | grep -q 'FAT-fs (mmcblk0[p1]*): Volume was not properly unmounted'; then
+  ( sleep 60; exec sh /mnt/scripts/sd-diag.sh repair ) </dev/null >/dev/null 2>&1 &
+fi
 # the Recordings page plays and downloads /DCIM/<clip>.mp4 and shows /DCIM/<clip>.jpg
 [ -e /tmp/www/DCIM ] || ln -sfn /mnt/DCIM /tmp/www/DCIM
 # (the housekeeper does these three checks itself; web-guard.sh run is the loop of HOUSEKEEPER=0)

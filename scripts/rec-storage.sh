@@ -44,10 +44,8 @@ _mount_card()
     [ "$L66" = 1 ] && umount "$MNT_SD" 2>/dev/null   # the RAM placeholder
     for _d in $DEVS; do
         [ -b "$_d" ] || continue
-        # Auto-heal: non-destructive dirty bit check / quick repair before mounting rw
-        if command -v dosfsck >/dev/null 2>&1; then
-            dosfsck -a "$_d" >/dev/null 2>&1
-        fi
+        # (no check here: a full fsck at every remount costs minutes and MB; scripts/sd-diag.sh repair does it on demand
+        # or at boot with SD_AUTO_REPAIR=1, item 41)
         # FAT32 (cards up to 32 GB) or exFAT (larger cards, as formatted out of the box)
         if mount -t vfat -o rw,noatime,nodiratime,shortname=mixed "$_d" "$MNT_SD" 2>/dev/null ||
            mount -t exfat -o rw,noatime "$_d" "$MNT_SD" 2>/dev/null; then

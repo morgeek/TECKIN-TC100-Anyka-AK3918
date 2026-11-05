@@ -198,6 +198,7 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"REC_RING_KB";"u:128:8192";"general";.recording.ring_kb),
     row("boot.conf";"flat";"root";"REC_AUDIO";"bool";"general";.recording.audio),
     row("boot.conf";"flat";"root";"REC_KEEP_EVENTS";"bool";"general";.recording.keep_events),
+    row("boot.conf";"flat";"root";"SD_AUTO_REPAIR";"bool";"general";.recording.sd_auto_repair),
 
     row("hostname.conf";"single";"root";"value";"hostname";"network";.system.hostname),
     row("timezone.conf";"single";"root";"value";"timezone";"network";.system.timezone),
