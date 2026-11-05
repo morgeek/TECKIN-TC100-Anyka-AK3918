@@ -2439,3 +2439,10 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** aucun (revert du commit).
 - **Test :** Réglages → Wi-Fi de secours : mot de passe masqué, « Afficher » le montre ; `curl -u root:<mdp> 'http://<caméra>/cgi-bin/action.cgi?cmd=wifi_rescue_info&format=json&reveal=1'` sans jeton → refus CSRF. Telegram : enregistrer le formulaire sans toucher au jeton → le bot marche toujours ; `-` → jeton retiré.
 - **Critères :** aucun secret dans `fullconfig` ni dans `wifi_rescue_info` sans `reveal` ; Telegram inchangé après un enregistrement.
+
+## 2026-11-05 — Pont MQTT en C : pas de résolution DNS à chaque reconnexion (`[mqtt-m1]`, audit M1)
+
+- **Quoi :** `tc100-mqttd` : une adresse de broker numérique n'est plus jamais résolue (`inet_aton`) ; un nom est résolu une fois, puis de nouveau seulement après un échec de connexion ; un topic de plus de 65 535 octets est refusé au lieu d'être tronqué.
+- **Interrupteur :** aucun (revert).
+- **Test :** pont en C avec l'adresse IP du broker : couper le broker 1 min puis le relancer → reconnexion, commandes et `availability` comme avant ; avec un nom (`MQTT_HOST=nas.local`) : idem.
+- **Critères :** reconnexion normale dans les deux cas, pas de gel du pont pendant la coupure.
