@@ -10,6 +10,7 @@
 #               is pending (first boot or Settings → System → run the wizard).
 
 FIRST_BOOT_FLAG="${WZ_FIRST_BOOT_FLAG:-/tmp/.first_boot}"
+CSRF_FILE="${WZ_CSRF_FILE:-/tmp/csrf_token}"
 CONFIG="${WZ_CONFIG:-/mnt/config}"
 CARD="${WZ_CARD:-/mnt}"
 SCRIPTS="${WZ_SCRIPTS:-/mnt/scripts}"
@@ -123,6 +124,22 @@ esac
 
 # POST — apply wizard answers
 if [ "$METHOD" = "POST" ]; then
+    # CSRF (audit 2026-11-04 W4): the per-boot token, like every other CGI that changes something (func.cgi csrf_guard).
+    # The page gets it from statusline.cgi, which also creates it when no CGI has yet. Without a stored token the POST
+    # is refused as well (update.cgi does the same): a page of another site cannot read it, so cannot post here.
+    # awk, not tr: tr is absent on the camera.
+    _csrf_stored=""
+    [ -r "$CSRF_FILE" ] && read -r _csrf_stored < "$CSRF_FILE"
+    _csrf_stored="$(printf '%s' "$_csrf_stored" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')"
+    _csrf_hdr="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')"
+    if [ -z "$_csrf_stored" ] || [ "$_csrf_hdr" != "$_csrf_stored" ]; then
+        echo "Status: 403 Forbidden"
+        echo "Content-Type: application/json"
+        echo "Cache-Control: no-store, no-cache"
+        echo ""
+        echo '{"ok":false,"error":"csrf_invalid"}'
+        exit 0
+    fi
     # Only accept POST while the wizard is actually pending (first boot, or
     # after an explicit wizard_reset). Prevents a stray/replayed POST from
     # silently re-applying settings once setup is complete.
@@ -896,7 +913,8 @@ var ERRORS = {
     invalid_wifi: 'The Wi-Fi network name or password is not valid.',
     invalid_frigate_url: 'The Frigate address must look like http://192.168.1.20:5000.',
     invalid_password: 'The new password is not valid (at least 4 characters, no spaces, quotes, %, $, ` or \\).',
-    wizard_already_completed: 'The setup was already completed (reload the page).'
+    wizard_already_completed: 'The setup was already completed (reload the page).',
+    csrf_invalid: 'The page is out of date (the camera restarted?). Reload the page and start again.'
 };
 
 function applyConfig() {
@@ -915,19 +933,29 @@ function applyConfig() {
     if (flashStep() && wz.flash === 'prepare') body += f('flash_install', '1');
     if (byId('wzPw1').value) body += f('password', byId('wzPw1').value);
 
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/cgi-bin/wizard.cgi', true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onreadystatechange = function() {
-        if (xhr.readyState !== 4) return;
-        var d = null;
-        if (xhr.status === 200) { try { d = JSON.parse(xhr.responseText); } catch (e) {} }
-        if (d && d.ok) { showSuccess(d); return; }
-        btn.disabled = false;
-        btn.innerHTML = 'Retry ' + ARROW_SVG;
-        byId('wzApplyErr').textContent = (d && ERRORS[d.error]) || 'The camera did not accept the settings.';
+    // the per-boot CSRF token (W4) comes from the status line, read just before the POST (it exists even before any password)
+    var tk = new XMLHttpRequest();
+    tk.open('GET', '/cgi-bin/statusline.cgi', true);
+    tk.onreadystatechange = function() {
+        if (tk.readyState !== 4) return;
+        var token = '';
+        try { token = JSON.parse(tk.responseText).csrf_token || ''; } catch (e) {}
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/cgi-bin/wizard.cgi', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-CSRF-Token', token);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4) return;
+            var d = null;
+            if (xhr.status === 200 || xhr.status === 403) { try { d = JSON.parse(xhr.responseText); } catch (e) {} }
+            if (d && d.ok) { showSuccess(d); return; }
+            btn.disabled = false;
+            btn.innerHTML = 'Retry ' + ARROW_SVG;
+            byId('wzApplyErr').textContent = (d && ERRORS[d.error]) || 'The camera did not accept the settings.';
+        };
+        xhr.send(body);
     };
-    xhr.send(body);
+    tk.send();
 }
 
 function showSuccess(d) {

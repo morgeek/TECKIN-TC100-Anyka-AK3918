@@ -406,7 +406,12 @@ http_server(){
 # Set a new http password
 # (busybox httpd: the login lives in /etc/httpd.conf, written by web-auth)
 http_password(){
-  [ -f /mnt/v3/linux66-sd/web-auth ] && sh /mnt/v3/linux66-sd/web-auth "$1"
+  [ -f /mnt/v3/linux66-sd/web-auth ] && sh /mnt/v3/linux66-sd/web-auth "$1" || return $?
+  # audit 2026-11-04 W4: a password exists now, so the first-install window (wizard.cgi open to anyone while
+  # /tmp/.first_boot exists) is closed, and the boot does not open it again (v3/autorun-linux66.sh looks at this marker)
+  rm -f /tmp/.first_boot 2>/dev/null
+  : > "${TC100_PWSET_MARK:-/mnt/config/.password_set}" 2>/dev/null
+  return 0
 }
 
 # Control the RTSP h264 server
