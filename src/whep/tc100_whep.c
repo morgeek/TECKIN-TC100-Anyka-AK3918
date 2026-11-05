@@ -413,6 +413,8 @@ static int rtsp_play(struct sess *s)
 }
 
 /* ---- media: RTP from the RTSP server, rewritten, protected and sent ---- */
+#define WH_SRTP_TAG 10	/* bytes srtp_protect() appends to the packet, in its buffer (srtp.h: returns n + 10) */
+
 static void send_rtp(struct sess *s, struct srtp_ctx *c, uint8_t *pkt, size_t n)
 {
 	size_t m;
@@ -435,7 +437,10 @@ static void on_video(struct sess *s, const uint8_t *p, size_t n)
 	int nal;
 	uint32_t ts;
 
-	if (n < 13 || n > 1400 || (p[0] & 0x1f)) return;		/* no CSRC, no extension: tc100_rtsp sends none */
+	/* up to the buffer less the 10-byte SRTP tag that srtp_protect() adds in place: tc100_rtsp sends 12 + RTP_PAYLOAD
+	 * (1400) = 1412 bytes, and the former limit of 1400 dropped every full FU-A fragment, so no IDR ever got through
+	 * (tester, IPCAM2 2026-11-05: 179 video packets in 12 s, 0 picture decoded). No CSRC, no extension: none sent. */
+	if (n < 13 || n > sizeof b - WH_SRTP_TAG || (p[0] & 0x1f)) return;
 	nal = p[12] & 31;
 	ts = aes_be32(p + 4);
 	if ((nal == 5 || (nal == 28 && n > 13 && (p[13] & 0x80) && (p[13] & 31) == 5)) && (!s->idr_seen || ts != s->idr_ts)) {
@@ -453,7 +458,7 @@ static void on_audio(struct sess *s, const uint8_t *p, size_t n)
 {
 	uint8_t b[1500];
 
-	if (!s->a_on || n < 13 || n > 1400 || (p[0] & 0x1f)) return;
+	if (!s->a_on || n < 13 || n > sizeof b - WH_SRTP_TAG || (p[0] & 0x1f)) return;
 	memcpy(b, p, n);
 	rtp_head(b, s->pt_a, p[1] & 0x80, s->aseq++, aes_be32(p + 4), s->a_ssrc);
 	send_rtp(s, &s->txa, b, n);

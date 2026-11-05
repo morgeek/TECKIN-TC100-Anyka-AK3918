@@ -78,6 +78,46 @@ def stap_parts(payload):
     return out
 
 
+RTP_PAYLOAD = 1400	# src/tc100rtsp/tc100_rtsp.c: a full FU-A packet is 12 + 1400 = 1412 bytes
+
+
+def as_tc100_rtsp(payloads):
+    """aiortc's payloads (single NAL, STAP-A, FU-A cut in equal parts of at most 1300 bytes) put back into NAL units,
+    SPS/PPS left out, then cut the way tc100_rtsp does: a NAL unit up to RTP_PAYLOAD bytes alone, a longer one in FU-A
+    packets of RTP_PAYLOAD bytes. aiortc's own cut never reached 1400 bytes and hid a daemon that dropped every packet
+    over 1400 (no IDR reached the viewer on the camera, 2026-11-05)."""
+    units, cur = [], None
+    for p in payloads:
+        t = p[0] & 31
+        if t == 24:
+            units += stap_parts(p)
+        elif t == 28:
+            if p[1] & 0x80:
+                cur = bytearray([(p[0] & 0xe0) | (p[1] & 31)])
+            cur += p[2:]
+            if p[1] & 0x40:
+                units.append(bytes(cur))
+                cur = None
+        else:
+            units.append(p)
+    out = []
+    for u in units:
+        if (u[0] & 31) in (7, 8):
+            continue
+        if len(u) <= RTP_PAYLOAD:
+            out.append(u)
+            continue
+        head, body, i = u[0], u[1:], 0
+        while i < len(body):
+            chunk = body[i:i + RTP_PAYLOAD - 2]
+            fu = 0x80 if i == 0 else 0
+            i += len(chunk)
+            if i >= len(body):
+                fu |= 0x40
+            out.append(bytes([(head & 0xe0) | 28, fu | (head & 31)]) + chunk)
+    return out
+
+
 class FakeRtsp:
     """The RTSP side of tc100_rtsp: DESCRIBE / SETUP (TCP interleaved) / PLAY, then RTP frames."""
 
@@ -160,7 +200,7 @@ class FakeRtsp:
         try:
             while True:
                 payloads, ts = enc.encode(self.frame(n), force_keyframe=n % 30 == 0)
-                send = [p for p in payloads if not set(nals(p)) <= {7, 8}]	# no SPS/PPS in the stream
+                send = as_tc100_rtsp(payloads)	# packets as tc100_rtsp makes them, no SPS/PPS in the stream
                 for i, p in enumerate(send):
                     pkt = struct.pack('>BBHII', 0x80, (0x80 if i == len(send) - 1 else 0) | 96, seq & 0xffff, ts, 0x11223344) + p
                     seq += 1

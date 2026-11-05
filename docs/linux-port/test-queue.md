@@ -2604,3 +2604,58 @@ CI et build **verts** sur `dd4d604` (le build de `b7f3610` était rouge, corrig�
 - **Interrupteur :** `HTTPFRONT_NATIVE=0` dans `/mnt/config/boot.conf` (défaut 0, lu au démarrage de httpfront : redémarrer le serveur web ou la caméra). Pour revenir en arrière : remettre 0.
 - **Test :** mettre `HTTPFRONT_NATIVE=1`, redémarrer, ouvrir l'interface (la première interrogation passe par le CGI qui crée le jeton CSRF). Comparer `curl -u root:… http://cam/cgi-bin/statusline.cgi` avec le CGI (`sh /mnt/www/cgi-bin/statusline.cgi`) : mêmes clés, même ordre, valeurs identiques (hors `sd_used_kb` qui bouge). Vérifier : 401 sans mot de passe, pas de JSON avec un mauvais mot de passe, connexion refusée depuis un réseau non autorisé, `sd_*` corrects avec la carte, `wifi_qual`, `sound_db` ; temps (`curl -w %{time_total}`) natif vs CGI sur 20 requêtes ; les POST (action.cgi) marchent avec le jeton CSRF reçu ; `top` : httpfront seul, pas de httpd/sh à chaque interrogation.
 - **Critères :** JSON identique au CGI sur la caméra ; temps par requête divisé par au moins 5 ; aucune régression des pages (barre d'état, jauge Wi-Fi, carte SD, mise à jour disponible) pendant 24 h. Si tout est bon, `HTTPFRONT_NATIVE=1` par défaut.
+
+## 2026-11-05 19:05 — 3.0.1-rc27 (bump par le testeur, à la demande du propriétaire)
+
+- **Paquet :** artefact `tc100-3-release` du run « Build Linux 6.6 » du commit `[release] Bump to 3.0.1-rc27`. Contenu : `dd4d604` (56 commits du 2026-11-05) + ce bump. Remplace le « rc26 » de `main` (le paquet rc26 testable reste `342b523`).
+- **Installation décidée par le propriétaire : .11, en flash directement par la mise à jour web, sans carte SD.**
+- **Plan (un changement à la fois, .11 seule) :** (1) mise à jour web, `VERSION` 3.0.1-rc27, boot-guard `count=0` après 5 min, tout ce qui tournait en rc25 tourne encore (RTSP principal/sous-flux/audio, Frigate, MQTT C, mDNS, pays FR) ; (2) `RTSP_PACING_US=100` (désormais par défaut) : une nuit, images sautées, pertes de ping, latence du direct ; (3) `NET_LAN_ONLY`, expiration des clients RTSP inactifs, limite d'essais du web : Frigate et HA inchangés ; (4) `ONVIF_IMPL` libre, puis `SUPERVISOR_IMPL=c`, puis `MQTT_DISCOVERY_IMPL=c` ; (5) WHEP en dernier.
+
+## 2026-11-05 19:35 — rc27 sur la .11 (flash, mise à jour web, sans carte SD) : résultats (testeur)
+
+| Contrôle | Résultat |
+|---|---|
+| `VERSION` 3.0.1-rc27, `flashroot=1`, boot-guard | OK, `count=0` après 8 min, mode normal |
+| RAM / CMA | MemAvailable 22,7 Mo, CmaFree 6,5 Mo |
+| Services | `tc100_rtsp`, `tc100-mqttd` (432 Ko), `tc100-mdnsd`, `httpfront`, dropbear, wpa_supplicant ; `health.cgi` : onvif, motion, memory-guard, ftp, telnet, telegram = `disabled` (juste) |
+| **Sous-shells restés en mémoire (P0 n° 2)** | **réglé** : plus de `sh controlscripts/mqtt-bridge start` ni de `S39tc100 start` |
+| Console série | plus de `getty` après 5 min (`SERIAL_CONSOLE=auto`) |
+| `VM_TUNE` | `vfs_cache_pressure` 150, `min_free_kbytes` 1024 |
+| Web | 9 pages (dont `hardware.html`) en 200 avec mot de passe, 401 sans ; snapshot 127 Ko, image normale |
+| RTSP TCP | principal hevc 1920x1080 25/1 + G.711, sous-flux h264 640x360 25/1 + G.711, 401 sans mot de passe ; Frigate reconnecté seul |
+| `live.cgi` | H.264 640x360, 295 Ko en 10 s |
+| `frigateyaml` / manifeste | `@25`, `{FRIGATE_RTSP_PASSWORD}` |
+| Audit (MQTT `a b`, XSS) | `INVALID_VALUE` ; 0 balise renvoyée |
+| Pays Wi-Fi | FR effectif, regdb 1 |
+| MQTT (broker) | `availability` online retenu ; commande `health` → `command/result` ; découverte : 49 configs (une de plus qu'en rc25), seul doublon `night_mode` (binary_sensor + switch, déjà là) |
+| mDNS | `ipcamera2.local` → 192.168.1.11 |
+| Import JSON (export de la caméra elle-même) | 1er import : `changed_files 3` = les nouvelles clés rc27 écrites une fois ; 2e : `changed_files 0` (idempotent). **Durée 20-25 s** pour 144 valeurs (12-15 s pour 123 en rc25). Pendant l'import, la capture tombe à 11-17 images/s (processeur unique), puis revient à 24-25. |
+
+### Problème trouvé : `RTSP_PACING_US=100` par défaut (`1a3a2eb`) avec un noyau à 100 Hz
+- Le noyau est `CONFIG_HZ=100`, `CONFIG_HZ_PERIODIC=y`, sans minuterie haute résolution : `/proc/timer_list` → `.resolution: 10000000 nsecs`. Un `usleep(100)` dort donc **au moins 10 ms**, pas 100 µs.
+- Dans `tc100_rtsp.c`, le pacing (lignes 1675, 1961, 1969) ne touche **que les clients UDP** et dort **dans la boucle principale** (un seul fil) après chaque paquet : à ~143 paquets/s pour 1,6 Mbit/s, il faudrait > 1,4 s de sommeil par seconde. Avec un client RTSP en **UDP** (VLC par défaut, certains NVR), le débit plafonne vers ~100 paquets/s (< 1,2 Mbit/s) et **la capture elle-même est retardée** → images perdues pour tous les clients.
+- Frigate/go2rtc en TCP ne sont pas concernés (pas de pacing en TCP) : c'est pour ça que rien ne se voit ici. Ma VM ne peut pas faire d'UDP (NAT) : à confirmer par le propriétaire (VLC en UDP sur la .11 : flux saccadé attendu).
+- **Demande** : revenir à `RTSP_PACING_US` vide par défaut (revert de `1a3a2eb`) avant la rc suivante ; un lissage utile demanderait `CONFIG_HIGH_RES_TIMERS=y` ou un lissage par lots sans `usleep`, mesuré sur caméra. L'essai « une nuit avec le pacing » du plan rc27 n'a pas de sens pour Frigate (TCP).
+
+Nuit : enregistreur relancé sur la .11 (18:24 UTC) : pertes de ping, images sautées, RAM, avec la rc27 (pas de témoin : la .24 est aussi en rc25 → comparaison avec la nuit rc25 de la .11).
+
+## 2026-11-05 20:40 — rc27, .11 : les nouvelles implémentations activées une par une (testeur, à la demande du propriétaire : « si tout est concluant on garde »)
+
+| Remplacement | Réglage (.11) | Résultat |
+|---|---|---|
+| Superviseur C (jour/nuit + bouton) | `SUPERVISOR_IMPL=c` (boot.conf) | **OK** : `tc100-supervisord` (PSS 145 Ko) remplace `auto-night-daemon.sh` + `button-watch.sh` (209 + 145 Ko) ; `/var/run/tc100-sv.night` et `.button`. ⚠ `controlscripts/auto-night-detection` n'a **pas de `restart`** (seulement start/stop/status/health) : `restart` ne fait rien, il faut stop puis start. Bascule jour/nuit à confirmer cette nuit ; bouton : test physique (propriétaire). |
+| Découverte HA en C | `MQTT_DISCOVERY_IMPL=c` (mqtt.conf) | **OK** : 49 configs publiées par le démon en 11 s après un restart, **identiques octet pour octet** aux configs du script ; le script ne tourne plus qu'en `startup nodiscovery`. |
+| Micro lu par `tc100_rtsp` | `RTSP_ALSA_DIRECT=1` (rtsp.env) | **OK** : log `audio: microphone read directly (/dev/snd/pcmC0D0c, no arecord)`, plus d'`arecord` (PSS 662 Ko), `tc100_rtsp` PSS 2 649 → 2 514 Ko ; G.711 8 kHz sur les deux flux, son réel (ffmpeg volumedetect -35,7 dB moyen), niveau sonore à jour. |
+| ONVIF libre | `ONVIF_IMPL=c` (onvif.conf) + service onvif démarré | **PLANTAIT** : `tc100-onvifd` SIGSEGV au démarrage, même avec `-h`. Cause : `fprintf(stderr, …)` alors que la libc factice du Makefile déclare chaque import comme une fonction → `stderr` lu dans la PLT (si_addr = un mot d'instruction). Reproduit sous `qemu-arm` avec la uClibc de la caméra. **Corrigé : `ee969e9`** (onvifd et supervisord : `dprintf`/`write`, plus aucune variable libc ; test `NoLibcDataImports`). Binaire corrigé superposé en RAM sur la .11 : **OK** — WS-Discovery (XAddrs :8081), `GetDeviceInformation` avec WS-Security (Anyka / TC100 / 3.0.1-rc27), refus sans authentification, `GetProfiles` 1920x1080 + 640x360, `GetStreamUri` video0/video1, `GetSnapshotUri` currentpic.cgi ; PSS 213 Ko. |
+| WebRTC (WHEP) | `WHEP=1` + service whep | **Vidéo absente** : négociation 201, ICE completed, DTLS-SRTP, audio reçu (458 paquets / 12 s), **0 image** (179 paquets vidéo). Cause : `on_video()` jetait tout paquet > 1400 octets ; `tc100_rtsp` envoie 1412 (12 + `RTP_PAYLOAD`) → aucune IDR. **Corrigé : `d8ff063`** (limite = tampon − étiquette SRTP), test d'interop rendu réaliste (paquets découpés comme `tc100_rtsp`) : l'ancien code **échoue**, le nouveau passe (aiortc + mbedTLS en local). Build de l'image de base lancé (`tc100-whep` est un paquet Buildroot). En attendant : **`WHEP=0` sur la .11** (sinon la page aurait affiché un direct noir avec le son). |
+
+État de la .11 ce soir : rc27 + `SUPERVISOR_IMPL=c`, `MQTT_BRIDGE_IMPL=c`, `MQTT_DISCOVERY_IMPL=c`, `RTSP_ALSA_DIRECT=1`, `RTSP_QMAX=1024`, `ONVIF_IMPL=c` (service onvif démarré), `WHEP=0`. **Binaires corrigés `tc100-onvifd` et `tc100-supervisord` superposés en RAM : au prochain redémarrage, la flash rc27 reprend l'onvifd qui plante** (ONVIF absent) → il faut une **rc28** avec `ee969e9` + `d8ff063` (+ revert du pacing par défaut). MemAvailable 22,6 Mo.
+
+## 2026-11-05 21:35 — WHEP corrigé sur la .11 : la vidéo passe (testeur)
+
+- Build manuel `build-base-rootfs` (run 42089030516, commit `d8ff063`) vert en 11 min ; `usr/bin/tc100-whep` extrait de `rootfs.cpio.gz` (md5 `6bc8d79d…`, différent de la rc27 `5e00fb69…`), superposé en RAM sur `/mnt/ext/bin/tc100-whep` de la .11, `WHEP=1`, service redémarré.
+- **aiortc (navigateur simulé) : 354-360 images 640x360 en 20 s, première image à 1,5 s, ~930 trames audio, 0 perte vidéo.** ICE completed, DTLS-SRTP up. Log : `viewer … gone (212 video, 544 audio packets)` à la fermeture.
+- `tc100-whep` : ~9 % CPU pendant une session, PSS ~620 Ko au repos.
+- **Coût du sous-flux (pas propre au WebRTC)** : dès qu'un client lit le sous-flux (WHEP ou simple RTSP `video1_unicast`), l'encodeur matériel encode les deux flux et la capture tombe de 24-25 à **~21-22 img/s** (RTSP : `cap` 106-112 / 5 s ; WHEP : 78-102), `enc_ms` ≈ 4 s sur 5 s, CPU encore 64 % libre (pas le processeur : l'encodeur). Avec `arecord` au lieu de `RTSP_ALSA_DIRECT=1`, c'est pire (`cap` 66-75) : le micro direct est meilleur. À noter dans la doc (WHEP, multiview en vidéo fluide, Frigate sur le sous-flux).
+- La .11 garde `WHEP=1` (le démon ne travaille que pendant une session). Binaire corrigé en RAM seulement → **rc28** (R1).
+- Reste à faire (P7) : le direct WebRTC dans le navigateur du propriétaire.

@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc27] - 2026-11-05
+
+Everything below, from the [Unreleased] entries of 2026-11-05 (56 commits after the rc26 package `342b523`): free ONVIF
+daemon, WebRTC live view, C supervisor and C discovery (all off by default), audit fixes (LAN-only web and RTSP,
+bounded httpfront, idle RTSP clients, web update retries without reboot, wizard CSRF), clean SD card at every restart,
+`RTSP_PACING_US=100` by default, serial console off after 5 min, and the items 26-56 of the implementer list.
+
 ### Added
 - **Status line answered by httpfront itself** (item 55, `HTTPFRONT_NATIVE=1`, off by default): the JSON every page
   polls, without starting httpd and a shell (7 ms instead of 93 ms under qemu); anything it cannot answer exactly

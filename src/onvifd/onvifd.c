@@ -1418,7 +1418,7 @@ static int handle_soap(int svc, const char *b, int n)
 
 	if (!body_action(b, n, act, sizeof act, &rest)) return fault(1, "ter:InvalidArgs", NULL, "Not a SOAP request");
 	if (!pre_auth(act) && !check_auth(b, n)) {
-		fprintf(stderr, "tc100-onvifd: %s refused (not authorized)\n", act);
+		dprintf(2, "tc100-onvifd: %s refused (not authorized)\n", act);
 		return fault(1, "ter:NotAuthorized", NULL, "Sender not authorized");
 	}
 	env_begin();
@@ -1817,7 +1817,7 @@ int main(int argc, char **argv)
 	a.sin_family = AF_INET;
 	a.sin_port = htons((uint16_t)G.port);
 	if (bind(g_lfd, (struct sockaddr *)&a, sizeof a) || listen(g_lfd, 8)) {
-		fprintf(stderr, "tc100-onvifd: cannot listen on port %d\n", G.port);
+		dprintf(2, "tc100-onvifd: cannot listen on port %d\n", G.port);
 		return 1;
 	}
 	fcntl(g_lfd, F_SETFL, fcntl(g_lfd, F_GETFL) | O_NONBLOCK);
@@ -1829,12 +1829,12 @@ int main(int argc, char **argv)
 		a.sin_family = AF_INET;
 		a.sin_port = htons((uint16_t)g_dport);
 		if (bind(g_ufd, (struct sockaddr *)&a, sizeof a)) {
-			fprintf(stderr, "tc100-onvifd: no WS-Discovery (cannot bind UDP %d)\n", g_dport);
+			dprintf(2, "tc100-onvifd: no WS-Discovery (cannot bind UDP %d)\n", g_dport);
 			close(g_ufd);
 			g_ufd = -1;
 		}
 	}
-	fprintf(stderr, "tc100-onvifd: ONVIF on port %d, %d stream(s), %s\n", G.port, G.nst, G.pass[0] ? "authentication on" : "no password set: open");
+	dprintf(2, "tc100-onvifd: ONVIF on port %d, %d stream(s), %s\n", G.port, G.nst, G.pass[0] ? "authentication on" : "no password set: open");
 
 	while (!g_term) {
 		fd_set rf;

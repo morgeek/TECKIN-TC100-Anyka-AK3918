@@ -30,6 +30,98 @@ pont MQTT en C par défaut dans `mqtt.conf.dist` (`d41ac72`, `[mqtt-c-default]`)
 (`1a3a2eb`, `[pacing]`) ; `dosfsck -a` avant de remonter la carte (`96336d1`, `[sd-fsck]` : **sans effet aujourd'hui**,
 voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 
+## À FAIRE EN PREMIER — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
+
+Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires
+corrigés **superposés en RAM** (perdus au prochain redémarrage) : la rc28 est urgente.
+
+R1. [ ] **Publier la rc28** avec, au minimum : `ee969e9` (onvifd/supervisord sans variable libc), `d8ff063` (whep :
+    paquets RTP de 1412 octets), le point R2, et un `tc100-whep` reconstruit (image de base, `build-base-rootfs` lancé à
+    la main le 2026-11-05 ~20:35 : vérifier qu'il est vert et que le build de la rc28 prend bien cette image).
+R2. [ ] **Annuler `RTSP_PACING_US=100` par défaut** (`1a3a2eb`, `v3/linux66-sd/rtsp-launch.sh`) : noyau `CONFIG_HZ=100`
+    sans minuterie haute résolution (`/proc/timer_list` : résolution 10 ms) → `usleep(100)` dort ≥ 10 ms ; le pacing
+    ne touche que les clients **UDP** et dort dans la boucle principale (un seul fil) après chaque paquet : un client
+    UDP plafonne vers 100 paquets/s (< 1,6 Mbit/s) et retarde la capture pour tous. Un vrai lissage demanderait
+    `CONFIG_HIGH_RES_TIMERS=y` ou un envoi par lots sans `usleep`, mesuré sur caméra.
+R3. [ ] **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `ee969e9`) : la libc factice de ces Makefiles
+    déclare tout import comme une fonction, donc **aucune variable libc** (`stderr`, `stdout`, `optarg`, `environ`,
+    `timezone`…) dans `src/tc100rtsp`, `src/mqttd`, `src/onvifd`, `src/supervisord` : le test
+    `tests/test_audit_fixes.NoLibcDataImports` le vérifie désormais. Contrôle à ajouter en CI : `readelf --dyn-syms` des
+    binaires ARM contre une liste des symboles OBJECT de la uClibc (aucun import de donnée).
+R4. [~] **WHEP sans vidéo** (corrigé par le testeur, `d8ff063` ; image de base reconstruite (run 42089030516) et binaire validé sur la .11 le 2026-11-05 21:30 : 18 img/s reçues par aiortc, voir test-queue) : `on_video()` jetait tout paquet > 1400 ; le test
+    d'interop découpe maintenant comme `tc100_rtsp` (échoue avec l'ancien code). Sur caméra : retester avec la rc28
+    (aiortc : images reçues, page web : direct WebRTC, retour MP4 si échec). Point d'UI à vérifier : si le WebRTC
+    s'établit mais **sans image**, la page doit aussi retomber sur le MP4 (sinon direct noir avec le son).
+R5. [ ] **`controlscripts/auto-night-detection` n'a pas de `restart`** (seulement start/stop/status/health) : un
+    `restart` (Services, passage `SUPERVISOR_IMPL`) ne fait rien. Ajouter `restart` (stop puis start), vérifier les
+    autres scripts de service.
+R6. [ ] **`controlscripts/onvif` plafonne les fps annoncés à 15** (`FPS0=15` « unless the file says less ») alors que
+    les flux tournent à 25 : même défaut que `frigateyaml` corrigé en `9cf38e1`. Annoncer la valeur réelle.
+R7. [ ] **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
+    11-17 img/s pendant l'import ; voir où partent les secondes (nouveaux validateurs ?).
+R8. [ ] **Garder sur la .11 et en faire les défauts si la nuit est bonne** (propriétaire : « si tout est concluant on
+    garde ») : `SUPERVISOR_IMPL=c`, `MQTT_DISCOVERY_IMPL=c`, `RTSP_ALSA_DIRECT=1` (validés le 2026-11-05 : découverte
+    identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
+    après R4. Bilan de nuit du testeur le 2026-11-06 au matin.
+
+## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
+
+Validé par le propriétaire. À exécuter sur la rc28 (après R1-R4), sur la .11 puis la .24 passée elle aussi en rc28.
+T = testeur seul, à distance ; P = demande le propriétaire (action physique ou appareil à lui). Pour chaque point :
+l'implémenteur vérifie que la fonction est prête (interrupteur, doc, critère), le testeur mesure et consigne dans
+`test-queue.md`, la case est cochée ici.
+
+**Stabilité et charge (T)**
+T1. [ ] Endurance **7 jours** sur les deux caméras, toutes les nouvelles implémentations actives : pas de redémarrage
+    non voulu, MemAvailable stable (PSS par processus au début et à la fin), CMA, écritures flash via `cfg-persist`
+    (nombre par jour), pertes Wi-Fi, images sautées.
+T2. [ ] Charge : 2, 3 puis 4 clients RTSP en même temps (chute de fps connue), multiview ouvert dans plusieurs
+    navigateurs, Frigate + ONVIF + WebRTC simultanés sur un seul cœur (fps de capture, charge, latence du direct).
+T3. [ ] `.24` en rc28 avec les mêmes réglages que la .11 (seules l'IP et l'identité matérielle diffèrent).
+
+**Mises à jour et reprise (T)**
+T4. [ ] Mise à jour web qui échoue (fichier corrompu, écriture flash refusée) : réessais sans redémarrage (B1/B3),
+    caméra intacte et joignable.
+T5. [ ] Mode sans échec : 3 démarrages ratés → boot-guard, interface accessible avec mot de passe, retour normal.
+T6. [ ] Retour à la configuration précédente (cfga/cfgb) après une config cassée.
+
+**Sécurité (T)**
+T7. [ ] Limite d'essais de mot de passe du web (`WEB_LOCKOUT`) : blocage, déblocage, sans gêner Frigate/HA.
+T8. [ ] `httpfront` face à une avalanche de connexions muettes (R2 de l'audit) : la caméra reste joignable.
+T9. [ ] Expiration des clients RTSP inactifs (`9e2089e`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
+    un client muet après SETUP l'est.
+
+**Fonctions rc27 jamais activées (T, une à la fois, avec retour arrière noté)**
+T10. [ ] Flux principal **720p** (patch noyau 0016) : image, fps, débit, Frigate.
+T11. [ ] **Mode smart** de l'encodeur avec le noyau `venc_pool` 12M (#9) : critères de #9.
+T12. [ ] `RTSP_ABR=1` (débit adaptatif), `RTSP_MD_ENC=1` (mouvement par l'encodeur), `PRIVACY_SCREEN`,
+     `IDLE_WHEN` (fps réduits sans spectateur / la nuit), `TIME_HTTP_FALLBACK` (NTP bloqué), `POWER_HZ=auto`,
+     `RTSP_AUDIO_HPF/AGC/DUCK`, `MIN_SWITCH` jour/nuit, `BOOT_SOUND`, `WIFI_AIM`, `NET_GUARD_SOFT`.
+T13. [ ] Événements de mouvement **ONVIF** (PullPoint) vus par Home Assistant (avec P5).
+
+**Matériel (P)**
+P1. [ ] Anti-masquage avec la main (correctif `25fecef` jamais retesté) : `tamper_active=1` après ≥ 6 s, retour à 0.
+P2. [ ] Bouton reset avec `tc100-supervisord` (appui court / long : actions attendues).
+P3. [ ] LED (avant, rouge, IR), IR coupé derrière une vitre (`IR_LED_MODE=off`), page `hardware.html` complète.
+P4. [ ] Haut-parleur : push-to-talk du navigateur, audio bidirectionnel depuis HA / Frigate / go2rtc (ONVIF backchannel).
+
+**Réseau (P)**
+P5. [ ] RTSP en **UDP** dans VLC (confirme R2 / pacing), intégration ONVIF de Home Assistant, un NVR tiers (Synology
+    Surveillance Station ou Blue Iris).
+P6. [ ] Point d'accès Wi-Fi de secours (bouton reset 3-7 s) et Wi-Fi par `wifi.txt` sur la carte.
+P7. [ ] Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
+
+**Carte SD, sur la .24 (P pour poser / retirer la carte, T pour le reste)**
+P8. [ ] Enregistrement, frise (`view_records.html`), pré-enregistrement, `REC_KEEP_EVENTS`, réparation automatique
+    (`SD_AUTO_REPAIR`), plus de « not properly unmounted » après un redémarrage voulu, sons personnalisés,
+    sauvegarde / restauration complète, retrait de la carte à chaud.
+
+**Notifications (P : compte ntfy / Telegram du propriétaire)**
+P9. [ ] ntfy ou webhook, Telegram, image envoyée sur alerte (`NOTIFY_BURST`), `MQTT_SNAPSHOT_ON_EVENT`.
+
+**Risqué (P, en dernier, sur une caméra récupérable par la carte SD)**
+P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre sur l'ancienne version ou se récupère.
+
 ## P0 — rc26, avant le tag 3.0.1
 
 1. [x] **Publier une rc26** avec ce qui est sur `main` depuis la rc25, en particulier `04f2313` + `9853759` : arrêt du
@@ -426,6 +518,15 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     - **Chasse au code mort (Deadcode hunt)** :
       - Détecter et supprimer les fonctions JS orphelines, variables shell non référencées, fichiers temporaires ou dépendances résiduelles non appelées.
       - Consolider la suite de tests automatisés (`tests/test_*.py`) pour sanctuariser ce câblage avant le tag 3.0.1 final.
+
+58. [ ] **Nettoyage et élimination définitive des anciens composants remplacés (Consigne propriétaire 2026-11-05 soir, dès confirmation)** :
+    - **Principe impératif du propriétaire** : une fois les nouveaux composants C validés sur caméra (rc28), supprimer systématiquement et définitivement les anciens fichiers et binaires obsolètes pour récupérer un maximum de place dans la Flash SPI (ne pas laisser cohabiter les deux implémentations indéfiniment).
+    - **Cibles de suppression identifiées** :
+      1. **Suppression de `bin/monvifd`** : Ancien binaire opaque 2.x de 228 Ko (remplacé par `tc100-onvifd`). Gain net : **~75 à 85 Ko de Flash SquashFS**.
+      2. **Suppression des scripts de supervision shell** : `scripts/auto-night-daemon.sh` et `scripts/button-watch.sh` (remplacés par `tc100-supervisord`).
+      3. **Suppression ou dégraissage massif de `scripts/mqtt-bridge.sh`** : 121 Ko / 2 981 lignes de shell (remplacé par la découverte C `tc100-mqttd`). Gain net : **~35 à 45 Ko de Flash**.
+      4. **Élimination de la dépendance à `arecord` dans la stack** : Une fois `RTSP_ALSA_DIRECT=1` figé par défaut, évaluer le retrait d'`arecord` de `ext/bin/` dans `build-stack.sh`.
+      5. **Nettoyage des résidus 2.x (`bin/rwconf`, `bin/getflag`, `bin/getimage`)** : Remplacement ou suppression définitive.
 
 ## Prochaine RC (propriétaire, 2026-11-05 soir)
 
