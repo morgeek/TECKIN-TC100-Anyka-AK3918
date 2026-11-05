@@ -28,13 +28,7 @@ monitor_motion_detection()
         fi
         case "$NEW_MOTION_FLAG" in
             0|1) ;;
-            *)
-                NEW_MOTION_FLAG="$(/mnt/bin/getflag /tmp/rec_control 2>/dev/null)"
-                case "$NEW_MOTION_FLAG" in
-                    0|1) ;;
-                    *) NEW_MOTION_FLAG=$LAST_MOTION_FLAG ;;
-                esac
-                ;;
+            *) NEW_MOTION_FLAG=$LAST_MOTION_FLAG ;;	# tc100_rtsp writes 0 or 1 into the file; nothing else to ask
         esac
 
         if [ $NEW_MOTION_FLAG -ne $LAST_MOTION_FLAG ]; then

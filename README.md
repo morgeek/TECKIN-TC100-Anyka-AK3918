@@ -482,7 +482,7 @@ scripts/            Daemons and tools (wifi-txt.sh, wifi-rescue.sh, mqtt-bridge.
   action.d/         The web commands of www/cgi-bin/action.cgi, one file per group
 controlscripts/     Services, started and stopped from the web page
 config/             Templates (*.dist) and the services started at boot (config/autostart/)
-bin/ lib/           Small free ARM programs of the original hack (busybox, rwconf, monvifd…), libnetacl
+bin/ lib/           Small ARM programs of the original hack (busybox, monvifd…), libnetacl; rwconf is built from src/rwconf
 sounds/             Audio clips
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
 docs/               API, known issues, screenshots; docs/linux-port: the Linux 6.6 port, install, status

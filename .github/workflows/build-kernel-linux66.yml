@@ -21,6 +21,7 @@ on:
       - 'src/onvifd/**'
       - 'src/mdnsd/**'
       - 'src/ispflip/**'
+      - 'src/rwconf/**'
       - 'src/whep/**'
       - 'bin/**'
       - 'lib/**'
@@ -180,6 +181,10 @@ jobs:
           arm-linux-gnueabi-gcc -Os -Wall -static -march=armv5te -mfloat-abi=soft -o output/envtool v3/install/envtool.c
           # isp_flip ships from its source, not the copy kept in bin/ (audit D3); freestanding like httpfront
           arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o bin/isp_flip
+          # rwconf (item 53) ships from its source too: free C code, uClibc stand-in libc like tc100-mqttd
+          make -C src/rwconf CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/rwconf/rwconf bin/rwconf
+          sh tests/check-libc-data-imports.sh src/rwconf
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
           sh v3/build-release.sh output/stack output/oipc.img output/tc100test/oipcrd66.gz output/envtool output/release

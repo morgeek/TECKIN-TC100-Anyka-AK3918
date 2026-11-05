@@ -1536,16 +1536,7 @@ build_health_payload()
   fi
   case "$motion_active" in
     0|1) ;;
-    *)
-      if [ -x /mnt/bin/getflag ] && [ -f /tmp/rec_control ]; then
-        motion_active="$(/mnt/bin/getflag /tmp/rec_control 2>/dev/null)"
-        case "$motion_active" in
-          ''|*[!0-9]*) motion_active=0 ;;
-        esac
-      else
-        motion_active=0
-      fi
-      ;;
+    *) motion_active=0 ;;	# tc100_rtsp writes 0 or 1 into the file (the 2.x shared memory is gone)
   esac
   case "$motion_active" in
     1) motion_state_payload="ON" ;;
