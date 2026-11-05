@@ -619,6 +619,14 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       4. **Élimination de la dépendance à `arecord` dans la stack** : Une fois `RTSP_ALSA_DIRECT=1` figé par défaut, évaluer le retrait d'`arecord` de `ext/bin/` dans `build-stack.sh`.
       5. **Nettoyage des résidus 2.x (`bin/rwconf`, `bin/getflag`, `bin/getimage`)** : Remplacement ou suppression définitive.
 
+59. [ ] **Cure d'amaigrissement du noyau Linux 6.6 (`defconfig_cma`) — gain 90 à 120 Ko sur le uImage (Consigne propriétaire 2026-11-05 fin de soirée)** :
+    - **Contexte** : le noyau Linux 6.6 (`uImage` compressé en XZ) pèse actuellement ~1,89 Mio pour une partition Flash stricte de 2,0 Mio (`0x39000`), ce qui laisse une marge très étroite.
+    - **Objectif** : réduire l'empreinte du noyau à ~1,78 Mio sans supprimer aucune fonctionnalité matérielle utile de la TECKIN TC100 :
+      1. **Pilotes et stubs Wi-Fi / Ethernet tiers superflus (gain ~40-50 Ko)** : la caméra ne possède physiquement qu'un unique adaptateur Realtek RTL8188FU (`CONFIG_RTL8XXXU=y`). Désactiver les catégories et stubs de fondeurs absents (`CONFIG_WLAN_VENDOR_ATH=n`, `CONFIG_WLAN_VENDOR_BROADCOM=n`, `CONFIG_WLAN_VENDOR_INTEL=n`, `CONFIG_WLAN_VENDOR_MARVELL=n`, `CONFIG_WLAN_VENDOR_MEDIATEK=n`, `CONFIG_WLAN_VENDOR_RALINK=n`, `CONFIG_WLAN_VENDOR_ZYDAS=n`, `CONFIG_NET_VENDOR_BROADCOM=n`, `CONFIG_NET_VENDOR_INTEL=n`).
+      2. **Options de débogage et tables de trace (gain ~35-50 Ko)** : retirer `CONFIG_SLUB_DEBUG=n` (validation lourde de mémoire inutile en prod), `CONFIG_MAGIC_SYSRQ=n` (pas de clavier physique, port série coupé après 5 min), `CONFIG_PRINTK_TIME=n` et les statistiques verbeuses ALSA procfs (`CONFIG_SND_VERBOSE_PROCFS=n`).
+      3. **Sous-système audio OSS legacy (gain ~15-20 Ko)** : retirer la couche rétro-compatible obsolète des années 90 `CONFIG_SND_SUPPORT_OLD_API=n`.
+    - **Vérification** : recompiler le noyau, vérifier la taille de `oipc.img` (< 1,80 Mio) et valider le boot sur caméra (.11).
+
 ## Prochaine RC (propriétaire, 2026-11-05 soir)
 
 Tout faire sauf #50, qualifier, puis lancer une nouvelle RC. Décisions : B1 + B3 et W4 dans la RC ; #35 en entier
