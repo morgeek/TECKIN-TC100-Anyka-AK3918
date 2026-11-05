@@ -770,27 +770,29 @@ static int st_json(const char *root)
 	return !st_bail;
 }
 
-/* the whole response in so (header right before the body): returns its start, *len its length; 0 = fall through */
-static const char *status_response(const char *root, int *len)
+/* the response in so: header h1 (ending in "Content-Length: ") right before the body; returns its start, *len its length */
+static const char *wrap_response(const char *h1, int *len)
 {
-	static const char h1[] = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nPragma: no-cache\r\n"
-		"Cache-Control: max-age=0, no-store, no-cache\r\nConnection: close\r\nContent-Length: ";
-	char hd[SO0];
-	int hl = 0, body, d;
-	u64 x;
-	char dg[12];
+	char hd[SO0], dg[12];
+	int hl = 0, body = sl - SO0, d = 12;
+	u64 x = (u64)body;
 
-	if (!st_json(root)) return 0;
-	body = sl - SO0;
 	cat(hd, &hl, SO0 - 16, h1);
-	x = (u64)body;
-	d = 12;
 	do { u64 q = udiv(x, 10); dg[--d] = (char)('0' + (int)urem); x = q; } while (x);
 	while (d < 12) hd[hl++] = dg[d++];
 	hd[hl++] = '\r'; hd[hl++] = '\n'; hd[hl++] = '\r'; hd[hl++] = '\n';
 	for (int i = 0; i < hl; i++) so[SO0 - hl + i] = hd[i];
 	*len = hl + body;
 	return so + SO0 - hl;
+}
+
+/* the whole status response: 0 = fall through */
+static const char *status_response(const char *root, int *len)
+{
+	static const char h1[] = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nPragma: no-cache\r\n"
+		"Cache-Control: max-age=0, no-store, no-cache\r\nConnection: close\r\nContent-Length: ";
+
+	return st_json(root) ? wrap_response(h1, len) : 0;
 }
 
 #pragma GCC pop_options

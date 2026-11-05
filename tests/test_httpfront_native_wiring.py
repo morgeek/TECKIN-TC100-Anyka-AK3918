@@ -45,6 +45,15 @@ class Wiring(unittest.TestCase):
     def test_the_cgi_stays_the_fallback(self):
         self.assertIn('statusline_json', text('www/cgi-bin/statusline.cgi'))
 
+    def test_second_route_dash(self):
+        """dash.cgi (the dashboard poll) is answered natively under the same switch and stays the fallback"""
+        src = text('src/httpfront/httpfront.c')
+        self.assertIn('#include "dash.h"', src)
+        self.assertIn('pfx(b, "GET /cgi-bin/dash.cgi") ? 2', src)
+        self.assertIn('dash_response(st_root, &len)', src)
+        self.assertIn('printf', text('www/cgi-bin/dash.cgi'))
+        self.assertIn('cgi-bin/dash.cgi', text('src/webui/index/47-dashboard.js'))
+
 
 if __name__ == '__main__':
     unittest.main()

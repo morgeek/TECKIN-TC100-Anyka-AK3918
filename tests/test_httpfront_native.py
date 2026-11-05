@@ -203,7 +203,7 @@ class Native(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def start(self, root, native='1', allow=None, **extra):
-        Native.port += 1
+        type(self).port += 1
         env = {'TC100_HTTPD_CONF': self.conf, 'TC100_LOCK_DIR': self.lock, 'TC100_HTTPD_BIN': self.httpd}
         if root:
             env['TC100_STATUS_ROOT'] = str(root)
