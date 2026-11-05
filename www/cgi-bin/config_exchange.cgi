@@ -151,9 +151,7 @@ _ce_row_table() {
     row("rtspserver.conf";"ini";"root";"imageflip";"flip";"network";.video.flip),
     row("rtspserver.conf";"ini";"root";"RTSPLOGENABLED";"bool";"general";.video.rtsp_log),
     row("boot.conf";"flat";"root";"RTSP_SUBSTREAM";"bool";"general";.video.substream),
-    row("boot.conf";"flat";"root";"RTSP_AUDIO";"bool";"general";.audio.rtsp_audio),
     row("boot.conf";"flat";"root";"ONVIF_STREAM_POLICY";"onvif_policy";"general";.video.onvif_policy),
-    row("boot.conf";"flat";"root";"RTSP_LITE_TALK";"bool";"general";.audio.two_way),
     row("boot.conf";"flat";"root";"IDLE_FPS";"u:0:24";"general";.video.idle_fps),
     row("boot.conf";"flat";"root";"IDLE_AFTER";"u:1:3600";"general";.video.idle_after),
     row("boot.conf";"flat";"root";"IDLE_WHEN";"idle_when";"general";.video.idle_when),
@@ -162,6 +160,8 @@ _ce_row_table() {
     row("rtspserver.conf";"ini";"root";"volume";"volume";"general";.audio.volume),
     row("rtspserver.conf";"ini";"2";"codec";"codec";"general";.audio.codec_main),
     row("rtspserver.conf";"ini";"3";"codec";"codec";"general";.audio.codec_sub),
+    row("boot.conf";"flat";"root";"RTSP_AUDIO";"bool";"general";.audio.rtsp_audio),
+    row("boot.conf";"flat";"root";"RTSP_LITE_TALK";"bool";"general";.audio.two_way),
 
     row("rtspserver.conf";"ini";"root";"osdenabled";"bool";"general";.osd.enabled),
     row("rtspserver.conf";"ini";"root";"osdtext";"osd_text";"general";.osd.text),
