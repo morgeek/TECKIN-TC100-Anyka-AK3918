@@ -30,6 +30,97 @@ pont MQTT en C par défaut dans `mqtt.conf.dist` (`d41ac72`, `[mqtt-c-default]`)
 (`1a3a2eb`, `[pacing]`) ; `dosfsck -a` avant de remonter la carte (`96336d1`, `[sd-fsck]` : **sans effet aujourd'hui**,
 voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 
+## POINT DE SITUATION — 2026-11-05 au soir (implémenteur, pour le propriétaire et le testeur)
+
+Tout ce qui a été dit au propriétaire ce soir, consigné ici. Les détails de chaque changement (quoi, interrupteur, test,
+critères) sont dans `test-queue.md` sous l'étiquette indiquée.
+
+### Décisions du propriétaire (2026-11-05)
+- W3 clos : on garde le bandeau rouge « identifiants par défaut » et la limite d'essais `WEB_LOCKOUT` ; pas de mot de
+  passe aléatoire, pas d'assistant obligatoire.
+- #50 (Pico / Shoelace) : **d'abord** des références précises de l'UI actuelle par l'autre agent (`[ui-baseline]`),
+  #50 ensuite seulement.
+- B1 + B3 et W4 dans la RC ; #35 (WebRTC) en entier ; #52 / #55 (démon C) dans la RC.
+- « Il faut tout faire » et « active tous les items codés que nous incluront dans la prochaine RC » : tout le code
+  restant écrit, et toutes les nouveautés activées par défaut (`[rc28-defaults]`).
+- Règle de sortie : tout faire sauf #50, qualifier, puis lancer la RC.
+
+### Fait le 2026-11-05 (code, CI locale et GitHub)
+| Sujet | Étiquette |
+|---|---|
+| Place en flash : filtre xz ARM, tonalités de test et CSS sources hors de l'image (−65 Ko mesurés) | `[flash-space]` |
+| Frise des enregistrements (canvas, événements, clic → seconde) | `[rec-timeline]` |
+| Sons personnalisés (conversion dans le navigateur, carte SD) | `[sounds]` |
+| Prévision mémoire dans Réglages | `[mem-budget]` |
+| Audit : points dépôt D1-D9 | `[audit-d]` |
+| Infobulles (71 réglages) et textes à jour | `[ui-text]` |
+| Page Services en cartes | `[services-ui]` |
+| Mise à jour web : 3 essais, plus de redémarrage après un échec, MD5SUMS vérifié (B1, B3) | `[b1-update]` |
+| Assistant : jeton CSRF obligatoire (W4) | `[w4-wizard]` |
+| Console série 5 min, réglages `vm` (#56) | `[opt-56]` |
+| Démon C unique : jour/nuit, bouton, détection de son (#52) | `[supervisord]`, `[supervisord-2]` |
+| Découverte Home Assistant en C (#55) | `[mqtt-disco]` |
+| WebRTC / WHEP complet (#35) | `[whep-srtp]`, `[whep]` |
+| `statusline` et `dash.cgi` répondus par httpfront (#55) | `[httpfront-native]`, `[httpfront-native-2]` |
+| Audit câblage front/back, code mort (#57) | `[wiring-57]` |
+| Corrections rc27 : pacing retiré, `restart` dans 15 scripts, WebRTC sans image, fps ONVIF, import plus rapide, contrôle des variables libc (R2-R7) | `[rc28-fixes]` |
+| `rwconf` libre compilé en CI, `getflag` / `getimage` retirés (#53) | `[rwconf-53]` |
+| `tc100-logfwd` et `libnetacl` compilés en CI (#51) | `[ci-uclibc]` |
+| Son AAC dans les enregistrements (#11) | `[rec-aac]` |
+| Toutes les nouveautés activées par défaut + migration unique des caméras installées | `[rc28-defaults]` |
+
+### Activé par défaut pour la rc28 (`[rc28-defaults]`, chaque fonction garde son interrupteur)
+- `boot.conf` : `SUPERVISOR_IMPL=c`, `WHEP=1`, `HTTPFRONT_NATIVE=1`, `NET_GUARD_SOFT=1`, `WEB_LOCKOUT=1`,
+  `MDNS_SERVICES=1`, `MDNS_INFO=1`, `REC_KEEP_EVENTS=1`, `SD_AUTO_REPAIR=1`, `WIFI_QUALITY=1`, `WIFI_ROAM=1` ;
+  `mqtt.conf` : `MQTT_BRIDGE_IMPL=c`, `MQTT_DISCOVERY_IMPL=c` ; `onvif.conf` : `ONVIF_IMPL=c`.
+- `tc100_rtsp` (défauts de `rtsp-launch.sh`, `rtsp.env` peut dire 0) : `RTSP_ALSA_DIRECT`, `RTSP_AUDIO_HPF`,
+  `RTSP_AUDIO_AGC`, `RTSP_AUDIO_DUCK`, `RTSP_ABR`, `RTSP_MD_ENC`, `RTSP_REC_AAC`.
+- Caméras déjà installées : `scripts/migrate-rc28-defaults.sh`, une fois (clé absente ou encore à l'ancien défaut →
+  nouvelle valeur ; un choix fait par quelqu'un reste ; marqueur `config/.migrated-rc28-defaults`).
+- **Laissés désactivés (préférences, pas des remplacements)** : `PRIVACY_SCREEN` (image noire), `BOOT_STEALTH`,
+  `WIFI_AIM`, `IDLE_FPS`, `ISP_TUNE`, `NOTIFY_BURST` (images envoyées hors de la maison), détections anti-masquage et
+  alarme, `MEM_GUARD_ENABLE` ; le mode smart attend le noyau de #9 (sans lui il ne fait rien).
+
+### Risques connus, à surveiller en premier sur la rc28
+- `RTSP_ABR=1` appelle `ak_venc_set_br` du fabricant, signature jamais vérifiée : flux figé ou plantage de
+  `tc100_rtsp` → `RTSP_ABR=0` dans `rtsp.env`.
+- Son AAC (`RTSP_REC_AAC=1`) et traitement audio : jamais écoutés sur une vraie voix ; coût CPU de l'AAC estimé sous
+  qemu (~2 %), pas mesuré.
+- `libnetacl` / `tc100-logfwd` : testés sous qemu avec une glibc présentée sous les noms uClibc, pas contre la vraie
+  uClibc (telnet / FTP / syslog distant à vérifier).
+- `RTSP_MD_ENC=1` voit peu en CBR (il s'ajoute à la grille de luminance).
+- CI locale : le test de parité `sd_used_kb` de `test_httpfront_native` échoue parfois quand d'autres conteneurs Docker
+  écrivent en même temps (dérive du disque entre deux lectures) ; il passe seul. À rendre robuste.
+
+### Gains annoncés et gains mesurés (honnêteté des chiffres)
+- Minification de `fr.js` : 0,36 Ko de xz, pas 15-25 Ko → non retenue.
+- Découverte HA en C : pas de gain de flash (+16 Ko de binaire ; ≈ 5 Ko compressés quand le code shell sera retiré) ;
+  le vrai gain est ~120 sous-shells de moins par connexion.
+- Démon C : 0,3 à 0,5 Mo de PSS estimés pour jour/nuit + bouton (mesuré sur la .11 : 145 Ko contre 354 Ko pour les deux
+  boucles), + 140 à 190 Ko avec la détection de son ; pas 1 à 1,5 Mo (housekeeper et cfg-persist restent en shell).
+- httpfront natif : +6,5 Ko compressés (statusline) et +1,8 Ko (dash) ; gain de flash seulement quand les CGI seront
+  retirés ; réponse ~13x plus rapide sous qemu.
+- `rwconf` libre : 4,9 Ko au lieu de 31 Ko.
+
+### Leçons de CI du jour (ce qui a cassé et le garde-fou ajouté)
+- awk : `gsub` avec antislash diffère selon busybox / mawk / gawk → `jsonflat.awk` sans `gsub` pour les échappements ;
+  test avec tous les awk ; annotations GitHub pour lire les échecs sans accès aux journaux.
+- musl : `struct timeval` sans `<sys/time.h>` (glibc l'apporte, pas musl) → contrôle `tests/docker/whep-musl.sh`.
+- gcc 15 (runner Ubuntu 26.04) : boucle de multiplication transformée en appel libgcc en Thumb → `httpfront` cassé ;
+  corrigé, et la CI GitHub compile les programmes autonomes avec le compilateur du runner.
+- Variable libc via la libc de substitution (`stderr`) : `tc100-onvifd` plantait → `tests/check-libc-data-imports.sh`.
+
+### Ce qui reste
+- **Sur caméra (testeur / propriétaire)** : publier la rc28 (R1) puis le plan de test T1-T13 / P1-P10 ; `srtp-bench`,
+  latence WebRTC dans le navigateur, VLC en UDP, import JSON, PSS des démons C ; #9 (noyau smart), #10 (mémoire de la
+  .24), #37 (2D-NR à régler sur la caméra).
+- **#58** : retirer `monvifd`, les boucles shell remplacées, la partie découverte de `mqtt-bridge.sh`, `arecord` — sur
+  consigne « dès confirmation », donc après les essais de la rc28.
+- **#50** : après `[ui-baseline]`.
+- **Bloqués / à décider** : #14 garde thermique (aucun capteur de température exploitable ; à chercher dans le firmware
+  d'origine) ; #13 vrai lissage du débit (demanderait `CONFIG_HIGH_RES_TIMERS` dans le noyau) ; #21 transition
+  progressive de l'exposition au passage en nuit (à étudier sur caméra).
+
 ## À FAIRE EN PREMIER — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
 
 Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires
@@ -199,7 +290,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
 11. [ ] **Chantier audio natif ultra-léger (zéro surcoût / gain RAM & CPU)** :
     *2026-11-05 : capture ALSA directe (`RTSP_ALSA_DIRECT=1`, `src/tc100rtsp/acap.c`), passe-haut 150 Hz, noise gate +
     AGC + écrêtage doux, micro coupé pendant le haut-parleur (`RTSP_AUDIO_HPF/AGC/DUCK=1`, `adsp.c`) : faits, désactivés
-    par défaut jusqu'à l'essai (entrée `[audio-native]`). Reste l'encodeur AAC (optionnel, P2).*
+    par défaut jusqu'à l'essai (entrée `[audio-native]`). Encodeur AAC fait le 2026-11-05 soir (`[rec-aac]`, activé par défaut pour la rc28).*
     - **Capture ALSA directe dans `tc100_rtsp`** au lieu du sous-processus `arecord` : libère ~660 Ko PSS et supprime les pipes et changements de contexte noyau réguliers.
     - **Filtre passe-haut (High-Pass / Anti-Rumble)** : filtre biquad IIR léger à virgule fixe coupant à 150-200 Hz (suppression du ronflement 50 Hz d'alim et des bruits d'air sourds sans altérer la voix ; coût CPU < 0,2 % d'un cœur).
     - **Noise gate & AGC soft-clipping à virgule fixe** : atténue le souffle en pièce silencieuse et équilibre le volume des voix éloignées sans saturation.
@@ -468,7 +559,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - **Piste 1 : Pico CSS** (champion de la légèreté, ~10 Ko gzippé) : CSS sémantique pur stylisant directement les balises HTML sans surcharger le code de classes, Dark Mode natif automatique sans JS, divise par 2 à 3 le poids des pages et la bande passante requise.
       - **Piste 2 : Shoelace (Web Components natifs)** : composants riches standardisés (`<sl-switch>`, `<sl-tooltip>`, `<sl-progress-ring>`, `<sl-dialog>`) offrant un rendu haut de gamme de type "UniFi / Synology", sans framework JS lourd (exécuté nativement par le moteur du navigateur).
       - Objectif : interface d'administration ultra-rapide, moderne, épurée et réactive avec un budget de transfert minimal.
-51. [ ] *(2026-11-05 soir : W6 et M1 faits, entrées `[secrets-get]`, `[mqtt-m1]` ; D1, D3 (sauf `tc100-logfwd` / `libnetacl` : chaîne uClibc absente de la CI), D4, D5, D6, D7, D9 (sauf branches `/tmp/linux66` et archivage de `test-queue.md`) faits, entrée `[audit-d]` ; W3 : décision du propriétaire le 2026-11-05, on garde le bandeau rouge « identifiants par défaut » (`default_password_active`) et la limite d'essais `WEB_LOCKOUT`, pas de mot de passe aléatoire ni d'assistant obligatoire)* **Audit du 2026-11-04, points ouverts** (*2026-11-05 : B4, B5, B6, W2 (web et RTSP ; pas ssh), R1, R2, R3,
+51. [ ] *(2026-11-05 soir : W6 et M1 faits, entrées `[secrets-get]`, `[mqtt-m1]` ; D1, D3 (`tc100-logfwd` / `libnetacl` compilés par la CI depuis le 2026-11-05 soir, `[ci-uclibc]`), D4, D5, D6, D7, D9 (sauf branches `/tmp/linux66` et archivage de `test-queue.md`) faits, entrée `[audit-d]` ; W3 : décision du propriétaire le 2026-11-05, on garde le bandeau rouge « identifiants par défaut » (`default_password_active`) et la limite d'essais `WEB_LOCKOUT`, pas de mot de passe aléatoire ni d'assistant obligatoire)* **Audit du 2026-11-04, points ouverts** (*2026-11-05 : B4, B5, B6, W2 (web et RTSP ; pas ssh), R1, R2, R3,
     D2, D8 faits, voir `audit-2026-11-04.md` §7 ; restent W3, W6, M1, D1, D3-D7, D9*) : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par

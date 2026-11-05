@@ -15,6 +15,9 @@ bounded httpfront, idle RTSP clients, web update retries without reboot, wizard 
 `RTSP_PACING_US=100` by default, serial console off after 5 min, and the items 26-56 of the implementer list.
 
 ### Added
+- **AAC sound in the SD recordings** (item 11, on by default for the rc28, `RTSP_REC_AAC=0` keeps A-law): a fixed-point
+  AAC-LC encoder written for the project, so browsers play the recordings with sound; the RTSP stream stays G.711.
+- **`tc100-logfwd` and `libnetacl.so` built by the CI** from their source (item 51), without the Anyka toolchain.
 - **Status line answered by httpfront itself** (item 55, `HTTPFRONT_NATIVE=1`, off by default): the JSON every page
   polls, without starting httpd and a shell (7 ms instead of 93 ms under qemu); anything it cannot answer exactly
   goes to the CGI as before.

@@ -60,7 +60,7 @@ class Rc28Defaults(unittest.TestCase):
         r = (ROOT / 'v3/linux66-sd/rtsp-launch.sh').read_text(encoding='utf-8')
         i = r.index('RTSP_ALSA_DIRECT="${RTSP_ALSA_DIRECT:-1}"')
         self.assertLess(i, r.index('. /mnt/config/rtsp.env'))                    # rtsp.env can still say 0
-        for v in ('RTSP_AUDIO_HPF', 'RTSP_AUDIO_AGC', 'RTSP_AUDIO_DUCK', 'RTSP_ABR', 'RTSP_MD_ENC'):
+        for v in ('RTSP_AUDIO_HPF', 'RTSP_AUDIO_AGC', 'RTSP_AUDIO_DUCK', 'RTSP_ABR', 'RTSP_MD_ENC', 'RTSP_REC_AAC'):
             self.assertIn('%s="${%s:-1}"' % (v, v), r)
 
 
