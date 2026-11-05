@@ -13,7 +13,9 @@
  *     GetServiceCapabilities, GetWsdlUrl) need no credentials; the rest answers ter:NotAuthorized (HTTP 400).
  *     No password in user.pwd: no authentication, as the RTSP server.
  *   - TC100_NET_ALLOW (as src/httpfront): networks that may connect, 127/8 always, empty = no filter.
- * Not implemented: the Events service (PullPoint), PTZ, imaging, HTTP Digest, setters (answered with a fault).
+ * Events service: PullPoint subscriptions (max 4) for tns1:VideoSource/MotionAlarm and tns1:RuleEngine/CellMotionDetector/Motion, from the
+ * motion file of tc100_rtsp (/tmp/rec_control, polled every 500 ms). A PullMessages with a Timeout stays pending (max 10 s) without
+ * blocking the loop. Not implemented: PTZ, imaging, HTTP Digest, setters (answered with a fault).
  *
  * usage (the options of monvifd that controlscripts/onvif passes):
  *   tc100-onvifd -p PORT -w WEBPORT -wp http -r RTSPPORT -hwn NAME -vnn VENDOR -loc LOCATION -dn NAME -mod MODEL
@@ -543,7 +545,9 @@ static void scope_enc(const char *s)
 
 #define NSALL "xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" xmlns:tt=\"http://www.onvif.org/ver10/schema\" " \
 	"xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\" xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\" " \
-	"xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\" xmlns:ter=\"http://www.onvif.org/ver10/error\""
+	"xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\" xmlns:ter=\"http://www.onvif.org/ver10/error\" " \
+	"xmlns:tev=\"http://www.onvif.org/ver10/events/wsdl\" xmlns:wsnt=\"http://docs.oasis-open.org/wsn/b-2\" xmlns:wstop=\"http://docs.oasis-open.org/wsn/t-1\" " \
+	"xmlns:tns1=\"http://www.onvif.org/ver10/topics\" xmlns:wsa=\"http://www.w3.org/2005/08/addressing\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\""
 
 static void env_begin(void)
 {
@@ -944,7 +948,9 @@ static void cap_media2(void)
 	  G.nst, G.audio ? (G.talk ? " AudioSource AudioEncoder AudioOutput AudioDecoder" : " AudioSource AudioEncoder") : "");
 }
 
-enum { SV_DEVICE, SV_MEDIA, SV_MEDIA2 };
+enum { SV_DEVICE, SV_MEDIA, SV_MEDIA2, SV_EVENT, SV_SUB };
+
+static void cap_events(void);
 
 /* ---- the services ---- */
 
@@ -999,7 +1005,8 @@ static int op_device(const char *act, const char *b, const char *end)
 		   "<tt:System><tt:DiscoveryResolve>true</tt:DiscoveryResolve><tt:DiscoveryBye>true</tt:DiscoveryBye><tt:RemoteDiscovery>false</tt:RemoteDiscovery><tt:SystemBackup>false</tt:SystemBackup>"
 		   "<tt:SystemLogging>false</tt:SystemLogging><tt:FirmwareUpgrade>false</tt:FirmwareUpgrade><tt:SupportedVersions><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tt:SupportedVersions></tt:System>"
 		   "<tt:Security><tt:TLS1.1>false</tt:TLS1.1><tt:TLS1.2>false</tt:TLS1.2><tt:OnboardKeyGeneration>false</tt:OnboardKeyGeneration><tt:AccessPolicyConfig>false</tt:AccessPolicyConfig><tt:X.509Token>false</tt:X.509Token><tt:SAMLToken>false</tt:SAMLToken><tt:KerberosToken>false</tt:KerberosToken><tt:RELToken>false</tt:RELToken></tt:Security>"
-		   "</tt:Device><tt:Media><tt:XAddr>"); xaddr("media_service");
+		   "</tt:Device><tt:Events><tt:XAddr>"); xaddr("event_service");
+		PS("</tt:XAddr><tt:WSSubscriptionPolicySupport>false</tt:WSSubscriptionPolicySupport><tt:WSPullPointSupport>true</tt:WSPullPointSupport><tt:WSPausableSubscriptionManagerInterfaceSupport>false</tt:WSPausableSubscriptionManagerInterfaceSupport></tt:Events><tt:Media><tt:XAddr>"); xaddr("media_service");
 		PS("</tt:XAddr><tt:StreamingCapabilities><tt:RTPMulticast>false</tt:RTPMulticast><tt:RTP_TCP>true</tt:RTP_TCP><tt:RTP_RTSP_TCP>true</tt:RTP_RTSP_TCP></tt:StreamingCapabilities></tt:Media>"
 		   "</tds:Capabilities></tds:GetCapabilitiesResponse>");
 		return 200;
@@ -1016,7 +1023,10 @@ static int op_device(const char *act, const char *b, const char *end)
 		PS("<tds:Version><tt:Major>2</tt:Major><tt:Minor>6</tt:Minor></tds:Version></tds:Service>");
 		PS("<tds:Service><tds:Namespace>http://www.onvif.org/ver20/media/wsdl</tds:Namespace><tds:XAddr>"); xaddr("media2_service");
 		PS("</tds:XAddr>"); if (cap) { PS("<tds:Capabilities>"); cap_media2(); PS("</tds:Capabilities>"); }
-		PS("<tds:Version><tt:Major>2</tt:Major><tt:Minor>0</tt:Minor></tds:Version></tds:Service></tds:GetServicesResponse>");
+		PS("<tds:Version><tt:Major>2</tt:Major><tt:Minor>0</tt:Minor></tds:Version></tds:Service>");
+		PS("<tds:Service><tds:Namespace>http://www.onvif.org/ver10/events/wsdl</tds:Namespace><tds:XAddr>"); xaddr("event_service");
+		PS("</tds:XAddr>"); if (cap) { PS("<tds:Capabilities>"); cap_events(); PS("</tds:Capabilities>"); }
+		PS("<tds:Version><tt:Major>2</tt:Major><tt:Minor>6</tt:Minor></tds:Version></tds:Service></tds:GetServicesResponse>");
 		return 200;
 	}
 	if (!strcmp(act, "GetServiceCapabilities")) {
@@ -1216,6 +1226,183 @@ static int op_media2(const char *act, const char *b, const char *end)
 	return 0;
 }
 
+/* ---- Events service: PullPoint subscriptions on the motion state tc100_rtsp writes ---- */
+
+#define MAXSUB 4
+#define PULL_MAX_S 10		/* longest PullMessages wait (the connection stays pending, the loop never blocks) */
+
+struct sub { int id; long long expire; int reported; };	/* id 0 = free; reported -1: next pull says Initialized */
+static struct sub subs[MAXSUB];
+static int g_subseq, g_motion;
+static long g_motion_t;
+static const char *p_motion = "/tmp/rec_control";
+static int g_req_sub, g_defer_wait, g_defer_sub;	/* id in the request path; PullMessages left pending */
+
+static int motion_read(void)	/* "1" in the file = motion */
+{
+	char b[8];
+	int n = slurp(p_motion, b, sizeof b);
+
+	return n > 0 && b[0] == '1';
+}
+
+static void motion_poll(void)
+{
+	int m = motion_read();
+
+	if (m != g_motion) { g_motion = m; g_motion_t = (long)time(NULL); }
+}
+
+static void subs_sweep(long long t)
+{
+	for (int i = 0; i < MAXSUB; i++) if (subs[i].id && t >= subs[i].expire) subs[i].id = 0;
+}
+
+static struct sub *find_sub(int id)
+{
+	for (int i = 0; id && i < MAXSUB; i++) if (subs[i].id == id) return &subs[i];
+	return NULL;
+}
+
+/* "PT10S", "PT1M30S", "PT1.5S" -> seconds; d when it is not such a duration */
+static int dur_s(const char *s, int d)
+{
+	int tot = 0, n = 0, dg = 0;
+
+	if (s[0] != 'P' || s[1] != 'T') return d;
+	for (s += 2; *s; s++) {
+		if (*s >= '0' && *s <= '9') { if (n < 100000) n = n * 10 + *s - '0'; dg = 1; }
+		else if (*s == '.' && dg) { while (s[1] >= '0' && s[1] <= '9') s++; }
+		else if (!dg) return d;
+		else {
+			if (*s == 'H') tot += n * 3600; else if (*s == 'M') tot += n * 60; else if (*s == 'S') tot += n; else return d;
+			n = 0; dg = 0;
+		}
+	}
+	return dg ? d : tot;
+}
+
+static void iso(long t, char *o, size_t n)
+{
+	time_t tt = (time_t)t;
+	struct tm u;
+
+	gmtime_r(&tt, &u);
+	snprintf(o, n, "%04d-%02d-%02dT%02d:%02d:%02dZ", u.tm_year + 1900, u.tm_mon + 1, u.tm_mday, u.tm_hour, u.tm_min, u.tm_sec);
+}
+
+static long sub_term(const struct sub *s) { return (long)time(NULL) + (long)((s->expire - now_ms()) / 1000); }
+
+/* the two notifications of the motion state: the video source alarm and the cell motion detector rule */
+static void emit_motion_msgs(const char *op)
+{
+	char ut[32];
+
+	iso(strcmp(op, "Initialized") ? g_motion_t : (long)time(NULL), ut, sizeof ut);
+	for (int k = 0; k < 2; k++) {
+		P("<wsnt:NotificationMessage><wsnt:Topic Dialect=\"http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet\">%s</wsnt:Topic><wsnt:Message>"
+		  "<tt:Message UtcTime=\"%s\" PropertyOperation=\"%s\"><tt:Source>", k ? "tns1:RuleEngine/CellMotionDetector/Motion" : "tns1:VideoSource/MotionAlarm", ut, op);
+		if (k) PS("<tt:SimpleItem Name=\"VideoSourceConfigurationToken\" Value=\"VideoSourceConfig_1\"/><tt:SimpleItem Name=\"VideoAnalyticsConfigurationToken\" Value=\"VideoAnalyticsConfig_1\"/><tt:SimpleItem Name=\"Rule\" Value=\"MotionRule\"/>");
+		else PS("<tt:SimpleItem Name=\"VideoSourceToken\" Value=\"VideoSource_1\"/>");
+		P("</tt:Source><tt:Data><tt:SimpleItem Name=\"%s\" Value=\"%s\"/></tt:Data></tt:Message></wsnt:Message></wsnt:NotificationMessage>",
+		  k ? "IsMotion" : "State", g_motion ? "true" : "false");
+	}
+}
+
+/* PullMessagesResponse of a subscription (s may have vanished: nothing to report) */
+static void emit_pull(struct sub *s)
+{
+	char a[32], b[32];
+
+	iso((long)time(NULL), a, sizeof a);
+	iso(s ? sub_term(s) : (long)time(NULL), b, sizeof b);
+	P("<tev:PullMessagesResponse><tev:CurrentTime>%s</tev:CurrentTime><tev:TerminationTime>%s</tev:TerminationTime>", a, b);
+	if (s && s->reported != g_motion) {
+		emit_motion_msgs(s->reported < 0 ? "Initialized" : "Changed");
+		s->reported = g_motion;
+	}
+	PS("</tev:PullMessagesResponse>");
+}
+
+#define TOPIC_DESC "<tt:MessageDescription IsProperty=\"true\"><tt:Source><tt:SimpleItemDescription Name=\"%s\" Type=\"tt:ReferenceToken\"/>%s</tt:Source>" \
+	"<tt:Data><tt:SimpleItemDescription Name=\"%s\" Type=\"xs:boolean\"/></tt:Data></tt:MessageDescription>"
+
+static void cap_events(void)
+{
+	PS("<tev:Capabilities WSSubscriptionPolicySupport=\"false\" WSPullPointSupport=\"true\" WSPausableSubscriptionManagerInterfaceSupport=\"false\" "
+	   "MaxNotificationProducers=\"4\" MaxPullPoints=\"4\" PersistentNotificationStorage=\"false\"/>");
+}
+
+static int op_events(int svc, const char *act, const char *b, const char *end)
+{
+	char v[48];
+	struct sub *s;
+
+	if (!strcmp(act, "GetServiceCapabilities")) { PS("<tev:GetServiceCapabilitiesResponse>"); cap_events(); PS("</tev:GetServiceCapabilitiesResponse>"); return 200; }
+	if (svc == SV_EVENT) {
+		if (!strcmp(act, "GetEventProperties")) {
+			PS("<tev:GetEventPropertiesResponse><tev:TopicNamespaceLocation>http://www.onvif.org/onvif/ver10/topics/topicns.xml</tev:TopicNamespaceLocation>"
+			   "<wsnt:FixedTopicSet>true</wsnt:FixedTopicSet><wstop:TopicSet><tns1:RuleEngine><tns1:CellMotionDetector><tns1:Motion wstop:topic=\"true\">");
+			P(TOPIC_DESC, "VideoSourceConfigurationToken", "<tt:SimpleItemDescription Name=\"VideoAnalyticsConfigurationToken\" Type=\"tt:ReferenceToken\"/><tt:SimpleItemDescription Name=\"Rule\" Type=\"xs:string\"/>", "IsMotion");
+			PS("</tns1:Motion></tns1:CellMotionDetector></tns1:RuleEngine><tns1:VideoSource><tns1:MotionAlarm wstop:topic=\"true\">");
+			P(TOPIC_DESC, "VideoSourceToken", "", "State");
+			PS("</tns1:MotionAlarm></tns1:VideoSource></wstop:TopicSet>"
+			   "<wsnt:TopicExpressionDialect>http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet</wsnt:TopicExpressionDialect>"
+			   "<wsnt:TopicExpressionDialect>http://docs.oasis-open.org/wsn/t-1/TopicExpression/Concrete</wsnt:TopicExpressionDialect>"
+			   "<tev:MessageContentFilterDialect>http://www.onvif.org/ver10/tev/messageContentFilter/ItemFilter</tev:MessageContentFilterDialect>"
+			   "<tev:MessageContentSchemaLocation>http://www.onvif.org/onvif/ver10/schema/onvif.xsd</tev:MessageContentSchemaLocation></tev:GetEventPropertiesResponse>");
+			return 200;
+		}
+		if (!strcmp(act, "CreatePullPointSubscription")) {
+			int secs = 60, i;
+			char a[32], tm[32];
+
+			if (get_text(b, end, "InitialTerminationTime", v, sizeof v)) secs = dur_s(v, 60);
+			if (secs < 5) secs = 5;
+			if (secs > 3600) secs = 3600;
+			subs_sweep(now_ms());
+			for (i = 0; i < MAXSUB && subs[i].id; i++) ;
+			if (i == MAXSUB) return fault(0, "ter:Action", "ter:TooManySubscriptions", "Too many pull point subscriptions");
+			if (++g_subseq <= 0) g_subseq = 1;
+			subs[i].id = g_subseq;
+			subs[i].expire = now_ms() + secs * 1000LL;
+			subs[i].reported = -1;
+			iso((long)time(NULL), a, sizeof a);
+			iso(sub_term(&subs[i]), tm, sizeof tm);
+			P("<tev:CreatePullPointSubscriptionResponse><tev:SubscriptionReference><wsa:Address>http://%s:%d/onvif/subscription?id=%d</wsa:Address></tev:SubscriptionReference>"
+			  "<wsnt:CurrentTime>%s</wsnt:CurrentTime><wsnt:TerminationTime>%s</wsnt:TerminationTime></tev:CreatePullPointSubscriptionResponse>", g_ip, G.port, subs[i].id, a, tm);
+			return 200;
+		}
+		return 0;
+	}
+	if (strcmp(act, "PullMessages") && strcmp(act, "Renew") && strcmp(act, "Unsubscribe") && strcmp(act, "SetSynchronizationPoint")) return 0;
+	s = find_sub(g_req_sub);
+	if (!s) return fault(1, "ter:InvalidArgs", "ter:ResourceUnknown", "The subscription does not exist or has expired");
+	if (!strcmp(act, "Unsubscribe")) { s->id = 0; PS("<wsnt:UnsubscribeResponse/>"); return 200; }
+	if (!strcmp(act, "SetSynchronizationPoint")) { s->reported = -1; PS("<tev:SetSynchronizationPointResponse/>"); return 200; }
+	if (!strcmp(act, "Renew")) {
+		char a[32], tm[32];
+		int secs = get_text(b, end, "TerminationTime", v, sizeof v) ? dur_s(v, 60) : 60;
+
+		if (secs < 5) secs = 5;
+		if (secs > 3600) secs = 3600;
+		s->expire = now_ms() + secs * 1000LL;
+		iso((long)time(NULL), a, sizeof a);
+		iso(sub_term(s), tm, sizeof tm);
+		P("<wsnt:RenewResponse><wsnt:TerminationTime>%s</wsnt:TerminationTime><wsnt:CurrentTime>%s</wsnt:CurrentTime></wsnt:RenewResponse>", tm, a);
+		return 200;
+	}
+	{	/* PullMessages: answer now when there is something, else keep the connection until a change or the timeout */
+		int wait = get_text(b, end, "Timeout", v, sizeof v) ? dur_s(v, 0) : 0;
+
+		if (wait > PULL_MAX_S) wait = PULL_MAX_S;
+		if (s->reported != g_motion || wait <= 0) { emit_pull(s); return 200; }
+		g_defer_wait = wait;
+		g_defer_sub = s->id;
+		return -1;
+	}
+}
+
 static int pre_auth(const char *act)
 {
 	return !strcmp(act, "GetSystemDateAndTime") || !strcmp(act, "GetServices") || !strcmp(act, "GetCapabilities") ||
@@ -1238,8 +1425,10 @@ static int handle_soap(int svc, const char *b, int n)
 	g_ver2 = svc == SV_MEDIA2;
 	if (svc == SV_DEVICE) r = op_device(act, rest, end);
 	else if (svc == SV_MEDIA) r = op_media(act, rest, end);
+	else if (svc == SV_EVENT || svc == SV_SUB) r = op_events(svc, act, rest, end);
 	else r = op_media2(act, rest, end);
 	if (!r) return fault(0, "ter:ActionNotSupported", NULL, "Optional action not implemented");
+	if (r == -1) return -1;	/* PullMessages left pending */
 	if (r != 200) return r;	/* a fault replaced the output */
 	env_end();
 	if (oerr) return fault(0, "ter:Action", NULL, "Answer too large");
@@ -1248,7 +1437,7 @@ static int handle_soap(int svc, const char *b, int n)
 
 /* ---- HTTP ---- */
 
-struct conn { int fd, len; long long deadline; char buf[REQ_MAX + 2]; };
+struct conn { int fd, len, pending, subid; long long deadline, pend_end; char buf[REQ_MAX + 2]; };
 static struct conn cn[MAXCONN];
 
 static void send_all(int fd, const char *p, int n)
@@ -1284,9 +1473,11 @@ static void conn_close(struct conn *c)
 	if (c->fd >= 0) close(c->fd);
 	c->fd = -1;
 	c->len = 0;
+	c->pending = 0;
 }
 
-static void process(struct conn *c, int hdr_end, int clen)
+/* returns 1 when the connection stays open (a pending PullMessages) */
+static int process(struct conn *c, int hdr_end, int clen)
 {
 	char *b = c->buf, path[128], method[8];
 	struct sockaddr_in la;
@@ -1303,12 +1494,36 @@ static void process(struct conn *c, int hdr_end, int clen)
 	else scpy(g_ip, sizeof g_ip, "127.0.0.1");
 	if (!strcmp(method, "GET") || !strcmp(method, "HEAD")) {
 		reply(c->fd, 200, "text/plain", "tc100-onvifd\n", 13);
-		return;
+		return 0;
 	}
-	if (strcmp(method, "POST")) { reply(c->fd, 405, "text/plain", "", 0); return; }
-	svc = strstr(path, "media2") ? SV_MEDIA2 : strstr(path, "media") ? SV_MEDIA : SV_DEVICE;
+	if (strcmp(method, "POST")) { reply(c->fd, 405, "text/plain", "", 0); return 0; }
+	svc = strstr(path, "subscription") ? SV_SUB : strstr(path, "event") ? SV_EVENT : strstr(path, "media2") ? SV_MEDIA2 : strstr(path, "media") ? SV_MEDIA : SV_DEVICE;
+	g_req_sub = 0;
+	{
+		const char *q = strstr(path, "id=");
+
+		if (q) g_req_sub = num_at(q + 3, 0);
+	}
 	st = handle_soap(svc, b + hdr_end, clen);
+	if (st == -1) {
+		c->pending = 1;
+		c->subid = g_defer_sub;
+		c->pend_end = now_ms() + g_defer_wait * 1000LL;
+		c->deadline = c->pend_end + 3000;
+		return 1;
+	}
 	reply(c->fd, st, "application/soap+xml; charset=utf-8", ob, ol);
+	return 0;
+}
+
+/* answer a pending PullMessages (change, timeout or vanished subscription) and close */
+static void pull_finish(struct conn *c)
+{
+	env_begin();
+	emit_pull(find_sub(c->subid));
+	env_end();
+	reply(c->fd, oerr ? 500 : 200, "application/soap+xml; charset=utf-8", ob, ol);
+	conn_close(c);
 }
 
 /* the value of a header (case-insensitive name incl. colon) in [h, h+n), or NULL */
@@ -1328,8 +1543,17 @@ static const char *hdr_val(const char *h, int n, const char *name)
 
 static void conn_read(struct conn *c)
 {
-	long r = recv(c->fd, c->buf + c->len, REQ_MAX + 1 - c->len, 0);
+	long r;
 	char *he;
+
+	if (c->pending) {	/* a pull is waiting: only a closed connection matters */
+		char t[64];
+
+		r = recv(c->fd, t, sizeof t, 0);
+		if (r == 0 || (r < 0 && errno != EAGAIN && errno != EINTR)) conn_close(c);
+		return;
+	}
+	r = recv(c->fd, c->buf + c->len, REQ_MAX + 1 - c->len, 0);
 
 	if (r < 0) { if (errno == EAGAIN || errno == EINTR) return; conn_close(c); return; }
 	if (r == 0) { conn_close(c); return; }
@@ -1345,8 +1569,7 @@ static void conn_read(struct conn *c)
 		need = hdr_end + clen;
 		if (c->len >= need) {
 			c->buf[need] = 0;
-			process(c, hdr_end, clen);
-			conn_close(c);
+			if (!process(c, hdr_end, clen)) conn_close(c);
 			return;
 		}
 	}
@@ -1370,6 +1593,7 @@ static void conn_accept(void)
 	fcntl(f, F_SETFL, fcntl(f, F_GETFL) | O_NONBLOCK);
 	cn[i].fd = f;
 	cn[i].len = 0;
+	cn[i].pending = 0;
 	cn[i].deadline = now_ms() + READ_MS;
 }
 
@@ -1511,7 +1735,7 @@ int main(int argc, char **argv)
 {
 	int on = 1, i;
 	struct sockaddr_in a;
-	long long next_disc = 0;
+	long long next_disc = 0, next_motion = 0;
 	char buf[96];
 	struct stream *ex = G.ex;
 
@@ -1526,6 +1750,7 @@ int main(int argc, char **argv)
 	p_serial = env_or("ONVIFD_SERIAL_FILE", p_serial);
 	p_iface = env_or("ONVIFD_IFACE", p_iface);
 	p_ip = env_or("ONVIFD_IP", NULL);
+	p_motion = env_or("ONVIFD_MOTION_FILE", p_motion);
 	g_dport = num_at(env_or("ONVIFD_DISCOVERY_PORT", "3702"), 3702);
 	memset(G.ex, 0, sizeof G.ex);
 	for (i = 1; i + 1 < argc; i += 2) {
@@ -1576,6 +1801,7 @@ int main(int argc, char **argv)
 	device_uuid();
 	g_instance = (unsigned)time(NULL);
 	load_config();
+	motion_poll();
 	parse_allow(getenv("TC100_NET_ALLOW"));
 
 	signal(SIGTERM, on_term);
@@ -1627,6 +1853,15 @@ int main(int argc, char **argv)
 			if (FD_ISSET(g_lfd, &rf)) conn_accept();
 			if (g_ufd >= 0 && FD_ISSET(g_ufd, &rf)) udp_in();
 			for (i = 0; i < MAXCONN; i++) if (cn[i].fd >= 0 && FD_ISSET(cn[i].fd, &rf)) conn_read(&cn[i]);
+		}
+		if (t >= next_motion) { motion_poll(); next_motion = t + 500; }
+		subs_sweep(t);
+		for (i = 0; i < MAXCONN; i++) {
+			struct sub *sb;
+
+			if (cn[i].fd < 0 || !cn[i].pending) continue;
+			sb = find_sub(cn[i].subid);
+			if (!sb || t >= cn[i].pend_end || sb->reported != g_motion) pull_finish(&cn[i]);
 		}
 		for (i = 0; i < MAXCONN; i++) if (cn[i].fd >= 0 && t > cn[i].deadline) conn_close(&cn[i]);
 		if (g_ufd >= 0 && t >= next_disc) {

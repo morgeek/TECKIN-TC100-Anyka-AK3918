@@ -20,6 +20,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import xml.etree.ElementTree as ET
@@ -32,7 +33,8 @@ HAVE_CC = shutil.which('cc') is not None
 S = 'http://www.w3.org/2003/05/soap-envelope'
 NS = {'s': S, 'tt': 'http://www.onvif.org/ver10/schema', 'tds': 'http://www.onvif.org/ver10/device/wsdl',
       'trt': 'http://www.onvif.org/ver10/media/wsdl', 'tr2': 'http://www.onvif.org/ver20/media/wsdl',
-      'd': 'http://schemas.xmlsoap.org/ws/2005/04/discovery', 'a': 'http://schemas.xmlsoap.org/ws/2004/08/addressing'}
+      'd': 'http://schemas.xmlsoap.org/ws/2005/04/discovery', 'a': 'http://schemas.xmlsoap.org/ws/2004/08/addressing',
+      'tev': 'http://www.onvif.org/ver10/events/wsdl', 'wsnt': 'http://docs.oasis-open.org/wsn/b-2'}
 WSSE = ('xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" '
         'xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"')
 DIGEST = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest'
@@ -97,7 +99,8 @@ class OnvifD(unittest.TestCase):
         self.dport = free_port(socket.SOCK_DGRAM)
         env = dict(os.environ, ONVIFD_CONF_DIR=self.conf, ONVIFD_VERSION_FILE=os.path.join(self.conf, 'VERSION'),
                    ONVIFD_SERIAL_FILE=os.path.join(self.conf, 'none'), ONVIFD_SCALE_PARAM=os.path.join(self.conf, 'main_scale'),
-                   ONVIFD_MAC_FILE=os.path.join(self.conf, 'mac'), ONVIFD_IFACE='lo0', ONVIFD_DISCOVERY_PORT=str(self.dport))
+                   ONVIFD_MAC_FILE=os.path.join(self.conf, 'mac'), ONVIFD_IFACE='lo0', ONVIFD_DISCOVERY_PORT=str(self.dport),
+                   ONVIFD_MOTION_FILE=os.path.join(self.conf, 'rec_control'))
         env.pop('TC100_NET_ALLOW', None)
         env.update(extra_env or {})
         cmd = [self.bin, '-p', str(self.port), '-w', '80', '-wp', 'http', '-r', '554', '-hwn', 'AK3918', '-vnn', 'Anyka',
@@ -113,7 +116,7 @@ class OnvifD(unittest.TestCase):
         self.fail('tc100-onvifd did not start')
 
     def http(self, raw, host='127.0.0.1'):
-        s = socket.create_connection((host, self.port), timeout=5)
+        s = socket.create_connection((host, self.port), timeout=15)
         try:
             try:
                 s.sendall(raw)
@@ -417,8 +420,8 @@ class OnvifD(unittest.TestCase):
         st, n, _ = self.soap('<trt:GetVideoEncoderConfiguration><trt:ConfigurationToken>zzz</trt:ConfigurationToken></trt:GetVideoEncoderConfiguration>', 'media_service')
         self.assertEqual(st, 400)
         st, n, _ = self.soap('<tds:GetServices><tds:IncludeCapability>true</tds:IncludeCapability></tds:GetServices>', auth=False)
-        self.assertEqual(len(n.findall('tds:Service', NS)), 3)
-        self.assertEqual(len(n.findall('tds:Service/tds:Capabilities', NS)), 3)
+        self.assertEqual(len(n.findall('tds:Service', NS)), 4)
+        self.assertEqual(len(n.findall('tds:Service/tds:Capabilities', NS)), 4)
         self.assertIn('/onvif/media2_service', n.findall('tds:Service/tds:XAddr', NS)[2].text)
 
     def test_hostile_values_are_escaped(self):
@@ -426,6 +429,129 @@ class OnvifD(unittest.TestCase):
         st, n, _ = self.soap('<tds:GetScopes/>')
         items = [e.text for e in n.iter('{%s}ScopeItem' % NS['tt'])]
         self.assertIn('onvif://www.onvif.org/name/A%20%3Cb%3E%26%22x%20y', items)
+
+    # ---- Events (PullPoint) -------------------------------------------------------------------------------------
+
+    EV = 'xmlns:tev="http://www.onvif.org/ver10/events/wsdl"'
+
+    def subscribe(self, term=None):
+        t = '<tev:InitialTerminationTime>%s</tev:InitialTerminationTime>' % term if term else ''
+        st, n, _ = self.soap('<tev:CreatePullPointSubscription %s>%s</tev:CreatePullPointSubscription>' % (self.EV, t), 'event_service')
+        if st != 200:
+            return None
+        addr = n.find('tev:SubscriptionReference/{http://www.w3.org/2005/08/addressing}Address', NS).text
+        self.assertRegex(addr, r'^http://127\.0\.0\.1:%d/onvif/subscription\?id=\d+$' % self.port)
+        self.assertIsNotNone(n.find('wsnt:CurrentTime', NS))
+        self.assertIsNotNone(n.find('wsnt:TerminationTime', NS))
+        return addr.split('/onvif/')[1]
+
+    def pull(self, sub, timeout='PT1S'):
+        st, n, _ = self.soap('<tev:PullMessages %s><tev:Timeout>%s</tev:Timeout><tev:MessageLimit>10</tev:MessageLimit></tev:PullMessages>' % (self.EV, timeout), sub)
+        self.assertEqual(st, 200)
+        return [(m.find('.//tt:Message', NS).get('PropertyOperation'), m.find('wsnt:Topic', NS).text,
+                 m.find('.//tt:Data/tt:SimpleItem', NS).get('Name'), m.find('.//tt:Data/tt:SimpleItem', NS).get('Value'))
+                for m in n.findall('wsnt:NotificationMessage', NS)]
+
+    def motion(self, v):
+        Path(self.conf, 'rec_control').write_text('%d\n' % v)
+
+    def test_events_advertised_and_properties(self):
+        self.start()
+        st, n, _ = self.soap('<tds:GetCapabilities/>', auth=False)
+        self.assertEqual(n.find('.//tt:Events/tt:WSPullPointSupport', NS).text, 'true')
+        self.assertIn('/onvif/event_service', n.find('.//tt:Events/tt:XAddr', NS).text)
+        st, n, _ = self.soap('<tds:GetServices><tds:IncludeCapability>true</tds:IncludeCapability></tds:GetServices>', auth=False)
+        ev = [s for s in n.findall('tds:Service', NS) if s.find('tds:Namespace', NS).text == NS['tev']]
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0].find('tds:Capabilities/tev:Capabilities', NS).get('WSPullPointSupport'), 'true')
+        st, n, _ = self.soap('<tev:GetServiceCapabilities %s/>' % self.EV, 'event_service', auth=False)
+        self.assertEqual(st, 200)
+        self.assertEqual(n.find('tev:Capabilities', NS).get('MaxPullPoints'), '4')
+        st, n, raw = self.soap('<tev:GetEventProperties %s/>' % self.EV, 'event_service')
+        self.assertEqual(st, 200)
+        self.assertIn('MotionAlarm', raw)
+        self.assertIn('CellMotionDetector', raw)
+        self.assertIn('Name="IsMotion"', raw)
+        self.assertIn('Name="State"', raw)
+        st, n, _ = self.soap('<tev:CreatePullPointSubscription %s/>' % self.EV, 'event_service', auth=False)   # login needed
+        self.assertEqual(st, 400)
+        self.assertIn('ter:NotAuthorized', self.fault_sub(n))
+
+    def test_pullpoint_motion_flow(self):
+        self.motion(0)
+        self.start()
+        sub = self.subscribe()
+        first = self.pull(sub)
+        self.assertEqual(sorted(first), sorted([
+            ('Initialized', 'tns1:VideoSource/MotionAlarm', 'State', 'false'),
+            ('Initialized', 'tns1:RuleEngine/CellMotionDetector/Motion', 'IsMotion', 'false')]))
+        t = time.time()
+        self.assertEqual(self.pull(sub, 'PT1S'), [])                       # nothing changed: empty after the timeout
+        self.assertGreater(time.time() - t, 0.8)
+        res = {}
+        th = threading.Thread(target=lambda: res.update(m=self.pull(sub, 'PT10S'), t=time.time()))
+        th.start()
+        time.sleep(0.4)
+        t0 = time.time()
+        self.motion(1)
+        th.join(8)
+        self.assertLess(res['t'] - t0, 1.6)
+        self.assertEqual(sorted((m[0], m[2], m[3]) for m in res['m']), [('Changed', 'IsMotion', 'true'), ('Changed', 'State', 'true')])
+        self.assertEqual(self.pull(sub, 'PT0S'), [])                        # already reported
+        self.motion(0)
+        time.sleep(0.8)
+        self.assertEqual(sorted(m[3] for m in self.pull(sub, 'PT0S')), ['false', 'false'])      # a pull with no wait sees it too
+        st, n, _ = self.soap('<tev:SetSynchronizationPoint %s/>' % self.EV, sub)
+        self.assertEqual(st, 200)
+        self.assertEqual({m[0] for m in self.pull(sub)}, {'Initialized'})
+        # a second subscription starts with Initialized on its own
+        sub2 = self.subscribe()
+        self.assertEqual({m[0] for m in self.pull(sub2)}, {'Initialized'})
+        self.motion(1)                                                        # motion already on when the daemon starts
+        time.sleep(0.8)
+        sub3 = self.subscribe()
+        self.assertEqual({m[3] for m in self.pull(sub3)}, {'true'})
+
+    def test_pull_does_not_block_the_server(self):
+        self.motion(0)
+        self.start()
+        sub = self.subscribe()
+        self.pull(sub)
+        res = {}
+        th = threading.Thread(target=lambda: res.update(m=self.pull(sub, 'PT10S'), t=time.time()))
+        t0 = time.time()
+        th.start()
+        time.sleep(0.5)
+        t = time.time()
+        st, n, _ = self.soap('<tds:GetSystemDateAndTime/>', auth=False)
+        self.assertEqual(st, 200)
+        self.assertLess(time.time() - t, 1.0)
+        th.join(15)
+        self.assertGreater(res['t'] - t0, 9)                               # the wait is bounded: ~10 s then an empty answer
+        self.assertEqual(res['m'], [])
+
+    def test_renew_unsubscribe_limit_expiry(self):
+        self.start()
+        subs = [self.subscribe() for _ in range(4)]
+        self.assertTrue(all(subs))
+        self.assertIsNone(self.subscribe())                                  # at most 4
+        st, n, _ = self.soap('<tev:CreatePullPointSubscription %s/>' % self.EV, 'event_service')
+        self.assertEqual(n.tag, '{%s}Fault' % S)
+        st, n, _ = self.soap('<wsnt:Renew xmlns:wsnt="http://docs.oasis-open.org/wsn/b-2"><wsnt:TerminationTime>PT120S</wsnt:TerminationTime></wsnt:Renew>', subs[0])
+        self.assertEqual(st, 200)
+        self.assertEqual(n.tag, '{%s}RenewResponse' % NS['wsnt'])
+        st, n, _ = self.soap('<wsnt:Unsubscribe xmlns:wsnt="http://docs.oasis-open.org/wsn/b-2"/>', subs[1])
+        self.assertEqual(st, 200)
+        self.assertEqual(n.tag, '{%s}UnsubscribeResponse' % NS['wsnt'])
+        st, n, _ = self.soap('<tev:PullMessages %s><tev:Timeout>PT1S</tev:Timeout></tev:PullMessages>' % self.EV, subs[1])
+        self.assertEqual(st, 400)
+        self.assertIn('ter:ResourceUnknown', self.fault_sub(n))
+        self.assertIsNotNone(self.subscribe(term='PT5S'))                    # the freed slot
+        st, n, _ = self.soap('<tev:PullMessages %s><tev:Timeout>PT0S</tev:Timeout></tev:PullMessages>' % self.EV, 'subscription?id=99999')
+        self.assertEqual(st, 400)
+        time.sleep(6.5)                                                       # the 5 s subscription has expired, the renewed one has not
+        self.assertEqual(self.pull(subs[0], 'PT0S')[0][0], 'Initialized')
+        self.assertIsNotNone(self.subscribe())                                # its slot is free again
 
     # ---- faults, limits, LAN filter -----------------------------------------------------------------------------
 
