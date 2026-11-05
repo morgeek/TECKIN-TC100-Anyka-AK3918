@@ -31,4 +31,5 @@ this repository (`99c3112`, 2026-02-02), a copy of the original SD-card hack, wh
 
 `bin/setconf` and `bin/telegram` are shell scripts of this repository (2.x's `setconf` was built from
 `SetSharedConfig.cpp`, same tree). The three Unlicense programs can be rebuilt from their public source; `monvifd`
-stays a binary without a source until it is replaced by an open WS-Discovery responder (ONVIF is off by default).
+stays the default ONVIF daemon until the free replacement `tc100-onvifd` (`src/onvifd`, written for this project, GPL-2.0:
+WS-Discovery, Device, Media and Media2 services) is tested on the camera (`ONVIF_IMPL=c` in `onvif.conf`; ONVIF is off by default).

@@ -17,6 +17,7 @@ on:
       - 'src/libakuio/**'
       - 'src/httpfront/**'
       - 'src/mqttd/**'
+      - 'src/onvifd/**'
       - 'src/mdnsd/**'
       - 'bin/**'
       - 'lib/**'
@@ -147,6 +148,8 @@ jobs:
           cp src/tc100rtsp/tc100_rtsp $P/
           make -C src/mqttd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/mqttd/tc100-mqttd $P/
+          make -C src/onvifd CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/onvifd/tc100-onvifd $P/
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
           cat > $P/README-TEST.txt <<EOF
           RAM-only test of the Linux 6.6 image (nothing is written to flash).
@@ -204,7 +207,7 @@ jobs:
           mkdir -p symbols
           cp linux-src/System.map linux-src/.config symbols/
           # unstripped user-space programs (the shipped ones are stripped)
-          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so src/mqttd/tc100-mqttd.dbg symbols/ 2>/dev/null || true
+          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so src/mqttd/tc100-mqttd.dbg src/onvifd/tc100-onvifd.dbg symbols/ 2>/dev/null || true
           gzip -c linux-src/vmlinux > symbols/vmlinux.gz
 
       - name: Upload kernel symbols

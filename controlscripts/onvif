@@ -27,6 +27,7 @@ if [ -f "$BOOT_CONFIG" ]; then
   # shellcheck disable=SC1090
   . "$BOOT_CONFIG"
 fi
+: "${ONVIF_IMPL:=monvifd}"   # monvifd (closed binary, default) | c (free tc100-onvifd, src/onvifd)
 : "${ONVIF_STREAM_POLICY:=main-primary}"
 : "${ONVIF_HEALTHCHECK_TIMEOUT_SECONDS:=4}"
 : "${ONVIF_WATCHDOG_MODE:=status}"
@@ -172,9 +173,17 @@ start()
       ONVIF_STREAM2_ARGS="-en2 0"
     fi
 
+    ONVIFD_BIN=/mnt/tc100test/tc100-onvifd
+    if [ "$ONVIF_IMPL" = "c" ] && [ -x "$ONVIFD_BIN" ]; then
+      # free daemon: reads rtspserver.conf / boot.conf / user.pwd itself (1080p or 720p, codecs, frame rate, sub-stream,
+      # same login as the RTSP server); the stream policy is the only stream option it needs. SIGHUP re-reads the files.
+      TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)"; export TC100_NET_ALLOW
+      "$ONVIFD_BIN" -p "$ONVIF_PORT" -w "$WEB_PORT" -wp "$WEB_PROTO" -r "$PORT" -hwn "$HW_NAME" -vnn "$VENDOR_NAME" -loc "$DEVICE_LOCATION" -dn "$DEVICE_NAME" -mod "$DEVICE_MODEL"           -sp "$ONVIF_STREAM_POLICY" 2>> "$LOGPATH" >> "$LOGPATH" &
+    else
     /mnt/bin/monvifd -p "$ONVIF_PORT" -w "$WEB_PORT" -wp "$WEB_PROTO" -r "$PORT" -hwn "$HW_NAME" -vnn "$VENDOR_NAME" -loc "$DEVICE_LOCATION" -dn "$DEVICE_NAME" -mod "$DEVICE_MODEL" \
         -rp1 "$PRIMARY_RP" -vw1 "$PRIMARY_WIDTH" -vh1 "$PRIMARY_HEIGHT" -vc1 "$PRIMARY_CODEC" -vcb1 "$PRIMARY_BPS" -fps1 "$PRIMARY_FPS" \
         $ONVIF_STREAM2_ARGS 2>> "$LOGPATH" >> "$LOGPATH" &
+    fi
     echo "$!" > "$PIDFILE"
     date +%s > "$START_TS_FILE" 2>/dev/null || true
 

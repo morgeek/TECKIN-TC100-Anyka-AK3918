@@ -64,3 +64,13 @@ dist/
 /src/httpfront/httpfront
 /src/jpegenc/jpegenc
 /src/tc100rtsp/tc100_rtsp
+
+# tc100-onvifd build products
+/src/onvifd/*.o
+/src/onvifd/*.dbg
+/src/onvifd/stubs.c
+/src/onvifd/defined.txt
+/src/onvifd/imports.txt
+/src/onvifd/libc.so.0
+/src/onvifd/tc100-onvifd
+/src/onvifd/tc100-onvifd-host
