@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Home Assistant discovery in the C MQTT bridge** (item 55, `MQTT_DISCOVERY_IMPL=c`, off by default): the same
+  topics and payloads byte for byte, without the ~120 subshells the script spends at each connection.
 - **One C supervisor for day/night and the reset button** (items 52 / 55, `SUPERVISOR_IMPL=c`, off by default):
   `tc100-supervisord` (21 KB) replaces the two resident shell loops with the same decisions; the shell loops come back
   by themselves if it is missing, does not start or dies.
