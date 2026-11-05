@@ -38,18 +38,6 @@ fi
 
 BUSYBOX_BIN=""
 
-_CF_BTIME=0
-_cf_read_btime() {
-  while read -r _k _v _; do
-    [ "$_k" = "btime" ] && _CF_BTIME="$_v" && break
-  done < /proc/stat
-}
-_cf_read_ts() {
-  [ "$_CF_BTIME" -gt 0 ] || _cf_read_btime
-  read -r _up _ < /proc/uptime
-  _CF_TS=$((_CF_BTIME + ${_up%.*}))
-}
-
 get_busybox_bin()
 {
   if [ -n "$BUSYBOX_BIN" ] && [ -x "$BUSYBOX_BIN" ]; then
@@ -92,37 +80,6 @@ run_with_timeout()
     return
   fi
   "$@"
-}
-
-get_active_primary_ip()
-{
-  # High-speed path: use the boot-time cached IP if available.
-  if [ -r /tmp/camera_ip.txt ]; then
-    read -r _gai_ip < /tmp/camera_ip.txt
-    if [ -n "$_gai_ip" ]; then
-      printf '%s\n' "$_gai_ip"
-      return 0
-    fi
-  fi
-
-  # Fallback: Tries to find the IP assigned to the interface with the default route.
-  # Use /proc/net/route to avoid 'route -n' fork.
-  _gai_iface="wlan0"
-  while read -r _iface _dest _gw _flags _ref _use _metric _mask _mtu _window _irtt; do
-      if [ "$_dest" = "00000000" ] && [ "$_mask" = "00000000" ]; then
-          _gai_iface="$_iface"
-          break
-      fi
-  done < /proc/net/route
-
-  _gai_ip="$(ifconfig "$_gai_iface" 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | head -n 1)"
-
-  if [ -z "$_gai_ip" ]; then
-    # Global fallback: any non-loopback inet addr from any interface
-    _gai_ip="$(ifconfig 2>/dev/null | sed -n -e 's/.*inet addr:\([0-9.]*\).*/\1/p' -e 's/^[[:space:]]*inet \([0-9.]*\).*/\1/p' | grep -v '^127\.' | head -n 1)"
-  fi
-
-  printf '%s\n' "${_gai_ip:-n/a}"
 }
 
 get_default_gateway()
@@ -415,33 +372,6 @@ http_password(){
   return 0
 }
 
-# Control the RTSP h264 server
-rtsp_h26x_server(){
-  case "$1" in
-  on)
-    /mnt/controlscripts/rtsp-h26x start
-    ;;
-  off)
-    /mnt/controlscripts/rtsp-h26x stop
-    ;;
-  status)
-    status=$(/mnt/controlscripts/rtsp-h26x status 2>/dev/null)
-    if [ -n "$status" ]
-      then
-        echo "ON"
-    else
-        echo "OFF"
-    fi
-    ;;
-  esac
-}
-
-activate_motion_recording()
-{
-  # Set recording flag (single write is atomic for small data; native readers do not use flock)
-  printf '1\n' > /tmp/rec_control
-}
-
 deactivate_motion_recording()
 {
   # Reset recording flag (single write is atomic for small data; native readers do not use flock)
@@ -613,10 +543,6 @@ service_autoclose() {
 }
 
 # Reboot the System
-reboot_system() {
-  /bin/sh /mnt/scripts/reboot-tracker.sh intent "${1:-reboot_system}" >/dev/null 2>&1
-  /sbin/reboot
-}
 
 get_current_cpu_usage()
 {
@@ -741,14 +667,6 @@ all_password()
 }
 
 # Input arg - file with PID
-killpid()
-{
-  pid="$(cat "$1" 2>/dev/null)"
-  if [ "$pid" ]; then
-    kill "$pid"
-    rm "$1" 1> /dev/null 2>&1
-  fi
-}
 
 # killpid_graceful — send SIGTERM, wait up to N seconds, then SIGKILL if still alive.
 # Usage: killpid_graceful <pidfile> [timeout_seconds]
@@ -815,11 +733,6 @@ led_blink()
     if [ "$off_led_status" = "ON" ]; then
       led on "$off_led_type"
     fi
-}
-
-front_led_blink()
-{
-  led_blink $1 blue_led red_led
 }
 
 red_led_blink()
@@ -911,15 +824,6 @@ build_binary_versions_block() {
     ver="$(binary_version "$n")"
     printf '%-20s %s\n' "$n" "$ver"
   done
-}
-
-build_devinfo_cache() {
-  build_binary_versions_block > /tmp/devinfo_binary_versions.txt
-  bl="$(run_strings /dev/mtd0 | grep -m1 'U-Boot 2' 2>/dev/null)"
-  echo "${bl:-n/a}" > /tmp/devinfo_bootloader.txt
-  # Write a timestamp so callers can check cache age.
-  _cf_read_ts
-  printf '%s\n' "$_CF_TS" > /tmp/devinfo_cache.ts 2>/dev/null || true
 }
 
 # devinfo_cache_fresh — returns 0 if cache files exist and are < TTL_SECONDS old.

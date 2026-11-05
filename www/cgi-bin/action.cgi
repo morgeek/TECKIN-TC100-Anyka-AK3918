@@ -68,10 +68,6 @@ schedule_rtsp_restart() {
   schedule_service_restart /mnt/controlscripts/rtsp-h26x 2
 }
 
-schedule_onvif_restart() {
-  schedule_service_restart /mnt/controlscripts/onvif 2
-}
-
 normalize_bool() {
   case "$1" in
     1|true|on|yes|enabled)
