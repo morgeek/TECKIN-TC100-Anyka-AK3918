@@ -3,6 +3,7 @@
 # so the unpacked initramfs has to stay under ~7 MB.
 usr/bin/curl
 usr/bin/jq
+usr/bin/tc100-whep
 usr/sbin/iw
 usr/bin/alsamixer
 usr/bin/alsactl

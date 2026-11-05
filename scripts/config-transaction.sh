@@ -62,6 +62,7 @@ tc_normalize_and_validate()
     minute) tc_uint_range "$_tc_value" 0 59 ;;
     weekday) case "$_tc_value" in '*'|[0-6]|1-5|0,6) ;; *) return 1 ;; esac ;;
     topology) case "$_tc_value" in dual|main-only|sub-only) ;; *) return 1 ;; esac ;;
+    whep_stream) case "$_tc_value" in sub|main) ;; *) return 1 ;; esac ;;
     onvif_policy) case "$_tc_value" in main-primary|sub-primary|sub-only|main-only) ;; *) return 1 ;; esac ;;
     hostname)
       [ "${#_tc_value}" -le 63 ] || return 1
@@ -531,6 +532,10 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" WIFI_AIM bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" MDNS_SERVICES bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" MDNS_INFO bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WHEP bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WHEP_STREAM whep_stream "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WHEP_MAX u:1:2 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WHEP_AUDIO bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_ROAM bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" BOOT_SOUND bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" BOOT_SOUND_NAME identifier "$_tc_rel" || return 1

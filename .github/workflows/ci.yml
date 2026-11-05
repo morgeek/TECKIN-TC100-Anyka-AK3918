@@ -55,4 +55,17 @@ jobs:
               while read -r l; do echo "::error title=detail::$l"; done
             exit 1; }
       - name: Frontend tests
-        run: node --test tests/frontend.test.js tests/settings-save.test.js tests/live-video.test.js tests/records-timeline.test.js
+        run: node --test tests/frontend.test.js tests/settings-save.test.js tests/live-video.test.js tests/whep-live.test.js tests/records-timeline.test.js
+
+  whep-interop:
+    name: WebRTC gateway against aiortc (item 35)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # builds mbedTLS 2.28.9 with DTLS-SRTP (as the base image does), tc100-whep against it, then runs
+      # tests/whep_interop.py: a fake RTSP source, the daemon and aiortc as the browser (see the script)
+      - name: tc100-whep with a real WebRTC client
+        run: sh tests/docker/whep-interop.sh

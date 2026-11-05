@@ -58,6 +58,15 @@ WIFI_AIM=0
 # the firmware version, the load and the Wi-Fi level to them (anyone on the network can read them). Restart mdns.
 MDNS_SERVICES=0
 MDNS_INFO=0
+# WebRTC live view (item 35, tc100-whep, off by default): WHEP=1 starts the gateway at boot and the live view of the
+# web page tries WebRTC first (about 150 ms of delay), then falls back to the usual live view. WHEP_STREAM=sub (the
+# 640x360 H.264 stream, light) or main (only when the main stream is H.264). WHEP_MAX=1..2 viewers at the same time.
+# WHEP_AUDIO=1: the microphone (PCMA) goes with the picture. The certificate is made once in /mnt/config/whep-*.pem.
+# Restart the whep service after a change (Services page). Needs the base image with mbedTLS DTLS-SRTP.
+WHEP=0
+WHEP_STREAM=sub
+WHEP_MAX=2
+WHEP_AUDIO=1
 # WIFI_ROAM=1 (repeaters, mesh: one SSID, several access points): below -75 dBm for 2 minutes, the camera moves
 # to an access point of the same network at least 15 dB stronger, if there is one (scripts/wifi-roam.sh).
 WIFI_ROAM=0

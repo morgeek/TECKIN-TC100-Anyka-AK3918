@@ -1201,7 +1201,7 @@ class OneSwitchPerService(unittest.TestCase):
 
     def test_boot_and_services_page_use_the_key(self):
         a = (ROOT / 'v3/autorun-linux66.sh').read_text()
-        self.assertIn('for n in sound-detection syslog-forward memory-guard wifi-rescue telegram-bot; do', a)
+        self.assertIn('for n in sound-detection syslog-forward memory-guard wifi-rescue telegram-bot whep; do', a)
         self.assertIn('svc_switch $n && continue', a)
         self.assertNotIn('autostart/recording', a)
         self.assertNotIn('[ "$PROFILE" = frigate_ha ] && case', a)

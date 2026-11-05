@@ -47,3 +47,50 @@ H.264.
 - Flash: the daemon (~40 KB) and the page code (~3 KB); mbedTLS is already there.
 - Memory: one DTLS context per viewer (~30 KB) and the daemon (~150 KB PSS).
 - CPU: the handshake once per viewer, then SRTP (step 1 measures it) and one copy of each packet.
+
+## Implementation status (2026-11-05, steps 2 to 5 written, off by default: `WHEP=0`)
+
+What exists, and the choices made where the design left them open:
+
+- **Step 2, mbedTLS.** `v3/buildroot/external.mk` switches `MBEDTLS_SSL_DTLS_SRTP` on with a `sed` hook
+  (`MBEDTLS_POST_PATCH_HOOKS`) instead of a patch file: it does not depend on the lines around the option, and the build
+  stops if the option, DTLS, cookies, ECDSA / P-256, X.509 / PEM writing or key export are not in `config.h` afterwards
+  (checked on 2.28.9: all are on in the default configuration except SRTP).
+- **Step 3, `src/whep/tc100_whep.c` (+ `whep_proto.h`, `srtp.h`).** A Buildroot package (`v3/buildroot/package/tc100-whep`,
+  local site `src/whep`) builds it with the musl toolchain against the system mbedTLS; it lands in `usr/bin` of the base
+  image, `v3/build-stack.sh` copies it to `ext/bin` (optional: an older base has none), `initramfs-prune.txt` keeps it out
+  of the RAM initrd. The base-image cache key includes `src/whep/**`.
+  - HTTP: the daemon listens on **127.0.0.1:8889 only**; `www/cgi-bin/whep.cgi` forwards to it with curl, so the web login
+    (httpfront + busybox httpd) protects it. The busybox httpd answers no `DELETE`: the page ends a viewer with
+    `POST /cgi-bin/whep.cgi?stop=ID` (a `DELETE` to the same URL also works); the `Location` header is that URL.
+    `GET /cgi-bin/whep.cgi` answers the daemon's status JSON, or `503 {"enabled":0}` when it is not running.
+  - ICE-lite, one host candidate on `wlan0` (then `eth0`), UDP port 8189. The offer's candidates are ignored. STUN
+    integrity and fingerprint are tested with the RFC 5769 vectors (`src/whep/whep_test.c`).
+  - DTLS 1.2 server, one cipher suite (`ECDHE-ECDSA-AES128-GCM-SHA256`, so the exporter PRF is SHA-256 and is computed
+    in the daemon: no dependence on mbedTLS internals), `use_srtp` SRTP_AES128_CM_HMAC_SHA1_80, the browser's certificate
+    is checked against the fingerprint of the offer, no HelloVerifyRequest (the address is already proved by the STUN
+    checks). Keys: RFC 5764 export from the master secret. The certificate (ECDSA P-256, self-signed) is made once in
+    `/mnt/config/whep-cert.pem` and `whep-key.pem` (mode 0600), never in the source tree.
+  - Media: one RTSP session per viewer to `tc100_rtsp` on the loopback (TCP interleaved, Basic authentication with the
+    password of `config/user.pwd`), `/video1` (sub, default) or `/video0_unicast` (main, `WHEP_STREAM=main`, only if H.264:
+    otherwise `415` and the page falls back). RTP packets are re-sent with the payload type and an SSRC of the answer and
+    their own sequence numbers; SPS and PPS of the RTSP `sprop-parameter-sets` are put in front of every IDR. One SRTP
+    context per stream (each has its own rollover counter). PCMA audio when the offer has it and `WHEP_AUDIO=1`.
+    No RTCP sender reports (no lip-sync, picture first), PLI not answered.
+  - At most `WHEP_MAX` (1-2) viewers; a viewer silent for 12 s (no STUN check, no SRTCP) is dropped; `429` beyond the limit.
+  - `controlscripts/whep` starts it (service `whep`, switch `WHEP` in `boot.conf`, started by `autorun-linux66.sh` step
+    12b like the other services); `WHEP_STREAM`, `WHEP_MAX`, `WHEP_AUDIO` are read at each start.
+- **Step 4, page.** `src/webui/index/30-live-view.js`: the live view asks `cgi-bin/whep.cgi` (one small request, no statusline
+  change), and when the gateway answers it makes a recvonly `RTCPeerConnection`, posts the offer without waiting for
+  candidates and plays the stream in the same `<video>`. The gateway off: the MP4 live view at once, not asked again for
+  10 minutes. Any failure (offer refused, no picture within 8 s, state `failed`, a picture frozen for 4 s): MP4 live view,
+  WebRTC left alone for 1 minute (10 after a second failure in a row, 30 s after a drop while playing). Video only (the
+  live view is muted).
+- **Step 5, tests.** `tests/test_whep.py` (host vectors, wiring, `whep.cgi` under a shell with a stub curl),
+  `tests/whep-live.test.js` (fallback logic), `tests/whep_interop.py` through `tests/docker/whep-interop.sh` (CI job
+  `whep-interop`, `sh tests/docker/local-ci.sh whep`): builds mbedTLS 2.28.9 with SRTP, the daemon, and runs aiortc as the
+  browser against a fake RTSP source (H.264 without SPS/PPS in the stream, PCMA, Basic authentication): a decoded 640x360
+  frame, an audio frame, the viewer limit, DELETE.
+- **Still to do, on the camera:** `srtp-bench` during a stream (decides sub or main), delay, CPU and memory with 1-2
+  viewers, one hour; the Buildroot build of the package is only checked by CI (the host build uses the same sources and
+  the same mbedTLS version).
