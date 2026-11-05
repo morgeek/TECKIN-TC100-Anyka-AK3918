@@ -175,6 +175,9 @@ bounded httpfront, idle RTSP clients, web update retries without reboot, wizard 
   jitter, to tell a Wi-Fi or network problem from a camera one.
 
 ### Changed
+- **Sound detection in the C supervisor** (third job of `tc100-supervisord`); the housekeeper and cfg-persist stay shell
+  on purpose. **Free `rwconf`** built in CI (4.9 KB instead of the 31 KB 2.x binary); `getflag` and `getimage` (2.x shared
+  memory, unused on 3.0) removed. **Dashboard poll answered by httpfront** (`dash.cgi`, same switch as the status line).
 - **The new features are on by default** (owner, for the rc28): the C supervisor, the C MQTT discovery, the free ONVIF
   daemon, the WebRTC live view, the native status line, the microphone read by `tc100_rtsp` with its processing, the
   automatic bit rate, the motion from the encoder, soft Wi-Fi repairs, the web login lockout, mDNS services and
