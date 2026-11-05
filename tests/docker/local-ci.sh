@@ -68,7 +68,7 @@ run_cross() {
 		echo "tc100-supervisord (stripped, bytes): $(wc -c < src/supervisord/tc100-supervisord)"
 		echo "tc100-onvifd (stripped, bytes): $(wc -c < src/onvifd/tc100-onvifd)"
 		make -C src/tc100rtsp test_rtsp >/dev/null 2>&1 && echo "host test build: ok"
-		python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
+		python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native tests.test_httpfront_dash >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
 		echo "cross: ok"' || rc=1
 }
 

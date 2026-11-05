@@ -23,7 +23,8 @@
  *
  * Native status line (item 55; TC100_NATIVE_STATUS=1, boot.conf HTTPFRONT_NATIVE=1, off by default): "GET
  * /cgi-bin/statusline.cgi" with a right Basic login is answered by httpfront itself (status.h), the same JSON as the CGI,
- * without httpd and sh; anything it cannot answer exactly goes to httpd as before.
+ * without httpd and sh; anything it cannot answer exactly goes to httpd as before. Same for "GET /cgi-bin/dash.cgi" (the
+ * dashboard poll, dash.h).
  *
  * Freestanding (no C library: raw ARM EABI system calls), a few KB instead of 630 KB for the static glibc
  * build it replaces. Build: arm-linux-gnueabi-gcc -Os -marm -march=armv5te -nostdlib -static -fno-builtin
@@ -314,6 +315,7 @@ static int locked(u32 ip)
 }
 
 #include "status.h"
+#include "dash.h"
 
 static const char *httpd_bin = "/usr/sbin/httpd";	/* TC100_HTTPD_BIN: tests */
 static int native_status;	/* TC100_NATIVE_STATUS=1: GET /cgi-bin/statusline.cgi answered here (status.h) */
@@ -361,12 +363,15 @@ static void serve(int c, const char *home, const char *target, char **envp, u32 
 	{
 		/* item 55: the status line, natively, for a complete request whose Basic login is right (no login, a wrong
 		 * one, anything the native code cannot answer exactly: httpd as before, which answers 401 or the CGI) */
-		int route = native_status && pfx(b, "GET /cgi-bin/statusline.cgi") && (b[27] == ' ' || b[27] == '?');
-		int au = (lockout || route) ? login_ok(b) : -1, len;
+		int route = native_status ? (pfx(b, "GET /cgi-bin/statusline.cgi") ? 1 : pfx(b, "GET /cgi-bin/dash.cgi") ? 2 : 0) : 0;
+		int au, len;
 		const char *resp;
 
+		if (route && b[route == 1 ? 27 : 21] != ' ' && b[route == 1 ? 27 : 21] != '?') route = 0;
+		au = (lockout || route) ? login_ok(b) : -1;
 		if (lockout && au == 0) write_file(fail_file, &ip, 4, O_APPEND);	/* counted by the parent */
-		if (route && au == 1 && has_end(b, (int)n) && (resp = status_response(st_root, &len))) {
+		if (route && au == 1 && has_end(b, (int)n) &&
+		    (resp = route == 1 ? status_response(st_root, &len) : dash_response(st_root, &len))) {
 			sc(SYS_read, c, (long)b, n, 0, 0);	/* the request we only peeked at: no reset on close */
 			sc(SYS_write, c, (long)resp, len, 0, 0);
 			_exit_(0);
