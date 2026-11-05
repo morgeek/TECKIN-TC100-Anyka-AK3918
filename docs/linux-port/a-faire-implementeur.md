@@ -64,6 +64,64 @@ R8. [ ] **Garder sur la .11 et en faire les défauts si la nuit est bonne** (pro
     identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
     après R4. Bilan de nuit du testeur le 2026-11-06 au matin.
 
+## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
+
+Validé par le propriétaire. À exécuter sur la rc28 (après R1-R4), sur la .11 puis la .24 passée elle aussi en rc28.
+T = testeur seul, à distance ; P = demande le propriétaire (action physique ou appareil à lui). Pour chaque point :
+l'implémenteur vérifie que la fonction est prête (interrupteur, doc, critère), le testeur mesure et consigne dans
+`test-queue.md`, la case est cochée ici.
+
+**Stabilité et charge (T)**
+T1. [ ] Endurance **7 jours** sur les deux caméras, toutes les nouvelles implémentations actives : pas de redémarrage
+    non voulu, MemAvailable stable (PSS par processus au début et à la fin), CMA, écritures flash via `cfg-persist`
+    (nombre par jour), pertes Wi-Fi, images sautées.
+T2. [ ] Charge : 2, 3 puis 4 clients RTSP en même temps (chute de fps connue), multiview ouvert dans plusieurs
+    navigateurs, Frigate + ONVIF + WebRTC simultanés sur un seul cœur (fps de capture, charge, latence du direct).
+T3. [ ] `.24` en rc28 avec les mêmes réglages que la .11 (seules l'IP et l'identité matérielle diffèrent).
+
+**Mises à jour et reprise (T)**
+T4. [ ] Mise à jour web qui échoue (fichier corrompu, écriture flash refusée) : réessais sans redémarrage (B1/B3),
+    caméra intacte et joignable.
+T5. [ ] Mode sans échec : 3 démarrages ratés → boot-guard, interface accessible avec mot de passe, retour normal.
+T6. [ ] Retour à la configuration précédente (cfga/cfgb) après une config cassée.
+
+**Sécurité (T)**
+T7. [ ] Limite d'essais de mot de passe du web (`WEB_LOCKOUT`) : blocage, déblocage, sans gêner Frigate/HA.
+T8. [ ] `httpfront` face à une avalanche de connexions muettes (R2 de l'audit) : la caméra reste joignable.
+T9. [ ] Expiration des clients RTSP inactifs (`9e2089e`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
+    un client muet après SETUP l'est.
+
+**Fonctions rc27 jamais activées (T, une à la fois, avec retour arrière noté)**
+T10. [ ] Flux principal **720p** (patch noyau 0016) : image, fps, débit, Frigate.
+T11. [ ] **Mode smart** de l'encodeur avec le noyau `venc_pool` 12M (#9) : critères de #9.
+T12. [ ] `RTSP_ABR=1` (débit adaptatif), `RTSP_MD_ENC=1` (mouvement par l'encodeur), `PRIVACY_SCREEN`,
+     `IDLE_WHEN` (fps réduits sans spectateur / la nuit), `TIME_HTTP_FALLBACK` (NTP bloqué), `POWER_HZ=auto`,
+     `RTSP_AUDIO_HPF/AGC/DUCK`, `MIN_SWITCH` jour/nuit, `BOOT_SOUND`, `WIFI_AIM`, `NET_GUARD_SOFT`.
+T13. [ ] Événements de mouvement **ONVIF** (PullPoint) vus par Home Assistant (avec P5).
+
+**Matériel (P)**
+P1. [ ] Anti-masquage avec la main (correctif `25fecef` jamais retesté) : `tamper_active=1` après ≥ 6 s, retour à 0.
+P2. [ ] Bouton reset avec `tc100-supervisord` (appui court / long : actions attendues).
+P3. [ ] LED (avant, rouge, IR), IR coupé derrière une vitre (`IR_LED_MODE=off`), page `hardware.html` complète.
+P4. [ ] Haut-parleur : push-to-talk du navigateur, audio bidirectionnel depuis HA / Frigate / go2rtc (ONVIF backchannel).
+
+**Réseau (P)**
+P5. [ ] RTSP en **UDP** dans VLC (confirme R2 / pacing), intégration ONVIF de Home Assistant, un NVR tiers (Synology
+    Surveillance Station ou Blue Iris).
+P6. [ ] Point d'accès Wi-Fi de secours (bouton reset 3-7 s) et Wi-Fi par `wifi.txt` sur la carte.
+P7. [ ] Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
+
+**Carte SD, sur la .24 (P pour poser / retirer la carte, T pour le reste)**
+P8. [ ] Enregistrement, frise (`view_records.html`), pré-enregistrement, `REC_KEEP_EVENTS`, réparation automatique
+    (`SD_AUTO_REPAIR`), plus de « not properly unmounted » après un redémarrage voulu, sons personnalisés,
+    sauvegarde / restauration complète, retrait de la carte à chaud.
+
+**Notifications (P : compte ntfy / Telegram du propriétaire)**
+P9. [ ] ntfy ou webhook, Telegram, image envoyée sur alerte (`NOTIFY_BURST`), `MQTT_SNAPSHOT_ON_EVENT`.
+
+**Risqué (P, en dernier, sur une caméra récupérable par la carte SD)**
+P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre sur l'ancienne version ou se récupère.
+
 ## P0 — rc26, avant le tag 3.0.1
 
 1. [x] **Publier une rc26** avec ce qui est sur `main` depuis la rc25, en particulier `04f2313` + `9853759` : arrêt du
