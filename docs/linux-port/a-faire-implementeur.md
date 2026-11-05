@@ -244,7 +244,10 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     d'essais » de W3.*
     - Règle noyau bloquant temporairement (10 min) toute adresse IP source tentant plus de 5 connexions SSH / requêtes en échec consécutives en moins de 60 secondes (répond au point W3 de l'audit).
     - Coût RAM et CPU : quasi nul (100 % géré par la table d'états interne de Netfilter sans aucun démon en espace utilisateur).
-31. [ ] **Profils dynamiques de performance (« Mode Veille / Nuit Éco »)** :
+31. [x] **Profils dynamiques de performance (« Mode Veille / Nuit Éco »)** :
+    *Fait le 2026-11-05 : la cadence réduite existait (`IDLE_FPS`, « rien ne bouge ») ; ajouté `IDLE_WHEN=unwatched`
+    (personne ne regarde : pleine cadence dès qu'un client lit) et `IDLE_WHEN=night` (en mode nuit). Le gain de
+    température n'est pas mesurable (pas de capteur, #14). Entrée `[eco-fps]`.*
     - En absence de client RTSP connecté ou lors de la bascule en vision nocturne, ajustement automatique du framerate cible (25 fps -> 15 fps).
     - Rétablissement instantané à 25 fps dès la connexion d'un client RTSP ou la détection d'un événement (mouvement/son).
     - Gain : baisse de 3 à 5°C de la température SoC et réduction du bruit thermique sur le capteur JX-F23.

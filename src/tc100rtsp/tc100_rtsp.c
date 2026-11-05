@@ -2391,6 +2391,13 @@ static unsigned char md_prev[MD_GW * MD_GH];
 static int md_have, md_hits;
 static double md_t, md_tlast, md_since;
 static int idle_fps, idle_after = 10;	/* boot.conf IDLE_FPS (0 = off), IDLE_AFTER: lower rate while nothing moves */
+/* boot.conf IDLE_WHEN (item 31): still = while nothing moves (needs motion detection, the default); unwatched = while no
+ * RTSP client plays and no browser watches the live view (a client back: the full rate at once); night = in night mode
+ * (black and white). Any of them: a motion or sound event gives the full rate for IDLE_AFTER seconds. */
+#define IDLE_STILL 0
+#define IDLE_UNWATCHED 1
+#define IDLE_NIGHT 2
+static int idle_when, idle_night;
 static double snd_t;			/* time of the last sound event (now_s clock) */
 
 static void md_reload(int conf_changed, int zones_changed)
@@ -2862,12 +2869,17 @@ static void cfg_reload(double tn)
 			     (v[0] == '0' || !strcmp(v, "no") || !strcmp(v, "off") || !strcmp(v, "false")));
 	}
 	if (ch[0]) {
-		int f = cfg_num(CONF "boot.conf", "IDLE_FPS", 0), a = cfg_num(CONF "boot.conf", "IDLE_AFTER", 10);
+		int f = cfg_num(CONF "boot.conf", "IDLE_FPS", 0), a = cfg_num(CONF "boot.conf", "IDLE_AFTER", 10), w = IDLE_STILL;
+		static const char *const wn[] = { "while nothing moves, needs motion detection", "while nobody watches", "in night mode" };
+		char v[16];
 
 		if (f < 0 || f > 24) f = 0;
 		if (a < 1 || a > 3600) a = 10;
-		if (f != idle_fps || a != idle_after) LOG("idle frame rate: %s (IDLE_FPS=%d IDLE_AFTER=%d)\n", f ? "on, needs motion detection" : "off", f, a);
-		idle_fps = f; idle_after = a;
+		if (cfg_get(CONF "boot.conf", "", "IDLE_WHEN", v, sizeof v))
+			w = !strcmp(v, "unwatched") ? IDLE_UNWATCHED : !strcmp(v, "night") ? IDLE_NIGHT : IDLE_STILL;
+		if (f != idle_fps || a != idle_after || w != idle_when)
+			LOG("idle frame rate: %s%s (IDLE_FPS=%d IDLE_AFTER=%d)\n", f ? "on, " : "off", f ? wn[w] : "", f, a);
+		idle_fps = f; idle_after = a; idle_when = w;
 	}
 	if (ch[0] || ch[5]) rec_reload();
 	if (ch[3]) snd_reload();
@@ -3490,10 +3502,15 @@ unsigned char *fpb[2] = { NULL, NULL };
 				int fr;
 
 				if (md_since > ev) ev = md_since;
-				fr = idle_fps_now(fps, idle_fps, idle_after, md_on, rec_active() && rec_mode != REC_MOTION, tq, ev);
+				{	/* when the lower rate may apply (IDLE_WHEN): motion detection running, nobody watching, night */
+					int ok = idle_when == IDLE_UNWATCHED ? np[0] + np[1] == 0 && live_count() == 0 :
+						 idle_when == IDLE_NIGHT ? idle_night : md_on;
+
+					fr = idle_fps_now(fps, idle_fps, idle_after, ok, rec_active() && rec_mode != REC_MOTION, tq, ev);
+				}
 				if ((fr < fps) != was_idle) {
 					was_idle = fr < fps; due = 0;
-					LOG("idle frame rate: %s\n", was_idle ? "nothing moves, lowered" : "motion or sound, back to the full rate");
+					LOG("idle frame rate: %s\n", was_idle ? "lowered" : "back to the full rate");
 					if (was_idle) LOG("idle frame rate: %d fps instead of %d\n", idle_fps, fps);
 				}
 				iv = 1.0 / fr;
@@ -3562,6 +3579,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				snap_iv = !stat("/tmp/currentpic.cache.jpg", &sb) && nw - sb.st_atime < 4 ? 2.0 : 10.0;
 				snap_req = !access("/tmp/snapshot_request", F_OK);
 				bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; style_switch(bw); }	/* black and white switch */
+				idle_night = bw;
 			}
 			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= str_iv;
 			int d_snap = jpeg_ok && (tn - t_snap >= snap_iv || snap_req);

@@ -1185,7 +1185,7 @@ class RtspServerChoice(unittest.TestCase):
             r = subprocess.run(['sh', '-c', code], capture_output=True, text=True, timeout=10)
             j = json.loads(r.stdout)
         self.assertEqual(j, {'ok': True, 'server': 'tc100_rtsp', 'substream': 0, 'talk': 1, 'port': 8554, 'clients': 2,
-                                 'idle_fps': 0, 'idle_after': 10, 'motion_detection': 0})
+                                 'idle_fps': 0, 'idle_after': 10, 'idle_when': 'still', 'motion_detection': 0})
 
 
 

@@ -102,6 +102,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   login; busybox httpd still answers every request. The kernel has no packet filter, so this replaces the iptables
   idea of the list.
 
+- **Eco frame rate** (`boot.conf` `IDLE_WHEN`, item 31): the lower idle rate (`IDLE_FPS`) can now apply while nobody
+  watches (`unwatched`: no RTSP client playing, no live view in a browser; the full rate as soon as one connects) or
+  in night mode (`night`), not only while nothing moves (`still`, the default); a motion or sound event gives the full
+  rate in every case.
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

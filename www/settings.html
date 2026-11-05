@@ -232,6 +232,7 @@
                                 <div class="field"><label class="label is-small" for="rtsp_idle_after">After no motion for (seconds)</label><input class="input is-small" name="rtsp_idle_after" id="rtsp_idle_after" type="number" min="1" max="3600" step="1"></div>
                             </div>
                         </div>
+                        <div class="field"><label class="label is-small" for="rtsp_idle_when">When</label><div class="select is-small is-fullwidth"><select name="rtsp_idle_when" id="rtsp_idle_when"><option value="still">When nothing moves (needs motion detection)</option><option value="unwatched">When nobody watches (no RTSP client, no live view)</option><option value="night">In night mode</option></select></div></div>
                         <p class="help">Saves processor time and bit rate at night or in an empty room. Needs motion detection (Settings, Detection) switched on; without it nothing changes. Back to the full rate at the first motion or sound; the first moment of an event can show a lower frame rate. Not applied while recording continuously. Applied at once, no restart.</p>
                         <p class="help is-hidden has-text-warning-dark" id="rtsp_idle_warn">Motion detection is off: this setting does nothing for now.</p>
                         <p class="help" id="rtsp_server_status" role="status"></p>

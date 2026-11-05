@@ -111,6 +111,10 @@ RTSP_AUDIO=1
 # the first one. 0 = off (default). Needs motion detection on; not applied while recording continuously.
 IDLE_FPS=0
 IDLE_AFTER=10
+# IDLE_WHEN (item 31): still = while nothing moves (needs motion detection, default); unwatched = while no RTSP client
+# plays and no browser shows the live view (the full rate as soon as one does: less heat, less work for nobody);
+# night = in night mode. A motion or sound event gives the full rate in every case.
+IDLE_WHEN=still
 # Logs kept across reboots (scripts/log-persist.sh): dmesg, syslog and the service logs are copied to the SD card
 # (/mnt/sd/logs/boot-NNNN, last 5 boots, about 2 MB each) every LOG_PERSIST_MIN minutes and before a deliberate
 # reboot; only with a healthy card and the recording not paused. 0 = off.

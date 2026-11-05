@@ -19,8 +19,9 @@
       _rs_idle="$(_rs_cfg IDLE_FPS)"; case "$_rs_idle" in ''|*[!0-9]*) _rs_idle=0 ;; esac
       _rs_after="$(_rs_cfg IDLE_AFTER)"; case "$_rs_after" in ''|*[!0-9]*) _rs_after=10 ;; esac
       _rs_md=0; [ -e /tmp/tc100_md ] && _rs_md=1
-      printf '{"ok":true,"server":"tc100_rtsp","substream":%s,"talk":%s,"port":%s,"clients":%s,"idle_fps":%s,"idle_after":%s,"motion_detection":%s}\n' \
-        "$_rs_sub" "$_rs_talk" "$_rs_port" "$(_rs_num "$_rs_clients")" "$_rs_idle" "$_rs_after" "$_rs_md"
+      _rs_when="$(_rs_cfg IDLE_WHEN)"; case "$_rs_when" in unwatched|night) ;; *) _rs_when=still ;; esac
+      printf '{"ok":true,"server":"tc100_rtsp","substream":%s,"talk":%s,"port":%s,"clients":%s,"idle_fps":%s,"idle_after":%s,"idle_when":"%s","motion_detection":%s}\n' \
+        "$_rs_sub" "$_rs_talk" "$_rs_port" "$(_rs_num "$_rs_clients")" "$_rs_idle" "$_rs_after" "$_rs_when" "$_rs_md"
     ;;
 
     set_rtsp_server)
@@ -37,6 +38,11 @@
       if [ -n "${F_rtsp_idle_fps}" ]; then
         rewrite_config /mnt/config/boot.conf IDLE_FPS "$(sanitize_int_range "${F_rtsp_idle_fps}" 0 24 0)"
         rewrite_config /mnt/config/boot.conf IDLE_AFTER "$(sanitize_int_range "${F_rtsp_idle_after}" 1 3600 10)"
+      fi
+      if [ -n "${F_rtsp_idle_when}" ]; then   # item 31: when the lower rate applies
+        case "${F_rtsp_idle_when}" in unwatched|night) _rs_w="${F_rtsp_idle_when}" ;; *) _rs_w=still ;; esac
+        grep -q '^IDLE_WHEN=' /mnt/config/boot.conf 2>/dev/null || echo "IDLE_WHEN=still" >> /mnt/config/boot.conf
+        rewrite_config /mnt/config/boot.conf IDLE_WHEN "$_rs_w"
       fi
       if [ "$_rs_old_sub" != "$_rs_sub" ]; then
         schedule_service_restart /mnt/controlscripts/rtsp-h26x 2

@@ -2383,3 +2383,10 @@ Prochaine étape : rc26 sur la .11.
   2. Depuis un autre PC : `for i in $(seq 10); do curl -s -o /dev/null -u root:faux http://<caméra>/cgi-bin/state.cgi; done` puis `curl -v http://<caméra>/` → connexion fermée sans réponse ; le premier PC (autre adresse) navigue toujours ; 5 min après, le second PC est de nouveau servi.
   3. Changer le mot de passe dans Réglages : l'ancien est refusé par httpd comme avant, le nouveau marche (pas de verrou pour l'utilisateur légitime).
 - **Critères :** 1-3 conformes ; jamais de verrou sur l'utilisateur qui tape le bon mot de passe → passer `WEB_LOCKOUT=1` par défaut.
+
+## 2026-11-05 — Cadence éco quand personne ne regarde ou la nuit (`[eco-fps]`, liste de l'implémenteur #31)
+
+- **Quoi :** `IDLE_WHEN` dans `boot.conf` (avec `IDLE_FPS`, par ex. 10) : `still` (défaut, comme avant : quand rien ne bouge, détection de mouvement nécessaire), `unwatched` (aucun client RTSP en lecture, pas de vue en direct dans un navigateur ; la pleine cadence dès qu'un client lit), `night` (en mode nuit). Un mouvement ou un son rend la pleine cadence `IDLE_AFTER` secondes.
+- **Interrupteur :** `IDLE_FPS=0` (défaut) ou `IDLE_WHEN=still`.
+- **Test :** `IDLE_FPS=10 IDLE_WHEN=unwatched`, Frigate arrêté et pas de VLC : log `idle frame rate: lowered`, `STAT cap` ≈ 10 images/s ; ouvrir VLC → `back to the full rate` en moins d'une seconde, l'image est fluide ; fermer VLC → de nouveau 10 après `IDLE_AFTER`. `IDLE_WHEN=night` : la nuit 10 images/s, le jour pleine cadence. Charge CPU (`scripts/cpu-profile.sh 60`) plus basse pendant la cadence réduite.
+- **Critères :** bascules conformes, aucune image figée au retour d'un client, enregistrement continu jamais ralenti.
