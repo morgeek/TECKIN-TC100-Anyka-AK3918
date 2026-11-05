@@ -101,6 +101,9 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"WIFI_AIM";"bool";"general";.boot.wifi_aim),
     row("boot.conf";"flat";"root";"MDNS_SERVICES";"bool";"general";.boot.mdns_services),
     row("boot.conf";"flat";"root";"MDNS_INFO";"bool";"general";.boot.mdns_info),
+    row("boot.conf";"flat";"root";"WIFI_ROAM";"bool";"general";.boot.wifi_roam),
+    row("boot.conf";"flat";"root";"BOOT_SOUND";"bool";"general";.boot.boot_sound),
+    row("boot.conf";"flat";"root";"BOOT_STEALTH";"bool";"general";.boot.boot_stealth),
     row("boot.conf";"flat";"root";"ISP_TUNE";"bool";"general";.boot.isp_tune),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),

@@ -1173,7 +1173,7 @@ if [ -n "$F_cmd" ]; then
       _action_group=hardware ;;
     reboot|shutdown|clear_mem|set_telnet|set_ftp|settz|set_http_password|set_all_password|service_trim_on|service_trim_off|set_performance_profile|set_reboot_schedule|set_telegram_config|set_syslog_config|save_preset|delete_preset)
       _action_group=system ;;
-    set_network|conf_dns|conf_static_ip|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|wifi_set_country|wifi_set_config)
+    set_network|conf_dns|conf_static_ip|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|wifi_set_country|wifi_set_config|nvr_latency)
       _action_group=network ;;
     refresh_ha_discovery|set_mqtt_config|pair_home_assistant)
       _action_group=integrations ;;

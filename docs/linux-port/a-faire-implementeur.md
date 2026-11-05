@@ -290,10 +290,15 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     (ASan). Entrée `[mdns-sd]`.*
     - Enrichir les enregistrements TXT du démon `tc100-mdnsd` pour diffuser non seulement le service web/rtsp mais aussi la version firmware exacte, l'adresse IP et les indicateurs vitaux (température SoC, charge, Wi-Fi RSSI).
     - Facilite l'identification immédiate et le repérage multi-caméras sur le réseau local depuis les navigateurs/outils réseau sans scanner les baux DHCP.
-39. [ ] **Structure de trames indépendante multi-profils NVR (GOP différencié ch0 / ch1)** :
+39. [x] **Structure de trames indépendante multi-profils NVR (GOP différencié ch0 / ch1)** :
+    *Existait (constaté le 2026-11-05) : Réglages → Flux principal / Sous-flux → « Intervalle des images clés »
+    (`[0] goplen` / `[1] goplen`), passés à `tc100_rtsp` en `-g` / `-G` par `rtsp-launch.sh`.*
     - Permettre de configurer des intervalles de trames clés (GOP / I-frame interval) distincts entre le flux principal ch0 et le sous-flux ch1 dans `tc100_rtsp` (`rtspserver.conf`).
     - Cas d'usage optimisé pour NVR / Frigate : flux principal ch0 à GOP long (2 à 4 s) pour minimiser l'espace disque d'enregistrement, et sous-flux ch1 à GOP court (1 s) pour une détection d'objets IA instantanée et ultra-réactive.
-40. [ ] **Roaming Wi-Fi multi-bornes / Mesh (Fast BSS Transition & anti-client collant)** :
+40. [x] **Roaming Wi-Fi multi-bornes / Mesh (Fast BSS Transition & anti-client collant)** :
+    *Fait le 2026-11-05 (sans 802.11r : `rtl8xxxu` ne fait pas de FT) : `scripts/wifi-roam.sh`, tâche du housekeeper
+    (`WIFI_ROAM=1`, désactivé par défaut) : sous -75 dBm deux minutes, scan, `wpa_cli roam` vers une borne du même SSID
+    au moins 15 dB meilleure, puis 10 min de pause. Entrée `[wifi-roam]`.*
     - Dans les installations disposant de répéteurs Wi-Fi ou réseau Mesh (même SSID sur plusieurs BSSID), éviter que la caméra ne reste connectée à une borne affaiblie (« sticky client »).
     - Si le RSSI chute sous -75 dBm pendant plus de 2 minutes alors qu'une borne alternative avec le même SSID propose un signal nettement supérieur (> 15 dB d'écart), forcer une réassociation douce (`wpa_cli reassociate`) sur le meilleur BSSID.
 41. [x] **Contrôle et réparation douce FAT32 sur carte SD (`mount-sd.sh` / `dosfsck`)** :
@@ -311,10 +316,15 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     avec une entrée de test. `scripts/sd-diag.sh` (page Carte SD) sait déjà vérifier / réparer quand `fsck.fat` existe.*
     - Détection automatique et non-destructive du dirty bit (« not properly unmounted ») lors du montage au boot via `dosfsck -n`.
     - Si une incohérence mineure est décelée, exécution automatique de `dosfsck -a` avant montage en lecture-écriture pour prévenir toute corruption silencieuse des enregistrements consécutive à une coupure électrique.
-42. [ ] **Mode Démarrage Discret / Silencieux (`BOOT_STEALTH=1`)** :
+42. [x] **Mode Démarrage Discret / Silencieux (`BOOT_STEALTH=1`)** :
+    *Fait le 2026-11-05 : `BOOT_STEALTH=1` coupe le carillon et le clignotement `WIFI_AIM`, éteint les LED dès S39
+    (le noyau allume la bleue quelques secondes avant : device tree `default-state = "on"`, laissé pour tout le monde) ;
+    `BOOT_SOUND` ajouté à `boot.conf.dist` (D5). Entrée `[boot-stealth]`.*
     - Option dans `boot.conf` et l'interface Web désactivant les jingles sonores au haut-parleur (`sounds/startup*.pcm`) et maintenant les LED éteintes pendant toute la phase de boot.
     - Idéal pour les caméras placées en chambre de bébé ou pièces de vie nocturne lors des redémarrages automatiques de maintenance.
-43. [ ] **Test de latence et gigue vers le NVR / Frigate dans Diagnostics** :
+43. [x] **Test de latence et gigue vers le NVR / Frigate dans Diagnostics** :
+    *Fait le 2026-11-05 : Diagnostics → « Lien vers l'enregistreur » (`cmd=nvr_latency`) : 10 pings vers l'adresse
+    Frigate, sinon `REC_CLIENT`, sinon la box ; pertes, délai min / moy / max, gigue. Entrée `[nvr-latency]`.*
     - Bouton d'action dans l'interface Web envoyant une salve de requêtes ICMP/ping vers l'hôte NVR/Frigate configuré.
     - Affichage du RTT moyen, du jitter et du taux de perte pour lever immédiatement le doute entre instabilité caméra et congestion du réseau Wi-Fi local.
 44. [ ] **Infobulles explicatives pour chaque réglage dans l'interface Web (Tooltips)** :

@@ -64,6 +64,14 @@ WIFI_AIM=0
 # the firmware version, the load and the Wi-Fi level to them (anyone on the network can read them). Restart mdns.
 MDNS_SERVICES=0
 MDNS_INFO=0
+# WIFI_ROAM=1 (repeaters, mesh: one SSID, several access points): below -75 dBm for 2 minutes, the camera moves
+# to an access point of the same network at least 15 dB stronger, if there is one (scripts/wifi-roam.sh).
+WIFI_ROAM=0
+# BOOT_SOUND=0: no startup chime on the speaker when the camera is ready (1 = the chime, default).
+BOOT_SOUND=1
+# BOOT_STEALTH=1 (a baby's room, a bedroom): no chime, no LED aiming blinks, LEDs off while the camera boots (the
+# kernel lights the blue one for a few seconds before the settings can be read); FRONT_LED / RED_LED apply at the end.
+BOOT_STEALTH=0
 # Telnet and FTP send passwords in clear: started from the web page, they
 # stop by themselves after REMOTE_SHELL_TIMEOUT_MIN minutes (0 = never).
 REMOTE_SHELL_TIMEOUT_MIN=15

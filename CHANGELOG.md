@@ -123,6 +123,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with compression pointers are read now. Also fixed: the host name was read past its end when a query label was
   longer than it (found by AddressSanitizer in the host test).
 
+- **Wi-Fi roaming between access points of one network** (`WIFI_ROAM=1`, off by default, item 40): below -75 dBm
+  for 2 minutes the camera scans and roams (`wpa_cli roam`) to an access point of the same SSID at least 15 dB
+  stronger, then waits 10 minutes before trying again.
+
+- **Stealth boot** (`BOOT_STEALTH=1`, item 42): no startup chime, no LED aiming blinks, LEDs off while booting (from
+  the start of the boot script; the kernel lights the blue LED for a few seconds before); the LED settings apply at
+  the end of the boot. `BOOT_SOUND` is now in `boot.conf.dist` (it was read but undocumented).
+
+- **Link test to the recorder** (Diagnostics → Link to the recorder, `action.cgi?cmd=nvr_latency`, item 43): ten
+  pings to the Frigate address (else the recording client, else the router): loss, delay min / average / max and
+  jitter, to tell a Wi-Fi or network problem from a camera one.
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

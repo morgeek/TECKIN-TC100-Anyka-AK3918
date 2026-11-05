@@ -177,6 +177,30 @@
         fi
     ;;
 
+    nvr_latency)
+      # item 43: is the camera or the Wi-Fi to blame? 10 pings to the recorder: the host given (host=), else the
+      # Frigate address of Settings, else REC_CLIENT, else the router. Loss, RTT min / average / max and the jitter
+      # (mean difference between successive RTTs, as RFC 3550)
+      _nl_h="${F_host}"
+      if [ -z "$_nl_h" ]; then
+        _nl_u="$(sed -n 's/^FRIGATE_URL=//p' /mnt/config/frigate_live.conf 2>/dev/null | head -n 1)"
+        _nl_h="${_nl_u#*://}"; _nl_h="${_nl_h%%[:/]*}"
+      fi
+      [ -n "$_nl_h" ] || _nl_h="$(sed -n 's/^REC_CLIENT=\(.*\)$/\1/p' /mnt/config/boot.conf 2>/dev/null | tr -d '"' | head -n 1)"
+      [ -n "$_nl_h" ] || _nl_h="$(ip route 2>/dev/null | sed -n 's/^default via \([0-9.]*\).*/\1/p' | head -n 1)"
+      case "$_nl_h" in ''|*[!A-Za-z0-9.-]*|-*) json_body_err "INVALID_HOST" "No recorder address (set the Frigate address in Settings, or give host=)"; exit 0 ;; esac
+      [ ${#_nl_h} -le 253 ] || { json_body_err "INVALID_HOST" "Host name too long"; exit 0; }
+      _nl_out="$(ping -c 10 -i 0.2 -W 1 "$_nl_h" 2>/dev/null || ping -c 10 -W 1 "$_nl_h" 2>/dev/null)"
+      printf '%s\n' "$_nl_out" | awk -v h="$_nl_h" '
+        /bytes from/ { for (i = 1; i <= NF; i++) if ($i ~ /^time=/) { t = substr($i, 6) + 0; n++; s += t
+                         if (n == 1 || t < mn) mn = t; if (t > mx) mx = t; if (n > 1) { d = t - p; if (d < 0) d = -d; j += d }; p = t } }
+        END { loss = 100 - n * 10; if (loss < 0) loss = 0
+              printf "{\"ok\":true,\"host\":\"%s\",\"sent\":10,\"received\":%d,\"loss_pct\":%d", h, n, loss
+              jt = 0; if (n > 1) jt = j / (n - 1)	# (a ">" in printf arguments is an output redirection)
+              if (n) printf ",\"min_ms\":%.1f,\"avg_ms\":%.1f,\"max_ms\":%.1f,\"jitter_ms\":%.1f", mn, s / n, mx, jt
+              print "}" }'
+    ;;
+
     wifi_rescue_info)
         # The rescue access point (scripts/wifi-rescue.sh): on (WIFI_RESCUE, its one switch), up now, its name and password.
         _wr="$(sh /mnt/scripts/wifi-rescue.sh status 2>/dev/null)"

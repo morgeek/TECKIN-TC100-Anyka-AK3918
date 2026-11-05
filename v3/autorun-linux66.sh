@@ -118,6 +118,12 @@ if [ -r /mnt/config/boot.conf ]; then
   done < /mnt/config/boot.conf
 fi
 on() { case "$1" in 1|true|yes|on|enabled) return 0 ;; esac; return 1; }
+# item 42: BOOT_STEALTH=1 (a baby's room, a bedroom): no startup chime, no LED aiming blinks, LEDs off while booting;
+# FRONT_LED / RED_LED apply at the end of the boot as usual
+if on "$BC_BOOT_STEALTH"; then
+  BC_BOOT_SOUND=0; BC_WIFI_AIM=0
+  for _l in blue_led blue red_led red; do echo 0 > /sys/class/leds/$_l/brightness 2>/dev/null; done
+fi
 PROFILE=$BC_INTEGRATION_PROFILE; LIGHT=$BC_LIGHTWEIGHT_MODE
 # (Frigate + Home Assistant profile: motion detection and the clock overlay are switched off once, by the setup wizard,
 #  so that later Settings changes stay; the profile still keeps some services off at boot, step 12b)
@@ -377,6 +383,8 @@ fi
 sh /mnt/scripts/housekeeper.sh job add reboot-tracker bg 900 300 - sh /mnt/scripts/reboot-tracker.sh hk </dev/null >/dev/null 2>&1
 # item 32: WIFI_AIM=1: the front LED blinks with the Wi-Fi signal for 5 minutes, to aim the camera without a screen
 on "$BC_WIFI_AIM" && ( exec sh /mnt/scripts/wifi-aim.sh run ) </dev/null >/dev/null 2>&1 &
+# item 40: WIFI_ROAM=1: leave a weak access point for a much better one of the same SSID (repeaters, mesh)
+on "$BC_WIFI_ROAM" && sh /mnt/scripts/housekeeper.sh job add wifi-roam bg 60 120 - sh /mnt/scripts/wifi-roam.sh once </dev/null >/dev/null 2>&1
 # item 28: the logs in RAM that do not cap themselves, every 10 minutes (scripts/log-cap.sh, LOG_CAP_KB)
 sh /mnt/scripts/housekeeper.sh job add log-cap bg 600 600 - sh /mnt/scripts/log-cap.sh </dev/null >/dev/null 2>&1
 

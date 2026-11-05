@@ -2411,3 +2411,24 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** `MDNS_SERVICES=0`, `MDNS_INFO=0` (défauts).
 - **Test :** depuis un PC du réseau : `avahi-browse -rt _http._tcp` (ou `dns-sd -B _http._tcp` sur Mac/Windows) montre la caméra, port 80 ; `avahi-browse -rt _rtsp._tcp` : port 554, `path=/video0_unicast` ; VLC → Réseau local → mDNS liste la caméra ; Home Assistant propose de l'ajouter (zeroconf) ; avec `MDNS_INFO=1` les TXT montrent version, charge, signal. `ping <nom>.local` marche toujours.
 - **Critères :** découverte par les trois outils ; rien de plus annoncé sans les interrupteurs.
+
+## 2026-11-05 — Roaming entre bornes d'un même réseau (`[wifi-roam]`, liste de l'implémenteur #40)
+
+- **Quoi :** `WIFI_ROAM=1` dans `boot.conf` : tâche `wifi-roam` du housekeeper chaque minute ; sous -75 dBm à deux contrôles de suite, `wpa_cli scan`, puis `wpa_cli roam <bssid>` vers une borne du même SSID au moins 15 dB plus forte ; 10 min de pause après une bascule. Lignes `wifi-roam:` dans `logread`.
+- **Interrupteur :** `WIFI_ROAM=0` (défaut).
+- **Test (seulement avec un répéteur ou un mesh) :** caméra associée à la borne éloignée (signal < -75), la proche allumée : en 2-3 min `wifi-roam: ... roaming to <bssid>`, `wpa_cli status` montre le nouveau BSSID, le flux continue (coupure de 1-2 s au plus). Avec une seule borne : rien d'autre qu'une ligne « no access point ... better » quand le signal est faible.
+- **Critères :** bascule vers la meilleure borne, pas de va-et-vient (10 min de pause).
+
+## 2026-11-05 — Démarrage discret (`[boot-stealth]`, liste de l'implémenteur #42)
+
+- **Quoi :** `BOOT_STEALTH=1` dans `boot.conf` : pas de carillon de démarrage, pas de clignotement `WIFI_AIM`, LED éteintes dès le script S39 (seules les premières secondes du noyau restent allumées) ; `FRONT_LED` / `RED_LED` s'appliquent à la fin du démarrage comme avant. `BOOT_SOUND=0` reste disponible seul.
+- **Interrupteur :** `BOOT_STEALTH=0` (défaut).
+- **Test :** `BOOT_STEALTH=1`, redémarrer dans le noir : la LED bleue ne reste allumée que quelques secondes au tout début, aucun son, puis la LED suit le réglage de Réglages.
+- **Critères :** aucun son, LED éteintes pendant le démarrage (hors noyau), réglages LED respectés ensuite.
+
+## 2026-11-05 — Test du lien vers l'enregistreur (`[nvr-latency]`, liste de l'implémenteur #43)
+
+- **Quoi :** Diagnostics → onglet « Lien vers l'enregistreur » → « Tester le lien » : 10 pings (0,2 s d'écart quand busybox le permet) vers l'adresse Frigate des Réglages, sinon `REC_CLIENT`, sinon la box (ou l'adresse tapée) ; réponse : pertes %, délai min / moyen / max, gigue (moyenne des écarts entre deux mesures).
+- **Interrupteur :** aucun (bouton à la demande).
+- **Test :** sans adresse : la cible est Frigate (ou la box) ; avec l'adresse du Synology : résultat en ~3 s ; une adresse inexistante → `pertes 100 %` ; une adresse avec des caractères interdits → refusée. Comparer avec la nuit de pertes Wi-Fi (#9).
+- **Critères :** chiffres cohérents avec un ping depuis un PC.

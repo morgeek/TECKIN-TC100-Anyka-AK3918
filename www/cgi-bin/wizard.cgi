@@ -322,7 +322,7 @@ cat << 'HTMLEOF'
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TC100 — Initial setup</title>
 <link rel="stylesheet" href="/css/bulma.1.0.2.purged.min.css?v=0a08b929">
-<script src="/scripts/i18n.js?v=141c99e4"></script>
+<script src="/scripts/i18n.js?v=6b9020b4"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; }
 

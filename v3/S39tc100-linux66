@@ -54,6 +54,10 @@ if [ $FM = 1 ]; then
     log "cannot mount the user space from flash"; FM=0
   fi
 fi
+# item 42: BOOT_STEALTH=1: the LEDs off as early as the settings can be read (the kernel lights the blue one at boot)
+if grep -q '^BOOT_STEALTH=1' "$CFGD/boot.conf" 2>/dev/null; then
+  for l in blue_led blue red_led red; do echo 0 > /sys/class/leds/$l/brightness 2>/dev/null; done
+fi
 
 # 1b. Serial console: a login prompt, or a root shell if tc100test/consoleshell exists on the card
 #     (physical access to the UART pads only; for bring-up, remove the file afterwards)

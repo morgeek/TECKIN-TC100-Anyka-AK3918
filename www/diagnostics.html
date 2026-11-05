@@ -9,6 +9,7 @@
             <li data-diag="diag_device" role="tab" tabindex="0" aria-selected="false"><a><span>Device</span></a></li>
             <li data-diag="diag_storage" role="tab" tabindex="0" aria-selected="false"><a><span>Storage</span></a></li>
             <li data-diag="diag_network" role="tab" tabindex="0" aria-selected="false"><a><span>Network</span></a></li>
+            <li data-diag="diag_latency" role="tab" tabindex="0" aria-selected="false"><a><span>Link to the recorder</span></a></li>
         </ul>
     </div>
     <div class="buttons is-right mb-2">
@@ -41,6 +42,16 @@
     <div class="diag-panel" id="diag_device" data-src="cgi-bin/devinfo.cgi" hidden></div>
     <div class="diag-panel" id="diag_storage" data-src="cgi-bin/disk.cgi" hidden></div>
     <div class="diag-panel" id="diag_network" data-src="cgi-bin/network.cgi?part=diag" hidden></div>
+    <div class="diag-panel" id="diag_latency" hidden>
+        <div class="card status_card"><div class="card-content">
+            <p class="help mb-3">Ten pings to the recorder (the Frigate address of Settings, else the recording client, else the router): loss, delay and jitter. A loss or a jitter of hundreds of milliseconds points at the Wi-Fi or the network, not at the camera.</p>
+            <div class="field has-addons">
+                <div class="control is-expanded"><input class="input is-small" id="lat_host" type="text" maxlength="253" placeholder="Recorder address (optional)"></div>
+                <div class="control"><button class="button is-small is-primary" type="button" id="lat_run">Test the link</button></div>
+            </div>
+            <p id="lat_result" role="status"></p>
+        </div></div>
+    </div>
 </div>
 
 <script>
@@ -143,6 +154,19 @@
             });
         });
         document.getElementById('diag_refresh').addEventListener('click', function () { show(current, true); });
+        (function () {	/* item 43: link to the recorder */
+            var btn = document.getElementById('lat_run'), out = document.getElementById('lat_result'), host = document.getElementById('lat_host');
+            var T = window.tc100T || function (s) { return s; };
+            if (!btn) return;
+            btn.addEventListener('click', function () {
+                var q = 'cgi-bin/action.cgi?cmd=nvr_latency&format=json' + (host.value.trim() ? '&host=' + encodeURIComponent(host.value.trim()) : '');
+                btn.classList.add('is-loading'); out.textContent = T('Testing (about 3 s)…');
+                (window.csrfFetch || fetch)(q, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+                    if (!d.ok) { out.textContent = d.message || d.error || T('Test failed'); return; }
+                    out.textContent = d.host + ': ' + T('loss') + ' ' + d.loss_pct + ' %' + (d.received ? ' · ' + T('delay') + ' ' + d.min_ms + ' / ' + d.avg_ms + ' / ' + d.max_ms + ' ms · ' + T('jitter') + ' ' + d.jitter_ms + ' ms' : '');
+                }).catch(function () { out.textContent = T('Test failed'); }).then(function () { btn.classList.remove('is-loading'); });
+            });
+        })();
         show(current, false);
     })();
 </script>
