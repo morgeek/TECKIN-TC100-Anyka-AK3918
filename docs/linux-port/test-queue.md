@@ -2404,3 +2404,10 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** `NOTIFY_BURST=0`, `NOTIFY_UPLOAD_URL=""` (défauts).
 - **Test :** Ntfy (ou Telegram) actif, `NOTIFY_BURST=3`, `NOTIFY_UPLOAD_URL=http://<synology>/webdav/tc100/` : masquer l'objectif avec la main jusqu'à l'alerte de sabotage → 1 + 3 images reçues sur le téléphone, 4 fichiers `<caméra>_<date>_tamper_0..3.jpg` dans le dossier WebDAV ; un mouvement → une seule image (pas de rafale) ; un message avec une apostrophe passe.
 - **Critères :** images reçues et copiées ; aucune rafale hors des événements choisis.
+
+## 2026-11-05 — Services mDNS (DNS-SD) et informations (`[mdns-sd]`, liste de l'implémenteur #38)
+
+- **Quoi :** `MDNS_SERVICES=1` dans `boot.conf` (puis `controlscripts/mdns restart`) : `tc100-mdnsd -s` répond aussi à la recherche de services : `_http._tcp` (port 80, `path=/`) et `_rtsp._tcp` (port 554, `path=/video0_unicast`), avec SRV, TXT et l'adresse dans la même réponse. `MDNS_INFO=1` (`-v`) ajoute `model=TC100`, `fw=<version>`, `load=<charge 1 min>`, `rssi=<dBm>` aux TXT. Toujours seulement sur le même sous-réseau, jamais d'annonce spontanée.
+- **Interrupteur :** `MDNS_SERVICES=0`, `MDNS_INFO=0` (défauts).
+- **Test :** depuis un PC du réseau : `avahi-browse -rt _http._tcp` (ou `dns-sd -B _http._tcp` sur Mac/Windows) montre la caméra, port 80 ; `avahi-browse -rt _rtsp._tcp` : port 554, `path=/video0_unicast` ; VLC → Réseau local → mDNS liste la caméra ; Home Assistant propose de l'ajouter (zeroconf) ; avec `MDNS_INFO=1` les TXT montrent version, charge, signal. `ping <nom>.local` marche toujours.
+- **Critères :** découverte par les trois outils ; rien de plus annoncé sans les interrupteurs.

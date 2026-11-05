@@ -117,6 +117,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   or an upload address, so they survive a camera torn down or a card taken out. The Ntfy call no longer goes through
   `eval` (a message with a quote broke it).
 
+- **mDNS services** (item 38, off by default): `MDNS_SERVICES=1` makes `tc100-mdnsd` answer the DNS-SD browse
+  (`_http._tcp` port 80, `_rtsp._tcp` port 554 with `path=/video0_unicast`), so VLC, Home Assistant or a browser list
+  the camera; `MDNS_INFO=1` adds the firmware version, the load and the Wi-Fi level to the TXT records. Question names
+  with compression pointers are read now. Also fixed: the host name was read past its end when a query label was
+  longer than it (found by AddressSanitizer in the host test).
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

@@ -1,11 +1,14 @@
 /* tc100-mdnsd: answers "<hostname>.local" on the local network (mDNS, RFC 6762), nothing else.
  *
  * The camera then opens as http://ipcam1.local/ (the name comes from config/hostname.conf, applied by the boot
- * script) without knowing its address. Answer only: no announcements, no services (no DNS-SD, no SSDP), no version
- * or key in any record, and only to senders on the same subnet as the camera. The packet part is mdns_pkt.h
- * (tested on the build host by tests/test_regressions.py).
+ * script) without knowing its address. Answer only: no announcements, no SSDP, and only to senders on the same subnet
+ * as the camera. By default no services and no version or key in any record. Item 38 of the implementer list, both
+ * off unless asked (boot.conf, controlscripts/mdns): -s (MDNS_SERVICES=1) answers the DNS-SD browse for _http._tcp
+ * (port 80) and _rtsp._tcp (port 554, path=/video0_unicast), so VLC, Home Assistant or a browser list the camera;
+ * -v (MDNS_INFO=1) adds the firmware version, the load and the Wi-Fi level to their TXT records. The packet part is
+ * mdns_pkt.h (tested on the build host by src/mdnsd/test_mdns.c).
  *
- * usage: tc100-mdnsd [-i IFACE]     (default wlan0)
+ * usage: tc100-mdnsd [-i IFACE] [-s] [-v]     (default wlan0)
  *
  * Freestanding like src/httpfront (raw ARM EABI system calls, no C library): a few KB. Build:
  *   arm-linux-gnueabi-gcc -Os -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie
@@ -99,6 +102,50 @@ static u32 ifaddr(int s, const char *ifn, int req)
 	return r.a.addr;
 }
 
+/* first line (or first word with word = 1) of a small file into b; returns the length */
+static int first(const char *path, char *b, int max, int word)
+{
+	int f = (int)sc(SYS_open, (long)path, 0, 0, 0, 0, 0), n, k = 0;
+	char t[96];
+
+	b[0] = 0;
+	if (f < 0) return 0;
+	n = (int)sc(SYS_read, f, (long)t, sizeof t - 1, 0, 0, 0);
+	sc(SYS_close, f, 0, 0, 0, 0, 0);
+	for (int i = 0; i < n && k < max - 1; i++) {
+		char c = t[i];
+
+		if (c == '\n' || c == 0 || (word && c == ' ')) break;
+		if (c < ' ' || c > '~') continue;
+		b[k++] = c;
+	}
+	b[k] = 0;
+	return k;
+}
+
+static void add(char *d, int *l, int max, const char *s) { while (*s && *l < max - 1) d[(*l)++] = *s++; d[*l] = 0; }
+
+/* -v: "fw=<version>\nload=<1 min>\nrssi=<dBm>" (strings of the TXT records), read at each answer */
+static void info_txt(char *t, int max)
+{
+	char b[64], w[16];
+	int l = 0;
+
+	t[0] = 0;
+	add(t, &l, max, "model=TC100");
+	if (first("/mnt/VERSION", b, sizeof b, 0)) { add(t, &l, max, "\nfw="); add(t, &l, max, b); }
+	if (first("/proc/loadavg", b, sizeof b, 1)) { add(t, &l, max, "\nload="); add(t, &l, max, b); }
+	if (first("/tmp/wifi-signal.avg", b, sizeof b, 0)) {	/* "<uptime s> <dBm>" (wifi-quality.sh) */
+		int i = 0, k = 0;
+
+		while (b[i] && b[i] != ' ') i++;
+		while (b[i] == ' ') i++;
+		while (b[i] && b[i] != ' ' && k < (int)sizeof w - 1) w[k++] = b[i++];
+		w[k] = 0;
+		if (k) { add(t, &l, max, "\nrssi="); add(t, &l, max, w); }
+	}
+}
+
 static void join(int s)
 {
 	struct ip_mreq m = { MDNS_GROUP_BE, 0 };
@@ -111,12 +158,15 @@ int run(int argc, char **argv)
 	const char *ifn = "wlan0";
 	struct sockaddr_in a = { AF_INET, MDNS_PORT_BE, 0, { 0 } }, src, dst = { AF_INET, MDNS_PORT_BE, MDNS_GROUP_BE, { 0 } };
 	struct timeval tv = { 60, 0 };
-	unsigned char q[1500], out[256];
-	int s, on = 1, ttl = 255, loop = 0;
+	unsigned char q[1500], out[700];
+	int s, on = 1, ttl = 255, loop = 0, svcs = 0, info = 0;
+	char txt[160];
 
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] == '-' && argv[i][1] == 'i' && !argv[i][2] && i + 1 < argc) ifn = argv[++i];
-		else { say("usage: tc100-mdnsd [-i IFACE]\n"); return 2; }
+		else if (argv[i][0] == '-' && argv[i][1] == 's' && !argv[i][2]) svcs = MDNS_SD_HTTP | MDNS_SD_RTSP;
+		else if (argv[i][0] == '-' && argv[i][1] == 'v' && !argv[i][2]) info = 1;
+		else { say("usage: tc100-mdnsd [-i IFACE] [-s] [-v]\n"); return 2; }
 	}
 	s = (int)sc(SYS_socket, AF_INET, SOCK_DGRAM, 0, 0, 0, 0);
 	if (s < 0) return 1;
@@ -137,10 +187,17 @@ int run(int argc, char **argv)
 		ip = ifaddr(s, ifn, SIOCGIFADDR); mask = ifaddr(s, ifn, SIOCGIFNETMASK);
 		if (!ip || !mask || (src.addr & mask) != (ip & mask)) continue;	/* same subnet only */
 		if (!hostname(h, sizeof h)) continue;
-		r = mdns_answer(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, out, sizeof out);
-		if (r <= 0) continue;
-		if (src.port != MDNS_PORT_BE) sc(SYS_sendto, s, (long)out, r, 0, (long)&src, sizeof src);
-		else sc(SYS_sendto, s, (long)out, r, 0, (long)&dst, sizeof dst);
+		for (int pass = 0; pass < 2; pass++) {	/* the A record, then the DNS-SD records (-s) */
+			if (pass == 0) r = mdns_answer(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, out, sizeof out);
+			else {
+				if (!svcs) break;
+				if (info) info_txt(txt, sizeof txt); else txt[0] = 0;
+				r = mdns_sd_answer(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, svcs, txt, out, sizeof out);
+			}
+			if (r <= 0) continue;
+			if (src.port != MDNS_PORT_BE) sc(SYS_sendto, s, (long)out, r, 0, (long)&src, sizeof src);
+			else sc(SYS_sendto, s, (long)out, r, 0, (long)&dst, sizeof dst);
+		}
 	}
 }
 

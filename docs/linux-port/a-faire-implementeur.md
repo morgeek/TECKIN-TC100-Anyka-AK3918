@@ -283,7 +283,11 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     - Le 3D-NR matériel étant désactivé par manque de mémoire tampon dans le pool CMA (18 Mo), exploiter dynamiquement le filtre spatial 2D-NR de l'ISP.
     - Asservir le niveau de lissage et le coring au gain capteur en temps réel (`ispx_ae_report`) : netteté maximale et piqué fin en plein jour, atténuation progressive du fourmillement sur les aplats sombres la nuit.
     - Gain : image nocturne nettement plus propre et économie de 20 à 30 % de bande passante / débit H.264 sans aucun octet de RAM supplémentaire.
-38. [ ] **Annonce mDNS / Zero-Conf enrichie (IP, version, état de santé)** :
+38. [x] **Annonce mDNS / Zero-Conf enrichie (IP, version, état de santé)** :
+    *Fait le 2026-11-05, désactivé par défaut (le démon avait été écrit volontairement sans version ni service :
+    n'importe qui sur le réseau les lit) : `MDNS_SERVICES=1` (DNS-SD `_http._tcp` / `_rtsp._tcp`), `MDNS_INFO=1`
+    (version, charge, Wi-Fi dans les TXT). Pas de température (#14). Corrigé au passage une lecture hors limites du nom
+    (ASan). Entrée `[mdns-sd]`.*
     - Enrichir les enregistrements TXT du démon `tc100-mdnsd` pour diffuser non seulement le service web/rtsp mais aussi la version firmware exacte, l'adresse IP et les indicateurs vitaux (température SoC, charge, Wi-Fi RSSI).
     - Facilite l'identification immédiate et le repérage multi-caméras sur le réseau local depuis les navigateurs/outils réseau sans scanner les baux DHCP.
 39. [ ] **Structure de trames indépendante multi-profils NVR (GOP différencié ch0 / ch1)** :

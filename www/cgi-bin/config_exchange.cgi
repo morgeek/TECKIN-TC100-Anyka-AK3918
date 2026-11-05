@@ -99,6 +99,8 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"PRIVACY_SCREEN";"bool";"general";.boot.privacy_screen),
     row("boot.conf";"flat";"root";"WEB_LOCKOUT";"bool";"general";.boot.web_lockout),
     row("boot.conf";"flat";"root";"WIFI_AIM";"bool";"general";.boot.wifi_aim),
+    row("boot.conf";"flat";"root";"MDNS_SERVICES";"bool";"general";.boot.mdns_services),
+    row("boot.conf";"flat";"root";"MDNS_INFO";"bool";"general";.boot.mdns_info),
     row("boot.conf";"flat";"root";"ISP_TUNE";"bool";"general";.boot.isp_tune),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),

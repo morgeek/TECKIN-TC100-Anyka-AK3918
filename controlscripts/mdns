@@ -25,7 +25,12 @@ start()
 {
   [ -n "$(status)" ] && return 0
   [ -x "$BIN" ] || { echo "tc100-mdnsd is not installed ($BIN)" >&2; return 1; }
-  "$BIN" -i wlan0 </dev/null >/dev/null 2>&1 &
+  # item 38: boot.conf MDNS_SERVICES=1 (DNS-SD: _http._tcp, _rtsp._tcp), MDNS_INFO=1 (version, load, Wi-Fi in the TXT)
+  _md_opt=""
+  grep -q '^MDNS_SERVICES=1' /mnt/config/boot.conf 2>/dev/null && _md_opt="-s"
+  grep -q '^MDNS_INFO=1' /mnt/config/boot.conf 2>/dev/null && _md_opt="$_md_opt -v"
+  # shellcheck disable=SC2086
+  "$BIN" -i wlan0 $_md_opt </dev/null >/dev/null 2>&1 &
   echo $! > "$PIDFILE"
   sleep 1
   [ -n "$(status)" ]

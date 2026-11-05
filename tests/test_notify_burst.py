@@ -17,7 +17,8 @@ class NotifyBurst(unittest.TestCase):
             t = Path(t)
             (t / 'notify.conf').write_text(conf)
             calls = t / 'calls'
-            (t / 'curl').write_text('#!/bin/sh\nfor a; do printf "[%%s]" "$a"; done >> %s\necho >> %s\n' % (calls, calls))
+            # one write per call: the channels run in parallel and their lines must not interleave
+            (t / 'curl').write_text('#!/bin/sh\nl=\nfor a; do l="$l[$a]"; done\necho "$l" >> %s\n' % calls)
             (t / 'telegram').write_text('#!/bin/sh\necho "telegram $*" >> %s\n' % calls)
             (t / 'snap').write_text('#!/bin/sh\necho JPEG > "$1"\necho "snap $1" >> %s\n' % calls)
             for f in ('curl', 'telegram', 'snap'):

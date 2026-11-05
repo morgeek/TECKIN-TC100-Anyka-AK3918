@@ -59,6 +59,11 @@ WEB_LOCKOUT=0
 # WIFI_AIM=1: for 5 minutes after boot the blue front LED blinks faster as the Wi-Fi signal gets
 # better (about 4 a second at -50 dBm, one every 2 s at -85), to aim the camera without a screen.
 WIFI_AIM=0
+# mDNS (tc100-mdnsd always answers <name>.local). MDNS_SERVICES=1: also the DNS-SD services (_http._tcp port 80,
+# _rtsp._tcp port 554 path /video0_unicast), so VLC, Home Assistant or a browser list the camera. MDNS_INFO=1: adds
+# the firmware version, the load and the Wi-Fi level to them (anyone on the network can read them). Restart mdns.
+MDNS_SERVICES=0
+MDNS_INFO=0
 # Telnet and FTP send passwords in clear: started from the web page, they
 # stop by themselves after REMOTE_SHELL_TIMEOUT_MIN minutes (0 = never).
 REMOTE_SHELL_TIMEOUT_MIN=15

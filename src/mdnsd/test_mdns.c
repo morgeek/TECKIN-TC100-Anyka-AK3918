@@ -1,4 +1,5 @@
 /* Host test of mdns_pkt.h (tests/test_regressions.py builds and runs it): cc -o test_mdns test_mdns.c && ./test_mdns */
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include "mdns_pkt.h"
@@ -67,6 +68,44 @@ int main(void)
 	n = query(q, "ipcam1.local", 1, 0); q[5] = 200; CHECK(mdns_answer(q, n, "ipcam1", ip, 0, o, sizeof o) == 0);
 	n = query(q, "ipcam1.local", 1, 0); CHECK(mdns_answer(q, n, "", ip, 0, o, sizeof o) == 0);
 	n = query(q, "ipcam1.local", 1, 0); CHECK(mdns_answer(q, n, "ipcam1", ip, 0, o, 40) == 0);
+
+	/* DNS-SD (item 38): off without services; the browse of _http._tcp gives PTR + SRV + TXT + A */
+	{
+		unsigned char big[700];
+		const int both = MDNS_SD_HTTP | MDNS_SD_RTSP;
+
+		n = query(q, "_http._tcp.local", 12, 0);
+		CHECK(mdns_sd_answer(q, n, "ipcam1", ip, 0, 0, "", big, sizeof big) == 0);	/* -s not given */
+		r = mdns_sd_answer(q, n, "ipcam1", ip, 0, both, "fw=3.0.1\nload=0.5", big, sizeof big);
+		CHECK(r > 0 && big[7] == 4);							/* PTR, SRV, TXT, A */
+		CHECK(memmem(big, (size_t)r, "\x06ipcam1\x05_http\x04_tcp\x05local", 24) != NULL);
+		CHECK(memmem(big, (size_t)r, "\x00\x00\x00\x00\x00\x50\x06ipcam1\x05local", 19) != NULL);	/* SRV port 80 */
+		CHECK(memmem(big, (size_t)r, "\x06path=/\x08" "fw=3.0.1\x08load=0.5", 24) != NULL);
+		CHECK(!memcmp(big + r - 4, ip, 4));
+		n = query(q, "_rtsp._tcp.local", 12, 0);
+		r = mdns_sd_answer(q, n, "ipcam1", ip, 0, both, "", big, sizeof big);
+		CHECK(r > 0 && memmem(big, (size_t)r, "\x02\x2a", 2) && memmem(big, (size_t)r, "\x14path=/video0_unicast", 21));
+		CHECK(mdns_sd_answer(q, n, "ipcam1", ip, 0, MDNS_SD_HTTP, "", big, sizeof big) == 0);	/* only http asked for */
+		n = query(q, "_services._dns-sd._udp.local", 12, 0);
+		r = mdns_sd_answer(q, n, "ipcam1", ip, 0, both, "", big, sizeof big);
+		CHECK(r > 0 && big[7] == 2);
+		n = query(q, "IPCAM1._http._tcp.local", 33, 0);					/* SRV of the instance, any case */
+		r = mdns_sd_answer(q, n, "ipcam1", ip, 0, both, "", big, sizeof big);
+		CHECK(r > 0 && big[7] == 3);
+		n = query(q, "other._http._tcp.local", 33, 0);
+		CHECK(mdns_sd_answer(q, n, "ipcam1", ip, 0, both, "", big, sizeof big) == 0);
+		/* two questions, the second compressed (pointer to "_tcp.local" of the first) */
+		n = query(q, "_http._tcp.local", 12, 0);
+		q[5] = 2;
+		q[n++] = 5; memcpy(q + n, "_rtsp", 5); n += 5; q[n++] = 0xc0; q[n++] = 12 + 6;	/* -> "_tcp.local" */
+		q[n++] = 0; q[n++] = 12; q[n++] = 0; q[n++] = 1;
+		r = mdns_sd_answer(q, n, "ipcam1", ip, 0, both, "", big, sizeof big);
+		CHECK(r > 0 && big[7] == 7);							/* 2 x (PTR SRV TXT) + A */
+		q[n - 6] = 0xc0 | 0x3f; q[n - 5] = 0xff;					/* pointer out of the packet */
+		CHECK(mdns_sd_answer(q, n, "ipcam1", ip, 0, both, "", big, sizeof big) == 0);
+		for (int cut = 12; cut < n; cut++) mdns_sd_answer(q, cut, "ipcam1", ip, 0, both, "", big, sizeof big);	/* no crash */
+		CHECK(mdns_sd_answer(q, n, "ipcam1", noip, 0, both, "", big, sizeof big) == 0);
+	}
 
 	if (!fails) printf("mdns: ok\n");
 	return fails != 0;
