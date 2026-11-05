@@ -265,30 +265,48 @@ static void drain(int fd)
 static volatile sig_atomic_t g_stop;
 static void on_term(int sig) { (void)sig; g_stop = 1; }
 
+static void errmsg(const char *a, const char *b)
+{
+    char m[512];
+    int n = snprintf(m, sizeof(m), "%s%s", a, b);
+    if (n > 0 && write(2, m, (size_t)(n < (int)sizeof(m) ? n : (int)sizeof(m) - 1)) < 0) { /* nothing to do */ }
+}
+
+static void usage(const char *a)
+{
+    errmsg(a, ": usage: -r HOST[:PORT] [-f file] [-l 5] [-w 60] [-m 60] [-b]\n");
+}
+
 int main(int argc, char **argv)
 {
-    int opt, fd = -1, ino = -1, wd = -1, from_start = 0;
+    int opt, i, fd = -1, ino = -1, wd = -1, from_start = 0;
     struct stat st;
     ino_t cur_ino = 0;
     char *colon;
 
-    while ((opt = getopt(argc, argv, "r:f:l:w:m:b")) != -1) {
+    /* Own option loop, and write(2) for errors: no libc variable may be imported (see src/logfwd/Makefile). */
+    for (i = 1; i < argc; i++) {
+        const char *a = argv[i], *val = NULL;
+        if (a[0] != '-' || !a[1] || a[2]) { usage(argv[0]); return 2; }
+        opt = a[1];
+        if (strchr("rflwm", opt)) {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            val = argv[i];
+        }
         switch (opt) {
         case 'r':
-            snprintf(g_host, sizeof(g_host), "%s", optarg);
+            snprintf(g_host, sizeof(g_host), "%s", val);
             if ((colon = strrchr(g_host, ':'))) { *colon = 0; snprintf(g_port, sizeof(g_port), "%s", colon + 1); }
             break;
-        case 'f': g_path = optarg; break;
-        case 'l': g_maxlvl = atoi(optarg); break;
-        case 'w': g_window = atoi(optarg); break;
-        case 'm': g_rate = atoi(optarg); break;
+        case 'f': g_path = val; break;
+        case 'l': g_maxlvl = atoi(val); break;
+        case 'w': g_window = atoi(val); break;
+        case 'm': g_rate = atoi(val); break;
         case 'b': from_start = 1; break;
-        default:
-            fprintf(stderr, "usage: %s -r HOST[:PORT] [-f file] [-l 5] [-w 60] [-m 60] [-b]\n", argv[0]);
-            return 2;
+        default: usage(argv[0]); return 2;
         }
     }
-    if (!g_host[0]) { fprintf(stderr, "%s: -r HOST[:PORT] is required\n", argv[0]); return 2; }
+    if (!g_host[0]) { errmsg(argv[0], ": -r HOST[:PORT] is required\n"); return 2; }
     if (g_window < 1) g_window = 1;
     if (g_rate < 1) g_rate = 1;
     signal(SIGTERM, on_term); signal(SIGINT, on_term); signal(SIGPIPE, SIG_IGN);

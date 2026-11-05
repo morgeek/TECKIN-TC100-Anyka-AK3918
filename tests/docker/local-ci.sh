@@ -1,7 +1,7 @@
 #!/bin/sh
 # Local CI in Docker, run BEFORE pushing (the GitHub runs take 15-20 minutes each).
 #   sh tests/docker/local-ci.sh tests    # Python regressions + frontend tests (as the CI job)
-#   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, jpegenc, httpfront, tc100-mqttd, tc100-onvifd (as the kernel job)
+#   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, jpegenc, httpfront, tc100-mqttd, tc100-onvifd, tc100-logfwd, libnetacl.so (as the kernel job)
 #   sh tests/docker/local-ci.sh kernel   # Linux 6.6 + patches/kernel-6.6/series + zImage + dtbs (slow the first time)
 #   sh tests/docker/local-ci.sh whep     # item 35: the WHEP daemon against aiortc (builds mbedTLS, needs network; not part of all)
 #   sh tests/docker/local-ci.sh all      # tests, cross, kernel
@@ -43,7 +43,7 @@ run_cross() {
 		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 busybox-static >/dev/null 2>&1
 		cp -r /src /w && cd /w && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
-		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf
+		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl.so
 		arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o /tmp/jpegenc
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
@@ -62,15 +62,19 @@ run_cross() {
 		make -C src/supervisord CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/onvifd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/rwconf CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
-		sh tests/check-libc-data-imports.sh src/tc100rtsp src/mqttd src/onvifd src/supervisord src/rwconf	# rc27 R3: no libc variable through the stand-in libc
-		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd && test -s src/rwconf/rwconf
+		make -C src/logfwd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
+		make -C src/netacl CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
+		sh tests/check-libc-data-imports.sh	# rc27 R3: no libc variable through the stand-in libc
+		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd && test -s src/rwconf/rwconf && test -s src/logfwd/tc100-logfwd && test -s src/netacl/libnetacl.so
 		echo "rwconf (stripped, bytes): $(wc -c < src/rwconf/rwconf)"
 		echo "httpfront (stripped, bytes): $(wc -c < /tmp/httpfront)"
 		echo "tc100-mqttd (stripped, bytes): $(wc -c < src/mqttd/tc100-mqttd)"
 		echo "tc100-supervisord (stripped, bytes): $(wc -c < src/supervisord/tc100-supervisord)"
 		echo "tc100-onvifd (stripped, bytes): $(wc -c < src/onvifd/tc100-onvifd)"
+		echo "tc100-logfwd (stripped, bytes): $(wc -c < src/logfwd/tc100-logfwd)"
+		echo "libnetacl.so (stripped, bytes): $(wc -c < src/netacl/libnetacl.so)"
 		make -C src/tc100rtsp test_rtsp >/dev/null 2>&1 && echo "host test build: ok"
-		python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native tests.test_httpfront_dash >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
+		python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native tests.test_httpfront_dash tests.test_uclibc_standin_qemu >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
 		echo "cross: ok"' || rc=1
 }
 
