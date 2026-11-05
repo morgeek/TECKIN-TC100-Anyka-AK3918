@@ -49,12 +49,11 @@
     ;;
 
     play_sound)
-      # Trigger built-in chime, siren or alert clip
+      # chime, siren, alert or any clip of Settings -> Sounds (a custom one of that name first: sound_path)
       _snd_name="$(printf '%s' "${F_sound:-chime}" | tr -cd 'a-zA-Z0-9_-')"
-      _snd_file="/mnt/sounds/${_snd_name}.pcm"
-      [ -f "$_snd_file" ] || _snd_file="sounds/${_snd_name}.pcm"
+      _snd_file="$(sound_path "$_snd_name")" || _snd_file=""
       _snd_vol=$(sanitize_int_range "${F_volume:-90}" 0 100 90)
-      if [ -f "$_snd_file" ] && [ -x /mnt/scripts/speaker-play.sh ]; then
+      if [ -n "$_snd_file" ] && [ -x /mnt/scripts/speaker-play.sh ]; then
         /mnt/scripts/speaker-play.sh "$_snd_file" "$_snd_vol" >/dev/null 2>&1 &
         if wants_json_response; then
           json_body_ok "Playing ${_snd_name}"

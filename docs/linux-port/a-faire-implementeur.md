@@ -344,7 +344,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 47. [ ] **Passe de cohérence et actualisation des textes dans toute l'interface Web** :
     - Nettoyer les mentions historiques devenues obsolètes (anciennes références à lighttpd, 2.x, v4l2rtspserver, etc.).
     - Harmoniser le vocabulaire, les infobulles, les traductions françaises (`www/i18n/fr.js`) et la documentation intégrée pour refléter l'architecture 3.0 moderne (noyau 6.6, `httpfront`, `tc100_rtsp`, pont MQTT en C).
-48. [ ] **Gestionnaire de sons personnalisés (Démarrage, Alertes, Upload audio)** :
+48. [x] *(2026-11-05 : fait, entrée `[sounds]` ; conversion dans le navigateur (Web Audio) en PCM 8 kHz, la caméra ne fait que stocker ; pas de son joué sur événement, seulement les noms existants chime / alert / siren)* **Gestionnaire de sons personnalisés (Démarrage, Alertes, Upload audio)** :
     - Interface de sélection du son au démarrage (jingle par défaut, son alternatif ou silencieux) et des sons d'alertes / carillons.
     - Outil d'upload audio dans l'interface Web permettant d'importer de nouveaux sons personnalisés (ex: voix d'accueil, aboiement dissuasif, mélodie personnalisée) avec conversion automatique en PCM 8 kHz / 16 kHz léger sur la carte SD.
 49. [x] **Banc d'essai matériel interactif avec jumeau visuel (Hardware Visual Twin / Interactive Testbed)** :

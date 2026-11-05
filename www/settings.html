@@ -289,6 +289,21 @@
                 </div>
             </form>
 
+            <!-- item 48: the speaker's sounds (cgi-bin/sounds.cgi); the script below converts uploads in the browser -->
+            <div class="card status_card mt-4" id="sounds_card">
+                <header class="card-header"><p class="card-header-title">Sounds</p></header>
+                <div class="card-content">
+                    <div class="field"><label class="label" for="sounds_boot">Startup sound</label><div class="select is-small"><select id="sounds_boot"></select></div></div>
+                    <div id="sounds_list"></div>
+                    <div id="sounds_upload_box" class="mt-3" style="display:none">
+                        <div class="field"><label class="label" for="sounds_file">Add a sound (any audio file, 30 s at most)</label><input id="sounds_file" type="file" accept="audio/*"></div>
+                        <div class="field"><label class="label" for="sounds_name">Name of the sound</label><input class="input is-small" id="sounds_name" type="text" maxlength="32" placeholder="doorbell"></div>
+                        <button class="button is-small is-primary" id="sounds_send" type="button">Convert and send</button>
+                    </div>
+                    <p class="help" id="sounds_note">A sound named chime, alert, siren or startup_complete replaces the built-in one (dashboard buttons, Home Assistant, startup).</p>
+                </div>
+            </div>
+
             <div class='card status_card mt-4'>
                 <header class='card-header'><p class='card-header-title'>Stream addresses</p></header>
                 <div class='card-content'>
@@ -1672,5 +1687,107 @@
             syncHa();
             updateMqttStatus();
         }
+    })();
+
+    // Settings -> Sounds (item 48): list, play, delete, startup sound, and the upload of any file the browser decodes,
+    // converted here to the speaker's format (8 kHz mono signed 16-bit, peak at -1 dBFS): the camera only stores it
+    (function() {
+        var box = document.getElementById('sounds_list');
+        if (!box || box.dataset.bound) return;
+        box.dataset.bound = '1';
+        var T = window.tc100T || String;
+        var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+        var note = document.getElementById('sounds_note'), sel = document.getElementById('sounds_boot');
+        function say(msg, bad) { note.textContent = msg; note.className = 'help' + (bad ? ' is-danger' : ''); }
+        function post(q, body) {
+            var o = { method: 'POST', body: body || '' };
+            if (body) o.headers = { 'Content-Type': 'application/octet-stream' };
+            return cf('cgi-bin/sounds.cgi?' + q, o).then(function(r) {
+                return r.json().catch(function() { return { ok: false, error: 'HTTP ' + r.status }; });
+            });
+        }
+        function button(text, fn, cls) {
+            var b = document.createElement('button');
+            b.type = 'button'; b.className = 'button is-small ' + (cls || 'is-light'); b.textContent = text;
+            b.addEventListener('click', fn);
+            return b;
+        }
+        function render(d) {
+            box.innerHTML = ''; sel.innerHTML = '';
+            var silent = document.createElement('option'); silent.value = '0'; silent.textContent = T('Silent'); sel.appendChild(silent);
+            (d.sounds || []).forEach(function(s) {
+                var row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;flex-wrap:wrap';
+                var label = document.createElement('span');
+                label.style.flex = '1';
+                label.textContent = s.name + ' · ' + (s.bytes / 16000).toFixed(1) + ' s · ' +
+                    (s.custom ? (s.builtin ? T('yours, replaces the built-in one') : T('yours')) : T('built-in'));
+                row.appendChild(label);
+                row.appendChild(button(T('Play'), function() {
+                    post('cmd=play&name=' + encodeURIComponent(s.name)).then(function(x) { if (!x.ok) say(x.error || T('Failed'), true); });
+                }));
+                if (s.custom) row.appendChild(button(T('Delete'), function() {
+                    if (!confirm(T('Delete this sound?') + '\n' + s.name)) return;
+                    post('cmd=delete&name=' + encodeURIComponent(s.name)).then(function(x) { if (x.ok) load(); else say(x.error || T('Failed'), true); });
+                }, 'is-danger is-light'));
+                box.appendChild(row);
+                var o = document.createElement('option'); o.value = s.name; o.textContent = s.name; sel.appendChild(o);
+            });
+            sel.value = d.boot && d.boot.on ? d.boot.name : '0';
+            if (sel.selectedIndex < 0) sel.value = '0';
+            document.getElementById('sounds_upload_box').style.display = d.sd ? '' : 'none';
+            if (!d.sd) say(T('Insert an SD card to add your own sounds.'));
+        }
+        function load() {
+            fetch('cgi-bin/sounds.cgi?cmd=list&_=' + Date.now(), { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(render)
+                .catch(function() { say(T('The list of sounds is unavailable.'), true); });
+        }
+        sel.addEventListener('change', function() {
+            post('cmd=boot&name=' + encodeURIComponent(sel.value)).then(function(x) {
+                say(x.ok ? T('Startup sound saved.') : (x.error || T('Failed')), !x.ok);
+            });
+        });
+        document.getElementById('sounds_file').addEventListener('change', function() {
+            var n = document.getElementById('sounds_name'), f = this.files[0];
+            if (f && !n.value) n.value = f.name.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 32);
+        });
+        document.getElementById('sounds_send').addEventListener('click', function() {
+            var file = document.getElementById('sounds_file').files[0];
+            var name = (document.getElementById('sounds_name').value || '').trim();
+            var AC = window.AudioContext || window.webkitAudioContext, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+            if (!file) { say(T('Choose an audio file.'), true); return; }
+            if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { say(T('Name: 1 to 32 letters, digits, _ or -.'), true); return; }
+            if (!AC || !OAC || !file.arrayBuffer) { say(T('This browser cannot convert audio.'), true); return; }
+            var btn = this;
+            btn.classList.add('is-loading');
+            say(T('Converting...'));
+            file.arrayBuffer().then(function(buf) {
+                var ac = new AC();
+                return new Promise(function(ok, ko) { ac.decodeAudioData(buf, ok, ko); })
+                    .then(function(audio) { if (ac.close) ac.close(); return audio; });
+            }).then(function(audio) {
+                // one channel at 8000 Hz: the browser mixes the channels down and resamples (with its own filter)
+                var off = new OAC(1, Math.max(1, Math.ceil(Math.min(audio.duration, 30) * 8000)), 8000);
+                var src = off.createBufferSource();
+                src.buffer = audio; src.connect(off.destination); src.start(0);
+                return off.startRendering();
+            }).then(function(out) {
+                var x = out.getChannelData(0), peak = 0, i;
+                for (i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]));
+                var gain = peak > 0 ? Math.min(4, 0.89 / peak) : 1;		// peak at -1 dBFS, +12 dB at most
+                var pcm = new Int16Array(x.length);
+                for (i = 0; i < x.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(x[i] * gain * 32767)));
+                return post('cmd=upload&name=' + encodeURIComponent(name), new Uint8Array(pcm.buffer));
+            }).then(function(x) {
+                btn.classList.remove('is-loading');
+                if (x.ok) { say(T('Sound saved on the SD card.')); load(); } else say(x.error || T('Failed'), true);
+            }).catch(function() {
+                btn.classList.remove('is-loading');
+                say(T('This file could not be decoded.'), true);
+            });
+        });
+        load();
     })();
 </script>

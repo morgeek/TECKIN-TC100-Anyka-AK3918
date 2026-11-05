@@ -2088,9 +2088,8 @@ handle_command_payload()
         alarm)      _snd_to_play="siren" ;;
       esac
       _snd_to_play="$(printf '%s' "$_snd_to_play" | tr -cd 'a-zA-Z0-9_-')"
-      _snd_path="/mnt/sounds/${_snd_to_play}.pcm"
-      [ -f "$_snd_path" ] || _snd_path="sounds/${_snd_to_play}.pcm"
-      if [ -f "$_snd_path" ] && [ -x /mnt/scripts/speaker-play.sh ]; then
+      _snd_path="$(sound_path "$_snd_to_play")" || _snd_path=""	# a custom clip of that name first (item 48)
+      if [ -n "$_snd_path" ] && [ -x /mnt/scripts/speaker-play.sh ]; then
         /mnt/scripts/speaker-play.sh "$_snd_path" 90 >/dev/null 2>&1 &
         publish_event_simple "command.play_sound" "$_snd_to_play"
         publish_command_result "play_sound" "played" "Playing ${_snd_to_play}." 1 "$command_source" command

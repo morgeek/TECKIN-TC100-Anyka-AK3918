@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Your own sounds** (Settings → Streams & audio → Sounds, item 48): play, add or delete the speaker's sounds and
+  choose the startup sound (or silent). Any audio file the browser decodes (WAV, MP3, OGG...) is converted in the
+  browser to the speaker's format (8 kHz mono 16-bit, 30 s at most) and stored on the SD card
+  (`tc100-3/sounds/NAME.pcm`, `cgi-bin/sounds.cgi`); a sound named `chime`, `alert`, `siren` or `startup_complete`
+  replaces the built-in one for the dashboard buttons, MQTT / Home Assistant and the startup (`BOOT_SOUND_NAME`).
 - **Recordings timeline** (Recordings page, item 36): the day drawn in the browser from one small index
   (`viewrecords.cgi?cmd=day_index`: start, length and event spans of each file), each file at its real length, the
   motion and sound event spans in red, the playhead, zoom (24 h to 5 min, double-click); a click or a drag plays from

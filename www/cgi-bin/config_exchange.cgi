@@ -103,6 +103,7 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"MDNS_INFO";"bool";"general";.boot.mdns_info),
     row("boot.conf";"flat";"root";"WIFI_ROAM";"bool";"general";.boot.wifi_roam),
     row("boot.conf";"flat";"root";"BOOT_SOUND";"bool";"general";.boot.boot_sound),
+    row("boot.conf";"flat";"root";"BOOT_SOUND_NAME";"identifier";"general";.boot.boot_sound_name),
     row("boot.conf";"flat";"root";"BOOT_STEALTH";"bool";"general";.boot.boot_stealth),
     row("boot.conf";"flat";"root";"ISP_TUNE";"bool";"general";.boot.isp_tune),
 

@@ -429,7 +429,15 @@ esac
 # (a first start that installs itself to the flash, step 12f, plays the chime only once it runs from the flash)
 AUTO_INSTALL=0
 [ -f /tmp/flashmode ] || ! sh /mnt/v3/install/auto-install.sh pending </dev/null >/dev/null 2>&1 || AUTO_INSTALL=1
-[ "$BC_BOOT_SOUND" = 0 ] || [ "$SAFE" = 1 ] || [ $AUTO_INSTALL = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh /mnt/sounds/startup_complete.pcm 60 ) </dev/null >/dev/null 2>&1 &
+# BOOT_SOUND_NAME (item 48, Settings -> Sounds): the clip, a custom one on the card first (sound_path in
+# common_functions.sh); the built-in chime when it is missing
+_bs=/mnt/sounds/startup_complete.pcm
+case "$BC_BOOT_SOUND_NAME" in ''|*[!A-Za-z0-9_-]*) ;; *)
+  for _f in "/mnt/sd/tc100-3/sounds/$BC_BOOT_SOUND_NAME.pcm" "/mnt/sounds/$BC_BOOT_SOUND_NAME.pcm"; do
+    [ -s "$_f" ] && { _bs=$_f; break; }
+  done ;;
+esac
+[ "$BC_BOOT_SOUND" = 0 ] || [ "$SAFE" = 1 ] || [ $AUTO_INSTALL = 1 ] || ( sleep 3; sh /mnt/scripts/speaker-play.sh "$_bs" 60 ) </dev/null >/dev/null 2>&1 &
 ( i=0; IP=
   while [ $i -lt 144 ]; do
     IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)

@@ -69,6 +69,9 @@ MDNS_INFO=0
 WIFI_ROAM=0
 # BOOT_SOUND=0: no startup chime on the speaker when the camera is ready (1 = the chime, default).
 BOOT_SOUND=1
+# BOOT_SOUND_NAME: which clip (Settings -> Sounds): a built-in one (startup_complete, chime, ...) or one sent to the
+# SD card (tc100-3/sounds/NAME.pcm, played first when both exist); the built-in chime if it is missing.
+BOOT_SOUND_NAME=startup_complete
 # BOOT_STEALTH=1 (a baby's room, a bedroom): no chime, no LED aiming blinks, LEDs off while the camera boots (the
 # kernel lights the blue one for a few seconds before the settings can be read); FRONT_LED / RED_LED apply at the end.
 BOOT_STEALTH=0
