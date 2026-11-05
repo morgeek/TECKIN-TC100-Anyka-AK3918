@@ -218,3 +218,18 @@ class WhepForwardsFullRtpPackets(unittest.TestCase):
             buf = int(re.search(r'uint8_t b\[(\d+)\]', body).group(1))
             self.assertIn('sizeof b - WH_SRTP_TAG', body)
             self.assertGreaterEqual(buf - tag, 12 + payload, fn)
+
+
+class WhepAcceptsBrowserOffers(unittest.TestCase):
+    """Chrome 157 sends a 7607-byte offer (video + audio recvonly); whep.cgi and tc100-whep refused anything over 6000
+    with 413, so the page never tried WebRTC on IPCAM2 (rc28): 'WebRTC off (HTTP 413): MP4 live view'."""
+
+    def test_same_limit_large_enough_in_cgi_and_daemon(self):
+        cgi = (ROOT / 'www/cgi-bin/whep.cgi').read_text()
+        src = (ROOT / 'src/whep/tc100_whep.c').read_text()
+        lim_cgi = int(re.search(r'\[ "\$_cl" -le (\d+) \]', cgi).group(1))
+        lim_d = int(re.search(r'#define WH_MAX_OFFER (\d+)', src).group(1))
+        buf = int(re.search(r'char rq\[(\d+)\]', src).group(1))
+        self.assertEqual(lim_cgi, lim_d)
+        self.assertGreaterEqual(lim_d, 7607 + 2000)
+        self.assertGreater(buf, lim_d + 2048, 'room for the request headers')

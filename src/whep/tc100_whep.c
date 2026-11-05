@@ -725,9 +725,13 @@ static void whep_post(int fd, const char *body)
 	LOG("viewer %s: offer accepted (%s stream, H.264 pt %d%s)", s->id, G.main_stream ? "main" : "sub", s->pt_v, s->a_on ? ", PCMA" : "");
 }
 
+/* largest SDP offer accepted (whep.cgi has the same limit): Chrome 157 sends 7607 bytes for video + audio recvonly with
+ * its host candidates, Firefox about as much; 6000 refused them with 413 and the page fell back to MP4 (rc28). */
+#define WH_MAX_OFFER 12000
+
 static void http_handle(int fd)
 {
-	char rq[9000], method[8], path[100];
+	char rq[16384], method[8], path[100];
 	struct timeval tv = { 2, 0 };
 	int n = 0, hl = -1;
 	size_t cl = 0;
@@ -744,7 +748,7 @@ static void http_handle(int fd)
 	if (hl < 0) { http_reply(fd, 400, "Bad Request", NULL, "bad request\n"); return; }
 	c = strcasestr(rq, "\nContent-Length:");
 	if (c && c < rq + hl) cl = (size_t)atoi(c + 16);
-	if (cl > 6000) { http_reply(fd, 413, "Payload Too Large", NULL, "too large\n"); return; }
+	if (cl > WH_MAX_OFFER || (size_t)hl + cl >= sizeof rq) { http_reply(fd, 413, "Payload Too Large", NULL, "too large\n"); return; }
 	while (n - hl < (int)cl) {
 		int r = (int)recv(fd, rq + n, sizeof rq - 1 - (size_t)n, 0);
 

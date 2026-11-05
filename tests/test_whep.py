@@ -149,7 +149,11 @@ esac
         self.assertTrue(head.startswith('Status: 429'), head)
         head, _ = self.run_cgi('POST', body='')
         self.assertTrue(head.startswith('Status: 413') or head.startswith('Status: 400'), head)
-        head, _ = self.run_cgi('POST', body='x' * 7000)
+        # a real browser offer: Chrome 157 sends 7607 bytes (video + audio recvonly, host candidates); 6000 refused it
+        big = offer + 'a=x-pad:' + 'y' * 7600 + '\r\n'
+        head, _ = self.run_cgi('POST', body=big)
+        self.assertTrue(head.startswith('Status: 201 X'), head)
+        head, _ = self.run_cgi('POST', body='x' * 13000)
         self.assertTrue(head.startswith('Status: 413'), head)
         head, _ = self.run_cgi('PUT', body='x')
         self.assertTrue(head.startswith('Status: 405'), head)

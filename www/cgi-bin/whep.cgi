@@ -48,7 +48,10 @@ case "$REQUEST_METHOD" in
   POST)
     _cl=${CONTENT_LENGTH:-0}
     case "$_cl" in ''|*[!0-9]*) reply 400 "Bad Request" text/plain "no body" ;; esac
-    { [ "$_cl" -gt 0 ] && [ "$_cl" -le 6000 ]; } || reply 413 "Payload Too Large" text/plain "offer too large"
+    # a browser offer is bigger than it looks: Chrome 157 (video + audio, recvonly, host candidates) is 7607 bytes; the
+    # former limit of 6000 answered 413 and the page fell back to MP4 at once (tester, IPCAM2, rc28). Same limit as
+    # tc100-whep (WH_MAX_OFFER).
+    { [ "$_cl" -gt 0 ] && [ "$_cl" -le 12000 ]; } || reply 413 "Payload Too Large" text/plain "offer too large"
     # exactly Content-Length bytes: the web server keeps the connection open, EOF never comes
     head -c "$_cl" > "$T.in"
     "$CURL" -s -m 25 -D "$T.hdr" -o "$T.body" -H 'Content-Type: application/sdp' --data-binary "@$T.in" "$BASE/whep" 2>/dev/null \
