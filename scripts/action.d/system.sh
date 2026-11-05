@@ -283,7 +283,6 @@
           rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 1
           rewrite_config /mnt/config/boot.conf RTSP_AUDIO 1
           rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-primary
-          rewrite_config /mnt/config/boot.conf SERVICE_TRIM 0
           rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
 
           profile_summary_line="Performance profile set to Balanced."
@@ -301,7 +300,6 @@
           rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 1
           rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
           rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
-          rewrite_config /mnt/config/boot.conf SERVICE_TRIM 0
           rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 0
 
           # Apply conservative stream settings immediately.
@@ -327,7 +325,6 @@
           rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM 0
           rewrite_config /mnt/config/boot.conf RTSP_AUDIO 0
           rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
-          rewrite_config /mnt/config/boot.conf SERVICE_TRIM 1
           rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
 
           apply_low_cpu_defaults_after_finalize=1

@@ -48,8 +48,12 @@ sed -i 's|^root:[^:]*:|root:*:|' etc/shadow
 if grep -qE '^(psk|ssid)=' etc/wpa_supplicant.conf 2>/dev/null; then
   : > etc/wpa_supplicant.conf
 fi
-# the kernel reads the Wi-Fi rules per country from here at boot (Buildroot wireless-regdb); an older base image lacks it
-[ -f lib/firmware/regulatory.db ] || echo "warning: no lib/firmware/regulatory.db, the Wi-Fi keeps the world rules" >&2
+# the kernel reads the Wi-Fi rules per country from here at boot (Buildroot wireless-regdb, in tc100_defconfig): a base
+# without it is an error (audit D6); ALLOW_NO_REGDB=1 builds anyway from an older base image (world rules only)
+if [ ! -f lib/firmware/regulatory.db ]; then
+  [ "${ALLOW_NO_REGDB:-0}" = 1 ] || { echo "no lib/firmware/regulatory.db in the base image (ALLOW_NO_REGDB=1 to build anyway)" >&2; exit 1; }
+  echo "warning: no lib/firmware/regulatory.db, the Wi-Fi keeps the world rules" >&2
+fi
 INITRD_SIZE=${INITRD_SIZE:-2012654}
 find . | cpio -o -H newc --quiet | xz -9 --check=crc32 --lzma2=dict=2MiB > "$OUT.tmp"
 n=$(wc -c < "$OUT.tmp")

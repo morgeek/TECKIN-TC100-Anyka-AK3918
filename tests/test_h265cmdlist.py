@@ -1,4 +1,7 @@
-"""Command list of the H.265 encoder core (src/h265enc): field table, builder, register sequence."""
+"""Command list of the H.265 encoder core (src/h265enc): field table, builder, register sequence.
+
+Recorded and RecordedTrace are opt-in (audit D7): they replay data captured on a camera (TC100_H265_LISTS = the
+command lists as JSON, TC100_H265_TRACE = a register trace), which the repository does not hold; the CI skips them."""
 import json, os, random, sys, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

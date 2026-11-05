@@ -14,12 +14,6 @@ NET_GUARD_MIN=15
 # gateway -> Wi-Fi reassociation, 5 min -> Wi-Fi settings applied again, 8 min -> the USB
 # Wi-Fi chip probed again (each once per outage). 0 = only the reboot.
 NET_GUARD_SOFT=0
-# SD card when running from flash (scripts/sd-card.sh): a FAT32/exFAT card
-# without boot files and without card errors is mounted on /mnt/sd when it is
-# put in (checked every minute), for the local recording and the web page.
-# Formatting is offered in the web page. SD_AUTOMOUNT=0: never mounted
-# automatically.
-SD_AUTOMOUNT=1
 ENABLE_NTP=1
 # NTP blocked (UDP port 123 filtered): the clock is taken from the "Date:" header of
 # an HTTP answer after 2 minutes (scripts/time-fallback.sh). TIME_HTTP_URLS: space-separated
@@ -67,6 +61,9 @@ MDNS_INFO=0
 # WIFI_ROAM=1 (repeaters, mesh: one SSID, several access points): below -75 dBm for 2 minutes, the camera moves
 # to an access point of the same network at least 15 dB stronger, if there is one (scripts/wifi-roam.sh).
 WIFI_ROAM=0
+# LOW_RAM_PROFILE: set by the performance profile (Settings, MQTT "profile"): 1 for low-cpu and rtsp-only. A
+# marker kept with the profile's snapshot (restore); nothing else reads it. Do not edit by hand.
+LOW_RAM_PROFILE=0
 # BOOT_SOUND=0: no startup chime on the speaker when the camera is ready (1 = the chime, default).
 BOOT_SOUND=1
 # BOOT_SOUND_NAME: which clip (Settings -> Sounds): a built-in one (startup_complete, chime, ...) or one sent to the

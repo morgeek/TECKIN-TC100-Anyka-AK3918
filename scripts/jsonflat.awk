@@ -63,8 +63,15 @@ function str(   out, c, e, cp, lo) {
         out = out c; pos++
     }
 }
+# every backslash doubled without gsub: the replacement "\\\\" is one backslash for mawk and two for gawk and
+# busybox awk (audit D1)
+function dbl_bs(v,   o, i) {
+    o = ""
+    while ((i = index(v, "\\")) > 0) { o = o substr(v, 1, i) "\\"; v = substr(v, i + 1) }
+    return o v
+}
 function emit(path, type, v) {
-    gsub(/\\/, "\\\\", v); gsub(/\t/, "\\t", v); gsub(/\n/, "\\n", v)
+    v = dbl_bs(v); gsub(/\t/, "\\t", v); gsub(/\n/, "\\n", v)
     printf "%s\t%s\t%s\n", (path == "" ? "." : path), type, v
 }
 function value(path,   c, k, i, num) {

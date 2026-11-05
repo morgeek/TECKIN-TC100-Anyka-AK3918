@@ -2474,3 +2474,19 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** aucun (affichage seul) ; revert.
 - **Test :** ouvrir Réglages → Système → Mémoire : « Libre maintenant » proche de `grep MemAvailable /proc/meminfo` ; la liste montre `tc100_rtsp` en tête, PSS proche de `awk '/^Pss:/{print $2}' /proc/$(pidof tc100_rtsp)/smaps_rollup` ; décocher le pont MQTT → la prévision monte de sa PSS ; cocher un service arrêté → elle baisse de l'estimation. Noter les PSS réelles de SSH (dropbear) et ONVIF (`tc100-onvifd`) pour corriger les estimations du tableau `OPTIONS` de `settings.html`.
 - **Critères :** valeurs cohérentes avec `/proc`, réponse en moins de 1 s, aucune erreur dans la console du navigateur.
+
+## 2026-11-05 — Audit, points dépôt D1-D9 (`[audit-d]`, item 51)
+
+- **Quoi :** surtout dépôt et CI, mais quatre changements tournent sur la caméra :
+  1. `scripts/jsonflat.awk` (import JSON des réglages) double les antislashs sans `gsub` (même sortie avec busybox awk, mawk, gawk) ;
+  2. `SERVICE_TRIM` n'est plus écrit dans `boot.conf`, seulement dans `service_trim.conf` (profils de performance, `action.cgi`) ;
+  3. la détection du mot de passe par défaut ne lit plus `lighttpd.user` (2.x) : seulement `user.pwd` et le RTSP ;
+  4. `isp_flip` est compilé depuis `src/ispflip` par la CI au lieu de la copie de `bin/`.
+  Côté build : `regulatory.db` absent → erreur (`ALLOW_NO_REGDB=1` pour passer), publication d'un tag seulement si la CI du commit est verte.
+- **Interrupteur :** revert du commit.
+- **Test :**
+  1. Sauvegarde → Import JSON d'une sauvegarde contenant un texte avec `\` (OSD par exemple) → valeur identique.
+  2. Réglages → Profil de performance : `rtsp-only` puis `balanced` → `grep SERVICE_TRIM /mnt/config/service_trim.conf` suit, plus rien dans `boot.conf` ; la page Services affiche le bon profil.
+  3. Avec le mot de passe `pass` → l'avertissement « mot de passe par défaut » s'affiche ; avec un autre → non.
+  4. Réglages → Image → orientation : retourner puis remettre l'image (`isp_flip` du build).
+- **Critères :** les quatre comportements identiques à avant.

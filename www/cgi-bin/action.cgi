@@ -582,7 +582,7 @@ write_stream_state_snapshot() {
   low_cpu_disable_motion="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION 0)"
   low_cpu_disable_osd="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_OSD 0)"
   low_cpu_disable_jpeg="$(read_kv_or_default /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG 0)"
-  service_trim="$(read_kv_or_default /mnt/config/service_trim.conf SERVICE_TRIM "$(read_kv_or_default /mnt/config/boot.conf SERVICE_TRIM 0)")"
+  service_trim="$(read_kv_or_default /mnt/config/service_trim.conf SERVICE_TRIM 0)"	# its only source (audit D5)
 
   {
     echo "TS=$now_ts"
@@ -632,7 +632,6 @@ apply_stream_state_snapshot() {
   rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_MOTION "$low_cpu_disable_motion"
   rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_OSD "$low_cpu_disable_osd"
   rewrite_config /mnt/config/boot.conf LOW_CPU_DISABLE_JPEG "$low_cpu_disable_jpeg"
-  rewrite_config /mnt/config/boot.conf SERVICE_TRIM "$service_trim"
   rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM "$service_trim"
   if [ "$low_cpu_profile" = "1" ]; then
     apply_low_cpu_background_defaults
@@ -979,18 +978,13 @@ ui_finalize_stream_apply() {
 }
 
 credentials_default_active() {
-  default_http_hash="1d06b7785388de1501e8d57847540f6d"
   rtsp_username="$(read_config rtspserver.conf USERNAME)"
   rtsp_password="$(read_config rtspserver.conf USERPASSWORD)"
   if [ "$rtsp_username" = "root" ] && [ "$rtsp_password" = "pass" ]; then
     return 0
   fi
 
-  http_hash="$(awk -F: 'NR==1{print $3; exit}' /mnt/config/lighttpd.user 2>/dev/null | sed 's/\r//g')"
-  if [ "$http_hash" = "$default_http_hash" ]; then
-    return 0
-  fi
-
+  # the web login is root + config/user.pwd (v3/linux66-sd/web-auth); lighttpd.user was the 2.x file (audit D9)
   if [ -r /mnt/config/user.pwd ]; then
     read -r all_services_password < /mnt/config/user.pwd
     if [ "$all_services_password" = "pass" ]; then

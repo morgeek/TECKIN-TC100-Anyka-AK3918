@@ -949,24 +949,30 @@ class AutostartModes(unittest.TestCase):
 class JsonFlat(unittest.TestCase):
     """scripts/jsonflat.awk replaces jq on the flash firmware."""
     AWK = ROOT / 'scripts/jsonflat.awk'
+    # the camera runs busybox awk; the others must agree (audit D1: a gawk-only pass proved nothing)
+    AWKS = [a for a in (['busybox', 'awk'], ['mawk'], ['gawk'], ['awk'])
+            if shutil.which(a[0]) and (a[0] != 'busybox' or subprocess.run(a + ['BEGIN{}'], capture_output=True).returncode == 0)]
 
-    def flat(self, text, *args):
-        return subprocess.run(['awk', *args, '-f', str(self.AWK)], input=text.encode(), capture_output=True,
+    def flat(self, text, *args, awk=('awk',)):
+        return subprocess.run([*awk, *args, '-f', str(self.AWK)], input=text.encode(), capture_output=True,
                               env=dict(os.environ, LC_ALL='C'))
 
     def test_paths_types_and_escapes(self):
         doc = '{"a":{"b":"x\\"y\\\\ \\u00e9\\ud83d\\ude00\\tz","n":-1.5e3,"t":true,"z":null},"l":[1,[2,{"k":"v"}],[]],"e":{}}'
-        r = self.flat(doc)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        lines = r.stdout.decode('utf-8').splitlines()
-        self.assertEqual(lines, ['.a.b\ts\tx"y\\\\ \u00e9\U0001F600\\tz', '.a.n\tn\t-1.5e3', '.a.t\tb\ttrue',
-                                 '.a.z\tz\t', '.l[0]\tn\t1', '.l[1][0]\tn\t2', '.l[1][1].k\ts\tv'])
+        self.assertTrue(self.AWKS)
+        for awk in self.AWKS:
+            r = self.flat(doc, awk=awk)
+            self.assertEqual(r.returncode, 0, (awk, r.stderr))
+            lines = r.stdout.decode('utf-8').splitlines()
+            self.assertEqual(lines, ['.a.b\ts\tx"y\\\\ \u00e9\U0001F600\\tz', '.a.n\tn\t-1.5e3', '.a.t\tb\ttrue',
+                                     '.a.z\tz\t', '.l[0]\tn\t1', '.l[1][0]\tn\t2', '.l[1][1].k\ts\tv'], awk)
 
     def test_rejects_malformed_and_wrong_top_level(self):
-        for bad in ('{"a":1,}', '{"a" 1}', '[1', '{"a":"x}', '{} x', 'nul'):
-            self.assertEqual(self.flat(bad).returncode, 2, bad)
-        self.assertEqual(self.flat('[1]', '-v', 'require=object').returncode, 2)
-        self.assertEqual(self.flat('{"a":1}', '-v', 'require=object').returncode, 0)
+        for awk in self.AWKS:
+            for bad in ('{"a":1,}', '{"a" 1}', '[1', '{"a":"x}', '{} x', 'nul'):
+                self.assertEqual(self.flat(bad, awk=awk).returncode, 2, (awk, bad))
+            self.assertEqual(self.flat('[1]', '-v', 'require=object', awk=awk).returncode, 2, awk)
+            self.assertEqual(self.flat('{"a":1}', '-v', 'require=object', awk=awk).returncode, 0, awk)
 
 
 class EventLogQueries(unittest.TestCase):
@@ -1544,93 +1550,8 @@ class ResetButton(unittest.TestCase):
         self.assertEqual(self.run_events([21], storage='sd'), ['reboot'])
 
 
-class LocalRecording(unittest.TestCase):
-    """src/tc100fix/rec.c built for the host, fed Annex-B streams; scripts/rec-storage.sh."""
-
-    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe') and (ROOT / 'src/tc100fix/rec.c').exists(), 'gcc + ffmpeg + rec.c (2.x recorder, moved to branch 2.x; 3.0 is tested in test_tc100rtsp.py)')
-    def test_fragmented_mp4_h264_h265(self):
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            exe = d / 'rec-test'
-            subprocess.run(['gcc', '-DREC_HOST_TEST', '-Wall', '-Wextra', '-Werror', '-O2', '-o', str(exe),
-                            str(ROOT / 'src/tc100fix/rec.c'), '-lpthread'], check=True)
-            for enc, fmt, extra in (('libx264', 'h264', ['-x264-params', 'aud=1']),
-                                    ('libx265', 'hevc', ['-x265-params', 'aud=1:log-level=error'])):
-                src = d / ('in.' + fmt)
-                r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=12',
-                                    '-t', '70', '-c:v', enc, '-g', '24', '-bf', '0', '-sc_threshold', '0'] + extra +
-                                   ['-f', fmt, str(src)], capture_output=True)
-                if r.returncode:
-                    self.skipTest('ffmpeg without ' + enc)
-                for drop in (None, '50'):
-                    out = d / ('out-%s-%s' % (fmt, drop)); out.mkdir()
-                    env = dict(os.environ, TC100FIX_REC_DIR=str(out), TC100FIX_REC_STATUS=str(d / 'st'),
-                               TC100FIX_REC_SEGMENT_SEC='30', TC100FIX_REC_RESERVE_MB='16', REC_TEST_ANY_FS='1')
-                    if drop:
-                        env['REC_TEST_DROP'] = drop
-                    subprocess.run([str(exe), str(src), '12'], env=env, check=True, capture_output=True, timeout=60)
-                    files = sorted(out.glob('*/*.mp4'))
-                    self.assertTrue(all(re.fullmatch(r'\d{6}\.mp4', f.name) for f in files), files)
-                    total = 0
-                    for f in files:
-                        p = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-show_entries',
-                                            'stream=codec_name,width,height,nb_read_frames', '-of', 'json', str(f)],
-                                           capture_output=True, text=True, check=True)
-                        st = json.loads(p.stdout)['streams'][0]
-                        self.assertEqual((st['codec_name'], st['width'], st['height']), (fmt, 640, 360))
-                        total += int(st['nb_read_frames'])
-                        e = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(f), '-f', 'null', '-'], capture_output=True, text=True)
-                        self.assertEqual(e.stderr, '', f)
-                    # 840 frames, 30 s files cut at keyframes (every 2 s);
-                    # a dropped frame skips to the next keyframe (frame 72).
-                    self.assertEqual(len(files), 3)
-                    self.assertEqual(total, 840 if not drop else 840 - 22)
-                    status = (d / 'st').read_text()
-                    self.assertIn('codec=%s' % ('h264' if fmt == 'h264' else 'h265'), status)
-                # a file cut short (power loss) stays readable up to the cut
-                f = sorted((d / ('out-%s-None' % fmt)).glob('*/*.mp4'))[0]
-                cut = d / 'cut.mp4'; cut.write_bytes(f.read_bytes()[:f.stat().st_size // 2])
-                p = subprocess.run(['ffprobe', '-v', 'quiet', '-count_frames', '-show_entries', 'stream=nb_read_frames',
-                                    '-of', 'csv=p=0', str(cut)], capture_output=True, text=True)
-                self.assertGreater(int(p.stdout.strip() or 0), 100)
-
-    @unittest.skipUnless(shutil.which('gcc') and shutil.which('ffmpeg') and shutil.which('ffprobe') and (ROOT / 'src/tc100fix/rec.c').exists(), 'gcc + ffmpeg + rec.c (2.x recorder, moved to branch 2.x)')
-    def test_records_only_while_the_recorder_is_away(self):
-        with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            exe = d / 'rec-test'
-            subprocess.run(['gcc', '-DREC_HOST_TEST', '-Wall', '-Wextra', '-Werror', '-O2', '-o', str(exe),
-                            str(ROOT / 'src/tc100fix/rec.c'), '-lpthread'], check=True)
-            src = d / 'in.h264'
-            r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=12',
-                                '-t', '70', '-c:v', 'libx264', '-g', '24', '-bf', '0', '-sc_threshold', '0',
-                                '-x264-params', 'aud=1', '-f', 'h264', str(src)], capture_output=True)
-            if r.returncode:
-                self.skipTest('ffmpeg without libx264')
-
-            def run(watch):
-                out = d / ('out' + watch.replace(',', '_')); out.mkdir()
-                env = dict(os.environ, TC100FIX_REC_DIR=str(out), TC100FIX_REC_STATUS=str(d / 'st'),
-                           TC100FIX_REC_RESERVE_MB='16', REC_TEST_ANY_FS='1', REC_TEST_WATCH=watch,
-                           TC100FIX_REC_WHEN='offline', TC100FIX_REC_OFFLINE_SEC='10', TC100FIX_REC_POSTROLL_SEC='15')
-                subprocess.run([str(exe), str(src), '12'], env=env, check=True, capture_output=True, timeout=60)
-                res = []
-                for f in sorted(out.glob('*/*.mp4')):
-                    p = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-show_entries',
-                                        'stream=nb_read_frames', '-of', 'csv=p=0', str(f)], capture_output=True, text=True)
-                    res.append(int(p.stdout.strip()))
-                return res
-            # watched all along: nothing recorded
-            self.assertEqual(run('0-100'), [])
-            # nobody watching: the queued frames (pre-roll) go first, so the
-            # whole stream ends up in the file
-            self.assertEqual(run(''), [840])
-            # away from 20 s to 40 s: detected at 30 s, the file starts with
-            # the queued frames (back to ~20 s at this bitrate) and ends 15 s
-            # after the recorder is back (+ the 2 s polling)
-            n = run('0-20,40-100')
-            self.assertEqual(len(n), 1)
-            self.assertTrue(240 <= n[0] <= 520, n)
+# (audit D7: LocalRecording tested src/tc100fix/rec.c, the 2.x recorder now on branch 2.x, and was always skipped;
+# the 3.0 recorder src/tc100rtsp/rec.c is tested in tests/test_tc100rtsp.py)
 
 
 class WifiTxt(unittest.TestCase):

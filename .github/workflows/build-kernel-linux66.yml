@@ -19,6 +19,7 @@ on:
       - 'src/mqttd/**'
       - 'src/onvifd/**'
       - 'src/mdnsd/**'
+      - 'src/ispflip/**'
       - 'bin/**'
       - 'lib/**'
       - 'src/jpegenc/**'
@@ -42,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read  # the publish step reads the CI run of the commit (audit D4)
 
     steps:
       - name: Checkout Repository
@@ -169,6 +171,8 @@ jobs:
         run: |
           set -e
           arm-linux-gnueabi-gcc -Os -Wall -static -march=armv5te -mfloat-abi=soft -o output/envtool v3/install/envtool.c
+          # isp_flip ships from its source, not the copy kept in bin/ (audit D3); freestanding like httpfront
+          arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o bin/isp_flip
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
           sh v3/build-release.sh output/stack output/oipc.img output/tc100test/oipcrd66.gz output/envtool output/release
@@ -191,6 +195,16 @@ jobs:
           # as the release)
           V=$(head -n 1 "$GITHUB_WORKSPACE/VERSION" | tr -d '\r')
           [ "$GITHUB_REF_NAME" = "v$V" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION $V"; exit 1; }
+          # audit D4: only a commit whose CI (ci.yml, run by the push to main) passed is published; wait for it, up
+          # to 30 minutes
+          r=
+          for i in $(seq 1 60); do
+            r=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=1" \
+                --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"' 2>/dev/null || true)
+            case "$r" in "completed success") break ;; completed*) echo "CI of $GITHUB_SHA: $r"; exit 1 ;; esac
+            sleep 30
+          done
+          [ "$r" = "completed success" ] || { echo "no passed CI run for $GITHUB_SHA (last seen: $r)"; exit 1; }
           cd output/release
           md5sum *.zip *.tar > MD5SUMS.txt
           PRE=; case "$GITHUB_REF_NAME" in *-rc*|*-beta*|*-alpha*) PRE=--prerelease ;; esac

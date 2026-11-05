@@ -419,7 +419,6 @@ compute_default_password_flag() {
   fi
 
   default_active=0
-  default_hash="1d06b7785388de1501e8d57847540f6d"
 
   conf_get rtsp_username /mnt/config/rtspserver.conf USERNAME root
   conf_get rtsp_password /mnt/config/rtspserver.conf USERPASSWORD pass
@@ -427,15 +426,7 @@ compute_default_password_flag() {
     default_active=1
   fi
 
-  http_hash=""
-  if [ -r /mnt/config/lighttpd.user ]; then
-    IFS=: read -r _ _ http_hash < /mnt/config/lighttpd.user
-    case "$http_hash" in *[!0-9a-fA-F]) http_hash="${http_hash%?}" ;; esac   # trailing CR
-    if [ "$http_hash" = "$default_hash" ]; then
-      default_active=1
-    fi
-  fi
-
+  # the web login is root + config/user.pwd (v3/linux66-sd/web-auth); lighttpd.user was the 2.x file (audit D9)
   if [ -r /mnt/config/user.pwd ]; then
     read -r all_services_password < /mnt/config/user.pwd
     if [ "$all_services_password" = "pass" ]; then

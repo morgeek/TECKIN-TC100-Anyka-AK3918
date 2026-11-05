@@ -17,7 +17,7 @@ rc=0
 run_tests() {
 	echo "== tests (python + node, busybox ash)"
 	docker run --rm -v "$SRC:/src:ro" node:22-bookworm sh -c '
-		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk >/dev/null 2>&1
+		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk mawk >/dev/null 2>&1
 		cp -r /src /w && cd /w && git config --global --add safe.directory /w
 		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
 		# make would run them instead of building the current code
@@ -32,9 +32,8 @@ run_tests() {
 		grep -E "^(FAIL|ERROR):|^Ran|^FAILED|^OK" /tmp/py.log
 		# no "Ran N tests" (python3 missing, an import error): not a pass
 		grep -q "^Ran [1-9]" /tmp/py.log || { echo "python tests did not run"; tail -20 /tmp/py.log; exit 1; }
-		# known failure of this image only (awk flavour): JsonFlat.test_paths_types_and_escapes
-		n=$(grep -E "^(FAIL|ERROR):" /tmp/py.log | grep -vc "JsonFlat.test_paths_types_and_escapes")
-		[ "$n" = 0 ] || { grep -A25 -E "^(FAIL|ERROR):" /tmp/py.log | grep -v JsonFlat | head -80; exit 1; }' || rc=1
+		# no known failure any more (audit D1: scripts/jsonflat.awk is portable, tested with every awk present)
+		! grep -qE "^(FAIL|ERROR):" /tmp/py.log || { grep -A25 -E "^(FAIL|ERROR):" /tmp/py.log | head -80; exit 1; }' || rc=1
 }
 
 run_cross() {
@@ -47,6 +46,9 @@ run_cross() {
 		arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o /tmp/jpegenc
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
+		# the freestanding ISP tools (audit D3/D9: isp_flip is rebuilt by the release build, isp_fps is a bench tool)
+		arm-linux-gnueabi-gcc -Os -Wall -Werror -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o /tmp/isp_flip
+		arm-linux-gnueabi-gcc -Os -Wall -Werror -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispfps/isp_fps.c -o /tmp/isp_fps
 		make -C src/libakuio CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/mqttd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true

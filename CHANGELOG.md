@@ -152,6 +152,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   jitter, to tell a Wi-Fi or network problem from a camera one.
 
 ### Changed
+- **Audit 2026-11-04, repository points** (item 51): `scripts/jsonflat.awk` gives the same output with busybox awk,
+  mawk and gawk, and its test runs with each (D1); `SERVICE_TRIM` lives only in `service_trim.conf`, the dead
+  `SD_AUTOMOUNT` and `SERVICE_TRIM_ALLOWLIST` and 16 keys of the vendor server in `rtspserver.conf.dist` are gone,
+  `LOW_RAM_PROFILE` is documented (D5); the release build compiles `isp_flip` from its source, `CREDITS.md` names
+  BusyBox (D3); a tag is published only when the CI of its commit passed (D4); `flash_budget.py` models the 3.0
+  partitions of the device tree and a test keeps it, `STACK_MAX`, `KERNEL_MAX` and every `INITRD_SIZE` in step; a
+  base image without `regulatory.db` stops the build (D6); the always-skipped 2.x recorder tests are removed (D7);
+  the default-password check no longer reads the 2.x `lighttpd.user` (D9).
 - **Smaller flash image** (item 54): `stack.sqfs` leaves out the 1 kHz test tones and the three style sheets
   `css/ui.bundle.min.css` is built from (and their `.gz`), about 65 KB; the setup wizard no longer loads Bulma (it
   only uses its own classes) and carries the few reset rules it relied on; xz uses the ARM branch filter
