@@ -61,6 +61,7 @@ tc_normalize_and_validate()
     print_level) [ -z "$_tc_value" ] || tc_uint_range "$_tc_value" 0 9 ;;
     minute) tc_uint_range "$_tc_value" 0 59 ;;
     weekday) case "$_tc_value" in '*'|[0-6]|1-5|0,6) ;; *) return 1 ;; esac ;;
+    supervisor_impl) case "$_tc_value" in c|sh) ;; *) return 1 ;; esac ;;
     topology) case "$_tc_value" in dual|main-only|sub-only) ;; *) return 1 ;; esac ;;
     onvif_policy) case "$_tc_value" in main-primary|sub-primary|sub-only|main-only) ;; *) return 1 ;; esac ;;
     hostname)
@@ -516,6 +517,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" RTSP_MIC_OFF_WHEN_NO_AUDIO bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" VENDOR_PRINT_LEVEL print_level "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" ISP_TUNE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" SUPERVISOR_IMPL supervisor_impl "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" ONVIF_STREAM_POLICY onvif_policy "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REC_LOCAL bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REC_WHEN rec_when "$_tc_rel" || return 1

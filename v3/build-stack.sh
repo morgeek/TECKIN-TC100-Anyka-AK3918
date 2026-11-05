@@ -2,7 +2,7 @@
 # build-stack.sh: the free user space of the 3.0 firmware, from git and the CI build products only.
 #
 #   v3/build-stack.sh PACK BASE.cpio.gz OUT
-#     PACK  folder with the binaries CI compiles: tc100_rtsp, libakuio.so, httpfront, tc100-mdnsd, tc100-mqttd, tc100-onvifd
+#     PACK  folder with the binaries CI compiles: tc100_rtsp, libakuio.so, httpfront, tc100-mdnsd, tc100-mqttd, tc100-onvifd, tc100-supervisord (optional)
 #     BASE  our Buildroot base root filesystem (artifact tc100-base-rootfs)
 #     OUT   gets tree/ (the user space as plain files, also what goes on the SD card) and stack.sqfs (+ .md5),
 #           the image of the flash partition "stack"
@@ -43,6 +43,7 @@ for b in busybox getflag getimage isp_flip monvifd rwconf setconf tc100-logfwd t
 cp lib/libnetacl.so "$T/lib/"	# the encoder API library comes from the camera too (collect-vendor.sh)
 # what CI compiles
 cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$PACK/tc100-mdnsd" "$PACK/tc100-mqttd" "$PACK/tc100-onvifd" "$T/tc100test/"
+[ -f "$PACK/tc100-supervisord" ] && cp "$PACK/tc100-supervisord" "$T/tc100test/"
 cp v3/linux66-sd/rtsp-launch.sh "$T/tc100test/"
 find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' \) -exec rm -f {} +
 # web pages, styles and scripts also as .gz: busybox httpd (FEATURE_HTTPD_GZIP) sends those to browsers that accept
@@ -106,7 +107,7 @@ done
 cd "$REPO"
 # scripts call /mnt/bin/curl and /mnt/bin/jq: wrappers (a FAT card cannot hold links)
 for b in curl jq; do printf '#!/bin/sh\nexec /mnt/ext/bin/%s "$@"\n' $b > "$T/bin/$b"; done
-chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rtsp "$T"/tc100test/httpfront "$T"/tc100test/tc100-mdnsd "$T"/tc100test/tc100-mqttd "$T"/tc100test/tc100-onvifd
+chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rtsp "$T"/tc100test/httpfront "$T"/tc100test/tc100-mdnsd "$T"/tc100test/tc100-mqttd "$T"/tc100test/tc100-onvifd; [ -f "$T/tc100test/tc100-supervisord" ] && chmod 755 "$T/tc100test/tc100-supervisord"
 
 # 3. The flash image. Left out of it (they stay in the tree, which is the SD card package):
 #    - ext/bin/mksquashfs: only the install uses it, and it runs from the card
