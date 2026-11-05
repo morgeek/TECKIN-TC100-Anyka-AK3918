@@ -85,5 +85,19 @@ class Wiring(unittest.TestCase):
         self.assertIn('"$rtsp_port" "$main_720" \\', text('www/cgi-bin/state.cgi'))
 
 
+class SmartPoolTestKernel(unittest.TestCase):
+    """Item 9: a manual CI run with venc_pool builds a test kernel with another compiled encoder pool default; a push
+    builds the normal one, and the test artifacts carry the pool in their name"""
+
+    def test_workflow_input(self):
+        wf = text('.github/workflows/build-kernel-linux66.yml')
+        self.assertIn('      venc_pool:\n', wf)
+        self.assertIn('VP="${{ github.event.inputs.venc_pool }}"\n          if [ -n "$VP" ]; then', wf)
+        self.assertIn('[ "$n" -ge 4096 ] && [ "$n" -le 12288 ]', wf)
+        self.assertIn('sed -i "s/static char \\*pool = \\"9600K\\";/static char *pool = \\"$VP\\";/" drivers/misc/ak39_venc.c', wf)
+        self.assertIn("format('-TESTKERNEL-pool{0}', github.event.inputs.venc_pool)", wf)
+        self.assertIn('+static char *pool = "9600K";', text('patches/kernel-6.6/series/0015-misc-ak39_venc-encoder-pool-from-a-reusable-CMA-area.patch'))
+
+
 if __name__ == '__main__':
     unittest.main()

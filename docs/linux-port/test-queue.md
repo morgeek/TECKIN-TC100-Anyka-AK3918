@@ -2203,3 +2203,14 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
   4. Mesures 720p contre 1080p au même débit : `STAT` (images capturées, débit), `MemAvailable`, charge CPU (`scripts/cpu-profile.sh 60`), qualité de l'image.
   5. Ancien noyau (rc26) avec `mainres=720` : le log dit `crops instead of scaling`, le flux reste en 1920x1080.
 - **Critères :** 1 et 3 sans défaut d'image ni oops ; une heure de 720p sans erreur noyau ni redémarrage du serveur.
+
+## 2026-11-05 — Noyau de test pour le mode smart de l'encodeur (`[smart-pool]`, liste de l'implémenteur #9)
+
+- **Quoi :** le workflow `build-kernel-linux66.yml` a une entrée manuelle `venc_pool` : lancé à la main avec `12M`, il construit un noyau dont `ak39_venc.pool` vaut 12M par défaut (le réservoir est alloué au démarrage et la ligne de commande vient du bootloader, qu'on ne touche pas). Les artefacts s'appellent alors `tc100-linux66-cma16-kernel-pool12M` et `tc100-3-release-TESTKERNEL-pool12M` : **noyau de test, pas pour une mise à jour normale**. Sans l'entrée, rien ne change.
+- **Lancer :** GitHub → Actions → « Build Linux 6.6 LTS Kernel… » → Run workflow → `venc_pool` = `12M` (ou `gh workflow run build-kernel-linux66.yml -f venc_pool=12M`).
+- **Interrupteur :** démarrer le noyau normal (le noyau de test ne s'essaie qu'en RAM depuis la carte, `pack66/boot66b.sh`) ; `RTSP_SMART=0`.
+- **Test (.11) :** noyau de test en RAM, puis `RTSP_VBR=1` et `RTSP_SMART=1` dans `/mnt/config/rtsp.env`, redémarrer `tc100_rtsp`.
+  1. `dmesg | grep -i pool` : réservoir de 12288 Ko ; log `tc100_rtsp` : `smart mode 1 (long-term reference)`, pas de `smart mode 1 not used`, pas de `alloc dma … failed`.
+  2. 24 h : serveur vivant, aucune erreur noyau ; `MemAvailable` ~2,4 Mo plus bas qu'avec le noyau normal (attendu).
+  3. Débit et qualité comparés à la .24 (scène calme : le débit doit baisser nettement).
+- **Critères :** 1-3 conformes → décider si 12M devient le défaut (la RAM perdue contre le débit gagné) ; sinon le mode smart reste désactivé.

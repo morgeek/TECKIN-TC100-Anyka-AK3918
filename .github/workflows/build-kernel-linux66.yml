@@ -24,6 +24,11 @@ on:
       - 'VERSION'
       - '.github/workflows/build-kernel-linux66.yml'
   workflow_dispatch:
+    inputs:
+      venc_pool:
+        description: 'Test kernel only: compiled default of ak39_venc.pool (e.g. 12M for the encoder smart mode, item 9 of the implementer list). Empty = the normal 9600K.'
+        required: false
+        default: ''
 
 jobs:
   base:
@@ -56,6 +61,18 @@ jobs:
           echo "[+] Applying the Anyka AK3918 patch series (per subsystem)..."
           git config user.email ci@example.invalid && git config user.name ci
           git am --whitespace=nowarn ../patches/kernel-6.6/series/*.patch
+          # a test kernel with another encoder pool (manual run with venc_pool): the pool is a boot-time allocation and
+          # the command line comes from the bootloader, which is never changed, so the default itself is compiled in
+          VP="${{ github.event.inputs.venc_pool }}"
+          if [ -n "$VP" ]; then
+            case "$VP" in [0-9]*[KM]) ;; *) echo "venc_pool must look like 9600K or 12M"; exit 1 ;; esac
+            n=${VP%[KM]}; case "$VP" in *M) n=$((n * 1024)) ;; esac
+            [ "$n" -ge 4096 ] && [ "$n" -le 12288 ] || { echo "venc_pool must be between 4M and 12M (the area is 12 MiB)"; exit 1; }
+            grep -q 'static char \*pool = "9600K";' drivers/misc/ak39_venc.c
+            sed -i "s/static char \*pool = \"9600K\";/static char *pool = \"$VP\";/" drivers/misc/ak39_venc.c
+            grep -n 'static char \*pool' drivers/misc/ak39_venc.c
+            echo "### Test kernel: ak39_venc.pool default $VP (not for release)" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Configure Kernel with CMA and ALSA
         run: |
@@ -156,7 +173,7 @@ jobs:
       - name: Upload the 3.0 release
         uses: actions/upload-artifact@v4
         with:
-          name: tc100-3-release
+          name: tc100-3-release${{ github.event.inputs.venc_pool && format('-TESTKERNEL-pool{0}', github.event.inputs.venc_pool) || '' }}
           path: |
             output/release/*.zip
             output/release/*.tar
@@ -179,7 +196,7 @@ jobs:
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tc100-linux66-cma16-kernel
+          name: tc100-linux66-cma16-kernel${{ github.event.inputs.venc_pool && format('-pool{0}', github.event.inputs.venc_pool) || '' }}
           path: output/
 
       - name: Pack kernel symbols (to decode Oops traces)
