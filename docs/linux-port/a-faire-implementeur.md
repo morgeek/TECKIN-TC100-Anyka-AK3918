@@ -389,6 +389,11 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     *Propriétaire, 2026-11-05 : ONVIF est utilisé → le remplacement de `monvifd` passe en P1, avec #12. #35 (WebRTC) :
     sans alourdir le CPU.*
 
+54. [ ] **Gisements d'optimisation espace Flash SPI (gain net estimé : 150 à 250 Ko dans `stack.sqfs`, sans perte fonctionnelle)** :
+    - *Filtre ARM pour SquashFS (`build-stack.sh`)* : ajouter l'option `-Xbcj arm` à la commande `mksquashfs` pour améliorer la compression XZ des binaires ELF ARM (`tc100_rtsp`, `httpfront`, `tc100-mqttd`, `tc100-onvifd`) de 5 à 8 % sans aucun surcoût en RAM lors de la décompression noyau (gain ~60 à 100 Ko flash).
+    - *Tonalités audio de test (`sounds/`)* : exclure `sounds/test-1k-*.pcm` (141 Ko brut) de l'image flash via `-e` dans `build-stack.sh`. Ces fichiers ne servent qu'au banc d'essai usine/étalonnage et restent disponibles sur la carte SD ou via `generate_sounds.py` (gain ~40 à 50 Ko flash).
+    - *Déduplication CSS WebUI (`www/css/`)* : `ui.bundle.min.css` intègre déjà Bulma + ui-modern + ui.css. Faire pointer `wizard.cgi` vers le bundle minifié et exclure les sources non groupées `bulma.1.0.2.purged.min.css` (121 Ko) et `ui.css` (41 Ko) de la flash (gain ~40 Ko flash).
+
 ## Hors implémenteur (propriétaire)
 
 - Accord pour archiver ~50 notes anciennes du projet claude.ai et `_archive_v3-drafts/`.
