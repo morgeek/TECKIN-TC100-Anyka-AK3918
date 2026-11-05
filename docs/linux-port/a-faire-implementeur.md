@@ -54,7 +54,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
      lancé par `&` attend le démon.
 3. [ ] **Points ouverts de la checklist** (*D8 fait le 2026-11-05, voir `audit-2026-11-04.md` §7*) : W4 (assistant sans jeton CSRF), B3 (`flashw -m` compare le fichier à
    lui-même, avec B1), D8 (passe de documentation : `api.md` cite encore HTTPS et `set_web_mode`, `wifi_set_country`
-   non documenté…). B1 et W4 : *décision du propriétaire le 2026-11-05 soir : les deux dans la prochaine RC* (B1 + B3 : jusqu'à 3 essais par partition, plus de redémarrage automatique après un échec ; W4 : jeton CSRF exigé par l'assistant). En cours, entrées `[b1-update]`, `[w4-wizard]`.
+   non documenté…). B1 et W4 : *décision du propriétaire le 2026-11-05 soir : les deux dans la prochaine RC* (B1 + B3 : jusqu'à 3 essais par partition, plus de redémarrage automatique après un échec ; W4 : jeton CSRF exigé par l'assistant). Faits le 2026-11-05 soir, entrées `[b1-update]`, `[w4-wizard]` (à essayer sur caméra).
 4. [x] **Retirer la mention « CVE-2026-98432 »** de l'entrée rc24 et de la checklist : mention retirée.
 5. [x] **Petits restes de config** :
    - `boot.conf.dist` : `MEM_GUARD_SOFT_SERVICES=""` nettoyé ;

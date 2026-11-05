@@ -183,6 +183,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `.gz` copies, but no Cache-Control).
 
 ### Security
+- **Web update without automatic reboot after a failed write** (audit B1 + B3): up to 3 attempts per partition; after a
+  final failure the camera stays up (web and ssh) with a message naming the partition, instead of rebooting into a
+  possibly broken kernel or initramfs; `flashw -m` now checks the sum published in the package's `MD5SUMS`.
+- **Setup wizard needs the CSRF token** (audit W4), and setting a password anywhere closes the first-install window.
 - **MQTT bridge in C: no DNS lookup at every reconnection, long topics refused** (audit M1): a numeric broker address
   needs no lookup; a name is resolved once and again only after a failed connection (the lookup could freeze the
   loop for seconds); a topic over 65 535 bytes is refused instead of having its length truncated.
