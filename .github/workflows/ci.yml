@@ -46,6 +46,13 @@ jobs:
       - name: Busybox (the scripts run under busybox ash on the camera; the tests use it when present, else dash)
         run: sudo apt-get install -y -qq busybox-static
       - name: Python regressions
-        run: python3 -m unittest discover -s tests -v
+        run: |
+          set -o pipefail
+          # the failing tests also go to the run's annotations, which can be read without access to the logs
+          python3 -m unittest discover -s tests -v 2>&1 | tee /tmp/py.log || {
+            grep -E '^(FAIL|ERROR): ' /tmp/py.log | sort -u | while read -r l; do echo "::error title=unittest::$l"; done
+            awk '/^(FAIL|ERROR): /{n=12} n>0{print; n--}' /tmp/py.log | grep -E 'Error|assert|line [0-9]+' | head -20 |
+              while read -r l; do echo "::error title=detail::$l"; done
+            exit 1; }
       - name: Frontend tests
         run: node --test tests/frontend.test.js tests/settings-save.test.js tests/live-video.test.js tests/records-timeline.test.js
