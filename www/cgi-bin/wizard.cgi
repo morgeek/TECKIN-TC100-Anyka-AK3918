@@ -264,7 +264,7 @@ if [ "$METHOD" = "POST" ]; then
             mv -f "$CONFIG/frigate_live.conf.tmp" "$CONFIG/frigate_live.conf"
     fi
 
-    # Local backup recording on the SD card (src/tc100fix/rec.c).
+    # Local backup recording on the SD card (the recorder of tc100_rtsp, src/tc100rtsp/rec.c).
     case "$_rec" in
         off) set_conf "$BOOT_CONF" REC_LOCAL 0 ;;
         offline|always) set_conf "$BOOT_CONF" REC_LOCAL 1; set_conf "$BOOT_CONF" REC_WHEN "$_rec" ;;
@@ -321,7 +321,7 @@ cat << 'HTMLEOF'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TC100 — Initial setup</title>
-<script src="/scripts/i18n.js?v=7f882bb6"></script>
+<script src="/scripts/i18n.js?v=aadd602d"></script>
 <style>
 /* no Bulma here (item 54): the wizard uses only its own wz-* classes; this is the part of Bulma's reset it relied on */
 *, *::before, *::after { box-sizing: border-box; }

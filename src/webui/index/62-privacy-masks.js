@@ -1,9 +1,9 @@
   // --- Rectangles drawn on a snapshot: privacy masks (Image tab) and motion
   // zones (Detection tab), up to 4 each, "x1,y1,x2,y2" in percent.
   //   masks: MASK1..MASK4 (scripts/isp-tune.sh), hardware masks painted by
-  //          the video server (src/tc100fix/isp_tune.c)
+  //          the image processor (tc100_rtsp, src/tc100rtsp)
   //   zones: MDZ1..MDZ4 (/mnt/config/motion_zones.conf), areas the camera's
-  //          motion detection ignores (src/tc100fix/md.c)
+  //          motion detection ignores (tc100_rtsp)
   var MASK_MAX = 4;
 
   function parseMask(v) {

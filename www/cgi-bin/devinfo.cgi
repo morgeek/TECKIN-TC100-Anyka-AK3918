@@ -96,11 +96,11 @@ $prev_shutdown_text"
 uptime_text="$(format_uptime "$uptime_secs")"
 binary_versions_text="$(cat /tmp/devinfo_binary_versions.txt 2>/dev/null)"
 [ -n "$binary_versions_text" ] || binary_versions_text="$(build_binary_versions_block)"
-release_text="$(cat /usr/local/factory_fw_version 2>/dev/null)"
-[ -n "$release_text" ] || release_text="n/a"
 firmware_text="n/a"
 [ -r /mnt/VERSION ] && read -r firmware_text < /mnt/VERSION
 [ -n "$firmware_text" ] || firmware_text="n/a"
+# 3.0 runs from the flash (installed) or from the SD card; the vendor firmware's version file is not there any more
+if [ -f /tmp/flashmode ]; then firmware_text="$firmware_text (runs from the flash)"; else firmware_text="$firmware_text (runs from the SD card)"; fi
 system_text="$(uname -a 2>/dev/null)"
 [ -n "$system_text" ] || system_text="n/a"
 cpu_text="$(cat /proc/cpuinfo 2>/dev/null)"
@@ -124,10 +124,8 @@ cat << EOF
         <div class='card status_card info-card'>
             <header class='card-header'><p class='card-header-title'><span class='title-with-icon'><svg class='title-icon' viewBox='0 0 24 24' aria-hidden='true'><path d='M8 4h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM10 17h4'/></svg><span>Device Summary</span></span></p></header>
             <div class='card-content'>
-                Firmware (SD card):
+                Firmware:
                 <pre class='info-pre'>${firmware_text}</pre>
-                Vendor firmware (flash):
-                <pre class='info-pre'>${release_text}</pre>
                 Kernel:
                 <pre class='info-pre'>${system_text}</pre>
                 Clocks:

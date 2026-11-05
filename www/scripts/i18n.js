@@ -12,7 +12,7 @@
 (function () {
   "use strict";
   var KEY = "tc100_lang";
-  var VERSION = "f7dca183";
+  var VERSION = "35a7da18";
   var lang = null;
   try { lang = window.localStorage.getItem(KEY); } catch (e) { /* storage blocked */ }
   if (lang !== "fr" && lang !== "en") {
@@ -138,8 +138,8 @@
   root.classList.add("i18n-pending");
   function reveal() { root.classList.remove("i18n-pending"); }
   setTimeout(reveal, 1500);
-  // The dictionary is a script (window.tc100I18nFr): lighttpd serves .js
-  // compressed and cached for 30 days under the versioned URL.
+  // The dictionary is a script (window.tc100I18nFr): the web server sends its .gz copy, and the
+  // versioned URL (?v=, src/webui/stamp-assets.sh) renews the browser's cache.
   var tag = document.createElement("script");
   tag.src = "/i18n/fr.js?v=" + VERSION;
   tag.onload = function () {

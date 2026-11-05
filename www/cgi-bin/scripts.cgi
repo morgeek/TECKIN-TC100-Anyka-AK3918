@@ -261,14 +261,14 @@ fast_toggle_state() {
       fi ;;
     recording)	# 3.0: the recorder inside tc100_rtsp, on while REC_LOCAL=1
       case "$(boot_conf_flag REC_LOCAL)" in 1|true|yes|on)
-        _ft_pid="$(read_first /var/run/v4l2rtspserver.pid)"
+        _ft_pid="$(read_first /var/run/v4l2rtspserver.pid)"	# tc100_rtsp's pid (the file kept its 2.x name)
         case "$_ft_pid" in ''|*[!0-9]*) ;; *) [ -d "/proc/$_ft_pid" ] && _ft_on=1 ;; esac ;;
       esac ;;
     web-server)
       for _ft_p in /proc/[0-9]*; do
         [ -r "$_ft_p/stat" ] || continue
         read -r _ft_stat 2>/dev/null < "$_ft_p/stat" || continue
-        case "$_ft_stat" in *"(lighttpd)"*|*"(httpd)"*|*"(httpfront)"*) _ft_on=1; _ft_pid="${_ft_p#/proc/}"; break ;; esac
+        case "$_ft_stat" in *"(httpd)"*|*"(httpfront)"*) _ft_on=1; _ft_pid="${_ft_p#/proc/}"; break ;; esac
       done ;;
     *) return 1 ;;
   esac

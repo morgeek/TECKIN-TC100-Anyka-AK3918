@@ -740,6 +740,13 @@
                 </div>
             </div>
 
+            <style>
+                .tc-tip { display: inline-flex; align-items: center; justify-content: center; width: 1.1rem; height: 1.1rem;
+                    margin-left: 0.3rem; padding: 0; border: 1px solid currentColor; border-radius: 50%; background: none;
+                    color: var(--v2-muted, #6b7280); font-size: 0.7rem; line-height: 1; cursor: help; vertical-align: middle; }
+                .tc-tip:hover, .tc-tip[aria-expanded="true"] { color: var(--v2-accent, #4f46e5); }
+                .tc-tip-text { margin-top: 0.2rem; }
+            </style>
             <!-- item 45: memory measured per program (action.cgi mem_budget) and a forecast for the options below -->
             <div class="card status_card mt-4" id="mem_card">
                 <header class="card-header"><p class="card-header-title">Memory</p></header>
@@ -750,7 +757,7 @@
                     <div id="mem_options" class="is-size-7"></div>
                     <p class="label is-small mt-3">Largest programs now (PSS)</p>
                     <div id="mem_procs" class="is-size-7"></div>
-                    <p class="help">Measured on this camera; the values of stopped services are estimates. Below 10 MB free the camera becomes fragile, below 6 MB the memory guard restarts services. The forecast changes nothing: switch the services in their own settings.</p>
+                    <p class="help">Measured on this camera; the values of stopped services are estimates. Below 10 MB free the camera becomes fragile; below 6 MB the memory guard (Hardening, off by default) stops services. The forecast changes nothing: switch the services in their own settings.</p>
                     <button class="button is-small is-light mt-2" type="button" id="mem_refresh">Measure again</button>
                 </div>
             </div>
@@ -1704,6 +1711,107 @@
         }
     })();
 
+    // Item 44: a "?" next to the label of the settings below: hover shows the explanation, a click (or a tap) shows it
+    // under the field. The texts are English, translated by i18n/fr.js like the rest of the page.
+    (function() {
+        var TIPS = {
+            "isp_enable": "Applies the sliders below to the image processor, live. Off: the sensor keeps its factory tuning.",
+            "isp_mask_color": "Colour of the privacy masks. They are painted into the video itself: stream, recordings and pictures.",
+            "osdenabled": "Draws the clock text into the video (stream, recordings and pictures).",
+            "osd_position_preset": "Corner of the clock; Custom uses the X and Y positions below.",
+            "osdfontsize0": "Height of the clock characters, in pixels of the main stream.",
+            "osdx0": "Left edge of the clock, in pixels of the main stream (0 = left).",
+            "osdy0": "Top edge of the clock, in pixels of the main stream (0 = top).",
+            "daynightlum": "Night when the mean picture luminance (0-255) stays below this value for the hold time (luminance source).",
+            "ae_night_above": "Night when the exposure index stays above this value for the hold time (exposure source). Read the index on this page at dusk.",
+            "dn_night_hold": "How long the light must stay on the night side before the switch: a passing shadow does not switch.",
+            "nightdaylum": "Day again when the luminance stays above this value for the hold time. Keep a gap with the night value, or the camera flaps.",
+            "ae_day_below": "Day again when the exposure index stays below this value. The infrared LEDs brighten the scene: keep it clearly below the index seen at night.",
+            "dn_day_hold": "How long the light must stay on the day side before switching back; 60 s rides over car headlights.",
+            "dn_vendor_night": "Stock firmware method: night when its light value stays above this (3584 by default).",
+            "dn_vendor_day": "Stock firmware method: day when its light value stays below this (1536 by default).",
+            "dn_nightstyle": "At night: the night settings of the sensor tuning, longer exposure, stronger noise filter, 10 frames per second.",
+            "rtsp_idle_fps": "Frame rate while the condition below holds; Off keeps the normal rate.",
+            "rtsp_idle_after": "Seconds without motion before the lower rate starts; the normal rate comes back at the first motion.",
+            "brbitrate0": "Target bit rate of the main stream. Higher: sharper picture and bigger recordings, and the Wi-Fi must carry it.",
+            "video_codec0": "H.265 needs about half the bit rate for the same picture, but not every browser or recorder plays it; H.264 plays everywhere.",
+            "goplen0": "Frames between two keyframes. Shorter: faster start and seeking, more bit rate. Twice the frame rate is a good value.",
+            "minqp0": "Lowest quantizer, the best quality the encoder may use. Lower values let still scenes use more bits.",
+            "maxqp0": "Highest quantizer, the worst quality allowed in busy scenes. Lower: fewer blocks, but the bit rate may pass the target.",
+            "brbitrate1": "Target bit rate of the secondary stream (640×360): recorder detection and the live view.",
+            "video_codec1": "Codec of the secondary stream; H.264 is the safe choice for detection in a recorder such as Frigate.",
+            "mdsens": "How small a change counts as motion. Higher catches smaller movements, and more false alarms (leaves, rain, headlights).",
+            "motion_led": "Blinks the front LED while motion is detected.",
+            "motion_best_shot": "On motion, takes 3 quick pictures and keeps the sharpest for the alert and MQTT.",
+            "sound_det_enable": "Measures the microphone level and makes a sound event (MQTT, alerts) above the threshold.",
+            "vox_mode": "The sound state stays on while the noise goes on, and turns off after the silence time below: a babyphone.",
+            "vox_hold": "Seconds of silence before the babyphone state turns off.",
+            "min_loud": "How many seconds the noise must last to make a sound event: 2 or 3 ignore a door slam.",
+            "alarm_hold": "Seconds after the end of a long loud sound before the alarm state turns off.",
+            "tamper_enable": "Alerts when the lens is covered, sprayed or turned away: the picture suddenly loses its detail.",
+            "tamper_hold": "How long the picture must stay degraded before the alert.",
+            "tamper_drop_pct": "How much the encoded picture must shrink (less detail) to count; lower is more sensitive.",
+            "tamper_luma_min": "At night, a picture darker than this also counts as covered.",
+            "rec_local": "MP4 files on the SD card, copied from the video already encoded: no extra encoding.",
+            "rec_stream": "Main: full resolution, bigger files. Secondary: 640×360, small files, almost no processor time.",
+            "rec_segment_min": "Length of each file. Shorter files open sooner and lose less if the card is pulled out.",
+            "notify_cooldown": "No second alert of the same kind before this many seconds.",
+            "notify_attach_snapshot": "Adds the camera picture to each alert.",
+            "ntfy_enable": "Sends the alerts to an ntfy server (ntfy.sh or your own); the ntfy phone app shows them.",
+            "ntfy_topic": "Topic the phone app subscribes to. On ntfy.sh anyone who knows it can read it: choose a long, unguessable one.",
+            "ntfy_priority": "ntfy priority: the higher, the more insistent the alert on the phone.",
+            "webhook_enable": "Sends each alert as JSON to this address (Home Assistant webhook, n8n, Node-RED...).",
+            "webhook_method": "HTTP method of the request; Home Assistant webhooks take POST.",
+            "mqtt_enabled": "Connects the camera to an MQTT broker: events, sensors and commands for Home Assistant and others.",
+            "mqtt_host": "Name or IP address of the MQTT broker (Mosquitto, the Home Assistant add-on...).",
+            "mqtt_port": "1883 for MQTT without TLS.",
+            "mqtt_password": "Not shown again once saved: leave empty to keep it.",
+            "mqtt_topic_root": "Start of every topic of this camera, e.g. tc100/camera; a different one per camera.",
+            "mqtt_discovery": "Publishes the Home Assistant discovery messages: the camera's entities appear by themselves.",
+            "frigate_url": "Address of your Frigate (http://host:5000), for the Smooth live button.",
+            "telegram_enable": "Lets the bot answer commands sent from your chat (picture, status...).",
+            "telegram_chat_id": "Number of your chat; only this chat is answered.",
+            "syslog_host": "Address of the syslog server (NAS, Home Assistant add-on...).",
+            "wifi_ssid_input": "Name of the Wi-Fi network the camera joins; 2.4 GHz only.",
+            "wifi_country_select": "Country of the Wi-Fi rules: allowed channels and power. The world rules work everywhere but forbid some channels.",
+            "hostname": "Name of the camera on the network (router list, NAME.local).",
+            "rtsp_port": "TCP port of the RTSP streams, 554 by default.",
+            "telnet_port": "Port of the telnet service when it is on. Telnet sends the password in clear: keep it off outside tests.",
+            "ntp_server": "Time server. Without the right time, recordings and logs carry wrong dates.",
+            "all_password": "Password of root for the web interface, RTSP, FTP and telnet; 6 characters at least.",
+            "reboot_enable": "Reboots the camera on a schedule, e.g. every night at 4:00. Rarely needed.",
+            "reboot_schedule_dow": "* = every day, 0 = Sunday ... 6 = Saturday.",
+            "security_hardening": "Telnet, FTP and SSH refuse to start, whatever their own setting.",
+            "mem_guard_enable": "Watches the free memory and stops non-essential services before it runs out.",
+            "mem_guard_warn_kb": "First stage, in KB free: stops the services listed as soft (none by default).",
+            "mem_guard_crit_kb": "Critical stage, in KB free: also stops FTP, telnet and motion detection.",
+            "mem_guard_interval": "Seconds between two checks."
+        };
+        var T = window.tc100T || String;
+        Object.keys(TIPS).forEach(function(id) {
+            var field = document.getElementById(id);
+            if (!field || field.dataset.tip) return;
+            field.dataset.tip = '1';
+            var text = T(TIPS[id]);
+            var label = document.querySelector('label[for="' + id + '"]');
+            var b = document.createElement('button');
+            b.type = 'button'; b.className = 'tc-tip'; b.textContent = '?'; b.title = text;
+            b.setAttribute('aria-label', T('Help'));
+            b.setAttribute('aria-expanded', 'false');
+            var box = field.closest('.field') || field.parentNode;
+            b.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                var p = box.querySelector('.tc-tip-text');
+                if (p) { p.parentNode.removeChild(p); b.setAttribute('aria-expanded', 'false'); return; }
+                p = document.createElement('p');
+                p.className = 'help tc-tip-text'; p.textContent = text;
+                box.appendChild(p);
+                b.setAttribute('aria-expanded', 'true');
+            });
+            (label || field).insertAdjacentElement('afterend', b);
+        });
+    })();
+
     // Settings -> System -> Memory (item 45): the free memory measured now, and what it would be with the ticked
     // options: a running program gives back what it uses now (its PSS), a stopped one costs an estimate measured on
     // the TC100 (the C MQTT bridge 209 KB, the shell one 1.1 MB, arecord 660 KB, 1080p against 720p about 1.7 MB)
@@ -1743,7 +1851,7 @@
             bar.className = 'progress ' + (free < 6144 ? 'is-danger' : free < 10240 ? 'is-warning' : 'is-success');
             document.getElementById('mem_text').textContent = T('Free now') + ': ' + mb(data.avail_kb) + ' · ' +
                 T('forecast') + ': ' + mb(free) + ' ' + T('of') + ' ' + mb(data.total_kb) +
-                (free < 6144 ? ' · ' + T('too little: services will be restarted') : free < 10240 ? ' · ' + T('tight') : '');
+                (free < 6144 ? ' · ' + T('too little: the memory guard would stop services') : free < 10240 ? ' · ' + T('tight') : '');
         }
         function render(d) {
             data = d;

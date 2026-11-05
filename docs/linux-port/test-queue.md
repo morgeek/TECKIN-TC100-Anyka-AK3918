@@ -2490,3 +2490,10 @@ Prochaine étape : rc26 sur la .11.
   3. Avec le mot de passe `pass` → l'avertissement « mot de passe par défaut » s'affiche ; avec un autre → non.
   4. Réglages → Image → orientation : retourner puis remettre l'image (`isp_flip` du build).
 - **Critères :** les quatre comportements identiques à avant.
+
+## 2026-11-05 — Infobulles des réglages et textes à jour (`[ui-text]`, items 44 et 47)
+
+- **Quoi :** Réglages : un « ? » à côté de 71 réglages sans explication (survol : texte en info-bulle ; clic ou toucher : le texte sous le champ ; en français avec la page). Textes : l'éditeur de configuration ne parle plus de lighttpd ; Infos appareil affiche « Firmware : 3.x (runs from the flash / SD card) » au lieu de « Firmware (SD card) » et d'une ligne « Vendor firmware » toujours vide ; la carte Mémoire décrit la garde mémoire telle qu'elle est (désactivée par défaut, paliers 6 et 3 Mo).
+- **Interrupteur :** aucun (affichage) ; revert.
+- **Test :** Réglages en français sur ordinateur et sur téléphone : les « ? » sont alignés avec les libellés, un clic sur un interrupteur ne le bascule pas, le texte s'affiche puis se cache ; relire quelques textes (jour/nuit, QP, ntfy, garde mémoire) et signaler ceux qui sont faux. Infos appareil : la ligne Firmware dit bien flash ou carte SD.
+- **Critères :** aucun réglage modifié par un clic sur « ? », aucune erreur dans la console, textes justes.

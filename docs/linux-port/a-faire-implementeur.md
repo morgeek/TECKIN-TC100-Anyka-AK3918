@@ -327,7 +327,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     Frigate, sinon `REC_CLIENT`, sinon la box ; pertes, délai min / moy / max, gigue. Entrée `[nvr-latency]`.*
     - Bouton d'action dans l'interface Web envoyant une salve de requêtes ICMP/ping vers l'hôte NVR/Frigate configuré.
     - Affichage du RTT moyen, du jitter et du taux de perte pour lever immédiatement le doute entre instabilité caméra et congestion du réseau Wi-Fi local.
-44. [ ] **Infobulles explicatives pour chaque réglage dans l'interface Web (Tooltips)** :
+44. [x] *(2026-11-05 : fait, entrée `[ui-text]` ; 71 réglages de Réglages ; les autres pages ont déjà leurs textes d'aide)* **Infobulles explicatives pour chaque réglage dans l'interface Web (Tooltips)** :
     - Ajouter une icône d'aide ou un tooltip interactif sur chaque commutateur, curseur et champ de saisie dans l'interface Web.
     - Rôle : expliquer en langage clair la fonction exacte du réglage, son mode d'action technique et son impact recommandé.
 45. [x] *(2026-11-05 : fait, entrée `[mem-budget]` ; PSS mesurée par programme, estimations seulement pour les services arrêtés ; `RTSP_QMAX` et le débit ne sont pas modélisés, faute de mesure)* **Simulateur d'occupation mémoire dynamique dans les réglages (Memory Budgeter)** :
@@ -341,7 +341,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     - Remplacer le tableau linéaire étroit peu efficace par une mise en page moderne en cartes / grille responsive (grid multi-colonnes exploitant toute la largeur de l'écran).
     - Regroupement thématique clair des services : Core/Système (RTSP, Web, Housekeeper), Réseau/Accès (SSH, mDNS), Intégrations (MQTT, Telegram, Syslog).
     - Affichage compact des interrupteurs d'état (démarré/arrêté), commutateurs de boot, indicateurs d'impact RAM/CPU et boutons d'action rapide.
-47. [ ] **Passe de cohérence et actualisation des textes dans toute l'interface Web** :
+47. [x] *(2026-11-05 : fait, entrée `[ui-text]` ; les chaînes visibles ne citaient plus que lighttpd et le « firmware constructeur » de Infos ; le reste était dans des commentaires)* **Passe de cohérence et actualisation des textes dans toute l'interface Web** :
     - Nettoyer les mentions historiques devenues obsolètes (anciennes références à lighttpd, 2.x, v4l2rtspserver, etc.).
     - Harmoniser le vocabulaire, les infobulles, les traductions françaises (`www/i18n/fr.js`) et la documentation intégrée pour refléter l'architecture 3.0 moderne (noyau 6.6, `httpfront`, `tc100_rtsp`, pont MQTT en C).
 48. [x] *(2026-11-05 : fait, entrée `[sounds]` ; conversion dans le navigateur (Web Audio) en PCM 8 kHz, la caméra ne fait que stocker ; pas de son joué sur événement, seulement les noms existants chime / alert / siren)* **Gestionnaire de sons personnalisés (Démarrage, Alertes, Upload audio)** :

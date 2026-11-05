@@ -127,7 +127,7 @@
             }
             setVal('imageflip', vid.flip);
 
-            // 3b. Live image tuning (separate endpoint; values applied by libtc100fix)
+            // 3b. Live image tuning (separate endpoint; scripts/isp-tune.sh, applied by tc100_rtsp)
             loadIspTune(dash);
 
             // 4. Automation

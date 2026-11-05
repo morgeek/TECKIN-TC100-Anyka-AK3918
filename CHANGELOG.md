@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Help tips in Settings** (item 44): a "?" next to 71 settings that had no explanation of their own; hovering shows
+  what the setting does and its effect, a click or a tap shows it under the field. French with the rest of the page.
 - **Memory forecast** (Settings → System → Memory, item 45): the free memory measured now, the largest programs
   (PSS from `smaps_rollup`, `action.cgi?cmd=mem_budget`, one `ps` and one `awk`), and a forecast as options are
   ticked: a running service gives back what it uses now, a stopped one costs an estimate measured on the TC100
@@ -152,6 +154,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   jitter, to tell a Wi-Fi or network problem from a camera one.
 
 ### Changed
+- **Texts brought up to date** (item 47): no lighttpd in the configuration editor, Device information shows the
+  firmware version and where it runs (flash or SD card) instead of an always empty "vendor firmware" line, comments
+  of the pages name the 3.0 programs; the memory forecast describes the memory guard as it works (off by default,
+  6 MB and 3 MB stages).
 - **Audit 2026-11-04, repository points** (item 51): `scripts/jsonflat.awk` gives the same output with busybox awk,
   mawk and gawk, and its test runs with each (D1); `SERVICE_TRIM` lives only in `service_trim.conf`, the dead
   `SD_AUTOMOUNT` and `SERVICE_TRIM_ALLOWLIST` and 16 keys of the vendor server in `rtspserver.conf.dist` are gone,
