@@ -39,7 +39,10 @@ cp -r config/autostart "$T/config/"
 rm -f "$T/config/autostart/ftp-server"
 # free uClibc programs of the repo that the 6.6 system uses (run with the camera's own uClibc, see vendor)
 mkdir -p "$T/bin" "$T/lib" "$T/tc100test"
-for b in busybox getflag getimage isp_flip monvifd rwconf setconf tc100-logfwd telegram; do cp "bin/$b" "$T/bin/"; done
+for b in busybox isp_flip monvifd rwconf setconf tc100-logfwd telegram; do
+	[ -f "bin/$b" ] || { echo "build-stack: bin/$b missing (rwconf and isp_flip are built from src/ by the release build: make -C src/rwconf, see build-kernel-linux66.yml)"; exit 1; }
+	cp "bin/$b" "$T/bin/"
+done
 cp lib/libnetacl.so "$T/lib/"	# the encoder API library comes from the camera too (collect-vendor.sh)
 # what CI compiles
 cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$PACK/tc100-mdnsd" "$PACK/tc100-mqttd" "$PACK/tc100-onvifd" "$T/tc100test/"

@@ -58,6 +58,16 @@ dist/
 /src/mqttd/libc.so.0
 /src/mqttd/tc100-mqttd
 /src/mqttd/tc100-mqttd-host
+# rwconf build products (item 53); bin/rwconf is copied there by the release build, not versioned
+/src/rwconf/*.o
+/src/rwconf/*.dbg
+/src/rwconf/stubs.c
+/src/rwconf/defined.txt
+/src/rwconf/imports.txt
+/src/rwconf/libc.so.0
+/src/rwconf/rwconf
+/src/rwconf/rwconf-host
+/bin/rwconf
 # tc100-supervisord build products
 /src/supervisord/*.o
 /src/supervisord/*.dbg

@@ -7,7 +7,7 @@
 #   tests/check-libc-data-imports.sh [DIR...]     (default: src/tc100rtsp src/mqttd src/onvifd src/supervisord)
 DATA='stdin stdout stderr optarg optind opterr optopt environ __environ timezone daylight tzname h_errno _res
 __progname program_invocation_name program_invocation_short_name signgam __ctype_b __ctype_tolower __ctype_toupper'
-[ $# -gt 0 ] || set -- src/tc100rtsp src/mqttd src/onvifd src/supervisord
+[ $# -gt 0 ] || set -- src/tc100rtsp src/mqttd src/onvifd src/supervisord src/rwconf
 rc=0
 for d in "$@"; do
   f=$d/imports.txt

@@ -820,7 +820,7 @@ binary_version() {
 }
 
 build_binary_versions_block() {
-  for n in busybox curl getflag getimage jq monvifd rwconf setconf telegram; do
+  for n in busybox curl jq monvifd rwconf setconf telegram; do
     ver="$(binary_version "$n")"
     printf '%-20s %s\n' "$n" "$ver"
   done
