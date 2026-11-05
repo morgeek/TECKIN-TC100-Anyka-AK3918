@@ -30,6 +30,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -264,6 +265,7 @@ static int pkt_publish(struct buf *b, int retain, const char *topic, const void 
 	size_t n = 1, tl = strlen(topic);
 	unsigned char t[2] = { tl >> 8, tl & 255 };
 
+	if (tl > 65535) return -1;	/* the topic length field has 16 bits (audit M1: it was truncated) */
 	if (b->len + 7 + tl + pn > max) return -1;
 	put_varint(h, &n, 2 + tl + pn);
 	bput(b, h, n, max);
@@ -467,29 +469,49 @@ static void schedule_retry(int was_up)
 	}
 }
 
-static void conn_start(void)
+/* the broker's address (audit M1: getaddrinfo, which can block for seconds on DNS, ran at every reconnection and froze
+ * the loop): a numeric address needs no lookup; a name is resolved once, kept, and resolved again only after a
+ * failed connection */
+static struct sockaddr_in g_addr;
+static int g_addr_ok;
+
+static int broker_addr(void)
 {
 	struct addrinfo hints, *ai = NULL;
-	int r, fl;
 
+	if (g_addr_ok) return 0;
+	memset(&g_addr, 0, sizeof g_addr);
+	g_addr.sin_family = AF_INET;
+	g_addr.sin_port = htons((unsigned short)atoi(C.port));
+	if (inet_aton(C.host, &g_addr.sin_addr)) { g_addr_ok = 1; return 0; }
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
-	if (getaddrinfo(C.host, C.port, &hints, &ai) != 0 || !ai) {
+	if (getaddrinfo(C.host, C.port, &hints, &ai) != 0 || !ai) return -1;
+	memcpy(&g_addr, ai->ai_addr, sizeof g_addr);
+	freeaddrinfo(ai);
+	g_addr_ok = 1;
+	return 0;
+}
+
+static void conn_start(void)
+{
+	int r, fl;
+
+	if (broker_addr()) {
 		status(0, 0, 0);
 		schedule_retry(0);
 		return;
 	}
-	g_sock = socket(ai->ai_family, ai->ai_socktype, 0);
-	if (g_sock < 0) { freeaddrinfo(ai); status(0, 0, 0); schedule_retry(0); return; }
+	g_sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (g_sock < 0) { status(0, 0, 0); schedule_retry(0); return; }
 	fcntl(g_sock, F_SETFD, FD_CLOEXEC);
 	fl = fcntl(g_sock, F_GETFL);
 	fcntl(g_sock, F_SETFL, fl | O_NONBLOCK);
 	r = 1;
 	setsockopt(g_sock, IPPROTO_TCP, TCP_NODELAY, &r, sizeof r);
-	r = connect(g_sock, ai->ai_addr, ai->ai_addrlen);
-	freeaddrinfo(ai);
-	if (r < 0 && errno != EINPROGRESS) { status(0, 0, 0); schedule_retry(0); return; }
+	r = connect(g_sock, (struct sockaddr *)&g_addr, sizeof g_addr);
+	if (r < 0 && errno != EINPROGRESS) { g_addr_ok = 0; status(0, 0, 0); schedule_retry(0); return; }
 	g_state = CONNECTING;
 	g_deadline = now_ms() + CONNECT_TIMEOUT_MS;
 }
@@ -764,6 +786,7 @@ int main(int argc, char **argv)
 		/* timers */
 		if (g_state == DISC && t >= g_next_try) conn_start();
 		if ((g_state == CONNECTING || g_state == CONNACKWAIT) && t >= g_deadline) {
+			if (g_state == CONNECTING) g_addr_ok = 0;	/* no answer from that address: a name is resolved again */
 			status(0, 0, 0);
 			schedule_retry(0);
 		}
@@ -827,7 +850,7 @@ int main(int argc, char **argv)
 				socklen_t l = sizeof e;
 
 				getsockopt(g_sock, SOL_SOCKET, SO_ERROR, &e, &l);
-				if (e) { status(0, 0, 0); schedule_retry(0); }
+				if (e) { g_addr_ok = 0; status(0, 0, 0); schedule_retry(0); }
 				else on_connected();
 			}
 			if (g_sock >= 0 && (re & POLLIN)) {

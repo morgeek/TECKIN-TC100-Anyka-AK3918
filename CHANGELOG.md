@@ -142,6 +142,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `.gz` copies, but no Cache-Control).
 
 ### Security
+- **MQTT bridge in C: no DNS lookup at every reconnection, long topics refused** (audit M1): a numeric broker address
+  needs no lookup; a name is resolved once and again only after a failed connection (the lookup could freeze the
+  loop for seconds); a topic over 65 535 bytes is refused instead of having its length truncated.
 - **Secrets no longer in read-only answers** (audit W6): the rescue access point's password is sent only on request
   (Settings → Show, `wifi_rescue_info&reveal=1` with the page's CSRF token), and `state.cgi?cmd=fullconfig` no
   longer returns the Telegram token (`token_set` says one is saved; an empty field keeps it, `-` removes it).
