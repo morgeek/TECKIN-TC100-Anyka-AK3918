@@ -89,7 +89,8 @@ fi
 sh /mnt/scripts/migrate-switches.sh </dev/null >/dev/null 2>&1
 . /mnt/scripts/service-switch.sh
 # first start of 3.0 (even with settings brought over from 2.x): the web pages open the setup wizard
-[ -f /mnt/config/.wizard3_done ] || : > /tmp/.first_boot
+# (W4: not when a password was set elsewhere: config/.password_set, written by http_password in common_functions.sh)
+[ -f /mnt/config/.wizard3_done ] || [ -f /mnt/config/.password_set ] || : > /tmp/.first_boot
 
 # 1b. wifi.txt at the root of the card (SSID=, PASSWORD=), like 2.x: the new network goes first in
 #     config/wpa_supplicant.conf, the previous ones stay as fallbacks, and it is used at once.

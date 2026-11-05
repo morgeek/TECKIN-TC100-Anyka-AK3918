@@ -23,6 +23,8 @@ kernel_load_max() {
 	return 1
 }
 say() { echo "$*" > $ST; echo "update66: $*" > /dev/console; [ -n "$LOG" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+# the md5 published in the package for a file (B3: flashw compares the file with THIS sum, not with itself)
+sum_of() { awk -v f="$2" '$2 == f || $2 == "*" f { print $1; exit }' "$1/MD5SUMS" | grep -E '^[0-9a-fA-F]{32}$'; }
 LOG=; grep -q ' /mnt/sd vfat ' /proc/mounts && mkdir -p /mnt/sd/tc100-3 2>/dev/null && LOG=/mnt/sd/tc100-3/update66.log
 
 check() {
@@ -33,6 +35,7 @@ check() {
 	part_size vendor >/dev/null || { echo "this camera has the first flash layout (no vendor partition): a web update would remove its vendor libraries. Copy the new SD package to the card (keep its lib/ folder), start the camera from it, then Settings -> Update & backup -> Install to flash"; return 1; }
 	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -f "$D/$f" ] || { echo "$f is missing from the package"; return 1; }; done
 	( cd "$D" && md5sum -c MD5SUMS >/dev/null 2>&1 ) || { echo "the package is damaged (md5)"; return 1; }
+	for f in stack.sqfs c66.img c66rd.gz; do sum_of "$D" $f >/dev/null || { echo "MD5SUMS has no sum for $f"; return 1; }; done
 	for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
 		s=$(part_size ${p%%:*}) || { echo "no ${p%%:*} partition"; return 1; }
 		[ "$(wc -c < "$D/${p#*:}")" -le "$s" ] || { echo "${p#*:} does not fit the ${p%%:*} partition"; return 1; }
@@ -92,15 +95,36 @@ if [ -n "$BK" ]; then
 else
 	say "no SD card: the firmware now in the flash is not saved before writing"
 fi
+# BEGIN write_part (tests extract this block)
+# write_part PARTITION FILE MD5: up to 3 attempts (flashw erases, writes and reads back each time); 0 = written and
+# verified, 1 = failed three times. Test switch (audit B1): a file /tmp/update66.simfail holding "PARTITION [N]" makes the
+# first N attempts (default all) on that partition fail by passing flashw a wrong md5, which it refuses before touching the flash.
+write_part() {
+	wp=$1; wf=$2; wm=$3; try=1
+	FLASHW=${FLASHW:-/tmp/upd66/flashw}; FWLOG=${FWLOG:-/tmp/upd66/flashw.log}; RETRY_SLEEP=${RETRY_SLEEP:-3}; SIMFAIL=${SIMFAIL:-/tmp/update66.simfail}
+	while [ $try -le 3 ]; do
+		am=$wm
+		if [ -f "$SIMFAIL" ]; then
+			set -- $(cat "$SIMFAIL")
+			[ "$1" = "$wp" ] && [ "$try" -le "${2:-99}" ] && am=00000000000000000000000000000000
+		fi
+		[ $try -gt 1 ] && say "retrying $wp (attempt $try of 3)"
+		FLASHW_ALLOW="stack kernel initrd" sh $FLASHW -m "$am" $BK $wp "$wf" > $FWLOG 2>&1 && rc=0 || rc=$?
+		[ -n "$LOG" ] && { echo "attempt $try on $wp: flashw exit $rc" >> "$LOG"; cat $FWLOG >> "$LOG"; }
+		[ $rc -eq 0 ] && return 0
+		try=$((try + 1)); [ $try -le 3 ] && sleep $RETRY_SLEEP
+	done
+	return 1
+}
+# END write_part
 for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
 	f=$D/${p#*:}
+	m=$(sum_of "$D" "${p#*:}") || { say "FAILED: no md5 for ${p#*:} in MD5SUMS, nothing written for it. Web and ssh stay available: run the update again with a good package, or use the SD card. Do not cut the power"; exit 1; }
 	say "writing ${p%%:*} ($(wc -c < "$f") bytes), do not unplug the camera"
-	m=$(md5sum < "$f" | cut -d' ' -f1)
-	FLASHW_ALLOW="stack kernel initrd" sh /tmp/upd66/flashw -m "$m" $BK ${p%%:*} "$f" > /tmp/upd66/flashw.log 2>&1 || {
-		[ -n "$LOG" ] && cat /tmp/upd66/flashw.log >> "$LOG"
-		say "FAILED writing ${p%%:*}: the camera restarts; if it does not come back, start it with the 3.0 SD card and install again"
-		sleep 5; reboot; exit 1; }
-	[ -n "$LOG" ] && cat /tmp/upd66/flashw.log >> "$LOG"
+	write_part ${p%%:*} "$f" "$m" || {
+		# B1: no automatic reboot: the session in RAM (web, ssh) is the way to try again
+		say "FAILED writing ${p%%:*} after 3 attempts. Web and ssh stay available: run the update again, or use the SD card (tc100test/c66.img). Do not cut the power. The camera services stay stopped until then"
+		exit 1; }
 done
 say "DONE: $(cat "$D/VERSION") written, restarting"
 sync; sleep 2

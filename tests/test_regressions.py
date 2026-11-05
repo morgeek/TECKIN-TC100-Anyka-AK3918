@@ -1006,15 +1006,18 @@ class SetupWizard(unittest.TestCase):
         shutil.copy(ROOT / 'scripts/wifi-txt.sh', sc / 'wifi-txt.sh')
         (d / 'v3/install').mkdir(parents=True)
         (d / 'v3/install/install66.sh').write_text('#!/bin/sh\ncase "$1" in check) echo ok ;; run) touch "%s/installed" ;; esac\n' % d)
-        self.env = dict(os.environ, WZ_FIRST_BOOT_FLAG=str(d / 'first'), WZ_CONFIG=str(d / 'config'), WZ_CARD=str(d),
+        (d / 'csrf').write_text('0123456789abcdef0123456789abcdef')   # the per-boot token (W4)
+        self.env = dict(os.environ, WZ_CSRF_FILE=str(d / 'csrf'), WZ_FIRST_BOOT_FLAG=str(d / 'first'), WZ_CONFIG=str(d / 'config'), WZ_CARD=str(d),
                         WZ_SCRIPTS=str(sc), WZ_WIFI_CONF=str(d / 'wpa.conf'), TC100_STORAGE_FILE=str(d / 'storage'),
                         WZ_FLASHMODE=str(d / 'flashmode'))
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def post(self, body):
+    def post(self, body, token='0123456789abcdef0123456789abcdef'):
         env = dict(self.env, REQUEST_METHOD='POST', CONTENT_LENGTH=str(len(body)), QUERY_STRING='')
+        if token is not None:
+            env['HTTP_X_CSRF_TOKEN'] = token
         r = subprocess.run(['sh', str(ROOT / 'www/cgi-bin/wizard.cgi')], input=body.encode(), capture_output=True, env=env)
         return json.loads(r.stdout.decode().split('\n\n', 1)[1])
 
