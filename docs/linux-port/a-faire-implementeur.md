@@ -613,11 +613,13 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
 58. [ ] **Nettoyage et élimination définitive des anciens composants remplacés (Consigne propriétaire 2026-11-05 soir, dès confirmation)** :
     - **Principe impératif du propriétaire** : une fois les nouveaux composants C validés sur caméra (rc28), supprimer systématiquement et définitivement les anciens fichiers et binaires obsolètes pour récupérer un maximum de place dans la Flash SPI (ne pas laisser cohabiter les deux implémentations indéfiniment).
     - **Cibles de suppression identifiées** :
-      1. **Suppression de `bin/monvifd`** : Ancien binaire opaque 2.x de 228 Ko (remplacé par `tc100-onvifd`). Gain net : **~75 à 85 Ko de Flash SquashFS**.
+      1. **Suppression coordonnée de `bin/monvifd` (après validation rc28)** :
+         - Ancien binaire opaque 2.x de 228 Ko (remplacé par `tc100-onvifd`). Gain net : **~75 à 85 Ko de Flash SquashFS**.
+         - *Condition impérative avant exclusion dans `build-stack.sh`* : nettoyer d'abord les références résiduelles dans `controlscripts/onvif` (retrait du fallback legacy), `scripts/common_functions.sh` (`build_binary_versions_block`), et `www/settings.html` afin que le test d'intégrité `tests/test_flash_image.py` reste 100 % vert.
       2. **Suppression des scripts de supervision shell** : `scripts/auto-night-daemon.sh` et `scripts/button-watch.sh` (remplacés par `tc100-supervisord`).
       3. **Suppression ou dégraissage massif de `scripts/mqtt-bridge.sh`** : 121 Ko / 2 981 lignes de shell (remplacé par la découverte C `tc100-mqttd`). Gain net : **~35 à 45 Ko de Flash**.
       4. **Élimination de la dépendance à `arecord` dans la stack** : Une fois `RTSP_ALSA_DIRECT=1` figé par défaut, évaluer le retrait d'`arecord` de `ext/bin/` dans `build-stack.sh`.
-      5. **Nettoyage des résidus 2.x (`bin/rwconf`, `bin/getflag`, `bin/getimage`)** : Remplacement ou suppression définitive.
+      5. **Nettoyage des résidus 2.x (`bin/rwconf`, `bin/getflag`, `bin/getimage`)** : Remplacement ou suppression définitive. *(Note : `getflag`, `getimage` et l'ancien binaire `rwconf` ont déjà été supprimés de git ce soir !)*
 
 59. [ ] **Cure d'amaigrissement du noyau Linux 6.6 (`defconfig_cma`) — gain 90 à 120 Ko sur le uImage (Consigne propriétaire 2026-11-05 fin de soirée)** :
     - **Contexte** : le noyau Linux 6.6 (`uImage` compressé en XZ) pèse actuellement ~1,89 Mio pour une partition Flash stricte de 2,0 Mio (`0x39000`), ce qui laisse une marge très étroite.
