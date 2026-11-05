@@ -77,6 +77,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   picture on every stream, snapshot and recording, silence instead of the microphone, no motion detection; kept over
   a restart.
 
+- **`tc100-onvifd`** (`src/onvifd`): free ONVIF daemon to replace the closed `monvifd`. WS-Discovery (Probe,
+  Resolve, Hello, Bye), Device, Media and Media2 services (profiles from `rtspserver.conf` and `boot.conf`, 1080p or
+  720p, H.264 or H.265, optional sub-stream, stream and snapshot URIs, audio output and decoder configurations in the
+  profile for two-way audio), Events service with PullPoint subscriptions (motion topics `VideoSource/MotionAlarm`
+  and `RuleEngine/CellMotionDetector/Motion` from the motion state of `tc100_rtsp`, for the Home Assistant motion
+  sensor), WS-Security login (digest or text) with the RTSP user and password, `TC100_NET_ALLOW` LAN filter, 46 KB.
+  Off by default: `ONVIF_IMPL=c` in `onvif.conf` (monvifd stays the default until checked on the camera).
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

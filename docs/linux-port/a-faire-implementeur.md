@@ -75,6 +75,9 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - **Coupure anti-larsen (half-duplex PTT)** : atténuation/coupure automatique du micro pendant la lecture haut-parleur (évite l'écho en retour).
     - *(Optionnel / P2)* Encodeur AAC compact pour la piste MP4 sur carte SD afin d'assurer une lecture HTML5 universelle dans le navigateur sans transcodage.
 12. [ ] **Support ONVIF Profile T (Audio Backchannel standardisé)** :
+    *2026-11-05 : `tc100-onvifd` (libre, remplace `monvifd`, `ONVIF_IMPL=c`) annonce le retour audio (sortie et
+    décodeur audio dans le profil Media2), plus les événements de mouvement (PullPoint) pour Home Assistant. Reste
+    l'essai sur caméra, entrée `[onvif]`.*
     *Propriétaire, 2026-11-05 : ONVIF est utilisé. Passe par le remplacement de `monvifd` (#53) : un démon ONVIF libre
     (WS-Discovery, Device, Media / Media2 avec le profil audio de retour).*
     - La gestion du retour audio bidirectionnel (`Require: www.onvif.org/ver20/backchannel`, piste `track3` PCMA 8 kHz) est déjà implémentée dans `src/tc100rtsp/talk.c`.
@@ -288,7 +291,8 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 52. [ ] Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
-53. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
+53. [ ] *(2026-11-05 : `monvifd` remplacé par `tc100-onvifd`, désactivé par défaut jusqu'à l'essai `[onvif]` ; restent
+    `rwconf` / `getflag` / `getimage`)* Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
     *Propriétaire, 2026-11-05 : ONVIF est utilisé → le remplacement de `monvifd` passe en P1, avec #12. #35 (WebRTC) :
     sans alourdir le CPU.*

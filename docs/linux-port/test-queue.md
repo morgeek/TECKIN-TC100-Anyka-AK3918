@@ -2318,3 +2318,19 @@ Prochaine étape : rc26 sur la .11.
   4. Interrupteur Home Assistant : bascule et état cohérents.
   5. Désactiver : image, son et détection reviennent.
 - **Critères :** 1-5 conformes, aucune fuite d'image.
+
+## 2026-11-05 — Démon ONVIF libre `tc100-onvifd`, remplace `monvifd` (`[onvif]`, liste de l'implémenteur #12 et #53)
+
+- **Quoi :** nouveau `tc100-onvifd` (`/mnt/tc100test/tc100-onvifd`, construit par la CI, artefact `tc100-linux66-cma16-kernel`). WS-Discovery, services Device, Media et Media2 (profil avec sortie et décodeur audio = retour audio), service Events (PullPoint : mouvement `VideoSource/MotionAlarm` et `RuleEngine/CellMotionDetector/Motion`, lu dans `/tmp/rec_control`), authentification WS-Security (même identifiant que le RTSP : `RTSP_USER` ou `root`, mot de passe de `user.pwd`), filtre `TC100_NET_ALLOW`.
+- **Interrupteur :** `ONVIF_IMPL=monvifd` (défaut) dans `/mnt/config/onvif.conf` puis `/mnt/controlscripts/onvif restart` revient à l'ancien binaire. Mettre `ONVIF_IMPL=c` pour l'essai.
+- **Test :**
+  1. `ONVIF_IMPL=c`, redémarrer le service ; `ps` montre `tc100-onvifd`.
+  2. Découverte : ONVIF Device Manager (ou l'intégration ONVIF de Home Assistant) voit la caméra.
+  3. Frigate ou VLC avec l'URI donnée par `GetStreamUri` (`rtsp://<ip>:554/video0_unicast`).
+  4. Home Assistant, intégration ONVIF : ajout avec l'identifiant et le mot de passe de la caméra ; flux principal et sous-flux présents ; le capteur de mouvement apparaît, passe à « détecté » en ~2 s quand on agite la main, revient ~8 s après.
+  5. Image fixe : `http://<ip>/cgi-bin/currentpic.cgi`.
+  6. Mauvais mot de passe refusé (`NotAuthorized`).
+  7. go2rtc ou Home Assistant en audio bidirectionnel (retour audio).
+  8. Changer la résolution (1080p / 720p) ou le codec dans Réglages, redémarrer `onvif` : les profils suivent.
+  9. PSS du processus avec Home Assistant connecté.
+- **Critères :** découverte et profils corrects ; flux lisible ; `NotAuthorized` sur mauvais identifiant ; capteur de mouvement HA correct sans abonnements qui s'accumulent (4 au plus) ; pas de plantage sur 24 h ; PSS < 300 Ko ; pas de régression de `tc100_rtsp`. Si tout passe : `ONVIF_IMPL=c` par défaut, puis retrait de `monvifd`.
