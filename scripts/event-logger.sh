@@ -165,16 +165,3 @@ get_recent_events() {
 get_error_events() {
     _el_query "${1:-0}" "${2:-20}" 1
 }
-
-# Clean up old log files beyond EVENT_LOG_BACKUP_COUNT
-cleanup_event_logs() {
-    _cl_keep=$((EVENT_LOG_BACKUP_COUNT + 1))
-    _cl_idx=0
-    # List all backups (plain and gzipped), newest first, remove extras.
-    for _cl_f in $(ls -t "${EVENT_LOG_FILE}."* 2>/dev/null); do
-        _cl_idx=$((_cl_idx + 1))
-        if [ "$_cl_idx" -gt "$EVENT_LOG_BACKUP_COUNT" ]; then
-            rm -f "$_cl_f" 2>/dev/null || true
-        fi
-    done
-}

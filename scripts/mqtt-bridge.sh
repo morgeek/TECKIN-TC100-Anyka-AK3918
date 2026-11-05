@@ -435,27 +435,6 @@ read_int_file_value()
   printf '%s' "$result"
 }
 
-port_open_from_list_int()
-{
-  listen_data="$1"
-  port="$2"
-  if printf '%s\n' "$listen_data" | awk -v port="$port" '
-    $1 ~ /^tcp/ {
-      local_addr=$4
-      split(local_addr, parts, ":")
-      if (parts[length(parts)] == port) {
-        found=1
-        exit
-      }
-    }
-    END { exit(found ? 0 : 1) }
-  '; then
-    echo "1"
-  else
-    echo "0"
-  fi
-}
-
 # Single-pass variant: checks all 6 ports in one awk+printf instead of 6 separate calls.
 # Sets slow_port_* variables directly in the caller's scope.
 # Args: listen_data http_port rtsp_port onvif_port ftp_port telnet_port
@@ -483,30 +462,6 @@ collect_port_states_from_netstat()
       print "slow_port_ftp_open="    (ftp    + 0)
       print "slow_port_telnet_open=" (telnet + 0)
     }')"
-}
-
-mqtt_url()
-{
-  topic="$1"
-  client_id="$2"
-  retain="$3"
-  if [ -z "$topic" ]; then
-    echo ""
-    return
-  fi
-
-  if [ -n "$retain" ]; then
-    echo "mqtt://${MQTT_HOST}:${MQTT_PORT}/${topic}?clientid=${client_id}&qos=${MQTT_QOS}&retain=${retain}"
-  else
-    echo "mqtt://${MQTT_HOST}:${MQTT_PORT}/${topic}?clientid=${client_id}&qos=${MQTT_QOS}"
-  fi
-}
-
-curl_auth_args()
-{
-  if [ -n "$MQTT_USER" ]; then
-    printf -- '-u%s:%s' "$MQTT_USER" "$MQTT_PASSWORD"
-  fi
 }
 
 # ── forged-packet publisher ──────────────────────────────────────────────────

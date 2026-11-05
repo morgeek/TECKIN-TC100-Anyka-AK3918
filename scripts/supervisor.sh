@@ -42,12 +42,6 @@ sv_daemon_pid()
   echo "$_sv_p"
 }
 
-# 0 when JOB (night|button) is served by the C daemon right now (flag and live daemon)
-sv_job_active()
-{
-  [ -e "$SV_RUN/tc100-sv.$1" ] && [ -n "$(sv_daemon_pid)" ]
-}
-
 # sv_start JOB PIDFILE SERVICE: 0 = the C daemon serves JOB (PIDFILE has its pid), 1 = the caller starts its shell loop
 sv_start()
 {
