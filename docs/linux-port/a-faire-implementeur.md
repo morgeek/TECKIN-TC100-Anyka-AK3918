@@ -418,6 +418,15 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
       - Zéro risque de perte de données : les écritures sur SD sont flushées plus tôt en arrière-plan sans bloquer les allocations vidéo.
     - **5. Smart Bitrate / Smart GOP sur VPU AK3918** : *Accord propriétaire*. Activer via `libmpi_venc_ex.so` / `libakuio` (`ak_venc_set_smart_config`) pour diviser le débit par 2 à 3 sur scènes nocturnes ou immobiles sans impact CPU.
 
+57. [ ] **Audit final exhaustif front/back & élimination du code mort (Consigne propriétaire 2026-11-05 soir, en toute fin de projet)** :
+    - **Risque identifié** : suite au très grand nombre de modifications et d'ajouts réalisés aujourd'hui (W6, secrets, exclusions flash, bundle CSS, refontes de scripts, services-ui, endpoints CGI, migration WHEP/ONVIF), il existe un risque majeur de rupture de câblage silencieuse entre le front (JS/HTML/CGI) et le back (scripts shell, daemons C, variables d'environnement).
+    - **Contrôle d'intégrité de bout en bout (End-to-End wiring check)** :
+      - Pour chaque bouton, formulaire, slider, toggle et appel AJAX (`fetch` / `XMLHttpRequest`) de toutes les pages web (`index.html`, `settings.html`, `view_records.html`, `hardware.html`, `backup.html`, `logs.html`, `diagnostics.html`, etc.) : vérifier que l'endpoint CGI correspondant (`state.cgi`, `action.cgi`, `config_exchange.cgi`, etc.) existe, traite bien le paramètre exact, et produit la réponse attendue sans erreur 404 ni 500.
+      - Vérifier que chaque paramètre sauvé dans `/mnt/config/*.conf` est correctement relu et honoré par les daemons et scripts de démarrage (`autorun-linux66.sh`, `tc100_rtsp`, `httpfront`, `tc100-mqttd`).
+    - **Chasse au code mort (Deadcode hunt)** :
+      - Détecter et supprimer les fonctions JS orphelines, variables shell non référencées, fichiers temporaires ou dépendances résiduelles non appelées.
+      - Consolider la suite de tests automatisés (`tests/test_*.py`) pour sanctuariser ce câblage avant le tag 3.0.1 final.
+
 ## Hors implémenteur (propriétaire)
 
 - Accord pour archiver ~50 notes anciennes du projet claude.ai et `_archive_v3-drafts/`.
