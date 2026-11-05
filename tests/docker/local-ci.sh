@@ -40,7 +40,7 @@ run_tests() {
 run_cross() {
 	echo "== ARM cross build (arm-linux-gnueabi, as CI)"
 	docker run --rm -v "$SRC:/src:ro" debian:bookworm sh -c '
-		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 >/dev/null 2>&1
+		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 busybox-static >/dev/null 2>&1
 		cp -r /src /w && cd /w && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
 		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd
@@ -62,11 +62,12 @@ run_cross() {
 		make -C src/supervisord CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/onvifd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd
+		echo "httpfront (stripped, bytes): $(wc -c < /tmp/httpfront)"
 		echo "tc100-mqttd (stripped, bytes): $(wc -c < src/mqttd/tc100-mqttd)"
 		echo "tc100-supervisord (stripped, bytes): $(wc -c < src/supervisord/tc100-supervisord)"
 		echo "tc100-onvifd (stripped, bytes): $(wc -c < src/onvifd/tc100-onvifd)"
 		make -C src/tc100rtsp test_rtsp >/dev/null 2>&1 && echo "host test build: ok"
-		python3 -m unittest -v tests.test_httpfront_qemu >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
+		python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
 		echo "cross: ok"' || rc=1
 }
 

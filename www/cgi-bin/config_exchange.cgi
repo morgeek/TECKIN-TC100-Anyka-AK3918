@@ -113,6 +113,7 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"SERIAL_CONSOLE";"serial_console";"general";.boot.serial_console),
     row("boot.conf";"flat";"root";"VM_TUNE";"bool";"general";.boot.vm_tune),
     row("boot.conf";"flat";"root";"SUPERVISOR_IMPL";"supervisor_impl";"general";.boot.supervisor_impl),
+    row("boot.conf";"flat";"root";"HTTPFRONT_NATIVE";"bool";"general";.boot.httpfront_native),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),
     row("rtspserver.conf";"ini";"0";"codec";"video_codec";"general";.video.main.codec),

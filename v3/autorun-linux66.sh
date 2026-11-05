@@ -252,7 +252,7 @@ sh /mnt/v3/linux66-sd/web-auth
 # the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
 # boot.conf NET_LAN_ONLY: httpfront closes connections from outside the allowed networks itself (no packet filter)
 if [ -x /mnt/tc100test/httpfront ]; then
-  TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)" TC100_WEB_LOCKOUT="$BC_WEB_LOCKOUT" \
+  TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)" TC100_WEB_LOCKOUT="$BC_WEB_LOCKOUT" TC100_NATIVE_STATUS="$BC_HTTPFRONT_NATIVE" \
     /mnt/tc100test/httpfront -p 80 -h /tmp/www &
 else
   /usr/sbin/httpd -p 80 -h /tmp/www
