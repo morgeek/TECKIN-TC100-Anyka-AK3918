@@ -12,6 +12,9 @@
 # fell back to a "shim mode" that reported a level above the threshold.
 
 . /mnt/scripts/common_functions.sh
+# SUPERVISOR_IMPL=c (config/boot.conf): the loop below runs as the "sound" job of tc100-supervisord (scripts/supervisor.sh,
+# src/supervisord), which keeps the pid of the daemon in PID_FILE; any failure there starts run_daemon as before
+[ -f /mnt/scripts/supervisor.sh ] && . /mnt/scripts/supervisor.sh
 
 CONFIG_FILE="/mnt/config/sound_detection.conf"
 PID_FILE="/var/run/sound-detection.pid"
@@ -336,13 +339,21 @@ start()
 
     rm -f "$PID_FILE" >/dev/null 2>&1 || true
     echo "Starting sound detection daemon..."
-    run_daemon >/dev/null 2>&1 &
-    echo "$!" > "$PID_FILE"
+    if type sv_start >/dev/null 2>&1 && sv_start sound "$PID_FILE" sound-detection; then
+        :
+    else
+        run_daemon >/dev/null 2>&1 &
+        echo "$!" > "$PID_FILE"
+    fi
 }
 
 stop()
 {
-    killpid_graceful "$PID_FILE" 5
+    if type sv_stop >/dev/null 2>&1 && [ -e "${SV_RUN:-/var/run}/tc100-sv.sound" ]; then
+        sv_stop sound "$PID_FILE" sound-detection   # a job of the shared daemon: switch it off, never kill the daemon
+    else
+        killpid_graceful "$PID_FILE" 5
+    fi
     echo "Stopped"
 }
 

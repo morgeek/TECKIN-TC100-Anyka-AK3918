@@ -118,6 +118,7 @@ service_is_healthy()
             # the two jobs of tc100-supervisord (SUPERVISOR_IMPL=c, scripts/supervisor.sh)
             auto-night-detection) _wd_pf="/var/run/auto-night-detection.pid" ;;
             button-actions)       _wd_pf="/var/run/button-watch.pid" ;;
+            sound-detection)      _wd_pf="/var/run/sound-detection.pid" ;;
             # the housekeeper itself (scripts/housekeeper.sh supervise): its pid file, no fork
             housekeeper.sh) _wd_pf="${HK_PIDFILE:-/var/run/housekeeper.pid}" ;;
         esac

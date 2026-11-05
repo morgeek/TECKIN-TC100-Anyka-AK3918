@@ -1,11 +1,12 @@
 #!/bin/sh
-# supervisor.sh: shared by controlscripts/auto-night-detection and controlscripts/button-actions.
+# supervisor.sh: shared by controlscripts/auto-night-detection, controlscripts/button-actions and controlscripts/sound-detection.
 #
-# SUPERVISOR_IMPL=c in config/boot.conf (default sh) runs the day/night loop and the reset button loop as two jobs of
-# ONE small C process, tc100-supervisord (src/supervisord), instead of two resident busybox shells
-# (scripts/auto-night-daemon.sh and scripts/button-watch.sh, which stay as they are: the default and the fallback).
-# A job is switched on by a flag file ($SV_RUN/tc100-sv.night, tc100-sv.button); the daemon runs while one exists and
-# exits when none is left. Both control scripts keep their own pid file: with the C daemon it holds the daemon's pid.
+# SUPERVISOR_IMPL=c in config/boot.conf (default sh) runs the day/night loop, the reset button loop and the sound detection loop as jobs of
+# ONE small C process, tc100-supervisord (src/supervisord), instead of three resident busybox shells
+# (scripts/auto-night-daemon.sh, scripts/button-watch.sh and the run_daemon loop of controlscripts/sound-detection,
+# which stay as they are: the default and the fallback).
+# A job is switched on by a flag file ($SV_RUN/tc100-sv.night, tc100-sv.button, tc100-sv.sound); the daemon runs while
+# one exists and exits when none is left. Both control scripts keep their own pid file: with the C daemon it holds the daemon's pid.
 #
 # Fallback to the shell loops (sv_start returns 1, the control script then starts its shell loop as before):
 #   - SUPERVISOR_IMPL is not c, or the binary is missing or not executable;
@@ -30,6 +31,10 @@ sv_conf_c()
   return 1
 }
 
+# any job flag left / remove them all (a daemon that is gone with a flag behind it died)
+sv_flags_any() { [ -e "$SV_RUN/tc100-sv.night" ] || [ -e "$SV_RUN/tc100-sv.button" ] || [ -e "$SV_RUN/tc100-sv.sound" ]; }
+sv_flags_rm() { rm -f "$SV_RUN/tc100-sv.night" "$SV_RUN/tc100-sv.button" "$SV_RUN/tc100-sv.sound"; }
+
 # pid of the live daemon
 sv_daemon_pid()
 {
@@ -48,10 +53,10 @@ sv_start()
   [ -x "$SV_BIN" ] && [ ! -e "$SV_RUN/tc100-supervisord.failed" ] && sv_conf_c || return 1
   _sv_job=$1; _sv_pf=$2; _sv_svc=$3
   _sv_alive="$(sv_daemon_pid)"
-  if [ -z "$_sv_alive" ] && { [ -e "$SV_RUN/tc100-sv.night" ] || [ -e "$SV_RUN/tc100-sv.button" ]; }; then
+  if [ -z "$_sv_alive" ] && sv_flags_any; then
     # a flag without a daemon: it died. The shell loops take over until the next boot.
     : > "$SV_RUN/tc100-supervisord.failed"
-    rm -f "$SV_RUN/tc100-sv.night" "$SV_RUN/tc100-sv.button" "$SV_RUN/tc100-supervisord.pid"
+    sv_flags_rm; rm -f "$SV_RUN/tc100-supervisord.pid"
     logger -t tc100-v3 "tc100-supervisord died: shell loops for the rest of this boot" 2>/dev/null
     return 1
   fi
@@ -74,7 +79,7 @@ sv_start()
   fi
   _sv_alive="$(sv_daemon_pid)"
   if [ -z "$_sv_alive" ]; then
-    rm -f "$SV_RUN/tc100-sv.night" "$SV_RUN/tc100-sv.button"
+    sv_flags_rm
     : > "$SV_RUN/tc100-supervisord.failed"
     return 1
   fi
@@ -89,7 +94,7 @@ sv_stop()
 {
   rm -f "$SV_RUN/tc100-sv.$1" "$2"
   [ -n "$3" ] && [ -f "$SV_HK" ] && sh "$SV_HK" watch-del "$3" </dev/null >/dev/null 2>&1
-  if [ ! -e "$SV_RUN/tc100-sv.night" ] && [ ! -e "$SV_RUN/tc100-sv.button" ]; then
+  if ! sv_flags_any; then
     _sv_p="$(sv_daemon_pid)" && kill "$_sv_p" 2>/dev/null
   fi
   return 0
