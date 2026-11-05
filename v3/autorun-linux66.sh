@@ -232,7 +232,8 @@ sh /mnt/v3/linux66-sd/web-auth
 # the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
 # boot.conf NET_LAN_ONLY: httpfront closes connections from outside the allowed networks itself (no packet filter)
 if [ -x /mnt/tc100test/httpfront ]; then
-  TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)" /mnt/tc100test/httpfront -p 80 -h /tmp/www &
+  TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)" TC100_WEB_LOCKOUT="$BC_WEB_LOCKOUT" \
+    /mnt/tc100test/httpfront -p 80 -h /tmp/www &
 else
   /usr/sbin/httpd -p 80 -h /tmp/www
 fi
@@ -374,6 +375,8 @@ fi
 # 12b2b. Reboot tracker every 15 minutes: the critical log lines to important.log and the "last seen alive" heartbeat
 #        that dates an unexpected restart (SD card when there is one, else RAM: never the flash)
 sh /mnt/scripts/housekeeper.sh job add reboot-tracker bg 900 300 - sh /mnt/scripts/reboot-tracker.sh hk </dev/null >/dev/null 2>&1
+# item 28: the logs in RAM that do not cap themselves, every 10 minutes (scripts/log-cap.sh, LOG_CAP_KB)
+sh /mnt/scripts/housekeeper.sh job add log-cap bg 600 600 - sh /mnt/scripts/log-cap.sh </dev/null >/dev/null 2>&1
 
 # 12b3. Wi-Fi quality over time (boot.conf WIFI_QUALITY=1, off by default): one sample a minute in RAM
 #       (scripts/wifi-quality.sh), a housekeeper job, else a loop of its own.

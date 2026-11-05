@@ -390,6 +390,7 @@ http_server(){
     pidof httpfront >/dev/null 2>&1 && return 0
     if [ -x /mnt/tc100test/httpfront ]; then
       ( TC100_NET_ALLOW="$(netacl_allow_list)"; export TC100_NET_ALLOW   # NET_LAN_ONLY (src/httpfront)
+        TC100_WEB_LOCKOUT="$(read_kv_config_value /mnt/config/boot.conf WEB_LOCKOUT 0)"; export TC100_WEB_LOCKOUT
         exec /mnt/tc100test/httpfront -p 80 -h /tmp/www ) </dev/null >/dev/null 2>&1 &
     else
       /usr/sbin/httpd -p 80 -h /tmp/www

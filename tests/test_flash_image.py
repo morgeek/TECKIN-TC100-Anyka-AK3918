@@ -125,7 +125,9 @@ class FlashImage(unittest.TestCase):
 
     def test_httpfront_is_freestanding(self):
         src = (ROOT / 'src/httpfront/httpfront.c').read_text()
-        self.assertNotIn('#include', src)
+        self.assertNotIn('#include <', src)                             # no C library header
+        self.assertEqual(re.findall(r'#include "([^"]+)"', src), ['md5crypt.h'])   # its own, freestanding too
+        self.assertNotIn('#include <', (ROOT / 'src/httpfront/md5crypt.h').read_text())
         b = ROOT / 'src/httpfront/httpfront'
         if b.exists():
             self.assertLess(b.stat().st_size, 16384)

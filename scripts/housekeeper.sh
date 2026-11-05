@@ -9,6 +9,7 @@
 # Jobs the control scripts and boot script register (they live in /tmp/housekeeper/jobs, so they vanish at reboot):
 #   health-snapshot     scripts/health-snapshot.sh once      every HEALTH_SNAPSHOT_INTERVAL_SECONDS (300)
 #   log-persist         scripts/log-persist.sh hk            first after 120 s, then LOG_PERSIST_MIN minutes (10)
+#   log-cap             scripts/log-cap.sh                   every 600 s: RAM logs above LOG_CAP_KB keep their last lines
 #   watch-<service>     scripts/service-watchdog.sh --tick   every CHECK_TIMEOUT_SECONDS (60): rtsp-h26x, mqtt-bridge...
 # Kept out on purpose: button-watch.sh (reset/reboot path), auto-night-daemon.sh (2-8 s), the MQTT bridge, telegram-bot,
 # getty, and v3/linux66-sd/cfg-persist (the only writer of the flash settings: left exactly as it is).

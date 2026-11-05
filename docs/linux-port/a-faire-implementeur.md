@@ -223,7 +223,10 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     - Exposition texte brut ultra-légère par `httpfront` (format Prometheus / OpenMetrics standard, zéro parsing JSON).
     - Métriques clés : `tc100_chip_temp_celsius`, `tc100_memory_available_bytes`, `tc100_wifi_rssi_dbm`, `tc100_rtsp_clients_connected`, `tc100_rtsp_drops_total`, `tc100_sdcard_free_bytes`.
     - Permet l'intégration native et directe dans Grafana / Prometheus / VictoriaMetrics et Home Assistant sans surcoût CPU/RAM.
-28. [ ] **Nettoyage et rotation circulaire des logs en RAM (`tmpfs`)** :
+28. [x] **Nettoyage et rotation circulaire des logs en RAM (`tmpfs`)** :
+    *Fait le 2026-11-05 : presque tous les journaux se plafonnaient déjà eux-mêmes (tc100_rtsp 128 Ko, audit / MQTT /
+    nuit / son / mouvement 32-64 Ko, wifi-quality 1440 lignes, daynight 2 x 400, syslog -s 200) ; ajouté le filet
+    `scripts/log-cap.sh` (housekeeper, 10 min, `LOG_CAP_KB=64`, réécriture sur place). Entrée `[log-cap]`.*
     - Écrêtage périodique automatique dans `housekeeper` des fichiers journaux (`/tmp/*.log`, dmesg) avec plafond strict (ex: 64 Ko max par log via `tail -n 100`).
     - Prévient toute érosion lente de la RAM disponible lors de fonctionnements ininterrompus sur plusieurs semaines.
 29. [x] **Accélération WebUI : Assets pré-compressés (gzip) & Cache HTTP agressif** :
@@ -233,7 +236,12 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     mise à jour (le dictionnaire français et le script principal avaient des versions figées).*
     - Pré-compression statique des fichiers JS/CSS en `.gz` lors du build CI ; `httpfront` sert directement le flux compressé si `Accept-Encoding: gzip` est présent (0 cycle CPU de compression).
     - Ajout des en-têtes `Cache-Control: public, max-age=86400, immutable` et `ETag` pour rendre le chargement de l'interface Web quasi instantané depuis le cache navigateur.
-30. [ ] **Pare-feu anti-brute-force ultra-léger en noyau (`iptables -m recent`)** :
+30. [x] **Pare-feu anti-brute-force ultra-léger en noyau (`iptables -m recent`)** :
+    *Fait le 2026-11-05 autrement : le noyau n'a pas de netfilter, donc dans `httpfront` (`WEB_LOCKOUT=1`, désactivé
+    par défaut) : 10 mauvais identifiants web en 5 min depuis une adresse ferment ses connexions 5 min ; MD5 crypt sans
+    libc (`src/httpfront/md5crypt.h`) vérifié contre la glibc et OpenSSL. Le RTSP compte déjà ses refus (R1) et ONVIF
+    a son propre verrou ; ssh (dropbear) reste sans limite. Entrée `[web-lockout]`. Couvre aussi la partie « limite
+    d'essais » de W3.*
     - Règle noyau bloquant temporairement (10 min) toute adresse IP source tentant plus de 5 connexions SSH / requêtes en échec consécutives en moins de 60 secondes (répond au point W3 de l'audit).
     - Coût RAM et CPU : quasi nul (100 % géré par la table d'états interne de Netfilter sans aucun démon en espace utilisateur).
 31. [ ] **Profils dynamiques de performance (« Mode Veille / Nuit Éco »)** :

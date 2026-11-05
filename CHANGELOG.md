@@ -92,6 +92,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   now: the Repair button of the SD card page works, and `SD_AUTO_REPAIR=1` checks a card left dirty by a power cut
   a minute after boot. The `dosfsck -a` of `96336d1` (run at every remount, and never at boot) is removed.
 
+- **Safety net for the logs in RAM** (`scripts/log-cap.sh`, housekeeper job every 10 min, `LOG_CAP_KB=64`): a log
+  of `/tmp/log` or `/tmp/logs` that does not cap itself keeps its last 200 lines, rewritten in place so a program
+  holding it open goes on writing into it.
+
+- **Web login guessing limited** (`boot.conf` `WEB_LOCKOUT=1`, off until checked on the camera): 10 wrong logins
+  from one address within 5 minutes close its web connections for 5 minutes (the camera itself never). `httpfront`
+  checks the Basic login against `/etc/httpd.conf` itself (MD5 crypt, checked against glibc and OpenSSL), once per
+  login; busybox httpd still answers every request. The kernel has no packet filter, so this replaces the iptables
+  idea of the list.
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

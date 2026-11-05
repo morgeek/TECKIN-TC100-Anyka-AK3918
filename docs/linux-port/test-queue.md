@@ -2366,3 +2366,20 @@ Prochaine étape : rc26 sur la .11.
   2. `ls /mnt/ext/bin/fsck.fat` ; page Carte SD → Réparer : réponse `fsck_repaired`, l'enregistrement reprend.
   3. `SD_AUTO_REPAIR=1`, couper le courant pendant un enregistrement : au démarrage `not properly unmounted` dans `dmesg`, puis ~1 min après `sd-diag` répare (`/tmp/sd-health`, log) et l'enregistrement reprend.
 - **Critères :** 1 sans avertissement FAT sur 3 redémarrages ; 2 et 3 conformes. La taille de l'initramfs ne change presque pas (quelques lignes de S39).
+
+## 2026-11-05 — Filet pour les journaux en RAM (`[log-cap]`, liste de l'implémenteur #28)
+
+- **Quoi :** tâche `log-cap` du housekeeper (toutes les 10 min) : un fichier de `/tmp/log` ou `/tmp/logs` au-dessus de `LOG_CAP_KB` (64) garde ses 200 dernières lignes, réécrit sur place (même inode). `tc100_rtsp.log` et les copies `.0` / `.1` ne sont pas touchés.
+- **Interrupteur :** `LOG_CAP_KB=100000` (ou retirer la tâche : `housekeeper.sh job del log-cap`).
+- **Test :** `sh /mnt/scripts/housekeeper.sh job list` montre `log-cap` ; `yes x | head -c 100000 >> /tmp/log/essai.log`, attendre 10 min (ou `sh /mnt/scripts/log-cap.sh`) : 200 lignes restent, ligne `log-cap:` dans `logread` ; une semaine de fonctionnement : `du -sh /tmp/log /tmp/logs` stable.
+- **Critères :** taille plafonnée, aucun journal qui s'arrête d'écrire après le passage.
+
+## 2026-11-05 — Limite des essais de mot de passe sur la page web (`[web-lockout]`, liste de l'implémenteur #30, audit W3)
+
+- **Quoi :** `WEB_LOCKOUT=1` dans `boot.conf` (redémarrer `httpfront` : `http_server restart`, ou la caméra) : `httpfront` vérifie lui-même l'identifiant Basic de chaque requête contre `/etc/httpd.conf` (MD5 crypt, une seule fois par identifiant : empreinte gardée dans `/tmp/.httpfront-ok`) ; un mauvais identifiant est noté ; **10 en 5 min depuis une adresse → ses connexions sont fermées 5 min** (127.0.0.1 jamais) ; ligne dans `/tmp/log/httpfront.log`. busybox httpd répond toujours aux requêtes (401 inchangé).
+- **Interrupteur :** `WEB_LOCKOUT=0` (défaut).
+- **Test :**
+  1. Avec le bon mot de passe : navigation normale sur toutes les pages, rien dans `/tmp/log/httpfront.log`, `/tmp/.httpfront-ok` existe.
+  2. Depuis un autre PC : `for i in $(seq 10); do curl -s -o /dev/null -u root:faux http://<caméra>/cgi-bin/state.cgi; done` puis `curl -v http://<caméra>/` → connexion fermée sans réponse ; le premier PC (autre adresse) navigue toujours ; 5 min après, le second PC est de nouveau servi.
+  3. Changer le mot de passe dans Réglages : l'ancien est refusé par httpd comme avant, le nouveau marche (pas de verrou pour l'utilisateur légitime).
+- **Critères :** 1-3 conformes ; jamais de verrou sur l'utilisateur qui tape le bon mot de passe → passer `WEB_LOCKOUT=1` par défaut.

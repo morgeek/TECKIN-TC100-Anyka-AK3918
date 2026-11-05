@@ -150,8 +150,10 @@ class LanOnlyEverywhere(unittest.TestCase):
     """W2: NET_LAN_ONLY reaches httpfront (both launch points) and tc100_rtsp through TC100_NET_ALLOW"""
 
     def test_launchers_pass_the_list(self):
-        self.assertIn('TC100_NET_ALLOW="$(sh -c \'. /mnt/scripts/common_functions.sh; netacl_allow_list\' 2>/dev/null)" '
-                      '/mnt/tc100test/httpfront -p 80', text('v3/autorun-linux66.sh'))
+        a = text('v3/autorun-linux66.sh')
+        self.assertIn('TC100_NET_ALLOW="$(sh -c \'. /mnt/scripts/common_functions.sh; netacl_allow_list\' 2>/dev/null)" ', a)
+        self.assertIn('TC100_WEB_LOCKOUT="$BC_WEB_LOCKOUT"', a)                   # item 30
+        self.assertIn('/mnt/tc100test/httpfront -p 80', a)
         self.assertIn('( TC100_NET_ALLOW="$(netacl_allow_list)"; export TC100_NET_ALLOW', text('scripts/common_functions.sh'))
         launch = text('v3/linux66-sd/rtsp-launch.sh')
         self.assertLess(launch.index('export TC100_NET_ALLOW'), launch.index('exec /tmp/tc100_rtsp'))

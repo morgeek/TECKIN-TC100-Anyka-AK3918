@@ -52,6 +52,10 @@ SECURITY_HARDENING_MODE=0
 #   NET_ALLOW_EXTRA  more networks, space-separated a.b.c.d/n (a VPN, ...).
 NET_LAN_ONLY=1
 NET_ALLOW_EXTRA=
+# WEB_LOCKOUT=1: 10 wrong web logins from one address within 5 minutes close its connections for
+# 5 minutes (httpfront; the camera itself never). The kernel has no packet filter, so this is the
+# web server's own. 0 = no limit.
+WEB_LOCKOUT=0
 # Telnet and FTP send passwords in clear: started from the web page, they
 # stop by themselves after REMOTE_SHELL_TIMEOUT_MIN minutes (0 = never).
 REMOTE_SHELL_TIMEOUT_MIN=15
@@ -188,6 +192,9 @@ REC_KEEP_EVENTS=0
 # and repaired (fsck.fat -a) a minute later, recording paused meanwhile; flash mode only. 0 = only
 # the Repair button of the SD card page.
 SD_AUTO_REPAIR=0
+# LOG_CAP_KB: a log in RAM (/tmp/log, /tmp/logs) above this size keeps its last 200 lines
+# (scripts/log-cap.sh, every 10 minutes; most logs cap themselves well below it).
+LOG_CAP_KB=64
 # PRIVACY_SCREEN=1: privacy mode (Services page "Privacy Mode", MQTT switch): black picture
 # on every stream, snapshot and recording, no sound, no motion detection. Kept over a restart.
 PRIVACY_SCREEN=0

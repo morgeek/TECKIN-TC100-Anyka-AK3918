@@ -36,8 +36,9 @@ class HttpFront(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def start(self, allow=None):
+    def start(self, allow=None, **extra):
         env = {} if allow is None else {'TC100_NET_ALLOW': allow}
+        env.update(extra)
         self.proc = subprocess.Popen([QEMU, self.bin, '-p', str(self.PORT), '-h', self.tmp], env=env)
         for _ in range(50):
             try:
@@ -108,6 +109,47 @@ class HttpFront(unittest.TestCase):
         self.proc.wait(5)
         self.start('')                                                              # empty list: no filter
         self.assertIn(b'302 Found', self.ask(b'GET / HTTP/1.0\r\n\r\n', me))
+
+
+    def test_login_lockout(self):
+        """Item 30: TC100_WEB_LOCKOUT=1: 10 wrong logins from an address within 5 min close its connections (5 min);
+        right logins and 127/8 are never counted / locked"""
+        import base64
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            u.connect(('192.0.2.1', 9))
+            me = u.getsockname()[0]
+        except OSError:
+            me = '127.0.0.1'
+        finally:
+            u.close()
+        if me.startswith('127.'):
+            self.skipTest('no address but loopback')
+        lock = os.path.join(self.tmp, 'lock')
+        os.makedirs(lock, exist_ok=True)
+        conf = os.path.join(self.tmp, 'httpd.conf')
+        # "pass" with salt "abcdefgh" (openssl passwd -1 -salt abcdefgh pass)
+        with open(conf, 'w') as f:
+            f.write('/:root:$1$abcdefgh$1s0bv7.OjNizlrMAOIQD7.\n.mp4:video/mp4\n')
+        self.start(TC100_WEB_LOCKOUT='1', TC100_HTTPD_CONF=conf, TC100_LOCK_DIR=lock)
+        root = b'GET / HTTP/1.0\r\n\r\n'
+
+        def hdr(cred):
+            return b'GET /x HTTP/1.0\r\nAuthorization: Basic ' + base64.b64encode(cred) + b'\r\n\r\n'
+
+        for _ in range(12):
+            self.ask(hdr(b'root:pass'), me)                                    # right: never counted
+        self.assertIn(b'302 Found', self.ask(root, me))
+        for _ in range(9):
+            self.ask(hdr(b'root:wrong'), me)
+        time.sleep(0.3)
+        self.assertIn(b'302 Found', self.ask(root, me))                        # 9: not yet
+        self.ask(hdr(b'admin:pass'), me)                                       # another user: wrong too (10th)
+        time.sleep(0.3)
+        self.ask(root, me)                                                     # the parent reads the failures here
+        self.assertEqual(self.ask(root, me), b'')                              # locked out
+        self.assertIn(b'302 Found', self.ask(root))                            # loopback still served
+        self.assertEqual(len(open(os.path.join(lock, 'ok')).read()), 32)        # the right login is remembered
 
 
 if __name__ == '__main__':
