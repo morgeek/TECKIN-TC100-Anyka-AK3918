@@ -2446,3 +2446,10 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** aucun (revert).
 - **Test :** pont en C avec l'adresse IP du broker : couper le broker 1 min puis le relancer → reconnexion, commandes et `availability` comme avant ; avec un nom (`MQTT_HOST=nas.local`) : idem.
 - **Critères :** reconnexion normale dans les deux cas, pas de gel du pont pendant la coupure.
+
+## 2026-11-05 — Image flash plus petite (`[flash-space]`, item 54)
+
+- **Quoi :** `stack.sqfs` ne contient plus `sounds/test-1k-m*.pcm` ni `www/css/bulma.1.0.2.purged.min.css`, `ui-modern.min.css`, `ui.css` (et leurs `.gz`) : seul `css/ui.bundle.min.css` est chargé par les pages. Le wizard (`cgi-bin/wizard.cgi`) ne charge plus Bulma (il n'utilise que ses classes `wz-*`) et porte les quelques règles de remise à zéro dont il dépendait. `mksquashfs` utilise le filtre ARM de xz (`-Xbcj arm`). Mesuré en Docker : -65 Ko pour les exclusions, -4 Ko de BCJ sur nos binaires ; le gain sur `ext/` (curl, dropbear, hostapd, libasound) se lit dans le log du build (`stack.sqfs: N bytes`).
+- **Interrupteur :** `SQFS_BCJ=none` au build pour le filtre ; les fichiers exclus restent dans le paquet SD ; revert pour le wizard.
+- **Test :** comparer `stack.sqfs: N bytes` du build CI avec celui du build précédent. Sur la caméra : `mount` → `stack` monté sans erreur, `dmesg | grep -i squashfs` sans erreur, interface web complète (styles corrects), son de démarrage joué. Wizard : `http://<caméra>/cgi-bin/wizard.cgi` (ou première installation) → même aspect qu'avant (fond sombre, pas de marge blanche, boutons et champs à la bonne police).
+- **Critères :** image plus petite, aucune erreur squashfs/xz au montage ni en lisant les binaires (`tc100_rtsp`, `curl --version`, `dropbear -V`), wizard identique.

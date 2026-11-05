@@ -927,7 +927,7 @@ class WebUiLanguage(unittest.TestCase):
         index = (ROOT / 'www/index.html').read_text()
         self.assertIn('scripts/i18n.js?v=', index)
         self.assertIn('id="lang_toggle"', index)
-        self.assertIn('/scripts/i18n.js?v=', (ROOT / 'www/cgi-bin/wizard.cgi').read_text())
+        self.assertIn('/scripts/i18n.js?v=', (ROOT / 'www/cgi-bin/wizard.cgi').read_text(encoding='utf-8'))
         # the stamps are the files' md5 (src/webui/stamp-assets.sh): i18n.js by its own, fr.js inside i18n.js
         js = (ROOT / 'www/scripts/i18n.js').read_bytes()
         self.assertIn('i18n.js?v=' + hashlib.md5(js).hexdigest()[:8], index)
@@ -1916,8 +1916,9 @@ class WebUiCss(unittest.TestCase):
 
     def test_ui_links_the_purged_bulma(self):
         self.assertFalse((ROOT / 'www/css/bulma.1.0.2.min.css').exists())
-        # the wizard loads the purged file alone; the main page loads it inside css/ui.bundle.min.css
-        self.assertIn('css/bulma.1.0.2.purged.min.css', (ROOT / 'www/cgi-bin/wizard.cgi').read_text())
+        # the main page loads it inside css/ui.bundle.min.css; the wizard has its own styles (item 54: the purged
+        # file is no longer in the flash image)
+        self.assertNotIn('bulma.1.0.2.purged.min.css', (ROOT / 'www/cgi-bin/wizard.cgi').read_text(encoding='utf-8'))
         self.assertIn('css/ui.bundle.min.css', (ROOT / 'www/index.html').read_text())
         self.assertIn(re.sub(r'@charset "UTF-8";\s*', '', (ROOT / 'www/css/bulma.1.0.2.purged.min.css').read_text()).strip(),
                       (ROOT / 'www/css/ui.bundle.min.css').read_text())

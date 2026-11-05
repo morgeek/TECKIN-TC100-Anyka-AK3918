@@ -136,6 +136,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   jitter, to tell a Wi-Fi or network problem from a camera one.
 
 ### Changed
+- **Smaller flash image** (item 54): `stack.sqfs` leaves out the 1 kHz test tones and the three style sheets
+  `css/ui.bundle.min.css` is built from (and their `.gz`), about 65 KB; the setup wizard no longer loads Bulma (it
+  only uses its own classes) and carries the few reset rules it relied on; xz uses the ARM branch filter
+  (`-Xbcj arm`, `SQFS_BCJ=none` turns it off at build time).
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed
   version strings, so a browser could keep old copies for hours (busybox httpd sends ETag, Last-Modified and the

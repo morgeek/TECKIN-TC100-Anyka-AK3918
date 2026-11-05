@@ -321,10 +321,14 @@ cat << 'HTMLEOF'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TC100 — Initial setup</title>
-<link rel="stylesheet" href="/css/bulma.1.0.2.purged.min.css?v=0a08b929">
 <script src="/scripts/i18n.js?v=f9974c8d"></script>
 <style>
+/* no Bulma here (item 54): the wizard uses only its own wz-* classes; this is the part of Bulma's reset it relied on */
 *, *::before, *::after { box-sizing: border-box; }
+html { background: #0d0f1a; overflow-y: scroll; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { margin: 0; }
+body { font-size: 1em; font-weight: 400; line-height: 1.5; }
+button, input, select, textarea { margin: 0; font-family: inherit; }
 
 body {
     background: #0d0f1a;

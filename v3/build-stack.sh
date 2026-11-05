@@ -114,14 +114,25 @@ chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rts
 #      on 3.0 /mnt/bin/busybox becomes a link to the system busybox, which has every applet the scripts call
 #      (tests/test_flash_image.py checks the list)
 #    - build and development files that never run on the camera
+#    - the 1 kHz test tones sounds/test-1k-m*.pcm (bench only: scripts/generate_sounds.py, and the SD card package)
+#    - the style sheets www/css/bulma.1.0.2.purged.min.css, ui-modern.min.css and ui.css (and their .gz): they are
+#      the sources of css/ui.bundle.min.css, which is the only one a page loads (the wizard has its own styles)
 # 128 KiB blocks: a page read from the flash decompresses half as much as with 256 KiB, and the kernel's squashfs
 # caches (data, fragment, xz dictionary: one block each) take about 384 KB less RAM; about 45 KB more flash
 # (2026-10-30: 2,240,512 B against 2,195,456; lzo 2.96 MB and lz4 3.2-3.9 MB do not fit the 2.83 MB partition)
-mksquashfs "$T" "$OUT/stack.sqfs" -comp xz -b 128K -noappend -all-root -quiet \
+# -Xbcj arm (item 54): xz also tries the ARM branch filter on every block and keeps it where the block is smaller
+# (the ELF programs); the kernel decodes it (CONFIG_XZ_DEC_ARM, CONFIG_XZ_DEC_BCJ) with no extra memory.
+# SQFS_BCJ=none builds without it.
+case "${SQFS_BCJ:-arm}" in none) bcj= ;; *) bcj="-Xbcj ${SQFS_BCJ:-arm}" ;; esac
+# shellcheck disable=SC2086
+mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -quiet \
 	-p "bin/busybox s 777 0 0 /bin/busybox" \
 	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py \
 	scripts/collect-platform-dump.sh v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
-	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh
+	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh \
+	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
+	www/css/bulma.1.0.2.purged.min.css www/css/bulma.1.0.2.purged.min.css.gz www/css/ui-modern.min.css \
+	www/css/ui-modern.min.css.gz www/css/ui.css www/css/ui.css.gz
 n=$(wc -c < "$OUT/stack.sqfs")
 ( cd "$OUT" && md5sum stack.sqfs > stack.sqfs.md5 )
 echo "stack.sqfs: $n bytes (partition $STACK_MAX)"
