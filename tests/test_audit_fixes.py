@@ -180,7 +180,7 @@ class MqttBridgeControlStopsTheDaemon(unittest.TestCase):
 
 class NoLibcDataImports(unittest.TestCase):
     """Programs linked against the stand-in libc of their Makefile (glibc cross compiler, uClibc loader on the camera:
-    src/tc100rtsp, src/mqttd, src/onvifd, src/supervisord) declare every import as a function. A libc *variable*
+    src/tc100rtsp, src/mqttd, src/onvifd, src/supervisord, src/logfwd, src/netacl) declare every import as a function. A libc *variable*
     (stderr, stdout, optarg, environ, timezone...) then reads the PLT instead of the FILE pointer: tc100-onvifd crashed
     on its first fprintf(stderr, ...) on IPCAM2 (rc27, 2026-11-05), tc100-supervisord would on an error path."""
     DATA = r'\b(stdin|stdout|stderr|optarg|optind|opterr|optopt|environ|__environ|timezone|daylight|tzname|errno_value)\b'
@@ -189,7 +189,7 @@ class NoLibcDataImports(unittest.TestCase):
         bad = []
         for mk in sorted(ROOT.glob('src/*/Makefile')):
             text = mk.read_text()
-            if 'stubs.c' not in text or 'ld-uClibc' not in text:
+            if 'stubs.c' not in text or ('ld-uClibc' not in text and 'libc.so.0' not in text):
                 continue
             for c in sorted(mk.parent.glob('*.c')):
                 if c.name == 'stubs.c' or c.name.startswith('test_'):	# test_*.c: host test programs, not on the camera

@@ -17,10 +17,11 @@ licence applies to its code. The code of this project itself is under the GPL-2.
 No vendor binary is published in this repository. The vendor media libraries are read from the camera itself.
 
 Prebuilt ARM programs kept in the repository and copied into the 3.0 image by `v3/build-stack.sh` (uClibc, from the
-2.x era): `bin/getflag`, `bin/getimage`, `bin/monvifd` (ONVIF), `bin/rwconf`, `bin/tc100-logfwd`, `lib/libnetacl.so`.
-`bin/isp_flip` (freestanding, no C library) is rebuilt from `src/ispflip/isp_flip.c` by the release build; the copy in
-`bin/` only serves local builds. `tc100-logfwd` and `libnetacl` have their source in `src/` but need the Anyka uClibc
-toolchain, which the CI does not have: they stay prebuilt. `bin/busybox` is the uClibc BusyBox of the original hack
+2.x era): `bin/getflag`, `bin/getimage`, `bin/monvifd` (ONVIF), `bin/rwconf`.
+`bin/isp_flip` (freestanding, no C library), `bin/tc100-logfwd` (`src/logfwd`) and `lib/libnetacl.so` (`src/netacl`) are
+rebuilt from their source by the release build; the copies in `bin/` and `lib/` only serve local builds.
+`tc100-logfwd` and `libnetacl` run under the camera's uClibc but are built with the glibc cross compiler and a
+stand-in libc made at link time (same technique as `tc100-mqttd`; no Anyka toolchain needed). `bin/busybox` is the uClibc BusyBox of the original hack
 ([BusyBox](https://busybox.net), GPL-2.0, 1.1 MB): only on the SD card, for the stock firmware's SD hook; the 3.0 image
 links `/mnt/bin/busybox` to the system BusyBox instead. The other four came with the first commit of
 this repository (`99c3112`, 2026-02-02), a copy of the original SD-card hack, whose `bin/` holds the same files

@@ -21,6 +21,8 @@ on:
       - 'src/onvifd/**'
       - 'src/mdnsd/**'
       - 'src/ispflip/**'
+      - 'src/logfwd/**'
+      - 'src/netacl/**'
       - 'src/whep/**'
       - 'bin/**'
       - 'lib/**'
@@ -180,6 +182,12 @@ jobs:
           arm-linux-gnueabi-gcc -Os -Wall -static -march=armv5te -mfloat-abi=soft -o output/envtool v3/install/envtool.c
           # isp_flip ships from its source, not the copy kept in bin/ (audit D3); freestanding like httpfront
           arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o bin/isp_flip
+          # tc100-logfwd and libnetacl.so (uClibc programs of the camera): built here with the stand-in libc technique, no Anyka toolchain
+          make -C src/logfwd CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/logfwd/tc100-logfwd bin/tc100-logfwd
+          make -C src/netacl CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/netacl/libnetacl.so lib/libnetacl.so
+          sh tests/check-libc-data-imports.sh
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
           sh v3/build-release.sh output/stack output/oipc.img output/tc100test/oipcrd66.gz output/envtool output/release
