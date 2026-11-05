@@ -17,7 +17,7 @@ rc=0
 run_tests() {
 	echo "== tests (python + node, busybox ash)"
 	docker run --rm -v "$SRC:/src:ro" node:22-bookworm sh -c '
-		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 >/dev/null 2>&1
+		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk >/dev/null 2>&1
 		cp -r /src /w && cd /w && git config --global --add safe.directory /w
 		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
 		# make would run them instead of building the current code
@@ -25,7 +25,11 @@ run_tests() {
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
 		node --test tests/frontend.test.js tests/settings-save.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
-		python3 -m unittest discover -s tests >/tmp/py.log 2>&1; grep -E "^(FAIL|ERROR):|^Ran|^FAILED|^OK" /tmp/py.log
+		# as an ordinary user, like the GitHub runner: root reads through missing permission bits (a restore test
+		# passed here and failed there for a week)
+		chown -R node /w
+		su node -c "git config --global --add safe.directory /w; cd /w && python3 -m unittest discover -s tests" >/tmp/py.log 2>&1
+		grep -E "^(FAIL|ERROR):|^Ran|^FAILED|^OK" /tmp/py.log
 		# no "Ran N tests" (python3 missing, an import error): not a pass
 		grep -q "^Ran [1-9]" /tmp/py.log || { echo "python tests did not run"; tail -20 /tmp/py.log; exit 1; }
 		# known failure of this image only (awk flavour): JsonFlat.test_paths_types_and_escapes

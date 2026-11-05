@@ -617,6 +617,8 @@ _ce_restore() {
   if ! (cd "$_rs/x" && tar -xf "$_rs/a.tar") 2>/dev/null || [ ! -d "$_rs/x/config" ]; then
     _rs_fail "INVALID_ARCHIVE" "The archive could not be unpacked"; return
   fi
+  # the modes come from the archive: a directory without its x bit would hide its files from everyone but root
+  chmod -R u+rwX "$_rs/x" 2>/dev/null
   _rs_files=""; _rs_marks=""
   for _rs_f in $(cd "$_rs/x/config" && find . -type f | sed 's|^\./||' | sort); do
     if [ -s "$_rs/x/config/$_rs_f" ]; then _rs_files="$_rs_files $_rs_f"; else _rs_marks="$_rs_marks $_rs_f"; fi
