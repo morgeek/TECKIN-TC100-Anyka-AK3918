@@ -3117,6 +3117,13 @@ unsigned char *fpb[2] = { NULL, NULL };
 				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld\n",
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
 				      rec_active(), pp_us / 1000, sub_us / 1000);
+				  {	/* the same numbers for www/cgi-bin/metrics.cgi (Prometheus): counts over the last interval */
+					char sb[192];
+					int sn = snprintf(sb, sizeof sb, "interval_s %ld\ncaptured %lu\nmain_bytes %lu\nsub_bytes %lu\nclients %d\ndropped %lu\n",
+					                  (long)(tn.tv_sec - tl.tv_sec), ncap, S[0].nbytes, S[1].nbytes, np[0] + np[1], dr);
+
+					if (sn > 0 && sn < (int)sizeof sb) wfile("/var/run/tc100_rtsp.stat", sb, (size_t)sn);
+				  }
 				  if (prof_on > 0) {
 					static long last_tot;
 					long tot = prof_now(), all = tot - last_tot, o = all;

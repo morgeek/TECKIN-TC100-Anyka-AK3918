@@ -222,6 +222,7 @@ load_config()
   # so the entity can never render; point HA at the RTSP/go2rtc stream instead.
   # Kept opt-in rather than removed.
   MQTT_HA_CAMERA_ENTITY_ENABLE="${MQTT_HA_CAMERA_ENTITY_ENABLE:-0}"
+  MQTT_SNAPSHOT_ON_EVENT="${MQTT_SNAPSHOT_ON_EVENT:-0}"
   MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
   MQTT_HA_DISCOVERY_PREFIX="${MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
   POWER_ESTIMATE_ENABLE="${POWER_ESTIMATE_ENABLE:-0}"
@@ -975,8 +976,9 @@ DIAG
   camera_cfg_topic="${discovery_prefix}/camera/${node_id}/live/config"
   camera_cfg_payload="$(printf '{"name":"%s Live","uniq_id":"%s_camera","topic":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "${MQTT_TOPIC_ROOT}/snapshot/image" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   # Off by default: when MQTT_HA_CAMERA_ENTITY_ENABLE=1 is set, registers the camera
-  # entity subscribed to <MQTT_TOPIC_ROOT>/snapshot/image (real JPEG bytes).
-  if is_truthy_local "$MQTT_HA_CAMERA_ENTITY_ENABLE"; then
+  # entity subscribed to <MQTT_TOPIC_ROOT>/snapshot/image (real JPEG bytes). The pictures of events
+  # (MQTT_SNAPSHOT_ON_EVENT=1, snapshot_event_mode) go to the same topic and need the entity too.
+  if is_truthy_local "$MQTT_HA_CAMERA_ENTITY_ENABLE" || is_truthy_local "$MQTT_SNAPSHOT_ON_EVENT"; then
     publish_discovery_config "$camera_cfg_topic" "$camera_cfg_payload"
   fi
 
@@ -2878,6 +2880,32 @@ discovery_mode()
   publish_health >/dev/null 2>&1 || true
 }
 
+# A fresh picture when something happens (motion, sound, tamper: motion-event.sh, sound-detection, tamper-detect.sh),
+# published as the camera entity's image (<root>/snapshot/image, retained, the JPEG bytes) and announced on
+# <root>/snapshot/event, for Home Assistant notifications. mqtt.conf MQTT_SNAPSHOT_ON_EVENT=1 (off by default: about
+# 40 KB per event), at most one picture every MQTT_SNAPSHOT_COOLDOWN_SECONDS (10).
+snapshot_event_mode()
+{
+  load_config
+  mqtt_enabled || exit 0
+  is_truthy_local "$MQTT_SNAPSHOT_ON_EVENT" || exit 0
+  _se_type="$(printf '%s' "${1:-event}" | tr -cd 'a-z_' | cut -c1-24)"
+  read -r _se_up _ < /proc/uptime
+  _se_now=$((BTIME + ${_se_up%.*}))
+  _se_cd="${MQTT_SNAPSHOT_COOLDOWN_SECONDS:-10}"
+  case "$_se_cd" in ''|*[!0-9]*) _se_cd=10 ;; esac
+  _se_last=0
+  [ -r /tmp/mqtt-snapshot-event.last ] && read -r _se_last < /tmp/mqtt-snapshot-event.last
+  case "$_se_last" in ''|*[!0-9]*) _se_last=0 ;; esac
+  [ $((_se_now - _se_last)) -ge "$_se_cd" ] || exit 0
+  echo "$_se_now" > /tmp/mqtt-snapshot-event.last
+  # a fixed path (no RAM build-up); the next one comes after the cooldown, once this one is sent
+  _se_path=/tmp/mqtt-event-snapshot.jpg
+  take_snapshot "$_se_path" || exit 0
+  mqtt_publish_file "${MQTT_TOPIC_ROOT}/snapshot/image" "$_se_path" 1 >/dev/null 2>&1 || true
+  mqtt_publish_topic_suffix "snapshot/event" "$(printf '{"ts":%s,"type":"%s"}' "$_se_now" "${_se_type:-event}")" 0 >/dev/null 2>&1 || true
+}
+
 # Worker modes of tc100-mqttd (src/mqttd): it runs these with MQTT_SINK=1.
 print_config_mode()
 {
@@ -2934,6 +2962,9 @@ case "$1" in
   log-event)
     log_event "$2" "mqtt" "$3"
     ;;
+  snapshot-event)
+    snapshot_event_mode "$2"
+    ;;
   discovery)
     discovery_mode
     ;;
@@ -2945,7 +2976,7 @@ case "$1" in
     command_mode "$2" "$3"
     ;;
   *)
-    echo "Usage: $0 [run|discovery|publish <topic_suffix> <payload> [retain]|command <payload> [source]|print-config|startup|health-cycle|log-event <level> <message>]"
+    echo "Usage: $0 [run|discovery|publish <topic_suffix> <payload> [retain]|command <payload> [source]|print-config|startup|health-cycle|log-event <level> <message>|snapshot-event <type>]"
     exit 1
     ;;
 esac

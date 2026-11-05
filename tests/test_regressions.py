@@ -728,9 +728,11 @@ class Regressions(unittest.TestCase):
         self.assertIn('-u "${_push_user}:${_push_password}"', push)
         html = (ROOT / 'www/backup.html').read_text()
         self.assertIn('X-CSRF-Token', html[html.index('syncBtn.addEventListener'):])
-        for gone in ('configbackup', 'upload_backup', 'conf-export', 'conf-import', '.tar.gz'):
+        # the CGIs of the old tar backup are gone; the full backup of 2026-11-05 is config_exchange.cgi cmd=archive/restore
+        for gone in ('configbackup', 'upload_backup', 'conf-export', 'conf-import'):
             self.assertNotIn(gone, html)
             self.assertNotIn(gone, (ROOT / 'www/settings.html').read_text())
+        self.assertIn('config_exchange.cgi?cmd=archive', html)
 
     def test_ptt_plays_through_alsa_and_leaves_rtsp_running(self):
         # The speaker is an ALSA playback substream: the microphone of the RTSP stream keeps going.
@@ -926,9 +928,11 @@ class WebUiLanguage(unittest.TestCase):
         self.assertIn('scripts/i18n.js?v=', index)
         self.assertIn('id="lang_toggle"', index)
         self.assertIn('/scripts/i18n.js?v=', (ROOT / 'www/cgi-bin/wizard.cgi').read_text())
-        js = (ROOT / 'www/scripts/i18n.js').read_text()
-        version = re.search(r'VERSION = "([^"]+)"', js).group(1)
-        self.assertIn('i18n.js?v=' + version, index)     # bump both together (30-day cache)
+        # the stamps are the files' md5 (src/webui/stamp-assets.sh): i18n.js by its own, fr.js inside i18n.js
+        js = (ROOT / 'www/scripts/i18n.js').read_bytes()
+        self.assertIn('i18n.js?v=' + hashlib.md5(js).hexdigest()[:8], index)
+        version = re.search(r'VERSION = "([^"]+)"', js.decode()).group(1)
+        self.assertEqual(version, hashlib.md5((ROOT / 'www/i18n/fr.js').read_bytes()).hexdigest()[:8])
 
 
 

@@ -150,6 +150,7 @@ check_tamper_once() {
           /mnt/scripts/mqtt-bridge.sh publish event "{\"type\":\"tamper\",\"state\":\"ON\",\"ts\":$_now,\"luma\":$_lum,\"jpg_size\":$_jpg_sz}" 0 \
             tamper/state "ON" 1 >/dev/null 2>&1 || true
         fi
+        grep -q '^MQTT_SNAPSHOT_ON_EVENT=1' /mnt/config/mqtt.conf 2>/dev/null && { /mnt/scripts/mqtt-bridge.sh snapshot-event tamper </dev/null >/dev/null 2>&1 & }
         if [ -x /mnt/scripts/notify.sh ]; then
           /mnt/scripts/notify.sh tamper "Camera occlusion / tamper detected (luma: $_lum, size: ${_jpg_sz}B)" "" "$_lum" >/dev/null 2>&1 &
         fi

@@ -108,6 +108,14 @@ apply_deleted() {
 }
 
 case "$1" in
+archive)
+  # the same files as a save (every setting changed from the shipped defaults, secrets and ssh keys included), as a
+  # .tar.gz on standard output: the full backup of the Backup page (www/cgi-bin/config_exchange.cgi cmd=archive)
+  sync_ssh; T=/tmp/cfgarch.$$; cd "$(dirname $CFG)" || exit 1
+  list > $T.list
+  [ -s $T.list ] || { rm -f $T.list; exit 3; }
+  # through a file, not a pipe: a failing tar must fail the archive instead of giving an empty one
+  tar cf $T.tar -T $T.list && gzip -9 -c $T.tar; rc=$?; rm -f $T.list $T.tar; exit $rc ;;
 restore)
   set -- $(best); [ -n "$1" ] || { log "no saved settings (defaults used)"; exit 1; }
   mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && apply_deleted && restore_ssh && log "settings restored from slot $1 (seq $2)" ;;

@@ -2153,3 +2153,20 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
   4. Charge : `top` pendant 2 min page ouverte : un `action.cgi` toutes les 2 s, CPU moyen à noter ; page quittée : plus aucune requête `hw_state` (journal httpd).
   5. **Emplacements** : dos redessiné d'après la photo du propriétaire (bouton reset = trou en haut à gauche, haut-parleur = gros trous en haut à droite, disque de fixation, micro-USB, fente SD sur le côté). **À confirmer** : le dos n'a pas de LED, donc la LED rouge est supposée être la deuxième couleur de la LED d'état en façade (point du haut) ; vérifier en cliquant « Rouge allumée ».
 - **Critères :** 1-4 conformes, aucune action de la page sans jeton CSRF (les commandes de modification répondent 403 sans lui).
+
+## 2026-11-05 — Feuille de route 20, 22, 26, 27, 29 complétées (`[roadmap]`)
+
+- **Quoi :**
+  - **26** Carillon / Alerte / Sirène sur le tableau de bord (volume du curseur du haut-parleur, confirmation pour la sirène).
+  - **27** `http://<caméra>/metrics` (redirection `httpfront`) ; nouvelles métriques : `tc100_rtsp_capture_fps`, `tc100_rtsp_main_kbps`, `tc100_rtsp_sub_kbps`, `tc100_rtsp_clients_playing`, `tc100_rtsp_dropped_frames` (fichier `/var/run/tc100_rtsp.stat` écrit par `tc100_rtsp` toutes les 5 s), `tc100_sdcard_present|size_bytes|free_bytes`, `tc100_info{version}`.
+  - **29** scripts et feuilles de style chargés en `?v=<md5>` (`src/webui/stamp-assets.sh`, lancé par `build-index.sh`).
+  - **20** `MQTT_SNAPSHOT_ON_EVENT=1` (dans `mqtt.conf`, désactivé par défaut) : image JPEG sur `<racine>/snapshot/image` à chaque mouvement, son ou sabotage, 10 s minimum entre deux.
+  - **22** page Sauvegarde : « Télécharger la sauvegarde complète (.tar.gz) » et « Restaurer cette sauvegarde » (fichiers de `config/` seulement, validés, transaction).
+- **Interrupteur :** 20 : `MQTT_SNAPSHOT_ON_EVENT=0` ; le reste : revert du commit.
+- **Test (une caméra) :**
+  1. Tableau de bord : Carillon, Alerte entendus ; Sirène demande confirmation puis sonne ; le volume suit le curseur.
+  2. `curl -u root:<mdp> -L http://<caméra>/metrics` : les nouvelles lignes, `tc100_rtsp_capture_fps` ≈ la cadence réglée, `tc100_rtsp_main_kbps` ≈ le débit, `tc100_sdcard_free_bytes` sur la .24 ; `cat /var/run/tc100_rtsp.stat` mis à jour toutes les 5 s.
+  3. Après la mise à jour, le navigateur charge les nouveaux fichiers sans vider son cache (la page Test du matériel et les nouveaux boutons apparaissent, les nouvelles traductions françaises aussi).
+  4. MQTT : `MQTT_SNAPSHOT_ON_EVENT=1`, redémarrer le pont ; un mouvement → image dans l'entité caméra de Home Assistant et message sur `snapshot/event` ; deux mouvements à moins de 10 s → une seule image.
+  5. Sauvegarde : télécharger l'archive (taille de quelques Ko, contient `config/...`), changer un réglage, restaurer l'archive → réglage revenu, réponse « fichier(s) » ; un fichier quelconque renommé en `.tar.gz` est refusé sans rien changer. La flash garde la restauration après un redémarrage (`cfg-persist`).
+- **Critères :** 1-5 conformes ; aucun effet sur le flux vidéo (le fichier `.stat` coûte une écriture en RAM toutes les 5 s).

@@ -84,6 +84,74 @@
   </div>
 </div>
 
+<div class="card status_card mt-4">
+  <header class="card-header">
+    <p class="card-header-title">
+      <span class="title-with-icon">
+        <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+        <span>Full backup of this camera</span>
+      </span>
+    </p>
+  </header>
+  <div class="card-content">
+    <p class="help" style="margin-bottom:1rem">
+      Every setting changed on this camera, in one .tar.gz file: passwords, Wi-Fi, ssh keys, presets and zones included,
+      as the camera keeps them in its flash. To get this camera back after a reinstall. For another camera, use the
+      JSON export or the push above: they leave out the name, the address and the secrets.
+    </p>
+    <div class="columns">
+      <div class="column">
+        <a class="button is-link is-small" id="archive_download_btn" href="cgi-bin/config_exchange.cgi?cmd=archive">Download full backup (.tar.gz)</a>
+        <p class="help">Keep the file private: it holds the passwords.</p>
+      </div>
+      <div class="column">
+        <label class="label is-small" for="archive_file">Restore</label>
+        <input class="input is-small" type="file" id="archive_file" accept=".gz,.tgz,application/gzip" style="padding:0.35rem 0.5rem; margin-bottom:0.5rem;">
+        <button class="button is-warning is-small" id="archive_restore_btn" type="button">Restore this backup</button>
+        <p id="archive_status" class="backup-status" role="status"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Full backup: the .tar.gz of config_exchange.cgi?cmd=archive, sent back as it is (cmd=restore checks every entry
+  // and every file, and writes them as one transaction)
+  var input = document.getElementById('archive_file');
+  var btn = document.getElementById('archive_restore_btn');
+  var status = document.getElementById('archive_status');
+  if (!input || !btn || !status) return;
+  var T = function (s) { return window.tc100T ? window.tc100T(s) : s; };
+  function say(msg, kind) { status.textContent = msg; status.className = 'backup-status' + (kind ? ' ' + kind : ''); }
+  btn.addEventListener('click', function () {
+    var file = input.files && input.files[0];
+    if (!file) { say(T('Choose a backup file first.'), 'err'); return; }
+    if (file.size > 256 * 1024) { say(T('File too large (max 256 KB).'), 'err'); return; }
+    if (!confirm(T('Restore this backup? The settings in the file replace the current ones, the camera password and the Wi-Fi included.'))) return;
+    btn.disabled = true;
+    say(T('Restoring...'), '');
+    var ready = typeof window.ensureCsrfToken === 'function' ? window.ensureCsrfToken().catch(function () { return ''; }) : Promise.resolve('');
+    ready.then(function (tok) {
+      var headers = { 'Content-Type': 'application/gzip' };
+      if (tok) headers['X-CSRF-Token'] = tok;
+      return fetch('cgi-bin/config_exchange.cgi?cmd=restore', { method: 'POST', headers: headers, body: file, cache: 'no-store' });
+    })
+      .then(function (r) { return r.text().then(function (t) { var d = null; try { d = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, d: d }; }); })
+      .then(function (o) {
+        if (o.ok && o.d && o.d.ok) {
+          say(T('Backup restored:') + ' ' + o.d.files + ' ' + T('file(s),') + ' ' + o.d.changed_files + ' ' + T('changed. The ssh keys and the host name take effect at the next restart.'), 'ok');
+          input.value = '';
+        } else {
+          say((o.d && (o.d.error || o.d.message)) || (T('Restore failed') + ' (HTTP ' + o.status + ').'), 'err');
+        }
+      })
+      .catch(function (e) { say(T('Restore failed') + ': ' + e, 'err'); })
+      .finally(function () { btn.disabled = false; });
+  });
+})();
+</script>
+
 <script>
 (function () {
   var jsonInput = document.getElementById('json_import_file');

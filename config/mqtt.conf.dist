@@ -60,6 +60,11 @@ MQTT_HA_DISCOVERY_PREFIX=homeassistant
 # Snapshots taken via the MQTT snapshot button or requested via /tmp/snapshot_request will publish
 # real JPEG bytes to the topic. Keep 0 to save bandwidth/RAM if using RTSP/go2rtc.
 MQTT_HA_CAMERA_ENTITY_ENABLE=0
+# A fresh picture on each event (motion, sound, tamper) to <topic root>/snapshot/image (retained, JPEG bytes, about
+# 40 KB) and a line on <topic root>/snapshot/event, for Home Assistant notifications; 1 also registers the camera
+# entity above. At most one picture every MQTT_SNAPSHOT_COOLDOWN_SECONDS.
+MQTT_SNAPSHOT_ON_EVENT=0
+MQTT_SNAPSHOT_COOLDOWN_SECONDS=10
 
 # Commands can be plain text (legacy) or JSON.
 # Plain:

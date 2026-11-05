@@ -123,6 +123,9 @@ publish_sound_event()
         echo "ON" > /tmp/vox_state 2>/dev/null
     fi
 
+    # A picture for Home Assistant (mqtt.conf MQTT_SNAPSHOT_ON_EVENT=1, mqtt-bridge.sh snapshot-event)
+    grep -q '^MQTT_SNAPSHOT_ON_EVENT=1' /mnt/config/mqtt.conf 2>/dev/null && { /mnt/scripts/mqtt-bridge.sh snapshot-event sound </dev/null >/dev/null 2>&1 & }
+
     # Multi-channel notification dispatcher (webhook, ntfy, telegram)
     if [ -x /mnt/scripts/notify.sh ]; then
         /mnt/scripts/notify.sh sound "Sound alert: level ${level} dBFS (threshold ${threshold} dBFS)" "" "$level" >/dev/null 2>&1 &

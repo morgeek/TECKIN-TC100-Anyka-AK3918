@@ -538,7 +538,9 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" MQTT_PORT port "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" MQTT_QOS qos "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" MQTT_HEALTH_INTERVAL_SECONDS positive_interval "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" MQTT_HA_DISCOVERY_ENABLE bool "$_tc_rel" || return 1 ;;
+      tc_check_flat "$_tc_file" MQTT_HA_DISCOVERY_ENABLE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" MQTT_SNAPSHOT_ON_EVENT bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" MQTT_SNAPSHOT_COOLDOWN_SECONDS u:1:3600 "$_tc_rel" || return 1 ;;
     recording.conf)
       tc_check_flat "$_tc_file" rec_motion_activated bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" rec_postrecord_sec record_post "$_tc_rel" || return 1

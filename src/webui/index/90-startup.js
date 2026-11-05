@@ -4,6 +4,7 @@
     // its saved state so no browser stays stuck with hidden menus.
     try { localStorage.removeItem("elite_operator_mode"); } catch (e) {}
     initPttVolumeControls();
+    initSoundButtons();
     initCamPanel();
 
     // The page title, the brand and the OSD name come from the first status line poll (renderReadings, applyHostName):

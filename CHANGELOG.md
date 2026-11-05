@@ -13,6 +13,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (on, off, blink), IR LEDs and IR-cut filter, microphone level meter, speaker chime, microSD card details, reset
   button shown pressed while it is down. One read-only state command, `action.cgi?cmd=hw_state`, read every 2 s while
   the page is open and visible.
+- **Chime, alert and siren buttons** on the dashboard (next to Listen / Talk), at the speaker volume; the siren asks first.
+- **Full backup of this camera** (Backup page): every setting changed from the shipped defaults, secrets, ssh keys,
+  presets and zones included, in one `.tar.gz` (the same files the flash slots keep, `cfg-persist archive`), and its
+  restore: only plain files under `config/`, each validated as for a JSON import, all written as one transaction.
+- **Picture on events over MQTT** (`mqtt.conf` `MQTT_SNAPSHOT_ON_EVENT=1`, off by default): on motion, sound or tamper a
+  fresh JPEG goes to `<topic root>/snapshot/image` (the Home Assistant camera entity, registered then) and a line to
+  `<topic root>/snapshot/event`, at most one every `MQTT_SNAPSHOT_COOLDOWN_SECONDS` (10).
+- **Metrics**: `http://<camera>/metrics` (redirect to `/cgi-bin/metrics.cgi`, the usual Prometheus path), plus the video
+  server's capture rate, bit rates, playing clients and skipped frames (`/var/run/tc100_rtsp.stat`, every 5 s), the
+  microSD card's presence, size and free space, and `tc100_info{version=...}`. No chip temperature: the kernel has no
+  sensor driver for it.
+
+### Changed
+- **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
+  a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed
+  version strings, so a browser could keep old copies for hours (busybox httpd sends ETag, Last-Modified and the
+  `.gz` copies, but no Cache-Control).
 
 ### Fixed
 - The dashboard's Reboot showed "Command sent" and a red error while the camera restarted (a backspace byte in place

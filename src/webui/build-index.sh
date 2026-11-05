@@ -17,3 +17,5 @@ fi
 command -v node >/dev/null 2>&1 && node --check "$tmp"
 cp "$tmp" "$out"
 echo "$out: $(wc -l < "$out") lines"
+# the pages load it as ?v=<its md5>: a browser takes the new bundle at once (src/webui/stamp-assets.sh)
+sh "$root/src/webui/stamp-assets.sh"

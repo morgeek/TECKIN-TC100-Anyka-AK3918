@@ -1902,8 +1902,9 @@ curl -k -X POST https://root:pass@192.168.1.50/cgi-bin/upload_audio.cgi \
 
 ## GET/POST /cgi-bin/config_exchange.cgi
 
-The one configuration export/import format: a `.json` file. (The tar.gz backup, `conf-export.cgi` and `conf-import.cgi`
-of earlier versions are gone.) CSRF is required for import and push; export is read-only. Rate limit: 10 per 60 s.
+The configuration export/import format to share between cameras: a `.json` file. The full backup of one camera is a
+`.tar.gz` (`cmd=archive` / `cmd=restore` below; `conf-export.cgi` and `conf-import.cgi` of earlier versions are gone).
+CSRF is required for import, restore and push; export and archive are read-only. Rate limit: 10 per 60 s.
 
 The document is built from, and read by, one table in `config_exchange.cgi` (`_ce_row_table`), so what a camera exports
 another camera imports. Top-level keys: `format`, `version`, `includes_secrets`, `boot`, `video`, `audio`, `osd`,
@@ -1949,6 +1950,30 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/config_exchange.cgi?cmd=impo
   -H "X-CSRF-Token: <token>" \
   -H "Content-Type: application/json" \
   -d @config.json
+```
+
+### cmd=archive
+
+The full backup of this camera: every file of `config/` that differs from the shipped defaults (passwords, Wi-Fi, ssh
+keys, presets, zones included), the same set the flash slots keep (`v3/linux66-sd/cfg-persist archive`). Keep it private.
+
+- Response: `application/gzip`, `Content-Disposition: attachment` (`tc100_<host>_config_<date>.tar.gz`); JSON
+  `NOTHING_TO_SAVE` when nothing differs from the defaults
+
+### cmd=restore
+
+Restores an archive of `cmd=archive`: only regular files and directories under `config/` with plain names
+(`[A-Za-z0-9._-]`), at most 256 KB packed and 1 MB unpacked. Each non-empty file is validated as for an import and all are
+written as one transaction (any failure restores the originals); empty files are markers. The Wi-Fi, the password, the
+Wi-Fi country and the RTSP / MQTT services are applied at once; ssh keys and the host name at the next restart. It brings
+back the identity of the camera (name, address): to configure another camera use the JSON export or `cmd=push`.
+
+- Method: `POST`, body = the `.tar.gz` (`Content-Type: application/gzip`), CSRF
+- Response: `{"ok":true,"files":N,"changed_files":N,...}` or `INVALID_SIZE` / `INVALID_ARCHIVE` / `TRANSACTION_FAILED`
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/config_exchange.cgi?cmd=restore" \
+  -H "X-CSRF-Token: <token>" -H "Content-Type: application/gzip" --data-binary @backup.tar.gz
 ```
 
 ### cmd=push

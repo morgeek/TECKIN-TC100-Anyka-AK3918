@@ -1,3 +1,26 @@
+  // --- Chime / alert / siren on the camera's speaker (action.cgi play_sound, the clips of sounds/) ---
+  function initSoundButtons() {
+    var tr = window.tc100T || function (s) { return s; };
+    Array.prototype.forEach.call(document.querySelectorAll("[data-sound]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var name = btn.dataset.sound;
+        if (name === "siren" && !confirm(tr("Sound the siren on the camera? It is loud."))) return;
+        var vol = byId("ptt_vol");
+        var level = vol && !vol.disabled ? parseInt(vol.value, 10) : 90;
+        if (isNaN(level)) level = 90;
+        btn.classList.add("is-loading");
+        csrfFetch("cgi-bin/action.cgi?cmd=play_sound&format=json&sound=" + encodeURIComponent(name) + "&volume=" + level)
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d && d.ok) showResult(tr("Playing on the camera speaker"), "is-success");
+            else showResult(tr("The camera did not play the sound"), "is-danger");
+          })
+          .catch(function () { showResult(tr("The camera did not play the sound"), "is-danger"); })
+          .finally(function () { btn.classList.remove("is-loading"); });
+      });
+    });
+  }
+
   // --- Talk volume controls ---
   function initPttVolumeControls() {
     var vol = byId("ptt_vol");

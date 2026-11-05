@@ -91,13 +91,21 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - L'encodeur matériel AK3918 calcule déjà les vecteurs de mouvement et les macroblocs inter/intra.
     - Exploitation de la taille des trames P ou des compteurs MB dans `tc100_rtsp` : une trame P passe de 2 Ko (immobile) à 20-30 Ko (mouvement).
     - Déclenchement instantané d'événements MQTT (`teckin/motion = ON`) et d'enregistrements SD sans consommer de CPU en décompression d'images.
-20. [ ] **Snapshot JPEG direct sur événement MQTT (`teckin/snapshot`)** :
+20. [x] **Snapshot JPEG direct sur événement MQTT (`teckin/snapshot`)** :
+    *Fait le 2026-11-05 : existait déjà sur la commande MQTT `snapshot` ; ajouté sur mouvement, son et sabotage
+    (`mqtt-bridge.sh snapshot-event`, `MQTT_SNAPSHOT_ON_EVENT=1`, désactivé par défaut, 10 s entre deux images), image sur
+    `<racine>/snapshot/image` (entité caméra HA enregistrée alors). Le bouton reset n'en envoie pas : ses appuis
+    servent au Wi-Fi de secours et au redémarrage.*
     - Capture d'une vignette JPEG légère depuis le sub-stream 640×360 lors d'un déclenchement (mouvement, bruit VOX, bouton).
     - Publication dans un topic MQTT pour affichage immédiat dans les notifications mobiles (Home Assistant Companion, Telegram, ntfy).
 21. [ ] **Hystérésis temporelle et adoucissement Jour / Nuit** :
     - Verrouillage anti-rebond temporisé (au moins 60 s) après commutation du filtre IR-Cut pour éliminer le cliquetis en zone de pénombre crépusculaire.
     - Transition progressive de l'exposition/gain AWB lors de l'allumage des LED IR pour éviter le flash blanc.
-22. [ ] **Sauvegarde / Restauration 1-clic de la configuration Web** :
+22. [x] **Sauvegarde / Restauration 1-clic de la configuration Web** :
+    *Fait le 2026-11-05 : l'export / import JSON et l'envoi vers une autre caméra existaient ; ajouté la sauvegarde
+    complète `.tar.gz` de cette caméra (page Sauvegarde, `config_exchange.cgi?cmd=archive|restore`, mêmes fichiers que les
+    emplacements flash, restauration validée et transactionnelle). Pour cloner .11 vers .24 : l'envoi JSON (il laisse
+    l'identité de côté) ; l'archive, elle, ramène aussi le nom, l'adresse et les clés ssh.*
     - Export/Import d'une archive `.tar.gz` de `/mnt/config/` depuis l'interface Web pour cloner ou restaurer rapidement des caméras (.11 <-> .24).
 23. [ ] **Mode Point d'accès de secours (Failover AP Setup)** :
     - En cas d'échec de connexion Wi-Fi prolongé au boot (> 3 min), basculement du dongle `8188fu` en point d'accès Wi-Fi temporaire (SSID `Teckin-Setup`, IP `192.168.4.1`) avec interface Web minimale de configuration pour éviter d'avoir à brancher le câble série ou sortir la SD.
@@ -108,17 +116,27 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Commutateur Web et MQTT (`teckin/privacy/set = ON`).
     - Coupure logicielle immédiate du flux vidéo (trame noire avec mention "Privé / Inactif") et coupure de la capture micro ALSA (`amixer set Capture nocap`).
     - Optionnellement, extinction des LED d'état et mise en veille du capteur d'image JX-F23 (ou arrêt du flux ISP/RTSP) pour préserver l'intimité lors du désarmement d'alarme.
-26. [ ] **Boutons d'action sirène et carillon sur l'interface Web** :
+26. [x] **Boutons d'action sirène et carillon sur l'interface Web** :
+    *Fait le 2026-11-05 : Carillon, Alerte, Sirène sur le tableau de bord (à côté d'Écouter / Parler), au volume du
+    curseur du haut-parleur, confirmation pour la sirène.*
     - Les fichiers audio `sounds/siren.pcm`, `sounds/alert.pcm`, `sounds/chime.pcm` existent déjà dans le dépôt et sont câblés dans `scripts/mqtt-bridge.sh` (`play_sound`).
     - Ajouter les boutons d'action rapide dans l'interface Web (Dashboard / Actions rapides) pour déclencher la sirène ou le carillon en un clic sans passer par un script externe.
-27. [ ] **Endpoint de métriques Prometheus minimaliste (`/metrics`)** :
+27. [x] **Endpoint de métriques Prometheus minimaliste (`/metrics`)** :
+    *Fait le 2026-11-05 : `metrics.cgi` existait (mémoire, Wi-Fi, charge, réseau, détections) ; ajouté `/metrics`
+    (redirection par `httpfront`), images capturées par seconde, débits, clients en lecture et images sautées
+    (`/var/run/tc100_rtsp.stat`), carte SD (présence, taille, libre), `tc100_info{version}`. Pas de température : aucun
+    pilote de capteur dans le noyau.*
     - Exposition texte brut ultra-légère par `httpfront` (format Prometheus / OpenMetrics standard, zéro parsing JSON).
     - Métriques clés : `tc100_chip_temp_celsius`, `tc100_memory_available_bytes`, `tc100_wifi_rssi_dbm`, `tc100_rtsp_clients_connected`, `tc100_rtsp_drops_total`, `tc100_sdcard_free_bytes`.
     - Permet l'intégration native et directe dans Grafana / Prometheus / VictoriaMetrics et Home Assistant sans surcoût CPU/RAM.
 28. [ ] **Nettoyage et rotation circulaire des logs en RAM (`tmpfs`)** :
     - Écrêtage périodique automatique dans `housekeeper` des fichiers journaux (`/tmp/*.log`, dmesg) avec plafond strict (ex: 64 Ko max par log via `tail -n 100`).
     - Prévient toute érosion lente de la RAM disponible lors de fonctionnements ininterrompus sur plusieurs semaines.
-29. [ ] **Accélération WebUI : Assets pré-compressés (gzip) & Cache HTTP agressif** :
+29. [x] **Accélération WebUI : Assets pré-compressés (gzip) & Cache HTTP agressif** :
+    *Fait le 2026-11-05 : `.gz` pré-compressés, ETag et Last-Modified existaient (busybox httpd). Pas de
+    `Cache-Control` possible avec busybox httpd ; à la place, chaque script et feuille de style est chargé en
+    `?v=<md5>` (`src/webui/stamp-assets.sh`) : nouvelle URL à chaque changement, donc jamais de vieille copie après une
+    mise à jour (le dictionnaire français et le script principal avaient des versions figées).*
     - Pré-compression statique des fichiers JS/CSS en `.gz` lors du build CI ; `httpfront` sert directement le flux compressé si `Accept-Encoding: gzip` est présent (0 cycle CPU de compression).
     - Ajout des en-têtes `Cache-Control: public, max-age=86400, immutable` et `ETag` pour rendre le chargement de l'interface Web quasi instantané depuis le cache navigateur.
 30. [ ] **Pare-feu anti-brute-force ultra-léger en noyau (`iptables -m recent`)** :

@@ -23,7 +23,7 @@
     <!-- One file, built from css/bulma.1.0.2.purged.min.css + css/ui-modern.min.css + css/ui.css in that order
          (src/webui/build-css.sh; it stamps the ?v=). Edit the three sources, not the bundle. -->
     <link href="css/ui.bundle.min.css?v=78d2d1eb" rel="stylesheet">
-    <script src="scripts/i18n.js?v=2.1.2-i18n1"></script>
+    <script src="scripts/i18n.js?v=541d69c7"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 
@@ -308,6 +308,11 @@
                     <span class="ptt-vol-wrap" title="Speaker volume"><i class="icon-volume-medium ptt-vol-icon" aria-hidden="true"></i><input type="range" id="ptt_vol" min="0" max="100" value="90" class="ptt-vol-slider" aria-label="PTT volume" disabled><span id="ptt_vol_label" class="ptt-vol-label">90%</span></span>
                     <button class="button is-small" id="ptt_test_btn" type="button" disabled><i class="icon-play"></i> <span class="ptt-test-label">Test</span></button>
                     <span id="ptt_last_sent" class="ptt-last-sent">Audio loads on demand</span>
+                    <div class="buttons has-addons sound-actions" role="group" aria-label="Sounds on the camera speaker">
+                        <button type="button" class="button is-small" data-sound="chime" title="Play the chime on the camera">Chime</button>
+                        <button type="button" class="button is-small" data-sound="alert" title="Play the alert sound on the camera">Alert</button>
+                        <button type="button" class="button is-small is-danger is-light" data-sound="siren" title="Sound the siren on the camera (loud)">Siren</button>
+                    </div>
                 </div>
                 <div class="ptt-meter-wrap" style="display:none"><span class="ptt-meter-label">Recording:</span><progress id="ptt_level" class="progress is-success" value="0" max="100"></progress></div>
                 <details class="home-tools">
@@ -323,7 +328,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=2.1.2-ui1" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=beea48e5" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
@@ -335,7 +340,7 @@
                 if (pttLabel) pttLabel.textContent = 'Loading PTT…';
                 if (listenLabel) listenLabel.textContent = 'Loading…';
                 var script = document.createElement('script');
-                script.src = 'scripts/ptt-audio.bundle.min.js?v=1.8.4';
+                script.src = 'scripts/ptt-audio.bundle.min.js?v=2f8b6e83';
                 script.onerror = function () {
                     loading = false;
                     if (pttLabel) pttLabel.textContent = 'Retry PTT';

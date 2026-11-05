@@ -181,6 +181,8 @@ _ce_row_table() {
     row("mqtt.conf";"flat";"root";"MQTT_TOPIC_ROOT";"topic";"network";.mqtt.topic_root),
     row("mqtt.conf";"flat";"root";"MQTT_HA_DISCOVERY_ENABLE";"bool";"general";.mqtt.discovery),
     row("mqtt.conf";"flat";"root";"MQTT_HA_DISCOVERY_PREFIX";"topic";"general";.mqtt.discovery_prefix),
+    row("mqtt.conf";"flat";"root";"MQTT_SNAPSHOT_ON_EVENT";"bool";"general";.mqtt.snapshot_on_event),
+    row("mqtt.conf";"flat";"root";"MQTT_SNAPSHOT_COOLDOWN_SECONDS";"u:1:3600";"general";.mqtt.snapshot_cooldown_sec),
 
     row("boot.conf";"flat";"root";"REC_LOCAL";"bool";"general";.recording.local),
     row("boot.conf";"flat";"root";"REC_WHEN";"rec_when";"general";.recording.when),
@@ -584,7 +586,90 @@ _ce_import() {
   printf '{"ok":true,"applied":%d,"changed_files":%d,"skipped":%d,"transactional":true}\n' "$_ce_values" "$_ce_changed" "$_ce_skipped"
 }
 
+# Restore an archive of cmd=archive (POST body = the .tar.gz, at most 256 KB): only regular files and directories
+# under config/ with plain names, at most 1 MB unpacked; every non-empty file is validated as for an import
+# (tc_validate_candidate) and all are written as one transaction; empty files are markers (.wizard3_done...).
+# For this camera after a reinstall: it brings back its name, its address and its ssh keys too (another camera: the
+# JSON export / push, which leave the identity out).
+_ce_restore() {
+  _rs="/tmp/ce-restore.$$"
+  _rs_fail() { rm -rf "$_rs"; json_body_err "$1" "$2"; }
+  rm -rf "$_rs"; mkdir -p "$_rs/x" || { json_body_err "STAGING_FAILED" "Cannot prepare the restore"; return; }
+  _rs_cl="${CONTENT_LENGTH:-0}"
+  case "$_rs_cl" in ''|*[!0-9]*) _rs_cl=0 ;; esac
+  if [ "$_rs_cl" -le 0 ] || [ "$_rs_cl" -gt 262144 ]; then _rs_fail "INVALID_SIZE" "The archive must be 1 byte to 256 KB"; return; fi
+  head -c "$_rs_cl" > "$_rs/a.tgz" 2>/dev/null
+  if ! gunzip -c "$_rs/a.tgz" > "$_rs/a.tar" 2>/dev/null || ! tar -tvf "$_rs/a.tar" > "$_rs/list" 2>/dev/null; then
+    _rs_fail "INVALID_ARCHIVE" "Not a configuration archive of this camera (.tar.gz)"; return
+  fi
+  # regular files or directories only (no link, no device), names under config/, nothing above it, 1 MB in all
+  if ! awk '{ if ($1 !~ /^[-d]/) exit 1; n = $NF
+              if (n !~ /^config(\/[A-Za-z0-9._-]+)*\/?$/ || n ~ /(^|\/)\.\.?(\/|$)/) exit 1; t += $3 }
+            END { if (NR == 0 || t > 1048576) exit 1 }' "$_rs/list"; then
+    _rs_fail "INVALID_ARCHIVE" "The archive holds something else than configuration files"; return
+  fi
+  if ! (cd "$_rs/x" && tar -xf "$_rs/a.tar") 2>/dev/null || [ ! -d "$_rs/x/config" ]; then
+    _rs_fail "INVALID_ARCHIVE" "The archive could not be unpacked"; return
+  fi
+  _rs_files=""; _rs_marks=""
+  for _rs_f in $(cd "$_rs/x/config" && find . -type f | sed 's|^\./||' | sort); do
+    if [ -s "$_rs/x/config/$_rs_f" ]; then _rs_files="$_rs_files $_rs_f"; else _rs_marks="$_rs_marks $_rs_f"; fi
+  done
+  [ -n "$_rs_files$_rs_marks" ] || { _rs_fail "EMPTY_CONFIG" "The archive holds no file"; return; }
+  _rs_wpa_old="$(md5sum < "$CONFIG_ROOT/wpa_supplicant.conf" 2>/dev/null)"
+  _rs_pw_old="$(md5sum < "$CONFIG_ROOT/user.pwd" 2>/dev/null)"
+  _ce_wc() { [ -f /mnt/scripts/wifi-country.sh ] && WC_CONF="$CONFIG_ROOT/boot.conf" sh /mnt/scripts/wifi-country.sh get 2>/dev/null; }
+  _rs_wc_old="$(_ce_wc)"
+  if [ -n "$_rs_files" ] && ! tc_commit_config_files "$_rs/x/config" "$CONFIG_ROOT" "$_rs/backup" "$_rs_files"; then
+    _rs_fail "TRANSACTION_FAILED" "Restore refused (${TC_CONFIG_ERROR:-transaction failed}); the configuration is unchanged"; return
+  fi
+  _rs_changed="${TC_COMMIT_COUNT:-0}"
+  for _rs_f in $_rs_marks; do mkdir -p "$CONFIG_ROOT/$(dirname "$_rs_f")" && : > "$CONFIG_ROOT/$_rs_f"; done
+  rm -rf "$_rs"
+  # what can be applied without a restart: the services, the Wi-Fi, the password, the Wi-Fi country
+  (
+    sleep 2
+    [ -x /mnt/controlscripts/rtsp-h26x ] && /mnt/controlscripts/rtsp-h26x restart >/dev/null 2>&1
+    [ -x /mnt/controlscripts/mqtt-bridge ] && /mnt/controlscripts/mqtt-bridge restart >/dev/null 2>&1
+  ) >/dev/null 2>&1 &
+  [ "$(md5sum < "$CONFIG_ROOT/wpa_supplicant.conf" 2>/dev/null)" = "$_rs_wpa_old" ] || \
+    { [ -f /mnt/v3/linux66-sd/wifi-apply ] && ( sh /mnt/v3/linux66-sd/wifi-apply 5 </dev/null >/dev/null 2>&1 & ); }
+  if [ "$(md5sum < "$CONFIG_ROOT/user.pwd" 2>/dev/null)" != "$_rs_pw_old" ] && [ -r /mnt/scripts/common_functions.sh ]; then
+    _rs_pw=""; IFS= read -r _rs_pw < "$CONFIG_ROOT/user.pwd"
+    ( sleep 3; . /mnt/scripts/common_functions.sh; all_password "$_rs_pw" ) >/dev/null 2>&1 &
+  fi
+  [ "$(_ce_wc)" = "$_rs_wc_old" ] || ( sh /mnt/scripts/wifi-country.sh apply </dev/null >/dev/null 2>&1 & )
+  printf '{"ok":true,"files":%d,"changed_files":%d,"note":"ssh keys and the host name take effect at the next restart"}\n' \
+    "$(echo $_rs_files $_rs_marks | wc -w)" "$_rs_changed"
+}
+
 case "$F_cmd" in
+  archive)
+    # The full backup of this camera: every setting changed from the shipped defaults, secrets and ssh keys
+    # included, as the flash slots keep them (v3/linux66-sd/cfg-persist archive). A GET like export: another site
+    # cannot read the answer.
+    _ce_ar="/tmp/ce-archive.$$.tgz"
+    if sh /mnt/v3/linux66-sd/cfg-persist archive > "$_ce_ar" 2>/dev/null && [ -s "$_ce_ar" ]; then
+      _ce_host="$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9-')"
+      echo "Content-Type: application/gzip"
+      echo "Content-Disposition: attachment; filename=tc100_${_ce_host:-camera}_config_$(date +%Y%m%d_%H%M%S).tar.gz"
+      echo "Content-Length: $(wc -c < "$_ce_ar")"
+      echo "Cache-Control: no-store"
+      echo ""
+      cat "$_ce_ar"
+    else
+      output_json_header
+      echo ""
+      json_body_err "NOTHING_TO_SAVE" "Nothing differs from the shipped settings yet"
+    fi
+    rm -f "$_ce_ar"
+    ;;
+  restore)
+    mutation_guard
+    output_json_header
+    echo ""
+    _ce_restore
+    ;;
   export)
     _ce_now="$(date +%Y%m%d_%H%M%S)"
     output_json_header

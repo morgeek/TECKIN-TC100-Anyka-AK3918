@@ -132,6 +132,9 @@ if [ -x /mnt/scripts/mqtt-bridge.sh ]; then
   /mnt/scripts/mqtt-bridge.sh publish "$@" >/dev/null 2>&1 || true
 fi
 
+# A picture for Home Assistant (mqtt.conf MQTT_SNAPSHOT_ON_EVENT=1, mqtt-bridge.sh snapshot-event)
+[ "$event_type" = "motion_on" ] && grep -q '^MQTT_SNAPSHOT_ON_EVENT=1' /mnt/config/mqtt.conf 2>/dev/null && { /mnt/scripts/mqtt-bridge.sh snapshot-event motion </dev/null >/dev/null 2>&1 & }
+
 # Multi-channel notification dispatcher (webhook, ntfy, telegram) on motion_on
 if [ "$event_type" = "motion_on" ] && [ -x /mnt/scripts/notify.sh ]; then
   /mnt/scripts/notify.sh motion "Motion detected at $ts_utc" "$snapshot_path" "$detail" >/dev/null 2>&1 &

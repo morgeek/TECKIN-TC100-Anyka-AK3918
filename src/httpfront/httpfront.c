@@ -2,8 +2,9 @@
  *
  * The busybox httpd of the base image answers 404 for any directory URL, "/" included, so a browser
  * pointed at http://camera/ shows nothing. This listener accepts the connection, peeks (MSG_PEEK) at the
- * request line without consuming it, answers "GET /" with a redirect to /index.html, and hands every other
- * connection to `httpd -i` (inetd mode) as stdin/stdout.
+ * request line without consuming it, answers "GET /" with a redirect to /index.html and "GET /metrics" (the usual
+ * Prometheus path) with a redirect to /cgi-bin/metrics.cgi, and hands every other connection to `httpd -i` (inetd
+ * mode) as stdin/stdout.
  *
  * usage: httpfront [-p PORT] [-h HOME] [-r TARGET]    (defaults 80, /tmp/www, /index.html)
  *
@@ -60,11 +61,23 @@ static int num(const char *s) { int n = 0; while (*s >= '0' && *s <= '9') n = n 
 static int has_nl(const char *b, int n) { for (int i = 0; i < n; i++) if (b[i] == '\n') return 1; return 0; }
 static void cat(char *d, int *l, int max, const char *s) { while (*s && *l < max) d[(*l)++] = *s++; }
 
+static void redirect(int c, const char *to)
+{
+	char r[256];
+	int l = 0;
+
+	cat(r, &l, sizeof r, "HTTP/1.0 302 Found\r\nLocation: ");
+	cat(r, &l, sizeof r - 60, to);
+	cat(r, &l, sizeof r, "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+	sc(SYS_write, c, (long)r, l, 0, 0);
+	_exit_(0);
+}
+
 static void serve(int c, const char *home, const char *target, char **envp)
 {
-	char b[64], r[256];
+	char b[64];
 	long n;
-	int tries = 0, l = 0;
+	int tries = 0;
 
 	/* wait (max ~5 s) until the request line is complete */
 	for (;;) {
@@ -74,13 +87,8 @@ static void serve(int c, const char *home, const char *target, char **envp)
 		if (has_nl(b, (int)n) || n >= (long)sizeof b - 1 || ++tries > 50) break;
 		sleep100ms();
 	}
-	if (pfx(b, "GET / ") || pfx(b, "GET /?") || pfx(b, "HEAD / ")) {
-		cat(r, &l, sizeof r, "HTTP/1.0 302 Found\r\nLocation: ");
-		cat(r, &l, sizeof r - 60, target);
-		cat(r, &l, sizeof r, "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-		sc(SYS_write, c, (long)r, l, 0, 0);
-		_exit_(0);
-	}
+	if (pfx(b, "GET / ") || pfx(b, "GET /?") || pfx(b, "HEAD / ")) redirect(c, target);
+	if (pfx(b, "GET /metrics ") || pfx(b, "GET /metrics?") || pfx(b, "HEAD /metrics ")) redirect(c, "/cgi-bin/metrics.cgi");
 	sc(SYS_dup2, c, 0, 0, 0, 0);
 	sc(SYS_dup2, c, 1, 0, 0, 0);
 	if (c > 2) sc(SYS_close, c, 0, 0, 0, 0);
