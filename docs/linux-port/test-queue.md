@@ -2432,3 +2432,10 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** aucun (bouton à la demande).
 - **Test :** sans adresse : la cible est Frigate (ou la box) ; avec l'adresse du Synology : résultat en ~3 s ; une adresse inexistante → `pertes 100 %` ; une adresse avec des caractères interdits → refusée. Comparer avec la nuit de pertes Wi-Fi (#9).
 - **Critères :** chiffres cohérents avec un ping depuis un PC.
+
+## 2026-11-05 — Secrets retirés des réponses en lecture seule (`[secrets-get]`, audit W6)
+
+- **Quoi :** `wifi_rescue_info` ne renvoie plus le mot de passe du point d'accès de secours (seulement `psk_set`) ; Réglages → « Afficher » le demande avec `reveal=1` et le jeton CSRF. `state.cgi?cmd=fullconfig` ne renvoie plus le jeton Telegram (`token_set`) ; dans Réglages, un champ vide garde le jeton, `-` le retire.
+- **Interrupteur :** aucun (revert du commit).
+- **Test :** Réglages → Wi-Fi de secours : mot de passe masqué, « Afficher » le montre ; `curl -u root:<mdp> 'http://<caméra>/cgi-bin/action.cgi?cmd=wifi_rescue_info&format=json&reveal=1'` sans jeton → refus CSRF. Telegram : enregistrer le formulaire sans toucher au jeton → le bot marche toujours ; `-` → jeton retiré.
+- **Critères :** aucun secret dans `fullconfig` ni dans `wifi_rescue_info` sans `reveal` ; Telegram inchangé après un enregistrement.

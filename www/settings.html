@@ -1428,7 +1428,18 @@
                 .then(function(d) {
                     if (!d || d.status !== 'success') throw new Error('no answer');
                     el.textContent = (d.enabled ? 'On at boot. ' : 'Off at boot. ') + (d.ap ? 'Open now. ' : '') +
-                        'Network name: ' + (d.ssid || '?') + ' · password: ' + (d.psk || '?');
+                        'Network name: ' + (d.ssid || '?') + ' · password: ' + (d.psk_set ? '••••••' : '?') + ' ';
+                    // the password on request only (audit W6: reveal=1 with the CSRF token)
+                    if (d.psk_set) {
+                        var b = document.createElement('button');
+                        b.type = 'button'; b.className = 'button is-small is-light'; b.textContent = 'Show';
+                        b.addEventListener('click', function() {
+                            (window.csrfFetch || fetch)('cgi-bin/action.cgi?cmd=wifi_rescue_info&format=json&reveal=1&_=' + Date.now(), { cache: 'no-store' })
+                                .then(function(r) { return r.json(); })
+                                .then(function(x) { if (x && x.psk) { el.textContent = el.textContent.replace('••••••', x.psk); } });
+                        });
+                        el.appendChild(b);
+                    }
                 })
                 .catch(function() { el.textContent = 'The rescue Wi-Fi state could not be read.'; });
         })();

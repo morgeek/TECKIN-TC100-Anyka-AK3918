@@ -78,6 +78,7 @@ window.tc100I18nFr = {
     "Full backup of this camera": "Sauvegarde complète de cette caméra",
     "Automatic (from the Wi-Fi country)": "Automatique (selon le pays Wi-Fi)",
     "Link to the recorder": "Lien vers l'enregistreur",
+    "Saved (leave empty to keep it, - to remove it)": "Enregistré (laisser vide pour le garder, - pour le retirer)",
     "Ten pings to the recorder (the Frigate address of Settings, else the recording client, else the router): loss, delay and jitter. A loss or a jitter of hundreds of milliseconds points at the Wi-Fi or the network, not at the camera.": "Dix pings vers l'enregistreur (l'adresse Frigate des Réglages, sinon le client d'enregistrement, sinon la box) : pertes, délai et gigue. Des pertes ou une gigue de centaines de millisecondes désignent le Wi-Fi ou le réseau, pas la caméra.",
     "Recorder address (optional)": "Adresse de l'enregistreur (facultatif)",
     "Test the link": "Tester le lien",

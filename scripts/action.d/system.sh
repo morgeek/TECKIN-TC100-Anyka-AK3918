@@ -366,7 +366,12 @@
       refuse_unsafe_value "Telegram chat id" "$telegram_chat_id"
 
       rewrite_config /mnt/config/telegram.conf TELEGRAM_ENABLE "$telegram_enable"
-      rewrite_config /mnt/config/telegram.conf apiToken "$telegram_token"
+      # the page no longer receives the token (audit W6): an empty field keeps the one saved; "-" removes it
+      case "$telegram_token" in
+        '') ;;
+        -) rewrite_config /mnt/config/telegram.conf apiToken "" ;;
+        *) rewrite_config /mnt/config/telegram.conf apiToken "$telegram_token" ;;
+      esac
       rewrite_config /mnt/config/telegram.conf userChatId "$telegram_chat_id"
       
       if [ -x /mnt/controlscripts/telegram-bot ]; then

@@ -141,6 +141,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   version strings, so a browser could keep old copies for hours (busybox httpd sends ETag, Last-Modified and the
   `.gz` copies, but no Cache-Control).
 
+### Security
+- **Secrets no longer in read-only answers** (audit W6): the rescue access point's password is sent only on request
+  (Settings → Show, `wifi_rescue_info&reveal=1` with the page's CSRF token), and `state.cgi?cmd=fullconfig` no
+  longer returns the Telegram token (`token_set` says one is saved; an empty field keeps it, `-` removes it).
+
 ### Fixed
 - The dashboard's Reboot showed "Command sent" and a red error while the camera restarted (a backspace byte in place
   of `\b` in the detection pattern).

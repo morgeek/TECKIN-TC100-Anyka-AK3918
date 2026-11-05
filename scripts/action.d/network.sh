@@ -207,8 +207,12 @@
         _wr_on=0; ( . /mnt/scripts/service-switch.sh && svc_on wifi-rescue ) 2>/dev/null && _wr_on=1
         _wr_v() { printf '%s\n' "$_wr" | sed -n "s/^$1=//p" | head -n 1 | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }'; }
         _wr_ap="$(_wr_v ap)"; case "$_wr_ap" in 1) ;; *) _wr_ap=0 ;; esac
-        printf '{"status":"success","enabled":%s,"ap":%s,"ssid":"%s","psk":"%s","address":"10.42.0.1"}\n' \
-            "$_wr_on" "$_wr_ap" "$(_wr_v ssid)" "$(_wr_v psk)"
+        # audit W6: the password only on request (reveal=1) with the page's CSRF token: a read-only GET any script of
+        # the page could make no longer carries it
+        _wr_psk=""; _wr_set=0; [ -n "$(_wr_v psk)" ] && _wr_set=1
+        if [ "${F_reveal}" = 1 ]; then csrf_check; _wr_psk="$(_wr_v psk)"; fi
+        printf '{"status":"success","enabled":%s,"ap":%s,"ssid":"%s","psk":"%s","psk_set":%s,"address":"10.42.0.1"}\n' \
+            "$_wr_on" "$_wr_ap" "$(_wr_v ssid)" "$_wr_psk" "$_wr_set"
     ;;
 
     wifi_country_info)

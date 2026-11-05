@@ -175,7 +175,10 @@
 
             // 8. Telegram & Syslog
             setVal('telegram_enable', tel.enabled);
-            setVal('telegram_token', tel.token);
+            // the token is not sent back (audit W6): an empty field keeps it, "-" removes it
+            setVal('telegram_token', '');
+            var tokEl = document.getElementById('telegram_token');
+            if (tokEl) tokEl.placeholder = tel.token_set ? (window.tc100T || String)('Saved (leave empty to keep it, - to remove it)') : '123456789:ABCDEF...';
             setVal('telegram_chat_id', tel.chat_id);
             setVal('syslog_enable', sysl.enabled);
             setVal('syslog_host', sysl.host);
