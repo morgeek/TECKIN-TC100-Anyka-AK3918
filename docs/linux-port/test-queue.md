@@ -2334,3 +2334,21 @@ Prochaine étape : rc26 sur la .11.
   8. Changer la résolution (1080p / 720p) ou le codec dans Réglages, redémarrer `onvif` : les profils suivent.
   9. PSS du processus avec Home Assistant connecté.
 - **Critères :** découverte et profils corrects ; flux lisible ; `NotAuthorized` sur mauvais identifiant ; capteur de mouvement HA correct sans abonnements qui s'accumulent (4 au plus) ; pas de plantage sur 24 h ; PSS < 300 Ko ; pas de régression de `tc100_rtsp`. Si tout passe : `ONVIF_IMPL=c` par défaut, puis retrait de `monvifd`.
+
+## 2026-11-05 — Changements d'un autre agent sans entrée de test (ajoutées par l'implémenteur, 11:00)
+
+### `[mqtt-c-default]` Pont MQTT en C par défaut (`d41ac72`, `b38f7c9`)
+- **Quoi :** `MQTT_BRIDGE_IMPL=c` dans `config/mqtt.conf.dist` (les caméras déjà installées gardent leur `mqtt.conf`) ; `b38f7c9` retire aussi l'ancien abonnement par curl (il ne marchait plus) et ajoute `_get_now_ts`.
+- **Interrupteur :** `MQTT_BRIDGE_IMPL=shell` dans `/mnt/config/mqtt.conf`.
+- **Test :** une installation neuve (ou `mqtt.conf` recopié de la `.dist`) démarre `tc100-mqttd` ; deuxième nuit stable sur la rc26/27 comme la première (un seul démon, pas de reconnexion) ; entités HA inchangées.
+- **Note implémenteur :** `_get_now_ts` est appelée par `$(…)` : un sous-shell par événement / commande, là où le script évitait les forks (sans effet fonctionnel).
+
+### `[pacing]` `RTSP_PACING_US=100` par défaut (`1a3a2eb`)
+- **Quoi :** `rtsp-launch.sh` exporte `RTSP_PACING_US=100` si rien n'est donné (100 µs entre les paquets d'une rafale) ; `rtsp.env` peut le changer.
+- **Interrupteur :** `RTSP_PACING_US=0` dans `/mnt/config/rtsp.env`.
+- **Test (.11, une nuit, avec l'enregistreur de pertes) :** pertes de ping et images sautées (`dropped` des lignes `STAT`) comparées à la nuit du 2026-11-05 (9,5 %) ; latence du direct et charge CPU inchangées ; pas d'artefacts sur les images clés.
+- **Critères :** moins de pertes / d'images sautées, rien de pire ; sinon revenir à 0.
+
+### `[sd-fsck]` `dosfsck -a` avant de remonter la carte (`96336d1`)
+- **Constat de l'implémenteur (sans caméra) :** `dosfsck` n'est pas dans l'image (la ligne est sautée par `command -v`), et le montage du démarrage se fait dans `S39tc100-linux66`, pas dans `rec-storage.sh` : **aucun effet attendu** sur le « not properly unmounted » de la .24. À reprendre au #41 de `a-faire-implementeur.md` (bit « sale » lu dans S39, réparation seulement s'il est posé, `fsck.fat` dans l'image).
+- **Test :** sur la .24, `command -v dosfsck fsck.fat` (attendu : rien) et `dmesg | grep FAT` au démarrage suivant une mise à jour web.

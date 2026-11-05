@@ -1,15 +1,42 @@
-# À faire pour l'implémenteur — liste consolidée (testeur, 2026-11-04 19:50)
+# À faire pour l'implémenteur — liste consolidée (testeur, 2026-11-04 19:50 ; mise à jour implémenteur 2026-11-05 11:00)
 
 Une seule liste de ce qui reste ouvert après la rc25, par priorité. Les détails et les mesures sont dans
-`test-queue.md` (entrées du 2026-11-03 et 2026-11-04), `audit-2026-11-03.md`, `audit-2026-11-04.md` et la checklist
-`release-3.0.1.md`. État des caméras ce soir : **.11 en rc25** (pays FR, pont MQTT en C, `RTSP_QMAX=1024`, nuit de
-mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.md` quand c'est fait.
+`test-queue.md` (entrées du 2026-11-03 au 2026-11-05), `audit-2026-11-03.md`, `audit-2026-11-04.md` et la checklist
+`release-3.0.1.md`. État des caméras le 2026-11-05 matin : **.11 en rc25** (pays FR, pont MQTT en C,
+`RTSP_QMAX=1024` ; la rc26 est la prochaine étape), **.24 en rc25** depuis le 2026-11-04 au soir (plus de témoin).
+Cocher ici ou dans `release-3.0.1.md` quand c'est fait.
+
+## État au 2026-11-05 (résumé)
+
+**Validé sur caméra** (testeur, .11 rc25, entrées du 2026-11-04 18:55 / 19:20 et bilan de nuit du 2026-11-05 09:50) :
+`regulatory.db` et pays Wi-Fi FR (0 perte pendant l'application) ; correctifs de l'audit du 03/11 (valeurs MQTT
+refusées, XSS de `viewrecords` / `camcontrols` / `showlog`, `frigateyaml` sans mot de passe, `integrationmanifest`
+25 fps) ; TLS sortant avec le bundle de Buildroot (GitHub, ntfy) ; import JSON (13,6 s) ; RTSP TCP principal +
+sous-flux + audio ; **pont MQTT en C** : une nuit stable (un seul démon, pas de reconnexion, PSS 209 Ko contre
+1 129 Ko) → défaut depuis `d41ac72` ; RAM de la .11 sans fuite sur 15 h ; jour / nuit de la .11 correct.
+
+**Échec / à reprendre** : pertes Wi-Fi inchangées (9,5 % des mesures, le pays FR n'y fait rien) ; carte SD de la .24
+encore « not properly unmounted » après la mise à jour web ; aller-retour jour / nuit à l'aube sur la .24 (05:42 jour
+→ 05:47 nuit → 06:28 jour).
+
+**Fait, en attente d'essai sur caméra (rc27)** — chaque point a son entrée dans `test-queue.md`, désactivé par défaut
+sauf mention : `[audit-fix]` (W2 LAN seul pour le web et le RTSP, R1, R2, B4-B6 ; actif), `[roadmap]` (20, 22, 26,
+27, 29 ; actif), `[hwtest]`, `[720p]` (#8), `[smart-pool]` (#9), `[audio-native]` (#11), `[onvif]` (#12, #53),
+`[retention]` (#15), `[flicker]` (#16), `[wifi-soft]` (#17), `[abr]` (#18), `[md-enc]` (#19), `[daynight-lock]` (#21,
+actif), `[time-http]` (#24, actif), `[privacy]` (#25).
+
+**Changé par un autre agent le 2026-11-05 matin, sans essai** (entrées ajoutées dans `test-queue.md` le même jour) :
+pont MQTT en C par défaut dans `mqtt.conf.dist` (`d41ac72`, `[mqtt-c-default]`) ; `RTSP_PACING_US=100` par défaut
+(`1a3a2eb`, `[pacing]`) ; `dosfsck -a` avant de remonter la carte (`96336d1`, `[sd-fsck]` : **sans effet aujourd'hui**,
+voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 
 ## P0 — rc26, avant le tag 3.0.1
 
-1. [ ] **Publier une rc26** avec ce qui est sur `main` depuis la rc25, en particulier `04f2313` + `9853759` : arrêt du
+1. [x] **Publier une rc26** avec ce qui est sur `main` depuis la rc25, en particulier `04f2313` + `9853759` : arrêt du
    pont MQTT en C (`stop` laissait le démon tourner, un deuxième démon démarrait avec le même client id, `availability`
    basculait toutes les 2 s). Aujourd'hui le correctif n'existe sur la .11 qu'en RAM.
+   *Fait : rc26 publiée (build `342b523`), relue et téléchargée par le testeur le 2026-11-04 20:15 ; installation sur
+   la .11 prévue. Tout ce qui est sur `main` depuis le 2026-11-05 (voir le résumé ci-dessus) demande une **rc27**.*
 2. [x] **Supprimer les sous-shells qui restent en mémoire** (~0,3 Mo, aucun C à écrire) :
    *Fait le 2026-11-05 pour le pont MQTT (`( exec "$BB" nohup … ) &`, `$!` = le démon, shell et C). La boucle getty
    de `S39tc100` reste : elle relance la console série.*
@@ -33,12 +60,17 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
    - `boot.conf.dist` : `MEM_GUARD_SOFT_SERVICES=""` nettoyé ;
    - `config/autostart/memory-guard` retiré du dépôt (`MEM_GUARD_ENABLE=0` est le switch unique) ;
    - `mqtt.conf` : documenté la règle de dérivation du topic root basée sur le hostname (`_mb_slug`).
+     *Coché à tort le 2026-11-04 (relecture du testeur, 20:15) ; fait réellement le 2026-11-05 : commentaire au-dessus de
+     `MQTT_CLIENT_ID` / `MQTT_TOPIC_ROOT` dans `config/mqtt.conf.dist`.*
 6. [x] **Plans de test : mesurer la RAM en PSS** (*règle ajoutée en tête de `test-queue.md` le 2026-11-05*) (`/proc/<pid>/smaps_rollup`), pas en RSS : le critère « RSS du
    démon bien en dessous des 5,7 Mo » comparait du code busybox partagé compté 7 fois (gain réel du pont C ≈ 0,9 Mo).
 7. [ ] **Tests restants avant le tag** (testeur + propriétaire) : anti-masquage avec la main ; SD sur la .24 (plus de
    « not properly unmounted » après un redémarrage voulu) ; notification ntfy ou Telegram réelle ; RTSP en **UDP**
    (non testable depuis la VM du testeur, NAT : à faire par le propriétaire avec VLC ou Frigate) ; nuit en mode
    MQTT C (soak en cours sur la .11).
+   *2026-11-05 : nuit MQTT C **validée** (une nuit ; une deuxième sur la rc26 était conseillée, le défaut a déjà changé) ;
+   SD de la .24 **échec** (encore sale après la mise à jour web : voir #41) ; anti-masquage, ntfy / Telegram et RTSP UDP
+   restent à faire.*
 
 ## P1 — 3.0.2 (fiabilité et image)
 
@@ -63,8 +95,15 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
    de cette nuit (.11 : regdb + FR + `RTSP_QMAX=1024` ; .24 : rc23). Si la file plus grande réduit les images sautées
    sans gêner le direct, passer `QMAX_DEF` à 1 Mo par défaut ; ensuite essai `RTSP_PACING_US`, puis canal Wi-Fi de la
    box (décision du propriétaire).
+   *Bilan de la nuit du 2026-11-05 : 9,5 % des mesures avec perte totale (rc23 : 11 %) malgré FR + regdb, signal fort
+   (-19 dBm, MCS 7, 0 retry au compteur iw) : pas le domaine réglementaire, plutôt la réception ou un blocage du pilote.
+   `RTSP_QMAX=1024` : 5 courts épisodes d'images sautées en début de nuit, rien de négatif, mais pas de témoin pour
+   chiffrer. `RTSP_PACING_US=100` est le défaut depuis `1a3a2eb` (sans essai, entrée `[pacing]`). Suite : mesurer le
+   pacing, canal Wi-Fi de la box (propriétaire), puis le pilote `rtl8xxxu`.*
 10. [ ] **Mémoire de la .24** : 20,5 Mo disponibles hier soir, 18,6 Mo après 23 h 40 (enregistrement SD actif) :
     vérifier demain matin si c'est du cache ou une dérive.
+    *2026-11-05 : la .11 n'a pas de fuite (22,1 → 21,8 Mo sur 15 h) ; la .24 était à 18,8 Mo après 22,8 h (rc23) puis a
+    été mise à jour en rc25 : à remesurer sur une nuit avec l'enregistrement SD actif.*
 11. [ ] **Chantier audio natif ultra-léger (zéro surcoût / gain RAM & CPU)** :
     *2026-11-05 : capture ALSA directe (`RTSP_ALSA_DIRECT=1`, `src/tc100rtsp/acap.c`), passe-haut 150 Hz, noise gate +
     AGC + écrêtage doux, micro coupé pendant le haut-parleur (`RTSP_AUDIO_HPF/AGC/DUCK=1`, `adsp.c`) : faits, désactivés
@@ -84,6 +123,8 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Objectif : exposer l'AudioBackChannel dans la réponse ONVIF Device / Media2 service pour permettre le Two-Way Audio natif instantané dans Home Assistant (WebRTC / Go2RTC) et Frigate sans bidouille URL manuelle.
     - Coût CPU / RAM : 0 % (métadonnées XML / profil statique côté démon ONVIF + exploitation du code RTSP déjà présent dans `tc100_rtsp`).
 13. [ ] **Régulation de trafic réseau / Pacing RTSP (`tc100_rtsp`)** :
+    *2026-11-05 : `RTSP_PACING_US=100` mis par défaut dans `rtsp-launch.sh` par un autre agent (`1a3a2eb`), sans
+    mesure ; `rtsp.env` peut le remettre à 0. Entrée `[pacing]` : à mesurer contre les pertes de #9.*
     - Lissage temporel de l'envoi des paquets RTP lors des pics d'I-frames H.264/H.265 (pacing microsecondes `RTSP_PACING_US`).
     - Évite la saturation du tampon de transmission du pilote RTL8188FU lors des images clés, réduisant drastiquement les pertes de paquets Wi-Fi sans impacter la latence vidéo.
 14. [ ] **Garde thermique dynamique (Thermal Guard)** :
@@ -137,6 +178,9 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Capture d'une vignette JPEG légère depuis le sub-stream 640×360 lors d'un déclenchement (mouvement, bruit VOX, bouton).
     - Publication dans un topic MQTT pour affichage immédiat dans les notifications mobiles (Home Assistant Companion, Telegram, ntfy).
 21. [ ] **Hystérésis temporelle et adoucissement Jour / Nuit** :
+    *Constat du testeur (2026-11-05, .24 rc25) : 05:42 jour → 05:47 nuit → 06:28 jour à l'aube. Les 60 s minimum
+    (`MIN_SWITCH`) ne couvrent pas un retour 5 min après : regarder les seuils de la source utilisée sur la .24
+    (`DAYNIGHT_SOURCE`, journal de calibration `auto-night`).*
     *2026-11-05 : seuils séparés et temps de maintien (`NIGHT_HOLD`, `DAY_HOLD`) existaient ; ajouté 60 s minimum entre
     deux bascules quelle que soit la source (`MIN_SWITCH`, entrée `[daynight-lock]`). Reste la transition progressive
     de l'exposition à l'allumage des LED IR (dans l'ISP, à étudier avec le jeu de paramètres de nuit).*
@@ -200,6 +244,7 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Affichage de la qualité du lien Wi-Fi en dBm avec code couleur sur le tableau de bord web.
     - Option de retour visuel sur la LED frontale (rythme de pulsation proportionnel au RSSI) pendant les 5 minutes suivant le démarrage pour orienter la caméra sans écran.
 33. [x] **Enregistrement avec « Pre-Roll » circulaire en RAM (Buffer continu 3 à 5 s)** :
+    *(Vérifié aussi par l'implémenteur : vrai pour `REC_WHEN=motion` et `offline` ; ~1 Mo de file ≈ 3-5 s selon le débit.)*
     *Fait (vérifié le 2026-11-05) : le buffer d'anneau `q_buf` dans `src/tc100rtsp/rec.c` (`REC_RING_KB`, 1024 Ko par défaut)
     maintient en permanence les trames en veille (`q_trim(q_size * 6 / 10)` en mode `standby`). Dès qu'un événement motion/offline
     survient (`update_want`), les trames antérieures déjà bufferisées sont dépilées et intégrées au début du conteneur fMP4.*
@@ -230,6 +275,12 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Dans les installations disposant de répéteurs Wi-Fi ou réseau Mesh (même SSID sur plusieurs BSSID), éviter que la caméra ne reste connectée à une borne affaiblie (« sticky client »).
     - Si le RSSI chute sous -75 dBm pendant plus de 2 minutes alors qu'une borne alternative avec le même SSID propose un signal nettement supérieur (> 15 dB d'écart), forcer une réassociation douce (`wpa_cli reassociate`) sur le meilleur BSSID.
 41. [ ] **Contrôle et réparation douce FAT32 sur carte SD (`mount-sd.sh` / `dosfsck`)** :
+    *2026-11-05 : `96336d1` (autre agent) lance `dosfsck -a` dans `rec-storage.sh _mount_card`, mais (1) `dosfsck` n'est
+    pas dans l'image (ni dosfstools dans Buildroot, ni applet busybox : la ligne ne fait rien), (2) au démarrage la carte
+    est montée par `v3/S39tc100-linux66`, pas par `_mount_card` (qui ne sert qu'après une éjection en mode flash), (3)
+    `-a` répare tout seul (peut tronquer) et vérifierait toute la carte à chaque montage (RAM, minutes). Reste à faire :
+    `fsck.fat` dans l'image (dosfstools), dans S39 lire le bit « sale » avant de monter et ne réparer que s'il est posé,
+    avec une entrée de test. `scripts/sd-diag.sh` (page Carte SD) sait déjà vérifier / réparer quand `fsck.fat` existe.*
     - Détection automatique et non-destructive du dirty bit (« not properly unmounted ») lors du montage au boot via `dosfsck -n`.
     - Si une incohérence mineure est décelée, exécution automatique de `dosfsck -a` avant montage en lecture-écriture pour prévenir toute corruption silencieuse des enregistrements consécutive à une coupure électrique.
 42. [ ] **Mode Démarrage Discret / Silencieux (`BOOT_STEALTH=1`)** :
