@@ -4,7 +4,7 @@
 # copies (FEATURE_HTTPD_ETAG / LAST_MODIFIED / GZIP) but no Cache-Control: without a new URL a browser may reuse a
 # cached file for hours by heuristic (that is how a new fr.js could stay unseen behind "?v=2.1.2-i18n1").
 #   src/webui/stamp-assets.sh [--check]
-# Covers www/*.html and www/cgi-bin/wizard.cgi (every "<path>.js?v=" / "<path>.css?v=" of a file under www/), and the
+# Covers www/*.html, www/cgi-bin/wizard.cgi and www/cgi-bin/scripts.cgi (every "<path>.js?v=" / "<path>.css?v=" of a file under www/), and the
 # French dictionary in www/scripts/i18n.js (it loads i18n/fr.js?v=VERSION). css/ui.bundle.min.css keeps the stamp
 # that src/webui/build-css.sh gives it. src/webui/build-index.sh runs this after building the bundle; the tests run
 # --check: edit, build, stamp, commit all.
@@ -27,7 +27,7 @@ sed "s/^  var VERSION = \"[^\"]*\";/  var VERSION = \"$(stamp "$root/www/i18n/fr
   > "$tmp/www/scripts/i18n.js"
 
 # 2. every versioned asset reference of the pages
-for page in "$root"/www/*.html "$root/www/cgi-bin/wizard.cgi"; do
+for page in "$root"/www/*.html "$root/www/cgi-bin/wizard.cgi" "$root/www/cgi-bin/scripts.cgi"; do
   cp "$page" "$tmp/page"
   for ref in $(grep -o -E '[A-Za-z0-9_./-]+\.(js|css)\?v=[A-Za-z0-9._-]*' "$page" | sort -u); do
     path=${ref%%\?v=*}; rel=${path#/}

@@ -260,7 +260,7 @@ body::before, body::after { display: none !important; }
 /* ---- fixes after the first screenshots ---- */
 .services-table, .services-table tbody { display: block; width: 100%; }
 .services-table tbody tr { width: 100%; }
-.services-impact-legend { display: none !important; }
+.services-impact-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; margin-top: 0.75rem; font-size: 0.8rem; color: var(--v2-muted); }
 .services-title-cell strong { letter-spacing: normal; }
 .v2-osd .camera-health > div { display: flex !important; flex-direction: row !important; align-items: baseline; gap: 0.6rem; }
 .v2-osd .camera-health small { margin-left: 0; }
@@ -724,3 +724,24 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
 .logs-raw-output { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 #configeditor_area { max-width: 100%; }
 .records-video video { max-width: 100%; }
+
+/* Services (item 46): themed cards in a grid that uses the width; one compact card per service: name, impact and
+   state on the first line, the actions on the second */
+.svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: 1rem; align-items: start; }
+.svc-grid > .svc-group { margin: 0 !important; }
+.svc-group[hidden] { display: none; }
+.svc-group .card-content { padding: 0.25rem 0.75rem 0.5rem !important; }
+.svc-list { display: flex; flex-direction: column; }
+.svc-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head state" "actions actions";
+  align-items: center; gap: 0.35rem 0.75rem; padding: 0.6rem 0.25rem; border-bottom: 1px solid var(--v2-rule); }
+.svc-card:last-child { border-bottom: 0; }
+.svc-card[hidden] { display: none; }
+.svc-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; min-width: 0; }
+.svc-head strong { font-weight: 600; white-space: nowrap; }
+.svc-card .service-status { grid-area: state; justify-self: end; text-align: right; }
+.svc-actions { grid-area: actions; display: flex; align-items: center; gap: 0.75rem; justify-self: start; flex-wrap: wrap; }
+.svc-actions label { font-size: 0.8rem !important; padding-left: 0 !important; margin: 0 !important; }
+.svc-card .services-impact-tag { font-size: 0.7rem; padding: 0.05rem 0.4rem; border-radius: 0.6rem; background: var(--v2-hover);
+  color: var(--v2-muted); }
+.svc-card .services-impact-tag.impact-med { color: var(--v2-warn); }
+.svc-card .services-impact-tag.impact-heavy { color: var(--v2-tally); }

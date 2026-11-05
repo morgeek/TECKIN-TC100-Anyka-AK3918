@@ -337,7 +337,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
       - Activation du pre-roll en RAM (ex: +800 Ko),
       - Démons optionnels (pont MQTT, détection sonore VOX, etc.).
     - Alerte visuelle / Warning dynamique (passage en orange puis rouge) dès que la configuration choisie s'approche de la zone critique (< 10 Mo de RAM libre restante) afin de guider l'utilisateur vers une configuration pérenne et stable.
-46. [ ] **Refonte ergonomique et visuelle de la page Services (`scripts.cgi`)** :
+46. [x] *(2026-11-05 : fait, entrée `[services-ui]` ; captures bureau, sombre et téléphone vérifiées avec les données de `src/webui/screenshots/mock`)* **Refonte ergonomique et visuelle de la page Services (`scripts.cgi`)** :
     - Remplacer le tableau linéaire étroit peu efficace par une mise en page moderne en cartes / grille responsive (grid multi-colonnes exploitant toute la largeur de l'écran).
     - Regroupement thématique clair des services : Core/Système (RTSP, Web, Housekeeper), Réseau/Accès (SSH, mDNS), Intégrations (MQTT, Telegram, Syslog).
     - Affichage compact des interrupteurs d'état (démarré/arrêté), commutateurs de boot, indicateurs d'impact RAM/CPU et boutons d'action rapide.

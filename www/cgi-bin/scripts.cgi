@@ -200,6 +200,10 @@ parse_script_capabilities() {
 # fast_toggle_state; any other script is probed.
 SERVICES_HIDDEN="night-mode ir-led ir-cut black-white front-led red-led auto-night-detection motion-detection sound-detection telegram-bot"
 SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge memory-guard health-snapshot button-actions ftp-server telnet-server ssh-server syslog-forward onvif wifi-rescue mdns"
+# item 46: the page shows them in three themed cards (any other script goes to a fourth, "Other")
+SERVICES_CORE="rtsp-h26x web-server memory-guard health-snapshot button-actions"
+SERVICES_ACCESS="ssh-server telnet-server ftp-server mdns wifi-rescue"
+SERVICES_INTEGRATIONS="mqtt-bridge onvif syslog-forward"
 FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge onvif rtsp-h26x sound-detection ssh-server syslog-forward telegram-bot telnet-server memory-guard wifi-rescue mdns "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
@@ -656,34 +660,23 @@ else
     echo "<p>No scripts.cgi found in $SCRIPT_HOME</p>"
   else
     echo "<header class='page-head'><h1 class='page-title'>Services</h1></header>"
-    echo "<div class='card status_card services-table-card'>"
-    echo "<header class='card-header'>"
-    echo "<p class='card-header-title'>Services</p>"
-    echo "</header>"
-    echo "<div class='card-content'>"
+    # item 46: one card per theme in a grid that uses the width of the screen; each service a compact card: name,
+    # state, CPU/RAM impact, Start/Stop, start at boot, source
     echo "<div class='services-overview'><strong id='services_summary'>Checking services...</strong><label><input id='services_issues_only' type='checkbox'> Problems only</label></div>"
     echo "<div id='services_error' class='message is-danger services-error' hidden><div class='message-body'><span id='services_error_text'></span> <button id='services_retry' class='button is-small' type='button'>Retry</button> <a class='button is-small onpage' href='javascript:void(0)' data-target='logs.html'>Open logs</a></div></div>"
-    echo "<div class='services-table-wrap'>"
-    echo "<table class='table is-fullwidth is-hoverable services-table'>"
-    echo "<thead><tr>"
-    echo "<th title='Service name and current runtime state'>Title</th>"
-    echo "<th title='Estimated runtime impact on CPU and RAM when this service is active'>Impact</th>"
-    echo "<th title='Start, stop, or run this service now'>Start/Stop</th>"
-    echo "<th title='Enable or disable automatic startup when the camera boots'>Autorun at boot</th>"
-    echo "<th title='Open the script source in a new tab'>View</th>"
-    echo "</tr></thead>"
     # Only the camera's own programs are listed here. Camera controls
     # (day/night, IR, LEDs) are under the live picture; features have their
-    # on/off switch in their Settings tab (Detection, Recording, Integrations);
-    # the ONVIF server and the SD-card ffmpeg recorder are not used (local
-    # recording is native), the rescue access point is on hold. Any other
-    # script (added later) still shows, under "Other".
-    for _grp in system features; do
-    if [ "$_grp" = system ]; then
-      echo "<tbody data-group='system'><tr class='services-group-row'><th colspan='5'>System programs</th></tr>"
-    else
-      echo "<tbody data-group='features'><tr class='services-group-row'><th colspan='5'>Other</th></tr>"
-    fi
+    # on/off switch in their Settings tab (Detection, Recording, Integrations).
+    # Any other script (added later) still shows, under "Other".
+    echo "<div class='svc-grid'>"
+    for _grp in core access integrations other; do
+    case "$_grp" in
+      core) _gt="Core: video, web and system" ;;
+      access) _gt="Network and access" ;;
+      integrations) _gt="Integrations" ;;
+      *) _gt="Other" ;;
+    esac
+    _gopen=0
     for script_path in "$SCRIPT_HOME"/*; do
       [ -f "$script_path" ] || continue
       i="${script_path##*/}"
@@ -691,18 +684,18 @@ else
         continue
       fi
       case " $SERVICES_HIDDEN " in *" $i "*) continue ;; esac
-      case " $SERVICES_SYSTEM " in *" $i "*) _in=system ;; *) _in=features ;; esac
+      case " $SERVICES_CORE " in *" $i "*) _in=core ;; *)
+        case " $SERVICES_ACCESS " in *" $i "*) _in=access ;; *)
+          case " $SERVICES_INTEGRATIONS " in *" $i "*) _in=integrations ;; *) _in=other ;; esac ;;
+        esac ;;
+      esac
       [ "$_in" = "$_grp" ] || continue
+      if [ "$_gopen" = 0 ]; then
+        _gopen=1
+        echo "<section class='card status_card svc-group' data-group='$_grp'><header class='card-header'><p class='card-header-title'>$_gt</p></header><div class='card-content svc-list'>"
+      fi
 
       script_id="$(printf '%s' "$i" | sed 's/[^A-Za-z0-9._-]/_/g')"
-      status_label="Loading..."
-      status_class="is-unknown"
-      action_cmd="start"
-      action_label="Start"
-      action_class="is-link"
-      action_hint="Start this service now."
-      action_disabled=""
-
       autorun_checked=""
       if boot_enabled "$i"; then
         autorun_checked="checked='checked'"
@@ -712,42 +705,29 @@ else
       impact_label="$(service_impact_label_for "$impact_level")"
       impact_hint="$(service_impact_hint_for "$i")"
 
-      echo "<tr data-script-name='$i' data-essential='$essential' data-service-state='loading'>"
-      echo "<td class='services-title-cell'>"
-      echo "<strong>$i</strong>"
-      echo "<span class='services-tag services-status-tag service-status $status_class' data-service-status='loading' title='Loading service state...'>$status_label</span>"
-      echo "</td>"
-      echo "<td class='services-impact-cell'>"
-      echo "<span class='services-tag services-impact-tag impact-$impact_level' title='$impact_hint'>$impact_label</span>"
-      echo "</td>"
-      echo "<td>"
-      echo "<button data-target='cgi-bin/scripts.cgi?cmd=$action_cmd&script=$i' class='button is-small $action_class script_action_toggle' data-script-name='$i' title='$action_hint' $action_disabled>$action_label</button>"
-      echo "</td>"
-      echo "<td class='services-autorun-cell'>"
-      echo "<input type='checkbox' id='autorun_$script_id' name='autorun_$script_id' class='switch is-rtl autostart' data-unchecked='cgi-bin/scripts.cgi?cmd=disable&script=$i' data-checked='cgi-bin/scripts.cgi?cmd=enable&script=$i' $autorun_checked title='Enable or disable autorun for this service'>"
-      echo "<label for='autorun_$script_id' title='Enable or disable autorun for this service'>Boot</label>"
-      echo "</td>"
-      echo "<td>"
+      echo "<div class='svc-card' data-script-name='$i' data-essential='$essential' data-service-state='loading'>"
+      echo "<div class='svc-head'><strong>$i</strong><span class='services-tag services-impact-tag impact-$impact_level' title='$impact_hint'>$impact_label</span></div>"
+      echo "<span class='services-tag services-status-tag service-status is-unknown' data-service-status='loading' title='Loading service state...'>Loading...</span>"
+      echo "<div class='svc-actions'>"
+      echo "<button data-target='cgi-bin/scripts.cgi?cmd=start&script=$i' class='button is-small is-link script_action_toggle' data-script-name='$i' title='Start this service now.'>Start</button>"
+      echo "<span class='services-autorun-cell'><input type='checkbox' id='autorun_$script_id' name='autorun_$script_id' class='switch is-rtl autostart' data-unchecked='cgi-bin/scripts.cgi?cmd=disable&script=$i' data-checked='cgi-bin/scripts.cgi?cmd=enable&script=$i' $autorun_checked title='Start this service when the camera boots'>"
+      echo "<label for='autorun_$script_id' title='Start this service when the camera boots'>Boot</label></span>"
       echo "<a href='cgi-bin/scripts.cgi?cmd=view&script=$i' class='button is-small is-light view_script' data-script-name='$i' title='View this script source'>View</a>"
-      echo "</td>"
-      echo "</tr>"
+      echo "</div>"
+      echo "</div>"
     done
-    echo "</tbody>"
+    [ "$_gopen" = 1 ] && echo "</div></section>"
     done
-
-    echo "</table>"
-    echo "</div>"
     echo "</div>"
     echo "<div class='services-impact-legend'>"
     echo "<span class='services-tag services-impact-tag impact-min'>Min</span><span>Low impact</span>"
     echo "<span class='services-tag services-impact-tag impact-med'>Med</span><span>Moderate impact</span>"
     echo "<span class='services-tag services-impact-tag impact-heavy'>Heavy</span><span>High CPU/RAM usage when active</span>"
     echo "</div>"
-    echo "<p class='help'>Autorun toggles create/remove per-service startup entries in ${AUTOSTART_DIR}.</p>"
+    echo "<p class='help'>Boot switches add or remove the service's startup entry (${AUTOSTART_DIR}).</p>"
     echo "<p class='help'>Remote shell: ssh-server (SSH, encrypted) is on by default; telnet-server sends the password in clear, is off by default and stops by itself after a while.</p>"
-    echo "</div>"
   fi
   
   # Use bundled script to allow client caching and reduce server CPU
-  echo "<script src=\"/scripts/scripts.bundle.min.js?v=1.8.4-ui2\"></script>"
+  echo "<script src=\"/scripts/scripts.bundle.min.js?v=3f36601f\"></script>"
 fi

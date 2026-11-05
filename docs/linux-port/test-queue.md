@@ -2497,3 +2497,10 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** aucun (affichage) ; revert.
 - **Test :** Réglages en français sur ordinateur et sur téléphone : les « ? » sont alignés avec les libellés, un clic sur un interrupteur ne le bascule pas, le texte s'affiche puis se cache ; relire quelques textes (jour/nuit, QP, ntfy, garde mémoire) et signaler ceux qui sont faux. Infos appareil : la ligne Firmware dit bien flash ou carte SD.
 - **Critères :** aucun réglage modifié par un clic sur « ? », aucune erreur dans la console, textes justes.
+
+## 2026-11-05 — Page Services en cartes (`[services-ui]`, item 46)
+
+- **Quoi :** Outils → Services : trois cartes thématiques en grille (Cœur : vidéo, web et système — `rtsp-h26x`, `web-server`, `memory-guard`, `health-snapshot`, `button-actions` ; Réseau et accès — `ssh-server`, `telnet-server`, `ftp-server`, `mdns`, `wifi-rescue` ; Intégrations — `mqtt-bridge`, `onvif`, `syslog-forward` ; puis Autres), une petite carte par service : nom, impact CPU/RAM, état, Démarrer/Arrêter, Démarrage (au boot), Voir. Une colonne sur téléphone. Même JavaScript et mêmes commandes qu'avant (`scripts.cgi?cmd=start|stop|enable|disable|allstates`) ; seuls le balisage et les sélecteurs changent. L'URL du script de la page est maintenant tamponnée (`?v=` = md5), comme les autres pages.
+- **Interrupteur :** aucun (affichage) ; revert.
+- **Test :** ouvrir Services sur ordinateur et téléphone : les états se remplissent (vert = en marche, avec la durée) ; arrêter puis démarrer `mdns` ; basculer « Démarrage » de `syslog-forward` deux fois (vérifier `/mnt/config/autostart`) ; « Problèmes seulement » ne garde que les services en défaut et cache les cartes vides ; « Voir » ouvre la source.
+- **Critères :** mêmes actions qu'avant, pas d'erreur dans la console, rien de coupé ni de superposé.

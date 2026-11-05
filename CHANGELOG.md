@@ -154,6 +154,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   jitter, to tell a Wi-Fi or network problem from a camera one.
 
 ### Changed
+- **Services page redesigned** (Tools → Services, item 46): three themed cards in a grid that uses the width of the
+  screen (Core: video, web and system; Network and access; Integrations; then Other), one compact card per service
+  with its CPU/RAM impact, state, Start/Stop, start at boot and source; one column on a phone. "Problems only" also
+  hides a group left empty. The page's script URL is now stamped like the others (it kept a fixed `?v=`).
 - **Texts brought up to date** (item 47): no lighttpd in the configuration editor, Device information shows the
   firmware version and where it runs (flash or SD card) instead of an always empty "vendor firmware" line, comments
   of the pages name the 3.0 programs; the memory forecast describes the memory guard as it works (off by default,
