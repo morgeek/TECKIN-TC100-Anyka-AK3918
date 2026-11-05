@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **WebRTC, first step** (item 35): `src/whep/srtp.h`, the SRTP protection of WebRTC (AES-128-CM + HMAC-SHA1-80)
+  without a library, checked with the published vectors, and `srtp-bench` in the CI test pack to measure its CPU
+  cost on the camera before the gateway is built (`docs/linux-port/whep-design.md`).
 - **Help tips in Settings** (item 44): a "?" next to 71 settings that had no explanation of their own; hovering shows
   what the setting does and its effect, a click or a tap shows it under the field. French with the rest of the page.
 - **Memory forecast** (Settings → System → Memory, item 45): the free memory measured now, the largest programs

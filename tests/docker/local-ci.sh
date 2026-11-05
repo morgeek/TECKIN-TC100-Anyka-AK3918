@@ -49,6 +49,9 @@ run_cross() {
 		# the freestanding ISP tools (audit D3/D9: isp_flip is rebuilt by the release build, isp_fps is a bench tool)
 		arm-linux-gnueabi-gcc -Os -Wall -Werror -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o /tmp/isp_flip
 		arm-linux-gnueabi-gcc -Os -Wall -Werror -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispfps/isp_fps.c -o /tmp/isp_fps
+		# item 35: the SRTP bench, its self-test under qemu (the published vectors, on the instruction set of the camera)
+		arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o /tmp/srtp-bench src/whep/srtp_bench.c
+		qemu-arm /tmp/srtp-bench -t | tail -n 1 | grep -q "all ok" || { qemu-arm /tmp/srtp-bench -t; exit 1; }
 		make -C src/libakuio CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/mqttd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true

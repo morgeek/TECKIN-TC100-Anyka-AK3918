@@ -271,7 +271,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     d'interface pour les nouvelles clés (fichier `notify.conf`). Entrée `[notify-burst]`.*
     - Sur détection de sabotage (tamper) ou intrusion confirmée, expédition immédiate d'une rafale de 3 snapshots HD ou d'un clip court vers un canal hors-site sécurisé (bot Telegram, webhook ntfy/Home Assistant ou stockage S3/WebDAV).
     - Protège les preuves d'intrusion même en cas de vol, d'arrachage de la caméra ou d'extraction de la carte SD par l'intrus.
-35. [ ] **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
+35. [ ] *(2026-11-05 soir : feu vert du propriétaire ; étape 1 faite, entrée `[whep-srtp]` : `src/whep/srtp.h` (SRTP testé avec les vecteurs RFC 3711) et `srtp-bench` dans le pack de test, à mesurer sur la caméra ; conception et étapes 2-5 dans `docs/linux-port/whep-design.md`)* **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
     - Protocole WHEP (WebRTC HTTP Egress Protocol) pour streaming direct vers les navigateurs sans serveur intermédiaire (Go2RTC/MediaMTX).
     - Exploitation directe des paquets RTP H.264/H.265 et audio PCMA déjà packagés en interne, avec latence inférieure à 150 ms dans le WebUI.
 36. [x] *(2026-11-05 : fait, entrée `[rec-timeline]` ; un seul type d'événement (mouvement ou son, l'entrée du recorder est combinée), pas de vignettes au survol)* **Frise chronologique interactive dans le WebUI (Timeline & Replay scrubbing)** :
@@ -368,11 +368,12 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 50. [ ] **Modernisation UI : Exploration des pistes Pico CSS & Shoelace (look haut de gamme, rapide et léger)** :
     *Propriétaire, 2026-11-05 : moteurs d'interface chargés à la volée (choix dans les réglages), Bulma reste intégré ;
     Pico / Shoelace se chargent depuis la carte SD si elle les a, sinon depuis un CDN (rien de plus dans la flash).*
+    **Consigne du propriétaire (2026-11-05 soir) : avant tout travail sur #50, des tests précis de l'UI actuelle (captures de référence de chaque page, bureau / téléphone / sombre, et vérifications du comportement), faits par l'autre agent ; #50 ne commence qu'ensuite, en comparant à ces références. Voir l'entrée `[ui-baseline]` de `test-queue.md`.**
     - Évaluer le remplacement ou l'évolution de Bulma vers des solutions modernes adaptées à l'embarqué :
       - **Piste 1 : Pico CSS** (champion de la légèreté, ~10 Ko gzippé) : CSS sémantique pur stylisant directement les balises HTML sans surcharger le code de classes, Dark Mode natif automatique sans JS, divise par 2 à 3 le poids des pages et la bande passante requise.
       - **Piste 2 : Shoelace (Web Components natifs)** : composants riches standardisés (`<sl-switch>`, `<sl-tooltip>`, `<sl-progress-ring>`, `<sl-dialog>`) offrant un rendu haut de gamme de type "UniFi / Synology", sans framework JS lourd (exécuté nativement par le moteur du navigateur).
       - Objectif : interface d'administration ultra-rapide, moderne, épurée et réactive avec un budget de transfert minimal.
-51. [ ] *(2026-11-05 soir : W6 et M1 faits, entrées `[secrets-get]`, `[mqtt-m1]` ; D1, D3 (sauf `tc100-logfwd` / `libnetacl` : chaîne uClibc absente de la CI), D4, D5, D6, D7, D9 (sauf branches `/tmp/linux66` et archivage de `test-queue.md`) faits, entrée `[audit-d]` ; reste W3 : décision du propriétaire)* **Audit du 2026-11-04, points ouverts** (*2026-11-05 : B4, B5, B6, W2 (web et RTSP ; pas ssh), R1, R2, R3,
+51. [ ] *(2026-11-05 soir : W6 et M1 faits, entrées `[secrets-get]`, `[mqtt-m1]` ; D1, D3 (sauf `tc100-logfwd` / `libnetacl` : chaîne uClibc absente de la CI), D4, D5, D6, D7, D9 (sauf branches `/tmp/linux66` et archivage de `test-queue.md`) faits, entrée `[audit-d]` ; W3 : décision du propriétaire le 2026-11-05, on garde le bandeau rouge « identifiants par défaut » (`default_password_active`) et la limite d'essais `WEB_LOCKOUT`, pas de mot de passe aléatoire ni d'assistant obligatoire)* **Audit du 2026-11-04, points ouverts** (*2026-11-05 : B4, B5, B6, W2 (web et RTSP ; pas ssh), R1, R2, R3,
     D2, D8 faits, voir `audit-2026-11-04.md` §7 ; restent W3, W6, M1, D1, D3-D7, D9*) : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par

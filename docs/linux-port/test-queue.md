@@ -2504,3 +2504,21 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** aucun (affichage) ; revert.
 - **Test :** ouvrir Services sur ordinateur et téléphone : les états se remplissent (vert = en marche, avec la durée) ; arrêter puis démarrer `mdns` ; basculer « Démarrage » de `syslog-forward` deux fois (vérifier `/mnt/config/autostart`) ; « Problèmes seulement » ne garde que les services en défaut et cache les cartes vides ; « Voir » ouvre la source.
 - **Critères :** mêmes actions qu'avant, pas d'erreur dans la console, rien de coupé ni de superposé.
+
+## 2026-11-05 — Références de l'UI avant #50 (`[ui-baseline]`, consigne du propriétaire, pour l'autre agent)
+
+- **Quoi :** avant toute modification du moteur d'interface (#50, Pico / Shoelace chargés à la volée), établir des références précises de l'UI actuelle, pour pouvoir comparer ensuite. Rien n'est modifié dans le firmware.
+- **À faire (autre agent) :**
+  1. Captures de chaque page (Tableau de bord, Direct, Multi-vues, Enregistrements, chaque onglet de Réglages, Outils → Services / Diagnostics / Journaux / Éditeur / Matériel / Sauvegarde, assistant `cgi-bin/wizard.cgi`) en anglais et en français, clair et sombre, à 1280 px et à 390 px (téléphone), avec `src/webui/screenshots/shots.py` et ses réponses factices (`mock/`), à compléter pour les pages manquantes. Les ranger dans un dossier de références daté, hors de la flash.
+  2. Pour chaque page : aucune erreur JavaScript (`pageerror`), aucun défilement horizontal à 390 px, tous les textes traduits en français, temps de chargement et poids transféré (HTML + CSS + JS, avec et sans gzip).
+  3. Comportements à vérifier sur la caméra : enregistrer un réglage de chaque onglet, Services (démarrer / arrêter / démarrage), frise des enregistrements, sons, infobulles « ? ».
+  4. Écrire le résultat sous cette entrée (pages, mesures, défauts trouvés) ; les défauts deviennent des entrées à part.
+- **Critères :** les références existent pour toutes les pages ; #50 ne commence qu'après.
+
+## 2026-11-05 — WebRTC, étape 1 : coût du SRTP sur la caméra (`[whep-srtp]`, item 35)
+
+- **Quoi :** `src/whep/srtp.h` : le chiffrement SRTP de WebRTC (AES-128-CM + HMAC-SHA1-80, dérivation des clés RFC 3711), sans bibliothèque, vérifié avec les vecteurs publiés (FIPS-197, RFC 3174, RFC 2202, RFC 3711 B.2 et B.3) sur PC et en ARM sous qemu. `srtp-bench` (binaire statique, pack de test de la CI : `tc100test/srtp-bench`, pas dans la release) chiffre des paquets RTP de 1200 octets pendant N secondes et donne la part d'un CPU pour 600, 1200 et 2000 kbit/s. Conception de la suite : `docs/linux-port/whep-design.md`.
+- **Interrupteur :** aucun (outil de mesure seul, rien ne tourne au démarrage).
+- **Test :** copier `srtp-bench` sur la carte, puis sur la caméra, flux en marche (un client RTSP ou la vue en direct ouverts) : `/mnt/sd/tc100test/srtp-bench -t` (doit finir par `self-test: all ok`), puis `/mnt/sd/tc100test/srtp-bench 10` ; noter la sortie et `top` pendant la mesure.
+- **Critères :** self-test ok ; résultat noté ici. Décision : moins de 3 % de CPU pour 1200 kbit/s → l'étape 3 peut viser le flux principal ; sinon le flux secondaire seulement.
+
