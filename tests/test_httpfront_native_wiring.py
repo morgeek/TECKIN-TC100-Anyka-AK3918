@@ -24,7 +24,7 @@ class Wiring(unittest.TestCase):
     def test_off_by_default_and_documented_once(self):
         dist = text('config/boot.conf.dist')
         self.assertEqual(dist.count('\nHTTPFRONT_NATIVE='), 1)
-        self.assertIn('\nHTTPFRONT_NATIVE=0\n', dist)
+        self.assertIn('\nHTTPFRONT_NATIVE=1\n', dist)   # on by default since the rc28
         src = text('src/httpfront/httpfront.c')
         self.assertIn('native_status = (e = getenv_(envp, "TC100_NATIVE_STATUS")) && e[0] == \'1\';', src)
 

@@ -65,7 +65,7 @@ class ShutdownClean(unittest.TestCase):
         a = (ROOT / 'v3/autorun-linux66.sh').read_text()
         self.assertIn('on "$BC_SD_AUTO_REPAIR"', a)
         self.assertIn('( sleep 60; exec sh /mnt/scripts/sd-diag.sh repair )', a)
-        self.assertIn('SD_AUTO_REPAIR=0', (ROOT / 'config/boot.conf.dist').read_text())
+        self.assertIn('SD_AUTO_REPAIR=1', (ROOT / 'config/boot.conf.dist').read_text())   # on by default since the rc28
 
     def test_start_still_needs_start(self):
         s = (ROOT / 'v3/S39tc100-linux66').read_text()

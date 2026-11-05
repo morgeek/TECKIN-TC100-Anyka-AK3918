@@ -746,7 +746,7 @@ class Wiring(unittest.TestCase):
         self.assertIn('\nMQTT_BRIDGE_IMPL=c\n', dist)                               # c is the default now (tc100-mqttd)
         cs = (ROOT / 'controlscripts/mqtt-bridge').read_text()
         self.assertIn('BIN=/mnt/tc100test/tc100-mqttd', cs)
-        self.assertIn('\nMQTT_DISCOVERY_IMPL=sh\n', dist)                         # the C discovery is opt-in
+        self.assertIn('\nMQTT_DISCOVERY_IMPL=c\n', dist)                          # the C discovery by default since the rc28
         self.assertIn('[ "$MQTT_BRIDGE_IMPL" = c ]', cs)
         self.assertIn('[ -x "$BIN" ]', cs)                                           # no binary: shell bridge
         self.assertIn('echo "$!" > "$PIDFILE"', cs)                                  # same pid file for health/watchdog

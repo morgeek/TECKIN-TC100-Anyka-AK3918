@@ -6,10 +6,10 @@
 
 ONVIF_PORT=8081
 
-# Which ONVIF daemon runs: monvifd (the closed original binary, default) or c (the free tc100-onvifd of src/onvifd:
+# Which ONVIF daemon runs: monvifd (the closed original binary) or c (default: the free tc100-onvifd of src/onvifd:
 # Device + Media + Media2 with the audio output/decoder for two-way audio, WS-Security login = the RTSP user and the
 # password of user.pwd, snapshot URI, LAN filter). "c" needs /mnt/tc100test/tc100-onvifd, else monvifd starts.
-ONVIF_IMPL=monvifd
+ONVIF_IMPL=c
 VENDOR_NAME=Anyka
 HW_NAME=AK3918
 DEVICE_LOCATION=Earth

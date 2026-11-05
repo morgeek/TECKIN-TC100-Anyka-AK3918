@@ -638,7 +638,7 @@ class Sources(unittest.TestCase):
     def test_wiring(self):
         """the control script keeps monvifd by default and starts the C daemon only on ONVIF_IMPL=c"""
         conf = (ROOT / 'config' / 'onvif.conf.dist').read_text()
-        self.assertRegex(conf, r'(?m)^ONVIF_IMPL=monvifd$')
+        self.assertRegex(conf, r'(?m)^ONVIF_IMPL=c$')   # the free daemon by default since the rc28
         script = (ROOT / 'controlscripts' / 'onvif').read_text()
         self.assertIn('/mnt/tc100test/tc100-onvifd', script)
         self.assertIn('/mnt/bin/monvifd', script)

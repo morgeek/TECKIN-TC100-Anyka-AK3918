@@ -97,6 +97,9 @@ fi
 # One switch per service (scripts/service-switch.sh: the key of a settings file, not config/autostart): once per camera,
 # the older double switches become that key, set to what the camera did at its last start
 sh /mnt/scripts/migrate-switches.sh </dev/null >/dev/null 2>&1
+# the features of 2026-11-05 on by default, once per camera (scripts/migrate-rc28-defaults.sh: keys still at the old
+# default or missing; a choice made later stands); before boot.conf is read below
+[ -f /mnt/scripts/migrate-rc28-defaults.sh ] && sh /mnt/scripts/migrate-rc28-defaults.sh </dev/null >/dev/null 2>&1
 . /mnt/scripts/service-switch.sh
 # first start of 3.0 (even with settings brought over from 2.x): the web pages open the setup wizard
 # (W4: not when a password was set elsewhere: config/.password_set, written by http_password in common_functions.sh)

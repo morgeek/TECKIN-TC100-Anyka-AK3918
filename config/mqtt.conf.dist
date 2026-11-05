@@ -32,7 +32,7 @@ MQTT_BRIDGE_IMPL=c
 # = scripts/mqtt-bridge.sh, "c" = tc100-mqttd itself (same topics and payloads, no shell run at connection time).
 # Only used with MQTT_BRIDGE_IMPL=c. Takes effect at the next start of the MQTT bridge service; set back to "sh" to
 # return to the script.
-MQTT_DISCOVERY_IMPL=sh
+MQTT_DISCOVERY_IMPL=c
 
 # Runtime behavior
 # Health publish cadence. Higher values reduce CPU/network load.

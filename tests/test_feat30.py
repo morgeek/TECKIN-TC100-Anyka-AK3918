@@ -872,7 +872,7 @@ class Lot1B(unittest.TestCase):
             shutil.rmtree(d)
 
     def test_wifi_quality_is_off_by_default_and_reaches_mqtt(self):
-        self.assertIn('\nWIFI_QUALITY=0\n', (ROOT / 'config/boot.conf.dist').read_text())
+        self.assertIn('\nWIFI_QUALITY=1\n', (ROOT / 'config/boot.conf.dist').read_text())   # on by default since the rc28
         ar = (ROOT / 'v3/autorun-linux66.sh').read_text()
         self.assertIn('on "$BC_WIFI_QUALITY"', ar)
         self.assertIn('job add wifi-quality bg 60 30', ar)

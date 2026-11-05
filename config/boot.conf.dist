@@ -13,7 +13,7 @@ NET_GUARD_MIN=15
 # NET_GUARD_SOFT=1: before that reboot, soft repairs while wlan0 exists: 2 min without the
 # gateway -> Wi-Fi reassociation, 5 min -> Wi-Fi settings applied again, 8 min -> the USB
 # Wi-Fi chip probed again (each once per outage). 0 = only the reboot.
-NET_GUARD_SOFT=0
+NET_GUARD_SOFT=1
 ENABLE_NTP=1
 # NTP blocked (UDP port 123 filtered): the clock is taken from the "Date:" header of
 # an HTTP answer after 2 minutes (scripts/time-fallback.sh). TIME_HTTP_URLS: space-separated
@@ -49,27 +49,27 @@ NET_ALLOW_EXTRA=
 # WEB_LOCKOUT=1: 10 wrong web logins from one address within 5 minutes close its connections for
 # 5 minutes (httpfront; the camera itself never). The kernel has no packet filter, so this is the
 # web server's own. 0 = no limit.
-WEB_LOCKOUT=0
+WEB_LOCKOUT=1
 # WIFI_AIM=1: for 5 minutes after boot the blue front LED blinks faster as the Wi-Fi signal gets
 # better (about 4 a second at -50 dBm, one every 2 s at -85), to aim the camera without a screen.
 WIFI_AIM=0
 # mDNS (tc100-mdnsd always answers <name>.local). MDNS_SERVICES=1: also the DNS-SD services (_http._tcp port 80,
 # _rtsp._tcp port 554 path /video0_unicast), so VLC, Home Assistant or a browser list the camera. MDNS_INFO=1: adds
 # the firmware version, the load and the Wi-Fi level to them (anyone on the network can read them). Restart mdns.
-MDNS_SERVICES=0
-MDNS_INFO=0
+MDNS_SERVICES=1
+MDNS_INFO=1
 # WebRTC live view (item 35, tc100-whep, off by default): WHEP=1 starts the gateway at boot and the live view of the
 # web page tries WebRTC first (about 150 ms of delay), then falls back to the usual live view. WHEP_STREAM=sub (the
 # 640x360 H.264 stream, light) or main (only when the main stream is H.264). WHEP_MAX=1..2 viewers at the same time.
 # WHEP_AUDIO=1: the microphone (PCMA) goes with the picture. The certificate is made once in /mnt/config/whep-*.pem.
 # Restart the whep service after a change (Services page). Needs the base image with mbedTLS DTLS-SRTP.
-WHEP=0
+WHEP=1
 WHEP_STREAM=sub
 WHEP_MAX=2
 WHEP_AUDIO=1
 # WIFI_ROAM=1 (repeaters, mesh: one SSID, several access points): below -75 dBm for 2 minutes, the camera moves
 # to an access point of the same network at least 15 dB stronger, if there is one (scripts/wifi-roam.sh).
-WIFI_ROAM=0
+WIFI_ROAM=1
 # LOW_RAM_PROFILE: set by the performance profile (Settings, MQTT "profile"): 1 for low-cpu and rtsp-only. A
 # marker kept with the profile's snapshot (restore); nothing else reads it. Do not edit by hand.
 LOW_RAM_PROFILE=0
@@ -165,8 +165,8 @@ SERIAL_CONSOLE=auto
 VM_TUNE=1
 # Wi-Fi quality over time (scripts/wifi-quality.sh): one sample a minute of the signal, the transmit retries and
 # failures and the packet loss to the router, kept 24 h in RAM (/tmp/wifi-quality.log, nothing written to flash or
-# card); the last hour goes to MQTT (Wi-Fi loss, retries, weakest signal). 1 = on, 0 = off (default). Read at boot.
-WIFI_QUALITY=0
+# card); the last hour goes to MQTT (Wi-Fi loss, retries, weakest signal). 1 = on (default), 0 = off. Read at boot.
+WIFI_QUALITY=1
 # Wi-Fi rules of the country where the camera works (allowed channels, transmit power), as its law asks: the ISO 3166
 # code (FR, BE, CH, DE, ES, IT, GB, US, CA, ...; scripts/wifi-country.sh). Empty = the "world" rules, the most
 # restrictive (channels 12-13 passive, lower power). Used from the first association at boot; Settings -> Network
@@ -182,13 +182,13 @@ HOUSEKEEPER=1
 # called for the actual work (nightmode.sh, wifi-rescue.sh, reboot-tracker.sh), fewer resident shells. Without the binary
 # the shell loops run; if the C daemon dies they take over until the next boot. Read when the services start (boot, or
 # restart the two services on Settings -> Services).
-SUPERVISOR_IMPL=sh
+SUPERVISOR_IMPL=c
 # HTTPFRONT_NATIVE=1: the web front (httpfront) answers the status line every page polls (GET /cgi-bin/statusline.cgi, same
 # URL, same JSON) itself, without starting busybox httpd and sh for each request (about 20 times faster). Only for a
 # request with the right login, from an allowed network; anything it cannot answer exactly (no csrf token file yet, an
-# odd value in a status file) still goes to the CGI. 0 (default) = always the CGI. Read when httpfront starts (boot, or
+# odd value in a status file) still goes to the CGI. 0 = always the CGI (1 is the default since the next RC). Read when httpfront starts (boot, or
 # restart the web server).
-HTTPFRONT_NATIVE=0
+HTTPFRONT_NATIVE=1
 # ISP_TUNE=1: live image tuning from /mnt/config/isp_tune.conf (brightness,
 # contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied by
 # tc100_rtsp without restarting the stream.
@@ -241,11 +241,11 @@ REC_AUDIO=1
 # REC_KEEP_EVENTS=1: a file during which motion or a sound event was detected gets an
 # empty .evt next to it; when the card is full, the oldest recording WITHOUT an event
 # is deleted first, the event clips only when nothing else is left. 0 = the oldest.
-REC_KEEP_EVENTS=0
+REC_KEEP_EVENTS=1
 # SD_AUTO_REPAIR=1: a card the kernel found "not properly unmounted" at boot (power cut) is checked
 # and repaired (fsck.fat -a) a minute later, recording paused meanwhile; flash mode only. 0 = only
 # the Repair button of the SD card page.
-SD_AUTO_REPAIR=0
+SD_AUTO_REPAIR=1
 # LOG_CAP_KB: a log in RAM (/tmp/log, /tmp/logs) above this size keeps its last 200 lines
 # (scripts/log-cap.sh, every 10 minutes; most logs cap themselves well below it).
 LOG_CAP_KB=64

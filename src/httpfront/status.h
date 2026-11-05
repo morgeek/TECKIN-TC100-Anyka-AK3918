@@ -41,7 +41,11 @@ static const char *P(const char *p)
 
 static u64 urem;	/* remainder of the last udiv() */
 
-__attribute__((noinline)) static u64 udiv(u64 n, u64 d)	/* shift and subtract: constant shifts only (no libgcc) */
+/* udiv and mulu are ARM code, not Thumb, and their loops carry an empty asm barrier: gcc 15 (the CI runner's
+ * Ubuntu 26.04) recognised the shift-and-add loop of mulu as a 64-bit multiply and, in Thumb, called __aeabi_lmul of
+ * libgcc, which this freestanding program does not link (the release build of c392315 failed); in ARM mode a 64-bit
+ * multiply is inline (umull), and the barrier keeps the loops as written whatever the compiler */
+__attribute__((noinline, target("arm"))) static u64 udiv(u64 n, u64 d)	/* shift and subtract (no libgcc) */
 {
 	u64 q = 0, r = 0;
 
@@ -51,16 +55,17 @@ __attribute__((noinline)) static u64 udiv(u64 n, u64 d)	/* shift and subtract: c
 		n <<= 1;
 		q <<= 1;
 		if (r >= d) { r -= d; q |= 1; }
+		__asm__ volatile ("" : "+r"(q));
 	}
 	urem = r;
 	return q;
 }
 
-__attribute__((noinline)) static u64 mulu(u64 a, u32 b)	/* a * b without the 64-bit multiply of libgcc */
+__attribute__((noinline, target("arm"))) static u64 mulu(u64 a, u32 b)	/* a * b without libgcc's 64-bit multiply */
 {
 	u64 r = 0;
 
-	while (b) { if (b & 1) r += a; a <<= 1; b >>= 1; }
+	while (b) { if (b & 1) r += a; a <<= 1; b >>= 1; __asm__ volatile ("" : "+r"(r)); }
 	return r;
 }
 

@@ -94,6 +94,11 @@ TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list'
 # RTSP_PACING_US (rtsp.env) stays unset by default (rc27 tester, R2): the kernel runs at HZ=100 without high resolution
 # timers, so usleep(100) sleeps at least 10 ms, and the pacing sleeps in the main loop after each UDP packet: a UDP
 # client was capped near 100 packets/s and the capture was delayed for every client. 1a3a2eb's default is reverted.
+# on by default since the next RC (owner, 2026-11-05), each turned off by "=0" in /mnt/config/rtsp.env (read below):
+# the microphone read by tc100_rtsp itself (no arecord), its processing (high-pass, gate and level, muted while the
+# speaker plays), the automatic bit rate and the motion from the encoder frame sizes
+export RTSP_ALSA_DIRECT="${RTSP_ALSA_DIRECT:-1}" RTSP_AUDIO_HPF="${RTSP_AUDIO_HPF:-1}" RTSP_AUDIO_AGC="${RTSP_AUDIO_AGC:-1}" \
+  RTSP_AUDIO_DUCK="${RTSP_AUDIO_DUCK:-1}" RTSP_ABR="${RTSP_ABR:-1}" RTSP_MD_ENC="${RTSP_MD_ENC:-1}"
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
   LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -L /mnt/lib -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \

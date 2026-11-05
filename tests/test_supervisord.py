@@ -572,7 +572,7 @@ class Switch(unittest.TestCase):
             return False
 
     def test_default_is_the_shell_path(self):
-        self.assertIn('\nSUPERVISOR_IMPL=sh\n', (ROOT / 'config/boot.conf.dist').read_text())
+        self.assertIn('\nSUPERVISOR_IMPL=c\n', (ROOT / 'config/boot.conf.dist').read_text())   # C by default since the rc28
         (self.d / 'boot.conf').write_text('FOO=1\n')
         self.assertEqual(self.sh('sv_start night %s x' % (self.d / 'n.pid')).returncode, 1)
         (self.d / 'boot.conf').write_text('SUPERVISOR_IMPL=sh\n')

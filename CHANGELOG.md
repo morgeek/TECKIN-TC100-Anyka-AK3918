@@ -175,6 +175,11 @@ bounded httpfront, idle RTSP clients, web update retries without reboot, wizard 
   jitter, to tell a Wi-Fi or network problem from a camera one.
 
 ### Changed
+- **The new features are on by default** (owner, for the rc28): the C supervisor, the C MQTT discovery, the free ONVIF
+  daemon, the WebRTC live view, the native status line, the microphone read by `tc100_rtsp` with its processing, the
+  automatic bit rate, the motion from the encoder, soft Wi-Fi repairs, the web login lockout, mDNS services and
+  information, event clips kept first, SD repair, Wi-Fi quality and roaming. Cameras already installed get them once
+  through `scripts/migrate-rc28-defaults.sh` (a value chosen by someone stays); each keeps its own switch.
 - **Serial console after 5 minutes** (item 56): the UART login prompt stops when nobody used it in the first 5 minutes
   (an open session is never cut); it stays on in safe mode or with `SERIAL_CONSOLE=on`. **VM tuning** for 64 MB
   (`VM_TUNE=1`: `vfs_cache_pressure` 150, dirty ratios 5 / 10). The encoder smart mode keys (`vbr`, `smart`) are now

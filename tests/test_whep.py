@@ -35,7 +35,7 @@ class Proto(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_off_by_default_and_validated(self):
         dist = read('config/boot.conf.dist')
-        for line in ('WHEP=0', 'WHEP_STREAM=sub', 'WHEP_MAX=2', 'WHEP_AUDIO=1'):
+        for line in ('WHEP=1', 'WHEP_STREAM=sub', 'WHEP_MAX=2', 'WHEP_AUDIO=1'):   # WHEP on by default since the rc28
             self.assertRegex(dist, r'(?m)^' + line + r'$')
         tx = read('scripts/config-transaction.sh')
         for key, typ in (('WHEP', 'bool'), ('WHEP_STREAM', 'whep_stream'), ('WHEP_MAX', 'u:1:2'), ('WHEP_AUDIO', 'bool')):

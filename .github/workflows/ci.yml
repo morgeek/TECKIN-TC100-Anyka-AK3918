@@ -43,6 +43,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Freestanding ARM programs with this runner's compiler (no libgcc helper may be pulled in)
+        run: |
+          sudo apt-get install -y -qq gcc-arm-linux-gnueabi
+          for f in src/httpfront/httpfront.c src/mdnsd/mdnsd.c src/ispflip/isp_flip.c src/ispfps/isp_fps.c; do
+            arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie \
+              -Wl,--build-id=none -s "$f" -o /tmp/fs.bin || exit 1
+          done
       - name: Busybox (the scripts run under busybox ash on the camera; the tests use it when present, else dash)
         run: sudo apt-get install -y -qq busybox-static
       - name: Python regressions
