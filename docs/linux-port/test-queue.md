@@ -2603,3 +2603,31 @@ CI et build **verts** sur `dd4d604` (le build de `b7f3610` était rouge, corrig�
 - **Paquet :** artefact `tc100-3-release` du run « Build Linux 6.6 » du commit `[release] Bump to 3.0.1-rc27`. Contenu : `dd4d604` (56 commits du 2026-11-05) + ce bump. Remplace le « rc26 » de `main` (le paquet rc26 testable reste `342b523`).
 - **Installation décidée par le propriétaire : .11, en flash directement par la mise à jour web, sans carte SD.**
 - **Plan (un changement à la fois, .11 seule) :** (1) mise à jour web, `VERSION` 3.0.1-rc27, boot-guard `count=0` après 5 min, tout ce qui tournait en rc25 tourne encore (RTSP principal/sous-flux/audio, Frigate, MQTT C, mDNS, pays FR) ; (2) `RTSP_PACING_US=100` (désormais par défaut) : une nuit, images sautées, pertes de ping, latence du direct ; (3) `NET_LAN_ONLY`, expiration des clients RTSP inactifs, limite d'essais du web : Frigate et HA inchangés ; (4) `ONVIF_IMPL` libre, puis `SUPERVISOR_IMPL=c`, puis `MQTT_DISCOVERY_IMPL=c` ; (5) WHEP en dernier.
+
+## 2026-11-05 19:35 — rc27 sur la .11 (flash, mise à jour web, sans carte SD) : résultats (testeur)
+
+| Contrôle | Résultat |
+|---|---|
+| `VERSION` 3.0.1-rc27, `flashroot=1`, boot-guard | OK, `count=0` après 8 min, mode normal |
+| RAM / CMA | MemAvailable 22,7 Mo, CmaFree 6,5 Mo |
+| Services | `tc100_rtsp`, `tc100-mqttd` (432 Ko), `tc100-mdnsd`, `httpfront`, dropbear, wpa_supplicant ; `health.cgi` : onvif, motion, memory-guard, ftp, telnet, telegram = `disabled` (juste) |
+| **Sous-shells restés en mémoire (P0 n° 2)** | **réglé** : plus de `sh controlscripts/mqtt-bridge start` ni de `S39tc100 start` |
+| Console série | plus de `getty` après 5 min (`SERIAL_CONSOLE=auto`) |
+| `VM_TUNE` | `vfs_cache_pressure` 150, `min_free_kbytes` 1024 |
+| Web | 9 pages (dont `hardware.html`) en 200 avec mot de passe, 401 sans ; snapshot 127 Ko, image normale |
+| RTSP TCP | principal hevc 1920x1080 25/1 + G.711, sous-flux h264 640x360 25/1 + G.711, 401 sans mot de passe ; Frigate reconnecté seul |
+| `live.cgi` | H.264 640x360, 295 Ko en 10 s |
+| `frigateyaml` / manifeste | `@25`, `{FRIGATE_RTSP_PASSWORD}` |
+| Audit (MQTT `a b`, XSS) | `INVALID_VALUE` ; 0 balise renvoyée |
+| Pays Wi-Fi | FR effectif, regdb 1 |
+| MQTT (broker) | `availability` online retenu ; commande `health` → `command/result` ; découverte : 49 configs (une de plus qu'en rc25), seul doublon `night_mode` (binary_sensor + switch, déjà là) |
+| mDNS | `ipcamera2.local` → 192.168.1.11 |
+| Import JSON (export de la caméra elle-même) | 1er import : `changed_files 3` = les nouvelles clés rc27 écrites une fois ; 2e : `changed_files 0` (idempotent). **Durée 20-25 s** pour 144 valeurs (12-15 s pour 123 en rc25). Pendant l'import, la capture tombe à 11-17 images/s (processeur unique), puis revient à 24-25. |
+
+### Problème trouvé : `RTSP_PACING_US=100` par défaut (`1a3a2eb`) avec un noyau à 100 Hz
+- Le noyau est `CONFIG_HZ=100`, `CONFIG_HZ_PERIODIC=y`, sans minuterie haute résolution : `/proc/timer_list` → `.resolution: 10000000 nsecs`. Un `usleep(100)` dort donc **au moins 10 ms**, pas 100 µs.
+- Dans `tc100_rtsp.c`, le pacing (lignes 1675, 1961, 1969) ne touche **que les clients UDP** et dort **dans la boucle principale** (un seul fil) après chaque paquet : à ~143 paquets/s pour 1,6 Mbit/s, il faudrait > 1,4 s de sommeil par seconde. Avec un client RTSP en **UDP** (VLC par défaut, certains NVR), le débit plafonne vers ~100 paquets/s (< 1,2 Mbit/s) et **la capture elle-même est retardée** → images perdues pour tous les clients.
+- Frigate/go2rtc en TCP ne sont pas concernés (pas de pacing en TCP) : c'est pour ça que rien ne se voit ici. Ma VM ne peut pas faire d'UDP (NAT) : à confirmer par le propriétaire (VLC en UDP sur la .11 : flux saccadé attendu).
+- **Demande** : revenir à `RTSP_PACING_US` vide par défaut (revert de `1a3a2eb`) avant la rc suivante ; un lissage utile demanderait `CONFIG_HIGH_RES_TIMERS=y` ou un lissage par lots sans `usleep`, mesuré sur caméra. L'essai « une nuit avec le pacing » du plan rc27 n'a pas de sens pour Frigate (TCP).
+
+Nuit : enregistreur relancé sur la .11 (18:24 UTC) : pertes de ping, images sautées, RAM, avec la rc27 (pas de témoin : la .24 est aussi en rc25 → comparaison avec la nuit rc25 de la .11).
