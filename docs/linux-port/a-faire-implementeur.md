@@ -30,6 +30,40 @@ pont MQTT en C par défaut dans `mqtt.conf.dist` (`d41ac72`, `[mqtt-c-default]`)
 (`1a3a2eb`, `[pacing]`) ; `dosfsck -a` avant de remonter la carte (`96336d1`, `[sd-fsck]` : **sans effet aujourd'hui**,
 voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 
+## À FAIRE EN PREMIER — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
+
+Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires
+corrigés **superposés en RAM** (perdus au prochain redémarrage) : la rc28 est urgente.
+
+R1. [ ] **Publier la rc28** avec, au minimum : `ee969e9` (onvifd/supervisord sans variable libc), `d8ff063` (whep :
+    paquets RTP de 1412 octets), le point R2, et un `tc100-whep` reconstruit (image de base, `build-base-rootfs` lancé à
+    la main le 2026-11-05 ~20:35 : vérifier qu'il est vert et que le build de la rc28 prend bien cette image).
+R2. [ ] **Annuler `RTSP_PACING_US=100` par défaut** (`1a3a2eb`, `v3/linux66-sd/rtsp-launch.sh`) : noyau `CONFIG_HZ=100`
+    sans minuterie haute résolution (`/proc/timer_list` : résolution 10 ms) → `usleep(100)` dort ≥ 10 ms ; le pacing
+    ne touche que les clients **UDP** et dort dans la boucle principale (un seul fil) après chaque paquet : un client
+    UDP plafonne vers 100 paquets/s (< 1,6 Mbit/s) et retarde la capture pour tous. Un vrai lissage demanderait
+    `CONFIG_HIGH_RES_TIMERS=y` ou un envoi par lots sans `usleep`, mesuré sur caméra.
+R3. [ ] **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `ee969e9`) : la libc factice de ces Makefiles
+    déclare tout import comme une fonction, donc **aucune variable libc** (`stderr`, `stdout`, `optarg`, `environ`,
+    `timezone`…) dans `src/tc100rtsp`, `src/mqttd`, `src/onvifd`, `src/supervisord` : le test
+    `tests/test_audit_fixes.NoLibcDataImports` le vérifie désormais. Contrôle à ajouter en CI : `readelf --dyn-syms` des
+    binaires ARM contre une liste des symboles OBJECT de la uClibc (aucun import de donnée).
+R4. [ ] **WHEP sans vidéo** (corrigé par le testeur, `d8ff063`) : `on_video()` jetait tout paquet > 1400 ; le test
+    d'interop découpe maintenant comme `tc100_rtsp` (échoue avec l'ancien code). Sur caméra : retester avec la rc28
+    (aiortc : images reçues, page web : direct WebRTC, retour MP4 si échec). Point d'UI à vérifier : si le WebRTC
+    s'établit mais **sans image**, la page doit aussi retomber sur le MP4 (sinon direct noir avec le son).
+R5. [ ] **`controlscripts/auto-night-detection` n'a pas de `restart`** (seulement start/stop/status/health) : un
+    `restart` (Services, passage `SUPERVISOR_IMPL`) ne fait rien. Ajouter `restart` (stop puis start), vérifier les
+    autres scripts de service.
+R6. [ ] **`controlscripts/onvif` plafonne les fps annoncés à 15** (`FPS0=15` « unless the file says less ») alors que
+    les flux tournent à 25 : même défaut que `frigateyaml` corrigé en `9cf38e1`. Annoncer la valeur réelle.
+R7. [ ] **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
+    11-17 img/s pendant l'import ; voir où partent les secondes (nouveaux validateurs ?).
+R8. [ ] **Garder sur la .11 et en faire les défauts si la nuit est bonne** (propriétaire : « si tout est concluant on
+    garde ») : `SUPERVISOR_IMPL=c`, `MQTT_DISCOVERY_IMPL=c`, `RTSP_ALSA_DIRECT=1` (validés le 2026-11-05 : découverte
+    identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
+    après R4. Bilan de nuit du testeur le 2026-11-06 au matin.
+
 ## P0 — rc26, avant le tag 3.0.1
 
 1. [x] **Publier une rc26** avec ce qui est sur `main` depuis la rc25, en particulier `04f2313` + `9853759` : arrêt du
