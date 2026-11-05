@@ -154,6 +154,43 @@ int main(void)
 		CHECK(sdp_parse_offer("", &of) < 0);
 	}
 
+	{	/* a ClientHello in three fragments (Chrome's DTLS 1.3 + ML-KEM hello), out of order, with a repeat */
+		static struct wh_chello ch;
+		uint8_t msg[3000], dg[1600], out[4200];
+		unsigned L = 2500, i;
+		int r;
+		size_t p, dn;
+		unsigned offs[] = { 1100, 0, 1100, 2200 }, lens[] = { 1100, 1100, 1100, 300 };
+
+		for (i = 0; i < L; i++) msg[i] = (uint8_t)(i * 7 + 3);
+		for (i = 0; i < 4; i++) {
+			dn = 0;
+			dg[0] = 22; dg[1] = 0xfe; dg[2] = 0xfd; memset(dg + 3, 0, 8); dg[10] = (uint8_t)i;
+			wh_put16(dg + 11, 12 + lens[i]);
+			p = 13; dg[p] = 1; dg[p + 1] = 0; dg[p + 2] = (uint8_t)(L >> 8); dg[p + 3] = (uint8_t)L; dg[p + 4] = 0; dg[p + 5] = 0;
+			dg[p + 6] = 0; dg[p + 7] = (uint8_t)(offs[i] >> 8); dg[p + 8] = (uint8_t)offs[i];
+			dg[p + 9] = 0; dg[p + 10] = (uint8_t)(lens[i] >> 8); dg[p + 11] = (uint8_t)lens[i];
+			memcpy(dg + p + 12, msg + offs[i], lens[i]);
+			dn = p + 12 + lens[i];
+			r = wh_chello_feed(&ch, dg, dn, out, sizeof out);
+			if (i < 3) CHECK(r == 1);
+			else {
+				CHECK(r == (int)(25 + L));
+				CHECK(out[0] == 22 && wh_be16(out + 11) == 12 + L && out[13] == 1 && wh_be24(out + 14) == L);
+				CHECK(wh_be24(out + 19) == 0 && wh_be24(out + 22) == L && !memcmp(out + 25, msg, L));
+			}
+		}
+		/* a ClientHello in one piece and anything else pass through */
+		dg[0] = 22; wh_put16(dg + 11, 12 + 50); dg[13] = 1; dg[14] = 0; dg[15] = 0; dg[16] = 50;
+		memset(dg + 19, 0, 3); dg[22] = 0; dg[23] = 0; dg[24] = 50;
+		CHECK(wh_chello_feed(&ch, dg, 13 + 62, out, sizeof out) == 0);
+		dg[0] = 23;
+		CHECK(wh_chello_feed(&ch, dg, 13 + 62, out, sizeof out) == 0);
+		/* a fragment claiming more than WH_CH_MAX */
+		dg[0] = 22; dg[14] = 0; dg[15] = 0x20; dg[16] = 0; dg[24] = 50;
+		CHECK(wh_chello_feed(&ch, dg, 13 + 62, out, sizeof out) == -1);
+	}
+
 	if (fails) { printf("whep_test: %d failed\n", fails); return 1; }
 	puts("whep_test: all ok");
 	return 0;

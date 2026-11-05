@@ -357,4 +357,63 @@ static size_t sdp_answer(char *out, size_t max, const struct sdp_answer_in *a)
 #undef PR
 	return n;
 }
+/* ---- DTLS: a ClientHello in several fragments ----
+ * Chrome (157 at least) offers DTLS 1.3 with a post-quantum key share (X25519MLKEM768, 1216 bytes), so its ClientHello
+ * no longer fits in one datagram and arrives as handshake fragments. mbedTLS 2.28 does not reassemble a ClientHello
+ * ("We don't support fragmentation of ClientHello") and fails with -0x7900, so the page fell back to MP4. The daemon
+ * collects the fragments here and hands mbedTLS one record holding the whole message, as if the browser had sent it in
+ * one piece (the handshake hash is defined over that form, RFC 6347 4.2.6); mbedTLS then answers in DTLS 1.2, which
+ * the browser accepts. */
+#define WH_CH_MAX 4096			/* a ClientHello bigger than this is refused */
+
+struct wh_chello {
+	uint8_t rec[13];		/* record header of the first fragment seen */
+	uint8_t hs[12];			/* its handshake header */
+	unsigned len, got;		/* message length, bytes received (fragments do not overlap in practice; checked) */
+	uint8_t body[WH_CH_MAX];
+	uint8_t seen[WH_CH_MAX / 8];
+	int on;
+};
+
+static unsigned wh_be24(const uint8_t *p) { return (unsigned)p[0] << 16 | (unsigned)p[1] << 8 | p[2]; }
+
+/* Feeds one datagram. Returns 0 when it holds no ClientHello fragment (pass it on unchanged), 1 when it was a fragment
+ * and the message is still incomplete (drop it), or the size of the record now written to out (whole ClientHello);
+ * -1 for a malformed or oversized message. A ClientHello in one piece returns 0: mbedTLS reads it itself. */
+static int wh_chello_feed(struct wh_chello *c, const uint8_t *d, size_t n, uint8_t *out, size_t omax)
+{
+	int frag = 0;
+
+	while (n >= 13) {
+		unsigned rl = wh_be16(d + 11), L, off, fl, i;
+		const uint8_t *h = d + 13;
+
+		if (13 + (size_t)rl > n) return frag ? -1 : 0;
+		if (d[0] != 22 || d[3] || d[4] || rl < 12 || h[0] != 1) return frag ? -1 : 0;
+		L = wh_be24(h + 1); off = wh_be24(h + 6); fl = wh_be24(h + 9);
+		if (12 + fl > rl || off + fl > L) return -1;
+		if (!frag && off == 0 && fl == L && !c->on) return 0;		/* in one piece */
+		if (L > WH_CH_MAX) return -1;
+		if (!c->on) {
+			memset(c->seen, 0, sizeof c->seen);
+			memcpy(c->rec, d, 13); memcpy(c->hs, h, 12);
+			c->len = L; c->got = 0; c->on = 1;
+		} else if (L != c->len || wh_be16(h + 4) != wh_be16(c->hs + 4)) return -1;
+		for (i = off; i < off + fl; i++)
+			if (!(c->seen[i >> 3] & (1u << (i & 7)))) { c->seen[i >> 3] |= (uint8_t)(1u << (i & 7)); c->body[i] = h[12 + i - off]; c->got++; }
+		frag = 1;
+		d += 13 + rl; n -= 13 + rl;
+	}
+	if (!frag) return 0;
+	if (c->got < c->len) return 1;
+	if (25 + (size_t)c->len > omax) return -1;
+	memcpy(out, c->rec, 13); wh_put16(out + 11, 12 + c->len);
+	memcpy(out + 13, c->hs, 12);
+	memset(out + 13 + 6, 0, 3);					/* fragment offset 0 */
+	memcpy(out + 13 + 9, out + 13 + 1, 3);				/* fragment length = message length */
+	memcpy(out + 25, c->body, c->len);
+	c->on = 0;
+	return (int)(25 + c->len);
+}
+
 #endif

@@ -60,8 +60,10 @@ struct sess {
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config conf;
 	int ssl_on;
-	uint8_t in[1600];
+	uint8_t in[25 + WH_CH_MAX];		/* one datagram, or the ClientHello rebuilt from its fragments */
 	int in_len;
+	struct wh_chello ch;
+	int ch_done;			/* the ClientHello went to mbedTLS: later copies of its fragments are dropped */
 	uint64_t t_int, t_fin;			/* DTLS retransmission timers (ms, 0 = off) */
 	uint8_t ms[48], cr[32], sr[32];
 	int have_keys, prf;
@@ -590,6 +592,14 @@ static int on_udp(void)
 	if (!s) return 1;
 	if (b[0] >= 20 && b[0] <= 63) {
 		s->last = now_ms();
+		if (s->state == S_HS) {
+			int r = s->ch_done ? (b[0] == 22 && n > 25 && b[13] == 1 ? 1 : 0) : wh_chello_feed(&s->ch, b, (size_t)n, s->in, sizeof s->in);
+
+			if (r < 0) { LOG("viewer %s: bad ClientHello fragments", s->id); sess_free(s); return 1; }
+			if (r == 1) return 1;
+			if (r > 1) { DBG("viewer %s: ClientHello of %d bytes rebuilt from fragments", s->id, r - 25); s->in_len = r; s->ch_done = 1; dtls_drive(s); return 1; }
+			if (b[0] == 22 && n > 25 && b[13] == 1) s->ch_done = 1;
+		}
 		s->in_len = n; memcpy(s->in, b, (size_t)n);
 		dtls_drive(s);
 	} else if (b[0] >= 128 && b[0] <= 191) s->last = now_ms();	/* SRTCP receiver report: a sign of life */
