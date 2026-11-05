@@ -64,6 +64,7 @@ tc_normalize_and_validate()
     supervisor_impl) case "$_tc_value" in c|sh) ;; *) return 1 ;; esac ;;
     topology) case "$_tc_value" in dual|main-only|sub-only) ;; *) return 1 ;; esac ;;
     whep_stream) case "$_tc_value" in sub|main) ;; *) return 1 ;; esac ;;
+    idle_when) case "$_tc_value" in still|unwatched|night) ;; *) return 1 ;; esac ;;
     onvif_policy) case "$_tc_value" in main-primary|sub-primary|sub-only|main-only) ;; *) return 1 ;; esac ;;
     hostname)
       [ "${#_tc_value}" -le 63 ] || return 1
@@ -514,6 +515,10 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" REBOOT_SCHEDULE_WEEKDAY weekday "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" RTSP_SUBSTREAM bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" RTSP_AUDIO bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" RTSP_LITE_TALK bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" IDLE_FPS u:0:24 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" IDLE_AFTER u:1:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" IDLE_WHEN idle_when "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" RTSP_FPS_LOCK bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" RTSP_MIC_OFF_WHEN_NO_AUDIO bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" VENDOR_PRINT_LEVEL print_level "$_tc_rel" || return 1

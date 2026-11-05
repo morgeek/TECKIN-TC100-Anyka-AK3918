@@ -150,6 +150,13 @@ _ce_row_table() {
     row("rtspserver.conf";"ini";"1";"targetkbps";"bitrate";"general";.video.sub.targetkbps),
     row("rtspserver.conf";"ini";"root";"imageflip";"flip";"network";.video.flip),
     row("rtspserver.conf";"ini";"root";"RTSPLOGENABLED";"bool";"general";.video.rtsp_log),
+    row("boot.conf";"flat";"root";"RTSP_SUBSTREAM";"bool";"general";.video.substream),
+    row("boot.conf";"flat";"root";"RTSP_AUDIO";"bool";"general";.audio.rtsp_audio),
+    row("boot.conf";"flat";"root";"ONVIF_STREAM_POLICY";"onvif_policy";"general";.video.onvif_policy),
+    row("boot.conf";"flat";"root";"RTSP_LITE_TALK";"bool";"general";.audio.two_way),
+    row("boot.conf";"flat";"root";"IDLE_FPS";"u:0:24";"general";.video.idle_fps),
+    row("boot.conf";"flat";"root";"IDLE_AFTER";"u:1:3600";"general";.video.idle_after),
+    row("boot.conf";"flat";"root";"IDLE_WHEN";"idle_when";"general";.video.idle_when),
 
     row("rtspserver.conf";"ini";"root";"samplerate";"samplerate";"general";.audio.samplerate),
     row("rtspserver.conf";"ini";"root";"volume";"volume";"general";.audio.volume),
@@ -233,6 +240,7 @@ _ce_row_table() {
     row("sound_detection.conf";"flat";"root";"ALARM_DETECT";"bool";"general";.services.alarm_detect),
     row("sound_detection.conf";"flat";"root";"ALARM_HOLD_SECONDS";"u:1:3600";"general";.services.alarm_hold),
     row("rtspserver.conf";"ini";"root";"mdsens";"motion_sens";"general";.services.motion_sens),
+    row("rtspserver.conf";"ini";"root";"mdenabled";"bool";"general";.services.motion_detection),
     row("motion.conf";"flat";"root";"motion_trigger_led";"bool";"general";.services.motion_led),
     row("motion.conf";"flat";"root";"motion_best_shot";"bool";"general";.services.motion_best_shot),
 
@@ -430,7 +438,7 @@ _ce_export() {
         if (lv == "1" || lv == "true" || lv == "on" || lv == "yes" || lv == "enabled") j = "1"
         else if (lv == "0" || lv == "false" || lv == "off" || lv == "no" || lv == "disabled") j = "0"
         else next
-      } else if (t ~ /^(topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|country_optional|isp_mask|isp_mask_color)$/) {
+      } else if (t ~ /^(topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|country_optional|isp_mask|isp_mask_color|whep_stream|supervisor_impl|serial_console|idle_when)$/) {
         j = jstr(v)
       } else if (v ~ /^-?[0-9]+$/) {
         j = sprintf("%d", v + 0)
