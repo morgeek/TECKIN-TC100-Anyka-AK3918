@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Status line answered by httpfront itself** (item 55, `HTTPFRONT_NATIVE=1`, off by default): the JSON every page
+  polls, without starting httpd and a shell (7 ms instead of 93 ms under qemu); anything it cannot answer exactly
+  goes to the CGI as before.
 - **WebRTC live view** (item 35, `WHEP=1`, off by default): `tc100-whep` (WHEP, ICE-lite, DTLS-SRTP with the system
   mbedTLS, SRTP in plain C) relays the camera's RTP to the browser with about 150 ms of delay; the page tries it first
   and falls back to the MP4 live view on any failure. The base image now builds mbedTLS with DTLS-SRTP.
