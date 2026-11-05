@@ -2214,3 +2214,23 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
   2. 24 h : serveur vivant, aucune erreur noyau ; `MemAvailable` ~2,4 Mo plus bas qu'avec le noyau normal (attendu).
   3. Débit et qualité comparés à la .24 (scène calme : le débit doit baisser nettement).
 - **Critères :** 1-3 conformes → décider si 12M devient le défaut (la RAM perdue contre le débit gagné) ; sinon le mode smart reste désactivé.
+
+## 2026-11-05 09:50 — Bilan de la nuit sur la .11 (rc25, pays FR + regdb, pont MQTT en C, `RTSP_QMAX=1024`) (testeur)
+
+Mesures du 2026-11-04 17:51 au 2026-11-05 08:40 UTC (295 mesures / 180 s). **Pas de témoin cette nuit** : la .24 a été mise à jour en rc25 vers 18:53 UTC (redémarrage → enregistreur perdu).
+
+| Critère | Résultat |
+|---|---|
+| Reboots | 0 (uptime 15 h 05) |
+| RAM disponible | 20,7-23,4 Mo ; moyenne 1er quart 22,1 / dernier quart 21,8 Mo : **pas de fuite** |
+| Pont MQTT C | **même démon toute la nuit** (pid 10145, VmRSS 428 Ko, pid file = démon), **aucune reconnexion** après 18:40 UTC (dernière ligne « MQTT connected »), une seule connexion 1883 |
+| Jour / nuit | nuit 22:57, jour 07:24 UTC : OK |
+| **Ping passerelle** | perte totale dans **28/295 mesures (9,5 %)**, pire 2 000 ms, 10 mesures > 200 ms. rc23 sur la .11 : 11 %. **Le domaine FR + `regulatory.db` ne règle pas les coupures.** Signal fort (`beacon signal avg` -19 dBm, 72,2 Mbit/s MCS 7, 0 retry / 0 échec au compteur iw). |
+| Images sautées (`RTSP_QMAX=1024`) | 5 épisodes (1-2 images) entre 18:54 et 22:41 UTC, chacun suivi d'une remise à zéro du compteur 3 min plus tard (= reconnexion du client) ; **0 de 22:44 à 08:40**. Une file de 5 s n'évite donc pas tous les sauts : ces épisodes correspondent à des blocages plus longs ou à une reconnexion du client. Sans témoin, l'effet de la file ne se chiffre pas. |
+| dmesg | un `isp pause fail` à 3 684 s = le redémarrage voulu de `tc100_rtsp` (18:39 UTC) pour `RTSP_QMAX` ; rien d'autre |
+| Charge | moyenne 0,95, max 1,86 |
+
+.24 (rc25 depuis hier soir) : `FAT-fs … not properly unmounted` **encore** au démarrage qui a suivi la mise à jour web (le remontage en lecture seule de `c131441` ne couvre pas ce chemin ?) ; jour/nuit 05:42 jour → 05:47 nuit → 06:28 jour (une bascule aller-retour à l'aube, hystérésis à surveiller) ; enregistrement SD actif (`rec 1`).
+
+Conclusions : (1) pont MQTT en C **validé pour une nuit** (stable, pas de doublon, pas de reconnexion) → peut devenir le défaut après une deuxième nuit sur la rc26 ; (2) pertes Wi-Fi inchangées : pas le domaine réglementaire ; prochaines pistes : `RTSP_PACING_US`, canal Wi-Fi de la box, puis pilote `rtl8xxxu` (le ping se perd aussi quand le compteur iw n'a ni retry ni échec : côté réception ou blocage du pilote) ; (3) garder `RTSP_QMAX=1024` (aucun effet négatif vu) mais l'essai n'a pas de témoin.
+Prochaine étape : rc26 sur la .11.
