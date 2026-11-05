@@ -21,6 +21,10 @@
  * for a wrong login): this only counts. A login checked once is remembered by the MD5 of its header (OKFILE), so the
  * 1000-round crypt runs once, not at every request.
  *
+ * Native status line (item 55; TC100_NATIVE_STATUS=1, boot.conf HTTPFRONT_NATIVE=1, off by default): "GET
+ * /cgi-bin/statusline.cgi" with a right Basic login is answered by httpfront itself (status.h), the same JSON as the CGI,
+ * without httpd and sh; anything it cannot answer exactly goes to httpd as before.
+ *
  * Freestanding (no C library: raw ARM EABI system calls), a few KB instead of 630 KB for the static glibc
  * build it replaces. Build: arm-linux-gnueabi-gcc -Os -marm -march=armv5te -nostdlib -static -fno-builtin
  *   -fno-pic -no-pie -s -o httpfront httpfront.c
@@ -309,6 +313,11 @@ static int locked(u32 ip)
 	return 0;
 }
 
+#include "status.h"
+
+static const char *httpd_bin = "/usr/sbin/httpd";	/* TC100_HTTPD_BIN: tests */
+static int native_status;	/* TC100_NATIVE_STATUS=1: GET /cgi-bin/statusline.cgi answered here (status.h) */
+
 static void busy(int c)
 {
 	static const char m[] = "HTTP/1.0 503 Service Unavailable\r\nRetry-After: 2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
@@ -343,13 +352,26 @@ static void serve(int c, const char *home, const char *target, char **envp, u32 
 		if (n <= 0) _exit_(0);
 		b[n] = 0;
 		if (n >= (long)sizeof b - 1) break;
-		if (has_nl(b, (int)n) && (!lockout || has_end(b, (int)n))) break;	/* the login needs the headers */
+		if (has_nl(b, (int)n) && (!(lockout || native_status) || has_end(b, (int)n))) break;	/* the login needs the headers */
 		if (++tries > 20) { if (has_nl(b, (int)n)) break; _exit_(0); }
 		sleep100ms();
 	}
 	if (pfx(b, "GET / ") || pfx(b, "GET /?") || pfx(b, "HEAD / ")) redirect(c, target);
 	if (pfx(b, "GET /metrics ") || pfx(b, "GET /metrics?") || pfx(b, "HEAD /metrics ")) redirect(c, "/cgi-bin/metrics.cgi");
-	if (lockout && login_ok(b) == 0) write_file(fail_file, &ip, 4, O_APPEND);	/* counted by the parent */
+	{
+		/* item 55: the status line, natively, for a complete request whose Basic login is right (no login, a wrong
+		 * one, anything the native code cannot answer exactly: httpd as before, which answers 401 or the CGI) */
+		int route = native_status && pfx(b, "GET /cgi-bin/statusline.cgi") && (b[27] == ' ' || b[27] == '?');
+		int au = (lockout || route) ? login_ok(b) : -1, len;
+		const char *resp;
+
+		if (lockout && au == 0) write_file(fail_file, &ip, 4, O_APPEND);	/* counted by the parent */
+		if (route && au == 1 && has_end(b, (int)n) && (resp = status_response(st_root, &len))) {
+			sc(SYS_read, c, (long)b, n, 0, 0);	/* the request we only peeked at: no reset on close */
+			sc(SYS_write, c, (long)resp, len, 0, 0);
+			_exit_(0);
+		}
+	}
 	sc(SYS_setsockopt, c, SOL_SOCKET, SO_RCVTIMEO, (long)&none, sizeof none);
 	sc(SYS_dup2, c, 0, 0, 0, 0);
 	sc(SYS_dup2, c, 1, 0, 0, 0);
@@ -357,7 +379,7 @@ static void serve(int c, const char *home, const char *target, char **envp, u32 
 	{
 		const char *argv[] = { "httpd", "-i", "-h", home, 0 };
 
-		sc(SYS_execve, (long)"/usr/sbin/httpd", (long)argv, (long)envp, 0, 0);
+		sc(SYS_execve, (long)httpd_bin, (long)argv, (long)envp, 0, 0);
 	}
 	_exit_(1);
 }
@@ -383,6 +405,9 @@ int run(int argc, char **argv, char **envp)
 		const char *e = getenv_(envp, "TC100_WEB_LOCKOUT"), *f;
 
 		lockout = e && e[0] == '1';
+		native_status = (e = getenv_(envp, "TC100_NATIVE_STATUS")) && e[0] == '1';
+		if ((f = getenv_(envp, "TC100_STATUS_ROOT"))) st_root = f;	/* tests */
+		if ((f = getenv_(envp, "TC100_HTTPD_BIN"))) httpd_bin = f;	/* tests */
 		if ((f = getenv_(envp, "TC100_HTTPD_CONF"))) httpd_conf = f;	/* tests */
 		if ((f = getenv_(envp, "TC100_LOCK_DIR"))) {
 			static char ff[128], of[128];

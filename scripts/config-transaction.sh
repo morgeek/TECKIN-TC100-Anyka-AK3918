@@ -518,6 +518,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" VENDOR_PRINT_LEVEL print_level "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" ISP_TUNE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" SUPERVISOR_IMPL supervisor_impl "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" HTTPFRONT_NATIVE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" ONVIF_STREAM_POLICY onvif_policy "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REC_LOCAL bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REC_WHEN rec_when "$_tc_rel" || return 1
