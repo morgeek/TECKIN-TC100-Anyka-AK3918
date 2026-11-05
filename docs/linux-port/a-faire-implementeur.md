@@ -368,7 +368,10 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 50. [ ] **Modernisation UI : Exploration des pistes Pico CSS & Shoelace (look haut de gamme, rapide et léger)** :
     *Propriétaire, 2026-11-05 : moteurs d'interface chargés à la volée (choix dans les réglages), Bulma reste intégré ;
     Pico / Shoelace se chargent depuis la carte SD si elle les a, sinon depuis un CDN (rien de plus dans la flash).*
-    **Consigne du propriétaire (2026-11-05 soir) : avant tout travail sur #50, des tests précis de l'UI actuelle (captures de référence de chaque page, bureau / téléphone / sombre, et vérifications du comportement), faits par l'autre agent ; #50 ne commence qu'ensuite, en comparant à ces références. Voir l'entrée `[ui-baseline]` de `test-queue.md`.**
+    **Consignes du propriétaire (2026-11-05 soir) :**
+    - **Dictionnaire / Shim d'adaptation sémantique Bulma -> Pico / Shoelace** : prévoir un fichier dictionnaire CSS/JS léger (~2-3 Ko) traduisant les classes Bulma existantes (`.card`, `.button.is-primary`, `.columns`, `.field.is-grouped`) vers les sélecteurs natifs de Pico ou les custom elements de Shoelace. Les pages HTML et scripts JS restent 100 % intacts sans rien casser.
+    - **Stockage Flash vs SD/CDN** : Pico CSS minifié/gzippé (~10 Ko brut, ~3 Ko dans squashfs xz) peut intégrer la flash si souhaité. En revanche, Shoelace (> 350 Ko) reste obligatoirement chargé depuis la carte SD (`/mnt/sd/ext/www/`) ou CDN distant.
+    - **Préalable** : avant tout travail sur #50, des tests précis de l'UI actuelle (captures de référence de chaque page, bureau / téléphone / sombre, et vérifications du comportement), faits par l'autre agent ; #50 ne commence qu'ensuite, en comparant à ces références. Voir l'entrée `[ui-baseline]` de `test-queue.md`.
     - Évaluer le remplacement ou l'évolution de Bulma vers des solutions modernes adaptées à l'embarqué :
       - **Piste 1 : Pico CSS** (champion de la légèreté, ~10 Ko gzippé) : CSS sémantique pur stylisant directement les balises HTML sans surcharger le code de classes, Dark Mode natif automatique sans JS, divise par 2 à 3 le poids des pages et la bande passante requise.
       - **Piste 2 : Shoelace (Web Components natifs)** : composants riches standardisés (`<sl-switch>`, `<sl-tooltip>`, `<sl-progress-ring>`, `<sl-dialog>`) offrant un rendu haut de gamme de type "UniFi / Synology", sans framework JS lourd (exécuté nativement par le moteur du navigateur).
@@ -400,6 +403,9 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 55. [ ] **Chantiers de réécriture C ciblés pour gains RAM & Flash (feuille de route propriétaire 2026-11-05)** :
     - **Capture audio ALSA directe dans `tc100_rtsp` (#11)** : Éliminer le sous-processus `arecord` et le pipe Unix associé au profit d'un `snd_pcm_read` direct dans le serveur RTSP. Gain : **~660 Ko PSS** économisés, zéro fork, élimination des sauts de contexte noyau.
     - **Micro-démon superviseur unifié C (`tc100-supervisord`) (#52)** : Remplacer les boucles shell résidentes (`button-watch.sh`, `auto-night-daemon.sh`, surveillance `housekeeper`) par un seul processus C compact avec `poll()`. Gain : **~1 à 1,5 Mo de RAM PSS** récupérée et fin des forks cycliques (`read`, `cat /proc/uptime`).
+    - **Découverte Home Assistant C dans `tc100-mqttd` (remplacement de `scripts/mqtt-bridge.sh`)** : Le script shell actuel pèse 121 Ko (2 981 lignes de shell générant du JSON statique pour Home Assistant). Intégrer la publication des topics d'autodiscovery HA directement dans le démon C `tc100-mqttd` ou un helper C dédié. Gain : **~35 à 45 Ko de flash SquashFS** libérés et fin des forks de parsing texte cycliques (`sed`/`awk`/`cat`).
+    - **Handlers HTTP natifs en C dans `httpfront` (remplacement progressif de `state.cgi` / `action.cgi`)** : `state.cgi` (67 Ko, 1 534 lignes) et `action.cgi` (40 Ko, 1 193 lignes) forcent des forks lourds pour chaque commande web. Migrer les endpoints les plus sollicités en routes natives dans `httpfront`. Gain : **~40 à 60 Ko de flash** et latence d'action divisée par 20 (< 5 ms au lieu de 200 ms).
+    - **Minification du dictionnaire français (`www/i18n/fr.js`)** : Le fichier pèse 121 Ko non minifié. Nettoyage et minification des chaînes avant SquashFS. Gain : **~15 à 25 Ko de flash**.
 
 56. [ ] **Optimisations avancées RAM/CPU & comportement de secours (avis propriétaire 2026-11-05)** :
     - **1. Capture ALSA directe dans `tc100_rtsp`** : *Accord propriétaire*. Déjà pré-câblé dans `src/tc100rtsp/acap.c` (`RTSP_ALSA_DIRECT=1`, voir #11) ; à valider et passer par défaut une fois testé sans régression sonore.
@@ -411,6 +417,15 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
       - Configuration dans `autorun-linux66.sh` : `sysctl -w vm.vfs_cache_pressure=150` (recycle agressivement les dentries/inodes en RAM basse) et `sysctl -w vm.dirty_background_ratio=5` / `sysctl -w vm.dirty_ratio=10`.
       - Zéro risque de perte de données : les écritures sur SD sont flushées plus tôt en arrière-plan sans bloquer les allocations vidéo.
     - **5. Smart Bitrate / Smart GOP sur VPU AK3918** : *Accord propriétaire*. Activer via `libmpi_venc_ex.so` / `libakuio` (`ak_venc_set_smart_config`) pour diviser le débit par 2 à 3 sur scènes nocturnes ou immobiles sans impact CPU.
+
+57. [ ] **Audit final exhaustif front/back & élimination du code mort (Consigne propriétaire 2026-11-05 soir, en toute fin de projet)** :
+    - **Risque identifié** : suite au très grand nombre de modifications et d'ajouts réalisés aujourd'hui (W6, secrets, exclusions flash, bundle CSS, refontes de scripts, services-ui, endpoints CGI, migration WHEP/ONVIF), il existe un risque majeur de rupture de câblage silencieuse entre le front (JS/HTML/CGI) et le back (scripts shell, daemons C, variables d'environnement).
+    - **Contrôle d'intégrité de bout en bout (End-to-End wiring check)** :
+      - Pour chaque bouton, formulaire, slider, toggle et appel AJAX (`fetch` / `XMLHttpRequest`) de toutes les pages web (`index.html`, `settings.html`, `view_records.html`, `hardware.html`, `backup.html`, `logs.html`, `diagnostics.html`, etc.) : vérifier que l'endpoint CGI correspondant (`state.cgi`, `action.cgi`, `config_exchange.cgi`, etc.) existe, traite bien le paramètre exact, et produit la réponse attendue sans erreur 404 ni 500.
+      - Vérifier que chaque paramètre sauvé dans `/mnt/config/*.conf` est correctement relu et honoré par les daemons et scripts de démarrage (`autorun-linux66.sh`, `tc100_rtsp`, `httpfront`, `tc100-mqttd`).
+    - **Chasse au code mort (Deadcode hunt)** :
+      - Détecter et supprimer les fonctions JS orphelines, variables shell non référencées, fichiers temporaires ou dépendances résiduelles non appelées.
+      - Consolider la suite de tests automatisés (`tests/test_*.py`) pour sanctuariser ce câblage avant le tag 3.0.1 final.
 
 ## Prochaine RC (propriétaire, 2026-11-05 soir)
 
