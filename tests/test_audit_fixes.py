@@ -201,3 +201,20 @@ class NoLibcDataImports(unittest.TestCase):
                     if re.search(self.DATA, code):
                         bad.append(f'{c.relative_to(ROOT)}:{n}: {line.strip()[:80]}')
         self.assertEqual(bad, [])
+
+
+class WhepForwardsFullRtpPackets(unittest.TestCase):
+    """tc100-whep dropped every RTP packet over 1400 bytes; tc100_rtsp sends 12 + RTP_PAYLOAD (1400) = 1412 for a full
+    FU-A fragment, so no IDR reached the viewer (IPCAM2, rc27: audio fine, 0 video picture)."""
+
+    def test_limit_fits_tc100_rtsp_packets(self):
+        payload = int(re.search(r'#define RTP_PAYLOAD (\d+)', (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text()).group(1))
+        src = (ROOT / 'src/whep/tc100_whep.c').read_text()
+        self.assertNotIn('n > 1400', src)
+        tag = int(re.search(r'#define WH_SRTP_TAG (\d+)', src).group(1))
+        for fn in ('on_video', 'on_audio'):
+            body = src[src.index('static void ' + fn):]
+            body = body[:body.index('\n}\n')]
+            buf = int(re.search(r'uint8_t b\[(\d+)\]', body).group(1))
+            self.assertIn('sizeof b - WH_SRTP_TAG', body)
+            self.assertGreaterEqual(buf - tag, 12 + payload, fn)
