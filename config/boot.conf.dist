@@ -176,12 +176,14 @@ WIFI_COUNTRY=
 # MQTT service watchdogs, health snapshot, log persistence) instead of one shell process each: about 1 MB less RAM.
 # 0 = the separate daemons of before (read at boot).
 HOUSEKEEPER=1
-# SUPERVISOR_IMPL: who runs the always-on loops of the automatic day/night switching (scripts/auto-night-daemon.sh) and of
-# the reset button (scripts/button-watch.sh). sh (default) = one resident busybox shell each. c = both as jobs of ONE
-# small C process, tc100-supervisord (src/supervisord): same decisions, same config files (daynight.conf), same scripts
-# called for the actual work (nightmode.sh, wifi-rescue.sh, reboot-tracker.sh), fewer resident shells. Without the binary
-# the shell loops run; if the C daemon dies they take over until the next boot. Read when the services start (boot, or
-# restart the two services on Settings -> Services).
+# SUPERVISOR_IMPL: who runs the always-on loops of the automatic day/night switching (scripts/auto-night-daemon.sh), of
+# the reset button (scripts/button-watch.sh) and of the sound detection (run_daemon of controlscripts/sound-detection).
+# c (default since the rc28) = all three as jobs of ONE small C process, tc100-supervisord (src/supervisord): same
+# decisions, same config files (daynight.conf, sound_detection.conf), same scripts called for the actual work
+# (nightmode.sh, wifi-rescue.sh, reboot-tracker.sh, mqtt-bridge.sh, notify.sh), fewer resident shells. sh = one
+# resident busybox shell each. Without the binary the shell loops run; if the C daemon dies they take over until the
+# next boot. Read when the services start (boot, or restart the three services on Settings -> Services). The
+# housekeeper and cfg-persist stay shell loops.
 SUPERVISOR_IMPL=c
 # HTTPFRONT_NATIVE=1: the web front (httpfront) answers the status line every page polls (GET /cgi-bin/statusline.cgi, same
 # URL, same JSON) itself, without starting busybox httpd and sh for each request (about 20 times faster). Only for a
