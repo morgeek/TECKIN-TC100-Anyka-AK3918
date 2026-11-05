@@ -126,7 +126,7 @@ critères) sont dans `test-queue.md` sous l'étiquette indiquée.
 Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires
 corrigés **superposés en RAM** (perdus au prochain redémarrage) : la rc28 est urgente.
 
-R1. [ ] **Publier la rc28** avec, au minimum : `ee969e9` (onvifd/supervisord sans variable libc), `d8ff063` (whep :
+R1. [x] *(rc28 publiée par le testeur, `8131144`, installée sur la .11 le 2026-11-05 ~23:45 ; contrôles : test-queue 2026-11-06 00:00)* **Publier la rc28** avec, au minimum : `ee969e9` (onvifd/supervisord sans variable libc), `d8ff063` (whep :
     paquets RTP de 1412 octets), le point R2, et un `tc100-whep` reconstruit (image de base, `build-base-rootfs` lancé à
     la main le 2026-11-05 ~20:35 : vérifier qu'il est vert et que le build de la rc28 prend bien cette image).
 R2. [x] *(fait, `[rc28-fixes]`)* **Annuler `RTSP_PACING_US=100` par défaut** (`1a3a2eb`, `v3/linux66-sd/rtsp-launch.sh`) : noyau `CONFIG_HZ=100`
@@ -148,12 +148,22 @@ R5. [x] *(fait pour les 15 scripts sans `restart`, test pour tous, `[rc28-fixes]
     autres scripts de service.
 R6. [x] *(fait, plus la taille 720p, `[rc28-fixes]`)* **`controlscripts/onvif` plafonne les fps annoncés à 15** (`FPS0=15` « unless the file says less ») alors que
     les flux tournent à 25 : même défaut que `frigateyaml` corrigé en `9cf38e1`. Annoncer la valeur réelle.
-R7. [~] *(un sous-shell de moins par valeur sans caractère encodé, `[rc28-fixes]` ; à mesurer sur caméra)* **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
+R7. [~] *(rc28 sur la .11 : 15,5 s puis 21,8 s pour 156 valeurs, pas nettement mieux ; à creuser)* *(un sous-shell de moins par valeur sans caractère encodé, `[rc28-fixes]` ; à mesurer sur caméra)* **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
     11-17 img/s pendant l'import ; voir où partent les secondes (nouveaux validateurs ?).
 R8. [x] *(2026-11-05 soir, consigne du propriétaire « active tous les items codés » : tout activé par défaut, migration unique pour les caméras installées, entrée `[rc28-defaults]` ; risque principal : `RTSP_ABR`)* **Garder sur la .11 et en faire les défauts si la nuit est bonne** (propriétaire : « si tout est concluant on
     garde ») : `SUPERVISOR_IMPL=c`, `MQTT_DISCOVERY_IMPL=c`, `RTSP_ALSA_DIRECT=1` (validés le 2026-11-05 : découverte
     identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
     après R4. Bilan de nuit du testeur le 2026-11-06 au matin.
+
+R9. [ ] **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
+    limite 12000 commune à `whep.cgi` et `tc100-whep`, tampon 16 Ko). Il faut un `tc100-whep` reconstruit (image de base)
+    → **rc29** ; le testeur revalide P7 dans Chrome. Vérifier aussi Firefox / Safari (offres de taille voisine).
+R10. [ ] **T9 : client RTSP muet fermé après ~31 s** alors que `CLI_IDLE_S` = 60 : trouver le délai qui s'applique
+    (et le documenter) ; Frigate n'est pas touché.
+R11. [ ] **T8 : httpfront garde indéfiniment les connexions muettes** (72/80 encore ouvertes après 30 s ; pas de
+    gêne mesurée) : ajouter un délai de lecture de l'en-tête (10-15 s) et un plafond si ce n'est pas déjà le cas.
+R12. [ ] `state.cgi?daynight` a mis 7,2 s une fois juste après le démarrage (puis 0,3 s) : voir ce qui bloque.
+R13. [ ] Repli MP4 du direct observé à ~1,8 img/s (nuit, 640x360) : vérifier la cadence attendue de ce mode.
 
 ## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
 
@@ -166,7 +176,7 @@ l'implémenteur vérifie que la fonction est prête (interrupteur, doc, critère
 T1. [ ] Endurance **7 jours** sur les deux caméras, toutes les nouvelles implémentations actives : pas de redémarrage
     non voulu, MemAvailable stable (PSS par processus au début et à la fin), CMA, écritures flash via `cfg-persist`
     (nombre par jour), pertes Wi-Fi, images sautées.
-T2. [ ] Charge : 2, 3 puis 4 clients RTSP en même temps (chute de fps connue), multiview ouvert dans plusieurs
+T2. [~] *(rc28 .11 de nuit à 10 img/s : 4 clients RTSP, 0 perte ; à refaire de jour)* Charge : 2, 3 puis 4 clients RTSP en même temps (chute de fps connue), multiview ouvert dans plusieurs
     navigateurs, Frigate + ONVIF + WebRTC simultanés sur un seul cœur (fps de capture, charge, latence du direct).
 T3. [ ] `.24` en rc28 avec les mêmes réglages que la .11 (seules l'IP et l'identité matérielle diffèrent).
 
@@ -177,9 +187,9 @@ T5. [ ] Mode sans échec : 3 démarrages ratés → boot-guard, interface access
 T6. [ ] Retour à la configuration précédente (cfga/cfgb) après une config cassée.
 
 **Sécurité (T)**
-T7. [ ] Limite d'essais de mot de passe du web (`WEB_LOCKOUT`) : blocage, déblocage, sans gêner Frigate/HA.
-T8. [ ] `httpfront` face à une avalanche de connexions muettes (R2 de l'audit) : la caméra reste joignable.
-T9. [ ] Expiration des clients RTSP inactifs (`9e2089e`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
+T7. [ ] *(bloqué à distance : même IP que le propriétaire)* Limite d'essais de mot de passe du web (`WEB_LOCKOUT`) : blocage, déblocage, sans gêner Frigate/HA.
+T8. [x] *(rc28 .11 : OK, voir R11)* `httpfront` face à une avalanche de connexions muettes (R2 de l'audit) : la caméra reste joignable.
+T9. [~] *(rc28 .11 : Frigate jamais coupé, client muet coupé à 31 s : voir R10 ; nuit complète à confirmer)* Expiration des clients RTSP inactifs (`9e2089e`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
     un client muet après SETUP l'est.
 
 **Fonctions rc27 jamais activées (T, une à la fois, avec retour arrière noté)**
@@ -200,7 +210,7 @@ P4. [ ] Haut-parleur : push-to-talk du navigateur, audio bidirectionnel depuis H
 P5. [ ] RTSP en **UDP** dans VLC (confirme R2 / pacing), intégration ONVIF de Home Assistant, un NVR tiers (Synology
     Surveillance Station ou Blue Iris).
 P6. [ ] Point d'accès Wi-Fi de secours (bouton reset 3-7 s) et Wi-Fi par `wifi.txt` sur la carte.
-P7. [ ] Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
+P7. [ ] *(rc28 : échec 413, voir R9)* Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
 
 **Carte SD, sur la .24 (P pour poser / retirer la carte, T pour le reste)**
 P8. [ ] Enregistrement, frise (`view_records.html`), pré-enregistrement, `REC_KEEP_EVENTS`, réparation automatique
