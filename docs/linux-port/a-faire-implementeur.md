@@ -48,7 +48,7 @@ R3. [ ] **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `ee9
     `timezone`…) dans `src/tc100rtsp`, `src/mqttd`, `src/onvifd`, `src/supervisord` : le test
     `tests/test_audit_fixes.NoLibcDataImports` le vérifie désormais. Contrôle à ajouter en CI : `readelf --dyn-syms` des
     binaires ARM contre une liste des symboles OBJECT de la uClibc (aucun import de donnée).
-R4. [ ] **WHEP sans vidéo** (corrigé par le testeur, `d8ff063`) : `on_video()` jetait tout paquet > 1400 ; le test
+R4. [~] **WHEP sans vidéo** (corrigé par le testeur, `d8ff063` ; image de base reconstruite (run 42089030516) et binaire validé sur la .11 le 2026-11-05 21:30 : 18 img/s reçues par aiortc, voir test-queue) : `on_video()` jetait tout paquet > 1400 ; le test
     d'interop découpe maintenant comme `tc100_rtsp` (échoue avec l'ancien code). Sur caméra : retester avec la rc28
     (aiortc : images reçues, page web : direct WebRTC, retour MP4 si échec). Point d'UI à vérifier : si le WebRTC
     s'établit mais **sans image**, la page doit aussi retomber sur le MP4 (sinon direct noir avec le son).
