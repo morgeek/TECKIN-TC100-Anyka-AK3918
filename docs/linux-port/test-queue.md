@@ -2583,6 +2583,21 @@ Prochaine étape : rc26 sur la .11.
 - **Test :** (1) `/mnt/ext/bin/tc100-whep` existe. (2) `WHEP=1`, démarrer le service, `cat /tmp/logs/whep.log` montre « ready ». (3) Ouvrir la page dans Chrome et Firefox (et Safari si possible) : la vue en direct passe en WebRTC (log « DTLS-SRTP up » ; `chrome://webrtc-internals`). (4) Délai avec une horloge devant la caméra. (5) Pendant le flux : `srtp-bench`, `top`, PSS de `tc100-whep` avec 1 puis 2 spectateurs ; un 3e onglet retombe sur la vue MP4. (6) Fermer l'onglet : « gone » dans le log ; Wi-Fi du PC coupé : après ~12 s. (7) `whep stop` : la page retombe sur la vue MP4 sans erreur. (8) `WHEP_STREAM=main` (H.264 seulement, sinon repli MP4). (9) `WHEP_AUDIO=1` : piste audio dans les stats WebRTC. (10) Une heure avec 2 spectateurs : pas de redémarrage de `tc100_rtsp`, mémoire stable. (11) Avec `WHEP=0` : RTSP, vue MP4, ONVIF et enregistrement inchangés.
 - **Critères :** image en moins de 2 s, latence < 150-300 ms, CPU du démon raisonnable avec 1 spectateur sur le flux secondaire (`srtp-bench` tranche secondaire / principal), 2 spectateurs au plus puis repli MP4, aucun spectateur fantôme, clé en 0600, aucune régression avec `WHEP=0`, taille de `tc100-whep` et marge de la partition `stack` notées (STACK_MAX 2 830 336 octets).
 
+## 2026-11-05 18:55 — Relecture testeur de la journée du 2026-11-05 (56 commits, 7038060..dd4d604)
+
+CI et build **verts** sur `dd4d604` (le build de `b7f3610` était rouge, corrigé par `dd4d604` : `<sys/time.h>` avec musl). `VERSION` est toujours **3.0.1-rc26** alors que le contenu n'a plus rien à voir avec la rc26 téléchargée hier (`342b523`).
+
+- **Flash : ça tient.** Build `8a7806b` : `stack.sqfs` 2 424 832 o (partition 2 830 336, ~396 Ko libres, même taille qu'en rc26 grâce au filtre xz ARM) ; noyau 1 783 832 / 2 097 152 ; initrd 2 012 654 / 2 097 152 (**84 Ko libres seulement**). Nouveaux binaires dans l'image : `tc100-onvifd`, `tc100-supervisord` (et `tc100-whep` à partir de `d20365a`).
+- **Installations existantes : pas de surprise de configuration.** `install_config` ne copie une `.dist` que si le fichier manque ; les nouvelles clés absentes prennent la valeur par défaut du code (ex. `BOOT_SOUND` : 0 dans `autorun` si la clé manque, donc pas de son au démarrage sur nos caméras ; `MQTT_BRIDGE_IMPL=c` seulement pour une nouvelle installation).
+- **Changements de comportement pour TOUS, sans mesure sur caméra** (à tester dans la prochaine RC) :
+  - `1a3a2eb` : `RTSP_PACING_US=100` **par défaut** dans `rtsp-launch.sh` (« sans effet sur la latence » n'a pas été mesuré) ;
+  - `e4a75ab` : console série coupée après 5 min (`SERIAL_CONSOLE=auto`), `VM_TUNE=1` ;
+  - `96336d1` / `e646a68` : `dosfsck -a` avant le montage, `S39 stop` ferme l'enregistreur et remonte en lecture seule (devrait régler le « not properly unmounted » de la .24) ;
+  - `9e2089e` : `NET_LAN_ONLY` réappliqué au web et au RTSP, `httpfront` borné, expiration des clients RTSP inactifs (risque : Frigate en TCP inactif ?).
+- « Smart mode validated » (`6b00d5d`) = l'interrupteur `vbr`/`smart` est validé par `config-transaction.sh`, **pas** un essai sur caméra : le mode smart reste à tester avec le noyau `venc_pool` 12M (`5d9193c`).
+- Liste `a-faire-implementeur.md` : 37 points cochés, 21 ouverts.
+- **Demande** : publier ce contenu en **rc27** (pas sous « rc26 »). Plan de test proposé, sur la .11 seule : (1) installation + boot-guard + SD propre ; (2) une nuit avec `RTSP_PACING_US=100` (images sautées, pertes de ping, latence du direct) ; (3) Frigate et HA inchangés (NET_LAN_ONLY, expiration RTSP) ; (4) `tc100-onvifd` et `tc100-supervisord` un par un (off par défaut) ; (5) WebRTC/WHEP en dernier.
+
 ## 2026-11-05 — Ligne d'état native dans httpfront (`[httpfront-native]`, item 55)
 
 - **Quoi :** `httpfront` répond lui-même à `GET /cgi-bin/statusline.cgi` (même URL, même JSON, mêmes caches `/tmp/state_*`), sans lancer httpd ni sh. Uniquement avec un login Basic correct ; le filtre LAN et le verrouillage restent avant. Tout ce qu'il ne peut pas reproduire exactement (fichier `/tmp/csrf_token` absent, antislash dans une valeur, nombre inattendu) part vers le CGI comme avant. Binaire httpfront : 8,7 Ko → 21 Ko (+6,5 Ko compressé ; nouveau code compilé en Thumb). Sous qemu : 7 ms contre 93 ms pour le CGI. Pas de gain de flash tant que le CGI reste en repli.
