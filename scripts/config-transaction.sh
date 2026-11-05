@@ -132,6 +132,8 @@ tc_normalize_and_validate()
     rec_stream) case "$_tc_value" in main|sub) ;; *) return 1 ;; esac ;;
     dn_source) case "$_tc_value" in luma|ae|isp|vendor) ;; *) return 1 ;; esac ;;
     ir_led_mode) case "$_tc_value" in off|force|auto) ;; *) return 1 ;; esac ;;
+    smart_mode) case "$_tc_value" in 0|1|2) ;; *) return 1 ;; esac ;;
+    serial_console) case "$_tc_value" in auto|on) ;; *) return 1 ;; esac ;;
     http_method) case "$_tc_value" in POST|PUT) ;; *) return 1 ;; esac ;;
     ntfy_priority) case "$_tc_value" in min|low|default|high|urgent|max|[1-5]) ;; *) return 1 ;; esac ;;
     ntfy_topic)
@@ -459,6 +461,8 @@ tc_validate_rtsp()
     tc_check_ini "$_tc_file" "$_tc_section" minqp qp "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" maxqp qp "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" smartmode bool "$_tc_label" || return 1
+    tc_check_ini "$_tc_file" "$_tc_section" vbr bool "$_tc_label" || return 1
+    tc_check_ini "$_tc_file" "$_tc_section" smart smart_mode "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" smartgoplen smartgop "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" smartquality smartquality "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" smartstatic smartstatic "$_tc_label" || return 1
@@ -541,6 +545,8 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" WIFI_RESCUE_SSID rescue_ssid_optional "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_PSK rescue_psk_optional "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" BOOT_GUARD bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" SERIAL_CONSOLE serial_console "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VM_TUNE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOG_PERSIST bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOG_PERSIST_MIN persist_min "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_QUALITY bool "$_tc_rel" || return 1

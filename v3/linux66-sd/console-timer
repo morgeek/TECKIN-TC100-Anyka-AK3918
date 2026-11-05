@@ -1,0 +1,65 @@
+#!/bin/sh
+# console-timer: the UART login prompt (getty on ttySAK0, started by v3/S39tc100-linux66) is there at every boot for
+# CT_DELAY seconds (300). After that, if nobody has a session on it, the getty loop stops and its memory is freed.
+# The console stays on for good when:
+#   - boot.conf SERIAL_CONSOLE=on (default auto), read again at the deadline;
+#   - the safe mode is up (/tmp/safemode, raised by boot-guard after 3 short reboots);
+#   - /tmp/console-keep exists (any watchdog or script that wants the console kept: touch it);
+#   - anything is not as expected (no /proc to look at, the stop file cannot be written): when in doubt, keep it.
+# A session that is open at the deadline is never cut: the check is repeated every CT_POLL seconds until the line is
+# idle again (or the safe mode / keep flag appears, which ends the timer without stopping anything).
+# Test hooks: CT_BOOTCONF, CT_SAFE, CT_KEEP, CT_OFF, CT_PROC, CT_TTY, CT_DELAY, CT_POLL, CT_MAXPOLL.
+BOOTCONF=${CT_BOOTCONF:-/mnt/config/boot.conf}
+SAFE=${CT_SAFE:-/tmp/safemode}
+KEEP=${CT_KEEP:-/tmp/console-keep}
+OFF=${CT_OFF:-/tmp/console-off}
+PROC=${CT_PROC:-/proc}
+TTY=${CT_TTY:-/dev/ttySAK0}
+DELAY=${CT_DELAY:-300}
+POLL=${CT_POLL:-30}
+MAXPOLL=${CT_MAXPOLL:-0}	# 0 = no limit (tests only)
+
+log() { echo "[console-timer] $*" 2>/dev/null > /dev/console; }
+
+mode() {
+  _v=$(sed -n 's/^SERIAL_CONSOLE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$BOOTCONF" 2>/dev/null | tail -n 1)
+  case "$_v" in on|1|yes|true) echo on ;; *) echo auto ;; esac
+}
+
+keep() { [ -f "$SAFE" ] || [ -f "$KEEP" ] || [ "$(mode)" = on ]; }
+
+# pids on the line: getty waiting for a user name (idle), or anything else (login, shell: a session)
+# prints "idle pids..." or "busy"; returns 1 when /proc cannot be read
+scan() {
+  [ -d "$PROC/self" ] || return 1
+  _pids=; _busy=0
+  for _d in "$PROC"/[0-9]*; do
+    _p=${_d##*/}
+    _l=$(readlink "$_d/fd/0" 2>/dev/null) || continue
+    [ "$_l" = "$TTY" ] || continue
+    _c=$(tr '\0' ' ' < "$_d/cmdline" 2>/dev/null)
+    case "$_c" in
+      *getty*) _pids="$_pids $_p" ;;
+      '') ;;
+      *) _busy=1 ;;
+    esac
+  done
+  if [ $_busy = 1 ]; then echo busy; else echo "idle$_pids"; fi
+}
+
+[ "$DELAY" -gt 0 ] 2>/dev/null && sleep "$DELAY"
+n=0
+while :; do
+  keep && exit 0
+  r=$(scan) || { log "cannot look at the console users: kept"; exit 0; }
+  case "$r" in
+    idle*)
+      echo 1 > "$OFF" 2>/dev/null && [ -f "$OFF" ] || { log "cannot write $OFF: console kept"; exit 0; }
+      # the getty loop sees the file and ends; the getty waiting on the line is killed now
+      for p in ${r#idle}; do kill "$p" 2>/dev/null; done
+      log "no session in $DELAY s: the serial console is off (SERIAL_CONSOLE=on keeps it)"
+      exit 0 ;;
+  esac
+  n=$((n + 1)); [ "$MAXPOLL" -gt 0 ] && [ "$n" -ge "$MAXPOLL" ] && exit 0
+  sleep "$POLL"
+done
