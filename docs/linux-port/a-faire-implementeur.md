@@ -54,7 +54,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
      lancé par `&` attend le démon.
 3. [ ] **Points ouverts de la checklist** (*D8 fait le 2026-11-05, voir `audit-2026-11-04.md` §7*) : W4 (assistant sans jeton CSRF), B3 (`flashw -m` compare le fichier à
    lui-même, avec B1), D8 (passe de documentation : `api.md` cite encore HTTPS et `set_web_mode`, `wifi_set_country`
-   non documenté…). B1 et W4 : décision du propriétaire reportée, à lui reposer avant le tag.
+   non documenté…). B1 et W4 : *décision du propriétaire le 2026-11-05 soir : les deux dans la prochaine RC* (B1 + B3 : jusqu'à 3 essais par partition, plus de redémarrage automatique après un échec ; W4 : jeton CSRF exigé par l'assistant). En cours, entrées `[b1-update]`, `[w4-wizard]`.
 4. [x] **Retirer la mention « CVE-2026-98432 »** de l'entrée rc24 et de la checklist : mention retirée.
 5. [x] **Petits restes de config** :
    - `boot.conf.dist` : `MEM_GUARD_SOFT_SERVICES=""` nettoyé ;
@@ -411,6 +411,13 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
       - Configuration dans `autorun-linux66.sh` : `sysctl -w vm.vfs_cache_pressure=150` (recycle agressivement les dentries/inodes en RAM basse) et `sysctl -w vm.dirty_background_ratio=5` / `sysctl -w vm.dirty_ratio=10`.
       - Zéro risque de perte de données : les écritures sur SD sont flushées plus tôt en arrière-plan sans bloquer les allocations vidéo.
     - **5. Smart Bitrate / Smart GOP sur VPU AK3918** : *Accord propriétaire*. Activer via `libmpi_venc_ex.so` / `libakuio` (`ak_venc_set_smart_config`) pour diviser le débit par 2 à 3 sur scènes nocturnes ou immobiles sans impact CPU.
+
+## Prochaine RC (propriétaire, 2026-11-05 soir)
+
+Tout faire sauf #50, qualifier, puis lancer une nouvelle RC. Décisions : B1 + B3 et W4 dans la RC ; #35 en entier
+(étapes 2 à 5), désactivé par défaut (`WHEP=0`), la mesure `srtp-bench` décidant ensuite flux principal ou
+secondaire ; #52 / #55 (démon C unifié) dans la RC avec un interrupteur désactivé par défaut, l'ancien chemin shell
+gardé ; #56 (console série 5 min, réglages `vm`, smart bitrate) ; #50 après les références UI (`[ui-baseline]`).
 
 ## Hors implémenteur (propriétaire)
 
