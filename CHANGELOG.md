@@ -157,6 +157,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   jitter, to tell a Wi-Fi or network problem from a camera one.
 
 ### Changed
+- **Serial console after 5 minutes** (item 56): the UART login prompt stops when nobody used it in the first 5 minutes
+  (an open session is never cut); it stays on in safe mode or with `SERIAL_CONSOLE=on`. **VM tuning** for 64 MB
+  (`VM_TUNE=1`: `vfs_cache_pressure` 150, dirty ratios 5 / 10). The encoder smart mode keys (`vbr`, `smart`) are now
+  validated; the mode stays off until the item 9 kernel is tested.
 - **Services page redesigned** (Tools → Services, item 46): three themed cards in a grid that uses the width of the
   screen (Core: video, web and system; Network and access; Integrations; then Other), one compact card per service
   with its CPU/RAM impact, state, Start/Stop, start at boot and source; one column on a phone. "Problems only" also

@@ -2535,3 +2535,24 @@ Prochaine étape : rc26 sur la .11.
 - **Interrupteur :** aucun (revert) ; pour rouvrir l'assistant : Réglages → Système → Relancer l'assistant.
 - **Test :** (1) Première installation sur une carte neuve (sans `.wizard3_done`, sans mot de passe) : parcours complet de l'assistant, mot de passe compris ; doit aboutir. (2) `curl -X POST -d 'profile=standalone' http://<cam>/cgi-bin/wizard.cgi` sans jeton pendant que l'assistant est ouvert : réponse 403 `csrf_invalid`, rien de modifié. (3) Même POST avec `-H "X-CSRF-Token: <csrf_token de statusline.cgi>"` : accepté. (4) Caméra jamais passée par l'assistant : changer le mot de passe dans Réglages, vérifier que `/tmp/.first_boot` disparaît, que `/mnt/config/.password_set` existe, et qu'après redémarrage `index.html` n'ouvre plus l'assistant. (5) « Relancer l'assistant » puis parcours complet.
 - **Critères :** parcours de première installation inchangé et réussi ; POST sans jeton ou avec jeton faux refusé sans écrire ; après un mot de passe réglé ailleurs, plus de redirection vers l'assistant au redémarrage ; « Relancer l'assistant » rouvre bien l'assistant.
+
+## 2026-11-05 — Console série : extinction auto après 5 min, maintenue en mode sûr (`[opt-56]`)
+
+- **Quoi :** le getty de ttySAK0 reste disponible 5 min après le démarrage (compté depuis autorun, soit environ 20 à 30 s après le noyau). Sans session ouverte à ce moment, `v3/linux66-sd/console-timer` l'arrête et libère sa mémoire. Une session ouverte n'est jamais coupée : il attend sa fin. La console reste allumée en mode sûr (`/tmp/safemode`), avec `/tmp/console-keep`, ou si `SERIAL_CONSOLE=on`. Au moindre doute (pas de /proc, écriture impossible) elle est gardée. Limite : aucune « alerte watchdog » ne crée encore `/tmp/console-keep` (le crochet existe, rien ne l'appelle).
+- **Interrupteur :** `boot.conf` `SERIAL_CONSOLE=on` (défaut `auto`). Le fichier `tc100test/consoleshell` garde le shell root permanent comme avant.
+- **Test :** 1) Démarrer sans toucher à l'UART, attendre 5 min : le message `[console-timer] ... serial console is off` apparaît sur la console, `/tmp/console-off` existe, `ps | grep getty` ne montre plus de getty sur ttySAK0. 2) Se connecter sur l'UART avant 5 min et rester connecté 10 min : pas de coupure. Se déconnecter : le getty s'arrête dans les 30 s. 3) Mettre `SERIAL_CONSOLE=on`, redémarrer : le getty est encore là après 10 min. 4) Provoquer le mode sûr (3 reboots courts) : le getty est encore là après 10 min.
+- **Critères :** getty absent après 5 min sans session ; jamais de coupure pendant une session ; getty présent après 10 min en mode sûr ou avec `on` ; caméra joignable (web, ssh) dans tous les cas.
+
+## 2026-11-05 — Réglages VM : vfs_cache_pressure 150, dirty 5/10 (`[opt-56]`)
+
+- **Quoi :** `autorun-linux66.sh` écrit dans `/proc/sys/vm` : `vfs_cache_pressure=150`, `dirty_background_ratio=5`, `dirty_ratio=10`, par défaut.
+- **Interrupteur :** `boot.conf` `VM_TUNE=0` (défaut `1`).
+- **Test :** démarrer, puis `cat /proc/sys/vm/vfs_cache_pressure /proc/sys/vm/dirty_background_ratio /proc/sys/vm/dirty_ratio` donne 150, 5 et 10. Enregistrement sur SD et flux RTSP pendant 1 h. Comparer MemAvailable et le journal avec `VM_TUNE=0`.
+- **Critères :** valeurs appliquées ; aucune erreur `alloc dma failed` ni OOM ; enregistrements complets ; MemAvailable égal ou meilleur.
+
+## 2026-11-05 — Smart bitrate / GOP : interrupteur existant validé, reste l'essai du noyau item 9 (`[opt-56]`)
+
+- **Quoi :** le mode smart était déjà câblé (R11-01) : clés `vbr=1` et `smart=1|2` sous `[0]`/`[1]` de `rtspserver.conf`, lues par `rtsp-launch.sh` (`RTSP_VBR`, `RTSP_SMART`). Désormais validées dans `config-transaction.sh` (vbr bool, smart 0|1|2) et documentées dans `boot.conf.dist`. Désactivé par défaut. Rien à câbler de plus.
+- **Interrupteur :** clé `smart` absente ou 0 (défaut). `RTSP_SMART_FORCE=1` seulement pour le mode 2, qui arrête l'encodeur sur cette caméra.
+- **Test :** voir l'entrée `[smart-pool]` : noyau avec `ak39_venc.pool=12M`, puis `vbr=1` et `smart=1`. Sur le pool 9600K, le journal doit dire `smart mode 1 not used`.
+- **Critères :** `smart mode 1 (long-term reference)` dans le journal, pas de `alloc dma failed`, serveur vivant 24 h, MemAvailable environ 2,4 Mo plus bas, débit et qualité comparés à la .24.

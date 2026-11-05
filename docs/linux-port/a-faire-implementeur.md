@@ -407,7 +407,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     - **Handlers HTTP natifs en C dans `httpfront` (remplacement progressif de `state.cgi` / `action.cgi`)** : `state.cgi` (67 Ko, 1 534 lignes) et `action.cgi` (40 Ko, 1 193 lignes) forcent des forks lourds pour chaque commande web. Migrer les endpoints les plus sollicités en routes natives dans `httpfront`. Gain : **~40 à 60 Ko de flash** et latence d'action divisée par 20 (< 5 ms au lieu de 200 ms).
     - **Minification du dictionnaire français (`www/i18n/fr.js`)** : Le fichier pèse 121 Ko non minifié. Nettoyage et minification des chaînes avant SquashFS. Gain : **~15 à 25 Ko de flash**.
 
-56. [ ] **Optimisations avancées RAM/CPU & comportement de secours (avis propriétaire 2026-11-05)** :
+56. [ ] *(2026-11-05 soir : 3 (console 5 min, `SERIAL_CONSOLE`), 4 (`VM_TUNE`) faits, 5 déjà câblé (R11-01) et validé, attend le noyau de #9 ; entrées `[opt-56]` ; 1 et 2 attendent leurs essais #11 / #19)* **Optimisations avancées RAM/CPU & comportement de secours (avis propriétaire 2026-11-05)** :
     - **1. Capture ALSA directe dans `tc100_rtsp`** : *Accord propriétaire*. Déjà pré-câblé dans `src/tc100rtsp/acap.c` (`RTSP_ALSA_DIRECT=1`, voir #11) ; à valider et passer par défaut une fois testé sans régression sonore.
     - **2. Détection de mouvement matérielle VPU / P-frame stats** : *Rapprochement avec l'existant*. Le propriétaire note à juste titre que c'était déjà proposé (#19 `[md-enc]`, `RTSP_MD_ENC=1`) : l'implémentation existante analyse les écarts de taille de trames P encodées (VPU) plutôt que du CPU pixel diff. À coordonner avec l'évaluation d'un seuil adaptatif VBR et l'essai `[md-enc]`.
     - **3. Gestion getty / console série avec extinction auto 5 min & réveil safe-mode** :
