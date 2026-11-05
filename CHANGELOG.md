@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **WebRTC live view** (item 35, `WHEP=1`, off by default): `tc100-whep` (WHEP, ICE-lite, DTLS-SRTP with the system
+  mbedTLS, SRTP in plain C) relays the camera's RTP to the browser with about 150 ms of delay; the page tries it first
+  and falls back to the MP4 live view on any failure. The base image now builds mbedTLS with DTLS-SRTP.
 - **Home Assistant discovery in the C MQTT bridge** (item 55, `MQTT_DISCOVERY_IMPL=c`, off by default): the same
   topics and payloads byte for byte, without the ~120 subshells the script spends at each connection.
 - **One C supervisor for day/night and the reset button** (items 52 / 55, `SUPERVISOR_IMPL=c`, off by default):
