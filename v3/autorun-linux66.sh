@@ -31,6 +31,16 @@ done
 echo 0 > /proc/sys/vm/watermark_boost_factor 2>/dev/null
 echo 1024 > /proc/sys/vm/min_free_kbytes 2>/dev/null
 
+# 0b. item 56.4: VM tuning, on unless boot.conf VM_TUNE=0 (a recipe for a 64 MB camera: dentries and inodes are given back
+#     sooner and the card's writes start earlier in the background, so that they do not block the video allocations)
+case "$(sed -n 's/^VM_TUNE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)" in
+  0|no|off|false) ;;
+  *)
+    echo 150 > /proc/sys/vm/vfs_cache_pressure 2>/dev/null
+    echo 5 > /proc/sys/vm/dirty_background_ratio 2>/dev/null
+    echo 10 > /proc/sys/vm/dirty_ratio 2>/dev/null ;;
+esac
+
 # 0. Start Hardware Watchdog keeper (feed every 15s, 60s timeout)
 killall watchdog 2>/dev/null
 watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
@@ -149,6 +159,9 @@ fi
 sh /mnt/scripts/reboot-tracker.sh boot </dev/null >/dev/null 2>&1
 sh /mnt/v3/linux66-sd/boot-guard start </dev/null >/dev/null 2>&1
 SAFE=0; if [ -f /tmp/safemode ]; then SAFE=1; fi
+# item 56.3: the serial console's 5 minute timer (the getty loop is S39tc100-linux66): off after 5 minutes without a
+# session, kept in safe mode, with boot.conf SERIAL_CONSOLE=on or /tmp/console-keep
+if [ -f /mnt/v3/linux66-sd/console-timer ]; then ( sh /mnt/v3/linux66-sd/console-timer </dev/null >/dev/null 2>&1 & ); fi
 
 # 2. Populate shared uClibc libraries into /lib: symlinks, except on the card (SD mode) for the small uClibc runtime,
 #    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a

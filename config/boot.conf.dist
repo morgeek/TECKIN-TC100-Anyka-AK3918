@@ -142,6 +142,18 @@ LOG_PERSIST_MIN=10
 # A restart once it has run 5 minutes is a normal one again. Reboots from the web page or the reset button do not
 # count. The history: /mnt/config/log/reboot-history.log. 0 = off.
 BOOT_GUARD=1
+# SERIAL_CONSOLE=auto: the UART login prompt (115200 8N1) is there for 5 minutes at every boot; if nobody has a
+# session on it by then, it stops and its memory is freed (v3/linux66-sd/console-timer). It stays on for good in
+# safe mode (BOOT_GUARD) and when /tmp/console-keep exists. on = never stopped. Takes effect at the next start.
+SERIAL_CONSOLE=auto
+# Encoder smart mode (item 56.5) is not a boot.conf switch: it is the keys vbr=1 and smart=1 (1 = long-term reference,
+# 2 = variable GOP, only with RTSP_SMART_FORCE=1 in rtsp.env) under [0] / [1] of rtspserver.conf (Video page), off when
+# absent. Mode 1 needs the 12 MB encoder pool of the item 9 kernel: on the default 9600K pool tc100_rtsp logs
+# "smart mode 1 not used" and runs as before.
+# VM_TUNE=1: kernel memory settings for this 64 MB camera (vm.vfs_cache_pressure=150, vm.dirty_background_ratio=5,
+# vm.dirty_ratio=10: cached file names are given back sooner, the card's writes start earlier in the background).
+# No data is at risk. 0 = the kernel's defaults. Takes effect at the next start.
+VM_TUNE=1
 # Wi-Fi quality over time (scripts/wifi-quality.sh): one sample a minute of the signal, the transmit retries and
 # failures and the packet loss to the router, kept 24 h in RAM (/tmp/wifi-quality.log, nothing written to flash or
 # card); the last hour goes to MQTT (Wi-Fi loss, retries, weakest signal). 1 = on, 0 = off (default). Read at boot.
