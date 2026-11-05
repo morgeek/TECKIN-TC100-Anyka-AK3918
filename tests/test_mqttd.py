@@ -191,6 +191,7 @@ d=$(cd "$(dirname "$0")" && pwd)
 case "$1" in
   print-config) cat "$d/conf" ;;
   startup)
+    printf '%s\n' "$2" > "$d/startarg"
     printf 'P1%s\000%s\000' t/discovery/a '{"x":1}' >&3
     printf 'P1%s\000\000' t/discovery/gone >&3
     printf 'P0%s\000%s\000' t/env "$MQTT_SINK|$MQTT_HOST_RESOLVED" >&3 ;;
@@ -292,6 +293,33 @@ class Daemon(unittest.TestCase):
         order = [p[0] for p in b.pubs]
         self.assertLess(order.index('t/discovery/a'), order.index('t/health'))     # discovery before the first health
         self.assertIn('info MQTT bridge started', (self.d / 'events').read_text())
+
+    def test_c_discovery_is_published_by_the_daemon_and_the_script_is_told_to_skip_it(self):
+        b = self.start(MQTT_DISCOVERY_IMPL='c', HA_DISCOVERY='1', HA_DISCOVERY_PREFIX='ha', HA_NODE_ID='n1',
+                       HA_DEVICE_NAME='My "Cam"', HA_SW='9.9', HA_CAMERA='0', HA_ISP='0')
+        self.assertTrue(b.wait(lambda b: b.pub('t/health') and b.pub('cam1/availability')))
+        cpu = b.pub('ha/sensor/n1/cpu/config')
+        self.assertEqual(len(cpu), 1)
+        self.assertTrue(cpu[0][2])                                                  # retained
+        self.assertIn(b'"name":"My \\"Cam\\" CPU"', cpu[0][1])
+        self.assertIn(b'"sw":"9.9"', cpu[0][1])
+        self.assertEqual(b.pub('ha/switch/n1/privacy_shield/config')[0][1:], (b'', True))   # removal of an old entity
+        self.assertFalse(b.pub('ha/camera/n1/live/config') or b.pub('ha/number/n1/isp_hue/config'))
+        self.assertEqual(len([p for p in b.pubs if p[0].startswith('ha/')]), 43)
+        self.assertEqual((self.d / 'startarg').read_text(), 'nodisc\n')            # the script skips its own discovery
+        order = [p[0] for p in b.pubs]
+        self.assertLess(order.index('ha/sensor/n1/cpu/config'), order.index('t/health'))
+
+    def test_sh_discovery_is_the_default_and_the_daemon_publishes_none(self):
+        b = self.start(HA_DISCOVERY='1', HA_DISCOVERY_PREFIX='ha', HA_NODE_ID='n1')   # MQTT_DISCOVERY_IMPL absent
+        self.assertTrue(b.wait(lambda b: b.pub('t/health')))
+        self.assertFalse([p for p in b.pubs if p[0].startswith('ha/')])
+        self.assertEqual((self.d / 'startarg').read_text(), '\n')                   # plain `startup`
+        self.proc.terminate()
+        self.proc.wait(5)
+        b = self.start(MQTT_DISCOVERY_IMPL='c', HA_DISCOVERY='0', HA_DISCOVERY_PREFIX='ha', HA_NODE_ID='n1')
+        self.assertTrue(b.wait(lambda b: b.pub('t/health')))
+        self.assertFalse([p for p in b.pubs if p[0].startswith('ha/')])             # discovery disabled in mqtt.conf
 
     def test_command_is_one_argument_and_its_results_are_published(self):
         b = self.start()
@@ -565,6 +593,151 @@ class Worker(unittest.TestCase):
         self.assertEqual(self.forged(), [])                                          # nothing went to nc in sink mode
 
 
+HAVE_BUSYBOX = shutil.which('busybox') is not None
+
+BASE_CONF = {'MQTT_ENABLE': '1', 'MQTT_HOST': 'broker.test', 'MQTT_PORT': '1883', 'MQTT_CLIENT_ID': 'Cam-One',
+             'MQTT_TOPIC_ROOT': 'cam/one', 'MQTT_HA_DISCOVERY_ENABLE': '1', 'MQTT_HA_CAMERA_ENTITY_ENABLE': '1',
+             'MQTT_USER': 'u', 'MQTT_PASSWORD': 'p', 'MQTT_DISCOVERY_IMPL': 'c'}
+
+# name: (mqtt.conf changes, host name, /mnt/VERSION or None for no file, remove isp-tune.sh)
+PARITY_CASES = {
+    'defaults': ({}, 'cam-host', '3.0.1-test', False),
+    'prefix changed and cleaned up': ({'MQTT_HA_DISCOVERY_PREFIX': '/My Prefix!/ha//'}, 'cam-host', '3.0.1-test', False),
+    'camera entity off': ({'MQTT_HA_CAMERA_ENTITY_ENABLE': '0'}, 'cam-host', '3.0.1-test', False),
+    'camera entity from snapshots on events': ({'MQTT_HA_CAMERA_ENTITY_ENABLE': '0', 'MQTT_SNAPSHOT_ON_EVENT': '1'}, 'cam-host', '3.0.1-test', False),
+    'no image tuning script': ({}, 'cam-host', '3.0.1-test', True),
+    'discovery disabled': ({'MQTT_HA_DISCOVERY_ENABLE': '0'}, 'cam-host', '3.0.1-test', False),
+    'device name needing escapes': ({}, 'Cam "Front"\\Door\tx 100% %s %d', '3.0.1-test', False),
+    'quote before a backslash (quirk of json_escape)': ({}, 'a"b\\c', '3.0.1-test', False),
+    'client id and root with odd characters': ({'MQTT_CLIENT_ID': 'My Cam#1!', 'MQTT_TOPIC_ROOT': 'cam/"q"/x'}, 'cam-host', '3.0.1-test', False),
+    'explicit command topic and version': ({'MQTT_TOPIC_COMMAND': 'cmd/\\"x'}, 'cam-host', 'v "1"', False),
+    'identity from the host name': ({'MQTT_CLIENT_ID': 'tc100-camera', 'MQTT_TOPIC_ROOT': 'tc100/camera'}, 'CAMERA 2', None, False),
+    'empty host name and no version': ({}, '', None, False),
+}
+
+
+@unittest.skipUnless(HAVE_CC and HAVE_BUSYBOX, 'needs cc and busybox (the printf of the camera shell)')
+class DiscoveryParity(unittest.TestCase):
+    """MQTT_DISCOVERY_IMPL=c: the discovery of tc100-mqttd is, record by record, the one of the shell script."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bd = Path(tempfile.mkdtemp())
+        cls.bin = cls.bd / 'tc100-mqttd'
+        r = subprocess.run(['cc', '-O1', '-Wall', '-Wextra', '-std=gnu11', '-o', str(cls.bin), str(ROOT / 'src/mqttd/mqttd.c')],
+                           capture_output=True, text=True)
+        assert r.returncode == 0 and not r.stderr, r.stderr
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.bd, ignore_errors=True)
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self.mnt, self.tmp, self.shim = sandbox(self.d)
+        self.hostfile = self.d / 'hostname'
+        for f in (self.mnt / 'scripts').rglob('*'):
+            if f.is_file():
+                try:
+                    f.write_text(f.read_text().replace('/proc/sys/kernel/hostname', str(self.hostfile)))
+                except UnicodeDecodeError:
+                    pass
+        self.script = self.mnt / 'scripts' / 'mqtt-bridge.sh'
+        self.wrapper = self.d / 'bridge'
+        self.wrapper.write_text('#!/bin/sh\nexec busybox ash "%s" "$@"\n' % self.script)
+        self.wrapper.chmod(0o755)
+        self.env = dict(os.environ, PATH='%s:%s' % (self.shim, os.environ['PATH']), LC_ALL='C', MQTT_HOST_RESOLVED='broker.test')
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def configure(self, conf, host, version, no_isp):
+        c = dict(BASE_CONF)
+        c.update(conf)
+        (self.mnt / 'config' / 'mqtt.conf').write_text(''.join("%s='%s'\n" % kv for kv in c.items()))
+        self.hostfile.write_text(host + '\n')
+        if version is None:
+            (self.mnt / 'VERSION').unlink()
+        else:
+            (self.mnt / 'VERSION').write_text(version + '\n')
+        if no_isp:
+            (self.mnt / 'scripts' / 'isp-tune.sh').unlink()
+
+    def print_config(self):
+        r = subprocess.run([str(self.wrapper), 'print-config'], env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def shell_run(self, *args, name='sink.bin'):
+        sinkf = self.d / name
+        r = subprocess.run(['busybox', 'ash', '-c', 'exec 3>"$1"; shift; exec "$@"', 'x', str(sinkf), 'busybox', 'ash', str(self.script), *args],
+                           env=dict(self.env, MQTT_SINK='1'), stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return sink_records(sinkf.read_bytes())
+
+    def c_records(self):
+        out = self.d / 'c.bin'
+        r = subprocess.run([str(self.bin), '-s', str(self.wrapper), '-l', str(self.d / 'log'), '-D', str(out)], env=self.env,
+                           stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return sink_records(out.read_bytes())
+
+    def test_same_topics_payloads_and_retain_flags_as_the_shell(self):
+        for name, case in PARITY_CASES.items():
+            with self.subTest(name):
+                shutil.rmtree(self.d, ignore_errors=True)
+                self.setUp()
+                self.configure(*case)
+                kv = dict(l.split('=', 1) for l in self.print_config().splitlines())
+                self.assertEqual(kv['MQTT_DISCOVERY_IMPL'], 'c')
+                prefix = kv['HA_DISCOVERY_PREFIX']
+                sh = [x for x in self.shell_run('discovery') if x[0].startswith(prefix + '/')]
+                c = self.c_records()
+                self.assertEqual(c, sh)                                              # same records, same order
+                if name == 'discovery disabled':
+                    self.assertEqual(c, [])
+                else:
+                    self.assertGreaterEqual(len(c), 43)
+                    self.assertTrue(all(x[2] for x in c))                            # discovery is retained
+
+    def test_payloads_are_json_and_the_features_add_and_remove_entities(self):
+        import json
+        self.configure({}, 'cam-host', '3.0.1-test', False)
+        full = self.c_records()
+        for _, payload, _ in full:
+            if payload:
+                self.assertEqual(json.loads(payload)['dev']['ids'], ['Cam-One'])
+        shutil.rmtree(self.d, ignore_errors=True)
+        self.setUp()
+        self.configure({'MQTT_HA_CAMERA_ENTITY_ENABLE': '0'}, 'cam-host', '3.0.1-test', True)
+        lean = self.c_records()
+        gone = {x[0] for x in full} - {x[0] for x in lean}
+        self.assertEqual(gone, {'homeassistant/camera/Cam-One/live/config', 'homeassistant/select/Cam-One/isp_power_hz/config',
+                                'homeassistant/switch/Cam-One/isp_tune/config'} |
+                         {'homeassistant/number/Cam-One/isp_%s/config' % k for k in
+                          ('brightness', 'contrast', 'saturation', 'sharpness', 'hue', 'exposure_max_pct')})
+
+    def test_print_config_gives_the_discovery_values_only_for_the_c_implementation(self):
+        self.configure({'MQTT_DISCOVERY_IMPL': 'sh'}, 'cam-host', '3.0.1-test', False)
+        out = self.print_config()
+        self.assertIn('MQTT_DISCOVERY_IMPL=sh\n', out)
+        self.assertNotIn('HA_NODE_ID', out)
+        self.configure({'MQTT_DISCOVERY_IMPL': 'C'}, 'cam-host', '3.0.1-test', False)     # only the exact value "c" switches
+        self.assertIn('MQTT_DISCOVERY_IMPL=sh\n', self.print_config())
+        self.configure({}, 'cam-host', '3.0.1-test', False)
+        out = self.print_config()
+        for line in ('MQTT_DISCOVERY_IMPL=c', 'HA_DISCOVERY=1', 'HA_DISCOVERY_PREFIX=homeassistant', 'HA_NODE_ID=Cam-One',
+                     'HA_DEVICE_NAME=cam-host', 'HA_SW=3.0.1-test', 'HA_CAMERA=1', 'HA_ISP=1'):
+            self.assertIn(line + '\n', out)
+
+    def test_startup_nodisc_publishes_no_discovery_and_startup_still_does(self):
+        self.configure({}, 'cam-host', '3.0.1-test', False)
+        for arg, expect in (('nodisc', False), ('', True)):
+            topics = [x[0] for x in self.shell_run('startup', arg, name='s%d.bin' % expect)]
+            self.assertEqual(any(t.startswith('homeassistant/') for t in topics), expect)
+            self.assertIn('cam/one/event', topics)                                   # the start event is still the script's
+
+
 class Wiring(unittest.TestCase):
     """The switch, the build and the packaging: static checks (the shell runs under sh -n)."""
 
@@ -573,6 +746,7 @@ class Wiring(unittest.TestCase):
         self.assertIn('\nMQTT_BRIDGE_IMPL=c\n', dist)                               # c is the default now (tc100-mqttd)
         cs = (ROOT / 'controlscripts/mqtt-bridge').read_text()
         self.assertIn('BIN=/mnt/tc100test/tc100-mqttd', cs)
+        self.assertIn('\nMQTT_DISCOVERY_IMPL=sh\n', dist)                         # the C discovery is opt-in
         self.assertIn('[ "$MQTT_BRIDGE_IMPL" = c ]', cs)
         self.assertIn('[ -x "$BIN" ]', cs)                                           # no binary: shell bridge
         self.assertIn('echo "$!" > "$PIDFILE"', cs)                                  # same pid file for health/watchdog

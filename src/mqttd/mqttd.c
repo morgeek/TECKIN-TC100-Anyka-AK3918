@@ -14,12 +14,16 @@
  *         F<retain><topic> NUL <file>    NUL        (publish the content of this file, e.g. the snapshot)
  *     which this program publishes over its own connection. It runs only when there is something to do (once after
  *     connecting, every MQTT_HEALTH_INTERVAL_SECONDS, once per command), one job at a time.
+ *   - MQTT_DISCOVERY_IMPL=c (config/mqtt.conf, off by default): the Home Assistant discovery topics are built here
+ *     (discovery_publish, byte for byte what publish_homeassistant_discovery of the script gives) and the startup job
+ *     is run as `startup nodisc`; with `sh` (the default) the script does it as before;
  *   - `mqtt-bridge.sh publish ...` called by the other scripts (motion, sound, tamper...) writes the same records to
  *     the FIFO this program reads (a record is below PIPE_BUF: atomic), instead of opening a connection of its own;
  *   - the live status read by the web UI is /tmp/mqtt_last_pub.status: "<time> ok", "<time> fail", or
  *     "<time> fail <CONNACK code>" when the broker refuses the login.
  *
- * usage: tc100-mqttd [-s SCRIPT] [-l LOG] [-t STATUS] [-f FIFO] [-p PIDFILE]
+ * usage: tc100-mqttd [-s SCRIPT] [-l LOG] [-t STATUS] [-f FIFO] [-p PIDFILE] [-D FILE]
+ * -D FILE (tests): write the discovery records of the C implementation to FILE and exit, no connection.
  * The connection settings come from `SCRIPT print-config` (KEY=VALUE lines, defaults and auto-detection already
  * applied by load_config): this program never reads mqtt.conf itself and never logs the password.
  *
@@ -63,9 +67,12 @@ static const char *g_log = "/tmp/log/mqtt-bridge.log";
 static const char *g_status = "/tmp/mqtt_last_pub.status";
 static const char *g_fifo = "/tmp/mqtt-bridge.pub";
 static const char *g_pidfile = "/var/run/tc100-mqttd.pid";
+static const char *g_dump;
 
 static struct {
 	char host[128], port[8], user[128], pass[128], cid[140], root[160], cmd[256];
+	char dprefix[128], node[140], devname[256], sw[64];	/* discovery (print-config HA_*) */
+	int disc_c, ha_on, ha_camera, ha_isp;
 	int enable, health_s, ping_s, bo_init, bo_max, bo_mul, cb_thresh, cb_cool;
 } C;
 
@@ -342,7 +349,7 @@ static void start_job(void)
 	memmove(g_q, g_q + 1, (--g_qn) * sizeof g_q[0]);
 	argv[0] = (char *)g_script;
 	switch (j.kind) {
-	case J_STARTUP: argv[1] = "startup"; argv[2] = NULL; tmo = 300; break;
+	case J_STARTUP: argv[1] = "startup"; argv[2] = C.disc_c ? "nodisc" : NULL; argv[3] = NULL; tmo = 300; break;
 	case J_HEALTH: argv[1] = "health-cycle"; argv[2] = NULL; break;
 	case J_COMMAND: argv[1] = "command"; argv[2] = j.a; argv[3] = "mqtt"; argv[4] = NULL; break;
 	default: argv[1] = "log-event"; argv[2] = j.a; argv[3] = j.b; argv[4] = NULL; tmo = 20; break;
@@ -419,6 +426,179 @@ static void reap(void)
 		bfree(&g_cin);
 		g_child = 0;
 	}
+}
+
+/* ---- Home Assistant discovery (MQTT_DISCOVERY_IMPL=c) ----
+ * The same retained <prefix>/<component>/<node id>/<object>/config topics and payloads, in the same order, as
+ * publish_homeassistant_discovery of scripts/mqtt-bridge.sh (its printf formats are copied here: keep both in step;
+ * tests/test_mqttd.py compares them record by record). The values it depends on (enable, prefix, node id, device
+ * name, version, camera and ISP entities) come from `SCRIPT print-config`, so the script stays the one place that
+ * reads mqtt.conf and the system. An empty payload removes an entity that older versions announced. */
+
+static int g_dumpfd = -1;	/* -D FILE: write the records (P<retain><topic> NUL <payload> NUL) there instead of publishing */
+
+/* json_escape of the shell, quirks included: the first kind found in the order backslash, quote, newline, tab is
+ * handled at its first position, so a string with a backslash is copied raw up to it */
+static void json_esc(char *o, size_t n, const char *s)
+{
+	size_t k = 0;
+
+	while (*s && k + 3 < n) {
+		const char *p = NULL, *q;
+		const char *e = "";
+		static const char K[4] = { '\\', '"', '\n', '\t' };
+		static const char *const R[4] = { "\\\\", "\\\"", "\\n", "\\t" };
+
+		for (int i = 0; i < 4 && !p; i++)
+			if ((q = strchr(s, K[i]))) { p = q; e = R[i]; }
+		if (!p) p = s + strlen(s);
+		while (s < p && k + 1 < n) o[k++] = *s++;
+		if (*s) { for (; *e && k + 1 < n; e++) o[k++] = *e; s++; }
+	}
+	o[k] = 0;
+}
+
+static void dpub_raw(const char *comp, const char *obj, const char *payload)
+{
+	char topic[600];
+	int n = snprintf(topic, sizeof topic, "%s/%s/%s/%s/config", C.dprefix, comp, C.node, obj);
+
+	if (n >= (int)sizeof topic) { logf_("discovery topic too long, skipped"); return; }
+	if (g_dumpfd >= 0) {
+		char hd[3] = { 'P', '1', 0 };
+
+		if (write(g_dumpfd, hd, 2) < 0 || write(g_dumpfd, topic, n + 1) < 0 ||
+		    write(g_dumpfd, payload, strlen(payload) + 1) < 0) { /* the test notices */ }
+		return;
+	}
+	send_publish(1, topic, payload, strlen(payload));
+}
+
+static void dpub(const char *comp, const char *obj, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+
+static void dpub(const char *comp, const char *obj, const char *fmt, ...)
+{
+	static char pl[4096];
+	va_list ap;
+	int n;
+
+	va_start(ap, fmt);
+	n = vsnprintf(pl, sizeof pl, fmt, ap);
+	va_end(ap);
+	if (n >= (int)sizeof pl) { logf_("discovery payload of %s too long, skipped", obj); return; }
+	dpub_raw(comp, obj, pl);
+}
+
+#define DEV "\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Morgeek\",\"mdl\":\"TC100/AK3918\"}"
+#define AVTY "\"avty_t\":\"%s\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\""
+
+static void discovery_publish(void)
+{
+	char dn[600], di[300], ht[400], av[400], cj[600], sw[160], mo[400], bb[400], tp[400], al[400], ist[400];
+	char devj[1000], avtyj[700], tmp[400];
+	static const struct { const char *id, *name, *tpl, *extra; } diag[] = {
+#define DG(id, name, tpl, extra) { id, name, "{{ value_json.diag." tpl " }}", extra },
+		DG("wifi_signal", "Wi-Fi Signal", "wifi_rssi_dbm", "\"unit_of_meas\":\"dBm\",\"dev_cla\":\"signal_strength\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi\"")
+		DG("mem_available", "Memory Available", "mem_available_kb", "\"unit_of_meas\":\"kB\",\"dev_cla\":\"data_size\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:memory\"")
+		DG("wifi_rx_drop", "Wi-Fi Dropped Packets", "wifi_rx_drop", "\"stat_cla\":\"total_increasing\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi-alert\"")
+		DG("tcp_paws_drop", "Refused Connections", "tcp_paws_drop", "\"stat_cla\":\"total_increasing\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:lan-disconnect\"")
+		DG("sound_level", "Sound Level", "sound_db", "\"unit_of_meas\":\"dBFS\",\"stat_cla\":\"measurement\",\"ic\":\"mdi:volume-high\"")
+		DG("light_level", "Light Level", "light_level", "\"stat_cla\":\"measurement\",\"ic\":\"mdi:brightness-5\"")
+		DG("sd_state", "SD Card State", "sd_state", "\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:sd\"")
+		DG("rtsp_clients", "RTSP Clients", "rtsp_clients", "\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:cctv\"")
+		DG("rtsp_drops", "RTSP Skipped Frames", "rtsp_drops", "\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:video-off\"")
+		DG("last_boot", "Last Restart Cause", "last_boot", "\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:restart\"")
+		DG("unexpected_restarts", "Unexpected Restarts (history)", "unexpected_restarts", "\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:restart-alert\"")
+		DG("wifi_loss", "Wi-Fi Packet Loss (1 h)", "wifi_loss_pct", "\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi-alert\"")
+		DG("wifi_retries", "Wi-Fi Transmit Retries (1 h)", "wifi_tx_retries", "\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi-sync\"")
+		DG("wifi_signal_min", "Wi-Fi Weakest Signal (1 h)", "wifi_rssi_min", "\"unit_of_meas\":\"dBm\",\"dev_cla\":\"signal_strength\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi-strength-1\"")
+#undef DG
+	};
+	static const struct { const char *cmd, *name, *ic, *field; } sw_tab[] = {
+		{ "ir_led", "IR LED", "mdi:eye-outline", "ir_led_on" },
+		{ "front_led", "Front LED", "mdi:led-on", "front_led_on" },
+		{ "red_led", "Red LED", "mdi:led-variant-on", "red_led_on" },
+		{ "motion_detection", "Motion Detection", "mdi:motion-sensor", "motion_enabled" },
+		{ "night_mode", "Night Vision", "mdi:weather-night", "night_mode_on" },
+		{ "auto_night_mode", "Auto Night Mode", "mdi:theme-light-dark", "auto_night_enabled" },
+		{ "privacy", "Privacy Mode", "mdi:eye-off", "privacy_on" },
+	};
+	static const struct { const char *key, *name, *ic, *tpl; int min, max, step; } isp_tab[] = {
+		{ "brightness", "Brightness", "mdi:brightness-6", "{{ value_json.conf.BRIGHTNESS }}", -50, 50, 1 },
+		{ "contrast", "Contrast", "mdi:contrast-box", "{{ value_json.conf.CONTRAST }}", -50, 50, 1 },
+		{ "saturation", "Saturation", "mdi:palette", "{{ value_json.conf.SATURATION }}", -50, 50, 1 },
+		{ "sharpness", "Sharpness", "mdi:image-filter-center-focus", "{{ value_json.conf.SHARPNESS }}", -50, 50, 1 },
+		{ "hue", "Hue", "mdi:palette-swatch", "{{ value_json.conf.HUE }}", -50, 50, 1 },
+		{ "exposure_max_pct", "Exposure Cap", "mdi:camera-timer", "{{ value_json.conf.EXPOSURE_MAX_PCT or 0 }}", 0, 100, 5 },
+	};
+
+	json_esc(dn, sizeof dn, C.devname);
+	json_esc(di, sizeof di, C.node);
+	json_esc(sw, sizeof sw, C.sw);
+	json_esc(cj, sizeof cj, C.cmd);
+	snprintf(tmp, sizeof tmp, "%s/health", C.root); json_esc(ht, sizeof ht, tmp);
+	snprintf(tmp, sizeof tmp, "%s/availability", C.root); json_esc(av, sizeof av, tmp);
+	snprintf(tmp, sizeof tmp, "%s/motion/state", C.root); json_esc(mo, sizeof mo, tmp);
+	snprintf(tmp, sizeof tmp, "%s/babyphone/state", C.root); json_esc(bb, sizeof bb, tmp);
+	snprintf(tmp, sizeof tmp, "%s/tamper/state", C.root); json_esc(tp, sizeof tp, tmp);
+	snprintf(tmp, sizeof tmp, "%s/alarm/state", C.root); json_esc(al, sizeof al, tmp);
+	snprintf(devj, sizeof devj, DEV, di, dn);
+	snprintf(avtyj, sizeof avtyj, AVTY, av);
+
+	dpub("sensor", "cpu", "{\"name\":\"%s CPU\",\"uniq_id\":\"%s_cpu\",\"stat_t\":\"%s\",\"unit_of_meas\":\"%%\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value_json.cpu }}\"," AVTY ",\"ic\":\"mdi:chip\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Morgeek\",\"mdl\":\"TC100/AK3918\",\"sw\":\"%s\"}}", dn, di, ht, av, di, dn, sw);
+	dpub("sensor", "ram", "{\"name\":\"%s RAM\",\"uniq_id\":\"%s_ram\",\"stat_t\":\"%s\",\"unit_of_meas\":\"%%\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value_json.ram_percent }}\"," AVTY ",\"ic\":\"mdi:memory\"," DEV "}", dn, di, ht, av, di, dn);
+	dpub("sensor", "chip_temp", "{\"name\":\"%s Chip Temp\",\"uniq_id\":\"%s_chip_temp\",\"stat_t\":\"%s\",\"unit_of_meas\":\"°C\",\"dev_cla\":\"temperature\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value_json.chip_temp_c if value_json.chip_temp_c is number else none }}\"," AVTY ",\"ic\":\"mdi:thermometer\"," DEV "}", dn, di, ht, av, di, dn);
+	dpub("sensor", "power_draw", "{\"name\":\"%s Power Draw\",\"uniq_id\":\"%s_power\",\"stat_t\":\"%s\",\"unit_of_meas\":\"W\",\"dev_cla\":\"power\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ (value_json.power_estimated_mw | float(0) / 1000) | round(2) if value_json.power_estimated_mw is number else none }}\"," AVTY ",\"ic\":\"mdi:flash\"," DEV "}", dn, di, ht, av, di, dn);
+	dpub("sensor", "uptime", "{\"name\":\"%s Uptime\",\"uniq_id\":\"%s_uptime\",\"stat_t\":\"%s\",\"unit_of_meas\":\"s\",\"dev_cla\":\"duration\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value_json.uptime_seconds }}\"," AVTY ",\"ic\":\"mdi:clock-outline\"," DEV "}", dn, di, ht, av, di, dn);
+
+	for (size_t i = 0; i < sizeof diag / sizeof diag[0]; i++)
+		dpub("sensor", diag[i].id, "{\"name\":\"%s %s\",\"uniq_id\":\"%s_%s\",\"stat_t\":\"%s\",\"val_tpl\":\"%s\",%s,%s,%s}",
+		     dn, diag[i].name, di, diag[i].id, ht, diag[i].tpl, diag[i].extra, avtyj, devj);
+	dpub("binary_sensor", "sd_problem", "{\"name\":\"%s SD Card Problem\",\"uniq_id\":\"%s_sd_problem\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ \\\"ON\\\" if value_json.diag.sd_problem == 1 else \\\"OFF\\\" }}\",\"dev_cla\":\"problem\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:sd\",%s,%s}", dn, di, ht, avtyj, devj);
+	dpub("binary_sensor", "unexpected_restart", "{\"name\":\"%s Unexpected Restart\",\"uniq_id\":\"%s_unexpected_restart\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ \\\"ON\\\" if value_json.diag.last_boot == \\\"unexpected\\\" else \\\"OFF\\\" }}\",\"dev_cla\":\"problem\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:restart-alert\",%s,%s}", dn, di, ht, avtyj, devj);
+	dpub("binary_sensor", "night_mode", "{\"name\":\"%s Night Mode\",\"uniq_id\":\"%s_night_mode\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ \\\"ON\\\" if value_json.diag.day_mode == 0 else \\\"OFF\\\" }}\",\"ic\":\"mdi:weather-night\",%s,%s}", dn, di, ht, avtyj, devj);
+
+	if (C.ha_camera)
+		dpub("camera", "live", "{\"name\":\"%s Live\",\"uniq_id\":\"%s_camera\",\"topic\":\"%s/snapshot/image\",\"avty_t\":\"%s\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\"," DEV "}", dn, di, C.root, av, di, dn);
+	dpub("binary_sensor", "motion", "{\"name\":\"%s Motion\",\"uniq_id\":\"%s_motion\",\"stat_t\":\"%s\",\"dev_cla\":\"motion\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\"," AVTY ",\"ic\":\"mdi:motion-sensor\"," DEV "}", dn, di, mo, av, di, dn);
+	dpub("binary_sensor", "babyphone", "{\"name\":\"%s Babyphone\",\"uniq_id\":\"%s_babyphone\",\"stat_t\":\"%s\",\"dev_cla\":\"sound\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\"," AVTY ",\"ic\":\"mdi:baby\"," DEV "}", dn, di, bb, av, di, dn);
+	dpub("binary_sensor", "tamper", "{\"name\":\"%s Tamper\",\"uniq_id\":\"%s_tamper\",\"stat_t\":\"%s\",\"dev_cla\":\"problem\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\"," AVTY ",\"ic\":\"mdi:shield-alert\"," DEV "}", dn, di, tp, av, di, dn);
+	dpub("binary_sensor", "alarm", "{\"name\":\"%s Smoke/Siren Alarm\",\"uniq_id\":\"%s_alarm\",\"stat_t\":\"%s\",\"dev_cla\":\"safety\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\"," AVTY ",\"ic\":\"mdi:fire-alert\"," DEV "}", dn, di, al, av, di, dn);
+
+	for (size_t i = 0; i < sizeof sw_tab / sizeof sw_tab[0]; i++) {
+		/* the uniq_id and the names are not JSON-escaped in the shell either (fixed strings, the node id is a slug) */
+		char uid[400];
+
+		snprintf(uid, sizeof uid, "%s_%s", C.node, sw_tab[i].cmd);
+		dpub("switch", sw_tab[i].cmd, "{\"name\":\"%s %s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ \\\"ON\\\" if value_json.%s == 1 else \\\"OFF\\\" }}\",\"cmd_t\":\"%s\",\"pl_on\":\"{\\\"cmd\\\":\\\"%s\\\",\\\"value\\\":\\\"on\\\"}\",\"pl_off\":\"{\\\"cmd\\\":\\\"%s\\\",\\\"value\\\":\\\"off\\\"}\",\"avty_t\":\"%s\",\"ic\":\"%s\"," DEV "}",
+		     dn, sw_tab[i].name, uid, ht, sw_tab[i].field, cj, sw_tab[i].cmd, sw_tab[i].cmd, av, sw_tab[i].ic, di, dn);
+	}
+	dpub_raw("switch", "privacy_shield", "");	/* removed on 3.0: drops what older versions announced */
+
+	dpub("sensor", "wifi_quality", "{\"name\":\"%s Wi-Fi Quality\",\"uniq_id\":\"%s_wifi_quality\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.diag.wifi_quality }}\",\"unit_of_meas\":\"%%\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi-check\",%s,%s}", dn, di, ht, avtyj, devj);
+	dpub("sensor", "storage_used", "{\"name\":\"%s Storage Used\",\"uniq_id\":\"%s_storage_used\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.storage_used_percent }}\",\"unit_of_meas\":\"%%\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:harddisk\",%s,%s}", dn, di, ht, avtyj, devj);
+	dpub("sensor", "ip_address", "{\"name\":\"%s IP Address\",\"uniq_id\":\"%s_ip_address\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.primary_ip }}\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:ip-network\",%s,%s}", dn, di, ht, avtyj, devj);
+
+	if (C.ha_isp) {
+		snprintf(tmp, sizeof tmp, "%s/isp/state", C.root); json_esc(ist, sizeof ist, tmp);
+		for (size_t i = 0; i < sizeof isp_tab / sizeof isp_tab[0]; i++) {
+			char key[64];
+
+			snprintf(key, sizeof key, "isp_%s", isp_tab[i].key);
+			dpub("number", key, "{\"name\":\"%s %s\",\"uniq_id\":\"%s_isp_%s\",\"stat_t\":\"%s\",\"val_tpl\":\"%s\",\"cmd_t\":\"%s\",\"cmd_tpl\":\"{\\\"cmd\\\":\\\"isp_%s\\\",\\\"value\\\":\\\"{{ value | int }}\\\"}\",\"min\":%d,\"max\":%d,\"step\":%d,\"mode\":\"slider\",\"ent_cat\":\"config\"%s,\"avty_t\":\"%s\",\"ic\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Morgeek\",\"mdl\":\"TC100/AK3918\"}}",
+			     dn, isp_tab[i].name, di, isp_tab[i].key, ist, isp_tab[i].tpl, cj, isp_tab[i].key, isp_tab[i].min, isp_tab[i].max, isp_tab[i].step,
+			     i == 5 ? ",\"unit_of_meas\":\"%\"" : "", av, isp_tab[i].ic, di, dn);
+		}
+		dpub_raw("select", "isp_power_hz", "");	/* anti-flicker is not applied on 3.0: no entity */
+		dpub("switch", "isp_tune", "{\"name\":\"%s Image Tuning\",\"uniq_id\":\"%s_isp_tune\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ 'ON' if value_json.enabled == 1 else 'OFF' }}\",\"cmd_t\":\"%s\",\"pl_on\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"on\\\"}\",\"pl_off\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"off\\\"}\",\"ent_cat\":\"config\",\"avty_t\":\"%s\",\"ic\":\"mdi:tune\"," DEV "}", dn, di, ist, cj, av, di, dn);
+	}
+
+	dpub("button", "reboot", "{\"name\":\"%s Reboot\",\"uniq_id\":\"%s_reboot\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"reboot\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:restart\"," DEV "}", dn, di, cj, av, di, dn);
+	dpub("button", "snapshot", "{\"name\":\"%s Take Snapshot\",\"uniq_id\":\"%s_snapshot\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"snapshot\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:camera\"," DEV "}", dn, di, cj, av, di, dn);
+	dpub("button", "chime", "{\"name\":\"%s Play Chime\",\"uniq_id\":\"%s_chime\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"play_sound\\\",\\\"value\\\":\\\"chime\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:bell-ring\"," DEV "}", dn, di, cj, av, di, dn);
+	dpub("button", "siren", "{\"name\":\"%s Sound Siren\",\"uniq_id\":\"%s_siren\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"play_sound\\\",\\\"value\\\":\\\"siren\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:bullhorn\"," DEV "}", dn, di, cj, av, di, dn);
+	dpub("update", "firmware", "{\"name\":\"%s Firmware\",\"uniq_id\":\"%s_update\",\"stat_t\":\"%s/update/state\",\"val_tpl\":\"{{ value_json.update_status if value_json.update_status is defined else \\\"none\\\" }}\",\"cmd_t\":\"%s\",\"pl_inst\":\"{\\\"cmd\\\":\\\"update_install\\\"}\",\"avty_t\":\"%s\"," DEV "}", dn, di, C.root, cj, av, di, dn);
+	dpub("select", "profile", "{\"name\":\"%s Profile Preset\",\"uniq_id\":\"%s_profile_select\",\"cmd_t\":\"%s\",\"stat_t\":\"%s\",\"options\":[\"balanced\",\"low-cpu\",\"rtsp-only\"],\"val_tpl\":\"{{ value_json.perfprofile }}\",\"cmd_tpl\":\"{\\\"cmd\\\":\\\"profile\\\",\\\"value\\\":\\\"{{ value }}\\\"}\",\"avty_t\":\"%s\",\"pl_avail\":\"online\",\"pl_not_avail\":\"offline\",\"ic\":\"mdi:tune-variant\"," DEV "}", dn, di, cj, ht, av, di, dn);
 }
 
 /* ---- connection ---- */
@@ -542,6 +722,7 @@ static void on_up(void)
 	logf_("MQTT connected host=%s:%s root=%s command topic=%s", C.host, C.port, C.root, C.cmd);
 	if (!g_started) {	/* first connection of this run: manifest, discovery, start event, then health */
 		g_started = 1;
+		if (C.disc_c && C.ha_on) discovery_publish();
 		queue_job(J_STARTUP, NULL, NULL);
 		queue_job(J_HEALTH, NULL, NULL);
 		g_next_health = n + C.health_s * 1000LL;
@@ -623,6 +804,9 @@ static void cfg_set(const char *k, const char *v)
 #define I(name, field) if (!strcmp(k, name)) { C.field = n; return; }
 	S("MQTT_HOST", host) S("MQTT_PORT", port) S("MQTT_USER", user) S("MQTT_PASSWORD", pass)
 	S("MQTT_CLIENT_ID", cid) S("MQTT_TOPIC_ROOT", root) S("MQTT_TOPIC_COMMAND", cmd)
+	S("HA_DISCOVERY_PREFIX", dprefix) S("HA_NODE_ID", node) S("HA_DEVICE_NAME", devname) S("HA_SW", sw)
+	I("HA_DISCOVERY", ha_on) I("HA_CAMERA", ha_camera) I("HA_ISP", ha_isp)
+	if (!strcmp(k, "MQTT_DISCOVERY_IMPL")) { C.disc_c = !strcmp(v, "c"); return; }
 	I("MQTT_ENABLE", enable) I("MQTT_HEALTH_INTERVAL_SECONDS", health_s) I("MQTT_KEEPALIVE_PING_SECONDS", ping_s)
 	I("MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS", bo_init) I("MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS", bo_max)
 	I("MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER", bo_mul) I("MQTT_CIRCUIT_BREAKER_THRESHOLD", cb_thresh)
@@ -730,10 +914,11 @@ int main(int argc, char **argv)
 			case 't': dst = &g_status; break;
 			case 'f': dst = &g_fifo; break;
 			case 'p': dst = &g_pidfile; break;
+			case 'D': dst = &g_dump; break;
 			}
 		}
 		if (!dst) {
-			static const char u[] = "usage: tc100-mqttd [-s SCRIPT] [-l LOG] [-t STATUS] [-f FIFO] [-p PIDFILE]\n";
+			static const char u[] = "usage: tc100-mqttd [-s SCRIPT] [-l LOG] [-t STATUS] [-f FIFO] [-p PIDFILE] [-D FILE]\n";
 
 			if (write(2, u, sizeof u - 1) < 0) { /* nothing to do */ }
 			return 2;
@@ -756,6 +941,13 @@ int main(int argc, char **argv)
 		if (g_stop) return 0;
 		logf_("cannot read the MQTT settings from %s print-config", g_script);
 		return 1;
+	}
+	if (g_dump) {	/* test hook: the discovery of the C implementation as records, nothing else */
+		g_dumpfd = open(g_dump, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (g_dumpfd < 0) return 1;
+		if (C.ha_on) discovery_publish();
+		close(g_dumpfd);
+		return 0;
 	}
 	if (!C.enable) { logf_("MQTT bridge disabled in config"); return 0; }
 	if (!*C.host || !*C.cid || !*C.root || !*C.cmd) { logf_("MQTT settings incomplete (host, client id, topics)"); return 1; }
