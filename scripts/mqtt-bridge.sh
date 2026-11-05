@@ -1010,7 +1010,7 @@ DIAG
   publish_discovery_config "$alarm_cfg_topic" "$alarm_cfg_payload"
 
   # Switches (Interactive Toggles)
-  for cmd in ir_led front_led red_led motion_detection night_mode auto_night_mode; do
+  for cmd in ir_led front_led red_led motion_detection night_mode auto_night_mode privacy; do
     uniq_id="${node_id}_${cmd}"
     # Fixed friendly names. The previous `sed 's/\b./\u&/g'` used GNU-only \b and
     # \u, which busybox sed does not implement — it produced mangled names like
@@ -1023,6 +1023,7 @@ DIAG
       motion_detection) name_suffix="Motion Detection" ;;
       night_mode)       name_suffix="Night Vision" ;;
       auto_night_mode)  name_suffix="Auto Night Mode" ;;
+      privacy)          name_suffix="Privacy Mode" ;;
       *)                name_suffix="$cmd" ;;
     esac
     ic="mdi:toggle-switch"
@@ -1032,6 +1033,7 @@ DIAG
     [ "$cmd" = "motion_detection" ] && ic="mdi:motion-sensor"
     [ "$cmd" = "night_mode" ] && ic="mdi:weather-night"
     [ "$cmd" = "auto_night_mode" ] && ic="mdi:theme-light-dark"
+    [ "$cmd" = "privacy" ] && ic="mdi:eye-off"
 
     stat_field="${cmd}_on"
     [ "$cmd" = "motion_detection" ] && stat_field="motion_enabled"
@@ -1530,6 +1532,7 @@ build_health_payload()
   else
     front_led_on="$(read_int_file_value /sys/class/leds/blue/brightness 0)"
   fi
+  privacy_on=0; [ -f /tmp/tc100_privacy ] && privacy_on=1
   if [ -r /sys/class/leds/red_led/brightness ]; then
     red_led_on="$(read_int_file_value /sys/class/leds/red_led/brightness 0)"
   else
@@ -1596,8 +1599,8 @@ build_health_payload()
   primary_ip_json="$(json_escape "$primary_ip")"
   build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$privacy_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
 }
 
 publish_health()
@@ -1812,6 +1815,9 @@ apply_toggle_command()
       ;;
     auto_night_mode)
       script="/mnt/controlscripts/auto-night-detection"
+      ;;
+    privacy)
+      script="/mnt/controlscripts/privacy"
       ;;
     ftp)
       if security_hardening_enabled_runtime; then

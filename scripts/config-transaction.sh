@@ -113,7 +113,7 @@ tc_normalize_and_validate()
     sound_db) case "$_tc_value" in 0|-[1-9]|-[1-8][0-9]|-90) ;; *) return 1 ;; esac ;;
     isp_effect)
       case "$_tc_value" in ''|0|[1-9]|-[1-9]|[1-4][0-9]|-[1-4][0-9]|50|-50) ;; *) return 1 ;; esac ;;
-    isp_power_hz) case "$_tc_value" in ''|50|60) ;; *) return 1 ;; esac ;;
+    isp_power_hz) case "$_tc_value" in ''|50|60|auto) ;; *) return 1 ;; esac ;;
     isp_exposure_pct) [ -z "$_tc_value" ] || tc_uint_range "$_tc_value" 10 100 ;;
     isp_mask_color) case "$_tc_value" in black|gray|white) ;; *) return 1 ;; esac ;;
     isp_mask)
@@ -523,6 +523,9 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" REC_CLIENT ipv4_optional "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REC_RING_KB u:128:8192 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" REC_AUDIO bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" REC_KEEP_EVENTS bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NET_GUARD_SOFT bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" PRIVACY_SCREEN bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_AFTER_MIN u:2:1440 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_MANUAL_MIN u:1:1440 "$_tc_rel" || return 1

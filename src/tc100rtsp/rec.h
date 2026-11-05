@@ -18,6 +18,7 @@ struct rec_cfg {
 	int postroll_s;		/* REC_OFFLINE / REC_MOTION: keep recording this long after */
 	int ring_kb;		/* frame queue (also the pre-roll); read once, when the recorder starts */
 	int audio;		/* REC_AUDIO: a G.711 A-law track (8 kHz mono) next to the video, fed by rec_audio() */
+	int keep_events;	/* REC_KEEP_EVENTS: a full card loses the recordings without an event first */
 };
 
 /* main thread (the producer) */

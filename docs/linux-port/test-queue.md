@@ -1774,7 +1774,7 @@ Décisions du propriétaire : un seul chemin fonctionnel par fonction ; WebDAV s
 
 Décision du propriétaire : JSON seulement ; secrets seulement si on coche la case.
 
-- **Quoi :** `config_exchange.cgi` : une seule table de lignes sert à l'export ET à l'import (symétriques). Ajoutés : enregistrement (`REC_*`), jour/nuit (`daynight.conf`), alertes (`notify.conf`), sabotage, détection sonore (Vox, alarme), réglage d'image (`isp_tune.conf`), point d'accès de secours, mode sans échec, journaux, suivi Wi-Fi. Retirés : lignes mortes (`recording.conf rec_*`, jour/nuit de `rtspserver.conf`, `PRIVACY_MODE`). Avec la case cochée, `secrets` : réseaux Wi-Fi (4 max, psk entre guillemets), mot de passe de la caméra, utilisateur et mot de passe MQTT, jeton et chat Telegram, mot de passe du secours ; sous `notify` : jeton Ntfy, sujet Ntfy et adresse webhook (traités comme secrets : un sujet ntfy.sh vaut un mot de passe). Validation stricte de chaque valeur, import tout-ou-rien. Envoi (« Push ») : identifiant et mot de passe de la caméra cible, jeton CSRF lu chez la cible, jamais de secrets ni d'identité réseau. Supprimés : `conf-export.cgi`, `conf-import.cgi`, `configbackup.cgi`, `upload_backup.cgi` (instantané sur la caméra, préréglages et `cfg-persist` inchangés).
+- **Quoi :** `config_exchange.cgi` : une seule table de lignes sert à l'export ET à l'import (symétriques). Ajoutés : enregistrement (`REC_*`), jour/nuit (`daynight.conf`), alertes (`notify.conf`), sabotage, détection sonore (Vox, alarme), réglage d'image (`isp_tune.conf`), point d'accès de secours, mode sans échec, journaux, suivi Wi-Fi. Retirés : lignes mortes (`recording.conf rec_*`, jour/nuit de `rtspserver.conf`, `PRIVACY_SCREEN`). Avec la case cochée, `secrets` : réseaux Wi-Fi (4 max, psk entre guillemets), mot de passe de la caméra, utilisateur et mot de passe MQTT, jeton et chat Telegram, mot de passe du secours ; sous `notify` : jeton Ntfy, sujet Ntfy et adresse webhook (traités comme secrets : un sujet ntfy.sh vaut un mot de passe). Validation stricte de chaque valeur, import tout-ou-rien. Envoi (« Push ») : identifiant et mot de passe de la caméra cible, jeton CSRF lu chez la cible, jamais de secrets ni d'identité réseau. Supprimés : `conf-export.cgi`, `conf-import.cgi`, `configbackup.cgi`, `upload_backup.cgi` (instantané sur la caméra, préréglages et `cfg-persist` inchangés).
 - **Limites :** un réseau Wi-Fi à psk hexadécimal n'est pas exporté ; un SSID accentué peut faire refuser l'import ; les anciens exports (`.telegram.token`, `.mqtt.user`) ne réimportent plus ces deux valeurs.
 - **Interrupteur :** aucun (ne pas importer en cas de doute ; l'export ne modifie rien).
 - **Test :**
@@ -2234,3 +2234,87 @@ Mesures du 2026-11-04 17:51 au 2026-11-05 08:40 UTC (295 mesures / 180 s). **Pas
 
 Conclusions : (1) pont MQTT en C **validé pour une nuit** (stable, pas de doublon, pas de reconnexion) → peut devenir le défaut après une deuxième nuit sur la rc26 ; (2) pertes Wi-Fi inchangées : pas le domaine réglementaire ; prochaines pistes : `RTSP_PACING_US`, canal Wi-Fi de la box, puis pilote `rtl8xxxu` (le ping se perd aussi quand le compteur iw n'a ni retry ni échec : côté réception ou blocage du pilote) ; (3) garder `RTSP_QMAX=1024` (aucun effet négatif vu) mais l'essai n'a pas de témoin.
 Prochaine étape : rc26 sur la .11.
+## 2026-11-05 — Micro sans arecord et traitement du son (`[audio-native]`, liste de l'implémenteur #11)
+
+- **Quoi :** dans `tc100_rtsp`, tout désactivé par défaut :
+  - `RTSP_ALSA_DIRECT=1` : le micro est lu par les ioctl ALSA du noyau (`acap.c`) au lieu d'un processus `arecord` (≈ 660 Ko PSS et un tube en moins). Si `/dev/snd/pcmC0D0c` ne s'ouvre pas : retour à `arecord`, dit dans le log.
+  - `RTSP_AUDIO_HPF=1` : passe-haut 150 Hz (-19 dB à 50 Hz, voix intacte).
+  - `RTSP_AUDIO_AGC=1` : noise gate (souffle d'une pièce calme -12 dB) + contrôle du niveau (voix lointaine jusqu'à +18 dB) + écrêtage doux.
+  - `RTSP_AUDIO_DUCK=1` : micro coupé pendant que le haut-parleur joue (retour audio, appuyer-pour-parler, sons), anti-larsen.
+  - Le vumètre de la détection sonore mesure toujours le son brut : ses seuils ne changent pas.
+- **Interrupteur :** retirer la ligne de `/mnt/config/rtsp.env` (ou `=0`) et redémarrer `tc100_rtsp`.
+- **Test :** mettre les switches dans `/mnt/config/rtsp.env`, `sh /mnt/controlscripts/rtsp-h26x restart`.
+  1. `RTSP_ALSA_DIRECT=1` seul : log `audio: microphone read directly (/dev/snd/pcmC0D0c, no arecord)` ; `ps` sans `arecord` ; piste audio RTSP (VLC), bouton Écouter, enregistrement SD avec son, détection sonore : tout marche comme avant, pas de saut ni d'écho métallique ; `dmesg` sans erreur ALSA. Une heure de VLC avec le son : pas de coupure (un dépassement est récupéré tout seul). Mesurer la PSS gagnée (`smaps_rollup` d'`arecord` avant).
+  2. `RTSP_AUDIO_HPF=1` : le ronflement grave disparaît, la voix reste naturelle.
+  3. `RTSP_AUDIO_AGC=1` : pièce calme → souffle plus bas ; voix à 3-4 m → plus forte ; un claquement ne sature pas.
+  4. `RTSP_AUDIO_DUCK=1` : pendant un appuyer-pour-parler ou le retour audio de Home Assistant, l'auditeur n'entend pas sa propre voix revenir ; le son revient ~60 ms après.
+  5. CPU (`scripts/cpu-profile.sh 60`) avec les quatre : pas de hausse visible.
+- **Critères :** 1-5 conformes → les quatre deviennent le défaut (puis un réglage dans la page Audio).
+
+## 2026-11-05 — Clips d'événement gardés en priorité (`[retention]`, liste de l'implémenteur #15)
+
+- **Quoi :** `tc100_rtsp` pose un marqueur vide `AAAA-MM-JJ_HH-MM-SS.evt` à côté de chaque enregistrement pendant lequel il y a eu un mouvement ou un son (toujours, coût : une entrée de répertoire). Avec `REC_KEEP_EVENTS=1` dans `boot.conf`, quand la carte manque de place, le plus ancien enregistrement **sans** événement part d'abord ; les clips d'événement seulement quand il ne reste qu'eux. La page Enregistrements supprime aussi le `.evt`.
+- **Interrupteur :** `REC_KEEP_EVENTS=0` (défaut) : le plus ancien part, comme avant.
+- **Test (.24, carte SD) :**
+  1. `REC_WHEN=always` : agiter la main devant la caméra → le fichier en cours a son `.evt` (`ls /mnt/DCIM/*.evt`) ; un fichier sans mouvement n'en a pas.
+  2. `REC_KEEP_EVENTS=1`, `REC_RESERVE_MB` réglé juste au-dessus de l'espace libre actuel (pour forcer le ménage) : le log dit `deleted (keeping N MB free, no event in it)` et les fichiers `.evt` restent ; remettre `REC_RESERVE_MB` ensuite.
+  3. Supprimer un enregistrement depuis la page : son `.jpg` et son `.evt` partent avec.
+- **Critères :** 1-3 conformes ; aucun effet sur l'enregistrement lui-même.
+
+## 2026-11-05 — Anti-scintillement automatique (`[flicker]`, liste de l'implémenteur #16)
+
+- **Quoi :** Réglages → Image → Anti-scintillement → « Automatique (selon le pays Wi-Fi) » (`POWER_HZ=auto` dans `isp_tune.conf`) : `tc100_rtsp` prend 60 Hz pour les pays à 60 Hz (presque toute l'Amérique, Corée du Sud, Taïwan, Philippines, Arabie saoudite), 50 Hz ailleurs ; Japon et pays non réglé : valeur de la caméra.
+- **Interrupteur :** choisir 50 Hz, 60 Hz ou « Valeur de la caméra ».
+- **Test :** pays `FR` + Automatique → log `anti-flicker: 50 Hz (exposure step …)` comme avec 50 Hz ; pays `US` → `60 Hz` ; pays vide → `camera default`. Sous un éclairage LED / fluo, pas de bandes avec Automatique en France.
+- **Critères :** les trois lignes de log ; pas de bandes.
+
+## 2026-11-05 — Réparations Wi-Fi douces avant le redémarrage réseau (`[wifi-soft]`, liste de l'implémenteur #17)
+
+- **Quoi :** `NET_GUARD_SOFT=1` dans `boot.conf` : quand la passerelle ne répond plus alors que `wlan0` existe (et que le point d'accès de secours n'est pas levé), `net-guard.sh` tente, une fois chacune par coupure : à 2 min `wpa_cli -i wlan0 reassociate` ; à 5 min `wifi-apply` (wpa_supplicant + DHCP) ; à 8 min `wifi-recover.sh reprobe` (puce USB sondée de nouveau). Le redémarrage à `NET_GUARD_MIN` (15 min) reste le dernier recours.
+- **Interrupteur :** `NET_GUARD_SOFT=0` (défaut).
+- **Test :** `NET_GUARD_SOFT=1`, éteindre la box (ou le point d'accès) 10 min puis la rallumer : `logread | grep net-guard` montre les trois étapes à 2, 5 et 8 min, la caméra revient seule sur le réseau à la remise en route sans redémarrer (avant 15 min) ; second essai : couper 3 min → seule la réassociation a lieu, puis `network back`.
+- **Critères :** reconnexion sans redémarrage quand la box revient avant 15 min ; aucune étape quand le réseau va bien.
+
+## 2026-11-05 — Débit automatique du flux principal (`[abr]`, liste de l'implémenteur #18)
+
+- **Quoi :** `RTSP_ABR=1` dans `/mnt/config/rtsp.env` : toutes les 5 s (ligne `STAT`), si des clients TCP ont sauté 3 images ou plus (file pleine : le Wi-Fi ne suit pas), le débit du flux principal baisse de 30 % (pas sous `RTSP_ABR_MIN`, par défaut un quart du réglage, 200 kbit/s au moins) ; après 30 s sans image sautée il remonte d'un dixième du réglage, jusqu'au réglage. Appel `ak_venc_set_br(handle, kbit/s)` de la bibliothèque d'encodage : **signature supposée** (SDK Anyka), à vérifier ici.
+- **Interrupteur :** retirer `RTSP_ABR` de `rtsp.env`, redémarrer `tc100_rtsp`.
+- **Test (.11, Frigate ou VLC en TCP) :**
+  1. Démarrage : log `ABR: on, main bit rate between 500 and 2000 kbit/s` (selon le réglage).
+  2. Provoquer de la congestion (éloigner la caméra de la box, ou limiter le débit côté box / `tc qdisc` sur le PC, ou plusieurs VLC) : log `ABR: N frames skipped in 5 s: main bit rate 2000 -> 1400 kbit/s (ak_venc_set_br: 0)` ; **la colonne `bytes` des lignes `STAT` baisse d'autant** (sinon l'appel n'agit pas : le dire ici) ; l'image reste nette, pas d'artefacts.
+  3. Rétablir le réseau : remontée par paliers toutes les 30 s jusqu'au réglage.
+  4. Si `ak_venc_set_br` répond autre chose que 0 : `regulation off` dans le log, rien d'autre ne change.
+- **Critères :** 2 et 3 conformes, aucun plantage de l'encodeur sur une heure → le défaut peut passer à 1.
+
+## 2026-11-05 — Mouvement d'après la taille des trames de l'encodeur (`[md-enc]`, liste de l'implémenteur #19)
+
+- **Quoi :** `RTSP_MD_ENC=1` dans `rtsp.env` : un second détecteur à côté de la grille de luminance. En VBR, trois trames P de suite plus grosses que leur moyenne glissante (x3,6 à la sensibilité 60, x2 à 100, x6 à 1) = mouvement (même sortie que la grille : `/tmp/rec_control`, MQTT, enregistrement, cadence au repos). Zones de mouvement non prises en compte.
+- **Interrupteur :** retirer `RTSP_MD_ENC`.
+- **Test (.11, `vbr=1`) :** log `motion from the encoder frame sizes: on` ; passer devant la caméra → `rec_control` à 1 comme avec la grille, en même temps ou plus tôt ; scène calme une nuit : compter les fausses alertes contre la grille seule (`RTSP_DEBUG=1` donne les tailles des trames) ; en CBR le log prévient.
+- **Critères :** détecte un passage ; pas plus de fausses alertes que la grille → décider s'il reste en option ou devient le défaut en VBR.
+
+## 2026-11-05 — Jour / nuit : 60 s minimum entre deux bascules (`[daynight-lock]`, liste de l'implémenteur #21)
+
+- **Quoi :** `auto-night-daemon.sh` ne rebascule plus avant `MIN_SWITCH` secondes (60 par défaut, `daynight.conf`), quelle que soit la source (luminance, ae, isp, vendor). Une demande trop tôt est notée sur la console et appliquée dès que le temps est écoulé si elle tient toujours. La page Réglages garde la valeur en réécrivant le fichier.
+- **Interrupteur :** `MIN_SWITCH=0` dans `/mnt/config/daynight.conf`.
+- **Test :** au crépuscule (source luminance) : plus de va-et-vient du filtre IR-cut (`logread | grep auto-night` : au plus une bascule par minute, et la ligne `waiting 60 s` si la luminance remonte avec les LED IR) ; enregistrer Réglages → Jour/nuit : `MIN_SWITCH=60` reste dans le fichier.
+- **Critères :** pas de cliquetis ; jour et nuit atteints normalement.
+
+## 2026-11-05 — Heure par l'en-tête HTTP `Date` si NTP est bloqué (`[time-http]`, liste de l'implémenteur #24)
+
+- **Quoi :** `scripts/time-fallback.sh`, lancé 2 min après le démarrage : tant que l'horloge est avant 2025, toutes les 5 min (12 fois au plus), une requête `HEAD` vers la page du routeur (`TIME_HTTP_URLS=gateway`, défaut) ; l'en-tête `Date:` règle l'horloge. ntpd continue et reste la référence.
+- **Interrupteur :** `TIME_HTTP_FALLBACK=0` dans `boot.conf`.
+- **Test :** bloquer l'UDP 123 sortant sur la box (ou `ntp_srv.conf` vers une adresse muette), redémarrer : 2 min après, `logread | grep time-fallback` → `clock set from the Date header of http://<routeur>/` et `date` est à l'heure (à quelques secondes près) ; sans blocage, rien ne se passe (ntpd a déjà réglé l'heure). Si le routeur n'a pas de page web, ajouter `http://www.google.com` à `TIME_HTTP_URLS`.
+- **Critères :** heure juste sans NTP ; aucune requête quand NTP marche.
+
+## 2026-11-05 — Mode confidentialité (`[privacy]`, liste de l'implémenteur #25)
+
+- **Quoi :** `controlscripts/privacy start|stop` (page Services « Privacy Mode », interrupteur MQTT/Home Assistant « Privacy Mode », champ `privacy_on` du topic de santé) crée ou retire `/tmp/tc100_privacy` et écrit `PRIVACY_SCREEN` dans `boot.conf`. `tc100_rtsp` (lu chaque seconde) : image noire sur le flux principal, le sous-flux, l'instantané, la vue en direct et l'enregistrement ; silence à la place du micro ; détection de mouvement en pause. Au démarrage, le drapeau est recréé avant la première image si `PRIVACY_SCREEN=1`.
+- **Interrupteur :** `stop` (ou `PRIVACY_SCREEN=0`).
+- **Test :**
+  1. Activer depuis la page Services : en moins de 2 s, VLC / Frigate / la vue en direct montrent du noir ; `currentpic.cgi` noir ; la piste audio est silencieuse ; bouger devant la caméra → aucun événement de mouvement ; log `privacy mode on`.
+  2. **Mode capture directe** (défaut) : aucune ligne de l'image réelle ne doit transparaître (le nettoyage du cache couvre toute l'image) — regarder plusieurs minutes, sous-flux compris.
+  3. Redémarrer la caméra : l'image reste noire dès la première trame.
+  4. Interrupteur Home Assistant : bascule et état cohérents.
+  5. Désactiver : image, son et détection reviennent.
+- **Critères :** 1-5 conformes, aucune fuite d'image.

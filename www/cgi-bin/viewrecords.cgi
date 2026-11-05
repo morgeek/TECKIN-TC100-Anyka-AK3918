@@ -52,7 +52,7 @@ if [ -n "$F_cmd" ]; then
         fullpath="${DCIM_FOLDER}/${record}"
         if [ -f "$fullpath" ]; then
           # the picture the 3.0 recorder writes next to each file goes with it
-          case "$fullpath" in *.mp4|*.mkv) rm -f "${fullpath%.*}.jpg" ;; esac
+          case "$fullpath" in *.mp4|*.mkv) rm -f "${fullpath%.*}.jpg" "${fullpath%.*}.evt" ;; esac
           rm -f "$fullpath" && echo '{"ok":true}' || echo '{"ok":false,"error":"delete failed"}'
         else
           echo '{"ok":false,"error":"file not found"}'

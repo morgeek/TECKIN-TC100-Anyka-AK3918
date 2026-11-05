@@ -19,6 +19,9 @@ run_tests() {
 	docker run --rm -v "$SRC:/src:ro" node:22-bookworm sh -c '
 		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 >/dev/null 2>&1
 		cp -r /src /w && cd /w && git config --global --add safe.directory /w
+		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
+		# make would run them instead of building the current code
+		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/mqttd/tc100-mqttd-host
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
 		node --test tests/frontend.test.js tests/settings-save.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }

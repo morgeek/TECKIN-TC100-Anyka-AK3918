@@ -25,6 +25,9 @@
  * and its parent is on the card, it is created. Free space: before each file and every minute the oldest recordings
  * (YYYY-MM-DD_HH-MM-SS.mp4 and its .jpg) are deleted until reserve_mb are free; below half of that the recorder
  * waits ("full"). <status>.pause (scripts/rec-storage.sh eject) closes the file and leaves the card alone.
+ * Events (item 15 of the implementer list): a file during which motion or a sound event was detected gets an empty
+ * YYYY-MM-DD_HH-MM-SS.evt next to it. With keep_events (REC_KEEP_EVENTS=1) the oldest recording WITHOUT an event goes
+ * first; the event clips go only when nothing else is left (the 512 newest markers are honoured).
  *
  * Status file (<status>, every 10 s and on each change), keys as on 2.x:
  *   mode= rtsp_client= state=off|standby|waiting|recording|paused|no-card|full|error|bad-sps file= files= bytes=
@@ -192,6 +195,7 @@ void rec_inputs(int watched, int motion) { r_watched = watched; r_motion = motio
 int rec_idle(void) { return q_head == q_tail; }
 
 #ifdef REC_HOST_TEST
+int rec_test_delete(const char *dir, int keep_events);
 void rec_test_drop(void);
 void rec_test_drop(void) { p_gap = 1; q_dropped++; }	/* a frame lost as with a full queue */
 #endif
@@ -216,7 +220,7 @@ static struct {
 	unsigned long long asamples;
 	unsigned long long bytes, files, thumbs;
 	char state[16];
-	int state_dirty, want, watched;
+	int state_dirty, want, watched, evt_done;
 	uint64_t last_watched, watch_since, last_motion;
 	uint64_t last_status, last_space, retry_at, next_card, next_pause;
 	unsigned seen_seq;
@@ -281,28 +285,97 @@ static int rec_name(const char *s)
 	return s[i] == 0;
 }
 
-/* delete the oldest recording and its picture (never the file being written); 0 when none is left */
+/* YYYY-MM-DD_HH-MM-SS.evt: the recording of that name had motion or a sound event */
+static int evt_name(const char *s)
+{
+	static const char pat[] = "dddd-dd-dd_dd-dd-dd.evt";
+	int i;
+
+	for (i = 0; pat[i]; i++)
+		if (pat[i] == 'd' ? s[i] < '0' || s[i] > '9' : s[i] != pat[i]) return 0;
+	return s[i] == 0;
+}
+
+#define EVT_MAX 512
+static char evt_list[EVT_MAX][20];	/* writer thread only: the event markers of one scan, by name (19 chars + 0) */
+static int evt_n;
+
+static int evt_cmp(const void *a, const void *b) { return strcmp(a, b); }
+
+/* delete the oldest recording, its picture and its event marker (never the file being written); with keep_events the
+ * oldest one without an event first; 0 when none is left */
 static int delete_oldest(void)
 {
 	DIR *dp;
 	struct dirent *e;
-	char old[32] = "", p[448];
+	char old[32] = "", plain[32] = "", key[20], p[448];
+	int pass, i;
 
 	if (!(dp = opendir(C.dir))) return 0;
-	while ((e = readdir(dp)))
-		if (rec_name(e->d_name) && (!old[0] || strcmp(e->d_name, old) < 0)) {
+	evt_n = 0;
+	for (pass = 0; pass < (C.keep_events ? 2 : 1); pass++) {
+		if (pass) {
+			if (!evt_n) break;		/* no event on the card: the oldest overall is the one */
+			qsort(evt_list, (size_t)evt_n, sizeof evt_list[0], evt_cmp);
+			rewinddir(dp);
+		}
+		while ((e = readdir(dp))) {
+			if (!pass && C.keep_events && evt_name(e->d_name)) {
+				if (evt_n < EVT_MAX) { memcpy(evt_list[evt_n], e->d_name, 19); evt_list[evt_n++][19] = 0; }
+				else {			/* full list: keep the newest markers */
+					int m = 0;
+					for (i = 1; i < EVT_MAX; i++) if (strcmp(evt_list[i], evt_list[m]) < 0) m = i;
+					if (strncmp(e->d_name, evt_list[m], 19) > 0) { memcpy(evt_list[m], e->d_name, 19); evt_list[m][19] = 0; }
+				}
+				continue;
+			}
+			if (!rec_name(e->d_name)) continue;
 			snprintf(p, sizeof p, "%s/%.23s", C.dir, e->d_name);
 			if (W.fd >= 0 && !strcmp(p, W.path)) continue;
-			snprintf(old, sizeof old, "%.23s", e->d_name);
+			if (!pass) {
+				if (!old[0] || strcmp(e->d_name, old) < 0) snprintf(old, sizeof old, "%.23s", e->d_name);
+			} else {
+				memcpy(key, e->d_name, 19); key[19] = 0;
+				if (bsearch(key, evt_list, (size_t)evt_n, sizeof evt_list[0], evt_cmp)) continue;
+				if (!plain[0] || strcmp(e->d_name, plain) < 0) snprintf(plain, sizeof plain, "%.23s", e->d_name);
+			}
 		}
+	}
 	closedir(dp);
+	if (plain[0]) snprintf(old, sizeof old, "%s", plain);
 	if (!old[0]) return 0;
 	snprintf(p, sizeof p, "%s/%s", C.dir, old);
 	if (unlink(p) != 0) return 0;
-	RLOG("card: %s deleted (keeping %d MB free)\n", old, C.reserve_mb);
+	RLOG("card: %s deleted (keeping %d MB free%s)\n", old, C.reserve_mb,
+	     C.keep_events ? plain[0] ? ", no event in it" : ", only event clips were left" : "");
 	memcpy(p + strlen(p) - 3, "jpg", 3);
 	unlink(p);
+	memcpy(p + strlen(p) - 3, "evt", 3);
+	unlink(p);
 	return 1;
+}
+
+#ifdef REC_HOST_TEST
+int rec_test_delete(const char *dir, int keep_events)	/* the deletion order alone (tests/test_tc100rtsp.py) */
+{
+	snprintf(C.dir, sizeof C.dir, "%s", dir);
+	C.keep_events = keep_events;
+	return delete_oldest();
+}
+#endif
+
+/* motion or a sound event during the open file: its marker (once per file) */
+static void mark_event(void)
+{
+	char p[200];
+	size_t n = strlen(W.path);
+	int fd;
+
+	W.evt_done = 1;
+	if (n < 4 || n >= sizeof p) return;
+	memcpy(p, W.path, n + 1);
+	memcpy(p + n - 3, "evt", 3);
+	if ((fd = open(p, O_WRONLY | O_CREAT, 0644)) >= 0) close(fd);
 }
 
 static void make_room(void)
@@ -452,7 +525,7 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 	}
 	W.bytes += b.n;
 	free(b.p);
-	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.seq = 0;
+	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.seq = 0; W.evt_done = 0;
 	W.a_ok = W.a_resync = 0; W.a_pos = W.a_tfdt = 0;
 	frag_reset();
 	W.psn[0] = vps ? vps->n : 0; if (vps) memcpy(W.ps[0], vps->p, vps->n);
@@ -743,6 +816,7 @@ static void *writer(void *arg)
 			}
 			usleep(40000);
 		}
+		if (W.fd >= 0 && r_motion && !W.evt_done) mark_event();
 		if (W.fd >= 0 && now - W.last_space >= 60000000ULL) {
 			W.last_space = now;
 			make_room();

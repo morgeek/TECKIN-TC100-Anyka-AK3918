@@ -111,9 +111,10 @@
         _ns0=$(_dn_get NIGHT_STYLE); _ns0=${_ns0:-1}; _lf0=$(_dn_get LOWLIGHT_FPS); _lf0=${_lf0:-1}
         _ns=$(normalize_bool "${F_dn_nightstyle}"); _lf=$(normalize_bool "${F_dn_lowlight}")
         _irm0=$(_dn_get IR_LED_MODE); _irm0=${_irm0:-auto}
+        _msw=$(sanitize_int_range "${F_dn_min_switch:-$(_dn_get MIN_SWITCH)}" 0 3600 60)   # kept: the page has no field yet
         case "${F_dn_ir_led_mode:-$_irm0}" in off) _irm=off ;; force) _irm=force ;; *) _irm=auto ;; esac
-        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\nVENDOR_NIGHT_LUM=%s\nVENDOR_DAY_LUM=%s\nIR_LED_MAX_ON=%s\nNIGHT_STYLE=%s\nLOWLIGHT_FPS=%s\nIR_LED_MODE=%s\n' \
-          "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" "$_vn" "$_vd" "$_irs" "$_ns" "$_lf" "$_irm" > /mnt/config/daynight.conf
+        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\nVENDOR_NIGHT_LUM=%s\nVENDOR_DAY_LUM=%s\nIR_LED_MAX_ON=%s\nNIGHT_STYLE=%s\nLOWLIGHT_FPS=%s\nIR_LED_MODE=%s\nMIN_SWITCH=%s\n' \
+          "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" "$_vn" "$_vd" "$_irs" "$_ns" "$_lf" "$_irm" "$_msw" > /mnt/config/daynight.conf
         if [ "$_irm0" != "$_irm" ] && [ -x /mnt/scripts/common_functions.sh ]; then
           (
             . /mnt/scripts/common_functions.sh

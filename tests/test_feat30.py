@@ -109,6 +109,16 @@ class DayNightFromExposure(unittest.TestCase):
         s = [(10, '50 1000 1024 1024 256 0'), (13, '50 1000 1024 1024 256 0')]     # x16 total gain: 16000, dark
         self.assertEqual([c for c in self.feed('ae', s, pre) if c[1] != c[2]], [(13, '1', '0')])
 
+    def test_minimum_time_between_two_switches(self):
+        """Item 21: MIN_SWITCH (60 s by default) between two switches, whatever the source; 0 = none"""
+        dark, light = '50 1 256 256 256 1', '50 1 256 256 256 0'
+        s = [(100, dark), (101, dark), (110, light), (111, light), (150, light), (161, light), (162, light)]
+        sw = [c for c in self.feed('isp', s, 'NIGHT_HOLD=1; DAY_HOLD=1') if c[1] != c[2]]
+        self.assertEqual(sw, [(101, '1', '0'), (161, '0', '1')])      # day wanted at 111, allowed 60 s after 101
+        sw = [c for c in self.feed('isp', s, 'NIGHT_HOLD=1; DAY_HOLD=1; MIN_SWITCH=0') if c[1] != c[2]]
+        (self.d / 'ircut').write_text('1\n')
+        self.assertEqual(sw, [(101, '1', '0'), (111, '0', '1')])
+
     def test_isp_dark_flag_with_holds(self):
         pre = 'NIGHT_HOLD=10; DAY_HOLD=60'
         s = [(100, '50 1 256 256 256 1'), (105, '50 1 256 256 256 1'), (110, '50 1 256 256 256 1'),

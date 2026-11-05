@@ -95,6 +95,8 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"LOG_PERSIST_MIN";"persist_min";"general";.boot.log_persist_min),
     row("boot.conf";"flat";"root";"WIFI_QUALITY";"bool";"general";.boot.wifi_quality),
     row("boot.conf";"flat";"root";"WIFI_COUNTRY";"country_optional";"general";.boot.wifi_country),
+    row("boot.conf";"flat";"root";"NET_GUARD_SOFT";"bool";"general";.boot.net_guard_soft),
+    row("boot.conf";"flat";"root";"PRIVACY_SCREEN";"bool";"general";.boot.privacy_screen),
     row("boot.conf";"flat";"root";"ISP_TUNE";"bool";"general";.boot.isp_tune),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),
@@ -195,6 +197,7 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"REC_CLIENT";"ipv4_optional";"network";.recording.client),
     row("boot.conf";"flat";"root";"REC_RING_KB";"u:128:8192";"general";.recording.ring_kb),
     row("boot.conf";"flat";"root";"REC_AUDIO";"bool";"general";.recording.audio),
+    row("boot.conf";"flat";"root";"REC_KEEP_EVENTS";"bool";"general";.recording.keep_events),
 
     row("hostname.conf";"single";"root";"value";"hostname";"network";.system.hostname),
     row("timezone.conf";"single";"root";"value";"timezone";"network";.system.timezone),
@@ -413,6 +416,8 @@ _ce_export() {
         j = sprintf("%d", v + 0)
       } else if (v == "" && t ~ /^(isp_effect|isp_power_hz|isp_exposure_pct)$/) {
         j = "\"\""
+      } else if (v == "auto" && t == "isp_power_hz") {
+        j = "\"auto\""
       } else next
       n++; E_path[n] = path; E_val[n] = j
     }

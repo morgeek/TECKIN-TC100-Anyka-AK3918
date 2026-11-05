@@ -1,0 +1,46 @@
+#!/bin/sh
+# Privacy mode (item 25 of the implementer list): black picture on every stream, snapshot and recording, no sound,
+# no motion detection, while it is on. tc100_rtsp watches /tmp/tc100_privacy (once a second); boot.conf
+# PRIVACY_SCREEN keeps the choice over a restart (v3/autorun-linux66.sh sets the flag again before the video starts;
+# not PRIVACY_MODE, the key of the removed 2.x privacy shield, which old settings may still hold).
+# start = on, stop = off (the Services page, the MQTT switch "Privacy Mode", the dashboard).
+SERVICE_NAME="Privacy Mode"
+FLAG="${PV_FLAG:-/tmp/tc100_privacy}"
+CONF="${PV_CONF:-/mnt/config/boot.conf}"
+
+[ -n "$PV_TEST" ] || . /mnt/scripts/common_functions.sh
+
+pv_save()
+{
+  if command -v rewrite_config >/dev/null 2>&1 && grep -q '^PRIVACY_SCREEN=' "$CONF" 2>/dev/null; then
+    rewrite_config "$CONF" PRIVACY_SCREEN "$1"
+  elif grep -q '^PRIVACY_SCREEN=' "$CONF" 2>/dev/null; then
+    sed -i "s/^PRIVACY_SCREEN=.*/PRIVACY_SCREEN=$1/" "$CONF"
+  else
+    echo "PRIVACY_SCREEN=$1" >> "$CONF"
+  fi
+}
+
+status()
+{
+  [ -f "$FLAG" ] && echo "PID: on"
+}
+
+start()
+{
+  : > "$FLAG"
+  pv_save 1
+  logger -t tc100-event -p user.notice "privacy mode on" 2>/dev/null
+}
+
+stop()
+{
+  rm -f "$FLAG"
+  pv_save 0
+  logger -t tc100-event -p user.notice "privacy mode off" 2>/dev/null
+}
+
+case "$1" in
+  start|stop|status) "$1" ;;
+  *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
+esac

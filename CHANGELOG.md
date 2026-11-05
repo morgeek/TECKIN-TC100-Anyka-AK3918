@@ -32,6 +32,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   1080 by default; the choice is greyed out on an older kernel, and `tc100_rtsp` keeps 1080p there (the read-only
   parameter `ak39_vi.main_scale` says the kernel scales).
 
+- **Microphone without arecord, and sound processing** (`config/rtsp.env` switches, all off until checked on the
+  camera): `RTSP_ALSA_DIRECT=1` reads the microphone with the kernel's ALSA ioctls inside `tc100_rtsp` (no `arecord`
+  process, ~660 KB PSS, no pipe; back to `arecord` when the device does not open). `RTSP_AUDIO_HPF=1`: high-pass at
+  150 Hz (mains hum -19 dB at 50 Hz, voice untouched). `RTSP_AUDIO_AGC=1`: room hiss lowered, a far voice raised up
+  to +18 dB, loud sounds compressed instead of clipping. `RTSP_AUDIO_DUCK=1`: the microphone is muted while the
+  speaker plays (no echo during two-way audio or push-to-talk). Fixed point, well under 1 % of the CPU; the sound
+  detection still measures the unprocessed sound.
+- **Test kernel with a bigger encoder pool on demand**: a manual run of the kernel workflow with `venc_pool=12M`
+  (for the encoder's smart mode); pushes build the normal kernel.
+
+- **Event clips kept first on a full card** (`boot.conf` `REC_KEEP_EVENTS=1`, off by default): a recording during
+  which motion or a sound event was detected gets an empty `.evt` marker next to it; when space is needed the oldest
+  recording without an event goes first, the event clips only when nothing else is left.
+
+- **Anti-flicker from the Wi-Fi country** (Settings → Picture → Anti-flicker → Automatic, `POWER_HZ=auto`): 60 Hz for
+  the countries on 60 Hz mains (most of the Americas, South Korea, Taiwan, the Philippines, Saudi Arabia), 50 Hz
+  elsewhere; Japan (both) and an unset country keep the camera default. Applied without a restart, as 50 / 60.
+
+- **Soft Wi-Fi repairs before the network reboot** (`boot.conf` `NET_GUARD_SOFT=1`, off by default): when the
+  gateway stops answering while `wlan0` exists, the net guard tries a Wi-Fi reassociation after 2 min, applies the
+  Wi-Fi settings again after 5 min and probes the USB Wi-Fi chip again after 8 min, each once per outage, before its
+  reboot (`NET_GUARD_MIN`, 15 min).
+
+- **Automatic bit rate** (`config/rtsp.env` `RTSP_ABR=1`, off until checked on the camera): when TCP clients have to
+  skip frames (the Wi-Fi cannot carry the bit rate), the main stream's bit rate goes down 30 % (not below
+  `RTSP_ABR_MIN`, a quarter of the setting by default), and back up by a tenth of the setting after 30 s without a
+  skipped frame. Through the encoder library's `ak_venc_set_br`; its answers are logged, a refusal turns it off.
+
+- **Motion from the encoder's frame sizes** (`config/rtsp.env` `RTSP_MD_ENC=1`, off until checked): a second
+  detector next to the luma grid; in VBR, P frames several times bigger than their running mean (x2 to x6 with the
+  sensitivity) three times in a row count as motion. No pixel read; the motion zones do not apply to it.
+
+- **Day / night: at least 60 s between two switches** (`daynight.conf` `MIN_SWITCH`, 0 = no minimum): at dusk the
+  IR LEDs light the scene and the picture-brightness source could switch back to day at once, the IR-cut clicking
+  back and forth.
+
+- **Clock from an HTTP Date header when NTP is blocked** (`scripts/time-fallback.sh`, `TIME_HTTP_FALLBACK=1`): while
+  the clock is still in 1970 two minutes after boot, the `Date:` header of the router's own web page sets it (every
+  5 min, 12 times at most). `TIME_HTTP_URLS` may add Internet addresses; by default nothing leaves the local network.
+  ntpd keeps running and stays the reference.
+
+- **Privacy mode** (Services page "Privacy Mode", MQTT / Home Assistant switch, `boot.conf` `PRIVACY_SCREEN`): black
+  picture on every stream, snapshot and recording, silence instead of the microphone, no motion detection; kept over
+  a restart.
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed
@@ -208,7 +253,7 @@ Kernel unchanged from rc23.
   Telegram, Ntfy, rescue access point password). Added to the file: local recording (`REC_*` of boot.conf), day/night
   (daynight.conf), notifications (notify.conf), tamper, sound detection (vox, alarm), image tuning (isp_tune.conf), the
   rescue access point, boot guard, saved logs, Wi-Fi quality. Removed rows that no longer matched a live key (`rec_*` of
-  recording.conf, the day/night values of rtspserver.conf, `PRIVACY_MODE`).
+  recording.conf, the day/night values of rtspserver.conf, `PRIVACY_SCREEN`).
 - **Push to another camera works**: the form asks for the target's user and password, the CSRF token of the target is
   read first, the request body is read by the CGI (it used to be dropped); a push never carries secrets.
 

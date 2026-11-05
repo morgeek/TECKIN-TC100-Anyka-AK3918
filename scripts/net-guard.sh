@@ -22,7 +22,11 @@
 #   * never while the Wi-Fi rescue access point is up (scripts/wifi-rescue.sh):
 #     someone may be connected to it to fix the Wi-Fi settings; and while its
 #     watcher runs, not before two full rescue cycles (2 x (10 + 15) = 50 min).
-# boot.conf: NET_GUARD=1 (0 = off), NET_GUARD_MIN=15.
+#   * soft repairs first (item 17, boot.conf NET_GUARD_SOFT=1), while wlan0 exists and the rescue access point is
+#     down, each once per outage: 2 min without the gateway -> Wi-Fi reassociation (wpa_cli reassociate); 5 min ->
+#     the Wi-Fi settings applied again (wifi-apply: wpa_supplicant, DHCP); 8 min -> the USB Wi-Fi chip probed
+#     again (wifi-recover.sh reprobe). The reboot stays the last resort.
+# boot.conf: NET_GUARD=1 (0 = off), NET_GUARD_MIN=15, NET_GUARD_SOFT=0.
 #
 #   net-guard.sh once     one check
 #   net-guard.sh status   down_s=<seconds without network> limit_s=<...> reboots=<n>
@@ -110,6 +114,25 @@ _ng_limit()
     echo "$_l"
 }
 
+# soft repairs (item 17): the next step due after $1 seconds without the gateway, once per outage
+_ng_soft()
+{
+    if [ "$1" -ge 120 ] && [ ! -f "$STATE/soft1" ]; then
+        : > "$STATE/soft1"
+        logger -t tc100-event -p user.warn "net-guard: no gateway for $1 s: Wi-Fi reassociation" 2>/dev/null
+        ${NG_WPA_CLI:-wpa_cli} -i wlan0 reassociate >/dev/null 2>&1
+    elif [ "$1" -ge 300 ] && [ ! -f "$STATE/soft2" ]; then
+        : > "$STATE/soft2"
+        logger -t tc100-event -p user.warn "net-guard: no gateway for $1 s: Wi-Fi settings applied again" 2>/dev/null
+        sh "${NG_WIFI_APPLY:-/mnt/v3/linux66-sd/wifi-apply}" </dev/null >/dev/null 2>&1 &
+    elif [ "$1" -ge 480 ] && [ ! -f "$STATE/soft3" ]; then
+        : > "$STATE/soft3"
+        logger -t tc100-event -p user.warn "net-guard: no gateway for $1 s: Wi-Fi chip probed again" 2>/dev/null
+        sh "${NG_WIFI_RECOVER:-/mnt/scripts/wifi-recover.sh}" reprobe </dev/null >/dev/null 2>&1 &
+    fi
+    return 0
+}
+
 ng_once()
 {
     _ng_kv NET_GUARD
@@ -120,6 +143,7 @@ ng_once()
             _ng_first "$STATE/down_since"; _ds=$_f1; rm -f "$STATE/down_since"
             logger -t tc100-event -p user.notice "net-guard: network back after $((_now - _ds)) s" 2>/dev/null
         fi
+        rm -f "$STATE/soft1" "$STATE/soft2" "$STATE/soft3"
         [ -f "$STATE/up_since" ] || echo "$_now" > "$STATE/up_since"
         if [ -f "$PERSIST" ]; then
             _ng_first "$STATE/up_since"
@@ -142,6 +166,10 @@ ng_once()
     # W-NET: no wlan0 at all (the Wi-Fi chip failed to power on after a warm reboot): bring the chip back first, a warm
     # reboot did not (scripts/wifi-recover.sh: probe again, then a power cycle; it spaces its own tries by 5 min)
     [ -e "${NG_SYS:-/sys}/class/net/wlan0" ] || { sh "${NG_WIFI_RECOVER:-/mnt/scripts/wifi-recover.sh}" run </dev/null >/dev/null 2>&1 & }
+    if [ -e "${NG_SYS:-/sys}/class/net/wlan0" ]; then
+        _ng_kv NET_GUARD_SOFT
+        case "$_kv" in 1|yes|on|true) _ng_rescue_ap || _ng_soft $((_now - _ds)) ;; esac
+    fi
     _lim=$(_ng_limit)
     [ $((_now - _ds)) -ge "$_lim" ] || return 0
     if _ng_rescue_ap; then return 0; fi

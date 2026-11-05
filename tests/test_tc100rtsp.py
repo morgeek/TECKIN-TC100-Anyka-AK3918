@@ -198,6 +198,78 @@ class Util(unittest.TestCase):
         self.assertIn('all OK', r.stdout)
 
 
+class AudioProcessing(unittest.TestCase):
+    """Item 11: high-pass, gate + level control, mute while the speaker plays (adsp.c), fixed point"""
+
+    def test_adsp(self):
+        build('test_adsp')
+        r = subprocess.run([str(SRC / 'test_adsp')], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('all OK', r.stdout)
+
+    def test_meter_before_the_processing_and_switches_off_by_default(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        pump = src[src.index('static void aud_pump(void)'):src.index('static int send_pkt(')]
+        self.assertLess(pump.index('lvl_add(&snd_w, s)'), pump.index('s = adsp_sample(&aud_dsp, s, spk)'))
+        self.assertLess(pump.index('s = adsp_sample(&aud_dsp, s, spk)'), pump.index('aud_buf[aud_n++] = alaw(s)'))
+        self.assertIn("aud_direct_cfg = ad && ad[0] == '1';", src)
+        self.assertIn("adsp_init(&aud_dsp, h && h[0] == '1', a && a[0] == '1', d && d[0] == '1');", src)
+
+
+class Retention(unittest.TestCase):
+    """Item 15: files with motion or a sound event get a .evt marker; with REC_KEEP_EVENTS a full card loses the
+    recordings without an event first, the event clips only when nothing else is left"""
+
+    @classmethod
+    def setUpClass(cls):
+        build('test_rec')
+
+    def delete(self, d, keep):
+        r = subprocess.run([str(SRC / 'test_rec'), 'delete', str(d), str(keep)], capture_output=True, text=True, timeout=30)
+        return r.returncode
+
+    def card(self, d, names, events):
+        for n in names:
+            (d / (n + '.mp4')).write_bytes(b'x')
+            (d / (n + '.jpg')).write_bytes(b'j')
+        for n in events:
+            (d / (n + '.evt')).write_bytes(b'')
+
+    def left(self, d):
+        return sorted(p.stem for p in d.glob('*.mp4'))
+
+    def test_order_with_and_without_keep_events(self):
+        names = ['2026-11-0%d_10-00-00' % i for i in range(1, 6)]
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            self.card(d, names, [names[0], names[2]])
+            self.assertEqual(self.delete(d, 1), 0)                       # the oldest without an event: day 2
+            self.assertEqual(self.left(d), [names[0], names[2], names[3], names[4]])
+            self.assertFalse((d / (names[1] + '.jpg')).exists())
+            self.delete(d, 1); self.delete(d, 1)                         # days 4 and 5
+            self.assertEqual(self.left(d), [names[0], names[2]])
+            self.assertEqual(self.delete(d, 1), 0)                       # only event clips left: the oldest of them
+            self.assertEqual(self.left(d), [names[2]])
+            self.assertFalse((d / (names[0] + '.evt')).exists())         # its marker went with it
+            self.assertEqual(self.delete(d, 1), 0)
+            self.assertEqual(self.delete(d, 1), 3)                       # nothing left
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            self.card(d, names, [names[0]])
+            self.delete(d, 0)                                            # REC_KEEP_EVENTS=0: the oldest, as before
+            self.assertEqual(self.left(d), names[1:])
+
+    def test_motion_marks_the_files(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            r = subprocess.run([str(SRC / 'test_rec'), str(d), 'h264', '70', '12', '24', '30'],
+                               env=dict(os.environ, REC_TEST_ANY_FS='1', REC_TEST_MOTION='1'), capture_output=True, text=True, timeout=120)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            mp4 = sorted(p.stem for p in d.glob('*.mp4'))
+            self.assertEqual(len(mp4), 3)
+            self.assertEqual(sorted(p.stem for p in d.glob('*.evt')), mp4)
+
+
 class Recorder(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -818,6 +890,32 @@ class AudioTrack(Server):
         fr = [f for f in c.frames(3) if f[0] == 2]
         self.assertGreater(len(fr), 40)
         self.assertTrue(all(p[1] & 0x7f == 8 and len(p) == 172 for _, p in fr))
+
+
+class AudioTrackDirectFallback(AudioTrack):
+    """Item 11: RTSP_ALSA_DIRECT=1 where the capture device does not open: arecord takes over, the track still streams"""
+    env = {'RTSP_ALSA_DIRECT': '1', 'TC100_ALSA_DEV': '/nonexistent/pcmC0D0c'}
+
+
+class AudioTrackProcessed(AudioTrack):
+    """Item 11: the processing on, the audio track streams as before"""
+    env = {'RTSP_AUDIO_HPF': '1', 'RTSP_AUDIO_AGC': '1', 'RTSP_AUDIO_DUCK': '1'}
+
+
+class PrivacySilence(Server):
+    """Item 25: while the privacy flag exists the audio track carries silence (A-law 0xD5) and the log says so"""
+    env = {'TC100_PRIV_FILE': '/tmp'}                            # any existing path: the flag is set
+
+    def test_audio_is_silence(self):
+        c = self.client()
+        self.describe(c, require=False)
+        _, hd, _ = c.request('SETUP', self.URL + '/track1', 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1')
+        c.request('SETUP', self.URL + '/track2', 'Transport: RTP/AVP/TCP;unicast;interleaved=2-3', 'Session: ' + hd['session'].split(';')[0])
+        c.request('PLAY', self.URL, 'Session: ' + hd['session'].split(';')[0])
+        fr = [p for ch, p in c.frames(3) if ch == 2]
+        self.assertGreater(len(fr), 40)
+        self.assertTrue(all(set(p[12:]) == {0xD5} for p in fr[25:]))   # after the first second (the flag is read once a second)
+        self.assertIn('privacy mode on', Path(self.log.name).read_text())
 
 
 class Listen(Server):

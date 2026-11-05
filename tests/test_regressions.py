@@ -1285,6 +1285,36 @@ class NetGuard(unittest.TestCase):
         self.once(60); self.assertTrue((self.d / 'persist').exists())
         self.once(60 + 600); self.assertFalse((self.d / 'persist').exists())
 
+    def test_soft_repairs_before_the_reboot(self):
+        """Item 17: NET_GUARD_SOFT=1, wlan0 present: reassociation at 2 min, wifi-apply at 5, USB probe at 8, once each"""
+        d = self.d
+        (d / 'sys/class/net/wlan0').mkdir(parents=True)
+        (d / 'boot.conf').write_text('NET_GUARD=1\nNET_GUARD_MIN=15\nNET_GUARD_SOFT=1\n')
+        (d / 'wpa_cli').write_text('#!/bin/sh\necho "wpa_cli $*" >> %s/soft\n' % d); (d / 'wpa_cli').chmod(0o755)
+        (d / 'apply').write_text('echo apply >> %s/soft\n' % d)
+        (d / 'recover').write_text('echo "recover $1" >> %s/soft\n' % d)
+        self.env.update(NG_SYS=str(d / 'sys'), NG_WPA_CLI=str(d / 'wpa_cli'), NG_WIFI_APPLY=str(d / 'apply'),
+                        NG_WIFI_RECOVER=str(d / 'recover'))
+        soft = lambda: (d / 'soft').read_text().splitlines() if (d / 'soft').exists() else []
+        self.once(100); self.once(100 + 60)
+        self.assertEqual(soft(), [])
+        self.once(100 + 120); self.once(100 + 180)
+        self.assertEqual(soft(), ['wpa_cli -i wlan0 reassociate'])
+        self.once(100 + 300); self.once(100 + 360)
+        self.assertEqual(soft()[1:], ['apply'])
+        self.once(100 + 480); self.once(100 + 600)
+        self.assertEqual(soft()[2:], ['recover reprobe'])
+        self.assertEqual(self.actions(), [])
+        self.once(100 + 900)
+        self.assertIn('reboot', self.actions())                       # still the last resort
+        # network back: the steps start again at the next outage; off by default
+        (d / 'net_ok').write_text(''); self.once(2000); (d / 'net_ok').unlink(); (d / 'soft').unlink()
+        self.once(3000); self.once(3000 + 130)
+        self.assertEqual(soft(), ['wpa_cli -i wlan0 reassociate'])
+        (d / 'boot.conf').write_text('NET_GUARD=1\nNET_GUARD_MIN=15\n'); (d / 'soft').unlink()
+        self.once(3000 + 400)
+        self.assertEqual(soft(), [])
+
     def test_limit_capped_at_two_hours(self):
         (self.d / 'persist').write_text('9\n')
         r = subprocess.run(['sh', str(ROOT / 'scripts/net-guard.sh'), 'status'], env=dict(self.env, NG_UPTIME='10'),

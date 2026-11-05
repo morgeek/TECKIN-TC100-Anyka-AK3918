@@ -209,6 +209,8 @@ elif [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/l
     fi
     unset LD_LIBRARY_PATH
   fi
+  # privacy mode kept over the restart (controlscripts/privacy): the flag exists before the first picture
+  grep -q '^PRIVACY_SCREEN=1' /mnt/config/boot.conf 2>/dev/null && : > /tmp/tc100_privacy
   sh $TB/rtsp-launch.sh
   # the 6.6 kernel logs the sensor id only once the video is open: choose the board profile again then
   ( sleep 20; sh /mnt/v3/install/inventory.sh --quick > /tmp/inventory.txt.new 2>/dev/null && mv /tmp/inventory.txt.new /tmp/inventory.txt
@@ -309,6 +311,9 @@ fi
 if [ "$BC_ENABLE_NTP" != 0 ]; then
   S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
   ntpd -p "$S" </dev/null >/dev/null 2>&1 &
+  # NTP blocked (UDP 123): the Date header of the router's web page after 2 minutes (scripts/time-fallback.sh,
+  # TIME_HTTP_FALLBACK=0 turns it off)
+  ( sleep 120; exec sh /mnt/scripts/time-fallback.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 # Scheduled reboot (Settings -> System): the managed entry of config/cron/crontabs/root, run by crond
 # crond only when there is something to run (a non-comment line in the crontab): without an entry the resident daemon

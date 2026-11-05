@@ -8,12 +8,18 @@ CROSS ?= arm-linux-gnueabi-
 SYSROOT ?= /usr/arm-linux-gnueabi
 CFLAGS ?= -I../jpegenc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft \
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
-OBJS = tc100_rtsp.o rec.o mp4box.o livemp4.o talk.o alisten.o
+OBJS = tc100_rtsp.o rec.o mp4box.o livemp4.o talk.o alisten.o acap.o adsp.o
 
 all: tc100_rtsp
 
-tc100_rtsp.o: tc100_rtsp.c rec.h util.h talk.h alisten.h livemp4.h
+tc100_rtsp.o: tc100_rtsp.c rec.h util.h talk.h alisten.h livemp4.h acap.h adsp.h
 	$(CROSS)gcc $(CFLAGS) -c tc100_rtsp.c -o $@
+
+acap.o: acap.c acap.h
+	$(CROSS)gcc $(CFLAGS) -Os -c acap.c -o $@
+
+adsp.o: adsp.c adsp.h
+	$(CROSS)gcc $(CFLAGS) -c adsp.c -o $@
 
 talk.o: talk.c talk.h
 	$(CROSS)gcc $(CFLAGS) -Os -c talk.c -o $@
@@ -66,12 +72,16 @@ tc100_rtsp.dbg: start.o $(OBJS) libpthread.so.0 libc.so.0 libdl.so.0
 		$$($(CROSS)gcc -print-libgcc-file-name)
 
 # host tests of the pure parts (util.h, rec.c): gcc of the build host, no camera needed
-test: test_util test_rec test_livemp4 test_rtsp
+test: test_util test_rec test_livemp4 test_rtsp test_adsp
 	./test_util
 
 # the whole server without camera and encoder (RTSP, audio, backchannel, listeners): tests/test_tc100rtsp.py runs it
-test_rtsp: tc100_rtsp.c rec.c mp4box.c livemp4.c talk.c alisten.c rec.h mp4box.h livemp4.h talk.h alisten.h util.h
-	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -o $@ tc100_rtsp.c rec.c mp4box.c livemp4.c talk.c alisten.c -ldl -lpthread -lm
+test_rtsp: tc100_rtsp.c rec.c mp4box.c livemp4.c talk.c alisten.c acap.c adsp.c rec.h mp4box.h livemp4.h talk.h alisten.h util.h acap.h adsp.h
+	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -o $@ tc100_rtsp.c rec.c mp4box.c livemp4.c talk.c alisten.c acap.c adsp.c -ldl -lpthread -lm
+
+# the microphone processing alone: tests/test_tc100rtsp.py feeds it tones and silence
+test_adsp: test_adsp.c adsp.c adsp.h
+	gcc -O2 -Wall -Wextra -o $@ test_adsp.c adsp.c -lm
 
 test_util: test_util.c util.h
 	gcc -O2 -Wall -Wextra -o $@ test_util.c -lm
@@ -84,4 +94,4 @@ test_livemp4: test_livemp4.c livemp4.c livemp4.h mp4box.c mp4box.h
 	gcc -O2 -Wall -Wextra -o $@ test_livemp4.c livemp4.c mp4box.c
 
 clean:
-	rm -f tc100_rtsp tc100_rtsp.dbg *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp
+	rm -f tc100_rtsp tc100_rtsp.dbg *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp test_adsp

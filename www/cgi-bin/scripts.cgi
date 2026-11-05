@@ -248,6 +248,7 @@ fast_toggle_state() {
     red-led)   { [ "$(read_first /sys/class/leds/red_led/brightness)" = 1 ] || [ "$(read_first /sys/class/leds/red/brightness)" = 1 ]; } && _ft_on=1 ;;
     ir-led)    { [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] || [ "$(read_first /sys/class/leds/ir/brightness)" = 1 ]; } && _ft_on=1 ;;
     ir-cut)    [ "$(read_first /var/run/ircut)" = 1 ] && _ft_on=1 ;;
+    privacy)   [ -f /tmp/tc100_privacy ] && _ft_on=1 ;;
     black-white) [ "$(read_first /var/run/vday)" = 0 ] && _ft_on=1 ;;
     night-mode)
       { [ "$(read_first /sys/user-gpio/ir-led)" = 1 ] || [ "$(read_first /sys/class/leds/ir/brightness)" = 1 ]; } \

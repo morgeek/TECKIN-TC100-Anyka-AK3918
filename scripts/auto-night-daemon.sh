@@ -83,6 +83,10 @@ DN_NIGHT_SINCE=0
 DN_REST_UNTIL=0
 NIGHT_HOLD=10
 DAY_HOLD=60
+# item 21: at least MIN_SWITCH seconds between two switches, whatever the source (at dusk the IR LEDs light the scene,
+# the picture brightens and the luma source went back to day: the IR-cut clicked back and forth). 0 = no minimum.
+MIN_SWITCH=60
+DN_LAST_SWITCH=
 DN_DARK_SINCE=0
 DN_BRIGHT_SINCE=0
 DN_ACT=
@@ -123,6 +127,9 @@ read_daynight() {
         case "$_v" in ''|*[!0-9]*) continue ;; esac
         [ "${#_v}" -le 4 ] && [ "$_v" -ge 1 ] && [ "$_v" -le 3600 ] || continue
         if [ "$_k" = NIGHT_HOLD ]; then NIGHT_HOLD="$_v"; else DAY_HOLD="$_v"; fi ;;
+      MIN_SWITCH)
+        case "$_v" in ''|*[!0-9]*) continue ;; esac
+        [ "${#_v}" -le 4 ] && [ "$_v" -le 3600 ] && MIN_SWITCH="$_v" ;;
     esac
   done < "$DN_CONF"
   # the gap: day must need a clearly lower index than night
@@ -176,7 +183,14 @@ dn_hold() {
   fi
 }
 
-dn_switch() {   # $1 = night|day, $2 = what the decision was based on
+dn_switch() {   # $1 = night|day, $2 = what the decision was based on; NOW = the time of the decision (set by its caller)
+  if [ -n "$DN_LAST_SWITCH" ] && [ $(( NOW - DN_LAST_SWITCH )) -lt "$MIN_SWITCH" ]; then
+    # too soon after the last switch (item 21): wait; the counters keep running, so it happens once the time is up
+    [ "$DN_TOO_SOON" = "$DN_LAST_SWITCH" ] || echo "[auto-night] $1 wanted ($2) $(( NOW - DN_LAST_SWITCH )) s after the last switch: waiting ${MIN_SWITCH} s" > "$CONSOLE"
+    DN_TOO_SOON=$DN_LAST_SWITCH
+    return 0
+  fi
+  DN_LAST_SWITCH=$NOW
   if [ "$1" = night ]; then
     echo "[auto-night] Low light detected ($2): Switching to NIGHT mode" > "$CONSOLE"
     "$NIGHTMODE" on
@@ -299,6 +313,7 @@ dn_ir_guard() {
 
 # the original decision on the picture luminance: two samples in a row beyond the threshold
 dn_step_luma() {
+  read_now   # for the minimum time between two switches (dn_switch)
   # Read luminance directly from real-time streamer or cache
   LUMA=50
   if [ -f "$CAM_LUMA" ]; then

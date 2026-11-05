@@ -13,6 +13,7 @@
 #include "rec.h"
 
 void rec_test_drop(void);
+int rec_test_delete(const char *dir, int keep_events);
 
 static unsigned char alaw_enc(int s)
 {
@@ -78,6 +79,8 @@ int main(int argc, char **argv)
 	int hole = getenv("REC_TEST_AUDIO_HOLE") ? atoi(getenv("REC_TEST_AUDIO_HOLE")) : -1;
 	struct bw w;
 
+	if (argc == 4 && !strcmp(argv[1], "delete"))	/* test_rec delete DIR KEEP_EVENTS: one deletion, exit 3 when none */
+		return rec_test_delete(argv[2], atoi(argv[3])) ? 0 : 3;
 	if (argc < 7) { fprintf(stderr, "usage: test_rec DIR h264|h265 SECONDS FPS GOP SEGMENT_S [DROP]\n"); return 2; }
 	hevc = !strcmp(argv[2], "h265");
 	secs = atoi(argv[3]); fps = atoi(argv[4]); gop = atoi(argv[5]);
@@ -117,6 +120,7 @@ int main(int argc, char **argv)
 	c.audio = audio;
 	c.segment_s = atoi(argv[6]); c.reserve_mb = 16; c.offline_s = 5; c.postroll_s = 30; c.ring_kb = 8192;
 	if (rec_config(&c)) return 1;
+	if (getenv("REC_TEST_MOTION")) rec_inputs(0, 1);	/* motion all along: every file gets its .evt marker */
 	for (n = 0; n < 200 && !rec_active(); n++) usleep(10000);
 	if (!rec_active()) { fprintf(stderr, "recorder not active\n"); return 1; }
 

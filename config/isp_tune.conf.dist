@@ -6,7 +6,8 @@ CONTRAST=0
 SATURATION=0
 SHARPNESS=0
 HUE=0
-# Mains frequency for anti-flicker: 50 (Europe) or 60. Empty = unchanged.
+# Mains frequency for anti-flicker: 50 (Europe) or 60, auto = from the Wi-Fi country (boot.conf WIFI_COUNTRY;
+# Japan and an unset country: unchanged). Empty = unchanged.
 POWER_HZ=
 # Cap the auto-exposure time at a percentage of the ISP file value (10..100).
 # Lower = less motion blur at night, darker image. Empty = no cap.

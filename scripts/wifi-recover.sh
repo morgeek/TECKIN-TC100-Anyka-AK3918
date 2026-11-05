@@ -1,5 +1,7 @@
 #!/bin/sh
-# wifi-recover.sh [check|run]   bring back a Wi-Fi chip the driver could not power on (test queue W-NET)
+# wifi-recover.sh [check|run|reprobe]   bring back a Wi-Fi chip the driver could not power on (test queue W-NET)
+# reprobe (net-guard's soft repair, item 17): wlan0 exists but the gateway does not answer: the USB device is probed
+# again (authorized 0 -> 1), then, once wlan0 is back, the Wi-Fi settings are applied again.
 #
 # W-NET (IPCAM2, 2026-10-31): after warm reboots the RTL8188FU answered on USB but "rtl8xxxu_init_device: Failed power
 # on", probe error -16, no wlan0, five boots in a row; a warm reboot (net-guard's remedy) did not help, a power cut
@@ -42,7 +44,14 @@ wr_reprobe() {
 case "${1:-run}" in
   check) wr_have; exit $? ;;
   run) ;;
-  *) echo "usage: wifi-recover.sh [check|run]" >&2; exit 2 ;;
+  reprobe)
+    mkdir "$WR_LOCK" 2>/dev/null || exit 0
+    trap 'rmdir "$WR_LOCK" 2>/dev/null' EXIT
+    wr_log "gateway unreachable: probing the Wi-Fi chip again"
+    wr_reprobe || { wr_log "no USB Wi-Fi device to probe"; exit 1; }
+    if wr_wait; then wr_log "wlan0 back: Wi-Fi settings applied again"; [ -f "$WR_APPLY" ] && sh "$WR_APPLY" >/dev/null 2>&1; exit 0; fi
+    wr_log "no wlan0 after the probe (the next net-guard check runs the full recovery)"; exit 1 ;;
+  *) echo "usage: wifi-recover.sh [check|run|reprobe]" >&2; exit 2 ;;
 esac
 wr_have && exit 0
 _now=

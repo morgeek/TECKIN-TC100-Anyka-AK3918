@@ -10,6 +10,10 @@ LIGHTWEIGHT_MODE=0
 # is up. NET_GUARD=0 turns it off.
 NET_GUARD=1
 NET_GUARD_MIN=15
+# NET_GUARD_SOFT=1: before that reboot, soft repairs while wlan0 exists: 2 min without the
+# gateway -> Wi-Fi reassociation, 5 min -> Wi-Fi settings applied again, 8 min -> the USB
+# Wi-Fi chip probed again (each once per outage). 0 = only the reboot.
+NET_GUARD_SOFT=0
 # SD card when running from flash (scripts/sd-card.sh): a FAT32/exFAT card
 # without boot files and without card errors is mounted on /mnt/sd when it is
 # put in (checked every minute), for the local recording and the web page.
@@ -17,6 +21,12 @@ NET_GUARD_MIN=15
 # automatically.
 SD_AUTOMOUNT=1
 ENABLE_NTP=1
+# NTP blocked (UDP port 123 filtered): the clock is taken from the "Date:" header of
+# an HTTP answer after 2 minutes (scripts/time-fallback.sh). TIME_HTTP_URLS: space-separated
+# http:// addresses, "gateway" = the router's own page (default: nothing leaves the
+# local network). TIME_HTTP_FALLBACK=0 turns it off.
+TIME_HTTP_FALLBACK=1
+TIME_HTTP_URLS=gateway
 ENABLE_CROND=1
 
 # Managed scheduled reboot cron task:
@@ -170,6 +180,13 @@ REC_RING_KB=1024
 # mono, VLC plays it; browsers show the picture, the sound only if they decode A-law).
 # The microphone then runs while the recorder is on.
 REC_AUDIO=1
+# REC_KEEP_EVENTS=1: a file during which motion or a sound event was detected gets an
+# empty .evt next to it; when the card is full, the oldest recording WITHOUT an event
+# is deleted first, the event clips only when nothing else is left. 0 = the oldest.
+REC_KEEP_EVENTS=0
+# PRIVACY_SCREEN=1: privacy mode (Services page "Privacy Mode", MQTT switch): black picture
+# on every stream, snapshot and recording, no sound, no motion detection. Kept over a restart.
+PRIVACY_SCREEN=0
 # RTSP_LITE_TALK=1: two-way audio. A client asking for the ONVIF backchannel (go2rtc,
 # Frigate, the microphone button of Home Assistant) plays its sound on the speaker,
 # volume as the push-to-talk. Only with the RTSP password. 0 = off.

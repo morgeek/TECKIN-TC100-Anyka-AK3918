@@ -27,7 +27,7 @@ isp_tune_norm()
       case "$_itn_v" in -*) echo "-$((_itn_n + 0))" ;; *) echo "$((_itn_n + 0))" ;; esac
       ;;
     POWER_HZ)
-      case "$_itn_v" in ''|50|60) echo "$_itn_v" ;; *) return 1 ;; esac
+      case "$_itn_v" in ''|50|60|auto) echo "$_itn_v" ;; *) return 1 ;; esac
       ;;
     EXPOSURE_MAX_PCT)
       case "$_itn_v" in ''|0) echo ""; return 0 ;; *[!0-9]*) return 1 ;; esac
@@ -80,7 +80,7 @@ isp_tune_enabled()
 }
 
 # JSON number or null for a possibly-empty value.
-_isp_num() { case "$1" in ''|*[!0-9-]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
+_isp_num() { case "$1" in auto) printf '"auto"' ;; ''|*[!0-9-]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }   # auto: POWER_HZ only
 
 # isp_tune_json -> {"enabled":0|1,"conf":{...},"applied":{...}|null}
 isp_tune_json()

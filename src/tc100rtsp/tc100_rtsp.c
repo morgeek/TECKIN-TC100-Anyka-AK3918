@@ -53,6 +53,8 @@
 #include "jpeg_hw.h"
 #include "rec.h"
 #include "talk.h"
+#include "acap.h"
+#include "adsp.h"
 #include "util.h"
 
 /* main picture: 1920x1080, or 1280x720 with RTSP_WIDTH=1280 RTSP_HEIGHT=720 (rtspserver.conf [0] width / height, read
@@ -98,6 +100,7 @@ static int (*p_send)(void *, unsigned char *, unsigned int, struct video_stream 
 static int (*p_release)(void *, struct video_stream *);
 static int (*p_close)(void *);
 static int (*p_smart)(void *, const int *);	/* ak_venc_set_smart_config, optional (R11-01) */
+static int (*p_set_br)(void *, int);		/* ak_venc_set_br(handle, kbit/s), optional (RTSP_ABR, item 18) */
 static unsigned long (*p_alloc)(int);
 static int (*p_pinit)(void);
 static volatile int run = 1;
@@ -274,6 +277,24 @@ static int cfg_get(const char *file, const char *sec, const char *key, char *out
 	return found;
 }
 
+/* the mains frequency of a country (ISO 3166 alpha-2): 60 Hz in most of the Americas, South Korea, Taiwan, the
+ * Philippines, Saudi Arabia and a few islands; 50 Hz elsewhere; 0 for Japan (both: east 50, west 60) and unknown codes */
+static int mains_hz(const char *cc)
+{
+	static const char hz60[] = "US CA MX BR CO VE EC PE CR GT HN NI PA SV DO PR CU BS BZ JM HT LR KN LC VC TT AG BB DM GD "
+				   "GU AS MP VI PH KR TW SA AW BM KY MS TC VG";
+	char c[3];
+	const char *p;
+
+	if (!cc || !cc[0] || !cc[1] || cc[2]) return 0;
+	c[0] = (char)(cc[0] & ~0x20); c[1] = (char)(cc[1] & ~0x20); c[2] = 0;
+	if (c[0] < 'A' || c[0] > 'Z' || c[1] < 'A' || c[1] > 'Z') return 0;
+	if (!strcmp(c, "JP")) return 0;
+	for (p = hz60; *p; p += p[2] ? 3 : 2)
+		if (p[0] == c[0] && p[1] == c[1]) return 60;
+	return 50;
+}
+
 static int p_sharp, p_expct, p_hz;	/* isp_tune.conf SHARPNESS (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap), POWER_HZ (50, 60, 0 = off): done by the ISP */
 static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
 
@@ -305,8 +326,16 @@ static void post_apply(void)
 
 	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && truthy(v);
 	p_bri = p_con = p_sat = p_hue = p_sharp = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
-	/* anti-flicker applies whatever ISP_TUNE is, like the masks: it is about the lamps, not a matter of taste */
-	p_hz = cfg_get(fn[1], "", "POWER_HZ", v, sizeof v) ? atoi_(v) : 0;
+	/* anti-flicker applies whatever ISP_TUNE is, like the masks: it is about the lamps, not a matter of taste.
+	 * POWER_HZ=auto (item 16): the mains frequency of the Wi-Fi country (boot.conf WIFI_COUNTRY) */
+	p_hz = 0;
+	if (cfg_get(fn[1], "", "POWER_HZ", v, sizeof v)) {
+		if (!strcmp(v, "auto")) {
+			char cc[8];
+
+			p_hz = cfg_get(CONF "boot.conf", "", "WIFI_COUNTRY", cc, sizeof cc) ? mains_hz(cc) : 0;
+		} else p_hz = atoi_(v);
+	}
 	if (p_hz != 50 && p_hz != 60) p_hz = 0;
 	if (p_tune) {
 		if (cfg_get(fn[1], "", "BRIGHTNESS", v, sizeof v)) p_bri = atoi_(v);
@@ -1072,6 +1101,20 @@ static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2,
 	for (yy = y1 / 2; yy < y2 / 2; yy++) { unsigned char *r = y + w * h + yy * w; for (x = x1; x < x2; x += 2) { r[x] = 128; r[x + 1] = 128; } }
 }
 
+/* ---- privacy mode (item 25 of the implementer list): while /tmp/tc100_privacy exists (scripts/privacy.sh: web page,
+ * MQTT, boot.conf PRIVACY_SCREEN), both pictures are made black before the encoder, the snapshots and the recorder see
+ * them (fill(): the rows are marked for the cache clean of the direct capture), the motion detection pauses and the
+ * microphone sends silence (and no sound level). Read once a second. ---- */
+static int priv_on;
+static const char *priv_path = "/tmp/tc100_privacy";	/* TC100_PRIV_FILE: tests */
+
+static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2, int col);
+
+static void priv_black(unsigned char *p, int w, int h)
+{
+	fill(p, w, h, 0, 0, w, h, 16);
+}
+
 static const unsigned char font57[14][5] = {
 	{0x3E,0x51,0x49,0x45,0x3E},{0x00,0x42,0x7F,0x40,0x00},{0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4B,0x31},
 	{0x18,0x14,0x12,0x7F,0x10},{0x27,0x45,0x45,0x45,0x39},{0x3C,0x4A,0x49,0x49,0x30},{0x01,0x71,0x09,0x05,0x03},
@@ -1643,6 +1686,12 @@ static time_t aud_retry;
 static uint32_t aud_ts = 0x1234;
 static unsigned char aud_buf[160 * 2];
 static int aud_n;
+/* item 11: RTSP_ALSA_DIRECT=1 reads the microphone with the kernel's PCM ioctls (acap.c) instead of an arecord child;
+ * RTSP_AUDIO_HPF / RTSP_AUDIO_AGC / RTSP_AUDIO_DUCK=1 process the sound that leaves the camera (adsp.c). All off by
+ * default until checked on the camera (test-queue [audio-native]). */
+static int aud_direct_cfg, aud_direct;
+static const char *aud_dev = "/dev/snd/pcmC0D0c";
+static struct adsp aud_dsp;
 
 /* ---- sound level for the sound detection (the 2.x libtc100fix meter, same file format) ----
  * When config/sound_detection.conf has ENABLE=1, the level file (-S, default /var/run/sound_level) is rewritten every
@@ -1713,13 +1762,28 @@ static unsigned char alaw(int s)
 	return (((e << 4) | m) ^ mask) & 0xff;
 }
 
-/* start arecord on a pipe (vfork + exec, no shell; the child closes our sockets and devices) */
+/* start the capture: the ALSA device itself (RTSP_ALSA_DIRECT=1), else arecord on a pipe (vfork + exec, no shell; the
+ * child closes our sockets and devices) */
 static void aud_open(void)
 {
 	int p[2];
 	pid_t pid;
 
 	aud_retry = time(NULL) + 5;
+	aud_direct = 0;
+	if (aud_direct_cfg) {
+		int fd = acap_open(aud_dev);
+		static int said;
+
+		if (fd >= 0) {
+			aud_fd = fd; aud_direct = 1;
+			if (!said) { LOG("audio: microphone read directly (%s, no arecord)\n", aud_dev); said = 1; }
+			aud_n = 0; aud_odd = -1; aud_gap = 1;
+			lvl_reset(&snd_w); lvl_reset(&snd_s);
+			return;
+		}
+		LOG("audio: %s: %s, arecord instead\n", aud_dev, strerror(errno));
+	}
 	if (pipe(p)) { LOG("audio: pipe: %s\n", strerror(errno)); return; }
 	pid = vfork();
 	if (pid == 0) {
@@ -1795,18 +1859,33 @@ static uint64_t now_us64(void)
 	return (uint64_t)t.tv_sec * 1000000ULL + (uint64_t)t.tv_nsec / 1000;
 }
 
+/* what the capture has: bytes, 0 the end (arecord gone, the device failed), -1 with EAGAIN nothing yet */
+static int aud_get(unsigned char *buf, int len)
+{
+	int r;
+
+	if (!aud_direct) return (int)read(aud_fd, buf, len);
+	r = acap_read(aud_fd, buf, len);
+	if (r > 0) return r;
+	if (r == 0) { errno = EAGAIN; return -1; }
+	return 0;
+}
+
 static void aud_pump(void)
 {
 	unsigned char raw[1024];
-	int r;
+	int r, dsp = adsp_on(&aud_dsp), spk = 0;
 
-	while ((r = read(aud_fd, raw, sizeof raw)) > 0) {
+	/* the speaker plays (two-way audio, push-to-talk, a sound): the microphone is muted (RTSP_AUDIO_DUCK) */
+	if (dsp && aud_dsp.duck) spk = talk_state() == 1 || !access("/tmp/speaker-play.lock", F_OK);
+	while ((r = aud_get(raw, sizeof raw)) > 0) {
 		int rec_a = rec_audio_wanted(), left = 0;
 		uint64_t tus = rec_a ? now_us64() : 0;
 
 		/* the pipe is read at each video frame (not at each 512-byte period of arecord): the bytes still waiting
 		 * in it are younger than these, so each 20 ms block is dated by what follows it (16 bytes per ms) */
-		if (rec_a && ioctl(aud_fd, FIONREAD, &left) < 0) left = 0;
+		if (rec_a && aud_direct) left = acap_delay_bytes(aud_fd);
+		else if (rec_a && ioctl(aud_fd, FIONREAD, &left) < 0) left = 0;
 		unsigned char pcm[sizeof raw + 2];
 		int pn = 0;
 
@@ -1816,8 +1895,10 @@ static void aud_pump(void)
 			if (aud_odd < 0) { aud_odd = raw[i]; continue; }
 			s = (int16_t)(aud_odd | (raw[i] << 8));
 			aud_odd = -1;
+			if (priv_on) s = 0;	/* privacy mode: silence, and no sound level */
+			else if (snd_on) { lvl_add(&snd_w, s); if (snd_w.n >= 2000) snd_window(); }	/* the meter: before the processing */
+			if (dsp) s = adsp_sample(&aud_dsp, s, spk);
 			pcm[pn++] = (unsigned char)s; pcm[pn++] = (unsigned char)((unsigned)s >> 8);
-			if (snd_on) { lvl_add(&snd_w, s); if (snd_w.n >= 2000) snd_window(); }
 			if (aud_tx || rec_a) {
 				aud_buf[aud_n++] = alaw(s);
 				if (aud_n == 160) {
@@ -2370,7 +2451,11 @@ static void md_frame(const unsigned char *sy, double tn)
 
 	if (tn - md_t < 0.25) return;
 	md_t = tn;
-	if (!md_on) { md_have = 0; return; }
+	if (!md_on || priv_on) {	/* privacy mode: nothing is watched */
+		md_have = 0;
+		if (priv_on && md_motion) { md_motion = 0; wfile("/tmp/rec_control", "0\n", 2); }
+		return;
+	}
 	for (y = 0; y < MD_GH; y++)
 		for (x = 0; x < MD_GW; x++) cur[n++] = sy[(y * (H / MD_GH) + H / MD_GH / 2) * W + x * (W / MD_GW) + W / MD_GW / 2];
 	if (md_have) {
@@ -2381,6 +2466,31 @@ static void md_frame(const unsigned char *sy, double tn)
 	}
 	memcpy(md_prev, cur, sizeof cur); md_have = 1;
 	if (md_motion && tn - md_tlast > 8.0) { md_motion = 0; wfile("/tmp/rec_control", "0\n", 2); }
+}
+
+/* ---- motion from the encoder (RTSP_MD_ENC=1, item 19 of the implementer list) ----
+ * A second detector on top of the luma grid, from what the encoder already computes: in VBR a still scene gives
+ * small P frames, motion makes them several times bigger. Each main-stream P frame is compared with a slow running
+ * mean of the P frame sizes; 3 frames in a row above x2 (sensitivity 100) .. x6 (sensitivity 1), x3.6 at the default
+ * 60, count as motion (as the grid: /tmp/rec_control, MQTT, recording, idle frame rate). The motion zones do not apply
+ * to it (the whole picture). In CBR the encoder evens the frame sizes out: it stays nearly silent there. No pixel is
+ * read: no CPU cost. Off by default until checked on the camera (test-queue [md-enc]). */
+static int md_enc_on, md_enc_hits;
+static uint32_t md_enc_base;	/* running mean of the P frame sizes, x16 */
+
+static void md_enc_frame(uint32_t len, int idr, double tn)
+{
+	uint32_t thr;
+
+	if (!md_enc_on || !md_on || priv_on || idr || len < 16) return;
+	if (!md_enc_base) { md_enc_base = len << 4; return; }
+	thr = 20 + (uint32_t)(100 - md_sens) * 40 / 99;			/* x10: 20 (x2) .. 60 (x6) */
+	if ((uint64_t)len * 160 > (uint64_t)md_enc_base * thr) md_enc_hits++;
+	else {
+		md_enc_hits = 0;
+		md_enc_base += (uint32_t)(((int32_t)(len << 4) - (int32_t)md_enc_base) / 32);	/* the mean learns calm frames only */
+	}
+	if (md_enc_hits >= 3) { md_tlast = tn; if (!md_motion) { md_motion = 1; wfile("/tmp/rec_control", "1\n", 2); } }
 }
 
 /* ---- local recording (rec.c): settings of boot.conf, as on 2.x (Settings -> Recording) -------------------------
@@ -2436,6 +2546,7 @@ static void rec_reload(void)
 	rc.postroll_s = cfg_num(bc, "REC_POSTROLL_SEC", 30);
 	rc.ring_kb = cfg_num(bc, "REC_RING_KB", 1024);
 	rc.audio = cfg_num(bc, "REC_AUDIO", 1) != 0;
+	rc.keep_events = cfg_num(bc, "REC_KEEP_EVENTS", 0) != 0;
 	rec_sub = cfg_get(bc, "", "REC_STREAM", v, sizeof v) && !strcmp(v, "sub");
 	rec_client = 0;
 	if (cfg_get(bc, "", "REC_CLIENT", v, sizeof v) && v[0]) rec_client = ip_of(v);
@@ -2575,6 +2686,35 @@ static int direct_setup(int vfd, void **vb, unsigned n, unsigned len)
 #else
 static void dclean(void *a, unsigned long n) { (void)a; (void)n; }
 #endif
+
+/* ---- automatic bit rate (RTSP_ABR=1, item 18 of the implementer list) ----
+ * Every STAT tick (5 s): when TCP clients of the stream had to skip 3 frames or more (their queue full: the Wi-Fi or
+ * the network cannot carry the bit rate), the main stream's bit rate goes down by 30 %, not below RTSP_ABR_MIN
+ * (default a quarter of the setting, 200 kbit/s at least); after 30 s without a skipped frame it goes back up by a
+ * tenth of the setting, up to the setting. Through the encoder library's ak_venc_set_br(handle, kbit/s) (the Anyka
+ * SDK's call; its result is logged, a refusal turns the regulation off). UDP clients give no such signal. Off by
+ * default until checked on the camera (test-queue [abr]). */
+static int abr_on, abr_cur, abr_base, abr_min, abr_calm;
+static unsigned long abr_last_dr;
+static void *abr_enc;
+
+static void abr_tick(unsigned long dropped)
+{
+	unsigned long d = dropped >= abr_last_dr ? dropped - abr_last_dr : 0;	/* a client gone takes its count away */
+	int want, r;
+
+	abr_last_dr = dropped;
+	if (!abr_on || !S[0].enc || !p_set_br) return;
+	if (S[0].enc != abr_enc) { abr_enc = S[0].enc; abr_cur = abr_base; abr_calm = 0; }	/* (re)opened at the setting */
+	want = abr_cur;
+	if (d >= 3) { want = abr_cur * 7 / 10; if (want < abr_min) want = abr_min; abr_calm = 0; }
+	else if (abr_cur < abr_base && ++abr_calm >= 6) { want = abr_cur + abr_base / 10; if (want > abr_base) want = abr_base; abr_calm = 0; }
+	if (want == abr_cur) return;
+	r = p_set_br(S[0].enc, want);
+	LOG("ABR: %lu frames skipped in 5 s: main bit rate %d -> %d kbit/s (ak_venc_set_br: %d)\n", d, abr_cur, want, r);
+	if (r == 0) abr_cur = want;
+	else { abr_on = 0; LOG("ABR: the encoder refused the bit rate, regulation off\n"); }
+}
 
 /* RTSP_PROFILE=1: kernel (system) CPU time of the main thread per step, added to the STAT line every 5 s as
  * "PROF sys ms: select dqbuf enc_main enc_sub send qbuf other" (getrusage(RUSAGE_THREAD) around each step) */
@@ -2805,6 +2945,25 @@ int main(int argc, char **argv)
 	long logmax = lm && *lm ? num(lm) : 262144;
 
 	dbg_on = getenv("RTSP_DEBUG") != NULL;
+	{ const char *ab = getenv("RTSP_ABR"); abr_on = ab && ab[0] == '1'; }
+	if (getenv("TC100_PRIV_FILE")) priv_path = getenv("TC100_PRIV_FILE");
+	{	/* motion from the encoder's frame sizes (item 19) */
+		const char *me = getenv("RTSP_MD_ENC"), *vb = getenv("RTSP_VBR");
+
+		md_enc_on = me && me[0] == '1';
+		if (md_enc_on) LOG("motion from the encoder frame sizes: on%s\n", vb && vb[0] == '1' ? "" : " (the bit rate is constant: it will see little, VBR is needed)");
+	}
+	{	/* microphone: direct ALSA capture and processing (item 11) */
+		const char *ad = getenv("RTSP_ALSA_DIRECT"), *dv = getenv("TC100_ALSA_DEV");
+		const char *h = getenv("RTSP_AUDIO_HPF"), *a = getenv("RTSP_AUDIO_AGC"), *d = getenv("RTSP_AUDIO_DUCK");
+
+		aud_direct_cfg = ad && ad[0] == '1';
+		if (dv && *dv) aud_dev = dv;
+		adsp_init(&aud_dsp, h && h[0] == '1', a && a[0] == '1', d && d[0] == '1');
+		if (adsp_on(&aud_dsp))
+			LOG("audio: processing: high-pass %s, gate and level %s, muted while the speaker plays %s\n",
+			    aud_dsp.hpf ? "on" : "off", aud_dsp.agc ? "on" : "off", aud_dsp.duck ? "on" : "off");
+	}
 	{	/* main picture size (item 8 of the implementer list): 720p only where the kernel scales the main channel */
 		const char *ew = getenv("RTSP_WIDTH"), *eh = getenv("RTSP_HEIGHT");
 		const char *kp = getenv("TC100_VI_SCALE_PARAM") ? getenv("TC100_VI_SCALE_PARAM") : "/sys/module/ak39_vi/parameters/main_scale";
@@ -2854,6 +3013,15 @@ int main(int argc, char **argv)
 	}
 	if (fps < 1) fps = 1;
 	if (sub_kbps < 32) sub_kbps = 32;
+	{	/* automatic bit rate bounds (RTSP_ABR, item 18) */
+		const char *mn = getenv("RTSP_ABR_MIN");
+
+		abr_base = kbps;
+		abr_min = mn && *mn ? num(mn) : kbps / 4;
+		if (abr_min < 200) abr_min = 200;
+		if (abr_min > kbps) abr_min = kbps;
+		if (abr_on) LOG("ABR: on, main bit rate between %d and %d kbit/s\n", abr_min, kbps);
+	}
 	{	/* client queue limit */
 		const char *qm = getenv("RTSP_QMAX");
 		long kb = qm && *qm ? num(qm) : 0;
@@ -2904,6 +3072,7 @@ int main(int argc, char **argv)
 		p_release = dlsym(m, "ak_venc_release_stream");
 		p_close = dlsym(m, "ak_venc_close");
 		p_smart = dlsym(m, "ak_venc_set_smart_config");
+		p_set_br = dlsym(m, "ak_venc_set_br");
 		p_alloc = dlsym(RTLD_DEFAULT, "akuio_alloc_pmem");
 		p_pinit = dlsym(RTLD_DEFAULT, "akuio_pmem_init");
 		if (!p_open || !p_send || !p_release || !p_close || !p_alloc) { LOG("missing encoder symbols\n"); return 2; }
@@ -3198,6 +3367,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld\n",
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
 				      rec_active(), pp_us / 1000, sub_us / 1000);
+				  abr_tick(dr);
 				  {	/* the same numbers for www/cgi-bin/metrics.cgi (Prometheus): counts over the last interval */
 					char sb[192];
 					int sn = snprintf(sb, sizeof sb, "interval_s %ld\ncaptured %lu\nmain_bytes %lu\nsub_bytes %lu\nclients %d\ndropped %lu\n",
@@ -3278,6 +3448,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			int snd = 0;
 
 			sec_last = nowt;
+			{ int p = !access(priv_path, F_OK); if (p != priv_on) LOG("privacy mode %s\n", p ? "on: black picture, no sound, no motion detection" : "off"); priv_on = p; }
 			{	/* the stream of the browser live view (live.cgi): the sub-stream when it is H.264, else the main one */
 				int lsi = S[1].on && !S[1].hevc ? 1 : !S[0].hevc ? 0 : -1;
 
@@ -3426,6 +3597,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				else if (hwsub) post_sub_copy(sp, (unsigned char *)vb[b.index] + flen);
 				else { sub_scale(vb[b.index], sp); post_sub(sp); }
 				post_overlay(sp, SW, SH, 0); if (bw && !bw_isp) memset(sp + SW * SH, 128, SW * SH / 2);
+				if (priv_on) priv_black(sp, SW, SH);
 				if (dm && hwsub) dm_clean(sp, SW, SH, bw && !bw_isp);	/* the encoder reads memory, not the cache */
 			}
 			t_pp1 = now_s();
@@ -3434,6 +3606,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				if (zc || dm) post_inplace(cur); else post_copy(pf, vb[b.index]);
 				post_overlay(cur, W, H, 1);
 				if (bw && !bw_isp) memset(cur + W * H, 128, W * H / 2);
+				if (priv_on) priv_black(cur, W, H);
 				if (dm) dm_clean(cur, W, H, bw && !bw_isp);
 			}
 			sub_us += (long)((t_pp1 - t_pp0) * 1e6); pp_us += (long)((now_s() - t_pp1) * 1e6);
@@ -3488,6 +3661,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 						PROF(4, bcast(k, d, len, ts, idr, tp));
 						clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 						s->nbytes += len;
+						if (!k) md_enc_frame(len, idr, t_frame);
 						if (rec_on && k == rsi) { rec_frame(d, len, ts_us, idr, s->hevc); if (idr) rec_idr = 1; }
 						live_frame(k, d, len, ts_us, idr);
 					}

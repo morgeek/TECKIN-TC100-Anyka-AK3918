@@ -66,6 +66,9 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 10. [ ] **Mémoire de la .24** : 20,5 Mo disponibles hier soir, 18,6 Mo après 23 h 40 (enregistrement SD actif) :
     vérifier demain matin si c'est du cache ou une dérive.
 11. [ ] **Chantier audio natif ultra-léger (zéro surcoût / gain RAM & CPU)** :
+    *2026-11-05 : capture ALSA directe (`RTSP_ALSA_DIRECT=1`, `src/tc100rtsp/acap.c`), passe-haut 150 Hz, noise gate +
+    AGC + écrêtage doux, micro coupé pendant le haut-parleur (`RTSP_AUDIO_HPF/AGC/DUCK=1`, `adsp.c`) : faits, désactivés
+    par défaut jusqu'à l'essai (entrée `[audio-native]`). Reste l'encodeur AAC (optionnel, P2).*
     - **Capture ALSA directe dans `tc100_rtsp`** au lieu du sous-processus `arecord` : libère ~660 Ko PSS et supprime les pipes et changements de contexte noyau réguliers.
     - **Filtre passe-haut (High-Pass / Anti-Rumble)** : filtre biquad IIR léger à virgule fixe coupant à 150-200 Hz (suppression du ronflement 50 Hz d'alim et des bruits d'air sourds sans altérer la voix ; coût CPU < 0,2 % d'un cœur).
     - **Noise gate & AGC soft-clipping à virgule fixe** : atténue le souffle en pièce silencieuse et équilibre le volume des voix éloignées sans saturation.
@@ -81,22 +84,45 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Lissage temporel de l'envoi des paquets RTP lors des pics d'I-frames H.264/H.265 (pacing microsecondes `RTSP_PACING_US`).
     - Évite la saturation du tampon de transmission du pilote RTL8188FU lors des images clés, réduisant drastiquement les pertes de paquets Wi-Fi sans impacter la latence vidéo.
 14. [ ] **Garde thermique dynamique (Thermal Guard)** :
+    *Bloqué (2026-11-05) : pas de capteur de température exploitable (`CONFIG_THERMAL` et `CONFIG_HWMON` absents, rien
+    dans le device tree). Piste : la température du SoC sur le SAR ADC ou un registre de température du capteur
+    JX-F23, à chercher dans le firmware d'origine (Ghidra), puis un petit pilote.*
     - Lecture périodique de `chip_temp` (`/sys/class/thermal/thermal_zone0/temp` ou capteur SoC).
     - En cas de surchauffe (> 75-80°C lors de canicules ou forte charge continue), réduction automatique et temporaire de la fréquence d'images (25 fps -> 15 fps).
     - Reprise automatique dès refroidissement sous le seuil d'hystérésis.
-15. [ ] **Politique de rétention intelligente sur carte SD (FIFO hiérarchique)** :
+15. [x] **Politique de rétention intelligente sur carte SD (FIFO hiérarchique)** :
+    *Fait le 2026-11-05 : marqueur `.evt` sur chaque fichier où il y a eu mouvement ou son ; `REC_KEEP_EVENTS=1`
+    (désactivé par défaut) supprime d'abord les enregistrements sans événement. Le sabotage n'y entre pas encore
+    (`tamper-detect.sh` ne parle pas à `tc100_rtsp`). Entrée `[retention]`.*
     - Distinguer les enregistrements continus de fond des clips d'événements (détection de mouvement, bruit / VOX, falsification / tamper).
     - En cas d'espace disque saturé, supprimer d'abord les fichiers continus anciens et sanctuariser les vidéos d'alerte pour éviter toute perte critique.
-16. [ ] **Anti-scintillement automatique (Auto Anti-Flicker 50/60 Hz)** :
+16. [x] **Anti-scintillement automatique (Auto Anti-Flicker 50/60 Hz)** :
+    *Fait le 2026-11-05 : le réglage 50 / 60 Hz sans redémarrage existait (`POWER_HZ`, R9-03) ; ajouté `auto` = la
+    fréquence du pays Wi-Fi (Japon et pays non réglé : inchangé). Une vraie détection de la fréquence demanderait
+    d'analyser les bandes dans l'image : pas fait. Entrée `[flicker]`.*
     - Détection de la fréquence secteur (50 Hz en Europe, 60 Hz en Amérique) ou commutation fluide selon configuration dans l'ISP afin d'éliminer les bandes de défilement sous éclairage LED / fluorescent sans nécessiter de redémarrage.
-17. [ ] **Watchdog Wi-Fi & Reconnexion douce (Auto-Healing)** :
+17. [x] **Watchdog Wi-Fi & Reconnexion douce (Auto-Healing)** :
+    *Fait le 2026-11-05 : `net-guard.sh` (passerelle pingée chaque minute, redémarrage après 15 min) et
+    `wifi-recover.sh` (sans `wlan0` : nouveau sondage USB, coupure GPIO 11) existaient ; ajouté les réparations douces
+    quand `wlan0` existe (`NET_GUARD_SOFT=1`) : réassociation à 2 min, `wifi-apply` à 5 min, nouveau sondage USB à
+    8 min. Le pilote `rtl8xxxu` est dans le noyau (pas de module à recharger) : le sondage USB en tient lieu.
+    Entrée `[wifi-soft]`.*
     - Script/boucle légère vérifiant la joignabilité de la passerelle (toutes les 60 s).
     - Tentative de reconnexion douce via `wpa_cli reassociate` ou réveil de l'interface `wlan0`.
     - Si échec persistant, déchargement et rechargement propre du module USB `8188fu.ko` sans reboot complet de la caméra.
 18. [ ] **Débit binaire adaptatif automatique (Auto-ABR dans `tc100_rtsp`)** :
+    *2026-11-05 : régulation écrite (`RTSP_ABR=1`, désactivée par défaut) : -30 % quand des clients TCP sautent des
+    images, +10 % du réglage après 30 s calmes, borne `RTSP_ABR_MIN`. Elle passe par `ak_venc_set_br(handle, kbit/s)`
+    de la bibliothèque du fabricant, dont la signature n'est pas vérifiée (la bibliothèque est sur la caméra, pas
+    dans le dépôt) : à confirmer par l'essai `[abr]` (ou en désassemblant `/mnt/lib/libmpi_venc_ex.so`). Pas de signal
+    pour les clients UDP.*
     - Mesure du remplissage du buffer d'envoi RTSP / perte Wi-Fi.
     - Réduction dynamique temporaire du bitrate de l'encodeur matériel (ex: 2000 -> 1000 kbps) via `libakuio`, puis rétablissement à la normale une fois la liaison stabilisée.
 19. [ ] **Détection de mouvement matérielle zéro CPU (VPU / P-frame stats)** :
+    *2026-11-05 : écrit (`RTSP_MD_ENC=1`, désactivé par défaut), en plus de la grille de luminance (qui ne décode rien
+    non plus : 64x36 points lus 4 fois par seconde) : taille des trames P comparée à leur moyenne glissante, seuil x2 à
+    x6 selon la sensibilité. Ne voit presque rien en CBR (VBR nécessaire) ; les zones ne s'y appliquent pas. Les
+    vecteurs de mouvement de l'encodeur ne sont pas accessibles par la bibliothèque. Entrée `[md-enc]`.*
     - L'encodeur matériel AK3918 calcule déjà les vecteurs de mouvement et les macroblocs inter/intra.
     - Exploitation de la taille des trames P ou des compteurs MB dans `tc100_rtsp` : une trame P passe de 2 Ko (immobile) à 20-30 Ko (mouvement).
     - Déclenchement instantané d'événements MQTT (`teckin/motion = ON`) et d'enregistrements SD sans consommer de CPU en décompression d'images.
@@ -108,6 +134,9 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - Capture d'une vignette JPEG légère depuis le sub-stream 640×360 lors d'un déclenchement (mouvement, bruit VOX, bouton).
     - Publication dans un topic MQTT pour affichage immédiat dans les notifications mobiles (Home Assistant Companion, Telegram, ntfy).
 21. [ ] **Hystérésis temporelle et adoucissement Jour / Nuit** :
+    *2026-11-05 : seuils séparés et temps de maintien (`NIGHT_HOLD`, `DAY_HOLD`) existaient ; ajouté 60 s minimum entre
+    deux bascules quelle que soit la source (`MIN_SWITCH`, entrée `[daynight-lock]`). Reste la transition progressive
+    de l'exposition à l'allumage des LED IR (dans l'ISP, à étudier avec le jeu de paramètres de nuit).*
     - Verrouillage anti-rebond temporisé (au moins 60 s) après commutation du filtre IR-Cut pour éliminer le cliquetis en zone de pénombre crépusculaire.
     - Transition progressive de l'exposition/gain AWB lors de l'allumage des LED IR pour éviter le flash blanc.
 22. [x] **Sauvegarde / Restauration 1-clic de la configuration Web** :
@@ -116,12 +145,21 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     emplacements flash, restauration validée et transactionnelle). Pour cloner .11 vers .24 : l'envoi JSON (il laisse
     l'identité de côté) ; l'archive, elle, ramène aussi le nom, l'adresse et les clés ssh.*
     - Export/Import d'une archive `.tar.gz` de `/mnt/config/` depuis l'interface Web pour cloner ou restaurer rapidement des caméras (.11 <-> .24).
-23. [ ] **Mode Point d'accès de secours (Failover AP Setup)** :
+23. [x] **Mode Point d'accès de secours (Failover AP Setup)** :
+    *Existait (constaté le 2026-11-05) : `wifi-rescue` ouvre un point d'accès WPA2 après 10 min sans Wi-Fi (ou avec le
+    bouton reset 3-7 s), interface web complète sur http://10.42.0.1. Amélioration possible : un portail captif (petit
+    DNS qui répond 10.42.0.1 à tout) pour que les téléphones ouvrent la page tout seuls.*
     - En cas d'échec de connexion Wi-Fi prolongé au boot (> 3 min), basculement du dongle `8188fu` en point d'accès Wi-Fi temporaire (SSID `Teckin-Setup`, IP `192.168.4.1`) avec interface Web minimale de configuration pour éviter d'avoir à brancher le câble série ou sortir la SD.
-24. [ ] **Synchronisation horaire hybride (NTP + fallback HTTP Header `Date`)** :
+24. [x] **Synchronisation horaire hybride (NTP + fallback HTTP Header `Date`)** :
+    *Fait le 2026-11-05 : `scripts/time-fallback.sh` (en-tête `Date:` de la page du routeur par défaut, adresses
+    Internet seulement si on les ajoute dans `TIME_HTTP_URLS`). Entrée `[time-http]`.*
     - En cas d'échec de synchronisation NTP (port UDP 123 bloqué ou filtré par pare-feu / box), requêter en HTTP `HEAD` un serveur fiable (`google.com`, `cloudflare.com` ou passerelle locale).
     - Extraction du header `Date: ...` et mise à l'heure système via `date -s` pour garantir des horodatages valides sur les enregistrements et certificats.
-25. [ ] **Mode Confidentialité matériel / logiciel (Privacy Mode)** :
+25. [x] **Mode Confidentialité matériel / logiciel (Privacy Mode)** :
+    *Fait le 2026-11-05 : `controlscripts/privacy` (page Services, interrupteur MQTT « Privacy Mode », `PRIVACY_SCREEN`
+    gardé au redémarrage) ; `tc100_rtsp` noircit les deux images avant l'encodeur, l'instantané et l'enregistrement,
+    coupe le son et la détection de mouvement. Pas de texte « Privé » (la police de l'horloge n'a que des chiffres) ni
+    de mise en veille du capteur (l'ISP reste réglé). Entrée `[privacy]`.*
     - Commutateur Web et MQTT (`teckin/privacy/set = ON`).
     - Coupure logicielle immédiate du flux vidéo (trame noire avec mention "Privé / Inactif") et coupure de la capture micro ALSA (`amixer set Capture nocap`).
     - Optionnellement, extinction des LED d'état et mise en veille du capteur d'image JX-F23 (ou arrêt du flux ISP/RTSP) pour préserver l'intimité lors du désarmement d'alarme.
