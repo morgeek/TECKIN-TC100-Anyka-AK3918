@@ -570,7 +570,7 @@ class Wiring(unittest.TestCase):
 
     def test_switch_in_mqtt_conf_and_in_the_service_script(self):
         dist = (ROOT / 'config/mqtt.conf.dist').read_text()
-        self.assertIn('\nMQTT_BRIDGE_IMPL=shell\n', dist)                            # shell until the cameras pass it
+        self.assertIn('\nMQTT_BRIDGE_IMPL=c\n', dist)                               # c is the default now (tc100-mqttd)
         cs = (ROOT / 'controlscripts/mqtt-bridge').read_text()
         self.assertIn('BIN=/mnt/tc100test/tc100-mqttd', cs)
         self.assertIn('[ "$MQTT_BRIDGE_IMPL" = c ]', cs)

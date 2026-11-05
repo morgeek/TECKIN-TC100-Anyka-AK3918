@@ -199,7 +199,10 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 32. [ ] **Aide au positionnement Wi-Fi & Diagnostic passif** :
     - Affichage de la qualité du lien Wi-Fi en dBm avec code couleur sur le tableau de bord web.
     - Option de retour visuel sur la LED frontale (rythme de pulsation proportionnel au RSSI) pendant les 5 minutes suivant le démarrage pour orienter la caméra sans écran.
-33. [ ] **Enregistrement avec « Pre-Roll » circulaire en RAM (Buffer continu 3 à 5 s)** :
+33. [x] **Enregistrement avec « Pre-Roll » circulaire en RAM (Buffer continu 3 à 5 s)** :
+    *Fait (vérifié le 2026-11-05) : le buffer d'anneau `q_buf` dans `src/tc100rtsp/rec.c` (`REC_RING_KB`, 1024 Ko par défaut)
+    maintient en permanence les trames en veille (`q_trim(q_size * 6 / 10)` en mode `standby`). Dès qu'un événement motion/offline
+    survient (`update_want`), les trames antérieures déjà bufferisées sont dépilées et intégrées au début du conteneur fMP4.*
     - Maintenir en mémoire vive un anneau circulaire (ring-buffer) des 3 à 5 dernières secondes de vidéo encodée H.264 (~600 à 900 Ko de RAM consommée).
     - Lors d'un déclenchement d'alarme (mouvement, son, tamper), le clip MP4 écrit sur la carte SD intègre ces secondes préalables, assurant de voir l'amorce de l'action plutôt que l'intrus déjà en train de sortir.
 34. [ ] **Envoi de secours hors-site sur alerte critique (Cloud / Telegram / Webhook)** :

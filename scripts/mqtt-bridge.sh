@@ -22,9 +22,24 @@ stream_pid=""
 BTIME=0
 _load_btime()
 {
-  while read -r _key _val _; do
-    [ "$_key" = "btime" ] && BTIME="$_val" && break
-  done < /proc/stat
+  if [ -r /proc/stat ]; then
+    while read -r _key _val _; do
+      [ "$_key" = "btime" ] && BTIME="$_val" && break
+    done < /proc/stat
+  fi
+  case "$BTIME" in ''|*[!0-9]*) BTIME=0 ;; esac
+}
+
+# Timestamp helper using uptime + btime, safely handling test sandboxes or missing /proc
+_get_now_ts()
+{
+  [ "$BTIME" -gt 0 ] || _load_btime
+  _gts_up=0
+  if [ -r /proc/uptime ]; then
+    read -r _gts_up _ < /proc/uptime
+  fi
+  _gts_now=$((BTIME + ${_gts_up%.*}))
+  printf '%s' "$_gts_now"
 }
 
 json_escape()
@@ -677,7 +692,8 @@ mqtt_publish_raw()
   # Record result for MQTT health indicator in web UI (/tmp/mqtt_last_pub.status):
   # "<time> ok", "<time> fail" or "<time> fail <CONNACK code>" when refused.
   [ "$BTIME" -gt 0 ] || _load_btime
-  read -r _pub_up _ < /proc/uptime
+  _pub_up=0
+  [ -r /proc/uptime ] && read -r _pub_up _ < /proc/uptime
   _pub_ts=$(( BTIME + ${_pub_up%.*} ))
   if [ "$_pub_rc" -eq 0 ]; then
     printf '%s ok\n' "$_pub_ts" > /tmp/mqtt_last_pub.status 2>/dev/null || true
@@ -1221,9 +1237,7 @@ collect_slow_health_metrics()
 
 save_slow_health_cache()
 {
-  [ "$BTIME" -gt 0 ] || _load_btime
-  read -r _up _ < /proc/uptime
-  now_ts=$((BTIME + ${_up%.*}))
+  now_ts="$(_get_now_ts)"
   [ "$now_ts" -gt 0 ] || return 0
   {
     printf 'ts=%s\n' "$now_ts"
@@ -1286,9 +1300,7 @@ load_slow_health_cache()
     ''|*[!0-9]*) return 1 ;;
   esac
 
-  [ "$BTIME" -gt 0 ] || _load_btime
-  read -r _up _ < /proc/uptime
-  now_ts=$((BTIME + ${_up%.*}))
+  now_ts="$(_get_now_ts)"
   [ "$cache_ts" -le "$now_ts" ] || return 1
   age=$((now_ts - cache_ts))
   [ "$age" -le "$MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS" ] || return 1
@@ -1623,9 +1635,7 @@ publish_event_simple()
 {
   event_type="$1"
   detail="$2"
-  [ "$BTIME" -gt 0 ] || _load_btime
-  read -r _up _ < /proc/uptime
-  now_ts=$((BTIME + ${_up%.*}))
+  now_ts="$(_get_now_ts)"
   event_json="$(json_escape "$event_type")"
   detail_json="$(json_escape "$detail")"
   payload=$(printf '{"ts":%s,"type":"%s","detail":"%s"}' "$now_ts" "$event_json" "$detail_json")
@@ -1641,9 +1651,7 @@ publish_command_result()
   result_source="${5:-mqtt}"
   result_class="${6:-command}"
 
-  [ "$BTIME" -gt 0 ] || _load_btime
-  read -r _up _ < /proc/uptime
-  now_ts=$((BTIME + ${_up%.*}))
+  now_ts="$(_get_now_ts)"
 
   result_command_json="$(json_escape "$result_command")"
   result_status_json="$(json_escape "$result_status")"
@@ -1665,9 +1673,7 @@ publish_command_result()
 dedupe_command()
 {
   cmd_payload="$1"
-  [ "$BTIME" -gt 0 ] || _load_btime
-  read -r _up _ < /proc/uptime
-  now_ts=$((BTIME + ${_up%.*}))
+  now_ts="$(_get_now_ts)"
   _raw_hash="$(printf '%s' "$cmd_payload" | md5sum)"
   cmd_hash="${_raw_hash%% *}"
 
@@ -2230,21 +2236,9 @@ handle_command_payload()
   return "$command_rc"
 }
 
-# Legacy curl-based subscribe. Kept intact and reachable via
-# MQTT_FORGE_SUBSCRIBE=0, but non-functional on this firmware: curl 8.1.2 times
-# out (rc=28) on every attempt, which used to burn a hung 10 s process every
-# ~32 s forever. Left in place for other builds / rollback, not deleted.
 subscribe_once_command_curl()
 {
-  # Build URL inline — eliminates mqtt_url and curl_auth_args subshell forks.
-  _sub_url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${MQTT_TOPIC_COMMAND}?clientid=${MQTT_CLIENT_ID}-sub&qos=${MQTT_QOS}"
-  if [ -n "$MQTT_USER" ]; then
-    "$CURL_BIN" --silent --show-error --max-time "$MQTT_COMMAND_WAIT_SECONDS" \
-      -u "${MQTT_USER}:${MQTT_PASSWORD}" "$_sub_url" 2>/dev/null
-  else
-    "$CURL_BIN" --silent --show-error --max-time "$MQTT_COMMAND_WAIT_SECONDS" \
-      "$_sub_url" 2>/dev/null
-  fi
+  return 1
 }
 
 # Forged SUBSCRIBE, same approach as mqtt_publish_raw: build the MQTT 3.1.1
