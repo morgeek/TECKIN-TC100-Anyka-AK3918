@@ -2,6 +2,7 @@
  * fragmented MP4 files. tests/test_tc100rtsp.py checks the files.
  * usage: REC_TEST_ANY_FS=1 [REC_TEST_AUDIO=1] ./test_rec DIR h264|h265 SECONDS FPS GOP SEGMENT_S [DROP_FRAME]
  * REC_TEST_AUDIO=1: also feeds 20 ms A-law chunks (a 440 Hz tone, then 0.4 s of silence every 10 s) like tc100_rtsp does;
+ * REC_TEST_AAC=1: the audio track is AAC-LC (c.aac) instead of A-law; the input is still the A-law tone.
  * REC_TEST_AUDIO_HOLE=<second>: leave out one second of audio there (arecord restarted: the chunk after it has the gap flag).
  * REC_TEST_INPUT=file.h264: an Annex B stream (ffmpeg -bsf h264_mp4toannexb, with AUDs) instead of the synthetic frames. */
 #include <math.h>
@@ -118,6 +119,7 @@ int main(int argc, char **argv)
 	snprintf(c.dir, sizeof c.dir, "%s", argv[1]);
 	snprintf(c.status, sizeof c.status, "%s/status", argv[1]);
 	c.audio = audio;
+	c.aac = getenv("REC_TEST_AAC") != NULL; c.aac_bps = 24000;
 	c.segment_s = atoi(argv[6]); c.reserve_mb = 16; c.offline_s = 5; c.postroll_s = 30; c.ring_kb = 8192;
 	if (rec_config(&c)) return 1;
 	if (getenv("REC_TEST_MOTION")) rec_inputs(0, 1);	/* motion all along: every file gets its .evt marker */

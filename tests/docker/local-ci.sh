@@ -18,11 +18,11 @@ rc=0
 run_tests() {
 	echo "== tests (python + node, busybox ash)"
 	docker run --rm -v "$SRC:/src:ro" node:22-bookworm sh -c '
-		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk mawk original-awk >/dev/null 2>&1
+		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk mawk original-awk ffmpeg >/dev/null 2>&1
 		cp -r /src /w && cd /w && git config --global --add safe.directory /w
 		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
 		# make would run them instead of building the current code
-		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/mqttd/tc100-mqttd-host src/supervisord/tc100-supervisord-host
+		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/tc100rtsp/test_aacenc src/mqttd/tc100-mqttd-host src/supervisord/tc100-supervisord-host
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
 		node --test tests/frontend.test.js tests/settings-save.test.js tests/records-timeline.test.js $(ls tests/live-video.test.js tests/whep-live.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
@@ -56,6 +56,11 @@ run_cross() {
 		# item 35: STUN (RFC 5769 vectors), SDP and base64 of the WebRTC gateway on the instruction set of the camera
 		arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -Wno-unused-function -static -march=armv5te -mtune=arm926ej-s -o /tmp/whep_test src/whep/whep_test.c
 		qemu-arm /tmp/whep_test | grep -q "whep_test: all ok" || { qemu-arm /tmp/whep_test; exit 1; }
+		# [rec-aac] the AAC encoder (integer only) gives the same bytes on the ARM926 instruction set as on the build host
+		gcc -O2 -Wall -Wextra -Werror -o /tmp/aac_host src/tc100rtsp/test_aacenc.c src/tc100rtsp/aacenc.c -lm
+		arm-linux-gnueabi-gcc -Os -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft -o /tmp/aac_arm src/tc100rtsp/test_aacenc.c src/tc100rtsp/aacenc.c -lm
+		/tmp/aac_host sine /tmp/aac.s16 1000 9000 2 && /tmp/aac_host raw /tmp/aac.s16 /tmp/aac_h.bin 24000 2>/dev/null && qemu-arm /tmp/aac_arm raw /tmp/aac.s16 /tmp/aac_a.bin 24000 2>/dev/null
+		cmp /tmp/aac_h.bin /tmp/aac_a.bin && test -s /tmp/aac_a.bin && echo "aacenc: ARM (qemu) = host, $(wc -c < /tmp/aac_a.bin) bytes"
 		make -C src/libakuio CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/mqttd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true

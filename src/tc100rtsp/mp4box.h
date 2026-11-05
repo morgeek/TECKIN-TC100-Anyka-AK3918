@@ -7,6 +7,8 @@
 #define MP4_TS		90000ULL	/* media timescale of the video track */
 #define MP4_ATS		8000		/* media timescale of the audio track: 1 tick = 1 A-law sample */
 #define MP4_PS_MAX	256		/* longest parameter set handled */
+#define MP4_A_ALAW	1		/* audio argument of mp4_init_segment: G.711 A-law track */
+#define MP4_A_AAC	2		/* AAC-LC track (aacenc.c: 1024 ticks per sample at the 8000 timescale) */
 
 enum { C_NONE, C_H264, C_H265 };
 struct nal { const unsigned char *p; uint32_t n; };
@@ -30,7 +32,7 @@ size_t mp4_box(struct buf *b, const char *t);			/* open a box: returns its offse
 size_t mp4_fbox(struct buf *b, const char *t, unsigned v, uint32_t f);	/* full box (version, flags) */
 void mp4_end(struct buf *b, size_t at);				/* close the box opened at 'at' (writes its size) */
 
-/* ftyp + moov: one video track (avc1 / hvc1 with the parameter sets) and, with audio, an A-law track; fragments by mvex */
+/* ftyp + moov: one video track (avc1 / hvc1 with the parameter sets) and, with audio (MP4_A_*), an A-law or AAC track; fragments by mvex */
 void mp4_init_segment(struct buf *b, int codec, const struct vinfo *vi,
 		      const struct nal *vps, const struct nal *sps, const struct nal *pps, int audio);
 

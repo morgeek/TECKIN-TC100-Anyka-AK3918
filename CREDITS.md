@@ -37,3 +37,8 @@ this repository (`99c3112`, 2026-02-02), a copy of the original SD-card hack, wh
 `SetSharedConfig.cpp`, same tree). The three Unlicense programs can be rebuilt from their public source; `monvifd`
 stays the default ONVIF daemon until the free replacement `tc100-onvifd` (`src/onvifd`, written for this project, GPL-2.0:
 WS-Discovery, Device, Media and Media2 services) is tested on the camera (`ONVIF_IMPL=c` in `onvif.conf`; ONVIF is off by default).
+
+AAC encoder of the recorder (`src/tc100rtsp/aacenc.c`, `RTSP_REC_AAC=1`): written for this project (GPL-2.0), from the ISO/IEC 14496-3
+format description. The only third-party data are the Huffman code tables of the standard in `aacenc_tab.h`, bare numbers read from
+FFmpeg `libavcodec/aactab.c` by `aacenc_tab_gen.py` ([FFmpeg](https://ffmpeg.org), (c) 2005-2007 Oded Shimon and Maxim Gavrilov, LGPL-2.1-or-later,
+redistributable under the GPL version 2 of this project).

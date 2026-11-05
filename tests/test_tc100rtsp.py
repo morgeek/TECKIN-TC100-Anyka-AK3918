@@ -387,6 +387,106 @@ class Recorder(unittest.TestCase):
                     st = (Path(d) / 'status').read_text()
                     self.assertIn('audio=alaw', st)
 
+    # ---- RTSP_REC_AAC=1: the audio track as AAC-LC (aacenc.c), browsers play it -------------------------------------
+    @staticmethod
+    def pcm_stats(v):
+        """(rms of 2..3 s, zero crossings per second there, [(wanted, start, end, noise) of the silences at 9, 19, 29 s])"""
+        def rms(a, c):
+            w = v[int(a * 8000):int(c * 8000)]
+            return math.sqrt(sum(x * x for x in w) / max(len(w), 1))
+        w = v[16000:24000]
+        zc = sum(1 for x, y in zip(w, w[1:]) if (x < 0) != (y < 0)) / 2
+        sil = []
+        for want in (9.0, 19.0, 29.0):
+            if len(v) / 8000 < want + 0.5:
+                continue
+            t = want - 0.3
+            while rms(t, t + 0.01) > 300:
+                t += 0.01
+            t2 = t
+            while rms(t2, t2 + 0.01) < 1000:
+                t2 += 0.01
+            sil.append((want, t, t2, rms(want + 0.1, want + 0.3)))
+        return rms(2, 3), zc, sil
+
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'ffmpeg + ffprobe')
+    def test_aac_audio_track(self):
+        """the files carry mp4a + esds (AAC-LC 8 kHz mono): ffprobe reads them, ffmpeg decodes the sound without a complaint,
+        the tone is 440 Hz at its level, its silences start and end on the video clock, the track lasts as long as the picture"""
+        for codec, kw in (('h264', {}), ('h265', {}), ('h264', {'drop': 50}), ('h264', {'hole': 3})):
+            with self.subTest(codec=codec, **kw), tempfile.TemporaryDirectory() as d:
+                env = {'REC_TEST_AUDIO': '1', 'REC_TEST_AAC': '1'}
+                if 'hole' in kw:
+                    env['REC_TEST_AUDIO_HOLE'] = str(kw['hole'])
+                files = self.run_rec(Path(d), codec, kw.get('drop'), **env)
+                self.assertEqual(len(files), 3)
+                self.assertIn('audio=aac', (Path(d) / 'status').read_text())
+                for f in files:
+                    self.assertEqual(Mp4Audio(Mp4(f)).ntrak, 2)
+                    raw = f.read_bytes()
+                    j = raw.index(b'esds')
+                    self.assertIn(b'mp4a', raw[:j])
+                    self.assertNotIn(b'alaw', raw[:j + 200])
+                    self.assertEqual(raw[j + 4:j + 8], bytes(4), 'esds is a full box')
+                    self.assertIn(bytes([5, 2, 0x15, 0x88]), raw[j:j + 64], 'AudioSpecificConfig: AAC-LC, 8000 Hz, mono')
+                    pr = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_name,codec_type,sample_rate,channels,duration',
+                                         '-of', 'compact', str(f)], capture_output=True, text=True)
+                    rows = [dict(kv.split('=', 1) for kv in x.split('|')[1:]) for x in pr.stdout.split()]
+                    arow = [x for x in rows if x['codec_type'] == 'audio'][0]
+                    vrow = [x for x in rows if x['codec_type'] == 'video'][0]
+                    self.assertEqual((arow['codec_name'], arow['sample_rate'], arow['channels']), ('aac', '8000', '1'), pr.stdout + pr.stderr)
+                    self.assertLess(abs(float(arow['duration']) - float(vrow['duration'])), 0.4, 'audio as long as the picture: %s' % pr.stdout)
+                    out = Path(d) / (f.name + '.pcm')
+                    dec = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(f), '-map', '0:a', '-f', 's16le', '-ar', '8000', '-ac', '1', str(out)],
+                                         capture_output=True, text=True)
+                    err = [x for x in dec.stderr.splitlines() if not re.match(r'^\s*(\[(h264|hevc)|Last message)', x)]
+                    self.assertEqual(err, [], 'ffmpeg decodes the AAC track without a complaint')
+                    b = out.read_bytes()
+                    v = struct.unpack('<%dh' % (len(b) // 2), b)
+                    rms, zc, sil = self.pcm_stats(v)
+                    self.assertAlmostEqual(rms, 8000 / math.sqrt(2), delta=450, msg='tone level')
+                    self.assertAlmostEqual(zc, 440, delta=4, msg='440 Hz tone')
+                    self.assertTrue(sil)
+                    for want, t0, t1, noise in sil:
+                        self.assertLess(abs(t0 - want), 0.03, 'silence starts on the video clock at %.1f s (found %.3f)' % (want, t0))
+                        self.assertLess(abs(t1 - (want + 0.4)), 0.04, 'silence ends at %.1f s (found %.3f)' % (want + 0.4, t1))
+                        self.assertLess(noise, 40, 'no coding noise in the silence')
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg')
+    def test_aacenc_tones_decode(self):
+        """aacenc.c alone: tones from 150 to 3600 Hz come back from ffmpeg at the right frequency and level, one frame
+        late (the MDCT overlap), and a loud noise stays near the bit rate asked for"""
+        build('test_aacenc')
+        exe = str(SRC / 'test_aacenc')
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for hz in (150, 440, 1000, 2500, 3600):
+                pcm, aac, dec = d / 'in.s16', d / 'o.aac', d / 'o.s16'
+                subprocess.run([exe, 'sine', str(pcm), str(hz), '9000', '3'], check=True)
+                subprocess.run([exe, 'adts', str(pcm), str(aac), '24000'], check=True, capture_output=True)
+                r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(aac), '-f', 's16le', '-ar', '8000', '-ac', '1', str(dec)],
+                                   capture_output=True, text=True)
+                self.assertEqual(r.stderr.strip(), '', 'ffmpeg decodes %d Hz' % hz)
+                b = dec.read_bytes()
+                v = struct.unpack('<%dh' % (len(b) // 2), b)
+                self.assertEqual(len(v), 23 * 1024, 'whole frames')
+                mid = v[8000:16000]
+                zc = sum(1 for x, y in zip(mid, mid[1:]) if (x < 0) != (y < 0)) / 2 / (len(mid) / 8000)
+                self.assertAlmostEqual(zc, hz, delta=3, msg='%d Hz' % hz)
+                level = math.sqrt(sum(x * x for x in mid) / len(mid))
+                self.assertAlmostEqual(level, 9000 / math.sqrt(2), delta=120, msg='level at %d Hz' % hz)
+                self.assertLess(max(abs(x) for x in v[:512]), 150, 'the first frame is the silent lead-in (the onset pre-echo stays small)')
+            rnd = bytes((i * 7919 + (i >> 3) * 104729) & 0xff for i in range(8000 * 6 * 2))
+            (d / 'n.s16').write_bytes(rnd)
+            r = subprocess.run([exe, 'raw', str(d / 'n.s16'), str(d / 'n.bin'), '16000'], capture_output=True, text=True, check=True)
+            bps = float(re.search(r'([\d.]+) bit/s', r.stderr).group(1))
+            self.assertLess(bps, 16000 * 1.1)
+
+    def test_aac_switch_is_off_by_default(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        self.assertIn("rc.aac = ea && ea[0] == '1';", src)
+        self.assertIn('getenv("RTSP_REC_AAC")', src)
+
     def test_audio_off_has_one_track(self):
         with tempfile.TemporaryDirectory() as d:
             files = self.run_rec(Path(d), 'h264')
