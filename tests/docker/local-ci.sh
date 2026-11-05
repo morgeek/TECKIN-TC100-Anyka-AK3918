@@ -3,7 +3,8 @@
 #   sh tests/docker/local-ci.sh tests    # Python regressions + frontend tests (as the CI job)
 #   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, jpegenc, httpfront, tc100-mqttd, tc100-onvifd (as the kernel job)
 #   sh tests/docker/local-ci.sh kernel   # Linux 6.6 + patches/kernel-6.6/series + zImage + dtbs (slow the first time)
-#   sh tests/docker/local-ci.sh all      # the three
+#   sh tests/docker/local-ci.sh whep     # item 35: the WHEP daemon against aiortc (builds mbedTLS, needs network; not part of all)
+#   sh tests/docker/local-ci.sh all      # tests, cross, kernel
 # Works from Git Bash on Windows (Docker Desktop) and from Linux. The tree is copied into the container (read-only
 # mount): nothing in the working copy is changed. The kernel source and the build objects are kept in the Docker
 # volume tc100-linux66 between runs.
@@ -24,7 +25,7 @@ run_tests() {
 		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/mqttd/tc100-mqttd-host src/supervisord/tc100-supervisord-host
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
-		node --test tests/frontend.test.js tests/settings-save.test.js tests/records-timeline.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
+		node --test tests/frontend.test.js tests/settings-save.test.js tests/records-timeline.test.js $(ls tests/live-video.test.js tests/whep-live.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
 		# as an ordinary user, like the GitHub runner: root reads through missing permission bits (a restore test
 		# passed here and failed there for a week)
 		chown -R node /w
@@ -52,6 +53,9 @@ run_cross() {
 		# item 35: the SRTP bench, its self-test under qemu (the published vectors, on the instruction set of the camera)
 		arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o /tmp/srtp-bench src/whep/srtp_bench.c
 		qemu-arm /tmp/srtp-bench -t | tail -n 1 | grep -q "all ok" || { qemu-arm /tmp/srtp-bench -t; exit 1; }
+		# item 35: STUN (RFC 5769 vectors), SDP and base64 of the WebRTC gateway on the instruction set of the camera
+		arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -Wno-unused-function -static -march=armv5te -mtune=arm926ej-s -o /tmp/whep_test src/whep/whep_test.c
+		qemu-arm /tmp/whep_test | grep -q "whep_test: all ok" || { qemu-arm /tmp/whep_test; exit 1; }
 		make -C src/libakuio CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/mqttd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
@@ -64,6 +68,12 @@ run_cross() {
 		make -C src/tc100rtsp test_rtsp >/dev/null 2>&1 && echo "host test build: ok"
 		python3 -m unittest -v tests.test_httpfront_qemu >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
 		echo "cross: ok"' || rc=1
+}
+
+run_whep() {
+	echo "== item 35: tc100-whep against aiortc (mbedTLS 2.28.9 with DTLS-SRTP built in the container; needs network)"
+	docker volume create tc100-whep >/dev/null
+	docker run --rm -v "$SRC:/src:ro" -v tc100-whep:/tmp/whep-work python:3.12-bookworm sh -c 'cp -r /src /w && cd /w && sh tests/docker/whep-interop.sh' || rc=1
 }
 
 run_kernel() {
@@ -90,8 +100,9 @@ case "$what" in
 	tests) run_tests ;;
 	cross) run_cross ;;
 	kernel) run_kernel ;;
+	whep) run_whep ;;
 	all) run_tests; run_cross; run_kernel ;;
-	*) echo "usage: $0 tests|cross|kernel|all"; exit 2 ;;
+	*) echo "usage: $0 tests|cross|kernel|whep|all"; exit 2 ;;
 esac
 [ "$rc" = 0 ] && echo "== local CI: ok" || echo "== local CI: FAILED"
 exit $rc

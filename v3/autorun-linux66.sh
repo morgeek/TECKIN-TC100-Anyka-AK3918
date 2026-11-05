@@ -364,7 +364,7 @@ sh -c '. /mnt/scripts/common_functions.sh
 #      Left out: the ones started above (MQTT, motion, recording, day/night, ONVIF), the LEDs (FRONT_LED / RED_LED,
 #      just applied), the numbered system entries of 2.x and web-server (httpfront, step 6). The Frigate + Home
 #      Assistant profile switches some of them off once, when it is chosen (wizard.cgi), not at every start.
-for n in sound-detection syslog-forward memory-guard wifi-rescue telegram-bot; do
+for n in sound-detection syslog-forward memory-guard wifi-rescue telegram-bot whep; do
   svc_on $n || continue
   [ "$SAFE" = 1 ] && [ "$n" != wifi-rescue ] && continue
   [ -f $CS/$n ] || continue

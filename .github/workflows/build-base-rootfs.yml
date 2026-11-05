@@ -20,7 +20,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: br-out/images/rootfs.cpio.gz
-          key: base-rootfs-${{ hashFiles('v3/buildroot/**', '.github/workflows/build-base-rootfs.yml') }}
+          key: base-rootfs-${{ hashFiles('v3/buildroot/**', 'src/whep/**', '.github/workflows/build-base-rootfs.yml') }}
 
       - name: Build dependencies
         if: steps.base.outputs.cache-hit != 'true'
@@ -57,6 +57,8 @@ jobs:
           make -C buildroot-src BR2_EXTERNAL=$PWD/v3/buildroot BR2_DL_DIR=$PWD/dl O=$PWD/br-out tc100_defconfig
           make -C buildroot-src BR2_EXTERNAL=$PWD/v3/buildroot BR2_DL_DIR=$PWD/dl O=$PWD/br-out -j$(nproc)
           ls -l br-out/images/
+          # item 35: the WebRTC gateway is a Buildroot package (v3/buildroot/package/tc100-whep): it must be in the image
+          ls -l br-out/target/usr/bin/tc100-whep
 
       - name: Size of the root filesystem
         if: steps.base.outputs.cache-hit != 'true'

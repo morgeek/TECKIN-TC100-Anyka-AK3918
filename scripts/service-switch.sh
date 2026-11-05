@@ -17,6 +17,7 @@ svc_switch()
     recording)        SW_FILE=$_sw_d/boot.conf; SW_KEY=REC_LOCAL; SW_DEF=0 ;;
     memory-guard)     SW_FILE=$_sw_d/boot.conf; SW_KEY=MEM_GUARD_ENABLE; SW_DEF=0 ;;
     wifi-rescue)      SW_FILE=$_sw_d/boot.conf; SW_KEY=WIFI_RESCUE; SW_DEF=1 ;;
+    whep)             SW_FILE=$_sw_d/boot.conf; SW_KEY=WHEP; SW_DEF=0 ;;
     mqtt-bridge)      SW_FILE=$_sw_d/mqtt.conf; SW_KEY=MQTT_ENABLE; SW_DEF=0 ;;
     telegram-bot)     SW_FILE=$_sw_d/telegram.conf; SW_KEY=TELEGRAM_ENABLE; SW_DEF=0 ;;
     motion-detection) SW_FILE=$_sw_d/rtspserver.conf; SW_KEY=mdenabled; SW_DEF=0 ;;
