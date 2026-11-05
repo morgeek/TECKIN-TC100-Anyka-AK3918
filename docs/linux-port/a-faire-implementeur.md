@@ -519,6 +519,15 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - Détecter et supprimer les fonctions JS orphelines, variables shell non référencées, fichiers temporaires ou dépendances résiduelles non appelées.
       - Consolider la suite de tests automatisés (`tests/test_*.py`) pour sanctuariser ce câblage avant le tag 3.0.1 final.
 
+58. [ ] **Nettoyage et élimination définitive des anciens composants remplacés (Consigne propriétaire 2026-11-05 soir, dès confirmation)** :
+    - **Principe impératif du propriétaire** : une fois les nouveaux composants C validés sur caméra (rc28), supprimer systématiquement et définitivement les anciens fichiers et binaires obsolètes pour récupérer un maximum de place dans la Flash SPI (ne pas laisser cohabiter les deux implémentations indéfiniment).
+    - **Cibles de suppression identifiées** :
+      1. **Suppression de `bin/monvifd`** : Ancien binaire opaque 2.x de 228 Ko (remplacé par `tc100-onvifd`). Gain net : **~75 à 85 Ko de Flash SquashFS**.
+      2. **Suppression des scripts de supervision shell** : `scripts/auto-night-daemon.sh` et `scripts/button-watch.sh` (remplacés par `tc100-supervisord`).
+      3. **Suppression ou dégraissage massif de `scripts/mqtt-bridge.sh`** : 121 Ko / 2 981 lignes de shell (remplacé par la découverte C `tc100-mqttd`). Gain net : **~35 à 45 Ko de Flash**.
+      4. **Élimination de la dépendance à `arecord` dans la stack** : Une fois `RTSP_ALSA_DIRECT=1` figé par défaut, évaluer le retrait d'`arecord` de `ext/bin/` dans `build-stack.sh`.
+      5. **Nettoyage des résidus 2.x (`bin/rwconf`, `bin/getflag`, `bin/getimage`)** : Remplacement ou suppression définitive.
+
 ## Prochaine RC (propriétaire, 2026-11-05 soir)
 
 Tout faire sauf #50, qualifier, puis lancer une nouvelle RC. Décisions : B1 + B3 et W4 dans la RC ; #35 en entier
