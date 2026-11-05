@@ -2597,3 +2597,9 @@ CI et build **verts** sur `dd4d604` (le build de `b7f3610` était rouge, corrig�
 - « Smart mode validated » (`6b00d5d`) = l'interrupteur `vbr`/`smart` est validé par `config-transaction.sh`, **pas** un essai sur caméra : le mode smart reste à tester avec le noyau `venc_pool` 12M (`5d9193c`).
 - Liste `a-faire-implementeur.md` : 37 points cochés, 21 ouverts.
 - **Demande** : publier ce contenu en **rc27** (pas sous « rc26 »). Plan de test proposé, sur la .11 seule : (1) installation + boot-guard + SD propre ; (2) une nuit avec `RTSP_PACING_US=100` (images sautées, pertes de ping, latence du direct) ; (3) Frigate et HA inchangés (NET_LAN_ONLY, expiration RTSP) ; (4) `tc100-onvifd` et `tc100-supervisord` un par un (off par défaut) ; (5) WebRTC/WHEP en dernier.
+
+## 2026-11-05 19:05 — 3.0.1-rc27 (bump par le testeur, à la demande du propriétaire)
+
+- **Paquet :** artefact `tc100-3-release` du run « Build Linux 6.6 » du commit `[release] Bump to 3.0.1-rc27`. Contenu : `dd4d604` (56 commits du 2026-11-05) + ce bump. Remplace le « rc26 » de `main` (le paquet rc26 testable reste `342b523`).
+- **Installation décidée par le propriétaire : .11, en flash directement par la mise à jour web, sans carte SD.**
+- **Plan (un changement à la fois, .11 seule) :** (1) mise à jour web, `VERSION` 3.0.1-rc27, boot-guard `count=0` après 5 min, tout ce qui tournait en rc25 tourne encore (RTSP principal/sous-flux/audio, Frigate, MQTT C, mDNS, pays FR) ; (2) `RTSP_PACING_US=100` (désormais par défaut) : une nuit, images sautées, pertes de ping, latence du direct ; (3) `NET_LAN_ONLY`, expiration des clients RTSP inactifs, limite d'essais du web : Frigate et HA inchangés ; (4) `ONVIF_IMPL` libre, puis `SUPERVISOR_IMPL=c`, puis `MQTT_DISCOVERY_IMPL=c` ; (5) WHEP en dernier.

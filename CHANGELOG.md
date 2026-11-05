@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc27] - 2026-11-05
+
+Everything below, from the [Unreleased] entries of 2026-11-05 (56 commits after the rc26 package `342b523`): free ONVIF
+daemon, WebRTC live view, C supervisor and C discovery (all off by default), audit fixes (LAN-only web and RTSP,
+bounded httpfront, idle RTSP clients, web update retries without reboot, wizard CSRF), clean SD card at every restart,
+`RTSP_PACING_US=100` by default, serial console off after 5 min, and the items 26-56 of the implementer list.
+
 ### Added
 - **WebRTC live view** (item 35, `WHEP=1`, off by default): `tc100-whep` (WHEP, ICE-lite, DTLS-SRTP with the system
   mbedTLS, SRTP in plain C) relays the camera's RTP to the browser with about 150 ms of delay; the page tries it first
