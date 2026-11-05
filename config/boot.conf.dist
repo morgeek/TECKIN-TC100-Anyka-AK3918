@@ -155,6 +155,13 @@ WIFI_COUNTRY=
 # MQTT service watchdogs, health snapshot, log persistence) instead of one shell process each: about 1 MB less RAM.
 # 0 = the separate daemons of before (read at boot).
 HOUSEKEEPER=1
+# SUPERVISOR_IMPL: who runs the always-on loops of the automatic day/night switching (scripts/auto-night-daemon.sh) and of
+# the reset button (scripts/button-watch.sh). sh (default) = one resident busybox shell each. c = both as jobs of ONE
+# small C process, tc100-supervisord (src/supervisord): same decisions, same config files (daynight.conf), same scripts
+# called for the actual work (nightmode.sh, wifi-rescue.sh, reboot-tracker.sh), fewer resident shells. Without the binary
+# the shell loops run; if the C daemon dies they take over until the next boot. Read when the services start (boot, or
+# restart the two services on Settings -> Services).
+SUPERVISOR_IMPL=sh
 # ISP_TUNE=1: live image tuning from /mnt/config/isp_tune.conf (brightness,
 # contrast, saturation, sharpness, hue, 50/60 Hz, exposure cap), applied by
 # tc100_rtsp without restarting the stream.

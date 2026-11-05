@@ -115,6 +115,9 @@ service_is_healthy()
             onvif)       _wd_pf="/var/run/onvif.pid" ;;
             mqtt-bridge) _wd_pf="/var/run/mqtt-bridge.pid" ;;
             rtsp-h26x)   _wd_pf="/var/run/v4l2rtspserver.pid" ;;
+            # the two jobs of tc100-supervisord (SUPERVISOR_IMPL=c, scripts/supervisor.sh)
+            auto-night-detection) _wd_pf="/var/run/auto-night-detection.pid" ;;
+            button-actions)       _wd_pf="/var/run/button-watch.pid" ;;
             # the housekeeper itself (scripts/housekeeper.sh supervise): its pid file, no fork
             housekeeper.sh) _wd_pf="${HK_PIDFILE:-/var/run/housekeeper.pid}" ;;
         esac

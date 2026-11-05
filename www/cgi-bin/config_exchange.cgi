@@ -106,6 +106,7 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"BOOT_SOUND_NAME";"identifier";"general";.boot.boot_sound_name),
     row("boot.conf";"flat";"root";"BOOT_STEALTH";"bool";"general";.boot.boot_stealth),
     row("boot.conf";"flat";"root";"ISP_TUNE";"bool";"general";.boot.isp_tune),
+    row("boot.conf";"flat";"root";"SUPERVISOR_IMPL";"supervisor_impl";"general";.boot.supervisor_impl),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),
     row("rtspserver.conf";"ini";"0";"codec";"video_codec";"general";.video.main.codec),

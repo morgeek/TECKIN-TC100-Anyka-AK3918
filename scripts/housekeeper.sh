@@ -179,6 +179,9 @@ hk_wd()
             onvif)       _hk_wpf=$HK_RUNDIR/onvif.pid ;;
             mqtt-bridge) _hk_wpf=$HK_RUNDIR/mqtt-bridge.pid ;;
             rtsp-h26x)   _hk_wpf=$HK_RUNDIR/v4l2rtspserver.pid ;;
+            # the two jobs of tc100-supervisord (SUPERVISOR_IMPL=c, scripts/supervisor.sh): registered by their control scripts
+            auto-night-detection) _hk_wpf=$HK_RUNDIR/auto-night-detection.pid ;;
+            button-actions)       _hk_wpf=$HK_RUNDIR/button-watch.pid ;;
         esac
         if [ -n "$_hk_wpf" ]; then
             _hk_wpid=; [ -r "$_hk_wpf" ] && read -r _hk_wpid _ < "$_hk_wpf" 2>/dev/null

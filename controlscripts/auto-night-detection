@@ -5,6 +5,9 @@ PIDFILE="/var/run/auto-night-detection.pid"
 # Linux 6.6 (3.0): no vendor ISP daemon. scripts/auto-night-daemon.sh switches day/night from the picture
 # luminance that tc100_rtsp writes to /tmp/cam_luma. 2.x: the vendor ISP daemon does it (setconf -k n).
 L66=0; [ -f /tmp/linux66 ] && L66=1
+# SUPERVISOR_IMPL=c (config/boot.conf): the loop runs as a job of tc100-supervisord (scripts/supervisor.sh), which keeps
+# the pid of the daemon in PIDFILE; any failure there starts the shell loop below as before
+[ -f /mnt/scripts/supervisor.sh ] && . /mnt/scripts/supervisor.sh
 
 daemon_pid()
 {
@@ -29,8 +32,12 @@ start()
   if [ "$L66" = 1 ]; then
     /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2 2>/dev/null
     if [ -z "$(daemon_pid)" ]; then
-      /bin/sh /mnt/scripts/auto-night-daemon.sh </dev/null >/dev/null 2>&1 &
-      echo "$!" > "$PIDFILE"
+      if type sv_start >/dev/null 2>&1 && sv_start night "$PIDFILE" auto-night-detection; then
+        :
+      else
+        /bin/sh /mnt/scripts/auto-night-daemon.sh </dev/null >/dev/null 2>&1 &
+        echo "$!" > "$PIDFILE"
+      fi
     fi
     return 0
   fi
@@ -41,7 +48,11 @@ start()
 stop()
 {
   if [ "$L66" = 1 ]; then
-    _p="$(daemon_pid)" && kill "$_p" 2>/dev/null
+    if type sv_stop >/dev/null 2>&1 && [ -e "${SV_RUN:-/var/run}/tc100-sv.night" ]; then
+      sv_stop night "$PIDFILE" auto-night-detection   # a job of the shared daemon: switch it off, never kill the daemon
+    else
+      _p="$(daemon_pid)" && kill "$_p" 2>/dev/null
+    fi
     rm -f "$PIDFILE"
     /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3 2>/dev/null
     return 0

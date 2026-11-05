@@ -17,6 +17,7 @@ on:
       - 'src/libakuio/**'
       - 'src/httpfront/**'
       - 'src/mqttd/**'
+      - 'src/supervisord/**'
       - 'src/onvifd/**'
       - 'src/mdnsd/**'
       - 'src/ispflip/**'
@@ -151,6 +152,8 @@ jobs:
           cp src/tc100rtsp/tc100_rtsp $P/
           make -C src/mqttd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/mqttd/tc100-mqttd $P/
+          make -C src/supervisord CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/supervisord/tc100-supervisord $P/
           make -C src/onvifd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/onvifd/tc100-onvifd $P/
           # item 35, first step: the SRTP cost bench (test pack only, not in the release)
@@ -224,7 +227,7 @@ jobs:
           mkdir -p symbols
           cp linux-src/System.map linux-src/.config symbols/
           # unstripped user-space programs (the shipped ones are stripped)
-          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so src/mqttd/tc100-mqttd.dbg src/onvifd/tc100-onvifd.dbg symbols/ 2>/dev/null || true
+          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so src/mqttd/tc100-mqttd.dbg src/onvifd/tc100-onvifd.dbg src/supervisord/tc100-supervisord.dbg symbols/ 2>/dev/null || true
           gzip -c linux-src/vmlinux > symbols/vmlinux.gz
 
       - name: Upload kernel symbols

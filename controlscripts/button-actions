@@ -6,6 +6,9 @@ SERVICE_NAME="Reset button actions"
 PIDFILE="/var/run/button-watch.pid"
 
 . /mnt/scripts/common_functions.sh
+# SUPERVISOR_IMPL=c (config/boot.conf): the loop runs as a job of tc100-supervisord (scripts/supervisor.sh), which keeps
+# the pid of the daemon in PIDFILE; any failure there starts the shell loop below as before
+[ -f /mnt/scripts/supervisor.sh ] && . /mnt/scripts/supervisor.sh
 
 status() {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
@@ -14,12 +17,17 @@ status() {
 
 start() {
   if [ -n "$(status)" ]; then return 0; fi
+  if type sv_start >/dev/null 2>&1 && sv_start button "$PIDFILE" button-actions; then return 0; fi
   # no input device on 3.0 (gpio_keys is off): button-watch.sh polls GPIO 10 in sysfs
   /bin/sh /mnt/scripts/button-watch.sh </dev/null >/dev/null 2>&1 &
   echo "$!" > "$PIDFILE"
 }
 
 stop() {
+  if type sv_stop >/dev/null 2>&1 && [ -e "${SV_RUN:-/var/run}/tc100-sv.button" ]; then
+    sv_stop button "$PIDFILE" button-actions   # a job of the shared daemon: switch it off, never kill the daemon
+    return 0
+  fi
   pid="$(cat "$PIDFILE" 2>/dev/null)"
   if [ -n "$pid" ]; then
     # The loop sits in dd: stop its children too.

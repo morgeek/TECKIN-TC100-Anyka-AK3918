@@ -21,7 +21,7 @@ run_tests() {
 		cp -r /src /w && cd /w && git config --global --add safe.directory /w
 		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
 		# make would run them instead of building the current code
-		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/mqttd/tc100-mqttd-host
+		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/mqttd/tc100-mqttd-host src/supervisord/tc100-supervisord-host
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
 		node --test tests/frontend.test.js tests/settings-save.test.js tests/records-timeline.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
@@ -42,7 +42,7 @@ run_cross() {
 		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 >/dev/null 2>&1
 		cp -r /src /w && cd /w && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
-		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/onvifd/tc100-onvifd
+		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd
 		arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o /tmp/jpegenc
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
 		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
@@ -55,9 +55,11 @@ run_cross() {
 		make -C src/libakuio CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/mqttd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
+		make -C src/supervisord CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/onvifd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
-		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/onvifd/tc100-onvifd
+		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd
 		echo "tc100-mqttd (stripped, bytes): $(wc -c < src/mqttd/tc100-mqttd)"
+		echo "tc100-supervisord (stripped, bytes): $(wc -c < src/supervisord/tc100-supervisord)"
 		echo "tc100-onvifd (stripped, bytes): $(wc -c < src/onvifd/tc100-onvifd)"
 		make -C src/tc100rtsp test_rtsp >/dev/null 2>&1 && echo "host test build: ok"
 		python3 -m unittest -v tests.test_httpfront_qemu >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
