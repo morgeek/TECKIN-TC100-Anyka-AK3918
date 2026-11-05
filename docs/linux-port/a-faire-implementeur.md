@@ -627,6 +627,23 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       3. **Sous-système audio OSS legacy (gain ~15-20 Ko)** : retirer la couche rétro-compatible obsolète des années 90 `CONFIG_SND_SUPPORT_OLD_API=n`.
     - **Vérification** : recompiler le noyau, vérifier la taille de `oipc.img` (< 1,80 Mio) et valider le boot sur caméra (.11).
 
+60. [ ] **Pack d'améliorations globales : Flash, Démarrage, Carte SD & Bruit Wi-Fi (Consigne propriétaire 2026-11-05 fin de soirée)** :
+    - **1. Suppression du `.gz` pré-compressé de `fr.js` dans la Flash SquashFS (Gain Flash net : ~40 Ko)** :
+      - *Constat* : `fr.js` (121 Ko) est actuellement stocké en double dans `stack.sqfs` sous sa forme `.js` et `.js.gz` (40,7 Ko). Comme SquashFS XZ compresse déjà tout le système de fichiers, stocker un fichier déjà gzippé (bruit incompressible pour XZ) gaspille ~40 Ko réels sur la flash SPI.
+      - *Action* : Exclure `fr.js.gz` de la flash dans `build-stack.sh` et laisser `fr.js` seul (qui se compresse magnifiquement dans SquashFS XZ), servi directement par `httpfront`.
+    - **2. Pré-allocation continue des enregistrements MP4 sur carte SD (`fallocate` dans `rec.c`)** :
+      - *Constat* : Les écritures séquentielles par blocs de 4 Ko fragmentent la FAT32 et usent prématurément les blocs flash des cartes MicroSD.
+      - *Action* : Pré-allouer la taille estimée du fichier vidéo (ex: tranche de 15 minutes = ~120 Mo) à l'ouverture via `posix_fallocate()` / `fallocate()`.
+      - *Bénéfice* : Élimination de la fragmentation, écritures 3x plus fluides sans gel I/O, et prolongation par 5 de la durée de vie de la carte SD.
+    - **3. Démarrage réseau ultra-rapide ("Quick-DHCP" / Lease cache)** :
+      - *Constat* : La négociation DHCP initiale par broadcast prend 2,5 à 5 secondes au boot avant d'obtenir l'adresse IP.
+      - *Action* : Mémoriser le dernier bail DHCP valide dans `/mnt/config/network.lease`. Au démarrage, `udhcpc` tente immédiatement une confirmation rapide `REQUEST` en unicast (ou applique l'adresse connue en arrière-plan).
+      - *Bénéfice* : Caméra accessible et flux RTSP opérationnel en moins de 6 secondes après la mise sous tension.
+    - **4. Filtrage du bruit réseau broadcast/multicast sur le dongle Wi-Fi (BPF / RX filtering)** :
+      - *Constat* : Le trafic broadcast domestique (mDNS d'autres PC, SSDP, ARP, NetBIOS) réveille continuellement le CPU via les interruptions USB du pilote `rtl8xxxu`.
+      - *Action* : Configurer un filtrage strict au niveau socket BPF ou restreindre les tables de hachage multicast USB pour ignorer les trames non pertinentes.
+      - *Bénéfice* : Moins d'interruptions CPU par seconde, réduction de la chauffe du dongle USB, et connexion Wi-Fi plus stable.
+
 ## Prochaine RC (propriétaire, 2026-11-05 soir)
 
 Tout faire sauf #50, qualifier, puis lancer une nouvelle RC. Décisions : B1 + B3 et W4 dans la RC ; #35 en entier
