@@ -644,6 +644,15 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - *Action* : Configurer un filtrage strict au niveau socket BPF ou restreindre les tables de hachage multicast USB pour ignorer les trames non pertinentes.
       - *Bénéfice* : Moins d'interruptions CPU par seconde, réduction de la chauffe du dongle USB, et connexion Wi-Fi plus stable.
 
+61. [ ] **Chantiers d'intégration domotique & résilience système (Avis propriétaire 2026-11-05 fin de soirée : 2 oui, 4 oui ; 1 et 3 écartés)** :
+    - **1. Domotique & Sécurité réseau (Point 2 validé)** :
+      - *Télémétrie Home Assistant enrichie dans `tc100-mqttd`* : publication des métriques de santé matérielle sous forme d'entités HA natives (santé de la carte MicroSD, taux de paquets Wi-Fi réémis, uptime système précis).
+      - *RTSP sécurisé sur TLS (RTSPS / port 322)* : exploiter `mbedTLS 2.28` (déjà intégrée pour WHEP et curl) pour encapsuler le flux RTSP dans une session TLS chiffrée de bout en bout pour les accès distants sans VPN.
+    - **2. Automatisation & Résilience système (Point 4 validé)** :
+      - *Rapport de diagnostic 1-clic ("Support Bundle" anonymisé)* : bouton dans Diagnostics générant une archive `.tar.gz` téléchargeable contenant les journaux récents (`dmesg`, logs d'audit, historique reboot), l'état des partitions MTD, la mémoire et la configuration active anonymisée (mots de passe masqués), pour faciliter le support communautaire et les tests.
+      - *Watchdog applicatif prédictif (Soft-Recycle)* : surveillance proactive de l'allocation CMA vidéo dans `tc100_rtsp` ; si la mémoire vidéo approche d'un seuil critique de saturation (> 95 %), réinitialiser proprement les tampons de streaming à chaud sans provoquer de panique noyau ni interrompre la connectivité réseau.
+    - *(Note : les points 1 [ISP/colorimétrie] et 3 [Smart Playback/miniatures timeline] ont été explicitement écartés par le propriétaire pour rester concentré sur l'essentiel).*
+
 ## Prochaine RC (propriétaire, 2026-11-05 soir)
 
 Tout faire sauf #50, qualifier, puis lancer une nouvelle RC. Décisions : B1 + B3 et W4 dans la RC ; #35 en entier
