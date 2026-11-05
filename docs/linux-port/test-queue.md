@@ -2191,3 +2191,15 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
   6. Mise à jour web suivante (rc27) : le journal `tc100-3/update66.log` montre les arrêts ; `tc100_rtsp` ne revient pas pendant l'écriture ; après redémarrage les réglages changés juste avant sont là ; `ls tc100-3/backup` : au plus 2 jeux.
 - **Critères :** 1-6 conformes, aucun redémarrage ni perte de flux.
 - **Mesurer la RAM en PSS** (`/proc/<pid>/smaps_rollup`, P0 #6) : le gain du point 5 se lit en PSS (~200 Ko), pas en RSS.
+
+## 2026-11-05 — Flux principal en 720p (`[720p]`, liste de l'implémenteur #8)
+
+- **Quoi :** Réglages → Flux principal → Résolution : 1920 x 1080 (défaut) ou 1280 x 720. Noyau : patch 0016 (`ak39_vi` recadre toujours la fenêtre 1080p entière, l'ISP met le canal principal à l'échelle demandée ; paramètre en lecture seule `ak39_vi.main_scale`). En 1080p le noyau fait exactement la même chose qu'avant (recadrage 1920x1080). `tc100_rtsp` : `RTSP_WIDTH=1280 RTSP_HEIGHT=720` (passés par `rtsp-launch.sh` quand `[0] mainres=720`), refusés si le noyau n'a pas `main_scale`.
+- **Interrupteur :** Résolution 1920 x 1080 (ou `mainres=1080` dans `rtspserver.conf`) ; `RTSP_WIDTH=1920` dans `rtsp.env` force le 1080p.
+- **Test (noyau de la CI de ce commit, d'abord en RAM depuis la carte : `pack66/boot66b.sh`) :**
+  1. 1080p (défaut) : rien ne change. `dmesg | grep crop` → `crop L,T 1920x1080, main 1920x1080`. Image, couleurs, détection de mouvement, sous-flux et instantané comme avant. **Ce point d'abord : le patch touche le démarrage de la capture.**
+  2. `ls /sys/module/ak39_vi/parameters/main_scale` existe ; Réglages : l'option 720p est active (grisée sur un ancien noyau).
+  3. Choisir 1280 x 720, enregistrer : `dmesg` → `main 1280x720` ; log `tc100_rtsp` → `rtsp://<ip>:554/  1280x720` ; VLC / Frigate : **la même image entière** (pas un coin), nette ; sous-flux 640x360 inchangé ; instantané 1280x720 ; masques, horloge (OSD) et zones de mouvement à leur place.
+  4. Mesures 720p contre 1080p au même débit : `STAT` (images capturées, débit), `MemAvailable`, charge CPU (`scripts/cpu-profile.sh 60`), qualité de l'image.
+  5. Ancien noyau (rc26) avec `mainres=720` : le log dit `crops instead of scaling`, le flux reste en 1920x1080.
+- **Critères :** 1 et 3 sans défaut d'image ni oops ; une heure de 720p sans erreur noyau ni redémarrage du serveur.

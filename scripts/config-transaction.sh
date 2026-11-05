@@ -41,6 +41,7 @@ tc_normalize_and_validate()
     persist_min) tc_uint_range "$_tc_value" 1 1440 ;;
     width) tc_uint_range "$_tc_value" 160 1920 && [ $((_tc_value % 2)) -eq 0 ] ;;
     height) tc_uint_range "$_tc_value" 120 1080 && [ $((_tc_value % 2)) -eq 0 ] ;;
+    mainres) case "$_tc_value" in 720|1080) ;; *) return 1 ;; esac ;;
     codec) case "$_tc_value" in 0|2|4|17) ;; *) return 1 ;; esac ;;
     video_codec) case "$_tc_value" in 0|2) ;; *) return 1 ;; esac ;;
     profile) tc_uint_range "$_tc_value" 0 4 ;;
@@ -442,6 +443,7 @@ tc_validate_rtsp()
   tc_check_ini "$_tc_file" root PORT port "$_tc_label" || return 1
   tc_check_ini "$_tc_file" root samplerate samplerate "$_tc_label" || return 1
   tc_check_ini "$_tc_file" root volume volume "$_tc_label" || return 1
+  tc_check_ini "$_tc_file" 0 mainres mainres "$_tc_label" || return 1   # main picture size (720p, item 8)
   for _tc_section in 0 1; do
     tc_require_ini "$_tc_file" "$_tc_section" codec "$_tc_label" || return 1
     tc_require_ini "$_tc_file" "$_tc_section" width "$_tc_label" || return 1

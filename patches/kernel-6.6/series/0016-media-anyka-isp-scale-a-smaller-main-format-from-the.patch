@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 09:00:00 +0100
+Subject: [PATCH] media: anyka-isp: scale a smaller main format from the whole sensor window
+
+Stream start cropped the sensor window to the capture format: S_FMT
+1280x720 gave the top-left 1280x720 of the 1080p picture at 1:1. Crop
+the whole 1920x1080 window and let the main channel scaler make the
+format, as the sub channel does for 640x360. 1920x1080 is unchanged.
+
+Used by tc100_rtsp RTSP_WIDTH/RTSP_HEIGHT (720p main stream), which checks the
+read-only parameter ak39_vi.main_scale first.
+---
+ drivers/media/platform/anyka-isp/ak39_vi.c | 19 +++++++++++++++----
+ 1 file changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
+index b3972ffe9..be592fb85 100644
+--- a/drivers/media/platform/anyka-isp/ak39_vi.c
++++ b/drivers/media/platform/anyka-isp/ak39_vi.c
+@@ -55,6 +55,14 @@
+ #define NUM_SLOTS	4
+ #define SUB_W		640
+ #define SUB_H		360
++/* the sensor window the ISP crops before scaling: always the whole 1080p picture, so a smaller format (S_FMT,
++ * 1280x720) is the same field of view scaled down by the ISP, not a corner of it */
++#define CROP_W		1920
++#define CROP_H		1080
++/* read-only: tells user space (tc100_rtsp RTSP_WIDTH=1280) that a smaller main format is scaled, not cropped */
++static bool main_scale = true;
++module_param(main_scale, bool, 0444);
++MODULE_PARM_DESC(main_scale, "read-only: a smaller main format (1280x720) is the whole picture scaled down");
+ 
+ /* program the 640x360 sub channel at stream start (the hardware sub picture of tc100_rtsp); ak39_vi.sub_channel=0 on
+  * the kernel command line turns it off */
+@@ -605,15 +613,18 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
+ 
+ 	/* as v4l2 S_CROP did on 4.4: the full window past the sensor's
+ 	 * invalid border, then the output scale (the sub channel keeps the
+-	 * ISP default, as on 4.4) */
++	 * ISP default, as on 4.4). The crop is the whole 1080p window
++	 * whatever the format: the main channel scaler makes the format
++	 * (1280x720 = the same picture, smaller), as it does for the sub
++	 * channel; at 1920x1080 nothing changes. */
+ 	{
+ 		int l = 0, t = 0;
+ 
+ 		if (vi->scb->sensor_get_valid_coordinate_func)
+ 			vi->scb->sensor_get_valid_coordinate_func(&l, &t);
+-		ret = ispdrv_vi_set_crop(l, t, vi->width, vi->height);
+-		dev_info(vi->dev, "crop %d,%d %ux%u: %d\n", l, t,
+-			 vi->width, vi->height, ret);
++		ret = ispdrv_vi_set_crop(l, t, CROP_W, CROP_H);
++		dev_info(vi->dev, "crop %d,%d %ux%u, main %ux%u: %d\n", l, t,
++			 CROP_W, CROP_H, vi->width, vi->height, ret);
+ 	}
+ 	ispdrv_vo_set_main_channel_scale(vi->width, vi->height);
+ 	if (sub_channel)
+-- 
+2.39.5
+

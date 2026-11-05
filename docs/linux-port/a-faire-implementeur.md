@@ -42,7 +42,11 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
 
 ## P1 — 3.0.2 (fiabilité et image)
 
-8. [ ] **Support natif d'une résolution intermédiaire 720p (1280×720)** :
+8. [x] **Support natif d'une résolution intermédiaire 720p (1280×720)** :
+   *Fait le 2026-11-05 : il fallait aussi le noyau (patch 0016 : le pilote recadrait à la taille demandée, donc un
+   coin de l'image ; il recadre maintenant la fenêtre 1080p entière et l'ISP met à l'échelle). Clé `[0] mainres`
+   (720 / 1080) et non `width` / `height`, que des profils de compatibilité remplissaient déjà de 1280x720.
+   Test : entrée `[720p]` de `test-queue.md`.*
    - Rendre la géométrie du flux principal configurable dans `tc100_rtsp` (`main_w`, `main_h`, options `-W`/`-H` ou `RTSP_WIDTH`/`RTSP_HEIGHT`).
    - Mettre à jour `rtsp-launch.sh` pour lire `[0] width` et `[0] height` dans `rtspserver.conf` et passer les arguments.
    - Adapter `scripts/action.d/video.sh` (`cmd=set_video_params`) pour accepter `video_size0=1280x720` (au lieu de forcer `1920x1080`).
@@ -67,6 +71,8 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     - **Coupure anti-larsen (half-duplex PTT)** : atténuation/coupure automatique du micro pendant la lecture haut-parleur (évite l'écho en retour).
     - *(Optionnel / P2)* Encodeur AAC compact pour la piste MP4 sur carte SD afin d'assurer une lecture HTML5 universelle dans le navigateur sans transcodage.
 12. [ ] **Support ONVIF Profile T (Audio Backchannel standardisé)** :
+    *Propriétaire, 2026-11-05 : ONVIF est utilisé. Passe par le remplacement de `monvifd` (#53) : un démon ONVIF libre
+    (WS-Discovery, Device, Media / Media2 avec le profil audio de retour).*
     - La gestion du retour audio bidirectionnel (`Require: www.onvif.org/ver20/backchannel`, piste `track3` PCMA 8 kHz) est déjà implémentée dans `src/tc100rtsp/talk.c`.
     - Objectif : exposer l'AudioBackChannel dans la réponse ONVIF Device / Media2 service pour permettre le Two-Way Audio natif instantané dans Home Assistant (WebRTC / Go2RTC) et Frigate sans bidouille URL manuelle.
     - Coût CPU / RAM : 0 % (métadonnées XML / profil statique côté démon ONVIF + exploitation du code RTSP déjà présent dans `tc100_rtsp`).
@@ -226,6 +232,8 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
         - *Bouton physique arrière* : voyant d'état GPIO dynamique indiquant en temps réel si le bouton est pressé ou relâché.
     - Zéro charge CPU/RAM pour la caméra : rendu 100 % SVG/CSS dans le navigateur client, réutilisant directement les endpoints CGI existants (`action.cgi`).
 50. [ ] **Modernisation UI : Exploration des pistes Pico CSS & Shoelace (look haut de gamme, rapide et léger)** :
+    *Propriétaire, 2026-11-05 : moteurs d'interface chargés à la volée (choix dans les réglages), Bulma reste intégré ;
+    Pico / Shoelace se chargent depuis la carte SD si elle les a, sinon depuis un CDN (rien de plus dans la flash).*
     - Évaluer le remplacement ou l'évolution de Bulma vers des solutions modernes adaptées à l'embarqué :
       - **Piste 1 : Pico CSS** (champion de la légèreté, ~10 Ko gzippé) : CSS sémantique pur stylisant directement les balises HTML sans surcharger le code de classes, Dark Mode natif automatique sans JS, divise par 2 à 3 le poids des pages et la bande passante requise.
       - **Piste 2 : Shoelace (Web Components natifs)** : composants riches standardisés (`<sl-switch>`, `<sl-tooltip>`, `<sl-progress-ring>`, `<sl-dialog>`) offrant un rendu haut de gamme de type "UniFi / Synology", sans framework JS lourd (exécuté nativement par le moteur du navigateur).
@@ -243,8 +251,13 @@ mesure en cours), **.24 en rc23** (témoin). Cocher ici ou dans `release-3.0.1.m
     pas le goulot (20 Mo stables la nuit, aucune fuite).
 53. [ ] Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
+    *Propriétaire, 2026-11-05 : ONVIF est utilisé → le remplacement de `monvifd` passe en P1, avec #12. #35 (WebRTC) :
+    sans alourdir le CPU.*
 
 ## Hors implémenteur (propriétaire)
 
 - Accord pour archiver ~50 notes anciennes du projet claude.ai et `_archive_v3-drafts/`.
+- LED rouge : 2e couleur de la LED d'état en façade ? À vérifier sur caméra (réponse du 2026-11-05 : à vérifier).
+- *Fait : D3, accord du 2026-11-05 : `src/libakuio/libakuio.so`, `src/httpfront/httpfront`, `src/jpegenc/jpegenc` retirés
+  de git (la CI les construit).*
 - Décisions B1 et W4 (voir `audit-2026-11-04.md` §6).

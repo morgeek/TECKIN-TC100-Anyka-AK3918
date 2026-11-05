@@ -47,7 +47,7 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 
 ## Building the 6.6 kernel
 
-The port is a series of 15 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
+The port is a series of 16 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
 
 1. `ARM: anyka` — `ARCH_ANYKA`, machine, interrupt controller, system timer, UART
 2. `soc: anyka` — L2 buffer engine helper and the SD/MMC host (`akmci`)
@@ -64,6 +64,7 @@ The port is a series of 15 patches on the `v6.6` tag, in `patches/kernel-6.6/ser
 13. `usb: host: anyka` — optional 32-bit FIFO access
 14. `media: anyka-isp` — OSD ioctls for main and sub channels
 15. `misc: ak39_venc` — encoder pool from reusable CMA area
+16. `media: anyka-isp` — a smaller main format (1280x720) scaled from the whole sensor window
 
 ```
 git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git

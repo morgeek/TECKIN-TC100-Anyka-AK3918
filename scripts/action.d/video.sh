@@ -10,8 +10,11 @@
       # Supports both stream 0 and 1, plus all advanced SmartVBR/QP tuning
       stream_idx="$(sanitize_int_range "${F_stream}" 0 1 0)"
       
-      # Determine which inputs to use based on stream index. tc100_rtsp encodes 1920x1080 and 640x360 whatever the
-      # file says: those are written, so that every reader of the file sees the real values. The frame rate is one
+      # Determine which inputs to use based on stream index. tc100_rtsp encodes 640x360 for the sub-stream and
+      # 1920x1080 or 1280x720 for the main one. The main size has a key of its own, [0] mainres (1080 or 720), written
+      # only here: the compatibility profiles and older pages wrote 1280x720 (even 640x360) into [0] width / height,
+      # which the server never applied, and a camera holding them must not change size at an update. 720p only on a
+      # kernel whose ISP scales the main channel (ak39_vi.main_scale). width / height get the real values. The frame rate is one
       # for both streams (they share the capture loop): 10, 12, 15, 20 or 25, the main stream's select; a form
       # without it (secondary stream) keeps the rate in the file; anything else is 15 (rtsp-launch.sh fps_opt).
       _fps_old="$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf r 0 fps 2>/dev/null)"
@@ -28,6 +31,12 @@
           smartmode=$(sanitize_int_range "${F_smartmode1}" 0 2 0)
       else
           raw_size=1920x1080
+          _v720=0; [ -e "${TC100_VI_SCALE_PARAM:-/sys/module/ak39_vi/parameters/main_scale}" ] && _v720=1
+          case "${F_video_size0}" in
+            1280x720) [ "$_v720" = 1 ] && raw_size=1280x720 ;;
+            '') # a form without the field keeps the size in the file
+                [ "$_v720" = 1 ] && [ "$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf r 0 mainres 2>/dev/null)" = 720 ] && raw_size=1280x720 ;;
+          esac
           bitrate=$(sanitize_int_range "${F_brbitrate0}" 32 8000 1000)
           codec=$(sanitize_int_range "${F_video_codec0}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen0}" 1 300 50)
@@ -52,6 +61,7 @@
           "$stream_idx" minqp "$minqp" \
           "$stream_idx" maxqp "$maxqp" \
           "$stream_idx" smartmode "$smartmode" \
+          $( [ "$stream_idx" = 0 ] && echo "0 mainres $height" ) \
           $( [ "$stream_idx" = 0 ] && [ -n "${F_vbr0}${F_smart0}" ] && \
              echo "0 vbr $(sanitize_int_range "${F_vbr0}" 0 1 0) 0 smart $(sanitize_int_range "${F_smart0}" 0 2 0)" ); then
         if wants_json_response; then

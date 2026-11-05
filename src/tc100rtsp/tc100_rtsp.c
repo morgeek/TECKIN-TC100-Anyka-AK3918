@@ -6,7 +6,7 @@
  * the only other thread is the recorder's card writer (rec.c: an SD card can stall a write for seconds).
  * The GOP being encoded is cached so that a new client starts immediately on the last IDR frame.
  *
- * Two streams: main 1920x1080 and a 640x360 sub-stream (second encoder channel, fed from the scaled picture that
+ * Two streams: main 1920x1080 (or 1280x720, RTSP_WIDTH) and a 640x360 sub-stream (second encoder channel, fed from the scaled picture that
  * also makes the web UI's stream.jpg). Paths with "video1" in them, or starting with /ch1 or /sub, serve the
  * sub-stream; every other path the main stream (also the sub paths when the sub-stream is off or did not open).
  * Sound: the microphone (an arecord child, the only ALSA capture reader) feeds the RTSP audio track, the recordings (rec.c,
@@ -55,8 +55,10 @@
 #include "talk.h"
 #include "util.h"
 
-#define W 1920
-#define H 1080
+/* main picture: 1920x1080, or 1280x720 with RTSP_WIDTH=1280 RTSP_HEIGHT=720 (rtspserver.conf [0] width / height, read
+ * by rtsp-launch.sh) on a kernel whose ISP scales the main channel (ak39_vi.main_scale, patch 0016). Both are whole
+ * multiples of the 640x360 sub picture and of the 64x36 motion grid. */
+static int W = 1920, H = 1080;
 #define SW 640		/* sub-stream, stored in the V4L2 buffer after the main picture */
 #define SH 360
 #define MAXCLI 4
@@ -191,21 +193,22 @@ static void sub_scale(const unsigned char *src, unsigned char *dst)
 {
 	const unsigned char *uv = src + W * H;
 	unsigned char *duv = dst + SW * SH;
+	const int k = W / SW, c = k / 2;	/* 1 pixel every k (3 at 1080p, 2 at 720p), the middle one */
 
 	for (int y = 0; y < SH; y++) {
-		const unsigned char *r = src + (3 * y + 1) * W;
+		const unsigned char *r = src + (k * y + c) * W;
 		unsigned char *o = dst + y * SW;
 
 		for (int x = 0; x < SW; x++)
-			o[x] = r[3 * x + 1];
+			o[x] = r[k * x + c];
 	}
 	for (int y = 0; y < SH / 2; y++) {
-		const unsigned char *r = uv + (3 * y + 1) * W;
+		const unsigned char *r = uv + (k * y + c) * W;
 		unsigned char *o = duv + y * SW;
 
 		for (int x = 0; x < SW / 2; x++) {
-			o[2 * x] = r[(3 * x + 1) * 2];
-			o[2 * x + 1] = r[(3 * x + 1) * 2 + 1];
+			o[2 * x] = r[(k * x + c) * 2];
+			o[2 * x + 1] = r[(k * x + c) * 2 + 1];
 		}
 	}
 }
@@ -2369,7 +2372,7 @@ static void md_frame(const unsigned char *sy, double tn)
 	md_t = tn;
 	if (!md_on) { md_have = 0; return; }
 	for (y = 0; y < MD_GH; y++)
-		for (x = 0; x < MD_GW; x++) cur[n++] = sy[(y * 30 + 15) * W + x * 30 + 15];
+		for (x = 0; x < MD_GW; x++) cur[n++] = sy[(y * (H / MD_GH) + H / MD_GH / 2) * W + x * (W / MD_GW) + W / MD_GW / 2];
 	if (md_have) {
 		for (n = 0; n < MD_GW * MD_GH; n++)
 			if (md_mask[n]) { int d = cur[n] - md_prev[n]; if (d < 0) d = -d; if (d > 20) chg++; }
@@ -2802,6 +2805,16 @@ int main(int argc, char **argv)
 	long logmax = lm && *lm ? num(lm) : 262144;
 
 	dbg_on = getenv("RTSP_DEBUG") != NULL;
+	{	/* main picture size (item 8 of the implementer list): 720p only where the kernel scales the main channel */
+		const char *ew = getenv("RTSP_WIDTH"), *eh = getenv("RTSP_HEIGHT");
+		const char *kp = getenv("TC100_VI_SCALE_PARAM") ? getenv("TC100_VI_SCALE_PARAM") : "/sys/module/ak39_vi/parameters/main_scale";
+
+		if (ew && eh && num(ew) == 1280 && num(eh) == 720) {
+			if (!access(kp, F_OK)) { W = 1280; H = 720; }
+			else LOG("RTSP_WIDTH 1280: this kernel crops instead of scaling (no ak39_vi.main_scale), 1920x1080 kept\n");
+		} else if (ew && *ew && num(ew) != 1920)
+			LOG("RTSP_WIDTH %s: only 1920x1080 or 1280x720, 1920x1080 kept\n", ew);
+	}
 	{ const char *fc = getenv("RTSP_FRAMECOPY"), *qt = getenv("RTSP_QTRIM"), *qb = getenv("RTSP_QBURST"); fcopy_on = !(fc && fc[0] == '0'); qtrim_on = !(qt && qt[0] == '0');
 	  qburst_on = !(qb && qb[0] == '0');
 	  { const char *sgv = getenv("RTSP_UDPSG"), *mm = getenv("RTSP_UDPMMSG"); sg_on = sgv && sgv[0] == '1'; sg_mmsg_on = sg_on && mm && mm[0] == '1'; }
@@ -3389,13 +3402,13 @@ unsigned char *fpb[2] = { NULL, NULL };
 			int sub_made = S[1].active || d_str || thumb_due;
 
 			if (d_luma) {	/* mean of the sub-stream luma samples, like tc100_streamer */
-				const unsigned char *sy = vb[b.index];	/* main luma at sub-stream coordinates x3 */
+				const unsigned char *sy = vb[b.index];	/* main luma at sub-stream coordinates x (W / SW) */
 				unsigned sum = 0, ns = 0;
 				char lb[16];
 				int ln;
 
 				for (int y = 10; y < SH - 10; y += 16)
-					for (int x = 10; x < SW - 10; x += 16) { sum += sy[(y * 3) * W + x * 3]; ns++; }
+					for (int x = 10; x < SW - 10; x += 16) { sum += sy[(y * (W / SW)) * W + x * (W / SW)]; ns++; }
 				ln = snprintf(lb, sizeof lb, "%u\n", ns ? sum / ns : 50);
 				wfile("/tmp/cam_luma", lb, ln);
 				t_luma = tn;

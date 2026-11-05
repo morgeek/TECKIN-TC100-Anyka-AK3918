@@ -25,6 +25,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   microSD card's presence, size and free space, and `tc100_info{version=...}`. No chip temperature: the kernel has no
   sensor driver for it.
 
+- **720p main stream** (Settings → Main stream → Resolution, 1920x1080 or 1280x720): the whole picture scaled down by
+  the image processor, not a corner of it (kernel patch 0016: the ISP crops the whole 1080p window and scales the main
+  channel, as it does for the 640x360 sub-stream). Less than half the pixels: lower bit rate for the same quality,
+  less encoder and network load, about 1.7 MB less per captured frame. Stored as `[0] mainres` of `rtspserver.conf`,
+  1080 by default; the choice is greyed out on an older kernel, and `tc100_rtsp` keeps 1080p there (the read-only
+  parameter `ak39_vi.main_scale` says the kernel scales).
+
 ### Changed
 - **Web pages load their scripts and styles as `?v=<md5>`** (`src/webui/stamp-assets.sh`, run by `build-index.sh`):
   a browser takes a new file at once after an update. The French dictionary and the main script were behind fixed

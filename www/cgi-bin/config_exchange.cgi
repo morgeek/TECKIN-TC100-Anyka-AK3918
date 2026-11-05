@@ -102,6 +102,7 @@ _ce_row_table() {
     row("rtspserver.conf";"ini";"0";"profile";"profile";"general";.video.main.profile),
     row("rtspserver.conf";"ini";"0";"width";"width";"general";.video.main.width),
     row("rtspserver.conf";"ini";"0";"height";"height";"general";.video.main.height),
+    row("rtspserver.conf";"ini";"0";"mainres";"mainres";"general";.video.main.mainres),
     row("rtspserver.conf";"ini";"0";"fps";"fps";"general";.video.main.fps),
     row("rtspserver.conf";"ini";"0";"bps";"bitrate";"general";.video.main.bitrate),
     row("rtspserver.conf";"ini";"0";"goplen";"gop";"general";.video.main.gop),

@@ -257,7 +257,7 @@ Applies video encoder parameters to one or both RTSP streams and schedules an RT
 | Parameter | Description |
 |---|---|
 | `stream` | Target stream index: `0` (main) or `1` (sub) |
-| `video_size0` | Main stream resolution, e.g. `1280x720` |
+| `video_size0` | Main stream size: `1920x1080` (default) or `1280x720` (the whole picture scaled down by the ISP; needs a kernel with `ak39_vi.main_scale`, 3.0.1-rc27 or later, else 1080p is kept). Stored as `[0] mainres` (`720` / `1080`) of `rtspserver.conf` |
 | `video_size1` | Sub stream resolution, e.g. `352x200` |
 | `fps0` / `fps1` | Frame rate 1–25 |
 | `brbitrate0` | Main bitrate kbps (64–12000) |

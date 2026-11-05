@@ -58,3 +58,9 @@ dist/
 /src/mqttd/libc.so.0
 /src/mqttd/tc100-mqttd
 /src/mqttd/tc100-mqttd-host
+
+# build products that CI makes (audit 2026-11-04 D3: the old copies in git were stale and shipped by nothing)
+/src/libakuio/libakuio.so
+/src/httpfront/httpfront
+/src/jpegenc/jpegenc
+/src/tc100rtsp/tc100_rtsp

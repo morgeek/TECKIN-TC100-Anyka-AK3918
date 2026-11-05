@@ -45,6 +45,7 @@ codec=2
 fps=15
 goplen=30
 height=1080
+mainres=1080
 maxqp=48
 minqp=25
 profile=3

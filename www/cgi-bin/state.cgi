@@ -403,8 +403,9 @@ codec_name_to() {
 read_rtsp_stream_summary() {
     # Main Stream [0]
     cfg_int codec0 0_codec 2
-    cfg_int width0 0_width 1280
-    cfg_int height0 0_height 720
+    cfg_int width0 0_width 1920
+    cfg_int height0 0_height 1080
+    cfg_int mainres0 0_mainres 1080
     cfg_int fps0 0_fps 16
     cfg_int bps0 0_bps 1000
     cfg_int profile0 0_profile 3
@@ -438,12 +439,16 @@ read_rtsp_stream_summary() {
     cfg_int maxkbps1 1_maxkbps 450
     cfg_int targetkbps1 1_targetkbps 400
 
-    # tc100_rtsp encodes 1920x1080 and 640x360 whatever the file says (codec and bit rate are taken from it): report
-    # what the streams really are (dashboard, Frigate YAML, HA manifest). The frame rate is one setting for both
+    # tc100_rtsp encodes 640x360 and 1920x1080, or 1280x720 when [0] mainres is 720 and the kernel scales the main
+    # channel (ak39_vi.main_scale, patch 0016): report what the streams really are (dashboard, Frigate YAML, HA
+    # manifest). [0] width / height are not trusted: compatibility profiles wrote 1280x720 there. The frame rate is one setting for both
     # streams, [0] fps: 10, 12, 15, 20 or 25 (Settings -> Streams & audio; rtsp-launch.sh passes it as -f), else 15.
     # The caller must have run load_conf_file /mnt/config/rtspserver.conf (frigateyaml, integrationtest and
     # integrationmanifest did not, and reported 15 fps and the defaults while the camera ran at 25).
-    width0=1920; height0=1080; width1=640; height1=360
+    main_720=false; [ -e "${TC100_VI_SCALE_PARAM:-/sys/module/ak39_vi/parameters/main_scale}" ] && main_720=true
+    if [ "$main_720" = true ] && [ "$mainres0" = 720 ]; then width0=1280; height0=720
+    else width0=1920; height0=1080; fi
+    width1=640; height1=360
     case "$fps0" in 10|12|15|20|25) ;; *) fps0=15 ;; esac
     fps1=$fps0
 
@@ -1264,9 +1269,9 @@ if [ -n "$F_cmd" ]; then
     case "$_st_db" in -[0-9]|-[0-9][0-9]|0) : ;; *) _st_db=-24 ;; esac
     
     # Feature blocks
-    printf '{"boot":{"perf_profile":"%s","service_trim":%s,"topology":"%s","lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s,"vbr":%s,"smart":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s,"motion_best_shot":%s},"telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"frigate":{"url":"%s","camera":"%s"},"peripherals":{"led_front":%s,"led_red":%s}}\n' \
+    printf '{"boot":{"perf_profile":"%s","service_trim":%s,"topology":"%s","lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main_720":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s,"vbr":%s,"smart":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s,"motion_best_shot":%s},"telegram":{"enabled":%s,"token":"%s","chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"frigate":{"url":"%s","camera":"%s"},"peripherals":{"led_front":%s,"led_red":%s}}\n' \
       "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(truthy_flag "$(get_cfg LIGHTWEIGHT_MODE 0)")" "$(truthy_flag "$(get_cfg SECURITY_HARDENING_MODE 0)")" \
-      "$rtsp_port" \
+      "$rtsp_port" "$main_720" \
       "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" "$vbr0" "$smart0" \
       "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
       "$(sanitize_int "$(get_cfg imageflip 0)" 0)" "$(truthy_flag "$(get_cfg RTSPLOGENABLED 0)")" \

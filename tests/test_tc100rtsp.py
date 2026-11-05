@@ -577,6 +577,52 @@ class LogRotation(unittest.TestCase):
                     proc.wait(10)
 
 
+class MainSize(unittest.TestCase):
+    """Item 8: RTSP_WIDTH=1280 RTSP_HEIGHT=720 gives a 720p main picture, only where the kernel scales the main channel
+    (ak39_vi.main_scale, patch 0016); elsewhere 1080p is kept (an older kernel crops: a corner of the picture)."""
+    PORT = 18563
+
+    @classmethod
+    def setUpClass(cls):
+        build('test_rtsp')
+
+    def start_line(self, **env):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / 'log'
+            with open(log, 'wb') as f:
+                proc = subprocess.Popen([str(SRC / 'test_rtsp'), '-p', str(self.PORT), '-a', '0', '-s', '0'], cwd=tmp,
+                                        env=dict(os.environ, **env), stderr=f, stdout=f)
+            try:
+                for _ in range(100):
+                    if b'tc100_rtsp: rtsp://' in log.read_bytes():
+                        break
+                    time.sleep(0.05)
+                return log.read_text()
+            finally:
+                proc.terminate()
+                proc.wait(10)
+
+    def test_720p_with_a_scaling_kernel(self):
+        with tempfile.NamedTemporaryFile() as param:
+            out = self.start_line(RTSP_WIDTH='1280', RTSP_HEIGHT='720', TC100_VI_SCALE_PARAM=param.name)
+        self.assertIn('/  1280x720 ', out)
+
+    def test_1080p_kept_on_an_older_kernel_or_another_size(self):
+        out = self.start_line(RTSP_WIDTH='1280', RTSP_HEIGHT='720', TC100_VI_SCALE_PARAM='/nonexistent/main_scale')
+        self.assertIn('crops instead of scaling', out)
+        self.assertIn('/  1920x1080 ', out)
+        with tempfile.NamedTemporaryFile() as param:
+            out = self.start_line(RTSP_WIDTH='1600', RTSP_HEIGHT='900', TC100_VI_SCALE_PARAM=param.name)
+        self.assertIn('only 1920x1080 or 1280x720', out)
+        self.assertIn('/  1920x1080 ', out)
+
+    def test_samplers_follow_the_picture_size(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        self.assertIn('const int k = W / SW, c = k / 2;', src)                  # CPU sub picture: 1 pixel in 3 or 2
+        self.assertIn('sy[(y * (H / MD_GH) + H / MD_GH / 2) * W + x * (W / MD_GW) + W / MD_GW / 2]', src)
+        self.assertNotIn('#define W 1920', src)
+
+
 class InterleavedFrame(Server):
     def test_frame_then_stale_request_end_does_not_crash(self):
         """Audit 2026-11-04 H1: an interleaved '$' frame holding "\\r\\n\\r\\n" was consumed without ending the buffer
