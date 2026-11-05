@@ -1,8 +1,8 @@
 # TECKIN TC100 CGI API Reference
 
-**Base URL:** `http://192.168.1.50/cgi-bin/` (or `https://` when TLS is enabled)
+**Base URL:** `http://192.168.1.50/cgi-bin/` (plain HTTP only: 3.0 has no TLS; put a reverse proxy in front if you need HTTPS)
 
-**Authentication:** HTTP Basic Auth — default `root:pass`.
+**Authentication:** HTTP Basic Auth (busybox httpd, user `root`, the camera password) — default `root:pass`. With no camera password set yet (before the setup wizard) the pages are open.
 
 **CSRF:** All state-changing requests require the header `X-CSRF-Token: <token>`.
 Fetch the token from `state.cgi?cmd=statusline` → field `csrf_token` (a per-boot hex string stored at `/tmp/csrf_token` on the camera).
@@ -562,6 +562,19 @@ applies now (`"00"` = world rules) and whether the regulatory database is presen
 
 ---
 
+### cmd=wifi_rescue_info *(read-only, no CSRF)*
+
+The rescue access point (`scripts/wifi-rescue.sh`): whether it is enabled (`WIFI_RESCUE`), up now, its name and
+password, and its address. The response carries the access point password: do not log it.
+
+**Response (JSON):** `{"status":"success","enabled":1,"ap":0,"ssid":"...","psk":"...","address":"10.42.0.1"}`
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=wifi_rescue_info"
+```
+
+---
+
 ### cmd=set_performance_profile
 
 Switches the active performance profile. Triggers an automatic health-checked rollback if the stream fails within the probe window.
@@ -731,6 +744,74 @@ Restores the RTSP configuration from the last saved known-good snapshot and rest
 curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
   -H "X-CSRF-Token: <token>" \
   --data-urlencode "cmd=restore_known_good_profile"
+```
+
+---
+
+### cmd=rtsp_server_info *(read-only, no CSRF)*
+
+State of the RTSP server `tc100_rtsp`: sub-stream and two-way audio switches (`boot.conf`), port, number of established
+client connections, idle frame rate and whether motion detection is running.
+
+**Response (JSON):**
+```json
+{"ok":true,"server":"tc100_rtsp","substream":1,"talk":1,"port":554,"clients":0,"idle_fps":0,"idle_after":10,"motion_detection":0}
+```
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=rtsp_server_info"
+```
+
+---
+
+### cmd=set_rtsp_server
+
+Settings -> Video switches, saved to `boot.conf`. Changing the sub-stream restarts the stream (about 2 s later);
+two-way audio and idle frame rate are read live.
+
+**Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `rtsp_substream` | `1`/`0` - 640x360 sub-stream (`RTSP_SUBSTREAM`) |
+| `rtsp_talk` | `1`/`0` - two-way audio, ONVIF backchannel (`RTSP_LITE_TALK`) |
+| `rtsp_idle_fps` | 0-24 - lower frame rate while nothing moves, 0 = off (`IDLE_FPS`); written only when sent |
+| `rtsp_idle_after` | 1-3600 - seconds without motion before the lower rate (`IDLE_AFTER`, default 10) |
+
+**Response:** JSON or HTML
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=set_rtsp_server" \
+  --data-urlencode "rtsp_substream=1" \
+  --data-urlencode "rtsp_talk=1" \
+  --data-urlencode "rtsp_idle_fps=5" \
+  --data-urlencode "rtsp_idle_after=10"
+```
+
+---
+
+### cmd=set_frigate_live
+
+Saves the link of the "smooth live view" to this camera in Frigate's own page (`config/frigate_live.conf`). An empty
+`frigate_url` removes the link. When `frigate_camera` is empty the camera looks it up in Frigate's `/api/config` by its IP.
+
+**Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `frigate_url` | Frigate address, e.g. `http://192.168.1.20:5000` (`http://` added when missing) |
+| `frigate_camera` | Frigate camera name: letters, digits, `-`, `_` |
+
+**Response:** HTML text (`Smooth live view: ...`), or JSON `INVALID_VALUE` on a bad address or name
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=set_frigate_live" \
+  --data-urlencode "frigate_url=http://192.168.1.20:5000" \
+  --data-urlencode "frigate_camera=tc100"
 ```
 
 ---
@@ -976,6 +1057,137 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
 
 ---
 
+### cmd=md_zones_info *(read-only, no CSRF)*
+
+The saved motion zones (`config/motion_zones.conf`, up to 4 rectangles `x1,y1,x2,y2` that motion detection ignores), their
+names, whether motion detection is on, and what the detector got at its last start.
+
+**Response (JSON):**
+```json
+{"ok":true,"zones":["0,0,20,30"],"names":["tree"],"enabled":1,"detector":{"grid":"...","ignored":2,"result":"..."}}
+```
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=md_zones_info"
+```
+
+---
+
+### cmd=motion_heatmap *(read-only, no CSRF)*
+
+Motion events per hour over the last 24 hours (from `scripts/motion-heatmap.sh`; all zeros when the script is absent).
+
+**Response (JSON):** `{"ok":true,"current_hour":14,"total_24h":37,"hourly":[...24 numbers...]}`
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=motion_heatmap"
+```
+
+---
+
+### cmd=events_info *(read-only, no CSRF)*
+
+The alert settings of Settings -> Events as JSON: `notify` (`config/notify.conf`: webhook, Ntfy, Telegram switch, snapshot
+attachment, cooldown, event list), `tamper` (`config/tamper.conf` and whether tamper is active now) and `sound` (Vox and
+alarm options of `config/sound_detection.conf`). Secrets are never sent back: only `ntfy_auth_set` and `telegram_ready`.
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=events_info"
+```
+
+---
+
+### cmd=set_notify_config
+
+Saves the alert channels to `config/notify.conf`. Validated: webhook and Ntfy server must start with `http://` or
+`https://` and hold no spaces or quotes; Ntfy topic is letters, digits, `-` and `_` (64 at most); a channel cannot be
+enabled without its address or topic.
+
+**Parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `webhook_enable` | `0` | `1`/`0` |
+| `webhook_url` | empty | Webhook address |
+| `webhook_method` | `POST` | `POST` or `PUT` |
+| `ntfy_enable` | `0` | `1`/`0` |
+| `ntfy_url` | `https://ntfy.sh` | Ntfy server |
+| `ntfy_topic` | empty | Ntfy topic |
+| `ntfy_priority` | `default` | `min`, `low`, `default`, `high`, `urgent` |
+| `ntfy_auth` | empty | Ntfy access token; empty keeps the saved one, `-` removes it |
+| `telegram_notify_enable` | `0` | Send alerts through the Telegram bot (`set_telegram_config`) |
+| `notify_attach_snapshot` | `0` | Attach a picture |
+| `notify_cooldown` | `15` | Seconds between two alerts, 0-3600 |
+| `notify_event_motion`, `notify_event_sound`, `notify_event_tamper` | `0` | Events that raise an alert |
+
+**Response:** JSON (`Alerts saved.`) or `INVALID_VALUE`
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=set_notify_config" \
+  --data-urlencode "ntfy_enable=1" \
+  --data-urlencode "ntfy_topic=mycam" \
+  --data-urlencode "notify_event_motion=1" \
+  --data-urlencode "notify_attach_snapshot=1" \
+  --data-urlencode "notify_cooldown=30"
+```
+
+---
+
+### cmd=set_tamper_config
+
+Tamper (covered or moved lens) detection, saved to `config/tamper.conf`. Turning it on or off registers or removes the
+`tamper-detect` housekeeper job at once.
+
+**Parameters:**
+
+| Parameter | Default | Range | Description |
+|---|---|---|---|
+| `tamper_enable` | `0` | `1`/`0` | |
+| `tamper_hold` | `6` | 2-120 | Seconds the condition must last |
+| `tamper_drop_pct` | `50` | 10-90 | Picture size drop (percent) that counts |
+| `tamper_luma_min` | `15` | 0-100 | Brightness below which the lens counts as covered |
+
+**Response:** JSON
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=set_tamper_config" \
+  --data-urlencode "tamper_enable=1" \
+  --data-urlencode "tamper_hold=6"
+```
+
+---
+
+### cmd=set_sound_options
+
+Vox (baby monitor) and alarm-sound tracking options, saved to `config/sound_detection.conf`; they act while sound
+detection is on (`set_sound_detection`). No restart needed.
+
+**Parameters:**
+
+| Parameter | Default | Range | Description |
+|---|---|---|---|
+| `vox_mode` | `0` | `1`/`0` | Vox mode |
+| `vox_hold` | `5` | 1-600 | Seconds to hold after the last sound |
+| `alarm_detect` | `0` | `1`/`0` | Recognise alarm sounds |
+| `alarm_hold` | `15` | 5-120 | Seconds |
+| `min_loud` | `1` | 1-10 | Seconds a sound must last |
+
+**Response:** JSON
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=set_sound_options" \
+  --data-urlencode "vox_mode=1" \
+  --data-urlencode "vox_hold=5"
+```
+
+---
+
 ### cmd=service_trim_on / cmd=service_trim_off
 
 Stops (trim) or re-enables all non-essential services to free resources. Useful for temporary CPU/RAM relief without a full profile change.
@@ -991,7 +1203,7 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=service_trim_
 
 ### cmd=set_http_password
 
-Sets the lighttpd HTTP Basic Auth password.
+Sets the web login password (busybox httpd, user `root`): `scripts/common_functions.sh` `http_password` runs `v3/linux66-sd/web-auth`, which rewrites `/etc/httpd.conf` (MD5 crypt hash when httpd can make one). It applies at once and does not touch `config/user.pwd`, RTSP, FTP or telnet; use `set_all_password` for those too.
 
 **Parameters (one required):**
 
@@ -1013,7 +1225,7 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
 
 ### cmd=set_all_password
 
-Sets the HTTP password AND restarts FTP, Telnet, and RTSP servers with the new credentials.
+Sets one password for the web interface, the system `root` account, RTSP, FTP and telnet (writes `config/user.pwd` and `rtspserver.conf`, restarts FTP, telnet and RTSP). Refused: fewer than 4 characters, or spaces, quotes, `%`, `$`, backquote or backslash.
 
 **Parameters (one required):**
 
@@ -1199,6 +1411,132 @@ Returns the PTT backend status (whether the patched `/mnt/bin/ak_ao_ptt` player 
 
 ```sh
 curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=get_ptt_status"
+```
+
+---
+
+### cmd=play_sound
+
+Plays a built-in clip (`sounds/<name>.pcm`, looked up in `/mnt/sounds/`) through the speaker, in the background
+(`scripts/speaker-play.sh`). The name is stripped to letters, digits, `_` and `-`.
+
+**Parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `sound` | `chime` | Clip name without extension (`chime`, `siren`, `alert`, `startup`, ...) |
+| `volume` | `90` | 0-100 |
+
+**Response:** JSON or HTML. Error code `SOUND_NOT_FOUND` when the clip or the speaker script is missing.
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=play_sound" \
+  --data-urlencode "sound=chime" \
+  --data-urlencode "volume=80"
+```
+
+---
+
+### cmd=set_sound_detection
+
+Turns the microphone sound detection on or off and sets its trigger level (`config/sound_detection.conf`).
+
+**Parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `sound_det_enable` | `0` | `1`/`0` |
+| `sound_det_threshold` | `-24` | Trigger level in dBFS |
+| `sound_det_interval` | `2` | Check interval, 1-300 s |
+
+**Response:** JSON or HTML
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=set_sound_detection" \
+  --data-urlencode "sound_det_enable=1" \
+  --data-urlencode "sound_det_threshold=-24" \
+  --data-urlencode "sound_det_interval=2"
+```
+
+---
+
+### cmd=set_local_recording
+
+Local backup recording to the SD card (`tc100_rtsp`), saved to `boot.conf`; `tc100_rtsp` reads it live (no restart).
+
+**Parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `rec_local` | `0` | `1`/`0` (`REC_LOCAL`) |
+| `rec_when` | `offline` | `always`, `motion` or `offline` (no RTSP client) |
+| `rec_stream` | `main` | `main` or `sub` |
+| `rec_segment_min` | `5` | Segment length in minutes, 1-60 |
+| `rec_reserve_mb` | `256` | Free space kept on the card, 32-8192 MB |
+
+**Response:** JSON or HTML
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=set_local_recording" \
+  --data-urlencode "rec_local=1" \
+  --data-urlencode "rec_when=motion" \
+  --data-urlencode "rec_stream=main" \
+  --data-urlencode "rec_segment_min=5" \
+  --data-urlencode "rec_reserve_mb=256"
+```
+
+---
+
+### cmd=local_rec_status *(read-only, no CSRF)*
+
+Local recording settings and live state (state, current file, files, free MB, RTSP client, storage `sd`/`flash`, card present, paused).
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=local_rec_status"
+```
+
+---
+
+### cmd=sd_card_info *(read-only, no CSRF)*
+
+Describes the SD card (via `v3/linux66-sd/sdinfo-sd.sh`): `present`, `id`, `size_mb`, `fs`, `kind`, `mounted`, `free_mb`,
+`prompt`, `health`, `rec_local`, `storage`.
+
+```sh
+curl "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=sd_card_info"
+```
+
+---
+
+### cmd=sd_card_mount / cmd=sd_card_check / cmd=sd_card_repair
+
+`sd_card_mount` mounts a card inserted after boot on `/mnt/sd` (JSON ok, or `SD_MOUNT` when it has boot files or no
+FAT32/exFAT file system). `sd_card_check` and `sd_card_repair` run `scripts/sd-diag.sh check|repair` and return its output.
+CSRF required.
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=sd_card_mount"
+```
+
+---
+
+### cmd=local_rec_eject / cmd=local_rec_resume
+
+Pauses local recording and releases the card so it can be removed (`eject`), or takes it back (`resume`), through
+`scripts/rec-storage.sh`. **Response:** JSON ok, or `REC_STORAGE` with the script's message. CSRF required.
+
+```sh
+curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
+  -H "X-CSRF-Token: <token>" \
+  --data-urlencode "cmd=local_rec_eject"
 ```
 
 ---
@@ -1892,7 +2230,7 @@ Plays audio through the camera speaker (push-to-talk).
 ```sh
 # Record 3 s of PCM and send it to the speaker
 sox -n -r 8000 -c 1 -e signed -b 16 /tmp/ptt.raw synth 3 sine 1000
-curl -k -X POST https://root:pass@192.168.1.50/cgi-bin/upload_audio.cgi \
+curl -X POST http://root:pass@192.168.1.50/cgi-bin/upload_audio.cgi \
   -H "X-CSRF-Token: $TOKEN" \
   --data-binary @/tmp/ptt.raw \
   -H "Content-Type: application/octet-stream"
@@ -2125,9 +2463,8 @@ consuming this API:
   if absent, so a fresh client's first `statusline` poll always yields a usable
   token — no bootstrap lock-out.
 
-- **HTTP keep-alive is 45 s / 500 requests.** Polling clients should reuse the
-  connection: on this CPU a fresh TLS handshake costs up to several seconds,
-  versus ~0.3–1 s for a request on an established connection.
+- **Poll gently.** A CGI request costs about 0.3–1 s on this CPU (each one starts a shell); do not poll
+  faster than once every few seconds. There is no TLS in 3.0, so no handshake cost.
 
 - **MQTT is published by forging packets**, not via a client library. `curl`'s
   `mqtt://` sends SUBSCRIBE rather than PUBLISH on this device, so

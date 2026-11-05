@@ -146,7 +146,30 @@ class MqttBridgeControlStopsTheDaemon(unittest.TestCase):
         start = function('controlscripts/mqtt-bridge', 'start')
         self.assertIn('_mb_pid="$(cat "$MQTTD_PIDFILE" 2>/dev/null)"', start)
         self.assertIn('echo "$_mb_pid" > "$PIDFILE"', start)
-        self.assertLess(start.index('rm -f "$MQTTD_PIDFILE"'), start.index('run_busybox nohup "$BIN"'))
+        self.assertLess(start.index('rm -f "$MQTTD_PIDFILE"'), start.index('nohup "$BIN"'))
+
+    def test_start_leaves_no_shell_parent(self):
+        """The background subshell execs busybox nohup, which execs the daemon: $! is the daemon (P0 #2 of the
+        implementer list, a `sh mqtt-bridge start` of ~200 KB PSS stayed alive as the daemon's parent)."""
+        start = function('controlscripts/mqtt-bridge', 'start')
+        self.assertNotIn('run_busybox nohup', start)
+        d = Path(tempfile.mkdtemp())
+        try:
+            (d / 'bb').write_text('#!/bin/sh\n[ "$1" = nohup ] && shift\nexec "$@"\n')
+            (d / 'daemon').write_text('#!/bin/sh\necho $$ > "$OUT"\nexec sleep 30\n')
+            for f in ('bb', 'daemon'):
+                (d / f).chmod(0o755)
+            code = ('status() { return 1; }\nbridge_impl() { echo c; }\nbridge_enabled_in_config() { return 1; }\n'
+                    f'get_busybox_bin() {{ echo {d}/bb; }}\n' + start +
+                    f'\nexport OUT={d}/out; PIDFILE={d}/pid; MQTTD_PIDFILE={d}/mqttd.pid; BIN={d}/daemon\n'
+                    'start >/dev/null\n')
+            r = sh(code)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            pid = (d / 'pid').read_text().strip()
+            self.assertEqual(pid, (d / 'out').read_text().strip())      # the pid file holds the daemon, no subshell
+            subprocess.run(['kill', pid])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
     def test_stop_kills_every_daemon(self):
         stop = function('controlscripts/mqtt-bridge', 'stop')

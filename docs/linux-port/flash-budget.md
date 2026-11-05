@@ -18,7 +18,7 @@ Flash: 8 MiB SPI NOR (XM25QH64A, 4 KiB sectors). Layout from the stock partition
 | Item | Size |
 |---|---|
 | Test kernel (large config, xz) | 2,368,840 B: **does not fit** the 2 MiB KERNEL region |
-| Root filesystem `v3/build-flash-rootfs66.sh` (OpenIPC base pruned by `v3/rootfs-prune.txt` + V3 web UI, scripts, `tc100_streamer`, `thingino-rtsp-server`; squashfs xz 128 KiB) | 2,646,016 B of 5,976,064 B: **3.3 MB free** |
+| Root filesystem `v3/build-rootfs66.sh` (OpenIPC base pruned by `v3/rootfs-prune.txt` + V3 web UI, scripts, `tc100_streamer`, `thingino-rtsp-server`; squashfs xz 128 KiB) | 2,646,016 B of 5,976,064 B: **3.3 MB free** |
 | Slim kernel (no ext4, IPv6, ftrace, swap, VT, KALLSYMS, namespaces, debugfs; squashfs xz + RAM disk added), `defconfig_cma` | 1,842,992 B zImage: **fits, 248 KB free** (first slim pass, with KALLSYMS: 2,048,344 B, 44 KB free) |
 
 The vendor media libraries (`libakv_encode`, `libmpi_venc`, ...; about 0.85 MB, about 0.35 MB compressed) are not in the image: the V4L2 + free encoder path does not use them.

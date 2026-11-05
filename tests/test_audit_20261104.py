@@ -87,5 +87,78 @@ class RtspInterleavedFrame(unittest.TestCase):
         self.assertIn('if (used > c->blen) { cli_close(c); return; }', body)
 
 
+class SavesOneAtATime(unittest.TestCase):
+    """B5: cfg-persist save takes a lock (a held one is waited for, one left by a dead save is taken over)"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / 'config').mkdir()
+        (self.tmp / 'defaults').mkdir()
+        self.lock = self.tmp / 'lock'
+        self.env = dict(os.environ, CFG=str(self.tmp / 'config'), DEFAULTS=str(self.tmp / 'defaults'),
+                        CFG_STATUS=str(self.tmp / 'status'), CFGP_LOCK=str(self.lock))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def save(self):
+        return subprocess.Popen(SHELL + [str(ROOT / 'v3/linux66-sd/cfg-persist'), 'save'], env=self.env,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def test_waits_for_a_held_lock_then_releases_its_own(self):
+        self.lock.mkdir()
+        (self.lock / 'pid').write_text('%d\n' % os.getpid())                 # a live holder
+        p = self.save()
+        try:
+            self.assertRaises(subprocess.TimeoutExpired, p.wait, 1.5)
+            shutil.rmtree(self.lock)
+            self.assertEqual(p.wait(10), 0)                                     # nothing to save: exit 0
+        finally:
+            if p.poll() is None:
+                p.kill()
+        self.assertFalse(self.lock.exists())
+
+    def test_lock_of_a_dead_save_is_taken_over(self):
+        self.lock.mkdir()
+        dead = subprocess.Popen(['true'])
+        dead.wait()
+        (self.lock / 'pid').write_text('%d\n' % dead.pid)
+        p = self.save()
+        self.assertEqual(p.wait(10), 0)
+        self.assertFalse(self.lock.exists())
+
+
+class UpdateStopsWhatRestarts(unittest.TestCase):
+    """B4, B6: the web update stops the housekeeper (it restarted tc100_rtsp from the stack being erased) and the same
+    services as install66.sh, saves the settings and clears the boot counter first, keeps two backups"""
+
+    def test_order_and_lists(self):
+        s = text('v3/install/update66.sh')
+        body = s[s.index('stopping the services'):s.rindex('for p in stack:stack.sqfs')]
+        order = ['housekeeper.sh stop', 'web-guard\\.sh run',
+                 'for s in recording motion-detection rtsp-h26x mqtt-bridge onvif auto-night-detection',
+                 'cfg-persist flush', 'boot-guard clear', 'mkdir /tmp/cfg-persist.lock', 'cfg-persist daemon',
+                 "sort -r | sed 1d"]
+        pos = [body.index(o) for o in order]
+        self.assertEqual(pos, sorted(pos))
+        self.assertIn('no SD card: the firmware now in the flash is not saved before writing', body)
+        r = subprocess.run(SHELL + ['-n', str(ROOT / 'v3/install/update66.sh')])
+        self.assertEqual(r.returncode, 0)
+
+
+class LanOnlyEverywhere(unittest.TestCase):
+    """W2: NET_LAN_ONLY reaches httpfront (both launch points) and tc100_rtsp through TC100_NET_ALLOW"""
+
+    def test_launchers_pass_the_list(self):
+        self.assertIn('TC100_NET_ALLOW="$(sh -c \'. /mnt/scripts/common_functions.sh; netacl_allow_list\' 2>/dev/null)" '
+                      '/mnt/tc100test/httpfront -p 80', text('v3/autorun-linux66.sh'))
+        self.assertIn('( TC100_NET_ALLOW="$(netacl_allow_list)"; export TC100_NET_ALLOW', text('scripts/common_functions.sh'))
+        launch = text('v3/linux66-sd/rtsp-launch.sh')
+        self.assertLess(launch.index('export TC100_NET_ALLOW'), launch.index('exec /tmp/tc100_rtsp'))
+        hf = text('src/httpfront/httpfront.c')
+        self.assertIn('parse_allow(getenv_(envp, "TC100_NET_ALLOW"));', hf)
+        self.assertIn('if (!allowed(ip)) { sc(SYS_close, c, 0, 0, 0, 0); continue; }', hf)
+
+
 if __name__ == '__main__':
     unittest.main()

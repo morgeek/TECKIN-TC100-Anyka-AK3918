@@ -26,7 +26,7 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
 | H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. 640x360 sub-stream on `video1_unicast` / `ch1` / `sub` (2026-10-26, not yet run on the camera); RTSP over UDP and the audio track not yet checked from a client |
-| V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge, day / night, motion (Home Assistant entities to be confirmed). Gaps (no web login, Wi-Fi from the UI, IR-cut, 2.x pages): [feature audit](feature-audit-2026-10-26.md) |
+| V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge, day / night, motion (Home Assistant entities to be confirmed). Web login (busybox httpd Basic Auth plus a CSRF token) and Wi-Fi from the UI exist. Gaps (IR-cut, 2.x pages): [feature audit](feature-audit-2026-10-26.md) |
 | SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
 | Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
 
@@ -41,7 +41,7 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 - **RTL8188FU over the Anyka USB host:** the firmware download needs 64-byte EP0 writes (`writeN_block_size = 64` for the 8188f) and a few retries in `rtl8xxxu_writeN`. The firmware (`rtlwifi/rtl8188fufw.bin`, 21,020 bytes) is embedded in the kernel.
 - **Sensor pads / I2C:** OR 0x40000710 into SYSCTRL 0x74, 0x01450525 into 0x7c and 0x100 into 0x80 (the 4.4 values); keep 0x78 bits 19-24 clear.
 - **SD card:** with SDXC cards at 50 MHz, `CMD18 -84` (CRC) errors were seen on the OpenIPC 4.4 kernel; capping the clock to 25 MHz is the expected fix (not tried here).
-- **Memory (6.6):** kernel at 0x80008000, initrd at 0x81000000, encoder pool 12 MiB at 0x81800000 (`no-map`; the 1 MiB guard zones at 0x81700000 and 0x82400000 were removed on 2026-10-29: they never caught a write, +2 MiB of RAM), CMA capture pool from `cma=18M` on the command line (about 20 MiB at 0x82c00000; the 28 MiB of the device tree do not fit). The 3D-NR reference frame never fitted at video start; since rc9 `ak39_vi.nr3d=1` reserves it at boot (off by default, test queue R9-01). Encoder pool 9600K by default since rc9 (`ak39_venc.pool`).
+- **Memory (6.6):** kernel at 0x80008000, initrd at 0x81000000, encoder pool 12 MiB at 0x81800000 (a reusable CMA area of its own since patch 15, pool 9600K by default; it was `no-map` before; the 1 MiB guard zones at 0x81700000 and 0x82400000 were removed on 2026-10-29: they never caught a write, +2 MiB of RAM), CMA capture pool from `cma=18M` on the command line (about 20 MiB at 0x82c00000; the 28 MiB of the device tree do not fit). The 3D-NR reference frame never fitted at video start; since rc9 `ak39_vi.nr3d=1` reserves it at boot (off by default, test queue R9-01). Encoder pool 9600K by default since rc9 (`ak39_venc.pool`).
 - **SPI NOR layout (6.6, 8 MiB, 4 KiB erase):** `boot` 0x0 (228 KiB, RO), `kernel` 0x39000 (2 MiB), `mac` 0x239000 (4 KiB, RO), `env` 0x23a000 (4 KiB, RO), `initrd` 0x23b000 (2 MiB), `stack` 0x43b000 (3.7 MiB squashfs), `cfga` 0x7ee000 and `cfgb` 0x7f7000 (36 KiB each, settings). `CONFIG_MTD_SPI_NOR_USE_4K_SECTORS=y` is required, otherwise the unaligned partitions are forced read-only.
 - **Do not trust the first OpenIPC 4.4 report for pin numbers.** It lists IR LED 5, speaker enable 79, sensor reset 49, reset button 10, taken from the generic device tree; the table above is the verified one. The generic Anyka DTS maps `gpiokeys` to GPIO 84: on the TC100 that freezes the boot (IRQ storm), use `initcall_blacklist=gpio_keys_init`.
 
@@ -156,7 +156,7 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 - The generic `r8188eu` driver binds the RTL8188FU but the radio never locks (0 scan results); the dedicated `8188fu` driver (workflow `build-wifi-driver.yml`, `docs/openipc/8188fu.ko.gz`) works on 4.4. On 6.6 the mainline `rtl8xxxu` does it.
 - Audio: ALSA driver `akpcm` registers; speaker amplifier gate on GPIO 14 (the report said 79, see the warning above).
 
-**The SD boot kit** (`contrib/openipc_sd_kit/`, historical, no longer used by the build): `tc100test/oipc.img` (Linux 4.4 uImage), `oipcrd.gz` (musl initramfs, loaded at 0x80900000 so that the ISP's 24 MiB pool at 0x81400000 is not overwritten), `uEnv.txt`, and the tools used over the serial bridge. Its README describes a persistent dual boot written into U-Boot's environment; **for tests the RAM-only loop above is enough and writes nothing**. If you do write the environment, keep the stock `boot_normal` fallback and the SD recovery of the stock U-Boot in mind. No Wi-Fi credentials are in the initramfs: they come from `tc100test/wpa_supplicant.conf` on the card.
+**The SD boot kit** (the `contrib/openipc_sd_kit/` folder is no longer in the tree, see the git history; historical, not used by the build): `tc100test/oipc.img` (Linux 4.4 uImage), `oipcrd.gz` (musl initramfs, loaded at 0x80900000 so that the ISP's 24 MiB pool at 0x81400000 is not overwritten), `uEnv.txt`, and the tools used over the serial bridge. Its README describes a persistent dual boot written into U-Boot's environment; **for tests the RAM-only loop above is enough and writes nothing**. If you do write the environment, keep the stock `boot_normal` fallback and the SD recovery of the stock U-Boot in mind. No Wi-Fi credentials are in the initramfs: they come from `tc100test/wpa_supplicant.conf` on the card.
 
 ## Thingino
 
@@ -186,7 +186,7 @@ On the camera, in this order:
    Home Assistant; ISP colour cast (blue is low); day/night thresholds under IR light.
 
 Also: fill `v3/install/known-stock.txt` with the U-Boot and stock root md5 of the author's dump; check the CI run
-(`tc100-3-release`); smaller flash image (busybox uClibc, guard zones); encoder: `AK39_VI_G_PHYS` instead of a copy
+(`tc100-3-release`); smaller flash image (busybox uClibc); encoder: `AK39_VI_G_PHYS` instead of a copy
 per frame, free H.265 on the hardware.
 
 ## H.265 command list and self-test (2026-10-22)

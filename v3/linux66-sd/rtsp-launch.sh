@@ -85,6 +85,8 @@ if [ "$RTSP_LOG" != /dev/console ]; then
   [ -z "$RTSP_LOGMAX" ] && export RTSP_LOGMAX=131072
   : > "$RTSP_LOG"
 fi
+# boot.conf NET_LAN_ONLY: the server closes connections from outside the allowed networks itself (no packet filter)
+TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)"; export TC100_NET_ALLOW
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
   LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -L /mnt/lib -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \

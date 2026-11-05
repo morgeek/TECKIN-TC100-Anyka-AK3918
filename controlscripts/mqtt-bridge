@@ -52,20 +52,22 @@ start()
   fi
 
   rm -f "$PIDFILE" >/dev/null 2>&1 || true
+  BB="$(get_busybox_bin)"
   if [ "$(bridge_impl)" = c ]; then
     rm -f "$MQTTD_PIDFILE" 2>/dev/null
-    run_busybox nohup "$BIN" </dev/null >/dev/null 2>&1 &
+    # exec in the background subshell: busybox nohup then execs the daemon, so $! is the daemon itself and no
+    # "sh mqtt-bridge start" stays in memory as its parent (~200 KB PSS, tester 2026-11-04). The daemon also writes
+    # its own pid file; PIDFILE takes that pid when it comes, so stop and the watchdog act on the daemon (tester,
+    # 2026-11-04: stop left the daemon running, a second one came up with the same client id).
+    ( exec "$BB" nohup "$BIN" </dev/null >/dev/null 2>&1 ) &
     echo "$!" > "$PIDFILE"
-    # run_busybox() is a shell function: $! is the subshell that runs it, not the daemon. The daemon writes its own pid
-    # file at once; PIDFILE takes that pid, so stop and the watchdog act on the daemon (tester, 2026-11-04: stop left
-    # the daemon running, a second one came up with the same client id and the broker kicked them in turn every 2 s).
     _mb_n=0
     while [ "$_mb_n" -lt 30 ] && [ ! -s "$MQTTD_PIDFILE" ]; do sleep 0.1 2>/dev/null || sleep 1; _mb_n=$((_mb_n + 1)); done
     _mb_pid="$(cat "$MQTTD_PIDFILE" 2>/dev/null)"
     case "$_mb_pid" in ''|*[!0-9]*) ;; *) echo "$_mb_pid" > "$PIDFILE" ;; esac
     echo "MQTT bridge started (tc100-mqttd)"
   else
-    run_busybox nohup /mnt/scripts/mqtt-bridge.sh run </dev/null >/dev/null 2>&1 &
+    ( exec "$BB" nohup /mnt/scripts/mqtt-bridge.sh run </dev/null >/dev/null 2>&1 ) &
     echo "$!" > "$PIDFILE"
     echo "MQTT bridge started"
   fi

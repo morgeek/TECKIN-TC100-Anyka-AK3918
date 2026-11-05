@@ -599,6 +599,54 @@ class InterleavedFrame(Server):
         self.assertIn('m=video', self.describe(c, require=False))
 
 
+class IdleClients(Server):
+    """Audit 2026-11-04 R1: 4 slots; connections that sent nothing (or only failed the password) used to keep them
+    forever over TCP. When full, the client idle the longest that does not play makes room."""
+
+    def test_silent_connections_do_not_lock_out_a_real_client(self):
+        silent = [socket.create_connection(('127.0.0.1', self.PORT), timeout=1) for _ in range(4)]
+        try:
+            time.sleep(2.3)
+            c = self.client()
+            self.assertIn('m=video', self.describe(c, require=False))
+        finally:
+            for s in silent:
+                s.close()
+
+    def test_a_playing_client_is_never_evicted(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        accept = src[src.index('full: the client idle the longest'):]
+        self.assertIn('if (!cl[k].playing && nowt - cl[k].last >= 2', accept[:400])
+        self.assertIn('if (c->authed) c->last = time(NULL);', src)          # a 401 does not count as activity
+
+
+class LanOnly(Server):
+    """Audit 2026-11-04 W2: NET_LAN_ONLY reaches tc100_rtsp through TC100_NET_ALLOW (rtsp-launch.sh)"""
+    env = {'TC100_NET_ALLOW': '203.0.113.0/24 bad/99'}
+
+    def test_loopback_always_allowed_other_addresses_closed(self):
+        c = self.client()
+        self.assertIn('m=video', self.describe(c, require=False))      # 127/8: the recorder and live.cgi
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            u.connect(('192.0.2.1', 9))                                   # no packet: picks the outgoing address
+            me = u.getsockname()[0]
+        except OSError:
+            me = '127.0.0.1'
+        finally:
+            u.close()
+        if me.startswith('127.'):
+            self.skipTest('no address but loopback')
+        s = socket.create_connection((me, self.PORT), timeout=2)
+        s.sendall(b'OPTIONS rtsp://x/ RTSP/1.0\r\nCSeq: 1\r\n\r\n')
+        try:
+            self.assertEqual(s.recv(100), b'')                            # closed at once, no answer
+        except ConnectionResetError:
+            pass
+        finally:
+            s.close()
+
+
 class Backchannel(Server):
     def test_sdp_offers_the_backchannel_only_when_asked_and_allowed(self):
         c = self.client()

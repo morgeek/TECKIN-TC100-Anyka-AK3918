@@ -8,7 +8,7 @@ licence applies to its code. The code of this project itself is under the GPL-2.
 | Project | What we use | Where |
 |---|---|---|
 | [Linux kernel](https://kernel.org) (GPL-2.0) | 6.6 base for the port | `patches/kernel-6.6/` |
-| [OpenIPC](https://openipc.org), `OpenIPC/linux` (GPL-2.0, vendor-derived) | the ISP, camera, USB host and MMC drivers of the 6.6 port derive from its Anyka 4.4 tree, which derives from the vendor's GPL sources; `ipctool` identified the board; the old OpenIPC SD boot kit is kept in `contrib/openipc_sd_kit/` (not used by the build) | `patches/kernel-6.6/series/`, `contrib/openipc_sd_kit/` |
+| [OpenIPC](https://openipc.org), `OpenIPC/linux` (GPL-2.0, vendor-derived) | the ISP, camera, USB host and MMC drivers of the 6.6 port derive from its Anyka 4.4 tree, which derives from the vendor's GPL sources; `ipctool` identified the board; the old OpenIPC SD boot kit (`contrib/openipc_sd_kit/`) was removed from the tree and is in the git history | `patches/kernel-6.6/series/` |
 | [Thingino](https://github.com/themactep/thingino-firmware) | early inspiration for the board-port layout; the `thingino_port/` folder and its prebuilt `thingino-rtsp-server` were removed on 2026-10-27 (f3d846d) and nothing of Thingino is shipped | history only |
 | [Buildroot](https://buildroot.org) (GPL-2.0) and the [Bootlin](https://toolchains.bootlin.com) toolchains | our base root filesystem (BusyBox, dropbear, wpa_supplicant, curl, jq, alsa-utils, musl) | `v3/buildroot/` |
 | Anyka (vendor GPL kernel sources) | origin of the platform code in the OpenIPC tree | via OpenIPC |

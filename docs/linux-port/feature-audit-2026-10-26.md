@@ -104,7 +104,7 @@ Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux
 | Network watchdogs | — | `network-monitor` and `scripts/net-guard.sh` both reboot on network loss; `wifi-client.sh`, `wifi-txt.sh` 2.x only | keep `network-monitor` |
 | Service restarters | busybox hardware watchdog, `health-snapshot`, `service-watchdog.sh` | `memory-guard` restarter overlaps `service-watchdog.sh`; `health-probe.sh` | one restarter, covering `tc100_rtsp` |
 | SD card info | — (nothing writes `/tmp/sd-card` on 6.6) | `sd-card.sh`, `sd-health.sh`, `rec-storage.sh`, `storage-cleanup.sh` 2.x only; `sdinfo-sd.sh` card only | wire `sdinfo-sd.sh` from `action.d/storage.sh` |
-| Flash install / update | `build-slim-stack.sh`, `flashw`, `flashmode-prep.sh`, `cfg-persist` | 6.6 drafts `v3/build-flash-rootfs66.sh`, `v3/flash-update66.sh`; 2.x `flash-install.sh`, `flash-code.sh`, `flash-usr.sh`, `flashboot.sh`, `fw-update.sh`, `usr-update.sh`, `update.cgi`, `flashinstall.cgi` | archive the drafts; keep 2.x files out of the flash image |
+| Flash install / update | `build-slim-stack.sh`, `flashw`, `flashmode-prep.sh`, `cfg-persist` | 6.6 drafts `v3/build-rootfs66.sh`, `v3/flash-update66.sh`; 2.x `flash-install.sh`, `flash-code.sh`, `flash-usr.sh`, `flashboot.sh`, `fw-update.sh`, `usr-update.sh`, `update.cgi`, `flashinstall.cgi` | archive the drafts; keep 2.x files out of the flash image |
 | Config export / import | `configbackup.cgi`, `config_exchange.cgi`, `conf-export/import.cgi`, LKG profiles | four mechanisms | keep `config_exchange.cgi` (+ raw editor) |
 | Web server | `httpfront` + busybox `httpd` | 2.x `lighttpd`, `web-server` script, 4 `lighttpd*.dist`, `www/http-redirect/` shipped but unused | keep out of the flash image; hide `web-server` on the Services page |
 | System info CGIs | `state.cgi` (hub), `dash.cgi`, `stability.cgi` | `sysusageinfo.cgi`, `health.cgi`, `devinfo.cgi`, `diagnostics.html` repeat it | merge into `state.cgi` and the dashboard |
@@ -120,7 +120,7 @@ The squashfs is 3.2 MiB in a 3.7 MiB partition. Shipped but unused on 3.0 (xz si
 
 ### Elsewhere in the repository (not in the flash image)
 
-`contrib/openipc_sd_kit/` (Linux 4.4 kit, superseded by the CI artifacts), `thingino_port/`, `src/tc100_streamer`
+`contrib/openipc_sd_kit/` (Linux 4.4 kit, superseded by the CI artifacts; since removed from the tree), `thingino_port/`, `src/tc100_streamer`
 (identical to `bin/tc100_streamer`), `src/venctest`, `tests/venctrace`: bring-up material, candidates for an
 `_archive_*` folder (renamed, not deleted).
 

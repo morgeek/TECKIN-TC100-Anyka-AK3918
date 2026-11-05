@@ -120,6 +120,16 @@ restore)
   set -- $(best); [ -n "$1" ] || { log "no saved settings (defaults used)"; exit 1; }
   mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && apply_deleted && restore_ssh && log "settings restored from slot $1 (seq $2)" ;;
 save)
+  # one save at a time (audit 2026-11-04 B5: the daemon, flush and boot-guard could write the same slot together, the
+  # newest settings and the boot counter were lost); a lock left by a dead save is taken over; update66.sh keeps it
+  L=${CFGP_LOCK:-/tmp/cfg-persist.lock}; n=0
+  until mkdir "$L" 2>/dev/null; do
+    p=$(cat "$L/pid" 2>/dev/null)
+    if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$L"; continue; fi
+    n=$((n + 1)); [ $n -ge 120 ] && { log "another save holds $L"; exit 5; }
+    sleep 0.5 2>/dev/null || sleep 1
+  done
+  echo $$ > "$L/pid"; trap 'rm -rf "$L"' EXIT
   S=$(signature); T=/tmp/cfgsave.$$; cd "$(dirname $CFG)" || exit 1
   list > $T.list; [ -s $T.list ] || { log "nothing to save"; rm -f $T.*; echo $S > /tmp/cfg-persist.sig; set_status ok "nothing to save"; exit 0; }
   tar cf - -T $T.list | gzip -9 > $T.tgz

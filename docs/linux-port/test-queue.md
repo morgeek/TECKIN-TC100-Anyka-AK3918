@@ -19,6 +19,8 @@ Rules that apply to every entry:
   artifact `tc100-linux66-cma16-kernel` (`oipc.img`, `tc100test/*`, `tc100_rtsp`).
 - Measure with the `STAT` lines of `/tmp/logs/tc100_rtsp.log`, `scripts/cpu-profile.sh 60`, `/proc/meminfo`
   (`MemAvailable`), `/proc/interrupts` (two reads 60 s apart), and look at the picture (snapshot, VLC).
+- Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
+  and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
 ## Tester report to the implementers (2026-10-30, IPCAM2 / .11 on the serial console)
 
@@ -2170,3 +2172,22 @@ Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 /
   4. MQTT : `MQTT_SNAPSHOT_ON_EVENT=1`, redémarrer le pont ; un mouvement → image dans l'entité caméra de Home Assistant et message sur `snapshot/event` ; deux mouvements à moins de 10 s → une seule image.
   5. Sauvegarde : télécharger l'archive (taille de quelques Ko, contient `config/...`), changer un réglage, restaurer l'archive → réglage revenu, réponse « fichier(s) » ; un fichier quelconque renommé en `.tar.gz` est refusé sans rien changer. La flash garde la restauration après un redémarrage (`cfg-persist`).
 - **Critères :** 1-5 conformes ; aucun effet sur le flux vidéo (le fichier `.stat` coûte une écriture en RAM toutes les 5 s).
+
+## 2026-11-05 — Corrections de l'audit du 2026-11-04 : W2, R1, R2, R3, B4, B5, B6, pont MQTT (`[audit-fix]`)
+
+- **Quoi :**
+  - **W2** `NET_LAN_ONLY=1` (défaut) s'applique de nouveau à la page web (`httpfront`) et au RTSP (`tc100_rtsp`) : une connexion hors des réseaux privés / link-local / 100.64/10 / `NET_ALLOW_EXTRA` est fermée sans réponse. La caméra elle-même (127.0.0.1) est toujours admise. ssh n'est pas filtré.
+  - **R2** `httpfront` : 16 connexions au plus, 8 par adresse (au-delà : `503`), connexion muette fermée après 2 s.
+  - **R1** `tc100_rtsp` : connexion sans requête acceptée fermée après 30 s, client qui ne lit pas fermé après 60 s sans requête ; créneaux pleins → le plus ancien inactif qui ne lit pas cède sa place. **R3** gardes (URL vide, TCP/UDP mêlés → 461, OSD borné).
+  - **B4/B6** `update66.sh` arrête aussi le housekeeper, `web-guard`, `rtsp-h26x` ; sauvegarde les réglages (`cfg-persist flush`) et remet le compteur de démarrage à zéro avant d'écrire ; garde les sauvegardes des 2 dernières mises à jour dans `tc100-3/backup`. **B5** verrou sur `cfg-persist save`.
+  - Pont MQTT : plus de `sh mqtt-bridge start` resté en mémoire.
+- **Interrupteur :** W2 : `NET_LAN_ONLY=0` dans `boot.conf` (puis redémarrage) ; le reste : revert du commit.
+- **Test :**
+  1. Depuis le LAN : page web, Frigate et VLC fonctionnent comme avant (Frigate main + sub ensemble, VLC avec mot de passe tapé lentement : < 30 s).
+  2. Depuis une adresse hors liste (un client VPN dont le réseau n.est pas dans `NET_ALLOW_EXTRA`) : connexions web et RTSP fermées ; avec `NET_LAN_ONLY=0` : page de connexion.
+  3. `for i in $(seq 12); do nc <caméra> 80 & done` depuis un PC du LAN : la page web reste accessible depuis un autre PC ; les connexions muettes se ferment après ~2 s (`ps | grep -c httpd` revient à 0).
+  4. 4 connexions muettes `nc <caméra> 554` puis VLC : la vidéo démarre (une connexion muette est évincée) ; Frigate lisant en continu n'est jamais coupé.
+  5. Pont MQTT (shell et C) : `ps` ne montre plus `sh /mnt/controlscripts/mqtt-bridge start` ; `cat /var/run/mqtt-bridge.pid` = pid du démon ; `stop` puis `start` sans doublon.
+  6. Mise à jour web suivante (rc27) : le journal `tc100-3/update66.log` montre les arrêts ; `tc100_rtsp` ne revient pas pendant l'écriture ; après redémarrage les réglages changés juste avant sont là ; `ls tc100-3/backup` : au plus 2 jeux.
+- **Critères :** 1-6 conformes, aucun redémarrage ni perte de flux.
+- **Mesurer la RAM en PSS** (`/proc/<pid>/smaps_rollup`, P0 #6) : le gain du point 5 se lit en PSS (~200 Ko), pas en RSS.

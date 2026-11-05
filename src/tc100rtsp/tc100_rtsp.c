@@ -60,6 +60,8 @@
 #define SW 640		/* sub-stream, stored in the V4L2 buffer after the main picture */
 #define SH 360
 #define MAXCLI 4
+#define CLI_AUTH_S 30		/* a connection with no accepted request is closed after (time to type a password in VLC) */
+#define CLI_IDLE_S 60		/* a client that does not play and sends nothing is closed after */
 #define RTP_PAYLOAD 1400
 #define CACHE_MAX (1536 * 1024)
 #define CACHE_MAX_SUB (384 * 1024)
@@ -325,6 +327,9 @@ static void post_apply(void)
 	if (cfg_get(fn[2], "0", "osdy", v, sizeof v)) p_osdy = atoi_(v);
 	if (cfg_get(fn[2], "0", "osdfontsize", v, sizeof v)) p_osdsz = atoi_(v);
 	if (p_osdsz < 8) p_osdsz = 8;
+	if (p_osdsz > 128) p_osdsz = 128;	/* values from the file are bounded: drawn before the picture otherwise (R3) */
+	p_osdx = p_osdx < 0 ? 0 : p_osdx > 4096 ? 4096 : p_osdx;
+	p_osdy = p_osdy < 0 ? 0 : p_osdy > 4096 ? 4096 : p_osdy;
 	p_hue = p_tune ? p_hue : 0;
 	p_sharp = p_sharp < -50 ? -50 : p_sharp > 50 ? 50 : p_sharp;
 	p_expct = p_expct < 10 || p_expct >= 100 ? 0 : p_expct;
@@ -1440,6 +1445,60 @@ static int auth_ok(const char *req, const char *method, const char *nonce)
 	return 0;
 }
 
+/* ---- allowed networks: TC100_NET_ALLOW="a.b.c.d/n ..." (boot.conf NET_LAN_ONLY, rtsp-launch.sh); empty or missing:
+ * no filter, never a camera its owner cannot reach; 127/8 always (the recorder, live.cgi) ---- */
+#define MAXNET 16
+static uint32_t net_a[MAXNET], net_m[MAXNET];
+static int nnet;
+
+/* "a.b.c.d/n a.b.c.d ..." read by hand: no sscanf (glibc 2.38 headers redirect it to __isoc23_sscanf, which the
+ * camera's uClibc lacks); an unreadable entry is skipped, as libnetacl */
+static void net_init(void)
+{
+	const char *s = getenv("TC100_NET_ALLOW");
+
+	while (s && *s && nnet < MAXNET) {
+		uint32_t a = 0;
+		int ok = 1, bits = 32, i;
+
+		while (*s == ' ') s++;
+		if (!*s) break;
+		for (i = 0; i < 4 && ok; i++) {
+			int v = 0, d = 0;
+
+			while (*s >= '0' && *s <= '9' && d < 4) { v = v * 10 + *s++ - '0'; d++; }
+			if (!d || v > 255) ok = 0;
+			a = a << 8 | (uint32_t)v;
+			if (ok && i < 3) { if (*s == '.') s++; else ok = 0; }
+		}
+		if (ok && *s == '/') {
+			int d = 0;
+
+			s++;
+			bits = 0;
+			while (*s >= '0' && *s <= '9' && d < 3) { bits = bits * 10 + *s++ - '0'; d++; }
+			if (!d || bits > 32) ok = 0;
+		}
+		if (ok && *s && *s != ' ') ok = 0;
+		if (ok) {
+			uint32_t m = bits ? 0xffffffffu << (32 - bits) : 0;
+
+			net_a[nnet] = a & m;
+			net_m[nnet++] = m;
+		}
+		while (*s && *s != ' ') s++;
+	}
+	if (nnet) LOG("rtsp: local networks only (%d allowed)\n", nnet);
+}
+
+static int net_allowed(uint32_t ip)
+{
+	if (!nnet || ip >> 24 == 127) return 1;
+	for (int i = 0; i < nnet; i++)
+		if ((ip & net_m[i]) == net_a[i]) return 1;
+	return 0;
+}
+
 /* ---- RTSP clients ---- */
 struct cli {
 	int fd;
@@ -1460,7 +1519,9 @@ struct cli {
 	char nonce[24];
 	char buf[4096];
 	int blen;
-	time_t last;
+	time_t last;			/* last accepted request (an unauthenticated one does not count) */
+	time_t t_acc;			/* accepted at */
+	int authed;			/* a request passed the password check (or none is set) */
 	unsigned char *q;		/* output queue (non-blocking socket) */
 	int qlen, qpos, qcap;
 	int qhi;			/* most the queue held since qtrim_t */
@@ -2064,7 +2125,6 @@ static void handle(struct cli *c, char *req, int cseq_default)
 	}
 	if (hdr(req, "CSeq", v, sizeof v)) cseq = num(v);
 	if (!getsockname(c->fd, (struct sockaddr *)&me, &ml)) inet_ntop(AF_INET, &me.sin_addr, host, sizeof host);
-	c->last = time(NULL);
 
 	if (au_on && strcmp(m, "OPTIONS") && !auth_ok(req, m, c->nonce)) {
 		char ch[400];
@@ -2074,6 +2134,8 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		reply(c, 401, "Unauthorized", cseq, ch, NULL);
 		return;
 	}
+	if (!au_on || strcmp(m, "OPTIONS")) c->authed = 1;
+	if (c->authed) c->last = time(NULL);
 	if (!strcmp(m, "OPTIONS")) {
 		reply(c, 200, "OK", cseq, "Public: OPTIONS, DESCRIBE, SETUP, PLAY, PAUSE, TEARDOWN, GET_PARAMETER\r\n", NULL);
 	} else if (!strcmp(m, "DESCRIBE")) {
@@ -2085,7 +2147,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		if (!HAVE_PS(s)) { reply(c, 503, "Service Unavailable", cseq, NULL, NULL); return; }
 		if (s->hevc) snprintf(fm, sizeof fm, "%s", s->sprop);
 		else snprintf(fm, sizeof fm, "packetization-mode=1;profile-level-id=%s;sprop-parameter-sets=%s", s->plid, s->sprop);
-		snprintf(base, sizeof base, "Content-Base: %s%s\r\n", url, url[strlen(url) - 1] == '/' ? "" : "/");
+		snprintf(base, sizeof base, "Content-Base: %s%s\r\n", url, url[0] && url[strlen(url) - 1] == '/' ? "" : "/");
 		snprintf(sdp, sizeof sdp,
 			 "v=0\r\no=- 1 1 IN IP4 %s\r\ns=TC100\r\nc=IN IP4 0.0.0.0\r\nt=0 0\r\na=control:*\r\n"
 			 "m=video 0 RTP/AVP 96\r\na=rtpmap:96 %s/90000\r\n"
@@ -2099,6 +2161,11 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		char tr[300];
 
 		if (!hdr(req, "Transport", tr, sizeof tr)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
+		/* video and audio share c->tcp: a second track over the other transport would send the first one wrong (R3) */
+		if ((c->v_set || c->a_ok) && !strstr(url, "track3") && !!strstr(tr, "TCP") != !!c->tcp) {
+			reply(c, 461, "Unsupported Transport", cseq, NULL, NULL);
+			return;
+		}
 		if (!c->described && !c->playing) c->si = S[1].on && url_is_sub(url);	/* SETUP without DESCRIBE */
 		if (!c->sess[0]) snprintf(c->sess, sizeof c->sess, "%08x", (unsigned)(time(NULL) ^ (c - cl) * 7919));
 		if (talk_enabled() && strstr(url, "track3")) {	/* backchannel: sound from the client to the speaker */
@@ -3053,6 +3120,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		setsockopt(udpfd, SOL_SOCKET, SO_SNDBUF, &sb, sizeof sb);
 	}
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
+	net_init();
 	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s %s; sub-stream (/video1, /ch1, /sub) %s %dx%d %d kbit/s %s\n",
 	    port, W, H, fps, kbps, hevc ? "H.265" : "H.264", sub_on ? "on" : "off", SW, SH, sub_kbps, sub_hevc ? "H.265" : "H.264");
 	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d sendmmsg %d; pacing %d us sndbuf %d KB; live direct\n",
@@ -3157,12 +3225,20 @@ unsigned char *fpb[2] = { NULL, NULL };
 			socklen_t pl = sizeof pa;
 			int s = accept(ls, (struct sockaddr *)&pa, &pl);
 
+			if (s >= 0 && !net_allowed(ntohl(pa.sin_addr.s_addr))) { close(s); s = -1; }	/* NET_LAN_ONLY (W2) */
 			if (s >= 0) {
 				for (i = 0; i < MAXCLI && cl[i].fd >= 0; i++) ;
+				if (i == MAXCLI) {	/* full: the client idle the longest that does not play, if one is (R1) */
+					int k, old = -1;
+
+					for (k = 0; k < MAXCLI; k++)
+						if (!cl[k].playing && nowt - cl[k].last >= 2 && (old < 0 || cl[k].last < cl[old].last)) old = k;
+					if (old >= 0) { LOG("rtsp: full, idle client %d closed for a new one\n", old); cli_close(&cl[old]); i = old; }
+				}
 				if (i == MAXCLI) { close(s); }
 				else {
 					memset(&cl[i], 0, sizeof cl[i]);
-					cl[i].fd = s; cl[i].last = time(NULL); cl[i].qprog = time(NULL);
+					cl[i].fd = s; cl[i].last = cl[i].t_acc = time(NULL); cl[i].qprog = time(NULL);
 					cl[i].peer = pa.sin_addr.s_addr;
 					fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK);
 					setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
@@ -3180,6 +3256,9 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (cl[i].fd >= 0) qtrim(&cl[i], nowt);
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &fs)) cli_read(&cl[i]);
 			if (cl[i].fd >= 0 && !cl[i].tcp && time(NULL) - cl[i].last > 90) cli_close(&cl[i]);
+			/* R1: no accepted request 30 s after the connection, or 60 s without one while not playing */
+			if (cl[i].fd >= 0 && !cl[i].authed && time(NULL) - cl[i].t_acc > CLI_AUTH_S) cli_close(&cl[i]);
+			if (cl[i].fd >= 0 && !cl[i].playing && time(NULL) - cl[i].last > CLI_IDLE_S) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
 		}
 		if (nowt != sec_last) {		/* once a second: recorder inputs, arecord reaped */

@@ -32,8 +32,9 @@ REBOOT_SCHEDULE_WEEKDAY=*
 
 # Security hardening mode: FTP and telnet stay off and cannot be started from the web UI.
 SECURITY_HARDENING_MODE=0
-# Network access (src/netacl). The kernel has no packet filter, so the web
-# server, telnet and FTP refuse connections themselves.
+# Network access. The kernel has no packet filter, so the web server
+# (httpfront), the RTSP server, telnet and FTP refuse connections themselves.
+# ssh (dropbear) is not filtered: do not forward port 22 on the router.
 #   NET_LAN_ONLY=1   only the private networks may connect (10/8, 172.16/12,
 #                    192.168/16, link-local, 100.64/10 for Tailscale): a port
 #                    forwarded by the router by mistake is refused at once.

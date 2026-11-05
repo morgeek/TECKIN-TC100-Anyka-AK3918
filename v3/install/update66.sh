@@ -69,11 +69,29 @@ fi
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 say "installing $(cat "$D/VERSION"): stopping the services"
-for s in recording motion-detection mqtt-bridge onvif auto-night-detection; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
+# the same list as install66.sh, and what restarts services (audit 2026-11-04 B4: the housekeeper brought tc100_rtsp
+# back from the stack partition being erased, 2026-10-29; net-guard, one of its jobs, may reboot in the middle)
+sh /mnt/scripts/housekeeper.sh stop >/dev/null 2>&1
+for p in $(ps 2>/dev/null | awk '/web-guard\.sh run/ && !/awk/ { print $1 }'); do kill "$p" 2>/dev/null; done
+for s in recording motion-detection rtsp-h26x mqtt-bridge onvif auto-night-detection; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
 killall tc100_rtsp monvifd 2>/dev/null
+# B6: the settings of the last 30 s and a zero boot counter to the flash slots (cfga/cfgb, not rewritten here), then the
+# settings daemon stops: the lock (cfg-persist save) is taken and kept, so a save under way ends first
+sh /mnt/v3/linux66-sd/cfg-persist flush >/dev/null 2>&1
+sh /mnt/v3/linux66-sd/boot-guard clear >/dev/null 2>&1
+n=0; while ! mkdir /tmp/cfg-persist.lock 2>/dev/null && [ $n -lt 60 ]; do sleep 1; n=$((n + 1)); done
+for p in $(ps 2>/dev/null | awk '/cfg-persist daemon/ && !/awk/ { print $1 }'); do kill "$p" 2>/dev/null; done
 sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 for p in $(pidof watchdog); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null; done	# its keeper must outlive a memory shortage
 BK=; [ -n "$LOG" ] && BK="-b /mnt/sd/tc100-3/backup"
+if [ -n "$BK" ]; then
+	# B6: the backups of the previous update stay (with this one: two), older ones go (about 7 MB each)
+	for p in stack kernel initrd; do
+		ls -1 /mnt/sd/tc100-3/backup/$p-*.bin 2>/dev/null | sort -r | sed 1d | while read -r f; do rm -f "$f"; done
+	done
+else
+	say "no SD card: the firmware now in the flash is not saved before writing"
+fi
 for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
 	f=$D/${p#*:}
 	say "writing ${p%%:*} ($(wc -c < "$f") bytes), do not unplug the camera"

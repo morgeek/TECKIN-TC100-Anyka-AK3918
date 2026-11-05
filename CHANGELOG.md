@@ -34,6 +34,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - The dashboard's Reboot showed "Command sent" and a red error while the camera restarted (a backspace byte in place
   of `\b` in the detection pattern).
+- **Local network only applies again to the web page and RTSP** (`boot.conf` `NET_LAN_ONLY=1`, audit 2026-11-04 W2):
+  since 3.0 the web server (`httpfront`, no C library) and `tc100_rtsp` did not use the 2.x filter library, so a port
+  forwarded by the router by mistake reached the login. Both now close connections from outside the allowed networks
+  themselves (same list: private networks, link-local, 100.64/10, `NET_ALLOW_EXTRA`; the camera itself always). ssh
+  (dropbear) is still not filtered: the kernel has no packet filter.
+- **Web server bounded** (audit R2): at most 16 connections at once and 8 from one address (then "503, retry in 2 s");
+  a connection that sends nothing is closed after 2 s. It was never closed (the wait for the request line blocked), and
+  each one kept a process.
+- **RTSP slots cannot be held by idle connections** (audit R1): the 4 client slots stayed taken by TCP connections that
+  sent nothing or only failed the password. Now: closed 30 s after connecting without an accepted request, 60 s idle
+  without playing; when all 4 are taken, the one idle the longest that does not play makes room. A playing client is
+  never closed this way. Also (R3): an empty URL in DESCRIBE, a session mixing TCP and UDP tracks (refused, 461), and
+  OSD position values from `rtspserver.conf` are bounded.
+- **MQTT bridge: no shell left as the daemon's parent** (`controlscripts/mqtt-bridge start`, ~200 KB PSS): the
+  background subshell execs `nohup`, so the pid file holds the daemon from the start.
+- **Web update** (`update66.sh`, audit B4, B6): it also stops the housekeeper (it restarted `tc100_rtsp` from the
+  partition being erased, seen 2026-10-29) and the video service, saves the settings of the last 30 s and clears the
+  boot counter before writing, and keeps the backups of the last two updates on the card (about 7 MB each, they
+  were never removed). Without a card it says that nothing is saved.
+- **Settings saved one at a time** (`cfg-persist save`, audit B5): two saves together could write the same flash slot
+  and lose the newest settings or the boot counter.
 
 ## [3.0.1-rc26] - 2026-11-04
 

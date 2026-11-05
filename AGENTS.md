@@ -79,7 +79,7 @@ hardware facts, test loop), then `docs/known-issues.md`.
 ## Hardware and kernel facts that cost time
 - **Core PLL must be 480 MHz (SYSCTRL 0x08 = 0x010213f0, ASIC 120 MHz).** At 640 MHz (the 4.4 value) 2 of 4 one-hour H.265 runs
   crashed with corrupted registers; at 480 MHz 6 of 6 runs survived (up to 2 h). `ak_core_pll=<value>` overrides it for tests.
-- Memory map: encoder pool 12 MiB at 0x81800000 (nomap) with 1 MiB guard zones around it, CMA 20 MiB at 0x82c00000
+- Memory map: encoder pool: 12 MiB region at 0x81800000 (reusable CMA area of its own, pool 9600K by default; the 1 MiB guard zones were removed on 2026-10-29), CMA 20 MiB at 0x82c00000
   (`cma=18M` on the command line; the DT value of 28 MiB does not fit). The 3D-NR reference frame never fits, so 3D-NR is off.
 - ISP sub channel: on by default in the kernel (`ak39_vi.sub_channel=0` turns it off; older kernels need `=1` on the
   command line, U-Boot `flashargs`/`flashboot`, `stock-hook.sh`); `tc100_rtsp`

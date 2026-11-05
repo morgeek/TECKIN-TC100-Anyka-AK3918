@@ -389,7 +389,8 @@ http_server(){
   on)
     pidof httpfront >/dev/null 2>&1 && return 0
     if [ -x /mnt/tc100test/httpfront ]; then
-      ( exec /mnt/tc100test/httpfront -p 80 -h /tmp/www ) </dev/null >/dev/null 2>&1 &
+      ( TC100_NET_ALLOW="$(netacl_allow_list)"; export TC100_NET_ALLOW   # NET_LAN_ONLY (src/httpfront)
+        exec /mnt/tc100test/httpfront -p 80 -h /tmp/www ) </dev/null >/dev/null 2>&1 &
     else
       /usr/sbin/httpd -p 80 -h /tmp/www
     fi
@@ -552,9 +553,10 @@ port_listening() {
   return 1
 }
 
-# LAN-only access (src/netacl, lib/libnetacl.so): the kernel has no packet
-# filter, so lighttpd, telnetd, the FTP server and the RTSP servers close a
-# connection from outside the allowed networks themselves.
+# LAN-only access: the kernel has no packet filter, so the programs close a
+# connection from outside the allowed networks themselves: httpfront and
+# tc100_rtsp (TC100_NET_ALLOW in their environment), telnetd and the FTP
+# server (src/netacl, lib/libnetacl.so, uClibc busybox). Not ssh (dropbear).
 #   boot.conf NET_LAN_ONLY=1 (default)  private networks only: 10/8, 172.16/12,
 #             192.168/16, link-local and 100.64/10 (Tailscale, CGNAT)
 #             NET_LAN_ONLY=0            no filter

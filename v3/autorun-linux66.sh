@@ -228,8 +228,9 @@ killall httpd httpfront 2>/dev/null
 [ -s /mnt/config/user.pwd ] || { [ -s /mnt/config/user.pwd.dist ] && cp /mnt/config/user.pwd.dist /mnt/config/user.pwd; }
 sh /mnt/v3/linux66-sd/web-auth
 # the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
+# boot.conf NET_LAN_ONLY: httpfront closes connections from outside the allowed networks itself (no packet filter)
 if [ -x /mnt/tc100test/httpfront ]; then
-  /mnt/tc100test/httpfront -p 80 -h /tmp/www &
+  TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)" /mnt/tc100test/httpfront -p 80 -h /tmp/www &
 else
   /usr/sbin/httpd -p 80 -h /tmp/www
 fi

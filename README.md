@@ -108,7 +108,7 @@ grew from there.
 
 **Privacy**
 - No cloud and no outgoing connection, unless you turn on the GitHub release check (`UPDATE_CHECK=1`). Web login,
-  CSRF protection and only the local network may connect by default.
+  CSRF protection and only the local network may connect by default (web page, RTSP, telnet, FTP; not ssh).
 
 **What 3.0 does not do**: HTTPS on the camera (it serves plain HTTP with a login; put a
 [reverse proxy](#https-with-a-reverse-proxy) in front of it), a VPN, resolution changes (1080p and

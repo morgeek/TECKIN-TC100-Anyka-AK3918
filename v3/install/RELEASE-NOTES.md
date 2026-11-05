@@ -7,14 +7,23 @@ Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 - **The speaker works** (its amplifier was driven the wrong way round), and the camera's sounds no longer clip.
 - **Night picture** from the sensor tuning's own night settings, **10 fps in low light** by day, anti-flicker
   (50 / 60 Hz, the camera default shown), the IR-cut pulsed as the stock firmware does.
-- **Wi-Fi recovers by itself** when the chip fails to start after a reboot; Wi-Fi regulatory domain and country selection in Settings; settings changed just before a reboot are kept; the video server restarts by itself if it stops.
-- **Native mDNS local discovery** enabled out of the box (`<hostname>.local`).
-- **Native MQTT bridge in C** (`tc100-mqttd`) available as a lightweight alternative to shell loops.
+- **Wi-Fi recovers by itself** when the chip fails to start after a reboot; Wi-Fi regulatory domain: pick your country in Settings → Network ("Country (Wi-Fi rules)", `WIFI_COUNTRY` in `boot.conf`), applied at once without reconnecting; settings changed just before a reboot are kept; the video server restarts by itself if it stops.
+- **Native mDNS local discovery** (`tc100-mdnsd`) enabled out of the box (`<hostname>.local`).
+- **Native MQTT bridge in C** (`tc100-mqttd`), a lightweight alternative to the shell bridge: **off by default**, set `MQTT_BRIDGE_IMPL=c` in `config/mqtt.conf` and restart the MQTT bridge service.
 - **Fluid live video preview** powered by native MediaSource fMP4 across all dashboard and settings views.
 - Plain HTTP on port 80 only (external TLS delegated cleanly to a reverse proxy).
 - About 21 MB of free memory (was 10 MB in the first 3.0 builds), the clock and privacy masks drawn by the image
   processor, a 640x360 sub-stream from its own scaler.
 - Bit rate mode (constant / variable), the stock firmware's day / night method as an option, IR LED protection.
+- **Hardware test page** (Tools → Hardware test): the camera drawn from the front and the back, each part (lens, LEDs,
+  IR-cut, microphone, speaker, microSD card, reset button) tested in one click.
+- **Chime, alert and siren buttons** on the dashboard, next to Listen / Talk.
+- **Full backup of the camera** (Backup page): every changed setting, secrets and ssh keys included, in one `.tar.gz`,
+  and its restore.
+- **Picture on events over MQTT** (`MQTT_SNAPSHOT_ON_EVENT=1` in `mqtt.conf`, off by default): a fresh JPEG goes to the
+  broker on motion, sound or tamper (Home Assistant camera entity).
+- **Prometheus metrics** at `http://<camera>/metrics` (video server rates, clients, microSD card, version).
+- Web pages load their scripts and styles with a content stamp, so a browser takes the new files at once after an update.
 
 ## Install (copy to a card, power on)
 
