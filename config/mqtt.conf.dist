@@ -21,7 +21,9 @@ MQTT_QOS=0
 # Which program talks to the broker: shell = scripts/mqtt-bridge.sh run (four shell processes, ~5.7 MB),
 # c = tc100-mqttd (one small process, src/mqttd). Same topics, same payloads, same commands; takes effect at the
 # next start of the MQTT bridge service. Falls back to shell when the binary is not installed.
-MQTT_BRIDGE_IMPL=shell
+# MQTT_BRIDGE_IMPL: "c" runs the lightweight C daemon (tc100-mqttd, VmRSS ~428 KB,
+# one TCP connection), recommended. "shell" runs the legacy ash bridge.
+MQTT_BRIDGE_IMPL=c
 
 # Runtime behavior
 # Health publish cadence. Higher values reduce CPU/network load.
