@@ -17,7 +17,7 @@ rc=0
 run_tests() {
 	echo "== tests (python + node, busybox ash)"
 	docker run --rm -v "$SRC:/src:ro" node:22-bookworm sh -c '
-		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk mawk >/dev/null 2>&1
+		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk mawk original-awk >/dev/null 2>&1
 		cp -r /src /w && cd /w && git config --global --add safe.directory /w
 		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
 		# make would run them instead of building the current code

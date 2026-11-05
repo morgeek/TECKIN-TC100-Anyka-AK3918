@@ -950,7 +950,7 @@ class JsonFlat(unittest.TestCase):
     """scripts/jsonflat.awk replaces jq on the flash firmware."""
     AWK = ROOT / 'scripts/jsonflat.awk'
     # the camera runs busybox awk; the others must agree (audit D1: a gawk-only pass proved nothing)
-    AWKS = [a for a in (['busybox', 'awk'], ['mawk'], ['gawk'], ['awk'])
+    AWKS = [a for a in (['busybox', 'awk'], ['mawk'], ['gawk'], ['original-awk'], ['awk'])
             if shutil.which(a[0]) and (a[0] != 'busybox' or subprocess.run(a + ['BEGIN{}'], capture_output=True).returncode == 0)]
 
     def flat(self, text, *args, awk=('awk',)):
@@ -1659,15 +1659,20 @@ class CameraPanel(unittest.TestCase):
             env = dict(os.environ, REQUEST_METHOD='GET', QUERY_STRING='', SCRIPT_HOME=str(ROOT / 'controlscripts'),
                        AUTOSTART_DIR=str(d))
             html = subprocess.run(['sh', '-c', src], capture_output=True, env=env, timeout=30).stdout.decode()
-            rows = re.findall(r"<tr data-script-name='([^']+)'", html)
+            rows = re.findall(r"<div class='svc-card' data-script-name='([^']+)'", html)
+            self.assertIn('rtsp-h26x', rows)
             for hidden in ('night-mode', 'ir-led', 'ir-cut', 'black-white', 'front-led', 'red-led', 'auto-night-detection'):
                 self.assertNotIn(hidden, rows)
-            system = html.split("data-group='system'")[1].split("data-group='features'")[0]
-            self.assertIn("data-script-name='rtsp-h26x'", system)
-            self.assertIn("data-script-name='mqtt-bridge'", system)
+            # item 46: three themed cards (core, network and access, integrations)
+            group = lambda g: html.split("data-group='%s'" % g)[1].split('</section>')[0]
+            self.assertIn("data-script-name='rtsp-h26x'", group('core'))
+            self.assertIn("data-script-name='web-server'", group('core'))
+            self.assertIn("data-script-name='ssh-server'", group('access'))
+            self.assertIn("data-script-name='mqtt-bridge'", group('integrations'))
             # ONVIF and the rescue access point have no other switch: they stay in Services
-            self.assertIn("data-script-name='onvif'", system)
-            self.assertIn("data-script-name='wifi-rescue'", system)
+            self.assertIn("data-script-name='onvif'", group('integrations'))
+            self.assertIn("data-script-name='wifi-rescue'", group('access'))
+            self.assertEqual(html.count('<section'), html.count('</section>'))
             for feature in ('motion-detection', 'sound-detection', 'telegram-bot'):
                 self.assertNotIn(feature, rows)   # switched in their Settings tab
             self.assertNotIn('Camera Controls', html)
