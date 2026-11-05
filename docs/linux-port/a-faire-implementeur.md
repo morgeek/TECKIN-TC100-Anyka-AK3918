@@ -400,6 +400,17 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
     - **Capture audio ALSA directe dans `tc100_rtsp` (#11)** : Éliminer le sous-processus `arecord` et le pipe Unix associé au profit d'un `snd_pcm_read` direct dans le serveur RTSP. Gain : **~660 Ko PSS** économisés, zéro fork, élimination des sauts de contexte noyau.
     - **Micro-démon superviseur unifié C (`tc100-supervisord`) (#52)** : Remplacer les boucles shell résidentes (`button-watch.sh`, `auto-night-daemon.sh`, surveillance `housekeeper`) par un seul processus C compact avec `poll()`. Gain : **~1 à 1,5 Mo de RAM PSS** récupérée et fin des forks cycliques (`read`, `cat /proc/uptime`).
 
+56. [ ] **Optimisations avancées RAM/CPU & comportement de secours (avis propriétaire 2026-11-05)** :
+    - **1. Capture ALSA directe dans `tc100_rtsp`** : *Accord propriétaire*. Déjà pré-câblé dans `src/tc100rtsp/acap.c` (`RTSP_ALSA_DIRECT=1`, voir #11) ; à valider et passer par défaut une fois testé sans régression sonore.
+    - **2. Détection de mouvement matérielle VPU / P-frame stats** : *Rapprochement avec l'existant*. Le propriétaire note à juste titre que c'était déjà proposé (#19 `[md-enc]`, `RTSP_MD_ENC=1`) : l'implémentation existante analyse les écarts de taille de trames P encodées (VPU) plutôt que du CPU pixel diff. À coordonner avec l'évaluation d'un seuil adaptatif VBR et l'essai `[md-enc]`.
+    - **3. Gestion getty / console série et filet de sécurité anti-crash (Safe-Mode)** :
+      - *Mise en garde du propriétaire* : en cas de plantage ou de problème, perdre la console UART physique est inacceptable.
+      - *Architecture retenue* : `CONSOLE_SPAWN=1` reste actif par défaut. Si l'utilisateur choisit explicitement `CONSOLE_SPAWN=0` (pour économiser ~90 Ko PSS en production), **`boot-guard` doit obligatoirement forcer le réveil de getty** dès qu'un problème survient (flag `/tmp/safemode` levé après 3 reboots courts ou panique watchdog), garantissant ainsi un accès de secours physique par le port série sous toutes circonstances.
+    - **4. Réglages noyau de pression cache VFS (`vfs_cache_pressure` / `dirty_ratio`)** : *Accord propriétaire car sans risque*.
+      - Configuration dans `autorun-linux66.sh` : `sysctl -w vm.vfs_cache_pressure=150` (recycle agressivement les dentries/inodes en RAM basse) et `sysctl -w vm.dirty_background_ratio=5` / `sysctl -w vm.dirty_ratio=10`.
+      - Zéro risque de perte de données : les écritures sur SD sont flushées plus tôt en arrière-plan sans bloquer les allocations vidéo.
+    - **5. Smart Bitrate / Smart GOP sur VPU AK3918** : *Accord propriétaire*. Activer via `libmpi_venc_ex.so` / `libakuio` (`ak_venc_set_smart_config`) pour diviser le débit par 2 à 3 sur scènes nocturnes ou immobiles sans impact CPU.
+
 ## Hors implémenteur (propriétaire)
 
 - Accord pour archiver ~50 notes anciennes du projet claude.ai et `_archive_v3-drafts/`.
