@@ -24,7 +24,7 @@ run_tests() {
 		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/mqttd/tc100-mqttd-host
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
-		node --test tests/frontend.test.js tests/settings-save.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
+		node --test tests/frontend.test.js tests/settings-save.test.js tests/records-timeline.test.js $(ls tests/live-video.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
 		# as an ordinary user, like the GitHub runner: root reads through missing permission bits (a restore test
 		# passed here and failed there for a week)
 		chown -R node /w

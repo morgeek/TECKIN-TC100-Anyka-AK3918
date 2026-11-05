@@ -25,9 +25,10 @@
  * and its parent is on the card, it is created. Free space: before each file and every minute the oldest recordings
  * (YYYY-MM-DD_HH-MM-SS.mp4 and its .jpg) are deleted until reserve_mb are free; below half of that the recorder
  * waits ("full"). <status>.pause (scripts/rec-storage.sh eject) closes the file and leaves the card alone.
- * Events (item 15 of the implementer list): a file during which motion or a sound event was detected gets an empty
- * YYYY-MM-DD_HH-MM-SS.evt next to it. With keep_events (REC_KEEP_EVENTS=1) the oldest recording WITHOUT an event goes
- * first; the event clips go only when nothing else is left (the 512 newest markers are honoured).
+ * Events (item 15 of the implementer list): a file during which motion or a sound event was detected gets a
+ * YYYY-MM-DD_HH-MM-SS.evt next to it (the event times inside it: mark_event). With keep_events (REC_KEEP_EVENTS=1)
+ * the oldest recording WITHOUT an event goes first; the event clips go only when nothing else is left (the 512 newest
+ * markers are honoured).
  *
  * Status file (<status>, every 10 s and on each change), keys as on 2.x:
  *   mode= rtsp_client= state=off|standby|waiting|recording|paused|no-card|full|error|bad-sps file= files= bytes=
@@ -220,7 +221,7 @@ static struct {
 	unsigned long long asamples;
 	unsigned long long bytes, files, thumbs;
 	char state[16];
-	int state_dirty, want, watched, evt_done;
+	int state_dirty, want, watched, evt_on, evt_lines;
 	uint64_t last_watched, watch_since, last_motion;
 	uint64_t last_status, last_space, retry_at, next_card, next_pause;
 	unsigned seen_seq;
@@ -364,18 +365,28 @@ int rec_test_delete(const char *dir, int keep_events)	/* the deletion order alon
 }
 #endif
 
-/* motion or a sound event during the open file: its marker (once per file) */
-static void mark_event(void)
+/* motion or a sound event during the open file: its marker, YYYY-MM-DD_HH-MM-SS.evt, one line per change, "on S" or
+ * "off S", S = seconds of the last picture written from the file's first one, i.e. the player's currentTime (item 36:
+ * the recordings timeline of the web page draws the event spans from it, the camera computes nothing). An "on"
+ * without "off" lasts to the end of the file. At most EVT_LINES lines per file; the marker exists from the first "on"
+ * (retention, REC_KEEP_EVENTS) */
+#define EVT_LINES 64
+static void mark_event(int on, uint64_t ts)
 {
-	char p[200];
+	char p[200], l[24];
 	size_t n = strlen(W.path);
-	int fd;
+	unsigned long off = ts > W.file_t0 ? (unsigned long)((ts - W.file_t0) / 1000000ULL) : 0;
+	int fd, k;
 
-	W.evt_done = 1;
-	if (n < 4 || n >= sizeof p) return;
+	W.evt_on = on;
+	if (n < 4 || n >= sizeof p || W.evt_lines >= EVT_LINES) return;
 	memcpy(p, W.path, n + 1);
 	memcpy(p + n - 3, "evt", 3);
-	if ((fd = open(p, O_WRONLY | O_CREAT, 0644)) >= 0) close(fd);
+	k = snprintf(l, sizeof l, "%s %lu\n", on ? "on" : "off", off);
+	if ((fd = open(p, O_WRONLY | O_CREAT | O_APPEND, 0644)) >= 0) {
+		if (k > 0 && write(fd, l, (size_t)k) == k) W.evt_lines++;
+		close(fd);
+	}
 }
 
 static void make_room(void)
@@ -525,7 +536,7 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 	}
 	W.bytes += b.n;
 	free(b.p);
-	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.seq = 0; W.evt_done = 0;
+	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.seq = 0; W.evt_on = 0; W.evt_lines = 0;
 	W.a_ok = W.a_resync = 0; W.a_pos = W.a_tfdt = 0;
 	frag_reset();
 	W.psn[0] = vps ? vps->n : 0; if (vps) memcpy(W.ps[0], vps->p, vps->n);
@@ -816,7 +827,7 @@ static void *writer(void *arg)
 			}
 			usleep(40000);
 		}
-		if (W.fd >= 0 && r_motion && !W.evt_done) mark_event();
+		if (W.fd >= 0 && !r_motion != !W.evt_on) mark_event(!!r_motion, W.last_ts);
 		if (W.fd >= 0 && now - W.last_space >= 60000000ULL) {
 			W.last_space = now;
 			make_room();

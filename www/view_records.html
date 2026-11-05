@@ -118,15 +118,18 @@
       <progress id="disk_usage_bar" class="progress is-info" value="0" max="100" style="margin-bottom:0.15rem;height:0.6rem;"></progress>
       <p id="disk_usage_label" style="font-size:0.8em;color:#555;"></p>
     </div>
-    <!-- 24h Visual Timeline -->
+    <!-- the day's timeline (item 36): drawn by view_records.bundle.min.js from viewrecords.cgi?cmd=day_index -->
     <div id="timeline24_card" class="card status_card mb-3" style="margin-top:0.75rem; padding:0.6rem;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
-        <span class="is-size-7" style="font-weight:bold;">Frise 24 h</span>
-        <span id="timeline24_hint" class="is-size-7" style="color:#777;">00:00 - 23:59</span>
+      <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.35rem;">
+        <span class="is-size-7" style="font-weight:bold;">Timeline</span>
+        <span id="timeline24_hint" class="is-size-7" style="color:#777; flex:1; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">00:00 - 24:00</span>
+        <select id="timeline24_zoom" class="is-size-7" aria-label="Zoom"><option value="86400">24 h</option><option value="14400">4 h</option><option value="3600">1 h</option><option value="900">15 min</option><option value="300">5 min</option></select>
       </div>
-      <div id="timeline24_bar" style="position:relative; width:100%; height:20px; background:#e2e8f0; border-radius:4px; overflow:hidden;" title="Plages enregistrées"></div>
-      <div style="display:flex; justify-content:space-between; font-size:0.68rem; color:#888; margin-top:2px;">
-        <span>00h</span><span>04h</span><span>08h</span><span>12h</span><span>16h</span><span>20h</span><span>24h</span>
+      <canvas id="timeline24_canvas" tabindex="0" role="slider" aria-label="Recordings of the day: click or drag to play from that time" style="display:block; width:100%; height:44px; cursor:pointer; touch-action:pan-y;"></canvas>
+      <div class="is-size-7" style="display:flex; flex-wrap:wrap; gap:0.25rem 0.75rem; color:#888; margin-top:2px;">
+        <span><i style="display:inline-block; width:10px; height:8px; background:var(--v2-accent,#4f46e5); opacity:0.55;"></i> Recorded</span>
+        <span><i style="display:inline-block; width:10px; height:8px; background:var(--v2-tally,#dc3b3b);"></i> Event</span>
+        <span><i style="display:inline-block; width:10px; height:8px; background:var(--v2-warn,#c2780e);"></i> Event, time not kept</span>
       </div>
     </div>
     <div class="records-actions">
@@ -155,4 +158,4 @@
   </div>
 </div>
 
-<script src="scripts/view_records.bundle.min.js?v=88d1be02" type="text/javascript"></script>
+<script src="scripts/view_records.bundle.min.js?v=9280eb4e" type="text/javascript"></script>

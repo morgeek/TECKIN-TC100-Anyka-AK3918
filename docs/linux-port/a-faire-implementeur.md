@@ -274,7 +274,7 @@ voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 35. [ ] **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
     - Protocole WHEP (WebRTC HTTP Egress Protocol) pour streaming direct vers les navigateurs sans serveur intermédiaire (Go2RTC/MediaMTX).
     - Exploitation directe des paquets RTP H.264/H.265 et audio PCMA déjà packagés en interne, avec latence inférieure à 150 ms dans le WebUI.
-36. [ ] **Frise chronologique interactive dans le WebUI (Timeline & Replay scrubbing)** :
+36. [x] *(2026-11-05 : fait, entrée `[rec-timeline]` ; un seul type d'événement (mouvement ou son, l'entrée du recorder est combinée), pas de vignettes au survol)* **Frise chronologique interactive dans le WebUI (Timeline & Replay scrubbing)** :
     - Interface temporelle fluide HTML5/Canvas pour naviguer dans les enregistrements sur carte SD sur 24 heures.
     - Représentation visuelle des blocs d'enregistrement continu et surlignage coloré des événements marquants (mouvements, bruits VOX, sabotages).
     - Clic ou scrub sur la frise pour charger instantanément le lecteur vidéo MP4 à la seconde exacte sans recharger la page.

@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Recordings timeline** (Recordings page, item 36): the day drawn in the browser from one small index
+  (`viewrecords.cgi?cmd=day_index`: start, length and event spans of each file), each file at its real length, the
+  motion and sound event spans in red, the playhead, zoom (24 h to 5 min, double-click); a click or a drag plays from
+  that second (the same file is sought without reloading), the arrow keys step 10 s (Shift: 1 min). The recorder now
+  writes the event times into the `.evt` marker (`on S` / `off S`); markers of older versions show the whole file in
+  amber. A click on a motion event in the list now opens its day (the date format did not match) at its time.
 - **Hardware test page** (Tools → Hardware test, `www/hardware.html`): the camera drawn from the front and the back;
   a click on a part tests it with the existing commands: picture and image processor values (lens), blue and red LEDs
   (on, off, blink), IR LEDs and IR-cut filter, microphone level meter, speaker chime, microSD card details, reset

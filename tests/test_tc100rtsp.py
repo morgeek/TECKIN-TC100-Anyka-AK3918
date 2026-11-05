@@ -268,6 +268,10 @@ class Retention(unittest.TestCase):
             mp4 = sorted(p.stem for p in d.glob('*.mp4'))
             self.assertEqual(len(mp4), 3)
             self.assertEqual(sorted(p.stem for p in d.glob('*.evt')), mp4)
+            # item 36: the times of the event inside the file, for the web page's timeline (motion all along: "on 0"
+            # at the first picture of each file, no "off")
+            for p in d.glob('*.evt'):
+                self.assertEqual(p.read_text(), 'on 0\n', p.name)
 
 
 class Recorder(unittest.TestCase):

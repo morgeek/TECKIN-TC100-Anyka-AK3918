@@ -30,6 +30,59 @@ rec_files() {
   done | sort -r
 }
 
+# Item 36, the day's index for the recordings timeline (the page draws it; here one stat, one date and one awk):
+#   {"seg":S,"files":[{"t":"HH-MM-SS","x":"mp4","d":D,"kb":K,"e":[on,off,...]},...]}
+# t = start (local time, from the name), d = seconds until the file's last write (its mtime; -1 when that does not
+# fit: clock or time zone changed, file still open long ago), e = event spans in seconds from the file start, from
+# the recorder's .evt marker ("on S" / "off S" lines; -1 = until the end of the file; [] = an old empty marker; no
+# "e" = no event), seg = REC_SEGMENT_SEC.
+rec_day_index() {
+  ( cd "$DCIM_FOLDER" 2>/dev/null || { echo '{"seg":300,"files":[]}'; exit 0; }
+    _now=$(date '+%s %H %M %S')
+    stat -c '%n %Y %s' "$1"_??-??-??.* 2>/dev/null | awk -v now="$_now" -v conf=/mnt/config/boot.conf '
+      BEGIN {
+        seg = 300
+        while ((getline l < conf) > 0) if (l ~ /^REC_SEGMENT_SEC=[0-9]+/) { sub(/^REC_SEGMENT_SEC=/, "", l); seg = l + 0 }
+        close(conf)
+        if (seg < 10) seg = 300
+        split(now, n, " "); off = (n[2] * 3600 + n[3] * 60 + n[4]) - (n[1] % 86400)
+        if (off > 50400) off -= 86400; if (off < -50400) off += 86400
+      }
+      {
+        name = $1; base = substr(name, 1, 19); x = substr(name, 21)
+        if (length(name) < 23 || substr(name, 20, 1) != ".") next
+        if (x == "evt") { evt[base] = name; evs[base] = $3; next }
+        if (x != "mp4" && x != "mkv") next
+        t = substr(base, 12, 8); st = substr(t, 1, 2) * 3600 + substr(t, 4, 2) * 60 + substr(t, 7, 2)
+        end = ($2 + off) % 86400; if (end < 0) end += 86400; if (end < st) end += 86400
+        d = end - st; if (d < 0 || d > seg + 120) d = -1
+        nf++; fb[nf] = base; ft[nf] = t; fx[nf] = x; fd[nf] = d; fk[nf] = int(($3 + 1023) / 1024)
+      }
+      END {
+        printf "{\"seg\":%d,\"files\":[", seg
+        for (i = 1; i <= nf; i++) {
+          printf "%s{\"t\":\"%s\",\"x\":\"%s\",\"d\":%d,\"kb\":%d", (i > 1 ? "," : ""), ft[i], fx[i], fd[i], fk[i]
+          b = fb[i]
+          if (b in evt) {
+            e = ""; on = -2; c = 0
+            if (evs[b] > 0) {
+              while ((getline l < evt[b]) > 0 && c < 64) {
+                c++
+                if (split(l, w, " ") != 2 || w[2] !~ /^[0-9]+$/) continue
+                if (w[1] == "on" && on < -1) on = w[2] + 0
+                else if (w[1] == "off" && on > -2) { e = e (e == "" ? "" : ",") on "," (w[2] + 0); on = -2 }
+              }
+              close(evt[b])
+            }
+            if (on > -2) e = e (e == "" ? "" : ",") on ",-1"
+            printf ",\"e\":[%s]", e
+          }
+          printf "}"
+        }
+        printf "]}\n"
+      }' )
+}
+
 sanitize_record_name() {
   # Strip path components and allow only safe filename characters
   _rn="${1##*/}"
@@ -83,6 +136,14 @@ if [ -n "$F_cmd" ]; then
         sep=","
       done
       echo "]"
+    ;;
+
+    day_index)
+      dateVal="${F_date##*/}"
+      case "$dateVal" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) rec_day_index "$dateVal" ;;
+        *) echo '{"seg":300,"files":[]}' ;;
+      esac
     ;;
 
     list_records)
