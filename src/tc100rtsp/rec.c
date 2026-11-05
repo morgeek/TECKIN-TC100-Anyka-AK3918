@@ -54,6 +54,7 @@
 
 #include "rec.h"
 #include "mp4box.h"
+#include "aacenc.h"
 
 #define RLOG(...) do { char _b[300]; int _n = snprintf(_b, sizeof _b, "rec: " __VA_ARGS__); \
 	_n = _n > (int)sizeof _b - 1 ? (int)sizeof _b - 1 : _n; if (_n > 0) (void)!write(2, _b, _n); } while (0)
@@ -213,12 +214,14 @@ static struct {
 	uint32_t seq;					/* fragment number */
 	struct sample s[FRAG_MAX_SAMPLES]; int ns;	/* the fragment being filled */
 	struct buf data;				/* its samples */
-	int audio;					/* the open file has the A-law track */
+	int audio;					/* the open file has an audio track: 0 none, MP4_A_ALAW, MP4_A_AAC */
 	int a_ok, a_resync, na;				/* audio anchored in this file; samples (chunks) of the fragment */
 	uint16_t asz[A_MAX];				/* their sizes (= durations, 8 kHz) */
 	struct buf adata;				/* their bytes */
 	uint64_t a_pos, a_tfdt;				/* audio samples since the file start: end of the last one, start of the fragment */
 	unsigned long long asamples;
+	uint64_t a_base, a_fidx;			/* AAC: timeline start of this run (media ticks) and the frames it produced */
+	int a_skip;					/* AAC: samples still to drop at the start of a run */
 	unsigned long long bytes, files, thumbs;
 	char state[16];
 	int state_dirty, want, watched, evt_on, evt_lines;
@@ -226,6 +229,8 @@ static struct {
 	uint64_t last_status, last_space, retry_at, next_card, next_pause;
 	unsigned seen_seq;
 } W = { .fd = -1 };
+
+static struct aacenc A;				/* the encoder of the open file (about 22 KB, the writer is one thread) */
 
 static void set_state(const char *s)
 {
@@ -469,7 +474,7 @@ static void flush_frag(uint64_t next_ts)
 		a = mp4_fbox(&m, "tfdt", 1, 0); mp4_b64(&m, W.a_tfdt); mp4_end(&m, a);
 		a = mp4_fbox(&m, "trun", 0, 0x000301); mp4_b32(&m, (uint32_t)na);
 		atrun_off = m.n; mp4_b32(&m, 0);
-		for (i = 0; i < na; i++) { mp4_b32(&m, W.asz[i]); mp4_b32(&m, W.asz[i]); }
+		for (i = 0; i < na; i++) { mp4_b32(&m, W.audio == MP4_A_AAC ? (uint32_t)AAC_FRAME : W.asz[i]); mp4_b32(&m, W.asz[i]); }
 		mp4_end(&m, a); mp4_end(&m, traf);
 	}
 	mp4_end(&m, moof);
@@ -526,7 +531,8 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 		if (W.fd >= 0 || errno != EEXIST) break;
 	}
 	if (W.fd < 0) return -1;
-	W.audio = C.audio;
+	W.audio = C.audio ? (C.aac ? MP4_A_AAC : MP4_A_ALAW) : 0;
+	if (W.audio == MP4_A_AAC) aacenc_init(&A, (unsigned)(C.aac_bps > 0 ? C.aac_bps : 24000));
 	mp4_init_segment(&b, W.codec, &W.vi, vps, sps, pps, W.audio);
 	if (b.err || write_all(W.fd, b.p, b.n) != 0) {
 		int e = errno;
@@ -537,7 +543,7 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 	W.bytes += b.n;
 	free(b.p);
 	W.file_t0 = ts; W.file_key_ts = key_ts; W.last_sync = ts; W.files++; W.thumb_done = 0; W.seq = 0; W.evt_on = 0; W.evt_lines = 0;
-	W.a_ok = W.a_resync = 0; W.a_pos = W.a_tfdt = 0;
+	W.a_ok = W.a_resync = 0; W.a_pos = W.a_tfdt = 0; W.a_base = W.a_fidx = 0; W.a_skip = 0;
 	frag_reset();
 	W.psn[0] = vps ? vps->n : 0; if (vps) memcpy(W.ps[0], vps->p, vps->n);
 	W.psn[1] = sps->n; memcpy(W.ps[1], sps->p, sps->n);
@@ -577,17 +583,49 @@ static void append_sample(const struct nal *u, int n, int key, uint64_t ts)
  * is filled with A-law silence, a long one starts the track again at the right time. */
 static void audio_discard(void) { W.na = 0; W.adata.n = 0; W.adata.err = 0; }
 
-static void put_audio(const unsigned char *d, uint32_t n)
+/* one finished access unit (AAC) or chunk (A-law) of the fragment being filled */
+static int put_unit(const unsigned char *d, uint32_t n)
 {
 	if (W.na >= A_MAX) {
 		if (W.ns) flush_frag(0); else audio_discard();
-		if (W.fd < 0) return;
+		if (W.fd < 0) return -1;
 	}
-	if (!W.na) W.a_tfdt = W.a_pos;
+	if (!W.na) W.a_tfdt = W.audio == MP4_A_AAC ? W.a_base + W.a_fidx * AAC_FRAME : W.a_pos;
 	mp4_b_put(&W.adata, d, n);
-	if (W.adata.err) { audio_discard(); return; }
+	if (W.adata.err) { audio_discard(); return -1; }
 	W.asz[W.na++] = (uint16_t)n;
-	W.a_pos += n; W.asamples += n;
+	return 0;
+}
+
+/* the AAC run restarts at sample position pos (file start or after a hole): the decoder needs one frame of lead (the MDCT
+ * overlap), so the first access unit is stamped 1024 ticks before the picture time of its first sample; at the very start
+ * of a file, where that would be before time 0, the first samples are dropped instead */
+static void aac_run(uint64_t pos)
+{
+	aacenc_reset(&A);
+	W.a_fidx = 0;
+	if (pos >= AAC_FRAME) { W.a_base = pos - AAC_FRAME; W.a_skip = 0; }
+	else { W.a_base = 0; W.a_skip = AAC_FRAME - (int)pos; }
+}
+
+static void put_audio(const unsigned char *d, uint32_t n)
+{
+	if (W.audio == MP4_A_AAC) {
+		int16_t pcm[160];
+		unsigned char au[AAC_OUT_MAX];
+		uint32_t i, k = 0;
+
+		W.a_pos += n; W.asamples += n;
+		for (i = 0; i < n; i++) {
+			if (W.a_skip > 0) { W.a_skip--; continue; }
+			pcm[k++] = aac_alaw(d[i]);
+		}
+		if (!k) return;
+		i = (uint32_t)aacenc_feed(&A, pcm, (int)k, au);
+		if (i) { (void)put_unit(au, i); W.a_fidx++; }	/* the timeline goes on whatever was dropped */
+		return;
+	}
+	if (put_unit(d, n) == 0) { W.a_pos += n; W.asamples += n; }
 }
 
 static void append_audio(const struct qhdr *h, const unsigned char *d)
@@ -605,6 +643,7 @@ static void append_audio(const struct qhdr *h, const unsigned char *d)
 	wanted = start > W.file_t0 ? (start - W.file_t0) * ATS / 1000000ULL : 0;
 	if (!W.a_ok) {
 		W.a_ok = 1; W.a_pos = wanted;
+		if (W.audio == MP4_A_AAC) aac_run(wanted);
 	} else if (wanted > W.a_pos && (wanted - W.a_pos > A_GAP_LATE || ((fl & QF_AGAP) && wanted - W.a_pos > 400))) {
 		uint64_t gap = wanted - W.a_pos;
 
@@ -622,6 +661,7 @@ static void append_audio(const struct qhdr *h, const unsigned char *d)
 			if (W.fd < 0) return;
 			audio_discard();
 			W.a_pos = wanted;
+			if (W.audio == MP4_A_AAC) aac_run(wanted);
 		}
 	}
 	for (i = 0; i < h->len; i += n) {			/* chunks of at most 160 bytes (20 ms) */
@@ -719,7 +759,7 @@ static void write_status(uint64_t now)
 		     mn[C.mode & 3], W.watched, W.state, W.path, W.files, W.bytes, (unsigned long)q_pushed,
 		     (unsigned long)q_dropped, W.codec == C_H265 ? "h265" : W.codec == C_H264 ? "h264" : "none", W.vi.w, W.vi.h,
 		     w_card_ok && !w_paused ? free_mb() : 0UL, (unsigned long long)(now / 1000000ULL), W.thumbs,
-		     C.audio ? "alaw" : "off", W.asamples);
+		     C.audio ? (C.aac ? "aac" : "alaw") : "off", W.asamples);
 	if (n <= 0 || n >= (int)sizeof b) return;
 	snprintf(tmp, sizeof tmp, "%s.tmp", C.status);
 	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -743,7 +783,7 @@ static void cfg_pull(void)
 		usleep(1000);
 	}
 	W.seen_seq = s1;
-	if (strcmp(t.dir, C.dir) || t.mode != C.mode || t.audio != C.audio) { finish_file(); W.waiting_key = 1; W.next_card = 0; }
+	if (strcmp(t.dir, C.dir) || t.mode != C.mode || t.audio != C.audio || t.aac != C.aac) { finish_file(); W.waiting_key = 1; W.next_card = 0; }
 	if (t.segment_s < 30) t.segment_s = 30;
 	if (t.reserve_mb < 16) t.reserve_mb = 16;
 	if (t.offline_s < 0) t.offline_s = 0;

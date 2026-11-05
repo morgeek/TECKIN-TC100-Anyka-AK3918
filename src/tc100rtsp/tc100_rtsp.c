@@ -2554,6 +2554,13 @@ static void rec_reload(void)
 	rc.ring_kb = cfg_num(bc, "REC_RING_KB", 1024);
 	rc.audio = cfg_num(bc, "REC_AUDIO", 1) != 0;
 	rc.keep_events = cfg_num(bc, "REC_KEEP_EVENTS", 0) != 0;
+	{	/* rtsp.env: RTSP_REC_AAC=1 makes the recorded sound AAC-LC (browsers play it); RTSP_REC_AAC_KBPS its mean bit rate */
+		const char *ea = getenv("RTSP_REC_AAC"), *ek = getenv("RTSP_REC_AAC_KBPS");
+		int kb = ek && *ek ? num(ek) : 0;
+
+		rc.aac = ea && ea[0] == '1';
+		rc.aac_bps = (kb >= 8 && kb <= 48 ? kb : 24) * 1000;
+	}
 	rec_sub = cfg_get(bc, "", "REC_STREAM", v, sizeof v) && !strcmp(v, "sub");
 	rec_client = 0;
 	if (cfg_get(bc, "", "REC_CLIENT", v, sizeof v) && v[0]) rec_client = ip_of(v);
@@ -2563,7 +2570,7 @@ static void rec_reload(void)
 	last = rc;
 	if (rc.mode != REC_OFF || rec_active())
 		LOG("recording: %s, %s stream, %s, %d s files, keep %d MB free, into %s\n", mn[rc.mode & 3], rec_sub ? "sub" : "main",
-		    rc.audio ? "with sound (G.711 A-law)" : "no sound", rc.segment_s, rc.reserve_mb, rc.dir);
+		    rc.audio ? (rc.aac ? "with sound (AAC-LC)" : "with sound (G.711 A-law)") : "no sound", rc.segment_s, rc.reserve_mb, rc.dir);
 	rec_config(&rc);
 }
 

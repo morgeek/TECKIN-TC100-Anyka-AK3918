@@ -273,6 +273,9 @@ Written and tested on the host only (`python3 tests/test_tc100rtsp.py`); not yet
   entry `alaw`, what ffmpeg reads), one `traf` per track in every `moof`. The 160-byte A-law chunks the RTSP audio track already
   makes are queued next to the frames (`rec_audio`); the track is a running sample count placed on the video clock at the start
   of the file and after a hole (a hole up to 2 s is filled with silence), so file and RTSP audio are the same bytes.
+  `RTSP_REC_AAC=1` (`rtsp.env`, default off) turns that track into AAC-LC (`mp4a` + `esds`, `aacenc.c`: own fixed-point encoder,
+  1024-sample frames, about 24 kbit/s, `RTSP_REC_AAC_KBPS` 8-48): the same A-law chunks are expanded to 16 bits and encoded, the
+  first access unit is stamped one frame early (the MDCT overlap) so that the sound stays on the video clock; browsers play it.
   The microphone (arecord) runs while the recorder is on and the card usable. ffprobe/ffmpeg decode both tracks and the sound
   stays on the video clock (test: silence markers within 20 ms). In headless Chromium a `<video>` with an `alaw` track plays its
   video normally (checked with VP9 files, Chromium of Playwright has no H.264); the sound itself is not decoded by browsers, VLC plays it.

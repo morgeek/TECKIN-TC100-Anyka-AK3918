@@ -19,6 +19,8 @@ struct rec_cfg {
 	int ring_kb;		/* frame queue (also the pre-roll); read once, when the recorder starts */
 	int audio;		/* REC_AUDIO: a G.711 A-law track (8 kHz mono) next to the video, fed by rec_audio() */
 	int keep_events;	/* REC_KEEP_EVENTS: a full card loses the recordings without an event first */
+	int aac;		/* RTSP_REC_AAC=1 (rtsp.env): the audio track is AAC-LC (aacenc.c) instead of A-law, so that browsers play it */
+	int aac_bps;		/* RTSP_REC_AAC_KBPS: its average bit rate (default 24000) */
 };
 
 /* main thread (the producer) */

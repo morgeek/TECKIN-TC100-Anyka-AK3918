@@ -238,6 +238,8 @@ REC_POSTROLL_SEC=30
 REC_RING_KB=1024
 # REC_AUDIO=1: the files get a second track with the microphone (G.711 A-law, 8 kHz
 # mono, VLC plays it; browsers show the picture, the sound only if they decode A-law).
+# RTSP_REC_AAC=1 in /mnt/config/rtsp.env records AAC-LC instead (browsers play it; about 24 kbit/s,
+# RTSP_REC_AAC_KBPS=8..48 changes that; the RTSP stream and the live view stay as they are).
 # The microphone then runs while the recorder is on.
 REC_AUDIO=1
 # REC_KEEP_EVENTS=1: a file during which motion or a sound event was detected gets an

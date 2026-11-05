@@ -8,7 +8,7 @@ CROSS ?= arm-linux-gnueabi-
 SYSROOT ?= /usr/arm-linux-gnueabi
 CFLAGS ?= -I../jpegenc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft \
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
-OBJS = tc100_rtsp.o rec.o mp4box.o livemp4.o talk.o alisten.o acap.o adsp.o
+OBJS = tc100_rtsp.o rec.o mp4box.o aacenc.o livemp4.o talk.o alisten.o acap.o adsp.o
 
 all: tc100_rtsp
 
@@ -33,7 +33,10 @@ mp4box.o: mp4box.c mp4box.h
 livemp4.o: livemp4.c livemp4.h mp4box.h
 	$(CROSS)gcc $(CFLAGS) -Os -c livemp4.c -o $@
 
-rec.o: rec.c rec.h mp4box.h	# card I/O bound: -Os keeps the binary small (the flash stack has a size budget)
+aacenc.o: aacenc.c aacenc.h aacenc_tab.h
+	$(CROSS)gcc $(CFLAGS) -Os -c aacenc.c -o $@
+
+rec.o: rec.c rec.h mp4box.h aacenc.h	# card I/O bound: -Os keeps the binary small (the flash stack has a size budget)
 	$(CROSS)gcc $(CFLAGS) -Os -c rec.c -o $@
 
 defined.txt: $(OBJS)
@@ -72,12 +75,12 @@ tc100_rtsp.dbg: start.o $(OBJS) libpthread.so.0 libc.so.0 libdl.so.0
 		$$($(CROSS)gcc -print-libgcc-file-name)
 
 # host tests of the pure parts (util.h, rec.c): gcc of the build host, no camera needed
-test: test_util test_rec test_livemp4 test_rtsp test_adsp
+test: test_util test_rec test_livemp4 test_rtsp test_adsp test_aacenc
 	./test_util
 
 # the whole server without camera and encoder (RTSP, audio, backchannel, listeners): tests/test_tc100rtsp.py runs it
-test_rtsp: tc100_rtsp.c rec.c mp4box.c livemp4.c talk.c alisten.c acap.c adsp.c rec.h mp4box.h livemp4.h talk.h alisten.h util.h acap.h adsp.h
-	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -o $@ tc100_rtsp.c rec.c mp4box.c livemp4.c talk.c alisten.c acap.c adsp.c -ldl -lpthread -lm
+test_rtsp: tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c rec.h mp4box.h aacenc.h aacenc_tab.h livemp4.h talk.h alisten.h util.h acap.h adsp.h
+	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -o $@ tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c -ldl -lpthread -lm
 
 # the microphone processing alone: tests/test_tc100rtsp.py feeds it tones and silence
 test_adsp: test_adsp.c adsp.c adsp.h
@@ -86,12 +89,16 @@ test_adsp: test_adsp.c adsp.c adsp.h
 test_util: test_util.c util.h
 	gcc -O2 -Wall -Wextra -o $@ test_util.c -lm
 
-test_rec: test_rec.c rec.c rec.h mp4box.c mp4box.h
-	gcc -O2 -Wall -Wextra -DREC_HOST_TEST -o $@ test_rec.c rec.c mp4box.c -lpthread -lm
+test_rec: test_rec.c rec.c rec.h mp4box.c mp4box.h aacenc.c aacenc.h aacenc_tab.h
+	gcc -O2 -Wall -Wextra -DREC_HOST_TEST -o $@ test_rec.c rec.c mp4box.c aacenc.c -lpthread -lm
+
+# the AAC encoder alone: tests/test_tc100rtsp.py feeds it tones and decodes the result with ffmpeg
+test_aacenc: test_aacenc.c aacenc.c aacenc.h aacenc_tab.h
+	gcc -O2 -Wall -Wextra -o $@ test_aacenc.c aacenc.c -lm
 
 # the live muxer alone: frames in, the fMP4 a browser gets out of a FIFO (tests/test_tc100rtsp.py checks it)
 test_livemp4: test_livemp4.c livemp4.c livemp4.h mp4box.c mp4box.h
 	gcc -O2 -Wall -Wextra -o $@ test_livemp4.c livemp4.c mp4box.c
 
 clean:
-	rm -f tc100_rtsp tc100_rtsp.dbg *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp test_adsp
+	rm -f tc100_rtsp tc100_rtsp.dbg *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp test_adsp test_aacenc

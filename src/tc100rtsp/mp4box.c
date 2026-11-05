@@ -239,7 +239,7 @@ void mp4_init_segment(struct buf *b, int codec, const struct vinfo *vi,
 	a = mp4_fbox(b, "stco", 0, 0); mp4_b32(b, 0); mp4_end(b, a);
 	mp4_end(b, stbl); mp4_end(b, minf); mp4_end(b, mdia); mp4_end(b, trak);
 
-	if (audio) {	/* track 2: G.711 A-law, 8 kHz mono: the 'alaw' sample entry ffmpeg reads (QuickTime sound description v0) */
+	if (audio) {	/* track 2: G.711 A-law ('alaw' sample entry ffmpeg reads, QuickTime sound description v0) or AAC-LC ('mp4a' + esds), 8 kHz mono */
 		trak = mp4_box(b, "trak");
 		a = mp4_fbox(b, "tkhd", 0, 3); mp4_b32(b, 0); mp4_b32(b, 0); mp4_b32(b, 2); mp4_b32(b, 0); mp4_b32(b, 0);
 		mp4_bzero_(b, 8); mp4_b16(b, 0); mp4_b16(b, 0); mp4_b16(b, 0x100); mp4_b16(b, 0);
@@ -256,11 +256,20 @@ void mp4_init_segment(struct buf *b, int codec, const struct vinfo *vi,
 		a = mp4_fbox(b, "url ", 0, 1); mp4_end(b, a); mp4_end(b, dref); mp4_end(b, dinf);
 		stbl = mp4_box(b, "stbl");
 		stsd = mp4_fbox(b, "stsd", 0, 0); mp4_b32(b, 1);
-		se_ = mp4_box(b, "alaw");
+		se_ = mp4_box(b, audio == MP4_A_AAC ? "mp4a" : "alaw");
 		mp4_bzero_(b, 6); mp4_b16(b, 1);			/* reserved, data reference index */
 		mp4_b16(b, 0); mp4_b16(b, 0); mp4_b32(b, 0);		/* sound version 0, revision, vendor */
 		mp4_b16(b, 1); mp4_b16(b, 16); mp4_b16(b, 0); mp4_b16(b, 0);	/* channels, sample size, compression id, packet size */
 		mp4_b32(b, (uint32_t)ATS << 16);			/* sample rate 16.16 */
+		if (audio == MP4_A_AAC) {				/* esds: AAC-LC, 8 kHz (index 11), mono: AudioSpecificConfig 0x1588 */
+			cfg = mp4_fbox(b, "esds", 0, 0);
+			mp4_b8(b, 3); mp4_b8(b, 25); mp4_b16(b, 2); mp4_b8(b, 0);			/* ES_Descriptor, ES_ID, flags */
+			mp4_b8(b, 4); mp4_b8(b, 17); mp4_b8(b, 0x40); mp4_b8(b, 0x15);			/* DecoderConfig: MPEG-4 audio, audio stream */
+			mp4_b8(b, 0); mp4_b16(b, 0x600); mp4_b32(b, 48000); mp4_b32(b, 24000);		/* buffer size, max and average bit rate */
+			mp4_b8(b, 5); mp4_b8(b, 2); mp4_b8(b, 0x15); mp4_b8(b, 0x88);			/* DecoderSpecificInfo: AudioSpecificConfig */
+			mp4_b8(b, 6); mp4_b8(b, 1); mp4_b8(b, 2);					/* SLConfig: predefined 2 (MP4) */
+			mp4_end(b, cfg);
+		}
 		mp4_end(b, se_); mp4_end(b, stsd);
 		a = mp4_fbox(b, "stts", 0, 0); mp4_b32(b, 0); mp4_end(b, a);
 		a = mp4_fbox(b, "stsc", 0, 0); mp4_b32(b, 0); mp4_end(b, a);
