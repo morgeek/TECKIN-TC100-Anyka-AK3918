@@ -74,6 +74,7 @@ run_whep() {
 	echo "== item 35: tc100-whep against aiortc (mbedTLS 2.28.9 with DTLS-SRTP built in the container; needs network)"
 	docker volume create tc100-whep >/dev/null
 	docker run --rm -v "$SRC:/src:ro" -v tc100-whep:/tmp/whep-work python:3.12-bookworm sh -c 'cp -r /src /w && cd /w && sh tests/docker/whep-interop.sh' || rc=1
+	docker run --rm -v "$SRC:/src:ro" alpine:3.20 sh /src/tests/docker/whep-musl.sh | tail -n 1 || rc=1
 }
 
 run_kernel() {

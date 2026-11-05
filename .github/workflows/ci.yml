@@ -69,3 +69,6 @@ jobs:
       # tests/whep_interop.py: a fake RTSP source, the daemon and aiortc as the browser (see the script)
       - name: tc100-whep with a real WebRTC client
         run: sh tests/docker/whep-interop.sh
+      # the camera's C library is musl: compile there too (the base image build is the only other place, 40 min)
+      - name: tc100-whep compiled with musl
+        run: docker run --rm -v "$PWD:/src:ro" alpine:3.20 sh /src/tests/docker/whep-musl.sh
