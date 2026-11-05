@@ -28,6 +28,12 @@ MQTT_QOS=0
 # one TCP connection), recommended. "shell" runs the legacy ash bridge.
 MQTT_BRIDGE_IMPL=c
 
+# Who builds the Home Assistant discovery messages (the retained <prefix>/<component>/<id>/config topics): "sh" (default)
+# = scripts/mqtt-bridge.sh, "c" = tc100-mqttd itself (same topics and payloads, no shell run at connection time).
+# Only used with MQTT_BRIDGE_IMPL=c. Takes effect at the next start of the MQTT bridge service; set back to "sh" to
+# return to the script.
+MQTT_DISCOVERY_IMPL=sh
+
 # Runtime behavior
 # Health publish cadence. Higher values reduce CPU/network load.
 # 300s (5 min) is sufficient for HA availability — the LWT retained topic

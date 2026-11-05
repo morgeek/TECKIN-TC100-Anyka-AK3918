@@ -880,17 +880,28 @@ publish_discovery_config()
   [ -n "$MQTT_SINK" ] || sleep 0.1
 }
 
+# The identity of the Home Assistant device (node id, device name, firmware version): one source for the discovery
+# below and for `print-config`, which hands it to tc100-mqttd when MQTT_DISCOVERY_IMPL=c.
+ha_identity()
+{
+  node_id="$(printf '%s' "$MQTT_CLIENT_ID" | tr -c 'A-Za-z0-9_-' '_' | sed 's/^_//; s/_$//')"
+  [ -n "$node_id" ] || node_id="tc100_camera"
+
+  read -r hostname_value < /proc/sys/kernel/hostname 2>/dev/null || hostname_value=""
+  [ -n "$hostname_value" ] || hostname_value="TC100 Camera"
+
+  _mb_ver=""
+  [ -r /mnt/VERSION ] && read -r _mb_ver < /mnt/VERSION 2>/dev/null
+  [ -n "$_mb_ver" ] || _mb_ver="unknown"
+}
+
 publish_homeassistant_discovery()
 {
   if ! ha_discovery_enabled; then
     return 0
   fi
 
-  node_id="$(printf '%s' "$MQTT_CLIENT_ID" | tr -c 'A-Za-z0-9_-' '_' | sed 's/^_//; s/_$//')"
-  [ -n "$node_id" ] || node_id="tc100_camera"
-
-  read -r hostname_value < /proc/sys/kernel/hostname 2>/dev/null || hostname_value=""
-  [ -n "$hostname_value" ] || hostname_value="TC100 Camera"
+  ha_identity
 
   discovery_prefix="$MQTT_HA_DISCOVERY_PREFIX"
   root_json="$(json_escape "$MQTT_TOPIC_ROOT")"
@@ -904,9 +915,6 @@ publish_homeassistant_discovery()
   # Firmware/project version for the HA device page ("sw" in the device dict).
   # HA merges device info across a device's entities, so setting it on the CPU
   # sensor below is enough — the whole device inherits it.
-  _mb_ver=""
-  [ -r /mnt/VERSION ] && read -r _mb_ver < /mnt/VERSION 2>/dev/null
-  [ -n "$_mb_ver" ] || _mb_ver="unknown"
   sw_json="$(json_escape "$_mb_ver")"
 
   # Command templates for interactive entities
@@ -2924,15 +2932,34 @@ print_config_mode()
   _pc_cb="${MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS:-300}"
   case "$_pc_cb" in ''|*[!0-9]*) _pc_cb=300 ;; esac
   printf 'MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS=%s\n' "$_pc_cb"
+  # MQTT_DISCOVERY_IMPL=c: tc100-mqttd builds the Home Assistant discovery itself from these values (single source:
+  # this script resolves them, the daemon only formats)
+  _pc_di=sh
+  [ "$MQTT_DISCOVERY_IMPL" = c ] && _pc_di=c
+  printf 'MQTT_DISCOVERY_IMPL=%s\n' "$_pc_di"
+  if [ "$_pc_di" = c ]; then
+    _pc_v=0; ha_discovery_enabled && _pc_v=1
+    printf 'HA_DISCOVERY=%s\n' "$_pc_v"
+    printf 'HA_DISCOVERY_PREFIX=%s\n' "$MQTT_HA_DISCOVERY_PREFIX"
+    ha_identity
+    printf 'HA_NODE_ID=%s\nHA_DEVICE_NAME=%s\nHA_SW=%s\n' "$node_id" "$hostname_value" "$_mb_ver"
+    _pc_v=0
+    { is_truthy_local "$MQTT_HA_CAMERA_ENTITY_ENABLE" || is_truthy_local "$MQTT_SNAPSHOT_ON_EVENT"; } && _pc_v=1
+    printf 'HA_CAMERA=%s\n' "$_pc_v"
+    _pc_v=0
+    command -v isp_tune_json >/dev/null 2>&1 && _pc_v=1
+    printf 'HA_ISP=%s\n' "$_pc_v"
+  fi
 }
 
 # what run_loop does once the broker has accepted the connection (availability is the daemon's own)
+# "nodisc" (MQTT_DISCOVERY_IMPL=c): the daemon has published the discovery itself
 startup_mode()
 {
   load_config
   mqtt_enabled || exit 0
   publish_integration_manifest force >/dev/null 2>&1 || true
-  publish_homeassistant_discovery
+  [ "$1" = nodisc ] || publish_homeassistant_discovery
   publish_event_simple "bridge.start" "online"
 }
 
@@ -2953,7 +2980,7 @@ case "$1" in
     print_config_mode
     ;;
   startup)
-    startup_mode
+    startup_mode "$2"
     ;;
   health-cycle)
     health_cycle_mode
