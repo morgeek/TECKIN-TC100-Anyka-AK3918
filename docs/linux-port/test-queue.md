@@ -2697,3 +2697,6 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   25 img/s le soir (pièce éclairée, gain ~5x). Pings (3 par relevé, 29 relevés) : `.11` 3 relevés tout perdus + 3
   partiels, `.24` 4 + 2 (≈ 10 %, comme avant). Carte de la .24 toujours démontée. `/proc/net/wireless` donne parfois
   `-256` (valeur invalide du pilote) : ignorée.
+- **VERSION → `3.0.1-rc33-dev`** (testeur, 2026-11-06 20:10 UTC) : `d2ee15f` (carte de démarrage, R25) a changé du code
+  après la rc32 ; la build de `d2ee15f` porte encore le nom « rc32 ». **La rc32 installée sur les deux caméras est celle
+  de md5 `f00b9120…`** (run 42248185087, `e267e73`).
