@@ -103,7 +103,8 @@ rewrite_config() { if grep -q "^$2=" "$1"; then sed -i "s|^$2=.*|$2=$3|" "$1"; e
         self.assertIn('_snd_file="$(sound_path "$_snd_name")"', text('scripts/action.d/audio.sh'))
         self.assertIn('_snd_path="$(sound_path "$_snd_to_play")"', text('scripts/mqtt-bridge.sh'))
         a = text('v3/autorun-linux66.sh')
-        self.assertIn('"/mnt/sd/tc100-3/sounds/$BC_BOOT_SOUND_NAME.pcm" "/mnt/sounds/$BC_BOOT_SOUND_NAME.pcm"', a)
+        self.assertIn('"/mnt/sd/tc100-3/sounds/$BC_BOOT_SOUND_NAME.pcm" "/mnt/sounds/$BC_BOOT_SOUND_NAME.alaw" '
+                      '"/mnt/sounds/$BC_BOOT_SOUND_NAME.pcm"', a)
         self.assertIn('sh /mnt/scripts/speaker-play.sh "$_bs" 60', a)
         self.assertIn('BOOT_SOUND_NAME=startup_complete', text('config/boot.conf.dist'))
         self.assertIn('tc_check_flat "$_tc_file" BOOT_SOUND_NAME identifier', text('scripts/config-transaction.sh'))
@@ -135,6 +136,59 @@ rewrite_config() { if grep -q "^$2=" "$1"; then sed -i "s|^$2=.*|$2=$3|" "$1"; e
         self.assertIn('id="sounds_now"', html)
         self.assertIn("'cmd=playnow'", html)
         self.assertNotIn('id="sounds_upload_box" class="mt-3" style="display:none"', html)
+
+
+class BuiltInClipsAlaw(unittest.TestCase):
+    """Audit 2026-11-06 S7 (owner): the built-in clips of the flash image are G.711 A-law (half the size); every reader
+    takes them: speaker-play.sh, sound_path, the list of sounds.cgi, the startup sound, the audio test."""
+
+    def test_codec_is_g711(self):
+        import importlib.util, struct, sys
+        # no __pycache__ in scripts/: the flash image tests read every file of that folder
+        old, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+        try:
+            spec = importlib.util.spec_from_file_location('pcm2alaw', ROOT / 'scripts/pcm2alaw.py')
+            m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+        finally:
+            sys.dont_write_bytecode = old
+        # G.711 A-law reference values (silence, the largest values, the smallest steps)
+        self.assertEqual([m.linear2alaw(v) for v in (0, -1, 32767, -32768, 8, -9)], [0xD5, 0x55, 0xAA, 0x2A, 0xD5, 0x55])
+        for v in range(-32768, 32768, 37):          # round trip within the A-law step of the segment
+            r = m.alaw2linear(m.linear2alaw(v))
+            self.assertLessEqual(abs(r - v), max(16, abs(v) // 16), v)
+        with tempfile.TemporaryDirectory() as t:
+            Path(t, 'chime.pcm').write_bytes(struct.pack('<4h', 0, 1000, -1000, 32767))
+            Path(t, 'test-1k-m6.pcm').write_bytes(b'\0\0')
+            m.main(t)
+            self.assertEqual(sorted(os.listdir(t)), ['chime.alaw', 'test-1k-m6.pcm'])
+            self.assertEqual(len(Path(t, 'chime.alaw').read_bytes()), 4)
+
+    def test_readers_take_alaw(self):
+        self.assertIn('*.alaw) aplay -q -D plughw:0,0 -t raw -f A_LAW -r 8000 -c 1 "$F" ;;', text('scripts/speaker-play.sh'))
+        self.assertIn('"$SOUNDS_SD/$1.pcm" "/mnt/sounds/$1.alaw" "/mnt/sounds/$1.pcm"', text('scripts/common_functions.sh'))
+        self.assertIn('/mnt/sounds/chime.alaw', text('www/cgi-bin/action.cgi'))
+        self.assertIn('python3 scripts/pcm2alaw.py "$T/sounds"', text('v3/build-stack.sh'))
+        self.assertIn('alsa', text('v3/buildroot/configs/tc100_defconfig').lower())
+        self.assertRegex(text('v3/buildroot/configs/tc100_defconfig'), r'BR2_PACKAGE_ALSA_LIB_PCM_PLUGINS="[^"]*\balaw\b')
+
+
+class SoundsListAlaw(Sounds):
+    def setUp(self):
+        super().setUp()
+        (self.flash / 'chime.pcm').unlink()
+        (self.flash / 'chime.alaw').write_bytes(b'\xd5' * 8400)     # 1.05 s of A-law: 16800 bytes as 16-bit
+
+    def test_list_reports_16_bit_bytes(self):
+        st, d = self.cgi('list')
+        self.assertEqual(d['sounds'][0], {'name': 'chime', 'builtin': 1, 'custom': 0, 'bytes': 16800})
+        # sound_path finds the built-in A-law clip, a custom one on the card first
+        code = self.common() + 'sound_path chime'
+        r = subprocess.run(SH + ['-c', code], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), (self.flash / 'chime.alaw').as_posix())
+
+    # the inherited tests assume chime.pcm in the flash
+    test_list_upload_delete_boot = None
+    test_sound_path_prefers_the_card = None
 
 
 if __name__ == '__main__':

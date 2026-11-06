@@ -42,12 +42,13 @@ sound_list() {
   case "$_on" in 0|false|no|off|disabled) _on=0 ;; *) _on=1 ;; esac
   case "$_bn" in ''|*[!A-Za-z0-9_-]*) _bn=startup_complete ;; esac
   _sd=false; sd_ok && _sd=true
-  stat -c '%n %s' /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null | awk -v sd="$SOUNDS_SD/" -v on="$_on" -v bn="$_bn" -v card="$_sd" '
+  # built-in clips: NAME.alaw (one byte a sample, rc31) or NAME.pcm; "bytes" is the 16-bit size (seconds = bytes / 16000)
+  stat -c '%n %s' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null | awk -v sd="$SOUNDS_SD/" -v on="$_on" -v bn="$_bn" -v card="$_sd" '
     {
-      p = $1; n = p; sub(/.*\//, "", n); sub(/\.pcm$/, "", n)
+      p = $1; n = p; sub(/.*\//, "", n); b = $2; if (sub(/\.alaw$/, "", n)) b = 2 * $2; else sub(/\.pcm$/, "", n)
       if (n !~ /^[A-Za-z0-9_-]+$/ || n ~ /^test-1k-/) next
       if (!(n in seen)) { seen[n] = 1; order[++c] = n }
-      if (substr(p, 1, length(sd)) == sd) { cu[n] = 1; size[n] = $2 } else { bi[n] = 1; if (!(n in size)) size[n] = $2 }
+      if (substr(p, 1, length(sd)) == sd) { cu[n] = 1; size[n] = b } else { bi[n] = 1; if (!(n in size)) size[n] = b }
     }
     END {
       printf "{\"ok\":true,\"sd\":%s,\"boot\":{\"on\":%d,\"name\":\"%s\"},\"sounds\":[", card, on, bn

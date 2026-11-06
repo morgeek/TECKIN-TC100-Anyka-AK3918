@@ -3006,3 +3006,19 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   s'ouvrent normalement ; `curl -sI -H 'Accept-Encoding: gzip' http://<cam>/scripts/index.bundle.min.js` (avec le mot de
   passe) dit `Content-Encoding: gzip`. Noter la ligne `stack.sqfs: N bytes` de la CI.
 - **Critères :** toutes les pages s'affichent comme en rc30 ; pas de 404 ; temps d'ouverture du tableau de bord inchangé.
+
+## 2026-11-06 — Place en flash : sons intégrés en A-law (`[flash-alaw]`, audit S7, décision du propriétaire, rc31)
+
+- **Quoi :** à la construction, `scripts/pcm2alaw.py` (outil de build, hors image) convertit les sons intégrés
+  (`alert`, `chime`, `siren`, `startup`, `startup_2`, `startup_complete`) en G.711 A-law (`/mnt/sounds/NAME.alaw`, un
+  octet par échantillon : moitié de la taille ; la sirène ne se compressait pas). Codec vérifié identique à la
+  référence sur les 65 536 valeurs. Les lecteurs prennent les deux formats : `speaker-play.sh` (`aplay -f A_LAW`,
+  greffon `alaw` de l'alsa-lib de la base), `sound_path`, la liste de `sounds.cgi` (durée juste), le son de démarrage,
+  le test audio. Les sons personnalisés de la carte restent en 16 bits ; les tonalités de test aussi.
+- **Interrupteur :** aucun (revert du commit `[flash-alaw]`).
+- **Test (caméra, haut-parleur) :** son de démarrage au boot ; Réglages → Flux, audio et sons : « Jouer » sur chaque son
+  intégré (carillon, alerte, sirène, démarrage), durées affichées comme avant (sirène 2,0 s, carillon 1,05 s) ; boutons
+  carillon / sirène du tableau de bord et commande MQTT `sound` ; un son personnalisé sur la carte remplace toujours le
+  son intégré du même nom.
+- **Critères :** chaque son audible, sans grésillement nouveau par rapport à la rc30 ; aucune erreur `aplay` dans le
+  journal.

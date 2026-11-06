@@ -448,9 +448,10 @@ AUTO_INSTALL=0
 [ -f /tmp/flashmode ] || ! sh /mnt/v3/install/auto-install.sh pending </dev/null >/dev/null 2>&1 || AUTO_INSTALL=1
 # BOOT_SOUND_NAME (item 48, Settings -> Sounds): the clip, a custom one on the card first (sound_path in
 # common_functions.sh); the built-in chime when it is missing
-_bs=/mnt/sounds/startup_complete.pcm
+_bs=/mnt/sounds/startup_complete.alaw	# built-in clips are A-law since rc31 (converted at build time)
+[ -s "$_bs" ] || _bs=/mnt/sounds/startup_complete.pcm
 case "$BC_BOOT_SOUND_NAME" in ''|*[!A-Za-z0-9_-]*) ;; *)
-  for _f in "/mnt/sd/tc100-3/sounds/$BC_BOOT_SOUND_NAME.pcm" "/mnt/sounds/$BC_BOOT_SOUND_NAME.pcm"; do
+  for _f in "/mnt/sd/tc100-3/sounds/$BC_BOOT_SOUND_NAME.pcm" "/mnt/sounds/$BC_BOOT_SOUND_NAME.alaw" "/mnt/sounds/$BC_BOOT_SOUND_NAME.pcm"; do
     [ -s "$_f" ] && { _bs=$_f; break; }
   done ;;
 esac

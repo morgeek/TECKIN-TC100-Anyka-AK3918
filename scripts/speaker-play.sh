@@ -1,6 +1,7 @@
 #!/bin/sh
 # speaker-play.sh FILE [VOLUME]   play a clip on the camera speaker (Linux 6.6 / 3.0, ALSA).
-#   FILE    *.pcm = raw 8 kHz mono signed 16-bit little endian (push-to-talk uploads, sounds/*.pcm),
+#   FILE    *.pcm = raw 8 kHz mono signed 16-bit little endian (push-to-talk uploads, custom sounds),
+#           *.alaw = raw 8 kHz mono G.711 A-law (the built-in clips of the flash image, converted at build time),
 #           *.wav = any WAV aplay reads,
 #           -     = raw PCM as above from standard input (tc100_rtsp's two-way audio: the sound a client sends over
 #                   RTSP; the clip ends when the input does).
@@ -39,6 +40,7 @@ amixer -q -D hw:0 cset name='Headphone Playback Volume' "${V}%" >/dev/null 2>&1
 amp 1
 case "$F" in
   *.wav|*.WAV) aplay -q -D plughw:0,0 "$F" ;;
+  *.alaw) aplay -q -D plughw:0,0 -t raw -f A_LAW -r 8000 -c 1 "$F" ;;
   *) aplay -q -D plughw:0,0 -t raw -f S16_LE -r 8000 -c 1 "$F" ;;
 esac
 rc=$?

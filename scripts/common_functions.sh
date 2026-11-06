@@ -914,12 +914,13 @@ tc100_log_event() {
   logger -t tc100-event -p user.err "$*" 2>/dev/null || true
 }
 
-# sound_path NAME: the speaker clip NAME.pcm (raw 8 kHz mono S16LE): a custom one on the SD card first (item 48,
-# Settings -> Sounds, www/cgi-bin/sounds.cgi), else the built-in one of the flash. NAME: A-Z a-z 0-9 _ -
+# sound_path NAME: the speaker clip NAME: a custom one on the SD card first (NAME.pcm, raw 8 kHz mono S16LE; item 48,
+# Settings -> Sounds, www/cgi-bin/sounds.cgi), else the built-in one of the flash (NAME.alaw, G.711 A-law since rc31,
+# audit 2026-11-06 S7; NAME.pcm in an older tree). NAME: A-Z a-z 0-9 _ -
 SOUNDS_SD=/mnt/sd/tc100-3/sounds
 sound_path() {
   case "$1" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
-  for _sp in "$SOUNDS_SD/$1.pcm" "/mnt/sounds/$1.pcm"; do
+  for _sp in "$SOUNDS_SD/$1.pcm" "/mnt/sounds/$1.alaw" "/mnt/sounds/$1.pcm"; do
     [ -s "$_sp" ] && { echo "$_sp"; return 0; }
   done
   return 1

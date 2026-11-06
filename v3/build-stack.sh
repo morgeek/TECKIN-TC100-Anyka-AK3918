@@ -26,6 +26,8 @@ T=$OUT/tree; rm -rf "$T"; mkdir -p "$T"
 # 1. From git: web UI, scripts, services, defaults, sounds, the 6.6 glue and the install / update tools
 cd "$REPO"
 cp -r www scripts controlscripts sounds VERSION "$T"/
+# the built-in speaker clips as G.711 A-law, half the size (audit 2026-11-06 S7, owner); speaker-play.sh plays both
+python3 scripts/pcm2alaw.py "$T/sounds"
 mkdir -p "$T/v3/linux66-sd" "$T/config"
 cp v3/autorun-linux66.sh v3/selftest66.sh "$T/v3/"
 for f in v3/linux66-sd/*; do
@@ -144,7 +146,7 @@ case "${SQFS_BCJ:-arm}" in none) bcj= ;; *) bcj="-Xbcj ${SQFS_BCJ:-arm}" ;; esac
 # shellcheck disable=SC2086
 mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -quiet \
 	-p "bin/busybox s 777 0 0 /bin/busybox" \
-	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py \
+	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py scripts/pcm2alaw.py \
 	scripts/collect-platform-dump.sh v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
 	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh \
 	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
