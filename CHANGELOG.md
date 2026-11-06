@@ -7,6 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Towards the rc31 (`VERSION` is `3.0.1-rc31-dev` until it is released, so that no build of these commits is taken for
+the tested rc30, md5 `65e1cd70`):
+- **Pico CSS look by default** (`[ux-pico]`): Pico 2.0.6 + a shim that draws the pages' Bulma classes; measured lighter
+  and faster; the Classic look (Bulma) stays selectable in Settings -> System -> Appearance until the rc32 removes it.
+- **Speaker sounds without an SD card** (`[ux-sounds]`): "Play now without saving"; the card is detected correctly.
+- **Smaller flash image** (audit 2026-11-06, owner's choices): no jq (`[flash-nojq]`), no monvifd in the flash
+  (`[flash-nomonvifd]`, `tc100-onvifd` runs for every config), `.gz` only for the five big web files (`[flash-gz]`),
+  built-in sounds in A-law (`[flash-alaw]`), web JavaScript and inline scripts minified at build time
+  (`[flash-minify]`; the shell stays readable).
+- **Wi-Fi losses**: `scripts/wifi-diag.sh`, a read-only RAM logger that tells where the losses come from
+  (`[wifi-diag]`).
+- **Documentation**: user README and installation guide in English and French, Pico screenshots, the audit of
+  2026-11-06 (`docs/linux-port/audit-2026-11-06.md`) and its corrections of stale docs.
+
 ## [3.0.1-rc30] - 2026-11-06
 
 The rc29 (`c81f22a`, on both cameras from the flash) plus the tester's fixes of the rc29 campaign and the implementer
