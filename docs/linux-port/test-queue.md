@@ -2596,3 +2596,28 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
      relever les mêmes mesures avant toute modification du handler.
 - **Critères :** aucune valeur de configuration ne change pendant ces vérifications ; caches servis en moins de 0,5 s
   quand disponibles ; état rafraîchi après un changement ; motifs RTSP conformes au type de client ; Frigate stable.
+
+## 2026-11-06 16:30 — revue du testeur : `[rc32-*]`, `[ui-r20]`, `[tz-lowlight]`, `[sender-thread]`, `[hrt-test]`, `3c4d77d` — **CI rouge sur `main`, pas de rc32 tant qu'elle l'est**
+
+- La CI de `52ee51b` (fusion des trois branches de travail) échoue, et en local sur `3c4d77d` 6 tests échouent
+  (hors `test_httpfront_*`, propres au bac à sable du testeur) :
+  - `test_abr.Abr.test_wiring` : attend `rec_active(), pp_us / 1000, sub_us / 1000);` suivi de `abr_tick(dr);` ; la
+    ligne `STAT` a maintenant `sq_max, sq_drop, thr_us…` (`[sender-thread]`) : test à mettre à jour.
+  - `test_review_20261106.UpdateWithoutBackup.test_page_asks_and_sends_the_confirmation` : attend
+    `d.error === 'nobackup' && !extra` ; `settings.html` l. 1413 a la même logique sous une autre forme (`[ui-r20]`) :
+    test à mettre à jour (la confirmation est bien là).
+  - `test_audit_fixes.SdRepairGuards.test_same_boot_files_as_the_recorder` : `rec-storage.sh` lit maintenant la liste
+    commune `$SD_BOOT_FILES` (R25) : le test doit lire cette variable.
+  - `test_regressions…test_fullconfig_reads_actual_ini_video_and_audio`, `test_feat30…test_state_cgi_reading`,
+    `test_opt.DashinfoCache` : **le cache de `state.cgi` (`3c4d77d`)** relance `sh ${STATE_CGI_SCRIPT:-/mnt/www/cgi-bin/state.cgi}`
+    pour remplir le cache : hors caméra (et pour tout appel où ce chemin n'est pas le script courant) la réponse est
+    vide (« Expecting value ») ; `dashinfo` ne passe plus par `dashinfo_cached`. Utiliser `$0` (le script en cours) au
+    lieu du chemin fixe, et garder `dashinfo_cached` (ou mettre à jour `test_opt` si le nouveau cache le remplace).
+- Revue de `3c4d77d` (commit sans étiquette ni `Co-Authored-By`, identité `morgeek`) : caches courts de `state.cgi`
+  (`fullconfig` 5 s, `dashinfo` 5 s, `daynight` / `isp_tune` 1 s) et de `action.cgi?cmd=md_zones_info` (2 s), vidés à
+  chaque POST, import et écriture de configuration ; Services : instantané de ≤ 60 s rendu tout de suite pendant qu'un
+  rafraîchissement tourne en fond (R17) ; import : plus de `sync` global en mode flash ni de copie de secours pour un
+  fichier identique (R7) ; `tc100_rtsp` : journal à l'expiration d'un client (R10 : un client qui n'envoie
+  qu'`OPTIONS` n'est pas authentifié, d'où les 30 s mesurées). Idée bonne ; à corriger pour les tests ci-dessus.
+- **À vérifier en rc32** (testeur) : page Services < 2 s ; `fullconfig` < 1 s au 2e appel ; une modification de
+  réglage visible tout de suite (cache vidé) ; import JSON plus court ; journal `client slot … expired`.
