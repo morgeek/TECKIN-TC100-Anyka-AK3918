@@ -636,12 +636,14 @@ class Sources(unittest.TestCase):
         self.assertIsNone(re.search(r'\b(sscanf|fscanf|strtol|strtoul|strtoll|strtod|atoi|atol|log10|sqrt|lrint|memmem|ntohl|htonl)\s*\(', s))
 
     def test_wiring(self):
-        """the control script keeps monvifd by default and starts the C daemon only on ONVIF_IMPL=c"""
+        """the free daemon by default; monvifd (SD package only since rc31) only when asked for and present"""
         conf = (ROOT / 'config' / 'onvif.conf.dist').read_text()
         self.assertRegex(conf, r'(?m)^ONVIF_IMPL=c$')   # the free daemon by default since the rc28
         script = (ROOT / 'controlscripts' / 'onvif').read_text()
         self.assertIn('/mnt/tc100test/tc100-onvifd', script)
         self.assertIn('/mnt/bin/monvifd', script)
+        self.assertIn(': "${ONVIF_IMPL:=c}"', script)
+        self.assertIn('if [ -x "$ONVIFD_BIN" ] && { [ "$ONVIF_IMPL" != monvifd ] || [ ! -x /mnt/bin/monvifd ]; }; then', script)
 
 
 if __name__ == '__main__':

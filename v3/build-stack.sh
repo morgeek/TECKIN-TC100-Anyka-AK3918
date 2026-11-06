@@ -126,6 +126,8 @@ chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rts
 #    - the style sheets www/css/bulma.1.0.2.purged.min.css, ui-modern.min.css and ui.css (and their .gz): they are
 #      the sources of css/ui.bundle.min.css, which is the only one a page loads (the wizard has its own styles);
 #      likewise pico-2.0.6.min.css (Pico CSS as published) and pico-shim.css, the sources of css/ui.pico.min.css (the Pico look, item 50)
+#    - bin/monvifd, the closed 2.x ONVIF daemon (233 KB, ~70 KB in the image): tc100-onvifd replaces it (audit 2026-11-06
+#      S3, owner); it stays in the SD package, where controlscripts/onvif still starts it on ONVIF_IMPL=monvifd
 # 128 KiB blocks: a page read from the flash decompresses half as much as with 256 KiB, and the kernel's squashfs
 # caches (data, fragment, xz dictionary: one block each) take about 384 KB less RAM; about 45 KB more flash
 # (2026-10-30: 2,240,512 B against 2,195,456; lzo 2.96 MB and lz4 3.2-3.9 MB do not fit the 2.83 MB partition)
@@ -142,7 +144,8 @@ mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -qui
 	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
 	www/css/bulma.1.0.2.purged.min.css www/css/bulma.1.0.2.purged.min.css.gz www/css/ui-modern.min.css \
 	www/css/ui-modern.min.css.gz www/css/ui.css www/css/ui.css.gz \
-	www/css/pico-2.0.6.min.css www/css/pico-2.0.6.min.css.gz www/css/pico-shim.css www/css/pico-shim.css.gz
+	www/css/pico-2.0.6.min.css www/css/pico-2.0.6.min.css.gz www/css/pico-shim.css www/css/pico-shim.css.gz \
+	bin/monvifd
 n=$(wc -c < "$OUT/stack.sqfs")
 ( cd "$OUT" && md5sum stack.sqfs > stack.sqfs.md5 )
 echo "stack.sqfs: $n bytes (partition $STACK_MAX)"

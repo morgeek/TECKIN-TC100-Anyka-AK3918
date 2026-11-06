@@ -19,7 +19,7 @@ licence applies to its code. The code of this project itself is under the GPL-2.
 No vendor binary is published in this repository. The vendor media libraries are read from the camera itself.
 
 Prebuilt ARM programs kept in the repository and copied into the 3.0 image by `v3/build-stack.sh` (uClibc, from the
-2.x era): `bin/monvifd` (ONVIF).
+2.x era): `bin/monvifd` (ONVIF), in the SD package only since rc31 (the flash image runs the free `tc100-onvifd`).
 `bin/isp_flip` (freestanding, no C library), `bin/tc100-logfwd` (`src/logfwd`) and `lib/libnetacl.so` (`src/netacl`) are
 rebuilt from their source by the release build; the copies in `bin/` and `lib/` only serve local builds.
 `tc100-logfwd` and `libnetacl` run under the camera's uClibc but are built with the glibc cross compiler and a

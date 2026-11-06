@@ -2977,3 +2977,18 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   puis `cat /tmp/update_status.json` : `latest_version` = l'étiquette de la dernière release GitHub ; (3) dans le journal
   de la CI : la ligne `stack.sqfs: N bytes` comparée à celle de la rc30 (gain mesuré à noter ici).
 - **Critères :** Telegram et la vérification de version répondent comme en rc30 ; `ls /mnt/ext/bin/jq` absent.
+
+## 2026-11-06 — Place en flash : plus de monvifd dans la flash (`[flash-nomonvifd]`, audit S3, décision du propriétaire, rc31)
+
+- **Quoi :** `bin/monvifd` (démon ONVIF fermé de la 2.x, 233 Ko, ~70 Ko de l'image) sort de l'image flash ; il reste
+  dans le paquet SD. `controlscripts/onvif` : `ONVIF_IMPL` vaut `c` par défaut ; le démon libre `tc100-onvifd` démarre
+  sauf si `monvifd` est demandé **et** présent (mode SD) ; une ancienne config `ONVIF_IMPL=monvifd` sur une caméra en
+  flash obtient donc ONVIF par `tc100-onvifd` (rien ne démarre seulement si aucun des deux n'est là : ligne dans le
+  journal de l'onvif). Le bloc des versions (`common_functions.sh`) ne liste plus `monvifd` (il aurait affiché
+  « missing »).
+- **Interrupteur :** aucun en flash (retour : paquet SD, ou revert du commit `[flash-nomonvifd]`).
+- **Test (propriétaire : il utilise ONVIF) :** après la mise à jour, Services → ONVIF « en marche » ; `ps | grep onvif`
+  montre `tc100-onvifd` ; découverte et flux depuis Frigate / Home Assistant / l'enregistreur ; événements de mouvement
+  (T13) ; une caméra dont `onvif.conf` dit encore `ONVIF_IMPL=monvifd` démarre aussi `tc100-onvifd`.
+- **Critères :** ONVIF identique à la rc30 (découverte, profils, flux, audio retour, événements) ; `/mnt/bin/monvifd`
+  absent de la flash.
