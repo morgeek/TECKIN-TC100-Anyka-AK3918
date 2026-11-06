@@ -281,3 +281,22 @@ class UpdateKeepsAutoDayNight(unittest.TestCase):
             cs = Path(t, 'cs'); cs.write_text(src)
             subprocess.run(['sh', str(cs), 'halt'], check=True, timeout=10, capture_output=True)
             self.assertIn('REC_LOCAL=1', boot.read_text())
+
+
+class SyslogdOptionsExist(unittest.TestCase):
+    """rc29 (2026-11-06): BusyBox syslogd of the base image had no -D and no -f; syslogd_start used both, syslogd exited
+    at once, and with SYSLOG_ENABLE=1 both cameras kept no log and forwarded nothing."""
+
+    def test_fragment_enables_what_the_script_uses(self):
+        frag = (ROOT / 'v3/buildroot/board/tc100/busybox.fragment').read_text()
+        self.assertIn('CONFIG_FEATURE_SYSLOGD_DUP=y', frag)
+        self.assertIn('CONFIG_FEATURE_SYSLOGD_CFG=y', frag)
+
+    def test_script_falls_back_without_the_options(self):
+        cf = (ROOT / 'scripts/common_functions.sh').read_text()
+        body = cf[cf.index('syslogd_start() {'):cf.index('tc100_log_event()')]
+        self.assertIn('unrecognized option: [Df]', body)
+        self.assertNotRegex(body, r'exec \$_sl_bin -n -D')
+        probe = re.search(r'\$_sl_bin -D -f /dev/null --help 2>&1 \| grep -Eq "([^"]+)"', body).group(1)
+        self.assertRegex('syslogd: unrecognized option: D', probe)      # the camera's BusyBox without the features
+        self.assertNotRegex("syslogd: unrecognized option '--help'", probe)  # a full BusyBox: keep the options

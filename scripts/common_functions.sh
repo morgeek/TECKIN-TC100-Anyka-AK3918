@@ -881,10 +881,16 @@ syslogd_start() {
   _fwd_list() { ps 2>/dev/null | awk '/[t]c100-logfwd( |$)/ { print $1 }'; }
   # shellcheck disable=SC2046
   kill $(_fwd_list) >/dev/null 2>&1
+  # -D (drop repeats) and -f (the filter file) need FEATURE_SYSLOGD_DUP / FEATURE_SYSLOGD_CFG: the 3.0 base BusyBox
+  # was built without them until 2026-11-06 and its syslogd exited at once ("unrecognized option: D"): with syslog
+  # forwarding on, the camera kept no log at all after this point and sent nothing (rc29, both cameras). Without
+  # them, -l 6 keeps notice and above (the same level as the filter file, without its auth lines).
+  _sl_opts="-D -f $SYSLOG_CONF_RUNTIME"
+  $_sl_bin -D -f /dev/null --help 2>&1 | grep -Eq "unrecognized option: [Df]|invalid option -- '?[Df]" && _sl_opts=""
   if [ -n "$_sl_remote" ] && [ -z "$_sl_fwd" ]; then
-    ( trap '' HUP; exec $_sl_bin -n -D -f "$SYSLOG_CONF_RUNTIME" -l 6 -s 128 -b 1 -R "$_sl_remote" -L ) </dev/null >/dev/null 2>&1 &
+    ( trap '' HUP; exec $_sl_bin -n $_sl_opts -l 6 -s 128 -b 1 -R "$_sl_remote" -L ) </dev/null >/dev/null 2>&1 &
   else
-    ( trap '' HUP; exec $_sl_bin -n -D -f "$SYSLOG_CONF_RUNTIME" -l 6 -s 128 -b 1 ) </dev/null >/dev/null 2>&1 &
+    ( trap '' HUP; exec $_sl_bin -n $_sl_opts -l 6 -s 128 -b 1 ) </dev/null >/dev/null 2>&1 &
   fi
   _sl_pid=$!
   if [ -n "$_sl_remote" ] && [ -n "$_sl_fwd" ]; then

@@ -172,3 +172,9 @@ CONFIG_FEATURE_HTTPD_RANGES=y
 # CONFIG_FEATURE_VOLUMEID_MINIX is not set
 # CONFIG_FEATURE_VOLUMEID_UBIFS is not set
 # CONFIG_FEATURE_UDHCPC_ARPING is not set
+
+# syslogd as scripts/common_functions.sh syslogd_start runs it: -D (drop repeated lines) and -f (the filter file:
+# notice and above, auth). Off in the BusyBox default config of this Buildroot: syslogd stopped at once with
+# "unrecognized option: D" and the camera kept no log (rc29, 2026-11-06).
+CONFIG_FEATURE_SYSLOGD_DUP=y
+CONFIG_FEATURE_SYSLOGD_CFG=y
