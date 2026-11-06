@@ -25,7 +25,9 @@ INTR=${WD_INTR:-/proc/interrupts}
 UPT=${WD_UPTIME:-/proc/uptime}
 MAXLINES=21600
 
-wd_up_ms() { read -r _u _r < "$UPT" 2>/dev/null; _s=${_u%.*}; _f=${_u#*.}; _f=${_f}00; echo $((_s * 1000 + ${_f%"${_f#???}"} )); }
+# milliseconds since boot. The fraction is read as 1xyz - 1000: "0.05" gave "050", an octal number for the shell
+# (= 40), and "0.08" / "0.09" none at all: the huge "stalls" of the first run (868 390 ms, IPCAM2, rc31)
+wd_up_ms() { read -r _u _r < "$UPT" 2>/dev/null; _s=${_u%.*}; _f=${_u#*.}; _f=${_f}000; echo $((_s * 1000 + 1${_f%"${_f#???}"} - 1000)); }
 wd_stat() { _v=0; read -r _v < "$SYS/$1" 2>/dev/null; case "$_v" in ''|*[!0-9]*) _v=0 ;; esac; echo "$_v"; }
 # total of the interrupt lines of the USB host (name contains usb, otg or hcd)
 wd_usb_irq() {
@@ -66,14 +68,19 @@ run() {
   trap 'rm -f "$PIDF"' EXIT INT TERM
   [ "$_ping" = ping ] && _gw=$(wd_gateway)
   echo "# wifi-diag start $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) secs=$_secs gw=${_gw:-none}" >> "$LOG"
-  echo "# up_ms gap_ms rx_pkts tx_pkts rx_drop usb_irq beacons ping_ms" >> "$LOG"
-  _prev=$(wd_up_ms); _i=0; _n=0
+  echo "# up_ms gap_ms rx_pkts tx_pkts rx_drop usb_irq beacons ping_ms work_ms" >> "$LOG"
+  _i=0; _n=0
   while [ "$_i" -lt "$_secs" ]; do
+    # gap_ms: how much longer than asked the sleep itself took (the camera did not run this loop); the time spent by the
+    # loop's own work (a lost ping waits 1 s, iw up to 3 s) is work_ms, no longer counted as a stall (R27: 1 293 false
+    # "stalls" in 2 h, mostly lost pings)
+    _t0=$(wd_up_ms)
     sleep "${WD_SLEEP:-1}"
-    _now=$(wd_up_ms); _gap=$((_now - _prev - 1000)); [ "$_gap" -lt 0 ] && _gap=0; _prev=$_now
+    _now=$(wd_up_ms); _gap=$((_now - _t0 - ${WD_SLEEP:-1} * 1000)); [ "$_gap" -lt 0 ] && _gap=0
     _b=-; [ $((_i % 5)) = 0 ] && { _b=$(wd_beacons); _b=${_b:--}; }
     _p=-; [ -n "$_gw" ] && _p=$(wd_ping "$_gw")
-    echo "$_now $_gap $(wd_stat rx_packets) $(wd_stat tx_packets) $(wd_stat rx_dropped) $(wd_usb_irq) $_b $_p" >> "$LOG"
+    _line="$_now $_gap $(wd_stat rx_packets) $(wd_stat tx_packets) $(wd_stat rx_dropped) $(wd_usb_irq) $_b $_p"
+    echo "$_line $(($(wd_up_ms) - _now))" >> "$LOG"
     _i=$((_i + 1)); _n=$((_n + 1))
     # keep the log bounded (RAM): trim once it is 10 % over
     if [ "$_n" -ge $((MAXLINES / 10)) ]; then

@@ -41,7 +41,7 @@ class WifiDiag(unittest.TestCase):
         lines = [l for l in (self.t / 'log').read_text().splitlines() if not l.startswith('#')]
         self.assertEqual(len(lines), 3)
         f = lines[0].split()
-        self.assertEqual(f, ['8000250', '0', '1000', '500', '3', '123456', '4242', '12'])
+        self.assertEqual(f, ['8000250', '0', '1000', '500', '3', '123456', '4242', '12', '0'])   # + work_ms (R27)
         self.assertEqual(lines[1].split()[6], '-')          # beacons every 5 s only
         self.assertFalse((self.t / 'pid').exists())          # pid file removed at the end
         self.assertIn('gw=192.0.2.1', (self.t / 'log').read_text())
@@ -63,6 +63,16 @@ class WifiDiag(unittest.TestCase):
         self.assertRegex(out, r'USB interrupts frozen [34] s')
         self.assertEqual(out.count('ping lost'), 2)
         self.assertIn('lost 2', out)
+
+    def test_uptime_fraction_with_a_leading_zero(self):
+        # "0.05" was read as the octal 050 (40) and "0.08" not at all: huge false stalls (R27, IPCAM2 rc31)
+        for up, want in (('8000.05 1.00', '8000050'), ('8000.08 1.00', '8000080'), ('8000.9 1.00', '8000900'),
+                         ('8000.099 1.00', '8000099')):
+            (self.t / 'uptime').write_text(up + '\n')
+            (self.t / 'log').unlink(missing_ok=True)
+            subprocess.run(SH + [str(SCRIPT), 'run', '1'], env=self.env(), capture_output=True, text=True, timeout=30)
+            line = [l for l in (self.t / 'log').read_text().splitlines() if not l.startswith('#')][0]
+            self.assertEqual(line.split()[0], want, up)
 
     def test_read_only_and_ram_only(self):
         src = re.sub(r'(?m)^\s*#.*$', '', SCRIPT.read_text())
