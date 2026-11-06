@@ -2424,3 +2424,18 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   question « older » ; (R24) Multi-vues avec le Direct ouvert dans un autre onglet : pas d'avertissement ; (MQTT)
   `diag` publie `rtsp_clients` = nombre réel (Frigate + VLC en UDP) et `rtsp_dropped`.
 - **Critères :** aucune carte de démarrage montée en écriture ; aucun paquet ancien proposé sans question.
+
+## 2026-11-06 — Noyau d'essai « minuteries haute résolution » à la demande (`[hrt-test]`, audit H4, item 13)
+
+- **Quoi :** le workflow « Build Linux 6.6 » a une option manuelle `test_hrtimers` (exécution à la main, « Run
+  workflow ») : noyau d'essai avec `CONFIG_HIGH_RES_TIMERS` et `CONFIG_NO_HZ_IDLE` (aujourd'hui tic périodique à 100 Hz :
+  `usleep(100)` dort 10 ms, d'où l'abandon du pacing en R2). Les paquets de ce run portent la version
+  `…-testkernel` (même chose avec l'option existante `venc_pool`) : jamais confondus avec une release. Le noyau
+  normal ne change pas.
+- **Interrupteur :** aucun (option du run manuel seulement).
+- **Test (testeur, carte SD, rien dans la flash) :** lancer le run avec `test_hrtimers` coché ; copier `c66.img` du run
+  dans `tc100test/` d'une carte SD de secours ; démarrer depuis la carte (`pack66/boot66b.sh`) ; `cat /proc/timer_list |
+  grep resolution` → `1 nsecs` ; puis la nuit H.265 de `nq/` (2 h au moins) comme pour le 480 MHz ; ensuite seulement,
+  avec le propriétaire, la question d'un noyau en flash.
+- **Critères :** démarrage normal, résolution 1 ns, 2 h H.265 sans erreur noyau ni redémarrage ; puis R2 / H5
+  (lissage du débit) pourront être repris dans le fil d'envoi (`RTSP_SENDER_THREAD`).

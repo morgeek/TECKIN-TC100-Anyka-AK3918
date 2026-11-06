@@ -36,6 +36,11 @@ on:
         description: 'Test kernel only: compiled default of ak39_venc.pool (e.g. 12M for the encoder smart mode, item 9 of the implementer list). Empty = the normal 9600K.'
         required: false
         default: ''
+      test_hrtimers:
+        description: 'Test kernel only (audit 2026-11-06 H4, item 13): CONFIG_HIGH_RES_TIMERS + CONFIG_NO_HZ_IDLE, to boot from the SD card (tc100test/c66.img) and soak before any flash. Not for release.'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   base:
@@ -90,6 +95,19 @@ jobs:
           curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin
           echo "e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c -
           cp ../patches/kernel-6.6/defconfig_cma .config
+          # H4 test kernel (manual run only): one-shot timer mode, so that usleep(100) sleeps 100 us and not a 10 ms tick
+          # (pacing, ABR); the timer of patch 0001 declares CLOCK_EVT_FEAT_ONESHOT. Checks on the camera: /proc/timer_list
+          # "resolution: 1 nsecs", then the 2 h H.265 soak (nq/) before the owner is asked for any flash write.
+          if [ "${{ github.event.inputs.test_hrtimers }}" = "true" ]; then
+            sed -i 's/^# CONFIG_HIGH_RES_TIMERS is not set$/CONFIG_HIGH_RES_TIMERS=y/; s/^CONFIG_HZ_PERIODIC=y$/# CONFIG_HZ_PERIODIC is not set/; s/^# CONFIG_NO_HZ_IDLE is not set$/CONFIG_NO_HZ_IDLE=y/' .config
+            grep -E '^CONFIG_(HIGH_RES_TIMERS|NO_HZ_IDLE)=y' .config
+            echo "### Test kernel: HIGH_RES_TIMERS + NO_HZ_IDLE (H4, not for release)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # a test kernel must never pass for a release: the packages of this run carry "-testkernel" in their version
+          if [ "${{ github.event.inputs.test_hrtimers }}" = "true" ] || [ -n "${{ github.event.inputs.venc_pool }}" ]; then
+            printf '%s-testkernel\n' "$(head -n 1 ../VERSION)" > ../VERSION
+            echo "### Packages of this run: version $(cat ../VERSION)" >> "$GITHUB_STEP_SUMMARY"
+          fi
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
           echo "[+] Validating CMA & Audio Configuration in .config:"
           grep -E "CONFIG_CMA|CONFIG_SOUND|CONFIG_SND_AK_PCM|CONFIG_CODEC_AK39|CONFIG_ZRAM|CONFIG_ZSMALLOC|CONFIG_BLK_DEV" .config
