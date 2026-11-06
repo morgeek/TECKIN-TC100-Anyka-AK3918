@@ -36,9 +36,9 @@ Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux
      of the video page would stop RTSP until a reboot. The 6.6 one is `v3/linux66-sd/rtsp-h26x`.
    - `bin/setconf` in git is the vendor program; the 6.6 one is the shim `v3/linux66-sd/setconf`.
    - `controlscripts/auto-night-detection` in git is the 2.x one and never starts `scripts/auto-night-daemon.sh`
-     (fixed on 2026-10-25 but with no caller in git). The 6.6 launcher was lost in merge e8cd945; a copy is in
-     `git show abb3d34:controlscripts/auto-night-detection`.
-   - `controlscripts/recording` and `bin/ffmpeg-min-recorder` were removed in a729c4c; `autorun-linux66.sh` still
+     (fixed on 2026-10-25 but with no caller in git). The 6.6 launcher was lost in merge cd5d162; a copy is in
+     `git show a997fda:controlscripts/auto-night-detection`.
+   - `controlscripts/recording` and `bin/ffmpeg-min-recorder` were removed in 7146ad2; `autorun-linux66.sh` still
      calls the script. `bin/tinymix`, `bin/swapon_zram` and the uClibc libraries are not in git either.
    - `scripts/sdinfo-sd.sh` and the `sed` edits listed in `v3/linux66-sd/README.md` (state.cgi, viewrecords.cgi,
      disk.cgi, settings.html) are not in git.
@@ -47,7 +47,7 @@ Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux
    reads `/mnt/config/wpa_supplicant.conf` (`S39tc100-linux66:61`), the only one `cfg-persist` saves. `wpa_cli` and
    `iwlist` are not in the image, so the change is not applied live and the scan is empty.
 4. **The IR-cut filter probably never moves.** The `setconf` shim only writes `/var/run/ircut`
-   (`v3/linux66-sd/setconf:29`); nothing pulses GPIO 81/80 (592/593 on 6.6). The 6.6 pulse of abb3d34 was lost in the
+   (`v3/linux66-sd/setconf:29`); nothing pulses GPIO 81/80 (592/593 on 6.6). The 6.6 pulse of a997fda was lost in the
    same merge. To check on the camera.
 5. **A second flash writer is shipped.** `v3/flash-update66.sh` (in the stack through `cp -a v3`) runs `flashcp` on
    `kernel` without `flashw` (dry run unless `--write`). `scripts/flash-code.sh` writes from 0x160000 of mtdblock1,
@@ -77,7 +77,7 @@ Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux
 | Motion zones | Broken | applied by `libtc100fix` in the vendor server only |
 | Sound detection | Broken | level came from `libtc100fix` |
 | Push-to-talk, speaker, two-way audio | Broken | `ak_ao_ptt` / `ak_ao_demo` absent; no RTSP backchannel; speaker never tested on 6.6 |
-| Listen in the browser | Broken | calls `audio_stream.cgi`, removed in a729c4c |
+| Listen in the browser | Broken | calls `audio_stream.cgi`, removed in 7146ad2 |
 | SD recording | Card only | problem 2; thumbnails need `ffmpeg-min` (not shipped) |
 | View records | Degraded | list OK, no thumbnails |
 | MQTT bridge + Home Assistant discovery | OK | snapshot command uses `getimage` (probably fails); entities in HA still to be confirmed |

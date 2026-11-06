@@ -1,6 +1,6 @@
 # Web UI audit on Linux 6.6 + tc100_rtsp (2026-10-24)
 
-Stack on the card: vendor 2.1.9 UI (commit f68ab0b), custom httpfront, tc100_rtsp (H.265 + PCMA audio), kernel 6.6 audiofix, autorun v7.
+Stack on the card: vendor 2.1.9 UI (commit cba5d2f), custom httpfront, tc100_rtsp (H.265 + PCMA audio), kernel 6.6 audiofix, autorun v7.
 Trigger: user found no MQTT password field and asked to check every page and feature.
 
 ## Fixed (on the card; repo copies in v3/linux66-sd/ and v3/autorun-linux66.sh)

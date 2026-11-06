@@ -1,7 +1,7 @@
 # What the stock firmware does: findings from its binaries (2026-10-31)
 
 The owner asked to read the original binaries instead of guessing vendor structures. Sources: the full 8 MiB SPI
-dump of the stock firmware (2026-02-21, git history `bootloader.bin`, commit 1302d89; kernel "Linux-3.4.35" uImage at
+dump of the stock firmware (2026-02-21, git history `bootloader.bin`, commit 6c65fad; kernel "Linux-3.4.35" uImage at
 0x39000, root squashfs at 0x23B000, application squashfs at 0x438000, JFFS2 settings at 0x3BB000), and the
 `libmpi_venc_ex.so` of the 2.x firmware (`libmpi_venc V1.0.07`, the library `tc100_rtsp` loads). Analysis with Ghidra
 11.4 headless and the stock `factory_cfg.ini`. **No vendor file or decompiled code is in this repository**: only the

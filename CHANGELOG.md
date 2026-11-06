@@ -28,12 +28,12 @@ about esbuild's development server, which the project never runs).
 
 ## [3.0.1-rc30] - 2026-11-06
 
-The rc29 (`af4c5b0`, on both cameras from the flash) plus the tester's fixes of the rc29 campaign and the implementer
+The rc29 (`769aa79`, on both cameras from the flash) plus the tester's fixes of the rc29 campaign and the implementer
 items R19, R14, R18 and R20-U1/U3:
-- `349d864` + `a2afd35`: the web update and the install halt `auto-night-detection`, `recording` and
+- `7e3b1c8` + `8845166`: the web update and the install halt `auto-night-detection`, `recording` and
   `motion-detection` instead of stopping them; the rc29 update had switched automatic day / night off on both cameras
   and local recording off on IPCAM1.
-- `301c1ba`: syslog works again with forwarding on (BusyBox of the base image built with `FEATURE_SYSLOGD_DUP` and
+- `bf6d15c`: syslog works again with forwarding on (BusyBox of the base image built with `FEATURE_SYSLOGD_DUP` and
   `FEATURE_SYSLOGD_CFG`; `syslogd_start` falls back without `-D` / `-f`). The base image is rebuilt.
 - R19: the memory guard halts these three services too (their `stop` writes a setting for good).
 - R14: the SD auto-repair never checks nor writes a boot / install card, does not start `fsck.fat` without the memory it
@@ -51,7 +51,7 @@ The rc28 (`8131144`, 7 h 43 on IPCAM2 without a restart, `dropped 0`, memory fla
 the tester with Chrome 157, which fell back to MP4 at once:
 - `1749475`: a browser SDP offer is accepted up to 12000 bytes (`whep.cgi` and `tc100-whep`, was 6000; Chrome's is
   7607 bytes and got 413).
-- `9a78b01`: a DTLS ClientHello in several fragments (Chrome's DTLS 1.3 with an ML-KEM key share) is rebuilt by
+- `cfed960`: a DTLS ClientHello in several fragments (Chrome's DTLS 1.3 with an ML-KEM key share) is rebuilt by
   `tc100-whep` before mbedTLS 2.28, which failed with -0x7900; the handshake goes on in DTLS 1.2. New test
   `tests/whep_chrome_interop.py` (Playwright's Chromium, DTLS 1.2 and DTLS 1.3 + ML-KEM).
 No setting changes: every default of the rc28 stays; an update keeps `/mnt/config` (ONVIF stays off until switched on
@@ -59,8 +59,8 @@ in Services).
 
 ## [3.0.1-rc28] - 2026-11-05
 
-After the rc27 package (`214e7ac`): the tester's rc27 fixes (`1df168b` no libc variable in onvifd/supervisord,
-`06efe30` WebRTC forwards full 1412-byte RTP packets), `[rc28-fixes]` R2-R7 (no RTSP pacing by default, `restart` in
+After the rc27 package (`8c2eaba`): the tester's rc27 fixes (`0bc967c` no libc variable in onvifd/supervisord,
+`7618d73` WebRTC forwards full 1412-byte RTP packets), `[rc28-fixes]` R2-R7 (no RTSP pacing by default, `restart` in
 every service script, WebRTC falls back to MP4 without a picture, ONVIF real frame rate, faster JSON import, libc import
 check in CI), `[rc28-defaults]` (every coded feature on by default for a new install: C supervisor with sound
 detection, C MQTT discovery, direct microphone, free ONVIF, WebRTC, AAC audio in SD recordings), free `rwconf`,
@@ -69,7 +69,7 @@ detection, C MQTT discovery, direct microphone, free ONVIF, WebRTC, AAC audio in
 
 ## [3.0.1-rc27] - 2026-11-05
 
-Everything below, from the [Unreleased] entries of 2026-11-05 (56 commits after the rc26 package `08cb4e1`): free ONVIF
+Everything below, from the [Unreleased] entries of 2026-11-05 (56 commits after the rc26 package `e0020a5`): free ONVIF
 daemon, WebRTC live view, C supervisor and C discovery (all off by default), audit fixes (LAN-only web and RTSP,
 bounded httpfront, idle RTSP clients, web update retries without reboot, wizard CSRF), clean SD card at every restart,
 `RTSP_PACING_US=100` by default, serial console off after 5 min, and the items 26-56 of the implementer list.
@@ -192,7 +192,7 @@ bounded httpfront, idle RTSP clients, web update retries without reboot, wizard 
   every boot found it "not properly unmounted". It now stops the recorder, syncs and remounts the card read-only
   (a card still busy is logged on itself, `tc100-3/shutdown.log`, with what held it). `fsck.fat` is in the user space
   now: the Repair button of the SD card page works, and `SD_AUTO_REPAIR=1` checks a card left dirty by a power cut
-  a minute after boot. The `dosfsck -a` of `c397f22` (run at every remount, and never at boot) is removed.
+  a minute after boot. The `dosfsck -a` of `9623e94` (run at every remount, and never at boot) is removed.
 
 - **Safety net for the logs in RAM** (`scripts/log-cap.sh`, housekeeper job every 10 min, `LOG_CAP_KB=64`): a log
   of `/tmp/log` or `/tmp/logs` that does not cap itself keeps its last 200 lines, rewritten in place so a program

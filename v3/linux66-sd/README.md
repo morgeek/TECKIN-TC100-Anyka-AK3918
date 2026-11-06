@@ -1,4 +1,4 @@
-# Linux 6.6 SD-boot stack: glue for the vendor web UI (2.1.9 stack, commit f68ab0b on the card)
+# Linux 6.6 SD-boot stack: glue for the vendor web UI (2.1.9 stack, commit cba5d2f on the card)
 
 The card carries the 2.1.9 web UI and its CGIs. They assume the original firmware (card on /mnt, vendor RTSP server
 `rtsp-h26x`, flash boot). These files adapt them to the free stack (tc100_rtsp). Copy to the card:

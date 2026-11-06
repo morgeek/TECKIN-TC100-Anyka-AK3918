@@ -1,7 +1,7 @@
 #!/bin/sh
 # tc100-whep compiled with musl, the C library of the camera's user space, against mbedTLS 2.28.9 with DTLS-SRTP:
 # the daemon is a Buildroot package built only in the 40-minute base image build, and the interop test uses glibc,
-# which lets a missing header through (a struct timeval broke the base build of 30b9430). Runs in alpine (musl).
+# which lets a missing header through (a struct timeval broke the base build of 43efa80). Runs in alpine (musl).
 #   docker run --rm -v "$PWD:/src:ro" alpine:3.20 sh /src/tests/docker/whep-musl.sh
 set -e
 MB=2.28.9
