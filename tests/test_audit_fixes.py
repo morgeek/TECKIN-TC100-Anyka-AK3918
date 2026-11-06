@@ -532,3 +532,19 @@ class StandInLibcNoGlibcOnlyCalls(unittest.TestCase):
         s = (ROOT / 'tests/check-libc-data-imports.sh').read_text()
         for n in ('__isoc99_', '__isoc23_', '__ctype_(b|tolower|toupper)_loc'):
             self.assertIn(n, s)
+
+
+class FlashModeRefusesBootCard(unittest.TestCase):
+    """rc32 on IPCAM1 (2026-11-06): the initramfs mounts the card read-write for the SD mode and flashmode-prep.sh kept
+    it at /mnt/sd "for video storage" even when it is a boot / install card (wifitest/): ADRESSE.txt and the logs were
+    written to it, the recorder and the update used it. rec-storage.sh refused it, but only after."""
+
+    def test_same_list_everywhere_and_checked_before_the_card_is_kept(self):
+        lists = {}
+        for rel in ('scripts/rec-storage.sh', 'scripts/sd-diag.sh', 'v3/linux66-sd/flashmode-prep.sh'):
+            lists[rel] = re.search(r'^SD_BOOT_FILES="([^"]+)"', (ROOT / rel).read_text(), re.M).group(1).split()
+        self.assertEqual(len({tuple(v) for v in lists.values()}), 1, lists)
+        fp = (ROOT / 'v3/linux66-sd/flashmode-prep.sh').read_text()
+        self.assertLess(fp.index('[ -e /tmp/cardmnt/$b ]'), fp.index('mount --move /tmp/cardmnt /mnt/sd'))
+        self.assertIn('umount /tmp/cardmnt', fp)
+        self.assertIn('mount -o remount,ro /tmp/cardmnt', fp)

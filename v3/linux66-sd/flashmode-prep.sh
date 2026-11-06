@@ -31,6 +31,18 @@ mkdir -p /mnt/config/autostart /mnt/config/presets
 CFG=/mnt/config sh $R/v3/linux66-sd/cfg-persist restore
 ( CFG=/mnt/config exec sh $R/v3/linux66-sd/cfg-persist daemon ) </dev/null >/dev/null 2>&1 &
 mkdir -p /mnt/sd
+# R25: a boot / install card (files that make the vendor boot use it, same list as scripts/rec-storage.sh) is not video
+# storage: the initramfs mounted it read-write for the SD mode, and kept here it was written to (ADRESSE.txt, logs) and
+# offered to the recorder and to the update (IPCAM1, rc31 and rc32, the owner's old 3.0 SD card with wifitest/).
+SD_BOOT_FILES="wifitest uImage uimage root.sqsh4 usr.sqsh4 usr.jffs2"
+if [ $CARD = 1 ]; then
+  for b in $SD_BOOT_FILES; do
+    [ -e /tmp/cardmnt/$b ] || continue
+    if umount /tmp/cardmnt 2>/dev/null; then CARD=0; log "SD card refused for video storage: it carries $b (boot files)"
+    else mount -o remount,ro /tmp/cardmnt 2>/dev/null; log "SD card carries $b (boot files): kept read-only"; fi
+    break
+  done
+fi
 if [ $CARD = 1 ]; then
   mount --move /tmp/cardmnt /mnt/sd
   mkdir -p /mnt/sd/DCIM /mnt/sd/records 2>/dev/null
