@@ -7,6 +7,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc29] - 2026-11-06
+
+The rc28 (`8131144`, 7 h 43 on IPCAM2 without a restart, `dropped 0`, memory flat) plus the two WebRTC fixes found by
+the tester with Chrome 157, which fell back to MP4 at once:
+- `1749475`: a browser SDP offer is accepted up to 12000 bytes (`whep.cgi` and `tc100-whep`, was 6000; Chrome's is
+  7607 bytes and got 413).
+- `7928ac5`: a DTLS ClientHello in several fragments (Chrome's DTLS 1.3 with an ML-KEM key share) is rebuilt by
+  `tc100-whep` before mbedTLS 2.28, which failed with -0x7900; the handshake goes on in DTLS 1.2. New test
+  `tests/whep_chrome_interop.py` (Playwright's Chromium, DTLS 1.2 and DTLS 1.3 + ML-KEM).
+No setting changes: every default of the rc28 stays; an update keeps `/mnt/config` (ONVIF stays off until switched on
+in Services).
+
 ## [3.0.1-rc28] - 2026-11-05
 
 After the rc27 package (`87599e8`): the tester's rc27 fixes (`ee969e9` no libc variable in onvifd/supervisord,

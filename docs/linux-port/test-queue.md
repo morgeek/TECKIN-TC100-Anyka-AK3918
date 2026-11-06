@@ -2779,3 +2779,10 @@ Enregistreur `/tmp/nightcam.sh` (148 relevés toutes les 180 s, 23:02 → 06:27 
 - **Wi-Fi** : pas de déconnexion (pas de nouvelle association dans `messages`, lien 70, -22 dBm). Ping vers la box (2 paquets / relevé) : 13 relevés à 100 % de perte et 2 à 50 % sur 148 (~9 %), quelques pointes de latence (300-1170 ms) : **même niveau qu'en rc27** (9 / 86) et sans effet sur le flux. Probablement l'économie d'énergie Wi-Fi ou la box : point déjà au backlog (pertes Wi-Fi).
 - **Jour / nuit** : à 06:11 UTC la luminosité monte (luma 24 → 48, `ae` 2 → 19), toujours en nuit à 06:27 ; bascule jour à vérifier dans la matinée (`/tmp/logs/daynight.log`).
 - Rappel : `tc100-whep` et `whep.cgi` de la .11 sont les versions corrigées superposées en RAM (perdues au redémarrage) en attendant la rc29.
+
+## 2026-11-06 07:35 — rc29 lancée par le testeur (accord du propriétaire)
+
+- Contenu : rc28 + `1749475` (offre WHEP 12000 octets) + `7928ac5` (ClientHello DTLS fragmenté) ; CI verte sur les deux ; aucun réglage par défaut modifié.
+- Installation prévue : **.11** en flash par la mise à jour web (remplace les binaires superposés en RAM) ; la **.24** est en cours de flash en rc28 par le propriétaire.
+- À vérifier en rc29 : P7 WebRTC dans Chrome depuis le flash (sans superposition), `whep.cgi` 12000, réglages de la .11 conservés (dont `autostart/onvif`), puis T2 de jour à 25 img/s.
+
