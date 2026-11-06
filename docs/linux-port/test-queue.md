@@ -3069,3 +3069,20 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   sites). Le projet n'utilise esbuild qu'au build (bundle et minification), jamais `serve` : rien sur les caméras.
   Implémenteur : si on veut fermer l'alerte, monter esbuild en 0.25.x (première version corrigée) en vérifiant que la
   sortie minifiée reste identique ou que les tests Playwright (19 pages) restent à 0 erreur — pas 0.28 d'un coup.
+
+## 2026-11-06 — rc31 lancée par l'implémenteur (consigne du propriétaire : « lance une RC31 avec tout ce qu'on a fait »)
+
+- **Contenu :** rc30 (`e4f0464`, md5 `65e1cd70`) + `[ux-pico]` (interface Pico par défaut, Classique en secours),
+  `[ux-sounds]` (« Jouer maintenant » sans carte), `[wifi-diag]`, `[flash-nojq]`, `[flash-nomonvifd]`, `[flash-gz]`,
+  `[flash-alaw]`, `[flash-minify]`, README / guides / captures, corrections D1-D10 ; CI verte sur `f4cd5eb` (même
+  code) ; revus par le testeur (entrées 12:35 et 13:25). Aucun réglage par défaut modifié sauf l'aspect de l'interface.
+- **Archive :** `tc100-3.0.1-rc31-update.tar` du run « Build Linux 6.6 » de ce commit. Le testeur la contrôle (md5,
+  `MD5SUMS`, contenu : pas de `ext/bin/jq` ni de `bin/monvifd`, `sounds/*.alaw`, `css/ui.pico.min.css(.gz)`, JS
+  minifié) et note **la ligne `stack.sqfs: N bytes`** (rc30 + Pico : 2 502 656 octets) pour mesurer le gain réel.
+- **Installation prévue :** .11 et .24 par la mise à jour web, sans carte SD (propriétaire).
+- **À vérifier sur les deux caméras :** réglages conservés (`daynight`, `REC_LOCAL`, `mdenabled`, MQTT, ONVIF) ;
+  interface Pico en clair et sombre, PC et téléphone, toutes les pages sans erreur dans la console ; « Classique » puis
+  retour à Pico ; sons intégrés (carillon, alerte, sirène, démarrage) et « Jouer maintenant » ; ONVIF depuis
+  Frigate / HA / l'enregistreur avec `tc100-onvifd` ; Telegram et vérification de version si activés ;
+  `reboot-history.log` « intended: web update to 3.0.1-rc31 » ; puis `wifi-diag.sh` 2 h (entrée `[wifi-diag]`).
+- **Ne pas fusionner** la PR Dependabot esbuild 0.28.1 (voir l'entrée 13:25).
