@@ -82,8 +82,10 @@ say "vendor image: $n bytes"
 # stop what reads the card or the flash heavily while writing (the polled SPI flash is slow, about a minute per MiB)
 # and what takes the most memory (the camera restarts at the end): the same list as the web update. With only the
 # first two stopped, a camera in trial mode restarted in the middle of writing the stack (2026-10-29).
-for s in recording motion-detection rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
-sh /mnt/controlscripts/auto-night-detection halt >/dev/null 2>&1	# stop keeps the manual mode (daynight=3) for good: halt does not
+# halt, not stop, for the services whose stop is a setting (REC_LOCAL=0, mdenabled=0, daynight=3, kept for good: after the
+# rc29 update both cameras came back without automatic day / night and the .24 without its recording)
+for s in recording motion-detection auto-night-detection; do sh /mnt/controlscripts/$s halt >/dev/null 2>&1; done
+for s in rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
 killall tc100_rtsp monvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 for p in $(pidof watchdog); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null; done
 say "free memory before writing: $(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo) KB"

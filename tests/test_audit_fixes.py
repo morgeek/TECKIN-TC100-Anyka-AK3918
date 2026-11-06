@@ -259,9 +259,25 @@ class UpdateKeepsAutoDayNight(unittest.TestCase):
         self.assertNotIn('daynight', self.run_cs('halt'))
 
     def test_update_and_install_halt(self):
+        # recording stop writes REC_LOCAL=0 and motion-detection stop mdenabled=0, for good, as auto-night-detection
+        # stop writes daynight=3: the update must halt them (rc29: the .24 came back without its recording)
         for rel in ('v3/install/update66.sh', 'v3/install/install66.sh', 'www/cgi-bin/update.cgi'):
             src = (ROOT / rel).read_text()
-            self.assertIn('auto-night-detection halt', src, rel)
+            self.assertRegex(src, r'for (s|sv) in recording motion-detection auto-night-detection; do', rel)
             for line in src.splitlines():
-                if 'stop' in line and 'for ' in line and ' in ' in line:
-                    self.assertNotIn('auto-night-detection', line, (rel, line))
+                if 'for ' in line and ' in ' in line and 'halt' not in line and ('stop' in line or 'rtsp-h26x' in line):
+                    for svc in ('auto-night-detection', 'recording', 'motion-detection'):
+                        self.assertNotIn(svc, line, (rel, line))
+        for cs in ('recording', 'motion-detection', 'auto-night-detection'):
+            src = (ROOT / 'controlscripts' / cs).read_text()
+            self.assertRegex(src, r'(?m)^halt\(\)', cs)
+            self.assertRegex(src, r'\|halt\)', cs)
+
+    def test_recording_halt_leaves_rec_local(self):
+        with tempfile.TemporaryDirectory() as t:
+            boot = Path(t, 'boot.conf'); boot.write_text('REC_LOCAL=1\n')
+            src = (ROOT / 'controlscripts/recording').read_text().replace('/mnt/config/boot.conf', str(boot)) \
+                .replace('. /mnt/scripts/common_functions.sh', ':')
+            cs = Path(t, 'cs'); cs.write_text(src)
+            subprocess.run(['sh', str(cs), 'halt'], check=True, timeout=10, capture_output=True)
+            self.assertIn('REC_LOCAL=1', boot.read_text())

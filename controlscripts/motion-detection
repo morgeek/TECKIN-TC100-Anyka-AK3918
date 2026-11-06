@@ -48,11 +48,14 @@ health()
 # restart = stop then start: service-watchdog, memory-guard, the MQTT bridge, the config import and the Settings
 # pages call it (it was missing here: the call did nothing, rc27 tester R5)
 restart() { stop; start; }
+# halt: stop the monitor without switching motion detection off in rtspserver.conf (stop writes mdenabled=0 for good):
+# for an update, an install or a low-memory stop; the detection itself runs in tc100_rtsp, stopped with it
+halt() { killpid_graceful "$MONITOR_PIDFILE" 3; }
 
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status|health|restart)
+  case $1 in start|stop|status|health|restart|halt)
     $1
     ;;
   esac

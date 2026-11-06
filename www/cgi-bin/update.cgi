@@ -46,10 +46,12 @@ POST:upload)
 		need=$(( n / 1024 + 3072 )); avail=$(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo)
 		if [ "${avail:-0}" -lt "$need" ]; then
 			: > /tmp/update66.stopped
-			for sv in rtsp-h26x recording motion-detection mqtt-bridge onvif; do
+			for sv in recording motion-detection auto-night-detection; do	# halt: their stop writes a setting for good
+				[ -x /mnt/controlscripts/$sv ] && sh /mnt/controlscripts/$sv halt >/dev/null 2>&1
+			done
+			for sv in rtsp-h26x mqtt-bridge onvif; do
 				[ -x /mnt/controlscripts/$sv ] && sh /mnt/controlscripts/$sv stop >/dev/null 2>&1
 			done
-			sh /mnt/controlscripts/auto-night-detection halt >/dev/null 2>&1	# not stop: that writes the manual mode
 			killall tc100_rtsp monvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 			avail=$(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo)
 			[ "${avail:-0}" -ge "$need" ] || {

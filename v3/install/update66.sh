@@ -76,8 +76,10 @@ say "installing $(cat "$D/VERSION"): stopping the services"
 # back from the stack partition being erased, 2026-10-29; net-guard, one of its jobs, may reboot in the middle)
 sh /mnt/scripts/housekeeper.sh stop >/dev/null 2>&1
 for p in $(ps 2>/dev/null | awk '/web-guard\.sh run/ && !/awk/ { print $1 }'); do kill "$p" 2>/dev/null; done
-for s in recording motion-detection rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
-sh /mnt/controlscripts/auto-night-detection halt >/dev/null 2>&1	# stop keeps the manual mode (daynight=3) for good: halt does not
+# halt, not stop, for the services whose stop is a setting (REC_LOCAL=0, mdenabled=0, daynight=3, kept for good: after the
+# rc29 update both cameras came back without automatic day / night and the .24 without its recording)
+for s in recording motion-detection auto-night-detection; do sh /mnt/controlscripts/$s halt >/dev/null 2>&1; done
+for s in rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
 killall tc100_rtsp monvifd 2>/dev/null
 # B6: the settings of the last 30 s and a zero boot counter to the flash slots (cfga/cfgb, not rewritten here), then the
 # settings daemon stops: the lock (cfg-persist save) is taken and kept, so a save under way ends first

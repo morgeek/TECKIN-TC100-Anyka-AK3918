@@ -42,6 +42,14 @@ stop()
   echo "Recording off (REC_LOCAL=0): the current file is closed within a few seconds"
 }
 
+# halt: for an update, an install or a low-memory stop: the recording setting is left alone (stop writes REC_LOCAL=0
+# for good: after the rc29 update the .24 no longer recorded). The recorder lives in tc100_rtsp, whose stop
+# (rtsp-h26x stop, SIGTERM) closes the current file: nothing to do here.
+halt()
+{
+  :
+}
+
 health()
 {
   if status >/dev/null 2>&1; then
@@ -55,7 +63,7 @@ health()
 }
 
 case "${1:-start}" in
-  start|stop|status|health) "${1:-start}" ;;
+  start|stop|status|health|halt) "${1:-start}" ;;
   restart) stop; start ;;
   *) echo "Usage: $0 {start|stop|status|restart|health}" >&2; exit 1 ;;
 esac
