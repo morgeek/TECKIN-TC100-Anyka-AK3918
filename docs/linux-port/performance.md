@@ -21,7 +21,7 @@ Every optimisation is measured on a camera before it is kept, and stays behind a
    kernel the log says `capture: copy` and nothing changes. The ISP then writes straight into the encoder pool;
    it uses about 3 MB more of the 12 MiB pool (watch `ak_venc_open failed` with H.265).
 3. **Cached capture**: same with `RTSP_CACHED=1` (kernel with patch 0012): the log says `capture buffers: cached`.
-4. **Sub picture**: `sub_scale` reads one pixel in three since 2026-10-28 (b0907a0); `sub_ms` shows the gain.
+4. **Sub picture**: `sub_scale` reads one pixel in three since 2026-10-28 (0347a6c); `sub_ms` shows the gain.
 5. **Memory**: 3D-NR reference buffers (CMA), the encoder pool size, `MemAvailable` during a long run.
 
 What the hardware could do instead of the CPU: [hardware-acceleration.md](hardware-acceleration.md).

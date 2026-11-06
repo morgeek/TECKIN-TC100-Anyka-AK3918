@@ -43,7 +43,7 @@ static u64 urem;	/* remainder of the last udiv() */
 
 /* udiv and mulu are ARM code, not Thumb, and their loops carry an empty asm barrier: gcc 15 (the CI runner's
  * Ubuntu 26.04) recognised the shift-and-add loop of mulu as a 64-bit multiply and, in Thumb, called __aeabi_lmul of
- * libgcc, which this freestanding program does not link (the release build of c392315 failed); in ARM mode a 64-bit
+ * libgcc, which this freestanding program does not link (the release build of f64529c failed); in ARM mode a 64-bit
  * multiply is inline (umull), and the barrier keeps the loops as written whatever the compiler */
 __attribute__((noinline, target("arm"))) static u64 udiv(u64 n, u64 d)	/* shift and subtract (no libgcc) */
 {

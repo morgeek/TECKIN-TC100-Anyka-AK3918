@@ -28,7 +28,7 @@ Goal: boot without the SD card (SD becomes video storage only), flash keeps a wa
 3. Write kernel + rootfs from Linux with `flashw`, power-cycle with and without the SD card.
 4. Keep the case open (UART available) for about a week of use; then close it.
 
-## Result of step 1 (2026-10-24, kernel built from a93e985)
+## Result of step 1 (2026-10-24, kernel built from c30b0ee)
 - The 72 KiB `tail` was forced read-only by the MTD core because the NOR used 64 KiB erase blocks (partition not 64 KiB aligned). Fix: `CONFIG_MTD_SPI_NOR_USE_4K_SECTORS=y` (erasesize now 4096).
 - Flags after the fix: boot/kernel/mac/env/rootfs 0x800 (read-only), tail 0xc00 (writable).
 - `flashw tail <file>`: 4 KiB, 64 KiB and 72 KiB random files, erase + write + verify (flashcp) + md5 read-back = OK each time, the camera kept streaming.

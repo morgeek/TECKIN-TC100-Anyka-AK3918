@@ -13,7 +13,7 @@ Cocher ici ou dans `release-3.0.1.md` quand c'est fait.
 refusées, XSS de `viewrecords` / `camcontrols` / `showlog`, `frigateyaml` sans mot de passe, `integrationmanifest`
 25 fps) ; TLS sortant avec le bundle de Buildroot (GitHub, ntfy) ; import JSON (13,6 s) ; RTSP TCP principal +
 sous-flux + audio ; **pont MQTT en C** : une nuit stable (un seul démon, pas de reconnexion, PSS 209 Ko contre
-1 129 Ko) → défaut depuis `d41ac72` ; RAM de la .11 sans fuite sur 15 h ; jour / nuit de la .11 correct.
+1 129 Ko) → défaut depuis `ea8b964` ; RAM de la .11 sans fuite sur 15 h ; jour / nuit de la .11 correct.
 
 **Échec / à reprendre** : pertes Wi-Fi inchangées (9,5 % des mesures, le pays FR n'y fait rien) ; carte SD de la .24
 encore « not properly unmounted » après la mise à jour web ; aller-retour jour / nuit à l'aube sur la .24 (05:42 jour
@@ -26,8 +26,8 @@ sauf mention : `[audit-fix]` (W2 LAN seul pour le web et le RTSP, R1, R2, B4-B6 
 actif), `[time-http]` (#24, actif), `[privacy]` (#25).
 
 **Changé par un autre agent le 2026-11-05 matin, sans essai** (entrées ajoutées dans `test-queue.md` le même jour) :
-pont MQTT en C par défaut dans `mqtt.conf.dist` (`d41ac72`, `[mqtt-c-default]`) ; `RTSP_PACING_US=100` par défaut
-(`1a3a2eb`, `[pacing]`) ; `dosfsck -a` avant de remonter la carte (`96336d1`, `[sd-fsck]` : **sans effet aujourd'hui**,
+pont MQTT en C par défaut dans `mqtt.conf.dist` (`ea8b964`, `[mqtt-c-default]`) ; `RTSP_PACING_US=100` par défaut
+(`03fbb67`, `[pacing]`) ; `dosfsck -a` avant de remonter la carte (`c397f22`, `[sd-fsck]` : **sans effet aujourd'hui**,
 voir #41) ; #33 coché (le pre-roll existait déjà dans `rec.c`).
 
 ## POINT DE SITUATION — 2026-11-05 au soir (implémenteur, pour le propriétaire et le testeur)
@@ -164,8 +164,8 @@ la rc30 par la mise à jour web, sur les deux caméras, sans carte SD.
 ### Règles pour ne pas avoir d'accident
 
 1. **Ne rien défaire de ce que le testeur a corrigé ce jour** ; chaque correctif a un test qui doit rester vert :
-   `1749475` + `7928ac5` (WebRTC Chrome 157 : offre 12 Ko, ClientHello DTLS fragmenté), `e85b42c` + `0047c26`
-   (mise à jour : `halt` au lieu de `stop` pour `auto-night-detection`, `recording`, `motion-detection`), `c68c906`
+   `1749475` + `9a78b01` (WebRTC Chrome 157 : offre 12 Ko, ClientHello DTLS fragmenté), `349d864` + `a2afd35`
+   (mise à jour : `halt` au lieu de `stop` pour `auto-night-detection`, `recording`, `motion-detection`), `301c1ba`
    (syslog : options BusyBox). Tests : `tests/test_whep.py`, `tests/whep_chrome_interop.py`,
    `tests/test_audit_fixes.py` (classes `UpdateKeepsAutoDayNight`, `SyslogdOptionsExist`, `WhepAcceptsBrowserOffers`),
    `tests/test_audit_20261104.py` (`UpdateStopsWhatRestarts`).
@@ -176,7 +176,7 @@ la rc30 par la mise à jour web, sur les deux caméras, sans carte SD.
 3. **Jamais de changement de valeur par défaut qui touche une caméra déjà installée** sans migration unique et notée
    (le modèle : `scripts/migrate-rc28-defaults.sh`). Ne pas réactiver ce que l'utilisateur a éteint.
 4. **Ne pas toucher à U-Boot** ni à l'environnement de démarrage (règle du propriétaire).
-5. **Image de base** : `c68c906` change `v3/buildroot/board/tc100/busybox.fragment` ; la rc30 doit sortir avec une
+5. **Image de base** : `301c1ba` change `v3/buildroot/board/tc100/busybox.fragment` ; la rc30 doit sortir avec une
    image de base reconstruite (`build-base-rootfs.yml`, appelé par la release). Vérifier que la taille de BusyBox reste
    raisonnable (+ quelques Ko) et que `tests/fixtures/busybox-6.6-applets.txt` ne change pas (aucun applet ajouté).
 6. Avant la release : `python3 -m unittest discover -s tests` vert en CI (en local, `test_httpfront_*` échoue hors CI
@@ -281,20 +281,20 @@ et des lignes reçues par 192.168.1.23, `reboot-history.log` « intended: web up
 Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires
 corrigés **superposés en RAM** (perdus au prochain redémarrage) : la rc28 est urgente.
 
-R1. [x] *(rc28 publiée par le testeur, `8131144`, installée sur la .11 le 2026-11-05 ~23:45 ; contrôles : test-queue 2026-11-06 00:00)* **Publier la rc28** avec, au minimum : `ee969e9` (onvifd/supervisord sans variable libc), `d8ff063` (whep :
+R1. [x] *(rc28 publiée par le testeur, `8131144`, installée sur la .11 le 2026-11-05 ~23:45 ; contrôles : test-queue 2026-11-06 00:00)* **Publier la rc28** avec, au minimum : `1df168b` (onvifd/supervisord sans variable libc), `06efe30` (whep :
     paquets RTP de 1412 octets), le point R2, et un `tc100-whep` reconstruit (image de base, `build-base-rootfs` lancé à
     la main le 2026-11-05 ~20:35 : vérifier qu'il est vert et que le build de la rc28 prend bien cette image).
-R2. [x] *(fait, `[rc28-fixes]`)* **Annuler `RTSP_PACING_US=100` par défaut** (`1a3a2eb`, `v3/linux66-sd/rtsp-launch.sh`) : noyau `CONFIG_HZ=100`
+R2. [x] *(fait, `[rc28-fixes]`)* **Annuler `RTSP_PACING_US=100` par défaut** (`03fbb67`, `v3/linux66-sd/rtsp-launch.sh`) : noyau `CONFIG_HZ=100`
     sans minuterie haute résolution (`/proc/timer_list` : résolution 10 ms) → `usleep(100)` dort ≥ 10 ms ; le pacing
     ne touche que les clients **UDP** et dort dans la boucle principale (un seul fil) après chaque paquet : un client
     UDP plafonne vers 100 paquets/s (< 1,6 Mbit/s) et retarde la capture pour tous. Un vrai lissage demanderait
     `CONFIG_HIGH_RES_TIMERS=y` ou un envoi par lots sans `usleep`, mesuré sur caméra.
-R3. [x] *(contrôle CI ajouté : `tests/check-libc-data-imports.sh` sur les `imports.txt`, `[rc28-fixes]`)* **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `ee969e9`) : la libc factice de ces Makefiles
+R3. [x] *(contrôle CI ajouté : `tests/check-libc-data-imports.sh` sur les `imports.txt`, `[rc28-fixes]`)* **`tc100-onvifd` plantait au démarrage** (corrigé par le testeur, `1df168b`) : la libc factice de ces Makefiles
     déclare tout import comme une fonction, donc **aucune variable libc** (`stderr`, `stdout`, `optarg`, `environ`,
     `timezone`…) dans `src/tc100rtsp`, `src/mqttd`, `src/onvifd`, `src/supervisord` : le test
     `tests/test_audit_fixes.NoLibcDataImports` le vérifie désormais. Contrôle à ajouter en CI : `readelf --dyn-syms` des
     binaires ARM contre une liste des symboles OBJECT de la uClibc (aucun import de donnée).
-R4. [~] **WHEP sans vidéo** (corrigé par le testeur, `d8ff063` ; image de base reconstruite (run 42089030516) et binaire validé sur la .11 le 2026-11-05 21:30 : 18 img/s reçues par aiortc, voir test-queue) : `on_video()` jetait tout paquet > 1400 ; le test
+R4. [~] **WHEP sans vidéo** (corrigé par le testeur, `06efe30` ; image de base reconstruite (run 42089030516) et binaire validé sur la .11 le 2026-11-05 21:30 : 18 img/s reçues par aiortc, voir test-queue) : `on_video()` jetait tout paquet > 1400 ; le test
     d'interop découpe maintenant comme `tc100_rtsp` (échoue avec l'ancien code). Sur caméra : retester avec la rc28
     (aiortc : images reçues, page web : direct WebRTC, retour MP4 si échec). Point d'UI à vérifier : si le WebRTC
     s'établit mais **sans image**, la page doit aussi retomber sur le MP4 (sinon direct noir avec le son). *(2026-11-05 soir : corrigé, la page exige `videoWidth > 0` et compte les images décodées, `[rc28-fixes]`)*
@@ -302,7 +302,7 @@ R5. [x] *(fait pour les 15 scripts sans `restart`, test pour tous, `[rc28-fixes]
     `restart` (Services, passage `SUPERVISOR_IMPL`) ne fait rien. Ajouter `restart` (stop puis start), vérifier les
     autres scripts de service.
 R6. [x] *(fait, plus la taille 720p, `[rc28-fixes]`)* **`controlscripts/onvif` plafonne les fps annoncés à 15** (`FPS0=15` « unless the file says less ») alors que
-    les flux tournent à 25 : même défaut que `frigateyaml` corrigé en `9cf38e1`. Annoncer la valeur réelle.
+    les flux tournent à 25 : même défaut que `frigateyaml` corrigé en `7fba1bc`. Annoncer la valeur réelle.
 R7. [~] *(rc28 sur la .11 : 15,5 s puis 21,8 s pour 156 valeurs, pas nettement mieux ; à creuser)* *(un sous-shell de moins par valeur sans caractère encodé, `[rc28-fixes]` ; à mesurer sur caméra)* **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
     11-17 img/s pendant l'import ; voir où partent les secondes (nouveaux validateurs ?).
 R8. [x] *(2026-11-05 soir, consigne du propriétaire « active tous les items codés » : tout activé par défaut, migration unique pour les caméras installées, entrée `[rc28-defaults]` ; risque principal : `RTSP_ABR`)* **Garder sur la .11 et en faire les défauts si la nuit est bonne** (propriétaire : « si tout est concluant on
@@ -310,7 +310,7 @@ R8. [x] *(2026-11-05 soir, consigne du propriétaire « active tous les items co
     identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
     après R4. Bilan de nuit du testeur le 2026-11-06 au matin.
 
-R9. [x] *(rc29 depuis la flash : OK, 20 img/s de jour, 2026-11-06 08:10)* *(validé dans Chrome 157 sur la .11 le 2026-11-06 01:05 avec les binaires en RAM : WebRTC 640x360 à 10 img/s de nuit ; reste la rc29)* *(2e cause trouvée et corrigée en `7928ac5` : ClientHello DTLS 1.3 + ML-KEM fragmenté, mbedTLS 2.28 → -0x7900 ; voir test-queue 2026-11-06 00:20 ; mettre `tests/whep_chrome_interop.py` en CI)* **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
+R9. [x] *(rc29 depuis la flash : OK, 20 img/s de jour, 2026-11-06 08:10)* *(validé dans Chrome 157 sur la .11 le 2026-11-06 01:05 avec les binaires en RAM : WebRTC 640x360 à 10 img/s de nuit ; reste la rc29)* *(2e cause trouvée et corrigée en `9a78b01` : ClientHello DTLS 1.3 + ML-KEM fragmenté, mbedTLS 2.28 → -0x7900 ; voir test-queue 2026-11-06 00:20 ; mettre `tests/whep_chrome_interop.py` en CI)* **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
     limite 12000 commune à `whep.cgi` et `tc100-whep`, tampon 16 Ko). Il faut un `tc100-whep` reconstruit (image de base)
     → **rc29** ; le testeur revalide P7 dans Chrome. Vérifier aussi Firefox / Safari (offres de taille voisine).
 R10. [ ] **T9 : client RTSP muet fermé après ~31 s** alors que `CLI_IDLE_S` = 60 : trouver le délai qui s'applique
@@ -328,7 +328,7 @@ R14. [x] *(fait pour la rc30, `[rc30]` : `scripts/sd-diag.sh` `repair()` — (a)
     dans la page SD ; donner `oom_score_adj` 1000 au fsck. (c) Après un fsck en échec, la carte doit être remontée
     (`rec-storage.sh resume`) si elle est acceptable.
 
-R15. [x] *(corrigé par le testeur en `e85b42c`, puis `0047c26` pour `recording` (REC_LOCAL=0) et `motion-detection` (mdenabled=0) ; à revalider à la prochaine mise à jour)* **La mise à jour coupait le
+R15. [x] *(corrigé par le testeur en `349d864`, puis `a2afd35` pour `recording` (REC_LOCAL=0) et `motion-detection` (mdenabled=0) ; à revalider à la prochaine mise à jour)* **La mise à jour coupait le
     jour / nuit automatique** : `update66.sh` / `install66.sh` / `update.cgi` appelaient `auto-night-detection stop`,
     qui écrit `daynight=3` (manuel, persistant) depuis que la rc28 fournit `rwconf`. Nouveau verbe `halt`. Vérifier
     s'il reste d'autres `stop` « techniques » qui écrivent un réglage utilisateur (`service_trim`, `mqtt-bridge.sh`
@@ -358,7 +358,7 @@ R20. [~] *(rc30 : U1 « Éteindre » retiré du menu (commande `shutdown` gardé
     cache mémoire », texte du durcissement + `lightweight_mode` fantôme, clés `boot.conf` 2.x sans lecteur,
     `autostart/cpu-scaler` ignoré, « 25+ Discovery Nodes », colonne « Quality » en dBm, âge de `web-server`, seuils
     jour/nuit des deux méthodes affichés ensemble, lien manquant depuis l'alerte « identifiants par défaut »).
-R21. [~] *(corrigé par le testeur en `c68c906` ; relancé en RAM sur les deux caméras ; demande l'image de base reconstruite, rc30)* **syslog mort quand le renvoi
+R21. [~] *(corrigé par le testeur en `301c1ba` ; relancé en RAM sur les deux caméras ; demande l'image de base reconstruite, rc30)* **syslog mort quand le renvoi
     est actif** : `syslogd -D -f` refusé par la BusyBox de la base → plus de `/var/log/messages` ni de syslog distant.
     Demande l'image de base reconstruite (rc30) ; à vérifier : `ps` montre `syslogd` et `tc100-logfwd`, le serveur
     192.168.1.23 reçoit.
@@ -387,7 +387,7 @@ T6. [~] *(lecture seule : cfga / cfgb valides sur les deux ; retour arrière non
 **Sécurité (T)**
 T7. [ ] *(bloqué à distance : même IP que le propriétaire)* Limite d'essais de mot de passe du web (`WEB_LOCKOUT`) : blocage, déblocage, sans gêner Frigate/HA.
 T8. [x] *(rc28 .11 : OK, voir R11)* `httpfront` face à une avalanche de connexions muettes (R2 de l'audit) : la caméra reste joignable.
-T9. [x] *(nuit complète rc28 : Frigate connecté sans coupure ; client muet coupé à 31 s : R10)* Expiration des clients RTSP inactifs (`9e2089e`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
+T9. [x] *(nuit complète rc28 : Frigate connecté sans coupure ; client muet coupé à 31 s : R10)* Expiration des clients RTSP inactifs (`f08561a`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
     un client muet après SETUP l'est.
 
 **Fonctions rc27 jamais activées (T, une à la fois, avec retour arrière noté)**
@@ -399,7 +399,7 @@ T12. [ ] `RTSP_ABR=1` (débit adaptatif), `RTSP_MD_ENC=1` (mouvement par l'encod
 T13. [~] *(rc29 : abonnement PullPoint, messages d'état, désabonnement OK sur les deux ; mouvement réel avec HA à voir)* Événements de mouvement **ONVIF** (PullPoint) vus par Home Assistant (avec P5).
 
 **Matériel (P)**
-P1. [ ] Anti-masquage avec la main (correctif `25fecef` jamais retesté) : `tamper_active=1` après ≥ 6 s, retour à 0.
+P1. [ ] Anti-masquage avec la main (correctif `197aba2` jamais retesté) : `tamper_active=1` après ≥ 6 s, retour à 0.
 P2. [ ] Bouton reset avec `tc100-supervisord` (appui court / long : actions attendues).
 P3. [ ] LED (avant, rouge, IR), IR coupé derrière une vitre (`IR_LED_MODE=off`), page `hardware.html` complète.
 P4. [ ] Haut-parleur : push-to-talk du navigateur, audio bidirectionnel depuis HA / Frigate / go2rtc (ONVIF backchannel).
@@ -408,7 +408,7 @@ P4. [ ] Haut-parleur : push-to-talk du navigateur, audio bidirectionnel depuis H
 P5. [ ] RTSP en **UDP** dans VLC (confirme R2 / pacing), intégration ONVIF de Home Assistant, un NVR tiers (Synology
     Surveillance Station ou Blue Iris).
 P6. [ ] Point d'accès Wi-Fi de secours (bouton reset 3-7 s) et Wi-Fi par `wifi.txt` sur la carte.
-P7. [x] *(2026-11-06 : OK dans Chrome 157 après `1749475` + `7928ac5`, binaires en RAM ; à reconfirmer en rc29)* Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
+P7. [x] *(2026-11-06 : OK dans Chrome 157 après `1749475` + `9a78b01`, binaires en RAM ; à reconfirmer en rc29)* Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
 
 **Carte SD, sur la .24 (P pour poser / retirer la carte, T pour le reste)**
 P8. [ ] Enregistrement, frise (`view_records.html`), pré-enregistrement, `REC_KEEP_EVENTS`, réparation automatique
@@ -423,10 +423,10 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
 
 ## P0 — rc26, avant le tag 3.0.1
 
-1. [x] **Publier une rc26** avec ce qui est sur `main` depuis la rc25, en particulier `04f2313` + `9853759` : arrêt du
+1. [x] **Publier une rc26** avec ce qui est sur `main` depuis la rc25, en particulier `70523eb` + `9853759` : arrêt du
    pont MQTT en C (`stop` laissait le démon tourner, un deuxième démon démarrait avec le même client id, `availability`
    basculait toutes les 2 s). Aujourd'hui le correctif n'existe sur la .11 qu'en RAM.
-   *Fait : rc26 publiée (build `342b523`), relue et téléchargée par le testeur le 2026-11-04 20:15 ; installation sur
+   *Fait : rc26 publiée (build `08cb4e1`), relue et téléchargée par le testeur le 2026-11-04 20:15 ; installation sur
    la .11 prévue. Tout ce qui est sur `main` depuis le 2026-11-05 (voir le résumé ci-dessus) demande une **rc27**.*
 2. [x] **Supprimer les sous-shells qui restent en mémoire** (~0,3 Mo, aucun C à écrire) :
    *Fait le 2026-11-05 pour le pont MQTT (`( exec "$BB" nohup … ) &`, `$!` = le démon, shell et C). La boucle getty
@@ -489,7 +489,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
    *Bilan de la nuit du 2026-11-05 : 9,5 % des mesures avec perte totale (rc23 : 11 %) malgré FR + regdb, signal fort
    (-19 dBm, MCS 7, 0 retry au compteur iw) : pas le domaine réglementaire, plutôt la réception ou un blocage du pilote.
    `RTSP_QMAX=1024` : 5 courts épisodes d'images sautées en début de nuit, rien de négatif, mais pas de témoin pour
-   chiffrer. `RTSP_PACING_US=100` est le défaut depuis `1a3a2eb` (sans essai, entrée `[pacing]`). Suite : mesurer le
+   chiffrer. `RTSP_PACING_US=100` est le défaut depuis `03fbb67` (sans essai, entrée `[pacing]`). Suite : mesurer le
    pacing, canal Wi-Fi de la box (propriétaire), puis le pilote `rtl8xxxu`.*
 10. [ ] **Mémoire de la .24** : 20,5 Mo disponibles hier soir, 18,6 Mo après 23 h 40 (enregistrement SD actif) :
     vérifier demain matin si c'est du cache ou une dérive.
@@ -514,7 +514,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     - Objectif : exposer l'AudioBackChannel dans la réponse ONVIF Device / Media2 service pour permettre le Two-Way Audio natif instantané dans Home Assistant (WebRTC / Go2RTC) et Frigate sans bidouille URL manuelle.
     - Coût CPU / RAM : 0 % (métadonnées XML / profil statique côté démon ONVIF + exploitation du code RTSP déjà présent dans `tc100_rtsp`).
 13. [ ] **Régulation de trafic réseau / Pacing RTSP (`tc100_rtsp`)** :
-    *2026-11-05 : `RTSP_PACING_US=100` mis par défaut par un autre agent (`1a3a2eb`), puis **retiré par R2** (noyau
+    *2026-11-05 : `RTSP_PACING_US=100` mis par défaut par un autre agent (`03fbb67`), puis **retiré par R2** (noyau
     `HZ=100` : `usleep(100)` dort 10 ms) ; aujourd'hui pas de pacing par défaut. Demande les minuteries haute
     résolution (audit 2026-11-06 H4/H5).*
     - Lissage temporel de l'envoi des paquets RTP lors des pics d'I-frames H.264/H.265 (pacing microsecondes `RTSP_PACING_US`).
@@ -699,8 +699,8 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     en lecture seule échouait. `stop` arrête maintenant l'enregistreur, `sync`, remonte la carte en lecture seule
     (sinon `tc100-3/shutdown.log` dit qui la tient). `fsck.fat` (dosfstools) dans `ext/` : le bouton Réparer de la page
     Carte SD marche ; `SD_AUTO_REPAIR=1` répare une carte laissée sale par une coupure, une minute après le démarrage
-    (mode flash). Le `dosfsck -a` de `96336d1` est retiré. Entrée `[sd-clean]`.*
-    *2026-11-05 : `96336d1` (autre agent) lance `dosfsck -a` dans `rec-storage.sh _mount_card`, mais (1) `dosfsck` n'est
+    (mode flash). Le `dosfsck -a` de `c397f22` est retiré. Entrée `[sd-clean]`.*
+    *2026-11-05 : `c397f22` (autre agent) lance `dosfsck -a` dans `rec-storage.sh _mount_card`, mais (1) `dosfsck` n'est
     pas dans l'image (ni dosfstools dans Buildroot, ni applet busybox : la ligne ne fait rien), (2) au démarrage la carte
     est montée par `v3/S39tc100-linux66`, pas par `_mount_card` (qui ne sert qu'après une éjection en mode flash), (3)
     `-a` répare tout seul (peut tronquer) et vérifierait toute la carte à chaque montage (RAM, minutes). Reste à faire :

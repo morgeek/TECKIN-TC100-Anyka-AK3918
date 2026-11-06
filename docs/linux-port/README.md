@@ -162,7 +162,7 @@ Found by comparing register dumps taken while the stock 3.4 firmware was streami
 
 ## Thingino
 
-History (the folder was removed on 2026-10-27, f3d846d; 3.0 serves RTSP with its own `tc100_rtsp`): `thingino_port/` held a first Board Support Package for [Thingino](https://github.com/themactep/thingino-firmware): SoC rules (`soc/anyka/ak3918.mk`), Buildroot fragments and a camera config for the TC100 (`configs/`), two Thingino patches (`patches/`: add the Anyka vendor, disable gpio-keys), a known-good 4.4 kernel config (`kernel/`), and packages (`package/thingino-rtsp-server`, `package/thingino-webui`).
+History (the folder was removed on 2026-10-27, bcb3e24; 3.0 serves RTSP with its own `tc100_rtsp`): `thingino_port/` held a first Board Support Package for [Thingino](https://github.com/themactep/thingino-firmware): SoC rules (`soc/anyka/ak3918.mk`), Buildroot fragments and a camera config for the TC100 (`configs/`), two Thingino patches (`patches/`: add the Anyka vendor, disable gpio-keys), a known-good 4.4 kernel config (`kernel/`), and packages (`package/thingino-rtsp-server`, `package/thingino-webui`).
 
 - `thingino-rtsp-server` (static ELF, about 80 KB, about 1 MB of RAM): RTSP/1.0 with CSeq tracking, SDP, RTP over TCP interleaved and UDP, RFC 2435 JPEG streams. It was the RTSP server of the first V3 builds on 6.6. Options: `-p port`, `-u user -P password` or `-c config` with `port=`, `username=`, `password=`.
 - The Thingino WebUI previews through multipart MJPEG (`cgi-bin/ch0.mjpg`) and JPEG snapshots (`cgi-bin/ch0.jpg`); RTSP paths are `/ch0` and `/ch1`.

@@ -46,5 +46,5 @@ des boutons de lecture : mesures, actualisations, recherche Wi-Fi).
 - **Journal système et syslog distant morts** sur les deux caméras (`SYSLOG_ENABLE=1`) : `syslogd_start` lance
   `syslogd -D -f`, options absentes de la BusyBox de la base 3.0 ; `syslogd` s'arrête aussitôt, `/var/log/messages`
   s'arrête au démarrage du service et rien ne part vers 192.168.1.23. La page Services affichait bien
-  `syslog-forward` « Arrêté ». Corrigé en `c68c906` (options activées dans `busybox.fragment` + repli sans ces options
+  `syslog-forward` « Arrêté ». Corrigé en `301c1ba` (options activées dans `busybox.fragment` + repli sans ces options
   dans le script). Relancé en RAM sur les deux caméras (perdu au redémarrage jusqu'à la rc30).

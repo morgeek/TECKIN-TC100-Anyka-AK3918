@@ -261,7 +261,7 @@ log); push after local CI. rc11 = rc10 +:
   restart, and the setting is there after it. Reboot again with nothing changed: no save line.
 - **Pass:** both. **Fail:** write what was lost; the 30 s daemon keeps working as before either way.
 
-- **Results R11-01..03 (tester, 2026-10-31, rc11 = 6c47a88, CI green); rc11 installed in the .11 flash:**
+- **Results R11-01..03 (tester, 2026-10-31, rc11 = 1313467, CI green); rc11 installed in the .11 flash:**
   - Install: rc11 kernel (md5 17233877…) booted once from the card (U-Boot prompt, RAM), package md5 1007ad97…, `update66.sh check` ok, `apply update11`:
     `/mnt/VERSION` 3.0.1-rc11, flash boot, pool 9600K, MemAvailable 21.6-23.8 MB, both encoders `open`.
   - **R11-01 FAIL, and a hazard: both smart modes stop the video server.**
@@ -309,7 +309,7 @@ dusk and dawn readings before changing any logic. So rc10 = rc9 +:
      (writes `daynight=2`) and check `health` = `ok: running`. Leave it on auto for R9-02.
 - **Pass:** 1-3.
 
-- **Result R10-01 (tester, 2026-10-31, rc10 = 84c2268, CI green): steps 1-3 PASS.**
+- **Result R10-01 (tester, 2026-10-31, rc10 = c9fc2ec, CI green): steps 1-3 PASS.**
   - Step 1: rc10 kernel (md5 b47f9bfa…) booted once from the card through the U-Boot prompt in RAM (flash initrd): pool 9600K, no 3D-NR line, MemAvailable 21.3 MB.
     Package md5 16ea9d33…, `update66.sh check` ok, `apply /mnt/sd/tc100-3/update10`: stack, kernel, initrd written, restart; `/mnt/VERSION` = 3.0.1-rc10,
     flash boot, MemAvailable 21.5 MB, `ak39_venc.pool` 9600K, both encoders `open`.
@@ -382,7 +382,7 @@ those four, each **off by default** (or a pure measurement) until its entry belo
      their md5 into `/mnt/sd/re/backup-ls.txt` (no copy needed, they are already on the card). If a full 8 MB dump or a
      `collect-platform-dump.sh` tar exists on the card or the Mac, say where.
   3. Write here what was copied (names, sizes, md5). The owner copies `/mnt/sd/re/` and the stock partitions to
-     `C:\Users\mfront\Documents\tc100-re\in\` on his PC.
+     `C:\Users\<user>\Documents\tc100-re\in\` on his PC.
 - **Then (implementer):** Ghidra headless analysis; the findings (structures, values, call sequences) go into the code
   and `docs/linux-port/`, each as a switch with its own test entry here.
 
@@ -414,8 +414,8 @@ switch back to the rc7 behaviour.
    guard by itself when the pool is smaller than 12 MiB (log `encoder pool: N bytes (ak39_venc.pool), no guard at
    its start`; `RTSP_POOLPAD=<bytes>` still forces one). With the default 12 MiB pool nothing changes. Steps in R8-02.
 
-### R8-00 rc8 CI: the kernel workflow FAILS on `fd8c178` and on `c574c15` (tester, 2026-10-31 01:10) - nothing to test yet
-- Runs 41146850236 (`fd8c178`) and 41147148222 (`c574c15`), workflow "Build Linux 6.6 LTS Kernel ...", job "Compile Linux 6.6 + Anyka AK3918 +
+### R8-00 rc8 CI: the kernel workflow FAILS on `e99b302` and on `9737a2d` (tester, 2026-10-31 01:10) - nothing to test yet
+- Runs 41146850236 (`e99b302`) and 41147148222 (`9737a2d`), workflow "Build Linux 6.6 LTS Kernel ...", job "Compile Linux 6.6 + Anyka AK3918 +
   CMA 16MB", step **"Build the 3.0 release (free user space image, SD package, web update)"**: `sh v3/build-stack.sh ...` stops with
   **`cp: cannot stat 'usr/share/alsa/cards/aliases.conf': No such file or directory`** (the line `cp -L usr/share/alsa/cards/aliases.conf
   "$T/ext/share/alsa/cards/"`, `v3/build-stack.sh` line 87). The Python "CI" workflow is green. No artifact was produced, so the tester has
@@ -427,8 +427,8 @@ switch back to the rc7 behaviour.
   exist, `-c 0` is a number); keep the `[ -s ... ]` check afterwards (a comment line is not empty); or (b) enable the alsa-lib option that
   installs `cards/` in `v3/buildroot/configs/` and rebuild the base (the CI caches it: bump the cache key). (a) is the quick one and needs no
   new base. After the fix, test on the camera: `amixer -c 0 sget 'Headphone Playback Volume'` rc 0 and no `cannot stat` line.
-- The workflow added in `c574c15` for the pool-9600K card kernel runs after this step, so it has not been exercised either.
-- **Implementer (2026-10-31): fixed in `c952996`,** a variant of (a). A comment-only file is not enough: checked with
+- The workflow added in `9737a2d` for the pool-9600K card kernel runs after this step, so it has not been exercised either.
+- **Implementer (2026-10-31): fixed in `116036a`,** a variant of (a). A comment-only file is not enough: checked with
   alsa-lib 1.2 in a container, `amixer -D sysdefault:0` still fails (`Unknown parameters 0`, `Invalid CTL sysdefault:0`),
   because the end of the real `aliases.conf` holds four includes (`ctl/default.conf`, `pcm/default.conf`, `pcm/dmix.conf`,
   `pcm/dsnoop.conf`) that define `sysdefault`. `build-stack.sh` now copies the base's file if there is one, else writes
@@ -460,7 +460,7 @@ switch back to the rc7 behaviour.
   6. Snapshot (web picture), recording of the sub-stream if Frigate records it, 25 fps for 5 minutes.
   7. **One hour** of streaming with Frigate: `dropped` like R8-01 step 6, the main stream bytes per 5 s stay about
      1 MB (watch for the HW-01 failure: a fall to ~5 KB per 5 s), no `ak_venc_open failed`, no Oops / OOM.
-- **Result so far (tester, 2026-10-31, build b55d032, CI green) — steps 1-5 PASS, 6-7 running:**
+- **Result so far (tester, 2026-10-31, build f957b90, CI green) — steps 1-5 PASS, 6-7 running:**
   - Boot: card kernel `c66-hw02-pool9600k.img` (md5 1e335be3…, matches md5sums.txt) + rc8 `c66rd.gz` (2012654 bytes) copied to the card
     as `tc100test/c66.img` / `c66rd.gz`; no U-Boot prompt. The flash user space came up (`flashroot=1`); `/proc/cmdline` ends with
     `ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1`; `/sys/module/ak39_venc/parameters/pool` = `9600K`;
@@ -561,7 +561,7 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
     watch it after boot.
   - Also say whether blue works, and which colour(s) the front LED has (red only, or red + blue).
 
-- **Result 2026-10-30 19:45, IPCAM2, 563dbff, owner looking at the LED: case (b) for both colours.** At the start:
+- **Result 2026-10-30 19:45, IPCAM2, de377eb, owner looking at the LED: case (b) for both colours.** At the start:
   `red` 0, `blue` 1 (boot.conf FRONT_LED=1, RED_LED=0), the front LED shows **red**. Bank 0: DIR 0x0008e800,
   OUT 0x00008800 (bit 15 = blue, output, high). Bank 1: DIR 0x00008000, OUT 0x00000000 (bit 15 = GPIO 47, output).
   - `echo 1 > red/brightness`: OUT bank 1 becomes 0x00008000; LED **still red, no change**.
@@ -619,7 +619,7 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   H.264. Video, sub-stream and snapshots as before. Then the same with `RTSP_DIRECT=0` (copy mode must still work).
 - **Pass:** free pool about 3.4 MB larger than before; no `ak_venc_open failed`; 15 fps.
 - **Gives:** the pool size for HW-02 (largest "used" + 0.5 MB).
-- **Result 2026-10-30, IPCAM2 (.11), build bde3887 (CI run 41032639092), kernel of the same build booted once from
+- **Result 2026-10-30, IPCAM2 (.11), build a3bd5d7 (CI run 41032639092), kernel of the same build booted once from
   the card: FAILED, the main stream dies.** Log as expected (`encoder pool: no picture copy ...`, main pool used
   7946976, sub 8866880, free 3716032), but 5-10 s after the start the H.265 main stream falls to about 5.4 KB per
   5 s (72 bytes per frame) instead of about 1 MB, for good, with `cap 75 enc 75` and a client connected. The capture
@@ -652,12 +652,12 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   the address and content). No report but a size threshold = the encoder's own buffers cannot sit at those
   addresses (alignment or address window of the core): then keep the pad, sized to the threshold, and note it.
   Failure only on the 0015 kernel = the CMA pool (cache or mapping of the area) is the cause.
-- **Result 2026-10-30 evening, IPCAM2, build 563dbff (CI run 41089089376), installed in the flash of IPCAM2 (.11) with update66.sh, settings kept:** step 1 (default): `encoder pool: 3456000-byte guard at
+- **Result 2026-10-30 evening, IPCAM2, build de377eb (CI run 41089089376), installed in the flash of IPCAM2 (.11) with update66.sh, settings kept:** step 1 (default): `encoder pool: 3456000-byte guard at
   its start (phys 0x81800000)`, about 1.0 MB per 5 s, **no `pool guard:` report**. Step 2 (`RTSP_POOLPAD=0`, pool
   used 7946976 / 8866880 = the failing HW-01 layout): **streams normally for 5 min** (59 STAT lines, lowest 0.90 MB
-  per 5 s after the first). And the bde3887 CI binary that failed this morning (md5 c66a4edf...) also streams
+  per 5 s after the first). And the a3bd5d7 CI binary that failed this morning (md5 c66a4edf...) also streams
   normally on this kernel (15 STAT lines, 0.86-1.03 MB). **The HW-01 failure is not reproduced**: it was not the
-  pool layout of `tc100_rtsp` alone. It happened on the bde3887 kernel, in the session that ended with the Wi-Fi
+  pool layout of `tc100_rtsp` alone. It happened on the a3bd5d7 kernel, in the session that ended with the Wi-Fi
   chip stuck (HW-03), so a degraded USB / system state or that kernel are the remaining suspects. Steps 3-4 not run
   (nothing to size). Keeping the guard costs nothing while the pool is not shrunk (HW-02 test 2); the implementer
   may drop it later or keep it as a detector.
@@ -673,7 +673,7 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   or kernel errors. Then H.265 + H.264 sub, and a client switching codecs (Settings → Video).
 - **Fail / revert:** no `/dev/uio0` or `cannot map the ... pool` in dmesg: boot the previous kernel. Pool too small:
   drop the parameter.
-- **Result 2026-10-30, IPCAM2, build bde3887, test 1 (default): passed for memory.** dmesg `video encoder: ...
+- **Result 2026-10-30, IPCAM2, build a3bd5d7, test 1 (default): passed for memory.** dmesg `video encoder: ...
   pool 12288 KiB at 0x81800000 (CMA)`, MemTotal 59436 kB (47164 before), MemAvailable 10.8 MB (unchanged), no OOM,
   video 15 fps with the rc5 `tc100_rtsp` (which keeps the 3.4 MB copy at the start of the pool). Test 2 not run
   (needs HW-01). See HW-01: the area at the start of the pool may be the one being overwritten.
@@ -682,7 +682,7 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   the driver).
 
 ### HW-03 USB host: FIFO data in 32-bit words (kernel patch 0013, `otg_hs.fifo32=1`) — `to test`
-- **Result 2026-10-30, IPCAM2: Wi-Fi dead after the bde3887 kernel, survives resets.** The bde3887 kernel (fifo32
+- **Result 2026-10-30, IPCAM2: Wi-Fi dead after the a3bd5d7 kernel, survives resets.** The a3bd5d7 kernel (fifo32
   left at its default 0) ran for about 10 minutes, Wi-Fi fine. After a `reboot` from it, the Wi-Fi chip no longer
   starts, on the rc5 kernel too: `rtl8xxxu_init_device: Failed power on`, `probe of 1-1:1.0 failed with error -16`,
   no wlan0. Not cleared by 4 more `reboot`s, by USB re-authorisation (`authorized` 0 then 1), nor by a hardware
@@ -714,8 +714,8 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   (see the patch description).
 - **Not done:** DMA. The vendor DMA path (`CONFIG_USB_AKOTG_DMA`) unmaps buffers usbcore already maps (and with a NULL
   device), may write past the end of an RX buffer and does not handle short / zero-length packets; it needs a rework.
-- **Result 2026-10-30 evening, IPCAM2, after a power cut:** Wi-Fi back. 3 cycles "563dbff kernel booted from the
-  card with a stream, then `reboot` into the rc5 kernel": Wi-Fi associates every time (about 16.5 s). Then 563dbff
+- **Result 2026-10-30 evening, IPCAM2, after a power cut:** Wi-Fi back. 3 cycles "de377eb kernel booted from the
+  card with a stream, then `reboot` into the rc5 kernel": Wi-Fi associates every time (about 16.5 s). Then de377eb
   installed in the flash, 3 warm `reboot`s with the stream running: associates every time (15.5 s). **Not
   reproduced** (0 of 6). The fifo32=1 measurement itself is still to do: status back to `to test`.
 
@@ -768,7 +768,7 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
   `reboot` in a shell and a panic keep only the last 10-minute copy. Logs page: "Logs of previous boots".
 - **Test:** files appear after about 2 min; reboot from the UI gives a `why=shutdown` save and `boot-0002`; nothing
   written while ejected; card writes over a day are small. **Off:** `LOG_PERSIST=0`.
-- **Result 2026-10-30, IPCAM2, 563dbff:** `/mnt/sd/logs/boot-0001` and `boot-0002` created about 120 s after the
+- **Result 2026-10-30, IPCAM2, de377eb:** `/mnt/sd/logs/boot-0001` and `boot-0002` created about 120 s after the
   start, each with dmesg.log, meta.txt, other.log, syslog.log, tc100_rtsp.log. Boots rebooted before 120 s leave no
   folder (as described). UI reboot (`why=shutdown`) and the eject case not tried yet.
 
