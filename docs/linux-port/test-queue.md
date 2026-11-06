@@ -2885,3 +2885,21 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   `syslogd` + `tc100-logfwd` en marche et lignes reçues par 192.168.1.23 ; `reboot-history.log` « intended: web update
   to 3.0.1-rc30 » ; WebRTC dans Chrome ; plus d'« Éteindre » dans le menu ; carte SD de la .24 (formatée) enregistrée
   sur mouvement sans OOM (entrée `[rc30]` ci-dessus).
+
+## 2026-11-06 11:20 — rc30 : revue du code et contrôle de l'archive par le testeur — `passed`, prête à installer
+
+- **Revue de `d2d1fc2`** : conforme aux consignes. `memory-guard` appelle `halt` quand le script en a un ; profils
+  allégés gardent `stop` (choix de l'utilisateur) avec le texte qui le dit ; `sd-diag.sh repair` : refus d'une carte de
+  démarrage avant toute écriture (lecture seule), besoin mémoire de `fsck.fat` lu dans le secteur de démarrage
+  (12 octets / cluster), `dirty-not-checked` sinon, `oom_score_adj` 1000, `resume` dans tous les cas, rien sur exFAT ;
+  intention de redémarrage dans `update66.sh` (l. 87, avant le `cfg-persist flush` l. 90), `install66.sh`,
+  `update.cgi` ; « Éteindre » retiré du menu ; `LIGHTWEIGHT_MODE` plus écrit. Vérifié sous qemu-arm sur la BusyBox de
+  la rc30 : `dd | od` et l'arithmétique 64 bits du calcul (5 000 000 000 correct).
+- **Archive** : run 42192948628 (`e4f0464`), `tc100-3.0.1-rc30-update.tar` md5 **`65e1cd7033f13ee9c3bdcda21e70e6d9`**,
+  `MD5SUMS` OK (stack, noyau, initrd, VERSION 3.0.1-rc30). Dedans : `tc100-whep` avec le recollage du ClientHello,
+  `whep.cgi` 12000, `update66.sh` avec la boucle `halt` et l'intention, `halt()` dans `recording`,
+  `motion-detection`, `auto-night-detection`, repli syslog dans `common_functions.sh`, plus de `cmd=shutdown` dans
+  `index.html`. **BusyBox de l'initrd (2026-11-06 08:21 UTC) accepte `-D` et `-f`** : `syslogd -n -D -f <conf>` reste
+  en marche sous qemu-arm.
+- Archive copiée sur le Mac du propriétaire : `~/Downloads/tc100-fix/xfer30/tc100-3.0.1-rc30-update.tar`.
+- Après l'installation, le testeur vérifie la liste de l'entrée « rc30 lancée » ci-dessus.
