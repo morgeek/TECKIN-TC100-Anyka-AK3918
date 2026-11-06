@@ -2691,3 +2691,9 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 - **Surveillance** : `/tmp/watch7.sh` sur les deux caméras (une ligne toutes les 5 min dans `/tmp/watch7.log`, 2 100
   lignes au plus : uptime, MemAvailable, CmaFree, charge, 3 pings vers la box, `cap`/`clients`/`dropped`/`rec`, signal,
   mode jour/nuit, démons manquants). Contrôles quotidiens du 07 au 12/11 à 08:30 et bilan final le 13/11 à 17:30.
+- **Premier relevé (2026-11-06 18:45 UTC, ~2 h 30 de rc32)** : aucun redémarrage, aucune OOM, aucun démon manquant,
+  `dropped 0` partout, Frigate connecté (`cl1`). `.11` : MemAvailable 22,1-23,2 Mo, CmaFree ~5,9 Mo, 10 img/s depuis
+  ~16:37 (basse lumière, gain ~15-20x, mode jour, éclairage de la pièce) ; `.24` : 20,9-22,6 Mo, CmaFree 3,9-4,3 Mo,
+  25 img/s le soir (pièce éclairée, gain ~5x). Pings (3 par relevé, 29 relevés) : `.11` 3 relevés tout perdus + 3
+  partiels, `.24` 4 + 2 (≈ 10 %, comme avant). Carte de la .24 toujours démontée. `/proc/net/wireless` donne parfois
+  `-256` (valeur invalide du pilote) : ignorée.
