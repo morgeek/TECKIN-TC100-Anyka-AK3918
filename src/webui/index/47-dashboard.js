@@ -77,8 +77,27 @@
     dashLast = { d: d, cpu: cpu, mem: mem, wifi: wifi, rx: rx, tx: tx };
   }
 
+  // Frame rate of the streams: the one the video server really encodes (dash.cgi "vfps", tenths of fps over its last
+  // 5 s, from /var/run/tc100_rtsp.stat), not the setting: the low-light rate (10 fps), the idle rate and the night
+  // switch change it without touching the settings. One rate for both streams (tc100_rtsp -f). The setting while no
+  // measure is there (server starting, older firmware).
+  var dashCfgFps = { main: 0, sub: 0 };
+  function renderDashFps() {
+    var v = dashLast && typeof dashLast.d.vfps === "number" ? dashLast.d.vfps : null;
+    ["main", "sub"].forEach(function (k) {
+      var el = byId("ds_" + k + "_fps");
+      if (!el) return;
+      var cfg = dashCfgFps[k];
+      var txt = v !== null ? (v >= 100 ? Math.round(v / 10) : (v / 10).toFixed(1).replace(/\.0$/, "")) + " fps" : cfg ? cfg + " fps" : "–";
+      setText("ds_" + k + "_fps", txt);
+      var tip = v !== null && cfg && Math.abs(v / 10 - cfg) >= 1 ? (window.tc100T || String)("Set to") + " " + cfg + " fps" : "";
+      if (el.title !== tip) el.title = tip;
+    });
+  }
+
   function renderDashTiles() {
     if (!dashLast) return;
+    renderDashFps();
     var d = dashLast.d, now = Date.now();
     setText("dt_cpu", dashLast.cpu === null ? "…" : Math.round(dashLast.cpu) + "%");
     setText("dt_cpu_sub", "load " + (d.load || "0"));
@@ -129,20 +148,20 @@
     setText("di_ip", i.ip || "–");
     setText("di_mac", i.mac || "–");
     setText("di_fw", i.firmware || "–");
-    setText("di_kernel", i.kernel || "–");
-    setText("di_soc", i.soc || "–");
-    setText("di_sensor", i.sensor || "–");
-    setText("di_wifi", i.wifi_chip + (i.ssid ? " · " + i.ssid : ""));
-    setText("di_mode", i.storage === "flash" ? "flash (no SD card needed)" : "SD card");
+    // owner 2026-11-06: the network's name only (no chip, kernel, SoC, sensor or boot medium on the card)
+    setText("di_wifi", i.ssid || "–");
     ["main", "sub"].forEach(function (k) {
       var s = i[k] || {};
       setText("ds_" + k + "_codec", (s.codec || "–").toUpperCase());
       setText("ds_" + k + "_res", s.width && s.height ? s.width + "×" + s.height : "–");
-      setText("ds_" + k + "_fps", s.fps ? s.fps + " fps" : "–");
+      dashCfgFps[k] = s.fps || 0;
       setText("ds_" + k + "_rate", s.kbps ? s.kbps + " kbit/s" : "–");
     });
     setText("ds_port", "RTSP port " + i.rtsp_port);
+    renderDashFps();
     var sd = i.sd || [0, 0];
+    var sdw = byId("dash_sd_wrap");
+    if (sdw) sdw.hidden = !(sd[0] > 0);   // no card mounted: no SD line (the health pill says "no card")
     if (sd[0] > 0) {
       var sdpct = (100 * sd[1] / sd[0]);
       var sdpctStr = sdpct > 0 && sdpct < 0.1 ? "< 0.1%" : (sdpct < 10 ? sdpct.toFixed(1) + "%" : Math.round(sdpct) + "%");

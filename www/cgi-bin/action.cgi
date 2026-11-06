@@ -297,7 +297,7 @@ read_ptt_volume() {
 }
 
 resolve_audio_test_source() {
-  for candidate in /mnt/config/audio-test.wav /mnt/config/ptt-test.wav "$PTT_LAST_PCM_FILE" /mnt/sounds/chime.alaw /mnt/sounds/alert.alaw /mnt/sounds/chime.pcm /mnt/sounds/alert.pcm sounds/chime.pcm sounds/alert.pcm; do
+  for candidate in /mnt/config/audio-test.wav /mnt/config/ptt-test.wav "$PTT_LAST_PCM_FILE" /mnt/sounds/startup.alaw /mnt/sounds/startup.pcm sounds/startup.pcm; do
     [ -r "$candidate" ] || continue
     echo "$candidate"
     return 0

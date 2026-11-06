@@ -260,6 +260,14 @@
     }
     var sb = byId("storage_badge");
     if (sb) sb.hidden = st.storage !== "flash";
+    // owner 2026-11-06: the recording entries only when a card is mounted (from the SD card, the card is /mnt). Settings ->
+    // Recording also shows while a card is in but not mounted: its page is where it is mounted or formatted.
+    var sdMounted = st.storage !== "flash" || (typeof st.sd_total_kb === "number" && st.sd_total_kb > 0);
+    var sdIn = sdMounted || (typeof st.sd_card === "string" && st.sd_card !== "" && st.sd_card !== "none");
+    var navRec = byId("viewrecordspage");
+    if (navRec && navRec.hidden === sdMounted) navRec.hidden = !sdMounted;
+    var navRecSet = byId("nav_record");
+    if (navRecSet && navRecSet.hidden === sdIn) navRecSet.hidden = !sdIn;
     // Settings kept in the flash (3.0): the last save failed (too big, write error).
     var cs = byId("cfgsave_badge");
     if (cs) {

@@ -745,3 +745,24 @@ input.switch[type="checkbox"]:checked, .services-autorun-cell input.autostart:ch
   color: var(--v2-muted); }
 .svc-card .services-impact-tag.impact-med { color: var(--v2-warn); }
 .svc-card .services-impact-tag.impact-heavy { color: var(--v2-tally); }
+
+/* Card title icons (network.cgi, devinfo.cgi, disk.cgi, sysusageinfo.cgi, backup, logs, config editor): their size
+   came from the Bulma sheet removed in rc32; without it an inline SVG takes the width of the card (owner 2026-11-06) */
+.info-menu-icon,
+.title-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
+  flex-shrink: 0;
+  vertical-align: -0.12em;
+}
+.card-header-title .title-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
+}

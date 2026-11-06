@@ -69,11 +69,11 @@ WIFI_ROAM=1
 # LOW_RAM_PROFILE: set by the performance profile (Settings, MQTT "profile"): 1 for low-cpu and rtsp-only. A
 # marker kept with the profile's snapshot (restore); nothing else reads it. Do not edit by hand.
 LOW_RAM_PROFILE=0
-# BOOT_SOUND=0: no startup chime on the speaker when the camera is ready (1 = the chime, default).
+# BOOT_SOUND=0: no startup sound on the speaker when the camera is ready (1 = the sound, default).
 BOOT_SOUND=1
-# BOOT_SOUND_NAME: which clip (Settings -> Sounds): a built-in one (startup_complete, chime, ...) or one sent to the
-# SD card (tc100-3/sounds/NAME.pcm, played first when both exist); the built-in chime if it is missing.
-BOOT_SOUND_NAME=startup_complete
+# BOOT_SOUND_NAME: which clip (Settings -> Sounds): a built-in one (startup, siren) or one sent to the
+# SD card (tc100-3/sounds/NAME.pcm, played first when both exist); the built-in startup sound if it is missing.
+BOOT_SOUND_NAME=startup
 # BOOT_STEALTH=1 (a baby's room, a bedroom): no chime, no LED aiming blinks, LEDs off while the camera boots (the
 # kernel lights the blue one for a few seconds before the settings can be read); FRONT_LED / RED_LED apply at the end.
 BOOT_STEALTH=0

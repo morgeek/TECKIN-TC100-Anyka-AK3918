@@ -1007,7 +1007,8 @@ class Lot3AudioAndSounds(unittest.TestCase):
     """Lot 3: Built-in sound library, siren/chime playback via API/MQTT, and smoke alarm detection."""
 
     def test_sound_files_exist(self):
-        for name in ('chime.pcm', 'siren.pcm', 'alert.pcm', 'startup_complete.pcm'):
+        # 2026-11-06 (owner): siren and the startup sound only; chime, alert, startup_2, startup_complete removed
+        for name in ('siren.pcm', 'startup.pcm'):
             p = ROOT / 'sounds' / name
             self.assertTrue(p.exists(), name)
             self.assertGreater(p.stat().st_size, 1000)
@@ -1021,7 +1022,9 @@ class Lot3AudioAndSounds(unittest.TestCase):
     def test_mqtt_bridge_audio_commands_and_buttons(self):
         mq = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
         self.assertIn('play_sound|chime|siren|alarm)', mq)
-        self.assertIn('button/${node_id}/chime/config', mq)
+        self.assertIn('publish_discovery_config "${discovery_prefix}/button/${node_id}/chime/config" ""', mq)   # removed
+        for gone in ('chime', 'alert', 'startup_2', 'startup_complete'):
+            self.assertFalse((ROOT / 'sounds' / (gone + '.pcm')).exists(), gone)
         self.assertIn('button/${node_id}/siren/config', mq)
         self.assertIn('binary_sensor/${node_id}/alarm/config', mq)
         self.assertEqual(sh('sh -n %s' % (ROOT / 'scripts/mqtt-bridge.sh')).returncode, 0)

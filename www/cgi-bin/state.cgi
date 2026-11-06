@@ -389,11 +389,13 @@ EOF_DF
       _di_ssid="$(wpa_cli -i wlan0 status 2>/dev/null | awk -F= '$1 == "ssid" { print $2; exit }')"
     fi
     [ -z "$_di_ssid" ] && [ -r /etc/wpa_supplicant.conf ] && _di_ssid="$(sed -n 's/^[[:space:]]*ssid="\([^"]*\)".*/\1/p' /etc/wpa_supplicant.conf 2>/dev/null | head -n 1)"
+    # the sub stream's rate: tc100_rtsp has one rate for both streams (-f, from [0] fps); [1] fps, written by the presets,
+    # is not used, so it is not shown
     json_esc_to _j_host "$_di_host"; json_esc_to _j_ip "$primary_ip"; json_esc_to _j_mac "$_di_mac"
     json_esc_to _j_kern "$_di_kern"; json_esc_to _j_ver "$_di_ver"; json_esc_to _j_ssid "$_di_ssid"
     printf '{"hostname":"%s","ip":"%s","mac":"%s","kernel":"%s","firmware":"%s","storage":"%s","soc":"Anyka AK3918EV300","sensor":"SOI JXF23","wifi_chip":"Realtek RTL8188FU","ssid":"%s","rtsp_port":%s,"main":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"sub":{"codec":"%s","width":%s,"height":%s,"fps":%s,"kbps":%s},"jffs":[%s,%s],"sd":[%s,%s],"flash":%s}\n' \
       "$_j_host" "$_j_ip" "$_j_mac" "$_j_kern" "$_j_ver" "${storage_json:-sd}" "$_j_ssid" "$rtsp_port" \
-      "$codec0_name" "$width0" "$height0" "$fps0" "$bps0" "$codec1_name" "$width1" "$height1" "$fps1" "$bps1" \
+      "$codec0_name" "$width0" "$height0" "$fps0" "$bps0" "$codec1_name" "$width1" "$height1" "$fps0" "$bps1" \
       "$_di_jt" "$_di_ju" "$_di_st" "$_di_su" "$_di_flash_json"
 }
 

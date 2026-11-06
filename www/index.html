@@ -22,8 +22,8 @@
     <!-- The look of the interface: Pico CSS (item 50; the Classic look, Bulma, was removed in rc32, owner 2026-11-06).
          css/ui.pico.min.css = css/pico-2.0.6.min.css + css/pico-shim.css (the Bulma classes of the pages drawn with
          Pico) + css/ui.css, built by src/webui/build-css.sh, which stamps the ?v=. Edit the sources, not the bundle. -->
-    <link href="css/ui.pico.min.css?v=c47735d3" rel="stylesheet">
-    <script src="scripts/i18n.js?v=e72d24fa"></script>
+    <link href="css/ui.pico.min.css?v=adcd49fd" rel="stylesheet">
+    <script src="scripts/i18n.js?v=85f97800"></script>
     <script src="scripts/tzlist.js?v=dd72b6b1"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
@@ -120,7 +120,7 @@
                     <a id="dashboard_nav" class="navbar-item" href="#dashboard" data-home-view="dashboard"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-4H4z"/></svg><span>Dashboard</span></a>
                     <a id="home_nav" class="navbar-item" href="#live" data-home-view="live"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM16 10l5-3v10l-5-3"/></svg><span>Live</span></a>
                     <a id="multiview_nav" class="navbar-item onpage" href="javascript: void(0)" data-target="multiview.html"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3V3m10 0h8v8h-8V3M3 13h8v8H3v-8m10 0h8v8h-8v-8Z"/></svg><span>Multi-View</span></a>
-                    <a id="viewrecordspage" class="navbar-item onpage" href="javascript: void(0)" data-target="view_records.html"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18zM10 8.5v7l6-3.5z"/></svg><span>Recordings</span></a>
+                    <a id="viewrecordspage" class="navbar-item onpage" hidden href="javascript: void(0)" data-target="view_records.html"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18zM10 8.5v7l6-3.5z"/></svg><span>Recordings</span></a>
                     <!-- Menus by use (2026-11-03): Image (with the live picture), Settings, Tools -->
                     <div class="navbar-item has-dropdown is-hoverable">
                         <a class="navbar-link" href="javascript: void(0)"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4zM12 10a3 3 0 1 0 0 6a3 3 0 0 0 0-6z"/></svg><span>Image</span></a>
@@ -136,7 +136,7 @@
                             <a id="nav_video" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-video">Streams &amp; audio</a>
                             <p class="navbar-item nav-section-label">Events</p>
                             <a id="nav_detect" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-detect">Detection</a>
-                            <a id="nav_record" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-record">Recording</a>
+                            <a id="nav_record" class="navbar-item onpage" hidden href="javascript: void(0)" data-target="settings.html" data-tab="tab-record">Recording</a>
                             <a id="nav_notify" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-notify">Alerts</a>
                             <hr class="nav-section-divider">
                             <a id="nav_network" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-network">Network</a>
@@ -150,6 +150,7 @@
                             <a id="nav_backup" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-backup">Update &amp; backup</a>
                             <a id="services" class="navbar-item onpage" href="javascript: void(0)" data-target="cgi-bin/scripts.cgi">Services</a>
                             <a id="diagnostics" class="navbar-item onpage" href="javascript: void(0)" data-target="diagnostics.html">Diagnostics</a>
+                            <a id="nav_memory" class="navbar-item onpage" href="javascript: void(0)" data-target="settings.html" data-tab="tab-memory">Memory</a>
                             <a id="hardware" class="navbar-item onpage" href="javascript: void(0)" data-target="hardware.html">Hardware test</a>
                             <a id="logs" class="navbar-item onpage" href="javascript: void(0)" data-target="logs.html">Logs</a>
                             <a id="configeditor" class="navbar-item onpage" href="javascript: void(0)" data-target="configeditor.html">Config Editor</a>
@@ -231,17 +232,13 @@
                         <dt>IP address</dt><dd id="di_ip" translate="no">–</dd>
                         <dt>MAC</dt><dd id="di_mac" translate="no">–</dd>
                         <dt>Firmware</dt><dd id="di_fw" translate="no">–</dd>
-                        <dt>Runs from</dt><dd id="di_mode">–</dd>
-                        <dt>Kernel</dt><dd id="di_kernel" translate="no">–</dd>
-                        <dt>SoC</dt><dd id="di_soc" translate="no">–</dd>
-                        <dt>Sensor</dt><dd id="di_sensor" translate="no">–</dd>
                         <dt>Wi-Fi</dt><dd id="di_wifi" translate="no">–</dd>
                         </dl>
                     </article>
                     <article class="dash-card">
                         <header class="dash-card-head"><span class="dash-label">Storage</span><span class="dash-pill" id="dash_sd_health">–</span></header>
                         <div class="dash-store" id="dash_flash_wrap" hidden><span>SPI Flash (8 MiB)</span><small id="dst_flash">–</small><div class="dash-flash-bar" id="dsb_flash"></div><div class="dash-flash-leg" id="dsl_flash"></div></div>
-                        <div class="dash-store"><span>SD card</span><small id="dst_sd">–</small><div class="dash-bar"><i id="dsb_sd"></i></div></div>
+                        <div class="dash-store" id="dash_sd_wrap" hidden><span>SD card</span><small id="dst_sd">–</small><div class="dash-bar"><i id="dsb_sd"></i></div></div>
                     </article>
                 </div>
             </section>
@@ -262,14 +259,6 @@
                     <span id="osd_profile"></span>
                     <span id="osd_light"></span>
                 </div>
-            </div>
-            <div class="v2-readings" id="readings">
-                <span id="rd_cpu">CPU<b>…</b></span>
-                <span id="rd_ram">Memory<b>…</b></span>
-                <span id="rd_wifi">Wi-Fi<b>…</b></span>
-                <span id="rd_sound" hidden>Audio<b>…</b></span>
-                <span id="rd_sd">SD card<b>…</b></span>
-                <span id="rd_mqtt">MQTT<b>…</b></span>
             </div>
 
             <section class="cam-panel" id="cam_panel" aria-label="Camera controls">
@@ -309,18 +298,10 @@
                     <button class="button is-small" id="ptt_test_btn" type="button" disabled><i class="icon-play"></i> <span class="ptt-test-label">Test</span></button>
                     <span id="ptt_last_sent" class="ptt-last-sent">Audio loads on demand</span>
                     <div class="buttons has-addons sound-actions" role="group" aria-label="Sounds on the camera speaker">
-                        <button type="button" class="button is-small" data-sound="chime" title="Play the chime on the camera">Chime</button>
-                        <button type="button" class="button is-small" data-sound="alert" title="Play the alert sound on the camera">Alert</button>
                         <button type="button" class="button is-small is-danger is-light" data-sound="siren" title="Sound the siren on the camera (loud)">Siren</button>
                     </div>
                 </div>
                 <div class="ptt-meter-wrap" style="display:none"><span class="ptt-meter-label">Recording:</span><progress id="ptt_level" class="progress is-success" value="0" max="100"></progress></div>
-                <details class="home-tools">
-                    <summary>More tools</summary>
-                    <div class="home-tools-menu">
-                        <button class="button is-small" id="status_refresh" type="button">Refresh status</button>
-                    </div>
-                </details>
             </div>
             </section>
           </div>
@@ -328,7 +309,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=f53e4bb8" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=6da1732c" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;
@@ -340,7 +321,7 @@
                 if (pttLabel) pttLabel.textContent = 'Loading PTT…';
                 if (listenLabel) listenLabel.textContent = 'Loading…';
                 var script = document.createElement('script');
-                script.src = 'scripts/ptt-audio.bundle.min.js?v=62ebc3b0';
+                script.src = 'scripts/ptt-audio.bundle.min.js?v=9fd8890d';
                 script.onerror = function () {
                     loading = false;
                     if (pttLabel) pttLabel.textContent = 'Retry PTT';

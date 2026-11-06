@@ -1,11 +1,11 @@
 #!/bin/sh
 # sounds.cgi: the speaker's sounds (item 48 of the implementer list). Built-in clips are in /mnt/sounds (flash);
 # custom ones go to the SD card, /mnt/sd/tc100-3/sounds (SOUNDS_SD, common_functions.sh); a custom clip with the
-# name of a built-in one replaces it everywhere (chime, alert, siren, startup_complete: dashboard buttons, MQTT,
+# name of a built-in one replaces it everywhere (startup, siren: dashboard buttons, MQTT,
 # startup). Clips are raw 8 kHz mono signed 16-bit little endian: Settings converts any file the browser decodes
 # (WAV, MP3, OGG...) before sending it, so the camera only stores bytes.
-#   GET  ?cmd=list               {"ok":true,"sd":true,"boot":{"on":1,"name":"startup_complete"},
-#                                 "sounds":[{"name":"chime","builtin":1,"custom":0,"bytes":16800},...]}
+#   GET  ?cmd=list               {"ok":true,"sd":true,"boot":{"on":1,"name":"startup"},
+#                                 "sounds":[{"name":"siren","builtin":1,"custom":0,"bytes":32000},...]}
 #   POST ?cmd=upload&name=NAME   body: the PCM (even length, 30 s at most); NAME: 1-32 of A-Z a-z 0-9 _ -
 #   POST ?cmd=delete&name=NAME   removes the custom clip (a built-in one of that name is used again)
 #   POST ?cmd=play&name=NAME     plays it at the push-to-talk volume
@@ -34,13 +34,13 @@ check_body() {
 
 # one stat and one awk: built-in clips first, then the custom ones that are not also built in
 sound_list() {
-  _on=1; _bn=startup_complete
+  _on=1; _bn=startup
   [ -r "$BOOT_CONF" ] && while IFS='=' read -r _k _v; do
     _v=${_v#\"}; _v=${_v%\"}
     case "$_k" in BOOT_SOUND) _on=$_v ;; BOOT_SOUND_NAME) _bn=$_v ;; esac
   done < "$BOOT_CONF"
   case "$_on" in 0|false|no|off|disabled) _on=0 ;; *) _on=1 ;; esac
-  case "$_bn" in ''|*[!A-Za-z0-9_-]*) _bn=startup_complete ;; esac
+  case "$_bn" in ''|*[!A-Za-z0-9_-]*) _bn=startup ;; esac
   _sd=false; sd_ok && _sd=true
   # built-in clips: NAME.alaw (one byte a sample, rc31) or NAME.pcm; "bytes" is the 16-bit size (seconds = bytes / 16000)
   stat -c '%n %s' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null | awk -v sd="$SOUNDS_SD/" -v on="$_on" -v bn="$_bn" -v card="$_sd" '
@@ -128,7 +128,7 @@ case "$cmd" in
       rewrite_config "$BOOT_CONF" BOOT_SOUND 0
     else
       sound_path "$name" >/dev/null || fail "404 Not Found" "no sound of that name"
-      grep -q '^BOOT_SOUND_NAME=' "$BOOT_CONF" 2>/dev/null || echo "BOOT_SOUND_NAME=startup_complete" >> "$BOOT_CONF"
+      grep -q '^BOOT_SOUND_NAME=' "$BOOT_CONF" 2>/dev/null || echo "BOOT_SOUND_NAME=startup" >> "$BOOT_CONF"
       grep -q '^BOOT_SOUND=' "$BOOT_CONF" 2>/dev/null || echo "BOOT_SOUND=1" >> "$BOOT_CONF"
       rewrite_config "$BOOT_CONF" BOOT_SOUND 1
       rewrite_config "$BOOT_CONF" BOOT_SOUND_NAME "$name"

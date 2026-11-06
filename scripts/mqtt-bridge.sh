@@ -1077,9 +1077,8 @@ DIAG
   snapshot_btn_payload="$(printf '{"name":"%s Take Snapshot","uniq_id":"%s_snapshot","cmd_t":"%s","payload_press":"{\"cmd\":\"snapshot\"}","avty_t":"%s","ic":"mdi:camera","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$snapshot_btn_topic" "$snapshot_btn_payload"
 
-  chime_btn_topic="${discovery_prefix}/button/${node_id}/chime/config"
-  chime_btn_payload="$(printf '{"name":"%s Play Chime","uniq_id":"%s_chime","cmd_t":"%s","payload_press":"{\"cmd\":\"play_sound\",\"value\":\"chime\"}","avty_t":"%s","ic":"mdi:bell-ring","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
-  publish_discovery_config "$chime_btn_topic" "$chime_btn_payload"
+  # the Play Chime button is gone (chime removed on 2026-11-06): an empty config drops what older versions announced
+  publish_discovery_config "${discovery_prefix}/button/${node_id}/chime/config" ""
 
   siren_btn_topic="${discovery_prefix}/button/${node_id}/siren/config"
   siren_btn_payload="$(printf '{"name":"%s Sound Siren","uniq_id":"%s_siren","cmd_t":"%s","payload_press":"{\"cmd\":\"play_sound\",\"value\":\"siren\"}","avty_t":"%s","ic":"mdi:bullhorn","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
@@ -2040,11 +2039,13 @@ handle_command_payload()
     play_sound|chime|siren|alarm)
       _snd_to_play="${value:-$cmd}"
       case "$_snd_to_play" in
-        play_sound) _snd_to_play="chime" ;;
+        play_sound) _snd_to_play="startup" ;;
         alarm)      _snd_to_play="siren" ;;
       esac
       _snd_to_play="$(printf '%s' "$_snd_to_play" | tr -cd 'a-zA-Z0-9_-')"
       _snd_path="$(sound_path "$_snd_to_play")" || _snd_path=""	# a custom clip of that name first (item 48)
+      # chime and alert were removed on 2026-11-06 (an older Home Assistant button): the startup sound
+      case "$_snd_to_play" in chime|alert) [ -n "$_snd_path" ] || { _snd_to_play=startup; _snd_path="$(sound_path startup)" || _snd_path=""; } ;; esac
       if [ -n "$_snd_path" ] && [ -x /mnt/scripts/speaker-play.sh ]; then
         /mnt/scripts/speaker-play.sh "$_snd_path" 90 >/dev/null 2>&1 &
         publish_event_simple "command.play_sound" "$_snd_to_play"

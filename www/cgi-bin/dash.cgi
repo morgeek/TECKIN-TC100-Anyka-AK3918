@@ -50,5 +50,21 @@ if [ -r /tmp/sd-health ]; then
   while IFS='=' read -r _k _v; do [ "$_k" = state ] && _d_sd="$_v"; done < /tmp/sd-health
 fi
 case "$_d_sd" in *[!a-z]*) _d_sd="" ;; esac
-printf '{"up":%s,"load":"%s","cpu":[%s],"mem":[%s,%s],"iface":"%s","net":[%s,%s],"wifi":[%s,%s],"rtsp_clients":%s,"sd_health":"%s"}\n' \
-  "$_d_up" "$_d_l1" "$_d_cpu" "$_d_mt" "$_d_ma" "$_d_if" "$_d_rx" "$_d_tx" "$_d_wq" "$_d_wl" "$_d_cl" "$_d_sd"
+# Frame rate the video server really encodes (both streams, tc100_rtsp -f), in tenths of fps over its last 5 s:
+# /var/run/tc100_rtsp.stat ("captured" frames in "interval_s"), only while tc100_rtsp runs (its pid alive). The low-light
+# rate, the idle rate and the night switch change it without touching the settings (owner 2026-11-06: the dashboard
+# showed 25 fps while the stream was at 10).
+_d_vf=null; _d_vi=0; _d_vc=""; _d_vp=""
+read -r _d_vp _rest 2>/dev/null < /var/run/v4l2rtspserver.pid
+case "$_d_vp" in ''|*[!0-9]*) ;; *)
+  if [ -d "/proc/$_d_vp" ] && [ -r /var/run/tc100_rtsp.stat ]; then
+    while read -r _k _v; do
+      case "$_k" in interval_s) _d_vi=$_v ;; captured) _d_vc=$_v ;; esac
+    done < /var/run/tc100_rtsp.stat
+    case "$_d_vi" in ''|*[!0-9]*) ;; *)
+      case "$_d_vc" in ''|*[!0-9]*) ;; *) [ "$_d_vi" -gt 0 ] && _d_vf=$((_d_vc * 10 / _d_vi)) ;; esac ;;
+    esac
+  fi ;;
+esac
+printf '{"up":%s,"load":"%s","cpu":[%s],"mem":[%s,%s],"iface":"%s","net":[%s,%s],"wifi":[%s,%s],"rtsp_clients":%s,"sd_health":"%s","vfps":%s}\n' \
+  "$_d_up" "$_d_l1" "$_d_cpu" "$_d_mt" "$_d_ma" "$_d_if" "$_d_rx" "$_d_tx" "$_d_wq" "$_d_wl" "$_d_cl" "$_d_sd" "$_d_vf"

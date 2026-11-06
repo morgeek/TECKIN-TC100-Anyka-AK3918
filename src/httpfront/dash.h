@@ -94,6 +94,7 @@ static int dh_json(const char *root)
 	char *l, *p, *k, *v, b[64], cpu[7][DW], mt[DW], ma[DW], ifn[40], rx[DW], tx[DW], wq[DW], wd[DW], up[DW], ld[DW];
 	char rp[DW], sd[40];
 	int t, i, cl = 0, got = 0, rpn;
+	long long vf;
 	u64 port = 0;
 	struct kv rk[1] = { { "PORT", rp, sizeof rp } };
 	struct kv sk[1] = { { "state", sd, sizeof sd } };
@@ -204,6 +205,34 @@ static int dh_json(const char *root)
 	sd[0] = 0;
 	st_kv("/tmp/sd-health", sk, 1);
 	if (!allin(sd, 0)) sd[0] = 0;
+	/* the frame rate tc100_rtsp really encodes, tenths of fps (dash.cgi: "captured" * 10 / "interval_s" of
+	 * /var/run/tc100_rtsp.stat while the pid of v4l2rtspserver.pid is alive; owner 2026-11-06) */
+	vf = -1;
+	if (st_first("/var/run/v4l2rtspserver.pid", b, sizeof b, 0) == 1) {
+		char pd[48], vi[DW], vc[DW];
+
+		p = b; v = tok(&p);
+		if (dh_digs(v) && slen(v) < 20) {
+			scpy(pd, "/proc/"); scpy(pd + 6, v);
+			if (st_exists(pd) && lr_open(&r, "/var/run/tc100_rtsp.stat")) {
+				scpy(vi, "0"); vc[0] = 0;
+				while ((l = lr_get(&r, &t)) && t) {
+					p = l; k = tok(&p); v = rest(&p);
+					if (r.cut) st_bail = __LINE__;
+					if (slen(v) >= DW) { st_bail = __LINE__; continue; }
+					if (!slen_eq(k, "interval_s")) scpy(vi, v);
+					else if (!slen_eq(k, "captured")) scpy(vc, v);
+				}
+				lr_close(&r);
+				if (dh_digs(vi) && dh_digs(vc)) {	/* both: digits only, not empty */
+					u64 ni = pnum(vi), nc = pnum(vc);
+
+					if (slen(vc) > 15) st_bail = __LINE__;
+					else if (ni > 0) vf = (long long)udiv(mulu(nc, 10), ni);
+				}
+			}
+		}
+	}
 	if (st_bail) return 0;
 
 	o_r("{\"up\":"); o_r(up);
@@ -216,7 +245,9 @@ static int dh_json(const char *root)
 	o_r("],\"wifi\":["); o_r(got && wq[0] ? wq : "null"); o_c(','); o_r(got && wd[0] ? wd : "null");
 	o_r("],\"rtsp_clients\":"); o_n((u64)cl);
 	o_r(",\"sd_health\":\""); o_r(sd);
-	o_r("\"}\n");
+	o_r("\",\"vfps\":");
+	if (vf < 0) o_r("null"); else o_n((u64)vf);
+	o_r("}\n");
 	return !st_bail;
 }
 

@@ -70,7 +70,7 @@ rewrite_config() { if grep -q "^$2=" "$1"; then sed -i "s|^$2=.*|$2=$3|" "$1"; e
         self.conf.write_text('BOOT_SOUND=1\n')
         st, d = self.cgi('list')
         self.assertEqual(st, '200 OK')
-        self.assertEqual(d, {'ok': True, 'sd': True, 'boot': {'on': 1, 'name': 'startup_complete'}, 'sounds': [
+        self.assertEqual(d, {'ok': True, 'sd': True, 'boot': {'on': 1, 'name': 'startup'}, 'sounds': [
             {'name': 'chime', 'builtin': 1, 'custom': 0, 'bytes': 16800},
             {'name': 'startup_complete', 'builtin': 1, 'custom': 0, 'bytes': 6400}]})
         st, d = self.cgi('upload', 'chime', b'\1\0' * 100)
@@ -106,7 +106,8 @@ rewrite_config() { if grep -q "^$2=" "$1"; then sed -i "s|^$2=.*|$2=$3|" "$1"; e
         self.assertIn('"/mnt/sd/tc100-3/sounds/$BC_BOOT_SOUND_NAME.pcm" "/mnt/sounds/$BC_BOOT_SOUND_NAME.alaw" '
                       '"/mnt/sounds/$BC_BOOT_SOUND_NAME.pcm"', a)
         self.assertIn('sh /mnt/scripts/speaker-play.sh "$_bs" 60', a)
-        self.assertIn('BOOT_SOUND_NAME=startup_complete', text('config/boot.conf.dist'))
+        self.assertIn('BOOT_SOUND_NAME=startup\n', text('config/boot.conf.dist'))
+        self.assertIn('_bs=/mnt/sounds/startup.alaw', a)   # a missing BOOT_SOUND_NAME clip falls back to it
         self.assertIn('tc_check_flat "$_tc_file" BOOT_SOUND_NAME identifier', text('scripts/config-transaction.sh'))
         cgi = text('www/cgi-bin/sounds.cgi')
         self.assertIn('upload|delete|play|boot|playnow) mutation_guard;', cgi)
@@ -166,7 +167,7 @@ class BuiltInClipsAlaw(unittest.TestCase):
     def test_readers_take_alaw(self):
         self.assertIn('*.alaw) aplay -q -D plughw:0,0 -t raw -f A_LAW -r 8000 -c 1 "$F" ;;', text('scripts/speaker-play.sh'))
         self.assertIn('"$SOUNDS_SD/$1.pcm" "/mnt/sounds/$1.alaw" "/mnt/sounds/$1.pcm"', text('scripts/common_functions.sh'))
-        self.assertIn('/mnt/sounds/chime.alaw', text('www/cgi-bin/action.cgi'))
+        self.assertIn('/mnt/sounds/startup.alaw', text('www/cgi-bin/action.cgi'))
         self.assertIn('python3 scripts/pcm2alaw.py "$T/sounds"', text('v3/build-stack.sh'))
         self.assertIn('alsa', text('v3/buildroot/configs/tc100_defconfig').lower())
         self.assertRegex(text('v3/buildroot/configs/tc100_defconfig'), r'BR2_PACKAGE_ALSA_LIB_PCM_PLUGINS="[^"]*\balaw\b')

@@ -82,12 +82,18 @@
           if [ -n "$_mz_new" ]; then printf '%s' "$_mz_new" > /mnt/config/motion_zones.conf.tmp && mv -f /mnt/config/motion_zones.conf.tmp /mnt/config/motion_zones.conf
           else rm -f /mnt/config/motion_zones.conf; fi
         fi
-        echo "Motion zones: ${_mz_n}<BR>"
+        _mz_saved="Motion zones: ${_mz_n}<BR>"
       fi
-
-      echo "Motion red led blink set to ${motion_led}<BR>"
-      echo "Motion sensitivity set to ${mdsens}<BR>"
-      echo "Sound detection: enable=${sound_enable} threshold=${sound_threshold} dBFS<BR>"
+      # the settings page asks for JSON (Accept): an "ok" it can trust (owner 2026-11-06: "The camera replied, but
+      # saving is not confirmed" after every save of this form); the old lines for other callers
+      if wants_json_response; then
+        json_body_ok "Detection settings saved."
+      else
+        [ -n "${_mz_saved:-}" ] && echo "$_mz_saved"
+        echo "Motion red led blink set to ${motion_led}<BR>"
+        echo "Motion sensitivity set to ${mdsens}<BR>"
+        echo "Sound detection: enable=${sound_enable} threshold=${sound_threshold} dBFS<BR>"
+      fi
     ;;
 
   esac

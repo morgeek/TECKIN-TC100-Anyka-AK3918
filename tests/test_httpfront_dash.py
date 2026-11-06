@@ -90,6 +90,18 @@ SCEN = {
     'uptime_missing': {'proc/uptime': None},
     'loadavg_missing': {'proc/loadavg': None},
     'loadavg_empty': {'proc/loadavg': ''},
+    # the encoded frame rate (owner 2026-11-06): tenths of fps from tc100_rtsp.stat while tc100_rtsp is alive
+    'vfps': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'interval_s 5\ncaptured 50\nmain_bytes 1\n'},
+    'vfps_round_down': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'interval_s 6\ncaptured 125\n'},
+    'vfps_last_wins': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'captured 5\ninterval_s 5\ncaptured 111\n'},
+    'vfps_no_newline': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'interval_s 5\ncaptured 50'},
+    'vfps_no_interval': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'captured 50\n'},
+    'vfps_zero_interval': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'interval_s 0\ncaptured 50\n'},
+    'vfps_no_captured': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'interval_s 5\n'},
+    'vfps_text': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'interval_s 5\ncaptured lots\n'},
+    'vfps_dead': {'var/run/v4l2rtspserver.pid': '4321\n', 'var/run/tc100_rtsp.stat': 'interval_s 5\ncaptured 50\n'},
+    'vfps_pid_text': {'var/run/v4l2rtspserver.pid': 'abc\n', 'var/run/tc100_rtsp.stat': 'interval_s 5\ncaptured 50\n'},
+    'vfps_no_stat': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': 'x\n'},
 }
 # the viewers scenario is the base one: two established connections to 554 (one with a lower-case hex port)
 
@@ -108,6 +120,7 @@ FALL = {
     'port_long': {'mnt/config/rtspserver.conf': 'PORT=1234567890123456789012345\n'},
     'tcp_hex_long': {'proc/net/tcp': ' 1: 0B00A8C0:0123456789abcdef0123 1 01 1\n'},
     'avg_octal_ts': {'tmp/wifi-signal.avg': '086400 -45\n', 'proc/net/wireless': PW % ('86.', '-60.')},
+    'vfps_octal': {'var/run/v4l2rtspserver.pid': '4321\n', 'proc/4321/stat': '4321 (tc100_rtsp) S\n', 'var/run/tc100_rtsp.stat': 'interval_s 5\ncaptured 050\n'},
 }
 
 
@@ -190,6 +203,12 @@ class Dash(unittest.TestCase):
             self.assertEqual(d['wifi'], [86, -45])
             self.assertEqual(d['rtsp_clients'], 2)
             self.assertEqual(d['sd_health'], 'ok')
+            self.assertIsNone(d['vfps'])                    # no video server in this fixture
+        with tempfile.TemporaryDirectory() as b:
+            fb = build(b, 'vfps', SCEN['vfps'])
+            self.start(fb)
+            resp, _ = self.dash()
+            self.assertEqual(json.loads(resp.partition(b'\r\n\r\n')[2])['vfps'], 100)   # 50 frames in 5 s
 
     def test_falls_through_when_it_cannot_answer_exactly(self):
         for name, over in FALL.items():

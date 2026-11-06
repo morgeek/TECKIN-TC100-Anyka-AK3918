@@ -290,7 +290,7 @@
                             <button class="button is-small is-info is-light" id="sounds_now" type="button">Play now without saving</button>
                         </div>
                     </div>
-                    <p class="help" id="sounds_note">A sound named chime, alert, siren or startup_complete replaces the built-in one (dashboard buttons, Home Assistant, startup).</p>
+                    <p class="help" id="sounds_note">A sound named siren or startup replaces the built-in one (Siren button, Home Assistant, startup).</p>
                 </div>
             </div>
 
@@ -738,8 +738,13 @@
                 .tc-tip:hover, .tc-tip[aria-expanded="true"] { color: var(--v2-accent, #4f46e5); }
                 .tc-tip-text { margin-top: 0.2rem; }
             </style>
+
+        </div>
+
+        <!-- Memory (owner 2026-11-06: a tool, not a setting; Tools -> Memory, no entry in this sidebar) -->
+        <div class="tab-content is-hidden" id="tab-memory" data-title="Memory">
             <!-- item 45: memory measured per program (action.cgi mem_budget) and a forecast for the options below -->
-            <div class="card status_card mt-4" id="mem_card">
+            <div class="card status_card" id="mem_card">
                 <header class="card-header"><p class="card-header-title">Memory</p></header>
                 <div class="card-content">
                     <progress id="mem_bar" class="progress is-success" value="0" max="100" style="height:0.7rem;margin-bottom:0.3rem"></progress>
@@ -752,7 +757,6 @@
                     <button class="button is-small is-light mt-2" type="button" id="mem_refresh">Measure again</button>
                 </div>
             </div>
-
         </div>
 
         <!-- Backup -->
@@ -917,12 +921,14 @@
             });
             var title = document.getElementById('settings_title');
             if (title && linkFor[targetId]) title.textContent = linkFor[targetId].querySelector('span').textContent;
+            else if (title && document.getElementById(targetId).dataset.title) title.textContent = (window.tc100T || String)(document.getElementById(targetId).dataset.title);
             document.querySelectorAll('#tab-contents > .tab-content').forEach(function(content) {
                 content.classList.toggle('is-hidden', content.id !== targetId);
             });
             if (targetId === 'tab-integrations') { initHAStatus(); }
             if (targetId === 'tab-network') { loadWifiSsid(); loadSlot('network_settings_slot'); }
             if (targetId === 'tab-backup') { loadSlot('backup_slot'); }
+            if (targetId === 'tab-memory' && window.tcMemLoad) { window.tcMemLoad(); }
             if (targetId === 'tab-daynight' && EliteUI.initDayNight) { EliteUI.initDayNight(); }
             if ((targetId === 'tab-detect' || targetId === 'tab-record') && EliteUI.initServiceToggles) {
                 EliteUI.initServiceToggles(document.getElementById(targetId));
@@ -1912,7 +1918,7 @@
                 .catch(function() { document.getElementById('mem_text').textContent = T('The memory could not be measured.'); });
         }
         document.getElementById('mem_refresh').addEventListener('click', load);
-        load();
+        window.tcMemLoad = load;   // measured when Tools -> Memory opens, not at every Settings load
     })();
 
     // Settings -> Sounds (item 48): list, play, delete, startup sound, and the upload of any file the browser decodes,

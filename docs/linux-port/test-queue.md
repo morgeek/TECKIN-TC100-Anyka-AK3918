@@ -2740,3 +2740,35 @@ Pendant la surveillance de 7 jours : rien d'installé, seulement des lectures et
 3. Wi-Fi (R27 suite) : `wifi-diag.sh` sur la .11 avec, en même temps, un ping depuis la box ou le Mac vers la .11, pour
    situer les ~10 % de pertes.
 4. H2-H4 (noyau par la carte SD) et P1-P10 du plan de test : propriétaire présent.
+
+## 2026-11-06 22:30 — demandes du propriétaire sur l'interface, faites par le testeur (pour la rc33)
+
+Demandes du propriétaire (22:29) et ce qui a été changé ; rien n'est installé sur les caméras (surveillance de 7 jours) :
+
+- **Tableau de bord, colonne « Cadence »** : elle affichait le réglage (`[0] fps`, et `[1] fps` qu'aucun programme ne lit :
+  `tc100_rtsp` n'a qu'une cadence, `-f`, pour les deux flux). Mesuré ce soir : **la .24 encodait à 10,0 fps** (basse
+  lumière) quand la page disait 25. `dash.cgi` donne maintenant `vfps` (dixièmes de fps, `captured / interval_s` de
+  `/var/run/tc100_rtsp.stat`, seulement si `tc100_rtsp` tourne) ; la page affiche cette mesure pour les deux flux, le
+  réglage en info-bulle quand il diffère, le réglage seul tant qu'il n'y a pas de mesure. `dashinfo` donne la cadence
+  de `[0]` pour le sous-flux.
+- **Carte « Appareil »** : retirés Fonctionne depuis, Noyau, SoC, Capteur ; Wi-Fi = le nom du réseau seul.
+- **Stockage** : la ligne Carte SD est cachée sans carte montée.
+- **Menu** : « Enregistrements » seulement avec une carte montée ; Réglages → « Enregistrement » aussi quand une carte
+  est présente sans être montée (c'est là qu'on la monte ou la formate).
+- **Live** : barre de mesures (`v2-readings`) et « Plus d'outils » (`home-tools`) retirés ; boutons Carillon et Alerte
+  retirés (reste Sirène).
+- **Écoute** (« plusieurs secondes de retard ») : l'élément `<audio>` tamponnait le WAV sans fin. Lecture par `fetch()`
+  + Web Audio avec ~0,25 s d'avance, les données au-delà de 0,6 s de retard sont jetées ; repli sur `<audio>` pour un
+  vieux navigateur (`www/scripts/ptt-audio.bundle.min.js`). **À essayer avec le propriétaire** (latence ressentie).
+- **Détection** : « The camera replied, but saving is not confirmed » à chaque enregistrement : `conf_motiondetect`
+  répondait en HTML. Répond `json_body_ok` quand la page demande du JSON ; message traduit au cas où.
+- **Icônes de titre énormes** (Réseau, Infos, Disque, Journaux, Sauvegarde…) : leur taille venait de la feuille Bulma
+  retirée en rc32 (`f38a1ea`) ; règles `.title-icon` / `.title-with-icon` remises dans `ui.css`.
+- **Mémoire** (mesure et prévision) : sortie de Réglages → Système, nouvelle entrée Outils → Mémoire (`tab-memory`, sans
+  lien dans la barre des réglages) ; la mesure ne se lance plus à chaque ouverture des Réglages, seulement sur cette page.
+- **Sons** : son de démarrage = le fichier du propriétaire (`sounds/startup.pcm`, 0,67 s, 8 kHz, crête −6 dBFS ; c'est le
+  son « pièce » de Mario : le propriétaire a choisi de le mettre dans le dépôt public en connaissance de cause).
+  Supprimés : `chime`, `alert`, `startup_2`, `startup_complete`. `BOOT_SOUND_NAME=startup` ; un ancien
+  `startup_complete` / `chime` dans `boot.conf` retombe sur `startup` (autorun) ; `play_sound` chime/alert → startup ;
+  bouton HA « Play Chime » retiré (config vide publiée, `mqttd.c` et `mqtt-bridge.sh`) ; Test du matériel joue le son
+  de démarrage.

@@ -272,7 +272,7 @@
             } },
             speaker: { title: 'Speaker', desc: 'Plays a short sound on the camera.', show: function (c) {
                 var r = row();
-                r.appendChild(button('Play the chime', function () { play('chime'); }, 'is-info'));
+                r.appendChild(button('Play the startup sound', function () { play('startup'); }, 'is-info'));
                 c.appendChild(r);
             } },
             sd: { title: 'microSD card', desc: 'The card in the slot: size, free space and health.', show: function (c, res) {

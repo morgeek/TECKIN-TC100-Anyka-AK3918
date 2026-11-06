@@ -1,4 +1,4 @@
-  // --- Chime / alert / siren on the camera's speaker (action.cgi play_sound, the clips of sounds/) ---
+  // --- Siren on the camera's speaker (action.cgi play_sound, sounds/siren.pcm; chime and alert removed 2026-11-06) ---
   function initSoundButtons() {
     var tr = window.tc100T || function (s) { return s; };
     Array.prototype.forEach.call(document.querySelectorAll("[data-sound]"), function (btn) {

@@ -1,6 +1,10 @@
 window.tc100I18nFr = {
   "_comment": "French UI dictionary for www/scripts/i18n.js: English source text -> French. Served as a script (httpfront / busybox httpd send the .gz copy; the ?v= stamp renews the cache). Keep complete: src/webui/i18n-strings.py --missing must print nothing (checked by the tests).",
   "strings": {
+    "Play the startup sound": "Jouer le son de démarrage",
+    "Detection settings saved.": "Réglages de détection enregistrés.",
+    "The camera replied, but saving is not confirmed. Reload settings to check before retrying.": "La caméra a répondu sans confirmer l'enregistrement. Rechargez les réglages pour vérifier avant de réessayer.",
+    "Set to": "Réglé sur",
     "(.tar.gz, in the Full backup card below): every configuration file of this camera, passwords included, to put back on this camera; keep one before a reset or a card change.": "(.tar.gz, carte Sauvegarde complète plus bas) : tous les fichiers de configuration de cette caméra, mots de passe compris, à remettre sur cette caméra ; faites-en une avant une remise à zéro ou un changement de carte.",
     "(JSON Configuration Exchange card below): the settings as one JSON file, to copy them to another camera (its name, address and secrets can be left out).": "(carte Échange de configuration JSON plus bas) : les réglages dans un seul fichier JSON, pour les copier sur une autre caméra (son nom, son adresse et ses secrets peuvent être laissés de côté).",
     "(Presets card): named setups of the settings forms kept on the camera, to switch between them; Export current and Import file keep a preset as a small file in this browser.": "(carte Préréglages) : des jeux de réglages nommés, gardés dans la caméra, pour passer de l'un à l'autre ; « Exporter l'actuel » et « Importer un fichier » gardent un préréglage dans un petit fichier de ce navigateur.",
@@ -1269,7 +1273,7 @@ window.tc100I18nFr = {
     "Name of the sound": "Nom du son",
     "doorbell": "sonnette",
     "Convert and send": "Convertir et envoyer",
-    "A sound named chime, alert, siren or startup_complete replaces the built-in one (dashboard buttons, Home Assistant, startup).": "Un son nommé chime, alert, siren ou startup_complete remplace celui d'origine (boutons du tableau de bord, Home Assistant, démarrage).",
+    "A sound named siren or startup replaces the built-in one (Siren button, Home Assistant, startup).": "Un son nommé siren ou startup remplace celui d'origine (bouton Sirène, Home Assistant, démarrage).",
     "Silent": "Silencieux",
     "Play": "Lire",
     "yours, replaces the built-in one": "le vôtre, remplace celui d'origine",

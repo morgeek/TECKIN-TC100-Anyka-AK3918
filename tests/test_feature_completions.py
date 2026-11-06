@@ -51,9 +51,11 @@ class SoundButtons(unittest.TestCase):
 
     def test_dashboard_buttons_and_wiring(self):
         index = text('www/index.html')
-        for name in ('chime', 'alert', 'siren'):
-            self.assertIn('data-sound="%s"' % name, index)
-            self.assertTrue((ROOT / 'sounds' / (name + '.pcm')).is_file(), name)
+        # owner 2026-11-06: the Siren button only (chime and alert removed)
+        self.assertIn('data-sound="siren"', index)
+        self.assertTrue((ROOT / 'sounds/siren.pcm').is_file())
+        for name in ('chime', 'alert'):
+            self.assertNotIn('data-sound="%s"' % name, index)
         js = text('src/webui/index/70-audio-diagnostics.js')
         self.assertIn('function initSoundButtons()', js)
         self.assertIn('if (name === "siren" && !confirm(', js)

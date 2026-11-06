@@ -19,37 +19,12 @@ def generate_pcm(filename, duration_sec=1.0, freq=440, sample_rate=8000, dbfs=-6
 
 
 if __name__ == "__main__":
-    # Success sound: double beep
-    generate_pcm("sounds/startup.pcm", duration_sec=0.2, freq=800)
-    generate_pcm("sounds/startup_2.pcm", duration_sec=0.2, freq=1200)
-
-    # Combined sound file for startup
-    with open("sounds/startup_complete.pcm", "wb") as outfile:
-        for f in ["sounds/startup.pcm", "sounds/startup_2.pcm"]:
-            with open(f, "rb") as infile:
-                outfile.write(infile.read())
-
-    # Motion detected: three 1 kHz beeps (R16: one 0.5 s 400 Hz tone was missed at the default volume)
-    generate_pcm("sounds/beep.tmp", duration_sec=0.3, freq=1000)
-    beep = open("sounds/beep.tmp", "rb").read()
-    gap = b"\x00\x00" * int(0.15 * 8000)
-    with open("sounds/alert.pcm", "wb") as f:
-        f.write(beep + gap + beep + gap + beep)
-    os.remove("sounds/beep.tmp")
-
+    # The built-in clips since 2026-11-06 (owner): siren (made here), the test tones (made here) and startup.pcm, the
+    # startup sound the owner chose (an .ogg converted once to 8 kHz mono S16LE, peak -6 dBFS, 5 ms fades: not made
+    # here, kept as is). chime, alert, startup_2 and startup_complete are gone.
     # Speaker test tones (test queue R15-02)
     for db in (6, 12, 20):
         generate_pcm("sounds/test-1k-m%d.pcm" % db, duration_sec=3.0, freq=1000, dbfs=-db)
-
-    # Chime ding-dong: 784 Hz (G5) for 0.4s then 587 Hz (D5) for 0.6s
-    generate_pcm("sounds/chime1.tmp", duration_sec=0.4, freq=784)
-    generate_pcm("sounds/chime2.tmp", duration_sec=0.6, freq=587)
-    with open("sounds/chime.pcm", "wb") as f:
-        f.write(open("sounds/chime1.tmp", "rb").read())
-        f.write(b"\x00\x00" * int(8000 * 0.05))
-        f.write(open("sounds/chime2.tmp", "rb").read())
-    os.remove("sounds/chime1.tmp")
-    os.remove("sounds/chime2.tmp")
 
     # Siren: 2-second sweeping tone
     rate = 8000

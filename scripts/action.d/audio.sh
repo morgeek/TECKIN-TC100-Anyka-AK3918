@@ -49,8 +49,10 @@
     ;;
 
     play_sound)
-      # chime, siren, alert or any clip of Settings -> Sounds (a custom one of that name first: sound_path)
-      _snd_name="$(printf '%s' "${F_sound:-chime}" | tr -cd 'a-zA-Z0-9_-')"
+      # siren, startup or any clip of Settings -> Sounds (a custom one of that name first: sound_path); chime and alert
+      # were removed on 2026-11-06: a caller that still asks for them gets the startup sound
+      _snd_name="$(printf '%s' "${F_sound:-startup}" | tr -cd 'a-zA-Z0-9_-')"
+      case "$_snd_name" in chime|alert) sound_path "$_snd_name" >/dev/null || _snd_name=startup ;; esac
       _snd_file="$(sound_path "$_snd_name")" || _snd_file=""
       _snd_vol=$(sanitize_int_range "${F_volume:-90}" 0 100 90)
       if [ -n "$_snd_file" ] && [ -x /mnt/scripts/speaker-play.sh ]; then
