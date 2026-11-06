@@ -320,6 +320,11 @@ R26. [x] *(fait, `[rc32-fixes]` : repère en RAM, confirmation si plus ancien)* 
     (ou effacer `ok` à chaque démarrage, et refuser d'installer une version plus ancienne que l'actuelle sans
     confirmation explicite).
 
+R27. [ ] **`wifi-diag.sh` (rc31, 2 h sur la .11, test-queue 17:05)** : la réception et l'USB ne se figent jamais pendant
+    les pertes (9,7 % des pings) ; corriger l'outil (le délai d'attente d'un ping perdu compté comme « stall », seuil
+    300 ms sous le coût de la boucle à HZ=100 (~190 ms), écarts énormes mal lus dans `summary`, ~1,28 s par ligne)
+    puis mesurer de l'autre côté (ping de la .11 vers la .24, et depuis la box) pour situer la perte.
+
 ## FAIT (rc28) — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
 
 Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires

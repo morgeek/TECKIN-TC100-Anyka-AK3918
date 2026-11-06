@@ -2632,3 +2632,18 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   superposition), Pico seul, Services < 2 s, `fullconfig` rapide au 2e appel, fuseau et basse lumière dans Réglages,
   WebRTC, ONVIF, MQTT, `reboot-history.log`.
 
+
+## 2026-11-06 17:05 — `wifi-diag.sh run 7200 ping` sur la .11 (rc31) : bilan
+
+- 5 600 relevés (13:53 → 15:53 UTC), **541 pings perdus (9,7 %)**, ping moyen 11,6 ms quand il répond : comme les
+  nuits du 05/11 et du 06/11. **Réception jamais figée ≥ 3 s, hôte USB jamais figé ≥ 3 s** : les compteurs `rx_pkts` et
+  `usb_irq` avancent pendant les pertes. Donc ni le pilote USB ni la réception de `wlan0` ne s'arrêtent : la réponse
+  ICMP se perd entre la box et la caméra (radio, point d'accès, ou limitation ICMP de la box). Signal de la .11 :
+  -15 dBm (très près du point d'accès « Keegrom6 » ; « Keegrom7 » est vu à -40 dBm de la .24).
+- **Défauts de l'outil** : (1) `gap_ms` vaut ~190 ms à chaque seconde (le coût de la boucle elle-même avec un noyau à
+  HZ=100) ; le seuil « camera stalled > 300 ms » compte donc 1 293 « blocages », dont la plupart sont le délai d'attente
+  de 1 s d'un ping perdu : soustraire le temps du ping, ou mesurer le ping hors de la boucle ; (2) `summary` affiche
+  parfois des « stalls » de 868 390 ms / 933 380 ms (valeurs du champ `up_ms` prises pour un écart : lignes coupées ou
+  redémarrage du chronomètre ?) ; (3) une ligne toutes les ~1,28 s au lieu de 1 s (5 600 pour 7 200 s).
+- Pistes suivantes (implémenteur, sans risque pour la liaison) : mesurer en parallèle un ping de la box vers la caméra
+  (côté box) et un ping de la .11 vers la .24 (même réseau, sans la box) pour savoir de quel côté les réponses se perdent.
