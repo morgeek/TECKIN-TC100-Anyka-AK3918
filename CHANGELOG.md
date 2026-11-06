@@ -7,6 +7,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc30] - 2026-11-06
+
+The rc29 (`c81f22a`, on both cameras from the flash) plus the tester's fixes of the rc29 campaign and the implementer
+items R19, R14, R18 and R20-U1/U3:
+- `e85b42c` + `0047c26`: the web update and the install halt `auto-night-detection`, `recording` and
+  `motion-detection` instead of stopping them; the rc29 update had switched automatic day / night off on both cameras
+  and local recording off on IPCAM1.
+- `c68c906`: syslog works again with forwarding on (BusyBox of the base image built with `FEATURE_SYSLOGD_DUP` and
+  `FEATURE_SYSLOGD_CFG`; `syslogd_start` falls back without `-D` / `-f`). The base image is rebuilt.
+- R19: the memory guard halts these three services too (their `stop` writes a setting for good).
+- R14: the SD auto-repair never checks nor writes a boot / install card, does not start `fsck.fat` without the memory it
+  needs (the card is then used as it is and Settings -> Recording says it was not checked), lets the OOM killer take
+  `fsck.fat` first, and mounts the card again after a failed check.
+- R18: the reboot of a web update (and of an SD install, and of `update.cgi`) is recorded as intended in
+  `reboot-history.log`.
+- R20: no Shutdown entry in the menu any more (the camera stays off until unplugged); `LIGHTWEIGHT_MODE` is no longer
+  written by Settings -> Performance and security.
+No default changes: an update keeps `/mnt/config`.
+
 ## [3.0.1-rc29] - 2026-11-06
 
 The rc28 (`8131144`, 7 h 43 on IPCAM2 without a restart, `dropped 0`, memory flat) plus the two WebRTC fixes found by

@@ -2872,3 +2872,16 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
 - **R20** : plus d'entrée « Éteindre » dans le menu (la commande `shutdown` reste pour ssh) ; `LIGHTWEIGHT_MODE` n'est
   plus écrit par « Save Hardening ». Critère : menu Outils sans « Éteindre » ; « Enregistrer le durcissement » ne
   change pas `LIGHTWEIGHT_MODE` de `boot.conf`.
+
+## 2026-11-06 — rc30 lancée par l'implémenteur (consigne du propriétaire : « lancer une nouvelle RC30 »)
+
+- Contenu : rc29 + `e85b42c` / `0047c26` (halt à la mise à jour), `c68c906` (syslog, image de base reconstruite) +
+  `d2d1fc2` (R19, R14, R18, R20-U1/U3) ; CI GitHub verte sur `d2d1fc2` ; aucun réglage par défaut modifié.
+- Archive : `tc100-3.0.1-rc30-update.tar` du run « Build Linux 6.6 » de ce commit. L'implémenteur n'a pas pu la
+  télécharger (`gh` non authentifié sur son poste) : **le contrôle de l'archive** (paragraphe « Vérifier la rc30 » de
+  `a-faire-implementeur.md`) et son md5 sont à faire par le testeur avant l'installation.
+- Installation prévue : .11 et .24 par la mise à jour web, sans carte SD (propriétaire).
+- À vérifier sur les deux caméras : `daynight=2`, `REC_LOCAL` et `mdenabled` inchangés après la mise à jour ;
+  `syslogd` + `tc100-logfwd` en marche et lignes reçues par 192.168.1.23 ; `reboot-history.log` « intended: web update
+  to 3.0.1-rc30 » ; WebRTC dans Chrome ; plus d'« Éteindre » dans le menu ; carte SD de la .24 (formatée) enregistrée
+  sur mouvement sans OOM (entrée `[rc30]` ci-dessus).
