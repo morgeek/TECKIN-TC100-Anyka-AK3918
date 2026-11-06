@@ -165,6 +165,14 @@ R11. [ ] **T8 : httpfront garde indéfiniment les connexions muettes** (72/80 en
 R12. [ ] `state.cgi?daynight` a mis 7,2 s une fois juste après le démarrage (puis 0,3 s) : voir ce qui bloque.
 R13. [ ] Repli MP4 du direct observé à ~1,8 img/s (nuit, 640x360) : vérifier la cadence attendue de ce mode.
 
+R14. [ ] **Réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`, défaut rc28) : OOM et carte refusée** (IPCAM1, rc28,
+    test-queue 2026-11-06 08:00). (a) `sd-diag.sh repair` passe `fsck.fat -a -w` sur une carte que `rec-storage.sh`
+    refuse ensuite (fichiers de démarrage `wifitest`…) : ne rien réparer (ni écrire) sur une carte refusée ; faire le
+    même test avant le fsck. (b) `fsck.fat` sur une FAT32 de 64 Go prend ~24 Mo et l'OOM le tue : estimer la mémoire
+    (taille de la FAT × 2) avant, et sinon monter quand même la carte (Linux monte une FAT « dirty ») en le signalant
+    dans la page SD ; donner `oom_score_adj` 1000 au fsck. (c) Après un fsck en échec, la carte doit être remontée
+    (`rec-storage.sh resume`) si elle est acceptable.
+
 ## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
 
 Validé par le propriétaire. À exécuter sur la rc28 (après R1-R4), sur la .11 puis la .24 passée elle aussi en rc28.
