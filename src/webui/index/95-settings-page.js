@@ -535,24 +535,7 @@
 
             });
 
-            // Set up individual buttons
-            var btnReboot = byId('btnReboot');
-            if (btnReboot) {
-                btnReboot.onclick = function() {
-                    if (!confirm('Reboot camera?')) return;
-                    csrfFetch('cgi-bin/action.cgi?cmd=reboot', { method: 'POST' }).then(function() {
-                        showResult('Rebooting... please wait 60s', 'is-info');
-                    });
-                };
-            }
-            var btnFreeRam = byId('btnFreeRam');
-            if (btnFreeRam) {
-                btnFreeRam.onclick = function() {
-                    csrfFetch('cgi-bin/action.cgi?cmd=clear_mem', { method: 'POST' }).then(function() {
-                        showResult('Memory cache cleared', 'is-success');
-                    });
-                };
-            }
+            // (R20 D3/U2: no Reboot / Clear cache buttons here: Tools -> Reboot is the one restart, nothing to clear)
         })
         .catch(function(e) {
             console.error('Dashboard init failed', e);

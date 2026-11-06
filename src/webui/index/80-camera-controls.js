@@ -1,8 +1,8 @@
   // --- Camera controls panel and Settings feature switches ---
   // Camera controls (camcontrols.cgi panel/set/mode): the day/night mode and
   // the IR, black & white and LED switches, shown with their real state —
-  // under the live picture (#cam_panel) and in Settings → Day/night
-  // ([data-cam-panel]). Polled every 30 s while one is on screen and the page
+  // under the live picture (#cam_panel; Settings → Day/night only links to it,
+  // R20-D1; a [data-cam-panel] still works). Polled every 30 s while one is on screen and the page
   // is visible (auto mode switches the IR by itself).
   var camPanelTimer = null;
   var camPanelBusy = false;
@@ -103,6 +103,7 @@
     if (!fill) return;
     var put = function (id, v) { var el = byId(id); if (el && v !== undefined && v !== null) el.value = String(v); };
     put("dn_source", d.source);
+    dayNightMethodFields();
     put("daynightlum", d.luma_night); put("nightdaylum", d.luma_day);
     put("ae_night_above", d.ae_night_above); put("ae_day_below", d.ae_day_below);
     put("dn_night_hold", d.night_hold); put("dn_day_hold", d.day_hold);
@@ -112,9 +113,23 @@
     var chk = function (id, v) { var el = byId(id); if (el) el.checked = v === 1; };
     chk("dn_nightstyle", d.night_style); chk("dn_lowlight", d.lowlight_fps);
   }
+  // R20-U8: only the thresholds of the selected light measurement are shown; the others stay in the form (hidden, still
+  // submitted with their saved values). luma: luminance, ae: exposure index, isp (dark flag): hold times only,
+  // vendor: the stock method's two values. The hold times belong to every method.
+  function dayNightMethodFields() {
+    var sel = byId("dn_source");
+    var form = byId("formDayNight");
+    if (!sel || !form) return;
+    Array.prototype.slice.call(form.querySelectorAll("[data-dn-method]")).forEach(function (el) {
+      el.classList.toggle("is-hidden", el.getAttribute("data-dn-method") !== sel.value);
+    });
+  }
   function initDayNight() {
     var form = byId("formDayNight");
     if (!form) return;
+    var srcSel = byId("dn_source");
+    if (srcSel && !srcSel.dataset.dnBound) { srcSel.dataset.dnBound = "1"; srcSel.addEventListener("change", dayNightMethodFields); }
+    dayNightMethodFields();
     var load = function (fill) {
       fetch("cgi-bin/state.cgi?cmd=daynight&format=json&_=" + Date.now(), { cache: "no-store" })
         .then(function (r) { if (!r.ok) throw new Error("daynight"); return r.json(); })

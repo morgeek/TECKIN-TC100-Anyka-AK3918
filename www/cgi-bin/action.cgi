@@ -1143,7 +1143,7 @@ if [ -n "$F_cmd" ]; then
   audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|ha_discovery_info) ;;
     *) csrf_check ;;
   esac
   # Each command lives in scripts/action.d/<group>.sh: only that file is
@@ -1167,7 +1167,7 @@ if [ -n "$F_cmd" ]; then
       _action_group=system ;;
     set_network|conf_dns|conf_static_ip|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|wifi_set_country|wifi_set_config|nvr_latency)
       _action_group=network ;;
-    refresh_ha_discovery|set_mqtt_config|pair_home_assistant)
+    refresh_ha_discovery|ha_discovery_info|set_mqtt_config|pair_home_assistant)
       _action_group=integrations ;;
     complete_setup_wizard|wizard_reset)
       _action_group=setup ;;

@@ -148,6 +148,7 @@
               rows="$(printf '%s\n' "$scan_out" | awk '
                   function esc(t) { gsub(/&/, "\\&amp;", t); gsub(/</, "\\&lt;", t); gsub(/>/, "\\&gt;", t); gsub(/"/, "\\&quot;", t); gsub(/\047/, "\\&#39;", t); return t }
                   function row() {
+                      sub(/\.[0-9]*$/, "", rssi)	# R20-U6: dBm without decimals (iw prints -54.00)
                       name = (ssid == "") ? "(hidden)" : esc(ssid)
                       printf "<tr class=\"wifi-pick\" data-ssid=\"%s\"><td>%s</td><td>%s</td><td>%s</td></tr>\n", (ssid == "" ? "" : esc(ssid)), name, (rssi != "" ? esc(rssi) : "n/a"), enc
                   }
@@ -171,7 +172,7 @@
               if [ -z "$rows" ]; then
                   echo "<p class='help'>No networks found.</p>"
               else
-                  printf "<table class='table is-fullwidth is-hoverable is-size-7'><thead><tr><th>SSID</th><th>Quality</th><th>Encrypted</th></tr></thead><tbody>%s</tbody></table>\n" "$rows"
+                  printf "<table class='table is-fullwidth is-hoverable is-size-7'><thead><tr><th>SSID</th><th>Signal (dBm)</th><th>Encrypted</th></tr></thead><tbody>%s</tbody></table>\n" "$rows"
               fi
           fi
         fi

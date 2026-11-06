@@ -2380,3 +2380,56 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   (un clic sur Installer aurait remis la rc28). Redevenu `idle` après le démontage. R26.
 - Syslog : `tc100-logfwd` corrigé (`e5a1c05`) superposé en RAM, « En marche ».
 - Superpositions en RAM sur la .24 (perdues au redémarrage) : `/mnt/bin/tc100-logfwd`.
+
+## 2026-11-06 — Audit de l'interface, le reste de R20 : doublons D1-D6, inutiles U2 et U4-U9 (`[ui-r20]`, rc32)
+
+- **Quoi (décision du propriétaire : « tout faire », une seule commande par action, jamais une fonction retirée) :**
+  - **D1** Réglages → Jour/nuit : les boutons Auto / Jour / Nuit et les interrupteurs Éclairage IR / Filtre IR / Noir et
+    blanc ne sont plus répétés ; un lien « Ouvrir les commandes sous l'image en direct » mène au Direct, qui les garde.
+    Les seuils restent. **D2** Système : la carte « LED » devient « LED au démarrage » avec une phrase (l'état pris à chaque
+    démarrage ; les boutons LED bleue / rouge du Direct ne changent que le moment). **D3** Système → Maintenance : le
+    bouton « Hard Reboot » (même `cmd=reboot` que Outils → Redémarrer, et pas plus « forcé ») est remplacé par une phrase ;
+    le seul redémarrage est dans le menu Outils. **D4** (4 mécanismes) : aucun retiré (« Exporter l'actuel / Importer un
+    fichier » des préréglages n'est **pas** un doublon de l'échange JSON : il lit les champs des formulaires dans le
+    navigateur, sans `config_exchange.cgi`) ; le guide « Lequel choisir ? » les range du plus large au plus étroit
+    (sauvegarde complète, échange JSON, préréglages, point de restauration), une ligne chacun, et une phrase sous les
+    boutons d'export/import des préréglages renvoie à l'échange JSON. **D5** page Services : une phrase dit que, pour les
+    services qui ont un réglage (recording, syslog-forward, memory-guard, whep, wifi-rescue, mqtt-bridge, telegram-bot),
+    « Arrêter » éteint le réglage pour de bon et que « Démarrage » est le même interrupteur. **D6** Telegram : un lien
+    d'Alertes vers le jeton / la conversation (Intégrations) et un lien d'Intégrations vers le choix des événements
+    (Alertes) ; chaque lien ouvre l'onglet et met le champ en vue.
+  - **U2** « Vider le cache mémoire » retiré de l'interface (la commande `clear_mem` reste côté serveur, pour un script).
+  - **U4** Clés de `boot.conf` sans lecteur en 3.0 (`WEB_MODE`, `ULTRALITE_HTTP_PORT`, `UI_ULTRALITE_MODE`,
+    `LIGHTWEIGHT_MODE`, `CPU_SCALER_*`, `RTSP_SERVER`, `RTSP_VENDOR_PORT`, `RTSP_LITE_*` **sauf `RTSP_LITE_TALK`** (lu par
+    tc100_rtsp, onvifd et Réglages → Audio), `RTSP_PROC_*`, `RTSP_FPS_LOCK`, `FIRMWARE_IMAGE`, `STORAGE_CLEANUP_*`,
+    `TAMPER_DETECTION`) : `config/boot.conf.dist` n'en contenait plus que `LIGHTWEIGHT_MODE`, retiré ; la nouvelle
+    `scripts/migrate-rc32-unused-keys.sh` (appelée par `v3/autorun-linux66.sh` après `migrate-rc28-defaults.sh`, avant la
+    lecture de `boot.conf`, une fois : `config/.migrated-rc32-unused-keys`) **commente** ces lignes dans `boot.conf`
+    (`#[rc32: unused on 3.0] CLE=valeur`, valeur gardée) et écrit une ligne par clé dans `config/migrations.log` ; aucune
+    suppression. `state.cgi` et `config_exchange.cgi` mentionnent encore `LIGHTWEIGHT_MODE` (affichage / export seulement,
+    rien n'agit dessus). L'entrée `autostart/cpu-scaler` des deux caméras n'est **pas** touchée (l'autorun l'ignore ; un
+    fichier, pas une clé).
+  - **U5** Intégrations → MQTT : « 25+ Discovery Nodes » remplacé par le vrai nombre d'entités : nouvelle commande
+    `ha_discovery_info` (lecture seule) qui lance `tc100-mqttd -D` (écrit les enregistrements de découverte sans se
+    connecter ni rien publier) et compte ceux qui ont un contenu (un contenu vide ne fait que retirer une vieille
+    entité) ; « -- » si on ne peut pas le savoir. **U6** Réseau → Wi-Fi → Scanner : colonne « Signal (dBm) », sans
+    décimales (« -54 »). **U7** Services : l'âge de `web-server` est celui de `httpfront` (un processus `httpd` n'est plus
+    que le repli). **U8** Jour/nuit : seuls les champs de la méthode de « Mesure de la lumière » choisie sont affichés
+    (luminance, indice d'exposition, ou méthode d'origine ; les durées de maintien restent) ; les champs cachés restent
+    dans le formulaire, enregistrés avec leurs valeurs. **U9** L'alerte « identifiants par défaut » des Réglages a le
+    lien « Changer le mot de passe » (ouvre Système et met le champ « Nouveau mot de passe » en vue).
+- **Interrupteur :** aucun (changements d'interface) ; la migration U4 ne se rejoue pas (supprimer
+  `config/.migrated-rc32-unused-keys` pour la rejouer) et une clé commentée se remet en retirant le préfixe.
+- **Test (caméra, interface en français puis en anglais) :** (1) Jour/nuit : pas de boutons Auto/Jour/Nuit, le lien ouvre
+  le Direct ; changer « Mesure de la lumière » n'affiche que les seuils de la méthode ; « Enregistrer les seuils » garde les
+  quatre jeux de valeurs (relire l'onglet). (2) Système : « LED au démarrage », pas de « Hard Reboot » ni de « Clear Page
+  Cache » ; Outils → Redémarrer fonctionne. (3) Mise à jour et sauvegarde : le guide à quatre lignes ; tous les boutons
+  encore là. (4) Services : la phrase sous le tableau ; `web-server` « En marche depuis » l'âge de `httpfront`
+  (`ps`, pid de `httpfront`), pas 1 s. (5) Alertes et Intégrations : les deux liens Telegram. (6) Intégrations : le
+  nombre d'entités (49 attendu sur la .24 avec la découverte active ; « 0 » découverte coupée) ; la page ne se bloque pas.
+  (7) Wi-Fi → Scanner : « Signal (dBm) » sans décimales. (8) Avec le mot de passe par défaut : l'alerte et son lien.
+  (9) Migration : après le premier démarrage en rc32, `grep -c '^#\[rc32' /mnt/config/boot.conf` = nombre de clés de la
+  liste présentes avant, `cat /mnt/config/migrations.log`, `ls /mnt/config/.migrated-rc32-unused-keys` ; l'éditeur de
+  configuration ne les propose plus comme réglages ; `RTSP_LITE_TALK` inchangé ; un second redémarrage ne change rien.
+- **Critères :** aucune fonction perdue (chaque bouton retiré a son équivalent indiqué) ; aucune erreur JavaScript ;
+  aucun défilement horizontal en 360 px ; aucune clé de `boot.conf` supprimée, toutes les clés lues par 3.0 intactes.

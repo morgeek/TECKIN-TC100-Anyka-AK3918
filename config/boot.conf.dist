@@ -1,7 +1,3 @@
-# Boot-time performance settings
-# Set to 1 to enable lightweight defaults (lower CPU/RAM).
-LIGHTWEIGHT_MODE=0
-
 # Network guard (scripts/net-guard.sh, checked every minute by web-guard.sh):
 # reboot when the default gateway has not answered for NET_GUARD_MIN minutes
 # while the rest of the system runs (the hardware watchdog does not catch

@@ -24,6 +24,23 @@
       fi
     ;;
 
+    ha_discovery_info)
+      # R20-U5: the real number of Home Assistant entities the bridge announces with the current settings (the "Entities"
+      # tag of Settings -> Integrations). tc100-mqttd -D writes the discovery records it would publish (no connection,
+      # no pid file; the script's print-config gives it the settings); an empty payload only removes an old entity and
+      # is not counted. Nothing is published. -1 = cannot be told (no daemon or script).
+      _hd_n=-1
+      _hd_bin=${TC100_MQTTD_BIN:-/mnt/tc100test/tc100-mqttd}
+      _hd_f="/tmp/ha-discovery.$$"
+      if [ -x "$_hd_bin" ] && [ -f "${TC100_MQTTB_SH:-/mnt/scripts/mqtt-bridge.sh}" ] &&
+         "$_hd_bin" -s "${TC100_MQTTB_SH:-/mnt/scripts/mqtt-bridge.sh}" -l /dev/null -D "$_hd_f" </dev/null >/dev/null 2>&1; then
+        _hd_n="$(tr '\000' '\n' < "$_hd_f" 2>/dev/null | awk 'NR % 2 == 0 && length($0) > 0 { n++ } END { print n + 0 }')"
+        case "$_hd_n" in ''|*[!0-9]*) _hd_n=-1 ;; esac
+      fi
+      rm -f "$_hd_f"
+      printf '{"status":"success","count":%s}\n' "$_hd_n"
+    ;;
+
     set_mqtt_config)
       csrf_check
       install_config /mnt/config/mqtt.conf
