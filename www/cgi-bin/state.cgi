@@ -28,7 +28,8 @@ state_response_cache() {
 
   _src_tmp="/tmp/state-response.$$.tmp"
   _src_cache_tmp="${_src_file}.tmp.$$"
-  STATE_RESPONSE_CACHE_BYPASS=1 sh "${STATE_CGI_SCRIPT:-/mnt/www/cgi-bin/state.cgi}" > "$_src_tmp" 2>/dev/null
+  # the script running now ($0), not a fixed /mnt/www path: the same file wherever it is started from (tests, SD tree)
+  STATE_RESPONSE_CACHE_BYPASS=1 sh "${STATE_CGI_SCRIPT:-$0}" > "$_src_tmp" 2>/dev/null
   if [ -s "$_src_tmp" ] && grep -q '^Content-type:' "$_src_tmp"; then
     _src_now="$(date +%s 2>/dev/null)"
     case "$_src_now" in ''|*[!0-9]*) _src_now=0 ;; esac
@@ -46,12 +47,16 @@ state_response_cache() {
 if [ "${REQUEST_METHOD:-GET}" = GET ] && [ "${STATE_RESPONSE_CACHE_BYPASS:-0}" != 1 ]; then
   _state_cache_format=plain
   wants_json_response && _state_cache_format=json
-  case "$F_cmd" in
-    fullconfig) state_response_cache "/tmp/state-response-fullconfig-${_state_cache_format}.cache" 5; exit 0 ;;
-    daynight)   state_response_cache "/tmp/state-response-daynight-${_state_cache_format}.cache" 1; exit 0 ;;
-    isp_tune)   state_response_cache "/tmp/state-response-isp_tune-${_state_cache_format}.cache" 1; exit 0 ;;
-    dashinfo)   state_response_cache "/tmp/state-response-dashinfo-${_state_cache_format}.cache" 5; exit 0 ;;
-  esac
+  # an if, not a case: the arms of the main case below stay the only case arms of these commands (tests and readers
+  # find each arm by its label)
+  _src_ttl=
+  if [ "$F_cmd" = fullconfig ]; then _src_ttl=5
+  elif [ "$F_cmd" = daynight ] || [ "$F_cmd" = isp_tune ]; then _src_ttl=1
+  fi
+  # dashinfo: already answered from its own cache (dashinfo_cached, DASHINFO_CACHE_TTL_SECONDS)
+  if [ -n "$_src_ttl" ]; then
+    state_response_cache "/tmp/state-response-${F_cmd}-${_state_cache_format}.cache" "$_src_ttl"; exit 0
+  fi
 fi
 
 # Set content type based on requested format

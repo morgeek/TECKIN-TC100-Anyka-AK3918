@@ -61,7 +61,10 @@ class Abr(unittest.TestCase):
         src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
         self.assertIn('p_set_br = dlsym(m, "ak_venc_set_br");', src)
         self.assertIn("{ const char *ab = getenv(\"RTSP_ABR\"); abr_on = ab && ab[0] == '1'; }", src)
-        self.assertIn('rec_active(), pp_us / 1000, sub_us / 1000);\n\t\t\t\t  abr_tick(dr);', src)
+        # the regulation runs once per STAT line (every 5 s), right after it (the STAT line grew with the sender thread)
+        stat = src.index('LOG("STAT cap %lu')
+        self.assertIn('rec_active(), pp_us / 1000, sub_us / 1000', src[stat:stat + 600])
+        self.assertLess(src.index('abr_tick(dr);', stat) - stat, 900)
 
 
 if __name__ == '__main__':

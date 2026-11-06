@@ -39,8 +39,9 @@ class UpdateWithoutBackup(unittest.TestCase):
 
     def test_page_asks_and_sends_the_confirmation(self):
         html = text('www/settings.html')
-        self.assertIn("d.error === 'nobackup' && !extra", html)
-        self.assertIn("run(cmd, confirmText, msg, '&nobackup=1')", html)
+        # a refusal "nobackup" asks again with the server's message and resends with &nobackup=1 (once), like "older" (R26)
+        self.assertIn("d.error === 'nobackup' && extra.indexOf('&nobackup=1') < 0 && '&nobackup=1'", html)
+        self.assertIn("if (confirm((window.tc100T || String)(d.message))) run(cmd, confirmText, msg, extra + again);", html)
 
 
 class OneUbootEnvironmentWriter(unittest.TestCase):

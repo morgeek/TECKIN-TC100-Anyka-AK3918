@@ -402,7 +402,8 @@ class SdRepairGuards(unittest.TestCase):
     def test_same_boot_files_as_the_recorder(self):
         diag = (ROOT / 'scripts/sd-diag.sh').read_text()
         rec = (ROOT / 'scripts/rec-storage.sh').read_text()
-        want = re.search(r'for _bad in ([^;]+); do', rec).group(1).split()
+        want = re.search(r'^SD_BOOT_FILES="([^"]+)"', rec, re.M).group(1).split()   # the recorder's list (R25)
+        self.assertIn('for _bad in $SD_BOOT_FILES; do', rec)
         have = re.search(r'^SD_BOOT_FILES="([^"]+)"', diag, re.M).group(1).split()
         self.assertEqual(have, want)
 
