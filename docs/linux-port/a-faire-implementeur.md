@@ -155,7 +155,7 @@ R8. [x] *(2026-11-05 soir, consigne du propriétaire « active tous les items co
     identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
     après R4. Bilan de nuit du testeur le 2026-11-06 au matin.
 
-R9. [~] *(validé dans Chrome 157 sur la .11 le 2026-11-06 01:05 avec les binaires en RAM : WebRTC 640x360 à 10 img/s de nuit ; reste la rc29)* *(2e cause trouvée et corrigée en `7928ac5` : ClientHello DTLS 1.3 + ML-KEM fragmenté, mbedTLS 2.28 → -0x7900 ; voir test-queue 2026-11-06 00:20 ; mettre `tests/whep_chrome_interop.py` en CI)* **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
+R9. [x] *(rc29 depuis la flash : OK, 20 img/s de jour, 2026-11-06 08:10)* *(validé dans Chrome 157 sur la .11 le 2026-11-06 01:05 avec les binaires en RAM : WebRTC 640x360 à 10 img/s de nuit ; reste la rc29)* *(2e cause trouvée et corrigée en `7928ac5` : ClientHello DTLS 1.3 + ML-KEM fragmenté, mbedTLS 2.28 → -0x7900 ; voir test-queue 2026-11-06 00:20 ; mettre `tests/whep_chrome_interop.py` en CI)* **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
     limite 12000 commune à `whep.cgi` et `tc100-whep`, tampon 16 Ko). Il faut un `tc100-whep` reconstruit (image de base)
     → **rc29** ; le testeur revalide P7 dans Chrome. Vérifier aussi Firefox / Safari (offres de taille voisine).
 R10. [ ] **T9 : client RTSP muet fermé après ~31 s** alors que `CLI_IDLE_S` = 60 : trouver le délai qui s'applique
@@ -172,6 +172,12 @@ R14. [ ] **Réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`, défaut r
     (taille de la FAT × 2) avant, et sinon monter quand même la carte (Linux monte une FAT « dirty ») en le signalant
     dans la page SD ; donner `oom_score_adj` 1000 au fsck. (c) Après un fsck en échec, la carte doit être remontée
     (`rec-storage.sh resume`) si elle est acceptable.
+
+R15. [x] *(corrigé par le testeur en `e85b42c`, à revalider à la prochaine mise à jour)* **La mise à jour coupait le
+    jour / nuit automatique** : `update66.sh` / `install66.sh` / `update.cgi` appelaient `auto-night-detection stop`,
+    qui écrit `daynight=3` (manuel, persistant) depuis que la rc28 fournit `rwconf`. Nouveau verbe `halt`. Vérifier
+    s'il reste d'autres `stop` « techniques » qui écrivent un réglage utilisateur (`service_trim`, `mqtt-bridge.sh`
+    l. 1734, `action.cgi` l. 680 : voulus par l'utilisateur ? à documenter).
 
 ## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
 
