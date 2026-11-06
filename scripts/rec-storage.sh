@@ -122,7 +122,9 @@ rs_eject()
         sleep 1; _i=$((_i + 1))
     done
     sync
-    if _flash && _mounted; then
+    # any card on $MNT_SD, a refused boot card too (_mounted is false for one since R25: eject answered "ok" and left it
+    # mounted, IPCAM1 rc32)
+    if _flash && grep -qE " $MNT_SD (vfat|exfat) " "$PROC_MOUNTS" 2>/dev/null; then
         umount "$MNT_SD" || { echo "busy"; return 1; }
         _placeholder
     fi

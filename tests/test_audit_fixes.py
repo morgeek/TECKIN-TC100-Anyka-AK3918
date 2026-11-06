@@ -548,3 +548,29 @@ class FlashModeRefusesBootCard(unittest.TestCase):
         self.assertLess(fp.index('[ -e /tmp/cardmnt/$b ]'), fp.index('mount --move /tmp/cardmnt /mnt/sd'))
         self.assertIn('umount /tmp/cardmnt', fp)
         self.assertIn('mount -o remount,ro /tmp/cardmnt', fp)
+
+
+@unittest.skipIf(os.name == 'nt', 'needs a POSIX shell')
+class EjectUnmountsARefusedCard(unittest.TestCase):
+    """rc32 on IPCAM1 (2026-11-06): "rec-storage.sh eject" answered "ok: the card can be removed" and left the boot card
+    mounted: since R25 _mounted() is false for a card with boot files, and eject only unmounted when _mounted()."""
+
+    def test_eject_unmounts_any_card(self):
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            sd = t / 'sd'; (sd / 'wifitest').mkdir(parents=True)
+            mounts = t / 'mounts'; mounts.write_text(f'/dev/mmcblk0p1 {sd} vfat rw 0 0\n')
+            log = t / 'calls'
+            (t / 'bin').mkdir()
+            for tool in ('umount', 'mount', 'sync', 'logger', 'sleep'):
+                (t / 'bin' / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> {log}\n')
+                os.chmod(t / 'bin' / tool, 0o755)
+            (t / 'flash').write_text('flash\n')
+            status = t / 'status'; status.write_text('state=paused\n')
+            env = dict(os.environ, PATH=f'{t}/bin:' + os.environ['PATH'], REC_SD_MOUNT=str(sd),
+                       REC_PROC_MOUNTS=str(mounts), TC100_STORAGE_FILE=str(t / 'flash'), TC100FIX_REC_STATUS=str(status),
+                       REC_L66_FLAG=str(t / 'flash'), REC_FLASHMODE_FLAG=str(t / 'flash'))   # 3.0 in flash mode
+            r = subprocess.run(['sh', str(ROOT / 'scripts/rec-storage.sh'), 'eject'], env=env, capture_output=True,
+                               text=True, timeout=30)
+            self.assertIn('ok', r.stdout)
+            self.assertIn(f'umount {sd}', log.read_text())
