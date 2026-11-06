@@ -195,7 +195,9 @@ jobs:
           cp src/netacl/libnetacl.so lib/libnetacl.so
           sh tests/check-libc-data-imports.sh
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
-          READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
+          # audit 2026-11-06 S5: the web JavaScript and inline scripts/styles of the image are minified (esbuild, pinned)
+          npm install --prefix src/webui --no-save --no-audit --no-fund esbuild@0.21.5 >/dev/null
+          MINIFY_WWW=1 READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
           sh v3/build-release.sh output/stack output/oipc.img output/tc100test/oipcrd66.gz output/envtool output/release
 
       - name: Upload the 3.0 release

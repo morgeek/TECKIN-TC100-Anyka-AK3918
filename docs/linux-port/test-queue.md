@@ -3022,3 +3022,18 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   son intégré du même nom.
 - **Critères :** chaque son audible, sans grésillement nouveau par rapport à la rc30 ; aucune erreur `aplay` dans le
   journal.
+
+## 2026-11-06 — Place en flash : JavaScript et HTML minifiés à la construction (`[flash-minify]`, audit S5, décision du propriétaire, rc31)
+
+- **Quoi :** `v3/build-stack.sh` passe `src/webui/minify.mjs` (esbuild 0.21.5, épinglé) sur sa copie de `www/`, avant
+  les `.gz` : chaque `*.js` et les blocs `<script>` / `<style>` en ligne des pages ; **pas** le balisage (le
+  dictionnaire français en dépend), **pas** les CGI ni le shell (lisibles en ssh, décision du propriétaire). Noms
+  globaux gardés (attributs `onclick`). Mesure sur PC : 661 Ko → 469 Ko de fichiers web en clair ; Playwright sur l'arbre
+  minifié : 19 pages × clair/sombre × 1280/390 px, **0 erreur JavaScript**. git garde les fichiers lisibles (les tests
+  et `build-index.sh` les comparent). La CI l'exige (`MINIFY_WWW=1`) ; une construction locale sans esbuild livre les
+  fichiers tels quels.
+- **Interrupteur :** aucun sur la caméra (revert du commit `[flash-minify]`).
+- **Test :** sur les deux caméras, parcourir toutes les pages (tableau de bord, direct, multi-vues, enregistrements,
+  chaque onglet de Réglages, Outils, assistant) en anglais et en français ; enregistrer un réglage par onglet ; console
+  du navigateur sans erreur ; noter la ligne `stack.sqfs: N bytes` de la CI.
+- **Critères :** comportement identique à la rc30 ; aucune erreur dans la console ; traductions françaises complètes.

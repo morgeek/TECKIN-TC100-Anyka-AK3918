@@ -135,7 +135,7 @@ démarré depuis la carte SD ; interrupteur `boot.conf` par défaut = comporteme
   entrée `[wifi-diag]` : à lancer par le testeur ; il désigne W2 (blocage CPU), W3 (hôte USB, noyau via la carte SD),
   W4 (réception rtl8xxxu) ou W5 (routeur/canal ou artefact de mesure). Tout essai à chaud passera par un
   `wifi-try.sh` à retour automatique (conception dans l'audit).
-- **S — Flash** (partition stack, la seule sous pression). Réécrire le shell en C/Rust/Zig **ne fait pas gagner de
+- **S — Flash** *(2026-11-06, décisions du propriétaire : S1 jq, S1b `.gz`, S3 monvifd, S5 JS/HTML, S7 sons A-law **faits** pour la rc31 ; S2 shell **non** (lisible en ssh) ; S6 Bulma en rc32 ; S4 pas demandé)* (partition stack, la seule sous pression). Réécrire le shell en C/Rust/Zig **ne fait pas gagner de
   flash** (xz compresse le shell ~3,8x, le code ARM ~2,4x) : le C sert à la vitesse (R17). Gains réels, dans l'ordre :
   S1 retirer `jq` (deux scripts seulement, ~110-240 Ko EST), S1b liste blanche des `.gz` (41-287 Ko), S2 minifier le shell
   au build (`shfmt`, 90 Ko), S3 retirer `monvifd` (70 Ko ; `controlscripts/onvif` l. 30 a encore `monvifd` par défaut),
@@ -147,7 +147,7 @@ démarré depuis la carte SD ; interrupteur `boot.conf` par défaut = comporteme
 - **H — Matériel.** H1 fil d'envoi dans `tc100_rtsp` (cause de R16 ; `RTSP_SENDER_THREAD`, défaut 0), H2 mode smart +
   pool 12M, H3 3D-NR (tester en 720p), H4 minuteries haute résolution — H2 à H4 d'abord sur le noyau de la carte SD ;
   H11 mesurer le temps de démarrage.
-- **D — Docs contredites par le code** (sans risque) : D1-D10 de l'audit, dont **59.1 sans effet** (les options
+- **D — Docs contredites par le code** *(D1-D10 corrigés le 2026-11-06)* (sans risque) : D1-D10 de l'audit, dont **59.1 sans effet** (les options
   `WLAN_VENDOR_*` ne sélectionnent aucun pilote) et **58.2 faux** (`supervisor.sh` lance encore `auto-night-daemon.sh` et
   `button-watch.sh`).
 

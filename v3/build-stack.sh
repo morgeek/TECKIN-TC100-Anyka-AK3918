@@ -51,6 +51,19 @@ cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$PACK/tc100-mdnsd" 
 [ -f "$PACK/tc100-supervisord" ] && cp "$PACK/tc100-supervisord" "$T/tc100test/"
 cp v3/linux66-sd/rtsp-launch.sh "$T/tc100test/"
 find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' \) -exec rm -f {} +
+# JavaScript and the inline <script>/<style> of the pages minified in this tree only (audit 2026-11-06 S5, owner: not
+# the shell, which stays readable over ssh; git keeps the readable files). src/webui/minify.mjs needs esbuild
+# (npm install --prefix src/webui): MINIFY_WWW=1 (the CI) makes it mandatory; otherwise a build without it ships the
+# files as they are, which work the same, only bigger.
+if command -v node >/dev/null 2>&1; then
+	node src/webui/minify.mjs "$T/www" && mrc=0 || mrc=$?
+else
+	echo "build-stack: no node" >&2; mrc=3
+fi
+if [ "$mrc" != 0 ]; then
+	[ "$mrc" = 3 ] && [ "${MINIFY_WWW:-auto}" != 1 ] || { echo "build-stack: web minification failed ($mrc)" >&2; exit 1; }
+	echo "build-stack: web files not minified (no esbuild)" >&2
+fi
 # the big files every page load fetches also as .gz: busybox httpd (FEATURE_HTTPD_GZIP) sends the .gz to browsers that
 # accept gzip (about a quarter of the bytes over Wi-Fi) and the plain file otherwise, so a file without .gz still works.
 # Only these five (audit 2026-11-06 S1b, owner): a .gz does not compress again in the xz squashfs, and the .gz of
