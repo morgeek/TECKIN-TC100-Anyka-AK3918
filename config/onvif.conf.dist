@@ -1,14 +1,14 @@
 #######################################################################
-# Edit this file and move it to /mnt/config/monvifd.conf    #
+# Edit /mnt/config/onvif.conf (a copy of this file) to change     #
 # if you need to add options, otherwise defaults will be used         #
 #######################################################################
 
 
 ONVIF_PORT=8081
 
-# Which ONVIF daemon runs: c (default: the free tc100-onvifd of src/onvifd: Device + Media + Media2 with the audio
-# output/decoder for two-way audio, WS-Security login = the RTSP user and the password of user.pwd, snapshot URI, LAN
-# filter) or monvifd (the closed original binary: only in the SD package since rc31; from the flash, c runs anyway).
+# The ONVIF daemon: c, the free tc100-onvifd of src/onvifd (Device + Media + Media2 with the audio output/decoder for
+# two-way audio, WS-Security login = the RTSP user and the password of user.pwd, snapshot URI, LAN filter). The closed
+# monvifd of 2.x was removed in rc32; a value other than c is ignored.
 ONVIF_IMPL=c
 VENDOR_NAME=Anyka
 HW_NAME=AK3918

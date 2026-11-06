@@ -112,6 +112,6 @@ hardware facts, test loop), then `docs/known-issues.md`.
   priorities), with the measured audit `docs/linux-port/audit-2026-11-06.md` (flash size, Wi-Fi losses, features,
   hardware headroom). What waits for the cameras: `docs/linux-port/test-queue.md` (closed entries are in
   `test-queue-archive.md`). Older audits (`feature-audit-2026-10-26.md`, `audit-2026-11-03/04.md`) are history.
-- Planned for the rc32 (owner, 2026-11-06): remove the Classic look (Bulma, `ui-modern.min.css`, the Appearance choice)
-  and `bin/monvifd`, once the rc31 is checked on both cameras.
+- Done for the rc32 (owner, 2026-11-06): the Classic look (Bulma, `ui-modern.min.css`, the Appearance choice) and
+  `bin/monvifd` are removed; Pico and `tc100-onvifd` are the only ones.
 - The project notes of the claude.ai Project (`claude/status-*`) complement this; the repository is the reference.

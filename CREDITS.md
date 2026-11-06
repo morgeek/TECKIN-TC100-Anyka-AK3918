@@ -19,7 +19,7 @@ licence applies to its code. The code of this project itself is under the GPL-2.
 No vendor binary is published in this repository. The vendor media libraries are read from the camera itself.
 
 Prebuilt ARM programs kept in the repository and copied into the 3.0 image by `v3/build-stack.sh` (uClibc, from the
-2.x era): `bin/monvifd` (ONVIF), in the SD package only since rc31 (the flash image runs the free `tc100-onvifd`).
+2.x era): none any more: `bin/monvifd` (the closed ONVIF daemon) was removed in rc32, the free `tc100-onvifd` replaces it.
 `bin/isp_flip` (freestanding, no C library), `bin/tc100-logfwd` (`src/logfwd`) and `lib/libnetacl.so` (`src/netacl`) are
 rebuilt from their source by the release build; the copies in `bin/` and `lib/` only serve local builds.
 `tc100-logfwd` and `libnetacl` run under the camera's uClibc but are built with the glibc cross compiler and a
@@ -41,9 +41,10 @@ this repository (`99c3112`, 2026-02-02), a copy of the original SD-card hack, wh
 | `monvifd` | "Micro ONVIF discovery service v1.1" by ThatUsernameAlreadyExist, first published as a binary in [JCO-PM203-Fisheye-Ingenic-T20-P2P-camera-hacks](https://github.com/ThatUsernameAlreadyExist/JCO-PM203-Fisheye-Ingenic-T20-P2P-camera-hacks) (2023-05-15), then in the TC100 hack (2023-07-09). **No source published**; neither repository has a licence. | none stated |
 
 `bin/setconf` and `bin/telegram` are shell scripts of this repository (2.x's `setconf` was built from
-`SetSharedConfig.cpp`, same tree). The three Unlicense programs can be rebuilt from their public source; `monvifd`
-stays the default ONVIF daemon until the free replacement `tc100-onvifd` (`src/onvifd`, written for this project, GPL-2.0:
-WS-Discovery, Device, Media and Media2 services) is tested on the camera (`ONVIF_IMPL=c` in `onvif.conf`; ONVIF is off by default).
+`SetSharedConfig.cpp`, same tree). The three Unlicense programs can be rebuilt from their public source. `monvifd` was
+the ONVIF daemon of 2.x; it was removed from the repository in rc32 (owner, 2026-11-06): the free `tc100-onvifd`
+(`src/onvifd`, written for this project, GPL-2.0: WS-Discovery, Device, Media and Media2 services, events) replaces it,
+checked on both cameras in rc31.
 
 AAC encoder of the recorder (`src/tc100rtsp/aacenc.c`, `RTSP_REC_AAC=1`): written for this project (GPL-2.0), from the ISO/IEC 14496-3
 format description. The only third-party data are the Huffman code tables of the standard in `aacenc_tab.h`, bare numbers read from

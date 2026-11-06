@@ -41,7 +41,7 @@ cp -r config/autostart "$T/config/"
 rm -f "$T/config/autostart/ftp-server"
 # free uClibc programs of the repo that the 6.6 system uses (run with the camera's own uClibc, see vendor)
 mkdir -p "$T/bin" "$T/lib" "$T/tc100test"
-for b in busybox isp_flip monvifd rwconf setconf tc100-logfwd telegram; do
+for b in busybox isp_flip rwconf setconf tc100-logfwd telegram; do
 	[ -f "bin/$b" ] || { echo "build-stack: bin/$b missing (rwconf and isp_flip are built from src/ by the release build: make -C src/rwconf, see build-kernel-linux66.yml)"; exit 1; }
 	cp "bin/$b" "$T/bin/"
 done
@@ -144,11 +144,8 @@ chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rts
 #      (tests/test_flash_image.py checks the list)
 #    - build and development files that never run on the camera
 #    - the 1 kHz test tones sounds/test-1k-m*.pcm (bench only: scripts/generate_sounds.py, and the SD card package)
-#    - the style sheets www/css/bulma.1.0.2.purged.min.css, ui-modern.min.css and ui.css: they are
-#      the sources of css/ui.bundle.min.css, which is the only one a page loads (the wizard has its own styles);
-#      likewise pico-2.0.6.min.css (Pico CSS as published) and pico-shim.css, the sources of css/ui.pico.min.css (the Pico look, item 50)
-#    - bin/monvifd, the closed 2.x ONVIF daemon (233 KB, ~70 KB in the image): tc100-onvifd replaces it (audit 2026-11-06
-#      S3, owner); it stays in the SD package, where controlscripts/onvif still starts it on ONVIF_IMPL=monvifd
+#    - the style sheets www/css/pico-2.0.6.min.css (Pico CSS as published), pico-shim.css and ui.css: they are the
+#      sources of css/ui.pico.min.css, the only one a page loads (the wizard has its own styles)
 # 128 KiB blocks: a page read from the flash decompresses half as much as with 256 KiB, and the kernel's squashfs
 # caches (data, fragment, xz dictionary: one block each) take about 384 KB less RAM; about 45 KB more flash
 # (2026-10-30: 2,240,512 B against 2,195,456; lzo 2.96 MB and lz4 3.2-3.9 MB do not fit the 2.83 MB partition)
@@ -163,9 +160,7 @@ mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -qui
 	scripts/collect-platform-dump.sh v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
 	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh \
 	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
-	www/css/bulma.1.0.2.purged.min.css www/css/ui-modern.min.css www/css/ui.css \
-	www/css/pico-2.0.6.min.css www/css/pico-shim.css \
-	bin/monvifd
+	www/css/ui.css www/css/pico-2.0.6.min.css www/css/pico-shim.css
 n=$(wc -c < "$OUT/stack.sqfs")
 ( cd "$OUT" && md5sum stack.sqfs > stack.sqfs.md5 )
 echo "stack.sqfs: $n bytes (partition $STACK_MAX)"

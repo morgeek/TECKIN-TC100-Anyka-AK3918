@@ -1,7 +1,7 @@
-"""Item 50 / [ui-baseline]: the same pages in both looks of the interface (Classic = Bulma, Pico), light and dark, at
+"""Item 50 / [ui-baseline]: every page of the interface (Pico look; the Classic look was removed in rc32), light and dark, at
 1280 px and 390 px (phone), against the canned CGI answers of mock/ (no camera). For each shot: JavaScript errors
 (pageerror) and horizontal scrolling at the page width. Writes the PNGs and results.json to the output folder.
-Usage: python3 src/webui/screenshots/engines.py [out-dir] [engine ...]   (needs playwright; engines: bulma pico)
+Usage: python3 src/webui/screenshots/engines.py [out-dir]   (needs playwright)
 In Docker: docker run --rm -v "$PWD:/src:ro" -v "$OUT:/out" mcr.microsoft.com/playwright/python:v1.47.0-jammy \
            sh -c 'cp -r /src /w && python3 /w/src/webui/screenshots/engines.py /out'
 """
@@ -16,7 +16,7 @@ import mock  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 OUT = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else '/tmp/tc100-engines'
-ENGINES = sys.argv[2:] or ['bulma', 'pico']
+ENGINES = ['pico']
 os.makedirs(OUT, exist_ok=True)
 shutil.copytree('mock', OUT + '/mock-run', dirs_exist_ok=True)
 mock.MOCKDIR = OUT + '/mock-run'
@@ -40,8 +40,7 @@ def shoot(browser, engine, theme, width, results):
     mobile = width < 600
     ctx = browser.new_context(viewport={'width': width, 'height': 844 if mobile else 820},
                               device_scale_factor=1, is_mobile=mobile, has_touch=mobile)
-    ctx.add_init_script("localStorage.setItem('elite_theme','%s');localStorage.setItem('tc100_ui','%s');"
-                        "localStorage.setItem('tc100_lang','en')" % (theme, engine))
+    ctx.add_init_script("localStorage.setItem('elite_theme','%s');localStorage.setItem('tc100_lang','en')" % theme)
     for name, js in PAGES:
         pg = ctx.new_page()
         errs = []

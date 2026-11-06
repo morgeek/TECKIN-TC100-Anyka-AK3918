@@ -469,7 +469,7 @@ scripts/            Daemons and tools (wifi-txt.sh, wifi-rescue.sh, mqtt-bridge.
   action.d/         The web commands of www/cgi-bin/action.cgi, one file per group
 controlscripts/     Services, started and stopped from the web page
 config/             Templates (*.dist) and the services started at boot (config/autostart/)
-bin/                busybox (SD hook), monvifd (SD package only, removal planned for rc32), isp_flip, tc100-logfwd, setconf, telegram;
+bin/                busybox (SD hook), isp_flip, tc100-logfwd, setconf, telegram;
                     rwconf is built in CI from src/rwconf
 lib/                libnetacl.so (local-build copy); origins: CREDITS.md
 sounds/             Audio clips

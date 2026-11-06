@@ -86,7 +86,7 @@ for p in $(ps 2>/dev/null | awk '/web-guard\.sh run/ && !/awk/ { print $1 }'); d
 # rc29 update both cameras came back without automatic day / night and the .24 without its recording)
 for s in recording motion-detection auto-night-detection; do sh /mnt/controlscripts/$s halt >/dev/null 2>&1; done
 for s in rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
-killall tc100_rtsp monvifd 2>/dev/null
+killall tc100_rtsp tc100-onvifd 2>/dev/null
 # R18: the reboot at the end is deliberate: the intent goes to /mnt/config/log before the flush below writes it to the
 # flash slots (rc29: the next boot said "unknown (no heartbeat recorded yet)"). KEEP_CARD: the backups below still go
 # to the card, which is remounted read-only right before the reboot.

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html class="has-navbar-fixed-top">
+<html class="has-navbar-fixed-top" data-ui="pico">
 
 <head>
     <meta charset=utf-8 />
@@ -19,22 +19,11 @@
         })();
     </script>
 
-    <!-- Look of the interface (item 50), chosen per browser in Settings -> System -> Appearance (localStorage tc100_ui):
-         "pico" (default since rc31, owner 2026-11-06): css/ui.pico.min.css = css/pico-2.0.6.min.css + css/pico-shim.css +
-         css/ui.css; "bulma" (fallback until its removal in rc32): css/ui.bundle.min.css = css/bulma.1.0.2.purged.min.css
-         + css/ui-modern.min.css + css/ui.css. One sheet is loaded, never both. Built by src/webui/build-css.sh, which
-         stamps both ?v=. Edit the sources, not the bundles. -->
-    <script>
-        (function () {
-            var ui = 'pico';
-            try { if (localStorage.getItem('tc100_ui') === 'bulma') ui = 'bulma'; } catch (e) { }
-            document.documentElement.setAttribute('data-ui', ui);
-            document.write(ui === 'pico' ? '<link href="css/ui.pico.min.css?v=45459f38" rel="stylesheet">'
-                                         : '<link href="css/ui.bundle.min.css?v=167a2926" rel="stylesheet">');
-        })();
-    </script>
-    <noscript><link href="css/ui.pico.min.css?v=45459f38" rel="stylesheet"></noscript>
-    <script src="scripts/i18n.js?v=70808b1b"></script>
+    <!-- The look of the interface: Pico CSS (item 50; the Classic look, Bulma, was removed in rc32, owner 2026-11-06).
+         css/ui.pico.min.css = css/pico-2.0.6.min.css + css/pico-shim.css (the Bulma classes of the pages drawn with
+         Pico) + css/ui.css, built by src/webui/build-css.sh, which stamps the ?v=. Edit the sources, not the bundle. -->
+    <link href="css/ui.pico.min.css?v=c47735d3" rel="stylesheet">
+    <script src="scripts/i18n.js?v=bfb291ac"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
 

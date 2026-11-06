@@ -54,7 +54,7 @@ POST:upload)
 			for sv in rtsp-h26x mqtt-bridge onvif; do
 				[ -x /mnt/controlscripts/$sv ] && sh /mnt/controlscripts/$sv stop >/dev/null 2>&1
 			done
-			killall tc100_rtsp monvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+			killall tc100_rtsp tc100-onvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 			avail=$(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo)
 			[ "${avail:-0}" -ge "$need" ] || {
 				rm -rf "$WORK"; head -c "$n" > /dev/null

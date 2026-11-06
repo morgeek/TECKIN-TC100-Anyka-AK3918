@@ -1,5 +1,5 @@
 """Item 54: the flash image (v3/build-stack.sh) uses the xz ARM branch filter and leaves out what no page or script
-on the camera loads: the 1 kHz test tones and the style sheets css/ui.bundle.min.css is built from."""
+on the camera loads: the 1 kHz test tones and the style sheets css/ui.pico.min.css is built from."""
 from pathlib import Path
 import re
 import unittest
@@ -20,7 +20,7 @@ class FlashSpace(unittest.TestCase):
 
     def test_left_out_web_files_are_not_loaded(self):
         out = [n for n in excluded() if n.startswith('www/')]
-        self.assertEqual(len(out), 5)   # the sources of the Bulma bundle (3) and of the Pico bundle (2); no .gz of them
+        self.assertEqual(len(out), 3)   # the sources of the Pico bundle (Pico, shim, ui.css); no .gz of them
         for n in out:
             self.assertTrue((ROOT / n.removesuffix('.gz')).is_file(), n)
         pages = list((ROOT / 'www').glob('*.html')) + list((ROOT / 'www/scripts').glob('*.js')) + \
@@ -54,8 +54,8 @@ class FlashSpace(unittest.TestCase):
         for f in hot:
             self.assertTrue((ROOT / 'www' / f).is_file(), f)
         self.assertNotRegex(src, r'find "\$T/www".*-exec gzip')
-        # the default look's sheet is the one index.html loads first
-        self.assertIn("var ui = 'pico';", (ROOT / 'www/index.html').read_text(encoding='utf-8'))
+        # the one sheet of the pages is among them
+        self.assertIn('css/ui.pico.min.css?v=', (ROOT / 'www/index.html').read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':

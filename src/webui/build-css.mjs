@@ -1,8 +1,8 @@
-// Build www/css/ui.bundle.min.css: the three stylesheets of index.html in one file (one request, one httpd exec on
-// the camera instead of three), in the order index.html loaded them, so the cascade is unchanged:
-//   bulma.1.0.2.purged.min.css, ui-modern.min.css, ui.css (ui.css minified here: comments and layout whitespace only)
-// The sources stay as they are and are the ones to edit. The ?v= of the link in www/index.html is the first 8 hex
-// digits of the SHA-256 of the built file and is rewritten here.
+// Build www/css/ui.pico.min.css, the one style sheet of index.html (one request, one httpd exec on the camera):
+//   pico-2.0.6.min.css (Pico CSS, MIT, as published), pico-shim.css (the Bulma classes of the pages drawn with Pico)
+//   and ui.css (the project's components, last: it wins ties); the two hand-written ones are minified here (comments
+//   and layout whitespace only). The Classic look (Bulma) was removed in rc32 (owner, 2026-11-06).
+// The ?v= of the link in www/index.html is the first 8 hex digits of the SHA-256 of the built file and is rewritten here.
 //   node src/webui/build-css.mjs [--check]     (or: sh src/webui/build-css.sh [--check])
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,12 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const css = (f) => path.join(root, 'www/css', f);
-const out = css('ui.bundle.min.css');
 const indexHtml = path.join(root, 'www/index.html');
-const sources = ['bulma.1.0.2.purged.min.css', 'ui-modern.min.css', 'ui.css'];
-// item 50 (owner, 2026-11-06): the "Pico" look, chosen per browser (Settings -> System -> Appearance). Bulma is not
-// loaded then: Pico CSS 2.0.6 (MIT, as published), the shim that draws the Bulma classes of the pages with Pico, and
-// ui.css (the project's components, last as in the Bulma bundle). Only the bundles go into the flash.
 const outPico = css('ui.pico.min.css');
 const sourcesPico = ['pico-2.0.6.min.css', 'pico-shim.css', 'ui.css'];
 
@@ -69,29 +64,22 @@ function bundle(files, minified) {
   return { text, v };
 }
 
-export function build() { return bundle(sources, [2]); }
 export function buildPico() { return bundle(sourcesPico, [1, 2]); }
 
-// the Bulma bundle is named twice in index.html (the engine switch writes it, <noscript> keeps it without script)
-const LINK = /css\/ui\.bundle\.min\.css\?v=[0-9a-f]*/g;
 const LINK_PICO = /css\/ui\.pico\.min\.css\?v=[0-9a-f]*/g;
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const b = build(), p = buildPico();
+  const p = buildPico();
   const html = fs.readFileSync(indexHtml, 'utf8');
-  const stamped = html.replace(LINK, `css/ui.bundle.min.css?v=${b.v}`).replace(LINK_PICO, `css/ui.pico.min.css?v=${p.v}`);
-  if (html.search(LINK) < 0) { console.error('www/index.html has no link to css/ui.bundle.min.css'); process.exit(1); }
   if (html.search(LINK_PICO) < 0) { console.error('www/index.html has no link to css/ui.pico.min.css'); process.exit(1); }
+  const stamped = html.replace(LINK_PICO, `css/ui.pico.min.css?v=${p.v}`);
   if (process.argv[2] === '--check') {
     let ok = true;
-    if (!fs.existsSync(out) || fs.readFileSync(out, 'utf8') !== b.text) { console.error('www/css/ui.bundle.min.css is not built from its sources (run src/webui/build-css.sh)'); ok = false; }
     if (!fs.existsSync(outPico) || fs.readFileSync(outPico, 'utf8') !== p.text) { console.error('www/css/ui.pico.min.css is not built from its sources (run src/webui/build-css.sh)'); ok = false; }
-    if (stamped !== html) { console.error('a ?v= of the stylesheets in www/index.html is stale (run src/webui/build-css.sh)'); ok = false; }
+    if (stamped !== html) { console.error('the ?v= of the stylesheet in www/index.html is stale (run src/webui/build-css.sh)'); ok = false; }
     process.exit(ok ? 0 : 1);
   }
-  fs.writeFileSync(out, b.text);
   fs.writeFileSync(outPico, p.text);
   fs.writeFileSync(indexHtml, stamped);
-  console.log(`${out}: ${b.text.length} bytes, v=${b.v}`);
   console.log(`${outPico}: ${p.text.length} bytes, v=${p.v}`);
 }

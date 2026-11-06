@@ -86,7 +86,7 @@ say "vendor image: $n bytes"
 # rc29 update both cameras came back without automatic day / night and the .24 without its recording)
 for s in recording motion-detection auto-night-detection; do sh /mnt/controlscripts/$s halt >/dev/null 2>&1; done
 for s in rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
-killall tc100_rtsp monvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+killall tc100_rtsp tc100-onvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 for p in $(pidof watchdog); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null; done
 say "free memory before writing: $(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo) KB"
 

@@ -1,4 +1,4 @@
-"""Item 50: which look is faster, Classic (Bulma) or Pico? Same pages, same canned CGI answers (mock/), Chromium with the
+"""Item 50: rendering cost of the interface (Pico look; until rc31 it compared it with the Classic look, Bulma). Same pages, same canned CGI answers (mock/), Chromium with the
 CPU slowed down 4x (a mid-range phone), the cache cleared before each load. Per page and look, the median of RUNS loads:
 first contentful paint, style recalculation, layout and total main-thread task time (Chrome DevTools Performance
 metrics), plus the weight of the style sheet (raw, gzip, xz) and its number of rules. Writes bench.json.
@@ -24,7 +24,7 @@ PORT = 8775
 mock.start(PORT)
 URL = 'http://127.0.0.1:%d/index.html' % PORT
 CSS = os.path.join(mock.ROOT, 'css')
-SHEETS = {'bulma': 'ui.bundle.min.css', 'pico': 'ui.pico.min.css'}
+SHEETS = {'pico': 'ui.pico.min.css'}
 PAGES = [('dashboard', ''),
          ('settings-video', "document.querySelector('a.onpage[data-tab=tab-video]').click()"),
          ('tools-services', "document.getElementById('services').click()"),
@@ -41,8 +41,7 @@ def sheet_facts(name):
 
 def load(browser, engine, js):
     ctx = browser.new_context(viewport={'width': 1280, 'height': 820})
-    ctx.add_init_script("localStorage.setItem('tc100_ui','%s');localStorage.setItem('tc100_lang','en');"
-                        "localStorage.setItem('elite_theme','light')" % engine)
+    ctx.add_init_script("localStorage.setItem('tc100_lang','en');localStorage.setItem('elite_theme','light')")
     pg = ctx.new_page()
     cdp = ctx.new_cdp_session(pg)
     cdp.send('Network.enable')

@@ -2380,3 +2380,21 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   (un clic sur Installer aurait remis la rc28). Redevenu `idle` après le démontage. R26.
 - Syslog : `tc100-logfwd` corrigé (`e5a1c05`) superposé en RAM, « En marche ».
 - Superpositions en RAM sur la .24 (perdues au redémarrage) : `/mnt/bin/tc100-logfwd`.
+
+## 2026-11-06 — rc32 : aspect Classique (Bulma) et `monvifd` retirés ; cache du navigateur (R22) (`[rc32-remove]`, `[r22-cache]`)
+
+- **Quoi (décisions du propriétaire du 06/11, rc31 validée sur les deux caméras) :** l'interface n'a plus qu'une
+  feuille, `css/ui.pico.min.css` (Pico + shim + `ui.css`) ; le sélecteur Réglages → Système → Apparence, le bundle
+  Bulma, `ui-modern.min.css` et l'outillage de purge sont retirés. Le shim dessine en plus les champs « libellé à côté »
+  (Réglages → Réseau : DNS, adresse fixe) et les boutons radio (DHCP / fixe), seules classes Bulma encore utilisées qu'il
+  ne couvrait pas (test `test_the_shim_draws_every_bulma_class_the_pages_use`). `bin/monvifd` est retiré du dépôt :
+  `tc100-onvifd` est le seul démon ONVIF (une valeur `ONVIF_IMPL` autre que `c` est ignorée). **R22** : la BusyBox de
+  la base n'envoie plus `Last-Modified` (image de base reconstruite) : le navigateur revalide chaque page par `ETag`
+  (réponse 304) au lieu de garder l'ancienne interface après une mise à jour.
+- **Interrupteur :** aucun (revert des commits).
+- **Test (après la mise à jour rc32, sans rechargement forcé) :** ouvrir l'interface comme d'habitude : nouvelle version
+  affichée (numéro en haut) ; `curl -sI -u root:… http://<cam>/index.html` : `ETag` présent, plus de `Last-Modified` ;
+  un second chargement donne des 304 (outils de développement) ; Réglages → Réseau : libellés à gauche des champs DNS,
+  boutons DHCP / fixe alignés ; plus de carte « Apparence » ; ONVIF découvert et diffusé par `tc100-onvifd`.
+- **Critères :** l'interface à jour apparaît sans rechargement forcé ; pages identiques à la rc31 sauf la carte
+  Apparence retirée ; ONVIF comme en rc31.

@@ -130,6 +130,19 @@ div.select select { margin-bottom: 0; }
   padding: 0.3rem 0.55rem; font-size: 0.85rem; height: auto; }
 div.select.is-small select { padding-right: 2rem; }
 .checkbox { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+.radio { display: inline-flex; align-items: center; gap: 0.35rem; margin-right: 1rem; cursor: pointer; }
+/* label beside its field (Settings -> Network: DNS, static address) */
+.field.is-horizontal { display: flex; align-items: flex-start; gap: var(--pico-spacing); }
+.field-label { flex: 0 0 11rem; text-align: right; }
+.field-label.is-normal { padding-top: 0.45rem; }
+.field-label .label { margin-bottom: 0; }
+.field-body { display: flex; flex: 1 1 0; gap: 0.75rem; min-width: 0; }
+.field-body > .field { flex: 1 1 0; margin-bottom: 0; }
+@media (max-width: 768px) {
+  .field.is-horizontal { display: block; }
+  .field-label { text-align: left; }
+  .field-label.is-normal { padding-top: 0; }
+}
 .file { display: flex; align-items: stretch; }
 .file-label { display: flex; cursor: pointer; overflow: hidden; border-radius: var(--pico-border-radius); }
 /* Pico widens inputs to 100%: the hidden file input of Bulma's file box keeps no width */

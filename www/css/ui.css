@@ -1,4 +1,4 @@
-/* ui.css — the web interface on top of ui-modern.min.css (Bulma).
+/* ui.css — the web interface's own components, on top of Pico CSS and pico-shim.css (css/ui.pico.min.css).
  * Part 1, "control monitor": the live image is the centrepiece, framed like a camera monitor with its status
  * written into the picture (OSD); everything around it stays quiet. Colour tokens (--v2-*, dark by default,
  * light on request): navy/grey, one indigo accent, tally red only for "live" and destructive actions.

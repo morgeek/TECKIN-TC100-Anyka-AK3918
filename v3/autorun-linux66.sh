@@ -280,7 +280,7 @@ if [ "$BC_HOUSEKEEPER" != 0 ] && [ -f /mnt/scripts/housekeeper.sh ]; then
 fi
 # RTSP restarter (scripts/service-watchdog.sh through the rtsp-h26x shim): tc100_rtsp was started above
 [ "$NEWRTSP" = 1 ] && [ -f $CS/rtsp-h26x ] && sh $CS/rtsp-h26x watchdog </dev/null >/dev/null 2>&1
-# ONVIF Discovery (monvifd): off by default as on 2.x, on when switched on in Services (config/autostart/onvif)
+# ONVIF (tc100-onvifd): off by default as on 2.x, on when switched on in Services (config/autostart/onvif)
 if [ "$SAFE" = 0 ] && [ -f $CS/onvif ] && [ -e /mnt/config/autostart/onvif ]; then
   sh $CS/onvif restart </dev/null >/dev/null 2>&1
   echo "[tc100-v3] ONVIF service active on port 8081 & WS-Discovery UDP 3702" > /dev/console
@@ -484,7 +484,7 @@ esac
 
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).
-for p in tc100_rtsp httpfront monvifd; do
+for p in tc100_rtsp httpfront tc100-onvifd; do
   for pid in $(pidof $p 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
 done
 

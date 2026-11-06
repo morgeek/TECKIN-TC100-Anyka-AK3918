@@ -81,9 +81,7 @@ class FlashImage(unittest.TestCase):
 
     def test_left_out_files_are_not_used_on_the_camera(self):
         for name in excluded():
-            # bin/monvifd: left out of the flash image (audit 2026-11-06 S3) but kept in the SD package, where
-            # controlscripts/onvif starts it on ONVIF_IMPL=monvifd; from the flash the script falls back to tc100-onvifd
-            if name in ('bin/busybox', 'ext/bin/mksquashfs', 'bin/monvifd'):
+            if name in ('bin/busybox', 'ext/bin/mksquashfs'):
                 continue
             base = Path(name).name
             for f, text in runtime_files():
