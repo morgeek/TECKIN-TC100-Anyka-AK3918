@@ -2647,3 +2647,29 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   redémarrage du chronomètre ?) ; (3) une ligne toutes les ~1,28 s au lieu de 1 s (5 600 pour 7 200 s).
 - Pistes suivantes (implémenteur, sans risque pour la liaison) : mesurer en parallèle un ping de la box vers la caméra
   (côté box) et un ping de la .11 vers la .24 (même réseau, sans la box) pour savoir de quel côté les réponses se perdent.
+
+## 2026-11-06 17:15 — rc32 sur la .11 (IPCAM2), installée par le testeur : `passed`
+
+- **Archive** : run 42248185087 (`e267e73`), `tc100-3.0.1-rc32-update.tar` md5 **`f00b91203b3f62a4ccff72bb9970b80d`**,
+  `MD5SUMS` OK, `stack.sqfs` 2 134 016 octets. Dedans : `tc100-logfwd` sans `__isoc99_*`, `libnetacl.so` sans
+  `__isoc23_*`, Pico seul (`ui.pico.min.css`), pas de `monvifd` ni de `jq`, `tc100-whep` avec le recollage du
+  ClientHello, cache de `state.cgi` par `$0`, `halt` et confirmation `nobackup` dans la mise à jour. Copie sur le Mac :
+  `~/Downloads/tc100-fix/xfer32/`.
+- **Installation** depuis la rc31 (son `update66.sh` a déjà `halt`) : `cmd=upload` puis `cmd=install&nobackup=1` (la rc31
+  ne demande pas encore la confirmation ; la page de la rc32 la demandera). 16:06:06 → 16:08:19 UTC.
+  `reboot-history.log` : « requested at 2026-11-06 16:06:20: web update to 3.0.1-rc32 ». Réglages conservés
+  (`daynight=2`, `mdenabled=0`, `REC_LOCAL=0`, `rtsp.env`, `autostart/*`, `WIFI_COUNTRY=FR`, `SYSLOG_HOST`).
+- **Base** : rc32, MemAvailable 23,3 Mo, CmaFree 5,9 Mo, démons présents, superviseur 3 jobs, `dropped 0`, aucune OOM ;
+  plus aucune superposition en RAM.
+- **R23 / syslog** — `passed` : `syslogd` et `tc100-logfwd` démarrés au boot, **vivants après une nouvelle ligne**,
+  `syslog-forward` « running ». (Réception sur 192.168.1.23 à confirmer par le propriétaire.)
+- **R22** — `passed` : `index.html` servi sans `Last-Modified` (ETag seul) ; **Chrome a affiché la rc32 (Pico) sans
+  rechargement forcé** alors qu'il avait la rc31 en cache.
+- **R17** — `passed` en partie : `fullconfig` 3,35 s puis 0,40 s (cache) ; `allstates` 8,1 s puis 0,24 s ; `md_zones_info`
+  1,84 s puis 0,48 s ; la page Services (`scripts.cgi`) reste à 4,7 s au premier affichage.
+- **Interface** : Pico seul, version rc32 affichée, toutes les pages sans erreur JavaScript ; Réglages : liste de
+  fuseaux (`timezone_preset`, 101 zones) et cadence basse lumière (`dn_lowlight_fps`, 3 choix).
+- **Flux** : RTSP hevc 1080p25 / h264 360p25 + PCMA ; ONVIF FW rc32, 25 img/s ; MQTT `health` répond, 49 entités ;
+  WebRTC Chrome 640x360 à 19 img/s, plus d'avertissement « Live fetch error 503 » (R24).
+- Reste : la .24 en rc32 (au choix du propriétaire), les sons intégrés à jouer avec lui, l'enregistrement de la .24
+  après formatage de sa carte.
