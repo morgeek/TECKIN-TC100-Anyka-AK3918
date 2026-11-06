@@ -121,7 +121,130 @@ critères) sont dans `test-queue.md` sous l'étiquette indiquée.
   d'origine) ; #13 vrai lissage du débit (demanderait `CONFIG_HIGH_RES_TIMERS` dans le noyau) ; #21 transition
   progressive de l'exposition au passage en nuit (à étudier sur caméra).
 
-## À FAIRE EN PREMIER — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
+## À FAIRE EN PREMIER — rc29 → rc30 (testeur, 2026-11-06 09:40) : consignes précises
+
+État des caméras au moment d'écrire : **.11 (IPCAM2) et .24 (IPCAM1) en 3.0.1-rc29**, depuis la flash, réglages
+identiques sauf identité (IP, nom d'hôte, MQTT, GPIO IR-cut, enregistrement SD de la .24). Le testeur a remis à la main
+trois réglages éteints par la mise à jour rc29 (jour/nuit automatique sur les deux, `REC_LOCAL=1` sur la .24) et a
+relancé **en RAM** `syslogd` + `tc100-logfwd` sur les deux (perdu au prochain redémarrage). Le propriétaire installera
+la rc30 par la mise à jour web, sur les deux caméras, sans carte SD.
+
+### Règles pour ne pas avoir d'accident
+
+1. **Ne rien défaire de ce que le testeur a corrigé ce jour** ; chaque correctif a un test qui doit rester vert :
+   `1749475` + `7928ac5` (WebRTC Chrome 157 : offre 12 Ko, ClientHello DTLS fragmenté), `e85b42c` + `0047c26`
+   (mise à jour : `halt` au lieu de `stop` pour `auto-night-detection`, `recording`, `motion-detection`), `c68c906`
+   (syslog : options BusyBox). Tests : `tests/test_whep.py`, `tests/whep_chrome_interop.py`,
+   `tests/test_audit_fixes.py` (classes `UpdateKeepsAutoDayNight`, `SyslogdOptionsExist`, `WhepAcceptsBrowserOffers`),
+   `tests/test_audit_20261104.py` (`UpdateStopsWhatRestarts`).
+2. **`stop` = choix de l'utilisateur, persistant ; `halt` = arrêt technique, sans toucher aux réglages.** Tout code qui
+   arrête un service pour une raison technique (mise à jour, installation, manque de mémoire, profil, MQTT) appelle
+   `halt` quand le service en a un (`auto-night-detection`, `recording`, `motion-detection`), sinon `stop`. Un service
+   dont `stop` écrit un réglage doit recevoir un `halt` avant d'être appelé de façon technique (voir R19).
+3. **Jamais de changement de valeur par défaut qui touche une caméra déjà installée** sans migration unique et notée
+   (le modèle : `scripts/migrate-rc28-defaults.sh`). Ne pas réactiver ce que l'utilisateur a éteint.
+4. **Ne pas toucher à U-Boot** ni à l'environnement de démarrage (règle du propriétaire).
+5. **Image de base** : `c68c906` change `v3/buildroot/board/tc100/busybox.fragment` ; la rc30 doit sortir avec une
+   image de base reconstruite (`build-base-rootfs.yml`, appelé par la release). Vérifier que la taille de BusyBox reste
+   raisonnable (+ quelques Ko) et que `tests/fixtures/busybox-6.6-applets.txt` ne change pas (aucun applet ajouté).
+6. Avant la release : `python3 -m unittest discover -s tests` vert en CI (en local, `test_httpfront_*` échoue hors CI
+   dans le bac à sable du testeur, déjà avant ces commits), puis **contrôle de l'archive** (paragraphe « Vérifier la
+   rc30 » plus bas). Ne pas lancer la release tant que R14 et R19 (risque de perdre un réglage ou une carte) ne sont
+   pas faits ou explicitement reportés ici.
+
+### Ordre conseillé
+
+R19 (même famille que les correctifs du jour) → R14 (carte SD) → R18 (cause du redémarrage) → R20-U1 (Éteindre) →
+rc30 → reste de R20, R17, R10, R12, R7, R16 après la rc30.
+
+### R19 — arrêts techniques qui écrivent encore un réglage (à faire avant la rc30)
+
+- `controlscripts/memory-guard` l. 138-148 `stop_service_if_running` appelle `"$script" stop` (l. 146) : avec
+  `MEM_GUARD_CRITICAL_SERVICES` contenant `motion-detection` (défaut `config/boot.conf.dist` l. 117 ; `recording` dans
+  d'anciennes configs, cf. `.24`), un manque de mémoire écrirait `mdenabled=0` / `REC_LOCAL=0` pour de bon. Faire :
+  `if grep -q '^halt()' "$script" || grep -q '|halt)' "$script"; then "$script" halt; else "$script" stop; fi`
+  (ou une liste fixe des trois services à `halt`) ; le relancement ensuite (l. 129 `restart`) remet le service.
+  Attention : `halt` de `recording` ne fait rien (l'enregistreur est dans `tc100_rtsp`) ; si la garde mémoire veut
+  vraiment couper l'enregistrement, il faut un arrêt en RAM (ex. fichier `/tmp/rec.pause` lu par `tc100_rtsp`), pas
+  `REC_LOCAL=0`. Si c'est trop pour la rc30 : retirer `recording` et `motion-detection` des listes de la garde
+  mémoire et le noter.
+- `www/cgi-bin/action.cgi` l. 677 `stop_trimmed_runtime_services` et `scripts/action.d/system.sh` l. 252
+  (`service_trim_on`) et l. 346, `scripts/mqtt-bridge.sh` l. 1732 (profil basse consommation) : ils arrêtent
+  `motion-detection auto-night-detection night-mode` par `stop`. Ici c'est un **choix de l'utilisateur** (il a demandé
+  le profil allégé) : garder `stop`, mais le dire dans le texte du bouton / de la commande (« éteint aussi la détection
+  de mouvement et le jour/nuit automatique »). Ne pas changer le comportement sans le propriétaire.
+- Test à ajouter : aucune boucle technique (`update66.sh`, `install66.sh`, `update.cgi`, `memory-guard`) n'appelle
+  `stop` sur un service qui a `halt` (modèle : `UpdateKeepsAutoDayNight.test_update_and_install_halt`).
+
+### R14 — réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`)
+
+Constat : `.24`, 64 Go FAT32 qui est l'ancienne carte de démarrage SD (`wifitest`, `bin`, `v3`…) ; à chaque démarrage
+`fsck.fat` est tué par l'OOM (~24 Mo) à ~175 s ; la carte est de toute façon refusée par l'enregistreur.
+- `v3/autorun-linux66.sh` l. 427-431 lance `sd-diag.sh repair` 60 s après le démarrage si le noyau a écrit « not
+  properly unmounted ». `scripts/sd-diag.sh` `repair()` l. 90-115 fait `fsck.fat -a -w "$DEV"` sans autre garde que
+  « la carte porte le firmware en cours ».
+- À faire, dans `repair()` (et donc aussi pour le bouton « Réparation automatique ») :
+  (a) **carte refusée = pas de réparation ni d'écriture** : reprendre la liste de `scripts/rec-storage.sh` l. 52
+  (`wifitest uImage uimage root.sqsh4 usr.sqsh4 usr.jffs2`) dans une fonction commune ; monter en lecture seule
+  (`mount -o ro`), tester, démonter ; si un de ces fichiers est là : réponse `{"ok":false,"state":"refused",...}` et
+  rien d'autre. Ne jamais lancer `fsck -w` sur une carte de démarrage (c'est la carte de secours du propriétaire).
+  (b) **mémoire** : avant le fsck, estimer le besoin (`taille de la partition / taille d'un cluster × 4 octets × 2`,
+  lisible dans le secteur de démarrage FAT : `dd if=$DEV bs=512 count=1` octets 11-13 et 13) et ne pas lancer si
+  > MemAvailable − 8 Mo ; dans ce cas, monter quand même (Linux monte une FAT « dirty ») et écrire l'état
+  `dirty-not-checked` pour la page Enregistrement (texte : « vérifiez la carte sur un ordinateur »).
+  (c) lancer le fsck avec `echo 1000 > /proc/self/oom_score_adj` (c'est lui qui doit partir, jamais `tc100_rtsp`).
+  (d) après un fsck en échec ou tué : `rec-storage.sh resume` quand même (si la carte n'est pas refusée).
+- Test : un `repair` sur une image FAT de test qui contient `wifitest` ne lance pas `fsck.fat` (stub qui note ses
+  appels) ; un `repair` sans assez de mémoire (variable d'environnement pour simuler MemAvailable) ne le lance pas et
+  monte la carte.
+- Le propriétaire va formater la carte de la .24 : après la rc30 le testeur vérifie l'enregistrement sur mouvement.
+
+### R18 — cause du redémarrage après une mise à jour web
+
+- `v3/install/update66.sh` l. 136 fait `reboot` sans `reboot-tracker.sh intent` : le démarrage suivant est classé
+  « unknown (no heartbeat recorded yet) » (les deux caméras, rc29). Ajouter, **avant** le `cfg-persist flush` de la
+  l. 86 (sinon l'intention n'est pas dans la flash) :
+  `sh /mnt/scripts/reboot-tracker.sh intent "web update to $(cat "$D/VERSION")" >/dev/null 2>&1`.
+  Même chose dans `install66.sh` (`reboot` l. 115) et pour les `reboot` de `update.cgi` (l. 60, mémoire insuffisante, et
+  l. 81, `discard` après arrêt des services).
+- Sans carte SD le battement de cœur est en RAM (`/tmp/log`) : après une coupure, la cause est « unknown ». Facultatif :
+  le copier dans `/mnt/config/log` à chaque sauvegarde voulue de `cfg-persist` (sans écrire la flash plus souvent).
+- Test : `update66.sh` contient l'appel `intent` avant `cfg-persist flush` (ordre vérifié comme dans
+  `UpdateStopsWhatRestarts`).
+
+### R20 — interface (rapport complet : `docs/linux-port/webui-audit-2026-11-06.md`)
+
+Pour la rc30, seulement :
+- **U1 « Éteindre »** : retirer l'entrée du menu `www/index.html` l. 161 (`data-target="cgi-bin/action.cgi?cmd=shutdown"`)
+  et sa traduction ; garder la commande `shutdown` côté serveur (`scripts/action.d/system.sh` l. 74, utile en ssh).
+  Raison : la caméra s'éteint et reste injoignable jusqu'à ce qu'on la débranche.
+- **U3** : retirer `setVal('lightweight_mode', …)` (`src/webui/index/95-settings-page.js` l. 163) et la ligne
+  `LIGHTWEIGHT_MODE` de `set_advanced_tuning` (`scripts/action.d/video.sh` l. 242 et 252) ; garder la clé dans
+  `config_exchange.cgi` l. 90 (compatibilité des exports). Revoir le texte du durcissement : en 3.0 il coupe FTP et
+  Telnet, il n'y a pas de HTTPS.
+- Le reste (D1-D6, U2, U4-U9) après la rc30, une proposition à la fois au propriétaire : ce sont des choix d'interface.
+  Ne **rien retirer** de `boot.conf.dist` (U4) sans migration qui commente les clés.
+
+### R17, R10, R12, R7, R16 — après la rc30
+
+Détails dans les entrées R correspondantes plus bas ; rien d'urgent, aucun risque pour les réglages.
+
+### Vérifier la rc30 avant de la donner au propriétaire
+
+Dans l'archive `tc100-3.0.1-rc30-update.tar` (`unsquashfs stack.sqfs`, `zcat c66rd.gz | cpio`) :
+- `ext/bin/tc100-whep` contient `rebuilt from fragments` ; `www/cgi-bin/whep.cgi` contient `-le 12000` ;
+- `v3/install/update66.sh` : `for s in recording motion-detection auto-night-detection; do sh /mnt/controlscripts/$s halt`
+  et l'appel `reboot-tracker.sh intent` ;
+- `controlscripts/recording`, `motion-detection`, `auto-night-detection` ont `halt` ;
+- `scripts/common_functions.sh` `syslogd_start` contient le repli `unrecognized option: [Df]` ;
+- dans le rootfs (c66rd.gz), `bin/busybox syslogd -D -f /dev/null --help` sous qemu-arm ne dit pas
+  « unrecognized option ».
+Puis entrée `test-queue.md` « rc30 à installer » avec le md5 de l'archive. Le testeur contrôle ensuite sur les deux
+caméras : `daynight=2` et `REC_LOCAL` / `mdenabled` inchangés après la mise à jour, `syslogd` + `tc100-logfwd` en marche
+et des lignes reçues par 192.168.1.23, `reboot-history.log` « intended: web update », WebRTC dans Chrome, carte SD de la
+.24 (formatée) enregistrée sur mouvement sans OOM.
+
+## FAIT (rc28) — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
 
 Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires
 corrigés **superposés en RAM** (perdus au prochain redémarrage) : la rc28 est urgente.
@@ -203,7 +326,7 @@ R20. [ ] **Audit de l'interface (rc29)** : `docs/linux-port/webui-audit-2026-11-
     cache mémoire », texte du durcissement + `lightweight_mode` fantôme, clés `boot.conf` 2.x sans lecteur,
     `autostart/cpu-scaler` ignoré, « 25+ Discovery Nodes », colonne « Quality » en dBm, âge de `web-server`, seuils
     jour/nuit des deux méthodes affichés ensemble, lien manquant depuis l'alerte « identifiants par défaut »).
-R21. [x] *(corrigé par le testeur en `c68c906` ; relancé en RAM sur les deux caméras)* **syslog mort quand le renvoi
+R21. [~] *(corrigé par le testeur en `c68c906` ; relancé en RAM sur les deux caméras ; demande l'image de base reconstruite, rc30)* **syslog mort quand le renvoi
     est actif** : `syslogd -D -f` refusé par la BusyBox de la base → plus de `/var/log/messages` ni de syslog distant.
     Demande l'image de base reconstruite (rc30) ; à vérifier : `ps` montre `syslogd` et `tc100-logfwd`, le serveur
     192.168.1.23 reçoit.
