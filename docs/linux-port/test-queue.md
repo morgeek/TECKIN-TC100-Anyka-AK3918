@@ -2381,6 +2381,30 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 - Syslog : `tc100-logfwd` corrigé (`e5a1c05`) superposé en RAM, « En marche ».
 - Superpositions en RAM sur la .24 (perdues au redémarrage) : `/mnt/bin/tc100-logfwd`.
 
+## 2026-11-06 — Fil d'envoi dans `tc100_rtsp` : `RTSP_SENDER_THREAD` (R16 / H1, `[sender-thread]`, rc32)
+
+- **Quoi :** la boucle de capture ne fait plus l'envoi aux clients (environ 2,4 ms par client et par image, cause de R16 :
+  chaque client en plus retirait des images à la capture). Avec `RTSP_SENDER_THREAD=1`, elle copie chaque image encodée
+  dans une file bornée (48 images, 768 Ko, jamais bloquante) qu'un fil d'envoi vide (`bcast` vers chaque client). File
+  pleine : l'image non-IDR la plus ancienne est jetée, et le fil d'envoi fait attendre le prochain IDR à tous les clients
+  du flux (`dropped` augmente, comme pour un client TCP congestionné). Un seul mutex (`cl_mu`) protège la table des
+  clients ; seule la boucle principale ouvre ou ferme une connexion. Un client qui arrive reçoit le cache GOP comme
+  avant, sans doublon ni désordre (`skip_seq`). Par défaut **0 : comportement identique à la rc31**. Ligne `STAT` :
+  quatre champs en plus à la fin, `snd_q` (file la plus profonde sur 5 s), `snd_qdrop` (images jetées de la file),
+  `snd_thr_ms` (temps occupé du fil), `snd_wait` (ms d'attente du mutex par la boucle principale).
+- **Interrupteur :** `RTSP_SENDER_THREAD=1` dans `/mnt/config/rtsp.env` (clé unique, pas dans `boot.conf`) ; redémarrer
+  le serveur RTSP (`rtsp-launch.sh`). Retirer la ligne ou mettre 0 : envoi dans la boucle comme avant. Lu une fois au
+  démarrage ; message `tc100_rtsp: sender thread on (queue 48 frames, 768 KB)` dans `/tmp/logs/tc100_rtsp.log`.
+- **Test (de jour, comme le T2 de 08:35) :** `RTSP_SENDER_THREAD=1`, redémarrage du serveur RTSP ; 4 clients en même
+  temps, `ffmpeg -rtsp_transport tcp -i rtsp://<ip>:554/ -c copy -f null -` (mêmes clients que le T2) pendant 5 minutes ;
+  noter les img/s de chacun et les lignes `STAT` (`cap`, `dropped`, `snd_q`, `snd_qdrop`, `snd_thr_ms`, `snd_wait`).
+  Refaire avec 1 puis 2 clients. Ensuite 1 h avec 2 clients dont un en UDP et un que l'on coupe et relance chaque minute ;
+  relever `MemAvailable` au début et à la fin.
+- **Critères :** 4 clients >= 23 img/s chacun (rc29 : ~18) ; `dropped` inchangé par rapport à l'envoi dans la boucle
+  (pas de hausse à débit stable) ; pas de plantage ni de client resté bloqué en 1 h ; `MemAvailable` stable ; `snd_wait`
+  faible (quelques ms par 5 s) ; image correcte (pas de macroblocs) chez un client qui arrive en cours de route et après
+  un client coupé. Si un critère échoue, remettre 0. Réussi : en faire le défaut dans `rtsp-launch.sh` (R16 `[x]`).
+
 ## 2026-11-06 — rc32 : aspect Classique (Bulma) et `monvifd` retirés ; cache du navigateur (R22) (`[rc32-remove]`, `[r22-cache]`)
 
 - **Quoi (décisions du propriétaire du 06/11, rc31 validée sur les deux caméras) :** l'interface n'a plus qu'une

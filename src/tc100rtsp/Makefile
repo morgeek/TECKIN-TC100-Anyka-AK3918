@@ -12,7 +12,7 @@ OBJS = tc100_rtsp.o rec.o mp4box.o aacenc.o livemp4.o talk.o alisten.o acap.o ad
 
 all: tc100_rtsp
 
-tc100_rtsp.o: tc100_rtsp.c rec.h util.h talk.h alisten.h livemp4.h acap.h adsp.h
+tc100_rtsp.o: tc100_rtsp.c rec.h util.h sndq.h talk.h alisten.h livemp4.h acap.h adsp.h
 	$(CROSS)gcc $(CFLAGS) -c tc100_rtsp.c -o $@
 
 acap.o: acap.c acap.h
@@ -75,12 +75,16 @@ tc100_rtsp.dbg: start.o $(OBJS) libpthread.so.0 libc.so.0 libdl.so.0
 		$$($(CROSS)gcc -print-libgcc-file-name)
 
 # host tests of the pure parts (util.h, rec.c): gcc of the build host, no camera needed
-test: test_util test_rec test_livemp4 test_rtsp test_adsp test_aacenc
+test: test_util test_rec test_livemp4 test_rtsp test_adsp test_aacenc test_sndq
 	./test_util
 
 # the whole server without camera and encoder (RTSP, audio, backchannel, listeners): tests/test_tc100rtsp.py runs it
-test_rtsp: tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c rec.h mp4box.h aacenc.h aacenc_tab.h livemp4.h talk.h alisten.h util.h acap.h adsp.h
+test_rtsp: tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c rec.h mp4box.h aacenc.h aacenc_tab.h livemp4.h talk.h alisten.h util.h sndq.h acap.h adsp.h
 	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -o $@ tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c -ldl -lpthread -lm
+
+# the frame queue of the sender thread alone (RTSP_SENDER_THREAD): tests/test_tc100rtsp.py runs it
+test_sndq: test_sndq.c sndq.h
+	gcc -O2 -Wall -Wextra -o $@ test_sndq.c -lpthread
 
 # the microphone processing alone: tests/test_tc100rtsp.py feeds it tones and silence
 test_adsp: test_adsp.c adsp.c adsp.h
@@ -101,4 +105,4 @@ test_livemp4: test_livemp4.c livemp4.c livemp4.h mp4box.c mp4box.h
 	gcc -O2 -Wall -Wextra -o $@ test_livemp4.c livemp4.c mp4box.c
 
 clean:
-	rm -f tc100_rtsp tc100_rtsp.dbg *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp test_adsp test_aacenc
+	rm -f tc100_rtsp tc100_rtsp.dbg *.o stubs.c stub_pthread.c defined.txt imports.txt libc.so.0 libpthread.so.0 libdl.so.0 test_util test_rec test_livemp4 test_rtsp test_adsp test_aacenc test_sndq
