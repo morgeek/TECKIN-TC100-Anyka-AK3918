@@ -1,5 +1,6 @@
 """Screenshots of the web UI for README (docs/screenshots/), against canned CGI
 answers in mock/ (no camera; the live image is a test pattern).
+The default look (Pico, item 50, since rc31); engines.py shoots every page in both looks.
 Usage: python3 src/webui/screenshots/shots.py [out-dir]   (needs playwright)
 """
 import os, sys
@@ -22,8 +23,8 @@ def page(b, theme='light', lang='en', w=1280, h=820, mobile=False):
     pg.goto(U); pg.wait_for_timeout(2500)
     return pg
 def settings(pg, tab):
-    pg.evaluate("document.getElementById('status').click()"); pg.wait_for_timeout(1800)
-    pg.evaluate("document.querySelector('[data-tab=%s]').click()"%tab); pg.wait_for_timeout(1500)
+    # the Settings menu entries open settings.html at a tab (the old Settings button #status is gone)
+    pg.evaluate("document.querySelector('a.onpage[data-tab=%s]').click()"%tab); pg.wait_for_timeout(3200)
     pg.evaluate("window.scrollTo(0,0)")
 with sync_playwright() as p:
     b=p.chromium.launch()
@@ -44,8 +45,8 @@ with sync_playwright() as p:
     settings(pg,'tab-image'); pg.screenshot(path=OUT+'/settings-mobile.png')
     # SD mode: install-to-flash card
     mock.STATUS['storage']='sd'
-    json.dump({"ok":True,"state":"prepared","running":0,"log":"2026-10-16 09:12:03 prepare: flash checked, copying the original /usr (3.7 MB)…\n2026-10-16 09:12:41 prepare: DONE. Next: take the card out and run src/flash/build-flash-kit.sh on a computer (README).\n"},open(mock.MOCKDIR+'/flashinstall.cgi.status.json','w'))
-    json.dump({"ok":True,"state":"idle","current":"2.0.0","staged":"","rollback_to":""},open(mock.MOCKDIR+'/update.cgi.status.json','w'))
+    json.dump({"ok":True,"state":"idle","running":0,"log":""},open(mock.MOCKDIR+'/flashinstall.cgi.status.json','w'))
+    json.dump({"ok":True,"state":"idle","current":"3.0.1","staged":"","rollback_to":""},open(mock.MOCKDIR+'/update.cgi.status.json','w'))
     pg=page(b); settings(pg,'tab-backup'); pg.screenshot(path=OUT+'/settings-install-to-flash.png')
     b.close()
 print(sorted(mock.unknown))
