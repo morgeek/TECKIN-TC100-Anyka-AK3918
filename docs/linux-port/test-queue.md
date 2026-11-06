@@ -2714,3 +2714,29 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   (7 jours, en cours), T5, T7, T10-T12, P1-P10 (avec le propriétaire).
 - **Pour la rc33, déjà sur `main`** : `d2ee15f` (carte de démarrage refusée dès `flashmode-prep.sh`, la vraie cause de
   R25).
+
+## 2026-11-06 21:30 — travail sans le propriétaire avant la rc33 (testeur)
+
+Pendant la surveillance de 7 jours : rien d'installé, seulement des lectures et des CGI copiés dans `/tmp` puis effacés.
+
+- **R27 `wifi-diag.sh`** corrigé (`e4b1ec9`) : les « stalls » de 868 s venaient de la fraction de `/proc/uptime` lue en
+  octal (`0.05` → 40 ms, `0.08` / `0.09` → erreur) ; `gap_ms` ne mesure plus que le dépassement du `sleep`, nouvelle
+  colonne `work_ms` (coût de la boucle). `summary` inchangé. Tests `tests/test_wifi_diag.py`.
+- **R17 page Services** (`fd1ae6a`) : le scan `allstates` à froid passait l'essentiel de son temps à relire `boot.conf`
+  (410 lignes) en boucle shell, ~7 fois. Lu une fois par awk : **.11 5,56 → 1,43 s, .24 6,64 → 1,16 s**, JSON identique
+  (hors `uptime_s`), mesuré avec le CGI corrigé copié dans `/tmp`. `fullconfig` à froid (~3,2 s) profilé, laissé tel
+  quel (détail dans R17 de `a-faire-implementeur.md`).
+- **W4 validé** (rc32, les deux caméras) : POST à `wizard.cgi` sans jeton CSRF ou avec un faux jeton → `403
+  {"ok":false,"error":"csrf_invalid"}`. B3 relu et testé hors caméra ; il s'exerce pour de vrai à la mise à jour rc33.
+- Déjà sur `main` pour la rc33 : `d2ee15f` (carte de démarrage refusée dès `flashmode-prep.sh`), `dc6966c` (« Éjecter »
+  démonte aussi une carte refusée), `e4b1ec9`, `fd1ae6a`.
+
+**Tests qui demandent le propriétaire (à faire ensemble)** :
+1. Installer la rc33 quand elle sort (mise à jour web : vérifie B1/B3 en vrai, la carte refusée de la .24, `syslogd`).
+   À caler avec la surveillance de 7 jours (fin le 2026-11-13) : soit attendre, soit accepter un redémarrage dans la
+   surveillance.
+2. Carte SD de la .24 : la vider ou la formater (elle porte encore `wifitest/`), puis « Éjecter » / remettre depuis
+   l'interface.
+3. Wi-Fi (R27 suite) : `wifi-diag.sh` sur la .11 avec, en même temps, un ping depuis la box ou le Mac vers la .11, pour
+   situer les ~10 % de pertes.
+4. H2-H4 (noyau par la carte SD) et P1-P10 du plan de test : propriétaire présent.

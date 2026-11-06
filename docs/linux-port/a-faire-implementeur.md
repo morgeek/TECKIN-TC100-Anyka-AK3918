@@ -320,7 +320,7 @@ R26. [x] *(fait, `[rc32-fixes]` : repère en RAM, confirmation si plus ancien)* 
     (ou effacer `ok` à chaque démarrage, et refuser d'installer une version plus ancienne que l'actuelle sans
     confirmation explicite).
 
-R27. [ ] **`wifi-diag.sh` (rc31, 2 h sur la .11, test-queue 17:05)** : la réception et l'USB ne se figent jamais pendant
+R27. [x] *(outil corrigé par le testeur, `e4b1ec9` : `gap_ms` = dépassement du `sleep` seul, nouvelle colonne `work_ms`, fraction de `/proc/uptime` plus lue en octal — « 0.05 » donnait 40 ms et « 0.08 » faisait échouer le calcul, d'où les écarts de 868 s ; `summary` inchangé ; tests. Reste : la mesure de l'autre côté, avec le propriétaire)* **`wifi-diag.sh` (rc31, 2 h sur la .11, test-queue 17:05)** : la réception et l'USB ne se figent jamais pendant
     les pertes (9,7 % des pings) ; corriger l'outil (le délai d'attente d'un ping perdu compté comme « stall », seuil
     300 ms sous le coût de la boucle à HZ=100 (~190 ms), écarts énormes mal lus dans `summary`, ~1,28 s par ligne)
     puis mesurer de l'autre côté (ping de la .11 vers la .24, et depuis la box) pour situer la perte.
@@ -393,7 +393,7 @@ R16. [~] *(code fait derrière `RTSP_SENDER_THREAD` (défaut 0, `rtsp.env`), à 
     et par flux (le même entrelacement TCP pour tous les clients qui ont les mêmes canaux), ou envoi dans un fil à part
     pour que la capture n'attende jamais l'envoi. Mesurer avec les mêmes 4 clients.
 
-R17. [~] *(rc32 .11 : 2e appel rapide — `fullconfig` 3,35 → 0,40 s, `allstates` 8,1 → 0,24 s, `md_zones_info` 1,84 → 0,48 s ; 1er affichage de Services encore 4,7 s)* **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
+R17. [~] *(testeur 2026-11-06 soir, `fd1ae6a` : scan de Services à froid 5,56 → 1,43 s (.11) et 6,64 → 1,16 s (.24), `boot.conf` lu une fois par awk au lieu de ~7 boucles shell ; même JSON. `fullconfig` à froid reste ~3,2 s : profil sur la .11 = préambule 0,30 s, chargement de `boot.conf` 0,72 s (une version awk + eval fait 0,60 s, pas retenue), autres fichiers ~0,4 s, puis le `printf` final et ses ~134 `$(…)` (~8,5 ms par fork) ~0,85 s ; piste si besoin : `get_cfg` qui affecte une variable au lieu d'`echo` dans un `$(…)`.)* *(rc32 .11 : 2e appel rapide — `fullconfig` 3,35 → 0,40 s, `allstates` 8,1 → 0,24 s, `md_zones_info` 1,84 → 0,48 s ; 1er affichage de Services encore 4,7 s)* **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
     jusqu'à 11 s (page Services : un `status` par script), `state.cgi?cmd=fullconfig` 3-5,6 s, `dashinfo`, `isp_tune`,
     `md_zones_info` 1,2-1,5 s. Main now caches `fullconfig`, `daynight`, `isp_tune`, `dashinfo` and `md_zones_info` responses briefly;
     allstates timestamps after the scan and serves a recent stale snapshot while refreshing in the background. Measure cold,
@@ -500,7 +500,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
      lancé par `&` attend le démon.
 3. [ ] **Points ouverts de la checklist** (*D8 fait le 2026-11-05, voir `audit-2026-11-04.md` §7*) : W4 (assistant sans jeton CSRF), B3 (`flashw -m` compare le fichier à
    lui-même, avec B1), D8 (passe de documentation : `api.md` cite encore HTTPS et `set_web_mode`, `wifi_set_country`
-   non documenté…). B1 et W4 : *décision du propriétaire le 2026-11-05 soir : les deux dans la prochaine RC* (B1 + B3 : jusqu'à 3 essais par partition, plus de redémarrage automatique après un échec ; W4 : jeton CSRF exigé par l'assistant). Faits le 2026-11-05 soir, entrées `[b1-update]`, `[w4-wizard]` (à essayer sur caméra).
+   non documenté…). B1 et W4 : *décision du propriétaire le 2026-11-05 soir : les deux dans la prochaine RC* (B1 + B3 : jusqu'à 3 essais par partition, plus de redémarrage automatique après un échec ; W4 : jeton CSRF exigé par l'assistant). Faits le 2026-11-05 soir, entrées `[b1-update]`, `[w4-wizard]` (à essayer sur caméra). *Testeur 2026-11-06 soir (rc32) : **W4 validé** sur les deux caméras — POST à `wizard.cgi` sans jeton ou avec un faux jeton → 403 `csrf_invalid`, rien d'appliqué. B3 relu (`sum_of` lit `MD5SUMS`, refus si absente, `tests/test_b1_w4.py` OK) : vérifié en vrai à la prochaine mise à jour web (rc33).*
 4. [x] **Retirer la mention « CVE-2026-98432 »** de l'entrée rc24 et de la checklist : mention retirée.
 5. [x] **Petits restes de config** :
    - `boot.conf.dist` : `MEM_GUARD_SOFT_SERVICES=""` nettoyé ;
