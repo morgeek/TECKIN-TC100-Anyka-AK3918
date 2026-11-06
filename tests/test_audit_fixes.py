@@ -574,3 +574,34 @@ class EjectUnmountsARefusedCard(unittest.TestCase):
                                text=True, timeout=30)
             self.assertIn('ok', r.stdout)
             self.assertIn(f'umount {sd}', log.read_text())
+
+
+class ServicesScanReadsBootConfOnce(unittest.TestCase):
+    """R17 (IPCAM2, rc32): the first Services scan took 4.3 s, most of it reading the 410-line boot.conf with a shell loop
+    once per key. allstates now reads its keys in one awk pass; the answers must be the same as the old loops'."""
+
+    def head(self):
+        cgi = (ROOT / 'www/cgi-bin/scripts.cgi').read_text()
+        start = cgi.index('svc_switch() { return 1; }')
+        end = cgi.index('\n}\n', cgi.index('boot_enabled() {')) + 3
+        return cgi[start:end] + '\n' + function('www/cgi-bin/scripts.cgi', 'boot_conf_flag') + '\n'
+
+    def test_same_answers_as_the_loops(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'boot.conf').write_text(
+                '# REC_LOCAL=1\nSYSLOG_ENABLE=0\nREC_LOCAL="1"\nX=1\nMEM_GUARD_ENABLE=yes\nSYSLOG_ENABLE=1\n'
+                ' WHEP=1\nWIFI_RESCUE=\nOTHER_REC_LOCAL=0\nWHEP=0\n')
+            code = ('SW_CONF_DIR=%s; SVC_SWITCH_SH=%s; AUTOSTART_DIR=%s\n' % (q(d), q(str(ROOT / 'scripts/service-switch.sh')), q(d))
+                    + self.head() +
+                    'out() { for s in syslog-forward recording memory-guard wifi-rescue whep; do boot_enabled $s && printf "%s:1 " $s || printf "%s:0 " $s; done;'
+                    ' for k in REC_LOCAL SYSLOG_ENABLE MEM_GUARD_ENABLE WHEP WIFI_RESCUE; do printf "%s=[%s] " $k "$(boot_conf_flag $k)"; done; echo; }\n'
+                    'out; bc_load; out\n')
+            code = code.replace('/mnt/config/boot.conf', d + '/boot.conf')    # boot_conf_flag's own path
+            r = sh(code)
+            old, new = r.stdout.rstrip('\n').split('\n')
+            self.assertEqual(old, new, r.stderr)
+            self.assertIn('syslog-forward:1 recording:1 memory-guard:1 wifi-rescue:1 whep:0', new)
+            self.assertIn('REC_LOCAL=[1]', new)
+
+    def test_scan_loads_it(self):
+        self.assertIn('bc_load', function('www/cgi-bin/scripts.cgi', 'generate_allstates_payload'))

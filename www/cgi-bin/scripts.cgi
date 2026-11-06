@@ -18,8 +18,38 @@ AUTOSTART_DIR="${AUTOSTART_DIR:-/mnt/config/autostart}"
 # and writes that key, not a file in AUTOSTART_DIR
 svc_switch() { return 1; }
 [ -r "${SVC_SWITCH_SH:-/mnt/scripts/service-switch.sh}" ] && . "${SVC_SWITCH_SH:-/mnt/scripts/service-switch.sh}"
+# R17: boot.conf has ~400 lines; reading it with a shell loop for each key (svc_kv, boot_conf_flag) cost ~0.4 s a time,
+# ~7 times per Services scan (4.3 s cold on IPCAM2, rc32). bc_load reads the keys allstates needs in ONE awk pass
+# (last line wins, one pair of quotes removed, as svc_kv); bc_get KEY sets _bcg (no fork). Not loaded: the old paths.
+BC_KEYS="SYSLOG_ENABLE REC_LOCAL MEM_GUARD_ENABLE WIFI_RESCUE WHEP"
+_bc_loaded=""; _bc_vals=""
+bc_load() {
+  [ -n "$_bc_loaded" ] && return 0
+  _bc_loaded=1
+  _bc_vals="$(awk -v keys=" $BC_KEYS " '{ k = $0; sub(/=.*/, "", k) } index($0, "=") && index(keys, " " k " ") {
+      v = $0; sub(/^[^=]*=/, "", v); sub(/\r$/, "", v); val[k] = v }
+    END { for (k in val) print k "=" val[k] }' "${SW_CONF_DIR:-/mnt/config}/boot.conf" 2>/dev/null)"
+}
+bc_get() {
+  _bcg=""
+  _bc_ifs=$IFS; IFS='
+'
+  set -f
+  for _bc_l in $_bc_vals; do case "$_bc_l" in "$1="*) _bcg=${_bc_l#*=} ;; esac; done
+  set +f; IFS=$_bc_ifs
+  _bcg=${_bcg#[\"\']}; _bcg=${_bcg%[\"\']}
+}
 # boot_enabled SCRIPT -> 0 when it starts at boot
-boot_enabled() { if svc_switch "$1"; then svc_on "$1"; else [ -f "$AUTOSTART_DIR/$1" ]; fi; }
+boot_enabled() {
+  if svc_switch "$1"; then
+    if [ -n "$_bc_loaded" ] && [ "$SW_FILE" = "${SW_CONF_DIR:-/mnt/config}/boot.conf" ]; then
+      bc_get "$SW_KEY"; [ -n "$_bcg" ] || _bcg=$SW_DEF
+      case "$_bcg" in 1|true|yes|on|enabled) return 0 ;; esac
+      return 1
+    fi
+    svc_on "$1"
+  else [ -f "$AUTOSTART_DIR/$1" ]; fi
+}
 status_timeout_cmd=""
 ALLSTATES_CACHE_FILE="${ALLSTATES_CACHE_FILE:-/tmp/scripts-allstates.cache}"
 ALLSTATES_CACHE_TTL_SECONDS="${ALLSTATES_CACHE_TTL_SECONDS:-4}"
@@ -317,6 +347,9 @@ fast_toggle_state() {
 # boot_conf_flag KEY -> prints the raw value of KEY from boot.conf (no forks).
 boot_conf_flag() {
   _bcf_v=""
+  if [ -n "$_bc_loaded" ]; then
+    case " $BC_KEYS " in *" $1 "*) bc_get "$1"; printf '%s' "$_bcg"; return 0 ;; esac
+  fi
   [ -r /mnt/config/boot.conf ] || return 0
   while IFS= read -r _bcf_l; do
     case "$_bcf_l" in "$1="*) _bcf_v="${_bcf_l#*=}" ;; esac
@@ -438,6 +471,7 @@ ensure_caps_cache() {
 
 generate_allstates_payload() {
   ensure_caps_cache
+  bc_load 2>/dev/null || :
   printf '{"status":"ok","services":['
   first=1
   while read -r script has_start has_stop has_status script_pidfile; do
