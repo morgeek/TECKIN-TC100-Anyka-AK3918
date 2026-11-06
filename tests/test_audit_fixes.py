@@ -503,3 +503,31 @@ class WebUiRc30Cleanup(unittest.TestCase):
         self.assertNotIn('lightweight_mode', (ROOT / 'src/webui/index/95-settings-page.js').read_text())
         self.assertNotIn('LIGHTWEIGHT_MODE', (ROOT / 'scripts/action.d/video.sh').read_text())
         self.assertIn('LIGHTWEIGHT_MODE', (ROOT / 'www/cgi-bin/config_exchange.cgi').read_text())
+
+
+class StandInLibcNoGlibcOnlyCalls(unittest.TestCase):
+    """rc31 on IPCAM2 (2026-11-06): tc100-logfwd died at its first log line ("can't resolve symbol '__isoc99_sscanf'"),
+    so the remote syslog never worked with the CI build (rc28-rc31); libnetacl.so imported __isoc23_strtol. The glibc
+    headers turn sscanf / strtol / isdigit... into names the camera's uClibc 0.9.33 does not export (the CI check is
+    tests/check-libc-data-imports.sh on the built objects). In the programs linked against the stand-in libc, parse
+    by hand."""
+
+    DIRS = ('logfwd', 'netacl', 'tc100rtsp', 'mqttd', 'onvifd', 'supervisord', 'rwconf')
+    CALL = re.compile(r'\b(sscanf|fscanf|scanf|vsscanf|strtol|strtoul|strtoll|strtoull|strtod|isdigit|isspace|isalpha|'
+                      r'isalnum|isupper|islower|isxdigit|isprint|tolower|toupper)\s*\(')
+
+    def test_no_redirected_calls(self):
+        bad = []
+        for d in self.DIRS:
+            for p in sorted((ROOT / 'src' / d).glob('*.c')):
+                if p.name == 'stubs.c' or p.name.startswith('test_') or p.name.endswith('_test.c'):
+                    continue
+                code = re.sub(r'/\*.*?\*/', '', p.read_text(errors='replace'), flags=re.S)
+                code = re.sub(r'//[^\n]*', '', code)
+                bad += [f'{p.relative_to(ROOT)}: {m.group(1)}' for m in self.CALL.finditer(code)]
+        self.assertEqual(bad, [])
+
+    def test_ci_check_knows_the_glibc_only_names(self):
+        s = (ROOT / 'tests/check-libc-data-imports.sh').read_text()
+        for n in ('__isoc99_', '__isoc23_', '__ctype_(b|tolower|toupper)_loc'):
+            self.assertIn(n, s)

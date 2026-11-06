@@ -162,7 +162,7 @@ static unsigned msg_hash(int pri, const char *s)
     int in_digits = 0;
     for (; *s; s++) {
         unsigned char c = (unsigned char)*s;
-        if (isdigit(c)) { if (in_digits) continue; in_digits = 1; c = '#'; }
+        if (c >= '0' && c <= '9') { if (in_digits) continue; in_digits = 1; c = '#'; }	/* not isdigit(): glibc headers make it __ctype_b_loc, which the camera's uClibc does not have */
         else in_digits = 0;
         h = (h ^ c) * 16777619u;
     }
@@ -183,6 +183,19 @@ static void flush_repeats(time_t t, int all)
     }
 }
 
+/* the next word of *pp (spaces or tabs before it), cut to size - 1 bytes like %Ns; 0, or -1 when there is none */
+static int next_word(char **pp, char *out, size_t size)
+{
+    char *p = *pp;
+    size_t n = 0;
+    while (*p == ' ' || *p == '\t') p++;
+    if (!*p || *p == '\n') return -1;
+    while (*p && *p != ' ' && *p != '\t' && *p != '\n') { if (n + 1 < size) out[n++] = *p; p++; }
+    out[n] = 0;
+    *pp = p;
+    return 0;
+}
+
 /* One line of the local file: "Mmm dd hh:mm:ss host fac.lvl text". */
 static void handle_line(char *line)
 {
@@ -197,7 +210,10 @@ static void handle_line(char *line)
     if (strlen(line) < 20 || line[3] != ' ' || line[6] != ' ' || line[15] != ' ') return;
     memcpy(stamp, line, 15); stamp[15] = 0;
     p = line + 16;
-    if (sscanf(p, "%63s %23s", host, fl) != 2) return;
+    /* two words, as sscanf("%63s %23s") did: not sscanf, which the glibc headers turn into __isoc99_sscanf, absent from
+     * the camera's uClibc ("can't resolve symbol", the forwarder died at its first line: no remote syslog, rc28-rc31) */
+    if (next_word(&p, host, sizeof host) != 0 || next_word(&p, fl, sizeof fl) != 0) return;
+    p = line + 16;
     text = p;                                   /* skip "host fac.lvl " */
     while (*text == ' ') text++;
     text += strlen(host);

@@ -47,6 +47,19 @@ static int n_ports = -1;
 static unsigned short local_ports[PORTS_MAX];
 static unsigned long refused;
 
+/* a decimal number of 1 to 5 digits filling the whole string (in place of strtol: with _GNU_SOURCE the glibc headers
+ * turn strtol into __isoc23_strtol, which the camera's uClibc does not have: the preloaded program died) */
+static long dec(const char *s)
+{
+    long v = 0;
+    int n = 0;
+    for (; *s; s++, n++) {
+        if (*s < '0' || *s > '9' || n >= 5) return -1;
+        v = v * 10 + (*s - '0');
+    }
+    return n ? v : -1;
+}
+
 static int parse_net(const char *s, uint32_t *addr, uint32_t *mask)
 {
     char b[32], *slash;
@@ -55,11 +68,10 @@ static int parse_net(const char *s, uint32_t *addr, uint32_t *mask)
     if (strlen(s) >= sizeof(b)) return -1;
     strcpy(b, s);
     if ((slash = strchr(b, '/'))) {
-        char *end;
         long v;
         *slash = 0;
-        v = strtol(slash + 1, &end, 10);
-        if (!slash[1] || *end || v < 0 || v > 32) return -1;
+        v = dec(slash + 1);
+        if (v < 0 || v > 32) return -1;
         bits = (int)v;
     }
     if (inet_pton(AF_INET, b, &ia) != 1) return -1;
@@ -87,9 +99,8 @@ static void load(void)
         strcpy(buf, e);
         save = NULL;
         for (tok = strtok_r(buf, " ,\t", &save); tok && n < PORTS_MAX; tok = strtok_r(NULL, " ,\t", &save)) {
-            char *end;
-            long v = strtol(tok, &end, 10);
-            if (!*end && v > 0 && v < 65536) local_ports[n++] = (unsigned short)v;
+            long v = dec(tok);
+            if (v > 0 && v < 65536) local_ports[n++] = (unsigned short)v;
         }
     }
     n_ports = n;
