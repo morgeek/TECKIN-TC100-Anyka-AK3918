@@ -2769,3 +2769,13 @@ Build `8131144` (run 42122303317, vert), archive md5 `daeb9449…`. Tout fait à
 - La page ne demande que la vidéo (`addTransceiver("video")` seul, `30-live-view.js`) : le son reste sur « Écouter ». Normal, à noter dans la doc si on veut le son en WebRTC un jour (`WHEP_AUDIO=1` est prêt côté démon, testé avec aiortc et Chromium).
 - **Reste** : rc29 pour avoir ces deux corrections en flash ; mesure de jour à 25 img/s ; Firefox / Safari ; `tests/whep_chrome_interop.py` en CI.
 
+
+## 2026-11-06 07:30 — rc28 sur la .11 : bilan de la nuit (7 h 43 sans redémarrage) — `passed` (testeur)
+
+Enregistreur `/tmp/nightcam.sh` (148 relevés toutes les 180 s, 23:02 → 06:27 UTC).
+- **Stabilité** : aucun redémarrage, aucun OOM / segfault dans `dmesg`, tous les démons présents (`tc100_rtsp`, `tc100-mqttd`, `tc100-supervisord`, `tc100-whep`, `tc100-onvifd`, `httpfront`, `tc100-mdnsd`).
+- **Mémoire** : MemAvailable entre 21,9 et 23,5 Mo toute la nuit, sans dérive notable (~23,2 → ~22,1 Mo) ; CmaFree 5,9 Mo. PSS au matin : `tc100_rtsp` 2782 Ko (2538 au démarrage, VmHWM 4056), `tc100-whep` 876 (672, après une session WebRTC), mqttd 205, superviseur 210, onvifd 234, httpfront 1071.
+- **Vidéo** : `cap` 50-51 / 5 s à chaque relevé (10 img/s, mode nuit), Frigate connecté toute la nuit (`cl1`), **`dropped 0` sur toute la nuit**.
+- **Wi-Fi** : pas de déconnexion (pas de nouvelle association dans `messages`, lien 70, -22 dBm). Ping vers la box (2 paquets / relevé) : 13 relevés à 100 % de perte et 2 à 50 % sur 148 (~9 %), quelques pointes de latence (300-1170 ms) : **même niveau qu'en rc27** (9 / 86) et sans effet sur le flux. Probablement l'économie d'énergie Wi-Fi ou la box : point déjà au backlog (pertes Wi-Fi).
+- **Jour / nuit** : à 06:11 UTC la luminosité monte (luma 24 → 48, `ae` 2 → 19), toujours en nuit à 06:27 ; bascule jour à vérifier dans la matinée (`/tmp/logs/daynight.log`).
+- Rappel : `tc100-whep` et `whep.cgi` de la .11 sont les versions corrigées superposées en RAM (perdues au redémarrage) en attendant la rc29.
