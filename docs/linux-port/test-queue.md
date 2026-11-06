@@ -2761,3 +2761,11 @@ Build `8131144` (run 42122303317, vert), archive md5 `daeb9449…`. Tout fait à
 - **Corrigé en `7928ac5`** : `wh_chello_feed()` (`whep_proto.h`) rassemble les fragments et donne à mbedTLS un seul enregistrement contenant le message entier ; mbedTLS répond en DTLS 1.2, que le navigateur accepte. Vérifié : `ClientHello of 1413 bytes rebuilt from fragments`, DTLS-SRTP établi, vidéo + audio reçus. Tests : `whep_test.c` (fragments dans le désordre, répétés, trop gros), nouveau `tests/whep_chrome_interop.py` (Chromium, DTLS 1.2 et DTLS 1.3 + ML-KEM ; ignoré sans Playwright), `tests/whep_interop.py` (aiortc) toujours vert.
 - **À faire (implémenteur)** : ajouter `tests/whep_chrome_interop.py` à la CI (une image avec Playwright/Chromium) pour ne plus être pris par une nouvelle version de navigateur ; vérifier Firefox / Safari. Le testeur revalide P7 dans le Chrome du propriétaire avec le binaire de `7928ac5` (superposé en RAM), puis rc29.
 
+## 2026-11-06 01:05 — P7 : direct WebRTC dans le Chrome du propriétaire — `passed` (binaires de `7928ac5` superposés en RAM) (testeur)
+
+- `.11` en rc28 + `tc100-whep` de l'image de base du run 42132047943 (`7928ac5`, md5 `beca047c…`) et `whep.cgi` de `1749475`, superposés en RAM (`mount --bind`, perdus au redémarrage).
+- Chrome 157, page Direct : **WebRTC établi** (`srcObject`, 640x360, plus de « WebRTC off » dans la console). Démon : `offer accepted (sub stream, H.264 pt 102)`, `DTLS-SRTP up, streaming`.
+- Mesure sur 20 s : **10,1 img/s** (= cadence de capture de nuit, `STAT cap 51` / 5 s), 0 image perdue côté navigateur, `clients 2`, `dropped 0`.
+- La page ne demande que la vidéo (`addTransceiver("video")` seul, `30-live-view.js`) : le son reste sur « Écouter ». Normal, à noter dans la doc si on veut le son en WebRTC un jour (`WHEP_AUDIO=1` est prêt côté démon, testé avec aiortc et Chromium).
+- **Reste** : rc29 pour avoir ces deux corrections en flash ; mesure de jour à 25 img/s ; Firefox / Safari ; `tests/whep_chrome_interop.py` en CI.
+

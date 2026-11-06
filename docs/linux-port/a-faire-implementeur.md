@@ -155,7 +155,7 @@ R8. [x] *(2026-11-05 soir, consigne du propriétaire « active tous les items co
     identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
     après R4. Bilan de nuit du testeur le 2026-11-06 au matin.
 
-R9. [ ] *(2e cause trouvée et corrigée en `7928ac5` : ClientHello DTLS 1.3 + ML-KEM fragmenté, mbedTLS 2.28 → -0x7900 ; voir test-queue 2026-11-06 00:20 ; mettre `tests/whep_chrome_interop.py` en CI)* **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
+R9. [~] *(validé dans Chrome 157 sur la .11 le 2026-11-06 01:05 avec les binaires en RAM : WebRTC 640x360 à 10 img/s de nuit ; reste la rc29)* *(2e cause trouvée et corrigée en `7928ac5` : ClientHello DTLS 1.3 + ML-KEM fragmenté, mbedTLS 2.28 → -0x7900 ; voir test-queue 2026-11-06 00:20 ; mettre `tests/whep_chrome_interop.py` en CI)* **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
     limite 12000 commune à `whep.cgi` et `tc100-whep`, tampon 16 Ko). Il faut un `tc100-whep` reconstruit (image de base)
     → **rc29** ; le testeur revalide P7 dans Chrome. Vérifier aussi Firefox / Safari (offres de taille voisine).
 R10. [ ] **T9 : client RTSP muet fermé après ~31 s** alors que `CLI_IDLE_S` = 60 : trouver le délai qui s'applique
@@ -210,7 +210,7 @@ P4. [ ] Haut-parleur : push-to-talk du navigateur, audio bidirectionnel depuis H
 P5. [ ] RTSP en **UDP** dans VLC (confirme R2 / pacing), intégration ONVIF de Home Assistant, un NVR tiers (Synology
     Surveillance Station ou Blue Iris).
 P6. [ ] Point d'accès Wi-Fi de secours (bouton reset 3-7 s) et Wi-Fi par `wifi.txt` sur la carte.
-P7. [ ] *(rc28 : échec 413, voir R9)* Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
+P7. [x] *(2026-11-06 : OK dans Chrome 157 après `1749475` + `7928ac5`, binaires en RAM ; à reconfirmer en rc29)* Direct **WebRTC** dans le navigateur du propriétaire (après R4), retour MP4 si échec.
 
 **Carte SD, sur la .24 (P pour poser / retirer la carte, T pour le reste)**
 P8. [ ] Enregistrement, frise (`view_records.html`), pré-enregistrement, `REC_KEEP_EVENTS`, réparation automatique
