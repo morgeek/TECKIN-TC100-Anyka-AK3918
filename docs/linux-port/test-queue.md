@@ -2673,3 +2673,21 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   WebRTC Chrome 640x360 à 19 img/s, plus d'avertissement « Live fetch error 503 » (R24).
 - Reste : la .24 en rc32 (au choix du propriétaire), les sons intégrés à jouer avec lui, l'enregistrement de la .24
   après formatage de sa carte.
+
+## 2026-11-06 17:25 — rc32 sur la .24 (IPCAM1) et début de la surveillance de 7 jours (testeur, consigne du propriétaire)
+
+- **.24 en rc32** (même archive md5 `f00b9120…`, `cmd=install&nobackup=1`) : 16:16:10 → 16:18:23 UTC ; « requested at
+  2026-11-06 16:16:25: web update to 3.0.1-rc32 ». Conservés : `daynight=2`, `mdenabled=0`, `REC_LOCAL=1`,
+  `REC_WHEN=motion`, `WIFI_COUNTRY=FR`, `SYSLOG_HOST=192.168.1.23`. Démons présents, `syslogd` + `tc100-logfwd` vivants
+  après une ligne, RTSP 1080p, ONVIF rc32, MQTT `tc100/cam2` online + `health`. Aucune OOM.
+- **`failed`, corrigé — R25 n'était pas réglé** : après la mise à jour, l'ancienne carte 3.0 (avec `wifitest/`) était de
+  nouveau montée en écriture sur `/mnt/sd` (`rec 1`, `ADRESSE.txt` écrit à 16:19, journaux `logs/boot-0012`). La vraie
+  cause : l'initramfs monte la carte pour le mode SD et `flashmode-prep.sh` la remettait sur `/mnt/sd` sans aucun
+  contrôle ; le verrou de `rec-storage.sh` (rc32) n'y pouvait rien. **Corrigé en `d2ee15f`** (même liste
+  `SD_BOOT_FILES` dans `flashmode-prep.sh` : carte démontée, ou laissée en lecture seule si elle est occupée ; test
+  `FlashModeRefusesBootCard`). Sur la .24 : carte démontée à la main (`rec-storage.sh eject` a répondu « ok » sans la
+  démonter : à voir), placeholder tmpfs remis, `rec 0`. **Jusqu'à la rc33 (ou le formatage de la carte), chaque
+  redémarrage de la .24 la remonte en écriture** : le testeur la démonte à chaque contrôle quotidien.
+- **Surveillance** : `/tmp/watch7.sh` sur les deux caméras (une ligne toutes les 5 min dans `/tmp/watch7.log`, 2 100
+  lignes au plus : uptime, MemAvailable, CmaFree, charge, 3 pings vers la box, `cap`/`clients`/`dropped`/`rec`, signal,
+  mode jour/nuit, démons manquants). Contrôles quotidiens du 07 au 12/11 à 08:30 et bilan final le 13/11 à 17:30.
