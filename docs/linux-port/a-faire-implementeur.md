@@ -142,7 +142,8 @@ démarré depuis la carte SD ; interrupteur `boot.conf` par défaut = comporteme
   S5 minifier JS/HTML (33-66 Ko ; `index.bundle.min.js` n'est pas minifié), S6 retirer Bulma (rc32, décidé, 29-102 Ko),
   S7 sons (15-37 Ko). S4 (certificats) demande l'accord du propriétaire. S14 noyau en dernier.
 - **F — Fonctions.** F1 audio bidirectionnel de bout en bout (jamais testé), F2 cadence en basse lumière (10 img/s →
-  15), F3 fuseau horaire dans l'assistant (les deux caméras sont en UTC), F4 formatage de la carte / exFAT, F5 image
+  15) **fait, à tester** (`LOWLIGHT_FPS_VALUE` 10/15/20 dans Réglages → Jour/nuit, rc32 `[tz-lowlight]`), F3 + F9 fuseau horaire
+  dans l'assistant (les deux caméras sont en UTC) **fait, à tester** (étape « Fuseau horaire », même liste dans Réglages), F4 formatage de la carte / exFAT, F5 image
   (WDR, NR2 ; **confirmer avec le propriétaire**, exclu de #61 le 05/11), F6 bascules jour/nuit à l'aube, F10 pages lentes.
 - **H — Matériel.** H1 fil d'envoi dans `tc100_rtsp` (cause de R16 ; `RTSP_SENDER_THREAD`, défaut 0), H2 mode smart +
   pool 12M, H3 3D-NR (tester en 720p), H4 minuteries haute résolution — H2 à H4 d'abord sur le noyau de la carte SD ;

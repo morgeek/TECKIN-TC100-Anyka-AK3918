@@ -135,6 +135,7 @@ tc_normalize_and_validate()
     rec_stream) case "$_tc_value" in main|sub) ;; *) return 1 ;; esac ;;
     dn_source) case "$_tc_value" in luma|ae|isp|vendor) ;; *) return 1 ;; esac ;;
     ir_led_mode) case "$_tc_value" in off|force|auto) ;; *) return 1 ;; esac ;;
+    lowlight_fps_value) case "$_tc_value" in 10|15|20) ;; *) return 1 ;; esac ;;
     smart_mode) case "$_tc_value" in 0|1|2) ;; *) return 1 ;; esac ;;
     serial_console) case "$_tc_value" in auto|on) ;; *) return 1 ;; esac ;;
     http_method) case "$_tc_value" in POST|PUT) ;; *) return 1 ;; esac ;;
@@ -602,6 +603,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" IR_LED_MAX_ON u:0:172800 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NIGHT_STYLE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOWLIGHT_FPS bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" LOWLIGHT_FPS_VALUE lowlight_fps_value "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" IR_LED_MODE ir_led_mode "$_tc_rel" || return 1
       # the day threshold must lie above the night one (the daemon would flap otherwise)
       tc_check_pair "$_tc_file" LUMA_DAY LUMA_NIGHT "$_tc_rel" || return 1

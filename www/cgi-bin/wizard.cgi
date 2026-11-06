@@ -2,7 +2,7 @@
 # wizard.cgi — First-boot configuration wizard
 # GET ?check  → JSON {"first_boot":true|false}
 # GET ?info   → JSON {"storage","ssid","flash","card"} for the wizard page
-# GET         → wizard HTML. Steps: language + Wi-Fi, profile, web access,
+# GET         → wizard HTML. Steps: language + Wi-Fi, time zone, profile, web access,
 #               Frigate/MQTT (frigate_ha only), local recording, install to
 #               flash (SD card mode only), summary
 # POST        → apply choices, write boot.conf + mqtt.conf (+ Wi-Fi,
@@ -26,6 +26,23 @@ STORAGE="sd"; { [ -f "${WZ_FLASHMODE:-/tmp/flashmode}" ] || [ "$(cat "$STORAGE_F
 WIFI_CONF="${WZ_WIFI_CONF:-$CONFIG/wpa_supplicant.conf}"
 # the one-click install from the trial mode on the card
 INSTALL66="$CARD/v3/install/install66.sh"
+
+# The time zone lives where Settings -> Time zone and clock keeps it: the first line that is not a comment of
+# config/timezone.conf (a POSIX TZ string; scripts/update_timezone.sh reads it, action.d/system.sh settz writes it).
+TZ_CONF="$CONFIG/timezone.conf"
+
+# A POSIX TZ string: NAME OFFSET [NAME [OFFSET] [,RULE,RULE]] (NAME = 3+ letters or <...>, rule = Mm.w.d[/time], Jn or n).
+# The same check is in scripts/action.d/system.sh (settz); tests/test_tz_lowlight.py keeps the two equal.
+tz_valid() {
+    printf '%s\n' "$1" | awk 'BEGIN {
+        n = "([A-Za-z][A-Za-z][A-Za-z]+|<[A-Za-z0-9+-]+>)"
+        o = "[+-]?[0-9]+(:[0-9][0-9](:[0-9][0-9])?)?"
+        r = "[MJ]?[0-9.]+(/[+-]?[0-9]+(:[0-9][0-9](:[0-9][0-9])?)?)?"
+        re = "^" n o "(" n "(" o ")?(," r "," r ")?)?$"
+    }
+    NR == 1 && length($0) <= 60 && $0 ~ re { ok = 1 }
+    END { exit ok ? 0 : 1 }'
+}
 
 json_str() { printf '%s' "$1" | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }'; }
 
@@ -115,9 +132,11 @@ case "$QUERY" in
         _card=0
         if [ "$STORAGE" = sd ]; then _card=1
         elif [ -b /dev/mmcblk0 ]; then _card=1; fi
-        printf '{"first_boot":%s,"storage":"%s","ssid":"%s","flash":"%s","card":%s,"flash_reason":"%s"}\n' \
+        # the time zone now in force (a re-run of the wizard keeps it as the choice unless it is the UTC0 default)
+        _tzn="$(awk '!/^#/ && NF { print; exit }' "$TZ_CONF" 2>/dev/null)"; tz_valid "$_tzn" || _tzn=""
+        printf '{"first_boot":%s,"storage":"%s","ssid":"%s","flash":"%s","card":%s,"flash_reason":"%s","tz":"%s"}\n' \
             "$([ -f "$FIRST_BOOT_FLAG" ] && echo true || echo false)" "$STORAGE" "$(json_str "$_ssid")" "${_flash:-none}" "$_card" \
-            "$(json_str "$_why")"
+            "$(json_str "$_why")" "$(json_str "$_tzn")"
         exit 0
         ;;
 esac
@@ -166,6 +185,7 @@ if [ "$METHOD" = "POST" ]; then
     _rec="$(get_field "$_body" rec)"
     _flash_inst="$(get_field "$_body" flash_install)"
     _password_raw="$(get_field "$_body" password)"
+    _tz_raw="$(get_field "$_body" tz)"
 
     echo "Content-Type: application/json"
     echo ""
@@ -182,6 +202,10 @@ if [ "$METHOD" = "POST" ]; then
         *) echo '{"ok":false,"error":"invalid_profile"}'; exit 0 ;;
     esac
     case "$_rec" in ''|keep|off|offline|always) ;; *) echo '{"ok":false,"error":"invalid_rec"}'; exit 0 ;; esac
+
+    # Time zone (optional, the one the browser reported or the user picked): a POSIX TZ string, checked before anything is written.
+    _tz="$(urldecode "$_tz_raw" | awk 'NR == 1 { sub(/\r$/, ""); print }')"
+    if [ -n "$_tz" ] && ! tz_valid "$_tz"; then echo '{"ok":false,"error":"invalid_tz"}'; exit 0; fi
 
     # Frigate address (optional): same rule as Settings → Integrations.
     _frigate="$(urldecode "$_frigate_raw" | awk 'NR == 1 { gsub(/[ \t\r]/, ""); print }')"
@@ -300,6 +324,20 @@ if [ "$METHOD" = "POST" ]; then
         rm -rf "$_wd"
     fi
 
+    # Time zone: same file and format as Settings. The clock overlay, the logs and the scheduled tasks take it when the
+    # video service restarts (below, unless the password change restarts it anyway).
+    _tzs=""
+    if [ -n "$_tz" ]; then
+        _tz_old="$(awk '!/^#/ && NF { print; exit }' "$TZ_CONF" 2>/dev/null)"
+        if [ "$_tz_old" = "$_tz" ]; then
+            _tzs=unchanged
+        elif printf '%s\n' "$_tz" > "$TZ_CONF.wztmp.$$" && mv -f "$TZ_CONF.wztmp.$$" "$TZ_CONF"; then
+            _tzs=applied
+        else
+            rm -f "$TZ_CONF.wztmp.$$"; _tzs=failed
+        fi
+    fi
+
     _flash=no
     # One click: install to flash from the trial mode once the settings above are written
     # (install66.sh copies them from the card into the flash settings slots at its end).
@@ -320,11 +358,15 @@ if [ "$METHOD" = "POST" ]; then
             _pw=failed
         fi
     fi
+    if [ "$_tzs" = applied ] && [ "$_pw" != changed ] && [ -x /mnt/controlscripts/rtsp-h26x ]; then
+        ( sleep 3; sh /mnt/controlscripts/rtsp-h26x restart ) </dev/null >/dev/null 2>&1 &
+    fi
 
     touch "$WIZARD_DONE_FILE" 2>/dev/null || true
     rm -f "$FIRST_BOOT_FLAG" 2>/dev/null || true
 
-    printf '{"ok":true,"wifi":"%s","flash":"%s","password":"%s"}\n' "$_wifi" "$_flash" "$_pw"
+    _tzj=""; [ -n "$_tzs" ] && _tzj=",\"tz\":\"$_tzs\""
+    printf '{"ok":true,"wifi":"%s","flash":"%s","password":"%s"%s}\n' "$_wifi" "$_flash" "$_pw" "$_tzj"
     exit 0
 fi
 
@@ -338,7 +380,8 @@ cat << 'HTMLEOF'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TC100 — Initial setup</title>
-<script src="/scripts/i18n.js?v=7522a892"></script>
+<script src="/scripts/i18n.js?v=daaf6327"></script>
+<script src="/scripts/tzlist.js?v=dd72b6b1"></script>
 <style>
 /* no Bulma here (item 54): the wizard uses only its own wz-* classes; this is the part of Bulma's reset it relied on */
 *, *::before, *::after { box-sizing: border-box; }
@@ -609,6 +652,22 @@ body {
     </div>
   </div>
 
+  <!-- ── Time zone (skipped when scripts/tzlist.js did not load) ── -->
+  <div class="wz-panel" id="wp-tz">
+    <div class="wz-step-title">Time zone</div>
+    <div class="wz-step-hint">Used for the clock on the picture, the file names of the recordings and the logs. Chosen from this browser; change it if it is not where the camera is.</div>
+    <div class="wz-field">
+      <label class="wz-label" for="wzTz">Time zone of the camera</label>
+      <select class="wz-input" id="wzTz" onchange="tzChanged()"></select>
+    </div>
+    <div class="wz-field-err" id="wzTzWarn"></div>
+    <div class="wz-note" id="wzTzNote"></div>
+    <div class="wz-nav">
+      <button class="btn-ghost" onclick="goBack()">← Back</button>
+      <button class="btn-primary" id="wbtn-tz" onclick="goNext()">Next <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="8,4 11,7 8,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+  </div>
+
   <!-- ── Profile ────────────────────────────────── -->
   <div class="wz-panel" id="wp-profile">
     <div class="wz-step-title">Integration profile</div>
@@ -807,8 +866,25 @@ function checkPw() {
     byId('wzPwErr').textContent = e;
     byId('wbtn-security').disabled = e !== '';
 }
+// the time zone step needs the zone table (scripts/tzlist.js); without it the step is left out and no tz is sent
+function tzOK() { return !!(window.TC100_TZ && byId('wzTz')); }
+function tzEntry() { return (tzOK() && TC100_TZ.find(byId('wzTz').value)) || null; }
+function tzPosix() { var z = tzEntry(); return z ? z[1] : 'UTC0'; }
+function tzChanged() { byId('wzTzNote').textContent = 'TZ: ' + tzPosix(); }
+function tzInit() {
+    if (!window.TC100_TZ) return;
+    var sel = byId('wzTz'), b = TC100_TZ.browser();
+    TC100_TZ.fill(sel, b[1]);
+    sel.value = b[0];	// zones that share a rule: the one the browser reported, not the first of the list
+    var found = false;
+    try { found = !!TC100_TZ.find(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (e) { found = false; }
+    tzChanged();
+    byId('wzTzWarn').textContent = found ? '' : 'This browser did not tell its time zone (or it is not in the list): UTC is selected, choose yours.';
+}
 function panels() {
-    var p = ['start', 'profile', 'security'];
+    var p = ['start'];
+    if (tzOK()) p.push('tz');
+    p.push('profile', 'security');
     if (wz.profile === 'frigate_ha') p.push('mqtt');
     p.push('rec');
     if (flashStep()) p.push('flash');
@@ -891,6 +967,7 @@ function renderSummary() {
     var rows = [], host = byId('wzMqttHost').value.trim(), port = byId('wzMqttPort').value.trim() || '1883';
     var fr = byId('wzFrigateUrl').value.trim();
     rows.push(['Wi-Fi', wz.wifi === 'change' ? badge('badge-amber', esc(byId('wzWifiSsid').value) + ' (next restart)') : badge('badge-slate', esc(info.ssid || 'Unchanged'))]);
+    if (tzOK()) rows.push(['Time zone', badge('badge-slate', esc(byId('wzTz').value.replace(/_/g, ' ')) + ' (' + esc(tzPosix()) + ')')]);
     rows.push(['Profile', badge('badge-purple', LABEL.profile[wz.profile])]);
     rows.push(['Password', byId('wzPw1').value ? badge('badge-green', 'New password') : badge('badge-amber', 'Unchanged')]);
     if (wz.profile === 'frigate_ha') {
@@ -911,6 +988,7 @@ function renderSummary() {
 
 var ERRORS = {
     invalid_wifi: 'The Wi-Fi network name or password is not valid.',
+    invalid_tz: 'The time zone is not valid: choose another one in the list.',
     invalid_frigate_url: 'The Frigate address must look like http://192.168.1.20:5000.',
     invalid_password: 'The new password is not valid (at least 4 characters, no spaces, quotes, %, $, ` or \\).',
     wizard_already_completed: 'The setup was already completed (reload the page).',
@@ -932,6 +1010,7 @@ function applyConfig() {
     }
     if (flashStep() && wz.flash === 'prepare') body += f('flash_install', '1');
     if (byId('wzPw1').value) body += f('password', byId('wzPw1').value);
+    if (tzOK()) body += f('tz', tzPosix());
 
     // the per-boot CSRF token (W4) comes from the status line, read just before the POST (it exists even before any password)
     var tk = new XMLHttpRequest();
@@ -967,6 +1046,7 @@ function showSuccess(d) {
     if (d.wifi === 'applied') notes.push('The new Wi-Fi network is used from the next restart.');
     if (d.wifi === 'failed') notes.push('The Wi-Fi settings could not be saved; the camera stays on its current network.');
     if (d.flash === 'installing') notes.push('The firmware is being written into the camera\'s memory (about 10 minutes, do not unplug it); the camera then restarts from it and the card is only used for recordings. Progress: Settings → Update & backup.');
+    if (d.tz === 'failed') notes.push('The time zone could not be saved: Settings → Time zone and clock.');
     if (d.password === 'changed') notes.push('The password is changed: sign in again as root with the new one (also in the RTSP addresses of Frigate or your NVR).');
     if (d.password === 'failed') notes.push('The password could not be changed: Settings → System → Password.');
     byId('wzSuccessNote').textContent = notes.join(' ');
@@ -982,12 +1062,16 @@ function showSuccess(d) {
     var l = document.documentElement.lang || 'en', b = document.querySelectorAll('.wz-lang-btn'), i;
     for (i = 0; i < b.length; i++) if (b[i].getAttribute('data-lang') === l) b[i].classList.add('is-on');
     preselect('flash', 'later');
+    tzInit();
     renderStepBar();
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/cgi-bin/wizard.cgi?info', true);
     xhr.onreadystatechange = function() {
         if (xhr.readyState !== 4) return;
         try { var d = JSON.parse(xhr.responseText); if (d) info = d; } catch (e) {}
+        if (tzOK() && info.tz && info.tz !== 'UTC0' && TC100_TZ.byPosix(info.tz) && tzPosix() !== info.tz) {
+            byId('wzTz').value = TC100_TZ.byPosix(info.tz)[0]; tzChanged(); byId('wzTzWarn').textContent = '';
+        }
         byId('wzSsidNow').textContent = info.ssid ? 'Connected to ' + info.ssid : 'Settings stored in the camera';
         byId('wzRecNote').style.display = info.card ? 'none' : '';
         preselect('wifi', 'keep');

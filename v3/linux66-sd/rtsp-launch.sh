@@ -66,6 +66,8 @@ dnc() { sed -n "s/^$1=//p" /mnt/config/daynight.conf 2>/dev/null | tail -n 1; }
 [ "$(dnc NIGHT_STYLE)" = 0 ] || export RTSP_NIGHTSTYLE=1
 # 10 fps in low light by day: on unless switched off (rc15: R12-02 passed, the stock firmware does it)
 [ "$(dnc LOWLIGHT_FPS)" = 0 ] || export RTSP_LOWLIGHT_FPS=1
+# ... at 10 fps unless daynight.conf LOWLIGHT_FPS_VALUE says 15 or 20 (tc100_rtsp scales the exposure limit with it; [tz-lowlight])
+case "$(dnc LOWLIGHT_FPS_VALUE)" in 15|20) export RTSP_LOWLIGHT_FPS_VALUE=$(dnc LOWLIGHT_FPS_VALUE) ;; esac
 # boot.conf: RTSP_SUBSTREAM (640x360 second stream on /video1, /ch1, /sub; 0 = off) and RTSP_AUDIO (G.711 track).
 # The recording (REC_*), the sound level (sound_detection.conf) and the motion zones are read by tc100_rtsp itself.
 bc() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }

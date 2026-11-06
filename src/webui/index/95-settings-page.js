@@ -157,6 +157,7 @@
             setVal('rtsp_port', vid.rtsp_port);
             setVal('telnet_port', svc.telnet_port);
             setVal('timezone', sys.timezone);
+            if (window.tcTzSync) window.tcTzSync();	// the zone list follows the stored TZ string (settings.html)
             setVal('ntp_server', sys.ntp_server);
 
             // 6. System & Tuning

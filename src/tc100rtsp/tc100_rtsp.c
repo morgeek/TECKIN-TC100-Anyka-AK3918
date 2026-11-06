@@ -624,7 +624,9 @@ static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_n
 static int osd_hw = -1;
 static unsigned int ae0[AE_WORDS], exp_now, exp_step_now;
 #define LOWLIGHT_EXP 2812	/* the night set's exposure limit, lines (R12-02) */
-static int lowlight_on;	/* R12-02: sensor at 10 fps by day in low light */
+static int lowlight_on;	/* R12-02: sensor at the low-light rate (10 fps by default) by day in low light */
+static int lowlight_fps = 10;	/* RTSP_LOWLIGHT_FPS_VALUE: 10, 15 or 20 (read by lowlight_check) */
+static unsigned int lowlight_exp = LOWLIGHT_EXP;	/* exposure limit at that rate: 2812 lines at 10 fps, scaled with 1 / rate */
 static struct isp_sharp sharp0, sharp1;
 
 static int line_rate(void)	/* sensor lines a second (anti-flicker): JX-F23 on MIPI, RTSP_LINE_RATE for another sensor */
@@ -733,7 +735,7 @@ static void ispx_apply(void)
 			if (t < ae0[1]) t = ae0[1];
 			if (t < 1) t = 1;
 			a[0] = (unsigned int)t;
-			if (lowlight_on && !p_expct) a[0] = LOWLIGHT_EXP;
+			if (lowlight_on && !p_expct) a[0] = lowlight_exp;
 			if (p_hz) a[8] = (unsigned int)((rate + p_hz) / (2 * p_hz));	/* AK_ISP_AE_ATTR word 8: exp_step */
 			if (ioctl(fd, ISP_SET_AE, a) == 0) {
 				if (p_expct != exp_now_pct)
@@ -814,30 +816,45 @@ static void style_switch(int night)
  * 1125 lines; 5 s between changes). A brighter, cleaner picture in a dim room, and the light metric of the stock
  * day / night switch assumes it. RTSP_LOWLIGHT_FPS=1; not at night (the night set has its own rate), not with an
  * exposure cap (EXPOSURE_MAX_PCT). The exposure step keeps one lamp pulse (exp_step is in lines, the line rate
- * does not change with the frame rate). */
+ * does not change with the frame rate).
+ * RTSP_LOWLIGHT_FPS_VALUE (10, 15 or 20; anything else = 10) is the low-light rate. The exposure limit follows the
+ * frame time: 2812 lines at 10 fps (the stock value, 2.5 x the 1125 lines of 25 fps), 1874 at 15, 1406 at 20, i.e.
+ * 2812 * 10 / rate, so a sensor line is never asked for more than the frame period allows. A rate above the stream's
+ * own (a 15 fps stream with 20) is ignored: it would not lengthen anything. */
 static void lowlight_check(double tn, const struct isp_ae_run *r)
 {
 	static int on = -1;
 	static double t;
 	unsigned int a[AE_WORDS];
-	int g, f;
+	int g, f, enter = 0;
 
-	if (on < 0) { const char *e = getenv("RTSP_LOWLIGHT_FPS"); on = e && e[0] == '1'; }
+	if (on < 0) {
+		const char *e = getenv("RTSP_LOWLIGHT_FPS"), *v = getenv("RTSP_LOWLIGHT_FPS_VALUE");
+		int n = v && v[0] == '1' && v[1] == '5' && !v[2] ? 15 : v && v[0] == '2' && v[1] == '0' && !v[2] ? 20 : 10;	/* no atoi on uClibc */
+
+		on = e && e[0] == '1';
+		lowlight_fps = n;
+		lowlight_exp = (unsigned int)(LOWLIGHT_EXP * 10 / lowlight_fps);
+		if (on) LOG("low light: %d fps, exposure up to %u lines when the gain is high\n", lowlight_fps, lowlight_exp);
+	}
 	if (!on || bw_want || p_expct || ae_base != 1 || tn - t < 5.0 || ispx_fd < 0) return;
 	g = (int)(((long long)r->isp_d_gain * (((long long)r->a_gain * r->d_gain) >> 8)) >> 16);	/* total gain, x 1 */
-	if (!lowlight_on && g > 14) f = 10;
+	if (!lowlight_on && g > 14) {
+		if (lowlight_fps > (stream_fps > 0 && stream_fps < 25 ? stream_fps : 25)) return;
+		f = lowlight_fps; enter = 1;
+	}
 	else if (lowlight_on && g < 5) f = stream_fps > 0 && stream_fps < 25 ? stream_fps : 25;
 	else return;
 	memcpy(a, ae0, sizeof a);
 	if (exp_now_pct == 0 && hz_now) a[8] = exp_step_now;
-	a[0] = f == 10 ? LOWLIGHT_EXP : ae0[0];
+	a[0] = enter ? lowlight_exp : ae0[0];
 	if (ioctl(ispx_fd, ISP_SET_SENSOR_FPS, &f) < 0 || ioctl(ispx_fd, ISP_SET_AE, a) < 0) {
 		LOG("low light: the ISP refused %d fps (%s)\n", f, strerror(errno));
 		on = 0;
 		return;
 	}
 	t = tn;
-	lowlight_on = f == 10;
+	lowlight_on = enter;
 	LOG("low light: total gain %dx, sensor %d fps, exposure up to %u lines\n", g, f, a[0]);
 }
 
