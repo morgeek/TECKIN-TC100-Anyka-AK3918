@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+- **R7:** configuration imports skip rollback copies for unchanged files and avoid global `sync` when flash-mode
+  `/mnt/config` is a tmpfs; SD-mode transaction syncs remain.
+- **R10:** RTSP timeout logs distinguish the 30 s unauthenticated deadline from the 60 s authenticated idle deadline.
+- **R17:** CGI responses for Settings reads and motion-zone info use short RAM caches; the Services state cache starts
+  its TTL after the scan and refreshes stale data in the background. Camera timing and behavior checks are pending.
+
 ## [3.0.1-rc31] - 2026-11-06
 
 The rc30 (`9192813`, md5 `65e1cd70`, reviewed and archive-checked by the tester) plus the user-experience step and the

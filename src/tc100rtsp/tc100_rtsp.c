@@ -66,8 +66,8 @@ static int W = 1920, H = 1080;
 #define SW 640		/* sub-stream, stored in the V4L2 buffer after the main picture */
 #define SH 360
 #define MAXCLI 4
-#define CLI_AUTH_S 30		/* a connection with no accepted request is closed after (time to type a password in VLC) */
-#define CLI_IDLE_S 60		/* a client that does not play and sends nothing is closed after */
+#define CLI_AUTH_S 30		/* a connection that never completes an authenticated request (OPTIONS alone does not count) */
+#define CLI_IDLE_S 60		/* an authenticated client that does not play and sends nothing */
 #define RTP_PAYLOAD 1400
 #define CACHE_MAX (1536 * 1024)
 #define CACHE_MAX_SUB (384 * 1024)
@@ -3593,9 +3593,18 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (cl[i].fd >= 0) qtrim(&cl[i], nowt);
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &fs)) cli_read(&cl[i]);
 			if (cl[i].fd >= 0 && !cl[i].tcp && time(NULL) - cl[i].last > 90) cli_close(&cl[i]);
-			/* R1: no accepted request 30 s after the connection, or 60 s without one while not playing */
-			if (cl[i].fd >= 0 && !cl[i].authed && time(NULL) - cl[i].t_acc > CLI_AUTH_S) cli_close(&cl[i]);
-			if (cl[i].fd >= 0 && !cl[i].playing && time(NULL) - cl[i].last > CLI_IDLE_S) cli_close(&cl[i]);
+			/* OPTIONS alone does not authenticate a client: that path expires at 30 s.
+			 * Authenticated, non-playing clients use the separate 60 s idle deadline. */
+			if (cl[i].fd >= 0 && !cl[i].authed && time(NULL) - cl[i].t_acc > CLI_AUTH_S) {
+				LOG("rtsp: client slot %d expired unauthenticated after %ld s (CLI_AUTH_S=%d)\n",
+				    i, (long)(time(NULL) - cl[i].t_acc), CLI_AUTH_S);
+				cli_close(&cl[i]);
+			}
+			if (cl[i].fd >= 0 && !cl[i].playing && time(NULL) - cl[i].last > CLI_IDLE_S) {
+				LOG("rtsp: client slot %d expired idle after %ld s (CLI_IDLE_S=%d)\n",
+				    i, (long)(time(NULL) - cl[i].last), CLI_IDLE_S);
+				cli_close(&cl[i]);
+			}
 			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
 		}
 		cl_unlock();

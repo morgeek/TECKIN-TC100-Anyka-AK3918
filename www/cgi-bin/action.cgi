@@ -4,6 +4,13 @@
 . /mnt/scripts/common_functions.sh
 . /mnt/scripts/event-logger.sh
 
+# Any POST may update values returned by state.cgi; drop the short-lived RAM
+# snapshots before the next readback request.
+if [ "${REQUEST_METHOD:-GET}" = POST ]; then
+  rm -f /tmp/state-response-*.cache >/dev/null 2>&1 || true
+  rm -f /tmp/action-response-*.cache >/dev/null 2>&1 || true
+fi
+
 export LD_LIBRARY_PATH='/mnt/lib/:/lib/:/usr/lib/'
 
 # Must stay in sync with WIFI_CONFIG in autorun.sh — that is the file passed to
@@ -1140,12 +1147,49 @@ if [ -n "$F_cmd" ]; then
   if [ -z "$F_val" ]; then
     F_val=100
   fi
-  audit_log "$F_cmd"
+  [ "${ACTION_AUDIT_SKIP:-0}" = 1 ] || audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
     showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|ha_discovery_info) ;;
     *) csrf_check ;;
   esac
+  # The zone response is assembled through many sed/grep subprocesses. Cache
+  # its JSON body briefly after the normal audit and CSRF checks above.
+  if [ "${REQUEST_METHOD:-GET}" = GET ] && [ "$F_cmd" = md_zones_info ] && [ "${ACTION_RESPONSE_CACHE_BYPASS:-0}" != 1 ]; then
+    _az_cache=/tmp/action-response-md_zones_info.cache
+    _az_now="$(date +%s 2>/dev/null)"
+    case "$_az_now" in ''|*[!0-9]*) _az_now=0 ;; esac
+    if [ -r "$_az_cache" ] && [ "$_az_now" -gt 0 ]; then
+      IFS= read -r _az_header < "$_az_cache"
+      case "$_az_header" in
+        ts=*)
+          _az_ts="${_az_header#ts=}"
+          case "$_az_ts" in ''|*[!0-9]*) _az_ts=0 ;; esac
+          if [ "$_az_ts" -gt 0 ] && [ "$_az_ts" -le "$_az_now" ] && [ $((_az_now - _az_ts)) -le 2 ]; then
+            sed '1d' "$_az_cache"
+            exit 0
+          fi ;;
+      esac
+    fi
+    _az_tmp="/tmp/action-response.$$.tmp"
+    _az_body="/tmp/action-response-body.$$.tmp"
+    _az_cache_tmp="${_az_cache}.tmp.$$"
+    ACTION_RESPONSE_CACHE_BYPASS=1 ACTION_AUDIT_SKIP=1 sh /mnt/www/cgi-bin/action.cgi > "$_az_tmp" 2>/dev/null
+    sed '1,/^$/d' "$_az_tmp" > "$_az_body"
+    if [ -s "$_az_body" ] && grep -q '^Content-type:' "$_az_tmp"; then
+      _az_now="$(date +%s 2>/dev/null)"
+      case "$_az_now" in ''|*[!0-9]*) _az_now=0 ;; esac
+      if [ "$_az_now" -gt 0 ] && {
+        printf 'ts=%s\n' "$_az_now"
+        cat "$_az_body"
+      } > "$_az_cache_tmp"; then
+        mv -f "$_az_cache_tmp" "$_az_cache" 2>/dev/null || true
+      fi
+    fi
+    cat "$_az_body" 2>/dev/null
+    rm -f "$_az_tmp" "$_az_body" "$_az_cache_tmp"
+    exit 0
+  fi
   # Each command lives in scripts/action.d/<group>.sh: only that file is
   # parsed (the whole list took ~0.3 s per request on the camera).
   case "$F_cmd" in

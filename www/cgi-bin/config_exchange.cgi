@@ -596,6 +596,9 @@ _ce_import() {
   _ce_wc_before="$(_ce_wc)"
   tc_commit_config_files "$_ce_stage" "$CONFIG_ROOT" "$_ce_backup" "$_ce_files" || _ce_fail "Import rejected (${TC_CONFIG_ERROR:-transaction failed}); active configuration was preserved" "TRANSACTION_FAILED"
   _ce_changed="$TC_COMMIT_COUNT"
+  if [ "$_ce_changed" -gt 0 ]; then
+    rm -f /tmp/state-response-*.cache /tmp/action-response-*.cache >/dev/null 2>&1 || true
+  fi
   _ce_cleanup
 
   if [ "$_ce_changed" -gt 0 ]; then

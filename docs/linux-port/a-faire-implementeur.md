@@ -347,8 +347,9 @@ R5. [x] *(fait pour les 15 scripts sans `restart`, test pour tous, `[rc28-fixes]
     autres scripts de service.
 R6. [x] *(fait, plus la taille 720p, `[rc28-fixes]`)* **`controlscripts/onvif` plafonne les fps annoncés à 15** (`FPS0=15` « unless the file says less ») alors que
     les flux tournent à 25 : même défaut que `frigateyaml` corrigé en `64fa7a2`. Annoncer la valeur réelle.
-R7. [~] *(rc28 sur la .11 : 15,5 s puis 21,8 s pour 156 valeurs, pas nettement mieux ; à creuser)* *(un sous-shell de moins par valeur sans caractère encodé, `[rc28-fixes]` ; à mesurer sur caméra)* **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
-    11-17 img/s pendant l'import ; voir où partent les secondes (nouveaux validateurs ?).
+R7. [~] *(main: commit helper skips unchanged files and global sync in flash mode; camera timing still pending)* **Import JSON plus lent** : 20-25 s pour 144 valeurs en rc27 (12-15 s pour 123 en rc25) et la capture tombe à
+    11-17 img/s pendant l'import. The import now avoids rollback copies for unchanged files and skips global `sync` when
+    `/mnt/config` is the flash-mode tmpfs; SD mode keeps both durability syncs. Measure first and repeated imports on both cameras.
 R8. [x] *(2026-11-05 soir, consigne du propriétaire « active tous les items codés » : tout activé par défaut, migration unique pour les caméras installées, entrée `[rc28-defaults]` ; risque principal : `RTSP_ABR`)* **Garder sur la .11 et en faire les défauts si la nuit est bonne** (propriétaire : « si tout est concluant on
     garde ») : `SUPERVISOR_IMPL=c`, `MQTT_DISCOVERY_IMPL=c`, `RTSP_ALSA_DIRECT=1` (validés le 2026-11-05 : découverte
     identique octet pour octet, plus d'`arecord`, son réel), `ONVIF_IMPL=c` (validé avec le binaire corrigé). WHEP
@@ -357,11 +358,14 @@ R8. [x] *(2026-11-05 soir, consigne du propriétaire « active tous les items co
 R9. [x] *(rc29 depuis la flash : OK, 20 img/s de jour, 2026-11-06 08:10)* *(validé dans Chrome 157 sur la .11 le 2026-11-06 01:05 avec les binaires en RAM : WebRTC 640x360 à 10 img/s de nuit ; reste la rc29)* *(2e cause trouvée et corrigée en `cfed960` : ClientHello DTLS 1.3 + ML-KEM fragmenté, mbedTLS 2.28 → -0x7900 ; voir test-queue 2026-11-06 00:20 ; mettre `tests/whep_chrome_interop.py` en CI)* **WebRTC refusé par Chrome (413)** — corrigé par le testeur en `1749475` (offre Chrome 157 = 7607 octets > 6000 ;
     limite 12000 commune à `whep.cgi` et `tc100-whep`, tampon 16 Ko). Il faut un `tc100-whep` reconstruit (image de base)
     → **rc29** ; le testeur revalide P7 dans Chrome. Vérifier aussi Firefox / Safari (offres de taille voisine).
-R10. [ ] **T9 : client RTSP muet fermé après ~31 s** alors que `CLI_IDLE_S` = 60 : trouver le délai qui s'applique
-    (et le documenter) ; Frigate n'est pas touché.
+R10. [~] **T9 : client RTSP muet fermé après ~31 s**. `tc100_rtsp` has two distinct deadlines: 30 s until a request
+    passes authentication (`OPTIONS` alone does not count), then 60 s idle for an authenticated non-playing client.
+    Closure logs now name the active deadline and elapsed time; reproduce both cases on camera and confirm Frigate stays connected.
 R11. [x] *(rc29 : connexions muettes fermées en < 4 s, 503 au-delà de 8 par IP)* **T8 : httpfront garde indéfiniment les connexions muettes** (72/80 encore ouvertes après 30 s ; pas de
     gêne mesurée) : ajouter un délai de lecture de l'en-tête (10-15 s) et un plafond si ce n'est pas déjà le cas.
-R12. [ ] `state.cgi?daynight` a mis 7,2 s une fois juste après le démarrage (puis 0,3 s) : voir ce qui bloque.
+R12. [~] `state.cgi?daynight` took 7.2 s once just after boot, then 0.3 s; no repeatable blocking operation was found in
+    the handler. It now shares the short response cache added for R17; measure the first request after boot and the next
+    request on rc33. If the first request is still slow, capture its timing before changing the handler.
 R13. [x] *(rc29 de jour : ~22 img/s, suit la capture)* Repli MP4 du direct observé à ~1,8 img/s (nuit, 640x360) : vérifier la cadence attendue de ce mode.
 
 R14. [x] *(fait pour la rc30, `[rc30]` : `scripts/sd-diag.sh` `repair()` — (a) carte de démarrage / d'installation (même liste que `rec-storage.sh`, regardée sur `/mnt/sd` ou après un montage en lecture seule) : réponse `refused`, ni fsck ni écriture ni éjection ; (b) besoin estimé à 12 octets par cluster d'après le secteur de démarrage FAT (~24 Mo pour 64 Go en clusters de 32 Ko) : pas de fsck si > MemAvailable − 8 Mo, la carte est remontée telle quelle et l'état `dirty-not-checked` s'affiche sur la page Enregistrement (`sd_card_info` champ `diag`) ; exFAT : pas de fsck.fat ; (c) `oom_score_adj` 1000 pour fsck ; (d) `resume` après un fsck en échec ou tué. Tests `SdRepairGuards`)* **Réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`, défaut rc28) : OOM et carte refusée** (IPCAM1, rc28,
@@ -384,9 +388,11 @@ R16. [~] *(code fait derrière `RTSP_SENDER_THREAD` (défaut 0, `rtsp.env`), à 
     et par flux (le même entrelacement TCP pour tous les clients qui ont les mêmes canaux), ou envoi dans un fil à part
     pour que la capture n'attende jamais l'envoi. Mesurer avec les mêmes 4 clients.
 
-R17. [ ] **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
+R17. [~] **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
     jusqu'à 11 s (page Services : un `status` par script), `state.cgi?cmd=fullconfig` 3-5,6 s, `dashinfo`, `isp_tune`,
-    `md_zones_info` 1,2-1,5 s. Mettre en cache / calculer dans `httpfront` comme `dash.cgi`.
+    `md_zones_info` 1,2-1,5 s. Main now caches `fullconfig`, `daynight`, `isp_tune`, `dashinfo` and `md_zones_info` responses briefly;
+    allstates timestamps after the scan and serves a recent stale snapshot while refreshing in the background. Measure cold,
+    warm and post-change requests on camera; first cache misses are still synchronous.
 R18. [x] *(fait pour la rc30, `[rc30]` : `update66.sh` écrit l'intention « web update to <version> » avant `cfg-persist flush`, avec `REBOOT_TRACKER_KEEP_CARD=1` (nouveau : l'intention ne remonte pas la carte en lecture seule, les sauvegardes de flashw y vont encore ; `update66.sh` la remonte lui-même avant `reboot`) ; `install66.sh` (« SD install of … », dans `/mnt/config/log` avant la copie des réglages) ; `update.cgi` (mémoire insuffisante, abandon). Battement de cœur sans carte dans `/mnt/config/log` : pas fait (facultatif). Tests `RebootAfterUpdateHasAnIntent`)* `reboot-history.log` classe le redémarrage d'une mise à jour web « unknown (no heartbeat recorded yet) » :
     `update66.sh apply` doit écrire l'intention (`reboot-tracker.sh intent "update: <version>"`) avant le
     `cfg-persist flush`, et le battement de cœur sans carte SD pourrait aller dans `/mnt/config/log` à chaque

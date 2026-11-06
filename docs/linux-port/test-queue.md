@@ -2564,3 +2564,35 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   configuration ne les propose plus comme réglages ; `RTSP_LITE_TALK` inchangé ; un second redémarrage ne change rien.
 - **Critères :** aucune fonction perdue (chaque bouton retiré a son équivalent indiqué) ; aucune erreur JavaScript ;
   aucun défilement horizontal en 360 px ; aucune clé de `boot.conf` supprimée, toutes les clés lues par 3.0 intactes.
+
+## 2026-11-06 — R17/R7/R10/R12 : caches CGI, import config et délais RTSP (`[perf-r17]`)
+
+- **Quoi :** R7 — l'import de configuration compare les fichiers avant de créer les copies de retour arrière ; les
+  fichiers identiques sont ignorés, et `sync` est sauté uniquement en mode flash où `/mnt/config` est un tmpfs
+  (la persistance reste à `cfg-persist`). En mode SD, les deux synchronisations de la transaction restent. R17 —
+  `scripts.cgi?cmd=allstates` démarre son TTL après le scan complet et sert un cache récent pendant son rafraîchissement
+  en arrière-plan ; `state.cgi` met en cache brièvement `fullconfig`, `daynight`, `isp_tune` et `dashinfo` ;
+  `action.cgi` met aussi en cache brièvement `md_zones_info`. Les écritures web connues invalident ces caches. R10 —
+  chaque fermeture pour délai journalise le délai actif (`CLI_AUTH_S=30` ou
+  `CLI_IDLE_S=60`), sans changer les valeurs. R12 — `daynight` utilise aussi le cache court ; la première requête
+  lente après le boot reste à mesurer.
+- **Interrupteur :** aucun. Le cache est temporaire en RAM ; les durées n'affectent pas les flux ni les réglages.
+- **Test (rc suivante, sans écriture flash par l'implémenteur) :**
+  1. R7 : exporter sans secrets puis réimporter le même fichier deux fois ; relever `applied`, `changed_files`, durée
+     et cadence `STAT cap` pendant l'import. Le second import doit rester sans changement et ne pas provoquer de baisse
+     de capture liée à un `sync` global. Vérifier que les valeurs des réglages sont identiques avant/après.
+  2. R17 : mesurer deux appels successifs à `scripts.cgi?cmd=allstates`; le second doit répondre depuis le cache.
+     Attendre plus que le TTL puis refaire l'appel : il doit servir rapidement l'ancien état et actualiser le cache en
+     arrière-plan. Après un basculement de service, l'état doit se mettre à jour au poll suivant. Mesurer deux appels
+     à `state.cgi?cmd=fullconfig` ; après un changement enregistré dans Réglages, le readback doit montrer la nouvelle
+     valeur immédiatement. Vérifier aussi le premier appel `daynight` puis le suivant, et l'absence d'erreur JSON.
+     Appeler `action.cgi?cmd=md_zones_info` deux fois, puis enregistrer une modification des zones et vérifier le nouveau
+     contenu au prochain appel.
+  3. R10 : un client TCP qui n'envoie que `OPTIONS` doit fermer à environ 30 s avec le motif `CLI_AUTH_S` ; un client
+     qui passe l'authentification par `SETUP` puis ne lance pas `PLAY` doit fermer à environ 60 s avec `CLI_IDLE_S`.
+     Le flux Frigate en lecture reste connecté et ses images continuent.
+  4. R12 : juste après un démarrage, mesurer le premier puis le deuxième `state.cgi?cmd=daynight&format=json` ; noter
+     l'uptime, la durée et les champs JSON. Si le premier dépasse 2 s, répéter avec l'onglet Réglages déjà ouvert et
+     relever les mêmes mesures avant toute modification du handler.
+- **Critères :** aucune valeur de configuration ne change pendant ces vérifications ; caches servis en moins de 0,5 s
+  quand disponibles ; état rafraîchi après un changement ; motifs RTSP conformes au type de client ; Frigate stable.

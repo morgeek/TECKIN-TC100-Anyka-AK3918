@@ -30,9 +30,11 @@ details and results in
   and NVRs see 10 fps during that time.
 - **MQTT and Telegram settings:** the MQTT user / password and the Telegram token / chat id cannot hold spaces,
   quotes or `$ ` \ ; & | < > ( )` (the files that hold them are read by shell scripts). Use other characters.
-- **JSON configuration import:** takes 10-20 s on the camera (about 120 values checked and written as one
-  transaction); wait for the answer.
-- **Some pages answer slowly at times** (up to 6-7 s for the status, health or Frigate pages on the single-core CPU).
+- **JSON configuration import:** the camera measured 10-20 s on rc31 (about 120 values); main now skips flash-mode
+  global syncs and rollback copies for unchanged files. The new import time and capture rate still need camera measurement.
+- **Some pages answer slowly on cache misses** (the first Services scan and Settings configuration read were measured
+  at several seconds on the single-core CPU). Main now caches short-lived read responses and refreshes stale Services
+  state in the background; cold and warm timings still need camera measurement.
 - The feature audit of 2026-10-26 ([linux-port/feature-audit-2026-10-26.md](linux-port/feature-audit-2026-10-26.md))
   is history: most of what it lists was fixed in the 3.0.1 release candidates.
 

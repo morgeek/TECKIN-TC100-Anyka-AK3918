@@ -76,12 +76,20 @@ _svc_pid_uptime() {
 }
 
 invalidate_allstates_cache() {
-  rm -f "$ALLSTATES_CACHE_FILE" >/dev/null 2>&1 || true
+  if [ -f "$ALLSTATES_CACHE_FILE" ]; then
+    : > "${ALLSTATES_CACHE_FILE}.stale"
+  else
+    rm -f "${ALLSTATES_CACHE_FILE}.stale" >/dev/null 2>&1 || true
+  fi
+  # The Settings form also reports service switches from boot.conf.
+  rm -f /tmp/state-response-fullconfig*.cache >/dev/null 2>&1 || true
+  rm -f /tmp/action-response-md_zones_info.cache >/dev/null 2>&1 || true
 }
 
 allstates_cache_is_fresh() {
   [ "$ALLSTATES_CACHE_TTL_SECONDS" -gt 0 ] || return 1
   [ -f "$ALLSTATES_CACHE_FILE" ] || return 1
+  [ ! -e "${ALLSTATES_CACHE_FILE}.stale" ] || return 1
 
   read -r cache_header < "$ALLSTATES_CACHE_FILE" || return 1
   case "$cache_header" in
@@ -98,6 +106,18 @@ allstates_cache_is_fresh() {
 
   age=$((now_ts - cache_ts))
   [ "$age" -le "$ALLSTATES_CACHE_TTL_SECONDS" ]
+}
+
+allstates_cache_age() {
+  [ -f "$ALLSTATES_CACHE_FILE" ] || return 1
+  if [ -e "${ALLSTATES_CACHE_FILE}.stale" ]; then allstates_age=60; return 0; fi
+  read -r cache_header < "$ALLSTATES_CACHE_FILE" || return 1
+  case "$cache_header" in ts=*) cache_ts="${cache_header#ts=}" ;; *) return 1 ;; esac
+  case "$cache_ts" in ''|*[!0-9]*) return 1 ;; esac
+  now_ts="$(now_epoch_safe)"
+  case "$now_ts" in ''|0|*[!0-9]*) return 1 ;; esac
+  [ "$cache_ts" -le "$now_ts" ] || return 1
+  allstates_age=$((now_ts - cache_ts))
 }
 
 run_status_probe() {
@@ -485,15 +505,48 @@ emit_allstates_response() {
     return
   fi
 
+  # A scan can take longer than the 4 s freshness window. Keep a recent
+  # snapshot visible while one background refresh runs, instead of making
+  # every Services page wait for the sequential status probes.
+  if [ "$ALLSTATES_CACHE_TTL_SECONDS" -gt 0 ] && allstates_cache_age && [ "$allstates_age" -le 60 ]; then
+    refresh_lock="${ALLSTATES_CACHE_FILE}.refresh.lock"
+    if mkdir "$refresh_lock" 2>/dev/null; then
+      (
+        refresh_body="/tmp/scripts-allstates-body.$$.tmp"
+        refresh_tmp="/tmp/scripts-allstates.$$.tmp"
+        trap 'rm -f "$refresh_body" "$refresh_tmp"; rmdir "$refresh_lock" 2>/dev/null' EXIT HUP INT TERM
+        if generate_allstates_payload > "$refresh_body"; then
+          refresh_ts="$(now_epoch_safe)"
+          if [ "$refresh_ts" -gt 0 ] 2>/dev/null && {
+            printf 'ts=%s\n' "$refresh_ts"
+            cat "$refresh_body"
+          } > "$refresh_tmp"; then
+            mv -f "$refresh_tmp" "$ALLSTATES_CACHE_FILE" 2>/dev/null || true
+            rm -f "${ALLSTATES_CACHE_FILE}.stale" >/dev/null 2>&1 || true
+          fi
+        fi
+      ) </dev/null >/dev/null 2>&1 &
+    fi
+    sed '1d' "$ALLSTATES_CACHE_FILE"
+    return
+  fi
+
   if [ "$ALLSTATES_CACHE_TTL_SECONDS" -gt 0 ]; then
+    tmp_body="/tmp/scripts-allstates-body.$$.tmp"
     tmp_cache="/tmp/scripts-allstates.$$.tmp"
-    now_ts="$(now_epoch_safe)"
-    {
-      printf 'ts=%s\n' "$now_ts"
-      generate_allstates_payload
-    } > "$tmp_cache"
-    mv "$tmp_cache" "$ALLSTATES_CACHE_FILE" 2>/dev/null || true
-    if [ -f "$ALLSTATES_CACHE_FILE" ]; then
+    if generate_allstates_payload > "$tmp_body"; then
+      # Start the TTL after the slow scan has completed, not before it.
+      now_ts="$(now_epoch_safe)"
+      if [ "$now_ts" -gt 0 ] 2>/dev/null && {
+        printf 'ts=%s\n' "$now_ts"
+        cat "$tmp_body"
+      } > "$tmp_cache"; then
+        mv -f "$tmp_cache" "$ALLSTATES_CACHE_FILE" 2>/dev/null || true
+        rm -f "${ALLSTATES_CACHE_FILE}.stale" >/dev/null 2>&1 || true
+      fi
+    fi
+    rm -f "$tmp_body" "$tmp_cache"
+    if [ -s "$ALLSTATES_CACHE_FILE" ]; then
       sed '1d' "$ALLSTATES_CACHE_FILE"
       return
     fi

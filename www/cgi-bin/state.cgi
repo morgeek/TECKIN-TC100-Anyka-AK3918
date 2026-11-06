@@ -5,6 +5,55 @@
 . /mnt/www/cgi-bin/func.cgi
 . /mnt/www/cgi-bin/statelib.cgi
 
+# A few read-only settings calls assemble JSON through many shell lookups.
+# Keep their complete CGI response in RAM for a short time; writes invalidate
+# fullconfig from action.cgi, configeditor.cgi, config_exchange.cgi and the
+# Services toggles. A private bypass flag prevents the cache fill from looping.
+state_response_cache() {
+  _src_file="$1"; _src_ttl="$2"
+  _src_now="$(date +%s 2>/dev/null)"
+  case "$_src_now" in ''|*[!0-9]*) _src_now=0 ;; esac
+  if [ -r "$_src_file" ] && [ "$_src_now" -gt 0 ]; then
+    IFS= read -r _src_header < "$_src_file"
+    case "$_src_header" in
+      ts=*)
+        _src_ts="${_src_header#ts=}"
+        case "$_src_ts" in ''|*[!0-9]*) _src_ts=0 ;; esac
+        if [ "$_src_ts" -gt 0 ] && [ "$_src_ts" -le "$_src_now" ] && [ $((_src_now - _src_ts)) -le "$_src_ttl" ]; then
+          sed '1d' "$_src_file"
+          return 0
+        fi ;;
+    esac
+  fi
+
+  _src_tmp="/tmp/state-response.$$.tmp"
+  _src_cache_tmp="${_src_file}.tmp.$$"
+  STATE_RESPONSE_CACHE_BYPASS=1 sh "${STATE_CGI_SCRIPT:-/mnt/www/cgi-bin/state.cgi}" > "$_src_tmp" 2>/dev/null
+  if [ -s "$_src_tmp" ] && grep -q '^Content-type:' "$_src_tmp"; then
+    _src_now="$(date +%s 2>/dev/null)"
+    case "$_src_now" in ''|*[!0-9]*) _src_now=0 ;; esac
+    if [ "$_src_now" -gt 0 ] && {
+      printf 'ts=%s\n' "$_src_now"
+      cat "$_src_tmp"
+    } > "$_src_cache_tmp"; then
+      mv -f "$_src_cache_tmp" "$_src_file" 2>/dev/null || true
+    fi
+  fi
+  cat "$_src_tmp" 2>/dev/null
+  rm -f "$_src_tmp" "$_src_cache_tmp"
+}
+
+if [ "${REQUEST_METHOD:-GET}" = GET ] && [ "${STATE_RESPONSE_CACHE_BYPASS:-0}" != 1 ]; then
+  _state_cache_format=plain
+  wants_json_response && _state_cache_format=json
+  case "$F_cmd" in
+    fullconfig) state_response_cache "/tmp/state-response-fullconfig-${_state_cache_format}.cache" 5; exit 0 ;;
+    daynight)   state_response_cache "/tmp/state-response-daynight-${_state_cache_format}.cache" 1; exit 0 ;;
+    isp_tune)   state_response_cache "/tmp/state-response-isp_tune-${_state_cache_format}.cache" 1; exit 0 ;;
+    dashinfo)   state_response_cache "/tmp/state-response-dashinfo-${_state_cache_format}.cache" 5; exit 0 ;;
+  esac
+fi
+
 # Set content type based on requested format
 if wants_json_response; then
   echo "Content-type: application/json"

@@ -122,6 +122,7 @@ case "${F_cmd:-read}" in
     fi
     if mv "$_tmp" "$_path"; then
       sync
+      rm -f /tmp/state-response-*.cache >/dev/null 2>&1 || true
       audit_log_event "configeditor_save" "$_file"
       printf '{"ok":true,"file":"%s","message":"Saved successfully"}\n' "$_file"
     else

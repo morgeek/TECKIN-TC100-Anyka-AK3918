@@ -678,6 +678,19 @@ tc_rollback_config_files()
       rm -f "$_tc_dest" || return 1
     fi
   done < "$_tc_backup/manifest"
+  _tc_sync_config_target "$_tc_target"
+}
+
+# In flash mode /mnt/config is a tmpfs view; cfg-persist owns the flash writes.
+# A global sync there also flushes unrelated SD recordings, which can stall the
+# camera while a configuration import is being applied. SD mode still syncs
+# the persistent target before and after the atomic swaps.
+_tc_sync_config_target()
+{
+  _tc_sync_target="$1"
+  if [ "${_tc_sync_target%/}" = /mnt/config ] && [ -f "${TC_FLASHMODE_MARKER:-/tmp/flashmode}" ]; then
+    return 0
+  fi
   sync
 }
 
@@ -697,12 +710,14 @@ tc_commit_config_files()
   for _tc_rel in $_tc_files; do
     _tc_dest="$_tc_target/$_tc_rel"
     if [ -f "$_tc_dest" ]; then
+      # An idempotent import should neither copy rollback files nor force a
+      # filesystem-wide sync. Both operations used to run for every file.
+      if cmp -s "$_tc_stage/$_tc_rel" "$_tc_dest"; then continue; fi
       _tc_parent="${_tc_rel%/*}"
       [ "$_tc_parent" = "$_tc_rel" ] && _tc_parent=""
       [ -z "$_tc_parent" ] || mkdir -p "$_tc_backup/files/$_tc_parent" || return 1
       cp "$_tc_dest" "$_tc_backup/files/$_tc_rel" || return 1
       printf 'present %s\n' "$_tc_rel" >> "$_tc_backup/manifest"
-      if cmp -s "$_tc_stage/$_tc_rel" "$_tc_dest"; then continue; fi
     else
       printf 'absent %s\n' "$_tc_rel" >> "$_tc_backup/manifest"
     fi
@@ -713,7 +728,7 @@ tc_commit_config_files()
     fi
     TC_COMMIT_COUNT=$((TC_COMMIT_COUNT + 1))
   done
-  sync
+  if [ "$TC_COMMIT_COUNT" -gt 0 ]; then _tc_sync_config_target "$_tc_target"; fi
 
   for _tc_rel in $_tc_files; do
     _tc_dest="$_tc_target/$_tc_rel"
@@ -724,7 +739,7 @@ tc_commit_config_files()
       return 1
     fi
   done
-  sync
+  if [ "$TC_COMMIT_COUNT" -gt 0 ]; then _tc_sync_config_target "$_tc_target"; fi
 
   for _tc_rel in $_tc_files; do
     cmp -s "$_tc_stage/$_tc_rel" "$_tc_target/$_tc_rel" || {
