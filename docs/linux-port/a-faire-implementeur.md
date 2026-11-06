@@ -160,10 +160,10 @@ R9. [x] *(rc29 depuis la flash : OK, 20 img/s de jour, 2026-11-06 08:10)* *(vali
     → **rc29** ; le testeur revalide P7 dans Chrome. Vérifier aussi Firefox / Safari (offres de taille voisine).
 R10. [ ] **T9 : client RTSP muet fermé après ~31 s** alors que `CLI_IDLE_S` = 60 : trouver le délai qui s'applique
     (et le documenter) ; Frigate n'est pas touché.
-R11. [ ] **T8 : httpfront garde indéfiniment les connexions muettes** (72/80 encore ouvertes après 30 s ; pas de
+R11. [x] *(rc29 : connexions muettes fermées en < 4 s, 503 au-delà de 8 par IP)* **T8 : httpfront garde indéfiniment les connexions muettes** (72/80 encore ouvertes après 30 s ; pas de
     gêne mesurée) : ajouter un délai de lecture de l'en-tête (10-15 s) et un plafond si ce n'est pas déjà le cas.
 R12. [ ] `state.cgi?daynight` a mis 7,2 s une fois juste après le démarrage (puis 0,3 s) : voir ce qui bloque.
-R13. [ ] Repli MP4 du direct observé à ~1,8 img/s (nuit, 640x360) : vérifier la cadence attendue de ce mode.
+R13. [x] *(rc29 de jour : ~22 img/s, suit la capture)* Repli MP4 du direct observé à ~1,8 img/s (nuit, 640x360) : vérifier la cadence attendue de ce mode.
 
 R14. [ ] **Réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`, défaut rc28) : OOM et carte refusée** (IPCAM1, rc28,
     test-queue 2026-11-06 08:00). (a) `sd-diag.sh repair` passe `fsck.fat -a -w` sur une carte que `rec-storage.sh`
@@ -173,7 +173,7 @@ R14. [ ] **Réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`, défaut r
     dans la page SD ; donner `oom_score_adj` 1000 au fsck. (c) Après un fsck en échec, la carte doit être remontée
     (`rec-storage.sh resume`) si elle est acceptable.
 
-R15. [x] *(corrigé par le testeur en `e85b42c`, à revalider à la prochaine mise à jour)* **La mise à jour coupait le
+R15. [x] *(corrigé par le testeur en `e85b42c`, puis `0047c26` pour `recording` (REC_LOCAL=0) et `motion-detection` (mdenabled=0) ; à revalider à la prochaine mise à jour)* **La mise à jour coupait le
     jour / nuit automatique** : `update66.sh` / `install66.sh` / `update.cgi` appelaient `auto-night-detection stop`,
     qui écrit `daynight=3` (manuel, persistant) depuis que la rc28 fournit `rwconf`. Nouveau verbe `halt`. Vérifier
     s'il reste d'autres `stop` « techniques » qui écrivent un réglage utilisateur (`service_trim`, `mqtt-bridge.sh`
@@ -184,6 +184,18 @@ R16. [ ] *(perf, après la 3.0.1)* **Chaque client RTSP en plus retire des image
     client, dans la boucle de capture, encodeur à ~3,8 s / 5 s). Pistes : mise en paquets RTP une seule fois par image
     et par flux (le même entrelacement TCP pour tous les clients qui ont les mêmes canaux), ou envoi dans un fil à part
     pour que la capture n'attende jamais l'envoi. Mesurer avec les mêmes 4 clients.
+
+R17. [ ] **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
+    jusqu'à 11 s (page Services : un `status` par script), `state.cgi?cmd=fullconfig` 3-5,6 s, `dashinfo`, `isp_tune`,
+    `md_zones_info` 1,2-1,5 s. Mettre en cache / calculer dans `httpfront` comme `dash.cgi`.
+R18. [ ] `reboot-history.log` classe le redémarrage d'une mise à jour web « unknown (no heartbeat recorded yet) » :
+    `update66.sh apply` doit écrire l'intention (`reboot-tracker.sh intent "update: <version>"`) avant le
+    `cfg-persist flush`, et le battement de cœur sans carte SD pourrait aller dans `/mnt/config/log` à chaque
+    sauvegarde voulue (sans écrire la flash plus souvent).
+R19. [ ] Autres arrêts « techniques » qui écrivent un réglage : `memory-guard` (`MEM_GUARD_CRITICAL_SERVICES` contient
+    `recording motion-detection` : un manque de mémoire couperait l'enregistrement pour de bon), `service_trim`
+    (`system.sh` l. 252, `action.cgi` l. 680), `mqtt-bridge.sh` l. 1734 : utiliser `halt` quand ce n'est pas un choix
+    de l'utilisateur.
 
 ## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
 
@@ -198,18 +210,18 @@ T1. [ ] Endurance **7 jours** sur les deux caméras, toutes les nouvelles implé
     (nombre par jour), pertes Wi-Fi, images sautées.
 T2. [x] *(rc28 de nuit 10 img/s et rc29 de jour 25 img/s : 0 perte ; débit de capture réduit par client, R16)* Charge : 2, 3 puis 4 clients RTSP en même temps (chute de fps connue), multiview ouvert dans plusieurs
     navigateurs, Frigate + ONVIF + WebRTC simultanés sur un seul cœur (fps de capture, charge, latence du direct).
-T3. [ ] `.24` en rc28 avec les mêmes réglages que la .11 (seules l'IP et l'identité matérielle diffèrent).
+T3. [x] *(rc29 : .24 alignée sur la .11 le 2026-11-06)* `.24` en rc28 avec les mêmes réglages que la .11 (seules l'IP et l'identité matérielle diffèrent).
 
 **Mises à jour et reprise (T)**
-T4. [ ] Mise à jour web qui échoue (fichier corrompu, écriture flash refusée) : réessais sans redémarrage (B1/B3),
+T4. [~] *(rc29 .24 : paquet au hasard, paquet abîmé (md5), sans CSRF : refusés, caméra intacte ; écriture flash refusée non testée)* Mise à jour web qui échoue (fichier corrompu, écriture flash refusée) : réessais sans redémarrage (B1/B3),
     caméra intacte et joignable.
 T5. [ ] Mode sans échec : 3 démarrages ratés → boot-guard, interface accessible avec mot de passe, retour normal.
-T6. [ ] Retour à la configuration précédente (cfga/cfgb) après une config cassée.
+T6. [~] *(lecture seule : cfga / cfgb valides sur les deux ; retour arrière non provoqué)* Retour à la configuration précédente (cfga/cfgb) après une config cassée.
 
 **Sécurité (T)**
 T7. [ ] *(bloqué à distance : même IP que le propriétaire)* Limite d'essais de mot de passe du web (`WEB_LOCKOUT`) : blocage, déblocage, sans gêner Frigate/HA.
 T8. [x] *(rc28 .11 : OK, voir R11)* `httpfront` face à une avalanche de connexions muettes (R2 de l'audit) : la caméra reste joignable.
-T9. [~] *(rc28 .11 : Frigate jamais coupé, client muet coupé à 31 s : voir R10 ; nuit complète à confirmer)* Expiration des clients RTSP inactifs (`9e2089e`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
+T9. [x] *(nuit complète rc28 : Frigate connecté sans coupure ; client muet coupé à 31 s : R10)* Expiration des clients RTSP inactifs (`9e2089e`) : **Frigate en TCP n'est jamais déconnecté** (une nuit),
     un client muet après SETUP l'est.
 
 **Fonctions rc27 jamais activées (T, une à la fois, avec retour arrière noté)**
@@ -218,7 +230,7 @@ T11. [ ] **Mode smart** de l'encodeur avec le noyau `venc_pool` 12M (#9) : crit�
 T12. [ ] `RTSP_ABR=1` (débit adaptatif), `RTSP_MD_ENC=1` (mouvement par l'encodeur), `PRIVACY_SCREEN`,
      `IDLE_WHEN` (fps réduits sans spectateur / la nuit), `TIME_HTTP_FALLBACK` (NTP bloqué), `POWER_HZ=auto`,
      `RTSP_AUDIO_HPF/AGC/DUCK`, `MIN_SWITCH` jour/nuit, `BOOT_SOUND`, `WIFI_AIM`, `NET_GUARD_SOFT`.
-T13. [ ] Événements de mouvement **ONVIF** (PullPoint) vus par Home Assistant (avec P5).
+T13. [~] *(rc29 : abonnement PullPoint, messages d'état, désabonnement OK sur les deux ; mouvement réel avec HA à voir)* Événements de mouvement **ONVIF** (PullPoint) vus par Home Assistant (avec P5).
 
 **Matériel (P)**
 P1. [ ] Anti-masquage avec la main (correctif `25fecef` jamais retesté) : `tamper_active=1` après ≥ 6 s, retour à 0.
