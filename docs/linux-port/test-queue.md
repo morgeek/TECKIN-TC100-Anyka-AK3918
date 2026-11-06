@@ -2381,6 +2381,18 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 - Syslog : `tc100-logfwd` corrigé (`e5a1c05`) superposé en RAM, « En marche ».
 - Superpositions en RAM sur la .24 (perdues au redémarrage) : `/mnt/bin/tc100-logfwd`.
 
+## 2026-11-06 15:45 — revue du testeur : `[cleanup]` (`73d2bea`) et `[review-1106]` (`0aac5ee`)
+
+- CI verte. `update.cgi` refuse maintenant d'installer sans carte SD tant que la page n'a pas demandé
+  « installer sans sauvegarde ? » (`&nobackup=1` → `UPDATE66_NOBACKUP=1`, vérifié par `update66.sh` avant tout arrêt) :
+  cohérent. Les deux caméras n'ont pas de carte utilisable : pour la rc32, le testeur installera avec cette
+  confirmation (consigne du propriétaire : « flash la rc32 sur la .11 »), comme le ferait la page.
+- `AGENTS.md` : le seul code autorisé à écrire l'environnement U-Boot est le crochet de première installation
+  (`stock-hook.sh`), avec un test qui l'impose ; aucune mise à jour web n'y touche : conforme à la règle du propriétaire.
+- `flashw -r` échoue maintenant sur une lecture ratée (avant : 0 toujours) ; le chemin d'écriture n'a pas changé.
+- Entrées closes de `test-queue.md` déplacées dans `test-queue-archive.md` (les entrées du testeur du 06/11 sont
+  restées ici).
+
 ## 2026-11-06 — Fil d'envoi dans `tc100_rtsp` : `RTSP_SENDER_THREAD` (R16 / H1, `[sender-thread]`, rc32)
 
 - **Quoi :** la boucle de capture ne fait plus l'envoi aux clients (environ 2,4 ms par client et par image, cause de R16 :
