@@ -7,11 +7,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-- **R7:** configuration imports skip rollback copies for unchanged files and avoid global `sync` when flash-mode
-  `/mnt/config` is a tmpfs; SD-mode transaction syncs remain.
-- **R10:** RTSP timeout logs distinguish the 30 s unauthenticated deadline from the 60 s authenticated idle deadline.
-- **R17:** CGI responses for Settings reads and motion-zone info use short RAM caches; the Services state cache starts
-  its TTL after the scan and refreshes stale data in the background. Camera timing and behavior checks are pending.
+## [3.0.1-rc32] - 2026-11-06
+
+The rc31 (on both cameras since 2026-11-06 afternoon, md5 `5d9e83af`) plus, in one release asked by the owner
+("corriger les problèmes rencontrés pour avoir une rc32 exploitable"):
+- **Fixes found on the cameras by the tester**: `tc100-logfwd` no longer dies at its first line (no `sscanf` /
+  `isdigit` through the glibc headers: the remote syslog never worked with the CI build, rc28-rc31), `libnetacl.so`
+  without `__isoc23_strtol`, the CI refuses such names (`e5a1c05`, R23); browsers revalidate the pages after an update
+  (R22); a refused boot card is never left mounted read-write, an older package is not offered as "staged" (R25, R26);
+  no MP4 fallback request once WebRTC plays (R24).
+- **One look and one ONVIF daemon**: Pico only (Classic removed), `tc100-onvifd` only (`[rc32-remove]`).
+- **Web UI audit, the rest of R20** (D1-D6, U2, U4-U9) (`[ui-r20]`).
+- **Time zone** step in the setup wizard and a zone list in Settings; **low-light frame rate** 10 / 15 / 20
+  (`[tz-lowlight]`).
+- **Faster pages and import**: short RAM caches for `state.cgi` (`fullconfig`, `daynight`, `isp_tune`) and the motion
+  zones, emptied by every write; Services answers from a recent snapshot while it refreshes; no global `sync` nor
+  rollback copy for unchanged files in a flash-mode import (R17, R7); RTSP expiry of idle clients logged (R10).
+- **Optional, off by default**: a sender thread in `tc100_rtsp` (`RTSP_SENDER_THREAD=1`, R16); a manual test kernel
+  with high-resolution timers (`[hrt-test]`, separate `-testkernel` package, not in this update).
+- CI green again (`b82391c`). No default changed for an installed camera except the look (Pico was already the default).
 
 ## [3.0.1-rc31] - 2026-11-06
 

@@ -2621,3 +2621,14 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   qu'`OPTIONS` n'est pas authentifié, d'où les 30 s mesurées). Idée bonne ; à corriger pour les tests ci-dessus.
 - **À vérifier en rc32** (testeur) : page Services < 2 s ; `fullconfig` < 1 s au 2e appel ; une modification de
   réglage visible tout de suite (cache vidé) ; import JSON plus court ; journal `client slot … expired`.
+
+## 2026-11-06 17:00 — rc32 lancée par le testeur (consigne du propriétaire : « corriger les problèmes … rc32 exploitable, go »)
+
+- `b82391c` : CI de nouveau verte (cache de `state.cgi` rempli par `$0`, plus de second `case` ; trois tests périmés mis
+  à jour). Puis `VERSION` 3.0.1-rc32 et `CHANGELOG` (contenu : rc31 + R22-R26, Pico seul, un seul démon ONVIF, R20,
+  fuseau horaire, basse lumière 10/15/20, caches R17/R7, journal R10, fil d'envoi optionnel).
+- Le testeur contrôle l'archive puis l'installe sur la .11 par la mise à jour web (sans carte : confirmation
+  « sans sauvegarde », comme la page) ; contrôles : réglages conservés, syslog distant (`tc100-logfwd` vivant sans
+  superposition), Pico seul, Services < 2 s, `fullconfig` rapide au 2e appel, fuseau et basse lumière dans Réglages,
+  WebRTC, ONVIF, MQTT, `reboot-history.log`.
+
