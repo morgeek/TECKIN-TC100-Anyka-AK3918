@@ -2806,3 +2806,17 @@ Enregistreur `/tmp/nightcam.sh` (148 relevés toutes les 180 s, 23:02 → 06:27 
 - **P7 WebRTC depuis la flash** — `passed` : Chrome 157 sur la .11, `srcObject` 640x360, **20,1 img/s de jour** (le sous-flux consommé abaisse la capture vers ~21 img/s, connu), 5 images perdues sur ~450, aucune ligne « WebRTC off ».
 - **Carte SD de la .24** : encore l'ancienne carte de démarrage ; `fsck.fat` à nouveau tué par l'OOM au démarrage (173 s), rien d'autre touché (R14). Le propriétaire va la formater.
 
+## 2026-11-06 08:35 — T2 de jour (25 img/s) sur la .11 en rc29 : `passed` avec une limite mesurée (testeur)
+
+Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM du testeur, en plus de Frigate ; relevés `STAT` toutes les 5 s.
+
+| clients principaux | `cap` / 5 s | img/s | `enc_ms` | `snd_ms` | `dropped` |
+|---|---|---|---|---|---|
+| 1 (Frigate) | 123-124 | ~24,7 | ~3850 | ~295 | 0 |
+| 2 | 111-117 | ~23 | ~3600 | ~550-590 | 0 |
+| 4 | 87-95 (72-80 au départ) | ~18 | ~2850 | ~900-1060 | 0 |
+
+- Aucun client décroché, aucune image sautée par client (`dropped 0`), CPU 42 % libre à 4 clients, MemAvailable 22,0 Mo ; retour à 123-124 dès la fin du test.
+- **Limite** : l'envoi TCP coûte ~250-300 ms / 5 s **par client** et se fait dans la même boucle que la capture ; avec l'encodeur déjà à ~3,8 s / 5 s, chaque client en plus retire des images à la capture (25 → 23 → 18 img/s). Avec Frigate seul (usage normal) : ~24,7 img/s.
+- La .24 n'est pas testable à 25 img/s ce matin : en mode jour mais gain total ~10x, exposition 2810 lignes ; le mode basse lumière (R12-02, comme l'appli d'origine) ne remonte à 25 img/s que sous 5x. Normal dans une pièce peu éclairée ; `RTSP_LOWLIGHT_FPS=0` garderait 25 img/s (image plus sombre).
+

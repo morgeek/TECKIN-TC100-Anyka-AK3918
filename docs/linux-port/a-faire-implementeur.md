@@ -179,6 +179,12 @@ R15. [x] *(corrigé par le testeur en `e85b42c`, à revalider à la prochaine mi
     s'il reste d'autres `stop` « techniques » qui écrivent un réglage utilisateur (`service_trim`, `mqtt-bridge.sh`
     l. 1734, `action.cgi` l. 680 : voulus par l'utilisateur ? à documenter).
 
+R16. [ ] *(perf, après la 3.0.1)* **Chaque client RTSP en plus retire des images à la capture** (T2 de jour, rc29,
+    test-queue 2026-11-06 08:35 : 1 client 24,7 img/s, 2 clients ~23, 4 clients ~18 ; `snd_ms` ~250-300 / 5 s par
+    client, dans la boucle de capture, encodeur à ~3,8 s / 5 s). Pistes : mise en paquets RTP une seule fois par image
+    et par flux (le même entrelacement TCP pour tous les clients qui ont les mêmes canaux), ou envoi dans un fil à part
+    pour que la capture n'attende jamais l'envoi. Mesurer avec les mêmes 4 clients.
+
 ## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
 
 Validé par le propriétaire. À exécuter sur la rc28 (après R1-R4), sur la .11 puis la .24 passée elle aussi en rc28.
@@ -190,7 +196,7 @@ l'implémenteur vérifie que la fonction est prête (interrupteur, doc, critère
 T1. [ ] Endurance **7 jours** sur les deux caméras, toutes les nouvelles implémentations actives : pas de redémarrage
     non voulu, MemAvailable stable (PSS par processus au début et à la fin), CMA, écritures flash via `cfg-persist`
     (nombre par jour), pertes Wi-Fi, images sautées.
-T2. [~] *(rc28 .11 de nuit à 10 img/s : 4 clients RTSP, 0 perte ; à refaire de jour)* Charge : 2, 3 puis 4 clients RTSP en même temps (chute de fps connue), multiview ouvert dans plusieurs
+T2. [x] *(rc28 de nuit 10 img/s et rc29 de jour 25 img/s : 0 perte ; débit de capture réduit par client, R16)* Charge : 2, 3 puis 4 clients RTSP en même temps (chute de fps connue), multiview ouvert dans plusieurs
     navigateurs, Frigate + ONVIF + WebRTC simultanés sur un seul cœur (fps de capture, charge, latence du direct).
 T3. [ ] `.24` en rc28 avec les mêmes réglages que la .11 (seules l'IP et l'identité matérielle diffèrent).
 
