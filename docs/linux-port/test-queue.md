@@ -2700,3 +2700,17 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 - **VERSION → `3.0.1-rc33-dev`** (testeur, 2026-11-06 20:10 UTC) : `d2ee15f` (carte de démarrage, R25) a changé du code
   après la rc32 ; la build de `d2ee15f` porte encore le nom « rc32 ». **La rc32 installée sur les deux caméras est celle
   de md5 `f00b9120…`** (run 42248185087, `e267e73`).
+
+## 2026-11-06 20:15 — point du testeur sur la liste de l'implémenteur (avant d'ajouter les points de la rc33)
+
+- **Fait** : R1-R6, R8, R9, R11, R13-R15, R18-R20, R22-R26 ; flash S1/S1b/S3/S5/S6/S7 ; F2, F3 + F9 ; D1-D10 ; nettoyage du
+  dépôt ; retraits de la rc32 (Bulma, `monvifd`). R4 et R21 clos par le testeur (validés sur caméra).
+- **Partiel, en attente de mesure sur caméra** : R7 (import, pas remesuré en rc32 pour ne pas couper Frigate pendant la
+  surveillance de 7 jours), R10 (journal ajouté), R12 (non reproduit), R16 (fil d'envoi, défaut 0, à mesurer), R17
+  (2e appel rapide, 1er affichage de Services 4,7 s).
+- **Ouvert** : R27 (`wifi-diag.sh`) ; P0 n° 3 (W4 assistant sans jeton CSRF, B3 `flashw -m`) ; audit W2-W5 (selon
+  `wifi-diag`), F1 (audio bidirectionnel), F4 (formatage / exFAT), F5 (image, à confirmer par le propriétaire), F6
+  (bascules à l'aube), H2-H4 (noyau, par la carte SD, propriétaire présent), H11 (temps de démarrage) ; plan de test T1
+  (7 jours, en cours), T5, T7, T10-T12, P1-P10 (avec le propriétaire).
+- **Pour la rc33, déjà sur `main`** : `d2ee15f` (carte de démarrage refusée dès `flashmode-prep.sh`, la vraie cause de
+  R25).

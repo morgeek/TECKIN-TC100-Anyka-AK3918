@@ -307,7 +307,7 @@ R24. [x] *(fait, `[rc32-fixes]`)* Direct : « Live fetch error: Erreur HTTP 503 
     `live.cgi` est refusé, un seul lecteur MP4) : sans effet visible ; ne pas lancer le MP4 quand le WebRTC est établi,
     ou ne pas l'écrire en avertissement.
 
-R25. [x] *(fait, `[rc32-fixes]` : montage en lecture seule d'abord, verrou)* **Carte refusée mais restée montée en écriture** (IPCAM1, rc31, test-queue 15:15) : `scripts/rec-storage.sh`
+R25. [x] *(fait, `[rc32-fixes]` : montage en lecture seule d'abord, verrou ; **pas suffisant** : la vraie cause était `flashmode-prep.sh`, corrigée par le testeur en `d2ee15f`, à livrer en rc33)* **Carte refusée mais restée montée en écriture** (IPCAM1, rc31, test-queue 15:15) : `scripts/rec-storage.sh`
     `_mount_card` (l. 40-66) n'est pas protégé contre deux appels en même temps, et `_mounted` (l. 42) accepte une carte
     déjà montée sans vérifier les fichiers de démarrage ; le `umount` du refus (l. 54) peut échouer (occupé) sans que
     personne le voie. À faire : verrou (`mkdir /tmp/rec-storage.lock`, comme `speaker-play.lock`) autour de
@@ -343,7 +343,7 @@ R3. [x] *(contrôle CI ajouté : `tests/check-libc-data-imports.sh` sur les `imp
     `timezone`…) dans `src/tc100rtsp`, `src/mqttd`, `src/onvifd`, `src/supervisord` : le test
     `tests/test_audit_fixes.NoLibcDataImports` le vérifie désormais. Contrôle à ajouter en CI : `readelf --dyn-syms` des
     binaires ARM contre une liste des symboles OBJECT de la uClibc (aucun import de donnée).
-R4. [~] **WHEP sans vidéo** (corrigé par le testeur, `7618d73` ; image de base reconstruite (run 42089030516) et binaire validé sur la .11 le 2026-11-05 21:30 : 18 img/s reçues par aiortc, voir test-queue) : `on_video()` jetait tout paquet > 1400 ; le test
+R4. [x] *(clos par le testeur le 2026-11-06 : WebRTC validé dans Chrome 157 depuis la flash en rc29, rc31 et rc32)* **WHEP sans vidéo** (corrigé par le testeur, `7618d73` ; image de base reconstruite (run 42089030516) et binaire validé sur la .11 le 2026-11-05 21:30 : 18 img/s reçues par aiortc, voir test-queue) : `on_video()` jetait tout paquet > 1400 ; le test
     d'interop découpe maintenant comme `tc100_rtsp` (échoue avec l'ancien code). Sur caméra : retester avec la rc28
     (aiortc : images reçues, page web : direct WebRTC, retour MP4 si échec). Point d'UI à vérifier : si le WebRTC
     s'établit mais **sans image**, la page doit aussi retomber sur le MP4 (sinon direct noir avec le son). *(2026-11-05 soir : corrigé, la page exige `videoWidth > 0` et compte les images décodées, `[rc28-fixes]`)*
@@ -393,7 +393,7 @@ R16. [~] *(code fait derrière `RTSP_SENDER_THREAD` (défaut 0, `rtsp.env`), à 
     et par flux (le même entrelacement TCP pour tous les clients qui ont les mêmes canaux), ou envoi dans un fil à part
     pour que la capture n'attende jamais l'envoi. Mesurer avec les mêmes 4 clients.
 
-R17. [~] **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
+R17. [~] *(rc32 .11 : 2e appel rapide — `fullconfig` 3,35 → 0,40 s, `allstates` 8,1 → 0,24 s, `md_zones_info` 1,84 → 0,48 s ; 1er affichage de Services encore 4,7 s)* **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
     jusqu'à 11 s (page Services : un `status` par script), `state.cgi?cmd=fullconfig` 3-5,6 s, `dashinfo`, `isp_tune`,
     `md_zones_info` 1,2-1,5 s. Main now caches `fullconfig`, `daynight`, `isp_tune`, `dashinfo` and `md_zones_info` responses briefly;
     allstates timestamps after the scan and serves a recent stale snapshot while refreshing in the background. Measure cold,
@@ -413,7 +413,7 @@ R20. [x] *(rc32, `[ui-r20]`, entrée de `test-queue.md` : D1-D6, U2, U4-U9 faits
     cache mémoire », texte du durcissement + `lightweight_mode` fantôme, clés `boot.conf` 2.x sans lecteur,
     `autostart/cpu-scaler` ignoré, « 25+ Discovery Nodes », colonne « Quality » en dBm, âge de `web-server`, seuils
     jour/nuit des deux méthodes affichés ensemble, lien manquant depuis l'alerte « identifiants par défaut »).
-R21. [~] *(corrigé par le testeur en `bf6d15c` ; relancé en RAM sur les deux caméras ; demande l'image de base reconstruite, rc30)* **syslog mort quand le renvoi
+R21. [x] *(clos le 2026-11-06 : rc32 sur les deux caméras, `syslogd -D -f` et `tc100-logfwd` démarrés seuls au boot, voir aussi R23)* *(corrigé par le testeur en `bf6d15c` ; relancé en RAM sur les deux caméras ; demande l'image de base reconstruite, rc30)* **syslog mort quand le renvoi
     est actif** : `syslogd -D -f` refusé par la BusyBox de la base → plus de `/var/log/messages` ni de syslog distant.
     Demande l'image de base reconstruite (rc30) ; à vérifier : `ps` montre `syslogd` et `tc100-logfwd`, le serveur
     192.168.1.23 reçoit.
