@@ -27,7 +27,8 @@ hardware facts, test loop), then `docs/known-issues.md`.
      `ak39_venc.pool=9600K`) must be the C defaults in `patches/kernel-6.6/series/00NN-*.patch` so they work regardless
      of `/proc/cmdline`.
   2. **Runtime-writable sysfs parameters (`0644`):** Expose driver switches that are re-read at device open or streaming
-     start (e.g. `ak_isp.awb_live`) as `0644` `module_param` / `module_param_cb` instead of read-only `0444`. Boot-time
+     start (e.g. `ak_isp.awb_live`, still `0444` in patch 0006 like `ak39_vi.sub_channel`: to change, audit
+     2026-11-06 D3) as `0644` `module_param` / `module_param_cb` instead of read-only `0444`. Boot-time
      DMA allocations (`slots`, `pool`) stay boot-time with C defaults ("at most one reboot", never live realloc).
   3. **User-space control via `/mnt/config/` (single source per setting):** Drive all hardware and kernel toggles from
      `/mnt/config/boot.conf` or `/mnt/config/rtsp.env` (`autorun-linux66.sh` / `rtsp-launch.sh` writing to

@@ -101,9 +101,10 @@ Kept from 4.4: the ISP core (`ak39_isp2*.c`, `ispdrv_interface.c`), `/dev/isp_ch
 
 **Plan and progress.**
 1. Run the vendor `libakv_encode` / `libmpi_venc` on 6.6 through `ak39_venc` and `libakuio`: **done**. `tc100_rtsp`
-   loads `libmpi_venc_ex.so` (`ak_venc_open/send_frame/release_stream/close`) with the free `libakuio.so`; each captured
-   frame is copied into the encoder pool first (`AK39_VI_G_PHYS` would avoid the copy, not used yet). This is what
-   runs on the camera today.
+   loads `libmpi_venc_ex.so` (`ak_venc_open/send_frame/release_stream/close`) with the free `libakuio.so`. Direct capture
+   is the default: the encoder and the JPEG engine read the V4L2 capture buffer itself (physical address from
+   `AK39_VI_G_PHYS`, translated by `akuio_map_extra`), with no 3 MB copy per frame; `RTSP_DIRECT=0` goes back to the
+   copy (`direct_setup` in `src/tc100rtsp/tc100_rtsp.c`). This is what runs on the camera today.
 2. Free JPEG (`src/jpegenc`): **done**, valid JFIF from the hardware core; the same code makes the web UI pictures
    inside `tc100_rtsp`.
 3. Free H.265 IDR with a fixed QP: the command list generator (`src/h265enc/cmdlist.py`) reproduces the 40 recorded

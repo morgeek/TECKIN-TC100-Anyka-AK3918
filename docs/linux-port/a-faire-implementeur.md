@@ -476,13 +476,13 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
    - Ajouter le sélecteur de résolution dans l'interface Web (`Settings → Main stream`, 1080p / 720p).
    - Gains : ~45 % de pixels en moins, soulage la bande passante bus DMA, l'encodeur matériel et libère ~1,7 Mo par trame NV12.
 
-9. [ ] **Build noyau pour le mode smart de l'encodeur** (essai sur la .11) *(2026-11-05 : la CI construit ce noyau
+9. [ ] *(« #9 smart »)* **Build noyau pour le mode smart de l'encodeur** (essai sur la .11) *(2026-11-05 : la CI construit ce noyau
    de test à la demande, entrée `[smart-pool]` de `test-queue.md` ; reste l'essai)* : valeur par défaut compilée
    `ak39_venc.pool=12M` (patch 0015 ; le paramètre est `0444` et la ligne de commande vient du bootloader : pas de
    U-Boot). Puis `RTSP_VBR=1` + `RTSP_SMART=1` (mode 1 seulement). Critères : `smart mode 1 (long-term reference)`
    dans le log, pas de `alloc dma … failed`, serveur vivant 24 h, MemAvailable ~2,4 Mo plus bas, débit et qualité
    comparés à la .24.
-9. [ ] **Pertes Wi-Fi** (7-11 % des mesures la nuit rc23, indépendantes d'une caméra à l'autre) : attendre le bilan
+9. [ ] *(« #9 Wi-Fi » ; mesure `[wifi-diag]`, audit 2026-11-06 partie W)* **Pertes Wi-Fi** (7-11 % des mesures la nuit rc23, indépendantes d'une caméra à l'autre) : attendre le bilan
    de cette nuit (.11 : regdb + FR + `RTSP_QMAX=1024` ; .24 : rc23). Si la file plus grande réduit les images sautées
    sans gêner le direct, passer `QMAX_DEF` à 1 Mo par défaut ; ensuite essai `RTSP_PACING_US`, puis canal Wi-Fi de la
    box (décision du propriétaire).
@@ -514,8 +514,9 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     - Objectif : exposer l'AudioBackChannel dans la réponse ONVIF Device / Media2 service pour permettre le Two-Way Audio natif instantané dans Home Assistant (WebRTC / Go2RTC) et Frigate sans bidouille URL manuelle.
     - Coût CPU / RAM : 0 % (métadonnées XML / profil statique côté démon ONVIF + exploitation du code RTSP déjà présent dans `tc100_rtsp`).
 13. [ ] **Régulation de trafic réseau / Pacing RTSP (`tc100_rtsp`)** :
-    *2026-11-05 : `RTSP_PACING_US=100` mis par défaut dans `rtsp-launch.sh` par un autre agent (`1a3a2eb`), sans
-    mesure ; `rtsp.env` peut le remettre à 0. Entrée `[pacing]` : à mesurer contre les pertes de #9.*
+    *2026-11-05 : `RTSP_PACING_US=100` mis par défaut par un autre agent (`1a3a2eb`), puis **retiré par R2** (noyau
+    `HZ=100` : `usleep(100)` dort 10 ms) ; aujourd'hui pas de pacing par défaut. Demande les minuteries haute
+    résolution (audit 2026-11-06 H4/H5).*
     - Lissage temporel de l'envoi des paquets RTP lors des pics d'I-frames H.264/H.265 (pacing microsecondes `RTSP_PACING_US`).
     - Évite la saturation du tampon de transmission du pilote RTL8188FU lors des images clés, réduisant drastiquement les pertes de paquets Wi-Fi sans impacter la latence vidéo.
 14. [ ] **Garde thermique dynamique (Thermal Guard)** :
@@ -525,7 +526,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     - Lecture périodique de `chip_temp` (`/sys/class/thermal/thermal_zone0/temp` ou capteur SoC).
     - En cas de surchauffe (> 75-80°C lors de canicules ou forte charge continue), réduction automatique et temporaire de la fréquence d'images (25 fps -> 15 fps).
     - Reprise automatique dès refroidissement sous le seuil d'hystérésis.
-15. [x] **Politique de rétention intelligente sur carte SD (FIFO hiérarchique)** :
+15. [x] *(activé par défaut depuis `[rc28-defaults]` ; les mentions « désactivé par défaut » ci-dessous datent d'avant)* **Politique de rétention intelligente sur carte SD (FIFO hiérarchique)** :
     *Fait le 2026-11-05 : marqueur `.evt` sur chaque fichier où il y a eu mouvement ou son ; `REC_KEEP_EVENTS=1`
     (désactivé par défaut) supprime d'abord les enregistrements sans événement. Le sabotage n'y entre pas encore
     (`tamper-detect.sh` ne parle pas à `tc100_rtsp`). Entrée `[retention]`.*
@@ -627,7 +628,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     mise à jour (le dictionnaire français et le script principal avaient des versions figées).*
     - Pré-compression statique des fichiers JS/CSS en `.gz` lors du build CI ; `httpfront` sert directement le flux compressé si `Accept-Encoding: gzip` est présent (0 cycle CPU de compression).
     - Ajout des en-têtes `Cache-Control: public, max-age=86400, immutable` et `ETag` pour rendre le chargement de l'interface Web quasi instantané depuis le cache navigateur.
-30. [x] **Pare-feu anti-brute-force ultra-léger en noyau (`iptables -m recent`)** :
+30. [x] *(activé par défaut depuis `[rc28-defaults]` ; les mentions « désactivé par défaut » ci-dessous datent d'avant)* **Pare-feu anti-brute-force ultra-léger en noyau (`iptables -m recent`)** :
     *Fait le 2026-11-05 autrement : le noyau n'a pas de netfilter, donc dans `httpfront` (`WEB_LOCKOUT=1`, désactivé
     par défaut) : 10 mauvais identifiants web en 5 min depuis une adresse ferment ses connexions 5 min ; MD5 crypt sans
     libc (`src/httpfront/md5crypt.h`) vérifié contre la glibc et OpenSSL. Le RTSP compte déjà ses refus (R1) et ONVIF
@@ -686,7 +687,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     (`[0] goplen` / `[1] goplen`), passés à `tc100_rtsp` en `-g` / `-G` par `rtsp-launch.sh`.*
     - Permettre de configurer des intervalles de trames clés (GOP / I-frame interval) distincts entre le flux principal ch0 et le sous-flux ch1 dans `tc100_rtsp` (`rtspserver.conf`).
     - Cas d'usage optimisé pour NVR / Frigate : flux principal ch0 à GOP long (2 à 4 s) pour minimiser l'espace disque d'enregistrement, et sous-flux ch1 à GOP court (1 s) pour une détection d'objets IA instantanée et ultra-réactive.
-40. [x] **Roaming Wi-Fi multi-bornes / Mesh (Fast BSS Transition & anti-client collant)** :
+40. [x] *(activé par défaut depuis `[rc28-defaults]` ; les mentions « désactivé par défaut » ci-dessous datent d'avant)* **Roaming Wi-Fi multi-bornes / Mesh (Fast BSS Transition & anti-client collant)** :
     *Fait le 2026-11-05 (sans 802.11r : `rtl8xxxu` ne fait pas de FT) : `scripts/wifi-roam.sh`, tâche du housekeeper
     (`WIFI_ROAM=1`, désactivé par défaut) : sous -75 dBm deux minutes, scan, `wpa_cli roam` vers une borne du même SSID
     au moins 15 dB meilleure, puis 10 min de pause. Entrée `[wifi-roam]`.*
