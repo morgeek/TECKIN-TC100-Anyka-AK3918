@@ -3086,3 +3086,20 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   Frigate / HA / l'enregistreur avec `tc100-onvifd` ; Telegram et vérification de version si activés ;
   `reboot-history.log` « intended: web update to 3.0.1-rc31 » ; puis `wifi-diag.sh` 2 h (entrée `[wifi-diag]`).
 - **Ne pas fusionner** la PR Dependabot esbuild 0.28.1 (voir l'entrée 13:25).
+
+## 2026-11-06 — Historique git réécrit (décision du propriétaire) : **re-cloner avant de pousser**
+
+- **Quoi :** tout l'historique a été réécrit (`git filter-repo`) pour que le propriétaire n'apparaisse plus que sous
+  l'identité `morgeek <morgeek@users.noreply.github.com>` (anciennes identités d'auteur et chemin `/Users/...` d'une autre
+  machine remplacés). `main`, la branche Dependabot et les étiquettes `v1.6.1` / `v3.1` ont été poussés en force.
+  **Tous les hashes de commit ont changé** ; ceux cités dans les messages de commit et dans les fichiers suivis (docs,
+  commentaires) ont été remis à jour d'après la table ancien → nouveau ; les md5 d'archives (`65e1cd70`, `b026001b`…)
+  ne changent pas.
+- **Testeur et autres agents :** `git fetch && git reset --hard origin/main` (ou un nouveau clone) **avant tout
+  commit** : pousser depuis un ancien clone ramènerait l'ancien historique. Les commits à identité « Claude » restent
+  tels quels.
+- **rc31 :** le contenu ne change pas, mais le commit de la rc31 a un nouveau hash ; l'archive à contrôler est celle
+  du run « Build Linux 6.6 » du `main` réécrit (dernier commit `[docs] Commit hashes quoted in the docs follow the
+  second history rewrite` ou le suivant), pas celle de l'ancien `3b094b1`.
+- **GitHub :** les 17 pull requests gardent des références en lecture seule vers les anciens commits ; seul le
+  support GitHub peut les purger.
