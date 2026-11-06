@@ -3064,3 +3064,8 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   ONVIF ; Telegram et vérification de mise à jour sans `jq` (si activés).
 - **Ne pas fusionner la PR Dependabot « Bump esbuild from 0.21.5 to 0.28.1 »** : sa CI échoue et `minify.mjs` épingle
   esbuild 0.21.5 exprès (le même minifieur que pour `index.bundle.min.js`).
+- GitHub signale 1 vulnérabilité « moderate » (Dependabot n° 1, illisible avec les droits du testeur), très probablement
+  esbuild ≤ 0.24.2 (GHSA-67mh-4wv8-2f99 : le **serveur de développement** d'esbuild accepte des requêtes d'autres
+  sites). Le projet n'utilise esbuild qu'au build (bundle et minification), jamais `serve` : rien sur les caméras.
+  Implémenteur : si on veut fermer l'alerte, monter esbuild en 0.25.x (première version corrigée) en vérifiant que la
+  sortie minifiée reste identique ou que les tests Playwright (19 pages) restent à 0 erreur — pas 0.28 d'un coup.
