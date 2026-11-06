@@ -2304,6 +2304,43 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 - **GitHub :** les 17 pull requests gardent des références en lecture seule vers les anciens commits ; seul le
   support GitHub peut les purger.
 
+## 2026-11-06 14:55 — rc31 sur la .11 (IPCAM2), installée par le testeur (mise à jour web) : `passed` avec 2 défauts, dont un corrigé
+
+- **Archive** : run 42225296777 (`main` réécrit, `c947479`), `tc100-3.0.1-rc31-update.tar` md5
+  **`5d9e83af4a57913435c6d8647a8ab813`**, `MD5SUMS` OK. Dedans : plus de `ext/bin/jq` ni de `bin/monvifd`,
+  `sounds/*.alaw`, `css/ui.pico.min.css(.gz)`, JS minifié, les correctifs de la rc30 (`halt`, intention, syslog, WHEP).
+  **`stack.sqfs` 2 146 304 octets** (rc30 + Pico : 2 502 656, soit −356 Ko ; partition 2 830 336). Le chargement de
+  Chrome (`file_upload`) a refusé le fichier (dossier non partagé avec la session) : envoi par `update.cgi`
+  (`cmd=upload` puis `cmd=install`, mêmes requêtes que la page).
+- **Mise à jour depuis la rc29** : la .11 était encore en **rc29** (la rc30 n'y a jamais été installée), dont
+  `update66.sh` a encore le défaut `stop` (R15). Le testeur a superposé en RAM le `update66.sh` de la rc31 avant
+  l'installation : **`daynight=2` conservé**, `mdenabled`, `REC_LOCAL`, `rtsp.env`, `autostart/*`, `WIFI_COUNTRY`,
+  `SYSLOG_HOST` conservés. Installation : 13:38:21 → retour 13:40:24 UTC (~2 min). `reboot-history.log` : **« requested
+  at 2026-11-06 13:38:34: web update to 3.0.1-rc31 »** (R18 OK). **Attention .24** : une mise à jour depuis la rc29
+  sans cette précaution remettrait `daynight=3` et `REC_LOCAL=0` (à rétablir après, ou même superposition).
+- **Base** — `passed` : 3.0.1-rc31, `flashroot=1`, MemAvailable 22,7 Mo, CmaFree 5,8 Mo ; démons présents, plus de
+  `monvifd` ; superviseur C 3 jobs ; file 1024 Ko, pacing 0, micro direct ; `dropped 0` ; aucune OOM ; Wi-Fi -15 dBm.
+- **RTSP** hevc 1080p25 + PCMA, h264 360p25 + PCMA ; **ONVIF** (`tc100-onvifd`) FW rc31, WS-Discovery, `FrameRateLimit`
+  25, événements PullPoint ; **MQTT** `ipcamera2/` online, `health` répond, 49 entités ; **WebRTC** Chrome 157 :
+  640x360 à 19,9 img/s de jour ; **sons** : `sounds.cgi` liste les 6 clips intégrés (`.alaw`), `sd:false`
+  (vraie détection de carte) — **non joués** (bruit dans la pièce du propriétaire : à faire avec lui).
+- **Interface Pico** — `passed` : les 9 pages chargées dans `index.html` sans erreur JavaScript, sans défilement
+  horizontal ; Réglages → Système → Apparence : `bulma` puis retour `pico` (le `<link>` change, `localStorage
+  tc100_ui`). Page Services : > 14 s avant la liste (R17).
+- **`failed` — après la mise à jour, Chrome garde l'ancienne interface** : `index.html` en cache (servi sans
+  `Cache-Control`, seulement `Last-Modified` / `ETag` : Chrome le réutilise sans revalider pendant des heures). La page
+  restait en Bulma de la rc29 jusqu'à un rechargement forcé. R22.
+- **`failed`, corrigé — syslog distant mort depuis la rc28** : `syslogd` démarre bien en rc31 (`-D -f` acceptés), mais
+  `tc100-logfwd` (construit en CI avec la libc de remplacement depuis la rc28) **meurt à sa première ligne** :
+  « can't resolve symbol '__isoc99_sscanf' » (et `__ctype_b_loc` d'`isdigit`), absents de l'uClibc 0.9.33 de la
+  caméra ; `syslog-forward` affiché « Arrêté », rien n'arrive sur 192.168.1.23. (Le relancement « réussi » du testeur
+  le matin du 06/11 en rc29 mourait de même à la première ligne : rectification.) `libnetacl.so` importait de même
+  `__isoc23_strtol`. **Corrigé en `e5a1c05`** (analyse à la main, `tests/check-libc-data-imports.sh` refuse
+  désormais ces noms, test `StandInLibcNoGlibcOnlyCalls`). Binaire reconstruit superposé en RAM sur la .11 :
+  vivant après tout le fichier (`-b`, 349 lignes) et les nouvelles lignes ; `syslog-forward` « En marche ».
+- `wifi-diag.sh run 7200 ping` lancé à 13:58 UTC sur la .11 (lecture seule, `/tmp`) : bilan à 15:58.
+- Superpositions en RAM sur la .11 (perdues au redémarrage) : `/mnt/bin/tc100-logfwd` (correctif `e5a1c05`).
+
 ## 2026-11-06 — Revue externe : mise à jour sans carte SD confirmée, `flashw -r` fiable, exception U-Boot écrite (`[review-1106]`, rc32)
 
 - **Quoi (décisions du propriétaire) :** (1) sans carte SD, la mise à jour web ne peut pas sauvegarder la flash avant

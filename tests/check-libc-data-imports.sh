@@ -8,10 +8,17 @@
 DATA='stdin stdout stderr optarg optind opterr optopt environ __environ timezone daylight tzname h_errno _res
 __progname program_invocation_name program_invocation_short_name signgam __ctype_b __ctype_tolower __ctype_toupper'
 [ $# -gt 0 ] || set -- src/tc100rtsp src/mqttd src/onvifd src/supervisord src/rwconf src/logfwd src/netacl
+# names the glibc headers produce that the camera's uClibc 0.9.33 does not export (the loader stops the program the first
+# time one is called: tc100-logfwd died at its first log line from rc28 to rc31 on __isoc99_sscanf; libnetacl.so had
+# __isoc23_strtol): ISO C redirections, ctype tables reached through functions, _FORTIFY_SOURCE checks, 64-bit file calls
+GLIBC_ONLY='^(__isoc99_|__isoc23_|__ctype_(b|tolower|toupper)_loc$|__[a-z_]+_chk$|__(x|fx|lx)stat|__libc_single_threaded)'
 rc=0
 for d in "$@"; do
   f=$d/imports.txt
   [ -f "$f" ] || { echo "check-libc-data-imports: $f missing (build $d first)"; rc=1; continue; }
+  if grep -Eq "$GLIBC_ONLY" "$f"; then
+    echo "check-libc-data-imports: $d imports a name the camera's uClibc does not have: $(grep -E "$GLIBC_ONLY" "$f" | tr '\n' ' ')"; rc=1
+  fi
   for v in $DATA; do
     if grep -qx "$v" "$f"; then echo "check-libc-data-imports: $d imports the libc variable $v"; rc=1; fi
   done
