@@ -121,6 +121,36 @@ critères) sont dans `test-queue.md` sous l'étiquette indiquée.
   d'origine) ; #13 vrai lissage du débit (demanderait `CONFIG_HIGH_RES_TIMERS` dans le noyau) ; #21 transition
   progressive de l'exposition au passage en nuit (à étudier sur caméra).
 
+## Audit 2026-11-06 (propriétaire) : flash, pertes Wi-Fi, fonctions, matériel — `audit-2026-11-06.md`
+
+Demande du propriétaire : réduire la place en flash **sans perte de fonction ni casse**, lister ce qui reste à gagner en
+fonctions et en matériel, et régler les pertes Wi-Fi **sans jamais perdre la caméra** (plus de console série). Détail,
+mesures, risques et premier pas de chaque piste : [`audit-2026-11-06.md`](audit-2026-11-06.md) (en anglais).
+Rappel des règles : U-Boot jamais ; un seul changement de noyau par écriture flash, propriétaire présent, noyau d'abord
+démarré depuis la carte SD ; interrupteur `boot.conf` par défaut = comportement actuel ; entrée `test-queue.md`.
+
+- **W — Wi-Fi.** Ce n'est ni l'économie d'énergie (mesurée `off`), ni la veille USB (`CONFIG_PM` absent), ni un
+  balayage, ni le pays : les pings se perdent avec **0 retransmission radio** → réception (`rtl8xxxu` / hôte USB du
+  patch 0003) ou blocage de la caméra. **W1 fait** : `scripts/wifi-diag.sh` (lecture seule, RAM, s'arrête seul),
+  entrée `[wifi-diag]` : à lancer par le testeur ; il désigne W2 (blocage CPU), W3 (hôte USB, noyau via la carte SD),
+  W4 (réception rtl8xxxu) ou W5 (routeur/canal ou artefact de mesure). Tout essai à chaud passera par un
+  `wifi-try.sh` à retour automatique (conception dans l'audit).
+- **S — Flash** (partition stack, la seule sous pression). Réécrire le shell en C/Rust/Zig **ne fait pas gagner de
+  flash** (xz compresse le shell ~3,8x, le code ARM ~2,4x) : le C sert à la vitesse (R17). Gains réels, dans l'ordre :
+  S1 retirer `jq` (deux scripts seulement, ~110-240 Ko EST), S1b liste blanche des `.gz` (41-287 Ko), S2 minifier le shell
+  au build (`shfmt`, 90 Ko), S3 retirer `monvifd` (70 Ko ; `controlscripts/onvif` l. 30 a encore `monvifd` par défaut),
+  S5 minifier JS/HTML (33-66 Ko ; `index.bundle.min.js` n'est pas minifié), S6 retirer Bulma (rc32, décidé, 29-102 Ko),
+  S7 sons (15-37 Ko). S4 (certificats) demande l'accord du propriétaire. S14 noyau en dernier.
+- **F — Fonctions.** F1 audio bidirectionnel de bout en bout (jamais testé), F2 cadence en basse lumière (10 img/s →
+  15), F3 fuseau horaire dans l'assistant (les deux caméras sont en UTC), F4 formatage de la carte / exFAT, F5 image
+  (WDR, NR2 ; **confirmer avec le propriétaire**, exclu de #61 le 05/11), F6 bascules jour/nuit à l'aube, F10 pages lentes.
+- **H — Matériel.** H1 fil d'envoi dans `tc100_rtsp` (cause de R16 ; `RTSP_SENDER_THREAD`, défaut 0), H2 mode smart +
+  pool 12M, H3 3D-NR (tester en 720p), H4 minuteries haute résolution — H2 à H4 d'abord sur le noyau de la carte SD ;
+  H11 mesurer le temps de démarrage.
+- **D — Docs contredites par le code** (sans risque) : D1-D10 de l'audit, dont **59.1 sans effet** (les options
+  `WLAN_VENDOR_*` ne sélectionnent aucun pilote) et **58.2 faux** (`supervisor.sh` lance encore `auto-night-daemon.sh` et
+  `button-watch.sh`).
+
 ## À FAIRE EN PREMIER — rc29 → rc30 (testeur, 2026-11-06 09:40) : consignes précises
 
 *(2026-11-06, implémenteur : R19, R14, R18 et R20-U1/U3 faits — détail dans les entrées R plus bas ; rc30 lancée après CI verte, voir `test-queue.md`.)*
@@ -794,7 +824,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       1. **Suppression coordonnée de `bin/monvifd` (après validation rc28)** :
          - Ancien binaire opaque 2.x de 228 Ko (remplacé par `tc100-onvifd`). Gain net : **~75 à 85 Ko de Flash SquashFS**.
          - *Condition impérative avant exclusion dans `build-stack.sh`* : nettoyer d'abord les références résiduelles dans `controlscripts/onvif` (retrait du fallback legacy), `scripts/common_functions.sh` (`build_binary_versions_block`), et `www/settings.html` afin que le test d'intégrité `tests/test_flash_image.py` reste 100 % vert.
-      2. **Suppression des scripts de supervision shell** : `scripts/auto-night-daemon.sh` et `scripts/button-watch.sh` (remplacés par `tc100-supervisord`).
+      2. *(audit 2026-11-06, D9 : **pas tant que** `scripts/supervisor.sh` les lance comme tâches de `tc100-supervisord`)* **Suppression des scripts de supervision shell** : `scripts/auto-night-daemon.sh` et `scripts/button-watch.sh` (remplacés par `tc100-supervisord`).
       3. **Suppression ou dégraissage massif de `scripts/mqtt-bridge.sh`** : 121 Ko / 2 981 lignes de shell (remplacé par la découverte C `tc100-mqttd`). Gain net : **~35 à 45 Ko de Flash**.
       4. **Élimination de la dépendance à `arecord` dans la stack** : Une fois `RTSP_ALSA_DIRECT=1` figé par défaut, évaluer le retrait d'`arecord` de `ext/bin/` dans `build-stack.sh`.
       5. **Nettoyage des résidus 2.x (`bin/rwconf`, `bin/getflag`, `bin/getimage`)** : Remplacement ou suppression définitive. *(Note : `getflag`, `getimage` et l'ancien binaire `rwconf` ont déjà été supprimés de git ce soir !)*
@@ -802,7 +832,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
 59. [ ] **Cure d'amaigrissement du noyau Linux 6.6 (`defconfig_cma`) — gain 90 à 120 Ko sur le uImage (Consigne propriétaire 2026-11-05 fin de soirée)** :
     - **Contexte** : le noyau Linux 6.6 (`uImage` compressé en XZ) pèse actuellement ~1,89 Mio pour une partition Flash stricte de 2,0 Mio (`0x39000`), ce qui laisse une marge très étroite.
     - **Objectif** : réduire l'empreinte du noyau à ~1,78 Mio sans supprimer aucune fonctionnalité matérielle utile de la TECKIN TC100 :
-      1. **Pilotes et stubs Wi-Fi / Ethernet tiers superflus (gain ~40-50 Ko)** : la caméra ne possède physiquement qu'un unique adaptateur Realtek RTL8188FU (`CONFIG_RTL8XXXU=y`). Désactiver les catégories et stubs de fondeurs absents (`CONFIG_WLAN_VENDOR_ATH=n`, `CONFIG_WLAN_VENDOR_BROADCOM=n`, `CONFIG_WLAN_VENDOR_INTEL=n`, `CONFIG_WLAN_VENDOR_MARVELL=n`, `CONFIG_WLAN_VENDOR_MEDIATEK=n`, `CONFIG_WLAN_VENDOR_RALINK=n`, `CONFIG_WLAN_VENDOR_ZYDAS=n`, `CONFIG_NET_VENDOR_BROADCOM=n`, `CONFIG_NET_VENDOR_INTEL=n`).
+      1. *(audit 2026-11-06, D8 : **sans effet**, ces options n'ouvrent que des menus, aucun pilote derrière ; voir S14 pour les vraies options)* **Pilotes et stubs Wi-Fi / Ethernet tiers superflus (gain ~40-50 Ko)** : la caméra ne possède physiquement qu'un unique adaptateur Realtek RTL8188FU (`CONFIG_RTL8XXXU=y`). Désactiver les catégories et stubs de fondeurs absents (`CONFIG_WLAN_VENDOR_ATH=n`, `CONFIG_WLAN_VENDOR_BROADCOM=n`, `CONFIG_WLAN_VENDOR_INTEL=n`, `CONFIG_WLAN_VENDOR_MARVELL=n`, `CONFIG_WLAN_VENDOR_MEDIATEK=n`, `CONFIG_WLAN_VENDOR_RALINK=n`, `CONFIG_WLAN_VENDOR_ZYDAS=n`, `CONFIG_NET_VENDOR_BROADCOM=n`, `CONFIG_NET_VENDOR_INTEL=n`).
       2. **Options de débogage et tables de trace (gain ~35-50 Ko)** : retirer `CONFIG_SLUB_DEBUG=n` (validation lourde de mémoire inutile en prod), `CONFIG_MAGIC_SYSRQ=n` (pas de clavier physique, port série coupé après 5 min), `CONFIG_PRINTK_TIME=n` et les statistiques verbeuses ALSA procfs (`CONFIG_SND_VERBOSE_PROCFS=n`).
       3. **Sous-système audio OSS legacy (gain ~15-20 Ko)** : retirer la couche rétro-compatible obsolète des années 90 `CONFIG_SND_SUPPORT_OLD_API=n`.
     - **Vérification** : recompiler le noyau, vérifier la taille de `oipc.img` (< 1,80 Mio) et valider le boot sur caméra (.11).
