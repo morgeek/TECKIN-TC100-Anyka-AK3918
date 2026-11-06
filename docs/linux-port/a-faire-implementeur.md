@@ -197,6 +197,17 @@ R19. [ ] Autres arrêts « techniques » qui écrivent un réglage : `memory-gua
     (`system.sh` l. 252, `action.cgi` l. 680), `mqtt-bridge.sh` l. 1734 : utiliser `halt` quand ce n'est pas un choix
     de l'utilisateur.
 
+R20. [ ] **Audit de l'interface (rc29)** : `docs/linux-port/webui-audit-2026-11-06.md`. Tout est câblé (124 champs,
+    53 commandes) ; à traiter : doublons D1-D6 (Jour/nuit en double, deux « Redémarrer », 4 mécanismes de sauvegarde,
+    Telegram en deux endroits), inutiles / trompeurs U1-U9 (« Éteindre » qui rend la caméra injoignable, « Vider le
+    cache mémoire », texte du durcissement + `lightweight_mode` fantôme, clés `boot.conf` 2.x sans lecteur,
+    `autostart/cpu-scaler` ignoré, « 25+ Discovery Nodes », colonne « Quality » en dBm, âge de `web-server`, seuils
+    jour/nuit des deux méthodes affichés ensemble, lien manquant depuis l'alerte « identifiants par défaut »).
+R21. [x] *(corrigé par le testeur en `c68c906` ; relancé en RAM sur les deux caméras)* **syslog mort quand le renvoi
+    est actif** : `syslogd -D -f` refusé par la BusyBox de la base → plus de `/var/log/messages` ni de syslog distant.
+    Demande l'image de base reconstruite (rc30) ; à vérifier : `ps` montre `syslogd` et `tc100-logfwd`, le serveur
+    192.168.1.23 reçoit.
+
 ## PLAN DE TEST jusqu'au tag 3.0.1 — ce qui n'a jamais été testé sur caméra (testeur, 2026-11-05 20:00)
 
 Validé par le propriétaire. À exécuter sur la rc28 (après R1-R4), sur la .11 puis la .24 passée elle aussi en rc28.

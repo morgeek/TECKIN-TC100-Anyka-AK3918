@@ -2847,3 +2847,8 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
 
 **Non testé (demande le propriétaire ou un risque)** : T5 (3 démarrages ratés), T7 (même IP), T10 / T11 / T12 (chaque fonction coupe Frigate pendant le redémarrage du flux et demande une condition réelle : mouvement, coupure NTP, réseau saturé), P1-P10.
 
+## 2026-11-06 09:30 — audit de l'interface web (rc29) et syslog (testeur)
+
+- Rapport : `docs/linux-port/webui-audit-2026-11-06.md` (doublons D1-D6, inutiles U1-U9 ; tout est câblé).
+- **`failed`, corrigé — syslog** : sur les deux caméras, `syslog-forward` « Arrêté » malgré `SYSLOG_ENABLE=1` ; `syslogd` lancé avec `-D -f` refusés par la BusyBox de la base (« unrecognized option: D ») : plus aucun journal local après le démarrage du service (`/var/log/messages` arrêté à 07:01 UTC) et rien vers 192.168.1.23. Relancé à la main (RAM) à 09:17 sur les deux : `syslogd -n -l 6 -s 128 -b 1` + `tc100-logfwd -r 192.168.1.23:514`, message de test écrit. Corrigé en `c68c906` (fragment BusyBox + repli). R21.
+
