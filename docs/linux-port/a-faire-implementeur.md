@@ -276,6 +276,24 @@ caméras : `daynight=2` et `REC_LOCAL` / `mdenabled` inchangés après la mise �
 et des lignes reçues par 192.168.1.23, `reboot-history.log` « intended: web update », WebRTC dans Chrome, carte SD de la
 .24 (formatée) enregistrée sur mouvement sans OOM.
 
+## À FAIRE — après la rc31 sur la .11 (testeur, 2026-11-06 14:55)
+
+R22. [ ] **Cache du navigateur après une mise à jour** : `httpfront` sert `index.html` (et les autres `.html`) sans
+    `Cache-Control` ; Chrome les réutilise sans revalider (fraîcheur heuristique d'après `Last-Modified`) et montre
+    l'ancienne interface après la mise à jour (rc29 → rc31 sur la .11 : Bulma de la rc29 jusqu'au rechargement forcé).
+    À faire dans `src/httpfront` : `Cache-Control: no-cache` pour `*.html` et les réponses des CGI (revalidation par
+    `ETag`, 304 bon marché) ; les fichiers marqués `?v=<empreinte>` (bundles, CSS, i18n) peuvent garder un long cache
+    (`max-age=31536000, immutable`). Test : en-têtes de `index.html` et d'un `?v=` ; la page Pico apparaît après une
+    mise à jour sans rechargement forcé.
+R23. [x] *(corrigé par le testeur en `e5a1c05`)* **`tc100-logfwd` mourait à sa première ligne** (`__isoc99_sscanf`,
+    `__ctype_b_loc`), `libnetacl.so` importait `__isoc23_strtol` : syslog distant jamais fonctionnel avec la build CI
+    (rc28-rc31). Ne plus utiliser `sscanf` / `strto*` / `is*()` / `to*()` dans les programmes à libc de remplacement
+    (le test et `check-libc-data-imports.sh` le refusent). À livrer dans la rc32 ; le testeur vérifie que
+    192.168.1.23 reçoit.
+R24. [ ] Direct : « Live fetch error: Erreur HTTP 503 » dans la console quand le WebRTC prend la main (le repli MP4
+    `live.cgi` est refusé, un seul lecteur MP4) : sans effet visible ; ne pas lancer le MP4 quand le WebRTC est établi,
+    ou ne pas l'écrire en avertissement.
+
 ## FAIT (rc28) — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
 
 Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires
