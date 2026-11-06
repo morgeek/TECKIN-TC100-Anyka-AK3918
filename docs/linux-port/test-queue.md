@@ -3050,3 +3050,17 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   chaque onglet de Réglages, Outils, assistant) en anglais et en français ; enregistrer un réglage par onglet ; console
   du navigateur sans erreur ; noter la ligne `stack.sqfs: N bytes` de la CI.
 - **Critères :** comportement identique à la rc30 ; aucune erreur dans la console ; traductions françaises complètes.
+
+## 2026-11-06 13:25 — revue du testeur : `[flash-*]`, D1-D7, `VERSION 3.0.1-rc31-dev`
+
+- CI verte sur `f4cd5eb`. `VERSION` = `3.0.1-rc31-dev` : plus de confusion possible avec la rc30 (md5 `65e1cd70`).
+- `jq` retiré : plus aucun appel à `jq` dans `scripts/`, `www/cgi-bin/`, `controlscripts/`, `v3/`. `monvifd` hors de la
+  flash, `tc100-onvifd` pour toutes les configurations. Sons intégrés en A-law : `sound_path`, `speaker-play.sh`
+  (`aplay -f A_LAW`), le son de démarrage (`autorun-linux66.sh` l. 451, repli `.pcm`), `sounds.cgi` et le test du
+  haut-parleur (`action.cgi` l. 293) cherchent `.alaw` puis `.pcm` : cohérent. Minification JS / scripts en ligne au
+  build seulement, shell intact.
+- **À vérifier sur caméra en rc31** (le testeur) : chaque son intégré joue et à la bonne durée (carillon, alerte,
+  sirène, démarrage, depuis le Direct et par MQTT) ; toutes les pages sans erreur JavaScript après minification ;
+  ONVIF ; Telegram et vérification de mise à jour sans `jq` (si activés).
+- **Ne pas fusionner la PR Dependabot « Bump esbuild from 0.21.5 to 0.28.1 »** : sa CI échoue et `minify.mjs` épingle
+  esbuild 0.21.5 exprès (le même minifieur que pour `index.bundle.min.js`).
