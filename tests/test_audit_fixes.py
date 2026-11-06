@@ -6,6 +6,7 @@
 - every state.cgi branch that reports the stream settings loads rtspserver.conf first (it reported 15 fps).
 """
 from pathlib import Path
+import os
 import random
 import re
 import shutil
@@ -233,3 +234,34 @@ class WhepAcceptsBrowserOffers(unittest.TestCase):
         self.assertEqual(lim_cgi, lim_d)
         self.assertGreaterEqual(lim_d, 7607 + 2000)
         self.assertGreater(buf, lim_d + 2048, 'room for the request headers')
+
+
+class UpdateKeepsAutoDayNight(unittest.TestCase):
+    """rc29 on both cameras (2026-11-06): the update stopped auto-night-detection, whose stop writes daynight=3 (the
+    manual Day / Night choice, kept for good) now that the rc28 ships rwconf; both cameras came back with
+    'auto day/night not started: manual mode'. Update and install use halt, which keeps the setting."""
+
+    def run_cs(self, verb):
+        with tempfile.TemporaryDirectory() as t:
+            log = Path(t, 'rwconf.log')
+            src = (ROOT / 'controlscripts/auto-night-detection').read_text()
+            src = src.replace('/tmp/linux66', f'{t}/linux66').replace('/mnt/bin/rwconf', f'{t}/rwconf') \
+                     .replace('/var/run/', f'{t}/').replace('/mnt/scripts/supervisor.sh', f'{t}/none.sh')
+            Path(t, 'linux66').write_text('')
+            Path(t, 'rwconf').write_text(f'#!/bin/sh\necho "$*" >> {log}\n')
+            os.chmod(Path(t, 'rwconf'), 0o755)
+            cs = Path(t, 'cs'); cs.write_text(src)
+            subprocess.run(['sh', str(cs), verb], check=True, timeout=10)
+            return log.read_text() if log.exists() else ''
+
+    def test_halt_keeps_the_mode_stop_writes_manual(self):
+        self.assertIn('daynight 3', self.run_cs('stop'))
+        self.assertNotIn('daynight', self.run_cs('halt'))
+
+    def test_update_and_install_halt(self):
+        for rel in ('v3/install/update66.sh', 'v3/install/install66.sh', 'www/cgi-bin/update.cgi'):
+            src = (ROOT / rel).read_text()
+            self.assertIn('auto-night-detection halt', src, rel)
+            for line in src.splitlines():
+                if 'stop' in line and 'for ' in line and ' in ' in line:
+                    self.assertNotIn('auto-night-detection', line, (rel, line))

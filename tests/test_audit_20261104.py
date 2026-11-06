@@ -136,7 +136,7 @@ class UpdateStopsWhatRestarts(unittest.TestCase):
         s = text('v3/install/update66.sh')
         body = s[s.index('stopping the services'):s.rindex('for p in stack:stack.sqfs')]
         order = ['housekeeper.sh stop', 'web-guard\\.sh run',
-                 'for s in recording motion-detection rtsp-h26x mqtt-bridge onvif auto-night-detection',
+                 'for s in recording motion-detection rtsp-h26x mqtt-bridge onvif;', 'auto-night-detection halt',
                  'cfg-persist flush', 'boot-guard clear', 'mkdir /tmp/cfg-persist.lock', 'cfg-persist daemon',
                  "sort -r | sed 1d"]
         pos = [body.index(o) for o in order]

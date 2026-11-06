@@ -54,7 +54,11 @@ stop()
       _p="$(daemon_pid)" && kill "$_p" 2>/dev/null
     fi
     rm -f "$PIDFILE"
-    /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3 2>/dev/null
+    # daynight=3 = the user chose Day or Night by hand: persistent, the next boot does not start the switching.
+    # halt (DN_KEEP_MODE=1) stops the job and leaves the setting alone: an update or an install stops the services
+    # and the camera restarts in automatic mode (rc29, 2026-11-06: since the rc28 ships rwconf, the update's stop
+    # wrote daynight=3 and both cameras came back in manual mode, "auto day/night not started").
+    [ -n "$DN_KEEP_MODE" ] || /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3 2>/dev/null
     return 0
   fi
   /mnt/bin/setconf -k n -v 3
@@ -75,11 +79,13 @@ health()
 # restart = stop then start: service-watchdog, memory-guard, the MQTT bridge, the config import and the Settings
 # pages call it (it was missing here: the call did nothing, rc27 tester R5)
 restart() { stop; start; }
+# halt: stop without writing the manual mode (update, install, a low-memory stop before an upload)
+halt() { DN_KEEP_MODE=1 stop; }
 
 if [ $# -eq 0 ]; then
   start
 else
-  case $1 in start|stop|status|health|restart)
+  case $1 in start|stop|status|health|restart|halt)
     $1
     ;;
   esac
