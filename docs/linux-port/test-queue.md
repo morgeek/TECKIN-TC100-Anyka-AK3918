@@ -2939,3 +2939,28 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
 - **Critères :** rien de cassé ni d'illisible en Pico ; même comportement qu'en Classique ; aucun défilement horizontal
   sur téléphone. Les défauts vont dans `pico-shim.css`. Si tout passe : la rc32 retire Bulma, `ui-modern.min.css`, le
   bundle Classique et le sélecteur (décision du propriétaire du 2026-11-06).
+
+## 2026-11-06 — Pertes Wi-Fi : mesurer d'abord, sans aucun risque pour la liaison (`[wifi-diag]`, audit W1)
+
+- **Pourquoi :** l'audit du 2026-11-06 (`docs/linux-port/audit-2026-11-06.md`, partie W) écarte l'économie d'énergie
+  (mesurée `off`), la mise en veille USB (`CONFIG_PM` absent du noyau), le balayage en arrière-plan (aucun `bgscan`) et
+  le pays. Les pings se perdent **avec 0 retransmission et 0 échec radio** : la piste est la réception (`rtl8xxxu` sur le
+  pilote hôte USB du portage) ou un blocage de la caméra elle-même. Aucun réglage connu ne corrige cela sans risque :
+  il faut savoir lequel des deux avant de toucher quoi que ce soit.
+- **Quoi :** `scripts/wifi-diag.sh` (nouveau), **lecture seule** : ne touche ni `wlan0`, ni `wpa_supplicant`, ni le
+  pilote, ni un réglage ; écrit seulement `/tmp/wifi-diag.log` (6 h max, ~0,4 Mo de RAM) ; s'arrête seul (24 h au plus).
+  Une ligne par seconde : retard de la boucle (> 300 ms = la caméra a calé), paquets reçus / émis de `wlan0`, paquets
+  rejetés, interruptions USB, `beacon rx` du point d'accès (toutes les 5 s), un ping au routeur (option `ping`).
+- **Interrupteur :** aucun service ; `sh /mnt/scripts/wifi-diag.sh stop` l'arrête.
+- **Test (testeur, ssh, une caméra) :**
+  1. `sh /mnt/scripts/wifi-diag.sh run 7200 ping </dev/null >/dev/null 2>&1 &` ;
+  2. en même temps, depuis le Mac (filaire si possible) : `ping -i 0.5 <ip caméra> | while read l; do echo "$(date +%s) $l"; done > ping-cam.txt`
+     et, pour comparer, un ping du routeur depuis le Mac à la même cadence ;
+  3. après 2 h : `sh /mnt/scripts/wifi-diag.sh summary` ; copier `/tmp/wifi-diag.log` et `ping-cam.txt`.
+- **Lecture :** pings perdus avec « camera stalled » → blocage CPU / ordonnanceur (piste R2 : `tc100_rtsp`, tâches du
+  housekeeper) ; avec « receive frozen » et « USB interrupts frozen » → hôte USB (patch 0003) ; avec réception figée mais
+  USB vivante → `rtl8xxxu` (réception) ; rien de tout cela et le ping du Mac au routeur perd aussi → routeur / canal
+  (le propriétaire choisit 1, 6 ou 11) ; le ping du Mac à la caméra propre mais celui de la caméra perdu → artefact de
+  mesure (2 pings à `-W 1`) et l'item Wi-Fi peut se fermer.
+- **Critères :** le script tourne 2 h sans incident (MemAvailable stable, aucune coupure de la liaison), le résumé
+  classe les pertes ; le résultat va sous cette entrée et décide de la piste suivante (audit W2-W5).
