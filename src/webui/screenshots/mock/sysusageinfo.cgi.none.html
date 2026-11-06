@@ -29,19 +29,22 @@
     <div class='sysusage-main'>
         <div class='card status_card sysusage-card sysusage-process-card'>
             <details class='v2-procs'>
-                <summary>Running processes (12 shown)</summary>
+                <summary>Running processes (14 shown)</summary>
                 <pre class='sysusage-pre sysusage-process-pre'>  PID USER       VSZ STAT COMMAND
-    1 root      1416 S    init
-  412 root      1424 S    /usr/sbin/telnetd -p 23 -l /bin/login
-  498 root      3020 S    wpa_supplicant -B -i wlan0 -c /mnt/wpa_supplicant.conf
-  531 root      1420 S    udhcpc -i wlan0
-  602 root      5644 S    lighttpd -f /mnt/config/lighttpd.conf
-  640 root     28116 S    v4l2rtspserver -F 16 -W 1920 -H 1080 /dev/video0
-  655 root      1436 S    watchdog-feeder
-  701 root      2210 S    mqtt-bridge.sh
-  745 root      1420 S    crond
-  760 root      1404 S    ntpd -p pool.ntp.org
-  990 root      1420 R    ps</pre>
+    1 root      1288 S    init
+  188 root      2604 S    wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant.conf
+  201 root      1292 S    udhcpc -i wlan0 -b -t 20 -T 1 -A 5 -x hostname:camera
+  255 root      1292 S    syslogd -n -D -f /tmp/syslog.conf
+  262 root       912 S    /mnt/bin/tc100-logfwd -h 192.0.2.23
+  318 root      1084 S    dropbear -R -p 22
+  402 root      1040 S    /mnt/tc100test/httpfront -p 80 -h /tmp/www
+  417 root     21480 S    /tmp/tc100_rtsp -p 554 -s 1 -a 1 -S /var/run/sound_level
+  455 root      1196 S    /mnt/tc100test/tc100-supervisord
+  471 root      1328 S    /mnt/tc100test/tc100-mqttd
+  488 root      1504 S    /mnt/tc100test/tc100-onvifd -p 8081
+  502 root       880 S    /mnt/tc100test/tc100-mdnsd
+  530 root      1292 S    ntpd -p pool.ntp.org
+  990 root      1292 R    ps</pre>
             </details>
         </div>
 

@@ -55,14 +55,11 @@ STEP="${WR_STEP:-30}"
 _wr_kv() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$CONF" 2>/dev/null | tail -n 1; }
 _wr_log() { logger -t tc100-event -p user.warn "wifi-rescue: $*" 2>/dev/null; echo "$(date '+%F %T' 2>/dev/null) $*" >> "$RUN/log"; }
 
-# Persistent password file: jffs2 when running from flash, else the SD config.
+# Persistent password file: /mnt/config, kept in the flash settings slots (3.0) or on the card. (The /etc/jffs2 path
+# of 2.x was taken only when /tmp/tc100-storage said "flash", which 3.0 never writes.)
 _wr_pskfile()
 {
-    if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
-        echo "${WR_PSK_FILE:-/etc/jffs2/tc100/config/wifi_rescue.psk}"
-    else
-        echo "${WR_PSK_FILE:-/mnt/config/wifi_rescue.psk}"
-    fi
+    echo "${WR_PSK_FILE:-/mnt/config/wifi_rescue.psk}"
 }
 
 wr_psk()

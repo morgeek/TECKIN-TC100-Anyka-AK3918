@@ -57,6 +57,7 @@ window.tc100I18nFr = {
     "Orientation": "Orientation",
     "Rotate 180°": "Rotation 180°",
     "Smooth video": "Vidéo fluide",
+    "The smooth video is already open elsewhere (one viewer at a time).": "La vidéo fluide est déjà ouverte ailleurs (un seul lecteur à la fois).",
     "Stop video": "Arrêter vidéo",
     "Smooth video from the camera (H.264, no extra encoding)": "Vidéo fluide depuis la caméra (H.264, sans réencodage)",
     "Snapshots": "Images fixes",

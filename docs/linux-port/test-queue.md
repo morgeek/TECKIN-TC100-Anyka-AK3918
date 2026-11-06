@@ -2398,3 +2398,29 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   boutons DHCP / fixe alignés ; plus de carte « Apparence » ; ONVIF découvert et diffusé par `tc100-onvifd`.
 - **Critères :** l'interface à jour apparaît sans rechargement forcé ; pages identiques à la rc31 sauf la carte
   Apparence retirée ; ONVIF comme en rc31.
+
+## 2026-11-06 — rc32 : R24, R25, R26, diagnostic MQTT, restes 2.x (`[rc32-fixes]`)
+
+- **R24** — Multi-vues : quand la vidéo fluide (`live.cgi`, un seul lecteur) est déjà ouverte ailleurs, la cellule
+  revient aux images fixes sans avertissement dans la console (info-bulle sur le bouton).
+- **R25** — carte refusée restée montée en écriture : `rec-storage.sh` monte maintenant la carte **en lecture seule**
+  d'abord, ne la passe en écriture qu'après avoir vérifié l'absence de fichiers de démarrage, un seul appel à la fois
+  (verrou `/tmp/rec-storage.lock`, repris après 60 s) ; une carte de démarrage déjà montée n'est plus prise pour une
+  carte utilisable ; si son démontage échoue, elle est remontée en lecture seule et c'est écrit dans
+  `/tmp/sd-diag.status`.
+- **R26** — paquet périmé sur la carte : un paquet n'est « prêt » que s'il a été envoyé et vérifié depuis le démarrage
+  (repère en RAM `/tmp/update66.staged`) ; installer une version plus ancienne que l'actuelle demande une confirmation
+  (« This package is older… »).
+- **Diagnostic MQTT** : clients RTSP (TCP **et** UDP) et images sautées lus dans `/var/run/tc100_rtsp.stat` (le fichier
+  de l'ancien serveur 2.x n'existe pas : jusqu'ici clients TCP seulement et 0 image sautée).
+- **Restes 2.x** : branches `/etc/jffs2` mortes retirées (`wifi-rescue.sh`, `reboot-tracker.sh`, `mqtt-bridge.sh`,
+  `action.d/network.sh` ; rien n'écrit `/tmp/tc100-storage` en 3.0) ; `clip_thumb.cgi` (ffmpeg, absent en 3.0) retiré,
+  les enregistrements gardent leur vignette JPEG ; captures du README refaites (sans la carte Apparence, liste des
+  processus 3.0).
+- **Interrupteur :** aucun (revert du commit `[rc32-fixes]`).
+- **Test :** (R25) la carte de démarrage SD de la .24 insérée : `grep /mnt/sd /proc/mounts` ne montre jamais `rw`
+  (au démarrage et après « Monter la carte »), carte formatée : montée `rw`, enregistrement ; (R26) un vieux paquet
+  laissé dans `tc100-3/update/` n'apparaît plus « prêt » après un redémarrage ; envoyer la rc31 sur une rc32 →
+  question « older » ; (R24) Multi-vues avec le Direct ouvert dans un autre onglet : pas d'avertissement ; (MQTT)
+  `diag` publie `rtsp_clients` = nombre réel (Frigate + VLC en UDP) et `rtsp_dropped`.
+- **Critères :** aucune carte de démarrage montée en écriture ; aucun paquet ancien proposé sans question.

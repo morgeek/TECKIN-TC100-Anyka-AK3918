@@ -27,12 +27,25 @@ if [ "${REQUEST_METHOD:-GET}" = "POST" ]; then
 	fi
 fi
 cur=$(js "$(cat /mnt/VERSION 2>/dev/null)")
+# R26 (IPCAM1, rc31): the work folder is on the card when there is one, and a package left there by an earlier session
+# (an rc28 on a camera in rc31) was shown as staged and could be installed. A package is staged only when it was
+# uploaded and checked since the camera started: the mark is in RAM (/tmp), gone at the next start.
+STAGED_MARK=${UPDATE_STAGED_MARK:-/tmp/update66.staged}
+staged_ok() { [ -f "$WORK/ok" ] && [ -f "$WORK/VERSION" ] && [ "$(cat "$STAGED_MARK" 2>/dev/null)" = "$WORK" ]; }
+# ver_older A B: 0 when version A is older than B (3.0.1-rc28 < 3.0.1-rc31 < 3.0.1; a -dev suffix counts as its rc)
+ver_older() {
+	awk -v a="$1" -v b="$2" 'function key(v,   base, rc, n, p) {
+		base = v; sub(/-.*/, "", base); n = split(base, p, ".")
+		rc = 999999; if (match(v, /-rc[0-9]+/)) rc = substr(v, RSTART + 3, RLENGTH - 3) + 0
+		return sprintf("%06d%06d%06d%06d", p[1], p[2], p[3], rc) }
+		BEGIN { exit !(key(a) < key(b)) }'
+}
 
 case "${REQUEST_METHOD:-GET}:$_cmd" in
 GET:status|GET:)
 	st=idle; staged=""; msg=$(js "$(cat /tmp/update66.status 2>/dev/null)")
 	if [ -e /tmp/update66.running ]; then st=installing
-	elif [ -f "$WORK/VERSION" ] && [ -f "$WORK/ok" ]; then st=staged; staged=$(js "$(cat "$WORK/VERSION")"); fi
+	elif staged_ok; then st=staged; staged=$(js "$(cat "$WORK/VERSION")"); fi
 	printf '{"ok":true,"current":"%s","state":"%s","staged":"%s","kind":"linux66","message":"%s"}\n' "$cur" "$st" "$staged" "$msg" ;;
 POST:upload)
 	[ -f /tmp/flashmode ] || { echo '{"ok":false,"error":"sd_mode","message":"Running from the SD card (trial): copy the new 3.0 package to the card and restart."}'; exit 0; }
@@ -69,10 +82,16 @@ POST:upload)
 	[ "$t" -gt 0 ] || { rm -rf "$WORK"; echo '{"ok":false,"error":"upload","message":"Upload incomplete or not a 3.0 update package."}'; exit 0; }
 	r=$(sh $U check "$WORK" 2>&1)
 	if [ "$r" != ok ]; then rm -rf "$WORK"; printf '{"ok":false,"error":"invalid","message":"%s"}\n' "$(js "$r")"; exit 0; fi
-	: > "$WORK/ok"
+	: > "$WORK/ok"; printf '%s' "$WORK" > "$STAGED_MARK"
 	printf '{"ok":true,"kind":"linux66","version":"%s","current":"%s"}\n' "$(js "$(cat "$WORK/VERSION")")" "$cur" ;;
 POST:install)
-	[ -f "$WORK/ok" ] || { echo '{"ok":false,"error":"state","message":"Upload a package first."}'; exit 0; }
+	staged_ok || { echo '{"ok":false,"error":"state","message":"Upload a package first."}'; exit 0; }
+	new=$(js "$(cat "$WORK/VERSION")")
+	case "$_qs" in *"&older=1&"*) ;; *)
+		if [ -n "$cur" ] && ver_older "$new" "$cur"; then
+			printf '{"ok":false,"error":"older","message":"This package is older than the firmware installed now (%s is older than %s). Install it anyway? Settings stay as they are; a setting the older version does not know is ignored by it."}\n' "$new" "$cur"; exit 0
+		fi ;;
+	esac
 	[ -e /tmp/update66.running ] && { echo '{"ok":false,"error":"busy","message":"Already installing."}'; exit 0; }
 	_nb=0; case "$_qs" in *"&nobackup=1&"*) _nb=1 ;; esac
 	if ! grep -q ' /mnt/sd vfat ' /proc/mounts && [ "$_nb" != 1 ]; then
@@ -82,7 +101,7 @@ POST:install)
 	( trap '' HUP; UPDATE66_NOBACKUP=$_nb sh $U apply "$WORK"; rm -f /tmp/update66.running ) </dev/null >/dev/null 2>&1 &
 	echo '{"ok":true,"started":"install"}' ;;
 POST:discard)
-	rm -rf "$WORK"; echo '{"ok":true}'
+	rm -rf "$WORK"; rm -f "$STAGED_MARK"; echo '{"ok":true}'
 	# services stopped to make room for the package: back to normal with a restart
 	[ -e /tmp/update66.stopped ] && ( sh /mnt/scripts/reboot-tracker.sh intent "web UI update discarded, services restarted" >/dev/null 2>&1; sleep 2; reboot ) </dev/null >/dev/null 2>&1 & ;;
 POST:rollback)

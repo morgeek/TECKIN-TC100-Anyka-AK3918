@@ -279,10 +279,6 @@
             _wifi66=1
             _wpa_conf=/mnt/config/wpa_supplicant.conf
             [ -f "$_wpa_conf" ] || { [ -f /etc/wpa_supplicant.conf ] && cp /etc/wpa_supplicant.conf "$_wpa_conf"; }
-        # From flash /mnt is in RAM: the file lives in jffs2, /mnt points to it.
-        elif [ "$(cat /tmp/tc100-storage 2>/dev/null)" = flash ]; then
-            _wpa_conf=/etc/jffs2/tc100/wpa_supplicant.conf
-            [ -L "$WIFI_CONFIG_PATH" ] || { rm -f "$WIFI_CONFIG_PATH"; ln -s "$_wpa_conf" "$WIFI_CONFIG_PATH"; }
         fi
         _ssid="$(printf '%s' "${F_ssid:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-32)"
         _psk="$(printf '%s' "${F_psk:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-63)"

@@ -1953,35 +1953,11 @@ curl -o motion.jpg http://root:pass@192.168.1.50/cgi-bin/motionthumb.cgi
 
 ---
 
-## GET /cgi-bin/clip_thumb.cgi
+## Recording thumbnails
 
-Returns a JPEG thumbnail extracted from the first keyframe of a video clip.
-
-**Parameters:**
-
-| Parameter | Constraints | Description |
-|---|---|---|
-| `path` | Relative to `/mnt/DCIM` | Clip file path |
-| `size` | 64–1920 (default 320) | Thumbnail width (px) |
-
-- Cached for 300 seconds.
-- Supported formats: `mp4`, `mkv`, `avi`, `ts`, `mov`, `h264`, `h265`
-- Uses `ffmpeg` to extract first keyframe.
-
-**Error responses:**
-
-| HTTP status | Code | Condition |
-|---|---|---|
-| 400 | `MISSING_PATH` | `path` parameter not supplied |
-| 400 | `INVALID_PATH` | Path traversal or illegal characters |
-| 400 | `UNSUPPORTED_FORMAT` | File extension not in allowed list |
-| 404 | `NOT_FOUND` | File does not exist |
-| 503 | `NO_FFMPEG` | `ffmpeg` not available on camera |
-| 500 | `THUMB_FAILED` | ffmpeg failed to extract frame |
-
-```sh
-curl -o thumb.jpg "http://root:pass@192.168.1.50/cgi-bin/clip_thumb.cgi?path=20231114/clip.mp4&size=320"
-```
+The recorder writes a JPEG next to each clip (`/DCIM/<date>/<clip>.jpg`), served as a plain file: the Recordings
+page shows it as the poster of the clip. (`clip_thumb.cgi`, which extracted a frame with ffmpeg, was removed in
+rc32: ffmpeg is not on 3.0.)
 
 ---
 

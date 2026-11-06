@@ -1392,20 +1392,18 @@ build_diag_payload()
       _dg_sdst="flash_only"
     fi
   fi
-  # Playing clients and skipped frames from the status file of the 2.x RTSP lite server
-  # (every 10 s; ignored when older than 60 s). tc100_rtsp (3.0) does not write
-  # /var/run/tc100rtsp: both values stay null on 3.0 (cleanup 2026-11-06, see the
-  # implementer list; its own stats are in /var/run/tc100_rtsp.stat).
+  # Playing clients and skipped frames of tc100_rtsp: /var/run/tc100_rtsp.stat ("key value" lines, rewritten every 5 s
+  # with its STAT line: clients = RTSP clients over TCP and UDP, dropped = frames skipped for slow clients); ignored when
+  # older than 60 s. Without it (tc100_rtsp stopped or an old build): the established TCP connections on port 554, no
+  # drop count. (The 2.x lite server's /var/run/tc100rtsp, read here up to the rc31, does not exist on 3.0.)
   _dg_rc=null; _dg_rd=null
-  if [ -n "$(find /var/run/tc100rtsp -mmin -1 2>/dev/null)" ]; then
-    _dg_rd=0
-    while IFS='=' read -r _dg_k _dg_v; do
+  if [ -n "$(find /var/run/tc100_rtsp.stat -mmin -1 2>/dev/null)" ]; then
+    while read -r _dg_k _dg_v _dg_rest; do
       case "$_dg_k" in
         clients) case "$_dg_v" in ''|*[!0-9]*) ;; *) _dg_rc="$_dg_v" ;; esac ;;
-        client) _dg_v="${_dg_v##*drops=}"; _dg_v="${_dg_v%% *}"
-                case "$_dg_v" in ''|*[!0-9]*) ;; *) _dg_rd=$((_dg_rd + _dg_v)) ;; esac ;;
+        dropped) case "$_dg_v" in ''|*[!0-9]*) ;; *) _dg_rd="$_dg_v" ;; esac ;;
       esac
-    done < /var/run/tc100rtsp
+    done < /var/run/tc100_rtsp.stat
   elif [ -r /proc/net/tcp ]; then
     _dg_rc=0; _dg_rd=0
     while read -r _dg_sl _dg_loc _dg_rem _dg_st _dg_rest; do
@@ -1421,7 +1419,7 @@ build_diag_payload()
     *) [ -f /tmp/flashmode ] && _dg_boot=flash_boot ;;
   esac
   _dg_unexp=0
-  for _dg_h in /mnt/config/log/reboot-history.log /etc/jffs2/tc100/log/reboot-history.log /mnt/log/reboot-history.log; do
+  for _dg_h in /mnt/config/log/reboot-history.log /mnt/log/reboot-history.log; do
     [ -r "$_dg_h" ] || continue
     _dg_unexp="$(grep -c UNEXPECTED "$_dg_h" 2>/dev/null)"
     case "$_dg_unexp" in ''|*[!0-9]*) _dg_unexp=0 ;; esac

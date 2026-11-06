@@ -29,39 +29,76 @@ PROC_MOUNTS="${REC_PROC_MOUNTS:-/proc/mounts}"
 L66=0; [ -f "${REC_L66_FLAG:-/tmp/linux66}" ] && L66=1
 _flash() { [ "$(cat "$STORAGE_FILE" 2>/dev/null)" = flash ] || { [ "$L66" = 1 ] && [ -f "${REC_FLASHMODE_FLAG:-/tmp/flashmode}" ]; }; }
 
+# the files that make the vendor boot use a card (same list as scripts/sd-diag.sh): such a card is refused
+SD_BOOT_FILES="wifitest uImage uimage root.sqsh4 usr.sqsh4 usr.jffs2"
+_boot_file() { for _bad in $SD_BOOT_FILES; do [ -e "$MNT_SD/$_bad" ] && { echo "$_bad"; return 0; }; done; return 1; }
+
+# a usable card is mounted: a FAT/exFAT file system without boot files (R25: a boot card mounted by an earlier call
+# counted as mounted and was used)
 _mounted()
 {
-    if [ "$L66" = 1 ]; then grep -qE " $MNT_SD (vfat|exfat) " "$PROC_MOUNTS" 2>/dev/null
+    if [ "$L66" = 1 ]; then grep -qE " $MNT_SD (vfat|exfat) " "$PROC_MOUNTS" 2>/dev/null && ! _boot_file >/dev/null
     else grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null; fi
 }
 
 _placeholder() { [ "$L66" = 1 ] && ! grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null && mount -t tmpfs -o size=16k tmpfs "$MNT_SD" 2>/dev/null; return 0; }
 
-_mount_card()
+# R25 (IPCAM1, rc31): a refused card stayed mounted read-write. Now: one caller at a time (lock), the card is mounted
+# READ-ONLY first and switched to read-write only once it is known to carry no boot file, and a refused card that
+# cannot be unmounted (busy) is at least remounted read-only and reported in /tmp/sd-diag.status.
+_refuse_card()
 {
-    _mounted && return 0
+    logger -t tc100-rec "card refused: it carries $1 (boot files)" 2>/dev/null
+    if umount "$MNT_SD" 2>/dev/null || { mount -o remount,ro "$MNT_SD" 2>/dev/null; sleep 1; umount "$MNT_SD" 2>/dev/null; }; then
+        _placeholder
+    else
+        mount -o remount,ro "$MNT_SD" 2>/dev/null
+        printf '{"ok":false,"state":"refused","message":"Boot or install card (%s at its root): not used for recordings; it could not be unmounted and stays mounted read-only."}\n' \
+            "$1" > "${REC_DIAG_STATUS:-/tmp/sd-diag.status}" 2>/dev/null
+        logger -t tc100-rec "refused card busy: left mounted read-only" 2>/dev/null
+    fi
+}
+
+_mount_card_locked()
+{
+    if grep -qE " $MNT_SD (vfat|exfat) " "$PROC_MOUNTS" 2>/dev/null; then
+        _bf=$(_boot_file) || return 0                      # mounted and usable
+        _refuse_card "$_bf"; return 1                      # mounted by someone, but a boot card
+    fi
+    [ "$L66" = 1 ] || { grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null && return 0; }
     mkdir -p "$MNT_SD" 2>/dev/null
     [ "$L66" = 1 ] && umount "$MNT_SD" 2>/dev/null   # the RAM placeholder
     for _d in $DEVS; do
         [ -b "$_d" ] || continue
         # (no check here: a full fsck at every remount costs minutes and MB; scripts/sd-diag.sh repair does it on demand
         # or at boot with SD_AUTO_REPAIR=1, item 41)
-        # FAT32 (cards up to 32 GB) or exFAT (larger cards, as formatted out of the box)
-        if mount -t vfat -o rw,noatime,nodiratime,shortname=mixed "$_d" "$MNT_SD" 2>/dev/null ||
-           mount -t exfat -o rw,noatime "$_d" "$MNT_SD" 2>/dev/null; then
-            for _bad in wifitest uImage uimage root.sqsh4 usr.sqsh4 usr.jffs2; do
-                if [ -e "$MNT_SD/$_bad" ]; then
-                    umount "$MNT_SD" 2>/dev/null; _placeholder
-                    logger -t tc100-rec "card refused: it carries $_bad (boot files)" 2>/dev/null
-                    return 1
-                fi
-            done
+        # FAT32 (cards up to 32 GB) or exFAT (larger cards, as formatted out of the box); read-only until checked
+        if mount -t vfat -o ro,noatime,nodiratime,shortname=mixed "$_d" "$MNT_SD" 2>/dev/null ||
+           mount -t exfat -o ro,noatime "$_d" "$MNT_SD" 2>/dev/null; then
+            if _bf=$(_boot_file); then
+                _refuse_card "$_bf"; return 1
+            fi
+            mount -o remount,rw "$MNT_SD" 2>/dev/null || logger -t tc100-rec "card left read-only: remount rw failed" 2>/dev/null
             [ "$L66" = 1 ] && mkdir -p "$MNT_SD/DCIM" 2>/dev/null
             return 0
         fi
     done
     _placeholder
     return 1
+}
+
+_mount_card()
+{
+    _lk="${REC_LOCK:-/tmp/rec-storage.lock}"; _lw=0
+    while ! mkdir "$_lk" 2>/dev/null; do
+        # a holder that died leaves the lock: taken over after 60 s
+        [ -n "$(find "$_lk" -maxdepth 0 -mmin +1 2>/dev/null)" ] && { rmdir "$_lk" 2>/dev/null; continue; }
+        _lw=$((_lw + 1)); [ "$_lw" -ge 30 ] && return 1
+        sleep 1
+    done
+    _mount_card_locked; _mrc=$?
+    rmdir "$_lk" 2>/dev/null
+    return $_mrc
 }
 
 rs_dir()

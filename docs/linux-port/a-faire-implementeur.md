@@ -161,14 +161,7 @@ rc31 (sections historiques dans `history.md`) ; commentaires `libtc100fix` corri
 archivées. Reste, à décider ou à faire :
 - **rc32** : retirer Bulma (décidé) et `bin/monvifd` (décidé, avec la branche `monvifd` de `controlscripts/onvif` et
   les tests `test_onvifd`, `test_flash_image`, `test_rc28_defaults`).
-- `scripts/mqtt-bridge.sh` (diag MQTT) lit `/var/run/tc100rtsp`, le fichier d'état du serveur 2.x que `tc100_rtsp`
-  n'écrit pas : clients et images sautées toujours `null` en 3.0. Le brancher sur `/var/run/tc100_rtsp.stat` ou retirer.
-- `www/cgi-bin/clip_thumb.cgi` : documenté (`api.md`) mais appelé par aucune page : brancher sur la page
-  Enregistrements ou retirer (proposer au propriétaire).
-- Chemins 2.x de repli encore dans des scripts (`/etc/jffs2/tc100/...` dans `reboot-tracker.sh`, `mqtt-bridge.sh`,
-  `wifi-rescue.sh`, `action.d/network.sh`) : vérifier qu'ils ne servent plus en 3.0, puis les retirer.
-- `src/webui/screenshots/mock/sysusageinfo.cgi.none.html` montre encore lighttpd / v4l2rtspserver : à refaire avec la
-  liste des processus 3.0.
+- *Fait (rc32) : diag MQTT sur `/var/run/tc100_rtsp.stat` ; `clip_thumb.cgi` retiré ; chemins `/etc/jffs2` retirés ; liste des processus de la maquette refaite ; Bulma et `monvifd` retirés.*
 
 ## À FAIRE EN PREMIER — rc29 → rc30 (testeur, 2026-11-06 09:40) : consignes précises
 
@@ -297,7 +290,7 @@ et des lignes reçues par 192.168.1.23, `reboot-history.log` « intended: web up
 
 ## À FAIRE — après la rc31 sur la .11 (testeur, 2026-11-06 14:55)
 
-R22. [ ] **Cache du navigateur après une mise à jour** : `httpfront` sert `index.html` (et les autres `.html`) sans
+R22. [x] *(fait, `[r22-cache]` : plus de `Last-Modified`)* **Cache du navigateur après une mise à jour** : `httpfront` sert `index.html` (et les autres `.html`) sans
     `Cache-Control` ; Chrome les réutilise sans revalider (fraîcheur heuristique d'après `Last-Modified`) et montre
     l'ancienne interface après la mise à jour (rc29 → rc31 sur la .11 : Bulma de la rc29 jusqu'au rechargement forcé).
     À faire dans `src/httpfront` : `Cache-Control: no-cache` pour `*.html` et les réponses des CGI (revalidation par
@@ -309,18 +302,18 @@ R23. [x] *(corrigé par le testeur en `e5a1c05`)* **`tc100-logfwd` mourait à sa
     (rc28-rc31). Ne plus utiliser `sscanf` / `strto*` / `is*()` / `to*()` dans les programmes à libc de remplacement
     (le test et `check-libc-data-imports.sh` le refusent). À livrer dans la rc32 ; le testeur vérifie que
     192.168.1.23 reçoit.
-R24. [ ] Direct : « Live fetch error: Erreur HTTP 503 » dans la console quand le WebRTC prend la main (le repli MP4
+R24. [x] *(fait, `[rc32-fixes]`)* Direct : « Live fetch error: Erreur HTTP 503 » dans la console quand le WebRTC prend la main (le repli MP4
     `live.cgi` est refusé, un seul lecteur MP4) : sans effet visible ; ne pas lancer le MP4 quand le WebRTC est établi,
     ou ne pas l'écrire en avertissement.
 
-R25. [ ] **Carte refusée mais restée montée en écriture** (IPCAM1, rc31, test-queue 15:15) : `scripts/rec-storage.sh`
+R25. [x] *(fait, `[rc32-fixes]` : montage en lecture seule d'abord, verrou)* **Carte refusée mais restée montée en écriture** (IPCAM1, rc31, test-queue 15:15) : `scripts/rec-storage.sh`
     `_mount_card` (l. 40-66) n'est pas protégé contre deux appels en même temps, et `_mounted` (l. 42) accepte une carte
     déjà montée sans vérifier les fichiers de démarrage ; le `umount` du refus (l. 54) peut échouer (occupé) sans que
     personne le voie. À faire : verrou (`mkdir /tmp/rec-storage.lock`, comme `speaker-play.lock`) autour de
     `_mount_card` ; `_mounted` vrai seulement si la carte montée n'a pas de fichier de démarrage ; si le `umount` échoue,
     `mount -o remount,ro` puis réessayer, et le dire dans `/tmp/sd-diag.status`. Test : deux `_mount_card` lancés en
     même temps sur une image FAT avec `wifitest/` → la carte n'est jamais laissée montée en écriture.
-R26. [ ] **Dossier de travail de la mise à jour sur la carte** : `www/cgi-bin/update.cgi` l. 9 prend
+R26. [x] *(fait, `[rc32-fixes]` : repère en RAM, confirmation si plus ancien)* **Dossier de travail de la mise à jour sur la carte** : `www/cgi-bin/update.cgi` l. 9 prend
     `/mnt/sd/tc100-3/update` quand une carte vfat est montée ; un paquet ancien qui y reste (avec `ok`) est annoncé
     « staged » et peut être installé (rc28 sur une caméra en rc31). En mode flash, travailler dans `/tmp/update66`
     (ou effacer `ok` à chaque démarrage, et refuser d'installer une version plus ancienne que l'actuelle sans

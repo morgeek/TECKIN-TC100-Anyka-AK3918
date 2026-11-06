@@ -17,10 +17,10 @@
 #
 # A boot with no recorded intent means the previous run ended without anyone
 # asking for it: hardware watchdog, power loss or kernel crash. The last
-# heartbeat then dates it to within 5 minutes (flash) or 15 (SD card), and
+# heartbeat then dates it to within 15 minutes, and
 # says whether the SD card was failing at that time.
-# Files live on the SD card, or in jffs2 when the firmware runs from flash
-# (survive reboots). SD writes are kept rare: the
+# Files live on the SD card, or in /mnt/config/log (flash settings slots) when the
+# firmware runs from flash (survive reboots). SD writes are kept rare: the
 # heartbeat is overwritten in place (same 64 bytes, no new cluster or directory
 # entry, unlike a temp file + rename), 4 times an hour; important.log is only
 # appended to when a critical line actually appeared.
@@ -28,15 +28,13 @@
 
 LOGDIR="${REBOOT_TRACKER_DIR:-/mnt/log}"
 # Firmware run from flash: /mnt/log is a RAM disk; keep these few files in the
-# jffs2 flash partition instead (small, and written as rarely as on the card).
+# flash settings slots instead (small, saved by cfg-persist).
 FASTDIR=
 if [ -z "${REBOOT_TRACKER_DIR:-}" ] && [ -f "${REBOOT_TRACKER_FLASHMODE:-/tmp/flashmode}" ]; then
   # 3.0: /mnt is a RAM disk and there is no jffs2; /mnt/config is saved to the flash slots
   LOGDIR=/mnt/config/log
   FASTDIR=/tmp/log
   grep -q ' /mnt/sd vfat rw' /proc/mounts 2>/dev/null && FASTDIR=/mnt/sd/logs
-elif [ -z "${REBOOT_TRACKER_DIR:-}" ] && [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ]; then
-  LOGDIR=/etc/jffs2/tc100/log
 fi
 FASTDIR="${REBOOT_TRACKER_FASTDIR:-${FASTDIR:-$LOGDIR}}"
 INTENT="$LOGDIR/.reboot-intent"
@@ -47,7 +45,6 @@ KEEP=50
 [ "$LOGDIR" = /mnt/config/log ] && KEEP=30	# a flash settings slot holds 36 KB
 IMPORTANT="$FASTDIR/important.log"
 IMPORTANT_MAX_BYTES=65536
-case "$LOGDIR" in /etc/jffs2/*) IMPORTANT_MAX_BYTES=16384 ;; esac
 IMPORTANT_KEEP=400
 IMPORTANT_MARK="${REBOOT_TRACKER_MARK:-/tmp/log/important.last}"
 SYSLOG_FILES="${REBOOT_TRACKER_SYSLOG:-/var/log/messages.0 /var/log/messages}"
@@ -160,13 +157,9 @@ rt_flush_important()
 rt_tick()
 {
   rt_flush_important
-  # In flash (jffs2, log-structured) every tick: dates a sudden reset to
-  # within 5 minutes. On an SD card, every 15 minutes (fewer writes).
-  case "$LOGDIR" in
-    /etc/jffs2/*) rt_heartbeat ;;
-    *) case "$(date +%M 2>/dev/null)" in
-         00|15|30|45) rt_heartbeat ;;
-       esac ;;
+  # every 15 minutes (fewer writes; 3.0 from the flash keeps it in RAM or on the card, see FASTDIR)
+  case "$(date +%M 2>/dev/null)" in
+    00|15|30|45) rt_heartbeat ;;
   esac
 }
 

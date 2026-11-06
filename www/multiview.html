@@ -346,6 +346,9 @@
 
           fetch(liveUrl, { cache: "no-store", credentials: "same-origin", signal: ctl.signal })
             .then(function(res) {
+              // R24: live.cgi serves one MP4 viewer; 503 = it is busy (the live view of the main page): back to the
+              // still pictures of this cell, quietly, instead of a console warning
+              if (res.status === 503) { var busy = new Error("busy"); busy.busy = true; throw busy; }
               if (!res.ok) throw new Error("Erreur HTTP " + res.status);
               var reader = res.body.getReader();
               activeStreams[idx].reader = reader;
@@ -360,6 +363,12 @@
               readChunk();
             })
             .catch(function(e) {
+              if (e && e.busy) {
+                if (activeStreams[idx] && activeStreams[idx].ctl === ctl) window.toggleCamVideo(idx);
+                if (btn) btn.title = (window.t ? window.t("The smooth video is already open elsewhere (one viewer at a time).") : "The smooth video is already open elsewhere (one viewer at a time).");
+                return;
+              }
+              if (e && e.name === "AbortError") return;   // stopped by the user or by the page
               console.warn("Live fetch error", e);
             });
         });
