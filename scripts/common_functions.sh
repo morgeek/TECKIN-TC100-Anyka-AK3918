@@ -789,9 +789,6 @@ binary_version() {
     curl)
       v="$(run_strings "$path" | grep -m1 -E '^curl [0-9]')"
       ;;
-    jq)
-      v="$("$path" --version 2>/dev/null | head -n 1)"
-      ;;
     monvifd)
       v="$(run_strings "$path" | grep -m1 'Micro ONVIF discovery service')"
       ;;
@@ -820,7 +817,7 @@ binary_version() {
 }
 
 build_binary_versions_block() {
-  for n in busybox curl jq monvifd rwconf setconf telegram; do
+  for n in busybox curl monvifd rwconf setconf telegram; do
     ver="$(binary_version "$n")"
     printf '%-20s %s\n' "$n" "$ver"
   done

@@ -7,7 +7,7 @@
 #   value  strings decoded (\uXXXX as UTF-8); backslash, tab and newline
 #          written back as \\ \t \n so one scalar stays on one line
 #
-# Replaces jq on the camera (235 KB in the flash image). BusyBox awk.
+# Replaces jq on the camera (jq, libjq and oniguruma left the image: audit 2026-11-06 S1). BusyBox awk.
 #   awk -f jsonflat.awk [-v require=object|array] file.json
 # Exit 2 (message on stderr, nothing trusted) on malformed input or when the
 # top-level value is not of the required type.

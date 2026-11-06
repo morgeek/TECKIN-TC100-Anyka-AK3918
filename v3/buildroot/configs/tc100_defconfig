@@ -28,7 +28,6 @@ BR2_PACKAGE_ALSA_LIB_PCM_PLUGINS="copy linear route mulaw alaw rate plug lfloat 
 BR2_PACKAGE_ALSA_LIB_CTL_PLUGINS="ext"
 # the 3.0 kernel has no IPv6 (slim config): BusyBox, curl and the rest are built without it
 # BR2_INET_IPV6 is not set
-BR2_PACKAGE_JQ=y
 BR2_PACKAGE_CA_CERTIFICATES=y
 BR2_PACKAGE_MBEDTLS=y
 # item 35: the WebRTC (WHEP) gateway, built from src/whep (package/tc100-whep); off at run time (boot.conf WHEP=0)

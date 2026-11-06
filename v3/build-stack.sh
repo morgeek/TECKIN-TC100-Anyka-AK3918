@@ -61,7 +61,7 @@ pruned() { grep -vE '^(#|$)' "$REPO/v3/initramfs-prune.txt" | grep -qxF "$1"; }
 find_lib() { for d in lib usr/lib; do [ -e "$d/$1" ] && { echo "$d/$1"; return 0; }; done; return 1; }
 mkdir -p "$T/ext/bin" "$T/ext/lib" "$T/ext/etc/ssl/certs"
 : > "$W/libs"
-for b in usr/bin/curl usr/bin/jq usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd usr/bin/mksquashfs \
+for b in usr/bin/curl usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd usr/bin/mksquashfs \
 	usr/bin/aplay usr/bin/arecord usr/bin/amixer usr/sbin/dropbear; do
 	[ -f "$b" ] || { echo "build-stack: $b missing from the base" >&2; exit 1; }
 	cp -L "$b" "$T/ext/bin/"
@@ -111,8 +111,9 @@ for f in ext/bin/aplay ext/bin/arecord ext/bin/amixer ext/bin/dropbear ext/lib/l
 	[ -s "$T/$f" ] || { echo "build-stack: $f missing from the tree" >&2; exit 1; }
 done
 cd "$REPO"
-# scripts call /mnt/bin/curl and /mnt/bin/jq: wrappers (a FAT card cannot hold links)
-for b in curl jq; do printf '#!/bin/sh\nexec /mnt/ext/bin/%s "$@"\n' $b > "$T/bin/$b"; done
+# scripts call /mnt/bin/curl: a wrapper (a FAT card cannot hold links). No jq any more (audit 2026-11-06 S1: the two
+# scripts that used it read JSON with scripts/jsonflat.awk; jq, libjq and oniguruma were ~110-240 KB of the image)
+for b in curl; do printf '#!/bin/sh\nexec /mnt/ext/bin/%s "$@"\n' $b > "$T/bin/$b"; done
 chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rtsp "$T"/tc100test/httpfront "$T"/tc100test/tc100-mdnsd "$T"/tc100test/tc100-mqttd "$T"/tc100test/tc100-onvifd; [ -f "$T/tc100test/tc100-supervisord" ] && chmod 755 "$T/tc100test/tc100-supervisord"
 
 # 3. The flash image. Left out of it (they stay in the tree, which is the SD card package):

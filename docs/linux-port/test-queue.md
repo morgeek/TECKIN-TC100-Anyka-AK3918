@@ -2964,3 +2964,16 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   mesure (2 pings à `-W 1`) et l'item Wi-Fi peut se fermer.
 - **Critères :** le script tourne 2 h sans incident (MemAvailable stable, aucune coupure de la liaison), le résumé
   classe les pertes ; le résultat va sous cette entrée et décide de la piste suivante (audit W2-W5).
+
+## 2026-11-06 — Place en flash : plus de jq (`[flash-nojq]`, audit S1, décision du propriétaire, rc31)
+
+- **Quoi :** `jq` (+ `libjq`, oniguruma ; ~110-240 Ko estimés de l'image) retiré de la flash et de l'image de base
+  (`BR2_PACKAGE_JQ` retiré, l'image de base est reconstruite par la CI). Ses deux seuls utilisateurs lisent le JSON avec
+  `scripts/jsonflat.awk` : `telegram-bot-daemon.sh` (`tg_parse`, plus d'`eval` d'un texte venu du réseau) et
+  `update-check.sh` (`.tag_name`).
+- **Interrupteur :** aucun (revert du commit `[flash-nojq]`) ; le paquet SD n'a plus jq non plus.
+- **Test :** (1) bot Telegram configuré (jeton saisi par le propriétaire) : envoyer `/help` puis une commande, la
+  réponse arrive ; un chat inconnu reçoit « Unauthorized chat » ; (2) `UPDATE_CHECK=1` : `sh /mnt/scripts/update-check.sh`
+  puis `cat /tmp/update_status.json` : `latest_version` = l'étiquette de la dernière release GitHub ; (3) dans le journal
+  de la CI : la ligne `stack.sqfs: N bytes` comparée à celle de la rc30 (gain mesuré à noter ici).
+- **Critères :** Telegram et la vérification de version répondent comme en rc30 ; `ls /mnt/ext/bin/jq` absent.

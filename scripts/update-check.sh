@@ -10,7 +10,8 @@ REPO="morgeek/TECKIN-TC100-Anyka-AK3918"
 GITHUB_API="https://api.github.com/repos/$REPO/releases/latest"
 
 CURL="/mnt/bin/curl"
-JQ="/mnt/bin/jq"
+# the GitHub answer is read with scripts/jsonflat.awk (audit 2026-11-06 S1: no jq in the flash image any more)
+JSONFLAT="${JSONFLAT:-/mnt/scripts/jsonflat.awk}"
 
 # ver_to_int: Converts v1.2.3 to a comparable integer (001002003)
 # (no tr: absent on the camera — the awk already here handles the v prefix)
@@ -58,7 +59,7 @@ if [ $? -ne 0 ] || [ -z "$_response" ]; then
 fi
 
 # 4. Parse tag_name
-LATEST_TAG=$(echo "$_response" | "$JQ" -r '.tag_name' 2>/dev/null)
+LATEST_TAG=$(printf '%s' "$_response" | LC_ALL=C awk -f "$JSONFLAT" 2>/dev/null | awk -F '\t' '$1 == ".tag_name" { print $3; exit }')
 
 if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
     exit 1

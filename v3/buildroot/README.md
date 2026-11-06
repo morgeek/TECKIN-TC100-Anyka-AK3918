@@ -1,7 +1,7 @@
 # Base root filesystem (Buildroot)
 
 Our own replacement for the OpenIPC image: Buildroot 2024.02.9, Bootlin ARM926 musl
-toolchain, BusyBox init, dropbear, wpa_supplicant (nl80211), curl (mbedTLS), jq,
+toolchain, BusyBox init, dropbear, wpa_supplicant (nl80211), curl (mbedTLS),
 alsa-utils, iw. Kernel and bootloader are not built here.
 
 - `configs/tc100_defconfig`: the configuration. `board/tc100/busybox.fragment`: extra BusyBox applets.
