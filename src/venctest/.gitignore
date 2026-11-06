@@ -1,5 +1,0 @@
-*.o
-libc.so.0
-libdl.so.0
-libpthread.so.0
-venctest

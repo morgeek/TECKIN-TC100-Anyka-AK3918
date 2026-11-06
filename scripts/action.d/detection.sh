@@ -7,7 +7,7 @@
   case "$F_cmd" in
 
     md_zones_info)
-      # Motion zones (src/tc100fix/md.c): the saved zones and what the
+      # Motion zones (tc100_rtsp, src/tc100rtsp): the saved zones and what the
       # detector got at its last start (/var/run/md_zones).
       _mz_list=""
       _mz_names=""

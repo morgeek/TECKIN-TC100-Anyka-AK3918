@@ -151,6 +151,25 @@ démarré depuis la carte SD ; interrupteur `boot.conf` par défaut = comporteme
   `WLAN_VENDOR_*` ne sélectionnent aucun pilote) et **58.2 faux** (`supervisor.sh` lance encore `auto-night-daemon.sh` et
   `button-watch.sh`).
 
+## Nettoyage du dépôt (propriétaire, 2026-11-06)
+
+Fait : historique git réécrit (identité `morgeek` seule, entrée de `test-queue.md`) ; fichiers morts ou historiques
+supprimés de main (fixture lighttpd 2.x, `docs/ui-tests.md`, `tests/venctrace/`, `src/venctest/`, audit UI du 24/10, plan
+d'installation du 24/10, artefacts R12-09 dont `scripts/isp-stat-dump.sh`, patch 4.4, `check_header.py`, workflow
+`build-tc100rtsp-standalone.yml`, deux captures OpenIPC redondantes, `_archive_v3-drafts/`) ; docs remises à l'état de la
+rc31 (sections historiques dans `history.md`) ; commentaires `libtc100fix` corrigés ; entrées closes de `test-queue.md`
+archivées. Reste, à décider ou à faire :
+- **rc32** : retirer Bulma (décidé) et `bin/monvifd` (décidé, avec la branche `monvifd` de `controlscripts/onvif` et
+  les tests `test_onvifd`, `test_flash_image`, `test_rc28_defaults`).
+- `scripts/mqtt-bridge.sh` (diag MQTT) lit `/var/run/tc100rtsp`, le fichier d'état du serveur 2.x que `tc100_rtsp`
+  n'écrit pas : clients et images sautées toujours `null` en 3.0. Le brancher sur `/var/run/tc100_rtsp.stat` ou retirer.
+- `www/cgi-bin/clip_thumb.cgi` : documenté (`api.md`) mais appelé par aucune page : brancher sur la page
+  Enregistrements ou retirer (proposer au propriétaire).
+- Chemins 2.x de repli encore dans des scripts (`/etc/jffs2/tc100/...` dans `reboot-tracker.sh`, `mqtt-bridge.sh`,
+  `wifi-rescue.sh`, `action.d/network.sh`) : vérifier qu'ils ne servent plus en 3.0, puis les retirer.
+- `src/webui/screenshots/mock/sysusageinfo.cgi.none.html` montre encore lighttpd / v4l2rtspserver : à refaire avec la
+  liste des processus 3.0.
+
 ## À FAIRE EN PREMIER — rc29 → rc30 (testeur, 2026-11-06 09:40) : consignes précises
 
 *(2026-11-06, implémenteur : R19, R14, R18 et R20-U1/U3 faits — détail dans les entrées R plus bas ; rc30 lancée après CI verte, voir `test-queue.md`.)*
@@ -873,7 +892,7 @@ gardé ; #56 (console série 5 min, réglages `vm`, smart bitrate) ; #50 après 
 
 ## Hors implémenteur (propriétaire)
 
-- Accord pour archiver ~50 notes anciennes du projet claude.ai et `_archive_v3-drafts/`.
+- *Fait le 2026-11-06 pour le dépôt (accord du propriétaire) : `_archive_v3-drafts/` supprimé de main (l'historique git le garde).* Reste : archiver ~50 notes anciennes du projet claude.ai.
 - LED rouge : 2e couleur de la LED d'état en façade ? À vérifier sur caméra (réponse du 2026-11-05 : à vérifier).
 - *Fait : D3, accord du 2026-11-05 : `src/libakuio/libakuio.so`, `src/httpfront/httpfront`, `src/jpegenc/jpegenc` retirés
   de git (la CI les construit).*

@@ -3,10 +3,10 @@
 # Publishes a "sound" event (MQTT, optional recording trigger) when the
 # microphone level reaches THRESHOLD_DB.
 #
-# The level comes from libtc100fix.so inside v4l2rtspserver (rtsp-h26x sets
-# TC100FIX_SOUND_LEVEL=/var/run/sound_level when ENABLE=1): it measures every
-# second of the PCM the vendor audio encoder reads and counts the seconds at
-# or above the threshold, so polling every INTERVAL seconds misses nothing.
+# The level comes from tc100_rtsp (src/tc100rtsp, -S /var/run/sound_level, started by
+# v3/linux66-sd/rtsp-launch.sh; written when sound_detection.conf has ENABLE=1): it
+# measures every second of the microphone PCM and counts the seconds at or above the
+# threshold, so polling every INTERVAL seconds misses nothing.
 # The previous implementation read /dev/voice or /dev/dsp, which do not exist
 # on the AK3918 (the microphone is /dev/akpcm_cdev0 behind ak_ai), and then
 # fell back to a "shim mode" that reported a level above the threshold.

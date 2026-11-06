@@ -7,7 +7,7 @@ alsa-utils, iw. Kernel and bootloader are not built here.
 - `configs/tc100_defconfig`: the configuration. `board/tc100/busybox.fragment`: extra BusyBox applets.
   `board/tc100/post-build.sh`: size trimming, locked root password, empty Wi-Fi config.
 - CI: `.github/workflows/build-base-rootfs.yml` (called by the kernel workflow). Output: `rootfs.cpio.gz`,
-  uploaded as the artifact `tc100-base-rootfs`; `v3/build-rootfs66.sh` takes it as input (`v3/build-flash-rootfs66.sh`, an early draft, is in `_archive_v3-drafts/`).
+  uploaded as the artifact `tc100-base-rootfs`; `v3/build-rootfs66.sh` takes it as input (an early draft, `v3/build-flash-rootfs66.sh`, was removed on 2026-11-06; the git history keeps it).
 - Local build: `git clone --branch 2024.02.9 https://github.com/buildroot/buildroot; make -C buildroot BR2_EXTERNAL=$PWD/v3/buildroot O=$PWD/out tc100_defconfig && make -C buildroot O=$PWD/out`.
 
 ## Slim base (2026-10-30 audit)

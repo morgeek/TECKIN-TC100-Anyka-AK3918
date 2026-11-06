@@ -1,9 +1,9 @@
 /*
  * netacl.c — which addresses may connect to the camera's servers.
  *
- * Loaded with LD_PRELOAD into lighttpd, telnetd and the FTP server
- * (lib/libnetacl.so), and built into libtc100fix.so for the video process
- * (both RTSP servers). The kernel has no packet filter (no iptables), so the
+ * Loaded with LD_PRELOAD into telnetd and the FTP server (lib/libnetacl.so,
+ * scripts/common_functions.sh); httpfront and tc100_rtsp apply the same list
+ * (TC100_NET_ALLOW) themselves. The kernel has no packet filter (no iptables), so the
  * check is done where connections are accepted:
  *
  *   TC100_NET_ALLOW="10.0.0.0/8 192.168.0.0/16 ..."

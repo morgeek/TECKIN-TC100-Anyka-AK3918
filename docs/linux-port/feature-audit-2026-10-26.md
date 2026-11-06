@@ -1,3 +1,5 @@
+> Historical (state of 2026-10-26); current: [a-faire-implementeur.md](a-faire-implementeur.md), [audit-2026-11-06.md](audit-2026-11-06.md), [internals.md](internals.md) (flash layout).
+
 # 3.0 feature audit (2026-10-26)
 
 Static check of every user-facing feature of the 3.0 flash build (Linux 6.6), and of features implemented twice.
@@ -17,7 +19,7 @@ the author's SD card, which the flash image is built from (see problem 2).
 | 2. image built from the card | fixed: `v3/build-stack.sh` + `v3/build-release.sh` from git and CI only; vendor libraries come from each camera (`vendor` partition); see `install-3.0.md` |
 | 3. Wi-Fi from the UI lost | fixed: `config/wpa_supplicant.conf` + `wifi-apply`; scan through `iw` / `wpa_cli` |
 | 4. IR-cut never moves | coded: GPIO 593 / 592 pulse in the `setconf` shim; direction to check on the camera |
-| 5. second flash writer | fixed: `flash-update66.sh` archived, `flashw -m/-b`, `flash-code.sh` refuses the 6.6 layout |
+| 5. second flash writer | fixed: `flash-update66.sh` archived (since removed), `flashw -m/-b`, `flash-code.sh` refuses the 6.6 layout |
 | 6. settings persistence gaps | fixed: `config/.cfg-deleted`, "Settings not saved" badge |
 | 7. pages of missing features | each page works on 3.0 or is hidden with a note (section "Web UI on 3.0" below); ONVIF on HTTP, real sub-stream |
 
@@ -30,7 +32,7 @@ Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux
    asks for a password (2.x had lighttpd `mod_auth`). Anyone on the network can change settings and the password,
    read the configuration (MQTT password included) and download the bootloader dump (`dumpbootloader.cgi`).
    `state.cgi` gives the CSRF token to any caller, so CSRF does not protect either. RTSP has its own login.
-2. **The flash image cannot be rebuilt from git.** `v3/linux66-sd/build-slim-stack.sh` packs a tar of the SD card,
+2. **The flash image cannot be rebuilt from git.** `v3/linux66-sd/build-slim-stack.sh` (since removed) packs a tar of the SD card,
    and the 6.6 versions of several files exist only there:
    - `controlscripts/rtsp-h26x` in git is the 2.x script (starts `v4l2rtspserver`, not shipped): the "Apply" buttons
      of the video page would stop RTSP until a reboot. The 6.6 one is `v3/linux66-sd/rtsp-h26x`.
@@ -49,7 +51,7 @@ Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux
 4. **The IR-cut filter probably never moves.** The `setconf` shim only writes `/var/run/ircut`
    (`v3/linux66-sd/setconf:29`); nothing pulses GPIO 81/80 (592/593 on 6.6). The 6.6 pulse of a997fda was lost in the
    same merge. To check on the camera.
-5. **A second flash writer is shipped.** `v3/flash-update66.sh` (in the stack through `cp -a v3`) runs `flashcp` on
+5. **A second flash writer is shipped.** `v3/flash-update66.sh` (since removed; in the stack through `cp -a v3`) runs `flashcp` on
    `kernel` without `flashw` (dry run unless `--write`). `scripts/flash-code.sh` writes from 0x160000 of mtdblock1,
    which on 6.6 is inside the Linux kernel; it refuses only because it looks for the partition name `"KERNEL"` in
    capitals (`flash-code.sh:94`), and `update.cgi` can call it.
@@ -104,7 +106,7 @@ Sub-stream, recorder (fragmented MP4), sound level and motion zones: `docs/linux
 | Network watchdogs | — | `network-monitor` and `scripts/net-guard.sh` both reboot on network loss; `wifi-client.sh`, `wifi-txt.sh` 2.x only | keep `network-monitor` |
 | Service restarters | busybox hardware watchdog, `health-snapshot`, `service-watchdog.sh` | `memory-guard` restarter overlaps `service-watchdog.sh`; `health-probe.sh` | one restarter, covering `tc100_rtsp` |
 | SD card info | — (nothing writes `/tmp/sd-card` on 6.6) | `sd-card.sh`, `sd-health.sh`, `rec-storage.sh`, `storage-cleanup.sh` 2.x only; `sdinfo-sd.sh` card only | wire `sdinfo-sd.sh` from `action.d/storage.sh` |
-| Flash install / update | `build-slim-stack.sh`, `flashw`, `flashmode-prep.sh`, `cfg-persist` | 6.6 drafts `v3/build-rootfs66.sh`, `v3/flash-update66.sh`; 2.x `flash-install.sh`, `flash-code.sh`, `flash-usr.sh`, `flashboot.sh`, `fw-update.sh`, `usr-update.sh`, `update.cgi`, `flashinstall.cgi` | archive the drafts; keep 2.x files out of the flash image |
+| Flash install / update | `build-slim-stack.sh` (since removed), `flashw`, `flashmode-prep.sh`, `cfg-persist` | 6.6 drafts `v3/build-rootfs66.sh`, `v3/flash-update66.sh` (since removed); 2.x `flash-install.sh`, `flash-code.sh`, `flash-usr.sh`, `flashboot.sh`, `fw-update.sh`, `usr-update.sh`, `update.cgi`, `flashinstall.cgi` | archive the drafts; keep 2.x files out of the flash image |
 | Config export / import | `configbackup.cgi`, `config_exchange.cgi`, `conf-export/import.cgi`, LKG profiles | four mechanisms | keep `config_exchange.cgi` (+ raw editor) |
 | Web server | `httpfront` + busybox `httpd` | 2.x `lighttpd`, `web-server` script, 4 `lighttpd*.dist`, `www/http-redirect/` shipped but unused | keep out of the flash image; hide `web-server` on the Services page |
 | System info CGIs | `state.cgi` (hub), `dash.cgi`, `stability.cgi` | `sysusageinfo.cgi`, `health.cgi`, `devinfo.cgi`, `diagnostics.html` repeat it | merge into `state.cgi` and the dashboard |
@@ -121,7 +123,7 @@ The squashfs is 3.2 MiB in a 3.7 MiB partition. Shipped but unused on 3.0 (xz si
 ### Elsewhere in the repository (not in the flash image)
 
 `contrib/openipc_sd_kit/` (Linux 4.4 kit, superseded by the CI artifacts; since removed from the tree), `thingino_port/`, `src/tc100_streamer`
-(identical to `bin/tc100_streamer`), `src/venctest`, `tests/venctrace`: bring-up material, candidates for an
+(identical to `bin/tc100_streamer`), `src/venctest`, `tests/venctrace` (both since removed): bring-up material, candidates for an
 `_archive_*` folder (renamed, not deleted).
 
 ## Web UI on 3.0 (2026-10-26, second pass, static: not yet run on the camera)

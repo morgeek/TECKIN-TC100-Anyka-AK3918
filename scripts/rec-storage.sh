@@ -1,5 +1,5 @@
 #!/bin/sh
-# rec-storage.sh — where the local backup recording (libtc100fix, src/tc100fix/rec.c)
+# rec-storage.sh — where the local backup recording (tc100_rtsp, src/tc100rtsp/rec.c)
 # writes, and safe removal of the card.
 #
 #   rec-storage.sh dir      print the recording directory, mounting the card

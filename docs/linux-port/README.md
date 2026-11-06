@@ -1,15 +1,15 @@
 # Linux for the TC100 (AK3918EV300): the 3.0 work
 
 Everything about running this camera on a free, recent kernel, in one place: the Linux 6.6 port, the
-video fixes on 4.4, the encoder work, the V3 user space, and the OpenIPC and Thingino experiments.
+encoder work and the V3 user space (the 4.4 video fixes and the OpenIPC and Thingino experiments are in [history.md](history.md)).
 **Nothing here is part of a 2.x release.** Until 2026-10-23 all tests ran from RAM (kernel loaded from the SD
 card by the stock U-Boot) with the flash untouched; since 2026-10-24 the author's camera runs 3.0 from the SPI
-flash (see [the flash install](flash-install-plan-2026-10-24.md)). Goal: a free firmware on a recent kernel,
+flash (see [install-3.0.md](install-3.0.md) and the flash layout in [internals.md](internals.md), section "Flash layout of 3.0"). Goal: a free firmware on a recent kernel,
 with the V3 web interface, H.264 and H.265.
 
 Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-board) · [Building the 6.6 kernel](#building-the-66-kernel) ·
 [Video encoder](#video-encoder-h264--h265--jpeg) · [User space](#user-space-on-66) · [Test loop](#test-loop-no-flash-writes-no-sd-swap) ·
-[Linux 4.4 video fixes](#linux-44-what-was-needed-for-frames) · [OpenIPC](#openipc) · [Thingino](#thingino) · [Open items](#open-items)
+[History and open items](#history-and-open-items)
 
 ## Status
 
@@ -22,11 +22,11 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | GPIO (3 banks), LEDs, IR LEDs, IR-cut | works |
 | I2C (`i2c-ak39`) | works: JX-F23 answers (id 0x0F23) |
 | Video: V4L2 / vb2-dma-contig driver `ak39_vi` + the 4.4 ISP core | works: 1920x1080 NV12, 25 fps, real colours, AE running |
-| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker: push-to-talk and RTSP two-way audio through `aplay` (host-tested, not yet on the camera) |
+| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker: works (push-to-talk, sounds, chimes through `aplay`); RTSP two-way audio (ONVIF backchannel) is implemented but not yet checked end to end from go2rtc / Frigate / Home Assistant (audit 2026-11-06, F1) |
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
-| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. 640x360 sub-stream on `video1_unicast` / `ch1` / `sub` (2026-10-26, not yet run on the camera); RTSP over UDP and the audio track not yet checked from a client |
-| V3 user space on 6.6 (`v3/`) | works: web UI, ONVIF, recording, MQTT bridge, day / night, motion (Home Assistant entities to be confirmed). Web login (busybox httpd Basic Auth plus a CSRF token) and Wi-Fi from the UI exist. Gaps (IR-cut, 2.x pages): [feature audit](feature-audit-2026-10-26.md) |
+| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default, H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Encoding goes through the vendor control libraries (`libmpi_venc_ex`, `libakv_encode`) on the free driver. 640x360 sub-stream on `video1_unicast` / `ch1` / `sub`; RTSP over UDP and the audio track from a client: see [test-queue.md](test-queue.md) |
+| V3 user space on 6.6 (`v3/`) | works (3.0.1-rc31, two cameras from the flash): web UI (Pico look by default), login with CSRF token, Wi-Fi from the UI, ONVIF, recording, MQTT bridge, day / night, motion, WebRTC, web update. The gaps of the 2026-10-26 feature audit were mostly closed in the release candidates (it is historical); what is still open: [a-faire-implementeur.md](a-faire-implementeur.md), [audit-2026-11-06.md](audit-2026-11-06.md) |
 | SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
 | Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
 
@@ -111,7 +111,7 @@ Kept from 4.4: the ISP core (`ak39_isp2*.c`, `ispdrv_interface.c`), `/dev/isp_ch
    frames word for word, **offline only**; not yet driving the hardware. Then P frames and reference management.
 4. Remove `libmpi_venc` and `libakv_encode`: not started.
 
-Tracing tool: `libtc100fix` records the vendor encoder's hardware accesses (`VENC_TRACE=/tmp/<name>` in `boot.conf`, then restart `rtsp-h26x` in the background over telnet, never through a 60 s CGI call). The traces are vendor-derived data and stay out of git.
+Tracing tool (2.x branch only, not in `main`): `libtc100fix` records the vendor encoder's hardware accesses (`VENC_TRACE=/tmp/<name>` in `boot.conf`, then restart `rtsp-h26x` in the background over telnet, never through a 60 s CGI call). The traces are vendor-derived data and stay out of git.
 
 ## User space on 6.6
 
@@ -128,7 +128,7 @@ Tracing tool: `libtc100fix` records the vendor encoder's hardware accesses (`VEN
   Without the encoder stack (no vendor libraries, no `/dev/uio0`) there is no video; the web UI still starts.
 - `v3/linux66-sd/`: glue between the web UI / scripts and the free stack (`rtsp-launch.sh`, `sdinfo-sd.sh`,
   `web-auth`, `wifi-apply`, `net-apply`), the flash tools (`flashw`, `cfg-persist`, `flashmode-prep.sh`). Its README
-  lists what is not available on this stack. The RTSP control script is `controlscripts/rtsp-h26x`, the IR-cut and
+  is an inventory of the folder. The RTSP control script is `controlscripts/rtsp-h26x`, the IR-cut and
   LED helper `bin/setconf` (both shell scripts).
 - `v3/build-rootfs66.sh [in] [out]`: builds the 6.6 initramfs from our Buildroot base (`v3/buildroot/`, built by CI) (replaces the boot script, drops the 4.4 modules, locks the image's default root password). About 2.5 MB unpacked instead of 6.9 MB: only what the boot needs stays (busybox, musl, wpa_supplicant + libnl, init scripts); the ALSA tools and libasound, dropbear (`v3/S50dropbear-linux66`), libz, libgcc_s and libatomic live in `ext/` of the user space (links and the musl path file in the initramfs find them, see test-queue B-01). Needs root.
 
@@ -138,196 +138,11 @@ Build `uImage` = zImage + `ak3918ev300-tc100.dtb` (`mkimage -A arm -O linux -T k
 
 Since the flash install the U-Boot `bootcmd` is `run sdload sdboot; run flashboot; run boot_normal`: a card with `tc100test/c66.img` boots the SD kernel first (development and the way back), otherwise the flash system starts. A test kernel on the card therefore still needs no flash write. Flash writes go only through `v3/linux66-sd/flashw` (allow-list, read-back check), after a dump, one partition at a time; `boot`, `mac` and `env` are never written from Linux.
 
-## Linux 4.4: what was needed for frames
+## History and open items
 
-Found by comparing register dumps taken while the stock 3.4 firmware was streaming against the 4.4 kernel. The patch is `linux-4.4-isp-video.patch` (4 files against OpenIPC/linux `anyka-tc100-fixes` 5b87a69).
-
-1. **SYSCTRL 0x78 bits 19-24 must be clear.** The device-tree MIPI pin groups are the EV330 ones and set them on EV300; with them set the ISP never gets a frame. `REG32(AK_VA_SYSCTRL + 0x78) &= ~0x01F80000;` after the pinctrl select.
-2. **JX-F23 MIPI:** 2 lanes, 768 Mbps, THS-SETTLE = the plain index 9 (D-PHY 0x40/0x60/0x80 = 0x89).
-3. **Sensor init:** wait 10 ms after writes to register 0x12 (soft reset), otherwise most of the list is lost.
-4. **ISP lifecycle:** `ak_camera` acquires and prepares the ISP core itself, and releases it on close so the next open re-runs the sensor init. The ISP soft reset (SYSCTRL 0x20 bit 19) comes right after the CIS sclk, only when the core is down.
-5. **Tuning validator:** the real vendor files are the `4.003` layout (modules 1128 / 38 bytes) with fewer styles stored than the header count; the patch accepts them.
-
-## OpenIPC
-
-[OpenIPC](https://openipc.org) is the reference open firmware for IP cameras; it does not support this camera. What was learnt about it was shared in [OpenIPC/firmware#2639](https://github.com/OpenIPC/firmware/issues/2639) and in [the camera report](https://openipc.org/cameras/report/?id=r-rxh32hs4).
-
-**Findings on the OpenIPC Linux 4.4.302 kernel, in RAM** (`docs/openipc/`, collected over the Pico 2 serial bridge):
-`01-system-info.txt` (kernel, command line, cpuinfo, meminfo, mtd, iomem, interrupts), `02-dmesg-full.log` (boot log), `03-gpio-pinctrl.txt`, `04-i2c-sensor-video.txt`, `05-usb-wifi.txt`, `06-audio.txt`, `07-mmc-storage.txt`, `devicetree.dts` (decompiled device tree of the running kernel) and `devicetree.tar.gz`.
-- `/dev/video0` appears with the OpenIPC kernel (`ak_camera`, `20000000.isp`, JX-F23 at I2C-0 0x40), with a 24 MiB capture pool at 0x81400000; real frames needed the fixes above.
-- The generic `r8188eu` driver binds the RTL8188FU but the radio never locks (0 scan results); the dedicated `8188fu` driver (workflow `build-wifi-driver.yml`, `docs/openipc/8188fu.ko.gz`) works on 4.4. On 6.6 the mainline `rtl8xxxu` does it.
-- Audio: ALSA driver `akpcm` registers; speaker amplifier gate on GPIO 14 (the report said 79, see the warning above).
-
-**The SD boot kit** (the `contrib/openipc_sd_kit/` folder is no longer in the tree, see the git history; historical, not used by the build): `tc100test/oipc.img` (Linux 4.4 uImage), `oipcrd.gz` (musl initramfs, loaded at 0x80900000 so that the ISP's 24 MiB pool at 0x81400000 is not overwritten), `uEnv.txt`, and the tools used over the serial bridge. Its README describes a persistent dual boot written into U-Boot's environment; **for tests the RAM-only loop above is enough and writes nothing**. If you do write the environment, keep the stock `boot_normal` fallback and the SD recovery of the stock U-Boot in mind. No Wi-Fi credentials are in the initramfs: they come from `tc100test/wpa_supplicant.conf` on the card.
-
-## Thingino
-
-History (the folder was removed on 2026-10-27, 49a2485; 3.0 serves RTSP with its own `tc100_rtsp`): `thingino_port/` held a first Board Support Package for [Thingino](https://github.com/themactep/thingino-firmware): SoC rules (`soc/anyka/ak3918.mk`), Buildroot fragments and a camera config for the TC100 (`configs/`), two Thingino patches (`patches/`: add the Anyka vendor, disable gpio-keys), a known-good 4.4 kernel config (`kernel/`), and packages (`package/thingino-rtsp-server`, `package/thingino-webui`).
-
-- `thingino-rtsp-server` (static ELF, about 80 KB, about 1 MB of RAM): RTSP/1.0 with CSeq tracking, SDP, RTP over TCP interleaved and UDP, RFC 2435 JPEG streams. It was the RTSP server of the first V3 builds on 6.6. Options: `-p port`, `-u user -P password` or `-c config` with `port=`, `username=`, `password=`.
-- The Thingino WebUI previews through multipart MJPEG (`cgi-bin/ch0.mjpg`) and JPEG snapshots (`cgi-bin/ch0.jpg`); RTSP paths are `/ch0` and `/ch1`.
-- The camera config (`thingino.json`, defconfig) now carries the verified values: GPIO table above (IR LEDs 19, IR-cut 81/80, LEDs 15/47, button 10, speaker 14, not tested), sensor at I2C 0x40, 28 MiB ISP window, 8 MB flash. The boot offsets (`uboot_env_offset`) are still unverified.
-- The same RAM-placement rule applies: a root file system loaded inside the ISP pool is wiped during early boot.
-
-## Open items
-
-Done on 2026-10-26 (3.0.1-rc1, not yet run on a camera): web login, Wi-Fi from the UI, one flash writer, the image
-built from git with a `vendor` partition and an install from the stock or 2.x firmware without a serial console,
-one-click install from the wizard, web updates, sub-stream, MP4 recorder, and every web page on 3.0 (details and what
-is hidden: [feature-audit-2026-10-26.md](feature-audit-2026-10-26.md), install: [install-3.0.md](install-3.0.md)).
-
-On the camera, in this order:
-1. The stock-firmware hook on a second camera (2.x in flash, no serial console): `tc100-3/STATUS.txt`,
-   `camera.txt`, the U-Boot environment written (`env-3.0.txt`), then the start from the card (`flashcheck` with
-   `mw.b` / `cmp.b` must fail before the install).
-2. Trial mode: web login, wizard, Wi-Fi carried over, video, sub-stream (both encoders in the 12 MiB pool).
-3. One-click install, the start from flash, then a web update.
-4. IR-cut direction, speaker and amplifier level (device tree `speak-gpios-en`), reset button (GPIO 10 at 1 when
-   released), rescue access point, `cfg-persist` deletions across a reboot, the RTSP restarter.
-5. Recorder (MP4 + thumbnails), sound level, motion zones; RTSP over UDP, audio in Frigate / VLC, MQTT entities in
-   Home Assistant; ISP colour cast (blue is low); day/night thresholds under IR light.
-
-Also: fill `v3/install/known-stock.txt` with the U-Boot and stock root md5 of the author's dump; check the CI run
-(`tc100-3-release`); smaller flash image (busybox uClibc); encoder: `AK39_VI_G_PHYS` instead of a copy
-per frame, free H.265 on the hardware.
-
-## H.265 command list and self-test (2026-10-22)
-
-- `src/h265enc/cmdlist.py` decodes and encodes the 112-word command list of the H.265 encoder and regenerates it: 0 different words over the 40 recorded frames (`python3 src/h265enc/cmdlist.py`).
-- `src/h265enc/hwseq.py` models the register write sequence (H.265 clock `v | 0x8e00`) and compares it with the traces: 34/34 and 40/41 cycles.
-- Still unknown: where the picture / stream sizes come from. (The physical addresses of the V4L2 buffers are available through `AK39_VI_G_PHYS`, see below.)
-- `v3/selftest66.sh`: self-test run at boot when `tc100test/selftest` exists on the card (Wi-Fi, video, audio, uio0; hardware JPEG when `tc100test/selftest-jpeg` exists). Log: `tc100test/selftest-N.log`.
-- CI (`build-kernel-linux66.yml`) produces the `tc100test/` folder ready to copy (oipc.img, oipcrd66.gz, jpegenc, libakuio.so, selftest66.sh, README-TEST.txt, md5sums.txt).
-
-## Encoder access without copies (2026-10-22)
-
-- `ak39_vi` has a private ioctl `AK39_VI_G_PHYS` (`include/uapi/linux/ak39_vi.h`): given a buffer index it returns the physical address of the Y and UV planes and the size, so the encoder can read a captured frame in place. It is in patch 0006 of the series. `tc100_rtsp` does not use it yet: it copies each captured frame into the encoder pool (one 3 MB `memcpy` per frame).
-- `tests/check_akuio_symbols.py VENDOR_LIB_DIR` checks that every `akuio_*` symbol imported by the vendor libraries (`libmpi_venc`, `libplat_vi`, `libplat_venc_cb`, `libmpi_osd`) is exported by the free `libakuio`: all of them are. A run under qemu was not done: the vendor libraries need uClibc and the free library is built for glibc.
-- The old `linux-6.6-ak3918-step*.patch` files are removed; the series in `patches/kernel-6.6/series/` is the only source.
-
-## First boot of the slim 6.6 kernel with the Buildroot base (2026-10-22)
-
-Booted from RAM (U-Boot `bootm`, nothing written to flash) with `oipc.img` (1.8 MB) and the
-test initramfs built from `v3/buildroot`:
-
-| Check | Result |
-|---|---|
-| Kernel, DT, serial console, SD card (FAT), USB host | ok |
-| Wi-Fi RTL8188FU (`rtl8xxxu`), WPA2, DHCP (`udhcpc`) | ok, the gateway answers |
-| Sensor F23 over MIPI, `/dev/video0` | registered, streamer starts |
-| Audio codec (`akpcm`) | card present |
-| Encoder access `/dev/uio0` (`ak39_venc`) | ok after the pool fix below |
-| Hardware JPEG (`jpegenc --run`) | the core answers (IRQ, length, EOI) but the stream is **not yet valid**: see below |
-
-**RAM budget.** With the 28 MiB CMA pool and the 12 MiB encoder pool only about 15 MB are left for
-Linux (`Memory: 16480K/65536K available`). The unpacked initramfs must stay below ~7 MB (a first
-8.5 MB image ended in an out-of-memory panic while unpacking), so `v3/initramfs-prune.txt` strips
-curl, jq, mbedtls, ncurses, `iw` and friends from the **RAM test image only**; the flash squashfs
-keeps them. Do not prune `usr/share/udhcpc` (no DHCP without it) or `usr/share/alsa/alsa.conf`.
-
-**Encoder pool.** The 12 MiB `no-map` region cannot come from `dma_alloc_wc()` (the allocator rounds
-the request up to 16 MiB, bigger than the region). `ak39_venc` now `memremap()`s the reserved region
-(write-combined) and maps it to user space the same way.
-
-**JPEG: the hardware core now produces valid pictures.** The table block (quantisation, reciprocals,
-Huffman words) belongs in the *table buffer*, control word 6 (register 0x3d8), and not at the start of
-the output buffer (word 7, 0x3dc) as first assumed. With the block in the wrong place the core read
-nothing and fell back to whatever its internal RAM held: a header with junk DQT/DHT bodies and a
-40-bit-per-MCU scan (zeroing the block changed nothing, which is how this was found). With the block
-at word 6 the core writes a complete, standard JFIF file by itself: the DQT are the quality-35 tables,
-the DHT the standard ones, a grey frame gives the textbook `28 a2 8a 00` scan, and a real 1920x1080
-frame decodes to the picture (116 KB at quality 35, no software header needed). Free JPEG
-encoding on the hardware core works from user space (`src/jpegenc`, `/dev/uio0`).
-
-## tc100_rtsp: sub-stream, sound level, motion zones, recorder (2026-10-26)
-
-Written and tested on the host only (`python3 tests/test_tc100rtsp.py`); not yet run on the camera.
-
-- **Sub-stream:** a second encoder channel, 640x360, same frame rate, fed from the scaled picture that also makes
-  `stream.jpg`. Codec and bit rate from `rtspserver.conf` `[1] codec` (0 H.264, 2 H.265) and `[1] bps`; off with
-  `RTSP_SUBSTREAM=0` in `boot.conf` (launcher flag `-s 0`). Paths containing `video1` (`video1`, `video1_unicast`) or
-  starting with `/ch1` or `/sub` serve it; every other path the main stream. Encoder fields as the vendor server
-  (`AnykaCameraManager::getVideoEncodeParams`): channel 1, group 2 (`RTSP_SUB_CHN`, `RTSP_SUB_GROUP` in
-  `config/rtsp.env` override). The log shows the pool use after each open; if the sub-stream does not open, or later
-  gives no frames, its paths serve the main stream.
-- **Sound level:** with `ENABLE=1` in `config/sound_detection.conf`, `/var/run/sound_level` is rewritten 4 times a
-  second in the 2.x format `<epoch> <rms_dbfs> <peak_dbfs> <events> <last_event_epoch> <last_event_dbfs>` (RMS and peak
-  of the last 0.25 s around the mean; an event per second whose RMS reaches `<file>.threshold`). `arecord` runs only
-  while an audio client plays or the sound detection is on.
-- **Motion:** on while `/tmp/tc100_md` exists and `mdenabled` is not 0; sensitivity from `/tmp/tc100_md_sens` or
-  `mdsens`; the zones of `config/motion_zones.conf` (`MDZ1..4="x1,y1,x2,y2"`, percent) are left out of the 64x36 luma
-  grid (2.x `md.c` rule: a cell is ignored when its centre lies in a zone). `/tmp/rec_control` as before;
-  `/var/run/md_zones` holds the 2.x status line. The boot starts it only when `mdenabled=1` or
-  `config/autostart/motion-detection` exists.
-- **Recorder** (`src/tc100rtsp/rec.c`, no ffmpeg): the encoded frames go into fragmented MP4 files (the 2.x writer of `src/tc100fix/rec.c`, one fragment a second: a cut file plays up to its last second)
-  `/mnt/DCIM/YYYY-MM-DD_HH-MM-SS.mp4` (the name the Recordings page lists) with a hardware-JPEG thumbnail
-  `YYYY-MM-DD_HH-MM-SS.jpg` of the first keyframe next to each. Settings of `boot.conf`, read while running:
-  `REC_LOCAL`, `REC_WHEN=offline|always|motion`, `REC_STREAM=main|sub`, `REC_SEGMENT_SEC`, `REC_RESERVE_MB`,
-  `REC_OFFLINE_SEC`, `REC_POSTROLL_SEC`, `REC_CLIENT` (else the host of `FRIGATE_URL`). Only into a vfat/exfat card;
-  the oldest recordings are deleted to keep `REC_RESERVE_MB` free; `/var/run/tc100rec.pause` (`rec-storage.sh eject`)
-  closes the file and leaves the card alone; state in `/var/run/tc100rec`. Card I/O runs in a writer thread so a slow
-  card never stalls the capture loop. `controlscripts/recording start|stop` sets `REC_LOCAL`.
-
-### tc100_rtsp: sound in recordings, Listen, two-way audio, encoder library (host-tested only, not yet run on the camera)
-
-- **Sound in recordings** (`REC_AUDIO=1` in `boot.conf`, default 1): the MP4 gets a second track, G.711 A-law, 8000 Hz mono (sample
-  entry `alaw`, what ffmpeg reads), one `traf` per track in every `moof`. The 160-byte A-law chunks the RTSP audio track already
-  makes are queued next to the frames (`rec_audio`); the track is a running sample count placed on the video clock at the start
-  of the file and after a hole (a hole up to 2 s is filled with silence), so file and RTSP audio are the same bytes.
-  `RTSP_REC_AAC=1` (`rtsp.env`, default off) turns that track into AAC-LC (`mp4a` + `esds`, `aacenc.c`: own fixed-point encoder,
-  1024-sample frames, about 24 kbit/s, `RTSP_REC_AAC_KBPS` 8-48): the same A-law chunks are expanded to 16 bits and encoded, the
-  first access unit is stamped one frame early (the MDCT overlap) so that the sound stays on the video clock; browsers play it.
-  The microphone (arecord) runs while the recorder is on and the card usable. ffprobe/ffmpeg decode both tracks and the sound
-  stays on the video clock (test: silence markers within 20 ms). In headless Chromium a `<video>` with an `alaw` track plays its
-  video normally (checked with VP9 files, Chromium of Playwright has no H.264); the sound itself is not decoded by browsers, VLC plays it.
-  `/var/run/tc100rec` gets `audio=alaw|off`, `asamples=`.
-- **Listen in the browser:** `audio_stream.cgi` makes `/tmp/tc100_listen/<pid>.fifo` and runs `cat` on it after a WAV header;
-  tc100_rtsp (`alisten.c`) opens it read-write and non-blocking and writes the microphone PCM (S16_LE, 8 kHz, mono) from the
-  capture loop (drop when full, at most 3 listeners, 60 s, closed when 1.5 s of sound stays unread or the FIFO is removed).
-  The microphone runs while a listener exists (10 s grace), also with `-a 0`. 503 when tc100_rtsp is not running and arecord is busy.
-- **Two-way audio:** `RTSP_LITE_TALK` (default 1) and the RTSP password required. A client sending `Require: www.onvif.org/ver20/backchannel`
-  gets a second `m=audio` (`PCMA/8000`, `a=control:track3`, `a=sendonly`). RTP from it (TCP interleaved on the channel given at SETUP, or UDP to
-  port 5004 from the client address) is decoded to S16 and written to `sh scripts/speaker-play.sh -` (aplay `plughw:0,0`, volume
-  `pttvolume.conf`, amplifier GPIO), started on the first packet and closed 2 s after the last. One talker at a time (3 s of silence
-  before another may take over). `speaker-play.sh` holds `/tmp/speaker-play.lock`: while a push-to-talk clip plays the talk is dropped
-  (retry after 2 s), while a client talks `upload_audio.cgi` answers 429 BUSY. A client that sets up only the backchannel gets no video.
-- **Encoder library:** `libmpi_venc_ex.so`, else `libmpi_venc.so`, from the library directory; the log says which and prints `ak_venc_get_version()` when exported.
-- **Host tests:** `make test_rtsp` builds the whole server without camera or encoder (`-DTC100_HOST_TEST`); `tests/test_tc100rtsp.py` runs it with a fake
-  `arecord` and `aplay` (RTSP audio track, backchannel over TCP and UDP, locks, listeners, the CGI).
-
-### tc100_rtsp: live video in the browser (host-tested, ffprobe and Chromium checked, not yet run on the camera)
-
-The live view of the web UI had only JPEG snapshots. It now plays the H.264 stream the camera already encodes, packed as fragmented
-MP4 and played with Media Source Extensions: no re-encoding, little CPU.
-
-- **Transport (as Listen):** `www/cgi-bin/live.cgi` makes `/tmp/tc100_live/<pid>.fifo` and runs `cat` on it after a
-  `Content-Type: video/mp4`, `Cache-Control: no-store` header; tc100_rtsp (`livemp4.c`) finds it twice a second, opens it
-  read-write and non-blocking and writes into it from the capture loop. `live.cgi?info=1` gives the page a small JSON
-  (`{"ok":1,"stream":"sub","codec":"avc1.42c01e","width":640,"height":360}`) read from `/tmp/tc100_live/status`, which tc100_rtsp
-  rewrites when the live stream or its SPS changes. 415: neither stream is H.264 (the page keeps the JPEG view); 503: tc100_rtsp not
-  running, SPS not known yet, or two viewers already.
-- **Stream:** the 640x360 sub-stream when its codec is H.264 (`rtspserver.conf` `[1] codec 0`, the default), else the main stream when
-  it is H.264, else 415. The encoder of that stream runs while a viewer exists (`live_wants()` next to the RTSP clients and the
-  recorder in the `want` test of the capture loop) and stops when the last one leaves.
-- **Muxing:** the init segment (ftyp + moov with avcC from the SPS/PPS of the first IDR) then one moof + mdat per frame, from the next IDR
-  on. The box writers and the SPS parser moved out of `rec.c` into `mp4box.c` (names prefixed `mp4_`); the recorder's files are byte for
-  byte what they were (checked old against new on H.264 and H.265, with and without sound). Sequence numbers from 1, decode times from the
-  frame timestamps relative to the viewer's first frame, a frame lasts as long as the one before it. Video only (A-law is not played by
-  browsers).
-- **Limits:** 2 viewers; dropped when its FIFO is removed, when it has read nothing for 1.5 s (bytes written minus bytes still in the FIFO),
-  when no keyframe came for 10 s, when the SPS changes, or after 10 min (`TC100_LIVE_SECONDS`); the page reconnects. What the FIFO does not
-  take waits in at most 256 KB per viewer; beyond that frames are skipped until the next keyframe with the time line kept continuous. The
-  capture loop never blocks.
-- **Page** (`src/webui/index/30-live-view.js`, "Video / Snapshots" switch next to Resume Live, remembered in `localStorage` key
-  `tc100.liveMode`): Video when `MediaSource.isTypeSupported('video/mp4; codecs="avc1.PPCCLL"')` for the codec of `info=1`; a `<video muted
-  autoplay playsinline>` fed by `fetch()` + `ReadableStream` into a `SourceBuffer`; twice a second it jumps to 0.2 s before the newest frame
-  when more than 1 s behind (and plays at 1.1x from 0.5 s), buffer older than 10 s is removed. It stops when the page is hidden or off screen
-  or paused, reconnects when the stream ends (10 min) or breaks (3 tries), then falls back to snapshots (2 min; 10 min for 415 or a profile
-  the browser cannot play). Without Media Source Extensions the switch is hidden and nothing changes. Fallback order: camera video, then
-  snapshots. The "Smooth live" (Frigate) button stays as it was: it opens Frigate in another tab, so it cannot be a source inside the page.
-- **Latency:** about the keyframe wait at start (up to one GOP when another client already keeps the encoder running, at once otherwise) plus
-  the browser's own buffer, 0.2-1 s afterwards.
-- **Tests:** `test_livemp4` (`make test_livemp4`, `tests/test_tc100rtsp.py` `LiveMux`: boxes, IDR first, sequence numbers, a real x264 stream
-  through ffprobe/ffmpeg, slow, stuck and refused viewers), `LiveServer` (host tc100_rtsp fed from a file, `live.cgi` end to end),
-  `tests/live-video.test.js` (fallbacks of the page code) and `tests/ui-browser/live-check.mjs` (headless Chromium against a fake camera: plays,
-  jumps to the live edge, pause/hidden close the connection, reconnect, fallbacks; VP9 because the Chromium of Playwright has no H.264).
+- Open items, ranked: [a-faire-implementeur.md](a-faire-implementeur.md) (priority list) and
+  [audit-2026-11-06.md](audit-2026-11-06.md) (audit of the whole project); the hand-off with the real camera is
+  [test-queue.md](test-queue.md).
+- Everything dated and finished (Linux 4.4 video fixes, OpenIPC and Thingino experiments, the H.265 command list, the
+  first boot of the slim 6.6 kernel, the first `tc100_rtsp` sub-stream / recorder / Listen / live-video notes):
+  [history.md](history.md).

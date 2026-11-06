@@ -221,7 +221,7 @@ Returns an HTML `<pre>` block with recent log contents.
 |---|---|---|
 | `logname` | `1` | System log (`/var/log/messages`) |
 | `logname` | `2` | Kernel ring buffer (`dmesg`) |
-| `logname` | `3` | v4l2rtspserver log |
+| `logname` | `3` | Video server log (`/tmp/logs/tc100_rtsp.log`) |
 
 **Response:** `text/html`
 
@@ -1767,8 +1767,9 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi?cmd=wizard_reset"
 
 ## Live image tuning (`isp_tune`)
 
-Requires `ISP_TUNE=1` in `boot.conf` (the tuning thread runs inside `v4l2rtspserver`
-via `libtc100fix.so`). Values are applied within ~2 s without restarting the stream.
+Requires `ISP_TUNE=1` in `boot.conf`. The tuning runs inside `tc100_rtsp`, which reads
+`/mnt/config/isp_tune.conf` every 2 s and applies it through the ISP (`/dev/isp_char`), so values take effect
+within ~2 s without restarting the stream (`POWER_HZ` and the privacy masks apply whatever `ISP_TUNE` is).
 
 ### GET /cgi-bin/state.cgi?cmd=isp_tune&format=json
 
@@ -2426,6 +2427,112 @@ curl -o bootloader.bin http://root:pass@192.168.1.50/cgi-bin/dumpbootloader.cgi
 
 ## Notes
 
+## Other CGIs
+
+Short entries for the CGIs the sections above do not cover. Headers are read from the scripts in `www/cgi-bin/`;
+all of them sit behind the web login. "CSRF" means the `X-CSRF-Token` header described above.
+
+### GET /cgi-bin/audio_stream.cgi[?type=mic]
+
+The microphone as an endless WAV stream (8 kHz, mono, 16 bit), for "Listen" on the main page. At most 60 s and 3
+listeners. The sound comes from `tc100_rtsp` through a FIFO in `/tmp/tc100_listen/`; if `tc100_rtsp` is not running
+the script reads the microphone with `arecord` when nothing else holds it. Answers `audio/wav`; 503 with a text
+reason when listening is not possible (no capture device, too many listeners, microphone in use). A HEAD request only
+tells whether listening is possible (200 or 503).
+
+### GET /cgi-bin/dash.cgi
+
+Raw counters for the dashboard graphs (polled every 5 s by the page, which turns them into rates). Answer
+(`application/json`): `{"up":s,"load":"x","cpu":[7 /proc/stat counters],"mem":[total_kB,available_kB],"iface":"wlan0","net":[rx_bytes,tx_bytes],"wifi":[quality,dBm],"rtsp_clients":N,"sd_health":"state"}`;
+the `wifi` entries are `null` when unknown. No parameters, no CSRF.
+
+### GET /cgi-bin/inventory.cgi[?full=1]
+
+Read-only hardware inventory of the camera (made at each start by `v3/install/inventory.sh`) and the board profile it
+matched, as `text/plain`, to paste in a GitHub issue "Hardware inventory". `full=1` runs the full inventory, which
+adds the md5 of U-Boot and reads 228 KiB of the slow flash (about 15 s).
+
+### GET /cgi-bin/live.cgi[?info=1]
+
+The live video as fragmented MP4 (`video/mp4`) for the "Video" mode of the live view (Media Source Extensions); at
+most 2 viewers, 10 minutes each. `?info=1` answers JSON `{"ok":1,"stream":"sub","codec":"avc1.42c01e","width":640,"height":360}`.
+Errors are JSON `{"ok":0,"error":"..."}`: 415 neither stream is H.264, 503 `tc100_rtsp` not running, the video is
+starting, or two viewers already. A HEAD request only tells whether the video is possible. The stream is the 640x360
+sub-stream when it is H.264, else the main stream when it is H.264.
+
+### GET /cgi-bin/metrics.cgi
+
+Prometheus text exposition (version 0.0.4); `/metrics` redirects here (`httpfront`). Metrics:
+`tc100_uptime_seconds`, `tc100_memory_{total,free,available}_bytes`, `tc100_load{1,5,15}`,
+`tc100_network_{receive,transmit}_{bytes,drops}_total`, `tc100_wifi_link_quality`, `tc100_wifi_signal_dbm`,
+`tc100_rtsp_*` (viewers, capture fps, main / sub kbps, clients playing, dropped frames), `tc100_motion_active`,
+`tc100_tamper_active`, `tc100_vox_active`, `tc100_sensor_luma`, `tc100_audio_level_dbfs`, `tc100_sdcard_*` (present,
+size, free) and `tc100_info`.
+
+### GET/POST /cgi-bin/sounds.cgi
+
+The speaker's sounds. Built-in clips are in `/mnt/sounds`; custom ones go to the SD card (`/mnt/sd/tc100-3/sounds`),
+and a custom clip with a built-in name replaces it. Clips are raw 8 kHz mono signed 16-bit little-endian PCM (the
+Settings page converts any file the browser decodes), 30 s at most (480000 bytes), even length, up to 32 files.
+
+| Request | Description |
+|---|---|
+| `GET ?cmd=list` | `{"ok":true,"sd":true,"boot":{"on":1,"name":"startup_complete"},"sounds":[{"name":"chime","builtin":1,"custom":0,"bytes":16800},...]}` |
+| `POST ?cmd=upload&name=NAME` | body: the PCM; NAME is 1-32 of `A-Z a-z 0-9 _ -` |
+| `POST ?cmd=delete&name=NAME` | removes the custom clip (the built-in one of that name is used again) |
+| `POST ?cmd=play&name=NAME` | plays it at the push-to-talk volume |
+| `POST ?cmd=playnow` | body: the PCM; played once from RAM and deleted, no card needed, nothing kept |
+| `POST ?cmd=boot&name=NAME` or `name=0` | startup sound: `BOOT_SOUND=1` and `BOOT_SOUND_NAME=NAME`, or `BOOT_SOUND=0` (silent) |
+
+Answers are JSON `{"ok":true,...}` or `{"ok":false,"error":"..."}` with a status (400, 411, 413...). The POST
+commands (`upload`, `delete`, `play`, `boot`, `playnow`) go through `mutation_guard` (`func.cgi`), which checks the
+CSRF token (`csrf_guard`), and a rate limit (20 a minute).
+
+### GET /cgi-bin/stability.cgi
+
+Downloads `tc100-stability.csv` (`text/csv`): `timestamp,uptime_s,load1,mem_available_kb,unhealthy_services`, written
+by `health-snapshot.sh` (on the card when one is mounted, else in `/mnt/log`), followed by the samples of the last
+hour still in RAM. No parameters.
+
+### GET/POST /cgi-bin/update.cgi
+
+Firmware update (Settings, Update & backup). POSTs need CSRF; answers are JSON.
+
+| Request | Description |
+|---|---|
+| `GET ?cmd=status` | `{"ok":true,"current":"3.0.1-rcNN","state":"idle\|staged\|installing","staged":"...","kind":"linux66","message":"..."}` |
+| `POST ?cmd=upload` | raw body = `tc100-<version>-update.tar` (12 MiB at most), unpacked as it arrives (card if present, else RAM) and checked; only in flash mode |
+| `POST ?cmd=install` | applies the staged package in the background (`v3/install/update66.sh apply`); the camera restarts |
+| `POST ?cmd=discard` | drops the uploaded package |
+| `POST ?cmd=rollback` | not supported on 3.0 (`unsupported`): install the previous package |
+
+Errors: `csrf_invalid`, `sd_mode`, `size`, `space`, `memory`, `upload`, `invalid`, `state`, `busy`.
+
+### GET/POST/DELETE /cgi-bin/whep.cgi
+
+WHEP endpoint of the WebRTC live view; it forwards to `tc100-whep` on 127.0.0.1:8889.
+
+| Request | Description |
+|---|---|
+| `GET` | `{"viewers":N,"max":M,...}`; 503 `{"enabled":0}` when the daemon does not run (`WHEP=0` in `boot.conf`) |
+| `POST` | body = SDP offer (12000 bytes at most, else 413); answers 201 + SDP answer + `Location: /cgi-bin/whep.cgi?stop=ID` (also 400, 415, 429, 500, 503; 502 when the daemon fails) |
+| `POST ?stop=ID` or `DELETE ?stop=ID` | ends that viewer (ID is 16 hex characters); 200, or 404 for an unknown viewer |
+
+### GET/POST /cgi-bin/flashinstall.cgi
+
+Installs the card system to the flash (Settings, Update & backup, Install to flash). POSTs need CSRF; answers are JSON.
+
+| Request | Description |
+|---|---|
+| `GET ?cmd=status` | `{"ok":true,"linux66":1,"state":"flash\|ready66\|blocked\|running\|installed","running":0,"log":"..."}` |
+| `POST ?cmd=install` | runs `v3/install/install66.sh` in the background; the camera restarts from its flash at the end. Errors: `busy`, `state` (the check failed), `csrf_invalid` |
+
+### GET /cgi-bin/cpuprofile.cgi?sec=10[&threads=1]
+
+Manual diagnostic tool, not used by the web pages: `text/plain` report of where the CPU goes
+(`scripts/cpu-profile.sh`), `sec` 3-30 s (default 10), `threads=1` per thread. One run at a time ("a profile is
+already running"). Read-only.
+
 ### Response format selection
 
 All endpoints that support both HTML and JSON responses check whether the request includes `Accept: application/json`. If so, they return JSON. Otherwise they return HTML fragments (suitable for injection into the dashboard UI). The curl examples above use `-H "Accept: application/json"` where applicable.
@@ -2473,5 +2580,5 @@ consuming this API:
   (HA discovery and availability topics are retained). `statusline` exposes
   `mqtt_last_pub_ok` (1/0/-1) so the UI can show publish health.
 
-- **`tr(1) is absent`** on the device — see the README's platform section. It
-  affects CGI internals, not this API's request/response contract.
+- **`tr(1)`**: absent on the 2.x firmware (the CGIs carry a shim); the 3.0 busybox has the applet (to check on a camera).
+  It affects CGI internals, not this API's request/response contract.

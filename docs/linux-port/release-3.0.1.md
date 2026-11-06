@@ -1,8 +1,14 @@
 # Release plan: 3.0.1 (2026-10-31)
 
-**Status (2026-11-04 night):** rc26 on main (`VERSION` 3.0.1-rc26 = rc25 + the stop fix of the MQTT bridge in C, the
-documentation pass); downloaded by the tester (`xfer26`). Open items for the tag: `a-faire-implementeur.md` (P0) and
-the lists below. Earlier: rc25 = rc24 + Wi-Fi country / earlier Wi-Fi, the MQTT bridge in C (off by default), the
+**Status (2026-11-06):** 3.0.1-rc31 on main (`VERSION` 3.0.1-rc31; details of rc28-rc31 in `CHANGELOG.md`): rc28 ran 7 h 43
+on IPCAM2 without a restart; rc29 = the two WebRTC fixes for Chrome 157; rc30 = the tester's fixes of the rc29 campaign
+(update / install halt three services instead of stopping them, syslog with forwarding, SD auto-repair guards); rc31 =
+Pico look by default, speaker sounds without an SD card, the smaller flash image, `wifi-diag`. The tag `v3.0.1` is not
+pushed yet (to check). Open items: `a-faire-implementeur.md` and `audit-2026-11-06.md`. The sections "Path" and
+"Defaults for rc15" below are historical (state of 2026-10-31); the later status lines are kept as they were.
+
+**Status of 2026-11-04 night (historical):** rc26 on main (`VERSION` 3.0.1-rc26 = rc25 + the stop fix of the MQTT bridge in C, the
+documentation pass); downloaded by the tester (`xfer26`). Earlier: rc25 = rc24 + Wi-Fi country / earlier Wi-Fi, the MQTT bridge in C (off by default), the
 fixes of the audit of 2026-11-04, the licence; kernel unchanged from rc23, initramfs changed.
 
 **Earlier status:** rc17 on main (`VERSION` 3.0.1-rc17 = the prepared 3.0.1 + the install with no click, the way back with
@@ -13,7 +19,7 @@ R15-04 (the owner's checks) were still open.
 The owner's target: at most one or two more release candidates, then the release. This page is the plan; the test
 results live in [test-queue.md](test-queue.md).
 
-## Path
+## Path (historical, 2026-10-31)
 1. **rc13** was skipped on the camera; **rc14** = rc13 + the W-NET Wi-Fi recovery + the night parameter set fix.
    The tester runs R14-01, R14-02 and the rest of R12 on rc14.
 2. **rc15**, the release candidate: the switches that passed become defaults (table below), the fixes the R12 results
@@ -26,7 +32,7 @@ results live in [test-queue.md](test-queue.md).
 Nothing in this path writes U-Boot, `boot`, `mac` or `env`. Every flash write is the usual `update66.sh` (dump first,
 `flashw` with read-back, settings kept) with the owner's agreement.
 
-## Defaults for rc15, from the R12 / R14 results
+## Defaults for rc15, from the R12 / R14 results (historical)
 
 | Test | If it passes (rc15 default) | Where | If it fails |
 |---|---|---|---|

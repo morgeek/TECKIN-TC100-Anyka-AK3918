@@ -448,20 +448,30 @@ patches/kernel-6.6/ Linux 6.6 patch series (series/), kernel config
 v3/                 3.0 system: boot script (autorun-linux66.sh), initramfs and user space builders, Buildroot base
   install/          SD card install hook, flash install and update, way back to the stock firmware
   linux66-sd/       Glue between the web interface and the free stack, flash writer (flashw), settings slots
-src/tc100rtsp/      tc100_rtsp: RTSP server, recorder, pictures, motion, sound level
+src/tc100rtsp/      tc100_rtsp: RTSP server, recorder, pictures, motion, sound level, two-way audio, live MP4
 src/libakuio/       Free replacement for the vendor encoder-memory library
 src/jpegenc/        Hardware JPEG encoder
-src/h265enc/        H.265 command-list generator and register-sequence model (experimental)
-src/httpfront/      Front for busybox httpd (redirects /, one connection per request)
+src/h265enc/        H.265 command-list generator and register-sequence model (experimental, offline)
+src/httpfront/      Front for busybox httpd (redirects /, one connection per request, local-network filter)
+src/ispflip/        isp_flip: picture flip / mirror through the ISP (called by bin/setconf)
+src/ispfps/         isp_fps: read or set the sensor frame rate through the ISP
+src/logfwd/         tc100-logfwd: filtered, rate-limited forwarding of the local log to a remote syslog
+src/mdnsd/          tc100-mdnsd: answers <hostname>.local (mDNS), optional DNS-SD records
 src/mqttd/          tc100-mqttd: the MQTT connection in C (option of the MQTT bridge, MQTT_BRIDGE_IMPL=c)
 src/netacl/         libnetacl: local-network-only filter for the uClibc programs
-src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, Bulma purge, screenshots
+src/onvifd/         tc100-onvifd: free ONVIF daemon (discovery, Device / Media / Media2, backchannel)
+src/rwconf/         rwconf: reads and writes keys of the INI-like config files (free replacement of the 2.x binary; built in CI)
+src/supervisord/    tc100-supervisord: day/night, reset button and sound detection loops in one process (SUPERVISOR_IMPL=c)
+src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, CSS and minify build, screenshots
+src/whep/           tc100-whep: WebRTC (WHEP) gateway behind whep.cgi
 www/                Web interface; www/cgi-bin/ are shell CGIs
 scripts/            Daemons and tools (wifi-txt.sh, wifi-rescue.sh, mqtt-bridge.sh…)
   action.d/         The web commands of www/cgi-bin/action.cgi, one file per group
 controlscripts/     Services, started and stopped from the web page
 config/             Templates (*.dist) and the services started at boot (config/autostart/)
-bin/ lib/           Small ARM programs of the original hack (busybox, monvifd…), libnetacl; rwconf is built from src/rwconf
+bin/                busybox (SD hook), monvifd (SD package only, removal planned for rc32), isp_flip, tc100-logfwd, setconf, telegram;
+                    rwconf is built in CI from src/rwconf
+lib/                libnetacl.so (local-build copy); origins: CREDITS.md
 sounds/             Audio clips
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
 docs/               API, known issues, screenshots; docs/linux-port: the Linux 6.6 port, install, status

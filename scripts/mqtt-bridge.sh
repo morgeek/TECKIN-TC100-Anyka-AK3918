@@ -1392,8 +1392,10 @@ build_diag_payload()
       _dg_sdst="flash_only"
     fi
   fi
-  # RTSP lite server (src/tc100fix/rtsp.c): playing clients and skipped
-  # frames, from its status file (every 10 s; ignored when older than 60 s).
+  # Playing clients and skipped frames from the status file of the 2.x RTSP lite server
+  # (every 10 s; ignored when older than 60 s). tc100_rtsp (3.0) does not write
+  # /var/run/tc100rtsp: both values stay null on 3.0 (cleanup 2026-11-06, see the
+  # implementer list; its own stats are in /var/run/tc100_rtsp.stat).
   _dg_rc=null; _dg_rd=null
   if [ -n "$(find /var/run/tc100rtsp -mmin -1 2>/dev/null)" ]; then
     _dg_rd=0
@@ -1578,7 +1580,7 @@ publish_health()
 }
 
 # Retained <root>/isp/state: configured tuning values, ISP_TUNE flag and the
-# values the libtc100fix thread reports as applied.
+# values tc100_rtsp reports as applied (scripts/isp-tune.sh).
 publish_isp_state()
 {
   command -v isp_tune_json >/dev/null 2>&1 || return 0

@@ -1,35 +1,22 @@
-# Linux 6.6 SD-boot stack: glue for the vendor web UI (2.1.9 stack, commit cba5d2f on the card)
+# v3/linux66-sd: glue between the 3.0 web UI / scripts and the free stack
 
-The card carries the 2.1.9 web UI and its CGIs. They assume the original firmware (card on /mnt, vendor RTSP server
-`rtsp-h26x`, flash boot). These files adapt them to the free stack (tc100_rtsp). Copy to the card:
+Inventory of this folder (updated 2026-11-06, 3.0.1-rc31). All files are shell scripts. In the flash image they sit in
+`v3/linux66-sd/` of the user space (`/mnt/v3/linux66-sd/`); in SD trial mode they are copied from the card. Each file
+starts with a comment that is the reference for its options. The RTSP control script is `controlscripts/rtsp-h26x`
+(not in this folder).
 
-| file | goes to | why |
+| File | What it does | Who calls it |
 |---|---|---|
-| `rtsp-launch.sh` | `tc100test/rtsp-launch.sh` | starts tc100_rtsp from `config/rtspserver.conf` (codec, bit rate, port) and applies the mic gain (Audio page -> codec "LineIn Capture Volume"); used by the boot script and the shim |
-| `rtsp-h26x` | `controlscripts/rtsp-h26x` | shim: start/stop/restart/status/health for tc100_rtsp, so Services and the "Apply" buttons of Flux vidéo work (never leave the vendor script in `controlscripts/`) |
-| `sdinfo-sd.sh` | `scripts/sdinfo-sd.sh` | writes `/tmp/sd-card` for the SD-card panel |
+| `boot-guard` | Safe mode after repeated short runs (flash mode): counts runs shorter than 300 s in `config/.boot-guard` (kept in the flash slots) and, after 3 in a row, raises `/tmp/safemode`; subcommands `start`, `ok`, `clear`, `status` | `v3/autorun-linux66.sh`, `v3/install/update66.sh`, `scripts/reboot-tracker.sh`, `console-timer`; shows in `devinfo.cgi` |
+| `cfg-persist` | Keeps the user settings (`config/`) in the SPI flash slots `cfga` / `cfgb` (two slots, one written at a time, md5 checked); subcommands `restore`, `save`, `flush`, `daemon`, `status`, `saved` | `flashmode-prep.sh` (restore at boot), `scripts/housekeeper.sh`, `scripts/reboot-tracker.sh`, `boot-guard`, `v3/install/install66.sh`, `v3/install/update66.sh` |
+| `console-timer` | The UART login prompt stays for 300 s after boot, then its getty is stopped if nobody is logged in; stays on with `SERIAL_CONSOLE=on` in `boot.conf` or in safe mode | `v3/autorun-linux66.sh`, `v3/S39tc100-linux66` |
+| `flashmode-prep.sh` | Prepares the user space from the flash: `/mnt` as a RAM disk with links to the squashfs at `/rom`, settings restored from `cfga` / `cfgb` | `v3/S39tc100-linux66` (flash mode, `flashroot=1`), `v3/autorun-linux66.sh`, `v3/S50dropbear-linux66`; read by `cfg-persist` and `wizard.cgi` |
+| `flashw` | The only flash writer: writes a file into one SPI partition from an allow-list (`cfga cfgb` by default, `FLASHW_ALLOW` adds others), with erase, read-back compare and md5; `boot`, `mac` and `env` are never touched | `v3/install/install66.sh`, `v3/install/update66.sh`, `v3/install/restore-stock.sh` |
+| `net-apply` | Applies the IP settings of the Network page to `wlan0` (`config/network.conf`: DHCP or static; `config/dns.conf`: DNS servers) | `scripts/action.d/network.sh`, `v3/autorun-linux66.sh`, `wifi-apply` |
+| `rtsp-launch.sh` | (Re)starts `tc100_rtsp` with the settings of `config/rtspserver.conf` (codec, bit rate, port, microphone gain); the RTSP login comes from `config/user.pwd` | `v3/autorun-linux66.sh`, `controlscripts/rtsp-h26x`, `controlscripts/onvif`, `controlscripts/sound-detection`, `scripts/action.d/video.sh` |
+| `sdinfo-sd.sh` | Fills `/tmp/sd-card` and `/tmp/sd-health` from the card at `/mnt/sd` (status line, Recording page) | `scripts/action.d/storage.sh`, `scripts/web-guard.sh` (every minute), `scripts/housekeeper.sh`, `scripts/mqtt-bridge.sh`, `scripts/reboot-tracker.sh`, `scripts/sd-diag.sh`, `v3/autorun-linux66.sh` |
+| `web-auth` | Writes `/etc/httpd.conf` for busybox httpd: the login (user `root`, password from `config/user.pwd`, stored as an MD5 crypt hash) and the media types; no password set (before the wizard) means no login line | `v3/autorun-linux66.sh`, `scripts/common_functions.sh`, `www/cgi-bin/action.cgi`, `www/cgi-bin/statelib.cgi` |
+| `wifi-apply` | Uses `config/wpa_supplicant.conf` now: copies it, reloads or restarts `wpa_supplicant`, gets a new DHCP lease (run detached, with an optional delay) | `scripts/action.d/network.sh`, `scripts/net-guard.sh`, `scripts/wifi-country.sh`, `scripts/wifi-recover.sh`, `scripts/wifi-rescue.sh`, `v3/autorun-linux66.sh`, `www/cgi-bin/config_exchange.cgi`, `www/cgi-bin/wizard.cgi` |
 
-The one-time `sed` patches of the card's CGIs listed here before (state.cgi, viewrecords.cgi, disk.cgi, the
-`sd_card_info` handler, `wifi_get_ssid&format=json`) are in git since 2026-10-26: the shared scripts take a 6.6 path
-when `/tmp/linux66` exists (created by `v3/autorun-linux66.sh`). `controlscripts/rtsp-h26x` runs `rtsp-h26x` of this
-folder on 6.6, and the flash image installs `setconf` as `bin/setconf`. See docs/linux-port/feature-audit-2026-10-26.md,
-"Web UI on 3.0", for the feature by feature state.
-
-Not available on this stack at first (they live in the vendor RTSP server / ISP daemon): live image tuning, privacy masks,
-black-and-white switch (`setconf`), motion detection inside the stream, local MP4 backup recording (REC_LOCAL),
-resolution/fps of the Flux vidéo page (tc100_rtsp is 1080p, 15 fps nominal). Since 2026-10-24 tc100_rtsp does image
-tuning (brightness, contrast, saturation, hue; not sharpness), privacy masks, the OSD clock and black and white in
-software, and the motion / recording path below; resolution, frame rate and an RTSP sub-stream are still missing.
-
-Also: `www/settings.html` of the card: `cmd=wifi_get_ssid&_=` -> `cmd=wifi_get_ssid&format=json&_=` (the CGI appends `<hr/>` to
-non-JSON requests, which broke `r.json()` and showed "Read error" under Réseau).
-
-## Added 2026-10-24 (afternoon)
-- `setconf` -> `/mnt/bin/setconf` (vendor one kept as `tc100test/setconf.vendor`): black and white (chroma zeroed in
-  tc100_rtsp), IR LED, motion detection on/off + sensitivity. tc100_rtsp now samples a 64x36 luma grid 4x/s and writes
-  `/tmp/rec_control` ("1"/"0\n", 8 s hold) like the vendor server: the recorder (`ffmpeg-min-recorder`, mkv with
-  audio into `/mnt/DCIM`), the detection monitor (MQTT event, LED, snapshot) and the MQTT bridge all read it.
-- tc100_rtsp makes the web pictures less often when nobody reads them (atime of `/tmp/stream.jpg`, `/tmp/currentpic.cache.jpg`).
-- autorun: `ntpd` clock sync (the SoC starts in 1970), services ticked in the UI (`config/autostart/*`) are started at boot,
-  `/mnt/VERSION` = `2.1.9-linux66`, `#btnSdOptions` (format) hidden by a `<style>` line in the card's `www/settings.html`.
-- Never run `controlscripts/<x> start | tail`: the daemon keeps the pipe open and the serial shell hangs.
+Rules: flash writes go only through `flashw`, after a dump and with the owner's agreement for each partition write (see
+`AGENTS.md`). Never run `controlscripts/<x> start | tail`: the daemon keeps the pipe open and a serial shell hangs.

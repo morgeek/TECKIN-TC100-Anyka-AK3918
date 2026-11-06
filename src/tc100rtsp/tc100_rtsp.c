@@ -1,7 +1,7 @@
 /* tc100_rtsp: RTSP/H.264 or H.265 server for the TECKIN TC100 on Linux 6.6.
  *
  * Capture (V4L2, 1080p NV12) -> vendor H.264 encoder control library on the free libakuio + ak39_venc driver
- * (see src/venctest) -> RTP (RFC 6184, packetization-mode 1, FU-A) over RTSP: TCP interleaved or UDP unicast.
+ * -> RTP (RFC 6184, packetization-mode 1, FU-A) over RTSP: TCP interleaved or UDP unicast.
  * The select() loop of the main thread serves the V4L2 device, the listening socket, the clients and the microphone;
  * the only other thread is the recorder's card writer (rec.c: an SD card can stall a write for seconds).
  * The GOP being encoded is cached so that a new client starts immediately on the last IDR frame.

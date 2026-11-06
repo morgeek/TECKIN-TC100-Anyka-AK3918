@@ -84,36 +84,13 @@ with settings brought over from 2.x). On 3.0 its access step sets the camera pas
 `WEB_MODE=http`), and in trial mode its last step, "Install into the camera now", starts `install66.sh run` once the
 settings are written: one click from the card to the flash. It is offered only when `install66.sh check` passes.
 
-## What the author must still provide
+## Still open
 
-- `v3/install/known-stock.txt` now has the md5 of U-Boot and of the stock root of the author's stock dump
-  (2026-10-11); other firmware versions get their own lines from the inventories sent in issues. The hardware itself
-  is checked against the board profiles: [hardware variants](../hardware-variants.md).
-- A first run of the hook on a stock camera, with the serial console connected, to confirm that the stock kernel
-  lets `envtool` write `/dev/mtd3`, and that the stock U-Boot runs `flashcheck` (`mw.b`, `cmp.b`) as expected.
-
-## Cameras installed by hand on 2026-10-24 (the author's)
-
-They have a single 3.7 MiB `stack` with the vendor libraries inside and U-Boot commands `flashload`/`flashboot`
-typed by hand (`flashload` reads 0x1ce000 bytes of the kernel: CI warns when the kernel grows past that). To move to
-the new layout without touching the environment:
-
-1. Copy the new SD package to the card, keeping the card's `lib/` (it holds the vendor libraries). Make sure
-   `tc100test/c66.img` is the new kernel (it has the `vendor` partition).
-2. Power on: the card starts first (trial mode, new kernel).
-3. Settings -> Update & backup -> Install to flash. `vendor.sqfs` is made from the card's `lib/`.
-4. The hand-made `flashboot` keeps working: same `initrd` size, kernel under 0x1ce000.
-5. ISP sub picture (less CPU for the 640x360 stream): kernels from 3.0.1-rc2 program it by default, nothing to do.
-   With an older kernel, add `ak39_vi.sub_channel=1` to the kernel command line. At the
-   U-Boot prompt (lines are limited to 256 characters, hence the `flashargs` variable):
-
-   ```
-   setenv flashargs console=ttySAK0,115200n8 mem=64M panic=10 ak_wdt_reboot=300 initcall_blacklist=gpio_keys_init oops=panic cma=18M root=/dev/ram0 rdinit=/init initrd=0x81000000,2012654 flashroot=1 ak39_vi.sub_channel=1
-   setenv flashboot run flashload\; setenv bootargs \${flashargs}\; bootm 0x82000000
-   saveenv
-   ```
-
-   Done on IPCAM2 (192.168.1.11) on 2026-10-29. Without it `tc100_rtsp` keeps sampling the sub picture on the CPU.
+- A first run of the card hook on a camera that still has the stock firmware, to confirm that the stock kernel lets
+  `envtool` write `/dev/mtd3` and that the stock U-Boot runs `flashcheck` as expected (both of the author's cameras
+  already run 3.0 from flash, so only a third camera can test it: see [test-queue.md](test-queue.md)). Other
+  firmware versions get their own lines in `v3/install/known-stock.txt` from the inventories sent in issues; the
+  hardware itself is checked against the board profiles: [hardware variants](../hardware-variants.md).
 
 ## Settings across an install
 
