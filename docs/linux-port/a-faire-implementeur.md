@@ -313,6 +313,19 @@ R24. [ ] Direct : « Live fetch error: Erreur HTTP 503 » dans la console quand 
     `live.cgi` est refusé, un seul lecteur MP4) : sans effet visible ; ne pas lancer le MP4 quand le WebRTC est établi,
     ou ne pas l'écrire en avertissement.
 
+R25. [ ] **Carte refusée mais restée montée en écriture** (IPCAM1, rc31, test-queue 15:15) : `scripts/rec-storage.sh`
+    `_mount_card` (l. 40-66) n'est pas protégé contre deux appels en même temps, et `_mounted` (l. 42) accepte une carte
+    déjà montée sans vérifier les fichiers de démarrage ; le `umount` du refus (l. 54) peut échouer (occupé) sans que
+    personne le voie. À faire : verrou (`mkdir /tmp/rec-storage.lock`, comme `speaker-play.lock`) autour de
+    `_mount_card` ; `_mounted` vrai seulement si la carte montée n'a pas de fichier de démarrage ; si le `umount` échoue,
+    `mount -o remount,ro` puis réessayer, et le dire dans `/tmp/sd-diag.status`. Test : deux `_mount_card` lancés en
+    même temps sur une image FAT avec `wifitest/` → la carte n'est jamais laissée montée en écriture.
+R26. [ ] **Dossier de travail de la mise à jour sur la carte** : `www/cgi-bin/update.cgi` l. 9 prend
+    `/mnt/sd/tc100-3/update` quand une carte vfat est montée ; un paquet ancien qui y reste (avec `ok`) est annoncé
+    « staged » et peut être installé (rc28 sur une caméra en rc31). En mode flash, travailler dans `/tmp/update66`
+    (ou effacer `ok` à chaque démarrage, et refuser d'installer une version plus ancienne que l'actuelle sans
+    confirmation explicite).
+
 ## FAIT (rc28) — constats du testeur sur la rc27 (.11, 2026-11-05 soir) → rc28
 
 Détails et mesures : `test-queue.md`, entrées du 2026-11-05 19:35 et 20:40. La .11 tourne en rc27 avec des binaires

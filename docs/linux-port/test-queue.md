@@ -2357,3 +2357,26 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   « OK » → l'installation se fait comme avant. Avec une carte : pas de question, `tc100-3/backup/` reçoit les trois
   partitions. En ssh : `sh /mnt/v3/linux66-sd/flashw -r cfga /tmp/cfga.bin; echo $?` → 0 et un fichier de 36 864 octets.
 - **Critères :** pas d'écriture sans sauvegarde ni confirmation ; mise à jour inchangée par ailleurs.
+
+## 2026-11-06 15:15 — rc31 sur la .24 (IPCAM1), installée par le testeur (mise à jour web) : `passed`, 2 défauts carte SD
+
+- Même archive (md5 `5d9e83af…`), même précaution qu'à la .11 (`update66.sh` de la rc31 superposé en RAM sur la rc29).
+  14:05:36 → retour 14:07:50 UTC. Conservés : `daynight=2`, `mdenabled=0`, **`REC_LOCAL=1`, `REC_WHEN=motion`**,
+  `rtsp.env`, `autostart/*`, `WIFI_COUNTRY=FR`, `SYSLOG_HOST=192.168.1.23`. `reboot-history.log` : « requested at
+  2026-11-06 14:05:50: web update to 3.0.1-rc31 ».
+- **Base** : rc31, `flashroot=1`, MemAvailable 21,0 Mo, démons présents (plus de `monvifd`), superviseur 3 jobs,
+  `dropped 0`. RTSP hevc 1080p25 / h264 360p25 + PCMA, ONVIF FW rc31 25 img/s, MQTT `tc100/cam2` online + `health`.
+  **Aucune OOM au démarrage** : `sd-diag.sh repair` a refusé la carte (« Boot or install card (wifitest at its root):
+  not repaired » : R14 OK).
+- **`failed` — la carte de démarrage est restée montée en écriture** : malgré le refus, `/dev/mmcblk0p1` était monté
+  `rw` sur `/mnt/sd` (options de `rec-storage.sh _mount_card` : `shortname=mixed`) et `STAT … rec 1`. Hypothèse : deux
+  `_mount_card` en même temps au démarrage (enregistreur, contrôle de la carte chaque minute, `sd-diag repair` à
+  +60 s) : l'un monte, l'autre voit `_mounted` vrai et rend 0 (donc carte « acceptée »), le premier trouve `wifitest`
+  mais son `umount` échoue (occupé) et la carte reste montée. Aucun fichier écrit (dernier fichier de `DCIM/` :
+  06:26 UTC, d'avant). Démontée par `rec-storage.sh eject` à 14:13 ; plus remontée en 2 min ; `rec 0`. R25.
+- **`failed` — un vieux paquet rc28 « prêt à installer »** tant que la carte était montée : `update.cgi` met son
+  dossier de travail sur la carte quand `/mnt/sd` est en vfat (`/mnt/sd/tc100-3/update`, l. 9), et ce dossier
+  contient une rc28 envoyée le 05/11 avec son `ok` : `cmd=status` répondait `"state":"staged","staged":"3.0.1-rc28"`
+  (un clic sur Installer aurait remis la rc28). Redevenu `idle` après le démontage. R26.
+- Syslog : `tc100-logfwd` corrigé (`e5a1c05`) superposé en RAM, « En marche ».
+- Superpositions en RAM sur la .24 (perdues au redémarrage) : `/mnt/bin/tc100-logfwd`.
