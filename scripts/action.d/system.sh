@@ -247,7 +247,7 @@
     service_trim_on)
       install_config /mnt/config/service_trim.conf
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
-      echo "Service trimming enabled. Non-essential services will stop; reboot for full effect.<br/>"
+      echo "Service trimming enabled. Non-essential services will stop, motion detection and automatic day/night too (switched off for good: turn them on again in Settings); reboot for full effect.<br/>"
 
       for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
@@ -330,7 +330,7 @@
           apply_low_cpu_defaults_after_finalize=1
           stop_trimmed_services_after_finalize=1
           profile_summary_line="Performance profile set to RTSP + ONVIF only."
-          profile_detail_line="Stopped non-essential services now; reboot to enforce trimmed autostart persistently."
+          profile_detail_line="Stopped non-essential services now, motion detection and automatic day/night too (switched off for good: turn them on again in Settings); reboot to enforce trimmed autostart persistently."
           ;;
         *)
           echo "Unknown performance profile '$profile'<br/>"

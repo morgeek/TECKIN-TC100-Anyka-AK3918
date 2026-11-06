@@ -81,6 +81,10 @@ for p in $(ps 2>/dev/null | awk '/web-guard\.sh run/ && !/awk/ { print $1 }'); d
 for s in recording motion-detection auto-night-detection; do sh /mnt/controlscripts/$s halt >/dev/null 2>&1; done
 for s in rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
 killall tc100_rtsp monvifd 2>/dev/null
+# R18: the reboot at the end is deliberate: the intent goes to /mnt/config/log before the flush below writes it to the
+# flash slots (rc29: the next boot said "unknown (no heartbeat recorded yet)"). KEEP_CARD: the backups below still go
+# to the card, which is remounted read-only right before the reboot.
+REBOOT_TRACKER_KEEP_CARD=1 sh /mnt/scripts/reboot-tracker.sh intent "web update to $(cat "$D/VERSION")" >/dev/null 2>&1
 # B6: the settings of the last 30 s and a zero boot counter to the flash slots (cfga/cfgb, not rewritten here), then the
 # settings daemon stops: the lock (cfg-persist save) is taken and kept, so a save under way ends first
 sh /mnt/v3/linux66-sd/cfg-persist flush >/dev/null 2>&1

@@ -6,6 +6,7 @@
 - every state.cgi branch that reports the stream settings loads rtspserver.conf first (it reported 15 fps).
 """
 from pathlib import Path
+import json
 import os
 import random
 import re
@@ -300,3 +301,205 @@ class SyslogdOptionsExist(unittest.TestCase):
         probe = re.search(r'\$_sl_bin -D -f /dev/null --help 2>&1 \| grep -Eq "([^"]+)"', body).group(1)
         self.assertRegex('syslogd: unrecognized option: D', probe)      # the camera's BusyBox without the features
         self.assertNotRegex("syslogd: unrecognized option '--help'", probe)  # a full BusyBox: keep the options
+
+
+class TechnicalStopsUseHalt(unittest.TestCase):
+    """R19 (rc29 -> rc30): a technical stop (update, install, low memory) must not write a setting for good. memory-guard
+    called stop on its MEM_GUARD_CRITICAL_SERVICES (motion-detection by default, recording on older configs), whose stop
+    writes mdenabled=0 / REC_LOCAL=0: it calls halt on a service that has one."""
+
+    HALT_SERVICES = ('recording', 'motion-detection', 'auto-night-detection')
+
+    def run_guard(self, services):
+        with tempfile.TemporaryDirectory() as t:
+            log = Path(t, 'calls.log')
+            cs_dir = Path(t, 'cs'); cs_dir.mkdir()
+            run_dir = Path(t, 'run'); run_dir.mkdir()
+            for name, has_halt in services.items():
+                verbs = 'start|stop|halt' if has_halt else 'start|stop'
+                body = f'#!/bin/sh\ncase "$1" in {verbs}) echo "{name} $1" >> {log} ;; esac\n'
+                if has_halt:
+                    body = 'halt() { :; }\n' + body
+                p = cs_dir / name; p.write_text(body); os.chmod(p, 0o755)
+                Path(run_dir, f'{name}.pid').write_text('1\n')
+            fn = function('controlscripts/memory-guard', 'stop_service_if_running') \
+                .replace('/mnt/controlscripts/', f'{cs_dir}/').replace('/var/run/', f'{run_dir}/')
+            code = f'get_now_ts() {{ echo 0; }}\nLOGPATH={t}/mg.log\n{fn}\n' + \
+                ''.join(f'stop_service_if_running {n}\n' for n in services)
+            r = sh(code, timeout=20)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return log.read_text().split('\n') if log.exists() else []
+
+    def test_memory_guard_halts_what_has_halt(self):
+        calls = self.run_guard({'motion-detection': True, 'recording': True, 'ftp-server': False})
+        self.assertIn('motion-detection halt', calls)
+        self.assertIn('recording halt', calls)
+        self.assertIn('ftp-server stop', calls)
+        self.assertNotIn('motion-detection stop', calls)
+        self.assertNotIn('recording stop', calls)
+
+    def test_real_controlscripts_are_recognised(self):
+        # the memory-guard test of the verb must see the halt of the real scripts
+        for cs in self.HALT_SERVICES:
+            src = (ROOT / 'controlscripts' / cs).read_text()
+            self.assertTrue(re.search(r'(?m)^halt\(\)', src) or '|halt)' in src, cs)
+
+    def test_no_technical_loop_stops_a_halt_service(self):
+        for rel in ('v3/install/update66.sh', 'v3/install/install66.sh', 'www/cgi-bin/update.cgi',
+                    'controlscripts/memory-guard'):
+            for line in (ROOT / rel).read_text().splitlines():
+                code = line.split('#', 1)[0]
+                if re.search(r'\bstop\b', code) and 'halt' not in code:
+                    for svc in self.HALT_SERVICES:
+                        self.assertNotIn(svc, code, (rel, line))
+
+
+class SdRepairGuards(unittest.TestCase):
+    """R14 (rc28/rc29 on the .24): with SD_AUTO_REPAIR=1 the old SD boot card (wifitest, bin, v3...) got fsck.fat -a -w
+    at every boot, and fsck.fat was OOM-killed (~24 MB for 64 GB). repair() now leaves a boot card alone, does not start
+    fsck.fat without the memory it needs (the card is mounted as it is), and mounts the card again after a failed fsck."""
+
+    def boot_sector(self, path, total_sectors, sectors_per_cluster=64):
+        b = bytearray(512)
+        b[3:11] = b'MSDOS5.0'
+        b[11:13] = (512).to_bytes(2, 'little')
+        b[13] = sectors_per_cluster
+        b[32:36] = total_sectors.to_bytes(4, 'little')
+        b[510:512] = b'\x55\xaa'
+        Path(path).write_bytes(bytes(b))
+
+    def run_repair(self, t, mounted=False, boot_file=None, mem_kb=200000, fsck_rc=0, total=125000000):
+        t = Path(t)
+        log = t / 'calls.log'
+        bin_dir = t / 'bin'; bin_dir.mkdir()
+        mnt = t / 'sd'; mnt.mkdir()
+        ro = t / 'ro'; ro.mkdir()
+        dev = t / 'dev.img'
+        self.boot_sector(dev, total)
+        for name, rc in (('fsck.fat', fsck_rc), ('mount', 0), ('umount', 0)):
+            f = bin_dir / name
+            f.write_text(f'#!/bin/sh\necho "{name} $*" >> {log}\nexit {rc}\n')
+            os.chmod(f, 0o755)
+        rec = t / 'rec-storage.sh'
+        rec.write_text(f'#!/bin/sh\necho "rec-storage $1" >> {log}\n')
+        os.chmod(rec, 0o755)
+        if boot_file:
+            (mnt if mounted else ro).joinpath(boot_file).mkdir()
+        (t / 'mounts').write_text(f'/dev/mmcblk0p1 {mnt} vfat rw 0 0\n' if mounted else 'rootfs / rootfs rw 0 0\n')
+        (t / 'health').write_text('state=ok\nerrors=0\nreadonly=0\n')
+        (t / 'flash').write_text('')
+        env = dict(os.environ, PATH=f'{bin_dir}:' + os.environ.get('PATH', ''),
+                   SDD_PROC_MOUNTS=str(t / 'mounts'), SDD_HEALTH=str(t / 'health'), SDD_FLASHMODE=str(t / 'flash'),
+                   SDD_SDINFO=str(t / 'nosdinfo'), SDD_MNT=str(mnt), SDD_RO_MNT=str(ro), SDD_DEV=str(dev),
+                   SDD_STATUS_FILE=str(t / 'status'), SDD_REC_STORAGE=str(rec), SDD_MEMAVAIL_KB=str(mem_kb),
+                   # busybox ash runs its own mount applet before the PATH
+                   SDD_MOUNT=str(bin_dir / 'mount'), SDD_UMOUNT=str(bin_dir / 'umount'))
+        r = subprocess.run(ASH + [str(ROOT / 'scripts/sd-diag.sh'), 'repair'], capture_output=True, text=True,
+                           timeout=30, env=env, cwd=str(t))
+        calls = log.read_text().splitlines() if log.exists() else []
+        return r, calls
+
+    def test_same_boot_files_as_the_recorder(self):
+        diag = (ROOT / 'scripts/sd-diag.sh').read_text()
+        rec = (ROOT / 'scripts/rec-storage.sh').read_text()
+        want = re.search(r'for _bad in ([^;]+); do', rec).group(1).split()
+        have = re.search(r'^SD_BOOT_FILES="([^"]+)"', diag, re.M).group(1).split()
+        self.assertEqual(have, want)
+
+    def test_boot_card_is_never_checked(self):
+        for mounted in (False, True):
+            with tempfile.TemporaryDirectory() as t:
+                r, calls = self.run_repair(t, mounted=mounted, boot_file='wifitest')
+                self.assertEqual(json.loads(r.stdout)['state'], 'refused', r.stdout + r.stderr)
+                self.assertFalse([c for c in calls if c.startswith('fsck.fat')], calls)
+                self.assertNotIn('rec-storage eject', calls)
+                self.assertNotIn('rec-storage resume', calls)
+                if not mounted:
+                    self.assertTrue(any(c.startswith('mount') and ' ro ' in c + ' ' for c in calls), calls)
+
+    def test_not_enough_memory_mounts_without_fsck(self):
+        with tempfile.TemporaryDirectory() as t:
+            # 64 GB, 32 KB clusters: about 24 MB for fsck.fat; 20 MB available
+            r, calls = self.run_repair(t, mem_kb=20000)
+            j = json.loads(r.stdout)
+            self.assertEqual(j['state'], 'dirty-not-checked', r.stdout + r.stderr)
+            self.assertFalse([c for c in calls if c.startswith('fsck.fat')], calls)
+            self.assertIn('rec-storage resume', calls)
+            self.assertIn('dirty-not-checked', Path(t, 'status').read_text())
+
+    def test_enough_memory_runs_fsck_then_resumes(self):
+        with tempfile.TemporaryDirectory() as t:
+            r, calls = self.run_repair(t, mem_kb=200000)
+            self.assertTrue(any(c.startswith('fsck.fat -a -w') for c in calls), calls)
+            self.assertLess(calls.index('rec-storage eject'), calls.index('rec-storage resume'))
+
+    def test_failed_fsck_still_resumes(self):
+        with tempfile.TemporaryDirectory() as t:
+            r, calls = self.run_repair(t, mem_kb=200000, fsck_rc=137)
+            self.assertTrue(any(c.startswith('fsck.fat') for c in calls), calls)
+            self.assertIn('rec-storage resume', calls)
+
+    def test_fsck_is_the_oom_victim(self):
+        diag = (ROOT / 'scripts/sd-diag.sh').read_text()
+        self.assertRegex(diag, r'echo 1000 > /proc/self/oom_score_adj; exec fsck\.fat -a -w')
+
+    def test_recording_page_shows_dirty_not_checked(self):
+        self.assertIn('/tmp/sd-diag.status', (ROOT / 'scripts/action.d/storage.sh').read_text())
+        html = (ROOT / 'www/settings.html').read_text()
+        self.assertIn("d.diag === 'dirty-not-checked'", html)
+        self.assertIn('id="sd_dirty_word"', html)
+
+
+class RebootAfterUpdateHasAnIntent(unittest.TestCase):
+    """R18 (rc29, both cameras): the reboot of the web update had no reboot-tracker intent, the next boot was classified
+    'unknown (no heartbeat recorded yet)'. The intent is written before the flush that saves /mnt/config to the flash."""
+
+    def test_update66_intent_before_the_flush(self):
+        src = (ROOT / 'v3/install/update66.sh').read_text()
+        body = src[src.index('stopping the services'):]
+        i = body.index('reboot-tracker.sh intent "web update to $(cat "$D/VERSION")"')
+        self.assertLess(i, body.index('sh /mnt/v3/linux66-sd/cfg-persist flush'))
+        # the backups still go to the card after the intent: the card is not remounted read-only by it
+        line = next(l for l in body.splitlines() if 'reboot-tracker.sh intent' in l)
+        self.assertIn('REBOOT_TRACKER_KEEP_CARD=1', line)
+
+    def test_install66_and_update_cgi_reboots_have_an_intent(self):
+        inst = (ROOT / 'v3/install/install66.sh').read_text()
+        self.assertLess(inst.index('reboot-tracker.sh intent'), inst.index('cfg-persist save'))
+        cgi = (ROOT / 'www/cgi-bin/update.cgi').read_text()
+        for line in cgi.splitlines():
+            if re.search(r'\breboot \)', line):
+                self.assertIn('reboot-tracker.sh intent', line, line)
+
+    def test_keep_card_skips_the_read_only_remount(self):
+        fn = function('scripts/reboot-tracker.sh', 'rt_card_clean')
+        with tempfile.TemporaryDirectory() as t:
+            Path(t, 'flash').write_text('')
+            Path(t, 'mounts').write_text('/dev/mmcblk0p1 /mnt/sd vfat rw 0 0\n')
+            Path(t, 'st').write_text('state=paused\n')
+            env = (f'REBOOT_TRACKER_FLASHMODE={t}/flash REBOOT_TRACKER_MOUNTS={t}/mounts TC100FIX_REC_STATUS={t}/st '
+                   f'REBOOT_TRACKER_REMOUNT="touch {t}/remounted"')
+            r = sh(f'{fn}\n{env} REBOOT_TRACKER_KEEP_CARD=1 rt_card_clean')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(Path(t, 'remounted').exists())
+            self.assertFalse(Path(t, 'st.pause').exists())
+            r = sh(f'{fn}\nexport {env}; rt_card_clean')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(Path(t, 'remounted').exists())
+
+
+class WebUiRc30Cleanup(unittest.TestCase):
+    """R20 for the rc30: U1 no Shutdown entry in the menu (the camera stays off until unplugged; the command stays on
+    the server for ssh), U3 no lightweight_mode left in the page script nor in set_advanced_tuning (nothing reads it
+    on 3.0; config_exchange keeps the key for older exports)."""
+
+    def test_no_shutdown_in_the_menu(self):
+        html = (ROOT / 'www/index.html').read_text()
+        self.assertNotIn('cmd=shutdown', html)
+        self.assertIn('cmd=reboot', html)
+        self.assertRegex((ROOT / 'scripts/action.d/system.sh').read_text(), r'(?m)^\s*shutdown\)')
+
+    def test_no_lightweight_mode_writer(self):
+        self.assertNotIn('lightweight_mode', (ROOT / 'src/webui/index/95-settings-page.js').read_text())
+        self.assertNotIn('LIGHTWEIGHT_MODE', (ROOT / 'scripts/action.d/video.sh').read_text())
+        self.assertIn('LIGHTWEIGHT_MODE', (ROOT / 'www/cgi-bin/config_exchange.cgi').read_text())

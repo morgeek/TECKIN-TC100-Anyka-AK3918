@@ -123,6 +123,8 @@ critères) sont dans `test-queue.md` sous l'étiquette indiquée.
 
 ## À FAIRE EN PREMIER — rc29 → rc30 (testeur, 2026-11-06 09:40) : consignes précises
 
+*(2026-11-06, implémenteur : R19, R14, R18 et R20-U1/U3 faits — détail dans les entrées R plus bas ; rc30 lancée après CI verte, voir `test-queue.md`.)*
+
 État des caméras au moment d'écrire : **.11 (IPCAM2) et .24 (IPCAM1) en 3.0.1-rc29**, depuis la flash, réglages
 identiques sauf identité (IP, nom d'hôte, MQTT, GPIO IR-cut, enregistrement SD de la .24). Le testeur a remis à la main
 trois réglages éteints par la mise à jour rc29 (jour/nuit automatique sur les deux, `REC_LOCAL=1` sur la .24) et a
@@ -288,7 +290,7 @@ R11. [x] *(rc29 : connexions muettes fermées en < 4 s, 503 au-delà de 8 par IP
 R12. [ ] `state.cgi?daynight` a mis 7,2 s une fois juste après le démarrage (puis 0,3 s) : voir ce qui bloque.
 R13. [x] *(rc29 de jour : ~22 img/s, suit la capture)* Repli MP4 du direct observé à ~1,8 img/s (nuit, 640x360) : vérifier la cadence attendue de ce mode.
 
-R14. [ ] **Réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`, défaut rc28) : OOM et carte refusée** (IPCAM1, rc28,
+R14. [x] *(fait pour la rc30, `[rc30]` : `scripts/sd-diag.sh` `repair()` — (a) carte de démarrage / d'installation (même liste que `rec-storage.sh`, regardée sur `/mnt/sd` ou après un montage en lecture seule) : réponse `refused`, ni fsck ni écriture ni éjection ; (b) besoin estimé à 12 octets par cluster d'après le secteur de démarrage FAT (~24 Mo pour 64 Go en clusters de 32 Ko) : pas de fsck si > MemAvailable − 8 Mo, la carte est remontée telle quelle et l'état `dirty-not-checked` s'affiche sur la page Enregistrement (`sd_card_info` champ `diag`) ; exFAT : pas de fsck.fat ; (c) `oom_score_adj` 1000 pour fsck ; (d) `resume` après un fsck en échec ou tué. Tests `SdRepairGuards`)* **Réparation automatique de la carte SD (`SD_AUTO_REPAIR=1`, défaut rc28) : OOM et carte refusée** (IPCAM1, rc28,
     test-queue 2026-11-06 08:00). (a) `sd-diag.sh repair` passe `fsck.fat -a -w` sur une carte que `rec-storage.sh`
     refuse ensuite (fichiers de démarrage `wifitest`…) : ne rien réparer (ni écrire) sur une carte refusée ; faire le
     même test avant le fsck. (b) `fsck.fat` sur une FAT32 de 64 Go prend ~24 Mo et l'OOM le tue : estimer la mémoire
@@ -311,16 +313,16 @@ R16. [ ] *(perf, après la 3.0.1)* **Chaque client RTSP en plus retire des image
 R17. [ ] **Pages lentes** (rc29, test-queue 2026-11-06 09:00) : `scripts.cgi?cmd=allstates` 7,3-7,7 s et `scripts.cgi`
     jusqu'à 11 s (page Services : un `status` par script), `state.cgi?cmd=fullconfig` 3-5,6 s, `dashinfo`, `isp_tune`,
     `md_zones_info` 1,2-1,5 s. Mettre en cache / calculer dans `httpfront` comme `dash.cgi`.
-R18. [ ] `reboot-history.log` classe le redémarrage d'une mise à jour web « unknown (no heartbeat recorded yet) » :
+R18. [x] *(fait pour la rc30, `[rc30]` : `update66.sh` écrit l'intention « web update to <version> » avant `cfg-persist flush`, avec `REBOOT_TRACKER_KEEP_CARD=1` (nouveau : l'intention ne remonte pas la carte en lecture seule, les sauvegardes de flashw y vont encore ; `update66.sh` la remonte lui-même avant `reboot`) ; `install66.sh` (« SD install of … », dans `/mnt/config/log` avant la copie des réglages) ; `update.cgi` (mémoire insuffisante, abandon). Battement de cœur sans carte dans `/mnt/config/log` : pas fait (facultatif). Tests `RebootAfterUpdateHasAnIntent`)* `reboot-history.log` classe le redémarrage d'une mise à jour web « unknown (no heartbeat recorded yet) » :
     `update66.sh apply` doit écrire l'intention (`reboot-tracker.sh intent "update: <version>"`) avant le
     `cfg-persist flush`, et le battement de cœur sans carte SD pourrait aller dans `/mnt/config/log` à chaque
     sauvegarde voulue (sans écrire la flash plus souvent).
-R19. [ ] Autres arrêts « techniques » qui écrivent un réglage : `memory-guard` (`MEM_GUARD_CRITICAL_SERVICES` contient
+R19. [x] *(fait pour la rc30, `[rc30]` : `memory-guard` `stop_service_if_running` appelle `halt` pour un service qui en a un. Constat en passant : la garde testait `/var/run/<service>.pid`, que ni `motion-detection` (`detection-monitor.pid`) ni `recording` n'écrivent : elle ne les arrêtait donc pas jusqu'ici. Profil allégé / `service_trim_on` / profil MQTT : `stop` gardé (choix de l'utilisateur), dit dans le message de réponse et en commentaire. Tests `TechnicalStopsUseHalt`)* Autres arrêts « techniques » qui écrivent un réglage : `memory-guard` (`MEM_GUARD_CRITICAL_SERVICES` contient
     `recording motion-detection` : un manque de mémoire couperait l'enregistrement pour de bon), `service_trim`
     (`system.sh` l. 252, `action.cgi` l. 680), `mqtt-bridge.sh` l. 1734 : utiliser `halt` quand ce n'est pas un choix
     de l'utilisateur.
 
-R20. [ ] **Audit de l'interface (rc29)** : `docs/linux-port/webui-audit-2026-11-06.md`. Tout est câblé (124 champs,
+R20. [~] *(rc30 : U1 « Éteindre » retiré du menu (commande `shutdown` gardée côté serveur) et U3 `lightweight_mode` retiré du JS et de `set_advanced_tuning` (clé gardée dans `config_exchange.cgi`) ; le texte du durcissement disait déjà « Telnet, FTP and SSH refuse to start » : inchangé. Tests `WebUiRc30Cleanup`. Le reste après la rc30)* **Audit de l'interface (rc29)** : `docs/linux-port/webui-audit-2026-11-06.md`. Tout est câblé (124 champs,
     53 commandes) ; à traiter : doublons D1-D6 (Jour/nuit en double, deux « Redémarrer », 4 mécanismes de sauvegarde,
     Telegram en deux endroits), inutiles / trompeurs U1-U9 (« Éteindre » qui rend la caméra injoignable, « Vider le
     cache mémoire », texte du durcissement + `lightweight_mode` fantôme, clés `boot.conf` 2.x sans lecteur,

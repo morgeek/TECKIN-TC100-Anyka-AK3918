@@ -1729,6 +1729,8 @@ apply_profile_command()
       rewrite_config /mnt/config/boot.conf ONVIF_STREAM_POLICY main-only
       rewrite_config /mnt/config/service_trim.conf SERVICE_TRIM 1
       ensure_low_cpu_runtime_tuning
+      # the user chose this profile: stop (not halt) on purpose, motion detection and automatic day/night stay off for
+      # good until switched on again (R19, rc30)
       for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode; do
         if [ -x "/mnt/controlscripts/$svc" ]; then
           /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true

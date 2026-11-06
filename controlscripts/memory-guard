@@ -143,7 +143,14 @@ stop_service_if_running()
 
     # Optimization: check if PID file exists before calling script status (save fork)
     if [ -f "/var/run/$service.pid" ]; then
-        "$script" stop >/dev/null 2>&1 || true
+        # R19 (rc29): a low-memory stop is technical, not the user's choice. A service with a halt verb
+        # (recording, motion-detection, auto-night-detection) gets halt: its stop writes a setting for good
+        # (REC_LOCAL=0, mdenabled=0, daynight=3) and the camera would come back without it after the reboot.
+        if grep -q '^halt()' "$script" 2>/dev/null || grep -q '|halt)' "$script" 2>/dev/null; then
+            "$script" halt >/dev/null 2>&1 || true
+        else
+            "$script" stop >/dev/null 2>&1 || true
+        fi
         _nts="$(get_now_ts)"
         echo "[$_nts] Memory guard: stopped $service" >> "$LOGPATH"
     fi

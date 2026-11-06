@@ -413,6 +413,7 @@
                         <button class="button is-small is-warning is-light" type="button" id="btnSdRepair">Auto-repair</button>
                     </div>
                     <p class="help" id="sd_diag_msg"></p>
+                    <span id="sd_dirty_word" hidden>The card was not checked after a power cut (not enough memory for the check): it is used as it is. Check it on a computer.</span>
                     <p class="help">A card put in while the camera runs: "Mount the card". Format it on a computer (FAT32, or exFAT for cards over 32 GB).</p>
                     <div class="is-divider" data-content="Recorder"></div>
                     <p class="is-size-7" id="rec_status_text">Loading…</p>
@@ -1158,6 +1159,9 @@
                     if (size) size.textContent = d.size_mb ? '(' + (d.size_mb / 1024).toFixed(1) + ' GB' + (d.mounted && d.free_mb !== null ? ', ' + (d.free_mb / 1024).toFixed(1) + ' GB ' + (window.tc100SdFreeWord ? window.tc100SdFreeWord() : 'free') : '') + ')' : '';
                     var mount = document.getElementById('btnSdMount');
                     if (mount) mount.style.display = (kind === 'data' || kind === 'empty') && !d.mounted ? '' : 'none';
+                    // R14: the automatic repair at boot had no room for fsck.fat: say it on the Recording page
+                    var diagMsg = document.getElementById('sd_diag_msg'), dirty = document.getElementById('sd_dirty_word');
+                    if (diagMsg && dirty && d.diag === 'dirty-not-checked' && !diagMsg.textContent) diagMsg.textContent = dirty.textContent;
                 })
                 .catch(function () {});
         }
@@ -1191,7 +1195,7 @@
                 EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_repair&format=json', { method: 'POST' })
                     .then(function (r) { return r.json(); })
                     .then(function (d) {
-                        if (diagMsg) diagMsg.textContent = 'Repair result: ' + (d.state || 'completed');
+                        if (diagMsg) diagMsg.textContent = 'Repair result: ' + (d.state || 'completed') + (d.message ? ' (' + d.message + ')' : '');
                         if (window.showResult) window.showResult('Repair: ' + (d.state || 'completed'), d.state === 'ok' ? 'is-success' : 'is-warning');
                     })
                     .catch(function () { if (window.showResult) window.showResult('Repair failed', 'is-danger'); })

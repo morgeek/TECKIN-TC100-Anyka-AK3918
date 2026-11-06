@@ -57,7 +57,7 @@ POST:upload)
 			[ "${avail:-0}" -ge "$need" ] || {
 				rm -rf "$WORK"; head -c "$n" > /dev/null
 				printf '{"ok":false,"error":"memory","message":"Not enough free memory for the package (%s KB free, %s KB needed): put a FAT32 card in the camera and upload again. The camera restarts now."}\n' "${avail:-0}" "$need"
-				( sleep 2; reboot ) </dev/null >/dev/null 2>&1 &
+				( sh /mnt/scripts/reboot-tracker.sh intent "web UI update: not enough memory for the package, services restarted" >/dev/null 2>&1; sleep 2; reboot ) </dev/null >/dev/null 2>&1 &
 				exit 0
 			}
 		fi
@@ -78,7 +78,7 @@ POST:install)
 POST:discard)
 	rm -rf "$WORK"; echo '{"ok":true}'
 	# services stopped to make room for the package: back to normal with a restart
-	[ -e /tmp/update66.stopped ] && ( sleep 2; reboot ) </dev/null >/dev/null 2>&1 & ;;
+	[ -e /tmp/update66.stopped ] && ( sh /mnt/scripts/reboot-tracker.sh intent "web UI update discarded, services restarted" >/dev/null 2>&1; sleep 2; reboot ) </dev/null >/dev/null 2>&1 & ;;
 POST:rollback)
 	echo '{"ok":false,"error":"unsupported","message":"No rollback on 3.0: install the previous package."}' ;;
 *)

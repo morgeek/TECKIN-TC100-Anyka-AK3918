@@ -239,7 +239,6 @@
 
     set_advanced_tuning)
       install_config /mnt/config/boot.conf
-      lightweight=$(normalize_bool "${F_lightweight_mode}")
       hardening=$(normalize_bool "${F_security_hardening}")
 
       # Mem Guard settings
@@ -249,7 +248,6 @@
       mg_interval=$(sanitize_int_range "${F_mem_guard_interval}" 5 600 20)
 
       # Persist to boot.conf
-      rewrite_config /mnt/config/boot.conf LIGHTWEIGHT_MODE "$lightweight"
       rewrite_config /mnt/config/boot.conf SECURITY_HARDENING_MODE "$hardening"
       rewrite_config /mnt/config/boot.conf MEM_GUARD_ENABLE "$mg_enable"
       rewrite_config /mnt/config/boot.conf MEM_GUARD_WARN_KB "$mg_warn"

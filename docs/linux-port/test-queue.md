@@ -2852,3 +2852,23 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
 - Rapport : `docs/linux-port/webui-audit-2026-11-06.md` (doublons D1-D6, inutiles U1-U9 ; tout est câblé).
 - **`failed`, corrigé — syslog** : sur les deux caméras, `syslog-forward` « Arrêté » malgré `SYSLOG_ENABLE=1` ; `syslogd` lancé avec `-D -f` refusés par la BusyBox de la base (« unrecognized option: D ») : plus aucun journal local après le démarrage du service (`/var/log/messages` arrêté à 07:01 UTC) et rien vers 192.168.1.23. Relancé à la main (RAM) à 09:17 sur les deux : `syslogd -n -l 6 -s 128 -b 1` + `tc100-logfwd -r 192.168.1.23:514`, message de test écrit. Corrigé en `c68c906` (fragment BusyBox + repli). R21.
 
+
+## 2026-11-06 — `[rc30]` R19, R14, R18, R20-U1/U3 (implémenteur) : à vérifier en rc30
+
+- **R19, garde mémoire** : `controlscripts/memory-guard` appelle `halt` (et non `stop`) pour `recording`,
+  `motion-detection`, `auto-night-detection`. Interrupteur : `MEM_GUARD_ENABLE=0` (défaut). Test (facultatif, ssh) :
+  `MEM_GUARD_ENABLE=1`, `MEM_GUARD_CRITICAL_KB` au-dessus de MemAvailable, attendre une minute.
+  Critère : `/tmp/log/memory-guard.log` dit « stopped … », `mdenabled` et `REC_LOCAL` inchangés, `daynight=2` gardé.
+- **R14, réparation de la carte SD** : `scripts/sd-diag.sh repair` (bouton « Auto-repair », et au démarrage avec
+  `SD_AUTO_REPAIR=1` après une coupure). Interrupteur : `SD_AUTO_REPAIR=0` dans `boot.conf`. Tests :
+  (1) carte de démarrage (avec `wifitest/`) dans la caméra, « Auto-repair » → `refused`, pas de `fsck.fat` dans `ps`,
+  rien écrit sur la carte ; (2) la carte 64 Go formatée de la .24 après une coupure de courant → pas d'OOM dans
+  `dmesg` ; soit `fsck_repaired`, soit `dirty-not-checked` (message sur Réglages → Enregistrement) et la carte montée
+  quand même ; (3) l'enregistrement sur mouvement reprend.
+  Critère : jamais de « Killed process … fsck.fat » ni de `tc100_rtsp` tué ; carte montée après chaque cas sauf (1).
+- **R18, cause du redémarrage** : intention notée par `update66.sh` (« web update to <version> »), `install66.sh` et
+  `update.cgi`. Pas d'interrupteur (journal seulement). Test : la mise à jour web rc29 → rc30.
+  Critère : `/mnt/config/log/reboot-history.log` dit « intended: web update to 3.0.1-rc30 » (et non « unknown »).
+- **R20** : plus d'entrée « Éteindre » dans le menu (la commande `shutdown` reste pour ssh) ; `LIGHTWEIGHT_MODE` n'est
+  plus écrit par « Save Hardening ». Critère : menu Outils sans « Éteindre » ; « Enregistrer le durcissement » ne
+  change pas `LIGHTWEIGHT_MODE` de `boot.conf`.

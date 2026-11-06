@@ -95,6 +95,9 @@ rt_intent()
 # that its FAT is marked clean. Bounded (5 s); a card still busy stays as it is (the remount is refused, nothing hangs).
 rt_card_clean()
 {
+  # the web update (v3/install/update66.sh) still writes its backups to the card after the intent and remounts it
+  # read-only itself right before its reboot (R18)
+  [ -n "${REBOOT_TRACKER_KEEP_CARD:-}" ] && return 0
   [ -f "${REBOOT_TRACKER_FLASHMODE:-/tmp/flashmode}" ] || return 0
   grep -qE ' /mnt/sd (vfat|exfat) rw' "${REBOOT_TRACKER_MOUNTS:-/proc/mounts}" 2>/dev/null || return 0
   _cc_st="${TC100FIX_REC_STATUS:-/var/run/tc100rec}"

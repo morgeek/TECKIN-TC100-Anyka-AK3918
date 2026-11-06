@@ -99,6 +99,9 @@ w stack "$K/stack.sqfs"
 w kernel "$C/tc100test/c66.img"
 w initrd "$C/tc100test/c66rd.gz"
 
+# R18: the restart below is deliberate; the intent lands in /mnt/config/log, which the first boot from the flash reads
+# when the settings of the card are copied below (a camera that keeps its flash settings keeps its own history)
+[ -f /mnt/scripts/reboot-tracker.sh ] && REBOOT_TRACKER_DIR=/mnt/config/log sh /mnt/scripts/reboot-tracker.sh intent "SD install of $(cat /mnt/VERSION 2>/dev/null || echo 3.0)" >/dev/null 2>&1
 # A camera that already ran 3.0 from its flash keeps its own settings: the cfga/cfgb slots sit at the same place in
 # every layout and this install does not write them. Only a first install (no valid slot) takes the card's settings,
 # or a card with tc100-3/settings-from-card (the user asks for the card's settings).

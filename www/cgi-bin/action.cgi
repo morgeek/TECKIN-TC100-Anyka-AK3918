@@ -675,6 +675,8 @@ sync_memory_guard_service_with_config() {
 }
 
 stop_trimmed_runtime_services() {
+  # a profile the user chose: stop (not halt) on purpose, motion detection and automatic day/night stay off for good
+  # until switched on again (R19, rc30)
   for svc in ftp-server telnet-server motion-detection auto-night-detection front-led night-mode; do
     if [ -x "/mnt/controlscripts/$svc" ]; then
       /mnt/controlscripts/$svc stop >/dev/null 2>&1 || true
