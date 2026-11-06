@@ -384,7 +384,7 @@ R15. [x] *(corrigé par le testeur en `7e3b1c8`, puis `8845166` pour `recording`
     s'il reste d'autres `stop` « techniques » qui écrivent un réglage utilisateur (`service_trim`, `mqtt-bridge.sh`
     l. 1734, `action.cgi` l. 680 : voulus par l'utilisateur ? à documenter).
 
-R16. [ ] *(perf, après la 3.0.1)* **Chaque client RTSP en plus retire des images à la capture** (T2 de jour, rc29,
+R16. [~] *(code fait derrière `RTSP_SENDER_THREAD` (défaut 0, `rtsp.env`), à mesurer sur caméra ; `[sender-thread]`, test-queue)* *(perf, après la 3.0.1)* **Chaque client RTSP en plus retire des images à la capture** (T2 de jour, rc29,
     test-queue 2026-11-06 08:35 : 1 client 24,7 img/s, 2 clients ~23, 4 clients ~18 ; `snd_ms` ~250-300 / 5 s par
     client, dans la boucle de capture, encodeur à ~3,8 s / 5 s). Pistes : mise en paquets RTP une seule fois par image
     et par flux (le même entrelacement TCP pour tous les clients qui ont les mêmes canaux), ou envoi dans un fil à part

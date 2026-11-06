@@ -1554,6 +1554,37 @@ class RtpPath(Server):
         ids = self.first_ids(RTSP_QMAX='64', RTSP_QBURST='0')
         self.assertEqual(ids[0], 30, ids)
 
+    def test_sender_thread_sends_the_same_packets_as_the_inline_path(self):
+        """RTSP_SENDER_THREAD=1: the frames reach the clients through the queue and the sender thread, same bytes, same order"""
+        feed = '24,20000,3000,50,12'
+        got = {}
+        for name, env in (('inline', {}), ('thread', {'RTSP_SENDER_THREAD': '1'})):
+            for tcp in (False, True):
+                self.start(TC100_RTP_TEST=feed, **env)
+                try:
+                    pk = self.play(tcp)
+                finally:
+                    self.stop()
+                self.check_content(pk, 24, 20000, 3000, 12)
+                got[name, tcp] = self.normal(pk)
+        for tcp in (False, True):
+            self.assertEqual(got['thread', tcp], got['inline', tcp], 'sender thread packets differ (tcp=%s)' % tcp)
+
+    def test_sender_thread_late_joiner_gets_each_frame_once_in_order(self):
+        ids = self.first_ids(RTSP_SENDER_THREAD='1')
+        self.assertEqual(ids[:3], [15, 16, 17], ids)
+        self.assertEqual(ids, list(range(ids[0], ids[0] + len(ids))), 'no frame lost, none twice, none out of order')
+
+    def test_sender_thread_is_off_by_default_and_on_with_the_switch(self):
+        for env, want in (({}, False), ({'RTSP_SENDER_THREAD': '0'}, False), ({'RTSP_SENDER_THREAD': '1'}, True)):
+            self.start(**env)
+            try:
+                time.sleep(0.5)
+                log = Path(self.log.name).read_text()
+            finally:
+                self.stop()
+            self.assertEqual('sender thread on' in log, want, (env, log))
+
     def test_vbr_switch_is_in_the_start_line(self):
         for env, want in (({}, 'vbr main 0 sub 0'), ({'RTSP_VBR': '1'}, 'vbr main 1 sub 1'),
                           ({'RTSP_VBR': '1', 'RTSP_VBR_SUB': '0'}, 'vbr main 1 sub 0'), ({'RTSP_VBR_SUB': '1'}, 'vbr main 0 sub 1')):

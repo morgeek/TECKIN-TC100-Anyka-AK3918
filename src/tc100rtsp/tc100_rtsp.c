@@ -3,7 +3,8 @@
  * Capture (V4L2, 1080p NV12) -> vendor H.264 encoder control library on the free libakuio + ak39_venc driver
  * -> RTP (RFC 6184, packetization-mode 1, FU-A) over RTSP: TCP interleaved or UDP unicast.
  * The select() loop of the main thread serves the V4L2 device, the listening socket, the clients and the microphone;
- * the only other thread is the recorder's card writer (rec.c: an SD card can stall a write for seconds).
+ * the other threads are the recorder's card writer (rec.c: an SD card can stall a write for seconds) and, with
+ * RTSP_SENDER_THREAD=1, the sender (see "sender thread" below).
  * The GOP being encoded is cached so that a new client starts immediately on the last IDR frame.
  *
  * Two streams: main 1920x1080 (or 1280x720, RTSP_WIDTH) and a 640x360 sub-stream (second encoder channel, fed from the scaled picture that
@@ -56,6 +57,7 @@
 #include "acap.h"
 #include "adsp.h"
 #include "util.h"
+#include "sndq.h"
 
 /* main picture: 1920x1080, or 1280x720 with RTSP_WIDTH=1280 RTSP_HEIGHT=720 (rtspserver.conf [0] width / height, read
  * by rtsp-launch.sh) on a kernel whose ISP scales the main channel (ak39_vi.main_scale, patch 0016). Both are whole
@@ -1573,8 +1575,47 @@ struct cli {
 	int qhi;			/* most the queue held since qtrim_t */
 	time_t qprog, qtrim_t;
 	unsigned long dropped;
+	int kill;			/* the sender thread found the connection dead: the main loop closes it (never the sender) */
+	unsigned long skip_seq;		/* sender thread: queued frames up to this number came with the GOP burst of PLAY already */
 };
 static struct cli cl[MAXCLI];
+
+/* ---- sender thread (RTSP_SENDER_THREAD=1, default 0: everything below is then not used and the old inline path runs) ----
+ * R16: every client in bcast() cost ~2.4 ms per frame inside the capture loop, so each extra client took capture frames.
+ * Design (the simplest correct one): ONE mutex, cl_mu, protects the client table cl[] (and with it the scatter-gather
+ * batch `sg`, the UDP socket use and every per-client queue). The sender thread takes it per client, for the time of
+ * that client's send only; the main thread takes it around the whole client section of its loop (build of the select
+ * sets, STAT, accept, reads, flushes, microphone sending), around sub_off and around the "wait for an IDR" flag of an
+ * encoder restart. The capture / encode part never takes it, and never waits for the network: it only copies the
+ * encoded frame into the bounded queue of sndq.h (sndq_put never blocks; when full, the oldest non-IDR frame is dropped
+ * and the sender then makes every client of that stream wait for the next IDR and counts a drop in `dropped`).
+ * Rules: only the main thread opens or closes a connection (a send error in the sender sets `kill`, the main loop closes);
+ * a client that starts to play gets the GOP cache by play_burst in the main thread, and skip_seq makes the sender ignore
+ * the frames that were already in the cache (queued before the burst) so that nothing is sent twice or out of order.
+ * The sender reads S[].sps/pps (written by learn_params in the main thread) without a lock: they only change when the
+ * encoder parameters change, and an IDR re-sends them. Counters in STAT: snd_q (deepest queue in the interval), snd_qdrop
+ * (frames dropped from the queue), snd_thr_ms (busy time of the sender) and snd_wait (ms the main thread waited for cl_mu). */
+static int sndr_on;
+static pthread_mutex_t cl_mu;
+static pthread_t snd_th;
+static struct sndq snd_q;
+static unsigned long snd_seq;		/* number of the last frame queued (main thread only) */
+static volatile long snd_thr_us;	/* busy time of the sender (written by it, read by the STAT line: a statistic) */
+static long snd_wait_us;		/* main thread only */
+#define SNDQ_FRAMES 48
+#define SNDQ_BYTES (768 * 1024)
+
+static void cl_lock(void)
+{
+	struct timespec a, b;
+
+	if (!sndr_on || !pthread_mutex_trylock(&cl_mu)) return;
+	clock_gettime(CLOCK_MONOTONIC, &a);
+	pthread_mutex_lock(&cl_mu);
+	clock_gettime(CLOCK_MONOTONIC, &b);
+	snd_wait_us += (b.tv_sec - a.tv_sec) * 1000000L + (b.tv_nsec - a.tv_nsec) / 1000;
+}
+static void cl_unlock(void) { if (sndr_on) pthread_mutex_unlock(&cl_mu); }
 static int udpfd = -1;
 static int talk_cfg = 1;		/* RTSP_LITE_TALK of boot.conf (anything but 0, no, off, false) */
 static uint16_t srv_rtp = 5004;
@@ -2104,24 +2145,77 @@ static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts,
 /* queue space a frame needs: payload, RTP/interleave headers per packet, parameter sets */
 static int frame_need(int n) { return n + (n / (RTP_PAYLOAD - 2) + 12) * 18 + 400; }
 
-static void bcast(int si, const unsigned char *d, int n, uint32_t ts, int idr, const struct nal_tab *tab)
+/* in_snd: called by the sender thread (cl_mu taken per client here, a dead connection is only flagged); seq / gap / gapseq
+ * come from the queued job (0 when called inline) */
+static void bcast_x(int si, const unsigned char *d, int n, uint32_t ts, int idr, const struct nal_tab *tab,
+		    int in_snd, unsigned long seq, unsigned gap, unsigned long gapseq)
 {
 	for (int i = 0; i < MAXCLI; i++) {
 		struct cli *c = &cl[i];
 
-		if (c->fd < 0 || !c->playing || c->si != si || (c->b_ok && !c->v_set)) continue;
-		if (c->wait_idr && !idr) continue;
-		if (c->tcp && qfree(c) < frame_need(n)) {	/* congested: skip this frame, resume at the next IDR */
-			c->wait_idr = 1;
-			c->dropped++;
-			continue;
-		}
-		c->wait_idr = 0;
-		if (idr && HAVE_PS(&S[si])) {	/* parameter sets in band before every IDR that lacks them */
-			if (send_ps(c, ts)) { cli_close(c); continue; }
-		}
-		if (send_frame(c, d, n, ts, tab) || (c->tcp && qflush(c))) cli_close(c);
+		if (in_snd) pthread_mutex_lock(&cl_mu);
+		do {
+			if (c->fd < 0 || c->kill) break;
+			if (gap && c->playing && (gap & (1u << c->si)) && gapseq > c->skip_seq) {	/* a frame before this one was dropped */
+				c->wait_idr = 1;
+				c->dropped++;
+			}
+			if (!c->playing || c->si != si || (c->b_ok && !c->v_set)) break;
+			if (seq && seq <= c->skip_seq) break;	/* already sent with the burst of PLAY */
+			if (c->wait_idr && !idr) break;
+			if (c->tcp && qfree(c) < frame_need(n)) {	/* congested: skip this frame, resume at the next IDR */
+				c->wait_idr = 1;
+				c->dropped++;
+				break;
+			}
+			c->wait_idr = 0;
+			if (idr && HAVE_PS(&S[si])) {	/* parameter sets in band before every IDR that lacks them */
+				if (send_ps(c, ts)) { if (in_snd) c->kill = 1; else cli_close(c); break; }
+			}
+			if (send_frame(c, d, n, ts, tab) || (c->tcp && qflush(c))) { if (in_snd) c->kill = 1; else cli_close(c); }
+		} while (0);
+		if (in_snd) pthread_mutex_unlock(&cl_mu);
 	}
+}
+
+static void bcast(int si, const unsigned char *d, int n, uint32_t ts, int idr, const struct nal_tab *tab)
+{
+	bcast_x(si, d, n, ts, idr, tab, 0, 0, 0, 0);
+}
+
+static void *snd_main(void *arg)
+{
+	struct sjob *j;
+
+	(void)arg;
+	while ((j = sndq_get(&snd_q))) {
+		struct timespec ta, tb;
+
+		clock_gettime(CLOCK_MONOTONIC, &ta);
+		bcast_x(j->si, j->d, (int)j->len, j->ts, j->idr, (const struct nal_tab *)j->aux, 1, j->seq, j->gap, j->gapseq);
+		clock_gettime(CLOCK_MONOTONIC, &tb);
+		snd_thr_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000;
+		free(j);
+	}
+	return NULL;
+}
+
+/* the capture loop's way out for an encoded frame: send it inline (default) or hand a copy to the sender thread */
+static void emit_frame(int si, const unsigned char *d, int n, uint32_t ts, int idr, const struct nal_tab *tab)
+{
+	struct sjob *j;
+
+	if (!sndr_on) { bcast(si, d, n, ts, idr, tab); return; }
+	j = sjob_new(d, (unsigned)n, tab, tab ? (unsigned)sizeof *tab : 0);
+	if (!j) {	/* no memory for the copy: the frame is lost for the clients of this stream, they resume at the next IDR */
+		cl_lock();
+		for (int i = 0; i < MAXCLI; i++)
+			if (cl[i].fd >= 0 && cl[i].playing && cl[i].si == si) { cl[i].wait_idr = 1; cl[i].dropped++; }
+		cl_unlock();
+		return;
+	}
+	j->si = si; j->ts = ts; j->idr = idr; j->seq = ++snd_seq;
+	sndq_put(&snd_q, j);
 }
 
 static void reply(struct cli *c, int code, const char *txt, int cseq, const char *extra, const char *body)
@@ -2161,6 +2255,7 @@ static void play_burst(struct cli *c)
 	struct strm *s = &S[c->si];
 	int need = 400;
 
+	c->skip_seq = snd_seq;	/* sender thread: what is queued now is in the cache (and in this burst) already */
 	if (c->b_ok && !c->v_set) return;
 
 	for (int i = 0; i < s->ncache; i++) need += frame_need(s->cache[i].len);
@@ -2831,7 +2926,9 @@ static void sub_off(const char *why)
 	if (s->enc) p_close(s->enc);
 	s->enc = NULL; s->on = 0; s->active = 0;
 	cache_reset(s);
+	cl_lock();
 	for (int i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].si == 1) cli_close(&cl[i]);
+	cl_unlock();
 }
 
 static void sub_start(int want)
@@ -2947,7 +3044,7 @@ static void rtp_test_feed(void)
 		{
 			int kept = cache_add(s, f, n, ts, idr, f);
 
-			bcast(0, f, n, ts, idr, NULL);
+			emit_frame(0, f, n, ts, idr, NULL);
 			if (!kept) free(f);
 		}
 		next++;
@@ -3328,6 +3425,16 @@ unsigned char *fpb[2] = { NULL, NULL };
 	    S[0].pa.rc_vbr, S[1].pa.rc_vbr, q_cap / 1024, sg_on, sg_mmsg_on, pacing_us, sndbuf_kb);
 	cfg_reload(now_s());
 
+	{	/* RTSP_SENDER_THREAD=1: a thread of its own sends the frames to the clients (see "sender thread" above) */
+		const char *e = getenv("RTSP_SENDER_THREAD");
+
+		if (e && e[0] == '1') {
+			if (pthread_mutex_init(&cl_mu, NULL) || sndq_init(&snd_q, SNDQ_FRAMES, SNDQ_BYTES)) LOG("sender thread: init failed, frames are sent inline\n");
+			else if (pthread_create(&snd_th, NULL, snd_main, NULL)) LOG("sender thread: pthread_create failed, frames are sent inline\n");
+			else { sndr_on = 1; LOG("tc100_rtsp: sender thread on (queue %d frames, %d KB)\n", SNDQ_FRAMES, SNDQ_BYTES / 1024); }
+		}
+	}
+
 	struct timespec t0;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 	unsigned long ncap = 0, ntot = 0;
@@ -3367,15 +3474,18 @@ unsigned char *fpb[2] = { NULL, NULL };
 		/* the microphone pipe wakes the loop only when no video comes (it is read after each frame instead): about
 		 * 28 wake-ups a second less, each a select over all the descriptors (about 1 ms of kernel time here) */
 		if (aud_fd >= 0 && now_s() - t_frame > 0.25) { FD_SET(aud_fd, &fs); if (aud_fd > mx) mx = aud_fd; }
+		cl_lock();
 		for (i = 0; i < MAXCLI; i++)
 			if (cl[i].fd >= 0) {
 				FD_SET(cl[i].fd, &fs);
 				if (cl[i].qpos < cl[i].qlen) FD_SET(cl[i].fd, &ws);
 				if (cl[i].fd > mx) mx = cl[i].fd;
 			}
+		cl_unlock();
 		if (prof_on < 0) prof_on = getenv("RTSP_PROFILE") && getenv("RTSP_PROFILE")[0] == '1';
 		{ int _sr; PROF(0, _sr = select(mx + 1, &fs, &ws, NULL, &tv)); if (_sr < 0) continue;
 		  if (prof_on > 0) { prof_ms[6]++; if (FD_ISSET(fd, &fs)) prof_ms[7]++; else if (aud_fd >= 0 && FD_ISSET(aud_fd, &fs)) prof_ms[8]++; } }
+		cl_lock();	/* the client section: until the end of the loop over the clients below */
 		{
 			struct timespec tn;
 
@@ -3383,9 +3493,16 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (tn.tv_sec - tl.tv_sec >= 5) {
 				log_rotate(logfile, logmax);
 				{ unsigned long dr = 0; for (int k = 0; k < MAXCLI; k++) dr += cl[k].dropped;
-				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld\n",
+				  int sq_max = 0, sq_now = 0;
+				  unsigned long sq_drop = 0;
+				  static long thr_last;
+				  long thr_us = snd_thr_us - thr_last;
+
+				  if (sndr_on) sndq_stats(&snd_q, &sq_max, &sq_drop, &sq_now);
+				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld snd_q %d snd_qdrop %lu snd_thr_ms %ld snd_wait %ld\n",
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
-				      rec_active(), pp_us / 1000, sub_us / 1000);
+				      rec_active(), pp_us / 1000, sub_us / 1000, sq_max, sq_drop, thr_us / 1000, snd_wait_us / 1000);
+				  thr_last += thr_us; snd_wait_us = 0;
 				  abr_tick(dr);
 				  {	/* the same numbers for www/cgi-bin/metrics.cgi (Prometheus): counts over the last interval */
 					char sb[192];
@@ -3453,6 +3570,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		}
 		np[0] = np[1] = 0; na = 0;
 		for (i = 0; i < MAXCLI; i++) {
+			if (cl[i].fd >= 0 && cl[i].kill) cli_close(&cl[i]);	/* the sender thread saw it fail */
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &ws) && qflush(&cl[i])) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && time(NULL) - cl[i].qprog > 20) cli_close(&cl[i]);
 			if (cl[i].fd >= 0) qtrim(&cl[i], nowt);
@@ -3463,6 +3581,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (cl[i].fd >= 0 && !cl[i].playing && time(NULL) - cl[i].last > CLI_IDLE_S) cli_close(&cl[i]);
 			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
 		}
+		cl_unlock();
 		if (nowt != sec_last) {		/* once a second: recorder inputs, arecord reaped */
 			int snd = 0;
 
@@ -3567,7 +3686,9 @@ unsigned char *fpb[2] = { NULL, NULL };
 					}
 					s->active = 1;
 					cache_reset(s);
+					cl_lock();
 					for (i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].playing && cl[i].si == k) cl[i].wait_idr = 1;
+					cl_unlock();
 				}
 			}
 			if (fail_main) { LOG("ak_venc_open failed\n"); break; }
@@ -3683,7 +3804,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 					if (len > 10 || idr) {	/* skip frames still count in the timeline */
 						kept = cache_add(s, d, len, ts, idr, own);
 						{ struct timespec ta, tb; clock_gettime(CLOCK_MONOTONIC, &ta);
-						PROF(4, bcast(k, d, len, ts, idr, tp));
+						PROF(4, emit_frame(k, d, len, ts, idr, tp));
 						clock_gettime(CLOCK_MONOTONIC, &tb); snd_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 						s->nbytes += len;
 						if (!k) md_enc_frame(len, idr, t_frame);
@@ -3734,6 +3855,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (dm) PROF(5, ioctl(fd, VIDIOC_QBUF, &b));
 		}
 	}
+	if (sndr_on) { sndq_stop(&snd_q); pthread_join(snd_th, NULL); }
 	rec_shutdown();
 	talk_shutdown();
 	lis_close_all();
