@@ -668,6 +668,21 @@
 
         <!-- System -->
         <div class="tab-content is-hidden" id="tab-system">
+            <!-- item 50: the look of the interface, kept by this browser only (localStorage tc100_ui, read in the head
+                 of index.html); not a camera setting: no name, outside the forms that are saved -->
+            <div class='card status_card' id="appearance_card">
+                <header class='card-header'><p class='card-header-title'>Appearance</p></header>
+                <div class='card-content'>
+                    <div class="field">
+                        <label class="label is-small" for="ui_engine">Look of the interface</label>
+                        <div class="select is-small"><select id="ui_engine">
+                            <option value="pico">Pico</option>
+                            <option value="bulma">Classic (until the next version)</option>
+                        </select></div>
+                    </div>
+                    <p class="help">Kept by this browser only; the page reloads. Light or dark: the button at the top right.</p>
+                </div>
+            </div>
             <div class='card status_card'>
                 <header class='card-header'><p class='card-header-title'>Password</p></header>
                 <div class='card-content'>
@@ -1876,6 +1891,20 @@
         }
         document.getElementById('mem_refresh').addEventListener('click', load);
         load();
+    })();
+
+    // Settings -> System -> Appearance (item 50): Classic (Bulma) or Pico, per browser; index.html loads the sheet
+    (function() {
+        var sel = document.getElementById('ui_engine');
+        if (!sel || sel.dataset.bound) return;
+        sel.dataset.bound = '1';
+        var cur = 'pico';
+        try { if (localStorage.getItem('tc100_ui') === 'bulma') cur = 'bulma'; } catch (e) { }
+        sel.value = cur;
+        sel.addEventListener('change', function() {
+            try { localStorage.setItem('tc100_ui', sel.value === 'bulma' ? 'bulma' : 'pico'); } catch (e) { }
+            location.reload();
+        });
     })();
 
     // Settings -> Sounds (item 48): list, play, delete, startup sound, and the upload of any file the browser decodes,

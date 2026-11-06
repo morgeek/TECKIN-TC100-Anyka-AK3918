@@ -726,7 +726,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
         - *LED arrière rouge* : interrupteur on/off instantané.
         - *Bouton physique arrière* : voyant d'état GPIO dynamique indiquant en temps réel si le bouton est pressé ou relâché.
     - Zéro charge CPU/RAM pour la caméra : rendu 100 % SVG/CSS dans le navigateur client, réutilisant directement les endpoints CGI existants (`action.cgi`).
-50. [ ] **Modernisation UI : Exploration des pistes Pico CSS & Shoelace (look haut de gamme, rapide et léger)** :
+50. [~] *(2026-11-06, propriétaire : Pico CSS + shim faits, **Pico par défaut en rc31**, Bulma en secours puis **retiré en rc32** après validation sur les caméras ; Shoelace : pas maintenant. Mesures et références : test-queue `[ux-pico]`)* **Modernisation UI : Exploration des pistes Pico CSS & Shoelace (look haut de gamme, rapide et léger)** :
     *Propriétaire, 2026-11-05 : moteurs d'interface chargés à la volée (choix dans les réglages), Bulma reste intégré ;
     Pico / Shoelace se chargent depuis la carte SD si elle les a, sinon depuis un CDN (rien de plus dans la flash).*
     **Consignes du propriétaire (2026-11-05 soir) :**

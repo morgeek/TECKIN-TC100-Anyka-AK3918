@@ -27,10 +27,25 @@ class CssBundle(unittest.TestCase):
         tail = b[b.index(modern) + len(modern):]
         self.assertTrue(tail.startswith('\n:root{'), tail[:40])   # ui.css, minified, last: it wins ties as before
 
-    def test_only_the_bundle_is_linked_by_the_main_page(self):
+    def test_only_the_bundles_are_linked_by_the_main_page(self):
+        # item 50: the engine switch writes one of the two bundles (Pico by default since rc31, Bulma on request until
+        # rc32); <noscript> loads Pico without script
         html = (ROOT / 'www/index.html').read_text()
         links = re.findall(r'<link href="(css/[^"?]*)', html)
-        self.assertEqual(links, ['css/ui.bundle.min.css'])
+        self.assertEqual(links, ['css/ui.pico.min.css', 'css/ui.bundle.min.css', 'css/ui.pico.min.css'])
+        self.assertIn("var ui = 'pico';", html)
+        self.assertIn("localStorage.getItem('tc100_ui') === 'bulma'", html)
+        self.assertIn('<noscript><link href="css/ui.pico.min.css?v=', html)
+
+    def test_pico_bundle_is_pico_then_shim_then_ui(self):
+        b = (CSS / 'ui.pico.min.css').read_text()
+        self.assertTrue(b.startswith('@charset "UTF-8";\n'))
+        self.assertEqual(b.count('@charset'), 1)
+        pico = re.sub(r'@charset "UTF-8";\s*', '', (CSS / 'pico-2.0.6.min.css').read_text()).strip()
+        self.assertIn('Pico CSS', pico[:200])                        # as published, licence header kept
+        self.assertEqual(b.index(pico), len('@charset "UTF-8";\n'))
+        self.assertLess(b.index('.navbar-burger'), b.index('--v2-bg:'))   # shim before ui.css
+        self.assertIn('html[data-ui="pico"]', b)                      # the token dictionary
 
 
 if __name__ == '__main__':

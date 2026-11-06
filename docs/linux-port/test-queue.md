@@ -2901,3 +2901,23 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   ne l'enregistre pas.
 - **Critères :** lecture audible, rien gardé en RAM ni sur la carte avec « Jouer maintenant », pas de chute de
   MemAvailable durable, message clair sans carte.
+
+## 2026-11-06 — Interface Pico CSS par défaut, Bulma en secours jusqu'à la rc32 (`[ux-pico]`, item 50, rc31)
+
+- **Quoi :** décision du propriétaire après mesure (`src/webui/screenshots/bench.py`, Chromium, CPU ×4, médiane de 7) :
+  feuille Pico **−31 %** (gzip 21,5 Ko contre 31,3 Ko), calcul des styles −13 à −30 %, mise en page égale ou plus
+  rapide, premier affichage +10-20 ms. `index.html` charge **un seul** bundle selon `localStorage tc100_ui` :
+  `css/ui.pico.min.css` (Pico 2.0.6 MIT + `css/pico-shim.css` qui dessine les classes Bulma des pages + `ui.css`) par
+  défaut, `css/ui.bundle.min.css` (Bulma) si « Classique » est choisi dans Réglages → Système → Apparence. Aucune page
+  modifiée. Flash : +~41 Ko (bundle Pico xz + .gz), les sources Pico sont exclues de l'image comme celles de Bulma.
+- **Références `[ui-baseline]` :** `src/webui/screenshots/engines.py` (19 pages × clair/sombre × 1280/390 px × deux
+  looks, erreurs JavaScript et défilement horizontal relevés) : Bulma 76/76 sans défaut ; Pico 76/76 sans défaut après
+  corrections du shim (barre de navigation, bouton du thème, champ fichier caché, tableau des journaux).
+- **Interrupteur :** Réglages → Système → Apparence → « Classique » (par navigateur) ; sans JavaScript : Pico.
+- **Test (caméra, PC et téléphone) :** ouvrir l'interface après la mise à jour : aspect Pico, clair et sombre (bouton en
+  haut à droite) ; parcourir Tableau de bord, Direct, Multi-vues, Enregistrements, chaque onglet de Réglages, Outils ;
+  enregistrer un réglage par onglet ; menus déroulants et burger sur téléphone ; passer en « Classique » puis revenir.
+  Noter le temps d'ouverture des pages lentes (Services, `allstates`) dans les deux looks.
+- **Critères :** rien de cassé ni d'illisible en Pico ; même comportement qu'en Classique ; aucun défilement horizontal
+  sur téléphone. Les défauts vont dans `pico-shim.css`. Si tout passe : la rc32 retire Bulma, `ui-modern.min.css`, le
+  bundle Classique et le sélecteur (décision du propriétaire du 2026-11-06).

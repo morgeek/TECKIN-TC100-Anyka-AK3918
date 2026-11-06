@@ -20,7 +20,7 @@ class FlashSpace(unittest.TestCase):
 
     def test_left_out_web_files_are_not_loaded(self):
         out = [n for n in excluded() if n.startswith('www/')]
-        self.assertEqual(len(out), 6)
+        self.assertEqual(len(out), 10)   # the sources of the Bulma bundle (6) and of the Pico bundle (4)
         for n in out:
             self.assertTrue((ROOT / n.removesuffix('.gz')).is_file(), n)
         pages = list((ROOT / 'www').glob('*.html')) + list((ROOT / 'www/scripts').glob('*.js')) + \
