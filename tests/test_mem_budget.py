@@ -54,7 +54,7 @@ class MemBudget(unittest.TestCase):
 
     def test_wiring(self):
         a = (ROOT / 'www/cgi-bin/action.cgi').read_text(encoding='utf-8')
-        self.assertIn('|hw_state|mem_budget) ;;', a)		# read-only: no CSRF token for a GET
+        self.assertIn('|hw_state|mem_budget', a)		# read-only: no CSRF token for a GET
         self.assertIn('    mem_budget|reboot|', a)
         h = (ROOT / 'www/settings.html').read_text(encoding='utf-8')
         self.assertIn("fetch('cgi-bin/action.cgi?cmd=mem_budget&format=json", h)

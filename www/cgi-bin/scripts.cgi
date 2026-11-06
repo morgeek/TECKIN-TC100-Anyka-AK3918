@@ -269,11 +269,18 @@ fast_toggle_state() {
         case "$_ft_pid" in ''|*[!0-9]*) ;; *) [ -d "/proc/$_ft_pid" ] && _ft_on=1 ;; esac ;;
       esac ;;
     web-server)
+      # R20-U7: the age is the one of httpfront (the server), not of a busybox httpd child that answers one request (or of
+      # this CGI): httpfront wins; a standalone httpd (no httpfront) is only the fallback, its lowest pid (the daemon)
+      _ft_fb=""
       for _ft_p in /proc/[0-9]*; do
         [ -r "$_ft_p/stat" ] || continue
         read -r _ft_stat 2>/dev/null < "$_ft_p/stat" || continue
-        case "$_ft_stat" in *"(httpd)"*|*"(httpfront)"*) _ft_on=1; _ft_pid="${_ft_p#/proc/}"; break ;; esac
-      done ;;
+        case "$_ft_stat" in
+          *"(httpfront)"*) _ft_on=1; _ft_pid="${_ft_p#/proc/}"; _ft_fb=""; break ;;
+          *"(httpd)"*) [ -n "$_ft_fb" ] || _ft_fb="${_ft_p#/proc/}" ;;
+        esac
+      done
+      if [ -z "$_ft_on" ] && [ -n "$_ft_fb" ]; then _ft_on=1; _ft_pid="$_ft_fb"; fi ;;
     *) return 1 ;;
   esac
   if [ -n "$_ft_on" ]; then
@@ -725,6 +732,7 @@ else
     echo "<span class='services-tag services-impact-tag impact-heavy'>Heavy</span><span>High CPU/RAM usage when active</span>"
     echo "</div>"
     echo "<p class='help'>Boot switches add or remove the service's startup entry (${AUTOSTART_DIR}).</p>"
+    echo "<p class='help'>Services that also have an on/off setting (recording, syslog-forward, memory-guard, whep, wifi-rescue, mqtt-bridge, telegram-bot) share one switch with their Settings tab: Stop turns that setting off for good, not only until the next start, and the Boot toggle is the same switch.</p>"
     echo "<p class='help'>Remote shell: ssh-server (SSH, encrypted) is on by default; telnet-server sends the password in clear, is off by default and stops by itself after a while.</p>"
   fi
   

@@ -571,7 +571,7 @@ class Regressions(unittest.TestCase):
         bad = []
         for p in files:
             for n, line in enumerate(p.read_text(errors='replace').splitlines(), 1):
-                if own.search(line) or port443.search(line) or re.search(r'WEB_MODE|ULTRALITE_HTTP_PORT|lighttpd\.pem', line):
+                if own.search(line) or port443.search(line) or (p.name != 'migrate-rc32-unused-keys.sh' and re.search(r'WEB_MODE|ULTRALITE_HTTP_PORT|lighttpd\.pem', line)):   # (the R20-U4 migration has to name the 2.x keys it comments out)
                     bad.append('%s:%d: %s' % (p.relative_to(ROOT), n, line.strip()[:120]))
         self.assertEqual(bad, [])
         # the one place that used to build the base URL
@@ -1733,7 +1733,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
-        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info(\|wifi_country_info)?\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?(\|hw_state)?(\|mem_budget)?\) ;;')     # read-only: no CSRF needed
+        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info(\|wifi_country_info)?\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?(\|hw_state)?(\|mem_budget)?(\|ha_discovery_info)?\) ;;')     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)
@@ -1766,7 +1766,7 @@ class SettingsLayout(unittest.TestCase):
         self.assertIn('id="formMasks"', tab('tab-overlay')); self.assertIn('id="formISP"', tab('tab-overlay'))
         self.assertNotIn('id="imageflip"', tab('tab-overlay'))
         self.assertNotIn('switches live tuning on', html)
-        self.assertIn('id="formDayNight"', tab('tab-daynight')); self.assertIn('data-cam-panel', tab('tab-daynight'))
+        self.assertIn('id="formDayNight"', tab('tab-daynight')); self.assertNotIn('data-cam-panel', tab('tab-daynight'))   # R20-D1: the live view holds the controls, Day/night links to it
         self.assertIn('id="formAudioAdvanced"', tab('tab-video')); self.assertIn('id="dash_rtsp_link_0"', tab('tab-video'))
         self.assertNotIn('id="dash_rtsp_link_0"', tab('tab-integrations'))
         self.assertIn("'tab-audio': 'tab-video'", html)                      # old section id still lands somewhere

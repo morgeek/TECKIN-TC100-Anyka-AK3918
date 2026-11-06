@@ -100,6 +100,9 @@ sh /mnt/scripts/migrate-switches.sh </dev/null >/dev/null 2>&1
 # the features of 2026-11-05 on by default, once per camera (scripts/migrate-rc28-defaults.sh: keys still at the old
 # default or missing; a choice made later stands); before boot.conf is read below
 [ -f /mnt/scripts/migrate-rc28-defaults.sh ] && sh /mnt/scripts/migrate-rc28-defaults.sh </dev/null >/dev/null 2>&1
+# keys of boot.conf that nothing reads on 3.0 (2.x leftovers, web UI audit R20-U4): commented out once, never deleted, logged in
+# config/migrations.log (scripts/migrate-rc32-unused-keys.sh); before boot.conf is read below
+[ -f /mnt/scripts/migrate-rc32-unused-keys.sh ] && sh /mnt/scripts/migrate-rc32-unused-keys.sh </dev/null >/dev/null 2>&1
 . /mnt/scripts/service-switch.sh
 # first start of 3.0 (even with settings brought over from 2.x): the web pages open the setup wizard
 # (W4: not when a password was set elsewhere: config/.password_set, written by http_password in common_functions.sh)
@@ -138,7 +141,7 @@ if on "$BC_BOOT_STEALTH"; then
   BC_BOOT_SOUND=0; BC_WIFI_AIM=0
   for _l in blue_led blue red_led red; do echo 0 > /sys/class/leds/$_l/brightness 2>/dev/null; done
 fi
-PROFILE=$BC_INTEGRATION_PROFILE; LIGHT=$BC_LIGHTWEIGHT_MODE
+PROFILE=$BC_INTEGRATION_PROFILE
 # (Frigate + Home Assistant profile: motion detection and the clock overlay are switched off once, by the setup wizard,
 #  so that later Settings changes stay; the profile still keeps some services off at boot, step 12b)
 

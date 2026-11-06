@@ -396,7 +396,7 @@ R19. [x] *(fait pour la rc30, `[rc30]` : `memory-guard` `stop_service_if_running
     (`system.sh` l. 252, `action.cgi` l. 680), `mqtt-bridge.sh` l. 1734 : utiliser `halt` quand ce n'est pas un choix
     de l'utilisateur.
 
-R20. [~] *(rc30 : U1 « Éteindre » retiré du menu (commande `shutdown` gardée côté serveur) et U3 `lightweight_mode` retiré du JS et de `set_advanced_tuning` (clé gardée dans `config_exchange.cgi`) ; le texte du durcissement disait déjà « Telnet, FTP and SSH refuse to start » : inchangé. Tests `WebUiRc30Cleanup`. Le reste après la rc30)* **Audit de l'interface (rc29)** : `docs/linux-port/webui-audit-2026-11-06.md`. Tout est câblé (124 champs,
+R20. [x] *(rc32, `[ui-r20]`, entrée de `test-queue.md` : D1-D6, U2, U4-U9 faits, aucune fonction retirée ; U4 par la migration `scripts/migrate-rc32-unused-keys.sh` qui commente les clés dans `boot.conf` ; reste à vérifier sur caméra. Tests `tests/test_ui_r20.py`.)* *(rc30 : U1 « Éteindre » retiré du menu (commande `shutdown` gardée côté serveur) et U3 `lightweight_mode` retiré du JS et de `set_advanced_tuning` (clé gardée dans `config_exchange.cgi`) ; le texte du durcissement disait déjà « Telnet, FTP and SSH refuse to start » : inchangé. Tests `WebUiRc30Cleanup`. Le reste après la rc30)* **Audit de l'interface (rc29)** : `docs/linux-port/webui-audit-2026-11-06.md`. Tout est câblé (124 champs,
     53 commandes) ; à traiter : doublons D1-D6 (Jour/nuit en double, deux « Redémarrer », 4 mécanismes de sauvegarde,
     Telegram en deux endroits), inutiles / trompeurs U1-U9 (« Éteindre » qui rend la caméra injoignable, « Vider le
     cache mémoire », texte du durcissement + `lightweight_mode` fantôme, clés `boot.conf` 2.x sans lecteur,
