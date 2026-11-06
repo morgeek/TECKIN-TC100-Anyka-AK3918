@@ -111,6 +111,7 @@
     put("dn_ir_led_mode", d.ir_led_mode || "auto");
     var chk = function (id, v) { var el = byId(id); if (el) el.checked = v === 1; };
     chk("dn_nightstyle", d.night_style); chk("dn_lowlight", d.lowlight_fps);
+    put("dn_lowlight_fps", d.lowlight_fps_value);
   }
   function initDayNight() {
     var form = byId("formDayNight");

@@ -12,7 +12,7 @@
 (function () {
   "use strict";
   var KEY = "tc100_lang";
-  var VERSION = "a2eb8d7c";
+  var VERSION = "6aadcf85";
   var lang = null;
   try { lang = window.localStorage.getItem(KEY); } catch (e) { /* storage blocked */ }
   if (lang !== "fr" && lang !== "en") {

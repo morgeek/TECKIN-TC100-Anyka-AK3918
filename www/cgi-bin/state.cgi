@@ -755,11 +755,12 @@ if [ -n "$F_cmd" ]; then
     cfg_int _dn_nh NIGHT_HOLD 10; cfg_int _dn_dh DAY_HOLD 60
     cfg_int _dn_vn VENDOR_NIGHT_LUM 3584; cfg_int _dn_vd VENDOR_DAY_LUM 1536; cfg_int _dn_ir IR_LED_MAX_ON 50400
     cfg_int _dn_ns NIGHT_STYLE 1; cfg_int _dn_lf LOWLIGHT_FPS 1
+    cfg_int _dn_lv LOWLIGHT_FPS_VALUE 10; case "$_dn_lv" in 15|20) ;; *) _dn_lv=10 ;; esac
     _dn_irm="$C_IR_LED_MODE"; case "$_dn_irm" in off|force) ;; *) _dn_irm=auto ;; esac
     case "$_dn_luma" in ''|*[!0-9]*) _dn_luma=null ;; esac
-    printf '{"source":"%s","luma_night":%s,"luma_day":%s,"ae_night_above":%s,"ae_day_below":%s,"night_hold":%s,"day_hold":%s,"auto":%s,"night":%s,"luma":%s,"ae_available":%s,"lumi":%s,"exp_time":%s,"a_gain":%s,"d_gain":%s,"isp_d_gain":%s,"dark_flag":%s,"index":%s,"vendor_lum":%s,"vendor_night":%s,"vendor_day":%s,"ir_max_on":%s,"night_style":%s,"lowlight_fps":%s,"ir_led_mode":"%s"}\n' \
+    printf '{"source":"%s","luma_night":%s,"luma_day":%s,"ae_night_above":%s,"ae_day_below":%s,"night_hold":%s,"day_hold":%s,"auto":%s,"night":%s,"luma":%s,"ae_available":%s,"lumi":%s,"exp_time":%s,"a_gain":%s,"d_gain":%s,"isp_d_gain":%s,"dark_flag":%s,"index":%s,"vendor_lum":%s,"vendor_night":%s,"vendor_day":%s,"ir_max_on":%s,"night_style":%s,"lowlight_fps":%s,"lowlight_fps_value":%s,"ir_led_mode":"%s"}\n' \
       "$_dn_src" "$_dn_ln" "$_dn_ld" "$_dn_an" "$_dn_ad" "$_dn_nh" "$_dn_dh" \
-      "$_dn_auto" "$((1 - _dn_cut))" "$_dn_luma" "$_dn_ae" "$_dn_l" "$_dn_e" "$_dn_a" "$_dn_d" "$_dn_i" "$_dn_k" "$_dn_idx" "$_dn_lum" "$_dn_vn" "$_dn_vd" "$_dn_ir" "$_dn_ns" "$_dn_lf" "$_dn_irm"
+      "$_dn_auto" "$((1 - _dn_cut))" "$_dn_luma" "$_dn_ae" "$_dn_l" "$_dn_e" "$_dn_a" "$_dn_d" "$_dn_i" "$_dn_k" "$_dn_idx" "$_dn_lum" "$_dn_vn" "$_dn_vd" "$_dn_ir" "$_dn_ns" "$_dn_lf" "$_dn_lv" "$_dn_irm"
     ;;
 
   lumawb)

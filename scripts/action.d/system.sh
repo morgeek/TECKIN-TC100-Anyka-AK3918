@@ -187,6 +187,18 @@
       fi
 
       tz=$(printf '%b' "${F_tz//%/\\x}")
+      # a POSIX TZ string only (the same check as www/cgi-bin/wizard.cgi tz_valid; tests/test_tz_lowlight.py keeps them equal)
+      if ! printf '%s\n' "$tz" | awk 'BEGIN {
+          n = "([A-Za-z][A-Za-z][A-Za-z]+|<[A-Za-z0-9+-]+>)"
+          o = "[+-]?[0-9]+(:[0-9][0-9](:[0-9][0-9])?)?"
+          r = "[MJ]?[0-9.]+(/[+-]?[0-9]+(:[0-9][0-9](:[0-9][0-9])?)?)?"
+          re = "^" n o "(" n "(" o ")?(," r "," r ")?)?$"
+      }
+      NR == 1 && length($0) <= 60 && $0 ~ re { ok = 1 }
+      END { exit ok ? 0 : 1 }'; then
+        echo "<p>Invalid time zone '$(printf '%s' "$tz" | sed 's/[^A-Za-z0-9,.:+\/-]//g')': not saved (POSIX format, e.g. UTC0 or CET-1CEST,M3.5.0,M10.5.0/3).</p>"
+        tz=$(cat /mnt/config/timezone.conf 2>/dev/null)
+      fi
       if [ "$(cat /mnt/config/timezone.conf)" != "$tz" ]; then
         echo "<p>Setting TZ to '$tz'...</p>"
         echo "$tz" > /mnt/config/timezone.conf

@@ -2380,3 +2380,39 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   (un clic sur Installer aurait remis la rc28). Redevenu `idle` après le démontage. R26.
 - Syslog : `tc100-logfwd` corrigé (`e5a1c05`) superposé en RAM, « En marche ».
 - Superpositions en RAM sur la .24 (perdues au redémarrage) : `/mnt/bin/tc100-logfwd`.
+
+## 2026-11-06 — Fuseau horaire dans l'assistant (F3/F9) et cadence en basse lumière réglable (F2) (`[tz-lowlight]`, rc32)
+
+- **Quoi :** (1) **Assistant** : nouvelle étape « Fuseau horaire » (après Langue et Wi-Fi) ; le navigateur propose son fuseau
+  (`Intl.DateTimeFormat().resolvedOptions().timeZone`), une liste d'une centaine de villes (Europe, Amérique, Asie,
+  Australie/Pacifique, Afrique, avec l'heure d'été) permet de le changer ; l'assistant envoie la chaîne POSIX
+  (`Europe/Paris` → `CET-1CEST,M3.5.0,M10.5.0/3`), validée côté caméra, et l'écrit dans `config/timezone.conf` (le même
+  fichier et la même première ligne que Réglages → Fuseau horaire et horloge ; aucune autre clé). Sans `Intl` ou sans
+  la table (`scripts/tzlist.js` absent) : UTC0 est présélectionné avec un avertissement, ou l'étape est omise et rien
+  n'est envoyé. Un nouveau passage dans l'assistant présélectionne le fuseau en vigueur. Le service vidéo redémarre
+  3 s après (sauf si le changement de mot de passe le fait déjà) pour que l'horloge d'image, les noms de fichiers et les
+  journaux changent. **Réglages** : la même liste au-dessus du champ texte (la chaîne TZ reste la seule valeur ;
+  une valeur existante hors liste s'affiche « Autre » et est conservée) ; `settz` refuse maintenant une chaîne qui
+  n'est pas du POSIX TZ. (2) **Cadence en faible lumière** : `daynight.conf` `LOWLIGHT_FPS_VALUE` = 10 (défaut, comme
+  avant), 15 ou 20, dans Réglages → Jour/nuit (« Low-light frame rate » / « Cadence en faible lumière ») ;
+  `rtsp-launch.sh` l'exporte en `RTSP_LOWLIGHT_FPS_VALUE`, `tc100_rtsp` l'utilise à la place du 10 codé en dur. La limite
+  d'exposition suit la durée d'image : 2812 lignes à 10 img/s (inchangé), 1874 à 15, 1406 à 20 (`2812 × 10 / cadence`).
+  Une cadence supérieure à celle du flux est ignorée. Entre dans l'export/import JSON (`daynight.lowlight_fps_value`).
+- **Interrupteur :** (1) ne pas toucher à l'étape (le choix reste modifiable dans Réglages) ; revert du commit
+  `[tz-lowlight]` sinon. (2) `LOWLIGHT_FPS` (interrupteur existant) coupe tout ; `LOWLIGHT_FPS_VALUE=10` redonne le
+  comportement d'avant.
+- **Test :** (1) Relancer l'assistant (Réglages → Système) depuis un navigateur en heure de Paris : l'étape propose
+  `Europe/Paris` ; terminer ; `cat /mnt/config/timezone.conf` → `CET-1CEST,M3.5.0,M10.5.0/3` ; après le redémarrage de la
+  vidéo, l'horloge d'image, `date` et les noms des fichiers `DCIM/` sont à l'heure locale ; pas de redémarrage de la
+  caméra. Refaire avec un autre fuseau de la liste (p. ex. `Asia/Kolkata` → `<+0530>-5:30`) et en français (groupes
+  « Amérique », « Asie »). Réglages → Fuseau horaire et horloge : la liste montre la ville actuelle ; choisir une ville met
+  la chaîne TZ à jour dans le champ ; saisir à la main `<+0330>-3:30` → la liste montre Asia/Tehran ; saisir `FOO` ou
+  `Europe/Paris` → « Invalid time zone … not saved », fichier inchangé. (2) Réglages → Jour/nuit : choisir 15 img/s,
+  enregistrer (la vidéo redémarre) ; dans une pièce sombre `grep "low light" /tmp/logs/tc100_rtsp.log` →
+  « low light: 15 fps, exposure up to 1874 lines when the gain is high » puis « total gain …x, sensor 15 fps, exposure
+  up to 1874 lines » ; vérifier la fluidité à 15 img/s dans Frigate. 10 : identique à la rc31 (« exposure up to 2812
+  lines »). 20 avec un flux réglé à 15 : aucune bascule (ignoré).
+- **Critères :** (1) `timezone.conf` écrit une seule fois, première ligne valide ; assistant et Réglages montrent la même
+  ville ; chaîne invalide refusée sans rien écrire. (2) 10 identique à avant ; 15 et 20 appliqués avec la limite
+  d'exposition annoncée ; pas d'oops, pas de redémarrage. Si l'image à 15 ou 20 est trop sombre ou trop bruitée dans la
+  pièce visée, le noter ici : la limite d'exposition est la valeur à ajuster.
