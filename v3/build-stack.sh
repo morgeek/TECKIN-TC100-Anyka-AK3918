@@ -49,9 +49,15 @@ cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$PACK/tc100-mdnsd" 
 [ -f "$PACK/tc100-supervisord" ] && cp "$PACK/tc100-supervisord" "$T/tc100test/"
 cp v3/linux66-sd/rtsp-launch.sh "$T/tc100test/"
 find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' \) -exec rm -f {} +
-# web pages, styles and scripts also as .gz: busybox httpd (FEATURE_HTTPD_GZIP) sends those to browsers that accept
-# gzip, about a quarter of the bytes over Wi-Fi (the CGI answers are not concerned)
-find "$T/www" -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.svg' \) -size +1k -exec gzip -9 -k -n {} \;
+# the big files every page load fetches also as .gz: busybox httpd (FEATURE_HTTPD_GZIP) sends the .gz to browsers that
+# accept gzip (about a quarter of the bytes over Wi-Fi) and the plain file otherwise, so a file without .gz still works.
+# Only these five (audit 2026-11-06 S1b, owner): a .gz does not compress again in the xz squashfs, and the .gz of
+# every page was ~287 KB of the image; the small pages and scripts go plain.
+GZ_WWW="scripts/index.bundle.min.js settings.html css/ui.pico.min.css scripts/view_records.bundle.min.js i18n/fr.js"
+for f in $GZ_WWW; do
+	[ -f "$T/www/$f" ] || { echo "build-stack: www/$f missing (GZ_WWW)" >&2; exit 1; }
+	gzip -9 -k -n "$T/www/$f"
+done
 
 # 2. Free tools of the Buildroot base that the initramfs leaves out (v3/initramfs-prune.txt), with the libraries
 #    they need that the initramfs does not have, and the CA bundle for curl
@@ -123,7 +129,7 @@ chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rts
 #      (tests/test_flash_image.py checks the list)
 #    - build and development files that never run on the camera
 #    - the 1 kHz test tones sounds/test-1k-m*.pcm (bench only: scripts/generate_sounds.py, and the SD card package)
-#    - the style sheets www/css/bulma.1.0.2.purged.min.css, ui-modern.min.css and ui.css (and their .gz): they are
+#    - the style sheets www/css/bulma.1.0.2.purged.min.css, ui-modern.min.css and ui.css: they are
 #      the sources of css/ui.bundle.min.css, which is the only one a page loads (the wizard has its own styles);
 #      likewise pico-2.0.6.min.css (Pico CSS as published) and pico-shim.css, the sources of css/ui.pico.min.css (the Pico look, item 50)
 #    - bin/monvifd, the closed 2.x ONVIF daemon (233 KB, ~70 KB in the image): tc100-onvifd replaces it (audit 2026-11-06
@@ -142,9 +148,8 @@ mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -qui
 	scripts/collect-platform-dump.sh v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
 	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh \
 	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
-	www/css/bulma.1.0.2.purged.min.css www/css/bulma.1.0.2.purged.min.css.gz www/css/ui-modern.min.css \
-	www/css/ui-modern.min.css.gz www/css/ui.css www/css/ui.css.gz \
-	www/css/pico-2.0.6.min.css www/css/pico-2.0.6.min.css.gz www/css/pico-shim.css www/css/pico-shim.css.gz \
+	www/css/bulma.1.0.2.purged.min.css www/css/ui-modern.min.css www/css/ui.css \
+	www/css/pico-2.0.6.min.css www/css/pico-shim.css \
 	bin/monvifd
 n=$(wc -c < "$OUT/stack.sqfs")
 ( cd "$OUT" && md5sum stack.sqfs > stack.sqfs.md5 )

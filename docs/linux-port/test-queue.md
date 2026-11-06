@@ -2992,3 +2992,17 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   (T13) ; une caméra dont `onvif.conf` dit encore `ONVIF_IMPL=monvifd` démarre aussi `tc100-onvifd`.
 - **Critères :** ONVIF identique à la rc30 (découverte, profils, flux, audio retour, événements) ; `/mnt/bin/monvifd`
   absent de la flash.
+
+## 2026-11-06 — Place en flash : `.gz` seulement pour les gros fichiers web (`[flash-gz]`, audit S1b, décision du propriétaire, rc31)
+
+- **Quoi :** `v3/build-stack.sh` ne fait plus un `.gz` de chaque page, style et script > 1 Ko (~287 Ko de l'image : un
+  `.gz` ne se recompresse pas dans le squashfs xz), seulement de `GZ_WWW` : `scripts/index.bundle.min.js`,
+  `settings.html`, `css/ui.pico.min.css`, `scripts/view_records.bundle.min.js`, `i18n/fr.js`. Busybox `httpd` envoie le
+  `.gz` aux navigateurs qui l'acceptent et le fichier en clair sinon : une page sans `.gz` marche pareil, un peu plus
+  lourde sur le réseau. Le style « Classique » (Bulma, retiré en rc32) part en clair.
+- **Interrupteur :** aucun (revert du commit `[flash-gz]`).
+- **Test :** dans le navigateur (outils de développement, onglet Réseau) : les cinq fichiers arrivent avec
+  `Content-Encoding: gzip` ; les autres pages (Journaux, Matériel, Diagnostics, Enregistrements, Multi-vues, assistant)
+  s'ouvrent normalement ; `curl -sI -H 'Accept-Encoding: gzip' http://<cam>/scripts/index.bundle.min.js` (avec le mot de
+  passe) dit `Content-Encoding: gzip`. Noter la ligne `stack.sqfs: N bytes` de la CI.
+- **Critères :** toutes les pages s'affichent comme en rc30 ; pas de 404 ; temps d'ouverture du tableau de bord inchangé.

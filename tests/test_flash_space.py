@@ -20,7 +20,7 @@ class FlashSpace(unittest.TestCase):
 
     def test_left_out_web_files_are_not_loaded(self):
         out = [n for n in excluded() if n.startswith('www/')]
-        self.assertEqual(len(out), 10)   # the sources of the Bulma bundle (6) and of the Pico bundle (4)
+        self.assertEqual(len(out), 5)   # the sources of the Bulma bundle (3) and of the Pico bundle (2); no .gz of them
         for n in out:
             self.assertTrue((ROOT / n.removesuffix('.gz')).is_file(), n)
         pages = list((ROOT / 'www').glob('*.html')) + list((ROOT / 'www/scripts').glob('*.js')) + \
@@ -42,6 +42,20 @@ class FlashSpace(unittest.TestCase):
         w = (ROOT / 'www/cgi-bin/wizard.cgi').read_text(encoding='utf-8')
         self.assertNotIn('<link rel="stylesheet"', w)
         self.assertIn('html, body { margin: 0; }', w)
+
+    def test_gz_only_for_the_hot_files(self):
+        # audit 2026-11-06 S1b (owner): a .gz of every page was ~287 KB of the image; five big files keep one
+        src = (ROOT / 'v3/build-stack.sh').read_text(encoding='utf-8')
+        m = re.search(r'(?m)^GZ_WWW="([^"]+)"$', src)
+        self.assertTrue(m)
+        hot = m.group(1).split()
+        self.assertEqual(sorted(hot), sorted(['scripts/index.bundle.min.js', 'settings.html', 'css/ui.pico.min.css',
+                                              'scripts/view_records.bundle.min.js', 'i18n/fr.js']))
+        for f in hot:
+            self.assertTrue((ROOT / 'www' / f).is_file(), f)
+        self.assertNotRegex(src, r'find "\$T/www".*-exec gzip')
+        # the default look's sheet is the one index.html loads first
+        self.assertIn("var ui = 'pico';", (ROOT / 'www/index.html').read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':
