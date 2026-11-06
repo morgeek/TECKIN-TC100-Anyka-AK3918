@@ -1253,6 +1253,7 @@ window.tc100I18nFr = {
     "Sound saved on the SD card.": "Son enregistré sur la carte SD.",
     "Streams, audio & sounds": "Flux, audio et sons",
     "Speaker sounds": "Sons du haut-parleur",
+    "No SD card: the firmware now in the flash cannot be saved before it is overwritten, so the only way back is the 3.0 SD card. Install without a backup? (Or cancel, put a FAT32 card in the camera and install again.)": "Pas de carte SD : le firmware actuellement en flash ne peut pas être sauvegardé avant d'être remplacé ; le seul retour arrière sera alors la carte SD 3.0. Installer sans sauvegarde ? (Ou annuler, insérer une carte FAT32 dans la caméra et relancer l'installation.)",
     "Appearance": "Apparence",
     "Look of the interface": "Aspect de l'interface",
     "Classic (until the next version)": "Classique (jusqu'à la prochaine version)",

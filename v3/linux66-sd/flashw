@@ -11,8 +11,17 @@
 ALLOW="${FLASHW_ALLOW:-cfga cfgb}"
 find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
 if [ "$1" = -r ]; then
-  m=$(find_mtd "$2") || { echo "unknown partition $2"; exit 1; }
-  dd if=/dev/${m}ro of="$3" bs=4096 2>/dev/null; md5sum "$3"; exit 0
+  # a dump is only reported as done when it is complete (review 2026-11-06: dd and md5sum were followed by exit 0
+  # whatever happened, so a failed or truncated dump looked like a good one). Test hooks: FLASHW_SYS, FLASHW_DEV.
+  RS=${FLASHW_SYS:-/sys/class/mtd}; RD=${FLASHW_DEV:-/dev}
+  [ -n "$3" ] || { echo "usage: flashw -r <partition> <out-file>"; exit 1; }
+  m=; for d in "$RS"/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat "$d/name" 2>/dev/null)" = "$2" ] && { m=${d##*/}; break; }; done
+  [ -n "$m" ] || { echo "unknown partition $2"; exit 1; }
+  sz=$(cat "$RS/$m/size" 2>/dev/null)
+  dd if="$RD/${m}ro" of="$3" bs=4096 2>/dev/null && [ -n "$sz" ] && [ "$(wc -c < "$3" 2>/dev/null)" = "$sz" ] ||
+    { echo "flashw: reading $2 into $3 failed or incomplete (want $sz bytes)"; exit 7; }
+  md5sum "$3" || exit 7
+  exit 0
 fi
 MD5=; BK=
 while :; do

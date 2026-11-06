@@ -64,6 +64,12 @@ esac
 D=$2
 if [ "$1" = apply ]; then
 	r=$(check "$D") || { say "FAILED: $r"; exit 1; }
+	# no SD card = no backup of what the flash holds now (flashw -b): only with an explicit confirmation (the web page
+	# asks for it, update.cgi then sets UPDATE66_NOBACKUP=1), checked before anything is stopped (review 2026-11-06)
+	if [ -z "$LOG" ] && [ "${UPDATE66_NOBACKUP:-0}" != 1 ]; then
+		say "FAILED: no SD card for the backup of the flash; confirm the install without a backup (web page) or put a FAT32 card in the camera"
+		exit 1
+	fi
 	# run from RAM: the squashfs under /mnt is about to be rewritten
 	R=/tmp/upd66; rm -rf $R; mkdir -p $R
 	cp "$0" $R/update66.sh && cp /mnt/v3/linux66-sd/flashw $R/flashw || { say "FAILED: copy to RAM"; exit 1; }
@@ -100,7 +106,7 @@ if [ -n "$BK" ]; then
 		ls -1 /mnt/sd/tc100-3/backup/$p-*.bin 2>/dev/null | sort -r | sed 1d | while read -r f; do rm -f "$f"; done
 	done
 else
-	say "no SD card: the firmware now in the flash is not saved before writing"
+	say "no SD card: the firmware now in the flash is not saved before writing (confirmed by the user)"
 fi
 # BEGIN write_part (tests extract this block)
 # write_part PARTITION FILE MD5: up to 3 attempts (flashw erases, writes and reads back each time); 0 = written and

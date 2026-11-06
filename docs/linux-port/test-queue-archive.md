@@ -853,3 +853,807 @@ Not done (listed for later): one front LED choice in Settings (waits for LED-01 
 - **Test :**
   1. Vérifier que `/root/.ssh/authorized_keys` est présent, lancer `/mnt/v3/linux66-sd/cfg-persist save`, vérifier que `/mnt/config/authorized_keys` et `/mnt/config/dropbear_ed25519_host_key` existent.
   2. Après un redémarrage, vérifier que `ssh root@<ip>` se connecte sans mot de passe et sans avertissement `REMOTE HOST IDENTIFICATION HAS CHANGED`.
+
+# Moved from test-queue.md on 2026-11-06
+
+### rc7 (`4e5d534`, CI run 41120278897) on IPCAM2, 2026-10-30 night: LED-01 fixed, S-01 passed, nothing blocking
+
+Order followed: card boot (kernel only, rule), then the flash (`update66.sh`, settings kept), because the card boot
+uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/telnet) only exist after the flash install.
+- **Card boot of the rc7 kernel:** `/proc/cmdline` complete (initrd size present), Wi-Fi 15.4 s, 15 fps, MemAvailable
+  15.96 MB, no OOM, **`/proc/net/igmp` exists** (multicast in the kernel, P-01 first half).
+- **Flash install:** md5 and `update66.sh check` ok, written, restart, Wi-Fi 15.2 s, VERSION 3.0.1-rc7, MemAvailable
+  15.97 MB, no OOM / squashfs error.
+- **LED-01 `passed`** (owner looking at the front LED): both off -> **off**; blue = 1 -> **blue**; red = 1 -> **red**;
+  `ir` = 1 -> the IR LEDs around the lens glow. The Settings page itself (browser) not tried yet. Reset button input
+  (bank 0 IN bit 10) reads 1 at rest (released); a press was not tried.
+- **S-01:** port **22 open, 23 closed** after boot. `kill -9` of `housekeeper.sh run` -> a new one is running under
+  `service-watchdog.sh` (it was back within about 70 s, not within the first 25 s; exact delay not measured).
+- **P-06 reference profile (`perf-baseline.sh 60`, 1 RTSP client, 15 fps, rc7 flash):** user 9.6 %, system 15.2 %,
+  softirq 2.2 %, idle **72.6 %**; wlan0 tx 216 KB/s; interrupts/s: usb-host **717**, timer 100, l2 31, venc 19, vi 15,
+  mmc 10; MemAvailable 15.2 MB, Slab 6.0 MB, CmaFree 1.6 MB; STAT 71-76 frames per 5 s, `dropped` 0-1.
+  The USB host interrupt (717/s) is the largest source: the target of HW-03 (`fifo32`) and P-07.
+- **Audio on rc7 (B-01 / B-02 checks 2-4), owner listening, IPCAM2: two findings.**
+  1. **`amixer -c 0 ...` fails** (`ALSA lib conf.c: cannot stat file/directory /usr/share/alsa/cards/aliases.conf`,
+     `Unknown parameters 0`, `Invalid CTL sysdefault:0`, rc 1). `v3/build-stack.sh` leaves the `cards` directory out
+     of `ext/share/alsa` (`init|cards|ucm|ucm2|topology`), but `alsa.conf` includes `cards/aliases.conf`. `amixer -D hw:0
+     ...` works, and so do `aplay -l` / `arecord -l`. **Callers of `amixer -c 0`** that now silently do nothing:
+     `scripts/speaker-play.sh:38` (speaker volume), `scripts/action.d/audio.sh:22` (microphone level, UI-12),
+     `v3/linux66-sd/rtsp-launch.sh:60` (mic level at start). Fix: ship `cards/aliases.conf` (a few lines) or call
+     `amixer -D hw:0`. Mixer values themselves are fine: Headphone Playback Volume 3 (0-5), LineIn Capture Volume 10 (0-15).
+  2. **Speaker silent.** `aplay -q -D plughw:0,0 -t raw -f S16_LE -r 8000 -c 1` of a 1.5 s 600 Hz tone (24000 bytes,
+     rc 0), the owner next to the camera: **nothing heard**, with the volume at 3 and again at 5 (max), three times,
+     and for every `Headphone Playback Route` 0-7 (4 is the default). The amplifier pin does switch: bank 0 OUT
+     0x8800 at rest, **0xC800 during playback** (bit 14 = GPIO 14 high), then back. `DAC out mode` 1 and
+     `HPDet switch` off were not changed. Not known whether the speaker ever worked on 3.0 (README: amplifier "not
+     tested"); not compared with rc6. Asked: check polarity (`SPEAKER_AMP_ACTIVE`, the pin is high during playback
+     so active high is what the driver does) and the codec's speaker path (`DAC out mode` 0, the stock firmware's
+     mixer settings), and the effect of the pin fix 0a224b8 on GPIO 14. Microphone not tested here (`tc100_rtsp` holds the
+     capture device: `arecord` says `Resource busy`); RTSP audio to be listened to with VLC.
+- **[RETRACTED, see CORRECTION further down] MQTT bridge costs about 20 points of CPU.** `perf-baseline.sh 60`, same scene, 15 fps,
+  one RTSP client, rc7 flash, IPCAM2 (its broker 192.168.1.25 is configured, the owner has not set the password yet):
+  **`mqtt-bridge` stopped: idle 77.4 % / 74.5 % (system 12.3 / 13.7)**; **running: idle 54.0 % / 57-59 % (system
+  26-29, user 12-13.5)**, three alternating runs. The bridge's own processes show almost no ticks (`/proc/<pid>/stat`:
+  12 ticks in 60 s for the listener), so the cost is its **forks and children** (health publish, spool poll) and what
+  they cause in the kernel (system time), not the shell's own loop. `top` showed the persistent listener at 10 % at one
+  point. The first baseline of the night (72.6 % idle) was taken shortly after boot with the bridge in a quiet phase.
+  Everything compared before (P-04 etc.) carries this load. **Asked of the implementer:** count the forks per minute of
+  the running bridge (`strace -c -f` is not there: count `ps` children or `/proc/*/stat` of short-lived pids), poll
+  and publish less often, use builtins instead of `date`/`cat`/`awk` per tick, and make the listener back off when the
+  broker refuses the login. A camera with MQTT configured and no/wrong password must not pay this.
+- **P-09 (owner watching VLC, IPCAM2, rc7, main H.265 + sub):** `RTSP_UDPSG=1` (log `rtp scatter-gather 1 sendmmsg 0`):
+  **clean and smooth picture** over UDP for 1 minute+, `dropped` 0, `snd_ms` 250-310 per 5 s (same as without).
+  `RTSP_UDPSG=1` + **`RTSP_UDPMMSG=1`** (`sendmmsg 1`): **blocks / smears / stutter** in VLC (the log shows
+  `clients 2`, `snd_ms` 716-1124 in two STAT lines while the second client connected, `dropped` 0). So the `sendmmsg`
+  batching is **not** ready; scatter-gather alone looks fine, no CPU difference seen (idle 56.9 % with, 57.5 % without,
+  bridge running in both). Not tried: a simultaneous TCP and UDP client, 30 min of `dropped`, Frigate reconnect time.
+- **P-08 `RTSP_VBR=1`** (night scene, noisy, one client): bytes per 5 s 0.89-0.96 MB (VBR) against 0.95-1.03 MB (CBR,
+  ceiling 1.0 MB per 5 s): about **6 % lower**, `cap`/`enc` unchanged. A still, low-noise scene was not available
+  (the picture is noisy at this gain), so the saving on a day scene is still to measure. The smart mode symbols in
+  `libmpi_venc*.so` not looked up.
+- **P-04 frame rate (bridge running, one client, 60 s each):** 15 fps idle 56.9 % (system 27.1), 20 fps **57.9 %**
+  (STAT 98-99 frames per 5 s, `dropped` 0-2), 25 fps **59.2 %** (117-125 frames per 5 s, `dropped` 0); USB host
+  interrupts 808 / 644 / 609 per s, wlan0 tx 238 / 191 / 184 KB/s (bit rate fixed). **The frame rate costs no measurable
+  CPU: 25 fps is as cheap as 15** (the bit rate is shared by more frames, so each frame is smaller). The rtspserver.conf
+  value `fps` of IPCAM2 is 16 (not one of 10/12/15/20/25, so no `-f`: the code default 15 applied); restored to 16 after
+  the runs. The picture quality at 25 fps was not judged (no one looked at VLC then).
+- **MQTT: Home Assistant sees nothing on IPCAM2 (rc7), diagnosed - the broker refuses the login (CONNACK 5).**
+  Owner report: with rc3 some entities were still visible, with rc7 nothing. On the camera (rc7 flash, up 53 min):
+  `/tmp/mqtt_last_pub.status` = `fail`; the listener's capture `/tmp/mqtt_stream.bin.26` and `.27` contain
+  **`20 02 00 05`** = CONNACK "not authorized" (sessions 26, 27 ... the listener has reconnected about once every
+  2 minutes since boot). Network is fine: ping 15-20 ms, `nc 192.168.1.25 1883` connects. `/mnt/config/mqtt.conf` has
+  `MQTT_ENABLE=1`, host 192.168.1.25, port 1883, user `morgeekha`, and a non-empty 8-character `MQTT_PASSWORD`
+  (no quote, space, `$` or `#`; file dated Oct 29, so it was not changed by the rc7 install). So the camera speaks
+  correctly and the broker says no: user/password pair wrong or user not allowed on the broker (owner to check the
+  Mosquitto user in Home Assistant). rc3 "still showing some info" is most likely the retained discovery
+  messages / entities left in HA, not live data. **Not a firmware fault, but two things for the implementer:**
+  1. **Surface it.** `mqtt_last_pub.status` only says `fail`. Record the CONNACK code (`bad credentials` /
+     `not authorized`) in the status file and show it in the web UI MQTT indicator, so the owner sees
+     "broker refused the login" instead of silence.
+  2. **Back off on refusal.** On CONNACK 4/5 the listener must stop hammering: wait 1, 2, 4 ... up to 30 min, and do
+     not run the fork-heavy health/spool work while not connected. This is the likely source of the 20 points of
+     CPU measured above (reconnect + `nc` + `od` + `date` per cycle, system time 26-29 %). With a refused login the
+     bridge should cost nothing.
+  Open for the owner: verify the password for `morgeekha` in HA and re-enter it in the web UI; then I re-measure the
+  CPU with a working login (expected to be different) and check the entities arrive in HA.
+- **P-02 `ak39_vi.slots=3` (one-shot from the SD card, rc7 kernel, flash user space, bootargs only in RAM, no saveenv): PASSED, worth making the default.**
+  Same procedure twice, 15 fps, one RTSP client (Frigate), `perf-baseline.sh 60` taken at the same age (2-4 min after boot):
+  | | default (module reports `slots` = 4) | `ak39_vi.slots=3` (cmdline and module report 3) |
+  |---|---|---|
+  | MemAvailable | **15.6 MB** | **18.8-19.5 MB** (+3.2 to 3.9 MB) |
+  | CmaFree | 1.3 MB | 1.2-1.4 MB |
+  | CPU idle | 82.0 % (user 4.5, sys 11.2) | 81.5-80.9 % (user 5.2, sys 10.9) |
+  | STAT frames per 5 s / dropped | 74-75 / 0-2 | 75-76 / 0 |
+  So three capture buffers are enough at 15 fps: +3.5 MB of RAM for free. Not tested: 25 fps, H.264 main, sub stream
+  with `slots=3` (a 20-25 fps run should be done before changing the default), and a long run for `dropped`.
+  Wi-Fi associated at 15 s, all services up, no Oops.
+- **CORRECTION of the "mqtt-bridge costs 20 points of CPU" finding (not reproduced, do not act on it yet).** On a fresh
+  card boot (same rc7 kernel, flash user space, bridge failing its login with CONNACK 5, one RTSP client, 15 fps):
+  idle **82.0 %** at 2 min, **80.9 %** at 13 min, and **82.9 %** at 18 min after a manual `mqtt-bridge restart`
+  (that restart itself shows a short burst: idle 69.5 % during the first minute, user 9.5 / system 18.5). That is as
+  good as the "bridge stopped" runs of earlier (74-77 %). The earlier 54-59 % came from the boot that had been up 47-53 min
+  after several of my own experiments (fps changes, rtsp.env switches, a second VLC client at times). The bridge's
+  cleanup is fine (old `/tmp/mqtt_stream.bin.N` files are removed, 5 present, 44 files in `/tmp`), so my "accumulating files"
+  guess was wrong too. Still worth doing: the **backoff on CONNACK 4/5** (a refused login re-sent every ~2 min costs a
+  burst each time) and surfacing the code in the UI. I will re-measure at ~45 min of this boot to see whether the load
+  appears later; result below if it does.
+### rc7 night 2 on IPCAM2 (.11), 2026-10-30 / 31: everything the tester could run alone (serial + the Mac's LAN shell, no credentials typed)
+Setup: card boot of the rc7 kernel for the kernel-argument tests (bootargs only in RAM, never saved), flash boot for the rest; every setting changed
+for a test was restored and checked against the `.dist` files at the end (`isp_tune.conf` identical to its `.dist`, `rtsp.env` empty, OSD off, masks removed,
+`ISP_TUNE=0`, ONVIF stopped, fps back to 16 = 15 effective, no `-f`). One lesson: `cfg-persist` saves the settings 30 s after a change, so a reboot
+sooner than that loses the change (my 16 fps restore was lost twice, the camera booted at `-f 25`); fixed by waiting for `[cfg-persist] settings saved`.
+
+| Test | Result |
+|---|---|
+| **HW-07** clock by the ISP OSD (`RTSP_ISPOSD=1`, `osdenabled=1`) | **PASSED.** Log `clock: in the ISP OSD (472x44 at 12,16)`; the snapshot shows the clock identical to the CPU one (digits right, black box, white digits, same place), ticks every second; no `RTSP_OSD_NIBBLE` / `ALPHA` needed (defaults are right). `pp_ms` per 5 s: **104-124 with the CPU clock, 0-1 with the ISP OSD** (about 2 % of a core saved). No dmesg error. Make it the default. The OSD is drawn on top of a privacy mask. |
+| **HW-04** privacy masks by the ISP (`RTSP_ISPMASK=1`, `MASK1=0,0,25,30`, `MASK2=40,40,60,70`) | **PASSED** on the snapshot: log `privacy masks: 2 in the ISP`, `MASK_RC=0 MASK_HW=1`; the two areas sit exactly at the percentages (corner 0-25 x 0-30 %, centre 40-60 x 40-70 %), uniform inside (std 0.3-0.6); luma **black 16, gray 128, white 234** (video levels). Removing the lines and restarting: log shows no mask. Not checked (needs RTSP credentials): sub-stream `/ch1`, a recording, Frigate. |
+| **HW-05** sharpness (`ISP_TUNE=1`, `SHARPNESS=-50/0/+50`) | **Works, subtle in this scene.** Log `sharpness: -50 in the ISP (medium 1 -> 0, high 1 -> 0)` and `sharpness: 50 ... (medium 1 -> 2, high 1 -> 2)`: the tuning file's gains are only **1**, so the 2 %-per-step scaling yields 0 / 1 / 2 (coarse, three effective levels). JPEG size 53063 / 57900 / 66866 bytes, whole-picture Laplacian variance 172 / 174 / 179 (night scene, noise dominates). Needs a daylight scene to judge the look. Live (picked up in under 6 s without a restart). |
+| **HW-06** exposure cap (`EXPOSURE_MAX_PCT=30`) | **PASSED.** Log `exposure cap: 30 % (exp_time_max 1125 -> 337)`; `/tmp/cam_ae` exposure time **1124 -> 281**, picture darker (`cam_luma` 49 -> 31); at 100 % back to `1125 -> 1125`, exposure 1124, luma 49. |
+| **HW-08** `/tmp/cam_ae` | Format confirmed `lumi exp_time a_gain d_gain isp_d_gain dark_flag`. **Night, dark room: AE sits at its limits whatever the IR LEDs do** - `exp_time 1124`, `a_gain 6840` (= 26.7x if 256 = 1x), `d_gain 256`, `isp_d_gain 256`, `dark_flag 0` in IR-on night mode (GPIO 19 high), in day mode with IR off, and back. Only `lumi` moves: **9-10 with IR on, 5 with IR off**; `cam_luma` 47-49 with IR, 34-36 without. So at night the exposure cannot separate IR on from IR off (it is pegged); the day / dusk values are still needed (index now about 30000 at night, so the placeholder `AE_NIGHT_ABOVE=4000` is far too low if gain is in 1/256 units). |
+| **F-04** | Not run (needs daylight and dusk readings, see HW-08). |
+| **F-02** frame rates | **PASSED** 10 / 12 / 25 (15 / 20 earlier): `-f N`, log `sensor: N fps (the stream rate)`, STAT `cap` per 5 s = 49-50 / 60 / 124-125 / 75 / 98-99. A value outside the list falls back to 15 (the camera's 16). |
+| **P-02** `ak39_vi.slots=3` at 25 fps | **PASSED.** 124-125 frames per 5 s, `dropped` 0-1, MemAvailable 18.5 MB (default slots 4: 15.6 MB at 15 fps), no error. Together with the 15 fps run (+3.2 to 3.9 MB, no CPU change) it is safe to make `slots=3` the default; the 25 fps CPU idle 63 % was taken right after a restart (burst), 80.9 % in the later steady state of the same kind of run at 25 fps. |
+| **P-07** `rtl8xxxu.dma_aggregation=1` (card boot) | Parameter active (`Y`, `dma_agg_pages` / `dma_agg_timeout` -1 = default). At 25 fps: usb-host interrupts **635/s** (609/s without at 25 fps), idle 80.9 %, wlan0 tx 191 KB/s, `dropped` 0. **No gain**, no harm; leave off. (This run was at 25 fps by accident of the unsaved fps restore, the comparison is still like for like with my earlier 25 fps number.) |
+| **HW-03** `otg_hs.fifo32=1` (card boot) | Parameter active (`Y`), Wi-Fi associated at 15 s, no USB error, 25 fps run: `dropped` 0, usb-host interrupts **664/s** (609-635 without), idle 81.9 %. **No measurable gain**; the CPU copy is not the bottleneck at this rate. Safe, but not worth switching on. |
+| **P-09** 30 min with one TCP client (Frigate), 15 fps, rc7 flash | **326 STAT lines (27 min): 24386 frames captured (99.7 % of 24450), `dropped` 133 in total (0.55 %), at most 4 in one 5 s, 71 lines with a drop, `snd_ms` max 635, `enc_ms` max 3109, one client, no error line in the server log, no oops / OOM in dmesg.** MemAvailable 15.3 MB at the end (16.9 MB at the start). |
+| **P-01** ONVIF discovery | **Partial.** ONVIF is **off** on IPCAM2 (`onvif_enabled=0`, no `onvif` in autostart), so nothing answers there by default. Started by hand (`controlscripts/onvif start`, not persistent): `monvifd` listens on UDP 3702 and **`wlan0` joins 239.255.255.250** (`/proc/net/igmp` shows the group on wlan0 and lo, IGMP v2), and a WS-Discovery Probe sent **unicast** to the camera gets a 1327-byte ProbeMatch. A multicast Probe from the Mac's Linux VM got no reply, but that VM probably does not forward multicast to the LAN, so it proves nothing. **Needs a real LAN client** (ONVIF Device Manager, Frigate "discover"). |
+| **F-06** Memory Guard | **Cannot be judged:** `MEM_GUARD_ENABLE=0` in `boot.conf.dist` and on IPCAM2 (the `memory-guard` autostart entry exists but the guard is disabled), so the migration and the 6144 / 3072 stages never run. The values are present in `boot.conf` (6144 / 3072 / 2048). To test: `MEM_GUARD_ENABLE=1` (not done: it can stop services). |
+| **F-05** logs kept across reboots | **BUG FOUND.** The reboot save works (`why=shutdown: ui: F-05 test` written by `reboot-tracker.sh intent`, after a manual `save` it went into `boot-0009`), **but after the 8th boot on a card the counter breaks**: `/mnt/sd/logs/.bootcount` holds `0008`, `scripts/log-persist.sh` line 80 does `_n=$((_n + 1))` on it and ash reads `0008` as an **octal** number: `arithmetic syntax error`, so **no boot folder is created any more** (confirmed twice: `sh -x log-persist.sh save` stops at line 80; after a real reboot, 3 minutes up, still only `boot-0005..0009`). It will break again at every boot whose counter contains an 8 or 9 (0008, 0009, 0018, 0019, 0028 ...). Before this, the folders from my boots up to `boot-0008` were fine (the last one 163 s into a boot). **Fix:** strip the leading zeros before the arithmetic, for example `while :; do case "$_n" in 0?*) _n=${_n#0} ;; *) break ;; esac; done`, or store the counter without padding and pad only for the folder name (`printf '%04d'`). Add a host test with `.bootcount` = `0008`, `0009`, `0010`, `0099`. The card of IPCAM2 has `.bootcount` = `0009` now (I set `8` once to test the rest), so its logs stay stuck until the fix is installed, then `rm /mnt/sd/logs/.bootcount`. |
+| **3D-NR** | Known and expected (`Not done: 3D-NR` above), but worth noting that **every start of `tc100_rtsp` logs two failed CMA allocations (`req-size: 1013 pages`, `507 pages`) and `no memory for the 3D-NR reference frame, 3D-NR disabled`**, on flash boots and card boots, with default `slots` and with `slots=3`, CmaFree 1.2-4 MB. So 3D-NR is off on this camera in all of today's tests. |
+| **Test method news** | The Mac's shell reaches the camera on the LAN (ping 7 ms, HTTP 302 on port 80, `ffmpeg` / `ffprobe` installed on the Mac). **RTSP (`401`), snapshots (`401`) and the web pages need the camera's credentials**, which the tester does not type, so TCP + UDP clients together, ffprobe of the sub-stream and H.265 UDPSG, and the web UI tests (W-01, UI-22, F-01) wait for the owner. Pictures are pulled from the camera's `/tmp/currentpic.cache.jpg` over the serial console (base64, md5 checked) and looked at. |
+
+Second part of the same night (flash boot, one TCP client = Frigate, 15 fps, everything restored afterwards, `rtsp.env` empty):
+
+| Test | Result |
+|---|---|
+| **O-05** log rotation | **PASSED** with a small cap: `RTSP_LOGMAX=8000` -> `/tmp/logs/tc100_rtsp.log.1` (8018 B) created after about 5 min, the new file starts with `log rotated`. Not seen at the real 256 KB cap (needs about 2.5 h at 1.7 KB/min of STAT lines): check `ls -l /tmp/logs` after the overnight soak. |
+| **O-05** `RTSP_FRAMECOPY` A/B | **No measurable difference at one client**: default `snd_ms` avg **264** (71 STAT lines), `enc_ms` 2300, idle 82.7 % / `RTSP_FRAMECOPY=0` `snd_ms` avg **273** (61 lines), `enc_ms` 2302, idle 82.3 %. The gain, if any, only shows with several clients or the recorder (not measurable here: no credentials for more clients). Keep the default. |
+| **B-01** slim initramfs | **PASSED** (serial checks): `initrd=0x81000000,2012654` in the cmdline, `/usr/bin/aplay|arecord|amixer` and `/usr/share/alsa` are links into `/mnt/ext`, `aplay -l` / `arecord -l` list `card 0: ADDA`, `PATH` has `/mnt/ext/bin`, dropbear running, **port 22 open, 23 closed**, `curl -I https://example.org` -> `200` with `ssl_verify_result 0` (CA bundle `/mnt/ext/etc/ssl/certs`), `jq -n 1` -> `1`, `iw reg get` works (`country 00`). MemAvailable 15.3-16.9 MB. **Not passing:** `amixer -c 0` (known, `cards/aliases.conf` missing; `amixer -D hw:0 scontents` works). Not done: microphone `arecord` (busy while `tc100_rtsp` runs), speaker (silent, see audio notes), ssh login (needs the password). |
+| **B-02** slim base | **PASSED** for what runs without a login: `busybox --list` = **192**, no `not found` in dmesg, `ps`, Wi-Fi, ntp, SD mount fine. |
+| **O-04** (checks 1, 7, 10, 11, 12) | **PASSED:** `/var/run/v4l2rtspserver.pid` = `pidof tc100_rtsp`, `oom_score_adj` **-900**; **no `crond`** with an empty crontab; `/tmp/www` has 22 entries, `/lib` has the `mnt` links; 13 `sh` processes in total, none new over the minutes watched; day/night daemon 0 %. Needs the web credentials: checks 2-6, 8, 9. |
+| **O-06** one housekeeper | **PASSED:** a single `housekeeper.sh run` process; no separate `web-guard`, `log-persist`, `service-watchdog`, `health-snapshot` processes; periodic jobs run (the health cache is refreshed, the log-persist cycle runs - and fails on the octal bug above). |
+| **MQTT bridge CPU, final figure** | With the broker refusing the login (CONNACK 5) the bridge's three processes used **12 ticks in 60 s = 0.2 % of a core** (`top` once showed 4 %, a snapshot artifact). Confirms the retraction: no CPU problem, only the missing back-off / UI message. |
+| **F-03 IDLE_FPS, F-04, F-01, W-01, UI-22, S-01 over ssh, HW-02 test 2, LED switches on the Settings page, microphone, speaker, overnight soak** | **Not run** - they need the owner's credentials / a browser or a viewer / a decision on the pool size, see the questions to the owner in the tester report at the top. |
+
+- **P-01** half done: needs ONVIF discovery from a client. **P-05** (128 KiB squashfs blocks): stack 2306048 B in the
+  partition; MemAvailable did not drop (15.2-16.0 MB, rc6 15.9-16.1); no timing yet.
+- Not run yet: audio B-01/B-02, O-05, P-09 (`RTSP_UDPSG=1`), P-08 (`RTSP_VBR=1`), P-04 (20/25 fps), P-02
+  (`ak39_vi.slots=3`, card only), P-07, W-01/UI-22 (browser), HW-02 test 2, HW-03 `fifo32=1`, HW-04..HW-08, F-01..F-06,
+  overnight soak.
+
+**No blocking finding is open.** IPCAM1 (.24) still runs the morning rc5; nothing of today's work is on it yet.
+
+**Asked of the implementers**
+1. The packages of 44558cd and f9c3d81 still say `3.0.1-rc5` (same as the morning build): bump `VERSION` (rc6) so the
+   cameras and the update page can tell them apart.
+2. HW-01b: the cause of the morning failure is unknown (44558cd kernel or the degraded state of that session). Keep
+   the guard as a detector (it costs nothing while the pool is not shrunk); revisit with HW-02 test 2.
+3. The serial console shell (`tc100test/consoleshell`) has no `CURL_CA_BUNDLE`/ext `PATH`: `curl` there exits 60.
+   Harmless for the services; give login and console shells the same environment if it is cheap.
+4. Next on the camera (in this order unless told otherwise): an overnight soak of f9c3d81, HW-02 test 2, HW-03
+   measurement with `fifo32=1`, HW-04 to HW-08 and F-01 to F-04, then the UI checks (need a browser on the LAN).
+
+**Rule kept for every new build:** first boot from the card (nothing written), Wi-Fi + 15 fps + memory checked,
+then the flash. A build that fails is written up here as `failed` with the serial log lines.
+
+**Implementer's answers (2026-10-30 night)**
+1. Done: `VERSION` is `3.0.1-rc6`.
+2. Agreed: the guard stays on by default as a detector.
+3. Done:
+   - The console shell is now a login shell (`sh -l`).
+   - `/etc/profile.d/tc100-ext.sh` exports `CURL_CA_BUNDLE` along with the ext `PATH`, for console, ssh and telnet.
+   - Both are in the initramfs, so they need the next build.
+4. Agreed, with **LED-01 first** (one minute, owner's report). Then audio (B-01/B-02 checks 2-4: libasound and the
+   ALSA tools moved and slimmed) before the overnight soak.
+
+### 3.0.1 prepared (2026-10-31, the owner: "prepare a release")
+`VERSION` 3.0.1 = rc16 + the alert as three 1 kHz beeps (R16: the 0.5 s tone was missed at the default volume, still
+at the -6 dBFS that R15-02 heard clean) + the release documentation. **The tag `v3.0.1` (which publishes the files) waits
+for the owner's go.** Still open when it was prepared: R15-03 (one night on the defaults) and R15-04 (the web page, the
+no-card hour with a reboot from the page); a fault found there gets a 3.0.2, not a re-tag.
+- To check on the 3.0.1 build: the alert heard at the default volume (`sh /mnt/scripts/speaker-play.sh /mnt/sounds/alert.pcm`).
+
+### Next build: 3.0.1-rc16 — the release candidate after R15 (2026-10-31)
+
+**Implementer's answers to the rc15 results:**
+- **R15-01, colours: a regression of rc15, undone.** Up to rc14 the picture with the software white balance was close
+  to neutral (R/G/B 102/101/100 measured on 2026-10-29); rc15 fed the ISP's white balance the live statistics and it
+  went blue / violet, with or without the software white balance. rc16: the white balance **algorithm** reads the old
+  block again (it then stays at one colour temperature that the software white balance corrects), while the **live
+  counts** still go to `/tmp/cam_awb` and the stock day / night method. Switch: `ak_isp.awb_live=1` (kernel command
+  line) gives the rc15 behaviour. The colour cast work goes on after 3.0.1 (the live statistics are known now).
+- **R15-02 passed:** the crackling was the full-scale clips; the clips are at -6 dBFS since rc15. The alert and the
+  boot chime still to be heard once (`sh /mnt/scripts/speaker-play.sh /mnt/sounds/alert.pcm`; the boot chime plays 3 s
+  after the services start).
+- **R12-08 (no SD card, short run) passed.** Two misleading console lines fixed (Wi-Fi settings source, board profile
+  before the sensor id). To reach the logs with no card: the web page, Logs (needs the login), or ssh (on by default).
+
+### Results on rc16 — tester, .11, 2026-10-31 (card boot once, then `update66.sh check` / `apply`)
+- **Install:** `update16` md5 ok, card boot of the rc16 kernel, `check` ok, `apply` DONE, boot shows `user space from flash (3.0.1-rc16)`.
+  `awb_live` = 0, `dmesg` `read from word 1160`, `/tmp/cam_awb` live (33264 36 14 0 0 29444 ...), `wlan0` up, ping 2-8 ms, MemAvailable 21 MB.
+  The card-boot console line "board profile: unknown hardware, defaults of ..." is still printed (the card boot runs the flash's rc15 user space: look again after the flash boot).
+- **R16-01 colours: PASSED.** Same room, default settings (software white balance on): the white wall and the blanket are neutral
+  (grey-white), the lamp warm, the lion picture violet as the picture really is, the sofa side purple as the real sofa. The
+  blue / violet cast of rc15 is gone. (Scene differs slightly from R15-01: the owner is out of the frame. Snapshot on the card: `/mnt/sd/r16-01.jpg`.)
+- **Alert:** `speaker-play.sh /mnt/sounds/alert.pcm` at the default volume: the owner heard **nothing** (the clip is 8000 bytes = 0.5 s;
+  the driver log shows the play and `done`, rc=0). Three plays at volume 100 then the -6 dBFS tone at 60: **all heard**. So the alert
+  is audible but short; at the default volume (pttvolume.conf / 90 %) a first play was missed: worth a longer or louder alert.
+  **Boot chime: not heard/verified** (the flash was written, the camera rebooted, nobody listened for it).
+- **Not done (daytime / owner):** R15-03 night, R15-04 (web page, no-card hour with a page reboot). Soak restarted on rc16.
+
+### Second camera: IPCAM1 (.24) on rc16 — tester, 2026-10-31 (read over ssh by the owner, not by the tester)
+- Updated with the web update at 16:24 local: `tc100-3/update/VERSION` = 3.0.1-rc16, the update saved the previous kernel and
+  initrd (`kernel-20261031-162405.bin`, `initrd-20261031-162428.bin`); `c66.img.installed` on the card, no trial kernel left.
+- `/proc/mtd`: new layout (`kernel`, `initrd` 2 MiB, `stack` 0x2b3000, `vendor` 1 MiB, `cfga`, `cfgb`), so the web update was accepted
+  by the first-layout gate. `/proc/cmdline` has `flashroot=1` (flash boot), `ak_isp awb_live` = 0, `wlan0` 192.168.1.24, ping 2-4 ms, SD 60 GB free.
+- Not seen by the tester: the `[flashmode] user space from flash` line, colours, Frigate, the web page, a warm reboot with the Wi-Fi check.
+- **Update 2026-10-31 evening: tester's access is now ssh, not the serial console** (the bridge is gone). Key-based, key put in
+  `/root/.ssh/authorized_keys` by the owner (RAM only: gone at each boot). Finding for the implementers: dropbear makes new host
+  keys at each boot, so every reboot gives the owner's Mac a "host identification changed" warning; a persistent host key in the
+  settings, or in `config/`, would stop it (not urgent).
+- **IPCAM1 (.24) on rc16, 18:48 local:** up 1 h 23, `awb_live` 0, `wlan0` -48 dBm, USB 480 Mbit/s, 15 pings 0 % loss avg 3.9 ms
+  (the first of two pings had taken 875 ms: the link waking, not seen again), RTSP server running, SD card mounted. MemAvailable 20.7 MB.
+  **Colours: a strong green cast** in a dim evening room (luma 67-78, `mode=day`, exposure gain 2810 vs 1124 on the .11 in a lit room;
+  white wall looks yellow-green, the floor pink). Not compared with the same scene on rc5 (no earlier snapshot): a different sensor module?
+  The software white balance is on (default). Snapshot kept on the owner's Mac, not in git. To look at: does the cast go away with light (day)?
+- **.24 green cast: part of it is a setting carried over from 2.x (found 2026-10-31 evening).** `/mnt/config/isp_tune.conf` on the .24 had
+  `HUE=-10`, `SATURATION=-13` with `ISP_TUNE=1` in `boot.conf` (the .11 has `ISP_TUNE=0` and zeros). Set to 0 by the tester (old file kept on the
+  card: `isp_tune.conf.before-2026-10-31`): the green is gone, the wall is still yellowish in a dim, warm room (luma 65-70, exposure gain 2810).
+  Same sensor file on both cameras (`/vendor/isp.conf`, md5 926b0a2a...), same kernel, `awb_live` 0, software white balance on. So the remaining
+  difference is the scene and the light; to be compared in daylight. Question for the implementers: should an upgrade from 2.x keep
+  `HUE`/`SATURATION` at all (a migration of the old image tuning), or reset them with a note? Other .24 settings from the old layout:
+  stale 2.x/3.0-trial files on the card (`/mnt/sd/config/boot.conf` 18 KB, `isp_f23_mipi_2lane.conf`, `.cfg-deleted`); the card file is not used
+  (`/vendor/isp.conf` is read first).
+- This covers the README's "a second camera" for the update path (rc5 -> rc16 by the web page). Open: the same checks as R15-04 on the .24.
+
+### Results on rc15 — tester, .11, 2026-10-31 (installed in flash: card boot once, then `update66.sh check` / `apply`)
+- **Install:** card boot of the rc15 kernel, `check` ok, `apply` DONE, reboot shows `[flashmode] user space from flash (3.0.1-rc15)`;
+  `wlan0` up, ping gateway 3-20 ms, 0 % loss; MemAvailable ~21 MB; RTSP serving, 1 client. Serial console needed a rewire
+  by the owner before this (no software cause found).
+- **R15-01 white balance: PARTLY.** `dmesg`: `white balance counts read from word 1160`; `/tmp/cam_awb` live and moving
+  (17306 8 8 0 0 4572 ... then 18068 6 5 0 0 4849 ..., then 18383 7 8 0 0 5297). Two snapshots of the same scene (lit room, afternoon), default
+  (software AWB on) and `awb.off`: **both have a strong blue/violet cast** (white throw and walls look lavender, a cream wall at the right stays warm).
+  The ISP alone is not neutral, and the software AWB changes little (slightly less saturated). So: **keep the software AWB on in 3.0.1**,
+  and the cast remains: the target of the AWB gains needs a look (kept on the card: `/mnt/sd/r15-01-awb-on.jpg`, `r15-01-awb-off.jpg`, not in git: a person is in the picture).
+  `awb.off` removed, server restarted.
+- **R15-02 speaker: PASSED (tones).** `aplay` of `test-1k-m6/m12/m20.pcm` at Headphone 3 and 5: no `underrun`, no error;
+  the owner hears them **clean at every level, -6 dBFS included**. So the earlier crackling was clipping of the 0 dBFS clips: confirmed.
+  `speaker-play.sh` was not found by `find` here (the alert and boot chime were not played by it; the owner answered "clean" to a
+  question about the alert, but my command failed to start it, so treat the alert/chime as **not verified**).
+- **R15-03 night and R15-04 owner checks (R12-07, no-card hour): not done yet** (daytime; owner postponed). Soak restarted on rc15
+  (`/mnt/sd/soak-20261031.log`).
+
+## 2026-11-01 — .11 alignée sur la .24 (flux)
+
+- `/mnt/config/rtspserver.conf` de la .11 remplacé par celui de la .24 (seules différences qui existaient : sous-flux 352x200 8 i/s 400 kb/s → 640x360 25 i/s 250 kb/s ; `smartmode=1` → 0 ; clés `smart=0`, `vbr=0` ajoutées). Sauvegarde : `xfer17/rtspserver.conf.11.before-2026-11-01` (Mac).
+- Choix du propriétaire : Frigate fait la détection → compromis simple, mêmes valeurs sur les deux caméras ; débit du sous-flux à relever pour les deux plus tard si le Wi-Fi de la .24 se stabilise.
+- Vérifié après `rtsp-h26x restart` : flux principal H.265 1920x1080 25 i/s ; /video1 H.264 640x360 25 i/s, ~230 kb/s mesurés (STAT sub_bytes), 0 perte, ping OK.
+- Écarts restants (volontairement non touchés, à décider) : boot.conf `ISP_TUNE` (.11=0, .24=1), `FRONT_LED` (.11=1, .24=0), `MQTT_ENABLE=1` seulement sur la .11, `IRCUT_*_GPIO` seulement sur la .24 (matériel), `daynight.conf DAYNIGHT_SOURCE=luma` seulement sur la .11, autostart `button-actions` seulement sur la .11.
+
+## 2026-11-03 — rc18 sur la .11 (installée par le propriétaire) : premières vérifications par ssh (testeuse, sans console série)
+
+Build : `3.0.1-rc18` (artifact `tc100-3-release` du run du commit 160895f). Le propriétaire a installé la rc18 sur la .11 avant moi ; la .11 n'a PAS de carte SD (test R12-08 / R15-04 en cours) ; uptime 1 h 17 au moment du relevé.
+
+- **Clés ssh persistantes : OK.** Après le reboot de l'installation ma clé (RAM) avait disparu, le propriétaire l'a remise à la main dans `/root/.ssh/authorized_keys` à 09:02 ; `cfg-persist` l'a recopiée tout seul dans `/mnt/config/authorized_keys` (3 clés, 212 octets) et la clé d'hôte est dans `/mnt/config/dropbear_ed25519_host_key` (83 octets, 09:00). La connexion par clé fonctionne. **À confirmer au prochain reboot** : clé et clé d'hôte revenues sans action, pas d'avertissement « HOST IDENTIFICATION HAS CHANGED » sur le Mac.
+- **Balance des blancs : OK sur la .11.** `white balance: in the ISP (extra gains max 1536, grey filter 1)` ; `/tmp/cam_awb` : `rex=221 bex=299 u=0 v=1` ; `/mnt/config/awb.state` = `221 299` (écrit à 08:06). Snapshot (mur et pièce) R/G 1,02, B/G 1,00 (critère ±5 % : passé). Reste à voir : le redémarrage de `rtsp-h26x` (ligne `starting from saved gains`) et la .24 (rex≈600 / bex≈760 attendus).
+- **Autre : OK** — `MemAvailable` 21 992 kB, charge 1,1 à 1,3, `tc100_rtsp` stable (`dropped 0`), pas de plantage au noyau, MQTT publie (`mqtt_last_pub.status` ok, âgé de 3 s), `FRONT_LED=0` conservé, `MQTT_ENABLE` plus dans `boot.conf`, `mdnsd` arrêté (désactivé par défaut, comme prévu), `rtsp.env` vide.
+- **Constaté :** la ligne de commande du noyau contient `ak_wdt_reboot=300` : le chien de garde matériel existe donc (réponse à ma question dans l'avis sur AGENTS.md ; à confirmer par l'implémenteur qu'il est armé par l'init).
+- **Pas encore testé sur la .11 :** mDNS, qualité Wi-Fi (`WIFI_QUALITY=1`), mode babyphone, sabotage, notifications, mode vitre, métriques Prometheus. La carte SD manque pour les journaux persistants et `/tmp/sd-health`.
+- **Remarque de version :** la rc18 a été construite au commit 160895f ; les commits suivants (fin du lot 2, lot 3, lot 5, interface) ne sont pas dedans alors que `VERSION` dit toujours `3.0.1-rc18`. Demande à l'implémenteur : numéroter la prochaine construction rc19.
+
+## 2026-11-03 — rc18 sur la .11 : essais un par un des nouveautés (testeuse, ssh, caméra .11, sans carte SD)
+
+Chaque service a été allumé à la main (sans reboot) et mesuré. Mémoire disponible : 22,0 Mo avant → 19,8 Mo avec mdns + wifi-quality + sound-detection actifs (≈ -2 Mo, à vérifier service par service).
+
+| Essai | Résultat |
+|---|---|
+| **mDNS** (`controlscripts/mdns start`) | **Passé** en unicast : `tc100-mdnsd` répond à `ipcamera2.local` → 192.168.1.11 (64 octets), RSS 8 Ko, CPU 0 %. Le multicast n'a pas pu être testé depuis ma machine ; reste le `ping ipcamera2.local` sur le Mac du propriétaire. **Doc à corriger :** le nom est celui de `hostname.conf` (ici `IPCAMERA2`), pas `ipcam1.local`. |
+| **Prometheus** (`/cgi-bin/metrics.cgi`) | **Passé** : 200 en 0,39 s avec le mot de passe de l'interface, 401 sans. Format conforme (`# HELP` / `# TYPE`), toutes les métriques annoncées présentes. Réserve : `tc100_audio_level_dbfs` vaut -96 tant que le niveau sonore n'est pas mesuré (voir Vox). |
+| **Qualité Wi-Fi** (`WIFI_QUALITY=1`) | **Passé au démarrage du relevé** : `/tmp/wifi-quality.log` écrit (`epoch rssi retries failed loss`), résumé `/tmp/wifi-quality` correct (-42 dBm, 0 perte, 0 retransmission). Pas de reboot nécessaire avec `wifi-quality.sh run` ; la lecture au boot (job du housekeeper) reste à vérifier au prochain reboot. À laisser tourner : comparaison avec la .24. |
+| **Babyphone / Vox** | **Passé avec un défaut de documentation.** Il faut `ENABLE=1` ET `VOX_MODE=1` dans `sound_detection.conf` (la détection sonore est coupée par défaut ; sans `ENABLE=1` `/var/run/sound_level` n'existe pas et le niveau reste à -96). Essai : tonalité 1 kHz jouée au haut-parleur (volume 100) → niveau -53 → -18 dBFS, `tc100_vox_active` = 1, retombé à 0 environ 10 s après la fin. La publication `babyphone/state` sur le broker n'a pas été vue directement (pas de client MQTT sur la caméra) ; `mqtt_last_pub` reste ok. |
+| **Sabotage** (`tamper-detect.sh`) | **ÉCHEC.** Objectif couvert à la main en plein jour pendant ~1 min : `tamper_active` reste 0, `/tmp/cam_luma` reste 125-128. Cause : le seuil est « luminosité ≤ 15 », mais l'image est mesurée **après** l'exposition automatique, qui remonte une image sombre vers ≈ 127 (écrit aussi dans `auto-night-daemon.sh`). Le détecteur ne peut donc jamais se déclencher de jour. Autres écarts : deux interrupteurs sont nécessaires (`TAMPER_DETECT=1` dans `boot.conf` ET `ENABLE=1` dans `/mnt/config/tamper.conf`, alors que la note n'en cite qu'un) ; `boot.conf` contient aussi un autre réglage `TAMPER_DETECTION` sans lien. |
+
+**Mesures pour corriger le sabotage (même caméra, même heure, objectif couvert / libre) :**
+- Luminosité moyenne `cam_luma` : 127 / 119 (inutilisable).
+- Écart-type de l'image (détail) : 11 à 14 / 47.
+- Taille du JPEG `currentpic.cache.jpg` : 62 993 / 123 103 octets (divisée par 2).
+- `/tmp/cam_ae` (2ᵉ champ, exposition/gain) : 843 / 281 (multipliée par 3), 5ᵉ champ 320 / 443.
+- **Proposition :** détecter l'uniformité (peu de détails : écart-type ou taille JPEG sous un seuil relatif à la valeur habituelle de la scène, mesurée sur quelques minutes) combinée à un saut de l'exposition, pendant au moins 3 relevés ; garder la garde de 30 s après la bascule jour/nuit ; ajouter un cas de nuit sans IR (mode derrière une vitre) pour ne pas déclencher dans une pièce noire. Critère de réussite : main sur l'objectif ≥ 10 s → `tamper_active` = 1 ; objectif libre → 0 ; test jour et nuit, sur les deux caméras.
+
+**État laissé sur la .11 :** `tc100-mdnsd` en marche (RAM, ne démarre pas au boot), `WIFI_QUALITY=1` dans `boot.conf`, `sound_detection.conf` `ENABLE=1` `VOX_MODE=1` (sauvegarde de l'ancien fichier : `/tmp` de la caméra, perdue au reboot), sabotage arrêté (`tamper.conf ENABLE=0`). Non testés ici : notifications (aucun canal configuré : Ntfy/webhook demandent un serveur choisi par le propriétaire), mode derrière une vitre (test de nuit), entité caméra MQTT (demande Home Assistant), best-shot, zones nommées, pre-roll, sons, alarme fumée, vue 2×2 (ces cinq ne sont pas dans la RC18 : fichiers absents de la caméra, par ex. `/mnt/sounds/chime.pcm` et `www/multiview.html`).
+
+## 2026-11-03 11:10 — Testeuse : la CI Python est rouge depuis 0a72361 (rc19 comprise)
+
+Le workflow « CI » (`Host regression tests`) échoue sur 0a72361, a680f8f, aaec458, d0d2240 (rc19), 72c5475, 441890d, af38d3a et a23b217, alors que la compilation du noyau et du paquet réussit. Tests en échec (journal du run 41615464487) : `test_regressions.ActionCommandFiles.test_every_command_is_routed_to_the_file_that_has_it`, `Regressions.test_motion_form_fields_are_read`, `WebUiLanguage.test_every_ui_string_has_a_translation` (chaînes sans traduction), `test_webui_wiring.WebUiWiring.test_every_form_field_is_read_by_its_handler` (+ une erreur JSON). Ce sont des défauts de branchement de l'interface web des nouveaux lots (lot 3 et suivants, pas dans la rc18). **Demande :** corriger avant de tester la rc19 sur les caméras ; la testeuse n'installe pas une version dont la CI de régression est rouge, sauf accord du propriétaire.
+
+## 2026-11-03 12:40 — Testeuse : rc20 (commit 01a6311) récupérée, relue avant installation
+
+- Paquet : artifact `tc100-3-release` du run 41624580550 (build réussi) ; `tc100-3.0.1-rc20-update.tar` md5 `e914a72a940f5f8f732cad3d4467b0c3` (6 195 200 octets), `-sd.zip` md5 `ba8c0a1ba4a2e64101011eff8751bfb7`, `VERSION` = 3.0.1-rc20. Sur le Mac du propriétaire : `~/Downloads/tc100-fix/xfer20/`.
+- **CI Python rouge sur 01a6311 et a6c2cdb** (un test : `test_regressions.SettingsByUse.test_local_recording_commands` : la liste des commandes de lecture de `action.cgi` attendue — `wifi_get_ssid|wifi_rescue_info|local_rec_status|sd_card_info|md_zones_info|rtsp_server_info) ;;` — n'est plus dans le fichier : un nouveau `motion_heatmap` / `sd_card_check` a changé la ligne). Le noyau et le paquet sont construits. La testeuse installe quand même sur la .11 (le propriétaire l'a demandé) mais le test doit être corrigé avant le tag.
+- **WebDAV (`controlscripts/webdav`) : ce n'est pas du WebDAV.** Le service lance `busybox httpd` (`-p 8080 -h <dossier> -c /etc/httpd.conf`) : serveur de fichiers statique en lecture, sans `PROPFIND` ni `OPTIONS` WebDAV ; le Finder de macOS ne pourra probablement pas le monter comme volume (un navigateur ou `curl` lira les fichiers). Bon point : `/etc/httpd.conf` impose un identifiant (`/:root:<hash>`), donc pas d'accès sans mot de passe ; l'authentification est celle de la caméra, en clair sur le réseau local (HTTP). À corriger dans la doc/l'interface (« partage de fichiers HTTP en lecture seule ») ou à remplacer par un vrai serveur WebDAV minimal ; désactivé par défaut, à garder ainsi.
+- **Auto-réparation de la carte (`sd-diag.sh repair`)** : `fsck.fat` n'est pas dans l'image (constaté sur la .11) ; le script retombe alors sur un remontage en lecture-écriture, sans réparation réelle. L'intitulé « auto-repair » promet plus que ce qui est fait. À tester avec une carte (non réalisable sur la .11 sans carte).
+
+## 2026-11-03 13:00 — RÉSULTATS rc20 (01a6311) sur la .11 / IPCAM2 (testeuse, ssh, sans carte SD, installée par la mise à jour web du propriétaire)
+
+Compte rendu pour l'implémenteur. La rc20 est dans la flash (`/rom` = `mtdblock5`, `flashroot=1`, `VERSION` 3.0.1-rc20), uptime 11 min au relevé. Le propriétaire installe maintenant la rc20 sur la .24 (compte rendu à suivre).
+
+**PASSÉ**
+- **Clés ssh persistantes (af38d3a + ce65ece) :** après le reboot de la mise à jour, ma clé (installée par le propriétaire pendant la rc18) fonctionne sans action ; `/mnt/config/authorized_keys` (318 octets) et la clé d'hôte (`SHA256:GWE6XVUH…`) inchangées : pas d'avertissement « host key changed ». À repasser après un reboot sur la .24 (première installation de ce mécanisme).
+- **ssh interactif :** `devpts` monté (1 ligne dans `/proc/mounts`) ; plus de coupure de session après le mot de passe (le propriétaire avait eu une session qui tombait sur la rc18).
+- **Balance des blancs globale (ce65ece) :** au démarrage `white balance: starting from saved gains rex 219 bex 291`, puis `rex=224 bex=295 u=0 v=0` (`/tmp/cam_awb`), `awb.state` écrit (`219 291`). Snapshot après reboot : R/G 1,00, B/G 1,01 (critère ±5 % passé, mur neutre dès le début). Gains conformes à ce qu'on attendait pour la .11 (≈230/287).
+- **Suivi Wi-Fi (`WIFI_QUALITY=1`) :** redémarre seul avec la caméra (11 relevés en 11 min, `/tmp/wifi-quality` écrit). Surveillance de la valeur `rssi` : -42 en essai manuel, -16 au relevé du boot, -50 dans les métriques : vérifier que `wifi-quality.sh` et `metrics.cgi` lisent la même grandeur.
+- **mDNS (`tc100-mdnsd`) :** répond (unicast) à `ipcamera2.local`, RSS 8 Ko, CPU 0 %. Multicast depuis le Mac du propriétaire encore à confirmer. Nom = `hostname.conf` (pas `ipcam1.local` comme dans les notes).
+- **Prometheus (`metrics.cgi`) :** 200 en 0,39 s avec mot de passe, 401 sans ; toutes les métriques présentes.
+- **Babyphone / Vox :** `ENABLE=1` ET `VOX_MODE=1` nécessaires dans `sound_detection.conf` (doc à corriger) ; ton 1 kHz au haut-parleur : niveau -53 → -18 dBFS, `tc100_vox_active` 1 puis 0 (~10 s). Le niveau (`/var/run/sound_level`) est mesuré dès le boot.
+- **Mémoire et stabilité :** `MemAvailable` 21,9 Mo après reboot, charge 0,8, flux principal stable (`dropped 0`), aucun plantage au noyau.
+
+**ÉCHEC / À CORRIGER**
+1. **Sabotage sur la rc18 : ne se déclenchait jamais de jour** (luma ≈ 127 même objectif couvert, l'exposition compense). Corrigé par a23b217 (taille JPEG + exposition) ; **nouvel essai en cours sur la rc20** (main sur l'objectif, de jour) — résultat à suivre. Baseline mesurée : 103 057 octets.
+2. **Synchro « Push » (530514d) :** deux défauts probables, voir l'entrée « relecture de 530514d » (identité MQTT écrasée ; requête inter-caméras bloquée par CORS). **Non testée** tant que ce n'est pas corrigé.
+3. **WebDAV :** ce n'est pas du WebDAV (busybox httpd statique, pas de PROPFIND) : le Finder ne le montera pas. Non testé (désactivé par défaut) tant que le nom/la doc ne sont pas corrigés.
+4. **Auto-réparation de la carte :** `fsck.fat` absent de l'image ; « repair » = remontage seulement. Non testable sans carte (la .11 n'en a pas en ce moment).
+5. **CI Python rouge sur 01a6311 / a6c2cdb** (un test `test_local_recording_commands`, voir l'entrée précédente).
+6. **Documentation :** note d'installation de la rc20 : les interrupteurs doivent être décrits complètement (Vox : `ENABLE` + `VOX_MODE` ; sabotage : `TAMPER_DETECT` dans `boot.conf` ET `ENABLE` dans `tamper.conf`, ce dernier prioritaire ; `hostname` pour mDNS).
+
+**PAS ENCORE TESTÉ sur la .11** (précision) : notifications Ntfy/webhook (aucun canal configuré), mode « derrière une vitre » (essai de nuit), entité caméra MQTT (Home Assistant), meilleur cliché, zones nommées, pre-roll, carillon/sirène (`play_sound`), alarme fumée, vue 2×2, présélections OSD, frise 24 h (demande la carte), carte de chaleur, anti-scintillement 50 Hz.
+
+**Prochains essais testeuse :** retest du sabotage (en cours), puis rc20 sur la .24 (balance des blancs avec gains ≈ 600/760 attendus : critère R/G et B/G à ±5 %, clés ssh après reboot, mode derrière une vitre la nuit). Rappel : la .24 porte encore ma rustine (`awb.off`, ligne `awbx` dans `rtsp.env`, outil sur sa carte SD) : à retirer avant l'essai de la balance des blancs.
+
+## 2026-11-03 13:25 — RÉSULTATS rc20 (01a6311) sur la .24 / IPCAM1 (testeuse, ssh, carte SD présente)
+
+La rc20 a été installée sur la .24 par le propriétaire (mise à jour web), uptime 13 min au premier relevé.
+
+**PASSÉ**
+- **Balance des blancs globale : la boucle rc20 corrige la .24 seule, mieux que ma rustine.** Rustine retirée (`awb.off` supprimé, `rtsp.env` vidé, sauvegarde `/mnt/sd/rtsp.env.rustine-2026-11-03`), `rtsp-h26x restart`, sans autre action. En 30 à 90 s les gains convergent à `rex 518 / bex 756 / 750 / 755` (ISP, lu avec `awbx get`), `u=1 v=0`. Le plafond ancien (512) était donc juste sous la valeur de `rex` ; la boucle a pris 518 avec un meilleur équilibre que le 600/760 fixé à la main. Mesure sur le snapshot (mur blanc) : **rustine 600/760 : R/G 1,18, B/G 1,02 ; boucle rc20 : R/G 1,01, B/G 0,99** (critère ±5 % : passé). L'image n'est plus verte ni jaune-verte.
+- **Gains mémorisés :** `/mnt/config/awb.state` = `518 762` ; après `rtsp-h26x restart` : `white balance: starting from saved gains rex 518 bex 762` puis `rex=523 bex=748 u=-1 v=1`.
+- **Clés ssh persistantes :** après le reboot de la mise à jour, la clé de la testeuse n'était plus là (première installation du mécanisme : prévu) ; le propriétaire l'a remise dans `/root/.ssh/authorized_keys`, et `/mnt/config/authorized_keys` la contient maintenant aussi (2 lignes : l'ancienne clé RSA de 2.x + la nouvelle ed25519) ; à confirmer par un second reboot que la clé revient seule. Clé d'hôte écrite en flash (`dropbear_ed25519_host_key`, 83 octets, 12:07) : empreinte `SHA256:WKXNKdA8…` (à comparer après le prochain reboot). Note : `/mnt/config/authorized_keys` a les droits `-rwxr-xr-x` (755) : à ramener à 600.
+- **ssh interactif :** `devpts` monté, session stable (la clé a été ajoutée à la main dans une session ouverte sans coupure).
+- **Teinte (HUE/SATURATION) :** restée à 0 après la mise à jour. `DAYNIGHT_SOURCE=luma` conservé.
+- **Suivi Wi-Fi :** `WIFI_QUALITY=1` ajouté à `boot.conf` et relevé démarré (`rssi=-54`, perte 0 % sur la première minute, ping routeur 1,9 à 10,8 ms). À laisser tourner une nuit pour corréler les rafales de pertes de la .24. Mémoire disponible 20,5 Mo, flux principal stable (`dropped 0`).
+
+**À SURVEILLER / PAS ENCORE TESTÉ sur la .24**
+- Plusieurs reprises de la boucle de blancs : le soir/la nuit (bascule IR, gel en noir et blanc, retour le matin), changement brusque d'éclairage ; vérifier que `awb.state` n'est pas écrit en boucle (usure flash) : sorties à surveiller `ls -l --full-time /mnt/config/awb.state` sur 24 h.
+- Mode derrière une vitre (nuit), notifications, sabotage (essai de jour en cours sur la .11), son et vox, mDNS (non démarré), carte de chaleur, frise 24 h (la .24 a une carte SD : `/mnt/sd/DCIM` présent), auto-diagnostic SD (`sd-diag.sh check`, car la carte est là), 50 Hz.
+- Après un second reboot : clés ssh et clé d'hôte, `awb.state`, `WIFI_QUALITY`.
+
+## 2026-11-03 13:50 — .11 : surexposition après reboot + mDNS (testeur)
+
+- **Surexposition .11** (rc20, uptime ~7 min au moment du constat, reboot 12:37 UTC) : snapshot 12:44 UTC quasi blanc (luma 241-244, 81 % des pixels >240), `cam_ae` = `236 1124 484 256 256 0 1125`. Deux minutes plus tard, sans aucune action de ma part : luma 123, `cam_ae` = `47 137 256 …`, image normale. Donc **transitoire post-boot** : l'AE met plusieurs minutes à converger après démarrage (partait d'un gain/expo maximal ?). Teinte légèrement violette juste après le boot (rex=226 bex=296), à surveiller.
+  - Demande à l'implémenteur : au démarrage de tc100_rtsp, initialiser l'AE sur une exposition moyenne (ou accélérer la convergence) ; critère : luma < 200 dans les 30 s après boot sur la .11.
+  - .24 non concernée (luma 140 à la même heure).
+- **mDNS** : le service est **off par défaut** → `ping ipcamera2.local` = "unknown host" est attendu tant qu'il n'est pas démarré. Démarré à la main sur la .11 (`tc100-mdnsd -i wlan0`, nom = hostname.conf = IPCAMERA2) ; le démarrage manuel ne survit pas au reboot. À décider : activer `config/autostart/mdns` par défaut (léger) ? Retest ping depuis le Mac du propriétaire en attente.
+
+## 2026-11-03 — Version 3.0.1-rc21 (Consolidation complète et release candidate)
+
+- **Version :** `3.0.1-rc21`
+- **Contenu embarqué :**
+  - **Safe mode / Boot Guard** (`BOOT_GUARD=1`) : bascule en mode de secours après 3 reboots consécutifs en < 5 min.
+  - **Nettoyage des doublons** : suppression de `network-monitor`, du port 8080 (WebDAV obsolète), et fin de l'usure Flash par `awb.state`.
+  - **Unification Export / Import JSON & Push** : table unique, case "Inclure les secrets", Push inter-caméras sécurisé.
+  - **Mot de passe Wi-Fi de secours par défaut** : fixé et documenté sur `tc100rescue`.
+  - **CI hôte verte** : 172 tests unitaires passés avec succès.
+- **Test à effectuer :**
+  1. Installation de la `rc21` sur la caméra via la mise à jour web.
+  2. Vérification de la persistance de configuration et de la stabilité globale.
+
+Décision du propriétaire : JSON seulement ; secrets seulement si on coche la case.
+
+- **Quoi :** `config_exchange.cgi` : une seule table de lignes sert à l'export ET à l'import (symétriques). Ajoutés : enregistrement (`REC_*`), jour/nuit (`daynight.conf`), alertes (`notify.conf`), sabotage, détection sonore (Vox, alarme), réglage d'image (`isp_tune.conf`), point d'accès de secours, mode sans échec, journaux, suivi Wi-Fi. Retirés : lignes mortes (`recording.conf rec_*`, jour/nuit de `rtspserver.conf`, `PRIVACY_SCREEN`). Avec la case cochée, `secrets` : réseaux Wi-Fi (4 max, psk entre guillemets), mot de passe de la caméra, utilisateur et mot de passe MQTT, jeton et chat Telegram, mot de passe du secours ; sous `notify` : jeton Ntfy, sujet Ntfy et adresse webhook (traités comme secrets : un sujet ntfy.sh vaut un mot de passe). Validation stricte de chaque valeur, import tout-ou-rien. Envoi (« Push ») : identifiant et mot de passe de la caméra cible, jeton CSRF lu chez la cible, jamais de secrets ni d'identité réseau. Supprimés : `conf-export.cgi`, `conf-import.cgi`, `configbackup.cgi`, `upload_backup.cgi` (instantané sur la caméra, préréglages et `cfg-persist` inchangés).
+- **Limites :** un réseau Wi-Fi à psk hexadécimal n'est pas exporté ; un SSID accentué peut faire refuser l'import ; les anciens exports (`.telegram.token`, `.mqtt.user`) ne réimportent plus ces deux valeurs.
+- **Interrupteur :** aucun (ne pas importer en cas de doute ; l'export ne modifie rien).
+- **Test :**
+  1. Outils → Mise à jour et sauvegarde : export sans la case → le fichier ne contient ni Wi-Fi, ni mot de passe, ni jeton, ni sujet Ntfy, ni adresse webhook.
+  2. Case cochée (avertissement visible) → le fichier contient `secrets`.
+  3. Modifier `REC_WHEN`, les seuils jour/nuit, les événements d'alerte ; réimporter le fichier complet → les valeurs reviennent ; mot de passe et Wi-Fi réappliqués (la page peut se déconnecter : vérifier le retour).
+  4. Import avec « exclure les identifiants » → secrets inchangés.
+  5. JSON invalide (`"when":"x"`) → refusé, rien de modifié.
+  6. Push vers l'autre caméra avec identifiant et mot de passe → réglages appliqués, sans Wi-Fi, mots de passe ni identité réseau (topic MQTT, nom, retournement d'image).
+  7. `/cgi-bin/conf-export.cgi` et `/cgi-bin/configbackup.cgi` → 404.
+- **Critères :** 1 à 7 conformes ; caméra toujours joignable après un import avec Wi-Fi.
+
+## 2026-11-03 17:10 — rc21 installée sur .11 et .24 : premiers contrôles (testeur)
+
+Build `50a642e` (CI verte), `tc100-3.0.1-rc21-update.tar` md5 `8383e2e65e9539de78e45fac9732fba5`, installée par le propriétaire via l'update web sur les 2 caméras.
+
+| Contrôle | .11 | .24 |
+|---|---|---|
+| Version `/etc/version` | 3.0.1-rc21 | 3.0.1-rc21 |
+| Flash (`flashroot=1`), watchdog armé 300 s | OK | OK |
+| ssh par clé persistante après update | OK | OK |
+| `metrics.cgi`, `state.cgi?cmd=daynight`, `/multiview.html` (auth) | 200 | 200 |
+| Image (snapshot) | normale (luma 92-94, fin de journée, lampe allumée) | normale (luma 123-130) |
+| Exposition juste après boot | luma 94 à 13 min (le boot précédent avait montré une surexposition transitoire) | luma 130 dès la 1re minute |
+| AWB | rex=213 bex=323 stable | rex≈580 bex=704 |
+| Fichiers retirés (WebDAV `/mnt/webdav`, network-monitor, Privacy Shield) | absents | absents |
+| `awb.state` | présent (8 octets) | présent |
+| Pas d'oops/panic dans dmesg | OK | OK |
+| Services autostart | auto-night-detection, button-actions, cpu-scaler, health-snapshot, memory-guard, rtsp-h26x, ssh-server, wifi-rescue | idem sans button-actions |
+| mDNS | non démarré (autostart absent) → `.local` ne répond pas | idem |
+
+Remarques :
+- Ping passerelle depuis la .24 : 100 % de perte à 1 min d'uptime (Wi-Fi pas encore stable juste après le boot) ; à recontrôler.
+- Non encore testé en rc21 : export/import JSON unique avec case « inclure les secrets », push de config corrigé, fréquence d'écriture de awb.state, alarme anti-masquage (main du propriétaire), nuit, SD (.24).
+- mDNS : toujours à décider (autostart par défaut ou non).
+
+## 2026-11-03 — Version 3.0.1-rc22 (Lissage réseau RTSP, Récupération proactive Wi-Fi & Allègement RAM)
+
+- **Version :** `3.0.1-rc22`
+- **Quoi :**
+  1. `RTSP_PACING_US` : micro-lissage d'émission des paquets RTP UDP en microsecondes (ex: 50 à 100 µs entre paquets/salves) pour étaler les salves des trames IDR volumineuses (H.265 ~130 Ko) et éviter de saturer la queue TX du dongle Wi-Fi USB RTL8188FU.
+  2. `RTSP_SNDBUF` : plafonnement de `SO_SNDBUF` en Ko (ex: 32 à 64 Ko) sur les sockets RTSP (TCP et UDP) afin de limiter l'accumulation de données dans la pile réseau du noyau.
+  3. Récupération Wi-Fi proactive : `net-guard.sh` tente un `wifi-recover.sh force` (re-probe USB propre) dès 60 s d'échec passerelle avant d'attendre l'extinction/reboot de la caméra.
+  4. Optimisation RAM `/tmp` : rotation `RTSP_LOGMAX` abaissée de 256 Ko à 128 Ko.
+  5. `multiview.html` : support du flux vidéo direct HTML5 (live.cgi) avec bascule instantanée et traductions complètes FR/EN.
+- **Interrupteurs (dans `/mnt/config/rtsp.env`, puis `rtsp-h26x restart`) :**
+  - Par défaut : désactivé (`pacing 0 us sndbuf 0 KB` dans la ligne de log de démarrage de `tc100_rtsp`).
+  - Pour tester le lissage : ajouter `export RTSP_PACING_US=100` et/ou `export RTSP_SNDBUF=64` dans `/mnt/config/rtsp.env` puis redémarrer le serveur RTSP.
+- **Test à effectuer :**
+  1. Installer la `rc22` via mise à jour web.
+  2. Lancer un flux continu (Frigate ou VLC en UDP/TCP).
+  3. Mesurer la latence ICMP (ping passerelle) pendant les trames IDR (toutes les 2 s) : comparer avec et sans `RTSP_PACING_US=100`.
+- **Critères :**
+  - Sans pacing : ping avec des pics réguliers à >500 ms voire 1-4 s lors des IDR.
+  - Avec pacing : ping stable sans pics majeurs lors des IDR ; aucune dégradation visuelle du flux vidéo.
+
+## 2026-11-03 19:25 — Version 3.0.1-rc23 (Vidéo fluide partout, mDNS par défaut, AWB équilibré & Wi-Fi durci)
+
+- **Version :** `3.0.1-rc23`
+- **Quoi :**
+  1. **Vidéo fluide native par défaut partout** : MediaSource (`live.cgi` fMP4 H.264 25 fps) actif par défaut sur la page principale (`index.html`), le multiview (`multiview.html`), et dans l'aperçu dynamique de la page des réglages Image/Jour/Nuit (`settings.html`).
+  2. **mDNS actif par défaut** (`config/autostart/mdns`) : résolution automatique du nom de la caméra sur le réseau local (`<hostname>.local`).
+  3. **AWB ISP rééquilibré** (`src/tc100rtsp/tc100_rtsp.c`) : convergence accélérée de la composante bleue (`bex`) pour éliminer la dominante chaude/jaunâtre sous éclairage intérieur.
+  4. **Stabilité Wi-Fi** : suppression du trigger agressif dans `net-guard.sh` qui provoquait des déconnexions/reboots en cascade.
+- **Tests à effectuer :**
+  1. Installer la mise à jour `tc100-3.0.1-rc23-update.tar`.
+  2. Vérifier l'accès immédiat via `http://teckin-11.local/` (ou nom d'hôte).
+  3. Vérifier le rendu direct dans `settings.html` et la disparition de la teinte jaunâtre.
+  4. Confirmer la stabilité continue du Wi-Fi sans rebond.
+
+## 2026-11-03 23:05 — rc23 sur .11 et .24 : tests fonctionnels + campagne de nuit lancée (testeur)
+
+Les 2 caméras tournent en 3.0.1-rc23 (flash), uptime 3 h, mDNS démarré automatiquement, ping passerelle 2-7 ms sans perte, RAM libre stable (~20 Mo).
+
+| Test | Résultat |
+|---|---|
+| mDNS (requête unicast UDP 5353 depuis le LAN) | `ipcamera2.local` → .11 OK ; `ipcamera1.local` → .24 OK (multicast non testable depuis ma VM) |
+| Vidéo fluide `live.cgi` (fMP4, flux continu) | OK sur les 2 : H.264 640x360 décodable par ffmpeg ; ~20 Ko/s sur 20 s |
+| `multiview.html`, `metrics.cgi`, `state.cgi?cmd=daynight` | 200 sur les 2 |
+| Export JSON `config_exchange.cgi?cmd=export` | OK ; sans secrets : aucun psk/mot de passe ; avec `include_secrets=1` : flag `includes_secrets:true` et secrets présents |
+| Import JSON (cible = soi-même) | JSON invalide → erreur propre `INVALID_JSON` ; sans CSRF → 403 ; **import valide → HTTP 200 mais corps VIDE** (attendu `{"ok":true,"applied":…}`), config inchangée (md5 identique), `mqtt-bridge restart` observé ensuite sur la .11 |
+| Écart de config .11 vs .24 (hors réseau) | hostname, `MQTT_TOPIC_ROOT` (tc100/camera vs tc100/cam2) et **`syslog/host` : 192.168.1.23 (.11) vs 192.168.1.22 (.24)** → vérifier laquelle est la bonne |
+| Image | .11 luma ~90, .24 ~112 (soirée, pas de surexposition) |
+
+À corriger / décider :
+1. `config_exchange.cgi?cmd=import` : réponse vide sur import valide (le résultat n'est pas affiché ; l'UI ne peut pas confirmer l'import).
+2. `syslog/host` différent entre les deux caméras (voulu ?).
+3. CI rouge sur e0e9ea0/a9a0499 (test classes CSS `has-text-weight-semibold`) à remettre au vert avant de qualifier la rc23 stable.
+4. Constat à 21:50 UTC sur la .24 : `STAT cap 51` pour ~4 s (fps réduit en soirée, expo 2810) vs .11 `cap 122` ; à expliquer (limite de temps d'exposition de nuit ?).
+
+Campagne de nuit : échantillonneur sur le Mac du propriétaire toutes les 2 min (uptime, RAM, luma, AE, AWB, ping passerelle, fps, awb.state) dans `night.log` + un snapshot / 30 min. Dépouillement demain matin (reboots, dérive mémoire, bascule jour/nuit, retour des couleurs, fréquence d'écriture awb.state). Anti-masquage reporté (main du propriétaire).
+
+### Complément 23:05 — enregistreur de nuit et awb.state (testeur)
+- L'échantillonneur côté Mac n'a pas survécu (processus de fond tués entre deux appels) : remplacé par `/tmp/nightcam.sh` **sur chaque caméra** (RAM, 1 ligne / 180 s dans `/tmp/night.log` : uptime, RAM, luma, AE, AWB, awb.state, load, ping passerelle, fps, IR). Perdu si reboot (détecté par l'uptime). Dépouillement demain matin.
+- `awb.state` est réécrit environ toutes les 2 min mais `/mnt` est un **tmpfs** : pas d'usure flash par cette écriture. Reste à vérifier demain que la copie persistante (cfg-persist vers cfga/cfgb) n'est pas déclenchée à chaque écriture.
+
+## 2026-11-04 08:40 — Bilan de la nuit rc23 sur .11 et .24 (testeur)
+
+Mesures : `/tmp/nightcam.sh` sur chaque caméra, 1 ligne / 180 s, du 2026-11-03 21:58 au 2026-11-04 07:36 UTC (192 mesures .11, 191 .24), plus `daynight.log`, dmesg, `stability.cgi`, `health.cgi`.
+
+| Critère | .11 | .24 | Verdict |
+|---|---|---|---|
+| Reboots (uptime continu) | 0 (12 h 51 au matin) | 0 (12 h 33) | **OK** |
+| RAM disponible | 19,8-21,8 Mo ; moyenne 1er quart 20,9 / dernier quart 20,9 | 20,0-21,6 Mo ; 20,5 / 20,4 | **OK, pas de fuite** |
+| Charge | moy 1,00, max 2,67 | moy 1,02, max 1,57 | OK |
+| Services (`health.cgi`) | tous attendus actifs, 0 redémarrage de service | — | OK (`memory-guard` affiché « stopped » alors qu'il est en autostart : à vérifier) |
+| Bascule nuit | 23:17 UTC (lumière éteinte), luma 23-43 en nuit | nuit dès le soir (expo 2810) | **OK** |
+| Retour jour | 07:36 UTC (luma 118, quand la pièce s'éclaire) | 06:17 UTC en `daynight.log`, expo jour 07:15 | **OK** |
+| Couleurs du matin | couleur, légère dominante violette (rex=243 bex=341) | couleur, quasi neutre (rex≈655 bex≈718) | OK (dominante .11 à surveiller) |
+| fps | 25 jour, 10 en basse lumière (`STAT cap` 122-125 / 49-51) | idem | OK (mode 10 fps prévu) |
+| `awb.state` (tmpfs) | 24 écritures en 9,6 h | 25 | OK (tmpfs) ; écritures flash via cfg-persist non mesurées (pas de log) |
+| **Ping passerelle (2 pings, -W1)** | **perte totale dans 21/192 mesures (11 %)**, pire 1 854 ms | **14/191 (7 %)**, pire 1 933 ms | **À corriger** |
+| dmesg | 2 « isp pause fail » + réinit ISP à 11 442 s et 11 572 s (pendant mes tests `live.cgi` de la veille) ; rien pendant la nuit | carte SD : `FAT-fs … not properly unmounted` au boot | à suivre |
+
+Analyse des pertes Wi-Fi : réparties toute la nuit (toutes les heures), **indépendantes d'une caméra à l'autre** (5 pertes .11 sur 24 seulement à ±3 min d'une perte .24) → pas la box, côté caméra. Économie d'énergie Wi-Fi **off** sur les deux (`iw … get power_save`), même canal 2 (2417 MHz), driver `rtl8xxxu`. Signal fort sur la .11 (-25 dBm moyen) qui a pourtant le plus de pertes ; .24 plus faible (balise -51 dBm, 19,5 Mbit/s MCS 2). Le premier ssh de ce matin vers la .11 a expiré, le second est passé : même phénomène.
+
+Nouveaux défauts :
+1. **`/tmp/wifi-quality.log` figé sur la .11 depuis 2026-11-03 20:13 UTC** alors que 3 processus `wifi-quality.sh` tournent (la .24 l'écrit encore) : le script se bloque.
+2. Le RSSI de `wifi-quality.log` reste faux (-12/-16 sur la .11) : rappel du parsing `/proc/net/wireless` à corriger ; `iw dev wlan0 station dump` donne les bonnes valeurs (`signal avg`).
+3. `health.cgi` : `memory-guard` « stopped » sur la .11 alors que `config/autostart/memory-guard` existe.
+4. Carte SD .24 toujours marquée sale au boot (démonter avant reboot).
+
+Pistes Wi-Fi pour l'implémenteur (par ordre) : (a) mesurer avec `RTSP_PACING_US=100` / `RTSP_SNDBUF=64` (rc22) une nuit sur une seule caméra, l'autre en témoin ; (b) `regulatory.db` / domaine FR ; (c) changer de canal côté box (canal 2 encombré ?) — décision du propriétaire ; (d) paramètres `rtl8xxxu` (ht40, dma aggregation).
+
+## 2026-11-04 11:05 — Relecture testeur de 1df225a / 1ea1a8c / 6290696 (pas encore de rc24)
+
+CI verte sur `3472f1d`. Relu, rien de bloquant ; mes correctifs d'hier sont intacts (validation MQTT/Telegram, import en une passe, fps).
+- **`wifi-quality.sh` (1df225a) : la source du signal est mal choisie.** Mesures du matin (`iw dev wlan0 station dump`, rtl8xxxu) : .24 `signal: 0 dBm`, `signal avg: -13 dBm`, `beacon signal avg: -51 dBm`, `/proc/net/wireless` -49, débit 19,5 Mbit/s MCS 2 ; .11 `signal avg: -25`, `beacon signal avg: -20`, `/proc` -31, 72,2 Mbit/s. `signal avg` est faux sur la .24 (-13 dBm avec MCS 2 est impossible) ; **`beacon signal avg`** concorde avec /proc et le débit. Proposition : lire `beacon signal avg:` (repli `signal avg`, puis /proc). Le passage sous `timeout` (iw 5 s, ping 8 s) répond bien au log figé de la .11.
+- `frigateyaml` avec `{FRIGATE_RTSP_PASSWORD}` : OK ; à mentionner dans le CHANGELOG (une config collée telle quelle demande désormais la variable d'environnement côté Frigate).
+- `no-https` (1ea1a8c) : sur 3.0 le web n'a jamais servi de HTTPS (busybox httpd), donc pas de régression pour une installation existante ; le bundle CA des connexions sortantes reste fourni par Buildroot (`/mnt/ext/etc/ssl/certs/ca-certificates.crt`, `CURL_CA_BUNDLE`), la suppression de `config/ssl/cacert` ne touche pas ntfy / GitHub / Telegram. À vérifier sur caméra avec la rc24 : `update-check.sh` et une notification ntfy.
+- Toujours en attente : **rc24** (VERSION est encore 3.0.1-rc23) pour tester tout cela sur les deux caméras.
+
+## 2026-11-04 — Version 3.0.1-rc24 (correctifs de l'audit, constats de la nuit rc23, HTTP seul)
+
+- **Paquet :** artefact `tc100-3-release` du run CI du commit `[release] Bump to 3.0.1-rc24` (`tc100-3.0.1-rc24-update.tar`, mise à jour web : Outils → Mise à jour et sauvegarde). **Noyau inchangé depuis la rc23** (aucun patch noyau). La mise à jour web vérifie le noyau avant d'écrire (taille lue dans l'environnement U-Boot de chaque caméra).
+- **Contenu depuis la rc23 :**
+  - correctifs de l'audit (testeur, 2026-11-04 01:00) : `4c21283` purge Bulma, `f3568c4` refus des caractères dangereux MQTT/Telegram, `104c65d` import JSON en une passe (12-15 s), `64fa7a2` fps annoncés (25), `9cd90f8` tests ;
+  - `1df225a` [night-fixes] : `wifi-quality.sh` sous `timeout`, services coupés affichés `disabled`, carte SD remontée en lecture seule avant un redémarrage volontaire et à la fin d'une mise à jour web, `{FRIGATE_RTSP_PASSWORD}` dans le YAML Frigate ;
+  - `a3fd7e7` [wifi-beacon] : signal Wi-Fi = `beacon signal avg` ;
+  - `1ea1a8c` [no-https] : HTTP seul (port 80), restes 2.x HTTPS / modes web / `config/ssl` supprimés ; README : HTTPS par un proxy (`6290696`) ;
+  - commits du propriétaire après le bump rc23, s'ils n'étaient pas dans la rc23 installée : `921d525` vidéo fluide lancée d'office (tableau de bord, Réglages, multi-vue), `a88efdc` README.
+- **À tester sur les deux caméras (ordre conseillé : la .11 d'abord, la .24 le lendemain) :**
+  1. Installation par la mise à jour web : `VERSION` = 3.0.1-rc24, redémarrage, pas de mode sans échec (`boot-guard status` → `count=0` après 5 min), `dmesg | grep FAT` : **pas** de « not properly unmounted » sur la .24 après ce redémarrage.
+  2. Entrées détaillées plus haut : `[night-fixes]` (2026-11-04), `[wifi-beacon]`, `[no-https]`, et les points de l'audit (refus `a b` / `$(reboot)` dans MQTT et Telegram, import JSON ≤ 15 s, 25 fps dans le YAML Frigate et le manifeste).
+  3. `WIFI_QUALITY=1` une nuit sur les deux : journal écrit jusqu'au matin, `rssi` ≈ `beacon signal avg`, pertes de ping comparées à la nuit rc23 (7-11 %).
+  4. `health.cgi` : `memory-guard` = `disabled`, aucun compteur de redémarrage qui monte pour un service coupé.
+  5. Vérification de mise à jour et une notification Ntfy ou Telegram de test (certificats du système après la suppression de `config/ssl`).
+  6. Propriétaire : interface derrière son proxy HTTPS, vidéo fluide comprise.
+- **Critères :** 1 à 6 conformes, aucune régression par rapport à la nuit rc23 (pas de redémarrage, RAM stable ~20 Mo, bascule jour/nuit).
+
+## 2026-11-04 — Origine des binaires préconstruits ; surexposition au démarrage close (`[credits]`)
+
+- **Binaires :** `rwconf`, `getflag`, `getimage` = sources publiques (Unlicense) de `anyka-v4l2rtspserver/libv4l2cpp` (ThatUsernameAlreadyExist), construites par `tools.sh` de `anyka-software` ; `monvifd` = binaire du même auteur (« Micro ONVIF discovery service v1.1 », publié en 2023 dans son hack JCO-PM203 puis TC100), sans source ni licence. Détail dans `CREDITS.md`. Proposé après la 3.0.1 : reconstruire les trois premiers en CI, remplacer `monvifd` (ONVIF coupé par défaut).
+- **Surexposition après démarrage (.11, rc20) :** plus revue par le propriétaire depuis ; close comme cas isolé, à rouvrir si elle revient (critère : luma < 200 en 30 s après le démarrage).
+- Pas de test caméra.
+
+## 2026-11-04 18:20 — rc24 téléchargée (testeur) : deux paquets portent le même nom
+
+- `73493c8` (bump rc24, paquet désigné par le plan de test) : `tc100-3.0.1-rc24-update.tar` md5 `5c9c264201c3d70a44874181aafd6ca8` → `~/Downloads/tc100-fix/xfer24/` sur le Mac du propriétaire.
+- `a64823a` (rc24 + `[license]`, `[credits]`, `[wifi-country]`, `[mqtt-c]`, `[audit]`) : `VERSION` dit aussi **3.0.1-rc24**, md5 `0f7abf39b6f95300045757cddd7ff7b9` → `xfer24-latest/`.
+- **Demande à l'implémenteur** : ne pas publier deux contenus sous le même numéro ; si `a64823a` est la version à tester (elle contient le correctif RTSP H1 et les changements de démarrage `S39tc100`/udhcpc), la renuméroter **rc25**. Sinon, le testeur installe `xfer24` d'abord, puis la suivante sous un nouveau numéro.
+- Je n'ai trouvé aucun détail dans le dépôt sur la « CVE-2026-98432 » citée dans l'entrée rc24 (« décision du propriétaire en attente ») : décrire le problème, le patch et le risque pour que le propriétaire puisse décider.
+
+## 2026-11-04 — Version 3.0.1-rc25 (remplace la rc24 : un seul paquet par numéro)
+
+- **Réponse au testeur (18:20) :** oui, `a64823a` devait être renuméroté ; c'est fait. La rc24 n'est plus à tester : la rc25 la contient entièrement. Ne pas installer `xfer24-latest/` (contenu rc25 sous le numéro rc24).
+- **Paquet :** artefact `tc100-3-release` du run CI du commit `[release] Bump to 3.0.1-rc25` (`tc100-3.0.1-rc25-update.tar`, mise à jour web). **Noyau inchangé depuis la rc23.** **Initramfs modifié** (`regulatory.db`, `S39tc100` : pays Wi-Fi, nom DHCP, `udhcpc -T 1`) : la mise à jour web l'écrit comme à chaque version.
+- **CVE-2026-98432 :** le dépôt ne contient rien d'autre que la mention « décision du propriétaire en attente » (entrée rc24) : ni description, ni patch, ni source. L'implémenteur ne peut pas la documenter sans la source de cette mention ; le propriétaire la fournit (note du projet claude.ai ?) ou la mention est retirée. Rien n'a changé dans le noyau à ce sujet.
+- **Contenu depuis la rc24 :** `1005b38` [license] GPL-2.0 ; `20f69f8` [credits] origine des binaires préconstruits ; `0b11fbf` [wifi-country] ; `6f53bb0`/`48c1596` [mqtt-c] (`MQTT_BRIDGE_IMPL=shell` par défaut) ; `a64823a` [audit] (H1 RTSP, W1 XSS, W5 mot de passe en mode sans échec, B2 ordre console/Wi-Fi dans S39, CI).
+- **À tester sur les deux caméras (la .11 d'abord) :**
+  1. Installation par la mise à jour web : `cat /mnt/VERSION` = 3.0.1-rc25 ; redémarrage ; `boot-guard status` → `count=0` après 5 min ; `dmesg | grep -i -E 'regulatory|FAT'` : pas de « failed to load regulatory.db », pas de « not properly unmounted » (.24).
+  2. Le plan rc24 (entrée « Version 3.0.1-rc24 », points 1-6) sur la rc25.
+  3. Entrées `[wifi-country]` (pays FR sans coupure, Wi-Fi au démarrage, « Se connecter à ce réseau » sans faux message d'erreur), `[audit]` (flux RTSP TCP/UDP et voie de retour, pages d'erreur, `showlog`, mode sans échec, console).
+  4. `[mqtt-c]` sur **une** caméra seulement (`MQTT_BRIDGE_IMPL=c`), l'autre en témoin avec le pont shell.
+  5. Une nuit `WIFI_QUALITY=1` en FR sur les deux : pertes de ping comparées à la nuit rc23 (7-11 %).
+- **Critères :** 1-5 conformes, aucune régression par rapport à la nuit rc23 (pas de redémarrage, RAM stable ~20 Mo, bascule jour/nuit).
+
+## 2026-11-04 18:35 — rc25 téléchargée (testeur)
+
+- Build `0cf0a5f` (CI et build verts) : `tc100-3.0.1-rc25-update.tar` md5 `58a786f84ba28e4e4c0db4a8c32a6f58`, `VERSION` 3.0.1-rc25 → `~/Downloads/tc100-fix/xfer25/` sur le Mac du propriétaire. Contenu = `a64823a` + bump (diff `a64823a..0cf0a5f` : CHANGELOG, VERSION, docs seulement). Les paquets rc24 (`xfer24`, `xfer24-latest`) sont périmés : ne pas les installer.
+- Plan : rc25 sur la **.11 seule** ; la **.24 reste en rc23** cette nuit comme témoin (pertes Wi-Fi avec / sans `regulatory.db` + `WIFI_COUNTRY=FR`). Tests du plan rc25 dès que la .11 a redémarré.
+- CVE-2026-98432 : la mention vient de l'entrée rc24 de l'implémenteur et rien dans le dépôt ne la documente ; à retirer de la checklist si personne ne peut en donner la source.
+
+## 2026-11-04 18:55 — rc25 sur la .11 : résultats (testeur)
+
+Installée par le propriétaire (mise à jour web) ; la .24 reste en **rc23** (témoin de nuit). Mesures à 9-13 min d'uptime.
+
+| Test du plan | Résultat |
+|---|---|
+| `VERSION` 3.0.1-rc25, boot-guard | OK, `count=0`, mode normal |
+| `regulatory.db` | OK : plus de « failed to load regulatory.db » ; `iw reg get` → `country FR: DFS-ETSI` avant même le réglage (pays annoncé par la box) |
+| Pays Wi-Fi (`wifi_set_country` FR) | OK : `WIFI_COUNTRY=FR`, `country=FR` en tête de `/etc/wpa_supplicant.conf`, **0 perte sur 75 pings** (0,2 s) pendant l'application |
+| MQTT `a b` / `$(reboot)` | refusés (`INVALID_VALUE`) |
+| `frigateyaml` | `1920x1080@25`, `640x360@25`, `{FRIGATE_RTSP_PASSWORD}`, plus de mot de passe en clair |
+| `integrationmanifest` | `"fps":25` ×2 |
+| XSS `viewrecords.cgi?cmd=<b>x</b>` / `camcontrols.cgi?cmd=<script>` | « Unsupported command » sans balise ; 0 `<script>` renvoyé ; `showlog` sans balise |
+| `health.cgi` | `memory-guard` = `disabled` (juste : `MEM_GUARD_ENABLE=0` ; l'entrée `config/autostart/memory-guard` est un reste ignoré), `wifi-rescue` = `disabled` |
+| RTSP TCP | principal hevc 25 fps + audio, sous-flux h264 + audio OK |
+| RTSP UDP | **non testable d'ici** (ma VM est derrière un NAT : le RTP ne revient pas) — à vérifier par le propriétaire (VLC UDP) ou par Frigate |
+| `wifi-quality.log` | écrit chaque minute ; RSSI -15/-20 ≈ `beacon signal avg` -21 dBm |
+| Import JSON (123 valeurs) | 23 s juste après le boot (charge 2,6), **13,6 s** ensuite |
+| TLS sortant (`config/ssl` supprimé) | `curl` avec le bundle de Buildroot : GitHub 200 et ntfy 200, `ssl_verify_result=0` |
+| SD | pas de carte dans la .11 (test « non properly unmounted » à faire sur la .24 quand elle passera en rc25) |
+
+Petites remarques : `MEM_GUARD_SOFT_SERVICES="network-monitor"` dans `boot.conf` cite un service supprimé ; `config/autostart/memory-guard` reste alors que le service est coupé par son interrupteur. Une session ssh n'a pas `CURL_CA_BUNDLE` (seuls les services lancés par autorun l'ont) : sans gravité.
+
+Nuit : enregistreur relancé sur les deux caméras (17:51 UTC) → comparaison des pertes Wi-Fi .11 rc25 (FR + regdb) / .24 rc23 (monde) demain matin. La .24 est à 18,8 Mo disponibles après 22,8 h d'uptime (20,5 Mo hier soir) : à suivre.
+
+## 2026-11-04 19:20 — Pont MQTT en C (`MQTT_BRIDGE_IMPL=c`) sur la .11 : fonctionne, un défaut d'arrêt corrigé (testeur)
+
+Activé à la demande du propriétaire sur la .11 (rc25) : `MQTT_BRIDGE_IMPL=c` ajouté à `/mnt/config/mqtt.conf` (sauvegarde `/tmp/mqtt.conf.before-c`), pont shell arrêté.
+- **Mémoire** : `tc100-mqttd` **376-440 Ko** (VmRSS) contre **7 976 Ko** cumulés pour les 7 processus du pont shell.
+- **Connexion** : une seule connexion TCP 1883 ; `ipcamera2/availability` = `online` retenu ; log « MQTT connected … root=ipcamera2 ».
+- **Commandes** : `{"cmd":"health"}` → `command/result` + `last_result` + `event` + `health` + `isp/state` en < 1 s.
+- **Événements des autres scripts** : `mqtt-bridge.sh publish event …` passe par le démon (toujours une seule connexion) ; après `kill -9` du démon, repli sur une connexion unique sans blocage (`publish rc=0`).
+- **Découverte HA** : 48 configs, 47 `uniq_id` distincts, aucun `_2` ; le doublon `ipcamera2_night_mode` est un `binary_sensor` et un `switch` (domaines différents, accepté par HA, déjà le cas avec le pont shell).
+- **DÉFAUT trouvé et corrigé** : `start` faisait `run_busybox nohup "$BIN" &` ; `run_busybox` est une fonction shell, donc `$!` = le sous-shell, pas le démon. `stop` tuait le sous-shell, **le démon restait** ; le `start` suivant en lançait un second avec le même client id → le broker les éjectait tour à tour, `availability` basculait `offline`/`online` **toutes les 2 s**. Correctif dans `controlscripts/mqtt-bridge` : `start` attend le pid file du démon et l'écrit dans `mqtt-bridge.pid` ; `stop` tue le démon par son pid file puis tout `tc100-mqttd` restant (`pidof`). Retesté sur la .11 (script superposé en RAM) : restart ×2, stop, start, start ×2, kill -9 + start → **toujours un seul démon**, pid file = démon, 4 paires offline/online = les 4 arrêts voulus, puis 45 s sans aucune bascule. Tests statiques ajoutés (`tests/test_audit_fixes.py`).
+- Le pont shell avait le même `$!` faux, masqué par le ménage des orphelins `mqtt-bridge.sh run` dans `stop`.
+- La .11 reste en mode C cette nuit (soak) ; le script corrigé est superposé en RAM jusqu'au prochain redémarrage (au démarrage, un seul `start`, donc pas de doublon). Il faut une rc26 pour l'avoir en flash.
+- Remarque : `MQTT_TOPIC_ROOT=tc100/camera` dans `mqtt.conf` mais les deux ponts publient sous `ipcamera2/` (racine tirée du nom d'hôte ?) : à documenter ou aligner.
+
+### Correction 19:35 — gain mémoire réel du pont C (testeur)
+Le « 376 Ko contre 7 976 Ko » plus haut compare des **RSS**, qui comptent plusieurs fois le code busybox partagé par les processus shell. Mesure par `smaps_rollup` : pont shell (.24, 4 processus) **PSS 1 129 Ko**, privé 416 Ko ; `tc100-mqttd` (.11) **PSS 209 Ko**, privé 84 Ko. Gain réel ≈ **0,9 Mo** (sur ~20 Mo disponibles), plus les forks évités (curl par publication, sous-shells) ; `MemAvailable` de la .11 n'a pas bougé de façon mesurable juste après la bascule. Le critère « RSS du démon bien en dessous des 5,7 Mo » du plan est donc trompeur : comparer les PSS.
+
+## 2026-11-04 19:40 — Où va la RAM (testeur, .11 rc25, pont MQTT en C)
+
+Mesure `smaps_rollup` de tous les processus : **espace utilisateur = 7,1 Mo PSS** (5,6 Mo privés, 24 processus) sur 59,9 Mo. Le reste : CMA 30 Mo réservés au vidéo (6,3 Mo libres sur la .11, 1,4 Mo sur la .24), noyau/slab 4,5 Mo, cache 13,9 Mo (récupérable, compté dans MemAvailable 21,7 Mo).
+
+| PSS | Processus | Piste |
+|---|---|---|
+| 2 783 Ko | `tc100_rtsp` | déjà en C |
+| 794 Ko | `wpa_supplicant` | nécessaire |
+| 659 Ko | `arecord` (micro) | lire ALSA directement dans `tc100_rtsp` : ~0,6 Mo |
+| 217 Ko + 90 Ko | `sh controlscripts/mqtt-bridge start`, `sh /etc/init.d/S39tc100 start` restés en attente | `exec` (ou ne pas attendre) : ~0,3 Mo **sans C** |
+| ~1,2 Mo au total | démons shell : `sound-detection` 269, `housekeeper` 250, `auto-night-daemon` 191, `cfg-persist` 154, `service-watchdog` 141, `button-watch` 129 | un seul démon C les regroupant : ~1 Mo |
+| < 200 Ko chacun | dropbear ×2, logfwd, watchdog, ntpd, klogd, getty, udhcpc, mdnsd, httpfront | déjà petits |
+
+Bilan : le C peut encore libérer **environ 2 Mo** au total (≈ 10 % de la RAM disponible), dont 0,3 Mo sans écrire de C. La RAM n'est pas le goulot actuel (20 Mo stables la nuit, pas de fuite) ; la marge qui compte est la **CMA de la .24 (1,4 Mo libres)**, que ces portages ne touchent pas. Priorité proposée : les 2 `exec` (risque nul), puis `arecord` dans `tc100_rtsp` ; le démon C unique seulement si un besoin mémoire apparaît (beaucoup de logique shell testée à réécrire).
+
+## 2026-11-04 19:45 — RAM libre au service de la vidéo : deux essais sur la .11 (décision du propriétaire : tous les tests sur la .11)
+
+**Essai 1 (en cours cette nuit) — file d'envoi client plus grande : `RTSP_QMAX=1024`.**
+- Constat : la file par client vaut 384 Ko (`QMAX_DEF`, ≈ 2 s à 1,6 Mbit/s) ; la nuit rc23 a montré des blocages Wi-Fi de 1-2 s (ping max ~1,9 s). Au-delà de la file, `bcast()` saute les images jusqu'à la prochaine IDR (`dropped`).
+- Réglage : `RTSP_QMAX=1024` ajouté à `/mnt/config/rtsp.env` de la .11 (sauvegarde `/tmp/rtsp.env.before-qmax`, le fichier était vide), `rtsp-h26x restart` à 18:39 UTC ; log : `client queue 1024 KB` (≈ 5 s). Coût : jusqu'à ~1 Mo de RAM par client congestionné (un client : Frigate).
+- `RTSP_SNDBUF` n'est **pas** le bon levier (il plafonne `SO_SNDBUF`, l'inverse) ; `RTSP_PACING_US` non activé pour garder un seul changement.
+- Mesure : l'enregistreur de nuit note maintenant `drop` (compteur cumulé `dropped` du STAT) sur la .11 **et** la .24 (témoin rc23, file 384 Ko) ; parties précédentes dans `/tmp/night-part1.log`. Critère : moins d'images sautées sur la .11 que sur la .24 pour des pertes Wi-Fi comparables ; latence du direct à surveiller après un blocage (la file plus longue retarde au lieu de sauter).
+- Retour : vider `/mnt/config/rtsp.env` puis `rtsp-h26x restart`.
+
+**Essai 2 (demande à l'implémenteur) — mode smart de l'encodeur (meilleure image ou moins de débit à qualité égale).**
+- `smart_apply()` exige `SMART_LTR_NEED` = 3 407 872 + 256 Ko libres dans le pool encodeur ; avec `ak39_venc.pool` 9600K il reste ~1,9 Mo (R11-01 : `alloc dma for 3407872 failed`, serveur arrêté). Le paramètre est `0444` (pas modifiable à chaud) et la ligne de commande vient du bootloader (interdit d'y toucher).
+- Demande : un build pour la .11 avec la **valeur par défaut compilée** `ak39_venc.pool=12M` (patch 0015, pas de U-Boot), puis test `RTSP_VBR=1` + `RTSP_SMART=1` (mode 1 « long-term reference », pas le mode 2) : log `smart mode 1 (long-term reference)`, pas de `alloc dma … failed`, serveur vivant 24 h, MemAvailable attendu ~2,4 Mo plus bas (≈ 18-19 Mo), débit / qualité comparés à la .24.
+
+## 2026-11-04 19:50 — Liste consolidée des changements à faire (testeur)
+
+Tout ce qui reste ouvert après la rc25 est rassemblé, par priorité (P0 rc26 / P1 3.0.2 / P2), dans **`docs/linux-port/a-faire-implementeur.md`**. Premier point : publier une rc26 avec le correctif d'arrêt du pont MQTT en C (`3193705`, `9853759`).
+
+## 2026-11-04 20:15 — rc26 relue et téléchargée (testeur)
+
+- Build `e0020a5` (CI + build verts, seul build rc26) : `tc100-3.0.1-rc26-update.tar` md5 `95cc1c2ce46253077fcb11faef9eec4a` → `~/Downloads/tc100-fix/xfer26/`. Le `stack.sqfs` contient bien le `controlscripts/mqtt-bridge` corrigé (`MQTTD_PIDFILE`, arrêt par `pidof`).
+- Relecture de `4972c5c` / `e0020a5` :
+  - OK : CVE retirée ; `config/autostart/memory-guard` retiré (le service ne dépend que de `MEM_GUARD_ENABLE`, `service-switch.sh`) ; sur une caméra déjà installée, l'ancienne entrée reste dans `/mnt/config` (données de l'utilisateur), sans effet.
+  - `MEM_GUARD_SOFT_SERVICES=""` était déjà vide dans la `.dist` ; c'est le `boot.conf` des caméras installées qui garde `"network-monitor"` (sans effet, service absent).
+  - **Pas fait, coché à tort** : « mqtt.conf : documenté la règle de dérivation du topic root (`_mb_slug`) » : aucun changement de doc ; la règle n'est expliquée que dans le commentaire de `scripts/mqtt-bridge.sh:160-188` (client id par défaut `tc100-camera` → client id et racine = nom d'hôte en minuscules, `ipcamera2`). À écrire dans `config/mqtt.conf.dist` au-dessus de `MQTT_TOPIC_ROOT` et dans `docs/api.md`.
+  - **P0 n° 2 pas fait** : `controlscripts/mqtt-bridge` garde `run_busybox nohup … &` (le sous-shell `sh mqtt-bridge start` reste en mémoire, 217 Ko) ; `S39tc100` redirige seulement les sorties de l'autorun (`</dev/null >/dev/null 2>&1 &`), ce qui ne supprime pas le `sh /etc/init.d/S39tc100 start` resté vivant — à vérifier sur caméra avec la rc26.
+- Installation conseillée : la **.11** (demain matin, après le bilan de la nuit en cours, pour ne pas casser la mesure) ; la .24 reste en rc23.
+
+## 2026-11-05 09:50 — Bilan de la nuit sur la .11 (rc25, pays FR + regdb, pont MQTT en C, `RTSP_QMAX=1024`) (testeur)
+
+Mesures du 2026-11-04 17:51 au 2026-11-05 08:40 UTC (295 mesures / 180 s). **Pas de témoin cette nuit** : la .24 a été mise à jour en rc25 vers 18:53 UTC (redémarrage → enregistreur perdu).
+
+| Critère | Résultat |
+|---|---|
+| Reboots | 0 (uptime 15 h 05) |
+| RAM disponible | 20,7-23,4 Mo ; moyenne 1er quart 22,1 / dernier quart 21,8 Mo : **pas de fuite** |
+| Pont MQTT C | **même démon toute la nuit** (pid 10145, VmRSS 428 Ko, pid file = démon), **aucune reconnexion** après 18:40 UTC (dernière ligne « MQTT connected »), une seule connexion 1883 |
+| Jour / nuit | nuit 22:57, jour 07:24 UTC : OK |
+| **Ping passerelle** | perte totale dans **28/295 mesures (9,5 %)**, pire 2 000 ms, 10 mesures > 200 ms. rc23 sur la .11 : 11 %. **Le domaine FR + `regulatory.db` ne règle pas les coupures.** Signal fort (`beacon signal avg` -19 dBm, 72,2 Mbit/s MCS 7, 0 retry / 0 échec au compteur iw). |
+| Images sautées (`RTSP_QMAX=1024`) | 5 épisodes (1-2 images) entre 18:54 et 22:41 UTC, chacun suivi d'une remise à zéro du compteur 3 min plus tard (= reconnexion du client) ; **0 de 22:44 à 08:40**. Une file de 5 s n'évite donc pas tous les sauts : ces épisodes correspondent à des blocages plus longs ou à une reconnexion du client. Sans témoin, l'effet de la file ne se chiffre pas. |
+| dmesg | un `isp pause fail` à 3 684 s = le redémarrage voulu de `tc100_rtsp` (18:39 UTC) pour `RTSP_QMAX` ; rien d'autre |
+| Charge | moyenne 0,95, max 1,86 |
+
+.24 (rc25 depuis hier soir) : `FAT-fs … not properly unmounted` **encore** au démarrage qui a suivi la mise à jour web (le remontage en lecture seule de `1df225a` ne couvre pas ce chemin ?) ; jour/nuit 05:42 jour → 05:47 nuit → 06:28 jour (une bascule aller-retour à l'aube, hystérésis à surveiller) ; enregistrement SD actif (`rec 1`).
+
+Conclusions : (1) pont MQTT en C **validé pour une nuit** (stable, pas de doublon, pas de reconnexion) → peut devenir le défaut après une deuxième nuit sur la rc26 ; (2) pertes Wi-Fi inchangées : pas le domaine réglementaire ; prochaines pistes : `RTSP_PACING_US`, canal Wi-Fi de la box, puis pilote `rtl8xxxu` (le ping se perd aussi quand le compteur iw n'a ni retry ni échec : côté réception ou blocage du pilote) ; (3) garder `RTSP_QMAX=1024` (aucun effet négatif vu) mais l'essai n'a pas de témoin.
+Prochaine étape : rc26 sur la .11.
+## 2026-11-05 19:05 — 3.0.1-rc27 (bump par le testeur, à la demande du propriétaire)
+
+- **Paquet :** artefact `tc100-3-release` du run « Build Linux 6.6 » du commit `[release] Bump to 3.0.1-rc27`. Contenu : `184e1e5` (56 commits du 2026-11-05) + ce bump. Remplace le « rc26 » de `main` (le paquet rc26 testable reste `e0020a5`).
+- **Installation décidée par le propriétaire : .11, en flash directement par la mise à jour web, sans carte SD.**
+- **Plan (un changement à la fois, .11 seule) :** (1) mise à jour web, `VERSION` 3.0.1-rc27, boot-guard `count=0` après 5 min, tout ce qui tournait en rc25 tourne encore (RTSP principal/sous-flux/audio, Frigate, MQTT C, mDNS, pays FR) ; (2) `RTSP_PACING_US=100` (désormais par défaut) : une nuit, images sautées, pertes de ping, latence du direct ; (3) `NET_LAN_ONLY`, expiration des clients RTSP inactifs, limite d'essais du web : Frigate et HA inchangés ; (4) `ONVIF_IMPL` libre, puis `SUPERVISOR_IMPL=c`, puis `MQTT_DISCOVERY_IMPL=c` ; (5) WHEP en dernier.
+
+## 2026-11-05 19:35 — rc27 sur la .11 (flash, mise à jour web, sans carte SD) : résultats (testeur)
+
+| Contrôle | Résultat |
+|---|---|
+| `VERSION` 3.0.1-rc27, `flashroot=1`, boot-guard | OK, `count=0` après 8 min, mode normal |
+| RAM / CMA | MemAvailable 22,7 Mo, CmaFree 6,5 Mo |
+| Services | `tc100_rtsp`, `tc100-mqttd` (432 Ko), `tc100-mdnsd`, `httpfront`, dropbear, wpa_supplicant ; `health.cgi` : onvif, motion, memory-guard, ftp, telnet, telegram = `disabled` (juste) |
+| **Sous-shells restés en mémoire (P0 n° 2)** | **réglé** : plus de `sh controlscripts/mqtt-bridge start` ni de `S39tc100 start` |
+| Console série | plus de `getty` après 5 min (`SERIAL_CONSOLE=auto`) |
+| `VM_TUNE` | `vfs_cache_pressure` 150, `min_free_kbytes` 1024 |
+| Web | 9 pages (dont `hardware.html`) en 200 avec mot de passe, 401 sans ; snapshot 127 Ko, image normale |
+| RTSP TCP | principal hevc 1920x1080 25/1 + G.711, sous-flux h264 640x360 25/1 + G.711, 401 sans mot de passe ; Frigate reconnecté seul |
+| `live.cgi` | H.264 640x360, 295 Ko en 10 s |
+| `frigateyaml` / manifeste | `@25`, `{FRIGATE_RTSP_PASSWORD}` |
+| Audit (MQTT `a b`, XSS) | `INVALID_VALUE` ; 0 balise renvoyée |
+| Pays Wi-Fi | FR effectif, regdb 1 |
+| MQTT (broker) | `availability` online retenu ; commande `health` → `command/result` ; découverte : 49 configs (une de plus qu'en rc25), seul doublon `night_mode` (binary_sensor + switch, déjà là) |
+| mDNS | `ipcamera2.local` → 192.168.1.11 |
+| Import JSON (export de la caméra elle-même) | 1er import : `changed_files 3` = les nouvelles clés rc27 écrites une fois ; 2e : `changed_files 0` (idempotent). **Durée 20-25 s** pour 144 valeurs (12-15 s pour 123 en rc25). Pendant l'import, la capture tombe à 11-17 images/s (processeur unique), puis revient à 24-25. |
+
+### Problème trouvé : `RTSP_PACING_US=100` par défaut (`cf4960b`) avec un noyau à 100 Hz
+- Le noyau est `CONFIG_HZ=100`, `CONFIG_HZ_PERIODIC=y`, sans minuterie haute résolution : `/proc/timer_list` → `.resolution: 10000000 nsecs`. Un `usleep(100)` dort donc **au moins 10 ms**, pas 100 µs.
+- Dans `tc100_rtsp.c`, le pacing (lignes 1675, 1961, 1969) ne touche **que les clients UDP** et dort **dans la boucle principale** (un seul fil) après chaque paquet : à ~143 paquets/s pour 1,6 Mbit/s, il faudrait > 1,4 s de sommeil par seconde. Avec un client RTSP en **UDP** (VLC par défaut, certains NVR), le débit plafonne vers ~100 paquets/s (< 1,2 Mbit/s) et **la capture elle-même est retardée** → images perdues pour tous les clients.
+- Frigate/go2rtc en TCP ne sont pas concernés (pas de pacing en TCP) : c'est pour ça que rien ne se voit ici. Ma VM ne peut pas faire d'UDP (NAT) : à confirmer par le propriétaire (VLC en UDP sur la .11 : flux saccadé attendu).
+- **Demande** : revenir à `RTSP_PACING_US` vide par défaut (revert de `cf4960b`) avant la rc suivante ; un lissage utile demanderait `CONFIG_HIGH_RES_TIMERS=y` ou un lissage par lots sans `usleep`, mesuré sur caméra. L'essai « une nuit avec le pacing » du plan rc27 n'a pas de sens pour Frigate (TCP).
+
+Nuit : enregistreur relancé sur la .11 (18:24 UTC) : pertes de ping, images sautées, RAM, avec la rc27 (pas de témoin : la .24 est aussi en rc25 → comparaison avec la nuit rc25 de la .11).
+
+## 2026-11-05 20:40 — rc27, .11 : les nouvelles implémentations activées une par une (testeur, à la demande du propriétaire : « si tout est concluant on garde »)
+
+| Remplacement | Réglage (.11) | Résultat |
+|---|---|---|
+| Superviseur C (jour/nuit + bouton) | `SUPERVISOR_IMPL=c` (boot.conf) | **OK** : `tc100-supervisord` (PSS 145 Ko) remplace `auto-night-daemon.sh` + `button-watch.sh` (209 + 145 Ko) ; `/var/run/tc100-sv.night` et `.button`. ⚠ `controlscripts/auto-night-detection` n'a **pas de `restart`** (seulement start/stop/status/health) : `restart` ne fait rien, il faut stop puis start. Bascule jour/nuit à confirmer cette nuit ; bouton : test physique (propriétaire). |
+| Découverte HA en C | `MQTT_DISCOVERY_IMPL=c` (mqtt.conf) | **OK** : 49 configs publiées par le démon en 11 s après un restart, **identiques octet pour octet** aux configs du script ; le script ne tourne plus qu'en `startup nodiscovery`. |
+| Micro lu par `tc100_rtsp` | `RTSP_ALSA_DIRECT=1` (rtsp.env) | **OK** : log `audio: microphone read directly (/dev/snd/pcmC0D0c, no arecord)`, plus d'`arecord` (PSS 662 Ko), `tc100_rtsp` PSS 2 649 → 2 514 Ko ; G.711 8 kHz sur les deux flux, son réel (ffmpeg volumedetect -35,7 dB moyen), niveau sonore à jour. |
+| ONVIF libre | `ONVIF_IMPL=c` (onvif.conf) + service onvif démarré | **PLANTAIT** : `tc100-onvifd` SIGSEGV au démarrage, même avec `-h`. Cause : `fprintf(stderr, …)` alors que la libc factice du Makefile déclare chaque import comme une fonction → `stderr` lu dans la PLT (si_addr = un mot d'instruction). Reproduit sous `qemu-arm` avec la uClibc de la caméra. **Corrigé : `0bc967c`** (onvifd et supervisord : `dprintf`/`write`, plus aucune variable libc ; test `NoLibcDataImports`). Binaire corrigé superposé en RAM sur la .11 : **OK** — WS-Discovery (XAddrs :8081), `GetDeviceInformation` avec WS-Security (Anyka / TC100 / 3.0.1-rc27), refus sans authentification, `GetProfiles` 1920x1080 + 640x360, `GetStreamUri` video0/video1, `GetSnapshotUri` currentpic.cgi ; PSS 213 Ko. |
+| WebRTC (WHEP) | `WHEP=1` + service whep | **Vidéo absente** : négociation 201, ICE completed, DTLS-SRTP, audio reçu (458 paquets / 12 s), **0 image** (179 paquets vidéo). Cause : `on_video()` jetait tout paquet > 1400 octets ; `tc100_rtsp` envoie 1412 (12 + `RTP_PAYLOAD`) → aucune IDR. **Corrigé : `7618d73`** (limite = tampon − étiquette SRTP), test d'interop rendu réaliste (paquets découpés comme `tc100_rtsp`) : l'ancien code **échoue**, le nouveau passe (aiortc + mbedTLS en local). Build de l'image de base lancé (`tc100-whep` est un paquet Buildroot). En attendant : **`WHEP=0` sur la .11** (sinon la page aurait affiché un direct noir avec le son). |
+
+État de la .11 ce soir : rc27 + `SUPERVISOR_IMPL=c`, `MQTT_BRIDGE_IMPL=c`, `MQTT_DISCOVERY_IMPL=c`, `RTSP_ALSA_DIRECT=1`, `RTSP_QMAX=1024`, `ONVIF_IMPL=c` (service onvif démarré), `WHEP=0`. **Binaires corrigés `tc100-onvifd` et `tc100-supervisord` superposés en RAM : au prochain redémarrage, la flash rc27 reprend l'onvifd qui plante** (ONVIF absent) → il faut une **rc28** avec `0bc967c` + `7618d73` (+ revert du pacing par défaut). MemAvailable 22,6 Mo.
+
+## 2026-11-05 21:35 — WHEP corrigé sur la .11 : la vidéo passe (testeur)
+
+- Build manuel `build-base-rootfs` (run 42089030516, commit `7618d73`) vert en 11 min ; `usr/bin/tc100-whep` extrait de `rootfs.cpio.gz` (md5 `6bc8d79d…`, différent de la rc27 `5e00fb69…`), superposé en RAM sur `/mnt/ext/bin/tc100-whep` de la .11, `WHEP=1`, service redémarré.
+- **aiortc (navigateur simulé) : 354-360 images 640x360 en 20 s, première image à 1,5 s, ~930 trames audio, 0 perte vidéo.** ICE completed, DTLS-SRTP up. Log : `viewer … gone (212 video, 544 audio packets)` à la fermeture.
+- `tc100-whep` : ~9 % CPU pendant une session, PSS ~620 Ko au repos.
+- **Coût du sous-flux (pas propre au WebRTC)** : dès qu'un client lit le sous-flux (WHEP ou simple RTSP `video1_unicast`), l'encodeur matériel encode les deux flux et la capture tombe de 24-25 à **~21-22 img/s** (RTSP : `cap` 106-112 / 5 s ; WHEP : 78-102), `enc_ms` ≈ 4 s sur 5 s, CPU encore 64 % libre (pas le processeur : l'encodeur). Avec `arecord` au lieu de `RTSP_ALSA_DIRECT=1`, c'est pire (`cap` 66-75) : le micro direct est meilleur. À noter dans la doc (WHEP, multiview en vidéo fluide, Frigate sur le sous-flux).
+- La .11 garde `WHEP=1` (le démon ne travaille que pendant une session). Binaire corrigé en RAM seulement → **rc28** (R1).
+- Reste à faire (P7) : le direct WebRTC dans le navigateur du propriétaire.
+
+## 2026-11-05 23:35 — 3.0.1-rc28 (bump par le testeur à la demande du propriétaire)
+
+- Contenu : `3a5519b` (CI verte ; l'échec de `1310577` est `test_mqttd…reconnects_after_the_broker_drops` 1 != 2, test au minutage instable, vert au commit suivant) + ce bump. Le build de release reconstruit l'image de base (`build-base-rootfs.yml` appelé ligne 43) : il embarque le `tc100-whep` corrigé (`src/whep` inchangé depuis `7618d73`).
+- Installation : **.11**, mise à jour web, flash, sans carte SD. La .11 avait des binaires corrigés superposés en RAM (onvifd, supervisord, whep) : la mise à jour redémarre la caméra, ils disparaissent et sont remplacés par ceux de la rc28.
+- ⚠ `[rc28-defaults]` change les **défauts d'une nouvelle installation** ; sur la .11, les réglages existants de `/mnt/config` restent (`install_config` ne copie pas une `.dist` sur un fichier présent).
+
+## 2026-11-06 00:00 — rc28 sur la .11 (flash, mise à jour web) : contrôles du testeur seul
+
+Build `8131144` (run 42122303317, vert), archive md5 `daeb9449…`. Tout fait à distance (ssh, curl `-u`, ffmpeg, aiortc, Chrome du propriétaire déjà connecté) ; rien de tapé dans un formulaire.
+
+- **Base** — `passed` : `flashroot=1`, boot-guard 0, MemAvailable ~23 Mo, CmaFree 5,8 Mo. Processus : `tc100_rtsp` (PSS 2538 Ko), `tc100-mqttd` (250), `tc100-supervisord` (226, **3 jobs** : `/var/run/tc100-sv.night`, `.button`, `.sound`), `tc100-whep` (672), mdnsd, httpfront. Plus aucune boucle shell résidente, plus d'`arecord`. `tc100_rtsp` : file client 1024 Ko, **pacing 0 µs** (R2 vérifié), micro direct. Réglages de la .11 conservés (`SUPERVISOR_IMPL=c`, `MQTT_*_IMPL=c`, `RTSP_ALSA_DIRECT=1`, `RTSP_QMAX=1024`, `ONVIF_IMPL=c`, `WHEP=1`, `WIFI_COUNTRY=FR`).
+- **RTSP** — `passed` : TCP, principal hevc 1920x1080 25 img/s + PCMA, sous-flux h264 640x360 + PCMA ; 401 sans mot de passe.
+- **Web** — `passed` : 9 pages HTML en 200 ; `dash.cgi` / ligne d'état natifs en 0,02 s. Une fois, `state.cgi?daynight` a mis **7,2 s** (puis 0,3-0,4 s) : à surveiller (premier appel après démarrage ?). `frigateyaml` : `@25` et `{FRIGATE_RTSP_PASSWORD}`.
+- **MQTT / découverte** — `passed` : 49 configurations identiques à la rc27 sauf `dev.sw` (rc27 → rc28) ; `availability` online, commande `health` répond. mDNS répond.
+- **ONVIF (`tc100-onvifd`)** — `passed`, avec une remarque : le service ne démarre pas tout seul (pas de `config/autostart/onvif` : voulu, ONVIF reste à activer dans Services). Créé à la main sur la .11 (`/mnt/config/autostart/onvif`). Depuis le flash : PSS 229 Ko, WS-Discovery, `GetDeviceInformation` (FW 3.0.1-rc28), profils 1080p / 360p, URI flux et image, **`FrameRateLimit` 25/25 (R6 vérifié)**, débits 1600 / 250.
+- **R5** — `passed` : les 26 scripts de `controlscripts` ont `restart` ; `auto-night-detection restart` relance le job nuit **dans** `tc100-supervisord` (pid du démon inchangé, fichier du job retiré puis recréé).
+- **R7** — partiel : import JSON de 156 valeurs en 15,5 s puis 21,8 s (idempotent : 2e passage `changed_files` 0). Pas nettement mieux que la rc27 (20-25 s / 144) ; à mesurer en journée avec `cap` pendant l'import.
+- **T2 (charge)** — partiel, **de nuit (10 img/s)** : 4 clients RTSP (Frigate + 3 principaux) : 0 image sautée, CPU 64 % libre, `snd_ms` ~450-490 / 5 s. **À refaire de jour à 25 img/s.**
+- **T8 (httpfront, connexions muettes)** — `passed` : 80 connexions TCP ouvertes sans rien envoyer, toutes acceptées ; le web répond toujours en 0,02-0,07 s ; 72 restent ouvertes ≥ 30 s (pas d'expiration des connexions muettes côté httpfront, sans effet mémoire visible). Suggestion : délai de lecture de l'en-tête (10-15 s).
+- **T9 (clients RTSP inactifs)** — `passed` avec un écart : un client muet est fermé après **~31 s** alors que `CLI_IDLE_S` vaut 60 dans `tc100_rtsp.c` (autre délai qui s'applique avant ? à expliquer ou aligner la doc). Frigate (TCP, PLAY) n'est pas déconnecté.
+- **T7 (`WEB_LOCKOUT`)** — `blocked` à distance : la VM du testeur sort par la même IP que le navigateur du propriétaire (NAT du Mac) ; bloquer cette IP bloquerait le propriétaire. À faire depuis une autre machine du LAN.
+- **P7 (WebRTC dans Chrome)** — **`failed`, corrigé** : la page passe tout de suite au MP4, console `WebRTC off (HTTP 413): MP4 live view`. L'offre de Chrome 157 (vidéo + audio recvonly, candidats hôtes) fait **7607 octets** ; `whep.cgi` et `tc100-whep` refusaient tout au-delà de 6000 (les offres d'aiortc, plus courtes, passaient : d'où le test vert du 05/11). Corrigé en `1749475` : limite commune 12000 (`WH_MAX_OFFER`), tampon de requête 16 Ko avec garde en-tête + corps ; tests `test_whep` (offre de 7,6 Ko acceptée, 13 Ko refusée) et `WhepAcceptsBrowserOffers`. **À revalider dans Chrome avec le `tc100-whep` reconstruit (rc29 ou superposition en RAM).**
+- **Repli MP4** : observé à ~1,8 img/s (640x360, de nuit) pendant ce test : lent, à mesurer de jour.
+- Enregistreur de nuit relancé sur la .11 (`/tmp/nightcam.sh` → `/tmp/night.log`, toutes les 180 s) : bilan le 2026-11-06 au matin.
+
+## 2026-11-06 00:20 — WebRTC dans Chrome : deuxième cause trouvée (ClientHello DTLS fragmenté) et corrigée (testeur)
+
+- Avec `1749475` superposé en RAM sur la .11 (`tc100-whep` md5 `e66d10f0…` de l'image de base du run 42126368363 + `whep.cgi`) : plus de 413, l'offre est acceptée (`offer accepted (sub stream, H.264 pt 102)`), ICE passe, mais **`DTLS handshake failed (-0x7900)`** ; la page affiche `WebRTC off (no picture): MP4 live view`.
+- Cause : Chrome 157 propose **DTLS 1.3 avec une clé post-quantique (X25519MLKEM768)** ; son ClientHello (~1,4 Ko) arrive en plusieurs fragments, que mbedTLS 2.28 ne sait pas réassembler (`MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO`). aiortc et les Chrome plus anciens envoient un ClientHello d'un seul tenant : d'où les tests verts.
+- **Reproduit en local** : Chromium 141 (Playwright) + `--force-fieldtrials=WebRTC-ForceDtls13/Enabled/WebRTC-EnableDtlsPqc/Enabled/` → même `-0x7900` ; sans ces options → OK.
+- **Corrigé en `cfed960`** : `wh_chello_feed()` (`whep_proto.h`) rassemble les fragments et donne à mbedTLS un seul enregistrement contenant le message entier ; mbedTLS répond en DTLS 1.2, que le navigateur accepte. Vérifié : `ClientHello of 1413 bytes rebuilt from fragments`, DTLS-SRTP établi, vidéo + audio reçus. Tests : `whep_test.c` (fragments dans le désordre, répétés, trop gros), nouveau `tests/whep_chrome_interop.py` (Chromium, DTLS 1.2 et DTLS 1.3 + ML-KEM ; ignoré sans Playwright), `tests/whep_interop.py` (aiortc) toujours vert.
+- **À faire (implémenteur)** : ajouter `tests/whep_chrome_interop.py` à la CI (une image avec Playwright/Chromium) pour ne plus être pris par une nouvelle version de navigateur ; vérifier Firefox / Safari. Le testeur revalide P7 dans le Chrome du propriétaire avec le binaire de `cfed960` (superposé en RAM), puis rc29.
+
+## 2026-11-06 01:05 — P7 : direct WebRTC dans le Chrome du propriétaire — `passed` (binaires de `cfed960` superposés en RAM) (testeur)
+
+- `.11` en rc28 + `tc100-whep` de l'image de base du run 42132047943 (`cfed960`, md5 `beca047c…`) et `whep.cgi` de `1749475`, superposés en RAM (`mount --bind`, perdus au redémarrage).
+- Chrome 157, page Direct : **WebRTC établi** (`srcObject`, 640x360, plus de « WebRTC off » dans la console). Démon : `offer accepted (sub stream, H.264 pt 102)`, `DTLS-SRTP up, streaming`.
+- Mesure sur 20 s : **10,1 img/s** (= cadence de capture de nuit, `STAT cap 51` / 5 s), 0 image perdue côté navigateur, `clients 2`, `dropped 0`.
+- La page ne demande que la vidéo (`addTransceiver("video")` seul, `30-live-view.js`) : le son reste sur « Écouter ». Normal, à noter dans la doc si on veut le son en WebRTC un jour (`WHEP_AUDIO=1` est prêt côté démon, testé avec aiortc et Chromium).
+- **Reste** : rc29 pour avoir ces deux corrections en flash ; mesure de jour à 25 img/s ; Firefox / Safari ; `tests/whep_chrome_interop.py` en CI.
+
+
+## 2026-11-06 07:30 — rc28 sur la .11 : bilan de la nuit (7 h 43 sans redémarrage) — `passed` (testeur)
+
+Enregistreur `/tmp/nightcam.sh` (148 relevés toutes les 180 s, 23:02 → 06:27 UTC).
+- **Stabilité** : aucun redémarrage, aucun OOM / segfault dans `dmesg`, tous les démons présents (`tc100_rtsp`, `tc100-mqttd`, `tc100-supervisord`, `tc100-whep`, `tc100-onvifd`, `httpfront`, `tc100-mdnsd`).
+- **Mémoire** : MemAvailable entre 21,9 et 23,5 Mo toute la nuit, sans dérive notable (~23,2 → ~22,1 Mo) ; CmaFree 5,9 Mo. PSS au matin : `tc100_rtsp` 2782 Ko (2538 au démarrage, VmHWM 4056), `tc100-whep` 876 (672, après une session WebRTC), mqttd 205, superviseur 210, onvifd 234, httpfront 1071.
+- **Vidéo** : `cap` 50-51 / 5 s à chaque relevé (10 img/s, mode nuit), Frigate connecté toute la nuit (`cl1`), **`dropped 0` sur toute la nuit**.
+- **Wi-Fi** : pas de déconnexion (pas de nouvelle association dans `messages`, lien 70, -22 dBm). Ping vers la box (2 paquets / relevé) : 13 relevés à 100 % de perte et 2 à 50 % sur 148 (~9 %), quelques pointes de latence (300-1170 ms) : **même niveau qu'en rc27** (9 / 86) et sans effet sur le flux. Probablement l'économie d'énergie Wi-Fi ou la box : point déjà au backlog (pertes Wi-Fi).
+- **Jour / nuit** : à 06:11 UTC la luminosité monte (luma 24 → 48, `ae` 2 → 19), toujours en nuit à 06:27 ; bascule jour à vérifier dans la matinée (`/tmp/logs/daynight.log`).
+- Rappel : `tc100-whep` et `whep.cgi` de la .11 sont les versions corrigées superposées en RAM (perdues au redémarrage) en attendant la rc29.
+
+## 2026-11-06 07:35 — rc29 lancée par le testeur (accord du propriétaire)
+
+- Contenu : rc28 + `1749475` (offre WHEP 12000 octets) + `cfed960` (ClientHello DTLS fragmenté) ; CI verte sur les deux ; aucun réglage par défaut modifié.
+- Installation prévue : **.11** en flash par la mise à jour web (remplace les binaires superposés en RAM) ; la **.24** est en cours de flash en rc28 par le propriétaire.
+- À vérifier en rc29 : P7 WebRTC dans Chrome depuis le flash (sans superposition), `whep.cgi` 12000, réglages de la .11 conservés (dont `autostart/onvif`), puis T2 de jour à 25 img/s.
+
+## 2026-11-06 08:00 — rc28 sur la .24 (flash par le propriétaire) : contrôles du testeur
+
+- **Base** — `passed` : 3.0.1-rc28, `flashroot=1`, MemAvailable 21,8 Mo, CmaFree 5,6 Mo ; `tc100_rtsp` (PSS 3029 Ko, enregistreur ouvert), mqttd C (225), superviseur C (261 ; jobs nuit + son ; pas de bouton : `autostart/button-actions` absent sur la .24), whep (190), httpfront, mdnsd ; pacing 0 µs, micro direct, Frigate connecté, `dropped 0`. Wi-Fi -48 dBm, ping box OK.
+- **10 img/s de jour** : normal ici. Mode jour depuis 06:42 UTC, mais gain total 22x (pièce encore sombre au lever du jour) : le mode basse lumière (R12-02, comme l'appli d'origine) garde le capteur à 10 img/s tant que le gain ne repasse pas sous 5x.
+- **`failed` — OOM au démarrage sur la carte SD** : la carte de la .24 (64 Go FAT32) est l'**ancienne carte de démarrage SD** (`wifitest`, `bin`, `v3`…), marquée « not properly unmounted ». Avec `SD_AUTO_REPAIR=1` (défaut depuis la rc28), `sd-diag.sh repair` lance `fsck.fat -a -w` 60 s après le démarrage : **tué par l'OOM** à 185 s (`fsck.fat` anon-rss 23,7 Mo). Rien d'autre n'a été tué. Ensuite `rec-storage.sh` refuse de toute façon cette carte (`wifitest` = fichiers de démarrage) : `/mnt/sd` reste le tmpfs de 16 Ko, donc **pas d'enregistrement local sur la .24** malgré `REC_LOCAL=1`, `REC_WHEN=motion`. Deux défauts pour l'implémenteur (R14) : la réparation automatique tourne sur une carte que l'enregistreur va refuser (et l'écrit, `-w`), et `fsck.fat` sur une grande carte FAT32 dépasse la RAM de la caméra.
+- **Différences de réglages avec la .11** (hors identité/matériel : MQTT, GPIO IR-cut, enregistrement SD) : `.24` sans `WIFI_COUNTRY=FR`, sans `autostart/onvif` ni `autostart/button-actions`, sans `rtsp.env` (`RTSP_QMAX=1024` : file client 384 Ko au lieu de 1024) ; `SYSLOG_HOST` = 192.168.1.22 sur la .24 contre 192.168.1.23 sur la .11 (question posée au propriétaire). Les clés absentes du `boot.conf` de la .24 (`BOOT_GUARD`, `VM_TUNE`, `WHEP_*`, `IDLE_*`…) prennent leur valeur par défaut.
+
+- **07:56 (heure de Paris ; noté 08:10 par erreur) — réglages de la .24 alignés sur la .11** (décision du propriétaire) : sauvegarde dans `/mnt/config/backup-parity-20261106/`, puis `WIFI_COUNTRY=FR`, `SYSLOG_HOST=192.168.1.23` (la bonne adresse ; .22 était une erreur), `rtsp.env` (`RTSP_QMAX=1024`, `RTSP_ALSA_DIRECT=1`), `autostart/onvif` et `autostart/button-actions`. ONVIF démarré (WS-Security OK, FW 3.0.1-rc28, profils 1080p / 360p vers `192.168.1.24`, `FrameRateLimit` 25/25) et job bouton actif dans le superviseur C (`/var/run/tc100-sv.button`). Wi-Fi, syslog et file RTSP prennent effet au prochain redémarrage. Carte SD de la .24 : le propriétaire va la vider / formater pour l'enregistrement local.
+
+## 2026-11-06 08:10 — rc29 sur les deux caméras (flash, mise à jour web par le propriétaire) : contrôles du testeur
+
+- **Base** — `passed` sur .11 et .24 : 3.0.1-rc29, `flashroot=1`, MemAvailable ~23,1-23,2 Mo, CmaFree 5,9 / 4,7 Mo ; tous les démons présents (`tc100_rtsp`, mqttd, superviseur C, whep, onvifd, httpfront, mdnsd), plus aucune superposition en RAM (`tc100-whep` md5 `beca047c…` et `whep.cgi` 12000 lus depuis la flash). Pacing 0, file client 1024 Ko, micro direct sur les deux.
+- **Réglages conservés par la mise à jour** — `passed` : `rtsp.env`, `autostart/onvif` et `button-actions`, `WIFI_COUNTRY=FR`, `SYSLOG_HOST=192.168.1.23` (sur la .24 : les réglages alignés à 08:10 sont pris en compte), identités MQTT. Sauf le jour / nuit, ci-dessous.
+- **`failed`, corrigé — jour / nuit automatique coupé par la mise à jour** : sur les deux caméras, `rtspserver.conf` réécrit pendant l'installation (06:59:25 et 06:59:33 UTC) avec `daynight=3`, et au démarrage `auto day/night not started: manual mode (daynight=3)` (pas de job `night` dans le superviseur). Cause : `update66.sh` (et `install66.sh`, et l'arrêt mémoire basse de `update.cgi`) appellent `auto-night-detection stop`, dont le `stop` écrit `daynight=3` (choix manuel, gardé). Ce n'était pas visible avant la rc28 : `/mnt/bin/rwconf` n'existait pas en 3.0, l'écriture échouait sans bruit ; la rc28 l'apporte. **Rétabli sur les deux caméras** (`auto-night-detection start` : `daynight=2`, job `night` actif, `mode=day src=luma`, sauvegardé en flash par `cfg-persist` à 07:13 UTC). **Corrigé en `7e3b1c8`** : nouveau verbe `halt` (arrête le job sans toucher au réglage), utilisé par `update66.sh`, `install66.sh`, `update.cgi` ; `stop` garde son sens (arrêt voulu par l'utilisateur). Tests `UpdateKeepsAutoDayNight` et `test_audit_20261104` mis à jour. À revalider à la prochaine mise à jour (rc30).
+- **RTSP** — `passed` : principal hevc 1920x1080 25 img/s + PCMA sur les deux (ffprobe TCP). De jour, `.11` capture 119-120 / 5 s (~24 img/s) avec Frigate, `dropped 0` ; `.24` reste à 10 img/s (mode basse lumière, gain élevé dans sa pièce).
+- **ONVIF** — `passed` sur les deux : FW 3.0.1-rc29, `FrameRateLimit` 25/25, débits 1600 / 250.
+- **MQTT** — `passed` : `.24` `tc100/cam2/availability` = online ; `.11` connectée au broker (TCP établi), dernière publication `ok`.
+- **P7 WebRTC depuis la flash** — `passed` : Chrome 157 sur la .11, `srcObject` 640x360, **20,1 img/s de jour** (le sous-flux consommé abaisse la capture vers ~21 img/s, connu), 5 images perdues sur ~450, aucune ligne « WebRTC off ».
+- **Carte SD de la .24** : encore l'ancienne carte de démarrage ; `fsck.fat` à nouveau tué par l'OOM au démarrage (173 s), rien d'autre touché (R14). Le propriétaire va la formater.
+
+## 2026-11-06 08:35 — T2 de jour (25 img/s) sur la .11 en rc29 : `passed` avec une limite mesurée (testeur)
+
+Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM du testeur, en plus de Frigate ; relevés `STAT` toutes les 5 s.
+
+| clients principaux | `cap` / 5 s | img/s | `enc_ms` | `snd_ms` | `dropped` |
+|---|---|---|---|---|---|
+| 1 (Frigate) | 123-124 | ~24,7 | ~3850 | ~295 | 0 |
+| 2 | 111-117 | ~23 | ~3600 | ~550-590 | 0 |
+| 4 | 87-95 (72-80 au départ) | ~18 | ~2850 | ~900-1060 | 0 |
+
+- Aucun client décroché, aucune image sautée par client (`dropped 0`), CPU 42 % libre à 4 clients, MemAvailable 22,0 Mo ; retour à 123-124 dès la fin du test.
+- **Limite** : l'envoi TCP coûte ~250-300 ms / 5 s **par client** et se fait dans la même boucle que la capture ; avec l'encodeur déjà à ~3,8 s / 5 s, chaque client en plus retire des images à la capture (25 → 23 → 18 img/s). Avec Frigate seul (usage normal) : ~24,7 img/s.
+- La .24 n'est pas testable à 25 img/s ce matin : en mode jour mais gain total ~10x, exposition 2810 lignes ; le mode basse lumière (R12-02, comme l'appli d'origine) ne remonte à 25 img/s que sous 5x. Normal dans une pièce peu éclairée ; `RTSP_LOWLIGHT_FPS=0` garderait 25 img/s (image plus sombre).
+
+## 2026-11-06 09:30 — audit de l'interface web (rc29) et syslog (testeur)
+
+- Rapport : `docs/linux-port/webui-audit-2026-11-06.md` (doublons D1-D6, inutiles U1-U9 ; tout est câblé).
+- **`failed`, corrigé — syslog** : sur les deux caméras, `syslog-forward` « Arrêté » malgré `SYSLOG_ENABLE=1` ; `syslogd` lancé avec `-D -f` refusés par la BusyBox de la base (« unrecognized option: D ») : plus aucun journal local après le démarrage du service (`/var/log/messages` arrêté à 07:01 UTC) et rien vers 192.168.1.23. Relancé à la main (RAM) à 09:17 sur les deux : `syslogd -n -l 6 -s 128 -b 1` + `tc100-logfwd -r 192.168.1.23:514`, message de test écrit. Corrigé en `bf6d15c` (fragment BusyBox + repli). R21.
+
+

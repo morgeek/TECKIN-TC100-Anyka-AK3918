@@ -1402,12 +1402,18 @@
                         .catch(function() { setTimeout(poll, 5000); });
                 }, 20000);
             }
-            function run(cmd, confirmText, msg) {
-                if (!confirm(confirmText)) return;
+            // extra: '&nobackup=1' once the user accepted an install without a backup (no SD card, error "nobackup")
+            function run(cmd, confirmText, msg, extra) {
+                if (!extra && !confirm(confirmText)) return;
                 inst.disabled = up.disabled = true;
-                cf('cgi-bin/update.cgi?cmd=' + cmd, { method: 'POST' })
+                cf('cgi-bin/update.cgi?cmd=' + cmd + (extra || ''), { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(d) {
+                        if (d && !d.ok && d.error === 'nobackup' && !extra) {
+                            inst.disabled = up.disabled = false;
+                            if (confirm((window.tc100T || String)(d.message))) run(cmd, confirmText, msg, '&nobackup=1');
+                            return;
+                        }
                         if (!d || !d.ok) throw new Error((d && (d.message || d.error)) || 'refused');
                         waitForReboot(msg);
                     })

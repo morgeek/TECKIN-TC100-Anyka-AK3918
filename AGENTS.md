@@ -10,7 +10,10 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - **No brick, ever.** U-Boot, `boot` and `mac` are never written; the bootloader is out of scope. Since 2026-10-24 the kernel,
   initramfs, user space (`stack`) and settings (`cfga`/`cfgb`) live in the SPI flash and are written only with `v3/linux66-sd/flashw`
   (read-back checked) and with the owner's explicit agreement for each partition write. The U-Boot environment was changed once
-  (adds `flashboot`; SD kernel `tc100test/c66.img` keeps priority = way back). Take a dump before writing anything.
+  (adds `flashboot`; SD kernel `tc100test/c66.img` keeps priority = way back). Take a dump before writing anything: the web
+  update saves each partition to the SD card first (`flashw -b`, a failed backup = nothing written); without a card it
+  writes only after the user confirmed "install without a backup" (`update66.sh`, `UPDATE66_NOBACKUP=1`, owner's decision
+  of 2026-11-06), the way back being then the 3.0 SD card.
 - The owner power-cycles the camera himself; do not try to automate a power cycle. After a panic the camera reboots into the
   flash firmware (also Linux 6.6, hostname IPCAM2), which is the fallback shell.
 - Never put passwords, tokens or the MQTT/RTSP credentials in the repo, in docs or in chat. The owner enters them himself.
@@ -22,6 +25,11 @@ hardware facts, test loop), then `docs/known-issues.md`.
 ## Maximum control from Linux without ever touching U-Boot
 - **Never touch U-Boot or its environment (`boot`, `env`, `saveenv`, `bootargs`).** There is no serial console attached in
   normal operation. Never require a U-Boot prompt command or a kernel command-line edit to test or enable a feature.
+  **The one sanctioned exception** (owner, 2026-11-06): the first-install hook of the SD package
+  (`v3/install/stock-hook.sh`, run once by the stock firmware) adds the 3.0 boot commands to the environment with
+  `envtool` (`sdload`/`sdboot`/`flashcheck`/`flashboot`, `boot_normal` unchanged), after a verified backup of the
+  environment and of the whole flash, and restores the original if the write fails; without it a new camera cannot
+  start 3.0 from its flash. No other code, script or agent writes the environment, and this hook must not grow.
 - **Bypass U-Boot limitations entirely from Linux:**
   1. **Compiled-in kernel defaults:** Validated parameters (`ak39_vi.sub_channel=1`, `ak39_vi.slots=3`,
      `ak39_venc.pool=9600K`) must be the C defaults in `patches/kernel-6.6/series/00NN-*.patch` so they work regardless
@@ -61,6 +69,10 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - `src/tc100rtsp` = free RTSP server (H.264/H.265 over RTP, TCP and UDP, optional G.711 A-law audio track, `-a 1`); built with
   `make` using the glibc ARM cross compiler but linked to run under the camera's uClibc loader. `src/libakuio` = userspace
   access to the vendor encoder libraries. `v3/` = boot script and initramfs for 6.6; `controlscripts/`, `www/` = V3 user space.
+  The other free programs, all built by CI: `src/httpfront` (web front), `src/whep` (WebRTC gateway, built by Buildroot),
+  `src/onvifd`, `src/mqttd`, `src/supervisord`, `src/mdnsd`, `src/logfwd`, `src/netacl`, `src/rwconf`, `src/ispflip`,
+  `src/jpegenc`; bench / research tools: `src/ispfps`, `src/h265enc`; `src/webui` = build steps of the web UI (CSS
+  bundles, index bundle, minification, screenshots). Full list: `docs/linux-port/internals.md` "Repository structure".
 - Project notes (status, test results, traps) live in the claude.ai Project "Teckin Camera Alternative Firmware" as `claude/*.md`
   docs; start with the newest (`status-*`, `clock-480mhz-*`, `audio-mqtt-memoire-*`).
 
@@ -95,9 +107,11 @@ hardware facts, test loop), then `docs/known-issues.md`.
   `MQTT_HA_DISCOVERY_ENABLE=1` for Home Assistant entities.
 - Killing `tc100_rtsp` is safe again (audio fix), but restart it with the same arguments as `v3/autorun-linux66.sh`.
 
-## Open items (see the newest `claude/status-*` doc)
-Ranked list and feature-by-feature status: `docs/linux-port/feature-audit-2026-10-26.md` (flash image built from git,
-Wi-Fi country setting in Settings, IR-cut pulse 10 ms, single authoritative config per setting).
-Sub-stream and RTSP over UDP checks, audio listening test in Frigate/VLC, MQTT entities in Home Assistant, ISP colour cast
-tuning, day/night, final SD package and README (install by copying to the SD card, way back to the original firmware),
-SD test-file cleanup.
+## Open items
+- The ranked list of what is left: `docs/linux-port/a-faire-implementeur.md` (French; its top sections are the current
+  priorities), with the measured audit `docs/linux-port/audit-2026-11-06.md` (flash size, Wi-Fi losses, features,
+  hardware headroom). What waits for the cameras: `docs/linux-port/test-queue.md` (closed entries are in
+  `test-queue-archive.md`). Older audits (`feature-audit-2026-10-26.md`, `audit-2026-11-03/04.md`) are history.
+- Planned for the rc32 (owner, 2026-11-06): remove the Classic look (Bulma, `ui-modern.min.css`, the Appearance choice)
+  and `bin/monvifd`, once the rc31 is checked on both cameras.
+- The project notes of the claude.ai Project (`claude/status-*`) complement this; the repository is the reference.

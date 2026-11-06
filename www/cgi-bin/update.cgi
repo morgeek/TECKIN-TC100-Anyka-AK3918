@@ -2,7 +2,9 @@
 # update.cgi: firmware update (Settings -> Update & backup -> Firmware update):
 #   GET  ?cmd=status    {"ok":true,"current":…,"state":"idle|staged|installing","staged":…,"kind":"linux66","message":…}
 #   POST ?cmd=upload    raw body = tc100-<version>-update.tar; unpacked as it arrives (card if present, else RAM) and checked
-#   POST ?cmd=install   v3/install/update66.sh apply in the background (the camera restarts)
+#   POST ?cmd=install   v3/install/update66.sh apply in the background (the camera restarts). Without an SD card there
+#                       is no backup of the flash: refused (error "nobackup") until the page asks again with
+#                       &nobackup=1 after the user confirmed (review 2026-11-06, owner's decision)
 #   POST ?cmd=discard   drop the uploaded package
 # POSTs need the X-CSRF-Token header.
 U=/mnt/v3/install/update66.sh
@@ -72,8 +74,12 @@ POST:upload)
 POST:install)
 	[ -f "$WORK/ok" ] || { echo '{"ok":false,"error":"state","message":"Upload a package first."}'; exit 0; }
 	[ -e /tmp/update66.running ] && { echo '{"ok":false,"error":"busy","message":"Already installing."}'; exit 0; }
+	_nb=0; case "$_qs" in *"&nobackup=1&"*) _nb=1 ;; esac
+	if ! grep -q ' /mnt/sd vfat ' /proc/mounts && [ "$_nb" != 1 ]; then
+		echo '{"ok":false,"error":"nobackup","message":"No SD card: the firmware now in the flash cannot be saved before it is overwritten, so the only way back is the 3.0 SD card. Install without a backup? (Or cancel, put a FAT32 card in the camera and install again.)"}'; exit 0
+	fi
 	: > /tmp/update66.running
-	( trap '' HUP; sh $U apply "$WORK"; rm -f /tmp/update66.running ) </dev/null >/dev/null 2>&1 &
+	( trap '' HUP; UPDATE66_NOBACKUP=$_nb sh $U apply "$WORK"; rm -f /tmp/update66.running ) </dev/null >/dev/null 2>&1 &
 	echo '{"ok":true,"started":"install"}' ;;
 POST:discard)
 	rm -rf "$WORK"; echo '{"ok":true}'
