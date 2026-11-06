@@ -2965,6 +2965,19 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
 - **Critères :** le script tourne 2 h sans incident (MemAvailable stable, aucune coupure de la liaison), le résumé
   classe les pertes ; le résultat va sous cette entrée et décide de la piste suivante (audit W2-W5).
 
+## 2026-11-06 12:35 — revue du testeur : `[ux-sounds]`, `[ux-pico]`, `[wifi-diag]`, audit 2026-11-06
+
+- Revus, CI verte (`f3b9cbd`). `sounds.cgi?cmd=playnow` : jeton CSRF et limite de débit comme les autres commandes,
+  corps PCM pair ≤ 30 s, refus 507 sous MemAvailable + 6 Mo, refus 429 si le haut-parleur joue, fichier `/tmp`
+  effacé : OK. `wifi-diag.sh` : lecture seule, `/tmp`, borné, rien au démarrage : OK. Pico : flash `stack.sqfs`
+  2 457 600 → 2 502 656 octets (+44 Ko), partition 2 830 336 : marge 320 Ko, OK.
+- **Attention, deux archives portent le nom « 3.0.1-rc30 »** : `VERSION` n'a pas changé après la rc30, donc la build de
+  `f3b9cbd` sort aussi `tc100-3.0.1-rc30-update.tar` (md5 `b026001b1c84c42ffcd70300747ae584`, avec Pico, sons,
+  wifi-diag), différente de la rc30 contrôlée (`e4f0464`, md5 `65e1cd7033f13ee9c3bdcda21e70e6d9`). **À installer en
+  rc30 : celle de md5 `65e1cd70`** (sur le Mac du propriétaire, `xfer30/`). Implémenteur : passer `VERSION` à
+  `3.0.1-rc31-dev` (ou rc31) dès qu'un commit de code suit une RC publiée, pour qu'une archive ne soit jamais
+  confondue avec une RC testée.
+
 ## 2026-11-06 — Place en flash : plus de jq (`[flash-nojq]`, audit S1, décision du propriétaire, rc31)
 
 - **Quoi :** `jq` (+ `libjq`, oniguruma ; ~110-240 Ko estimés de l'image) retiré de la flash et de l'image de base
