@@ -22,7 +22,7 @@
         <a href="javascript: void(0)" data-tab="tab-overlay"><span>Privacy &amp; overlay</span><b class="settings-hits"></b></a>
         <a href="javascript: void(0)" data-tab="tab-daynight"><span>Day/night</span><b class="settings-hits"></b></a>
         <p class="settings-nav-group">Video &amp; audio</p>
-        <a href="javascript: void(0)" data-tab="tab-video"><span>Streams &amp; audio</span><b class="settings-hits"></b></a>
+        <a href="javascript: void(0)" data-tab="tab-video"><span>Streams, audio &amp; sounds</span><b class="settings-hits"></b></a>
         <p class="settings-nav-group">Events</p>
         <a href="javascript: void(0)" data-tab="tab-detect"><span>Detection</span><b class="settings-hits"></b></a>
         <a href="javascript: void(0)" data-tab="tab-record"><span>Recording</span><b class="settings-hits"></b></a>
@@ -291,14 +291,17 @@
 
             <!-- item 48: the speaker's sounds (cgi-bin/sounds.cgi); the script below converts uploads in the browser -->
             <div class="card status_card mt-4" id="sounds_card">
-                <header class="card-header"><p class="card-header-title">Sounds</p></header>
+                <header class="card-header"><p class="card-header-title">Speaker sounds</p></header>
                 <div class="card-content">
                     <div class="field"><label class="label" for="sounds_boot">Startup sound</label><div class="select is-small"><select id="sounds_boot"></select></div></div>
                     <div id="sounds_list"></div>
-                    <div id="sounds_upload_box" class="mt-3" style="display:none">
+                    <div id="sounds_upload_box" class="mt-3">
                         <div class="field"><label class="label" for="sounds_file">Add a sound (any audio file, 30 s at most)</label><input id="sounds_file" type="file" accept="audio/*"></div>
                         <div class="field"><label class="label" for="sounds_name">Name of the sound</label><input class="input is-small" id="sounds_name" type="text" maxlength="32" placeholder="doorbell"></div>
-                        <button class="button is-small is-primary" id="sounds_send" type="button">Convert and send</button>
+                        <div class="buttons">
+                            <button class="button is-small is-primary" id="sounds_send" type="button">Convert and save on the SD card</button>
+                            <button class="button is-small is-info is-light" id="sounds_now" type="button">Play now without saving</button>
+                        </div>
                     </div>
                     <p class="help" id="sounds_note">A sound named chime, alert, siren or startup_complete replaces the built-in one (dashboard buttons, Home Assistant, startup).</p>
                 </div>
@@ -1921,8 +1924,9 @@
             });
             sel.value = d.boot && d.boot.on ? d.boot.name : '0';
             if (sel.selectedIndex < 0) sel.value = '0';
-            document.getElementById('sounds_upload_box').style.display = d.sd ? '' : 'none';
-            if (!d.sd) say(T('Insert an SD card to add your own sounds.'));
+            // no card: a sound can still be played once (cmd=playnow, RAM only); saving it needs a card
+            document.getElementById('sounds_send').style.display = d.sd ? '' : 'none';
+            if (!d.sd) say(T('No SD card: a sound you add is played once and not kept. Insert an SD card to keep your own sounds.'));
         }
         function load() {
             fetch('cgi-bin/sounds.cgi?cmd=list&_=' + Date.now(), { cache: 'no-store' })
@@ -1939,14 +1943,14 @@
             var n = document.getElementById('sounds_name'), f = this.files[0];
             if (f && !n.value) n.value = f.name.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 32);
         });
-        document.getElementById('sounds_send').addEventListener('click', function() {
+        // keep=true: saved on the card under its name (cmd=upload); keep=false: played once from RAM (cmd=playnow)
+        function sendSound(btn, keep) {
             var file = document.getElementById('sounds_file').files[0];
             var name = (document.getElementById('sounds_name').value || '').trim();
             var AC = window.AudioContext || window.webkitAudioContext, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
             if (!file) { say(T('Choose an audio file.'), true); return; }
-            if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { say(T('Name: 1 to 32 letters, digits, _ or -.'), true); return; }
+            if (keep && !/^[A-Za-z0-9_-]{1,32}$/.test(name)) { say(T('Name: 1 to 32 letters, digits, _ or -.'), true); return; }
             if (!AC || !OAC || !file.arrayBuffer) { say(T('This browser cannot convert audio.'), true); return; }
-            var btn = this;
             btn.classList.add('is-loading');
             say(T('Converting...'));
             file.arrayBuffer().then(function(buf) {
@@ -1965,15 +1969,19 @@
                 var gain = peak > 0 ? Math.min(4, 0.89 / peak) : 1;		// peak at -1 dBFS, +12 dB at most
                 var pcm = new Int16Array(x.length);
                 for (i = 0; i < x.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(x[i] * gain * 32767)));
-                return post('cmd=upload&name=' + encodeURIComponent(name), new Uint8Array(pcm.buffer));
+                return post(keep ? 'cmd=upload&name=' + encodeURIComponent(name) : 'cmd=playnow', new Uint8Array(pcm.buffer));
             }).then(function(x) {
                 btn.classList.remove('is-loading');
-                if (x.ok) { say(T('Sound saved on the SD card.')); load(); } else say(x.error || T('Failed'), true);
+                if (!x.ok) say(x.error || T('Failed'), true);
+                else if (keep) { say(T('Sound saved on the SD card.')); load(); }
+                else say(T('Playing on the camera (not kept).'));
             }).catch(function() {
                 btn.classList.remove('is-loading');
                 say(T('This file could not be decoded.'), true);
             });
-        });
+        }
+        document.getElementById('sounds_send').addEventListener('click', function() { sendSound(this, true); });
+        document.getElementById('sounds_now').addEventListener('click', function() { sendSound(this, false); });
         load();
     })();
 </script>

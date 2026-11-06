@@ -2885,3 +2885,19 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
   `syslogd` + `tc100-logfwd` en marche et lignes reçues par 192.168.1.23 ; `reboot-history.log` « intended: web update
   to 3.0.1-rc30 » ; WebRTC dans Chrome ; plus d'« Éteindre » dans le menu ; carte SD de la .24 (formatée) enregistrée
   sur mouvement sans OOM (entrée `[rc30]` ci-dessus).
+
+## 2026-11-06 — Sons sans carte SD : « Jouer maintenant », vraie détection de la carte (`[ux-sounds]`, rc31)
+
+- **Quoi :** le propriétaire ne trouvait pas l'envoi de sons : bloc caché sans carte SD (ses deux caméras n'en ont pas),
+  carte au fond de Réglages → « Flux et audio ». Maintenant : onglet « Flux, audio et sons », carte « Sons du
+  haut-parleur », envoi toujours visible ; nouveau bouton **« Jouer maintenant sans enregistrer »** (`sounds.cgi
+  cmd=playnow` : le son converti par le navigateur va dans `/tmp`, est joué puis effacé ; refusé si MemAvailable <
+  taille + 6 Mo) ; « Convertir et enregistrer sur la carte SD » seulement avec une carte. `sd_ok` ne prend plus le disque
+  RAM de 16 Ko monté sur `/mnt/sd` sans carte pour une carte (l'envoi partait dedans et échouait).
+- **Interrupteur :** aucun (revert du commit `[ux-sounds]`).
+- **Test (sans carte) :** Réglages → Flux, audio et sons → Sons du haut-parleur : choisir un MP3 de 5-10 s, « Jouer
+  maintenant » → le son sort du haut-parleur ; `ls /tmp/sound-now.*` vide après la lecture ; le flux RTSP ne coupe pas.
+  **Avec une carte :** « Convertir et enregistrer » → le son apparaît dans la liste et se rejoue ; « Jouer maintenant »
+  ne l'enregistre pas.
+- **Critères :** lecture audible, rien gardé en RAM ni sur la carte avec « Jouer maintenant », pas de chute de
+  MemAvailable durable, message clair sans carte.

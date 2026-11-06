@@ -41,7 +41,8 @@ class Sounds(unittest.TestCase):
         s = text('www/cgi-bin/sounds.cgi')
         s = s[s.index('MAX_BYTES='):].replace('/mnt/config/boot.conf', self.conf.as_posix()) \
             .replace('/mnt/sounds/', self.flash.as_posix() + '/') \
-            .replace("grep -q ' /mnt/sd ' /proc/mounts 2>/dev/null", 'true' if sd else 'false') \
+            .replace("grep -qE ' /mnt/sd (vfat|exfat) ' /proc/mounts 2>/dev/null", 'true' if sd else 'false') \
+            .replace('${SOUNDS_TMP:-/tmp}', self.t.as_posix()) \
             .replace('sh /mnt/scripts/speaker-play.sh', 'echo played >%s/played; :' % self.t.as_posix())
         stubs = '''mutation_guard() { :; }
 rate_limit_check() { :; }
@@ -107,7 +108,33 @@ rewrite_config() { if grep -q "^$2=" "$1"; then sed -i "s|^$2=.*|$2=$3|" "$1"; e
         self.assertIn('BOOT_SOUND_NAME=startup_complete', text('config/boot.conf.dist'))
         self.assertIn('tc_check_flat "$_tc_file" BOOT_SOUND_NAME identifier', text('scripts/config-transaction.sh'))
         cgi = text('www/cgi-bin/sounds.cgi')
-        self.assertIn('upload|delete|play|boot) mutation_guard;', cgi)
+        self.assertIn('upload|delete|play|boot|playnow) mutation_guard;', cgi)
+
+    def test_card_is_a_real_file_system(self):
+        # the RAM placeholder (tmpfs, 16 KiB) on /mnt/sd without a card is not a card: uploads went there and failed
+        self.assertIn("sd_ok() { grep -qE ' /mnt/sd (vfat|exfat) ' /proc/mounts 2>/dev/null; }",
+                      text('www/cgi-bin/sounds.cgi'))
+
+    def test_playnow_without_a_card(self):
+        # owner, 2026-11-06: no card on the cameras; a sound is played once from RAM, then deleted, never kept
+        import time
+        st, d = self.cgi('playnow', '', b'\1\0' * 400, sd=False)
+        self.assertEqual((st, d), ('200 OK', {'ok': True, 'kept': False, 'bytes': 800}))
+        for _ in range(50):
+            if (self.t / 'played').exists() and not list(self.t.glob('sound-now.*')):
+                break
+            time.sleep(0.1)
+        self.assertTrue((self.t / 'played').exists())
+        self.assertEqual(list(self.t.glob('sound-now.*')), [])            # deleted after playing
+        self.assertFalse(self.sd.exists())                                 # nothing written for the card
+        self.assertEqual(self.cgi('playnow', '', b'\1', sd=False)[0], '400 Bad Request')
+        self.assertEqual(self.cgi('playnow', '', b'\0' * 480002, sd=False)[0], '413 Payload Too Large')
+
+    def test_settings_page_offers_play_now(self):
+        html = text('www/settings.html')
+        self.assertIn('id="sounds_now"', html)
+        self.assertIn("'cmd=playnow'", html)
+        self.assertNotIn('id="sounds_upload_box" class="mt-3" style="display:none"', html)
 
 
 if __name__ == '__main__':
