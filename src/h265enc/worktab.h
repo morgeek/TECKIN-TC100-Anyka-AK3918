@@ -87,4 +87,23 @@ static inline void h265_work_table(uint8_t *b)
 	for (q = 0; q < 6; q++) for (i = 0; i < 6; i++) for (k = 0; k < 16; k++, u += 4) wt_u32(u, WT_Q(16, q));
 #undef WT_Q
 }
+
+/* The H.264 encoder's work buffer (the 640x360 sub stream, captures of 2026-11-07): only the 52 x 4 bytes of the
+ * rate-distortion weights, the rest zero (no scaling lists: flat). Column 0 is round(2^(QP / 6) / 4) (at least 1),
+ * columns 1-3 those of H.265 except 13 instead of 12 at QP 37 in columns 1 and 3 (the vendor's table).
+ * tests/test_h265cmdlist.py WorkTable checks it against the SHA-256 of the IPCAM2 capture. */
+static inline void h264_work_table(uint8_t *b)
+{
+	int q;
+
+	memset(b, 0, WORKTAB_SIZE);
+	for (q = 0; q < 52; q++) {
+		double s = pow(2.0, q / 6.0);
+		int c0 = (int)floor(0.25 * s + 0.5);
+
+		b[4 * q] = (uint8_t)(c0 < 1 ? 1 : c0);
+		b[4 * q + 1] = b[4 * q + 3] = q == 37 ? 13 : (uint8_t)ceil(0.1617 * s);
+		b[4 * q + 2] = (uint8_t)ceil(0.1839 * s);
+	}
+}
 #endif

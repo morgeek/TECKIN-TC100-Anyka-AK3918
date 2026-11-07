@@ -483,7 +483,10 @@ void akuio_fixqp(uint32_t list_paddr)
  *     "TABL" "WORK" "SMAL" the buffers of list words 0x23 (0x4040 bytes), 0x27 (0x6400), 0x2f (0x100)
  *     "STRM" the stream buffer of word 0x30, from its start (the 0x820 bytes the core writes first) on, up to
  *            AKUIO_CAPTURE_STREAM bytes (default 0x40000)
- *     "SRCY" "SRCU" the NV12 source of the first IDR (words 0x20, 0x21), once
+ *     "SRCY" "SRCU" the NV12 source of the first IDR (words 0x20, 0x21), once (its size from list word 1)
+ * AKUIO_CAPTURE_WIDTH=W (2026-11-07, the H.264 sub stream): only the interrupts of a list for a picture W wide (list
+ * word 1 bits 0-11 = W / 8 - 1; 640 for the sub stream, which the same core codes in H.264); the others (the main
+ * stream, the JPEG engine's, which has no list) are not recorded.
  * Read only: nothing of the encoder or of its buffers is changed. Debug tool, off unless the variable is set. */
 static void cap_rec(int of, const char *tag, uint32_t paddr, const void *d, uint32_t n)
 {
@@ -509,7 +512,7 @@ static void akuio_capture(void)
 {
 	static int n, max = -1, src_done;
 	static const char *pre;
-	static uint32_t smax;
+	static uint32_t smax, only_w;
 	char name[128];
 	int of;
 
@@ -519,9 +522,19 @@ static void akuio_capture(void)
 		pre = getenv("AKUIO_CAPTURE");
 		max = e ? env_num(e) : 12;
 		smax = es ? (uint32_t)env_num(es) : 0x40000;
+		es = getenv("AKUIO_CAPTURE_WIDTH");
+		only_w = es ? (uint32_t)env_num(es) : 0;
 	}
 	if (!pre || n >= max || !regs || regs_len < 0x8400)
 		return;
+	if (only_w) {
+		uint32_t lp = *(volatile uint32_t *)(regs + 0x8080);
+
+		if (lp < info.paddr || lp - info.paddr + 448 > info.size)
+			return;
+		if (((((uint32_t *)(void *)(pool + (lp - info.paddr)))[1] & 0xfff) + 1) * 8 != only_w)
+			return;
+	}
 	snprintf(name, sizeof name, "%s.%d.cap", pre, n);
 	of = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (of < 0)
@@ -547,11 +560,13 @@ static void akuio_capture(void)
 			cap_pool(of, "WORK", l[0x27], 0x6400);
 			cap_pool(of, "SMAL", l[0x2f], 0x100);
 			cap_pool(of, "STRM", l[0x30], smax);
-			/* the source of the first IDR (field sp_40 = 2, word 3 bits 28-29), NV12 1920x1080: h265enc can then encode
+			/* the source of the first IDR (field sp_40 = 2, word 3 bits 28-29), NV12 (the list's size): h265enc can then encode
 			 * the same picture as the vendor library and the two streams be compared */
 			if (((l[3] >> 28) & 3) == 2 && !src_done) {
-				cap_pool(of, "SRCY", l[0x20], 1920 * 1080);
-				cap_pool(of, "SRCU", l[0x21], 1920 * 1080 / 2);
+				uint32_t pw = ((l[1] & 0xfff) + 1) * 8, ph = (((l[1] >> 12) & 0xfff) + 1) * 8;
+
+				cap_pool(of, "SRCY", l[0x20], pw * ph);
+				cap_pool(of, "SRCU", l[0x21], pw * ph / 2);
 				src_done = 1;
 			}
 		}

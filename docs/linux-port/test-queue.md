@@ -2917,3 +2917,19 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   3 I + 147 P, 0 échec, **0 erreur de décodage**, image correcte. L'encodeur ne dépend plus d'aucune capture.
 - Remarque : en P, la taille saute d'environ ×2 entre QP 34 et 35 (≈ 10 Ko / 5,5 Ko), avec la table du vendeur comme
   avec la nôtre : un seuil du cœur, à comprendre ; le contrôle de débit oscille entre les deux.
+
+## 2026-11-07 10:45 — encodeur libre : SOUS-FLUX H.264 640x360 SANS LE VENDEUR (testeur, .11)
+
+- **Captures du sous-flux** (`h265-step2.sh capture`, `H265_WIDTH=640` : libakuio `AKUIO_CAPTURE_WIDTH` ne garde que
+  les listes d'une image de 640 de large ; tc100_rtsp `RTSP_SAVE_FRAMES` enregistre aussi les images du sous-flux,
+  `f.sub.<n>.h26x`) : le même cœur, la même liste ; `slice_type_c` = 0 pour H.264, comptes de macroblocs, flux dans
+  les mots 0x3c-0x3f seulement ; tampon « work » = les 52 × 4 poids seulement (calculé, identique au vendeur) ; table :
+  octet 18 = 0x1f en IDR. En-têtes SPS/PPS/tranche (`avc.h`) : les octets du vendeur (test `H264liveDry`).
+- **Les listes seules bloquent le cœur** (pas d'interruption). `src/h265enc/venctrace/` (portage 3.0 du traceur 2.x,
+  `h265-step2.sh trace`) a montré la séquence H.264 : masque 0x8014 bit 2, horloge 0xc004 bit 15 à zéro, adresse +
+  0x8084 = 2 puis adresse + 0x8084 = **8**.
+- **`h264live` sur la .11** (`h265-step2.sh live264`, depuis le sous-canal de l'ISP, aucune bibliothèque ni donnée du
+  vendeur) : 50 images à QP 32 puis 150 images `-b 250` (IDR toutes les 50) : **0 erreur de décodage**, image correcte,
+  3,7 ms par image sur le cœur, 274 kbit/s pour 250 demandés (le QP alterne de 3 d'une image à l'autre : pas du
+  contrôle de débit trop grand pour des images de 1 Ko, à régler). Vidéo et Wi-Fi revenus après chaque essai.
+- Reste : intégrer les deux encodeurs libres dans tc100_rtsp (corrections couleur, RTSP, enregistrement, Frigate).

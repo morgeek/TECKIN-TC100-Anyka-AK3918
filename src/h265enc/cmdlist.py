@@ -130,6 +130,26 @@ PROFILE_1080P = {
 IDR_FIELDS = {'sp_2d': 0, 'sp_40': 2, 'sp_40_b': 2, 'sp_6c_m1': 7, 'sp_6e_m1': 7, 'sp_bc_6_m1': 1023, 'sp_be_3_m1': 1023}
 P_FIELDS = {'sp_2d': 1, 'sp_40': 1, 'sp_40_b': 1, 'sp_6c_m1': 3, 'sp_6e_m1': 3, 'sp_bc_6_m1': 29, 'sp_be_3_m1': 27}
 
+# ---- a profile: 640x360 H.264 (the sub stream), as recorded from the vendor encoder on 2026-11-07 ----
+# The same core and list layout; slice_type_c = 0 selects H.264 (1 = HEVC). Per picture, besides qp / sp_38 and the
+# POC words: sp_8c = 10 from QP 28 up, 9 below (min(10, (QP + 32) / 6) is our guess for lower QPs), sp_d8 changes
+# with every picture (a seed? 0 is tried first). Stream buffer: list words 0x3c-0x3f only (0x30-0x33 stay zero).
+PROFILE_H264_360P = {
+    'sp_00': 1, 'sp_01': 1, 'sp_05': 3, 'sp_06': 4, 'sp_07_m4': 7, 'last_entry': 1, 'width_8px_m1': 79,
+    'height_8px_m1': 44, 'sp_16': 8, 'sp_17': 8, 'sp_19': 5, 'sp_1c': 1, 'sp_1d_bit13_forced_1': 5, 'sp_24': 1,
+    'sp_28': 1, 'sp_34': 1, 'sp_3b': 1, 'sp_50_zero': 1, 'sp_45': 31, 'sp_46': 63, 'sp_4a': 1, 'sp_58_rem': 39,
+    'sp_58_quot': 22, 'sp_5e_m1': 39, 'sp_60_m1': 22, 'sp_67': 1, 'sp_83': 1, 'sp_84': 1, 'sp_85': 1, 'sp_86': 1,
+    'sp_8a': 3200, 'sp_90_m1': 39, 'sp_b8': 0xffffffff, 'sp_8a_b': 3200, 'sp_cf': 1, 'sp_1c_b': 1, 'sp_1d_b': 1,
+    'sp_28_b': 1, 'half_width_8px_m1': 39, 'sp_d4_m1': 919,
+}
+H264_IDR_FIELDS = {'sp_40': 2, 'sp_40_b': 2, 'sp_6c_m1': 7, 'sp_6e_m1': 7, 'sp_bc_6_m1': 1023, 'sp_be_3_m1': 1023}
+H264_P_FIELDS = {'sp_40': 1, 'sp_40_b': 1, 'sp_6c_m1': 1, 'sp_6e_m1': 1, 'sp_bc_6_m1': 31, 'sp_be_3_m1': 27}
+
+
+def h264_sp_8c(qp):
+    return min(10, (qp + 32) // 6)
+
+
 FRAME_PLANE_OFFSETS = {'uv': 0x1fe000, 'mvinfo': 0x2fd000, 'colinfo': 0x300400}	# inside a 0x340000-byte frame buffer
 SRC_STRIDE = 1920
 REC_PITCH = 0x1e00

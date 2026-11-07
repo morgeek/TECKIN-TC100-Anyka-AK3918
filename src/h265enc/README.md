@@ -65,6 +65,26 @@ The owner's goal: no proprietary library left. The plan, on a test camera (IPCAM
    own table buffer if it is constant, a QP rate control; then h265enc becomes the encoder of tc100_rtsp and
    `libakv_encode`, `libmpi_venc_ex`, `libplat_*`, `libstdc++` and the uClibc runtime leave the camera.
 
+## H.264, the 640x360 sub stream (2026-11-07)
+
+The same core codes the sub stream in H.264 (Main profile, CABAC), with the same list layout. Found on IPCAM2:
+- **Captures** (`v3/dev/h265-step2.sh capture` with `H265_WIDTH=640`: libakuio's `AKUIO_CAPTURE_WIDTH` keeps only the
+  lists of a 640-wide picture): `slice_type_c` = 0 selects H.264, macroblock counts replace the CTB counts, the stream
+  buffer is in list words 0x3c-0x3f only, `sp_8c` = 10 from QP 28 up (9 below), `sp_d8` changes with every picture
+  (0 works). `cmdlist.PROFILE_H264_360P`, `H264_IDR_FIELDS`, `H264_P_FIELDS`; `listgen.h` has both codecs' lists.
+- **Side buffers**: the work buffer holds only the 52 x 4 rate-distortion weights (`h264_work_table`, the vendor's
+  bytes: tests WorkTable), the tables head is H.265's with byte 18 = 0x1f for an IDR.
+- **Headers** (`avc.h`): SPS (VUI with a CBR VCL HRD), PPS, slice headers: the vendor's bytes (tests H264liveDry). The
+  software writes them, the core writes the CABAC slice data from stream + 0x820 (length: list word 0x41).
+- **Start**: the vendor's lists alone hang the core (state 0x20001 in 0x8300, no interrupt). `venctrace/` (the 3.0 port
+  of the 2.x tracer, preloaded into tc100_rtsp by `h265-step2.sh trace`) showed the H.264 sequence: interrupt mask
+  0x8014 bit 2 (H.265: bit 0), clock register 0xc004 bit 15 clear, list address + 0x8084 = 2 (load), list address
+  again + 0x8084 = 8 (encode), mask cleared after the interrupt.
+- **`h264live`** (`h265-step2.sh live264`): from the ISP sub channel (the 640x360 picture after the main one in each
+  capture buffer), no vendor library or data: 150 pictures, IDR every 50, 0 decoding errors, 3.7 ms per picture on
+  the core; `-b 250` gave 274 kbit/s (the QP alternates by 3 between pictures: the rate control's step is too big
+  for 1 KB pictures, to tune).
+
 ## Use
 
 ```

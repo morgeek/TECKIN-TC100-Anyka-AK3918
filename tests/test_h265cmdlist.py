@@ -302,3 +302,69 @@ class WorkTable(unittest.TestCase):
             # the parts that are the standard's: the 8x8 intra default list in raster order, a quantisation factor
             self.assertEqual(list(out[0x100:0x108]), [16, 16, 16, 16, 17, 18, 21, 24])
             self.assertEqual(struct.unpack_from('<I', out, 0x520)[0], (1 << 24) // (16 * 40))
+
+    def test_h264_same_as_the_vendor(self):
+        # the H.264 sub stream's: the 52 x 4 rate-distortion weights only (IPCAM2 capture of 2026-11-07)
+        import hashlib
+        with tempfile.TemporaryDirectory() as d:
+            b = os.path.join(d, 'wttest')
+            subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-I', os.path.join(ROOT, 'src/h265enc'), '-o', b,
+                            os.path.join(ROOT, 'src/h265enc/wttest.c'), '-lm'], check=True)
+            out = subprocess.run([b, '264'], capture_output=True, check=True).stdout
+            self.assertEqual(hashlib.sha256(out).hexdigest(), '18cbd8e6d2acf94feadfda8184c029e51a6c32c30fcc36a312670feebf6260f3')
+            self.assertEqual(out[52 * 4:], bytes(0x6400 - 52 * 4))
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'gcc')
+class H264liveDry(unittest.TestCase):
+    """h264live --dry (the 640x360 H.264 sub stream, 2026-11-07): our SPS / PPS and slice headers are the vendor's bytes
+    (the IPCAM2 sub stream captures: IDR QP 36, P frame 1 QP 42, P frame 3 QP 34), and the lists are
+    cmdlist.PROFILE_H264_360P's (the vendor's lists but their addresses and sp_d8)"""
+    PARAMS = ('00000001274d0028e7405017fcb25050505f00000300010000030032b10003d08000b71bffff0280'
+              '0000000128ee3c80')
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.bin = os.path.join(cls.tmp, 'h264live-host')
+        subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-DH265LIVE_NO_DEVICE', '-I', os.path.join(ROOT, 'src/h265enc'),
+                        '-o', cls.bin, os.path.join(ROOT, 'src/h265enc/h264live.c'), '-lm'], check=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def dry(self, qp):
+        r = subprocess.run([self.bin, '--dry', '-q', str(qp), '/dev/null'], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        params = [l.split(':')[1].replace(' ', '') for l in lines if l.startswith('params:')][0]
+        lists = [[int(x, 16) for x in l.split(':')[1].split()] for l in lines if ' list:' in l]
+        heads = [l.split(':')[1].replace(' ', '') for l in lines if ' head:' in l]
+        return params, lists, heads
+
+    def test_params_are_the_vendors(self):
+        self.assertEqual(self.dry(32)[0], self.PARAMS)
+
+    def test_slice_headers_are_the_vendors(self):
+        self.assertEqual(self.dry(36)[2][0], '0000000125b84000296f')     # IDR, QP 36
+        self.assertEqual(self.dry(42)[2][1], '0000000121e2010820b7')     # P, frame 1, QP 42
+        # P frame 2 QP 34: ours (frame_num 2, POC 4; the vendor's frame 3 at QP 34 is 21 e6 03 08 42 df)
+        self.assertEqual(self.dry(34)[2][2][:16], '0000000121e40208')
+
+    def test_lists_are_the_profile(self):
+        _, lists, _ = self.dry(36)
+        for k, got in enumerate(lists):
+            f = dict(c.PROFILE_H264_360P)
+            f.update(c.H264_IDR_FIELDS if k == 0 else c.H264_P_FIELDS)
+            f.update({'qp': 36, 'sp_38': 36, 'sp_8c': c.h264_sp_8c(36), 'sp_98': 2 * k,
+                      'sp_9c': max(0, 2 * k - 2), 'sp_ac': max(0, 2 * k - 2),
+                      'sp_b4': 2 * k - 4 if k >= 2 else 0xffffffff})
+            want = c.encode(f)
+            self.assertEqual(['%08x' % x for x in got[:32]], ['%08x' % x for x in want[:32]], k)
+            # the stream buffer only in words 0x3c-0x3f (0x30-0x33 are H.265's)
+            self.assertEqual(got[0x30:0x34], [0, 0, 0, 0])
+            self.assertEqual(got[0x3d:0x40], [0xdf80, 0x820, 0xdf80 - 0x1040])
+            self.assertEqual(got[0x22], 640)
+            if k == 0:
+                self.assertEqual([got[0x28], got[0x29], got[0x2c], got[0x38]], [0, 0, 0, 0])
