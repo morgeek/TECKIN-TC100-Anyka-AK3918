@@ -71,7 +71,7 @@ run_cross() {
 		make -C src/logfwd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/netacl CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/netacl CROSS=arm-linux-gnueabi- musl >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }
-		sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl	# rc27 R3: no libc variable through the stand-in libc
+		sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl src/libakuio	# rc27 R3: no libc variable through the stand-in libc
 		python3 -m unittest tests.test_musl_programs_qemu	# the musl programs under qemu with the real musl loader
 		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd && test -s src/rwconf/rwconf && test -s src/logfwd/tc100-logfwd && test -s src/netacl/libnetacl.so
 		echo "rwconf (stripped, bytes): $(wc -c < src/rwconf/rwconf)"

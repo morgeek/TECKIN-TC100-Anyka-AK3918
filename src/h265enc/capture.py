@@ -74,7 +74,7 @@ def load(dirpath):
             caps.append(read_cap(p))
     caps.sort(key=lambda c: c['wait'])
     for name in sorted(os.listdir(dirpath)):
-        if name.endswith('.log'):
+        if name.endswith('.log') and os.path.exists(os.path.join(dirpath, name[:-4] + '.0.h26x')):
             pre = os.path.join(dirpath, name[:-4])
             with open(os.path.join(dirpath, name)) as fh:
                 for line in fh:
@@ -144,6 +144,16 @@ def report(caps, frames, out=sys.stdout):
         w('picture %d: %d bytes at %08x (pool +%x), NAL types %s\n' % (fr['n'], fr['len'], pa, pa - c0['pool_paddr'], kinds))
         for c in caps:
             sp, sb = c['rec'].get('STRM', (0, b''))
+            sl = [(s, t, n) for (s, t, n) in nals(fr['data']) if t in (1, 19, 20)]
+            if sl and len(sb) > 0x860:
+                body = fr['data'][sl[0][0]:sl[0][0] + sl[0][2]]
+                for k in range(4, 32):
+                    if body[k:k + 64] == sb[0x820:0x820 + 64]:
+                        lw = words(c['rec']['LIST'][1])
+                        w('    slice data written by the core at stream +0x820 of wait %d: %d bytes (list word 0x41 = %d); '
+                          'the %d bytes before it come from the software: %s\n'
+                          % (c['wait'], len(body) - k, lw[0x41], k, body[:k].hex()))
+                        break
             if sp <= pa < sp + len(sb):
                 off = pa - sp
                 same = sb[off:off + fr['len']] == fr['data'][:len(sb) - off]
@@ -154,7 +164,9 @@ def report(caps, frames, out=sys.stdout):
 
 def write_inputs(caps, frames, outdir):
     os.makedirs(outdir, exist_ok=True)
-    for c in caps:
+    # the IDR list of a capture after the core finished (stream buffer captured, status words set): at the first of the
+    # two interrupts of a picture the list memory is not the picture's yet (IPCAM2 2026-11-07, wait 0)
+    for c in sorted(caps, key=lambda c: ('STRM' not in c['rec'], c['wait'])):
         lw = words(c['rec'].get('LIST', (0, b''))[1])
         if len(lw) >= 0x40 and cmdlist.decode(lw)['sp_40'] == 2:
             open(os.path.join(outdir, 'list.bin'), 'wb').write(struct.pack('<64I', *lw[:0x40]))
@@ -166,6 +178,19 @@ def write_inputs(caps, frames, outdir):
         if 'SRCY' in c['rec'] and 'SRCU' in c['rec']:
             # the picture the vendor encoded: h265enc encodes it again, and the two streams can be compared
             open(os.path.join(outdir, 'in.nv12'), 'wb').write(c['rec']['SRCY'][1] + c['rec']['SRCU'][1])
+            break
+    for fr in frames:
+        # the start code, NAL header and slice header the vendor SOFTWARE writes before the core's slice data (the core
+        # writes from stream +0x820; IPCAM2 2026-11-07: 9 bytes, 00 00 00 01 26 01 + 3 header bytes, IDR qp 36)
+        sl = [(s, t, n) for (s, t, n) in nals(fr['data']) if t in (19, 20)]
+        if sl:
+            body = fr['data'][sl[0][0]:sl[0][0] + sl[0][2]]
+            for c in caps:
+                sb = c['rec'].get('STRM', (0, b''))[1]
+                for k in range(4, 32):
+                    if len(sb) > 0x820 and body[k:k + 64] == sb[0x820:0x820 + 64]:
+                        open(os.path.join(outdir, 'slicehead.bin'), 'wb').write(body[:k])
+                        break
             break
     for fr in frames:
         ps = b''.join(fr['data'][s:s + n] for (s, t, n) in nals(fr['data']) if t in (32, 33, 34))

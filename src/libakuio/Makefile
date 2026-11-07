@@ -10,7 +10,12 @@ CFLAGS ?= -O2 -Wall -Wextra -U_FORTIFY_SOURCE -fno-stack-protector -march=armv5t
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
 LIB = libakuio.so
 
-all: $(LIB)
+all: $(LIB) imports.txt
+
+# the libc names it needs, for tests/check-libc-data-imports.sh (no glibc-only name: __isoc23_strtol of atoi() with the
+# glibc 2.38 headers of the CI compiler, 2026-11-07)
+imports.txt: libakuio.o
+	$(CROSS)nm -u libakuio.o | awk '$$1=="U" {print $$2}' | sort -u > $@
 
 libakuio.o: libakuio.c ak39_venc.h
 	$(CC) $(CFLAGS) -fPIC -I. -c $< -o $@
@@ -42,4 +47,4 @@ selftest: libakuio.c selftest.c ak39_venc.h
 	./selftest.bin
 
 clean:
-	rm -f $(LIB) libakuio.dbg.so *.o stub_*.c libc.so.0 libpthread.so.0 selftest.bin
+	rm -f $(LIB) libakuio.dbg.so *.o stub_*.c imports.txt libc.so.0 libpthread.so.0 selftest.bin

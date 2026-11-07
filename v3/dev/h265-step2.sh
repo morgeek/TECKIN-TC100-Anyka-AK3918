@@ -19,7 +19,7 @@ capture)
 	[ -x "$NEW/tc100_rtsp" ] && [ -f "$NEW/libakuio.so" ] || { echo "put tc100_rtsp and libakuio.so of this build in $NEW"; exit 1; }
 	[ -r /proc/$(cat /var/run/v4l2rtspserver.pid 2>/dev/null)/cmdline ] || { echo "the video server is not running"; exit 1; }
 	ARGS=$(tr '\0' ' ' < /proc/$(cat /var/run/v4l2rtspserver.pid)/cmdline | sed 's|^[^ ]*||; s|-A [^ ]*|-A '"$NEW"'/libakuio.so|')
-	ENVS=$(tr '\0' '\n' < /proc/$(cat /var/run/v4l2rtspserver.pid)/environ | grep -E '^(LD_LIBRARY_PATH|RTSP_|TC100_)' | tr '\n' ' ')
+	ENVS=$(tr '\0' '\n' < /proc/$(cat /var/run/v4l2rtspserver.pid)/environ | grep -E '^(LD_LIBRARY_PATH|RTSP_)[A-Za-z0-9_]*=[^ ]*$' | tr '\n' ' ')	# no value with a space (word splitting)
 	rm -rf "$OUT"; mkdir -p "$OUT"
 	$CTL stop; sleep 2
 	echo "tc100_rtsp $ARGS"

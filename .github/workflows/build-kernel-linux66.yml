@@ -183,7 +183,7 @@ jobs:
           cp src/onvifd/tc100-onvifd $P/
           # rc27 R3: a libc variable crashed tc100-onvifd on the camera; the stand-in libc programs only (tc100_rtsp here,
           # libnetacl.so in the release step): the musl ones link against the real libc
-          sh tests/check-libc-data-imports.sh src/tc100rtsp
+          sh tests/check-libc-data-imports.sh src/tc100rtsp src/libakuio
           # item 35, first step: the SRTP cost bench (test pack only, not in the release)
           arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o $P/srtp-bench src/whep/srtp_bench.c
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
@@ -219,7 +219,7 @@ jobs:
           make -C src/netacl CROSS=arm-linux-gnueabi- musl >/dev/null
           cp src/netacl/libnetacl.so lib/libnetacl.so
           cp src/netacl/libnetacl-musl.so lib/libnetacl-musl.so
-          sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl
+          sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl src/libakuio
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           # audit 2026-11-06 S5: the web JavaScript and inline scripts/styles of the image are minified (esbuild, pinned)
           npm install --prefix src/webui --no-save --no-audit --no-fund esbuild@0.21.5 >/dev/null

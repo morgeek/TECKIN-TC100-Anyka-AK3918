@@ -2825,3 +2825,41 @@ Choix du propriétaire : tous les essais sur la .11 une fois l'étape 2 écrite.
 - `watch7.sh` : certaines lignes ont `## max nalu size …` (une ligne du journal de `tc100_rtsp`) à la place des champs
   cap/cl/drop : défaut de l'outil de relevé, pas de la caméra.
 - Carte SD : placeholder RAM sur les deux (`/mnt/sd` tmpfs) ; la carte de démarrage de la .24 n'a pas été remontée.
+
+## 2026-11-07 09:20-09:40 — .11 en rc33-dev, puis PREMIÈRE IMAGE H.265 SANS LA BIBLIOTHÈQUE DU VENDEUR (testeur)
+
+Le propriétaire a arrêté la surveillance de 7 jours sur la .11 (la .24 continue en rc32) : « flash la .11 ».
+
+**Installation 3.0.1-rc33-dev** (build `91db751`, md5 `d70353375e5136d9a123fb93daa09d68`) par `update.cgi` (upload,
+install `nobackup=1`), redémarrage en ~1 min 30, Wi-Fi revenu.
+- Les 4 démons (`tc100-onvifd`, `-mqttd`, `-supervisord`, `-logfwd`) tournent sur **musl** : `/proc/<pid>/maps` sans
+  `/vendor/lib`. `rwconf` musl OK au démarrage. ONVIF : profils, WS-Discovery, limites 25 fps / 1600-250 kbit/s ;
+  MQTT : en ligne, **48** entités de découverte (49 avant : bouton Carillon retiré). Journal distant en marche.
+- `dash.cgi` : `vfps` = 228 (22,8 fps mesurés) ; `dashinfo` sous-flux à la cadence de `[0]`.
+- `sounds.cgi` : `siren` et `startup` seulement. **Petit défaut** : `boot.name` affiche encore `startup_complete`
+  (valeur de `boot.conf` d'une installation existante ; l'autorun retombe bien sur `startup`) → à normaliser dans
+  `sounds.cgi` (afficher `startup` si le son nommé n'existe pas).
+- **Bug trouvé et corrigé** : la `libakuio.so` de la CI importait `__isoc23_strtol` (les `atoi()` ; en-têtes glibc 2.38
+  du compilateur de la CI), absent de l'uClibc : `tc100_rtsp` s'arrêtait dès qu'une variable `AKUIO_*` (débogage)
+  était posée. `env_num()` à la place, plus de `stderr` (écriture par `write(2)`), et `src/libakuio` ajouté à
+  `tests/check-libc-data-imports.sh` (CI). Sans effet en usage normal (aucune variable posée).
+
+**Capture de l'encodeur du vendeur** (`v3/dev/h265-step2.sh capture`, 20 s, vidéo revenue) puis analyse :
+- La liste IDR de la bibliothèque 3.0 (`libmpi_venc_ex`) est **exactement** celle de `cmdlist.build_list`.
+- Deux interruptions par image chez le vendeur, masque `0x8014` = 0x4 puis 0x1.
+- **Longueur de l'image = mot d'état 0x41** de la liste ; **le cœur n'écrit que les données de tranche**, à partir de
+  flux +0x820 ; le logiciel écrit avant : `00 00 00 01 26 01` + 3 octets d'en-tête de tranche (`ac 29 80`, IDR, QP 36).
+- La table de 0x4040 octets est la même pour toutes les images du flux principal (une autre pour le sous-flux).
+- L'image source n'est pas dans le pool de l'encodeur (tampons V4L2 de l'ISP) : pas de copie NV12 ; l'entrée du test
+  a été l'image du vendeur décodée.
+
+**`h265enc --run`** (cœur seul, liste IDR du vendeur comme modèle avec nos tampons, QP 36, table capturée) :
+- 1er essai : le cœur encode (26 925 octets, mot 0x41) mais pas d'interruption (masque `0x8014` laissé à 0) ;
+  2e essai avec masque 0x5 : interruption reçue, **flux identique octet pour octet** (encodage déterministe).
+- `ffprobe` : HEVC Main 1920x1080, une image I ; `ffmpeg` : **0 erreur de décodage** ; PSNR 41,9 dB contre l'image
+  d'entrée (normal pour un réencodage à QP 36) ; image nette à l'œil.
+- **Premier jalon atteint** : une image H.265 encodée sur le matériel sans `libakv_encode` ni `libmpi_venc`.
+
+Suite (étape 3) : images P (deux tampons d'image, la référence), nos propres VPS/SPS/PPS et en-tête de tranche
+(dépend du QP et du POC), table recalculée ou figée, contrôle de débit, sous-flux H.264 ; puis branchement dans
+`tc100_rtsp`.

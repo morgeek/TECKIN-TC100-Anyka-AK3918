@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,6 +38,17 @@
 #include "ak39_venc.h"
 
 #define UNIT 32u
+
+/* a decimal environment value; no atoi/strtol: with glibc 2.38 headers (the CI compiler) they become __isoc23_strtol,
+ * a name the camera's uClibc does not have (seen on IPCAM2 with rc33-dev, 2026-11-07) */
+static long env_num(const char *e)
+{
+	long v = 0;
+
+	while (*e == ' ') e++;
+	while (*e >= '0' && *e <= '9' && v < 100000000L) v = v * 10 + (*e++ - '0');
+	return v;
+}
 
 static int dbg = -1;
 #define DBG(...) do { if (dbg < 0) dbg = getenv("AKUIO_DEBUG") != NULL; if (dbg) ERR(__VA_ARGS__); } while (0)
@@ -56,7 +68,21 @@ static uint32_t used_bytes;
 static uint8_t *regs;
 static size_t regs_len;
 
-#define ERR(fmt, ...) fprintf(stderr, "E/[libakuio]: " fmt, ##__VA_ARGS__)
+/* messages on fd 2 through write(): no stderr (a libc variable: tests/check-libc-data-imports.sh) */
+static void eprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void eprintf(const char *fmt, ...)
+{
+	char b[256];
+	va_list ap;
+	int n;
+
+	va_start(ap, fmt);
+	n = vsnprintf(b, sizeof b, fmt, ap);
+	va_end(ap);
+	if (n > (int)sizeof b - 1) n = sizeof b - 1;
+	if (n > 0) (void)!write(2, b, (size_t)n);
+}
+#define ERR(fmt, ...) eprintf("E/[libakuio]: " fmt, ##__VA_ARGS__)
 
 #ifdef AKUIO_SELFTEST
 /* test hook: lets the self test run without the device */
@@ -187,7 +213,7 @@ unsigned long akuio_alloc_pmem(int size)
 		if (align == ~0u) {
 			const char *e = getenv("AKUIO_ALIGN");
 
-			align = e ? (uint32_t)atoi(e) : UNIT;
+			align = e ? (uint32_t)env_num(e) : UNIT;
 			if (align < UNIT)
 				align = UNIT;
 		}
@@ -376,7 +402,7 @@ void akuio_unmap_regs(unsigned long vaddr, size_t len)
 		munmap(regs, regs_len);
 		regs = NULL;
 	} else {
-		fprintf(stderr, "W/[libakuio]: WARNING: akuio_unmap_regs can't find uio mapping for %p\n",
+		eprintf("W/[libakuio]: WARNING: akuio_unmap_regs can't find uio mapping for %p\n",
 			(void *)vaddr);
 	}
 	pthread_mutex_unlock(&lock);
@@ -443,7 +469,7 @@ void akuio_fixqp(uint32_t list_paddr)
 		return;
 	par = pool + (pp - info.paddr);
 	if (getenv("AKUIO_DEBUG"))
-		fprintf(stderr, "fixqp list=%08x qp=%u param[19]=%u\n", list_paddr, qp, par[19]);
+		eprintf("fixqp list=%08x qp=%u param[19]=%u\n", list_paddr, qp, par[19]);
 	if (par[19] == 36 || par[19] == qp)
 		par[19] = (uint8_t)qp;
 }
@@ -491,8 +517,8 @@ static void akuio_capture(void)
 		const char *e = getenv("AKUIO_CAPTURE_N"), *es = getenv("AKUIO_CAPTURE_STREAM");
 
 		pre = getenv("AKUIO_CAPTURE");
-		max = e ? atoi(e) : 12;
-		smax = es ? (uint32_t)atoi(es) : 0x40000;
+		max = e ? env_num(e) : 12;
+		smax = es ? (uint32_t)env_num(es) : 0x40000;
 	}
 	if (!pre || n >= max || !regs || regs_len < 0x8400)
 		return;
@@ -562,7 +588,7 @@ void akuio_wait_irq(unsigned long arg)
 				uint32_t w = *(uint32_t *)(void *)(pool + bk->off + k);
 
 				if (w >= 0x80000000u && w < 0x90000000u && (w < info.paddr || w >= info.paddr + info.size)) {
-					fprintf(stderr, "STRAY word %08x in block @%x+%x (size %u)\n", w, bk->off, k, bk->size);
+					eprintf("STRAY word %08x in block @%x+%x (size %u)\n", w, bk->off, k, bk->size);
 					shown++;
 				}
 			}
@@ -609,7 +635,7 @@ void akuio_wait_irq(unsigned long arg)
 			if (k == nseen && nseen < 64) {
 				seen_o[nseen] = o;
 				seen_v[nseen++] = w;
-				fprintf(stderr, "REGSCAN reg 0x%04x = %08x outside the pool (%08x..%08x)\n", 0x8000 + o, w,
+				eprintf("REGSCAN reg 0x%04x = %08x outside the pool (%08x..%08x)\n", 0x8000 + o, w,
 					info.paddr, info.paddr + (uint32_t)info.size);
 			}
 		}
@@ -629,7 +655,7 @@ void akuio_wait_irq(unsigned long arg)
 		if (dly < 0) {
 			const char *e = getenv("AKUIO_DELAY_US");
 
-			dly = e ? atoi(e) : 0;
+			dly = e ? env_num(e) : 0;
 		}
 		if (dly)
 			usleep(dly);
@@ -645,14 +671,14 @@ void akuio_wait_irq(unsigned long arg)
 		if (clr < 0) {
 			const char *e = getenv("AKUIO_CLR");
 
-			clr = e ? atoi(e) : 1;	/* default: write-1-to-clear */
+			clr = e ? env_num(e) : 1;	/* default: write-1-to-clear */
 		}
 		if (clr) {
 			uint32_t b4 = *s18;
 
 			*s18 = clr == 1 ? b4 : clr == 2 ? 0 : 0xffffffffu;
 			if (e_irqdbg)
-				fprintf(stderr, "CLR mode %d: 0x18 %08x -> %08x\n", clr, b4, *s18);
+				eprintf("CLR mode %d: 0x18 %08x -> %08x\n", clr, b4, *s18);
 		}
 	}
 	akuio_capture();

@@ -12,6 +12,9 @@
  *   --run     encode on the hardware. tc100_rtsp must be stopped (it owns the encoder): ONLY on a test camera.
  *   -q QP     slice QP (default 30; the list's own otherwise)
  *   --params  the VPS/SPS/PPS NALs to put before the picture (capture.py writes the vendor's as params.bin)
+ *   --head    the start code, NAL header and slice header put before the core's slice data (capture.py: slicehead.bin;
+ *             IPCAM2 capture, 2026-11-07: the core writes only the slice data, from stream +0x820, and its length in
+ *             list word 0x41; the header bytes depend on the QP: use the template's own QP with the vendor's head)
  *
  * What it does on the hardware, from the recorded sequence of the vendor library (hwseq.py) and the start of the JPEG
  * path that works (src/jpegenc): the init of the core, the list in DMA memory, 0x8080 = list, 0x8084 = 2, up to two
@@ -132,7 +135,7 @@ static void print_list(const char *what, const uint32_t *l, int from, int to)
 int main(int argc, char **argv)
 {
 	int dry = 1, a = 1, qp = 30;
-	const char *params = NULL, *dir, *in, *out;
+	const char *params = NULL, *head = NULL, *dir, *in, *out;
 	static uint32_t list[LIST_WORDS];
 
 	while (a < argc && argv[a][0] == '-') {
@@ -140,11 +143,12 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[a], "--dry")) dry = 1;
 		else if (!strcmp(argv[a], "-q") && a + 1 < argc) qp = atoi(argv[++a]);
 		else if (!strcmp(argv[a], "--params") && a + 1 < argc) params = argv[++a];
+		else if (!strcmp(argv[a], "--head") && a + 1 < argc) head = argv[++a];
 		else break;
 		a++;
 	}
 	if (argc - a != 3 || qp < 0 || qp > 51) {
-		fprintf(stderr, "usage: %s [--dry|--run] [-q 0..51] [--params params.bin] LISTDIR in.nv12 out.h265\n", argv[0]);
+		fprintf(stderr, "usage: %s [--dry|--run] [-q 0..51] [--params params.bin] [--head slicehead.bin] LISTDIR in.nv12 out.h265\n", argv[0]);
 		return 2;
 	}
 	dir = argv[a]; in = argv[a + 1]; out = argv[a + 2];
@@ -191,7 +195,7 @@ int main(int argc, char **argv)
 	memcpy(pool + LIST_OFF, list, sizeof list);
 	print_list("list (input words):", list, 0, 0x40);
 	if (dry) { printf("dry run: list at %08x, nothing touched\n", base + LIST_OFF); return 0; }
-	(void)params; (void)out;
+	(void)params; (void)out; (void)head;
 #ifndef H265ENC_NO_DEVICE
 	{
 		uint32_t st[2] = { 0, 0 }, k, last = 0, written = 0, *lr = (uint32_t *)(void *)(pool + LIST_OFF);
@@ -204,7 +208,9 @@ int main(int argc, char **argv)
 		(void)RD(R_ACK); WR(R_ACK, 0x10000);
 		WR(0x8034, 0); WR(0x8054, 0x70);
 		WR(R_IRQ_EN, 0x1000007); WR(0x822c, 0);
-		WR(R_MASK, RD(R_MASK));
+		/* the interrupt sources: the vendor's mask is 0x4 at the first interrupt of a picture and 0x1 at the second
+		 * (IPCAM2 capture, 2026-11-07); left at 0, the core finishes (status 0x18 = 1) but raises no interrupt */
+		WR(R_MASK, RD(R_MASK) | (getenv("H265_MASK") ? (uint32_t)strtoul(getenv("H265_MASK"), NULL, 0) : 0x5u));
 		WR(R_CLK, RD(R_CLK) | 0x8e00);
 		(void)RD(R_UNK);
 		WR(R_LIST, base + LIST_OFF);
@@ -219,6 +225,7 @@ int main(int argc, char **argv)
 			WR(R_STAT_CLR, st[w]);				/* write-1-to-clear (libakuio, 8dc2d31) */
 			WR(R_MASK, RD(R_MASK));
 			if (RD(R_ACK) == 0x10001) WR(R_ACK, 0x10000);
+			if (st[w] & 1) break;			/* picture done: one interrupt with mask 0x5 (IPCAM2, 2026-11-07) */
 		}
 		(void)RD(R_STAT); (void)RD(R_ACK); WR(R_ACK, 1);
 		WR(R_IRQ_EN, 0x1000007); WR(0x822c, 0);
@@ -240,6 +247,21 @@ int main(int argc, char **argv)
 			if (!pf) { perror(params); return 1; }
 			while ((c = getc(pf)) != EOF) putc(c, f);
 			fclose(pf);
+		}
+		if (head) {
+			/* the capture's finding: slice data from +0x820, its length in word 0x41 */
+			FILE *hf = fopen(head, "rb");
+			int c;
+			uint32_t n = lr[0x41];
+
+			if (!hf) { perror(head); return 1; }
+			while ((c = getc(hf)) != EOF) putc(c, f);
+			fclose(hf);
+			if (n > STREAM_ALLOC - STREAM_HEAD) n = 0;
+			fwrite(pool + STREAM_OFF + STREAM_HEAD, 1, n, f);
+			printf("%s: header + %u bytes of slice data (word 0x41)\n", out, n);
+			fclose(f);
+			return n ? 0 : 1;
 		}
 		for (k = 0; k + 3 <= last; k++)
 			if (pool[k] == 0 && pool[k + 1] == 0 && pool[k + 2] == 1) break;
