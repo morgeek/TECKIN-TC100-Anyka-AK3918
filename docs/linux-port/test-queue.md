@@ -3008,4 +3008,11 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
 - **Interrupteur** : revenir au commit précédent de `v3/install/{stock-hook,install66}.sh` si l'on souhaitait restaurer
   les bibliothèques vendeuses lors d'une installation SD.
 - **Test** : vérification CI complète (`tests`, `build-kernel-linux66.yml`, génération de `tc100-3.0.1-rc35-update.tar`
-  et `tc100-3.0.1-rc35-sd.zip`).
+  et `tc100-3.0.1-rc35-sd.zip`). Validé en production sur les deux caméras (`.11` IPCAMERA2 et `.24` IPCAMERA1).
+
+## 2026-11-07 19:45 — 3.0.1-rc36 : installation SD accélérée (`[fast-install]`) & documentation 100 % libre
+- **Quoi** :
+  - `v3/install/install66.sh` : lorsque la copie intégrale vérifiée de 8 Mio (`tc100-3/backup/flash-stock.bin`, contrôlée par `restore-stock.sh --check` : taille, MD5, secteurs `boot` et `mac` de cette caméra) est présente sur la carte SD depuis l'étape 1, l'installation à la Flash ne relit plus une seconde fois les 5,7 Mio des partitions `vendor`, `stack`, `kernel` et `initrd` via `-b $K/backup` avant d'écrire (gain d'environ 1 min 30 s d'accès SPI lent ; la vérification MD5 après écriture de `flashw` reste entière). Si `flash-stock.bin` est absent, la sauvegarde par partition `-b $K/backup` est conservée automatiquement.
+  - Mise à jour de `CREDITS.md`, `docs/linux-port/README.md` et `v3/install/RELEASE-NOTES.md` pour refléter l'architecture 100 % libre (`freeenc.h` + `musl`, zéro bibliothèque `.so` propriétaire chargée ni copiée).
+- **Interrupteur** : `INSTALL66_FORCE_PART_BACKUP=1` force la sauvegarde par partition `-b $K/backup` même en présence de `flash-stock.bin`.
+- **Test** : tests unitaires (`tests/test_hwinventory.py`, `tests/test_feat30.py`, `tests/test_flash_image.py`) et CI complète.

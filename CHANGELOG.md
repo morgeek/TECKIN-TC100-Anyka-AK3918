@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc36] - 2026-11-07
+
+Fast SD installation and documentation polish after validating `3.0.1-rc35` on both cameras (`.11` IPCAMERA2 and `.24` IPCAMERA1):
+- **Fast SD-to-flash installation (`[fast-install]`, `v3/install/install66.sh`)**: when `restore-stock.sh --check` confirms that the verified 8 MiB stock flash image (`tc100-3/backup/flash-stock.bin` + `.md5`, matching this camera's U-Boot and MAC sectors) is already on the SD card from step 1, `install66.sh` skips the redundant 5.7 MiB per-partition SPI read-back backup (`-b $K/backup`) before writing `vendor`, `stack`, `kernel`, and `initrd` (saving ~1.5 min during installation; `INSTALL66_FORCE_PART_BACKUP=1` forces the per-partition read-back, and manual installs without `flash-stock.bin` still save each partition).
+- **100% free architecture documentation & credits (`CREDITS.md`, `docs/linux-port/README.md`, `v3/install/RELEASE-NOTES.md`)**: updated to reflect the `musl` + `freeenc.h` (`src/h265enc/freeenc.h`) architecture with zero proprietary `.so` libraries loaded or copied, and `MQTT_BRIDGE_IMPL=c` / `SUPERVISOR_IMPL=c` enabled by default.
+
 ## [3.0.1-rc35] - 2026-11-07
 
 Completes item #62.3 after confirming `3.0.1-rc34` stability on IPCAM2 (`.11`), following the owner's choice to lighten

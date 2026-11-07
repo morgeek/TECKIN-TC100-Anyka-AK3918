@@ -16,14 +16,17 @@ licence applies to its code. The code of this project itself is under the GPL-2.
 | Anyka (vendor GPL kernel sources) | origin of the platform code in the OpenIPC tree | via OpenIPC |
 | [ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks](https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks), `anyka-v4l2rtspserver`, `anyka-software` | the original SD-card hack and the RTSP server of the 2.x firmware | see the README, "Where it comes from" |
 
-No vendor binary is published in this repository. The vendor media libraries are read from the camera itself.
+No vendor binary is published in this repository. Since 3.0.1-rc34 (`src/h265enc/freeenc.h` and `src/libakuio`), the
+firmware runs on 100% free software and does not load, link or copy any vendor `.so` library from the camera; only the
+camera's own sensor calibration table (`isp.conf`, 69.5 KB) is read by the kernel ISP driver from `/vendor/isp.conf`.
 
 Prebuilt ARM programs kept in the repository and copied into the 3.0 image by `v3/build-stack.sh` (uClibc, from the
 2.x era): none any more: `bin/monvifd` (the closed ONVIF daemon) was removed in rc32, the free `tc100-onvifd` replaces it.
-`bin/isp_flip` (freestanding, no C library), `bin/tc100-logfwd` (`src/logfwd`) and `lib/libnetacl.so` (`src/netacl`) are
-rebuilt from their source by the release build; the copies in `bin/` and `lib/` only serve local builds.
-`tc100-logfwd` and `libnetacl` run under the camera's uClibc but are built with the glibc cross compiler and a
-stand-in libc made at link time (same technique as `tc100-mqttd`; no Anyka toolchain needed). `bin/rwconf` is no longer
+`bin/isp_flip` (freestanding, no C library), `bin/tc100-logfwd` (`src/logfwd`), `lib/libnetacl.so` and `lib/libnetacl-musl.so`
+(`src/netacl`) are rebuilt from their source by the release build; the copies in `bin/` and `lib/` only serve local builds.
+Since 3.0.1-rc33/rc34, `tc100_rtsp`, `tc100-mqttd`, `tc100-onvifd`, `tc100-supervisord`, `tc100-logfwd`, `rwconf`, and
+`libnetacl-musl.so` are all compiled against the system `musl` C library (`src/musl.mk`), while `httpfront` and `tc100-mdnsd`
+are freestanding static binaries. `bin/rwconf` is no longer
 versioned (2026-11-05, item 53): `src/rwconf/rwconf.c` is a free C rewrite of the 2.x program (same behaviour, checked
 against the original source in `tests/rwconf-original/`, Unlicense) and the release build compiles it into `bin/rwconf`
 before `v3/build-stack.sh`. `bin/getflag` and `bin/getimage` were removed: they read the shared memory of the 2.x RTSP

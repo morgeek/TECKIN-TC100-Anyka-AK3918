@@ -24,11 +24,11 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | Video: V4L2 / vb2-dma-contig driver `ak39_vi` + the 4.4 ISP core | works: 1920x1080 NV12, 25 fps, real colours, AE running |
 | Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker: works (push-to-talk, sounds, chimes through `aplay`); RTSP two-way audio (ONVIF backchannel) is implemented but not yet checked end to end from go2rtc / Frigate / Home Assistant (audit 2026-11-06, F1) |
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
-| Free hardware video encoder (`src/h265enc/freeenc.h`) | works (3.0.1-rc33): free H.265/H.264 engine driving the ASIC core directly without vendor libraries (`RTSP_FREE_ENC=1`) |
+| Free hardware video encoder (`src/h265enc/freeenc.h`) | works (default since 3.0.1-rc34): free H.265/H.264 engine driving the ASIC core directly without vendor libraries (`RTSP_FREE_ENC=1`, 1080p & 720p H.265/H.264 + 360p H.264 sub-stream) |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
-| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 stream, 15 fps by default (25 fps supported), H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Dual support: native free encoder (`freeenc.h`) or vendor control libraries on the free driver. 640x360 sub-stream on `video1_unicast` / `ch1` / `sub`; RTSP over UDP and the audio track from a client: see [test-queue.md](test-queue.md) |
-| V3 user space on 6.6 (`v3/`) | works (3.0.1-rc33, two cameras from the flash): web UI (Pico look by default), login with CSRF token, Wi-Fi from the UI, ONVIF (`tc100-onvifd`), recording, C MQTT bridge, day / night, motion, WebRTC, web update. The gaps of the 2026-10-26 feature audit were mostly closed in the release candidates (it is historical); what is still open: [a-faire-implementeur.md](a-faire-implementeur.md), [audit-2026-11-06.md](audit-2026-11-06.md) |
-| SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
+| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 or 1280x720 stream, 15 fps by default (25 fps supported), H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Built against `musl` with `libakuio` and the native free encoder (`freeenc.h`) built in (no vendor `.so` library loaded or copied since 3.0.1-rc34/rc35). 640x360 sub-stream on `video1_unicast` / `ch1` / `sub`; RTSP over UDP and the audio track from a client: see [test-queue.md](test-queue.md) |
+| V3 user space on 6.6 (`v3/`) | works (3.0.1-rc35, two cameras from the flash): web UI (Pico look), login with CSRF token, Wi-Fi from the UI, ONVIF (`tc100-onvifd`), recording, C MQTT bridge (`tc100-mqttd`), C supervisor (`tc100-supervisord`), day / night, motion, WebRTC (`tc100-whep`), web update. The gaps of the 2026-10-26 feature audit were mostly closed in the release candidates (it is historical); what is still open: [a-faire-implementeur.md](a-faire-implementeur.md), [audit-2026-11-06.md](audit-2026-11-06.md) |
+| SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `vendor`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
 | Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
 
 ## Hardware facts (verified on the board)
@@ -101,16 +101,16 @@ Kept from 4.4: the ISP core (`ak39_isp2*.c`, `ispdrv_interface.c`), `/dev/isp_ch
 **The open half.** [Xilinx/vcu-ctrl-sw](https://github.com/Xilinx/vcu-ctrl-sw) (MIT licence, same Allegro family) contains 142 of the 285 `AL_*` functions exported by `libakv_encode`: bitstream writers (SPS/PPS/VPS, SEI, scaling lists), API, buffers, part of rate control. Missing there: the CPU scheduler, `AL_EncCore`, `AL_EncChannel`, reference management, DPB, GOP manager, the encoder slice parameters. Rate control and HEVC reference management are the heart of the closed half: a long job.
 
 **Plan and progress.**
-1. Run the vendor `libakv_encode` / `libmpi_venc` on 6.6 through `ak39_venc` and `libakuio`: **done**. `tc100_rtsp`
-   loads `libmpi_venc_ex.so` (`ak_venc_open/send_frame/release_stream/close`) with the free `libakuio.so`. Direct capture
+1. Run the vendor `libakv_encode` / `libmpi_venc` on 6.6 through `ak39_venc` and `libakuio`: **done** (used up to 3.0.1-rc33). Direct capture
    is the default: the encoder and the JPEG engine read the V4L2 capture buffer itself (physical address from
    `AK39_VI_G_PHYS`, translated by `akuio_map_extra`), with no 3 MB copy per frame; `RTSP_DIRECT=0` goes back to the
-   copy (`direct_setup` in `src/tc100rtsp/tc100_rtsp.c`). This is what runs on the camera today.
+   copy (`direct_setup` in `src/tc100rtsp/tc100_rtsp.c`).
 2. Free JPEG (`src/jpegenc`): **done**, valid JFIF from the hardware core; the same code makes the web UI pictures
    inside `tc100_rtsp`.
-3. Free H.265 IDR with a fixed QP: the command list generator (`src/h265enc/cmdlist.py`) reproduces the 40 recorded
-   frames word for word, **offline only**; not yet driving the hardware. Then P frames and reference management.
-4. Remove `libmpi_venc` and `libakv_encode`: not started.
+3. Free H.265 / H.264 IDR + P frames with rate control (`src/h265enc/freeenc.h`, `listgen.h`, `worktab.h`): **done** (3.0.1-rc33/rc34),
+   covering H.265 and H.264 at 1920x1080 and 1280x720 plus the 640x360 H.264 sub-stream, driving the hardware directly.
+4. Remove `libmpi_venc` and `libakv_encode`: **done** (3.0.1-rc34/rc35). `tc100_rtsp` is compiled against `musl` with `libakuio`
+   and `freeenc.h` built in; no vendor `.so` library is loaded or copied into the flash any more.
 
 Tracing tool (2.x branch only, not in `main`): `libtc100fix` records the vendor encoder's hardware accesses (`VENC_TRACE=/tmp/<name>` in `boot.conf`, then restart `rtsp-h26x` in the background over telnet, never through a 60 s CGI call). The traces are vendor-derived data and stay out of git.
 

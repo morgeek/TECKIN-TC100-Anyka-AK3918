@@ -148,6 +148,9 @@ class Inventory(unittest.TestCase):
         # since 3.0.1-rc35 (item 62.3), neither stock-hook.sh nor install66.sh copies vendor .so libraries
         self.assertNotIn('collect-vendor.sh', hook)
         self.assertNotIn('collect-vendor.sh', inst)
+        # 3.0.1-rc36: install66.sh skips redundant per-partition read-back when restore-stock.sh --check passes
+        self.assertIn('restore-stock.sh --check', inst)
+        self.assertIn('INSTALL66_FORCE_PART_BACKUP', inst)
         for f in (INV, HW):
             src = f.read_text()
             for w in ('flashcp', 'flash_erase ', 'flash_eraseall', 'fw_setenv', 'mtd_debug', 'envtool', 'of=/dev', 'of=$DEV', 'of=$B'):

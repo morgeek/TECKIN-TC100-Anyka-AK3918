@@ -2,7 +2,8 @@
 # install66.sh check|run   install the 3.0 firmware into the SPI flash, from the trial mode on the SD card.
 #
 # Runs on Linux 6.6 started from the card (U-Boot sdload/sdboot: tc100test/c66.img). Writes, with flashw (allow-list,
-# partition saved to tc100-3/backup first, md5 of each image checked before and after):
+# partition saved to tc100-3/backup first when no verified full flash-stock.bin exists on the card, md5 of each image
+# checked before and after):
 #   vendor  a squashfs of this camera's sensor tuning file (isp.conf, ~12 KB; no vendor libraries since 3.0.1-rc35)
 #   stack   tc100-3/stack.sqfs, the free user space
 #   kernel  tc100test/c66.img
@@ -89,9 +90,18 @@ killall tc100_rtsp tc100-onvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/v
 for p in $(pidof watchdog); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null; done
 say "free memory before writing: $(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo) KB"
 
+# When the verified 8 MiB stock flash copy (tc100-3/backup/flash-stock.bin) is already on the card from step 1,
+# every partition we write (vendor, stack, kernel, initrd) is already saved inside it: skip the redundant 5.7 MiB
+# per-partition SPI read-back backup (-b), saving ~1.5 min during installation.
+BK="-b $K/backup"
+if [ -z "$INSTALL66_FORCE_PART_BACKUP" ] && sh $V/install/restore-stock.sh --check >/dev/null 2>&1; then
+	say "stock flash backup verified (tc100-3/backup/flash-stock.bin): skipping redundant per-partition read-back"
+	BK=
+fi
+
 w() {	# partition file
 	say "writing $1 ($(wc -c < "$2") bytes)..."
-	FLASHW_ALLOW="vendor stack kernel initrd" sh $FLASHW -m "$(md5 "$2")" -b "$K/backup" "$1" "$2" >> "$LOG" 2>&1 || fail "writing $1 (the card still starts the camera; see $LOG)"
+	FLASHW_ALLOW="vendor stack kernel initrd" sh $FLASHW -m "$(md5 "$2")" $BK "$1" "$2" >> "$LOG" 2>&1 || fail "writing $1 (the card still starts the camera; see $LOG)"
 }
 w vendor "$K/vendor.sqfs"
 w stack "$K/stack.sqfs"

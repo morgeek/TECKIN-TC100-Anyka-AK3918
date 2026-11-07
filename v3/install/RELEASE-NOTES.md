@@ -9,7 +9,8 @@ Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
   (50 / 60 Hz, the camera default shown), the IR-cut pulsed as the stock firmware does.
 - **Wi-Fi recovers by itself** when the chip fails to start after a reboot; Wi-Fi regulatory domain: pick your country in Settings → Network ("Country (Wi-Fi rules)", `WIFI_COUNTRY` in `boot.conf`), applied at once without reconnecting; settings changed just before a reboot are kept; the video server restarts by itself if it stops.
 - **Native mDNS local discovery** (`tc100-mdnsd`) enabled out of the box (`<hostname>.local`).
-- **Native MQTT bridge in C** (`tc100-mqttd`), a lightweight alternative to the shell bridge: **off by default**, set `MQTT_BRIDGE_IMPL=c` in `config/mqtt.conf` and restart the MQTT bridge service.
+- **100% free hardware H.265 / H.264 / JPEG video encoder** (`src/h265enc/freeenc.h` in `tc100_rtsp`, built against `musl`): drives the Anyka video ASIC directly without loading or copying any proprietary `.so` library (`1920x1080` and `1280x720` H.265/H.264 main stream + `640x360` H.264 sub-stream).
+- **Native MQTT bridge in C** (`tc100-mqttd`) and **C supervisor** (`tc100-supervisord`) enabled by default (`MQTT_BRIDGE_IMPL=c` in `config/mqtt.conf`, `SUPERVISOR_IMPL=c` in `config/boot.conf`).
 - **Fluid live video preview** powered by native MediaSource fMP4 across all dashboard and settings views.
 - Plain HTTP on port 80 only (external TLS delegated cleanly to a reverse proxy).
 - About 21 MB of free memory (was 10 MB in the first 3.0 builds), the clock and privacy masks drawn by the image
