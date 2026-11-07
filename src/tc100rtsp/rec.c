@@ -533,6 +533,15 @@ static int open_file(const struct nal *vps, const struct nal *sps, const struct 
 	if (W.fd < 0) return -1;
 	W.audio = C.audio ? (C.aac ? MP4_A_AAC : MP4_A_ALAW) : 0;
 	if (W.audio == MP4_A_AAC) aacenc_init(&A, (unsigned)(C.aac_bps > 0 ? C.aac_bps : 24000));
+#if defined(__linux__) && defined(FALLOC_FL_KEEP_SIZE)
+	/* Item 60.2: pre-allocate estimated segment size to avoid FAT fragmentation and I/O stalls */
+	if (C.segment_s > 0) {
+		off_t est_bytes = (off_t)C.segment_s * (250000); /* ~2 Mb/s average = ~250 KB/s */
+		if (est_bytes > 0) fallocate(W.fd, FALLOC_FL_KEEP_SIZE, 0, est_bytes);
+	}
+#elif defined(POSIX_FADV_SEQUENTIAL)
+	posix_fadvise(W.fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
 	mp4_init_segment(&b, W.codec, &W.vi, vps, sps, pps, W.audio);
 	if (b.err || write_all(W.fd, b.p, b.n) != 0) {
 		int e = errno;

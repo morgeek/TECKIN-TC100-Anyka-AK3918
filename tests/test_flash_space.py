@@ -44,13 +44,13 @@ class FlashSpace(unittest.TestCase):
         self.assertIn('html, body { margin: 0; }', w)
 
     def test_gz_only_for_the_hot_files(self):
-        # audit 2026-11-06 S1b (owner): a .gz of every page was ~287 KB of the image; five big files keep one
+        # audit 2026-11-06 S1b, item 60.1 (owner): fr.js is plain (xz compresses it), 4 hot files keep .gz
         src = (ROOT / 'v3/build-stack.sh').read_text(encoding='utf-8')
         m = re.search(r'(?m)^GZ_WWW="([^"]+)"$', src)
         self.assertTrue(m)
         hot = m.group(1).split()
         self.assertEqual(sorted(hot), sorted(['scripts/index.bundle.min.js', 'settings.html', 'css/ui.pico.min.css',
-                                              'scripts/view_records.bundle.min.js', 'i18n/fr.js']))
+                                              'scripts/view_records.bundle.min.js']))
         for f in hot:
             self.assertTrue((ROOT / 'www' / f).is_file(), f)
         self.assertNotRegex(src, r'find "\$T/www".*-exec gzip')

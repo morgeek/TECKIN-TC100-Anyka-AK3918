@@ -68,9 +68,8 @@ if [ "$mrc" != 0 ]; then
 fi
 # the big files every page load fetches also as .gz: busybox httpd (FEATURE_HTTPD_GZIP) sends the .gz to browsers that
 # accept gzip (about a quarter of the bytes over Wi-Fi) and the plain file otherwise, so a file without .gz still works.
-# Only these five (audit 2026-11-06 S1b, owner): a .gz does not compress again in the xz squashfs, and the .gz of
-# every page was ~287 KB of the image; the small pages and scripts go plain.
-GZ_WWW="scripts/index.bundle.min.js settings.html css/ui.pico.min.css scripts/view_records.bundle.min.js i18n/fr.js"
+# Only these four (audit 2026-11-06 S1b, owner; item 60.1: fr.js stays plain in squashfs xz, saving ~40 KB)
+GZ_WWW="scripts/index.bundle.min.js settings.html css/ui.pico.min.css scripts/view_records.bundle.min.js"
 for f in $GZ_WWW; do
 	[ -f "$T/www/$f" ] || { echo "build-stack: www/$f missing (GZ_WWW)" >&2; exit 1; }
 	gzip -9 -k -n "$T/www/$f"

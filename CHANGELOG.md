@@ -7,7 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [3.0.1-rc32] - 2026-11-06
+## [3.0.1-rc33] - 2026-11-07
+
+Major milestone release towards a 100% free firmware:
+- **Free hardware video encoder (`src/h265enc/freeenc.h`, `RTSP_FREE_ENC=1`)**: live IDR + P stream encoding in H.265 (1080p)
+  and H.264 (360p sub-stream) directly driving the ASIC core without loading vendor libraries (`libakv_encode`,
+  `libmpi_venc_ex`, `libplat_*`). Decompiled command lists (`listgen.h`), computed work table (`worktab.h`), and built-in
+  rate control. Validated on camera (43,000+ pictures without a single failure).
+- **Daemon migration to system `musl` libc**: `tc100-logfwd`, `rwconf`, and `libnetacl-musl.so` run directly on the
+  native musl C library.
+- **MicroSD wear reduction & performance**: MP4 recording pre-allocation (`rec.c`, item 60.2) via `fallocate` /
+  `posix_fadvise` preventing FAT fragmentation and I/O stalls.
+- **Flash SPI savings**: `fr.js.gz` excluded from flash image (`v3/build-stack.sh`, item 60.1), saving ~40 KB of flash space
+  as SquashFS XZ compresses the plain dictionary efficiently.
+- **Web UI & Diagnostics**: cold Services scan acceleration via awk (`fd1ae6a`, R17), robust `wifi-diag` stall measurement
+  (R27), safe refused boot card ejection (`dc6966c`, `d2ee15f`), and live FPS counter.
+
 
 The rc31 (on both cameras since 2026-11-06 afternoon, md5 `5d9e83af`) plus, in one release asked by the owner
 ("corriger les problèmes rencontrés pour avoir une rc32 exploitable"):
