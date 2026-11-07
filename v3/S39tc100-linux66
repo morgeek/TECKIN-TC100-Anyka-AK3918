@@ -106,7 +106,10 @@ if ip link show wlan0 >/dev/null 2>&1; then
   if grep -q 'ssid=' /etc/wpa_supplicant.conf 2>/dev/null; then
     wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant.conf >/dev/null 2>&1
     echo "$H" > /tmp/dhcp-hostname
-    udhcpc -i wlan0 -b -t 20 -T 1 -A 5 -x hostname:$H >/dev/null 2>&1
+    # Item 60.3 Quick-DHCP: try cached IP address (-r) if available to speed up lease acquisition
+    _rip=$(grep -m 1 -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' $CFGD/network.lease 2>/dev/null || true)
+    _ropt=; [ -n "$_rip" ] && _ropt="-r $_rip"
+    udhcpc -i wlan0 -b -t 20 -T 1 -A 5 $_ropt -x hostname:$H >/dev/null 2>&1
   else
     log "no Wi-Fi settings: wlan0 left down"
   fi

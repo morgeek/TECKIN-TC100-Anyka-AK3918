@@ -26,12 +26,8 @@ dns() {
 
 # the lease hook that puts the custom DNS servers back after every DHCP lease
 hook() {
-	if valid_ip "$DNS_PRIMARY"; then
-		mkdir -p "${HOOK%/*}"
-		printf '#!/bin/sh\ncase "$1" in bound|renew) sh /mnt/v3/linux66-sd/net-apply dns ;; esac\n' > "$HOOK" && chmod 755 "$HOOK"
-	else
-		rm -f "$HOOK"
-	fi
+	mkdir -p "${HOOK%/*}"
+	printf '#!/bin/sh\ncase "$1" in bound|renew) [ -n "$ip" ] && echo "$ip" > /mnt/config/network.lease 2>/dev/null; sh /mnt/v3/linux66-sd/net-apply dns ;; esac\n' > "$HOOK" && chmod 755 "$HOOK"
 }
 
 [ "$1" = dns ] && { dns; exit 0; }
