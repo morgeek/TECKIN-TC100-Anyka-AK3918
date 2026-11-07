@@ -3,13 +3,14 @@
  * the ISP (step 3 of the free encoder, 2026-11-07): one IDR then P pictures, each referencing the previous one,
  * at a fixed QP, with our own slice headers.
  *
- *   h265live [-n FRAMES] [-q QP] [-s SKIP] [-g GOP] LISTDIR out.h265
+ *   h265live [-n FRAMES] [-q QP] [-b KBPS] [-s SKIP] [-g GOP] LISTDIR out.h265
  *
  *   LISTDIR  from `capture.py DIR --out LISTDIR`: list.bin (an IDR list of the vendor encoder, its 64 input words),
  *            plist.bin (the P list of cmdlist.build_list for the same buffers), tables.bin, small.bin, work.bin and
  *            params.bin (VPS/SPS/PPS; ours later). Data read from the camera's vendor encoder: never in git.
  *   -n       pictures to encode (default 50), -q QP (default 32), -s pictures skipped first while the ISP settles
- *            (default 15), -g an IDR every GOP pictures (default 0: only the first)
+ *            (default 15), -g an IDR every GOP pictures (default 0: only the first; 50 with -b)
+ *   -b       target bit rate in kbit/s at 25 fps: one QP per picture (rc.h), -q is then the first one
  *
  * tc100_rtsp must be stopped (it owns the ISP and the encoder): test cameras only (v3/dev/h265-step2.sh live).
  * The source is the ISP's capture buffer itself (AK39_VI_G_PHYS gives its physical address, as tc100_rtsp's direct
@@ -35,6 +36,7 @@
 #include <linux/videodev2.h>
 
 #include "slicehdr.h"
+#include "rc.h"
 
 #ifndef H265LIVE_NO_DEVICE
 #include "../libakuio/ak39_venc.h"
@@ -159,7 +161,8 @@ static int encode(int fd, uint32_t list_paddr, const uint32_t *lr, uint32_t *len
 
 int main(int argc, char **argv)
 {
-	int a = 1, n = 50, qp = 32, skip = 15, gop = 0, dry = 0;
+	int a = 1, n = 50, qp = 32, skip = 15, gop = -1, dry = 0, kbps = 0;
+	struct rc rcs;
 	static uint32_t ilist[LIST_WORDS], plist[LIST_WORDS];
 	static uint8_t params[4096];
 	int plen;
@@ -170,14 +173,18 @@ int main(int argc, char **argv)
 		else if (a + 1 < argc && !strcmp(argv[a], "-q")) qp = atoi(argv[++a]);
 		else if (a + 1 < argc && !strcmp(argv[a], "-s")) skip = atoi(argv[++a]);
 		else if (a + 1 < argc && !strcmp(argv[a], "-g")) gop = atoi(argv[++a]);
+		else if (a + 1 < argc && !strcmp(argv[a], "-b")) kbps = atoi(argv[++a]);
 		else break;
 		a++;
 	}
 	if (argc - a != 2 || qp < 0 || qp > 51 || n < 1) {
-		fprintf(stderr, "usage: %s [--dry] [-n FRAMES] [-q QP] [-s SKIP] [-g GOP] LISTDIR out.h265\n", argv[0]);
+		fprintf(stderr, "usage: %s [--dry] [-n FRAMES] [-q QP] [-b KBPS] [-s SKIP] [-g GOP] LISTDIR out.h265\n", argv[0]);
 		return 2;
 	}
 	const char *dir = argv[a], *out = argv[a + 1];
+
+	if (gop < 0) gop = kbps > 0 ? 50 : 0;
+	rc_init(&rcs, kbps > 0 ? kbps : 1, 25, 20, 51, qp);
 
 	if (load(dir, "list.bin", ilist, 0x40 * 4, 1) < 0 || load(dir, "plist.bin", plist, 0x40 * 4, 1) < 0) return 1;
 	if (((ilist[3] >> 28) & 3) != 2 || ((plist[3] >> 28) & 3) != 1) { fprintf(stderr, "list.bin must be an IDR list, plist.bin a P list\n"); return 1; }
@@ -212,7 +219,7 @@ int main(int argc, char **argv)
 	}
 #ifdef H265LIVE_NO_DEVICE
 	fprintf(stderr, "built without the device: --dry only\n");
-	(void)out; (void)n; (void)skip; (void)gop; (void)plen;
+	(void)out; (void)n; (void)skip; (void)gop; (void)plen; (void)rcs;
 	return 2;
 #else
 	{
@@ -276,7 +283,7 @@ int main(int argc, char **argv)
 			int idr = frame == 0 || (gop > 0 && frame % gop == 0), last_idr = gop > 0 ? frame - frame % gop : 0;
 			uint32_t poc = (uint32_t)(2 * (frame - last_idr));
 			uint8_t hb[64];
-			int hl;
+			int hl, q = kbps > 0 ? rc_qp(&rcs, idr) : qp;
 			double te;
 
 			memset(&b, 0, sizeof b);
@@ -285,16 +292,17 @@ int main(int argc, char **argv)
 			if (k < skip || b.index >= rq.count) { ioctl(vfd, VIDIOC_QBUF, &b); continue; }
 			memcpy(lr, idr ? ilist : plist, 0x40 * 4);
 			h265_list_set(lr, info.paddr, ph[b.index].phys_y, ph[b.index].phys_uv ? ph[b.index].phys_uv : ph[b.index].phys_y + W * H,
-				      cur, idr, qp, poc);
+				      cur, idr, q, poc);
 			if (frame == 0 || idr) fwrite(params, 1, (size_t)plen, f);
 			te = now_ms();
 			if (encode(fd, info.paddr + LIST_OFF, lr, &len) < 0) { bad++; ioctl(vfd, VIDIOC_QBUF, &b); if (bad > 3) break; continue; }
 			tenc += now_ms() - te;
 			ioctl(vfd, VIDIOC_QBUF, &b);
-			hl = h265_slice_nal(hb, sizeof hb, idr, qp, poc);
+			hl = h265_slice_nal(hb, sizeof hb, idr, q, poc);
+			if (kbps > 0) rc_done(&rcs, idr, q, (int64_t)hl + len);
 			fwrite(hb, 1, (size_t)hl, f);
 			fwrite(pool + STREAM_OFF + STREAM_HEAD, 1, len, f);
-			printf("picture %3d %s poc %3u: %6u bytes (status 0x42 %08x)\n", frame, idr ? "IDR" : "P  ", poc, hl + len, lr[0x42]);
+			printf("picture %3d %s poc %3u qp %2d: %6u bytes\n", frame, idr ? "IDR" : "P  ", poc, q, hl + len);
 			total += (uint32_t)hl + len;
 			cur ^= 1;
 			frame++;

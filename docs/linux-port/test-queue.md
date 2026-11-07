@@ -2880,3 +2880,12 @@ tranche écrits par notre code (`slicehdr.h`), VPS/SPS/PPS du vendeur (capturés
 Reste avant de remplacer la bibliothèque du vendeur : contrôle de débit (QP par image d'après la taille, comme le
 vendeur : P à QP 38-42 pour 1,6 Mbit/s), nos VPS/SPS/PPS (aujourd'hui ceux du vendeur), table de 0x4040 octets (figée
 ou recalculée), sous-flux H.264 640x360 (même méthode), puis l'intégration dans `tc100_rtsp`.
+
+## 2026-11-07 10:00 — encodeur libre, contrôle de débit (testeur, .11)
+
+`src/h265enc/rc.h` : un QP par image (seau virtuel : budget = débit / 25 par image, la taille divisée par 2 tous les
+6 QP, gain 1/2, au plus ±3 QP par image, IDR à QP P − 2, la première IDR règle le QP de départ). `h265live -b KBPS`
+(IDR toutes les 50 images). Simulation : `src/h265enc/rctest.c`, test `RateControl`.
+- **.11, 150 images, -b 1600** : **1 612 kbit/s** (par seconde : 1837, 1392, 1774, 1500, 1674, 1492), 3 IDR + 147 P,
+  0 échec, ffmpeg 0 erreur, 29,9 ms par image sur le cœur. QP stable à 35 après le départ (le vendeur : 38-42 au même
+  débit). Départ : QP monte à 44 pendant ~1,5 s (les premières P après l'IDR sont plus grosses), puis redescend.

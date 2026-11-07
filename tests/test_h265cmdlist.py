@@ -206,3 +206,21 @@ class H265liveDry(unittest.TestCase):
         self.assertEqual(self.dry(36)[1][0], '000000012601ac2980')          # IDR, QP 36
         self.assertEqual(self.dry(42)[1][1], '000000010201d0042af820c0')    # P, POC 2, QP 42
         self.assertTrue('000000010201d0082af863bc'.startswith(self.dry(38)[1][2]))   # P, POC 4, QP 38 (+ data)
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'gcc')
+class RateControl(unittest.TestCase):
+    """rc.h on a simulated encoder (src/h265enc/rctest.c: size halves every 6 QP, an IDR 4 P pictures, a busier scene
+    halfway): the mean bit rate is the target, the QP moves at most 3 per picture. On IPCAM2 (2026-11-07) 150 live
+    pictures at -b 1600 gave 1612 kbit/s."""
+
+    def test_targets(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = os.path.join(d, 'rctest')
+            subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-I', os.path.join(ROOT, 'src/h265enc'), '-o', b,
+                            os.path.join(ROOT, 'src/h265enc/rctest.c'), '-lm'], check=True)
+            for kbps, cplx in ((1600, 20000), (1600, 5000), (250, 4000), (3000, 20000)):
+                out = subprocess.run([b, str(kbps), '500', str(cplx)], capture_output=True, text=True, check=True).stdout
+                mean = float(out.split()[1]); step = int(out.split('max step ')[1].split(',')[0])
+                self.assertLess(abs(mean / kbps - 1), 0.05, out)
+                self.assertLessEqual(step, 3, out)
