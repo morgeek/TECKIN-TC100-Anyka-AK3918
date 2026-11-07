@@ -37,6 +37,7 @@ window.tc100I18nFr = {
     "At dusk, read the index and set the two index thresholds around it.": "Au crépuscule, relevez l’indice et réglez les deux seuils d’indice autour de cette valeur.",
     "Dark flag:": "Indicateur sombre :",
     "Exposure index above": "Indice d’exposition supérieur à",
+    "Support Bundle": "Rapport de diagnostic",
     "Exposure index below": "Indice d’exposition inférieur à",
     "Exposure index:": "Indice d’exposition :",
     "Exposure time, analogue gain, digital gain, ISP gain:": "Temps d’exposition, gain analogique, gain numérique, gain ISP :",
