@@ -2982,6 +2982,11 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   `/lib/libc.so` dans `/proc/<pid>/maps` ; 1080p H.265 + sous-flux H.264 + son A-law : 0 erreur ; **720p H.265,
   1080p H.264, 720p H.264** (les listes de l'implémenteur, jamais passées sur caméra avant) : 240 / 232 / 251 images
   en 10 s, 0 erreur de décodage, images correctes ; JPEG du web faits ; 0 image en échec.
+- **CI verte** sur eeaa57d (CI + noyau/release) ; paquet de cette construction : `tc100-3.0.1-rc34-update.tar`
+  md5 `da12f22ebc2211d8af68d53070effca0` (contrôlé : `tc100_rtsp` musl, `libc.so` seule, pas de `libakuio.so`,
+  `/vendor/lib` plus lié), `-sd.zip` md5 `da32431b0fb7ae908a7b3d5366636d53`. Le tag `v3.0.1-rc34` n'a pas pu être poussé
+  depuis la session du testeur (le proxy git refuse les tags) : à pousser par le propriétaire (`git tag -a v3.0.1-rc34
+  eeaa57d && git push origin v3.0.1-rc34`), la CI publie alors la release.
 - **Retour arrière** : la mise à jour rc33 (le vendeur reste dans la partition vendor, intacte).
 - **À tester après installation** : démarrage depuis la flash, vidéo et son, Frigate, enregistrement SD, nuit / N&B,
   surveillance de plusieurs heures. L'installation neuve (`install66.sh`) copie encore les bibliothèques du vendeur dans
