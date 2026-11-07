@@ -2889,3 +2889,13 @@ ou recalculée), sous-flux H.264 640x360 (même méthode), puis l'intégration d
 - **.11, 150 images, -b 1600** : **1 612 kbit/s** (par seconde : 1837, 1392, 1774, 1500, 1674, 1492), 3 IDR + 147 P,
   0 échec, ffmpeg 0 erreur, 29,9 ms par image sur le cœur. QP stable à 35 après le départ (le vendeur : 38-42 au même
   débit). Départ : QP monte à 44 pendant ~1,5 s (les premières P après l'IDR sont plus grosses), puis redescend.
+
+## 2026-11-07 10:05 — encodeur libre : nos propres VPS/SPS/PPS (testeur, .11)
+
+`src/h265enc/paramsets.h` écrit VPS, SPS et PPS (mêmes valeurs que le vendeur, relevées avec `trace_headers` :
+Main, niveau 4.0, CTB 32, listes de quantification par défaut, TMVP, 13 jeux de références à court terme, VUI 25 fps…).
+**Identiques à l'octet aux 112 octets du vendeur** pour 1920x1080 à 25 fps (test `ParamSets` ; autres tailles lues
+par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la copie capturée).
+- **.11, 100 images, -b 1600, sans `params.bin` dans le dossier d'entrée** : 1 675 kbit/s, 2 I + 98 P, 0 échec,
+  **0 erreur de décodage**, HEVC Main 1920x1080 25/1. Le flux entier (en-têtes de flux, de tranche, débit) vient de
+  notre code ; restent des captures : la table de 0x4040 octets, les tampons work/small et les modèles de liste.

@@ -6,8 +6,9 @@
  *   h265live [-n FRAMES] [-q QP] [-b KBPS] [-s SKIP] [-g GOP] LISTDIR out.h265
  *
  *   LISTDIR  from `capture.py DIR --out LISTDIR`: list.bin (an IDR list of the vendor encoder, its 64 input words),
- *            plist.bin (the P list of cmdlist.build_list for the same buffers), tables.bin, small.bin, work.bin and
- *            params.bin (VPS/SPS/PPS; ours later). Data read from the camera's vendor encoder: never in git.
+ *            plist.bin (the P list of cmdlist.build_list for the same buffers), tables.bin, small.bin, work.bin
+ *            (params.bin, the vendor's VPS/SPS/PPS, only with H265_VENDOR_PARAMS=1: ours are paramsets.h).
+ *            Data read from the camera's vendor encoder: never in git.
  *   -n       pictures to encode (default 50), -q QP (default 32), -s pictures skipped first while the ISP settles
  *            (default 15), -g an IDR every GOP pictures (default 0: only the first; 50 with -b)
  *   -b       target bit rate in kbit/s at 25 fps: one QP per picture (rc.h), -q is then the first one
@@ -37,6 +38,8 @@
 
 #include "slicehdr.h"
 #include "rc.h"
+#include <string.h>
+#include "paramsets.h"
 
 #ifndef H265LIVE_NO_DEVICE
 #include "../libakuio/ak39_venc.h"
@@ -188,7 +191,8 @@ int main(int argc, char **argv)
 
 	if (load(dir, "list.bin", ilist, 0x40 * 4, 1) < 0 || load(dir, "plist.bin", plist, 0x40 * 4, 1) < 0) return 1;
 	if (((ilist[3] >> 28) & 3) != 2 || ((plist[3] >> 28) & 3) != 1) { fprintf(stderr, "list.bin must be an IDR list, plist.bin a P list\n"); return 1; }
-	{
+	/* our VPS/SPS/PPS (paramsets.h: the same bytes as the vendor's); H265_VENDOR_PARAMS=1: params.bin of the capture */
+	if (getenv("H265_VENDOR_PARAMS") && getenv("H265_VENDOR_PARAMS")[0] == '1') {
 		FILE *pf;
 		char p[1024];
 
@@ -196,6 +200,8 @@ int main(int argc, char **argv)
 		if (!(pf = fopen(p, "rb"))) { fprintf(stderr, "no %s\n", p); return 1; }
 		plen = (int)fread(params, 1, sizeof params, pf);
 		fclose(pf);
+	} else if ((plen = h265_param_sets(params, sizeof params, W, H, 25)) < 0) {
+		fprintf(stderr, "parameter sets: no room\n"); return 1;
 	}
 	if (dry) {
 		/* the lists of the first three pictures and their slice headers, for the tests */

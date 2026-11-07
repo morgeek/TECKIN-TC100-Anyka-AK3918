@@ -224,3 +224,36 @@ class RateControl(unittest.TestCase):
                 mean = float(out.split()[1]); step = int(out.split('max step ')[1].split(',')[0])
                 self.assertLess(abs(mean / kbps - 1), 0.05, out)
                 self.assertLessEqual(step, 3, out)
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'gcc')
+class ParamSets(unittest.TestCase):
+    """paramsets.h writes the VPS/SPS/PPS of the vendor encoder byte for byte (1920x1080, 25 fps: the 112 bytes of the
+    IPCAM2 capture of 2026-11-07), and other sizes stay valid H.265 (ffprobe)"""
+    VENDOR = '0000000140010c01ffff014000000300900000030000030078bc0900000001420101014000000300900000030000030078a003c08010e59efb91280ecaa520a694929a4954929248953aa9d493a9a7511780a5050505e1000003000100000300192f840208000000014401c073c0c6d9'
+
+    def build(self, d):
+        b = os.path.join(d, 'pstest')
+        subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-I', os.path.join(ROOT, 'src/h265enc'), '-o', b,
+                        os.path.join(ROOT, 'src/h265enc/pstest.c')], check=True)
+        return b
+
+    def test_vendor_bytes(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = subprocess.run([self.build(d), '1920', '1080', '25'], capture_output=True, check=True).stdout
+            self.assertEqual(out.hex(), self.VENDOR)
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg')
+    def test_other_sizes_parse(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = self.build(d)
+            for w, h, fps in ((640, 360, 25), (1280, 720, 15)):
+                f = os.path.join(d, 'p.h265')
+                open(f, 'wb').write(subprocess.run([b, str(w), str(h), str(fps)], capture_output=True, check=True).stdout)
+                # no picture: the bitstream filter that prints every syntax element reads the parameter sets alone
+                r = subprocess.run(['ffmpeg', '-hide_banner', '-i', f, '-c', 'copy', '-bsf:v', 'trace_headers', '-f', 'null', '-'],
+                                   capture_output=True, text=True)
+                self.assertRegex(r.stderr, r'pic_width_in_luma_samples\s+\d+ = %d\b' % w)
+                self.assertRegex(r.stderr, r'pic_height_in_luma_samples\s+\d+ = %d\b' % h)
+                self.assertRegex(r.stderr, r'vui_time_scale\s+\d+ = %d\b' % fps)
+                self.assertRegex(r.stderr, r'rbsp_stop_one_bit')
