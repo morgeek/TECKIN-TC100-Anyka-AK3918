@@ -919,6 +919,11 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - *Watchdog applicatif prédictif (Soft-Recycle)* : surveillance proactive de l'allocation CMA vidéo dans `tc100_rtsp` ; si la mémoire vidéo approche d'un seuil critique de saturation (> 95 %), réinitialiser proprement les tampons de streaming à chaud sans provoquer de panique noyau ni interrompre la connectivité réseau.
     - *(Note : les points 1 [ISP/colorimétrie] et 3 [Smart Playback/miniatures timeline] ont été explicitement écartés par le propriétaire pour rester concentré sur l'essentiel).*
 
+62. [ ] **Consigne propriétaire (2026-11-07 matin) : RC33 avancée majeure & nettoyage définitif des bibliothèques vendeuses** :
+    - **Contexte** : l'encodeur libre `freeenc.h` (`RTSP_FREE_ENC=1`) est désormais fonctionnel et validé sur caméra (H.265 1080p + H.264 360p en direct).
+    - **Directive du propriétaire** : après validation d'endurance sur plusieurs heures sous la rc32/rc33, **retirer définitivement du build de la Flash** les anciennes bibliothèques fermées Anyka (`libakv_encode.so`, `libmpi_venc_ex.so`, `libplat_*`).
+    - **Portée** : la rc33 consacrera le basculement vers une distribution **100 % libre d'encodage**, libérant un espace Flash et RAM précieux tout en clôturant définitivement l'ère des blobs propriétaires.
+
 ## Prochaine RC (propriétaire, 2026-11-05 soir)
 
 Tout faire sauf #50, qualifier, puis lancer une nouvelle RC. Décisions : B1 + B3 et W4 dans la RC ; #35 en entier
