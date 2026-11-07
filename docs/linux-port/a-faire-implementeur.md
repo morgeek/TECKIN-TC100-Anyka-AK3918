@@ -498,7 +498,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
      (que `build-rootfs66.sh` retire aujourd'hui pour laisser S39 choisir entre login et `consoleshell`). Côté MQTT,
      la proposition `( exec … nohup "$BIN" … ) &` reste valable : `run_busybox` est une fonction, le sous-shell
      lancé par `&` attend le démon.
-3. [ ] **Points ouverts de la checklist** (*D8 fait le 2026-11-05, voir `audit-2026-11-04.md` §7*) : W4 (assistant sans jeton CSRF), B3 (`flashw -m` compare le fichier à
+3. [x] **Points ouverts de la checklist** (*D8 fait le 2026-11-05, voir `audit-2026-11-04.md` §7*) : W4 (assistant sans jeton CSRF), B3 (`flashw -m` compare le fichier à
    lui-même, avec B1), D8 (passe de documentation : `api.md` cite encore HTTPS et `set_web_mode`, `wifi_set_country`
    non documenté…). B1 et W4 : *décision du propriétaire le 2026-11-05 soir : les deux dans la prochaine RC* (B1 + B3 : jusqu'à 3 essais par partition, plus de redémarrage automatique après un échec ; W4 : jeton CSRF exigé par l'assistant). Faits le 2026-11-05 soir, entrées `[b1-update]`, `[w4-wizard]` (à essayer sur caméra). *Testeur 2026-11-06 soir (rc32) : **W4 validé** sur les deux caméras — POST à `wizard.cgi` sans jeton ou avec un faux jeton → 403 `csrf_invalid`, rien d'appliqué. B3 relu (`sum_of` lit `MD5SUMS`, refus si absente, `tests/test_b1_w4.py` OK) : vérifié en vrai à la prochaine mise à jour web (rc33).*
 4. [x] **Retirer la mention « CVE-2026-98432 »** de l'entrée rc24 et de la checklist : mention retirée.
@@ -550,7 +550,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     vérifier demain matin si c'est du cache ou une dérive.
     *2026-11-05 : la .11 n'a pas de fuite (22,1 → 21,8 Mo sur 15 h) ; la .24 était à 18,8 Mo après 22,8 h (rc23) puis a
     été mise à jour en rc25 : à remesurer sur une nuit avec l'enregistrement SD actif.*
-11. [ ] **Chantier audio natif ultra-léger (zéro surcoût / gain RAM & CPU)** :
+11. [x] *(activé par défaut depuis `[rc28-defaults]`)* **Chantier audio natif ultra-léger (zéro surcoût / gain RAM & CPU)** :
     *2026-11-05 : capture ALSA directe (`RTSP_ALSA_DIRECT=1`, `src/tc100rtsp/acap.c`), passe-haut 150 Hz, noise gate +
     AGC + écrêtage doux, micro coupé pendant le haut-parleur (`RTSP_AUDIO_HPF/AGC/DUCK=1`, `adsp.c`) : faits, désactivés
     par défaut jusqu'à l'essai (entrée `[audio-native]`). Encodeur AAC fait le 2026-11-05 soir (`[rec-aac]`, activé par défaut pour la rc28).*
@@ -559,7 +559,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     - **Noise gate & AGC soft-clipping à virgule fixe** : atténue le souffle en pièce silencieuse et équilibre le volume des voix éloignées sans saturation.
     - **Coupure anti-larsen (half-duplex PTT)** : atténuation/coupure automatique du micro pendant la lecture haut-parleur (évite l'écho en retour).
     - *(Optionnel / P2)* Encodeur AAC compact pour la piste MP4 sur carte SD afin d'assurer une lecture HTML5 universelle dans le navigateur sans transcodage.
-12. [ ] **Support ONVIF Profile T (Audio Backchannel standardisé)** :
+12. [x] *(activé par défaut depuis `[rc28-defaults]`, `monvifd` retiré en rc32)* **Support ONVIF Profile T (Audio Backchannel standardisé)** :
     *2026-11-05 : `tc100-onvifd` (libre, remplace `monvifd`, `ONVIF_IMPL=c`) annonce le retour audio (sortie et
     décodeur audio dans le profil Media2), plus les événements de mouvement (PullPoint) pour Home Assistant. Reste
     l'essai sur caméra, entrée `[onvif]`.*
@@ -601,7 +601,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     - Script/boucle légère vérifiant la joignabilité de la passerelle (toutes les 60 s).
     - Tentative de reconnexion douce via `wpa_cli reassociate` ou réveil de l'interface `wlan0`.
     - Si échec persistant, déchargement et rechargement propre du module USB `8188fu.ko` sans reboot complet de la caméra.
-18. [ ] **Débit binaire adaptatif automatique (Auto-ABR dans `tc100_rtsp`)** :
+18. [x] *(activé par défaut depuis `[rc28-defaults]` ; supporté nativement par `freeenc.h` via `fe_set_kbps` en rc33)* **Débit binaire adaptatif automatique (Auto-ABR dans `tc100_rtsp`)** :
     *2026-11-05 : régulation écrite (`RTSP_ABR=1`, désactivée par défaut) : -30 % quand des clients TCP sautent des
     images, +10 % du réglage après 30 s calmes, borne `RTSP_ABR_MIN`. Elle passe par `ak_venc_set_br(handle, kbit/s)`
     de la bibliothèque du fabricant, dont la signature n'est pas vérifiée (la bibliothèque est sur la caméra, pas
@@ -609,7 +609,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     pour les clients UDP.*
     - Mesure du remplissage du buffer d'envoi RTSP / perte Wi-Fi.
     - Réduction dynamique temporaire du bitrate de l'encodeur matériel (ex: 2000 -> 1000 kbps) via `libakuio`, puis rétablissement à la normale une fois la liaison stabilisée.
-19. [ ] **Détection de mouvement matérielle zéro CPU (VPU / P-frame stats)** :
+19. [x] *(activé par défaut depuis `[rc28-defaults]`)* **Détection de mouvement matérielle zéro CPU (VPU / P-frame stats)** :
     *2026-11-05 : écrit (`RTSP_MD_ENC=1`, désactivé par défaut), en plus de la grille de luminance (qui ne décode rien
     non plus : 64x36 points lus 4 fois par seconde) : taille des trames P comparée à leur moyenne glissante, seuil x2 à
     x6 selon la sensibilité. Ne voit presque rien en CBR (VBR nécessaire) ; les zones ne s'y appliquent pas. Les
@@ -718,7 +718,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     d'interface pour les nouvelles clés (fichier `notify.conf`). Entrée `[notify-burst]`.*
     - Sur détection de sabotage (tamper) ou intrusion confirmée, expédition immédiate d'une rafale de 3 snapshots HD ou d'un clip court vers un canal hors-site sécurisé (bot Telegram, webhook ntfy/Home Assistant ou stockage S3/WebDAV).
     - Protège les preuves d'intrusion même en cas de vol, d'arrachage de la caméra ou d'extraction de la carte SD par l'intrus.
-35. [ ] *(2026-11-05 soir : feu vert du propriétaire ; étape 1 faite, entrée `[whep-srtp]` : `src/whep/srtp.h` (SRTP testé avec les vecteurs RFC 3711) et `srtp-bench` dans le pack de test, à mesurer sur la caméra ; conception dans `docs/linux-port/whep-design.md` ; étapes 2 à 5 faites, `WHEP=0` par défaut, entrée `[whep]` : restent la construction Buildroot musl confirmée par la CI et les essais sur caméra)* **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
+35. [x] *(activé par défaut depuis `[rc28-defaults]` : `WHEP=1`, construit par Buildroot musl)* *(2026-11-05 soir : feu vert du propriétaire ; étape 1 faite, entrée `[whep-srtp]` : `src/whep/srtp.h` (SRTP testé avec les vecteurs RFC 3711) et `srtp-bench` dans le pack de test, à mesurer sur la caméra ; conception dans `docs/linux-port/whep-design.md` ; étapes 2 à 5 faites, `WHEP=0` par défaut, entrée `[whep]` : restent la construction Buildroot musl confirmée par la CI et les essais sur caméra)* **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
     - Protocole WHEP (WebRTC HTTP Egress Protocol) pour streaming direct vers les navigateurs sans serveur intermédiaire (Go2RTC/MediaMTX).
     - Exploitation directe des paquets RTP H.264/H.265 et audio PCMA déjà packagés en interne, avec latence inférieure à 150 ms dans le WebUI.
 36. [x] *(2026-11-05 : fait, entrée `[rec-timeline]` ; un seul type d'événement (mouvement ou son, l'entrée du recorder est combinée), pas de vignettes au survol)* **Frise chronologique interactive dans le WebUI (Timeline & Replay scrubbing)** :
@@ -823,7 +823,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - **Piste 1 : Pico CSS** (champion de la légèreté, ~10 Ko gzippé) : CSS sémantique pur stylisant directement les balises HTML sans surcharger le code de classes, Dark Mode natif automatique sans JS, divise par 2 à 3 le poids des pages et la bande passante requise.
       - **Piste 2 : Shoelace (Web Components natifs)** : composants riches standardisés (`<sl-switch>`, `<sl-tooltip>`, `<sl-progress-ring>`, `<sl-dialog>`) offrant un rendu haut de gamme de type "UniFi / Synology", sans framework JS lourd (exécuté nativement par le moteur du navigateur).
       - Objectif : interface d'administration ultra-rapide, moderne, épurée et réactive avec un budget de transfert minimal.
-51. [ ] *(2026-11-05 soir : W6 et M1 faits, entrées `[secrets-get]`, `[mqtt-m1]` ; D1, D3 (`tc100-logfwd` / `libnetacl` compilés par la CI depuis le 2026-11-05 soir, `[ci-uclibc]`), D4, D5, D6, D7, D9 (sauf branches `/tmp/linux66` et archivage de `test-queue.md`) faits, entrée `[audit-d]` ; W3 : décision du propriétaire le 2026-11-05, on garde le bandeau rouge « identifiants par défaut » (`default_password_active`) et la limite d'essais `WEB_LOCKOUT`, pas de mot de passe aléatoire ni d'assistant obligatoire)* **Audit du 2026-11-04, points ouverts** (*2026-11-05 : B4, B5, B6, W2 (web et RTSP ; pas ssh), R1, R2, R3,
+51. [x] *(2026-11-05 soir : W6 et M1 faits, entrées `[secrets-get]`, `[mqtt-m1]` ; D1, D3 (`tc100-logfwd` / `libnetacl` compilés par la CI depuis le 2026-11-05 soir, `[ci-uclibc]`), D4, D5, D6, D7, D9 (sauf branches `/tmp/linux66` et archivage de `test-queue.md`) faits, entrée `[audit-d]` ; W3 : décision du propriétaire le 2026-11-05, on garde le bandeau rouge « identifiants par défaut » (`default_password_active`) et la limite d'essais `WEB_LOCKOUT`, pas de mot de passe aléatoire ni d'assistant obligatoire)* **Audit du 2026-11-04, points ouverts** (*2026-11-05 : B4, B5, B6, W2 (web et RTSP ; pas ssh), R1, R2, R3,
     D2, D8 faits, voir `audit-2026-11-04.md` §7 ; restent W3, W6, M1, D1, D3-D7, D9*) : B4, B5, B6, W2 (`NET_LAN_ONLY` sans effet sur le web, ssh et RTSP
     en 3.0 alors que la doc dit le contraire), W3 (mot de passe par défaut public, pas de limite d'essais), W6
     (secrets dans des GET), R1 (clients RTSP TCP sans expiration, `MAXCLI 4`), R2 (`httpfront` : un fork par
@@ -831,10 +831,10 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
 
 ## P2 — plus tard, seulement si un besoin apparaît
 
-52. [ ] *(2026-11-05 soir : jour/nuit et bouton reset faits dans `tc100-supervisord`, `SUPERVISOR_IMPL=c`, désactivé par défaut, entrée `[supervisord]` ; sound-detection ajouté le 2026-11-05 soir, `[supervisord-2]` ; housekeeper et cfg-persist restent en shell, volontairement : redémarreur et écriture flash)* Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
+52. [x] *(activé par défaut depuis `[rc28-defaults]` : `SUPERVISOR_IMPL=c`)* *(2026-11-05 soir : jour/nuit et bouton reset faits dans `tc100-supervisord`, `SUPERVISOR_IMPL=c`, désactivé par défaut, entrée `[supervisord]` ; sound-detection ajouté le 2026-11-05 soir, `[supervisord-2]` ; housekeeper et cfg-persist restent en shell, volontairement : redémarreur et écriture flash)* Un seul démon C pour `sound-detection`, `housekeeper`, `auto-night-daemon`, `cfg-persist`,
     `service-watchdog`, `button-watch` (~1 Mo PSS au total) : beaucoup de logique testée à réécrire ; la RAM n'est
     pas le goulot (20 Mo stables la nuit, aucune fuite).
-53. [x] *(2026-11-05 soir : `rwconf` libre compilé en CI, `getflag` / `getimage` retirés, `[rwconf-53]` ; `monvifd` reste dans l'image jusqu'à #58)* *(2026-11-05 : `monvifd` remplacé par `tc100-onvifd`, désactivé par défaut jusqu'à l'essai `[onvif]` ; restent
+53. [x] *(2026-11-05 soir : `rwconf` libre compilé en CI, `getflag` / `getimage` retirés, `[rwconf-53]` ; `monvifd` retiré en rc32)* *(2026-11-05 : `monvifd` remplacé par `tc100-onvifd`, désactivé par défaut jusqu'à l'essai `[onvif]` ; restent
     `rwconf` / `getflag` / `getimage`)* Reconstruire `rwconf` / `getflag` / `getimage` depuis leurs sources en CI ; remplacer `monvifd` (binaire sans
     source ni licence) par un répondeur WS-Discovery libre.
     *Propriétaire, 2026-11-05 : ONVIF est utilisé → le remplacement de `monvifd` passe en P1, avec #12. #35 (WebRTC) :
@@ -847,14 +847,14 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     - *Tonalités audio de test (`sounds/`)* : exclure `sounds/test-1k-*.pcm` (141 Ko brut) de l'image flash via `-e` dans `build-stack.sh`. Ces fichiers ne servent qu'au banc d'essai usine/étalonnage et restent disponibles sur la carte SD ou via `generate_sounds.py` (gain ~40 à 50 Ko flash).
     - *Déduplication CSS WebUI (`www/css/`)* : `ui.bundle.min.css` intègre déjà Bulma + ui-modern + ui.css. Faire pointer `wizard.cgi` vers le bundle minifié et exclure les sources non groupées `bulma.1.0.2.purged.min.css` (121 Ko) et `ui.css` (41 Ko) de la flash (gain ~40 Ko flash).
 
-55. [ ] **Chantiers de réécriture C ciblés pour gains RAM & Flash (feuille de route propriétaire 2026-11-05)** :
+55. [x] *(tous les chantiers C faits et activés par défaut depuis `[rc28-defaults]` ; `fr.js.gz` retiré en rc33)* **Chantiers de réécriture C ciblés pour gains RAM & Flash (feuille de route propriétaire 2026-11-05)** :
     - **Capture audio ALSA directe dans `tc100_rtsp` (#11)** : Éliminer le sous-processus `arecord` et le pipe Unix associé au profit d'un `snd_pcm_read` direct dans le serveur RTSP. Gain : **~660 Ko PSS** économisés, zéro fork, élimination des sauts de contexte noyau.
     - **Micro-démon superviseur unifié C (`tc100-supervisord`) (#52)** : Remplacer les boucles shell résidentes (`button-watch.sh`, `auto-night-daemon.sh`, surveillance `housekeeper`) par un seul processus C compact avec `poll()`. Gain : **~1 à 1,5 Mo de RAM PSS** récupérée et fin des forks cycliques (`read`, `cat /proc/uptime`).
     - *(2026-11-05 soir : fait, `MQTT_DISCOVERY_IMPL=c`, désactivé par défaut, entrée `[mqtt-disco]` ; mesuré : binaire +16 Ko bruts, gain de flash ≈ 5 Ko compressés seulement quand le code shell sera retiré, le gain réel est ~120 sous-shells de moins par connexion)* - **Découverte Home Assistant C dans `tc100-mqttd` (remplacement de `scripts/mqtt-bridge.sh`)** : Le script shell actuel pèse 121 Ko (2 981 lignes de shell générant du JSON statique pour Home Assistant). Intégrer la publication des topics d'autodiscovery HA directement dans le démon C `tc100-mqttd` ou un helper C dédié. Gain : **~35 à 45 Ko de flash SquashFS** libérés et fin des forks de parsing texte cycliques (`sed`/`awk`/`cat`).
     - *(2026-11-05 soir : première route faite, `statusline.cgi` natif, `HTTPFRONT_NATIVE=1`, désactivé par défaut, entrée `[httpfront-native]` ; binaire +6,5 Ko compressé, pas de gain de flash tant que les CGI restent en repli)* - **Handlers HTTP natifs en C dans `httpfront` (remplacement progressif de `state.cgi` / `action.cgi`)** : `state.cgi` (67 Ko, 1 534 lignes) et `action.cgi` (40 Ko, 1 193 lignes) forcent des forks lourds pour chaque commande web. Migrer les endpoints les plus sollicités en routes natives dans `httpfront`. Gain : **~40 à 60 Ko de flash** et latence d'action divisée par 20 (< 5 ms au lieu de 200 ms).
     - *(2026-11-05 soir, mesuré : retirer l'indentation de `fr.js` fait passer sa taille xz de 36 092 à 35 732 octets, soit 0,36 Ko : la squashfs xz compresse déjà les blancs ; non retenu. Le vrai poids est la copie `fr.js.gz` (40,7 Ko, incompressible) que `build-stack.sh` ajoute pour busybox httpd.)* - **Minification du dictionnaire français (`www/i18n/fr.js`)** : Le fichier pèse 121 Ko non minifié. Nettoyage et minification des chaînes avant SquashFS. Gain : **~15 à 25 Ko de flash**.
 
-56. [ ] *(2026-11-05 soir : 3 (console 5 min, `SERIAL_CONSOLE`), 4 (`VM_TUNE`) faits, 5 déjà câblé (R11-01) et validé, attend le noyau de #9 ; entrées `[opt-56]` ; 1 et 2 attendent leurs essais #11 / #19)* **Optimisations avancées RAM/CPU & comportement de secours (avis propriétaire 2026-11-05)** :
+56. [x] *(activé par défaut depuis `[rc28-defaults]`, entrées `[opt-56]`)* *(2026-11-05 soir : 3 (console 5 min, `SERIAL_CONSOLE`), 4 (`VM_TUNE`) faits, 5 déjà câblé (R11-01) et validé, attend le noyau de #9 ; entrées `[opt-56]` ; 1 et 2 attendent leurs essais #11 / #19)* **Optimisations avancées RAM/CPU & comportement de secours (avis propriétaire 2026-11-05)** :
     - **1. Capture ALSA directe dans `tc100_rtsp`** : *Accord propriétaire*. Déjà pré-câblé dans `src/tc100rtsp/acap.c` (`RTSP_ALSA_DIRECT=1`, voir #11) ; à valider et passer par défaut une fois testé sans régression sonore.
     - **2. Détection de mouvement matérielle VPU / P-frame stats** : *Rapprochement avec l'existant*. Le propriétaire note à juste titre que c'était déjà proposé (#19 `[md-enc]`, `RTSP_MD_ENC=1`) : l'implémentation existante analyse les écarts de taille de trames P encodées (VPU) plutôt que du CPU pixel diff. À coordonner avec l'évaluation d'un seuil adaptatif VBR et l'essai `[md-enc]`.
     - **3. Gestion getty / console série avec extinction auto 5 min & réveil safe-mode** :
