@@ -1115,7 +1115,7 @@ static void replay(const char *script)
 		else if (!strcmp(p, "night")) { night_iteration(); dprintf(1, "slp=%d\n", SLP); }
 		else if (!strcmp(p, "button")) button_sample(arg[0] == '0');
 		else if (!strcmp(p, "sdreset")) sound_reset();
-		else if (!strcmp(p, "sound")) { int w = sound_iteration(); while (waitpid(-1, NULL, 0) > 0) ; dprintf(1, "wait=%d\n", w); }
+		else if (!strcmp(p, "sound")) { int w = sound_iteration(); while (waitpid(-1, NULL, 0) > 0) {} dprintf(1, "wait=%d\n", w); }
 		else if (!strcmp(p, "echo")) dprintf(1, "%s\n", arg);
 		else if (!strcmp(p, "rm")) unlink(arg);
 		else if (!strcmp(p, "cat")) {

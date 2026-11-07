@@ -46,8 +46,7 @@ for b in busybox isp_flip rwconf setconf tc100-logfwd telegram; do
 	[ -f "bin/$b" ] || { echo "build-stack: bin/$b missing (rwconf and isp_flip are built from src/ by the release build: make -C src/rwconf, see build-kernel-linux66.yml)"; exit 1; }
 	cp "bin/$b" "$T/bin/"
 done
-cp lib/libnetacl.so "$T/lib/"	# the filter for a uClibc program (none in the image since 3.0.1-rc34; kept for tools)
-cp lib/libnetacl-musl.so "$T/lib/"	# the same filter for the musl programs (netacl_exec picks by loader)
+cp lib/libnetacl-musl.so "$T/lib/"	# the filter for the musl programs (busybox telnetd/ftpd; netacl_exec preloads it)
 # what CI compiles
 cp "$PACK/tc100_rtsp" "$PACK/httpfront" "$PACK/tc100-mdnsd" "$PACK/tc100-mqttd" "$PACK/tc100-onvifd" "$T/tc100test/"
 [ -f "$PACK/tc100-supervisord" ] && cp "$PACK/tc100-supervisord" "$T/tc100test/"
@@ -158,7 +157,7 @@ case "${SQFS_BCJ:-arm}" in none) bcj= ;; *) bcj="-Xbcj ${SQFS_BCJ:-arm}" ;; esac
 mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -quiet \
 	-p "bin/busybox s 777 0 0 /bin/busybox" \
 	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py scripts/pcm2alaw.py \
-	scripts/collect-platform-dump.sh v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
+	v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
 	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh \
 	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
 	www/css/ui.css www/css/pico-2.0.6.min.css www/css/pico-shim.css

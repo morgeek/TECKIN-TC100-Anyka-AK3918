@@ -23,9 +23,9 @@ done
 for f in $R/lib/*; do [ -e "$f" ] && [ ! -e "/mnt/lib/${f##*/}" ] && ln -s "$f" "/mnt/lib/${f##*/}"; done
 cp $R/VERSION /mnt/VERSION 2>/dev/null
 mkdir -p /mnt/config; cp -a $R/config/. /mnt/config/ 2>/dev/null
-# defaults: every shipped *.dist becomes the live file until the user changes it (the web server variants stay unused)
+# defaults: every shipped *.dist becomes the live file until the user changes it
 for f in /mnt/config/*.dist; do
-  b=${f%.dist}; case "$b" in */lighttpd*) continue;; esac
+  b=${f%.dist}
   [ -e "$b" ] || cp "$f" "$b"
 done
 mkdir -p /mnt/config/autostart /mnt/config/presets

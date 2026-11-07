@@ -2,9 +2,8 @@
 SERVICE_NAME="Auto Night Detection"
 PIDFILE="/var/run/auto-night-detection.pid"
 
-# Linux 6.6 (3.0): no vendor ISP daemon. scripts/auto-night-daemon.sh switches day/night from the picture
-# luminance that tc100_rtsp writes to /tmp/cam_luma. 2.x: the vendor ISP daemon does it (setconf -k n).
-L66=0; [ -f /tmp/linux66 ] && L66=1
+# Linux 6.6 (3.0): scripts/auto-night-daemon.sh (or tc100-supervisord when SUPERVISOR_IMPL=c) switches day/night
+# from the picture luminance that tc100_rtsp writes to /tmp/cam_luma.
 # SUPERVISOR_IMPL=c (config/boot.conf): the loop runs as a job of tc100-supervisord (scripts/supervisor.sh), which keeps
 # the pid of the daemon in PIDFILE; any failure there starts the shell loop below as before
 [ -f /mnt/scripts/supervisor.sh ] && . /mnt/scripts/supervisor.sh
@@ -17,59 +16,44 @@ daemon_pid()
 
 status()
 {
-  if [ "$L66" = 1 ]; then
-    _p="$(daemon_pid)" && echo "PID: $_p"
-    return
-  fi
-  state=$(/mnt/bin/setconf -g n)
-  if [ "$state" = "2" ]; then
-    echo "PID: OK"
-  fi
+  _p="$(daemon_pid)" && echo "PID: $_p"
 }
 
 start()
 {
-  if [ "$L66" = 1 ]; then
-    /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2 2>/dev/null
-    if [ -z "$(daemon_pid)" ]; then
-      if type sv_start >/dev/null 2>&1 && sv_start night "$PIDFILE" auto-night-detection; then
-        :
-      else
-        /bin/sh /mnt/scripts/auto-night-daemon.sh </dev/null >/dev/null 2>&1 &
-        echo "$!" > "$PIDFILE"
-      fi
+  /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2 2>/dev/null
+  if [ -z "$(daemon_pid)" ]; then
+    if type sv_start >/dev/null 2>&1 && sv_start night "$PIDFILE" auto-night-detection; then
+      :
+    else
+      /bin/sh /mnt/scripts/auto-night-daemon.sh </dev/null >/dev/null 2>&1 &
+      echo "$!" > "$PIDFILE"
     fi
-    return 0
   fi
-  /mnt/bin/setconf -k n -v 2
-  /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 2
+  return 0
 }
 
 stop()
 {
-  if [ "$L66" = 1 ]; then
-    if type sv_stop >/dev/null 2>&1 && [ -e "${SV_RUN:-/var/run}/tc100-sv.night" ]; then
-      sv_stop night "$PIDFILE" auto-night-detection   # a job of the shared daemon: switch it off, never kill the daemon
-    else
-      _p="$(daemon_pid)" && kill "$_p" 2>/dev/null
-    fi
-    rm -f "$PIDFILE"
-    # daynight=3 = the user chose Day or Night by hand: persistent, the next boot does not start the switching.
-    # halt (DN_KEEP_MODE=1) stops the job and leaves the setting alone: an update or an install stops the services
-    # and the camera restarts in automatic mode (rc29, 2026-11-06: since the rc28 ships rwconf, the update's stop
-    # wrote daynight=3 and both cameras came back in manual mode, "auto day/night not started").
-    [ -n "$DN_KEEP_MODE" ] || /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3 2>/dev/null
-    return 0
+  if type sv_stop >/dev/null 2>&1 && [ -e "${SV_RUN:-/var/run}/tc100-sv.night" ]; then
+    sv_stop night "$PIDFILE" auto-night-detection   # a job of the shared daemon: switch it off, never kill the daemon
+  else
+    _p="$(daemon_pid)" && kill "$_p" 2>/dev/null
   fi
-  /mnt/bin/setconf -k n -v 3
-  /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3
+  rm -f "$PIDFILE"
+  # daynight=3 = the user chose Day or Night by hand: persistent, the next boot does not start the switching.
+  # halt (DN_KEEP_MODE=1) stops the job and leaves the setting alone: an update or an install stops the services
+  # and the camera restarts in automatic mode (rc29, 2026-11-06: since the rc28 ships rwconf, the update's stop
+  # wrote daynight=3 and both cameras came back in manual mode, "auto day/night not started").
+  [ -n "$DN_KEEP_MODE" ] || /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " daynight 3 2>/dev/null
+  return 0
 }
 
 health()
 {
   if [ -n "$(status)" ]; then echo "ok: running"; return; fi
   # stopped on purpose: a manual Day / Night choice (daynight=3) is not a fault, but say so (R9-02)
-  if [ "$L66" = 1 ] && grep -q '^daynight=3' /mnt/config/rtspserver.conf 2>/dev/null; then
+  if grep -q '^daynight=3' /mnt/config/rtspserver.conf 2>/dev/null; then
     echo "ok: manual day/night mode (daynight=3), automatic switching off"
   else
     echo "warn: stopped"

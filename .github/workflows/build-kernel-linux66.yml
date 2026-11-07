@@ -214,13 +214,9 @@ jobs:
           cp src/rwconf/rwconf bin/rwconf
           make -C src/logfwd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/logfwd/tc100-logfwd bin/tc100-logfwd
-          # libnetacl: the uClibc build (stand-in libc, for uClibc programs) and the musl build (the base system's busybox
-          # telnetd/ftpd; netacl_exec picks the one of the program's loader)
-          make -C src/netacl CROSS=arm-linux-gnueabi- libnetacl.so >/dev/null
+          # libnetacl-musl: the accept/bind filter for the base system's musl busybox telnetd/ftpd
           make -C src/netacl CROSS=arm-linux-gnueabi- musl >/dev/null
-          cp src/netacl/libnetacl.so lib/libnetacl.so
           cp src/netacl/libnetacl-musl.so lib/libnetacl-musl.so
-          sh tests/check-libc-data-imports.sh src/netacl
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           # audit 2026-11-06 S5: the web JavaScript and inline scripts/styles of the image are minified (esbuild, pinned)
           npm install --prefix src/webui --no-save --no-audit --no-fund esbuild@0.21.5 >/dev/null

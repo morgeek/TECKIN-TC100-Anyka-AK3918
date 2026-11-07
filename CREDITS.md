@@ -21,7 +21,7 @@ camera's own sensor calibration table (`isp.conf`, 69.5 KB) is read by the kerne
 
 Prebuilt ARM programs kept in the repository and copied into the 3.0 image by `v3/build-stack.sh` (uClibc, from the
 2.x era): none any more: `bin/monvifd` (the closed ONVIF daemon) was removed in rc32, the free `tc100-onvifd` replaces it.
-`bin/isp_flip` (freestanding, no C library), `bin/tc100-logfwd` (`src/logfwd`), `lib/libnetacl.so` and `lib/libnetacl-musl.so`
+`bin/isp_flip` (freestanding, no C library), `bin/tc100-logfwd` (`src/logfwd`) and `lib/libnetacl-musl.so`
 (`src/netacl`) are rebuilt from their source by the release build; the copies in `bin/` and `lib/` only serve local builds.
 Since 3.0.1-rc33/rc34, `tc100_rtsp`, `tc100-mqttd`, `tc100-onvifd`, `tc100-supervisord`, `tc100-logfwd`, `rwconf`, and
 `libnetacl-musl.so` are all compiled against the system `musl` C library (`src/musl.mk`), while `httpfront` and `tc100-mdnsd`

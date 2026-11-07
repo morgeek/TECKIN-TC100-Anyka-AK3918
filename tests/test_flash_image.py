@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APPLETS = set((ROOT / 'tests/fixtures/busybox-6.6-applets.txt').read_text().split())
 RUNTIME = ['scripts', 'controlscripts', 'www/cgi-bin', 'v3/linux66-sd', 'bin/setconf', 'v3/autorun-linux66.sh',
            'v3/install/install66.sh', 'v3/install/update66.sh', 'v3/install/inventory.sh', 'v3/install/hwcheck.sh',
-           'v3/install/collect-vendor.sh', 'v3/install/restore-stock.sh']
+           'v3/install/restore-stock.sh']
 
 
 def runtime_files():
@@ -42,8 +42,6 @@ class FlashImage(unittest.TestCase):
     def test_busybox_link_has_the_applets(self):
         calls = set()
         for f, text in runtime_files():
-            if f.name == 'collect-platform-dump.sh':	# stock firmware only, left out of the image
-                continue
             for m in re.finditer(r'(?:/mnt/bin/busybox|run_busybox)\s+([a-z][a-z0-9_.-]*)', text):
                 calls.add(m.group(1))
         calls -= {'return', 'then', 'else', 'fi', 'do', 'done', 'esac'}
@@ -63,8 +61,6 @@ class FlashImage(unittest.TestCase):
         files = list(runtime_files()) + [(ROOT / 'v3/S39tc100-linux66', (ROOT / 'v3/S39tc100-linux66').read_text())]
         bad = []
         for f, text in files:
-            if f.name == 'collect-platform-dump.sh':
-                continue
             for n, line in enumerate(text.splitlines(), 1):
                 if line.lstrip().startswith('#'):
                     continue

@@ -145,9 +145,13 @@ class Inventory(unittest.TestCase):
         self.assertLess(hook.index('INVENTORY-ONLY'), hook.index('envtool" set'))
         inst = (ROOT / 'v3/install/install66.sh').read_text()
         self.assertIn('HWCHECK_FLASH_ID=1', inst.split('check() {')[1].split('\n}')[0])
-        # since 3.0.1-rc35 (item 62.3), neither stock-hook.sh nor install66.sh copies vendor .so libraries
+        # since 3.0.1-rc35 (item 62.3), neither stock-hook.sh nor install66.sh copies vendor .so libraries,
+        # and v3/install/collect-vendor.sh + lib/libnetacl.so are removed from the repository
         self.assertNotIn('collect-vendor.sh', hook)
         self.assertNotIn('collect-vendor.sh', inst)
+        self.assertFalse((ROOT / 'v3/install/collect-vendor.sh').exists())
+        self.assertFalse((ROOT / 'scripts/collect-platform-dump.sh').exists())
+        self.assertFalse((ROOT / 'lib/libnetacl.so').exists())
         # 3.0.1-rc36: install66.sh skips redundant per-partition read-back when restore-stock.sh --check passes
         self.assertIn('restore-stock.sh --check', inst)
         self.assertIn('INSTALL66_FORCE_PART_BACKUP', inst)
