@@ -702,7 +702,7 @@ void akuio_wait_irq(unsigned long arg)
 		int tn;
 
 		gettimeofday(&t1, NULL);
-		tn = snprintf(tb, sizeof tb, "IRQDBG waited %ld us\n", (t1.tv_sec - t0.tv_sec) * 1000000L + (t1.tv_usec - t0.tv_usec));
+		tn = snprintf(tb, sizeof tb, "IRQDBG waited %ld us\n", (long)((t1.tv_sec - t0.tv_sec) * 1000000L + (t1.tv_usec - t0.tv_usec)));
 		(void)!write(2, tb, tn);
 		irqdbg("post");
 	}
