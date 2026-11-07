@@ -2807,3 +2807,21 @@ Choix du propriétaire : tous les essais sur la .11 une fois l'étape 2 écrite.
   `--dry` testé contre `cmdlist.build_list` ; `--run` à essayer.
 - `v3/dev/h265-step2.sh capture | run` : la procédure sur la caméra (vidéo coupée ~1 min, rien en flash).
 - Les captures sont des données du vendeur : jamais dans git.
+
+## 2026-11-07 07:30 UTC — surveillance rc32 jour 1/7 (testeur)
+
+| | .11 (IPCAM2) | .24 (IPCAM1) |
+|---|---|---|
+| Uptime | 15 h 23, aucun redémarrage depuis la rc32 | 15 h 13, aucun |
+| Mémoire libre mini / CMA libre mini | 20 856 / 5 336 Ko | 19 880 / 3 880 Ko |
+| Images perdues | 0 (une ligne `drop2` isolée) | 0 |
+| OOM / segfault (dmesg) | aucun | aucun |
+| Pertes ping (moyenne des relevés) | 10,5 % (24 relevés sur 180 avec pertes) | 8,6 % (20 sur 181) |
+| syslogd + tc100-logfwd | en marche | en marche |
+| Jour/nuit | jour → nuit 00:37 UTC (lumière de la pièce) | nuit 00:21, aube 05:39 jour → 05:55 nuit → 06:15 jour |
+
+- Nuit : 10 fps (cap ≈ 50 / 5 s) comme prévu en basse lumière ; 25 fps de jour.
+- .24 : deux bascules à l'aube (05:39 → 05:55 → 06:15 UTC), sans suite : seuils à revoir peut-être, rien de bloquant.
+- `watch7.sh` : certaines lignes ont `## max nalu size …` (une ligne du journal de `tc100_rtsp`) à la place des champs
+  cap/cl/drop : défaut de l'outil de relevé, pas de la caméra.
+- Carte SD : placeholder RAM sur les deux (`/mnt/sd` tmpfs) ; la carte de démarrage de la .24 n'a pas été remontée.
