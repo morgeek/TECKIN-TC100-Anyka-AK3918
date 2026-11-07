@@ -6,7 +6,7 @@ checks that both agree). boot (U-Boot and the table), mac and env are never writ
   kernel  0x039000, 2 MiB       uImage (oipc.img)
   initrd  0x23b000, 2 MiB       initramfs; U-Boot loads INITRD_SIZE bytes of it (v3/build-rootfs66.sh)
   stack   0x43b000, 0x2b3000    squashfs of the free user space (v3/build-stack.sh, STACK_MAX)
-  vendor  0x6ee000, 1 MiB       squashfs of the camera's own vendor libraries, made at install
+  vendor  0x6ee000, 1 MiB       squashfs of the camera's sensor tuning (isp.conf, ~12 KB; made at install)
   cfga / cfgb                   settings, two slots of 36 KiB
 Usage: flash_budget.py [--kernel FILE] [--initrd FILE] [--stack FILE] [--vendor FILE] [--json]
 Exit status 1 when a file does not fit (refusing is the point: a file larger than its partition would overwrite the

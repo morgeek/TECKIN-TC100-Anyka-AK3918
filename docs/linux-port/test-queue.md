@@ -2958,7 +2958,7 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
 - **À tester ensuite** : plusieurs heures (surveillance comme pour les rc), Frigate réel, enregistrement sur carte SD
   (la .11 n'a pas de carte), ABR, nuit / noir et blanc, puis en faire le défaut dans une rc.
 
-### [freeenc-multires] Free encoder H.264 1080p, H.264/H.265 720p & musl build (`tc100_rtsp-musl`) — `to test`
+### [freeenc-multires] Free encoder H.264 1080p, H.264/H.265 720p & musl build (`tc100_rtsp-musl`) — `passed` (2026-11-07, IPCAM2, see rc34 below)
 - **What:** Item #62 (62.1 & 62.2):
   1. `src/h265enc/freeenc.h` (`fe_open_wh`) and `src/h265enc/listgen.h` now support **H.264 1920x1080**, **H.264 1280x720**, and **H.265 1280x720** in addition to H.265 1920x1080 and H.264 640x360, covering 100% of `tc100_rtsp` main/sub stream combinations under `RTSP_FREE_ENC=1`.
   2. `make -C src/tc100rtsp musl` builds `tc100_rtsp-musl` against `musl 1.2.4` (`src/musl.mk`) with `libakuio.c` linked directly in (no uClibc loader, no `stubs.c`, no `dlopen` of vendor `.so` blobs; `free_enc` turns on automatically when `libakuio` is built in).
@@ -2990,4 +2990,22 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
 - **Retour arrière** : la mise à jour rc33 (le vendeur reste dans la partition vendor, intacte).
 - **À tester après installation** : démarrage depuis la flash, vidéo et son, Frigate, enregistrement SD, nuit / N&B,
   surveillance de plusieurs heures. L'installation neuve (`install66.sh`) copie encore les bibliothèques du vendeur dans
-  la partition vendor (inutilisées) : à simplifier dans une rc suivante (non testable ici sans caméra neuve).
+  la partition vendor (inutilisées) : simplifié dans la `3.0.1-rc35` ci-dessous.
+
+## 2026-11-07 15:30 — 3.0.1-rc35 : installation allégée sans copie des bibliothèques vendeuses (`[novendor-install]`, item 62.3)
+
+- **Décision du propriétaire** : conserver la table de partitions Flash intacte (zéro risque pour `restore-stock.sh`,
+  `cfga`/`cfgb` et les mises à jour OTA) et alléger l'installation en retirant la copie des 15 bibliothèques
+  propriétaires de `stock-hook.sh` et `install66.sh`.
+- **Quoi** :
+  - `v3/install/stock-hook.sh` ne copie plus les 15 bibliothèques `.so` du firmware d'origine vers `lib/` sur la carte SD
+    (seul le fichier de calibration capteur `isp_f23*mipi*.conf` est copié dans `config/`).
+  - `v3/install/install66.sh` construit désormais `vendor.sqfs` uniquement avec `isp.conf` (~12 Ko compressé, 3 secteurs
+    Flash au lieu de ~900 Ko / ~230 secteurs), car `isp.conf` fait 69,5 Ko brut et ne rentre pas dans les slots
+    `cfga`/`cfgb` de 36 Ko (qui l'excluent volontairement).
+  - Pour les caméras déjà en Flash (`.11`, `.24`), la mise à jour web `tc100-3.0.1-rc35-update.tar` met à jour `stack`,
+    `kernel` et `initrd` tout en continuant de lire `/vendor/isp.conf` en lecture seule depuis la partition `vendor`.
+- **Interrupteur** : revenir au commit précédent de `v3/install/{stock-hook,install66}.sh` si l'on souhaitait restaurer
+  les bibliothèques vendeuses lors d'une installation SD.
+- **Test** : vérification CI complète (`tests`, `build-kernel-linux66.yml`, génération de `tc100-3.0.1-rc35-update.tar`
+  et `tc100-3.0.1-rc35-sd.zip`).

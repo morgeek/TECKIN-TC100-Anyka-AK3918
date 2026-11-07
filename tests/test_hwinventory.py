@@ -145,6 +145,9 @@ class Inventory(unittest.TestCase):
         self.assertLess(hook.index('INVENTORY-ONLY'), hook.index('envtool" set'))
         inst = (ROOT / 'v3/install/install66.sh').read_text()
         self.assertIn('HWCHECK_FLASH_ID=1', inst.split('check() {')[1].split('\n}')[0])
+        # since 3.0.1-rc35 (item 62.3), neither stock-hook.sh nor install66.sh copies vendor .so libraries
+        self.assertNotIn('collect-vendor.sh', hook)
+        self.assertNotIn('collect-vendor.sh', inst)
         for f in (INV, HW):
             src = f.read_text()
             for w in ('flashcp', 'flash_erase ', 'flash_eraseall', 'fw_setenv', 'mtd_debug', 'envtool', 'of=/dev', 'of=$DEV', 'of=$B'):

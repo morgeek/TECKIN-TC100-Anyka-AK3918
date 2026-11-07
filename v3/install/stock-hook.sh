@@ -7,8 +7,9 @@
 #      U-Boot and the stock root filesystem when tc100-3/known-stock.txt lists them), and that the U-Boot
 #      environment reads correctly and has the stock "boot_normal" command;
 #   2. saves the whole flash (8 MiB) on the card: tc100-3/backup/flash-stock.bin (read twice, md5 compared);
-#   3. copies the camera's own vendor libraries (uClibc runtime, video encoder) into lib/ of the card: the 3.0
-#      firmware needs them and they are never published;
+#   3. copies the camera's sensor tuning file (isp_f23*mipi*.conf) into config/ of the card: the 3.0 image processor
+#      needs it for this sensor's colours and exposure, and no vendor library is needed since 3.0.1-rc34 (tc100_rtsp is
+#      a musl program with the free encoder);
 #   4. adds the 3.0 boot commands to the U-Boot environment (tc100-3/envtool, environment backed up first):
 #        bootcmd = run sdload sdboot; run flashcheck flashboot; run boot_normal
 #      sdload/sdboot start Linux 6.6 from this card (tc100test/c66.img); flashcheck/flashboot start the 3.0 firmware
@@ -69,7 +70,7 @@ BC=$C/v3/board/${hw#board=}.conf
 bconf() { awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' "$BC"; }
 ISP_GLOB=$(bconf ISP_STOCK_GLOB); ISP_NAME=$(bconf ISP_CONF)
 [ -f "$K/stage1.done" ] && stop "step 1 was already done ($K/stage1.done): the camera should start from the card. Check that tc100test/c66.img is on it."
-for f in "$K/envtool" "$C/tc100test/c66.img" "$C/tc100test/c66rd.gz" "$C/v3/install/collect-vendor.sh"; do
+for f in "$K/envtool" "$C/tc100test/c66.img" "$C/tc100test/c66rd.gz"; do
 	[ -f "$f" ] || stop "$f is missing from the card (copy the whole 3.0 package)"
 done
 for f in c66.img c66rd.gz; do
@@ -112,17 +113,15 @@ a=$(md5 < "$K/backup/flash-stock.bin"); b=$(dd if=${MTD}0 bs=65536 2>/dev/null |
 echo "$a  flash-stock.bin" > "$K/backup/flash-stock.bin.md5"
 say "flash saved, md5 $a. KEEP IT: it is the way back to the system the camera had before 3.0 ($usrkind), and it holds vendor files: do not publish it."
 
-# 3. Vendor libraries of this camera, for the 3.0 firmware
-sh "$C/v3/install/collect-vendor.sh" / "$C/lib" >> "$LOG" 2>&1 || stop "the camera's libraries could not be copied to the card"
-sync
-say "vendor libraries copied to lib/"
-# the sensor tuning of this camera (colours, exposure): without it the image processor sends no picture
+# 3. Sensor tuning of this camera (colours, exposure): without it the image processor runs untuned (green/magenta cast).
+#    No vendor library is copied since 3.0.1-rc35 (tc100_rtsp is a musl program with the free encoder).
 mkdir -p "$C/config"
 ISP_GLOB=${ISP_GLOB:-isp_f23*mipi*.conf}; ISP_NAME=${ISP_NAME:-isp_f23_mipi_2lane.conf}
 if [ ! -f "$C/config/$ISP_NAME" ]; then
 	I=$(find /etc /usr -name "$ISP_GLOB" 2>/dev/null | head -n 1)
 	[ -n "$I" ] || stop "the sensor tuning file of the camera ($ISP_GLOB) was not found"
 	cp "$I" "$C/config/$ISP_NAME" || stop "the sensor tuning file could not be copied to the card"
+	sync
 	say "sensor tuning copied from $I"
 fi
 

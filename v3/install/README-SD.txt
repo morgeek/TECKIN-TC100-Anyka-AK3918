@@ -19,7 +19,8 @@ What it does, step by step
    - checks the camera (partition table, the stock /usr of firmware V1.1.41, U-Boot environment);
    - saves the WHOLE flash on the card: tc100-3/backup/flash-stock.bin. Keep this file somewhere safe: it is
      your way back to the stock firmware. It holds vendor files: do not publish it;
-   - copies the camera's own libraries (uClibc, video encoder) to lib/ on the card;
+   - copies the camera's sensor tuning file (isp_f23*mipi*.conf) to config/ on the card (no vendor library is
+     needed or copied since 3.0.1-rc35);
    - adds the 3.0 start commands to the U-Boot settings (the stock start stays as the fallback);
    - restarts. Progress and any reason to stop: tc100-3/STATUS.txt.
    This takes about 2 minutes, with the blue LED blinking. If anything looks wrong, nothing is written, the

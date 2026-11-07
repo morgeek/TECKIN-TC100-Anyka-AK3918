@@ -3,7 +3,7 @@
 #
 # Runs on Linux 6.6 started from the card (U-Boot sdload/sdboot: tc100test/c66.img). Writes, with flashw (allow-list,
 # partition saved to tc100-3/backup first, md5 of each image checked before and after):
-#   vendor  a squashfs of this camera's own vendor libraries (made here from lib/ of the card)
+#   vendor  a squashfs of this camera's sensor tuning file (isp.conf, ~12 KB; no vendor libraries since 3.0.1-rc35)
 #   stack   tc100-3/stack.sqfs, the free user space
 #   kernel  tc100test/c66.img
 #   initrd  tc100test/c66rd.gz, last: U-Boot's flashcheck starts the flash system only once this area holds it
@@ -49,7 +49,6 @@ check() {
 	[ -s /tmp/inventory.txt ] || sh $V/install/inventory.sh --quick > /tmp/inventory.txt 2>/dev/null
 	hw=$(HWCHECK_FLASH_ID=1 sh $V/install/hwcheck.sh /tmp/inventory.txt $V/board) || { echo "this camera is not a TC100 variant the firmware knows ($hw); nothing is written. Please send the page http://<camera>/cgi-bin/inventory.cgi in a GitHub issue (Hardware inventory)"; return 1; }
 	isp_src >/dev/null || { echo "the sensor tuning file of the camera is missing (config/isp_f23_mipi_2lane.conf on the card)"; return 1; }
-	sh $V/install/collect-vendor.sh -c /mnt/lib >/dev/null || { echo "the camera's vendor libraries are not all in lib/ of the card (step 1 not done?)"; return 1; }
 	echo ok
 }
 
@@ -63,9 +62,9 @@ mkdir -p "$K/backup"
 r=$(check) || fail "$r"
 say "install to flash: start ($(cat /mnt/VERSION 2>/dev/null))"
 
-# the vendor partition image, built on the card (not in RAM)
-W=$K/vendor-build; rm -rf "$W"; mkdir -p "$W/root/lib"
-sh $V/install/collect-vendor.sh /mnt/lib "$W/root/lib" >> "$LOG" 2>&1 || fail "vendor libraries"
+# the vendor partition image, built on the card (not in RAM): holds only this camera's sensor tuning (isp.conf, ~12 KB
+# compressed; no vendor libraries are needed or packaged since 3.0.1-rc35)
+W=$K/vendor-build; rm -rf "$W"; mkdir -p "$W/root"
 cp "$(isp_src)" "$W/root/isp.conf" || fail "sensor tuning"
 if /mnt/ext/bin/mksquashfs "$W/root" "$K/vendor.new" -comp xz -b 256K -noappend -all-root -quiet -processors 1 -mem 8M >> "$LOG" 2>&1; then
 	mv -f "$K/vendor.new" "$K/vendor.sqfs"; rm -f "$K/vendor.sqfs.prebuilt"

@@ -1,9 +1,10 @@
 # Installing 3.0 on a TECKIN TC100 (SD card trial, flash install, updates)
 
 Since 2026-10-26 the whole 3.0 firmware is built from git by CI (artifact `tc100-3-release`): an SD card package
-`tc100-<version>-sd.zip` and a web update `tc100-<version>-update.tar`. No vendor file is published: the few vendor
-libraries 3.0 needs (the uClibc runtime of the stock toolchain and the video encoder control libraries) are copied
-from each camera's own stock firmware at install time.
+`tc100-<version>-sd.zip` and a web update `tc100-<version>-update.tar`. No vendor file is published, and since
+`3.0.1-rc34` / `3.0.1-rc35` no vendor library is used or copied at install time (`tc100_rtsp` is a musl program with
+the free hardware encoder): only the camera's sensor tuning file (`isp.conf`, ~12 KB compressed) is copied from the
+stock firmware.
 
 ## Flash layout (8 MiB, 4 KiB erase)
 
@@ -15,7 +16,7 @@ from each camera's own stock firmware at install time.
 | `env` | 0x23a000 | 4 KiB | U-Boot environment | once, from the stock firmware (`envtool`) |
 | `initrd` | 0x23b000 | 2 MiB | xz initramfs padded to 2,012,654 bytes | install, update (last) |
 | `stack` | 0x43b000 | 2.7 MiB | squashfs of the free user space (`v3/build-stack.sh`) | install, update |
-| `vendor` | 0x6ee000 | 1 MiB | squashfs of this camera's vendor libraries | install (made on the camera) |
+| `vendor` | 0x6ee000 | 1 MiB | squashfs of this camera's sensor tuning (`isp.conf`, ~12 KB) | install (made on the camera) |
 | `cfga`, `cfgb` | 0x7ee000, 0x7f7000 | 36 KiB each | settings (`cfg-persist`) | at each settings change |
 
 `initrd` + `stack` + `vendor` are exactly the stock partitions A, B and C. `stack` and `vendor` were one 3.7 MiB
@@ -29,8 +30,8 @@ from each camera's own stock firmware at install time.
 2. **Stock firmware, once** (`v3/install/stock-hook.sh`, run by the vendor's factory test hook
    `wifitest/wifi_test.sh`): checks the camera (partition table; md5 of the stock `/usr` V1.1.41; md5 of U-Boot and
    of the stock root when `known-stock.txt` lists them; the U-Boot environment reads and has `boot_normal`), saves
-   the whole flash to `tc100-3/backup/flash-stock.bin` (read twice), copies the vendor libraries to `lib/` on the
-   card (`v3/install/collect-vendor.sh`), then adds to the U-Boot environment (`envtool`, environment saved first,
+   the whole flash to `tc100-3/backup/flash-stock.bin` (read twice), copies the sensor tuning file (`isp_f23*mipi*.conf`)
+   to `config/` on the card, then adds to the U-Boot environment (`envtool`, environment saved first,
    written, read back, restored on a difference):
    ```
    sdload=fatload mmc 0 0x82000000 tc100test/c66.img; fatload mmc 0 0x81000000 tc100test/c66rd.gz
@@ -43,7 +44,7 @@ from each camera's own stock firmware at install time.
    there, so before the install (and after a return to stock) it fails and `boot_normal`, the stock start, runs.
    `run a b` stops at the first command that fails, which this U-Boot already showed with `sdload`.
 3. **First start from the card**: U-Boot starts Linux 6.6 from the card; the user space runs from the card with
-   the vendor libraries in `lib/`. Nothing of 3.0 is in the flash yet. `v3/install/auto-install.sh` (autorun step
+   the camera's sensor tuning in `config/`. Nothing of 3.0 is in the flash yet. `v3/install/auto-install.sh` (autorun step
    12f, 20 s after the services) then installs by itself when the card is fresh from the hook (`stage1.done`), the
    flash does not hold 3.0 yet (no xz magic in `initrd`) and it has not tried on this card before
    (`auto-install.tried`, written before anything else): `restore-stock.sh --check` (the copy of the flash on the
@@ -52,7 +53,7 @@ from each camera's own stock firmware at install time.
    red LED, the reason in `tc100-3/STATUS.txt`, the camera stays in trial mode. `ESSAI.txt` / `TRIAL.txt` at the root
    of the card keeps the trial mode; the startup chime is kept for the start from the flash.
 4. **Install to flash** (automatic in step 3, or Settings -> Update & backup, `v3/install/install66.sh`): builds `vendor.sqfs` on the card
-   from `lib/` (mksquashfs from the Buildroot base), then writes with `flashw` (allow-list, each partition saved to
+   with this camera's `isp.conf` (~12 KB; mksquashfs from the Buildroot base), then writes with `flashw` (allow-list, each partition saved to
    `tc100-3/backup` first, md5 checked before and after) `vendor`, `stack`, `kernel` and `initrd` last, copies the
    settings of the card into `cfga`/`cfgb`, renames `tc100test/c66.img` to `c66.img.installed` and restarts.
 

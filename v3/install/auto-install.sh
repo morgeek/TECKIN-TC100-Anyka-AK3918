@@ -15,7 +15,7 @@
 #   - the copy of the original flash is on the card, 8 MiB, matches its md5 read again now (the card kept it across
 #     the restart), and its U-Boot and mac areas are this camera's (restore-stock.sh --check): the way back exists;
 #   - install66.sh check: the kernel's flash layout, the package files and their md5, the board profile with the
-#     sensor id and the flash chip id, the sensor tuning, the vendor libraries;
+#     sensor id and the flash chip id, the sensor tuning;
 #   - the picture: the video server runs and the image processor delivers frames (/tmp/cam_luma renewed) for 30 s.
 # A flash that already holds 3.0 (an xz image in "initrd": a test card booted by hand, a reinstall) is never
 # written here: that is the web update's job.

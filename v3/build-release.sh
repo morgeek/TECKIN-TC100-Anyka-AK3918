@@ -5,7 +5,7 @@
 #   INITRD    initramfs from v3/build-rootfs66.sh (xz, padded) -> tc100test/c66rd.gz
 #   ENVTOOL   v3/install/envtool.c built static for ARM
 #   OUT       gets tc100-<version>-sd.zip (everything for the SD card) and tc100-<version>-update.tar (the web update)
-# Only free files: the vendor libraries come from each camera at install (v3/install).
+# Only free files: the camera's sensor tuning (isp.conf) comes from each camera at install (v3/install; no vendor libraries since 3.0.1-rc34).
 set -eu
 S=${1:?usage: build-release.sh STACKOUT KERNEL INITRD ENVTOOL OUT}; K=${2:?kernel}; I=${3:?initrd}; E=${4:?envtool}; OUT=${5:?out}
 REPO=$(cd "$(dirname "$0")/.." && pwd)

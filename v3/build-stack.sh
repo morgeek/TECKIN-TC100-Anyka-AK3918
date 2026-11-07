@@ -7,8 +7,8 @@
 #     OUT   gets tree/ (the user space as plain files, also what goes on the SD card) and stack.sqfs (+ .md5),
 #           the image of the flash partition "stack"
 #
-# No vendor file goes in: the uClibc runtime and the encoder libraries come from the user's own camera at install
-# time (partition "vendor", or lib/ on the card; see v3/install/). Every file is a plain file (no symbolic links),
+# No vendor file goes in: only the camera's sensor tuning (isp.conf) comes from the user's own camera at install
+# time (partition "vendor", or config/ on the card; see v3/install/; no vendor library is used since 3.0.1-rc34). Every file is a plain file (no symbolic links),
 # so the same tree can be copied to a FAT card. Needs: cpio, gzip, xz, mksquashfs, and readelf (READELF, default
 # arm-linux-gnueabi-readelf).
 set -eu

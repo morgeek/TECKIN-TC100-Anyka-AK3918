@@ -7,6 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc35] - 2026-11-07
+
+Completes item #62.3 after confirming `3.0.1-rc34` stability on IPCAM2 (`.11`), following the owner's choice to lighten
+the installation rather than change the flash partition table:
+- **Zero vendor libraries copied or flashed on new installs (`[novendor-install]`, item 62.3)**:
+  - `v3/install/stock-hook.sh` (step 1 on the stock firmware) no longer requires or calls `collect-vendor.sh`; it only
+    copies the camera's sensor calibration file (`isp_f23*mipi*.conf`) to `config/` on the SD card, saving ~2.5 MB of
+    SD card I/O during stage 1.
+  - `v3/install/install66.sh` (step 2, install to flash) no longer checks or packages the 15 proprietary `.so` libraries
+    into `vendor.sqfs`; `vendor.sqfs` now holds **only** the sensor calibration file (`isp.conf`, ~69.5 KB raw, ~12 KB
+    compressed in SquashFS XZ vs. ~900 KB previously, writing in 3 flash erase blocks / < 1 s instead of ~230 blocks).
+  - The flash partition table (`patches/kernel-6.6/series/0010-spi-*.patch`) is kept unchanged so `restore-stock.sh`
+    (`flash-stock.bin`), `cfga`/`cfgb` settings slots (36 KB each, which intentionally exclude the 69.5 KB `isp.conf`),
+    and web OTA updates (`update66.sh`) remain 100% compatible across all cameras without touching U-Boot or moving
+    partitions.
+
 ## [3.0.1-rc34] - 2026-11-07
 
 The rc33 plus everything committed after it, with the owner's request: "tous les derniers commits, l'encodeur libre
