@@ -4,6 +4,6 @@
   "description": "Build steps of the web UI (not shipped to the camera): the minification of the build tree (v3/build-stack.sh).",
   "type": "module",
   "devDependencies": {
-    "esbuild": "0.21.5"
+    "esbuild": "0.28.1"
   }
 }
