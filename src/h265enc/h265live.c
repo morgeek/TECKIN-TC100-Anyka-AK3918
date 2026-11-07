@@ -39,7 +39,9 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <unistd.h>
+#ifndef H265LIVE_NO_DEVICE
 #include <linux/videodev2.h>
+#endif
 
 #include "slicehdr.h"
 #include "rc.h"

@@ -142,6 +142,24 @@ PROFILE_H264_360P = {
     'sp_8a': 3200, 'sp_90_m1': 39, 'sp_b8': 0xffffffff, 'sp_8a_b': 3200, 'sp_cf': 1, 'sp_1c_b': 1, 'sp_1d_b': 1,
     'sp_28_b': 1, 'half_width_8px_m1': 39, 'sp_d4_m1': 919,
 }
+
+PROFILE_H264_720P = {
+    'sp_00': 1, 'sp_01': 1, 'sp_05': 3, 'sp_06': 4, 'sp_07_m4': 7, 'last_entry': 1, 'width_8px_m1': 159,
+    'height_8px_m1': 89, 'sp_16': 8, 'sp_17': 8, 'sp_19': 5, 'sp_1c': 1, 'sp_1d_bit13_forced_1': 5, 'sp_24': 1,
+    'sp_28': 1, 'sp_34': 1, 'sp_3b': 1, 'sp_50_zero': 1, 'sp_45': 31, 'sp_46': 63, 'sp_4a': 1, 'sp_58_rem': 79,
+    'sp_58_quot': 44, 'sp_5e_m1': 79, 'sp_60_m1': 44, 'sp_67': 1, 'sp_83': 1, 'sp_84': 1, 'sp_85': 1, 'sp_86': 1,
+    'sp_8a': 6400, 'sp_90_m1': 79, 'sp_b8': 0xffffffff, 'sp_8a_b': 6400, 'sp_cf': 1, 'sp_1c_b': 1, 'sp_1d_b': 1,
+    'sp_28_b': 1, 'half_width_8px_m1': 79, 'sp_d4_m1': 3599,
+}
+
+PROFILE_H264_1080P = {
+    'sp_00': 1, 'sp_01': 1, 'sp_05': 3, 'sp_06': 4, 'sp_07_m4': 7, 'last_entry': 1, 'width_8px_m1': 239,
+    'height_8px_m1': 134, 'sp_16': 8, 'sp_17': 8, 'sp_19': 5, 'sp_1c': 1, 'sp_1d_bit13_forced_1': 5, 'sp_24': 1,
+    'sp_28': 1, 'sp_34': 1, 'sp_3b': 1, 'sp_50_zero': 1, 'sp_45': 31, 'sp_46': 63, 'sp_4a': 1, 'sp_58_rem': 119,
+    'sp_58_quot': 67, 'sp_5e_m1': 119, 'sp_60_m1': 67, 'sp_67': 1, 'sp_83': 1, 'sp_84': 1, 'sp_85': 1, 'sp_86': 1,
+    'sp_8a': 9600, 'sp_90_m1': 119, 'sp_b8': 0xffffffff, 'sp_8a_b': 9600, 'sp_cf': 1, 'sp_1c_b': 1, 'sp_1d_b': 1,
+    'sp_28_b': 1, 'half_width_8px_m1': 119, 'sp_d4_m1': 8159,
+}
 H264_IDR_FIELDS = {'sp_40': 2, 'sp_40_b': 2, 'sp_6c_m1': 7, 'sp_6e_m1': 7, 'sp_bc_6_m1': 1023, 'sp_be_3_m1': 1023}
 H264_P_FIELDS = {'sp_40': 1, 'sp_40_b': 1, 'sp_6c_m1': 1, 'sp_6e_m1': 1, 'sp_bc_6_m1': 31, 'sp_be_3_m1': 27}
 

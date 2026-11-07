@@ -26,15 +26,20 @@ def main():
     out += ['};', '', 'static const uint32_t LISTGEN_P[32] = {']
     out += ['\t' + ', '.join('0x%08x' % x for x in wp[i:i + 8]) + ',' for i in range(0, 32, 8)]
     out += ['};', '']
-    base = dict(c.PROFILE_H264_360P)
-    idr = dict(base); idr.update(c.H264_IDR_FIELDS)
-    p = dict(base); p.update(c.H264_P_FIELDS)
-    for name, f in (('LISTGEN_H264_IDR', idr), ('LISTGEN_H264_P', p)):
-        w = words(f)
-        out += ['/* 640x360 H.264 (the sub stream), qp = 0, sp_8c = 0, sp_d8 = 0, POC 0 */',
-                'static const uint32_t %s[32] = {' % name]
-        out += ['\t' + ', '.join('0x%08x' % x for x in w[i:i + 8]) + ',' for i in range(0, 32, 8)]
-        out += ['};', '']
+    for label, res_name, prof in (
+        ('640x360 H.264 (the sub stream)', 'H264', c.PROFILE_H264_360P),
+        ('1280x720 H.264', 'H264_720P', c.PROFILE_H264_720P),
+        ('1920x1080 H.264 (the main stream)', 'H264_1080P', c.PROFILE_H264_1080P),
+    ):
+        base = dict(prof)
+        idr = dict(base); idr.update(c.H264_IDR_FIELDS)
+        p = dict(base); p.update(c.H264_P_FIELDS)
+        for name, f in ((f'LISTGEN_{res_name}_IDR', idr), (f'LISTGEN_{res_name}_P', p)):
+            w = words(f)
+            out += [f'/* {label}, qp = 0, sp_8c = 0, sp_d8 = 0, POC 0 */',
+                    'static const uint32_t %s[32] = {' % name]
+            out += ['\t' + ', '.join('0x%08x' % x for x in w[i:i + 8]) + ',' for i in range(0, 32, 8)]
+            out += ['};', '']
     out += ['#endif', '']
     sys.stdout.write('\n'.join(out))
 

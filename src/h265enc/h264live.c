@@ -33,16 +33,15 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <unistd.h>
+#ifndef H265LIVE_NO_DEVICE
 #include <linux/videodev2.h>
+#include "../libakuio/ak39_venc.h"
+#endif
 
 #include "avc.h"
 #include "rc.h"
 #include "listgen.h"
 #include "worktab.h"
-
-#ifndef H265LIVE_NO_DEVICE
-#include "../libakuio/ak39_venc.h"
-#endif
 
 #define W 640
 #define H 360

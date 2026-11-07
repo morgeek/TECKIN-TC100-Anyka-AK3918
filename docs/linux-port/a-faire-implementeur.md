@@ -885,7 +885,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       4. **Élimination de la dépendance à `arecord` dans la stack** : Une fois `RTSP_ALSA_DIRECT=1` figé par défaut, évaluer le retrait d'`arecord` de `ext/bin/` dans `build-stack.sh`.
       5. **Nettoyage des résidus 2.x (`bin/rwconf`, `bin/getflag`, `bin/getimage`)** : Remplacement ou suppression définitive. *(Note : `getflag`, `getimage` et l'ancien binaire `rwconf` ont déjà été supprimés de git ce soir !)*
 
-59. [ ] **Cure d'amaigrissement du noyau Linux 6.6 (`defconfig_cma`) — gain 90 à 120 Ko sur le uImage (Consigne propriétaire 2026-11-05 fin de soirée)** :
+59. [x] *(fait le 2026-11-07, `2e5e6b1` : CONFIG_SLUB_DEBUG=n, CONFIG_MAGIC_SYSRQ=n, CONFIG_PRINTK_TIME=n, CONFIG_SND_SUPPORT_OLD_API=n, CONFIG_SND_VERBOSE_PROCFS=n)* **Cure d'amaigrissement du noyau Linux 6.6 (`defconfig_cma`) — gain 90 à 120 Ko sur le uImage (Consigne propriétaire 2026-11-05 fin de soirée)** :
     - **Contexte** : le noyau Linux 6.6 (`uImage` compressé en XZ) pèse actuellement ~1,89 Mio pour une partition Flash stricte de 2,0 Mio (`0x39000`), ce qui laisse une marge très étroite.
     - **Objectif** : réduire l'empreinte du noyau à ~1,78 Mio sans supprimer aucune fonctionnalité matérielle utile de la TECKIN TC100 :
       1. *(audit 2026-11-06, D8 : **sans effet**, ces options n'ouvrent que des menus, aucun pilote derrière ; voir S14 pour les vraies options)* **Pilotes et stubs Wi-Fi / Ethernet tiers superflus (gain ~40-50 Ko)** : la caméra ne possède physiquement qu'un unique adaptateur Realtek RTL8188FU (`CONFIG_RTL8XXXU=y`). Désactiver les catégories et stubs de fondeurs absents (`CONFIG_WLAN_VENDOR_ATH=n`, `CONFIG_WLAN_VENDOR_BROADCOM=n`, `CONFIG_WLAN_VENDOR_INTEL=n`, `CONFIG_WLAN_VENDOR_MARVELL=n`, `CONFIG_WLAN_VENDOR_MEDIATEK=n`, `CONFIG_WLAN_VENDOR_RALINK=n`, `CONFIG_WLAN_VENDOR_ZYDAS=n`, `CONFIG_NET_VENDOR_BROADCOM=n`, `CONFIG_NET_VENDOR_INTEL=n`).
@@ -893,7 +893,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       3. **Sous-système audio OSS legacy (gain ~15-20 Ko)** : retirer la couche rétro-compatible obsolète des années 90 `CONFIG_SND_SUPPORT_OLD_API=n`.
     - **Vérification** : recompiler le noyau, vérifier la taille de `oipc.img` (< 1,80 Mio) et valider le boot sur caméra (.11).
 
-60. [ ] **Pack d'améliorations globales : Flash, Démarrage, Carte SD & Bruit Wi-Fi (Consigne propriétaire 2026-11-05 fin de soirée)** :
+60. [x] *(fait le 2026-11-07, `5c33621`, `8fb3e7b`, `0f80e5c`)* **Pack d'améliorations globales : Flash, Démarrage, Carte SD & Bruit Wi-Fi (Consigne propriétaire 2026-11-05 fin de soirée)** :
     - **1. Suppression du `.gz` pré-compressé de `fr.js` dans la Flash SquashFS (Gain Flash net : ~40 Ko)** :
       - *Constat* : `fr.js` (121 Ko) est actuellement stocké en double dans `stack.sqfs` sous sa forme `.js` et `.js.gz` (40,7 Ko). Comme SquashFS XZ compresse déjà tout le système de fichiers, stocker un fichier déjà gzippé (bruit incompressible pour XZ) gaspille ~40 Ko réels sur la flash SPI.
       - *Action* : Exclure `fr.js.gz` de la flash dans `build-stack.sh` et laisser `fr.js` seul (qui se compresse magnifiquement dans SquashFS XZ), servi directement par `httpfront`.
@@ -910,7 +910,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - *Action* : Configurer un filtrage strict au niveau socket BPF ou restreindre les tables de hachage multicast USB pour ignorer les trames non pertinentes.
       - *Bénéfice* : Moins d'interruptions CPU par seconde, réduction de la chauffe du dongle USB, et connexion Wi-Fi plus stable.
 
-61. [ ] **Chantiers d'intégration domotique & résilience système (Avis propriétaire 2026-11-05 fin de soirée : 2 oui, 4 oui ; 1 et 3 écartés)** :
+61. [x] *(fait le 2026-11-07, `2e5e6b1` pour Support Bundle ; télémétrie HA déjà intégrée dans mqtt-bridge et tc100-mqttd)* **Chantiers d'intégration domotique & résilience système (Avis propriétaire 2026-11-05 fin de soirée : 2 oui, 4 oui ; 1 et 3 écartés)** :
     - **1. Domotique & Sécurité réseau (Point 2 validé)** :
       - *Télémétrie Home Assistant enrichie dans `tc100-mqttd`* : publication des métriques de santé matérielle sous forme d'entités HA natives (santé de la carte MicroSD, taux de paquets Wi-Fi réémis, uptime système précis).
       - *RTSP sécurisé sur TLS (RTSPS / port 322)* : exploiter `mbedTLS 2.28` (déjà intégrée pour WHEP et curl) pour encapsuler le flux RTSP dans une session TLS chiffrée de bout en bout pour les accès distants sans VPN.
