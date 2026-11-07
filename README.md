@@ -18,10 +18,11 @@ the camera.
 
 ## What you get
 
-- **100% free hardware video encoding (3.0.1-rc33)**: live H.265 (1080p) and H.264 (360p) streams encoded directly on the
-  ASIC core without proprietary vendor libraries, running under the system's native `musl` C library.
-- **Video over RTSP**: a 1080p main stream (H.265 or H.264) and a 640x360 sub-stream for detection, over TCP or UDP, with
-  the microphone as an audio track.
+- **100% free hardware video encoding**: live H.265 and H.264 main streams (1080p or 720p), 640x360 H.264 sub-stream, and
+  hardware JPEG snapshots encoded directly on the ASIC core without a single proprietary vendor library, running under the
+  system's native `musl` C library.
+- **Video over RTSP**: a 1080p or 720p main stream (H.265 or H.264) and a 640x360 sub-stream for detection, over TCP or UDP, with
+  the microphone as a direct ALSA audio track.
   `rtsp://CAMERA-IP:554/video0_unicast` (main) and `rtsp://CAMERA-IP:554/video1_unicast` (sub).
 - **Live view in the browser**: low-latency WebRTC (WHEP) when the browser supports it, otherwise smooth HTML5 video;
   a 2x2 multi-view page for up to 4 cameras; still pictures for Home Assistant.
@@ -102,7 +103,7 @@ and [docs/api.md](docs/api.md). Two-way audio: [docs/two-way-audio.md](docs/two-
 
 - Plain **HTTP only** on the camera (a login, but no HTTPS): use it on your own network, never forward its ports from
   the internet. For HTTPS put a [reverse proxy](docs/linux-port/internals.md#https-with-a-reverse-proxy) in front.
-- No VPN, no resolution change (1080p and 640x360), no card formatting from the web page, no encoder smart mode.
+- No VPN, no card formatting from the web page, no encoder smart mode (1080p and 720p main stream + 640x360 sub-stream are supported).
 - Only one hardware variant is known so far (JX-F23 sensor, RTL8188FU Wi-Fi, 8 MiB flash):
   [hardware variants](docs/hardware-variants.md).
 - Push-to-talk and two-way audio through the speaker are not yet checked on a camera.

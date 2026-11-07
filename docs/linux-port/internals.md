@@ -16,9 +16,10 @@ Contents: [Full feature list](#full-feature-list) - [How the SD install works, a
 ## Full feature list
 
 **Video**
-- Two RTSP streams: main 1080p H.265 or H.264 (10 to 25 fps, 15 by default; constant or variable bit rate), and a
-  640x360 sub-stream for detection made by the image processor's own scaler (`rtsp://CAMERA-IP:554/video0_unicast` and
-  `video1_unicast`), over TCP or UDP, with the microphone as a direct ALSA G.711 track (no CPU overhead). The sub-stream can be turned off when no
+- Two RTSP streams: main 1080p or 720p H.265 or H.264 (10 to 25 fps, 15 by default; constant or variable bit rate), and a
+  640x360 H.264 sub-stream for detection made by the image processor's own scaler (`rtsp://CAMERA-IP:554/video0_unicast` and
+  `video1_unicast`), over TCP or UDP, with the microphone as a direct ALSA G.711 track (no CPU overhead), all encoded directly
+  on the hardware ASIC by the free encoder (`src/h265enc/freeenc.h`). The sub-stream can be turned off when no
   recorder uses it.
 - **WebRTC / WHEP ultra-low-latency streaming**: native browser streaming (< 150 ms delay) via dedicated C daemon (`tc100-whep`) with hardware-accelerated SRTP encryption (AES-128-CM / HMAC-SHA1).
 - **Smooth HTML5 live video**: native low-latency H.264 fMP4 / MediaSource video streaming in the browser
@@ -80,8 +81,8 @@ Contents: [Full feature list](#full-feature-list) - [How the SD install works, a
   CSRF protection and only the local network may connect by default (web page, RTSP, telnet, FTP; not ssh).
 
 **What 3.0 does not do**: HTTPS on the camera (it serves plain HTTP with a login; put a
-[reverse proxy](#https-with-a-reverse-proxy) in front of it), a VPN, resolution changes (1080p and
-640x360), card formatting from the web page, the encoder's smart mode (it stops the encoder with the memory left on
+[reverse proxy](#https-with-a-reverse-proxy) in front of it), a VPN, arbitrary custom resolutions beyond 1080p/720p main and
+640x360 sub, card formatting from the web page, the encoder's smart mode (it stops the encoder with the memory left on
 this camera). Not yet checked on a camera: push-to-talk and two-way audio through the speaker (the speaker itself
 works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). What is known
 not to be perfect yet: [known issues](../known-issues.md).
@@ -368,7 +369,7 @@ Remake them with `python3 src/webui/screenshots/shots.py docs/screenshots` (Play
 | `env` | 0x23a000 | 4 KiB | U-Boot environment: the 3.0 start commands are added once, from the stock firmware; read-only for Linux 6.6 |
 | `initrd` | 0x23b000 | 2 MiB | xz initramfs, padded to 2,012,654 bytes |
 | `stack` | 0x43b000 | 2.7 MiB | squashfs (xz) of the free user space |
-| `vendor` | 0x6ee000 | 1 MiB | squashfs of this camera's own vendor libraries, made at install |
+| `vendor` | 0x6ee000 | 1 MiB | squashfs of this camera's sensor tuning (`isp.conf`, ~12 KB; zero vendor libraries since 3.0.1-rc35) |
 | `cfga`, `cfgb` | 0x7ee000, 0x7f7000 | 36 KiB each | settings slots |
 
 `initrd` + `stack` + `vendor` are exactly the stock partitions A, B and C.
@@ -397,22 +398,21 @@ Notes, hardware facts, status and how to build: [README.md](README.md).
   Wi-Fi (mainline `rtl8xxxu`, access point included), GPIO, I2C, watchdog, audio, **video** (V4L2 driver for the
   JX-F23 sensor and the ISP), the hardware video encoder (`ak39_venc`) and a SPI NOR driver that can write. CI builds
   it on every push.
-- **Video**: H.264 and H.265 are made by the vendor encoder control libraries running on the free driver
-  (`src/libakuio`); JPEG is fully free code (`src/jpegenc`). The H.265 command lists are reproduced offline
-  (`src/h265enc`), not yet used on the camera. **`tc100_rtsp`** (`src/tc100rtsp`) is the one video process: RTSP
-  server, web pictures, image tuning, privacy masks, OSD, motion with zones, sound level and the MP4 recorder.
-- **User space**: our Buildroot base (musl, busybox) in an xz initramfs, the free user space in a squashfs
-  (`v3/build-stack.sh`), the web interface served by busybox httpd behind `httpfront`. The few vendor libraries 3.0
-  needs (the uClibc runtime and the encoder control libraries) are copied from each camera into its own `vendor`
-  partition at install; none is published.
+- **Video**: H.265 (1080p / 720p), H.264 (1080p / 720p / 640x360) and JPEG are 100% free code (`src/h265enc/freeenc.h`,
+  `src/jpegenc`, `src/libakuio`) driving the hardware encoder directly without any proprietary vendor library.
+  **`tc100_rtsp`** (`src/tc100rtsp`, compiled against `musl` libc) is the single video process (~720 KB RAM): RTSP
+  server, web pictures, image tuning, privacy masks, OSD, motion with zones, direct ALSA audio and the MP4 recorder.
+- **User space**: our Buildroot base (`musl`, busybox) in an xz initramfs, the 100% free user space in a squashfs
+  (`v3/build-stack.sh`), the web interface (Pico CSS) served by busybox httpd behind `httpfront`. Only the sensor's
+  register table (`isp.conf`, ~12 KB) is kept in the `vendor` partition; zero vendor `.so` libraries or uClibc
+  binaries are copied or loaded.
 - **Boot**: U-Boot starts the SD card's `tc100test/c66.img` when there is one, otherwise the flash system
   (`flashboot`), otherwise the stock firmware. `v3/autorun-linux66.sh` starts the services.
 - **Settings** live in two alternating flash slots (`cfga` / `cfgb`, `cfg-persist`), so a power cut during a save
   keeps the previous settings.
-- **MQTT**: by default `scripts/mqtt-bridge.sh` forges the packets in shell and sends them through `nc` (four shell
-  processes, about 5.7 MB). `MQTT_BRIDGE_IMPL=c` in `config/mqtt.conf` runs `tc100-mqttd` instead (`src/mqttd`): one
-  small C process, one persistent connection, same topics, payloads and commands (the script stays the worker that
-  builds them).
+- **MQTT**: `tc100-mqttd` (`src/mqttd`, `MQTT_BRIDGE_IMPL=c` and `MQTT_DISCOVERY_IMPL=c` by default) handles the
+  persistent MQTT connection and publishes all 49 Home Assistant discovery entities in a single C burst; `scripts/mqtt-bridge.sh`
+  remains available as a fallback.
 - Platform notes and bugs fixed during the bring-up: [docs/known-issues.md](../known-issues.md). HTTP API:
   [docs/api.md](../api.md).
 
@@ -451,27 +451,27 @@ v3/                 3.0 system: boot script (autorun-linux66.sh), initramfs and 
 src/tc100rtsp/      tc100_rtsp: RTSP server, recorder, pictures, motion, sound level, two-way audio, live MP4
 src/libakuio/       Free replacement for the vendor encoder-memory library
 src/jpegenc/        Hardware JPEG encoder
-src/h265enc/        H.265 command-list generator and register-sequence model (experimental, offline)
+src/h265enc/        Free hardware H.265 / H.264 encoder (freeenc.h, listgen.h, worktab.h) built into tc100_rtsp
 src/httpfront/      Front for busybox httpd (redirects /, one connection per request, local-network filter)
 src/ispflip/        isp_flip: picture flip / mirror through the ISP (called by bin/setconf)
 src/ispfps/         isp_fps: read or set the sensor frame rate through the ISP
 src/logfwd/         tc100-logfwd: filtered, rate-limited forwarding of the local log to a remote syslog
 src/mdnsd/          tc100-mdnsd: answers <hostname>.local (mDNS), optional DNS-SD records
-src/mqttd/          tc100-mqttd: the MQTT connection in C (option of the MQTT bridge, MQTT_BRIDGE_IMPL=c)
-src/netacl/         libnetacl: local-network-only filter for the uClibc programs
+src/mqttd/          tc100-mqttd: the MQTT connection and HA discovery in C (default, MQTT_BRIDGE_IMPL=c)
+src/netacl/         libnetacl: local-network-only filter for musl programs (busybox telnetd / ftpd)
 src/onvifd/         tc100-onvifd: free ONVIF daemon (discovery, Device / Media / Media2, backchannel)
 src/rwconf/         rwconf: reads and writes keys of the INI-like config files (free replacement of the 2.x binary; built in CI)
 src/supervisord/    tc100-supervisord: day/night, reset button and sound detection loops in one process (SUPERVISOR_IMPL=c)
 src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, CSS and minify build, screenshots
 src/whep/           tc100-whep: WebRTC (WHEP) gateway behind whep.cgi
-www/                Web interface; www/cgi-bin/ are shell CGIs
+www/                Web interface (Pico CSS); www/cgi-bin/ are shell CGIs
 scripts/            Daemons and tools (wifi-txt.sh, wifi-rescue.sh, mqtt-bridge.sh…)
   action.d/         The web commands of www/cgi-bin/action.cgi, one file per group
 controlscripts/     Services, started and stopped from the web page
 config/             Templates (*.dist) and the services started at boot (config/autostart/)
 bin/                busybox (SD hook), isp_flip, tc100-logfwd, setconf, telegram;
                     rwconf is built in CI from src/rwconf
-lib/                libnetacl.so (local-build copy); origins: CREDITS.md
+lib/                libnetacl-musl.so (local-build copy); origins: CREDITS.md
 sounds/             Audio clips
 tests/              python3 -m unittest discover -s tests; node --test tests/*.test.js
 docs/               API, known issues, screenshots; docs/linux-port: the Linux 6.6 port, install, status
