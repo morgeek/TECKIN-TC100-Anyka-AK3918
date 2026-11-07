@@ -85,6 +85,27 @@ The same core codes the sub stream in H.264 (Main profile, CABAC), with the same
   the core; `-b 250` gave 274 kbit/s (the QP alternates by 3 between pictures: the rate control's step is too big
   for 1 KB pictures, to tune).
 
+## In tc100_rtsp: `RTSP_FREE_ENC=1` (2026-11-07)
+
+`freeenc.h` is the library form of h265live / h264live: `fe_open` (one pool block: two frame buffers, stream,
+tables, work, small, list), `fe_encode` (one NV12 picture by physical address, the output in place: start code,
+parameter sets at an IDR and the slice header written right before the core's slice data), `fe_set_kbps`, `fe_close`.
+tc100_rtsp puts it behind the vendor library's calls (`ak_venc_open` / `send_frame` / `release_stream` / `close` /
+`set_br`) when `RTSP_FREE_ENC=1` and the configuration is H.265 1920x1080 + an H.264 (or no) sub-stream: the vendor
+libraries (`libakv_encode`, `libmpi_venc_ex`, `libplat_*`) are then not even loaded; libakuio stays (pool, interrupt
+wait). Anything else: the vendor library, logged. Tests: FreeEnc (`fetest.c`, a simulated core).
+
+Found on the way (IPCAM2):
+- **libakuio clears the end status (0x8018) only when it has the registers mapped** (`akuio_map_regs`, which the
+  vendor library calls): without it the status stays set, the next wait returns at once while the core is still
+  busy (0x8300 = 0x20001) and the next start hangs the core and its bus for good (even the vendor library then gets
+  no interrupt; only a reboot helps). tc100_rtsp maps them through libakuio and freeenc.h clears the status itself.
+- H.265 after H.264: the interrupt mask bit 2 must be clear (the vendor writes 0x40001 for H.265, 0x40004 for H.264).
+- `vencreset` (soft reset + init) does not free a core hung that way; a picture without interrupt makes
+  freeenc.h reset the core and code an IDR next.
+- `h265-step2.sh free` / `restore`: tc100_rtsp of this build with `RTSP_FREE_ENC=1` and the video service's
+  arguments (`H265_NOSUB=1`, `H265_FREE_ENV="NO_PRIME=1 NO_JPEG=1 RTSP_DEBUG=1"` for tests).
+
 ## Use
 
 ```

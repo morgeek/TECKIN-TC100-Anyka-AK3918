@@ -368,3 +368,70 @@ class H264liveDry(unittest.TestCase):
             self.assertEqual(got[0x22], 640)
             if k == 0:
                 self.assertEqual([got[0x28], got[0x29], got[0x2c], got[0x38]], [0, 0, 0, 0])
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'gcc')
+class FreeEnc(unittest.TestCase):
+    """freeenc.h (the free encoder inside tc100_rtsp, RTSP_FREE_ENC=1) on a simulated core (src/h265enc/fetest.c): the
+    same parameter words and slice headers as h265live / h264live (tested on IPCAM2), an IDR every GOP with its
+    parameter sets, and each access unit in one piece: start code, headers, then the core's slice data"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.bin = os.path.join(cls.tmp, 'fetest')
+        subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-I', os.path.join(ROOT, 'src/h265enc'), '-o', cls.bin,
+                        os.path.join(ROOT, 'src/h265enc/fetest.c')], check=True)
+        cls.live = {}
+        for name in ('h265live', 'h264live'):
+            b = os.path.join(cls.tmp, name)
+            subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-DH265LIVE_NO_DEVICE', '-I', os.path.join(ROOT, 'src/h265enc'),
+                            '-o', b, os.path.join(ROOT, 'src/h265enc/%s.c' % name), '-lm'], check=True)
+            cls.live[name] = b
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def run_fe(self, codec, n, qp, gop):
+        out = subprocess.run([self.bin, codec, str(n), str(qp), str(gop)], capture_output=True, text=True, check=True).stdout
+        pics = []
+        lines = out.splitlines()
+        for a, b in zip(lines[0::2], lines[1::2]):
+            f = a.split()
+            pics.append({'idr': int(f[3]), 'len': int(f[5]), 'list': [int(x, 16) for x in f[7:]],
+                         'data': bytes.fromhex(b.split()[1])})
+        return pics
+
+    def dry(self, name, qp):
+        args = [self.live[name], '--dry', '-q', str(qp)] + ([self.tmp] if name == 'h265live' else []) + ['/dev/null']
+        out = subprocess.run(args, capture_output=True, text=True, check=True).stdout.splitlines()
+        lists = [[int(x, 16) for x in l.split(':')[1].split()] for l in out if ' list:' in l]
+        heads = [bytes.fromhex(l.split(':')[1].replace(' ', '')) for l in out if ' head:' in l]
+        return lists, heads
+
+    def test_same_words_and_headers_as_the_live_tools(self):
+        for codec, name in (('hevc', 'h265live'), ('avc', 'h264live')):
+            pics = self.run_fe(codec, 3, 34, 50)
+            lists, heads = self.dry(name, 34)
+            for k in range(3):
+                self.assertEqual(pics[k]['list'][:0x20], lists[k][:0x20], (codec, k))
+                self.assertEqual(pics[k]['list'][0x22], 1920 if codec == 'hevc' else 640)
+                d = pics[k]['data']
+                self.assertTrue(d.endswith(b'\x80' + b'\xab' * (100 + 10 * k - 1)), (codec, k))
+                self.assertIn(heads[k], d, (codec, k))
+                self.assertTrue(d.startswith(b'\x00\x00\x00\x01'))
+
+    def test_gop_and_parameter_sets(self):
+        for codec, ps in (('hevc', b'\x00\x00\x00\x01\x40\x01'), ('avc', b'\x00\x00\x00\x01\x27\x4d')):
+            pics = self.run_fe(codec, 12, 30, 5)
+            self.assertEqual([p['idr'] for p in pics], [1, 0, 0, 0, 0] * 2 + [1, 0])
+            for p in pics:
+                self.assertEqual(p['data'].startswith(ps), bool(p['idr']), codec)
+                self.assertEqual(len(p['data']), p['len'])
+            # the POC restarts at each IDR: word 0x0c = 2 x pictures since the IDR
+            self.assertEqual([p['list'][0x0c] for p in pics], [0, 2, 4, 6, 8] * 2 + [0, 2])
+            # reconstruction and reference take turns: a P picture references the previous reconstruction
+            for a, b in zip(pics, pics[1:]):
+                if not b['idr']:
+                    self.assertEqual(b['list'][0x28], a['list'][0x24])

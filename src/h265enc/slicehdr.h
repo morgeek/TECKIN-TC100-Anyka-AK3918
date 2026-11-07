@@ -19,7 +19,7 @@
 
 struct bw { uint8_t b[48]; int n; };	/* bits written */
 
-static void bw_u(struct bw *w, uint32_t v, int bits)
+static inline void bw_u(struct bw *w, uint32_t v, int bits)
 {
 	while (bits-- > 0) {
 		if ((v >> bits) & 1) w->b[w->n >> 3] |= (uint8_t)(0x80 >> (w->n & 7));
@@ -27,7 +27,7 @@ static void bw_u(struct bw *w, uint32_t v, int bits)
 	}
 }
 
-static void bw_ue(struct bw *w, uint32_t v)
+static inline void bw_ue(struct bw *w, uint32_t v)
 {
 	uint32_t x = v + 1;
 	int len = 0;
@@ -37,13 +37,13 @@ static void bw_ue(struct bw *w, uint32_t v)
 	bw_u(w, x, len + 1);
 }
 
-static void bw_se(struct bw *w, int v)
+static inline void bw_se(struct bw *w, int v)
 {
 	bw_ue(w, v > 0 ? (uint32_t)(2 * v - 1) : (uint32_t)(-2 * v));
 }
 
 /* start code + NAL header + slice header into out; its length, or -1 */
-static int h265_slice_nal(uint8_t *out, int cap, int idr, int qp, uint32_t poc)
+static inline int h265_slice_nal(uint8_t *out, int cap, int idr, int qp, uint32_t poc)
 {
 	struct bw w = { { 0 }, 0 };
 	int i, o = 0, zeros = 0, nbytes;

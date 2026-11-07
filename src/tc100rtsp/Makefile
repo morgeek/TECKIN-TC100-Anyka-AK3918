@@ -6,7 +6,7 @@
 # already in the process anyway (libakuio.so needs it); the recorder's card writer (rec.c) is a thread.
 CROSS ?= arm-linux-gnueabi-
 SYSROOT ?= /usr/arm-linux-gnueabi
-CFLAGS ?= -I../jpegenc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft \
+CFLAGS ?= -I../jpegenc -I../h265enc -O2 -Wall -std=gnu11 -U_FORTIFY_SOURCE -fno-stack-protector -fno-pie -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft \
 	-U_TIME_BITS -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
 OBJS = tc100_rtsp.o rec.o mp4box.o aacenc.o livemp4.o talk.o alisten.o acap.o adsp.o
 
@@ -79,8 +79,8 @@ test: test_util test_rec test_livemp4 test_rtsp test_adsp test_aacenc test_sndq
 	./test_util
 
 # the whole server without camera and encoder (RTSP, audio, backchannel, listeners): tests/test_tc100rtsp.py runs it
-test_rtsp: tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c rec.h mp4box.h aacenc.h aacenc_tab.h livemp4.h talk.h alisten.h util.h sndq.h acap.h adsp.h
-	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -o $@ tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c -ldl -lpthread -lm
+test_rtsp: tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c rec.h mp4box.h aacenc.h aacenc_tab.h livemp4.h talk.h alisten.h util.h sndq.h acap.h adsp.h ../h265enc/freeenc.h
+	gcc -O1 -Wall -Wno-unused -std=gnu11 -DTC100_HOST_TEST -DCONF='"conf/"' -I../jpegenc -I../h265enc -o $@ tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c -ldl -lpthread -lm
 
 # the frame queue of the sender thread alone (RTSP_SENDER_THREAD): tests/test_tc100rtsp.py runs it
 test_sndq: test_sndq.c sndq.h

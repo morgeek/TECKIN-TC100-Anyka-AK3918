@@ -15,6 +15,7 @@ on:
       - 'sounds/**'
       - 'src/tc100rtsp/**'
       - 'src/libakuio/**'
+      - 'src/h265enc/**'
       - 'src/httpfront/**'
       - 'src/mqttd/**'
       - 'src/supervisord/**'

@@ -16,7 +16,6 @@
  */
 #ifndef WORKTAB_H
 #define WORKTAB_H
-#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -36,6 +35,18 @@ static const uint8_t WT_RD_COL0[52] = {
 	21, 24, 26, 29, 33, 37, 42, 47, 52, 58, 66, 74, 83, 93, 104 };
 
 /* the 8x8 matrix in raster order from its diagonal scan (H.265 6.5.3, 8x8 up-right diagonal) */
+/* 2^(q / 6) and the roundings without the maths library (tc100_rtsp has no libm): 2^(q % 6 / 6) * 2^(q / 6) */
+static inline double wt_exp2_6(int q)
+{
+	static const double f[6] = { 1.0, 1.122462048309373, 1.259921049894873, 1.414213562373095, 1.587401051968199,
+				     1.781797436280678 };
+
+	return f[q % 6] * (double)(1u << (q / 6));
+}
+
+static inline int wt_ceil(double x) { int i = (int)x; return (double)i < x ? i + 1 : i; }
+static inline int wt_round(double x) { return (int)(x + 0.5); }
+
 static inline void wt_raster(uint8_t *out, const uint8_t *diag)
 {
 	int i = 0, x, y, d;
@@ -60,12 +71,12 @@ static inline void h265_work_table(uint8_t *b)
 
 	memset(b, 0, WORKTAB_SIZE);
 	for (q = 0; q < 52; q++) {
-		double s = pow(2.0, q / 6.0);
+		double s = wt_exp2_6(q);
 
 		b[4 * q] = WT_RD_COL0[q];
-		b[4 * q + 1] = (uint8_t)ceil(0.1617 * s);
-		b[4 * q + 2] = (uint8_t)ceil(0.1839 * s);
-		b[4 * q + 3] = (uint8_t)ceil(0.1617 * s);
+		b[4 * q + 1] = (uint8_t)wt_ceil(0.1617 * s);
+		b[4 * q + 2] = (uint8_t)wt_ceil(0.1839 * s);
+		b[4 * q + 3] = (uint8_t)wt_ceil(0.1617 * s);
 	}
 	wt_raster(A, WT_INTRA_DIAG);
 	wt_raster(B, WT_INTER_DIAG);
@@ -98,12 +109,12 @@ static inline void h264_work_table(uint8_t *b)
 
 	memset(b, 0, WORKTAB_SIZE);
 	for (q = 0; q < 52; q++) {
-		double s = pow(2.0, q / 6.0);
-		int c0 = (int)floor(0.25 * s + 0.5);
+		double s = wt_exp2_6(q);
+		int c0 = wt_round(0.25 * s);
 
 		b[4 * q] = (uint8_t)(c0 < 1 ? 1 : c0);
-		b[4 * q + 1] = b[4 * q + 3] = q == 37 ? 13 : (uint8_t)ceil(0.1617 * s);
-		b[4 * q + 2] = (uint8_t)ceil(0.1839 * s);
+		b[4 * q + 1] = b[4 * q + 3] = q == 37 ? 13 : (uint8_t)wt_ceil(0.1617 * s);
+		b[4 * q + 2] = (uint8_t)wt_ceil(0.1839 * s);
 	}
 }
 #endif

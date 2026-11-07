@@ -2933,3 +2933,22 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   3,7 ms par image sur le cœur, 274 kbit/s pour 250 demandés (le QP alterne de 3 d'une image à l'autre : pas du
   contrôle de débit trop grand pour des images de 1 Ko, à régler). Vidéo et Wi-Fi revenus après chaque essai.
 - Reste : intégrer les deux encodeurs libres dans tc100_rtsp (corrections couleur, RTSP, enregistrement, Frigate).
+
+## 2026-11-07 11:25 — encodeurs libres DANS tc100_rtsp : `RTSP_FREE_ENC=1` (testeur, .11)
+
+- **Quoi** : `src/h265enc/freeenc.h` (forme bibliothèque de h265live / h264live) derrière les appels de la bibliothèque
+  du vendeur dans tc100_rtsp. Avec `RTSP_FREE_ENC=1` et H.265 1920x1080 + sous-flux H.264 (ou sans sous-flux), les
+  bibliothèques du vendeur (`libakv_encode`, `libmpi_venc_ex`, `libplat_*`) **ne sont pas chargées** ; libakuio reste
+  (pool, attente d'interruption). Autre configuration : la bibliothèque du vendeur, journalisé. **Désactivé par
+  défaut** (rien ne change sans la variable).
+- **Test .11** (`h265-step2.sh free`, mêmes arguments et réglages que le service, JPEG du web, amorce H.264, sous-flux) :
+  flux principal 150 s par RTSP/TCP : 3 463 images, **0 erreur de décodage**, 1,48 Mbit/s pour 1,6 demandés ; 20 s :
+  482 images ; sous-flux 15 s : 355 images, 0 erreur, 252 kbit/s pour 250 ; images correctes (couleurs, OSD) ; JPEG
+  640x360 et 1920x1080 du web toujours faits ; 0 image en échec ; 12 % de CPU ; mémoire et Wi-Fi normaux.
+  (RTSP/UDP non testable depuis la VM du Mac.)
+- **Pièges trouvés** (README de src/h265enc) : libakuio ne remet à zéro l'état de fin (0x8018) que s'il a les
+  registres mappés (`akuio_map_regs`, appelé par le vendeur) : sinon l'attente suivante revient tout de suite et le
+  démarrage suivant bloque le cœur **jusqu'au redémarrage** (même pour le vendeur) — 4 redémarrages de la .11 pendant
+  la mise au point ; masque 0x8014 bit 2 à zéro pour H.265.
+- **À tester ensuite** : plusieurs heures (surveillance comme pour les rc), Frigate réel, enregistrement sur carte SD
+  (la .11 n'a pas de carte), ABR, nuit / noir et blanc, puis en faire le défaut dans une rc.

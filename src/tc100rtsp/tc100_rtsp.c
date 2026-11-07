@@ -52,6 +52,7 @@
 #include "alisten.h"
 #include "livemp4.h"
 #include "jpeg_hw.h"
+#include "freeenc.h"
 #include "rec.h"
 #include "talk.h"
 #include "acap.h"
@@ -168,6 +169,101 @@ static int jpeg_init(void)
 	if (!p_v2p || !p_wait || !jbuf) return -1;
 	jpaddr = (uint32_t)p_v2p((unsigned long)jbuf);
 	return jpaddr ? 0 : -1;
+}
+
+/* ---- the free encoder (RTSP_FREE_ENC=1, 2026-11-07): src/h265enc/freeenc.h behind the vendor library's calls ----
+ * H.265 1920x1080 for the main stream and H.264 640x360 for the sub stream on the encoder core, with our lists,
+ * headers and rate control: no libakv_encode / libmpi_venc_ex / libplat_* (not even loaded). libakuio stays (the
+ * pool, the interrupt wait). Any other main size or codec: the vendor library as before (logged). */
+static int free_enc;
+static struct fe_env fe_env;
+
+static void *fe_p_open(const struct venc_param *pa)
+{
+	struct fe_enc *e = calloc(1, sizeof *e);
+	int hevc = pa->codec == 2, ok = hevc ? pa->width == 1920 && pa->height == 1080 : pa->width >= 640 && pa->height >= 360;
+
+	if (!e || !ok) { LOG("free encoder: %ux%u %s not supported\n", pa->width, pa->height, hevc ? "H.265" : "H.264"); free(e); return NULL; }
+	/* an H.264 encoder of a bigger picture (tc100_rtsp's warm-up frame before H.265) codes its top-left 640x360 */
+	if (!fe_open(&fe_env, e, hevc, (int)pa->width, (int)pa->fps, (int)pa->gop, (int)pa->kbps, (int)pa->qpmin, (int)pa->qpmax)) {
+		LOG("free encoder: no pool memory for the %s encoder\n", hevc ? "H.265" : "H.264");
+		free(e);
+		return NULL;
+	}
+	LOG("free encoder: %s %dx%d (source stride %d), %u kbit/s, %u fps, GOP %d, QP %u-%u\n", hevc ? "H.265" : "H.264",
+	    e->w, e->h, e->stride, pa->kbps, pa->fps, e->gop, pa->qpmin, pa->qpmax);
+	return e;
+}
+
+static int fe_p_send(void *h, unsigned char *frame, unsigned int len, struct video_stream *st)
+{
+	struct fe_enc *e = h;
+	uint32_t pa = (uint32_t)p_v2p((unsigned long)frame), n = 0;
+	uint8_t *d = NULL;
+	int idr = 0;
+
+	(void)len;
+	if (!pa || fe_encode(e, pa, &d, &n, &idr)) {
+		if (e->fails < 5 || e->fails % 100 == 0) {
+			LOG("free encoder: %s picture failed (%u so far; source %08x, length %u, status %08x, 0x8300 %08x)\n", e->hevc ? "H.265" : "H.264",
+			    e->fails, pa, e->last_len, e->last_status, fe_env.regs[0x8300 / 4]);
+			LOG("free encoder: before: 8300 %08x 8014 %08x; wait %d; after: 8018 %08x 801c %08x 8300 %08x\n",
+			    e->dbg[0], e->dbg[1], (int)e->dbg[2], e->dbg[3], e->dbg[4], e->dbg[5]);
+		}
+		return -1;
+	}
+	st->data = d; st->len = n; st->frame_type = idr ? 0 : 1;
+	if (dbg_on && e->pictures < 4)
+		LOG("free encoder: %s picture %u ok: before: 8300 %08x 8014 %08x; wait %d; after: 8018 %08x 801c %08x 8300 %08x\n",
+		    e->hevc ? "H.265" : "H.264", e->pictures, e->dbg[0], e->dbg[1], (int)e->dbg[2], e->dbg[3], e->dbg[4], e->dbg[5]);
+	return 0;
+}
+
+static int fe_p_release(void *h, struct video_stream *st) { (void)h; (void)st; return 0; }
+
+static int fe_p_close(void *h)
+{
+	struct fe_enc *e = h;
+
+	if (e) {
+		LOG("free encoder: %s closed after %u pictures (%u bytes, %u failed)\n", e->hevc ? "H.265" : "H.264", e->pictures, e->bytes, e->fails);
+		fe_close(e);
+		free(e);
+	}
+	return 0;
+}
+
+static int fe_p_set_br(void *h, int kbps) { fe_set_kbps(h, kbps); return 0; }
+
+/* the register window and libakuio's calls for freeenc.h; 0 or -1 */
+static int fe_setup(void)
+{
+	const char *dv = getenv("AKUIO_DEV") ? getenv("AKUIO_DEV") : "/dev/uio0";
+	struct ak39_venc_pool_info info;
+	int fd = open(dv, O_RDWR | O_SYNC);
+	void *r;
+
+	if (fd < 0 || ioctl(fd, AK39_VENC_POOL_INFO, &info) < 0) return -1;
+	{	/* through libakuio, so that its interrupt wait clears the end status as it does for the vendor library */
+		unsigned long (*mr)(unsigned long, size_t) = (unsigned long (*)(unsigned long, size_t))dlsym(RTLD_DEFAULT, "akuio_map_regs");
+
+		r = mr ? (void *)mr(info.regs_paddr, info.regs_size) : NULL;
+		if (!r) r = mmap(NULL, info.regs_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, AK39_VENC_MMAP_REGS);
+		if (!r || r == MAP_FAILED) return -1;
+	}
+	p_v2p = dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
+	p_wait = dlsym(RTLD_DEFAULT, "akuio_wait_irq");
+	fe_env.regs = r;
+	fe_env.alloc = p_alloc;
+	fe_env.release = (void (*)(unsigned long))dlsym(RTLD_DEFAULT, "akuio_free_pmem");
+	fe_env.v2p = p_v2p;
+	fe_env.wait = p_wait;
+	fe_env.reset = (void (*)(void))dlsym(RTLD_DEFAULT, "akuio_reset_video");
+	if (!p_v2p || !p_wait || !fe_env.alloc || !fe_env.release) return -1;
+	p_open = fe_p_open; p_send = fe_p_send; p_release = fe_p_release; p_close = fe_p_close; p_set_br = fe_p_set_br;
+	p_smart = NULL;
+	fe_hw_init(&fe_env);	/* a clean core (the reset bit) whatever the previous user left */
+	return 0;
 }
 
 /* encode one NV12 picture (physical addresses) -> jbuf + TABLES_SIZE, returns the length or 0 */
@@ -3225,6 +3321,24 @@ int main(int argc, char **argv)
 		if (f) fclose(f);
 	}
 	if (!dlopen(akuio, RTLD_LAZY | RTLD_GLOBAL)) { LOG("dlopen %s: %s\n", akuio, dlerror()); return 2; }
+	{	/* RTSP_FREE_ENC=1: our encoders (H.265 1920x1080 main, H.264 640x360 sub), the vendor libraries not loaded */
+		const char *e = getenv("RTSP_FREE_ENC");
+
+		if (e && e[0] == '1') {
+			if (W != 1920 || H != 1080 || !hevc || (sub_on && sub_hevc))
+				LOG("free encoder: not used (it codes H.265 1920x1080 and an H.264 sub-stream; asked: %dx%d %s, sub %s): the vendor library\n",
+				    W, H, hevc ? "h265" : "h264", !sub_on ? "off" : sub_hevc ? "h265" : "h264");
+			else {
+				p_alloc = dlsym(RTLD_DEFAULT, "akuio_alloc_pmem");
+				p_pinit = dlsym(RTLD_DEFAULT, "akuio_pmem_init");
+				if (!p_alloc || !p_pinit || p_pinit()) { LOG("free encoder: libakuio has no pool\n"); return 2; }
+				if (fe_setup()) { LOG("free encoder: no encoder registers / libakuio calls\n"); return 2; }
+				free_enc = 1;
+				LOG("encoder: the free encoder (src/h265enc/freeenc.h), no vendor library\n");
+			}
+		}
+	}
+	if (!free_enc) {
 	ld(dir, "libplat_common.so", 0);
 	ld(dir, "libplat_thread.so", 1);
 	ld(dir, "libplat_drv.so", 0);
@@ -3258,6 +3372,7 @@ int main(int argc, char **argv)
 		}
 	}
 	if (p_pinit && p_pinit()) { LOG("akuio_pmem_init failed\n"); return 2; }
+	}	/* !free_enc */
 #endif
 
 unsigned char *fpb[2] = { NULL, NULL };

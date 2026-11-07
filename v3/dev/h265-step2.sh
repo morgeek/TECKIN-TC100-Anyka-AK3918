@@ -1,5 +1,5 @@
 #!/bin/sh
-# h265-step2.sh capture | trace | run | live | live264   — steps 2 and 3 of the free H.265 encoder, on a TEST camera (2026-11-07; the owner's choice:
+# h265-step2.sh capture | trace | free | restore | run | live | live264   — steps 2 and 3 of the free H.265 encoder, on a TEST camera (2026-11-07; the owner's choice:
 # IPCAM2, after the 7-day watch). Video stops for about a minute; nothing is written to flash or to /mnt/config.
 #
 #   capture  stop the video service (rtsp-h26x stop: no setting changes), start tc100_rtsp by hand for 20 s with
@@ -13,6 +13,8 @@
 set -u
 NEW=${H265_NEW:-/tmp/h265new}
 CTL=/mnt/controlscripts/rtsp-h26x
+# stop the copies of a program started from $NEW (busybox has no pkill)
+stopnew() { for p in $(pidof "$1"); do [ "$(readlink /proc/$p/exe)" = "$NEW/$1" ] && kill "$p"; done; sleep 2; }
 case "${1:-}" in
 capture)
 	OUT=${H265_CAP:-/tmp/h265cap}
@@ -26,7 +28,7 @@ capture)
 	echo "tc100_rtsp $ARGS"
 	( cd /tmp && env $ENVS AKUIO_CAPTURE="$OUT/c" AKUIO_CAPTURE_N=${H265_N:-6} AKUIO_CAPTURE_STREAM=${H265_STREAM:-262144} AKUIO_CAPTURE_WIDTH=${H265_WIDTH:-0} RTSP_SAVE_FRAMES="$OUT/f" RTSP_SAVE_FRAMES_N=${H265_N:-6} "$NEW/tc100_rtsp" $ARGS > "$OUT/rtsp.log" 2>&1 ) &
 	sleep "${H265_SECS:-20}"
-	kill $! 2>/dev/null; sleep 2; pkill -f "$NEW/tc100_rtsp" 2>/dev/null; sleep 1
+	kill $! 2>/dev/null; sleep 2; stopnew tc100_rtsp
 	$CTL start
 	ls -l "$OUT"; du -sh "$OUT"
 	;;
@@ -42,9 +44,27 @@ trace)
 	$CTL stop; sleep 2
 	( cd /tmp && env $ENVS LD_PRELOAD="$NEW/venctrace.so" VENC_TRACE=/tmp/venc VENC_TRACE_KB=${H265_KB:-1024} "$BIN" $ARGS > /tmp/venctrace.log 2>&1 ) &
 	sleep "${H265_SECS:-20}"
-	kill $! 2>/dev/null; sleep 2; pkill -f "^$BIN" 2>/dev/null; sleep 1
+	kill $! 2>/dev/null; sleep 2; for p in $(pidof tc100_rtsp); do kill "$p"; done; sleep 2
 	$CTL start
 	ls -l /tmp/venc.trc; tail -3 /tmp/venctrace.log
+	;;
+free)
+	# tc100_rtsp of this build with RTSP_FREE_ENC=1 (the free encoders), the video service's arguments and settings,
+	# left running in the background (log /tmp/free.log) until "restore"
+	[ -x "$NEW/tc100_rtsp" ] && [ -f "$NEW/libakuio.so" ] || { echo "put tc100_rtsp and libakuio.so of this build in $NEW"; exit 1; }
+	VP=$(cat /var/run/v4l2rtspserver.pid 2>/dev/null); [ -r "/proc/$VP/cmdline" ] || VP=$(pidof tc100_rtsp | cut -d' ' -f1)
+	[ -n "$VP" ] && [ -r "/proc/$VP/cmdline" ] || { echo "the video server is not running"; exit 1; }
+	ARGS=$(tr '\0' ' ' < "/proc/$VP/cmdline" | sed 's|^[^ ]*||; s|-A [^ ]*|-A '"$NEW"'/libakuio.so|')
+	ENVS=$(tr '\0' '\n' < "/proc/$VP/environ" | grep -E '^(LD_LIBRARY_PATH|RTSP_)[A-Za-z0-9_]*=[^ ]*$' | grep -v '^RTSP_LOGFILE=' | tr '\n' ' ')
+	$CTL stop; sleep 2; stopnew tc100_rtsp
+	echo "tc100_rtsp $ARGS"
+	[ "${H265_NOSUB:-0}" = 1 ] && ARGS=$(echo "$ARGS" | sed 's/ -s 1 / -s 0 /')
+	( cd /tmp && env $ENVS RTSP_FREE_ENC=1 ${H265_FREE_ENV:-} "$NEW/tc100_rtsp" $ARGS > /tmp/free.log 2>&1 ) &
+	sleep 8; grep -E "encoder|free" /tmp/free.log | head -8
+	;;
+restore)
+	stopnew tc100_rtsp
+	$CTL start; sleep 3; pidof tc100_rtsp
 	;;
 run)
 	IN=${H265_IN:-/tmp/h265in}; OUT=${H265_OUT:-/tmp/h265out}
@@ -77,5 +97,5 @@ live264)
 	ls -l "$OUT/live.h264"
 	;;
 *)
-	echo "usage: $0 capture | trace | run | live | live264"; exit 2 ;;
+	echo "usage: $0 capture | trace | free | restore | run | live | live264"; exit 2 ;;
 esac
