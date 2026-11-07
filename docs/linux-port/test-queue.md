@@ -2863,3 +2863,20 @@ install `nobackup=1`), redémarrage en ~1 min 30, Wi-Fi revenu.
 Suite (étape 3) : images P (deux tampons d'image, la référence), nos propres VPS/SPS/PPS et en-tête de tranche
 (dépend du QP et du POC), table recalculée ou figée, contrôle de débit, sous-flux H.264 ; puis branchement dans
 `tc100_rtsp`.
+
+## 2026-11-07 09:45 — encodeur H.265 libre, étape 3 : FLUX IDR + P EN DIRECT DEPUIS L'ISP (testeur, .11)
+
+`src/h265enc/h265live.c` : capture V4L2 (tampons de l'ISP, adresse physique par `AK39_VI_G_PHYS`, aucune copie),
+IDR puis images P qui se réfèrent chacune à la précédente, deux tampons d'image en alternance, QP fixe, en-têtes de
+tranche écrits par notre code (`slicehdr.h`), VPS/SPS/PPS du vendeur (capturés).
+- Hors caméra : listes IDR et P = `cmdlist.build_list` au mot près ; en-têtes = ceux du vendeur à l'octet près (IDR
+  QP 36 `ac 29 80`, P POC 2 QP 42 `d0 04 2a f8 20 c0`, P POC 4 QP 38) — `tests/test_h265cmdlist.py` H265liveDry.
+- **Sur la .11** (`h265-step2.sh live`, vidéo coupée ~15 s) : 50 images (1 I + 49 P), **0 échec**, 31,1 ms par image
+  sur le cœur, 1 236 071 octets (≈ 4,9 Mbit/s à QP 32 fixe : pas encore de contrôle de débit). `ffmpeg` : **0 erreur
+  de décodage**, 50 images ; le contenu suit la scène (références justes). Teinte verte : la balance des blancs
+  logicielle de `tc100_rtsp` n'est pas appliquée dans ce test.
+- Le serveur vidéo normal est revenu après l'essai.
+
+Reste avant de remplacer la bibliothèque du vendeur : contrôle de débit (QP par image d'après la taille, comme le
+vendeur : P à QP 38-42 pour 1,6 Mbit/s), nos VPS/SPS/PPS (aujourd'hui ceux du vendeur), table de 0x4040 octets (figée
+ou recalculée), sous-flux H.264 640x360 (même méthode), puis l'intégration dans `tc100_rtsp`.

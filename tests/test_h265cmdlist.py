@@ -161,5 +161,48 @@ class CaptureFiles(unittest.TestCase):
         self.assertIn('at +0x820, bytes identical', txt)
         self.assertIn('list word 0x45 = %d (bits)' % (len(pic) * 8), txt)
         files = capture.write_inputs(caps, frames, os.path.join(d, 'in'))
-        self.assertEqual(files, ['list.bin', 'params.bin', 'small.bin', 'tables.bin', 'work.bin'])
+        self.assertEqual(files, ['list.bin', 'params.bin', 'plist.bin', 'small.bin', 'tables.bin', 'work.bin'])
         self.assertEqual(open(os.path.join(d, 'in/params.bin'), 'rb').read(), pic[:pic.index(b'\x00\x00\x00\x01\x26')])
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'gcc')
+class H265liveDry(unittest.TestCase):
+    """h265live --dry: the lists of an IDR and two P pictures are cmdlist.build_list's, and our slice headers are the
+    vendor's (bytes seen in the IPCAM2 captures of 2026-11-07: IDR QP 36, P POC 2 QP 42, P POC 4 QP 38)"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.bin = os.path.join(cls.tmp, 'h265live-host')
+        subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-DH265LIVE_NO_DEVICE', '-I', os.path.join(ROOT, 'src/h265enc'),
+                        '-o', cls.bin, os.path.join(ROOT, 'src/h265enc/h265live.c')], check=True)
+        idr = c.build_list(True, 36, 0, 0x80100000, 0x802fa400, 0x80f395a0, 0, 0x815b95a0, 0x80f331a0, 0x815bd5e0, 0x80eae100)
+        p = c.build_list(False, 36, 2, 0x80100000, 0x802fa400, 0x80f395a0, 0x812795a0, 0x815b95a0, 0x80f331a0, 0x815bd5e0, 0x80eae100)
+        open(os.path.join(cls.tmp, 'list.bin'), 'wb').write(struct.pack('<64I', *idr[:64]))
+        open(os.path.join(cls.tmp, 'plist.bin'), 'wb').write(struct.pack('<64I', *p[:64]))
+        open(os.path.join(cls.tmp, 'params.bin'), 'wb').write(b'\x00\x00\x00\x01\x40\x01')
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def dry(self, qp):
+        r = subprocess.run([self.bin, '--dry', '-q', str(qp), self.tmp, '/dev/null'], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lists = [[int(x, 16) for x in l.split(':')[1].split()] for l in r.stdout.splitlines() if ' list:' in l]
+        heads = [l.split(':')[1].replace(' ', '') for l in r.stdout.splitlines() if ' head:' in l]
+        return lists, heads
+
+    def test_lists_are_the_model(self):
+        b = 0x81800000
+        lists, _ = self.dry(30)
+        for k, got in enumerate(lists):
+            cur = k & 1
+            want = c.build_list(k == 0, 30, 2 * k, 0x82d00000, 0x82d00000 + 1920 * 1080, b + 0x100000 + cur * 0x340000,
+                                b + 0x100000 + (cur ^ 1) * 0x340000, b + 0x80000, b + 0x88000, b + 0x8f000, b)
+            self.assertEqual(['%08x' % x for x in got], ['%08x' % x for x in want[:64]], k)
+
+    def test_slice_headers_are_the_vendors(self):
+        self.assertEqual(self.dry(36)[1][0], '000000012601ac2980')          # IDR, QP 36
+        self.assertEqual(self.dry(42)[1][1], '000000010201d0042af820c0')    # P, POC 2, QP 42
+        self.assertTrue('000000010201d0082af863bc'.startswith(self.dry(38)[1][2]))   # P, POC 4, QP 38 (+ data)

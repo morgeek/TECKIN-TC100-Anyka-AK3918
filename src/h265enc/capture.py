@@ -17,7 +17,8 @@ It answers the open questions of README.md:
   4. whether the lists of the 3.0 vendor library (libmpi_venc_ex.so) are still what cmdlist.build_list makes.
 With --out, the inputs of h265enc.c for its first run are written: list.bin (the input words of the first IDR list),
 tables.bin, work.bin, small.bin (that IDR's buffers), params.bin (the VPS/SPS/PPS NALs of the first saved IDR) and
-in.nv12 (the source of that IDR: h265enc encodes the same picture, so its stream can be compared byte for byte).
+in.nv12 (the source of that IDR: h265enc encodes the same picture, so its stream can be compared byte for byte) and
+plist.bin (a P list for the same buffers, from cmdlist.build_list, for h265live).
 Those files are data read from the camera's vendor encoder: they stay on the test machine, never in git.
 """
 import hashlib
@@ -170,6 +171,11 @@ def write_inputs(caps, frames, outdir):
         lw = words(c['rec'].get('LIST', (0, b''))[1])
         if len(lw) >= 0x40 and cmdlist.decode(lw)['sp_40'] == 2:
             open(os.path.join(outdir, 'list.bin'), 'wb').write(struct.pack('<64I', *lw[:0x40]))
+            # the P list for the same buffers (cmdlist.build_list: the 3.0 IDR list matched it word for word), for h265live
+            q = cmdlist.decode(lw)['qp']
+            pl = cmdlist.build_list(False, q, 2, lw[0x20], lw[0x21], lw[0x24], lw[0x24] ^ 0x340000, lw[0x23], lw[0x27],
+                                    lw[0x2f], lw[0x30], stream_alloc=lw[0x31] + 0x200, stream_offset=lw[0x32])
+            open(os.path.join(outdir, 'plist.bin'), 'wb').write(struct.pack('<64I', *pl[:0x40]))
             for t, n in (('TABL', 'tables.bin'), ('WORK', 'work.bin'), ('SMAL', 'small.bin')):
                 if t in c['rec']:
                     open(os.path.join(outdir, n), 'wb').write(c['rec'][t][1])

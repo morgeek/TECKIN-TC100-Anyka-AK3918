@@ -1,5 +1,5 @@
 #!/bin/sh
-# h265-step2.sh capture | run   — step 2 of the free H.265 encoder, on a TEST camera (2026-11-07; the owner's choice:
+# h265-step2.sh capture | run | live   — steps 2 and 3 of the free H.265 encoder, on a TEST camera (2026-11-07; the owner's choice:
 # IPCAM2, after the 7-day watch). Video stops for about a minute; nothing is written to flash or to /mnt/config.
 #
 #   capture  stop the video service (rtsp-h26x stop: no setting changes), start tc100_rtsp by hand for 20 s with
@@ -39,6 +39,16 @@ run)
 	$CTL start
 	ls -l "$OUT"
 	;;
+live)
+	# step 3: h265live encodes N pictures (IDR then P) straight from the ISP, without the vendor libraries
+	IN=${H265_IN:-/tmp/h265in}; OUT=${H265_OUT:-/tmp/h265out}
+	[ -x "$NEW/h265live" ] || { echo "put h265live of this build in $NEW"; exit 1; }
+	mkdir -p "$OUT"
+	$CTL stop; sleep 2
+	timeout 60 "$NEW/h265live" -n "${H265_FRAMES:-50}" -q "${H265_QP:-32}" -s 15 "$IN" "$OUT/live.h265" 2>&1 | tee "$OUT/live.log" | tail -3
+	$CTL start
+	ls -l "$OUT/live.h265"
+	;;
 *)
-	echo "usage: $0 capture | run"; exit 2 ;;
+	echo "usage: $0 capture | run | live"; exit 2 ;;
 esac
