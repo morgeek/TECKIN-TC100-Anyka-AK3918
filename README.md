@@ -18,6 +18,8 @@ the camera.
 
 ## What you get
 
+- **100% free hardware video encoding (3.0.1-rc33)**: live H.265 (1080p) and H.264 (360p) streams encoded directly on the
+  ASIC core without proprietary vendor libraries, running under the system's native `musl` C library.
 - **Video over RTSP**: a 1080p main stream (H.265 or H.264) and a 640x360 sub-stream for detection, over TCP or UDP, with
   the microphone as an audio track.
   `rtsp://CAMERA-IP:554/video0_unicast` (main) and `rtsp://CAMERA-IP:554/video1_unicast` (sub).

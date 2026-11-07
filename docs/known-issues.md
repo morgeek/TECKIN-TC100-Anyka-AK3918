@@ -4,8 +4,7 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-State of 3.0.1 (rc31, 6 November 2026, two cameras of the same variant; the rc31 checks on the cameras are pending;
-details and results in
+State of 3.0.1 (rc33, 7 November 2026, two cameras of the same variant; details and results in
 [linux-port/test-queue.md](linux-port/test-queue.md)):
 - **Colours:** slightly warm; the software white balance of the video server corrects them (on by default). The
   image processor's own white balance on its live statistics gave a blue cast and is not used
