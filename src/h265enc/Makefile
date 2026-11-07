@@ -14,8 +14,8 @@ host: h265enc.c
 clean:
 	rm -f h265enc h265enc-host h265live h265live-host
 
-h265live: h265live.c slicehdr.h ../libakuio/ak39_venc.h
-	$(CROSS)gcc $(CFLAGS) -static -s h265live.c -o $@
+h265live: h265live.c slicehdr.h paramsets.h listgen.h worktab.h rc.h ../libakuio/ak39_venc.h
+	$(CROSS)gcc $(CFLAGS) -static -s h265live.c -o $@ -lm
 
 live-host: h265live.c slicehdr.h
-	$(CC) -O1 -Wall -Wextra -DH265LIVE_NO_DEVICE -o h265live-host h265live.c
+	$(CC) -O1 -Wall -Wextra -DH265LIVE_NO_DEVICE -o h265live-host h265live.c -lm

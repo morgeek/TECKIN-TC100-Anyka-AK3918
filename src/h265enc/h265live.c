@@ -5,6 +5,11 @@
  *
  *   h265live [-n FRAMES] [-q QP] [-b KBPS] [-s SKIP] [-g GOP] LISTDIR out.h265
  *
+ *   Nothing captured is needed any more (an empty LISTDIR): our lists (listgen.h), parameter sets (paramsets.h),
+ *   slice headers (slicehdr.h) and side buffers (TABLES_HEAD, zeros). The capture's files, when LISTDIR has them,
+ *   replace ours (tables.bin, work.bin, small.bin; list.bin + plist.bin with H265_VENDOR_LISTS=1, params.bin with
+ *   H265_VENDOR_PARAMS=1), for comparisons.
+ *
  *   LISTDIR  from `capture.py DIR --out LISTDIR`: list.bin (an IDR list of the vendor encoder, its 64 input words),
  *            plist.bin (the P list of cmdlist.build_list for the same buffers), tables.bin, small.bin, work.bin
  *            (params.bin, the vendor's VPS/SPS/PPS, only with H265_VENDOR_PARAMS=1: ours are paramsets.h).
@@ -40,6 +45,8 @@
 #include "rc.h"
 #include <string.h>
 #include "paramsets.h"
+#include "listgen.h"
+#include "worktab.h"
 
 #ifndef H265LIVE_NO_DEVICE
 #include "../libakuio/ak39_venc.h"
@@ -79,6 +86,13 @@
 #define R_UNK		0x8300
 #define R_CLK		0xc004
 
+/* The 0x4040-byte "tables" buffer of list word 0x23: on IPCAM2 (2026-11-07) only its first 32 bytes are not zero, the
+ * same for every picture of the main stream; read as little-endian 16-bit values 2500 1000 256 5000 7000 9000 ...
+ * (thresholds of the core's own decisions, meaning not known), except byte 19: 0x24 for an IDR, 0x30 for a P picture
+ * (the same for every P picture whatever its QP). Used when LISTDIR has no tables.bin. */
+#define TABLES_TYPE_BYTE 19
+static const uint8_t TABLES_HEAD[32] __attribute__((unused)) = { 0xc4, 0x09, 0xe8, 0x03, 0x00, 0x01, 0x88, 0x13, 0x58, 0x1b, 0x28, 0x23, 0x01, 0x03, 0x0a, 0x01, 0x02, 0x03, 0x19, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
 /* the list words that change between pictures, as cmdlist.build_list sets them (tests/test_h265cmdlist.py checks
  * h265live --dry against it) */
 void h265_list_set(uint32_t *l, uint32_t base, uint32_t src_y, uint32_t src_uv, int cur, int idr, int qp, uint32_t poc)
@@ -98,11 +112,17 @@ void h265_list_set(uint32_t *l, uint32_t base, uint32_t src_y, uint32_t src_uv, 
 	}
 	l[0x03] = (l[0x03] & ~0x00ff0000u) | ((uint32_t)qp << 16);	/* qp */
 	l[0x1c] = (l[0x1c] & ~0x007f0000u) | ((uint32_t)qp << 16);	/* sp_38 */
-	if (!idr) {							/* sp_98 sp_9c sp_ac sp_b4 */
-		l[0x0c] = poc; l[0x0d] = poc >= 2 ? poc - 2 : 0; l[0x0f] = poc >= 2 ? poc - 2 : 0;
-		l[0x10] = poc >= 4 ? poc - 4 : 0xffffffffu;
-	}
+	l[0x0c] = poc; l[0x0d] = poc >= 2 ? poc - 2 : 0; l[0x0f] = poc >= 2 ? poc - 2 : 0;	/* sp_98 sp_9c sp_ac */
+	l[0x10] = poc >= 4 ? poc - 4 : 0xffffffffu;				/* sp_b4 */
 	for (i = 0x40; i < LIST_WORDS; i++) l[i] = 0;
+}
+
+/* a whole list from our own tables (listgen.h, generated from cmdlist.py): no capture needed */
+void h265_list_build(uint32_t *l, uint32_t base, uint32_t src_y, uint32_t src_uv, int cur, int idr, int qp, uint32_t poc)
+{
+	memcpy(l, idr ? LISTGEN_IDR : LISTGEN_P, sizeof LISTGEN_IDR);
+	memset(l + 32, 0, (LIST_WORDS - 32) * 4);
+	h265_list_set(l, base, src_y, src_uv, cur, idr, qp, poc);
 }
 
 static int load(const char *dir, const char *name, void *dst, size_t n, int need)
@@ -164,7 +184,7 @@ static int encode(int fd, uint32_t list_paddr, const uint32_t *lr, uint32_t *len
 
 int main(int argc, char **argv)
 {
-	int a = 1, n = 50, qp = 32, skip = 15, gop = -1, dry = 0, kbps = 0;
+	int a = 1, n = 50, qp = 32, skip = 15, gop = -1, dry = 0, kbps = 0, vlists = 0;
 	struct rc rcs;
 	static uint32_t ilist[LIST_WORDS], plist[LIST_WORDS];
 	static uint8_t params[4096];
@@ -189,8 +209,12 @@ int main(int argc, char **argv)
 	if (gop < 0) gop = kbps > 0 ? 50 : 0;
 	rc_init(&rcs, kbps > 0 ? kbps : 1, 25, 20, 51, qp);
 
-	if (load(dir, "list.bin", ilist, 0x40 * 4, 1) < 0 || load(dir, "plist.bin", plist, 0x40 * 4, 1) < 0) return 1;
-	if (((ilist[3] >> 28) & 3) != 2 || ((plist[3] >> 28) & 3) != 1) { fprintf(stderr, "list.bin must be an IDR list, plist.bin a P list\n"); return 1; }
+	/* our lists (listgen.h); H265_VENDOR_LISTS=1: the capture's list.bin and plist.bin as templates */
+	vlists = getenv("H265_VENDOR_LISTS") && getenv("H265_VENDOR_LISTS")[0] == '1';
+	if (vlists) {
+		if (load(dir, "list.bin", ilist, 0x40 * 4, 1) < 0 || load(dir, "plist.bin", plist, 0x40 * 4, 1) < 0) return 1;
+		if (((ilist[3] >> 28) & 3) != 2 || ((plist[3] >> 28) & 3) != 1) { fprintf(stderr, "list.bin must be an IDR list, plist.bin a P list\n"); return 1; }
+	}
 	/* our VPS/SPS/PPS (paramsets.h: the same bytes as the vendor's); H265_VENDOR_PARAMS=1: params.bin of the capture */
 	if (getenv("H265_VENDOR_PARAMS") && getenv("H265_VENDOR_PARAMS")[0] == '1') {
 		FILE *pf;
@@ -212,8 +236,11 @@ int main(int argc, char **argv)
 		for (k = 0; k < 3; k++) {
 			int idr = k == 0;
 
-			memcpy(l, idr ? ilist : plist, sizeof l);
-			h265_list_set(l, 0x81800000u, 0x82d00000u, 0x82d00000u + W * H, k & 1, idr, qp, (uint32_t)(2 * k));
+			if (vlists) {
+				memcpy(l, idr ? ilist : plist, sizeof l);
+				h265_list_set(l, 0x81800000u, 0x82d00000u, 0x82d00000u + W * H, k & 1, idr, qp, (uint32_t)(2 * k));
+			} else
+				h265_list_build(l, 0x81800000u, 0x82d00000u, 0x82d00000u + W * H, k & 1, idr, qp, (uint32_t)(2 * k));
 			printf("picture %d list:", k);
 			for (i = 0; i < 0x40; i++) printf(" %08x", l[i]);
 			hl = h265_slice_nal(hb, sizeof hb, idr, qp, (uint32_t)(2 * k));
@@ -239,6 +266,7 @@ int main(int argc, char **argv)
 		enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		FILE *f;
 		uint32_t total = 0, *lr;
+		int vtables;
 		double t0, tenc = 0;
 
 		if (fd < 0 || ioctl(fd, AK39_VENC_POOL_INFO, &info) < 0) { perror(dev); return 1; }
@@ -246,8 +274,12 @@ int main(int argc, char **argv)
 		pool = mmap(NULL, info.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, AK39_VENC_MMAP_POOL);
 		regs = mmap(NULL, info.regs_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, AK39_VENC_MMAP_REGS);
 		if (pool == MAP_FAILED || regs == (void *)MAP_FAILED) { perror("mmap"); return 1; }
-		if (load(dir, "tables.bin", pool + TABLES_OFF, TABLES_SIZE, 1) < 0) return 1;
-		memset(pool + WORK_OFF, 0, WORK_SIZE); memset(pool + SMALL_OFF, 0, SMALL_SIZE);
+		/* the side buffers: ours (TABLES_HEAD, zeros) unless LISTDIR holds the capture's */
+		memset(pool + TABLES_OFF, 0, TABLES_SIZE);
+		memcpy(pool + TABLES_OFF, TABLES_HEAD, sizeof TABLES_HEAD);
+		if ((vtables = load(dir, "tables.bin", pool + TABLES_OFF, TABLES_SIZE, 0)) < 0) return 1;
+		h265_work_table(pool + WORK_OFF);		/* worktab.h: the vendor's content, computed */
+		memset(pool + SMALL_OFF, 0, SMALL_SIZE);
 		if (load(dir, "work.bin", pool + WORK_OFF, WORK_SIZE, 0) < 0 || load(dir, "small.bin", pool + SMALL_OFF, SMALL_SIZE, 0) < 0) return 1;
 		memset(pool + FRAME0_OFF, 0, 2 * FRAME_SIZE);
 		lr = (uint32_t *)(void *)(pool + LIST_OFF);
@@ -296,9 +328,16 @@ int main(int argc, char **argv)
 			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP;
 			if (ioctl(vfd, VIDIOC_DQBUF, &b) < 0) { perror("DQBUF"); break; }
 			if (k < skip || b.index >= rq.count) { ioctl(vfd, VIDIOC_QBUF, &b); continue; }
-			memcpy(lr, idr ? ilist : plist, 0x40 * 4);
-			h265_list_set(lr, info.paddr, ph[b.index].phys_y, ph[b.index].phys_uv ? ph[b.index].phys_uv : ph[b.index].phys_y + W * H,
-				      cur, idr, q, poc);
+			{
+				uint32_t sy = ph[b.index].phys_y, suv = ph[b.index].phys_uv ? ph[b.index].phys_uv : sy + W * H;
+
+				if (vlists) {
+					memcpy(lr, idr ? ilist : plist, 0x40 * 4);
+					h265_list_set(lr, info.paddr, sy, suv, cur, idr, q, poc);
+				} else
+					h265_list_build(lr, info.paddr, sy, suv, cur, idr, q, poc);
+			}
+			if (!vtables) pool[TABLES_OFF + TABLES_TYPE_BYTE] = idr ? 0x24 : 0x30;
 			if (frame == 0 || idr) fwrite(params, 1, (size_t)plen, f);
 			te = now_ms();
 			if (encode(fd, info.paddr + LIST_OFF, lr, &len) < 0) { bad++; ioctl(vfd, VIDIOC_QBUF, &b); if (bad > 3) break; continue; }

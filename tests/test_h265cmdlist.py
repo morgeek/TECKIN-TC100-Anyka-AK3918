@@ -175,7 +175,7 @@ class H265liveDry(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp()
         cls.bin = os.path.join(cls.tmp, 'h265live-host')
         subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-DH265LIVE_NO_DEVICE', '-I', os.path.join(ROOT, 'src/h265enc'),
-                        '-o', cls.bin, os.path.join(ROOT, 'src/h265enc/h265live.c')], check=True)
+                        '-o', cls.bin, os.path.join(ROOT, 'src/h265enc/h265live.c'), '-lm'], check=True)
         idr = c.build_list(True, 36, 0, 0x80100000, 0x802fa400, 0x80f395a0, 0, 0x815b95a0, 0x80f331a0, 0x815bd5e0, 0x80eae100)
         p = c.build_list(False, 36, 2, 0x80100000, 0x802fa400, 0x80f395a0, 0x812795a0, 0x815b95a0, 0x80f331a0, 0x815bd5e0, 0x80eae100)
         open(os.path.join(cls.tmp, 'list.bin'), 'wb').write(struct.pack('<64I', *idr[:64]))
@@ -257,3 +257,48 @@ class ParamSets(unittest.TestCase):
                 self.assertRegex(r.stderr, r'pic_height_in_luma_samples\s+\d+ = %d\b' % h)
                 self.assertRegex(r.stderr, r'vui_time_scale\s+\d+ = %d\b' % fps)
                 self.assertRegex(r.stderr, r'rbsp_stop_one_bit')
+
+
+class ListGen(unittest.TestCase):
+    """listgen.h (the C lists of h265live, no capture needed) is gen_listgen.py's output for cmdlist.py as it is now"""
+
+    def test_up_to_date(self):
+        out = subprocess.run([sys.executable, os.path.join(ROOT, 'src/h265enc/gen_listgen.py')], capture_output=True,
+                             text=True, check=True).stdout
+        self.assertEqual(out, open(os.path.join(ROOT, 'src/h265enc/listgen.h')).read(),
+                         'run: python3 src/h265enc/gen_listgen.py > src/h265enc/listgen.h')
+
+    @unittest.skipUnless(shutil.which('gcc'), 'gcc')
+    def test_vendor_templates_give_the_same_lists(self):
+        # h265live --dry with H265_VENDOR_LISTS=1 (templates) and without (listgen.h): the same words
+        d = H265liveDry
+        d.setUpClass()
+        try:
+            a = subprocess.run([d.bin, '--dry', '-q', '33', d.tmp, '/dev/null'], capture_output=True, text=True).stdout
+            b = subprocess.run([d.bin, '--dry', '-q', '33', d.tmp, '/dev/null'], capture_output=True, text=True,
+                               env=dict(os.environ, H265_VENDOR_LISTS='1')).stdout
+            self.assertEqual(a, b)
+            self.assertIn('picture 2 list:', a)
+        finally:
+            d.tearDownClass()
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'gcc')
+class WorkTable(unittest.TestCase):
+    """worktab.h computes the 25 600-byte "work" buffer (rate-distortion weights, default scaling lists, quantisation
+    factors) exactly as the vendor software fills it: its SHA-256 is the IPCAM2 capture's of 2026-11-07 (the capture
+    itself, vendor data, is not in the repository)"""
+    VENDOR_SHA256 = '11eeadf9753c75bed9d6884ab51c3156c2e606f4eb2799894c5874b84c8a77f9'
+
+    def test_same_as_the_vendor(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as d:
+            b = os.path.join(d, 'wttest')
+            subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-I', os.path.join(ROOT, 'src/h265enc'), '-o', b,
+                            os.path.join(ROOT, 'src/h265enc/wttest.c'), '-lm'], check=True)
+            out = subprocess.run([b], capture_output=True, check=True).stdout
+            self.assertEqual(len(out), 0x6400)
+            self.assertEqual(hashlib.sha256(out).hexdigest(), self.VENDOR_SHA256)
+            # the parts that are the standard's: the 8x8 intra default list in raster order, a quantisation factor
+            self.assertEqual(list(out[0x100:0x108]), [16, 16, 16, 16, 17, 18, 21, 24])
+            self.assertEqual(struct.unpack_from('<I', out, 0x520)[0], (1 << 24) // (16 * 40))

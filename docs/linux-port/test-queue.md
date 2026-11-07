@@ -2899,3 +2899,21 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
 - **.11, 100 images, -b 1600, sans `params.bin` dans le dossier d'entrée** : 1 675 kbit/s, 2 I + 98 P, 0 échec,
   **0 erreur de décodage**, HEVC Main 1920x1080 25/1. Le flux entier (en-têtes de flux, de tranche, débit) vient de
   notre code ; restent des captures : la table de 0x4040 octets, les tampons work/small et les modèles de liste.
+
+## 2026-11-07 10:30 — encodeur libre : PLUS AUCUNE DONNÉE DU VENDEUR (testeur, .11)
+
+- **Listes de commandes** : `listgen.h`, généré par `gen_listgen.py` depuis `cmdlist.py` (une seule source ; test
+  `ListGen` : à jour, et listes identiques à celles faites depuis les modèles capturés).
+- **Tampon « work » (0x6400 octets)** : seconde capture (40 interruptions) : le logiciel du vendeur le remplit une fois,
+  le même pour toutes les images IDR et P ; à zéro, le cœur ignore le QP (20-23 Ko par image à QP 35 comme à 51).
+  Contenu décodé et **calculé** (`worktab.h`) : 52 × 4 poids débit-distorsion par QP (colonnes 1-3 = `ceil(A·2^(QP/6))`,
+  colonne 0 : les 52 valeurs du vendeur), les listes de quantification par défaut de la norme (table 7-6, matrices 8x8
+  en ordre ligne), les facteurs `2^24 / (m · invLevelScale[QP%6])`. **Identique aux 25 600 octets du vendeur** (test
+  `WorkTable` : SHA-256 de la capture, la capture elle-même n'est pas dans le dépôt).
+- **Table de 0x4040 octets** : 32 octets d'en-tête, le reste à zéro ; l'octet 19 vaut 0x24 en IDR, 0x30 en P (le même
+  pour toutes les P quel que soit le QP) ; le tampon de 256 octets est à zéro.
+- Les attentes 3 à 5 de la première capture étaient des instantanés JPEG (masque 0x40000).
+- **.11, dossier d'entrée VIDE, 150 images, -b 1600** : 1 686 kbit/s (par seconde 1983, 1624, 1698, 1635, 1542, 1630),
+  3 I + 147 P, 0 échec, **0 erreur de décodage**, image correcte. L'encodeur ne dépend plus d'aucune capture.
+- Remarque : en P, la taille saute d'environ ×2 entre QP 34 et 35 (≈ 10 Ko / 5,5 Ko), avec la table du vendeur comme
+  avec la nôtre : un seuil du cœur, à comprendre ; le contrôle de débit oscille entre les deux.
