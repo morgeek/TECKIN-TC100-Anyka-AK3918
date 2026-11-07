@@ -126,6 +126,16 @@ PROFILE_1080P = {
     'sp_87': 1, 'sp_88': 1, 'sp_8a': 20480, 'sp_90_m1': 59, 'sp_b8': 0xffffffff, 'sp_8a_b': 20480, 'sp_cf': 1,
     'chroma_flag_2': 1, 'sp_1c_b': 1, 'sp_1d_b': 1, 'sp_28_b': 1, 'half_width_8px_m1': 119, 'sp_d4_m1': 2039,
 }
+
+PROFILE_720P = {
+    'sp_00': 1, 'sp_01': 1, 'sp_03_m2': 3, 'sp_04_m2': 3, 'sp_05': 3, 'sp_06': 5, 'sp_07_m4': 7, 'sp_08_m4': 1,
+    'slice_type_c': 1, 'last_entry': 1, 'width_8px_m1': 159, 'height_8px_m1': 89, 'sp_16': 8, 'sp_17': 8,
+    'sp_19': 5, 'sp_1c': 1, 'sp_1d_bit13_forced_1': 5, 'sp_24': 1, 'sp_28': 1, 'sp_34': 1, 'sp_3b': 1,
+    'sp_50_zero': 1, 'sp_45': 31, 'sp_46': 63, 'sp_4a': 1, 'sp_58_rem': 39, 'sp_58_quot': 22, 'sp_5e_m1': 39,
+    'sp_60_m1': 22, 'sp_67': 1, 'sp_76_or_75': 1, 'sp_77_or_7b': 1, 'sp_83': 1, 'sp_84': 1, 'sp_85': 1, 'sp_86': 1,
+    'sp_87': 1, 'sp_88': 1, 'sp_8a': 20480, 'sp_90_m1': 39, 'sp_b8': 0xffffffff, 'sp_8a_b': 20480, 'sp_cf': 1,
+    'chroma_flag_2': 1, 'sp_1c_b': 1, 'sp_1d_b': 1, 'sp_28_b': 1, 'half_width_8px_m1': 79, 'sp_d4_m1': 919,
+}
 # frame-type dependent fields: slice_type 2 = I (IDR), 1 = P
 IDR_FIELDS = {'sp_2d': 0, 'sp_40': 2, 'sp_40_b': 2, 'sp_6c_m1': 7, 'sp_6e_m1': 7, 'sp_bc_6_m1': 1023, 'sp_be_3_m1': 1023}
 P_FIELDS = {'sp_2d': 1, 'sp_40': 1, 'sp_40_b': 1, 'sp_6c_m1': 3, 'sp_6e_m1': 3, 'sp_bc_6_m1': 29, 'sp_be_3_m1': 27}

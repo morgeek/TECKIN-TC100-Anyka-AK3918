@@ -26,6 +26,16 @@ def main():
     out += ['};', '', 'static const uint32_t LISTGEN_P[32] = {']
     out += ['\t' + ', '.join('0x%08x' % x for x in wp[i:i + 8]) + ',' for i in range(0, 32, 8)]
     out += ['};', '']
+    base720 = dict(c.PROFILE_720P)
+    base720.update({'qp': 0, 'sp_38': 0})
+    idr720 = dict(base720); idr720.update(c.IDR_FIELDS)
+    p720 = dict(base720); p720.update(c.P_FIELDS)
+    for name, f in (('LISTGEN_720P_IDR', idr720), ('LISTGEN_720P_P', p720)):
+        w = words(f)
+        out += ['/* 1280x720 H.265, qp = 0, POC 0 */',
+                'static const uint32_t %s[32] = {' % name]
+        out += ['\t' + ', '.join('0x%08x' % x for x in w[i:i + 8]) + ',' for i in range(0, 32, 8)]
+        out += ['};', '']
     for label, res_name, prof in (
         ('640x360 H.264 (the sub stream)', 'H264', c.PROFILE_H264_360P),
         ('1280x720 H.264', 'H264_720P', c.PROFILE_H264_720P),

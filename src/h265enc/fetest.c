@@ -33,11 +33,15 @@ int main(int argc, char **argv)
 {
 	static const struct fe_env env = { NULL, t_alloc, t_release, t_v2p, t_wait, NULL };
 	static struct fe_enc e;
-	int hevc, n, qp, gop, k, i;
+	int hevc, w, h, n, qp, gop, k, i;
 
-	if (argc != 5) { fprintf(stderr, "usage: fetest hevc|avc PICTURES QP GOP\n"); return 2; }
-	hevc = !strcmp(argv[1], "hevc"); n = atoi(argv[2]); qp = atoi(argv[3]); gop = atoi(argv[4]);
-	if (!fe_open(&env, &e, hevc, 0, 25, gop, 0, qp, qp)) { fprintf(stderr, "fe_open failed\n"); return 1; }
+	if (argc != 5) { fprintf(stderr, "usage: fetest hevc|hevc720|avc|avc720|avc1080 PICTURES QP GOP\n"); return 2; }
+	hevc = !strncmp(argv[1], "hevc", 4);
+	if (strstr(argv[1], "1080")) { w = 1920; h = 1080; }
+	else if (strstr(argv[1], "720")) { w = 1280; h = 720; }
+	else { w = hevc ? 1920 : 640; h = hevc ? 1080 : 360; }
+	n = atoi(argv[2]); qp = atoi(argv[3]); gop = atoi(argv[4]);
+	if (!fe_open_wh(&env, &e, hevc, w, h, 0, 25, gop, 0, qp, qp)) { fprintf(stderr, "fe_open failed\n"); return 1; }
 	for (k = 0; k < n; k++) {
 		uint8_t *d;
 		uint32_t len, *l;

@@ -88,10 +88,11 @@ static inline int fe_last_cur(int hevc, int cur)
 	return last[hevc ? 1 : 0];
 }
 
-/* hevc 1 = H.265 1920x1080, 0 = H.264 640x360; stride: of the source's Y plane (the width; 640 also lets a 640x360
- * H.264 encoder read the top of a bigger picture, the warm-up frame of tc100_rtsp). NULL when out of pool memory. */
-static inline struct fe_enc *fe_open(const struct fe_env *env, struct fe_enc *e, int hevc, int stride, int fps, int gop,
-				     int kbps, int qmin, int qmax)
+/* hevc 1 = H.265, 0 = H.264; w x h = 1920x1080, 1280x720 or 640x360; stride: of the source's Y plane (the width; a
+ * bigger stride also lets a 640x360 H.264 encoder read the top-left of a bigger picture, the warm-up frame of
+ * tc100_rtsp). NULL when out of pool memory. */
+static inline struct fe_enc *fe_open_wh(const struct fe_env *env, struct fe_enc *e, int hevc, int w, int h, int stride,
+					int fps, int gop, int kbps, int qmin, int qmax)
 {
 	uint32_t o, total;
 
@@ -100,12 +101,20 @@ static inline struct fe_enc *fe_open(const struct fe_env *env, struct fe_enc *e,
 	/* the first reconstruction goes into the other buffer than the last picture of the previous encoder (a new encoder
 	 * gets the same pool block back): on IPCAM2 an IDR into the buffer the last picture was written to hangs the core */
 	e->cur = fe_last_cur(hevc, -1) ^ 1;
-	e->w = hevc ? 1920 : 640; e->h = hevc ? 1080 : 360; e->stride = stride > 0 ? stride : e->w;
+	e->w = w > 0 ? w : (hevc ? 1920 : 640);
+	e->h = h > 0 ? h : (hevc ? 1080 : 360);
+	e->stride = stride > 0 ? stride : e->w;
 	e->fps = fps > 0 ? fps : 25; e->gop = gop > 0 ? gop : 2 * e->fps;
-	if (hevc) {	/* h265live.c's frame layout (cmdlist.FRAME_PLANE_OFFSETS) */
-		e->frame_size = 0x340000; e->f_uv = 0x1fe000; e->f_mv = 0x2fd000; e->f_col = 0x300400; e->rec_pitch = 0x1e00;
+	if (e->w == 1920) {	/* 1920x1080 (h265live.c's frame layout, cmdlist.FRAME_PLANE_OFFSETS) */
+		e->frame_size = hevc ? 0x340000 : 0x350000;
+		e->f_uv = 0x1fe000; e->f_mv = 0x2fd000;
+		e->f_col = hevc ? 0x300400 : 0x308000;
+		e->rec_pitch = 0x1e00;
 		e->stream_alloc = 0x7e900;
-	} else {	/* the vendor's: Y (tiled, pitch 0xa00), UV, motion info (0x1240 bytes), co-located info */
+	} else if (e->w == 1280) {	/* 1280x720 (H.265 or H.264) */
+		e->frame_size = 0x1a0000; e->f_uv = 0xf0000; e->f_mv = 0x168000; e->f_col = 0x16d000; e->rec_pitch = 0x1400;
+		e->stream_alloc = 0x40000;
+	} else {	/* 640x360: Y (tiled, pitch 0xa00), UV, motion info (0x1240 bytes), co-located info */
 		e->frame_size = 0x63000; e->f_uv = 0x3c000; e->f_mv = 0x5a000; e->f_col = 0x5b240; e->rec_pitch = 0xa00;
 		e->stream_alloc = 0xdf80;
 	}
@@ -125,10 +134,17 @@ static inline struct fe_enc *fe_open(const struct fe_env *env, struct fe_enc *e,
 	if (hevc) h265_work_table(e->mem + e->work_off); else h264_work_table(e->mem + e->work_off);
 	e->qp0 = (qmin + qmax) / 2 < 32 ? (qmin + qmax) / 2 : 32;
 	rc_init(&e->rc, kbps > 0 ? kbps : 1000, e->fps, qmin > 0 ? qmin : 20, qmax > 0 && qmax <= 51 ? qmax : 51, e->qp0);
-	e->plen = hevc ? h265_param_sets(e->params, sizeof e->params, 1920, 1080, (uint32_t)e->fps)
-		       : h264_param_sets(e->params, sizeof e->params, 640, 360, (uint32_t)e->fps, (uint32_t)(kbps > 0 ? kbps : 250));
+	e->plen = hevc ? h265_param_sets(e->params, sizeof e->params, (uint32_t)e->w, (uint32_t)e->h, (uint32_t)e->fps)
+		       : h264_param_sets(e->params, sizeof e->params, (uint32_t)e->w, (uint32_t)e->h, (uint32_t)e->fps,
+					 (uint32_t)(kbps > 0 ? kbps : (e->w > 640 ? 1000 : 250)));
 	if (e->plen < 0) { env->release((unsigned long)e->mem); e->mem = NULL; return NULL; }
 	return e;
+}
+
+static inline struct fe_enc *fe_open(const struct fe_env *env, struct fe_enc *e, int hevc, int stride, int fps, int gop,
+				     int kbps, int qmin, int qmax)
+{
+	return fe_open_wh(env, e, hevc, hevc ? 1920 : 640, hevc ? 1080 : 360, stride, fps, gop, kbps, qmin, qmax);
 }
 
 static inline void fe_close(struct fe_enc *e)
@@ -151,8 +167,14 @@ static inline void fe_list(const struct fe_enc *e, uint32_t *l, uint32_t src_y, 
 		 st = base + e->stream_off;
 	int i;
 
-	if (e->hevc) memcpy(l, idr ? LISTGEN_IDR : LISTGEN_P, 32 * 4);
-	else memcpy(l, idr ? LISTGEN_H264_IDR : LISTGEN_H264_P, 32 * 4);
+	if (e->hevc) {
+		if (e->w == 1280) memcpy(l, idr ? LISTGEN_720P_IDR : LISTGEN_720P_P, 32 * 4);
+		else memcpy(l, idr ? LISTGEN_IDR : LISTGEN_P, 32 * 4);
+	} else {
+		if (e->w == 1920) memcpy(l, idr ? LISTGEN_H264_1080P_IDR : LISTGEN_H264_1080P_P, 32 * 4);
+		else if (e->w == 1280) memcpy(l, idr ? LISTGEN_H264_720P_IDR : LISTGEN_H264_720P_P, 32 * 4);
+		else memcpy(l, idr ? LISTGEN_H264_IDR : LISTGEN_H264_P, 32 * 4);
+	}
 	for (i = 32; i < FE_LIST_WORDS; i++) l[i] = 0;
 	l[0x20] = src_y; l[0x21] = src_uv; l[0x22] = (uint32_t)e->stride;
 	l[0x23] = base + e->tables_off;

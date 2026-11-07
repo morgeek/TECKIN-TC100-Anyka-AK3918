@@ -9,8 +9,14 @@
 #ifndef _UAPI_LINUX_AK39_VENC_H
 #define _UAPI_LINUX_AK39_VENC_H
 
+#ifdef __APPLE__
+#include <sys/ioctl.h>
+#include <stdint.h>
+typedef uint32_t __u32;
+#else
 #include <linux/ioctl.h>
 #include <linux/types.h>
+#endif
 
 /* mmap() offsets (bytes) */
 #define AK39_VENC_MMAP_REGS	0x00000000UL	/* the register window */

@@ -47,7 +47,11 @@
 #include <string.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#ifdef __APPLE__
+#include <sys/mount.h>
+#else
 #include <sys/statfs.h>
+#endif
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>

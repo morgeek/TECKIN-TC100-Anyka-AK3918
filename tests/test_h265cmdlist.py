@@ -435,3 +435,17 @@ class FreeEnc(unittest.TestCase):
             for a, b in zip(pics, pics[1:]):
                 if not b['idr']:
                     self.assertEqual(b['list'][0x28], a['list'][0x24])
+
+    def test_multi_resolution_h264_and_h265(self):
+        for mode, w, h, pitch, ps in (
+            ('hevc720', 1280, 720, 0x1400, b'\x00\x00\x00\x01\x40\x01'),
+            ('avc720', 1280, 720, 0x1400, b'\x00\x00\x00\x01\x27\x4d'),
+            ('avc1080', 1920, 1080, 0x1e00, b'\x00\x00\x00\x01\x27\x4d'),
+        ):
+            pics = self.run_fe(mode, 4, 32, 3)
+            self.assertEqual([p['idr'] for p in pics], [1, 0, 0, 1], mode)
+            for p in pics:
+                self.assertEqual(p['list'][0x22], w, mode)
+                self.assertEqual(p['list'][0x26], pitch, mode)
+                self.assertEqual(p['list'][0x21] - p['list'][0x20], w * h, mode)
+                self.assertEqual(p['data'].startswith(ps), bool(p['idr']), mode)

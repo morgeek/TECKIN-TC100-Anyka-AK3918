@@ -12,6 +12,18 @@ OBJS = tc100_rtsp.o rec.o mp4box.o aacenc.o livemp4.o talk.o alisten.o acap.o ad
 
 all: tc100_rtsp
 
+# Pure musl build (with libakuio linked in and freeenc.h active by default, no uClibc or vendor libraries)
+musl: tc100_rtsp-musl
+
+include ../musl.mk
+
+tc100_rtsp-musl.dbg: tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c ../libakuio/libakuio.c Makefile ../musl.mk | $(MUSL)/bin/musl-gcc
+	$(MUSL_CC) $(MUSL_CFLAGS) -Wno-unused -I../jpegenc -I../h265enc -I../libakuio $(MUSL_LDFLAGS) -Wl,--export-dynamic \
+		tc100_rtsp.c rec.c mp4box.c aacenc.c livemp4.c talk.c alisten.c acap.c adsp.c ../libakuio/libakuio.c -o $@
+
+tc100_rtsp-musl: tc100_rtsp-musl.dbg
+	$(CROSS)strip --strip-unneeded -R .comment -o $@ $<
+
 tc100_rtsp.o: tc100_rtsp.c rec.h util.h sndq.h talk.h alisten.h livemp4.h acap.h adsp.h
 	$(CROSS)gcc $(CFLAGS) -c tc100_rtsp.c -o $@
 

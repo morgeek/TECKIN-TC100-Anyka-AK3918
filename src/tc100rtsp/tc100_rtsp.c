@@ -28,7 +28,9 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#ifndef TC100_HOST_TEST
 #include <linux/videodev2.h>
+#endif
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <signal.h>
@@ -181,12 +183,15 @@ static struct fe_env fe_env;
 static void *fe_p_open(const struct venc_param *pa)
 {
 	struct fe_enc *e = calloc(1, sizeof *e);
-	int hevc = pa->codec == 2, ok = hevc ? pa->width == 1920 && pa->height == 1080 : pa->width >= 640 && pa->height >= 360;
+	int hevc = pa->codec == 2;
+	int w = pa->profile == 99 ? 640 : (int)pa->width;
+	int h = pa->profile == 99 ? 360 : (int)pa->height;
+	int ok = (w == 1920 && h == 1080) || (w == 1280 && h == 720) || (!hevc && w == 640 && h == 360);
 
 	if (!e || !ok) { LOG("free encoder: %ux%u %s not supported\n", pa->width, pa->height, hevc ? "H.265" : "H.264"); free(e); return NULL; }
-	/* an H.264 encoder of a bigger picture (tc100_rtsp's warm-up frame before H.265) codes its top-left 640x360 */
-	if (!fe_open(&fe_env, e, hevc, (int)pa->width, (int)pa->fps, (int)pa->gop, (int)pa->kbps, (int)pa->qpmin, (int)pa->qpmax)) {
-		LOG("free encoder: no pool memory for the %s encoder\n", hevc ? "H.265" : "H.264");
+	/* an H.264 warm-up encoder (profile 99) before H.265 codes the top-left 640x360 of the bigger picture */
+	if (!fe_open_wh(&fe_env, e, hevc, w, h, (int)pa->width, (int)pa->fps, (int)pa->gop, (int)pa->kbps, (int)pa->qpmin, (int)pa->qpmax)) {
+		LOG("free encoder: no pool memory for the %s %dx%d encoder\n", hevc ? "H.265" : "H.264", w, h);
 		free(e);
 		return NULL;
 	}
@@ -2141,6 +2146,7 @@ static int sg_flush(void)
 	int i = 0, rc = 0;
 
 	while (i < sg.n) {
+#ifdef SYS_sendmmsg
 		if (sg_mmsg_on && sg.n - i > 1) {
 			long r = syscall(SYS_sendmmsg, udpfd, sg.m + i, (unsigned)(sg.n - i), MSG_NOSIGNAL);
 
@@ -2153,6 +2159,7 @@ static int sg_flush(void)
 			if (r < 0 && errno == EINTR) continue;
 			rc = -1; break;
 		}
+#endif
 		if (sendmsg(udpfd, &sg.m[i].hdr, MSG_NOSIGNAL) < 0) { rc = -1; break; }
 		if (pacing_us > 0) usleep((useconds_t)pacing_us);
 		i++;
@@ -3320,13 +3327,16 @@ int main(int argc, char **argv)
 		f = fopen("/etc/jffs2/venc.cfg", "w");
 		if (f) fclose(f);
 	}
-	if (!dlopen(akuio, RTLD_LAZY | RTLD_GLOBAL)) { LOG("dlopen %s: %s\n", akuio, dlerror()); return 2; }
-	{	/* RTSP_FREE_ENC=1: our encoders (H.265 1920x1080 main, H.264 640x360 sub), the vendor libraries not loaded */
+	{
+		int builtin_akuio = dlsym(RTLD_DEFAULT, "akuio_pmem_init") != NULL;
 		const char *e = getenv("RTSP_FREE_ENC");
 
-		if (e && e[0] == '1') {
-			if (W != 1920 || H != 1080 || !hevc || (sub_on && sub_hevc))
-				LOG("free encoder: not used (it codes H.265 1920x1080 and an H.264 sub-stream; asked: %dx%d %s, sub %s): the vendor library\n",
+		if (!builtin_akuio && !dlopen(akuio, RTLD_LAZY | RTLD_GLOBAL)) { LOG("dlopen %s: %s\n", akuio, dlerror()); return 2; }
+		/* RTSP_FREE_ENC=1 (or default in the musl build where libakuio is linked in): our encoders, no vendor libraries */
+		if ((e && e[0] == '1') || (builtin_akuio && (!e || e[0] != '0'))) {
+			int res_ok = (W == 1920 && H == 1080) || (W == 1280 && H == 720);
+			if (!res_ok || (sub_on && sub_hevc))
+				LOG("free encoder: not used (it codes 1920x1080 or 1280x720 H.265/H.264 and an H.264 sub-stream; asked: %dx%d %s, sub %s): the vendor library\n",
 				    W, H, hevc ? "h265" : "h264", !sub_on ? "off" : sub_hevc ? "h265" : "h264");
 			else {
 				p_alloc = dlsym(RTLD_DEFAULT, "akuio_alloc_pmem");
@@ -3559,7 +3569,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	int prime = (S[0].hevc || (sub_on && S[1].hevc)) && !getenv("NO_PRIME");
 	struct venc_param p0 = S[0].pa;
 
-	if (prime) { p0.codec = 0; p0.profile = 0; }
+	if (prime) { p0.codec = 0; p0.profile = free_enc ? 99 : 0; }
 	S[0].enc = p_open(prime ? &p0 : &S[0].pa);
 	if (!prime) pool_log(&S[0]);
 	if (!S[0].enc) { LOG("ak_venc_open failed\n"); return 1; }
@@ -3782,6 +3792,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			aud_reap();
 		}
 
+#ifndef TC100_HOST_TEST
 		if (FD_ISSET(fd, &fs)) {
 			struct v4l2_buffer b;
 			struct timespec t1;
@@ -4030,6 +4041,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }	/* encoded and copied out: capture here again */
 			if (dm) PROF(5, ioctl(fd, VIDIOC_QBUF, &b));
 		}
+#endif
 	}
 	if (sndr_on) { sndq_stop(&snd_q); pthread_join(snd_th, NULL); }
 	rec_shutdown();

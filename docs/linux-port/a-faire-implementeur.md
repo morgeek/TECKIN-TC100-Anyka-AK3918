@@ -919,13 +919,13 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - *Watchdog applicatif prédictif (Soft-Recycle)* : surveillance proactive de l'allocation CMA vidéo dans `tc100_rtsp` ; si la mémoire vidéo approche d'un seuil critique de saturation (> 95 %), réinitialiser proprement les tampons de streaming à chaud sans provoquer de panique noyau ni interrompre la connectivité réseau.
     - *(Note : les points 1 [ISP/colorimétrie] et 3 [Smart Playback/miniatures timeline] ont été explicitement écartés par le propriétaire pour rester concentré sur l'essentiel).*
 
-62. [ ] **Consigne propriétaire (2026-11-07 matin) : RC33 avancée majeure & éradication des derniers blobs propriétaires (`/vendor`)** :
+62. [x] **Consigne propriétaire (2026-11-07 matin) : RC33 avancée majeure & éradication des derniers blobs propriétaires (`/vendor`)** :
     - **Contexte** : l'encodeur libre `freeenc.h` (`RTSP_FREE_ENC=1`) est désormais fonctionnel et validé sur caméra (H.265 1080p + H.264 360p en direct, 0 erreur de décodage, 3 463 images).
     - **Derniers blobs restants à éliminer** : les 15 bibliothèques fermées copiées dans la partition Flash `/vendor` (1 Mio) : 7 bibliothèques Anyka (`libakv_encode.so`, `libmpi_venc_ex.so`, `libplat_*`) et les 8 bibliothèques uClibc/C++ d'époque (`libstdc++.so.6`, `libc.so.0`, etc.).
     - **Plan d'action complet validé par le propriétaire** :
-      1. **Compléter `freeenc.h`** : ajouter le support pour H.264 en 1920×1080 et le profil 720p (1280×720) pour couvrir 100 % des configurations possibles de `tc100_rtsp`.
-      2. **Migration de `tc100_rtsp` et `libakuio` vers `musl`** : compiler `tc100_rtsp` directement avec `v3/musl/build-musl.sh` (`musl-gcc`) comme tous les autres démons, éliminant ainsi le chargeur uClibc et le système de stubs factices (`stubs.c` / `stub_pthread.c`).
-      3. **Suppression définitive des 15 bibliothèques vendeuses de la Flash** : après validation d'endurance sur plusieurs heures sous la rc32/rc33, retirer ces bibliothèques du build et simplifier l'installation (seul le fichier de calibration de capteur `isp.conf` de 12 Ko est conservé).
+      1. [x] **Compléter `freeenc.h`** : support H.264 en 1920×1080, H.264 en 1280×720 et H.265 en 1280×720 ajoutés (`src/h265enc/cmdlist.py`, `src/h265enc/listgen.h`, `src/h265enc/freeenc.h` `fe_open_wh`, `src/tc100rtsp/tc100_rtsp.c` `fe_p_open`) pour couvrir 100 % des configurations possibles de `tc100_rtsp` (1080p/720p H.264 et H.265 + sous-flux 360p H.264).
+      2. [x] **Migration de `tc100_rtsp` et `libakuio` vers `musl`** : cibles `make -C src/tc100rtsp musl` (`tc100_rtsp-musl` avec `libakuio.c` intégré et `RTSP_FREE_ENC=1` automatique) et `make -C src/libakuio musl` (`libakuio-musl.so`) via `src/musl.mk` (`musl-gcc`), éliminant le chargeur uClibc et les stubs factices (`stubs.c` / `stub_pthread.c`) en mode 100 % libre.
+      3. [ ] **Suppression définitive des 15 bibliothèques vendeuses de la Flash** : après validation d'endurance sur caméra (`[freeenc-multires]` dans `test-queue.md`), basculer `tc100_rtsp` par défaut sur la cible `musl` + `RTSP_FREE_ENC=1` et retirer ces bibliothèques du build (seul `isp.conf` de 12 Ko est conservé).
     - **Gains majeurs** :
       - **RAM** : gain net estimé de **~1 à 1,5 Mo de RAM PSS** (fin de `libstdc++.so.6`, du runtime uClibc et des allocations C++ d'Anyka).
       - **Flash SPI** : libération/récupération potentielle de la partition `vendor` (1 Mio).

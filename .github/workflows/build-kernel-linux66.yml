@@ -176,6 +176,9 @@ jobs:
           # 2026-11-07: tc100-mqttd, -supervisord, -onvifd (and rwconf, tc100-logfwd, libnetacl-musl.so below) are built
           # against musl 1.2.4, the camera's own libc (src/musl.mk); the vendor uClibc stays for tc100_rtsp only
           sh v3/musl/build-musl.sh
+          make -C src/libakuio CROSS=arm-linux-gnueabi- musl >/dev/null
+          make -C src/tc100rtsp CROSS=arm-linux-gnueabi- musl >/dev/null
+          cp src/tc100rtsp/tc100_rtsp-musl $P/
           make -C src/mqttd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/mqttd/tc100-mqttd $P/
           make -C src/supervisord CROSS=arm-linux-gnueabi- >/dev/null

@@ -2957,3 +2957,13 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   trouve la caméra occupée et s'arrête) : relancé à la main ; le script attend maintenant la fin du processus.
 - **À tester ensuite** : plusieurs heures (surveillance comme pour les rc), Frigate réel, enregistrement sur carte SD
   (la .11 n'a pas de carte), ABR, nuit / noir et blanc, puis en faire le défaut dans une rc.
+
+### [freeenc-multires] Free encoder H.264 1080p, H.264/H.265 720p & musl build (`tc100_rtsp-musl`) — `to test`
+- **What:** Item #62 (62.1 & 62.2):
+  1. `src/h265enc/freeenc.h` (`fe_open_wh`) and `src/h265enc/listgen.h` now support **H.264 1920x1080**, **H.264 1280x720**, and **H.265 1280x720** in addition to H.265 1920x1080 and H.264 640x360, covering 100% of `tc100_rtsp` main/sub stream combinations under `RTSP_FREE_ENC=1`.
+  2. `make -C src/tc100rtsp musl` builds `tc100_rtsp-musl` against `musl 1.2.4` (`src/musl.mk`) with `libakuio.c` linked directly in (no uClibc loader, no `stubs.c`, no `dlopen` of vendor `.so` blobs; `free_enc` turns on automatically when `libakuio` is built in).
+- **Switch:** `RTSP_FREE_ENC=0` (keeps vendor encoder on the standard `tc100_rtsp` binary).
+- **Test:**
+  1. With `RTSP_FREE_ENC=1` in `/mnt/config/rtsp.env`, test main stream in **H.264 1080p** (`-c h264`), **H.265 720p** (`RTSP_WIDTH=1280 RTSP_HEIGHT=720 -c h265`), and **H.264 720p** (`RTSP_WIDTH=1280 RTSP_HEIGHT=720 -c h264`), verifying `ffmpeg -v error` decoding (0 errors) and bit rate accuracy.
+  2. Run `tc100_rtsp-musl` on the camera: verify `/proc/$(pidof tc100_rtsp-musl)/maps` has zero `/vendor/*.so` or `uClibc` mappings, measure PSS saving (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`), and verify streaming + sub-stream + hardware JPEG snapshots.
+- **Pass:** 0 decode errors across all 4 main stream modes (H.265 1080p/720p, H.264 1080p/720p) + H.264 360p sub-stream; `tc100_rtsp-musl` runs purely on `/lib/ld-musl-arm.so.1` with ~1-1.5 MB lower PSS.

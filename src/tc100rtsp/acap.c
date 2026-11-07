@@ -13,8 +13,13 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
-#include <sound/asound.h>
 #include "acap.h"
+#ifdef __APPLE__
+int acap_open(const char *dev) { (void)dev; return -1; }
+int acap_read(int fd, void *buf, int bytes) { (void)fd; (void)buf; (void)bytes; return -1; }
+int acap_delay_bytes(int fd) { (void)fd; return 0; }
+#else
+#include <sound/asound.h>
 
 static struct snd_mask *mask(struct snd_pcm_hw_params *p, int k)
 {
@@ -94,3 +99,4 @@ int acap_delay_bytes(int fd)
 	if (ioctl(fd, SNDRV_PCM_IOCTL_DELAY, &d) < 0 || d < 0) return 0;
 	return (int)d * 2;
 }
+#endif

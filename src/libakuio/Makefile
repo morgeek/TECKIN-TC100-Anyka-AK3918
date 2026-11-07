@@ -12,6 +12,16 @@ LIB = libakuio.so
 
 all: $(LIB) imports.txt
 
+musl: libakuio-musl.so
+
+include ../musl.mk
+
+libakuio-musl.dbg.so: libakuio.c ak39_venc.h Makefile ../musl.mk | $(MUSL)/bin/musl-gcc
+	$(MUSL_CC) $(filter-out -fno-pie,$(MUSL_CFLAGS)) -fPIC -shared -I. -Wl,-soname,libakuio.so -Wl,--hash-style=both -o $@ libakuio.c
+
+libakuio-musl.so: libakuio-musl.dbg.so
+	$(CROSS)strip --strip-unneeded -R .comment -o $@ $<
+
 # the libc names it needs, for tests/check-libc-data-imports.sh (no glibc-only name: __isoc23_strtol of atoi() with the
 # glibc 2.38 headers of the CI compiler, 2026-11-07)
 imports.txt: libakuio.o
