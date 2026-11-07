@@ -2794,3 +2794,16 @@ les pannes `__isoc99_sscanf`, variables de libc, etc.). Le runtime uClibc du ven
   dans `ci.yml`, `build-musl.sh` dans la construction de la version.
 - **À vérifier à l'installation de la rc33** : les 4 démons tournent (`/proc/<pid>/maps` sans `/vendor/lib`),
   ONVIF/MQTT/journal distant/`rwconf` au démarrage fonctionnent ; telnet (si activé) refuse une adresse hors LAN.
+
+## 2026-11-07 02:00 — encodeur H.265 libre, étape 2 : outils prêts (testeur), essais sur la .11 après la surveillance
+
+Choix du propriétaire : tous les essais sur la .11 une fois l'étape 2 écrite. Rien n'a tourné sur une caméra.
+- `libakuio` : `AKUIO_CAPTURE=PREFIX` (lecture seule) — après chacune des N premières interruptions, registres, liste
+  de commandes, tampons table/travail/petit, tampon de flux et, une fois, l'image NV12 source de la première IDR.
+- `tc100_rtsp` : `RTSP_SAVE_FRAMES=PREFIX` — les images rendues par la bibliothèque du vendeur + leur adresse.
+- `src/h265enc/capture.py` : analyse (où est la longueur de l'image, le cœur écrit-il les en-têtes, la table est-elle
+  constante, les listes 3.0 suivent-elles `build_list`) et fichiers d'entrée de `h265enc`.
+- `src/h265enc/h265enc.c` : une image IDR encodée par le cœur seul (liste IDR du vendeur comme modèle, nos tampons),
+  `--dry` testé contre `cmdlist.build_list` ; `--run` à essayer.
+- `v3/dev/h265-step2.sh capture | run` : la procédure sur la caméra (vidéo coupée ~1 min, rien en flash).
+- Les captures sont des données du vendeur : jamais dans git.

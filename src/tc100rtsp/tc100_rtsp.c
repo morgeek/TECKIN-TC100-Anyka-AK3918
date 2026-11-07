@@ -109,6 +109,39 @@ static volatile int run = 1;
 static int fcopy_on = 1;	/* RTSP_FRAMECOPY=0: encoder output and JPEGs are read in place (uncached) as before */
 static int dbg_on;	/* RTSP_DEBUG, read once at start (no getenv per frame) */
 
+/* RTSP_SAVE_FRAMES=PREFIX (step 2 of the free encoder, with AKUIO_CAPTURE of libakuio): the first RTSP_SAVE_FRAMES_N
+ * (default 12) pictures of the main stream as the vendor encoder returns them, PREFIX.<n>.h26x, and one line per picture
+ * in PREFIX.log: "<n> <virtual address of the data> <length>" (the address places the picture in the stream buffer of
+ * the .cap files: src/h265enc/capture.py). Debug tool, off unless the variable is set. */
+static void save_frame(const void *d, unsigned len)
+{
+	static int n, max = -1;
+	static const char *pre;
+	char name[160], line[64];
+	int of, ln;
+
+	if (max < 0) {
+		const char *e = getenv("RTSP_SAVE_FRAMES_N");
+
+		pre = getenv("RTSP_SAVE_FRAMES");
+		max = 12;
+		if (e && *e >= '0' && *e <= '9') for (max = 0; *e >= '0' && *e <= '9' && max < 10000; e++) max = max * 10 + (*e - '0');
+	}
+	if (!pre || n >= max)
+		return;
+	snprintf(name, sizeof name, "%s.%d.h26x", pre, n);
+	of = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (of >= 0) { (void)!write(of, d, len); close(of); }
+	snprintf(name, sizeof name, "%s.log", pre);
+	of = open(name, O_WRONLY | O_CREAT | O_APPEND, 0644);
+	if (of >= 0) {
+		ln = snprintf(line, sizeof line, "%d %lx %u\n", n, (unsigned long)(uintptr_t)d, len);
+		(void)!write(of, line, ln);
+		close(of);
+	}
+	n++;
+}
+
 static void on_sig(int s) { (void)s; run = 0; }
 
 /* ---- web UI pictures from the hardware JPEG engine (same files as tc100_streamer) ---- */
@@ -3803,6 +3836,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 					continue;
 				}
 				s->fails = 0;
+				if (!k) save_frame(st.data, st.len);
 				{
 					/* The encoder output is uncached memory: read it once, word-wise, into the heap (the GOP cache keeps
 					 * that copy), find the NALs once, give the encoder its buffer back, and let everything below read the

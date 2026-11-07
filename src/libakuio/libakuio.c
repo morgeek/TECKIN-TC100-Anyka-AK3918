@@ -448,6 +448,92 @@ void akuio_fixqp(uint32_t list_paddr)
 		par[19] = (uint8_t)qp;
 }
 
+/* AKUIO_CAPTURE=PREFIX (step 2 of the free encoder, 2026-11-07): after each of the first AKUIO_CAPTURE_N (default 12)
+ * interrupts, PREFIX.<n>.cap records what the vendor encoder left in memory, for src/h265enc/capture.py:
+ *   "TC100CAP" u32 version=1 u32 pool_paddr u32 pool_vaddr u32 pool_size u32 wait_number
+ *   then records: char tag[4], u32 paddr, u32 length, data (length bytes, padded to 4)
+ *     "REGS" the encoder window 0x8000-0x83ff     "CLK " 0xc000-0xc00f
+ *     "LIST" the command list of register 0x8080 (448 bytes, input and status words)
+ *     "TABL" "WORK" "SMAL" the buffers of list words 0x23 (0x4040 bytes), 0x27 (0x6400), 0x2f (0x100)
+ *     "STRM" the stream buffer of word 0x30, from its start (the 0x820 bytes the core writes first) on, up to
+ *            AKUIO_CAPTURE_STREAM bytes (default 0x40000)
+ *     "SRCY" "SRCU" the NV12 source of the first IDR (words 0x20, 0x21), once
+ * Read only: nothing of the encoder or of its buffers is changed. Debug tool, off unless the variable is set. */
+static void cap_rec(int of, const char *tag, uint32_t paddr, const void *d, uint32_t n)
+{
+	uint32_t h[3];
+	static const uint8_t z[4];
+
+	memcpy(h, tag, 4); h[1] = paddr; h[2] = n;
+	(void)!write(of, h, sizeof h);
+	(void)!write(of, d, n);
+	if (n & 3) (void)!write(of, z, 4 - (n & 3));
+}
+
+static void cap_pool(int of, const char *tag, uint32_t paddr, uint32_t n)
+{
+	if (paddr < info.paddr || paddr - info.paddr >= info.size)
+		return;
+	if (n > info.size - (paddr - info.paddr))
+		n = info.size - (paddr - info.paddr);
+	cap_rec(of, tag, paddr, pool + (paddr - info.paddr), n);
+}
+
+static void akuio_capture(void)
+{
+	static int n, max = -1, src_done;
+	static const char *pre;
+	static uint32_t smax;
+	char name[128];
+	int of;
+
+	if (max < 0) {
+		const char *e = getenv("AKUIO_CAPTURE_N"), *es = getenv("AKUIO_CAPTURE_STREAM");
+
+		pre = getenv("AKUIO_CAPTURE");
+		max = e ? atoi(e) : 12;
+		smax = es ? (uint32_t)atoi(es) : 0x40000;
+	}
+	if (!pre || n >= max || !regs || regs_len < 0x8400)
+		return;
+	snprintf(name, sizeof name, "%s.%d.cap", pre, n);
+	of = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (of < 0)
+		return;
+	{
+		uint32_t h[5] = { 1, info.paddr, (uint32_t)(uintptr_t)pool, info.size, (uint32_t)n };
+		uint32_t r[256], c[4], lp, *l;
+		int i;
+
+		(void)!write(of, "TC100CAP", 8);
+		(void)!write(of, h, sizeof h);
+		for (i = 0; i < 256; i++) r[i] = *(volatile uint32_t *)(regs + 0x8000 + 4 * i);
+		cap_rec(of, "REGS", info.regs_paddr + 0x8000, r, sizeof r);
+		if (regs_len >= 0xc010) {
+			for (i = 0; i < 4; i++) c[i] = *(volatile uint32_t *)(regs + 0xc000 + 4 * i);
+			cap_rec(of, "CLK ", info.regs_paddr + 0xc000, c, sizeof c);
+		}
+		lp = r[0x80 / 4];
+		if (lp >= info.paddr && lp - info.paddr + 448 <= info.size) {
+			l = (uint32_t *)(void *)(pool + (lp - info.paddr));
+			cap_rec(of, "LIST", lp, l, 448);
+			cap_pool(of, "TABL", l[0x23], 0x4040);
+			cap_pool(of, "WORK", l[0x27], 0x6400);
+			cap_pool(of, "SMAL", l[0x2f], 0x100);
+			cap_pool(of, "STRM", l[0x30], smax);
+			/* the source of the first IDR (field sp_40 = 2, word 3 bits 28-29), NV12 1920x1080: h265enc can then encode
+			 * the same picture as the vendor library and the two streams be compared */
+			if (((l[3] >> 28) & 3) == 2 && !src_done) {
+				cap_pool(of, "SRCY", l[0x20], 1920 * 1080);
+				cap_pool(of, "SRCU", l[0x21], 1920 * 1080 / 2);
+				src_done = 1;
+			}
+		}
+	}
+	close(of);
+	n++;
+}
+
 void akuio_wait_irq(unsigned long arg)
 {
 	int dummy = 0;
@@ -569,6 +655,7 @@ void akuio_wait_irq(unsigned long arg)
 				fprintf(stderr, "CLR mode %d: 0x18 %08x -> %08x\n", clr, b4, *s18);
 		}
 	}
+	akuio_capture();
 	if (e_irqdbg) {
 		char tb[64];
 		int tn;

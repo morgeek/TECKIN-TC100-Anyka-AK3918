@@ -67,3 +67,99 @@ class RecordedTrace(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# ---- step 2 (2026-11-07): h265enc.c and capture.py, offline
+import shutil  # noqa: E402
+import struct  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+import capture  # noqa: E402
+
+BASE = 0x81800000
+
+
+@unittest.skipUnless(shutil.which('gcc') and shutil.which('make'), 'gcc')
+class H265encDry(unittest.TestCase):
+    """h265enc --dry puts its buffers in an IDR template exactly where cmdlist.build_list does"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        shutil.copy(os.path.join(ROOT, 'src/h265enc/h265enc.c'), cls.tmp)
+        os.makedirs(os.path.join(cls.tmp, '..', 'libakuio'), exist_ok=True)
+        cls.bin = os.path.join(cls.tmp, 'h265enc-host')
+        subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-DH265ENC_NO_DEVICE', '-o', cls.bin,
+                        os.path.join(cls.tmp, 'h265enc.c')], check=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def run_dry(self, template, qp):
+        d = tempfile.mkdtemp(dir=self.tmp)
+        open(os.path.join(d, 'list.bin'), 'wb').write(struct.pack('<64I', *template[:64]))
+        open(os.path.join(d, 'tables.bin'), 'wb').write(b'\x11' * 0x4040)
+        nv12 = os.path.join(d, 'in.nv12')
+        open(nv12, 'wb').write(b'\x80' * (1920 * 1080 * 3 // 2))
+        r = subprocess.run([self.bin, '--dry', '-q', str(qp), d, nv12, os.path.join(d, 'o.h265')], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        hexw = r.stdout.split('list (input words):')[1].split('dry run')[0].split()
+        return [int(x, 16) for x in hexw]
+
+    def test_same_list_as_the_model(self):
+        # a recorded-like IDR list with the vendor's addresses, then what h265enc must make of it with its own buffers
+        vendor = c.build_list(True, 35, 0, 0x80100000, 0x802fa400, 0x80f395a0, 0, 0x815b95a0, 0x80f331a0, 0x815bd5e0, 0x80eae100)
+        for qp in (22, 30, 41):
+            got = self.run_dry(vendor, qp)
+            want = c.build_list(True, qp, 0, BASE + 0x100000, BASE + 0x100000 + 1920 * 1080, BASE + 0x400000, 0,
+                                BASE + 0x80000, BASE + 0x88000, BASE + 0x8f000, BASE + 0x0)
+            self.assertEqual(['%08x' % x for x in got], ['%08x' % x for x in want[:0x40]], qp)
+
+    def test_refuses_a_p_list(self):
+        p = c.build_list(False, 30, 2, 1, 2, 3, 4, 5, 6, 7, 8)
+        d = tempfile.mkdtemp(dir=self.tmp)
+        open(os.path.join(d, 'list.bin'), 'wb').write(struct.pack('<64I', *p[:64]))
+        r = subprocess.run([self.bin, '--dry', d, '/nonexistent', '/dev/null'], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('not an IDR list', r.stderr)
+
+
+class CaptureFiles(unittest.TestCase):
+    """capture.py on a synthetic capture: records, the picture found in the stream buffer, its length found in a status
+    word, the h265enc inputs"""
+
+    def test_report_and_inputs(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        pool_p, pool_v = 0x81800000, 0x40000000
+        stream_p = pool_p + 0x10000
+        lst = c.build_list(True, 33, 0, pool_p + 0x200000, pool_p + 0x3fa400, pool_p + 0x500000, 0, pool_p + 0x1000,
+                           pool_p + 0x6000, pool_p + 0xd000, stream_p)
+        pic = b'\x00\x00\x00\x01\x40\x01VPS' + b'\x00\x00\x00\x01\x42\x01SPS' + b'\x00\x00\x00\x01\x44\x01PPS' + \
+              b'\x00\x00\x00\x01\x26\x01' + bytes(range(256)) * 4
+        lst[0x45] = len(pic) * 8                                     # pretend the core gives the length in bits there
+        stream = b'\x00' * 0x820 + pic + b'\xa5' * 64
+
+        def rec(tag, paddr, data):
+            return tag.encode() + struct.pack('<II', paddr, len(data)) + data + b'\x00' * (-len(data) & 3)
+        body = (rec('REGS', 0x20028000, struct.pack('<256I', *([0] * 0x20 + [pool_p + 0x100] + [0] * 223)))
+                + rec('LIST', pool_p + 0x100, struct.pack('<112I', *lst)) + rec('TABL', pool_p + 0x1000, b'T' * 0x4040)
+                + rec('WORK', pool_p + 0x6000, b'W' * 0x6400) + rec('SMAL', pool_p + 0xd000, b'S' * 0x100)
+                + rec('STRM', stream_p, stream))
+        open(os.path.join(d, 'c.0.cap'), 'wb').write(b'TC100CAP' + struct.pack('<5I', 1, pool_p, pool_v, 0x960000, 0) + body)
+        open(os.path.join(d, 'f.0.h26x'), 'wb').write(pic)
+        open(os.path.join(d, 'f.log'), 'w').write('0 %x %d\n' % (pool_v + 0x10000 + 0x820, len(pic)))
+        caps, frames = capture.load(d)
+        import io
+        out = io.StringIO()
+        capture.report(caps, frames, out)
+        txt = out.getvalue()
+        self.assertIn('IDR qp 33 poc   0  model same', txt)
+        self.assertIn('NAL types [32, 33, 34, 19]', txt)
+        self.assertIn('at +0x820, bytes identical', txt)
+        self.assertIn('list word 0x45 = %d (bits)' % (len(pic) * 8), txt)
+        files = capture.write_inputs(caps, frames, os.path.join(d, 'in'))
+        self.assertEqual(files, ['list.bin', 'params.bin', 'small.bin', 'tables.bin', 'work.bin'])
+        self.assertEqual(open(os.path.join(d, 'in/params.bin'), 'rb').read(), pic[:pic.index(b'\x00\x00\x00\x01\x26')])

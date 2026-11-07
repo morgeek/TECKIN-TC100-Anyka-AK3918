@@ -48,6 +48,23 @@ encoder at 1920x1080 (two traces, 40 + 34 H.265 pictures). **Nothing has run on 
 - Rate control (the vendor chooses the QP), reference management for more than one reference, B pictures: the closed part of the library.
 - The bitstream itself: the headers (VPS/SPS/PPS, slice header) come from software; Xilinx's MIT-licensed vcu-ctrl-sw has writers for them.
 
+## Step 2 (2026-11-07): capture on Linux 6.6, then a first IDR without the vendor libraries
+
+The owner's goal: no proprietary library left. The plan, on a test camera (IPCAM2):
+
+1. **Capture** (`v3/dev/h265-step2.sh capture`): tc100_rtsp restarted by hand for 20 s with `AKUIO_CAPTURE` (libakuio
+   writes, after each of the first 12 interrupts, the registers, the command list, the table / work / small buffers, the
+   stream buffer and, once, the NV12 source of the first IDR) and `RTSP_SAVE_FRAMES` (the pictures the vendor returned).
+2. **Analysis** (`python3 capture.py DIR --out DIR/in`): where the picture length is, whether the core writes the
+   parameter sets and the slice header, whether the table buffer is constant, whether the lists of the 3.0 vendor
+   library still follow `build_list`; writes the inputs of h265enc.
+3. **First run** (`v3/dev/h265-step2.sh run`): `h265enc --run` encodes the same NV12 picture with the vendor's IDR list
+   as a template (its own buffers, `patch_list` = the address words of `build_list`, tested), the core alone.
+   Success = `o.h265` decodes, ideally byte for byte the vendor's `f.0.h26x`.
+4. Then: P pictures (two frame buffers, the reference), our own VPS/SPS/PPS writer instead of the captured ones, our
+   own table buffer if it is constant, a QP rate control; then h265enc becomes the encoder of tc100_rtsp and
+   `libakv_encode`, `libmpi_venc_ex`, `libplat_*`, `libstdc++` and the uClibc runtime leave the camera.
+
 ## Use
 
 ```
