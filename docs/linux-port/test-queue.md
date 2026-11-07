@@ -2950,5 +2950,10 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   registres mappés (`akuio_map_regs`, appelé par le vendeur) : sinon l'attente suivante revient tout de suite et le
   démarrage suivant bloque le cœur **jusqu'au redémarrage** (même pour le vendeur) — 4 redémarrages de la .11 pendant
   la mise au point ; masque 0x8014 bit 2 à zéro pour H.265.
+- **Surveillance de 30 min (11:25 → 12:00)** : le même processus tout du long, **0 image en échec** (un encodeur
+  H.265 a tenu 43 446 images d'affilée), un client RTSP branché presque tout le temps (pas le testeur), RSS 1,3 Mo,
+  mémoire et Wi-Fi normaux (ping 4 ms) ; capture de contrôle de 60 s : 1 453 images, 0 erreur, 1,56 Mbit/s. Service
+  normal (vendeur) remis ensuite : `restore` l'avait relancé trop tôt (l'ancien processus pas encore fini, le service
+  trouve la caméra occupée et s'arrête) : relancé à la main ; le script attend maintenant la fin du processus.
 - **À tester ensuite** : plusieurs heures (surveillance comme pour les rc), Frigate réel, enregistrement sur carte SD
   (la .11 n'a pas de carte), ABR, nuit / noir et blanc, puis en faire le défaut dans une rc.

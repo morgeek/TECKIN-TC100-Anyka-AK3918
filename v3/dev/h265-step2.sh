@@ -14,7 +14,15 @@ set -u
 NEW=${H265_NEW:-/tmp/h265new}
 CTL=/mnt/controlscripts/rtsp-h26x
 # stop the copies of a program started from $NEW (busybox has no pkill)
-stopnew() { for p in $(pidof "$1"); do [ "$(readlink /proc/$p/exe)" = "$NEW/$1" ] && kill "$p"; done; sleep 2; }
+# and wait until they are gone (up to 15 s): the video service started too early finds the camera busy and exits
+stopnew() {
+	for p in $(pidof "$1"); do [ "$(readlink /proc/$p/exe)" = "$NEW/$1" ] && kill "$p"; done
+	i=0; while [ $i -lt 15 ]; do
+		left=0; for p in $(pidof "$1"); do [ "$(readlink /proc/$p/exe)" = "$NEW/$1" ] && left=1; done
+		[ $left = 0 ] && break; sleep 1; i=$((i + 1))
+	done
+	sleep 1
+}
 case "${1:-}" in
 capture)
 	OUT=${H265_CAP:-/tmp/h265cap}
@@ -64,7 +72,9 @@ free)
 	;;
 restore)
 	stopnew tc100_rtsp
-	$CTL start; sleep 3; pidof tc100_rtsp
+	$CTL start; sleep 5
+	pidof tc100_rtsp >/dev/null || { sleep 3; $CTL start; sleep 5; }
+	pidof tc100_rtsp
 	;;
 run)
 	IN=${H265_IN:-/tmp/h265in}; OUT=${H265_OUT:-/tmp/h265out}
