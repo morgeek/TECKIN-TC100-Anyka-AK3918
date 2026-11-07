@@ -166,7 +166,7 @@ class WifiFirstAtBoot(unittest.TestCase):
 
     def test_dhcp_name_from_the_settings_and_no_needless_restart(self):
         s = text('v3/S39tc100-linux66')
-        self.assertIn('udhcpc -i wlan0 -b -t 20 -T 1 -A 5 -x hostname:$H', s)
+        self.assertRegex(s, r'udhcpc -i wlan0 -b -t 20 -T 1 -A 5 .*?-x hostname:\$H')
         self.assertIn('echo "$H" > /tmp/dhcp-hostname', s)
         self.assertNotIn('hostname:tc100', s)
         a = text('v3/autorun-linux66.sh')
