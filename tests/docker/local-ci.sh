@@ -40,7 +40,7 @@ run_tests() {
 run_cross() {
 	echo "== ARM cross build (arm-linux-gnueabi, as CI)"
 	docker run --rm -v "$SRC:/src:ro" debian:bookworm sh -c '
-		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 busybox-static >/dev/null 2>&1
+		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 busybox-static curl ca-certificates >/dev/null 2>&1
 		cp -r /src /w && cd /w && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
 		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl.so
@@ -63,13 +63,16 @@ run_cross() {
 		cmp /tmp/aac_h.bin /tmp/aac_a.bin && test -s /tmp/aac_a.bin && echo "aacenc: ARM (qemu) = host, $(wc -c < /tmp/aac_a.bin) bytes"
 		make -C src/libakuio CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
+		sh v3/musl/build-musl.sh	# 2026-11-07: the daemons below are musl programs (src/musl.mk)
 		make -C src/mqttd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/supervisord CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/onvifd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/rwconf CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/logfwd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/netacl CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
-		sh tests/check-libc-data-imports.sh	# rc27 R3: no libc variable through the stand-in libc
+		make -C src/netacl CROSS=arm-linux-gnueabi- musl >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }
+		sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl	# rc27 R3: no libc variable through the stand-in libc
+		python3 -m unittest tests.test_musl_programs_qemu	# the musl programs under qemu with the real musl loader
 		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd && test -s src/rwconf/rwconf && test -s src/logfwd/tc100-logfwd && test -s src/netacl/libnetacl.so
 		echo "rwconf (stripped, bytes): $(wc -c < src/rwconf/rwconf)"
 		echo "httpfront (stripped, bytes): $(wc -c < /tmp/httpfront)"

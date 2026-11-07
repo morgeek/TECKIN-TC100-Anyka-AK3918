@@ -96,3 +96,6 @@ dist/
 /src/onvifd/libc.so.0
 /src/onvifd/tc100-onvifd
 /src/onvifd/tc100-onvifd-host
+
+# musl sysroot made by v3/musl/build-musl.sh
+/build/

@@ -15,6 +15,18 @@ CFLAGS ?= -Os -Wall -Wextra -std=gnu11 -fPIC -U_FORTIFY_SOURCE -fno-stack-protec
 
 all: libnetacl.so
 
+# The same filter for the musl programs of the 3.0 base system (its busybox telnetd/ftpd: the uClibc build above is never
+# preloaded there, netacl_exec checks the loader). Built against musl 1.2.4 (src/musl.mk), the camera's libc.
+musl: libnetacl-musl.so
+
+include ../musl.mk
+
+libnetacl-musl.dbg.so: netacl.c netacl.h Makefile ../musl.mk | $(MUSL)/bin/musl-gcc
+	$(MUSL_CC) $(filter-out -fno-pie,$(MUSL_CFLAGS)) -fPIC -shared -Wl,-soname,libnetacl.so -Wl,--hash-style=both -o $@ netacl.c
+
+libnetacl-musl.so: libnetacl-musl.dbg.so
+	$(CROSS)strip --strip-unneeded -R .comment -o $@ $<
+
 netacl.o: netacl.c netacl.h
 	$(CROSS)gcc $(CFLAGS) -c netacl.c -o $@
 
@@ -47,4 +59,4 @@ libnetacl.so: libnetacl.dbg.so
 	$(CROSS)strip --strip-unneeded -R .comment -o $@ $<
 
 clean:
-	rm -f libnetacl.so libnetacl.dbg.so *.o stubs.c stub_dl.c defined.txt imports.txt libc.so.0 libdl.so.0
+	rm -f libnetacl.so libnetacl.dbg.so libnetacl-musl.so libnetacl-musl.dbg.so *.o stubs.c stub_dl.c defined.txt imports.txt libc.so.0 libdl.so.0

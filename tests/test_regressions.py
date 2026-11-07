@@ -2043,16 +2043,20 @@ class ActionCommandFiles(unittest.TestCase):
 class NetworkAccessFilter(unittest.TestCase):
     """LAN-only access: src/netacl (accept/bind filter) and its shell side."""
 
-    def test_filter_only_preloaded_into_uclibc_programs(self):
-        # libnetacl.so is a uClibc library: in a musl program (the 3.0 base system) it would load a second libc.
+    def test_filter_of_the_programs_own_loader(self):
+        # libnetacl.so is a uClibc library, libnetacl-musl.so a musl one (2026-11-07: the busybox telnetd/ftpd of the 3.0
+        # base system are musl programs): each program gets the one of its loader, a program of neither gets none.
         with tempfile.TemporaryDirectory() as d:
             lib = Path(d) / 'libnetacl.so'; lib.write_text('')
-            for name, head, want in (('uc', '\x7fELF /lib/ld-uClibc.so.0', lib.as_posix()), ('mu', '\x7fELF /lib/ld-musl-arm.so.1', '')):
+            mlib = Path(d) / 'libnetacl-musl.so'; mlib.write_text('')
+            for name, head, want in (('uc', '\x7fELF /lib/ld-uClibc.so.0', lib.as_posix()),
+                                     ('mu', '\x7fELF /lib/ld-musl-arm.so.1', mlib.as_posix()), ('st', '\x7fELF static', '')):
                 prog = Path(d) / name
                 prog.write_text('#!/bin/sh\n# %s\necho "preload=$LD_PRELOAD"\n' % head); prog.chmod(0o755)
                 code = (function('scripts/common_functions.sh', 'netacl_exec') +
-                        '\nnetacl_lib() { printf %%s %s; }\nnetacl_allow_list() { printf 10.0.0.0/8; }\nnetacl_exec t %s'
-                        % (shlex.quote(str(lib)), shlex.quote(str(prog))))
+                        '\nnetacl_lib() { if [ "$1" = musl ]; then printf %%s %s; else printf %%s %s; fi; }'
+                        '\nnetacl_allow_list() { printf 10.0.0.0/8; }\nnetacl_exec t %s'
+                        % (shlex.quote(str(mlib)), shlex.quote(str(lib)), shlex.quote(str(prog))))
                 self.assertEqual(run(code).stdout.decode().strip(), 'preload=' + want, name)
 
     @unittest.skipUnless(shutil.which('gcc'), 'gcc')

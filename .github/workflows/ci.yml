@@ -61,6 +61,20 @@ jobs:
             awk '/^(FAIL|ERROR): /{n=12} n>0{print; n--}' /tmp/py.log | grep -E 'Error|assert|line [0-9]+' | head -20 |
               while read -r l; do echo "::error title=detail::$l"; done
             exit 1; }
+      # 2026-11-07: tc100-mqttd, -onvifd, -supervisord, -logfwd, rwconf and libnetacl-musl are musl programs (the camera's
+      # libc): build musl 1.2.4 and run the ARM builds under qemu with the real musl loader. A step of its own, after the
+      # regressions above (which run without qemu-arm, as before).
+      - name: Cached musl sysroot
+        uses: actions/cache@v4
+        with:
+          path: build/musl
+          key: musl-1.2.4-${{ hashFiles('v3/musl/build-musl.sh') }}
+      - name: musl programs under qemu-arm
+        run: |
+          sudo apt-get install -y -qq qemu-user
+          sh v3/musl/build-musl.sh
+          python3 -m unittest -v tests.test_musl_programs_qemu tests.test_uclibc_standin_qemu 2>&1 | tee /tmp/musl.log
+          grep -q '^OK' /tmp/musl.log && ! grep -q 'skipped' /tmp/musl.log
       - name: Frontend tests
         run: node --test tests/frontend.test.js tests/settings-save.test.js tests/live-video.test.js tests/whep-live.test.js tests/records-timeline.test.js
 

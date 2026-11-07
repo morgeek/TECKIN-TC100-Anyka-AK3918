@@ -24,6 +24,7 @@ on:
       - 'src/rwconf/**'
       - 'src/logfwd/**'
       - 'src/netacl/**'
+      - 'src/musl.mk'
       - 'src/whep/**'
       - 'bin/**'
       - 'lib/**'
@@ -171,15 +172,18 @@ jobs:
           cp src/libakuio/libakuio.so $P/
           make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/dev/null
           cp src/tc100rtsp/tc100_rtsp $P/
+          # 2026-11-07: tc100-mqttd, -supervisord, -onvifd (and rwconf, tc100-logfwd, libnetacl-musl.so below) are built
+          # against musl 1.2.4, the camera's own libc (src/musl.mk); the vendor uClibc stays for tc100_rtsp only
+          sh v3/musl/build-musl.sh
           make -C src/mqttd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/mqttd/tc100-mqttd $P/
           make -C src/supervisord CROSS=arm-linux-gnueabi- >/dev/null
           cp src/supervisord/tc100-supervisord $P/
           make -C src/onvifd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/onvifd/tc100-onvifd $P/
-          # rc27 R3: a libc variable crashed tc100-onvifd on the camera; only the programs built so far (rwconf, logfwd and
-          # netacl are built in the release step, which checks them all)
-          sh tests/check-libc-data-imports.sh src/tc100rtsp src/mqttd src/onvifd src/supervisord
+          # rc27 R3: a libc variable crashed tc100-onvifd on the camera; the stand-in libc programs only (tc100_rtsp here,
+          # libnetacl.so in the release step): the musl ones link against the real libc
+          sh tests/check-libc-data-imports.sh src/tc100rtsp
           # item 35, first step: the SRTP cost bench (test pack only, not in the release)
           arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o $P/srtp-bench src/whep/srtp_bench.c
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
@@ -203,15 +207,19 @@ jobs:
           arm-linux-gnueabi-gcc -Os -Wall -static -march=armv5te -mfloat-abi=soft -o output/envtool v3/install/envtool.c
           # isp_flip ships from its source, not the copy kept in bin/ (audit D3); freestanding like httpfront
           arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o bin/isp_flip
-          # rwconf (item 53) ships from its source too: free C code, uClibc stand-in libc like tc100-mqttd
+          # rwconf (item 53) and tc100-logfwd ship from their source: musl programs like tc100-mqttd (src/musl.mk)
+          sh v3/musl/build-musl.sh
           make -C src/rwconf CROSS=arm-linux-gnueabi- >/dev/null
           cp src/rwconf/rwconf bin/rwconf
-          # tc100-logfwd and libnetacl.so (uClibc programs of the camera): built here with the stand-in libc technique, no Anyka toolchain
           make -C src/logfwd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/logfwd/tc100-logfwd bin/tc100-logfwd
-          make -C src/netacl CROSS=arm-linux-gnueabi- >/dev/null
+          # libnetacl: the uClibc build (stand-in libc, for uClibc programs) and the musl build (the base system's busybox
+          # telnetd/ftpd; netacl_exec picks the one of the program's loader)
+          make -C src/netacl CROSS=arm-linux-gnueabi- libnetacl.so >/dev/null
+          make -C src/netacl CROSS=arm-linux-gnueabi- musl >/dev/null
           cp src/netacl/libnetacl.so lib/libnetacl.so
-          sh tests/check-libc-data-imports.sh
+          cp src/netacl/libnetacl-musl.so lib/libnetacl-musl.so
+          sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           # audit 2026-11-06 S5: the web JavaScript and inline scripts/styles of the image are minified (esbuild, pinned)
           npm install --prefix src/webui --no-save --no-audit --no-fund esbuild@0.21.5 >/dev/null

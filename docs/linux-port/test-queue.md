@@ -2772,3 +2772,25 @@ Demandes du propriétaire (22:29) et ce qui a été changé ; rien n'est install
   `startup_complete` / `chime` dans `boot.conf` retombe sur `startup` (autorun) ; `play_sound` chime/alert → startup ;
   bouton HA « Play Chime » retiré (config vide publiée, `mqttd.c` et `mqtt-bridge.sh`) ; Test du matériel joue le son
   de démarrage.
+
+## 2026-11-07 01:30 — nos démons sans le runtime uClibc du vendeur (testeur, pour la rc33)
+
+Demande du propriétaire : réduire le code propriétaire. `tc100-mqttd`, `tc100-onvifd`, `tc100-supervisord`,
+`tc100-logfwd` et `rwconf` sont compilés contre **musl 1.2.4**, la libc du système de base 3.0 (la caméra a
+`/lib/ld-musl-arm.so.1` → `/lib/libc.so`, « musl libc (arm) Version 1.2.4 »), en dynamique : `NEEDED libc.so`,
+interpréteur `/lib/ld-musl-arm.so.1`. Avant : chargeur uClibc du vendeur + libc « bouche-trou » faite au lien (d'où
+les pannes `__isoc99_sscanf`, variables de libc, etc.). Le runtime uClibc du vendeur ne sert plus qu'à `tc100_rtsp`.
+
+- `v3/musl/build-musl.sh` : télécharge musl 1.2.4 (SHA-256 vérifié), le construit avec `arm-linux-gnueabi-gcc`
+  (ARMv5TE, soft float) dans `build/musl` (~1 min) ; `src/musl.mk` : options communes ; Makefiles des 5 programmes.
+- Tailles quasi identiques (mqttd 34 148 o, onvifd 50 564, supervisord 30 184, logfwd 9 576, rwconf 9 396).
+- **netacl** : en 3.0, telnetd/ftpd sont ceux de la busybox musl du système : la bibliothèque uClibc n'y était
+  jamais préchargée, donc le filtre « réseau local seulement » ne s'appliquait pas. Nouvelle `lib/libnetacl-musl.so` ;
+  `netacl_exec` choisit la bibliothèque du chargeur du programme.
+- **Essai sur la .11** (rc32, rien installé, binaires dans `/tmp` puis effacés) : `rwconf` musl lit et écrit
+  exactement comme l'actuel (`cmp` identique), `tc100-onvifd` musl démarre sur un port à part et répond.
+- Tests : `tests/test_musl_programs_qemu.py` (vrais binaires sous qemu avec le vrai chargeur musl : dépendances,
+  imports résolus dans la libc musl, tests LogForwarder, rwconf = version hôte, filtre netacl) ; CI : étape dédiée
+  dans `ci.yml`, `build-musl.sh` dans la construction de la version.
+- **À vérifier à l'installation de la rc33** : les 4 démons tournent (`/proc/<pid>/maps` sans `/vendor/lib`),
+  ONVIF/MQTT/journal distant/`rwconf` au démarrage fonctionnent ; telnet (si activé) refuse une adresse hors LAN.

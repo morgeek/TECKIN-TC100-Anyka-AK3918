@@ -1,5 +1,6 @@
-"""tc100-logfwd and libnetacl.so as CI builds them (src/logfwd/Makefile, src/netacl/Makefile: glibc cross compiler,
-stand-in libc.so.0 / libdl.so.0 made at link time, for the uClibc of the camera), run under qemu-arm.
+"""libnetacl.so as CI builds it (src/netacl/Makefile: glibc cross compiler, stand-in libc.so.0 / libdl.so.0 made at link
+time, for the uClibc of the camera), run under qemu-arm. (tc100-logfwd was built the same way until 2026-11-07; it is a
+musl program now: tests/test_musl_programs_qemu.py.)
 
 There is no uClibc loader outside the camera, so the run uses glibc as the stand-in's "real libc": a sysroot where
 /lib/ld-uClibc.so.0 is glibc's loader, libc.so.0 and libdl.so.0 are glibc's libc and libdl (so every import of the
@@ -21,7 +22,6 @@ import sys
 import tempfile
 import unittest
 
-from tests import test_regressions as tr
 
 ROOT = Path(__file__).resolve().parents[1]
 CC = shutil.which('arm-linux-gnueabi-gcc')
@@ -71,14 +71,11 @@ class StandInBuilds(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp())
         t = cls.tmp
-        for sub in ('logfwd', 'netacl'):
-            shutil.copytree(ROOT / 'src' / sub, t / 'src' / sub, ignore=shutil.ignore_patterns('*.o', 'imports.txt', 'stubs.c'))
-        (t / 'src/tc100rtsp').mkdir(parents=True)
-        shutil.copy(ROOT / 'src/tc100rtsp/start.S', t / 'src/tc100rtsp/start.S')
-        for sub, target in (('logfwd', 'tc100-logfwd'), ('netacl', 'libnetacl.so')):
-            subprocess.run(['make', '-C', str(t / 'src' / sub), 'CROSS=arm-linux-gnueabi-', target], check=True,
-                           capture_output=True)
-        cls.logfwd = t / 'src/logfwd/tc100-logfwd'
+        shutil.copytree(ROOT / 'src/netacl', t / 'src/netacl', ignore=shutil.ignore_patterns('*.o', 'imports.txt', 'stubs.c', '*.so'))
+        shutil.copy(ROOT / 'src/musl.mk', t / 'src/musl.mk')
+        subprocess.run(['make', '-C', str(t / 'src/netacl'), 'CROSS=arm-linux-gnueabi-', 'libnetacl.so'], check=True,
+                       capture_output=True)
+        cls.logfwd = None
         cls.netacl = t / 'src/netacl/libnetacl.so'
         # sysroot: the loader and libc names of uClibc, backed by glibc
         sr = cls.sr = t / 'sr'
@@ -109,12 +106,6 @@ class StandInBuilds(unittest.TestCase):
         return cmd + [str(prog), *args]
 
     # ---- structure: what the uClibc loader will see
-    def test_logfwd_links_only_libc_so_0_and_the_uclibc_loader(self):
-        dyn = self.readelf('-d', str(self.logfwd))
-        self.assertEqual(dyn.count('(NEEDED)'), 1)
-        self.assertIn('[libc.so.0]', dyn)
-        self.assertIn('/lib/ld-uClibc.so.0', self.readelf('-l', str(self.logfwd)))
-
     def test_netacl_sonames_and_exports(self):
         dyn = self.readelf('-d', str(self.netacl))
         self.assertIn('[libdl.so.0]', dyn)
@@ -128,7 +119,7 @@ class StandInBuilds(unittest.TestCase):
         und = {l.split()[-1].split('@')[0] for l in syms if ' UND ' in l}
         self.assertIn('dlsym', und)
         self.assertFalse(und & {'accept', 'accept4', 'bind'}, 'the interposers must not import themselves')
-        for obj in (self.netacl, self.logfwd):
+        for obj in (self.netacl,):
             helpers = [l for l in self.readelf('--dyn-syms', '-W', str(obj)).splitlines()
                        if ' UND ' in l and l.split()[-1].startswith(('__bswap', '__aeabi', '__gnu', '__udiv', '__div'))]
             self.assertEqual(helpers, [], 'libgcc helpers must be linked in, uClibc does not export them')
@@ -138,7 +129,7 @@ class StandInBuilds(unittest.TestCase):
     def test_every_import_exists_by_name_in_a_real_libc(self):
         """The stand-in defines every import, so a typo or a glibc-only symbol would only show at run time on the camera:
         resolve them all against glibc (the best stand-in for uClibc here) with a link check."""
-        for obj, ldso in ((self.logfwd, True), (self.netacl, False)):
+        for obj, ldso in ((self.netacl, False),):
             und = sorted({l.split()[-1].split('@')[0] for l in self.readelf('--dyn-syms', '-W', str(obj)).splitlines()
                           if ' UND ' in l and len(l.split()) >= 8 and l.split()[-1] != 'Name'} - {'__uClibc_main', '__cxa_finalize'})
             src = self.tmp / ('chk_%s.c' % obj.name)
@@ -149,13 +140,6 @@ class StandInBuilds(unittest.TestCase):
             self.assertEqual(r.returncode, 0, obj.name + ': ' + r.stderr[:600])
 
     # ---- behaviour
-    def test_logfwd_standin_runs(self):
-        r = subprocess.run(self.qemu(self.logfwd), capture_output=True, text=True, timeout=20)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn('-r HOST[:PORT] is required', r.stderr)
-        r = subprocess.run(self.qemu(self.logfwd, '-x'), capture_output=True, text=True, timeout=20)
-        self.assertEqual((r.returncode, 'usage' in r.stderr), (2, True))
-
     def test_netacl_standin_filters_and_never_locks_out(self):
         try:
             me = socket.gethostbyname(socket.gethostname())
@@ -202,32 +186,6 @@ class StandInBuilds(unittest.TestCase):
         self.assertIn('refused=1 last=' + me, st.read_text())
         self.assertEqual(run('', 'PORT')[2], '127.0.0.1')               # local-only port: bind() interposed
         self.assertEqual(run('', '1')[2], '0.0.0.0')
-
-
-@unittest.skipUnless(NEED, 'needs arm-linux-gnueabi-gcc/readelf, make and qemu-arm with the glibc ARM libraries')
-class LogForwarderStandIn(tr.LogForwarder):
-    """The LogForwarder tests of tests/test_regressions.py (filter, repeats, rate limit, rotation), on the ARM stand-in
-    build under qemu instead of the host build: the behaviour must stay the same."""
-
-    def setUp(self):
-        super().setUp()                                  # host build + socket + log, then swap the binary
-        b = StandInBuilds
-        wrapper = self.d / 'logfwd-qemu'
-        wrapper.write_text('#!/bin/sh\nexec %s "$@"\n' % ' '.join(
-            "'%s'" % a for a in (QEMU, '-L', b.sr, '-E', 'LD_LIBRARY_PATH=%s/lib' % b.sr, '-E',
-                                 'LD_PRELOAD=%s/lib/libshim.so' % b.sr, b.logfwd)))
-        wrapper.chmod(0o755)
-        self.bin = wrapper
-
-    @classmethod
-    def setUpClass(cls):
-        if NEED:
-            StandInBuilds.setUpClass()
-
-    @classmethod
-    def tearDownClass(cls):
-        if NEED:
-            StandInBuilds.tearDownClass()
 
 
 if __name__ == '__main__':

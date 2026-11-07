@@ -39,13 +39,15 @@ cp -r v3/board "$T/v3/"	# board profiles, chosen at each start (v3/install/hwche
 cp config/*.dist "$T/config/"	# the sensor tuning comes from the camera (v3/install)
 cp -r config/autostart "$T/config/"
 rm -f "$T/config/autostart/ftp-server"
-# free uClibc programs of the repo that the 6.6 system uses (run with the camera's own uClibc, see vendor)
+# free programs of the repo that the 6.6 system uses: rwconf and tc100-logfwd are musl programs since 2026-11-07 (the
+# camera's own libc, src/musl.mk); busybox (bin/) is the stock firmware's uClibc helper of the SD hook
 mkdir -p "$T/bin" "$T/lib" "$T/tc100test"
 for b in busybox isp_flip rwconf setconf tc100-logfwd telegram; do
 	[ -f "bin/$b" ] || { echo "build-stack: bin/$b missing (rwconf and isp_flip are built from src/ by the release build: make -C src/rwconf, see build-kernel-linux66.yml)"; exit 1; }
 	cp "bin/$b" "$T/bin/"
 done
 cp lib/libnetacl.so "$T/lib/"	# the encoder API library comes from the camera too (collect-vendor.sh)
+cp lib/libnetacl-musl.so "$T/lib/"	# the same filter for the musl programs (netacl_exec picks by loader)
 # what CI compiles
 cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$PACK/tc100-mdnsd" "$PACK/tc100-mqttd" "$PACK/tc100-onvifd" "$T/tc100test/"
 [ -f "$PACK/tc100-supervisord" ] && cp "$PACK/tc100-supervisord" "$T/tc100test/"

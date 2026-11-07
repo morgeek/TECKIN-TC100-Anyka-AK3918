@@ -508,8 +508,10 @@ netacl_allow_list() {
   _na_extra="${_na_extra#\"}"; _na_extra="${_na_extra%\"}"
   printf '%s' "$NETACL_PRIVATE${_na_extra:+ $_na_extra}"
 }
+# netacl_lib [musl]: the filter library for a uClibc program, or with "musl" for a musl one (the 3.0 base system)
 netacl_lib() {
-  for _nl in /tmp/tc100code/lib/libnetacl.so /mnt/lib/libnetacl.so; do
+  _nl_n=libnetacl.so; [ "$1" = musl ] && _nl_n=libnetacl-musl.so
+  for _nl in /tmp/tc100code/lib/$_nl_n /mnt/lib/$_nl_n; do
     [ -f "$_nl" ] && { printf '%s' "$_nl"; return 0; }
   done
   return 1
@@ -517,13 +519,21 @@ netacl_lib() {
 # netacl_exec NAME CMD...: exec CMD with the filter (status in
 # /var/run/netacl.NAME). It REPLACES the calling shell: run it in a subshell
 # or in the background ( netacl_exec web lighttpd ... ) / netacl_exec ftp ... &
-# The filter is built for the uClibc runtime: it is preloaded only into programs of that runtime (the busybox of
-# /mnt/bin). The base system of 3.0 is musl, and a uClibc library in a musl process would load a second C library.
+# The filter is built twice: for the uClibc runtime (libnetacl.so) and for musl (libnetacl-musl.so, since 2026-11-07:
+# the busybox telnetd/ftpd of the 3.0 base system are musl programs, and until then ran unfiltered). The library of
+# the program's own loader is preloaded, never the other one (a second C library in the process).
 netacl_exec() {
   _ne_name="$1"; shift
-  _ne_lib="$(netacl_lib)"; _ne_allow="$(netacl_allow_list)"
+  _ne_allow="$(netacl_allow_list)"
   _ne_bin="$(command -v "$1" 2>/dev/null)"
-  if [ -n "$_ne_lib" ] && [ -n "$_ne_allow" ] && [ -n "$_ne_bin" ] && grep -q 'ld-uClibc' "$_ne_bin" 2>/dev/null; then
+  _ne_lib=""
+  if [ -n "$_ne_allow" ] && [ -n "$_ne_bin" ]; then
+    _ne_bin="$(readlink -f "$_ne_bin" 2>/dev/null || echo "$_ne_bin")"
+    if grep -q 'ld-uClibc' "$_ne_bin" 2>/dev/null; then _ne_lib="$(netacl_lib)"
+    elif grep -q 'ld-musl-arm' "$_ne_bin" 2>/dev/null; then _ne_lib="$(netacl_lib musl)"
+    fi
+  fi
+  if [ -n "$_ne_lib" ]; then
     LD_PRELOAD="$_ne_lib" TC100_NET_ALLOW="$_ne_allow" TC100_NET_STATUS="/var/run/netacl.$_ne_name" exec "$@"
   fi
   exec "$@"
