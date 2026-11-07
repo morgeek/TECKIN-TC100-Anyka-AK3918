@@ -11,8 +11,7 @@ licence applies to its code. The code of this project itself is under the GPL-2.
 | [OpenIPC](https://openipc.org), `OpenIPC/linux` (GPL-2.0, vendor-derived) | the ISP, camera, USB host and MMC drivers of the 6.6 port derive from its Anyka 4.4 tree, which derives from the vendor's GPL sources; `ipctool` identified the board; the old OpenIPC SD boot kit (`contrib/openipc_sd_kit/`) was removed from the tree and is in the git history | `patches/kernel-6.6/series/` |
 | [Thingino](https://github.com/themactep/thingino-firmware) | early inspiration for the board-port layout; the `thingino_port/` folder and its prebuilt `thingino-rtsp-server` were removed on 2026-10-27 (49a2485) and nothing of Thingino is shipped | history only |
 | [Buildroot](https://buildroot.org) (GPL-2.0) and the [Bootlin](https://toolchains.bootlin.com) toolchains | our base root filesystem (BusyBox, dropbear, wpa_supplicant, curl, jq, alsa-utils, musl) | `v3/buildroot/` |
-| [Pico CSS](https://picocss.com) 2.0.6 (MIT) | the default look of the web interface since rc31, as published (licence header kept), drawn on the pages' Bulma markup by `www/css/pico-shim.css` | `www/css/pico-2.0.6.min.css` |
-| [Bulma](https://bulma.io) 1.0.2 (MIT) | the "Classic" look of the web interface (purged), kept as a fallback until rc32 | `www/css/bulma.1.0.2.purged.min.css` |
+| [Pico CSS](https://picocss.com) 2.0.6 (MIT) | the look of the web interface (licence header kept), drawn on the pages' markup by `www/css/pico-shim.css` (Bulma was removed in rc32) | `www/css/pico-2.0.6.min.css` |
 | Anyka (vendor GPL kernel sources) | origin of the platform code in the OpenIPC tree | via OpenIPC |
 | [ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks](https://github.com/ThatUsernameAlreadyExist/TECKIN-TC100-Anyka-AK3918-camera-hacks), `anyka-v4l2rtspserver`, `anyka-software` | the original SD-card hack and the RTSP server of the 2.x firmware | see the README, "Where it comes from" |
 
