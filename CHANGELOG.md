@@ -7,6 +7,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1-rc34] - 2026-11-07
+
+The rc33 plus everything committed after it, with the owner's request: "tous les derniers commits, l'encodeur libre
+activé par défaut et sans les librairies propriétaires, CI verte avant déploiement".
+- **No vendor library is loaded any more**: `tc100_rtsp` is now a musl program (the camera's own libc, like every
+  other program of the image) with libakuio linked in and the free encoder (`src/h265enc/freeenc.h`) on by default.
+  The vendor encoder libraries (`libakv_encode`, `libmpi_venc_ex`, `libplat_*`) and the uClibc / libstdc++ runtime of
+  the stock firmware are neither loaded nor linked into `/mnt/lib`; the vendor partition is only read for the camera's
+  own sensor tuning (`isp.conf`). The boot script and `rtsp-launch.sh` no longer need them; `libakuio.so` is no
+  longer shipped (built into `tc100_rtsp`).
+- **Every encoder mode is free**: H.265 and H.264 at 1920x1080 and 1280x720 for the main stream, H.264 640x360 for the
+  sub-stream (an H.265 sub-stream setting is coded in H.264, logged). Each mode tested on IPCAM2 over RTSP: 0 decoding
+  errors, pictures checked.
+- musl sysroot: the kernel's user-space headers (V4L2, ALSA, the encoder driver) added (`v3/musl/build-musl.sh`);
+  the release build checks that `tc100_rtsp` needs nothing but the musl `libc.so`.
+- From after the rc33: quick DHCP lease cache (#60.3), multicast noise filtered on `wlan0` (#60.4), slimmer kernel
+  configuration (#59), anonymised support bundle (#61.2), the 720p and H.264 1080p command lists (#62).
+- `RTSP_FREE_ENC=0` in `/mnt/config/rtsp.env` asks for the vendor library, which is no longer there: no video. The
+  way back is the rc33 update.
+
 ## [3.0.1-rc33] - 2026-11-07
 
 Major milestone release towards a 100% free firmware:

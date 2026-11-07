@@ -7,8 +7,6 @@ TB=/mnt/tc100test; CONF=/mnt/config/rtspserver.conf; PWD_FILE=/mnt/config/user.p
 # stop: SIGTERM first, so that the recorder closes its file (index, duration); SIGKILL after 5 s
 stop_rtsp() { killall tc100_rtsp 2>/dev/null || return 0; i=0; while pidof tc100_rtsp >/dev/null && [ $i -lt 10 ]; do sleep 0.5; i=$((i+1)); done; killall -9 tc100_rtsp 2>/dev/null; return 0; }
 cmp -s $TB/tc100_rtsp /tmp/tc100_rtsp 2>/dev/null || { stop_rtsp; cp $TB/tc100_rtsp /tmp/tc100_rtsp && chmod +x /tmp/tc100_rtsp; }
-[ -f /tmp/libakuio.so ] || cp $TB/libakuio.so /tmp/libakuio.so
-[ -e /lib/ld-uClibc.so.0 ] || ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
 # sensor tuning (the camera's own isp.conf): without it the ISP runs untuned (colour cast, which the software white
 # balance then has to correct on every frame). Checked before every start, not only at boot; in flash mode the copy
 # the install hook made may only be on the card (/mnt/sd/config).
@@ -108,7 +106,7 @@ export RTSP_ALSA_DIRECT="${RTSP_ALSA_DIRECT:-1}" RTSP_AUDIO_HPF="${RTSP_AUDIO_HP
 # on the camera (test-queue [sender-thread]). Read once when tc100_rtsp starts: restart the RTSP server after changing it.
 export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-0}"
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
-  LD_LIBRARY_PATH=/mnt/lib exec /tmp/tc100_rtsp -L /mnt/lib -c "$CODEC" -A /tmp/libakuio.so -p "$PORT" -b "$KBPS" \
+  exec /tmp/tc100_rtsp -c "$CODEC" -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \
     -S /var/run/sound_level $ENCOPT >>"$RTSP_LOG" 2>&1 ) &
 # the subshell exec's tc100_rtsp: $! is the server's pid (no sleep and pidof needed to find it); pidof stays as a fallback

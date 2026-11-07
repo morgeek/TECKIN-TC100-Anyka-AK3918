@@ -158,7 +158,7 @@ jobs:
           name: tc100-base-rootfs
           path: base-rootfs
 
-      - name: Build the test pack (initramfs, jpegenc, libakuio, self-test)
+      - name: Build the test pack (initramfs, jpegenc, tc100_rtsp, self-test)
         run: |
           set -e
           P=output/tc100test
@@ -169,13 +169,14 @@ jobs:
           arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o $P/jpegenc
           arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o $P/httpfront
           arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o $P/tc100-mdnsd
-          make -C src/libakuio CROSS=arm-linux-gnueabi- >/dev/null
-          cp src/libakuio/libakuio.so $P/
-          make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/dev/null
-          cp src/tc100rtsp/tc100_rtsp $P/
-          # 2026-11-07: tc100-mqttd, -supervisord, -onvifd (and rwconf, tc100-logfwd, libnetacl-musl.so below) are built
-          # against musl 1.2.4, the camera's own libc (src/musl.mk); the vendor uClibc stays for tc100_rtsp only
+          # 2026-11-07: every program is built against musl 1.2.4, the camera's own libc (src/musl.mk): tc100-mqttd,
+          # -supervisord, -onvifd, rwconf, tc100-logfwd, libnetacl-musl.so and, since 3.0.1-rc34, tc100_rtsp itself
+          # (libakuio linked in, the free encoder src/h265enc/freeenc.h): no vendor library and no uClibc runtime
           sh v3/musl/build-musl.sh
+          make -C src/tc100rtsp CROSS=arm-linux-gnueabi- musl >/dev/null
+          cp src/tc100rtsp/tc100_rtsp-musl $P/tc100_rtsp
+          arm-linux-gnueabi-readelf -l $P/tc100_rtsp | grep -q 'ld-musl-arm.so.1' || { echo "tc100_rtsp is not a musl program"; exit 1; }
+          if arm-linux-gnueabi-readelf -d $P/tc100_rtsp | grep NEEDED | grep -v '\[libc.so\]'; then echo "tc100_rtsp needs more than libc.so"; exit 1; fi
           make -C src/mqttd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/mqttd/tc100-mqttd $P/
           make -C src/supervisord CROSS=arm-linux-gnueabi- >/dev/null
@@ -184,7 +185,7 @@ jobs:
           cp src/onvifd/tc100-onvifd $P/
           # rc27 R3: a libc variable crashed tc100-onvifd on the camera; the stand-in libc programs only (tc100_rtsp here,
           # libnetacl.so in the release step): the musl ones link against the real libc
-          sh tests/check-libc-data-imports.sh src/tc100rtsp src/libakuio
+          sh tests/check-libc-data-imports.sh src/netacl
           # item 35, first step: the SRTP cost bench (test pack only, not in the release)
           arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o $P/srtp-bench src/whep/srtp_bench.c
           cp v3/selftest66.sh v3/S39tc100-linux66 v3/autorun-linux66.sh $P/
@@ -220,7 +221,7 @@ jobs:
           make -C src/netacl CROSS=arm-linux-gnueabi- musl >/dev/null
           cp src/netacl/libnetacl.so lib/libnetacl.so
           cp src/netacl/libnetacl-musl.so lib/libnetacl-musl.so
-          sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl src/libakuio
+          sh tests/check-libc-data-imports.sh src/netacl
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           # audit 2026-11-06 S5: the web JavaScript and inline scripts/styles of the image are minified (esbuild, pinned)
           npm install --prefix src/webui --no-save --no-audit --no-fund esbuild@0.21.5 >/dev/null
@@ -271,7 +272,7 @@ jobs:
           mkdir -p symbols
           cp linux-src/System.map linux-src/.config symbols/
           # unstripped user-space programs (the shipped ones are stripped)
-          cp src/tc100rtsp/tc100_rtsp.dbg src/libakuio/libakuio.dbg.so src/mqttd/tc100-mqttd.dbg src/onvifd/tc100-onvifd.dbg src/supervisord/tc100-supervisord.dbg symbols/ 2>/dev/null || true
+          cp src/tc100rtsp/tc100_rtsp-musl.dbg src/mqttd/tc100-mqttd.dbg src/onvifd/tc100-onvifd.dbg src/supervisord/tc100-supervisord.dbg symbols/ 2>/dev/null || true
           gzip -c linux-src/vmlinux > symbols/vmlinux.gz
 
       - name: Upload kernel symbols

@@ -202,21 +202,22 @@ for i in $(seq 1 25); do
 done
 
 # 4a. Free hardware encoder stack (tc100_rtsp): H.265/H.264 over RTSP and the web UI pictures (stream.jpg, currentpic,
-#     cam_luma) from the hardware JPEG engine, one process. Needs the vendor encoder libraries in /mnt/lib and
-#     /dev/uio0 (ak39_venc driver); without them there is no video (the web UI still starts).
+#     cam_luma) from the hardware JPEG engine, one process. Since 3.0.1-rc34 a musl program with the free encoder
+#     (src/h265enc/freeenc.h) and libakuio linked in: no vendor library and no uClibc runtime is loaded (the camera's
+#     vendor partition is only read for isp.conf). Needs /dev/uio0 (ak39_venc driver); without it there is no video
+#     (the web UI still starts).
 NEWRTSP=0
 TB=/mnt/tc100test
 if [ "$SAFE" = 1 ]; then
   echo "[tc100-v3] SAFE MODE ($(cat /tmp/safemode 2>/dev/null)): the video server is not started" > /dev/console
-elif [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/lib/libmpi_venc.so ]; } && [ -c /dev/uio0 ] && [ -f $TB/libakuio.so ]; then
+elif [ -x $TB/tc100_rtsp ] && [ -c /dev/uio0 ]; then
   mkdir -p /lib/firmware/anyka
   # sensor tuning of this camera: the vendor partition (flash), else the card (copied there by the install hook)
   ISPN=$(sed -n 's/^ISP_CONF=//p' /tmp/board.conf 2>/dev/null | head -n 1)
   for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN /mnt/sd/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf /mnt/sd/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
     [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
   done
-  [ -e /mnt/lib/ld-uClibc-0.9.33.2.so ] && ln -sf /mnt/lib/ld-uClibc-0.9.33.2.so /lib/ld-uClibc.so.0
-  cp $TB/libakuio.so /tmp/libakuio.so; cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
+  cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
   PWD_FILE=/mnt/config/user.pwd
   [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
   # The vendor services (recording, ONVIF...) and the web UI read codec, bit rate and credentials from rtspserver.conf.
@@ -244,7 +245,7 @@ elif [ -x $TB/tc100_rtsp ] && { [ -f /mnt/lib/libmpi_venc_ex.so ] || [ -f /mnt/l
   NEWRTSP=1
   echo "[tc100-v3] free RTSP server + hardware JPEG pictures active (rtsp://<ip>:554/)" > /dev/console
 else
-  echo "[tc100-v3] no video: tc100_rtsp, the encoder libraries (/mnt/lib) or /dev/uio0 missing" > /dev/console
+  echo "[tc100-v3] no video: tc100_rtsp or /dev/uio0 missing" > /dev/console
 fi
 
 # 5. (the picture cache is written by tc100_rtsp)

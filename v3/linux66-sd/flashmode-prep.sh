@@ -11,15 +11,16 @@ mkdir -p /tmp/cardmnt
 CARD=0; if grep -q ' /mnt/sd vfat ' /proc/mounts; then mount --move /mnt/sd /tmp/cardmnt && CARD=1; fi
 mount -t tmpfs -o size=6m,mode=755 tmpfs /mnt || { log "cannot create /mnt"; exit 1; }
 for d in bin scripts controlscripts www v3 tc100test ext sounds; do [ -e $R/$d ] && ln -s $R/$d /mnt/$d; done
-# Libraries: the free ones of the image, plus the camera's own vendor libraries (uClibc runtime, encoder) from the
-# "vendor" partition, a squashfs made at install from the camera itself (v3/install). Images made before 3.0.1 have
-# no vendor partition: everything is then in /rom/lib.
+# Libraries: the free ones of the image only. The "vendor" partition (a squashfs made at install from the camera
+# itself, v3/install) is mounted for the camera's sensor tuning (/vendor/isp.conf); its libraries (uClibc runtime,
+# encoder control) are no longer used since 3.0.1-rc34 (tc100_rtsp is a musl program with the free encoder), so they
+# are not linked into /mnt/lib any more.
 mkdir -p /mnt/lib /vendor
 for d in /sys/class/mtd/mtd[0-9]*; do
   case $d in *ro) continue;; esac
   [ "$(cat $d/name)" = vendor ] && { mount -t squashfs -o ro /dev/mtdblock${d##*/mtd} /vendor 2>/dev/null || log "vendor partition not mounted"; break; }
 done
-for f in /vendor/lib/* $R/lib/*; do [ -e "$f" ] && [ ! -e "/mnt/lib/${f##*/}" ] && ln -s "$f" "/mnt/lib/${f##*/}"; done
+for f in $R/lib/*; do [ -e "$f" ] && [ ! -e "/mnt/lib/${f##*/}" ] && ln -s "$f" "/mnt/lib/${f##*/}"; done
 cp $R/VERSION /mnt/VERSION 2>/dev/null
 mkdir -p /mnt/config; cp -a $R/config/. /mnt/config/ 2>/dev/null
 # defaults: every shipped *.dist becomes the live file until the user changes it (the web server variants stay unused)

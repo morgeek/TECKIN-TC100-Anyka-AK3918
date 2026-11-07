@@ -17,7 +17,18 @@ CROSS=${CROSS:-arm-linux-gnueabi-}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DEST=${1:-$ROOT/build/musl}
 case "$DEST" in /*) ;; *) DEST=$PWD/$DEST ;; esac
-[ -f "$DEST/.musl-$VER" ] && [ -x "$DEST/bin/musl-gcc" ] && { echo "musl $VER: $DEST (already built)"; exit 0; }
+# the kernel's user-space headers (linux/, asm/, asm-generic/, sound/, mtd/) of the cross compiler, which musl does
+# not have: tc100_rtsp needs V4L2, ALSA and the encoder driver's ioctls (2026-11-07, the musl tc100_rtsp)
+kernel_headers() {
+	h=$(printf '#include <linux/videodev2.h>\n' | ${CROSS}gcc -E -M -x c - 2>/dev/null | tr ' \\' '\n\n' | grep '/linux/videodev2.h$' | head -1)
+	[ -n "$h" ] || { echo "build-musl: no kernel headers in ${CROSS}gcc" >&2; exit 1; }
+	inc=$(dirname "$(dirname "$h")")
+	for d in linux asm asm-generic sound mtd; do
+		[ -d "$inc/$d" ] && [ ! -d "$DEST/include/$d" ] && cp -r "$inc/$d" "$DEST/include/"
+	done
+	return 0
+}
+[ -f "$DEST/.musl-$VER" ] && [ -x "$DEST/bin/musl-gcc" ] && { kernel_headers; echo "musl $VER: $DEST (already built)"; exit 0; }
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 if [ -n "${MUSL_TARBALL:-}" ]; then cp "$MUSL_TARBALL" "$W/musl.tar.gz"; else curl -fsSL -o "$W/musl.tar.gz" "$URL"; fi
@@ -33,5 +44,6 @@ rm -rf "$DEST"
 make install AR=${CROSS}ar RANLIB=${CROSS}ranlib >/dev/null
 # the wrapper names the cross compiler by default (musl's own default is the host gcc of the configure run)
 sed -i "s|\${REALGCC:-[^}]*}|\${REALGCC:-${CROSS}gcc}|" "$DEST/bin/musl-gcc"
+kernel_headers
 touch "$DEST/.musl-$VER"
 echo "musl $VER: $DEST"

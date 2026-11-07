@@ -67,6 +67,7 @@ free)
 	$CTL stop; sleep 2; stopnew tc100_rtsp
 	echo "tc100_rtsp $ARGS"
 	[ "${H265_NOSUB:-0}" = 1 ] && ARGS=$(echo "$ARGS" | sed 's/ -s 1 / -s 0 /')
+	[ -n "${H265_MAINCODEC:-}" ] && ARGS=$(echo "$ARGS" | sed "s/ -c [a-z0-9]* / -c $H265_MAINCODEC /")
 	( cd /tmp && env $ENVS RTSP_FREE_ENC=1 ${H265_FREE_ENV:-} "$NEW/tc100_rtsp" $ARGS > /tmp/free.log 2>&1 ) &
 	sleep 8; grep -E "encoder|free" /tmp/free.log | head -8
 	;;

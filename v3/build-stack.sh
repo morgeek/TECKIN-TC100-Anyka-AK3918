@@ -2,7 +2,7 @@
 # build-stack.sh: the free user space of the 3.0 firmware, from git and the CI build products only.
 #
 #   v3/build-stack.sh PACK BASE.cpio.gz OUT
-#     PACK  folder with the binaries CI compiles: tc100_rtsp, libakuio.so, httpfront, tc100-mdnsd, tc100-mqttd, tc100-onvifd, tc100-supervisord (optional)
+#     PACK  folder with the binaries CI compiles: tc100_rtsp (musl, libakuio linked in), httpfront, tc100-mdnsd, tc100-mqttd, tc100-onvifd, tc100-supervisord (optional)
 #     BASE  our Buildroot base root filesystem (artifact tc100-base-rootfs)
 #     OUT   gets tree/ (the user space as plain files, also what goes on the SD card) and stack.sqfs (+ .md5),
 #           the image of the flash partition "stack"
@@ -46,10 +46,10 @@ for b in busybox isp_flip rwconf setconf tc100-logfwd telegram; do
 	[ -f "bin/$b" ] || { echo "build-stack: bin/$b missing (rwconf and isp_flip are built from src/ by the release build: make -C src/rwconf, see build-kernel-linux66.yml)"; exit 1; }
 	cp "bin/$b" "$T/bin/"
 done
-cp lib/libnetacl.so "$T/lib/"	# the encoder API library comes from the camera too (collect-vendor.sh)
+cp lib/libnetacl.so "$T/lib/"	# the filter for a uClibc program (none in the image since 3.0.1-rc34; kept for tools)
 cp lib/libnetacl-musl.so "$T/lib/"	# the same filter for the musl programs (netacl_exec picks by loader)
 # what CI compiles
-cp "$PACK/tc100_rtsp" "$PACK/libakuio.so" "$PACK/httpfront" "$PACK/tc100-mdnsd" "$PACK/tc100-mqttd" "$PACK/tc100-onvifd" "$T/tc100test/"
+cp "$PACK/tc100_rtsp" "$PACK/httpfront" "$PACK/tc100-mdnsd" "$PACK/tc100-mqttd" "$PACK/tc100-onvifd" "$T/tc100test/"
 [ -f "$PACK/tc100-supervisord" ] && cp "$PACK/tc100-supervisord" "$T/tc100test/"
 cp v3/linux66-sd/rtsp-launch.sh "$T/tc100test/"
 find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' \) -exec rm -f {} +

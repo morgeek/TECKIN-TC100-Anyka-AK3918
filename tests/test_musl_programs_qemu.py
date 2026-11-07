@@ -231,3 +231,51 @@ class LogForwarderMusl(tr.LogForwarder):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@unittest.skipUnless(NEED, WHY)
+class Tc100RtspMusl(unittest.TestCase):
+    """tc100_rtsp since 3.0.1-rc34: a musl program with libakuio linked in and the free encoder (src/h265enc/freeenc.h),
+    the build the release ships. It needs the musl libc.so only (no vendor library, no uClibc runtime), every import
+    exists in musl, it keeps the libakuio calls visible to its own dlsym(RTLD_DEFAULT) (--export-dynamic), and the
+    real musl loader starts it (under qemu it stops at the missing camera devices, after loading)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        for sub in ('tc100rtsp', 'jpegenc', 'h265enc', 'libakuio'):
+            shutil.copytree(ROOT / 'src' / sub, cls.tmp / 'src' / sub,
+                            ignore=shutil.ignore_patterns('*.o', '*.so', 'imports.txt', 'stubs.c', '*.dbg', 'tc100_rtsp',
+                                                          'tc100_rtsp-musl', '__pycache__'))
+        shutil.copy(ROOT / 'src/musl.mk', cls.tmp / 'src/musl.mk')
+        r = subprocess.run(['make', '-C', str(cls.tmp / 'src/tc100rtsp'), 'MUSL=%s' % MUSL, 'musl'], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr[-1500:]
+        cls.bin = cls.tmp / 'src/tc100rtsp/tc100_rtsp-musl'
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def readelf(self, *args):
+        return subprocess.run([READELF, *args], check=True, capture_output=True, text=True).stdout
+
+    def test_only_the_musl_libc(self):
+        dyn = self.readelf('-d', str(self.bin))
+        self.assertEqual(dyn.count('(NEEDED)'), 1, dyn)
+        self.assertIn('[libc.so]', dyn)
+        self.assertIn('[Requesting program interpreter: /lib/ld-musl-arm.so.1]', self.readelf('-l', str(self.bin)))
+        syms = self.readelf('--dyn-syms', '-W', str(self.bin))
+        und = {l.split()[-1].split('@')[0] for l in syms.splitlines() if ' UND ' in l and len(l.split()) >= 8 and l.split()[-1] != 'Name'}
+        have = {l.split()[-1].split('@')[0] for l in self.readelf('--dyn-syms', '-W', str(MUSL / 'lib/libc.so')).splitlines()
+                if ' UND ' not in l and len(l.split()) >= 8}
+        self.assertEqual(sorted(n for n in und if n not in have and not n.startswith(('_ITM', '__gmon'))), [])
+        for name in ('akuio_pmem_init', 'akuio_alloc_pmem', 'akuio_free_pmem', 'akuio_vaddr2paddr', 'akuio_wait_irq',
+                     'akuio_map_regs', 'akuio_reset_video'):
+            self.assertRegex(syms, r' FUNC +GLOBAL +DEFAULT +\d+ %s\n' % name, name)
+
+    def test_the_musl_loader_starts_it(self):
+        r = subprocess.run([QEMU, '-L', str(MUSL), str(self.bin), '-p', '0', '-h'], capture_output=True, text=True,
+                           timeout=20, cwd=self.tmp)
+        for bad in ('Error loading shared library', 'Error relocating', 'symbol not found'):
+            self.assertNotIn(bad, r.stderr)
+        self.assertNotEqual(r.returncode, 127, r.stderr)

@@ -2967,3 +2967,22 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   1. With `RTSP_FREE_ENC=1` in `/mnt/config/rtsp.env`, test main stream in **H.264 1080p** (`-c h264`), **H.265 720p** (`RTSP_WIDTH=1280 RTSP_HEIGHT=720 -c h265`), and **H.264 720p** (`RTSP_WIDTH=1280 RTSP_HEIGHT=720 -c h264`), verifying `ffmpeg -v error` decoding (0 errors) and bit rate accuracy.
   2. Run `tc100_rtsp-musl` on the camera: verify `/proc/$(pidof tc100_rtsp-musl)/maps` has zero `/vendor/*.so` or `uClibc` mappings, measure PSS saving (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`), and verify streaming + sub-stream + hardware JPEG snapshots.
 - **Pass:** 0 decode errors across all 4 main stream modes (H.265 1080p/720p, H.264 1080p/720p) + H.264 360p sub-stream; `tc100_rtsp-musl` runs purely on `/lib/ld-musl-arm.so.1` with ~1-1.5 MB lower PSS.
+
+## 2026-11-07 14:30 — 3.0.1-rc34 : tc100_rtsp en musl, encodeur libre par défaut, AUCUNE bibliothèque du vendeur (testeur)
+
+- **Demande du propriétaire** : tous les derniers commits, l'encodeur libre activé par défaut, sans les bibliothèques
+  propriétaires, CI verte avant déploiement.
+- **Quoi** : la release embarque `tc100_rtsp` compilé contre musl (la libc de la caméra) avec libakuio intégré et
+  `freeenc.h` actif par défaut ; `libakuio.so` n'est plus livré ; `autorun-linux66.sh` et `rtsp-launch.sh` ne
+  demandent plus `/mnt/lib/libmpi_venc*.so` ni le chargeur uClibc ; `flashmode-prep.sh` ne lie plus `/vendor/lib/*` dans
+  `/mnt/lib` (la partition vendor n'est lue que pour `isp.conf`). Sous-flux H.265 demandé : codé en H.264 (journalisé).
+  La compilation musl de tc100_rtsp (#62.2, retirée de la CI à 9822651 faute des en-têtes du noyau) marche : en-têtes
+  V4L2 / ALSA / pilote ajoutés à la sysroot musl (`build-musl.sh`) ; test `Tc100RtspMusl` (qemu, libc.so seule).
+- **Testé sur la .11 avant la release** (binaire musl lancé à la place du service, `h265-step2.sh free`) : seul
+  `/lib/libc.so` dans `/proc/<pid>/maps` ; 1080p H.265 + sous-flux H.264 + son A-law : 0 erreur ; **720p H.265,
+  1080p H.264, 720p H.264** (les listes de l'implémenteur, jamais passées sur caméra avant) : 240 / 232 / 251 images
+  en 10 s, 0 erreur de décodage, images correctes ; JPEG du web faits ; 0 image en échec.
+- **Retour arrière** : la mise à jour rc33 (le vendeur reste dans la partition vendor, intacte).
+- **À tester après installation** : démarrage depuis la flash, vidéo et son, Frigate, enregistrement SD, nuit / N&B,
+  surveillance de plusieurs heures. L'installation neuve (`install66.sh`) copie encore les bibliothèques du vendeur dans
+  la partition vendor (inutilisées) : à simplifier dans une rc suivante (non testable ici sans caméra neuve).

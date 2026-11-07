@@ -3335,6 +3335,10 @@ int main(int argc, char **argv)
 		/* RTSP_FREE_ENC=1 (or default in the musl build where libakuio is linked in): our encoders, no vendor libraries */
 		if ((e && e[0] == '1') || (builtin_akuio && (!e || e[0] != '0'))) {
 			int res_ok = (W == 1920 && H == 1080) || (W == 1280 && H == 720);
+
+			/* the musl build has no vendor library to fall back on: an H.265 sub-stream (not coded by freeenc.h)
+			 * becomes H.264 rather than no video */
+			if (builtin_akuio && sub_on && sub_hevc) { LOG("free encoder: the sub-stream is H.264 (H.265 is not coded at 640x360)\n"); sub_hevc = 0; }
 			if (!res_ok || (sub_on && sub_hevc))
 				LOG("free encoder: not used (it codes 1920x1080 or 1280x720 H.265/H.264 and an H.264 sub-stream; asked: %dx%d %s, sub %s): the vendor library\n",
 				    W, H, hevc ? "h265" : "h264", !sub_on ? "off" : sub_hevc ? "h265" : "h264");
