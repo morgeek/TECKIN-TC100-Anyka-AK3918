@@ -134,9 +134,10 @@ case "$QUERY" in
         elif [ -b /dev/mmcblk0 ]; then _card=1; fi
         # the time zone now in force (a re-run of the wizard keeps it as the choice unless it is the UTC0 default)
         _tzn="$(awk '!/^#/ && NF { print; exit }' "$TZ_CONF" 2>/dev/null)"; tz_valid "$_tzn" || _tzn=""
-        printf '{"first_boot":%s,"storage":"%s","ssid":"%s","flash":"%s","card":%s,"flash_reason":"%s","tz":"%s"}\n' \
+        _wifi_ctry="$(sed -n 's/^WIFI_COUNTRY="\{0,1\}\([A-Z][A-Z]\)"\{0,1\}$/\1/p' "$BOOT_CONF" 2>/dev/null | tail -n 1)"
+        printf '{"first_boot":%s,"storage":"%s","ssid":"%s","flash":"%s","card":%s,"flash_reason":"%s","tz":"%s","wifi_country":"%s"}\n' \
             "$([ -f "$FIRST_BOOT_FLAG" ] && echo true || echo false)" "$STORAGE" "$(json_str "$_ssid")" "${_flash:-none}" "$_card" \
-            "$(json_str "$_why")" "$(json_str "$_tzn")"
+            "$(json_str "$_why")" "$(json_str "$_tzn")" "$(json_str "$_wifi_ctry")"
         exit 0
         ;;
 esac
@@ -186,6 +187,7 @@ if [ "$METHOD" = "POST" ]; then
     _flash_inst="$(get_field "$_body" flash_install)"
     _password_raw="$(get_field "$_body" password)"
     _tz_raw="$(get_field "$_body" tz)"
+    _wifi_country_raw="$(get_field "$_body" wifi_country)"
 
     echo "Content-Type: application/json"
     echo ""
@@ -206,6 +208,13 @@ if [ "$METHOD" = "POST" ]; then
     # Time zone (optional, the one the browser reported or the user picked): a POSIX TZ string, checked before anything is written.
     _tz="$(urldecode "$_tz_raw" | awk 'NR == 1 { sub(/\r$/, ""); print }')"
     if [ -n "$_tz" ] && ! tz_valid "$_tz"; then echo '{"ok":false,"error":"invalid_tz"}'; exit 0; fi
+
+    # Wi-Fi country (optional, ISO 3166 code or empty)
+    _wifi_country="$(urldecode "$_wifi_country_raw" | awk 'NR == 1 { gsub(/[^A-Za-z]/, ""); print }' | tr 'a-z' 'A-Z')"
+    case "$_wifi_country" in
+        ''|[A-Z][A-Z]) ;;
+        *) echo '{"ok":false,"error":"invalid_wifi_country"}'; exit 0 ;;
+    esac
 
     # Frigate address (optional): same rule as Settings → Integrations.
     _frigate="$(urldecode "$_frigate_raw" | awk 'NR == 1 { gsub(/[ \t\r]/, ""); print }')"
@@ -338,6 +347,16 @@ if [ "$METHOD" = "POST" ]; then
         fi
     fi
 
+    # Wi-Fi country: saved in boot.conf
+    _wc_applied=0
+    if [ -n "$_wifi_country_raw" ]; then
+        set_conf "$BOOT_CONF" WIFI_COUNTRY "$_wifi_country"
+        if [ -x "$SCRIPTS/wifi-country.sh" ]; then
+            ( sh "$SCRIPTS/wifi-country.sh" apply </dev/null >/dev/null 2>&1 & )
+            _wc_applied=1
+        fi
+    fi
+
     _flash=no
     # One click: install to flash from the trial mode once the settings above are written
     # (install66.sh copies them from the card into the flash settings slots at its end).
@@ -380,7 +399,7 @@ cat << 'HTMLEOF'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TC100 — Initial setup</title>
-<script src="/scripts/i18n.js?v=272f0a3c"></script>
+<script src="/scripts/i18n.js?v=7be36dfe"></script>
 <script src="/scripts/tzlist.js?v=dd72b6b1"></script>
 <style>
 /* no Bulma here (item 54): the wizard uses only its own wz-* classes; this is the part of Bulma's reset it relied on */
@@ -652,16 +671,20 @@ body {
     </div>
   </div>
 
-  <!-- ── Time zone (skipped when scripts/tzlist.js did not load) ── -->
+  <!-- ── Time zone & Wi-Fi country (skipped when scripts/tzlist.js did not load) ── -->
   <div class="wz-panel" id="wp-tz">
-    <div class="wz-step-title">Time zone</div>
-    <div class="wz-step-hint">Used for the clock on the picture, the file names of the recordings and the logs. Chosen from this browser; change it if it is not where the camera is.</div>
+    <div class="wz-step-title">Time zone and Wi-Fi country</div>
+    <div class="wz-step-hint">Used for the clock on the picture, the file names of the recordings, logs and authorized Wi-Fi channels.</div>
     <div class="wz-field">
       <label class="wz-label" for="wzTz">Time zone of the camera</label>
       <select class="wz-input" id="wzTz" onchange="tzChanged()"></select>
     </div>
     <div class="wz-field-err" id="wzTzWarn"></div>
     <div class="wz-note" id="wzTzNote"></div>
+    <div class="wz-field" style="margin-top:16px">
+      <label class="wz-label" for="wzWifiCountry">Wi-Fi country / regulatory rules</label>
+      <select class="wz-input" id="wzWifiCountry"></select>
+    </div>
     <div class="wz-nav">
       <button class="btn-ghost" onclick="goBack()">← Back</button>
       <button class="btn-primary" id="wbtn-tz" onclick="goNext()">Next <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="3" y1="7" x2="11" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><polyline points="8,4 11,7 8,10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -880,6 +903,27 @@ function tzInit() {
     try { found = !!TC100_TZ.find(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (e) { found = false; }
     tzChanged();
     byId('wzTzWarn').textContent = found ? '' : 'This browser did not tell its time zone (or it is not in the list): UTC is selected, choose yours.';
+    wifiCountryInit();
+}
+function wifiCountryInit() {
+    var sel = byId('wzWifiCountry');
+    if (!sel) return;
+    var list = [['', 'World rules (default)'], ['FR', 'FR · France'], ['BE', 'BE · Belgique / België'],
+      ['CH', 'CH · Suisse / Schweiz'], ['LU', 'LU · Luxembourg'], ['MC', 'MC · Monaco'],
+      ['DE', 'DE · Deutschland'], ['AT', 'AT · Österreich'], ['NL', 'NL · Nederland'],
+      ['ES', 'ES · España'], ['PT', 'PT · Portugal'], ['IT', 'IT · Italia'],
+      ['GB', 'GB · United Kingdom'], ['IE', 'IE · Ireland'], ['DK', 'DK · Danmark'],
+      ['SE', 'SE · Sverige'], ['NO', 'NO · Norge'], ['FI', 'FI · Suomi'],
+      ['PL', 'PL · Polska'], ['CZ', 'CZ · Česko'], ['GR', 'GR · Ελλάδα'],
+      ['RO', 'RO · România'], ['HU', 'HU · Magyarország'], ['CA', 'CA · Canada'],
+      ['US', 'US · United States'], ['MA', 'MA · Maroc'], ['DZ', 'DZ · Algérie'],
+      ['TN', 'TN · Tunisie'], ['SN', 'SN · Sénégal'], ['CI', "CI · Côte d'Ivoire"],
+      ['RE', 'RE · La Réunion'], ['GP', 'GP · Guadeloupe'], ['MQ', 'MQ · Martinique'],
+      ['GF', 'GF · Guyane'], ['NC', 'NC · Nouvelle-Calédonie'], ['PF', 'PF · Polynésie française'],
+      ['AU', 'AU · Australia'], ['NZ', 'NZ · New Zealand'], ['JP', 'JP · 日本']];
+    var h = '', i;
+    for (i = 0; i < list.length; i++) h += '<option value="' + list[i][0] + '">' + list[i][1] + '</option>';
+    sel.innerHTML = h;
 }
 function panels() {
     var p = ['start'];
@@ -967,7 +1011,11 @@ function renderSummary() {
     var rows = [], host = byId('wzMqttHost').value.trim(), port = byId('wzMqttPort').value.trim() || '1883';
     var fr = byId('wzFrigateUrl').value.trim();
     rows.push(['Wi-Fi', wz.wifi === 'change' ? badge('badge-amber', esc(byId('wzWifiSsid').value) + ' (next restart)') : badge('badge-slate', esc(info.ssid || 'Unchanged'))]);
-    if (tzOK()) rows.push(['Time zone', badge('badge-slate', esc(byId('wzTz').value.replace(/_/g, ' ')) + ' (' + esc(tzPosix()) + ')')]);
+    if (tzOK()) {
+        rows.push(['Time zone', badge('badge-slate', esc(byId('wzTz').value.replace(/_/g, ' ')) + ' (' + esc(tzPosix()) + ')')]);
+        var ctry = byId('wzWifiCountry') ? byId('wzWifiCountry').value : '';
+        rows.push(['Wi-Fi country', badge('badge-slate', ctry ? esc(ctry) : 'World rules')]);
+    }
     rows.push(['Profile', badge('badge-purple', LABEL.profile[wz.profile])]);
     rows.push(['Password', byId('wzPw1').value ? badge('badge-green', 'New password') : badge('badge-amber', 'Unchanged')]);
     if (wz.profile === 'frigate_ha') {
@@ -988,6 +1036,7 @@ function renderSummary() {
 
 var ERRORS = {
     invalid_wifi: 'The Wi-Fi network name or password is not valid.',
+    invalid_wifi_country: 'The Wi-Fi country code is not valid (two letters ISO 3166).',
     invalid_tz: 'The time zone is not valid: choose another one in the list.',
     invalid_frigate_url: 'The Frigate address must look like http://192.168.1.20:5000.',
     invalid_password: 'The new password is not valid (at least 4 characters, no spaces, quotes, %, $, ` or \\).',
@@ -1011,6 +1060,7 @@ function applyConfig() {
     if (flashStep() && wz.flash === 'prepare') body += f('flash_install', '1');
     if (byId('wzPw1').value) body += f('password', byId('wzPw1').value);
     if (tzOK()) body += f('tz', tzPosix());
+    if (byId('wzWifiCountry')) body += f('wifi_country', byId('wzWifiCountry').value);
 
     // the per-boot CSRF token (W4) comes from the status line, read just before the POST (it exists even before any password)
     var tk = new XMLHttpRequest();
@@ -1071,6 +1121,9 @@ function showSuccess(d) {
         try { var d = JSON.parse(xhr.responseText); if (d) info = d; } catch (e) {}
         if (tzOK() && info.tz && info.tz !== 'UTC0' && TC100_TZ.byPosix(info.tz) && tzPosix() !== info.tz) {
             byId('wzTz').value = TC100_TZ.byPosix(info.tz)[0]; tzChanged(); byId('wzTzWarn').textContent = '';
+        }
+        if (byId('wzWifiCountry') && info.wifi_country) {
+            byId('wzWifiCountry').value = info.wifi_country;
         }
         byId('wzSsidNow').textContent = info.ssid ? 'Connected to ' + info.ssid : 'Settings stored in the camera';
         byId('wzRecNote').style.display = info.card ? 'none' : '';
