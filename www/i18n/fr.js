@@ -1194,6 +1194,8 @@ window.tc100I18nFr = {
     "Stock firmware method: night when its light value stays above this (3584 by default).": "Méthode du firmware d'origine : nuit quand sa valeur de lumière reste au-dessus (3584 par défaut).",
     "Stock firmware method: day when its light value stays below this (1536 by default).": "Méthode du firmware d'origine : jour quand sa valeur de lumière reste en dessous (1536 par défaut).",
     "At night: the night settings of the sensor tuning, longer exposure, stronger noise filter, 10 frames per second.": "La nuit : les réglages de nuit du capteur, exposition plus longue, filtre de bruit plus fort, 10 images par seconde.",
+    "At night: switch the main stream to 1280x720 to reduce noise and save continuous video memory (CMA).": "La nuit : bascule le flux principal en 1280x720 pour réduire le bruit et économiser la mémoire vidéo (CMA).",
+    "Dynamic 720p resolution at night (lighter memory footprint, sharper night image)": "Résolution dynamique 720p la nuit (allègement mémoire, image plus nette)",
     "Frame rate while the condition below holds; Off keeps the normal rate.": "Cadence pendant que la condition ci-dessous est remplie ; Off garde la cadence normale.",
     "Seconds without motion before the lower rate starts; the normal rate comes back at the first motion.": "Secondes sans mouvement avant la cadence réduite ; la cadence normale revient au premier mouvement.",
     "Target bit rate of the main stream. Higher: sharper picture and bigger recordings, and the Wi-Fi must carry it.": "Débit visé du flux principal. Plus haut : image plus nette, enregistrements plus gros, et le Wi-Fi doit suivre.",

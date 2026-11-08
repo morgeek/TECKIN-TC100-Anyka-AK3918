@@ -32,8 +32,11 @@ if [ -f $CONF ]; then
   case "$3" in ''|*[!0-9]*) ;; *) PORT=$3 ;; esac
   # main picture size (Settings -> Main stream, [0] mainres): 720 = 1280x720, anything else the default 1920x1080
   # ([0] width / height are not read: older pages wrote 1280x720 there). tc100_rtsp itself keeps 1080p on a kernel that
-  # would crop instead of scaling (no ak39_vi.main_scale).
-  [ "$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 mainres 2>/dev/null)" = 720 ] && export RTSP_WIDTH=1280 RTSP_HEIGHT=720
+  # would crop instead of scaling (no ak39_vi.main_scale). If NIGHT_720P=1 in daynight.conf, night mode forces 720p.
+  RES0=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 mainres 2>/dev/null)
+  if [ "$RES0" = 720 ] || { [ "$(dnc NIGHT_720P)" = 1 ] && [ -f /tmp/tc100_bw ]; }; then
+    export RTSP_WIDTH=1280 RTSP_HEIGHT=720
+  fi
   set -- $(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 1 codec 1 bps 2>/dev/null)
   [ "$1" = 2 ] && SUBCODEC=h265
   case "$2" in ''|*[!0-9]*) ;; *) SUBKBPS=$2 ;; esac

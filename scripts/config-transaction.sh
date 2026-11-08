@@ -602,6 +602,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" VENDOR_DAY_LUM u:0:999999 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" IR_LED_MAX_ON u:0:172800 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NIGHT_STYLE bool "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" NIGHT_720P bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOWLIGHT_FPS bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOWLIGHT_FPS_VALUE lowlight_fps_value "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" IR_LED_MODE ir_led_mode "$_tc_rel" || return 1

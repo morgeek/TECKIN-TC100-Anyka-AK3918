@@ -111,7 +111,7 @@
     if (d.ir_max_on !== undefined && d.ir_max_on !== null) put("dn_ir_max_h", Math.round(d.ir_max_on / 3600));
     put("dn_ir_led_mode", d.ir_led_mode || "auto");
     var chk = function (id, v) { var el = byId(id); if (el) el.checked = v === 1; };
-    chk("dn_nightstyle", d.night_style); chk("dn_lowlight", d.lowlight_fps);
+    chk("dn_nightstyle", d.night_style); chk("dn_night720", d.night_720p); chk("dn_lowlight", d.lowlight_fps);
     put("dn_lowlight_fps", d.lowlight_fps_value);
   }
   // R20-U8: only the thresholds of the selected light measurement are shown; the others stay in the form (hidden, still

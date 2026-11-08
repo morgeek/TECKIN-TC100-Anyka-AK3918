@@ -185,6 +185,7 @@ _ce_row_table() {
     row("daynight.conf";"flat";"root";"VENDOR_DAY_LUM";"u:0:999999";"general";.daynight.vendor_day_lum),
     row("daynight.conf";"flat";"root";"IR_LED_MAX_ON";"u:0:172800";"general";.daynight.ir_led_max_on),
     row("daynight.conf";"flat";"root";"NIGHT_STYLE";"bool";"general";.daynight.night_style),
+    row("daynight.conf";"flat";"root";"NIGHT_720P";"bool";"general";.daynight.night_720p),
     row("daynight.conf";"flat";"root";"LOWLIGHT_FPS";"bool";"general";.daynight.lowlight_fps),
     row("daynight.conf";"flat";"root";"LOWLIGHT_FPS_VALUE";"lowlight_fps_value";"general";.daynight.lowlight_fps_value),
     row("daynight.conf";"flat";"root";"IR_LED_MODE";"ir_led_mode";"general";.daynight.ir_led_mode),

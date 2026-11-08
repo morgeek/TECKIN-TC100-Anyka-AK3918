@@ -28,6 +28,9 @@ start()
   black_white on
   if [ "$(ir_led_mode)" = "off" ]; then ir_led off; else ir_led on; fi
   ir_cut off
+  if [ "$(sed -n 's/^NIGHT_720P=//p' /mnt/config/daynight.conf 2>/dev/null | tail -n 1)" = "1" ]; then
+    /mnt/controlscripts/rtsp-h26x restart >/dev/null 2>&1 &
+  fi
 }
 
 stop()
@@ -36,6 +39,9 @@ stop()
   black_white off
   if [ "$(ir_led_mode)" = "force" ]; then ir_led on; else ir_led off; fi
   ir_cut on
+  if [ "$(sed -n 's/^NIGHT_720P=//p' /mnt/config/daynight.conf 2>/dev/null | tail -n 1)" = "1" ]; then
+    /mnt/controlscripts/rtsp-h26x restart >/dev/null 2>&1 &
+  fi
 }
 
 # restart = stop then start: service-watchdog, memory-guard, the MQTT bridge, the config import and the Settings

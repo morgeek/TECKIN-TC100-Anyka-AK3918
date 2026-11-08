@@ -113,11 +113,13 @@
         # the low-light rate: 10 (default, the stock one), 15 or 20; anything else keeps the stored value
         case "${F_dn_lowlight_fps:-$_lv0}" in 15) _lv=15 ;; 20) _lv=20 ;; 10) _lv=10 ;; *) _lv=$_lv0 ;; esac
         _ns=$(normalize_bool "${F_dn_nightstyle}"); _lf=$(normalize_bool "${F_dn_lowlight}")
+        _n7200=$(_dn_get NIGHT_720P); _n7200=${_n7200:-0}
+        _n720=$(normalize_bool "${F_dn_night720}")
         _irm0=$(_dn_get IR_LED_MODE); _irm0=${_irm0:-auto}
         _msw=$(sanitize_int_range "${F_dn_min_switch:-$(_dn_get MIN_SWITCH)}" 0 3600 180)   # kept: the page has no field yet
         case "${F_dn_ir_led_mode:-$_irm0}" in off) _irm=off ;; force) _irm=force ;; *) _irm=auto ;; esac
-        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\nVENDOR_NIGHT_LUM=%s\nVENDOR_DAY_LUM=%s\nIR_LED_MAX_ON=%s\nNIGHT_STYLE=%s\nLOWLIGHT_FPS=%s\nLOWLIGHT_FPS_VALUE=%s\nIR_LED_MODE=%s\nMIN_SWITCH=%s\n' \
-          "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" "$_vn" "$_vd" "$_irs" "$_ns" "$_lf" "$_lv" "$_irm" "$_msw" > /mnt/config/daynight.conf
+        printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\nVENDOR_NIGHT_LUM=%s\nVENDOR_DAY_LUM=%s\nIR_LED_MAX_ON=%s\nNIGHT_STYLE=%s\nLOWLIGHT_FPS=%s\nLOWLIGHT_FPS_VALUE=%s\nIR_LED_MODE=%s\nMIN_SWITCH=%s\nNIGHT_720P=%s\n' \
+          "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" "$_vn" "$_vd" "$_irs" "$_ns" "$_lf" "$_lv" "$_irm" "$_msw" "$_n720" > /mnt/config/daynight.conf
         if [ "$_irm0" != "$_irm" ] && [ -x /mnt/scripts/common_functions.sh ]; then
           (
             . /mnt/scripts/common_functions.sh
@@ -128,7 +130,7 @@
             esac
           ) >/dev/null 2>&1 || true
         fi
-        [ "$_ns0" = "$_ns" ] && [ "$_lf0" = "$_lf" ] && [ "$_lv0" = "$_lv" ] || schedule_rtsp_restart
+        [ "$_ns0" = "$_ns" ] && [ "$_lf0" = "$_lf" ] && [ "$_lv0" = "$_lv" ] && [ "$_n7200" = "$_n720" ] || schedule_rtsp_restart
       fi
       if [ -n "${F_osd_form}" ]; then
         osdenabled=$(normalize_bool "${F_osdenabled}")
