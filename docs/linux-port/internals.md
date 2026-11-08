@@ -82,7 +82,7 @@ Contents: [Full feature list](#full-feature-list) - [How the SD install works, a
 
 **What 3.0 does not do**: HTTPS on the camera (it serves plain HTTP with a login; put a
 [reverse proxy](#https-with-a-reverse-proxy) in front of it), a VPN, arbitrary custom resolutions beyond 1080p/720p main and
-640x360 sub, card formatting from the web page, the encoder's smart mode (it stops the encoder with the memory left on
+640x360 sub, the encoder's smart mode (it stops the encoder with the memory left on
 this camera). Not yet checked on a camera: push-to-talk and two-way audio through the speaker (the speaker itself
 works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). What is known
 not to be perfect yet: [known issues](../known-issues.md).

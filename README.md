@@ -103,7 +103,7 @@ and [docs/api.md](docs/api.md). Two-way audio: [docs/two-way-audio.md](docs/two-
 
 - Plain **HTTP only** on the camera (a login, but no HTTPS): use it on your own network, never forward its ports from
   the internet. For HTTPS put a [reverse proxy](docs/linux-port/internals.md#https-with-a-reverse-proxy) in front.
-- No VPN, no card formatting from the web page, no encoder smart mode (1080p and 720p main stream + 640x360 sub-stream are supported).
+- No VPN, no encoder smart mode (1080p and 720p main stream + 640x360 sub-stream are supported).
 - Only one hardware variant is known so far (JX-F23 sensor, RTL8188FU Wi-Fi, 8 MiB flash):
   [hardware variants](docs/hardware-variants.md).
 - Push-to-talk and two-way audio through the speaker are not yet checked on a camera.

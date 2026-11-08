@@ -89,6 +89,15 @@
       fi
     ;;
 
+    sd_card_format)
+      if [ -x /mnt/scripts/sd-format.sh ]; then
+        _fmt_res="$(/mnt/scripts/sd-format.sh format 2>/dev/null)"
+        printf '%s\n' "$_fmt_res"
+      else
+        json_body_err "FORMAT_TOOL" "Format tool not found"
+      fi
+    ;;
+
     local_rec_eject|local_rec_resume)
       _lr_out="$(sh /mnt/scripts/rec-storage.sh "${F_cmd#local_rec_}" 2>&1)"
       sh /mnt/v3/linux66-sd/sdinfo-sd.sh >/dev/null 2>&1

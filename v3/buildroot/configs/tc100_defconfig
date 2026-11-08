@@ -38,10 +38,11 @@ BR2_PACKAGE_DROPBEAR=y
 # the camera is only an ssh/scp server (dbclient/ssh are not called by any script)
 # BR2_PACKAGE_DROPBEAR_CLIENT is not set
 BR2_PACKAGE_IW=y
-# item 41: fsck.fat for the SD card repair (scripts/sd-diag.sh: the SD card page, SD_AUTO_REPAIR); about 60 KB, it goes
-# to ext/ of the user space (initramfs-prune.txt, build-stack.sh), not into the fixed-size initrd
+# item 41: fsck.fat and mkfs.fat for SD card repair and format (scripts/sd-diag.sh, scripts/sd-format.sh);
+# about 60 KB each, they go to ext/ of the user space (initramfs-prune.txt, build-stack.sh), not into the fixed-size initrd
 BR2_PACKAGE_DOSFSTOOLS=y
 BR2_PACKAGE_DOSFSTOOLS_FSCK_FAT=y
+BR2_PACKAGE_DOSFSTOOLS_MKFS_FAT=y
 # Wi-Fi rules per country: /lib/firmware/regulatory.db (about 5 KB, in the initramfs), read by the kernel at boot;
 # boot.conf WIFI_COUNTRY chooses the country (scripts/wifi-country.sh). Without it the radio keeps the "world" rules.
 BR2_PACKAGE_WIRELESS_REGDB=y

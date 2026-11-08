@@ -542,6 +542,7 @@ window.tc100I18nFr = {
     "From the flash memory a card put in is checked every minute and mounted when it can be used. Formatting erases the whole card (FAT32).": "Depuis la mémoire flash, une carte insérée est vérifiée chaque minute et montée si elle est utilisable. Le formatage efface toute la carte (FAT32).",
     "Leave it as it is": "La laisser telle quelle",
     "Mount the card": "Monter la carte",
+    "Format (FAT32)": "Formater (FAT32)",
     "Mounted on /mnt/sd.": "Montée sur /mnt/sd.",
     "No card in the camera.": "Aucune carte dans la caméra.",
     "SD card inserted: what do you want to do?": "Carte SD insérée : que voulez-vous faire ?",

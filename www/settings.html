@@ -402,6 +402,7 @@
                         <button class="button is-small" type="button" id="btnSdMount">Mount the card</button>
                         <button class="button is-small is-info is-light" type="button" id="btnSdCheck">Check health</button>
                         <button class="button is-small is-warning is-light" type="button" id="btnSdRepair">Auto-repair</button>
+                        <button class="button is-small is-danger is-light" type="button" id="btnSdFormat">Format (FAT32)</button>
                     </div>
                     <p class="help" id="sd_diag_msg"></p>
                     <span id="sd_dirty_word" hidden>The card was not checked after a power cut (not enough memory for the check): it is used as it is. Check it on a computer.</span>
@@ -1201,6 +1202,7 @@
             });
             var btnCheck = document.getElementById('btnSdCheck');
             var btnRepair = document.getElementById('btnSdRepair');
+            var btnFormat = document.getElementById('btnSdFormat');
             var diagMsg = document.getElementById('sd_diag_msg');
             if (btnCheck) btnCheck.addEventListener('click', function() {
                 btnCheck.classList.add('is-loading');
@@ -1224,6 +1226,18 @@
                     })
                     .catch(function () { if (window.showResult) window.showResult('Repair failed', 'is-danger'); })
                     .finally(function () { btnRepair.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
+            });
+            if (btnFormat) btnFormat.addEventListener('click', function() {
+                if (!confirm('Format microSD card as FAT32? ALL DATA AND RECORDINGS ON THE CARD WILL BE DELETED!')) return;
+                btnFormat.classList.add('is-loading');
+                EliteUI.csrfFetch('cgi-bin/action.cgi?cmd=sd_card_format&format=json', { method: 'POST' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (window.showResult) window.showResult(d.ok ? d.message : (d.error || 'Formatting failed'), d.ok ? 'is-success' : 'is-danger');
+                        if (diagMsg) diagMsg.textContent = d.ok ? d.message : ('Error: ' + (d.error || 'format failed'));
+                    })
+                    .catch(function () { if (window.showResult) window.showResult('Formatting failed', 'is-danger'); })
+                    .finally(function () { btnFormat.classList.remove('is-loading'); loadSdCard(); loadLocalRec(true); });
             });
             loadSdCard();
         })();

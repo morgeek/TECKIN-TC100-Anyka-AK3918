@@ -61,10 +61,18 @@ sbin/fsck.fat
 sbin/dosfsck
 sbin/fsck.vfat
 sbin/fsck.msdos
+sbin/mkfs.fat
+sbin/mkdosfs
+sbin/mkfs.vfat
+sbin/mkfs.msdos
 usr/sbin/fsck.fat
 usr/sbin/dosfsck
 usr/sbin/fsck.vfat
 usr/sbin/fsck.msdos
+usr/sbin/mkfs.fat
+usr/sbin/mkdosfs
+usr/sbin/mkfs.vfat
+usr/sbin/mkfs.msdos
 # not used on the camera (2026-10-30 audit): the hostapd sample config (128 KB), the real hostapd_cli path, the
 # xz tools (busybox has unxz / xzcat) and liblzma (mksquashfs in ext/ gets its own copy, see build-stack.sh)
 etc/hostapd.conf

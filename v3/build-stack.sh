@@ -88,8 +88,11 @@ for b in usr/bin/curl usr/sbin/iw usr/sbin/wpa_cli usr/sbin/hostapd usr/bin/mksq
 	cp -L "$b" "$T/ext/bin/"
 	echo "$b" >> "$W/todo"
 done
-# fsck.fat (dosfstools, item 41): optional, the base of an older CI run may not have it yet
+# fsck.fat & mkfs.fat (dosfstools, items 41 & F4): optional, the base of an older CI run may not have it yet
 for b in sbin/fsck.fat usr/sbin/fsck.fat; do
+	[ -f "$b" ] && { cp -L "$b" "$T/ext/bin/"; echo "$b" >> "$W/todo"; break; }
+done
+for b in sbin/mkfs.fat usr/sbin/mkfs.fat; do
 	[ -f "$b" ] && { cp -L "$b" "$T/ext/bin/"; echo "$b" >> "$W/todo"; break; }
 done
 # tc100-whep (item 35, WebRTC gateway, ~45 KB; built by Buildroot against the system mbedTLS, which is already in ext/lib
