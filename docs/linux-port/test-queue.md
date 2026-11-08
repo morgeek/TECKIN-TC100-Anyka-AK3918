@@ -3016,3 +3016,15 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   - Mise à jour de `CREDITS.md`, `docs/linux-port/README.md` et `v3/install/RELEASE-NOTES.md` pour refléter l'architecture 100 % libre (`freeenc.h` + `musl`, zéro bibliothèque `.so` propriétaire chargée ni copiée).
 - **Interrupteur** : `INSTALL66_FORCE_PART_BACKUP=1` force la sauvegarde par partition `-b $K/backup` même en présence de `flash-stock.bin`.
 - **Test** : tests unitaires (`tests/test_hwinventory.py`, `tests/test_feat30.py`, `tests/test_flash_image.py`) et CI complète.
+
+## 2026-11-08 08:25 — bilan du matin, encodeur libre sans vendeur sur les deux caméras (testeur)
+
+- **.11 : 3.0.1-rc36**, en marche depuis 12 h 04 ; **.24 : 3.0.1-rc35**, depuis 15 h 10 (installées par le
+  propriétaire ; la surveillance rc32 de la .24 est donc remplacée par celle-ci). Aucun redémarrage, aucun oops ni OOM.
+- `tc100_rtsp` musl sur les deux : seul `/lib/libc.so` dans `/proc/<pid>/maps` (aucune bibliothèque du vendeur ni
+  uClibc) ; encodeur libre : **0 image en échec** dans les journaux (un encodeur H.265 de la .11 fermé après
+  12 061 images, celui de la .24 après 7 218, tous à 0 échec). Mémoire disponible environ 23 Mo sur les deux.
+- Capture RTSP de 10 s sur chacune : 102 images (10 i/s, éclairage faible), **0 erreur de décodage**. La .11 en mode
+  nuit, la .24 en mode jour. Un client RTSP branché sur chacune.
+- Wi-Fi : .24 0 % de perte vers la box ; .11 une rafale à 90 % de perte au premier essai, puis 0 % sur 30 et 10 pings
+  (à surveiller ; signal -31 dBm, donc pas un problème de portée).
