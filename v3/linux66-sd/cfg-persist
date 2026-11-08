@@ -1,5 +1,6 @@
 #!/bin/sh
 # cfg-persist restore|save|flush|daemon|status|saved   keep the user settings (config/) in the SPI flash, no SD card needed
+export COPYFILE_DISABLE=1
 #   Two slots, the flash partitions "cfga" and "cfgb" (36 KiB each, written one at a time: a power cut during a save
 #   leaves the other slot intact). A slot = one text line "TC1CFG <seq> <bytes> <md5>" then a gzip'ed tar of the
 #   settings that differ from the shipped defaults (*.dist twins, unchanged defaults are not stored).
@@ -32,7 +33,7 @@ deleted() {
 list() {
   cd "$(dirname $CFG)" || return 1; b=$(basename $CFG)
   find $b -type f | sort | while read f; do
-    case "$f" in *.dist|*.pid|*.tmp|*.lock|*/ssl/cacert/*|*/ssl/*.sh|*/openssl.cnf|*/swap_header*|*/isp_f23_*|*/isp.conf|*/autostart/0*|*/presets/*.json.dist) continue;; esac   # shipped static files live in the read-only stack
+    case "$f" in *.dist|*.pid|*.tmp|*.lock|*/._*|*/.DS_Store|*/ssl/cacert/*|*/ssl/*.sh|*/openssl.cnf|*/swap_header*|*/isp_f23_*|*/isp.conf|*/autostart/0*|*/presets/*.json.dist) continue;; esac   # shipped static files live in the read-only stack
     [ -f "$f.dist" ] && cmp -s "$f" "$f.dist" && continue
     [ -f "$DEFAULTS/${f#*/}" ] && cmp -s "$f" "$DEFAULTS/${f#*/}" && continue   # unchanged shipped default
     echo "$f"

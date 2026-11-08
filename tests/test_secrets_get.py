@@ -35,7 +35,7 @@ class SecretsGet(unittest.TestCase):
             conf = Path(t, 'telegram.conf')
             for value, want in (('', 'apiToken=OLD'), ('-', 'apiToken='), ('NEW', 'apiToken=NEW')):
                 conf.write_text('apiToken=OLD\n')
-                code = ('rewrite_config() { sed -i "s|^$2=.*|$2=$3|" "$1"; }\ntelegram_token=%r\n' % value) + \
+                code = ('rewrite_config() { sed -i.bak "s|^$2=.*|$2=$3|" "$1" && rm -f "$1.bak"; }\ntelegram_token=%r\n' % value) + \
                        m.group(0).replace('/mnt/config/telegram.conf', str(conf))
                 subprocess.run(SH + ['-c', code], check=True)
                 self.assertEqual(conf.read_text().strip(), want, value)

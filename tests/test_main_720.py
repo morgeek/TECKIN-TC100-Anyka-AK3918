@@ -64,7 +64,9 @@ class StreamSummary(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_launcher_reads_mainres_only(self):
         s = text('v3/linux66-sd/rtsp-launch.sh')
-        self.assertIn('[ "$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 mainres 2>/dev/null)" = 720 ] && export RTSP_WIDTH=1280 RTSP_HEIGHT=720', s)
+        self.assertIn('RES0=$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 mainres 2>/dev/null)', s)
+        self.assertIn('if [ "$RES0" = 720 ] || { [ "$(dnc NIGHT_720P)" = 1 ] && [ -f /tmp/tc100_bw ]; }; then', s)
+        self.assertIn('export RTSP_WIDTH=1280 RTSP_HEIGHT=720', s)
         self.assertNotIn('r 0 width 0 height', s)
         self.assertLess(s.index('RTSP_WIDTH=1280'), s.index('/mnt/config/rtsp.env'))     # rtsp.env still overrides
 

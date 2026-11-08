@@ -22,7 +22,8 @@ for d in "$@"; do
   for f in "$d"/*; do
     [ -f "$f" ] && [ ! -L "$f" ] || continue
     case "${f##*/}" in *.0|*.1|*.tmp|tc100_rtsp.log) continue ;; esac
-    sz=$(wc -c < "$f" 2>/dev/null); case "$sz" in ''|*[!0-9]*) continue ;; esac
+    sz=$(wc -c < "$f" 2>/dev/null); sz=${sz##* }; sz=${sz%%[!0-9]*}
+    case "$sz" in ''|*[!0-9]*) continue ;; esac
     [ "$sz" -gt "$max" ] || continue
     if tail -n "$lines" "$f" > "$f.tmp" 2>/dev/null; then
       cat "$f.tmp" > "$f" 2>/dev/null
