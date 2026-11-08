@@ -112,6 +112,16 @@ bootloader_text="$(cat /tmp/devinfo_bootloader.txt 2>/dev/null)"
 [ -n "$bootloader_text" ] || bootloader_text="n/a"
 cmdline_text="$(cat /proc/cmdline 2>/dev/null)"
 [ -n "$cmdline_text" ] || cmdline_text="n/a"
+milestones_text=""
+if [ -f /tmp/boot-milestones.txt ]; then
+  milestones_text="$(cat /tmp/boot-milestones.txt 2>/dev/null)"
+elif [ -f /mnt/config/log/boot-milestones.log ]; then
+  milestones_text="$(tail -n 20 /mnt/config/log/boot-milestones.log 2>/dev/null)"
+fi
+milestones_block=""
+if [ -n "$milestones_text" ]; then
+  milestones_block="Boot Milestones:<pre class='info-pre info-pre-scroll'>${milestones_text}</pre>"
+fi
 
 echo "Content-type: text/html"
 echo "Pragma: no-cache"
@@ -142,6 +152,7 @@ cat << EOF
                 <pre class='info-pre'>${prev_shutdown_text}</pre>
                 Uptime:
                 <pre class='info-pre'>${uptime_text} (${uptime_secs}s)</pre>
+                ${milestones_block}
             </div>
         </div>
 

@@ -1,5 +1,6 @@
 #!/bin/sh
 # TC100 V3 Startup Script for Linux 6.6 LTS
+[ -f /mnt/scripts/boot-milestones.sh ] && sh /mnt/scripts/boot-milestones.sh autorun_start
 echo "[tc100-v3] Starting V3 services..." > /dev/console
 # Host name: config/hostname.conf (Settings -> Network), as on 2.x; "tc100" while it is the shipped placeholder, so that
 # http://tc100/ finds a new camera on most home routers (the name goes to the router with the DHCP request).
@@ -121,6 +122,7 @@ fi
 
 # 1c. Network settings (static address, custom DNS servers) over what the boot script's DHCP gave, as 2.x did
 sh /mnt/v3/linux66-sd/net-apply </dev/null >/dev/null 2>&1
+[ -f /mnt/scripts/boot-milestones.sh ] && sh /mnt/scripts/boot-milestones.sh network_ready
 
 # 1d. Choices of boot.conf that 2.x autorun.sh applied at each start (read here, no sourcing of the whole file)
 # boot.conf is parsed once into BC_<KEY> variables (last line of a key wins, one pair of double quotes removed, a value
@@ -239,6 +241,7 @@ elif [ -x $TB/tc100_rtsp ] && [ -c /dev/uio0 ]; then
   # privacy mode kept over the restart (controlscripts/privacy): the flag exists before the first picture
   grep -q '^PRIVACY_SCREEN=1' /mnt/config/boot.conf 2>/dev/null && : > /tmp/tc100_privacy
   sh $TB/rtsp-launch.sh
+  [ -f /mnt/scripts/boot-milestones.sh ] && sh /mnt/scripts/boot-milestones.sh rtsp_launched
   # the 6.6 kernel logs the sensor id only once the video is open: choose the board profile again then
   ( sleep 20; sh /mnt/v3/install/inventory.sh --quick > /tmp/inventory.txt.new 2>/dev/null && mv /tmp/inventory.txt.new /tmp/inventory.txt
     B=$(sh /mnt/v3/install/hwcheck.sh /tmp/inventory.txt /mnt/v3/board 2>/dev/null) && { echo "${B#board=}" > /tmp/board; ln -sf "/mnt/v3/board/${B#board=}.conf" /tmp/board.conf; } ) </dev/null >/dev/null 2>&1 &
@@ -493,4 +496,5 @@ for p in tc100_rtsp httpfront tc100-onvifd; do
   for pid in $(pidof $p 2>/dev/null); do echo -900 > /proc/$pid/oom_score_adj 2>/dev/null; done
 done
 
+[ -f /mnt/scripts/boot-milestones.sh ] && sh /mnt/scripts/boot-milestones.sh boot_complete
 echo "[tc100-v3] All services initialized successfully." > /dev/console

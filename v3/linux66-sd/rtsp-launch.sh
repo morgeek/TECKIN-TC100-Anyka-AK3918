@@ -103,11 +103,11 @@ TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list'
 export RTSP_ALSA_DIRECT="${RTSP_ALSA_DIRECT:-1}" RTSP_AUDIO_HPF="${RTSP_AUDIO_HPF:-1}" RTSP_AUDIO_AGC="${RTSP_AUDIO_AGC:-1}" \
   RTSP_AUDIO_DUCK="${RTSP_AUDIO_DUCK:-1}" RTSP_ABR="${RTSP_ABR:-1}" RTSP_MD_ENC="${RTSP_MD_ENC:-1}" \
   RTSP_REC_AAC="${RTSP_REC_AAC:-1}"
-# RTSP_SENDER_THREAD (R16 / H1, single key: /mnt/config/rtsp.env, e.g. RTSP_SENDER_THREAD=1; no copy in boot.conf): 1 = a thread of
+# RTSP_SENDER_THREAD (R16 / H1, single key: /mnt/config/rtsp.env, e.g. RTSP_SENDER_THREAD=0): 1 = a thread of
 # tc100_rtsp sends the encoded frames to the RTSP clients, so that each extra client no longer takes capture frames (4 clients:
-# 18 fps measured with the inline send). Default 0 (inline send, the behaviour of every release so far) until it is measured
-# on the camera (test-queue [sender-thread]). Read once when tc100_rtsp starts: restart the RTSP server after changing it.
-export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-0}"
+# 18 fps measured with the inline send). On by default (1) since 3.0.1; set to 0 to force inline send.
+# Read once when tc100_rtsp starts: restart the RTSP server after changing it.
+export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-1}"
 ( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
   exec /tmp/tc100_rtsp -c "$CODEC" -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \
