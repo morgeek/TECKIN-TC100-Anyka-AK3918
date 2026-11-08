@@ -3028,3 +3028,7 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   nuit, la .24 en mode jour. Un client RTSP branché sur chacune.
 - Wi-Fi : .24 0 % de perte vers la box ; .11 une rafale à 90 % de perte au premier essai, puis 0 % sur 30 et 10 pings
   (à surveiller ; signal -31 dBm, donc pas un problème de portée).
+- Point de 08:30 (prévu pour la surveillance rc32, devenue sans objet) : dans `reboot-history.log`, seulement les
+  redémarrages demandés par les mises à jour web (.11 : rc34, rc35, rc36 le 7 ; .24 : rc35 le 7 à 16:12) ; aucun
+  segfault ni OOM ; `tc100-logfwd` en marche sur les deux ; `watch7.sh` n'est plus lancé (perdu au redémarrage de
+  mise à jour, non relancé : la surveillance de 7 jours de la rc32 est terminée par les mises à jour).
