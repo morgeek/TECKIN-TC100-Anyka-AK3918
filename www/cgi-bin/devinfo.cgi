@@ -95,7 +95,10 @@ prev_shutdown_text="$(sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' /t
 $prev_shutdown_text"
 uptime_text="$(format_uptime "$uptime_secs")"
 binary_versions_text="$(cat /tmp/devinfo_binary_versions.txt 2>/dev/null)"
-[ -n "$binary_versions_text" ] || binary_versions_text="$(build_binary_versions_block)"
+if [ -z "$binary_versions_text" ]; then
+  binary_versions_text="$(build_binary_versions_block)"
+  printf '%s\n' "$binary_versions_text" > /tmp/devinfo_binary_versions.txt 2>/dev/null || true
+fi
 firmware_text="n/a"
 [ -r /mnt/VERSION ] && read -r firmware_text < /mnt/VERSION
 [ -n "$firmware_text" ] || firmware_text="n/a"
