@@ -49,7 +49,7 @@ sound_list() {
   _sd=false; sd_ok && _sd=true
   # built-in clips: NAME.alaw (one byte a sample, rc31) or NAME.pcm; "bytes" is the 16-bit size (seconds = bytes / 16000)
   ( stat -c '%n %s' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null || \
-    stat -f '%N %z' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null ) | awk -v sd="$SOUNDS_SD/" -v on="$_on" -v bn="$_bn" -v card="$_sd" '
+    stat -f '%N %z' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null || true ) | awk -v sd="$SOUNDS_SD/" -v on="$_on" -v bn="$_bn" -v card="$_sd" '
     {
       p = $1; n = p; sub(/.*\//, "", n); b = $2; if (sub(/\.alaw$/, "", n)) b = 2 * $2; else sub(/\.pcm$/, "", n)
       if (n !~ /^[A-Za-z0-9_-]+$/ || n ~ /^test-1k-/) next
