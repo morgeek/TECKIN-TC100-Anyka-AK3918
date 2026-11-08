@@ -147,7 +147,7 @@ hk_bg()
         eval "HKSK_$_hk_bv=\$((\${HKSK_$_hk_bv:-0} + 1))"
         return 1
     fi
-    ( HK_JOB=$_hk_bn; export HK_JOB; "$@" ) </dev/null >/dev/null 2>&1 &
+    ( HK_JOB=$_hk_bn; export HK_JOB; nice -n 10 "$@" ) </dev/null >/dev/null 2>&1 &
     eval "HKP_$_hk_bv=$!"
     echo "$!" > "$HK_DIR/run/$_hk_bn" 2>/dev/null
     return 0
@@ -161,7 +161,7 @@ hk_bgx()
         eval "HKSK_$_hk_bv=\$((\${HKSK_$_hk_bv:-0} + 1))"
         return 1
     fi
-    ( HK_JOB=$_hk_bn; export HK_JOB; exec "$@" ) </dev/null >/dev/null 2>&1 &
+    ( HK_JOB=$_hk_bn; export HK_JOB; exec nice -n 10 "$@" ) </dev/null >/dev/null 2>&1 &
     eval "HKP_$_hk_bv=$!"
     echo "$!" > "$HK_DIR/run/$_hk_bn" 2>/dev/null
     return 0
