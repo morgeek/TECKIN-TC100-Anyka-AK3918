@@ -48,7 +48,7 @@ class Sounds(unittest.TestCase):
 rate_limit_check() { :; }
 audit_log_event() { :; }
 install_config() { [ -f "$1" ] || : > "$1"; }
-rewrite_config() { if grep -q "^$2=" "$1"; then sed -i "s|^$2=.*|$2=$3|" "$1"; else echo "$2=$3" >> "$1"; fi; }
+rewrite_config() { if grep -q "^$2=" "$1"; then sed -i.bak "s|^$2=.*|$2=$3|" "$1" && rm -f "$1.bak"; else echo "$2=$3" >> "$1"; fi; }
 '''
         env = dict(os.environ, F_cmd=cmd, F_name=name, CONTENT_LENGTH=str(len(body)), REQUEST_METHOD='POST')
         r = subprocess.run(SH + ['-c', stubs + self.common() + s], input=body, capture_output=True, env=env)

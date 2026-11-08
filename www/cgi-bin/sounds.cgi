@@ -23,7 +23,11 @@ reply() { printf 'Status: %s\nContent-Type: application/json\nCache-Control: no-
 fail() { reply "$1" "{\"ok\":false,\"error\":\"$2\"}"; exit 0; }
 # a real card: the 16 KiB RAM placeholder that rec-storage.sh mounts on /mnt/sd without one is tmpfs, not a card
 sd_ok() { grep -qE ' /mnt/sd (vfat|exfat) ' /proc/mounts 2>/dev/null; }
-mem_kb() { awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo 2>/dev/null; }
+mem_kb() {
+  _m=$(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo 2>/dev/null)
+  [ -n "$_m" ] && { echo "$_m"; return 0; }
+  [ -f /proc/meminfo ] || echo 32768
+}
 # check_body: an even, non-empty body of 30 s at most (raw 8 kHz mono S16LE)
 check_body() {
   case "$CONTENT_LENGTH" in ''|*[!0-9]*) fail "411 Length Required" "no length" ;; esac
@@ -35,7 +39,8 @@ check_body() {
 # one stat and one awk: built-in clips first, then the custom ones that are not also built in
 sound_list() {
   _on=1; _bn=startup
-  [ -r "$BOOT_CONF" ] && while IFS='=' read -r _k _v; do
+  [ -r "$BOOT_CONF" ] && while IFS= read -r _line; do
+    _k="${_line%%=*}"; _v="${_line#*=}"
     _v=${_v#\"}; _v=${_v%\"}
     case "$_k" in BOOT_SOUND) _on=$_v ;; BOOT_SOUND_NAME) _bn=$_v ;; esac
   done < "$BOOT_CONF"
@@ -43,7 +48,8 @@ sound_list() {
   case "$_bn" in ''|*[!A-Za-z0-9_-]*) _bn=startup ;; esac
   _sd=false; sd_ok && _sd=true
   # built-in clips: NAME.alaw (one byte a sample, rc31) or NAME.pcm; "bytes" is the 16-bit size (seconds = bytes / 16000)
-  stat -c '%n %s' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null | awk -v sd="$SOUNDS_SD/" -v on="$_on" -v bn="$_bn" -v card="$_sd" '
+  ( stat -c '%n %s' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null || \
+    stat -f '%N %z' /mnt/sounds/*.alaw /mnt/sounds/*.pcm "$SOUNDS_SD"/*.pcm 2>/dev/null ) | awk -v sd="$SOUNDS_SD/" -v on="$_on" -v bn="$_bn" -v card="$_sd" '
     {
       p = $1; n = p; sub(/.*\//, "", n); b = $2; if (sub(/\.alaw$/, "", n)) b = 2 * $2; else sub(/\.pcm$/, "", n)
       if (n !~ /^[A-Za-z0-9_-]+$/ || n ~ /^test-1k-/) next
@@ -83,7 +89,7 @@ case "$cmd" in
     fi
     _tmp="$SOUNDS_SD/.$name.part"
     head -c "$CONTENT_LENGTH" > "$_tmp" 2>/dev/null
-    _n=$(wc -c < "$_tmp" 2>/dev/null)
+    _n=$(wc -c < "$_tmp" 2>/dev/null); _n=${_n##* }
     if [ "${_n:-0}" != "$CONTENT_LENGTH" ]; then rm -f "$_tmp"; fail "400 Bad Request" "upload cut short"; fi
     mv -f "$_tmp" "$SOUNDS_SD/$name.pcm" || { rm -f "$_tmp"; fail "500 Internal Server Error" "cannot write to the card"; }
     sync
@@ -114,7 +120,7 @@ case "$cmd" in
     [ "$_avail" -ge $((CONTENT_LENGTH / 1024 + 6144)) ] || fail "507 Insufficient Storage" "not enough free memory to play it now"
     _now="${SOUNDS_TMP:-/tmp}/sound-now.$$.pcm"
     head -c "$CONTENT_LENGTH" > "$_now" 2>/dev/null
-    _n=$(wc -c < "$_now" 2>/dev/null)
+    _n=$(wc -c < "$_now" 2>/dev/null); _n=${_n##* }
     if [ "${_n:-0}" != "$CONTENT_LENGTH" ]; then rm -f "$_now"; fail "400 Bad Request" "upload cut short"; fi
     _vol=$(head -n 1 /mnt/config/pttvolume.conf 2>/dev/null)
     case "$_vol" in ''|*[!0-9]*) _vol=90 ;; esac
