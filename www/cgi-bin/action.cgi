@@ -1136,8 +1136,13 @@ audit_log() {
     fi
   fi
   _al_btime=0
-  while read -r _k _v _; do [ "$_k" = "btime" ] && _al_btime="$_v" && break; done < /proc/stat
-  read -r _al_up _ < /proc/uptime
+  if [ -f /proc/stat ]; then
+    while read -r _k _v _; do [ "$_k" = "btime" ] && _al_btime="$_v" && break; done < /proc/stat
+  fi
+  _al_up=0
+  if [ -f /proc/uptime ]; then
+    read -r _al_up _ < /proc/uptime
+  fi
   _al_ts=$((_al_btime + ${_al_up%.*}))
   _al_ip="${REMOTE_ADDR:-unknown}"
   printf '%s cmd=%s ip=%s\n' "$_al_ts" "$_al_cmd" "$_al_ip" >> "$_al_file" 2>/dev/null || true
