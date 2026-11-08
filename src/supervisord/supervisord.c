@@ -213,7 +213,7 @@ static const char *const src_name[] = { "luma", "ae", "isp", "vendor" };
 
 static ll THRESHOLD_NIGHT = 40, THRESHOLD_DAY = 100, AE_NIGHT_ABOVE = 15000, AE_DAY_BELOW = 3000;
 static ll VENDOR_NIGHT_LUM = 3584, VENDOR_DAY_LUM = 1536, AWB_DAY_CNT = 50000, AWB_NIGHT_CNT = 1200;
-static ll VENDOR_LOCK = 900, IR_LED_MAX_ON = 50400, IR_LED_REST = 600, NIGHT_HOLD = 10, DAY_HOLD = 60, MIN_SWITCH = 60;
+static ll VENDOR_LOCK = 900, IR_LED_MAX_ON = 50400, IR_LED_REST = 600, NIGHT_HOLD = 10, DAY_HOLD = 60, MIN_SWITCH = 180;
 static int DAYNIGHT_SOURCE = SRC_LUMA;
 static int IR_LED_MODE;	/* 0 auto, 1 off, 2 force */
 static char DN_MODE[16] = "2";

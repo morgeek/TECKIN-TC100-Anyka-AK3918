@@ -93,7 +93,7 @@ class DayNightFromExposure(unittest.TestCase):
         s += [(140, mid)]                                        # resets the timer
         s += [(142 + 2 * i, lit) for i in range(28)]             # 142..196
         s += [(198, lit), (200, lit), (202, lit)]                # 142 + 60 = 202: day
-        sw = [c for c in self.feed('ae', s, pre) if c[1] != c[2]]
+        sw = [c for c in self.feed('ae', s, pre + '; MIN_SWITCH=60') if c[1] != c[2]]
         self.assertEqual(sw, [(110, '1', '0'), (202, '0', '1')])
 
     def test_a_dip_below_the_night_threshold_cancels_the_night(self):
@@ -110,17 +110,17 @@ class DayNightFromExposure(unittest.TestCase):
         self.assertEqual([c for c in self.feed('ae', s, pre) if c[1] != c[2]], [(13, '1', '0')])
 
     def test_minimum_time_between_two_switches(self):
-        """Item 21: MIN_SWITCH (60 s by default) between two switches, whatever the source; 0 = none"""
+        """Item 21: MIN_SWITCH (180 s by default, 60 with override) between two switches, whatever the source; 0 = none"""
         dark, light = '50 1 256 256 256 1', '50 1 256 256 256 0'
         s = [(100, dark), (101, dark), (110, light), (111, light), (150, light), (161, light), (162, light)]
-        sw = [c for c in self.feed('isp', s, 'NIGHT_HOLD=1; DAY_HOLD=1') if c[1] != c[2]]
+        sw = [c for c in self.feed('isp', s, 'NIGHT_HOLD=1; DAY_HOLD=1; MIN_SWITCH=60') if c[1] != c[2]]
         self.assertEqual(sw, [(101, '1', '0'), (161, '0', '1')])      # day wanted at 111, allowed 60 s after 101
         sw = [c for c in self.feed('isp', s, 'NIGHT_HOLD=1; DAY_HOLD=1; MIN_SWITCH=0') if c[1] != c[2]]
         (self.d / 'ircut').write_text('1\n')
         self.assertEqual(sw, [(101, '1', '0'), (111, '0', '1')])
 
     def test_isp_dark_flag_with_holds(self):
-        pre = 'NIGHT_HOLD=10; DAY_HOLD=60'
+        pre = 'NIGHT_HOLD=10; DAY_HOLD=60; MIN_SWITCH=60'
         s = [(100, '50 1 256 256 256 1'), (105, '50 1 256 256 256 1'), (110, '50 1 256 256 256 1'),
              (120, '50 1 256 256 256 0'), (179, '50 1 256 256 256 0'), (180, '50 1 256 256 256 0')]
         sw = [c for c in self.feed('isp', s, pre) if c[1] != c[2]]

@@ -84,8 +84,8 @@ DN_REST_UNTIL=0
 NIGHT_HOLD=10
 DAY_HOLD=60
 # item 21: at least MIN_SWITCH seconds between two switches, whatever the source (at dusk the IR LEDs light the scene,
-# the picture brightens and the luma source went back to day: the IR-cut clicked back and forth). 0 = no minimum.
-MIN_SWITCH=60
+# the picture brightens and the luma source went back to day: the IR-cut clicked back and forth; 180 s by default rides over dawn/dusk). 0 = no minimum.
+MIN_SWITCH=180
 DN_LAST_SWITCH=
 DN_DARK_SINCE=0
 DN_BRIGHT_SINCE=0
