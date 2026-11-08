@@ -917,7 +917,12 @@ class Backchannel(Server):
         u.bind(('127.0.0.1', 0))
         self.talk_session(c, tcp=False, port=u.getsockname()[1])
         o = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        o.bind(('127.0.0.2', 0))                                # another source address
+        try:
+            o.bind(('127.0.0.2', 0))                                # another source address
+        except OSError:
+            u.close()
+            o.close()
+            self.skipTest('127.0.0.2 alias not configured on host')
         for i in range(20):
             o.sendto(rtp(i, tone_alaw(500, i * 160, 160)), ('127.0.0.1', 5004))
             time.sleep(0.02)
