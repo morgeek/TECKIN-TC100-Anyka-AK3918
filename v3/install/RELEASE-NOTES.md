@@ -2,15 +2,25 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
-## What is new in 3.0.1
+## What is new in 3.0.0 (Final Release)
+- **100% free hardware video encoder & userspace**:
+  - Direct hardware encoding (`freeenc.h`) for H.265 and H.264 up to 1080p and 720p, zero proprietary vendor `.so` libraries loaded, linked, or flashed.
+  - Native musl-linked services: `tc100_rtsp`, `tc100-mqttd`, `tc100-supervisord`, `tc100-onvifd`, `tc100-mdnsd`, `tc100-logfwd`.
+- **Rock-solid streaming & performance**:
+  - Dedicated RTSP sender thread (`RTSP_SENDER_THREAD=1`): clients no longer consume sensor capture loop cycles.
+  - Prioritized CPU scheduling: background maintenance and monitoring jobs run under `nice -n 10`.
+  - Dynamic 720p night mode option (`NIGHT_720P`) for lighter continuous memory footprint and sharper night frames.
+  - Anti-flapping day/night transitions (`MIN_SWITCH=180s`).
+- **Storage, Network & Setup**:
+  - In-camera FAT32 microSD format action directly from the web interface.
+  - Setup wizard with Wi-Fi country regulatory domain selection.
+  - Fast SD-to-flash install: automatic verification of full 8 MiB stock backup.
 - Runs from the camera's flash with **no SD card**; the card only holds recordings and saved logs.
 - **The speaker works** (its amplifier was driven the wrong way round), and the camera's sounds no longer clip.
 - **Night picture** from the sensor tuning's own night settings, **10 fps in low light** by day, anti-flicker
   (50 / 60 Hz, the camera default shown), the IR-cut pulsed as the stock firmware does.
 - **Wi-Fi recovers by itself** when the chip fails to start after a reboot; Wi-Fi regulatory domain: pick your country in Settings → Network ("Country (Wi-Fi rules)", `WIFI_COUNTRY` in `boot.conf`), applied at once without reconnecting; settings changed just before a reboot are kept; the video server restarts by itself if it stops.
 - **Native mDNS local discovery** (`tc100-mdnsd`) enabled out of the box (`<hostname>.local`).
-- **100% free hardware H.265 / H.264 / JPEG video encoder** (`src/h265enc/freeenc.h` in `tc100_rtsp`, built against `musl`): drives the Anyka video ASIC directly without loading or copying any proprietary `.so` library (`1920x1080` and `1280x720` H.265/H.264 main stream + `640x360` H.264 sub-stream).
-- **Native MQTT bridge in C** (`tc100-mqttd`) and **C supervisor** (`tc100-supervisord`) enabled by default (`MQTT_BRIDGE_IMPL=c` in `config/mqtt.conf`, `SUPERVISOR_IMPL=c` in `config/boot.conf`).
 - **Fluid live video preview** powered by native MediaSource fMP4 across all dashboard and settings views.
 - Plain HTTP on port 80 only (external TLS delegated cleanly to a reverse proxy).
 - About 21 MB of free memory (was 10 MB in the first 3.0 builds), the clock and privacy masks drawn by the image

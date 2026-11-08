@@ -7,6 +7,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-08
+
+Final Release 3.0.0 — Proven & fully tested 100% free firmware:
+- **100% free hardware video encoder & userspace**:
+  - Direct hardware encoding (`freeenc.h`) for H.265 and H.264 up to 1080p and 720p, zero proprietary vendor `.so` libraries loaded, linked, or flashed.
+  - Native musl-linked services: `tc100_rtsp`, `tc100-mqttd`, `tc100-supervisord`, `tc100-onvifd`, `tc100-mdnsd`, `tc100-logfwd`.
+- **Performance & streaming enhancements**:
+  - Independent RTSP sender thread (`RTSP_SENDER_THREAD=1`) enabled by default: multi-client streaming yields rock-solid capture FPS without starvation.
+  - Background housekeeper jobs yield CPU (`nice -n 10`) to prioritize RTSP, capture and Wi-Fi throughput.
+  - Dynamic 720p night mode option (`NIGHT_720P`) saving continuous video memory (CMA) and reducing night sensor noise.
+  - Anti-flapping protection for dusk/dawn day/night transitions (`MIN_SWITCH=180s`).
+- **Storage & System tools**:
+  - In-camera FAT32 microSD formatting tool directly from web UI (Storage / Recordings page).
+  - Fast SD installation skipping redundant reads when verified stock image is present.
+  - Regulatory Wi-Fi country selector in initial Setup Wizard and Network settings.
+  - Dynamic cache for devinfo versions and clean CI regression testing on all platforms.
+
 ## [3.0.1-rc36] - 2026-11-07
 
 Fast SD installation and documentation polish after validating `3.0.1-rc35` on both cameras (`.11` IPCAMERA2 and `.24` IPCAMERA1):
