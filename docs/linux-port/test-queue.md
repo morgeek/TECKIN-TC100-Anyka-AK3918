@@ -3032,3 +3032,4 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   redémarrages demandés par les mises à jour web (.11 : rc34, rc35, rc36 le 7 ; .24 : rc35 le 7 à 16:12) ; aucun
   segfault ni OOM ; `tc100-logfwd` en marche sur les deux ; `watch7.sh` n'est plus lancé (perdu au redémarrage de
   mise à jour, non relancé : la surveillance de 7 jours de la rc32 est terminée par les mises à jour).
+- 2026-11-09 08:45 : surveillance annulée par le propriétaire (« Annule la surveillance ») ; les points quotidiens programmés (jours 4 à 6 et bilan du 13) sont supprimés.
