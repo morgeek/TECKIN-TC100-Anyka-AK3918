@@ -52,7 +52,15 @@ fonction ou scénario de charge a été validé :
    de configuration. L'utiliser progressivement pour générer ou vérifier la validation, l'aide de l'interface et la
    documentation. Commencer par un inventaire en lecture seule d'une famille (par exemple RTSP), relever les écarts,
    puis migrer un seul groupe en gardant les formats existants et les secrets masqués.
-6. **Noyau et image :** smart mode, 3D-NR et minuteries haute résolution restent des expériences à gain incertain,
+6. **#65 — Modes de présence configurables (proposition) :** proposer des profils personnalisables (par exemple
+   « Présent », « Absent », « Nuit »), sélectionnables depuis l'interface et Home Assistant via MQTT. Chaque profil
+   regroupe des actions sur les fonctions déjà présentes : confidentialité, détection, enregistrement et alertes.
+   L'utilisateur définit les actions de chaque profil ; aucun comportement de présence n'est imposé. Conserver le mode
+   sélectionné localement pour qu'il survive au redémarrage et reste utilisable si Home Assistant ou le broker est
+   indisponible. Appliquer les changements par les interfaces de configuration existantes, sans créer de seconde
+   source de vérité pour les réglages. Prévoir un état HA qui reflète le mode actif et un comportement déterministe
+   lorsque l'utilisateur modifie un réglage manuellement.
+7. **Noyau et image :** smart mode, 3D-NR et minuteries haute résolution restent des expériences à gain incertain,
    à mesurer d'abord depuis SD et avec le propriétaire présent ; ne pas les présenter comme des améliorations acquises.
 
 Les changements qui nécessitent un essai caméra recevront une entrée dédiée dans `test-queue.md` avant d'être activés
