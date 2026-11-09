@@ -4,13 +4,18 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-State of 3.0.1 (rc36 on IPCAM2, rc35 on IPCAM1, 8 November 2026, two cameras of the same variant; details and results in
-[linux-port/test-queue.md](linux-port/test-queue.md)):
+State as of 2026-11-09: 3.0.1-rc36 on IPCAM2 and 3.0.1-rc35 on IPCAM1, two cameras of the same variant;
+details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
+- **Qualification status:** many core areas have passed real-camera checks on both devices, including flash boot,
+  V3 services, the free encoder, and short RTSP decoding checks. After the latest installs, the report records
+  12–15 hours without reboot, oops, or OOM. The planned seven-day soak was cancelled by the owner on 2026-11-09,
+  so it has no pass result.
 - **Free Video Encoder:** 100% free hardware encoder (`src/h265enc/freeenc.h`) built against `musl` with `libakuio`.
   No proprietary vendor `.so` libraries are loaded or stored in SPI flash. Supports H.265/H.264 at 1080p and 720p,
   and H.264 at 360p sub-stream.
-- **Multi-client RTSP streaming:** Asynchronous sender thread (`RTSP_SENDER_THREAD=1`, on by default) handles multi-client
-  distribution without holding up the video capture and encoding loop.
+- **Multi-client RTSP streaming:** Asynchronous sender thread (`RTSP_SENDER_THREAD=1`, on by default) keeps socket sends
+  out of the capture/encode loop. The specific four-client throughput and one-hour mixed TCP/UDP criteria do not yet
+  have a recorded pass result.
 - **Colours:** slightly warm; the software white balance of the video server corrects them (on by default). The
   image processor's own white balance on its live statistics gave a blue cast and is not used
   (`ak_isp.awb_live=1` to try it).
@@ -18,13 +23,16 @@ State of 3.0.1 (rc36 on IPCAM2, rc35 on IPCAM1, 8 November 2026, two cameras of 
   itself (`scripts/wifi-recover.sh`: probe again, power cycle through GPIO 11, one clean restart if needed); a power
   cut remains the last resort. Background tasks in housekeeper are run with `nice -n 10` to avoid scheduling stalls on
   the Wi-Fi USB driver.
+- **Intermittent Wi-Fi ping loss:** bursts have been recorded, including one 90% loss sample on IPCAM2 followed by clean
+  samples. A two-hour diagnostic run did not show the USB interrupt or Wi-Fi receive counters freezing; the cause is
+  still unresolved and may be on the access point / LAN / ICMP path. Normal association and transfers work.
 - **Speaker:** works; quiet at a low volume (Settings, the speaker volume). Push-to-talk and two-way audio (ONVIF/RTSP
   backchannel via `talk.c`) mute the microphone automatically while the speaker plays (`RTSP_AUDIO_DUCK=1`).
 - **Day / night:** anti-flapping minimum switch delay defaults to 180 s; optional dynamic 720p night mode (`NIGHT_720P=1`)
   can drop resolution at night for higher SNR and lower bitrate.
 - **Storage:** in-camera FAT32 format action available in Settings (`scripts/sd-format.sh`) with 32 KB clusters for smooth
   long-term video recording without card exhaustion.
-- **Memory:** about 21 MB free with the 9600K encoder pool.
+- **Memory:** about 23 MB available in the latest short field report with the 9600K encoder pool.
 - **Logs with no SD card:** the web page (Logs) or ssh; the saved logs need a card.
 - **Picture right after a boot:** once (rc20) the picture stayed almost white for several minutes after a reboot,
   then the exposure settled by itself. Not seen again since (owner, 2026-11-04): treated as an isolated case.

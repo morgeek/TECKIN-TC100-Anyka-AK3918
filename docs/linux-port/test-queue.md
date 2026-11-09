@@ -10,6 +10,12 @@ Status values: `to test`, `testing`, `passed`, `failed`, `blocked`.
 Finished entries (passed and made the default, superseded or abandoned) are moved to [test-queue-archive.md](test-queue-archive.md); this file keeps what is still open.
 Closed entries moved to test-queue-archive.md on 2026-11-06.
 
+**Current field summary (2026-11-09):** the latest report is rc36 on IPCAM2 and rc35 on IPCAM1. Both reported 12–15
+hours without reboot, oops, or OOM and short RTSP captures without decode errors. The planned seven-day watch was
+cancelled on 2026-11-09, so it has no pass result. Older entries below remain as the audit trail; use the newest dated
+report for the current camera state. The asynchronous RTSP sender is now enabled by default; the four-client throughput
+and mixed TCP/UDP criteria in the older sender-thread entry still have no recorded pass result.
+
 Rules that apply to every entry:
 - Test kernels boot from the SD card in RAM (`pack66/boot66b.sh`, `tc100test/c66.img`); nothing is written to the flash.
   Check that `/proc/cmdline` holds the full initrd size. **U-Boot keeps only 256 characters of `bootargs`**: add the
@@ -2430,6 +2436,10 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   restées ici).
 
 ## 2026-11-06 — Fil d'envoi dans `tc100_rtsp` : `RTSP_SENDER_THREAD` (R16 / H1, `[sender-thread]`, rc32)
+
+**Mise à jour au 2026-11-09 :** `v3/linux66-sd/rtsp-launch.sh` active maintenant `RTSP_SENDER_THREAD=1` par défaut.
+Le rapport rc36/rc35 confirme le flux sur les deux caméras avec un client; les critères quatre clients et mélange
+TCP/UDP ci-dessous ne sont pas documentés comme passés et restent à qualifier.
 
 - **Quoi :** la boucle de capture ne fait plus l'envoi aux clients (environ 2,4 ms par client et par image, cause de R16 :
   chaque client en plus retirait des images à la capture). Avec `RTSP_SENDER_THREAD=1`, elle copie chaque image encodée

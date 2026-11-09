@@ -1,10 +1,62 @@
-# À faire pour l'implémenteur — liste consolidée (testeur, 2026-11-04 19:50 ; mise à jour implémenteur 2026-11-05 11:00)
+# Liste de l'implémenteur — état courant au 2026-11-09
 
-Une seule liste de ce qui reste ouvert après la rc25, par priorité. Les détails et les mesures sont dans
-`test-queue.md` (entrées du 2026-11-03 au 2026-11-05), `audit-2026-11-03.md`, `audit-2026-11-04.md` et la checklist
-`release-3.0.1.md`. État des caméras le 2026-11-05 matin : **.11 en rc25** (pays FR, pont MQTT en C,
-`RTSP_QMAX=1024` ; la rc26 est la prochaine étape), **.24 en rc25** depuis le 2026-11-04 au soir (plus de témoin).
-Cocher ici ou dans `release-3.0.1.md` quand c'est fait.
+Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
+à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
+foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
+à jour.
+
+## Qualification de la V3.0 / 3.0.1 au 2026-11-09
+
+La V3.0 est **qualifiée sur de nombreux aspects essentiels** sur les deux caméras, sans que cela signifie que chaque
+fonction ou scénario de charge a été validé :
+
+- Démarrage depuis la flash et services V3 utilisés au quotidien ; les dernières installations consignées sont
+  **rc36 sur IPCAM2 (.11)** et **rc35 sur IPCAM1 (.24)**.
+- Encodeur matériel libre sous musl, sans bibliothèques d'encodage propriétaires chargées : les modes H.264/H.265
+  1080p/720p et le sous-flux H.264 640×360 ont été décodés sans erreur sur caméra. Les deux caméras ont ensuite
+  rapporté zéro image d'encodage en échec pendant les observations consignées.
+- Après installation, le rapport du 8 novembre indique 12 h 04 de marche sur .11 et 15 h 10 sur .24, sans reboot,
+  oops ni OOM, environ 23 Mo disponibles, et une capture RTSP de 10 s sans erreur de décodage sur chacune.
+- L'interface Pico, l'assistant protégé CSRF, le fuseau horaire et le pays Wi-Fi, ONVIF, MQTT, WebRTC, le jour/nuit,
+  la détection et les mises à jour ont fait l'objet de contrôles réels sur les deux caméras au fil des RC.
+- **Limites de qualification restantes :** le propriétaire a annulé le suivi de sept jours le 9 novembre ; il n'y a donc
+  pas de verdict de soak prolongé. Les pertes Wi-Fi sporadiques ne sont pas expliquées. Le test cible à quatre clients
+  RTSP et le test de conversation audio aller-retour avec go2rtc / Frigate / Home Assistant n'ont pas de résultat
+  final consigné. Les tests du dernier binaire avec enregistrement SD et réception RTSP/UDP doivent aussi être
+  confirmés selon les scénarios réellement utilisés.
+
+## Priorités proposées
+
+1. **Wi-Fi :** compléter le diagnostic avec une mesure simultanée caméra→routeur et client LAN→caméra. Le relevé de
+   deux heures du 6 novembre n'a pas vu de gel des compteurs USB/RX ; le 8 novembre, une rafale de pertes a été suivie
+   de relevés propres. Localiser la perte avant toute modification du pilote ou du noyau.
+2. **#63 — Onboarding Wi-Fi par QR (proposition à valider) :** explorer la lecture par le capteur de la caméra d'un QR Wi-Fi
+   affiché sur le téléphone. Première étape : vérifier que l'optique du TC100 peut lire un QR net à une distance réaliste,
+   puis mesurer le coût d'un décodeur léger comme `quirc`. Si le test optique passe, le parcours serait : mode
+   d'appairage temporaire, aperçu du SSID sans afficher la clé, confirmation explicite, essai d'association/DHCP/
+   passerelle, puis retour automatique au point d'accès de secours si la connexion échoue. L'accès à la caméra pour
+   lire le QR peut interrompre RTSP ; le mode de scan doit donc être limité à l'assistant d'installation. Le QR transporte
+   la clé en clair : ne jamais la journaliser ni conserver l'image dans les rapports ; ne persister que la configuration
+   nécessaire à la connexion. Ne pas concevoir le parcours en supposant qu'un navigateur mobile puisse lire les
+   identifiants Wi-Fi enregistrés sur le téléphone.
+   Une synchronisation radio directe demanderait une prise en charge dédiée, à vérifier séparément sur le RTL8188FU.
+3. **Onboarding de secours :** si la lecture optique est trop difficile, améliorer le parcours mobile via le point
+   d'accès de secours : ouvrir directement l'assistant, afficher clairement les états association/DHCP/passerelle,
+   tester l'accès au réseau local et garder la récupération disponible si les nouveaux identifiants échouent. Le
+   fuseau et le pays sont déjà demandés par l'assistant ; MQTT doit rester facultatif avec un test de connexion.
+4. **Qualification ciblée :** consigner le test 4 clients RTSP, l'audio retour et les scénarios d'enregistrement / UDP
+   utilisés par le propriétaire. Reprendre une surveillance longue seulement si elle apporte une décision concrète.
+5. **#64 — Schéma unique des paramètres (proposition) :** créer un catalogue déclaratif indiquant, pour chaque réglage,
+   son fichier de référence, son type, ses valeurs permises, son défaut éventuel, son libellé et si sa valeur est secrète.
+   Le catalogue décrit l'emplacement unique de la valeur runtime ; il ne duplique pas les réglages dans un nouveau fichier
+   de configuration. L'utiliser progressivement pour générer ou vérifier la validation, l'aide de l'interface et la
+   documentation. Commencer par un inventaire en lecture seule d'une famille (par exemple RTSP), relever les écarts,
+   puis migrer un seul groupe en gardant les formats existants et les secrets masqués.
+6. **Noyau et image :** smart mode, 3D-NR et minuteries haute résolution restent des expériences à gain incertain,
+   à mesurer d'abord depuis SD et avec le propriétaire présent ; ne pas les présenter comme des améliorations acquises.
+
+Les changements qui nécessitent un essai caméra recevront une entrée dédiée dans `test-queue.md` avant d'être activés
+par défaut. Les sections suivantes conservent les notes et décisions historiques des RC précédentes.
 
 ## État au 2026-11-05 (résumé)
 

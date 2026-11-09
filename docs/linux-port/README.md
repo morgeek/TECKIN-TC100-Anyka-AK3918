@@ -13,6 +13,12 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 
 ## Status
 
+**Field status (2026-11-09):** V3.0 has been qualified on many core aspects across both TC100 cameras. The
+latest recorded installs are 3.0.1-rc36 on IPCAM2 and 3.0.1-rc35 on IPCAM1. Both ran for 12–15 hours after
+installation with no recorded reboot, kernel oops, or OOM; the free encoder reported no failed frames and short
+RTSP captures decoded without errors. This is strong field evidence, not a completed long-duration soak: the
+planned seven-day watch was cancelled on 2026-11-09. See the latest report in [test-queue.md](test-queue.md).
+
 | Area | State |
 |---|---|
 | CPU, interrupt controller, timer, console (TX polled, RX interrupt-driven) | works |
@@ -22,12 +28,12 @@ Contents: [Status](#status) · [Hardware facts](#hardware-facts-verified-on-the-
 | GPIO (3 banks), LEDs, IR LEDs, IR-cut | works |
 | I2C (`i2c-ak39`) | works: JX-F23 answers (id 0x0F23) |
 | Video: V4L2 / vb2-dma-contig driver `ak39_vi` + the 4.4 ISP core | works: 1920x1080 NV12, 25 fps, real colours, AE running |
-| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in the RTSP stream (`tc100_rtsp -a 1`); speaker: works (push-to-talk, sounds, chimes through `aplay`); RTSP two-way audio (ONVIF backchannel) is implemented but not yet checked end to end from go2rtc / Frigate / Home Assistant (audit 2026-11-06, F1) |
+| Audio (`ak39_codec`, `ak_pcm`) | works: microphone captured through ALSA (`hw:0,0`); G.711 A-law track in RTSP; speaker and push-to-talk work. ONVIF/RTSP backchannel code is present, but end-to-end talk from go2rtc / Frigate / Home Assistant still needs confirmation |
 | Encoder access (`ak39_venc` + `libakuio`) | works: hardware H.264 / H.265 / JPEG |
 | Free hardware video encoder (`src/h265enc/freeenc.h`) | works (default since 3.0.1-rc34): free H.265/H.264 engine driving the ASIC core directly without vendor libraries (`RTSP_FREE_ENC=1`, 1080p & 720p H.265/H.264 + 360p H.264 sub-stream) |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
-| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: one 1920x1080 or 1280x720 stream, 15 fps by default (25 fps supported), H.265 or H.264, RTP over TCP or UDP, Digest/Basic login; Frigate reads it; 6 soak runs of 1-2 h survived at 480 MHz. Built against `musl` with `libakuio` and the native free encoder (`freeenc.h`) built in (no vendor `.so` library loaded or copied since 3.0.1-rc34/rc35). 640x360 sub-stream on `video1_unicast` / `ch1` / `sub`; RTSP over UDP and the audio track from a client: see [test-queue.md](test-queue.md) |
-| V3 user space on 6.6 (`v3/`) | works (3.0.1-rc35, two cameras from the flash): web UI (Pico look), login with CSRF token, Wi-Fi from the UI, ONVIF (`tc100-onvifd`), recording, C MQTT bridge (`tc100-mqttd`), C supervisor (`tc100-supervisord`), day / night, motion, WebRTC (`tc100-whep`), web update. The gaps of the 2026-10-26 feature audit were mostly closed in the release candidates (it is historical); what is still open: [a-faire-implementeur.md](a-faire-implementeur.md), [audit-2026-11-06.md](audit-2026-11-06.md) |
+| H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: free hardware encoding via `musl` and `freeenc.h`, H.264/H.265 at 1080p and 720p, H.264 640x360 sub-stream; 25 fps supported. All main-stream modes were decoded without errors on IPCAM2; the latest short field captures on both cameras also decoded cleanly. `RTSP_SENDER_THREAD=1` is the current default for asynchronous client sends; the four-client throughput target still needs a recorded camera result. Long soak, UDP, recording, and end-to-end talk checks remain in the [test queue](test-queue.md) |
+| V3 user space on 6.6 (`v3/`) | core services field-tested on both cameras: Pico web UI, CSRF-protected setup, Wi-Fi configuration, ONVIF, MQTT, supervisor, day/night, motion, WebRTC, and web updates. The timezone and Wi-Fi country are available in the wizard. Latest installs: rc36 on IPCAM2 and rc35 on IPCAM1; see [current status and remaining work](a-faire-implementeur.md) |
 | SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `vendor`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
 | Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
 
