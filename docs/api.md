@@ -1773,8 +1773,8 @@ within ~2 s without restarting the stream (`POWER_HZ` and the privacy masks appl
 
 ```json
 {"enabled":1,
- "conf":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"HUE":0,"POWER_HZ":null,"EXPOSURE_MAX_PCT":null},
- "applied":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"HUE":0,"POWER_HZ":50,"EXPOSURE_MAX_PCT":0,"EXPOSURE_NOW":1125}}
+ "conf":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"DENOISE":0,"HUE":0,"POWER_HZ":null,"EXPOSURE_MAX_PCT":null},
+ "applied":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"DENOISE":0,"HUE":0,"POWER_HZ":50,"EXPOSURE_MAX_PCT":0,"EXPOSURE_NOW":1125}}
 ```
 
 `conf` is `/mnt/config/isp_tune.conf`; `applied` is what the camera reports
@@ -1783,7 +1783,7 @@ within ~2 s without restarting the stream (`POWER_HZ` and the privacy masks appl
 ### POST /cgi-bin/action.cgi?cmd=isp_tune
 
 CSRF required. Fields: `isp_enable` (switching it restarts RTSP once),
-`isp_brightness`, `isp_contrast`, `isp_saturation`, `isp_sharpness`, `isp_hue`
+`isp_brightness`, `isp_contrast`, `isp_saturation`, `isp_sharpness`, `isp_denoise`, `isp_hue`
 (−50..50, 0 = sensor ISP value), `isp_power_hz` (empty, 50, 60),
 `isp_exposure_max_pct` (0 = no cap, else 10..100). Any invalid field rejects the
 whole request (`{"ok":false,"code":"INVALID_VALUE"}`).

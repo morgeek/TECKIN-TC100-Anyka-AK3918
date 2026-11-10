@@ -643,7 +643,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" TAMPER_JPEG_DROP_PCT u:1:100 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" TAMPER_LUMA_MIN u:0:255 "$_tc_rel" || return 1 ;;
     isp_tune.conf)
-      for _tc_k in BRIGHTNESS CONTRAST SATURATION SHARPNESS HUE; do
+      for _tc_k in BRIGHTNESS CONTRAST SATURATION SHARPNESS DENOISE HUE; do
         tc_check_flat "$_tc_file" "$_tc_k" isp_effect "$_tc_rel" || return 1
       done
       tc_check_flat "$_tc_file" POWER_HZ isp_power_hz "$_tc_rel" || return 1

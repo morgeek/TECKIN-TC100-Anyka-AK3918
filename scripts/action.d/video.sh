@@ -186,6 +186,7 @@
           CONTRAST) _it_in="$F_isp_contrast" ;;
           SATURATION) _it_in="$F_isp_saturation" ;;
           SHARPNESS) _it_in="$F_isp_sharpness" ;;
+          DENOISE) _it_in="$F_isp_denoise" ;;
           HUE) _it_in="$F_isp_hue" ;;
           POWER_HZ) _it_in="$F_isp_power_hz" ;;
           EXPOSURE_MAX_PCT) _it_in="$F_isp_exposure_max_pct" ;;
@@ -210,6 +211,7 @@
       [ -n "${F_isp_contrast+x}" ] && isp_tune_set CONTRAST "$F_isp_contrast"
       [ -n "${F_isp_saturation+x}" ] && isp_tune_set SATURATION "$F_isp_saturation"
       [ -n "${F_isp_sharpness+x}" ] && isp_tune_set SHARPNESS "$F_isp_sharpness"
+      [ -n "${F_isp_denoise+x}" ] && isp_tune_set DENOISE "$F_isp_denoise"
       [ -n "${F_isp_hue+x}" ] && isp_tune_set HUE "$F_isp_hue"
       [ -n "${F_isp_power_hz+x}" ] && isp_tune_set POWER_HZ "$F_isp_power_hz"
       [ -n "${F_isp_exposure_max_pct+x}" ] && isp_tune_set EXPOSURE_MAX_PCT "$F_isp_exposure_max_pct"

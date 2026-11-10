@@ -432,7 +432,7 @@ static int mains_hz(const char *cc)
 	return 50;
 }
 
-static int p_sharp, p_expct, p_hz;	/* isp_tune.conf SHARPNESS (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap), POWER_HZ (50, 60, 0 = off): done by the ISP */
+static int p_sharp, p_dnr, p_expct, p_hz;	/* isp_tune.conf SHARPNESS (-50..50), DENOISE (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap), POWER_HZ (50, 60, 0 = off): done by the ISP */
 static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
 
 static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
@@ -462,7 +462,7 @@ static void post_apply(void)
 	char v[80];
 
 	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && truthy(v);
-	p_bri = p_con = p_sat = p_hue = p_sharp = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
+	p_bri = p_con = p_sat = p_hue = p_sharp = p_dnr = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
 	/* anti-flicker applies whatever ISP_TUNE is, like the masks: it is about the lamps, not a matter of taste.
 	 * POWER_HZ=auto (item 16): the mains frequency of the Wi-Fi country (boot.conf WIFI_COUNTRY) */
 	p_hz = 0;
@@ -477,6 +477,7 @@ static void post_apply(void)
 	if (p_tune) {
 		if (cfg_get(fn[1], "", "BRIGHTNESS", v, sizeof v)) p_bri = atoi_(v);
 		if (cfg_get(fn[1], "", "SHARPNESS", v, sizeof v)) p_sharp = atoi_(v);
+		if (cfg_get(fn[1], "", "DENOISE", v, sizeof v)) p_dnr = atoi_(v);
 		if (cfg_get(fn[1], "", "EXPOSURE_MAX_PCT", v, sizeof v)) p_expct = atoi_(v);
 		if (cfg_get(fn[1], "", "CONTRAST", v, sizeof v)) p_con = atoi_(v);
 		if (cfg_get(fn[1], "", "SATURATION", v, sizeof v)) p_sat = atoi_(v);
@@ -501,6 +502,7 @@ static void post_apply(void)
 	p_osdy = p_osdy < 0 ? 0 : p_osdy > 4096 ? 4096 : p_osdy;
 	p_hue = p_tune ? p_hue : 0;
 	p_sharp = p_sharp < -50 ? -50 : p_sharp > 50 ? 50 : p_sharp;
+	p_dnr = p_dnr < -50 ? -50 : p_dnr > 50 ? 50 : p_dnr;
 	p_expct = p_expct < 10 || p_expct >= 100 ? 0 : p_expct;
 	tune_dirty = 1;
 	post_luts();
@@ -716,6 +718,9 @@ static void tune_hw_apply(void)
  *   alpha 0); the CPU then paints nothing. Any refusal: painted by the CPU as before.
  * - sharpness (SHARPNESS): AK_ISP_SET_SHARP, the tuning file's medium and high frequency gains of the manual set and
  *   of the 9 gain-linked sets, 2 % per step (-50 = off, +50 = double).
+ * - noise reduction (DENOISE, item 37): AK_ISP_SET_NR1 / _NR2, the weight curves of the manual set and of the 9
+ *   gain-linked sets stretched along the pixel difference, 2 % per step (-50 = almost none, +50 = twice as wide). The
+ *   driver keeps choosing the set of the gain level (mode 1); 0 leaves the tuning file's values.
  * - exposure cap (EXPOSURE_MAX_PCT): AK_ISP_SET_AE, exp_time_max at a percentage of the tuning file's value (less
  *   motion blur at night, darker picture), never below exp_time_min.
  * - anti-flicker (POWER_HZ 50 / 60, test queue R9-03): the same AK_ISP_SET_AE, exp_step = the sensor lines of one lamp
@@ -750,6 +755,8 @@ struct isp_nr2_1 { unsigned short en, w[17], k, calc_y_k, ydpc_en, ydpc_th, ydpc
 struct isp_nr2 { unsigned short mode; struct isp_nr2_1 s[10]; };
 #define ISP_GET_NR1 _IOR('I', 11, int)
 #define ISP_GET_NR2 _IOR('I', 44, int)
+#define ISP_SET_NR1 _IOW('I', 12, int)
+#define ISP_SET_NR2 _IOW('I', 43, int)
 #define AE_WORDS 51	/* AK_ISP_AE_ATTR: exp_time_max, exp_time_min, ... */
 #define ISP_SET_AE _IOW('I', 80, int)
 #define ISP_GET_AE _IOR('I', 81, int)
@@ -772,6 +779,9 @@ static int lowlight_on;	/* R12-02: sensor at the low-light rate (10 fps by defau
 static int lowlight_fps = 10;	/* RTSP_LOWLIGHT_FPS_VALUE: 10, 15 or 20 (read by lowlight_check) */
 static unsigned int lowlight_exp = LOWLIGHT_EXP;	/* exposure limit at that rate: 2812 lines at 10 fps, scaled with 1 / rate */
 static struct isp_sharp sharp0, sharp1;
+static int nr_base = -1, nr_now, nr_asked;	/* DENOISE: applied, last tried */
+static struct isp_nr1 nr1_0, nr1_1;
+static struct isp_nr2 nr2_0, nr2_1;
 
 static int line_rate(void)	/* sensor lines a second (anti-flicker): JX-F23 on MIPI, RTSP_LINE_RATE for another sensor */
 {
@@ -805,15 +815,51 @@ static void mask_px(struct isp_mask1 *a, const int *pc, int w, int h)
 static void ispx_status(void)	/* /var/run/isp_tune.status: what the web page shows as applied */
 {
 	char b[400];
-	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nHUE=%d\nPOWER_HZ=%.0d\n"
+	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nDENOISE=%d\nHUE=%d\nPOWER_HZ=%.0d\n"
 			 "EXPOSURE_MAX_PCT=%d\nMASKS=%d\nMASK_RC=%d\nMASK_HW=%d\nOSD_HW=%d\n",
-			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, p_tune ? hue_want : 0, hz_now,
+			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, nr_now, p_tune ? hue_want : 0, hz_now,
 			 exp_now_pct, mask_n, mask_rc, mask_hw == 1, osd_hw == 1);
 
 	if (ae_base == 1 && n > 0 && n < (int)sizeof b)
 		n += snprintf(b + n, sizeof b - n, "EXPOSURE_NOW=%u\nEXPOSURE_ORIG=%u\nPOWER_HZ_BASE=%d\n", exp_now ? exp_now : ae0[0],
 			      ae0[0], step_hz(ae0[8]));
 	if (n > 0 && n < (int)sizeof b) wfile("/var/run/isp_tune.status", b, (size_t)n);
+}
+
+/* DENOISE: w'(i) = w(i * 100 / f), linear between the 17 points; f = 100 + 2 * step (0 at -50: only w[0] stays) */
+static void nr_stretch(unsigned short *d, const unsigned short *w, int f)
+{
+	int i;
+
+	for (i = 0; i < 17; i++) {
+		int x100 = f > 0 ? i * 10000 / f : (i ? 1700 : 0), j = x100 / 100, r = x100 % 100;
+
+		d[i] = j >= 16 ? w[16] : (unsigned short)((w[j] * (100 - r) + w[j + 1] * r) / 100);
+	}
+}
+
+static void nr_apply(int fd)
+{
+	int i, f = 100 + 2 * p_dnr;
+
+	if (nr_base < 0) nr_base = ioctl(fd, ISP_GET_NR1, &nr1_0) == 0 && ioctl(fd, ISP_GET_NR2, &nr2_0) == 0;
+	nr_asked = p_dnr;
+	if (nr_base != 1) { if (p_dnr) LOG("noise reduction: no ISP noise reduction control\n"); return; }
+	nr1_1 = nr1_0; nr2_1 = nr2_0;
+	for (i = 0; i < 10; i++) {
+		nr_stretch(nr1_1.s[i].w_r, nr1_0.s[i].w_r, f);
+		nr_stretch(nr1_1.s[i].w_g, nr1_0.s[i].w_g, f);
+		nr_stretch(nr1_1.s[i].w_b, nr1_0.s[i].w_b, f);
+		nr_stretch(nr2_1.s[i].w, nr2_0.s[i].w, f);
+	}
+	if (ioctl(fd, ISP_SET_NR1, &nr1_1) == 0 && ioctl(fd, ISP_SET_NR2, &nr2_1) == 0) {
+		LOG("noise reduction: %d in the ISP (iso16 NR2 w[4] %u -> %u)\n", p_dnr, nr2_0.s[6].w[4], nr2_1.s[6].w[4]);
+		nr_now = p_dnr;
+	} else {
+		LOG("noise reduction: the ISP refused it (%s)\n", strerror(errno));
+		ioctl(fd, ISP_SET_NR1, &nr1_0);	/* NR2 refused after NR1: back to the tuning file's NR1 */
+		nr_base = 0; nr_now = 0;
+	}
 }
 
 static void nr_log(int fd)	/* item 37: what the driver does with noise reduction, per gain level (read only) */
@@ -891,9 +937,10 @@ static void ispx_apply(void)
 			int h = step_hz(ae0[8]);
 
 			LOG("anti-flicker: camera default %s (exposure step %u lines)\n", h == 50 ? "50 Hz" : h == 60 ? "60 Hz" : "none", ae0[8]);
-			nr_log(fd);
+			nr_log(fd);	/* before DENOISE: the tuning file's values */
 		}
 	}
+	if (p_dnr != nr_asked) nr_apply(fd);
 	if (p_expct != exp_now_pct || p_hz != hz_now) {
 		if (ae_base == 1) {
 			unsigned int a[AE_WORDS];
@@ -958,7 +1005,7 @@ static void pool_guard_check(double tn)
 static int night_style = -1;	/* -1 not read, 0 off, 1 on */
 static void isp_bases_reset(void)
 {
-	tune_hw = -1; hue_hw = -1; sharp_base = -1; sharp_now = 0; ae_base = -1; exp_now_pct = 0; hz_now = 0;
+	tune_hw = -1; hue_hw = -1; sharp_base = -1; sharp_now = 0; nr_base = -1; nr_now = 0; nr_asked = 0; ae_base = -1; exp_now_pct = 0; hz_now = 0;
 	if (awb_fd >= 0) close(awb_fd);
 	awb_fd = -1; awb_hw = -1; tune_dirty = 1;
 }

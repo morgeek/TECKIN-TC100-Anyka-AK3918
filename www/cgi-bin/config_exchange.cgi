@@ -213,6 +213,7 @@ _ce_row_table() {
     row("isp_tune.conf";"flat";"root";"CONTRAST";"isp_effect";"general";.isp.contrast),
     row("isp_tune.conf";"flat";"root";"SATURATION";"isp_effect";"general";.isp.saturation),
     row("isp_tune.conf";"flat";"root";"SHARPNESS";"isp_effect";"general";.isp.sharpness),
+    row("isp_tune.conf";"flat";"root";"DENOISE";"isp_effect";"general";.isp.denoise),
     row("isp_tune.conf";"flat";"root";"HUE";"isp_effect";"general";.isp.hue),
     row("isp_tune.conf";"flat";"root";"POWER_HZ";"isp_power_hz";"general";.isp.power_hz),
     row("isp_tune.conf";"flat";"root";"EXPOSURE_MAX_PCT";"isp_exposure_pct";"general";.isp.exposure_max_pct),

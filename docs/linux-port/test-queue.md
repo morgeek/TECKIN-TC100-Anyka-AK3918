@@ -577,6 +577,17 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   the camera" line under the form shows the value.
 - **Fail:** picture broken or unchanged at ±50: note the logged gains; `RTSP_ISPTUNE` does not cover it, set SHARPNESS=0.
 
+### HW-09 Noise reduction by the ISP (Image page, `DENOISE`, item 37) — `to test`
+- **What:** a Noise reduction slider on the Image page. `tc100_rtsp` stretches the weight curves of the tuning file's
+  NR1 (raw) and NR2 (luma) sets, manual and 9 gain-linked, along the pixel difference: 2 % per step, -50 = almost none,
+  +50 = twice as wide. The driver keeps picking the set of the gain level. Nothing is written while the slider is at 0.
+  At each video start the log has `noise reduction: gain levels ...` and the NR1 / NR2 mode and sets (read only).
+- **Test:** live tuning on, at night (gain at its maximum, the iso16 set), noise reduction -50, 0, +50: log
+  `noise reduction: N in the ISP (iso16 NR2 w[4] a -> b)`; the grain on flat dark areas goes up / down (compare
+  snapshots of the same scene); the bit rate goes up / down. The "Applied on the camera" line shows the value.
+- **Fail:** picture broken, frozen or unchanged at ±50: note the log; set DENOISE=0 (the tuning file's values come
+  back at the next video start).
+
 ### HW-08 Exposure state for day / night (`/tmp/cam_ae`) — `to test`
 - **What:** every 2 s `tc100_rtsp` writes `lumi exp_time a_gain d_gain isp_d_gain dark_flag` from
   `AK_ISP_GET_AE_RUN_INFO`. Nothing uses it yet. The day / night daemon decides from `/tmp/cam_luma`, the mean luma

@@ -467,6 +467,7 @@ window.tc100I18nFr = {
     "Downloads a": "Télécharge une archive",
     "Economy (360p, 10 fps)": "Économie (360p, 10 i/s)",
     "Edge enhancement; lower reduces noise.": "Renforcement des contours ; plus bas réduit le bruit.",
+    "Smooths grain, mostly at night; higher is smoother but less detailed.": "Lisse le grain, surtout la nuit ; plus haut lisse davantage mais perd du détail.",
     "Eject before taking the card out: recording pauses, the files are closed and the card is released.": "Éjectez avant de retirer la carte : l'enregistrement se met en pause, les fichiers sont fermés et la carte est libérée.",
     "Enable Home Assistant Discovery": "Activer la découverte Home Assistant",
     "Enable MQTT Bridge": "Activer la passerelle MQTT",
@@ -923,6 +924,7 @@ window.tc100I18nFr = {
     "Severity": "Gravité",
     "Severity is auto-detected from each line. Click column headers to sort. Double-click a tab to clear that log.": "La gravité est déduite de chaque ligne. Cliquez sur les en-têtes pour trier. Double-cliquez sur un onglet pour vider ce journal.",
     "Sharpness": "Netteté",
+    "Noise reduction": "Réduction du bruit",
     "Show": "Afficher",
     "Show password": "Afficher le mot de passe",
     "Size": "Taille",
@@ -1501,8 +1503,8 @@ window.tc100I18nFr = {
       "Appliqué : $1 des $2 × $3 cellules de détection ignorées."
     ],
     [
-      "^Applied on the camera: brightness (.+?), contrast (.+?), saturation (.+?), sharpness (.+?), hue (.+)$",
-      "Appliqué sur la caméra : luminosité $1, contraste $2, saturation $3, netteté $4, teinte $5"
+      "^Applied on the camera: brightness (.+?), contrast (.+?), saturation (.+?), sharpness (.+?), noise reduction (.+?), hue (.+)$",
+      "Appliqué sur la caméra : luminosité $1, contraste $2, saturation $3, netteté $4, réduction du bruit $5, teinte $6"
     ],
     [
       "^(\\d+) file\\(s\\) this session$",
