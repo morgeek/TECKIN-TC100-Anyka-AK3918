@@ -104,13 +104,24 @@ and [docs/api.md](docs/api.md). Two-way audio: [docs/two-way-audio.md](docs/two-
 - Plain **HTTP only** on the camera (a login, but no HTTPS): use it on your own network, never forward its ports from
   the internet. For HTTPS put a [reverse proxy](docs/linux-port/internals.md#https-with-a-reverse-proxy) in front.
 - No VPN, no encoder smart mode (1080p and 720p main stream + 640x360 sub-stream are supported).
-- Only one hardware variant is known so far (JX-F23 sensor, RTL8188FU Wi-Fi, 8 MiB flash):
+- Only one hardware variant is officially validated so far (JX-F23 sensor, RTL8188FU Wi-Fi, 8 MiB flash):
   [hardware variants](docs/hardware-variants.md).
 - Push-to-talk and two-way audio through the speaker are not yet checked on a camera.
 - Colours are slightly warm, and by day in low light the camera drops to 10 fps on purpose.
 - The default web password is public until you change it; a banner reminds you.
 
 The up-to-date list is [docs/known-issues.md](docs/known-issues.md).
+
+---
+
+## Other brands and compatible hardware
+
+The **Anyka AK3918EV300** SoC (and its close relatives AK3918EV200 / AK3918AV100) is widely used across mass-produced budget smart Wi-Fi cameras sold under many brand names and white-label ecosystems (e.g. **Tuya**, **V380 / V380 Pro**, **Digoo**, **ESCAM**, **Guudgo**, **Wanscam**, or generic bulb/mini indoor cameras from AliExpress and Amazon).
+
+Because our Linux 6.6 kernel port, memory tuning, and open-source hardware encoder (`src/tc100rtsp`, `src/libakuio`) target the Anyka AK3918 platform directly:
+- **This firmware could potentially run on other AK3918-based cameras** with minor adjustments.
+- Differences usually lie in the **image sensor** (e.g. SC2235, GC1054, GC2053, or other Silicon Optronics sensors vs. our validated JX-F23), the **Wi-Fi chipset** (e.g. SV6030P, ATBM6032, or RTL8188FU), the **SPI flash size/pinout**, or GPIOs (IRCUT filter, status LEDs).
+- **Safety check:** Our installer checks the hardware profile (`v3/board/*.conf`) and will **never write to the flash** of an unrecognised board. If you have an AK3918 camera from another brand, you can test it risk-free using the trial mode on SD card or generate an inventory (`v3/install/inventory.sh`) to help add a new board profile! See [docs/hardware-variants.md](docs/hardware-variants.md).
 
 ---
 
