@@ -1438,7 +1438,12 @@ class WebUiSources(unittest.TestCase):
         self.assertIn('*%*|*+*) value="$(urldecode "${raw_value}")" ;;', f)
         self.assertIn('/tmp/.tc100-timeout-ok', f)
         # plain and encoded values still decode to the same thing
-        sh = ['busybox', 'ash'] if shutil.which('busybox') else ['sh']   # ${x//a/b}: ash, not dash
+        if shutil.which('busybox'):
+            sh = ['busybox', 'ash']
+        elif shutil.which('bash'):
+            sh = ['bash']                  # ${x//a/b} needs ash or bash, not dash
+        else:
+            self.skipTest('needs busybox ash or bash for ${x//a/b}')
         r = subprocess.run(sh + ['-c', '. ' + str(ROOT / 'www/cgi-bin/func.cgi') + '; printf "%s|%s|%s" "$F_cmd" "$F_a" "$F_b"'],
                            env={'PATH': os.environ['PATH'], 'REQUEST_METHOD': 'GET',
                                 'QUERY_STRING': 'cmd=statusline&a=x%20y%26z&b=1+2'}, capture_output=True, text=True)
@@ -1733,7 +1738,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
-        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info(\|wifi_country_info)?\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?(\|hw_state)?(\|mem_budget)?(\|ha_discovery_info)?\) ;;')     # read-only: no CSRF needed
+        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info(\|wifi_country_info)?\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?(\|hw_state)?(\|mem_budget)?(\|ha_discovery_info)?(\|presence_info)?\) ;;')     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)

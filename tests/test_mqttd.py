@@ -305,7 +305,7 @@ class Daemon(unittest.TestCase):
         self.assertIn(b'"sw":"9.9"', cpu[0][1])
         self.assertEqual(b.pub('ha/switch/n1/privacy_shield/config')[0][1:], (b'', True))   # removal of an old entity
         self.assertFalse(b.pub('ha/camera/n1/live/config') or b.pub('ha/number/n1/isp_hue/config'))
-        self.assertEqual(len([p for p in b.pubs if p[0].startswith('ha/')]), 43)
+        self.assertEqual(len([p for p in b.pubs if p[0].startswith('ha/')]), 44)
         self.assertEqual((self.d / 'startarg').read_text(), 'nodisc\n')            # the script skips its own discovery
         order = [p[0] for p in b.pubs]
         self.assertLess(order.index('ha/sensor/n1/cpu/config'), order.index('t/health'))

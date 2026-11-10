@@ -635,6 +635,8 @@ window.tc100I18nFr = {
     "Keep running from the SD card. This can be done any time from Settings → Update & backup.": "Continuer à fonctionner depuis la carte SD. C'est possible à tout moment depuis Réglages → Mise à jour et sauvegarde.",
     "Keep the current Wi-Fi network": "Garder le réseau Wi-Fi actuel",
     "Keep these values unless your recorder requires a change. A shorter keyframe interval creates more keyframes.": "Gardez ces valeurs sauf si votre enregistreur exige un changement. Un intervalle plus court crée plus d'images clés.",
+    "; global mode stays in rtspserver.conf.": "; le mode global reste dans rtspserver.conf.",
+    "This global setting applies to both video streams. Smart mode is separate and off by default. Advanced overrides for the sub-stream only are": "Ce réglage global s'applique aux deux flux vidéo. Le mode intelligent est séparé et désactivé par défaut. Les réglages avancés du sous-flux seul sont",
     "Kernel": "Noyau",
     "Kernel:": "Noyau :",
     "Keyframe interval (frames)": "Intervalle d'images clés (images)",

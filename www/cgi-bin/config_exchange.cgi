@@ -98,22 +98,6 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"WIFI_COUNTRY";"country_optional";"general";.boot.wifi_country),
     row("boot.conf";"flat";"root";"NET_GUARD_SOFT";"bool";"general";.boot.net_guard_soft),
     row("boot.conf";"flat";"root";"PRIVACY_SCREEN";"bool";"general";.boot.privacy_screen),
-    row("presence.conf";"flat";"root";"PRESENCE_MODE";"presence_mode";"general";.presence.mode),
-    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_CONFIGURED";"bool";"general";.presence.present.configured),
-    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_PRIVACY";"bool";"general";.presence.present.privacy),
-    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_MOTION";"bool";"general";.presence.present.motion),
-    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_RECORDING";"bool";"general";.presence.present.recording),
-    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_NOTIFICATIONS";"bool";"general";.presence.present.notifications),
-    row("presence.conf";"flat";"root";"PRESENCE_AWAY_CONFIGURED";"bool";"general";.presence.away.configured),
-    row("presence.conf";"flat";"root";"PRESENCE_AWAY_PRIVACY";"bool";"general";.presence.away.privacy),
-    row("presence.conf";"flat";"root";"PRESENCE_AWAY_MOTION";"bool";"general";.presence.away.motion),
-    row("presence.conf";"flat";"root";"PRESENCE_AWAY_RECORDING";"bool";"general";.presence.away.recording),
-    row("presence.conf";"flat";"root";"PRESENCE_AWAY_NOTIFICATIONS";"bool";"general";.presence.away.notifications),
-    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_CONFIGURED";"bool";"general";.presence.night.configured),
-    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_PRIVACY";"bool";"general";.presence.night.privacy),
-    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_MOTION";"bool";"general";.presence.night.motion),
-    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_RECORDING";"bool";"general";.presence.night.recording),
-    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_NOTIFICATIONS";"bool";"general";.presence.night.notifications),
     row("boot.conf";"flat";"root";"WEB_LOCKOUT";"bool";"general";.boot.web_lockout),
     row("boot.conf";"flat";"root";"WIFI_AIM";"bool";"general";.boot.wifi_aim),
     row("boot.conf";"flat";"root";"MDNS_SERVICES";"bool";"general";.boot.mdns_services),
@@ -131,6 +115,22 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"VM_TUNE";"bool";"general";.boot.vm_tune),
     row("boot.conf";"flat";"root";"SUPERVISOR_IMPL";"supervisor_impl";"general";.boot.supervisor_impl),
     row("boot.conf";"flat";"root";"HTTPFRONT_NATIVE";"bool";"general";.boot.httpfront_native),
+    row("presence.conf";"flat";"root";"PRESENCE_MODE";"presence_mode";"general";.presence.mode),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_CONFIGURED";"bool";"general";.presence.present.configured),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_PRIVACY";"bool";"general";.presence.present.privacy),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_MOTION";"bool";"general";.presence.present.motion),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_RECORDING";"bool";"general";.presence.present.recording),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_NOTIFICATIONS";"bool";"general";.presence.present.notifications),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_CONFIGURED";"bool";"general";.presence.away.configured),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_PRIVACY";"bool";"general";.presence.away.privacy),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_MOTION";"bool";"general";.presence.away.motion),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_RECORDING";"bool";"general";.presence.away.recording),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_NOTIFICATIONS";"bool";"general";.presence.away.notifications),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_CONFIGURED";"bool";"general";.presence.night.configured),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_PRIVACY";"bool";"general";.presence.night.privacy),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_MOTION";"bool";"general";.presence.night.motion),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_RECORDING";"bool";"general";.presence.night.recording),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_NOTIFICATIONS";"bool";"general";.presence.night.notifications),
 
     row("rtspserver.conf";"ini";"root";"PORT";"port";"network";.video.rtsp_port),
     row("rtspserver.conf";"ini";"0";"codec";"video_codec";"general";.video.main.codec),
@@ -460,7 +460,7 @@ _ce_export() {
         if (lv == "1" || lv == "true" || lv == "on" || lv == "yes" || lv == "enabled") j = "1"
         else if (lv == "0" || lv == "false" || lv == "off" || lv == "no" || lv == "disabled") j = "0"
         else next
-      } else if (t ~ /^(topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|country_optional|isp_mask|isp_mask_color|whep_stream|supervisor_impl|serial_console|idle_when)$/) {
+      } else if (t ~ /^(topology|onvif_policy|hostname|host|host_optional|topic|topic_optional|identifier|timezone|safe_text|safe_text_optional|credential|credential_optional|osd_text|weekday|rec_when|rec_stream|dn_source|ir_led_mode|ipv4_optional|http_method|ntfy_priority|ntfy_topic|events|url|url_optional|ntfy_auth|password|wifi_ssid|wifi_psk|rescue_ssid_optional|rescue_psk_optional|country_optional|isp_mask|isp_mask_color|whep_stream|supervisor_impl|serial_console|idle_when|presence_mode)$/) {
         j = jstr(v)
       } else if (v ~ /^-?[0-9]+$/) {
         j = sprintf("%d", v + 0)
