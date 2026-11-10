@@ -316,10 +316,10 @@
 
           # Apply conservative stream settings immediately.
           /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-              0 width 640 0 height 360 0 fps 10 0 bps 600 0 goplen 20 0 brmode 1 0 codec 0 0 profile 1 \
-              0 smartmode 1 0 smartgoplen 20 0 smartquality 60 0 smartstatic 350 0 maxkbps 800 0 targetkbps 600 \
-              1 width 352 1 height 200 1 fps 5 1 bps 120 1 goplen 10 1 brmode 1 1 codec 0 1 profile 0 \
-              1 smartmode 1 1 smartgoplen 10 1 smartquality 50 1 smartstatic 100 1 maxkbps 160 1 targetkbps 120
+              0 width 640 0 height 360 0 fps 10 0 bps 600 0 goplen 20 0 codec 0 0 profile 1 \
+              0 smartgoplen 20 0 smartquality 60 0 smartstatic 350 0 maxkbps 800 0 targetkbps 600 \
+              1 width 352 1 height 200 1 fps 5 1 bps 120 1 goplen 10 1 codec 0 1 profile 0 \
+              1 smartgoplen 10 1 smartquality 50 1 smartstatic 100 1 maxkbps 160 1 targetkbps 120
           apply_low_cpu_defaults_after_finalize=1
           profile_summary_line="Performance profile set to Low CPU."
           profile_detail_line="Applied conservative dual-stream RTSP settings now (safe geometry, H264) and enabled memory guard."

@@ -161,8 +161,6 @@
           0 fps          "$fps0" \
           0 bps          "$bps0" \
           0 goplen       "$gop0" \
-          0 brmode       1 \
-          0 smartmode    1 \
           0 smartgoplen  "$gop0" \
           0 smartquality "$smartq0" \
           0 smartstatic  "$smartstatic0" \
@@ -173,8 +171,6 @@
           1 fps          "$fps1" \
           1 bps          "$bps1" \
           1 goplen       "$gop1" \
-          1 brmode       1 \
-          1 smartmode    1 \
           1 smartgoplen  "$gop1" \
           1 smartquality "$smartq1" \
           1 smartstatic  "$smartstatic1" \
@@ -234,10 +230,8 @@
           0 fps          "$fps0" \
           0 bps          "$bps0" \
           0 goplen       "$gop0" \
-          0 brmode       1 \
           0 codec        "$codec0" \
           0 profile      "$profile0" \
-          0 smartmode    1 \
           0 smartgoplen  "$gop0" \
           0 smartquality "$smartq0" \
           0 smartstatic  "$smartstatic0" \
@@ -248,10 +242,8 @@
           1 fps          "$fps1" \
           1 bps          "$bps1" \
           1 goplen       "$gop1" \
-          1 brmode       1 \
           1 codec        "$codec1" \
           1 profile      "$profile1" \
-          1 smartmode    1 \
           1 smartgoplen  "$gop1" \
           1 smartquality "$smartq1" \
           1 smartstatic  "$smartstatic1" \
@@ -287,10 +279,8 @@
           0 fps          "$fps0" \
           0 bps          "$bps0" \
           0 goplen       "$gop0" \
-          0 brmode       1 \
           0 codec        "$codec0" \
           0 profile      "$profile0" \
-          0 smartmode    1 \
           0 smartgoplen  "$gop0" \
           0 smartquality "$smartq0" \
           0 smartstatic  "$smartstatic0" \
@@ -301,10 +291,8 @@
           1 fps          "$fps1" \
           1 bps          "$bps1" \
           1 goplen       "$gop1" \
-          1 brmode       1 \
           1 codec        "$codec1" \
           1 profile      "$profile1" \
-          1 smartmode    1 \
           1 smartgoplen  "$gop1" \
           1 smartquality "$smartq1" \
           1 smartstatic  "$smartstatic1" \

@@ -1732,7 +1732,7 @@ struct cli {
 };
 static struct cli cl[MAXCLI];
 
-/* ---- sender thread (RTSP_SENDER_THREAD=1, default 0: everything below is then not used and the old inline path runs) ----
+/* ---- sender thread (RTSP_SENDER_THREAD=1; defaults stay 0; changing them needs a separate post-R16 decision) ----
  * R16: every client in bcast() cost ~2.4 ms per frame inside the capture loop, so each extra client took capture frames.
  * Design (the simplest correct one): ONE mutex, cl_mu, protects the client table cl[] (and with it the scatter-gather
  * batch `sg`, the UDP socket use and every per-client queue). The sender thread takes it per client, for the time of
@@ -2354,7 +2354,8 @@ static void *snd_main(void *arg)
 	return NULL;
 }
 
-/* the capture loop's way out for an encoded frame: send it inline (default) or hand a copy to the sender thread */
+/* the capture loop's way out for an encoded frame: send inline when the binary's RTSP_SENDER_THREAD value is unset/0,
+ * or hand a copy to the sender thread when the firmware launcher sets it to 1 */
 static void emit_frame(int si, const unsigned char *d, int n, uint32_t ts, int idr, const struct nal_tab *tab)
 {
 	struct sjob *j;
@@ -3025,7 +3026,8 @@ static int env_int(const char *k, int def, int lo, int hi)
 
 static void smart_apply(struct strm *s)
 {
-	const char *ks = s == &S[1] && getenv("RTSP_SMART_SUB") ? "RTSP_SMART_SUB" : "RTSP_SMART";
+	const char *sub = s == &S[1] ? getenv("RTSP_SMART_SUB") : NULL;
+	const char *ks = sub && *sub ? "RTSP_SMART_SUB" : "RTSP_SMART";
 	int c[4];
 
 	c[0] = env_int(ks, 0, 0, 2);

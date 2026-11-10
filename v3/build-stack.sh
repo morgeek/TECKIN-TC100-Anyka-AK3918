@@ -96,8 +96,10 @@ for b in sbin/mkfs.fat usr/sbin/mkfs.fat; do
 	[ -f "$b" ] && { cp -L "$b" "$T/ext/bin/"; echo "$b" >> "$W/todo"; break; }
 done
 # tc100-whep (item 35, WebRTC gateway, ~45 KB; built by Buildroot against the system mbedTLS, which is already in ext/lib
-# for curl): optional, the base of an older CI run does not have it. Off at run time (boot.conf WHEP=0).
-[ -f usr/bin/tc100-whep ] && { cp -L usr/bin/tc100-whep "$T/ext/bin/"; echo usr/bin/tc100-whep >> "$W/todo"; }
+# for curl): required because WHEP is enabled by default. Rebuild the base image if this binary is absent.
+[ -f usr/bin/tc100-whep ] || { echo "build-stack: usr/bin/tc100-whep missing from base (rebuild with BR2_PACKAGE_TC100_WHEP=y)" >&2; exit 1; }
+cp -L usr/bin/tc100-whep "$T/ext/bin/"
+echo usr/bin/tc100-whep >> "$W/todo"
 while [ -s "$W/todo" ]; do
 	f=$(head -n 1 "$W/todo"); sed -i 1d "$W/todo"
 	for n in $($READELF -d "$f" 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do

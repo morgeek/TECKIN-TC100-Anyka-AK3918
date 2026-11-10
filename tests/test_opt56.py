@@ -173,12 +173,14 @@ class Validators(unittest.TestCase):
 
 
 class SmartMode(unittest.TestCase):
-    """Item 56.5: the smart mode was wired in R11-01 and stays off unless rtspserver.conf [N] smart=1|2 (and vbr=1)."""
+    """Item 56.5: smart mode is global by default and stays off unless rtspserver.conf [0] enables it with VBR."""
 
     def test_switch_is_off_by_default_and_wired(self):
-        self.assertNotIn('\nsmart=', text('config/rtspserver.conf.dist'))
+        dist = text('config/rtspserver.conf.dist')
+        self.assertIn('\nvbr=0\n', dist)
+        self.assertIn('\nsmart=0\n', dist)
         launch = text('v3/linux66-sd/rtsp-launch.sh')
-        self.assertIn('export RTSP_SMART=$2', launch)
+        self.assertIn('RTSP_SMART_CONFIG=$2', launch)
         src = text('src/tc100rtsp/tc100_rtsp.c')
         self.assertIn('ak_venc_set_smart_config', src)
         self.assertIn('SMART_LTR_NEED', src)

@@ -35,6 +35,16 @@ NOTIFY_UPLOAD_AUTH=""
 # shellcheck disable=SC1090
 . "$NOTIFY_CONF" 2>/dev/null || exit 0
 
+# Presence profiles can suppress outbound notifications without rewriting
+# their channel settings or event filters. MQTT telemetry and event topics stay
+# available to Home Assistant.
+_presence_script="$PRESENCE_MODE_SCRIPT"
+[ -n "$_presence_script" ] || _presence_script=/mnt/scripts/presence-mode.sh
+if [ -r "$_presence_script" ]; then
+  _presence_allowed="$(sh "$_presence_script" notifications 2>/dev/null)"
+  [ "$_presence_allowed" = 0 ] && exit 0
+fi
+
 # Fast check: any channel enabled?
 if [ "${WEBHOOK_ENABLE:-0}" != "1" ] && [ "${NTFY_ENABLE:-0}" != "1" ] && [ "${TELEGRAM_NOTIFY_ENABLE:-0}" != "1" ] && \
    [ -z "$NOTIFY_UPLOAD_URL" ]; then

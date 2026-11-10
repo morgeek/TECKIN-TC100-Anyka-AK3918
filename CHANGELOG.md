@@ -7,6 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **RTSP encoder settings**: made `[0].vbr` and `[0].smart` the explicit, documented source of truth; aligned settings readback and JSON import/export, and stopped routine saves/presets from writing the ignored legacy `brmode` / `smartmode` fields.
+
+### Changed
+- **RTSP sender thread**: `RTSP_SENDER_THREAD=1` remains opt-in until the four-client and mixed TCP/UDP camera qualification passes in R16; the firmware launcher and a binary with the variable unset both use inline sending.
+
+### Added
+- **Presence modes**: added owner-configurable Present, Away and Night profiles for privacy, motion detection, local recording and outbound notifications, with local selection state, a web control and Home Assistant MQTT discovery. Manual changes to controlled live settings report Custom.
+
 ## [3.0.0] - 2026-11-08
 
 Final Release 3.0.0 — Proven & fully tested 100% free firmware:
@@ -14,7 +23,7 @@ Final Release 3.0.0 — Proven & fully tested 100% free firmware:
   - Direct hardware encoding (`freeenc.h`) for H.265 and H.264 up to 1080p and 720p, zero proprietary vendor `.so` libraries loaded, linked, or flashed.
   - Native musl-linked services: `tc100_rtsp`, `tc100-mqttd`, `tc100-supervisord`, `tc100-onvifd`, `tc100-mdnsd`, `tc100-logfwd`.
 - **Performance & streaming enhancements**:
-  - Independent RTSP sender thread (`RTSP_SENDER_THREAD=1`) enabled by default: multi-client streaming yields rock-solid capture FPS without starvation.
+  - Optional independent RTSP sender-thread support (`RTSP_SENDER_THREAD=1`, off by default in this release; see R16).
   - Background housekeeper jobs yield CPU (`nice -n 10`) to prioritize RTSP, capture and Wi-Fi throughput.
   - Dynamic 720p night mode option (`NIGHT_720P`) saving continuous video memory (CMA) and reducing night sensor noise.
   - Anti-flapping protection for dusk/dawn day/night transitions (`MIN_SWITCH=180s`).
@@ -175,8 +184,8 @@ bounded httpfront, idle RTSP clients, web update retries without reboot, wizard 
 - **Status line answered by httpfront itself** (item 55, `HTTPFRONT_NATIVE=1`, off by default): the JSON every page
   polls, without starting httpd and a shell (7 ms instead of 93 ms under qemu); anything it cannot answer exactly
   goes to the CGI as before.
-- **WebRTC live view** (item 35, `WHEP=1`, off by default): `tc100-whep` (WHEP, ICE-lite, DTLS-SRTP with the system
-  mbedTLS, SRTP in plain C) relays the camera's RTP to the browser with about 150 ms of delay; the page tries it first
+- **WebRTC live view** (item 35, `WHEP=1`, enabled by default since rc28; set `WHEP=0` to disable): `tc100-whep`
+  (WHEP, ICE-lite, DTLS-SRTP with the system mbedTLS, SRTP in plain C) relays the camera's RTP to the browser with about 150 ms of delay; the page tries it first
   and falls back to the MP4 live view on any failure. The base image now builds mbedTLS with DTLS-SRTP.
 - **Home Assistant discovery in the C MQTT bridge** (item 55, `MQTT_DISCOVERY_IMPL=c`, off by default): the same
   topics and payloads byte for byte, without the ~120 subshells the script spends at each connection.
@@ -864,8 +873,9 @@ release candidates' details, newest first.
 - The kernel programs the ISP sub channel by default (`ak39_vi.sub_channel=0` turns it off): no U-Boot change.
 - **Sound in the recordings**: a G.711 A-law track next to the video in each MP4 (`REC_AUDIO`, on by default).
 - **Listen live** from the browser again (`audio_stream.cgi`, fed by tc100_rtsp, at most 3 listeners).
-- **Two-way audio** through the RTSP stream (ONVIF backchannel, go2rtc / Home Assistant / Frigate microphone button),
-  password required, one talker at a time; Settings → Video → Two-way audio (`RTSP_LITE_TALK`).
+- **Two-way audio path implemented** through the RTSP stream (ONVIF backchannel, go2rtc / Home Assistant / Frigate
+  microphone button), password required, one talker at a time; Settings → Video → Two-way audio (`RTSP_LITE_TALK`).
+  End-to-end qualification on the Linux 6.6 camera remains open in test-queue P4 / UI-13.
 - tc100_rtsp opens `libmpi_venc_ex.so`, else the camera's own `libmpi_venc.so`, and logs which.
 - `make test_rtsp`: tc100_rtsp built for the host, with tests of the audio track, backchannel and listeners.
 
@@ -993,7 +1003,7 @@ A lighter RTSP server, sound both ways, motion zones.
   - **Measured on a TC100** with Frigate as the only client:
     - the vendor server's RTSP thread went from 15.4 % to 1.8 % CPU, and the lite server uses 6–7 %;
     - 0 decode errors, 16 fps, 25 audio frames per second.
-- **Two-way audio** (`RTSP_LITE_TALK=1`, lite server). A client that asks for the ONVIF backchannel gets a send-only audio track; go2rtc does this, so it works from the microphone button of Home Assistant and go2rtc.
+- **Two-way audio path implemented** (`RTSP_LITE_TALK=1`, lite server). A client that asks for the ONVIF backchannel gets a send-only audio track; go2rtc requests it. End-to-end microphone-to-speaker operation on Linux 6.6 still needs camera qualification (test-queue P4 / UI-13).
   - The G.711 it sends is played on the speaker through `libplat_ao`, opened only while someone talks.
   - The volume is the push-to-talk volume, one talker at a time.
 - **Motion zones** (Settings → Detection): up to 4 areas that the camera's own motion detection ignores (MQTT event, picture on motion).
@@ -1272,7 +1282,7 @@ The firmware runs from the camera's flash memory: the SD card becomes optional.
 - Motion detection monitor polls every 10 s (12 s after a detection), the values the camera had been tuned to, instead of 20/20 s.
 - Removed dead code: the lazy loader for `bulma-switch`/`bulma-badge`/`bulma-divider` (only triggered by a `status.cgi` page that no longer exists, so they were never applied) and the three stylesheets.
 - The web UI loads a purged Bulma: 677 KB → 123 KB uncompressed (16 KB gzipped with the rebuilt lighttpd); measured on the camera 0.9 s → 0.2 s for the stylesheet. Rendering checked identical against the full Bulma on 84 screenshots (every page and Settings tab, light/dark, desktop/mobile, real CGI output from the camera); only the "Updated" clock differs.
-- Push-to-talk is confirmed working on hardware: README *Known issues* and `docs/api.md` (`upload_audio.cgi`, `get_ptt_status`) now describe the patched `/mnt/bin/ak_ao_ptt` player, the RTSP pause during playback, CSRF on uploads and the `READ_FAILED` / `AUDIO_DEVICE_BUSY` responses.
+- **Legacy 1.8.3 hardware result:** push-to-talk was confirmed on the preceding firmware with the patched `/mnt/bin/ak_ao_ptt` player, RTSP pause during playback and CSRF-protected uploads (`READ_FAILED` / `AUDIO_DEVICE_BUSY`). That result predates Linux 6.6 and does not close its open camera qualification (test-queue UI-13).
 
 ### Added
 - **Optional wpa_supplicant 2.11** (`WIFI_CLIENT=new` in boot.conf, default `vendor`). The vendor Wi-Fi client is Realtek's patched 0.8.x from 2013, older than the KRACK fixes. `bin/wpa_supplicant` is 2.11 built for the RTL8188FU's wireless extensions with internal crypto, no WPS/EAP (`src/wpa_supplicant/build.sh`, reproducible, sha256-checked source). `scripts/wifi-client.sh` starts it in place of the vendor daemon (the vendor configuration's WPS keys, which 2.11 would reject, are filtered out; the vendor connect script adds the network as usual) and falls back to the vendor client, with an important event, if it has not associated within 60 s. Tested on hardware (.24): associated in 4 s, WPA2-PSK/CCMP, 0.7 MB RSS.

@@ -19,7 +19,7 @@ is_allowed_file() {
     boot.conf|mqtt.conf|rtspserver.conf|recording.conf|onvif.conf|\
     hostname.conf|ntp_srv.conf|timezone.conf|telegram.conf|\
     dns.conf|motion.conf|pttvolume.conf|\
-    sound_detection.conf|notify.conf|tamper.conf)
+    sound_detection.conf|notify.conf|tamper.conf|presence.conf)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -122,6 +122,10 @@ case "${F_cmd:-read}" in
     fi
     if mv "$_tmp" "$_path"; then
       sync
+      case "$_file" in
+        boot.conf|rtspserver.conf) sh /mnt/scripts/presence-mode.sh current >/dev/null 2>&1 || true ;;
+        notify.conf|presence.conf) sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true ;;
+      esac
       rm -f /tmp/state-response-*.cache >/dev/null 2>&1 || true
       audit_log_event "configeditor_save" "$_file"
       printf '{"ok":true,"file":"%s","message":"Saved successfully"}\n' "$_file"

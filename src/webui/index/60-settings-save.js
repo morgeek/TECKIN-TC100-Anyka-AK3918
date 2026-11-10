@@ -21,7 +21,7 @@
       var video = config.video && config.video[stream === "1" ? "sub" : "main"];
       if (!video) return false;
       values["video_size" + stream] = video.width + "x" + video.height;
-      var mapping = { video_codec: "codec", fps: "fps", brbitrate: "bitrate", goplen: "gop", video_format: "format", minqp: "minqp", maxqp: "maxqp", smartmode: "smartmode" };
+      var mapping = { video_codec: "codec", fps: "fps", brbitrate: "bitrate", goplen: "gop", minqp: "minqp", maxqp: "maxqp", vbr: "vbr" };
       Object.keys(mapping).forEach(function(key) { values[key + stream] = video[mapping[key]]; });
     } else if (command === "conf_audioin") {
       if (!config.audio) return false;

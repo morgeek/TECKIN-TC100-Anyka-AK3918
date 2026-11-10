@@ -1,0 +1,85 @@
+{
+  "catalog_version": 1,
+  "scope": "rtsp-encoder-modes",
+  "runtime_values_are_stored_in_this_file": false,
+  "parameters": [
+    {
+      "id": "rtsp.vbr",
+      "source": {
+        "path": "/mnt/config/rtspserver.conf",
+        "format": "ini",
+        "section": "0",
+        "key": "vbr"
+      },
+      "type": "bool",
+      "allowed_values": [0, 1],
+      "default": 0,
+      "label": {
+        "en": "Bit rate mode",
+        "fr": "Mode de débit"
+      },
+      "secret": false,
+      "applies_to": ["main", "sub"],
+      "substream_override": {
+        "path": "/mnt/config/rtsp.env",
+        "key": "RTSP_VBR_SUB",
+        "allowed_values": [0, 1],
+        "when_unset_or_empty": "inherit-global"
+      }
+    },
+    {
+      "id": "rtsp.smart",
+      "source": {
+        "path": "/mnt/config/rtspserver.conf",
+        "format": "ini",
+        "section": "0",
+        "key": "smart"
+      },
+      "type": "smart_mode",
+      "allowed_values": [0, 1, 2],
+      "default": 0,
+      "label": {
+        "en": "Smart encoder mode",
+        "fr": "Mode Smart de l’encodeur"
+      },
+      "secret": false,
+      "applies_to": ["main", "sub"],
+      "requires": {
+        "rtsp.vbr": 1
+      },
+      "mode_constraints": {
+        "1": "Requires an encoder pool with at least 12 MiB available for the tested configuration.",
+        "2": "Requires RTSP_SMART_FORCE=1 and is unsafe on this camera; do not enable for normal use."
+      },
+      "substream_override": {
+        "path": "/mnt/config/rtsp.env",
+        "key": "RTSP_SMART_SUB",
+        "allowed_values": [0, 1, 2],
+        "when_unset_or_empty": "inherit-global"
+      }
+    }
+  ],
+  "legacy_metadata": {
+    "runtime_effect": "ignored-by-free-rtsp-encoder",
+    "fields": [
+      "rtspserver.conf [0].brmode",
+      "rtspserver.conf [1].brmode",
+      "rtspserver.conf [0].smartmode",
+      "rtspserver.conf [1].smartmode",
+      "rtspserver.conf [0].smartgoplen",
+      "rtspserver.conf [1].smartgoplen",
+      "rtspserver.conf [0].smartquality",
+      "rtspserver.conf [1].smartquality",
+      "rtspserver.conf [0].smartstatic",
+      "rtspserver.conf [1].smartstatic",
+      "rtspserver.conf [0].maxkbps",
+      "rtspserver.conf [1].maxkbps",
+      "rtspserver.conf [0].targetkbps",
+      "rtspserver.conf [1].targetkbps"
+    ]
+  },
+  "environment_policy": {
+    "global_modes_in_rtsp_env_are_ignored": ["RTSP_VBR", "RTSP_SMART"],
+    "smart_call_tuning_in_rtsp_env": ["RTSP_SMART_GOP", "RTSP_SMART_Q", "RTSP_SMART_V"]
+  }
+}

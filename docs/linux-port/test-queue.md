@@ -8,18 +8,20 @@ set the status, and, when it passes, make the change the default in a follow-up 
 Status values: `to test`, `testing`, `passed`, `failed`, `blocked`.
 
 Finished entries (passed and made the default, superseded or abandoned) are moved to [test-queue-archive.md](test-queue-archive.md); this file keeps what is still open.
-Closed entries moved to test-queue-archive.md on 2026-11-06.
+Closed entries moved to test-queue-archive.md on 2026-11-06. Status labels in the older dated sections below are
+historical snapshots, not a second current backlog; use the owner-confirmed list above for current work.
 
 **Current field summary (2026-11-09):** the latest report is rc36 on IPCAM2 and rc35 on IPCAM1. Both reported 12–15
 hours without reboot, oops, or OOM and short RTSP captures without decode errors. The planned seven-day watch was
 cancelled on 2026-11-09, so it has no pass result. Older entries below remain as the audit trail; use the newest dated
-report for the current camera state. The asynchronous RTSP sender is now enabled by default; the four-client throughput
-and mixed TCP/UDP criteria in the older sender-thread entry still have no recorded pass result.
+report for the current camera state. The asynchronous RTSP sender remains opt-in; any default change follows a separate
+decision after the four-client throughput and mixed TCP/UDP criteria in R16 pass.
 
 Rules that apply to every entry:
 - Test kernels boot from the SD card in RAM (`pack66/boot66b.sh`, `tc100test/c66.img`); nothing is written to the flash.
-  Check that `/proc/cmdline` holds the full initrd size. **U-Boot keeps only 256 characters of `bootargs`**: add the
-  kernel parameters below at the end, and check that none of them was cut off.
+  Pass test-only kernel arguments with `EXTRA` to `boot66b.sh`; do not edit `bootargs` or enter U-Boot commands. After
+  boot, check that `/proc/cmdline` holds the full initrd size and every requested argument. If anything is missing,
+  stop and report the result before interpreting the test.
 - Changes to `tc100_rtsp` can be tried without a reboot: `v3/dev/try-rtsp.sh CAMERA BINARY [VAR=value]`, or switches in
   `/mnt/config/rtsp.env` followed by a restart of the server (`controlscripts/rtsp-h26x restart`).
 - The CI build of a change is the run whose title starts with the commit's prefix (`[hwaccel]` for the entries below):
@@ -29,9 +31,52 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+## Owner-confirmed current work (2026-11-10)
+
+These are the current owner-confirmed work items. The detailed switch-by-switch procedures stay in their existing entries.
+
+1. **RTSP and recording qualification:** run the sender-thread multi-client and mixed TCP/UDP procedure in R16 below;
+   also record to the SD card while RTSP is active, play the resulting file, test browser push-to-talk (UI-13), and
+   confirm end-to-end talk through go2rtc, Frigate or Home Assistant. Record the camera, current build, transports,
+   frame rates, `dropped`, memory, recording playback and both talk results. No flash write is part of this check.
+2. **RTSP parameter schema:** the VBR/Smart pilot catalog and its focused consistency check are in the repository;
+   run the camera save/reload and preservation check in R12-07. Extending the catalog beyond these two modes remains
+   separate work.
+3. **WHEP:** run the missing-key default, explicit `WHEP=0`, browser fallback, latency, one/two-viewer and resource
+   checks in the WHEP entry below. No flash write is part of this check.
+4. **Presence modes (#65):** configure each profile, apply it, check manual edits switch the selected-profile label
+   to Custom, and check Home Assistant selection and state. Confirm an unsaved profile is rejected with a clear
+   instruction to save it in Settings first. Run PRES-01 below from the SD test system; do not install this change
+   in flash as part of the test.
+
+### PRES-01 Presence modes — `to test` (owner, SD test system)
+
+- **What:** user-configured Present, Away and Night presets apply privacy screen, motion detection, local SD recording
+  and outbound Webhook/Ntfy/Telegram notification delivery, including alert image uploads. The initial state is Custom
+  and does not alter any setting. Profile definitions and the selected mode persist in `presence.conf`; live values
+  remain in `boot.conf` and `rtspserver.conf`.
+  Home Assistant receives a Presence Mode select entity. MQTT telemetry and event topics continue in every mode.
+- **Switch / return to Custom:** select Custom in the web page or Home Assistant. This leaves the current privacy,
+  motion and recording settings in place and allows configured notifications again. Restore any desired baseline values
+  through their existing Settings controls. Manually changing alert-channel configuration also returns to Custom.
+- **Test:** boot the test user space from SD/RAM. Confirm the selected profile is Custom and settings have not changed.
+  Save each profile without applying it and confirm this also leaves live settings unchanged. Apply each profile and
+  verify the privacy image/audio behavior, motion detector state, `REC_LOCAL`, and notification delivery using a test
+  recipient or endpoint. Confirm MQTT health and event topics remain available. Change privacy, motion or recording
+  manually; the mode must become Custom without undoing the manual value. Change alert-channel settings and confirm the
+  mode becomes Custom. Reapply a saved profile and confirm its values are restored. Reboot the SD test system and
+  confirm the selected profile and values persist. In Home Assistant, select every configured profile and Custom;
+  confirm an unconfigured profile is rejected with an instruction to save it in Settings, and that the reported state
+  follows the applied profile. Do not use `flashw` or install
+  a partition during this test.
+- **Pass:** no action before an explicit profile selection; saved profiles survive an SD test reboot; applying one
+  changes only its four selected actions; manual edits switch the reported mode to Custom and remain in effect; the
+  Home Assistant entity and local controls agree; no service or RTSP regression.
+
 ## Tester report to the implementers (2026-10-30, IPCAM2 / .11 on the serial console)
 
-Read this first. Details and numbers are under each entry.
+Historical hand-off from 2026-10-30. Its camera state and requests below are retained for context; the current test
+order and camera state are the 2026-11-10 owner-confirmed items above.
 
 **Update 2026-10-31 (night 2, rc7 `4e5d534`, IPCAM2): what to do first, in this order**
 1. **Bug, F-05:** `scripts/log-persist.sh` line 80, a boot counter with an 8 or 9 in it (`0008`) is read as octal by ash:
@@ -55,10 +100,9 @@ off on IPCAM2); the MQTT password (the owner re-enters it); a go for the HW-02 t
 is NOT in the flash boot arguments (it needs a U-Boot env change: the owner has not agreed yet). The SD card still holds `tc100test/`
 (consoleshell, test.img) and `.bootcount` = 0009 (see the F-05 bug).
 
-**HW-02 test 2 (`ak39_venc.pool=9600K`): NOT run, on the advice relayed by the owner (do not touch U-Boot).** Reminder of what the tester did
-touch: the one-shot kernel tests of night 2 (slots=3, rtl8xxxu.dma_aggregation=1, otg_hs.fifo32=1) typed `setenv bootargs ...; bootm` at the U-Boot
-prompt, in RAM only; no `saveenv`, the stored environment was not written. If the implementer wants HW-02 test 2 without any U-Boot prompt,
-it needs the pool size built into the test kernel's own command line (CONFIG_CMDLINE) in a CI build for the card.
+**Historical HW-02 test note (2026-10-31; superseded):** the earlier one-shot tests supplied parameters at a U-Boot
+prompt. That procedure is obsolete. Test-only arguments now go through `pack66/boot66b.sh`'s `EXTRA`; validated
+defaults such as `ak39_venc.pool=9600K` belong in the kernel C defaults. The 9600K pool test below is no longer open.
 
 **Builds run today**
 - `c409d2b` / `4b066c1` (rc5): 512 KB page blocks (`CONFIG_ARCH_FORCE_MAX_ORDER=7`), high-atomic reserve 1 MB,
@@ -156,19 +200,21 @@ switched off by the update. The **strict rules apply to new installs only** (the
 RTSP password offered). Same for 3.0.2's HTTPS: added next to HTTP on port 80, which stays until the owner turns it off.
 Also from the owner on the same day: an upgrade from an older version must reset the old image tint and saturation (not keep them) -- see above; this one is a fix, not a security prompt.
 
-### Test method change: no serial console any more (owner, 2026-11-01) -- the tester works over ssh only
+### Historical test-method decision (owner, 2026-11-01), superseded 2026-11-10
+
+The Mac UART + SD/RAM loop documented at the top of this file is current. No test procedure below authorizes flashing
+or requires U-Boot prompt commands.
+
 - **What is lost:** the card-boot step before a flash install (kernel booted once from the SD card at the U-Boot prompt, nothing written), the U-Boot prompt for recovery,
   the kernel messages of a boot that fails, and any fix that needs the U-Boot environment (e.g. kernel command line switches such as `ak_isp.awb_live`).
-  Every build now goes straight to the flash with `update66.sh` / the web update, on a camera the tester cannot see until it answers on the network.
+  At the time, the proposed workflow sent every build to flash with `update66.sh` / the web update. This proposal is obsolete: test builds use SD/RAM, and flash writes require separate owner authorization.
 - **Requests that follow (please treat as release-relevant):**
   1. **ssh by key that survives a reboot:** read `config/authorized_keys` into `/root/.ssh/authorized_keys` at each start (and a persistent host key). Today the tester's key lives
      in RAM and the owner must re-add it after every reboot; with no serial, a reboot ends the tester's access until then.
-  2. **A way back that works unattended:** if the new kernel/user space does not reach "network up + web page + RTSP" within N minutes after an update, the camera restarts into the previous
-     kernel and initrd (the update saves them: `tc100-3/backup`, `kernel-*`, `initrd-*` on the card). A boot counter in the settings slots (not the U-Boot environment), checked by the early
-     user space; `flashcheck` already falls back to the stock firmware when the initrd is bad, extend it to "boot failed three times -> previous images".
+  2. **Unattended recovery after Linux starts:** if the running initramfs or user space does not reach "network up + web page + RTSP" within a bounded time, use a boot counter and previous user-space/initrd stored outside U-Boot. A broken flashed kernel cannot reach the initramfs, so its protection must happen before flashing: verify size, checksum and target partition, change one kernel at a time, and keep the owner near the camera.
   3. **The last boot's messages kept:** `dmesg` of the previous boot written to the card (or the settings slot) at boot and at a crash (`/mnt/sd/logs/boot-prev.log`), shown on the web page
      (Logs), so a failed boot can be read after the owner power cycles. Today the log in `/tmp` is lost with the power.
-  4. **A runtime switch for anything the tester needs to A/B** (white balance mode, etc.) instead of kernel command line parameters.
+  4. **A runtime switch for settings that can safely change at runtime** (white balance mode, etc.); boot-time DMA allocations retain their compiled C defaults and are not live-reallocated.
   5. **No kernel or U-Boot change in a release that has not run a full day on a camera first** (the tester cannot recover a camera that does not boot).
 - **Tester's side:** one camera at a time; the owner is asked to be near the camera and its power supply for the first boot of any update that changes the kernel; the SD card with the
   backup stays in; after each reboot the owner re-adds the key (one command) until request 1 is in.
@@ -277,8 +323,10 @@ Also from the owner on the same day: an upgrade from an older version must reset
   later back to night (if dark). Then the page value back to 14.
 
 ### R12-07 The web page: every new switch wired — `to test` (owner, needs the login)
-- Settings, Streams & audio: "Bit rate mode" (main stream form), Save: `rtspserver.conf` [0] `vbr`, the server
-  restarts, log `vbr main 1`. (Smart encoding is not on the page since rc13: R11-01.) Settings, Day/night: the
+- Settings, Streams & audio: "Bit rate mode" (main stream form), Save: the form reports "Saved and checked", the
+  selected value returns after a reload, `rtspserver.conf` [0] `vbr` matches it, and the RTSP log reports
+  `vbr main 1 sub 1` or `vbr main 0 sub 0`. Switch back to CBR after the check. A normal form save must leave
+  `[0] smart` unchanged; Smart mode is not on the page since rc13 (R11-01). Settings, Day/night: the
   stock method thresholds, the IR protection hours, the two switches (night settings, low light), the live "Stock
   method value"; Save and reload the page: every value comes back. Settings, Picture: anti-flicker "Camera default" and
   the 50 Hz line. In French too.
@@ -438,18 +486,18 @@ Also from the owner on the same day: an upgrade from an older version must reset
   Assistant select comes back. **Fail:** Off; write what was seen (the step value of the tuning file is in the log).
 
 ### R9-04 Encoder: VBR, idle frame rate, and the smart mode's calls — `to test`
-- **What:** the encoder side of "use the SoC": `RTSP_VBR=1` (P-08: 6 % less on a noisy night, the day scene not
+- **What:** the encoder side of "use the SoC": `[0] vbr=1` in `rtspserver.conf` (P-08: 6 % less on a noisy night, the day scene not
   measured) and `IDLE_FPS` (F-03, frame rate lowered while nothing moves) were opt-in and not finished. rc9 adds the
   list of optional encoder calls to the log (looked up, never called), so that the vendor smart mode (long GOP on a
   still scene) can be used once its call is known.
 - **Test:**
   1. The `encoder library: optional calls:` line of R9-00 step 2, and `strings /mnt/lib/libmpi_venc*.so
      /vendor/lib/libmpi_venc*.so 2>/dev/null | grep -i -E 'smart|gop|_rc|roi'` here.
-  2. Day, still scene, 10 minutes each, one Frigate client: main stream bytes per 5 s with CBR, then with `RTSP_VBR=1`
-     in `/mnt/config/rtsp.env` (restart `tc100_rtsp` as `v3/autorun-linux66.sh` does). Then a hand moving in front:
+  2. Day, still scene, 10 minutes each, one Frigate client: main stream bytes per 5 s with `[0] vbr=0`, then `[0] vbr=1`
+     in `/mnt/config/rtspserver.conf` (restart `tc100_rtsp` as `v3/autorun-linux66.sh` does). Then a hand moving in front:
      the bytes go back up to the ceiling, no smear or blocks. Frigate keeps recording and detecting.
   3. `IDLE_FPS` as F-03 says (Frigate side: a motion still starts a recording without a missed second).
-- **Pass:** VBR saves on a still day scene with no visible loss and Frigate is fine: **then** (rc10) `RTSP_VBR=1` by
+- **Pass:** VBR saves on a still day scene with no visible loss and Frigate is fine: **then** (rc10) `[0] vbr=1` by
   default. Same for `IDLE_FPS`. Smart mode: implemented only once step 1 shows its call.
 
 ### R8-01 / R8-02 results: rc8 (`372a83b`, CI run 41147884892) on IPCAM2, 2026-10-31 01:00 (tester)
@@ -475,13 +523,15 @@ reading). CPU split usr 6.7 / sys 13.4 / **idle 77.5 %** at 25 fps. Frames `cap`
 `tc100_rtsp.log` rotated by itself at the real cap (a `tc100_rtsp.log.1` of 262 KB next to the live log): **O-05 rotation passed at 256 KB**. `/mnt/sd/logs` holds `boot-0007` to `boot-0011` (5 kept,
 the oldest removed), so log-persist runs and keeps its limit. The MQTT status still reads `fail 5` (broker refusal, owner action).
 
-**R8-02 HW-02 test 2 (`ak39_venc.pool=9600K`): NOT run - the card hook route cannot start it as built.** The U-Boot hook of IPCAM2 (`bootcmd=run sdload sdboot; run flashboot ...`, `sdload` loads **both `tc100test/c66.img` and `tc100test/c66rd.gz` from the card**, `sdboot`'s bootargs have **no `flashroot=1` and no `ak39_vi.sub_channel=1`**, written on 2026-10-24) boots in **SD mode**: the initramfs then looks for the user space in the card tree (`/mnt/sd/v3`, the `tc100-3.0.1-rc8-sd.zip` content). IPCAM2's card has no such tree (it runs from the flash), and unzipping the SD package there would also create `/mnt/sd/config/`, which cfg-persist and the flash boot would take for the settings folder - not something the tester will do. **Request:** build the pool kernel with `CONFIG_CMDLINE="ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1"` (still `CMDLINE_EXTEND`, so it comes after the U-Boot arguments), so that with the card's `c66.img` = that kernel and `c66rd.gz` = the rc8 initramfs (same file as in the flash, 2012654 bytes) the camera boots the **flash user space** with the 9600K pool, no U-Boot prompt. Then the tester copies two files to `tc100test/` (3 and 4 minutes over the serial console), reboots, runs R8-02 steps 1-7, and renames the files away again. Tell me when that artifact exists.
+**Historical R8-02 record (2026-10-31; superseded, not an open test):** the old procedure tried to override the
+9600K pool through a test-kernel command line. Do not use that procedure or artifact path. The validated 9600K pool is
+now the compiled kernel default; test-only arguments use `pack66/boot66b.sh`'s `EXTRA`.
 
-**Implementer answer (2026-10-31):** done as asked. The card test kernel's built-in command line is now
+**Historical implementer response (2026-10-31):** the card test kernel's built-in command line was then
 `ak39_venc.pool=9600K flashroot=1 ak39_vi.sub_channel=1` (`CMDLINE_EXTEND`, after the U-Boot arguments; `S39tc100-linux66`
 greps `/proc/cmdline` for `flashroot=1`, which holds the appended part). Same artifact name `tc100-linux66-hw02-pool9600k`,
 from the CI run of the commit `[rc8] HW-02 card kernel boots the flash user space`. The other artifacts of that run
-are the same rc8 build (only the build stamp differs), so there is nothing to reinstall. Notes:
+are the same rc8 build (only the build stamp differs). Historical notes, not current instructions:
 - `flashmode-prep.sh` only mounts (`stack`, `vendor`, settings); nothing in the flash mode start writes the flash.
 - **Before the reboot:** the hook's `sdboot` carries a fixed `initrd=0x81000000,<size>`. Read it (U-Boot environment,
   read only) and check it equals the size of the card's `c66rd.gz` (2012654 for rc8). A larger file is cut short, the
@@ -864,11 +914,11 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
 
 ### P-08 Encoder "smart" mode / VBR — `to test`
 - **What:** `tc100_rtsp` never used the vendor smart mode or VBR (`rc_vbr` was always 0 = constant bit rate). The
-  `[video]` commit adds `RTSP_VBR=1` (main) / `RTSP_VBR_SUB`. The bit rate becomes a ceiling, so a still scene
-  sends less.
+  `[video]` change maps global `rtspserver.conf [0] vbr` to `RTSP_VBR`; the explicit `RTSP_VBR_SUB` in `rtsp.env`
+  overrides only the sub-stream. The bit rate becomes a ceiling, so a still scene sends less.
 - **Test:**
-  1. Still scene, then motion, 5 min each: STAT bytes per 5 s with and without `RTSP_VBR=1` (in
-     `/mnt/config/rtsp.env`).
+  1. Still scene, then motion, 5 min each: STAT bytes per 5 s with `[0] vbr=0`, then `[0] vbr=1` in
+     `/mnt/config/rtspserver.conf`.
   2. Frigate: still records and detects, and the keyframe interval is unchanged.
   3. For the smart mode itself: `strings /mnt/lib/libmpi_venc*.so | grep -i smart` and write the symbols here.
      Smart mode (long GOP on a still scene) needs its call found in the vendor library first.
@@ -883,8 +933,8 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
     IDR and the P frames that fit at once (`RTSP_QBURST=0`: wait for the next IDR as before). `RTSP_QMAX=<KB>` sets it.
   - **Browser live video:** the fMP4 fragment is built straight into the viewer's send buffer (byte-identical in the
     host test); `RTSP_LIVE_DIRECT=0` restores the old path.
-  - **VBR (P-08):** `RTSP_VBR=1`, `RTSP_VBR_SUB`.
-  - All switches go in `/mnt/config/rtsp.env`; the start line of `tc100_rtsp.log` shows the active values.
+  - **VBR (P-08):** `[0].vbr` is the global setting; `RTSP_VBR_SUB` in `rtsp.env` is an explicit sub-stream override.
+  - RTSP tuning switches go in `/mnt/config/rtsp.env`; global VBR and Smart mode stay in `[0]` of `rtspserver.conf`.
 - **Test:**
   1. `RTSP_UDPSG=1`: VLC over UDP and over TCP, main H.265 and sub H.264. Clean picture, STAT `snd_ms` lower than
      without. Then `RTSP_UDPMMSG=1`: same picture, nothing in the log.
@@ -1586,8 +1636,8 @@ Décision du propriétaire : l'interface reste en HTTP simple sur le port 80 ; l
 
 - **Quoi :** le workflow `build-kernel-linux66.yml` a une entrée manuelle `venc_pool` : lancé à la main avec `12M`, il construit un noyau dont `ak39_venc.pool` vaut 12M par défaut (le réservoir est alloué au démarrage et la ligne de commande vient du bootloader, qu'on ne touche pas). Les artefacts s'appellent alors `tc100-linux66-cma16-kernel-pool12M` et `tc100-3-release-TESTKERNEL-pool12M` : **noyau de test, pas pour une mise à jour normale**. Sans l'entrée, rien ne change.
 - **Lancer :** GitHub → Actions → « Build Linux 6.6 LTS Kernel… » → Run workflow → `venc_pool` = `12M` (ou `gh workflow run build-kernel-linux66.yml -f venc_pool=12M`).
-- **Interrupteur :** démarrer le noyau normal (le noyau de test ne s'essaie qu'en RAM depuis la carte, `pack66/boot66b.sh`) ; `RTSP_SMART=0`.
-- **Test (.11) :** noyau de test en RAM, puis `RTSP_VBR=1` et `RTSP_SMART=1` dans `/mnt/config/rtsp.env`, redémarrer `tc100_rtsp`.
+- **Interrupteur :** démarrer le noyau normal (le noyau de test ne s'essaie qu'en RAM depuis la carte, `pack66/boot66b.sh`) ; `[0] smart=0`.
+- **Test (.11) :** noyau de test en RAM, puis `[0] vbr=1` et `[0] smart=1` dans `/mnt/config/rtspserver.conf`, redémarrer `tc100_rtsp`.
   1. `dmesg | grep -i pool` : réservoir de 12288 Ko ; log `tc100_rtsp` : `smart mode 1 (long-term reference)`, pas de `smart mode 1 not used`, pas de `alloc dma … failed`.
   2. 24 h : serveur vivant, aucune erreur noyau ; `MemAvailable` ~2,4 Mo plus bas qu'avec le noyau normal (attendu).
   3. Débit et qualité comparés à la .24 (scène calme : le débit doit baisser nettement).
@@ -1911,8 +1961,8 @@ Décision du propriétaire : l'interface reste en HTTP simple sur le port 80 ; l
 
 ## 2026-11-05 — Smart bitrate / GOP : interrupteur existant validé, reste l'essai du noyau item 9 (`[opt-56]`)
 
-- **Quoi :** le mode smart était déjà câblé (R11-01) : clés `vbr=1` et `smart=1|2` sous `[0]`/`[1]` de `rtspserver.conf`, lues par `rtsp-launch.sh` (`RTSP_VBR`, `RTSP_SMART`). Désormais validées dans `config-transaction.sh` (vbr bool, smart 0|1|2) et documentées dans `boot.conf.dist`. Désactivé par défaut. Rien à câbler de plus.
-- **Interrupteur :** clé `smart` absente ou 0 (défaut). `RTSP_SMART_FORCE=1` seulement pour le mode 2, qui arrête l'encodeur sur cette caméra.
+- **Quoi :** les clés actives sont `[0].vbr=0|1` et `[0].smart=0|1|2`, lues par `rtsp-launch.sh` et validées dans `config-transaction.sh`. Elles s'appliquent aux deux flux par défaut; `RTSP_VBR_SUB` / `RTSP_SMART_SUB` dans `rtsp.env` sont des remplacements explicites du sous-flux. Les défauts `0` figurent dans `rtspserver.conf.dist`. Les clés `brmode` / `smartmode` sont historiques et ignorées par l'encodeur libre. `rtsp.env` ne peut pas remplacer les réglages globaux.
+- **Interrupteur :** `smart=0` (défaut). Pour l'essai du mode 1 : `vbr=1`, `smart=1` dans `[0]`. `RTSP_SMART_FORCE=1` seulement pour le mode 2, qui arrête l'encodeur sur cette caméra.
 - **Test :** voir l'entrée `[smart-pool]` : noyau avec `ak39_venc.pool=12M`, puis `vbr=1` et `smart=1`. Sur le pool 9600K, le journal doit dire `smart mode 1 not used`.
 - **Critères :** `smart mode 1 (long-term reference)` dans le journal, pas de `alloc dma failed`, serveur vivant 24 h, MemAvailable environ 2,4 Mo plus bas, débit et qualité comparés à la .24.
 
@@ -1937,9 +1987,13 @@ Décision du propriétaire : l'interface reste en HTTP simple sur le port 80 ; l
 
 ## 2026-11-05 — Vue en direct WebRTC / WHEP, passerelle tc100-whep (`[whep]`, item 35 étapes 2 à 5)
 
+**État actuel (2026-11-10) :** WHEP est activé par défaut depuis rc28. Les nouvelles installations et une clé absente
+démarrent le service (`WHEP=1`); seule une valeur explicitement réglée à `WHEP=0` le désactive. Les essais en caméra
+des RC suivantes sont consignés plus bas et dans l'archive.
+
 - **Quoi :** nouveau service `tc100-whep` : le lecteur de l'interface web essaie WebRTC d'abord (~150 ms de latence, flux secondaire H.264 640x360 par défaut) et retombe sur la vue MP4 actuelle au moindre échec. Le démon (ICE-lite, DTLS-SRTP avec mbedTLS, SRTP de `src/whep/srtp.h`) lit le RTP de `tc100_rtsp` en RTSP sur la boucle locale ; il est joint par `/cgi-bin/whep.cgi`, derrière le même mot de passe que la page (le démon n'écoute que sur 127.0.0.1:8889 ; média en UDP 8189). Certificat ECDSA créé une fois dans `/mnt/config/whep-cert.pem` et `whep-key.pem` (0600, jamais dans le dépôt). Nécessite l'image de base reconstruite par la CI (mbedTLS avec `MBEDTLS_SSL_DTLS_SRTP`, paquet Buildroot `tc100-whep` copié dans `ext/bin`) : **point à risque, la construction musl n'a été vérifiée que par la CI**. Interop testée en CI contre aiortc (image décodée, audio, limite de spectateurs, arrêt). Limites : pas de bouton dans Réglages (clé `WHEP` ou page Services) ; iPhone (sans MediaSource) reste en images fixes.
-- **Interrupteur :** `WHEP=0` dans `boot.conf` (défaut : rien ne démarre et la page ne change pas) ; `WHEP=1` + redémarrage, ou Services > whep. Lus au démarrage du service : `WHEP_STREAM=sub|main`, `WHEP_MAX=1..2`, `WHEP_AUDIO=0|1`. Retour arrière : `WHEP=0` puis `sh /mnt/controlscripts/whep stop`.
-- **Test :** (1) `/mnt/ext/bin/tc100-whep` existe. (2) `WHEP=1`, démarrer le service, `cat /tmp/logs/whep.log` montre « ready ». (3) Ouvrir la page dans Chrome et Firefox (et Safari si possible) : la vue en direct passe en WebRTC (log « DTLS-SRTP up » ; `chrome://webrtc-internals`). (4) Délai avec une horloge devant la caméra. (5) Pendant le flux : `srtp-bench`, `top`, PSS de `tc100-whep` avec 1 puis 2 spectateurs ; un 3e onglet retombe sur la vue MP4. (6) Fermer l'onglet : « gone » dans le log ; Wi-Fi du PC coupé : après ~12 s. (7) `whep stop` : la page retombe sur la vue MP4 sans erreur. (8) `WHEP_STREAM=main` (H.264 seulement, sinon repli MP4). (9) `WHEP_AUDIO=1` : piste audio dans les stats WebRTC. (10) Une heure avec 2 spectateurs : pas de redémarrage de `tc100_rtsp`, mémoire stable. (11) Avec `WHEP=0` : RTSP, vue MP4, ONVIF et enregistrement inchangés.
+- **Interrupteur :** `WHEP=1` est le défaut (y compris si la clé manque); mettre explicitement `WHEP=0` dans `boot.conf` ou désactiver Services > whep pour empêcher le démarrage automatique. Les changements de `WHEP_STREAM=sub|main`, `WHEP_MAX=1..2` et `WHEP_AUDIO=0|1` sont lus au démarrage du service. Retour arrière : `WHEP=0` puis `sh /mnt/controlscripts/whep stop`.
+- **Test :** (1) Sur une caméra déjà migrée, retirer temporairement la ligne `WHEP=` de `boot.conf`, redémarrer normalement et confirmer que `tc100-whep` démarre et que la page Services indique le démarrage activé ; remettre ensuite `WHEP=1` via Services. (2) Vérifier `/mnt/ext/bin/tc100-whep`, le journal « ready » et la vue WebRTC dans Chrome/Firefox (Safari si possible). (3) Mesurer le délai avec une horloge devant la caméra. (4) Pendant le flux : `srtp-bench`, `top`, PSS avec 1 puis 2 spectateurs ; un 3e onglet retombe sur MP4. (5) Fermer l'onglet : « gone » dans le log ; couper le Wi-Fi du PC : arrêt après ~12 s. (6) `whep stop` : la page retombe sur MP4 sans erreur. (7) `WHEP_STREAM=main` (H.264 seulement, sinon repli MP4). (8) `WHEP_AUDIO=1` : piste audio dans les stats WebRTC. (9) Une heure avec 2 spectateurs : pas de redémarrage de `tc100_rtsp`, mémoire stable. (10) Régler explicitement `WHEP=0`, redémarrer normalement et confirmer que le service reste arrêté ; réactiver ensuite via Services. (11) Avec `WHEP=0` : RTSP, vue MP4, ONVIF et enregistrement inchangés.
 - **Critères :** image en moins de 2 s, latence < 150-300 ms, CPU du démon raisonnable avec 1 spectateur sur le flux secondaire (`srtp-bench` tranche secondaire / principal), 2 spectateurs au plus puis repli MP4, aucun spectateur fantôme, clé en 0600, aucune régression avec `WHEP=0`, taille de `tc100-whep` et marge de la partition `stack` notées (STACK_MAX 2 830 336 octets).
 
 ## 2026-11-05 18:55 — Relecture testeur de la journée du 2026-11-05 (56 commits, 7038060..184e1e5)
@@ -2437,9 +2491,9 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 
 ## 2026-11-06 — Fil d'envoi dans `tc100_rtsp` : `RTSP_SENDER_THREAD` (R16 / H1, `[sender-thread]`, rc32)
 
-**Mise à jour au 2026-11-09 :** `v3/linux66-sd/rtsp-launch.sh` active maintenant `RTSP_SENDER_THREAD=1` par défaut.
+**État au 2026-11-10 :** le défaut du lanceur firmware reste `RTSP_SENDER_THREAD=0` tant que R16 n'est pas qualifié.
 Le rapport rc36/rc35 confirme le flux sur les deux caméras avec un client; les critères quatre clients et mélange
-TCP/UDP ci-dessous ne sont pas documentés comme passés et restent à qualifier.
+TCP/UDP ci-dessous restent à tester. Le binaire lancé seul utilise aussi le chemin inline si la variable manque.
 
 - **Quoi :** la boucle de capture ne fait plus l'envoi aux clients (environ 2,4 ms par client et par image, cause de R16 :
   chaque client en plus retirait des images à la capture). Avec `RTSP_SENDER_THREAD=1`, elle copie chaque image encodée
@@ -2447,11 +2501,11 @@ TCP/UDP ci-dessous ne sont pas documentés comme passés et restent à qualifier
   pleine : l'image non-IDR la plus ancienne est jetée, et le fil d'envoi fait attendre le prochain IDR à tous les clients
   du flux (`dropped` augmente, comme pour un client TCP congestionné). Un seul mutex (`cl_mu`) protège la table des
   clients ; seule la boucle principale ouvre ou ferme une connexion. Un client qui arrive reçoit le cache GOP comme
-  avant, sans doublon ni désordre (`skip_seq`). Par défaut **0 : comportement identique à la rc31**. Ligne `STAT` :
+  avant, sans doublon ni désordre (`skip_seq`). Le fil est désactivé par défaut jusqu'au verdict R16. Ligne `STAT` :
   quatre champs en plus à la fin, `snd_q` (file la plus profonde sur 5 s), `snd_qdrop` (images jetées de la file),
   `snd_thr_ms` (temps occupé du fil), `snd_wait` (ms d'attente du mutex par la boucle principale).
-- **Interrupteur :** `RTSP_SENDER_THREAD=1` dans `/mnt/config/rtsp.env` (clé unique, pas dans `boot.conf`) ; redémarrer
-  le serveur RTSP (`rtsp-launch.sh`). Retirer la ligne ou mettre 0 : envoi dans la boucle comme avant. Lu une fois au
+- **Interrupteur :** mettre `RTSP_SENDER_THREAD=1` dans `/mnt/config/rtsp.env` pour l'essai; absent ou `0` garde
+  l'envoi dans la boucle. Redémarrer le serveur RTSP (`rtsp-launch.sh`); la valeur est lue au
   démarrage ; message `tc100_rtsp: sender thread on (queue 48 frames, 768 KB)` dans `/tmp/logs/tc100_rtsp.log`.
 - **Test (de jour, comme le T2 de 08:35) :** `RTSP_SENDER_THREAD=1`, redémarrage du serveur RTSP ; 4 clients en même
   temps, `ffmpeg -rtsp_transport tcp -i rtsp://<ip>:554/ -c copy -f null -` (mêmes clients que le T2) pendant 5 minutes ;
@@ -2461,7 +2515,7 @@ TCP/UDP ci-dessous ne sont pas documentés comme passés et restent à qualifier
 - **Critères :** 4 clients >= 23 img/s chacun (rc29 : ~18) ; `dropped` inchangé par rapport à l'envoi dans la boucle
   (pas de hausse à débit stable) ; pas de plantage ni de client resté bloqué en 1 h ; `MemAvailable` stable ; `snd_wait`
   faible (quelques ms par 5 s) ; image correcte (pas de macroblocs) chez un client qui arrive en cours de route et après
-  un client coupé. Si un critère échoue, remettre 0. Réussi : en faire le défaut dans `rtsp-launch.sh` (R16 `[x]`).
+  un client coupé. Si un critère échoue, garder `RTSP_SENDER_THREAD=0`; si tous passent, proposer `1` comme nouveau défaut dans un changement séparé.
 
 ## 2026-11-06 — rc32 : aspect Classique (Bulma) et `monvifd` retirés ; cache du navigateur (R22) (`[rc32-remove]`, `[r22-cache]`)
 

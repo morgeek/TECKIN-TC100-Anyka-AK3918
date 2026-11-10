@@ -54,9 +54,9 @@ WIFI_AIM=0
 # the firmware version, the load and the Wi-Fi level to them (anyone on the network can read them). Restart mdns.
 MDNS_SERVICES=1
 MDNS_INFO=1
-# WebRTC live view (item 35, tc100-whep, off by default): WHEP=1 starts the gateway at boot and the live view of the
-# web page tries WebRTC first (about 150 ms of delay), then falls back to the usual live view. WHEP_STREAM=sub (the
-# 640x360 H.264 stream, light) or main (only when the main stream is H.264). WHEP_MAX=1..2 viewers at the same time.
+# WebRTC live view (item 35, tc100-whep, on by default): WHEP=1 starts the gateway at boot and the live view of the
+# web page tries WebRTC first (about 150 ms of delay), then falls back to the usual live view. Set WHEP=0 to disable it.
+# WHEP_STREAM=sub (640x360 H.264) or main (only when the main stream is H.264). WHEP_MAX=1..2 viewers at the same time.
 # WHEP_AUDIO=1: the microphone (PCMA) goes with the picture. The certificate is made once in /mnt/config/whep-*.pem.
 # Restart the whep service after a change (Services page). Needs the base image with mbedTLS DTLS-SRTP.
 WHEP=1
@@ -151,10 +151,11 @@ BOOT_GUARD=1
 # session on it by then, it stops and its memory is freed (v3/linux66-sd/console-timer). It stays on for good in
 # safe mode (BOOT_GUARD) and when /tmp/console-keep exists. on = never stopped. Takes effect at the next start.
 SERIAL_CONSOLE=auto
-# Encoder smart mode (item 56.5) is not a boot.conf switch: it is the keys vbr=1 and smart=1 (1 = long-term reference,
-# 2 = variable GOP, only with RTSP_SMART_FORCE=1 in rtsp.env) under [0] / [1] of rtspserver.conf (Video page), off when
-# absent. Mode 1 needs the 12 MB encoder pool of the item 9 kernel: on the default 9600K pool tc100_rtsp logs
-# "smart mode 1 not used" and runs as before.
+# RTSP encoder mode is configured in rtspserver.conf [0]: vbr=0|1 and smart=0|1|2 apply to both streams by default
+# (both default 0; Smart requires vbr=1). RTSP_VBR_SUB / RTSP_SMART_SUB in rtsp.env can explicitly override the
+# sub-stream. Smart mode is not exposed in the web page. Mode 1 needs the 12 MB encoder pool of item 9; on the default
+# 9600K pool tc100_rtsp logs "smart mode 1 not used" and runs as before. Mode 2 needs
+# RTSP_SMART_FORCE=1 in rtsp.env and stops the encoder on this camera; do not use it in normal operation.
 # VM_TUNE=1: kernel memory settings for this 64 MB camera (vm.vfs_cache_pressure=150, vm.dirty_background_ratio=5,
 # vm.dirty_ratio=10: cached file names are given back sooner, the card's writes start earlier in the background).
 # No data is at risk. 0 = the kernel's defaults. Takes effect at the next start.

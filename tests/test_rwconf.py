@@ -71,7 +71,7 @@ class Expectations(unittest.TestCase):
         self.assertEqual(self.rd(DIST, '0', 'fps'), '15\n')
         self.assertEqual(self.rd(DIST, '0', 'codec', '0', 'bps', ' ', 'PORT'), '2 1600 554\n')
         self.assertEqual(self.rd(DIST, '0', 'minqp', '0', 'maxqp', '0', 'goplen', '1', 'goplen'), '25 48 30 30\n')
-        self.assertEqual(self.rd(DIST, '0', 'vbr', '0', 'smart'), ' \n')               # two missing keys: " " between
+        self.assertEqual(self.rd(DIST, '0', 'vbr', '0', 'smart'), '0 0\n')           # explicit CBR / Smart-off defaults
         self.assertEqual(self.rd(DIST, ' ', 'osdtext'), '%H:%M:%S %d.%m.%Y\n')           # value with spaces/percent
         self.assertEqual(self.rd(DIST, ' ', 'volume', ' ', 'imageflip'), '10 0\n')
         self.assertEqual(self.rd(DIST, '0', 'mainres'), '1080\n')
@@ -110,7 +110,9 @@ class Expectations(unittest.TestCase):
         f = self.wr(DIST, ' ', 'PORT', '8554')
         self.assertTrue(f.startswith(b'PORT=8554\nRTSPLOGENABLED=0\nUSERNAME=root\nUSERPASSWORD=REPLACEME\nchannels=1\n'))
         self.assertEqual(f.count(b'['), 4)
-        self.assertIn(b'[0]\nbps=1600\nbrmode=1\ncodec=2\nfps=15\n', f)
+        self.assertIn(b'brmode=1\ncodec=2\n', f)                                    # retained legacy vendor field
+        self.assertIn(b'smartmode=0\n', f)                                           # legacy Smart remains off in defaults
+        self.assertIn(b'vbr=0\nsmart=0\n', f)                                      # active free-encoder defaults
         self.assertEqual(f.split(b'\n[0]\n')[0].count(b'\n'), 23)                  # 24 top level keys
 
     def test_write_forms_of_the_scripts(self):

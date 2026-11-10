@@ -20,6 +20,7 @@
       rewrite_config /mnt/config/boot.conf REC_STREAM "$_lr_stream"
       rewrite_config /mnt/config/boot.conf REC_SEGMENT_SEC "$((_lr_seg * 60))"
       rewrite_config /mnt/config/boot.conf REC_RESERVE_MB "$_lr_res"
+      sh /mnt/scripts/presence-mode.sh manual
       # tc100_rtsp reads these settings while it runs, nothing to restart
       if wants_json_response; then
         json_body_ok "Local recording settings saved."

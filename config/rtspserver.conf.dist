@@ -24,6 +24,8 @@ volume=10
 imageflip=0
 [0]
 bps=1600
+# Legacy RTSP metadata: brmode, smartmode, smartgoplen, smartquality, smartstatic, maxkbps and targetkbps are retained
+# for old config/backup compatibility; the free RTSP server does not read them. Active mode controls are vbr and smart.
 brmode=1
 codec=2
 fps=15
@@ -34,7 +36,13 @@ maxqp=48
 minqp=25
 profile=3
 width=1920
-smartmode=1
+smartmode=0
+# Active free RTSP encoder controls, read from [0] by rtsp-launch.sh. VBR and Smart apply to both streams by default;
+# Smart requires VBR (`vbr=1`). RTSP_VBR_SUB / RTSP_SMART_SUB in rtsp.env are explicit sub-stream-only expert
+# overrides. Both modes default off.
+# Optional RTSP_SMART_GOP, RTSP_SMART_Q and RTSP_SMART_V in rtsp.env tune Smart mode; the legacy Smart fields do not.
+vbr=0
+smart=0
 smartgoplen=64
 smartquality=100
 smartstatic=550
@@ -45,6 +53,8 @@ osdx=20
 osdy=24
 [1]
 bps=250
+# The legacy RTSP metadata listed under [0] is retained here for old config/backup compatibility; it is not read by the
+# free RTSP server.
 brmode=1
 codec=0
 fps=15
@@ -54,7 +64,7 @@ maxqp=48
 minqp=25
 profile=0
 width=352
-smartmode=1
+smartmode=0
 smartgoplen=8
 smartquality=50
 smartstatic=150

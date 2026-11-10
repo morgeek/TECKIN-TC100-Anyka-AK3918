@@ -874,6 +874,7 @@ publish_homeassistant_discovery()
 
   # Command templates for interactive entities
   cmd_profile_tpl_json="$(json_escape "{\"cmd\":\"profile\",\"value\":\"{{ value }}\"}")"
+  cmd_presence_tpl_json="$(json_escape "{\"cmd\":\"presence\",\"value\":\"{{ value }}\"}")"
   cmd_motion_on_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"on\"}")"
   cmd_motion_off_json="$(json_escape "{\"cmd\":\"motion\",\"value\":\"off\"}")"
   cmd_ir_on_json="$(json_escape "{\"cmd\":\"ir_led\",\"value\":\"on\"}")"
@@ -1091,6 +1092,10 @@ DIAG
   profile_select_cfg_topic="${discovery_prefix}/select/${node_id}/profile/config"
   profile_select_cfg_payload="$(printf '{"name":"%s Profile Preset","uniq_id":"%s_profile_select","cmd_t":"%s","stat_t":"%s","options":["balanced","low-cpu","rtsp-only"],"val_tpl":"{{ value_json.perfprofile }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:tune-variant","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_profile_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
   publish_discovery_config "$profile_select_cfg_topic" "$profile_select_cfg_payload"
+
+  presence_select_cfg_topic="${discovery_prefix}/select/${node_id}/presence_mode/config"
+  presence_select_cfg_payload="$(printf '{"name":"%s Presence Mode","uniq_id":"%s_presence_mode","cmd_t":"%s","stat_t":"%s","options":["present","away","night","custom"],"val_tpl":"{{ value_json.presence_mode }}","cmd_tpl":"%s","avty_t":"%s","pl_avail":"online","pl_not_avail":"offline","ic":"mdi:home-account","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$health_topic_json" "$cmd_presence_tpl_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  publish_discovery_config "$presence_select_cfg_topic" "$presence_select_cfg_payload"
 }
 
 init_slow_health_defaults()
@@ -1560,12 +1565,15 @@ build_health_payload()
   hostname_json="$(json_escape "$hostname_value")"
   web_mode_json="$(json_escape "$web_mode")"
   profile_json="$(json_escape "$profile")"
+  presence_mode="$(sh /mnt/scripts/presence-mode.sh current 2>/dev/null)"
+  case "$presence_mode" in present|away|night|custom) ;; *) presence_mode=custom ;; esac
+  presence_mode_json="$(json_escape "$presence_mode")"
   power_sensor_path_json="$(json_escape "$power_sensor_path")"
   primary_ip_json="$(json_escape "$primary_ip")"
   build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$privacy_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","presence_mode":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$presence_mode_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$privacy_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
 }
 
 publish_health()
@@ -1826,6 +1834,7 @@ apply_toggle_command()
       ;;
   esac
 
+  case "$cmd" in motion|motion_detection|privacy) sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true ;; esac
   return 0
 }
 
@@ -2033,6 +2042,21 @@ handle_command_payload()
       else
         publish_event_simple "command.profile" "invalid:$value"
         publish_command_result "profile" "invalid" "Unknown profile ${value}." 0 "$command_source" command
+        command_rc=1
+      fi
+      ;;
+    presence|presence_mode)
+      if presence_result="$(sh /mnt/scripts/presence-mode.sh apply "$value" 2>/dev/null)"; then
+        publish_event_simple "command.presence" "$value"
+        publish_command_result "presence" "applied" "Applied presence mode ${value}." 1 "$command_source" command
+        refresh_state=1
+      else
+        publish_event_simple "command.presence" "failed:$value"
+        case "$presence_result" in
+          *profile_not_configured*) presence_error="Presence profile ${value} is not saved. Save it in camera Settings first." ;;
+          *) presence_error="Presence mode ${value} could not be applied; check the camera service state." ;;
+        esac
+        publish_command_result "presence" "rejected" "$presence_error" 0 "$command_source" command
         command_rc=1
       fi
       ;;

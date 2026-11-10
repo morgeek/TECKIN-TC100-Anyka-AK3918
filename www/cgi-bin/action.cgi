@@ -172,20 +172,6 @@ sanitize_video_codec() {
   esac
 }
 
-sanitize_video_brmode() {
-  case "$1" in
-    0|1) echo "$1" ;;
-    *) echo "1" ;;
-  esac
-}
-
-sanitize_video_smartmode() {
-  case "$1" in
-    0|1|2) echo "$1" ;;
-    *) echo "1" ;;
-  esac
-}
-
 sanitize_weekday_expr() {
   case "$1" in
     '*'|0|1|2|3|4|5|6|1-5|0,6)
@@ -1155,7 +1141,7 @@ if [ -n "$F_cmd" ]; then
   [ "${ACTION_AUDIT_SKIP:-0}" = 1 ] || audit_log "$F_cmd"
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|ha_discovery_info) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|ha_discovery_info|presence_info) ;;
     *) csrf_check ;;
   esac
   # The zone response is assembled through many sed/grep subprocesses. Cache
@@ -1222,6 +1208,8 @@ if [ -n "$F_cmd" ]; then
       _action_group=setup ;;
     events_info|set_notify_config|set_tamper_config|set_sound_options)
       _action_group=events ;;
+    presence_info|presence_apply|presence_profiles_save)
+      _action_group=presence ;;
     *) _action_group= ;;
   esac
   if [ -n "$_action_group" ] && [ -f "/mnt/scripts/action.d/$_action_group.sh" ]; then

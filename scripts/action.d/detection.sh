@@ -37,11 +37,13 @@
         /mnt/bin/setconf -k m -v $mdsens
         /mnt/bin/setconf -k p -v 1
         rewrite_config /mnt/config/rtspserver.conf mdenabled 1
+        sh /mnt/scripts/presence-mode.sh manual
     ;;
 
     motion_detection_off)
       /mnt/bin/setconf -k p -v 0
       rewrite_config /mnt/config/rtspserver.conf mdenabled 0
+      sh /mnt/scripts/presence-mode.sh manual
     ;;
 
     conf_motiondetect)

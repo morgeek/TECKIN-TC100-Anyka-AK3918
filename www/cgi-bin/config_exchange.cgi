@@ -83,7 +83,8 @@ _ce_prepare_file() {
 #         with include_secrets=1, left out of an import by exclude_credentials=1), general
 # The import reads the document flattened by scripts/jsonflat.awk (no jq on the flash firmware); a path that is
 # absent or null is skipped. Every value goes through tc_normalize_and_validate (scripts/config-transaction.sh):
-# several of these files are sourced by shell scripts, so nothing with shell metacharacters gets in.
+# several of these files are sourced by shell scripts, so nothing with shell metacharacters gets in. The RTSP
+# `format`, `smartmode` and Smart tuning rows below preserve legacy metadata; active encoder mode is `[0].vbr` / `[0].smart`.
 _ce_row_table() {
   cat <<'ROWS'
     row("boot.conf";"flat";"root";"STREAM_TOPOLOGY";"topology";"general";.boot.topology),
@@ -97,6 +98,22 @@ _ce_row_table() {
     row("boot.conf";"flat";"root";"WIFI_COUNTRY";"country_optional";"general";.boot.wifi_country),
     row("boot.conf";"flat";"root";"NET_GUARD_SOFT";"bool";"general";.boot.net_guard_soft),
     row("boot.conf";"flat";"root";"PRIVACY_SCREEN";"bool";"general";.boot.privacy_screen),
+    row("presence.conf";"flat";"root";"PRESENCE_MODE";"presence_mode";"general";.presence.mode),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_CONFIGURED";"bool";"general";.presence.present.configured),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_PRIVACY";"bool";"general";.presence.present.privacy),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_MOTION";"bool";"general";.presence.present.motion),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_RECORDING";"bool";"general";.presence.present.recording),
+    row("presence.conf";"flat";"root";"PRESENCE_PRESENT_NOTIFICATIONS";"bool";"general";.presence.present.notifications),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_CONFIGURED";"bool";"general";.presence.away.configured),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_PRIVACY";"bool";"general";.presence.away.privacy),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_MOTION";"bool";"general";.presence.away.motion),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_RECORDING";"bool";"general";.presence.away.recording),
+    row("presence.conf";"flat";"root";"PRESENCE_AWAY_NOTIFICATIONS";"bool";"general";.presence.away.notifications),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_CONFIGURED";"bool";"general";.presence.night.configured),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_PRIVACY";"bool";"general";.presence.night.privacy),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_MOTION";"bool";"general";.presence.night.motion),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_RECORDING";"bool";"general";.presence.night.recording),
+    row("presence.conf";"flat";"root";"PRESENCE_NIGHT_NOTIFICATIONS";"bool";"general";.presence.night.notifications),
     row("boot.conf";"flat";"root";"WEB_LOCKOUT";"bool";"general";.boot.web_lockout),
     row("boot.conf";"flat";"root";"WIFI_AIM";"bool";"general";.boot.wifi_aim),
     row("boot.conf";"flat";"root";"MDNS_SERVICES";"bool";"general";.boot.mdns_services),
@@ -127,12 +144,14 @@ _ce_row_table() {
     row("rtspserver.conf";"ini";"0";"brmode";"bool";"general";.video.main.format),
     row("rtspserver.conf";"ini";"0";"minqp";"qp";"general";.video.main.minqp),
     row("rtspserver.conf";"ini";"0";"maxqp";"qp";"general";.video.main.maxqp),
-    row("rtspserver.conf";"ini";"0";"smartmode";"bool";"general";.video.main.smartmode),
+    row("rtspserver.conf";"ini";"0";"smartmode";"smart_mode";"general";.video.main.smartmode),
     row("rtspserver.conf";"ini";"0";"smartgoplen";"gop";"general";.video.main.smartgoplen),
     row("rtspserver.conf";"ini";"0";"smartquality";"smartquality";"general";.video.main.smartquality),
     row("rtspserver.conf";"ini";"0";"smartstatic";"smartstatic";"general";.video.main.smartstatic),
     row("rtspserver.conf";"ini";"0";"maxkbps";"bitrate";"general";.video.main.maxkbps),
     row("rtspserver.conf";"ini";"0";"targetkbps";"bitrate";"general";.video.main.targetkbps),
+    row("rtspserver.conf";"ini";"0";"vbr";"bool";"general";.video.main.vbr),
+    row("rtspserver.conf";"ini";"0";"smart";"smart_mode";"general";.video.main.smart),
     row("rtspserver.conf";"ini";"1";"codec";"video_codec";"general";.video.sub.codec),
     row("rtspserver.conf";"ini";"1";"profile";"profile";"general";.video.sub.profile),
     row("rtspserver.conf";"ini";"1";"width";"width";"general";.video.sub.width),
@@ -143,7 +162,7 @@ _ce_row_table() {
     row("rtspserver.conf";"ini";"1";"brmode";"bool";"general";.video.sub.format),
     row("rtspserver.conf";"ini";"1";"minqp";"qp";"general";.video.sub.minqp),
     row("rtspserver.conf";"ini";"1";"maxqp";"qp";"general";.video.sub.maxqp),
-    row("rtspserver.conf";"ini";"1";"smartmode";"bool";"general";.video.sub.smartmode),
+    row("rtspserver.conf";"ini";"1";"smartmode";"smart_mode";"general";.video.sub.smartmode),
     row("rtspserver.conf";"ini";"1";"smartgoplen";"gop";"general";.video.sub.smartgoplen),
     row("rtspserver.conf";"ini";"1";"smartquality";"smartquality";"general";.video.sub.smartquality),
     row("rtspserver.conf";"ini";"1";"smartstatic";"smartstatic";"general";.video.sub.smartstatic),
@@ -596,6 +615,7 @@ _ce_import() {
   _ce_wc() { [ -f /mnt/scripts/wifi-country.sh ] && WC_CONF="$CONFIG_ROOT/boot.conf" sh /mnt/scripts/wifi-country.sh get 2>/dev/null; }
   _ce_wc_before="$(_ce_wc)"
   tc_commit_config_files "$_ce_stage" "$CONFIG_ROOT" "$_ce_backup" "$_ce_files" || _ce_fail "Import rejected (${TC_CONFIG_ERROR:-transaction failed}); active configuration was preserved" "TRANSACTION_FAILED"
+  sh /mnt/scripts/presence-mode.sh current >/dev/null 2>&1 || true
   _ce_changed="$TC_COMMIT_COUNT"
   if [ "$_ce_changed" -gt 0 ]; then
     rm -f /tmp/state-response-*.cache /tmp/action-response-*.cache >/dev/null 2>&1 || true
@@ -670,6 +690,7 @@ _ce_restore() {
   if [ -n "$_rs_files" ] && ! tc_commit_config_files "$_rs/x/config" "$CONFIG_ROOT" "$_rs/backup" "$_rs_files"; then
     _rs_fail "TRANSACTION_FAILED" "Restore refused (${TC_CONFIG_ERROR:-transaction failed}); the configuration is unchanged"; return
   fi
+  sh /mnt/scripts/presence-mode.sh current >/dev/null 2>&1 || true
   _rs_changed="${TC_COMMIT_COUNT:-0}"
   for _rs_f in $_rs_marks; do mkdir -p "$CONFIG_ROOT/$(dirname "$_rs_f")" && : > "$CONFIG_ROOT/$_rs_f"; done
   rm -rf "$_rs"

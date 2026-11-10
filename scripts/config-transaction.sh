@@ -64,6 +64,7 @@ tc_normalize_and_validate()
     supervisor_impl) case "$_tc_value" in c|sh) ;; *) return 1 ;; esac ;;
     topology) case "$_tc_value" in dual|main-only|sub-only) ;; *) return 1 ;; esac ;;
     whep_stream) case "$_tc_value" in sub|main) ;; *) return 1 ;; esac ;;
+    presence_mode) case "$_tc_value" in custom|present|away|night) ;; *) return 1 ;; esac ;;
     idle_when) case "$_tc_value" in still|unwatched|night) ;; *) return 1 ;; esac ;;
     onvif_policy) case "$_tc_value" in main-primary|sub-primary|sub-only|main-only) ;; *) return 1 ;; esac ;;
     hostname)
@@ -464,7 +465,7 @@ tc_validate_rtsp()
     tc_check_ini "$_tc_file" "$_tc_section" brmode bool "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" minqp qp "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" maxqp qp "$_tc_label" || return 1
-    tc_check_ini "$_tc_file" "$_tc_section" smartmode bool "$_tc_label" || return 1
+    tc_check_ini "$_tc_file" "$_tc_section" smartmode smart_mode "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" vbr bool "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" smart smart_mode "$_tc_label" || return 1
     tc_check_ini "$_tc_file" "$_tc_section" smartgoplen smartgop "$_tc_label" || return 1
@@ -506,7 +507,7 @@ _tc_validate_candidate_body()
   [ "$_tc_size" -le 262144 ] || _tc_fail "$_tc_rel:too_large" || return 1
   case "$_tc_rel" in
     rtspserver.conf) tc_validate_rtsp "$_tc_file" "$_tc_rel" || return 1 ;;
-    boot.conf|mqtt.conf|service_trim.conf|recording.conf|sound_detection.conf|daynight.conf|notify.conf|tamper.conf|isp_tune.conf|motion.conf|telegram.conf|telnetd.conf|ftp.conf|onvif.conf|network.conf|dns.conf|sendmail.conf|timelapse.conf|onvif_events.conf)
+    boot.conf|mqtt.conf|service_trim.conf|recording.conf|sound_detection.conf|daynight.conf|notify.conf|tamper.conf|isp_tune.conf|motion.conf|telegram.conf|telnetd.conf|ftp.conf|onvif.conf|network.conf|dns.conf|sendmail.conf|timelapse.conf|onvif_events.conf|presence.conf)
       /bin/sh -n "$_tc_file" >/dev/null 2>&1 || _tc_fail "$_tc_rel:shell_syntax" || return 1 ;;
   esac
   case "$_tc_rel" in
@@ -627,6 +628,15 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" NOTIFY_BURST_EVENTS events "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NOTIFY_UPLOAD_URL url_optional "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NOTIFY_UPLOAD_AUTH credential_optional "$_tc_rel" || return 1 ;;
+    presence.conf)
+      tc_check_flat "$_tc_file" PRESENCE_MODE presence_mode "$_tc_rel" || return 1
+      for _tc_profile in PRESENT AWAY NIGHT; do
+        tc_check_flat "$_tc_file" "PRESENCE_${_tc_profile}_CONFIGURED" bool "$_tc_rel" || return 1
+        tc_check_flat "$_tc_file" "PRESENCE_${_tc_profile}_PRIVACY" bool "$_tc_rel" || return 1
+        tc_check_flat "$_tc_file" "PRESENCE_${_tc_profile}_MOTION" bool "$_tc_rel" || return 1
+        tc_check_flat "$_tc_file" "PRESENCE_${_tc_profile}_RECORDING" bool "$_tc_rel" || return 1
+        tc_check_flat "$_tc_file" "PRESENCE_${_tc_profile}_NOTIFICATIONS" bool "$_tc_rel" || return 1
+      done ;;
     tamper.conf)
       tc_check_flat "$_tc_file" ENABLE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" TAMPER_HOLD_SEC u:1:600 "$_tc_rel" || return 1

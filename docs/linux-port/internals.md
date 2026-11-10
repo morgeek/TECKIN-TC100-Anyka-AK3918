@@ -53,10 +53,11 @@ Contents: [Full feature list](#full-feature-list) - [How the SD install works, a
 
 **Audio**
 - The microphone in the RTSP stream and in the recordings, listening live from the browser, a sound level in dBFS with
-  detection, and push-to-talk from the browser through the camera's speaker (not yet checked on a camera).
-- **Two-way audio from Home Assistant, Frigate or go2rtc**: their microphone button plays your voice on the camera's
-  speaker (ONVIF backchannel in the RTSP stream; needs the camera password; Settings → Video → Two-way audio; not yet
-  checked on a camera).
+  detection, and browser push-to-talk through the camera's speaker (implemented; camera qualification remains open in
+  test-queue UI-13).
+- **Two-way audio from Home Assistant, Frigate or go2rtc**: the RTSP server implements the ONVIF backchannel their
+  microphone button uses to send audio to the camera speaker (camera password required; Settings → Video → Two-way
+  audio). End-to-end camera qualification remains open in test-queue P4.
 
 **Detection**
 - The camera's own motion detection (MQTT event, picture on motion), with **motion zones**. Off by default: Frigate
@@ -82,8 +83,8 @@ Contents: [Full feature list](#full-feature-list) - [How the SD install works, a
 
 **What 3.0 does not do**: HTTPS on the camera (it serves plain HTTP with a login; put a
 [reverse proxy](#https-with-a-reverse-proxy) in front of it), a VPN, arbitrary custom resolutions beyond 1080p/720p main and
-640x360 sub, the encoder's smart mode (it stops the encoder with the memory left on
-this camera). Not yet checked on a camera: push-to-talk and two-way audio through the speaker (the speaker itself
+640x360 sub, Smart mode in normal operation (mode 1 needs the experimental 12 MiB encoder pool; mode 2 stops the
+encoder on this camera). Not yet qualified on camera: push-to-talk and two-way audio through the speaker (speaker playback itself
 works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). What is known
 not to be perfect yet: [known issues](../known-issues.md).
 
@@ -219,8 +220,8 @@ An interrupted update leaves the flash system unable to start: keep the 3.0 SD c
    (docker `-e` / compose `environment:`, or the Frigate add-on options). Streams:
    - main (recording): `rtsp://root:PASSWORD@CAMERA-IP:554/video0_unicast`
    - sub (detection): `rtsp://root:PASSWORD@CAMERA-IP:554/video1_unicast`
-   - go2rtc also gets the speaker: two-way audio from the microphone button of Home Assistant, Frigate or go2rtc
-     ([docs/two-way-audio.md](../two-way-audio.md)).
+    - The go2rtc configuration path for two-way audio is documented at [docs/two-way-audio.md](../two-way-audio.md).
+      The RTSP backchannel is implemented; end-to-end operation on Linux 6.6 remains open in test-queue P4 / UI-13.
 5. Still image in Home Assistant: a *Generic Camera* with `http://CAMERA-IP/cgi-bin/currentpic.cgi`, basic auth.
 
 Home Assistant can drive the camera (LEDs, day / night, profile, snapshot, motion) by publishing on

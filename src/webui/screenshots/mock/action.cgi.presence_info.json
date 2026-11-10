@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "mode": "custom",
+  "profiles": {
+    "present": {"configured": 0, "privacy": 0, "motion": 0, "recording": 0, "notifications": 1},
+    "away": {"configured": 0, "privacy": 0, "motion": 1, "recording": 1, "notifications": 1},
+    "night": {"configured": 0, "privacy": 0, "motion": 1, "recording": 1, "notifications": 1}
+  }
+}

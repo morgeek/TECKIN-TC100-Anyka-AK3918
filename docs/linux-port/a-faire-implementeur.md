@@ -1,4 +1,4 @@
-# Liste de l'implémenteur — état courant au 2026-11-09
+# Liste de l'implémenteur — état courant au 2026-11-10
 
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
@@ -23,9 +23,34 @@ fonction ou scénario de charge a été validé :
   pas de verdict de soak prolongé. Les pertes Wi-Fi sporadiques ne sont pas expliquées. Le test cible à quatre clients
   RTSP et le test de conversation audio aller-retour avec go2rtc / Frigate / Home Assistant n'ont pas de résultat
   final consigné. Les tests du dernier binaire avec enregistrement SD et réception RTSP/UDP doivent aussi être
-  confirmés selon les scénarios réellement utilisés.
+  confirmés selon les scénarios réellement utilisés. Le push-to-talk du navigateur et la conversation audio aller-retour
+  restent à qualifier sur la version Linux 6.6.
 
-## Priorités proposées
+## Chantiers confirmés par le propriétaire — 2026-11-10
+
+- **Qualification RTSP (point 2 confirmé) — propriétaire / testeur :** quatre clients, mélange TCP/UDP, enregistrement
+  SD, push-to-talk du navigateur et conversation audio aller-retour. Les mesures et critères sont dans [la file de tests](test-queue.md#owner-confirmed-current-work-2026-11-10).
+  L'implémenteur intervient sur les défauts révélés par ces essais.
+- **#64, schéma des paramètres (point 3 confirmé) — implémenteur + propriétaire / testeur :** le pilote du catalogue
+  RTSP VBR/Smart et son contrôle de cohérence sont implémentés. Reste l'essai caméra R12-07; après ce résultat, le
+  propriétaire décidera si une autre famille doit être ajoutée.
+- **WHEP (point 4 confirmé) — propriétaire / testeur :** vérifier l'activation quand `WHEP` manque, la désactivation
+  explicite avec `WHEP=0`, le repli navigateur, la latence et la charge à un puis deux spectateurs. La procédure est
+  dans [l'entrée WHEP](test-queue.md#2026-11-05--vue-en-direct-webrtc--whep-passerelle-tc100-whep-whep-item-35-étapes-2-à-5).
+  L'implémenteur corrige les écarts constatés.
+- **#65 — Modes de présence — implémentation faite, essai caméra restant :** profils Présent, Absent et Nuit
+  configurables depuis Réglages → Système, appliqués par l'interface ou par un sélecteur Home Assistant. Le mode de
+  départ est Personnalisé : rien n'est modifié avant un choix explicite. Les profils mémorisent seulement leurs actions ;
+  confidentialité, détection et enregistrement actifs restent dans leurs fichiers habituels. Notifications commande
+  l'envoi Webhook/Ntfy/Telegram ; les événements MQTT continuent d'être publiés. Une modification manuelle de la
+  confidentialité, de la détection, de l'enregistrement ou des canaux d'alerte fait passer le mode à Personnalisé sans
+  annuler les réglages modifiés.
+  Détails et critères : [entrée PRES-01](test-queue.md#pres-01-modes-de-présence-configurables).
+
+Ces quatre chantiers confirmés ne demandent pas une réécriture générale du firmware. Les essais caméra ne
+modifient aucune partition flash.
+
+## Autres priorités proposées
 
 1. **Wi-Fi :** compléter le diagnostic avec une mesure simultanée caméra→routeur et client LAN→caméra. Le relevé de
    deux heures du 6 novembre n'a pas vu de gel des compteurs USB/RX ; le 8 novembre, une rafale de pertes a été suivie
@@ -44,23 +69,10 @@ fonction ou scénario de charge a été validé :
    d'accès de secours : ouvrir directement l'assistant, afficher clairement les états association/DHCP/passerelle,
    tester l'accès au réseau local et garder la récupération disponible si les nouveaux identifiants échouent. Le
    fuseau et le pays sont déjà demandés par l'assistant ; MQTT doit rester facultatif avec un test de connexion.
-4. **Qualification ciblée :** consigner le test 4 clients RTSP, l'audio retour et les scénarios d'enregistrement / UDP
-   utilisés par le propriétaire. Reprendre une surveillance longue seulement si elle apporte une décision concrète.
-5. **#64 — Schéma unique des paramètres (proposition) :** créer un catalogue déclaratif indiquant, pour chaque réglage,
-   son fichier de référence, son type, ses valeurs permises, son défaut éventuel, son libellé et si sa valeur est secrète.
-   Le catalogue décrit l'emplacement unique de la valeur runtime ; il ne duplique pas les réglages dans un nouveau fichier
-   de configuration. L'utiliser progressivement pour générer ou vérifier la validation, l'aide de l'interface et la
-   documentation. Commencer par un inventaire en lecture seule d'une famille (par exemple RTSP), relever les écarts,
-   puis migrer un seul groupe en gardant les formats existants et les secrets masqués.
-6. **#65 — Modes de présence configurables (proposition) :** proposer des profils personnalisables (par exemple
-   « Présent », « Absent », « Nuit »), sélectionnables depuis l'interface et Home Assistant via MQTT. Chaque profil
-   regroupe des actions sur les fonctions déjà présentes : confidentialité, détection, enregistrement et alertes.
-   L'utilisateur définit les actions de chaque profil ; aucun comportement de présence n'est imposé. Conserver le mode
-   sélectionné localement pour qu'il survive au redémarrage et reste utilisable si Home Assistant ou le broker est
-   indisponible. Appliquer les changements par les interfaces de configuration existantes, sans créer de seconde
-   source de vérité pour les réglages. Prévoir un état HA qui reflète le mode actif et un comportement déterministe
-   lorsque l'utilisateur modifie un réglage manuellement.
-7. **Noyau et image :** smart mode, 3D-NR et minuteries haute résolution restent des expériences à gain incertain,
+4. **#64 — Extension du catalogue après le pilote RTSP (à décider) :** attendre le résultat caméra R12-07, puis choisir
+   avec le propriétaire une seule famille utile. Cette proposition concerne l'extension du pilote, pas la reprise de son
+   implémentation.
+5. **Noyau et image :** smart mode, 3D-NR et minuteries haute résolution restent des expériences à gain incertain,
    à mesurer d'abord depuis SD et avec le propriétaire présent ; ne pas les présenter comme des améliorations acquises.
 
 Les changements qui nécessitent un essai caméra recevront une entrée dédiée dans `test-queue.md` avant d'être activés
@@ -170,7 +182,10 @@ critères) sont dans `test-queue.md` sous l'étiquette indiquée.
   corrigé, et la CI GitHub compile les programmes autonomes avec le compilateur du runner.
 - Variable libc via la libc de substitution (`stderr`) : `tc100-onvifd` plantait → `tests/check-libc-data-imports.sh`.
 
-### Ce qui reste
+### État historique de la rc28 — ce qui restait alors
+
+Cette liste décrit le backlog avant la qualification des RC ultérieures. Pour le travail courant, utiliser les
+priorités en tête du document et les entrées encore ouvertes de `test-queue.md`.
 - **Sur caméra (testeur / propriétaire)** : publier la rc28 (R1) puis le plan de test T1-T13 / P1-P10 ; `srtp-bench`,
   latence WebRTC dans le navigateur, VLC en UDP, import JSON, PSS des démons C ; #9 (noyau smart), #10 (mémoire de la
   .24), #37 (2D-NR à régler sur la caméra).
@@ -205,7 +220,7 @@ démarré depuis la carte SD ; interrupteur `boot.conf` par défaut = comporteme
   15) **fait, à tester** (`LOWLIGHT_FPS_VALUE` 10/15/20 dans Réglages → Jour/nuit, rc32 `[tz-lowlight]`), F3 + F9 fuseau horaire
   dans l'assistant (les deux caméras sont en UTC) **fait, à tester** (étape « Fuseau horaire », même liste dans Réglages), F4 formatage de la carte / exFAT, F5 image
   (WDR, NR2 ; **confirmer avec le propriétaire**, exclu de #61 le 05/11), F6 bascules jour/nuit à l'aube, F10 pages lentes.
-- **H — Matériel.** H1 fil d'envoi dans `tc100_rtsp` (cause de R16 ; `RTSP_SENDER_THREAD`, défaut 0), H2 mode smart +
+- **H — Matériel.** H1 fil d'envoi dans `tc100_rtsp` (cause de R16 ; défaut du lanceur firmware passé à 1 le 2026-11-09), H2 mode smart +
   pool 12M, H3 3D-NR (tester en 720p), H4 minuteries haute résolution — H2 à H4 d'abord sur le noyau de la carte SD ;
   H11 mesurer le temps de démarrage.
 - **D — Docs contredites par le code** *(D1-D10 corrigés le 2026-11-06)* (sans risque) : D1-D10 de l'audit, dont **59.1 sans effet** (les options
@@ -447,7 +462,7 @@ R15. [x] *(corrigé par le testeur en `7e3b1c8`, puis `8845166` pour `recording`
     s'il reste d'autres `stop` « techniques » qui écrivent un réglage utilisateur (`service_trim`, `mqtt-bridge.sh`
     l. 1734, `action.cgi` l. 680 : voulus par l'utilisateur ? à documenter).
 
-R16. [~] *(code fait derrière `RTSP_SENDER_THREAD` (défaut 0, `rtsp.env`), à mesurer sur caméra ; `[sender-thread]`, test-queue)* *(perf, après la 3.0.1)* **Chaque client RTSP en plus retire des images à la capture** (T2 de jour, rc29,
+R16. [~] *(code fait derrière `RTSP_SENDER_THREAD`; le lanceur firmware met 1 par défaut depuis le 2026-11-09, tandis qu'un binaire lancé seul reste à 0 si la variable manque. Le test caméra reste ouvert ; `[sender-thread]`, test-queue)* *(perf, après la 3.0.1)* **Chaque client RTSP en plus retire des images à la capture** (T2 de jour, rc29,
     test-queue 2026-11-06 08:35 : 1 client 24,7 img/s, 2 clients ~23, 4 clients ~18 ; `snd_ms` ~250-300 / 5 s par
     client, dans la boucle de capture, encodeur à ~3,8 s / 5 s). Pistes : mise en paquets RTP une seule fois par image
     et par flux (le même entrelacement TCP pour tous les clients qui ont les mêmes canaux), ou envoi dans un fil à part
@@ -594,7 +609,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
 9. [ ] *(« #9 smart »)* **Build noyau pour le mode smart de l'encodeur** (essai sur la .11) *(2026-11-05 : la CI construit ce noyau
    de test à la demande, entrée `[smart-pool]` de `test-queue.md` ; reste l'essai)* : valeur par défaut compilée
    `ak39_venc.pool=12M` (patch 0015 ; le paramètre est `0444` et la ligne de commande vient du bootloader : pas de
-   U-Boot). Puis `RTSP_VBR=1` + `RTSP_SMART=1` (mode 1 seulement). Critères : `smart mode 1 (long-term reference)`
+   U-Boot). Puis `[0] vbr=1` + `[0] smart=1` (mode 1 seulement). Critères : `smart mode 1 (long-term reference)`
    dans le log, pas de `alloc dma … failed`, serveur vivant 24 h, MemAvailable ~2,4 Mo plus bas, débit et qualité
    comparés à la .24.
 9. [ ] *(« #9 Wi-Fi » ; mesure `[wifi-diag]`, audit 2026-11-06 partie W)* **Pertes Wi-Fi** (7-11 % des mesures la nuit rc23, indépendantes d'une caméra à l'autre) : attendre le bilan
@@ -626,7 +641,8 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     *Propriétaire, 2026-11-05 : ONVIF est utilisé. Passe par le remplacement de `monvifd` (#53) : un démon ONVIF libre
     (WS-Discovery, Device, Media / Media2 avec le profil audio de retour).*
     - La gestion du retour audio bidirectionnel (`Require: www.onvif.org/ver20/backchannel`, piste `track3` PCMA 8 kHz) est déjà implémentée dans `src/tc100rtsp/talk.c`.
-    - Objectif : exposer l'AudioBackChannel dans la réponse ONVIF Device / Media2 service pour permettre le Two-Way Audio natif instantané dans Home Assistant (WebRTC / Go2RTC) et Frigate sans bidouille URL manuelle.
+     - L'annonce ONVIF et le chemin RTSP sont implémentés ; cela ne valide pas le son de bout en bout sur Linux 6.6. Voir le test caméra P4 / UI-13.
+     - Effet recherché par cette annonce : permettre le Two-Way Audio natif dans Home Assistant (WebRTC / Go2RTC) et Frigate sans URL manuelle.
     - Coût CPU / RAM : 0 % (métadonnées XML / profil statique côté démon ONVIF + exploitation du code RTSP déjà présent dans `tc100_rtsp`).
 13. [ ] **Régulation de trafic réseau / Pacing RTSP (`tc100_rtsp`)** :
     *2026-11-05 : `RTSP_PACING_US=100` mis par défaut par un autre agent (`cf4960b`), puis **retiré par R2** (noyau
@@ -778,7 +794,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     d'interface pour les nouvelles clés (fichier `notify.conf`). Entrée `[notify-burst]`.*
     - Sur détection de sabotage (tamper) ou intrusion confirmée, expédition immédiate d'une rafale de 3 snapshots HD ou d'un clip court vers un canal hors-site sécurisé (bot Telegram, webhook ntfy/Home Assistant ou stockage S3/WebDAV).
     - Protège les preuves d'intrusion même en cas de vol, d'arrachage de la caméra ou d'extraction de la carte SD par l'intrus.
-35. [x] *(activé par défaut depuis `[rc28-defaults]` : `WHEP=1`, construit par Buildroot musl)* *(2026-11-05 soir : feu vert du propriétaire ; étape 1 faite, entrée `[whep-srtp]` : `src/whep/srtp.h` (SRTP testé avec les vecteurs RFC 3711) et `srtp-bench` dans le pack de test, à mesurer sur la caméra ; conception dans `docs/linux-port/whep-design.md` ; étapes 2 à 5 faites, `WHEP=0` par défaut, entrée `[whep]` : restent la construction Buildroot musl confirmée par la CI et les essais sur caméra)* **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
+35. [x] *(`WHEP=1` par défaut depuis rc28; une valeur explicite `WHEP=0` désactive le service. La passerelle est incluse dans l'image Buildroot et a été validée sur caméra; voir `test-queue.md`.)* **Passerelle WebRTC / WHEP directe ultra-légère dans `tc100_rtsp`** :
     - Protocole WHEP (WebRTC HTTP Egress Protocol) pour streaming direct vers les navigateurs sans serveur intermédiaire (Go2RTC/MediaMTX).
     - Exploitation directe des paquets RTP H.264/H.265 et audio PCMA déjà packagés en interne, avec latence inférieure à 150 ms dans le WebUI.
 36. [x] *(2026-11-05 : fait, entrée `[rec-timeline]` ; un seul type d'événement (mouvement ou son, l'entrée du recorder est combinée), pas de vignettes au survol)* **Frise chronologique interactive dans le WebUI (Timeline & Replay scrubbing)** :
@@ -991,12 +1007,11 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
       - **Flash SPI** : libération/récupération potentielle de la partition `vendor` (1 Mio).
       - **Fiabilité** : encodage sur place (zero-copy), reset automatique du cœur ASIC en cas d'interruption perdue, et un unique runtime C moderne (`musl`) pour toute la caméra.
 
-## Prochaine RC (propriétaire, 2026-11-05 soir)
+## Plan de RC historique (propriétaire, 2026-11-05 soir)
 
-Tout faire sauf #50, qualifier, puis lancer une nouvelle RC. Décisions : B1 + B3 et W4 dans la RC ; #35 en entier
-(étapes 2 à 5), désactivé par défaut (`WHEP=0`), la mesure `srtp-bench` décidant ensuite flux principal ou
-secondaire ; #52 / #55 (démon C unifié) dans la RC avec un interrupteur désactivé par défaut, l'ancien chemin shell
-gardé ; #56 (console série 5 min, réglages `vm`, smart bitrate) ; #50 après les références UI (`[ui-baseline]`).
+Ce plan précédait la rc28. Il prévoyait d'abord WHEP désactivé par défaut; la décision a ensuite changé et `WHEP=1`
+est le défaut depuis rc28. Les autres décisions ci-dessous sont des notes historiques, pas le plan de travail courant.
+Les décisions actuelles sont en tête de ce document.
 
 ## Hors implémenteur (propriétaire)
 

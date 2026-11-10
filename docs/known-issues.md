@@ -4,7 +4,7 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-State as of 2026-11-09: 3.0.1-rc36 on IPCAM2 and 3.0.1-rc35 on IPCAM1, two cameras of the same variant;
+State as of 2026-11-10 (latest camera report: 2026-11-09): 3.0.1-rc36 on IPCAM2 and 3.0.1-rc35 on IPCAM1, two cameras of the same variant;
 details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
 - **Qualification status:** many core areas have passed real-camera checks on both devices, including flash boot,
   V3 services, the free encoder, and short RTSP decoding checks. After the latest installs, the report records
@@ -13,9 +13,12 @@ details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
 - **Free Video Encoder:** 100% free hardware encoder (`src/h265enc/freeenc.h`) built against `musl` with `libakuio`.
   No proprietary vendor `.so` libraries are loaded or stored in SPI flash. Supports H.265/H.264 at 1080p and 720p,
   and H.264 at 360p sub-stream.
-- **Multi-client RTSP streaming:** Asynchronous sender thread (`RTSP_SENDER_THREAD=1`, on by default) keeps socket sends
-  out of the capture/encode loop. The specific four-client throughput and one-hour mixed TCP/UDP criteria do not yet
-  have a recorded pass result.
+- **Multi-client RTSP streaming:** Asynchronous sender thread (`RTSP_SENDER_THREAD=1`) is available as an opt-in to keep
+  socket sends out of the capture/encode loop. It remains off by default pending a recorded pass of the four-client
+  throughput and one-hour mixed TCP/UDP criteria; changing the default requires a separate follow-up.
+- **Presence modes (#65):** implementation is complete but the camera check is still open (PRES-01). Home Assistant
+  lists the fixed profile choices; save a profile in camera Settings before applying it. The displayed state is the
+  selected profile and returns to Custom after a controlled setting is changed manually.
 - **Colours:** slightly warm; the software white balance of the video server corrects them (on by default). The
   image processor's own white balance on its live statistics gave a blue cast and is not used
   (`ak_isp.awb_live=1` to try it).
@@ -26,8 +29,9 @@ details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
 - **Intermittent Wi-Fi ping loss:** bursts have been recorded, including one 90% loss sample on IPCAM2 followed by clean
   samples. A two-hour diagnostic run did not show the USB interrupt or Wi-Fi receive counters freezing; the cause is
   still unresolved and may be on the access point / LAN / ICMP path. Normal association and transfers work.
-- **Speaker:** works; quiet at a low volume (Settings, the speaker volume). Push-to-talk and two-way audio (ONVIF/RTSP
-  backchannel via `talk.c`) mute the microphone automatically while the speaker plays (`RTSP_AUDIO_DUCK=1`).
+- **Speaker and talk:** speaker playback works, but browser push-to-talk (UI-13) and end-to-end ONVIF/RTSP backchannel
+  talk from go2rtc / Frigate / Home Assistant (P4) still need camera qualification. The audio-duck code mutes the
+  microphone while the speaker plays (`RTSP_AUDIO_DUCK=1`).
 - **Day / night:** anti-flapping minimum switch delay defaults to 180 s; optional dynamic 720p night mode (`NIGHT_720P=1`)
   can drop resolution at night for higher SNR and lower bitrate.
 - **Storage:** in-camera FAT32 format action available in Settings (`scripts/sd-format.sh`) with 32 KB clusters for smooth

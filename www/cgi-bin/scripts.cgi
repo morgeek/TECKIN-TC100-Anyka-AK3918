@@ -623,6 +623,10 @@ if [ -n "$F_script" ]; then
         # and the browser hung even though the service had started.
         _start_out="/tmp/scripts-start.$$.out"
         sh "$SCRIPT_HOME/$script" start </dev/null >"$_start_out" 2>&1
+        _start_rc=$?
+        if [ "$_start_rc" -eq 0 ]; then
+          case "$script" in privacy|motion-detection|recording) sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true ;; esac
+        fi
         echo "<pre>$(cat "$_start_out" 2>/dev/null)</pre>"
         rm -f "$_start_out"
         invalidate_allstates_cache
@@ -630,6 +634,7 @@ if [ -n "$F_script" ]; then
       disable)
         mutation_guard
         if svc_switch "$script"; then svc_set "$script" 0; else rm "${AUTOSTART_DIR}/$script" 2>/dev/null || true; fi
+        case "$script" in motion-detection|recording) sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true ;; esac
         invalidate_allstates_cache
         echo "Content-type: application/json"
         echo ""
@@ -642,7 +647,12 @@ if [ -n "$F_script" ]; then
         status='unknown'
         echo "Stopping script '$script'..."
         echo "<pre>"
-        sh "$SCRIPT_HOME/$script" stop 2>&1 && echo "OK" || echo "NOK"
+        if sh "$SCRIPT_HOME/$script" stop 2>&1; then
+          echo "OK"
+          case "$script" in privacy|motion-detection|recording) sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true ;; esac
+        else
+          echo "NOK"
+        fi
         echo "</pre>"
         invalidate_allstates_cache
         ;;
@@ -656,6 +666,7 @@ if [ -n "$F_script" ]; then
             printf "#!/bin/sh\nsh \"%s%s\"\n" "$SCRIPT_HOME" "$script" > "${AUTOSTART_DIR}/$script"
             chmod +x "${AUTOSTART_DIR}/$script"
           fi
+          case "$script" in motion-detection|recording) sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true ;; esac
           invalidate_allstates_cache
           echo "Content-type: application/json"
           echo ""

@@ -457,7 +457,8 @@ codec_name_to() {
 }
 
 read_rtsp_stream_summary() {
-    # Main Stream [0]
+    # Main Stream [0]. format / smartmode and Smart tuning values are legacy metadata kept in the state API for older
+    # clients; the active free RTSP encoder reads global vbr / smart from [0] instead (both streams unless overridden).
     cfg_int codec0 0_codec 2
     cfg_int width0 0_width 1920
     cfg_int height0 0_height 1080

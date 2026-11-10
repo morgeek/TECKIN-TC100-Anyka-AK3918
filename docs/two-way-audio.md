@@ -1,6 +1,6 @@
 # Two-way audio: talk through the camera from Home Assistant, Frigate or go2rtc
 
-With *Two-way audio* on (Settings → Video → RTSP server, on by default) and a camera password set, the RTSP server of the camera (`tc100_rtsp`) accepts sound sent back over the RTSP connection. This is the ONVIF "backchannel" that go2rtc uses, and it is played on the camera's speaker.
+The ONVIF RTSP backchannel is implemented in `tc100_rtsp`, but end-to-end talk from go2rtc, Frigate or Home Assistant still needs camera qualification (P4 / UI-13 in the [test queue](linux-port/test-queue.md)). Until that result is recorded, use the steps below as a test and diagnostic procedure. The intended path, with *Two-way audio* on (Settings → Video → RTSP server, on by default) and a camera password set, is for the server to accept audio sent back over RTSP and play it on the camera's speaker.
 
 Anything that goes through go2rtc can use it: go2rtc's own page, Frigate's live view, and Home Assistant's WebRTC card.
 

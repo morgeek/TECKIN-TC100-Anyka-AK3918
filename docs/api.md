@@ -264,10 +264,11 @@ Applies video encoder parameters to one or both RTSP streams and schedules an RT
 | `brbitrate1` | Sub bitrate kbps (64–4000) |
 | `video_codec0` / `video_codec1` | `0`=H.264, `2`=H.265 |
 | `goplen0` / `goplen1` | GOP length 1–120 |
-| `video_format0` / `video_format1` | Bitrate mode: `CBR` or `VBR` |
+| `vbr0` | Active global bitrate mode, accepted with `stream=0`: `0`=CBR or `1`=VBR; applies to both streams unless `RTSP_VBR_SUB` overrides the sub-stream in `rtsp.env` |
+| `smart0` | Accepted with `stream=0`. Global mode: `0`=off, `1`=LTR, `2`=variable GOP; applies to both streams unless overridden by `RTSP_SMART_SUB` in `rtsp.env`; requires VBR. Mode 1 needs the 12 MB encoder pool. Mode 2 requires `RTSP_SMART_FORCE=1` and is unsafe on this camera. |
+| `video_format0` / `video_format1`, `smartmode0` / `smartmode1` | Legacy parameters retained for older clients; ignored by the free RTSP encoder |
 | `minqp0` / `minqp1` | Minimum QP 1–51 |
 | `maxqp0` / `maxqp1` | Maximum QP 1–51 |
-| `smartmode0` / `smartmode1` | SmartVBR mode |
 
 **Response:** HTML
 
@@ -284,7 +285,7 @@ curl -X POST "http://root:pass@192.168.1.50/cgi-bin/action.cgi" \
 
 ### cmd=set_video_size
 
-Full video parameter replacement for both streams. Supersedes `set_video_params` for bulk updates. Applies geometry normalization, codec profile validation, and SmartVBR clamping; rolls back automatically if the new stream fails health checks.
+Full video parameter replacement for both streams. Supersedes `set_video_params` for bulk updates. Applies geometry normalization and codec profile validation; rolls back automatically if the new stream fails health checks.
 
 **Parameters:**
 
@@ -297,16 +298,13 @@ Full video parameter replacement for both streams. Supersedes `set_video_params`
 | `fps0` / `fps1` | Frame rate 1–25 |
 | `brbitrate0` | Main bitrate kbps (64–12000, default 2000) |
 | `brbitrate1` | Sub bitrate kbps (64–4000, default 300) |
-| `video_format0` / `video_format1` | Bitrate mode (`CBR`/`VBR`) |
+| `vbr0` | Active global bitrate mode: `0`=CBR or `1`=VBR; omitted means keep the current setting |
+| `smart0` | Active global Smart mode: `0`=off, `1`=LTR, `2`=variable GOP; omitted means keep the current setting |
+| `video_format0` / `video_format1`, `smartmode0` / `smartmode1` | Legacy parameters retained for older clients; ignored by the free RTSP encoder |
 | `goplen0` / `goplen1` | GOP length 1–120 |
 | `minqp0` / `minqp1` | Minimum QP 1–51 |
 | `maxqp0` / `maxqp1` | Maximum QP 1–51 |
-| `smartmode0` / `smartmode1` | SmartVBR mode |
-| `smartgoplen0` / `smartgoplen1` | SmartVBR GOP length 1–600 |
-| `smartquality0` / `smartquality1` | SmartVBR quality target 1–100 |
-| `smartstatic0` / `smartstatic1` | SmartVBR static scene threshold 0–1000 |
-| `maxkbps0` / `maxkbps1` | SmartVBR max kbps |
-| `targetkbps0` / `targetkbps1` | SmartVBR target kbps |
+| `smartgoplen*`, `smartquality*`, `smartstatic*`, `maxkbps*`, `targetkbps*` | Legacy tuning metadata kept for configuration compatibility; these `rtspserver.conf` fields do not tune the free encoder. Expert Smart tuning uses `RTSP_SMART_GOP`, `RTSP_SMART_Q`, and `RTSP_SMART_V` in `rtsp.env` |
 | `videouser` / `videopassword` | RTSP credentials (URL-encoded) |
 | `videoport` | RTSP port 1–65535 |
 
@@ -2227,6 +2225,12 @@ another camera imports. Top-level keys: `format`, `version`, `includes_secrets`,
 `wifi_rescue`, and, only with `include_secrets=1`, `secrets` (Wi-Fi networks `secrets.wifi[]`, `camera_password`,
 `mqtt_user`, `mqtt_password`, `telegram_token`, `telegram_chat_id`, `wifi_rescue_psk`) plus `notify.ntfy_auth`,
 `notify.ntfy_topic` and `notify.webhook_url` (a webhook URL or an ntfy topic can act as a password).
+
+For RTSP, `video.main.vbr` and `video.main.smart` are the active global encoder controls. They apply to both streams by
+default; `RTSP_VBR_SUB` and `RTSP_SMART_SUB` in `/mnt/config/rtsp.env` are explicit sub-stream overrides. The exported
+`format`, `smartmode`, and Smart tuning fields remain for compatibility and do not control the free RTSP encoder. The
+advanced Smart call tuning comes from `RTSP_SMART_GOP`, `RTSP_SMART_Q`, and `RTSP_SMART_V` in `rtsp.env`. The pilot
+metadata for these settings is in [`config/parameter-catalog.json`](../config/parameter-catalog.json).
 
 ### cmd=export
 

@@ -1,8 +1,9 @@
 #!/bin/sh
 # WebRTC live view (item 35): tc100-whep, the WHEP gateway. The web page (and any WHEP client) plays the camera's H.264
 # stream over WebRTC with about 150 ms of delay; the daemon takes the RTP packets from tc100_rtsp on the loopback and
-# sends them SRTP-protected (src/whep, docs/linux-port/whep-design.md). Off by default: boot.conf WHEP=1 is its one
-# switch (the Services page "Boot" toggle writes it, v3/autorun-linux66.sh step 12b starts it); Start/Stop here at once.
+# sends them SRTP-protected (src/whep, docs/linux-port/whep-design.md). It starts at boot by default: set WHEP=0 in
+# boot.conf to disable it (the Services page "Boot" toggle writes this one switch; autorun-linux66.sh reads it).
+# Start/Stop here act immediately; stopping it does not change the boot setting.
 # The other keys of boot.conf are read at each start: WHEP_STREAM (sub|main), WHEP_MAX (1-2), WHEP_AUDIO (0|1).
 # The browser reaches it through www/cgi-bin/whep.cgi, behind the web login; the daemon itself listens on 127.0.0.1.
 SERVICE_NAME="WebRTC live view (WHEP)"

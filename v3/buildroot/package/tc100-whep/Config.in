@@ -4,5 +4,5 @@ config BR2_PACKAGE_TC100_WHEP
 	help
 	  WebRTC (WHEP) gateway of the TC100 camera (src/whep of this
 	  source tree, item 35): ICE-lite, DTLS-SRTP with mbedTLS and SRTP,
-	  fed with RTP from tc100_rtsp. Off at run time until WHEP=1 in
-	  boot.conf.
+	  fed with RTP from tc100_rtsp. The service starts at boot by default
+	  (WHEP=1 in boot.conf); set WHEP=0 to disable it.

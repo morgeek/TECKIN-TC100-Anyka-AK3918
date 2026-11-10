@@ -674,7 +674,7 @@ class Rc9SocWiring(unittest.TestCase):
         for k in ("setVal('vbr0'", 'put("dn_vendor_night"', 'chk("dn_nightstyle"', 'set("dn_live_lum"'):
             self.assertIn(k, bundle)
         launch = (ROOT / 'v3/linux66-sd/rtsp-launch.sh').read_text()
-        for k in ('export RTSP_VBR=1', 'export RTSP_SMART=$2', 'export RTSP_NIGHTSTYLE=1', 'export RTSP_LOWLIGHT_FPS=1'):
+        for k in ('RTSP_VBR_CONFIG=1', 'RTSP_SMART_CONFIG=$2', 'export RTSP_NIGHTSTYLE=1', 'export RTSP_LOWLIGHT_FPS=1'):
             self.assertIn(k, launch)
         src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
         for k in ('getenv("RTSP_NIGHTSTYLE")', 'getenv("RTSP_LOWLIGHT_FPS")', 'ISP_SET_TUNING_STYLE', 'style_switch(bw)'):

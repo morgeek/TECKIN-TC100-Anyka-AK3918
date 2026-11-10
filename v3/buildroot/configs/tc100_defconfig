@@ -30,7 +30,7 @@ BR2_PACKAGE_ALSA_LIB_CTL_PLUGINS="ext"
 # BR2_INET_IPV6 is not set
 BR2_PACKAGE_CA_CERTIFICATES=y
 BR2_PACKAGE_MBEDTLS=y
-# item 35: the WebRTC (WHEP) gateway, built from src/whep (package/tc100-whep); off at run time (boot.conf WHEP=0)
+# item 35: the WebRTC (WHEP) gateway, built from src/whep; the runtime service is on by default (boot.conf WHEP=1)
 BR2_PACKAGE_TC100_WHEP=y
 BR2_PACKAGE_LIBCURL=y
 BR2_PACKAGE_LIBCURL_CURL=y

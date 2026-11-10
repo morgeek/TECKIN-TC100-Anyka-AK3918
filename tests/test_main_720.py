@@ -74,7 +74,7 @@ class Wiring(unittest.TestCase):
         v = text('scripts/action.d/video.sh')
         body = v[v.index('    set_video_params)'):v.index('    rtsp-log-off)')]
         self.assertIn('1280x720) [ "$_v720" = 1 ] && raw_size=1280x720 ;;', body)
-        self.assertIn('$( [ "$stream_idx" = 0 ] && echo "0 mainres $height" )', body)
+        self.assertIn('set -- "$@" 0 mainres "$height"', body)
         self.assertIn('/sys/module/ak39_vi/parameters/main_scale', body)
 
     def test_settings_page(self):

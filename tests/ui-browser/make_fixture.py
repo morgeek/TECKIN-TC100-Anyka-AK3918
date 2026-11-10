@@ -2,7 +2,7 @@ from pathlib import Path
 import json, sys
 root=Path(__file__).resolve().parents[2]
 out=Path(sys.argv[1]).resolve(); out.mkdir(parents=True, exist_ok=True)
-config={'video':{'main':{'width':1280,'height':720,'codec':0,'fps':20,'bitrate':1200,'gop':40,'format':'1','minqp':20,'maxqp':45,'smartmode':1},'sub':{'width':352,'height':200,'codec':0,'fps':8,'bitrate':200,'gop':16,'format':'1','minqp':20,'maxqp':45,'smartmode':1}},'audio':{'samplerate':8000,'volume':10,'codec_main':4}}
+config={'video':{'main':{'width':1280,'height':720,'codec':0,'fps':20,'bitrate':1200,'gop':40,'format':'1','minqp':20,'maxqp':45,'smartmode':1,'vbr':0,'smart':0},'sub':{'width':352,'height':200,'codec':0,'fps':8,'bitrate':200,'gop':16,'format':'1','minqp':20,'maxqp':45,'smartmode':1}},'audio':{'samplerate':8000,'volume':10,'codec_main':4}}
 fake='''
 localStorage.clear();
 window.__config=CONFIG; window.__posts=[]; window.__mode='success';
@@ -16,7 +16,8 @@ window.fetch=async function(url, opts={}) {
    if(cmd==='set_video_params' && window.__mode!=='mismatch') {
      const i=p.get('stream'), v=window.__config.video[i==='1'?'sub':'main'];
      const size=p.get('video_size'+i).split('x');v.width=+size[0];v.height=+size[1];
-     for(const [k,f] of Object.entries({video_codec:'codec',fps:'fps',brbitrate:'bitrate',goplen:'gop',video_format:'format',minqp:'minqp',maxqp:'maxqp',smartmode:'smartmode'}))v[f]=+p.get(k+i);
+     for(const [k,f] of Object.entries({video_codec:'codec',fps:'fps',brbitrate:'bitrate',goplen:'gop',minqp:'minqp',maxqp:'maxqp'}))v[f]=+p.get(k+i);
+     if(p.has('vbr'+i))v.vbr=+p.get('vbr'+i);
    }
    return new Response(JSON.stringify({ok:true,message:'Saved'}));
  }

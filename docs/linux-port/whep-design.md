@@ -37,7 +37,7 @@ H.264.
    - at most 2 viewers (`WHEP_MAX`), RTCP receiver reports read for the "viewer gone" timeout, PLI answered by
      nothing (the GOP is short; a keyframe request to `tc100_rtsp` can come later).
 4. **The web page**: the live view tries WHEP first (`RTCPeerConnection`, about 60 lines), and falls back to the
-   current MP4 live view; a switch in Settings (`WHEP=0|1`, off by default until tested).
+   current MP4 live view. WHEP is enabled by default (`WHEP=1`); set `WHEP=0` in Settings or `boot.conf` to disable it.
 5. **Tests**: host tests for the SDP, STUN (RFC 5769 vectors) and SRTP (done); a qemu test of the daemon against a
    WebRTC client in Python (`aiortc`) in the CI; then the camera: delay (clock in front of the camera), CPU, memory,
    one hour with two viewers.
@@ -48,7 +48,11 @@ H.264.
 - Memory: one DTLS context per viewer (~30 KB) and the daemon (~150 KB PSS).
 - CPU: the handshake once per viewer, then SRTP (step 1 measures it) and one copy of each packet.
 
-## Implementation status (2026-11-05, steps 2 to 5 written, off by default: `WHEP=0`)
+## Implementation status (updated 2026-11-10)
+
+Steps 2 to 5 are implemented. WHEP has been enabled by default since rc28: new configurations ship with `WHEP=1`,
+missing keys default to on in the boot and Services paths, and setting `WHEP=0` explicitly disables it. The early
+off-by-default state from the initial implementation is historical.
 
 What exists, and the choices made where the design left them open:
 

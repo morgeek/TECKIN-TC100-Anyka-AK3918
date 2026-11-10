@@ -7,7 +7,8 @@
   case "$F_cmd" in
 
     set_video_params)
-      # Supports both stream 0 and 1, plus all advanced SmartVBR/QP tuning
+      # Supports both streams. VBR is a main-stream form field that controls both encoders; Smart is accepted only
+      # when explicitly submitted (the normal settings page does not expose it).
       stream_idx="$(sanitize_int_range "${F_stream}" 0 1 0)"
       
       # Determine which inputs to use based on stream index. tc100_rtsp encodes 640x360 for the sub-stream and
@@ -25,10 +26,8 @@
           bitrate=$(sanitize_int_range "${F_brbitrate1}" 32 8000 300)
           codec=$(sanitize_int_range "${F_video_codec1}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen1}" 1 300 50)
-          format=$(sanitize_int_range "${F_video_format1}" 0 1 1)
           minqp=$(sanitize_int_range "${F_minqp1}" 10 51 20)
           maxqp=$(sanitize_int_range "${F_maxqp1}" 10 51 45)
-          smartmode=$(sanitize_int_range "${F_smartmode1}" 0 2 0)
       else
           raw_size=1920x1080
           _v720=0; [ -e "${TC100_VI_SCALE_PARAM:-/sys/module/ak39_vi/parameters/main_scale}" ] && _v720=1
@@ -40,30 +39,28 @@
           bitrate=$(sanitize_int_range "${F_brbitrate0}" 32 8000 1000)
           codec=$(sanitize_int_range "${F_video_codec0}" 0 2 0)
           gop=$(sanitize_int_range "${F_goplen0}" 1 300 50)
-          format=$(sanitize_int_range "${F_video_format0}" 0 1 1)
           minqp=$(sanitize_int_range "${F_minqp0}" 10 51 20)
           maxqp=$(sanitize_int_range "${F_maxqp0}" 10 51 45)
-          smartmode=$(sanitize_int_range "${F_smartmode0}" 0 2 0)
       fi
       
       width=$(echo "$raw_size" | cut -d'x' -f1)
       height=$(echo "$raw_size" | cut -d'x' -f2)
 
-      if ! /mnt/bin/rwconf /mnt/config/rtspserver.conf w \
-          "$stream_idx" width "$width" \
+      set -- "$stream_idx" width "$width" \
           "$stream_idx" height "$height" \
           "$stream_idx" codec "$codec" \
           0 fps "$fps" \
           1 fps "$fps" \
           "$stream_idx" bps "$bitrate" \
           "$stream_idx" goplen "$gop" \
-          "$stream_idx" brmode "$format" \
           "$stream_idx" minqp "$minqp" \
-          "$stream_idx" maxqp "$maxqp" \
-          "$stream_idx" smartmode "$smartmode" \
-          $( [ "$stream_idx" = 0 ] && echo "0 mainres $height" ) \
-          $( [ "$stream_idx" = 0 ] && [ -n "${F_vbr0}${F_smart0}" ] && \
-             echo "0 vbr $(sanitize_int_range "${F_vbr0}" 0 1 0) 0 smart $(sanitize_int_range "${F_smart0}" 0 2 0)" ); then
+          "$stream_idx" maxqp "$maxqp"
+      if [ "$stream_idx" = "0" ]; then
+        set -- "$@" 0 mainres "$height"
+        [ -n "${F_vbr0:-}" ] && set -- "$@" 0 vbr "$(sanitize_int_range "$F_vbr0" 0 1 0)"
+        [ -n "${F_smart0:-}" ] && set -- "$@" 0 smart "$(sanitize_int_range "$F_smart0" 0 2 0)"
+      fi
+      if ! /mnt/bin/rwconf /mnt/config/rtspserver.conf w "$@"; then
         if wants_json_response; then
           json_body_err "CONFIG_WRITE_FAILED" "Settings could not be written. Check the SD card."
         else
@@ -387,8 +384,6 @@
 
       bps0="$(sanitize_int_range "${F_brbitrate0}" 64 12000 2000)"
       bps1="$(sanitize_int_range "${F_brbitrate1}" 64 4000 300)"
-      brmode0="$(sanitize_video_brmode "${F_video_format0}")"
-      brmode1="$(sanitize_video_brmode "${F_video_format1}")"
       # one frame rate for both streams: 10, 12, 15, 20 or 25 (else 15)
       case "${F_fps0}" in 10|12|15|20|25) fps0="${F_fps0}" ;; *) fps0=15 ;; esac
       fps1="$fps0"
@@ -406,8 +401,6 @@
       fi
       profile0="$(sanitize_codec_profile_for_codec "$codec0" "${F_codec_profile0}" 0)"
       profile1="$(sanitize_codec_profile_for_codec "$codec1" "${F_codec_profile1}" 1)"
-      smartmode0="$(sanitize_video_smartmode "${F_smartmode0}")"
-      smartmode1="$(sanitize_video_smartmode "${F_smartmode1}")"
       smartgoplen0="$(sanitize_int_range "${F_smartgoplen0}" 1 600 "$goplen0")"
       smartgoplen1="$(sanitize_int_range "${F_smartgoplen1}" 1 600 "$goplen1")"
       smartquality0="$(sanitize_int_range "${F_smartquality0}" 1 100 80)"
@@ -432,7 +425,7 @@
       if [ "$req_width1" != "$width1" ] || [ "$req_height1" != "$height1" ] || [ "${F_video_codec1}" != "$codec1" ]; then
         echo "Sub stream normalized to ${width1}x${height1} (codec=${codec1}) for encoder safety.<br/>"
       fi
-      if [ "${F_videoport}" != "$videoport" ] || [ "${F_brbitrate0}" != "$bps0" ] || [ "${F_brbitrate1}" != "$bps1" ] || [ "${F_video_format0}" != "$brmode0" ] || [ "${F_video_format1}" != "$brmode1" ] || [ "${F_fps0}" != "$fps0" ] || [ "${F_fps1}" != "$fps1" ] || [ "${F_goplen0}" != "$goplen0" ] || [ "${F_goplen1}" != "$goplen1" ] || [ "${F_minqp0}" != "$minqp0" ] || [ "${F_minqp1}" != "$minqp1" ] || [ "${F_maxqp0}" != "$maxqp0" ] || [ "${F_maxqp1}" != "$maxqp1" ] || [ "${F_codec_profile0}" != "$profile0" ] || [ "${F_codec_profile1}" != "$profile1" ] || [ "${F_smartmode0}" != "$smartmode0" ] || [ "${F_smartmode1}" != "$smartmode1" ] || [ "${F_smartgoplen0}" != "$smartgoplen0" ] || [ "${F_smartgoplen1}" != "$smartgoplen1" ] || [ "${F_smartquality0}" != "$smartquality0" ] || [ "${F_smartquality1}" != "$smartquality1" ] || [ "${F_smartstatic0}" != "$smartstatic0" ] || [ "${F_smartstatic1}" != "$smartstatic1" ] || [ "${F_maxkbps0}" != "$maxkbps0" ] || [ "${F_maxkbps1}" != "$maxkbps1" ] || [ "${F_targetkbps0}" != "$targetkbps0" ] || [ "${F_targetkbps1}" != "$targetkbps1" ]; then
+      if [ "${F_videoport}" != "$videoport" ] || [ "${F_brbitrate0}" != "$bps0" ] || [ "${F_brbitrate1}" != "$bps1" ] || [ "${F_fps0}" != "$fps0" ] || [ "${F_fps1}" != "$fps1" ] || [ "${F_goplen0}" != "$goplen0" ] || [ "${F_goplen1}" != "$goplen1" ] || [ "${F_minqp0}" != "$minqp0" ] || [ "${F_minqp1}" != "$minqp1" ] || [ "${F_maxqp0}" != "$maxqp0" ] || [ "${F_maxqp1}" != "$maxqp1" ] || [ "${F_codec_profile0}" != "$profile0" ] || [ "${F_codec_profile1}" != "$profile1" ] || [ "${F_smartgoplen0}" != "$smartgoplen0" ] || [ "${F_smartgoplen1}" != "$smartgoplen1" ] || [ "${F_smartquality0}" != "$smartquality0" ] || [ "${F_smartquality1}" != "$smartquality1" ] || [ "${F_smartstatic0}" != "$smartstatic0" ] || [ "${F_smartstatic1}" != "$smartstatic1" ] || [ "${F_maxkbps0}" != "$maxkbps0" ] || [ "${F_maxkbps1}" != "$maxkbps1" ] || [ "${F_targetkbps0}" != "$targetkbps0" ] || [ "${F_targetkbps1}" != "$targetkbps1" ]; then
         safe_values_changed=1
       fi
       if [ "$safe_values_changed" = "1" ]; then
@@ -444,7 +437,6 @@
           " " USERPASSWORD "${userpassword}" \
           " " PORT "$videoport" \
           0 bps          "$bps0" \
-          0 brmode       "$brmode0" \
           0 codec        "$codec0" \
           0 fps          "$fps0" \
           0 goplen       "$goplen0" \
@@ -453,14 +445,12 @@
           0 minqp        "$minqp0" \
           0 profile      "$profile0" \
           0 width        "$width0" \
-          0 smartmode    "$smartmode0" \
           0 smartgoplen  "$smartgoplen0" \
           0 smartquality "$smartquality0" \
           0 smartstatic  "$smartstatic0" \
           0 maxkbps      "$maxkbps0" \
           0 targetkbps   "$targetkbps0" \
           1 bps          "$bps1" \
-          1 brmode       "$brmode1" \
           1 codec        "$codec1" \
           1 fps          "$fps1" \
           1 goplen       "$goplen1" \
@@ -469,12 +459,13 @@
           1 minqp        "$minqp1" \
           1 profile      "$profile1" \
           1 width        "$width1" \
-          1 smartmode    "$smartmode1" \
           1 smartgoplen  "$smartgoplen1" \
           1 smartquality "$smartquality1" \
           1 smartstatic  "$smartstatic1" \
           1 maxkbps      "$maxkbps1" \
-          1 targetkbps   "$targetkbps1"
+          1 targetkbps   "$targetkbps1" \
+          $( [ -n "${F_vbr0:-}" ] && echo "0 vbr $(sanitize_int_range "$F_vbr0" 0 1 0)" ) \
+          $( [ -n "${F_smart0:-}" ] && echo "0 smart $(sanitize_int_range "$F_smart0" 0 2 0)" )
 
       if ! finalize_stream_apply "manual-video-settings"; then
         echo "Manual video settings were rolled back.<br/>"

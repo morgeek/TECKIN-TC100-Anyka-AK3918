@@ -81,6 +81,7 @@ _ev_fail() { json_body_err "INVALID_VALUE" "$1"; }
       rewrite_config "$N" NOTIFY_ATTACH_SNAPSHOT "$_att"
       rewrite_config "$N" NOTIFY_COOLDOWN_SECONDS "$_cool"
       rewrite_config "$N" NOTIFY_EVENTS "\"$_evs\""
+      sh /mnt/scripts/presence-mode.sh manual
       json_body_ok "Alerts saved."
     ;;
 

@@ -1,6 +1,6 @@
 """Item 35, the WebRTC (WHEP) gateway: what runs on the host without mbedTLS or a browser.
 - src/whep/whep_test.c: the STUN vectors of RFC 5769, the binding response, the SDP offer and answer (needs gcc);
-- the wiring: boot.conf keys (off by default) and their validators, the exchange table, the controlscript, the service
+- the wiring: boot.conf keys (WHEP on by default) and their validators, the exchange table, the controlscript, the service
   switch, the Buildroot package and the mbedTLS option, the user space image;
 - www/cgi-bin/whep.cgi under a shell with a stub curl: off, status, offer, stop.
 The daemon against a real WebRTC client is tests/whep_interop.py (tests/docker/whep-interop.sh)."""
@@ -33,7 +33,7 @@ class Proto(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
-    def test_off_by_default_and_validated(self):
+    def test_on_by_default_and_validated(self):
         dist = read('config/boot.conf.dist')
         for line in ('WHEP=1', 'WHEP_STREAM=sub', 'WHEP_MAX=2', 'WHEP_AUDIO=1'):   # WHEP on by default since the rc28
             self.assertRegex(dist, r'(?m)^' + line + r'$')
@@ -47,7 +47,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(keys[pos[0]:pos[-1] + 1], ['WHEP', 'WHEP_STREAM', 'WHEP_MAX', 'WHEP_AUDIO'], 'same-prefix rows are contiguous')
 
     def test_service(self):
-        self.assertIn('whep)             SW_FILE=$_sw_d/boot.conf; SW_KEY=WHEP; SW_DEF=0', read('scripts/service-switch.sh'))
+        self.assertIn('whep)             SW_FILE=$_sw_d/boot.conf; SW_KEY=WHEP; SW_DEF=1', read('scripts/service-switch.sh'))
         self.assertRegex(read('v3/autorun-linux66.sh'), r'(?m)^for n in sound-detection .* telegram-bot whep; do')
         cs = read('controlscripts/whep')
         self.assertIn('BIN=/mnt/ext/bin/tc100-whep', cs)

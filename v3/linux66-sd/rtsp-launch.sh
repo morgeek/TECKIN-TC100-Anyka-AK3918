@@ -53,14 +53,16 @@ if [ -f $CONF ]; then
   case "$3" in ''|*[!0-9]*) ;; *) [ "$3" -ge 1 ] && [ "$3" -le 300 ] && ENCOPT="$ENCOPT -g $3" ;; esac
   case "$4" in ''|*[!0-9]*) ;; *) [ "$4" -ge 1 ] && [ "$4" -le 300 ] && ENCOPT="$ENCOPT -G $4" ;; esac
 fi
-# Settings: bit rate mode and smart encoding (Streams & audio, rtspserver.conf [0] vbr / smart: R11-01), the night
-# parameter set and the low-light frame rate (Day/night, daynight.conf NIGHT_STYLE / LOWLIGHT_FPS: R12-01, R12-02).
-# The older brmode / smartmode keys were never applied and are not read. config/rtsp.env, sourced later, overrides.
+RTSP_VBR_CONFIG=0; RTSP_SMART_CONFIG=0
+# Active global encoder settings: rtspserver.conf [0] vbr (0/1) and smart (0/1/2), both default 0 and both streams;
+# Smart is used only with VBR enabled.
+# The legacy brmode / smartmode fields are ignored. rtsp.env cannot override these global settings; its explicit
+# RTSP_VBR_SUB / RTSP_SMART_SUB variables can override only the sub-stream. Night and low-light settings follow.
 if [ -f $CONF ]; then
   set -- $(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf $CONF r 0 vbr 0 smart 2>/dev/null)
   [ $# -eq 2 ] || set -- "" ""
-  case "$1" in 1) export RTSP_VBR=1 ;; esac
-  case "$2" in 1|2) export RTSP_SMART=$2 ;; esac
+  case "$1" in 1) RTSP_VBR_CONFIG=1 ;; esac
+  case "$2" in 1|2) RTSP_SMART_CONFIG=$2 ;; esac
 fi
 dnc() { sed -n "s/^$1=//p" /mnt/config/daynight.conf 2>/dev/null | tail -n 1; }
 # the night parameter set is on unless switched off (rc15: R14-02 passed, the stock firmware always uses it)
@@ -103,12 +105,20 @@ TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list'
 export RTSP_ALSA_DIRECT="${RTSP_ALSA_DIRECT:-1}" RTSP_AUDIO_HPF="${RTSP_AUDIO_HPF:-1}" RTSP_AUDIO_AGC="${RTSP_AUDIO_AGC:-1}" \
   RTSP_AUDIO_DUCK="${RTSP_AUDIO_DUCK:-1}" RTSP_ABR="${RTSP_ABR:-1}" RTSP_MD_ENC="${RTSP_MD_ENC:-1}" \
   RTSP_REC_AAC="${RTSP_REC_AAC:-1}"
-# RTSP_SENDER_THREAD (R16 / H1, single key: /mnt/config/rtsp.env, e.g. RTSP_SENDER_THREAD=0): 1 = a thread of
-# tc100_rtsp sends the encoded frames to the RTSP clients, so that each extra client no longer takes capture frames (4 clients:
-# 18 fps measured with the inline send). On by default (1) since 3.0.1; set to 0 to force inline send.
+# RTSP_SENDER_THREAD (R16 / H1, single key: /mnt/config/rtsp.env): 1 = a thread of tc100_rtsp sends encoded frames
+# to the RTSP clients, separating socket sends from capture. It stays opt-in until the four-client and mixed TCP/UDP
+# camera qualification passes; set to 1 in rtsp.env to try it, or 0 to force inline send.
 # Read once when tc100_rtsp starts: restart the RTSP server after changing it.
-export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-1}"
-( cd /tmp && { set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a; }
+export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-0}"
+( cd /tmp && {
+  set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a
+  _rtsp_env_global_modes="${RTSP_VBR:-}${RTSP_SMART:-}"
+  if [ -n "$_rtsp_env_global_modes" ]; then
+    echo "RTSP_VBR / RTSP_SMART in rtsp.env are ignored; set rtspserver.conf [0] vbr / smart instead." >>"$RTSP_LOG"
+  fi
+  # Keep the canonical global encoder settings authoritative after loading advanced RTSP overrides.
+  export RTSP_VBR="$RTSP_VBR_CONFIG" RTSP_SMART="$RTSP_SMART_CONFIG"
+}
   exec /tmp/tc100_rtsp -c "$CODEC" -p "$PORT" -b "$KBPS" \
     -u "${RTSP_USER:-root}" -w "$PWD_FILE" -a "$AUD" -s "$SUB" -C "$SUBCODEC" -B "$SUBKBPS" -R "$REC_DIR" \
     -S /var/run/sound_level $ENCOPT >>"$RTSP_LOG" 2>&1 ) &
