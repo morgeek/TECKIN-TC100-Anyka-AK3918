@@ -741,6 +741,15 @@ struct isp_sharp1 { unsigned short mf_k, mf_shift, hf_k, hf_shift, method, skin_
 struct isp_sharp { unsigned short mode; struct isp_sharp1 s[10]; };	/* manual + 9 gain-linked sets */
 #define ISP_SET_SHARP _IOW('I', 37, int)
 #define ISP_GET_SHARP _IOR('I', 38, int)
+/* Noise reduction (item 37): AK_ISP_NR1_ATTR / AK_ISP_NR2_ATTR, a mode (0 manual, 1 linked to the gain), the manual set
+ * and 9 gain-linked sets (outdoor, indoor, iso2 ... iso128: the driver's _get_iso() picks one from the total gain and
+ * the AE envi_gain_range, then applies it). Read only, logged at each video start. */
+struct isp_nr1_1 { unsigned short en, w_r[17], w_g[17], w_b[17], k, lc_lut[17], lc_key[16], calc_g_k, calc_r_k, calc_b_k; };
+struct isp_nr1 { unsigned short mode; struct isp_nr1_1 s[10]; };
+struct isp_nr2_1 { unsigned short en, w[17], k, calc_y_k, ydpc_en, ydpc_th, ydpc_black, ydpc_white; };
+struct isp_nr2 { unsigned short mode; struct isp_nr2_1 s[10]; };
+#define ISP_GET_NR1 _IOR('I', 11, int)
+#define ISP_GET_NR2 _IOR('I', 44, int)
 #define AE_WORDS 51	/* AK_ISP_AE_ATTR: exp_time_max, exp_time_min, ... */
 #define ISP_SET_AE _IOW('I', 80, int)
 #define ISP_GET_AE _IOR('I', 81, int)
@@ -753,7 +762,7 @@ struct isp_osd { unsigned int channel, width, height; unsigned short x, y, alpha
 #define ISP_SET_OSD_COLORS _IOW('I', 131, int)
 #define ISP_SET_OSD _IOW('I', 132, int)
 typedef char isp_layout_check[(sizeof(struct isp_masks) == 40 && sizeof(struct isp_mask_color) == 5 &&
-	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_ae_run) == 36 && sizeof(struct isp_awb_stat) == 196) ? 1 : -1];
+	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_nr1) == 1782 && sizeof(struct isp_nr2) == 482 && sizeof(struct isp_ae_run) == 36 && sizeof(struct isp_awb_stat) == 196) ? 1 : -1];
 
 static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_now, ae_base = -1, exp_now_pct, hz_now;
 static int osd_hw = -1;
@@ -807,6 +816,30 @@ static void ispx_status(void)	/* /var/run/isp_tune.status: what the web page sho
 	if (n > 0 && n < (int)sizeof b) wfile("/var/run/isp_tune.status", b, (size_t)n);
 }
 
+static void nr_log(int fd)	/* item 37: what the driver does with noise reduction, per gain level (read only) */
+{
+	static struct isp_nr1 n1;
+	static struct isp_nr2 n2;
+	char b[240];
+	int i, o = 0;
+
+	for (i = 0; i < 10 && o < (int)sizeof b - 24; i++)	/* AE envi_gain_range[10][2], words 11..30 of AK_ISP_AE_ATTR */
+		o += snprintf(b + o, sizeof b - o, " %u-%u", ae0[11 + 2 * i], ae0[12 + 2 * i]);
+	LOG("noise reduction: gain levels%s\n", b);
+	if (ioctl(fd, ISP_GET_NR1, &n1) == 0) {
+		for (i = 1, o = 0; i < 10 && o < (int)sizeof b - 24; i++)
+			o += snprintf(b + o, sizeof b - o, " %u/%u/%u", n1.s[i].en, n1.s[i].k, n1.s[i].calc_g_k);
+		LOG("noise reduction: NR1 mode %s, manual %u/%u/%u, levels (en/k/calc)%s\n", n1.mode ? "linked" : "manual",
+		    n1.s[0].en, n1.s[0].k, n1.s[0].calc_g_k, b);
+	} else LOG("noise reduction: NR1 not readable (%s)\n", strerror(errno));
+	if (ioctl(fd, ISP_GET_NR2, &n2) == 0) {
+		for (i = 1, o = 0; i < 10 && o < (int)sizeof b - 24; i++)
+			o += snprintf(b + o, sizeof b - o, " %u/%u/%u", n2.s[i].en, n2.s[i].k, n2.s[i].calc_y_k);
+		LOG("noise reduction: NR2 mode %s, manual %u/%u/%u, levels (en/k/calc)%s\n", n2.mode ? "linked" : "manual",
+		    n2.s[0].en, n2.s[0].k, n2.s[0].calc_y_k, b);
+	} else LOG("noise reduction: NR2 not readable (%s)\n", strerror(errno));
+}
+
 static void ispx_apply(void)
 {
 	const char *e = getenv("RTSP_ISPMASK");
@@ -858,6 +891,7 @@ static void ispx_apply(void)
 			int h = step_hz(ae0[8]);
 
 			LOG("anti-flicker: camera default %s (exposure step %u lines)\n", h == 50 ? "50 Hz" : h == 60 ? "60 Hz" : "none", ae0[8]);
+			nr_log(fd);
 		}
 	}
 	if (p_expct != exp_now_pct || p_hz != hz_now) {
