@@ -707,6 +707,8 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     *2026-11-05 : seuils séparés et temps de maintien (`NIGHT_HOLD`, `DAY_HOLD`) existaient ; ajouté 60 s minimum entre
     deux bascules quelle que soit la source (`MIN_SWITCH`, entrée `[daynight-lock]`). Reste la transition progressive
     de l'exposition à l'allumage des LED IR (dans l'ISP, à étudier avec le jeu de paramètres de nuit).*
+    - Constat 2026-11-10 (journal `/tmp/logs/daynight.log` et `.1` de la .24, 608 lignes, 24 bascules entre 22:54 et 01:26 puis 05:39 à 06:20) : la source `luma` (défaut, `config/daynight.conf`) bascule toutes les 5 à 10 min, donc le délai `MIN_SWITCH` de 180 s ne suffit pas. Chaque bascule change la lumière vue par le capteur (IR-Cut et LED), et la mesure repasse de l'autre côté du seuil. La doc disait 60 s pour `MIN_SWITCH` ; le code a 180 s.
+    - Autre point à vérifier avant d'activer la source `ae` : l'indice enregistré (`idx=`) est de l'ordre de 75 000 en jour et de 34 000 à 39 000 la nuit, alors que les seuils du script (nuit au-dessus de 15 000, jour en dessous de 3 000) ne sont jamais franchis dans ce journal. Les colonnes du journal ne sont pas documentées ; à relever avec le propriétaire au crépuscule.
     - Verrouillage anti-rebond temporisé (au moins 60 s) après commutation du filtre IR-Cut pour éliminer le cliquetis en zone de pénombre crépusculaire.
     - Transition progressive de l'exposition/gain AWB lors de l'allumage des LED IR pour éviter le flash blanc.
 22. [x] **Sauvegarde / Restauration 1-clic de la configuration Web** :
