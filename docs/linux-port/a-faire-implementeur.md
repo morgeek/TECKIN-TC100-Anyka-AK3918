@@ -806,6 +806,7 @@ P10. [ ] Coupure de courant pendant une mise à jour web : la caméra redémarre
     - Zéro charge CPU/RAM pour la caméra : rendu 100 % côté navigateur client à partir d'un fichier index compact.
 37. [ ] **Réduction du bruit spatiale adaptative sans allocation CMA (2D-NR dynamique par gain ISP)** :
     - Le 3D-NR matériel étant désactivé par manque de mémoire tampon dans le pool CMA (18 Mo), exploiter dynamiquement le filtre spatial 2D-NR de l'ISP.
+    - Constat 2026-11-10 (bibliothèque SDK d'origine `libakispsdk.so`, désassemblée) : les accesseurs `AK_ISP_set_nr1_attr` / `get_nr1_attr` / `set_nr2_attr` / `get_nr2_attr` / `set_3d_nr_attr` appellent l'ioctl `I` 12 / 11 (NR1), 43 / 44 (NR2), 47 / 48 (3D-NR). Le SDK expose donc bien NR1 et NR2 ; le pilote de `tc100_rtsp` ne les utilise pas. Reste à trouver la structure de NR1 et NR2 (taille et champs) : le numéro d'ioctl seul ne suffit pas, la macro du SDK annonce 4 octets mais la structure du réglage de netteté (`ISP_SET_SHARP`, 37) montre que la taille réelle ne suit pas toujours la macro.
     - Asservir le niveau de lissage et le coring au gain capteur en temps réel (`ispx_ae_report`) : netteté maximale et piqué fin en plein jour, atténuation progressive du fourmillement sur les aplats sombres la nuit.
     - Gain : image nocturne nettement plus propre et économie de 20 à 30 % de bande passante / débit H.264 sans aucun octet de RAM supplémentaire.
 38. [x] **Annonce mDNS / Zero-Conf enrichie (IP, version, état de santé)** :
