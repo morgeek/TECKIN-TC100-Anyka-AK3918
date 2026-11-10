@@ -614,6 +614,16 @@ class RtspClient:
         self.s.close()
 
 
+
+def wait_speaker_free(timeout=10.0):
+    """A speaker player of the previous test may still hold /tmp/speaker-play.lock: the next server would then find the
+    speaker busy, refuse the first client and let the second one take the speaker (talk.c, owner reset). Wait for it."""
+    end = time.time() + timeout
+    while os.path.isdir('/tmp/speaker-play.lock') and time.time() < end:
+        time.sleep(0.1)
+    subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+
+
 class Server(unittest.TestCase):
     """tc100_rtsp built for the host (make test_rtsp: no camera, no encoder) with fake arecord / aplay: RTSP, the audio
     track, the ONVIF backchannel to the speaker, and the FIFO listeners of the web UI's Listen button"""
@@ -643,7 +653,7 @@ class Server(unittest.TestCase):
         self.pidf = t / 'arecord.pid'
         self.listen = t / 'listen'
         self.live = t / 'live'
-        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+        wait_speaker_free()
         env = dict(os.environ, PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'], FAKE_APLAY_OUT=str(self.out),
                    FAKE_ARECORD_PID=str(self.pidf), TC100_LISTEN_DIR=str(self.listen), TC100_LIVE_DIR=str(self.live),
                    TC100_SPEAKER_SCRIPT=str(ROOT / 'scripts' / 'speaker-play.sh'), **self.env)
@@ -675,7 +685,7 @@ class Server(unittest.TestCase):
             self.proc.kill()
         log = Path(self.log.name).read_text()
         self.log.close()
-        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+        wait_speaker_free()
         if os.environ.get('TC100_TEST_VERBOSE'):
             print('---- server log of %s ----\n%s' % (self.id(), log))
         self.tmp.cleanup()
