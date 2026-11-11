@@ -52,6 +52,50 @@ fonction ou scénario de charge a été validé :
 Ces quatre chantiers confirmés ne demandent pas une réécriture générale du firmware. Les essais caméra ne
 modifient aucune partition flash.
 
+## Dossiers pour un modèle frontier (Fable ou équivalent) — 2026-11-11
+
+Le propriétaire veut confier à un modèle plus fort, et plus cher, des questions difficiles et bien délimitées, sans
+dépenser ses tokens en exploration. Chaque dossier est un **seul envoi** : le modèle reçoit un document préparé par
+`docs/linux-port/frontier/brief.py`, pas le dépôt, ni d'outils, ni d'accès à une caméra. L'implémenteur prépare le dossier et
+vérifie puis applique la réponse ; le modèle frontier ne commite rien.
+
+**Garde-fous (communs, dans chaque dossier) :**
+- **Entrée bornée :** le script refuse un dossier de plus de 60 000 caractères (environ 15 000 tokens), et un résumé de
+  mesures `--data` de plus de 8 000 caractères. On résume les journaux en tableaux ; on n'envoie jamais un journal brut.
+- **Sortie bornée :** environ 1 500 mots, dans un format fixe (réponse courte, constats classés, diff de 60 lignes au
+  plus, contrôles à faire, ce qui manquait). Pas de réécriture de fichier, pas de revue générale hors sujet.
+- **Interdits rappelés au modèle :** U-Boot et l'environnement de démarrage, la flash, une valeur par défaut changée sans
+  migration, la suppression d'un test, la désactivation d'un contrôle de sécurité.
+- **Prouvé ou supposé :** chaque constat dit s'il est prouvé par un extrait (fichier et ligne) ou supposé ; chaque
+  hypothèse vient avec un contrôle qui la confirme ou l'écarte.
+- **Un sujet par conversation.** Une relance seulement si la réponse cite un manque précis (« il manque telle
+  fonction ») : on ajoute cet extrait au dossier, on ne lui donne pas le dépôt.
+- **Rien n'est appliqué tel quel.** L'implémenteur reproduit chaque constat (test qui échoue d'abord, ou mesure), puis
+  corrige sur DEV avec la CI. Les actions caméra suivent les règles habituelles (accord du propriétaire).
+- **Pas de secrets :** aucun mot de passe, jeton, clé SSH ni adresse publique dans un dossier ou un résumé de mesures ;
+  les extraits sont du code du dépôt public.
+- `tests/test_frontier_briefs.py` vérifie que chaque dossier se construit encore (fonctions trouvées, taille sous le
+  plafond).
+
+**Construire un dossier :** `python3 docs/linux-port/frontier/brief.py --list`, puis par exemple
+`python3 docs/linux-port/frontier/brief.py nr -o brief-nr.md` ; le script affiche la taille et une estimation en tokens. On colle
+le fichier dans une nouvelle conversation, sans autre consigne que « réponds à ce document ».
+
+| Dossier | Sujet | Taille | Prérequis | Statut |
+|---|---|---|---|---|
+| `daynight` | Bascule jour / nuit sans oscillation (item 21) : la méthode d'origine est-elle sûre, quelle règle par défaut, que devient `luma` | ~3 000 tokens + résumé | Résumé chiffré des nuits du 10/11 (`luma`, 44 bascules) et du 11/12 (`vendor`) : l'implémenteur l'écrit le 12 au matin | **À préparer le 12/11** |
+| `nr` | Réduction du bruit (`DENOISE`) : structures NR1 / NR2, GET / SET, étirement des courbes, copie de base périmée | ~3 500 tokens | Aucun ; utile avant le test HW-09 | Prêt |
+| `talk` | Retour audio : courses et verrou du haut-parleur dans `talk.c`, le test instable seulement contourné | ~5 200 tokens | Aucun | Prêt |
+| `cgi` | Entrées des formulaires : analyse en `F_*`, CSRF, limite de débit, import de configuration | ~6 000 tokens | Aucun | Prêt |
+
+**Ce qu'on ne confie pas à ce modèle :** le câblage d'un réglage dans plusieurs fichiers, la doc, les tests, la CI,
+l'exploration du dépôt, les sessions caméra. Ce travail est mécanique et l'implémenteur le fait pour bien moins cher.
+**Pas de dossier H.265** : l'encodeur libre est qualifié (H.264 / H.265 1080p / 720p décodés sans erreur sur les deux
+caméras) ; il n'y a pas de blocage ouvert assez précis pour un dossier.
+
+**Retour d'une réponse :** coller la réponse dans `docs/linux-port/frontier/<dossier>-<date>.md`, à côté du script ; l'implémenteur la traite comme une liste d'hypothèses et note ici le résultat de chaque constat
+(confirmé et corrigé, écarté, à mesurer).
+
 ## Autres priorités proposées
 
 1. **Wi-Fi :** compléter le diagnostic avec une mesure simultanée caméra→routeur et client LAN→caméra. Le relevé de
