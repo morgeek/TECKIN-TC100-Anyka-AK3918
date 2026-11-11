@@ -500,6 +500,11 @@ static void post_apply(void)
 	if (p_osdsz > 128) p_osdsz = 128;	/* values from the file are bounded: drawn before the picture otherwise (R3) */
 	p_osdx = p_osdx < 0 ? 0 : p_osdx > 4096 ? 4096 : p_osdx;
 	p_osdy = p_osdy < 0 ? 0 : p_osdy > 4096 ? 4096 : p_osdy;
+	/* the six effects: -50..50 as every writer (config/parameter-catalog.json, family image); a hand-edited file too */
+	p_bri = p_bri < -50 ? -50 : p_bri > 50 ? 50 : p_bri;
+	p_con = p_con < -50 ? -50 : p_con > 50 ? 50 : p_con;
+	p_sat = p_sat < -50 ? -50 : p_sat > 50 ? 50 : p_sat;
+	p_hue = p_hue < -50 ? -50 : p_hue > 50 ? 50 : p_hue;
 	p_hue = p_tune ? p_hue : 0;
 	p_sharp = p_sharp < -50 ? -50 : p_sharp > 50 ? 50 : p_sharp;
 	p_dnr = p_dnr < -50 ? -50 : p_dnr > 50 ? 50 : p_dnr;
@@ -2707,7 +2712,7 @@ static void cli_read(struct cli *c)
 
 /* ---- motion detection: luma grid, ignored zones, sensitivity ---------------------------------------------------
  * On while /tmp/tc100_md exists (setconf -k p 1: controlscripts/motion-detection, the web UI, MQTT) and
- * rtspserver.conf does not say mdenabled=0. 4 times a second the luma of a 64x36 grid is compared with the previous
+ * rtspserver.conf says mdenabled=1 (no line = off). 4 times a second the luma of a 64x36 grid is compared with the previous
  * sample, leaving out the cells whose centre lies in a zone of config/motion_zones.conf (as md.c did on 2.x).
  * Sensitivity 1-100: /tmp/tc100_md_sens (setconf -k m), else rtspserver.conf mdsens. /tmp/rec_control gets "1" on
  * motion and "0" 8 s after it stopped: the detection monitor (MQTT event, snapshot, LED) and the recorder read it.
@@ -2739,7 +2744,8 @@ static void md_reload(int conf_changed, int zones_changed)
 	FILE *f;
 
 	if (conf_changed) {
-		md_conf_on = !cfg_get(CONF "rtspserver.conf", "", "mdenabled", v, sizeof v) || v[0] != '0';
+		/* as the web page, service-switch.sh and the .dist file: no mdenabled line = off (catalog review 2026-11-11) */
+		md_conf_on = cfg_get(CONF "rtspserver.conf", "", "mdenabled", v, sizeof v) && v[0] && v[0] != '0';
 		md_conf_sens = cfg_get(CONF "rtspserver.conf", "", "mdsens", v, sizeof v) && v[0] >= '0' && v[0] <= '9' ? atoi_(v) : 60;
 	}
 	if (zones_changed) {
@@ -2884,7 +2890,7 @@ static void rec_reload(void)
 	rc.postroll_s = cfg_num(bc, "REC_POSTROLL_SEC", 30);
 	rc.ring_kb = cfg_num(bc, "REC_RING_KB", 1024);
 	rc.audio = cfg_num(bc, "REC_AUDIO", 1) != 0;
-	rc.keep_events = cfg_num(bc, "REC_KEEP_EVENTS", 0) != 0;
+	rc.keep_events = cfg_num(bc, "REC_KEEP_EVENTS", 1) != 0;	/* boot.conf.dist and migrate-rc28-defaults.sh: 1 */
 	{	/* rtsp.env: RTSP_REC_AAC=1 makes the recorded sound AAC-LC (browsers play it); RTSP_REC_AAC_KBPS its mean bit rate */
 		const char *ea = getenv("RTSP_REC_AAC"), *ek = getenv("RTSP_REC_AAC_KBPS");
 		int kb = ek && *ek ? num(ek) : 0;

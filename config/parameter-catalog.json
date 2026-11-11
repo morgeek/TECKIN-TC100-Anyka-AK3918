@@ -482,6 +482,294 @@
       "state_json": null,
       "export_json": ".daynight.ir_led_rest",
       "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "image.brightness",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "BRIGHTNESS"
+      },
+      "type": "effect",
+      "default": 0,
+      "label": {
+        "en": "Brightness",
+        "fr": "Luminosité"
+      },
+      "secret": false,
+      "validator": "isp_effect",
+      "ui_field": "isp_brightness",
+      "export_json": ".isp.brightness",
+      "mqtt_command": "isp_brightness",
+      "read_by_tc100_rtsp": true,
+      "range": [-50, 50]
+    },
+    {
+      "id": "image.contrast",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "CONTRAST"
+      },
+      "type": "effect",
+      "default": 0,
+      "label": {
+        "en": "Contrast",
+        "fr": "Contraste"
+      },
+      "secret": false,
+      "validator": "isp_effect",
+      "ui_field": "isp_contrast",
+      "export_json": ".isp.contrast",
+      "mqtt_command": "isp_contrast",
+      "read_by_tc100_rtsp": true,
+      "range": [-50, 50]
+    },
+    {
+      "id": "image.saturation",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "SATURATION"
+      },
+      "type": "effect",
+      "default": 0,
+      "label": {
+        "en": "Saturation",
+        "fr": "Saturation"
+      },
+      "secret": false,
+      "validator": "isp_effect",
+      "ui_field": "isp_saturation",
+      "export_json": ".isp.saturation",
+      "mqtt_command": "isp_saturation",
+      "read_by_tc100_rtsp": true,
+      "range": [-50, 50]
+    },
+    {
+      "id": "image.sharpness",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "SHARPNESS"
+      },
+      "type": "effect",
+      "default": 0,
+      "label": {
+        "en": "Sharpness",
+        "fr": "Netteté"
+      },
+      "secret": false,
+      "validator": "isp_effect",
+      "ui_field": "isp_sharpness",
+      "export_json": ".isp.sharpness",
+      "mqtt_command": "isp_sharpness",
+      "read_by_tc100_rtsp": true,
+      "range": [-50, 50]
+    },
+    {
+      "id": "image.denoise",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "DENOISE"
+      },
+      "type": "effect",
+      "default": 0,
+      "label": {
+        "en": "Noise reduction",
+        "fr": "Réduction du bruit"
+      },
+      "secret": false,
+      "validator": "isp_effect",
+      "ui_field": "isp_denoise",
+      "export_json": ".isp.denoise",
+      "mqtt_command": "isp_denoise",
+      "read_by_tc100_rtsp": true,
+      "range": [-50, 50]
+    },
+    {
+      "id": "image.hue",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "HUE"
+      },
+      "type": "effect",
+      "default": 0,
+      "label": {
+        "en": "Hue",
+        "fr": "Teinte"
+      },
+      "secret": false,
+      "validator": "isp_effect",
+      "ui_field": "isp_hue",
+      "export_json": ".isp.hue",
+      "mqtt_command": "isp_hue",
+      "read_by_tc100_rtsp": true,
+      "range": [-50, 50]
+    },
+    {
+      "id": "image.power_hz",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "POWER_HZ"
+      },
+      "type": "enum",
+      "default": "",
+      "label": {
+        "en": "Anti-flicker",
+        "fr": "Anti-scintillement"
+      },
+      "secret": false,
+      "validator": "isp_power_hz",
+      "ui_field": "isp_power_hz",
+      "export_json": ".isp.power_hz",
+      "mqtt_command": "isp_power_hz",
+      "read_by_tc100_rtsp": true,
+      "allowed_values": ["", "50", "60", "auto"],
+      "note": "empty = camera default; no Home Assistant entity"
+    },
+    {
+      "id": "image.exposure_max_pct",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "EXPOSURE_MAX_PCT"
+      },
+      "type": "int_or_empty",
+      "default": "",
+      "label": {
+        "en": "Exposure cap (%)",
+        "fr": "Limite d’exposition (%)"
+      },
+      "secret": false,
+      "validator": "isp_exposure_pct",
+      "ui_field": "isp_exposure_max_pct",
+      "export_json": ".isp.exposure_max_pct",
+      "mqtt_command": "isp_exposure_max_pct",
+      "read_by_tc100_rtsp": true,
+      "range": [10, 100],
+      "note": "empty or 0 = no cap"
+    },
+    {
+      "id": "image.mask_color",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "MASK_COLOR"
+      },
+      "type": "enum",
+      "default": "black",
+      "label": {
+        "en": "Mask colour",
+        "fr": "Couleur des masques"
+      },
+      "secret": false,
+      "validator": "isp_mask_color",
+      "ui_field": "isp_mask_color",
+      "export_json": ".isp.mask_color",
+      "mqtt_command": null,
+      "read_by_tc100_rtsp": true,
+      "allowed_values": ["black", "gray", "white"]
+    },
+    {
+      "id": "image.mask1",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "MASK1"
+      },
+      "type": "rect",
+      "default": "",
+      "label": {
+        "en": "Privacy mask 1",
+        "fr": "Masque de confidentialité 1"
+      },
+      "secret": false,
+      "validator": "isp_mask",
+      "ui_field": "isp_mask1",
+      "export_json": ".isp.mask1",
+      "mqtt_command": null,
+      "read_by_tc100_rtsp": true,
+      "note": "x1,y1,x2,y2 in percent, empty = none"
+    },
+    {
+      "id": "image.mask2",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "MASK2"
+      },
+      "type": "rect",
+      "default": "",
+      "label": {
+        "en": "Privacy mask 2",
+        "fr": "Masque de confidentialité 2"
+      },
+      "secret": false,
+      "validator": "isp_mask",
+      "ui_field": "isp_mask2",
+      "export_json": ".isp.mask2",
+      "mqtt_command": null,
+      "read_by_tc100_rtsp": true,
+      "note": "x1,y1,x2,y2 in percent, empty = none"
+    },
+    {
+      "id": "image.mask3",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "MASK3"
+      },
+      "type": "rect",
+      "default": "",
+      "label": {
+        "en": "Privacy mask 3",
+        "fr": "Masque de confidentialité 3"
+      },
+      "secret": false,
+      "validator": "isp_mask",
+      "ui_field": "isp_mask3",
+      "export_json": ".isp.mask3",
+      "mqtt_command": null,
+      "read_by_tc100_rtsp": true,
+      "note": "x1,y1,x2,y2 in percent, empty = none"
+    },
+    {
+      "id": "image.mask4",
+      "family": "image",
+      "source": {
+        "path": "/mnt/config/isp_tune.conf",
+        "format": "flat",
+        "key": "MASK4"
+      },
+      "type": "rect",
+      "default": "",
+      "label": {
+        "en": "Privacy mask 4",
+        "fr": "Masque de confidentialité 4"
+      },
+      "secret": false,
+      "validator": "isp_mask",
+      "ui_field": "isp_mask4",
+      "export_json": ".isp.mask4",
+      "mqtt_command": null,
+      "read_by_tc100_rtsp": true,
+      "note": "x1,y1,x2,y2 in percent, empty = none"
     }
   ],
   "legacy_metadata": {
@@ -509,7 +797,8 @@
   },
   "families": {
     "rtsp-encoder-modes": "rtsp.vbr, rtsp.smart",
-    "daynight": "automatic day / night switching, /mnt/config/daynight.conf (item 64)"
+    "daynight": "automatic day / night switching, /mnt/config/daynight.conf (item 64)",
+    "image": "live image tuning, /mnt/config/isp_tune.conf (item 64)"
   },
   "daynight_pairs": [
     ["LUMA_DAY", "LUMA_NIGHT"],

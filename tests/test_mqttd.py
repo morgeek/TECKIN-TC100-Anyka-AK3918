@@ -715,7 +715,7 @@ class DiscoveryParity(unittest.TestCase):
         self.assertEqual(gone, {'homeassistant/camera/Cam-One/live/config', 'homeassistant/select/Cam-One/isp_power_hz/config',
                                 'homeassistant/switch/Cam-One/isp_tune/config'} |
                          {'homeassistant/number/Cam-One/isp_%s/config' % k for k in
-                          ('brightness', 'contrast', 'saturation', 'sharpness', 'hue', 'exposure_max_pct')})
+                          ('brightness', 'contrast', 'saturation', 'sharpness', 'denoise', 'hue', 'exposure_max_pct')})
 
     def test_print_config_gives_the_discovery_values_only_for_the_c_implementation(self):
         self.configure({'MQTT_DISCOVERY_IMPL': 'sh'}, 'cam-host', '3.0.1-test', False)

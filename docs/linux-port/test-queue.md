@@ -582,6 +582,7 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   NR1 (raw) and NR2 (luma) sets, manual and 9 gain-linked, along the pixel difference: 2 % per step, -50 = almost none,
   +50 = twice as wide. The driver keeps picking the set of the gain level. Nothing is written while the slider is at 0.
   At each video start the log has `noise reduction: gain levels ...` and the NR1 / NR2 mode and sets (read only).
+  Also a "Noise Reduction" slider in Home Assistant (MQTT command `isp_denoise`).
 - **Test:** live tuning on, at night (gain at its maximum, the iso16 set), noise reduction -50, 0, +50: log
   `noise reduction: N in the ISP (iso16 NR2 w[4] a -> b)`; the grain on flat dark areas goes up / down (compare
   snapshots of the same scene); the bit rate goes up / down. The "Applied on the camera" line shows the value.

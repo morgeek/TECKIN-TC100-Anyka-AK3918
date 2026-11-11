@@ -266,7 +266,7 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'disc').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 8)   # 6 numbers + anti-flicker removal + switch
+        self.assertEqual(len(lines), 9)   # 7 numbers (noise reduction since 2026-11-11) + anti-flicker removal + switch
         for line in lines:
             topic, payload = line.split('\t', 1)
             if '/select/' in topic:
