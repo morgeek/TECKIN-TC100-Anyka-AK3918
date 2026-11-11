@@ -85,7 +85,7 @@ le fichier dans une nouvelle conversation, sans autre consigne que « réponds �
 |---|---|---|---|---|
 | `daynight` | Bascule jour / nuit sans oscillation (item 21) : la méthode d'origine est-elle sûre, quelle règle par défaut, que devient `luma` | ~3 000 tokens + résumé | Résumé chiffré des nuits du 10/11 (`luma`, 44 bascules) et du 11/12 (`vendor`) : l'implémenteur l'écrit le 12 au matin | **À préparer le 12/11** |
 | `nr` | Réduction du bruit (`DENOISE`) : structures NR1 / NR2, GET / SET, étirement des courbes, copie de base périmée | ~3 500 tokens | Aucun ; utile avant le test HW-09 | **Répondu le 11/11, vérifié** : 1 défaut corrigé (queue de courbe à +50), 5 hypothèses écartées par le code, échelle à décider ([bilan](frontier/nr-2026-11-11.md)) |
-| `talk` | Retour audio : courses et verrou du haut-parleur dans `talk.c`, le test instable seulement contourné | ~5 200 tokens | Aucun | Prêt |
+| `talk` | Retour audio : courses et verrou du haut-parleur dans `talk.c`, le test instable seulement contourné | ~5 200 tokens | Aucun | **Répondu le 11/11, vérifié** : cause du test instable trouvée et corrigée, 5 défauts corrigés (dont aplay lancé sans verrou après SIGTERM), 2 notés ([bilan](frontier/talk-2026-11-11.md)) |
 | `cgi` | Entrées des formulaires : analyse en `F_*`, CSRF, limite de débit, import de configuration | ~6 000 tokens | Aucun | **Répondu le 11/11, vérifié** : 5 défauts corrigés dont un GET qui redémarrait la caméra, plus un trou trouvé en vérifiant (code shell possible dans `notify.conf` par l'import) ([bilan](frontier/cgi-2026-11-11.md)) |
 
 **Ce qu'on ne confie pas à ce modèle :** le câblage d'un réglage dans plusieurs fichiers, la doc, les tests, la CI,

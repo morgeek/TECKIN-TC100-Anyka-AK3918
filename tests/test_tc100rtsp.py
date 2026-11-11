@@ -615,13 +615,17 @@ class RtspClient:
 
 
 
-def wait_speaker_free(timeout=10.0):
-    """A speaker player of the previous test may still hold /tmp/speaker-play.lock: the next server would then find the
-    speaker busy, refuse the first client and let the second one take the speaker (talk.c, owner reset). Wait for it."""
+def wait_speaker_free(timeout=10.0, remove=True):
+    """True when /tmp/speaker-play.lock is gone within timeout. remove: then take away what is left (a lock from
+    outside the tests, before a server starts). Since the review of 2026-11-11 a stopped server waits for its player,
+    whose trap removes the lock: tearDown checks that nothing is left instead of hiding it."""
     end = time.time() + timeout
     while os.path.isdir('/tmp/speaker-play.lock') and time.time() < end:
         time.sleep(0.1)
-    subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+    free = not os.path.isdir('/tmp/speaker-play.lock')
+    if remove:
+        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+    return free
 
 
 class Server(unittest.TestCase):
@@ -685,10 +689,11 @@ class Server(unittest.TestCase):
             self.proc.kill()
         log = Path(self.log.name).read_text()
         self.log.close()
-        wait_speaker_free()
+        free = wait_speaker_free(2.0)
         if os.environ.get('TC100_TEST_VERBOSE'):
             print('---- server log of %s ----\n%s' % (self.id(), log))
         self.tmp.cleanup()
+        self.assertTrue(free, 'the stopped server left /tmp/speaker-play.lock behind (talk_shutdown)')
 
     def client(self, auth=True):
         c = RtspClient(self.PORT, auth)
@@ -969,6 +974,30 @@ class Backchannel(Server):
             time.sleep(0.02)
         time.sleep(3.5)
         self.assertGreater(self.out.stat().st_size, 20 * 160 * 2, 'plays again once the speaker is free')
+
+    def test_the_first_talker_keeps_a_busy_speaker(self):
+        # review 2026-11-11, C1: while the speaker is busy the first client keeps it; the second waits for its silence
+        os.mkdir('/tmp/speaker-play.lock')
+        a, b = self.client(), self.client()
+        self.talk_session(a)
+        self.talk_session(b)
+        for i in range(25):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            time.sleep(0.02)
+        for i in range(25, 50):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            b.interleaved(4, rtp(i, tone_alaw(1000, i * 160, 160)))
+            time.sleep(0.02)
+        os.rmdir('/tmp/speaker-play.lock')
+        for i in range(50, 100):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            b.interleaved(4, rtp(i, tone_alaw(1000, i * 160, 160)))
+            time.sleep(0.02)
+        time.sleep(3.5)
+        pcm = self.out.read_bytes()
+        self.assertGreater(len(pcm), 30 * 160 * 2, 'plays as soon as the speaker is free, without the 2 s penalty')
+        self.assertAlmostEqual(freq(pcm), 400, delta=10)
+        self.assertEqual(Path(self.log.name).read_text().count('talks'), 1)
 
     def test_push_to_talk_is_refused_while_a_client_talks(self):
         c = self.client()
