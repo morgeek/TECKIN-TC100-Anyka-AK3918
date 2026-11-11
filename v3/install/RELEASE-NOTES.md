@@ -2,6 +2,21 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc37 (test build, branch DEV)
+- **Day / night:** every copy of the day / night settings checked against one catalog; a save of the Day / night page
+  no longer drops the stock method's white balance counts, its lock and the IR LED rest; those keys and
+  `MIN_SWITCH` are exported and checked on import. Default source unchanged (`luma`).
+- **Image:** new **Noise reduction** slider (Image page, MQTT / Home Assistant `isp_denoise`, -50..50, 0 = the sensor
+  tuning). Brightness, contrast, saturation and hue are bounded to -50..50 even in a hand-edited file. The start-up log
+  shows the noise reduction of each gain level.
+- **Security:** a GET on `action.cgi` is answered only for read commands (any other gets `405`; a link or image on
+  another site could reboot the camera); form values are never expanded as file names nor executed; an empty CSRF
+  token is refused; the configuration import can no longer write shell code into `notify.conf`.
+- **Two-way audio:** a stopping server waits for its player (the speaker was found busy after a restart), a busy
+  speaker no longer costs 2 s of sound, the first talker keeps the speaker, a stop signal never plays without the lock.
+- **Defaults when a line is missing:** no `mdenabled` line = motion detection off (as the web page shows);
+  no `REC_KEEP_EVENTS` line = recordings with an event are kept (as the default file).
+
 ## What is new in 3.0.0 (Final Release)
 - **100% free hardware video encoder & userspace**:
   - Direct hardware encoding (`freeenc.h`) for H.265 and H.264 up to 1080p and 720p, zero proprietary vendor `.so` libraries loaded, linked, or flashed.
