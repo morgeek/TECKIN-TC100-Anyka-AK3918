@@ -292,7 +292,7 @@ _ce_row_table() {
     row("notify.conf";"flat";"root";"NOTIFY_BURST";"u:0:5";"general";.notify.burst),
     row("notify.conf";"flatd";"root";"NOTIFY_BURST_EVENTS";"events";"general";.notify.burst_events),
     row("notify.conf";"flatd";"root";"NOTIFY_UPLOAD_URL";"url_optional";"credential";.notify.upload_url),
-    row("notify.conf";"flatd";"root";"NOTIFY_UPLOAD_AUTH";"credential_optional";"credential";.notify.upload_auth),
+    row("notify.conf";"flatd";"root";"NOTIFY_UPLOAD_AUTH";"ntfy_auth";"credential";.notify.upload_auth),
 
     row("telegram.conf";"flat";"root";"TELEGRAM_ENABLE";"bool";"general";.telegram.enabled),
     row("boot.conf";"flat";"root";"SYSLOG_ENABLE";"bool";"general";.syslog.enabled),

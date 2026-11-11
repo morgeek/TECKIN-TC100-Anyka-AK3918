@@ -200,6 +200,10 @@ curl "http://root:pass@192.168.1.50/cgi-bin/state.cgi?cmd=load_preset&name=my_pr
 ## POST/GET /cgi-bin/action.cgi
 
 State-changing endpoint. All commands require `X-CSRF-Token` unless noted otherwise.
+Since 2026-11-11 a GET (or HEAD) is answered only for the read commands `events_info`, `get_ptt_status`,
+`get_ptt_vol`, `ha_discovery_info`, `hw_state`, `local_rec_status`, `md_zones_info`, `mem_budget`, `motion_heatmap`,
+`nvr_latency`, `presence_info`, `rtsp_server_info`, `sd_card_info`, `showlog`, `wifi_country_info`, `wifi_get_ssid`,
+`wifi_rescue_info` and `wifi_scan`; any other command by GET gets `405 Method Not Allowed` (use POST with the token).
 
 **Rate limits:**
 - `reboot`, `shutdown`: 3 calls per 300 seconds

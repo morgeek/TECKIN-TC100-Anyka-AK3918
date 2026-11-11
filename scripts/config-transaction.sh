@@ -633,7 +633,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" NOTIFY_BURST u:0:5 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NOTIFY_BURST_EVENTS events "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NOTIFY_UPLOAD_URL url_optional "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" NOTIFY_UPLOAD_AUTH credential_optional "$_tc_rel" || return 1 ;;
+      tc_check_flat "$_tc_file" NOTIFY_UPLOAD_AUTH ntfy_auth "$_tc_rel" || return 1 ;;
     presence.conf)
       tc_check_flat "$_tc_file" PRESENCE_MODE presence_mode "$_tc_rel" || return 1
       for _tc_profile in PRESENT AWAY NIGHT; do

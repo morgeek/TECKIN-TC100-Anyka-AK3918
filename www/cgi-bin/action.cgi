@@ -26,6 +26,22 @@ case "${REQUEST_METHOD:-GET}:$F_cmd" in
   POST:*) rate_limit_check 20 60 ;;
 esac
 
+# Only these commands answer a GET (the pages poll them; docs/api.md shows them with a plain curl). Every other command
+# changes something and needs a POST with the CSRF token: a GET ?cmd=reboot from an image tag on another site, with
+# the browser's saved login, used to pass (review 2026-11-11, C3). No REQUEST_METHOD = not a web request (scripts,
+# tests): unchanged.
+ACTION_GET_READS="events_info get_ptt_status get_ptt_vol ha_discovery_info hw_state local_rec_status md_zones_info mem_budget motion_heatmap nvr_latency presence_info rtsp_server_info sd_card_info showlog wifi_country_info wifi_get_ssid wifi_rescue_info wifi_scan"
+case "${REQUEST_METHOD:-}" in
+  GET|HEAD)
+    case " $ACTION_GET_READS " in
+      *" ${F_cmd:-?} "*) ;;
+      *)
+        printf 'Status: 405 Method Not Allowed\nAllow: POST\nContent-Type: application/json\nCache-Control: no-store\n\n'
+        printf '{"ok":false,"error":"POST required","code":"invalid_method"}\n'
+        exit 0 ;;
+    esac ;;
+esac
+
 # CSRF: enforce the per-boot token on state-changing (POST) requests, matching
 # scripts.cgi / configeditor.cgi / config_exchange.cgi. Safe methods (GET/HEAD)
 # pass through untouched, so read-style action.cgi calls still work. state.cgi
@@ -119,10 +135,12 @@ sanitize_int_range() {
   fallback="$4"
 
   case "$value" in
-    ''|*[!0-9]*)
+    ''|*[!0-9]*|??????????*)	# 10 digits or more: the shell's numeric test fails, the value would come out as is
       value="$fallback"
       ;;
   esac
+  # 08 or 0012: a leading zero reads as octal in $(( )) further on
+  while [ "${#value}" -gt 1 ] && [ "${value#0}" != "$value" ]; do value="${value#0}"; done
 
   if [ "$value" -lt "$min" ]; then
     value="$min"
