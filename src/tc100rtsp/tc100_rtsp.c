@@ -841,6 +841,7 @@ static void nr_stretch(unsigned short *d, const unsigned short *w, int f)
 
 		d[i] = j >= 16 ? w[16] : (unsigned short)((w[j] * (100 - r) + w[j + 1] * r) / 100);
 	}
+	d[16] = w[16];	/* the tail stays the tuning file's: wider curves do not smooth across strong edges (review 2026-11-11) */
 }
 
 static void nr_apply(int fd)

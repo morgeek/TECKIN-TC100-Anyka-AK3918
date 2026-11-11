@@ -588,6 +588,10 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   snapshots of the same scene); the bit rate goes up / down. The "Applied on the camera" line shows the value.
 - **Fail:** picture broken, frozen or unchanged at ±50: note the log; set DENOISE=0 (the tuning file's values come
   back at the next video start).
+- **Also (review of 2026-11-11, `docs/linux-port/frontier/nr-2026-11-11.md`):** DENOISE=25, restart tc100_rtsp: the
+  `a` of `w[4] a -> b` must be the same as before the restart (base not stretched twice); a day / night switch with
+  DENOISE != 0 logs `noise reduction: 25 in the ISP` again after `night parameter set`; alternate -50 / +50 every
+  second for 10 min while streaming: no kernel message, no corrupted frame.
 
 ### HW-08 Exposure state for day / night (`/tmp/cam_ae`) — `to test`
 - **What:** every 2 s `tc100_rtsp` writes `lumi exp_time a_gain d_gain isp_d_gain dark_flag` from
