@@ -158,6 +158,73 @@ Questions:
         ],
         "needs_data": False,
     },
+    "rtsp": {
+        "title": "tc100_rtsp: the CPU that does not follow the frame rate (main thread) and the cost per RTP packet",
+        "question": """tc100_rtsp is the video program: capture (V4L2), the free H.264 / H.265 encoder, RTSP / RTP out
+(a sender thread), the microphone path, motion detection, ISP tuning. It uses 16-17 % of the CPU on a camera with one
+client, the biggest share of the camera's load. The data summary at the end has the measurements of 2026-11-11: per
+thread, per frame, and at two frame rates (25 and 10 frames/s). The encoder wait itself is ~30 ms of wall time per
+frame and is not CPU.
+
+Questions:
+1. In the main thread, ~6.5 % of a CPU does not depend on the frame rate (still 8.3 % at 10 frames/s). From the
+   excerpts, rank the candidates (microphone path per sample, select wake-ups, once-a-second work, the 5 s tick,
+   talk / listen scans) by the cost you expect on this ARMv5 core without FPU, with the arithmetic.
+2. The sender thread spends ~0.3 ms of system time per RTP packet (~6 packets per frame). Is that expected for
+   sendmsg / send over Wi-Fi on this CPU, or does the excerpt show avoidable work (copies, one syscall per packet that
+   could be batched, socket options)? What would a lower bound be?
+3. ~3 minor page faults per frame in the main thread and ~20 / s fixed: what in the excerpts can fault every frame
+   (stack growth, buffers touched for the first time, mmap / munmap)?
+4. For the top two causes, a minimal change and the measurement that proves the gain (the program's own STAT /
+   PROF lines, /proc/<pid>/task/*/stat).""",
+        "parts": [
+            ("lines", "src/tc100rtsp/tc100_rtsp.c", 3709, 3760),
+            ("lines", "src/tc100rtsp/tc100_rtsp.c", 3858, 3900),
+            ("cfunc", "src/tc100rtsp/tc100_rtsp.c", "aud_pump"),
+            ("lines", "src/tc100rtsp/util.h", 40, 100),
+            ("cfunc", "src/tc100rtsp/tc100_rtsp.c", "snd_window"),
+            ("file", "src/tc100rtsp/adsp.c"),
+            ("lines", "src/tc100rtsp/acap.c", 40, 102),
+            ("cfunc", "src/tc100rtsp/alisten.c", "lis_write"),
+            ("cfunc", "src/tc100rtsp/tc100_rtsp.c", "snd_main"),
+            ("cfunc", "src/tc100rtsp/tc100_rtsp.c", "emit_frame"),
+            ("cfunc", "src/tc100rtsp/tc100_rtsp.c", "bcast_x"),
+            ("cfunc", "src/tc100rtsp/tc100_rtsp.c", "rtp_out"),
+            ("cfunc", "src/tc100rtsp/tc100_rtsp.c", "send_nal"),
+            ("lines", "src/tc100rtsp/tc100_rtsp.c", 2214, 2289),
+        ],
+        "needs_data": True,
+    },
+    "background": {
+        "title": "Background scripts: fewer forks for the same checks",
+        "question": """Besides the video program, the camera runs periodic shell jobs (busybox ash) from one scheduler loop
+(housekeeper.sh), plus the MQTT bridge (mqtt-bridge.sh). The data summary at the end (two cameras, 2 h) shows 78-100
+new processes a minute and ~3-4 % of the CPU spent by processes too short-lived to be seen, against ~1 % for all the
+long-lived helpers together. The cost of one fork + exec of a busybox applet
+has not been measured on this camera (ARMv5, 64 MB, no FPU): if you need it, say so and give the way to measure it.
+
+Questions:
+1. From the excerpts, count the forks per run of each job (each `$(...)`, pipe stage, external applet, `timeout`,
+   sub-script) and multiply by its period: which jobs and which lines make most of the ~80-100 forks a minute?
+2. For the top lines, the fork-free busybox ash equivalent (`read` from /proc or /sys, `case`, parameter expansion,
+   `printf -v` is not in ash, shell arithmetic), or a lower period where the result is not needed that often. Keep
+   each script's output and files byte for byte the same; say when a change needs a test of its own.
+3. Anything that forks in a loop over lines or files (per line `awk`, `grep`, `cut`)?
+4. What should be measured after the change (forks a minute, CPU of the short-lived share) to prove the gain.""",
+        "parts": [
+            ("lines", "scripts/housekeeper.sh", 1, 30),
+            ("shfunc", "scripts/housekeeper.sh", "hk_bg"),
+            ("shfunc", "scripts/housekeeper.sh", "hk_tick"),
+            ("file", "scripts/wifi-quality.sh"),
+            ("file", "scripts/wifi-signal.sh"),
+            ("file", "scripts/wifi-roam.sh"),
+            ("file", "scripts/health-snapshot.sh"),
+            ("shfunc", "scripts/mqtt-bridge.sh", "service_script_running_int"),
+            ("shfunc", "scripts/mqtt-bridge.sh", "collect_slow_health_metrics"),
+        ],
+        "needs_data": True,
+    },
+
 }
 
 
