@@ -115,8 +115,18 @@
         _irm0=$(_dn_get IR_LED_MODE); _irm0=${_irm0:-auto}
         _msw=$(sanitize_int_range "${F_dn_min_switch:-$(_dn_get MIN_SWITCH)}" 0 3600 180)   # kept: the page has no field yet
         case "${F_dn_ir_led_mode:-$_irm0}" in off) _irm=off ;; force) _irm=force ;; *) _irm=auto ;; esac
+        # keys the page does not show (stock method white balance counts, its lock, the IR LED rest): kept as they are
+        # (config/parameter-catalog.json, family daynight); the daemons read them, a save must not drop them
+        _dnk=""
+        for _k in AWB_DAY_CNT AWB_NIGHT_CNT VENDOR_LOCK IR_LED_REST; do
+          _v=$(_dn_get "$_k")
+          case "$_v" in ''|*[!0-9]*) continue ;; esac
+          [ "${#_v}" -le 9 ] && _dnk="$_dnk$_k=$_v
+"
+        done
         printf 'LUMA_NIGHT=%s\nLUMA_DAY=%s\nDAYNIGHT_SOURCE=%s\nAE_NIGHT_ABOVE=%s\nAE_DAY_BELOW=%s\nNIGHT_HOLD=%s\nDAY_HOLD=%s\nVENDOR_NIGHT_LUM=%s\nVENDOR_DAY_LUM=%s\nIR_LED_MAX_ON=%s\nNIGHT_STYLE=%s\nLOWLIGHT_FPS=%s\nLOWLIGHT_FPS_VALUE=%s\nIR_LED_MODE=%s\nMIN_SWITCH=%s\nNIGHT_720P=%s\n' \
           "$_ln" "$_ld" "$_ds" "$_an" "$_ad" "$_nh" "$_dh" "$_vn" "$_vd" "$_irs" "$_ns" "$_lf" "$_lv" "$_irm" "$_msw" "$_n720" > /mnt/config/daynight.conf
+        [ -n "$_dnk" ] && printf '%s' "$_dnk" >> /mnt/config/daynight.conf
         if [ "$_irm0" != "$_irm" ] && [ -x /mnt/scripts/common_functions.sh ]; then
           (
             . /mnt/scripts/common_functions.sh

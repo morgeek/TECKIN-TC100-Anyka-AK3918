@@ -607,9 +607,15 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" LOWLIGHT_FPS bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOWLIGHT_FPS_VALUE lowlight_fps_value "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" IR_LED_MODE ir_led_mode "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" MIN_SWITCH u:0:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" AWB_DAY_CNT u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" AWB_NIGHT_CNT u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VENDOR_LOCK u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" IR_LED_REST u:0:999999999 "$_tc_rel" || return 1
       # the day threshold must lie above the night one (the daemon would flap otherwise)
       tc_check_pair "$_tc_file" LUMA_DAY LUMA_NIGHT "$_tc_rel" || return 1
       tc_check_pair "$_tc_file" AE_NIGHT_ABOVE AE_DAY_BELOW "$_tc_rel" || return 1
+      tc_check_pair "$_tc_file" VENDOR_NIGHT_LUM VENDOR_DAY_LUM "$_tc_rel" || return 1
       tc_check_pair "$_tc_file" VENDOR_NIGHT_LUM VENDOR_DAY_LUM "$_tc_rel" || return 1 ;;
     notify.conf)
       tc_check_flat "$_tc_file" WEBHOOK_ENABLE bool "$_tc_rel" || return 1

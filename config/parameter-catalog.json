@@ -57,6 +57,431 @@
         "allowed_values": [0, 1, 2],
         "when_unset_or_empty": "inherit-global"
       }
+    },
+    {
+      "id": "daynight.luma_night",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "LUMA_NIGHT"
+      },
+      "type": "int",
+      "default": 40,
+      "label": {
+        "en": "Night below (picture luminance)",
+        "fr": "Nuit en dessous (luminance de l’image)"
+      },
+      "secret": false,
+      "range": [0, 255],
+      "ui_field": "daynightlum",
+      "state_json": "luma_night",
+      "export_json": ".daynight.luma_night",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.luma_day",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "LUMA_DAY"
+      },
+      "type": "int",
+      "default": 100,
+      "label": {
+        "en": "Day above (picture luminance)",
+        "fr": "Jour au-dessus (luminance de l’image)"
+      },
+      "secret": false,
+      "range": [0, 255],
+      "ui_field": "nightdaylum",
+      "state_json": "luma_day",
+      "export_json": ".daynight.luma_day",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.daynight_source",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "DAYNIGHT_SOURCE"
+      },
+      "type": "enum",
+      "default": "luma",
+      "label": {
+        "en": "Light measurement",
+        "fr": "Mesure de la lumière"
+      },
+      "secret": false,
+      "allowed_values": ["luma", "ae", "isp", "vendor"],
+      "ui_field": "dn_source",
+      "state_json": "source",
+      "export_json": ".daynight.source",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.ae_night_above",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "AE_NIGHT_ABOVE"
+      },
+      "type": "int",
+      "default": 15000,
+      "label": {
+        "en": "Night above (exposure index)",
+        "fr": "Nuit au-dessus (indice d’exposition)"
+      },
+      "secret": false,
+      "range": [1, 999999999],
+      "ui_field": "ae_night_above",
+      "state_json": "ae_night_above",
+      "export_json": ".daynight.ae_night_above",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.ae_day_below",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "AE_DAY_BELOW"
+      },
+      "type": "int",
+      "default": 3000,
+      "label": {
+        "en": "Day below (exposure index)",
+        "fr": "Jour en dessous (indice d’exposition)"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": "ae_day_below",
+      "state_json": "ae_day_below",
+      "export_json": ".daynight.ae_day_below",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.night_hold",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "NIGHT_HOLD"
+      },
+      "type": "int",
+      "default": 10,
+      "label": {
+        "en": "Night hold time (s)",
+        "fr": "Temps de maintien nuit (s)"
+      },
+      "secret": false,
+      "range": [1, 3600],
+      "ui_field": "dn_night_hold",
+      "state_json": "night_hold",
+      "export_json": ".daynight.night_hold",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.day_hold",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "DAY_HOLD"
+      },
+      "type": "int",
+      "default": 60,
+      "label": {
+        "en": "Day hold time (s)",
+        "fr": "Temps de maintien jour (s)"
+      },
+      "secret": false,
+      "range": [1, 3600],
+      "ui_field": "dn_day_hold",
+      "state_json": "day_hold",
+      "export_json": ".daynight.day_hold",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.vendor_night_lum",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "VENDOR_NIGHT_LUM"
+      },
+      "type": "int",
+      "default": 3584,
+      "label": {
+        "en": "Stock method: night above",
+        "fr": "Méthode d’origine : nuit au-dessus"
+      },
+      "secret": false,
+      "range": [1, 999999],
+      "ui_field": "dn_vendor_night",
+      "state_json": "vendor_night",
+      "export_json": ".daynight.vendor_night_lum",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.vendor_day_lum",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "VENDOR_DAY_LUM"
+      },
+      "type": "int",
+      "default": 1536,
+      "label": {
+        "en": "Stock method: day below",
+        "fr": "Méthode d’origine : jour en dessous"
+      },
+      "secret": false,
+      "range": [0, 999999],
+      "ui_field": "dn_vendor_day",
+      "state_json": "vendor_day",
+      "export_json": ".daynight.vendor_day_lum",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.ir_led_max_on",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "IR_LED_MAX_ON"
+      },
+      "type": "int",
+      "default": 50400,
+      "label": {
+        "en": "Infrared light protection (s)",
+        "fr": "Protection des LED infrarouges (s)"
+      },
+      "secret": false,
+      "range": [0, 172800],
+      "ui_field": "dn_ir_max_h",
+      "state_json": "ir_max_on",
+      "export_json": ".daynight.ir_led_max_on",
+      "ui_note": "the page shows hours (0-48), the file seconds",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.night_style",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "NIGHT_STYLE"
+      },
+      "type": "bool",
+      "default": 1,
+      "label": {
+        "en": "Night picture settings of the sensor tuning",
+        "fr": "Réglages d’image de nuit du capteur"
+      },
+      "secret": false,
+      "allowed_values": [0, 1],
+      "ui_field": "dn_nightstyle",
+      "state_json": "night_style",
+      "export_json": ".daynight.night_style",
+      "read_by": ["v3/linux66-sd/rtsp-launch.sh"]
+    },
+    {
+      "id": "daynight.night_720p",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "NIGHT_720P"
+      },
+      "type": "bool",
+      "default": 0,
+      "label": {
+        "en": "Dynamic 720p at night",
+        "fr": "720p dynamique la nuit"
+      },
+      "secret": false,
+      "allowed_values": [0, 1],
+      "ui_field": "dn_night720",
+      "state_json": "night_720p",
+      "export_json": ".daynight.night_720p",
+      "read_by": ["v3/linux66-sd/rtsp-launch.sh"]
+    },
+    {
+      "id": "daynight.lowlight_fps",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "LOWLIGHT_FPS"
+      },
+      "type": "bool",
+      "default": 1,
+      "label": {
+        "en": "Lower frame rate in low light",
+        "fr": "Cadence réduite en basse lumière"
+      },
+      "secret": false,
+      "allowed_values": [0, 1],
+      "ui_field": "dn_lowlight",
+      "state_json": "lowlight_fps",
+      "export_json": ".daynight.lowlight_fps",
+      "read_by": ["v3/linux66-sd/rtsp-launch.sh"]
+    },
+    {
+      "id": "daynight.lowlight_fps_value",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "LOWLIGHT_FPS_VALUE"
+      },
+      "type": "enum",
+      "default": 10,
+      "label": {
+        "en": "Low-light frame rate",
+        "fr": "Cadence en basse lumière"
+      },
+      "secret": false,
+      "allowed_values": [10, 15, 20],
+      "ui_field": "dn_lowlight_fps",
+      "state_json": "lowlight_fps_value",
+      "export_json": ".daynight.lowlight_fps_value",
+      "read_by": ["v3/linux66-sd/rtsp-launch.sh"]
+    },
+    {
+      "id": "daynight.ir_led_mode",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "IR_LED_MODE"
+      },
+      "type": "enum",
+      "default": "auto",
+      "label": {
+        "en": "Infrared LEDs",
+        "fr": "LED infrarouges"
+      },
+      "secret": false,
+      "allowed_values": ["auto", "off", "force"],
+      "ui_field": "dn_ir_led_mode",
+      "state_json": "ir_led_mode",
+      "export_json": ".daynight.ir_led_mode",
+      "read_by": [
+        "src/supervisord/supervisord.c",
+        "scripts/auto-night-daemon.sh",
+        "scripts/tamper-detect.sh"
+      ]
+    },
+    {
+      "id": "daynight.min_switch",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "MIN_SWITCH"
+      },
+      "type": "int",
+      "default": 180,
+      "label": {
+        "en": "Minimum time between two switches (s)",
+        "fr": "Délai minimum entre deux bascules (s)"
+      },
+      "secret": false,
+      "range": [0, 3600],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.min_switch",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.awb_day_cnt",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "AWB_DAY_CNT"
+      },
+      "type": "int",
+      "default": 50000,
+      "label": {
+        "en": "Stock method: white balance count of daylight",
+        "fr": "Méthode d’origine : compte de balance des blancs du jour"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.awb_day_cnt",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.awb_night_cnt",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "AWB_NIGHT_CNT"
+      },
+      "type": "int",
+      "default": 1200,
+      "label": {
+        "en": "Stock method: white balance count of visible light",
+        "fr": "Méthode d’origine : compte de balance des blancs de la lumière visible"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.awb_night_cnt",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.vendor_lock",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "VENDOR_LOCK"
+      },
+      "type": "int",
+      "default": 900,
+      "label": {
+        "en": "Stock method: lock after a quick switch back (s)",
+        "fr": "Méthode d’origine : verrou après un retour rapide (s)"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.vendor_lock",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.ir_led_rest",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "IR_LED_REST"
+      },
+      "type": "int",
+      "default": 600,
+      "label": {
+        "en": "Infrared light protection: rest (s)",
+        "fr": "Protection des LED infrarouges : repos (s)"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.ir_led_rest",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
     }
   ],
   "legacy_metadata": {
@@ -81,5 +506,14 @@
   "environment_policy": {
     "global_modes_in_rtsp_env_are_ignored": ["RTSP_VBR", "RTSP_SMART"],
     "smart_call_tuning_in_rtsp_env": ["RTSP_SMART_GOP", "RTSP_SMART_Q", "RTSP_SMART_V"]
-  }
+  },
+  "families": {
+    "rtsp-encoder-modes": "rtsp.vbr, rtsp.smart",
+    "daynight": "automatic day / night switching, /mnt/config/daynight.conf (item 64)"
+  },
+  "daynight_pairs": [
+    ["LUMA_DAY", "LUMA_NIGHT"],
+    ["AE_NIGHT_ABOVE", "AE_DAY_BELOW"],
+    ["VENDOR_NIGHT_LUM", "VENDOR_DAY_LUM"]
+  ]
 }

@@ -208,6 +208,11 @@ _ce_row_table() {
     row("daynight.conf";"flat";"root";"LOWLIGHT_FPS";"bool";"general";.daynight.lowlight_fps),
     row("daynight.conf";"flat";"root";"LOWLIGHT_FPS_VALUE";"lowlight_fps_value";"general";.daynight.lowlight_fps_value),
     row("daynight.conf";"flat";"root";"IR_LED_MODE";"ir_led_mode";"general";.daynight.ir_led_mode),
+    row("daynight.conf";"flat";"root";"MIN_SWITCH";"u:0:3600";"general";.daynight.min_switch),
+    row("daynight.conf";"flat";"root";"AWB_DAY_CNT";"u:0:999999999";"general";.daynight.awb_day_cnt),
+    row("daynight.conf";"flat";"root";"AWB_NIGHT_CNT";"u:0:999999999";"general";.daynight.awb_night_cnt),
+    row("daynight.conf";"flat";"root";"VENDOR_LOCK";"u:0:999999999";"general";.daynight.vendor_lock),
+    row("daynight.conf";"flat";"root";"IR_LED_REST";"u:0:999999999";"general";.daynight.ir_led_rest),
 
     row("isp_tune.conf";"flat";"root";"BRIGHTNESS";"isp_effect";"general";.isp.brightness),
     row("isp_tune.conf";"flat";"root";"CONTRAST";"isp_effect";"general";.isp.contrast),

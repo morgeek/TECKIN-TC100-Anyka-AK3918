@@ -34,6 +34,7 @@ fonction ou scénario de charge a été validé :
 - **#64, schéma des paramètres (point 3 confirmé) — implémenteur + propriétaire / testeur :** le pilote du catalogue
   RTSP VBR/Smart et son contrôle de cohérence sont implémentés. Reste l'essai caméra R12-07; après ce résultat, le
   propriétaire décidera si une autre famille doit être ajoutée.
+  *2026-11-11 : famille jour / nuit ajoutée à la demande du propriétaire (20 clés de `daynight.conf`, `config/parameter-catalog.json`, test `tests/test_daynight_catalog.py`). Le test compare au catalogue les valeurs par défaut des deux démons, de `state.cgi`, de `video.sh` et de `rtsp-launch.sh`, les bornes de la page, du formulaire, de l'export et de la validation. Écarts trouvés et corrigés : un enregistrement de la page Jour / nuit effaçait `AWB_DAY_CNT`, `AWB_NIGHT_CNT`, `VENDOR_LOCK` et `IR_LED_REST` (lus par les démons) ; ces 4 clés et `MIN_SWITCH` n'étaient ni exportées ni vérifiées ; pas de contrôle « nuit au-dessus du jour » pour la méthode d'origine. Aucune valeur par défaut changée.*
 - **WHEP (point 4 confirmé) — propriétaire / testeur :** vérifier l'activation quand `WHEP` manque, la désactivation
   explicite avec `WHEP=0`, le repli navigateur, la latence et la charge à un puis deux spectateurs. La procédure est
   dans [l'entrée WHEP](test-queue.md#2026-11-05--vue-en-direct-webrtc--whep-passerelle-tc100-whep-whep-item-35-étapes-2-à-5).
