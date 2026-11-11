@@ -46,7 +46,9 @@ wq_gateway() {
   while read -r _if _dst _gw _rest; do
     [ "$_dst" = 00000000 ] || continue
     case "$_gw" in ????????) ;; *) continue ;; esac
-    printf '%d.%d.%d.%d\n' "0x${_gw#??????}" "0x$(echo "$_gw" | cut -c5-6)" "0x$(echo "$_gw" | cut -c3-4)" "0x${_gw%??????}"
+    # bytes 3-4 and 5-6 by expansion, not two $(echo | cut): six forks a minute less
+    _g3=${_gw#????}; _g3=${_g3%??}; _g2=${_gw#??}; _g2=${_g2%????}
+    printf '%d.%d.%d.%d\n' "0x${_gw#??????}" "0x$_g3" "0x$_g2" "0x${_gw%??????}"
     return 0
   done < /proc/net/route 2>/dev/null
   return 1
@@ -56,7 +58,8 @@ wq_gateway() {
 wq_loss() {
   if [ -n "$WQ_PING" ]; then _out=$(cat "$WQ_PING" 2>/dev/null)
   else _gw=$(wq_gateway) || { echo null; return; }; _out=$(timeout 8 ping -c 3 -W 1 -w 4 -q "$_gw" 2>/dev/null); fi
-  _p=$(printf '%s\n' "$_out" | sed -n 's/.* \([0-9][0-9]*\)% packet loss.*/\1/p' | head -n 1)
+  # the digits just before the first "% packet loss" (was printf | sed | head: four forks)
+  _p=; case "$_out" in *"% packet loss"*) _p=${_out%%"% packet loss"*}; _p=${_p##*[!0-9]} ;; esac
   case "$_p" in ''|*[!0-9]*) echo null ;; *) echo "$_p" ;; esac
 }
 
