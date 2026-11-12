@@ -31,7 +31,7 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
-### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `to test` (SD kernel first, owner present)
+### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `failed at 1080p` (2026-11-12, .11 rc40: REQBUFS out of memory, recovered without reboot; see "rc40 features switched on" at the end)
 
 - **What (plans-2026-11-12 section 2; kernel patches 0006 and 0016, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
   - `ak39_vi.nr3d` is now a 0644 parameter (default 0). Writing 1 while the queue is not streaming allocates the 6075 KiB
@@ -100,7 +100,7 @@ Rules that apply to every entry:
   owner's agreement) the kernel is a flash candidate through `flashw` with its read-back check, and `NR3D=1` can become the
   default for 720p setups. **Nothing is flashed before a pass.**
 
-### ENC-01 Free encoder: VBR and smart mode drive the free encoder (`[fe-smart]`) — `to test` (next RC, owner, camera with Frigate or VLC)
+### ENC-01 Free encoder: VBR and smart mode drive the free encoder (`[fe-smart]`) — `on, being watched` (2026-11-12, .11 rc40: VBR + smart on both streams; see "rc40 features switched on" at the end)
 
 - **What:** the `rtspserver.conf` `[0]` `vbr` / `smart` settings (exported by `rtsp-launch.sh` as `RTSP_VBR` /
   `RTSP_SMART`, still the single source) had no effect since rc34 (the vendor library, and with it
@@ -168,7 +168,7 @@ Rules that apply to every entry:
   failed`, no oops over the 30 min. If a client misbehaves with long GOPs, set `RTSP_FE_SMART_GOP=100` in `rtsp.env`
   and report which client.
 
-### AEC-01 Echo cancellation of the two-way audio, behind a switch (`[audio-aec]`) — `to test` (next RC, owner; measurements first)
+### AEC-01 Echo cancellation of the two-way audio, behind a switch (`[audio-aec]`) — `switched on, not measured` (2026-11-12, .11 rc40; step 1 measurements and a talk session still to do)
 
 - **What (plan 3 of `plans-2026-11-12.md`):** with `RTSP_AUDIO_AEC=1`, a talk session (go2rtc, Home Assistant, Frigate: the
   RTSP backchannel) is played by `tc100_rtsp` itself on the playback device (`apb.c`, stereo S16_LE 8 kHz, non-blocking),
