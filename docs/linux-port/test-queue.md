@@ -53,6 +53,19 @@ Rules that apply to every entry:
   - **Fixed GOP is kept** on the recorded stream while recording is configured (`REC_LOCAL`, `rec.c` rotates on
     keyframes, 128 samples a fragment) and on the stream the browser live view reads (`livemp4.c`, 10 s without a
     keyframe). The recorder's thumbnails follow the encoder's real GOP (`fe_next_idr`).
+  - **Lossy viewers.** A UDP client and the WHEP gateway (it reads `tc100_rtsp` over loopback TCP; WHEP ignores
+    receiver reports and RTSP's RTCP is skipped) cannot ask for a keyframe after a lost packet. While any playing client of
+    a stream is UDP or from 127.0.0.1, that stream keeps the base GOP (like the recording and live-view rule). The long
+    GOP is used only when every playing client is a non-loopback TCP one (NVR, Frigate) or there is none.
+  - **Time cap.** At least one keyframe every `RTSP_FE_SMART_MAXS` seconds (default 10, clamped 2-12) whatever the frame
+    rate (`IDLE_FPS` lowers it under the same still condition, and the GOP counts frames).
+  - **No burst of a long GOP.** A client joining when the cached GOP is longer than the base GOP gets no burst of old
+    video: it waits for a keyframe and the encoder is asked for one at once.
+  - **`RTSP_FE_SMART_QP` is clamped to 1-5** (default 4): with `RTSP_MD_ENC=1` a bigger floor makes its release look like
+    motion to the encoder-size motion detector (false events from +6 at sensitivity 100); the detector's mean also
+    restarts when the floor is released.
+  - **Existing configs:** a camera whose `rtspserver.conf` already has `vbr=1` (and `smart=1|2`) gets real VBR / smart
+    after the update, with no change by the user (these keys did nothing since rc34).
   - The vendor smart path (`smart_apply`, `p_smart`, `RTSP_SMART_FORCE`, `RTSP_SMART_GOP/_Q/_V`) is removed;
     `RTSP_FE_SMART_GOP` / `RTSP_FE_SMART_QP` are new optional names in `rtsp.env` (the launcher never overwrites them).
   - Relevant to #64 / R12-07: the Streams & audio page's bit rate mode and the vbr / smart readback now have a real effect
@@ -77,7 +90,11 @@ Rules that apply to every entry:
      and 15 fps), the browser live view and a recorded file (REC_LOCAL=1: files start on a keyframe, rotate on time,
      thumbnails present; the GOP of the recorded stream stays `goplen`).
   4. A second client joining during a still scene (TCP and UDP): no gray picture longer than the base GOP.
-  5. `smart=2`: the log says "treated as smart=1". `smart=1` with `vbr=0`: "needs VBR", behaviour as CBR.
+  5. Loss: a WebRTC (WHEP) viewer and an RTSP/UDP viewer on a still scene with `smart=1`: the log shows the GOP stays at
+     `goplen` while they play (keyframe every 2 s at `goplen=30`, 15 fps), a corrupted picture heals within that time;
+     with only an NVR over TCP the keyframes are far apart again. With `IDLE_FPS=5` the keyframe interval is at most
+     `RTSP_FE_SMART_MAXS` seconds. With `RTSP_MD_ENC=1` no false motion event when a still scene turns to motion or back.
+  6. `smart=2`: the log says "treated as smart=1". `smart=1` with `vbr=0`: "needs VBR", behaviour as CBR.
 - **Pass:** camera check clean; 1 and 2 as expected with no decode error and no frozen image in 3 and 4; no `picture
   failed`, no oops over the 30 min. If a client misbehaves with long GOPs, set `RTSP_FE_SMART_GOP=100` in `rtsp.env`
   and report which client.

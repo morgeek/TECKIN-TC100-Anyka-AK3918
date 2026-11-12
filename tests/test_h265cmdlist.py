@@ -533,6 +533,16 @@ class FreeEnc(unittest.TestCase):
         pics = self.run_fe('hevc', 30, 30, 5, 'smart', 'sssssssssssw', 25)
         self.assertEqual(self.idrs(pics), [0, 11])
 
+    def test_smart_time_cap_at_a_low_frame_rate(self):
+        # 5 fps (200 ms a picture, IDLE_FPS): 250 frames would be 50 s; the default cap is 10 s = every 50 pictures
+        pics = self.run_fe('hevc', 120, 30, 5, 'smart', 's' * 120, 250, 45, 200, 10)
+        self.assertEqual(self.idrs(pics), [0, 50, 100])
+        # the cap is clamped to 2..12 s: asked 1 s -> 2 s (10 pictures); asked 60 s -> 12 s (60 pictures)
+        self.assertEqual(self.idrs(self.run_fe('hevc', 30, 30, 5, 'smart', 's' * 30, 250, 45, 200, 1)), [0, 10, 20])
+        self.assertEqual(self.idrs(self.run_fe('hevc', 130, 30, 5, 'smart', 's' * 130, 250, 45, 200, 60)), [0, 60, 120])
+        # at 25 fps the long GOP (250 = 10 s) and the cap agree; the cap never adds a keyframe before the base GOP
+        self.assertEqual(self.idrs(self.run_fe('hevc', 130, 30, 50, 'smart', 's' * 130, 250, 45, 40, 2)), [0, 50, 100])
+
     def test_smart_poc_stays_in_range_at_gop_300(self):
         for codec in ('hevc', 'avc'):
             # asked 1000: limited to 300; 700 still pictures: keyframes at 0, 300, 600, POC at most 2 x 299
@@ -606,12 +616,38 @@ class FreeEncSmartWiring(unittest.TestCase):
         self.assertIn('if (s->idr_want) { s->idr_want = 0; fe_want_idr(s->enc); }', self.src)
 
     def test_fixed_gop_on_recording_and_live_view_and_thumbnails(self):
-        self.assertIn('int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k);', self.src)
-        self.assertIn('fe_set_still(s->enc, !fixed && md_on && !md_motion && t_frame - last > 8.0);', self.src)
+        self.assertIn('int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k) || lossy[k];', self.src)
+        self.assertIn('fe_set_still(fe, !fixed && md_on && !md_motion && t_frame - last > 8.0);', self.src)
         self.assertIn('(free_enc && rs->enc ? fe_next_idr(rs->enc) : rs->nsent % rs->pa.gop == 0)', self.src)
+
+    def test_lossy_clients_keep_the_base_gop(self):
+        self.assertIn('lossy[cl[i].si] = 1;', self.src)
+        self.assertIn('if (!cl[i].tcp || ((const unsigned char *)&cl[i].peer)[0] == 127)', self.src)
+        self.assertIn('|| live_wants(k) || lossy[k];', self.src)
+
+    def test_no_burst_of_a_gop_longer_than_the_base_gop(self):
+        f = self.src[self.src.index('static void play_burst('):]
+        f = f[:f.index('\n}\n')]
+        self.assertIn('int cok = s->cache_ok && !(s->smart && s->ncache > (int)s->pa.gop);', f)
+        self.assertIn('if (cok && s->ncache &&', f)
+        self.assertIn('qburst_on && c->tcp && cok &&', f)
+        self.assertNotIn('s->cache_ok &&', f.replace('int cok = s->cache_ok &&', ''))
+        self.assertIn('c->wait_idr = 1; want_idr(c->si);', f)
+
+    def test_time_cap_and_qp_clamp_and_md_enc_reset(self):
+        f = self.src[self.src.index('static void smart_setup('):]
+        f = f[:f.index('\n}\n')]
+        self.assertIn('"RTSP_FE_SMART_MAXS", FE_SMART_MAXS_DEFAULT', f)
+        self.assertIn('ms < 2 ? 2 : ms > 12 ? 12 : ms', f)
+        self.assertIn('if (qx > FE_SMART_QP_MAX) qx = FE_SMART_QP_MAX;', f)
+        self.assertIn('fe_set_time(fe, (uint32_t)(t_frame * 1000.0));', self.src)
+        self.assertIn('if (was && !fe->still && !k) { md_enc_base = 0; md_enc_hits = 0; }', self.src)
+        fe = open(os.path.join(ROOT, 'src/h265enc/freeenc.h'), encoding='utf-8').read()
+        self.assertIn('#define FE_SMART_QP_MAX 5', fe)
+        self.assertIn('qp_extra > FE_SMART_QP_MAX ? FE_SMART_QP_MAX : qp_extra', fe)
 
     def test_the_rule_in_the_encoder(self):
         fe = open(os.path.join(ROOT, 'src/h265enc/freeenc.h'), encoding='utf-8').read()
         self.assertIn('idr = fe_next_idr(e);', fe)
-        self.assertIn('e->frame >= gl || (e->frame >= e->gop && (!(e->smart && e->still) || e->idr_want))', fe)
+        self.assertIn('(!(e->smart && e->still) || e->idr_want || (uint32_t)(e->now_ms - e->idr_ms) >= e->max_ms)', fe)
         self.assertIn('#define FE_SMART_GOP_MAX 300', fe)

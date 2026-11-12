@@ -16,7 +16,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   lengthens the GOP (default 250, at most 300) and raises the lowest QP while the scene is still, keeping the fixed GOP
   on the recorded stream and the browser live view. New optional `RTSP_FE_SMART_GOP` / `RTSP_FE_SMART_QP` in `rtsp.env`.
   The vendor `ak_venc_set_smart_config` path and `RTSP_SMART_FORCE` / `RTSP_SMART_GOP/_Q/_V` are removed. CBR is unchanged.
-  Test-queue entry ENC-01.
+  A camera whose `rtspserver.conf` already has `vbr=1` (and `smart=1|2`) gets real VBR / smart after the update, with no
+  change by the user. Smart keeps the base GOP while a UDP or loopback (WHEP) client plays, caps the keyframe interval
+  at `RTSP_FE_SMART_MAXS` seconds (default 10), sends no burst of a cached GOP longer than the base GOP, and clamps
+  `RTSP_FE_SMART_QP` to 1-5. Test-queue entry ENC-01.
 - **RTSP sender thread**: `RTSP_SENDER_THREAD=1` remains opt-in until the four-client and mixed TCP/UDP camera qualification passes in R16; the firmware launcher and a binary with the variable unset both use inline sending.
 
 ### Added

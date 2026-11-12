@@ -657,7 +657,7 @@ class Rc9SocWiring(unittest.TestCase):
         self.assertIn('if (!s->pa.rc_vbr)', f)
         self.assertIn('if (!free_enc)', f)
         self.assertIn('treated as smart=1', f)
-        self.assertIn('fe_set_smart(s->enc, 1, gl, qx)', f)
+        self.assertIn('fe_set_smart(s->enc, 1, gl, qx, ms)', f)
         self.assertIn('"RTSP_FE_SMART_GOP", 250, 1, FE_SMART_GOP_MAX', f)
         self.assertIn('"RTSP_FE_SMART_QP"', f)
         self.assertGreaterEqual(src.count('smart_setup('), 5)   # definition + every encoder open

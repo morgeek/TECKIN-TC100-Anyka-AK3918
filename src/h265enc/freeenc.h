@@ -50,6 +50,7 @@ struct fe_enc {
 	int cur, frame, idrs, force_idr;
 	int smart, gop_long, floor_extra;	/* smart mode (fe_set_smart): long GOP and QP floor while the scene is still */
 	int still, idr_want;			/* fe_set_still; a client waits for a keyframe (fe_want_idr) */
+	uint32_t max_ms, now_ms, idr_ms;	/* smart mode: a keyframe at least every max_ms (fe_set_time gives now_ms) */
 	struct rc rc;
 	uint8_t params[192];
 	int plen;
@@ -166,23 +167,31 @@ static inline void fe_set_vbr(struct fe_enc *e, int on) { rc_set_vbr(&e->rc, on)
 
 #define FE_SMART_GOP_MAX 300	/* POC: 2 x pictures since the IDR must stay below 1024 (10 bits), H.264 frame_num wraps at 16 */
 #define FE_SMART_QP_EXTRA 4
+#define FE_SMART_QP_MAX 5	/* a bigger floor makes its release look like motion to the encoder-size motion detector (RTSP_MD_ENC) */
+#define FE_SMART_MAXS_DEFAULT 10
 
 /* Smart mode: while fe_set_still(e, 1), a keyframe is only coded when the long GOP (gop_long, default 250, at most
- * FE_SMART_GOP_MAX, never shorter than the base GOP) is over or a client asks for one (fe_want_idr), and the lowest QP
- * is raised by qp_extra (default 4) above the lowest QP of the rate control. Out of a still scene the base GOP and
+ * FE_SMART_GOP_MAX, never shorter than the base GOP) is over, max_s seconds (default 10, 2 to 12) have passed since the
+ * last keyframe (the frame rate can be lowered: the GOP counts frames) or a client asks for one (fe_want_idr), and the
+ * lowest QP is raised by qp_extra (default 4, at most FE_SMART_QP_MAX) above the lowest QP of the rate control. Out of a still scene the base GOP and
  * the old QP come back at once. Smart mode needs VBR (the vendor firmware has it only in VBR; in CBR the bit rate is
  * the contract and the floor would only take quality away from a budget that has to be filled anyway): without
- * fe_set_vbr(e, 1) it is not active. gop_long, qp_extra <= 0: the defaults. Returns 1 when active. */
-static inline int fe_set_smart(struct fe_enc *e, int on, int gop_long, int qp_extra)
+ * fe_set_vbr(e, 1) it is not active. gop_long, qp_extra, max_s <= 0: the defaults. Returns 1 when active. */
+static inline int fe_set_smart(struct fe_enc *e, int on, int gop_long, int qp_extra, int max_s)
 {
 	e->smart = on && e->rc.vbr;
 	if (gop_long <= 0) gop_long = 250;
 	if (gop_long > FE_SMART_GOP_MAX) gop_long = FE_SMART_GOP_MAX;
 	e->gop_long = gop_long < e->gop ? e->gop : gop_long;
-	e->floor_extra = qp_extra > 0 ? qp_extra : FE_SMART_QP_EXTRA;
+	e->floor_extra = qp_extra <= 0 ? FE_SMART_QP_EXTRA : qp_extra > FE_SMART_QP_MAX ? FE_SMART_QP_MAX : qp_extra;
+	if (max_s <= 0) max_s = FE_SMART_MAXS_DEFAULT;
+	e->max_ms = (uint32_t)(max_s < 2 ? 2 : max_s > 12 ? 12 : max_s) * 1000u;
 	if (!e->smart) { e->still = 0; rc_set_floor(&e->rc, 0); }
 	return e->smart;
 }
+
+/* the clock of the caller in milliseconds (wraps), read by the time limit of the smart mode */
+static inline void fe_set_time(struct fe_enc *e, uint32_t ms) { e->now_ms = ms; }
 
 /* the scene is still (1) or not (0): the long GOP and the QP floor apply only while it is */
 static inline void fe_set_still(struct fe_enc *e, int still)
@@ -197,13 +206,15 @@ static inline void fe_set_still(struct fe_enc *e, int still)
 static inline void fe_want_idr(struct fe_enc *e) { e->idr_want = 1; }
 
 /* 1 when the next fe_encode codes a keyframe (the thumbnails of the recorder are made on those frames):
- * frame 0, after a failed picture, the long GOP over, or the base GOP over and the scene not still or a client waiting.
+ * frame 0, after a failed picture, the long GOP over, or the base GOP over and the scene not still, a client waiting
+ * or max_ms since the last keyframe.
  * With smart mode off this is frame % gop == 0 as before. */
 static inline int fe_next_idr(const struct fe_enc *e)
 {
 	int gl = e->smart && e->still && e->gop_long > e->gop ? e->gop_long : e->gop;
 
-	return e->frame == 0 || e->force_idr || e->frame >= gl || (e->frame >= e->gop && (!(e->smart && e->still) || e->idr_want));
+	return e->frame == 0 || e->force_idr || e->frame >= gl ||
+	       (e->frame >= e->gop && (!(e->smart && e->still) || e->idr_want || (uint32_t)(e->now_ms - e->idr_ms) >= e->max_ms));
 }
 
 /* the 112 words of a picture's list into l */
@@ -304,7 +315,7 @@ static inline int fe_encode(struct fe_enc *e, uint32_t src_pa, uint8_t **data, u
 	int idr, q, h;
 
 	idr = fe_next_idr(e);
-	if (idr) { e->frame = 0; e->force_idr = 0; e->idr_want = 0; }
+	if (idr) { e->frame = 0; e->force_idr = 0; e->idr_want = 0; e->idr_ms = e->now_ms; }
 	fr = (uint32_t)e->frame;
 	poc = 2 * fr;
 	q = rc_qp(&e->rc, idr);

@@ -2422,13 +2422,17 @@ static void play_burst(struct cli *c)
 	if (c->b_ok && !c->v_set) return;
 
 	for (int i = 0; i < s->ncache; i++) need += frame_need(s->cache[i].len);
-	if (s->cache_ok && s->ncache && (!c->tcp || qfree(c) > need)) {
+	/* smart mode: a cached GOP longer than the base GOP is old video (up to 5 s, 25 s at the idle frame rate, unpaced on UDP):
+	 * no burst, the client waits for the next keyframe, which it asks the encoder for (want_idr below) */
+	int cok = s->cache_ok && !(s->smart && s->ncache > (int)s->pa.gop);
+
+	if (cok && s->ncache && (!c->tcp || qfree(c) > need)) {
 		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
 		for (int i = 0; i < s->ncache; i++)
 			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
 		if (c->tcp && qflush(c)) { cli_close(c); return; }
 		c->wait_idr = 0;
-	} else if (qburst_on && c->tcp && s->cache_ok && s->ncache && qfree(c) > 400 + frame_need(s->cache[0].len)) {
+	} else if (qburst_on && c->tcp && cok && s->ncache && qfree(c) > 400 + frame_need(s->cache[0].len)) {
 		/* the whole GOP does not fit the (smaller) queue: send the IDR and the P frames that fit, then wait for the next
 		 * IDR: the client has a picture at once instead of after up to a GOP */
 		int k = 0, sum = 400;
@@ -3030,14 +3034,18 @@ static void smart_setup(struct strm *s)
 	const char *sub = s == &S[1] ? getenv("RTSP_SMART_SUB") : NULL;
 	const char *ks = sub && *sub ? "RTSP_SMART_SUB" : "RTSP_SMART";
 	int m = env_int(ks, 0, 0, 2), gl = env_int("RTSP_FE_SMART_GOP", 250, 1, FE_SMART_GOP_MAX);
-	int qx = env_int("RTSP_FE_SMART_QP", FE_SMART_QP_EXTRA, 1, 20);
+	/* at most FE_SMART_QP_MAX: with RTSP_MD_ENC=1 a bigger floor makes its release look like motion (false events from +6) */
+	int qx = env_int("RTSP_FE_SMART_QP", FE_SMART_QP_EXTRA, 1, 100), ms = env_int("RTSP_FE_SMART_MAXS", FE_SMART_MAXS_DEFAULT, 0, 1000);
+
+	if (qx > FE_SMART_QP_MAX) qx = FE_SMART_QP_MAX;
+	ms = ms < 2 ? 2 : ms > 12 ? 12 : ms;	/* a keyframe at least every MAXS seconds (2 to 12, default 10), whatever the frame rate */
 
 	s->smart = 0;
 	if (!s->enc || !m) return;
 	if (m == 2) LOG("encoder %s: smart=2 (variable GOP of the vendor library) has no free equivalent: treated as smart=1\n", s->name);
 	if (!free_enc) { LOG("encoder %s: smart mode needs the free encoder: not set\n", s->name); return; }
 	if (!s->pa.rc_vbr) { LOG("encoder %s: smart mode needs VBR (vbr=1): not set\n", s->name); return; }
-	s->smart = fe_set_smart(s->enc, 1, gl, qx);
+	s->smart = fe_set_smart(s->enc, 1, gl, qx, ms);
 	LOG("encoder %s: smart mode on: GOP %d to %d frames and QP floor +%d on a still scene\n", s->name, s->pa.gop,
 	    ((struct fe_enc *)s->enc)->gop_long, qx);
 }
@@ -3602,7 +3610,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	struct timespec tl = t0;
 	double t_frame = 0;	/* last frame dequeued */
 	long enc_us = 0, snd_us = 0, pp_us = 0, sub_us = 0;	/* per 5 s: picture post-processing (main copy + tuning + clock), sub picture */
-	int np[2] = { 0, 0 }, na = 0;
+	int np[2] = { 0, 0 }, na = 0, lossy[2] = { 0, 0 };
 	time_t sec_last = 0;
 
 	while (run) {
@@ -3729,7 +3737,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				}
 			}
 		}
-		np[0] = np[1] = 0; na = 0;
+		np[0] = np[1] = 0; na = 0; lossy[0] = lossy[1] = 0;
 		for (i = 0; i < MAXCLI; i++) {
 			if (cl[i].fd >= 0 && cl[i].kill) cli_close(&cl[i]);	/* the sender thread saw it fail */
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &ws) && qflush(&cl[i])) cli_close(&cl[i]);
@@ -3749,7 +3757,11 @@ unsigned char *fpb[2] = { NULL, NULL };
 				    i, (long)(time(NULL) - cl[i].last), CLI_IDLE_S);
 				cli_close(&cl[i]);
 			}
-			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) { np[cl[i].si]++; if (cl[i].a_ok) na++; }
+			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) {
+				np[cl[i].si]++; if (cl[i].a_ok) na++;
+				/* a UDP client, or the WHEP gateway (loopback), cannot ask for a keyframe after a lost packet: smart mode keeps the base GOP */
+				if (!cl[i].tcp || ((const unsigned char *)&cl[i].peer)[0] == 127) lossy[cl[i].si] = 1;
+			}
 		}
 		cl_unlock();
 		if (nowt != sec_last) {		/* once a second: recorder inputs, arecord reaped */
@@ -3874,10 +3886,15 @@ unsigned char *fpb[2] = { NULL, NULL };
 					/* the fixed GOP stays on the recorded stream while recording is configured (rec.c starts and rotates
 					 * files on keyframes, 128 samples a fragment, one thumbnail per GOP) and while the browser live
 					 * view reads the stream (livemp4.c drops after 10 s without a keyframe) */
-					int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k);
+					int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k) || lossy[k];
 					double last = md_tlast > snd_t ? md_tlast : snd_t;
+					struct fe_enc *fe = s->enc;
+					int was = fe->still;
 
-					fe_set_still(s->enc, !fixed && md_on && !md_motion && t_frame - last > 8.0);
+					fe_set_time(fe, (uint32_t)(t_frame * 1000.0));
+					fe_set_still(fe, !fixed && md_on && !md_motion && t_frame - last > 8.0);
+					/* RTSP_MD_ENC: the floor's release makes the pictures bigger; that is not motion, so the mean starts again */
+					if (was && !fe->still && !k) { md_enc_base = 0; md_enc_hits = 0; }
 				}
 			}
 			double tn = now_s();
