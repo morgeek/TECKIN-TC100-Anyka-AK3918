@@ -3142,3 +3142,21 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
 - Start-up log line of the noise reduction: **passed** (HW-09).
 - Day / night page save keeping `AWB_*`, `VENDOR_LOCK`, `IR_LED_REST`: covered by the host tests in busybox; not done on
   the camera (a save rewrites the whole daynight.conf from the form).
+
+## 3.0.1-rc38 install on the .24 (2026-11-12, from 3.0.0, web update, owner)
+Build: CI run 43207206200 (commit f51961d), package `tc100-3.0.1-rc38-update.tar` (MD5SUMS checked, rc38 content
+checked in stack.sqfs: setconf / board profile IR-cut 592 / 593, the two lighter Wi-Fi scripts).
+
+| check (12:28-12:31 UTC, 3-5 min after the reboot) | result |
+|---|---|
+| `/mnt/VERSION`, kernel | 3.0.1-rc38, kernel built 2026-11-12 11:16 UTC |
+| tc100_rtsp, supervisor, mqttd, onvifd, httpfront, whep, wpa_supplicant | all running |
+| stream | 1 client, 121 frames / 5 s, 0 dropped; one thread (sender thread opt-in since rc37) |
+| MemAvailable | 23.9 MB |
+| settings kept | `daynight.conf` still `DAYNIGHT_SOURCE=vendor`; boot.conf `IRCUT_DAY_GPIO=592` / `IRCUT_NIGHT_GPIO=593` kept (same as the new board default); no new migration line; cfg-persist `saved to cfga` |
+| day / night | first log line `mode=day src=vendor` |
+| noise reduction start-up log | present (HW-09) |
+| `action.cgi` by GET, `cmd=x` | `405 Method Not Allowed` |
+
+**Passed.** Still to do: the first night on rc38 (.24, `vendor`), the first full night of the .11 with its IR-cut fixed,
+the night part of HW-09; the .11 itself is still on rc37.
