@@ -1041,12 +1041,13 @@ DIAG
   # Live image tuning (number/select/switch). State: retained <root>/isp/state.
   if command -v isp_tune_json >/dev/null 2>&1; then
     isp_state_json="$(json_escape "${MQTT_TOPIC_ROOT}/isp/state")"
-    for isp_key in brightness contrast saturation sharpness hue exposure_max_pct; do
+    for isp_key in brightness contrast saturation sharpness denoise hue exposure_max_pct; do
       case "$isp_key" in
         brightness) isp_name="Brightness"; isp_ic="mdi:brightness-6"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.BRIGHTNESS }}" ;;
         contrast) isp_name="Contrast"; isp_ic="mdi:contrast-box"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.CONTRAST }}" ;;
         saturation) isp_name="Saturation"; isp_ic="mdi:palette"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.SATURATION }}" ;;
         sharpness) isp_name="Sharpness"; isp_ic="mdi:image-filter-center-focus"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.SHARPNESS }}" ;;
+        denoise) isp_name="Noise Reduction"; isp_ic="mdi:blur"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.DENOISE or 0 }}" ;;
         hue) isp_name="Hue"; isp_ic="mdi:palette-swatch"; isp_min=-50; isp_max=50; isp_step=1; isp_tpl="{{ value_json.conf.HUE }}" ;;
         exposure_max_pct) isp_name="Exposure Cap"; isp_ic="mdi:camera-timer"; isp_min=0; isp_max=100; isp_step=5; isp_tpl="{{ value_json.conf.EXPOSURE_MAX_PCT or 0 }}" ;;
       esac
@@ -2104,7 +2105,7 @@ handle_command_payload()
         command_rc=1
       fi
       ;;
-    isp_brightness|isp_contrast|isp_saturation|isp_sharpness|isp_hue|isp_power_hz|isp_exposure_max_pct)
+    isp_brightness|isp_contrast|isp_saturation|isp_sharpness|isp_denoise|isp_hue|isp_power_hz|isp_exposure_max_pct)
       isp_key="$(printf '%s' "${cmd#isp_}" | tr '[:lower:]' '[:upper:]')"
       isp_val="${value%.0}"
       case "$isp_key:$isp_val" in

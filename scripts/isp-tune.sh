@@ -8,7 +8,7 @@
 ISP_TUNE_CONF="${ISP_TUNE_CONF:-/mnt/config/isp_tune.conf}"
 ISP_TUNE_STATUS="${ISP_TUNE_STATUS:-/var/run/isp_tune.status}"
 ISP_TUNE_BOOT="${ISP_TUNE_BOOT:-/mnt/config/boot.conf}"
-ISP_TUNE_KEYS="BRIGHTNESS CONTRAST SATURATION SHARPNESS HUE POWER_HZ EXPOSURE_MAX_PCT"
+ISP_TUNE_KEYS="BRIGHTNESS CONTRAST SATURATION SHARPNESS DENOISE HUE POWER_HZ EXPOSURE_MAX_PCT"
 # Hardware privacy masks: MASK1..MASK4 = x1,y1,x2,y2 in percent, MASK_COLOR.
 ISP_MASK_KEYS="MASK1 MASK2 MASK3 MASK4 MASK_COLOR"
 
@@ -17,7 +17,7 @@ isp_tune_norm()
 {
   _itn_v="$2"
   case "$1" in
-    BRIGHTNESS|CONTRAST|SATURATION|SHARPNESS|HUE)
+    BRIGHTNESS|CONTRAST|SATURATION|SHARPNESS|DENOISE|HUE)
       [ -z "$_itn_v" ] && { echo 0; return 0; }
       case "$_itn_v" in -*) _itn_n="${_itn_v#-}" ;; *) _itn_n="$_itn_v" ;; esac
       case "$_itn_n" in ''|*[!0-9]*) return 1 ;; esac

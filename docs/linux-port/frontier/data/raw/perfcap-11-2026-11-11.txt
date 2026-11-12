@@ -1,0 +1,767 @@
+@ 13:50:35 0
+MemFree:18540 MemAvailable:22960 Buffers:0 Cached:11796 AnonPages:2088 Mapped:3208 Shmem:1616 Slab:4360 SReclaimable:772 SUnreclaim:3588 KernelStack:384 PageTables:364 VmallocUsed:872 
+cpu 1555215 0 2972321 20584110 0 0 552241 0 0 0
+intr 188277145
+ctxt 71971600
+processes 367660
+procs_running 1
+load 0.71 0.79 0.82 1/49 10747
+p 1 init pss=111 ppid=0 ut=0 st=564 minflt=72
+p 1030 tc100-onvifd pss=147 ppid=1 ut=2394 st=18861 minflt=91
+p 1072 tc100-superviso pss=107 ppid=1 ut=4122 st=23125 minflt=115
+p 10740 dropbear pss=194 ppid=475 ut=56 st=4 minflt=80
+p 10741 sh:-c pss=137 ppid=10740 ut=2 st=0 minflt=85
+p 1091 tc100-mqttd pss=143 ppid=1 ut=537 st=7308 minflt=9636
+p 1135 ntpd pss=133 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=95 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=91 ppid=1 ut=40 st=170 minflt=67
+p 1209 sh:klogd pss=115 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=829 ppid=1 ut=2068 st=3760 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1118 st=17802 minflt=38
+p 289 sh:cfg-persist pss=209 ppid=1 ut=23402 st=7682 minflt=157015
+p 404 wpa_supplicant pss=799 ppid=1 ut=185 st=634 minflt=239
+p 426 udhcpc pss=114 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=190 ppid=1 ut=0 st=5 minflt=71
+p 483 watchdog pss=126 ppid=1 ut=79 st=224 minflt=22
+p 965 tc100_rtsp pss=736 ppid=1 ut=1146948 st=2373865 minflt=21632309
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=682 ppid=1 ut=69786 st=36678 minflt=534468
+p 994 sh:service-watchdog.sh pss=204 ppid=1 ut=668 st=688 minflt=413
+@ 13:50:36 burst 600
+new 11 sh:-c parent=sh:-c
+new 61 sh:wifi-quality.sh parent=sh:housekeeper.sh
+new 61 sh parent=sh:housekeeper.sh
+new 62 timeout parent=init
+new 62 sh:wifi-quality.sh parent=sh:wifi-quality.sh
+new 62 ping parent=sh:wifi-quality.sh
+new 62 timeout parent=init
+new 71 awk parent=sh:wifi-quality.sh
+new 328 sh:net-guard.sh parent=sh:housekeeper.sh
+new 329 rm parent=sh:housekeeper.sh
+new 330 sh:wifi-quality.sh parent=sh:housekeeper.sh
+new 330 sh:wifi-roam.sh parent=sh:housekeeper.sh
+new 331 timeout parent=init
+new 331 sh:wifi-quality.sh parent=sh:wifi-quality.sh
+new 331 ping parent=sh:wifi-quality.sh
+new 332 timeout parent=init
+new 340 awk parent=sh:wifi-quality.sh
+new 364 sh:reboot-tracker.sh parent=sh:housekeeper.sh
+new 365 sh:reboot-tracker.sh parent=sh:reboot-tracker.sh
+new 365 grep parent=sh:reboot-tracker.sh
+new 365 grep parent=sh:reboot-tracker.sh
+new 365 grep parent=sh:reboot-tracker.sh
+new 365 awk parent=
+new 592 rm parent=sh:housekeeper.sh
+new 593 sh:wifi-quality.sh parent=sh:housekeeper.sh
+new 593 sh parent=sh:housekeeper.sh
+new 593 sh:scri parent=
+new 594 timeout parent=init
+new 594 sh:wifi-quality.sh parent=sh:wifi-quality.sh
+new 594 ping parent=sh:wifi-quality.sh
+new 594 timeout parent=init
+@ 13:52:52 burst-end
+@ 13:57:52 1
+MemFree:18188 MemAvailable:22624 Buffers:0 Cached:11680 AnonPages:2276 Mapped:3208 Shmem:1500 Slab:4408 SReclaimable:808 SUnreclaim:3600 KernelStack:408 PageTables:428 VmallocUsed:896 
+cpu 1558939 0 2977334 20618067 0 0 553228 0 0 0
+intr 188609327
+ctxt 72111162
+processes 368182
+procs_running 2
+load 0.85 0.89 0.85 3/54 11270
+p 1 init pss=87 ppid=0 ut=0 st=565 minflt=72
+p 1030 tc100-onvifd pss=144 ppid=1 ut=2427 st=18865 minflt=91
+p 1072 tc100-superviso pss=105 ppid=1 ut=4129 st=23166 minflt=115
+p 1091 tc100-mqttd pss=141 ppid=1 ut=537 st=7321 minflt=9647
+p 11244 sh:wifi-quality.sh pss=152 ppid=987 ut=3 st=3 minflt=315
+p 11256 timeout pss=72 ppid=1 ut=0 st=0 minflt=15
+p 11258 sh:wifi-quality.sh pss=127 ppid=11244 ut=0 st=0 minflt=43
+p 11266 ping pss=109 ppid=11258 ut=0 st=1 minflt=78
+p 11268 timeout pss=82 ppid=1 ut=0 st=0 minflt=17
+p 1135 ntpd pss=118 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=86 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=86 ppid=1 ut=40 st=171 minflt=67
+p 1209 sh:klogd pss=100 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=825 ppid=1 ut=2071 st=3767 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1119 st=17830 minflt=38
+p 289 sh:cfg-persist pss=185 ppid=1 ut=23447 st=7692 minflt=157244
+p 404 wpa_supplicant pss=794 ppid=1 ut=185 st=635 minflt=239
+p 426 udhcpc pss=100 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=303 ppid=1 ut=0 st=6 minflt=73
+p 483 watchdog pss=109 ppid=1 ut=79 st=225 minflt=22
+p 965 tc100_rtsp pss=708 ppid=1 ut=1149359 st=2378213 minflt=21675737
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=655 ppid=1 ut=69944 st=36734 minflt=535509
+p 994 sh:service-watchdog.sh pss=187 ppid=1 ut=669 st=689 minflt=413
+@ 14:02:52 2
+MemFree:18916 MemAvailable:23352 Buffers:0 Cached:11716 AnonPages:1912 Mapped:3208 Shmem:1536 Slab:4396 SReclaimable:808 SUnreclaim:3588 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1561068 0 2980739 20641890 0 0 553930 0 0 0
+intr 188842966
+ctxt 72205544
+processes 368496
+procs_running 2
+load 1.17 1.09 0.95 1/46 11583
+p 1 init pss=116 ppid=0 ut=0 st=566 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2430 st=18887 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4129 st=23198 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=537 st=7329 minflt=9658
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=40 st=171 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2074 st=3771 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1119 st=17846 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23475 st=7705 minflt=157412
+p 404 wpa_supplicant pss=801 ppid=1 ut=185 st=636 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=0 st=6 minflt=73
+p 483 watchdog pss=133 ppid=1 ut=79 st=225 minflt=22
+p 965 tc100_rtsp pss=603 ppid=1 ut=1151063 st=2381231 minflt=21708611
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70016 st=36767 minflt=536014
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=670 st=690 minflt=413
+@ 14:07:53 3
+MemFree:18584 MemAvailable:23020 Buffers:0 Cached:11728 AnonPages:2092 Mapped:3208 Shmem:1548 Slab:4404 SReclaimable:808 SUnreclaim:3596 KernelStack:368 PageTables:332 VmallocUsed:864 
+cpu 1563435 0 2984486 20665097 0 0 554650 0 0 0
+intr 189090653
+ctxt 72301575
+processes 368927
+procs_running 1
+load 0.82 0.91 0.91 1/47 12014
+p 1 init pss=116 ppid=0 ut=0 st=566 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2430 st=18913 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4129 st=23231 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=537 st=7338 minflt=9670
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=40 st=171 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2076 st=3776 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1120 st=17877 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23505 st=7714 minflt=157577
+p 404 wpa_supplicant pss=801 ppid=1 ut=185 st=637 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=225 minflt=22
+p 965 tc100_rtsp pss=487 ppid=1 ut=1152772 st=2384325 minflt=21739023
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70105 st=36821 minflt=536684
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=671 st=691 minflt=414
+@ 14:12:53 4
+MemFree:18436 MemAvailable:22872 Buffers:0 Cached:11748 AnonPages:1868 Mapped:3208 Shmem:1568 Slab:4408 SReclaimable:808 SUnreclaim:3600 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1565565 0 2987755 20689076 0 0 555313 0 0 0
+intr 189307271
+ctxt 72395547
+processes 369262
+procs_running 1
+load 0.82 0.89 0.91 1/46 12349
+p 1 init pss=116 ppid=0 ut=0 st=567 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2431 st=18937 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4129 st=23264 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=544 st=7341 minflt=9682
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=40 st=171 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2079 st=3780 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1122 st=17901 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23536 st=7723 minflt=157743
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=637 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=226 minflt=22
+p 965 tc100_rtsp pss=520 ppid=1 ut=1154451 st=2387179 minflt=21768472
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70193 st=36854 minflt=537232
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=671 st=692 minflt=414
+@ 14:17:54 5
+MemFree:18540 MemAvailable:22976 Buffers:0 Cached:11736 AnonPages:2060 Mapped:3208 Shmem:1556 Slab:4304 SReclaimable:808 SUnreclaim:3496 KernelStack:368 PageTables:332 VmallocUsed:864 
+cpu 1567803 0 2991549 20712376 0 0 556023 0 0 0
+intr 189564036
+ctxt 72491471
+processes 369662
+procs_running 2
+load 1.11 1.01 0.96 1/47 12749
+p 1 init pss=116 ppid=0 ut=0 st=567 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2434 st=18960 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4129 st=23297 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=544 st=7351 minflt=9692
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=40 st=171 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2079 st=3786 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1122 st=17922 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23562 st=7737 minflt=157909
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=638 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=226 minflt=22
+p 965 tc100_rtsp pss=751 ppid=1 ut=1156176 st=2390388 minflt=21797981
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70286 st=36893 minflt=537887
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=672 st=693 minflt=414
+@ 14:22:54 6
+MemFree:18652 MemAvailable:23088 Buffers:0 Cached:11740 AnonPages:2108 Mapped:3208 Shmem:1560 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1570013 0 2995343 20735653 0 0 556785 0 0 0
+intr 189827445
+ctxt 72587289
+processes 370017
+procs_running 1
+load 0.71 0.85 0.90 1/46 13104
+p 1 init pss=116 ppid=0 ut=0 st=568 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2437 st=18982 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4129 st=23329 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=544 st=7362 minflt=9706
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=40 st=172 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2079 st=3793 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1122 st=17945 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23593 st=7745 minflt=158070
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=640 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=226 minflt=22
+p 965 tc100_rtsp pss=791 ppid=1 ut=1157911 st=2393652 minflt=21827938
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70371 st=36940 minflt=538489
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=673 st=693 minflt=414
+@ 14:27:54 7
+MemFree:18532 MemAvailable:22968 Buffers:0 Cached:11756 AnonPages:2124 Mapped:3208 Shmem:1576 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1572147 0 2998860 20759310 0 0 557518 0 0 0
+intr 190067209
+ctxt 72682588
+processes 370413
+procs_running 1
+load 0.73 0.77 0.86 2/46 13500
+p 1 init pss=116 ppid=0 ut=0 st=569 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2440 st=19005 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4130 st=23361 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=544 st=7370 minflt=9716
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=172 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2081 st=3797 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1122 st=17959 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23622 st=7754 minflt=158237
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=641 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=227 minflt=22
+p 965 tc100_rtsp pss=879 ppid=1 ut=1159567 st=2396707 minflt=21860140
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70459 st=36985 minflt=539142
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=674 st=694 minflt=414
+@ 14:32:55 8
+MemFree:18532 MemAvailable:22968 Buffers:0 Cached:11764 AnonPages:2244 Mapped:3208 Shmem:1584 Slab:4320 SReclaimable:808 SUnreclaim:3512 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1574335 0 3002706 20782537 0 0 558298 0 0 0
+intr 190322377
+ctxt 72777990
+processes 370752
+procs_running 1
+load 0.87 0.89 0.89 1/46 13839
+p 1 init pss=116 ppid=0 ut=0 st=569 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2443 st=19028 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4164 st=23361 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=550 st=7373 minflt=9726
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=172 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2083 st=3801 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1122 st=17978 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23654 st=7763 minflt=158403
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=642 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=227 minflt=22
+p 965 tc100_rtsp pss=507 ppid=1 ut=1161232 st=2399962 minflt=21889807
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70551 st=37015 minflt=539736
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=674 st=695 minflt=414
+@ 14:37:55 9
+MemFree:18592 MemAvailable:23028 Buffers:0 Cached:11768 AnonPages:1896 Mapped:3208 Shmem:1588 Slab:4304 SReclaimable:808 SUnreclaim:3496 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1576558 0 3006358 20806034 0 0 558972 0 0 0
+intr 190560917
+ctxt 72873725
+processes 371178
+procs_running 1
+load 0.65 0.84 0.88 2/46 14265
+p 1 init pss=116 ppid=0 ut=0 st=570 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2443 st=19053 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4189 st=23369 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7376 minflt=9738
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=172 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2085 st=3805 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1123 st=17996 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23682 st=7774 minflt=158567
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=643 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=227 minflt=22
+p 965 tc100_rtsp pss=607 ppid=1 ut=1162919 st=2402979 minflt=21920008
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70647 st=37060 minflt=540462
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=675 st=696 minflt=414
+@ 14:42:56 10
+MemFree:18408 MemAvailable:22844 Buffers:0 Cached:11784 AnonPages:2464 Mapped:3208 Shmem:1604 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1578754 0 3010096 20829439 0 0 559681 0 0 0
+intr 190814370
+ctxt 72969185
+processes 371513
+procs_running 2
+load 0.82 0.82 0.86 1/46 14600
+p 1 init pss=116 ppid=0 ut=0 st=570 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2444 st=19076 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4189 st=23403 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7385 minflt=9750
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=172 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2088 st=3809 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1123 st=18014 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23714 st=7781 minflt=158731
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=644 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=228 minflt=22
+p 965 tc100_rtsp pss=759 ppid=1 ut=1164644 st=2406160 minflt=21950860
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=701 ppid=1 ut=70731 st=37097 minflt=541013
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=676 st=697 minflt=415
+@ 14:47:56 11
+MemFree:18372 MemAvailable:22808 Buffers:0 Cached:11812 AnonPages:2460 Mapped:3208 Shmem:1632 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:368 PageTables:336 VmallocUsed:864 
+cpu 1580886 0 3013390 20853369 0 0 560369 0 0 0
+intr 191041663
+ctxt 73064270
+processes 371914
+procs_running 1
+load 0.60 0.74 0.81 2/47 15001
+p 1 init pss=116 ppid=0 ut=0 st=571 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2444 st=19102 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4189 st=23435 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7394 minflt=9765
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=173 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2090 st=3813 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1123 st=18032 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23738 st=7796 minflt=158897
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=644 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=228 minflt=22
+p 965 tc100_rtsp pss=1187 ppid=1 ut=1166345 st=2409068 minflt=21981332
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=70828 st=37140 minflt=541737
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=677 st=697 minflt=415
+@ 14:52:57 12
+MemFree:18592 MemAvailable:23028 Buffers:0 Cached:11828 AnonPages:2024 Mapped:3208 Shmem:1648 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:360 PageTables:332 VmallocUsed:848 
+cpu 1583067 0 3016957 20876943 0 0 561088 0 0 0
+intr 191281640
+ctxt 73160215
+processes 372355
+procs_running 2
+load 0.65 0.77 0.81 1/49 15442
+p 1 init pss=116 ppid=0 ut=0 st=572 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2446 st=19127 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4189 st=23468 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7405 minflt=9775
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=173 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2090 st=3820 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1123 st=18048 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23767 st=7804 minflt=159098
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=645 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=228 minflt=22
+p 965 tc100_rtsp pss=719 ppid=1 ut=1168054 st=2412129 minflt=22012359
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=70908 st=37192 minflt=542364
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=678 st=698 minflt=415
+@ 14:52:57 burst 600
+new 118 sh:wifi-quality.sh parent=sh:housekeeper.sh
+new 118 sh:wifi-roam.sh parent=sh:housekeeper.sh
+new 119 timeout parent=init
+new 119 sh:wifi-quality.sh parent=sh:wifi-quality.sh
+new 119 ping parent=sh:wifi-quality.sh
+new 119 timeout parent=init
+new 128 awk parent=sh:wifi-quality.sh
+new 175 sh:cfg-persist parent=sh:cfg-persist
+new 218 sh:housekeeper.sh parent=sh:housekeeper.sh
+new 229 sh:health-snapshot.sh parent=sh:housekeeper.sh
+new 230 sh:health-snapshot.sh parent=sh:health-snapshot.sh
+new 230 onvif parent=sh:health-snapshot.sh
+new 231 onvif parent=sh:health-snapshot.sh
+new 232 sh:health-sn parent=
+new 233 sh:health-snapshot.sh parent=sh:health-snapshot.sh
+new 233 sh:health-snapshot.sh parent=sh:health-snapshot.sh
+new 235 sh:health-snapshot.sh parent=sh:health-snapshot.sh
+new 235 ssh-server parent=sh:health-snapshot.sh
+new 236 sh:health-snapshot.sh parent=sh:health-snapshot.sh
+new 236 sh:health-snapshot.sh parent=sh:health-snapshot.sh
+new 305 kworker/0:3 parent=kthreadd
+new 338 mqtt-bridge.sh parent=tc100-mqttd
+new 340 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 340 awk parent=
+new 342 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 343 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 343 motion-detectio parent=mqtt-bridge.sh
+new 344 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 344 telnet-server parent=mqtt-bridge.sh
+new 349 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 349 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 349 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 350 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 350 mqtt-bridge.sh parent=
+new 351 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 351 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 353 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 354 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 354 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 354 md5sum parent=mqtt-bridge.sh
+new 354 mqtt-bridge.sh parent=mqtt-bridge.sh
+new 372 sh:sdinfo-sd.sh parent=sh:housekeeper.sh
+new 373 sh:wifi-quality.sh parent=sh:housekeeper.sh
+new 373 sh:wifi-roam.sh parent=sh:housekeeper.sh
+new 374 timeout parent=init
+new 374 sh:wifi-quality.sh parent=sh:wifi-quality.sh
+new 374 ping parent=sh:wifi-quality.sh
+new 374 timeout parent=init
+new 383 awk parent=sh:wifi-quality.sh
+@ 14:55:15 burst-end
+@ 15:00:15 13
+MemFree:18704 MemAvailable:23140 Buffers:0 Cached:11828 AnonPages:2172 Mapped:3208 Shmem:1648 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1587188 0 3022566 20910026 0 0 562164 0 0 0
+intr 191655176
+ctxt 73300653
+processes 372985
+procs_running 1
+load 0.76 0.82 0.82 1/46 16072
+p 1 init pss=116 ppid=0 ut=0 st=573 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2446 st=19166 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4189 st=23517 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7418 minflt=9795
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=173 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2091 st=3828 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1123 st=18074 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23812 st=7817 minflt=159347
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=647 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=229 minflt=22
+p 965 tc100_rtsp pss=879 ppid=1 ut=1170565 st=2416770 minflt=22055971
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=71044 st=37251 minflt=543275
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=679 st=699 minflt=415
+@ 15:05:16 14
+MemFree:18568 MemAvailable:23004 Buffers:0 Cached:11712 AnonPages:2048 Mapped:3208 Shmem:1532 Slab:4304 SReclaimable:808 SUnreclaim:3496 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1589464 0 3026542 20933008 0 0 562969 0 0 0
+intr 191918363
+ctxt 73397170
+processes 373385
+procs_running 2
+load 1.14 0.88 0.84 1/46 16472
+p 1 init pss=116 ppid=0 ut=0 st=573 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2446 st=19192 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4189 st=23550 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7428 minflt=9805
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=173 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2091 st=3836 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1126 st=18087 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23844 st=7824 minflt=159518
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=648 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=229 minflt=22
+p 965 tc100_rtsp pss=723 ppid=1 ut=1172278 st=2420067 minflt=22084561
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=71127 st=37298 minflt=543899
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=679 st=700 minflt=415
+@ 15:10:16 15
+MemFree:18792 MemAvailable:23228 Buffers:0 Cached:11728 AnonPages:1988 Mapped:3208 Shmem:1548 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:368 PageTables:332 VmallocUsed:864 
+cpu 1591480 0 3030020 20956814 0 0 563714 0 0 0
+intr 192175940
+ctxt 73492010
+processes 373747
+procs_running 2
+load 0.80 0.90 0.86 2/47 16834
+p 1 init pss=116 ppid=0 ut=0 st=574 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2472 st=19192 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4190 st=23582 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7440 minflt=9816
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=173 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2092 st=3842 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1126 st=18104 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23873 st=7834 minflt=159683
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=649 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=230 minflt=22
+p 965 tc100_rtsp pss=671 ppid=1 ut=1173964 st=2423235 minflt=22114034
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=71221 st=37335 minflt=544543
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=680 st=701 minflt=415
+@ 15:15:17 16
+MemFree:18724 MemAvailable:23160 Buffers:0 Cached:11732 AnonPages:2320 Mapped:3208 Shmem:1552 Slab:4288 SReclaimable:808 SUnreclaim:3480 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1593800 0 3034055 20979776 0 0 564440 0 0 0
+intr 192429643
+ctxt 73587959
+processes 374219
+procs_running 1
+load 0.90 0.86 0.85 1/46 17306
+p 1 init pss=116 ppid=0 ut=0 st=574 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2472 st=19218 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4195 st=23610 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7449 minflt=9826
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=174 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2094 st=3845 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1128 st=18119 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23901 st=7843 minflt=159878
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=650 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=230 minflt=22
+p 965 tc100_rtsp pss=667 ppid=1 ut=1175672 st=2426422 minflt=22142599
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=71313 st=37376 minflt=545192
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=681 st=702 minflt=416
+@ 15:20:17 17
+MemFree:19192 MemAvailable:23628 Buffers:0 Cached:11756 AnonPages:1988 Mapped:3208 Shmem:1576 Slab:4292 SReclaimable:808 SUnreclaim:3484 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1595873 0 3037880 21003118 0 0 565242 0 0 0
+intr 192693752
+ctxt 73684031
+processes 374569
+procs_running 2
+load 0.94 0.87 0.85 1/46 17656
+p 1 init pss=116 ppid=0 ut=0 st=575 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2498 st=19218 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4219 st=23619 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7460 minflt=9839
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=174 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2096 st=3850 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1131 st=18135 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23933 st=7851 minflt=160040
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=651 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=230 minflt=22
+p 965 tc100_rtsp pss=679 ppid=1 ut=1177316 st=2429715 minflt=22172832
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=71405 st=37415 minflt=545814
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=682 st=703 minflt=416
+@ 15:25:18 18
+MemFree:19092 MemAvailable:23528 Buffers:0 Cached:11756 AnonPages:2324 Mapped:3208 Shmem:1576 Slab:4320 SReclaimable:808 SUnreclaim:3512 KernelStack:368 PageTables:332 VmallocUsed:864 
+cpu 1598180 0 3041548 21026419 0 0 566010 0 0 0
+intr 192930678
+ctxt 73779352
+processes 374979
+procs_running 1
+load 0.78 0.85 0.84 1/47 18066
+p 1 init pss=116 ppid=0 ut=0 st=576 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2505 st=19236 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4219 st=23653 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7469 minflt=9849
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=174 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2098 st=3854 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1131 st=18152 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23964 st=7859 minflt=160207
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=652 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=231 minflt=22
+p 965 tc100_rtsp pss=1007 ppid=1 ut=1179019 st=2432742 minflt=22204967
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=705 ppid=1 ut=71491 st=37469 minflt=546491
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=683 st=703 minflt=418
+@ 15:30:18 19
+MemFree:18400 MemAvailable:22836 Buffers:0 Cached:11768 AnonPages:1996 Mapped:3208 Shmem:1588 Slab:4292 SReclaimable:808 SUnreclaim:3484 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1600264 0 3045078 21050197 0 0 566663 0 0 0
+intr 193171980
+ctxt 73874633
+processes 375329
+procs_running 3
+load 0.88 0.84 0.84 2/46 18416
+p 1 init pss=116 ppid=0 ut=0 st=576 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2505 st=19261 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4219 st=23686 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7479 minflt=9860
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=174 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2101 st=3858 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1132 st=18176 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=23992 st=7869 minflt=160374
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=653 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=231 minflt=22
+p 965 tc100_rtsp pss=687 ppid=1 ut=1180702 st=2435844 minflt=22237089
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=709 ppid=1 ut=71576 st=37513 minflt=547124
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=683 st=704 minflt=418
+@ 15:35:18 20
+MemFree:18452 MemAvailable:22888 Buffers:0 Cached:11784 AnonPages:1984 Mapped:3208 Shmem:1604 Slab:4300 SReclaimable:808 SUnreclaim:3492 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1602442 0 3048862 21073594 0 0 567347 0 0 0
+intr 193422925
+ctxt 73970684
+processes 375728
+procs_running 2
+load 0.86 0.83 0.83 1/46 18815
+p 1 init pss=116 ppid=0 ut=0 st=577 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2505 st=19288 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4219 st=23718 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7488 minflt=9870
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=175 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2103 st=3862 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1135 st=18208 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=24021 st=7879 minflt=160536
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=654 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=231 minflt=22
+p 965 tc100_rtsp pss=671 ppid=1 ut=1182407 st=2439014 minflt=22265786
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=709 ppid=1 ut=71659 st=37562 minflt=547766
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=684 st=705 minflt=418
+@ 15:40:19 21
+MemFree:18488 MemAvailable:22924 Buffers:0 Cached:11808 AnonPages:2176 Mapped:3208 Shmem:1628 Slab:4304 SReclaimable:808 SUnreclaim:3496 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1604591 0 3052655 21097007 0 0 568036 0 0 0
+intr 193676310
+ctxt 74066726
+processes 376094
+procs_running 1
+load 0.85 0.82 0.82 3/46 19181
+p 1 init pss=116 ppid=0 ut=0 st=577 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2505 st=19314 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4219 st=23752 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=556 st=7496 minflt=9885
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=175 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2109 st=3862 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1136 st=18226 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=24049 st=7891 minflt=160698
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=655 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=232 minflt=22
+p 965 tc100_rtsp pss=867 ppid=1 ut=1184070 st=2442290 minflt=22297267
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=709 ppid=1 ut=71752 st=37600 minflt=548443
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=685 st=706 minflt=418
+@ 15:45:19 22
+MemFree:19052 MemAvailable:23488 Buffers:0 Cached:11820 AnonPages:1924 Mapped:3208 Shmem:1640 Slab:4312 SReclaimable:808 SUnreclaim:3504 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1606796 0 3056317 21120523 0 0 568696 0 0 0
+intr 193900530
+ctxt 74162047
+processes 376483
+procs_running 1
+load 1.01 0.80 0.81 2/46 19571
+p 1 init pss=116 ppid=0 ut=0 st=578 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2505 st=19340 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4219 st=23784 minflt=115
+p 1091 tc100-mqttd pss=143 ppid=1 ut=556 st=7507 minflt=9895
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=175 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2116 st=3862 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1137 st=18256 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=24078 st=7900 minflt=160867
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=656 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=232 minflt=22
+p 965 tc100_rtsp pss=635 ppid=1 ut=1185750 st=2445218 minflt=22331072
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=709 ppid=1 ut=71838 st=37645 minflt=549099
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=686 st=707 minflt=418
+@ 15:50:20 23
+MemFree:18380 MemAvailable:22816 Buffers:0 Cached:11848 AnonPages:2232 Mapped:3208 Shmem:1668 Slab:4352 SReclaimable:808 SUnreclaim:3544 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1608933 0 3060176 21143904 0 0 569362 0 0 0
+intr 194136212
+ctxt 74258235
+processes 376921
+procs_running 1
+load 0.83 0.80 0.81 3/49 20009
+p 1 init pss=116 ppid=0 ut=0 st=578 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2505 st=19367 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4246 st=23789 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=566 st=7507 minflt=9906
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=8 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=175 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2118 st=3867 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1137 st=18274 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=24107 st=7908 minflt=161070
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=657 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=232 minflt=22
+p 965 tc100_rtsp pss=527 ppid=1 ut=1187383 st=2448336 minflt=22362765
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=709 ppid=1 ut=71916 st=37685 minflt=549748
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=687 st=707 minflt=419
+@ 15:55:20 24
+MemFree:18336 MemAvailable:22772 Buffers:0 Cached:11876 AnonPages:1872 Mapped:3208 Shmem:1696 Slab:4356 SReclaimable:808 SUnreclaim:3548 KernelStack:360 PageTables:332 VmallocUsed:856 
+cpu 1611210 0 3064158 21166937 0 0 570116 0 0 0
+intr 194395296
+ctxt 74354473
+processes 377333
+procs_running 1
+load 0.95 0.92 0.86 2/48 20421
+p 1 init pss=116 ppid=0 ut=0 st=579 minflt=72
+p 1030 tc100-onvifd pss=150 ppid=1 ut=2505 st=19392 minflt=91
+p 1072 tc100-superviso pss=111 ppid=1 ut=4280 st=23789 minflt=115
+p 1091 tc100-mqttd pss=147 ppid=1 ut=572 st=7510 minflt=9917
+p 1135 ntpd pss=140 ppid=1 ut=5 st=29 minflt=31
+p 1198 syslogd pss=103 ppid=1 ut=4 st=9 minflt=66
+p 1200 tc100-logfwd pss=94 ppid=1 ut=41 st=175 minflt=67
+p 1209 sh:klogd pss=123 ppid=1 ut=0 st=3 minflt=65
+p 1348 tc100-whep pss=832 ppid=1 ut=2120 st=3871 minflt=198
+p 1427 tc100-mdnsd pss=16 ppid=1 ut=1139 st=18292 minflt=38
+p 289 sh:cfg-persist pss=220 ppid=1 ut=24137 st=7918 minflt=161235
+p 404 wpa_supplicant pss=801 ppid=1 ut=186 st=658 minflt=239
+p 426 udhcpc pss=122 ppid=1 ut=1 st=0 minflt=30
+p 475 dropbear pss=311 ppid=1 ut=1 st=6 minflt=82
+p 483 watchdog pss=133 ppid=1 ut=79 st=233 minflt=22
+p 965 tc100_rtsp pss=559 ppid=1 ut=1189052 st=2451639 minflt=22393832
+p 980 httpfront pss=28 ppid=1 ut=0 st=63 minflt=677
+p 987 sh:housekeeper.sh pss=709 ppid=1 ut=72017 st=37728 minflt=550421
+p 994 sh:service-watchdog.sh pss=219 ppid=1 ut=687 st=708 minflt=419
+@ done

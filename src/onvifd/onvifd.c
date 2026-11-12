@@ -755,7 +755,7 @@ static void xml_unescape(char *s)
 		int k, done = 0;
 
 		if (*s == '&' && s[1] == '#') {	/* &#39; &#x27; ... (Go's encoding/xml escapes ' and " that way): ASCII only */
-			const char *q = s + 2;
+			char *q = s + 2;
 			int v = 0, hex = (*q == 'x' || *q == 'X'), nd = 0;
 
 			if (hex) q++;

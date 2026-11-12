@@ -110,7 +110,7 @@ class Useless(unittest.TestCase):
         self.assertIn('cmd=ha_discovery_info', SETTINGS)
         a = read('www/cgi-bin/action.cgi')
         self.assertRegex(a, r'(?m)^\s*refresh_ha_discovery\|ha_discovery_info\|set_mqtt_config')
-        self.assertIn('|ha_discovery_info) ;;', a)                                    # read-only: no CSRF token needed
+        self.assertRegex(a, r'\|ha_discovery_info(\|presence_info)?\) ;;')           # read-only: no CSRF token needed
 
     def test_u5_handler_counts_the_records_with_a_payload(self):
         with tempfile.TemporaryDirectory() as t:

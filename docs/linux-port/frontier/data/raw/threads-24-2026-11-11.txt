@@ -1,0 +1,8 @@
+966 tc100_rtsp ut=1073041 st=1404108 mf=18664651
+984 tc100_rtsp ut=6124 st=19520 mf=7
+985 tc100_rtsp ut=84681 st=731006 mf=1614758
+--
+966 tc100_rtsp ut=1073294 st=1404351 mf=18667789
+984 tc100_rtsp ut=6126 st=19524 mf=7
+985 tc100_rtsp ut=84694 st=731102 mf=1615061
+STAT cap 50 enc 50 bytes 393722 enc_ms 1433 snd_ms 60 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 1 snd_qdrop 0 snd_thr_ms 154 snd_wait 15

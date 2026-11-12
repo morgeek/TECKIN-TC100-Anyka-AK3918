@@ -13,21 +13,20 @@ WPA_CLI="${WRO_WPA_CLI:-wpa_cli}"
 BELOW="${ROAM_BELOW:--75}"
 BETTER="${ROAM_BETTER:-15}"
 HOLD="${ROAM_HOLD:-600}"
-mkdir -p "$WR_STATE" 2>/dev/null
+[ -d "$WR_STATE" ] || mkdir -p "$WR_STATE" 2>/dev/null
 
 log() { logger -t tc100-event -p user.notice "wifi-roam: $*" 2>/dev/null; }
-now() { if [ -n "$WRO_NOW" ]; then echo "$WRO_NOW"; else cut -d. -f1 /proc/uptime; fi; }
 
 [ "$1" = once ] || { echo "usage: wifi-roam.sh once" >&2; exit 2; }
-t=$(now)
+if [ -n "$WRO_NOW" ]; then t=$WRO_NOW; else t=; read -r t _ < /proc/uptime; t=${t%%.*}; fi	# no fork: this runs every minute
 last=0; [ -r "$WR_STATE/last" ] && read -r last < "$WR_STATE/last"
 case "$last" in ''|*[!0-9]*) last=0 ;; esac
 [ "$last" -gt 0 ] && [ $((t - last)) -lt "$HOLD" ] && exit 0
 
 if [ -n "$WRO_DBM" ]; then WIFI_DBM="$WRO_DBM"
 else WIFI_DBM=; . /mnt/scripts/wifi-signal.sh 2>/dev/null && wifi_signal_read; fi
-case "$WIFI_DBM" in ''|*[!0-9-]*) rm -f "$WR_STATE/weak"; exit 0 ;; esac
-if [ "$WIFI_DBM" -ge "$BELOW" ]; then rm -f "$WR_STATE/weak"; exit 0; fi
+case "$WIFI_DBM" in ''|*[!0-9-]*) [ -e "$WR_STATE/weak" ] && rm -f "$WR_STATE/weak"; exit 0 ;; esac
+if [ "$WIFI_DBM" -ge "$BELOW" ]; then [ -e "$WR_STATE/weak" ] && rm -f "$WR_STATE/weak"; exit 0; fi
 weak=0; [ -r "$WR_STATE/weak" ] && read -r weak < "$WR_STATE/weak"
 case "$weak" in ''|*[!0-9]*) weak=0 ;; esac
 weak=$((weak + 1)); echo "$weak" > "$WR_STATE/weak"

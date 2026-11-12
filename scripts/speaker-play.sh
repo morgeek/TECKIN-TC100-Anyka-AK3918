@@ -22,7 +22,10 @@ command -v aplay >/dev/null 2>&1 || { echo "no aplay" >&2; exit 2; }
 
 LOCK=/tmp/speaker-play.lock
 mkdir "$LOCK" 2>/dev/null || { echo "busy" >&2; exit 3; }
-trap 'amp 0; rmdir "$LOCK" 2>/dev/null' EXIT INT TERM
+# INT / TERM end the script (the EXIT trap removes the lock): a trap that only removed the lock let the script go on
+# and start aplay without it (review 2026-11-11, C5)
+trap 'amp 0; rmdir "$LOCK" 2>/dev/null' EXIT
+trap 'exit 143' INT TERM
 
 ACT=$(sed -n 's/^SPEAKER_AMP_ACTIVE="\{0,1\}\([01]\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)
 ACT=${ACT:-0}

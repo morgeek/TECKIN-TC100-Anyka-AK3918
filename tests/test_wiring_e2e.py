@@ -49,6 +49,9 @@ DYNAMIC = {
     ('settings.html', 'update', '?cmd='): ('run(cmd) of the update box: install or discard', ['install', 'discard']),
     ('settings.html', 'flashinstall', '?cmd='): ('post(cmd): install only (the 2.x prepare step was removed)',
                                                  ['install']),
+    ('95-settings-page.js', 'action', '?cmd='): ('post(command) of the presence card: the two callers pass a literal name',
+                                                 ['presence_profiles_save', 'presence_apply']),
+    ('index.bundle.min.js', 'action', '?cmd='): ('minified copy of 95-settings-page.js', ['presence_profiles_save', 'presence_apply']),
     ('settings.html', 'sounds', '?'): ('post(q) of the Sounds card builds the query: play, delete, boot, upload',
                                        ['play', 'delete', 'boot', 'upload']),
 }

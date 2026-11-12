@@ -1,0 +1,136 @@
+/tmp/thr.sh: line 3: can't open /proc/6071/comm: no such file
+pid 6139 18:42:30
+cpu 11429 0 26840 75651 0 0 2882
+processes 6255
+t 6139 ut=146 st=282 mf=5023
+-- 18:47:30
+cpu 13507 0 32277 97490 0 0 3535
+processes 7253
+t 6139 ut=1443 st=2867 mf=24367
+STAT cap 51 enc 51 bytes 960916 enc_ms 1445 snd_ms 226 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+STAT cap 49 enc 49 bytes 1002528 enc_ms 1394 snd_ms 253 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+STAT cap 51 enc 51 bytes 1040556 enc_ms 1451 snd_ms 248 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 114 dqbuf 0 enc_main 117 enc_sub 0 send 75 qbuf 0 other 146 (total 453); wakeups 51 (video 51, audio only 0)
+PROF sys ms: select 86 dqbuf 1 enc_main 116 enc_sub 0 send 118 qbuf 0 other 129 (total 452); wakeups 50 (video 50, audio only 0)
+PROF sys ms: select 124 dqbuf 0 enc_main 113 enc_sub 0 send 99 qbuf 0 other 101 (total 439); wakeups 52 (video 51, audio only 0)
+===
+STAT cap 50 enc 50 bytes 983289 enc_ms 1436 snd_ms 185 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 79 dqbuf 0 enc_main 89 enc_sub 0 send 79 qbuf 0 other 104 (total 353); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 967123 enc_ms 1618 snd_ms 63 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 53 dqbuf 0 enc_main 46 enc_sub 0 send 3 qbuf 0 other 160 (total 264); wakeups 54 (video 49, audio only 0)
+STAT cap 49 enc 49 bytes 977613 enc_ms 1893 snd_ms 552 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 71 dqbuf 0 enc_main 112 enc_sub 0 send 119 qbuf 0 other 128 (total 431); wakeups 49 (video 49, audio only 0)
+STAT cap 50 enc 50 bytes 1034201 enc_ms 1520 snd_ms 275 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 87 dqbuf 0 enc_main 89 enc_sub 0 send 100 qbuf 0 other 106 (total 383); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 984924 enc_ms 1407 snd_ms 114 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 75 dqbuf 0 enc_main 54 enc_sub 0 send 56 qbuf 0 other 98 (total 285); wakeups 56 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1004659 enc_ms 1446 snd_ms 238 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 1 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 116 dqbuf 0 enc_main 102 enc_sub 0 send 91 qbuf 2 other 85 (total 398); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 997184 enc_ms 1395 snd_ms 184 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 78 dqbuf 0 enc_main 89 enc_sub 0 send 89 qbuf 0 other 84 (total 342); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 999534 enc_ms 1443 snd_ms 28 clients 1 dropped 1 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 55 dqbuf 2 enc_main 37 enc_sub 0 send 8 qbuf 0 other 44 (total 148); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1002100 enc_ms 1396 snd_ms 135 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 82 dqbuf 1 enc_main 73 enc_sub 0 send 44 qbuf 0 other 186 (total 389); wakeups 55 (video 49, audio only 0)
+STAT cap 51 enc 51 bytes 1043595 enc_ms 1456 snd_ms 244 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 105 dqbuf 0 enc_main 98 enc_sub 0 send 89 qbuf 0 other 132 (total 427); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 1029596 enc_ms 1417 snd_ms 242 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 123 dqbuf 3 enc_main 125 enc_sub 0 send 97 qbuf 8 other 151 (total 511); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 909593 enc_ms 1418 snd_ms 219 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 109 dqbuf 0 enc_main 119 enc_sub 0 send 111 qbuf 0 other 126 (total 466); wakeups 50 (video 50, audio only 0)
+STAT cap 50 enc 50 bytes 1019103 enc_ms 1434 snd_ms 242 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 125 dqbuf 4 enc_main 116 enc_sub 0 send 137 qbuf 0 other 155 (total 539); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 954574 enc_ms 1390 snd_ms 227 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 88 dqbuf 3 enc_main 100 enc_sub 0 send 92 qbuf 1 other 137 (total 423); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1066616 enc_ms 1470 snd_ms 291 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 115 dqbuf 0 enc_main 137 enc_sub 0 send 137 qbuf 0 other 132 (total 523); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 936568 enc_ms 1636 snd_ms 253 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 107 dqbuf 0 enc_main 119 enc_sub 0 send 67 qbuf 0 other 177 (total 471); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1022448 enc_ms 1596 snd_ms 307 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 106 dqbuf 0 enc_main 134 enc_sub 0 send 130 qbuf 0 other 109 (total 480); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1053180 enc_ms 1395 snd_ms 245 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 106 dqbuf 0 enc_main 100 enc_sub 0 send 111 qbuf 4 other 129 (total 452); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 968386 enc_ms 1484 snd_ms 232 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 2 sub_ms 1 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 116 dqbuf 0 enc_main 118 enc_sub 0 send 106 qbuf 0 other 126 (total 467); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 968668 enc_ms 1581 snd_ms 238 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 142 dqbuf 0 enc_main 122 enc_sub 0 send 84 qbuf 6 other 107 (total 463); wakeups 52 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 996159 enc_ms 1479 snd_ms 260 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 98 dqbuf 1 enc_main 97 enc_sub 0 send 93 qbuf 0 other 119 (total 410); wakeups 50 (video 50, audio only 0)
+STAT cap 50 enc 50 bytes 1034528 enc_ms 1593 snd_ms 311 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 111 dqbuf 0 enc_main 123 enc_sub 0 send 109 qbuf 0 other 147 (total 492); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1000912 enc_ms 1396 snd_ms 236 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 114 dqbuf 0 enc_main 115 enc_sub 0 send 86 qbuf 9 other 160 (total 487); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 940883 enc_ms 1444 snd_ms 223 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 101 dqbuf 0 enc_main 112 enc_sub 0 send 100 qbuf 0 other 82 (total 397); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1060626 enc_ms 1389 snd_ms 246 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 127 dqbuf 0 enc_main 107 enc_sub 0 send 103 qbuf 0 other 74 (total 413); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1025678 enc_ms 1453 snd_ms 238 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 110 dqbuf 0 enc_main 133 enc_sub 0 send 108 qbuf 0 other 140 (total 492); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 1027672 enc_ms 1441 snd_ms 257 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 121 dqbuf 0 enc_main 122 enc_sub 0 send 92 qbuf 4 other 101 (total 442); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 959797 enc_ms 1421 snd_ms 226 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 109 dqbuf 0 enc_main 86 enc_sub 0 send 91 qbuf 0 other 129 (total 416); wakeups 50 (video 50, audio only 0)
+STAT cap 50 enc 50 bytes 1018932 enc_ms 1431 snd_ms 237 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 108 dqbuf 0 enc_main 132 enc_sub 0 send 123 qbuf 4 other 119 (total 488); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 944886 enc_ms 1400 snd_ms 222 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 101 dqbuf 4 enc_main 108 enc_sub 0 send 80 qbuf 0 other 127 (total 422); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1038539 enc_ms 1447 snd_ms 245 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 122 dqbuf 0 enc_main 106 enc_sub 0 send 79 qbuf 0 other 131 (total 440); wakeups 52 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1003737 enc_ms 1390 snd_ms 236 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 127 dqbuf 2 enc_main 126 enc_sub 0 send 105 qbuf 1 other 90 (total 453); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1003577 enc_ms 1457 snd_ms 245 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 132 dqbuf 3 enc_main 122 enc_sub 0 send 79 qbuf 4 other 121 (total 464); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 950392 enc_ms 1391 snd_ms 229 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 124 dqbuf 0 enc_main 152 enc_sub 0 send 93 qbuf 5 other 113 (total 488); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1066442 enc_ms 1453 snd_ms 251 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 112 dqbuf 0 enc_main 120 enc_sub 0 send 116 qbuf 5 other 146 (total 501); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 976745 enc_ms 1422 snd_ms 229 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 129 dqbuf 0 enc_main 111 enc_sub 0 send 79 qbuf 9 other 147 (total 476); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 975605 enc_ms 1427 snd_ms 231 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 117 dqbuf 0 enc_main 121 enc_sub 0 send 102 qbuf 5 other 146 (total 492); wakeups 50 (video 50, audio only 0)
+STAT cap 50 enc 50 bytes 1005231 enc_ms 1425 snd_ms 240 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 106 dqbuf 0 enc_main 96 enc_sub 0 send 102 qbuf 5 other 149 (total 460); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1016381 enc_ms 1486 snd_ms 259 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 98 dqbuf 0 enc_main 92 enc_sub 0 send 77 qbuf 0 other 129 (total 397); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1032097 enc_ms 1448 snd_ms 242 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 1 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 99 dqbuf 0 enc_main 102 enc_sub 0 send 91 qbuf 0 other 147 (total 439); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 924430 enc_ms 1392 snd_ms 220 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 121 dqbuf 0 enc_main 115 enc_sub 0 send 62 qbuf 0 other 128 (total 427); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1036595 enc_ms 1451 snd_ms 75 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 76 dqbuf 1 enc_main 64 enc_sub 0 send 27 qbuf 0 other 52 (total 222); wakeups 52 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 1034407 enc_ms 1414 snd_ms 209 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 104 dqbuf 0 enc_main 95 enc_sub 0 send 77 qbuf 1 other 161 (total 441); wakeups 56 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 986693 enc_ms 1496 snd_ms 270 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 104 dqbuf 0 enc_main 126 enc_sub 0 send 103 qbuf 0 other 130 (total 463); wakeups 50 (video 50, audio only 0)
+STAT cap 50 enc 50 bytes 965239 enc_ms 1428 snd_ms 238 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 124 dqbuf 6 enc_main 134 enc_sub 0 send 105 qbuf 0 other 140 (total 512); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1002320 enc_ms 1473 snd_ms 130 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 72 dqbuf 3 enc_main 70 enc_sub 0 send 26 qbuf 11 other 64 (total 248); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1043727 enc_ms 1477 snd_ms 57 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 65 dqbuf 0 enc_main 68 enc_sub 0 send 29 qbuf 0 other 157 (total 320); wakeups 56 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 912823 enc_ms 1397 snd_ms 220 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 125 dqbuf 4 enc_main 100 enc_sub 0 send 66 qbuf 0 other 128 (total 423); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1021733 enc_ms 1449 snd_ms 241 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 131 dqbuf 4 enc_main 117 enc_sub 0 send 81 qbuf 6 other 152 (total 493); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1000480 enc_ms 1390 snd_ms 243 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 107 dqbuf 3 enc_main 124 enc_sub 0 send 114 qbuf 5 other 105 (total 461); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 990811 enc_ms 1500 snd_ms 236 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 120 dqbuf 0 enc_main 122 enc_sub 0 send 87 qbuf 0 other 121 (total 452); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 1045137 enc_ms 1420 snd_ms 243 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 117 dqbuf 0 enc_main 116 enc_sub 0 send 93 qbuf 2 other 133 (total 463); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 942303 enc_ms 1396 snd_ms 226 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 100 dqbuf 4 enc_main 110 enc_sub 0 send 94 qbuf 3 other 101 (total 414); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1056188 enc_ms 1449 snd_ms 247 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 116 dqbuf 0 enc_main 122 enc_sub 0 send 108 qbuf 0 other 102 (total 450); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1016937 enc_ms 1389 snd_ms 242 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 117 dqbuf 12 enc_main 120 enc_sub 0 send 124 qbuf 0 other 83 (total 458); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 960916 enc_ms 1445 snd_ms 226 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 114 dqbuf 0 enc_main 117 enc_sub 0 send 75 qbuf 0 other 146 (total 453); wakeups 51 (video 51, audio only 0)
+STAT cap 49 enc 49 bytes 1002528 enc_ms 1394 snd_ms 253 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 86 dqbuf 1 enc_main 116 enc_sub 0 send 118 qbuf 0 other 129 (total 452); wakeups 50 (video 50, audio only 0)
+STAT cap 51 enc 51 bytes 1040556 enc_ms 1451 snd_ms 248 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 124 dqbuf 0 enc_main 113 enc_sub 0 send 99 qbuf 0 other 101 (total 439); wakeups 52 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 1016975 enc_ms 1442 snd_ms 238 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 137 dqbuf 0 enc_main 146 enc_sub 0 send 92 qbuf 0 other 123 (total 500); wakeups 51 (video 51, audio only 0)
+STAT cap 50 enc 50 bytes 992898 enc_ms 1424 snd_ms 248 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+PROF sys ms: select 106 dqbuf 0 enc_main 109 enc_sub 0 send 98 qbuf 0 other 109 (total 424); wakeups 50 (video 50, audio only 0)
