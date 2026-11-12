@@ -3562,3 +3562,22 @@ Build: run 43298570849 (main, commit fdbe482), package `tc100-3.0.1-rc40-update.
 | `action.cgi` by GET, `cmd=x` | `405 Method Not Allowed` |
 
 **Passed.** The camera was in day mode at 21:45 local (lamps on); the first full night on rc40 is still to check.
+
+## rc40 features switched on, .11 (2026-11-12 20:47-20:53 UTC, owner's request)
+Backups `/mnt/config/{boot.conf,rtspserver.conf,rtsp.env}.bak-rc40`. Set: boot.conf `NR3D=1` (the .11 boot.conf had no
+NR3D line: appended), rtspserver.conf `[0] vbr=1 smart=1`, rtsp.env `RTSP_AUDIO_AEC=1`; saved to flash, reboot.
+
+- **NR3D-01 at 1080p: failed (no video), recovered without reboot.** After the boot `ak39_vi.nr3d=1`, reference taken
+  (`3D-NR reference frame: 4050 KiB at 0x82f00000, 2025 KiB at 0x83300000`), then `cma_alloc: reserved: alloc failed,
+  req-size: 845 pages, ret: -12` twice and tc100_rtsp `REQBUFS: Out of memory`: tc100_rtsp not running. Boot log:
+  `no reserved capture pool (-22), using CMA/system`, `30720K cma-reserved`; CmaTotal 30720 kB, CmaFree 12308 kB with the
+  reference held (so not the 20 MiB / 2 MiB spare of the plan: the capture buffers come from a "reserved" area that the
+  reference also uses). Recovery as documented: `NR3D=0` in boot.conf, `echo 0 > .../nr3d` (CmaFree 12308 -> 17904 kB),
+  `rtsp-h26x restart`: video back (125 frames / 5 s, client reconnected, CmaFree 7300 kB streaming). Video was off about
+  3 min. NR3D left at 0 on the .11. Next: 720p main stream, or the capture-pool layout (`-22`).
+- **ENC-01 (VBR + smart): on.** Log `free encoder: H.265 1920x1080 ... 1600 kbit/s ceiling (VBR)`, sub `250 kbit/s ceiling
+  (VBR)`, `encoder main / sub: smart mode on: GOP 50 to 250 frames and QP floor +4 on a still scene`; 97-125 frames / 5 s,
+  0 dropped. To watch: bit rate on a still scene, picture after a motion (keyframe interval up to 10 s).
+- **AEC-01: switched on, not measured.** Log `audio: echo cancellation on (clock ratio 1, delay 20 ms)`; ADC at 8012 Hz.
+  The measurements of AEC-01 step 1 and a talk session are still to do.
+- MemAvailable 23.6 MB, stream and services up.
