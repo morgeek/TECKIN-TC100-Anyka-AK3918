@@ -2511,6 +2511,24 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 **État au 2026-11-10 :** le défaut du lanceur firmware reste `RTSP_SENDER_THREAD=0` tant que R16 n'est pas qualifié.
 Le rapport rc36/rc35 confirme le flux sur les deux caméras avec un client; les critères quatre clients et mélange
 TCP/UDP ci-dessous restent à tester. Le binaire lancé seul utilise aussi le chemin inline si la variable manque.
+Attention : le tag `v3.0.0` (08/11) a été construit pendant les deux jours où le défaut valait `1` (`21494b9`, retour à
+`0` dans `91c408b` le 10/11) ; une caméra en 3.0.0 sans `RTSP_SENDER_THREAD` dans `rtsp.env` fait donc tourner le fil.
+
+**Relecture du code (Fable, lecture seule, 2026-11-12) :** ni interblocage, ni tampon libéré pendant un envoi, ni
+mélange des trames TCP. Points à observer pendant l'essai :
+- **UDP :** la socket UDP est bloquante et l'envoi se fait sous `cl_mu` (avec l'attente `RTSP_PACING_US` si elle est
+  réglée) ; un client UDP lent freine donc encore la capture, fil actif ou non. Le fil n'apporte un gain qu'aux
+  clients TCP. Dans l'heure à deux clients, comparer `snd_wait` et `cap` avec et sans le client UDP : une hausse nette
+  de `snd_wait` avec UDP confirme ce point (pas une régression : l'envoi inline fait de même).
+- **Arrêt :** à l'arrêt, le fil vide d'abord la file (jusqu'à 48 images) ; un redémarrage du serveur RTSP peut prendre
+  un peu plus longtemps avec `=1`. Noter la durée d'un `rtsp-h26x restart`.
+- **Corrigé (`[sender-gap]`) :** une copie d'image impossible faute de mémoire marquait tout de suite les clients ; un IDR
+  plus ancien encore en file pouvait alors effacer la marque et laisser partir les images P suivantes (image corrompue
+  jusqu'à l'IDR suivant). La perte est maintenant portée par la prochaine image de la file, comme un rejet de file
+  pleine. Aucun effet avec `=0`. Sans test caméra dédié (il faut un échec de `malloc`) : couvert par le critère
+  « image correcte » ci-dessous.
+- **Non traité :** le fil lit SPS/PPS sans verrou pendant que la boucle les réécrit à chaque IDR ; sans effet tant que
+  les paramètres ne changent pas en marche (à vérifier si le débit adaptatif ou le smart mode les modifient).
 
 - **Quoi :** la boucle de capture ne fait plus l'envoi aux clients (environ 2,4 ms par client et par image, cause de R16 :
   chaque client en plus retirait des images à la capture). Avec `RTSP_SENDER_THREAD=1`, elle copie chaque image encodée
