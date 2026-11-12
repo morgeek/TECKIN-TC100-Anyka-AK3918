@@ -107,6 +107,12 @@ Rules that apply to every entry:
 
 ### ENC-01 Free encoder: VBR and smart mode drive the free encoder (`[fe-smart]`) — `on, being watched` (2026-11-12, .11 rc40: VBR + smart on both streams; see "rc40 features switched on" at the end)
 
+- **Observation (2026-11-12 22:35, `.11` rc40, night):** 58,578 H.265 frames encoded across sessions with `0 failed`;
+  `ABR` stepped down `1600 -> 1120 kbit/s` on 3 skipped frames and back up to `1600 kbit/s`. At night without 3D-NR
+  (including 20 s with the lens covered), `STAT` stays at `970–1014 KB / 5 s` (~1550–1623 kbit/s ceiling) because
+  high-gain sensor noise saturates the `QP 27/29` (`qmin=25 + 2/4`) quality target. Still-scene bit-rate drop
+  remains to be checked by day or with 3D-NR on.
+
 - **What:** the `rtspserver.conf` `[0]` `vbr` / `smart` settings (exported by `rtsp-launch.sh` as `RTSP_VBR` /
   `RTSP_SMART`, still the single source) had no effect since rc34 (the vendor library, and with it
   `ak_venc_set_smart_config`, is not loaded any more). They now act on the free encoder (`src/h265enc/rc.h`,
@@ -253,7 +259,7 @@ Rules that apply to every entry:
   link (phone app over Wi-Fi) lists both profiles completely.
 - **Pass:** (a); (b)/(c) if run.
 
-### WHEP-02 WebRTC gateway: LAN filter on its UDP port, consent from authenticated checks only (`[whep-udp]`) — `to test` (next RC, owner, with the WHEP entry of 2026-11-05)
+### WHEP-02 WebRTC gateway: LAN filter on its UDP port, consent from authenticated checks only (`[whep-udp]`) — `to test` (next RC, owner, with the WHEP entry of 2026-11-05; `.11` rc40 startup log confirmed `udp 8189: datagrams from the allowed networks only (NET_LAN_ONLY)`)
 
 - **What (read-only Fable review of the UDP side of `tc100-whep`, 2026-11-12: no out-of-bounds access, nothing
   reachable without a session):**
