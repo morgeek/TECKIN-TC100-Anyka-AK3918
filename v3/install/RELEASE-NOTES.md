@@ -2,6 +2,15 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc40 (test build, branch main)
+Everything in 3.0.1-rc39 below, plus:
+- **Free encoder, VBR and smart mode:** the H.264 / H.265 encoder now follows `vbr` (a ceiling, quality first) and
+  `smart` in rtspserver.conf; smart mode lengthens the GOP on a still scene (clients that lose packets keep the base
+  GOP, time cap, no long-GOP burst, QP floor clamped). A camera with `vbr=1` now really encodes in VBR.
+- **3D noise reduction:** `NR3D` in boot.conf / `ak39_vi.nr3d` writable at run time, reference picture at the crop
+  size, overflow counter; freed when idle.
+- **Two-way audio echo cancellation:** behind `RTSP_AUDIO_AEC=1` (off by default).
+
 ## What is new in 3.0.1-rc39 (test build, branch main)
 Everything in 3.0.1-rc38 below (DEV is now merged: from here on the work goes on `main`), plus the reviews of
 2026-11-12:
