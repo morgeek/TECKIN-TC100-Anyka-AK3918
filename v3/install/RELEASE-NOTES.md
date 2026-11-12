@@ -2,6 +2,23 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc39 (test build, branch main)
+Everything in 3.0.1-rc38 below (DEV is now merged: from here on the work goes on `main`), plus the reviews of
+2026-11-12:
+- **Install from the card:** the per-partition backup is skipped only on a first install (a reinstall over 3.0 on
+  the flash kept no copy of its 3.0 partitions).
+- **First-install hook:** the identity file of the stock firmware is required, the card copy of the flash is read back
+  before use, the exact envtool error is shown.
+- **Web update:** no upload, discard or install while an install runs or after a failed one; a stricter package
+  check; true failure messages.
+- **Web login (httpfront):** failed logins counted from the headers only, in any case; a new password forgets the
+  remembered login at once.
+- **ONVIF:** wrong logins counted per address (one LAN host can no longer lock the NVR out), full answers on slow
+  links, connection and discovery limits.
+- **WebRTC (WHEP):** its UDP port follows the LAN-only rule; consent only from authenticated STUN checks.
+- **Video:** with the sender thread on, a frame lost for lack of memory is applied in order (no corrupt picture until
+  the next keyframe); white balance statistics source switchable at run time (`awb_live`).
+
 ## What is new in 3.0.1-rc38 (test build, branch DEV)
 Everything in 3.0.1-rc37 below, plus:
 - **IR-cut filter:** the default pulses are now day = GPIO 592, night = GPIO 593. With the old default the filter could
