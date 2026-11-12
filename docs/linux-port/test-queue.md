@@ -31,6 +31,31 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### ONVIF-02 onvifd: lockout per address, full answers on slow links, connection and discovery limits (`[onvifd-review]`) — `to test` (next RC, owner: NVR + Home Assistant)
+
+- **What (read-only Fable review of `tc100-onvifd`, 2026-11-12: no authentication bypass, no out-of-bounds access):**
+  - Wrong logins are counted per address (20 a minute locks that address only; 127/8 never; 32 slots, a locked
+    address is never evicted). Before, one global counter let any LAN host lock the NVR and Home Assistant out by
+    sending 20 bad tokens a minute. Residual: more than 32 guessing addresses at once are not all counted.
+  - `send_all` puts the socket back in blocking mode before sending, with 3 s for the whole answer. Before, the
+    accepted sockets were non-blocking and an answer larger than the socket buffer (GetProfiles, Media2: up to
+    24 KB) was cut at the first `EAGAIN` on a slow Wi-Fi link: a possible cause of a "flaky" ONVIF in an NVR.
+  - At most 4 of the 6 connections from one address (127/8 not limited): six idle connections from one host held
+    every slot.
+  - WS-Discovery answers only a SOAP envelope and at most 20 answers a second, probes for other types not counted
+    (a 7-byte `<Probe>` from a spoofed source got a 1 KB answer); a Resolve with a `wsa:ReplyTo` header is answered (it compared the ReplyTo address).
+  - The five XML entities and ASCII character references (`&#39;`) are decoded in the user name and password: a password with `& < > " '` works in
+    PasswordText (it failed before). `dur_s` no longer overflows on a huge duration.
+  - Not changed (owner's choice): no nonce cache against replay of a captured PasswordDigest within ±300 s (some
+    clients reuse nonces; LAN only).
+- **Switch:** none; revert the commit.
+- **Test:** (a) NVR and Home Assistant: discovery, add the camera, live view, motion events, as usual; restart Home
+  Assistant: the ONVIF integration comes back. (b) Optional, from another LAN machine: 25 requests with a wrong
+  password (e.g. a script with `curl` and a bad UsernameToken), then the NVR still works while that machine gets
+  NotAuthorized even with the right password for the rest of the minute. (c) Optional: an ONVIF client on a slow
+  link (phone app over Wi-Fi) lists both profiles completely.
+- **Pass:** (a); (b)/(c) if run.
+
 ### WHEP-02 WebRTC gateway: LAN filter on its UDP port, consent from authenticated checks only (`[whep-udp]`) — `to test` (next RC, owner, with the WHEP entry of 2026-11-05)
 
 - **What (read-only Fable review of the UDP side of `tc100-whep`, 2026-11-12: no out-of-bounds access, nothing
