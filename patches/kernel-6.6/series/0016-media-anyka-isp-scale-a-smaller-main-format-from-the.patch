@@ -10,12 +10,16 @@ format, as the sub channel does for 640x360. 1920x1080 is unchanged.
 
 Used by tc100_rtsp RTSP_WIDTH/RTSP_HEIGHT (720p main stream), which checks the
 read-only parameter ak39_vi.main_scale first.
+
+3D-NR: the TNR block follows this crop, so its reference frame is the crop size too. program_ref()
+programs CROP_W x CROP_H (not the output size, a latent mismatch at a 720p main format) and keeps
+3D-NR off (noref) if the allocation is smaller.
 ---
- drivers/media/platform/anyka-isp/ak39_vi.c | 19 +++++++++++++++----
- 1 file changed, 15 insertions(+), 4 deletions(-)
+ drivers/media/platform/anyka-isp/ak39_vi.c | 27 ++++++++++++++++++++-------
+ 1 file changed, 20 insertions(+), 7 deletions(-)
 
 diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
-index b3972ffe9..be592fb85 100644
+index c2e7fcf..1d65f62 100644
 --- a/drivers/media/platform/anyka-isp/ak39_vi.c
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
 @@ -55,6 +55,14 @@
@@ -33,7 +37,31 @@ index b3972ffe9..be592fb85 100644
  
  /* program the 640x360 sub channel at stream start (the hardware sub picture of tc100_rtsp); ak39_vi.sub_channel=0 on
   * the kernel command line turns it off */
-@@ -605,15 +613,18 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
+@@ -357,7 +365,7 @@ static void free_ref(struct ak39_vi *vi)
+ /* the reference frame of the largest picture (try_fmt), kept until the driver goes. 0 or -ENOMEM */
+ static int alloc_ref(struct ak39_vi *vi)
+ {
+-	size_t px = 1920 * 1080;
++	size_t px = CROP_W * CROP_H;
+ 
+ 	vi->ref_y_bytes = px * 2;
+ 	vi->ref_uv_bytes = px;
+@@ -376,10 +384,12 @@ static int alloc_ref(struct ak39_vi *vi)
+ }
+ 
+ /* at each stream start: the addresses when a reference exists, and noref unless nr3d is on, so that a later live
+- * write of 1 (nr3d_set) only has to clear noref */
++ * write of 1 (nr3d_set) only has to clear noref. The TNR block works on the crop window (CROP_W x CROP_H, whatever
++ * the output format: the main channel scaler comes after it), so the reference is programmed at that size, not at
++ * the output size; an allocation smaller than that keeps 3D-NR off */
+ static void program_ref(struct ak39_vi *vi)
+ {
+-	size_t px = vi->width * vi->height;
++	size_t px = CROP_W * CROP_H;
+ 	AK_ISP_3D_NR_REF_ATTR ref;
+ 
+ 	if (!vi->ref_y || px * 2 > vi->ref_y_bytes || px > vi->ref_uv_bytes) {
+@@ -665,15 +675,18 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
  
  	/* as v4l2 S_CROP did on 4.4: the full window past the sensor's
  	 * invalid border, then the output scale (the sub channel keeps the

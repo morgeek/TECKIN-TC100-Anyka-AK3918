@@ -584,7 +584,8 @@ class Rc9SocWiring(unittest.TestCase):
         p15 = (ROOT / 'patches/kernel-6.6/series/0015-misc-ak39_venc-encoder-pool-from-a-reusable-CMA-area.patch').read_text(encoding='utf-8')
         self.assertIn('+static char *pool = "9600K";', p15)
         p6 = (ROOT / 'patches/kernel-6.6/series/0006-media-anyka-isp-add-ISP-video-input-and-sensor-drive.patch').read_text(encoding='utf-8', errors='replace')
-        self.assertIn('+static int nr3d;\n+module_param(nr3d, int, 0444);', p6)
+        self.assertIn('+static int nr3d;\n', p6)
+        self.assertIn('module_param_cb(nr3d, &nr3d_ops, &nr3d, 0644);', p6)   # writable since [nr3d], default 0
         # reserved at probe only when asked, never at stream start any more
         self.assertIn('+	if (nr3d)\n+		alloc_ref(vi);', p6)
         prog = p6[p6.index('+static void program_ref('):]

@@ -335,4 +335,11 @@ RED_LED=0
 # internet access; updates are installed from Settings → Firmware update.
 UPDATE_CHECK=0
 
+# NR3D=1: temporal (3D) noise reduction of the ISP, cleaner night picture (25-34 % less noise measured). It keeps a 6 MB
+# reference frame in the 20 MiB CMA area (about 6 MB less MemAvailable) and is taken once at boot, before the video
+# starts; the kernel refuses it when it does not fit (3D-NR then stays off, see the console line "[tc100-v3] 3D-NR").
+# 720p main stream (RTSP_WIDTH=1280, RTSP_HEIGHT=720) is the reliable mode; at 1080p the CMA area is almost full.
+# Read once at boot: NR3D=0 takes effect at the next reboot. Test status: docs/linux-port/test-queue.md NR3D-01.
+NR3D=0
+
 # Camera tampering / occlusion detection: config/tamper.conf (ENABLE, its one switch).
