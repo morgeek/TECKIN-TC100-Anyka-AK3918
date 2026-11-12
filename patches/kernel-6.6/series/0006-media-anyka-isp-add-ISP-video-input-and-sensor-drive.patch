@@ -120,7 +120,7 @@ new file mode 100644
 index 000000000..97f00ee92
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.c
-@@ -0,0 +1,4955 @@
+@@ -0,0 +1,4958 @@
 +#include <linux/kernel.h>
 +#include <linux/errno.h>
 +#include <linux/string.h>
@@ -4999,6 +4999,9 @@ index 000000000..97f00ee92
 +
 +void ak_isp_set_3d_nr_noref(int noref)
 +{
++	/* the ISP is powered down (NULL) between streams: the wanted state is applied by program_ref() at the next start */
++	if (!isp)
++		return;
 +	isp->_3dnr_noref = noref;
 +	isp->linkage_para_update_flag = 1;
 +}
@@ -10058,7 +10061,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,1016 @@
+@@ -0,0 +1,1038 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10136,8 +10139,9 @@ index 000000000..42f5fa12c
 + * start it never found room in CMA next to the capture buffers (two failed allocations at every start), so it is
 + * taken once, while CMA is still empty: ak39_vi.nr3d=1 on the command line (at probe), or a write of 1 to
 + * /sys/module/ak39_vi/parameters/nr3d (0644) while the queue is not streaming (boot.conf NR3D=1, before tc100_rtsp).
-+ * Writing 0 turns 3D-NR off at once (noref); the memory stays until the next boot, it is never freed or reallocated
-+ * live. Default 0: off, nothing is tried. See nr3d_set() below */
++ * Writing 0 turns 3D-NR off at once (noref); while streaming the memory stays (never freed or reallocated live), while
++ * NOT streaming it is freed, which gives the CMA back (recovery when a 1080p reference left no room for the capture
++ * buffers: write 0, restart the video service, no reboot). Default 0: off, nothing is tried. See nr3d_set() below */
 +static int nr3d;
 +
 +/* SYSCTRL */
@@ -10458,14 +10462,17 @@ index 000000000..42f5fa12c
 +}
 +
 +/* ak39_vi.nr3d (0644). 1: allocate the reference when there is none and the queue is not streaming (-EBUSY while
-+ * streaming without one: the CMA is then full of capture buffers; -ENOMEM when it does not fit), then clear noref;
-+ * the next stream start programs the addresses. 0: noref at once, memory kept. Before probe (command line) the value
-+ * is only stored: vi_probe() allocates. */
++ * streaming without one: the CMA is then full of capture buffers; -ENOMEM when it does not fit); the next stream start
++ * programs the addresses and clears noref. 0: noref at once while streaming (memory kept), freed when not streaming.
++ * The ISP is only touched while streaming and ak_isp_set_3d_nr_noref() ignores a powered-down ISP: everything else is
++ * applied by program_ref() at the next start. Before probe (command line) the value is only stored: vi_probe()
++ * allocates. nr3d_lock keeps vi_remove() from freeing the vi under a write. */
 +static struct ak39_vi *nr3d_vi;
++static DEFINE_MUTEX(nr3d_lock);
 +
 +static int nr3d_set(const char *val, const struct kernel_param *kp)
 +{
-+	struct ak39_vi *vi = READ_ONCE(nr3d_vi);
++	struct ak39_vi *vi;
 +	int v, ret = 0;
 +
 +	ret = kstrtoint(val, 0, &v);
@@ -10473,8 +10480,11 @@ index 000000000..42f5fa12c
 +		return ret;
 +	if (v < 0 || v > 1)
 +		return -EINVAL;
++	mutex_lock(&nr3d_lock);
++	vi = nr3d_vi;
 +	if (!vi) {
 +		nr3d = v;
++		mutex_unlock(&nr3d_lock);
 +		return 0;
 +	}
 +	mutex_lock(&vi->lock);
@@ -10486,11 +10496,15 @@ index 000000000..42f5fa12c
 +	}
 +	if (!ret) {
 +		nr3d = v;
-+		/* the ISP exists while streaming; otherwise program_ref() applies nr3d at the next start */
-+		if (vb2_is_streaming(&vi->q) && vi->ref_y)
-+			ispdrv_vp_3d_nr_noref(!v);
++		if (vb2_is_streaming(&vi->q)) {
++			if (vi->ref_y)
++				ispdrv_vp_3d_nr_noref(!v);
++		} else if (!v) {
++			free_ref(vi);
++		}
 +	}
 +	mutex_unlock(&vi->lock);
++	mutex_unlock(&nr3d_lock);
 +	return ret;
 +}
 +
@@ -10499,7 +10513,7 @@ index 000000000..42f5fa12c
 +	.get = param_get_int,
 +};
 +module_param_cb(nr3d, &nr3d_ops, &nr3d, 0644);
-+MODULE_PARM_DESC(nr3d, "3D noise reduction: 1 allocates the reference frame (6 MB of CMA) when idle and turns it on, 0 turns it off live (default 0)");
++MODULE_PARM_DESC(nr3d, "3D noise reduction: 1 allocates the reference frame (6 MB of CMA) when idle and turns it on, 0 turns it off (frees the memory when idle) (default 0)");
 +
 +/* TNR_DMA_OVERFLOW interrupts since boot: the ISP's 3D-NR DMA lost a race and the block was switched off */
 +static int nr3d_overflow_get(char *buf, const struct kernel_param *kp)
@@ -10507,7 +10521,14 @@ index 000000000..42f5fa12c
 +	return sysfs_emit(buf, "%u\n", ispdrv_vp_3d_nr_overflow());
 +}
 +
++/* read-only: a command-line ak39_vi.nr3d_overflow=N must be refused, not call a NULL .set at boot */
++static int nr3d_overflow_set(const char *val, const struct kernel_param *kp)
++{
++	return -EPERM;
++}
++
 +static const struct kernel_param_ops nr3d_overflow_ops = {
++	.set = nr3d_overflow_set,
 +	.get = nr3d_overflow_get,
 +};
 +module_param_cb(nr3d_overflow, &nr3d_overflow_ops, NULL, 0444);
@@ -11030,7 +11051,9 @@ index 000000000..42f5fa12c
 +		goto err_v4l2;
 +
 +	platform_set_drvdata(pdev, vi);
-+	WRITE_ONCE(nr3d_vi, vi);
++	mutex_lock(&nr3d_lock);
++	nr3d_vi = vi;
++	mutex_unlock(&nr3d_lock);
 +	dev_info(dev, "registered %s\n", video_device_node_name(&vi->vdev));
 +	return 0;
 +
@@ -11048,7 +11071,9 @@ index 000000000..42f5fa12c
 +{
 +	struct ak39_vi *vi = platform_get_drvdata(pdev);
 +
-+	WRITE_ONCE(nr3d_vi, NULL);
++	mutex_lock(&nr3d_lock);
++	nr3d_vi = NULL;
++	mutex_unlock(&nr3d_lock);
 +	video_unregister_device(&vi->vdev);
 +	v4l2_device_unregister(&vi->v4l2);
 +	free_ref(vi);

@@ -242,7 +242,9 @@ elif [ -x $TB/tc100_rtsp ] && [ -c /dev/uio0 ]; then
   grep -q '^PRIVACY_SCREEN=1' /mnt/config/boot.conf 2>/dev/null && : > /tmp/tc100_privacy
   # 3D noise reduction (boot.conf NR3D=1, its one switch): ak39_vi.nr3d (0644) takes the 6 MB reference frame from CMA
   # while nothing streams yet (tc100_rtsp, the first user of the video device, starts just below) and turns 3D-NR on.
-  # A refusal (-ENOMEM: no room, -EBUSY: already streaming) leaves 3D-NR off; the stream is not affected either way.
+  # A refusal (-ENOMEM: no room, -EBUSY: already streaming) leaves 3D-NR off. If the 6 MB taken first leaves no room
+  # for the capture buffers (1080p: no video), set NR3D=0 in boot.conf, write 0 to the parameter (frees the memory
+  # while nothing streams) and restart the video service (controlscripts/rtsp-h26x restart): no reboot.
   # NR3D=0 or absent: nothing is written (a kernel started with ak39_vi.nr3d=1 keeps it). Test queue NR3D-01.
   if [ "$BC_NR3D" = 1 ]; then
     if [ ! -e /sys/module/ak39_vi/parameters/nr3d ]; then

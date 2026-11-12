@@ -36,8 +36,11 @@ Rules that apply to every entry:
 - **What (plans-2026-11-12 section 2; kernel patches 0006 and 0016, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
   - `ak39_vi.nr3d` is now a 0644 parameter (default 0). Writing 1 while the queue is not streaming allocates the 6075 KiB
     reference frame (Y 4050 + UV 2025 KiB) from the default CMA and turns 3D-NR on; writing 1 while streaming without a
-    reference returns `EBUSY` (CMA is then full of capture buffers); writing 0 sets `noref` at once (the memory stays
-    until the next boot: never freed or reallocated live). `ak39_vi.nr3d=1` on the command line still allocates at probe.
+    reference returns `EBUSY` (CMA is then full of capture buffers); writing 0 while streaming sets `noref` at once (memory
+    kept, never freed or reallocated live); writing 0 while NOT streaming frees the reference. Recovery when the 6 MB
+    taken first leaves no room for the capture buffers (no video at 1080p): `NR3D=0`, `echo 0 >
+    /sys/module/ak39_vi/parameters/nr3d`, restart the video service, no reboot. The ISP is only touched while it runs
+    (a write between streams or after a failed start cannot oops); `nr3d_overflow` refuses a command-line value. `ak39_vi.nr3d=1` on the command line still allocates at probe.
   - `program_ref()` programs the crop size (1920x1080, `CROP_W x CROP_H`) at every format. Before it programmed the output
     size: at a 720p main format a 720p reference was declared to a TNR block that works on the 1080p crop. It also keeps
     3D-NR off (`noref`) when the allocation is smaller than the crop.
@@ -77,8 +80,10 @@ Rules that apply to every entry:
      and `-r--r--r--`; no `3D-NR` line in dmesg; MemAvailable and CmaFree as before (22-23 MB / 5.9 MB). Record `cma: Reserved`.
   2. **720p** (`RTSP_WIDTH=1280 RTSP_HEIGHT=720`, `NR3D=1` in boot.conf, reboot): console `[tc100-v3] 3D-NR on (ak39_vi.nr3d=1,
      overflows 0)`, dmesg `3D-NR reference frame: 4050 KiB at ..., 2025 KiB at ...`. Note MemAvailable, CmaFree, picture OK.
-  3. **1080p** the same way: either the allocation succeeds (note CmaFree, then the same checks as 2) or dmesg shows `no
-     memory for the 3D-NR reference frame` and the console says refused with a normal picture: both are results.
+  3. **1080p, only after 720p passed**, the same way: either the allocation succeeds (note CmaFree, then the same checks as 2) or dmesg shows `no
+     memory for the 3D-NR reference frame` and the console says refused with a normal picture, or the reference is taken
+     but REQBUFS then fails (no video): recover with `echo 0` to `nr3d` and a video service restart, without reboot, and
+     check that the video comes back. All are results.
      Also `echo 1 > .../nr3d` while streaming without a reference (NR3D=0 boot): must fail with `Device or resource busy`.
   4. Ten `controlscripts/rtsp-h26x restart` (or kill and relaunch with the same arguments) with the reference allocated: no
      `alloc failed`, no oops, `nr3d_overflow` unchanged, picture OK after each.

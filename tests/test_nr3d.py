@@ -90,12 +90,20 @@ class KernelSwitch(unittest.TestCase):
         self.assertIn('ret = -EBUSY;', body)
         self.assertIn('ret = alloc_ref(vi);', body)
         self.assertIn('if (v < 0 || v > 1)', body)
-        self.assertNotIn('free_ref', body)           # no live free
         self.assertNotIn('dma_free', body)
         # the driver pointer is published only once probe succeeded, and withdrawn first at remove
         probe = self.p6[self.p6.index('+\tplatform_set_drvdata(pdev, vi);'):]
-        self.assertTrue(probe.startswith('+\tplatform_set_drvdata(pdev, vi);\n+\tWRITE_ONCE(nr3d_vi, vi);'))
-        self.assertIn('+static void vi_remove(struct platform_device *pdev)\n+{\n+\tstruct ak39_vi *vi = platform_get_drvdata(pdev);\n+\n+\tWRITE_ONCE(nr3d_vi, NULL);', self.p6)
+        self.assertTrue(probe.startswith('+\tplatform_set_drvdata(pdev, vi);\n+\tmutex_lock(&nr3d_lock);\n+\tnr3d_vi = vi;'))
+        self.assertIn('+\tstruct ak39_vi *vi = platform_get_drvdata(pdev);\n+\n+\tmutex_lock(&nr3d_lock);\n+\tnr3d_vi = NULL;\n+\tmutex_unlock(&nr3d_lock);', self.p6)
+        # 0 while idle gives the memory back; the ISP is touched only while streaming and the setter is NULL-safe
+        self.assertIn('} else if (!v) {\n+\t\t\tfree_ref(vi);', body)
+        noref = self.p6[self.p6.index('+void ak_isp_set_3d_nr_noref('):]
+        noref = noref[:noref.index('\n+}\n')]
+        self.assertIn('if (!isp)\n+\t\treturn;', noref)
+
+    def test_overflow_param_refuses_a_command_line_value(self):
+        self.assertIn('+static int nr3d_overflow_set(const char *val, const struct kernel_param *kp)\n+{\n+\treturn -EPERM;', self.p6)
+        self.assertIn('+\t.set = nr3d_overflow_set,', self.p6)
 
     def test_overflow_counter(self):
         self.assertIn('+module_param_cb(nr3d_overflow, &nr3d_overflow_ops, NULL, 0444);', self.p6)
