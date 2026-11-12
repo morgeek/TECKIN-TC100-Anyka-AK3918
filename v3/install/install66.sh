@@ -90,11 +90,14 @@ killall tc100_rtsp tc100-onvifd 2>/dev/null; sleep 2; sync; echo 3 > /proc/sys/v
 for p in $(pidof watchdog); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null; done
 say "free memory before writing: $(awk '$1 == "MemAvailable:" { print $2 }' /proc/meminfo) KB"
 
-# When the verified 8 MiB stock flash copy (tc100-3/backup/flash-stock.bin) is already on the card from step 1,
-# every partition we write (vendor, stack, kernel, initrd) is already saved inside it: skip the redundant 5.7 MiB
-# per-partition SPI read-back backup (-b), saving ~1.5 min during installation.
+# First install only: when the verified 8 MiB stock flash copy (tc100-3/backup/flash-stock.bin) is on the card and
+# the flash still holds the stock firmware, every partition we write (vendor, stack, kernel, initrd) is already saved
+# inside it: skip the redundant 5.7 MiB per-partition SPI read-back backup (-b), saving ~1.5 min. restore-stock.sh
+# --check only compares the boot and mac areas, so a camera that already runs 3.0 from its flash (valid cfga/cfgb
+# slot) keeps -b: its 3.0 partitions are not in the stock copy.
 BK="-b $K/backup"
-if [ -z "$INSTALL66_FORCE_PART_BACKUP" ] && sh $V/install/restore-stock.sh --check >/dev/null 2>&1; then
+if [ -z "$INSTALL66_FORCE_PART_BACKUP" ] && ! sh $V/linux66-sd/cfg-persist saved >/dev/null 2>&1 &&
+	sh $V/install/restore-stock.sh --check >/dev/null 2>&1; then
 	say "stock flash backup verified (tc100-3/backup/flash-stock.bin): skipping redundant per-partition read-back"
 	BK=
 fi

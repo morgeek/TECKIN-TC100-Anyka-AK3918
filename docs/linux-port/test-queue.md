@@ -31,6 +31,23 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### INST-01 SD install skips the per-partition backup only on a first install (`[fast-install-fix]`) — `to test`
+
+- **What:** `v3/install/install66.sh` skipped the per-partition backup (`flashw -b`) whenever
+  `restore-stock.sh --check` passed. That check compares only the `boot` and `mac` areas, so reinstalling from the card
+  on a camera that already runs 3.0 from its flash overwrote its 3.0 vendor, stack, kernel and initrd with no copy
+  (found by the read-only Fable review of `8077ff1`, 2026-11-12). The skip now also requires no valid settings slot in
+  the flash (`cfg-persist saved` fails), i.e. a first install over the stock firmware. Not a brick path: every write is
+  still read back by `flashw`.
+- **Switch:** `INSTALL66_FORCE_PART_BACKUP=1` keeps forcing the backup in every case. To go back to the old behaviour,
+  revert the commit.
+- **Test:** (a) first install on a stock camera with a card holding a verified `flash-stock.bin`: the log shows
+  "skipping redundant per-partition read-back" and `tc100-3/backup/` gets no new partition files. (b) SD reinstall on a
+  camera already running 3.0 from its flash (`cfg-persist saved` prints a slot): no skip message, and
+  `tc100-3/backup/` holds the vendor, stack, kernel and initrd copies of the previous flash content. Both installs need
+  the owner's agreement per flash write.
+- **Pass:** (a) and (b) as above, both installs finish, the camera boots from its flash afterwards.
+
 ## Owner-confirmed current work (2026-11-10)
 
 These are the current owner-confirmed work items. The detailed switch-by-switch procedures stay in their existing entries.

@@ -155,6 +155,10 @@ class Inventory(unittest.TestCase):
         # 3.0.1-rc36: install66.sh skips redundant per-partition read-back when restore-stock.sh --check passes
         self.assertIn('restore-stock.sh --check', inst)
         self.assertIn('INSTALL66_FORCE_PART_BACKUP', inst)
+        # 2026-11-12 (INST-01): only on a first install; a flash that already holds 3.0 settings keeps -b
+        skip = inst[inst.index('BK="-b $K/backup"'):inst.index('BK=\n')]
+        self.assertIn('! sh $V/linux66-sd/cfg-persist saved', skip)
+        self.assertLess(skip.index('cfg-persist saved'), skip.index('restore-stock.sh --check'))
         for f in (INV, HW):
             src = f.read_text()
             for w in ('flashcp', 'flash_erase ', 'flash_eraseall', 'fw_setenv', 'mtd_debug', 'envtool', 'of=/dev', 'of=$DEV', 'of=$B'):
