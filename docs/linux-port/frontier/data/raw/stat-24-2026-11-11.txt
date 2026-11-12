@@ -1,0 +1,9 @@
+423
+STAT cap 51 enc 51 bytes 402539 enc_ms 1532 snd_ms 57 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 1 snd_qdrop 0 snd_thr_ms 190 snd_wait 96
+STAT cap 51 enc 51 bytes 398014 enc_ms 1458 snd_ms 54 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 1 snd_qdrop 0 snd_thr_ms 156 snd_wait 6
+STAT cap 50 enc 50 bytes 407280 enc_ms 1428 snd_ms 61 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 0 sub_ms 0 snd_q 1 snd_qdrop 0 snd_thr_ms 156 snd_wait 3
+free encoder: H.265 closed after 31054 pictures (248677163 bytes, 0 failed)
+free encoder: H.265 1920x1080 (source stride 1920), 1600 kbit/s, 25 fps, GOP 50, QP 25-48
+low light: total gain 20x, sensor 10 fps, exposure up to 2812 lines
+low light: total gain 4x, sensor 25 fps, exposure up to 1125 lines
+low light: total gain 26x, sensor 10 fps, exposure up to 2812 lines

@@ -34,10 +34,11 @@ class FrontierBriefs(unittest.TestCase):
 
     def test_optimisation_briefs_build_with_their_measurements(self):
         # the measured summaries of 2026-11-11 ship with the repository: the brief sent is the one rebuilt here
-        for key, must in (("rtsp", ("aud_pump", "adsp_sample", "snd_main", "rtp_out", "does not depend on the frame rate")),
+        for key, must, day in (("daynight", ("dn_step_vendor", "2 switches in 13 h", "IR-cut reversed"), "2026-11-12"),
+                               ("rtsp", ("aud_pump", "adsp_sample", "snd_main", "rtp_out", "does not depend on the frame rate"), "2026-11-11"),
                           ("background", ("wifi-quality.sh", "health-snapshot.sh", "collect_slow_health_metrics",
-                                          "new processes per minute"))):
-            data = ROOT / f"docs/linux-port/frontier/data/{key}-2026-11-11.md"
+                                          "new processes per minute"), "2026-11-11")):
+            data = ROOT / f"docs/linux-port/frontier/data/{key}-{day}.md"
             self.assertLess(len(data.read_text(encoding="utf-8")), brief.MAX_DATA_CHARS, key)
             self.assertTrue(brief.SUBJECTS[key]["needs_data"], key)
             with self.assertRaises(SystemExit):

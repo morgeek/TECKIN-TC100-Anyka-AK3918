@@ -56,8 +56,9 @@ switches, one every 3 min (MIN_SWITCH) from 01:38 to 03:31 in a dark room. Cause
 luminance is regulated by the auto-exposure towards its target, so it settles at 100-102 with the IR LEDs on (just above
 LUMA_DAY = 100: back to day) and at 37-38 in day mode in the dark (just under LUMA_NIGHT = 40: back to night). The
 `vendor` source (stock firmware method: exposure x gain / AE luminance, plus white-balance counts) was replayed on the
-same capture without a false switch; the data summary at the end has the measured values, and the result of a real
-night with `vendor` when available.
+same capture without a false switch; the data summary at the end has the measured values and two real nights with
+`vendor` (2026-11-11/12). Owner's decision: colour (day mode) is acceptable as long as there is light, even dim; night
+mode is wanted when the room is dark. Since 2026-11-12 both test cameras run `vendor`.
 
 Questions:
 1. Is the `vendor` decision as written free of oscillation for these values? Under which light conditions can it
@@ -65,7 +66,9 @@ Questions:
 2. Propose the decision rule that should be the default: inputs, thresholds or how to derive them, hysteresis, hold
    times, and the argument (or proof) that it cannot oscillate with an IR light that raises the measured light by itself.
 3. What should the `luma` source become (kept as is, fixed, or only a fallback), given that installed cameras use it?
-4. Which log fields are missing to check this in one more night?""",
+4. Which log fields are missing to check this in one more night?
+5. The IR-cut polarity was reversed on one camera (filter in front of the sensor at night): could the decision detect a
+   reversed filter or dead IR LEDs from these inputs, and how (see the data summary)?""",
         "parts": [
             ("lines", "src/supervisord/supervisord.c", 205, 236),
             ("cfunc", "src/supervisord/supervisord.c", "dn_index"),

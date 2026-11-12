@@ -1,0 +1,11 @@
+pid 970 18:28:48
+cpu 4972 0 11638 17094 0 0 818
+processes 3871
+t 970 ut=1573 st=2902 mf=22927
+-- 18:30:48
+cpu 5954 0 13646 25806 0 0 1130
+processes 4204
+t 970 ut=2212 st=4003 mf=32428
+STAT cap 125 enc 125 bytes 989100 enc_ms 3650 snd_ms 274 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 1 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+STAT cap 125 enc 125 bytes 1004217 enc_ms 3649 snd_ms 280 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 0 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
+STAT cap 120 enc 120 bytes 951572 enc_ms 3628 snd_ms 310 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 2 sub_ms 1 snd_q 0 snd_qdrop 0 snd_thr_ms 0 snd_wait 0
