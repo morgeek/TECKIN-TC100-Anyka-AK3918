@@ -68,7 +68,8 @@ jobs:
 
       - name: Clone Linux 6.6 Stable Tree (Tag v6.6)
         run: |
-          git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src
+          git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src \
+            || git clone --depth 1 -b v6.6 https://github.com/torvalds/linux.git linux-src
 
       - name: Apply Anyka AK3918 Hardware, CMA 16MB & ALSA Audio Patches
         run: |

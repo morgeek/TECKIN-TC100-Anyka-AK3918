@@ -1978,8 +1978,7 @@ static int udp_err_ok(struct cli *c)
 	if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS)
 		return 0;
 	if (c && !c->wait_idr) {
-		c->wait_idr = 1;
-		want_idr(c->si);
+		c->wait_idr = 1; want_idr(c->si);
 		c->dropped++;
 	}
 	return 1;

@@ -14,6 +14,7 @@ Captures simultanées `ping -i 0.5` depuis le Mac (fichiers locaux `/tmp/ping_*.
 - **Caméra `.11` (`192.168.1.11`, -25 dBm / MCS 7 / 72 Mbit/s) :**
   - Run 1 : `120/120` reçus (**`0,0 %` perte**), max `8678,1 ms`. Les `icmp_seq 54..68` ont été retenus ~8 s puis **livrés tous d'un coup en rafale** (`7857 ms`, `7352 ms`, `6847 ms`, …, `804 ms`, décroissant par pas exacts de `500 ms`).
   - Run 2 simultané avec `.24` : `60/60` reçus (`0,0 %` perte), max `8918,6 ms`.
+  - Relevé `/proc/interrupts` (`usb-host:usb1`, 23:12:25→45 sur `.11`) : trafic normal ~750–1190 IRQ/s, puis **chute nette à 14–35 IRQ/s pendant 7 s (`23:12:28`→`23:12:35`)** suivie d'une **reprise en rafale (+1374 IRQ/s à `23:12:36`)**. Les IRQ de fond continuent donc (pas de blocage IRQ global), mais le transfert data USB s'arrête pendant ~7–8 s.
 
 **Interprétation :** ce n'est pas une perte radio ni un problème général du canal/box (`.24` et passerelle < 92 ms au même moment). Les paquets sont **mis en file d'attente puis débloqués d'un bloc** sur `.11` uniquement.
 
