@@ -9,7 +9,7 @@
  *
  * HTTP: the daemon listens on the loopback only (127.0.0.1:8889); www/cgi-bin/whep.cgi forwards to it behind the
  * web login (httpfront + busybox httpd). POST /whep (SDP) -> 201 + SDP + Location: /whep/<id>; DELETE /whep/<id>;
- * GET /status. A viewer that stops answering the ICE consent checks is dropped after 12 s.
+ * GET /status. A viewer that stops sending authenticated ICE consent checks is dropped after 30 s (RFC 7675).
  *
  *   tc100-whep [-i wlan0[,eth0]] [-p 8889] [-u 8189] [-s sub|main] [-m 2] [-a 1] [-r 554] [-U user] [-w pwfile]
  *              [-c /mnt/config] [-d]
@@ -95,6 +95,7 @@ static struct {
 	struct sess s[MAXS];
 	volatile sig_atomic_t quit;
 } G;
+static struct wh_nets nets;	/* TC100_NET_ALLOW (controlscripts/whep): the networks whose datagrams are read */
 
 static const int SUITES[] = { MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, 0 };
 static const mbedtls_ssl_srtp_profile PROFILES[] = { MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80, MBEDTLS_TLS_SRTP_UNSET };
@@ -587,11 +588,13 @@ static int on_udp(void)
 	struct sess *s;
 
 	if (n < 1) return 0;
+	if (!wh_nets_ok(&nets, ntohl(from.sin_addr.s_addr))) return 1;	/* NET_LAN_ONLY: outside the allowed networks */
 	if (b[0] < 4) { on_stun(b, (size_t)n, &from); return 1; }
 	s = by_addr(&from);
 	if (!s) return 1;
+	/* only an ICE consent check with the right MESSAGE-INTEGRITY (on_stun) keeps a viewer alive (RFC 7675): a DTLS or
+	 * SRTCP datagram is not authenticated here, and one sent from a spoofed address kept a dead viewer's slot forever */
 	if (b[0] >= 20 && b[0] <= 63) {
-		s->last = now_ms();
 		if (s->state == S_HS) {
 			int r = s->ch_done ? (b[0] == 22 && n > 25 && b[13] == 1 ? 1 : 0) : wh_chello_feed(&s->ch, b, (size_t)n, s->in, sizeof s->in);
 
@@ -602,7 +605,7 @@ static int on_udp(void)
 		}
 		s->in_len = n; memcpy(s->in, b, (size_t)n);
 		dtls_drive(s);
-	} else if (b[0] >= 128 && b[0] <= 191) s->last = now_ms();	/* SRTCP receiver report: a sign of life */
+	}	/* 128-191: SRTCP receiver reports, not used */
 	return 1;
 }
 
@@ -647,7 +650,11 @@ static void sweep(void)
 		struct sess *s = &G.s[i];
 
 		if (s->state == S_FREE) continue;
-		if ((s->state == S_HS && t - s->t0 > 30000) || (t - s->last > 12000 && (s->have_peer || t - s->t0 > 15000))) {
+		/* consent: 30 s without an authenticated check (RFC 7675; Firefox checks every 4-6 s, a lost datagram or two on
+		 * the Wi-Fi must not drop a viewer); a viewer that never answered STUN goes after 15 s. The page itself sends
+		 * the stop request when it closes or hides the video, so this only frees the slot of a vanished viewer. */
+		if ((s->state == S_HS && t - s->t0 > 30000) || (s->have_peer && t - s->last > 30000) ||
+		    (!s->have_peer && t - s->t0 > 15000)) {
 			LOG("viewer %s: no sign of life (%s)", s->id, s->state == S_HS ? "handshake" : "consent");
 			sess_free(s);
 		}
@@ -857,6 +864,8 @@ int main(int argc, char **argv)
 	G.udp = listen_on(SOCK_DGRAM, G.udp_port, INADDR_ANY);
 	if (G.http < 0 || G.udp < 0) { LOG("cannot listen (http %u on loopback, udp %u): %s", G.http_port, G.udp_port, strerror(errno)); return 1; }
 	read_pw();
+	wh_nets_parse(&nets, getenv("TC100_NET_ALLOW"));
+	LOG("udp %u: %s", G.udp_port, nets.n ? "datagrams from the allowed networks only (NET_LAN_ONLY)" : "no network filter");
 	LOG("ready: WHEP on 127.0.0.1:%u, ICE-lite on udp %u (%s), %s stream, up to %d viewers, certificate %.23s...", G.http_port, G.udp_port, G.iface,
 	    G.main_stream ? "main" : "sub", G.max, G.fp);
 	while (!G.quit) {

@@ -172,5 +172,25 @@ esac
         self.assertTrue(head.startswith('Status: 405'), head)
 
 
+class UdpReview20261112(unittest.TestCase):
+    """read-only review of the UDP side of tc100-whep, 2026-11-12"""
+
+    def setUp(self):
+        src = (ROOT / 'src/whep/tc100_whep.c').read_text()
+        self.udp = src[src.index('static int on_udp(void)'):src.index('static void http_reply(')]
+        self.src = src
+
+    def test_net_lan_only_covers_the_udp_port(self):
+        self.assertIn('TC100_NET_ALLOW="$(netacl_allow_list 2>/dev/null)" "$BIN"', (ROOT / 'controlscripts/whep').read_text())
+        self.assertIn('wh_nets_parse(&nets, getenv("TC100_NET_ALLOW"));', self.src)
+        # checked first, before STUN, DTLS or any session lookup
+        self.assertLess(self.udp.index('wh_nets_ok(&nets'), self.udp.index('on_stun('))
+
+    def test_only_an_authenticated_consent_check_keeps_a_viewer(self):
+        self.assertNotIn('s->last = now_ms()', self.udp)
+        stun = self.src[self.src.index('static void on_stun('):self.src.index('static int on_udp(void)')]
+        self.assertLess(stun.index('stun_check_integrity'), stun.index('s->last = now_ms()'))
+
+
 if __name__ == '__main__':
     unittest.main()

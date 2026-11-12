@@ -31,6 +31,33 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### WHEP-02 WebRTC gateway: LAN filter on its UDP port, consent from authenticated checks only (`[whep-udp]`) — `to test` (next RC, owner, with the WHEP entry of 2026-11-05)
+
+- **What (read-only Fable review of the UDP side of `tc100-whep`, 2026-11-12: no out-of-bounds access, nothing
+  reachable without a session):**
+  - UDP 8189 was bound to every interface and outside `NET_LAN_ONLY` (libnetacl filters accept / bind only, and the
+    gateway was not started through it). `controlscripts/whep` now passes `TC100_NET_ALLOW` (`netacl_allow_list`, the
+    same list as httpfront) and the gateway drops datagrams from other networks; log line `udp 8189: datagrams from
+    the allowed networks only`. `NET_LAN_ONLY=0` gives an empty list = no filter, as before.
+  - Only an ICE consent check with the right MESSAGE-INTEGRITY keeps a viewer alive (RFC 7675). DTLS and SRTCP
+    datagrams no longer reset the timer: a datagram sent from a spoofed address kept a dead viewer's slot (one of
+    `WHEP_MAX=2`) and its stream forever. The timer is 30 s instead of 12 s (Firefox checks every 4-6 s; two lost
+    datagrams on the Wi-Fi must not drop a viewer). The page still sends its stop request when it closes or hides
+    the video, so a closed tab frees its slot at once; the 30 s only matters for a viewer that vanished.
+  - `profile-level-id=` at the end of a long fmtp line no longer reads past the copy (authenticated offer only).
+  - Not changed: spoofed datagrams during the handshake window or a replayed binding request (needs sniffing on the
+    LAN); one slow authenticated HTTP request stalls the single thread for a few seconds; a non-browser WHEP client
+    whose keepalive is a STUN Binding Indication (libnice) is now dropped after 30 s; the network list is read when
+    the gateway starts (after a change of `NET_ALLOW_EXTRA` / `NET_LAN_ONLY`, restart the WebRTC service too).
+- **Switch:** `NET_LAN_ONLY=0` disables the filter; revert the commit for the old consent rule.
+- **Test:** (a) Live view in Chrome and Firefox on the LAN, 10 minutes each: no "no sign of life (consent)" in
+  `/tmp/logs/whep.log` while the tab is open; closing the tab frees the viewer at once (stop request), killing the
+  browser without closing frees it within ~30 s. (b) Two viewers at once,
+  then a third is refused as before. (c) The log shows the "allowed networks only" line. (d) Optional: from a non-LAN
+  address (VPN outside `NET_ALLOW_EXTRA`), the live view falls back (no WebRTC) and the log shows no new viewer.
+- **Pass:** (a)-(c); a browser that does not send consent checks would be dropped after 30 s: if one is seen, report
+  which one.
+
 ### UPD-01 Web update: no upload / discard during an install, stricter package, true failure message (`[update-review]`) — `to test` (next RC, owner)
 
 - **What (read-only Fable review of `update66.sh`, `update.cgi`, `boot-guard`, 2026-11-12: no brick path):**

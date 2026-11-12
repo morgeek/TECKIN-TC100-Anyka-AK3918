@@ -191,6 +191,39 @@ int main(void)
 		CHECK(wh_chello_feed(&ch, dg, 13 + 62, out, sizeof out) == -1);
 	}
 
+	{	/* NET_LAN_ONLY on the UDP port (review 2026-11-12): the TC100_NET_ALLOW list of common_functions.sh */
+		struct wh_nets w;
+
+		wh_nets_parse(&w, "10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10");
+		CHECK(w.n == 5);
+		CHECK(wh_nets_ok(&w, 0xC0A8010Bu));		/* 192.168.1.11 */
+		CHECK(wh_nets_ok(&w, 0x0A000001u));		/* 10.0.0.1 */
+		CHECK(wh_nets_ok(&w, 0x7F000001u));		/* loopback, always */
+		CHECK(!wh_nets_ok(&w, 0x08080808u));		/* 8.8.8.8 */
+		CHECK(!wh_nets_ok(&w, 0xAC200001u));		/* 172.32.0.1, just outside 172.16/12 */
+		wh_nets_parse(&w, "");
+		CHECK(w.n == 0 && wh_nets_ok(&w, 0x08080808u));	/* no list: no filter, as libnetacl */
+		wh_nets_parse(&w, "bad 1.2.3.4/33 300.1.1.1 192.168.5.0/24 0.0.0.0/0");
+		CHECK(w.n == 2 && wh_nets_ok(&w, 0x08080808u));	/* unreadable entries skipped, /0 allows all */
+		wh_nets_parse(&w, "192.168.5.7");
+		CHECK(w.n == 1 && wh_nets_ok(&w, 0xC0A80507u) && !wh_nets_ok(&w, 0xC0A80508u));	/* a bare address = /32 */
+	}
+	{	/* profile-level-id= at the very end of a long fmtp line: copied without reading past the line */
+		static char offer[1200];
+		struct sdp_offer of;
+		char fm[200];
+
+		memset(fm, 'x', sizeof fm);
+		memcpy(fm, "a=fmtp:102 ", 11);
+		memcpy(fm + 159 - 17 + 11, "profile-level-id=", 17);	/* ends the 159 characters kept for the fmtp */
+		fm[159 + 11] = 0;
+		snprintf(offer, sizeof offer, "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=ice-ufrag:abcd\r\n"
+			 "a=ice-pwd:0123456789abcdef01234567\r\na=fingerprint:sha-256 00:11\r\n"
+			 "m=video 9 UDP/TLS/RTP/SAVPF 102\r\na=mid:0\r\na=rtpmap:102 H264/90000\r\n%s\r\n", fm);
+		CHECK(sdp_parse_offer(offer, &of) == 0);
+		CHECK(of.nm >= 1 && strlen(of.m[0].pts[0].plid) == 0);
+	}
+
 	if (fails) { printf("whep_test: %d failed\n", fails); return 1; }
 	puts("whep_test: all ok");
 	return 0;

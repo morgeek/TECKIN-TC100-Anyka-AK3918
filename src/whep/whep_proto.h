@@ -273,7 +273,12 @@ static int sdp_parse_offer(const char *txt, struct sdp_offer *o)
 				sdp_copy(tmp, sizeof tmp, s, n - (size_t)(s - l));
 				if (strstr(tmp, "packetization-mode=1")) cur->pts[i].mode1 = 1;
 				q = strstr(tmp, "profile-level-id=");
-				if (q) sdp_copy(cur->pts[i].plid, sizeof cur->pts[i].plid, q + 17, 6);
+				if (q) {	/* at most 6 characters, never past the end of tmp */
+					size_t k = 0;
+
+					while (k < 6 && q[17 + k]) k++;
+					sdp_copy(cur->pts[i].plid, sizeof cur->pts[i].plid, q + 17, k);
+				}
 			}
 		}
 #undef IS
@@ -414,6 +419,56 @@ static int wh_chello_feed(struct wh_chello *c, const uint8_t *d, size_t n, uint8
 	memcpy(out + 25, c->body, c->len);
 	c->on = 0;
 	return (int)(25 + c->len);
+}
+
+/* ---- allowed networks (boot.conf NET_LAN_ONLY, the TC100_NET_ALLOW list of scripts/common_functions.sh, as httpfront):
+ * "a.b.c.d/n a.b.c.d ...", an unreadable entry skipped; an empty or missing list = no filter; 127/8 always allowed.
+ * The UDP port of the gateway is not covered by libnetacl (it filters accept / bind only), so it checks each datagram. */
+#define WH_MAXNET 16
+struct wh_nets { uint32_t a[WH_MAXNET], m[WH_MAXNET]; int n; };
+
+static void wh_nets_parse(struct wh_nets *w, const char *s)
+{
+	w->n = 0;
+	while (s && *s && w->n < WH_MAXNET) {
+		uint32_t a = 0;
+		int ok = 1, bits = 32;
+
+		while (*s == ' ') s++;
+		if (!*s) break;
+		for (int i = 0; i < 4 && ok; i++) {
+			int v = 0, d = 0;
+
+			while (*s >= '0' && *s <= '9' && d < 4) { v = v * 10 + *s++ - '0'; d++; }
+			if (!d || v > 255) ok = 0;
+			a = a << 8 | (uint32_t)v;
+			if (ok && i < 3) { if (*s == '.') s++; else ok = 0; }
+		}
+		if (ok && *s == '/') {
+			int d = 0;
+
+			s++;
+			bits = 0;
+			while (*s >= '0' && *s <= '9' && d < 3) { bits = bits * 10 + *s++ - '0'; d++; }
+			if (!d || bits > 32) ok = 0;
+		}
+		if (ok && *s && *s != ' ') ok = 0;
+		if (ok) {
+			uint32_t m = bits ? 0xffffffffu << (32 - bits) : 0;
+
+			w->a[w->n] = a & m; w->m[w->n] = m; w->n++;
+		}
+		while (*s && *s != ' ') s++;
+	}
+}
+
+/* ip in host order */
+static int wh_nets_ok(const struct wh_nets *w, uint32_t ip)
+{
+	if (!w->n || (ip >> 24) == 127) return 1;
+	for (int i = 0; i < w->n; i++)
+		if ((ip & w->m[i]) == w->a[i]) return 1;
+	return 0;
 }
 
 #endif
