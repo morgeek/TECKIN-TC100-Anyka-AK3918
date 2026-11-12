@@ -31,6 +31,27 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### HOOK-01 First-install hook: stricter checks and U-Boot built-in environment (`[stock-hook-review]`) — `to test` (next RC, owner)
+
+- **What (read-only Fable review of `stock-hook.sh` + `envtool.c`, 2026-11-12: no brick path in the code):**
+  - `tc100-3/known-stock.txt` is now a required file (with its 32-digit `uboot` md5 line): without it the U-Boot / root / `/usr` md5 checks were skipped
+    (only a note) and the environment was still written on an unidentified camera.
+  - The flash copy on the card is read back after `drop_caches`, so a card that loses writes fails the md5 check
+    instead of passing from the page cache.
+  - An unexpected `envtool` exit (killed, >= 128) no longer logs "Nothing was written to the flash"; it says the
+    environment may be incomplete and points to `env-stock.bin`.
+  - **Open, the one brick question:** after a power cut in the middle of the environment write, U-Boot uses its
+    built-in environment; nobody has checked that this one boots the stock firmware (`internals.md`, "What is not
+    covered yet" 1).
+- **Switch:** none (the hook runs once per new camera); revert the commit for the old checks.
+- **Test (read-only, no card needed, on a camera running 3.0 from its flash, over ssh):**
+  `m=$(grep '"boot"' /proc/mtd | cut -d: -f1); dd if=/dev/${m}ro bs=4096 count=57 2>/dev/null | tr '\0' '\n' | grep -E '^(bootcmd|boot_normal|bootargs|bootdelay)='`
+  (U-Boot's built-in environment is plain text inside its binary). Paste the lines to the implementer; they hold no
+  secret. Also record the stock `bootcmd` from `tc100-3/env-stock.txt` if a card from a first install is available.
+- **Pass:** the built-in `bootcmd` (directly or through `boot_normal`) loads the kernel from the flash (`sf read` ...
+  `bootm`): the power-cut case is then covered; update `internals.md` and close this entry. If it does not, power-cut
+  recovery needs the serial console: say so in the install guide.
+
 ### WEB-01 httpfront login counting and remembered login (`[httpfront-auth]`) — `to test` (SD test system)
 
 - **What (read-only Fable review of httpfront, 2026-11-12; `WEB_LOCKOUT=1` and `HTTPFRONT_NATIVE=1` are the

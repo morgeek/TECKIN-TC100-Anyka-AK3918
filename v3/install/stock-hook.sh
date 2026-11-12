@@ -70,9 +70,12 @@ BC=$C/v3/board/${hw#board=}.conf
 bconf() { awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' "$BC"; }
 ISP_GLOB=$(bconf ISP_STOCK_GLOB); ISP_NAME=$(bconf ISP_CONF)
 [ -f "$K/stage1.done" ] && stop "step 1 was already done ($K/stage1.done): the camera should start from the card. Check that tc100test/c66.img is on it."
-for f in "$K/envtool" "$C/tc100test/c66.img" "$C/tc100test/c66rd.gz"; do
+# known-stock.txt too: without it the U-Boot / root / /usr identity checks below would be skipped (only noted)
+for f in "$K/envtool" "$K/known-stock.txt" "$C/tc100test/c66.img" "$C/tc100test/c66rd.gz"; do
 	[ -f "$f" ] || stop "$f is missing from the card (copy the whole 3.0 package)"
 done
+awk '$1 == "uboot" && length($2) == 32 { f = 1 } END { exit !f }' "$K/known-stock.txt" ||
+	stop "$K/known-stock.txt is damaged (no U-Boot md5): copy the whole 3.0 package again"
 for f in c66.img c66rd.gz; do
 	want=$(cut -d' ' -f1 "$C/tc100test/$f.md5" 2>/dev/null)
 	[ -n "$want" ] && [ "$(md5 < "$C/tc100test/$f")" = "$want" ] || stop "tc100test/$f does not match its md5 (copy it again)"
@@ -108,6 +111,8 @@ grep -q '^bootcmd=' "$K/env-stock.txt" || stop "the U-Boot environment has no bo
 # 2. The whole flash on the card
 say "saving the whole flash (8 MB, the system it runs now) to tc100-3/backup/flash-stock.bin..."
 dd if=${MTD}0 of="$K/backup/flash-stock.bin" bs=65536 2>/dev/null && sync
+# read the copy back from the card, not from the page cache (a card that loses writes must fail here)
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
 a=$(md5 < "$K/backup/flash-stock.bin"); b=$(dd if=${MTD}0 bs=65536 2>/dev/null | md5)
 [ "$a" = "$b" ] && [ "$(wc -c < "$K/backup/flash-stock.bin")" -eq 8388608 ] || stop "the flash copy on the card differs from the flash (card?)"
 echo "$a  flash-stock.bin" > "$K/backup/flash-stock.bin.md5"
@@ -162,7 +167,8 @@ case $rc in
 	0) ;;
 	4) stop "the U-Boot environment could not be written; the original was put back (envtool $rc)" ;;
 	5) say "FAILED: the U-Boot environment could not be written nor restored (envtool 5). U-Boot will use its built-in environment: the camera starts its stock firmware. Backup: tc100-3/backup/env-stock.bin"; blink_stop; led red 1; exit 1 ;;
-	*) stop "envtool failed ($rc)" ;;
+	1|2|3) stop "envtool failed ($rc)" ;;	# usage, read / CRC problem, backup failed: nothing written
+	*) say "FAILED: envtool stopped during the U-Boot environment write (exit $rc): the environment may be incomplete. U-Boot then uses its built-in environment. Backup: tc100-3/backup/env-stock.bin"; blink_stop; led red 1; exit 1 ;;
 esac
 "$K/envtool" show ${MTD}3 > "$K/env-3.0.txt" 2>&1
 date > "$K/stage1.done"; sync
