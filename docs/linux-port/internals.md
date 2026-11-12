@@ -184,12 +184,15 @@ What protects you:
   settings (`/mnt/config/log/reboot-history.log`, Information page "Previous run ended").
 - Any doubt in the checks: nothing is written, the red LED says so and `tc100-3/STATUS.txt` says why.
 
+- **A power cut during the environment write** (a fraction of a second): `envtool` puts the original back when the
+  write fails, and if power is lost in the middle, U-Boot falls back to its built-in environment. Verified on `.11`
+  (`2026-11-12`, read-only dump of `mtd0ro`): `bootcmd=run boot_normal` → `boot_normal=readcfg; run read_kernel; bootm ${loadaddr}`
+  with `read_kernel=sf probe 0:0 ${sf_hz} 0; sf read ${loadaddr} ${kernel_addr} ${kernel_size}` (`loadaddr=0x82208000`,
+  `kernel_addr=0x36000`, `kernel_size=0x200000`), so U-Boot still boots the stock firmware without a serial console.
+  Still avoid unplugging the camera during the first two minutes.
+
 What is not covered yet:
-1. **A power cut during the environment write** (a fraction of a second). `envtool` puts the original back when the
-   write fails, but if power is lost in the middle, U-Boot falls back to its built-in environment, and it is not yet
-   checked that this one starts the stock firmware. Worst case: recovery through the serial console. Do not unplug
-   the camera during the first two minutes.
-2. **Cameras that differ from the author's** are refused (nothing written), but only one variant is known yet: other
+1. **Cameras that differ from the author's** are refused (nothing written), but only one variant is known yet: other
    TC100 batches need their inventory first ([hardware variants](../hardware-variants.md)).
 3. **An interrupted web update** leaves the flash system unable to start: keep the 3.0 SD card; it starts the
    camera and "Install to flash" writes everything again.

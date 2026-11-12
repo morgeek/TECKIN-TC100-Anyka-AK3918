@@ -309,7 +309,14 @@ Rules that apply to every entry:
   /tmp/update66.failed`, then upload / discard / install from the page answer the "failed half way" message.
 - **Pass:** (a) and (b); no change for a normal update.
 
-### HOOK-01 First-install hook: stricter checks and U-Boot built-in environment (`[stock-hook-review]`) — `to test` (next RC, owner)
+### HOOK-01 First-install hook: stricter checks and U-Boot built-in environment (`[stock-hook-review]`) — `passed` (2026-11-12, .11 rc40: built-in U-Boot env verified to boot stock kernel from flash)
+
+- **Result (2026-11-12, `.11` rc40, read-only `mtd0ro` dump):**
+  - `bootdelay=1`
+  - `bootcmd=run boot_normal`
+  - `boot_normal=readcfg; run read_kernel; bootm ${loadaddr}`
+  - `read_kernel=sf probe 0:0 ${sf_hz} 0; sf read ${loadaddr} ${kernel_addr} ${kernel_size}` (`loadaddr=0x82208000`, `kernel_addr=0x36000`, `kernel_size=0x200000`)
+  - Built-in U-Boot environment loads the stock kernel from SPI flash and runs `bootm`: power-cut during `envtool` write recovers to the stock firmware without a serial console. `internals.md` updated.
 
 - **What (read-only Fable review of `stock-hook.sh` + `envtool.c`, 2026-11-12: no brick path in the code):**
   - `tc100-3/known-stock.txt` is now a required file (with its 32-digit `uboot` md5 line): without it the U-Boot / root / `/usr` md5 checks were skipped
