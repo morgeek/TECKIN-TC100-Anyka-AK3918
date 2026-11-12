@@ -5,6 +5,40 @@ Les sections datées qui suivent sont des notes historiques des RC précédentes
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## Point au 2026-11-13 — Enquête burst Wi-Fi ~8–9 s et état des chantiers
+
+### 1. Faits mesurés sur le burst Wi-Fi de ~8–9 s (`.11` vs `.24` vs passerelle, 2026-11-12)
+Captures simultanées `ping -i 0.5` depuis le Mac (fichiers locaux `/tmp/ping_*.txt`) :
+- **Passerelle (`192.168.1.1`) :** `120` paquets, `119` reçus (`0,8 %` perte), max `85,4 ms`.
+- **Caméra `.24` (`192.168.1.24`, MCS 2 / 19,5 Mbit/s) :** `60/60` reçus (`0,0 %` perte), max `91,3 ms`.
+- **Caméra `.11` (`192.168.1.11`, -25 dBm / MCS 7 / 72 Mbit/s) :**
+  - Run 1 : `120/120` reçus (**`0,0 %` perte**), max `8678,1 ms`. Les `icmp_seq 54..68` ont été retenus ~8 s puis **livrés tous d'un coup en rafale** (`7857 ms`, `7352 ms`, `6847 ms`, …, `804 ms`, décroissant par pas exacts de `500 ms`).
+  - Run 2 simultané avec `.24` : `60/60` reçus (`0,0 %` perte), max `8918,6 ms`.
+
+**Interprétation :** ce n'est pas une perte radio ni un problème général du canal/box (`.24` et passerelle < 92 ms au même moment). Les paquets sont **mis en file d'attente puis débloqués d'un bloc** sur `.11` uniquement.
+
+### 2. Plan d'action détaillé pour l'agent / testeur suivant
+1. **Tester `rtl8xxxu.ampdu_rx=0` sur `.11` (déjà prêt sur `main`, patch `0018`, entrée `WIFI-RXAGG` dans `test-queue.md`) :**
+   - Nécessite d'avoir booté le noyau CI ≥ `9da61db` (sinon `/sys/module/rtl8xxxu/parameters/ampdu_rx` n'existe pas et `echo 0 > ...` renvoie `Permission denied`).
+   - Commande à chaud (sans reboot) : `echo 0 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate`, puis `ping -i 0.5 -c 120 192.168.1.11` depuis le Mac.
+   - Si le burst disparaît : l'agrégation BlockAck RX (A-MPDU, active surtout sur `.11` en MCS 7) est en cause → envisager `ampdu_rx=0` par défaut.
+2. **Si le burst persiste avec `ampdu_rx=0`, localiser RX vs USB vs TX en 30 s :**
+   - Sur `.11` pendant un `ping -i 0.5` du Mac, relever `/proc/interrupts` toutes les secondes (`for i in $(seq 1 20); do date +%H:%M:%S; grep -E 'usb|ak-hcd|1-1|ehci|ohci|musb|otg' /proc/interrupts; sleep 1; done`) et/ou `tcpdump -i wlan0 icmp`.
+   - Si les interruptions USB gèlent pendant les 8 s → piste `patch 0003` (contrôleur USB hôte Anyka : timeout NAK / SOF / IRQ).
+   - Si les interruptions USB continuent mais les requêtes ICMP arrivent en rafale côté Linux → piste `rtl8xxxu` (URBs bulk-IN RX, pseudo-PS firmware RTL8188FU ou buffering AP).
+3. **Ne pas oublier l'architecture de garde-fou (`wifi-try.sh`)** décrite dans `audit-2026-11-06.md` si un réglage doit être testé à distance sans accès physique.
+
+### 3. Ce qui vient d'être réalisé sur `main` (commits `9da61db` et `9d37efe`)
+- **`NR3D=auto`** par défaut (`19b9f46`, patch `0017` UV dans le pool encodeur).
+- **Envoi UDP non-bloquant** dans `src/tc100rtsp/tc100_rtsp.c` (`MSG_DONTWAIT | MSG_NOSIGNAL`, drop vers prochain IDR sur `EAGAIN`/`EWOULDBLOCK`/`ENOBUFS`, entrée `RTSP-UDP-NB`).
+- **`rtl8xxxu.ampdu_rx`** (`0644`, patch `0018`, entrée `WIFI-RXAGG`).
+- **Ré-amorçage `TALK_PREFILL`** dans `src/tc100rtsp/talk.c` après underrun/`PREPARE` (`AEC-01`).
+- **Correction `-Wformat-truncation`** dans `iso()` de `src/onvifd/onvifd.c`.
+- **`tc100-whep` à la demande + arrêt auto** (`H10`, `WHEP-ONDEMAND`) : retiré du boot dans `v3/autorun-linux66.sh`, lancé par `www/cgi-bin/whep.cgi` au premier `POST` SDP, arrêt auto après 300 s à 0 viewer (`-I 300`).
+- **Timers haute résolution + `nanosleep`** (`H4`/`H5`, `HRTIMER-01`) : `CONFIG_HIGH_RES_TIMERS=y` + `CONFIG_NO_HZ_IDLE=y` dans `patches/kernel-6.6/defconfig_cma`, `pace_udp()` dans `tc100_rtsp.c`.
+- **Propreté `tests/docker/local-ci.sh`** : suppression de `/w/.claude` après copie.
+- **Rétro-ingénierie encodeur (ROI / LTR / intra-refresh) :** laissée de côté pour le moment (faible gain vs coût/risque tant que le Wi-Fi et le `NR3D=auto` de nuit ne sont pas validés).
+
 ## Bilan et suite proposée — 2026-11-12 (coordinateur, pour analyse par un autre agent)
 
 **Avis : on n'est pas au maximum des améliorations, mais ajouter du code rapporte désormais moins que valider ce qui
