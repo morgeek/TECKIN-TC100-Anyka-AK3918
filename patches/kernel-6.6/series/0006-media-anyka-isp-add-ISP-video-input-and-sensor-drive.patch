@@ -120,7 +120,7 @@ new file mode 100644
 index 000000000..97f00ee92
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.c
-@@ -0,0 +1,4946 @@
+@@ -0,0 +1,4958 @@
 +#include <linux/kernel.h>
 +#include <linux/errno.h>
 +#include <linux/string.h>
@@ -4871,6 +4871,14 @@ index 000000000..97f00ee92
 +	return isp != NULL;
 +}
 +
++/* TNR_DMA_OVERFLOW interrupts since boot (ak39_vi.nr3d_overflow): the 3D-NR block lost a DMA race and was switched off */
++static unsigned int tnr_overflow;
++
++unsigned int ak_isp_tnr_overflow_count(void)
++{
++	return READ_ONCE(tnr_overflow);
++}
++
 +int ak_isp_irq_work(void)
 +{	
 +	int cmd;
@@ -4932,6 +4940,7 @@ index 000000000..97f00ee92
 +		CLEAR_BITS(cmd, TNR_UV_EN, 1);
 +		isp->reg_blkaddr5[R5_ENABLE] = cmd;	
 +		isp->_3d_nr_status=1;
++		WRITE_ONCE(tnr_overflow, tnr_overflow + 1);
 +	}
 +
 +	ak_isp_osd_irq_update();
@@ -4990,6 +4999,9 @@ index 000000000..97f00ee92
 +
 +void ak_isp_set_3d_nr_noref(int noref)
 +{
++	/* the ISP is powered down (NULL) between streams: the wanted state is applied by program_ref() at the next start */
++	if (!isp)
++		return;
 +	isp->_3dnr_noref = noref;
 +	isp->linkage_para_update_flag = 1;
 +}
@@ -10049,7 +10061,7 @@ new file mode 100644
 index 000000000..42f5fa12c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -0,0 +1,954 @@
+@@ -0,0 +1,1038 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 video input (ISP2 + MIPI CSI-2 receiver), V4L2/vb2.
@@ -10124,11 +10136,13 @@ index 000000000..42f5fa12c
 +MODULE_PARM_DESC(slots, "capture buffers (2..4, default 3)");
 +static unsigned int vi_slots(void) { return slots >= 2 && slots <= NUM_SLOTS ? slots : NUM_SLOTS; }
 +/* 3D noise reduction needs a reference frame of 3 bytes a pixel (Y 2, UV 1): 6.2 MB at 1080p. Taken at each stream
-+ * start it never found room in CMA next to the capture buffers (two failed allocations at every start), so
-+ * ak39_vi.nr3d=1 reserves it once at boot, while CMA is still empty; without it 3D-NR stays off and nothing is tried */
++ * start it never found room in CMA next to the capture buffers (two failed allocations at every start), so it is
++ * taken once, while CMA is still empty: ak39_vi.nr3d=1 on the command line (at probe), or a write of 1 to
++ * /sys/module/ak39_vi/parameters/nr3d (0644) while the queue is not streaming (boot.conf NR3D=1, before tc100_rtsp).
++ * Writing 0 turns 3D-NR off at once (noref); while streaming the memory stays (never freed or reallocated live), while
++ * NOT streaming it is freed, which gives the CMA back (recovery when a 1080p reference left no room for the capture
++ * buffers: write 0, restart the video service, no reboot). Default 0: off, nothing is tried. See nr3d_set() below */
 +static int nr3d;
-+module_param(nr3d, int, 0444);
-+MODULE_PARM_DESC(nr3d, "3D noise reduction: reserve its reference frame (6.2 MB of CMA at 1080p) at boot (default 0: off)");
 +
 +/* SYSCTRL */
 +#define SYS_PERI_CTRL1	0x14
@@ -10405,8 +10419,8 @@ index 000000000..42f5fa12c
 +	vi->ref_y = vi->ref_uv = NULL;
 +}
 +
-+/* ak39_vi.nr3d=1, at probe: for the largest picture (try_fmt), kept until the driver goes */
-+static void alloc_ref(struct ak39_vi *vi)
++/* the reference frame of the largest picture (try_fmt), kept until the driver goes. 0 or -ENOMEM */
++static int alloc_ref(struct ak39_vi *vi)
 +{
 +	size_t px = 1920 * 1080;
 +
@@ -10419,22 +10433,24 @@ index 000000000..42f5fa12c
 +	if (!vi->ref_y || !vi->ref_uv) {
 +		free_ref(vi);
 +		dev_warn(vi->dev, "no memory for the 3D-NR reference frame, 3D-NR off\n");
-+		return;
++		return -ENOMEM;
 +	}
 +	dev_info(vi->dev, "3D-NR reference frame: %zu KiB at %pad, %zu KiB at %pad\n",
 +		 vi->ref_y_bytes >> 10, &vi->ref_y_dma, vi->ref_uv_bytes >> 10, &vi->ref_uv_dma);
++	return 0;
 +}
 +
++/* at each stream start: the addresses when a reference exists, and noref unless nr3d is on, so that a later live
++ * write of 1 (nr3d_set) only has to clear noref */
 +static void program_ref(struct ak39_vi *vi)
 +{
 +	size_t px = vi->width * vi->height;
 +	AK_ISP_3D_NR_REF_ATTR ref;
 +
-+	if (!vi->ref_y || px * 2 > vi->ref_y_bytes) {
++	if (!vi->ref_y || px * 2 > vi->ref_y_bytes || px > vi->ref_uv_bytes) {
 +		ispdrv_vp_3d_nr_noref(1);
 +		return;
 +	}
-+	ispdrv_vp_3d_nr_noref(0);
 +	ref.yaddr_3d = vi->ref_y_dma;
 +	ref.ysize_3d = px * 2;
 +	ref.uaddr_3d = vi->ref_uv_dma;
@@ -10442,7 +10458,81 @@ index 000000000..42f5fa12c
 +	ref.vaddr_3d = vi->ref_uv_dma + px / 2;
 +	ref.vsize_3d = px / 2;
 +	ispdrv_vp_set_3d_nr_ref_addr(&ref);
++	ispdrv_vp_3d_nr_noref(!nr3d);
 +}
++
++/* ak39_vi.nr3d (0644). 1: allocate the reference when there is none and the queue is not streaming (-EBUSY while
++ * streaming without one: the CMA is then full of capture buffers; -ENOMEM when it does not fit); the next stream start
++ * programs the addresses and clears noref. 0: noref at once while streaming (memory kept), freed when not streaming.
++ * The ISP is only touched while streaming and ak_isp_set_3d_nr_noref() ignores a powered-down ISP: everything else is
++ * applied by program_ref() at the next start. Before probe (command line) the value is only stored: vi_probe()
++ * allocates. nr3d_lock keeps vi_remove() from freeing the vi under a write. */
++static struct ak39_vi *nr3d_vi;
++static DEFINE_MUTEX(nr3d_lock);
++
++static int nr3d_set(const char *val, const struct kernel_param *kp)
++{
++	struct ak39_vi *vi;
++	int v, ret = 0;
++
++	ret = kstrtoint(val, 0, &v);
++	if (ret)
++		return ret;
++	if (v < 0 || v > 1)
++		return -EINVAL;
++	mutex_lock(&nr3d_lock);
++	vi = nr3d_vi;
++	if (!vi) {
++		nr3d = v;
++		mutex_unlock(&nr3d_lock);
++		return 0;
++	}
++	mutex_lock(&vi->lock);
++	if (v && !vi->ref_y) {
++		if (vb2_is_streaming(&vi->q))
++			ret = -EBUSY;
++		else
++			ret = alloc_ref(vi);
++	}
++	if (!ret) {
++		nr3d = v;
++		if (vb2_is_streaming(&vi->q)) {
++			if (vi->ref_y)
++				ispdrv_vp_3d_nr_noref(!v);
++		} else if (!v) {
++			free_ref(vi);
++		}
++	}
++	mutex_unlock(&vi->lock);
++	mutex_unlock(&nr3d_lock);
++	return ret;
++}
++
++static const struct kernel_param_ops nr3d_ops = {
++	.set = nr3d_set,
++	.get = param_get_int,
++};
++module_param_cb(nr3d, &nr3d_ops, &nr3d, 0644);
++MODULE_PARM_DESC(nr3d, "3D noise reduction: 1 allocates the reference frame (6 MB of CMA) when idle and turns it on, 0 turns it off (frees the memory when idle) (default 0)");
++
++/* TNR_DMA_OVERFLOW interrupts since boot: the ISP's 3D-NR DMA lost a race and the block was switched off */
++static int nr3d_overflow_get(char *buf, const struct kernel_param *kp)
++{
++	return sysfs_emit(buf, "%u\n", ispdrv_vp_3d_nr_overflow());
++}
++
++/* read-only: a command-line ak39_vi.nr3d_overflow=N must be refused, not call a NULL .set at boot */
++static int nr3d_overflow_set(const char *val, const struct kernel_param *kp)
++{
++	return -EPERM;
++}
++
++static const struct kernel_param_ops nr3d_overflow_ops = {
++	.set = nr3d_overflow_set,
++	.get = nr3d_overflow_get,
++};
++module_param_cb(nr3d_overflow, &nr3d_overflow_ops, NULL, 0444);
++MODULE_PARM_DESC(nr3d_overflow, "read-only: 3D-NR DMA overflows since boot");
 +
 +/* ----------------------------------------------------------------- 3A -- */
 +
@@ -10961,6 +11051,9 @@ index 000000000..42f5fa12c
 +		goto err_v4l2;
 +
 +	platform_set_drvdata(pdev, vi);
++	mutex_lock(&nr3d_lock);
++	nr3d_vi = vi;
++	mutex_unlock(&nr3d_lock);
 +	dev_info(dev, "registered %s\n", video_device_node_name(&vi->vdev));
 +	return 0;
 +
@@ -10978,6 +11071,9 @@ index 000000000..42f5fa12c
 +{
 +	struct ak39_vi *vi = platform_get_drvdata(pdev);
 +
++	mutex_lock(&nr3d_lock);
++	nr3d_vi = NULL;
++	mutex_unlock(&nr3d_lock);
 +	video_unregister_device(&vi->vdev);
 +	v4l2_device_unregister(&vi->v4l2);
 +	free_ref(vi);
@@ -15478,7 +15574,7 @@ new file mode 100644
 index 000000000..e81040baf
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ispdrv_interface.c
-@@ -0,0 +1,190 @@
+@@ -0,0 +1,196 @@
 +#include <linux/module.h>
 +
 +#include <mach-anyka/ispdrv_interface.h>
@@ -15669,6 +15765,12 @@ index 000000000..e81040baf
 +	ak_isp_set_3d_nr_noref(noref);
 +}
 +EXPORT_SYMBOL(ispdrv_vp_3d_nr_noref);
++
++unsigned int ispdrv_vp_3d_nr_overflow(void)
++{
++	return ak_isp_tnr_overflow_count();
++}
++EXPORT_SYMBOL(ispdrv_vp_3d_nr_overflow);
 diff --git a/drivers/media/platform/anyka-isp/sensor_f22_f23_f28_f35_f37.c b/drivers/media/platform/anyka-isp/sensor_f22_f23_f28_f35_f37.c
 new file mode 100644
 index 000000000..4ea1c7584
@@ -16363,7 +16465,7 @@ new file mode 100644
 index 000000000..194c4f812
 --- /dev/null
 +++ b/include/mach-anyka/ispdrv_interface.h
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,86 @@
 +#ifndef __ISPDRV_INTERFACE__
 +#define __ISPDRV_INTERFACE__
 +
@@ -16447,6 +16549,7 @@ index 000000000..194c4f812
 +
 +int ispdrv_vp_set_3d_nr_ref_addr(AK_ISP_3D_NR_REF_ATTR *ref);
 +void ispdrv_vp_3d_nr_noref(int noref);
++unsigned int ispdrv_vp_3d_nr_overflow(void);
 +
 +#endif
 diff --git a/include/plat-anyka/ak_camera.h b/include/plat-anyka/ak_camera.h
@@ -16568,7 +16671,7 @@ new file mode 100644
 index 000000000..8b464cbcf
 --- /dev/null
 +++ b/include/plat-anyka/ak_isp_drv.h
-@@ -0,0 +1,1507 @@
+@@ -0,0 +1,1508 @@
 +#ifndef _AK_ISP_DRV_H_
 +#define _AK_ISP_DRV_H_
 +
@@ -17641,6 +17744,7 @@ index 000000000..8b464cbcf
 + */
 +int ak_isp_vp_set_3d_nr_ref_addr(AK_ISP_3D_NR_REF_ATTR *p_ref);
 +void ak_isp_set_3d_nr_noref(int noref);
++unsigned int ak_isp_tnr_overflow_count(void);
 +
 +/**
 + * @brief: get 3d noise remove reference param

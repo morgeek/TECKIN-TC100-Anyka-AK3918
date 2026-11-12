@@ -31,6 +31,75 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `to test` (SD kernel first, owner present)
+
+- **What (plans-2026-11-12 section 2; kernel patches 0006 and 0016, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
+  - `ak39_vi.nr3d` is now a 0644 parameter (default 0). Writing 1 while the queue is not streaming allocates the 6075 KiB
+    reference frame (Y 4050 + UV 2025 KiB) from the default CMA and turns 3D-NR on; writing 1 while streaming without a
+    reference returns `EBUSY` (CMA is then full of capture buffers); writing 0 while streaming sets `noref` at once (memory
+    kept, never freed or reallocated live); writing 0 while NOT streaming frees the reference. Recovery when the 6 MB
+    taken first leaves no room for the capture buffers (no video at 1080p): `NR3D=0`, `echo 0 >
+    /sys/module/ak39_vi/parameters/nr3d`, restart the video service, no reboot. The ISP is only touched while it runs
+    (a write between streams or after a failed start cannot oops); `nr3d_overflow` refuses a command-line value. `ak39_vi.nr3d=1` on the command line still allocates at probe.
+  - `program_ref()` programs the crop size (1920x1080, `CROP_W x CROP_H`) at every format. Before it programmed the output
+    size: at a 720p main format a 720p reference was declared to a TNR block that works on the 1080p crop. It also keeps
+    3D-NR off (`noref`) when the allocation is smaller than the crop.
+  - New read-only `ak39_vi.nr3d_overflow`: `TNR_DMA_OVERFLOW` interrupts since boot (each one switches TNR off until the
+    3A loop re-arms it).
+  - `boot.conf` `NR3D=1` (single source; the dead NR3D lines of `isp_tune.conf.dist` are gone): `autorun-linux66.sh` writes
+    1 to the parameter just before `tc100_rtsp` starts (CMA still empty) and logs `[tc100-v3] 3D-NR on (...)` or the refusal
+    on the console. `NR3D=0` or absent writes nothing. Read once at boot.
+- **Decision on 1080p memory: the memory map is NOT changed.** A 1080p reference stays an option taken from the default
+  CMA; **720p is the reliable mode**. Why (all from patches 0009/0015, `cma=18M` is a U-Boot argument and stays):
+
+  | physical range | size | what | source |
+  |---|---|---|---|
+  | 0x80000000-0x80008000 | 32 KiB | before the kernel | boot |
+  | 0x80008000-... | not measured | kernel image, bss | kernel at 0x80008000 |
+  | 0x81000000-0x811eb5ee | 2012654 B | initramfs as loaded (`initrd=0x81000000,2012654`) | `stock-hook.sh`, `build-rootfs66.sh` |
+  | 0x81800000-0x82400000 | 12 MiB | encoder reusable CMA area (pool 9600K + 2688 KiB tail); contains 0x82000000 (U-Boot uImage load, a 2 MiB read ends at 0x82200000, dead once the kernel runs) | 0009 `venc@81800000`, 0015 |
+  | 0x82400000-0x82c00000 | 8 MiB | **the only free window**: ordinary RAM today | by difference |
+  | 0x82c00000-0x84000000 | 20 MiB | default CMA (`cma=18M` rounded up to the 4 MiB pageblock; with `cma=24M` it was 0x82800000, R9-01) | command line |
+
+  A second reusable CMA area would have to be exactly 0x82400000 + 8 MiB (6 MiB needed; CMA areas are 4 MiB aligned in base
+  and size), with zero slack and touching the default CMA. Not done because: (1) it is a memory-map change whose result
+  cannot be seen without booting, and a kernel that fails to boot cannot be repaired from Linux; (2) it takes all of the
+  last free window, and the default CMA position depends on the U-Boot `cma=` value (`cma=24M` as used in R9-01 would then
+  not fit and the default CMA, hence all video buffers, would be missing); (3) a device CMA area binds every DMA allocation
+  of the video device (capture buffers too, with no fallback to the default area) and `cma_alloc()` is not exported to a
+  second device; (4) 8 MiB less memory for unmovable kernel allocations on a 64 MiB camera, also when 3D-NR is off.
+  Default CMA budget (20 MiB, 1 MiB aligned): 1080p = 3 x 3379 KiB buffers (about 12 MiB with alignment) + 6075 KiB
+  reference (about 6 MiB) = about 18 MiB, and today CmaFree is about 5.9 MB with 1080p streaming (the reference needs
+  5.93 MiB contiguous): it does not fit at video start, it only fits when taken first, with about 2 MiB spare.
+  720p = 3 x 1692 KiB (about 6 MiB) + 6 MiB reference: about 6 MiB spare. (The reference stays 1080p-sized at 720p because
+  the crop is 1080p: to confirm below.)
+- **Switch to turn it off:** `NR3D=0` in `/mnt/config/boot.conf` and reboot; live: `echo 0 > /sys/module/ak39_vi/parameters/nr3d`
+  (3D-NR off at once, memory kept until reboot). Default stays off until a pass and the owner's agreement.
+- **Test (SD kernel from CI of this commit `[nr3d]`, `pack66/boot66b.sh`, nothing flashed; owner present):**
+  1. Boot without `NR3D`: `cat /sys/module/ak39_vi/parameters/nr3d` = `0`, `ls -l` shows `-rw-r--r--`, `nr3d_overflow` = `0`
+     and `-r--r--r--`; no `3D-NR` line in dmesg; MemAvailable and CmaFree as before (22-23 MB / 5.9 MB). Record `cma: Reserved`.
+  2. **720p** (`RTSP_WIDTH=1280 RTSP_HEIGHT=720`, `NR3D=1` in boot.conf, reboot): console `[tc100-v3] 3D-NR on (ak39_vi.nr3d=1,
+     overflows 0)`, dmesg `3D-NR reference frame: 4050 KiB at ..., 2025 KiB at ...`. Note MemAvailable, CmaFree, picture OK.
+  3. **1080p, only after 720p passed**, the same way: either the allocation succeeds (note CmaFree, then the same checks as 2) or dmesg shows `no
+     memory for the 3D-NR reference frame` and the console says refused with a normal picture, or the reference is taken
+     but REQBUFS then fails (no video): recover with `echo 0` to `nr3d` and a video service restart, without reboot, and
+     check that the video comes back. All are results.
+     Also `echo 1 > .../nr3d` while streaming without a reference (NR3D=0 boot): must fail with `Device or resource busy`.
+  4. Ten `controlscripts/rtsp-h26x restart` (or kill and relaunch with the same arguments) with the reference allocated: no
+     `alloc failed`, no oops, `nr3d_overflow` unchanged, picture OK after each.
+  5. Day and night (IR cut): `echo 0` then `echo 1` to `nr3d` live, three times, while the stream runs: no freeze, no oops.
+  6. Recording to the SD card plus snapshots (`stream.jpg`) during step 2: no CMA failure in dmesg, MemAvailable stays above 15 MB.
+  7. 2 h H.265 soak at the chosen resolution with 3D-NR on: no oops, no second `Starting kernel`, `nr3d_overflow` 0 (or
+     report its rate), MemAvailable never below 12 MB, `tc100_rtsp` STAT frame counts as without 3D-NR.
+  8. Night noise comparison with IR on, 3D-NR off and on, same scene, same bit rate: two stills and the bytes per second of
+     an equal-length capture (R9-01 measured 25-34 % less noise at 1080p; give the 720p figure).
+  9. Confirm the high-water assumption: at a 720p main format the TNR block still needs the full 1080p reference (no
+     `nr3d_overflow` increments, no corrupted bands in the picture).
+- **Pass:** steps 1-7 clean at 720p, `nr3d_overflow` 0, MemAvailable thresholds met, a visible night improvement (step 8).
+  1080p is optional: report its result, it is only kept if it fits with margin over the soak. Then (and only then, with the
+  owner's agreement) the kernel is a flash candidate through `flashw` with its read-back check, and `NR3D=1` can become the
+  default for 720p setups. **Nothing is flashed before a pass.**
+
 ### ONVIF-02 onvifd: lockout per address, full answers on slow links, connection and discovery limits (`[onvifd-review]`) — `to test` (next RC, owner: NVR + Home Assistant)
 
 - **What (read-only Fable review of `tc100-onvifd`, 2026-11-12: no authentication bypass, no out-of-bounds access):**

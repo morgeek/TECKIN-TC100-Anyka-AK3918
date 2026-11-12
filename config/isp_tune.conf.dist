@@ -13,11 +13,7 @@ POWER_HZ=
 # Cap the auto-exposure time at a percentage of the ISP file value (10..100).
 # Lower = less motion blur at night, darker image. Empty = no cap.
 EXPOSURE_MAX_PCT=
-# Temporal (3D) noise reduction: not driven from this file on 3.0. It is a kernel switch (ak39_vi.nr3d=1, off: its
-# 6.2 MB reference frame at 1080p takes MemAvailable from 22 to 15.8 MB), and nothing reads NR3D or NR3D_STRENGTH
-# any more (2.x keys, left commented out so that an old file still parses). Audit 2026-11-06, H3.
-#NR3D=0
-#NR3D_STRENGTH=150
+# Temporal (3D) noise reduction: not here. Its one switch is NR3D in boot.conf (kernel ak39_vi.nr3d, test queue NR3D-01).
 # Hardware privacy masks, drawn in Settings → Privacy & overlay: up to 4 areas,
 # x1,y1,x2,y2 in percent of the picture (0,0 = top left). Painted by the ISP
 # before encoding (streams, snapshots, recordings, Frigate), no CPU cost.
