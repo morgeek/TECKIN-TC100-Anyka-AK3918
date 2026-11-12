@@ -607,9 +607,15 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" LOWLIGHT_FPS bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" LOWLIGHT_FPS_VALUE lowlight_fps_value "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" IR_LED_MODE ir_led_mode "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" MIN_SWITCH u:0:3600 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" AWB_DAY_CNT u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" AWB_NIGHT_CNT u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" VENDOR_LOCK u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" IR_LED_REST u:0:999999999 "$_tc_rel" || return 1
       # the day threshold must lie above the night one (the daemon would flap otherwise)
       tc_check_pair "$_tc_file" LUMA_DAY LUMA_NIGHT "$_tc_rel" || return 1
       tc_check_pair "$_tc_file" AE_NIGHT_ABOVE AE_DAY_BELOW "$_tc_rel" || return 1
+      tc_check_pair "$_tc_file" VENDOR_NIGHT_LUM VENDOR_DAY_LUM "$_tc_rel" || return 1
       tc_check_pair "$_tc_file" VENDOR_NIGHT_LUM VENDOR_DAY_LUM "$_tc_rel" || return 1 ;;
     notify.conf)
       tc_check_flat "$_tc_file" WEBHOOK_ENABLE bool "$_tc_rel" || return 1
@@ -627,7 +633,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" NOTIFY_BURST u:0:5 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NOTIFY_BURST_EVENTS events "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" NOTIFY_UPLOAD_URL url_optional "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" NOTIFY_UPLOAD_AUTH credential_optional "$_tc_rel" || return 1 ;;
+      tc_check_flat "$_tc_file" NOTIFY_UPLOAD_AUTH ntfy_auth "$_tc_rel" || return 1 ;;
     presence.conf)
       tc_check_flat "$_tc_file" PRESENCE_MODE presence_mode "$_tc_rel" || return 1
       for _tc_profile in PRESENT AWAY NIGHT; do
@@ -643,7 +649,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" TAMPER_JPEG_DROP_PCT u:1:100 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" TAMPER_LUMA_MIN u:0:255 "$_tc_rel" || return 1 ;;
     isp_tune.conf)
-      for _tc_k in BRIGHTNESS CONTRAST SATURATION SHARPNESS HUE; do
+      for _tc_k in BRIGHTNESS CONTRAST SATURATION SHARPNESS DENOISE HUE; do
         tc_check_flat "$_tc_file" "$_tc_k" isp_effect "$_tc_rel" || return 1
       done
       tc_check_flat "$_tc_file" POWER_HZ isp_power_hz "$_tc_rel" || return 1

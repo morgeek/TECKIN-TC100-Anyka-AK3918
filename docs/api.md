@@ -200,6 +200,10 @@ curl "http://root:pass@192.168.1.50/cgi-bin/state.cgi?cmd=load_preset&name=my_pr
 ## POST/GET /cgi-bin/action.cgi
 
 State-changing endpoint. All commands require `X-CSRF-Token` unless noted otherwise.
+Since 2026-11-11 a GET (or HEAD) is answered only for the read commands `events_info`, `get_ptt_status`,
+`get_ptt_vol`, `ha_discovery_info`, `hw_state`, `local_rec_status`, `md_zones_info`, `mem_budget`, `motion_heatmap`,
+`nvr_latency`, `presence_info`, `rtsp_server_info`, `sd_card_info`, `showlog`, `wifi_country_info`, `wifi_get_ssid`,
+`wifi_rescue_info` and `wifi_scan`; any other command by GET gets `405 Method Not Allowed` (use POST with the token).
 
 **Rate limits:**
 - `reboot`, `shutdown`: 3 calls per 300 seconds
@@ -1773,8 +1777,8 @@ within ~2 s without restarting the stream (`POWER_HZ` and the privacy masks appl
 
 ```json
 {"enabled":1,
- "conf":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"HUE":0,"POWER_HZ":null,"EXPOSURE_MAX_PCT":null},
- "applied":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"HUE":0,"POWER_HZ":50,"EXPOSURE_MAX_PCT":0,"EXPOSURE_NOW":1125}}
+ "conf":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"DENOISE":0,"HUE":0,"POWER_HZ":null,"EXPOSURE_MAX_PCT":null},
+ "applied":{"BRIGHTNESS":30,"CONTRAST":0,"SATURATION":0,"SHARPNESS":0,"DENOISE":0,"HUE":0,"POWER_HZ":50,"EXPOSURE_MAX_PCT":0,"EXPOSURE_NOW":1125}}
 ```
 
 `conf` is `/mnt/config/isp_tune.conf`; `applied` is what the camera reports
@@ -1783,7 +1787,7 @@ within ~2 s without restarting the stream (`POWER_HZ` and the privacy masks appl
 ### POST /cgi-bin/action.cgi?cmd=isp_tune
 
 CSRF required. Fields: `isp_enable` (switching it restarts RTSP once),
-`isp_brightness`, `isp_contrast`, `isp_saturation`, `isp_sharpness`, `isp_hue`
+`isp_brightness`, `isp_contrast`, `isp_saturation`, `isp_sharpness`, `isp_denoise`, `isp_hue`
 (−50..50, 0 = sensor ISP value), `isp_power_hz` (empty, 50, 60),
 `isp_exposure_max_pct` (0 = no cap, else 10..100). Any invalid field rejects the
 whole request (`{"ok":false,"code":"INVALID_VALUE"}`).
@@ -1797,9 +1801,9 @@ masks apply whether or not `ISP_TUNE` is on.
 
 Retained state on `<root>/isp/state` (same JSON as above). Commands on the
 command topic: `{"cmd":"isp_brightness","value":"20"}` (also `isp_contrast`,
-`isp_saturation`, `isp_sharpness`, `isp_hue`, `isp_exposure_max_pct`,
+`isp_saturation`, `isp_sharpness`, `isp_denoise`, `isp_hue`, `isp_exposure_max_pct`,
 `isp_power_hz` with `unchanged|50|60`) and `{"cmd":"isp_tune","value":"on|off"}`.
-Home Assistant discovery creates six `number` sliders and an `Image Tuning` switch
+Home Assistant discovery creates seven `number` sliders and an `Image Tuning` switch
 (entity category: config). The `Anti-flicker` select of 2.x is not announced on 3.0 (anti-flicker is applied
 again from 3.0.1-rc9 on, test queue R9-03; the entity comes back once that passes); `isp_power_hz` works.
 

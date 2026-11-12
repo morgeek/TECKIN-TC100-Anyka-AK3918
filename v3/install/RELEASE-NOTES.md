@@ -2,6 +2,46 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc39 (test build, branch main)
+Everything in 3.0.1-rc38 below (DEV is now merged: from here on the work goes on `main`), plus the reviews of
+2026-11-12:
+- **Install from the card:** the per-partition backup is skipped only on a first install (a reinstall over 3.0 on
+  the flash kept no copy of its 3.0 partitions).
+- **First-install hook:** the identity file of the stock firmware is required, the card copy of the flash is read back
+  before use, the exact envtool error is shown.
+- **Web update:** no upload, discard or install while an install runs or after a failed one; a stricter package
+  check; true failure messages.
+- **Web login (httpfront):** failed logins counted from the headers only, in any case; a new password forgets the
+  remembered login at once.
+- **ONVIF:** wrong logins counted per address (one LAN host can no longer lock the NVR out), full answers on slow
+  links, connection and discovery limits.
+- **WebRTC (WHEP):** its UDP port follows the LAN-only rule; consent only from authenticated STUN checks.
+- **Video:** with the sender thread on, a frame lost for lack of memory is applied in order (no corrupt picture until
+  the next keyframe); white balance statistics source switchable at run time (`awb_live`).
+
+## What is new in 3.0.1-rc38 (test build, branch DEV)
+Everything in 3.0.1-rc37 below, plus:
+- **IR-cut filter:** the default pulses are now day = GPIO 592, night = GPIO 593. With the old default the filter could
+  stay in front of the sensor at night (a dark, grainy picture under IR). A camera wired the other way keeps working
+  with `IRCUT_DAY_GPIO=593` and `IRCUT_NIGHT_GPIO=592` in `boot.conf`, which still win.
+- **Background load:** the once-a-minute Wi-Fi quality and roaming jobs start about 13 fewer processes a minute
+  (same output).
+
+## What is new in 3.0.1-rc37 (test build, branch DEV)
+- **Day / night:** every copy of the day / night settings checked against one catalog; a save of the Day / night page
+  no longer drops the stock method's white balance counts, its lock and the IR LED rest; those keys and
+  `MIN_SWITCH` are exported and checked on import. Default source unchanged (`luma`).
+- **Image:** new **Noise reduction** slider (Image page, MQTT / Home Assistant `isp_denoise`, -50..50, 0 = the sensor
+  tuning). Brightness, contrast, saturation and hue are bounded to -50..50 even in a hand-edited file. The start-up log
+  shows the noise reduction of each gain level.
+- **Security:** a GET on `action.cgi` is answered only for read commands (any other gets `405`; a link or image on
+  another site could reboot the camera); form values are never expanded as file names nor executed; an empty CSRF
+  token is refused; the configuration import can no longer write shell code into `notify.conf`.
+- **Two-way audio:** a stopping server waits for its player (the speaker was found busy after a restart), a busy
+  speaker no longer costs 2 s of sound, the first talker keeps the speaker, a stop signal never plays without the lock.
+- **Defaults when a line is missing:** no `mdenabled` line = motion detection off (as the web page shows);
+  no `REC_KEEP_EVENTS` line = recordings with an event are kept (as the default file).
+
 ## What is new in 3.0.0 (Final Release)
 - **100% free hardware video encoder & userspace**:
   - Direct hardware encoding (`freeenc.h`) for H.265 and H.264 up to 1080p and 720p, zero proprietary vendor `.so` libraries loaded, linked, or flashed.

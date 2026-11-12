@@ -6,7 +6,8 @@
  * does: volume from /mnt/config/pttvolume.conf, the amplifier GPIO when the device tree leaves it free, and the lock
  * /tmp/speaker-play.lock (mkdir): while a push-to-talk clip plays the player exits at once (exit 3) and the packets are
  * dropped for 2 s, while a client talks the web push-to-talk is refused (upload_audio.cgi looks at the lock).
- * One talker at a time: the first client keeps the speaker until it has been silent for 3 s.
+ * One talker at a time: the first client keeps the speaker until it has been silent for 2 s (the player is closed then;
+ * TALK_TAKE_US only matters while a player still runs).
  * The packets go into a non-blocking pipe from the main loop: nothing here ever waits (a full pipe, more than 0.75 s of sound
  * not yet played, drops packets). Environment (tests): TC100_SPEAKER_SCRIPT.
  *
@@ -47,6 +48,7 @@
 static pid_t pid = -1;			/* the player (a process group of its own) */
 static int wfd = -1;			/* its standard input */
 static int owner = -1;
+static int killed;			/* the player got SIGKILL: its trap did not remove the lock */
 static uint64_t last_us, start_us, close_us, blocked_until;
 static unsigned long pkts, dropped, sessions;
 static struct aec *aec_p;		/* the echo canceller (talk_set_aec), NULL: aplay and the microphone duck */
@@ -224,6 +226,10 @@ void talk_rtp(int who, const unsigned char *p, int n, uint64_t now)
 		const char *pd = getenv("TC100_PLAY_DEV");
 
 		if (pid > 0 || now < blocked_until) { dropped++; return; }	/* the last player is still finishing / was refused */
+		/* busy (a push-to-talk clip, or the player of a server that just stopped): no player that would exit 3 and
+		 * block the speaker for 2 s while the lock is gone a moment later (review 2026-11-11, C2); the same for the
+		 * hold script of the echo canceller path, which takes the same lock */
+		if (!access(TALK_LOCK, F_OK)) { dropped++; return; }
 		if (aec_p) {		/* the device is ours: opened before the script, which refuses when a clip plays */
 			bfd = apb_open(pd && *pd ? pd : TALK_PLAYDEV, 8000);
 			if (bfd >= 0) hold = 1;
@@ -272,16 +278,18 @@ void talk_tick(uint64_t now)
 				blocked_until = now + 2000000ULL;	/* busy (push-to-talk) or no aplay: try again later */
 				LOGT("the speaker is not available (exit %d)\n", WEXITSTATUS(st));
 				if (wfd >= 0) { close(wfd); wfd = -1; }
-				owner = -1;
+				/* the talker keeps the speaker: the others still wait for its silence (review C1) */
 			}
+			if (killed) { rmdir(TALK_LOCK); killed = 0; }	/* our player held it and could not remove it (review C4) */
 			pid = -1;
 			if (bfd >= 0) {		/* the script that held the speaker is gone: lock and amplifier are not ours any more */
 				hold_end();
 				if (wfd >= 0) { close(wfd); wfd = -1; close_us = now; }
-				owner = -1;
+				if (now - start_us >= 1500000ULL) owner = -1;	/* refused at start: the talker keeps the speaker (review C1) */
 			}
 		} else if (wfd < 0 && now - close_us > 10000000ULL) {	/* does not finish: stop the group */
-			kill(-pid, close_us && now - close_us > 13000000ULL ? SIGKILL : SIGTERM);
+			if (close_us && now - close_us > 13000000ULL) { killed = 1; kill(-pid, SIGKILL); }
+			else kill(-pid, SIGTERM);
 		}
 	}
 }
@@ -297,5 +305,10 @@ void talk_shutdown(void)
 {
 	if (bfd >= 0) { apb_close(bfd); bfd = -1; }
 	if (wfd >= 0) { close(wfd); wfd = -1; }
-	if (pid > 0) kill(-pid, SIGTERM);
+	if (pid > 0) {	/* wait (0.5 s at most) for its trap to remove the lock: the next server finds the speaker free (C3) */
+		int i;
+
+		kill(-pid, SIGTERM);
+		for (i = 0; i < 50 && waitpid(pid, NULL, WNOHANG) == 0; i++) usleep(10000);
+	}
 }

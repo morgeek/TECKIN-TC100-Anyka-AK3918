@@ -433,7 +433,7 @@ static int mains_hz(const char *cc)
 	return 50;
 }
 
-static int p_sharp, p_expct, p_hz;	/* isp_tune.conf SHARPNESS (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap), POWER_HZ (50, 60, 0 = off): done by the ISP */
+static int p_sharp, p_dnr, p_expct, p_hz;	/* isp_tune.conf SHARPNESS (-50..50), DENOISE (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap), POWER_HZ (50, 60, 0 = off): done by the ISP */
 static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
 
 static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
@@ -463,7 +463,7 @@ static void post_apply(void)
 	char v[80];
 
 	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && truthy(v);
-	p_bri = p_con = p_sat = p_hue = p_sharp = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
+	p_bri = p_con = p_sat = p_hue = p_sharp = p_dnr = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
 	/* anti-flicker applies whatever ISP_TUNE is, like the masks: it is about the lamps, not a matter of taste.
 	 * POWER_HZ=auto (item 16): the mains frequency of the Wi-Fi country (boot.conf WIFI_COUNTRY) */
 	p_hz = 0;
@@ -478,6 +478,7 @@ static void post_apply(void)
 	if (p_tune) {
 		if (cfg_get(fn[1], "", "BRIGHTNESS", v, sizeof v)) p_bri = atoi_(v);
 		if (cfg_get(fn[1], "", "SHARPNESS", v, sizeof v)) p_sharp = atoi_(v);
+		if (cfg_get(fn[1], "", "DENOISE", v, sizeof v)) p_dnr = atoi_(v);
 		if (cfg_get(fn[1], "", "EXPOSURE_MAX_PCT", v, sizeof v)) p_expct = atoi_(v);
 		if (cfg_get(fn[1], "", "CONTRAST", v, sizeof v)) p_con = atoi_(v);
 		if (cfg_get(fn[1], "", "SATURATION", v, sizeof v)) p_sat = atoi_(v);
@@ -500,8 +501,14 @@ static void post_apply(void)
 	if (p_osdsz > 128) p_osdsz = 128;	/* values from the file are bounded: drawn before the picture otherwise (R3) */
 	p_osdx = p_osdx < 0 ? 0 : p_osdx > 4096 ? 4096 : p_osdx;
 	p_osdy = p_osdy < 0 ? 0 : p_osdy > 4096 ? 4096 : p_osdy;
+	/* the six effects: -50..50 as every writer (config/parameter-catalog.json, family image); a hand-edited file too */
+	p_bri = p_bri < -50 ? -50 : p_bri > 50 ? 50 : p_bri;
+	p_con = p_con < -50 ? -50 : p_con > 50 ? 50 : p_con;
+	p_sat = p_sat < -50 ? -50 : p_sat > 50 ? 50 : p_sat;
+	p_hue = p_hue < -50 ? -50 : p_hue > 50 ? 50 : p_hue;
 	p_hue = p_tune ? p_hue : 0;
 	p_sharp = p_sharp < -50 ? -50 : p_sharp > 50 ? 50 : p_sharp;
+	p_dnr = p_dnr < -50 ? -50 : p_dnr > 50 ? 50 : p_dnr;
 	p_expct = p_expct < 10 || p_expct >= 100 ? 0 : p_expct;
 	tune_dirty = 1;
 	post_luts();
@@ -717,6 +724,9 @@ static void tune_hw_apply(void)
  *   alpha 0); the CPU then paints nothing. Any refusal: painted by the CPU as before.
  * - sharpness (SHARPNESS): AK_ISP_SET_SHARP, the tuning file's medium and high frequency gains of the manual set and
  *   of the 9 gain-linked sets, 2 % per step (-50 = off, +50 = double).
+ * - noise reduction (DENOISE, item 37): AK_ISP_SET_NR1 / _NR2, the weight curves of the manual set and of the 9
+ *   gain-linked sets stretched along the pixel difference, 2 % per step (-50 = almost none, +50 = twice as wide). The
+ *   driver keeps choosing the set of the gain level (mode 1); 0 leaves the tuning file's values.
  * - exposure cap (EXPOSURE_MAX_PCT): AK_ISP_SET_AE, exp_time_max at a percentage of the tuning file's value (less
  *   motion blur at night, darker picture), never below exp_time_min.
  * - anti-flicker (POWER_HZ 50 / 60, test queue R9-03): the same AK_ISP_SET_AE, exp_step = the sensor lines of one lamp
@@ -742,6 +752,17 @@ struct isp_sharp1 { unsigned short mf_k, mf_shift, hf_k, hf_shift, method, skin_
 struct isp_sharp { unsigned short mode; struct isp_sharp1 s[10]; };	/* manual + 9 gain-linked sets */
 #define ISP_SET_SHARP _IOW('I', 37, int)
 #define ISP_GET_SHARP _IOR('I', 38, int)
+/* Noise reduction (item 37): AK_ISP_NR1_ATTR / AK_ISP_NR2_ATTR, a mode (0 manual, 1 linked to the gain), the manual set
+ * and 9 gain-linked sets (outdoor, indoor, iso2 ... iso128: the driver's _get_iso() picks one from the total gain and
+ * the AE envi_gain_range, then applies it). Read only, logged at each video start. */
+struct isp_nr1_1 { unsigned short en, w_r[17], w_g[17], w_b[17], k, lc_lut[17], lc_key[16], calc_g_k, calc_r_k, calc_b_k; };
+struct isp_nr1 { unsigned short mode; struct isp_nr1_1 s[10]; };
+struct isp_nr2_1 { unsigned short en, w[17], k, calc_y_k, ydpc_en, ydpc_th, ydpc_black, ydpc_white; };
+struct isp_nr2 { unsigned short mode; struct isp_nr2_1 s[10]; };
+#define ISP_GET_NR1 _IOR('I', 11, int)
+#define ISP_GET_NR2 _IOR('I', 44, int)
+#define ISP_SET_NR1 _IOW('I', 12, int)
+#define ISP_SET_NR2 _IOW('I', 43, int)
 #define AE_WORDS 51	/* AK_ISP_AE_ATTR: exp_time_max, exp_time_min, ... */
 #define ISP_SET_AE _IOW('I', 80, int)
 #define ISP_GET_AE _IOR('I', 81, int)
@@ -754,7 +775,7 @@ struct isp_osd { unsigned int channel, width, height; unsigned short x, y, alpha
 #define ISP_SET_OSD_COLORS _IOW('I', 131, int)
 #define ISP_SET_OSD _IOW('I', 132, int)
 typedef char isp_layout_check[(sizeof(struct isp_masks) == 40 && sizeof(struct isp_mask_color) == 5 &&
-	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_ae_run) == 36 && sizeof(struct isp_awb_stat) == 196) ? 1 : -1];
+	sizeof(struct isp_sharp) == 11062 && sizeof(struct isp_nr1) == 1782 && sizeof(struct isp_nr2) == 482 && sizeof(struct isp_ae_run) == 36 && sizeof(struct isp_awb_stat) == 196) ? 1 : -1];
 
 static int ispx_fd = -1, mask_hw = -1, mask_n, mask_rc, sharp_base = -1, sharp_now, ae_base = -1, exp_now_pct, hz_now;
 static int osd_hw = -1;
@@ -764,6 +785,9 @@ static int lowlight_on;	/* R12-02: sensor at the low-light rate (10 fps by defau
 static int lowlight_fps = 10;	/* RTSP_LOWLIGHT_FPS_VALUE: 10, 15 or 20 (read by lowlight_check) */
 static unsigned int lowlight_exp = LOWLIGHT_EXP;	/* exposure limit at that rate: 2812 lines at 10 fps, scaled with 1 / rate */
 static struct isp_sharp sharp0, sharp1;
+static int nr_base = -1, nr_now, nr_asked;	/* DENOISE: applied, last tried */
+static struct isp_nr1 nr1_0, nr1_1;
+static struct isp_nr2 nr2_0, nr2_1;
 
 static int line_rate(void)	/* sensor lines a second (anti-flicker): JX-F23 on MIPI, RTSP_LINE_RATE for another sensor */
 {
@@ -797,15 +821,76 @@ static void mask_px(struct isp_mask1 *a, const int *pc, int w, int h)
 static void ispx_status(void)	/* /var/run/isp_tune.status: what the web page shows as applied */
 {
 	char b[400];
-	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nHUE=%d\nPOWER_HZ=%.0d\n"
+	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nDENOISE=%d\nHUE=%d\nPOWER_HZ=%.0d\n"
 			 "EXPOSURE_MAX_PCT=%d\nMASKS=%d\nMASK_RC=%d\nMASK_HW=%d\nOSD_HW=%d\n",
-			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, p_tune ? hue_want : 0, hz_now,
+			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, nr_now, p_tune ? hue_want : 0, hz_now,
 			 exp_now_pct, mask_n, mask_rc, mask_hw == 1, osd_hw == 1);
 
 	if (ae_base == 1 && n > 0 && n < (int)sizeof b)
 		n += snprintf(b + n, sizeof b - n, "EXPOSURE_NOW=%u\nEXPOSURE_ORIG=%u\nPOWER_HZ_BASE=%d\n", exp_now ? exp_now : ae0[0],
 			      ae0[0], step_hz(ae0[8]));
 	if (n > 0 && n < (int)sizeof b) wfile("/var/run/isp_tune.status", b, (size_t)n);
+}
+
+/* DENOISE: w'(i) = w(i * 100 / f), linear between the 17 points; f = 100 + 2 * step (0 at -50: only w[0] stays) */
+static void nr_stretch(unsigned short *d, const unsigned short *w, int f)
+{
+	int i;
+
+	for (i = 0; i < 17; i++) {
+		int x100 = f > 0 ? i * 10000 / f : (i ? 1700 : 0), j = x100 / 100, r = x100 % 100;
+
+		d[i] = j >= 16 ? w[16] : (unsigned short)((w[j] * (100 - r) + w[j + 1] * r) / 100);
+	}
+	d[16] = w[16];	/* the tail stays the tuning file's: wider curves do not smooth across strong edges (review 2026-11-11) */
+}
+
+static void nr_apply(int fd)
+{
+	int i, f = 100 + 2 * p_dnr;
+
+	if (nr_base < 0) nr_base = ioctl(fd, ISP_GET_NR1, &nr1_0) == 0 && ioctl(fd, ISP_GET_NR2, &nr2_0) == 0;
+	nr_asked = p_dnr;
+	if (nr_base != 1) { if (p_dnr) LOG("noise reduction: no ISP noise reduction control\n"); return; }
+	nr1_1 = nr1_0; nr2_1 = nr2_0;
+	for (i = 0; i < 10; i++) {
+		nr_stretch(nr1_1.s[i].w_r, nr1_0.s[i].w_r, f);
+		nr_stretch(nr1_1.s[i].w_g, nr1_0.s[i].w_g, f);
+		nr_stretch(nr1_1.s[i].w_b, nr1_0.s[i].w_b, f);
+		nr_stretch(nr2_1.s[i].w, nr2_0.s[i].w, f);
+	}
+	if (ioctl(fd, ISP_SET_NR1, &nr1_1) == 0 && ioctl(fd, ISP_SET_NR2, &nr2_1) == 0) {
+		LOG("noise reduction: %d in the ISP (iso16 NR2 w[4] %u -> %u)\n", p_dnr, nr2_0.s[6].w[4], nr2_1.s[6].w[4]);
+		nr_now = p_dnr;
+	} else {
+		LOG("noise reduction: the ISP refused it (%s)\n", strerror(errno));
+		ioctl(fd, ISP_SET_NR1, &nr1_0);	/* NR2 refused after NR1: back to the tuning file's NR1 */
+		nr_base = 0; nr_now = 0;
+	}
+}
+
+static void nr_log(int fd)	/* item 37: what the driver does with noise reduction, per gain level (read only) */
+{
+	static struct isp_nr1 n1;
+	static struct isp_nr2 n2;
+	char b[240];
+	int i, o = 0;
+
+	for (i = 0; i < 10 && o < (int)sizeof b - 24; i++)	/* AE envi_gain_range[10][2], words 11..30 of AK_ISP_AE_ATTR */
+		o += snprintf(b + o, sizeof b - o, " %u-%u", ae0[11 + 2 * i], ae0[12 + 2 * i]);
+	LOG("noise reduction: gain levels%s\n", b);
+	if (ioctl(fd, ISP_GET_NR1, &n1) == 0) {
+		for (i = 1, o = 0; i < 10 && o < (int)sizeof b - 24; i++)
+			o += snprintf(b + o, sizeof b - o, " %u/%u/%u", n1.s[i].en, n1.s[i].k, n1.s[i].calc_g_k);
+		LOG("noise reduction: NR1 mode %s, manual %u/%u/%u, levels (en/k/calc)%s\n", n1.mode ? "linked" : "manual",
+		    n1.s[0].en, n1.s[0].k, n1.s[0].calc_g_k, b);
+	} else LOG("noise reduction: NR1 not readable (%s)\n", strerror(errno));
+	if (ioctl(fd, ISP_GET_NR2, &n2) == 0) {
+		for (i = 1, o = 0; i < 10 && o < (int)sizeof b - 24; i++)
+			o += snprintf(b + o, sizeof b - o, " %u/%u/%u", n2.s[i].en, n2.s[i].k, n2.s[i].calc_y_k);
+		LOG("noise reduction: NR2 mode %s, manual %u/%u/%u, levels (en/k/calc)%s\n", n2.mode ? "linked" : "manual",
+		    n2.s[0].en, n2.s[0].k, n2.s[0].calc_y_k, b);
+	} else LOG("noise reduction: NR2 not readable (%s)\n", strerror(errno));
 }
 
 static void ispx_apply(void)
@@ -859,8 +944,10 @@ static void ispx_apply(void)
 			int h = step_hz(ae0[8]);
 
 			LOG("anti-flicker: camera default %s (exposure step %u lines)\n", h == 50 ? "50 Hz" : h == 60 ? "60 Hz" : "none", ae0[8]);
+			nr_log(fd);	/* before DENOISE: the tuning file's values */
 		}
 	}
+	if (p_dnr != nr_asked) nr_apply(fd);
 	if (p_expct != exp_now_pct || p_hz != hz_now) {
 		if (ae_base == 1) {
 			unsigned int a[AE_WORDS];
@@ -925,7 +1012,7 @@ static void pool_guard_check(double tn)
 static int night_style = -1;	/* -1 not read, 0 off, 1 on */
 static void isp_bases_reset(void)
 {
-	tune_hw = -1; hue_hw = -1; sharp_base = -1; sharp_now = 0; ae_base = -1; exp_now_pct = 0; hz_now = 0;
+	tune_hw = -1; hue_hw = -1; sharp_base = -1; sharp_now = 0; nr_base = -1; nr_now = 0; nr_asked = 0; ae_base = -1; exp_now_pct = 0; hz_now = 0;
 	if (awb_fd >= 0) close(awb_fd);
 	awb_fd = -1; awb_hw = -1; tune_dirty = 1;
 }
@@ -2646,7 +2733,7 @@ static void cli_read(struct cli *c)
 
 /* ---- motion detection: luma grid, ignored zones, sensitivity ---------------------------------------------------
  * On while /tmp/tc100_md exists (setconf -k p 1: controlscripts/motion-detection, the web UI, MQTT) and
- * rtspserver.conf does not say mdenabled=0. 4 times a second the luma of a 64x36 grid is compared with the previous
+ * rtspserver.conf says mdenabled=1 (no line = off). 4 times a second the luma of a 64x36 grid is compared with the previous
  * sample, leaving out the cells whose centre lies in a zone of config/motion_zones.conf (as md.c did on 2.x).
  * Sensitivity 1-100: /tmp/tc100_md_sens (setconf -k m), else rtspserver.conf mdsens. /tmp/rec_control gets "1" on
  * motion and "0" 8 s after it stopped: the detection monitor (MQTT event, snapshot, LED) and the recorder read it.
@@ -2678,7 +2765,8 @@ static void md_reload(int conf_changed, int zones_changed)
 	FILE *f;
 
 	if (conf_changed) {
-		md_conf_on = !cfg_get(CONF "rtspserver.conf", "", "mdenabled", v, sizeof v) || v[0] != '0';
+		/* as the web page, service-switch.sh and the .dist file: no mdenabled line = off (catalog review 2026-11-11) */
+		md_conf_on = cfg_get(CONF "rtspserver.conf", "", "mdenabled", v, sizeof v) && v[0] && v[0] != '0';
 		md_conf_sens = cfg_get(CONF "rtspserver.conf", "", "mdsens", v, sizeof v) && v[0] >= '0' && v[0] <= '9' ? atoi_(v) : 60;
 	}
 	if (zones_changed) {
@@ -2823,7 +2911,7 @@ static void rec_reload(void)
 	rc.postroll_s = cfg_num(bc, "REC_POSTROLL_SEC", 30);
 	rc.ring_kb = cfg_num(bc, "REC_RING_KB", 1024);
 	rc.audio = cfg_num(bc, "REC_AUDIO", 1) != 0;
-	rc.keep_events = cfg_num(bc, "REC_KEEP_EVENTS", 0) != 0;
+	rc.keep_events = cfg_num(bc, "REC_KEEP_EVENTS", 1) != 0;	/* boot.conf.dist and migrate-rc28-defaults.sh: 1 */
 	{	/* rtsp.env: RTSP_REC_AAC=1 makes the recorded sound AAC-LC (browsers play it); RTSP_REC_AAC_KBPS its mean bit rate */
 		const char *ea = getenv("RTSP_REC_AAC"), *ek = getenv("RTSP_REC_AAC_KBPS");
 		int kb = ek && *ek ? num(ek) : 0;

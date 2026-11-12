@@ -52,7 +52,8 @@ class NotifyBurst(unittest.TestCase):
         self.assertIn('tc_check_flat "$_tc_file" NOTIFY_BURST u:0:5', t)
         self.assertIn('tc_check_flat "$_tc_file" NOTIFY_UPLOAD_URL url_optional', t)
         e = (ROOT / 'www/cgi-bin/config_exchange.cgi').read_text()
-        self.assertIn('"NOTIFY_UPLOAD_AUTH";"credential_optional";"credential"', e)
+        # ntfy_auth since 2026-11-11: notify.conf is sourced, the value between double quotes must not hold $ ` " \
+        self.assertIn('"NOTIFY_UPLOAD_AUTH";"ntfy_auth";"credential"', e)
 
 
 if __name__ == '__main__':

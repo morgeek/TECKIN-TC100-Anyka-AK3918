@@ -305,7 +305,7 @@ class Daemon(unittest.TestCase):
         self.assertIn(b'"sw":"9.9"', cpu[0][1])
         self.assertEqual(b.pub('ha/switch/n1/privacy_shield/config')[0][1:], (b'', True))   # removal of an old entity
         self.assertFalse(b.pub('ha/camera/n1/live/config') or b.pub('ha/number/n1/isp_hue/config'))
-        self.assertEqual(len([p for p in b.pubs if p[0].startswith('ha/')]), 43)
+        self.assertEqual(len([p for p in b.pubs if p[0].startswith('ha/')]), 44)
         self.assertEqual((self.d / 'startarg').read_text(), 'nodisc\n')            # the script skips its own discovery
         order = [p[0] for p in b.pubs]
         self.assertLess(order.index('ha/sensor/n1/cpu/config'), order.index('t/health'))
@@ -715,7 +715,7 @@ class DiscoveryParity(unittest.TestCase):
         self.assertEqual(gone, {'homeassistant/camera/Cam-One/live/config', 'homeassistant/select/Cam-One/isp_power_hz/config',
                                 'homeassistant/switch/Cam-One/isp_tune/config'} |
                          {'homeassistant/number/Cam-One/isp_%s/config' % k for k in
-                          ('brightness', 'contrast', 'saturation', 'sharpness', 'hue', 'exposure_max_pct')})
+                          ('brightness', 'contrast', 'saturation', 'sharpness', 'denoise', 'hue', 'exposure_max_pct')})
 
     def test_print_config_gives_the_discovery_values_only_for_the_c_implementation(self):
         self.configure({'MQTT_DISCOVERY_IMPL': 'sh'}, 'cam-host', '3.0.1-test', False)

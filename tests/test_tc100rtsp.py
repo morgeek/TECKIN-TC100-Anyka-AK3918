@@ -213,8 +213,6 @@ class AudioProcessing(unittest.TestCase):
         r = subprocess.run([str(SRC / 'test_aec')], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('all OK', r.stdout)
-        print('
-' + r.stdout)
 
     def test_aec_is_off_by_default_and_ordered_in_the_pump(self):
         src = (SRC / 'tc100_rtsp.c').read_text()
@@ -660,6 +658,20 @@ class RtspClient:
         self.s.close()
 
 
+
+def wait_speaker_free(timeout=10.0, remove=True):
+    """True when /tmp/speaker-play.lock is gone within timeout. remove: then take away what is left (a lock from
+    outside the tests, before a server starts). Since the review of 2026-11-11 a stopped server waits for its player,
+    whose trap removes the lock: tearDown checks that nothing is left instead of hiding it."""
+    end = time.time() + timeout
+    while os.path.isdir('/tmp/speaker-play.lock') and time.time() < end:
+        time.sleep(0.1)
+    free = not os.path.isdir('/tmp/speaker-play.lock')
+    if remove:
+        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+    return free
+
+
 class Server(unittest.TestCase):
     """tc100_rtsp built for the host (make test_rtsp: no camera, no encoder) with fake arecord / aplay: RTSP, the audio
     track, the ONVIF backchannel to the speaker, and the FIFO listeners of the web UI's Listen button"""
@@ -689,7 +701,7 @@ class Server(unittest.TestCase):
         self.pidf = t / 'arecord.pid'
         self.listen = t / 'listen'
         self.live = t / 'live'
-        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+        wait_speaker_free()
         env = dict(os.environ, PATH=str(t / 'bin') + os.pathsep + os.environ['PATH'], FAKE_APLAY_OUT=str(self.out),
                    FAKE_ARECORD_PID=str(self.pidf), TC100_LISTEN_DIR=str(self.listen), TC100_LIVE_DIR=str(self.live),
                    TC100_SPEAKER_SCRIPT=str(ROOT / 'scripts' / 'speaker-play.sh'), **self.env)
@@ -721,10 +733,11 @@ class Server(unittest.TestCase):
             self.proc.kill()
         log = Path(self.log.name).read_text()
         self.log.close()
-        subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+        free = wait_speaker_free(2.0)
         if os.environ.get('TC100_TEST_VERBOSE'):
             print('---- server log of %s ----\n%s' % (self.id(), log))
         self.tmp.cleanup()
+        self.assertTrue(free, 'the stopped server left /tmp/speaker-play.lock behind (talk_shutdown)')
 
     def client(self, auth=True):
         c = RtspClient(self.PORT, auth)
@@ -1005,6 +1018,30 @@ class Backchannel(Server):
             time.sleep(0.02)
         time.sleep(3.5)
         self.assertGreater(self.out.stat().st_size, 20 * 160 * 2, 'plays again once the speaker is free')
+
+    def test_the_first_talker_keeps_a_busy_speaker(self):
+        # review 2026-11-11, C1: while the speaker is busy the first client keeps it; the second waits for its silence
+        os.mkdir('/tmp/speaker-play.lock')
+        a, b = self.client(), self.client()
+        self.talk_session(a)
+        self.talk_session(b)
+        for i in range(25):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            time.sleep(0.02)
+        for i in range(25, 50):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            b.interleaved(4, rtp(i, tone_alaw(1000, i * 160, 160)))
+            time.sleep(0.02)
+        os.rmdir('/tmp/speaker-play.lock')
+        for i in range(50, 100):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            b.interleaved(4, rtp(i, tone_alaw(1000, i * 160, 160)))
+            time.sleep(0.02)
+        time.sleep(3.5)
+        pcm = self.out.read_bytes()
+        self.assertGreater(len(pcm), 30 * 160 * 2, 'plays as soon as the speaker is free, without the 2 s penalty')
+        self.assertAlmostEqual(freq(pcm), 400, delta=10)
+        self.assertEqual(Path(self.log.name).read_text().count('talks'), 1)
 
     def test_push_to_talk_is_refused_while_a_client_talks(self):
         c = self.client()

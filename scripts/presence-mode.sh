@@ -38,12 +38,33 @@ presence_profile_prefix()
   esac
 }
 
+# the keys of presence.conf, written out so each one is greppable: profile:field -> key
+presence_profile_key()
+{
+  case "$1:$2" in
+    present:configured) printf '%s' PRESENCE_PRESENT_CONFIGURED ;;
+    present:privacy) printf '%s' PRESENCE_PRESENT_PRIVACY ;;
+    present:motion) printf '%s' PRESENCE_PRESENT_MOTION ;;
+    present:recording) printf '%s' PRESENCE_PRESENT_RECORDING ;;
+    present:notifications) printf '%s' PRESENCE_PRESENT_NOTIFICATIONS ;;
+    away:configured) printf '%s' PRESENCE_AWAY_CONFIGURED ;;
+    away:privacy) printf '%s' PRESENCE_AWAY_PRIVACY ;;
+    away:motion) printf '%s' PRESENCE_AWAY_MOTION ;;
+    away:recording) printf '%s' PRESENCE_AWAY_RECORDING ;;
+    away:notifications) printf '%s' PRESENCE_AWAY_NOTIFICATIONS ;;
+    night:configured) printf '%s' PRESENCE_NIGHT_CONFIGURED ;;
+    night:privacy) printf '%s' PRESENCE_NIGHT_PRIVACY ;;
+    night:motion) printf '%s' PRESENCE_NIGHT_MOTION ;;
+    night:recording) printf '%s' PRESENCE_NIGHT_RECORDING ;;
+    night:notifications) printf '%s' PRESENCE_NIGHT_NOTIFICATIONS ;;
+    *) return 1 ;;
+  esac
+}
+
 presence_profile_value()
 {
-  _pr_prefix="$(presence_profile_prefix "$1")" || return 1
-  _pr_suffix="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
-  case "$_pr_suffix" in CONFIGURED|PRIVACY|MOTION|RECORDING|NOTIFICATIONS) ;; *) return 1 ;; esac
-  presence_read "PRESENCE_${_pr_prefix}_${_pr_suffix}" 0
+  _pr_key="$(presence_profile_key "$1" "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')")" || return 1
+  presence_read "$_pr_key" 0
 }
 
 presence_valid_mode()

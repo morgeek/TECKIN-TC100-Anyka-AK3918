@@ -399,7 +399,7 @@ cat << 'HTMLEOF'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TC100 — Initial setup</title>
-<script src="/scripts/i18n.js?v=06fa81a8"></script>
+<script src="/scripts/i18n.js?v=4971dbfd"></script>
 <script src="/scripts/tzlist.js?v=dd72b6b1"></script>
 <style>
 /* no Bulma here (item 54): the wizard uses only its own wz-* classes; this is the part of Bulma's reset it relied on */

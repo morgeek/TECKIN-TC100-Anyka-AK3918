@@ -54,9 +54,10 @@ if [ "${REQUEST_METHOD}" = "POST" ] && [ -z "${FUNC_CGI_SKIP_BODY:-}" ]
 then
   # Validate CONTENT_LENGTH before reading; cap at 64 KB to prevent RAM exhaustion.
   _cl="${CONTENT_LENGTH:-0}"
-  case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
+  case "$_cl" in ''|*[!0-9]*) _cl=0 ;; ??????*) _cl=65536 ;; esac	# 6 digits or more: no numeric test (out of range)
   [ "$_cl" -gt 65536 ] && _cl=65536
-  POST_QUERY_STRING="$(head -c "$_cl" 2>/dev/null)"
+  # a client that announces more than it sends must not hold this shell forever (review 2026-11-11, C5)
+  POST_QUERY_STRING="$(timeout 10 head -c "$_cl" 2>/dev/null)"
   if [ "${QUERY_STRING}" != "" ]
   then
       QUERY_STRING=${POST_QUERY_STRING}"&"${QUERY_STRING}
@@ -135,7 +136,8 @@ read_conf_value() {
   printf '%s\n' "$_rcv_val"
 }
 
-_IFS=${IFS}; IFS='&'
+# set -f: the words are split on & only, never expanded as file names (?/proc/*/*/* walked /proc, review C1)
+_IFS=${IFS}; IFS='&'; set -f
 for _VAR in ${QUERY_STRING}
 do
   [ -z "${_VAR}" ] && continue
@@ -167,16 +169,12 @@ do
   # password like "MyP@ss(2026)" was stored as "MyP@ss\(2026\)", locking the
   # user out of FTP/Telnet/RTSP and corrupting OSD text, hostnames and MQTT
   # credentials. Removed.
-  esc_value="${value//\\/\\\\}"
-  esc_value="${esc_value//\"/\\\"}"
-  esc_value="${esc_value//\`/\\\`}"
-  esc_value="${esc_value//\$/\\\$}"
-
+  # The value is never part of the eval string: the shell assigns it as it is (no escaping to get right).
   # assign to F_<name> variable (name already validated)
-  eval "F_${name}=\"${esc_value}\""
+  eval "F_${name}=\$value"
 done
-IFS=${_IFS}
-unset _IFS _VAR name raw_value value esc_value
+set +f; IFS=${_IFS}
+unset _IFS _VAR name raw_value value
 
 # JSON API Response Helpers
 # Unified JSON response envelope for CGI endpoints
@@ -385,9 +383,12 @@ csrf_guard() {
     # We use a mix of random data if available, or just a timestamp hash.
     if [ -r /dev/urandom ]; then
       _cg_stored="$(head -c 16 /dev/urandom | hexdump -e '16/1 "%02x"')"
-    else
-      _cg_stored="$(date +%s%N | md5sum | cut -c1-32)"
     fi
+    # no hexdump applet (or no urandom): the kernel's random UUID, 32 hex digits, without a fork (review C2)
+    if [ -z "$_cg_stored" ] && read -r _cg_stored < /proc/sys/kernel/random/uuid 2>/dev/null; then
+      _cg_stored="${_cg_stored//-/}"
+    fi
+    [ -n "$_cg_stored" ] || _cg_stored="$(date +%s%N | md5sum | cut -c1-32)"
     printf '%s' "$_cg_stored" > /tmp/csrf_token 2>/dev/null || true
     logger -t cgi-hardened "CSRF token auto-initialized for session"
   fi
@@ -398,7 +399,8 @@ csrf_guard() {
   fi
 
   _cg_header="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | tr -cd '0-9a-fA-F')"
-  if [ "$_cg_header" != "$_cg_stored" ]; then
+  # a token that could not be made (empty) must not match an empty header (review 2026-11-11, C2)
+  if [ -z "$_cg_stored" ] || [ "$_cg_header" != "$_cg_stored" ]; then
     echo "Status: 403 Forbidden"
     echo "Content-Type: application/json"
     echo "Cache-Control: no-store, no-cache"
