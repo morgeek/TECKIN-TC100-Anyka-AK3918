@@ -48,8 +48,8 @@
         "rtsp.vbr": 1
       },
       "mode_constraints": {
-        "1": "Requires an encoder pool with at least 12 MiB available for the tested configuration.",
-        "2": "Requires RTSP_SMART_FORCE=1 and is unsafe on this camera; do not enable for normal use."
+        "1": "Free encoder: long GOP and a raised lowest QP while the scene is still (needs motion detection on).",
+        "2": "No free equivalent of the vendor's variable GOP: treated as 1."
       },
       "substream_override": {
         "path": "/mnt/config/rtsp.env",
@@ -793,7 +793,7 @@
   },
   "environment_policy": {
     "global_modes_in_rtsp_env_are_ignored": ["RTSP_VBR", "RTSP_SMART"],
-    "smart_call_tuning_in_rtsp_env": ["RTSP_SMART_GOP", "RTSP_SMART_Q", "RTSP_SMART_V"]
+    "smart_tuning_in_rtsp_env": ["RTSP_FE_SMART_GOP", "RTSP_FE_SMART_QP", "RTSP_FE_SMART_MAXS"]
   },
   "families": {
     "rtsp-encoder-modes": "rtsp.vbr, rtsp.smart",

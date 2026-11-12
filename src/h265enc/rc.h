@@ -10,6 +10,14 @@
  * goes into the buffer and is paid back by the P pictures after it; the QP is moved by P pictures only.
  * No floating point library: log2 by a table of 1/16 steps.
  *
+ * VBR (rc_set_vbr, 2026-11-12, quality first): the same controller runs on, but its QP is only the one that just keeps
+ * the bit rate at the configured kbit/s, a ceiling; the picture is coded at max(that QP, a quality QP = qmin +
+ * RC_VBR_QOFF). A still scene then settles at the quality QP and costs less than the ceiling (CBR would sink to qmin
+ * and fill the budget with detail nobody sees), a busy one rises to the ceiling's QP. The credit the buffer gathers
+ * below the budget is limited to RC_VBR_CREDIT pictures, so that a long calm period does not allow a long burst: the
+ * mean stays under the ceiling. rc_set_floor raises the lowest QP (smart mode: still scene, qmin + 4) and releases it
+ * (floor 0) at once. CBR (vbr 0, no floor) is unchanged, bit for bit.
+ *
  * License: GPL-2.0-or-later
  */
 #ifndef RC_H
@@ -22,9 +30,13 @@
 #define RC_STEP		3	/* at most +-3 QP from one P picture to the next */
 #define RC_IDR_SHARE	4	/* an IDR is about 4 P pictures at the same QP (start only) */
 #define RC_IDR_OFFSET	2
+#define RC_VBR_QOFF	2	/* VBR: the quality QP is qmin + 2 */
+#define RC_VBR_CREDIT	25	/* VBR: at most 25 pictures of budget saved up (the next second may use 2x the budget) */
 
 struct rc {
-	int qmin, qmax, qp;		/* qp: the next P picture's */
+	int qmin, qmax, qp;		/* qp: the next P picture's (VBR: the ceiling's QP, see rc_base) */
+	int qlo;			/* lowest QP now: qmin, or the smart mode's floor */
+	int vbr;
 	int64_t budget;			/* bytes per picture */
 	int64_t buffer;			/* bytes sent over the budget so far (can be negative) */
 	int idr_qp;
@@ -33,7 +45,7 @@ struct rc {
 
 static inline void rc_init(struct rc *r, int kbps, int fps, int qmin, int qmax, int qp0)
 {
-	r->qmin = qmin; r->qmax = qmax;
+	r->qmin = qmin; r->qmax = qmax; r->qlo = qmin; r->vbr = 0;
 	r->budget = (int64_t)kbps * 1000 / 8 / (fps > 0 ? fps : 25);
 	r->buffer = 0;
 	r->qp = qp0 < qmin ? qmin : qp0 > qmax ? qmax : qp0;
@@ -56,17 +68,34 @@ static inline int rc_log2x16(int64_t a, int64_t b)
 
 static inline int rc_clamp(const struct rc *r, int q)
 {
-	return q < r->qmin ? r->qmin : q > r->qmax ? r->qmax : q;
+	return q < r->qlo ? r->qlo : q > r->qmax ? r->qmax : q;
+}
+
+static inline void rc_set_vbr(struct rc *r, int on) { r->vbr = on != 0; }
+
+/* lowest QP from now on: floor (clamped to [qmin, qmax]) or 0 for qmin; takes effect on the next picture */
+static inline void rc_set_floor(struct rc *r, int floor)
+{
+	r->qlo = floor < r->qmin ? r->qmin : floor > r->qmax ? r->qmax : floor;
+}
+
+/* the QP the next P picture is coded at before the clamp: VBR never goes below the quality QP */
+static inline int rc_base(const struct rc *r)
+{
+	int q = r->qmin + RC_VBR_QOFF;
+
+	if (q > r->qmax) q = r->qmax;
+	return r->vbr && r->qp < q ? q : r->qp;
 }
 
 /* the QP of the next picture */
 static inline int rc_qp(struct rc *r, int idr)
 {
 	if (idr) {
-		r->idr_qp = rc_clamp(r, r->qp - RC_IDR_OFFSET);
+		r->idr_qp = rc_clamp(r, rc_base(r) - RC_IDR_OFFSET);
 		return r->idr_qp;
 	}
-	return r->qp;
+	return rc_clamp(r, rc_base(r));
 }
 
 /* a picture of `bytes` was coded at `qp` */
@@ -87,6 +116,7 @@ static inline void rc_done(struct rc *r, int idr, int qp, int64_t bytes)
 		}
 	}
 	r->buffer += bytes - r->budget;		/* an IDR's excess is paid back by the next pictures */
+	if (r->vbr && r->buffer < -r->budget * RC_VBR_CREDIT) r->buffer = -r->budget * RC_VBR_CREDIT;
 	if (idr) return;
 	aim = r->budget - r->buffer / RC_SPREAD;
 	if (aim < r->budget / 4) aim = r->budget / 4;

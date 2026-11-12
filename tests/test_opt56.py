@@ -182,8 +182,8 @@ class SmartMode(unittest.TestCase):
         launch = text('v3/linux66-sd/rtsp-launch.sh')
         self.assertIn('RTSP_SMART_CONFIG=$2', launch)
         src = text('src/tc100rtsp/tc100_rtsp.c')
-        self.assertIn('ak_venc_set_smart_config', src)
-        self.assertIn('SMART_LTR_NEED', src)
+        self.assertIn('smart_setup(', src)
+        self.assertNotIn('SMART_LTR_NEED', src)
 
 
 if __name__ == '__main__':
