@@ -1985,6 +1985,13 @@ static int udp_err_ok(struct cli *c)
 	return 1;
 }
 
+static inline void pace_udp(void)
+{
+	if (pacing_us <= 0) return;
+	struct timespec ts = { 0, (long)pacing_us * 1000L };
+	nanosleep(&ts, NULL);
+}
+
 static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned char *pl, int n)
 {
 	unsigned char pk[16 + RTP_PAYLOAD + 64];
@@ -1997,7 +2004,7 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 	}
 	if (c->wait_idr) return 0;
 	int rc = sendto(udpfd, pk + 4, 12 + n, MSG_DONTWAIT | MSG_NOSIGNAL, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? (udp_err_ok(c) ? 0 : -1) : 0;
-	if (!rc && pacing_us > 0) usleep((useconds_t)pacing_us);
+	if (!rc && !c->wait_idr) pace_udp();
 	return rc;
 }
 
@@ -2300,7 +2307,7 @@ static int sg_flush(void)
 
 			if (r > 0) {
 				i += (int)r;
-				if (pacing_us > 0) usleep((useconds_t)pacing_us);
+				pace_udp();
 				continue;
 			}
 			if (r < 0 && errno == ENOSYS) { sg_mmsg_on = 0; continue; }
@@ -2314,7 +2321,7 @@ static int sg_flush(void)
 			if (!udp_err_ok(sg.c)) rc = -1;
 			break;
 		}
-		if (pacing_us > 0) usleep((useconds_t)pacing_us);
+		pace_udp();
 		i++;
 	}
 	sg.n = 0; sg.c = NULL;

@@ -19,7 +19,7 @@ run_tests() {
 	echo "== tests (python + node, busybox ash)"
 	docker run --rm -v "$SRC:/src:ro" node:22-bookworm sh -c '
 		apt-get update -qq >/dev/null && apt-get install -y -qq busybox-static python3 gawk mawk original-awk ffmpeg >/dev/null 2>&1
-		cp -r /src /w && cd /w && git config --global --add safe.directory /w
+		cp -r /src /w && cd /w && rm -rf /w/.claude && git config --global --add safe.directory /w
 		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
 		# make would run them instead of building the current code
 		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/tc100rtsp/test_aec src/tc100rtsp/test_aacenc src/tc100rtsp/test_sndq src/mqttd/tc100-mqttd-host src/rwconf/rwconf-host src/supervisord/tc100-supervisord-host
@@ -41,7 +41,7 @@ run_cross() {
 	echo "== ARM cross build (arm-linux-gnueabi, as CI)"
 	docker run --rm -v "$SRC:/src:ro" debian:bookworm sh -c '
 		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 busybox-static curl ca-certificates >/dev/null 2>&1
-		cp -r /src /w && cd /w && set -e
+		cp -r /src /w && cd /w && rm -rf /w/.claude && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
 		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl.so
 		arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o /tmp/jpegenc

@@ -86,7 +86,8 @@ static struct {
 	int http, udp, debug;
 	unsigned http_port, udp_port;
 	char iface[48], cdir[96], pwfile[96], ruser[48], auth[200];
-	int main_stream, max, audio, rtsp_port;
+	int main_stream, max, audio, rtsp_port, idle_s;
+	uint64_t idle_since;
 	mbedtls_entropy_context ent;
 	mbedtls_ctr_drbg_context drbg;
 	mbedtls_x509_crt crt;
@@ -836,7 +837,7 @@ int main(int argc, char **argv)
 	G.http_port = 8889; G.udp_port = 8189; G.max = 2; G.audio = 1; G.rtsp_port = 554;
 	snprintf(G.iface, sizeof G.iface, "wlan0,eth0"); snprintf(G.cdir, sizeof G.cdir, "/mnt/config");
 	snprintf(G.pwfile, sizeof G.pwfile, "/mnt/config/user.pwd"); snprintf(G.ruser, sizeof G.ruser, "root");
-	while ((o = getopt(argc, argv, "i:p:u:s:m:a:r:U:w:c:d")) != -1) {
+	while ((o = getopt(argc, argv, "i:p:u:s:m:a:r:U:w:c:I:d")) != -1) {
 		switch (o) {
 		case 'i': snprintf(G.iface, sizeof G.iface, "%s", optarg); break;
 		case 'p': G.http_port = (unsigned)atoi(optarg); break;
@@ -848,8 +849,9 @@ int main(int argc, char **argv)
 		case 'U': snprintf(G.ruser, sizeof G.ruser, "%s", optarg); break;
 		case 'w': snprintf(G.pwfile, sizeof G.pwfile, "%s", optarg); break;
 		case 'c': snprintf(G.cdir, sizeof G.cdir, "%s", optarg); break;
+		case 'I': G.idle_s = atoi(optarg); break;
 		case 'd': G.debug = 1; break;
-		default: fprintf(stderr, "usage: tc100-whep [-i if[,if]] [-p http] [-u udp] [-s sub|main] [-m max] [-a 0|1] [-r rtsp] [-U user] [-w pwfile] [-c dir] [-d]\n"); return 2;
+		default: fprintf(stderr, "usage: tc100-whep [-i if[,if]] [-p http] [-u udp] [-s sub|main] [-m max] [-a 0|1] [-r rtsp] [-U user] [-w pwfile] [-c dir] [-I idle_s] [-d]\n"); return 2;
 		}
 	}
 	if (G.max < 1) G.max = 1;
@@ -894,6 +896,22 @@ int main(int argc, char **argv)
 			if (s->state == S_HS) dtls_drive(s);	/* retransmissions */
 		}
 		sweep();
+		if (G.idle_s > 0) {
+			int act = 0;
+
+			for (i = 0; i < MAXS; i++) if (G.s[i].state != S_FREE) act++;
+			if (act > 0) {
+				G.idle_since = 0;
+			} else {
+				uint64_t t = now_ms();
+
+				if (!G.idle_since) G.idle_since = t;
+				else if (t - G.idle_since >= (uint64_t)G.idle_s * 1000ULL) {
+					LOG("idle for %d s, stopping", G.idle_s);
+					G.quit = 1;
+				}
+			}
+		}
 	}
 	for (i = 0; i < MAXS; i++) sess_free(&G.s[i]);
 	LOG("stopped");
