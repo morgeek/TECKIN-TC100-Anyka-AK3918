@@ -3658,3 +3658,7 @@ NR3D line: appended), rtspserver.conf `[0] vbr=1 smart=1`, rtsp.env `RTSP_AUDIO_
   keep day under the dim lamp: **owner's decision** (daynight.conf, no rebuild), and a question for the `daynight` brief.
 - The .24 also rebooted at about 14:29 UTC without a recorded reason (`reboot-history.log`: "unknown (no heartbeat
   recorded yet)"), 2 h after the rc38 install: to explain (power, watchdog?).
+- **2026-11-13 00:08 local, owner:** the reboot was one of two general power cuts (not the firmware). `AWB_DAY_CNT=200000`
+  set in the .24 daynight.conf (owner's decision; backup `daynight.conf.bak-20261113`, saved to flash): the dark room
+  went to night at once (23:08:48 UTC, IR on, luma 100-108). To see: the next dim-lamp evening stays in colour
+  (counts 550 000+), dawn goes back to day. The .11 keeps the 50 000 default until then.
