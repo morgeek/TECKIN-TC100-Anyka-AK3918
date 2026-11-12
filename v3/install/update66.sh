@@ -34,6 +34,14 @@ check() {
 	# partition: the packaged stack.sqfs has no vendor files, so writing it there would leave the camera without video
 	part_size vendor >/dev/null || { echo "this camera has the first flash layout (no vendor partition): a web update would remove its vendor libraries. Copy the new SD package to the card (keep its lib/ folder), start the camera from it, then Settings -> Update & backup -> Install to flash"; return 1; }
 	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -f "$D/$f" ] || { echo "$f is missing from the package"; return 1; }; done
+	# plain files only, and MD5SUMS names only these files: a link (VERSION -> any file, shown by the web page) or an
+	# entry such as /dev/zero (md5sum -c would never end) is refused (review 2026-11-12)
+	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -L "$D/$f" ] && { echo "$f is a link: not a 3.0 update package"; return 1; }; done
+	# whole lines as md5sum writes them ("md5  name" or "md5 *name"): awk's own field split would let "x<TAB>VERSION  /dev/zero" by
+	awk 'BEGIN { split("VERSION stack.sqfs c66.img c66rd.gz", f, " ") } NF == 0 { next }
+		{ ok = 0; for (i = 1; i <= 4; i++) if ($0 == $1 "  " f[i] || $0 == $1 " *" f[i]) ok = 1 }
+		!ok || length($1) != 32 { bad = 1 } END { exit bad }' "$D/MD5SUMS" ||
+		{ echo "MD5SUMS names other files: not a 3.0 update package"; return 1; }
 	( cd "$D" && md5sum -c MD5SUMS >/dev/null 2>&1 ) || { echo "the package is damaged (md5)"; return 1; }
 	for f in stack.sqfs c66.img c66rd.gz; do sum_of "$D" $f >/dev/null || { echo "MD5SUMS has no sum for $f"; return 1; }; done
 	for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
@@ -113,7 +121,7 @@ fi
 # verified, 1 = failed three times. Test switch (audit B1): a file /tmp/update66.simfail holding "PARTITION [N]" makes the
 # first N attempts (default all) on that partition fail by passing flashw a wrong md5, which it refuses before touching the flash.
 write_part() {
-	wp=$1; wf=$2; wm=$3; try=1
+	wp=$1; wf=$2; wm=$3; try=1; wtouched=0	# wtouched: flashw got as far as flashcp (exit 0, 5, 6) at least once
 	FLASHW=${FLASHW:-/tmp/upd66/flashw}; FWLOG=${FWLOG:-/tmp/upd66/flashw.log}; RETRY_SLEEP=${RETRY_SLEEP:-3}; SIMFAIL=${SIMFAIL:-/tmp/update66.simfail}
 	while [ $try -le 3 ]; do
 		am=$wm
@@ -124,6 +132,7 @@ write_part() {
 		[ $try -gt 1 ] && say "retrying $wp (attempt $try of 3)"
 		FLASHW_ALLOW="stack kernel initrd" sh $FLASHW -m "$am" $BK $wp "$wf" > $FWLOG 2>&1 && rc=0 || rc=$?
 		[ -n "$LOG" ] && { echo "attempt $try on $wp: flashw exit $rc" >> "$LOG"; cat $FWLOG >> "$LOG"; }
+		case $rc in 0|5|6) wtouched=1 ;; esac	# 1-4, 7: refused or backup failed before any erase
 		[ $rc -eq 0 ] && return 0
 		try=$((try + 1)); [ $try -le 3 ] && sleep $RETRY_SLEEP
 	done
@@ -132,11 +141,19 @@ write_part() {
 # END write_part
 for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
 	f=$D/${p#*:}
-	m=$(sum_of "$D" "${p#*:}") || { say "FAILED: no md5 for ${p#*:} in MD5SUMS, nothing written for it. Web and ssh stay available: run the update again with a good package, or use the SD card. Do not cut the power"; exit 1; }
+	# B1: no automatic reboot after a failure. The web pages live in the stack partition, written first: once it is
+	# touched they are not usable any more, so the way back is the SD card. /tmp/update66.failed makes update.cgi refuse
+	# any other upload / discard / install until a restart (review 2026-11-12: a discard deleted the package, a new
+	# install recopied the tools from the rewritten /mnt)
+	m=$(sum_of "$D" "${p#*:}") || { : > /tmp/update66.failed; say "FAILED: no md5 for ${p#*:} in MD5SUMS. Do not cut the power. Start the camera from the 3.0 SD card (tc100test/c66.img), then Settings -> Install to flash"; exit 1; }
 	say "writing ${p%%:*} ($(wc -c < "$f") bytes), do not unplug the camera"
 	write_part ${p%%:*} "$f" "$m" || {
-		# B1: no automatic reboot: the session in RAM (web, ssh) is the way to try again
-		say "FAILED writing ${p%%:*} after 3 attempts. Web and ssh stay available: run the update again, or use the SD card (tc100test/c66.img). Do not cut the power. The camera services stay stopped until then"
+		: > /tmp/update66.failed
+		# the first partition refused before any erase (no room for the backup on the card, md5 or size): nothing changed
+		[ "${p%%:*}" = stack ] && [ "$wtouched" = 0 ] && {
+			say "FAILED before writing (flashw exit $rc: backup on the card, md5 or size, see the log): the flash is unchanged. Restart the camera: it starts the firmware it had"
+			exit 1; }
+		say "FAILED writing ${p%%:*} after 3 attempts. Do not cut the power. The web page is no longer usable (it lives in the stack partition being rewritten): start the camera from the 3.0 SD card (tc100test/c66.img), then Settings -> Install to flash. The camera services stay stopped until then"
 		exit 1; }
 done
 say "DONE: $(cat "$D/VERSION") written, restarting"

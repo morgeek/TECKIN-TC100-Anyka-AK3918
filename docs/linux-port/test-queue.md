@@ -31,6 +31,35 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### UPD-01 Web update: no upload / discard during an install, stricter package, true failure message (`[update-review]`) — `to test` (next RC, owner)
+
+- **What (read-only Fable review of `update66.sh`, `update.cgi`, `boot-guard`, 2026-11-12: no brick path):**
+  - `update.cgi` refuses `upload` and `discard` while `/tmp/update66.running` exists. Before, a second tab or API call
+    could delete the package being written, and without a card (services stopped for memory) `discard` restarted the
+    camera in the middle of a flash erase.
+  - `update66.sh check` refuses a package whose files are links, or whose `MD5SUMS` holds any line other than
+    `md5  name` / `md5 *name` for `VERSION`, `stack.sqfs`, `c66.img`, `c66rd.gz` (a `VERSION` link showed any file in
+    the page; a `/dev/zero` entry hung it). The real `MD5SUMS` of `build-release.sh` passes (test
+    `test_md5sums_names_only_the_package_files`).
+  - After a write failure the message no longer promises the web page (it lives in the stack partition, written
+    first): it points to the SD card. `update66.sh` leaves `/tmp/update66.failed`, and `update.cgi` then refuses any
+    upload, discard or install until a restart (a discard deleted the package and could restart on a half-written
+    stack; a new install recopied its tools from the rewritten `/mnt`). No manual ssh retry is offered: `apply-ram`
+    skips the package checks, and a retry pruned the only good backup. If the stack write was refused before any
+    erase (flashw exit 1-4 or 7: no room for the backup on the card, md5, size), the message says the flash is
+    unchanged and a restart starts the old firmware.
+  - Known, not changed: two install POSTs a few ms apart can both start (check and marker are not atomic); a kill of
+    the install shell (OOM) leaves no failed marker.
+  - Not changed (owner's decision if wanted): writing kernel and initrd before the stack would keep the web retry for
+    those two; mixed old/new partitions were not tested.
+- **Switch:** none; revert the commit.
+- **Test (next RC update over the web, owner):** (a) normal web update with and without a card: works as before.
+  (b) During the install, from a second tab or `curl` with the CSRF token, POST `cmd=discard` and `cmd=upload`: both
+  answer `busy`, the install finishes and the camera restarts normally. (c) Optional: a package with an extra line in
+  `MD5SUMS` is refused at upload ("MD5SUMS names other files"). (d) Optional, SD test system only: `touch
+  /tmp/update66.failed`, then upload / discard / install from the page answer the "failed half way" message.
+- **Pass:** (a) and (b); no change for a normal update.
+
 ### HOOK-01 First-install hook: stricter checks and U-Boot built-in environment (`[stock-hook-review]`) — `to test` (next RC, owner)
 
 - **What (read-only Fable review of `stock-hook.sh` + `envtool.c`, 2026-11-12: no brick path in the code):**

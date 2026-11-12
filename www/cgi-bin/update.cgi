@@ -41,6 +41,13 @@ ver_older() {
 		BEGIN { exit !(key(a) < key(b)) }'
 }
 
+# an install under way, or one that failed after touching the flash (update66.sh leaves /tmp/update66.failed): no other
+# upload, discard or install until a restart (review 2026-11-12)
+busy_or_failed() {
+	[ -e /tmp/update66.failed ] && { echo '{"ok":false,"error":"failed","message":"The last install failed half way: start the camera from the 3.0 SD card (tc100test/c66.img), then Settings -> Install to flash."}'; exit 0; }
+	[ -e /tmp/update66.running ] && { echo '{"ok":false,"error":"busy","message":"Already installing."}'; exit 0; }
+}
+
 case "${REQUEST_METHOD:-GET}:$_cmd" in
 GET:status|GET:)
 	st=idle; staged=""; msg=$(js "$(cat /tmp/update66.status 2>/dev/null)")
@@ -48,6 +55,8 @@ GET:status|GET:)
 	elif staged_ok; then st=staged; staged=$(js "$(cat "$WORK/VERSION")"); fi
 	printf '{"ok":true,"current":"%s","state":"%s","staged":"%s","kind":"linux66","message":"%s"}\n' "$cur" "$st" "$staged" "$msg" ;;
 POST:upload)
+	# never during an install: it would delete the package being written (review 2026-11-12)
+	busy_or_failed
 	[ -f /tmp/flashmode ] || { echo '{"ok":false,"error":"sd_mode","message":"Running from the SD card (trial): copy the new 3.0 package to the card and restart."}'; exit 0; }
 	n=${CONTENT_LENGTH:-0}
 	case "$n" in ''|*[!0-9]*) n=0 ;; esac
@@ -92,7 +101,7 @@ POST:install)
 			printf '{"ok":false,"error":"older","message":"This package is older than the firmware installed now (%s is older than %s). Install it anyway? Settings stay as they are; a setting the older version does not know is ignored by it."}\n' "$new" "$cur"; exit 0
 		fi ;;
 	esac
-	[ -e /tmp/update66.running ] && { echo '{"ok":false,"error":"busy","message":"Already installing."}'; exit 0; }
+	busy_or_failed
 	_nb=0; case "$_qs" in *"&nobackup=1&"*) _nb=1 ;; esac
 	if ! grep -q ' /mnt/sd vfat ' /proc/mounts && [ "$_nb" != 1 ]; then
 		echo '{"ok":false,"error":"nobackup","message":"No SD card: the firmware now in the flash cannot be saved before it is overwritten, so the only way back is the 3.0 SD card. Install without a backup? (Or cancel, put a FAT32 card in the camera and install again.)"}'; exit 0
@@ -101,6 +110,8 @@ POST:install)
 	( trap '' HUP; UPDATE66_NOBACKUP=$_nb sh $U apply "$WORK"; rm -f /tmp/update66.running ) </dev/null >/dev/null 2>&1 &
 	echo '{"ok":true,"started":"install"}' ;;
 POST:discard)
+	# never during an install: it would delete the package being written, and the restart below would cut a flash erase
+	busy_or_failed
 	rm -rf "$WORK"; rm -f "$STAGED_MARK"; echo '{"ok":true}'
 	# services stopped to make room for the package: back to normal with a restart
 	[ -e /tmp/update66.stopped ] && ( sh /mnt/scripts/reboot-tracker.sh intent "web UI update discarded, services restarted" >/dev/null 2>&1; sleep 2; reboot ) </dev/null >/dev/null 2>&1 & ;;
