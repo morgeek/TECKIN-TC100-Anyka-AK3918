@@ -2,7 +2,8 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
-## Changes on DEV after 3.0.1-rc37 (next test build)
+## What is new in 3.0.1-rc38 (test build, branch DEV)
+Everything in 3.0.1-rc37 below, plus:
 - **IR-cut filter:** the default pulses are now day = GPIO 592, night = GPIO 593. With the old default the filter could
   stay in front of the sensor at night (a dark, grainy picture under IR). A camera wired the other way keeps working
   with `IRCUT_DAY_GPIO=593` and `IRCUT_NIGHT_GPIO=592` in `boot.conf`, which still win.
