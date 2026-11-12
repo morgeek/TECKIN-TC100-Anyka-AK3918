@@ -1,9 +1,76 @@
-# Liste de l'implémenteur — état courant au 2026-11-10
+# Liste de l'implémenteur — état courant au 2026-11-12
 
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
+
+## Bilan et suite proposée — 2026-11-12 (coordinateur, pour analyse par un autre agent)
+
+**Avis : on n'est pas au maximum des améliorations, mais ajouter du code rapporte désormais moins que valider ce qui
+existe.** Recommandation : **gel des fonctions** jusqu'aux résultats de la prochaine RC, puis tri des résultats, puis le
+diagnostic Wi-Fi. Cette section est un avis à vérifier, pas une décision du propriétaire.
+
+### Ce qui est sur `main` et n'a tourné sur aucune caméra (2026-11-12, jusqu'à `95a4d7a`)
+
+Tout a passé la CI locale (`local-ci.sh all` sur `95a4d7a` : 935 tests, cross, noyau) et une relecture en lecture seule
+(agent `reviewer`, modèle Fable, 1 à 3 tours par sujet, corrections relues avant fusion). Entrées dans `test-queue.md` :
+
+| Entrée | Sujet | Défaut | Écrit en flash ? |
+|---|---|---|---|
+| INST-01 | Installation SD : sauvegarde par partition sautée seulement à la première installation | actif | oui (installation) |
+| KRN-01 | `ak_isp.awb_live` en `0644` (patch 0006) | 0 | noyau, SD d'abord |
+| WEB-01 | `httpfront` : comptage des connexions dans les en-têtes seulement, cache oublié au changement de mot de passe | actif | non |
+| HOOK-01 | Hook de première installation plus strict ; **question ouverte** : l'environnement intégré de U-Boot démarre-t-il le firmware d'origine (lecture seule par ssh) | actif | non (lecture) |
+| UPD-01 | Mise à jour web : pas d'upload / discard / install pendant ou après un échec, paquet plus strict, messages exacts | actif | oui (mise à jour) |
+| WHEP-02 | WebRTC : `NET_LAN_ONLY` sur le port UDP, présence par contrôles STUN authentifiés (30 s) | actif | non |
+| ONVIF-02 | `onvifd` : verrouillage par adresse, réponses complètes sur lien lent, limites de connexions et de découverte | actif | non |
+| ENC-01 | VBR et smart mode de `rtspserver.conf` rebranchés sur l'encodeur libre (GOP long sur scène fixe) | **une caméra avec `vbr=1` passe réellement en VBR / smart** | non |
+| NR3D-01 | 3D-NR : `NR3D=1` dans `boot.conf`, paramètre modifiable, compteur de débordements ; carte mémoire inchangée, 720p d'abord | `NR3D=0` | noyau, SD d'abord |
+| AEC-01 | Annulation d'écho (NLMS, lecture directe) ; mesures caméra d'abord ; limite connue : une sous-alimentation peut couper l'AEC pour la session | `RTSP_AUDIO_AEC=0` | non |
+| R16 (notes) | Fil d'envoi RTSP : points à observer (UDP freine encore la capture, durée d'arrêt) ; la 3.0.0 publiée l'a activé | 0 sur `main` | non |
+
+Plans et faits vérifiés : `plans-2026-11-12.md` (smart mode, 3D-NR, annulation d'écho).
+
+### Ce qui reste à gagner, par ordre de valeur
+
+1. **Pertes Wi-Fi sporadiques** (priorité n°1, toujours inexpliquée) : il faut des données, pas du code — relevés
+   simultanés caméra→box et PC→caméra, puis analyse. Bon sujet pour un dossier frontier ou un agent Fable en lecture
+   seule (plan de mesure, puis analyse des relevés).
+2. **Passer en défaut ce qui réussit les essais** : fil d'envoi (R16), smart mode (ENC-01), `NR3D=1` en 720p
+   (NR3D-01). C'est là que sont les gains réels (Frigate, charge Wi-Fi, bruit la nuit).
+3. **Envoi UDP non bloquant** dans le fil d'envoi : un client UDP lent freine encore la capture (socket bloquante sous
+   `cl_mu`), fil actif ou non (relecture du 12/11, notes de R16).
+4. **Suites mineures repérées** : ré-amorcer le préremplissage audio après un PREPARE (AEC-01) ; 3D-NR 1080p via la fin
+   de la zone de l'encodeur (2688 KiB, aide inter-pilotes, plan section 2) ; minuteries haute résolution (H4) puis
+   lissage UDP (H5) ; passerelle WebRTC démarrée à la demande (H10, 1 à 4 Mo) ; temps de démarrage mesuré (H11).
+5. **Demande de la rétro-ingénierie** (gain réel mais lointain) : ROI, référence long terme (smart mode 1 du vendeur),
+   rafraîchissement intra — traces de l'encodeur d'origine avec une carte SD rc33 (`src/h265enc/venctrace`,
+   `v3/dev/h265-step2.sh trace`).
+
+### Dette technique (sans essai caméra)
+
+- `onvifd.c`, fonction `iso()` : avertissement `-Wformat-truncation` du `snprintf` de la date (antérieur au 12/11).
+- Les anciens worktrees de `.claude/worktrees/` (sessions précédentes, ignorés par git) sont copiés par
+  `local-ci.sh` et font échouer `test_ui_r20.UnusedBootConfKeys` (ils contiennent d'anciennes clés). Le même test passe
+  sur un export propre (`git archive HEAD`). Les supprimer avec l'accord du propriétaire, ou faire copier à
+  `local-ci.sh` un `git archive` au lieu du dossier.
+
+### Leçons de méthode du 12/11 (pour les agents)
+
+- **Agent `reviewer`** (`.claude/agents/reviewer.md`, local, non versionné) : modèle Fable, lecture seule, rôle étroit
+  (patchs noyau, flash / installation, code concurrent activé par défaut, analyseurs réseau). Coût observé : 30 000 à
+  90 000 tokens par relecture. Il complète les dossiers frontier à envoi unique de la section suivante : le dossier pour
+  une question isolée, le relecteur pour un diff avant fusion.
+- **Relire aussi les corrections** : deux fois, la relecture d'un correctif a évité d'en introduire un nouveau (relance
+  ssh de la mise à jour web qui sautait les contrôles ; fenêtre WebRTC de 12 s trop courte pour Firefox).
+- **Vérifier la configuration réelle avant de briefer un relecteur** : un « safe » du 12/11 reposait sur une hypothèse
+  fausse du coordinateur (`WEB_LOCKOUT` et `HTTPFRONT_NATIVE` sont actifs par défaut).
+- **Ne jamais pousser du C non compilé** : `1abd9c4` ne compilait pas (`-Werror`), corrigé par `91586a8`.
+- **CI locale une à la fois** : deux `local-ci.sh` en parallèle ont donné de faux échecs ; Docker Desktop a planté
+  plusieurs fois (relancer, puis rejouer).
+- **Isolation par worktree** de l'outil Agent refusée sur ce poste Windows (casse `c:\` / `C:/`) : créer les worktrees à
+  la main (`git worktree add <scratchpad>/wt-<branche> -b <branche> main`) et imposer le dossier dans la consigne.
 
 ## Qualification de la V3.0 / 3.0.1 au 2026-11-09
 
