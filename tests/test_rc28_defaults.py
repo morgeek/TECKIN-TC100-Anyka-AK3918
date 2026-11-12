@@ -62,6 +62,7 @@ class Rc28Defaults(unittest.TestCase):
         self.assertLess(i, r.index('. /mnt/config/rtsp.env'))                    # rtsp.env can still say 0
         for v in ('RTSP_AUDIO_HPF', 'RTSP_AUDIO_AGC', 'RTSP_AUDIO_DUCK', 'RTSP_ABR', 'RTSP_MD_ENC', 'RTSP_REC_AAC'):
             self.assertIn('%s="${%s:-1}"' % (v, v), r)
+        self.assertIn('RTSP_AUDIO_AEC="${RTSP_AUDIO_AEC:-0}"', r)                 # echo cancellation: off until measured
 
 
 if __name__ == '__main__':

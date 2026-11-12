@@ -63,6 +63,25 @@ int main(void)
 	tone_db(&d, 1000, 32000, 16000, 0, &pk);
 	check(pk <= 32767 && pk > 8000, "loud input: no wrap, level kept", pk);
 
+	/* far end active (echo canceller at work): the gain does not rise, and the two steps give what adsp_sample gives */
+	adsp_init(&d, 0, 1, 0);
+	d.hold = 1;
+	hi = tone_db(&d, 1000, 1000, 24000, 0, NULL);
+	check(fabs(hi - in) < 0.5, "hold: the level gain stays at x1", hi - in);
+	{
+		struct adsp d1, d2;
+		int i, same = 1;
+
+		adsp_init(&d1, 1, 1, 1);
+		adsp_init(&d2, 1, 1, 1);
+		for (i = 0; i < 4000; i++) {
+			int v = (int)lrint(9000 * sin(2 * M_PI * 700 * i / 8000.0)) + (i * 7919 % 301);
+
+			if (adsp_sample(&d1, v, i > 2000) != adsp_rest(&d2, adsp_hpf(&d2, v), i > 2000)) same = 0;
+		}
+		check(same, "adsp_hpf + adsp_rest = adsp_sample", same);
+	}
+
 	/* mute while the speaker plays, back after */
 	adsp_init(&d, 0, 0, 1);
 	out = tone_db(&d, 1000, 10000, 800, 1, NULL);			/* 100 ms with the speaker on */

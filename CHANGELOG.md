@@ -23,6 +23,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **RTSP sender thread**: `RTSP_SENDER_THREAD=1` remains opt-in until the four-client and mixed TCP/UDP camera qualification passes in R16; the firmware launcher and a binary with the variable unset both use inline sending.
 
 ### Added
+- **Echo cancellation of the two-way audio** (`RTSP_AUDIO_AEC=1` in `rtsp.env`, off by default, test-queue AEC-01): `tc100_rtsp` plays talk sessions itself (`apb.c`) and removes the speaker's echo from the microphone with a fixed-point NLMS filter, double-talk protection, residual suppressor and a clock-skew resampler (`aec.c`), instead of muting the microphone while the speaker plays. Measurement kit: `docs/linux-port/audio-aec-measure.md`, `v3/dev/aec-probe.py`, `v3/dev/aec-measure.sh`.
 - **Presence modes**: added owner-configurable Present, Away and Night profiles for privacy, motion detection, local recording and outbound notifications, with local selection state, a web control and Home Assistant MQTT discovery. Manual changes to controlled live settings report Custom.
 
 ## [3.0.0] - 2026-11-08

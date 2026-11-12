@@ -59,6 +59,7 @@
 #include "talk.h"
 #include "acap.h"
 #include "adsp.h"
+#include "aec.h"
 #include "util.h"
 #include "sndq.h"
 
@@ -1977,6 +1978,10 @@ static int aud_n;
 static int aud_direct_cfg, aud_direct;
 static const char *aud_dev = "/dev/snd/pcmC0D0c";
 static struct adsp aud_dsp;
+/* RTSP_AUDIO_AEC=1 (default 0): echo cancellation of the two-way audio (aec.c, apb.c, talk.c): the speaker is played by this
+ * process, its samples are the reference, the microphone goes through the filter between the high-pass and the level control.
+ * NULL: nothing of it runs. Needs the direct microphone (RTSP_ALSA_DIRECT=1). */
+static struct aec *aud_aec;
 
 /* ---- sound level for the sound detection (the 2.x libtc100fix meter, same file format) ----
  * When config/sound_detection.conf has ENABLE=1, the level file (-S, default /var/run/sound_level) is rewritten every
@@ -2156,13 +2161,23 @@ static int aud_get(unsigned char *buf, int len)
 	return 0;
 }
 
+/* the microphone sample through the echo canceller: high-pass, echo canceller (with the suppressor), level control */
+static int aud_aec_sample(int s, int spk)
+{
+	s = adsp_hpf(&aud_dsp, s);
+	s = aec_process(aud_aec, s);
+	return adsp_rest(&aud_dsp, s, spk);
+}
+
 static void aud_pump(void)
 {
 	unsigned char raw[1024];
-	int r, dsp = adsp_on(&aud_dsp), spk = 0;
+	int r, dsp = adsp_on(&aud_dsp), spk = 0, aecon = aud_aec && aud_direct;
 
-	/* the speaker plays (two-way audio, push-to-talk, a sound): the microphone is muted (RTSP_AUDIO_DUCK) */
-	if (dsp && aud_dsp.duck) spk = talk_state() == 1 || !access("/tmp/speaker-play.lock", F_OK);
+	/* the speaker plays (two-way audio, push-to-talk, a sound): the microphone is muted (RTSP_AUDIO_DUCK); not while a
+	 * two-way audio session plays through the echo canceller, which takes care of it */
+	if (dsp && aud_dsp.duck) spk = (talk_state() == 1 || !access("/tmp/speaker-play.lock", F_OK)) && !(aecon && talk_hold_active());
+	aud_dsp.hold = aecon ? aec_far_active(aud_aec) : 0;	/* the level gain rises only when no echo can be in the sound */
 	while ((r = aud_get(raw, sizeof raw)) > 0) {
 		int rec_a = rec_audio_wanted(), left = 0;
 		uint64_t tus = rec_a ? now_us64() : 0;
@@ -2171,6 +2186,7 @@ static void aud_pump(void)
 		 * in it are younger than these, so each 20 ms block is dated by what follows it (16 bytes per ms) */
 		if (rec_a && aud_direct) left = acap_delay_bytes(aud_fd);
 		else if (rec_a && ioctl(aud_fd, FIONREAD, &left) < 0) left = 0;
+		if (aecon) aec_align(aud_aec, talk_queued(), r / 2 + (aud_direct ? acap_delay_bytes(aud_fd) / 2 : 0));
 		unsigned char pcm[sizeof raw + 2];
 		int pn = 0;
 
@@ -2182,7 +2198,8 @@ static void aud_pump(void)
 			aud_odd = -1;
 			if (priv_on) s = 0;	/* privacy mode: silence, and no sound level */
 			else if (snd_on) { lvl_add(&snd_w, s); if (snd_w.n >= 2000) snd_window(); }	/* the meter: before the processing */
-			if (dsp) s = adsp_sample(&aud_dsp, s, spk);
+			if (aecon) s = aud_aec_sample(s, spk);
+			else if (dsp) s = adsp_sample(&aud_dsp, s, spk);
 			pcm[pn++] = (unsigned char)s; pcm[pn++] = (unsigned char)((unsigned)s >> 8);
 			if (aud_tx || rec_a) {
 				aud_buf[aud_n++] = alaw(s);
@@ -3306,6 +3323,21 @@ int main(int argc, char **argv)
 		const char *h = getenv("RTSP_AUDIO_HPF"), *a = getenv("RTSP_AUDIO_AGC"), *d = getenv("RTSP_AUDIO_DUCK");
 
 		aud_direct_cfg = ad && ad[0] == '1';
+		{	/* echo cancellation of the two-way audio (RTSP_AUDIO_AEC=1; _TAPS 32..512, _RATIO speaker/microphone clock as
+			 * "625/624" or ppm, _DELAY ms from the speaker queue to the microphone) */
+			const char *ae = getenv("RTSP_AUDIO_AEC"), *at = getenv("RTSP_AUDIO_AEC_TAPS"), *ar = getenv("RTSP_AUDIO_AEC_RATIO");
+			const char *ad0 = getenv("RTSP_AUDIO_AEC_DELAY");
+
+			if (ae && ae[0] == '1') {
+				if (!aud_direct_cfg) LOG("audio: RTSP_AUDIO_AEC needs RTSP_ALSA_DIRECT=1: echo cancellation off\n");
+				else if (!(aud_aec = aec_new(at && *at ? (int)num(at) : AEC_TAPS_DEFAULT))) LOG("audio: echo cancellation: out of memory\n");
+				else {
+					aec_set_d0(aud_aec, ad0 && *ad0 ? (int)num(ad0) * 8 : 160);
+					if (ar && *ar && aec_set_ratio(aud_aec, ar)) LOG("audio: RTSP_AUDIO_AEC_RATIO %s: not understood, 1.0\n", ar);
+					LOG("audio: echo cancellation on (clock ratio %s, delay %s ms)\n", ar && *ar ? ar : "1", ad0 && *ad0 ? ad0 : "20");
+				}
+			}
+		}
 		if (dv && *dv) aud_dev = dv;
 		adsp_init(&aud_dsp, h && h[0] == '1', a && a[0] == '1', d && d[0] == '1');
 		if (adsp_on(&aud_dsp))
@@ -3717,6 +3749,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 #ifdef TC100_HOST_TEST
 		rtp_test_feed();
 #endif
+		talk_set_aec(aud_aec && (aud_direct || aud_fd < 0) ? aud_aec : NULL);
 		talk_tick(now_us64());
 		aud_tx = audio_on && na > 0;
 		if (aud_tx || snd_on || rec_audio_wanted() || lis_count()) {

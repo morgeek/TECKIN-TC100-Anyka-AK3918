@@ -43,6 +43,7 @@ dist/
 /src/tc100rtsp/test_rec
 /src/tc100rtsp/test_aacenc
 /src/tc100rtsp/test_adsp
+/src/tc100rtsp/test_aec
 /src/tc100rtsp/test_util
 /src/tc100rtsp/test_sndq
 /src/tc100rtsp/defined.txt

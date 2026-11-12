@@ -105,6 +105,11 @@ TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list'
 export RTSP_ALSA_DIRECT="${RTSP_ALSA_DIRECT:-1}" RTSP_AUDIO_HPF="${RTSP_AUDIO_HPF:-1}" RTSP_AUDIO_AGC="${RTSP_AUDIO_AGC:-1}" \
   RTSP_AUDIO_DUCK="${RTSP_AUDIO_DUCK:-1}" RTSP_ABR="${RTSP_ABR:-1}" RTSP_MD_ENC="${RTSP_MD_ENC:-1}" \
   RTSP_REC_AAC="${RTSP_REC_AAC:-1}"
+# RTSP_AUDIO_AEC (single key: /mnt/config/rtsp.env; off by default until measured on the camera, test-queue AEC-01): 1 = two-way
+# audio is played by tc100_rtsp itself and the echo of the speaker is removed from the microphone (aec.c). Companions, also
+# in rtsp.env: RTSP_AUDIO_AEC_RATIO (speaker clock / microphone clock, "625/624" or ppm), RTSP_AUDIO_AEC_DELAY (ms),
+# RTSP_AUDIO_AEC_TAPS (32-512). 0 = aplay and the microphone mute, as before.
+export RTSP_AUDIO_AEC="${RTSP_AUDIO_AEC:-0}"
 # RTSP_SENDER_THREAD (R16 / H1, single key: /mnt/config/rtsp.env): 1 = a thread of tc100_rtsp sends encoded frames
 # to the RTSP clients, separating socket sends from capture. It stays opt-in until the four-client and mixed TCP/UDP
 # camera qualification passes; set to 1 in rtsp.env to try it, or 0 to force inline send.
