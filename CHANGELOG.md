@@ -11,6 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **RTSP encoder settings**: made `[0].vbr` and `[0].smart` the explicit, documented source of truth; aligned settings readback and JSON import/export, and stopped routine saves/presets from writing the ignored legacy `brmode` / `smartmode` fields.
 
 ### Changed
+- **Free encoder: VBR and smart mode** (`[fe-smart]`): `rtspserver.conf` `[0]` `vbr` / `smart` now drive the free encoder
+  (they had no effect since rc34). `vbr=1` is quality first, `bps` a ceiling; `smart=1` (needs VBR; 2 is treated as 1)
+  lengthens the GOP (default 250, at most 300) and raises the lowest QP while the scene is still, keeping the fixed GOP
+  on the recorded stream and the browser live view. New optional `RTSP_FE_SMART_GOP` / `RTSP_FE_SMART_QP` in `rtsp.env`.
+  The vendor `ak_venc_set_smart_config` path and `RTSP_SMART_FORCE` / `RTSP_SMART_GOP/_Q/_V` are removed. CBR is unchanged.
+  Test-queue entry ENC-01.
 - **RTSP sender thread**: `RTSP_SENDER_THREAD=1` remains opt-in until the four-client and mixed TCP/UDP camera qualification passes in R16; the firmware launcher and a binary with the variable unset both use inline sending.
 
 ### Added

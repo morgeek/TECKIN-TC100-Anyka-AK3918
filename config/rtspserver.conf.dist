@@ -40,7 +40,9 @@ smartmode=0
 # Active free RTSP encoder controls, read from [0] by rtsp-launch.sh. VBR and Smart apply to both streams by default;
 # Smart requires VBR (`vbr=1`). RTSP_VBR_SUB / RTSP_SMART_SUB in rtsp.env are explicit sub-stream-only expert
 # overrides. Both modes default off.
-# Optional RTSP_SMART_GOP, RTSP_SMART_Q and RTSP_SMART_V in rtsp.env tune Smart mode; the legacy Smart fields do not.
+# Both act on the free encoder. vbr=1: quality first, `bps` is a ceiling. smart=1 (2 is treated as 1): long GOP and a
+# raised lowest QP while the scene is still. Optional RTSP_FE_SMART_GOP (default 250, at most 300) and RTSP_FE_SMART_QP
+# (default 4) in rtsp.env tune Smart mode; the legacy Smart fields do not.
 vbr=0
 smart=0
 smartgoplen=64

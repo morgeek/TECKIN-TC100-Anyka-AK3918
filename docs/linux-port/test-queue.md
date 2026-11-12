@@ -31,6 +31,57 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### ENC-01 Free encoder: VBR and smart mode drive the free encoder (`[fe-smart]`) — `to test` (next RC, owner, camera with Frigate or VLC)
+
+- **What:** the `rtspserver.conf` `[0]` `vbr` / `smart` settings (exported by `rtsp-launch.sh` as `RTSP_VBR` /
+  `RTSP_SMART`, still the single source) had no effect since rc34 (the vendor library, and with it
+  `ak_venc_set_smart_config`, is not loaded any more). They now act on the free encoder (`src/h265enc/rc.h`,
+  `freeenc.h`, `tc100_rtsp.c`):
+  - **`vbr=1`, quality first.** The configured kbit/s (`bps`) is a ceiling, not a target. The picture is coded at
+    max(QP that just meets the ceiling, quality QP = `minqp` + 2). A still scene settles at the quality QP and costs
+    less than the ceiling (CBR sinks to `minqp` and fills the budget); a busy one rises to the ceiling's QP. The credit
+    saved below the budget is limited to 1 s, so a calm period does not allow a long burst. `vbr=0` is the old
+    controller, bit for bit (golden output of the pre-change `rc.h` in `tests/test_h265cmdlist.py`).
+  - **`smart=1`, needs `vbr=1`** (as on the vendor firmware; without VBR the log says "smart mode needs VBR" and
+    nothing changes). `smart=2` (the vendor's variable GOP) has no free equivalent: treated as 1, logged.
+    While the scene is still the GOP grows to `RTSP_FE_SMART_GOP` frames (default 250, at most 300, never below the
+    base GOP `goplen` / `-g`) and the lowest QP is `minqp` + `RTSP_FE_SMART_QP` (default 4). Still means motion
+    detection is running (`md_on`), no motion and no sound event for 8 s. Rule: `idr = frame == 0 || force_idr ||
+    frame >= gop_long || (frame >= gop && (!still || idr_want))`: never more keyframes than today, and a client that
+    waits for a keyframe (`wait_idr`, every place that sets it also sets `idr_want`) gets one at the base GOP at the
+    latest. On motion the floor goes at once and the next keyframe comes at the base GOP.
+  - **Fixed GOP is kept** on the recorded stream while recording is configured (`REC_LOCAL`, `rec.c` rotates on
+    keyframes, 128 samples a fragment) and on the stream the browser live view reads (`livemp4.c`, 10 s without a
+    keyframe). The recorder's thumbnails follow the encoder's real GOP (`fe_next_idr`).
+  - The vendor smart path (`smart_apply`, `p_smart`, `RTSP_SMART_FORCE`, `RTSP_SMART_GOP/_Q/_V`) is removed;
+    `RTSP_FE_SMART_GOP` / `RTSP_FE_SMART_QP` are new optional names in `rtsp.env` (the launcher never overwrites them).
+  - Relevant to #64 / R12-07: the Streams & audio page's bit rate mode and the vbr / smart readback now have a real effect
+    to check there.
+- **Switch:** `vbr=0` and `smart=0` in `[0]` (both are the defaults; nothing changes unless the owner sets them), then
+  `controlscripts/rtsp-h26x restart`. Smart alone: `smart=0`.
+- **Camera check first (30 min):** H.265 and H.264 at `-g 300` on the free encoder (`goplen=300` in `[0]`, which the
+  launcher passes as `-g 300`, the sub stream follows it; run it once with `codec=2` and once with H.264 as the main
+  codec), `vbr=0`, `smart=0`: no `picture failed` in
+  `/tmp/logs/tc100_rtsp.log`, `ffmpeg -i rtsp://... -t 1800 -f null -` without decode errors, no oops. This is the
+  longest fixed GOP the new mode can use (POC 2 x 299 < 1024, H.264 `frame_num` wraps at 16).
+- **Test:**
+  1. VBR alone (`vbr=1`, `smart=0`) with the log line `kbit/s ceiling (VBR)`: a still scene (cover the lens or aim at a
+     wall, motion detection on) for 5 min, then a busy one (walk, wave) for 5 min. Bit rate from the `STAT` lines or
+     `ffprobe -show_entries packet=size` over 60 s: still scene clearly below `bps` (expect -20 to -40 % against `vbr=0`),
+     busy scene not above `bps` (mean over 60 s within +5 %).
+  2. Smart (`vbr=1`, `smart=1`) with recording off and no browser live view: log "smart mode on: GOP 30 to 250". On a
+     still scene count keyframes over 5 min (`FRAME ... IDR` with `RTSP_DEBUG`, or `ffprobe -skip_frame nokey`): about
+     1 per 250 frames instead of 1 per 30. Wave a hand: within a base GOP the keyframe interval is back to `goplen`.
+  3. Decode checks: Frigate on the main and the sub stream (no `Invalid data` / `missing reference`, detection and
+     recordings fine), VLC (open mid-GOP on a still scene: the picture appears within the base GOP, 2 s at `goplen=30`
+     and 15 fps), the browser live view and a recorded file (REC_LOCAL=1: files start on a keyframe, rotate on time,
+     thumbnails present; the GOP of the recorded stream stays `goplen`).
+  4. A second client joining during a still scene (TCP and UDP): no gray picture longer than the base GOP.
+  5. `smart=2`: the log says "treated as smart=1". `smart=1` with `vbr=0`: "needs VBR", behaviour as CBR.
+- **Pass:** camera check clean; 1 and 2 as expected with no decode error and no frozen image in 3 and 4; no `picture
+  failed`, no oops over the 30 min. If a client misbehaves with long GOPs, set `RTSP_FE_SMART_GOP=100` in `rtsp.env`
+  and report which client.
+
 ### ONVIF-02 onvifd: lockout per address, full answers on slow links, connection and discovery limits (`[onvifd-review]`) — `to test` (next RC, owner: NVR + Home Assistant)
 
 - **What (read-only Fable review of `tc100-onvifd`, 2026-11-12: no authentication bypass, no out-of-bounds access):**

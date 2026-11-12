@@ -647,14 +647,20 @@ class Rc9SocWiring(unittest.TestCase):
         self.assertIn('*/awb.state) continue ;;', cp)
 
     def test_smart_mode_wiring(self):
-        """rc11: ak_venc_set_smart_config only when RTSP_SMART is 1 or 2 and VBR is on (R11-01)"""
+        """[fe-smart]: RTSP_SMART (1 or 2, 2 = 1) drives the free encoder only with VBR; the vendor smart path is gone"""
         src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
-        self.assertIn('p_smart = dlsym(m, "ak_venc_set_smart_config");', src)
-        f = src[src.index('static void smart_apply('):]
+        for gone in ('p_smart', 'smart_apply', 'SMART_MARK', 'SMART_LTR_NEED', 'RTSP_SMART_FORCE'):
+            self.assertNotIn(gone, src)
+        f = src[src.index('static void smart_setup('):]
         f = f[:f.index('\n}\n')]
         self.assertIn('env_int(ks, 0, 0, 2)', f)
         self.assertIn('if (!s->pa.rc_vbr)', f)
-        self.assertGreaterEqual(src.count('smart_apply('), 5)   # definition + every encoder open
+        self.assertIn('if (!free_enc)', f)
+        self.assertIn('treated as smart=1', f)
+        self.assertIn('fe_set_smart(s->enc, 1, gl, qx)', f)
+        self.assertIn('"RTSP_FE_SMART_GOP", 250, 1, FE_SMART_GOP_MAX', f)
+        self.assertIn('"RTSP_FE_SMART_QP"', f)
+        self.assertGreaterEqual(src.count('smart_setup('), 5)   # definition + every encoder open
 
     def test_rc12_settings_are_wired_page_to_server(self):
         """every rc12 switch has a field, a save path, a read-back in state.cgi and reaches tc100_rtsp or the daemon"""

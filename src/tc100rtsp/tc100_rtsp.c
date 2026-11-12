@@ -104,7 +104,6 @@ static void *(*p_open)(const struct venc_param *);
 static int (*p_send)(void *, unsigned char *, unsigned int, struct video_stream *);
 static int (*p_release)(void *, struct video_stream *);
 static int (*p_close)(void *);
-static int (*p_smart)(void *, const int *);	/* ak_venc_set_smart_config, optional (R11-01) */
 static int (*p_set_br)(void *, int);		/* ak_venc_set_br(handle, kbit/s), optional (RTSP_ABR, item 18) */
 static unsigned long (*p_alloc)(int);
 static int (*p_pinit)(void);
@@ -195,8 +194,9 @@ static void *fe_p_open(const struct venc_param *pa)
 		free(e);
 		return NULL;
 	}
-	LOG("free encoder: %s %dx%d (source stride %d), %u kbit/s, %u fps, GOP %d, QP %u-%u\n", hevc ? "H.265" : "H.264",
-	    e->w, e->h, e->stride, pa->kbps, pa->fps, e->gop, pa->qpmin, pa->qpmax);
+	fe_set_vbr(e, (int)pa->rc_vbr);		/* rtspserver.conf [0] vbr: the kbit/s is then a ceiling (rc.h) */
+	LOG("free encoder: %s %dx%d (source stride %d), %u kbit/s %s, %u fps, GOP %d, QP %u-%u\n", hevc ? "H.265" : "H.264",
+	    e->w, e->h, e->stride, pa->kbps, pa->rc_vbr ? "ceiling (VBR)" : "(CBR)", pa->fps, e->gop, pa->qpmin, pa->qpmax);
 	return e;
 }
 
@@ -266,7 +266,6 @@ static int fe_setup(void)
 	fe_env.reset = (void (*)(void))dlsym(RTLD_DEFAULT, "akuio_reset_video");
 	if (!p_v2p || !p_wait || !fe_env.alloc || !fe_env.release) return -1;
 	p_open = fe_p_open; p_send = fe_p_send; p_release = fe_p_release; p_close = fe_p_close; p_set_br = fe_p_set_br;
-	p_smart = NULL;
 	fe_hw_init(&fe_env);	/* a clean core (the reset bit) whatever the previous user left */
 	return 0;
 }
@@ -1385,6 +1384,8 @@ struct strm {
 	unsigned char sps[128], pps[64], vps[64];
 	int sps_len, pps_len, vps_len;
 	char sprop[448], plid[8];
+	int smart;			/* free encoder smart mode on for this stream (smart_setup) */
+	volatile int idr_want;		/* a client waits for a keyframe (want_idr): handed to the encoder before its next picture */
 	struct cframe cache[CACHE_FRAMES];	/* the last IDR and the frames after it */
 	int ncache, cache_ok, cache_bytes, cache_max;
 	unsigned long nfr, nbytes;
@@ -1393,6 +1394,10 @@ struct strm {
 static struct strm S[2];
 #define NT(s, b) ((s)->hevc ? ((b) >> 1) & 63 : (b) & 31)
 #define HAVE_PS(s) ((s)->sps_len && (s)->pps_len && (!(s)->hevc || (s)->vps_len))
+
+/* a client waits for a keyframe (wait_idr = 1): with the free encoder's smart mode the next one may be a long GOP away,
+ * so the encoder is asked for it (fe_want_idr, at the base GOP at the latest); a no-op otherwise */
+static inline void want_idr(int si) { if (si == 0 || si == 1) S[si].idr_want = 1; }
 
 static const char b64t[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -2311,14 +2316,14 @@ static void bcast_x(int si, const unsigned char *d, int n, uint32_t ts, int idr,
 		do {
 			if (c->fd < 0 || c->kill) break;
 			if (gap && c->playing && (gap & (1u << c->si)) && gapseq > c->skip_seq) {	/* a frame before this one was dropped */
-				c->wait_idr = 1;
+				c->wait_idr = 1; want_idr(c->si);
 				c->dropped++;
 			}
 			if (!c->playing || c->si != si || (c->b_ok && !c->v_set)) break;
 			if (seq && seq <= c->skip_seq) break;	/* already sent with the burst of PLAY */
 			if (c->wait_idr && !idr) break;
 			if (c->tcp && qfree(c) < frame_need(n)) {	/* congested: skip this frame, resume at the next IDR */
-				c->wait_idr = 1;
+				c->wait_idr = 1; want_idr(c->si);
 				c->dropped++;
 				break;
 			}
@@ -2433,9 +2438,9 @@ static void play_burst(struct cli *c)
 		for (int i = 0; i < k; i++)
 			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
 		if (qflush(c)) { cli_close(c); return; }
-		c->wait_idr = 1;
+		c->wait_idr = 1; want_idr(c->si);
 	} else {
-		c->wait_idr = 1;
+		c->wait_idr = 1; want_idr(c->si);	/* e.g. the GOP is longer than the cache (smart mode): the next keyframe soon */
 	}
 }
 
@@ -3006,19 +3011,12 @@ static void pool_log(const struct strm *s)
 	    gu ? gu() : 0UL, gf ? gf() : 0UL);
 }
 
-/* R11-01: the encoder's smart mode. Its call was read from the vendor library with Ghidra
- * (docs/linux-port/vendor-re-findings.md): ak_venc_set_smart_config(handle, int[4] = {mode, gop length, quality,
- * static value}); mode 0 = plain VBR, 1 = long-term reference (LTR), 2 = variable GOP (long GOP on a still scene);
- * the stock firmware's values: gop 300, quality 100, static 550, and only in VBR. RTSP_SMART=1|2 (RTSP_SMART_SUB for the
- * sub-stream, default RTSP_SMART), RTSP_SMART_GOP / _Q / _V override the values; unset or 0: never called.
- * R11-01 on IPCAM2 (9600K pool): mode 1 asks the encoder for 3407872 more bytes of DMA ("alloc dma for 3407872 failed",
- * then an assertion ends the server), mode 2 ends it after 3 frames. So: mode 1 only when the pool has that room
- * (SMART_LTR_NEED), mode 2 only with RTSP_SMART_FORCE=1, and a marker file (/tmp/.rtsp_smart_try) set before the call
- * and removed after 250 good frames: a server that died meanwhile skips smart mode at its next start (no crash loop
- * under the watchdog). */
-#define SMART_LTR_NEED (3407872u + (256u << 10))
-#define SMART_MARK "/tmp/.rtsp_smart_try"
-static int smart_marked;
+/* Smart mode of the free encoder (rtspserver.conf [0] smart, exported as RTSP_SMART; RTSP_SMART_SUB for the sub-stream),
+ * [fe-smart]: on a still scene the GOP grows to RTSP_FE_SMART_GOP frames (default 250, at most 300) and the lowest QP
+ * is raised by RTSP_FE_SMART_QP (default 4); see fe_set_smart in src/h265enc/freeenc.h. It needs VBR (vbr=1), as on
+ * the vendor firmware, and motion detection running (the "still" signal is md_on && !md_motion and no sound event for 8 s).
+ * smart=2 (the vendor's variable GOP) has no free equivalent: it is treated as 1. The vendor's ak_venc_set_smart_config
+ * path (R11-01) is gone: its mode 1 needed 3.4 MB more pool, mode 2 stopped the encoder, and the library is not loaded. */
 static int env_int(const char *k, int def, int lo, int hi)
 {
 	const char *e = getenv(k);
@@ -3027,49 +3025,28 @@ static int env_int(const char *k, int def, int lo, int hi)
 	return v < lo || v > hi ? def : v;
 }
 
-static void smart_apply(struct strm *s)
+static void smart_setup(struct strm *s)
 {
 	const char *sub = s == &S[1] ? getenv("RTSP_SMART_SUB") : NULL;
 	const char *ks = sub && *sub ? "RTSP_SMART_SUB" : "RTSP_SMART";
-	int c[4];
+	int m = env_int(ks, 0, 0, 2), gl = env_int("RTSP_FE_SMART_GOP", 250, 1, FE_SMART_GOP_MAX);
+	int qx = env_int("RTSP_FE_SMART_QP", FE_SMART_QP_EXTRA, 1, 20);
 
-	c[0] = env_int(ks, 0, 0, 2);
-	if (!s->enc || !c[0]) return;
-	if (!access(SMART_MARK, F_OK) && !smart_marked) {
-		LOG("encoder %s: smart mode skipped: the server stopped after it last time (rm " SMART_MARK " to try again)\n", s->name);
-		return;
-	}
-	if (c[0] == 2 && !getenv("RTSP_SMART_FORCE")) {
-		LOG("encoder %s: smart mode 2 (variable GOP) not used: it stops the encoder on this camera (R11-01); RTSP_SMART_FORCE=1 tries it\n", s->name);
-		return;
-	}
-	if (c[0] == 1) {
-		unsigned long (*gf)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_free_pmem");
-		unsigned long fr = gf ? gf() : 0;
-
-		if (fr < SMART_LTR_NEED) {
-			LOG("encoder %s: smart mode 1 not used: it needs %u bytes of encoder pool, %lu free (a bigger ak39_venc.pool)\n",
-			    s->name, SMART_LTR_NEED, fr);
-			return;
-		}
-	}
-	if (!p_smart) { LOG("encoder %s: smart mode asked, the library has no ak_venc_set_smart_config\n", s->name); return; }
-	if (!s->pa.rc_vbr) { LOG("encoder %s: smart mode %d needs VBR (RTSP_VBR=1): not set\n", s->name, c[0]); return; }
-	c[1] = env_int("RTSP_SMART_GOP", 300, 1, 1000);
-	c[2] = env_int("RTSP_SMART_Q", 100, 1, 100);
-	c[3] = env_int("RTSP_SMART_V", 550, 0, 65535);
-	if (!smart_marked) { wfile(SMART_MARK, "1\n", 2); smart_marked = 1; }
-	if (p_smart(s->enc, c) == 0)
-		LOG("encoder %s: smart mode %d (%s), gop %d, quality %d, static %d\n", s->name, c[0],
-		    c[0] == 1 ? "long-term reference" : "variable GOP", c[1], c[2], c[3]);
-	else LOG("encoder %s: the library refused smart mode %d\n", s->name, c[0]);
+	s->smart = 0;
+	if (!s->enc || !m) return;
+	if (m == 2) LOG("encoder %s: smart=2 (variable GOP of the vendor library) has no free equivalent: treated as smart=1\n", s->name);
+	if (!free_enc) { LOG("encoder %s: smart mode needs the free encoder: not set\n", s->name); return; }
+	if (!s->pa.rc_vbr) { LOG("encoder %s: smart mode needs VBR (vbr=1): not set\n", s->name); return; }
+	s->smart = fe_set_smart(s->enc, 1, gl, qx);
+	LOG("encoder %s: smart mode on: GOP %d to %d frames and QP floor +%d on a still scene\n", s->name, s->pa.gop,
+	    ((struct fe_enc *)s->enc)->gop_long, qx);
 }
 
 static int strm_reopen(struct strm *s)
 {
 	if (s->enc) p_close(s->enc);
 	s->enc = p_open(&s->pa);
-	smart_apply(s);
+	smart_setup(s);
 	s->nsent = 0; s->fails = 0;
 	if (!s->enc) pool_log(s);
 	return s->enc != NULL;
@@ -3098,7 +3075,7 @@ static void sub_start(int want)
 	s->enc = p_open(&s->pa);
 	pool_log(s);
 	if (!s->enc) { LOG("sub-stream: the encoder did not open; the sub-stream paths serve the main stream\n"); return; }
-	smart_apply(s);
+	smart_setup(s);
 	s->on = 1; s->active = 1; s->nsent = 0; s->fails = 0;
 }
 
@@ -3371,7 +3348,6 @@ int main(int argc, char **argv)
 		p_send = dlsym(m, "ak_venc_send_frame");
 		p_release = dlsym(m, "ak_venc_release_stream");
 		p_close = dlsym(m, "ak_venc_close");
-		p_smart = dlsym(m, "ak_venc_set_smart_config");
 		p_set_br = dlsym(m, "ak_venc_set_br");
 		p_alloc = dlsym(RTLD_DEFAULT, "akuio_alloc_pmem");
 		p_pinit = dlsym(RTLD_DEFAULT, "akuio_pmem_init");
@@ -3582,7 +3558,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	S[0].enc = p_open(prime ? &p0 : &S[0].pa);
 	if (!prime) pool_log(&S[0]);
 	if (!S[0].enc) { LOG("ak_venc_open failed\n"); return 1; }
-	if (!prime) smart_apply(&S[0]);
+	if (!prime) smart_setup(&S[0]);
 	S[0].on = S[0].active = 1;
 	if (!prime) sub_start(sub_on);
 #endif
@@ -3856,7 +3832,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				S[0].enc = p_open(&S[0].pa);
 				pool_log(&S[0]);
 				if (!S[0].enc) { LOG("ak_venc_open failed\n"); break; }
-				smart_apply(&S[0]);
+				smart_setup(&S[0]);
 				prime = 0;
 				sub_start(sub_on);
 				continue;
@@ -3884,10 +3860,26 @@ unsigned char *fpb[2] = { NULL, NULL };
 					cl_lock();
 					for (i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].playing && cl[i].si == k) cl[i].wait_idr = 1;
 					cl_unlock();
+					want_idr(k);
 				}
 			}
 			if (fail_main) { LOG("ak_venc_open failed\n"); break; }
 			rsi = rec_sub && S[1].on ? 1 : 0;
+			for (k = 0; k < 2; k++) {	/* smart mode: still scene and keyframe requests, handed to the encoder */
+				struct strm *s = &S[k];
+
+				if (!s->active || !s->enc || !free_enc) continue;
+				if (s->idr_want) { s->idr_want = 0; fe_want_idr(s->enc); }
+				if (s->smart) {
+					/* the fixed GOP stays on the recorded stream while recording is configured (rec.c starts and rotates
+					 * files on keyframes, 128 samples a fragment, one thumbnail per GOP) and while the browser live
+					 * view reads the stream (livemp4.c drops after 10 s without a keyframe) */
+					int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k);
+					double last = md_tlast > snd_t ? md_tlast : snd_t;
+
+					fe_set_still(s->enc, !fixed && md_on && !md_motion && t_frame - last > 8.0);
+				}
+			}
 			double tn = now_s();
 			/* the web pictures are only made often while somebody reads them (a read after a write moves atime) */
 			static double str_iv = 2.0, snap_iv = 10.0, t_fchk;
@@ -3909,7 +3901,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 			/* recording: a JPEG of the picture of each keyframe of the recorded stream (the file's thumbnail), from
 			 * the sub picture; made on the frames where the encoder will start a GOP */
 			const struct strm *rs = &S[rsi];
-			int thumb_due = jpeg_ok && rec_on && rs->active && rs->pa.gop && rs->nsent % rs->pa.gop == 0;
+			int thumb_due = jpeg_ok && rec_on && rs->active && rs->pa.gop &&
+				(free_enc && rs->enc ? fe_next_idr(rs->enc) : rs->nsent % rs->pa.gop == 0);
 			/* Only make sub picture on frames where it is actually needed: active sub-stream, thumbnail due, or due stream.jpg snapshot */
 			int sub_made = S[1].active || d_str || thumb_due;
 
@@ -3966,7 +3959,6 @@ unsigned char *fpb[2] = { NULL, NULL };
 				PROF(2 + k, r = p_send(s->enc, k ? sp : cur, k ? slen : flen, &st));
 				clock_gettime(CLOCK_MONOTONIC, &tb); enc_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 				s->nsent++;
-				if (smart_marked == 1 && !k && s->nsent > 250) { unlink(SMART_MARK); smart_marked = 2; }	/* smart mode survived */
 				if (r || !st.data || !st.len) {
 					if (k && ++s->fails >= 50) sub_off("the encoder gives no frames");
 					continue;

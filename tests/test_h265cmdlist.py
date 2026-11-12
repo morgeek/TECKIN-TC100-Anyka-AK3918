@@ -225,6 +225,60 @@ class RateControl(unittest.TestCase):
                 self.assertLess(abs(mean / kbps - 1), 0.05, out)
                 self.assertLessEqual(step, 3, out)
 
+    def build(self, d):
+        b = os.path.join(d, 'rctest')
+        subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-I', os.path.join(ROOT, 'src/h265enc'), '-o', b,
+                        os.path.join(ROOT, 'src/h265enc/rctest.c'), '-lm'], check=True)
+        return b
+
+    def run_rc(self, b, *args):
+        out = subprocess.run([b] + [str(a) for a in args], capture_output=True, text=True, check=True).stdout.splitlines()
+        first = out[0]
+        mean = float(first.split()[1])
+        qp = [int(x) for x in out[1].split('qp ')[1].replace(' then ', '..').split('..')] if len(out) > 1 else None
+        return mean, qp, out
+
+    # the output of rctest built from rc.h / rctest.c of 1abd9c4 (before VBR), same arguments: CBR is bit for bit unchanged
+    CBR_GOLDEN = {
+        (1600, 500, 20000): 'mean 1639 kbit/s, qp 40..50, max step 3, worst 1 s window off by 14 %',
+        (1600, 500, 5000): 'mean 1608 kbit/s, qp 28..42, max step 3, worst 1 s window off by 14 %',
+        (250, 500, 1500): 'mean 253 kbit/s, qp 34..46, max step 3, worst 1 s window off by 10 %',
+        (3000, 500, 20000): 'mean 3049 kbit/s, qp 35..47, max step 3, worst 1 s window off by 8 %',
+        (1600, 500, 1500): 'mean 1602 kbit/s, qp 22..27, max step 1, worst 1 s window off by 65 %',
+        (400, 3000, 8000): 'mean 473 kbit/s, qp 44..50, max step 3, worst 1 s window off by 47 %',
+    }
+
+    def test_cbr_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = self.build(d)
+            for args, want in self.CBR_GOLDEN.items():
+                self.assertEqual(self.run_rc(b, *args)[2][0], want, args)
+                self.assertEqual(self.run_rc(b, *args, 0)[2][0], want, args)    # vbr 0 given: the same
+            # a still scene sits at qmin (22) in CBR, whatever the floor machinery does
+            self.assertEqual(self.run_rc(b, 1600, 500, 1500, 0)[1][:2], [22, 22])
+
+    def test_vbr_is_a_ceiling_and_quality_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = self.build(d)
+            # a busy scene: VBR meets the same ceiling as CBR does (within the 5 % of the CBR test)
+            for kbps, cplx in ((1600, 20000), (1600, 5000), (250, 1500)):
+                mean, qp, out = self.run_rc(b, kbps, 500, cplx, 1)
+                self.assertLess(mean / kbps, 1.05, out)
+            # a still scene: the QP stays at the quality QP (qmin 22 + 2), the bit rate is under the ceiling and under CBR
+            mean, qp, out = self.run_rc(b, 1600, 500, 1500, 1)
+            cbr = self.run_rc(b, 1600, 500, 1500, 0)[0]
+            self.assertEqual(qp[0], 24, out)
+            self.assertLess(mean, cbr * 0.9, out)
+            self.assertLess(mean, 1600, out)
+
+    def test_qp_floor_is_respected_and_released(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = self.build(d)
+            mean, qp, out = self.run_rc(b, 1600, 500, 1500, 1, 26)    # floor 26 until picture 125, then released
+            self.assertGreaterEqual(qp[0], 26, out)
+            self.assertEqual(qp[2], 24, out)                           # released: back to the quality QP at once
+            self.assertLess(mean, self.run_rc(b, 1600, 500, 1500, 1)[0], out)
+
 
 @unittest.skipUnless(shutil.which('gcc'), 'gcc')
 class ParamSets(unittest.TestCase):
@@ -393,8 +447,9 @@ class FreeEnc(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def run_fe(self, codec, n, qp, gop):
-        out = subprocess.run([self.bin, codec, str(n), str(qp), str(gop)], capture_output=True, text=True, check=True).stdout
+    def run_fe(self, codec, n, qp, gop, *extra):
+        out = subprocess.run([self.bin, codec, str(n), str(qp), str(gop)] + [str(x) for x in extra], capture_output=True, text=True,
+                             check=True).stdout
         pics = []
         lines = out.splitlines()
         for a, b in zip(lines[0::2], lines[1::2]):
@@ -436,6 +491,76 @@ class FreeEnc(unittest.TestCase):
                 if not b['idr']:
                     self.assertEqual(b['list'][0x28], a['list'][0x24])
 
+    @staticmethod
+    def idrs(pics):
+        return [k for k, p in enumerate(pics) if p['idr']]
+
+    @staticmethod
+    def qp(p):
+        return (p['list'][0x03] >> 16) & 0xff
+
+    def test_smart_off_is_the_old_pattern(self):
+        """cbr, vbr alone, and smart asked without VBR (not active): the fixed GOP, whatever the scene says"""
+        for codec in ('hevc', 'avc'):
+            want = list(range(0, 60, 7))
+            for mode in ('cbr', 'vbr'):
+                pics = self.run_fe(codec, 60, 30, 7, mode, 's' * 60, 250)
+                self.assertEqual(self.idrs(pics), want, (codec, mode))
+            self.assertEqual(self.idrs(self.run_fe(codec, 60, 30, 7)), want)
+            # 'smart' is VBR + smart: with no still scene it is the fixed GOP too
+            self.assertEqual(self.idrs(self.run_fe(codec, 60, 30, 7, 'smart', 'm' * 60, 250)), want)
+
+    def test_smart_long_gop_on_a_still_scene(self):
+        for codec in ('hevc', 'avc'):
+            pics = self.run_fe(codec, 90, 30, 5, 'smart', 's' * 90, 20)
+            self.assertEqual(self.idrs(pics), [0, 20, 40, 60, 80], codec)
+            # never more keyframes than the fixed GOP gives
+            self.assertLessEqual(len(self.idrs(pics)), len(self.idrs(self.run_fe(codec, 90, 30, 5))))
+            for p in pics:
+                self.assertEqual(p['data'].startswith(b'\x00\x00\x00\x01\x40\x01' if codec == 'hevc' else b'\x00\x00\x00\x01\x27\x4d'),
+                                 bool(p['idr']), codec)
+
+    def test_smart_motion_ends_the_long_gop_at_the_base_gop(self):
+        # still for 7 pictures, then motion: the base GOP (5) is over, the keyframe is the next picture; then every 5
+        pics = self.run_fe('hevc', 30, 30, 5, 'smart', 'sssssssm', 50)
+        self.assertEqual(self.idrs(pics), [0, 7, 12, 17, 22, 27])
+
+    def test_smart_client_wait_asks_a_keyframe_at_the_base_gop_at_the_latest(self):
+        # a client waits at picture 3 (GOP 5, still scene): no keyframe before the base GOP is over, then one at once
+        pics = self.run_fe('hevc', 40, 30, 5, 'smart', 'ssswssssssssssssssssssssssssssssssssssss', 25)
+        self.assertEqual(self.idrs(pics), [0, 5, 30])
+        # a request in the middle of a long GOP, the base GOP long over: the very next picture is a keyframe
+        pics = self.run_fe('hevc', 30, 30, 5, 'smart', 'sssssssssssw', 25)
+        self.assertEqual(self.idrs(pics), [0, 11])
+
+    def test_smart_poc_stays_in_range_at_gop_300(self):
+        for codec in ('hevc', 'avc'):
+            # asked 1000: limited to 300; 700 still pictures: keyframes at 0, 300, 600, POC at most 2 x 299
+            pics = self.run_fe(codec, 700, 30, 50, 'smart', 's' * 700, 1000)
+            self.assertEqual(self.idrs(pics), [0, 300, 600], codec)
+            self.assertEqual(max(p['list'][0x0c] for p in pics), 598, codec)
+            self.assertLess(598, 1 << 10)
+            # the slice header's 10-bit POC is the real one (H.265 P pictures write it: no wrap below 1024)
+            # gop_long below the base GOP: the base GOP
+            pics = self.run_fe(codec, 60, 30, 20, 'smart', 's' * 60, 5)
+            self.assertEqual(self.idrs(pics), [0, 20, 40], codec)
+        # the default long GOP is 250
+        self.assertEqual(self.idrs(self.run_fe('hevc', 520, 30, 50, 'smart', 's' * 520, 0)), [0, 250, 500])
+
+    def test_smart_qp_floor_is_respected_and_released(self):
+        # QP range 30..45; the simulated core codes small pictures, so the rate control goes down to its lowest QP
+        pics = self.run_fe('hevc', 60, 30, 100, 'smart', 's' * 30 + 'm' * 30, 250, 45)
+        still = [self.qp(p) for p in pics[10:30] if not p['idr']]
+        moving = [self.qp(p) for p in pics[40:60] if not p['idr']]
+        self.assertEqual(min(still), 34, still)                  # qmin + 4 while still
+        self.assertEqual(min(moving), 32, moving)                # released: the VBR quality QP (qmin + 2)
+        # the same scene without smart (VBR alone) never uses the floor
+        plain = [self.qp(p) for p in self.run_fe('hevc', 60, 30, 100, 'vbr', 's' * 60, 250, 45)[10:] if not p['idr']]
+        self.assertEqual(min(plain), 32, plain)
+        # CBR: down to qmin
+        cbr = [self.qp(p) for p in self.run_fe('hevc', 60, 30, 100, 'cbr', 's' * 60, 250, 45)[10:] if not p['idr']]
+        self.assertEqual(min(cbr), 30, cbr)
+
     def test_multi_resolution_h264_and_h265(self):
         for mode, w, h, pitch, ps in (
             ('hevc720', 1280, 720, 0x1400, b'\x00\x00\x00\x01\x40\x01'),
@@ -449,3 +574,44 @@ class FreeEnc(unittest.TestCase):
                 self.assertEqual(p['list'][0x26], pitch, mode)
                 self.assertEqual(p['list'][0x21] - p['list'][0x20], w * h, mode)
                 self.assertEqual(p['data'].startswith(ps), bool(p['idr']), mode)
+
+
+class FreeEncSmartWiring(unittest.TestCase):
+    """[fe-smart] source checks where the C cannot be run here: rtspserver.conf vbr / smart (RTSP_VBR / RTSP_SMART) reach the
+    free encoder; keyframe requests, fixed GOP on the recorded stream and the browser view, thumbnails on the encoder's GOP"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = open(os.path.join(ROOT, 'src/tc100rtsp/tc100_rtsp.c'), encoding='utf-8').read()
+
+    def test_vbr_reaches_the_free_encoder(self):
+        self.assertIn('fe_set_vbr(e, (int)pa->rc_vbr);', self.src)
+        self.assertIn('pa->rc_vbr = k ? (vs && *vs ? vs[0] == \'1\' : vm) : vm;', self.src)
+        launch = open(os.path.join(ROOT, 'v3/linux66-sd/rtsp-launch.sh'), encoding='utf-8').read()
+        self.assertIn('export RTSP_VBR="$RTSP_VBR_CONFIG" RTSP_SMART="$RTSP_SMART_CONFIG"', launch)
+        # the new tuning names are not touched by the launcher
+        self.assertNotIn('RTSP_FE_SMART', launch)
+
+    def test_smart_only_with_vbr_and_two_is_one(self):
+        f = self.src[self.src.index('static void smart_setup('):]
+        f = f[:f.index('\n}\n')]
+        self.assertLess(f.index('treated as smart=1'), f.index('if (!s->pa.rc_vbr)'))
+        self.assertLess(f.index('if (!s->pa.rc_vbr)'), f.index('fe_set_smart('))
+
+    def test_every_wait_idr_asks_the_encoder(self):
+        lines = [l for l in self.src.splitlines() if 'wait_idr = 1;' in l]
+        self.assertGreaterEqual(len(lines), 5)
+        for l in lines:
+            self.assertIn('want_idr(', l if 'cl[i].wait_idr = 1;' not in l else self.src[self.src.index(l):self.src.index(l) + 200], l)
+        self.assertIn('if (s->idr_want) { s->idr_want = 0; fe_want_idr(s->enc); }', self.src)
+
+    def test_fixed_gop_on_recording_and_live_view_and_thumbnails(self):
+        self.assertIn('int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k);', self.src)
+        self.assertIn('fe_set_still(s->enc, !fixed && md_on && !md_motion && t_frame - last > 8.0);', self.src)
+        self.assertIn('(free_enc && rs->enc ? fe_next_idr(rs->enc) : rs->nsent % rs->pa.gop == 0)', self.src)
+
+    def test_the_rule_in_the_encoder(self):
+        fe = open(os.path.join(ROOT, 'src/h265enc/freeenc.h'), encoding='utf-8').read()
+        self.assertIn('idr = fe_next_idr(e);', fe)
+        self.assertIn('e->frame >= gl || (e->frame >= e->gop && (!(e->smart && e->still) || e->idr_want))', fe)
+        self.assertIn('#define FE_SMART_GOP_MAX 300', fe)
